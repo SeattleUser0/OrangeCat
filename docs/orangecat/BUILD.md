@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.7  
+**Version:** 0.8  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.8 (October 20, 2026):** Phase 4 plan written (4a to 4g). Phase 3 done.
 - **0.7 (October 20, 2026):** All five of Melodee's engines unhooked and measured. Image 378,992 B (was 533,912 B).
 - **0.6 (October 20, 2026):** Phase 3 under way: engine switches; SID and CZ-1 unhooked and measured; TRIO back as the test voice. Pages publishing works.
 - **0.5 (October 20, 2026):** Size report added to every build (tools/size_report.py). Phase 3 table filled with its estimates. Pages publishing waits on one repository setting.
@@ -25,7 +26,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 0 | Specification and source review | Done |
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
 | 2 | USB flash drive test | Not started |
-| 3 | Strip Melodee's engines | In progress |
+| 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | Not started |
 | 5 | Track views: tracker, step, pads | Not started |
 | 6 | Loadable engine study | Not started |
@@ -159,7 +160,7 @@ Result (fill in): works directly / works only with external power / does not wor
 
 ## Phase 3: Strip Melodee's engines
 
-**Status: In progress**
+**Status: Done (October 20, 2026)**
 
 Goal: free the space Melodee's engines use and measure what each one cost, so later engine choices are made with real numbers.
 
@@ -218,50 +219,42 @@ Coupling: Prophet, CZ-1, FM6 and DRUM are each referenced in 34 to 56 source fil
 
 ## Phase 4: Port Skiff's sequencer and arranger
 
-**Status: Not started**
+**Status: Not started (plan written October 20, 2026)**
 
 Goal: Skiff's sequencer and arranger features running on Melodee's note data, plus swing and groove.
 
 Rule: every Skiff feature is rebuilt on Melodee's timed-note store, not on Skiff's step format. Skiff stores one tie for the whole step. Melodee gives each note its own length. Per-note ties come from Melodee.
 
-Feature inventory (specification 7.1). Mark each Port, Keep Melodee's, Merge, or Drop:
-
-| Feature | Skiff | Melodee | Plan |
-|---|---|---|---|
-| Independent note lengths and ties | No (per step) | Yes | Keep Melodee's |
-| Piano roll note editor | ROLL | NOTES | Keep Melodee's, add Skiff's display ideas |
-| Step tiles with step locks | Yes | | |
-| Chance, ratchet, FLAM | Yes | Chance only | |
-| Trig conditions (12) | Yes | | |
-| NUDGE (per-step timing) | Yes | Timed notes | |
-| Play directions (FWD, RVRS, PING, RAND) | Yes | | |
-| SEQ TOOLS (clear, reverse, shift, random, cook) | Yes | | |
-| DOUBLE, HALF | Yes | | |
-| AUTOMATION list (edit, move, delete moves and locks) | Yes | Motion recording | |
-| TAKE (keep the last loop played) | Yes | | |
-| Live record, overdub, step record | Yes | Yes | Merge |
-| Record quantize | | QNT to a swung grid | Keep Melodee's |
-| Drum grid and lane mutes | Yes | Drum grid | |
-| Undo | 8 levels | 8 levels | |
-| Pattern storage | Shared pool of 64 | 8 banks per track | Port (Skiff) |
-| Arrangement | Per-track lists A to P with repeats, SONG plays each list | Song sections across all tracks, jam to song | Port (Skiff) |
-| PERFORM launch (LOOP, BAR, BEAT, NOW) | Yes | | |
-| Staged mutes, 16 scenes | Yes | | |
-| FILL, throws | Yes | | |
-| Global and per-track swing | Yes | Yes | Keep |
-| Groove templates | No | No | New |
-
 Decided (October 20, 2026): Skiff's workflow. A shared pool of 64 patterns, a list of 16 entries per track, SONG plays each track down its list, PERFORM and scenes on top. Melodee's banks and song sections are replaced.
 
-Still to work out before building:
-- [ ] Storage budget: 64 patterns against the 1,024-note store and the user data flash area.
-- [ ] Import of Melodee projects (banks and sections) into the pool-and-list model.
+### What the two codebases have
 
-Left to build:
-- [ ] Each feature marked Port or Merge above.
-- [ ] Groove templates: per-step timing shift and accent, applied the same way in playback and record quantize.
-- [ ] Web editor pages for the new sequencer and arranger features.
-- [ ] Project format version bump, with Melodee 1.4.5 projects still loading.
+| Area | Melodee 1.4.5 | Skiff 1.3.3 |
+|---|---|---|
+| Step | 4 notes, NOTE / TIE / REST, accent, slide, velocity, lane hits and accents, chance (9 bytes) | The same plus RATCH x1 to x4, FLAM, 12 trig conditions, NUDGE in 64ths of a step (11 bytes) |
+| Independent note lengths | Timed-note store: 1,024 notes per project with their own onset, length, velocity; owned by a bank | No |
+| Patterns | 8 banks per track, 32 per project, saved inside the project (FBKK, 27,200 B record) | Pool of 64 shared by every project (bank.c), each 888 B in flash, saved at a quiet stop, no RAM image |
+| Arrangement | Song sections across all tracks; jam to song | Each track's list A to P (pattern + repeats); SONG plays each list |
+| Performance | Mutes, solo | PERFORM: launch entries at LOOP / BAR / BEAT / NOW, staged mutes, 16 scenes, throws on the knobs |
+| Swing | Global and per-track | Global and per-track |
+| Flash for patterns | Inside the project objects | 16 chunk sectors plus 4 spare (about 80 KB) |
+
+### Plan, in order
+
+Each step builds, passes the host tests, and is measured before the next.
+
+- [ ] **4a. Step fields.** Add Skiff's RATCH, FLAM, trig condition and NUDGE to Melodee's step. Melodee already uses flags bit 2 (SF_RECORDED), so RATCH goes in bits 3 and 4 and FLAM in bit 5, as in Skiff. Port the playback (Skiff seq.c: seq_ratchet, seq_enter, trig conditions) into Melodee's seq.c. Timed notes keep their own timing; RATCH and FLAM apply to step notes.
+- [ ] **4b. Pattern pool.** Replace the 8 banks per track with Skiff's pool of 64 (bank.c). A pool pattern carries its steps, LEN DIV SWING GATE DIR, motion, and its timed notes (the timed-note store's owner becomes the pool pattern). Storage: the flash freed by the unhooked engines' banks (Prophet banks 40 KB at 0x93000, CZ-1 banks 64 KB at 0xC8000) holds the pool, written in chunks with A/B commit records as Skiff and Melodee both do. New project format version; Melodee 1.4.5 projects import (their banks go into the pool).
+- [ ] **4c. Lists and SONG.** Each track's list of 16 entries (pattern, repeats); SONG plays each track down its list. Replaces song_chain.c's sections. The pool is shared by every project, as in Skiff; a project stores its lists and sounds.
+- [ ] **4d. PERFORM and scenes.** Skiff's launch.c (launch at LOOP / BAR / BEAT / NOW), staged mutes, 16 scenes, FILL, throws.
+- [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
+- [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.
+- [ ] **4g. Web editor.** Skiff's editor pages for steps, lists, scenes and the pool, on Melodee's editor link.
+
+### Open questions for this phase
+
+- The drum grid needs a drum engine to be reachable. Until Skiff's DRUM or DRUM-X (or a Mutable drum model) is ported, lane hits can be entered and saved but not heard.
+- RAM: Melodee's .data + .bss has 15.9 KB free now. Skiff keeps no RAM image of the pool, which helps; the timed-note store (10 KB) stays in RAM.
 
 Left to test (specification 13):
 - [ ] Independent ties: change one chord note while others sustain without retriggering.
@@ -269,6 +262,7 @@ Left to test (specification 13):
 - [ ] Pattern changes happen on the chosen musical boundary, with no stuck notes on stop, seek, or clock loss.
 - [ ] Device and web editor agree on all new parameters.
 - [ ] Timing under load with dual-core rendering.
+- [ ] A Melodee 1.4.5 project imports with its notes, banks and arrangement.
 
 ---
 
