@@ -27,6 +27,8 @@ static const char *const PRESET_CAT[NENGINES] = {
     [11] = "FFFF",                                      /* NOISE */
 #endif
     [3] = "OLBBBBBBLLLLLLLLPSPPGGKKUUERFFFF",          /* SID */
+    [6] = "BLLEP",                                      /* TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR
+                                                         * (Orange Cat: categories for its test voice) */
     [10] = "DDDD",                                      /* DRUM: the kits (808, 909, SID, SID DIGI) */
     [12] = "KEBRPEGUKRBEEKGSPLUEWEBEO",                 /* FM6, INIT VOICE */
     [ENGI_CZ] = "ORRRSSSSSUUUBBBBURWSWWWWUKKKKKKKKGGGGGPPPEEEEEDEESSULLLLFDDDEFFFF",   /* INIT TONE, Casio's 64 */

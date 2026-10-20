@@ -120,7 +120,7 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,                /* 5: retired VOICE; stored ID reserved */
 #endif
-#if MELODEE_LEGACY_EXTRAS
+#if MELODEE_LEGACY_EXTRAS || MELODEE_TRIO      /* (Orange Cat: MELODEE_TRIO, the test voice) */
     &ENG_TRIO,
 #else
     &ENG_RETIRED,                /* 6: retired TRIO; stored ID reserved */
@@ -192,6 +192,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_CZ
     ENGI_CZ,                      /* CZ-1 */
 #endif
+#if MELODEE_TRIO
+    6,                            /* TRIO (Orange Cat's test voice) */
+#endif
 #if MELODEE_SID
     3,                            /* SID */
 #endif
@@ -209,7 +212,7 @@ static int eng_extra_retired(uint32_t e)
 #if !MELODEE_PROPHET_PROTOTYPE
     if (e == ENGI_ANALOG) return 1;
 #endif
-    return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u))
+    return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || (e == 6u && !MELODEE_TRIO) || e == 7u || e == 9u || e == 11u))
         || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
