@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.4  
+**Version:** 0.5  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.5 (October 20, 2026):** Size report added to every build (tools/size_report.py). Phase 3 table filled with its estimates. Pages publishing waits on one repository setting.
 - **0.4 (October 20, 2026):** Phase 1 device tests dropped: Melodee 1.4.5 is taken as working as released (tested by its developer and many users). Firmware renamed to Orange Cat v0.1.0. Pages site added for installing.
 - **0.3 (October 20, 2026):** Phase 1 started: OrangeCat fork set up, GitHub build working, baseline sizes recorded.
 - **0.2 (October 20, 2026):** Builds moved to GitHub Actions; Docker dropped from phase 1. Pattern storage and arrangement decided: Skiff's shared pool and per-track lists. BEETLE added as the tracker reference.
@@ -105,7 +106,8 @@ Left to build:
   - Web installer and editor text, titles, and download file names.
   - Packages published as orangecat-0.1.0-<commit>.fwsc (main) or orangecat-X.Y.Z.fwsc (tags).
   - Internal names (source files, MELODEE_* build options) keep Melodee's spelling so upstream fixes can still be cherry-picked.
-- [x] GitHub Pages job: each build of main publishes the web installer (with that build) and the web editor (tools/orangecat_site.py). Needs Settings > Pages > Source set to "GitHub Actions" once.
+- [x] GitHub Pages job: each build of main publishes the web installer (with that build) and the web editor (tools/orangecat_site.py). The site builds (checked locally: the installer shows "Orange Cat 0.1.0", the editor loads with no script errors).
+- [ ] Turn on Pages: Settings > Pages > Source = "GitHub Actions" (Jeremiah, one time). Until then the publish step fails; the firmware build itself passes.
 - [x] 360 MHz and dual-core are Melodee 1.4.5's defaults. Melodee 1.3.4 removed the 320 MHz menu option and never changes the clock.
 - [ ] Record the baseline in the table below.
 
@@ -173,7 +175,20 @@ Left to test:
 - [ ] Device boots and plays the test voice after each removal.
 - [ ] A Melodee project using every removed engine loads without errors.
 
-Measurements (fill in):
+Estimates from the size report (build e01f91d, October 20, 2026). Grouped by symbol name, so shared helpers may land in the wrong group. Flash includes code copied to SRAM at boot; RAM includes that copy, buffers, and state.
+
+| Engine | Flash (estimate) | RAM (estimate) |
+|---|---|---|
+| DRUM (808, 909, sample kit) | 38,797 B | 31,317 B |
+| PROPHET | 34,856 B | 17,876 B |
+| FM6 | 31,424 B | 31,155 B |
+| CZ-1 | 17,338 B | 7,349 B |
+| SID | 12,405 B | 5,600 B |
+| **Total** | **134,820 B** | **93,297 B** |
+
+With 39,752 B free now, removing all five would leave roughly 175 KB of the app area free. Measured values replace these as each engine is removed.
+
+Measurements (fill in as each is removed):
 
 | Engine removed | App flash freed | RAM freed | Data flash freed |
 |---|---|---|---|
@@ -183,6 +198,8 @@ Measurements (fill in):
 | FM6 | | | |
 | PROPHET | | | |
 | **Total** | | | |
+
+Coupling: Prophet, CZ-1, FM6 and DRUM are each referenced in 34 to 56 source files (editors, storage, presets, UI, web editor, tests). SID is in 5. Removal order follows the list above, smallest coupling first after CZ-1 is reviewed.
 
 ---
 
