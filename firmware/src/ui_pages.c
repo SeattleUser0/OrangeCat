@@ -453,7 +453,7 @@ static void pv_grid(int32_t h)
     for (l = 0; l < NLANE; l++) {                       /* (lanes 18 apart from row 6: the name in the label face) */
         int32_t y = 6 + (int32_t)l * 18;
         int sel = l == ui.lane;
-        int pick = sel && cur_page()->scope == SC_DRUMHIT && drum_lane(drum_sound_note(t, sound)) == l;   /* DRUM HIT:
+        int pick = sel && (MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT) && drum_lane(drum_sound_note(t, sound)) == l;   /* DRUM HIT:
                                                          * the lane is KNOB 2's drum, named; its other drums hollow */
         uint16_t row = sel ? T_LIFT : T_PANEL;
         if (sel)

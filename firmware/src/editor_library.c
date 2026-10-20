@@ -60,7 +60,7 @@ static int ed_library_handle(uint32_t cmd,const uint8_t *a,uint32_t n)
         /* Phrases no longer load; expose an empty legacy pattern. */
         for(uint32_t j=0;j<32u;j++)ed_b(0);
         uint32_t kind=used && (up_native(&r)||up_native_cz(&r))?((MELODEE_FM6 && r.engine == ENGI_FM6)?1u:r.engine==ENGI_CZ?2u:3u):0u;
-        if(used && r.engine==ENGI_DRUM && (r.ver==UP_VER_DRUM || r.ver==UP_VER_DRUM_GRID))kind=4u;
+        if(used && (MELODEE_DRUM && r.engine == ENGI_DRUM) && (r.ver==UP_VER_DRUM || r.ver==UP_VER_DRUM_GRID))kind=4u;
         ed_b(kind);
         if(kind==4u){drum_patch_t p;uint8_t raw[DRUM_WIRE_BYTES];up_drum_raw(&r,&p);drum_patch_pack(raw,&p);ed_b(DRUM_WIRE_BYTES);ed_b(0);ed_bk_pack(raw,sizeof raw);}
         else if(kind){uint32_t size=native_size(r.engine);ed_b(size&127u);ed_b(size>>7);ed_bk_pack(r.packed,size);}

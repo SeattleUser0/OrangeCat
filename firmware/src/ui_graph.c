@@ -343,7 +343,7 @@ static void graph_grid(const track_t *t, uint16_t c)
     for (l = 0; l < NLANE; l++) {
         int32_t y = y0 + 4 + (int32_t)l * 14;
         int sel = l == ui.lane;
-        int pick = sel && cur_page()->scope == SC_DRUMHIT && drum_lane(drum_sound_note(t, sound)) == l;   /* (as pv_grid) */
+        int pick = sel && (MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT) && drum_lane(drum_sound_note(t, sound)) == l;   /* (as pv_grid) */
         uint16_t row = sel ? T_RAISE : T_SURF;
         if (sel)
             cv_rrect(6, y, 226, 14, 3, T_RAISE, T_SURF);

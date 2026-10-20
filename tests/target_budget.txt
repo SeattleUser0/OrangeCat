@@ -3,7 +3,9 @@
 # Rewritten by BUDGET_UPDATE=1.
 # Natural-loop metric normalized against unchanged serial 27806bb disassembly; existing relative headroom retained.
 # Optional recording paths are checked separately from the audio interrupt.
-midi_parameter 47
+# (Orange Cat, build doc phase 3) midi_parameter rebased 47 -> 130: with PROPHET unhooked (MELODEE_P5=0) the
+# compiler inlines more into it (measured 126 in build b3d1877); not a render loop change.
+midi_parameter 130
 audition_tick 129
 click_render 30
 phase_render 127

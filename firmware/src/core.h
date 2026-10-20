@@ -51,6 +51,11 @@
  * guarded by the switch, and the linker drops what is no longer reached (-ffunction-sections, -fdata-sections).
  * The source stays, so the host tests (built with the defaults, 1) keep testing it. build.py passes MELODEE_<NAME>
  * from the environment; the Orange Cat workflow sets them to 0. */
+#ifndef MELODEE_DRUM
+#define MELODEE_DRUM 1            /* DRUM (engine 10: 808, 909, SID and sample kits). 0: the engine, its pages, kits and the
+                                   * drum grid's sound go (no track is a drum track); the kit each track and project stores
+                                   * (drum_patch) stays. Takes SID's chip model with it when SID is off too */
+#endif
 #ifndef MELODEE_P5
 #define MELODEE_P5 1              /* PROPHET (engine 19). 0: the engine, its pages, factory programs, banks and editor link
                                    * go; the patch each track and project stores stays. (MELODEE_PROPHET above stays 1: it
@@ -85,8 +90,8 @@
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 \
-                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 - PROPHET + TRIO) */   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM \
+                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 - PROPHET - DRUM + TRIO) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

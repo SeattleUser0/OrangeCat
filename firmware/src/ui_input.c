@@ -832,7 +832,7 @@ static void grid_keys(uint32_t pressed)
             if (chain_busy()) { ui_message("STOP TO EDIT"); continue; }
             if (i >= len)
                 continue;                               /* past LEN: no step there */
-            if(cur_page()->scope==SC_DRUMHIT){cursor_set((int32_t)i);drum_hit_key(black_held(GK_ACC));continue;}
+            if((MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT)){cursor_set((int32_t)i);drum_hit_key(black_held(GK_ACC));continue;}
             if (black_held(GK_ACC))
                 grid_acc(TSEL, i, ui.lane, 2);
             else
@@ -840,7 +840,7 @@ static void grid_keys(uint32_t pressed)
             cursor_set((int32_t)i);
         } else if (p < NLANE) {
             drum_pick_lane(p);
-            if(cur_page()->scope==SC_DRUMHIT)ui.note_pick=0;
+            if((MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT))ui.note_pick=0;
         } else if (p != GK_ACC) {
             page_go(p == GK_PGUP ? 1 : -1);
         }
@@ -1051,8 +1051,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         0)) {
         ui_message("STOP TO EDIT"); return;
     }
-    if(pg->scope==SC_DRUM){drum_sound_edit(slot,steps);return;}
-    if(pg->scope==SC_DRUMHIT){drum_hit_edit(slot,steps);return;}
+    if((MELODEE_DRUM && pg->scope == SC_DRUM)){drum_sound_edit(slot,steps);return;}
+    if((MELODEE_DRUM && pg->scope == SC_DRUMHIT)){drum_hit_edit(slot,steps);return;}
     if (pg->scope == SC_STEP) {
         step_edit(slot, steps);
         return;
@@ -1339,7 +1339,7 @@ static uint32_t oct_taps(uint32_t pressed, int here)
 /* SEQ step entry, acid style: the keys pressed together (POLY: up to 4 notes, MONO:
  * the last one) become the cursor step; releasing all keys moves on. With CHRD on a key
  * writes what it sounds, as live recording does: POLY its chord, MONO the chord's root */
-static int step_page(void) { return !ui.home && (cur_page()->scope == SC_STEP || cur_page()->scope==SC_DRUMHIT); }   /* SEQ > NOTES, DRUM HIT */
+static int step_page(void) { return !ui.home && (cur_page()->scope == SC_STEP || (MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT)); }   /* SEQ > NOTES, DRUM HIT */
 /* ENV / SCL / EDIT held on STEP: their note gestures (SELECT resizes, moves; EDIT + OCT-/+ undoes, redoes; EDIT tapped
  * deletes), armed and playing too. EDIT held alone undoes instead of deleting. */
 static int step_modifier_context(void)
@@ -1665,7 +1665,7 @@ static void page_tap(uint32_t b)
         smap_open();
         return;
     }
-    if(b==B_EDIT && !ui.home && cur_page()->scope==SC_DRUMHIT){drum_hit_delete();return;}
+    if(b==B_EDIT && !ui.home && (MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT)){drum_hit_delete();return;}
     if (b == B_GLO) {
         open_global();                                  /* MIXER -> GLOBAL -> SYSTEM -> MIXER */
         return;
@@ -1830,7 +1830,7 @@ static void page_knob(uint32_t k, int32_t s)
 {
     const page_t *pg = cur_page();
     int16_t *hv;
-    if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
+    if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || (((MELODEE_DRUM && pg->scope == SC_DRUM) || (MELODEE_DRUM && pg->scope == SC_DRUMHIT)) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
         (pg->graph == GR_USER && k == 0u) || ((pg->graph == GR_MOD || pg->graph == GR_FXRACK) && k == 1u)
         || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
         || (pg->graph == GR_SLICES && k < 2u)) {       /* (not an empty column) */

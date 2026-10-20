@@ -63,7 +63,9 @@ static uint32_t eng_state_size(uint32_t e)
 #if MELODEE_SID
     case 3: return sizeof(sid_part_t);              /* SID (eng_sid.c) */
 #endif
+#if MELODEE_DRUM
     case ENGI_DRUM: return sizeof(drum909_part_t);
+#endif
 #if MELODEE_FM6
     case ENGI_FM6: return sizeof(fm6_part_t);
 #endif
@@ -80,7 +82,7 @@ static void eng_state_clear(uint32_t part)
 static void eng_state_reset(void) { for (uint32_t k = 0; k < NPART; k++) eng_state_clear(k); }
 static int eng_state_prepare(const track_t *t)
 {
-    uint32_t size = t->engine==ENGI_DRUM?drum_bytes(t):eng_state_size(t->engine);
+    uint32_t size = (MELODEE_DRUM && t->engine == ENGI_DRUM)?drum_bytes(t):eng_state_size(t->engine);
     return !size || resource_get(RES_ENGINE0 + (uint32_t)(t - trk), size) != 0;
 }
 static phys_slot_t *phys_slots(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(phys_slot_t) * PHYS_POLY); }
@@ -138,7 +140,11 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,                /* 9: retired PHYS; stored ID reserved */
 #endif
+#if MELODEE_DRUM
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
+#else
+    &ENG_RETIRED,                /* 10: (Orange Cat) DRUM unhooked (MELODEE_DRUM=0); stored ID reserved */
+#endif
 #if MELODEE_LEGACY_EXTRAS
     &ENG_NOISE,                  /* 11 */
 #else
@@ -216,7 +222,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_SLICE
     13,                          /* SLICE */
 #endif
+#if MELODEE_DRUM
     10,                          /* DRUM */
+#endif
 };
 
 /* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
@@ -227,7 +235,7 @@ static int eng_extra_retired(uint32_t e)
     if (e == ENGI_ANALOG) return 1;
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || (e == 6u && !MELODEE_TRIO) || e == 7u || e == 9u || e == 11u))
-        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
+        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET) || (!MELODEE_DRUM && e == ENGI_DRUM);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -263,4 +271,4 @@ static const uint8_t TRK_DEF[NPART][2] = {
     {MELODEE_P5 ? ENGI_PROPHET : 6u, MELODEE_P5 ? 1 : 4},   /* (Orange Cat) without PROPHET: TRIO CHIP CHOIR */
     {MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_FM6 ? 10 : 0},
     {MELODEE_CZ ? ENGI_CZ : MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_CZ ? 52 : MELODEE_FM6 ? 10 : 1},
-    {ENGI_DRUM, 0}};
+    {MELODEE_DRUM ? ENGI_DRUM : 6u, MELODEE_DRUM ? 0 : 3}};   /* (Orange Cat) without DRUM: TRIO RING BELL */
