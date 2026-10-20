@@ -72,7 +72,7 @@ static const char *stage_label(uint32_t k, const param_desc_t *d)
 /* a knob's value as Stage shows it: the Prophet's 0..127 panel values in % (the mockup's CUTOFF 62 %) */
 static void stage_value(const page_t *sp, const param_desc_t *d, int32_t v, char *val, const char **unit)
 {
-    if (sp->scope == SC_P5 && d->fmt == F_INT && d->min == 0 && d->max == 127) {
+    if ((MELODEE_P5 && sp->scope == SC_P5) && d->fmt == F_INT && d->min == 0 && d->max == 127) {
         fmt_int(val, (v * 100 + 63) / 127);
         *unit = "%";
         return;
@@ -90,7 +90,7 @@ static void stage_columns(void)
         char val[12];
         const param_desc_t *d = page_desc(sp, c, &vp);
         int dim = (MELODEE_CZ && sp->scope == SC_CZ1 && !cz_ed_active(cz_patch[song.sel % NTRK].raw, sp->id[c])) ||
-                  (sp->scope == SC_P5 && !p5_ed_active(TSEL, sp->id[c]));
+                  ((MELODEE_P5 && sp->scope == SC_P5) && !p5_ed_active(TSEL, sp->id[c]));
         if (!d || !vp || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
             continue;
@@ -195,7 +195,7 @@ static uint32_t stage_picture(int32_t *v)
     uint32_t hot = ui.hot_col & 3u, id = sp->id[hot], k;
     if (!stage.out)                                     /* (the frame's: the clock may pass ST_KNOB_MS while it draws) */
         return SP_NONE;
-    if (sp->scope == SC_P5) {
+    if ((MELODEE_P5 && sp->scope == SC_P5)) {
         const uint8_t *r = p5_patch_of(TSEL)->raw;
         if (id == P5_CUTOFF || id == P5_RESONANCE || id == P5_ENV_FILTER) {
             v[0] = r[P5_CUTOFF];

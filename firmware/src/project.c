@@ -781,7 +781,7 @@ static int project_restore_runtime(const project_t *input)
             p5_patch[k]=p->p5[k];p5_ready[k]=1;
             uint32_t origin=p->user[k];
             if(origin && up_used(origin-1u) && up_engine(origin-1u)==e)t->user=(uint16_t)origin;
-            if(e==ENGI_PROPHET && !t->preset && !t->user){
+            if((MELODEE_P5 && e == ENGI_PROPHET) && !t->preset && !t->user){
                 for(uint32_t slot=0;slot<P5_FACTORY_N;slot++){p5_patch_t f;p5_factory(slot,&f);if(!memcmp(&p->p5[k],&f,sizeof f)){t->preset=(uint8_t)(slot+1u);break;}}
             }
             cz_patch[k] = p->cz[k];
@@ -789,7 +789,7 @@ static int project_restore_runtime(const project_t *input)
             fm6_set_patch(k, v);
             memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
             if(!t->preset && !t->user && native_limit(e))for(uint32_t slot=0;slot<UP_SLOTS;slot++)if(native_used(e,slot)){
-                const uint8_t *raw=native_raw(e,slot),*saved=e==ENGI_PROPHET?(const uint8_t *)&p->p5[k]:e==ENGI_CZ?p->cz[k].raw:p->fm6[k];
+                const uint8_t *raw=native_raw(e,slot),*saved=(MELODEE_P5 && e == ENGI_PROPHET)?(const uint8_t *)&p->p5[k]:e==ENGI_CZ?p->cz[k].raw:p->fm6[k];
                 if(!memcmp(raw,saved,native_size(e))){t->user=(uint16_t)(slot+1u);t->user_native=0;break;}
             }
         }

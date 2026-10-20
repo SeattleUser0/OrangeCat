@@ -53,7 +53,7 @@ static int p5_favorite_has(uint32_t slot,int factory);
 static int p5_favorite_set(uint32_t slot,int on,int factory);
 static int favorite_has(uint32_t engine, uint32_t preset)
 {
-    if(engine==ENGI_PROPHET)return p5_favorite_has(preset,1);
+    if((MELODEE_P5 && engine == ENGI_PROPHET))return p5_favorite_has(preset,1);
     if(engine==USER_NATIVE_P5 || engine==USER_NATIVE_FM || engine==USER_NATIVE_CZ)engine=USER_GENERAL;
     if (engine == USER_GENERAL)
         return up_favorite(preset);
@@ -62,7 +62,7 @@ static int favorite_has(uint32_t engine, uint32_t preset)
 }
 static int favorite_set(uint32_t engine, uint32_t preset, int on)
 {
-    if(engine==ENGI_PROPHET)return p5_favorite_set(preset,on,1);
+    if((MELODEE_P5 && engine == ENGI_PROPHET))return p5_favorite_set(preset,on,1);
     if(engine==USER_NATIVE_P5 || engine==USER_NATIVE_FM || engine==USER_NATIVE_CZ)engine=USER_GENERAL;
     if (engine >= NENGINES || (engine == USER_GENERAL ? preset >= UP_SLOTS : engine >= 16u || preset >= 256u))
         return 0;

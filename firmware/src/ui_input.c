@@ -1120,12 +1120,12 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
     *vp = (int16_t)v;
-    if(pg->scope==SC_P5){
+    if((MELODEE_P5 && pg->scope == SC_P5)){
         uint8_t old[MO_NATIVE_N];uint32_t f=motion_guard();
         motion_native_peek(TSEL,old);p5_edit_value(TSEL,pg->id[slot],p5_panel_raw(TSEL,pg->id[slot],v));native_motion(old);
         motion_unguard(f);return;
     }
-    if(pg->scope==SC_P5STORE){p5_store_slot=(int16_t)v;return;}
+    if((MELODEE_P5 && pg->scope == SC_P5STORE)){p5_store_slot=(int16_t)v;return;}
     if (MELODEE_CZ && pg->scope == SC_CZ1) {            /* (Orange Cat: MELODEE_CZ) (a copy of the tone's value: written back there) */
         uint8_t raw[CZ_BYTES], old[MO_NATIVE_N];
         uint32_t tr = song.sel % NTRK, f = motion_guard();
@@ -1206,7 +1206,7 @@ static void act_do(void)
     uint32_t c = act_col(), id, k = (uint32_t)song.g[G_SLOT] - 1u;
     if (!c--)
         return;
-    if(cur_page()->scope==SC_P5STORE){
+    if((MELODEE_P5 && cur_page()->scope == SC_P5STORE)){
         uint32_t slot=(uint32_t)p5_store_slot-1u;
         if(c==1u){if(transport_busy())ui_message("STOP TO SAVE");else if(up_used(slot) || up_old(slot))confirm_open(CF_OVR_USER,slot);else name_open(NK_USER_SAVE,slot);}
         else if(c==2u)p5_send(song.sel);

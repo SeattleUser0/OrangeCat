@@ -52,7 +52,7 @@ static uint32_t midi_targets(uint32_t ch)
 static void midi_expression(track_t *t, const midi_channel_t *c)
 {
     int32_t range = ((int32_t)c->semis * 100 + c->cents) * 256 / 100;
-    if(t->eng_req==ENGI_PROPHET)range=(clamp(p5_patch_of(t)->raw[P5_BEND],0,11)+1)*256;
+    if((MELODEE_P5 && t->eng_req == ENGI_PROPHET))range=(clamp(p5_patch_of(t)->raw[P5_BEND],0,11)+1)*256;
     if (drum_track(t))
         return;
     midi_bend_target[trk_index(t)] = (int32_t)c->bend * range / (c->bend < 0 ? 8192 : 8191);
@@ -258,7 +258,7 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
     if((cc==72 || cc==73 || cc==75) && motion_native_tag(t)){   /* (the engine's own envelope: its motion too) */
         uint8_t old[MO_NATIVE_N];uint32_t f=motion_guard();
         motion_native_peek(t,old);
-        if(t->eng_req==ENGI_PROPHET){
+        if((MELODEE_P5 && t->eng_req == ENGI_PROPHET)){
             p5_edit_value(t,cc==72?P5_RELEASE_AMP:cc==73?P5_ATTACK_AMP:P5_DECAY_AMP,value);
         }else if((MELODEE_FM6 && t->eng_req == ENGI_FM6)){
             uint8_t raw[FP_SIZE+1u];memcpy(raw,fm6_patch[trk_index(t)],sizeof raw);

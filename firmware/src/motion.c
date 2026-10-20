@@ -52,7 +52,7 @@ static void motion_unguard(uint32_t f)
 static uint32_t motion_native_tag(const track_t *t)
 {
     uint32_t e = t->eng_req;
-    return e == ENGI_PROPHET ? MO_TAG_P5 : e == ENGI_CZ ? MO_TAG_CZ : (MELODEE_FM6 && e == ENGI_FM6) ? MO_TAG_FM6 : MO_TAG_NONE;
+    return (MELODEE_P5 && e == ENGI_PROPHET) ? MO_TAG_P5 : e == ENGI_CZ ? MO_TAG_CZ : (MELODEE_FM6 && e == ENGI_FM6) ? MO_TAG_FM6 : MO_TAG_NONE;
 }
 /* byte i of the patch of the track's engine, 0: none motion moves (the Prophet's voice assignment, the CZ-1's line
  * select, FM6's TRANSPOSE and name: what changes the voices themselves) */

@@ -28,7 +28,7 @@ static int ed_library_handle(uint32_t cmd,const uint8_t *a,uint32_t n)
                     drum_patch_t p;if(!drum_patch_unpack(&p,raw))rc=1;
                     else {r.ver=UP_VER_DRUM;r.np=P_COUNT;for(uint32_t j=0;j<P_COUNT;j++)up_set_value(&r,j,values[j]);memcpy(r.cz_extra,raw,46u);memcpy(r.packed+r.np,raw+46u,8u);}
                 }else {shared_native_record(&r,e,raw);r.np=defaults?0:sizeof UP_NATIVE_PARAMS;for(uint32_t j=0;j<r.np;j++)r.cz_extra[j]=(uint8_t)(values[UP_NATIVE_PARAMS[j]]+64);}
-            }else if(n!=end+1u || len>12u || r.engine==ENGI_PROPHET || (MELODEE_FM6 && r.engine == ENGI_FM6))rc=1;
+            }else if(n!=end+1u || len>12u || (MELODEE_P5 && r.engine == ENGI_PROPHET) || (MELODEE_FM6 && r.engine == ENGI_FM6))rc=1;
             else {for(uint32_t j=0;j<P_COUNT;j++)up_set_value(&r,j,values[j]);}
             if(!rc){char name[21];memcpy(name,a+4u,len);name[len]=0;up_set_name(&r,k,name);if(up_native(&r) && !preserve_name)up_native_name(&r,name);if(!up_valid(&r))rc=1;}
             if(!rc)rc=ed_flash_stop()?2u:(uint32_t)up_put(k,&r);

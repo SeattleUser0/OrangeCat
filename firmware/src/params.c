@@ -431,7 +431,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
             /* The panel's compact card fits "13-16"; editor/picker names retain the CH prefix. */
             str_cpy(val, d->names[v] + (v == 1 ? 0 : 2), 6);
         } else
-            str_cpy(val, d->names==N_ENGNAME && v==ENGI_PROPHET ? "P5" : d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
+            str_cpy(val, d->names==N_ENGNAME && (MELODEE_P5 && v == ENGI_PROPHET) ? "P5" : d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
         if (d->unit)
             *unit = d->unit;
         break;
@@ -729,17 +729,17 @@ static const param_desc_t *fx_rack_desc(const page_t *pg, uint32_t slot, int16_t
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
-    if(pg->scope==SC_P5 || pg->scope==SC_P5STORE){
-        if(id==255u || (pg->scope==SC_P5 && (id>=88u || !P5_PANEL[id].label))){*valp=0;return 0;}
-        p5_cell[slot&3u]=pg->scope==SC_P5STORE?(slot?0:p5_store_slot):p5_patch_of(TSEL)->raw[id]+(id==P5_BEND?1:0);
+    if((MELODEE_P5 && pg->scope == SC_P5) || (MELODEE_P5 && pg->scope == SC_P5STORE)){
+        if(id==255u || ((MELODEE_P5 && pg->scope == SC_P5) && (id>=88u || !P5_PANEL[id].label))){*valp=0;return 0;}
+        p5_cell[slot&3u]=(MELODEE_P5 && pg->scope == SC_P5STORE)?(slot?0:p5_store_slot):p5_patch_of(TSEL)->raw[id]+(id==P5_BEND?1:0);
         /* Sequential stores zero for the default five-voice unison count. */
-        if(pg->scope==SC_P5 && id==P5_UNISON_COUNT && !p5_cell[slot&3u])p5_cell[slot&3u]=5;
+        if((MELODEE_P5 && pg->scope == SC_P5) && id==P5_UNISON_COUNT && !p5_cell[slot&3u])p5_cell[slot&3u]=5;
         *valp=&p5_cell[slot&3u];
-        if(pg->scope==SC_P5 && p5_keyed_tune(TSEL,id)){
+        if((MELODEE_P5 && pg->scope == SC_P5) && p5_keyed_tune(TSEL,id)){
             p5_cell[slot&3u]=(int16_t)(clamp(p5_patch_of(TSEL)->raw[id],0,96)/2-12);
             return &P5_TUNE_DISPLAY[id];
         }
-        return pg->scope==SC_P5STORE?&P5_STORE[slot&3u]:id==P5_BEND?&P5_BEND_DISPLAY:&P5_PANEL[id];
+        return (MELODEE_P5 && pg->scope == SC_P5STORE)?&P5_STORE[slot&3u]:id==P5_BEND?&P5_BEND_DISPLAY:&P5_PANEL[id];
     }
     if (pg->scope == SC_CZ1) {                           /* a copy of the tone's panel value (cz_ed_put writes it) */
         *valp = 0;

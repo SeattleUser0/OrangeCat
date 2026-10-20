@@ -30,14 +30,14 @@ static int up_favorite_set(uint32_t k,int on)
 }
 static uint32_t native_limit(uint32_t e)
 {
-    return e==ENGI_PROPHET || (MELODEE_FM6 && e == ENGI_FM6) || e==ENGI_CZ ? UP_SLOTS : 0u;
+    return (MELODEE_P5 && e == ENGI_PROPHET) || (MELODEE_FM6 && e == ENGI_FM6) || e==ENGI_CZ ? UP_SLOTS : 0u;
 }
 static void shared_native_record(up_rec_t *r,uint32_t e,const uint8_t *raw)
 {
     memset(r,0,sizeof *r);r->used=UP_USED;r->engine=(uint8_t)e;
-    r->ver=(MELODEE_FM6 && e == ENGI_FM6)?UP_VER_FM:e==ENGI_PROPHET?UP_VER_P5:UP_VER_NATIVE_CZ;
+    r->ver=(MELODEE_FM6 && e == ENGI_FM6)?UP_VER_FM:(MELODEE_P5 && e == ENGI_PROPHET)?UP_VER_P5:UP_VER_NATIVE_CZ;
     memcpy(r->packed,raw,native_size(e));
-    uint32_t off=(MELODEE_FM6 && e == ENGI_FM6)?118u:e==ENGI_PROPHET?P5_NAME:128u,len=(MELODEE_FM6 && e == ENGI_FM6)?10u:12u,n=0;
+    uint32_t off=(MELODEE_FM6 && e == ENGI_FM6)?118u:(MELODEE_P5 && e == ENGI_PROPHET)?P5_NAME:128u,len=(MELODEE_FM6 && e == ENGI_FM6)?10u:12u,n=0;
     for(uint32_t i=0;i<len;i++){uint8_t c=raw[off+i];r->name[i]=c>=32u&&c<=126u?(char)c:' ';if(r->name[i]!=' ')n=i+1u;}
     if(!n)memcpy(r->name,"UNTITLED",8u);
 }
@@ -141,7 +141,7 @@ static int up_decode_bank(uint32_t b,int n)
             if(star)up_cache.r[j].used|=UP_STAR;
         }
         memset(&up_cache.r[16],0,2u*sizeof(up_rec_t));up_migrate|=1u<<b;
-    }else if(b>=16u && b<21u && n==(int)sizeof(p5_bank_t) && p5_bank_valid((const p5_bank_t *)&up_cache,b-16u)){
+    }else if(MELODEE_P5 && b>=16u && b<21u && n==(int)sizeof(p5_bank_t) && p5_bank_valid((const p5_bank_t *)&up_cache,b-16u)){
         uint32_t used=((const p5_bank_t *)&up_cache)->used,stars=((const p5_bank_t *)&up_cache)->favorites;
         for(uint32_t j=18u;j--;){p5_patch_t raw=((const p5_bank_t *)&up_cache)->patch[j];if(used>>j&1u)shared_native_record(&up_cache.r[j],ENGI_PROPHET,(const uint8_t *)&raw);else memset(&up_cache.r[j],0,sizeof(up_rec_t));}
         for(uint32_t j=0;j<18u;j++)if((used&stars)>>j&1u)up_cache.r[j].used|=UP_STAR;
@@ -281,7 +281,7 @@ static void shared_boot(void)
     }
     for(uint32_t b=16u;b<21u;b++){
         p5_bank_t old;int n=st_load(up_obj(b),&old,sizeof old);
-        if(n==(int)sizeof old && p5_bank_valid(&old,b-16u)){
+        if(MELODEE_P5 && n==(int)sizeof old && p5_bank_valid(&old,b-16u)){   /* (Orange Cat: MELODEE_P5) */
             if(b==16u && (old.favorites&0x80000000u)){
                 if(!p5_favorite_has(0,1))p5_favorite_set(0,1,1);
                 if(shared_preferences_save()){up_migration_error=1;goto done;}

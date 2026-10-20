@@ -83,7 +83,7 @@ static int library_send(uint32_t e, uint32_t k)
     memcpy(raw,native_raw(e,k),native_size(e));
     if((MELODEE_FM6 && e == ENGI_FM6)){memcpy(frame,(uint8_t[]){0xf0,0x43,0,0,1,0x1b},6);uint8_t voice[FP_SIZE+1u];fm6_unpack(raw,voice);memcpy(frame+6,voice,FP_SIZE);frame[161]=sx_checksum(frame+6,FP_SIZE);frame[162]=0xf7;n=163;}
     else if(e==ENGI_CZ){memcpy(frame,(uint8_t[]){0xf0,0x44,0,0,0x70,0x30},6);for(uint32_t i=0;i<CZ_BYTES;i++){frame[6+2*i]=raw[i]&15;frame[7+2*i]=raw[i]>>4;}frame[6+2*CZ_BYTES]=0xf7;n=7+2*CZ_BYTES;}
-    else if(e==ENGI_PROPHET){p5_patch_t p;memcpy(&p,raw,sizeof p);n=p5_patch_encode(&p,frame,sizeof frame);}
+    else if((MELODEE_P5 && e == ENGI_PROPHET)){p5_patch_t p;memcpy(&p,raw,sizeof p);n=p5_patch_encode(&p,frame,sizeof frame);}
     else return 1;
     return !n || ota_wire_send(frame,n);
 #else

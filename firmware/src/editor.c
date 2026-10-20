@@ -342,7 +342,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         return;
     if(cmd==ED_SET || (cmd==ED_TRACK_PARAM && na==4u) || cmd==ED_FM6_PUT || cmd==ED_CZ_PUT || (cmd==95u && na && a[0]>=1u && a[0]<=3u))momentary_restore();
     ed_begin(cmd);
-    if(ed_prophet_handle(cmd,a,na)){ed_send();return;}
+    if(MELODEE_P5 && ed_prophet_handle(cmd,a,na)){ed_send();return;}   /* (Orange Cat: MELODEE_P5) */
 
     if (ed_ui_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
@@ -1114,7 +1114,7 @@ static void ed_service(void)
     ed_sync();                                             /* v2 pushes (while watched) */
     if(!ota_frame_get(&p,&n))return;
     if(general_sysex_frame(p,n)){ota_frame_done();return;}
-    if(p5_native_frame(p,n)){ota_frame_done();return;}
+    if(MELODEE_P5 && p5_native_frame(p,n)){ota_frame_done();return;}   /* (Orange Cat: MELODEE_P5) */
     if (n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */

@@ -242,9 +242,9 @@ static const char *const *native_titles(uint32_t fam)
     static const char *const CZ_LFO[] = {"CZ VIBRATO", 0};
     uint32_t e = TSEL->eng_req;
     if (fam == FAM_ENV)
-        return e == ENGI_PROPHET ? P5_ENV : (MELODEE_FM6 && e == ENGI_FM6) ? FM_ENV : e == ENGI_CZ ? CZ_ENV : 0;
+        return (MELODEE_P5 && e == ENGI_PROPHET) ? P5_ENV : (MELODEE_FM6 && e == ENGI_FM6) ? FM_ENV : e == ENGI_CZ ? CZ_ENV : 0;
     if (fam == FAM_LFO)
-        return e == ENGI_PROPHET ? P5_LFO : (MELODEE_FM6 && e == ENGI_FM6) ? FM_LFO : e == ENGI_CZ ? CZ_LFO : 0;
+        return (MELODEE_P5 && e == ENGI_PROPHET) ? P5_LFO : (MELODEE_FM6 && e == ENGI_FM6) ? FM_LFO : e == ENGI_CZ ? CZ_LFO : 0;
     return 0;
 }
 static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's native pages (a prefix of its title) */
@@ -274,7 +274,7 @@ static int page_visible(uint32_t i)
     if(MELODEE_CZ && TSEL->eng_req==ENGI_CZ && PAGES[i].scope==SC_ENGINE && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
     if (PAGES[i].scope == SC_CZ)                       /* (PHASE's CZ mode; PHASE retired without MELODEE_LEGACY_EXTRAS) */
         return TSEL->eng_req == 2u && eng_ok(2u) && TSEL->p[P_E7] == 1;
-    if(PAGES[i].scope==SC_P5 || PAGES[i].scope==SC_P5STORE)return TSEL->eng_req==ENGI_PROPHET;
+    if((MELODEE_P5 && PAGES[i].scope == SC_P5) || (MELODEE_P5 && PAGES[i].scope == SC_P5STORE))return (MELODEE_P5 && TSEL->eng_req == ENGI_PROPHET);
     if (PAGES[i].scope == SC_CZ1)
         return MELODEE_CZ && TSEL->eng_req == ENGI_CZ;   /* CZ-1's tone: every panel value (Orange Cat: MELODEE_CZ) */
     if ((MELODEE_FM6 && PAGES[i].scope == SC_FM6) || (MELODEE_FM6 && PAGES[i].scope == SC_FMOP))
@@ -707,7 +707,7 @@ static void momentary_take(uint32_t slot)
     if(!(fm1_in.buttons&(1u<<panel.btn[B_LFO])) || pg->graph==GR_FMSTORE || pg->graph==GR_CZTOOLS)return;
     d=page_desc(pg,slot,&vp);
     if(!d || !vp || d->max==d->min)return;
-    uint32_t native=(MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)?1:pg->scope==SC_CZ1?2:pg->scope==SC_P5?3:0;
+    uint32_t native=(MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)?1:pg->scope==SC_CZ1?2:(MELODEE_P5 && pg->scope == SC_P5)?3:0;
     if(!native && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
        !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING)))return;
     if(!native && pg->scope==SC_TRACK && scale_shared((uint32_t)(vp-TSEL->p)))return;
@@ -958,7 +958,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_REL] = pr->env[3];
     t->p[P_ED_FLT] = pr->fenv;
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
-    if(t->eng_req==ENGI_PROPHET)p5_preset_loaded(t,pi);
+    if((MELODEE_P5 && t->eng_req == ENGI_PROPHET))p5_preset_loaded(t,pi);
     if (MELODEE_CZ) { cz_factory_loaded(t); cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
     if (MELODEE_FM6) fm6_track_loaded(t);             /* FM6: the preset's patch (Orange Cat: MELODEE_FM6) */
     load_end(t);
@@ -980,7 +980,7 @@ static void engine_load_of(track_t *t, uint32_t ei, uint32_t pi)
     load_end(t);
 }
 /* the engine's defaults and its first preset (PROPHET: Sequential's first factory program, not INIT) */
-static void set_engine_of(track_t *t, uint32_t ei) { engine_load_of(t, ei, ei % NENGINES == ENGI_PROPHET ? 1u : 0u); }
+static void set_engine_of(track_t *t, uint32_t ei) { engine_load_of(t, ei, (MELODEE_P5 && ei % NENGINES == ENGI_PROPHET) ? 1u : 0u); }
 
 /* the engine's own starting point, nothing changed: its INIT preset (Prophet, CZ-1, SID, FM6: "INIT .."), else
  * its first (DRUM: the 808 kit) */
@@ -1025,13 +1025,13 @@ static int preset_favorite(void)
 {
     uint32_t k = user_of(TSEL);
     uint32_t e=TSEL->eng_req;
-    return favorite_has(k<USER_NONE ? (TSEL->user_native?(e==ENGI_PROPHET?USER_NATIVE_P5:(MELODEE_FM6 && e == ENGI_FM6)?USER_NATIVE_FM:USER_NATIVE_CZ):USER_GENERAL) : e,k<USER_NONE?k:TSEL->preset);
+    return favorite_has(k<USER_NONE ? (TSEL->user_native?((MELODEE_P5 && e == ENGI_PROPHET)?USER_NATIVE_P5:(MELODEE_FM6 && e == ENGI_FM6)?USER_NATIVE_FM:USER_NATIVE_CZ):USER_GENERAL) : e,k<USER_NONE?k:TSEL->preset);
 }
 static void preset_mark(int on)
 {
     uint32_t k = user_of(TSEL);
     uint32_t e=TSEL->eng_req;
-    if (favorite_set(k<USER_NONE ? (TSEL->user_native?(e==ENGI_PROPHET?USER_NATIVE_P5:(MELODEE_FM6 && e == ENGI_FM6)?USER_NATIVE_FM:USER_NATIVE_CZ):USER_GENERAL) : e,k<USER_NONE?k:TSEL->preset,on)) {
+    if (favorite_set(k<USER_NONE ? (TSEL->user_native?((MELODEE_P5 && e == ENGI_PROPHET)?USER_NATIVE_P5:(MELODEE_FM6 && e == ENGI_FM6)?USER_NATIVE_FM:USER_NATIVE_CZ):USER_GENERAL) : e,k<USER_NONE?k:TSEL->preset,on)) {
         ui.force = 1;
         settings_save();
     }
@@ -1074,9 +1074,9 @@ static const page_t *stage_page(void)
     stage_pg.title = "STAGE";
     stage_pg.fam = FAM_HOME;
     stage_pg.graph = GR_NONE;
-    stage_pg.scope = e == ENGI_PROPHET ? SC_P5 : (MELODEE_CZ && e == ENGI_CZ) ? SC_CZ1 : SC_ENGINE;
+    stage_pg.scope = (MELODEE_P5 && e == ENGI_PROPHET) ? SC_P5 : (MELODEE_CZ && e == ENGI_CZ) ? SC_CZ1 : SC_ENGINE;
     for (k = 0; k < 4u; k++)
-        stage_pg.id[k] = e == ENGI_PROPHET ? P5_K[k] : (MELODEE_CZ && e == ENGI_CZ) ? CZ_K[k] : ENGINES[e]->knob[k];
+        stage_pg.id[k] = (MELODEE_P5 && e == ENGI_PROPHET) ? P5_K[k] : (MELODEE_CZ && e == ENGI_CZ) ? CZ_K[k] : ENGINES[e]->knob[k];
     return &stage_pg;
 }
 /* HOME: what KNOB k edits (0: nothing there) */

@@ -135,7 +135,7 @@ static int ed_ui_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             if (preset >= 0 && (uint32_t)preset < limit &&
                 (a[0] != USER_GENERAL || !a[3] || up_used((uint32_t)preset)) &&
                 ((a[0]!=USER_NATIVE_FM && a[0]!=USER_NATIVE_CZ && a[0]!=USER_NATIVE_P5) || !a[3] || native_used(a[0]==USER_NATIVE_P5?ENGI_PROPHET:a[0]==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ,(uint32_t)preset))) {
-                int p5=a[0]==ENGI_PROPHET || a[0]==USER_NATIVE_P5;
+                int p5=(MELODEE_P5 && a[0] == ENGI_PROPHET) || a[0]==USER_NATIVE_P5;
                 int before=favorite_has(a[0],(uint32_t)preset);
                 int changed=favorite_set(a[0], (uint32_t)preset, a[3]);
                 if(p5 && !changed && before!=a[3]){ed_b(transport_busy()?4u:3u);ed_b(a[0]);ed_v(preset);ed_b(before);return 1;}

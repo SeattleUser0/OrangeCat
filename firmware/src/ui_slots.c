@@ -20,7 +20,7 @@ static uint32_t slot_kind(void)
         return SK_NONE;
     pg = cur_page();
     return pg->graph == GR_SLOTS ? SK_PROJECT : pg->graph == GR_USER ? SK_USER : pg->graph == GR_FMSTORE ? SK_FM6 :
-           pg->scope == SC_P5STORE ? SK_P5 : SK_NONE;
+           (MELODEE_P5 && pg->scope == SC_P5STORE) ? SK_P5 : SK_NONE;
 }
 static uint32_t slot_count(uint32_t k) { return k == SK_PROJECT ? (uint32_t)PROJ_TMPL + 1u : UP_SLOTS; }
 static uint32_t slot_cur(uint32_t k)                    /* the row picked */

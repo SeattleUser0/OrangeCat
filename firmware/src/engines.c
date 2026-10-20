@@ -44,7 +44,7 @@ static const engine_t ENG_RETIRED = {         /* 13 without MELODEE_SLICE: reser
 static uint32_t eng_state_size(uint32_t e)
 {
     switch (e) {
-#if MELODEE_PROPHET
+#if MELODEE_PROPHET && MELODEE_P5                 /* (Orange Cat: MELODEE_P5) */
     case ENGI_PROPHET: return sizeof(p5_part_t);
 #if MELODEE_PROPHET_PROTOTYPE
     case 0: return sizeof(p5_part_t);
@@ -161,7 +161,11 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_RETIRED,                /* 15: (Orange Cat) CZ-1 unhooked (MELODEE_CZ=0); stored ID reserved */
 #endif
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, /* 16..18 reserved */
+#if MELODEE_P5
     &ENG_P5_TEST,                /* 19: Prophet (ANALOG's ID 0 stays reserved) */
+#else
+    &ENG_RETIRED,                /* 19: (Orange Cat) PROPHET unhooked (MELODEE_P5=0); stored ID reserved */
+#endif
 };
 
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
@@ -188,7 +192,9 @@ static const preset_t *eng_preset(const engine_t *e, uint32_t k)
  * engine indices, never a retired one. The indices stay as they are (the
  * stores and the protocol hold them); only this table orders them */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
+#if MELODEE_P5
     ENGI_PROPHET,                /* Prophet replaces ANALOG in new-sound browsing */
+#endif
 #if MELODEE_FM6
     12,                          /* FM6 */
 #endif
@@ -221,7 +227,7 @@ static int eng_extra_retired(uint32_t e)
     if (e == ENGI_ANALOG) return 1;
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || (e == 6u && !MELODEE_TRIO) || e == 7u || e == 9u || e == 11u))
-        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
+        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -253,7 +259,8 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
  * SID, 808 KIT) */
 /* (Orange Cat) an unhooked engine's track takes the fallback: FM6 SOLID BASS, else TRIO FAT BASS (track 2); FM6
  * SOLID BASS, else TRIO ARP LEAD (track 3, when CZ-1 is out too) */
-static const uint8_t TRK_DEF[NPART][2] = {{ENGI_PROPHET, 1},
+static const uint8_t TRK_DEF[NPART][2] = {
+    {MELODEE_P5 ? ENGI_PROPHET : 6u, MELODEE_P5 ? 1 : 4},   /* (Orange Cat) without PROPHET: TRIO CHIP CHOIR */
     {MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_FM6 ? 10 : 0},
     {MELODEE_CZ ? ENGI_CZ : MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_CZ ? 52 : MELODEE_FM6 ? 10 : 1},
     {ENGI_DRUM, 0}};

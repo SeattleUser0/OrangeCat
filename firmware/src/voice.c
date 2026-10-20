@@ -119,7 +119,7 @@ static uint32_t voice_p5_parts(void)
 {
     if(voice_admitting)return voice_admitting_p5parts;
     uint32_t parts=0;
-    for(uint32_t p=0;p<NPART;p++)if(trk[p].engine==ENGI_PROPHET){
+    for(uint32_t p=0;p<NPART;p++)if((MELODEE_P5 && trk[p].engine == ENGI_PROPHET)){
         uint32_t live=0;for(uint32_t i=0;i<NVOICE;i++)live|=trk[p].v[i].active && trk[p].v[i].stage!=4u;
         parts+=live!=0;
     }
@@ -130,11 +130,11 @@ static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     /* GLO > WEIGHTS: the player's points per voice replace the built-in rule; AUTO (0) keeps it. */
-    int k = e == &ENG_P5_TEST ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : e == &ENG_DRUM ? 4 : -1;
+    int k = (MELODEE_P5 && e == &ENG_P5_TEST) ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : e == &ENG_DRUM ? 4 : -1;
     if (k >= 0 && settings_vpoints[k] > 0)
         return (uint32_t)settings_vpoints[k];
 #if MELODEE_ADMISSION
-    if(e==&ENG_P5_TEST){
+    if(MELODEE_P5 && e==&ENG_P5_TEST){   /* (Orange Cat: MELODEE_P5) */
         return voice_p5_parts()>1u?4u:3u;
     }
     if(MELODEE_CZ && e==&ENG_CZ)return 3u;
@@ -541,7 +541,7 @@ static void trk_note_on(track_t *t,uint32_t note,uint32_t vel)
 #if MELODEE_ADMISSION
     const track_t *previous=voice_admitting;uint8_t previous_parts=voice_admitting_p5parts;
     voice_admitting=0;uint32_t parts=voice_p5_parts();
-    if(t->engine==ENGI_PROPHET){uint32_t live=0;for(uint32_t i=0;i<NVOICE;i++)live|=t->v[i].active && t->v[i].stage!=4u;parts+=!live;}
+    if((MELODEE_P5 && t->engine == ENGI_PROPHET)){uint32_t live=0;for(uint32_t i=0;i<NVOICE;i++)live|=t->v[i].active && t->v[i].stage!=4u;parts+=!live;}
     voice_admitting=t;voice_admitting_p5parts=(uint8_t)parts;
     trk_note_on_work(t,note,vel);voice_admitting=previous;voice_admitting_p5parts=previous_parts;
 #else
@@ -850,7 +850,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
         if ((MELODEE_LEGACY_EXTRAS && e == ENGINES[2]) || (MELODEE_CZ && e == &ENG_CZ))   /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
-        if(e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);
+        if(MELODEE_P5 && e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);   /* (Orange Cat: MELODEE_P5) */
         if (mod.on){
             AP_START(mod_start);mod_voice(t,v,&m,m.fine);AP_END(AP_MODULATION,mod_start);
         }

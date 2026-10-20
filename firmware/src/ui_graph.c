@@ -839,7 +839,7 @@ static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
 {
     if (e == USER_NATIVE_P5 || e == USER_NATIVE_FM || e == USER_NATIVE_CZ) {
         uint32_t eng = src_engine(e, k);
-        tag[0] = eng == ENGI_PROPHET ? 'P' : (MELODEE_FM6 && eng == ENGI_FM6) ? 'F' : 'Z';
+        tag[0] = (MELODEE_P5 && eng == ENGI_PROPHET) ? 'P' : (MELODEE_FM6 && eng == ENGI_FM6) ? 'F' : 'Z';
         tag[1] = (char)('0' + (k + 1u) / 100u);
         tag[2] = (char)('0' + (k + 1u) / 10u % 10u);
         tag[3] = (char)('0' + (k + 1u) % 10u);

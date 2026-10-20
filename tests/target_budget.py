@@ -207,7 +207,7 @@ def main():
     # (Orange Cat, build doc phase 3) engines unhooked from this image (MELODEE_<NAME>=0 in the environment, as
     # tools/orangecat_engines.sh set it for the build): their render loops are not in the disassembly
     unhooked = {"MELODEE_SID": {"sid_render"}, "MELODEE_CZ": {"cz_native_render", "cz_native_wave"},
-                "MELODEE_FM6": {"fm6_render"}, "MELODEE_PROPHET": {"p5_samples", "p5_mod_samples"},
+                "MELODEE_FM6": {"fm6_render"}, "MELODEE_P5": {"p5_samples", "p5_mod_samples"},
                 "MELODEE_DRUM": {n for n in FUNCS if n.startswith(("dr_", "dr8_", "drum_", "d9_"))}}
     for flag, names in unhooked.items():
         if os.environ.get(flag) == "0":
