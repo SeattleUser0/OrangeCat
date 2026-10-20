@@ -142,10 +142,11 @@ static void controls(void)
     assert(ep0_command == 0x60);
     setup(0x81, 10, 0, 6, 1);
     assert(ep0_command == 0x60);
-    /* The shared function and control interface use the Melodee product name. */
+    /* The shared function and control interface use the product name ((Orange Cat 0.1.0) "Orange Cat FM-1", was
+     * "Melodee FM-1", 26 bytes). */
     setup(0x80, 6, 0x0302, 0x0409, 255);
-    assert(ep_cnt[0] == 26 && ep0buf[1] == 3 &&
-           !memcmp(ep0buf + 2, "M\0e\0l\0o\0d\0e\0e\0 \0F\0M\0-\0" "1\0", 24));
+    assert(ep_cnt[0] == 32 && ep0buf[1] == 3 &&
+           !memcmp(ep0buf + 2, "O\0r\0a\0n\0g\0e\0 \0C\0a\0t\0 \0F\0M\0-\0" "1\0", 30));
     setup(0x80, 6, 0x0303, 0x0409, 255);
     assert(ep0_command == 0x60);             /* retired split-device names */
     setup(0x80, 6, 0x0304, 0x0409, 255);

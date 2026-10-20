@@ -29,14 +29,15 @@ static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS",
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
 #endif
 
-/* https://keremimo.github.io/melodee, QR version 3, correction M (segno; checked with a decoder).
+/* https://github.com/SeattleUser0/OrangeCat, QR version 3, correction M (segno, mask 1).
+ * (Orange Cat 0.1.0) was https://keremimo.github.io/melodee; the same segno call reproduces Melodee's table from its URL.
  * One row per word, leftmost module in bit 0; the constant matrix needs no encoder or RAM. */
 static const uint32_t ABOUT_QR[29] = {
-    0x1FC6EB7Fu, 0x104EF341u, 0x175C795Du, 0x1747C65Du, 0x174CB15Du, 0x10417241u,
-    0x1FD5557Fu, 0x001C5A00u, 0x1D23F9F9u, 0x0D8F5EA5u, 0x0557D275u, 0x137256B4u,
-    0x10C9E87Cu, 0x1FC7940Du, 0x143AD76Du, 0x15706E91u, 0x021C8767u, 0x0D1C8893u,
-    0x1309E463u, 0x07A1260Bu, 0x0FFBAC53u, 0x0316B300u, 0x035BAB7Fu, 0x011ABF41u,
-    0x1BF9275Du, 0x102DF35Du, 0x1DB1E85Du, 0x16A01241u, 0x00D06B7Fu,
+    0x1FC26F7Fu, 0x10546841u, 0x175E3D5Du, 0x1746FA5Du, 0x17426A5Du, 0x10555541u,
+    0x1FD5557Fu, 0x00104000u, 0x1499A8C5u, 0x18FB9302u, 0x17CBDCEDu, 0x0328C9B6u,
+    0x10C89759u, 0x18D192B2u, 0x11EAEBC4u, 0x00DDD5B2u, 0x10731ED6u, 0x1CCD480Eu,
+    0x130AAE73u, 0x01558D88u, 0x0BF16677u, 0x17148100u, 0x1155FD7Fu, 0x091C0441u,
+    0x0BF8FE5Du, 0x1738A45Du, 0x1923E95Du, 0x0394AA41u, 0x1310817Fu,
 };
 
 static void draw_about_qr(int32_t x, int32_t y)
@@ -56,6 +57,10 @@ static void draw_about_qr(int32_t x, int32_t y)
 enum { MC_TEXT, MC_TITLE, MC_URL };
 typedef struct { const char *text; uint8_t kind; } menu_credit_t;
 static const menu_credit_t MENU_CREDITS[] = {
+    {"MELODEE / UPSTREAM", MC_TITLE},                  /* (Orange Cat 0.1.0) Orange Cat is a modified Melodee */
+    {"Kerem Kilic, Ellic Studio / GPL-3.0", MC_TEXT},
+    {"https://github.com/keremimo/melodee", MC_URL},
+    {"", MC_TEXT},
     {"FELUCCA / UPSTREAM", MC_TITLE},                  /* Melodee is a modified Felucca */
     {"H\xFCgelton Instruments, Leo Kuroshita / GPL-3.0", MC_TEXT},
     {"https://github.com/hugelton/Felucca", MC_URL},
@@ -144,16 +149,20 @@ static int32_t menu_document(int32_t y, int draw)
 {
     uint32_t i;
     if (draw) {                                       /* (docs/design: mock/r6_pages About, the large type) */
-        cv_text(6, y + 2, TY_HR, "Melodee", T_THEME);
-        cv_text(6, y + 60, TY_TX, MELODEE_VERSION, T_TEXT);
-        cv_text(6, y + 86, TY_LB, __DATE__, T_MID);
+        /* (Orange Cat 0.1.0) the name in two lines of large type ("Orange Cat" is 259 px at 48 px); the QR beside
+         * "Cat"; everything below moves down one line (54 px). Melodee: "Melodee" at y + 2, version y + 60, date
+         * y + 86, QR y + 66, text from y + 146. */
+        cv_text(6, y + 2, TY_HR, "Orange", T_THEME);
+        cv_text(6, y + 56, TY_HR, "Cat", T_THEME);
+        cv_text(6, y + 114, TY_TX, MELODEE_VERSION, T_TEXT);
+        cv_text(6, y + 140, TY_LB, __DATE__, T_MID);
         draw_about_qr(158, y + 66);
     }
-    y = menu_text("Multi-engine synthesizer", y + 146, T_SEC, draw);
-    y = menu_text("\xA9 2026 Kerem Kilic, Ellic Studio", y + 6, T_TEXT, draw);
+    y = menu_text("FM-1 groovebox firmware", y + 200, T_SEC, draw);
+    y = menu_text("Based on Melodee by Kerem Kilic, Ellic Studio", y + 6, T_TEXT, draw);
     y = menu_text("Based on Felucca by Leo Kuroshita, H\xFCgelton Instruments", y, T_TEXT, draw);
     y = menu_text("GPL-3.0-only", y, T_TEXT, draw);
-    y = menu_text("keremimo.github.io/melodee", y, T_MID, draw);
+    y = menu_text("github.com/SeattleUser0/OrangeCat", y, T_MID, draw);
     y = menu_text("CREDITS", y + 14, T_THEME, draw) + 8;
     for (i = 0; i < NELEM(MENU_CREDITS); i++) {
         const menu_credit_t *c = &MENU_CREDITS[i];
@@ -169,7 +178,7 @@ static int32_t menu_document(int32_t y, int draw)
     y = menu_text("Fonts and icons: their licences travel with the source and the release files.", y, T_TEXT, draw);
     y = menu_text("NO WARRANTY", y, T_TEXT, draw);
     y = menu_text("Full notices in source:", y + 8, T_TEXT, draw);
-    y = menu_text("github.com/keremimo/melodee", y, T_MID, draw);
+    y = menu_text("github.com/SeattleUser0/OrangeCat", y, T_MID, draw);
     return y + 4;
 }
 static int32_t menu_scroll_max(void)

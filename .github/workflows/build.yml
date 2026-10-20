@@ -6,9 +6,13 @@
 #   Linux x86-64 runner, runs our build command, then our test command, and uploads the .fwsc package.
 #
 # When it runs:
-#   - A push to main, or Actions > build > Run workflow: a development package (build/melodee-nightly.fwsc,
-#     version string next-<commit>), downloadable from the run page as the "packages" artifact.
-#   - A push of a version tag vX.Y[.Z]: a release package, published as a GitHub Release of that tag.
+#   - A push to main, or Actions > build > Run workflow: a development package (build/orangecat-0.1.0-<commit>.fwsc,
+#     version string dev-<commit> on the device), downloadable from the run page as the "packages" artifact.
+#     A push to main also publishes the web installer (with this build) and the web editor to GitHub Pages
+#     (job pages): https://seattleuser0.github.io/OrangeCat/ once Settings > Pages > Source is "GitHub Actions".
+#   - A push of a version tag vX.Y[.Z]: a release package (build/orangecat-X.Y[.Z].fwsc), published as a GitHub Release.
+#   The build itself still writes Melodee's file names (build/melodee-*.fwsc); the build step copies the package to
+#   the Orange Cat name, and only that copy is published.
 #
 # The host tests (tests/run_tests.sh) run after the build. Failures are shown on the run page but do not hold the
 # package back (tests-block: false), so a build can still be installed and tried while tests are being fixed.
@@ -17,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 2 (Orange Cat 0.1.0, the rename): packages named orangecat-*.fwsc; the pages job (tools/orangecat_site.py).
 #   Rev 1 (Orange Cat build doc phase 1): first version. Replaces Melodee's nightly.yml and release.yml (still in the
 #         upstream history). Builds Melodee 1.4.5 unchanged; names stay "melodee" until the rename step of phase 1.
 name: build
@@ -60,6 +65,12 @@ jobs:
           echo "::error title=build failed::$msg"
           exit 1
         fi
+        # (rev 2) the package under Orange Cat's name: orangecat-X.Y[.Z].fwsc (tag) or orangecat-0.1.0-<commit>.fwsc
+        if [ "$GITHUB_REF_TYPE" = tag ]; then
+          cp "build/melodee-${GITHUB_REF_NAME#v}.fwsc" "build/orangecat-${GITHUB_REF_NAME#v}.fwsc"
+        else
+          cp build/melodee-nightly.fwsc "build/orangecat-0.1.0-${GITHUB_SHA::7}.fwsc"
+        fi
       test: |
         set -euo pipefail
         export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
@@ -74,4 +85,29 @@ jobs:
           echo "::error title=tests failed::$msg"
           exit 1
         fi
-      packages: build/melodee*.fwsc
+      packages: build/orangecat-*.fwsc
+
+  pages:                                         # (rev 2) the installer with this build, and the editor, on GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: pkg
+      - name: The site
+        run: python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "0.1.0-${GITHUB_SHA::7}" site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

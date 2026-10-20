@@ -1,3 +1,21 @@
+# Orange Cat
+
+Orange Cat is custom firmware for the M-VAVE FM-1, built from [Melodee](https://github.com/keremimo/melodee) 1.4.5 by
+Kerem Kilic (Ellic Studio), which is in turn based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
+(Hügelton Instruments). It is not affiliated with M-VAVE, Ellic Studio or Hügelton Instruments. Report Orange Cat
+problems here, not to Melodee.
+
+- Plan: [docs/orangecat/SPEC.md](docs/orangecat/SPEC.md) (specification) and
+  [docs/orangecat/BUILD.md](docs/orangecat/BUILD.md) (what is done, left to build, left to test).
+- Install and edit: https://seattleuser0.github.io/OrangeCat/ (the web installer with the latest build of main, and
+  the web editor).
+- Builds: GitHub Actions (.github/workflows/build.yml), through the shared FM-1 builder zvenson/fm1-build.
+
+Status: early. The firmware is Melodee 1.4.5 renamed (version v0.1.0). Melodee's own documentation follows below and
+still describes Melodee.
+
+---
+
 # Melodee
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)

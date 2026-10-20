@@ -1630,7 +1630,7 @@ async function stockRestore() {
   r = await run({skip:true, installError:fail("stopped", {lastRead:0x40})});
   ok(r.status.startsWith("Stopped.") && !r.status.includes("FAILED -5"), "stock: other step-1 stops keep the generic message");
   r = await run({skip:true, installError:fail("wrongloader", {detail:MELODEE_LOADER})});
-  ok(r.status.includes("Melodee's update mode"), "stock: a Melodee loader started by step 1 gets nothing");
+  ok(r.status.includes("Orange Cat's update mode"), "stock: a Melodee loader started by step 1 gets nothing");
   r = await run({loader:STOCK_LOADER});
   ok(!r.calls.includes("resume") && r.status.includes("Skip backup"),
     "stock: interrupted updates still require saved backup or explicit skip");
@@ -1640,7 +1640,7 @@ async function stockRestore() {
   r = await run({loader:STOCK_LOADER, recovery:true});
   ok(r.calls.includes("resume") && r.calls.some(c => c.includes("Has the complete backup")),
     "stock: saved-backup recovery retains its existing confirmation");
-  for (const [other, says] of [[MELODEE_LOADER, "Melodee's update mode"], ["ota-FM-1_123", "ota-FM-1_123"]]) {
+  for (const [other, says] of [[MELODEE_LOADER, "Orange Cat's update mode"], ["ota-FM-1_123", "ota-FM-1_123"]]) {
     r = await run({loader:other, skip:true, recovery:true});
     ok(!r.writes.length && !r.calls.includes("confirm") && r.status.includes(says) && r.unlocked,
       `stock: never resumes in ${other}`);
@@ -1684,7 +1684,7 @@ async function installerBuilds() {
   });
   vm.runInContext(script, context);
   await new Promise(resolve => setImmediate(resolve));
-  ok(fetched.join() === "melodee-1.0.2.fwsc" && element("status").textContent === "Melodee 1.0.2 (standard)"
+  ok(fetched.join() === "melodee-1.0.2.fwsc" && element("status").textContent === "Orange Cat 1.0.2 (standard)"
     && !element("go").disabled, "installer: dual-core stable firmware is the default");
   await element("go").listeners.click();
   ok(installed[0][0] === "melodee-1.0.2.fwsc" && installed[0][1] === "FM-1_91002" && installed[0][2] === MELODEE_LOADER,
@@ -1695,7 +1695,7 @@ async function installerBuilds() {
   ]) {
     for (const k of ALL) element("build-" + k).checked = k === kind;
     await element("build-" + kind).listeners.change();
-    ok(element("status").textContent === `Melodee ${version} (${tag})`, "installer: development channels report their own versions");
+    ok(element("status").textContent === `Orange Cat ${version} (${tag})`, "installer: development channels report their own versions");
     await element("go").listeners.click();
     const [image, actualProduct] = installed.at(-1);
     ok(image === file + "?commit=" + commit && actualProduct === product, "installer: development channels install their own package and identity");
@@ -1737,7 +1737,7 @@ async function installerBuildRaces() {
   element("release").listeners.change();
   ok(element("go").disabled,"installer: Install is disabled while the selected package loads");
   finish("older");await tick();finish("dual");await tick();
-  ok(element("status").textContent === "Melodee 1.0.1 (standard)","installer: a late download cannot replace the selected release");
+  ok(element("status").textContent === "Orange Cat 1.0.1 (standard)","installer: a late download cannot replace the selected release");
   const flash = element("go").listeners.click();await tick();
   ok(installed === "older" && element("build-dual").disabled && element("release").disabled,
     "installer: package and release selection are locked throughout writing");

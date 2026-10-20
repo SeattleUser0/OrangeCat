@@ -512,7 +512,8 @@ def main():
         name = f"melodee-{a.release}.fwsc"
     if a.nightly:
         revision = subprocess.check_output(["git", "rev-parse", "--short=7", "HEAD"], cwd=SRC, text=True).strip()
-        VERSION = "next-" + revision
+        VERSION = "dev-" + revision            # (Orange Cat 0.1.0) was "next-": shown in ABOUT and the editor; the
+                                               # editor identity "ORANGE CAT dev-1234567" stays inside its 24 bytes
         name = f"melodee-nightly.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
@@ -548,7 +549,7 @@ def main():
         cpu_flags["MELODEE_DUAL_CORE"] = 1
         cpu_flags["MELODEE_CORE1_FALLBACK"] = int(os.environ.get("MELODEE_CORE1_FALLBACK", "1"))
         a.cpu_manifest.write_text(json.dumps(dict(package=str((OUT / name).resolve()),
-            package_sha256=hashlib.sha256(pkg).hexdigest(), editor_identity=("MELODEE " + (VERSION or "v1.4.5"))[:24],
+            package_sha256=hashlib.sha256(pkg).hexdigest(), editor_identity=("ORANGE CAT " + (VERSION or "v0.1.0"))[:24],
             source_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SRC, text=True).strip(),
             source_status=subprocess.check_output(["git", "status", "--short"], cwd=SRC, text=True).splitlines(),
             firmware_sha256=cpu_sources, flags=cpu_flags,

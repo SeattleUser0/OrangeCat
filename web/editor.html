@@ -9,7 +9,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Melodee Editor</title>
+<title>Orange Cat Editor</title>
 <style>
   /* Fukiai: Hügelton Instruments' icon font (MIT, FUKIAI-LICENSE.txt). Icons are text in .ic spans;
      they stay hidden until the face has loaded (html.fk), so a missing font never shows boxes. */
@@ -173,7 +173,7 @@
 <main>
   <button class="lang" id="lang"></button>
   <nav class="site">
-    <span class="brand">Melodee</span>
+    <span class="brand">Orange Cat</span>
     <div class="links">
       <a href="../editor/" aria-current="page">Patch Editor</a>
       <a href="../installer/">Installer</a>
@@ -393,7 +393,7 @@
     </div>
   </section>
 
-  <footer><a href="https://github.com/keremimo/melodee" target="_blank" rel="noopener">Melodee</a> by Ellic Studio,
+  <footer><a href="https://github.com/SeattleUser0/OrangeCat" target="_blank" rel="noopener">Orange Cat</a>, based on <a href="https://github.com/keremimo/melodee" target="_blank" rel="noopener">Melodee</a> by Ellic Studio,
     based on <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a> by Leo Kuroshita (@kurogedelic),
     <a href="https://hugelton.com" target="_blank" rel="noopener">Hügelton Instruments</a>. GPL-3.0.<br>
     <span data-t="foot"></span> M-VAVE and FM-1 are trademarks of their respective owners.<br>
@@ -2930,9 +2930,9 @@ const TEXT = {
     foot: "Chrome か Edge で使えます。", iconsCredit: "アイコン: Fukiai（MIT）Hügelton Instruments",
     nomidi: "このブラウザでは使えません。Chrome か Edge で開いてください。",
     denied: "MIDI（SysEx）の使用が許可されませんでした。",
-    nodevice: "Melodee が見つかりません。USB で接続して、もう一度押してください。",
+    nodevice: "Orange Cat が見つかりません。USB で接続して、もう一度押してください。",
     connecting: "接続中", reading: "読み込み中 ", steploading: "ステップを読み込み中 ",
-    ready: "接続しました", disconnected: "切断されました", lost: "Melodee が外されました",
+    ready: "接続しました", disconnected: "切断されました", lost: "Orange Cat が外されました",
     noreply: "応答がありません", error: "エラー: ", busy: "処理中",
     applying: "書き込み中 ", applied: "読み込みました", badfile: "ファイルを読み込めません: ",
     savedSlot: "保存しました: スロット ", loadedSlot: "読み込みました: スロット ", emptySlot: "空のスロットです: ",
@@ -2968,7 +2968,7 @@ const TEXT = {
     putDone: "本体に書き込みました: スロット ", storedSlot: "本体に保存しました: スロット ", erasedSlot: "消去しました: スロット ",
     loadedUser: "音色を読み込みました（シーケンスはそのまま。パターンは本体の SEQ > PHRASES から。SAVE 長押しで元に戻せます）: ", reloaded: "本体で音色が変わったので読み直しました", readingBank: "スロットを読み込み中",
     badEngine: "このファームウェアにないエンジンです: ", flashFail: "書き込みに失敗しました（rc {rc}）",
-    installer: "Melodee インストーラー",
+    installer: "Orange Cat インストーラー",
     tabSeq: "シーケンサー", tabTracks: "トラック", tabSettings: "設定",
     needDevice: "FM-1 を接続すると編集できます。", smpNone: "このファームウェアにはユーザーサンプルのスロットがありません。",
     bankConnect: "FM-1 を接続すると本体のユーザープリセットも扱えます。", bankNone: "このファームウェアにはユーザープリセットがありません。",
@@ -3024,9 +3024,9 @@ const TEXT = {
     foot: "Works in Chrome or Edge.", iconsCredit: "Icons: Fukiai (MIT), Hügelton Instruments",
     nomidi: "This browser cannot do it. Open the page in Chrome or Edge.",
     denied: "MIDI (SysEx) access was not allowed.",
-    nodevice: "Melodee not found. Connect it by USB and press Connect again.",
+    nodevice: "Orange Cat not found. Connect it by USB and press Connect again.",
     connecting: "Connecting", reading: "Reading ", steploading: "Reading steps ",
-    ready: "Connected", disconnected: "Disconnected", lost: "Melodee was unplugged",
+    ready: "Connected", disconnected: "Disconnected", lost: "Orange Cat was unplugged",
     noreply: "No reply from the device", error: "Error: ", busy: "Busy",
     applying: "Writing ", applied: "Loaded", badfile: "Cannot read the file: ",
     savedSlot: "Saved to slot ", loadedSlot: "Loaded slot ", emptySlot: "Empty slot: ",
@@ -3062,7 +3062,7 @@ const TEXT = {
     putDone: "Written to the device: slot ", storedSlot: "Stored on the device: slot ", erasedSlot: "Erased slot ",
     loadedUser: "Sound loaded (the sequence stays; its pattern is on the device under SEQ > PHRASES; hold EDIT to undo): ", reloaded: "The sound changed on the device: read again", readingBank: "Reading the slots",
     badEngine: "This firmware has no such engine: ", flashFail: "Write failed (rc {rc})",
-    installer: "Melodee installer",
+    installer: "Orange Cat installer",
     tabSeq: "Sequencer", tabTracks: "Tracks", tabSettings: "Settings",
     needDevice: "Connect the FM-1 to edit.", smpNone: "This firmware has no user sample slots.",
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
@@ -3252,7 +3252,7 @@ async function connect() {
       }
       access.onstatechange = onState;
     }
-    const isF = (p) => /melodee|felucca/i.test(p.name || "") && p.state !== "disconnected";
+    const isF = (p) => /orange cat|melodee|felucca/i.test(p.name || "") && p.state !== "disconnected";
     const input = [...access.inputs.values()].find(isF);
     const output = [...access.outputs.values()].find(isF);
     if (!input || !output) { sayK("nodevice"); return; }
@@ -3305,7 +3305,7 @@ function disconnect(reasonKey = "disconnected") {
 
 function onState(e) {
   const p = e.port;
-  if (!p || !/melodee|felucca/i.test(p.name || "")) return;
+  if (!p || !/orange cat|melodee|felucca/i.test(p.name || "")) return;
   if (dev && p.state === "disconnected" && (p.id === dev.input.id || p.id === dev.output.id)) {
     disconnect("lost");
   } else if (!dev && wantConnected && p.state === "connected" && p.type === "output") {
@@ -3853,7 +3853,7 @@ $("backup-export").addEventListener("click", () => op(async () => {
   assertSession(d);
   const file = await captureBackup((r, o) => sessionRequest(d, r, o), d.info.version, backupProgress);
   assertSession(d);
-  download(`Melodee-backup-${new Date().toISOString().slice(0, 10)}.json`, file);
+  download(`Orange Cat-backup-${new Date().toISOString().slice(0, 10)}.json`, file);
   sayK("backupDone");
 }));
 $("backup-import").addEventListener("click", () => { if (dev?.info?.backupCaps & 2) $("backup-file").click(); });
@@ -4551,7 +4551,7 @@ $("savefile").addEventListener("click", () => op(async () => {
   if(data.engine===19){const r=parse[CMD.PROPHET](await rq(req.prophetGet(dev.sel||0)));if(r.rc)throw Error("Cannot read Prophet program");data.p5=r.raw;}
   if(data.engine===15 && data.p[dev.info.pe0+7]===2) { const r=parse[CMD.CZ_GET](await rq(req.czGet(0,dev.sel||0)));if(r.rc)throw new Error("Cannot read native CZ patch");data.cz=r.raw; }
   if(data.engineName === "FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,dev.sel||0)));if(r.rc)throw new Error("Cannot read FM6 voice");data.fm6=Array.from(r.packed); }
-  download(`melodee-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
+  download(`orangecat-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
 }));
 $("loadfile").addEventListener("click", () => { $("file").value = ""; $("file").click(); });
 $("file").addEventListener("change", async () => {
@@ -5040,7 +5040,7 @@ $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
   if(engine===19)downloadBytes(`prophet-presets-${today()}.syx`,new Uint8Array(out.flatMap(x=>Array.from(P5.sysex(x.p5)))));
   else if(engine===12){for(let i=0;i<out.length;i+=32)downloadBytes(`fm6-presets-${i/32+1}.syx`,FM6.bankSysex(out.slice(i,i+32).map(x=>FM6.unpack(x.fm6))));}
   else if(engine===15)downloadBytes(`cz1-presets-${today()}.syx`,new Uint8Array(out.flatMap(x=>Array.from(CZ.sysex(x.cz)))));
-  else download(`melodee-bank-${today()}.json`,libraryFile("bank",out,libCtx()));
+  else download(`orangecat-bank-${today()}.json`,libraryFile("bank",out,libCtx()));
   sayK("ready");
 }));
 
@@ -5214,7 +5214,7 @@ $("fm6bankexp").addEventListener("click", () => op(async () => {
     const r = parse[CMD.FM6_GET](await sessionRequest(dev, req.fm6Get(FM6.TARGET.BANK, k)));
     out.push(r.rc ? null : FM6.unpack(r.packed));
   }
-  downloadBytes(`melodee-fm6-bank-${today()}.syx`, FM6.bankSysex(out));
+  downloadBytes(`orangecat-fm6-bank-${today()}.syx`, FM6.bankSysex(out));
   sayK("fm6Exported");
 }));
 

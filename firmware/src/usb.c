@@ -193,17 +193,16 @@ static const uint8_t CFG_DESC[] = {
 };
 typedef char cfg_len_ok[sizeof CFG_DESC == CFG_LEN ? 1 : -1];
 static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
-static const uint8_t STR1[] = {26, 3, 'E', 0, 'l', 0, 'l', 0, 'i', 0, 'c', 0, ' ', 0, 'S', 0, 't', 0, 'u', 0, 'd', 0,
-                               'i', 0, 'o', 0};
+/* (Orange Cat 0.1.0) manufacturer "Orange Cat" (Melodee: "Ellic Studio") */
+static const uint8_t STR1[] = {22, 3, 'O', 0, 'r', 0, 'a', 0, 'n', 0, 'g', 0, 'e', 0, ' ', 0, 'C', 0, 'a', 0, 't', 0};
 /* Keep FM-1 in the USB name: macOS may retain this MIDI port name after a
  * firmware switch, and other installers recognise the hardware family. */
+/* (Orange Cat 0.1.0) "Orange Cat FM-1 Update" and "Orange Cat FM-1" (Melodee: "Melodee FM-1 Update", "Melodee FM-1").
+ * The installers find the device by "FM-1" in the port name, so it stays. */
 #ifdef MELODEE_LOADER
-static const uint8_t STR2[] = {40, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0,
-                               'F', 0, 'M', 0, '-', 0, '1', 0, ' ', 0, 'U', 0, 'p', 0,
-                               'd', 0, 'a', 0, 't', 0, 'e', 0};
+static const uint8_t STR2[] = {46, 3, 'O', 0, 'r', 0, 'a', 0, 'n', 0, 'g', 0, 'e', 0, ' ', 0, 'C', 0, 'a', 0, 't', 0, ' ', 0, 'F', 0, 'M', 0, '-', 0, '1', 0, ' ', 0, 'U', 0, 'p', 0, 'd', 0, 'a', 0, 't', 0, 'e', 0};
 #else
-static const uint8_t STR2[] = {26, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0,
-                               'F', 0, 'M', 0, '-', 0, '1', 0};
+static const uint8_t STR2[] = {32, 3, 'O', 0, 'r', 0, 'a', 0, 'n', 0, 'g', 0, 'e', 0, ' ', 0, 'C', 0, 'a', 0, 't', 0, ' ', 0, 'F', 0, 'M', 0, '-', 0, '1', 0};
 #endif
 #if MELODEE_USB_AUDIO                                   /* audio uses the product name (STR2) */
 static uint8_t ua_cfg[sizeof CFG_DESC];                 /* the configuration as sent (usb_audio.c ua_cfg_build) */

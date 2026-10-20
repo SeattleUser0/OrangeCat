@@ -122,7 +122,7 @@ static void fm1_fault(const fm1_crash_t *c)
     fm1_audio_stop();
     scr_wake_now();
     lcd_fill(0, 0, 240, 240, UI_CRASH_BG);            /* fixed, outside the palettes */
-    draw_text_line(0, 10, 240, TY_TX, "Melodee crash", UI_CRASH_INK, UI_CRASH_BG, 1);   /* (large type) */
+    draw_text_line(0, 10, 240, TY_TX, "Orange Cat crash", UI_CRASH_INK, UI_CRASH_BG, 1);   /* (large type) (Orange Cat 0.1.0: was "Melodee crash") */
     hexs(b, c->vec);
     draw_text_line(10, 48, 220, TY_TX, b, UI_CRASH_INK, UI_CRASH_BG, 0);
     hexs(b, c->pc);
@@ -174,8 +174,11 @@ static void fm1_main(void)
     settings_init();                           /* a readable default palette before loading flash */
     lcd_init();                                /* maintenance must be visible before any boot writes */
     lcd_fill(0, 0, 240, 240, T_BG);
-    draw_text_box(0, 70, 240, TY_HR, "MELODEE", T_THEME, 1);   /* (large type) */
-    draw_text_box(0, 140, 240, TY_TX, "Starting up", T_MID, 1);
+    /* (Orange Cat 0.1.0) the name in two lines of large type: "ORANGE CAT" in one line is 299 px wide at 48 px, wider
+     * than the 240 px screen (Melodee: "MELODEE" at y 70, the text line at 140) */
+    draw_text_box(0, 36, 240, TY_HR, "ORANGE", T_THEME, 1);
+    draw_text_box(0, 90, 240, TY_HR, "CAT", T_THEME, 1);
+    draw_text_box(0, 160, 240, TY_TX, "Starting up", T_MID, 1);
     lcd_sync();
     dsp_tables_init();                        /* the RAM lookup tables (FM6), before anything renders */
     persist_boot();
@@ -187,8 +190,9 @@ static void fm1_main(void)
     clock_boot();                             /* the voice budget at the clock found (never changed) */
     if (boot_work.state != 2u) {
         lcd_fill(0, 0, 240, 240, T_BG);
-        draw_text_box(0, 70, 240, TY_HR, "MELODEE", T_THEME, 1);
-        draw_text_box(0, 140, 240, TY_TX, "Multi-engine synth", T_MID, 1);
+        draw_text_box(0, 36, 240, TY_HR, "ORANGE", T_THEME, 1);     /* (Orange Cat 0.1.0, as above) */
+        draw_text_box(0, 90, 240, TY_HR, "CAT", T_THEME, 1);
+        draw_text_box(0, 160, 240, TY_TX, "FM-1 groovebox", T_MID, 1);
     }
     if (melodee_dbg.magic != DBG_MAGIC) {
         memset(&melodee_dbg, 0, sizeof melodee_dbg);
