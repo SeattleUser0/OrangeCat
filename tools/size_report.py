@@ -14,6 +14,8 @@ The groups are estimates: shared helpers an engine uses are counted where their 
 Used for Orange Cat build doc phase 3 (strip Melodee's engines): the cost of each engine before it is removed.
 
 Revisions:
+  0.1.1: bytes per section and the largest ungrouped symbols in the report (to refine GROUPS); every sized
+         symbol in a RAM section counts as RAM.
   0.1.0: first version.
 """
 import re
@@ -40,11 +42,13 @@ GROUPS = [   # (group, name pattern), first match wins; case-insensitive
 
 def main(objdump, elf, out=None):
     syms = subprocess.run([objdump, "-t", elf], capture_output=True, text=True, check=True).stdout
-    line = re.compile(r"^([0-9a-f]{8})\s+(.{7})\s+(\S+)\s+([0-9a-f]{8})\s+(\S+)\s*$")
+    # objdump -t line: ADDR FLAGS(7 chars) SECTION SIZE NAME; split from the right so odd flag columns still parse
+    line = re.compile(r"^([0-9a-f]{8}) (.{7}) (\S+)\s+([0-9a-f]{8})\s+(\S+)\s*$")
     flash = {".text", ".data", ".ram_text", ".dsp_text", ".dsp_tables"}
     ram = {".data", ".bss", ".pool", ".ramx", ".sbss", ".sdata"}
     by = defaultdict(lambda: [0, 0])                    # group -> [flash bytes, RAM bytes]
     big = []
+    sections = defaultdict(int)                         # (0.1.1) bytes per output section, all sized symbols
     pats = [(g, re.compile(p, re.I)) for g, p in GROUPS]
     for ln in syms.splitlines():
         m = line.match(ln)
@@ -52,7 +56,8 @@ def main(objdump, elf, out=None):
             continue
         _, flags, sec, size, name = m.groups()
         size = int(size, 16)
-        if not size or "F" not in flags and "O" not in flags:
+        sections[sec] += size
+        if not size or flags[5] in "df":                # (0.1.1) skip debug and file symbols only
             continue
         g = next((g for g, p in pats if p.search(name)), "Other")
         if sec in flash:
@@ -66,6 +71,12 @@ def main(objdump, elf, out=None):
     for g, (f, r) in rows:
         text.append(f"{g:<62} {f:>9} {r:>9}")
     text.append(f"{'total':<62} {sum(v[0] for v in by.values()):>9} {sum(v[1] for v in by.values()):>9}")
+    text += ["", "bytes per section (all sized symbols):"]
+    for sec, n in sorted(sections.items(), key=lambda kv: -kv[1]):
+        text.append(f"  {sec:<14} {n:>9}")
+    text += ["", "largest 30 symbols not in a group (Other):"]
+    for size, sec, name, g in [b for b in sorted(big, reverse=True) if b[3] == "Other"][:30]:
+        text.append(f"  {size:>8} {sec:<11} {name[:60]}")
     text += ["", "largest 40 symbols:"]
     for size, sec, name, g in sorted(big, reverse=True)[:40]:
         text.append(f"  {size:>8} {sec:<11} {name[:48]:<48} {g}")
