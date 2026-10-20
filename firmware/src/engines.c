@@ -58,7 +58,9 @@ static uint32_t eng_state_size(uint32_t e)
     case 2:                                         /* (PHASE: CZ-1's core) */
 #endif
     case ENGI_CZ: return sizeof(cz_part_t);
+#if MELODEE_SID
     case 3: return sizeof(sid_part_t);              /* SID (eng_sid.c) */
+#endif
     case ENGI_DRUM: return sizeof(drum909_part_t);
     case ENGI_FM6: return sizeof(fm6_part_t);
 #if MELODEE_SLICE
@@ -105,7 +107,11 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,                /* 2: retired PHASE; stored ID reserved (its core: CZ-1's) */
 #endif
+#if MELODEE_SID
     &ENG_SID,                    /* 3: SID replaces LOFI without reusing a stored ID */
+#else
+    &ENG_RETIRED,                /* 3: (Orange Cat) SID unhooked (MELODEE_SID=0); stored ID reserved */
+#endif
     &ENG_RETIRED,                /* 4: retired SAMPLE; reserved to preserve stored indices */
 #if MELODEE_LEGACY_EXTRAS
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
@@ -177,7 +183,10 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     6, 7, 9,
     11,                          /* NOISE */
 #else
-    ENGI_CZ, 3,                   /* CZ-1 SID */
+    ENGI_CZ,                      /* CZ-1 */
+#if MELODEE_SID
+    3,                            /* SID */
+#endif
 #endif
 #if MELODEE_SLICE
     13,                          /* SLICE */
@@ -192,7 +201,8 @@ static int eng_extra_retired(uint32_t e)
 #if !MELODEE_PROPHET_PROTOTYPE
     if (e == ENGI_ANALOG) return 1;
 #endif
-    return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u));
+    return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u))
+        || (!MELODEE_SID && e == 3u);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */

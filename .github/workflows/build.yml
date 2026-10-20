@@ -21,6 +21,8 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 5 (build doc phase 3): the firmware is built with MELODEE_SID=0 (the SID engine unhooked); tests keep the
+#         defaults.
 #   Rev 4: the pages job passes version 0.1.0 (the installer's release list needs X.Y.Z; with the commit it failed);
 #         70 lines of the size report on the run page.
 #   Rev 3 (build doc phase 3): size report by engine and area (tools/size_report.py), on the run page and in the
@@ -52,6 +54,9 @@ jobs:
         export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
         export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
         export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
+        # (rev 5, build doc phase 3) Melodee's engines unhooked from the firmware, one switch per engine (core.h).
+        # The host tests (the test step) keep the defaults, so they still test every engine's source.
+        export MELODEE_SID=0
         # Pillow needs Raqm (HarfBuzz, FriBidi) for the UI font's OpenType features; mido for the MIDI tools
         sudo apt-get update
         sudo apt-get install -y libharfbuzz-dev libfribidi-dev libraqm-dev

@@ -46,6 +46,14 @@
                                  * 2026-10-10: the flash for the redesign; CZ-1 keeps PHASE's phase-distortion core) */
 #endif
 #define MELODEE_PROPHET 1
+/* (Orange Cat, build doc phase 3) Engine switches: 0 unhooks an engine from the firmware. Its number stays reserved
+ * (stored sounds keep their identity and play silent, like Melodee's retired engines), every path into its code is
+ * guarded by the switch, and the linker drops what is no longer reached (-ffunction-sections, -fdata-sections).
+ * The source stays, so the host tests (built with the defaults, 1) keep testing it. build.py passes MELODEE_<NAME>
+ * from the environment; the Orange Cat workflow sets them to 0. */
+#ifndef MELODEE_SID
+#define MELODEE_SID 1             /* SID (engine 3). 0: the engine goes; its chip model stays while DRUM's SID kit uses it */
+#endif
 #define ENGI_FM6 12u
 #define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
 #define USER_GENERAL 16u
@@ -56,7 +64,7 @@
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID)   /* (Orange Cat: - SID) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS
