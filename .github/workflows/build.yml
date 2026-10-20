@@ -21,6 +21,8 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 3 (build doc phase 3): size report by engine and area (tools/size_report.py), on the run page and in the
+#         packages artifact.
 #   Rev 2 (Orange Cat 0.1.0, the rename): packages named orangecat-*.fwsc; the pages job (tools/orangecat_site.py).
 #   Rev 1 (Orange Cat build doc phase 1): first version. Replaces Melodee's nightly.yml and release.yml (still in the
 #         upstream history). Builds Melodee 1.4.5 unchanged; names stay "melodee" until the rename step of phase 1.
@@ -65,6 +67,11 @@ jobs:
           echo "::error title=build failed::$msg"
           exit 1
         fi
+        # (rev 3) what the image is made of, by engine and area (tools/size_report.py): the run page, and
+        # build/orangecat-size-report.txt in the packages artifact
+        rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \
+              | head -18 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+        echo "::notice title=size by engine and area::$rep"
         # (rev 2) the package under Orange Cat's name: orangecat-X.Y[.Z].fwsc (tag) or orangecat-0.1.0-<commit>.fwsc
         if [ "$GITHUB_REF_TYPE" = tag ]; then
           cp "build/melodee-${GITHUB_REF_NAME#v}.fwsc" "build/orangecat-${GITHUB_REF_NAME#v}.fwsc"
@@ -85,7 +92,7 @@ jobs:
           echo "::error title=tests failed::$msg"
           exit 1
         fi
-      packages: build/orangecat-*.fwsc
+      packages: build/orangecat-*
 
   pages:                                         # (rev 2) the installer with this build, and the editor, on GitHub Pages
     needs: build
