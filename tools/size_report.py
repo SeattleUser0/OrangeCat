@@ -14,6 +14,8 @@ The groups are estimates: shared helpers an engine uses are counted where their 
 Used for Orange Cat build doc phase 3 (strip Melodee's engines): the cost of each engine before it is removed.
 
 Revisions:
+  0.1.2: SRAM-resident code (.audio_text and the rest copied at boot) counted in flash and RAM; 909 (d9_) and
+         drum sample kit (dsk) names in the DRUM group; all RAM sections listed.
   0.1.1: bytes per section and the largest ungrouped symbols in the report (to refine GROUPS); every sized
          symbol in a RAM section counts as RAM.
   0.1.0: first version.
@@ -28,7 +30,7 @@ GROUPS = [   # (group, name pattern), first match wins; case-insensitive
     ("CZ-1 engine", r"^cz_|_cz_|^CZ_|cz1|^upd933|ENG_CZ|eng_cz"),
     ("SID engine", r"^sid_|_sid_|^SID_|resid|ENG_SID|eng_sid|drum_sid"),
     ("FM6 engine", r"fm6|^dx7|dexed|msfa|^FM6|ENG_FM6|fm4_"),
-    ("DRUM engine (808, 909)", r"drum|^x0x|^d909|^d808|909|808|ENG_DRUM|eng_drum|kit"),
+    ("DRUM engine (808, 909)", r"drum|^x0x|^d909|^d808|909|808|ENG_DRUM|eng_drum|kit|^d9_|^d8_|^dsk|^DSK"),
     ("Other engines (PHASE, VOICE, TRIO, WHEEL, PHYS, NOISE, SLICE)",
      r"^phase_|eng_phase|formant|klatt|^trio|eng_trio|wheel|^phys|eng_phys|^noise_|eng_noise|^slc_|slice"),
     ("Effects", r"^fx_|_fx_|fx\b|reverb|delay|chorus|phaser|^tape|echo|^rev_|^dly_|insert"),
@@ -44,8 +46,11 @@ def main(objdump, elf, out=None):
     syms = subprocess.run([objdump, "-t", elf], capture_output=True, text=True, check=True).stdout
     # objdump -t line: ADDR FLAGS(7 chars) SECTION SIZE NAME; split from the right so odd flag columns still parse
     line = re.compile(r"^([0-9a-f]{8}) (.{7}) (\S+)\s+([0-9a-f]{8})\s+(\S+)\s*$")
-    flash = {".text", ".data", ".ram_text", ".dsp_text", ".dsp_tables"}
-    ram = {".data", ".bss", ".pool", ".ramx", ".sbss", ".sdata"}
+    # (0.1.2) code and tables copied from flash to SRAM at boot (.audio_text, .dsp_text, .dsp_tables, .ram_text,
+    # .data) count in both columns: they take flash for the copy and SRAM while running
+    loaded = {".data", ".ram_text", ".dsp_text", ".dsp_tables", ".audio_text"}
+    flash = {".text"} | loaded
+    ram = {".bss", ".pool", ".ramx", ".sbss", ".sdata", ".noinit", ".cpu1_stacks", ".audio_scratch"} | loaded
     by = defaultdict(lambda: [0, 0])                    # group -> [flash bytes, RAM bytes]
     big = []
     sections = defaultdict(int)                         # (0.1.1) bytes per output section, all sized symbols
