@@ -1138,7 +1138,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         motion_unguard(f);
         return;
     }
-    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
+    if ((MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)) {   /* (a copy of FM6's value: written back there) */
         uint8_t old[MO_NATIVE_N];
         uint32_t f = motion_guard();
         motion_native_peek(TSEL, old);
@@ -1240,7 +1240,7 @@ static void act_do(void)
         return;
     }
 #endif
-    if (cur_page()->graph == GR_FMSTORE) {                /* FM6: 1 STORE (into fm6_bslot), 2 SEND, 3 INIT */
+    if (MELODEE_FM6 && cur_page()->graph == GR_FMSTORE) {   /* (Orange Cat: MELODEE_FM6) */                /* FM6: 1 STORE (into fm6_bslot), 2 SEND, 3 INIT */
         if (c == 1u) {
             if (transport_busy()) ui_message("STOP TO SAVE");
             else if (up_used(fm6_bslot) || up_old(fm6_bslot)) confirm_open(CF_OVR_USER, fm6_bslot);
@@ -2465,7 +2465,7 @@ static void ui_input(void)
     } else if (s && sec_on()) {                         /* an engine in sections: the next / previous one (FM6's
                                                          * operators are sections: ui_sections.c) */
         sec_turn(s);
-    } else if (s && !ui.home && cur_page()->scope == SC_FMOP) {   /* FM6's operator pages: the operator */
+    } else if (s && !ui.home && (MELODEE_FM6 && cur_page()->scope == SC_FMOP)) {   /* FM6's operator pages: the operator */
         fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);
         ui.force = 1;
     }

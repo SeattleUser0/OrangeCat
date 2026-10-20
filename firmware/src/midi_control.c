@@ -260,7 +260,7 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
         motion_native_peek(t,old);
         if(t->eng_req==ENGI_PROPHET){
             p5_edit_value(t,cc==72?P5_RELEASE_AMP:cc==73?P5_ATTACK_AMP:P5_DECAY_AMP,value);
-        }else if(t->eng_req==ENGI_FM6){
+        }else if((MELODEE_FM6 && t->eng_req == ENGI_FM6)){
             uint8_t raw[FP_SIZE+1u];memcpy(raw,fm6_patch[trk_index(t)],sizeof raw);
             for(uint32_t op=0;op<6;op++)raw[op*FP_OP+(cc==72?3:cc==73?0:1)]=(uint8_t)(99u-value*99u/127u);
             fm6_put_patch(trk_index(t),raw,0);

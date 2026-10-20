@@ -301,7 +301,7 @@ static void fm1_main(void)
             }
         }
         if (MELODEE_CZ) cz_service();   /* (Orange Cat: MELODEE_CZ) */
-        fm6_service();                                  /* DX7 SysEx for FM6, a pending FM6 settings save */
+        if (MELODEE_FM6) fm6_service();                 /* (Orange Cat: MELODEE_FM6) DX7 SysEx for FM6, a pending FM6 settings save */
 #if MELODEE_OTA
         ed_service();                                   /* web editor SysEx */
         ota_service();                                  /* M-UPGRADE handshake */

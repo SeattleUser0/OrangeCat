@@ -40,7 +40,7 @@ static void designer_snapshot(designer_sound_t *s)
     memset(s,0,sizeof *s);
     s->eng=t->eng_req;s->preset=t->preset;s->user=t->user;s->native=t->user_native;
     memcpy(s->p,t->p,sizeof s->p);
-    if(s->eng==ENGI_FM6){memcpy(s->raw.fm.patch,fm6_patch[k],sizeof s->raw.fm.patch);memcpy(s->raw.fm.fn,fm6_fn[k],FM6_NFN);s->raw.fm.on=fm6_on[k];}
+    if((MELODEE_FM6 && s->eng == ENGI_FM6)){memcpy(s->raw.fm.patch,fm6_patch[k],sizeof s->raw.fm.patch);memcpy(s->raw.fm.fn,fm6_fn[k],FM6_NFN);s->raw.fm.on=fm6_on[k];}
     else if(MELODEE_CZ && s->eng==ENGI_CZ)s->raw.cz=cz_patch[k];
     else if(s->eng==ENGI_PROPHET)s->raw.p5=*p5_patch_of(t);
     else if(s->eng==ENGI_DRUM)s->raw.drum=drum_patch[k];
@@ -51,7 +51,7 @@ static void designer_restore(const designer_sound_t *s)
     panic_req|=(uint8_t)(1u<<k);
     t->eng_req=s->eng;t->preset=s->preset;t->user=s->user;t->user_native=s->native;
     for(uint32_t i=0;i<P_COUNT;i++)if(!param_kept(i))t->p[i]=s->p[i];
-    if(s->eng==ENGI_FM6){fm6_put_patch(k,s->raw.fm.patch,0);memcpy(fm6_fn[k],s->raw.fm.fn,FM6_NFN);fm6_on[k]=s->raw.fm.on;}
+    if((MELODEE_FM6 && s->eng == ENGI_FM6)){fm6_put_patch(k,s->raw.fm.patch,0);memcpy(fm6_fn[k],s->raw.fm.fn,FM6_NFN);fm6_on[k]=s->raw.fm.on;}
     else if(MELODEE_CZ && s->eng==ENGI_CZ){cz_patch[k]=s->raw.cz;cz_track_accept(t);}
     else if(s->eng==ENGI_PROPHET){p5_patch[k]=s->raw.p5;p5_ready[k]=1;}
     else if(s->eng==ENGI_DRUM)drum_patch[k]=s->raw.drum;
@@ -71,7 +71,7 @@ static void designer_open(void)
     if(chain_busy()){ui_message("STOP SONG TO DESIGN");return;}
     browse_commit();momentary_restore();pop_close();smap.on=0;
     memset(&ds,0,sizeof ds);ds.track=song.sel;ds.eng=TSEL->eng_req;
-    if(!eng_ok(ds.eng))ds.eng=ENGI_FM6;
+    if(!eng_ok(ds.eng))ds.eng=ENGI_FALLBACK;   /* (Orange Cat: was ENGI_FM6) */
     ds.current=1;ds.old_home=ui.home;ds.old_page=ui.page;
     designer_quit=designer_close;ui.designer_mode=DS_SETUP;ui.home=0;ui.menu=0;ui.layer=ui.lock=ui.ly=0;ui.ly_t0=0;
     ui.pg_down=0;ui.force=1;ui.msg_t=0;ui.act=0;
@@ -116,7 +116,7 @@ static const uint8_t *designer_feats(uint32_t *n)       /* the selected track's 
     uint32_t e=TSEL->eng_req;
     if(drum_track(TSEL)){*n=0;return 0;}
     *n=e==ENGI_PROPHET?sizeof DS_F_P5:e==ENGI_FM6?sizeof DS_F_FM:e==ENGI_CZ?sizeof DS_F_CZ:sizeof DS_F_ANY;
-    return e==ENGI_PROPHET?DS_F_P5:e==ENGI_FM6?DS_F_FM:e==ENGI_CZ?DS_F_CZ:DS_F_ANY;
+    return e==ENGI_PROPHET?DS_F_P5:(MELODEE_FM6 && e == ENGI_FM6)?DS_F_FM:e==ENGI_CZ?DS_F_CZ:DS_F_ANY;
 }
 static int designer_feat_on(void) { return ui.designer_mode==DS_SHAPE && ds.n && ds.route[ds.at].page==DS_FEAT; }
 static uint32_t designer_feat_states(uint32_t f) { return f==DF_VOICE || f==DF_LINES ? 4u : 2u; }
@@ -129,7 +129,7 @@ static uint32_t designer_feat_get(uint32_t f)
     track_t *t=TSEL;const uint8_t *q=p5_patch_of(t)->raw,*v=fm6_patch[song.sel];
     uint8_t c[LCZ_PACKED];
     if(MELODEE_CZ && f>=DF_LINES && f<=DF_CZVIB)cz_ed_decode(c,cz_patch[song.sel].raw);
-    if(f>=DF_OP1 && f<=DF_OP6){uint32_t k=5u-(f-DF_OP1);return fm6_op_on(t,k) && v[k*FP_OP+FP_OL];}
+    if(MELODEE_FM6 && f>=DF_OP1 && f<=DF_OP6){uint32_t k=5u-(f-DF_OP1);return fm6_op_on(t,k) && v[k*FP_OP+FP_OL];}
     switch(f){
     case DF_OSCB:return designer_p5_on(q,P5_LEVEL_B,P_E7,q[P5_SAW_B]||q[P5_TRI_B]||q[P5_PULSE_B]);
     case DF_PULSEA:return q[P5_PULSE_A]!=0;
@@ -228,7 +228,7 @@ static void designer_feat_set(uint32_t f,uint32_t s)
         }
         return;
     }
-    if(f>=DF_OP1 && f<=DF_PEG){
+    if(MELODEE_FM6 && f>=DF_OP1 && f<=DF_PEG){   /* (Orange Cat: MELODEE_FM6) */
         uint8_t v[FP_SIZE+1u];memcpy(v,fm6_patch[song.sel],sizeof v);
         if(f>=DF_OP1 && f<=DF_OP6){
             uint32_t k=5u-(f-DF_OP1);
@@ -296,7 +296,7 @@ static const char *designer_silent(void)
         const uint8_t *q=p5_patch_of(t)->raw;
         if(!designer_p5_on(q,P5_LEVEL_A,P_E6,q[P5_SAW_A]||q[P5_PULSE_A]) && !designer_feat_get(DF_OSCB) && !q[P5_NOISE])
             return "MIXER SILENT";
-    }else if(t->eng_req==ENGI_FM6){
+    }else if((MELODEE_FM6 && t->eng_req == ENGI_FM6)){
         uint32_t c=fm6_carriers(fm6_patch[song.sel][FP_ALG]);
         for(uint32_t k=0;k<6u;k++)if(((c>>k)&1u) && fm6_op_on(t,k) && fm6_patch[song.sel][k*FP_OP+FP_OL])return 0;
         return "NO CARRIER ON";
@@ -322,7 +322,7 @@ static void designer_recipe(void)
         if(g==DG_LEAD){p[P5_UNISON]=1;p[P5_UNISON_COUNT]=3;p[P5_UNISON_DETUNE]=2;}
         if(g==DG_FX){p[P5_POLY_B]=25;p[P5_POLY_FREQ]=1;p[P5_SAW_B]=1;p[P5_LOW_B]=1;p[P5_KEY_B]=0;}
         p5_track_accept(t);
-    }else if(t->eng_req==ENGI_FM6){
+    }else if((MELODEE_FM6 && t->eng_req == ENGI_FM6)){
         uint8_t v[FP_SIZE+1u];memcpy(v,fm6_patch[song.sel],sizeof v);
         v[FP_ALG]=4; /* three independent two-operator pairs */
         for(uint32_t op=0;op<6;op++){
@@ -383,8 +383,8 @@ static int designer_guided(uint32_t i)
                                      "PITCH EG","PITCH LV","LFO 2","MOD"};
     const page_t *p=&PAGES[i];const char *s=p->title;uint32_t e=TSEL->eng_req;
     for(uint32_t j=0;j<NELEM(skip);j++)if(str_eq(s,skip[j]))return 0;
-    if(p->scope==SC_TRACK && p->fam==FAM_LFO && (e==ENGI_PROPHET || e==ENGI_FM6 || e==ENGI_CZ || drum_track(TSEL)))return 0;
-    if(e==ENGI_FM6 && p->scope==SC_ENGINE)return 0;
+    if(p->scope==SC_TRACK && p->fam==FAM_LFO && (e==ENGI_PROPHET || (MELODEE_FM6 && e == ENGI_FM6) || e==ENGI_CZ || drum_track(TSEL)))return 0;
+    if((MELODEE_FM6 && e == ENGI_FM6) && p->scope==SC_ENGINE)return 0;
     if(str_prefix(s,"C1 PIT") || str_prefix(s,"C2 PIT"))return 0;
     if((str_prefix(s,"C1 ") || str_prefix(s,"C2 ")) && (str_prefix(s+7,"R5") || str_prefix(s+7,"L5")))return 0;
     return 1;
@@ -418,11 +418,11 @@ static void designer_route(void)
         int ops_done=0;
         for(i=0;i<NPAGES;i++){
             if(!designer_in(i,st) || (PAGES[i].scope==SC_TRACK)!=(int)pass)continue;
-            if(PAGES[i].scope!=SC_FMOP){if(designer_live(i))designer_add(i,0,st);continue;}
+            if((!MELODEE_FM6 || PAGES[i].scope != SC_FMOP)){if(designer_live(i))designer_add(i,0,st);continue;}
             if(ops_done)continue;
             ops_done=1;
             for(op=0;op<6u;op++)if(designer_feat_get(DF_OP1+op))
-                for(j=i;j<NPAGES;j++)if(PAGES[j].scope==SC_FMOP && designer_in(j,st))designer_add(j,op,st);
+                for(j=i;j<NPAGES;j++)if((MELODEE_FM6 && PAGES[j].scope == SC_FMOP) && designer_in(j,st))designer_add(j,op,st);
         }
     }
 }
@@ -468,7 +468,7 @@ static uint32_t designer_need(void)
         case P5_ATTACK_FILTER:case P5_DECAY_FILTER:case P5_SUSTAIN_FILTER:case P5_VEL_FILTER:return DF_FENV;
         default:return DF_LFO;                          /* rate, waves, initial, mix */
     }
-    if(p->scope==SC_FMOP && id!=FP_OP && !designer_feat_get(DF_OP1+fm6_opsel%6u))return DF_OP1+fm6_opsel%6u;
+    if((MELODEE_FM6 && p->scope == SC_FMOP) && id!=FP_OP && !designer_feat_get(DF_OP1+fm6_opsel%6u))return DF_OP1+fm6_opsel%6u;
     if(p->scope==SC_CZ1 && !cz_ed_active(cz_patch[song.sel].raw,id)){
         uint32_t line;
         if(id==LCZ_VWAVE || id==LCZ_VRATE || id==LCZ_VDELAY)return DF_CZVIB;
@@ -488,7 +488,7 @@ static uint32_t designer_need(void)
 static void designer_enable(int32_t s)
 {
     char b[24];uint32_t f=DF_NONE,n=0,i;
-    if(cur_page()->scope==SC_FMOP && cur_page()->id[ds.focus&3u]==FP_OL && s<0)return;
+    if((MELODEE_FM6 && cur_page()->scope == SC_FMOP) && cur_page()->id[ds.focus&3u]==FP_OL && s<0)return;
     while(n<3u && (f=designer_need())<DF_COUNT){
         fm1_irq_off();designer_feat_set(f,f==DF_VOICE?V_UNISON:f==DF_LINES?2u:1u);fm1_irq_on();
         sync_reload=1;n++;
@@ -505,7 +505,7 @@ static int designer_head_chip(char *b)
 {
     const char *c=ds.compare?"ORIGINAL":ui.designer_mode==DS_SETUP?"DESIGN":designer_feat_on()?"FEATURES":0;
     if(c){str_cpy(b,c,16);return 1;}
-    if(cur_page()->scope==SC_FMOP){                     /* (the tabs are the stages: the operator, the line here) */
+    if((MELODEE_FM6 && cur_page()->scope == SC_FMOP)){                     /* (the tabs are the stages: the operator, the line here) */
         str_cpy(b,"OP1 ",16);b[2]=(char)('1'+fm6_opsel%6u);sec_chip(ui.page,b+4,12);return 1;
     }
     if(cur_page()->scope==SC_CZ1){str_cpy(b,cur_page()->title,16);return 1;}
@@ -571,7 +571,7 @@ static int designer_feat_cap(uint32_t r,char *lb,char *v,uint16_t *vc)
     uint32_t n,f,st;const uint8_t *fs=designer_feats(&n);
     f=fs[r%n];st=designer_feat_get(f);
     str_cpy(lb,DF_WORD[f],16);
-    if(f>=DF_OP1 && f<=DF_OP6)
+    if(MELODEE_FM6 && f>=DF_OP1 && f<=DF_OP6)
         str_cpy(lb+3,(fm6_carriers(fm6_patch[song.sel][FP_ALG])>>(5u-(f-DF_OP1)))&1u?" carrier":" modulator",13);
     str_cpy(v,designer_feat_text(f,st),16);
     *vc=st || designer_feat_states(f)>2u?T_TEXT:T_DIM;

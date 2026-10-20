@@ -187,7 +187,7 @@ static void head_pages(int32_t x, int32_t x1)          /* (x: after the transpor
         designer_pages(&n, &k);
     else for (i = 0; i < NPAGES; i++)                   /* (an engine in sections: the section's pages) */
         if (PAGES[i].fam == pg->fam && page_visible(i) &&
-            (!sc || (PAGES[i].scope == SC_FMOP ? PAGES[ui.page].scope == SC_FMOP : sec_of(i) + 1u == sc))) {
+            (!sc || ((MELODEE_FM6 && PAGES[i].scope == SC_FMOP) ? (MELODEE_FM6 && PAGES[ui.page].scope == SC_FMOP) : sec_of(i) + 1u == sc))) {
             if (i == ui.page)
                 k = n;
             n++;

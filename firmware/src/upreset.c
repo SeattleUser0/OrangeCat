@@ -140,7 +140,7 @@ static up_rec_t *up_rec(uint32_t k) { return &up_cache_bank(k / UP_PER_BANK)->r[
 static int up_native_cz(const up_rec_t *r){return MELODEE_CZ && r->engine==ENGI_CZ &&   /* (Orange Cat: MELODEE_CZ) */ (r->ver==UP_VER_CZ || r->ver==UP_VER_NATIVE_CZ);}
 static int up_native(const up_rec_t *r)
 {
-    return (r->engine==ENGI_FM6 && r->ver==UP_VER_FM) || (r->engine==ENGI_PROPHET && r->ver==UP_VER_P5) || (r->engine==ENGI_CZ && r->ver==UP_VER_NATIVE_CZ);
+    return ((MELODEE_FM6 && r->engine == ENGI_FM6) && r->ver==UP_VER_FM) || (r->engine==ENGI_PROPHET && r->ver==UP_VER_P5) || (r->engine==ENGI_CZ && r->ver==UP_VER_NATIVE_CZ);
 }
 static int up_cz_raw(const up_rec_t *r,uint8_t *raw)
 {
@@ -160,7 +160,7 @@ static int up_valid(const up_rec_t *r)
         if(!r->name[0] || (r->np && r->np!=sizeof UP_NATIVE_PARAMS))return 0;
         for(uint32_t i=0;i<r->np;i++)if(r->cz_extra[i]>191u)return 0;
         if(r->engine==ENGI_CZ)return cz_patch_valid(r->packed);
-        if(r->engine==ENGI_FM6){for(uint32_t i=0;i<128u;i++)if(r->packed[i]>127u)return 0;return 1;}
+        if((MELODEE_FM6 && r->engine == ENGI_FM6)){for(uint32_t i=0;i<128u;i++)if(r->packed[i]>127u)return 0;return 1;}
 #ifndef UP_HOST
         p5_patch_t p;memcpy(&p,r->packed,sizeof p);return p5_patch_valid(&p);
 #else
@@ -522,8 +522,8 @@ static void up_set_name(up_rec_t *r, uint32_t k, const char *name)
 /* the selected part's sound -> slot k; name 0 or "": the automatic name (up_auto_name); up_put's result */
 static void up_native_name(up_rec_t *r,const char *name)
 {
-    uint32_t e=r->engine,off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u;
-    uint32_t len=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u;
+    uint32_t e=r->engine,off=e==ENGI_PROPHET?P5_NAME:(MELODEE_FM6 && e == ENGI_FM6)?118u:128u;
+    uint32_t len=e==ENGI_PROPHET?20u:(MELODEE_FM6 && e == ENGI_FM6)?10u:16u;
     memset(r->packed+off,' ',len);
     for(uint32_t i=0;i<len && name && name[i];i++)r->packed[off+i]=(uint8_t)name[i];
 }
@@ -534,9 +534,9 @@ static int up_store_to(uint32_t k,uint32_t tr,const char *name)
     track_t *t=&trk[tr];up_rec_t r;
     memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER;r.engine=t->eng_req;r.np=P_COUNT;
     up_set_name(&r,k,name);
-    if(r.engine==ENGI_FM6 || r.engine==ENGI_PROPHET || (r.engine==ENGI_CZ && t->p[P_E7]==CZ_NATIVE)){
-        r.ver=r.engine==ENGI_FM6?UP_VER_FM:r.engine==ENGI_PROPHET?UP_VER_P5:UP_VER_NATIVE_CZ;
-        if(r.engine==ENGI_FM6)fm6_pack(fm6_patch[tr],r.packed);
+    if((MELODEE_FM6 && r.engine == ENGI_FM6) || r.engine==ENGI_PROPHET || (r.engine==ENGI_CZ && t->p[P_E7]==CZ_NATIVE)){
+        r.ver=(MELODEE_FM6 && r.engine == ENGI_FM6)?UP_VER_FM:r.engine==ENGI_PROPHET?UP_VER_P5:UP_VER_NATIVE_CZ;
+        if((MELODEE_FM6 && r.engine == ENGI_FM6))fm6_pack(fm6_patch[tr],r.packed);
         else if(r.engine==ENGI_PROPHET)memcpy(r.packed,p5_patch_of(t),sizeof(p5_patch_t));
         else memcpy(r.packed,cz_patch[tr].raw,CZ_BYTES);
         r.np=sizeof UP_NATIVE_PARAMS;
@@ -597,7 +597,7 @@ static int up_load_to(uint32_t k,uint32_t tr)
         if(r->engine==ENGI_PROPHET && r->ver==UP_VER_P5){memcpy(&p5_patch[tr],r->packed,sizeof(p5_patch_t));p5_ready[tr]=1;p5_track_accept(t);}
         if (MELODEE_CZ) cz_track_accept(t);   /* (Orange Cat: MELODEE_CZ) */
         fm1_irq_on();
-        if (t->eng_req == ENGI_FM6) {                   /* FM6: its voice, native slot k (else INIT) */
+        if ((MELODEE_FM6 && t->eng_req == ENGI_FM6)) {                   /* FM6: its voice, native slot k (else INIT) */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(r->ver==UP_VER_FM?r->packed:FM6_INIT,v);
             fm6_set_patch(tr, v);

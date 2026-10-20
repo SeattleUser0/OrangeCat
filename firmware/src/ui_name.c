@@ -47,7 +47,7 @@ static struct {
 static uint32_t name_limit(void)
 {
     if(nm.kind==NK_CZ_NAME)return CZ_NAME_LEN;
-    if((nm.kind==NK_USER_SAVE || nm.kind==NK_USER_RENAME) && native_limit(nm.kind==NK_USER_RENAME?up_engine(nm.slot):TSEL->eng_req)) {uint32_t e=nm.kind==NK_USER_RENAME?up_engine(nm.slot):TSEL->eng_req;return e==ENGI_PROPHET?P5_NAME_LEN:e==ENGI_FM6?10u:CZ_NAME_LEN;}
+    if((nm.kind==NK_USER_SAVE || nm.kind==NK_USER_RENAME) && native_limit(nm.kind==NK_USER_RENAME?up_engine(nm.slot):TSEL->eng_req)) {uint32_t e=nm.kind==NK_USER_RENAME?up_engine(nm.slot):TSEL->eng_req;return e==ENGI_PROPHET?P5_NAME_LEN:(MELODEE_FM6 && e == ENGI_FM6)?10u:CZ_NAME_LEN;}
     return NM_LEN;
 }
 static int name_on(void) { return nm.kind != NK_NONE; }
@@ -98,7 +98,7 @@ static void name_open(uint32_t kind, uint32_t slot)
         up_auto_name(nm.ph, e, slot);
         uint32_t origin=kind==NK_USER_RENAME?slot:user_of(TSEL);
         if(origin<USER_NONE && native_used(e,origin)){
-            uint32_t len=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u,off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u;
+            uint32_t len=e==ENGI_PROPHET?20u:(MELODEE_FM6 && e == ENGI_FM6)?10u:16u,off=e==ENGI_PROPHET?P5_NAME:(MELODEE_FM6 && e == ENGI_FM6)?118u:128u;
             memcpy(b,native_raw(e,origin)+off,len);b[len]=0;
             for(uint32_t i=0;i<len;i++)if(b[i]<' ' || b[i]>'~')b[i]=' ';
             for(uint32_t i=len;i && b[i-1]==' ';i--)b[i-1]=0;
@@ -106,7 +106,7 @@ static void name_open(uint32_t kind, uint32_t slot)
         else if (origin < UP_SLOTS)
             up_name(origin, b);
         else if(native_limit(e)){
-            if(e==ENGI_PROPHET)p5_patch_name(b,p5_patch_of(TSEL));else if(e==ENGI_FM6)fm6_name(b,fm6_patch[song.sel]);else {memcpy(b,cz_patch[song.sel].raw+128,16);b[16]=0;}
+            if(e==ENGI_PROPHET)p5_patch_name(b,p5_patch_of(TSEL));else if((MELODEE_FM6 && e == ENGI_FM6))fm6_name(b,fm6_patch[song.sel]);else {memcpy(b,cz_patch[song.sel].raw+128,16);b[16]=0;}
         }
         else
             str_cpy(b, nm.ph, sizeof b);

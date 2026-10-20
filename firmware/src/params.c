@@ -57,7 +57,7 @@ static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", 
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "", "", "", "", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH"};
 static const char *const N_ENGNAME[] = {"-", "-", MELODEE_LEGACY_EXTRAS ? "PHASE" : "-", MELODEE_SID ? "SID" : "-", "-", MELODEE_LEGACY_EXTRAS ? "VOICE" : "-", (MELODEE_LEGACY_EXTRAS || MELODEE_TRIO) ? "TRIO" : "-", MELODEE_LEGACY_EXTRAS ? "WHEEL" : "-", "-", MELODEE_LEGACY_EXTRAS ? "PHYS" : "-",
-                                             "DRUM", MELODEE_LEGACY_EXTRAS ? "NOISE" : "-", "FM6", MELODEE_SLICE ? "SLICE" : "-", "-", "CZ-1", "-", "-", "-", "PROPHET"};
+                                             "DRUM", MELODEE_LEGACY_EXTRAS ? "NOISE" : "-", MELODEE_FM6 ? "FM6" : "-", MELODEE_SLICE ? "SLICE" : "-", "-", "CZ-1", "-", "-", "-", "PROPHET"};
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
 #define PE(l, n, df) {l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n, 0}
@@ -630,12 +630,12 @@ static const param_desc_t *fm6_page_desc(const page_t *pg, uint32_t slot, int16_
     const uint8_t *v = fm6_patch[tr];
     const param_desc_t *d;
     *valp = 0;
-    if (id == 0xFFu || TSEL->eng_req != ENGI_FM6)
+    if (id == 0xFFu || (!MELODEE_FM6 || TSEL->eng_req != ENGI_FM6))
         return 0;
     if (pg->graph == GR_FMSTORE) {
         fm6_cell[slot] = (int16_t)(slot ? 0 : fm6_bslot + 1u);
         d = &FM6_SD[slot & 3u];
-    } else if (pg->scope == SC_FMOP) {
+    } else if ((MELODEE_FM6 && pg->scope == SC_FMOP)) {
         uint32_t k = 5u - fm6_opsel % 6u;               /* the patch keeps the sixth operator first */
         fm6_cell[slot] = (int16_t)(id == FP_OP ? (fm6_on[tr] >> k) & 1u : v[k * FP_OP + id]);
         d = &FM6_OPD[id];
@@ -663,7 +663,7 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
         return;
     }
     memcpy(v, fm6_patch[tr], FP_SIZE);
-    if (pg->scope == SC_FMOP) {
+    if ((MELODEE_FM6 && pg->scope == SC_FMOP)) {
         uint32_t k = 5u - fm6_opsel % 6u;
         if (id == FP_OP) {
             fm6_on[tr] = (uint8_t)(val ? fm6_on[tr] | 1u << k : fm6_on[tr] & ~(1u << k));
@@ -752,7 +752,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         }
         return cz_ed_desc(song.sel % NTRK, id, slot, valp);
     }
-    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP)
+    if ((MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP))
         return fm6_page_desc(pg, slot, valp);
     if(pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT){*valp=0;return 0;}
     if (pg->graph == GR_FXRACK)

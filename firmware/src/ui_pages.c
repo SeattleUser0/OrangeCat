@@ -595,7 +595,7 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
         return 5u;
     if (pg->graph == GR_CHORD)                          /* CHORD: its name, its notes (ui_graph.c) */
         return 8u;
-    if ((pg->scope == SC_ENGINE || pg->scope == SC_FM6 || pg->scope == SC_FMOP) && e == ENGI_FM6)
+    if ((pg->scope == SC_ENGINE || (MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)) && (MELODEE_FM6 && e == ENGI_FM6))
         return 4;
     for (c = 0; c < 4u; c++) {
         int16_t *vp;

@@ -30,14 +30,14 @@ static int up_favorite_set(uint32_t k,int on)
 }
 static uint32_t native_limit(uint32_t e)
 {
-    return e==ENGI_PROPHET || e==ENGI_FM6 || e==ENGI_CZ ? UP_SLOTS : 0u;
+    return e==ENGI_PROPHET || (MELODEE_FM6 && e == ENGI_FM6) || e==ENGI_CZ ? UP_SLOTS : 0u;
 }
 static void shared_native_record(up_rec_t *r,uint32_t e,const uint8_t *raw)
 {
     memset(r,0,sizeof *r);r->used=UP_USED;r->engine=(uint8_t)e;
-    r->ver=e==ENGI_FM6?UP_VER_FM:e==ENGI_PROPHET?UP_VER_P5:UP_VER_NATIVE_CZ;
+    r->ver=(MELODEE_FM6 && e == ENGI_FM6)?UP_VER_FM:e==ENGI_PROPHET?UP_VER_P5:UP_VER_NATIVE_CZ;
     memcpy(r->packed,raw,native_size(e));
-    uint32_t off=e==ENGI_FM6?118u:e==ENGI_PROPHET?P5_NAME:128u,len=e==ENGI_FM6?10u:12u,n=0;
+    uint32_t off=(MELODEE_FM6 && e == ENGI_FM6)?118u:e==ENGI_PROPHET?P5_NAME:128u,len=(MELODEE_FM6 && e == ENGI_FM6)?10u:12u,n=0;
     for(uint32_t i=0;i<len;i++){uint8_t c=raw[off+i];r->name[i]=c>=32u&&c<=126u?(char)c:' ';if(r->name[i]!=' ')n=i+1u;}
     if(!n)memcpy(r->name,"UNTITLED",8u);
 }
@@ -232,7 +232,7 @@ static void shared_boot(void)
              * programs. Embed their sidecars before replacing its source. */
             if (legacy && b < 4u) for (uint32_t j = 0; j < 16u; j++) {
                 up_rec_t *r = &bank.r[j];
-                if (!up_valid(r) || r->engine != ENGI_FM6 || up_native(r)) continue;
+                if (!up_valid(r) || (!MELODEE_FM6 || r->engine != ENGI_FM6) || up_native(r)) continue;
                 up_rec_t kept = *r; int16_t values[P_COUNT]; up_values(&kept, values);
                 uint8_t raw[FM6_PACKED];
                 memcpy(raw, legacy_native_used(ENGI_FM6,b*16u+j) ? legacy_native_raw(ENGI_FM6,b*16u+j) : FM6_INIT, sizeof raw);
@@ -262,7 +262,7 @@ static void shared_boot(void)
     for(uint32_t b=0;b<4u;b++){
         up_bank_t bank=*up_cache_bank(b);
         if(!(up_migrate>>b&1u))continue;
-        for(uint32_t j=0;j<16u;j++)if(up_valid(&bank.r[j]) && bank.r[j].engine==ENGI_FM6 && !up_native(&bank.r[j])){
+        for(uint32_t j=0;j<16u;j++)if(up_valid(&bank.r[j]) && (MELODEE_FM6 && bank.r[j].engine == ENGI_FM6) && !up_native(&bank.r[j])){
             int16_t values[P_COUNT];up_values(&bank.r[j],values);
             uint8_t raw[FM6_PACKED];memcpy(raw,legacy_native_used(ENGI_FM6,b*16u+j)?legacy_native_raw(ENGI_FM6,b*16u+j):FM6_INIT,sizeof raw);
             uint8_t star=bank.r[j].used&UP_STAR;char name[12];memcpy(name,bank.r[j].name,12u);shared_native_record(&bank.r[j],ENGI_FM6,raw);memcpy(bank.r[j].name,name,12u);bank.r[j].used|=star;

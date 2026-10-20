@@ -555,7 +555,7 @@ static void sysex_byte(uint8_t b)
 #endif
     static const uint8_t UBOOT_KEY[6] = {0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7};
 #ifdef FM6_RX
-    fm6_sx_byte(b);                                    /* DX7 voices, banks, parameter changes (eng_fm6.c) */
+    if (MELODEE_FM6) fm6_sx_byte(b);                   /* (Orange Cat: MELODEE_FM6) */ /* DX7 voices, banks, parameter changes (eng_fm6.c) */
 #endif
     if (b >= 0xF8u)
         return;                                        /* realtime may occur anywhere in SysEx */
@@ -625,7 +625,7 @@ static void midi_in_event(uint32_t pkt)
     }
     if (st >= 0x80u && st < 0xF8u) {
 #ifdef FM6_RX
-        fm6_sx_byte((uint8_t)st);                       /* abort DX7 assembly across USB packets too */
+        if (MELODEE_FM6) fm6_sx_byte((uint8_t)st);   /* (Orange Cat: MELODEE_FM6) */                       /* abort DX7 assembly across USB packets too */
 #endif
         usb.sx_on = 0;                                 /* channel/system common also ends SysEx */
 #if MELODEE_OTA

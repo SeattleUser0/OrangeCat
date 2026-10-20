@@ -130,7 +130,7 @@ static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     /* GLO > WEIGHTS: the player's points per voice replace the built-in rule; AUTO (0) keeps it. */
-    int k = e == &ENG_P5_TEST ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : e == &ENG_FM6 ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : e == &ENG_DRUM ? 4 : -1;
+    int k = e == &ENG_P5_TEST ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : e == &ENG_DRUM ? 4 : -1;
     if (k >= 0 && settings_vpoints[k] > 0)
         return (uint32_t)settings_vpoints[k];
 #if MELODEE_ADMISSION
@@ -138,7 +138,7 @@ static uint32_t voice_units(const track_t *t)
         return voice_p5_parts()>1u?4u:3u;
     }
     if(MELODEE_CZ && e==&ENG_CZ)return 3u;
-    if(e==&ENG_FM6 || (MELODEE_SID && e==&ENG_SID) || e==&ENG_DRUM)return 2u;
+    if((MELODEE_FM6 && e==&ENG_FM6) || (MELODEE_SID && e==&ENG_SID) || e==&ENG_DRUM)return 2u;
 #endif
     return e->units ? e->units(t) : trk_nvoice(t) > NPOLY ? 1u : 2u;
 }
@@ -860,7 +860,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         nr++;
     }
     engine_join();
-    if (spread_on) fm6_join();
+    if (MELODEE_FM6 && spread_on) fm6_join();   /* (Orange Cat: MELODEE_FM6) */
     if (spread_on && !audio_batch_active) spread_sum(out);
     if (e->post && !audio_batch_active)
         e->post(t, out, n, nr);

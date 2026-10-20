@@ -26,13 +26,13 @@ static int bulk_has(uint32_t k)
 }
 static void sysex_import_name(char *nm)
 {
-    uint32_t e=sx_import.engine,offset=sx_import.general?4u:e==ENGI_FM6?118u:e==ENGI_CZ?128u:P5_NAME;
-    uint32_t n=!sx_import.general&&e==ENGI_FM6?10u:12u;
+    uint32_t e=sx_import.engine,offset=sx_import.general?4u:(MELODEE_FM6 && e == ENGI_FM6)?118u:e==ENGI_CZ?128u:P5_NAME;
+    uint32_t n=!sx_import.general&&(MELODEE_FM6 && e == ENGI_FM6)?10u:12u;
     for(uint32_t i=0;i<n;i++){uint8_t c=sx_import.data[offset+i];nm[i]=c>=32u&&c<=126u?(char)c:' ';}nm[n]=0;
 }
 static int sysex_stage(uint32_t e, const uint8_t *raw, uint32_t count, uint32_t size)
 {
-    if(!count || (count*size>sizeof sx_import.raw && !(e==ENGI_FM6&&count==32u&&size==FM6_PACKED)))return 0;
+    if(!count || (count*size>sizeof sx_import.raw && !((MELODEE_FM6 && e == ENGI_FM6)&&count==32u&&size==FM6_PACKED)))return 0;
     if (sx_import.count || ui.confirm || ui.name_active || ui.new_active || ui.layer || ui.ly || designer_on()) { ui_message("FINISH CURRENT IMPORT"); return 0; }
     if(count*size>sizeof sx_import.raw){sx_import.data=raw;fm6_rx_ready=2;}
     else {memcpy(sx_import.raw,raw,count*size);sx_import.data=sx_import.raw;}
@@ -81,7 +81,7 @@ static int library_send(uint32_t e, uint32_t k)
     if (!usb.config || !native_used(e,k)) return 1;
     uint8_t raw[CZ_BYTES], frame[320]; uint32_t n;
     memcpy(raw,native_raw(e,k),native_size(e));
-    if(e==ENGI_FM6){memcpy(frame,(uint8_t[]){0xf0,0x43,0,0,1,0x1b},6);uint8_t voice[FP_SIZE+1u];fm6_unpack(raw,voice);memcpy(frame+6,voice,FP_SIZE);frame[161]=sx_checksum(frame+6,FP_SIZE);frame[162]=0xf7;n=163;}
+    if((MELODEE_FM6 && e == ENGI_FM6)){memcpy(frame,(uint8_t[]){0xf0,0x43,0,0,1,0x1b},6);uint8_t voice[FP_SIZE+1u];fm6_unpack(raw,voice);memcpy(frame+6,voice,FP_SIZE);frame[161]=sx_checksum(frame+6,FP_SIZE);frame[162]=0xf7;n=163;}
     else if(e==ENGI_CZ){memcpy(frame,(uint8_t[]){0xf0,0x44,0,0,0x70,0x30},6);for(uint32_t i=0;i<CZ_BYTES;i++){frame[6+2*i]=raw[i]&15;frame[7+2*i]=raw[i]>>4;}frame[6+2*CZ_BYTES]=0xf7;n=7+2*CZ_BYTES;}
     else if(e==ENGI_PROPHET){p5_patch_t p;memcpy(&p,raw,sizeof p);n=p5_patch_encode(&p,frame,sizeof frame);}
     else return 1;

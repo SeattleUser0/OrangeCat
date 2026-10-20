@@ -222,7 +222,7 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
      * This measured mixed Prophet/FM6 class needs more service allowance;
      * do not allocate or change engine priority while inspecting it. */
     audio_batch_fm6_controls=0;
-    for(uint32_t p=0;p<nt && !audio_batch_fm6_controls;p++)if(trk[p].engine==ENGI_FM6 && resource[RES_ENGINE0+p].size==sizeof(fm6_part_t)){
+    for(uint32_t p=0;p<nt && !audio_batch_fm6_controls;p++)if((MELODEE_FM6 && trk[p].engine == ENGI_FM6) && resource[RES_ENGINE0+p].size==sizeof(fm6_part_t)){
         const fm6_part_t *f=resource[RES_ENGINE0+p].ptr;
         for(uint32_t v=0;v<NVOICE;v++)if(f->v[v].played && !f->v[v].still && !f->v[v].frozen){audio_batch_fm6_controls=1;break;}
     }

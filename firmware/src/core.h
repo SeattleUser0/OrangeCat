@@ -51,6 +51,11 @@
  * guarded by the switch, and the linker drops what is no longer reached (-ffunction-sections, -fdata-sections).
  * The source stays, so the host tests (built with the defaults, 1) keep testing it. build.py passes MELODEE_<NAME>
  * from the environment; the Orange Cat workflow sets them to 0. */
+#ifndef MELODEE_FM6
+#define MELODEE_FM6 1             /* FM6 (engine 12). 0: the engine, its pages, banks, DX7 SysEx and editor link go; the
+                                   * patch each track and project stores stays. FM6 is Melodee's fallback for retired and
+                                   * unknown sounds: without it ENGI_FALLBACK takes over */
+#endif
 #ifndef MELODEE_TRIO
 #define MELODEE_TRIO 0            /* TRIO (engine 6, retired in Melodee 1.2). 1: back, without the other legacy engines, as
                                    * Orange Cat's small test voice while the big engines are unhooked (5 presets) */
@@ -63,7 +68,10 @@
 #define MELODEE_SID 1             /* SID (engine 3). 0: the engine goes; its chip model stays while DRUM's SID kit uses it */
 #endif
 #define ENGI_FM6 12u
-#define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
+#define ENGI_PROPHET 19u
+/* (Orange Cat) the engine a retired, reserved or unknown sound falls back to, and new sounds start on: FM6 as in
+ * Melodee, else Prophet, else TRIO (the test voice) */
+#define ENGI_FALLBACK (MELODEE_FM6 ? ENGI_FM6 : MELODEE_PROPHET ? ENGI_PROPHET : 6u) /* 16..18 reserved: historical preset namespaces */
 #define USER_GENERAL 16u
 #define USER_NATIVE_P5 20u
 #define NENGINES 20               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
@@ -72,8 +80,8 @@
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ \
-                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 + TRIO) */   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 \
+                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 + TRIO) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

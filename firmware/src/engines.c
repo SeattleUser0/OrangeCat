@@ -64,7 +64,9 @@ static uint32_t eng_state_size(uint32_t e)
     case 3: return sizeof(sid_part_t);              /* SID (eng_sid.c) */
 #endif
     case ENGI_DRUM: return sizeof(drum909_part_t);
+#if MELODEE_FM6
     case ENGI_FM6: return sizeof(fm6_part_t);
+#endif
 #if MELODEE_SLICE
     case ENGI_SLICE: return sizeof(slc_rb_t);
 #endif
@@ -142,7 +144,11 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,                /* 11: retired NOISE; stored ID reserved */
 #endif
+#if MELODEE_FM6
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
+#else
+    &ENG_RETIRED,                /* 12: (Orange Cat) FM6 unhooked (MELODEE_FM6=0); stored ID reserved */
+#endif
 #if MELODEE_SLICE
     &ENG_SLICE,                  /* 13 (ENGI_SLICE) */
 #else
@@ -183,7 +189,9 @@ static const preset_t *eng_preset(const engine_t *e, uint32_t k)
  * stores and the protocol hold them); only this table orders them */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     ENGI_PROPHET,                /* Prophet replaces ANALOG in new-sound browsing */
+#if MELODEE_FM6
     12,                          /* FM6 */
+#endif
 #if MELODEE_LEGACY_EXTRAS
     2, ENGI_CZ, 3, 5,             /* PHASE CZ-1 SID VOICE */
     6, 7, 9,
@@ -213,7 +221,7 @@ static int eng_extra_retired(uint32_t e)
     if (e == ENGI_ANALOG) return 1;
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || (e == 6u && !MELODEE_TRIO) || e == 7u || e == 9u || e == 11u))
-        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
+        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -223,14 +231,14 @@ static int eng_ok(uint32_t e)
 }
 static uint32_t eng_sound_idx(uint32_t e)
 {
-    return eng_extra_retired(e) || eng_ok(e) ? e : ENGI_FM6;
+    return eng_extra_retired(e) || eng_ok(e) ? e : ENGI_FALLBACK;   /* (Orange Cat: was ENGI_FM6) */
 }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)
 {
     uint32_t n;
     if (!eng_ok(e))
-        e = ENGI_FM6;                            /* (a retired or reserved engine: FM6's place) */
+        e = ENGI_FALLBACK;                       /* (a retired or reserved engine: the fallback's place; Orange Cat: was FM6) */
     for (n = 0; n < NENG_SHOWN && ENGINE_ORDER[n] != e; n++)
         ;
     return n < NENG_SHOWN ? n : 0u;
@@ -243,6 +251,9 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
 /* the parts at power-on and in a new song (engine, preset; the steps empty): poly, bass, lead, drums. IT'S A
  * PROPHET 5, FM6 SOLID BASS, CZ-1 SYNTH.LEAD 1, 808 KIT (until 2026-10-16: PROPHET FUNK BASS II, FM6 PAD, SID INIT
  * SID, 808 KIT) */
-static const uint8_t TRK_DEF[NPART][2] = {{ENGI_PROPHET, 1}, {ENGI_FM6, 10},
-    {MELODEE_CZ ? ENGI_CZ : ENGI_FM6, MELODEE_CZ ? 52 : 10},   /* (Orange Cat) without CZ-1: FM6's track 2 sound */
+/* (Orange Cat) an unhooked engine's track takes the fallback: FM6 SOLID BASS, else TRIO FAT BASS (track 2); FM6
+ * SOLID BASS, else TRIO ARP LEAD (track 3, when CZ-1 is out too) */
+static const uint8_t TRK_DEF[NPART][2] = {{ENGI_PROPHET, 1},
+    {MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_FM6 ? 10 : 0},
+    {MELODEE_CZ ? ENGI_CZ : MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_CZ ? 52 : MELODEE_FM6 ? 10 : 1},
     {ENGI_DRUM, 0}};

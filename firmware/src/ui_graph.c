@@ -663,9 +663,9 @@ static void graph_fm6(const track_t *t, uint16_t c)
     uint8_t m[6], fan[6] = {0, 0, 0, 0, 0, 0};
     uint16_t rc = hot == P_E2 ? T_ACCENT : c;
     char b[7] = {'A', 'L', 'G', ' ', (char)('0' + (alg + 1u) / 10u), (char)('0' + (alg + 1u) % 10u), 0};
-    if (cur_page()->scope == SC_FMOP)                /* FM6's operator pages: the operator they show */
+    if ((MELODEE_FM6 && cur_page()->scope == SC_FMOP))                /* FM6's operator pages: the operator they show */
         hotset = 1u << (fm6_opsel % 6u), hot = 0;
-    else if (cur_page()->scope == SC_FM6)
+    else if ((MELODEE_FM6 && cur_page()->scope == SC_FM6))
         hot = 0;                                     /* (their columns are no macros) */
     else if (hot == P_E3 || hot == P_E4 || hot == P_E5)
         hotset = 63u & ~car;
@@ -770,7 +770,7 @@ static uint32_t graph_sig(int play)
             h = (h ^ chord_last[song.sel].note[i]) * 16777619u;
         h ^= (uint32_t)t->engine * 389u;             /* (MONO and kits follow the sounding engine) */
     }
-    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
+    if ((MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)) {   /* FM6's pages: the patch, switches, functions, bank */
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
              up_gen * 104729u;
         for (i = 0; i < FM6_NFN; i++)
@@ -779,9 +779,9 @@ static uint32_t graph_sig(int play)
 #if MELODEE_SLICE
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
-    if (pg->scope == SC_ENGINE && ((MELODEE_LEGACY_EXTRAS && t->eng_req % NENGINES == 7u) || t->eng_req % NENGINES == ENGI_FM6))
+    if (pg->scope == SC_ENGINE && ((MELODEE_LEGACY_EXTRAS && t->eng_req % NENGINES == 7u) || (MELODEE_FM6 && t->eng_req % NENGINES == ENGI_FM6)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
-    if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
+    if (pg->scope == SC_ENGINE && (MELODEE_FM6 && t->eng_req % NENGINES == ENGI_FM6))   /* the patch (PAT's algorithm, levels, FB) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + fm6_fn[(t - trk) % NTRK][FN_ENGINE] * 40503u;
     if (pg->graph == GR_STEPS || pg->graph == GR_ROLL || pg->graph == GR_DRUMHIT) {
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
@@ -839,7 +839,7 @@ static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
 {
     if (e == USER_NATIVE_P5 || e == USER_NATIVE_FM || e == USER_NATIVE_CZ) {
         uint32_t eng = src_engine(e, k);
-        tag[0] = eng == ENGI_PROPHET ? 'P' : eng == ENGI_FM6 ? 'F' : 'Z';
+        tag[0] = eng == ENGI_PROPHET ? 'P' : (MELODEE_FM6 && eng == ENGI_FM6) ? 'F' : 'Z';
         tag[1] = (char)('0' + (k + 1u) / 100u);
         tag[2] = (char)('0' + (k + 1u) / 10u % 10u);
         tag[3] = (char)('0' + (k + 1u) % 10u);
@@ -1044,8 +1044,8 @@ static void draw_graph(void)
             if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == 7u) graph_wheel(t, c);
             else
 #endif
-            if ((pg->scope == SC_ENGINE || pg->scope == SC_FM6 || pg->scope == SC_FMOP) &&
-                     t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c);   /* EDIT 1 and 2, FM6's pages */
+            if ((pg->scope == SC_ENGINE || (MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)) &&
+                     (MELODEE_FM6 && t->eng_req % NENGINES == ENGI_FM6)) graph_fm6(t, c);   /* EDIT 1 and 2, FM6's pages */
             else { cv_oy = 0; graph_scope(c, 0, H_GRAPH); }
             break;
         }

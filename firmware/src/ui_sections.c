@@ -58,7 +58,7 @@ static void sec_build(void)
             const char *nm;
             if (PAGES[i].fam != FAM_EDIT || !page_visible(i))
                 continue;
-            if (PAGES[i].scope == SC_FMOP) {            /* the operators: a section each, on their first page */
+            if ((MELODEE_FM6 && PAGES[i].scope == SC_FMOP)) {            /* the operators: a section each, on their first page */
                 if (pass || (sec.n && sec.op[sec.n - 1u]))
                     continue;
                 for (k = 0; k < 6u && sec.n < SEC_MAX; k++) {
@@ -87,7 +87,7 @@ static uint32_t sec_of(uint32_t i)                      /* page i's section (an 
     uint32_t k;
     const char *nm;
     sec_build();
-    if (PAGES[i].scope == SC_FMOP) {
+    if ((MELODEE_FM6 && PAGES[i].scope == SC_FMOP)) {
         for (k = 0; k < sec.n && sec.op[k] != fm6_opsel % 6u + 1u; k++)
             ;
         return k < sec.n ? k : 0u;
@@ -195,7 +195,7 @@ static uint32_t smap_pages(uint32_t r, uint8_t *pg)     /* section r's pages (an
     for (i = 0; i < NPAGES && n < 8u; i++) {
         if (PAGES[i].fam != FAM_EDIT || !page_visible(i))
             continue;
-        if (sec.op[r] ? PAGES[i].scope == SC_FMOP : PAGES[i].scope != SC_FMOP && str_eq(sec_rule(i, 0), sec.name[r]))
+        if (sec.op[r] ? (MELODEE_FM6 && PAGES[i].scope == SC_FMOP) : (!MELODEE_FM6 || PAGES[i].scope != SC_FMOP) && str_eq(sec_rule(i, 0), sec.name[r]))
             pg[n++] = (uint8_t)i;
     }
     return n;

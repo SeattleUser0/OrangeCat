@@ -346,7 +346,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 
     if (ed_ui_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
-    if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
+    if (MELODEE_FM6 && ed_fm6_handle(cmd, a, na)) { ed_send(); return; }   /* (Orange Cat: MELODEE_FM6) */
     if (MELODEE_CZ && ed_cz_handle(cmd, a, na)) { ed_send(); return; }   /* (Orange Cat: MELODEE_CZ) */
     if (ed_library_handle(cmd,a,na)) { ed_send(); return; }
     if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
