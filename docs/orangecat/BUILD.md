@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.5  
+**Version:** 0.6  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.6 (October 20, 2026):** Phase 3 under way: engine switches; SID and CZ-1 unhooked and measured; TRIO back as the test voice. Pages publishing works.
 - **0.5 (October 20, 2026):** Size report added to every build (tools/size_report.py). Phase 3 table filled with its estimates. Pages publishing waits on one repository setting.
 - **0.4 (October 20, 2026):** Phase 1 device tests dropped: Melodee 1.4.5 is taken as working as released (tested by its developer and many users). Firmware renamed to Orange Cat v0.1.0. Pages site added for installing.
 - **0.3 (October 20, 2026):** Phase 1 started: OrangeCat fork set up, GitHub build working, baseline sizes recorded.
@@ -23,7 +24,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 0 | Specification and source review | Done |
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
 | 2 | USB flash drive test | Not started |
-| 3 | Strip Melodee's engines | Not started |
+| 3 | Strip Melodee's engines | In progress |
 | 4 | Port Skiff's sequencer and arranger | Not started |
 | 5 | Track views: tracker, step, pads | Not started |
 | 6 | Loadable engine study | Not started |
@@ -107,7 +108,7 @@ Left to build:
   - Packages published as orangecat-0.1.0-<commit>.fwsc (main) or orangecat-X.Y.Z.fwsc (tags).
   - Internal names (source files, MELODEE_* build options) keep Melodee's spelling so upstream fixes can still be cherry-picked.
 - [x] GitHub Pages job: each build of main publishes the web installer (with that build) and the web editor (tools/orangecat_site.py). The site builds (checked locally: the installer shows "Orange Cat 0.1.0", the editor loads with no script errors).
-- [ ] Turn on Pages: Settings > Pages > Source = "GitHub Actions" (Jeremiah, one time). Until then the publish step fails; the firmware build itself passes.
+- [x] Pages turned on (October 20, 2026). Installer and editor: https://seattleuser0.github.io/OrangeCat/
 - [x] 360 MHz and dual-core are Melodee 1.4.5's defaults. Melodee 1.3.4 removed the 320 MHz menu option and never changes the clock.
 - [ ] Record the baseline in the table below.
 
@@ -157,13 +158,19 @@ Result (fill in): works directly / works only with external power / does not wor
 
 ## Phase 3: Strip Melodee's engines
 
-**Status: Not started**
+**Status: In progress**
 
 Goal: free the space Melodee's engines use and measure what each one cost, so later engine choices are made with real numbers.
 
+How engines are removed: each has a switch in firmware/src/core.h (MELODEE_SID, MELODEE_CZ, MELODEE_FM6, MELODEE_PROPHET, MELODEE_DRUM). Set to 0, the engine's number stays reserved (old sounds keep their identity and play silent, as Melodee does for its own retired engines), every path into its code is guarded by the switch, and the linker drops the code nothing reaches. The source stays, so the host tests (built with every engine on) keep testing it, and an engine can come back by flipping its switch. The switches the firmware is built with are in tools/orangecat_engines.sh.
+
 Left to build:
-- [ ] Add a minimal test voice (oscillator plus envelope) so sequences can be heard, including on drum lanes.
-- [ ] Remove the engines one at a time, building and measuring after each: CZ-1, SID, DRUM, FM6, PROPHET.
+- [x] Test voice: TRIO (engine 6, retired in Melodee 1.2) back on its own switch, MELODEE_TRIO. Three oscillators, ring modulation, sync, a 12 dB filter, 5 presets. Costs 4,012 B.
+- [x] SID unhooked (its chip model stays while DRUM's SID kit uses it).
+- [x] CZ-1 unhooked (the tone each project stores stays, so projects keep their format; track 3's power-on sound becomes FM6's).
+- [ ] FM6 unhooked. FM6 is the fallback for every retired sound today, so the fallback moves to the next engine left (Prophet, then TRIO). About 300 references in 37 files.
+- [ ] PROPHET unhooked.
+- [ ] DRUM unhooked (takes the SID chip model with it).
 - [ ] For each, remove its factory banks, its flash bank area, its device pages, and its web editor pages.
 - [ ] Keep each removed engine's number reserved, as Melodee already does for retired engines, so stored projects never point at the wrong engine.
 - [ ] Old Melodee projects load with removed-engine tracks silent and flagged.
@@ -192,8 +199,8 @@ Measurements (fill in as each is removed):
 
 | Engine removed | App flash freed | RAM freed | Data flash freed |
 |---|---|---|---|
-| CZ-1 | | | |
-| SID | | | |
+| CZ-1 | 21,776 B | 624 B (.data + .bss) | not yet (bank sectors stay reserved) |
+| SID | 11,044 B | 32 B (.data + .bss) | none (no banks) |
 | DRUM (808, 909, SID kits) | | | |
 | FM6 | | | |
 | PROPHET | | | |
