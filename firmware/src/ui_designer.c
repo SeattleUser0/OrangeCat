@@ -41,7 +41,7 @@ static void designer_snapshot(designer_sound_t *s)
     s->eng=t->eng_req;s->preset=t->preset;s->user=t->user;s->native=t->user_native;
     memcpy(s->p,t->p,sizeof s->p);
     if(s->eng==ENGI_FM6){memcpy(s->raw.fm.patch,fm6_patch[k],sizeof s->raw.fm.patch);memcpy(s->raw.fm.fn,fm6_fn[k],FM6_NFN);s->raw.fm.on=fm6_on[k];}
-    else if(s->eng==ENGI_CZ)s->raw.cz=cz_patch[k];
+    else if(MELODEE_CZ && s->eng==ENGI_CZ)s->raw.cz=cz_patch[k];
     else if(s->eng==ENGI_PROPHET)s->raw.p5=*p5_patch_of(t);
     else if(s->eng==ENGI_DRUM)s->raw.drum=drum_patch[k];
 }
@@ -52,7 +52,7 @@ static void designer_restore(const designer_sound_t *s)
     t->eng_req=s->eng;t->preset=s->preset;t->user=s->user;t->user_native=s->native;
     for(uint32_t i=0;i<P_COUNT;i++)if(!param_kept(i))t->p[i]=s->p[i];
     if(s->eng==ENGI_FM6){fm6_put_patch(k,s->raw.fm.patch,0);memcpy(fm6_fn[k],s->raw.fm.fn,FM6_NFN);fm6_on[k]=s->raw.fm.on;}
-    else if(s->eng==ENGI_CZ){cz_patch[k]=s->raw.cz;cz_track_accept(t);}
+    else if(MELODEE_CZ && s->eng==ENGI_CZ){cz_patch[k]=s->raw.cz;cz_track_accept(t);}
     else if(s->eng==ENGI_PROPHET){p5_patch[k]=s->raw.p5;p5_ready[k]=1;}
     else if(s->eng==ENGI_DRUM)drum_patch[k]=s->raw.drum;
     sync_reload=1;
@@ -128,7 +128,7 @@ static uint32_t designer_feat_get(uint32_t f)
 {
     track_t *t=TSEL;const uint8_t *q=p5_patch_of(t)->raw,*v=fm6_patch[song.sel];
     uint8_t c[LCZ_PACKED];
-    if(f>=DF_LINES && f<=DF_CZVIB)cz_ed_decode(c,cz_patch[song.sel].raw);
+    if(MELODEE_CZ && f>=DF_LINES && f<=DF_CZVIB)cz_ed_decode(c,cz_patch[song.sel].raw);
     if(f>=DF_OP1 && f<=DF_OP6){uint32_t k=5u-(f-DF_OP1);return fm6_op_on(t,k) && v[k*FP_OP+FP_OL];}
     switch(f){
     case DF_OSCB:return designer_p5_on(q,P5_LEVEL_B,P_E7,q[P5_SAW_B]||q[P5_TRI_B]||q[P5_PULSE_B]);
@@ -246,7 +246,7 @@ static void designer_feat_set(uint32_t f,uint32_t s)
         fm6_put_patch(song.sel,v,0);
         return;
     }
-    if(f>=DF_LINES && f<=DF_CZVIB){
+    if(MELODEE_CZ && f>=DF_LINES && f<=DF_CZVIB){   /* (Orange Cat: MELODEE_CZ) */
         uint8_t c[LCZ_PACKED];cz_ed_decode(c,cz_patch[song.sel].raw);
         if(f==DF_LINES){designer_cz_put(LCZ_LINE,s);return;}
         if(f==DF_CZVIB){designer_cz_put(LCZ_VDEP,designer_amount(c[LCZ_VDEP],s,15));return;}
@@ -334,7 +334,7 @@ static void designer_recipe(void)
         }
         if(g==DG_FX){v[FP_FB]=5;v[4*FP_OP+FP_FC]=7;v[4*FP_OP+FP_OL]=85;}
         fm6_put_patch(song.sel,v,0);fm6_on[song.sel]=FM6_ON_ALL;
-    }else if(t->eng_req==ENGI_CZ){
+    }else if(MELODEE_CZ && t->eng_req==ENGI_CZ){   /* (Orange Cat: MELODEE_CZ) */
         for(uint32_t l=0;l<2;l++){
             uint32_t b=LCZ_EBASE(l,2);
             designer_cz_put(b+16,8); /* no sustain while resetting the end point */

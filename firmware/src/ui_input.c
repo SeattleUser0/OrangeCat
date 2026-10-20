@@ -1126,7 +1126,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         motion_unguard(f);return;
     }
     if(pg->scope==SC_P5STORE){p5_store_slot=(int16_t)v;return;}
-    if (pg->scope == SC_CZ1) {                           /* (a copy of the tone's value: written back there) */
+    if (MELODEE_CZ && pg->scope == SC_CZ1) {            /* (Orange Cat: MELODEE_CZ) (a copy of the tone's value: written back there) */
         uint8_t raw[CZ_BYTES], old[MO_NATIVE_N];
         uint32_t tr = song.sel % NTRK, f = motion_guard();
         motion_native_peek(TSEL, old);
@@ -1213,7 +1213,7 @@ static void act_do(void)
         else {load_begin(TSEL,UNDO_SOUND);panic_req|=1u<<song.sel;fm1_irq_off();p5_patch_init(p5_patch_of(TSEL));p5_track_accept(TSEL);fm1_irq_on();load_end(TSEL);ui_message("PROPHET INIT");}
         ui.act=0;return;
     }
-    if (cur_page()->graph == GR_CZTOOLS) {               /* CZ-1: NAME, copy a line over the other, COMPARE */
+    if (MELODEE_CZ && cur_page()->graph == GR_CZTOOLS) { /* (Orange Cat: MELODEE_CZ) CZ-1: NAME, copy a line over the other, COMPARE */
         uint32_t tr = song.sel % NTRK;
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         if (c == 0u) {

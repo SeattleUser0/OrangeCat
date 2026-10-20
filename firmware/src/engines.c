@@ -57,7 +57,9 @@ static uint32_t eng_state_size(uint32_t e)
 #if MELODEE_LEGACY_EXTRAS
     case 2:                                         /* (PHASE: CZ-1's core) */
 #endif
+#if MELODEE_CZ
     case ENGI_CZ: return sizeof(cz_part_t);
+#endif
 #if MELODEE_SID
     case 3: return sizeof(sid_part_t);              /* SID (eng_sid.c) */
 #endif
@@ -147,7 +149,11 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_RETIRED,             /* 13: reserved (MELODEE_SLICE=0 builds without SLICE) */
 #endif
     &ENG_RETIRED,                /* 14: retired OBXF; stored index reserved */
+#if MELODEE_CZ
     &ENG_CZ,                     /* 15: native Casio CZ-1 */
+#else
+    &ENG_RETIRED,                /* 15: (Orange Cat) CZ-1 unhooked (MELODEE_CZ=0); stored ID reserved */
+#endif
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, /* 16..18 reserved */
     &ENG_P5_TEST,                /* 19: Prophet (ANALOG's ID 0 stays reserved) */
 };
@@ -183,7 +189,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     6, 7, 9,
     11,                          /* NOISE */
 #else
+#if MELODEE_CZ
     ENGI_CZ,                      /* CZ-1 */
+#endif
 #if MELODEE_SID
     3,                            /* SID */
 #endif
@@ -202,7 +210,7 @@ static int eng_extra_retired(uint32_t e)
     if (e == ENGI_ANALOG) return 1;
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u))
-        || (!MELODEE_SID && e == 3u);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
+        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -232,4 +240,6 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
 /* the parts at power-on and in a new song (engine, preset; the steps empty): poly, bass, lead, drums. IT'S A
  * PROPHET 5, FM6 SOLID BASS, CZ-1 SYNTH.LEAD 1, 808 KIT (until 2026-10-16: PROPHET FUNK BASS II, FM6 PAD, SID INIT
  * SID, 808 KIT) */
-static const uint8_t TRK_DEF[NPART][2] = {{ENGI_PROPHET, 1}, {ENGI_FM6, 10}, {ENGI_CZ, 52}, {ENGI_DRUM, 0}};
+static const uint8_t TRK_DEF[NPART][2] = {{ENGI_PROPHET, 1}, {ENGI_FM6, 10},
+    {MELODEE_CZ ? ENGI_CZ : ENGI_FM6, MELODEE_CZ ? 52 : 10},   /* (Orange Cat) without CZ-1: FM6's track 2 sound */
+    {ENGI_DRUM, 0}};

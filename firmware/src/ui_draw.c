@@ -817,7 +817,7 @@ static void draw_columns(void)
                 (d->names == N_FX && (*vp == FX_REVERB || *vp == FX_CHORUS))))
                 str_cpy(val, d->names[clamp(*vp, d->min, d->max)], sizeof val);
         }
-        draw_column(c, d->label, val, unit, (cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
+        draw_column(c, d->label, val, unit, (MELODEE_CZ && cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
                     !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c])) ||
                     (cur_page()->scope == SC_P5 && !p5_ed_active(TSEL, cur_page()->id[c])) ||
                     (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) ? T_DIM : VAL(c),   /* LFO 2 SYNC on: RATE does nothing */

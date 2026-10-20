@@ -130,14 +130,14 @@ static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     /* GLO > WEIGHTS: the player's points per voice replace the built-in rule; AUTO (0) keeps it. */
-    int k = e == &ENG_P5_TEST ? 0 : e == &ENG_CZ ? 1 : e == &ENG_FM6 ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : e == &ENG_DRUM ? 4 : -1;
+    int k = e == &ENG_P5_TEST ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : e == &ENG_FM6 ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : e == &ENG_DRUM ? 4 : -1;
     if (k >= 0 && settings_vpoints[k] > 0)
         return (uint32_t)settings_vpoints[k];
 #if MELODEE_ADMISSION
     if(e==&ENG_P5_TEST){
         return voice_p5_parts()>1u?4u:3u;
     }
-    if(e==&ENG_CZ)return 3u;
+    if(MELODEE_CZ && e==&ENG_CZ)return 3u;
     if(e==&ENG_FM6 || (MELODEE_SID && e==&ENG_SID) || e==&ENG_DRUM)return 2u;
 #endif
     return e->units ? e->units(t) : trk_nvoice(t) > NPOLY ? 1u : 2u;
@@ -739,11 +739,11 @@ static void engine_batch_kernel(const void *data,int32_t *pcm)
 static inline void engine_join(void) {}
 static void engine_render(track_t *t,voice_t *v,const engine_t *e,int32_t *out,uint32_t n,const vmod_t *m)
 {
-    if(audio_batch_active && (e==&ENG_CZ || (MELODEE_SID && e==&ENG_SID) || e==&ENG_DRUM)){
+    if(audio_batch_active && ((MELODEE_CZ && e==&ENG_CZ) || (MELODEE_SID && e==&ENG_SID) || e==&ENG_DRUM)){
         engine_batch_t j;j.track=t;j.voice=v;j.engine=e;j.modulation=*m;j.n=n;
         for(uint32_t k=0;k<8u;k++)j.engine_params[k]=t->p[P_E0+k];
         for(uint32_t k=0;k<DV_NLANE;k++)j.lane_params[k]=t->p[P_LN0+k];
-        audio_batch_push(engine_batch_kernel,&j,sizeof j,out,n,e==&ENG_CZ?AP_CZ:(MELODEE_SID && e==&ENG_SID)||drum_issid(t)?AP_SID:drum_is909(t)?AP_909:AP_808);return;
+        audio_batch_push(engine_batch_kernel,&j,sizeof j,out,n,(MELODEE_CZ && e==&ENG_CZ)?AP_CZ:(MELODEE_SID && e==&ENG_SID)||drum_issid(t)?AP_SID:drum_is909(t)?AP_909:AP_808);return;
     }
     e->render(t,v,out,n,m);
 }
@@ -848,7 +848,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         if (v->vel > 110)                               /* accent opens the filter with the env */
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
-        if ((MELODEE_LEGACY_EXTRAS && e == ENGINES[2]) || e == &ENG_CZ)   /* native DCA remains the matrix's ENV source */
+        if ((MELODEE_LEGACY_EXTRAS && e == ENGINES[2]) || (MELODEE_CZ && e == &ENG_CZ))   /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
         if(e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);
         if (mod.on){

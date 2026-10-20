@@ -785,7 +785,7 @@ static int project_restore_runtime(const project_t *input)
                 for(uint32_t slot=0;slot<P5_FACTORY_N;slot++){p5_patch_t f;p5_factory(slot,&f);if(!memcmp(&p->p5[k],&f,sizeof f)){t->preset=(uint8_t)(slot+1u);break;}}
             }
             cz_patch[k] = p->cz[k];
-            cz_track_accept(t);
+            if (MELODEE_CZ) cz_track_accept(t);   /* (Orange Cat: MELODEE_CZ) */
             fm6_set_patch(k, v);
             memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
             if(!t->preset && !t->user && native_limit(e))for(uint32_t slot=0;slot<UP_SLOTS;slot++)if(native_used(e,slot)){

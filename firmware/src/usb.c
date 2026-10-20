@@ -551,7 +551,7 @@ stall:
 static void sysex_byte(uint8_t b)
 {
 #ifdef CZ_RX
-    cz_sx_byte(b);
+    if (MELODEE_CZ) cz_sx_byte(b);   /* (Orange Cat: MELODEE_CZ) */
 #endif
     static const uint8_t UBOOT_KEY[6] = {0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7};
 #ifdef FM6_RX

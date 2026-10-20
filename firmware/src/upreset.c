@@ -137,7 +137,7 @@ static int up_save_bank(uint32_t b)
 
 static up_rec_t *up_rec(uint32_t k) { return &up_cache_bank(k / UP_PER_BANK)->r[k % UP_PER_BANK]; }
 
-static int up_native_cz(const up_rec_t *r){return r->engine==ENGI_CZ && (r->ver==UP_VER_CZ || r->ver==UP_VER_NATIVE_CZ);}
+static int up_native_cz(const up_rec_t *r){return MELODEE_CZ && r->engine==ENGI_CZ &&   /* (Orange Cat: MELODEE_CZ) */ (r->ver==UP_VER_CZ || r->ver==UP_VER_NATIVE_CZ);}
 static int up_native(const up_rec_t *r)
 {
     return (r->engine==ENGI_FM6 && r->ver==UP_VER_FM) || (r->engine==ENGI_PROPHET && r->ver==UP_VER_P5) || (r->engine==ENGI_CZ && r->ver==UP_VER_NATIVE_CZ);
@@ -394,7 +394,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
     /* shared_boot indexes and converts in source-preserving order. */
 #endif
     native_cache_reset();
-    cz_bank_boot();
+    if (MELODEE_CZ) cz_bank_boot();   /* (Orange Cat: MELODEE_CZ) */
     shared_boot();
 #ifdef MELODEE_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)
@@ -595,7 +595,7 @@ static int up_load_to(uint32_t k,uint32_t tr)
         if (up_native_cz(r))up_cz_raw(r,cz_patch[tr].raw);
         if(r->engine==ENGI_DRUM){memset(&drum_patch[tr],0,sizeof(drum_patch_t));if(r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)up_drum_raw(r,&drum_patch[tr]);}
         if(r->engine==ENGI_PROPHET && r->ver==UP_VER_P5){memcpy(&p5_patch[tr],r->packed,sizeof(p5_patch_t));p5_ready[tr]=1;p5_track_accept(t);}
-        cz_track_accept(t);
+        if (MELODEE_CZ) cz_track_accept(t);   /* (Orange Cat: MELODEE_CZ) */
         fm1_irq_on();
         if (t->eng_req == ENGI_FM6) {                   /* FM6: its voice, native slot k (else INIT) */
             uint8_t v[FP_SIZE + 1u];

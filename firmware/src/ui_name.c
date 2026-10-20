@@ -244,7 +244,8 @@ static void name_ok(void)
     }
     switch (nm.kind) {
     case NK_CZ_NAME:
-        cz_compare_take(nm.slot);memset(cz_patch[nm.slot].raw+128,' ',CZ_NAME_LEN);memcpy(cz_patch[nm.slot].raw+128,b,str_len(b));
+        if(MELODEE_CZ)cz_compare_take(nm.slot);   /* (Orange Cat: MELODEE_CZ) */
+        memset(cz_patch[nm.slot].raw+128,' ',CZ_NAME_LEN);memcpy(cz_patch[nm.slot].raw+128,b,str_len(b));
         ui_message("TONE NAMED");break;
     case NK_USER_SAVE:
         up_ui_named(2, nm.slot, b);

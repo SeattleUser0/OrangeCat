@@ -253,7 +253,7 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
     case 74:case 71:{
         static const uint8_t map[NENGINES]={0,0,0x30,0x56,0,0x07,0,0,0,0,0x30,0x34,0x30,0,0,0,0,0,0,0x12};
         uint32_t macro=(map[t->eng_req%NENGINES]>>(cc==74?4:0))&15u;
-        if(macro)id=P_E0+macro-1u;else if(cc==74 && t->eng_req==ENGI_CZ)id=P_ED_FLT;
+        if(macro)id=P_E0+macro-1u;else if(MELODEE_CZ && cc==74 && t->eng_req==ENGI_CZ)id=P_ED_FLT;
         break; }default:return;}
     if((cc==72 || cc==73 || cc==75) && motion_native_tag(t)){   /* (the engine's own envelope: its motion too) */
         uint8_t old[MO_NATIVE_N];uint32_t f=motion_guard();
@@ -264,7 +264,7 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
             uint8_t raw[FP_SIZE+1u];memcpy(raw,fm6_patch[trk_index(t)],sizeof raw);
             for(uint32_t op=0;op<6;op++)raw[op*FP_OP+(cc==72?3:cc==73?0:1)]=(uint8_t)(99u-value*99u/127u);
             fm6_put_patch(trk_index(t),raw,0);
-        }else{
+        }else if(MELODEE_CZ){   /* (Orange Cat: MELODEE_CZ) */
             uint32_t tr=trk_index(t);uint8_t raw[CZ_BYTES];
             for(uint32_t line=0;line<2;line++) {
                 uint32_t stage=cc==72?(cz_patch[tr].raw[CZ_ENV_END[line][2]]&7u):cc==73?0:1;

@@ -743,7 +743,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     }
     if (pg->scope == SC_CZ1) {                           /* a copy of the tone's panel value (cz_ed_put writes it) */
         *valp = 0;
-        if (id == 0xFFu || TSEL->eng_req != ENGI_CZ)
+        if (!MELODEE_CZ || id == 0xFFu || TSEL->eng_req != ENGI_CZ)   /* (Orange Cat: MELODEE_CZ) */
             return 0;
         if (pg->graph == GR_CZTOOLS) {
             cz_ed_cell[slot & 3u] = 0;

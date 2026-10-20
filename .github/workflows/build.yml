@@ -21,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 6: engine switches in tools/orangecat_engines.sh (SID and CZ-1 off), read by the build and the test step.
 #   Rev 5 (build doc phase 3): the firmware is built with MELODEE_SID=0 (the SID engine unhooked); tests keep the
 #         defaults.
 #   Rev 4: the pages job passes version 0.1.0 (the installer's release list needs X.Y.Z; with the commit it failed);
@@ -55,8 +56,8 @@ jobs:
         export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
         export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
         # (rev 5, build doc phase 3) Melodee's engines unhooked from the firmware, one switch per engine (core.h).
-        # The host tests (the test step) keep the defaults, so they still test every engine's source.
-        export MELODEE_SID=0
+        # (rev 6) the switches live in tools/orangecat_engines.sh, read by this step and the test step.
+        . tools/orangecat_engines.sh
         # Pillow needs Raqm (HarfBuzz, FriBidi) for the UI font's OpenType features; mido for the MIDI tools
         sudo apt-get update
         sudo apt-get install -y libharfbuzz-dev libfribidi-dev libraqm-dev
@@ -90,6 +91,7 @@ jobs:
         export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
         export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
         export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
+        . tools/orangecat_engines.sh       # (rev 6) the target checks skip the render loops of unhooked engines
         # the tests look for build/melodee.fwsc; a nightly or release build names it differently
         [ -f build/melodee.fwsc ] || cp "$(ls build/melodee-*.fwsc | head -1)" build/melodee.fwsc
         ok=0; tests/run_tests.sh > test.log 2>&1 || ok=1

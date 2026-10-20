@@ -271,12 +271,12 @@ static int page_visible(uint32_t i)
     if(PAGES[i].scope==SC_DRUM || PAGES[i].scope==SC_DRUMHIT)return drum_track(TSEL);
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum_track(TSEL);
-    if(TSEL->eng_req==ENGI_CZ && PAGES[i].scope==SC_ENGINE && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
+    if(MELODEE_CZ && TSEL->eng_req==ENGI_CZ && PAGES[i].scope==SC_ENGINE && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
     if (PAGES[i].scope == SC_CZ)                       /* (PHASE's CZ mode; PHASE retired without MELODEE_LEGACY_EXTRAS) */
         return TSEL->eng_req == 2u && eng_ok(2u) && TSEL->p[P_E7] == 1;
     if(PAGES[i].scope==SC_P5 || PAGES[i].scope==SC_P5STORE)return TSEL->eng_req==ENGI_PROPHET;
     if (PAGES[i].scope == SC_CZ1)
-        return TSEL->eng_req == ENGI_CZ;               /* CZ-1's tone: every panel value */
+        return MELODEE_CZ && TSEL->eng_req == ENGI_CZ;   /* CZ-1's tone: every panel value (Orange Cat: MELODEE_CZ) */
     if (PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP)
         return TSEL->eng_req == ENGI_FM6;              /* FM6's patch, operators and functions */
 #if MELODEE_SLICE
@@ -877,7 +877,7 @@ static void undo_step(int redo)
         memcpy(u->fm6, v, FP_SIZE);
         {drum_patch_t dp=drum_patch[tr];drum_patch[tr]=u->drum;u->drum=dp;}
         { p5_patch_t pp=*p5_patch_of(t);p5_patch[tr]=u->p5;u->p5=pp;p5_ready[tr]=1; }
-        { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = u->cz; u->cz = cp; cz_track_accept(t); }
+        { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = u->cz; u->cz = cp; if (MELODEE_CZ) cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
 
     }
     u->keep = 0;                                /* the next load copies the track as it is now */
@@ -959,8 +959,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_ED_FLT] = pr->fenv;
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
     if(t->eng_req==ENGI_PROPHET)p5_preset_loaded(t,pi);
-    cz_factory_loaded(t);
-    cz_track_accept(t);
+    if (MELODEE_CZ) { cz_factory_loaded(t); cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
     fm6_track_loaded(t);                              /* FM6: the preset's patch */
     load_end(t);
 }
@@ -1075,9 +1074,9 @@ static const page_t *stage_page(void)
     stage_pg.title = "STAGE";
     stage_pg.fam = FAM_HOME;
     stage_pg.graph = GR_NONE;
-    stage_pg.scope = e == ENGI_PROPHET ? SC_P5 : e == ENGI_CZ ? SC_CZ1 : SC_ENGINE;
+    stage_pg.scope = e == ENGI_PROPHET ? SC_P5 : (MELODEE_CZ && e == ENGI_CZ) ? SC_CZ1 : SC_ENGINE;
     for (k = 0; k < 4u; k++)
-        stage_pg.id[k] = e == ENGI_PROPHET ? P5_K[k] : e == ENGI_CZ ? CZ_K[k] : ENGINES[e]->knob[k];
+        stage_pg.id[k] = e == ENGI_PROPHET ? P5_K[k] : (MELODEE_CZ && e == ENGI_CZ) ? CZ_K[k] : ENGINES[e]->knob[k];
     return &stage_pg;
 }
 /* HOME: what KNOB k edits (0: nothing there) */

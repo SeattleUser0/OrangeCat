@@ -133,7 +133,7 @@ static int up_decode_bank(uint32_t b,int n)
             if(star)up_cache.r[j].used|=UP_STAR;
         }
         memset(&up_cache.r[16],0,2u*sizeof(up_rec_t));up_migrate|=1u<<b;
-    }else if(b>=8u && b<16u && n==(int)sizeof(cz_bank_t) && cz_bank_valid((const cz_bank_t *)&up_cache)){
+    }else if(MELODEE_CZ && b>=8u && b<16u && n==(int)sizeof(cz_bank_t) && cz_bank_valid((const cz_bank_t *)&up_cache)){
         uint32_t used=((const cz_bank_t *)&up_cache)->used;
         for(uint32_t j=16u;j--;){uint8_t raw[CZ_BYTES];memcpy(raw,((const cz_bank_t *)&up_cache)->tone[j].raw,sizeof raw);if(used>>j&1u)shared_native_record(&up_cache.r[j],ENGI_CZ,raw);else memset(&up_cache.r[j],0,sizeof(up_rec_t));}
         for(uint32_t j=0;j<16u;j++)if(up_valid(&up_cache.r[j])){
@@ -187,7 +187,7 @@ static int shared_wipe(void)
         if(shared_wipe_bank(UP_BANKS-1u,0))goto failed;
         BOOT_WORK_PROGRESS(++done);
     }
-    up_cache_reset();native_cache_reset();cz_bank_boot();
+    up_cache_reset();native_cache_reset();if(MELODEE_CZ)cz_bank_boot();   /* (Orange Cat: MELODEE_CZ) */
     for(uint32_t b=0;b<UP_BANKS;b++)(void)up_cache_bank(b);
     for(uint32_t tr=0;tr<NTRK;tr++)trk[tr].user=trk[tr].user_native=0;
     recent_n=0;up_gen++;sync_reload=1;
@@ -196,7 +196,7 @@ static int shared_wipe(void)
 failed:
     /* Drop uncommitted cache edits, retain the last committed source/marker,
      * and keep writes locked until recovery is complete. */
-    up_cache_reset();native_cache_reset();cz_bank_boot();
+    up_cache_reset();native_cache_reset();if(MELODEE_CZ)cz_bank_boot();   /* (Orange Cat: MELODEE_CZ) */
     for(uint32_t b=0;b<UP_BANKS;b++)(void)up_cache_bank(b);
     up_migration_error=1;
     BOOT_WORK_END(1);

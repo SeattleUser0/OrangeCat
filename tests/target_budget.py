@@ -204,8 +204,17 @@ def main():
                "px_modal_block", "px_modal_run", "px_memb_block", "px_string_excite",
                "px_string_run", "px_symp_run"}
     disabled = set()
+    # (Orange Cat, build doc phase 3) engines unhooked from this image (MELODEE_<NAME>=0 in the environment, as
+    # tools/orangecat_engines.sh set it for the build): their render loops are not in the disassembly
+    unhooked = {"MELODEE_SID": {"sid_render"}, "MELODEE_CZ": {"cz_native_render", "cz_native_wave"},
+                "MELODEE_FM6": {"fm6_render"}, "MELODEE_PROPHET": {"p5_samples", "p5_mod_samples"},
+                "MELODEE_DRUM": {n for n in FUNCS if n.startswith(("dr_", "dr8_", "drum_", "d9_"))}}
+    for flag, names in unhooked.items():
+        if os.environ.get(flag) == "0":
+            disabled |= names
+            print(f"target: {flag}=0, its render loops are excluded: {', '.join(sorted(names))}")
     missing = [n for n in FUNCS if n not in res and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
-    if disabled: print("target: resident audio profile has delay/reverb disabled; their absent kernels are excluded")
+    # (Orange Cat) the only disabled loops now are unhooked engines, reported above
     base = {}
     if os.path.exists(budget):
         for line in open(budget):
