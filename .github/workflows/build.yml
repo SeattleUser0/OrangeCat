@@ -1,0 +1,77 @@
+# Orange Cat firmware build on GitHub Actions.
+#
+# What it does:
+#   Hands the build to the community's shared FM-1 builder (zvenson/fm1-build, pinned at its reviewed tag v1).
+#   That workflow installs JieLi's Linux toolchain and the AC79 SDK (tag AC79NN_SDK_V1.2.1_2023-12-13) on GitHub's
+#   Linux x86-64 runner, runs our build command, then our test command, and uploads the .fwsc package.
+#
+# When it runs:
+#   - A push to main, or Actions > build > Run workflow: a development package (build/melodee-nightly.fwsc,
+#     version string next-<commit>), downloadable from the run page as the "packages" artifact.
+#   - A push of a version tag vX.Y[.Z]: a release package, published as a GitHub Release of that tag.
+#
+# The host tests (tests/run_tests.sh) run after the build. Failures are shown on the run page but do not hold the
+# package back (tests-block: false), so a build can still be installed and tried while tests are being fixed.
+#
+# Build options are Melodee 1.4.5's release settings (its .github/workflows/release.yml): dual core required, no
+# single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
+#
+# Revisions:
+#   Rev 1 (Orange Cat build doc phase 1): first version. Replaces Melodee's nightly.yml and release.yml (still in the
+#         upstream history). Builds Melodee 1.4.5 unchanged; names stay "melodee" until the rename step of phase 1.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write          # the release on a tag push
+      id-token: write          # build provenance attestation
+      attestations: write
+    with:
+      sdk: true
+      tests-block: false
+      build: |
+        set -euo pipefail
+        # Melodee 1.4.5 release build options (see the header)
+        export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
+        export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
+        export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
+        # Pillow needs Raqm (HarfBuzz, FriBidi) for the UI font's OpenType features; mido for the MIDI tools
+        sudo apt-get update
+        sudo apt-get install -y libharfbuzz-dev libfribidi-dev libraqm-dev
+        python3 -m pip install fonttools mido
+        # The SDK commit Melodee's releases are built against
+        test "$(git -C "$AC79_SDK" rev-parse HEAD)" = d179b4484759423312073f5fbb232501aa491047
+        if [ "$GITHUB_REF_TYPE" = tag ]; then mode="--release ${GITHUB_REF_NAME#v}"; else mode="--nightly"; fi
+        ok=0; ./build.sh $mode > build.log 2>&1 || ok=1
+        # Sizes and checks to the run page (annotations), whether the build passed or not
+        note=$(grep -E "^ *(ok|FAIL) |^(app|loader|package|release) |^stub:|error|overflow" build.log | tail -40 \
+               | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+        echo "::notice title=build sizes and checks::$note"
+        if [ "$ok" != 0 ]; then
+          msg=$(tail -80 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+          echo "::error title=build failed::$msg"
+          exit 1
+        fi
+      test: |
+        set -euo pipefail
+        export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
+        export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
+        export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
+        # the tests look for build/melodee.fwsc; a nightly or release build names it differently
+        [ -f build/melodee.fwsc ] || cp "$(ls build/melodee-*.fwsc | head -1)" build/melodee.fwsc
+        ok=0; tests/run_tests.sh > test.log 2>&1 || ok=1
+        if [ "$ok" != 0 ]; then
+          msg=$( { grep -inE "fail|abort|segmentation|assert|traceback|exception" test.log | grep -v " ok$" | head -40; echo ----; tail -25 test.log; } \
+                 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+          echo "::error title=tests failed::$msg"
+          exit 1
+        fi
+      packages: build/melodee*.fwsc
