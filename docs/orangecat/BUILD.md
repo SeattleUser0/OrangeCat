@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.6  
+**Version:** 0.7  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.7 (October 20, 2026):** All five of Melodee's engines unhooked and measured. Image 378,992 B (was 533,912 B).
 - **0.6 (October 20, 2026):** Phase 3 under way: engine switches; SID and CZ-1 unhooked and measured; TRIO back as the test voice. Pages publishing works.
 - **0.5 (October 20, 2026):** Size report added to every build (tools/size_report.py). Phase 3 table filled with its estimates. Pages publishing waits on one repository setting.
 - **0.4 (October 20, 2026):** Phase 1 device tests dropped: Melodee 1.4.5 is taken as working as released (tested by its developer and many users). Firmware renamed to Orange Cat v0.1.0. Pages site added for installing.
@@ -168,9 +169,10 @@ Left to build:
 - [x] Test voice: TRIO (engine 6, retired in Melodee 1.2) back on its own switch, MELODEE_TRIO. Three oscillators, ring modulation, sync, a 12 dB filter, 5 presets. Costs 4,012 B.
 - [x] SID unhooked (its chip model stays while DRUM's SID kit uses it).
 - [x] CZ-1 unhooked (the tone each project stores stays, so projects keep their format; track 3's power-on sound becomes FM6's).
-- [ ] FM6 unhooked. FM6 is the fallback for every retired sound today, so the fallback moves to the next engine left (Prophet, then TRIO). About 300 references in 37 files.
-- [ ] PROPHET unhooked.
-- [ ] DRUM unhooked (takes the SID chip model with it).
+- [x] FM6 unhooked. FM6 was the fallback for every retired sound, so core.h now has ENGI_FALLBACK: FM6, else Prophet, else TRIO.
+- [x] PROPHET unhooked (switch MELODEE_P5; MELODEE_PROPHET stays 1 because it means the Prophet source is compiled).
+- [x] DRUM unhooked (took the SID chip model with it). No track is a drum track now, so the drum grid is not reachable until a drum engine comes back.
+- Power-on sounds with every engine out: TRIO CHIP CHOIR, FAT BASS, ARP LEAD, RING BELL.
 - [ ] For each, remove its factory banks, its flash bank area, its device pages, and its web editor pages.
 - [ ] Keep each removed engine's number reserved, as Melodee already does for retired engines, so stored projects never point at the wrong engine.
 - [ ] Old Melodee projects load with removed-engine tracks silent and flagged.
@@ -201,10 +203,14 @@ Measurements (fill in as each is removed):
 |---|---|---|---|
 | CZ-1 | 21,776 B | 624 B (.data + .bss) | not yet (bank sectors stay reserved) |
 | SID | 11,044 B | 32 B (.data + .bss) | none (no banks) |
-| DRUM (808, 909, SID kits) | | | |
-| FM6 | | | |
-| PROPHET | | | |
-| **Total** | | | |
+| DRUM (808, 909, SID kits) | 53,600 B | 96 B (.data + .bss) | not yet |
+| FM6 | 39,528 B | 13,536 B (.data + .bss) | not yet |
+| PROPHET | 32,984 B | 336 B (.data + .bss) | not yet |
+| **Total** | **158,932 B** | **14,624 B** | |
+
+TRIO, back as the test voice, costs 4,012 B. Net: the image went from 533,912 B to 378,992 B (154,920 B smaller). App area free: about 194 KB (573,440 B area). The pool (audio buffers, engine state) went from 162,112 B to 157,288 B used.
+
+Data flash: the engines' bank sectors (Prophet, CZ-1, FM6 banks) stay reserved in the flash map for now, so old data is not overwritten. Reclaiming them for samples and bounces is part of phase 9.
 
 Coupling: Prophet, CZ-1, FM6 and DRUM are each referenced in 34 to 56 source files (editors, storage, presets, UI, web editor, tests). SID is in 5. Removal order follows the list above, smallest coupling first after CZ-1 is reviewed.
 

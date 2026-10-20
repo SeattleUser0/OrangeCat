@@ -21,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 7: the failed tests' summary list first in the run page's annotation.
 #   Rev 6: engine switches in tools/orangecat_engines.sh (SID and CZ-1 off), read by the build and the test step.
 #   Rev 5 (build doc phase 3): the firmware is built with MELODEE_SID=0 (the SID engine unhooked); tests keep the
 #         defaults.
@@ -96,7 +97,8 @@ jobs:
         [ -f build/melodee.fwsc ] || cp "$(ls build/melodee-*.fwsc | head -1)" build/melodee.fwsc
         ok=0; tests/run_tests.sh > test.log 2>&1 || ok=1
         if [ "$ok" != 0 ]; then
-          msg=$( { grep -inE "fail|abort|segmentation|assert|traceback|exception" test.log | grep -v " ok$" | head -40; echo ----; tail -25 test.log; } \
+          # (rev 7) the summary's list of failed steps first (it can be cut off at the end of a long message)
+          msg=$( { awk '/HOST TESTS .*FAILED/{f=1} f' test.log | head -40; echo ----; grep -inE "FAIL|abort|segmentation|assert|traceback|exception" test.log | grep -vE " ok$|0 fail|0 FAIL" | head -30; } \
                  | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
           echo "::error title=tests failed::$msg"
           exit 1
