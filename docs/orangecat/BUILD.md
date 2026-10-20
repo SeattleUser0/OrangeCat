@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.8  
+**Version:** 0.9  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.9 (October 20, 2026):** Phase 4 steps 4a and 4b merged: the new step fields and the pattern pool share one storage change.
 - **0.8 (October 20, 2026):** Phase 4 plan written (4a to 4g). Phase 3 done.
 - **0.7 (October 20, 2026):** All five of Melodee's engines unhooked and measured. Image 378,992 B (was 533,912 B).
 - **0.6 (October 20, 2026):** Phase 3 under way: engine switches; SID and CZ-1 unhooked and measured; TRIO back as the test voice. Pages publishing works.
@@ -243,8 +244,13 @@ Decided (October 20, 2026): Skiff's workflow. A shared pool of 64 patterns, a li
 
 Each step builds, passes the host tests, and is measured before the next.
 
-- [ ] **4a. Step fields.** Add Skiff's RATCH, FLAM, trig condition and NUDGE to Melodee's step. Melodee already uses flags bit 2 (SF_RECORDED), so RATCH goes in bits 3 and 4 and FLAM in bit 5, as in Skiff. Port the playback (Skiff seq.c: seq_ratchet, seq_enter, trig conditions) into Melodee's seq.c. Timed notes keep their own timing; RATCH and FLAM apply to step notes.
-- [ ] **4b. Pattern pool.** Replace the 8 banks per track with Skiff's pool of 64 (bank.c). A pool pattern carries its steps, LEN DIV SWING GATE DIR, motion, and its timed notes (the timed-note store's owner becomes the pool pattern). Storage: the flash freed by the unhooked engines' banks (Prophet banks 40 KB at 0x93000, CZ-1 banks 64 KB at 0xC8000) holds the pool, written in chunks with A/B commit records as Skiff and Melodee both do. New project format version; Melodee 1.4.5 projects import (their banks go into the pool).
+- [ ] **4a. Step fields and the pattern pool, together.** Melodee squeezes a step into a few bits everywhere it keeps one: the undo history and the compressed inactive banks in RAM (step_snapshot.h: flags in 3 bits), and the project record in flash (pattern_store.c FBKK: 64 bits a step, flags in 2). Adding Skiff's RATCH, FLAM, trig condition and NUDGE changes all of those, and the pool (Skiff bank.c) replaces the banks and their storage anyway, so both are one change:
+  - Step: Skiff's fields added to Melodee's step_t. Flags bit 2 stays SF_RECORDED; RATCH in bits 3 and 4 and FLAM in bit 5, as in Skiff; trig condition and NUDGE as their own bytes.
+  - Pool: 64 patterns shared by every project, each carrying its steps, LEN DIV SWING GATE DIR, motion, and its timed notes (the timed-note store's owner becomes the pool pattern). No RAM image (Skiff's way); the patterns playing are in track.step; edits wait in RAM until a quiet stop.
+  - Flash: the pool in the sectors freed by the unhooked engines' banks (Prophet banks 40 KB at 0x93000, CZ-1 banks 64 KB at 0xC8000), in chunks with A/B commit records.
+  - Undo history and the editor link carry the new fields.
+  - New project format version; Melodee 1.4.5 projects import (their 32 banks go into the pool).
+  - Playback: Skiff's seq_ratchet, seq_enter (NUDGE) and trig conditions in Melodee's seq.c. Timed notes keep their own timing; RATCH and FLAM apply to step notes.
 - [ ] **4c. Lists and SONG.** Each track's list of 16 entries (pattern, repeats); SONG plays each track down its list. Replaces song_chain.c's sections. The pool is shared by every project, as in Skiff; a project stores its lists and sounds.
 - [ ] **4d. PERFORM and scenes.** Skiff's launch.c (launch at LOOP / BAR / BEAT / NOW), staged mutes, 16 scenes, FILL, throws.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
