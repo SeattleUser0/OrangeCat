@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.2  
+**Version:** 0.3  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.3 (October 20, 2026):** Phase 1 started: OrangeCat fork set up, GitHub build working, baseline sizes recorded.
 - **0.2 (October 20, 2026):** Builds moved to GitHub Actions; Docker dropped from phase 1. Pattern storage and arrangement decided: Skiff's shared pool and per-track lists. BEETLE added as the tracker reference.
 - **0.1 (October 20, 2026):** First version. Phases set from specification section 14.
 
@@ -18,7 +19,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | Phase | Work | Status |
 |---|---|---|
 | 0 | Specification and source review | Done |
-| 1 | Foundation: fork, build setup, recovery checks, baseline sizes | Not started |
+| 1 | Foundation: fork, build setup, recovery checks, baseline sizes | In progress |
 | 2 | USB flash drive test | Not started |
 | 3 | Strip Melodee's engines | Not started |
 | 4 | Port Skiff's sequencer and arranger | Not started |
@@ -84,21 +85,23 @@ Findings that drive the build:
 
 ## Phase 1: Foundation
 
-**Status: Not started**
+**Status: In progress**
 
 Goal: an Orange Cat build that matches Melodee 1.4.5, installs on a test unit, and can be recovered.
 
 Left to build:
-- [ ] Fork keremimo/melodee on GitHub as SeattleUser0/orange-cat (Jeremiah).
-- [ ] Reset the fork's main branch to Melodee's v1.4.5 tag.
-- [ ] Replace Melodee's nightly and release workflows with an Orange Cat workflow modeled on the SeattleUser0/skiff fork's release.yml: build on push to main and on version tags, tests reported, size lines shown on the run page.
-- [ ] Build Melodee unchanged on GitHub and confirm the package behaves like the Melodee 1.4.5 release.
+- [x] Fork keremimo/melodee on GitHub as [SeattleUser0/OrangeCat](https://github.com/SeattleUser0/OrangeCat). Done October 20, 2026.
+- [x] Main branch is Melodee's v1.4.5 commit (398ada1). The fork already matched it; no reset needed.
+- [x] Replace Melodee's nightly and release workflows with .github/workflows/build.yml (rev 1), modeled on the SeattleUser0/skiff fork's release.yml: build on push to main and on version tags, tests reported, size lines shown on the run page.
+- [x] Copy the spec and this document into the repository at docs/orangecat/ (SPEC.md, BUILD.md). Keep them in step with the copies in the project folder.
+- [x] Build Melodee unchanged on GitHub. First build passed October 20, 2026 ([run 39479193523](https://github.com/SeattleUser0/OrangeCat/actions/runs/39479193523), commit d768c3e, package melodee-nightly.fwsc, 610,545 B).
+- [ ] Confirm on a test unit that the package behaves like the Melodee 1.4.5 release.
 - [ ] Rename the firmware to Orange Cat: package name, boot screen, version string. Check the installer and recovery tool before changing any USB device names, since both look for Melodee's names.
 - [ ] Confirm 360 MHz and dual-core remain the defaults. If a 320 MHz option is still in a menu, remove it.
 - [ ] Record the baseline in the table below.
 
 Left to test:
-- [ ] Host test suite passes.
+- [x] Host test suite passes (first GitHub build, October 20, 2026).
 - [ ] The build installs on a test unit through the web installer and plays.
 - [ ] Interrupted install: unplug USB partway through, then finish the install through the boot stub's update mode.
 - [ ] Stock round trip: install stock M-VAVE V15, then Orange Cat again. Projects and settings behave as documented.
@@ -108,11 +111,14 @@ Baseline (fill in):
 
 | Measure | Value |
 |---|---|
-| App image size | |
-| App area free | |
-| .data + .bss | |
-| Audio arena available / required | |
-| Pool used | |
+| App image size | 533,688 B |
+| App area free | 39,752 B (app area 573,440 B) |
+| .data + .bss | 97,016 B of 98,304 B (1,288 B free) |
+| Audio working arena | 56,192 B available on demand (minimum 49,152 B) |
+| Pool used | 162,112 B of 344,064 B |
+| Package (.fwsc) | 610,545 B |
+
+Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variables is nearly full, so new code must keep its tables in flash or in the pool.
 
 ---
 
