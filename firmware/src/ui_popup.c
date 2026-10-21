@@ -116,9 +116,19 @@ static void ps_copy(void)
     ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY ENTRY" : rc == 4 ? "PATTERNS FULL" : song.playing ? "STOP FIRST" :
                "SAVE ERROR");
 }
+static int ocl_clear_unused(void);
+static void ps_unused(void)                            /* the pool's patterns nothing names emptied */
+{
+    int n = ocl_clear_unused();
+    char m[24];
+    if (n < 0) { ui_message(n == -2 ? "STOP FIRST" : "SAVE ERROR"); return; }
+    fmt_int(m, n);
+    str_cpy(m + str_len(m), n == 1 ? " PATTERN FREED" : " PATTERNS FREED", 16);
+    ui_message(m);
+}
 static const sheet_row_t SHEET_SONG[] = {
     {"Insert entry", 0, 0, ps_insert, 0}, {"Duplicate entry", 0, 0, ps_dup, 0}, {"Own copy", 0, 0, ps_copy, 0},
-    {"Delete entry", 0, 0, 0, CF_DEL_ROW}, {"Clear lists", 0, 0, 0, CF_CLEAR_SONG}};
+    {"Delete entry", 0, 0, 0, CF_DEL_ROW}, {"Clear lists", 0, 0, 0, CF_CLEAR_SONG}, {"Free unused patterns", 0, 0, ps_unused, 0}};
 
 /* the pattern's (NOTES, the drum grid, PATTERN: OCT+ held; TOOLS' Clear pattern lives here) */
 static void nt_quantize_v(char *b){str_cpy(b,ui.note_grid==2u?"0.25 step":ui.note_grid==1u?"0.5 step":"1 step",16);}
@@ -324,8 +334,9 @@ static void page_sheet_open(void)
             sheet_open(nm[0] ? nm : "Sound", ENGINES[eng_idx(TSEL->eng_req)]->name, SHEET_SOUND, NELEM(SHEET_SOUND));
         break;
     case 2:
-        fmt_int(nm, chain_config.count);
-        str_cpy(nm + str_len(nm), chain_config.count == 1u ? " section" : " sections", 10);
+        str_cpy(nm, "T1 \xb7 entry A", sizeof nm);      /* (Orange Cat 0.3: the cell picked) */
+        nm[1] = (char)('1' + song.sel % NTRK);
+        nm[str_len(nm) - 1u] = (char)('A' + ui.song_row % OCL_NENT);
         sheet_open("Song", nm, SHEET_SONG, NELEM(SHEET_SONG));
         break;
     case 3:
@@ -333,9 +344,9 @@ static void page_sheet_open(void)
         nm[1] = (char)('1' + song.sel % NTRK);
         sheet_open("Pattern", nm, SHEET_PATTERN, NELEM(SHEET_PATTERN));
         break;
-    case 4: {                                           /* "Pattern 3", "T2" */
-        char t[12] = "Pattern 1";
-        t[8] = (char)('1' + TSEL->pattern % NPAT);
+    case 4: {                                           /* "Entry C", "T2" (Orange Cat 0.3: the list's) */
+        char t[12] = "Entry A";
+        t[6] = (char)('A' + lists.cur[song.sel % NTRK] % OCL_NENT);
         str_cpy(nm, "T1", sizeof nm);
         nm[1] = (char)('1' + song.sel % NTRK);
         sheet_open(t, nm, SHEET_PATTERNS, NELEM(SHEET_PATTERNS));

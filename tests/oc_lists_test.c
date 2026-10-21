@@ -198,6 +198,15 @@ static int test_song(void)
     n = passes(got, 6, per * 5u, (int)per, 2);
     bad |= lcheck("SONG off: A loops; a launch of C comes in at the loop end, the track then on C",
                   n >= 4u && got[0] == 60u && got[1] == 60u && got[n - 1u] == 64u && lists.cur[0] == 2u);
+    {   /* a rest: A (REPS 1), an empty B, C: A, silence, C, A .. */
+        uint32_t g3[12];
+        three_patterns();
+        lists.ent[0][1][0] = 0;                    /* (B emptied: a rest between A and C) */
+        lists.song = 1;
+        n = passes(g3, 12, per * 7u, -1, 0);
+        int ok = n >= 6u && g3[0] == 60u && g3[1] == 0u && g3[2] == 64u && g3[3] == 60u && g3[4] == 0u && g3[5] == 64u;
+        bad |= lcheck("SONG: an empty entry between patterns is a rest (silence for its REPS), A - C A - C", ok);
+    }
     {   /* ten patterns through 8 banks while playing (clean banks reused) */
         uint32_t g2[24];
         reset();
@@ -223,9 +232,23 @@ static int test_song(void)
     return bad;
 }
 
+static int test_unused(void)
+{
+    reset();
+    put_note(0, 50); ocl_keep_all();            /* 01, named by track 1's entry A */
+    ocl_go_empty(0, 1); put_note(0, 51); ocl_keep_all();   /* 02 on B */
+    ocl_go(0, 0);
+    lists.ent[0][1][0] = 0;                     /* (B let go: 02 is still in a bank of track 1 .. */
+    bank_pid[0][ocl_bank_of(0, 1)] = 0;         /* .. and that bank given up too: nothing names 02) */
+    int n = ocl_clear_unused();
+    return lcheck("Free unused patterns: the one nothing names emptied, the others kept",
+                  n == 1 && !ocp.len[1] && ocp.len[0] && note_of(0) == 50u);
+}
+
 int main(void)
 {
     int bad = 0;
+    bad |= test_unused();
     bad |= test_song();
     bad |= test_new_and_shared();
     bad |= test_cache();

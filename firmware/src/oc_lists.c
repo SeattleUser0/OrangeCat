@@ -15,6 +15,7 @@
  * Revisions:
  *   0.3.3: first version (lists, the cache, keep, going to an entry while stopped).
  *   0.3.4: playing: the song (SONG on: each track down its list, REPS passes an entry) and launches (ocl_stage).
+ *   0.3.5: rests (an empty entry between the list's first and last patterns: silence, Skiff 1.2.1); entry edits.
  */
 
 /* the bank of track k holding pool pattern id, NPAT none */
@@ -163,6 +164,7 @@ static void ocl_set(uint32_t k, uint32_t e, uint32_t id, uint32_t reps)
 static uint8_t ocl_staged[NTRK];               /* the entry + 1 staged on each track (0: none) */
 static uint8_t ocl_staged_bank[NTRK];
 static uint32_t ocl_staged_gen[NTRK];          /* the track's pattern_gen when staged: changed, it came in */
+static int ocl_stage_empty(uint32_t k, uint32_t e, uint32_t reps, int is_song);
 
 /* track k's bank b holds nothing that is not kept (it can be reused while playing) */
 static int ocl_bank_clean(uint32_t k, uint32_t b)
@@ -185,16 +187,18 @@ static uint32_t ocl_victim_clean(uint32_t k)
     return best;
 }
 
-/* the song's next entry of track k: after the one it is on, the next naming a pattern; after the last, the first.
- * OCL_NENT: none (no entry names one) */
+/* the song's next entry of track k: after the one it is on, the next; an empty entry between the list's first and last
+ * patterns is a rest (Skiff 1.2.1: silence for its REPS passes); after the last pattern, the first. OCL_NENT: none
+ * (no entry names one) */
 static uint32_t ocl_song_next(uint32_t k)
 {
-    uint32_t cur = lists.cur[k] % OCL_NENT;
-    for (uint32_t i = 1; i <= OCL_NENT; i++) {
-        uint32_t e = (cur + i) % OCL_NENT;
-        if (ocl_ent_pat(k, e) != OCP_N) return e;
-    }
-    return OCL_NENT;
+    uint32_t cur = lists.cur[k] % OCL_NENT, first, last;
+    for (first = 0; first < OCL_NENT && ocl_ent_pat(k, first) == OCP_N; first++)
+        ;
+    if (first == OCL_NENT) return OCL_NENT;
+    for (last = OCL_NENT - 1u; ocl_ent_pat(k, last) == OCP_N; last--)
+        ;
+    return cur >= first && cur < last ? cur + 1u : first;
 }
 
 /* playing: entry e of track k staged to come in at its loop end, once the entry playing has made reps passes (song:
@@ -269,7 +273,10 @@ static void ocl_poll(void)
             uint32_t cur = lists.cur[k] % OCL_NENT, e = ocl_song_next(k);
             if (e == OCL_NENT || (e == cur && ocl_ent_pat(k, cur) != OCP_N && bank_pid[k][t->pattern] == lists.ent[k][cur][0]))
                 continue;                     /* (no entry; or a list of one, playing it: it loops) */
-            (void)ocl_stage(k, e, lists.ent[k][cur][1] + 1u, 1);
+            if (ocl_ent_pat(k, e) == OCP_N)    /* (a rest) */
+                (void)ocl_stage_empty(k, e, lists.ent[k][cur][1] + 1u, 1);
+            else
+                (void)ocl_stage(k, e, lists.ent[k][cur][1] + 1u, 1);
         }
     }
 }
@@ -344,9 +351,9 @@ static int ocl_any(void)                        /* an entry names a pattern */
 }
 
 /* entry e of track k (empty: naming no pattern) to a new empty pattern: the track on it (stopped: at once; playing: at
- * its loop end), its steps a new pattern named by the entry when they are kept. 0 done; 2 a flash error; 4 no bank to
- * use (playing: none free of unkept edits) */
-static int ocl_go_empty(uint32_t k, uint32_t e)
+ * its loop end, after reps passes of the one playing; song: the song's, a rest), its steps a new pattern named by the
+ * entry when they are kept. 0 done; 2 a flash error; 4 no bank to use (playing: none free of unkept edits) */
+static int ocl_stage_empty(uint32_t k, uint32_t e, uint32_t reps, int is_song)
 {
     uint32_t b;
     int rc;
@@ -360,6 +367,12 @@ static int ocl_go_empty(uint32_t k, uint32_t e)
         return 4;
     }
     if (pattern_clear(&trk[k], b)) return 2;
+    {   /* (the track's own LEN DIV SWING GATE: a rest's REPS count its passes) */
+        pattern_t p;
+        pattern_read(k, b, &p);
+        memcpy(p.timing, &trk[k].p[P_SLEN], sizeof p.timing);
+        pattern_write(k, b, &p);
+    }
     bank_pid[k][b] = 0;
     bank_sig[k][b] = 0;
     bank_use[k][b] = ++bank_clock;
@@ -371,11 +384,27 @@ static int ocl_go_empty(uint32_t k, uint32_t e)
     {
         uint32_t f = motion_guard();
         ocl_staged_gen[k] = trk[k].pattern_gen;
-        trk[k].pattern_reps = 0;
+        trk[k].pattern_reps = (uint8_t)((reps > 127u ? 127u : reps) | (is_song ? 0x80u : 0u));
         trk[k].pattern_next = (uint8_t)b;
         motion_unguard(f);
     }
     ocl_staged[k] = (uint8_t)(e + 1u);
     ocl_staged_bank[k] = (uint8_t)b;
     return 0;
+}
+static int ocl_go_empty(uint32_t k, uint32_t e) { return ocl_stage_empty(k, e, 0, 0); }
+
+/* every pool pattern nothing names (no list entry, no bank, no saved project) emptied, a chunk at a time (stopped).
+ * How many, or -1 a flash error, -2 playing */
+static int ocl_clear_unused(void)
+{
+    uint8_t want[OCP_N];
+    int n = 0;
+    if (transport_busy()) return -2;
+    if (ocl_keep_all() == 2) return -1;        /* (what the tracks have kept first: it names its patterns) */
+    memset(want, 0, sizeof want);
+    for (uint32_t id = 0; id < OCP_N; id++)
+        if ((ocp.len[id] || ocp.hash[id]) && !ocj_named_now(id, 0) && !ocj_refs(id, 4u)) { want[id] = 255u; n++; }
+    if (n && ocj_put_chunks(want, &proj_scratch, proj_wire_u.raw, 0)) return -1;
+    return n;
 }

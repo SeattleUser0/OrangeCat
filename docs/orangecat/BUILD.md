@@ -279,7 +279,11 @@ Each step builds, passes the host tests, and is measured before the next.
     - SEQ held, the white keys are the selected track's entries A to H: a tap goes there (an empty entry starts a new empty pattern and arms REC, as Melodee did for an empty bank). Held 1 second, its dialog: the same key again empties that entry (or, on the entry being played, deletes its pattern), another white key copies it there as its own pattern (stopped), C# and D# halve and double the pattern being played.
     - HOME's SELECT knob set to PATTERN steps through the entries.
   - Melodee's section SONG and TAKE JAM are no longer reachable from the pages (their code stays for older projects and the web editor until 4g).
-  - Left to do in 4c: a pool page that lists all 64 patterns and clears unused ones; rests (an empty entry between patterns as silence, as Skiff 1.2.1).
+    - Rests: with SONG on, an empty entry between a track's first and last pattern is silence for its REPS passes (Skiff 1.2.1).
+    - The SONG sheet's Free unused patterns empties every pool pattern that no list entry, no loaded bank and no saved project names.
+    - Stage (HOME) shows each track's entry letter, and the staged one beside it.
+  - Left to do in 4c: a page listing all 64 pool patterns (Skiff's SEQ > PATTERN); the web editor's view of the lists (4g).
+  - Left to test on the device (4c): make two patterns on a track and switch between them with SEQ + white keys; build a list on the SONG page and play it from there; save, power off and on, load: lists and patterns come back; a second project naming the same pattern hears an edit made in the first.
 - [ ] **4d. PERFORM and scenes.** Skiff's launch.c (launch at LOOP / BAR / BEAT / NOW), staged mutes, 16 scenes, FILL, throws.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
 - [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.

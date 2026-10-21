@@ -444,7 +444,8 @@ static void stage_row(uint32_t k)
     uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0u, arm = (song.rec >> k) & 1u, len = (uint32_t)t->p[P_SLEN];
     uint32_t lv = stage_rec_lv(k);
     uint32_t ph = song.playing && t->seq_idx < len ? t->seq_idx : 0xFFFFu, nb = st_bars(t);
-    uint32_t next = t->pattern_next < NPAT ? t->pattern_next + 1u : 0u, sig, src, kk, cat, g;
+    uint32_t cur_e = lists.cur[k] % OCL_NENT, se = ocl_staged_ent(k);   /* (Orange Cat 0.3, 4c) the entries */
+    uint32_t next = se < OCL_NENT ? se + 1u : 0u, sig, src, kk, cat, g;
     uint32_t n = stage_rows(), wide = n == 1u, idle = wide && stage_seq_idle(k);
     int pending = sel && browse_pending();
     int32_t h = st_row_h(), y = st_row_y(k), top, cs = h >= 80 ? 34 : 26, tx = 6 + cs + 10, room = BOX_W - 6 - tx;
@@ -454,7 +455,7 @@ static void stage_row(uint32_t k)
     uint16_t tc = mute ? T_DIM : T_TRK(k), bg = ux_mix(T_BG, tc, sel ? 24 : 11);   /* (the track's tint) */
     const aafont_t *lf = TY_LB, *nf = h >= 80 ? TY_VL : TY_TX;
     char nm[24], line[48], more[48], ml[TL_MAX][32], d[3] = {(char)('1' + k), 0, 0}, role[16];
-    char pt[3] = {'P', (char)('1' + t->pattern % NPAT), 0}, pn[3] = {'P', (char)('0' + next), 0};
+    char pt[3] = {(char)('A' + cur_e), 0, 0}, pn[3] = {(char)('A' + (next ? next - 1u : 0u)), 0, 0};
     uint32_t nx = 0, i;
     int32_t pw = text_w(lf, pt) + 8, pills = idle ? 0 : pw + (next ? pw + 4 : 0);   /* (the pattern, the next one) */
     if (pending) {                                      /* browsing: the sound the list shows, not yet loaded */
@@ -474,7 +475,7 @@ static void stage_row(uint32_t k)
                 sizeof line);
     }
     sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + (uint32_t)pending * 16u + stage.out * 32u, nm), line) +
-          next * 131u + t->pattern * 7919u + len * 13u + ux.gen * 977u + ux.pal * 31u + n * 7u + (uint32_t)h * 211u + idle * 3u +
+          next * 131u + (t->pattern + 8u * cur_e) * 7919u + len * 13u + ux.gen * 977u + ux.pal * 31u + n * 7u + (uint32_t)h * 211u + idle * 3u +
           lv * 50021u;
     if (wide)
         sig += (uint32_t)t->p[P_AMODE] * 3001u + (uint32_t)t->p[P_AHOLD] * 37u + (uint32_t)t->p[P_CHRD] * 641u +

@@ -147,6 +147,7 @@ static int sec_map_on(void);
 static void sound_name(const track_t *t, char *b);
 static int ptc_on(void);                                /* ui_patterns.c */
 static uint32_t ocl_pat_len(uint32_t id);               /* (Orange Cat 0.3) oc_lists.c */
+static uint32_t ocl_staged_ent(uint32_t k);
 static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
