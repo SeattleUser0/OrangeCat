@@ -116,7 +116,8 @@ static int track_remove(uint32_t k)
     if (!proj_pack((project_store_t *)(raw + 8u), p))
         goto fail;
     bank_checksum(raw);
-    memmove(proj_x[k], proj_x[k + 1u], (last - k) * sizeof proj_x[0]);   /* (Orange Cat 0.3) Skiff's fields move too */
+    for (j = k; j < last; j++)                          /* (Orange Cat 0.3) Skiff's fields move too (no memmove) */
+        memcpy(proj_x[j], proj_x[j + 1u], sizeof proj_x[j]);
     memset(proj_x[last], 0, sizeof proj_x[last]);
     proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
     if (!bank_valid(raw, BANK_STORE_SIZE) || project_restore_runtime(&proj_scratch))
