@@ -31,12 +31,14 @@
  *   kept up to date by saves and deletes; 56 x 32 bytes in the pool section. Payload CRCs are checked again when a
  *   record is read or found.
  *
- * Flash access is storage.c's: st_read, st_erase, st_prog (the host tests give a simulated NOR), st_crc32.
+ * Flash access is storage.c's: st_read, st_erase, st_prog (the host tests give a simulated NOR); without the flash
+ * driver (host builds of the UI) the sectors are kept in RAM.
  *
  * Revisions:
  *   0.3.0: first version.
  *   0.3.1: saves stream their payload from a source (ocs_src_t): no RAM image of a record. ocs_open / ocs_at read
  *          pieces of one. CRC by nibbles (ocs_crc_add).
+ *   0.3.2: its own CRC for the headers too (no storage.c needed); without the flash driver the sectors are in RAM.
  */
 #define OCS_MAGIC 0x3153434Fu                  /* "OCS1" */
 #define OCS_SECTOR 4096u
@@ -65,16 +67,28 @@ static uint8_t ocs_cursor;                     /* where the next save starts loo
 /* sector s's flash offset: 0..39 at 0xA0000, 40..55 at 0xEA000 */
 static uint32_t ocs_addr(uint32_t s) { return s < 40u ? 0xA0000u + s * OCS_SECTOR : 0xEA000u + (s - 40u) * OCS_SECTOR; }
 
-static int ocs_hdr_ok(const ocs_hdr_t *h)
+#if MELODEE_FLASH
+#define OCS_RD st_read
+#define OCS_ER st_erase
+#define OCS_PG st_prog
+#else
+/* (host builds without the flash driver: the UI tests) the store's 56 sectors in RAM, as erased flash at first */
+static uint8_t ocs_ram[OCS_NSECT][OCS_SECTOR];
+static uint8_t *ocs_ram_at(uint32_t off)
 {
-    return h->magic == OCS_MAGIC && h->type > OCS_NONE && h->type < OCS_TYPES && h->parts >= 1u &&
-           h->parts <= OCS_PARTS_MAX && h->part < h->parts && h->len <= OCS_PAYLOAD_MAX &&
-           h->total <= (uint32_t)h->parts * OCS_PAYLOAD_MAX && h->hcrc == st_crc32(h, OCS_HDR - 4u);
+    uint32_t s = off < 0xEA000u ? (off - 0xA0000u) / OCS_SECTOR : 40u + (off - 0xEA000u) / OCS_SECTOR;
+    return ocs_ram[s % OCS_NSECT] + off % OCS_SECTOR;
 }
-
-
-/* a's seq newer than b's (with wrap, as storage.c st_current) */
-static int ocs_newer(uint32_t a, uint32_t b) { return a != b && a - b < 0x80000000u; }
+static int OCS_RD(uint32_t off, void *dst, uint32_t n) { memcpy(dst, ocs_ram_at(off), n); return 0; }
+static int OCS_ER(uint32_t off) { memset(ocs_ram_at(off), 0xFF, OCS_SECTOR); return 0; }
+static int OCS_PG(uint32_t off, const void *src, uint32_t n)
+{
+    uint8_t *d = ocs_ram_at(off);
+    const uint8_t *q = src;
+    for (uint32_t i = 0; i < n; i++) d[i] &= q[i];
+    return 0;
+}
+#endif
 
 /* CRC-32 (zlib's, as st_crc32) carried over pieces: start at 0xFFFFFFFF, the result is ~crc */
 static uint32_t ocs_crc_add(uint32_t crc, const uint8_t *p, uint32_t n)
@@ -90,6 +104,19 @@ static uint32_t ocs_crc_add(uint32_t crc, const uint8_t *p, uint32_t n)
     return crc;
 }
 
+static uint32_t ocs_crc32(const void *p, uint32_t n) { return ~ocs_crc_add(0xFFFFFFFFu, p, n); }
+
+static int ocs_hdr_ok(const ocs_hdr_t *h)
+{
+    return h->magic == OCS_MAGIC && h->type > OCS_NONE && h->type < OCS_TYPES && h->parts >= 1u &&
+           h->parts <= OCS_PARTS_MAX && h->part < h->parts && h->len <= OCS_PAYLOAD_MAX &&
+           h->total <= (uint32_t)h->parts * OCS_PAYLOAD_MAX && h->hcrc == ocs_crc32(h, OCS_HDR - 4u);
+}
+
+
+/* a's seq newer than b's (with wrap, as storage.c st_current) */
+static int ocs_newer(uint32_t a, uint32_t b) { return a != b && a - b < 0x80000000u; }
+
 /* the payload of part sector s checks against its header */
 static int ocs_body_ok(uint32_t s)
 {
@@ -97,7 +124,7 @@ static int ocs_body_ok(uint32_t s)
     uint32_t crc = 0xFFFFFFFFu, len = ocs_hdr[s].len;
     for (uint32_t off = 0; off < len; off += sizeof buf) {
         uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
-        if (st_read(ocs_addr(s) + OCS_HDR + off, buf, n)) return 0;
+        if (OCS_RD(ocs_addr(s) + OCS_HDR + off, buf, n)) return 0;
         crc = ocs_crc_add(crc, buf, n);
     }
     return ~crc == ocs_hdr[s].crc;
@@ -109,7 +136,7 @@ static int ocs_body_ok(uint32_t s)
 static void ocs_boot(void)
 {
     for (uint32_t s = 0; s < OCS_NSECT; s++) {
-        if (st_read(ocs_addr(s), &ocs_hdr[s], OCS_HDR) || !ocs_hdr_ok(&ocs_hdr[s]) || !ocs_body_ok(s))
+        if (OCS_RD(ocs_addr(s), &ocs_hdr[s], OCS_HDR) || !ocs_hdr_ok(&ocs_hdr[s]) || !ocs_body_ok(s))
             memset(&ocs_hdr[s], 0, OCS_HDR);
     }
     ocs_cursor = 0;
@@ -203,7 +230,7 @@ static int ocs_read(uint32_t type, uint32_t id, void *dst, uint32_t max)
     for (uint32_t p = 0; p < parts; p++) total += ocs_hdr[sect[p]].len;
     if (total > max) return -1;
     for (uint32_t p = 0, off = 0; p < parts; p++) {
-        if (st_read(ocs_addr(sect[p]) + OCS_HDR, (uint8_t *)dst + off, ocs_hdr[sect[p]].len)) return -1;
+        if (OCS_RD(ocs_addr(sect[p]) + OCS_HDR, (uint8_t *)dst + off, ocs_hdr[sect[p]].len)) return -1;
         off += ocs_hdr[sect[p]].len;
     }
     return (int)total;
@@ -216,7 +243,7 @@ static int ocs_prog(uint32_t addr, const uint8_t *src, uint32_t n)
         uint32_t k = 256u - (addr & 255u);
         int rc;
         if (k > n) k = n;
-        if ((rc = st_prog(addr, src, k)) != 0) return rc;
+        if ((rc = OCS_PG(addr, src, k)) != 0) return rc;
         addr += k; src += k; n -= k;
     }
     return 0;
@@ -268,25 +295,25 @@ static int ocs_write_copy(uint32_t type, uint32_t id, ocs_src_t *src, uint32_t l
         uint32_t addr = ocs_addr(use[p]) + OCS_HDR, crc = 0xFFFFFFFFu;
         if (len == 0) k = 0;
         memset(&ocs_hdr[use[p]], 0, OCS_HDR);  /* (erased: no longer what the scan saw) */
-        if ((rc = st_erase(ocs_addr(use[p]))) != 0) return rc;
+        if ((rc = OCS_ER(ocs_addr(use[p]))) != 0) return rc;
         for (uint32_t done = 0; done < k;) {
             uint32_t m = 256u - (addr & 255u);
             if (m > k - done) m = k - done;
             if ((rc = src->get(src, buf, m)) != 0) return rc < -1 ? rc : -10;
             crc = ocs_crc_add(crc, buf, m);
-            if ((rc = st_prog(addr, buf, m)) != 0) return rc;
+            if ((rc = OCS_PG(addr, buf, m)) != 0) return rc;
             addr += m; done += m;
         }
         h[p].magic = OCS_MAGIC; h[p].type = (uint8_t)type; h[p].part = (uint8_t)p; h[p].parts = (uint8_t)parts;
         h[p].rsv = 0xFF; h[p].id = (uint16_t)id; h[p].rsv2 = 0xFFFFu; h[p].seq = seq + 1u;
         h[p].len = k; h[p].crc = ~crc; h[p].total = len;
-        h[p].hcrc = st_crc32(&h[p], OCS_HDR - 4u);
+        h[p].hcrc = ocs_crc32(&h[p], OCS_HDR - 4u);
     }
     for (p = 0; p < parts; p++)                /* the commit headers, last */
         if ((rc = ocs_prog(ocs_addr(use[p]), (const uint8_t *)&h[p], OCS_HDR)) != 0) return rc;
     for (p = 0; p < parts; p++) {              /* read back: a failing part must not report saved */
         ocs_hdr_t chk;
-        if (st_read(ocs_addr(use[p]), &chk, OCS_HDR) || memcmp(&chk, &h[p], OCS_HDR)) return -7;
+        if (OCS_RD(ocs_addr(use[p]), &chk, OCS_HDR) || memcmp(&chk, &h[p], OCS_HDR)) return -7;
         ocs_hdr[use[p]] = h[p];
         if (!ocs_body_ok(use[p])) { memset(&ocs_hdr[use[p]], 0, OCS_HDR); return -7; }
     }
@@ -319,7 +346,7 @@ static int ocs_delete(uint32_t type, uint32_t id)
     for (uint32_t s = 0; s < OCS_NSECT; s++) {
         if (ocs_hdr[s].magic != OCS_MAGIC || ocs_hdr[s].type != type || ocs_hdr[s].id != id) continue;
         memset(&ocs_hdr[s], 0, OCS_HDR);
-        if (st_erase(ocs_addr(s))) rc = -8;
+        if (OCS_ER(ocs_addr(s))) rc = -8;
     }
     return rc;
 }
@@ -342,7 +369,7 @@ static int ocs_at(const ocs_rec_t *r, uint32_t off, void *dst, uint32_t n)
     while (n) {
         uint32_t p = off / OCS_PAYLOAD_MAX, o = off % OCS_PAYLOAD_MAX, k = OCS_PAYLOAD_MAX - o;
         if (k > n) k = n;
-        if (st_read(ocs_addr(r->sect[p]) + OCS_HDR + o, d, k)) return -1;
+        if (OCS_RD(ocs_addr(r->sect[p]) + OCS_HDR + o, d, k)) return -1;
         d += k; off += k; n -= k;
     }
     return 0;

@@ -510,11 +510,11 @@ static void proj_bound(project_t *q)
 }
 
 #include "pattern_store.c"
-#if MELODEE_FLASH
-#include "oc_store.c"            /* (Orange Cat 0.3) the record store over the project area (build doc 4a part 3) */
+#include "oc_store.c"            /* (Orange Cat 0.3) the record store over the project area (build doc 4a part 3; in
+                                  * RAM without the flash driver) */
 #include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
-#endif
+#include "oc_lists.c"            /* (Orange Cat 0.3, 4c) each track's list of pool patterns; the banks its cache */
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
 static uint32_t proj_saved_hash[4];
@@ -623,6 +623,10 @@ static int project_save_as(uint32_t slot, const char *name)
         return 1;
     }
     momentary_restore();
+    {   /* (Orange Cat 0.3, 4c) what the tracks have kept to the pool first: their banks then name their patterns */
+        int rc = ocl_keep_all();
+        if (rc) { ui_message(rc == 4 ? "PATTERNS FULL" : "SAVE ERROR"); return 2; }
+    }
     project_capture(p);
     if (name) {
         memset(p->name, 0, sizeof p->name);
@@ -672,6 +676,8 @@ static void project_autosave(void)
     project_t *p = &proj_scratch;
     uint32_t slot = proj_cur;
     if (slot >= 4u || transport_busy())
+        return;
+    if (ocl_keep_all())                                 /* (Orange Cat 0.3, 4c) kept to the pool first */
         return;
     project_capture(p);
     proj_wire_gen++;                                    /* (the staging RAM: a backup's copy there is gone) */

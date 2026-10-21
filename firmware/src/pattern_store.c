@@ -48,6 +48,9 @@ static int bank_step_pack(uint8_t *b, const step_t *s)
  * autosave sees a change of them alone */
 static uint8_t proj_x[NTRK][NPAT][NSTEP][2] __attribute__((section(".pool")));
 static uint32_t proj_x_tag;
+/* (Orange Cat 0.3, 4c) the lists and the pool pattern each bank holds go beside it the same way */
+static ocl_lists_t proj_lists __attribute__((section(".pool")));
+static uint8_t proj_pid[NTRK][NPAT] __attribute__((section(".pool")));
 static void proj_x_put(uint32_t k, uint32_t b, const step_t *st)
 {
     for (uint32_t i = 0; i < NSTEP; i++) {
@@ -66,7 +69,10 @@ static void proj_x_get(uint32_t k, uint32_t b, step_t *st)
 static uint32_t bank_hash(const uint8_t *raw)
 {
     uint32_t h = proj_hash(raw, BANK_STORE_SIZE);
-    return proj_x_tag == h ? fnv(h, proj_x, sizeof proj_x) : h;
+    if (proj_x_tag != h) return h;
+    h = fnv(h, proj_x, sizeof proj_x);
+    h = fnv(h, &proj_lists, sizeof proj_lists);
+    return fnv(h, proj_pid, sizeof proj_pid);
 }
 static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
 {
@@ -102,6 +108,8 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
         memcpy(raw + BANK_FN_OFF + 4u, q->fm6_fn, sizeof q->fm6_fn);
     }
     memset(proj_x, 0, sizeof proj_x);
+    memset(&proj_lists, 0, sizeof proj_lists); memset(proj_pid, 0, sizeof proj_pid);
+    if (runtime) { proj_lists = lists; memcpy(proj_pid, bank_pid, sizeof proj_pid); }   /* (Orange Cat 0.3, 4c) */
     for (uint32_t k = 0; k < NTRK; k++) {          /* (Orange Cat 0.3) Skiff's fields beside it */
         if (!runtime) { proj_x_put(k, q->pattern[k] % NPAT, q->t[k].step); continue; }
         for (uint32_t b = 0; b < NPAT; b++) {
@@ -181,8 +189,13 @@ static void bank_restore(const uint8_t *raw)
             else for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) step_wire_unpack(&p.step[i], raw + pos);
             if (xs) proj_x_get(k, b, p.step);  /* (Orange Cat 0.3) Skiff's fields, when they go with these bytes */
             pattern_write(k, b, &p);
+            if (xs) {                          /* (Orange Cat 0.3, 4c) the pool pattern it is, as kept */
+                bank_pid[k][b] = proj_pid[k][b];
+                bank_sig[k][b] = 0;            /* (unknown: oc_lists.c finds it the first time it is kept) */
+            }
         }
     }
+    if (xs) lists = proj_lists;               /* (Orange Cat 0.3, 4c) */
     motion_unguard(f);
 }
 

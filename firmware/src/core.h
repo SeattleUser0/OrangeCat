@@ -477,6 +477,10 @@ typedef struct track {
     step_t step[NSTEP];
     volatile uint8_t pattern, pattern_next;             /* active bank, queued bank (0xff: none) */
     volatile uint32_t pattern_gen;                      /* invalidates editor history even for identical banks */
+    volatile uint8_t pattern_reps;                      /* (Orange Cat 0.3, 4c) the passes the bank playing makes
+                                                         * before pattern_next comes in (0, 1: at its next loop end);
+                                                         * bit 7: the song's next (a stop drops it) */
+    uint8_t ent_pass;                                   /* .. the passes it has made since it came in (seq.c) */
     uint32_t seq_pos;            /* samples (INT), or MIDI musical units, into the step */
     uint16_t seq_idx;
     uint8_t seq_notes[4 + NLANE];   /* sounding seq notes (the step's notes, then its hits) */

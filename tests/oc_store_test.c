@@ -15,6 +15,7 @@
  * Revisions:
  *   0.3.0: first version.
  */
+#define MELODEE_FLASH 1                         /* (the simulated NOR below, not the RAM sectors) */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

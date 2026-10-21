@@ -1005,7 +1005,12 @@ static void seq_stop(void)
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
     }
     chain_stop();
-    for (i = 0; i < NTRK; i++) if (trk[i].pattern_next < NPAT) pattern_switch(&trk[i], trk[i].pattern_next);
+    for (i = 0; i < NTRK; i++) {
+        if (trk[i].pattern_reps & 0x80u)            /* (Orange Cat 0.3, 4c) a song's next: dropped at a stop */
+            trk[i].pattern_next = 0xff;
+        trk[i].pattern_reps = 0;
+        if (trk[i].pattern_next < NPAT) pattern_switch(&trk[i], trk[i].pattern_next);
+    }
     motion_end();
 }
 
@@ -1260,6 +1265,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             t->nud = 0;
             t->rat_left = 0;
             t->seq_pass = 0;
+            t->ent_pass = 0;
         }
         uint32_t punch_in = 0;
         t->seq_pos = starting ? (chain.running ? chain.carry : 0u) : t->seq_pos - cur_len;
@@ -1273,7 +1279,12 @@ static void seq_grid_tick(track_t *t, uint32_t n)
                 punch_in = 1;
             }
         }
-        if (!t->seq_idx && !chain.running && t->pattern_next < NPAT) {
+        if (!t->seq_idx && !starting && t->ent_pass < 255u)   /* (Orange Cat 0.3, 4c) a pass of the bank playing */
+            t->ent_pass++;
+        if (!t->seq_idx && !chain.running && t->pattern_next < NPAT &&
+            (starting || t->ent_pass >= (t->pattern_reps & 0x7Fu))) {   /* (4c: after the entry's REPS passes) */
+            t->ent_pass = 0;
+            t->pattern_reps = 0;
             pattern_switch(t, t->pattern_next);
             t->seq_idx = 0;
             period = seq_div_samples((uint32_t)t->p[P_SDIV]);

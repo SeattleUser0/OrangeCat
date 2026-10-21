@@ -36,6 +36,18 @@ static uint32_t pattern_fallbacks;
 static uint8_t chain_patterns[CHAIN_ROWS][NTRK];
 static uint8_t motion_pattern[MOTION_MAX];
 static uint16_t pattern_epoch; /* invalidates destructive edits waiting for a loop end */
+/* (Orange Cat 0.3, build doc 4c, Skiff's lists) each track's list of OCL_NENT entries, A..P: byte 0 a pool pattern + 1
+ * (0: empty), byte 1 its REPS - 1; the entry each track is on; SONG on. The banks are the lists' cache: bank_pid, the
+ * pool pattern + 1 each bank holds (0: none, or steps not kept yet); bank_sig, the CRC of its pattern as it came in or
+ * was last kept (as ocp.hash: a bank whose pattern packs to another is changed); bank_use, when it was last gone to
+ * (the least recent one is reused). oc_lists.c keeps them; pattern_init clears them */
+#define OCL_NENT 16u
+typedef struct { uint8_t ent[NTRK][OCL_NENT][2]; uint8_t cur[NTRK]; uint8_t song, rsv[3]; } ocl_lists_t;
+static ocl_lists_t lists __attribute__((section(".pool")));
+static uint8_t bank_pid[NTRK][NPAT] __attribute__((section(".pool")));
+static uint32_t bank_sig[NTRK][NPAT] __attribute__((section(".pool")));
+static uint8_t bank_use[NTRK][NPAT] __attribute__((section(".pool")));
+static uint8_t bank_clock;
 static void seq_release(track_t *t);
 static void recording_reset(void);
 static void recording_stop(track_t *t);
@@ -237,6 +249,8 @@ static void pattern_init(void)
     for (uint32_t i = 0; i < PAT_CHUNKS; i++) pattern_link[i] = (uint16_t)(i + 1u < PAT_CHUNKS ? i + 1u : PAT_NONE);
     memset(chain_patterns, 0, sizeof chain_patterns); memset(motion_pattern, 0, sizeof motion_pattern);
     memset(pattern_stage, 0, sizeof pattern_stage);
+    memset(&lists, 0, sizeof lists); memset(bank_pid, 0, sizeof bank_pid);   /* (Orange Cat 0.3) the lists, their cache */
+    memset(bank_sig, 0, sizeof bank_sig); memset(bank_use, 0, sizeof bank_use); bank_clock = 0;
     for (uint32_t k = 0; k < NTRK; k++) {
         pattern_stage[k].bank = 0xff;
         trk[k].pattern = 0; trk[k].pattern_next = 0xff; trk[k].pattern_gen++;

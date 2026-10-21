@@ -28,8 +28,10 @@
  *
  * Revisions:
  *   0.3.2: first version.
+ *   0.3.3: (4c) OCJ2: the lists in the record; the banks' patterns as the sequencer has them (proj_pid: shared, as
+ *          Skiff's projects share patterns); a pattern anything loaded names is not emptied.
  */
-#define OCJ_MAGIC 0x314A434Fu                  /* "OCJ1" */
+#define OCJ_MAGIC 0x324A434Fu                  /* "OCJ2" (OCJ1, before the lists: never released) */
 #define OCJ_FN (4u + NTRK * FM6_NFN)           /* FBKK's FM6 function settings (BANK_FN_OFF: their magic, then them) */
 typedef struct {
     uint32_t magic, len, zlen;                 /* len: the whole record; zlen: the coded project part after this */
@@ -38,6 +40,7 @@ typedef struct {
     uint8_t chain[CHAIN_ROWS * NTRK];          /* FBKK's song columns (BANK_CHAIN_OFF) */
     char name[PROJ_NAME_LEN];                  /* the project's name (the slot list) */
     uint8_t fn[OCJ_FN];
+    ocl_lists_t lists;                         /* (4c) the tracks' lists, the entry each is on, SONG */
 } ocj_head_t;
 
 static struct {
@@ -55,6 +58,19 @@ static uint32_t ocj_refs(uint32_t id, uint32_t but)
         for (uint32_t k = 0; s != but && k < NTRK; k++)
             for (uint32_t b = 0; b < NPAT; b++) n += ocj.pid[s][k][b] == id + 1u;
     return n;
+}
+
+/* pool pattern id named by what is loaded (a bank's, a list entry's) or by the project being written (proj_pid,
+ * proj_lists, when xs) */
+static int ocj_named_now(uint32_t id, int xs)
+{
+    for (uint32_t k = 0; k < NTRK; k++) {
+        for (uint32_t b = 0; b < NPAT; b++)
+            if (bank_pid[k][b] == id + 1u || (xs && proj_pid[k][b] == id + 1u)) return 1;
+        for (uint32_t e = 0; e < OCL_NENT; e++)
+            if (lists.ent[k][e][0] == id + 1u || (xs && proj_lists.ent[k][e][0] == id + 1u)) return 1;
+    }
+    return 0;
 }
 
 /* boot (after ocs_boot, ocp_scan): each slot's map */
@@ -166,7 +182,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
         memset(want, 0, sizeof want);
         for (k = 0; k < NTRK; k++)
             for (b = 0; b < NPAT; b++)
-                if ((id = ocj.pid[slot][k][b]) != 0u && !ocj_refs(id - 1u, slot)) want[id - 1u] = 255u;
+                if ((id = ocj.pid[slot][k][b]) != 0u && !ocj_refs(id - 1u, slot) && !ocj_named_now(id - 1u, 0)) want[id - 1u] = 255u;
         memset(ocj.pid[slot], 0, sizeof ocj.pid[slot]);
         (void)ocj_put_chunks(want, q, raw, 0);   /* (failing: left unnamed, free to a later save) */
         return 0;
@@ -183,6 +199,10 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     for (k = 0; k < NTRK; k++)
         for (b = 0; b < NPAT; b++) {
             if (!hash[k][b]) continue;
+            if (xs && proj_pid[k][b] && proj_pid[k][b] <= OCP_N) {   /* (4c) the pattern the bank is: shared as named */
+                npid[k][b] = proj_pid[k][b];
+                continue;
+            }
             id = ocj.pid[slot][k][b];
             if (id && !ocj_refs(id - 1u, slot)) {   /* (its own, no other slot's: kept) */
                 uint32_t dup = 0;
@@ -191,14 +211,14 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
                 if (!dup) { npid[k][b] = (uint8_t)id; continue; }
             }
             for (id = 1; id <= OCP_N; id++) {       /* a free one: no slot names it, no bank here has it */
-                uint32_t taken = ocj_refs(id - 1u, slot);
+                uint32_t taken = ocj_refs(id - 1u, slot) || ocj_named_now(id - 1u, xs) || ocp.len[id - 1u];
                 for (uint32_t k2 = 0; k2 < NTRK && !taken; k2++)
                     for (uint32_t b2 = 0; b2 < NPAT; b2++) taken |= npid[k2][b2] == id || ocj.pid[slot][k2][b2] == id;
                 if (!taken) break;
             }
             if (id > OCP_N) {                       /* (none: try this slot's own let go, before giving up) */
                 for (id = 1; id <= OCP_N; id++) {
-                    uint32_t taken = ocj_refs(id - 1u, slot);
+                    uint32_t taken = ocj_refs(id - 1u, slot) || ocj_named_now(id - 1u, xs);
                     for (uint32_t k2 = 0; k2 < NTRK && !taken; k2++)
                         for (uint32_t b2 = 0; b2 < NPAT; b2++) taken |= npid[k2][b2] == id;
                     if (!taken) break;
@@ -211,7 +231,10 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     memset(want, 0, sizeof want);
     for (k = 0; k < NTRK; k++)
         for (b = 0; b < NPAT; b++)
-            if ((id = npid[k][b]) != 0u && ocp.hash[id - 1u] != hash[k][b]) want[id - 1u] = (uint8_t)(k * NPAT + b + 1u);
+            if ((id = npid[k][b]) != 0u && ocp.hash[id - 1u] != hash[k][b] && !(xs && proj_pid[k][b] == id))
+                want[id - 1u] = (uint8_t)(k * NPAT + b + 1u);   /* (4c: a bank the sequencer named was kept already
+                                                                  * (oc_lists.c); its copy is not written back over a
+                                                                  * newer one another track kept) */
     if ((rc = ocj_put_chunks(want, q, raw, xs)) != 0) return 2;
     /* 3. the record: the project part without its steps, timed notes and motion */
     memset(&ocj_h, 0, sizeof ocj_h);
@@ -221,6 +244,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     memcpy(ocj_h.chain, raw + BANK_CHAIN_OFF, sizeof ocj_h.chain);
     memcpy(ocj_h.name, q->name, PROJ_NAME_LEN);
     memcpy(ocj_h.fn, raw + BANK_FN_OFF, OCJ_FN);
+    if (xs) ocj_h.lists = proj_lists;          /* (4c; a project from elsewhere: no lists) */
     for (k = 0; k < NTRK; k++)
         for (uint32_t i = 0; i < NSTEP; i++) step_clear(&q->t[k].step[i]);
     memset(q->recording, 0, sizeof q->recording);
@@ -242,7 +266,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
             if (!old) continue;
             for (uint32_t k2 = 0; k2 < NTRK; k2++)
                 for (uint32_t b2 = 0; b2 < NPAT; b2++) still |= npid[k2][b2] == old;
-            if (!still && !ocj_refs(old - 1u, slot)) want[old - 1u] = 255u;
+            if (!still && !ocj_refs(old - 1u, slot) && !ocj_named_now(old - 1u, xs)) want[old - 1u] = 255u;
         }
     memcpy(ocj.pid[slot], npid, sizeof npid);
     (void)ocj_put_chunks(want, q, raw, 0);     /* (failing: left unnamed, free to a later save) */
@@ -335,6 +359,16 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     q->sum = proj_sum(q);
     if (!proj_pack((project_store_t *)(raw + 8u), q)) return -1;
     bank_checksum(raw);
+    memcpy(proj_pid, ocj_h.pid, sizeof proj_pid);    /* (4c) the patterns the banks are, the lists */
+    proj_lists = ocj_h.lists;
+    for (k = 0; k < NTRK; k++) {
+        proj_lists.cur[k] %= OCL_NENT;
+        for (uint32_t e = 0; e < OCL_NENT; e++) {
+            if (proj_lists.ent[k][e][0] > OCP_N) proj_lists.ent[k][e][0] = 0;
+            proj_lists.ent[k][e][1] &= 15u;
+        }
+    }
+    proj_lists.song = proj_lists.song ? 1u : 0u;
     proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
     return (int)BANK_STORE_SIZE;
 }

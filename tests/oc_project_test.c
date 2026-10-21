@@ -271,6 +271,7 @@ static int test_slots(void)
     fill_all(2, 4);
     snap(&A);
     project_save_as(0, "ONE");
+    wipe_runtime();                                /* (a new project: its banks name no patterns yet) */
     fill_all(3, 4);
     snap(&B);
     project_save_as(1, "TWO");
@@ -281,12 +282,15 @@ static int test_slots(void)
     bad |= check("... slot B its own", same(&B, &C));
     bad |= check("erasing slot A empties only its patterns", project_erase(0) == 0 && used_patterns() == 16u &&
                  !project_name(0, n) && (wipe_runtime(), project_load(1), snap(&C), same(&B, &C)));
+    wipe_runtime();
     fill_all(4, NPAT);
     snap(&A);
     bad |= check("a 32-bank project into slot A: 48 patterns in all", project_save_as(0, "BIG") == 0 && used_patterns() == 48u);
+    wipe_runtime();
     fill_all(5, NPAT);
-    bad |= check("another into slot C: past 64, refused (PATTERNS FULL), nothing changes",
-                 project_save_as(2, "TOO BIG") != 0 && used_patterns() == 48u && !project_name(2, n));
+    bad |= check("another into slot C: past 64, refused (PATTERNS FULL); what fitted is kept in the pool, slot C empty",
+                 project_save_as(2, "TOO BIG") != 0 && !strcmp(ui.msg, "PATTERNS FULL") && used_patterns() == 64u &&
+                     !project_name(2, n));
     reboot();
     wipe_runtime(); project_load(0); snap(&C);
     bad |= check("... after a reboot slot A as saved", same(&A, &C));
@@ -294,7 +298,7 @@ static int test_slots(void)
     bad |= check("... and slot B", same(&B, &C));
     wipe_runtime(); project_load(0);
     bad |= check("saving slot A over itself reuses its own patterns (no new ones)",
-                 project_save(0) == 0 && used_patterns() == 48u);
+                 project_save(0) == 0 && used_patterns() == 64u && (wipe_runtime(), project_load(0), snap(&C), same(&A, &C)));
     return bad;
 }
 
@@ -349,6 +353,7 @@ static int test_cuts(void)
     return check(what, ok && done);
 }
 
+#ifndef OC_PROJECT_NO_MAIN
 int main(void)
 {
     int bad = 0;
@@ -359,3 +364,4 @@ int main(void)
     printf(bad ? "oc project: FAILED\n" : "oc project: all passed\n");
     return bad ? 1 : 0;
 }
+#endif
