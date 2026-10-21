@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.10
+**Firmware:** 0.4.11
 **Date:** October 21, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -73,7 +73,7 @@ Menu (hold HOME) > USB DRIVE TEST. OCT+ starts it. The USB port becomes a host, 
 
 While the test runs, USB MIDI, USB audio and the web editor are off.
 
-After a drive reads, OCT+ opens its files. Turn KNOB 1 (or KNOB 2, or PRESETS) to move. OCT+ opens a folder, or picks a file: a WAV shows its rate, bits, channels and length, and every file shows how fast it read. OCT- goes up a folder, and from the top back to the test. Files can be looked at, not loaded yet.
+After a drive reads, OCT+ opens its files. Turn KNOB 1 (or KNOB 2, or PRESETS) to move. OCT+ opens a folder, or picks a file: a WAV shows its rate, bits, channels and length, and every file shows how fast it read. OCT- goes up a folder, and from the top back to the test. OCT+ on a WAV plays it from the card, over and over, mixed in with whatever else is playing. OCT+ again stops it. The bottom line shows the processor load, how much of the time goes to reading the card, and any gaps in the sound. Other files are read once and timed.
 
 The FM-1 does not power its USB port. Use a hub with power on its PD port.
 

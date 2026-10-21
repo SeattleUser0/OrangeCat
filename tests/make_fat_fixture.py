@@ -11,6 +11,9 @@ implementation, so the firmware's FatFs is not checked against itself), holding:
   /SAMPLES/drums/snare.wav          WAV, 48000 Hz, 24-bit, stereo, 0.25 s
   /MANY/FILE01.BIN .. FILE20.BIN    20 small files (scrolling)
   /BIG.BIN                          64 KB of a counting pattern (the timed read)
+  /SAMPLES/tone.wav                 (0.4.11) WAV, 44100 Hz, 16-bit, stereo, 0.25 s: left a ramp, right its negative,
+                                    after a 700-byte "bext" chunk (the samples start past the first 512 bytes)
+  /SAMPLES/tone24.wav               (0.4.11) WAV, 22050 Hz, 24-bit, mono, 0.1 s: a ramp
 
 Written as tests/fixtures/fat32_card.bin: only the sectors that are not all zero, each as a 4-byte little-endian
 sector number and its 512 bytes. The test serves zeros for the rest. Needs pyfatfs (pip install pyfatfs); the
@@ -18,6 +21,7 @@ fixture is committed, so the tests do not.
 
 Revisions:
   0.4.10: first version.
+  0.4.11: two WAVs with sound in them, for the player.
 """
 import os
 import struct
@@ -42,6 +46,16 @@ def wav(rate, bits, channels, seconds):
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+def wav_data(rate, bits, channels, data, extra=b""):
+    fmt = struct.pack("<HHIIHH", 1, channels, rate, rate * channels * bits // 8, channels * bits // 8, bits)
+    body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + extra + b"data" + struct.pack("<I", len(data)) + data
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def ramp(i):                                    # the test's sample i (16-bit): a ramp that wraps
+    return ((i * 37) % 32768) - 16384
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         part = os.path.join(tmp, "part.img")
@@ -57,6 +71,12 @@ def main():
         fs.writebytes("/SAMPLES/Kick 808 Long Name.wav", wav(44100, 16, 1, 0.5))
         fs.makedir("/SAMPLES/drums")
         fs.writebytes("/SAMPLES/drums/snare.wav", wav(48000, 24, 2, 0.25))
+        n = int(44100 * 0.25)
+        st = b"".join(struct.pack("<hh", ramp(i), -ramp(i)) for i in range(n))
+        fs.writebytes("/SAMPLES/tone.wav", wav_data(44100, 16, 2, st, b"bext" + struct.pack("<I", 700) + bytes(700)))
+        n = int(22050 * 0.1)
+        m = b"".join(struct.pack("<i", ramp(i) << 8)[:3] for i in range(n))
+        fs.writebytes("/SAMPLES/tone24.wav", wav_data(22050, 24, 1, m))
         fs.makedir("/MANY")
         for i in range(1, 21):
             fs.writebytes(f"/MANY/FILE{i:02d}.BIN", bytes([i]) * 100)

@@ -48,6 +48,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
     fm1_irq_on();
 #endif
     click_render(out, n);
+    card_render(out, n);                                /* (Orange Cat 0.4.11) a WAV from the drive (card_play.c) */
     for (i = 0; i < n; i++) {
         if (i & 1u)
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];

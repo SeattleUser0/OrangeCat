@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.28  
+**Version:** 0.29  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.29 (October 21, 2026):** 0.4.11: a WAV plays from the card (plan steps 2 and 4 as one test): the audio load, the card's share of the main loop and any gaps on the page.
 - **0.28 (October 21, 2026):** 0.4.10 on the unit: files list and WAVs read; 470 to 480 KB/s in 512-byte reads.
 - **0.27 (October 21, 2026):** 0.4.10: the drive's files (FatFs): folders, WAV details, a timed file read. Plan for bounces to the card and for several FM-1s sharing one card.
 - **0.26 (October 21, 2026):** 0.4.9 on the unit: the card reader stick reads too. Phase 2 answered.
@@ -197,6 +198,12 @@ Left to test, files (0.4.10, the RCA hub on PD power, the 32 GB card with a few 
 - [ ] Folders open, OCT- goes up; a long folder scrolls (the card had no folders).
 - [ ] An exFAT card (64 GB or more), if one is handy.
 
+Left to test, playing (0.4.11):
+- [ ] A 44.1 kHz 16-bit stereo WAV plays clean, loops, and stops with OCT+.
+- [ ] The foot's numbers with nothing else playing: CPU, card %, gaps (should stay 0).
+- [ ] The same with a pattern playing (start it before opening the menu): do gaps appear? Does the sequencer's timing or the screen suffer?
+- [ ] A 24-bit mono WAV and a 48 kHz WAV play at the right pitch.
+
 Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] Drive plugged straight into the FM-1: not seen. The FM-1 puts no 5 V on its port.
 - [x] A hub with power on its PD port: host mode works, the hub is found (0.4.7).
@@ -221,10 +228,10 @@ What USB allows, and the plan from it:
 - A stereo 16-bit 44.1 kHz track is 176 KB/s; mono 88 KB/s. 900 KB/s could carry a few stereo tracks at most, less with other traffic. Mono and 22 kHz bounces would stretch it.
 
 Steps, each tested on the unit before the next:
-1. Files read (0.4.10, built).
-2. How much processor time the transfers take (time the 1 MB read against the audio load).
+1. Files read (0.4.10, tested).
+2. How much processor time the transfers take: built into step 4's test (0.4.11).
 3. USB MIDI host: the SMK-37 on the hub plays the host FM-1.
-4. Background reads into a ring buffer: one WAV plays from the card while the sequencer runs.
+4. One WAV plays from the card while the sequencer runs (0.4.11, built). OCT+ on a WAV in the file list plays it, looped, at the DAC with MASTER, 6 dB down; OCT+ again (or OCT-, or leaving the files) stops it. The main loop reads 8 KB at a time into a 64 KB ring (0.37 s); the audio ISR plays from it, following the file's rate (a 48 kHz file at its own pitch, a straight line between frames). PCM 8, 16, 24 and 32-bit, mono or stereo (more channels: the first two). The foot: "CPU n% card n% gaps n": the audio load (the header's meter), the share of each second the main loop spent reading, and blocks that found the ring short. Reads still block the main loop (the screen pauses for up to about 40 ms each time); the audio does not wait.
 5. Writing: a bounce recorded to a WAV on the card.
 6. Two FM-1s: the device FM-1 lists the host's card over USB MIDI.
 

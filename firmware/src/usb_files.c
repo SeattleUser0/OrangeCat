@@ -19,6 +19,9 @@
  *
  * Revisions:
  *   0.4.10: first version.
+ *   0.4.11: a WAV picked plays from the card, looped, mixed in at the DAC (card_play.c), with the audio load, the
+ *          card's share of the main loop and any gaps on the page. WAV chunks walked in the file (the samples can
+ *          start past the first 512 bytes). Other files are still read and timed.
  */
 #ifndef UF_HOST_LIBC
 char *strchr(const char *s, int c)                      /* ff.c: the characters a name may not hold */
@@ -172,58 +175,207 @@ static void uf_list(void)
     uf_window();
 }
 
-/* "44.1 kHz 16-bit mono 0.5 s" from a WAV's first 512 bytes; 0 when it is not one */
-static int uf_wav(const uint8_t *h, uint32_t n, uint32_t fsize, char *b)
+/* (0.4.11) a WAV's format and where its samples are: the chunks walked in the file itself (a DAW's file can carry a
+ * "bext" or "JUNK" chunk that puts the samples past the first 512 bytes). 1 = a WAV with "fmt " and "data" */
+struct uf_wi { uint32_t fmt, ch, rate, bits, data0, data; };
+static uint32_t uf_le32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static int uf_wav_scan(FIL *f, uint32_t fsize, struct uf_wi *w)
 {
-    uint32_t i = 12, rate = 0, ch = 0, bits = 0, data = 0, fmt = 0, bps, ms, secs;
-    char *e;
-    if (n < 12u || memcmp(h, "RIFF", 4) || memcmp(h + 8, "WAVE", 4)) return 0;
-    while (i + 8u <= n) {
-        uint32_t len = h[i + 4] | (uint32_t)h[i + 5] << 8 | (uint32_t)h[i + 6] << 16 | (uint32_t)h[i + 7] << 24;
-        if (!memcmp(h + i, "fmt ", 4) && i + 24u <= n) {
-            fmt = h[i + 8] | (uint32_t)h[i + 9] << 8;
-            ch = h[i + 10] | (uint32_t)h[i + 11] << 8;
-            rate = h[i + 12] | (uint32_t)h[i + 13] << 8 | (uint32_t)h[i + 14] << 16 | (uint32_t)h[i + 15] << 24;
-            bits = h[i + 22] | (uint32_t)h[i + 23] << 8;
-        } else if (!memcmp(h + i, "data", 4)) {
-            data = len;
-            break;
+    uint8_t h[24];
+    UINT got = 0;
+    uint32_t pos = 12, k;
+    w->fmt = w->ch = w->rate = w->bits = w->data0 = w->data = 0;
+    if (f_lseek(f, 0) != FR_OK || f_read(f, h, 12, &got) != FR_OK || got < 12u ||
+        memcmp(h, "RIFF", 4) || memcmp(h + 8, "WAVE", 4))
+        return 0;
+    for (k = 0; k < 64u && pos + 8u <= fsize; k++) {
+        uint32_t len;
+        if (f_lseek(f, pos) != FR_OK || f_read(f, h, 8, &got) != FR_OK || got < 8u) return 0;
+        len = uf_le32(h + 4);
+        if (!memcmp(h, "fmt ", 4)) {
+            if (f_read(f, h + 8, 16, &got) != FR_OK || got < 16u) return 0;
+            w->fmt = h[8] | (uint32_t)h[9] << 8;
+            w->ch = h[10] | (uint32_t)h[11] << 8;
+            w->rate = uf_le32(h + 12);
+            w->bits = h[22] | (uint32_t)h[23] << 8;
+        } else if (!memcmp(h, "data", 4)) {
+            w->data0 = pos + 8u;
+            w->data = len > fsize - w->data0 ? fsize - w->data0 : len;   /* (a recorder that never closed it) */
+            return w->rate && w->ch && w->bits;
         }
-        i += 8u + len + (len & 1u);
+        pos += 8u + len + (len & 1u);
     }
-    if (!rate || !ch || !bits) return 0;
-    if (!data) data = fsize > i ? fsize - i : 0;        /* (the data chunk past the first 512 bytes) */
-    e = b;
-    if (rate % 1000u) { e = uh_dec(e, rate / 1000u); *e++ = '.'; e = uh_dec(e, rate % 1000u / 100u); }
-    else e = uh_dec(e, rate / 1000u);
+    return 0;
+}
+/* "44.1 kHz 16-bit mono 0.5 s" */
+static void uf_wav_text(const struct uf_wi *w, char *b)
+{
+    uint32_t bps, ms, secs;
+    char *e = b;
+    e = uh_dec(e, w->rate / 1000u);                     /* 44.1, 22.05, 11.025, 48 */
+    if (w->rate % 1000u) {
+        uint32_t f = w->rate % 1000u;
+        *e++ = '.';
+        *e++ = (char)('0' + f / 100u);
+        if (f % 100u) *e++ = (char)('0' + f / 10u % 10u);
+        if (f % 10u) *e++ = (char)('0' + f % 10u);
+        *e = 0;
+    }
     e = uh_cat(e, " kHz ");
-    e = uh_dec(e, bits);
-    e = uh_cat(e, fmt == 3u ? "-bit float " : "-bit ");
-    e = ch == 1u ? uh_cat(e, "mono ") : ch == 2u ? uh_cat(e, "stereo ") : uh_cat(uh_dec(e, ch), " ch ");
-    bps = rate * ch * (bits / 8u ? bits / 8u : 1u);
+    e = uh_dec(e, w->bits);
+    e = uh_cat(e, w->fmt == 3u ? "-bit float " : "-bit ");
+    e = w->ch == 1u ? uh_cat(e, "mono ") : w->ch == 2u ? uh_cat(e, "stereo ") : uh_cat(uh_dec(e, w->ch), " ch ");
+    bps = w->rate * w->ch * (w->bits / 8u ? w->bits / 8u : 1u);
     if (!bps) bps = 1u;
-    secs = data / bps;                                  /* (32-bit: tenths of a second are all the page shows) */
-    ms = secs * 1000u + data % bps * 10u / bps * 100u;
+    secs = w->data / bps;                               /* (32-bit: tenths of a second are all the page shows) */
+    ms = secs * 1000u + w->data % bps * 10u / bps * 100u;
     if (ms < 60000u) { e = uh_dec(e, ms / 1000u); *e++ = '.'; e = uh_dec(e, ms % 1000u / 100u); uh_cat(e, " s"); }
     else { e = uh_dec(e, ms / 60000u); *e++ = ':'; *e++ = (char)('0' + ms / 1000u % 60u / 10u); *e++ = (char)('0' + ms / 1000u % 10u); *e = 0; }
-    return 1;
 }
-/* a file picked: what it is, then up to 1 MB read in 512-byte pieces, timed */
+
+/* ---- (0.4.11) a WAV playing: the main loop's side (the audio side: card_play.c) ----
+ * The file stays open; the main loop reads 8 KB at a time (whole sectors: one READ(10) each, near full speed USB)
+ * into uf_raw, turns the frames into 16-bit stereo in cp_ring, and the audio ISR plays them. At the end of the
+ * samples it starts again (a loop: a test can run as long as it likes). Every 250 ms the foot shows the audio load
+ * (the same meter as the header's), the share of time the main loop spent reading the card, and the gaps. */
+#ifndef UF_CPU
+#define UF_CPU() (song.cpu_q8 * 100u / 256u)
+#endif
+#define UF_RAW 8192u
+static uint8_t uf_raw[UF_RAW] __attribute__((section(".pool"), aligned(4)));
+static FIL uf_pf;
+static struct {
+    uint8_t on, ch, bytes, bpf;                         /* playing; the file's channels, bytes a sample, bytes a frame */
+    uint32_t data0, data, pos;                          /* where the samples are, how many bytes, how far read */
+    uint32_t busy_us, win_ms, show_ms, pct;             /* time reading this second, the second's start, the foot */
+} up;
+static int uf_playable(const struct uf_wi *w)
+{
+    return (w->fmt == 1u || w->fmt == 0xFFFEu) && (w->bits == 8u || w->bits == 16u || w->bits == 24u || w->bits == 32u) &&
+           w->ch >= 1u && w->ch <= 8u && w->rate >= 8000u && w->rate <= 192000u;
+}
+static void uf_play_stop(void)
+{
+    if (!up.on) return;
+    cp_on = 0;
+    up.on = 0;
+    f_close(&uf_pf);
+    str_cpy(usbh.info2, "Stopped", UH_LINE);
+    usbh.gen++;
+}
+/* the raw frames to the ring: the left and right of each (the first two channels), the top 16 bits */
+static void uf_convert(const uint8_t *p, uint32_t frames)
+{
+    uint32_t i, w = cp_w, b = up.bytes, step = up.bpf, right = up.ch > 1u ? b : 0u;
+    for (i = 0; i < frames; i++, p += step) {
+        int16_t *o = cp_ring[(w + i) & (CP_FRAMES - 1u)];
+        const uint8_t *l = p + b - 2u, *r = p + right + b - 2u;   /* the two top bytes (16, 24, 32 bits) */
+        if (b == 1u) {
+            o[0] = (int16_t)((p[0] - 128) << 8);
+            o[1] = (int16_t)((p[right] - 128) << 8);
+        } else {
+            o[0] = (int16_t)(l[0] | l[1] << 8);
+            o[1] = (int16_t)(r[0] | r[1] << 8);
+        }
+    }
+    RING_PUBLISH();
+    cp_w = w + frames;
+}
+/* top the ring up, 8 KB a read, at most 4 reads a call (the main loop goes on in between). 0, or an error */
+static FRESULT uf_play_fill(void)
+{
+    uint32_t n;
+    for (n = 0; n < 4u; n++) {
+        uint32_t room = CP_FRAMES - (cp_w - cp_r), want = UF_RAW / up.bpf, k, t0;
+        UINT got = 0;
+        FRESULT r;
+        if (up.pos >= up.data) {                        /* the end: from the start again */
+            if ((r = f_lseek(&uf_pf, up.data0)) != FR_OK) return r;
+            up.pos = 0;
+        }
+        k = (up.data - up.pos) / up.bpf;
+        if (k > want) k = want;
+        if (!k) { up.pos = up.data; continue; }          /* (a last part frame) */
+        if (room < k) break;
+        t0 = fm1_ticks();
+        r = f_read(&uf_pf, uf_raw, k * up.bpf, &got);
+        up.busy_us += (fm1_ticks() - t0) / FM1_TICKS_PER_US;
+        if (r != FR_OK) return r;
+        if (got < k * up.bpf) { k = got / up.bpf; up.pos = up.data; }
+        else up.pos += got;
+        uf_convert(uf_raw, k);
+        uh_feed();
+    }
+    return FR_OK;
+}
+static void uf_play_show(void)
+{
+    char *e;
+    if (fm1_ms - up.win_ms >= 1000u) {                  /* the card's share of the last second */
+        up.pct = up.busy_us / ((fm1_ms - up.win_ms) * 10u);
+        up.busy_us = 0;
+        up.win_ms = fm1_ms;
+    }
+    if (fm1_ms - up.show_ms < 250u) return;
+    up.show_ms = fm1_ms;
+    e = uh_dec(uh_cat(usbh.info2, "CPU "), UF_CPU());
+    e = uh_dec(uh_cat(e, "% card "), up.pct);
+    e = uh_dec(uh_cat(e, "% gaps "), cp_gaps);
+    (void)e;
+    usbh.gen++;
+}
+/* start: the ring filled first, then the ISR plays */
+static void uf_play_start(const struct uf_wi *w)
+{
+    FRESULT r;
+    up.ch = (uint8_t)w->ch;
+    up.bytes = (uint8_t)(w->bits / 8u);
+    up.bpf = (uint8_t)(up.bytes * w->ch);
+    up.data0 = w->data0;
+    up.data = w->data;
+    up.pos = 0;
+    up.busy_us = up.pct = 0;
+    up.win_ms = up.show_ms = fm1_ms;
+    cp_on = 0;
+    cp_w = cp_r = 0;
+    cp_phase = 0;
+    cp_gaps = 0;
+    cp_step = w->rate * 16384u / 11025u;                /* file frames per 44.1 kHz frame, Q16 (192 kHz fits 32 bits) */
+    if ((r = f_lseek(&uf_pf, up.data0)) != FR_OK) { f_close(&uf_pf); uf_fail(r); return; }
+    up.on = 1;
+    while (CP_FRAMES - (cp_w - cp_r) >= UF_RAW / up.bpf && up.pos < up.data) {
+        if ((r = uf_play_fill()) != FR_OK) { uf_play_stop(); uf_fail(r); return; }
+    }
+    cp_on = 1;
+    str_cpy(usbh.info2, "Playing", UH_LINE);
+    usbh.gen++;
+}
+
+/* a file picked: a WAV that can play plays (OCT+ again stops it); any other is read, up to 1 MB in 512-byte pieces,
+ * and timed */
 static void uf_file(const char *path, const FILINFO *fi)
 {
     FIL f;
     UINT got = 0;
     uint32_t total = 0, t0, ms;
+    struct uf_wi w;
     char *e;
-    FRESULT r = f_open(&f, path, FA_READ);
+    FRESULT r = f_open(&uf_pf, path, FA_READ);
     if (r != FR_OK) { uf_fail(r); return; }
-    r = f_read(&f, uh_sec, 512, &got);
-    if (r != FR_OK) { f_close(&f); uf_fail(r); return; }
-    if (!uf_wav(uh_sec, got, (uint32_t)fi->fsize, usbh.info)) {
-        e = uh_cat(usbh.info, "File, ");
-        uh_bytes(e, (uint32_t)fi->fsize);
+    if (uf_wav_scan(&uf_pf, (uint32_t)fi->fsize, &w)) {
+        uf_wav_text(&w, usbh.info);
+        if (uf_playable(&w)) { uf_play_start(&w); return; }
+        f_close(&uf_pf);
+        str_cpy(usbh.info2, "This WAV does not play yet", UH_LINE);
+        usbh.gen++;
+        return;
     }
-    total = got;
+    f_close(&uf_pf);
+    r = f_open(&f, path, FA_READ);
+    if (r != FR_OK) { uf_fail(r); return; }
+    e = uh_cat(usbh.info, "File, ");
+    uh_bytes(e, (uint32_t)fi->fsize);
+    got = 512u;
     t0 = fm1_ms;
     while (got == 512u && total < 1024u * 1024u) {
         r = f_read(&f, uh_sec, 512, &got);
@@ -246,9 +398,11 @@ static void uf_file(const char *path, const FILINFO *fi)
 static void uf_enter(void)
 {
     FILINFO f;
-    FRESULT r = uf_nth(usbh.sel, &f);
+    FRESULT r;
     uint32_t n = str_len(usbh.path);
     char fp[sizeof usbh.path + UH_NAME * 2];
+    if (up.on) { uf_play_stop(); return; }              /* (0.4.11) OCT+ while a WAV plays stops it */
+    r = uf_nth(usbh.sel, &f);
     if (r != FR_OK) { uf_fail(r); return; }
     if (f.fattrib & AM_DIR) {
         if (n + 1u + str_len(f.fname) + 1u > sizeof usbh.path) { str_cpy(usbh.info, "Folder too deep", UH_LINE); usbh.gen++; return; }
@@ -277,6 +431,12 @@ static void usbf_task(void)
 {
     uint8_t c;
     usbh_task();
+    if (up.on && (!usbh.drive || !usbh.view)) uf_play_stop();   /* (0.4.11) the files left, or the drive gone */
+    if (up.on) {
+        FRESULT r = uf_play_fill();
+        if (r != FR_OK) { uf_play_stop(); uf_fail(r); }
+        else uf_play_show();
+    }
     if (!usbh.drive && uf_mounted) {                    /* unplugged, or the test ended: forget the volume */
         f_unmount("");
         uf_mounted = 0;
@@ -289,5 +449,5 @@ static void usbf_task(void)
     if (c == UC_LIST) { usbh.path[0] = 0; usbh.sel = usbh.top = 0; uf_list(); }
     else if (c == UC_WINDOW) uf_window();
     else if (c == UC_ENTER) uf_enter();
-    else if (c == UC_UP) uf_up();
+    else if (c == UC_UP) { uf_play_stop(); uf_up(); }
 }

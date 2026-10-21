@@ -86,6 +86,7 @@
 #define MIDI_TICKS_PER_MS (1000u * FM1_TICKS_PER_US)
 #include "usb.c"
 #include "usb_host.c"            /* (Orange Cat 0.4.7) the USB drive test (Menu > USB DRIVE TEST) */
+#include "card_play.c"           /* (Orange Cat 0.4.11) a WAV from the drive: the audio side (audio.c) */
 #if MELODEE_UART
 #include "midi_uart.c"
 #endif
