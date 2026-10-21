@@ -17,10 +17,20 @@
  * of a ring, and reads up to 8 sectors (4 KB) for it. Each stream keeps its own place in its file, its runs of
  * sectors and its split frame; the command in hand belongs to cs.cur.
  *
+ * (0.4.14) The timer alone moves one 64-byte packet a tick at most: 640 KB/s before the commands' own costs, and four
+ * 24-bit mono files want 529 KB/s (0.4.13 on the device: dropouts). So the main loop helps: usbf_task (every pass
+ * of the loop) and the waits (CS_WAIT) step the engine too (cs_poll). The two never run it at once: the main loop
+ * marks it busy (cs_busy) and the timer, which can only interrupt the main loop, not the other way round, leaves it
+ * alone meanwhile. The engine also counts the bytes it moves (cs.bytes, the page's "KB/s"), starts the next command
+ * in the same step the last one ends, serves the stream with the least time left (not the emptiest ring: a mono
+ * ring holds twice the time), and times out on the clock (2 s), not on its steps (the main loop's steps run fast).
+ *
  * Revisions:
  *   0.4.12: first version.
  *   0.4.13: four streams (cs.st[]), the emptiest served first; 8 sectors a command (was 16: a 10 KB ring); an error
  *           stops them all (the bus needs a reset).
+ *   0.4.14: the main loop steps it too (cs_poll); bytes counted; the next command at once; least time left first;
+ *           the timeout on the clock.
  */
 /* ---- the streams: the card read from TIMER5 ---- */
 #define CS_SECS 8u                                      /* sectors a READ(10) at most: 4 KB */
@@ -33,6 +43,7 @@ struct cs_one {
     uint32_t data0, data, pos;                          /* the samples: their file offset, length; how far fed */
     uint8_t carry[32], nc;                              /* a frame split over two packets (8 channels of 32 bits at most) */
     uint8_t next;                                       /* extents: how many */
+    uint32_t bps;                                       /* (0.4.14) the file's bytes a second (the page's "needed") */
     struct { uint32_t fsec, lba, n; } ext[CS_EXT];      /* file sector fsec.. lies at lba.. for n sectors */
 };
 static struct {
@@ -41,8 +52,9 @@ static struct {
     uint8_t cur;                                        /* the stream the command in hand is for */
     uint32_t skip, take, got, len;                      /* this command: bytes to drop first, to feed, fed so far; its
                                                          * data bytes (whole sectors) */
-    uint32_t ticks;                                     /* ticks in this state (a timeout) */
+    uint32_t t_ms;                                      /* (0.4.14) when this state began (a timeout; was a tick count) */
     uint32_t cmds;                                      /* commands done */
+    uint32_t bytes;                                     /* (0.4.14) sample bytes fed, for ever (the page's KB/s) */
     uint32_t cpu_ticks;                                 /* TIMER4 ticks spent in cs_tick (the page's "card" share) */
     struct cs_one st[CP_N];
 } cs;
@@ -102,13 +114,13 @@ static int cs_plan_one(uint32_t s, uint32_t *lba, uint32_t *nsec)
     cs.got = 0;
     return 1;
 }
-/* the next command: the running stream with the emptiest ring that has room */
+/* the next command: the running stream with the least time left in its ring that has room */
 static int cs_plan(uint32_t *lba, uint32_t *nsec)
 {
     uint32_t s, best = CP_N, fill, best_fill = ~0u;
     for (s = 0; s < CP_N; s++) {
         if (!cs.st[s].run) continue;
-        fill = (cp[s].w - cp[s].r) * 1024u / cp[s].cap;  /* (per mille of the ring, near enough) */
+        fill = (cp[s].w - cp[s].r) * 65536u / (cp[s].step ? cp[s].step : 1u);   /* (0.4.14) output frames left: time */
         if (fill < best_fill) { best_fill = fill; best = s; }
     }
     for (s = 0; s < CP_N && best < CP_N; s++) {         /* the emptiest first; if it has no room, the next */
@@ -120,20 +132,32 @@ static int cs_plan(uint32_t *lba, uint32_t *nsec)
 }
 /* one step a tick (TIMER5, nested in the audio render or not): never waits */
 static void cs_step(void);
+static volatile uint8_t cs_busy;                        /* (0.4.14) the main loop is in cs_step: the timer stays out */
 static void cs_tick(void)
 {
     uint32_t t0;
-    if (!cs.run || cs.err) return;
+    if (!cs.run || cs.err || cs_busy) return;
     t0 = fm1_ticks();
     cs_step();
     cs.cpu_ticks += fm1_ticks() - t0;
 }
-static void cs_step(void)
+/* (0.4.14) the main loop's turn: one step when the timer is not in the middle of one (it cannot be: it interrupts
+ * the main loop, never the reverse, so a main-loop line runs only when no timer step is under way) */
+static void cs_poll(void)
 {
-    uint32_t c, k, lba, nsec, i;
-    switch (cs.state) {
-    case CS_IDLE:
-        if (cs.hold || !cs_plan(&lba, &nsec)) return;
+    if (!cs.run || cs.err) return;
+    cs_busy = 1;
+    __asm__ volatile("" ::: "memory");
+    cs_step();
+    __asm__ volatile("" ::: "memory");
+    cs_busy = 0;
+}
+/* a new command, if a stream wants one: the CBW out */
+static void cs_start(void)
+{
+    uint32_t lba, nsec, i;
+    if (cs.hold || !cs_plan(&lba, &nsec)) return;
+    {
         for (i = 0; i < 31u; i++) ep1tx[i] = 0;         /* the CBW: READ(10), nsec sectors at lba, from the slot */
         ep1tx[0] = 'U'; ep1tx[1] = 'S'; ep1tx[2] = 'B'; ep1tx[3] = 'C';
         usbh.tag++;
@@ -149,7 +173,15 @@ static void cs_step(void)
         sie_wr(S_INDEX, 1);
         sie_wr(S_TXCSR1, 0x01u);
         cs.state = CS_CBW;
-        cs.ticks = 0;
+        cs.t_ms = fm1_ms;
+    }
+}
+static void cs_step(void)
+{
+    uint32_t c, k;
+    switch (cs.state) {
+    case CS_IDLE:
+        cs_start();
         return;
     case CS_CBW:
         sie_wr(S_INDEX, 1);
@@ -158,7 +190,7 @@ static void cs_step(void)
         if (c & 0x01u) break;
         sie_wr(S_RXCSR1, 0x20u);                        /* ReqPkt: the first data packet */
         cs.state = CS_DATA;
-        cs.ticks = 0;
+        cs.t_ms = fm1_ms;
         return;
     case CS_DATA:
     case CS_CSW:
@@ -177,6 +209,7 @@ static void cs_step(void)
             d = cs.take - cs.got < n ? cs.take - cs.got : n;   /* the samples */
             if (cs.st[cs.cur].run) cs_feed(cs.cur, p, d);   /* (a stream stopped mid-command: its bytes dropped) */
             cs.got += d;
+            cs.bytes += d;
             cs.len -= k < cs.len ? k : cs.len;
         } else if (k != 13u || ep1rx[0] != 'U' || ep1rx[3] != 'S' || ep1rx[12]) {
             cs.err = 4;                                 /* the status: not passed */
@@ -194,15 +227,18 @@ static void cs_step(void)
             cs.st[cs.cur].pos += cs.got;
             cs.cmds++;
             cs.state = CS_IDLE;
+            cs_start();                                 /* (0.4.14) the next at once: a step saved a command */
+            return;
         }
-        cs.ticks = 0;
+        cs.t_ms = fm1_ms;
         return;
     }
-    if (++cs.ticks > 20000u) cs.err = 5;                /* 2 s with nothing: give up */
+    if (fm1_ms - cs.t_ms > 2000u) cs.err = 5;           /* 2 s with nothing: give up (0.4.14: on the clock) */
 }
 /* the main loop wants the bus: wait for the command in hand to end (a few ms at most), then hold the engine */
 #ifndef CS_WAIT
-#define CS_WAIT() fm1_wdt_feed()                        /* (the timer runs the engine meanwhile; host tests step it) */
+#define CS_WAIT() (fm1_wdt_feed(), cs_poll())           /* (the timer runs the engine meanwhile, the wait helps (0.4.14);
+                                                         * host tests step it) */
 #endif
 static int cs_claim(void)
 {

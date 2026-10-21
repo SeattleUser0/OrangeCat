@@ -37,6 +37,9 @@
  *   0.4.10: the drive's files (usb_files.c). usbh.drive says a drive was read and stays until it is unplugged; the
  *          page's file list lives here (view, cmd, path, ent, info) so the UI and its tests need no file system.
  *          OCT+ on a test that found no drive looks again (usbh_reprobe).
+ *   0.4.14: the foot's lines hold 48 characters (UH_FOOT) and there are three (info3: the players' gaps and speed);
+ *          the list shows five rows to make room. (0.4.13's foot ran past its 30 and wrote over the first row's
+ *          name: the "8" on the device was the end of the gap count.)
  */
 #ifndef UH_LINES_READ
 #define UH_LINES_READ() fm1_usb_lines()                 /* (host tests replace the hardware read) */
@@ -45,12 +48,13 @@ enum { S_DEVCTL = 15, S_TXTYPE = 24, S_TXINTERVAL = 25, S_RXTYPE = 26, S_RXINTER
 enum { UH_OFF, UH_WAIT, UH_SEEN, UH_DONE };
 /* (0.4.10) what the page asks the main loop for (usbh.cmd; usb_files.c usbf_task does it) */
 enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE };
-#define UH_ROWS 6u                                      /* the file list's rows on the page */
+#define UH_ROWS 5u                                      /* the file list's rows on the page (0.4.14: was 6) */
 #define UH_NAME 32u
 /* errors (negative): the page names them */
 enum { UE_TIME = 1, UE_STALL, UE_ERR, UE_NAK, UE_SHORT, UE_CSW, UE_CHECK };
 #define UH_LINES 8u
 #define UH_LINE 30u
+#define UH_FOOT 48u                                     /* (0.4.14) the foot's lines: longer than the page shows */
 static struct {
     uint8_t st;                 /* UH_* */
     uint8_t step;               /* where a probe got to (the diagnostic line) */
@@ -71,7 +75,7 @@ static struct {
     uint8_t drive, view, cmd, nent;
     uint16_t count, sel, top, ent_top;
     char path[96];
-    char info[UH_LINE], info2[UH_LINE];
+    char info[UH_FOOT], info2[UH_FOOT], info3[UH_FOOT];   /* (0.4.14: info3, and 48 each) */
     struct { char name[UH_NAME]; uint32_t size; uint8_t dir, play; } ent[UH_ROWS];   /* (0.4.13: play, a WAV playing) */
 } usbh;
 static uint8_t uh_sec[512];     /* sector 0 */

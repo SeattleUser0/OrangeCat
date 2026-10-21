@@ -1445,9 +1445,9 @@ static void setup(int s)
         static const uint32_t Z[] = {44156, 0, 2516582, 21, 0, 1073741824u};
         uint32_t i;
         memset(&usbh, 0, sizeof usbh);
-        usbh.drive = 1; usbh.view = 1; usbh.count = 14; usbh.top = usbh.ent_top = 2; usbh.sel = 4; usbh.nent = 6;
+        usbh.drive = 1; usbh.view = 1; usbh.count = 14; usbh.top = usbh.ent_top = 2; usbh.sel = 4; usbh.nent = UH_ROWS;
         str_cpy(usbh.path, s == S_FILES ? "/SAMPLES/Drum Machines/TR-808" : "/SAMPLES", sizeof usbh.path);
-        for (i = 0; i < 6u; i++) {
+        for (i = 0; i < UH_ROWS; i++) {                 /* (0.4.14: five) */
             str_cpy(usbh.ent[i].name, N[i], UH_NAME);
             usbh.ent[i].size = Z[i];
             usbh.ent[i].dir = !Z[i] && i != 3u;
@@ -1455,7 +1455,8 @@ static void setup(int s)
         }
         if (s == S_FILES_WAV) {
             str_cpy(usbh.info, "44.1 kHz 16-bit stereo 1:23", UH_LINE);
-            str_cpy(usbh.info2, "2 on, CPU 44% card 4% gap 0", UH_LINE);
+            str_cpy(usbh.info2, "4 on, CPU 49%, card 8%", UH_FOOT);   /* (0.4.14: three lines; long numbers) */
+            str_cpy(usbh.info3, "gap 12348, 512 of 529 KB/s", UH_FOOT);
         }
         ui.menu = 3;
         break;

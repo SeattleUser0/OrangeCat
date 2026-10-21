@@ -629,7 +629,7 @@ static int t_files(void)
     assert(usbh.count == 20 && usbh.nent == UH_ROWS && !strcmp(usbh.ent[0].name, "FILE01.BIN"));
     usbh.sel = 10; usbh.top = 5;                        /* (the page scrolled) */
     ask(UC_WINDOW);
-    assert(usbh.ent_top == 5 && !strcmp(usbh.ent[0].name, "FILE06.BIN") && usbh.ent[5].size == 100);
+    assert(usbh.ent_top == 5 && !strcmp(usbh.ent[0].name, "FILE06.BIN") && usbh.ent[UH_ROWS - 1u].size == 100);
     ask(UC_UP);
     pick("BIG.BIN");
     printf("  BIG.BIN: [%s] [%s]\n", usbh.info, usbh.info2);
@@ -699,9 +699,11 @@ static int t_play(void)
         }
         if (j == 300u) { usbh.top = 1; ask(UC_WINDOW); usbh.top = 0; ask(UC_WINDOW); }   /* FatFs on the bus mid-play */
     }
-    printf("  tone: %u frames, %u wrong, %u gaps, %u commands, [%s]\n", frames, bad, gaps_all(), cs.cmds, usbh.info2);
+    up.msg_ms -= 2000u; up.show_ms -= 250u; usbf_task(); /* (0.4.14: "Playing" is held 2 s, then the loads) */
+    printf("  tone: %u frames, %u wrong, %u gaps, %u commands, [%s] [%s]\n", frames, bad, gaps_all(), cs.cmds, usbh.info2,
+           usbh.info3);
     fflush(stdout);
-    assert(!bad && !gaps_all() && !strncmp(usbh.info2, "1 on, CPU 0% card ", 18));
+    assert(!bad && !gaps_all() && !strncmp(usbh.info2, "1 on, CPU 0%, card ", 19) && !strncmp(usbh.info3, "gap 0, ", 7));
     pick("tone24.wav");                                 /* (0.4.13) a second one, beside the first */
     printf("  tone24: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp[1].step);
     fflush(stdout);
@@ -731,7 +733,8 @@ static int t_play(void)
     pick("snare.wav");
     assert(up.n == 4 && cp[0].on && cp[1].on && cp[2].on && cp[3].on);
     for (j = 0; j < 400u; j++) block(out, 20);
-    printf("  four: [%s] %u commands\n", usbh.info2, cs.cmds);
+    up.msg_ms -= 2000u; up.show_ms -= 250u; usbf_task();
+    printf("  four: [%s] [%s] %u commands\n", usbh.info2, usbh.info3, cs.cmds);
     fflush(stdout);
     assert(!gaps_all() && !strncmp(usbh.info2, "4 on, CPU ", 10));
     ask(UC_UP);

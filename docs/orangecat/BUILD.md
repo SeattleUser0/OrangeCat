@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.33  
+**Version:** 0.34  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.34 (October 21, 2026):** 0.4.13 on the unit: four 24-bit mono WAVs over four sequencer tracks drop out. 0.4.14: the main loop helps the card reading, the page shows read against needed KB/s, and the foot no longer overwrites the first row.
 - **0.33 (October 21, 2026):** 0.4.13: up to four WAVs from the card at once.
 - **0.32 (October 21, 2026):** 0.4.12 on the unit: the card's share of the processor down from 23% to 2%.
 - **0.31 (October 21, 2026):** 0.4.12: the playing WAV read by the 10 kHz timer interrupt, not the main loop. By ear 0.4.11 was clean, the sequencer steady.
@@ -251,14 +252,29 @@ Several at once (0.4.13, the plan's next step after the timer reading):
 - Memory: 40 KB of .pool in four fixed 10 KB slots (8 KB more than 0.4.12's one ring; the audio working arena is left 50,080 B of its 49,152 B minimum: there is no more to take from it). Mono files are kept mono, so a slot holds 2,560 stereo frames (58 ms) or 5,120 mono (116 ms).
 - The timer's engine serves the running stream whose ring is emptiest, once it has a quarter of its ring free, up to 8 sectors (4 KB) a command. One packet a tick still caps the total near 640 KB/s: four 16-bit stereo files at 44.1 kHz (706 KB/s) are past it; four mono, or three stereo, fit.
 - Each stream -6 dB; the sum held to the DAC's full scale (never wrapped).
-- The foot: "2 on, CPU 44% card 4% gap 0".
+- The foot: "2 on, CPU 44% card 4% gap 0" (0.4.14: three lines, see below).
 - Host test: two streams summed sample for sample (16-bit stereo and 22.05 kHz 24-bit mono), one stopped while the other plays on, four at once with no gaps, an error stopping all, playing again after.
 
-Left to test (0.4.13):
-- [ ] Two WAVs, then three, then four: the gap count and the card share at each. Try mono files and stereo files.
+Tested (0.4.13 on the unit, October 21):
+- [x] One to four WAVs (44.1 kHz 24-bit mono, the "1 1-Audio" files), over four sequencer tracks: CPU 49%, card 8% with four. Not good by ear.
+- [x] The foot line was too long: it ran past its 30 characters into the first row's name. The "8" (or blank) at the top of the list was the end of the gap count. The gap count was in the tens of thousands (it counted every short audio block, not each dropout).
+- Why: four 24-bit mono files need 529 KB/s. The timer moves at most one 64-byte packet a tick, 640 KB/s, and each command's own steps (the command out, the card's first answer, the status back) take more. So the total is near or past what the timer alone can move.
+
+0.4.14 (built):
+- The main loop helps: each pass of the main loop, and every wait, takes a step of the card reading too. The timer still does its step every tick. They never run it at the same time.
+- The next command starts in the same step the last one ends (a step saved each time).
+- The stream with the least time left is served first (a mono ring holds twice the time of a stereo one).
+- The time-out is 2 s on the clock, not counted in steps.
+- A gap now counts each dropout once.
+- The file list shows five rows. The foot has three lines: the file picked; a message for 2 s, then "4 on, CPU 49%, card 8%"; then "gap 0, 512 of 529 KB/s": dropouts first, then the KB/s read in the last second against the KB/s the playing files need. The lines are built in a buffer and cut to fit.
+- The picked row is easier to see: the background mixed with 30% of the theme colour.
+
+Left to test (0.4.14):
+- [ ] One WAV, then two, three, four: the gap count and the two KB/s numbers at each, with and without the sequencer.
+- [ ] If "read" stays below "needed", the card cannot keep up: note both numbers. That sets how many tracks we allow.
+- [ ] The top row's name stays put; the picked row shows.
 - [ ] Stopping one with OCT+ while others play: the rest unbroken.
 - [ ] Moving through folders while they play.
-- [ ] With the sequencer running under them.
 
 Steps, each tested on the unit before the next:
 1. Files read (0.4.10, tested).

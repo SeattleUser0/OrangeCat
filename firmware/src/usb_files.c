@@ -26,6 +26,10 @@
  *   0.4.11: a WAV picked plays from the card, looped, mixed in at the DAC (card_play.c), with the audio load, the
  *          card's share of the main loop and any gaps on the page. WAV chunks walked in the file (the samples can
  *          start past the first 512 bytes). Other files are still read and timed.
+ *   0.4.14: the foot built in a buffer and cut to fit (0.4.13 wrote past info2 into the first row's name); three
+ *          lines: the file picked, a message (held 2 s) or how many play with the loads, and the gaps (dropouts, not
+ *          blocks) with the card's speed: "read" against "needed" KB/s. The main loop steps the card engine too
+ *          (card_stream.c cs_poll).
  */
 #ifndef UF_HOST_LIBC
 char *strchr(const char *s, int c)                      /* ff.c: the characters a name may not hold */
@@ -256,8 +260,18 @@ static FIL uf_pf;
 static struct {
     uint8_t n;                                          /* streams playing */
     uint32_t win_ms, show_ms, win_ticks, pct;           /* the second measured: its start, cs.cpu_ticks then; the foot */
+    uint32_t win_bytes, kbs;                            /* (0.4.14) cs.bytes then; KB/s read in the last second */
+    uint32_t msg_ms;                                    /* (0.4.14) when info2 got a message (held 2 s) */
+    uint32_t gaps_old;                                  /* (0.4.14) gaps of streams since replaced in their slot */
     struct { uint32_t dir; char name[UH_NAME]; } who[CP_N];   /* what each slot plays: its folder (a hash), its name */
 } up;
+static void uf_say(const char *m)                      /* (0.4.14) a message on the foot's middle line, held 2 s */
+{
+    str_cpy(usbh.info2, m, UH_FOOT);
+    up.msg_ms = fm1_ms;
+    if (!up.n) usbh.info3[0] = 0;                       /* (none play: no speed line) */
+    usbh.gen++;
+}
 static uint32_t uf_hash(const char *p)                  /* a folder's path, for the "playing" marks */
 {
     uint32_t h = 2166136261u;
@@ -320,7 +334,7 @@ static void uf_play_stop(uint32_t s)
     cs_update_run();
     cs_release();
     up.n = (uint8_t)(up.n ? up.n - 1u : 0u);
-    str_cpy(usbh.info2, up.n ? "Stopped one" : "Stopped", UH_LINE);
+    uf_say(up.n ? "Stopped one" : "Stopped");
     uf_marks();
 }
 /* stop them all; after an error the drive is reset (stopped mid-command: it must be back in step) */
@@ -338,27 +352,37 @@ static void uf_play_stop_all(void)
     cs.err = 0;
     cs.state = CS_IDLE;
     up.n = 0;
-    str_cpy(usbh.info2, err ? "Stopped: card error" : "Stopped", UH_LINE);
+    uf_say(err ? "Stopped: card error" : "Stopped");
     uf_marks();
 }
 static void uf_play_show(void)
 {
-    char *e;
-    uint32_t s, gaps = 0;
+    char b[64], *e;                                     /* (0.4.14) built here, then cut to the line (str_cpy) */
+    uint32_t s, gaps = up.gaps_old, need = 0;
     if (fm1_ms - up.win_ms >= 1000u) {                  /* the timer's reading: its share of the last second */
         uint32_t t = cs.cpu_ticks - up.win_ticks, ms = fm1_ms - up.win_ms;
         up.pct = t / FM1_TICKS_PER_US / (ms * 10u);
+        up.kbs = (cs.bytes - up.win_bytes) / 1024u * 1000u / ms;   /* (0.4.14) the card's speed */
         up.win_ticks = cs.cpu_ticks;
+        up.win_bytes = cs.bytes;
         up.win_ms = fm1_ms;
     }
     if (fm1_ms - up.show_ms < 250u) return;
     up.show_ms = fm1_ms;
-    for (s = 0; s < CP_N; s++) gaps += cp[s].gaps;
-    e = uh_dec(usbh.info2, up.n);
-    e = uh_dec(uh_cat(e, " on, CPU "), UF_CPU());
-    e = uh_dec(uh_cat(e, "% card "), up.pct);
-    e = uh_dec(uh_cat(e, "% gap "), gaps);
-    (void)e;
+    for (s = 0; s < CP_N; s++) {
+        gaps += cp[s].gaps;
+        if (cs.st[s].run) need += cs.st[s].bps;
+    }
+    if (fm1_ms - up.msg_ms >= 2000u) {                  /* "4 on, CPU 49%, card 8%" (a message first, for 2 s) */
+        e = uh_dec(b, up.n);
+        e = uh_dec(uh_cat(e, " on, CPU "), UF_CPU());
+        uh_cat(uh_dec(uh_cat(e, "%, card "), up.pct), "%");
+        str_cpy(usbh.info2, b, UH_FOOT);
+    }
+    e = uh_dec(uh_cat(b, "gap "), gaps);                /* "gap 0, 512 of 529 KB/s": the gaps first (always seen) */
+    e = uh_dec(uh_cat(e, ", "), up.kbs);
+    uh_cat(uh_dec(uh_cat(e, " of "), need / 1024u), " KB/s");
+    str_cpy(usbh.info3, b, UH_FOOT);
     usbh.gen++;
 }
 /* start one in a free slot: the file mapped, its reading started, its ring half filled, then the audio ISR plays it */
@@ -370,21 +394,27 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
         ;
     if (s == CP_N) {
         f_close(&uf_pf);
-        str_cpy(usbh.info2, "Four play already", UH_LINE);
-        usbh.gen++;
+        uf_say("Four play already");
         return;
     }
     o = &cs.st[s];
     if (!uf_extents(&uf_pf, fsize, o)) {
         f_close(&uf_pf);
-        str_cpy(usbh.info2, "File in too many pieces", UH_LINE);
-        usbh.gen++;
+        uf_say("File in too many pieces");
         return;
     }
     f_close(&uf_pf);                                    /* (the engine needs only the runs of sectors) */
+    if (!up.n) {                                        /* (0.4.14) the first: the gaps from nought */
+        uint32_t k;
+        for (k = 0; k < CP_N; k++) cp[k].gaps = 0;
+        up.gaps_old = 0;
+    } else {
+        up.gaps_old += cp[s].gaps;                      /* (the slot's last stream's, kept in the count) */
+    }
     cp_setup(s, w->ch, w->rate);
     o->bytes = (uint8_t)(w->bits / 8u);
     o->bpf = (uint8_t)(o->bytes * w->ch);
+    o->bps = w->rate * o->bpf;                          /* (0.4.14) */
     o->right = (uint8_t)(w->ch > 1u ? o->bytes : 0u);
     o->ch = cp[s].ch;
     o->data0 = w->data0;
@@ -400,7 +430,8 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
         cs.cmds = 0;
         up.win_ms = up.show_ms = fm1_ms;
         up.win_ticks = cs.cpu_ticks;
-        up.pct = 0;
+        up.win_bytes = cs.bytes;
+        up.pct = up.kbs = 0;
     }
     sie_wr(S_FADDR, usbh.addr);                         /* (the drive's; the bulk pipes as the test set them) */
     o->run = 1;                                         /* (last: the timer reads the slot from here on) */
@@ -411,11 +442,11 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
         CS_WAIT();
     if (cs.err || cp[s].w < want) {
         uf_play_stop(s);
-        str_cpy(usbh.info2, "Card too slow to start", UH_LINE);
+        uf_say("Card too slow to start");
         return;
     }
     cp[s].on = 1;
-    str_cpy(usbh.info2, "Playing", UH_LINE);
+    uf_say("Playing");
     uf_marks();
 }
 
@@ -434,8 +465,7 @@ static void uf_file(const char *path, const FILINFO *fi)
         uf_wav_text(&w, usbh.info);
         if (uf_playable(&w)) { uf_play_start(&w, (uint32_t)fi->fsize, fi->fname); return; }
         f_close(&uf_pf);
-        str_cpy(usbh.info2, "This WAV does not play yet", UH_LINE);
-        usbh.gen++;
+        uf_say("This WAV does not play yet");
         return;
     }
     f_close(&uf_pf);
@@ -499,6 +529,7 @@ static void uf_up(void)
 static void usbf_task(void)
 {
     uint8_t c;
+    cs_poll();                                          /* (0.4.14) the main loop's turn at the card (every pass) */
     if (up.n && (!usbh.want || !usbh.drive || !usbh.view)) uf_play_stop_all();   /* the files left, the test ended:
                                                          * stopped before usbh_task turns the port off */
     usbh_task();

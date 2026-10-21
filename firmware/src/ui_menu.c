@@ -375,7 +375,9 @@ static void drive_draw(void)
 }
 /* (0.4.10) the drive's files: the folder at the top ("/SAMPLES/drums"), six rows (the name, a folder's with "/"; a
  * file's size at the right), the row picked on the surface colour, a bar at the right edge for where the rows are;
- * the foot: what the picked file is and how fast it read (usb_files.c), or what the keys do */
+ * the foot: what the picked file is and how fast it read (usb_files.c), or what the keys do.
+ * (0.4.14) Five rows and three foot lines (the players' gaps and speed on the last); the row picked on the selection
+ * colour mixed with 30% of the theme (the surface colour hardly showed on the device). */
 static void files_draw(void)
 {
     uint32_t pass, i;
@@ -396,9 +398,9 @@ static void files_draw(void)
             for (i = 0; i < usbh.nent && i < UH_ROWS; i++) {
                 int32_t y = 56 + 22 * (int32_t)i;
                 int pick = usbh.top + i == usbh.sel;
-                uint16_t bg = pick ? T_SURF : T_BG;
+                uint16_t bg = pick ? ux_mix(T_BG, T_THEME, 30) : T_BG;
                 char nm[UH_NAME + 2], sz[16];
-                if (pick) cv_rrect(2, y - 1, 232, 24, 5, T_SURF, T_BG);
+                if (pick) cv_rrect(2, y - 1, 232, 24, 5, bg, T_BG);
                 str_cpy(nm, usbh.ent[i].name, UH_NAME);
                 if (usbh.ent[i].dir) uh_cat(nm + str_len(nm), "/");
                 if (usbh.ent[i].dir) {
@@ -413,14 +415,15 @@ static void files_draw(void)
                 }
             }
         if (usbh.count > UH_ROWS) {                     /* where the rows are */
-            int32_t h = 132, th = h * (int32_t)UH_ROWS / (int32_t)usbh.count;
+            int32_t h = 22 * (int32_t)UH_ROWS, th = h * (int32_t)UH_ROWS / (int32_t)usbh.count;
             if (th < 8) th = 8;
             cv_rect(237, 56, 2, h, T_LINE);
             cv_rect(237, 56 + (h - th) * (int32_t)usbh.top / (int32_t)(usbh.count - UH_ROWS), 2, th, T_THEME);
         }
-        if (usbh.info[0] || usbh.info2[0]) {
-            cv_free_text(8, 194, TY_LB, usbh.info, T_TEXT, T_BG, 224);
-            cv_free_text(8, 216, TY_LB, usbh.info2, T_MID, T_BG, 224);
+        if (usbh.info[0] || usbh.info2[0] || usbh.info3[0]) {
+            cv_free_text(8, 172, TY_LB, usbh.info, T_TEXT, T_BG, 224);
+            cv_free_text(8, 194, TY_LB, usbh.info2, T_MID, T_BG, 224);
+            cv_free_text(8, 216, TY_LB, usbh.info3, T_MID, T_BG, 224);
         } else {
             cv_free_text(8, 216, TY_LB, "OCT+ open  OCT- back", T_MID, T_BG, 224);
         }
