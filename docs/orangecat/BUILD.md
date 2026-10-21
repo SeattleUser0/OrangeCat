@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.32  
+**Version:** 0.33  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.33 (October 21, 2026):** 0.4.13: up to four WAVs from the card at once.
 - **0.32 (October 21, 2026):** 0.4.12 on the unit: the card's share of the processor down from 23% to 2%.
 - **0.31 (October 21, 2026):** 0.4.12: the playing WAV read by the 10 kHz timer interrupt, not the main loop. By ear 0.4.11 was clean, the sequencer steady.
 - **0.30 (October 21, 2026):** 0.4.11 on the unit: a WAV plays from the card with no gaps, alone and over three tracks. The reading costs main loop time, not audio time.
@@ -244,6 +245,20 @@ What USB allows, and the plan from it:
 - A stereo 16-bit 44.1 kHz track is 176 KB/s; mono 88 KB/s. 900 KB/s could carry a few stereo tracks at most, less with other traffic. Mono and 22 kHz bounces would stretch it.
 
 How others do it: the Dirtywave M8 streams every sample from its SD card instead of loading it into RAM, so its only length limit is the card; heavy sample use across many tracks can still glitch, and it needs a fast card (The M8 Companion, chapter 5). The Synthstrom Deluge streams from its SD card too (firmware 1.2). The M8 talks to its card over a direct 4-bit SD bus, much faster than our full speed USB, so Orange Cat has less room: the ideas carry over (stream, read ahead in big pieces, never wait in the audio path), the numbers do not.
+
+Several at once (0.4.13, the plan's next step after the timer reading):
+- Up to four WAVs play together. OCT+ on a WAV starts it beside the others; OCT+ on one that plays stops it; the rows playing say PLAY. They play on while you move through folders, and all stop when the file list is left, the test ends or the drive goes.
+- Memory: 40 KB of .pool in four fixed 10 KB slots (8 KB more than 0.4.12's one ring; the audio working arena keeps about 51 KB of its 48 KB minimum). Mono files are kept mono, so a slot holds 2,560 stereo frames (58 ms) or 5,120 mono (116 ms).
+- The timer's engine serves the running stream whose ring is emptiest, once it has a quarter of its ring free, up to 8 sectors (4 KB) a command. One packet a tick still caps the total near 640 KB/s: four 16-bit stereo files at 44.1 kHz (706 KB/s) are past it; four mono, or three stereo, fit.
+- Each stream -6 dB; the sum held to the DAC's full scale (never wrapped).
+- The foot: "2 on, CPU 44% card 4% gap 0".
+- Host test: two streams summed sample for sample (16-bit stereo and 22.05 kHz 24-bit mono), one stopped while the other plays on, four at once with no gaps, an error stopping all, playing again after.
+
+Left to test (0.4.13):
+- [ ] Two WAVs, then three, then four: the gap count and the card share at each. Try mono files and stereo files.
+- [ ] Stopping one with OCT+ while others play: the rest unbroken.
+- [ ] Moving through folders while they play.
+- [ ] With the sequencer running under them.
 
 Steps, each tested on the unit before the next:
 1. Files read (0.4.10, tested).

@@ -405,10 +405,11 @@ static void files_draw(void)
                     cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220);
                 } else {
                     int32_t w;
-                    uh_bytes(sz, usbh.ent[i].size);
+                    if (usbh.ent[i].play) str_cpy(sz, "PLAY", sizeof sz);   /* (0.4.13) a WAV playing */
+                    else uh_bytes(sz, usbh.ent[i].size);
                     w = text_w(TY_LB, sz);
                     cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220 - w - 8);
-                    cv_text_on(228 - w, y + 3, TY_LB, sz, T_MID, bg);
+                    cv_text_on(228 - w, y + 3, TY_LB, sz, usbh.ent[i].play ? T_THEME : T_MID, bg);
                 }
             }
         if (usbh.count > UH_ROWS) {                     /* where the rows are */

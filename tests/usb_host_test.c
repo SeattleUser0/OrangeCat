@@ -611,17 +611,17 @@ static int t_files(void)
     pick("Kick 808 Long Name.wav");
     printf("  Kick: [%s] [%s]\n", usbh.info, usbh.info2);
     fflush(stdout);
-    assert(!strcmp(usbh.info, "44.1 kHz 16-bit mono 0.5 s") && !strcmp(usbh.info2, "Playing") && cp_on && up.on);
+    assert(!strcmp(usbh.info, "44.1 kHz 16-bit mono 0.5 s") && !strcmp(usbh.info2, "Playing") && cp[0].on && up.n == 1);
     ask(UC_ENTER);                                      /* (0.4.11) OCT+ again: stopped */
-    assert(!cp_on && !up.on && !strcmp(usbh.info2, "Stopped"));
+    assert(!cp[0].on && !up.n && !strcmp(usbh.info2, "Stopped"));
     pick("drums");
     assert(!strcmp(usbh.path, "/SAMPLES/drums") && usbh.count == 1);
     pick("snare.wav");
     printf("  snare: [%s] [%s]\n", usbh.info, usbh.info2);
     fflush(stdout);
-    assert(!strncmp(usbh.info, "48 kHz 24-bit stereo 0.2", 24) && up.on);
-    ask(UC_UP);                                         /* (0.4.11: OCT- stops it too) */
-    assert(!up.on && !cp_on);
+    assert(!strncmp(usbh.info, "48 kHz 24-bit stereo 0.2", 24) && up.n == 1);
+    ask(UC_UP);                                         /* (0.4.13: it plays on through the folders) */
+    assert(up.n == 1 && cp[0].on);
     assert(!strcmp(usbh.path, "/SAMPLES") && usbh.sel == 0);
     ask(UC_UP);
     assert(!usbh.path[0] && usbh.count == 4);
@@ -650,12 +650,30 @@ static int t_files(void)
     return 1;
 }
 /* (0.4.11) a WAV playing: the ring holds the file's frames in order, the audio side plays them with no gaps while
- * the main loop keeps it full, across the loop back to the start; a 22.05 kHz 24-bit mono file at half speed */
+ * the reading keeps it full, across the loop back to the start; a 22.05 kHz 24-bit mono file at half speed.
+ * (0.4.13) Two at once, summed sample for sample; one stopped by OCT+ on it while the other plays on; four at once;
+ * an error stops them all. */
 static int32_t ramp(uint32_t i) { return (int32_t)((i * 37u) % 32768u) - 16384; }
+static int32_t at_half(uint32_t k)                     /* tone24 (2,205 frames, looped) at half speed, frame k */
+{
+    uint32_t i = (k / 2u) % 2205u, j = (i + 1u) % 2205u;
+    int32_t a = ramp(i), b = ramp(j);
+    return (k & 1u) ? a + (((b - a) * 16384) >> 15) : a;
+}
+static void block(int32_t *out, uint32_t ticks)        /* one 64-frame block, then the timer and the main loop */
+{
+    uint32_t i;
+    memset(out, 0, 2 * 64 * sizeof *out);
+    card_render(out, 64);
+    for (i = 0; i < ticks; i++) cs_tick();
+    usbf_task();
+    fm1_ms++;
+}
+static uint32_t gaps_all(void) { uint32_t s, g = 0; for (s = 0; s < CP_N; s++) g += cp[s].gaps; return g; }
 static int t_play(void)
 {
     int32_t out[2 * 64];
-    uint32_t i, j, n = 11025, frames = 0, bad = 0;
+    uint32_t i, j, n = 11025, frames = 0, k24 = 0, bad = 0;
     reset_world();
     add(D_DRIVE, 64, -1, 0);
     usbh_want(1);
@@ -666,55 +684,68 @@ static int t_play(void)
     ask(UC_LIST);
     pick("SAMPLES");
     pick("tone.wav");
-    printf("  tone: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp_step);
+    printf("  tone: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp[0].step);
     fflush(stdout);
-    assert(!strcmp(usbh.info, "44.1 kHz 16-bit stereo 0.2 s") && cp_on && cp_step == 65536u);
-    assert(cp_w >= CP_FRAMES / 2u && cs.run && cs.next == 1u);   /* half filled before it plays; one run of sectors */
-    for (i = 0; i < 64u; i++) assert(cp_ring[i][0] == ramp(i) && cp_ring[i][1] == -ramp(i));
+    assert(!strcmp(usbh.info, "44.1 kHz 16-bit stereo 0.2 s") && cp[0].on && cp[0].step == 65536u && cp[0].ch == 2u);
+    assert(cp[0].w >= cp[0].cap / 2u && cs.run && cs.st[0].next == 1u);   /* half filled first; one run of sectors */
+    for (i = 0; i < 64u; i++) assert(cp[0].buf[2 * i] == ramp(i) && cp[0].buf[2 * i + 1] == -ramp(i));
+    for (i = 0; i < usbh.nent; i++)                     /* its row says PLAY */
+        assert(usbh.ent[i].play == !strcmp(usbh.ent[i].name, "tone.wav"));
     for (j = 0; j < 700u; j++) {                        /* 44,800 frames: four times round the file */
-        memset(out, 0, sizeof out);
-        card_render(out, 64);
+        block(out, 15);                                 /* (15 ticks: 1.45 ms of the 10 kHz timer, one block's time) */
         for (i = 0; i < 64u; i++, frames++) {
             int32_t v = ramp(frames % n);               /* -6 dB, as the ISR scales: (x * MASTER) >> 13 */
             if (out[2 * i] != (v * 4096) >> 13 || out[2 * i + 1] != (-v * 4096) >> 13) bad++;
         }
-        for (i = 0; i < 15u; i++) cs_tick();            /* (0.4.12) 1.45 ms of the 10 kHz timer */
-        usbf_task();                                    /* the main loop between blocks */
-        fm1_ms++;
         if (j == 300u) { usbh.top = 1; ask(UC_WINDOW); usbh.top = 0; ask(UC_WINDOW); }   /* FatFs on the bus mid-play */
     }
-    printf("  tone: %u frames, %u wrong, %u gaps, %u commands, [%s]\n", frames, bad, cp_gaps, cs.cmds, usbh.info2);
+    printf("  tone: %u frames, %u wrong, %u gaps, %u commands, [%s]\n", frames, bad, gaps_all(), cs.cmds, usbh.info2);
     fflush(stdout);
-    assert(!bad && !cp_gaps && !strncmp(usbh.info2, "CPU 0% card ", 12));
-    ask(UC_ENTER);
-    pick("tone24.wav");
-    printf("  tone24: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp_step);
+    assert(!bad && !gaps_all() && !strncmp(usbh.info2, "1 on, CPU 0% card ", 18));
+    pick("tone24.wav");                                 /* (0.4.13) a second one, beside the first */
+    printf("  tone24: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp[1].step);
     fflush(stdout);
-    assert(!strcmp(usbh.info, "22.05 kHz 24-bit mono 0.1 s") && cp_step == 32768u);
-    memset(out, 0, sizeof out);
-    card_render(out, 64);
-    for (i = 0; i < 64u; i++) {                         /* half speed: each frame, then halfway to the next */
-        int32_t a = ramp(i / 2), b = ramp(i / 2 + 1), want = (i & 1u) ? a + ((b - a) * 16384) / 32768 : a;
-        if (out[2 * i] != (want * 4096) >> 13 || out[2 * i] != out[2 * i + 1]) bad++;
+    assert(!strcmp(usbh.info, "22.05 kHz 24-bit mono 0.1 s") && cp[1].step == 32768u && cp[1].ch == 1u && up.n == 2);
+    for (j = 0; j < 400u; j++) {                        /* the two summed, sample for sample */
+        block(out, 15);
+        for (i = 0; i < 64u; i++, frames++, k24++) {
+            int32_t v = ramp(frames % n), m = at_half(k24);
+            if (out[2 * i] != ((v * 4096) >> 13) + ((m * 4096) >> 13) ||
+                out[2 * i + 1] != ((-v * 4096) >> 13) + ((m * 4096) >> 13)) bad++;
+        }
     }
-    assert(!bad);
-    devs[0].deaf = 2;                                   /* (0.4.12) the card stops answering mid-play */
-    for (i = 0; i < 2000u && up.on; i++) {
-        memset(out, 0, sizeof out);
-        card_render(out, 64);
-        for (j = 0; j < 15u; j++) cs_tick();
-        usbf_task();
-        fm1_ms++;
-    }
-    printf("  card error: [%s] err %u\n", usbh.info2, cs.err);
+    printf("  two: %u wrong, %u gaps\n", bad, gaps_all());
     fflush(stdout);
-    assert(!up.on && !cs.run && !strcmp(usbh.info2, "Stopped: card error"));
+    assert(!bad && !gaps_all());
+    pick("tone.wav");                                   /* OCT+ on a playing one: that one stops, the other plays on */
+    assert(!cp[0].on && !cs.st[0].run && cp[1].on && up.n == 1);
+    for (j = 0; j < 50u; j++) {
+        block(out, 15);
+        for (i = 0; i < 64u; i++, k24++)
+            if (out[2 * i] != (at_half(k24) * 4096) >> 13) bad++;
+    }
+    assert(!bad && !gaps_all());
+    pick("tone.wav");                                   /* four at once: tone, tone24, Kick, drums/snare */
+    pick("Kick 808 Long Name.wav");
+    pick("drums");
+    pick("snare.wav");
+    assert(up.n == 4 && cp[0].on && cp[1].on && cp[2].on && cp[3].on);
+    for (j = 0; j < 400u; j++) block(out, 20);
+    printf("  four: [%s] %u commands\n", usbh.info2, cs.cmds);
+    fflush(stdout);
+    assert(!gaps_all() && !strncmp(usbh.info2, "4 on, CPU ", 10));
+    ask(UC_UP);
+    devs[0].deaf = 2;                                   /* (0.4.12) the card stops answering mid-play: all stop */
+    for (i = 0; i < 2000u && up.n; i++) block(out, 15);
+    printf("  card error: [%s]\n", usbh.info2);
+    fflush(stdout);
+    assert(!up.n && !cs.run && !cp[0].on && !cp[3].on && !strcmp(usbh.info2, "Stopped: card error"));
     devs[0].deaf = 0;
-    pick("tone.wav");
-    assert(up.on && cs.run);
+    pick("tone.wav");                                   /* and play again after */
+    assert(up.n == 1 && cs.run && cp[0].on);
     lines = 0;                                          /* unplugged while playing: stopped */
     run_ms(400);
-    assert(!up.on && !cp_on);
+    assert(!up.n && !cp[0].on && !cs.run);
     usbh_want(0);
     run_ms(2);
     return 1;

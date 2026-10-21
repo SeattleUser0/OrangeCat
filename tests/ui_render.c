@@ -1451,10 +1451,11 @@ static void setup(int s)
             str_cpy(usbh.ent[i].name, N[i], UH_NAME);
             usbh.ent[i].size = Z[i];
             usbh.ent[i].dir = !Z[i] && i != 3u;
+            usbh.ent[i].play = s == S_FILES_WAV && (i == 0u || i == 2u);   /* (0.4.13) two playing */
         }
         if (s == S_FILES_WAV) {
             str_cpy(usbh.info, "44.1 kHz 16-bit stereo 1:23", UH_LINE);
-            str_cpy(usbh.info2, "Read 1.0 MB at 640 KB/s", UH_LINE);
+            str_cpy(usbh.info2, "2 on, CPU 44% card 4% gap 0", UH_LINE);
         }
         ui.menu = 3;
         break;

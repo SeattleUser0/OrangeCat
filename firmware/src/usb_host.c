@@ -72,7 +72,7 @@ static struct {
     uint16_t count, sel, top, ent_top;
     char path[96];
     char info[UH_LINE], info2[UH_LINE];
-    struct { char name[UH_NAME]; uint32_t size; uint8_t dir; } ent[UH_ROWS];
+    struct { char name[UH_NAME]; uint32_t size; uint8_t dir, play; } ent[UH_ROWS];   /* (0.4.13: play, a WAV playing) */
 } usbh;
 static uint8_t uh_sec[512];     /* sector 0 */
 /* (0.4.8) the walk through hubs: the ports from the first device down (path), what was found (log), why the last
