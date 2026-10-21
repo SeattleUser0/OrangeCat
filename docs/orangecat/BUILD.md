@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.17  
+**Version:** 0.18  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.5
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.18 (October 21, 2026):** 0.4.3: throws on PERFORM's KNOB 2 to 4. TRACKER's lanes (PRESET).
 - **0.17 (October 21, 2026):** 0.4.2: phase 5 started: SEQ > TRACKER shows a track's phrase as rows. CHAIN's KNOB 3 takes effect on the slot a track is on. FILL on PERFORM's D#4.
 - **0.16 (October 21, 2026):** 0.4.1: 4d part 1. PERFORM (ARP held): 8 scenes, staged mutes, and the launch point (LOOP, BAR, BEAT, NOW).
 - **0.15 (October 21, 2026):** 0.4.0: three levels, as a tracker (specification 0.5, 7.3). Chains (64 per project) and the SONG grid of chains; each track goes down its own song column. PLAY plays by the page it is pressed on. 0.3 projects convert when loaded.
@@ -319,7 +320,9 @@ Each step builds, passes the host tests, and is measured before the next.
     - Recalling a scene while the song plays switches PLAY to the chains (the tracks play on from the scene's slots).
     - Tested (tests/oc_lists_test.c, tests/ui_test.c): LOOP lands on the loop end; BAR on the next bar line from step 1; BEAT on the next beat; NOW on the next step; a staged mute with BAR lands on the bar; scenes store and recall; OCT- puts back; a stop applies a staged mute. The PERFORM map passes the screen lint in all 8 palettes.
     - Left to test on the device: with two slots in track 1's chain, store scene 1 on slot A and scene 2 on slot B; play; set AT to BAR; tap the scene keys and hear each land on the bar. Stage a mute on track 2 and hear it land. Save, power off and on: the scenes come back.
-  - [ ] Part 2: the throws on KNOB 2 to 4, scenes 9 to 16, the web editor's view of scenes.
+  - [x] **Part 2a (0.4.3): throws.** With ARP held, KNOB 2, 3 and 4 throw the selected track's SEND, SEND 2 and SEND 3 (to the shared effects) up or down for a moment. The cards show FX1, FX2 and FX3 as they sound, in the accent colour while thrown. Once the knob rests, the throw glides back to the saved value over one bar. A stop ends it at once. Throws are never saved: the saved send stays as it was. Tested: the send is thrown in the audio block and back after it; the saved value never changes; it glides back within a bar.
+    - Left to test on the device: put a delay or reverb on a shared FX slot, play a track, hold ARP and turn KNOB 2: hear the echo swell and fade back over a bar.
+  - [ ] Part 2b: scenes 9 to 16, the web editor's view of scenes.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
 - [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.
 - [ ] **4g. Web editor.** Skiff's editor pages for steps, lists, scenes and the pool, on Melodee's editor link.

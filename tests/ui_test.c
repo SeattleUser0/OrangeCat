@@ -4153,6 +4153,21 @@ static int test_perform(void)
     ok &= lists.launch == OCL_LOOP && !trk[1].mute_arm && msg_is("PERFORM PUT BACK");
     btn_up(B_ARP); frame();
     bad += check("ARP KNOB 1: LAUNCH BAR; OCT-: LAUNCH and the MUTEs as it opened, nothing staged", ok);
+    {   /* (0.4.3) KNOB 2: a throw of SEND 1, never saved, gliding back over a bar */
+        int16_t base = TSEL->p[P_FXSEND];
+        btn_down(B_ARP); frame();
+        turn(EN_K2, 2);
+        ok = (thr_out & 1u << (song.sel * THR_N)) && throw_value(song.sel, 0) == base + 8 && TSEL->p[P_FXSEND] == base;
+        throw_on(32);                             /* (in the audio block: on over the value; after it: off again) */
+        ok &= TSEL->p[P_FXSEND] > base && TSEL->p[P_FXSEND] <= base + 8;   /* (gliding already, the knob at rest) */
+        throw_off();
+        ok &= TSEL->p[P_FXSEND] == base;
+        btn_up(B_ARP); frame();
+        fm1_ms += 500u;                           /* (the knob at rest; then a bar of audio blocks) */
+        for (uint32_t b = 0; b < 4u * 22050u * 4u / 32u && thr_out; b++) { int32_t o[64]; mix_block(o, 32); }
+        bad += check("ARP KNOB 2: the selected track's SEND thrown (its own value kept), back over a bar", ok &&
+                     !(thr_out & 1u << (song.sel * THR_N)) && TSEL->p[P_FXSEND] == base);
+    }
     trk[0].mute_arm = 2;
     seq_stop();
     bad += check("a MUTE staged at a stop: at once", trk[0].p[P_MUTE] == 1 && !trk[0].mute_arm);

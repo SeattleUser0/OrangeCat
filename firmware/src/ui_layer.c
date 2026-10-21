@@ -13,7 +13,8 @@
  *              recalls, SAVE held + a key stores: each track's chain, step and MUTE), the black keys 1..4 T1..T4 MUTE
  *              staged for the launch point (stopped: at once; again before it lands: unstaged); KNOB 1 LAUNCH (LOOP
  *              BAR BEAT NOW: where a step gone to by hand, a scene, a staged MUTE come in while playing); D#4 held:
- *              FILL (steps whose condition is FILL play, !FILL ones do not: seq.c seq_fill)
+ *              FILL (steps whose condition is FILL play, !FILL ones do not: seq.c seq_fill); KNOB 2..4 (0.4.3) throw the
+ *              selected track's SEND 1..3, gliding back over a bar once the knob rests (oc_throw.c)
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
  * Held past HOLD alone: the map (a peek), letting go does nothing. A key, a knob or a button meanwhile: a combo,
  * the map at once, no tap. Keys pressed with the button down are the layer's (seq.c keyboard_block): silent, no
@@ -309,9 +310,12 @@ static void layer_keys(uint32_t keys)
 static void layer_knob(uint32_t k, int32_t s)
 {
     uint32_t l = layer_open();
-    if (l == LAYER_PERF) {                       /* (Orange Cat 0.4.1) KNOB 1 LAUNCH; the others: nothing yet */
+    if (l == LAYER_PERF) {                       /* (Orange Cat 0.4.1) KNOB 1 LAUNCH; (0.4.3) KNOB 2..4 the selected
+                                                  * track's SEND 1..3 thrown, gliding back over a bar (oc_throw.c) */
         if (k == 0u)
             lists.launch = (uint8_t)clamp((int32_t)lists.launch + (s > 0 ? 1 : -1), 0, OCL_NLAUNCH - 1);
+        else if (song.sel < trk_n())
+            throw_turn(song.sel, k - 1u, s * 4);
         return;
     }
     if (l == LAYER_GLO) {                        /* T1..T4 LEVEL (those in use), recorded as on MIXER */
@@ -526,10 +530,15 @@ static void layer_cards(uint32_t l)
     const char *unit;
     uint32_t c;
     if (l == LAYER_PERF) {                       /* (Orange Cat 0.4.1) KNOB 1 LAUNCH */
+        static const char *const FXN[3] = {"FX1", "FX2", "FX3"};
         draw_column(0, "AT", LAUNCH_NAME[lists.launch % OCL_NLAUNCH], "", VAL(0),
                     (int32_t)(lists.launch % OCL_NLAUNCH) * 1000 / (OCL_NLAUNCH - 1), ICON_NONE);
-        for (c = 1; c < 4u; c++)
-            draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
+        for (c = 1; c < 4u; c++) {                      /* (0.4.3) the selected track's sends as they sound (thrown) */
+            int32_t v = throw_value(song.sel, c - 1u);
+            fmt_int(val, v * 100 / 127);
+            draw_column(c, FXN[c - 1u], val, "%", (thr_out >> (song.sel % NTRK * THR_N + c - 1u)) & 1u ? T_ACCENT :
+                        VAL(c), (int32_t)v * 1000 / 127, ICON_NONE);
+        }
     } else if (l == LAYER_GLO) {                 /* T1..T4 LEVEL (the track's icon; muted: dim) */
         for (c = 0; c < NTRK; c++) {
             if (c >= trk_n()) {                         /* (a track not in use: an empty card) */
@@ -560,8 +569,8 @@ static void draw_layer(void)
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
         col_style = CS_CARD;
-        for (c = 0; c < NTRK; c++)
-            card_tc[c] = T_TRK(c);
+        for (c = 0; c < NTRK; c++)                      /* (PERFORM: the selected track's sends, its colour) */
+            card_tc[c] = l == LAYER_PERF ? T_TRK(song.sel % NTRK) : T_TRK(c);
         layer_cards(l);
         memset(card_tc, 0, sizeof card_tc);
         col_style = cs;
@@ -575,6 +584,8 @@ static void draw_layer(void)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
     else if (l == LAYER_PERF) {
         sig += lists.launch * 31u + lists.scene_used * 131u + perf_scene * 7u + trk_n() * 40503u + (lys.fill != 0u) * 3u;
+        for (c = 0; c < THR_N; c++)                     /* (0.4.3) the throws gliding: the cards redrawn */
+            sig += (uint32_t)throw_value(song.sel, c) << (7u * c);
         for (c = 0; c < NTRK; c++)
             sig += (uint32_t)((trk[c].p[P_MUTE] != 0) + 2u * trk[c].mute_arm) << (4u * c) << 8;
     }

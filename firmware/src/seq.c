@@ -1045,6 +1045,7 @@ static void seq_stop(void)
             trk[i].pattern_next = 0xff;
         trk[i].pattern_reps = 0;
         if (trk[i].pattern_next < NPAT) pattern_switch(&trk[i], trk[i].pattern_next);
+        throw_stop();                               /* (0.4.3) the throws back at once */
         if (trk[i].mute_arm) {                      /* (0.4.1) a staged MUTE: at a stop, at once */
             trk[i].p[P_MUTE] = (int16_t)(trk[i].mute_arm - 1u);
             trk[i].mute_arm = 0;
