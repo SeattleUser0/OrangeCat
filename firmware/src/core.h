@@ -481,6 +481,8 @@ typedef struct track {
                                                          * before pattern_next comes in (0, 1: at its next loop end);
                                                          * bit 7: the song's next (a stop drops it) */
     uint8_t ent_pass;                                   /* .. the passes it has made since it came in (seq.c) */
+    volatile uint8_t mute_arm;                          /* (Orange Cat 0.4.1, 4d) a MUTE staged: 0 none, 1 off, 2 on,
+                                                         * at the launch point (seq.c launch_here) */
     uint32_t seq_pos;            /* samples (INT), or MIDI musical units, into the step */
     uint16_t seq_idx;
     uint8_t seq_notes[4 + NLANE];   /* sounding seq notes (the step's notes, then its hits) */

@@ -33,6 +33,8 @@
  *          recorded there is kept as that number.
  *   0.4.0: three levels: a track's list is now one of 64 chains it is on; the song's rows name chains; PLAY's mode by
  *          the page it is pressed on (SONG: the song from the row picked; CHAIN: the chains; else the phrases).
+ *   0.4.1: (4d) staged MUTEs and 8 scenes (PERFORM: ui_layer.c); a step gone to by hand comes in at lists.launch
+ *          (LOOP BAR BEAT NOW: seq.c).
  */
 
 /* the bank of track k holding pool pattern id, NPAT none */
@@ -539,4 +541,57 @@ static int ocl_clear_unused(void)
         if ((ocp.len[id] || ocp.hash[id]) && !ocj_named_now(id, 0) && !ocj_refs(id, 4u)) { want[id] = 255u; n++; }
     if (n && ocj_put_chunks(want, &proj_scratch, proj_wire_u.raw, 0)) return -1;
     return n;
+}
+
+/* ------------------------------------------- PERFORM: mutes, scenes (4d) --- */
+/* track k's MUTE turned: stopped, at once; playing, staged for its launch point (seq.c; staged already: unstaged) */
+static void ocl_mute(uint32_t k)
+{
+    track_t *t = &trk[k % NTRK];
+    if (!song.playing) { t->p[P_MUTE] = (int16_t)!t->p[P_MUTE]; t->mute_arm = 0; return; }
+    t->mute_arm = t->mute_arm ? 0u : (uint8_t)(t->p[P_MUTE] ? 1u : 2u);
+}
+static int ocl_scene_used(uint32_t s) { return (lists.scene_used >> (s % OCL_NSCENE)) & 1u; }
+/* scene s: each track in use where it is (its chain and step) and its MUTE (a staged one: as it will be) */
+static void ocl_scene_store(uint32_t s)
+{
+    s %= OCL_NSCENE;
+    for (uint32_t k = 0; k < NTRK; k++) {
+        uint32_t e = ocl_staged_ent(k) < OCL_NENT ? ocl_staged_ent(k) : lists.cur[k] % OCL_NENT;
+        uint32_t c = ocl_staged_ent(k) < OCL_NENT ? ocl_staged_chain[k] : lists.tchain[k];
+        uint32_t m = trk[k].mute_arm ? trk[k].mute_arm - 1u : trk[k].p[P_MUTE] != 0;
+        lists.scene[s][k][0] = (uint8_t)(k < trk_n() ? c % OCL_NCHAIN + 1u : 0u);
+        lists.scene[s][k][1] = (uint8_t)(e | (m ? 0x80u : 0u));
+    }
+    lists.scene_used |= (uint8_t)(1u << s);
+}
+/* scene s recalled: each track it holds to its chain and step (stopped: at once; playing: staged for the launch point,
+ * so that with BAR they all land together) and its MUTE likewise. The song playing: the chains play on from there.
+ * 0 done; 1 an empty scene; else the first failure's (ocl_go_at) */
+static int ocl_scene_recall(uint32_t s)
+{
+    int rc = 0, r;
+    s %= OCL_NSCENE;
+    if (!ocl_scene_used(s)) return 1;
+    if (lists.mode == OCL_SONG) lists.mode = OCL_CHAIN;
+    for (uint32_t k = 0; k < trk_n(); k++) {
+        uint32_t c = lists.scene[s][k][0], e = lists.scene[s][k][1] & (OCL_NENT - 1u), m = lists.scene[s][k][1] >> 7;
+        if (!c) continue;
+        c--;
+        if (c != lists.tchain[k] || e != lists.cur[k] % OCL_NENT || ocl_staged_ent(k) < OCL_NENT ||
+            bank_pid[k][trk[k].pattern] != lists.chain[c][e][0]) {
+            if (!song.playing && c == lists.tchain[k] && e == lists.cur[k] % OCL_NENT)
+                r = 0;                               /* (stopped, where it is: as it is) */
+            else if (c == lists.tchain[k])
+                r = ocl_launch(k, e);                /* (its own chain: the step it plays unstages) */
+            else
+                r = ocl_go_at(k, c, e, OCL_NOROW, 0, 0);
+            if (r && !rc) rc = r;
+        }
+        if ((uint32_t)(trk[k].p[P_MUTE] != 0) != m || trk[k].mute_arm) {
+            if (!song.playing) { trk[k].p[P_MUTE] = (int16_t)m; trk[k].mute_arm = 0; }
+            else trk[k].mute_arm = (uint8_t)(m + 1u);
+        }
+    }
+    return rc;
 }

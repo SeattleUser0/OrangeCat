@@ -9,6 +9,10 @@
  *              GLO + PLAY: from the top without stopping
  *   SCL  SET   any key: its note name is ROOT; KNOB 1..4 ROOT SCL CHRD VOIC (LY_SCL: the SCL page's first two,
  *              the CHORD page's two; QNT TRN stay on SCL); the LEDs show the root lit and the scale's notes blinking
+ *   ARP  PERFORM (Orange Cat 0.4.1, build doc 4d; Skiff 1.3.3's PERFORM): the white keys F3..F4 scenes 1..8 (a tap
+ *              recalls, SAVE held + a key stores: each track's chain, step and MUTE), the black keys 1..4 T1..T4 MUTE
+ *              staged for the launch point (stopped: at once; again before it lands: unstaged); KNOB 1 LAUNCH (LOOP
+ *              BAR BEAT NOW: where a step gone to by hand, a scene, a staged MUTE come in while playing)
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
  * Held past HOLD alone: the map (a peek), letting go does nothing. A key, a knob or a button meanwhile: a combo,
  * the map at once, no tap. Keys pressed with the button down are the layer's (seq.c keyboard_block): silent, no
@@ -28,7 +32,15 @@ static const layer_t LAYERS[LAYER_N] = {
     {0, 0, 0, "", {{0, 0}, {0, 0}, {0, 0}}},
     {B_GLO, LK_SET, FAM_HOME, "[GLO] SET", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
     {B_SCL, LK_SET, FAM_SCL, "[SCL] SET", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
+    {B_ARP, LK_SET, FAM_HOME, "[ARP] PERF", {{KC_SAVE, "+ KEY: STORE"}, {KC_OCTDN, "UNDO"}, {0, 0}}},
 };
+/* (Orange Cat 0.4.1) PERFORM's: oc_lists.c */
+static void ocl_mute(uint32_t k);
+static int ocl_scene_used(uint32_t s);
+static void ocl_scene_store(uint32_t s);
+static int ocl_scene_recall(uint32_t s);
+static uint8_t perf_scene = 0xFFu;                     /* the scene recalled or stored last (its key lit), 0xFF none */
+static const char *const LAUNCH_NAME[OCL_NLAUNCH] = {"LOOP", "BAR", "BEAT", "NOW"};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
 static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
 #define LY_OPEN 2u                     /* ui.ly_t0: the map opened (no tap any more) */
@@ -64,7 +76,7 @@ static uint32_t layer_bits(void)
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
 static const char *layer_head(void)
 {
-    static const char *const locked[LAYER_N] = {"", "", "[GLO] LOCK", "[SCL] LOCK"};
+    static const char *const locked[LAYER_N] = {"", "", "[GLO] LOCK", "[SCL] LOCK", "[ARP] LOCK"};
     return ui.lock ? locked[ui.layer % LAYER_N] : LAYERS[ui.layer % LAYER_N].head;
 }
 static uint32_t layer_open(void) { return ui.ly && (ui.ly_t0 & LY_OPEN) && ly_down(ui.ly) && layer_allowed() ? ui.ly : 0u; }
@@ -111,6 +123,9 @@ static void layer_opened(uint32_t l)
         if (l == LAYER_GLO) {
             lys.v[k] = trk[k].p[P_MUTE];
             lys.v[4u + k] = trk[k].p[P_LEVEL];
+        } else if (l == LAYER_PERF) {                  /* (the MUTEs, LAUNCH) */
+            lys.v[k] = trk[k].p[P_MUTE];
+            lys.v[4u + k] = k ? 0 : lists.launch;
         } else {
             lys.v[k] = TSEL->p[P_ROOT + k];
             lys.v[4u + k] = k < 2u ? TSEL->p[P_CHRD + k] : 0;
@@ -234,6 +249,40 @@ static void layer_key(uint32_t l, uint32_t k)
     } else if (l == LAYER_SCL) {
         TSEL->p[P_ROOT] = (int16_t)((k + 5u) % 12u);    /* the key's note name (F3 = F) */
         scale_share(TSEL);
+    } else if (l == LAYER_PERF) {
+        char m[24];
+        if (key_black(k)) {                             /* T1..T4 MUTE, staged */
+            if (p < trk_n() && p < NTRK) {
+                ocl_mute(p);
+                str_cpy(m, "T1 MUTE", sizeof m);
+                m[1] = (char)('1' + p);
+                str_cpy(m + 2, trk[p].mute_arm ? (trk[p].mute_arm == 2u ? " MUTE AT " : " ON AT ") :
+                        trk[p].p[P_MUTE] ? " MUTED" : " ON", 12);
+                if (trk[p].mute_arm) str_cpy(m + str_len(m), LAUNCH_NAME[lists.launch % OCL_NLAUNCH], 6);
+                ui_message(m);
+            }
+        } else if (p < OCL_NSCENE) {                    /* scenes 1..8: SAVE held stores, else recalls */
+            str_cpy(m, "SCENE 1", sizeof m);
+            m[6] = (char)('1' + p);
+            if ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u) {
+                ocl_scene_store(p);
+                perf_scene = (uint8_t)p;
+                str_cpy(m + 7, " STORED", 8);
+            } else {
+                int rc = ocl_scene_recall(p);
+                if (rc == 1) str_cpy(m + 7, " EMPTY", 7);
+                else if (rc) str_cpy(m, rc == 4 ? "PHRASES FULL" : rc == 5 ? "PATTERN DATA FULL" : "SCENE: STOP FIRST",
+                                     sizeof m);
+                else {
+                    perf_scene = (uint8_t)p;
+                    if (song.playing) {
+                        str_cpy(m + 7, " AT ", 5);
+                        str_cpy(m + 11, LAUNCH_NAME[lists.launch % OCL_NLAUNCH], 6);
+                    }
+                }
+            }
+            ui_message(m);
+        }
     }
 }
 /* each pass: the keys the layer got now; then GLO's solo: the tracks of its keys still held (perform.c) */
@@ -254,6 +303,11 @@ static void layer_keys(uint32_t keys)
 static void layer_knob(uint32_t k, int32_t s)
 {
     uint32_t l = layer_open();
+    if (l == LAYER_PERF) {                       /* (Orange Cat 0.4.1) KNOB 1 LAUNCH; the others: nothing yet */
+        if (k == 0u)
+            lists.launch = (uint8_t)clamp((int32_t)lists.launch + (s > 0 ? 1 : -1), 0, OCL_NLAUNCH - 1);
+        return;
+    }
     if (l == LAYER_GLO) {                        /* T1..T4 LEVEL (those in use), recorded as on MIXER */
         int16_t *vp = &trk[k].p[P_LEVEL];
         if (k >= trk_n())
@@ -300,6 +354,13 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
             }
             song.g[G_BPM] = lys.v[8];
             ui_message("MIX PUT BACK");
+        } else if (lys.l == LAYER_PERF) {               /* (the MUTEs, nothing staged, LAUNCH) */
+            for (k = 0; k < NTRK; k++) {
+                trk[k].mute_arm = 0;
+                trk[k].p[P_MUTE] = lys.v[k];
+            }
+            lists.launch = (uint8_t)(lys.v[4] % OCL_NLAUNCH);
+            ui_message("PERFORM PUT BACK");
         } else {
             for (k = 0; k < 4u; k++)
                 trk[lys.trk % NTRK].p[P_ROOT + k] = lys.v[k];
@@ -326,6 +387,10 @@ static uint32_t layer_leds(void)
             on = b ? p < trk_n() && glo_sounding(p) :
                  p < NTRK ? p < trk_n() && (((lys.solo >> k) & 1u) | blink) : p == 4u ? blink :
                  p == 7u && !song.g[G_CLOCK] && blink;
+        } else if (l == LAYER_PERF) {                   /* a track sounding lit, a staged MUTE blinking; a scene kept
+                                                         * lit, the last one blinking */
+            on = b ? p < trk_n() && (trk[p].mute_arm ? blink : !trk[p].p[P_MUTE]) :
+                 p < OCL_NSCENE && ocl_scene_used(p) && (p != perf_scene || blink);
         } else if (l == LAYER_SCL) {                    /* the root lit, the scale's notes blink */
             e = (k + 5u + 12u - root) % 12u;
             on = e == 0u || (((mask >> e) & 1u) && blink);
@@ -412,12 +477,48 @@ static void layer_glo_keys(int32_t h)
     }
 }
 
+/* (Orange Cat 0.4.1) ARP held: the keys as a keyboard: the white keys scenes 1..8 (kept: their numeral; the last
+ * recalled or stored: filled), the black keys MUTE 1..4 (muted: red; one staged: the theme's colour) */
+static void layer_perf_keys(int32_t h)
+{
+    static const uint8_t BX[NTRK] = {0, 1, 2, 4};       /* black key t: between white BX and BX + 1 (F# G# A# C#) */
+    const int32_t kw = 28, x0 = 1, wy = 50, by = 6, bh = 40;
+    uint32_t i;
+    for (i = 0; i < OCL_NSCENE; i++) {
+        int32_t x = x0 + (int32_t)i * (kw + 1);
+        uint32_t used = (uint32_t)ocl_scene_used(i), last = i == perf_scene;
+        uint16_t f = last ? T_THEME : used ? T_SURF : ux_mix(T_PANEL, T_SURF, 50);
+        char n[2] = {(char)('1' + i), 0};
+        cv_rrect(x, wy, kw, h - wy - 6, 4, f, T_PANEL);
+        if (used || last)
+            cv_text_c(x + kw / 2, ty_y(h - 26, TY_TX), TY_TX, n, last ? T_INK : T_TEXT, f);
+    }
+    for (i = 0; i < NTRK; i++) {
+        int32_t x = x0 + (int32_t)(BX[i] + 1u) * (kw + 1) - 14;
+        int m = trk[i].p[P_MUTE] != 0, a = trk[i].mute_arm != 0;
+        uint16_t f = a ? T_THEME : m ? T_REC : T_LIFT, ink = a ? T_INK : m ? T_TEXT : T_SEC;
+        char n[2] = {(char)('1' + i), 0};
+        if (i >= trk_n()) {
+            cv_rrect(x, by, 26, bh, 4, ux_mix(T_PANEL, T_SURF, 50), T_PANEL);
+            continue;
+        }
+        cv_rrect(x, by, 26, bh, 4, f, T_PANEL);
+        cv_icon_mid(x + 5, by + 12, 16, ICON_MUTE, ink, f);
+        cv_text_c(x + 13, ty_y(by + bh - 10, TY_LB), TY_LB, n, ink, f);
+    }
+}
+
 static void layer_cards(uint32_t l)
 {
     char val[12];
     const char *unit;
     uint32_t c;
-    if (l == LAYER_GLO) {                        /* T1..T4 LEVEL (the track's icon; muted: dim) */
+    if (l == LAYER_PERF) {                       /* (Orange Cat 0.4.1) KNOB 1 LAUNCH */
+        draw_column(0, "AT", LAUNCH_NAME[lists.launch % OCL_NLAUNCH], "", VAL(0),
+                    (int32_t)(lists.launch % OCL_NLAUNCH) * 1000 / (OCL_NLAUNCH - 1), ICON_NONE);
+        for (c = 1; c < 4u; c++)
+            draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
+    } else if (l == LAYER_GLO) {                 /* T1..T4 LEVEL (the track's icon; muted: dim) */
         for (c = 0; c < NTRK; c++) {
             if (c >= trk_n()) {                         /* (a track not in use: an empty card) */
                 draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
@@ -442,7 +543,7 @@ static void layer_cards(uint32_t l)
 static void draw_layer(void)
 {
     uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u, c;
-    if (l == LAYER_GLO) {                               /* the four levels as strips at the top, each track's colour */
+    if (l == LAYER_GLO || l == LAYER_PERF) {            /* the four levels as strips at the top, each track's colour */
         uint8_t cs = col_style;
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
@@ -460,6 +561,24 @@ static void draw_layer(void)
                (uint32_t)(trk[0].p[P_MUTE] | trk[1].p[P_MUTE] << 1 | trk[2].p[P_MUTE] << 2 | trk[3].p[P_MUTE] << 3) * 131u;
     else if (l == LAYER_SCL)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
+    else if (l == LAYER_PERF) {
+        sig += lists.launch * 31u + lists.scene_used * 131u + perf_scene * 7u + trk_n() * 40503u;
+        for (c = 0; c < NTRK; c++)
+            sig += (uint32_t)((trk[c].p[P_MUTE] != 0) + 2u * trk[c].mute_arm) << (4u * c) << 8;
+    }
+    if (l == LAYER_PERF) {                              /* (Orange Cat 0.4.1) LAUNCH on top, the keys, the footer */
+        if (ui.force || sig != ui.layer_sig) {
+            ui.layer_sig = sig;
+            pv_panel(Y_GRAPH, Y_FOOT - Y_GRAPH - 2, layer_perf_keys);
+        }
+        if (ui.force) {
+            cv_begin(240, H_FOOT, T_BG);
+            cv_key_row(4, 236, (H_FOOT - KC_PH) / 2, LAYERS[l].foot, 2u, 7u, T_BG);
+            cv_blit(0, Y_FOOT);
+            ui.foot_sig = 0;
+        }
+        return;
+    }
 
     if (l == LAYER_GLO) {                               /* (R6: levels at the top, the keys as a keyboard under them) */
         if (ui.force || sig != ui.layer_sig) {

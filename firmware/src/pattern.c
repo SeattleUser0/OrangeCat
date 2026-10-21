@@ -48,18 +48,25 @@ static uint16_t pattern_epoch; /* invalidates destructive edits waiting for a lo
  * The banks are the cache: bank_pid, the pool pattern + 1 each bank holds (0: none, or steps not kept yet); bank_sig,
  * the CRC of its pattern as it came in or was last kept (as ocp.hash: a bank whose pattern packs to another is
  * changed); bank_use, when it was last gone to (the least recent one is reused). oc_lists.c keeps them; pattern_init
- * sets them as a new project's: track k on chain k + 1, row 01 of the song naming them */
+ * sets them as a new project's: track k on chain k + 1, row 01 of the song naming them.
+ * (0.4.1, 4d) launch: where a step gone to by hand comes in while playing (OCL_LOOP the track's loop end, OCL_BAR the
+ * next bar, OCL_BEAT the next beat, OCL_NOW the next step; seq.c); scene: 8 scenes, each track's chain + 1 (0: the
+ * track left as it is) and its step | its MUTE << 7; scene_used a bit a scene (PERFORM, ui_layer.c) */
 #define OCL_NENT 16u
 #define OCL_NPOOL 64u                                   /* the pool's patterns (oc_pool.c OCP_N) */
 #define OCL_NCHAIN 64u
 #define OCL_NROW 64u
 #define OCL_NOROW 0xFFu
+#define OCL_NSCENE 8u
 enum { OCL_PHRASE, OCL_CHAIN, OCL_SONG };
+enum { OCL_LOOP, OCL_BAR, OCL_BEAT, OCL_NOW, OCL_NLAUNCH };
 typedef struct {
     uint8_t chain[OCL_NCHAIN][OCL_NENT][2];
     uint8_t song[OCL_NROW][NTRK];
     uint8_t tchain[NTRK], cur[NTRK], row[NTRK];
-    uint8_t mode, rsv[3];
+    uint8_t mode, launch, rsv[2];
+    uint8_t scene[OCL_NSCENE][NTRK][2];                 /* (0.4.1) */
+    uint8_t scene_used, rsv2[3];
 } ocl_lists_t;
 typedef struct { uint8_t ent[NTRK][OCL_NENT][2]; uint8_t cur[NTRK]; uint8_t song, rsv[3]; } ocl_lists_v2_t;   /* (0.3) */
 static ocl_lists_t lists __attribute__((section(".pool")));
@@ -97,6 +104,12 @@ static void ocl_lists_fix(ocl_lists_t *l)
         if (l->row[k] >= OCL_NROW) l->row[k] = OCL_NOROW;
     }
     if (l->mode > OCL_SONG) l->mode = OCL_PHRASE;
+    if (l->launch >= OCL_NLAUNCH) l->launch = OCL_LOOP;
+    for (uint32_t s = 0; s < OCL_NSCENE; s++)
+        for (uint32_t k = 0; k < NTRK; k++) {
+            if (l->scene[s][k][0] > OCL_NCHAIN) l->scene[s][k][0] = 0;
+            l->scene[s][k][1] &= (uint8_t)(0x80u | (OCL_NENT - 1u));
+        }
 }
 static uint8_t bank_pid[NTRK][NPAT] __attribute__((section(".pool")));
 static uint32_t bank_sig[NTRK][NPAT] __attribute__((section(".pool")));

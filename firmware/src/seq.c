@@ -249,6 +249,41 @@ static void arp_off(track_t *t)                  /* the sounding arp note ends (
 /* n and gate_n: sample time (INT), musical units (MIDI); a stopped external
  * transport uses real time converted to musical units for a tapped note's gate. */
 static volatile uint32_t beat_pos, beat_n;      /* clock units into the beat, beat of the bar (0..3) */
+/* (Orange Cat 0.4.1, build doc 4d; Skiff 1.3.3 launch.c) where a step gone to by hand (pattern_next with no REPS, not a
+ * song's) and a staged MUTE come in while playing, lists.launch: LOOP the track's loop end (Melodee's), BAR / BEAT the
+ * step that begins on the next bar / beat line (within half a step of it: a 1/32 or triplet track's step a little
+ * ahead of the line is the line's), NOW the next step. BAR and BEAT start the pattern from its first step, NOW goes on
+ * from the step it is at. A track recording keeps to its loop end. lb_pos, lb_n: where this block ends in the beat
+ * and the bar (seq_advance_part, before the tracks tick) */
+static uint32_t lb_pos, lb_n;
+static uint32_t seq_launch_mode(const track_t *t)
+{
+    return (song.rec >> trk_index(t)) & 1u ? OCL_LOOP : lists.launch % OCL_NLAUNCH;
+}
+/* track t has just entered a step (t->seq_pos: how long ago, at the block's end; period: its DIV's step; wrapped: it
+ * is the loop's first): a launch point */
+static int launch_here(const track_t *t, uint32_t period, uint32_t wrapped)
+{
+    uint32_t mode = seq_launch_mode(t), beat, half, bn, on;
+    int32_t p;
+    if (mode == OCL_LOOP) return (int)wrapped;
+    if (mode == OCL_NOW) return 1;
+    beat = seq_beat_samples();
+    if (!beat) return (int)wrapped;
+    p = (int32_t)lb_pos - (int32_t)(t->seq_pos % (beat * 4u));
+    bn = lb_n;
+    while (p < 0) { p += (int32_t)beat; bn = (bn + 3u) & 3u; }
+    half = period / 2u;
+    if ((uint32_t)p < half) on = bn;                       /* (just past a line) */
+    else if (beat - (uint32_t)p <= half) on = (bn + 1u) & 3u;   /* (just ahead of the next) */
+    else return 0;
+    return mode == OCL_BEAT || on == 0u;
+}
+/* a pattern staged by hand comes in at this step (not a song's, not at the loop end: that is Melodee's switch below) */
+static int launch_mid(const track_t *t)
+{
+    return t->pattern_next < NPAT && !(t->pattern_reps & 0x80u) && !chain.running && seq_launch_mode(t) != OCL_LOOP;
+}
 /* destructive edits wait for a track's loop end while it plays (ui_input.c dq_poll): its loop ends so far; the banks one
  * waits to destroy; the tracks kept silent from a loop end until it is done (a UI frame that missed the last step) */
 static volatile uint16_t seq_loops[NTRK];
@@ -1010,6 +1045,10 @@ static void seq_stop(void)
             trk[i].pattern_next = 0xff;
         trk[i].pattern_reps = 0;
         if (trk[i].pattern_next < NPAT) pattern_switch(&trk[i], trk[i].pattern_next);
+        if (trk[i].mute_arm) {                      /* (0.4.1) a staged MUTE: at a stop, at once */
+            trk[i].p[P_MUTE] = (int16_t)(trk[i].mute_arm - 1u);
+            trk[i].mute_arm = 0;
+        }
     }
     motion_end();
 }
@@ -1206,7 +1245,8 @@ static __attribute__((noinline)) void seq_enter(track_t *t, uint32_t period, uin
         seq_fire(t, i, period, 0u);
     }
     t->nud &= (uint8_t)~(NUD_EARLY | NUD_DONE);
-    if (!(nx == 0u && (t->pattern_next < NPAT || chain.running))) {
+    if (!((nx == 0u && (t->pattern_next < NPAT || chain.running)) || launch_mid(t))) {   /* (0.4.1: a launch may come
+                                                                                          * in at any step) */
         d = step_nudge(&seq_steps(t)[nx]);
         if (d < 0) {
             uint32_t e = (uint32_t)-nudge_samples(d, step_samples(t, period, nx));
@@ -1281,8 +1321,24 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         }
         if (!t->seq_idx && !starting && t->ent_pass < 255u)   /* (Orange Cat 0.3, 4c) a pass of the bank playing */
             t->ent_pass++;
+        if (!starting && t->mute_arm && launch_here(t, period, !t->seq_idx)) {   /* (0.4.1) a staged MUTE */
+            t->p[P_MUTE] = (int16_t)(t->mute_arm - 1u);
+            t->mute_arm = 0;
+        }
+        if (t->seq_idx && !starting && launch_mid(t) && launch_here(t, period, 0)) {   /* (0.4.1) BAR, BEAT, NOW */
+            uint32_t now = seq_launch_mode(t) == OCL_NOW, at = t->seq_idx;
+            t->ent_pass = 0;
+            t->pattern_reps = 0;
+            pattern_switch(t, t->pattern_next);
+            period = seq_div_samples((uint32_t)t->p[P_SDIV]);
+            len = (uint32_t)t->p[P_SLEN];
+            t->seq_idx = (uint16_t)(now ? at % (len ? len : 1u) : 0u);
+            t->rat_left = 0;
+            t->nud = 0;
+        }
         if (!t->seq_idx && !chain.running && t->pattern_next < NPAT &&
-            (starting || t->ent_pass >= (t->pattern_reps & 0x7Fu))) {   /* (4c: after the entry's REPS passes) */
+            (starting || t->ent_pass >= (t->pattern_reps & 0x7Fu)) &&   /* (4c: after the entry's REPS passes) */
+            (starting || !launch_mid(t) || launch_here(t, period, 1))) {   /* (0.4.1: BAR, BEAT: on the line) */
             t->ent_pass = 0;
             t->pattern_reps = 0;
             pattern_switch(t, t->pattern_next);
@@ -1389,6 +1445,9 @@ static int rec_note_start(track_t *t)
 static void seq_advance_part(uint32_t n)
 {
     uint32_t i, beat = seq_beat_samples();
+    lb_pos = beat_pos + n;                          /* (0.4.1) where this block ends in the beat and the bar */
+    lb_n = beat_n;
+    while (beat && lb_pos >= beat) { lb_pos -= beat; lb_n = (lb_n + 1u) & 3u; }
     chain_tick(n);
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], n);

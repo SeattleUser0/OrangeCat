@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.15  
+**Version:** 0.16  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.5
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.16 (October 21, 2026):** 0.4.1: 4d part 1. PERFORM (ARP held): 8 scenes, staged mutes, and the launch point (LOOP, BAR, BEAT, NOW).
 - **0.15 (October 21, 2026):** 0.4.0: three levels, as a tracker (specification 0.5, 7.3). Chains (64 per project) and the SONG grid of chains; each track goes down its own song column. PLAY plays by the page it is pressed on. 0.3 projects convert when loaded.
 - **0.14 (October 21, 2026):** 0.3.7 fix (empty pattern numbers no longer stop the song). The three-level plan (phrase, chain, song) recorded.
 - **0.13 (October 20, 2026):** Fixes from the first device test: SONG MODE switch, PATTERNS knobs step one entry, the last project loads at power-on, Melodee projects get lists.
@@ -306,6 +307,16 @@ Each step builds, passes the host tests, and is measured before the next.
     - On SONG, put chain 01 in row 01 and chain 05 in row 02 for track 1. Press OCT+ on row 02 to edit chain 05 and give it a phrase. Go back to SONG, pick row 01, press PLAY: track 1 should play chain 01, then chain 05, then chain 01 again.
     - Save, power off and on: chains, the song and the phrases come back.
 - [ ] **4d. PERFORM and scenes.** Skiff's launch.c (launch at LOOP / BAR / BEAT / NOW), staged mutes, 16 scenes, FILL, throws.
+  - [x] **Part 1 (0.4.1, October 21, 2026): the PERFORM layer, scenes, staged mutes, launch points.** How it works on the device:
+    - Hold ARP: the PERFORM map (a tap still opens the ARP page). Double-tap ARP to lock it open, as GLO and SCL do.
+    - **White keys F3 to F4: scenes 1 to 8.** A tap recalls the scene. Hold SAVE and tap a key to store a scene (no project save happens). A scene holds, for each track, the chain and step it is on and its MUTE. Kept scenes show their number; the last one used is filled. Scenes are saved with the project.
+    - **Black keys 1 to 4: MUTE for tracks 1 to 4, staged.** While playing, the mute turns at the launch point; the key blinks until it lands. Tap again before it lands to cancel. Stopped: at once. A stop applies anything staged.
+    - **KNOB 1: AT** (the launch point): LOOP (the track's loop end, as before), BAR (the next bar line), BEAT (the next beat), NOW (the next step). It applies to steps you go to by hand (CHAIN's OCT+, SEQ + white keys), to scenes and to staged mutes. BAR and BEAT start the phrase from its first step; NOW goes on from the step the track is at. Chains and the song still move at loop ends. A track that is recording keeps to its loop end. Saved with the project.
+    - OCT- with ARP held puts back the mutes and AT as they were when the layer opened, and drops anything staged.
+    - Recalling a scene while the song plays switches PLAY to the chains (the tracks play on from the scene's steps).
+    - Tested (tests/oc_lists_test.c, tests/ui_test.c): LOOP lands on the loop end; BAR on the next bar line from step 1; BEAT on the next beat; NOW on the next step; a staged mute with BAR lands on the bar; scenes store and recall; OCT- puts back; a stop applies a staged mute. The PERFORM map passes the screen lint in all 8 palettes.
+    - Left to test on the device: with two steps in track 1's chain, store scene 1 on step A and scene 2 on step B; play; set AT to BAR; tap the scene keys and hear each land on the bar. Stage a mute on track 2 and hear it land. Save, power off and on: the scenes come back.
+  - [ ] Part 2: FILL, the throws on KNOB 2 to 4, scenes 9 to 16, the web editor's view of scenes.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
 - [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.
 - [ ] **4g. Web editor.** Skiff's editor pages for steps, lists, scenes and the pool, on Melodee's editor link.

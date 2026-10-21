@@ -3000,13 +3000,14 @@ static int test_layer(void)
             ok &= ui.home;
             btn_up(PB[i]); frame();
             ok &= !ui.home && (PB[i] == B_GLO ? cur_page()->graph == GR_TRK : cur_page()->fam == PF[i]);
-            if (PB[i] == B_SCL || PB[i] == B_GLO || PB[i] == B_EDIT)
-                continue;                             /* (a layer of their own: held long is a peek) */
+            if (PB[i] == B_SCL || PB[i] == B_GLO || PB[i] == B_EDIT || PB[i] == B_ARP)
+                continue;                             /* (a layer of their own: held long is a peek; Orange Cat 0.4.1:
+                                                       * ARP's PERFORM) */
             ui_power_on_general();
             hold(PB[i]);                              /* (no layer of their own: a long press is a tap too) */
             ok &= !ui.home && cur_page()->fam == PF[i];
         }
-        bad += check("ENV LFO SCL ARP GLO EDIT act when let go, not on press (ENV LFO ARP held long: the same)", ok);
+        bad += check("ENV LFO SCL ARP GLO EDIT act when let go, not on press (ENV LFO held long: the same)", ok);
     }
     ui_power_on();
     go_page(GR_ROLL); my_steps(TSEL); ui.cursor = 0;
@@ -4054,6 +4055,54 @@ static uint32_t black(uint32_t b) { return key_at(1, b); }
 static void lay_combo(uint32_t btn, uint32_t k) { btn_down(btn); key_down(k); frame(); }
 static void oct_back(void) { btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame(); }
 static uint32_t leds_at(uint32_t ms) { fm1_ms = ms; return layer_leds(); }
+
+/* (Orange Cat 0.4.1, build doc 4d) ARP held: PERFORM: scenes on the white keys (SAVE held stores), MUTEs staged on the
+ * black keys, KNOB 1 LAUNCH, OCT- puts back */
+static int test_perform(void)
+{
+    int bad = 0, ok;
+    uint32_t a, b2;
+    ui_power_on();
+    stop_transport();
+    pool_empty();
+    pattern_init();
+    two_entries(0);                               /* (track 1: chain 01's A B, phrases 01 02, on A) */
+    btn_down(B_ARP); btn_down(B_SAVE); key_down(white(0)); frame(); key_up(white(0)); frame();
+    ok = ocl_scene_used(0) && msg_is("SCENE 1 STORED") && ui.layer == LAYER_PERF;
+    btn_up(B_SAVE); btn_up(B_ARP); frame();
+    bad += check("ARP + SAVE + F3: scene 1 stored (each track's chain, step and MUTE), no project save", ok &&
+                 lists.scene[0][0][0] == 1u && (lists.scene[0][0][1] & 15u) == 0u && !ui.confirm && !name_on());
+    ocl_go(0, 1); trk[0].p[P_MUTE] = 1;
+    lay_combo(B_ARP, white(0)); key_up(white(0)); frame(); btn_up(B_ARP); frame();
+    bad += check("ARP + F3 stopped: scene 1 at once: track 1 back on step A, unmuted", lists.cur[0] == 0u &&
+                 !trk[0].p[P_MUTE] && trk[0].step[0].note[0] == 60u && msg_is("SCENE 1"));
+    lay_combo(B_ARP, white(1)); key_up(white(1)); frame(); btn_up(B_ARP); frame();
+    bad += check("ARP + G3: scene 2 empty, said", msg_is("SCENE 2 EMPTY"));
+    song.playing = 1; transport_req = 0;
+    lay_combo(B_ARP, black(0)); key_up(black(0)); frame();
+    ok = trk[0].mute_arm == 2u && !trk[0].p[P_MUTE] && msg_is("T1 MUTE AT LOOP");
+    a = leds_at(0); b2 = leds_at(250);
+    ok &= ((a ^ b2) >> black(0)) & 1u && ((a | b2) >> white(0)) & 1u ? 1 : 0;   /* (scene 1 kept: lit, the last:
+                                                                                  * blinking) */
+    key_down(black(0)); frame(); key_up(black(0)); frame();
+    ok &= !trk[0].mute_arm && !trk[0].p[P_MUTE];
+    btn_up(B_ARP); frame();
+    bad += check("ARP + F#3 playing: T1 MUTE staged for the launch point (its LED blinking), again: unstaged", ok);
+    btn_down(B_ARP); frame();
+    turn(EN_K1, 1);
+    ok = lists.launch == OCL_BAR;
+    key_down(black(1)); frame(); key_up(black(1)); frame();
+    ok &= trk[1].mute_arm == 2u && msg_is("T2 MUTE AT BAR");
+    oct_back();
+    ok &= lists.launch == OCL_LOOP && !trk[1].mute_arm && msg_is("PERFORM PUT BACK");
+    btn_up(B_ARP); frame();
+    bad += check("ARP KNOB 1: LAUNCH BAR; OCT-: LAUNCH and the MUTEs as it opened, nothing staged", ok);
+    trk[0].mute_arm = 2;
+    seq_stop();
+    bad += check("a MUTE staged at a stop: at once", trk[0].p[P_MUTE] == 1 && !trk[0].mute_arm);
+    trk[0].p[P_MUTE] = 0;
+    return bad;
+}
 
 static int test_quick_layers(void)
 {
@@ -5556,6 +5605,7 @@ int main(void)
     bad += test_display_preferences();
     bad += test_information();
     bad += test_chain();
+    bad += test_perform();
     bad += test_product_ux();
     bad += test_mono_screens();
     bad += test_roll();

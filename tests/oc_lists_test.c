@@ -335,6 +335,71 @@ static int test_song_rows(void)
     return bad;
 }
 
+/* --------------------------------------------- 11. launch points, staged mutes --- */
+/* 01 02 03 on track 1 (LEN 3: its loop ends off the beat), on A, playing; at block `at` a launch of C by hand (or a
+ * MUTE staged); the time (samples from PLAY) of the step C came in on (or the MUTE turned), and its step there */
+static int launch_run(uint32_t mode, uint32_t at, int mute, uint32_t *when, uint32_t *idx)
+{
+    int32_t o[2 * CTL];
+    uint32_t b, from = trk[0].pattern;
+    three_patterns();
+    for (uint32_t k = 0; k < 3u; k++) { ocl_go(0, k); trk[0].p[P_SLEN] = 3; ocl_keep_all(); }
+    ocl_go(0, 0);
+    from = trk[0].pattern;
+    lists.mode = OCL_PHRASE;
+    lists.launch = (uint8_t)mode;
+    trk[0].p[P_MUTE] = 0;
+    transport_req = 1;
+    *when = 0xFFFFFFFFu;
+    for (b = 0; b < 4000u; b++) {
+        mix_block(o, CTL);
+        pattern_poll();
+        ocl_poll();
+        if (b == at) {
+            from = trk[0].pattern;
+            if (mute) trk[0].mute_arm = 2;
+            else ocl_launch(0, 2);
+        }
+        if (b > at && *when == 0xFFFFFFFFu && (mute ? trk[0].p[P_MUTE] != 0 : trk[0].pattern != from)) {
+            *when = b * CTL - trk[0].seq_pos;   /* (from step 0's start: the end of PLAY's first block) */
+            *idx = trk[0].seq_idx;
+            break;
+        }
+    }
+    transport_req = 2;
+    mix_block(o, CTL);
+    pattern_poll(); ocl_poll();
+    return *when != 0xFFFFFFFFu;
+}
+static int test_launch(void)
+{
+    int bad = 0;
+    uint32_t when, idx, beat, step, at = 211u, t0;
+    three_patterns();
+    song.g[G_BPM] = 120;
+    beat = seq_beat_samples();
+    step = seq_div_samples((uint32_t)trk[0].p[P_SDIV]);
+    t0 = at * CTL;
+    bad |= lcheck("LOOP: a launch comes in at the track's loop end (a step that is a multiple of LEN 3)",
+                  launch_run(OCL_LOOP, at, 0, &when, &idx) && idx == 0u && when >= t0 &&
+                      (when + step / 2u) / step % 3u == 0u && when - t0 < 3u * step + step);
+    bad |= lcheck("BAR: on the next bar line, from the pattern's first step",
+                  launch_run(OCL_BAR, at, 0, &when, &idx) && idx == 0u && when >= t0 &&
+                      (when + step / 2u) % (4u * beat) < step && when - t0 <= 4u * beat + step &&
+                      lists.cur[0] == 2u);
+    bad |= lcheck("BEAT: on the next beat line, from the pattern's first step",
+                  launch_run(OCL_BEAT, at, 0, &when, &idx) && idx == 0u && when >= t0 &&
+                      (when + step / 2u) % beat < step && when - t0 <= beat + step);
+    bad |= lcheck("NOW: the next step, going on from the step it is at",
+                  launch_run(OCL_NOW, at, 0, &when, &idx) && when >= t0 && when - t0 <= step + CTL);
+    bad |= lcheck("a staged MUTE with BAR: it turns on the next bar line",
+                  launch_run(OCL_BAR, at, 1, &when, &idx) && (when + step / 2u) % (4u * beat) < step &&
+                      when - t0 <= 4u * beat + step && !trk[0].mute_arm);
+    trk[0].p[P_MUTE] = 0;
+    lists.launch = OCL_LOOP;
+    return bad;
+}
+
 /* --------------------------------------------- 10. an 0.3 project --- */
 static uint8_t rec_buf[64000], rec_dec[sizeof(ocl_lists_t) + PROJ_STORE_SIZE], rec_out[64000];
 static int test_ocj2(void)
@@ -422,6 +487,7 @@ static int test_ocj2(void)
 int main(void)
 {
     int bad = 0;
+    bad |= test_launch();
     bad |= test_song_rows();
     bad |= test_ocj2();
     bad |= test_named_empty();
