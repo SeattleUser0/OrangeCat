@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.27  
+**Version:** 0.28  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.28 (October 21, 2026):** 0.4.10 on the unit: files list and WAVs read; 470 to 480 KB/s in 512-byte reads.
 - **0.27 (October 21, 2026):** 0.4.10: the drive's files (FatFs): folders, WAV details, a timed file read. Plan for bounces to the card and for several FM-1s sharing one card.
 - **0.26 (October 21, 2026):** 0.4.9 on the unit: the card reader stick reads too. Phase 2 answered.
 - **0.25 (October 21, 2026):** The FM-1 read an SD card through a powered hub (29.7 GB, FAT32, 914 KB/s). 0.4.9: card reader slots, a retry after a reset, the error kept.
@@ -44,7 +45,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 |---|---|---|
 | 0 | Specification and source review | Done |
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
-| 2 | USB flash drive test, then files | Drive read: done. Files: built (0.4.10), to test |
+| 2 | USB flash drive test, then files | Done: drive and files read through a hub on PD power |
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
@@ -155,7 +156,7 @@ Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variable
 
 ## Phase 2: USB flash drive test
 
-**Status: In progress.** The FM-1 reads a drive as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. Reading its files is built (0.4.10) and needs a run on the unit.
+**Status: Done.** The FM-1 reads a drive and its files as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. Next: the steps in the plan below.
 
 Goal: find out if the FM-1 can read a USB flash drive. This decides where samples and bounces can live.
 
@@ -190,10 +191,10 @@ Left to build:
 - [ ] Leave the boot stub and its update mode untouched so the unit can always be reflashed. (The test build does not touch them.)
 
 Left to test, files (0.4.10, the RCA hub on PD power, the 32 GB card with a few WAVs and folders on it):
-- [ ] OCT+ after the drive reads: the top folder listed.
-- [ ] Folders open, OCT- goes up; a long folder scrolls.
-- [ ] A WAV's details right (rate, bits, channels, length).
-- [ ] The "Read ... at ... KB/s" figure for a WAV of a few MB (512-byte reads: how much each command costs).
+- [x] OCT+ after the drive reads: the top folder listed, with sizes (October 21).
+- [x] A WAV's details right: 44.1 kHz 24-bit mono 42.2 s (5.3 MB), 52.8 s (6.6 MB), 44.1 kHz 16-bit stereo 0.6 s (112 KB).
+- [x] Reading in 512-byte pieces: 469 to 479 KB/s, the same for a 112 KB file and 1 MB of a larger one. Against 911 to 930 KB/s in 32 KB reads: each command costs about as much as its 512 bytes of data. So a player or loader should read 8 KB or more at a time.
+- [ ] Folders open, OCT- goes up; a long folder scrolls (the card had no folders).
 - [ ] An exFAT card (64 GB or more), if one is handy.
 
 Left to test (Menu > USB DRIVE TEST, then plug in):
