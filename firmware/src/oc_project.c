@@ -35,6 +35,8 @@
  *          part (ahead of it: mostly zeros). An OCJ2 record reads as one: each track's list its chain (track 1 on
  *          chain 01 ..), row 01 of the song naming them. The head says how long the lists are (lsize): a later
  *          version may add to them.
+ *   0.4.4: (a review) a phrase only a saved project's chains name is that project's: never emptied, never taken
+ *          (ocj.names); a save's last resort takes only its own let go, or an empty phrase.
  */
 #define OCJ_MAGIC 0x334A434Fu                  /* "OCJ3" */
 #define OCJ_MAGIC2 0x324A434Fu                 /* "OCJ2" (0.3: the lists, one a track; OCJ1, before them: never released) */
@@ -64,19 +66,36 @@ typedef struct {                               /* (0.3) OCJ2: as ocj_head_t to t
 
 static struct {
     uint8_t pid[4][NTRK][NPAT];                /* each slot's map, as its record has it (all 0: no record) */
+    uint32_t names[4][2];                      /* (0.4.4) each slot's phrases, a bit each: its banks' and its chains'
+                                                * slots' (a phrase only a saved project's chain names is its too) */
 } ocj __attribute__((section(".pool")));
 static ocj_head_t ocj_h __attribute__((section(".pool")));
 static ocp_gen_t ocj_gen[OCP_PER] __attribute__((section(".pool")));
 static int ocj_read(uint32_t slot, uint8_t *raw);
 
-/* how many banks of the slots (but slot `but`, 4: none) name pool pattern id */
+/* how many saved slots (but slot `but`, 4: none) name pool pattern id: a bank of theirs, or (0.4.4) a slot of one of
+ * their chains */
 static uint32_t ocj_refs(uint32_t id, uint32_t but)
 {
     uint32_t n = 0;
+    if (id >= OCP_N) return 0;
     for (uint32_t s = 0; s < 4u; s++)
-        for (uint32_t k = 0; s != but && k < NTRK; k++)
-            for (uint32_t b = 0; b < NPAT; b++) n += ocj.pid[s][k][b] == id + 1u;
+        if (s != but) n += (ocj.names[s][id >> 5] >> (id & 31u)) & 1u;
     return n;
+}
+/* (0.4.4) slot s's names: its map's phrases and, l given, its chains' */
+static void ocj_names_set(uint32_t s, const uint8_t (*pid)[NPAT], const ocl_lists_t *l)
+{
+    s &= 3u;
+    ocj.names[s][0] = ocj.names[s][1] = 0;
+    for (uint32_t k = 0; k < NTRK; k++)
+        for (uint32_t b = 0; b < NPAT; b++)
+            if (pid[k][b] && pid[k][b] <= OCP_N) ocj.names[s][(pid[k][b] - 1u) >> 5] |= 1u << ((pid[k][b] - 1u) & 31u);
+    for (uint32_t c = 0; l && c < OCL_NCHAIN; c++)
+        for (uint32_t e = 0; e < OCL_NENT; e++) {
+            uint32_t v = l->chain[c][e][0];
+            if (v && v <= OCP_N) ocj.names[s][(v - 1u) >> 5] |= 1u << ((v - 1u) & 31u);
+        }
 }
 
 /* pool pattern id named by what is loaded (a bank's, a chain step's) or by the project being written (proj_pid,
@@ -127,6 +146,30 @@ static int ocj_head_load(ocs_rec_t *r, uint32_t *hsz)
     }
     return ocj_h.len == r->total && ocj_h.zlen == r->total - *hsz ? 0 : -1;
 }
+/* (0.4.4) an OCJ3 record's lists alone (the first ocj_lead bytes of its coded part) into ocj_l, after ocj_head_load
+ * (OCJ2: there already). 0, or -1 they do not read */
+static int ocj_lists_decode(ocs_rec_t *r, uint32_t hsz)
+{
+    static ocp_rd_t rd __attribute__((section(".pool")));
+    uint32_t out = 0;
+    if (!ocj_lead) return 0;
+    memset(&rd, 0, sizeof rd);
+    rd.r = r; rd.off = hsz; rd.end = r->total;
+    while (out < ocj_lead) {
+        uint8_t v, n;
+        if (ocp_rd(&rd, &v, 1)) return -1;
+        if (v) {
+            if (out < sizeof ocj_l) ((uint8_t *)&ocj_l)[out] = v;
+            out++;
+            continue;
+        }
+        if (ocp_rd(&rd, &n, 1) || !n) return -1;
+        for (; n && out < ocj_lead; n--, out++)
+            if (out < sizeof ocj_l) ((uint8_t *)&ocj_l)[out] = 0;
+    }
+    ocl_lists_fix(&ocj_l);
+    return 0;
+}
 
 /* boot (after ocs_boot, ocp_scan): each slot's map */
 static void ocj_scan(void)
@@ -141,6 +184,7 @@ static void ocj_scan(void)
         for (uint32_t k = 0; k < NTRK; k++)
             for (uint32_t b = 0; b < NPAT; b++)
                 if (ocj.pid[s][k][b] > OCP_N) ocj.pid[s][k][b] = 0;
+        ocj_names_set(s, ocj.pid[s], ocj_lists_decode(&r, hsz) ? 0 : &ocj_l);   /* (0.4.4) its chains' too */
     }
 }
 
@@ -244,6 +288,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
             for (b = 0; b < NPAT; b++)
                 if ((id = ocj.pid[slot][k][b]) != 0u && !ocj_refs(id - 1u, slot) && !ocj_named_now(id - 1u, 0)) want[id - 1u] = 255u;
         memset(ocj.pid[slot], 0, sizeof ocj.pid[slot]);
+        ocj.names[slot][0] = ocj.names[slot][1] = 0;
         (void)ocj_put_chunks(want, q, raw, 0);   /* (failing: left unnamed, free to a later save) */
         return 0;
     }
@@ -278,7 +323,11 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
             }
             if (id > OCP_N) {                       /* (none: try this slot's own let go, before giving up) */
                 for (id = 1; id <= OCP_N; id++) {
-                    uint32_t taken = ocj_refs(id - 1u, slot) || ocj_named_now(id - 1u, xs);
+                    uint32_t taken = ocj_refs(id - 1u, slot) || ocj_named_now(id - 1u, xs), own = 0;
+                    for (uint32_t k2 = 0; k2 < NTRK; k2++)   /* (0.4.4: its own, or empty: never a phrase with notes
+                                                              * nothing names, a phrase kept in the pool) */
+                        for (uint32_t b2 = 0; b2 < NPAT; b2++) own |= ocj.pid[slot][k2][b2] == id;
+                    taken |= !own && (ocp.len[id - 1u] || ocp.hash[id - 1u]);
                     for (uint32_t k2 = 0; k2 < NTRK && !taken; k2++)
                         for (uint32_t b2 = 0; b2 < NPAT; b2++) taken |= npid[k2][b2] == id;
                     if (!taken) break;
@@ -331,6 +380,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
             if (!still && !ocj_refs(old - 1u, slot) && !ocj_named_now(old - 1u, xs)) want[old - 1u] = 255u;
         }
     memcpy(ocj.pid[slot], npid, sizeof npid);
+    ocj_names_set(slot, ocj.pid[slot], &ocj_l);   /* (0.4.4) its chains as written */
     (void)ocj_put_chunks(want, q, raw, 0);     /* (failing: left unnamed, free to a later save) */
     /* 5. the staging as the slot reads back */
     return ocj_read(slot, raw) == (int)BANK_STORE_SIZE ? 0 : 2;

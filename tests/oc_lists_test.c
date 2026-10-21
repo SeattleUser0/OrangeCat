@@ -484,9 +484,52 @@ static int test_ocj2(void)
     return bad;
 }
 
+/* --------------------------------------------- 12. (0.4.4) a review's findings --- */
+static int test_review(void)
+{
+    int bad = 0, ok = 1;
+    reset();
+    for (uint32_t i = 0; i < 10u; i++) {        /* ten phrases on track 1's slots A..J: the banks hold 8 of them */
+        if (i) {
+            uint32_t b = ocl_victim(0);
+            pattern_request(&trk[0], b);
+            bank_pid[0][b] = 0;
+            for (uint32_t j = 0; j < NSTEP; j++) step_clear(&trk[0].step[j]);
+            lists.cur[0] = (uint8_t)i;
+        }
+        put_note(0, 40u + i);
+        ocl_keep_all();
+    }
+    project_save_as(0, "TEN");
+    wipe_runtime();
+    pattern_init();                             /* (another project loaded: nothing of it here) */
+    ocl_clear_unused();
+    for (uint32_t i = 0; i < 10u; i++) ok &= ocp.len[i] != 0u;
+    reboot();
+    wipe_runtime();
+    pattern_init();
+    ocl_clear_unused();
+    for (uint32_t i = 0; i < 10u; i++) ok &= ocp.len[i] != 0u && pool_note(i) == 40u + i;
+    bad |= lcheck("a phrase only a saved project's chain names is never emptied (Free unused, after a reboot too)", ok);
+    project_load(0);
+    ok = 1;
+    for (uint32_t i = 0; i < 10u; i++) ok &= ocl_ent_pat(0, i) == i && ocp.len[i];
+    bad |= lcheck("... the project loads with all ten", ok);
+    reset();
+    three_patterns();                           /* 01 02 03 on chain 01's A B C */
+    lists.tchain[1] = 0; lists.cur[1] = 2; lists.cur[0] = 1;
+    ocl_insert(0, 0);
+    ok = lists.cur[1] == 3u && lists.cur[0] == 2u && ocl_ent_pat(1, 3) == 2u;
+    ocl_delete(0, 0);
+    ok &= lists.cur[1] == 2u && lists.cur[0] == 1u && ocl_ent_pat(1, 2) == 2u;
+    bad |= lcheck("a slot inserted or deleted moves every track on that chain with it", ok);
+    return bad;
+}
+
 int main(void)
 {
     int bad = 0;
+    bad |= test_review();
     bad |= test_launch();
     bad |= test_song_rows();
     bad |= test_ocj2();

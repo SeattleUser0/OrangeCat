@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.19  
+**Version:** 0.20  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.5
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.20 (October 21, 2026):** 0.4.4 fixes from a code review of the night's work (see 4c).
 - **0.19 (October 21, 2026):** 0.4.4: SEQ > PHRASES, the pool's 64 phrases at a glance.
 - **0.18 (October 21, 2026):** 0.4.3: throws on PERFORM's KNOB 2 to 4. TRACKER's lanes (PRESET).
 - **0.17 (October 21, 2026):** 0.4.2: phase 5 started: SEQ > TRACKER shows a track's phrase as rows. CHAIN's KNOB 3 takes effect on the slot a track is on. FILL on PERFORM's D#4.
@@ -304,6 +305,12 @@ Each step builds, passes the host tests, and is measured before the next.
     - The SONG sheet's Free unused patterns empties every pool pattern that no list entry, no loaded bank and no saved project names.
     - Stage (HOME) shows each track's entry letter, and the staged one beside it.
   - [x] **SEQ > PHRASES (0.4.4): the pool at a glance.** An 8 by 8 grid of the 64 phrases. A phrase with something in it sits on the surface colour; its number is bright when this project uses it (a chain slot or a track's bank) and dim when only other projects use it, or nothing does. Empty phrases are outlines. The phrase the selected track plays is filled in its colour. KNOB 1 picks a phrase (KNOB 2 jumps a row of eight). OCT+ puts the picked phrase into the selected track's chain slot that is picked on CHAIN, and the track goes there (stopped: at once; playing: at the launch point). OCT+ held, the sheet: Copy to new (a copy under the first free number), Clear phrase (only one nothing uses; it says IN USE otherwise). The foot shows its LEN and how many chain slots of this project use it. Tested in tests/ui_test.c; passes the screen lint.
+  - [x] **Review fixes (0.4.4, October 21, 2026).** A separate review of the 0.4.x code found five problems; all are fixed and tested:
+    - Data loss: a phrase that only a saved project's chains named (not loaded in any bank) could be emptied by Free unused phrases, Clear phrase, or another project's save. Saved projects now protect every phrase their chains name, after a reboot too.
+    - A race with the audio while playing: an empty phrase was written to a bank without holding off the audio, which could scramble steps. Now guarded. The next phrase is also read ahead so the switch at the loop end does less work in the audio.
+    - During a REC count-in, going to a slot or recalling a scene could write flash. Now refused until playback starts.
+    - A throw out when PLAY was pressed could end up saved through the motion system. Throws now go on after each block's events.
+    - Inserting or deleting a chain slot or a song row now moves every track (and anything staged) that is on that chain or row, not only the selected track.
   - Left to do in 4c: the web editor's view of chains and the song (4g).
   - **Known gap: web editor backups.** A complete backup still saves each project as Melodee's FBKK, which holds only the 32 phrases loaded in the tracks' banks. It does not yet hold the chains, the song, the scenes, or phrases not loaded in a bank. Until 4g adds them, keep projects on the device and do not rely on a web backup to bring back an Orange Cat project whole.
   - Left to test on the device (4c, 0.4.0):

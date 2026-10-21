@@ -35,6 +35,9 @@
  *          the page it is pressed on (SONG: the song from the row picked; CHAIN: the chains; else the phrases).
  *   0.4.1: (4d) staged MUTEs and 8 scenes (PERFORM: ui_layer.c); a step gone to by hand comes in at lists.launch
  *          (LOOP BAR BEAT NOW: seq.c).
+ *   0.4.4: (a review) an empty bank written guarded while playing; a staged step read ahead (pattern_prepare); no
+ *          stopped path during a count-in; slots and rows inserted or deleted move every track and staged step on
+ *          them; saved projects' chains protect their phrases (oc_project.c ocj_refs).
  */
 
 /* the bank of track k holding pool pattern id, NPAT none */
@@ -188,6 +191,7 @@ static void ocl_place(uint32_t k, uint32_t b, uint32_t c, uint32_t e, uint32_t r
         trk[k].pattern_reps = (uint8_t)((reps > 127u ? 127u : reps) | (is_song ? 0x80u : 0u));
         trk[k].pattern_next = (uint8_t)b;
         motion_unguard(f);
+        pattern_prepare(k, b);                 /* (0.4.4) its steps read ahead: the switch at the loop end only swaps */
     }
     ocl_staged[k] = (uint8_t)(e + 1u);
     ocl_staged_chain[k] = (uint8_t)c;
@@ -211,11 +215,13 @@ static uint32_t ocl_empty_bank(uint32_t k, uint32_t pid, int *rc)
         return NPAT;
     }
     if (pattern_clear(&trk[k], b)) { *rc = 2; return NPAT; }
-    {
+    {                                          /* (0.4.4: guarded: the audio's switches share the banks' free list) */
         pattern_t p;
+        uint32_t f = motion_guard();
         pattern_read(k, b, &p);
         memcpy(p.timing, &trk[k].p[P_SLEN], sizeof p.timing);
         pattern_write(k, b, &p);
+        motion_unguard(f);
     }
     bank_pid[k][b] = (uint8_t)pid;
     bank_sig[k][b] = 0;
@@ -234,6 +240,7 @@ static int ocl_go_at(uint32_t k, uint32_t c, uint32_t e, uint32_t row, uint32_t 
     int rc;
     k %= NTRK; c %= OCL_NCHAIN; e %= OCL_NENT;
     if (chain.running || chain.armed) return 2;
+    if (!song.playing && transport_busy()) return 2;   /* (0.4.4: a count-in: no flash writes, no stopped path) */
     id = ocl_chain_pat(c, e);
     if (id == OCP_N || (!ocp.len[id] && !ocp.hash[id] && ocl_bank_of(k, id) == NPAT)) {
         if ((b = ocl_empty_bank(k, id == OCP_N ? 0u : id + 1u, &rc)) == NPAT) return rc;
@@ -409,6 +416,22 @@ static uint32_t ocl_staged_row_of(uint32_t k)   /* the song row staged on track 
 /* ---------------------------------------------- a chain's edits (CHAIN) --- */
 /* an empty step at e of the chain track k is on, the ones from it a place later (P's goes); the track's place moves
  * with its step */
+/* (0.4.4) the slots of chain c from e on moved by d (+1 an insert, -1 a delete): every track on c and every step
+ * staged on it with them */
+static void ocl_slots_moved(uint32_t c, uint32_t e, int d)
+{
+    for (uint32_t j = 0; j < NTRK; j++) {
+        if (lists.tchain[j] == c) {
+            if (d > 0 && lists.cur[j] >= e && lists.cur[j] + 1u < OCL_NENT) lists.cur[j]++;
+            else if (d < 0 && lists.cur[j] > e) lists.cur[j]--;
+        }
+        if (ocl_staged[j] && ocl_staged_chain[j] == c) {
+            uint32_t s = ocl_staged[j] - 1u;
+            if (d > 0 && s >= e && s + 1u < OCL_NENT) ocl_staged[j]++;
+            else if (d < 0 && s > e) ocl_staged[j]--;
+        }
+    }
+}
 static void ocl_insert(uint32_t k, uint32_t e)
 {
     k %= NTRK; e %= OCL_NENT;
@@ -417,7 +440,7 @@ static void ocl_insert(uint32_t k, uint32_t e)
         OCL_ENT(k, i)[1] = OCL_ENT(k, i - 1u)[1];
     }
     OCL_ENT(k, e)[0] = OCL_ENT(k, e)[1] = 0;
-    if (lists.cur[k] >= e && lists.cur[k] + 1u < OCL_NENT) lists.cur[k]++;
+    ocl_slots_moved(lists.tchain[k] % OCL_NCHAIN, e, 1);
 }
 /* step e gone, the ones after it a place earlier */
 static void ocl_delete(uint32_t k, uint32_t e)
@@ -428,7 +451,7 @@ static void ocl_delete(uint32_t k, uint32_t e)
         OCL_ENT(k, i)[1] = OCL_ENT(k, i + 1u)[1];
     }
     OCL_ENT(k, OCL_NENT - 1u)[0] = OCL_ENT(k, OCL_NENT - 1u)[1] = 0;
-    if (lists.cur[k] > e) lists.cur[k]--;
+    ocl_slots_moved(lists.tchain[k] % OCL_NCHAIN, e, -1);
 }
 /* step e twice (the copy after it names the same phrase) */
 static void ocl_dup(uint32_t k, uint32_t e)
@@ -503,8 +526,12 @@ static void ocl_row_insert(uint32_t r)
     r %= OCL_NROW;
     for (uint32_t i = OCL_NROW - 1u; i > r; i--) memcpy(lists.song[i], lists.song[i - 1u], NTRK);
     memset(lists.song[r], 0, NTRK);
-    for (uint32_t k = 0; k < NTRK; k++)
+    for (uint32_t k = 0; k < NTRK; k++) {
         if (lists.row[k] != OCL_NOROW && lists.row[k] >= r && lists.row[k] + 1u < OCL_NROW) lists.row[k]++;
+        if (ocl_staged[k] && ocl_staged_row[k] != OCL_NOROW && ocl_staged_row[k] >= r &&
+            ocl_staged_row[k] + 1u < OCL_NROW)
+            ocl_staged_row[k]++;              /* (0.4.4: a row staged moves with its row) */
+    }
 }
 /* row r gone, the rows after it a place earlier */
 static void ocl_row_delete(uint32_t r)
@@ -512,8 +539,10 @@ static void ocl_row_delete(uint32_t r)
     r %= OCL_NROW;
     for (uint32_t i = r; i + 1u < OCL_NROW; i++) memcpy(lists.song[i], lists.song[i + 1u], NTRK);
     memset(lists.song[OCL_NROW - 1u], 0, NTRK);
-    for (uint32_t k = 0; k < NTRK; k++)
+    for (uint32_t k = 0; k < NTRK; k++) {
         if (lists.row[k] != OCL_NOROW && lists.row[k] > r) lists.row[k]--;
+        if (ocl_staged[k] && ocl_staged_row[k] != OCL_NOROW && ocl_staged_row[k] > r) ocl_staged_row[k]--;
+    }
 }
 static int ocl_song_any(void)                  /* a song cell names a chain */
 {

@@ -341,8 +341,9 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     if(track_capture_on)memset(track_capture,0,n*NTRK*sizeof *track_capture);
 #endif
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
-    if(thr_out)throw_on(n);                             /* (Orange Cat 0.4.3) the throws over the sends, this block */
     AP_START(events_start);events_block(n);AP_END(AP_EVENTS,events_start);
+    if(thr_out)throw_on(n);                             /* (Orange Cat 0.4.3) the throws over the sends, this block: after
+                                                         * the events (0.4.4: motion's base never takes them in) */
     fx_bus_select();fx_send_on=(uint8_t)fx_bus_active();if(fx_send_on){memset(fx_send_l,0,n*sizeof *fx_send_l);memset(fx_send_r,0,n*sizeof *fx_send_r);
         if(fx_bus_separate){memset(fx_send_extra_l,0,sizeof fx_send_extra_l);memset(fx_send_extra_r,0,sizeof fx_send_extra_r);}}
     uint32_t nt=trk_n();                                /* (the tracks not in use: none of their CPU) */

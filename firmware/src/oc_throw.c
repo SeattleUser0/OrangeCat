@@ -2,12 +2,14 @@
  * Orange Cat: throws (build doc 4d part 2; Skiff 1.3.3 throw.c). PERFORM's KNOB 2..4 (ARP held: ui_layer.c) push the
  * selected track's SEND, SEND 2 and SEND 3 (to the shared effects) away from their values for a moment: an offset over
  * the value, never saved, that glides back to nothing over one bar once the knob rests (THROW_REST ms), gone at a
- * stop. The audio ISR puts the offsets on at the start of each block (mix_block, before its events) and takes them off
+ * stop. The audio ISR puts the offsets on each block once its events are done (mix_block: motion's base, taken in the
+ * events, never sees them; the sends are read after, by the mix) and takes them off
  * once the block is mixed, so the main loop never sees them: what it shows, saves and edits is the value itself. A
  * value something else wrote during the block (motion) stays. Included by mix.c (after fx.c).
  *
  * Revisions:
  *   0.4.3: first version.
+ *   0.4.4: on after the block's events, not before (a review: a throw out at PLAY went into motion's base).
  */
 #define THROW_REST 120u                                 /* ms the knob rests before its throw glides back */
 #define THR_ONE 65536                                   /* an offset of 1 (fine enough that a bar's glide is a bar) */
