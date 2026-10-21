@@ -122,16 +122,20 @@ static void str_cpy(char *d, const char *s, unsigned max)
 #include "../firmware/src/usb_host.c"
 
 /* ------------------------------------------------------------------ the devices --- */
-enum { D_DRIVE, D_HUB, D_KEYS };
+/* (0.4.8) a tree: the device on the port (parent -1) and, behind hubs, devices on their ports. A device answers
+ * once it is "on": the first one after the bus reset, the others after their hub port's reset. Two devices on at
+ * the same address is a conflict the walk must never make. */
+enum { D_DRIVE, D_HUB, D_KEYS, D_READER };
 typedef struct {
-    int kind, addr, mps0, configured, reset_ok;
+    int kind, addr, mps0, configured, parent, port, on, ls, nports;
+    uint16_t vid, pid;
+    int pstate[8];                                      /* a hub's ports: 1 reset done (C_PORT_RESET), 2 cleared */
     uint8_t in[512 + 64];                               /* the control IN data queued */
     uint32_t in_n, in_at;
-    int stall, status_stall;
+    int stall;
 } dev_t;
-static dev_t devs[2];
-static int ndev, hub_port_reset, hub_drive_on;          /* the hub: port 3 reset, the drive behind it addressable */
-static int drive_not_ready, scsi_tur_count;
+static dev_t devs[8];
+static int ndev, drive_not_ready, scsi_tur_count, conflicts;
 static uint32_t setups, faddr_bad;
 static dev_t *cur;
 
@@ -168,52 +172,79 @@ static void q_string(const char *s, uint32_t wlen)
 }
 static dev_t *route(void)
 {
+    int i, n = 0;
+    dev_t *d = 0;
+    for (i = 0; i < ndev; i++)
+        if (devs[i].on && devs[i].addr == common[S_FADDR]) {
+            if (!d) d = &devs[i];
+            n++;
+        }
+    if (n > 1) conflicts++;
+    if (!d) faddr_bad++;
+    return d;
+}
+static dev_t *child(dev_t *hub, int port)
+{
     int i;
     for (i = 0; i < ndev; i++)
-        if (devs[i].addr == common[S_FADDR] && (i == 0 || hub_drive_on)) {
-            return &devs[i];                            /* (behind the hub: once its port is reset) */
-        }
-    faddr_bad++;
+        if (devs[i].parent == hub - devs && devs[i].port == port) return &devs[i];
     return 0;
 }
 static int dev_setup(const uint8_t *s)
 {
     uint8_t rt = s[0], rq = s[1];
     uint16_t val = (uint16_t)(s[2] | s[3] << 8), idx = (uint16_t)(s[4] | s[5] << 8), len = (uint16_t)(s[6] | s[7] << 8);
+    dev_t *c;
     setups++;
     cur = route();
     if (!cur) return 0;
     cur->in_n = cur->in_at = 0;
-    cur->stall = cur->status_stall = 0;
+    cur->stall = 0;
     if (rt == 0x80 && rq == 6) {                        /* GET_DESCRIPTOR */
         uint8_t t = (uint8_t)(val >> 8), i = (uint8_t)val;
-        const uint8_t *dd = cur->kind == D_DRIVE ? DRIVE_DEV : cur->kind == D_HUB ? HUB_DEV : KEYS_DEV;
-        if (t == 1) { uint8_t d[18]; memcpy(d, dd, 18); d[7] = (uint8_t)cur->mps0; q(d, 18, len); }
-        else if (t == 2) {
-            if (cur->kind == D_DRIVE) q(DRIVE_CFG, sizeof DRIVE_CFG, len);
-            else if (cur->kind == D_HUB) q(HUB_CFG, sizeof HUB_CFG, len);
-            else q(KEYS_CFG, sizeof KEYS_CFG, len);
+        const uint8_t *dd = cur->kind == D_HUB ? HUB_DEV : cur->kind == D_KEYS ? KEYS_DEV : DRIVE_DEV;
+        if (t == 1) {
+            uint8_t d[18];
+            memcpy(d, dd, 18);
+            d[7] = (uint8_t)cur->mps0;
+            if (cur->vid) { d[8] = (uint8_t)cur->vid; d[9] = (uint8_t)(cur->vid >> 8); d[10] = (uint8_t)cur->pid; d[11] = (uint8_t)(cur->pid >> 8); }
+            q(d, 18, len);
+        } else if (t == 2) {
+            if (cur->kind == D_HUB) q(HUB_CFG, sizeof HUB_CFG, len);
+            else if (cur->kind == D_KEYS) q(KEYS_CFG, sizeof KEYS_CFG, len);
+            else q(DRIVE_CFG, sizeof DRIVE_CFG, len);
         } else if (t == 3) {
             static const uint8_t LANG[4] = {4, 3, 0x09, 0x04};
             if (i == 0) q(LANG, 4, len);
             else if (cur->kind == D_DRIVE) q_string(i == 1 ? " SanDisk" : i == 2 ? "Cruzer  Blade " : "4C530001", len);
+            else if (cur->kind == D_READER) q_string(i == 1 ? "Generic" : i == 2 ? "USB Storage" : "000000000", len);
             else if (cur->kind == D_KEYS) q_string(i == 1 ? "Logitech" : "USB Keyboard", len);
-            else q_string("Generic Hub", len);
+            else q_string("USB 2.0 Hub", len);
         } else cur->stall = 1;
     } else if (rt == 0x00 && rq == 5) {                 /* SET_ADDRESS (takes effect after the status stage) */
         cur->configured = -(int)val - 1;
     } else if (rt == 0x00 && rq == 9) {
         cur->configured = 1;
-    } else if (rt == 0xA0 && rq == 6 && cur->kind == D_HUB) {    /* the hub descriptor: 4 ports, 100 ms power good */
-        static const uint8_t HD[9] = {9, 0x29, 4, 0, 0, 50, 100, 0, 0xFF};
-        q(HD, 9, len);
+    } else if (rt == 0xA0 && rq == 6 && cur->kind == D_HUB) {    /* the hub descriptor: 100 ms power good */
+        uint8_t hd[9] = {9, 0x29, 4, 0, 0, 50, 100, 0, 0xFF};
+        hd[2] = (uint8_t)cur->nports;
+        q(hd, 9, len);
     } else if (rt == 0x23 && rq == 3 && cur->kind == D_HUB) {    /* SET_FEATURE */
-        if (val == 4 && idx == 3) { hub_port_reset = 1; hub_drive_on = 1; devs[1].addr = 0; }
+        assert(idx >= 1 && (int)idx <= cur->nports);
+        if (val == 4) {                                 /* PORT_RESET: the device there answers at 0 */
+            cur->pstate[idx] = 1;
+            if ((c = child(cur, idx)) != 0) { c->on = 1; c->addr = 0; c->configured = 0; }
+        }
     } else if (rt == 0x23 && rq == 1 && cur->kind == D_HUB) {    /* CLEAR_FEATURE */
-        if (val == 20) hub_port_reset = 2;
+        if (val == 20) cur->pstate[idx] = 2;
+        if (val == 1 && (c = child(cur, idx)) != 0) c->on = 0;   /* PORT_ENABLE */
     } else if (rt == 0xA3 && rq == 0 && cur->kind == D_HUB) {    /* GET_STATUS(port) */
-        uint8_t st[4] = {0, 0, 0, 0};
-        if (idx == 3) { st[0] = (uint8_t)(1 | (hub_port_reset ? 2 : 0)); st[1] = 1; st[2] = hub_port_reset == 1 ? 0x10 : 0; }
+        uint8_t st[4] = {0, 1, 0, 0};                   /* (powered) */
+        if ((c = child(cur, idx)) != 0) {
+            st[0] = (uint8_t)(1 | (c->on ? 2 : 0));
+            st[1] = (uint8_t)(1 | (c->ls ? 2 : 0));
+            st[2] = cur->pstate[idx] == 1 ? 0x10 : 0;
+        }
         q(st, 4, len);
     } else if (rt == 0x02 && rq == 1) {                 /* CLEAR_FEATURE(ENDPOINT_HALT) */
     } else {
@@ -256,7 +287,7 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
 {
     dev_t *d = route();
     uint32_t len;
-    assert(d && d->kind == D_DRIVE && d->configured == 1);
+    assert(d && (d->kind == D_DRIVE || d->kind == D_READER) && d->configured == 1);
     assert(n == 31 && !memcmp(p, "USBC", 4));          /* every CBW in one packet */
     memcpy(&last_tag, p + 4, 4);
     memcpy(&len, p + 8, 4);
@@ -264,13 +295,14 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
     switch (p[15]) {
     case 0x12: {
         uint8_t r[36] = {0, 0x80, 4, 2, 31};
-        memcpy(r + 8, "SanDisk Cruzer Blade    1.00", 28);
+        memcpy(r + 8, d->kind == D_READER ? "Generic STORAGE DEVICE  1.00" : "SanDisk Cruzer Blade    1.00", 28);
         memcpy(bin, r, 36); bin_n = 36; csw(0, 0);
         break;
     }
     case 0x00:
         scsi_tur_count++;
-        if (drive_not_ready) { drive_not_ready--; sense_key = 2; csw(0, 1); }
+        if (d->kind == D_READER) { sense_key = 2; csw(0, 1); }          /* no card, ever */
+        else if (drive_not_ready) { drive_not_ready--; sense_key = 2; csw(0, 1); }
         else csw(0, 0);
         break;
     case 0x03: {
@@ -279,6 +311,7 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
         break;
     }
     case 0x25: {
+        if (d->kind == D_READER) { csw(len, 1); break; }
         uint8_t r[8] = {0x01, 0xCA, 0x3F, 0xFF, 0, 0, 2, 0};     /* 30031872 blocks of 512 */
         memcpy(bin, r, 8); bin_n = 8; csw(0, 0);
         break;
@@ -313,7 +346,7 @@ static void reset_world(void)
     memset(&usbh, 0, sizeof usbh);
     memset(common, 0, sizeof common);
     memset(regs, 0, sizeof regs);
-    ndev = hub_port_reset = hub_drive_on = drive_not_ready = scsi_tur_count = 0;
+    ndev = drive_not_ready = scsi_tur_count = conflicts = 0;
     setups = faddr_bad = 0;
     lines = 0;
     sie_alive = 1;
@@ -321,12 +354,18 @@ static void reset_world(void)
     usb.up = 1;
     usb.detached = 0;
 }
-static void add(int kind, int mps0)
+/* a device: on the port (parent -1, on from the start: the bus reset reaches it) or on a hub's port */
+static int add(int kind, int mps0, int parent, int port)
 {
-    devs[ndev].kind = kind;
-    devs[ndev].mps0 = mps0;
-    devs[ndev].addr = 0;
-    ndev++;
+    dev_t *d = &devs[ndev];
+    d->kind = kind;
+    d->mps0 = mps0;
+    d->parent = parent;
+    d->port = port;
+    d->on = parent < 0;
+    d->nports = 4;
+    if (kind == D_READER) { d->vid = 0x05E3; d->pid = 0x0749; }
+    return ndev++;
 }
 static void run_ms(uint32_t ms)
 {
@@ -351,7 +390,7 @@ static int line_is(uint32_t i, const char *s) { return !strcmp(usbh.line[i], s);
 static int t_drive(int mps0)
 {
     reset_world();
-    add(D_DRIVE, mps0);
+    add(D_DRIVE, mps0, -1, 0);
     usbh_want(1);
     run_ms(5);
     assert(usbh.st == UH_WAIT && usb.up == 0 && usb.detached == 1 && attached_host == 1);
@@ -376,20 +415,64 @@ static int t_drive(int mps0)
     assert(usbh.st == UH_OFF && usb.detached == 0 && attached_device == 1);
     return 1;
 }
+/* (0.4.8) the RCA C109 as the first unit test found it: a hub with a second hub (1A40:0801) on port 1; behind that
+ * a low speed keyboard (passed over), the SD reader with no card (passed over), and on port 4 the drive */
+static void rca(int with_drive)
+{
+    int top = add(D_HUB, 64, -1, 0), h2;
+    devs[top].vid = 0x05E3; devs[top].pid = 0x0610;
+    h2 = add(D_HUB, 64, top, 1);
+    devs[h2].vid = 0x1A40; devs[h2].pid = 0x0801;
+    devs[add(D_KEYS, 8, h2, 1)].ls = 1;
+    add(D_READER, 64, h2, 2);
+    if (with_drive) add(D_DRIVE, 64, h2, 4);
+    add(D_KEYS, 8, top, 3);
+}
 static int t_hub(void)
 {
     reset_world();
-    add(D_HUB, 64);
-    add(D_DRIVE, 64);
-    devs[1].addr = 99;                                  /* not on the bus until its port is reset */
+    rca(1);
     usbh_want(1);
     run_ms(5);
     lines = 2;
-    run_ms(2000);
-    show("hub, drive on port 3");
-    assert(usbh.st == UH_DONE && devs[0].addr == 1 && devs[0].configured == 1);
-    assert(hub_port_reset == 2 && devs[1].addr == 2 && devs[1].configured == 1);
-    assert(line_is(1, "A hub, port 3") && line_is(2, "ID 0781:5567") && line_is(6, "Disk: FAT32"));
+    run_ms(12000);
+    show("two hubs, empty reader, drive on 1.4");
+    assert(usbh.st == UH_DONE && !conflicts);
+    assert(devs[0].addr == 1 && devs[1].addr == 2 && devs[3].addr == 3 && devs[4].addr == 4 && devs[4].configured == 1);
+    assert(!devs[2].on);                                /* (the low speed keyboard: never enabled) */
+    assert(line_is(1, "Through hubs: 1.4") && line_is(2, "ID 0781:5567") && line_is(5, "Drive 14.3 GB"));
+    assert(line_is(6, "Disk: FAT32") && !strncmp(usbh.line[7], "Read ", 5));
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
+static int t_hub_no_drive(void)
+{
+    reset_world();
+    rca(0);
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(12000);
+    show("two hubs, empty reader, no drive");
+    assert(usbh.st == UH_DONE && !conflicts);
+    assert(line_is(1, "No drive read"));
+    assert(line_is(2, "top 05E3:0610 hub") && line_is(3, "1 1A40:0801 hub") && line_is(4, "1.2 05E3:0749 disk"));
+    assert(line_is(5, "3 046D:C31C c03") && line_is(7, "1.2: no card?"));
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
+static int t_hub_empty(void)
+{
+    reset_world();
+    add(D_HUB, 64, -1, 0);
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(5000);
+    show("a hub with nothing on it");
+    assert(line_is(5, "Hub, nothing on it"));
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -397,7 +480,7 @@ static int t_hub(void)
 static int t_keys(void)
 {
     reset_world();
-    add(D_KEYS, 8);
+    add(D_KEYS, 8, -1, 0);
     usbh_want(1);
     run_ms(5);
     lines = 2;
@@ -411,7 +494,7 @@ static int t_keys(void)
 static int t_not_ready(void)
 {
     reset_world();
-    add(D_DRIVE, 64);
+    add(D_DRIVE, 64, -1, 0);
     drive_not_ready = 3;
     usbh_want(1);
     run_ms(5);
@@ -426,7 +509,7 @@ static int t_not_ready(void)
 static int t_no_answer(void)
 {
     reset_world();
-    add(D_DRIVE, 64);
+    add(D_DRIVE, 64, -1, 0);
     sie_alive = 0;                                      /* the controller does not answer (no 5 V?) */
     usbh_want(1);
     run_ms(5);
@@ -456,7 +539,7 @@ static int t_silent_device(void)
 
 int main(void)
 {
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_hub_empty() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }

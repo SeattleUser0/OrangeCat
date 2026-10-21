@@ -479,7 +479,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
        S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_RACK, S_FX_RACK_SPLIT, S_FX_RACK_PICK, S_FX_RACK_LIST, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_FX_SHARED, S_FX_SHARED_SPLIT, S_FX_SHARED_SHEET, S_FX_TONE_DARK, S_FX_TONE_THIN, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_MAP_DRUM_KIT, S_MAP_DRUM_HIT, S_MAP_DRUM_CATEGORY,
-       S_STAGE_UNUSED1, S_STAGE_UNUSED3, S_MIXER_UNUSED2, S_MENU_TRACKS, S_MENU_DRIVE, S_DRIVE_WAIT, S_DRIVE, S_DRIVE_HUB, S_COUNT };
+       S_STAGE_UNUSED1, S_STAGE_UNUSED3, S_MIXER_UNUSED2, S_MENU_TRACKS, S_MENU_DRIVE, S_DRIVE_WAIT, S_DRIVE, S_DRIVE_HUB, S_DRIVE_LIST, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -505,7 +505,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
     "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_rack", "fx_rack_split", "fx_rack_pick", "fx_rack_list", "fx_bus1", "fx_bus2", "fx_bus3", "fx_shared", "fx_shared_split", "fx_shared_sheet", "fx_tone_dark", "fx_tone_thin", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error", "map_drum_kit", "map_drum_hit", "map_drum_category",
     "stage_unused_1track", "stage_unused_3tracks", "mixer_unused_2tracks", "menu_unused_tracks", "menu_drive", "drive_wait",
-    "drive", "drive_hub"};
+    "drive", "drive_hub", "drive_list"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -1439,17 +1439,19 @@ static void setup(int s)
     case S_MIXER_UNUSED2: song.ntrk = 2; go_page(GR_TRK); trk[0].peak = 9000; break;
     case S_MENU_TRACKS: ui.menu = 1; ui.menu_sel = MI_TRACKS; break;
     case S_MENU_DRIVE: ui.menu = 1; ui.menu_sel = MI_DRIVE; break;                 /* (0.4.7) the USB drive test */
-    case S_DRIVE_WAIT: case S_DRIVE: case S_DRIVE_HUB: {
+    case S_DRIVE_WAIT: case S_DRIVE: case S_DRIVE_HUB: case S_DRIVE_LIST: {
         static const char *const W[] = {"Host mode on", "Waiting for a drive"};
         static const char *const D[] = {"Host mode on", "Found: full speed", "ID 0781:5567", "SanDisk Cruzer Blade",
                                         "", "Drive 14.3 GB", "Disk: FAT32", "Read 812 KB/s"};
-        static const char *const H[] = {"Host mode unsure", "A hub, port 3", "ID 058F:6387",
+        static const char *const L[] = {"Host mode on", "No drive read", "top 05E3:0610 hub", "1 1A40:0801 hub",
+                                        "1.2 05E3:0749 disk", "1.3.4 046D:C31C c03", "", "1.2: no card?"};
+        static const char *const H[] = {"Host mode unsure", "Through hubs: 1.3.4", "ID 058F:6387",
                                         "Generic Mass Storage Device Ultra", "Intenso Speed Line", "Drive 931 GB",
                                         "Disk: exFAT, no table", "Read 1024 KB/s"};
         uint32_t i;
         memset(usbh.line, 0, sizeof usbh.line);
         for (i = 0; i < (s == S_DRIVE_WAIT ? 2u : 8u); i++)
-            str_cpy(usbh.line[i], (s == S_DRIVE_WAIT ? W : s == S_DRIVE ? D : H)[i], UH_LINE);
+            str_cpy(usbh.line[i], (s == S_DRIVE_WAIT ? W : s == S_DRIVE ? D : s == S_DRIVE_LIST ? L : H)[i], UH_LINE);
         usbh.step = s == S_DRIVE_WAIT ? 0 : 35; usbh.csr = 1; usbh.devctl = 0x5D; host_usb_lines = s == S_DRIVE_WAIT ? 0 : 2;
         ui.menu = 3;
         break;

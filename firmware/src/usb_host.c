@@ -3,8 +3,8 @@
  * waits for something to be plugged in, and shows what it found: the speed, the maker and model (the device
  * descriptor and its strings), the class. A mass storage drive is then read: its own name (SCSI INQUIRY), its size
  * (READ CAPACITY), sector 0 (the partition table or the boot sector: FAT32, exFAT ..) and a read speed (256 KB).
- * One hub in between is followed to the first port with something on it (a powered hub is one way to power a drive
- * if the FM-1 gives the port no 5 V). Leaving the page (OCT-) turns the port back into the normal device: USB MIDI,
+ * Hubs are walked, up to three deep, every port with something on it, until a drive reads (a powered hub is one
+ * way to power a drive: the FM-1 gives its port no 5 V). If none reads, the page lists what was found. Leaving the page (OCT-) turns the port back into the normal device: USB MIDI,
  * USB audio and the web editor come back.
  *
  * Nothing here was known to work on a unit when it was written. The controller is a MUSB-style core (src/usb.c);
@@ -23,6 +23,11 @@
  *
  * Revisions:
  *   0.4.7: first version.
+ *   0.4.8: the first test on a unit (RCA C109 hub on PD power) got through the hub to a second hub inside it
+ *          (1A40:0801) and stopped: one hub was all 0.4.7 followed. Now the whole tree is walked (uh_visit), a
+ *          storage device that does not read (a card reader with no card) is passed over for the next, and with no
+ *          drive read the page lists every device found with its place ("1.3": port 3 of the hub on port 1).
+ *          Waits feed the watchdog (uh_wait): a walk can take several seconds.
  */
 #ifndef UH_LINES_READ
 #define UH_LINES_READ() fm1_usb_lines()                 /* (host tests replace the hardware read) */
@@ -48,8 +53,28 @@ static struct {
     char line[UH_LINES][UH_LINE];
 } usbh;
 static uint8_t uh_sec[512];     /* sector 0 */
+/* (0.4.8) the walk through hubs: the ports from the first device down (path), what was found (log), why the last
+ * storage device did not read (why) */
+#define UH_DEPTH 3u
+#define UH_LOG 5u
+static struct {
+    uint8_t next;               /* the address the next device gets */
+    uint8_t depth, path[UH_DEPTH];
+    uint8_t n;                  /* log entries */
+    char log[UH_LOG][UH_LINE];
+    char why[UH_LINE];
+} uh_walk;
 
 static void uh_feed(void) { fm1_wdt_feed(); }
+static void uh_wait(uint32_t ms)                        /* (0.4.8) a wait that feeds the watchdog */
+{
+    while (ms) {
+        uint32_t k = ms > 20u ? 20u : ms;
+        fm1_delay_ms(k);
+        uh_feed();
+        ms -= k;
+    }
+}
 
 /* ---- the page's lines ---- */
 static void uh_set(uint32_t i, const char *s)
@@ -294,18 +319,29 @@ static const char *uh_sector0_kind(const uint8_t *s)
     return "other";
 }
 
-/* INQUIRY, TEST UNIT READY (the drive may need a moment), READ CAPACITY, sector 0, 256 KB timed */
-static void uh_msc(void)
+static char *uh_path(char *b);
+/* a storage device that did not read: the page's line, and the reason kept for the list ("1.2: Not ready") */
+static int uh_msc_fail(uint32_t line, const char *s, const char *brief)
+{
+    char *e = uh_path(uh_walk.why);
+    uh_set(line, s);
+    e = uh_cat(e, ": ");
+    str_cpy(e, brief, (unsigned)(UH_LINE - (uint32_t)(e - uh_walk.why)));
+    return 0;
+}
+/* INQUIRY, TEST UNIT READY (the drive may need a moment), READ CAPACITY, sector 0, 256 KB timed. 1 read */
+static int uh_msc(void)
 {
     static const uint8_t INQ[6] = {0x12, 0, 0, 0, 36, 0}, TUR[6] = {0}, SENSE[6] = {0x03, 0, 0, 0, 18, 0};
     static const uint8_t CAP[10] = {0x25};
     uint8_t cb[10], *d = uh_sec;
     char b[UH_LINE], *e;
     uint32_t i, tries, blocks, bsize, t0;
-    int r;
+    int r, ready = 0;
     usbh.step = 30;
+    for (i = 4; i < UH_LINES; i++) usbh.line[i][0] = 0;   /* (0.4.8: nothing left from a device before) */
     uh_bulk_setup();
-    if ((r = uh_scsi(INQ, 6, d, 36)) < 0) { uh_set(5, "Drive did not answer"); return; }
+    if ((r = uh_scsi(INQ, 6, d, 36)) < 0) return uh_msc_fail(5, "Drive did not answer", "no answer");
     for (i = 8, e = b; i < 32u && e < b + UH_LINE - 1; i++)  /* vendor 8..15, product 16..31 */
         if (d[i] >= 32u && d[i] < 127u && !(d[i] == ' ' && (e == b || e[-1] == ' ')))
             *e++ = (char)d[i];
@@ -315,13 +351,13 @@ static void uh_msc(void)
         uh_set(4, b);                                   /* (the drive's own name, when it differs from line 3) */
     usbh.step = 31;
     for (tries = 0; tries < 20u; tries++) {
-        if (uh_scsi(TUR, 6, 0, 0) == 0) break;
+        if (uh_scsi(TUR, 6, 0, 0) == 0) { ready = 1; break; }
         uh_scsi(SENSE, 6, d, 18);
-        fm1_delay_ms(100);
-        uh_feed();
+        uh_wait(100);
     }
     usbh.step = 32;
-    if ((r = uh_scsi(CAP, 10, d, 8)) < 0) { uh_set(5, "Size did not read"); return; }
+    if ((r = uh_scsi(CAP, 10, d, 8)) < 0)
+        return uh_msc_fail(5, ready ? "Size did not read" : "Not ready (no card?)", ready ? "no size" : "no card?");
     blocks = uh_be32(d) + 1u;
     bsize = uh_be32(d + 4);
     e = uh_cat(b, "Drive ");
@@ -330,10 +366,9 @@ static void uh_msc(void)
     usbh.step = 33;
     for (i = 0; i < 10u; i++) cb[i] = 0;
     cb[0] = 0x28; cb[8] = 1;                            /* READ(10), LBA 0, one block */
-    if (bsize != 512u || (r = uh_scsi(cb, 10, uh_sec, 512)) < 0) {
-        uh_set(6, bsize != 512u ? "Blocks not 512 bytes" : "Sector 0 not read");
-        return;
-    }
+    if (bsize != 512u || (r = uh_scsi(cb, 10, uh_sec, 512)) < 0)
+        return uh_msc_fail(6, bsize != 512u ? "Blocks not 512 bytes" : "Sector 0 not read",
+                           bsize != 512u ? "not 512" : "no sector 0");
     e = uh_cat(b, "Disk: ");
     uh_cat(e, uh_sector0_kind(uh_sec));
     uh_set(6, b);
@@ -354,6 +389,7 @@ static void uh_msc(void)
         uh_set(7, b);
     }
     usbh.step = 35;
+    return 1;
 }
 
 /* ---- enumeration ---- */
@@ -384,12 +420,12 @@ static int uh_enumerate(uint8_t a)
     int r;
     usbh.addr = 0;
     usbh.mps0 = 8;
-    usbh.step = (uint8_t)(a * 10u + 1u);
+    usbh.step = 11;                                     /* (11 .. 16; which device: the diagnostic line's A) */
     if ((r = uh_get_desc(1, 0, 0, 18, d, &got)) < 0 || got < 8u) return r < 0 ? r : uh_fail(UE_SHORT);
     usbh.mps0 = d[7] >= 8u ? d[7] : 8u;
     usbh.step++;
     if ((r = uh_ctrl(0x00u, 5u, a, 0, 0, 0, 0)) < 0) return r;     /* SET_ADDRESS */
-    fm1_delay_ms(10);
+    uh_wait(10);
     usbh.addr = a;
     usbh.step++;
     if ((r = uh_get_desc(1, 0, 0, 18, d, &got)) < 0 || got < 18u) return r < 0 ? r : uh_fail(UE_SHORT);
@@ -441,40 +477,122 @@ static int uh_enumerate(uint8_t a)
     return 0;
 }
 
-/* a hub: power its ports, take the first with something on it, reset that port. The port number, 0 none */
-static int uh_hub(void)
+/* ---- hubs (0.4.8: the whole tree) ---- */
+/* "1.3": the ports from the first device down; "top" for the first device itself */
+static char *uh_path(char *b)
+{
+    uint32_t i;
+    char *e = b;
+    if (!uh_walk.depth) return uh_cat(b, "top");
+    for (i = 0; i < uh_walk.depth; i++) {
+        if (i) *e++ = '.';
+        e = uh_dec(e, uh_walk.path[i]);
+    }
+    return e;
+}
+/* one line of the list: "1.3 05E3:0749 disk", "top 1A40:0801 hub", "2 046D:C31C c03", "1.2 no answer" */
+static void uh_log(int answered)
+{
+    char *e;
+    if (uh_walk.n >= UH_LOG) return;
+    e = uh_path(uh_walk.log[uh_walk.n]);
+    *e++ = ' ';
+    if (!answered) {
+        uh_cat(e, "no answer");
+    } else {
+        e = uh_hex(e, uh_dev.vid, 4);
+        *e++ = ':';
+        e = uh_hex(e, uh_dev.pid, 4);
+        *e++ = ' ';
+        if (uh_dev.cls == 9u) uh_cat(e, "hub");
+        else if (uh_dev.cls == 8u) uh_cat(e, "disk");
+        else uh_hex(uh_cat(e, "c"), uh_dev.cls, 2);   /* the USB class: c03 a keyboard or mouse */
+    }
+    uh_walk.n++;
+}
+/* the hub at usbh.addr: its ports powered, then which have something on them, a bit per port (1..7). Devices take
+ * a moment after power: watch up to 2 s, and stop once the answer has held for 300 ms */
+static uint32_t uh_hub_ports(void)
 {
     uint8_t d[16];
-    uint32_t got = 0, p, i, t0;
-    uint32_t wait_ms;
+    uint32_t got = 0, p, n, mask = 0, last = 0, same = 0, t0;
     usbh.step = 40;
     if (uh_ctrl(0xA0u, 6u, 0x2900u, 0, 9, d, &got) < 0 || got < 3u) return 0;   /* the hub descriptor */
-    uh_dev.nports = d[2];
-    wait_ms = 2u * d[5] + 100u;
-    for (p = 1; p <= uh_dev.nports && p <= 7u; p++)
+    n = d[2] > 7u ? 7u : d[2];
+    for (p = 1; p <= n; p++)
         uh_ctrl(0x23u, 3u, 8u, (uint16_t)p, 0, 0, 0);   /* SET_FEATURE(PORT_POWER) */
-    for (i = 0; i < wait_ms; i += 50u) { fm1_delay_ms(50); uh_feed(); }
+    uh_wait(2u * d[5] + 100u);                          /* bPwrOn2PwrGood (2 ms units) and a margin */
     usbh.step = 41;
-    for (t0 = fm1_ms; fm1_ms - t0 < 3000u;) {         /* something may still be coming up */
-        for (p = 1; p <= uh_dev.nports && p <= 7u; p++)
+    for (t0 = fm1_ms; fm1_ms - t0 < 2000u;) {
+        mask = 0;
+        for (p = 1; p <= n; p++)
             if (uh_ctrl(0xA3u, 0u, 0, (uint16_t)p, 4, d, &got) == 0 && got >= 4u && (d[0] & 1u))
-                break;
-        if (p <= uh_dev.nports && p <= 7u) break;
-        fm1_delay_ms(100);
-        uh_feed();
+                mask |= 1u << p;
+        same = mask == last ? same + 1u : 0u;
+        last = mask;
+        if (mask && same >= 3u) break;
+        uh_wait(100);
     }
-    if (p > uh_dev.nports || p > 7u) return 0;
-    if (d[1] & 0x02u) return -(int)p;                   /* a low speed device: not followed */
+    return mask;
+}
+/* reset port p of the hub at usbh.addr: 0 a full speed device now at address 0; < 0 not (low speed, or the reset
+ * did not end) */
+static int uh_port_reset(uint32_t p)
+{
+    uint8_t d[4];
+    uint32_t got = 0, i, done = 0;
     usbh.step = 42;
     uh_ctrl(0x23u, 3u, 4u, (uint16_t)p, 0, 0, 0);       /* SET_FEATURE(PORT_RESET) */
-    for (i = 0; i < 20u; i++) {
-        fm1_delay_ms(20);
-        if (uh_ctrl(0xA3u, 0u, 0, (uint16_t)p, 4, d, &got) == 0 && got >= 4u && (d[2] & 0x10u)) break;
+    for (i = 0; i < 25u && !done; i++) {
+        uh_wait(20);
+        done = uh_ctrl(0xA3u, 0u, 0, (uint16_t)p, 4, d, &got) == 0 && got >= 4u && (d[2] & 0x10u);
     }
     uh_ctrl(0x23u, 1u, 20u, (uint16_t)p, 0, 0, 0);    /* CLEAR_FEATURE(C_PORT_RESET) */
     uh_ctrl(0x23u, 1u, 16u, (uint16_t)p, 0, 0, 0);    /* CLEAR_FEATURE(C_PORT_CONNECTION) */
-    fm1_delay_ms(20);
-    return (int)p;
+    if (!done || !(d[0] & 2u)) return -1;               /* not enabled */
+    if (d[1] & 0x02u) {                                 /* low speed: needs PRE packets, not done here */
+        uh_ctrl(0x23u, 1u, 1u, (uint16_t)p, 0, 0, 0);   /* CLEAR_FEATURE(PORT_ENABLE) */
+        return -2;
+    }
+    uh_wait(20);
+    return 0;
+}
+/* the device just enumerated (uh_dev, usbh.addr): a drive is read; a hub's ports are each reset, enumerated and
+ * visited in turn. 1 = a drive read (its lines stay on the page) */
+static int uh_visit(uint32_t depth)
+{
+    uint32_t mask, p;
+    uint8_t hub;
+    uh_log(1);
+    if (uh_dev.cls == 8u && usbh.ep_in && usbh.ep_out && uh_dev.proto == 0x50u)
+        return uh_msc();
+    if (uh_dev.cls != 9u || depth >= UH_DEPTH)
+        return 0;
+    hub = usbh.addr;
+    mask = uh_hub_ports();
+    for (p = 1; p <= 7u; p++) {
+        if (!(mask & (1u << p)) || uh_walk.next >= 30u)
+            continue;
+        usbh.addr = hub;
+        uh_walk.path[depth] = (uint8_t)p;
+        uh_walk.depth = (uint8_t)(depth + 1u);
+        if (uh_port_reset(p) < 0) {
+            uh_walk.depth = (uint8_t)depth;
+            continue;
+        }
+        usbh.err = 0;
+        if (uh_enumerate(++uh_walk.next) < 0) {         /* off the bus: it must not answer at address 0 later */
+            uh_log(0);
+            usbh.addr = hub;
+            uh_ctrl(0x23u, 1u, 1u, (uint16_t)p, 0, 0, 0);   /* CLEAR_FEATURE(PORT_ENABLE) */
+            uh_walk.depth = (uint8_t)depth;
+            continue;
+        }
+        if (uh_visit(depth + 1u))
+            return 1;
+        uh_walk.depth = (uint8_t)depth;
+    }
+    return 0;
 }
 
 static const char *uh_err_name(int e)
@@ -489,52 +607,48 @@ static void uh_failed(const char *what)
     uh_set(5, b);
 }
 
-/* the bus reset, then everything above */
+/* the bus reset, then the walk from the device on the port */
 static void uh_probe(void)
 {
-    uint32_t lines = UH_LINES_READ();
-    int r, port;
+    uint32_t lines = UH_LINES_READ(), i;
+    char b[UH_LINE], *e;
     usbh.err = 0;
     usbh.tag = 0;
+    uh_walk.next = 1;
+    uh_walk.depth = 0;
+    uh_walk.n = 0;
+    uh_walk.why[0] = 0;
     uh_set(1, lines & 1u && !(lines & 2u) ? "Found: low speed" : "Found: full speed");
     usbh.step = 1;
     sie_wr(S_DEVCTL, 0x01);                             /* Session (again: some cores want it after connect) */
     sie_wr(S_POWER, 0x08);                              /* bus reset */
-    fm1_delay_ms(50);
+    uh_wait(50);
     sie_wr(S_POWER, 0x00);
-    fm1_delay_ms(20);
+    uh_wait(20);
     usbh.devctl = (uint8_t)sie_rd(S_DEVCTL);
-    uh_feed();
-    if ((r = uh_enumerate(1)) < 0) {
+    if (uh_enumerate(1) < 0) {
         uh_failed("Did not answer");
         return;
     }
-    if (uh_dev.cls == 9u) {
-        char b[UH_LINE], *e;
-        port = uh_hub();
-        e = uh_cat(b, "A hub, ");
-        if (port > 0) {
-            e = uh_cat(e, "port ");
-            uh_dec(e, (uint32_t)port);
-        } else {
-            uh_cat(e, port < 0 ? "low speed" : "nothing on it");
+    if (uh_visit(0)) {                                  /* a drive read: its lines are on the page */
+        if (uh_walk.depth) {
+            e = uh_path(uh_cat(b, "Through hubs: "));
+            (void)e;
+            uh_set(1, b);
         }
-        uh_set(1, b);
-        if (port <= 0) return;
-        if ((r = uh_enumerate(2)) < 0) {
-            uh_failed("Behind hub: no answer");
-            return;
-        }
-    }
-    if (uh_dev.cls == 8u && usbh.ep_in && usbh.ep_out && (uh_dev.proto == 0x50u)) {
-        uh_msc();
         return;
     }
-    {
-        char b[UH_LINE], *e = uh_cat(b, uh_dev.cls == 8u ? "Storage, not bulk-only" : "Not a drive, class ");
-        if (uh_dev.cls != 8u) uh_hex(e, uh_dev.cls, 2);
+    if (uh_walk.n == 1u && !uh_walk.why[0]) {           /* one device, not a drive: its lines say what it is */
+        e = uh_cat(b, uh_dev.cls == 8u ? "Storage, not bulk-only" : uh_dev.cls == 9u ? "Hub, nothing on it" :
+                   "Not a drive, class ");
+        if (uh_dev.cls != 8u && uh_dev.cls != 9u) uh_hex(e, uh_dev.cls, 2);
         uh_set(5, b);
+        return;
     }
+    for (i = 1; i < UH_LINES; i++) usbh.line[i][0] = 0;   /* no drive read: what was found, and why */
+    uh_set(1, "No drive read");
+    for (i = 0; i < uh_walk.n; i++) uh_set(2u + i, uh_walk.log[i]);
+    if (uh_walk.why[0]) uh_set(7, uh_walk.why);
 }
 
 /* ---- the page ---- */
@@ -625,11 +739,14 @@ static void usbh_task(void)
         break;
     }
 }
-/* the diagnostic line: "L2 S23 C01 D5D E0" (lines, step, last CSR, DEVCTL, last error) */
+/* the diagnostic line: "L2 A1 S35 C01 D5D E0" (lines, the device's address (0.4.8), step, last CSR, DEVCTL, last
+ * error) */
 static void usbh_diag(char *b)
 {
     char *e = uh_cat(b, "L");
     e = uh_dec(e, UH_LINES_READ());
+    e = uh_cat(e, " A");
+    e = uh_dec(e, usbh.addr);
     e = uh_cat(e, " S");
     e = uh_dec(e, usbh.step);
     e = uh_cat(e, " C");
