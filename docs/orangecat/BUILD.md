@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.13  
+**Version:** 0.14  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.14 (October 21, 2026):** 0.3.7 fix (empty pattern numbers no longer stop the song). The three-level plan (phrase, chain, song) recorded.
 - **0.13 (October 20, 2026):** Fixes from the first device test: SONG MODE switch, PATTERNS knobs step one entry, the last project loads at power-on, Melodee projects get lists.
 - **0.12 (October 20, 2026):** 4c steps 1 to 3: tracks' lists of pool patterns, SONG while playing, the SONG and PATTERNS pages and the SEQ keys on entries.
 - **0.11 (October 20, 2026):** 4a part 3: the record store, the pool format and the project slots on them are written and tested. RATCH, FLAM, conditions and NUDGE are now saved.
@@ -280,6 +281,12 @@ Each step builds, passes the host tests, and is measured before the next.
     - SEQ held, the white keys are the selected track's entries A to H: a tap goes there (an empty entry starts a new empty pattern and arms REC, as Melodee did for an empty bank). Held 1 second, its dialog: the same key again empties that entry (or, on the entry being played, deletes its pattern), another white key copies it there as its own pattern (stopped), C# and D# halve and double the pattern being played.
     - HOME's SELECT knob set to PATTERN steps through the entries.
   - [x] Fixes from the first device test (0.3.6, October 20, 2026): SONG MODE is now a switch of its own, the first row of the SONG and PATTERNS sheets, and PLAY no longer changes it. On PATTERNS each knob moves its track one entry at a time, up to one past its last pattern (an empty entry there starts a new pattern), so it never says NO OTHER ENTRY. Power-on loads the project last loaded or saved (a BOOT slot, if chosen, still wins). A Melodee project restored from a backup gets its banks in use as entries A, B, C and so on.
+  - [x] 0.3.7: a slot naming a pattern number with nothing in it yet plays silent instead of stopping the song; what is recorded there is kept as that number.
+  - [ ] **Next: three levels, as a tracker (decided October 21, 2026, after the first device test).** The first version had the SONG and PATTERNS screens showing the same rows, which did not make sense on the device. The new plan, using M8 / LSDJ words on the screens:
+    - Phrase: a pattern of up to 64 steps (01 to 64, the shared pool). Edited on the step pages, later the tracker view.
+    - Chain: an ordered list of phrases with repeats, for one track. The PATTERNS screen becomes the chain editor.
+    - Song: rows, each row naming a chain for every track. All tracks move to the next row together. The SONG screen becomes the song editor.
+    - Song mode plays the song rows top to bottom; with it off, each track loops the chain it is on.
   - Melodee's section SONG and TAKE JAM are no longer reachable from the pages (their code stays for older projects and the web editor until 4g).
     - Rests: with SONG on, an empty entry between a track's first and last pattern is silence for its REPS passes (Skiff 1.2.1).
     - The SONG sheet's Free unused patterns empties every pool pattern that no list entry, no loaded bank and no saved project names.

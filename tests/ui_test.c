@@ -2682,18 +2682,17 @@ static int test_chain(void)
                  lists.ent[0][1][0] == 1u);
     turn(EN_K2, -1);
     press(B_OCTUP);
-    bad += check("SONG OCT+ on an entry naming an empty pattern: EMPTY ENTRY", msg_is("EMPTY ENTRY") && !transport_req);
+    bad += check("SONG OCT+ on entry B naming pattern 01, nothing in it yet: the track there, empty (0.3.7)",
+                 lists.cur[0] == 1u && seq_is_empty(TSEL) && bank_pid[0][trk[0].pattern] == 1u && !transport_req);
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
     ocl_keep_all();
-    bad += check("steps kept on track 1 are a new pattern named by an empty entry",
-                 lists.ent[0][2][0] && ocl_pat_len(lists.ent[0][2][0] - 1u) && bank_pid[0][trk[0].pattern] == lists.ent[0][2][0]);
-    {
-        uint32_t made = lists.ent[0][2][0];
-        lists.ent[0][1][0] = (uint8_t)made;          /* (entry B names it too) */
-        press(B_OCTUP);
-        bad += check("SONG OCT+ stopped: track 1 goes to entry B at once", lists.cur[0] == 1u &&
-                     trk[0].step[0].note[0] == 60u);
-    }
+    bad += check("steps recorded there are kept as pattern 01", ocl_pat_len(0) && lists.ent[0][1][0] == 1u &&
+                 bank_pid[0][trk[0].pattern] == 1u);
+    lists.ent[0][2][0] = 1;                              /* (entry C names 01 too) */
+    turn(EN_K1, 1);
+    press(B_OCTUP);
+    bad += check("SONG OCT+ stopped: track 1 goes to entry C at once, the same pattern", lists.cur[0] == 2u &&
+                 trk[0].step[0].note[0] == 60u);
     hold(B_OCTUP); sheet_do("Song mode");
     bad += check("the sheet's Song mode turns it on (Orange Cat 0.3.6: a switch)", lists.song == 1u && msg_is("SONG MODE ON"));
     go_home(); press(B_PLAY);

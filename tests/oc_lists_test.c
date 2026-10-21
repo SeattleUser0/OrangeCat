@@ -266,9 +266,30 @@ static int test_melodee_lists(void)
                   lists.cur[0] == 1u && note_of(0) == 71u);
 }
 
+static int test_named_empty(void)
+{
+    uint32_t got[12], n, per;
+    int bad = 0;
+    three_patterns();                           /* 01 02 03 on A B C */
+    lists.ent[0][3][0] = 10;                    /* D names 10: nothing in it yet */
+    lists.song = 1;
+    per = seq_div_samples((uint32_t)trk[0].p[P_SDIV]) * 4u / CTL + 1u;
+    n = passes(got, 12, per * 9u, -1, 0);
+    bad |= lcheck("SONG: a slot naming an empty pattern plays silent and the song goes on: 01 02 03 - 01 02 03 -",
+                  n >= 8u && got[0] == 60u && got[1] == 62u && got[2] == 64u && got[3] == 0u && got[4] == 60u &&
+                      got[7] == 0u);
+    ocl_go(0, 3);
+    put_note(0, 77);
+    ocl_keep_all();
+    bad |= lcheck("... going there and recording keeps the steps as pattern 10", ocp.len[9] && pool_note(9) == 77u &&
+                  lists.ent[0][3][0] == 10u);
+    return bad;
+}
+
 int main(void)
 {
     int bad = 0;
+    bad |= test_named_empty();
     bad |= test_melodee_lists();
     bad |= test_unused();
     bad |= test_song();

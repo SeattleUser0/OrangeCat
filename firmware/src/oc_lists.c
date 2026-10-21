@@ -15,6 +15,8 @@
  * Revisions:
  *   0.3.3: first version (lists, the cache, keep, going to an entry while stopped).
  *   0.3.4: playing: the song (SONG on: each track down its list, REPS passes an entry) and launches (ocl_stage).
+ *   0.3.7: an entry naming a pattern with nothing in it yet plays (silent) instead of stopping the song; what is
+ *          recorded there is kept as that number.
  *   0.3.6: (UI) PATTERNS knobs step one entry; SONG MODE a switch (ui_popup.c); Melodee projects get lists
  *          (pattern_store.c bank_restore).
  *   0.3.5: rests (an empty entry between the list's first and last patterns: silence, Skiff 1.2.1); entry edits.
@@ -133,14 +135,17 @@ static uint32_t ocl_fetch(uint32_t k, uint32_t id, int *rc)
 
 /* track k on its entry e now (stopped): what the track plays kept, then the entry's pattern in. 0 done; 1 an empty
  * entry (or one that does not read); 2 a flash error; 4 PATTERNS FULL; 5 no room for its motion or timed notes */
+static int ocl_stage_named_empty(uint32_t k, uint32_t e, uint32_t id, uint32_t reps, int is_song);
 static int ocl_go(uint32_t k, uint32_t e)
 {
     uint32_t id, b;
     int rc;
     k %= NTRK;
     e %= OCL_NENT;
-    if ((id = ocl_ent_pat(k, e)) == OCP_N || (!ocp.len[id] && !ocp.hash[id])) return 1;
+    if ((id = ocl_ent_pat(k, e)) == OCP_N) return 1;
     if (transport_busy()) return 2;
+    if (!ocp.len[id] && !ocp.hash[id] && ocl_bank_of(k, id) == NPAT)   /* (0.3.7: a number with nothing in it yet) */
+        return ocl_stage_named_empty(k, e, id, 0, 0);
     if ((rc = ocl_keep(k, trk[k].pattern)) != 0) return rc;
     if ((b = ocl_fetch(k, id, &rc)) == NPAT) return rc;
     lists.cur[k] = (uint8_t)e;
@@ -210,7 +215,10 @@ static int ocl_stage(uint32_t k, uint32_t e, uint32_t reps, int song)
 {
     uint32_t id = ocl_ent_pat(k, e), b, f;
     k %= NTRK;
-    if (id == OCP_N || (!ocp.len[id] && !ocp.hash[id]) || chain.running || chain.armed) return 1;
+    if (id == OCP_N || chain.running || chain.armed) return 1;
+    if (!ocp.len[id] && !ocp.hash[id] && ocl_bank_of(k, id) == NPAT)   /* (0.3.7: a number with nothing in it yet: it
+                                                                         * plays silent, recording goes into it) */
+        return ocl_stage_named_empty(k, e, id, reps, song);
     if ((b = ocl_bank_of(k, id)) == NPAT) {
         if ((b = ocl_victim_clean(k)) == NPAT) return 4;
         switch (ocp_load(id, k, b, 1)) {
@@ -395,6 +403,18 @@ static int ocl_stage_empty(uint32_t k, uint32_t e, uint32_t reps, int is_song)
     return 0;
 }
 static int ocl_go_empty(uint32_t k, uint32_t e) { return ocl_stage_empty(k, e, 0, 0); }
+/* entry e names pool pattern id, empty in the pool and in no bank: an empty bank as that pattern (what is recorded there
+ * is kept as id) */
+static int ocl_stage_named_empty(uint32_t k, uint32_t e, uint32_t id, uint32_t reps, int is_song)
+{
+    int rc = ocl_stage_empty(k, e, reps, is_song);
+    if (!rc) {
+        uint32_t b = song.playing ? ocl_staged_bank[k % NTRK] : trk[k % NTRK].pattern;
+        bank_pid[k % NTRK][b] = (uint8_t)(id + 1u);
+        bank_sig[k % NTRK][b] = 0;
+    }
+    return rc;
+}
 
 /* every pool pattern nothing names (no list entry, no bank, no saved project) emptied, a chunk at a time (stopped).
  * How many, or -1 a flash error, -2 playing */
