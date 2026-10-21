@@ -141,21 +141,21 @@ static void sh_route(void) { sh_route_turn(!song.g[G_FXMODE]); }
 static const sheet_row_t SHEET_SHARED[] = {{"Routing", sh_route_v, sh_route_turn, sh_route, 0},
                                            {"Clear shared FX", 0, 0, 0, CF_CLEAR_SHARED}};
 /* (Orange Cat 0.4) CHAIN's (OCT+ held): the selected track's chain at the step picked */
-static void ps_insert(void) { ocl_insert(song.sel, ui.chain_step); ui_message("STEP INSERTED"); }
+static void ps_insert(void) { ocl_insert(song.sel, ui.chain_step); ui_message("SLOT INSERTED"); }
 static void ps_dup(void)
 {
-    if (!OCL_ENT(song.sel % NTRK, ui.chain_step)[0]) { ui_message("EMPTY STEP"); return; }
+    if (!OCL_ENT(song.sel % NTRK, ui.chain_step)[0]) { ui_message("EMPTY SLOT"); return; }
     ocl_dup(song.sel, ui.chain_step);
-    ui_message("STEP DUPLICATED");
+    ui_message("SLOT DUPLICATED");
 }
 static void ps_own(void)                               /* the step's phrase: a copy of its own, a new number */
 {
     int rc = ocl_copy(song.sel, ui.chain_step);
-    ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY STEP" : rc == 4 ? "PHRASES FULL" : song.playing ? "STOP FIRST" :
+    ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY SLOT" : rc == 4 ? "PHRASES FULL" : song.playing ? "STOP FIRST" :
                "SAVE ERROR");
 }
-static const sheet_row_t SHEET_PATTERNS[] = {{"Insert step", 0, 0, ps_insert, 0}, {"Duplicate step", 0, 0, ps_dup, 0},
-    {"Own copy", 0, 0, ps_own, 0}, {"Delete step", 0, 0, 0, CF_DEL_ROW}, {"Clear chain", 0, 0, 0, CF_CLEAR_CHAIN}};
+static const sheet_row_t SHEET_PATTERNS[] = {{"Insert slot", 0, 0, ps_insert, 0}, {"Duplicate slot", 0, 0, ps_dup, 0},
+    {"Own copy", 0, 0, ps_own, 0}, {"Delete slot", 0, 0, 0, CF_DEL_ROW}, {"Clear chain", 0, 0, 0, CF_CLEAR_CHAIN}};
 
 /* the step's: NOTES' note at the cursor (KNOB 1 its length, velocity, chance), the drum grid's hit of the lane there */
 static void st_cap(uint32_t c, char *b)                 /* NOTES' column c as its chip shows it (draw_columns) */
@@ -356,7 +356,7 @@ static void page_sheet_open(void)
         char t[12] = "Chain 01";
         uint32_t c = lists.tchain[song.sel % NTRK] % OCL_NCHAIN + 1u;
         t[6] = (char)('0' + c / 10u); t[7] = (char)('0' + c % 10u);
-        str_cpy(nm, "T1 \xb7 step A", sizeof nm);
+        str_cpy(nm, "T1 \xb7 slot A", sizeof nm);
         nm[1] = (char)('1' + song.sel % NTRK);
         nm[str_len(nm) - 1u] = (char)('A' + ui.chain_step % OCL_NENT);
         sheet_open(t, nm, SHEET_PATTERNS, NELEM(SHEET_PATTERNS));

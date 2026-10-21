@@ -2254,14 +2254,14 @@ static int test_init_scales_patterns(void)
                  OCL_ENT(song.sel, 0)[0] && OCL_ENT(song.sel, 0)[0] != b &&
                  bank_pid[song.sel][t->pattern] == OCL_ENT(song.sel, 0)[0] && t->step[0].note[0] == 60u);
     first = OCL_ENT(song.sel, 1)[0];
-    hold(B_OCTUP); sheet_do("Insert step");
+    hold(B_OCTUP); sheet_do("Insert slot");
     bad += check("..Insert step: an empty step A, the steps after it a place on, the track's with it",
                  !OCL_ENT(song.sel, 0)[0] && OCL_ENT(song.sel, 2)[0] == first && lists.cur[song.sel] == 1u);
     ui.chain_step = 2;
-    hold(B_OCTUP); sheet_do("Duplicate step");
-    bad += check("..Duplicate step: C twice", OCL_ENT(song.sel, 3)[0] == first && msg_is("STEP DUPLICATED"));
+    hold(B_OCTUP); sheet_do("Duplicate slot");
+    bad += check("..Duplicate step: C twice", OCL_ENT(song.sel, 3)[0] == first && msg_is("SLOT DUPLICATED"));
     ui.chain_step = 0;
-    hold(B_OCTUP); sheet_do("Delete step");
+    hold(B_OCTUP); sheet_do("Delete slot");
     bad += check("..Delete step asks", ui.confirm == CF_DEL_ROW);
     press(B_OCTUP);
     bad += check("..yes: the steps after it a place back", OCL_ENT(song.sel, 1)[0] == first &&
@@ -4921,7 +4921,7 @@ static int test_stage(void)
     ocl_go(3, 0);
     pt_step_go(3, 1);
     bad += check("  one phrase only: right goes to step B, a new empty phrase",
-                 lists.cur[3] == 1u && seq_is_empty(&trk[3]) && msg_is("T4 STEP B NEW"));
+                 lists.cur[3] == 1u && seq_is_empty(&trk[3]) && msg_is("T4 SLOT B NEW"));
     pt_step_go(3, 1);
     bad += check("  .. no further than one past the last phrase", lists.cur[3] == 1u);
     pt_step_go(3, -1);
@@ -5458,7 +5458,7 @@ static int test_seq_keys(void)
         confirm_text(a, b);
         bad += check("  .. C# (black key 4): entry B's pattern halved, the dialog stays (SEQ held), its length in the title",
                      ui.confirm == CF_PAT_KEY && TSEL->p[P_SLEN] == 16 && msg_is("PATTERN HALVED") &&
-                     str_eq(a, "ENTRY B \xB7 16 STEPS") && ui.pat_did && song.sel == 0u);
+                     str_eq(a, "SLOT B \xB7 16 STEPS") && ui.pat_did && song.sel == 0u);
         tap_key(key_at(1, 4));
         bad += check("  .. D# (black key 5): doubled, 32 steps, still up", ui.confirm == CF_PAT_KEY &&
                      TSEL->p[P_SLEN] == 32 && msg_is("PATTERN DOUBLED"));
@@ -5491,7 +5491,7 @@ static int test_seq_keys(void)
     seq_hold_key(w3, 1100u);
     tap_key(w3);
     bad += check("  .. its key again: entry C emptied (not the one played; its pattern stays in the pool)", !ui.confirm &&
-                 !OCL_ENT(0, 2)[0] && msg_is("STEP CLEARED") && lists.cur[0] == 1u);
+                 !OCL_ENT(0, 2)[0] && msg_is("SLOT CLEARED") && lists.cur[0] == 1u);
     seq_hold_key(key_at(0, 0), 1100u);
     tap_key(w4);
     bad += check("  white key 1 held, then key 4: entry D a copy of A's pattern (its own)", !ui.confirm &&

@@ -222,7 +222,7 @@ static void pt_song(void)
         return;
     ptv.song = sig;
     cv_begin(240, 240 - PT_SONG_Y, T_BG);
-    str_cpy(b, "CHAIN 01 \xb7 STEP A \xb7 ", sizeof b);
+    str_cpy(b, "CHAIN 01 \xb7 SLOT A \xb7 ", sizeof b);
     b[6] = (char)('0' + (c + 1u) / 10u); b[7] = (char)('0' + (c + 1u) % 10u);
     b[16] = (char)('A' + e);
     if (v) {
@@ -291,10 +291,10 @@ static void pt_step_go(uint32_t k, int32_t steps)
     if (e == from) return;
     rc = OCL_ENT(k, e)[0] ? ocl_launch(k, e) : ocl_go_empty(k, e);
     if (rc) {
-        ui_message(rc == 1 ? "EMPTY STEP" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
+        ui_message(rc == 1 ? "EMPTY SLOT" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
                    rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
     } else {
-        str_cpy(m, "T1 STEP A", sizeof m);
+        str_cpy(m, "T1 SLOT A", sizeof m);
         m[1] = (char)('1' + k); m[8] = (char)('A' + e);
         if (!OCL_ENT(k, e)[0]) str_cpy(m + 9, " NEW", 5);
         ui_message(m);

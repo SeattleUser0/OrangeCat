@@ -881,9 +881,9 @@ static void confirm_text(char *a, char *b)
             str_cpy(b, "Its song and patterns go", 32);
         break;
     case CF_DEL_ROW:                                    /* (Orange Cat 0.4) CHAIN's sheet */
-        str_cpy(a, "DELETE STEP A?", 24);
+        str_cpy(a, "DELETE SLOT A?", 24);
         a[12] = (char)('A' + ui.chain_step % OCL_NENT);
-        str_cpy(b, "The steps after it move up", 32);
+        str_cpy(b, "The slots after it move up", 32);
         break;
     case CF_CLEAR_CHAIN:
         str_cpy(a, "CLEAR CHAIN 01?", 24);
@@ -969,8 +969,8 @@ static void confirm_text(char *a, char *b)
         uint32_t p = ui.pat_dlg % NPAT, n, v = OCL_ENT(k % NTRK, p)[0];   /* (Orange Cat 0.3, 4c) the key's entry */
         n = p == lists.cur[k % NTRK] % OCL_NENT ? (uint32_t)clamp(trk[k % NTRK].p[P_SLEN], 1, NSTEP) :
             v ? ocl_pat_len(v - 1u) : 0u;
-        str_cpy(a, "ENTRY A \xB7 ", 24);
-        a[6] = (char)('A' + p);
+        str_cpy(a, "SLOT A \xB7 ", 24);
+        a[5] = (char)('A' + p);
         fmt_int(a + str_len(a), (int32_t)n);
         str_cpy(a + str_len(a), n == 1u ? " STEP" : " STEPS", 7);
         str_cpy(b, "Again: delete \xB7 other: copy\nBlinking: half \xB7 double", CF_DETAIL);

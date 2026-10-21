@@ -294,10 +294,10 @@ static void pattern_key_release(void)
             int rc = e == lists.cur[k] % OCL_NENT && ocl_staged_ent(k) == OCL_NENT ? 0 :   /* (the one it is on: stays) */
                      empty ? ocl_go_empty(k, e) : ocl_launch(k, e);
             empty = empty && seq_is_empty(TSEL);
-            if (rc) ui_message(rc == 1 ? "EMPTY STEP" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
+            if (rc) ui_message(rc == 1 ? "EMPTY SLOT" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
                                rc == 5 ? "PATTERN DATA FULL" : "STOP SONG TO SWITCH");
             else {
-                char m[12] = "STEP A";
+                char m[12] = "SLOT A";
                 m[5] = (char)('A' + e); ui_message(m);
                 if (empty) {                            /* an empty one: arm a single pattern pass */
                     armed = 1;
@@ -354,7 +354,7 @@ static void pattern_key_delete(uint32_t k, uint32_t b)
      * emptied (its pattern stays in the pool) */
     if (b != lists.cur[k % NTRK] % OCL_NENT) {
         if (!OCL_ENT(k % NTRK, b % OCL_NENT)[0]) ui_message("NOTHING TO DELETE");
-        else { OCL_ENT(k % NTRK, b % OCL_NENT)[0] = 0; ui_message("STEP CLEARED"); }
+        else { OCL_ENT(k % NTRK, b % OCL_NENT)[0] = 0; ui_message("SLOT CLEARED"); }
         ui.force = 1;
         return;
     }
@@ -1302,7 +1302,7 @@ static void act_do(void)
     if (cur_page()->graph == GR_PATGRID) {              /* (Orange Cat 0.4) OCT+: the track to the step picked */
         uint32_t k = song.sel % NTRK, e = ui.chain_step % OCL_NENT;
         int rc = OCL_ENT(k, e)[0] ? ocl_launch(k, e) : ocl_go_empty(k, e);
-        if (rc) ui_message(rc == 1 ? "EMPTY STEP" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
+        if (rc) ui_message(rc == 1 ? "EMPTY SLOT" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
                            rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
         ui.force = 1;
         return;
@@ -1755,7 +1755,7 @@ static void page_tap(uint32_t b)
             step_delete(TSEL, ui.cursor);
         fm1_irq_on();
         cursor_set(ui.cursor + 1);
-        ui_message("STEP CLEARED");
+        ui_message("SLOT CLEARED");
         return;
     }
     if (b == B_EDIT && !ui.home && (cur_page()->graph == GR_USER || cur_page()->graph == GR_SLOTS)) {
@@ -2015,7 +2015,7 @@ static void select_turn(uint32_t hs, int32_t s)
         pt_step_go(k, s);
         e = ocl_staged_ent(k) < OCL_NENT ? ocl_staged_ent(k) : lists.cur[k] % OCL_NENT;
         v[0] = (char)('A' + e); v[1] = 0;
-        ui_say(song.playing ? "NEXT STEP " : "STEP ", v);
+        ui_say(song.playing ? "NEXT SLOT " : "SLOT ", v);
         (void)t; (void)x;
         return;
     }
@@ -2054,7 +2054,7 @@ static void ui_confirm_accept(void)
             dq_do(kind, k, trk[k].pattern, 0);
     } else if (kind == CF_DEL_ROW) {                     /* (Orange Cat 0.4) CHAIN: the selected track's step */
         ocl_delete(song.sel, ui.chain_step);
-        ui_message("STEP DELETED");
+        ui_message("SLOT DELETED");
     } else if (kind == CF_CLEAR_CHAIN) {                 /* (Orange Cat 0.4) CHAIN: the selected track's chain */
         ocl_clear_chain(song.sel);
         ui.chain_step = 0; ui_message("CHAIN CLEARED");
