@@ -4067,6 +4067,13 @@ static int test_perform(void)
     pool_empty();
     pattern_init();
     two_entries(0);                               /* (track 1: chain 01's A B, phrases 01 02, on A) */
+    go_title("CHAIN"); frame();                   /* (0.4.1) KNOB 3 on the slot the track is on: it goes there */
+    ui.chain_step = 0; turn(EN_K3, 1);
+    ok = OCL_ENT(0, 0)[0] == 2u && trk[0].step[0].note[0] == 60u;
+    frames(400);
+    bad += check("CHAIN KNOB 3 on the slot track 1 is on: at rest, the track plays the new phrase", ok &&
+                 trk[0].step[0].note[0] == 62u && bank_pid[0][trk[0].pattern] == 2u && lists.cur[0] == 0u);
+    OCL_ENT(0, 0)[0] = 1; ocl_go(0, 0); go_home(); frame();
     btn_down(B_ARP); btn_down(B_SAVE); key_down(white(0)); frame(); key_up(white(0)); frame();
     ok = ocl_scene_used(0) && msg_is("SCENE 1 STORED") && ui.layer == LAYER_PERF;
     btn_up(B_SAVE); btn_up(B_ARP); frame();

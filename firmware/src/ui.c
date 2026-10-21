@@ -168,7 +168,9 @@ static struct {
     uint16_t confirm_trk;         /* the track it clears, the slot it overwrites */
     uint16_t uslot;               /* SAVE > USER: the selected user preset slot */
     uint8_t song_row;            /* SONG: the song row picked (Orange Cat 0.4: 00..63) */
-    uint8_t chain_step;          /* (Orange Cat 0.4) CHAIN: the step picked, A..P */
+    uint8_t chain_step;          /* (Orange Cat 0.4) CHAIN: the slot picked, A..P */
+    uint8_t chain_set;           /* (0.4.1) CHAIN's KNOB 3 turned on the slot a track is on: track + 1 (0 none), */
+    uint32_t chain_set_ms;       /* .. when: 300 ms after the last detent the track goes to the new phrase */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
     uint8_t proj_new;            /* SAVE > PROJECT: KNOB 1 past TMPL, NEW (a new song: ui_new.c); SLOT unchanged */
     uint32_t ly_t0;              /* the layer button's press time | 1, LY_* bits (ui_layer.c layer_gesture) */

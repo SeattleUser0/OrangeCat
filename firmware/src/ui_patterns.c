@@ -267,15 +267,38 @@ static void patgrid_edit(uint32_t slot, int32_t steps)
         track_select((uint32_t)clamp((int32_t)song.sel + (steps > 0 ? 1 : -1), 0, (int32_t)trk_n() - 1));
         return;
     }
-    if (slot == 2u)
+    if (slot == 2u) {
         OCL_ENT(k, e)[0] = (uint8_t)clamp((int32_t)OCL_ENT(k, e)[0] + steps, 0, OCL_NPOOL);
-    else if (OCL_ENT(k, e)[0])
+        if (e == lists.cur[k] % OCL_NENT && k < trk_n()) {   /* (0.4.1) the slot the track is on: it goes to the new
+                                                              * phrase once the knob rests (pt_set_poll) */
+            ui.chain_set = (uint8_t)(k + 1u);
+            ui.chain_set_ms = fm1_ms;
+        }
+    } else if (OCL_ENT(k, e)[0])
         OCL_ENT(k, e)[1] = (uint8_t)clamp((int32_t)OCL_ENT(k, e)[1] + steps, 0, 15);
+}
+static int ocl_launch(uint32_t k, uint32_t e);
+static int ocl_go_empty(uint32_t k, uint32_t e);
+/* (0.4.1) CHAIN's KNOB 3 at rest 300 ms on the slot a track is on: the track to its new phrase (stopped: at once, what
+ * it played kept first; playing: at the launch point); a slot emptied: nothing (the track plays on what it has) */
+static void pt_set_poll(void)
+{
+    uint32_t k = ui.chain_set - 1u, e;
+    int rc;
+    if (!ui.chain_set || fm1_ms - ui.chain_set_ms < 300u)
+        return;
+    ui.chain_set = 0;
+    e = lists.cur[k % NTRK] % OCL_NENT;
+    if (k >= trk_n() || !OCL_ENT(k, e)[0] || bank_pid[k][trk[k].pattern] == OCL_ENT(k, e)[0])
+        return;
+    rc = ocl_launch(k, e);
+    if (rc)
+        ui_message(rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") : rc == 5 ? "PATTERN DATA FULL" :
+                   rc == 1 ? "PHRASE DOES NOT READ" : "STOP FIRST");
+    ui.force = 1;
 }
 /* (the hold-select's PATTERN) track k one step of its chain right or left, A up to one past its last phrase (an
  * empty step there: a new empty phrase, ready to record). Stopped: at once; playing: at its loop end */
-static int ocl_launch(uint32_t k, uint32_t e);
-static int ocl_go_empty(uint32_t k, uint32_t e);
 static void pt_step_go(uint32_t k, int32_t steps)
 {
     uint32_t from, last, e;

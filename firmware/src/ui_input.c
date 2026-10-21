@@ -2087,6 +2087,7 @@ static void ui_input(void)
 {
     pattern_poll();
     ocl_poll();
+    pt_set_poll();                                      /* (0.4.1) CHAIN's KNOB 3 on the slot a track is on */
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     dq_poll();                                          /* (destructive edits waiting for their loop end) */
     if (boot_work.state) {
