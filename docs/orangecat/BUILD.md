@@ -248,7 +248,7 @@ How others do it: the Dirtywave M8 streams every sample from its SD card instead
 
 Several at once (0.4.13, the plan's next step after the timer reading):
 - Up to four WAVs play together. OCT+ on a WAV starts it beside the others; OCT+ on one that plays stops it; the rows playing say PLAY. They play on while you move through folders, and all stop when the file list is left, the test ends or the drive goes.
-- Memory: 40 KB of .pool in four fixed 10 KB slots (8 KB more than 0.4.12's one ring; the audio working arena keeps about 51 KB of its 48 KB minimum). Mono files are kept mono, so a slot holds 2,560 stereo frames (58 ms) or 5,120 mono (116 ms).
+- Memory: 40 KB of .pool in four fixed 10 KB slots (8 KB more than 0.4.12's one ring; the audio working arena is left 50,080 B of its 49,152 B minimum: there is no more to take from it). Mono files are kept mono, so a slot holds 2,560 stereo frames (58 ms) or 5,120 mono (116 ms).
 - The timer's engine serves the running stream whose ring is emptiest, once it has a quarter of its ring free, up to 8 sectors (4 KB) a command. One packet a tick still caps the total near 640 KB/s: four 16-bit stereo files at 44.1 kHz (706 KB/s) are past it; four mono, or three stereo, fit.
 - Each stream -6 dB; the sum held to the DAC's full scale (never wrapped).
 - The foot: "2 on, CPU 44% card 4% gap 0".
