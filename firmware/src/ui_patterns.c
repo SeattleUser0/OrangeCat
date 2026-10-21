@@ -250,8 +250,9 @@ static void patterns_draw(void)
 static int patterns_queued(void)
 {
     uint32_t k;
-    for (k = 0; k < NTRK; k++)
-        if (trk[k].pattern_next < NPAT)
+    for (k = 0; k < NTRK; k++)                          /* (0.4.6: one gone to by hand; the chains' and the song's
+                                                         * next is always staged while they play) */
+        if (trk[k].pattern_next < NPAT && !(trk[k].pattern_reps & 0x80u))
             return 1;
     return 0;
 }

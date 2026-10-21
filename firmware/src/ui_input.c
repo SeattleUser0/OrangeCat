@@ -2467,10 +2467,10 @@ static void ui_input(void)
         if (ui.act) {
             ui.act = 0;
         } else if (cur_page()->graph == GR_PATGRID && patterns_queued()) {   /* (Orange Cat 0.4) CHAIN: the queue
-                                                                            * first */
+                                                                            * first (0.4.6: what was gone to by hand) */
             uint32_t k, f = motion_guard();
             for (k = 0; k < NTRK; k++)
-                trk[k].pattern_next = 0xFFu;
+                if (!(trk[k].pattern_reps & 0x80u)) trk[k].pattern_next = 0xFFu;
             motion_unguard(f);
             ui_message("QUEUE CLEARED");
             ui.force = 1;
@@ -2504,7 +2504,7 @@ static void ui_input(void)
         } else if (cur_page()->graph == GR_PATGRID && patterns_queued()) {   /* CHAIN: the queue first */
             uint32_t k, f = motion_guard();
             for (k = 0; k < NTRK; k++)
-                trk[k].pattern_next = 0xFFu;
+                if (!(trk[k].pattern_reps & 0x80u)) trk[k].pattern_next = 0xFFu;
             motion_unguard(f);
             ui_message("QUEUE CLEARED");
             ui.force = 1;

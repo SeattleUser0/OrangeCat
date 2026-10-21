@@ -606,6 +606,18 @@ static int test_review(void)
     ocl_delete(0, 0);
     ok &= lists.cur[1] == 2u && lists.cur[0] == 1u && ocl_ent_pat(1, 2) == 2u;
     bad |= lcheck("a slot inserted or deleted moves every track on that chain with it", ok);
+    reset();                                    /* (a second review) a step staged by hand, then a load: dropped */
+    three_patterns();
+    project_save_as(0, "STAGE");
+    lists.tchain[0] = 7; lists.chain[7][1][0] = 2;
+    song.playing = 1;
+    ocl_launch(0, 1);
+    ok = ocl_staged_ent(0) == 1u;
+    song.playing = 0;
+    project_load(0);
+    ocl_poll();
+    bad |= lcheck("a step staged by hand in a project let go never lands in the one loaded", ok && lists.tchain[0] == 0u &&
+                  ocl_staged_ent(0) == OCL_NENT);
     return bad;
 }
 

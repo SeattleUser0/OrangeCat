@@ -119,6 +119,29 @@ static int track_remove(uint32_t k)
     for (j = k; j < last; j++)                          /* (Orange Cat 0.3) Skiff's fields move too (no memmove) */
         memcpy(proj_x[j], proj_x[j + 1u], sizeof proj_x[j]);
     memset(proj_x[last], 0, sizeof proj_x[last]);
+    for (j = k; j < last; j++) {                        /* (Orange Cat 0.4.6, a review) the phrases the banks are, the
+                                                         * chain, slot and song row each track is on, its song column,
+                                                         * its scenes and its groove: down a place too */
+        memcpy(proj_pid[j], proj_pid[j + 1u], sizeof proj_pid[j]);
+        proj_lists.tchain[j] = proj_lists.tchain[j + 1u];
+        proj_lists.cur[j] = proj_lists.cur[j + 1u];
+        proj_lists.row[j] = proj_lists.row[j + 1u];
+        proj_lists.groove[j] = proj_lists.groove[j + 1u];
+        proj_lists.gamt[j] = proj_lists.gamt[j + 1u];
+        for (r = 0; r < OCL_NROW; r++) proj_lists.song[r][j] = proj_lists.song[r][j + 1u];
+        for (r = 0; r < OCL_NSCENE; r++) {
+            proj_lists.scene[r][j][0] = proj_lists.scene[r][j + 1u][0];
+            proj_lists.scene[r][j][1] = proj_lists.scene[r][j + 1u][1];
+        }
+    }
+    memset(proj_pid[last], 0, sizeof proj_pid[last]);   /* (the last place: a new track's) */
+    proj_lists.tchain[last] = (uint8_t)last;
+    proj_lists.cur[last] = 0;
+    proj_lists.row[last] = OCL_NOROW;
+    proj_lists.groove[last] = 0;
+    proj_lists.gamt[last] = 100;
+    for (r = 0; r < OCL_NROW; r++) proj_lists.song[r][last] = 0;
+    for (r = 0; r < OCL_NSCENE; r++) proj_lists.scene[r][last][0] = proj_lists.scene[r][last][1] = 0;
     proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
     if (!bank_valid(raw, BANK_STORE_SIZE) || project_restore_runtime(&proj_scratch))
         goto fail;

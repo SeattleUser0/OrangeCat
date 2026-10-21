@@ -10,7 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
-- **0.22 (October 21, 2026):** 0.4.6: SEQ tools (Shift right, Shift left, Reverse). Groove review fixes.
+- **0.22 (October 21, 2026):** 0.4.6: SEQ tools (Shift right, Shift left, Reverse). Groove review fixes. Fixes from a review of the new pages.
 - **0.21 (October 21, 2026):** 0.4.5: groove templates (4f part 1), SEQ > GROOVE.
 - **0.20 (October 21, 2026):** 0.4.4 fixes from a code review of the night's work (see 4c).
 - **0.19 (October 21, 2026):** 0.4.4: SEQ > PHRASES, the pool's 64 phrases at a glance.
@@ -313,6 +313,13 @@ Each step builds, passes the host tests, and is measured before the next.
     - During a REC count-in, going to a slot or recalling a scene could write flash. Now refused until playback starts.
     - A throw out when PLAY was pressed could end up saved through the motion system. Throws now go on after each block's events.
     - Inserting or deleting a chain slot or a song row now moves every track (and anything staged) that is on that chain or row, not only the selected track.
+  - [x] **Second review fixes (0.4.6).** A review of the new pages and their buttons found:
+    - Removing a track (the Stage sheet) could, at the next save, write a later track's notes over another phrase in the pool. The tracks after it now take their phrase numbers, chains, song column, scenes and groove with them. (The bank-number part of this dated from 0.3.)
+    - A slot gone to by hand while playing, then a project load before it came in, could put the loaded track on the old project's chain. A load now drops it.
+    - OCT- on CHAIN while the chains or the song played said QUEUE CLEARED forever and never went HOME. It now clears only what was gone to by hand.
+    - PHRASES' OCT+ during a count-in changed the slot though the track did not move. Now nothing changes.
+    - The PERFORM map could show the last scene of the project before a load. It forgets it now.
+    - A track that could not start when PLAY was pressed on SONG kept an old song row. It now stays out of the song.
   - Left to do in 4c: the web editor's view of chains and the song (4g).
   - **Known gap: web editor backups.** A complete backup still saves each project as Melodee's FBKK, which holds only the 32 phrases loaded in the tracks' banks. It does not yet hold the chains, the song, the scenes, or phrases not loaded in a bank. Until 4g adds them, keep projects on the device and do not rely on a web backup to bring back an Orange Cat project whole.
   - Left to test on the device (4c, 0.4.0):

@@ -4057,6 +4057,44 @@ static void lay_combo(uint32_t btn, uint32_t k) { btn_down(btn); key_down(k); fr
 static void oct_back(void) { btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame(); }
 static uint32_t leds_at(uint32_t ms) { fm1_ms = ms; return layer_leds(); }
 
+/* (Orange Cat 0.4.6, a review) removing a track: the phrases the later tracks are move with them; OCT- on CHAIN while
+ * the chains play goes HOME */
+static int test_review_ui(void)
+{
+    int bad = 0, ok = 1;
+    pattern_t p;
+    ui_power_on();
+    stop_transport();
+    pool_empty();
+    pattern_init();
+    for (uint32_t k = 0; k < 3u; k++) {
+        for (uint32_t i = 0; i < NSTEP; i++) step_clear(&trk[k].step[i]);
+        trk[k].step[0] = (step_t){{(uint8_t)(50u + k)}, 1, ST_NOTE, 0, 96, 0, 0};
+    }
+    ocl_keep_all();                               /* (phrases 01 02 03, one a track) */
+    ok = bank_pid[1][trk[1].pattern] == 2u && bank_pid[2][trk[2].pattern] == 3u;
+    track_remove(1);
+    ocl_keep_all();
+    ok &= bank_pid[1][trk[1].pattern] == 3u && trk[1].step[0].note[0] == 52u;
+    ok &= !ocp_load(1, 3, 7, 1); pattern_read(3, 7, &p); ok &= p.step[0].note[0] == 51u;
+    ok &= !ocp_load(2, 3, 7, 1); pattern_read(3, 7, &p); ok &= p.step[0].note[0] == 52u;
+    bank_pid[3][7] = 0;
+    bad += check("removing track 2: track 3 moves down with its phrase, nothing kept over another's", ok);
+    ui_power_on();
+    stop_transport();
+    pool_empty();
+    pattern_init();
+    two_entries(0);
+    go_title("CHAIN"); frame();
+    lists.mode = OCL_CHAIN; song.playing = 1;
+    frame(); ocl_poll();
+    ok = trk[0].pattern_next < NPAT && (trk[0].pattern_reps & 0x80u);
+    press(B_OCTDN);
+    bad += check("OCT- on CHAIN while the chains play: HOME (the chain's next is not a queue to clear)", ok && ui.home);
+    stop_transport();
+    return bad;
+}
+
 /* (Orange Cat 0.4.6) the pattern's sheet: Shift right, Shift left, Reverse */
 static int test_seq_tools(void)
 {
@@ -5084,6 +5122,7 @@ static int test_stage(void)
         OCL_ENT(song.sel, 0)[0] = 1; OCL_ENT(song.sel, 2)[0] = 2; lists.cur[song.sel] = 0;
         song.playing = 1;
         ocl_staged[song.sel] = 6;                         /* (entry F staged) */
+        ocl_staged_epoch[song.sel] = pattern_epoch;       /* (0.4.6: of this project) */
         TSEL->pattern_next = 5;
         btn_down(B_SEQ);
         frame();
@@ -5757,6 +5796,7 @@ int main(void)
     bad += test_pool();
     bad += test_groove_page();
     bad += test_seq_tools();
+    bad += test_review_ui();
     bad += test_product_ux();
     bad += test_mono_screens();
     bad += test_roll();

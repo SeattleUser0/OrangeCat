@@ -42,6 +42,12 @@ static int ocl_scene_used(uint32_t s);
 static void ocl_scene_store(uint32_t s);
 static int ocl_scene_recall(uint32_t s);
 static uint8_t perf_scene = 0xFFu;                     /* the scene recalled or stored last (its key lit), 0xFF none */
+static uint16_t perf_epoch;                             /* .. the project's it was (pattern_epoch): (0.4.6) a load or a
+                                                         * new song forgets it */
+static void perf_sync(void)
+{
+    if (perf_epoch != pattern_epoch) { perf_epoch = pattern_epoch; perf_scene = 0xFFu; }
+}
 static const char *const LAUNCH_NAME[OCL_NLAUNCH] = {"LOOP", "BAR", "BEAT", "NOW"};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
 static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
@@ -254,6 +260,7 @@ static void layer_key(uint32_t l, uint32_t k)
         scale_share(TSEL);
     } else if (l == LAYER_PERF) {
         char m[24];
+        perf_sync();
         if (key_black(k) && p == NTRK) {                /* D#4: FILL while held (layer_keys) */
             lys.fill |= 1u << k;
         } else if (key_black(k)) {                      /* T1..T4 MUTE, staged */
@@ -390,6 +397,7 @@ static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!track_solo |
 static uint32_t layer_leds(void)
 {
     uint32_t k, m = 0, blink = ((fm1_ms / 250u) & 1u) == 0u, l = ui.layer;
+    perf_sync();                                        /* (0.4.6) */
     uint32_t mask = scale_mask(TSEL), root = (uint32_t)TSEL->p[P_ROOT] % 12u;
     for (k = 0; k < 27u; k++) {
         uint32_t p = key_place(k), b = (uint32_t)key_black(k), on = 0, e;
@@ -494,6 +502,7 @@ static void layer_perf_keys(int32_t h)
     static const uint8_t BX[NTRK] = {0, 1, 2, 4};       /* black key t: between white BX and BX + 1 (F# G# A# C#) */
     const int32_t kw = 28, x0 = 1, wy = 50, by = 6, bh = 40;
     uint32_t i;
+    perf_sync();                                        /* (0.4.6) */
     for (i = 0; i < OCL_NSCENE; i++) {
         int32_t x = x0 + (int32_t)i * (kw + 1);
         uint32_t used = (uint32_t)ocl_scene_used(i), last = i == perf_scene;
@@ -583,6 +592,7 @@ static void draw_layer(void)
     else if (l == LAYER_SCL)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
     else if (l == LAYER_PERF) {
+        perf_sync();
         sig += lists.launch * 31u + lists.scene_used * 131u + perf_scene * 7u + trk_n() * 40503u + (lys.fill != 0u) * 3u;
         for (c = 0; c < THR_N; c++)                     /* (0.4.3) the throws gliding: the cards redrawn */
             sig += (uint32_t)throw_value(song.sel, c) << (7u * c);

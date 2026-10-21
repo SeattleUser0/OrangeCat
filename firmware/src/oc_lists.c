@@ -172,6 +172,7 @@ static uint32_t ocl_victim_clean(uint32_t k)
  * track's own, unchanged), the bank it is in, and the track's pattern_gen when staged (changed: it came in) */
 static uint8_t ocl_staged[NTRK], ocl_staged_chain[NTRK], ocl_staged_row[NTRK], ocl_staged_bank[NTRK];
 static uint32_t ocl_staged_gen[NTRK];
+static uint16_t ocl_staged_epoch[NTRK];                 /* (0.4.6, a review) the project's (pattern_epoch): a load drops it */
 
 /* track k to bank b holding step e of chain c (song row row, OCL_NOROW: unchanged): stopped, at once; playing, staged
  * for its loop end after reps passes of the one playing (is_song: the song's next, which a stop drops) */
@@ -188,6 +189,7 @@ static void ocl_place(uint32_t k, uint32_t b, uint32_t c, uint32_t e, uint32_t r
     {
         uint32_t f = motion_guard();
         ocl_staged_gen[k] = trk[k].pattern_gen;
+        ocl_staged_epoch[k] = pattern_epoch;
         trk[k].pattern_reps = (uint8_t)((reps > 127u ? 127u : reps) | (is_song ? 0x80u : 0u));
         trk[k].pattern_next = (uint8_t)b;
         motion_unguard(f);
@@ -360,7 +362,7 @@ static int ocl_song_start(uint32_t row)
     for (uint32_t k = 0; k < trk_n(); k++) {
         if (lists.song[row][k]) {
             r = ocl_go_chain(k, lists.song[row][k] - 1u);
-            if (!r) lists.row[k] = (uint8_t)row;
+            lists.row[k] = r ? OCL_NOROW : (uint8_t)row;   /* (0.4.6: one that did not start: out of the song) */
         } else {
             uint32_t b = ocl_empty_bank(k, 0, &r);   /* (an empty bank: silence) */
             if (b < NPAT) pattern_request(&trk[k], b);
@@ -378,6 +380,8 @@ static void ocl_poll(void)
     for (uint32_t k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         uint32_t c, e, row;
+        if (ocl_staged[k] && ocl_staged_epoch[k] != pattern_epoch)   /* (0.4.6: staged in a project since let go) */
+            ocl_staged[k] = 0;
         if (ocl_staged[k] && t->pattern_next == 0xff) {   /* (came in, or dropped: a stop, a load) */
             if (t->pattern_gen != ocl_staged_gen[k] && t->pattern == ocl_staged_bank[k]) {
                 lists.cur[k] = (uint8_t)(ocl_staged[k] - 1u);
@@ -674,7 +678,12 @@ static int ocl_pool_clear(uint32_t id)
  * launch point). As ocl_launch */
 static int ocl_pool_put(uint32_t k, uint32_t e, uint32_t id)
 {
+    uint8_t was;
+    int rc;
     k %= NTRK; e %= OCL_NENT;
+    if (chain.running || chain.armed || (!song.playing && transport_busy())) return 2;   /* (0.4.6: the slot as it was) */
+    was = OCL_ENT(k, e)[0];
     OCL_ENT(k, e)[0] = (uint8_t)(id + 1u);
-    return ocl_launch(k, e);
+    if ((rc = ocl_launch(k, e)) != 0) OCL_ENT(k, e)[0] = was;
+    return rc;
 }
