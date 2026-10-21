@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.25  
+**Version:** 0.26  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.6
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.26 (October 21, 2026):** 0.4.9 on the unit: the card reader stick reads too. Phase 2 answered.
 - **0.25 (October 21, 2026):** The FM-1 read an SD card through a powered hub (29.7 GB, FAT32, 914 KB/s). 0.4.9: card reader slots, a retry after a reset, the error kept.
 - **0.24 (October 21, 2026):** First drive test on the unit: host mode works when the port gets power. 0.4.8 walks hubs inside hubs.
 - **0.23 (October 21, 2026):** 0.4.7: phase 2 started. Menu > USB DRIVE TEST, a test build for the flash drive question.
@@ -42,7 +43,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 |---|---|---|
 | 0 | Specification and source review | Done |
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
-| 2 | USB flash drive test | Works with a powered hub; card reader stick left to test |
+| 2 | USB flash drive test | Done: works through a hub on PD power |
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
@@ -153,7 +154,7 @@ Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variable
 
 ## Phase 2: USB flash drive test
 
-**Status: Answered, with one test left.** The FM-1 reads a drive as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. A card reader stick behind the hub did not answer; 0.4.9 is for that.
+**Status: Done.** The FM-1 reads a drive as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. Reading files (FAT32) is the next step, in a later phase.
 
 Goal: find out if the FM-1 can read a USB flash drive. This decides where samples and bounces can live.
 
@@ -182,8 +183,8 @@ Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] Drive plugged straight into the FM-1: not seen. The FM-1 puts no 5 V on its port.
 - [x] A hub with power on its PD port: host mode works, the hub is found (0.4.7).
 - [x] 0.4.8 with the RCA hub on PD power: the SD card in the hub's slot reads (914 KB/s).
-- [ ] 0.4.9: the card reader stick in the hub's port 3, card in it, hub slot empty.
-- [ ] A plain USB flash drive in one of the hub's USB-A ports.
+- [x] 0.4.9: the card reader stick in the hub's port 3: "Through hubs: 3", ID 05E3:0749 (Generic USB3.0 Card Reader), Drive 29.7 GB, Disk: FAT32, Read 930 KB/s. The hub's own slot again: 911 KB/s.
+- [ ] A plain USB flash drive in one of the hub's USB-A ports (the stick reader in a USB-A port already covers that path).
 - [ ] Read speed: enough to copy samples into flash? Enough to stream?
 - [ ] After OCT-, USB MIDI, USB audio and the web editor work again without a power cycle.
 - [ ] A photo of the page for each try, so the bottom line can be read.
