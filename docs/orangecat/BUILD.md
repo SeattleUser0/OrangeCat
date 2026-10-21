@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.29  
+**Version:** 0.30  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.30 (October 21, 2026):** 0.4.11 on the unit: a WAV plays from the card with no gaps, alone and over three tracks. The reading costs main loop time, not audio time.
 - **0.29 (October 21, 2026):** 0.4.11: a WAV plays from the card (plan steps 2 and 4 as one test): the audio load, the card's share of the main loop and any gaps on the page.
 - **0.28 (October 21, 2026):** 0.4.10 on the unit: files list and WAVs read; 470 to 480 KB/s in 512-byte reads.
 - **0.27 (October 21, 2026):** 0.4.10: the drive's files (FatFs): folders, WAV details, a timed file read. Plan for bounces to the card and for several FM-1s sharing one card.
@@ -199,10 +200,14 @@ Left to test, files (0.4.10, the RCA hub on PD power, the 32 GB card with a few 
 - [ ] An exFAT card (64 GB or more), if one is handy.
 
 Left to test, playing (0.4.11):
-- [ ] A 44.1 kHz 16-bit stereo WAV plays clean, loops, and stops with OCT+.
-- [ ] The foot's numbers with nothing else playing: CPU, card %, gaps (should stay 0).
-- [ ] The same with a pattern playing (start it before opening the menu): do gaps appear? Does the sequencer's timing or the screen suffer?
-- [ ] A 24-bit mono WAV and a 48 kHz WAV play at the right pitch.
+- [x] A WAV alone (October 21): 44.1 kHz 16-bit stereo: CPU 9%, card 29%, gaps 0. 44.1 kHz 24-bit mono: CPU 9%, card 23%, gaps 0.
+- [x] With three tracks playing, then the 16-bit stereo WAV: CPU 30%, card 38%, gaps 0.
+- [ ] By ear: the WAV clean, the sequencer's timing steady, the screen usable while it plays.
+- [ ] A 48 kHz WAV at the right pitch.
+
+What the numbers say: the audio load does not move with the card (9% with the WAV alone; 30% with three tracks, about what three tracks cost without it). The reading costs main loop time: 29% of it for one stereo 16-bit track (176 KB/s), more (38%) when the synths take more of the processor. The bus itself is only about a fifth busy at 176 KB/s; most of that 29% is the processor waiting on each 64-byte packet (the host code polls). So two stereo tracks this way would take most of the main loop, and the screen and keys would suffer.
+
+Next, to carry more tracks: move the transfers out of the main loop and stop waiting on the bus. The controller moves each packet by DMA; the processor only has to start the next one. Driven from an interrupt (the USB controller's own, or the 10 kHz timer), that is a few microseconds a packet, a few percent of the processor for a stereo track, and the main loop free. Then larger reads where memory allows.
 
 Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] Drive plugged straight into the FM-1: not seen. The FM-1 puts no 5 V on its port.
