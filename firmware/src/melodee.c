@@ -110,6 +110,10 @@
 #endif
 #include "upreset.c"             /* user presets (RAM mirror; flash with MELODEE_FLASH) */
 #include "project.c"
+#if MELODEE_FLASH
+#include "oc_store.c"            /* (Orange Cat 0.3) the record store over the project area (build doc 4a part 3) */
+#include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
+#endif
 #include "cz_store.c"
 #include "fm6_store.c"            /* FM6: DX7 SysEx, the STORE shortcut to user presets */
 #if MELODEE_OTA

@@ -64,6 +64,16 @@ static int reads(uint32_t type, uint32_t id, const uint8_t *want, uint32_t len)
     return n == (int)len && !memcmp(got, want, len);
 }
 
+/* a source of B's bytes that fails after 5000 */
+int fail_get(ocs_src_t *s, uint8_t *d, uint32_t n)
+{
+    struct { ocs_src_t src; uint32_t left; } *f = (void *)s;
+    if (n > f->left) return -3;
+    memcpy(d, B, n);
+    f->left -= n;
+    return 0;
+}
+
 static void wipe(void)
 {
     memset(nor, 0xFF, sizeof nor);
@@ -94,10 +104,27 @@ static int test_basics(void)
     bad |= check("an empty record and a record of exactly one full part",
                  ocs_write(OCS_SAMPLE, 9, A, 0) == 0 && ocs_read(OCS_SAMPLE, 9, got, sizeof got) == 0 &&
                      ocs_write(OCS_SAMPLE, 10, A, OCS_PAYLOAD_MAX) == 0 && reads(OCS_SAMPLE, 10, A, OCS_PAYLOAD_MAX));
-    bad |= check("a record too big for eight parts, or a bad type, is refused",
+    bad |= check("a record too big for twelve parts, or a bad type, is refused",
                  ocs_write(OCS_POOL, 1, got, OCS_PARTS_MAX * OCS_PAYLOAD_MAX + 1u) == -1 &&
                      ocs_write(OCS_NONE, 1, A, 10) == -1 && ocs_write(OCS_TYPES, 1, A, 10) == -1);
     bad |= check("a read into too small a buffer is refused", ocs_read(OCS_POOL, 3, got, 100) < 0);
+    {   /* pieces across a part's end; a source that fails part way */
+        ocs_rec_t r;
+        uint8_t piece[600];
+        int ok = ocs_write(OCS_POOL, 4, A, 11000) == 0 && ocs_open(OCS_POOL, 4, &r) == 0 && r.total == 11000u;
+        ok &= ocs_at(&r, OCS_PAYLOAD_MAX - 300u, piece, 600) == 0 && !memcmp(piece, A + OCS_PAYLOAD_MAX - 300u, 600);
+        ok &= ocs_at(&r, 2u * OCS_PAYLOAD_MAX - 1u, piece, 2) == 0 && !memcmp(piece, A + 2u * OCS_PAYLOAD_MAX - 1u, 2);
+        ok &= ocs_at(&r, 10999, piece, 2) < 0 && ocs_open(OCS_POOL, 99, &r) < 0;
+        bad |= check("pieces read across a part's end; past the end refused", ok);
+    }
+    {
+        struct { ocs_src_t src; uint32_t left; } f = {{0}, 5000};
+        int fail_get(ocs_src_t *s, uint8_t *d, uint32_t n);
+        f.src.get = fail_get;
+        bad |= check("a source that fails part way: the save fails, the copy before stays",
+                     ocs_write_src(OCS_POOL, 4, &f.src, 11000) < -1 && reads(OCS_POOL, 4, A, 11000) &&
+                         (ocs_boot(), reads(OCS_POOL, 4, A, 11000)));
+    }
     return bad;
 }
 
