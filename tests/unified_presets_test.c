@@ -71,6 +71,7 @@ static int check(const char *what, int ok)
 static void reset(void)
 {
     memset(nor, 0xFF, sizeof nor);
+    ocs_boot(); ocp_scan(); ocj_scan();            /* (Orange Cat 0.3: the project store, empty) */
     memset(&song, 0, sizeof song);
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);

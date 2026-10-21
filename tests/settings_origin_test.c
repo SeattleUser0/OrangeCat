@@ -166,18 +166,18 @@ static int test_incompatible_projects(void)
         }
         uint32_t hash = proj_hash(project, PROJ_STORE_SIZE - 4u);
         memcpy(project + PROJ_STORE_SIZE - 4u, &hash, 4); bank_checksum(bank);
-        st_save(OBJ_BANK0, bank, sizeof bank);
+        ocs_write(OCS_PROJECT, 0, bank, sizeof bank);   /* (Orange Cat 0.3: planted as slot 0's record, not one it wrote) */
         uint32_t crc = music_crc(), before = erases;
         persist_boot();
         int ok = !project_used(0) && project_old(0) && project_free_slot() != 0 && erases == before;
         trk[0].p[P_LEVEL] = 71;
         bootguard.failed = 0; project_boot();
-        ok &= trk[0].p[P_LEVEL] == 71 && st_load(OBJ_BANK0, saved, sizeof saved) == sizeof saved &&
+        ok &= trk[0].p[P_LEVEL] == 71 && ocs_read(OCS_PROJECT, 0, saved, sizeof saved) == sizeof saved &&
             !memcmp(saved, bank, sizeof bank) && music_crc() == crc;
         bad += check("incompatible project with valid CRC is quarantined before BOOT load", ok);
     }
     fixture(); project_capture(&proj_scratch); bank_pack(bank, &proj_scratch, 1);
-    st_save(OBJ_BANK0, bank, sizeof bank); persist_boot();
+    proj_write_slot(0, bank, sizeof bank); persist_boot();   /* (Orange Cat 0.3: into the project store) */
     bad += check("valid current Melodee projects remain available after settings reset", project_used(0) && !project_old(0));
     return bad;
 }

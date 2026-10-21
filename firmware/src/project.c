@@ -510,6 +510,11 @@ static void proj_bound(project_t *q)
 }
 
 #include "pattern_store.c"
+#if MELODEE_FLASH
+#include "oc_store.c"            /* (Orange Cat 0.3) the record store over the project area (build doc 4a part 3) */
+#include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
+#include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
+#endif
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
 static uint32_t proj_saved_hash[4];
@@ -519,9 +524,8 @@ static int proj_read_slot(uint32_t slot)
     slot &= 3u;
     proj_wire_gen++;
 #if MELODEE_FLASH
-    if (flash_ok) {
-        n = st_load(OBJ_BANK0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);   /* (the legacy objects: retired) */
-    }
+    if (flash_ok)                                  /* (Orange Cat 0.3) from the project store and the pool */
+        n = ocj_read(slot, proj_wire_u.raw);
 #else
     if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
         !memcmp(proj_bank_slot[slot] + 8u, &proj_slot[slot], sizeof proj_slot[slot])) {
@@ -537,19 +541,23 @@ static int proj_read_slot(uint32_t slot)
 #endif
     proj_meta[slot].used = (uint8_t)valid;
 #if MELODEE_FLASH
-    proj_meta[slot].old = (uint8_t)(!valid && flash_ok && st_exists(OBJ_BANK0 + slot));
+    proj_meta[slot].old = (uint8_t)(!valid && flash_ok && ocs_exists(OCS_PROJECT, slot));   /* (Orange Cat 0.3: a
+                                                    * record, or a pattern it names, this firmware cannot read) */
 #endif
     if (valid) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
-    proj_saved_hash[slot] = valid && n == BANK_STORE_SIZE ? proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) : 0u;
+    proj_saved_hash[slot] = valid && n == BANK_STORE_SIZE ? bank_hash(proj_wire_u.raw) : 0u;
     return valid ? n : 0;
 }
 static void proj_fetch(uint32_t slot) { (void)proj_read_slot(slot); }
 static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
 {
     slot &= 3u;
+    uint32_t hash = len == BANK_STORE_SIZE ? bank_hash(raw) : len ? proj_hash(raw, len) : 0u;
 #if MELODEE_FLASH
-    if (!flash_ok || st_save(OBJ_BANK0 + slot, raw, len)) return 2;
+    /* (Orange Cat 0.3) the project store: its patterns into the pool, the rest a small record (oc_project.c). The
+     * staging (raw) is used up: its project part is left the record's, not the music's */
+    if (!flash_ok || ocj_write(slot, (uint8_t *)raw, len)) return 2;
 #endif
 #if !defined(FM1_IRQ_TARGET)
     memset(proj_bank_slot[slot], 0, sizeof proj_bank_slot[slot]);
@@ -558,7 +566,7 @@ static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
 #endif
     proj_meta[slot].used = len != 0;
     proj_meta[slot].old = 0;
-    proj_saved_hash[slot] = len ? proj_hash(raw, len) : 0u;
+    proj_saved_hash[slot] = hash;
     if (len) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
     return 0;
@@ -669,7 +677,7 @@ static void project_autosave(void)
     proj_wire_gen++;                                    /* (the staging RAM: a backup's copy there is gone) */
     if (!bank_pack(proj_wire_u.raw, p, 1))
         return;
-    if (proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) == proj_saved_hash[slot])
+    if (bank_hash(proj_wire_u.raw) == proj_saved_hash[slot])
         return;                                         /* as saved: nothing to write */
     project_quick_save();
 }
@@ -1153,7 +1161,7 @@ static int project_dirty(void)
         project_capture(&proj_scratch);
         proj_wire_gen++;
         return !bank_pack(proj_wire_u.raw, &proj_scratch, 1) ||
-               proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) != proj_saved_hash[proj_cur];
+               bank_hash(proj_wire_u.raw) != proj_saved_hash[proj_cur];
     }
     for (k = 0; k < NTRK; k++)
         if (!seq_is_empty(&trk[k]) || notes_have_recording(&trk[k]))
@@ -1264,6 +1272,9 @@ static void persist_boot(void)                    /* before settings_init / pane
             }
         }
     }
+    ocs_boot();                                    /* (Orange Cat 0.3) the record store, the pool, the slots' maps */
+    ocp_scan();
+    ocj_scan();
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
         uint32_t i;
         for (i = 0; i < 4u; i++)

@@ -74,6 +74,7 @@ static int check(const char *what, int ok)
 static void reset(void)
 {
     memset(nor, 0xFF, sizeof nor);
+    ocs_boot(); ocp_scan(); ocj_scan();            /* (Orange Cat 0.3: the project store, empty) */
     memset(&song, 0, sizeof song);
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
@@ -215,8 +216,8 @@ int main(void)
     project_save(0);
     fail_after = -1;
     bad += check("failed project save keeps RAM and old flash", !strcmp(ui.msg, "SAVE ERROR") &&
-                  !memcmp(&proj_slot[0], &old, sizeof old) && st_load(OBJ_BANK0, got, sizeof got) == (int)sizeof got &&
-                  !memcmp(got + 8u, &old, sizeof old));
+                  !memcmp(&proj_slot[0], &old, sizeof old) && ocj_read(0, got) == (int)sizeof got &&
+                  !memcmp(got + 8u, &old, sizeof old));   /* (Orange Cat 0.3: the project store) */
     project_save(0);
     bad += check("successful project save publishes new RAM", !strcmp(ui.msg, "SAVED") &&
                   proj_import(&proj_scratch, &proj_slot[0], sizeof proj_slot[0]) &&
@@ -244,7 +245,7 @@ int main(void)
         fail_after = 1;
         bad += check("failed project rename: SAVE ERROR, the slot and flash as they were",
                       project_rename(0, "DUB") == 2 && !strcmp(ui.msg, "SAVE ERROR") && !memcmp(&proj_slot[0], &keep, sizeof keep) &&
-                      st_load(OBJ_BANK0, got, sizeof got) == (int)sizeof got && !memcmp(got + 8u, &keep, sizeof keep));
+                      ocj_read(0, got) == (int)sizeof got && !memcmp(got + 8u, &keep, sizeof keep));
         fail_after = -1;
         before = erases;
         transport_req = 1;
@@ -255,13 +256,19 @@ int main(void)
                       !strcmp(ui.msg, "RENAMED") && (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_name(0, n)) &&
                       !strcmp(n, "DUB") && proj_scratch.t[0].step[0].note[0] == st0.note[0]);
     }
-    {   /* All inactive banks are validated before replacing the runtime. */
+    {   /* Every bank is validated before replacing the runtime. (Orange Cat 0.3) A bank is a pool pattern: one
+         * written damaged (a chord note past 127, its record's CRC good) refuses the whole project */
         step_t keep = trk[0].step[0];
-        project_capture(&proj_scratch); bank_pack(got, &proj_scratch, 1);
-        got[BANK_EXTRA_OFF + 3u] |= 0xF0; bank_checksum(got);
-        st_save(OBJ_BANK0, got, sizeof got);
+        static ocp_gen_t g;
+        ocp_gen_t *gen[OCP_PER] = {0};
+        uint32_t id = ocj.pid[0][0][trk[0].pattern];
+        ocp_gen_bank(&g, 0, trk[0].pattern);
+        g.pat.step[0].note[1] = 0xF0;
+        ocp_gen_count(&g);
+        gen[(id - 1u) % OCP_PER] = &g;
         project_load(0);
-        bad += check("damaged inactive-bank chord is refused with runtime unchanged", !strcmp(ui.msg,"OLD FORMAT") &&
+        bad += check("damaged pool pattern: a project naming it is refused with runtime unchanged",
+            id != 0u && ocp_chunk_write((id - 1u) / OCP_PER, gen) == 0 && (project_load(0), !strcmp(ui.msg,"OLD FORMAT")) &&
             !memcmp(&trk[0].step[0],&keep,sizeof keep));
     }
     {   /* every parameter range fits the record's byte (FUN16: value + 64, 0..191) */

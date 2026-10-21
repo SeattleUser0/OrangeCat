@@ -5,6 +5,8 @@
  * in main-loop RAM and fully validated before the existing A/B commit path writes.
  * Runtime and saved projects include all 32 pattern banks. Retired user sample
  * slots are absent from the inventory and cannot be restored over project data.
+ * (Orange Cat 0.3) A saved project is built from the project store (oc_project.c) into the staging when the LIST
+ * counts it and again when it is read; a restored one goes into the store through proj_write_slot.
  */
 #ifndef ED_BK_FLASH_PTR
 #define ED_BK_FLASH_PTR(off) fm1_xip_ptr(off)
@@ -45,6 +47,22 @@ static uint32_t ed_bk_preset_bank(uint32_t id)
     if(id>=23u && id<=28u)return id-7u;
     return UP_BANKS;
 }
+#if MELODEE_FLASH
+static uint32_t ed_bk_slot_len[4], ed_bk_slot_crc[4];   /* (Orange Cat 0.3) each slot as the LIST built it */
+static uint32_t ed_bk_rt_crc;                           /* .. and the music's (id 0) CRC then */
+static uint8_t ed_bk_slot, ed_bk_slot_gen;              /* the slot + 1 the staging holds built (0: none), and
+                                                         * proj_wire_gen then (the staging not reused since) */
+static void ed_bk_slots(void)
+{
+    for (uint32_t s = 0; s < 4u; s++) {
+        int n = proj_read_slot(s);
+        ed_bk_slot_len[s] = n == (int)BANK_STORE_SIZE ? (uint32_t)n : 0u;
+        ed_bk_slot_crc[s] = st_crc32(ED_BK_RAW, ed_bk_slot_len[s]);
+        fm1_wdt_feed();
+    }
+    ed_bk_slot = 0;
+}
+#endif
 static const uint8_t *ed_bk_object(uint32_t id,uint32_t *len)
 {
     *len=0;
@@ -60,19 +78,30 @@ static const uint8_t *ed_bk_object(uint32_t id,uint32_t *len)
     uint32_t bank=ed_bk_preset_bank(id);
     if(bank<UP_BANKS){*len=sizeof(up_bank_t);return (const uint8_t *)up_cache_bank(bank);}
 #endif
+#if MELODEE_FLASH
+    if (id == 0u && ed_bk_slot && ed_bk_slot_gen == proj_wire_gen) {
+        /* (Orange Cat 0.3) the staging holds a slot read since the LIST: the music captured again, the same as the LIST
+         * counted it or not at all (a change since: stale, 5) */
+        project_capture(&proj_scratch);
+        ed_bk_slot = 0;
+        if (!bank_pack(ED_BK_RAW, &proj_scratch, 1)) { proj_wire_gen++; return 0; }
+        proj_wire_gen++;
+        if (st_crc32(ED_BK_RAW, BANK_STORE_SIZE) == ed_bk_rt_crc) ed_bk_gen = proj_wire_gen;
+    }
+#endif
     if (id == 0u) { *len = BANK_STORE_SIZE; return ED_BK_RAW; }
     if (id == 1u) { *len = ed_bk_set_len; return (const uint8_t *)&ed_bk_set; }
     if (id >= 2u && id <= 5u) {
         uint32_t slot = id - 2u;
 #if MELODEE_FLASH
-        st_hdr_t h;
-        uint32_t obj = OBJ_BANK0 + slot;
-        int copy = st_current(obj, &h);
-        if (copy >= 0) {
-            *len = h.len; ed_bk_source_obj = obj; ed_bk_source_copy = (uint32_t)copy; ed_bk_source_crc = h.crc;
-            return ED_BK_FLASH_PTR(st_sector(obj, (uint32_t)copy) + ST_PAYLOAD_OFF);
+        /* (Orange Cat 0.3) a slot is built from the project store into the staging when it is read (the LIST took
+         * its length and CRC so: ed_bk_slots); the runtime copy there is then gone (a GET of it answers 5) */
+        *len = ed_bk_slot_len[slot];
+        if (*len && (ed_bk_slot != slot + 1u || ed_bk_slot_gen != proj_wire_gen)) {
+            if (proj_read_slot(slot) != (int)BANK_STORE_SIZE) { *len = 0; return 0; }
+            ed_bk_slot = (uint8_t)(slot + 1u); ed_bk_slot_gen = proj_wire_gen;
         }
-        return ED_BK_RAW;                   /* empty: a valid pointer, zero length */
+        return ED_BK_RAW;                   /* (empty: a valid pointer, zero length) */
 #else
         if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
             !memcmp(proj_bank_slot[slot] + 8u, &proj_slot[slot], sizeof proj_slot[slot])) {
@@ -89,10 +118,14 @@ static uint32_t ed_bk_capture(void)
 {
     if (ed_flash_stop()) return 3;
     up_favorite_poll();
+#if MELODEE_FLASH
+    ed_bk_slots();                                  /* (Orange Cat 0.3: built in the staging, before the runtime's) */
+#endif
     project_capture(&proj_scratch);
     if (!bank_pack(ED_BK_RAW, &proj_scratch, 1)) return 2;
     ed_bk_gen = ++proj_wire_gen;
 #if MELODEE_FLASH
+    ed_bk_rt_crc = st_crc32(ED_BK_RAW, BANK_STORE_SIZE);
     ed_bk_set.p = persist_saved;                    /* fields absent from this build survive */
 #else
     memset(&ed_bk_set.p, 0, sizeof ed_bk_set.p);
@@ -265,8 +298,15 @@ static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         ed_b(1); ed_b(rc); ed_b(rc ? 0u : ED_BK_N);
         if (!rc) for (uint32_t i = 0; i < ED_BK_N; i++) {
             uint32_t len;
-            const uint8_t *p = ed_bk_object(ED_BK_IDS[i], &len);
             uint32_t crc;
+#if MELODEE_FLASH
+            if (ED_BK_IDS[i] >= 2u && ED_BK_IDS[i] <= 5u) {   /* (Orange Cat 0.3: as ed_bk_slots built them) */
+                len = ed_bk_slot_len[ED_BK_IDS[i] - 2u]; crc = ed_bk_slot_crc[ED_BK_IDS[i] - 2u];
+                ed_b(ED_BK_IDS[i]); ed_bk_u32(len); ed_bk_u32(crc);
+                continue;
+            }
+#endif
+            const uint8_t *p = ed_bk_object(ED_BK_IDS[i], &len);
 #if MELODEE_FLASH
             if (ed_bk_source_obj < OBJ_COUNT) crc = ed_bk_source_crc;
             else

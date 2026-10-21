@@ -40,6 +40,34 @@ static int bank_step_pack(uint8_t *b, const step_t *s)
     wire_bits_put(b, &pos, s->acc, 8u); wire_bits_put(b, &pos, s->probability, 7u);
     return 1;
 }
+/* (Orange Cat 0.3, build doc 4a part 3) Skiff's step fields beside a packed project: FBKK's 64-bit steps have no room
+ * for RATCH, FLAM, the trig condition or NUDGE, so each bank's steps keep them here (step_snapshot.h's x byte, then
+ * the nudge), tagged with the hash of the FBKK bytes they go with. bank_pack fills them (from the sequencer, or a
+ * project's active steps), bank_restore applies them when the bytes it restores are those (a project from anywhere
+ * else: none); the project store (oc_project.c) keeps them with the patterns. bank_hash takes them in, so a SAVE or
+ * autosave sees a change of them alone */
+static uint8_t proj_x[NTRK][NPAT][NSTEP][2] __attribute__((section(".pool")));
+static uint32_t proj_x_tag;
+static void proj_x_put(uint32_t k, uint32_t b, const step_t *st)
+{
+    for (uint32_t i = 0; i < NSTEP; i++) {
+        proj_x[k][b][i][0] = (uint8_t)(((st[i].flags >> 3) & 7u) | (st[i].cond << 3));
+        proj_x[k][b][i][1] = (uint8_t)st[i].nudge;
+    }
+}
+static void proj_x_get(uint32_t k, uint32_t b, step_t *st)
+{
+    for (uint32_t i = 0; i < NSTEP; i++) {
+        st[i].flags = (uint8_t)((st[i].flags & 7u) | ((proj_x[k][b][i][0] & 7u) << 3));
+        step_set_cond(&st[i], proj_x[k][b][i][0] >> 3);
+        step_set_nudge(&st[i], (int8_t)proj_x[k][b][i][1]);
+    }
+}
+static uint32_t bank_hash(const uint8_t *raw)
+{
+    uint32_t h = proj_hash(raw, BANK_STORE_SIZE);
+    return proj_x_tag == h ? fnv(h, proj_x, sizeof proj_x) : h;
+}
 static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
 {
     uint32_t magic = BANK_MAGIC, size = BANK_STORE_SIZE, pos, f = motion_guard();
@@ -73,8 +101,18 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
         memcpy(raw + BANK_FN_OFF, &m, 4);
         memcpy(raw + BANK_FN_OFF + 4u, q->fm6_fn, sizeof q->fm6_fn);
     }
+    memset(proj_x, 0, sizeof proj_x);
+    for (uint32_t k = 0; k < NTRK; k++) {          /* (Orange Cat 0.3) Skiff's fields beside it */
+        if (!runtime) { proj_x_put(k, q->pattern[k] % NPAT, q->t[k].step); continue; }
+        for (uint32_t b = 0; b < NPAT; b++) {
+            pattern_t p;
+            pattern_read(k, b, &p);
+            proj_x_put(k, b, p.step);
+        }
+    }
     motion_unguard(f);
     bank_checksum(raw);
+    proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
     return 1;
 }
 static uint8_t bank_import_tags[MOTION_MAX];
@@ -129,6 +167,7 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
 /* Only after bank_valid and project_restore_runtime. */
 static void bank_restore(const uint8_t *raw)
 {
+    uint32_t xs = proj_x_tag == proj_hash(raw, BANK_STORE_SIZE);
     uint32_t pos = BANK_EXTRA_OFF, f = motion_guard();
     chain_config = proj_scratch.chain;
     memcpy(chain_patterns, raw + BANK_CHAIN_OFF, sizeof chain_patterns);
@@ -140,6 +179,7 @@ static void bank_restore(const uint8_t *raw)
             for (uint32_t i = 0; i < 4u; i++) p.timing[i] = raw[BANK_TIMING_OFF + (k * NPAT + b) * 4u + i];
             if (b == trk[k].pattern) memcpy(p.step, trk[k].step, sizeof p.step);
             else for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) step_wire_unpack(&p.step[i], raw + pos);
+            if (xs) proj_x_get(k, b, p.step);  /* (Orange Cat 0.3) Skiff's fields, when they go with these bytes */
             pattern_write(k, b, &p);
         }
     }

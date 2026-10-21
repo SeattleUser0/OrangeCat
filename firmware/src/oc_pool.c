@@ -28,6 +28,8 @@
  *
  * Revisions:
  *   0.3.1: first version.
+ *   0.3.2: a pattern packs from any source (the sequencer's banks, or a project record's: oc_project.c); a chunk's
+ *          patterns are replaced together (ocp_chunk_write); each pattern's CRC kept (ocp.hash).
  */
 #define OCP_N 64u
 #define OCP_PER 4u
@@ -43,19 +45,29 @@ _Static_assert(NSTEP == 64u && OCP_TABLE + OCP_PER * OCP_MAX <= OCS_PARTS_MAX * 
 
 static struct {
     uint8_t len[OCP_N];                        /* each pattern's LEN, 0: empty */
+    uint32_t hash[OCP_N];                      /* each pattern's bytes' CRC-32 (0: empty): a save writes only what
+                                                * differs */
     uint32_t gen;                              /* any change (the page redraws) */
-} ocp;
+} ocp __attribute__((section(".pool")));
 
 static uint32_t ocp_get16(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8; }
 static void ocp_put16(uint8_t *b, uint32_t v) { b[0] = (uint8_t)v; b[1] = (uint8_t)(v >> 8); }
 
 /* ------------------------------------------------------------- packing --- */
-/* a bank packed as it goes (an ocs_src_t): one item (the head, a step, a count, an event, a note) at a time */
+/* a pattern packed as it goes (an ocs_src_t): one item (the head, a step, a count, an event, a note) at a time.
+ * Where its parts come from: the steps and timing in pat; the motion events of a list whose tags (mtag) name each
+ * one's bank; the timed notes of a list, their owner the track and bank. The sequencer's own (ocp_gen_bank), or a
+ * project record's (oc_project.c) */
 typedef struct {
     ocs_src_t src;
-    uint32_t k, bank, owner, len, nsteps, nmot, nnotes;
+    uint32_t k, bank, owner, len, nsteps, nmot, nnotes, mon;
     uint64_t mask;
     pattern_t pat;
+    const motion_event_t *mev;
+    const uint8_t *mtag;
+    uint32_t mcount;
+    const recorded_note_t *notes;
+    int live;                                  /* notes: the sequencer's (recording_snapshot: a held one's length) */
     uint32_t phase, i;                         /* the next item: phase 0 head, 1 steps, 2 motion count, 3 events,
                                                 * 4 notes count, 5 notes, 6 done */
     uint8_t item[OCP_HEAD], ipos, ilen;
@@ -69,23 +81,41 @@ static int ocp_step_used(const step_t *s)
     return memcmp(s, &empty, sizeof empty) != 0;
 }
 
-/* track k's bank, ready to pack: its length (0: empty) */
-static uint32_t ocp_gen_init(ocp_gen_t *g, uint32_t k, uint32_t bank)
+/* back to the start (the same bytes again) */
+static void ocp_gen_rewind(ocp_gen_t *g)
+{
+    g->phase = g->len ? 0u : 6u;
+    g->i = 0; g->ipos = g->ilen = 0;
+}
+
+/* pat, the lists and k, bank set: what it holds counted. Its length (0: empty) */
+static uint32_t ocp_gen_count(ocp_gen_t *g)
 {
     uint32_t i;
-    memset(g, 0, sizeof *g);
-    g->k = k; g->bank = bank; g->owner = k * NPAT + bank;
-    pattern_read(k, bank, &g->pat);
+    g->owner = g->k * NPAT + g->bank;
+    g->mask = 0; g->nsteps = g->nmot = g->nnotes = 0;
     for (i = 0; i < NSTEP; i++)
         if (ocp_step_used(&g->pat.step[i])) { g->mask |= (uint64_t)1 << i; g->nsteps++; }
-    for (i = 0; i < motion.count; i++)
-        g->nmot += (motion.event[i].place >> 6) == k && motion_pattern[i] == bank;
-    for (i = 0; i < RECORD_MAX; i++)
-        g->nnotes += recording[i].vel && (recording[i].owner & 31u) == g->owner;
+    for (i = 0; i < g->mcount; i++)
+        g->nmot += (g->mev[i].place >> 6) == g->k && g->mtag[i] == g->bank;
+    for (i = 0; g->notes && i < RECORD_MAX; i++)
+        g->nnotes += g->notes[i].vel && (g->notes[i].owner & 31u) == g->owner;
     g->len = g->nsteps || g->nmot || g->nnotes ? OCP_HEAD + g->nsteps * OCP_STEP + 1u + g->nmot * 4u + 2u +
                                                      g->nnotes * OCP_NOTE : 0u;
-    if (!g->len) g->phase = 6;
+    ocp_gen_rewind(g);
     return g->len;
+}
+
+/* track k's bank as the sequencer has it */
+static uint32_t ocp_gen_bank(ocp_gen_t *g, uint32_t k, uint32_t bank)
+{
+    memset(g, 0, sizeof *g);
+    g->k = k; g->bank = bank;
+    pattern_read(k, bank, &g->pat);
+    g->mev = motion.event; g->mtag = motion_pattern; g->mcount = motion.count;
+    g->notes = recording; g->live = 1;
+    g->mon = (motion.on >> k) & 1u;
+    return ocp_gen_count(g);
 }
 
 /* the next item into g->item */
@@ -96,7 +126,7 @@ static void ocp_gen_item(ocp_gen_t *g)
     while (!g->ilen && g->phase < 6u) {
         switch (g->phase) {
         case 0:
-            b[0] = OCP_VER; b[1] = (uint8_t)P_COUNT; b[2] = (uint8_t)((motion.on >> g->k) & 1u); b[3] = 0;
+            b[0] = OCP_VER; b[1] = (uint8_t)P_COUNT; b[2] = (uint8_t)g->mon; b[3] = 0;
             for (uint32_t j = 0; j < 4u; j++) ocp_put16(b + 4 + 2u * j, (uint16_t)g->pat.timing[j]);
             for (uint32_t j = 0; j < 8u; j++) b[12 + j] = (uint8_t)(g->mask >> (8u * j));
             g->ilen = OCP_HEAD; g->phase = 1; g->i = 0;
@@ -112,22 +142,23 @@ static void ocp_gen_item(ocp_gen_t *g)
             b[0] = (uint8_t)g->nmot; g->ilen = 1; g->phase = 3; g->i = 0;
             break;
         case 3:
-            for (; g->i < motion.count; g->i++)
-                if ((motion.event[g->i].place >> 6) == g->k && motion_pattern[g->i] == g->bank) break;
-            if (g->i == motion.count) { g->phase = 4; break; }
-            b[0] = motion.event[g->i].place & 63u; b[1] = motion.event[g->i].param;
-            ocp_put16(b + 2, (uint16_t)motion.event[g->i].value);
+            for (; g->i < g->mcount; g->i++)
+                if ((g->mev[g->i].place >> 6) == g->k && g->mtag[g->i] == g->bank) break;
+            if (g->i == g->mcount) { g->phase = 4; break; }
+            b[0] = g->mev[g->i].place & 63u; b[1] = g->mev[g->i].param;
+            ocp_put16(b + 2, (uint16_t)g->mev[g->i].value);
             g->ilen = 4; g->i++;
             break;
         case 4:
             ocp_put16(b, g->nnotes); g->ilen = 2; g->phase = 5; g->i = 0;
             break;
         case 5:
-            for (; g->i < RECORD_MAX; g->i++)
-                if (recording[g->i].vel && (recording[g->i].owner & 31u) == g->owner) break;
-            if (g->i == RECORD_MAX) { g->phase = 6; break; }
+            for (; g->notes && g->i < RECORD_MAX; g->i++)
+                if (g->notes[g->i].vel && (g->notes[g->i].owner & 31u) == g->owner) break;
+            if (!g->notes || g->i == RECORD_MAX) { g->phase = 6; break; }
             {
-                recorded_note_t r = recording_snapshot(g->i++);
+                recorded_note_t r = g->live ? recording_snapshot(g->i) : g->notes[g->i];
+                g->i++;
                 r.owner &= 224u;
                 memcpy(b, &r, OCP_NOTE);
             }
@@ -153,6 +184,23 @@ static int ocp_gen_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
     return 0;
 }
 
+/* the CRC-32 of the bytes it gives (0: empty), rewound after */
+static uint32_t ocp_gen_hash(ocp_gen_t *g)
+{
+    uint8_t b[64];
+    uint32_t crc = 0xFFFFFFFFu;
+    if (!g->len) return 0;
+    ocp_gen_rewind(g);
+    for (uint32_t at = 0; at < g->len;) {
+        uint32_t n = g->len - at < sizeof b ? g->len - at : sizeof b;
+        if (ocp_gen_get(&g->src, b, n)) break;
+        crc = ocs_crc_add(crc, b, n);
+        at += n;
+    }
+    ocp_gen_rewind(g);
+    return ~crc | 1u;                          /* (never 0: that is empty) */
+}
+
 /* a chunk streamed: its table, then each pattern, a new one from its generator or the old one from the copy before */
 typedef struct {
     ocs_src_t src;
@@ -160,7 +208,7 @@ typedef struct {
     int have_old;
     uint32_t old_len[OCP_PER], old_off[OCP_PER], new_len[OCP_PER];
     ocp_gen_t *gen[OCP_PER];
-    uint32_t pos, total;                       /* where the stream is, and its end */
+    uint32_t pos;                              /* where the stream is */
 } ocp_chunk_src_t;
 
 static int ocp_chunk_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
@@ -213,15 +261,29 @@ static uint32_t ocp_len_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
     return (uint32_t)clamp((int16_t)ocp_get16(h + 4), 1, NSTEP);
 }
 
-/* save track k's bank as pool pattern id (an empty bank empties it). 0 done; 2 no room in flash; another: a flash
- * error (the pattern as it was is kept). Stopped only: the erase mutes the audio */
-static int ocp_save(uint32_t id, uint32_t k, uint32_t bank)
+/* the CRC-32 of a pattern's bytes as kept (0: empty or unreadable) */
+static uint32_t ocp_hash_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
+{
+    uint8_t b[256];
+    uint32_t crc = 0xFFFFFFFFu;
+    if (!len) return 0;
+    for (uint32_t at = 0; at < len;) {
+        uint32_t n = len - at < sizeof b ? len - at : sizeof b;
+        if (ocs_at(r, off + at, b, n)) return 0;
+        crc = ocs_crc_add(crc, b, n);
+        at += n;
+    }
+    return ~crc | 1u;
+}
+
+/* chunk's patterns j with gen[j] set replaced by what gen[j] gives (length 0: emptied), the others as they were: one
+ * record write (one erase per sector). 0 done; 2 no room in flash; another: a flash error (the chunk as it was is
+ * kept). Stopped only: the erase mutes the audio */
+static int ocp_chunk_write(uint32_t chunk, ocp_gen_t *const *gen)
 {
     static ocp_chunk_src_t c __attribute__((section(".pool")));
-    static ocp_gen_t g __attribute__((section(".pool")));
-    uint32_t chunk = id / OCP_PER, j = id % OCP_PER, total = OCP_TABLE, empty = 1;
+    uint32_t total = OCP_TABLE, empty = 1, j;
     int rc;
-    if (id >= OCP_N || k >= NTRK || bank >= NPAT) return 1;
     memset(&c, 0, sizeof c);
     c.src.get = ocp_chunk_get;
     rc = ocp_chunk_open(chunk, &c.old, c.old_len, c.old_off);
@@ -230,10 +292,13 @@ static int ocp_save(uint32_t id, uint32_t k, uint32_t bank)
         memset(c.old_len, 0, sizeof c.old_len);
     }
     c.have_old = rc;
-    memcpy(c.new_len, c.old_len, sizeof c.new_len);
-    c.new_len[j] = ocp_gen_init(&g, k, bank);
-    c.gen[j] = &g;
-    for (uint32_t i = 0; i < OCP_PER; i++) { total += c.new_len[i]; empty &= !c.new_len[i]; }
+    for (j = 0; j < OCP_PER; j++) {
+        c.gen[j] = gen[j];
+        if (gen[j]) ocp_gen_rewind(gen[j]);
+        c.new_len[j] = gen[j] ? gen[j]->len : c.old_len[j];
+        total += c.new_len[j];
+        empty &= !c.new_len[j];
+    }
     if (empty) {                               /* nothing left in the chunk: no record at all */
         rc = ocs_delete(OCS_POOL, chunk);
     } else {
@@ -241,10 +306,26 @@ static int ocp_save(uint32_t id, uint32_t k, uint32_t bank)
         if (rc == -1) rc = 2;
     }
     if (!rc) {
-        ocp.len[id] = (uint8_t)(c.new_len[j] ? clamp(g.pat.timing[0], 1, NSTEP) : 0);
+        for (j = 0; j < OCP_PER; j++) {
+            uint32_t id = chunk * OCP_PER + j;
+            if (!gen[j]) continue;
+            ocp.len[id] = (uint8_t)(gen[j]->len ? clamp(gen[j]->pat.timing[0], 1, NSTEP) : 0);
+            ocp.hash[id] = ocp_gen_hash(gen[j]);
+        }
         ocp.gen++;
     }
     return rc;
+}
+
+/* save track k's bank as pool pattern id (an empty bank empties it): as ocp_chunk_write */
+static int ocp_save(uint32_t id, uint32_t k, uint32_t bank)
+{
+    static ocp_gen_t g __attribute__((section(".pool")));
+    ocp_gen_t *gen[OCP_PER] = {0};
+    if (id >= OCP_N || k >= NTRK || bank >= NPAT) return 1;
+    ocp_gen_bank(&g, k, bank);
+    gen[id % OCP_PER] = &g;
+    return ocp_chunk_write(id / OCP_PER, gen);
 }
 
 /* ------------------------------------------------------------- loading --- */
@@ -333,6 +414,42 @@ static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
     return p->nnotes > RECORD_MAX;
 }
 
+/* pool pattern id opened for reading at its start (rd). 1 there, 0 empty, -1 unreadable */
+static int ocp_open_pattern(uint32_t id, ocs_rec_t *r, ocp_rd_t *rd)
+{
+    uint32_t len[OCP_PER], off[OCP_PER];
+    int rc = ocp_chunk_open(id / OCP_PER, r, len, off);
+    memset(rd, 0, sizeof *rd);
+    if (rc != 1) return rc;
+    if (!len[id % OCP_PER]) return 0;
+    rd->r = r; rd->off = off[id % OCP_PER]; rd->end = rd->off + len[id % OCP_PER];
+    return 1;
+}
+
+/* pool pattern id read whole and checked (rd left at its notes): 0 good (p filled; an empty one: no steps, default
+ * timing), 1 not */
+static int ocp_check(uint32_t id, uint32_t k, ocs_rec_t *r, ocp_rd_t *rd, ocp_parsed_t *p, uint32_t *notes_at)
+{
+    int rc = ocp_open_pattern(id, r, rd);
+    memset(p, 0, sizeof *p);
+    if (rc < 0) return 1;
+    if (!rc) {
+        for (uint32_t i = 0; i < NSTEP; i++) p->pat.step[i].time = ST_REST;
+        for (uint32_t i = 0; i < 4u; i++) p->pat.timing[i] = TP[P_SLEN + i].def;
+        return 0;
+    }
+    if (ocp_parse(rd, k, p)) return 1;
+    *notes_at = rd->off - (rd->n - rd->pos);  /* (where the notes start, to read them again) */
+    for (uint32_t n = 0; n < p->nnotes; n++) {    /* every note checks before anything changes */
+        recorded_note_t v;
+        if (ocp_rd(rd, &v, OCP_NOTE) || !v.vel || (v.owner & 31u) || !recording_valid(&v)) return 1;
+    }
+    return rd->off != rd->end || rd->pos != rd->n;
+}
+
+/* the notes again from where ocp_check found them */
+static void ocp_notes_rewind(ocp_rd_t *rd, uint32_t notes_at) { rd->off = notes_at; rd->pos = rd->n = 0; }
+
 /* pool pattern id into track k's bank (the one playing too: it goes on from the same step). apply 0: only checks.
  * 0 done; 1 refused (a song running) or the pattern unreadable; 2 no room (motion or timed notes) */
 static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
@@ -340,26 +457,10 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
     static ocp_parsed_t p __attribute__((section(".pool")));
     static ocp_rd_t rd __attribute__((section(".pool")));
     ocs_rec_t r;
-    uint32_t len[OCP_PER], off[OCP_PER], owner = k * NPAT + bank, i, j, f, n, free = 0;
+    uint32_t owner = k * NPAT + bank, i, j, f, n, free = 0, notes_at = 0;
     track_t *t = &trk[k];
     if (id >= OCP_N || k >= NTRK || bank >= NPAT) return 1;
-    i = (uint32_t)ocp_chunk_open(id / OCP_PER, &r, len, off);
-    memset(&p, 0, sizeof p);
-    if (i == 1u && len[id % OCP_PER]) {
-        memset(&rd, 0, sizeof rd);
-        rd.r = &r; rd.off = off[id % OCP_PER]; rd.end = rd.off + len[id % OCP_PER];
-        if (ocp_parse(&rd, k, &p)) return 1;
-        for (n = 0; n < p.nnotes; n++) {       /* every note checks before anything changes */
-            recorded_note_t v;
-            if (ocp_rd(&rd, &v, OCP_NOTE) || !v.vel || (v.owner & 31u) || !recording_valid(&v)) return 1;
-        }
-        if (rd.off != rd.end || rd.pos != rd.n) return 1;
-    } else if (i != 0u && i != 1u) {
-        return 1;
-    } else {                                   /* an empty pattern: no steps, default timing */
-        for (i = 0; i < NSTEP; i++) p.pat.step[i].time = ST_REST;
-        for (i = 0; i < 4u; i++) p.pat.timing[i] = TP[P_SLEN + i].def;
-    }
+    if (ocp_check(id, k, &r, &rd, &p, &notes_at)) return 1;
     f = motion_guard();
     if (chain.running || chain.armed) { motion_unguard(f); return 1; }
     for (i = 0, n = 0; i < motion.count; i++) n += (motion.event[i].place >> 6) == k && motion_pattern[i] == bank;
@@ -383,8 +484,7 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
     /* the notes, read again and placed a guarded piece at a time (placed, not indexed: the audio does not see them
      * until the reindex below, and live recording takes only free entries) */
     if (p.nnotes) {
-        rd.off = off[id % OCP_PER]; rd.pos = rd.n = 0;
-        if (ocp_parse(&rd, k, &p)) return 1;   /* (the same bytes: they checked a moment ago) */
+        ocp_notes_rewind(&rd, notes_at);
         for (n = 0, j = 0; n < p.nnotes; n++) {
             recorded_note_t v;
             if (ocp_rd(&rd, &v, OCP_NOTE)) break;
@@ -407,16 +507,18 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
     return 0;
 }
 
-/* boot: every pattern's LEN for the PATTERNS page (after ocs_boot) */
+/* boot: every pattern's LEN for the PATTERNS page, and its bytes' CRC (after ocs_boot) */
 static void ocp_scan(void)
 {
-    memset(ocp.len, 0, sizeof ocp.len);
+    memset(&ocp, 0, sizeof ocp);
     for (uint32_t c = 0; c < OCP_CHUNKS; c++) {
         ocs_rec_t r;
         uint32_t len[OCP_PER], off[OCP_PER];
         if (ocp_chunk_open(c, &r, len, off) != 1) continue;
-        for (uint32_t j = 0; j < OCP_PER; j++)
+        for (uint32_t j = 0; j < OCP_PER; j++) {
             ocp.len[c * OCP_PER + j] = (uint8_t)(len[j] ? ocp_len_of(&r, off[j], len[j]) : 0u);
+            ocp.hash[c * OCP_PER + j] = ocp_hash_of(&r, off[j], len[j]);
+        }
     }
     ocp.gen++;
 }

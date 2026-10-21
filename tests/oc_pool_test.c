@@ -54,9 +54,7 @@ static void fl_plain_window_init(void) {}
 #define FL_FAR(fn) (fn)
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
-#include "../firmware/src/project.c"
-#include "../firmware/src/oc_store.c"
-#include "../firmware/src/oc_pool.c"
+#include "../firmware/src/project.c"            /* (with MELODEE_FLASH: oc_store.c, oc_pool.c, oc_project.c) */
 
 static int check(const char *what, int ok)
 {

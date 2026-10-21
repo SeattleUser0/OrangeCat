@@ -9,6 +9,11 @@ static int same_object(uint32_t obj, const void *p, uint32_t len)
     uint8_t got[4096];
     return len <= sizeof got && st_load(obj, got, sizeof got) == (int)len && !memcmp(got, p, len);
 }
+static int same_record(const void *p, uint32_t len)      /* (Orange Cat 0.3) slot 0's record in the store */
+{
+    static uint8_t got[8192];
+    return len <= sizeof got && ocs_read(OCS_PROJECT, 0, got, sizeof got) == (int)len && !memcmp(got, p, len);
+}
 static void user_page(void)
 {
     for (uint32_t p = 0; p < NPAGES; p++) if (PAGES[p].graph == GR_USER) { ui.page = (uint8_t)p; break; }
@@ -19,11 +24,11 @@ int main(void)
     int bad = 0; char name[32];
     uint8_t old[3080]; memset(old, 0x5a, sizeof old);
     reset();
-    st_save(OBJ_BANK0, old, sizeof old); proj_fetch(0);
+    ocs_write(OCS_PROJECT, 0, old, sizeof old); proj_fetch(0);   /* (Orange Cat 0.3: a slot is a record of the store) */
     bad += check("unreadable project is occupied and named OLD FORMAT", !project_used(0) && project_old(0) && project_name(0, name) && !strcmp(name, "OLD FORMAT"));
     bad += check("new song avoids occupied old project slots", project_free_slot() == 1);
     project_load(0);
-    bad += check("unreadable project load keeps its flash bytes", !strcmp(ui.msg, "OLD FORMAT") && same_object(OBJ_BANK0, old, sizeof old));
+    bad += check("unreadable project load keeps its flash bytes", !strcmp(ui.msg, "OLD FORMAT") && same_record(old, sizeof old));
 
     reset(); st_save(OBJ_UPRESET0, old, sizeof old); up_cache_reset();
     bad += check("live access protects a wrong-shape bank until boot", up_old(0) && up_old(15) && !up_used(0) && same_object(OBJ_UPRESET0, old, sizeof old));

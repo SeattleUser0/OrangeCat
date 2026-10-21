@@ -388,6 +388,7 @@ if core && [ $TABLES = 1 ]; then
     # (Orange Cat 0.3, build doc phase 4a part 3) the record store: torn writes, rot, full, wear
     t "Orange Cat record store: power cuts, rot, delete, full store, areas and wear" oc_store_test -O2
     t "Orange Cat pattern pool: banks round trip through flash, chunks, the fullest pattern, no room, power cuts" oc_pool_test -O1 $FW
+    t "Orange Cat project store: SAVE and load through the pool, two slots, PATTERNS FULL, FBKK, power cuts" oc_project_test -O1 $FW
     t "double-tap layers, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW

@@ -71,6 +71,7 @@ static int check(const char *what, int ok)
 static void reset(void)
 {
     memset(nor, 0xFF, sizeof nor);
+    ocs_boot(); ocp_scan(); ocj_scan();            /* (Orange Cat 0.3: the project store, empty) */
     memset(&song, 0, sizeof song);
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
@@ -190,7 +191,9 @@ static int full_pattern_archive(void)
         ok &= ed_unpack7(rep+9u,rep_n-9u,saved+off,n)==n;
     }
     /* GET emits pack7; the XIP payload itself remains byte-identical after other object reads. */
-    ok &= !memcmp(saved,archive,sizeof saved) && (st_load(OBJ_BANK0,saved,sizeof saved)==sizeof saved && !memcmp(saved,archive,sizeof saved)) && get(0,0,64)==0;
+    /* (Orange Cat 0.3) the slot comes from the project store (oc_project.c), built as Melodee's FBKK */
+    ok &= !memcmp(saved,archive,sizeof saved) && get(0,0,64)==0 && !memcmp(ED_BK_RAW,archive,sizeof saved) &&
+          (proj_read_slot(0)==(int)sizeof saved && !memcmp(ED_BK_RAW,archive,sizeof saved));
     bad+=check("saved-bank GET and interleaved screen draws preserve the frozen runtime snapshot",ok);
     bad+=check("full archive restores a saved slot through the A/B path",put_all(3,archive,sizeof archive,st_crc32(archive,sizeof archive))==0);
     pattern_init(); memset(&motion,0,sizeof motion); memset(proj_meta,0,sizeof proj_meta); memset(proj_slot,0,sizeof proj_slot);
@@ -395,7 +398,8 @@ int main(void)
     proj_pack(&st, &proj_scratch);
     bad += check("a bare FUN16 record restores into slot 3 (flash and RAM) as a bank",
                  put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && project_used(2) &&
-                 !memcmp(&proj_slot[2], &st, sizeof st) && st_load(OBJ_BANK0 + 2, proj_wire_u.raw, sizeof proj_wire_u.raw) == BANK_STORE_SIZE);
+                 !memcmp(&proj_slot[2], &st, sizeof st) && proj_read_slot(2) == (int)BANK_STORE_SIZE &&
+                 !memcmp(proj_wire_u.raw + 8u, &st, sizeof st));   /* (Orange Cat 0.3: the project store) */
     {   /* a record of an older format: refused before anything is written (archives of before 1.0.0: 1.2) */
         static uint8_t old[3388];
         memset(old, 0, sizeof old);

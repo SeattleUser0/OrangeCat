@@ -10,6 +10,7 @@
  * 4. an erase that fails, and a payload rotted in the newest copy (the copy before is read, and kept by the next save).
  * 5. delete forgets every copy; a full store refuses a save and keeps everything it had.
  * 6. only the two areas are touched, sector tails stay erased, saves spread over the free sectors (wear).
+ * 7. no other object of storage.c lies in the store's sectors.
  *
  * Revisions:
  *   0.3.0: first version.
@@ -276,6 +277,22 @@ static int test_areas(void)
     return bad;
 }
 
+/* ------------------------------------------- 7. storage.c's objects --- */
+static int in_store(uint32_t a) { return (a >= 0xA0000u && a < 0xC8000u) || (a >= 0xEA000u && a < 0xFA000u); }
+static int test_neighbours(void)
+{
+    int ok = 1;
+    for (uint32_t o = 0; o < OBJ_COUNT; o++) {
+        if (o >= OBJ_BANK0 && o < OBJ_BANK0 + 4u) continue;   /* (Melodee's bank projects: the store's now) */
+        for (uint32_t c = 0; c < 2u; c++) {
+            uint32_t s = st_sector(o, c);
+            ok &= !in_store(s) && !in_store(s + 4095u);
+            if (st_banked(o)) ok &= !in_store(st_extension(o, c)) && !in_store(st_extension(o, c) + 2u * 4096u - 1u);
+        }
+    }
+    return check("no other flash object (settings, presets, banks) lies in the store's sectors", ok);
+}
+
 int main(void)
 {
     int bad = 0;
@@ -289,6 +306,7 @@ int main(void)
     bad |= test_faults();
     bad |= test_delete_full();
     bad |= test_areas();
+    bad |= test_neighbours();
     printf(bad ? "oc store: FAILED\n" : "oc store: all passed\n");
     return bad ? 1 : 0;
 }
