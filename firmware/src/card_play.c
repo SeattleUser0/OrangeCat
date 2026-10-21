@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Orange Cat: a WAV playing from the USB drive (build doc phase 2, the plan's steps 2 and 4). The audio side only:
- * a ring of 16-bit stereo frames that the main loop fills from the card (usb_files.c uf_play_*) and the audio ISR
+ * a ring of 16-bit stereo frames that the card reading fills (0.4.11: the main loop; 0.4.12: card_stream.c) and the audio ISR
  * plays (card_render, from audio.c audio_block, after the click: at the DAC, with MASTER, -6 dB so a full scale
  * file leaves headroom for the synths under it).
  *
@@ -10,7 +10,7 @@
  * 0.4.11 build, with a 64 KB ring and 8 KB reads, failed to link on that.) When the ISR finds fewer frames than it needs it plays silence for the rest of the
  * block and counts a gap (cp_gaps): the page shows them, so a test says whether the card keeps up.
  *
- * One producer (the main loop: cp_w), one consumer (the audio ISR: cp_r). The main loop writes the frames, then
+ * One producer (the card reading: cp_w), one consumer (the audio ISR: cp_r). The producer writes the frames, then
  * cp_w (RING_PUBLISH between); the ISR reads cp_w once a block.
  *
  * (0.4.12) The reading is card_stream.c's (kept apart so the audio's host tests need no USB host): cs_tick, from the

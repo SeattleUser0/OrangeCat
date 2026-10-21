@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.31  
+**Version:** 0.32  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.32 (October 21, 2026):** 0.4.12 on the unit: the card's share of the processor down from 23% to 2%.
 - **0.31 (October 21, 2026):** 0.4.12: the playing WAV read by the 10 kHz timer interrupt, not the main loop. By ear 0.4.11 was clean, the sequencer steady.
 - **0.30 (October 21, 2026):** 0.4.11 on the unit: a WAV plays from the card with no gaps, alone and over three tracks. The reading costs main loop time, not audio time.
 - **0.29 (October 21, 2026):** 0.4.11: a WAV plays from the card (plan steps 2 and 4 as one test): the audio load, the card's share of the main loop and any gaps on the page.
@@ -213,7 +214,7 @@ Built in 0.4.12 (card_stream.c): the reading moved to the 10 kHz TIMER5 interrup
 One packet a tick caps the stream at about 640 KB/s (10,000 ticks x 64 bytes), about three and a half stereo tracks; the bus itself carries about 900 KB/s. The USB controller's own interrupt could take it the rest of the way later.
 
 Left to test (0.4.12):
-- [ ] The same three runs as 0.4.11: a stereo WAV alone, a mono 24-bit WAV, and three tracks then the WAV. The "card" figure should drop well below 29%, gaps still 0.
+- [x] Four tracks playing and the largest WAV on the card (44.1 kHz 24-bit mono, 6.6 MB): CPU 44%, card 2%, gaps 0 (October 21). The same file in 0.4.11 took 23% of the main loop.
 - [ ] Moving through the file list while the WAV plays (FatFs and the stream share the bus).
 - [ ] Pulling the card out while it plays: "Stopped: card error", nothing stuck.
 
