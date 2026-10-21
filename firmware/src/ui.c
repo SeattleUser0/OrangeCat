@@ -1186,6 +1186,7 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 #include "sysex_library.c"                       /* staged imports and USB library exports */
 
 #include "note_tools.c"
+#include "seq_tools.c"                            /* (Orange Cat 0.4.6) shift, reverse */
 
 #define TL_MAX 4u
 /* s wrapped into at most m lines of w px in face f (at spaces, always at a '\n'; a word wider than the line: at the

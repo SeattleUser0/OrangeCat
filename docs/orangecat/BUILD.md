@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.21  
+**Version:** 0.22  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.5
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.22 (October 21, 2026):** 0.4.6: SEQ tools (Shift right, Shift left, Reverse). Groove review fixes.
 - **0.21 (October 21, 2026):** 0.4.5: groove templates (4f part 1), SEQ > GROOVE.
 - **0.20 (October 21, 2026):** 0.4.4 fixes from a code review of the night's work (see 4c).
 - **0.19 (October 21, 2026):** 0.4.4: SEQ > PHRASES, the pool's 64 phrases at a glance.
@@ -333,7 +334,8 @@ Each step builds, passes the host tests, and is measured before the next.
   - [x] **Part 2a (0.4.3): throws.** With ARP held, KNOB 2, 3 and 4 throw the selected track's SEND, SEND 2 and SEND 3 (to the shared effects) up or down for a moment. The cards show FX1, FX2 and FX3 as they sound, in the accent colour while thrown. Once the knob rests, the throw glides back to the saved value over one bar. A stop ends it at once. Throws are never saved: the saved send stays as it was. Tested: the send is thrown in the audio block and back after it; the saved value never changes; it glides back within a bar.
     - Left to test on the device: put a delay or reverb on a shared FX slot, play a track, hold ARP and turn KNOB 2: hear the echo swell and fade back over a bar.
   - [ ] Part 2b: scenes 9 to 16, the web editor's view of scenes.
-- [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
+- [ ] **4e. Sequencer pages.** (Part 1 done in 0.4.6: Shift right, Shift left and Reverse in the pattern's sheet, below.) Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
+  - [x] **Part 1 (0.4.6): SEQ tools.** OCT+ held on NOTES, TRACKER or PHRASE opens the pattern's sheet, which now has Shift right, Shift left and Reverse. Shift moves every step one place later or earlier, round the loop. Reverse plays the phrase backwards, keeping each note whole (a note of 3 steps starting on step 2 of 16 ends up starting on step 12). Motion moves with the steps. EDIT held undoes. A phrase holding recorded (timed) notes is left alone, with a message; NOTES moves those. Tested in tests/ui_test.c.
 - [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.
   - [x] **Part 1 (0.4.5, October 21, 2026): six templates per track.** SEQ > GROOVE (after PHRASE): KNOB 1 picks the selected track's template, KNOB 2 its amount (0 to 100%, in 5% steps); ALGORITHM picks the track. Templates: LAID BACK (the backbeat and the 16ths behind), PUSH (ahead of the beat), DILLA (loose, uneven 16ths), 2-STEP (UK garage shuffle), DUB (the offbeat 8ths late, a skank), HUMAN (small drifts). Each moves where each of 16 steps starts (step 1 stays on the grid, so loops stay in time) and adds or takes a little velocity per step (an accented step stays at full). The amount scales both. Swing still works on top. The page draws the 16 steps: the straight place a thin line, the grooved place and loudness a block.
     - Record quantize follows it: with QNT on the track's own step grid, a recorded note snaps to where the grooved step plays. On other grids it snaps as before (swing only).

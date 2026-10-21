@@ -4057,6 +4057,34 @@ static void lay_combo(uint32_t btn, uint32_t k) { btn_down(btn); key_down(k); fr
 static void oct_back(void) { btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame(); }
 static uint32_t leds_at(uint32_t ms) { fm1_ms = ms; return layer_leds(); }
 
+/* (Orange Cat 0.4.6) the pattern's sheet: Shift right, Shift left, Reverse */
+static int test_seq_tools(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    ui_power_on();
+    stop_transport();
+    t = TSEL;
+    track_defaults_steps(t);
+    t->p[P_SLEN] = 16;
+    t->step[1] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
+    t->step[2].time = ST_TIE; t->step[3].time = ST_TIE;
+    t->step[6] = (step_t){{64}, 1, ST_NOTE, 0, 96, 0, 0};
+    go_title("PHRASE"); frame();
+    hold(B_OCTUP); sheet_do("Reverse");
+    ok = msg_is("REVERSED") && step_on(&t->step[12]) && t->step[12].note[0] == 60u && t->step[13].time == ST_TIE &&
+         t->step[14].time == ST_TIE && step_on(&t->step[9]) && t->step[9].note[0] == 64u && !step_on(&t->step[1]);
+    bad += check("PHRASE's sheet: Reverse (each note whole, its ties after it)", ok);
+    hold(B_EDIT);
+    bad += check("..EDIT held undoes it", step_on(&t->step[1]) && t->step[2].time == ST_TIE && !step_on(&t->step[12]));
+    hold(B_OCTUP); sheet_do("Shift right");
+    ok = step_on(&t->step[2]) && t->step[3].time == ST_TIE && step_on(&t->step[7]) && !step_on(&t->step[1]);
+    hold(B_OCTUP); sheet_do("Shift left"); hold(B_OCTUP); sheet_do("Shift left");
+    ok &= step_on(&t->step[0]) && step_on(&t->step[5]) && msg_is("SHIFTED LEFT");
+    bad += check("..Shift right, Shift left (round the loop)", ok);
+    return bad;
+}
+
 /* (Orange Cat 0.4.5) SEQ > GROOVE */
 static int test_groove_page(void)
 {
@@ -5728,6 +5756,7 @@ int main(void)
     bad += test_tracker();
     bad += test_pool();
     bad += test_groove_page();
+    bad += test_seq_tools();
     bad += test_product_ux();
     bad += test_mono_screens();
     bad += test_roll();

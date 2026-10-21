@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.5
+**Firmware:** 0.4.6
 **Date:** October 21, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -46,6 +46,8 @@ Tap SEQ to step through them. Hold SEQ to jump to CHAIN.
 On TRACKER, the keys write notes at the cursor and move it on. EDIT deletes the note on the row. EDIT held undoes. Turn PRESET right to see every track as a lane; ALGORITHM picks the track you edit. Turn PRESET left to go back.
 
 On CHAIN, if you change the phrase in the slot a track is on, the track switches to it when the knob rests.
+
+On NOTES, TRACKER and PHRASE, OCT+ held opens the pattern's sheet: Quantize, Shift right, Shift left, Reverse, Clear pattern, Clear motion.
 
 ## PERFORM (hold ARP)
 

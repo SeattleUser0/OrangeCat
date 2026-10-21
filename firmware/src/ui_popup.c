@@ -154,7 +154,9 @@ static const sheet_row_t SHEET_POOL[] = {{"Copy to new", 0, 0, pp_copy, 0}, {"Cl
 static void nt_quantize_v(char *b){str_cpy(b,ui.note_grid==2u?"0.25 step":ui.note_grid==1u?"0.5 step":"1 step",16);}
 static void nt_quantize_grid(int32_t s){ui.note_grid=(uint8_t)clamp((int32_t)ui.note_grid+s,0,2);ui.force=1;}
 static void nt_quantize(void){ui.note_copy=ui.note_move=0;note_quantize(RECORD_UNIT>>ui.note_grid);ui.force=1;}
-static const sheet_row_t SHEET_PATTERN[] = {{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0}, {"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
+static const sheet_row_t SHEET_PATTERN[] = {{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0}, {"Shift right", 0, 0, st_shift_r, 0},
+    {"Shift left", 0, 0, st_shift_l, 0}, {"Reverse", 0, 0, st_reverse, 0},   /* (Orange Cat 0.4.6: seq_tools.c) */
+    {"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
 /* SHARED's (its rack, its slots): the routing (one chain, or each slot its own send from every track), clearing them */
 static void sh_route_v(char *b) { str_cpy(b, song.g[G_FXMODE] ? "Split" : "Chain", 8); }
 static void sh_route_turn(int32_t s) { song.g[G_FXMODE] = (int16_t)(s > 0); ui.force = 1; }
@@ -345,8 +347,8 @@ static uint32_t page_sheet(void)
         return 4;
     if (cur_page()->graph == GR_POOL)                   /* (Orange Cat 0.4.4) */
         return 6;
-    if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS)
-        return 3;
+    if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS || cur_page()->graph == GR_TRACKER)
+        return 3;                                       /* ((Orange Cat 0.4.6) TRACKER's too) */
     fam = cur_page()->fam;
     if (fam == FAM_FX && cur_page()->scope == SC_GLOBAL)   /* SHARED, its slots */
         return 5;
