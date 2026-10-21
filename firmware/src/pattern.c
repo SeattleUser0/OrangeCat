@@ -42,6 +42,7 @@ static uint16_t pattern_epoch; /* invalidates destructive edits waiting for a lo
  * was last kept (as ocp.hash: a bank whose pattern packs to another is changed); bank_use, when it was last gone to
  * (the least recent one is reused). oc_lists.c keeps them; pattern_init clears them */
 #define OCL_NENT 16u
+#define OCL_NPOOL 64u                                   /* the pool's patterns (oc_pool.c OCP_N) */
 typedef struct { uint8_t ent[NTRK][OCL_NENT][2]; uint8_t cur[NTRK]; uint8_t song, rsv[3]; } ocl_lists_t;
 static ocl_lists_t lists __attribute__((section(".pool")));
 static uint8_t bank_pid[NTRK][NPAT] __attribute__((section(".pool")));

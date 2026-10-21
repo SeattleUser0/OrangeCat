@@ -146,6 +146,7 @@ static void sec_chip(uint32_t i, char *b, uint32_t n);
 static int sec_map_on(void);
 static void sound_name(const track_t *t, char *b);
 static int ptc_on(void);                                /* ui_patterns.c */
+static uint32_t ocl_pat_len(uint32_t id);               /* (Orange Cat 0.3) oc_lists.c */
 static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
@@ -879,10 +880,10 @@ static void confirm_text(char *a, char *b)
             str_cpy(b, "Its song and patterns go", 32);
         break;
     case CF_DEL_ROW:
-        str_cpy(a, "DELETE SONG ROW?", 24);
+        str_cpy(a, "DELETE ENTRY?", 24);
         break;
     case CF_CLEAR_SONG:
-        str_cpy(a, "CLEAR SONG ORDER?", 24);
+        str_cpy(a, "CLEAR ALL LISTS?", 24);
         break;
     case CF_NEW_SONG:                                   /* what is lost */
         str_cpy(a, "START A NEW SONG?", 24);
@@ -955,10 +956,11 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_PAT_KEY: {                                  /* SEQ + a white key held: its length, what its keys do now
                                                          * (b: CF_DETAIL) */
-        uint32_t p = ui.pat_dlg % NPAT, n;
-        n = (uint32_t)clamp(pattern_timing(k % NTRK, p, 0), 1, NSTEP);
-        str_cpy(a, "PATTERN 1 \xB7 ", 24);
-        a[8] = (char)('1' + p);
+        uint32_t p = ui.pat_dlg % NPAT, n, v = lists.ent[k % NTRK][p][0];   /* (Orange Cat 0.3, 4c) the key's entry */
+        n = p == lists.cur[k % NTRK] % OCL_NENT ? (uint32_t)clamp(trk[k % NTRK].p[P_SLEN], 1, NSTEP) :
+            v ? ocl_pat_len(v - 1u) : 0u;
+        str_cpy(a, "ENTRY A \xB7 ", 24);
+        a[6] = (char)('A' + p);
         fmt_int(a + str_len(a), (int32_t)n);
         str_cpy(a + str_len(a), n == 1u ? " STEP" : " STEPS", 7);
         str_cpy(b, "Again: delete \xB7 other: copy\nBlinking: half \xB7 double", CF_DETAIL);

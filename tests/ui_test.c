@@ -115,6 +115,25 @@ static void screen_clear(void)
 #endif
 }
 
+/* (Orange Cat 0.3, 4c) an empty pool, then track k's entries A and B naming two new patterns (notes 60, 62) in its
+ * banks 1 and 2, the track on A */
+static void pool_empty(void) { memset(ocs_ram, 0xFF, sizeof ocs_ram); ocs_boot(); ocp_scan(); ocj_scan(); }
+static void two_entries(uint32_t k)
+{
+    for (uint32_t b = 0; b < 2u; b++) {
+        pattern_t p;
+        uint32_t id = k * 2u + b;
+        pattern_read(k, b, &p);
+        for (uint32_t i = 0; i < NSTEP; i++) step_clear(&p.step[i]);
+        p.step[0] = (step_t){{(uint8_t)(60u + 2u * b)}, 1, ST_NOTE, 0, 96, 0, 0};
+        pattern_write(k, b, &p);
+        ocp_save(id, k, b);
+        bank_pid[k][b] = (uint8_t)(id + 1u);
+        bank_sig[k][b] = ocp.hash[id];
+        lists.ent[k][b][0] = (uint8_t)(id + 1u);
+    }
+    lists.cur[k] = 0;
+}
 static int check(const char *what, int ok)
 {
     printf("ui: %-74s %s\n", what, ok ? "ok" : "FAIL");
@@ -1161,8 +1180,10 @@ static int test_home_select(void)
     bad += check("  .. DOM7 four on", TSEL->p[P_CHRD] == 5 && !memcmp(ui.msg, "T1 CHORD DOM7", 13));
     HOME_SELECT = HS_PATTERN;
     stop_transport();
+    pool_empty();
+    two_entries(song.sel);
     turn(EN_SELECT, 1);
-    bad += check("  PATTERN stopped: pattern 2 at once", TSEL->pattern == 1u);
+    bad += check("  PATTERN stopped: entry B at once (Orange Cat 0.3: the list)", TSEL->pattern == 1u && lists.cur[song.sel] == 1u);
     HOME_SELECT = HS_OFF;
     bpm = song.g[G_BPM];
     turn(EN_SELECT, 1);
@@ -2147,10 +2168,12 @@ static int test_patterns_queue(void)
 {
     int bad = 0;
     ui_power_on();
+    pool_empty();
+    two_entries(0);
     song.playing = 1;
     go_title("PATTERNS"); frame();
     turn(EN_K1, 1);
-    bad += check("PATTERNS playing: KNOB 1 queues track 1's next pattern", trk[0].pattern_next == 1u);
+    bad += check("PATTERNS playing: KNOB 1 stages track 1's next entry", trk[0].pattern_next == 1u);
     press(B_OCTDN);
     bad += check("..OCT-: the queue cleared, PATTERNS stays", trk[0].pattern_next == 0xFFu && !ui.home &&
                  msg_is("QUEUE CLEARED"));
@@ -2219,36 +2242,17 @@ static int test_init_scales_patterns(void)
     go_title("PATTERNS"); frame();
     t = TSEL;
     my_steps(t);
+    pool_empty();
+    two_entries(song.sel);
     press(B_OCTUP);
-    bad += check("PATTERNS: OCT+ the pattern's sheet (Copy to, Delete pattern)", pop.on == POP_SHEET &&
+    bad += check("PATTERNS: OCT+ the pattern's sheet (Own copy, Delete pattern)", pop.on == POP_SHEET &&
                  pop.rows == SHEET_PATTERNS);
-    for (first = 1; first < NPAT && !pattern_empty(song.sel, first); first++)
-        ;
-    sheet_do("Copy to\x85");
-    bad += check("..Copy to: the pattern, the first empty place", ptc_on() && ui.ptc_src == t->pattern &&
-                 ui.ptc_dst == first && first < NPAT);
-    turn(EN_K3, 1);
-    ok = ui.ptc_dst == first + 1u && t->pattern == 0u;
-    turn(EN_K1, -1);
-    bad += check("..any knob moves the place (no pattern switched)", ok && ui.ptc_dst == first && t->pattern == 0u);
-    hold(B_OCTUP);
-    bad += check("..OCT+ held: no sheet while copying", pop.on != POP_SHEET);
-    ok = 1;
-    for (i = 0; i < NSTEP; i++)
-        ok &= !memcmp(&pattern_at(song.sel, first)->step[i], &t->step[i], sizeof t->step[i]);
-    bad += check("..OCT+ copies it there, Copy to ends", ok && !ptc_on() && msg_is("PATTERN COPIED") &&
-                 !pattern_empty(song.sel, first));
-    sheet_do("Copy to\x85");
-    b = ui.ptc_dst;
-    turn(EN_K1, -10);
-    ok = b != first && ui.ptc_dst == first;
-    press(B_OCTUP);
-    bad += check("..over a pattern in use: the question first", ok && ui.confirm == CF_PASTE_PAT && ptc_on());
-    press(B_OCTUP);
-    bad += check("..yes: copied", !ui.confirm && !ptc_on() && msg_is("PATTERN COPIED"));
-    sheet_do("Copy to\x85");
-    press(B_OCTDN);
-    bad += check("..OCT- leaves Copy to, PATTERNS stays", !ptc_on() && !ui.home && str_eq(cur_page()->title, "PATTERNS"));
+    b = lists.ent[song.sel][0][0];
+    sheet_do("Own copy");
+    bad += check("..Own copy: entry A names a new pattern, the same steps, the track plays it", msg_is("OWN COPY MADE") &&
+                 lists.ent[song.sel][0][0] && lists.ent[song.sel][0][0] != b &&
+                 bank_pid[song.sel][t->pattern] == lists.ent[song.sel][0][0] && t->step[0].note[0] == 60u);
+    my_steps(t);
     sheet_do("Delete pattern");
     bad += check("..Delete pattern asks", ui.confirm == CF_DEL_PAT && !seq_is_empty(t));
     press(B_OCTUP);
@@ -2260,8 +2264,7 @@ static int test_init_scales_patterns(void)
     bad += check("..EDIT held undoes it, EDIT + OCT+ redoes it", ok && seq_is_empty(t));
     sheet_do("Delete pattern");
     ok = !ui.confirm && msg_is("NOTHING TO DELETE");
-    sheet_do("Copy to\x85");
-    bad += check("..an empty pattern: nothing to delete, nothing to copy", ok && !ptc_on() && msg_is("NOTHING TO COPY"));
+    bad += check("..an empty pattern: nothing to delete", ok);
     return bad;
 }
 
@@ -2560,7 +2563,7 @@ static int test_popups(void)
     hold(B_OCTUP);
     bad += check("POPUPS: SONG, OCT+ held: the song's sheet (no play)", pop.on == POP_SHEET && !song.playing);
     press(B_OCTUP);
-    bad += check("POPUPS: Insert section: a row", !pop.on && chain_config.count == 1u);
+    bad += check("POPUPS: Insert entry (Orange Cat: SONG is the lists)", !pop.on && msg_is("ENTRY INSERTED"));
     return bad;
 }
 static int test_song_view(void)
@@ -2664,42 +2667,46 @@ static int test_chain(void)
     ui_power_on();
     open_family(FAM_SEQ);
     for (k = 0; k < NPAGES && cur_page()->graph != GR_SONG; k++) open_family(FAM_SEQ);
-    press(B_PLAY);
-    bad += check("SONG page empty PLAY explains how to start", msg_is("ADD A SONG ROW") && !transport_req);
-    turn(EN_K3, 1);
-    bad += check("SONG KNOB 3 (pattern) adds the first row with one repeat", chain_config.count == 1 && !chain_config.row[0].slot && chain_config.row[0].repeat == 1);
-    turn(EN_K1, 1); turn(EN_K3, 1); turn(EN_K3, 1); turn(EN_K4, 2);
-    bad += check("SONG KNOB 1 row, 3 pattern, 4 repeats build a chain", chain_config.count == 2 && ui.song_row == 1 &&
-        chain_config.row[1].slot == 1 && chain_config.row[1].repeat == 3);
-    turn(EN_K2, 1);
-    bad += check("SONG KNOB 2 picks the track (2), the song unchanged", song.sel == 1u && chain_config.count == 2);
+    /* (Orange Cat 0.3, build doc 4c) SONG is Skiff's lists: KNOB 1 the entry, 2 the track, 3 its pattern, 4 its REPS */
+    memset(ocs_ram, 0xFF, sizeof ocs_ram); ocs_boot(); ocp_scan(); ocj_scan();   /* (an empty pool: the tests before
+                                                                                  * kept patterns in it) */
+    pattern_init();
+    turn(EN_K3, 3);
+    bad += check("SONG KNOB 3: track 1's entry A names pattern 03", lists.ent[0][0][0] == 3u && ui.song_row == 0u);
+    turn(EN_K4, 2);
+    bad += check("SONG KNOB 4: its REPS 3", lists.ent[0][0][1] == 2u);
+    turn(EN_K1, 1); turn(EN_K3, 1);
+    bad += check("SONG KNOB 1 entry B, KNOB 3 its pattern 01", ui.song_row == 1u && lists.ent[0][1][0] == 1u);
+    turn(EN_K2, 1); turn(EN_K3, 2);
+    bad += check("SONG KNOB 2 picks track 2, KNOB 3 its own entry B", song.sel == 1u && lists.ent[1][1][0] == 2u &&
+                 lists.ent[0][1][0] == 1u);
     turn(EN_K2, -1);
-    turn(EN_K4, 30);
-    project_save(0);
-    chain_config.count = 1;
-    chain_config.row[0] = (chain_row_t){0, 1};
-    fm1_in.buttons |= (1u << panel.btn[B_OCTUP]) | (1u << panel.btn[B_OCTDN]);
-    host_pressed |= fm1_in.buttons; frame();
-    fm1_in.buttons = 0; frame();
-    bad += check("SONG OCT chord does not start playback or leave the page", !transport_req && !ui.home);
     press(B_OCTUP);
-    bad += check("SONG OCT+ on release starts, pending start blocks SAVE", chain.armed && transport_req == 1);
-    project_save(3);
-    bad += check("SONG pending start cannot write a project", msg_is("STOP TO SAVE") && !project_used(3));
-    press(B_PLAY); events_block(32);
-    bad += check("SONG PLAY cancels a pending start", !chain.running && !chain.armed && !song.playing);
-    uint32_t old_count = chain_config.count;
-    turn(EN_K4, 30);
-    bad += check("SONG KNOB 4 (repeats) cannot add or clear rows", chain_config.count == old_count);
-    for (k = chain_config.count; k < CHAIN_ROWS; k++) { turn(EN_K1, 1); turn(EN_K3, 1); }
-    bad += check("SONG append row stays bounded at 16", chain_config.count == CHAIN_ROWS && chain_valid(&chain_config));
-    go_title("SONG"); hold(B_OCTUP); sheet_do("Clear song");
-    bad += check("Clear song (the song's sheet) requires explicit confirmation", ui.confirm == CF_CLEAR_SONG &&
-                 chain_config.count == CHAIN_ROWS);
+    bad += check("SONG OCT+ on an entry naming an empty pattern: EMPTY ENTRY", msg_is("EMPTY ENTRY") && !transport_req);
+    trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
+    ocl_keep_all();
+    bad += check("steps kept on track 1 are a new pattern named by an empty entry",
+                 lists.ent[0][2][0] && ocl_pat_len(lists.ent[0][2][0] - 1u) && bank_pid[0][trk[0].pattern] == lists.ent[0][2][0]);
+    {
+        uint32_t made = lists.ent[0][2][0];
+        lists.ent[0][1][0] = (uint8_t)made;          /* (entry B names it too) */
+        press(B_OCTUP);
+        bad += check("SONG OCT+ stopped: track 1 goes to entry B at once", lists.cur[0] == 1u &&
+                     trk[0].step[0].note[0] == 60u);
+    }
+    press(B_PLAY);
+    bad += check("PLAY on SONG: the song plays (SONG on)", lists.song == 1u && transport_req == 1u);
+    stop_transport();
+    go_home(); press(B_PLAY);
+    bad += check("PLAY elsewhere: each track loops its entry (SONG off)", lists.song == 0u && transport_req == 1u);
+    stop_transport();
+    go_title("SONG"); frame();
+    hold(B_OCTUP); sheet_do("Clear lists");
+    bad += check("Clear lists (the song's sheet) requires explicit confirmation", ui.confirm == CF_CLEAR_SONG && ocl_any());
     press(B_OCTDN);
-    bad += check("cancel preserves the full song", chain_config.count == CHAIN_ROWS);
-    hold(B_OCTUP); sheet_do("Clear song"); press(B_OCTUP);
-    bad += check("confirmed CLEAR SONG keeps musical steps", !chain_config.count && !ui.song_row);
+    bad += check("cancel keeps the lists", ocl_any());
+    hold(B_OCTUP); sheet_do("Clear lists"); press(B_OCTUP);
+    bad += check("confirmed: the lists empty, the steps and the pool kept", !ocl_any() && trk[0].step[0].note[0] == 60u);
     return bad;
 }
 
@@ -4274,18 +4281,18 @@ static int test_bughunt_ui(void)
     chain_defaults(&chain_config);
     pattern_init();                      /* no song rows */
     go_title("SONG"); frame();
-    hold(B_OCTUP); sheet_do("Delete section");
+    hold(B_OCTUP); sheet_do("Delete entry");
     ok = !ui.confirm && msg_is("NOTHING TO DELETE");   /* (the header, or wrapped on the toast: never cut) */
-    hold(B_OCTUP); sheet_do("Clear song");
+    hold(B_OCTUP); sheet_do("Clear lists");
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
     track_defaults_steps(TSEL);
-    chain_config.count = 1; chain_config.row[0].slot = 0; chain_config.row[0].repeat = 1;
+    lists.ent[0][0][0] = 1;                             /* (Orange Cat 0.3: a list with an entry) */
     go_title("PATTERN"); frame();
-    sheet_do("Clear pattern");                          /* an empty track, the song with a row */
+    sheet_do("Clear pattern");                          /* an empty track, a list with an entry */
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
     go_title("SONG"); frame();
-    hold(B_OCTUP); sheet_do("Clear song");
-    bad += check("the sheets' Delete section / Clear song / Clear pattern with nothing there: NOTHING TO ..; a song: its dialog",
+    hold(B_OCTUP); sheet_do("Clear lists");
+    bad += check("the sheets' Delete entry / Clear lists / Clear pattern with nothing there: NOTHING TO ..; lists: the dialog",
                  ok && ui.confirm == CF_CLEAR_SONG);
     /* 7: REC works in the layers, as PLAY: it arms the track (PLAY starts); the layer stays, no page */
     ok = 1;
@@ -4807,12 +4814,16 @@ static int test_stage(void)
     }
     ui_power_on();
     stop_transport();
+    pool_empty();
+    for (uint32_t k = 0; k < NTRK; k++) two_entries(k);
     go_page(GR_PATGRID);
     turn(EN_K2, 1);
-    bad += check("PATTERNS stopped: KNOB 2 switches track 2 to pattern 2 at once", trk[1].pattern == 1u && trk[0].pattern == 0u);
+    bad += check("PATTERNS stopped: KNOB 2 switches track 2 to entry B at once", trk[1].pattern == 1u && lists.cur[1] == 1u &&
+                 trk[0].pattern == 0u);
     song.playing = 1;
     turn(EN_K3, 1);
-    bad += check("  playing: KNOB 3 queues track 3's pattern 2 for its bar", trk[2].pattern == 0u && trk[2].pattern_next == 1u);
+    bad += check("  playing: KNOB 3 stages track 3's entry B for its loop end", trk[2].pattern == 0u && trk[2].pattern_next == 1u &&
+                 ocl_staged_ent(2) == 1u);
     turn(EN_K3, -1);
     bad += check("  .. back to the one playing: nothing waits", trk[2].pattern_next == 0xFFu);
     {   /* the lights: SEQ held, the pattern keys; REC armed while stopped */
@@ -4822,14 +4833,16 @@ static int test_stage(void)
         for (k = 0; k < 41u; k++)
             led_pos[k] = (uint8_t)((k % FM1_NCOL) << 3 | (1u + k / FM1_NCOL));
         stop_transport();
-        pattern_switch(TSEL, 2); my_steps(TSEL); pattern_switch(TSEL, 0); my_steps(TSEL);
+        pool_empty();                                     /* (Orange Cat 0.3, 4c: the keys are entries A..H) */
+        lists.ent[song.sel][0][0] = 1; lists.ent[song.sel][2][0] = 2; lists.cur[song.sel] = 0;
         song.playing = 1;
+        ocl_staged[song.sel] = 6;                         /* (entry F staged) */
         TSEL->pattern_next = 5;
         btn_down(B_SEQ);
         frame();
         fm1_ms = 0;                                       /* (the breath at its brightest) */
         ui_leds();
-        bad += check("SEQ held: the pattern playing bright, one holding notes dim, the one waiting breathing, empty dark",
+        bad += check("SEQ held: the entry played bright, one naming a pattern dim, the one staged breathing, empty dark",
                      key_light(14u + PK[0]) == 2u && plane_led(1, 14u + PK[2]) && !key_light(14u + PK[2]) &&
                      plane_led(2, 14u + PK[5]) && !key_light(14u + PK[5]) && !plane_led(1, 14u + PK[5]) &&
                      !key_light(14u + PK[3]) && !plane_led(1, 14u + PK[3]) && !plane_led(2, 14u + PK[3]));
@@ -4838,6 +4851,7 @@ static int test_stage(void)
         bad += check("  .. the breath goes dark between its swells", !plane_led(2, 14u + PK[5]));
         btn_up(B_SEQ);
         frame();
+        ocl_staged[song.sel] = 0;
         stop_transport();
         song.rec = 1;
         fm1_ms = 0;
@@ -4948,11 +4962,8 @@ static int test_capture(void)
                      jam.pat[1][0] == 1u && jam.rep[1] == 2u && jam.pat[2][0] == 0u);
         go_page(GR_SONG);
         hold(B_REC);
-        bad += check("SONG: REC held takes the jam as the song (empty song: no dialog)", chain_config.count == 3u &&
-                     chain_patterns[1][0] == 1u && chain_config.row[1].repeat == 2u && !ui.confirm);
-        hold(B_REC);
-        bad += check("  over a song with rows: the dialog first", ui.confirm == CF_TAKE_JAM);
-        press(B_OCTDN);
+        bad += check("SONG: REC held is not Melodee's TAKE JAM (Orange Cat 0.3: the lists)", msg_is("[SEQ] TO RECORD") &&
+                     !ui.confirm);
         go_home();
     }
     {
@@ -5245,25 +5256,29 @@ static int test_pattern_key_handoff(void)
     uint32_t playing, action;
     for (playing = 0; playing < 2u; playing++) for (action = 0; action < 2u; action++) {
         ui_power_on(); stop_transport();
-        my_steps(TSEL); TSEL->step[0].note[0] = 48;
-        pattern_switch(TSEL, 2); my_steps(TSEL); TSEL->step[0].note[0] = 72;
-        pattern_switch(TSEL, 0);
+        pool_empty(); pattern_init();                 /* (Orange Cat 0.3, 4c) entries A (48) and C (72), on A */
+        my_steps(TSEL); TSEL->step[0].note[0] = 48; ocl_keep_all();
+        ocl_go_empty(0, 2); my_steps(TSEL); TSEL->step[0].note[0] = 72; ocl_keep_all();
+        ocl_go(0, 0);
         if (playing) { seq_start(); seq_advance(0); seq_advance(1); }
         go_home(); btn_down(B_SEQ); frame();
         key_down(PAT_KEY[0]); frame();
         /* Release the old key and press the new one between UI frames. */
         key_up(PAT_KEY[0]); key_down(PAT_KEY[2]);
         frames(1100u);
-        bad += check("a new held pattern after a release opens its own dialog",
-                     ui.confirm == CF_PAT_KEY && ui.pat_dlg == 2u &&
-                     TSEL->pattern == 0u && pattern_at(0, 2)->step[0].note[0] == 72u);
+        bad += check("a new held entry after a release opens its own dialog",
+                     ui.confirm == CF_PAT_KEY && ui.pat_dlg == 2u && lists.cur[0] == 0u && lists.ent[0][2][0]);
         key_up(PAT_KEY[2]); frame();
         if (ui.confirm == CF_PAT_KEY) {
             if (action) tap_key(PAT_KEY[3]); else press(B_OCTUP);
             if (playing) { stop_transport(); frame(); }
-            bad += check("held pattern copy/delete uses the new bank and preserves the previous one",
-                         !ui.confirm && TSEL->step[0].note[0] == 48u &&
-                         (action ? pattern_at(0, 3)->step[0].note[0] == 72u : pattern_empty(0, 2)));
+            {
+                uint32_t d = lists.ent[0][3][0];
+                int copied = d && !ocp_load(d - 1u, 3, 7, 1) && pattern_at(3, 7)->step[0].note[0] == 72u;
+                bad += check("held entry copy (stopped; playing: refused) / delete (the entry) keeps the one played",
+                             !ui.confirm && TSEL->step[0].note[0] == 48u &&
+                             (action ? (playing ? !d && msg_is("STOP TO COPY") : copied) : !lists.ent[0][2][0]));
+            }
         }
         btn_up(B_SEQ); frame();
     }
@@ -5294,20 +5309,26 @@ static int test_seq_keys(void)
                  key_light(14u + key_at(1, 0)) == 2u && plane_led(1, 14u + key_at(1, 1)) &&
                  plane_led(2, 14u + key_at(1, 2)) && !plane_led(1, 14u + key_at(1, 3)) && !key_light(14u + key_at(1, 3)));
     led_pos_init();
-    my_steps(TSEL); pattern_switch(TSEL, 2); my_steps(TSEL); pattern_switch(TSEL, 0);
+    /* (Orange Cat 0.3, 4c) the white keys are entries A..H: A and C name patterns (kept from steps), the track on A */
+    pool_empty(); pattern_init();
+    my_steps(TSEL); ocl_keep_all();
+    ocl_go_empty(0, 2); my_steps(TSEL); ocl_keep_all();
+    ocl_go(0, 0);
     song.rec = 0;
     tap_key(w2);
-    bad += check("  white key 2 tapped, an empty pattern: pattern 2, REC armed with it", TSEL->pattern == 1u &&
-                 (song.rec & 1u) && !(song.rec_latch & 1u));
+    bad += check("  white key 2 tapped, an empty entry: the track on B, an empty pattern, REC armed with it",
+                 lists.cur[0] == 1u && seq_is_empty(TSEL) && (song.rec & 1u) && !(song.rec_latch & 1u));
     tap_key(w2);
     bad += check("  .. hit again at once: still armed", (song.rec & 1u) != 0u);
     song.rec = 0;
     my_steps(TSEL);
     fm1_ms += 400u;
     tap_key(w2);
-    bad += check("  .. now with notes: tapped, REC as it was", TSEL->pattern == 1u && !song.rec);
+    bad += check("  .. now with notes: tapped, REC as it was, the steps kept", lists.cur[0] == 1u && !song.rec &&
+                 !seq_is_empty(TSEL));
     tap_key(w2);
-    bad += check("  .. hit again at once: REC armed for one pass, still pattern 2", (song.rec & 1u) && !(song.rec_latch & 1u) && TSEL->pattern == 1u);
+    bad += check("  .. hit again at once: REC armed for one pass, still entry B", (song.rec & 1u) && !(song.rec_latch & 1u) &&
+                 lists.cur[0] == 1u);
     fm1_ms += 400u;
     tap_key(w2);
     fm1_ms += 400u;
@@ -5319,14 +5340,15 @@ static int test_seq_keys(void)
     key_down(w3);
     frames(1100u);
     bad += check("  white key 3 held 1 s: its dialog, the keys silent, nothing switched",
-                 ui.confirm == CF_PAT_KEY && ui.pat_dlg == 2u && song.grid == 2u && TSEL->pattern == 1u);
+                 ui.confirm == CF_PAT_KEY && ui.pat_dlg == 2u && song.grid == 2u && lists.cur[0] == 1u);
     key_up(w3);
     frame();
     tap_key(key_at(1, 2));
     bad += check("  .. a black key: nothing (track 1 still)", ui.confirm == CF_PAT_KEY && song.sel == 0u);
     press(B_OCTDN);
-    bad += check("  .. OCT-: gone, pattern 3 as it was", !ui.confirm && pattern_used(0, 2) && song.grid != 2u);
-    seq_hold_key(w3, 1100u);
+    bad += check("  .. OCT-: gone, entry C as it was", !ui.confirm && lists.ent[0][2][0] && song.grid != 2u);
+    TSEL->p[P_SLEN] = 32;
+    seq_hold_key(w2, 1100u);
     {
         char a[24], b[CF_DETAIL];
         btn_up(B_SEQ); frame();
@@ -5334,12 +5356,12 @@ static int test_seq_keys(void)
         btn_down(B_SEQ); frame();
         tap_key(key_at(1, 3));
         confirm_text(a, b);
-        bad += check("  .. C# (black key 4): pattern 3 halved, the dialog stays (SEQ held), its length in the title",
-                     ui.confirm == CF_PAT_KEY && pattern_at(0, 2)->timing[0] == 16 && msg_is("PATTERN HALVED") &&
-                     str_eq(a, "PATTERN 3 \xB7 16 STEPS") && ui.pat_did && song.sel == 0u);
+        bad += check("  .. C# (black key 4): entry B's pattern halved, the dialog stays (SEQ held), its length in the title",
+                     ui.confirm == CF_PAT_KEY && TSEL->p[P_SLEN] == 16 && msg_is("PATTERN HALVED") &&
+                     str_eq(a, "ENTRY B \xB7 16 STEPS") && ui.pat_did && song.sel == 0u);
         tap_key(key_at(1, 4));
         bad += check("  .. D# (black key 5): doubled, 32 steps, still up", ui.confirm == CF_PAT_KEY &&
-                     pattern_at(0, 2)->timing[0] == 32 && msg_is("PATTERN DOUBLED"));
+                     TSEL->p[P_SLEN] == 32 && msg_is("PATTERN DOUBLED"));
         ui_leds();
         for (i = 0; i < 41u; i++)
             led_pos[i] = (uint8_t)((i % FM1_NCOL) << 3 | (1u + i / FM1_NCOL));
@@ -5354,31 +5376,34 @@ static int test_seq_keys(void)
         led_pos_init();
         btn_up(B_SEQ); frame();
         bad += check("  .. SEQ let go: closed, the keys play, still 32 steps, Stage stays", !ui.confirm &&
-                     song.grid != 2u && pattern_at(0, 2)->timing[0] == 32 && ui.home);
+                     song.grid != 2u && TSEL->p[P_SLEN] == 32 && ui.home);
         btn_down(B_SEQ); frame();
-        seq_hold_key(w3, 1100u);
+        seq_hold_key(w2, 1100u);
         btn_up(B_SEQ); frame();
         tap_key(key_at(1, 4));
-        bad += check("  .. D# with SEQ already let go: doubled and closed at once", !ui.confirm &&
-                     pattern_at(0, 2)->timing[0] == 64);
+        bad += check("  .. D# with SEQ already let go: doubled and closed at once", !ui.confirm && TSEL->p[P_SLEN] == 64);
         btn_down(B_SEQ); frame();
+        seq_hold_key(w3, 1100u);
+        tap_key(key_at(1, 3));
+        bad += check("  .. C# on an entry the track is not on: GO TO IT FIRST", msg_is("GO TO IT FIRST"));
+        press(B_OCTDN);
     }
     seq_hold_key(w3, 1100u);
     tap_key(w3);
-    bad += check("  .. its key again: pattern 3 deleted (not the one playing)", !ui.confirm && !pattern_used(0, 2) &&
-                 msg_is("PATTERN DELETED") && TSEL->pattern == 1u);
+    bad += check("  .. its key again: entry C emptied (not the one played; its pattern stays in the pool)", !ui.confirm &&
+                 !lists.ent[0][2][0] && msg_is("ENTRY CLEARED") && lists.cur[0] == 1u);
     seq_hold_key(key_at(0, 0), 1100u);
     tap_key(w4);
-    bad += check("  white key 1 held, then key 4: pattern 1 copied to 4", !ui.confirm && pattern_used(0, 3) &&
-                 msg_is("PATTERN COPIED"));
+    bad += check("  white key 1 held, then key 4: entry D a copy of A's pattern (its own)", !ui.confirm &&
+                 lists.ent[0][3][0] && lists.ent[0][3][0] != lists.ent[0][0][0] && msg_is("PATTERN COPIED"));
     my_steps(TSEL);
     seq_hold_key(w2, 1100u);
     press(B_OCTUP);
-    bad += check("  the one playing (2): OCT+ deletes it as PATTERNS does", !ui.confirm && seq_is_empty(TSEL) &&
+    bad += check("  the one played (B): OCT+ deletes its pattern as PATTERNS does", !ui.confirm && seq_is_empty(TSEL) &&
                  msg_is("PATTERN DELETED"));
     seq_hold_key(w3, 1100u);
     tap_key(w3);
-    bad += check("  an empty one: NOTHING TO DELETE", !ui.confirm && msg_is("NOTHING TO DELETE"));
+    bad += check("  an empty entry: NOTHING TO DELETE", !ui.confirm && msg_is("NOTHING TO DELETE"));
     key_down(key_at(0, 0));
     frames(300u);
     key_down(key_at(0, 4));
@@ -5387,7 +5412,7 @@ static int test_seq_keys(void)
     key_up(key_at(0, 0));
     frame();
     bad += check("  key 1 held, key 5 pressed before the dialog: no copy", ui.confirm == CF_PAT_KEY &&
-                 ui.pat_dlg == 0u && !pattern_used(0, 4));
+                 ui.pat_dlg == 0u && !lists.ent[0][4][0]);
     press(B_OCTDN);
     btn_up(B_SEQ);
     frame();

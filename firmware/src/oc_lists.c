@@ -231,6 +231,14 @@ static int ocl_launch(uint32_t k, uint32_t e)
 {
     k %= NTRK;
     if (!song.playing) return ocl_go(k, e);
+    if (e % OCL_NENT == lists.cur[k] % OCL_NENT && bank_pid[k][trk[k].pattern] == lists.ent[k][e % OCL_NENT][0]) {
+        uint32_t f = motion_guard();               /* (the entry it plays: what was staged comes in after all not) */
+        trk[k].pattern_next = 0xff;
+        trk[k].pattern_reps = 0;
+        motion_unguard(f);
+        ocl_staged[k] = 0;
+        return 0;
+    }
     return ocl_stage(k, e, 0, 0);
 }
 
@@ -264,4 +272,110 @@ static void ocl_poll(void)
             (void)ocl_stage(k, e, lists.ent[k][cur][1] + 1u, 1);
         }
     }
+}
+
+/* (the UI's) pool pattern id's LEN, 0 empty; the entry staged on track k, OCL_NENT none */
+static uint32_t ocl_pat_len(uint32_t id) { return id < OCP_N ? ocp.len[id] : 0u; }
+static uint32_t ocl_staged_ent(uint32_t k) { return ocl_staged[k % NTRK] ? ocl_staged[k % NTRK] - 1u : OCL_NENT; }
+
+/* ---------------------------------------------- the list's edits (SONG) --- */
+/* an empty entry at e of track k, the ones from it a place later (P's goes); the track's place moves with its entry */
+static void ocl_insert(uint32_t k, uint32_t e)
+{
+    k %= NTRK; e %= OCL_NENT;
+    for (uint32_t i = OCL_NENT - 1u; i > e; i--) {
+        lists.ent[k][i][0] = lists.ent[k][i - 1u][0];
+        lists.ent[k][i][1] = lists.ent[k][i - 1u][1];
+    }
+    lists.ent[k][e][0] = lists.ent[k][e][1] = 0;
+    if (lists.cur[k] >= e && lists.cur[k] + 1u < OCL_NENT) lists.cur[k]++;
+}
+/* entry e of track k gone, the ones after it a place earlier */
+static void ocl_delete(uint32_t k, uint32_t e)
+{
+    k %= NTRK; e %= OCL_NENT;
+    for (uint32_t i = e; i + 1u < OCL_NENT; i++) {
+        lists.ent[k][i][0] = lists.ent[k][i + 1u][0];
+        lists.ent[k][i][1] = lists.ent[k][i + 1u][1];
+    }
+    lists.ent[k][OCL_NENT - 1u][0] = lists.ent[k][OCL_NENT - 1u][1] = 0;
+    if (lists.cur[k] > e) lists.cur[k]--;
+}
+/* entry e of track k twice (the copy after it names the same pattern) */
+static void ocl_dup(uint32_t k, uint32_t e)
+{
+    k %= NTRK; e %= OCL_NENT;
+    if (e + 1u >= OCL_NENT) return;
+    ocl_insert(k, e + 1u);
+    lists.ent[k][e + 1u][0] = lists.ent[k][e][0];
+    lists.ent[k][e + 1u][1] = lists.ent[k][e][1];
+}
+/* entry e of track k given its own pattern: a copy of the one it names, the first free number (Skiff's COPY; stopped).
+ * 0 done; 1 an empty entry; 2 a flash error or playing; 4 PATTERNS FULL */
+static int ocl_copy(uint32_t k, uint32_t e)
+{
+    uint32_t id, n, b;
+    int rc;
+    k %= NTRK; e %= OCL_NENT;
+    if ((id = ocl_ent_pat(k, e)) == OCP_N || (!ocp.len[id] && !ocp.hash[id])) return 1;
+    if (transport_busy()) return 2;
+    if ((b = ocl_bank_of(k, id)) < NPAT && (rc = ocl_keep(k, b)) != 0) return rc;   /* (its edits in the copy too) */
+    if ((n = ocl_free_pat()) == OCP_N) return 4;
+    if ((rc = ocp_copy(id, n)) != 0) return rc == 2 ? 4 : 2;
+    lists.ent[k][e][0] = (uint8_t)(n + 1u);
+    if (b < NPAT && lists.cur[k] == e && b == trk[k].pattern) {
+        bank_pid[k][b] = (uint8_t)(n + 1u);      /* (the track on it: it plays the copy now) */
+        bank_sig[k][b] = ocp.hash[n];
+    }
+    return 0;
+}
+/* every list empty (the pool and what the tracks play stay) */
+static void ocl_clear(void)
+{
+    memset(lists.ent, 0, sizeof lists.ent);
+    memset(lists.cur, 0, sizeof lists.cur);
+}
+static int ocl_any(void)                        /* an entry names a pattern */
+{
+    for (uint32_t k = 0; k < NTRK; k++)
+        for (uint32_t e = 0; e < OCL_NENT; e++)
+            if (lists.ent[k][e][0]) return 1;
+    return 0;
+}
+
+/* entry e of track k (empty: naming no pattern) to a new empty pattern: the track on it (stopped: at once; playing: at
+ * its loop end), its steps a new pattern named by the entry when they are kept. 0 done; 2 a flash error; 4 no bank to
+ * use (playing: none free of unkept edits) */
+static int ocl_go_empty(uint32_t k, uint32_t e)
+{
+    uint32_t b;
+    int rc;
+    k %= NTRK; e %= OCL_NENT;
+    if (chain.running || chain.armed) return 2;
+    if (!song.playing) {
+        if ((rc = ocl_keep(k, trk[k].pattern)) != 0) return rc;
+        if ((b = ocl_victim(k)) == NPAT) return 4;
+        if ((rc = ocl_keep(k, b)) != 0) return rc;
+    } else if ((b = ocl_victim_clean(k)) == NPAT) {
+        return 4;
+    }
+    if (pattern_clear(&trk[k], b)) return 2;
+    bank_pid[k][b] = 0;
+    bank_sig[k][b] = 0;
+    bank_use[k][b] = ++bank_clock;
+    if (!song.playing) {
+        lists.cur[k] = (uint8_t)e;
+        pattern_request(&trk[k], b);
+        return 0;
+    }
+    {
+        uint32_t f = motion_guard();
+        ocl_staged_gen[k] = trk[k].pattern_gen;
+        trk[k].pattern_reps = 0;
+        trk[k].pattern_next = (uint8_t)b;
+        motion_unguard(f);
+    }
+    ocl_staged[k] = (uint8_t)(e + 1u);
+    ocl_staged_bank[k] = (uint8_t)b;
+    return 0;
 }

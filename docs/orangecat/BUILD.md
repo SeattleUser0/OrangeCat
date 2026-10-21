@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.11  
+**Version:** 0.12  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.12 (October 20, 2026):** 4c steps 1 to 3: tracks' lists of pool patterns, SONG while playing, the SONG and PATTERNS pages and the SEQ keys on entries.
 - **0.11 (October 20, 2026):** 4a part 3: the record store, the pool format and the project slots on them are written and tested. RATCH, FLAM, conditions and NUDGE are now saved.
 - **0.10 (October 20, 2026):** 4a parts 1 and 2 done (step fields, their playback, sheet rows). Part 3 design settled: one record store in the project area, the pool and the new project format together.
 - **0.9 (October 20, 2026):** Phase 4 steps 4a and 4b merged: the new step fields and the pattern pool share one storage change.
@@ -272,7 +273,13 @@ Each step builds, passes the host tests, and is measured before the next.
   - Steps: (1) lists, the bank cache, keep and going to an entry while stopped, saved with the project; (2) SONG and launches while playing; (3) the SONG and PATTERNS pages; (4) the web editor (4g).
   - [x] Steps 1 and 2: firmware/src/oc_lists.c, tests/oc_lists_test.c. Tested: a new project's steps become pattern 01 on entry A; any track plays any pattern; an edit is kept back to its pattern and another track's unchanged copy does not undo it; ten patterns through 8 banks, stopped and while playing; a project keeps its lists, REPS, SONG and entries, after a reboot too; two projects naming a pattern share it; PATTERNS FULL. SONG on: A A B C with A's REPS 2; a stop drops the song's next; a launch comes in at the loop end.
   - Known gap: patterns no list or project names (made and then let go) stay in the pool until the PATTERNS page can clear them (step 3).
-  - [ ] Step 3: the SONG page as Skiff's list editor; the PATTERNS page as the launcher.
+  - [x] Step 3: the pages and keys (first version). How it works on the device:
+    - SEQ > SONG is the list editor: a column per entry (A to P, four shown around the one picked), a row per track. KNOB 1 picks the entry, KNOB 2 the track, KNOB 3 sets the entry's pattern (01 to 64, or none), KNOB 4 its REPS (1 to 16). OCT+ sends the track to that entry (stopped: now; playing: at its loop end). PLAY on this page plays the song (each track down its list); PLAY on any other page loops each track's entry. The page's sheet (OCT+ held): Insert entry, Duplicate entry, Own copy (the entry gets its own copy of its pattern), Delete entry, Clear lists.
+    - SEQ > PATTERNS shows each track's entries A to H (I to P when the selected track is on one of those): the entry it is on filled, one staged dashed. KNOB 1 to 4 move tracks 1 to 4 to their next or previous entry. Its sheet: Own copy, Delete pattern.
+    - SEQ held, the white keys are the selected track's entries A to H: a tap goes there (an empty entry starts a new empty pattern and arms REC, as Melodee did for an empty bank). Held 1 second, its dialog: the same key again empties that entry (or, on the entry being played, deletes its pattern), another white key copies it there as its own pattern (stopped), C# and D# halve and double the pattern being played.
+    - HOME's SELECT knob set to PATTERN steps through the entries.
+  - Melodee's section SONG and TAKE JAM are no longer reachable from the pages (their code stays for older projects and the web editor until 4g).
+  - Left to do in 4c: a pool page that lists all 64 patterns and clears unused ones; rests (an empty entry between patterns as silence, as Skiff 1.2.1).
 - [ ] **4d. PERFORM and scenes.** Skiff's launch.c (launch at LOOP / BAR / BEAT / NOW), staged mutes, 16 scenes, FILL, throws.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
 - [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.

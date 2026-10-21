@@ -7,6 +7,14 @@
 /* ----------------------------------------------------------- LEDs --- */
 /* The LED picture is built off-line and copied one byte per column: clearing
  * and relighting would let the 10 kHz scan catch the dark gap and flicker. */
+static void ocl_poll(void);                              /* (Orange Cat 0.3, 4c) oc_lists.c: the lists' song */
+static int ocl_launch(uint32_t k, uint32_t e);
+static int ocl_go_empty(uint32_t k, uint32_t e);
+static int ocl_copy(uint32_t k, uint32_t e);
+static uint32_t ocl_staged_ent(uint32_t k);
+static uint32_t ocl_pat_len(uint32_t id);
+static void ocl_delete(uint32_t k, uint32_t e);
+static void ocl_clear(void);
 static uint8_t led_pos[41];                        /* (col << 3) | row bit, 0xFF = none */
 
 static void led_pos_init(void)
@@ -128,20 +136,22 @@ static int pattern_keys_on(void)
  * blinking (as a layer's button) */
 static uint32_t pattern_leds(uint32_t *dim, uint32_t *breath)
 {
-    uint32_t m = 1u << PAT_KEY[TSEL->pattern], b, dlg = ui.confirm == CF_PAT_KEY;
+    /* (Orange Cat 0.3, 4c) the keys are the selected track's entries A..H: bright the one it is on, dim the others
+     * naming a pattern, breathing the one staged */
+    uint32_t k = song.sel % NTRK, cur = lists.cur[k] % OCL_NENT, staged = ocl_staged_ent(k), b, dlg = ui.confirm == CF_PAT_KEY;
+    uint32_t m = cur < NPAT ? 1u << PAT_KEY[cur] : 0u;
     *dim = *breath = 0;
     for (b = 0; b < NPAT; b++)
-        if (b != TSEL->pattern && pattern_used(song.sel, b))
+        if (b != cur && lists.ent[k][b][0])
             *dim |= 1u << PAT_KEY[b];
     if (dlg && ((fm1_ms / 250u) & 1u) == 0u)
         m |= 1u << LEN_KEY[0] | 1u << LEN_KEY[1];
     for (b = 0; !dlg && b < trk_n(); b++)
         if ((song.rec >> b) & 1u) *breath |= 1u << TRK_KEY[b];
         else *dim |= 1u << TRK_KEY[b];
-    if (!dlg) m |= 1u << TRK_KEY[song.sel % NTRK];
-    if (TSEL->pattern_next < NPAT) *breath |= 1u << PAT_KEY[TSEL->pattern_next];
-    for (b = 0; b < NPAT; b++)                          /* (an edit waiting for the loop end: waiting too) */
-        if ((seq_pend[song.sel % NTRK] >> b) & 1u) *breath |= 1u << PAT_KEY[b];
+    if (!dlg) m |= 1u << TRK_KEY[k];
+    if (staged < NPAT) *breath |= 1u << PAT_KEY[staged];
+    if ((seq_pend[k] >> TSEL->pattern) & 1u && cur < NPAT) *breath |= 1u << PAT_KEY[cur];   /* (an edit waiting) */
     if (ui.pat_key) m |= 1u << PAT_KEY[ui.pat_key - 1u];
     if (ui.confirm == CF_PAT_KEY) m |= 1u << PAT_KEY[ui.pat_dlg % NPAT];   /* (its dialog: the one held) */
     *dim &= ~(m | *breath);
@@ -274,13 +284,17 @@ static void rec_toggle(uint32_t latch);
 static void pattern_key_release(void)
 {
     if (ui.pat_key && (!pattern_keys_on() || !(fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])))) {
-        if (!ui.pat_copy) {
-            uint32_t bank = ui.pat_key - 1u, armed = 0;
-            if (pattern_request(TSEL, bank)) ui_message("STOP SONG TO SWITCH");
+        if (!ui.pat_copy) {                     /* (Orange Cat 0.3, 4c) the key's entry, A..H */
+            uint32_t e = ui.pat_key - 1u, armed = 0, k = song.sel % NTRK, empty = !lists.ent[k][e][0];
+            int rc = e == lists.cur[k] % OCL_NENT && ocl_staged_ent(k) == OCL_NENT ? 0 :   /* (the one it is on: stays) */
+                     empty ? ocl_go_empty(k, e) : ocl_launch(k, e);
+            empty = empty && seq_is_empty(TSEL);
+            if (rc) ui_message(rc == 1 ? "EMPTY ENTRY" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PATTERNS FULL") :
+                               rc == 5 ? "PATTERN DATA FULL" : "STOP SONG TO SWITCH");
             else {
-                char m[12] = "PATTERN ";
-                m[8] = (char)('1' + bank); m[9] = 0; ui_message(m);
-                if (pattern_empty(song.sel, bank)) {    /* an empty one: arm a single pattern pass */
+                char m[12] = "ENTRY A";
+                m[6] = (char)('A' + e); ui_message(m);
+                if (empty) {                            /* an empty one: arm a single pattern pass */
                     armed = 1;
                     if (!((song.rec >> song.sel) & 1u)) rec_toggle(0);
                 }
@@ -331,6 +345,15 @@ static void pattern_keys(uint32_t notes)
  * PATTERNS' Delete pattern (EDIT held undoes it), another emptied in its bank */
 static void pattern_key_delete(uint32_t k, uint32_t b)
 {
+    /* (Orange Cat 0.3, 4c) b is an entry: the one the track is on, its pattern deleted as before; another, the entry
+     * emptied (its pattern stays in the pool) */
+    if (b != lists.cur[k % NTRK] % OCL_NENT) {
+        if (!lists.ent[k % NTRK][b % OCL_NENT][0]) ui_message("NOTHING TO DELETE");
+        else { lists.ent[k % NTRK][b % OCL_NENT][0] = 0; ui_message("ENTRY CLEARED"); }
+        ui.force = 1;
+        return;
+    }
+    b = trk[k % NTRK].pattern;
     if (chain_busy())
         ui_message("STOP TO EDIT");
     else if (pattern_empty(k, b))
@@ -345,6 +368,11 @@ static void pattern_key_delete(uint32_t k, uint32_t b)
 static void pattern_key_len(uint32_t k, uint32_t b, int up)
 {
     track_t *t = &trk[k];
+    if (b != lists.cur[k % NTRK] % OCL_NENT) {          /* (Orange Cat 0.3, 4c) the entry the track is on only */
+        ui_message("GO TO IT FIRST");
+        return;
+    }
+    b = t->pattern;
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
     int rc = up ? pattern_double(t, b, 0) : pattern_half(t, b, 0);
     ui.force = 1;
@@ -392,8 +420,19 @@ static int pattern_key_dialog(uint32_t notes)
     ui.force = 1;
     if (b == src)
         pattern_key_delete(k, b);
-    else
-        pattern_copy_ui(k, src, b);
+    else if (!lists.ent[k][src % OCL_NENT][0])             /* (Orange Cat 0.3, 4c) entry src's own copy into b */
+        ui_message("NOTHING TO COPY");
+    else if (song.playing)
+        ui_message("STOP TO COPY");
+    else {
+        uint32_t was = lists.ent[k][b][0], wr = lists.ent[k][b][1];
+        int rc;
+        lists.ent[k][b][0] = lists.ent[k][src % OCL_NENT][0];
+        lists.ent[k][b][1] = lists.ent[k][src % OCL_NENT][1];
+        rc = ocl_copy(k, b);
+        if (rc) { lists.ent[k][b][0] = (uint8_t)was; lists.ent[k][b][1] = (uint8_t)wr; }
+        ui_message(!rc ? "PATTERN COPIED" : rc == 4 ? "PATTERNS FULL" : "SAVE ERROR");
+    }
     return 1;
 }
 /* key k of track t as the keys play now (LIGHTS): bright while it sounds (pressed, or its note held on the track by
@@ -1017,34 +1056,21 @@ static void edit_param(uint32_t slot, int32_t steps)
         patgrid_edit(slot, steps);
         return;
     }
-    if (pg->graph == GR_SONG) {                       /* KNOB 1 the section, 2 the track, 3 its pattern there, 4 the
-                                                       * section's repeats (TAKE JAM: REC held) */
+    if (pg->graph == GR_SONG) {                       /* (Orange Cat 0.3, 4c) KNOB 1 the entry, 2 the track, 3 the
+                                                       * entry's pool pattern (-- none, 01..64), 4 its REPS (1..16) */
+        uint32_t k = song.sel % NTRK, e = ui.song_row % OCL_NENT;
         if (slot == 0u) {
-            ui.song_row = (uint8_t)clamp((int32_t)ui.song_row + steps, 0,
-                chain_config.count < CHAIN_ROWS ? chain_config.count : CHAIN_ROWS - 1u);
+            ui.song_row = (uint8_t)clamp((int32_t)e + steps, 0, OCL_NENT - 1u);
             return;
         }
         if (slot == 1u) {
             track_select((uint32_t)clamp((int32_t)song.sel + (steps > 0 ? 1 : -1), 0, (int32_t)trk_n() - 1));
             return;
         }
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (slot == 3u && ui.song_row >= chain_config.count)
-            return;                                 /* (repeats of the column to add: none yet; KNOB 3 adds it) */
-        if (ui.song_row >= chain_config.count) {
-            chain_row_t *r = &chain_config.row[ui.song_row];
-            r->slot = 0;
-            if (ui.song_row) memcpy(chain_patterns[ui.song_row], chain_patterns[ui.song_row - 1u], NTRK);
-            else for (uint32_t k = 0; k < NTRK; k++) chain_patterns[ui.song_row][k] = trk[k].pattern;
-            r->repeat = 1;
-            chain_config.count = ui.song_row + 1u;
-            if (slot == 2u) return;
-        }
         if (slot == 2u)
-            chain_patterns[ui.song_row][song.sel] = (uint8_t)clamp((int32_t)chain_patterns[ui.song_row][song.sel] + steps, 0, NPAT - 1u);
-        chain_config.row[ui.song_row].slot = chain_patterns[ui.song_row][0];
-        if (slot == 3u)
-            chain_config.row[ui.song_row].repeat = (uint8_t)clamp((int32_t)chain_config.row[ui.song_row].repeat + steps, 1, 16);
+            lists.ent[k][e][0] = (uint8_t)clamp((int32_t)lists.ent[k][e][0] + steps, 0, OCL_NPOOL);
+        else if (lists.ent[k][e][0])
+            lists.ent[k][e][1] = (uint8_t)clamp((int32_t)lists.ent[k][e][1] + steps, 0, 15);
         return;
     }
     if (chain_busy() && (pg->scope == SC_STEP || pg->graph == GR_STEPS ||
@@ -1228,9 +1254,12 @@ static void act_do(void)
         ui.force = 1;
         return;
     }
-    if (cur_page()->graph == GR_SONG) {
-        if (song.playing || seq_counting() || chain_busy()) transport_req = 2;
-        else chain_play_ui();
+    if (cur_page()->graph == GR_SONG) {                 /* (Orange Cat 0.3, 4c) OCT+: the track to the entry picked */
+        uint32_t k = song.sel % NTRK;
+        int rc = ocl_launch(k, ui.song_row % OCL_NENT);
+        if (rc) ui_message(rc == 1 ? "EMPTY ENTRY" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PATTERNS FULL") :
+                           rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
+        ui.force = 1;
         return;
     }
 #if MELODEE_SLICE
@@ -1936,16 +1965,14 @@ static void select_turn(uint32_t hs, int32_t s)
         str_cpy(v + str_len(v), unit, 4);
         ui_say("SWING ", v);
         return;
-    case HS_PATTERN: {
-        uint32_t from = t->pattern_next < NPAT ? t->pattern_next : t->pattern;
-        x = clamp((int32_t)from + (s > 0 ? 1 : -1), 0, NPAT - 1u);
-        if (pattern_request(t, (uint32_t)x)) {
-            ui_message("STOP SONG TO SWITCH");
-            return;
-        }
-        fmt_int(v, x + 1);
-        ui_say(song.playing ? "NEXT PATTERN " : "PATTERN ", v);
-        ui.force = 1;
+    case HS_PATTERN: {                                  /* (Orange Cat 0.3, 4c) the next entry naming a pattern */
+        uint32_t k = song.sel % NTRK, e;
+        patgrid_edit(k, s);
+        e = ocl_staged_ent(k) < OCL_NENT ? ocl_staged_ent(k) : lists.cur[k] % OCL_NENT;
+        v[0] = (char)('A' + e); v[1] = 0;
+        if (!ui.msg_t || !str_eq(ui.msg, "NO OTHER ENTRY"))
+            ui_say(song.playing ? "NEXT ENTRY " : "ENTRY ", v);
+        (void)t; (void)x;
         return;
     }
     default:
@@ -1981,25 +2008,17 @@ static void ui_confirm_accept(void)
         uint32_t k = ui.confirm_trk % NTRK;
         if (!chain_busy() && !dq_defer(kind, k, trk[k].pattern, 0))
             dq_do(kind, k, trk[k].pattern, 0);
-    } else if (kind == CF_DEL_ROW) {
-        uint32_t r = ui.confirm_trk;
-        if (!chain_busy() && r < chain_config.count) {
-            for (; r + 1u < chain_config.count; r++) {
-                chain_config.row[r] = chain_config.row[r + 1u];
-                memcpy(chain_patterns[r], chain_patterns[r + 1u], NTRK);
-            }
-            chain_config.count--;
-            if (ui.song_row > chain_config.count) ui.song_row = chain_config.count;
-            ui_message("ROW DELETED");
-        }
+    } else if (kind == CF_DEL_ROW) {                     /* (Orange Cat 0.3, 4c) the selected track's entry */
+        ocl_delete(song.sel, ui.song_row);
+        ui_message("ENTRY DELETED");
     } else if (kind == CF_DEL_TRACK) {
         track_remove(ui.confirm_trk % NTRK);
     } else if (kind == CF_TAKE_JAM) {
         jam_take();
     } else if (kind == CF_NEW_SONG) {
         new_open();
-    } else if (kind == CF_CLEAR_SONG) {
-        if (!chain_busy()) { chain_defaults(&chain_config); memset(chain_patterns, 0, sizeof chain_patterns); ui.song_row = 0; ui_message("SONG CLEARED"); }
+    } else if (kind == CF_CLEAR_SONG) {                  /* (Orange Cat 0.3, 4c) the lists */
+        ocl_clear(); ui.song_row = 0; ui_message("LISTS CLEARED");
     } else if (kind == CF_PASTE_PAT) {          /* PATTERNS' Copy to over a pattern in use */
         if (ui.ptc_on && ui.ptc_trk == ui.confirm_trk)
             ptc_paste(1);
@@ -2017,7 +2036,6 @@ static void ui_confirm_accept(void)
 }
 
 #include "ui_designer_input.c"
-static void ocl_poll(void);                              /* (Orange Cat 0.3, 4c) oc_lists.c: the lists' song */
 static void ui_input(void)
 {
     pattern_poll();
@@ -2176,8 +2194,8 @@ static void ui_input(void)
     } else if (rec == BT_TAP) {
         rec_tap();
     } else if (rec == BT_HOLD) {
-        if (!ui.home && cur_page()->graph == GR_SONG)    /* SONG: TAKE JAM (the jam's rows as the song) */
-            ps_jam();
+        if (!ui.home && cur_page()->graph == GR_SONG)    /* (Orange Cat 0.3: Melodee's TAKE JAM is not on the lists) */
+            ui_message("[SEQ] TO RECORD");
         else
             capture_take();
     }
@@ -2319,10 +2337,11 @@ static void ui_input(void)
                 break;
             if (song.playing || seq_counting() || chain_busy())
                 transport_req = 2;
-            else if (!ui.home && cur_page()->graph == GR_SONG)
-                chain_play_ui();
-            else
+            else {                                      /* (Orange Cat 0.3, 4c) on SONG the song; else each track
+                                                         * loops its entry */
+                lists.song = (uint8_t)(!ui.home && cur_page()->graph == GR_SONG);
                 transport_req = 1;
+            }
             break;
         case B_SEQ:
         case B_REC:                                     /* tap / hold: above */

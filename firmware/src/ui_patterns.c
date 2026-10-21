@@ -122,112 +122,90 @@ static void pt_bars(uint32_t k, uint32_t b, int32_t x, int32_t y, uint16_t c)
         cv_rrect(x + 5 + 5 * (int32_t)i, y + 26 - h, 3, h, 1, c, T_SURF);
     }
 }
+/* (Orange Cat 0.3, 4c) the entries shown: A..H, or I..P when the selected track is on one of those */
+static uint32_t pt_first(void) { return lists.cur[song.sel % NTRK] % OCL_NENT >= 8u ? 8u : 0u; }
+static uint32_t ocl_staged_ent(uint32_t k);
 static void pt_numbers(void)
 {
-    uint32_t b, sig = ux.gen * 977u + ux.pal * 31u + 1u;
+    uint32_t b, first = pt_first(), sig = ux.gen * 977u + ux.pal * 31u + 1u + first * 7u;
     if (!ui.force && sig == ptv.num)
         return;
     ptv.num = sig;
     cv_begin(240, PT_ROW_Y - PT_NUM_Y, T_BG);
-    for (b = 0; b < NPAT; b++) {
-        char n[2] = {(char)('1' + b), 0};
+    for (b = 0; b < 8u; b++) {
+        char n[2] = {(char)('A' + first + b), 0};
         cv_text_c(PT_CELL_X(b) + 11, ty_y((PT_ROW_Y - PT_NUM_Y) / 2, TY_LB), TY_LB, n, T_MID, T_BG);
     }
     cv_blit(0, PT_NUM_Y);
 }
+/* track k's row: its numeral, then its list's entries (the one it is on filled, how far through it at its foot; one
+ * staged dashed; the others their pattern's number; empty ones an outline) */
 static void pt_row(uint32_t k)
 {
     const track_t *t = &trk[k];
     uint16_t tc = t->p[P_MUTE] ? T_DIM : T_TRK(k);
-    uint32_t b, prog = pt_prog(t), sel = k == song.sel, h;
+    uint32_t b, prog = pt_prog(t), sel = k == song.sel, h, first = pt_first(), cur = lists.cur[k] % OCL_NENT;
+    uint32_t staged = ocl_staged_ent(k);
     int32_t y0 = PT_ROW_Y + (int32_t)k * PT_ROW_H;
-    char n[2] = {(char)('1' + k), 0};
-    h = fnv1(fnv1(fnv1(2166136261u, steps_hash(t)), t->pattern_gen), t->pattern + 16u * t->pattern_next + 8192u * sel +
-            16384u * (uint32_t)(t->p[P_MUTE] != 0) + 65536u * (uint32_t)t->p[P_SLEN]);
+    char n[3] = {(char)('1' + k), 0, 0};
+    h = fnv1(fnv1(2166136261u, cur + 16u * staged + 256u * first + 8192u * sel), 16384u * (uint32_t)(t->p[P_MUTE] != 0));
+    for (b = 0; b < 8u; b++)
+        h = fnv1(h, lists.ent[k][first + b][0]);
     h = fnv1(h, ux.gen * 977u + ux.pal * 31u + (uint32_t)song.playing);
-    if (ptc_on() && k == ui.ptc_trk)                    /* Copy to: where it goes */
-        h = fnv1(h, 1u + ui.ptc_src + 16u * ui.ptc_dst);
     if (!ui.force && h == ptv.row[k]) {
-        if (prog != ptv.prog[k]) {                      /* playing: the bar at the cell's foot only */
+        if (prog != ptv.prog[k] && cur >= first && cur < first + 8u) {   /* playing: the bar at the cell's foot only */
             ptv.prog[k] = prog;
             cv_begin(17, 3, tc);
             pt_prog_bar(0, 0, prog, tc);
-            cv_blit((uint32_t)(PT_CELL_X(t->pattern) + 3), (uint32_t)(y0 + 2 + 25));
+            cv_blit((uint32_t)(PT_CELL_X(cur - first) + 3), (uint32_t)(y0 + 2 + 25));
         }
         return;
     }
     ptv.row[k] = h;
     ptv.prog[k] = prog;
     cv_begin(240, PT_ROW_H, T_BG);
-    if (sel) {                                          /* the track: its numeral in a chip, the selected one filled */
-        cv_rrect(2, 2, 24, 32, 6, tc, T_BG);
-        cv_text_c(14, ty_y(18, TY_TX), TY_TX, n, T_INK, tc);
-    } else {
-        cv_rrect(2, 2, 24, 32, 6, tc, T_BG);
+    cv_rrect(2, 2, 24, 32, 6, tc, T_BG);                /* the track: its numeral in a chip, the selected one filled */
+    if (!sel)
         cv_rrect(4, 4, 20, 28, 4, T_BG, tc);
-        cv_text_c(14, ty_y(18, TY_TX), TY_TX, n, tc, T_BG);
-    }
-    for (b = 0; b < NPAT; b++) {
+    cv_text_c(14, ty_y(18, TY_TX), TY_TX, n, sel ? T_INK : tc, sel ? tc : T_BG);
+    for (b = 0; b < 8u; b++) {
+        uint32_t e = first + b, v = lists.ent[k][e][0];
         int32_t x = PT_CELL_X(b), y = 2;
-        int dst = ptc_on() && k == ui.ptc_trk && b == ui.ptc_dst;
-        if (dst)                                        /* Copy to: the place, framed in the theme's colour */
-            cv_rrect(x - 2, y - 2, 27, 36, 6, T_THEME, T_BG);
-        if (b == t->pattern) {                          /* playing: filled, how far through it */
-            cv_rrect(x, y, 23, 32, 4, tc, dst ? T_THEME : T_BG);
+        n[0] = (char)('0' + v / 10u); n[1] = (char)('0' + v % 10u);
+        if (v && e == cur) {                            /* playing / on: filled, how far through it */
+            cv_rrect(x, y, 23, 32, 4, tc, T_BG);
+            cv_text_c(x + 11, ty_y(y + 13, TY_LB), TY_LB, n, T_INK, tc);
             if (prog)
                 pt_prog_bar(x + 3, y + 25, prog, tc);
-            continue;
-        }
-        if (pattern_used(k, b) || b == t->pattern_next) {
-            cv_rrect(x, y, 23, 32, 4, T_SURF, dst ? T_THEME : T_BG);
-            if (pattern_used(k, b))
-                pt_bars(k, b, x, y, ux_mix(T_SURF, tc, 60));
+        } else if (v) {
+            cv_rrect(x, y, 23, 32, 4, T_SURF, T_BG);
+            cv_text_c(x + 11, ty_y(y + 13, TY_LB), TY_LB, n, ux_mix(T_SURF, tc, 70), T_SURF);
         } else {                                        /* empty: an outline */
-            cv_rrect(x, y, 23, 32, 4, dst ? T_BG : T_LINE, dst ? T_THEME : T_BG);
-            cv_rrect(x + 1, y + 1, 21, 30, 3, T_BG, dst ? T_BG : T_LINE);
-            if (dst)                                    /* (Copy to: an empty place) */
-                cv_text_c(x + 11, ty_y(y + 16, TY_TX), TY_TX, "+", T_THEME, T_BG);
+            cv_rrect(x, y, 23, 32, 4, T_LINE, T_BG);
+            cv_rrect(x + 1, y + 1, 21, 30, 3, T_BG, T_LINE);
         }
-        if (b == t->pattern_next)                       /* waiting for the bar: dashed */
+        if (e == staged)                                /* waiting for its loop end: dashed */
             cv_dashed(x, y, 23, 32, 4, tc);
     }
     cv_blit(0, (uint32_t)y0);
 }
-/* the song's sections as letters (six around the row playing, else the one SONG picked: lit); no song: the jam's */
+/* (Orange Cat 0.3, 4c) the foot: the selected track's entry and its pattern, SONG on or off */
 static void pt_song(void)
 {
-    uint32_t n = chain_config.count, jamrows = !n && jam.n, cur, i, first, sig;
-    const uint8_t (*pat)[NTRK] = jamrows ? (const uint8_t (*)[NTRK])jam.pat : (const uint8_t (*)[NTRK])chain_patterns;
-    uint8_t rep[CHAIN_ROWS];
-    if (jamrows)
-        n = jam.n;
-    for (i = 0; i < n; i++)
-        rep[i] = jamrows ? jam.rep[i] : chain_config.row[i].repeat;
-    cur = chain.running ? chain.row : jamrows ? n - 1u : ui.song_row;
-    if (n && cur >= n)
-        cur = n - 1u;
-    sig = song_hash(pat, rep, n) + cur * 7919u + jamrows * 3u + ux.gen * 977u + ux.pal * 31u;
+    char b[32];
+    uint32_t k = song.sel % NTRK, e = lists.cur[k] % OCL_NENT, v = lists.ent[k][e][0];
+    uint32_t sig = k * 7u + e * 131u + v * 1031u + (uint32_t)lists.song * 40503u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == ptv.song)
         return;
     ptv.song = sig;
     cv_begin(240, 240 - PT_SONG_Y, T_BG);
-    cv_text_on(8, ty_y(19, TY_LB), TY_LB, jamrows ? "JAM" : "SONG", T_MID, T_BG);
-    if (!n) {
-        cv_text_on(62, ty_y(19, TY_LB), TY_LB, "Empty", T_DIM, T_BG);
-    } else {
-        first = cur > 2u ? cur - 2u : 0u;
-        if (n > 6u && first > n - 6u)
-            first = n - 6u;
-        if (n <= 6u)
-            first = 0;
-        for (i = first; i < first + 6u && i < n; i++) {
-            int32_t x = 62 + 29 * (int32_t)(i - first);
-            int on = i == cur;
-            char l[2] = {row_letter(pat, i), 0};
-            cv_rrect(x, 7, 26, 24, 6, on ? T_TEXT : T_SURF, T_BG);
-            cv_text_c(x + 13, ty_y(19, TY_LB), TY_LB, l, on ? T_BG : T_MID, on ? T_TEXT : T_SURF);
-        }
+    b[0] = 'T'; b[1] = (char)('1' + k); b[2] = ' '; b[3] = (char)('A' + e); b[4] = 0;
+    if (v) {
+        str_cpy(b + 4, " \xb7 ", 4);
+        b[7] = (char)('0' + v / 10u); b[8] = (char)('0' + v % 10u); b[9] = 0;
     }
+    cv_text_on(8, ty_y(19, TY_LB), TY_LB, b, T_MID, T_BG);
+    cv_text_r(232, ty_y(19, TY_LB), TY_LB, lists.song ? "SONG ON" : "SONG OFF", lists.song ? T_TEXT : T_DIM, T_BG);
     cv_blit(0, PT_SONG_Y);
 }
 static void patterns_draw(void)
@@ -251,19 +229,24 @@ static int patterns_queued(void)
 }
 /* KNOB k: track k's next pattern (stopped: at once; playing: at the end of its bar; a song plays: refused); Copy to:
  * any knob the place */
+static int ocl_launch(uint32_t k, uint32_t e);
 static void patgrid_edit(uint32_t k, int32_t steps)
 {
-    track_t *t = &trk[k % NTRK];
-    if (ptc_on()) {
-        ui.ptc_dst = (uint8_t)ptc_next(ui.ptc_dst, steps > 0 ? 1 : -1);
-        ui.force = 1;
-        return;
-    }
+    /* (Orange Cat 0.3, 4c) KNOB k: track k to its next (or previous) entry naming a pattern (stopped: at once;
+     * playing: at its loop end) */
+    uint32_t e, i, from;
+    int rc;
     if (k >= trk_n())                                   /* (no track there) */
         return;
-    uint32_t from = t->pattern_next < NPAT ? t->pattern_next : t->pattern;
-    if (pattern_request(t, (uint32_t)clamp((int32_t)from + (steps > 0 ? 1 : -1), 0, NPAT - 1u)))
-        ui_message("STOP SONG TO SWITCH");
+    from = ocl_staged_ent(k) < OCL_NENT ? ocl_staged_ent(k) : lists.cur[k] % OCL_NENT;
+    for (i = 1, e = OCL_NENT; i < OCL_NENT; i++) {
+        uint32_t c = (from + (steps > 0 ? i : OCL_NENT - i)) % OCL_NENT;
+        if (lists.ent[k][c][0]) { e = c; break; }
+    }
+    if (e == OCL_NENT) { ui_message("NO OTHER ENTRY"); return; }
+    rc = ocl_launch(k, e);
+    if (rc) ui_message(rc == 1 ? "EMPTY ENTRY" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PATTERNS FULL") :
+                       rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
     ui.force = 1;
 }
 
@@ -321,203 +304,143 @@ static void ptc_paste(int asked)                        /* OCT+: copy it there (
 }
 
 /* -------------------------------------------------------------- SONG --- */
+/* (Orange Cat 0.3, build doc 4c) SONG is Skiff's lists (oc_lists.c): a column per entry, A..P (four at a time around
+ * the one picked), a row per track; a cell, the pool pattern the entry names (its number, its REPS under it), the
+ * entry the track is on filled in the track's colour, one staged to come in dashed, the cell picked (the selected
+ * track's, in the entry picked) outlined. The title: SONG, ON while the song plays. The foot: the cell picked, and the
+ * keys. KNOB 1 the entry, 2 the track, 3 its pattern, 4 its REPS; OCT+ goes to it (playing: at the loop end); PLAY here
+ * plays the song (each track down its list), PLAY on any other page loops each track's entry. */
 #define SG_TOP_H H_HEAD                                 /* the title: rows 0 .. 29 */
-#define SG_LAB_H 22                                     /* the sections' letters: 30 .. 51 */
+#define SG_LAB_H 22                                     /* the entries' letters: 30 .. 51 */
 #define SG_ROW_Y (SG_TOP_H + SG_LAB_H)                  /* a track a row: 36 px, 52 .. 195 */
 #define SG_ROW_H 36
 #define SG_FOOT_Y (SG_ROW_Y + 4 * SG_ROW_H)             /* the foot: 196 .. 239 */
-#define SG_COL_W 56                                     /* a section: x 8 + 56 j, four shown */
+#define SG_COL_W 56                                     /* an entry: x 8 + 56 j, four shown */
 #define SG_COLS 4u
 static struct { uint32_t top, lab, row[NTRK], foot; } sgv;
-static struct { uint32_t first, ncols, sel, total, bars, play; int32_t px; } sg;   /* this frame's */
+static struct { uint32_t first, sel; } sg;              /* this frame's */
+static uint32_t ocl_pat_len(uint32_t id);               /* oc_lists.c */
+static uint32_t ocl_staged_ent(uint32_t k);
 
-static uint32_t sg_row_bars(uint32_t r)                 /* a row's bars: its longest pattern's (x its repeats) */
-{
-    uint32_t k, b = 1;
-    for (k = 0; k < trk_n(); k++)
-        if (pat_bars(k, chain_patterns[r][k]) > b)
-            b = pat_bars(k, chain_patterns[r][k]);
-    return b * chain_config.row[r].repeat;
-}
-/* the window (four sections around the row picked or playing), the song's bars, the playhead's x (-1 none) */
 static void sg_frame(void)
 {
-    uint32_t n = chain_config.count, r;
-    sg.ncols = n < CHAIN_ROWS ? n + 1u : CHAIN_ROWS;     /* (and one to add a row) */
-    sg.sel = ui.song_row < sg.ncols ? ui.song_row : sg.ncols - 1u;
-    r = chain.running ? chain.row : sg.sel;
-    sg.first = r > 1u ? r - 1u : 0u;
-    if (sg.ncols > SG_COLS && sg.first > sg.ncols - SG_COLS)
-        sg.first = sg.ncols - SG_COLS;
-    if (sg.ncols <= SG_COLS)
-        sg.first = 0;
-    for (r = 0, sg.bars = 0, sg.play = 0; r < n; r++) {
-        uint32_t b = sg_row_bars(r);
-        if (chain.running && r < chain.row)
-            sg.play += b;
-        sg.bars += b;
-    }
-    sg.px = -1;
-    if (chain.running && chain.row < n) {               /* how far through its row, its repeats */
-        const track_t *t = &trk[0];
-        uint32_t len = t->p[P_SLEN] ? (uint32_t)t->p[P_SLEN] : 1u, rep = chain_config.row[chain.row].repeat;
-        uint32_t done = rep > chain.remaining ? rep - chain.remaining : 0u, at = done * len + t->seq_idx % len;
-        if (chain.row >= sg.first && chain.row < sg.first + SG_COLS)
-            sg.px = 8 + SG_COL_W * (int32_t)(chain.row - sg.first) + (int32_t)(at * SG_COL_W / (rep * len));
-        sg.play += sg_row_bars(chain.row) * at / (rep * len);
-    }
+    sg.sel = ui.song_row % OCL_NENT;
+    sg.first = sg.sel > 1u ? sg.sel - 1u : 0u;
+    if (sg.first > OCL_NENT - SG_COLS)
+        sg.first = OCL_NENT - SG_COLS;
 }
-static void sg_lines(int32_t y, int32_t h)              /* the sections' rules and the playhead, rows y .. y + h */
+static void sg_lines(int32_t y, int32_t h)              /* the entries' rules, rows y .. y + h */
 {
-    uint32_t j;
-    for (j = 0; j < SG_COLS && sg.first + j < sg.ncols; j++)
+    for (uint32_t j = 0; j < SG_COLS; j++)
         cv_rect(8 + SG_COL_W * (int32_t)j, y, 1, h, T_LINE);
 }
+static int sg_song_on(void) { return lists.song && song.playing; }
 static void sg_head(void)
 {
     if (head_waiting()) { draw_head(); return; }
-    char b[24], t[12];
-    uint32_t secs = sg.bars * 240u / (uint32_t)(song.g[G_BPM] > 0 ? song.g[G_BPM] : 120), jam_on = song.playing && !chain.running;
-    uint32_t sig = secs * 7u + jam.n * 131u + jam_on * 3u + (uint32_t)(ui.act == 4u) * 5u + ux.gen * 977u + ux.pal * 31u +
-                   (ui.msg_t ? str_hash(3u, ui.msg) : 0u);
-    int32_t x;
+    uint32_t sig = (uint32_t)sg_song_on() * 3u + ux.gen * 977u + ux.pal * 31u + (ui.msg_t ? str_hash(3u, ui.msg) : 0u);
     if (!ui.force && sig == sgv.top)
         return;
     sgv.top = sig;
     cv_begin(240, SG_TOP_H, T_BG);
     cv_text_r(236, ty_y(SG_TOP_H / 2, TY_TX), TY_TX, "SONG", T_THEME, T_BG);
-    x = 8;
-    if (sg.bars && !ui.msg_t) {                         /* its length at the tempo */
-        str_cpy(t, "", 1);
-        fmt_int(t, (int32_t)(secs / 60u));
-        str_cpy(t + str_len(t), secs % 60u < 10u ? ":0" : ":", 3);
-        fmt_int(t + str_len(t), (int32_t)(secs % 60u));
-        cv_text_on(x, ty_y(SG_TOP_H / 2, TY_TX), TY_TX, t, T_TEXT, T_BG);
-    }
     if (ui.msg_t) {
         cv_free_text(8, ty_y(SG_TOP_H / 2, ty_fit(TY_TX, ui.msg, 166)), ty_fit(TY_TX, ui.msg, 166), ui.msg, T_ACCENT, T_BG,
                      166);
-    } else if (jam_on || jam.n) {                       /* the jam: logging (a dot), its rows */
-        if (jam_on) {
-            str_cpy(b, "capturing jam", sizeof b);
-        } else {
-            str_cpy(b, "jam \xb7 ", 8);
-            fmt_int(b + str_len(b), jam.n);
-            str_cpy(b + str_len(b), jam.n > 1u ? " rows" : " row", 6);
-        }
-        x = cv_text_r(176, ty_y(SG_TOP_H / 2, TY_LB), TY_LB, b, jam_on ? ux_mix(T_REC, T_TEXT, 30) : T_MID, T_BG);
-        if (jam_on)
-            cv_circle(x - 8, SG_TOP_H / 2, 9, T_REC, T_BG);
+    } else if (sg_song_on()) {
+        cv_rrect(8, 6, 34, 18, 5, T_THEME, T_BG);
+        cv_text_c(25, ty_y(15, TY_LB), TY_LB, "ON", T_INK, T_THEME);
     }
     cv_blit(0, 0);
 }
-static void sg_labels(void)                             /* the sections' letters (repeats after them), the playhead */
+static void sg_labels(void)                             /* the entries' letters, the one picked marked */
 {
-    uint32_t j, sig = sg.first * 7u + sg.ncols * 131u + sg.sel * 1031u + (uint32_t)(sg.px + 1) * 40503u + ux.gen * 977u +
-                      ux.pal * 31u;
-    for (j = 0; j < chain_config.count; j++)
-        sig = fnv1(sig, chain_config.row[j].repeat + 32u * (uint32_t)row_letter((const uint8_t (*)[NTRK])chain_patterns, j));
+    uint32_t j, sig = sg.first * 7u + sg.sel * 1031u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == sgv.lab)
         return;
     sgv.lab = sig;
     cv_begin(240, SG_LAB_H, T_BG);
     sg_lines(2, SG_LAB_H - 2);
-    for (j = 0; j < SG_COLS && sg.first + j < sg.ncols; j++) {
-        uint32_t r = sg.first + j;
-        int32_t x = 11 + SG_COL_W * (int32_t)j;
-        int sel = r == sg.sel;
-        char l[8] = {'+', 0};
-        if (r < chain_config.count) {
-            l[0] = row_letter((const uint8_t (*)[NTRK])chain_patterns, r);
-            if (chain_config.row[r].repeat > 1u) {
-                l[1] = ' ';
-                l[2] = 'x';
-                fmt_int(l + 3, chain_config.row[r].repeat);
-            }
-        }
-        x = cv_text_on(x, ty_y(10, TY_LB), TY_LB, l, sel ? T_TEXT : r < chain_config.count ? T_MID : T_DIM, T_BG);
-        if (sel)                                        /* the row picked: marked in the track's colour */
+    for (j = 0; j < SG_COLS; j++) {
+        uint32_t e = sg.first + j;
+        char l[2] = {(char)('A' + e), 0};
+        cv_text_on(11 + SG_COL_W * (int32_t)j, ty_y(10, TY_LB), TY_LB, l, e == sg.sel ? T_TEXT : T_MID, T_BG);
+        if (e == sg.sel)
             cv_rrect(11 + SG_COL_W * (int32_t)j, 19, 14, 3, 1, T_THEME, T_BG);
-        (void)x;
     }
-    if (sg.px >= 0)
-        cv_rect(sg.px, 18, 2, SG_LAB_H - 18, T_TEXT);
     cv_blit(0, SG_TOP_H);
 }
-/* track k's blocks: a pattern over sections in a row as one (the selected track's block in the row picked alone,
- * outlined); an empty pattern: nothing (picked: dashed); a track not in use: its row's lines alone */
+/* "07" (and "x2" when REPS > 1) into b */
+static void sg_cell_text(uint32_t k, uint32_t e, char *b)
+{
+    uint32_t v = lists.ent[k][e][0], r = lists.ent[k][e][1] + 1u;
+    b[0] = (char)('0' + v / 10u); b[1] = (char)('0' + v % 10u); b[2] = 0;
+    if (r > 1u) {
+        str_cpy(b + 2, " x", 3);
+        fmt_int(b + 4, (int32_t)r);
+    }
+}
 static void sg_row(uint32_t k)
 {
     const track_t *t = &trk[k];
     uint16_t tc = t->p[P_MUTE] ? T_DIM : T_TRK(k);
-    uint32_t live = k < trk_n(), cols = live ? SG_COLS : 0u;
-    uint32_t j, h = fnv1(2166136261u, sg.first + 16u * sg.ncols + 256u * sg.sel + 4096u * (k == song.sel) +
-                                     65536u * (uint32_t)(t->p[P_MUTE] != 0) + 131072u * live);
-    h = fnv1(fnv1(h, (uint32_t)(sg.px + 1)), ux.gen * 977u + ux.pal * 31u + t->pattern_gen);
-    for (j = 0; j < cols && sg.first + j < chain_config.count; j++)
-        h = fnv1(h, chain_patterns[sg.first + j][k] + 16u * (uint32_t)pattern_used(k, chain_patterns[sg.first + j][k]));
+    uint32_t live = k < trk_n(), j, staged = ocl_staged_ent(k);
+    uint32_t h = fnv1(2166136261u, sg.first + 16u * sg.sel + 4096u * (k == song.sel) + 65536u * (uint32_t)(t->p[P_MUTE] != 0) +
+                                  131072u * live + 262144u * lists.cur[k] + 8388608u * staged);
+    h = fnv1(h, ux.gen * 977u + ux.pal * 31u);
+    for (j = 0; j < SG_COLS; j++)
+        h = fnv1(h, lists.ent[k][sg.first + j][0] + 256u * lists.ent[k][sg.first + j][1]);
     if (!ui.force && h == sgv.row[k])
         return;
     sgv.row[k] = h;
     cv_begin(240, SG_ROW_H, T_BG);
     sg_lines(0, SG_ROW_H);
-    for (j = 0; j < cols && sg.first + j < chain_config.count; ) {
-        uint32_t r = sg.first + j, p = chain_patterns[r][k], e = j + 1u, pick = k == song.sel && r == sg.sel;
-        int used = pattern_used(k, p);
-        int32_t x = 9 + SG_COL_W * (int32_t)j, w;
-        char l[4] = {'P', (char)('1' + p % NPAT), 0, 0};
-        while (!pick && used && e < SG_COLS && sg.first + e < chain_config.count &&
-               chain_patterns[sg.first + e][k] == p && !(k == song.sel && sg.first + e == sg.sel))
-            e++;
-        w = SG_COL_W * (int32_t)(e - j) - 2;
-        if (used) {
-            if (pick)                                   /* the selected track's, in the row picked: outlined */
-                cv_rrect(x - 1, 1, w + 2, 30, 6, T_TEXT, T_BG);
+    for (j = 0; live && j < SG_COLS; j++) {
+        uint32_t e = sg.first + j, pick = k == song.sel && e == sg.sel, on = e == lists.cur[k] % OCL_NENT;
+        int32_t x = 9 + SG_COL_W * (int32_t)j, w = SG_COL_W - 2;
+        char l[8];
+        if (!lists.ent[k][e][0]) {
+            if (pick)
+                cv_dashed(x, 2, w, 28, 5, T_MID);
+            continue;
+        }
+        sg_cell_text(k, e, l);
+        if (pick)
+            cv_rrect(x - 1, 1, w + 2, 30, 6, T_TEXT, T_BG);
+        if (on) {
             cv_rrect(x, 2, w, 28, 5, tc, pick ? T_TEXT : T_BG);
             cv_text_on(x + 6, ty_y(16, TY_LB), TY_LB, l, T_INK, tc);
-        } else if (pick) {
-            cv_dashed(x, 2, w, 28, 5, tc);
-            cv_text_on(x + 6, ty_y(16, TY_LB), TY_LB, l, tc, T_BG);
+        } else {
+            cv_rrect(x, 2, w, 28, 5, T_SURF, pick ? T_TEXT : T_BG);
+            cv_text_on(x + 6, ty_y(16, TY_LB), TY_LB, l, tc, T_SURF);
         }
-        j = e;
+        if (e == staged)
+            cv_dashed(x + 2, 4, w - 4, 24, 4, tc);
     }
-    if (sg.px >= 0)
-        cv_rect(sg.px, 0, 2, SG_ROW_H, T_TEXT);
     cv_blit(0, (uint32_t)(SG_ROW_Y + (int32_t)k * SG_ROW_H));
 }
-static void sg_foot(void)                               /* the sections and bars, the row's letter x repeats, how far */
+static void sg_foot(void)                               /* the cell picked: track, entry, pattern, REPS */
 {
-    char b[32];
-    uint32_t n = chain_config.count, r = chain.running ? chain.row : sg.sel;
-    uint32_t sig = n * 7u + sg.bars * 131u + sg.play * 1031u + r * 40503u + (uint32_t)(sg.px + 1) * 613u + ux.gen * 977u +
-                   ux.pal * 31u + (r < n ? chain_config.row[r].repeat * 7919u : 0u) + sg.first * 17u + sg.ncols;
+    char b[40];
+    uint32_t k = song.sel % NTRK, e = sg.sel, v = lists.ent[k][e][0];
+    uint32_t sig = k * 7u + e * 131u + v * 1031u + lists.ent[k][e][1] * 40503u + ux.gen * 977u + ux.pal * 31u +
+                   (uint32_t)lists.song * 613u;
     if (!ui.force && sig == sgv.foot)
         return;
     sgv.foot = sig;
     cv_begin(240, 240 - SG_FOOT_Y, T_BG);
     sg_lines(0, 4);
-    if (sg.px >= 0)
-        cv_rect(sg.px, 0, 2, 6, T_TEXT);
-    if (!n) {
-        cv_text_on(8, ty_y(17, TY_TX), TY_TX, "No sections yet", T_MID, T_BG);
+    b[0] = 'T'; b[1] = (char)('1' + k); b[2] = ' '; b[3] = (char)('A' + e); b[4] = 0;
+    if (v) {
+        str_cpy(b + 4, " \xb7 pattern ", 12);
+        sg_cell_text(k, e, b + str_len(b));
+        if (v <= OCL_NPOOL && !ocl_pat_len(v - 1u))
+            str_cpy(b + str_len(b), " (empty)", 9);
     } else {
-        fmt_int(b, (int32_t)n);
-        str_cpy(b + str_len(b), n > 1u ? " sections \xb7 " : " section \xb7 ", 14);
-        fmt_int(b + str_len(b), (int32_t)sg.bars);
-        str_cpy(b + str_len(b), sg.bars > 1u ? " bars" : " bar", 6);
-        cv_text_on(8, ty_y(17, TY_LB), TY_LB, b, T_MID, T_BG);
-        if (r < n) {
-            b[0] = row_letter((const uint8_t (*)[NTRK])chain_patterns, r);
-            str_cpy(b + 1, " x", 3);
-            fmt_int(b + 3, chain_config.row[r].repeat);
-            cv_text_r(232, ty_y(17, TY_TX), TY_TX, b, T_TEXT, T_BG);
-        }
+        str_cpy(b + 4, " \xb7 no pattern", 14);
     }
-    cv_rrect(8, 32, 224, 6, 3, T_SURF, T_BG);
-    if (chain.running && sg.bars) {
-        int32_t w = (int32_t)(sg.play * 224u / sg.bars);
-        cv_rrect(8, 32, w < 6 ? 6 : w, 6, 3, T_TEXT, T_SURF);
-    }
+    cv_text_on(8, ty_y(13, TY_LB), TY_LB, b, T_TEXT, T_BG);
+    cv_text_on(8, ty_y(33, TY_LB), TY_LB, "OCT+ go \xb7 PLAY: song", T_MID, T_BG);
     cv_blit(0, SG_FOOT_Y);
 }
 static void song_draw(void)

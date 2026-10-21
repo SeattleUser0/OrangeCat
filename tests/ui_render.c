@@ -739,6 +739,14 @@ static void ref_scene(int s)
             memset(chain_patterns[k], ROW[k], NTRK);
         }
         chain.running = 1; chain.row = 2;
+        {   /* (Orange Cat 0.3, 4c) the lists as the mock's patterns: T1 A..C on A, T2 A..D on B (C staged), T3 A B on A,
+             * T4 A..D on D */
+            static const uint8_t N[NTRK] = {3, 4, 2, 4}, CUR[NTRK] = {0, 1, 0, 3};
+            for (k = 0; k < NTRK; k++) {
+                for (uint32_t e = 0; e < N[k]; e++) lists.ent[k][e][0] = (uint8_t)(1u + 4u * k + e);
+                lists.cur[k] = CUR[k];
+            }
+        }
         go_page(GR_PATGRID);
         break;
     case S_REF_SONG: {                               /* the mock's: four sections, B twice; T1 1 2 2 3, T2 1 2 2 4,
@@ -757,8 +765,18 @@ static void ref_scene(int s)
             chain_config.row[k] = (chain_row_t){SP[k][0], (uint8_t)(k == 1u ? 2u : 1u)};
             memcpy(chain_patterns[k], SP[k], NTRK);
         }
+        /* (Orange Cat 0.3, 4c) SONG shows the lists: the same order as entries, B's REPS 2; the tracks on B, track 1's
+         * C staged */
+        for (k = 0; k < NTRK; k++) {
+            for (b = 0; b < 4u; b++) {
+                lists.ent[k][b][0] = (uint8_t)(1u + SP[b][k] + 6u * k);
+                lists.ent[k][b][1] = (uint8_t)(b == 1u);
+            }
+            lists.cur[k] = 1;
+        }
+        lists.song = 1;
         ui.song_row = 3; go_page(GR_SONG);
-        song.playing = 1; chain.running = 1; chain.row = 1; chain.remaining = 1; trk[0].seq_idx = 4;
+        song.playing = 1; trk[0].seq_idx = 4;
         break;
     }
     case S_REF_ENV: case S_REF_LFO: case S_REF_EDIT_OSC: case S_REF_NOTES:

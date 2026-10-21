@@ -77,20 +77,24 @@ static int all_banks_persist(void)
 }
 static int panel_banks(void)
 {
-    int bad=0; ui_power_on(); go_home(); uint8_t original_page=ui.page;
+    int bad=0; ui_power_on(); pool_empty(); pattern_init(); go_home(); uint8_t original_page=ui.page;
     btn_down(B_SEQ); frame(); key_down(PAT_KEY[7]); frame();
     bad += check("SEQ bank keys stay silent and do not record notes", kb_note[PAT_KEY[7]] == KB_SILENT && !TSEL->nheld);
     key_up(PAT_KEY[7]); frame(); btn_up(B_SEQ); frame();
-    bad += check("SEQ plus eighth white key selects bank 8 without a page tap", TSEL->pattern == 7 && ui.home && ui.page == original_page);
+    bad += check("SEQ plus eighth white key goes to entry H without a page tap (Orange Cat 0.3: the keys are entries)",
+                 lists.cur[0] == 7u && ui.home && ui.page == original_page);
     TSEL->step[3] = (step_t){{60,64,67,71},4,ST_NOTE,0,100};
+    ocl_keep_all();                                     /* (entry H names its steps now) */
     btn_down(B_SEQ); frame(); key_down(PAT_KEY[7]); frame(); key_down(PAT_KEY[2]); frame();
     key_up(PAT_KEY[2]); key_up(PAT_KEY[7]); frame(); btn_up(B_SEQ); frame();
-    bad += check("SEQ plus two pattern keys does not copy", pattern_empty(0, 2) && TSEL->step[3].note[3] == 71);
+    bad += check("SEQ plus two pattern keys does not copy", !lists.ent[0][2][0] && TSEL->step[3].note[3] == 71);
     fm1_ms += 400u;
+    song.rec = 0;
     btn_down(B_SEQ); frame(); key_down(PAT_KEY[7]); frames(1100u);
     key_up(PAT_KEY[7]); frame(); tap_key(PAT_KEY[2]); btn_up(B_SEQ); frame();
-    pattern_request(TSEL,2);
-    bad += check("the compact held-pattern dialog copies its full chord", TSEL->step[3].n == 4 && TSEL->step[3].note[3] == 71);
+    ocl_go(0, 2);
+    bad += check("the compact held-entry dialog copies its full chord (entry C its own copy)", lists.cur[0] == 2u &&
+                 TSEL->step[3].n == 4 && TSEL->step[3].note[3] == 71 && lists.ent[0][2][0] != lists.ent[0][7][0]);
     return bad;
 }
 static int arranged_chords(void)
@@ -214,10 +218,8 @@ static int doubled_banks(void)
     other.timing[0] = 4; other.step[1] = (step_t){{61}, 1, ST_NOTE, 0, 100};
     pattern_write(0, 3, &other);
     pattern_key_len(0, 3, 1);
-    bad += check("another bank: its own LEN and steps, the one playing as it was", pattern_at(0, 3)->timing[0] == 8 &&
-        pattern_at(0, 3)->step[5].note[0] == 61 && t->p[P_SLEN] == 1);
-    pattern_key_len(0, 3, 0);
-    bad += check("  .. and halved", pattern_at(0, 3)->timing[0] == 4 && pattern_at(0, 3)->step[5].note[0] == 61);
+    bad += check("an entry the track is not on: GO TO IT FIRST, nothing changed (Orange Cat 0.3)",
+        msg_is("GO TO IT FIRST") && pattern_at(0, 3)->timing[0] == 4 && t->p[P_SLEN] == 1);
 
     ui_power_on(); t = TSEL; track_defaults_steps(t); t->p[P_SLEN] = 4;
     motion_set_event(t, 0, P_LEVEL, 50);

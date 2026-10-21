@@ -40,6 +40,7 @@
 #define OCP_STEP ((uint32_t)sizeof(step_snapshot_t))
 #define OCP_NOTE ((uint32_t)sizeof(recorded_note_t))
 #define OCP_MAX (OCP_HEAD + NSTEP * OCP_STEP + 1u + MOTION_MAX * 4u + 2u + RECORD_MAX * OCP_NOTE)
+_Static_assert(OCP_N == OCL_NPOOL, "the lists name the pool's patterns");
 _Static_assert(NSTEP == 64u && OCP_TABLE + OCP_PER * OCP_MAX <= OCS_PARTS_MAX * OCS_PAYLOAD_MAX,
                "a chunk of four fullest patterns fits one record");
 
@@ -208,6 +209,8 @@ typedef struct {
     int have_old;
     uint32_t old_len[OCP_PER], old_off[OCP_PER], new_len[OCP_PER];
     ocp_gen_t *gen[OCP_PER];
+    ocs_rec_t from;                            /* (ocp_copy) pattern j = cp_j: bytes of another chunk's record */
+    uint32_t cp_j, cp_off;
     uint32_t pos;                              /* where the stream is */
 } ocp_chunk_src_t;
 
@@ -225,7 +228,9 @@ static int ocp_chunk_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
             for (j = 0; j < OCP_PER && at >= base + c->new_len[j]; j++) base += c->new_len[j];
             if (j == OCP_PER) return -1;
             k = base + c->new_len[j] - at < n ? base + c->new_len[j] - at : n;
-            if (c->gen[j]) {
+            if (j == c->cp_j) {
+                if (ocs_at(&c->from, c->cp_off + (at - base), dst, k)) return -11;
+            } else if (c->gen[j]) {
                 if (ocp_gen_get(&c->gen[j]->src, dst, k)) return -1;
             } else if (!c->have_old || ocs_at(&c->old, c->old_off[j] + (at - base), dst, k)) {
                 return -11;                    /* (the copy before could not be read: the save stops) */
@@ -279,13 +284,22 @@ static uint32_t ocp_hash_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
 /* chunk's patterns j with gen[j] set replaced by what gen[j] gives (length 0: emptied), the others as they were: one
  * record write (one erase per sector). 0 done; 2 no room in flash; another: a flash error (the chunk as it was is
  * kept). Stopped only: the erase mutes the audio */
+static ocp_chunk_src_t ocp_cs __attribute__((section(".pool")));
+static int ocp_chunk_write_cp(uint32_t chunk, ocp_gen_t *const *gen, uint32_t cp_j, uint32_t cp_len);
 static int ocp_chunk_write(uint32_t chunk, ocp_gen_t *const *gen)
 {
-    static ocp_chunk_src_t c __attribute__((section(".pool")));
+    memset(&ocp_cs, 0, sizeof ocp_cs);
+    return ocp_chunk_write_cp(chunk, gen, OCP_PER, 0);
+}
+/* .. and with pattern cp_j (OCP_PER: none) cp_len bytes of ocp_cs.from at ocp_cs.cp_off (ocp_copy) */
+static int ocp_chunk_write_cp(uint32_t chunk, ocp_gen_t *const *gen, uint32_t cp_j, uint32_t cp_len)
+{
+    ocp_chunk_src_t c_ = ocp_cs, *cp = &c_;
     uint32_t total = OCP_TABLE, empty = 1, j;
     int rc;
-    memset(&c, 0, sizeof c);
+#define c (*cp)
     c.src.get = ocp_chunk_get;
+    c.cp_j = cp_j;
     rc = ocp_chunk_open(chunk, &c.old, c.old_len, c.old_off);
     if (rc < 0) {                              /* (the copy before is unreadable: its other patterns start empty) */
         rc = 0;
@@ -293,9 +307,9 @@ static int ocp_chunk_write(uint32_t chunk, ocp_gen_t *const *gen)
     }
     c.have_old = rc;
     for (j = 0; j < OCP_PER; j++) {
-        c.gen[j] = gen[j];
-        if (gen[j]) ocp_gen_rewind(gen[j]);
-        c.new_len[j] = gen[j] ? gen[j]->len : c.old_len[j];
+        c.gen[j] = j == cp_j ? 0 : gen[j];
+        if (c.gen[j]) ocp_gen_rewind(c.gen[j]);
+        c.new_len[j] = j == cp_j ? cp_len : c.gen[j] ? c.gen[j]->len : c.old_len[j];
         total += c.new_len[j];
         empty &= !c.new_len[j];
     }
@@ -308,11 +322,31 @@ static int ocp_chunk_write(uint32_t chunk, ocp_gen_t *const *gen)
     if (!rc) {
         for (j = 0; j < OCP_PER; j++) {
             uint32_t id = chunk * OCP_PER + j;
-            if (!gen[j]) continue;
-            ocp.len[id] = (uint8_t)(gen[j]->len ? clamp(gen[j]->pat.timing[0], 1, NSTEP) : 0);
-            ocp.hash[id] = ocp_gen_hash(gen[j]);
+            if (!c.gen[j]) continue;
+            ocp.len[id] = (uint8_t)(c.gen[j]->len ? clamp(c.gen[j]->pat.timing[0], 1, NSTEP) : 0);
+            ocp.hash[id] = ocp_gen_hash(c.gen[j]);
         }
         ocp.gen++;
+    }
+    return rc;
+#undef c
+}
+
+/* pool pattern src copied to dst (stopped: an erase mutes the audio). 0 done; 1 src empty or unreadable; else as
+ * ocp_chunk_write */
+static int ocp_copy(uint32_t src, uint32_t dst)
+{
+    ocp_gen_t *gen[OCP_PER] = {0};
+    uint32_t len[OCP_PER], off[OCP_PER];
+    int rc;
+    if (src >= OCP_N || dst >= OCP_N || src == dst) return 1;
+    memset(&ocp_cs, 0, sizeof ocp_cs);
+    if (ocp_chunk_open(src / OCP_PER, &ocp_cs.from, len, off) != 1 || !len[src % OCP_PER]) return 1;
+    ocp_cs.cp_off = off[src % OCP_PER];
+    rc = ocp_chunk_write_cp(dst / OCP_PER, gen, dst % OCP_PER, len[src % OCP_PER]);
+    if (!rc) {
+        ocp.len[dst] = ocp.len[src];
+        ocp.hash[dst] = ocp.hash[src];
     }
     return rc;
 }
