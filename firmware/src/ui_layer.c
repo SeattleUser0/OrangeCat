@@ -12,7 +12,8 @@
  *   ARP  PERFORM (Orange Cat 0.4.1, build doc 4d; Skiff 1.3.3's PERFORM): the white keys F3..F4 scenes 1..8 (a tap
  *              recalls, SAVE held + a key stores: each track's chain, step and MUTE), the black keys 1..4 T1..T4 MUTE
  *              staged for the launch point (stopped: at once; again before it lands: unstaged); KNOB 1 LAUNCH (LOOP
- *              BAR BEAT NOW: where a step gone to by hand, a scene, a staged MUTE come in while playing)
+ *              BAR BEAT NOW: where a step gone to by hand, a scene, a staged MUTE come in while playing); D#4 held:
+ *              FILL (steps whose condition is FILL play, !FILL ones do not: seq.c seq_fill)
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
  * Held past HOLD alone: the map (a peek), letting go does nothing. A key, a knob or a button meanwhile: a combo,
  * the map at once, no tap. Keys pressed with the button down are the layer's (seq.c keyboard_block): silent, no
@@ -51,6 +52,7 @@ static struct {
     uint8_t l, trk, oct;               /* SET: layer, snapshot track, OCT- / OCT+ pressed (bits) */
     int16_t v[9];                      /* the values when it opened: GLO mutes, levels, BPM; SCL ROOT..TRN, CHRD VOIC */
     uint32_t solo;                     /* GLO: the keys held that solo */
+    uint32_t fill;                     /* (Orange Cat 0.4.1) PERFORM: the key held that is FILL (D#4) */
     uint32_t tap[4];                   /* GLO TAP: the last taps (fm1_ms) */
     uint8_t ntap, dt_l, dtap, rp_dirty;
     uint32_t dt_ms;
@@ -251,7 +253,9 @@ static void layer_key(uint32_t l, uint32_t k)
         scale_share(TSEL);
     } else if (l == LAYER_PERF) {
         char m[24];
-        if (key_black(k)) {                             /* T1..T4 MUTE, staged */
+        if (key_black(k) && p == NTRK) {                /* D#4: FILL while held (layer_keys) */
+            lys.fill |= 1u << k;
+        } else if (key_black(k)) {                      /* T1..T4 MUTE, staged */
             if (p < trk_n() && p < NTRK) {
                 ocl_mute(p);
                 str_cpy(m, "T1 MUTE", sizeof m);
@@ -293,6 +297,8 @@ static void layer_keys(uint32_t keys)
         if ((keys >> k) & 1u)
             layer_key(l, k);
     lys.solo &= kb_layer;
+    lys.fill &= kb_layer;                               /* (Orange Cat 0.4.1) FILL: while its key is held */
+    seq_fill = (uint8_t)(lys.fill != 0u);
     for (k = 0; k < 27u; k++)
         if ((lys.solo >> k) & 1u)
             s |= 1u << key_place(k);
@@ -389,7 +395,7 @@ static uint32_t layer_leds(void)
                  p == 7u && !song.g[G_CLOCK] && blink;
         } else if (l == LAYER_PERF) {                   /* a track sounding lit, a staged MUTE blinking; a scene kept
                                                          * lit, the last one blinking */
-            on = b ? p < trk_n() && (trk[p].mute_arm ? blink : !trk[p].p[P_MUTE]) :
+            on = b ? (p == NTRK ? lys.fill != 0u || blink : p < trk_n() && (trk[p].mute_arm ? blink : !trk[p].p[P_MUTE])) :
                  p < OCL_NSCENE && ocl_scene_used(p) && (p != perf_scene || blink);
         } else if (l == LAYER_SCL) {                    /* the root lit, the scale's notes blink */
             e = (k + 5u + 12u - root) % 12u;
@@ -506,6 +512,12 @@ static void layer_perf_keys(int32_t h)
         cv_icon_mid(x + 5, by + 12, 16, ICON_MUTE, ink, f);
         cv_text_c(x + 13, ty_y(by + bh - 10, TY_LB), TY_LB, n, ink, f);
     }
+    {                                                   /* D#4: FILL (held: the theme's colour) */
+        int32_t x = x0 + 6 * (kw + 1) - 14;
+        uint16_t f = lys.fill ? T_THEME : T_LIFT;
+        cv_rrect(x, by, 44, bh, 4, f, T_PANEL);         /* (wider than a key: its name fits; nothing to its right) */
+        cv_text_c(x + 22, ty_y(by + bh / 2, TY_LB), TY_LB, "FILL", lys.fill ? T_INK : T_SEC, f);
+    }
 }
 
 static void layer_cards(uint32_t l)
@@ -562,7 +574,7 @@ static void draw_layer(void)
     else if (l == LAYER_SCL)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
     else if (l == LAYER_PERF) {
-        sig += lists.launch * 31u + lists.scene_used * 131u + perf_scene * 7u + trk_n() * 40503u;
+        sig += lists.launch * 31u + lists.scene_used * 131u + perf_scene * 7u + trk_n() * 40503u + (lys.fill != 0u) * 3u;
         for (c = 0; c < NTRK; c++)
             sig += (uint32_t)((trk[c].p[P_MUTE] != 0) + 2u * trk[c].mute_arm) << (4u * c) << 8;
     }

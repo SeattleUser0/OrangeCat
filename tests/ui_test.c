@@ -4095,6 +4095,12 @@ static int test_perform(void)
     ok &= !trk[0].mute_arm && !trk[0].p[P_MUTE];
     btn_up(B_ARP); frame();
     bad += check("ARP + F#3 playing: T1 MUTE staged for the launch point (its LED blinking), again: unstaged", ok);
+    lay_combo(B_ARP, black(4));
+    ok = seq_fill == 1u;
+    key_up(black(4)); frame();
+    ok &= seq_fill == 0u;
+    btn_up(B_ARP); frame();
+    bad += check("ARP + D#4 held: FILL while held (FILL steps play)", ok);
     btn_down(B_ARP); frame();
     turn(EN_K1, 1);
     ok = lists.launch == OCL_BAR;

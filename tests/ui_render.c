@@ -1154,7 +1154,7 @@ static void setup(int s)
     case S_PERFORM:                                  /* (Orange Cat 0.4.1) scenes 1 2 5 kept, 2 the last; T2 muted, T3's
                                                       * MUTE staged; LAUNCH BAR */
         go_home(); ui.layer = LAYER_PERF; lists.scene_used = 1u | 2u | 16u; perf_scene = 1; trk[1].p[P_MUTE] = 1;
-        trk[2].mute_arm = 2; lists.launch = OCL_BAR; break;
+        trk[2].mute_arm = 2; lists.launch = OCL_BAR; lys.fill = 1u << 10; break;
     case S_NEW_ROLES_T1: song.playing = 0; new_open(); nw.on = 2; break;
     case S_STAGE_DRUM:
         drum(0); go_home(); trk[3].seq_idx = 9; drum_flash[3] = 1u | 8u | 32u; break;
