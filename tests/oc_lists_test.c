@@ -389,7 +389,33 @@ static int test_ocj2(void)
     wipe_runtime();
     project_load(0);
     bad |= lcheck("... saved again, as OCJ3, and loads the same", h.magic == OCJ_MAGIC && ocl_ent_pat(0, 2) == 2u &&
-                  lists.tchain[1] == 1u && lists.song[0][1] == 2u && lists.mode == OCL_CHAIN && note_of(0) == 60u);
+                  lists.tchain[1] == 1u && lists.song[0][1] == 2u && lists.mode == OCL_CHAIN && note_of(0) == 60u &&
+                  h.lsize == sizeof(ocl_lists_t));
+    {   /* a later version's record: its lists 40 bytes longer (what this one does not know: passed over) */
+        uint32_t extra = 40u;
+        for (i = sizeof h, o = 0; i < n;) {
+            uint8_t v = rec_buf[i++];
+            if (v) { rec_dec[o++] = v; continue; }
+            for (z = rec_buf[i++]; z; z--) rec_dec[o++] = 0;
+        }
+        o = sizeof h;
+        for (i = 0; i < sizeof rec_dec + extra;) {
+            uint32_t at = i < sizeof(ocl_lists_t) ? i : i < sizeof(ocl_lists_t) + extra ? 0xFFFFFFFFu : i - extra;
+            uint8_t v = at == 0xFFFFFFFFu ? (uint8_t)(i & 1u ? 0x5Au : 0) : rec_dec[at];
+            if (v) { rec_out[o++] = v; i++; continue; }
+            for (z = 0; z < 255u && i < sizeof rec_dec + extra; z++, i++) {
+                at = i < sizeof(ocl_lists_t) ? i : i < sizeof(ocl_lists_t) + extra ? 0xFFFFFFFFu : i - extra;
+                if (at == 0xFFFFFFFFu ? (i & 1u) : rec_dec[at]) break;
+            }
+            rec_out[o++] = 0; rec_out[o++] = (uint8_t)z;
+        }
+        h.lsize += extra; h.len = o; h.zlen = o - (uint32_t)sizeof h;
+        memcpy(rec_out, &h, sizeof h);
+        ocs_write(OCS_PROJECT, 0, rec_out, o);
+        reboot(); wipe_runtime(); project_load(0);
+        bad |= lcheck("a later version's longer lists: read as far as this one's go, the project the same",
+                      ocl_ent_pat(0, 2) == 2u && lists.tchain[1] == 1u && lists.song[0][1] == 2u && note_of(0) == 60u);
+    }
     return bad;
 }
 

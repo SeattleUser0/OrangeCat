@@ -33,7 +33,8 @@
  *          Skiff's projects share patterns); a pattern anything loaded names is not emptied.
  *   0.4.0: OCJ3: the chains, the song, where each track is in them (pattern.c ocl_lists_t), coded with the project
  *          part (ahead of it: mostly zeros). An OCJ2 record reads as one: each track's list its chain (track 1 on
- *          chain 01 ..), row 01 of the song naming them.
+ *          chain 01 ..), row 01 of the song naming them. The head says how long the lists are (lsize): a later
+ *          version may add to them.
  */
 #define OCJ_MAGIC 0x334A434Fu                  /* "OCJ3" */
 #define OCJ_MAGIC2 0x324A434Fu                 /* "OCJ2" (0.3: the lists, one a track; OCJ1, before them: never released) */
@@ -45,6 +46,9 @@ typedef struct {
     uint8_t chain[CHAIN_ROWS * NTRK];          /* FBKK's song columns (BANK_CHAIN_OFF) */
     char name[PROJ_NAME_LEN];                  /* the project's name (the slot list) */
     uint8_t fn[OCJ_FN];
+    uint32_t lsize;                            /* (OCJ3) the lists' bytes coded ahead of the project part: a later
+                                                * version's longer lists read as far as this one's go, a shorter one's
+                                                * rest as a new project's */
 } ocj_head_t;
 static ocl_lists_t ocj_l __attribute__((section(".pool")));   /* (4c) the chains, the song, where each track is */
 static uint32_t ocj_lead;                      /* (0.4) the lists' bytes ahead of the project part, coded (OCJ2: 0) */
@@ -97,7 +101,9 @@ static int ocj_head_load(ocs_rec_t *r, uint32_t *hsz)
     if (magic == OCJ_MAGIC) {
         if (r->total < sizeof ocj_h || ocs_at(r, 0, &ocj_h, sizeof ocj_h)) return -1;
         *hsz = sizeof ocj_h;
-        ocj_lead = sizeof ocj_l;
+        if (ocj_h.lsize > 16384u) return -1;
+        ocj_lead = ocj_h.lsize;
+        ocl_lists_init(&ocj_l);
     } else if (magic == OCJ_MAGIC2) {
         if (r->total < sizeof h2 || ocs_at(r, 0, &h2, sizeof h2)) return -1;
         *hsz = sizeof h2;
@@ -293,6 +299,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     /* 3. the record: the project part without its steps, timed notes and motion */
     memset(&ocj_h, 0, sizeof ocj_h);
     ocj_h.magic = OCJ_MAGIC;
+    ocj_h.lsize = (uint32_t)sizeof ocj_l;
     memcpy(ocj_h.pid, npid, sizeof npid);
     memcpy(ocj_h.active, raw + BANK_ACTIVE_OFF, NTRK);
     memcpy(ocj_h.chain, raw + BANK_CHAIN_OFF, sizeof ocj_h.chain);
@@ -350,14 +357,15 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
         at++;
         if (v) {
             if (out >= ocj_lead + PROJ_STORE_SIZE) return -1;
-            if (out < ocj_lead) ((uint8_t *)&ocj_l)[out++] = v;   /* (0.4: the lists first) */
+            if (out < ocj_lead) { if (out < sizeof ocj_l) ((uint8_t *)&ocj_l)[out] = v; out++; }   /* (0.4: the
+                                                                                                    * lists first) */
             else { raw[8u + out - ocj_lead] = v; out++; }
             continue;
         }
         if (ocp_rd(&rd, &n, 1) || !n || out + n > ocj_lead + PROJ_STORE_SIZE) return -1;
         at++;
         for (; n; n--, out++) {
-            if (out < ocj_lead) ((uint8_t *)&ocj_l)[out] = 0;
+            if (out < ocj_lead) { if (out < sizeof ocj_l) ((uint8_t *)&ocj_l)[out] = 0; }
             else raw[8u + out - ocj_lead] = 0;
         }
     }
