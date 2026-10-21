@@ -1,0 +1,294 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Orange Cat: the record store (build doc phase 4a, part 3).
+ *
+ * What it is
+ *   One store of committed records in the flash Melodee gave its four bank projects: 0xA0000..0xC7FFF (40 sectors)
+ *   and their extension copies 0xEA000..0xF9FFF (16 sectors), 56 sectors of 4 KiB in all. Orange Cat keeps its
+ *   projects (OCS_PROJECT, one per slot), its pattern pool (OCS_POOL, sixteen chunks of four patterns) and, later,
+ *   samples and bounces here. Melodee's bank projects are not read from this area any more (the build doc, 4a part 3).
+ *
+ * A record
+ *   type (OCS_*), id (its number within the type), and a payload of up to OCS_PARTS_MAX * OCS_PAYLOAD_MAX bytes,
+ *   split over that many sectors, its parts. Each part's sector holds:
+ *     0 .. 31        the commit header (ocs_hdr_t): magic, type, part, parts, id, seq, this part's length and CRC,
+ *                    the whole record's length, the header's own CRC
+ *     32 .. 3839     this part's payload (OCS_PAYLOAD_MAX = 3808 bytes)
+ *     3840 .. 4095   left erased: the boot loader scans sector tails for update records (as storage.c keeps them)
+ *
+ * Power-loss safety (as storage.c, and Skiff's bank.c)
+ *   A save writes a new copy to free sectors: erase, the payload pages, then the commit headers LAST, all parts' after
+ *   all parts' payloads. A copy counts only when every part's header and payload check and they agree (same seq,
+ *   parts, total). The copy before stays where it was until its sectors are reused, so a write torn anywhere leaves
+ *   the copy before in charge. The newest complete copy wins (seq compared with wrap, as storage.c).
+ *
+ * Free sectors
+ *   A sector is free when it holds no part of any record's current copy. Saves take free sectors round from a cursor
+ *   (wear spread), never one of the current copy they replace. ocs_delete erases every copy of a record, old ones too
+ *   (else an older copy would come back).
+ *
+ * RAM
+ *   ocs_hdr[]: each sector's header as the boot scan read it (0 magic: none valid, or its payload did not check),
+ *   kept up to date by saves and deletes; 56 x 32 bytes in the pool section. Payload CRCs are checked again when a
+ *   record is read or found.
+ *
+ * Flash access is storage.c's: st_read, st_erase, st_prog (the host tests give a simulated NOR), st_crc32.
+ *
+ * Revisions:
+ *   0.3.0: first version.
+ */
+#define OCS_MAGIC 0x3153434Fu                  /* "OCS1" */
+#define OCS_SECTOR 4096u
+#define OCS_HDR 32u
+#define OCS_TAIL 256u
+#define OCS_PAYLOAD_MAX (OCS_SECTOR - OCS_HDR - OCS_TAIL)   /* 3808 */
+#define OCS_PARTS_MAX 8u
+#define OCS_NSECT 56u
+enum { OCS_NONE, OCS_PROJECT, OCS_POOL, OCS_SAMPLE, OCS_TYPES };
+
+typedef struct {
+    uint32_t magic;
+    uint8_t type, part, parts, rsv;
+    uint16_t id, rsv2;
+    uint32_t seq;
+    uint32_t len;                              /* this part's payload */
+    uint32_t crc;                              /* .. its CRC-32 */
+    uint32_t total;                            /* the whole record's payload */
+    uint32_t hcrc;                             /* CRC-32 of the 28 bytes before */
+} ocs_hdr_t;
+_Static_assert(sizeof(ocs_hdr_t) == OCS_HDR, "record store commit header");
+
+static ocs_hdr_t ocs_hdr[OCS_NSECT] __attribute__((section(".pool")));
+static uint8_t ocs_cursor;                     /* where the next save starts looking for free sectors */
+
+/* sector s's flash offset: 0..39 at 0xA0000, 40..55 at 0xEA000 */
+static uint32_t ocs_addr(uint32_t s) { return s < 40u ? 0xA0000u + s * OCS_SECTOR : 0xEA000u + (s - 40u) * OCS_SECTOR; }
+
+static int ocs_hdr_ok(const ocs_hdr_t *h)
+{
+    return h->magic == OCS_MAGIC && h->type > OCS_NONE && h->type < OCS_TYPES && h->parts >= 1u &&
+           h->parts <= OCS_PARTS_MAX && h->part < h->parts && h->len <= OCS_PAYLOAD_MAX &&
+           h->total <= (uint32_t)h->parts * OCS_PAYLOAD_MAX && h->hcrc == st_crc32(h, OCS_HDR - 4u);
+}
+
+
+/* a's seq newer than b's (with wrap, as storage.c st_current) */
+static int ocs_newer(uint32_t a, uint32_t b) { return a != b && a - b < 0x80000000u; }
+
+/* the payload of part sector s checks against its header */
+static int ocs_body_ok(uint32_t s)
+{
+    uint8_t buf[256];
+    uint32_t crc = 0xFFFFFFFFu, len = ocs_hdr[s].len;
+    for (uint32_t off = 0; off < len; off += sizeof buf) {
+        uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
+        if (st_read(ocs_addr(s) + OCS_HDR + off, buf, n)) return 0;
+        for (uint32_t i = 0; i < n; i++) {
+            crc ^= buf[i];
+            for (uint32_t j = 0; j < 8u; j++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc == ocs_hdr[s].crc;
+}
+
+/* boot: every sector's header, kept only when it and its payload check (about 210 KB read, some 20 ms). A part whose
+ * payload has rotted is dropped here, so its copy is incomplete and the copy before stays in charge: its sectors are
+ * not handed out as free */
+static void ocs_boot(void)
+{
+    for (uint32_t s = 0; s < OCS_NSECT; s++) {
+        if (st_read(ocs_addr(s), &ocs_hdr[s], OCS_HDR) || !ocs_hdr_ok(&ocs_hdr[s]) || !ocs_body_ok(s))
+            memset(&ocs_hdr[s], 0, OCS_HDR);
+    }
+    ocs_cursor = 0;
+}
+
+/* the sectors of copy seq of record (type, id), by part (sect[part]); its part count, 0 when not complete
+ * (a part missing, or the parts disagreeing) */
+static uint32_t ocs_copy(uint32_t type, uint32_t id, uint32_t seq, uint8_t *sect)
+{
+    uint32_t parts = 0, have = 0, total = 0;
+    for (uint32_t s = 0; s < OCS_NSECT; s++) {
+        const ocs_hdr_t *h = &ocs_hdr[s];
+        if (h->magic != OCS_MAGIC || h->type != type || h->id != id || h->seq != seq)
+            continue;
+        if (!parts) { parts = h->parts; total = h->total; }
+        if (h->parts != parts || h->total != total || ((have >> h->part) & 1u))
+            return 0;                          /* (two sectors claiming one part: not a copy to trust) */
+        have |= 1u << h->part;
+        sect[h->part] = (uint8_t)s;
+    }
+    if (!parts || have != (1u << parts) - 1u)
+        return 0;
+    {   /* the lengths add up: every part full but the last */
+        uint32_t sum = 0;
+        for (uint32_t p = 0; p < parts; p++) {
+            const ocs_hdr_t *h = &ocs_hdr[sect[p]];
+            if (p + 1u < parts && h->len != OCS_PAYLOAD_MAX) return 0;
+            sum += h->len;
+        }
+        if (sum != total) return 0;
+    }
+    return parts;
+}
+
+/* the current copy of (type, id): the newest complete one whose payloads check. Its part count and sectors (sect),
+ * its seq (*seq); 0 when there is none. check 0: headers only (the boot's free map, ocs_free) */
+static uint32_t ocs_current(uint32_t type, uint32_t id, uint8_t *sect, uint32_t *seq, int check)
+{
+    uint32_t tried[OCS_NSECT], ntried = 0;
+    for (;;) {
+        uint32_t best = 0, found = 0;
+        for (uint32_t s = 0; s < OCS_NSECT; s++) {         /* the newest seq not tried yet */
+            const ocs_hdr_t *h = &ocs_hdr[s];
+            uint32_t t, skip = 0;
+            if (h->magic != OCS_MAGIC || h->type != type || h->id != id)
+                continue;
+            for (t = 0; t < ntried; t++)
+                if (tried[t] == h->seq) skip = 1;
+            if (skip) continue;
+            if (!found || ocs_newer(h->seq, best)) { best = h->seq; found = 1; }
+        }
+        if (!found)
+            return 0;
+        tried[ntried++] = best;
+        uint32_t parts = ocs_copy(type, id, best, sect), p;
+        if (!parts)
+            continue;
+        for (p = 0; check && p < parts && ocs_body_ok(sect[p]); p++)
+            ;
+        if (!check || p == parts) {
+            *seq = best;
+            return parts;
+        }
+    }
+}
+
+/* sector s is free: no record's current copy (by headers) has a part there */
+static int ocs_free(uint32_t s)
+{
+    const ocs_hdr_t *h = &ocs_hdr[s];
+    uint8_t sect[OCS_PARTS_MAX];
+    uint32_t seq, parts;
+    if (h->magic != OCS_MAGIC)
+        return 1;
+    parts = ocs_current(h->type, h->id, sect, &seq, 0);
+    return !parts || seq != h->seq;
+}
+static uint32_t ocs_free_count(void)
+{
+    uint32_t n = 0;
+    for (uint32_t s = 0; s < OCS_NSECT; s++) n += ocs_free(s);
+    return n;
+}
+
+/* read record (type, id) whole into dst (max bytes): its length, -1 none (or too big for dst) */
+static int ocs_read(uint32_t type, uint32_t id, void *dst, uint32_t max)
+{
+    uint8_t sect[OCS_PARTS_MAX];
+    uint32_t seq, parts = ocs_current(type, id, sect, &seq, 1), total = 0;
+    if (!parts) return -1;
+    for (uint32_t p = 0; p < parts; p++) total += ocs_hdr[sect[p]].len;
+    if (total > max) return -1;
+    for (uint32_t p = 0, off = 0; p < parts; p++) {
+        if (st_read(ocs_addr(sect[p]) + OCS_HDR, (uint8_t *)dst + off, ocs_hdr[sect[p]].len)) return -1;
+        off += ocs_hdr[sect[p]].len;
+    }
+    return (int)total;
+}
+
+/* program n bytes at addr without crossing a 256-byte page (st_prog's rule) */
+static int ocs_prog(uint32_t addr, const uint8_t *src, uint32_t n)
+{
+    while (n) {
+        uint32_t k = 256u - (addr & 255u);
+        int rc;
+        if (k > n) k = n;
+        if ((rc = st_prog(addr, src, k)) != 0) return rc;
+        addr += k; src += k; n -= k;
+    }
+    return 0;
+}
+
+/* save record (type, id): len bytes from src, as a new copy. 0 done; -1 too big or no room (the store keeps what it
+ * had); another negative: a flash error (the copy before is still in charge) */
+static int ocs_write_copy(uint32_t type, uint32_t id, const void *src, uint32_t len)
+{
+    uint8_t cur[OCS_PARTS_MAX], use[OCS_PARTS_MAX];
+    uint32_t seq = 0, parts = (len + OCS_PAYLOAD_MAX - 1u) / OCS_PAYLOAD_MAX, n = 0, s, p;
+    const uint8_t *b = src;
+    ocs_hdr_t h[OCS_PARTS_MAX];
+    int rc;
+    if (!parts) parts = 1u;                     /* (an empty record still has one part: its header) */
+    uint32_t ncur, have = 0;
+    if (type <= OCS_NONE || type >= OCS_TYPES || parts > OCS_PARTS_MAX) return -1;
+    /* the new seq is past every copy's, torn ones too: a torn copy sharing the new seq would spoil it */
+    for (s = 0; s < OCS_NSECT; s++) {
+        const ocs_hdr_t *o = &ocs_hdr[s];
+        if (o->magic != OCS_MAGIC || o->type != type || o->id != id) continue;
+        if (!have || ocs_newer(o->seq, seq)) seq = o->seq;
+        have = 1;
+    }
+    /* the copy a read gives now (payloads checked) is kept until the new one is in: a newer copy whose payload has
+     * rotted counts as current by its headers alone, and would otherwise leave this one free to reuse */
+    ncur = ocs_current(type, id, cur, &s, 1);
+    for (uint32_t k = 0; k < OCS_NSECT && n < parts; k++) {   /* free sectors, round from the cursor */
+        uint32_t keep = 0;
+        s = (ocs_cursor + k) % OCS_NSECT;
+        for (p = 0; p < ncur; p++) keep |= cur[p] == s;
+        if (!keep && ocs_free(s)) use[n++] = (uint8_t)s;
+    }
+    if (n < parts) return -1;
+    ocs_cursor = (uint8_t)((use[parts - 1u] + 1u) % OCS_NSECT);
+    for (p = 0; p < parts; p++) {              /* erase, then every part's payload */
+        uint32_t off = p * OCS_PAYLOAD_MAX, k = len - off < OCS_PAYLOAD_MAX ? len - off : OCS_PAYLOAD_MAX;
+        if (len == 0) k = 0;
+        memset(&ocs_hdr[use[p]], 0, OCS_HDR);  /* (erased: no longer what the scan saw) */
+        if ((rc = st_erase(ocs_addr(use[p]))) != 0) return rc;
+        if (k && (rc = ocs_prog(ocs_addr(use[p]) + OCS_HDR, b + off, k)) != 0) return rc;
+        h[p].magic = OCS_MAGIC; h[p].type = (uint8_t)type; h[p].part = (uint8_t)p; h[p].parts = (uint8_t)parts;
+        h[p].rsv = 0xFF; h[p].id = (uint16_t)id; h[p].rsv2 = 0xFFFFu; h[p].seq = seq + 1u;
+        h[p].len = k; h[p].crc = st_crc32(b + off, k); h[p].total = len;
+        h[p].hcrc = st_crc32(&h[p], OCS_HDR - 4u);
+    }
+    for (p = 0; p < parts; p++)                /* the commit headers, last */
+        if ((rc = ocs_prog(ocs_addr(use[p]), (const uint8_t *)&h[p], OCS_HDR)) != 0) return rc;
+    for (p = 0; p < parts; p++) {              /* read back: a failing part must not report saved */
+        ocs_hdr_t chk;
+        if (st_read(ocs_addr(use[p]), &chk, OCS_HDR) || memcmp(&chk, &h[p], OCS_HDR)) return -7;
+        ocs_hdr[use[p]] = h[p];
+        if (!ocs_body_ok(use[p])) { memset(&ocs_hdr[use[p]], 0, OCS_HDR); return -7; }
+    }
+    return 0;
+}
+
+static int ocs_write(uint32_t type, uint32_t id, const void *src, uint32_t len)
+{
+    int rc = ocs_write_copy(type, id, src, len);
+    if (rc < -1) {   /* a flash error part way: what is on the flash now is read again (a torn copy's headers, with
+                      * the seq the next save must pass, would otherwise be unknown until the next boot) */
+        uint8_t cursor = ocs_cursor;
+        ocs_boot();
+        ocs_cursor = cursor;
+    }
+    return rc;
+}
+
+/* forget record (type, id): every copy's sectors erased (an older copy left would come back). 0 done */
+static int ocs_delete(uint32_t type, uint32_t id)
+{
+    int rc = 0;
+    for (uint32_t s = 0; s < OCS_NSECT; s++) {
+        if (ocs_hdr[s].magic != OCS_MAGIC || ocs_hdr[s].type != type || ocs_hdr[s].id != id) continue;
+        memset(&ocs_hdr[s], 0, OCS_HDR);
+        if (st_erase(ocs_addr(s))) rc = -8;
+    }
+    return rc;
+}
+
+/* a record (type, id) is there */
+static int ocs_exists(uint32_t type, uint32_t id)
+{
+    uint8_t sect[OCS_PARTS_MAX];
+    uint32_t seq;
+    return ocs_current(type, id, sect, &seq, 1) != 0;
+}

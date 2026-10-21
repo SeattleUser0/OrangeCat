@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.9  
+**Version:** 0.11  
 **Date:** October 20, 2026  
 **Tracks:** Orange Cat Specification v0.4
 
@@ -10,6 +10,8 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.11 (October 20, 2026):** The record store is written and tested (4a part 3, first step).
+- **0.10 (October 20, 2026):** 4a parts 1 and 2 done (step fields, their playback, sheet rows). Part 3 design settled: one record store in the project area, the pool and the new project format together.
 - **0.9 (October 20, 2026):** Phase 4 steps 4a and 4b merged: the new step fields and the pattern pool share one storage change.
 - **0.8 (October 20, 2026):** Phase 4 plan written (4a to 4g). Phase 3 done.
 - **0.7 (October 20, 2026):** All five of Melodee's engines unhooked and measured. Image 378,992 B (was 533,912 B).
@@ -244,13 +246,21 @@ Decided (October 20, 2026): Skiff's workflow. A shared pool of 64 patterns, a li
 
 Each step builds, passes the host tests, and is measured before the next.
 
-- [ ] **4a. Step fields and the pattern pool, together.** Melodee squeezes a step into a few bits everywhere it keeps one: the undo history and the compressed inactive banks in RAM (step_snapshot.h: flags in 3 bits), and the project record in flash (pattern_store.c FBKK: 64 bits a step, flags in 2). Adding Skiff's RATCH, FLAM, trig condition and NUDGE changes all of those, and the pool (Skiff bank.c) replaces the banks and their storage anyway, so both are one change:
-  - Step: Skiff's fields added to Melodee's step_t. Flags bit 2 stays SF_RECORDED; RATCH in bits 3 and 4 and FLAM in bit 5, as in Skiff; trig condition and NUDGE as their own bytes.
-  - Pool: 64 patterns shared by every project, each carrying its steps, LEN DIV SWING GATE DIR, motion, and its timed notes (the timed-note store's owner becomes the pool pattern). No RAM image (Skiff's way); the patterns playing are in track.step; edits wait in RAM until a quiet stop.
-  - Flash: the pool in the sectors freed by the unhooked engines' banks (Prophet banks 40 KB at 0x93000, CZ-1 banks 64 KB at 0xC8000), in chunks with A/B commit records.
-  - Undo history and the editor link carry the new fields.
-  - New project format version; Melodee 1.4.5 projects import (their 32 banks go into the pool).
-  - Playback: Skiff's seq_ratchet, seq_enter (NUDGE) and trig conditions in Melodee's seq.c. Timed notes keep their own timing; RATCH and FLAM apply to step notes.
+- **4a. Step fields and the pattern pool.** Done in three parts.
+  - [x] **Part 1, step fields (October 20, 2026).** Skiff's RATCH and FLAM (flags bits 3 to 5, Skiff's bits), trig condition and NUDGE added to Melodee's step. The compact step the undo history and the inactive banks keep (step_snapshot.h) is Melodee's nine bytes, unchanged, plus two: 11 bytes, exact. Loaders clear the new fields; the web editor's STEP_SET leaves RATCH and FLAM alone.
+  - [x] **Part 2, playback (October 20, 2026).** Skiff's seq_ratchet, seq_enter / seq_nudge (NUDGE late and early) and trig conditions (A:B by a per-track pass count; FILL and !FILL) ported into Melodee's seq.c. Melodee's step trigger moved into seq_fire. A recorded step (timed notes) plays as Melodee plays it. The note sheet and the drum-hit sheet have Ratchet (x1 to x4, Flam), Condition and Nudge rows.
+  - Tests: tests/oc_steps_test.c (compact form, a bank round trip, RATCH x1 to x4, FLAM, conditions, NUDGE early and late, a TIE, chance with RATCH). Host suite green, 337 golden renders unchanged. Image 379,544 B (+552 B).
+  - Until part 3 lands, RATCH, FLAM, conditions and NUDGE are not saved to flash (Melodee's 64-bit stored step has no room). They survive bank switches and undo.
+  - [ ] **Part 3, the pool and the new project format.** Settled October 20, 2026:
+    - Flash: Melodee 1.4 already spends the old engine-bank sectors on its 384 user presets, so the space comes from the projects. Melodee keeps all 32 patterns inside each project (four slots, two copies, seven sectors each: 56 sectors, 224 KB). With the patterns in the pool, a project is about 3 KB. The project area (0xA0000 to 0xC7FFF and 0xEA000 to 0xF9FFF) becomes one record store (firmware/src/oc_store.c): every record written to a free sector with its commit header last, so a power cut leaves the copy before in charge; records can span sectors.
+    - Records: projects (one per slot: sounds, lists, mixer, settings) and pool chunks (16 chunks of 4 patterns, as Skiff; empty steps skipped; each pattern with its timing, motion and timed notes). Worst case, every pattern full: about 44 of the 56 sectors. Samples and bounces (phase 9) can use the same store.
+    - RAM: each track's 8 Melodee banks become a cache of pool patterns. Loading a list entry copies the pool pattern into a free bank of that track, timed notes included; edits are written back to the pool at the next quiet stop. Melodee's timed-note engine (recording.c, its ownership by track and bank) is not changed. Two tracks on the same pattern each play their own copy; the last one saved wins.
+    - The pool is shared by every project, as in Skiff.
+    - Installing this version starts the project area fresh: Melodee projects on the device are not converted in place (there is no spare flash to convert into). Save a backup in the web editor before installing; importing a Melodee backup is a later task (4g).
+    - Order: the record store and its power-cut tests; the pool chunk format and the bank cache; then lists and SONG (4c) and the project record, which replaces Melodee's bank projects.
+    - [x] Record store: firmware/src/oc_store.c, with tests/oc_store_test.c on a simulated flash. Tested: power cut after every program call and at 183 points byte by byte (old or new copy, never anything else; the next save works), a failed erase, a rotted payload (the copy before is read and kept), a broken header, delete, a full store, and that only the two project areas are touched with sector tails left erased. Saves rotate over the free sectors (1,080 sector writes: 54 sectors, 20 erases each). Not in the firmware image until the pool uses it.
+    - [ ] Pool chunk format and the bank cache.
+    - [ ] Project record (with 4c).
 - [ ] **4c. Lists and SONG.** Each track's list of 16 entries (pattern, repeats); SONG plays each track down its list. Replaces song_chain.c's sections. The pool is shared by every project, as in Skiff; a project stores its lists and sounds.
 - [ ] **4d. PERFORM and scenes.** Skiff's launch.c (launch at LOOP / BAR / BEAT / NOW), staged mutes, 16 scenes, FILL, throws.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
