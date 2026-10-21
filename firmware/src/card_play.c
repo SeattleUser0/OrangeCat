@@ -5,8 +5,9 @@
  * file leaves headroom for the synths under it).
  *
  * The file's rate is followed by stepping through the ring at rate / 44100 (Q16) with a straight line between two
- * frames: a 48 kHz file plays at its own pitch. The ring is 64 KB in the .pool section (0.37 s at 44.1 kHz): the main
- * loop tops it up 8 KB at a time. When the ISR finds fewer frames than it needs it plays silence for the rest of the
+ * frames: a 48 kHz file plays at its own pitch. The ring is 32 KB in the .pool section (0.19 s at 44.1 kHz): the main
+ * loop tops it up 4 KB at a time. (.pool is shared with the audio working arena, which must keep 48 KB: the first
+ * 0.4.11 build, with a 64 KB ring and 8 KB reads, failed to link on that.) When the ISR finds fewer frames than it needs it plays silence for the rest of the
  * block and counts a gap (cp_gaps): the page shows them, so a test says whether the card keeps up.
  *
  * One producer (the main loop: cp_w), one consumer (the audio ISR: cp_r). The main loop writes the frames, then
@@ -18,7 +19,7 @@
 #ifndef CP_GAIN
 #define CP_GAIN() ((int32_t)song.master_q12)            /* (host tests: a fixed level) */
 #endif
-#define CP_FRAMES 16384u                                /* the ring: a power of two */
+#define CP_FRAMES 8192u                                 /* the ring: a power of two (32 KB, 0.19 s at 44.1 kHz) */
 static int16_t cp_ring[CP_FRAMES][2] __attribute__((section(".pool"), aligned(4)));
 static volatile uint32_t cp_w, cp_r;                    /* frames written (main loop), frames passed (ISR) */
 static volatile uint8_t cp_on;                          /* the ISR plays */

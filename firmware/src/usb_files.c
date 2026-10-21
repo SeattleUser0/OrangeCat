@@ -234,14 +234,14 @@ static void uf_wav_text(const struct uf_wi *w, char *b)
 }
 
 /* ---- (0.4.11) a WAV playing: the main loop's side (the audio side: card_play.c) ----
- * The file stays open; the main loop reads 8 KB at a time (whole sectors: one READ(10) each, near full speed USB)
+ * The file stays open; the main loop reads 4 KB at a time (whole sectors: one READ(10) each, most of full speed USB)
  * into uf_raw, turns the frames into 16-bit stereo in cp_ring, and the audio ISR plays them. At the end of the
  * samples it starts again (a loop: a test can run as long as it likes). Every 250 ms the foot shows the audio load
  * (the same meter as the header's), the share of time the main loop spent reading the card, and the gaps. */
 #ifndef UF_CPU
 #define UF_CPU() (song.cpu_q8 * 100u / 256u)
 #endif
-#define UF_RAW 8192u
+#define UF_RAW 4096u                                    /* (0.4.11: 8 KB left the audio arena short) */
 static uint8_t uf_raw[UF_RAW] __attribute__((section(".pool"), aligned(4)));
 static FIL uf_pf;
 static struct {
@@ -281,7 +281,7 @@ static void uf_convert(const uint8_t *p, uint32_t frames)
     RING_PUBLISH();
     cp_w = w + frames;
 }
-/* top the ring up, 8 KB a read, at most 4 reads a call (the main loop goes on in between). 0, or an error */
+/* top the ring up, 4 KB a read, at most 4 reads a call (the main loop goes on in between). 0, or an error */
 static FRESULT uf_play_fill(void)
 {
     uint32_t n;
