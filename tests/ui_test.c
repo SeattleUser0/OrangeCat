@@ -4057,6 +4057,25 @@ static void lay_combo(uint32_t btn, uint32_t k) { btn_down(btn); key_down(k); fr
 static void oct_back(void) { btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame(); }
 static uint32_t leds_at(uint32_t ms) { fm1_ms = ms; return layer_leds(); }
 
+/* (Orange Cat 0.4.5) SEQ > GROOVE */
+static int test_groove_page(void)
+{
+    int bad = 0, ok;
+    ui_power_on();
+    pattern_init();
+    go_title("GROOVE"); frame();
+    turn(EN_K1, 1);
+    ok = lists.groove[song.sel] == 1u && lists.gamt[song.sel] == 100u;
+    turn(EN_K2, -4);
+    ok &= lists.gamt[song.sel] == 80u;
+    turn(EN_ALGO, 1); frame();
+    turn(EN_K1, 3);
+    bad += check("GROOVE: KNOB 1 the template, KNOB 2 its amount, the track's own (ALGORITHM another)", ok &&
+                 lists.groove[1] == 3u && lists.groove[0] == 1u && song.sel == 1u);
+    pattern_init();
+    return bad;
+}
+
 /* (Orange Cat 0.4.4) SEQ > PHRASES: the pool */
 static int test_pool(void)
 {
@@ -5708,6 +5727,7 @@ int main(void)
     bad += test_perform();
     bad += test_tracker();
     bad += test_pool();
+    bad += test_groove_page();
     bad += test_product_ux();
     bad += test_mono_screens();
     bad += test_roll();

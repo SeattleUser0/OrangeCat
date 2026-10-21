@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.20  
+**Version:** 0.21  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.5
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.21 (October 21, 2026):** 0.4.5: groove templates (4f part 1), SEQ > GROOVE.
 - **0.20 (October 21, 2026):** 0.4.4 fixes from a code review of the night's work (see 4c).
 - **0.19 (October 21, 2026):** 0.4.4: SEQ > PHRASES, the pool's 64 phrases at a glance.
 - **0.18 (October 21, 2026):** 0.4.3: throws on PERFORM's KNOB 2 to 4. TRACKER's lanes (PRESET).
@@ -334,6 +335,12 @@ Each step builds, passes the host tests, and is measured before the next.
   - [ ] Part 2b: scenes 9 to 16, the web editor's view of scenes.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
 - [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.
+  - [x] **Part 1 (0.4.5, October 21, 2026): six templates per track.** SEQ > GROOVE (after PHRASE): KNOB 1 picks the selected track's template, KNOB 2 its amount (0 to 100%, in 5% steps); ALGORITHM picks the track. Templates: LAID BACK (the backbeat and the 16ths behind), PUSH (ahead of the beat), DILLA (loose, uneven 16ths), 2-STEP (UK garage shuffle), DUB (the offbeat 8ths late, a skank), HUMAN (small drifts). Each moves where each of 16 steps starts (step 1 stays on the grid, so loops stay in time) and adds or takes a little velocity per step (an accented step stays at full). The amount scales both. Swing still works on top. The page draws the 16 steps: the straight place a thin line, the grooved place and loudness a block.
+    - Record quantize follows it: with QNT on the track's own step grid, a recorded note snaps to where the grooved step plays. On other grids it snaps as before (swing only).
+    - Saved with the project.
+    - Tested (tests/oc_lists_test.c, tests/ui_test.c): the steps still add up to the straight loop; a step starts where the template says; the sequencer plays it there; the velocity offsets; the amount scales both; a recorded note quantized on the step grid lands on the grooved step; the page's knobs.
+    - Left to test on the device: put a hi-hat on every 16th, try each template at 100%, listen; record a few notes with QNT on and check they land in the groove.
+  - [ ] Part 2: user-made templates; quantize to other grids through the groove.
 - [ ] **4g. Web editor.** Skiff's editor pages for steps, lists, scenes and the pool, on Melodee's editor link.
 
 ### Open questions for this phase

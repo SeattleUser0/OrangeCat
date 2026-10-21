@@ -484,6 +484,54 @@ static int test_ocj2(void)
     return bad;
 }
 
+/* --------------------------------------------- 13. (0.4.5) groove --- */
+static int test_groove(void)
+{
+    int32_t o[2 * CTL];
+    int bad = 0, ok = 1;
+    uint32_t period, sum = 0, t4 = 0xFFFFFFFFu, last = 0xFFFF;
+    reset();
+    song.g[G_BPM] = 120;
+    trk[0].p[P_SLEN] = 16;
+    put_note(0, 60);
+    trk[0].step[4] = trk[0].step[0];
+    lists.groove[0] = 1; lists.gamt[0] = 100;   /* LAID BACK: step 4 a tenth of a step late */
+    period = seq_div_samples((uint32_t)trk[0].p[P_SDIV]);
+    for (uint32_t i = 0; i < 16u; i++) {
+        ok &= step_samples(&trk[0], period, i) > period / 2u;
+        sum += step_samples(&trk[0], period, i);
+    }
+    bad |= lcheck("groove: the steps add up to the straight loop (the loop's end on the grid)", ok && sum == 16u * period &&
+                  recording_prefix(&trk[0], period, 16) == 16u * period);
+    bad |= lcheck("... and a step starts where the template says (LAID BACK: step 5 a tenth late)",
+                  recording_prefix(&trk[0], period, 4) == 4u * period + period / 100u * 10u);
+    transport_req = 1;
+    for (uint32_t b = 0; b < 2000u && t4 == 0xFFFFFFFFu; b++) {
+        mix_block(o, CTL);
+        if (trk[0].seq_idx == 4u && last != 4u) t4 = b * CTL - trk[0].seq_pos;
+        last = trk[0].seq_idx;
+    }
+    transport_req = 2; mix_block(o, CTL);
+    bad |= lcheck("... the sequencer plays it there", t4 != 0xFFFFFFFFu &&
+                  (t4 > 4u * period + period / 10u ? t4 - (4u * period + period / 10u) : 4u * period + period / 10u - t4) <
+                      CTL + period / 100u);
+    bad |= lcheck("... its velocity: the template's accent on top (LAID BACK +8 on step 1)",
+                  groove_vel(&trk[0], 0) == 8 && groove_vel(&trk[0], 1) == -6);
+    {   /* a recorded note just before step 5 (as grooved), quantized on the steps' own grid: onto step 5 as grooved */
+        recorded_note_t r;
+        uint32_t q = (uint32_t)trk[0].p[P_SDIV] + 1u, want = recording_prefix(&trk[0], period, 4);
+        memset(&r, 0, sizeof r);
+        r.step = 3; r.on = (uint16_t)(RECORD_UNIT * 97u / 100u); r.vel = 100; r.note = 60;
+        bad |= lcheck("... a recorded note quantized on the step grid lands where the grooved step plays",
+                      recording_quant_on(&trk[0], &r, period, q) == want && want != 4u * period);
+    }
+    lists.gamt[0] = 50;
+    bad |= lcheck("... the amount scales both", recording_prefix(&trk[0], period, 4) == 4u * period + period / 100u * 5u &&
+                  groove_vel(&trk[0], 0) == 4);
+    lists.groove[0] = 0; lists.gamt[0] = 100;
+    return bad;
+}
+
 /* --------------------------------------------- 12. (0.4.4) a review's findings --- */
 static int test_review(void)
 {
@@ -529,6 +577,7 @@ static int test_review(void)
 int main(void)
 {
     int bad = 0;
+    bad |= test_groove();
     bad |= test_review();
     bad |= test_launch();
     bad |= test_song_rows();

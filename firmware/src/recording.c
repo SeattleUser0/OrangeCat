@@ -224,8 +224,10 @@ static void recording_live_detach(uint32_t i)
 static uint32_t recording_owner(const track_t *t) { return trk_index(t) * NPAT + t->pattern; }
 static uint32_t recording_prefix(const track_t *t, uint32_t period, uint32_t idx)
 {
-    uint32_t a = step_samples(t, period, 0), b = step_samples(t, period, 1);
-    return (idx / 2u) * (a + b) + (idx & 1u) * a;
+    /* (Orange Cat 0.4.5) where step idx starts: the straight grid, the swing (an odd step starts late), the groove (as
+     * core.h swing_step_len times the steps: each the difference of two of these) */
+    int32_t sw = track_swing(t) * (int32_t)period / 250;
+    return idx * period + ((idx & 1u) ? (uint32_t)sw : 0u) + (uint32_t)groove_part(t, period, idx);
 }
 static uint32_t recording_loop(const track_t *t, uint32_t period)
 {
@@ -501,6 +503,15 @@ static uint32_t recording_quant_on(const track_t *t, const recorded_note_t *r, u
     if (!q) return at;
     uint32_t grid = seq_div_samples(q - 1u), a = step_samples(t, grid, 0), b = step_samples(t, grid, 1);
     uint32_t base = at / (a + b) * (a + b), best = 0, distance = at;
+    if (grid == period && lists.groove[trk_index(t) % NTRK]) {   /* (Orange Cat 0.4.5) the grid the steps are: the
+                                                                  * steps as they are timed, groove and all */
+        uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), i = at / period;
+        for (uint32_t c = i > 1u ? i - 1u : 0u; c <= i + 2u && c <= len; c++) {
+            uint32_t v = recording_prefix(t, period, c), d = v > at ? v - at : at - v;
+            if (d < distance || (d == distance && v > best)) { best = v; distance = d; }
+        }
+        return best >= loop ? 0u : best;
+    }
     uint32_t candidates[] = {base, base + a, base + a + b, loop};
     for (uint32_t k = 0; k < NELEM(candidates); k++) {
         uint32_t v = candidates[k];
@@ -517,7 +528,9 @@ static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_
 static uint32_t recording_key(const track_t *t)
 {
     return (uint32_t)t->p[P_RECQ] | (uint32_t)t->p[P_SSWING] << 4 |
-        (uint32_t)song.g[G_SWING] << 11 | (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25;
+        (uint32_t)song.g[G_SWING] << 11 | (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25 ^
+        ((uint32_t)lists.groove[trk_index(t) % NTRK] << 8 | (uint32_t)lists.gamt[trk_index(t) % NTRK]) * 2654435761u;   /* (Orange Cat
+                                                                                                * 0.4.5: the groove) */
 }
 static void recording_insert(track_t *t, uint32_t i)
 {

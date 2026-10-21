@@ -1079,7 +1079,9 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
 {
     skip = recording_step_skip(t, s, skip);
     uint32_t i, j, gate = step_gate(s) ? period * step_gate(s) / 255u : period * (uint32_t)t->p[P_SGATE] / 128u;
-    uint32_t vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
+    uint32_t vel = (s->flags & SF_ACCENT) ? 127u :
+                   (uint32_t)clamp((int32_t)(s->vel ? s->vel : 96u) + groove_vel(t, t->fire_idx), 1, 127);   /* (Orange Cat
+                                                                                         * 0.4.5: the groove's) */
     uint32_t slide_in = t->seq_hold && t->seq_n && !(skip & SEQ_REP);
     uint32_t len = t->p[P_SLEN] ? (uint32_t)t->p[P_SLEN] : 1u;
     uint32_t next_tie = seq_steps(t)[(t->fire_idx + 1u) % len].time == ST_TIE;   /* (Orange Cat: fire_idx, NUDGE) */

@@ -618,6 +618,7 @@ static void draw_foot(void)
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
 #include "ui_tracker.c"                                 /* (Orange Cat 0.4.2) SEQ > TRACKER */
 #include "ui_pool.c"                                    /* (Orange Cat 0.4.4) SEQ > PHRASES */
+#include "ui_groove.c"                                  /* (Orange Cat 0.4.5) SEQ > GROOVE */
 static int own_screen(void);
 static void draw_columns(void)
 {
@@ -1068,7 +1069,7 @@ static int own_screen(void)                             /* a page drawn whole by
 {
     uint32_t g = cur_page()->graph;
     return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG || g == GR_SCALE_PICKER || g == GR_TRACKER ||
-                        g == GR_POOL);
+                        g == GR_POOL || g == GR_GROOVE);
 }
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
@@ -1101,6 +1102,8 @@ static void draw_page(void)
             tracker_draw();
         else if (cur_page()->graph == GR_POOL)
             pool_draw();
+        else if (cur_page()->graph == GR_GROOVE)
+            groove_draw();
         else {
             draw_head();
             patterns_draw();

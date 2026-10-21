@@ -67,10 +67,36 @@ typedef struct {
     uint8_t mode, launch, rsv[2];
     uint8_t scene[OCL_NSCENE][NTRK][2];                 /* (0.4.1) */
     uint8_t scene_used, rsv2[3];
+    uint8_t groove[NTRK], gamt[NTRK];                   /* (0.4.5, 4f) each track's groove template (0 off) and its
+                                                         * amount, 0..100 % */
 } ocl_lists_t;
 typedef struct { uint8_t ent[NTRK][OCL_NENT][2]; uint8_t cur[NTRK]; uint8_t song, rsv[3]; } ocl_lists_v2_t;   /* (0.3) */
 static ocl_lists_t lists __attribute__((section(".pool")));
 #define OCL_ENT(k, e) (lists.chain[lists.tchain[(k) % NTRK] % OCL_NCHAIN][(e) % OCL_NENT])   /* track k's step e */
+/* (0.4.5, build doc 4f) groove templates: a 16-step cycle of where each step starts, in % of a step against the
+ * straight grid (step 0 always on it, so a loop's end is too), and a velocity added to each step's notes (an accent
+ * step stays 127). Their amount scales both. Swing still applies, on top. A step stays at least 0.3 of its length at
+ * the most swing (consecutive offsets differ by 30 % at most) */
+#define GROOVE_N 7u
+static const char *const GROOVE_NAME[GROOVE_N] = {"OFF", "LAID BACK", "PUSH", "DILLA", "2-STEP", "DUB", "HUMAN"};
+static const int8_t GROOVE_OFF[GROOVE_N][16] = {
+    {0},
+    {0, 4, 2, 6, 10, 4, 2, 6, 0, 4, 2, 6, 10, 4, 2, 6},             /* the backbeat and the 16ths behind */
+    {0, -4, -2, -6, -6, -4, -2, -6, 0, -4, -2, -6, -6, -4, -2, -6}, /* ahead of the beat */
+    {0, 14, -4, 18, 2, 12, -6, 20, 0, 16, -2, 14, 4, 10, -4, 22},   /* loose, uneven 16ths */
+    {0, 24, 0, 26, 4, 24, 0, 26, 0, 24, 0, 26, 4, 24, 0, 28},       /* UK garage shuffle */
+    {0, 0, 12, 0, 0, 0, 14, 0, 0, 0, 12, 0, 0, 0, 16, 0},           /* the offbeat 8ths late (skank) */
+    {0, 3, -2, 4, -3, 2, 1, -4, 2, -3, 4, -1, -2, 3, -4, 2},        /* small drifts */
+};
+static const int8_t GROOVE_ACC[GROOVE_N][16] = {
+    {0},
+    {8, -6, 0, -6, 6, -6, 0, -6, 8, -6, 0, -6, 6, -6, 0, -6},
+    {8, 0, -4, 0, 4, 0, -4, 0, 8, 0, -4, 0, 4, 0, -4, 0},
+    {10, -8, 2, -10, 8, -6, 0, -12, 10, -8, 4, -10, 8, -4, 0, -12},
+    {8, -10, 2, -8, 10, -10, 2, -8, 8, -10, 2, -8, 10, -10, 2, -8},
+    {6, 0, 8, 0, 4, 0, 8, 0, 6, 0, 8, 0, 4, 0, 8, 0},
+    {4, -3, 2, -5, 3, -2, -4, 1, 5, -1, -3, 2, -2, 4, -5, 0},
+};
 static void ocl_lists_init(ocl_lists_t *l)
 {
     memset(l, 0, sizeof *l);
@@ -78,6 +104,7 @@ static void ocl_lists_init(ocl_lists_t *l)
         l->tchain[k] = (uint8_t)k;
         l->song[0][k] = (uint8_t)(k + 1u);
         l->row[k] = 0;
+        l->gamt[k] = 100;
     }
 }
 static int ocl_lists_empty(const ocl_lists_t *l)      /* no chain names a phrase, no song row a chain */
@@ -105,11 +132,30 @@ static void ocl_lists_fix(ocl_lists_t *l)
     }
     if (l->mode > OCL_SONG) l->mode = OCL_PHRASE;
     if (l->launch >= OCL_NLAUNCH) l->launch = OCL_LOOP;
+    for (uint32_t k = 0; k < NTRK; k++) {
+        if (l->groove[k] >= GROOVE_N) l->groove[k] = 0;
+        if (l->gamt[k] > 100u) l->gamt[k] = 100;
+    }
     for (uint32_t s = 0; s < OCL_NSCENE; s++)
         for (uint32_t k = 0; k < NTRK; k++) {
             if (l->scene[s][k][0] > OCL_NCHAIN) l->scene[s][k][0] = 0;
             l->scene[s][k][1] &= (uint8_t)(0x80u | (OCL_NENT - 1u));
         }
+}
+/* (0.4.5) core.h: where step idx of track t starts against the straight grid (`base` its straight step), in samples;
+ * 0 at step 0 and from the loop's end on */
+static int32_t groove_part(const track_t *t, uint32_t base, uint32_t idx)
+{
+    uint32_t k = (uint32_t)(t - trk) % NTRK, g = lists.groove[k], len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u;
+    if (!g || g >= GROOVE_N || idx >= len)
+        return 0;
+    return (int32_t)(base / 100u) * GROOVE_OFF[g][idx & 15u] * (int32_t)lists.gamt[k] / 100;
+}
+/* (0.4.5) the velocity track t's groove adds to step idx's notes */
+static int32_t groove_vel(const track_t *t, uint32_t idx)
+{
+    uint32_t k = (uint32_t)(t - trk) % NTRK, g = lists.groove[k];
+    return g && g < GROOVE_N ? GROOVE_ACC[g][idx & 15u] * (int32_t)lists.gamt[k] / 100 : 0;
 }
 static uint8_t bank_pid[NTRK][NPAT] __attribute__((section(".pool")));
 static uint32_t bank_sig[NTRK][NPAT] __attribute__((section(".pool")));

@@ -1071,6 +1071,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         pool_edit(slot, steps);
         return;
     }
+    if (pg->graph == GR_GROOVE) {                       /* (Orange Cat 0.4.5) GROOVE: 1 the template, 2 the amount */
+        groove_edit(slot, steps);
+        return;
+    }
     if (chain_busy() && (pg->scope == SC_STEP || pg->graph == GR_STEPS ||
         0)) {
         ui_message("STOP TO EDIT"); return;
@@ -1915,7 +1919,7 @@ static void page_knob(uint32_t k, int32_t s)
     int16_t *hv;
     if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || (((MELODEE_DRUM && pg->scope == SC_DRUM) || (MELODEE_DRUM && pg->scope == SC_DRUMHIT)) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
         (pg->graph == GR_USER && k == 0u) || ((pg->graph == GR_MOD || pg->graph == GR_FXRACK) && k == 1u)
-        || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_POOL || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
+        || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_POOL || pg->graph == GR_GROOVE || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
         || (pg->graph == GR_SLICES && k < 2u)) {       /* (not an empty column) */
         ui.hot_col = (uint8_t)k;
         ui.hot_t = 40;
