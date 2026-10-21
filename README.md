@@ -11,7 +11,7 @@ problems here, not to Melodee.
   the web editor).
 - Builds: GitHub Actions (.github/workflows/build.yml), through the shared FM-1 builder zvenson/fm1-build.
 
-Status: early. The firmware is Melodee 1.4.5 renamed (version v0.1.0). Melodee's own documentation follows below and
+Status: early. The firmware started as Melodee 1.4.5 renamed; its version is in the VERSION file. Melodee's own documentation follows below and
 still describes Melodee.
 
 ---

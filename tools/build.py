@@ -514,8 +514,10 @@ def main():
         name = f"melodee-{a.release}.fwsc"
     if a.nightly:
         revision = subprocess.check_output(["git", "rev-parse", "--short=7", "HEAD"], cwd=SRC, text=True).strip()
-        VERSION = "dev-" + revision            # (Orange Cat 0.1.0) was "next-": shown in ABOUT and the editor; the
-                                               # editor identity "ORANGE CAT dev-1234567" stays inside its 24 bytes
+        # (Orange Cat 0.4.9) "v0.4.9-1234ab": the VERSION file and the commit (was "dev-1234567"), shown in ABOUT and
+        # the editor; the editor identity "ORANGE CAT v0.4.9-1234ab" fills its 24 bytes (6 digits of the commit)
+        vf = SRC / "VERSION"
+        VERSION = ("v" + vf.read_text().strip() + "-" + revision[:6]) if vf.exists() else "dev-" + revision
         name = f"melodee-nightly.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK

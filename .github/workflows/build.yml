@@ -25,6 +25,8 @@
 #   Rev 6: engine switches in tools/orangecat_engines.sh (SID and CZ-1 off), read by the build and the test step.
 #   Rev 5 (build doc phase 3): the firmware is built with MELODEE_SID=0 (the SID engine unhooked); tests keep the
 #         defaults.
+#   Rev 8 (Orange Cat 0.4.9): the version comes from the VERSION file (was 0.1.0 written here): the package name, the
+#     installer page's release number, and (tools/build.py) ABOUT and the editor.
 #   Rev 4: the pages job passes version 0.1.0 (the installer's release list needs X.Y.Z; with the commit it failed);
 #         70 lines of the size report on the run page.
 #   Rev 3 (build doc phase 3): size report by engine and area (tools/size_report.py), on the run page and in the
@@ -85,7 +87,7 @@ jobs:
         if [ "$GITHUB_REF_TYPE" = tag ]; then
           cp "build/melodee-${GITHUB_REF_NAME#v}.fwsc" "build/orangecat-${GITHUB_REF_NAME#v}.fwsc"
         else
-          cp build/melodee-nightly.fwsc "build/orangecat-0.1.0-${GITHUB_SHA::7}.fwsc"
+          cp build/melodee-nightly.fwsc "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.fwsc"
         fi
       test: |
         set -euo pipefail
@@ -123,7 +125,7 @@ jobs:
           name: packages
           path: pkg
       - name: The site
-        run: python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" 0.1.0 site   # (rev 4) the installer needs X.Y.Z
+        run: python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site   # (rev 8) VERSION, X.Y.Z
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
