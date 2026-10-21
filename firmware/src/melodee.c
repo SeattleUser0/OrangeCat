@@ -85,6 +85,7 @@
 #define MIDI_TIME_NOW() fm1_ticks()
 #define MIDI_TICKS_PER_MS (1000u * FM1_TICKS_PER_US)
 #include "usb.c"
+#include "usb_host.c"            /* (Orange Cat 0.4.7) the USB drive test (Menu > USB DRIVE TEST) */
 #if MELODEE_UART
 #include "midi_uart.c"
 #endif

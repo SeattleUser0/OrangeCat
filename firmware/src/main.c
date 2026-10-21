@@ -247,6 +247,9 @@ static void fm1_main(void)
         fm1_wdt_feed();
         pattern_poll();
         usb_retry(fm1_ms);
+        if (usbh.want && ui.menu != 3u)                 /* (Orange Cat 0.4.7) the drive test left some other way */
+            usbh_want(0);
+        usbh_task();                                    /* the drive test, while its page is open */
 #if MELODEE_USB_AUDIO
         if (ua_off_apply(fm1_ms)) {                     /* USB direction or capture mode changed: the host re-reads */
             settings_save();                            /* while off the bus: no USB deadline missed */

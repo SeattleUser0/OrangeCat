@@ -116,3 +116,32 @@ FM1_INLINE uint32_t fm1_usb_sof_take(void)
     FM1_USB_CON0 |= 1u << 12;
     return 1;
 }
+
+/* (Orange Cat 0.4.7) USB0 as a host, for the flash drive test (build doc phase 2, src/usb_host.c).
+ * The bits come from JieLi's register notes for the same controller family (fw-AC63_BT_SDK,
+ * include_lib/driver/cpu/br23/asm/usb.h, Apache-2.0):
+ *   CON0 bit 4 CID: 0 host, 1 device (fm1_usb_attach sets it with 0x3C)
+ *   IO_CON0 bit 4 DPPD, bit 5 DMPD: the 15k pull-downs a host puts on D+ and D-; bit 6 DPPU the device's pull-up
+ *   CON0 bit 16 DM_SE, bit 17 DP_SE: the D- and D+ levels (a full speed device pulls D+ high, low speed D-)
+ * Everything else is fm1_usb_attach's sequence; the SIE's host registers (DEVCTL 0x0F, TXTYPE 0x18 ..) go through
+ * the same CON1 window. Not tried on a unit before 0.4.7: the test page shows what each step saw. */
+FM1_INLINE void fm1_usb_host_attach(void *ep0)
+{
+    uint32_t n;
+    FM1_CLK_CON1 &= ~3u;                                /* USB clock = PLL48M */
+    FM1_USB_EP0_ADR = (uint32_t)(uintptr_t)ep0;
+    for (n = 1; n <= 3u; n++)
+        FM1_USB_EP_RADR(n) = (uint32_t)(uintptr_t)ep0;
+    FM1_USB_EP4_RADR = (uint32_t)(uintptr_t)ep0;
+    FM1_USB_IO_CON0 |= (1u << 10) | (1u << 9);
+    FM1_USB_IO_CON0 &= ~(1u << 11);
+    FM1_USB_IO_CON0 |= 1u << 12;
+    FM1_USB_CON0 &= ~0x4035u;                           /* (CID among them: host) */
+    FM1_USB_CON1 = 0;
+    FM1_USB_CON0 |= 1u;
+    FM1_USB_IO_CON0 &= ~0xF0u;
+    FM1_USB_IO_CON0 |= 0x30u;                           /* D+ and D- pull-downs: a host */
+    FM1_USB_CON0 |= 0x2Cu;                              /* NRST, TM1, VBUS; CID stays 0 */
+}
+/* bit 1 D+ high, bit 0 D- high */
+FM1_INLINE uint32_t fm1_usb_lines(void) { return (FM1_USB_CON0 >> 16) & 3u; }

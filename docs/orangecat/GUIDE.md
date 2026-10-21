@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.6
+**Firmware:** 0.4.7
 **Date:** October 21, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -66,6 +66,14 @@ A scene stores each track's chain, slot and mute. AT decides when a scene, a sta
 ## Groove
 
 SEQ > GROOVE gives each track a template: LAID BACK, PUSH, DILLA, 2-STEP, DUB or HUMAN. KNOB 2 sets how much. Swing still works on top. Recording with quantize on the track's own step grid lands in the groove.
+
+## USB drive test
+
+Menu (hold HOME) > USB DRIVE TEST. OCT+ starts it. The USB port becomes a host, like a computer's port. Plug in a flash drive. The page shows what it finds: the maker and model, the size, how the drive is formatted, and how fast it reads. OCT- ends the test and the port goes back to normal.
+
+While the test runs, USB MIDI, USB audio and the web editor are off.
+
+If nothing shows up, the drive may have no power. Try an OTG adapter that takes a charger, or a powered hub. Take a photo of the page each time. The small line at the bottom tells where the test got to.
 
 ## Saving and loading
 

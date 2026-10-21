@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.22  
+**Version:** 0.23  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.5
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.23 (October 21, 2026):** 0.4.7: phase 2 started. Menu > USB DRIVE TEST, a test build for the flash drive question.
 - **0.22 (October 21, 2026):** 0.4.6: SEQ tools (Shift right, Shift left, Reverse). Groove review fixes. Fixes from a review of the new pages.
 - **0.21 (October 21, 2026):** 0.4.5: groove templates (4f part 1), SEQ > GROOVE.
 - **0.20 (October 21, 2026):** 0.4.4 fixes from a code review of the night's work (see 4c).
@@ -39,7 +40,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 |---|---|---|
 | 0 | Specification and source review | Done |
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
-| 2 | USB flash drive test | Not started |
+| 2 | USB flash drive test | In progress (test build ready) |
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
@@ -150,23 +151,33 @@ Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variable
 
 ## Phase 2: USB flash drive test
 
-**Status: Not started**
+**Status: In progress.** The test build is done (0.4.7). It needs a run on the FM-1.
 
 Goal: find out if the FM-1 can read a USB flash drive. This decides where samples and bounces can live.
 
-What is known (specification 10.5): no USB host code exists in Melodee or Skiff. The USB driver is device-only. The controller is a MUSB-style core, which normally supports host mode. The FM-1 may not supply 5 V to the port.
+What is known:
+- The chip can be a USB host. JieLi's own SDK for this chip family has a host mode and a "read a U disk" demo.
+- The USB controller is a MUSB-style core. JieLi's register notes (in its public AC63 SDK, Apache-2.0) give the host bits: CON0 bit 4 picks host or device, IO_CON0 bits 4 and 5 are the host's pull-downs, and the MUSB host registers (DEVCTL, TXTYPE, RXTYPE) sit at the usual places. The low-level host code itself is in JieLi's closed libraries, so Orange Cat's version is written from those notes.
+- Melodee found that the controller does not answer at power-on without a cable plugged in. It may need 5 V on the port to work at all. If the FM-1 does not put 5 V on its port, the drive needs power from somewhere else, and so may the FM-1's own controller.
+- One port cannot be host and device at the same time. While a drive is in use, USB MIDI, USB audio and the web editor are off.
+
+Done:
+- [x] Host-mode register details found (JieLi AC63 SDK headers: usb.h, usb_phy.h).
+- [x] Test firmware (0.4.7): Menu > USB DRIVE TEST. OCT+ on it turns the port into a host. The page waits for something to be plugged in, then shows its speed, maker and model (vendor and product ID and names), and its class. A flash drive is then read: its name, its size, sector 0 (FAT32, exFAT and so on) and a read speed over 256 KB. One hub in between is followed to the first port with something on it. OCT- (or leaving the menu) turns the port back into the normal device.
+- [x] The bottom line of the page shows where the test got to, for a photo: L (the D+ and D- levels: 0 nothing, 2 a full speed device, 1 low speed), S (the step reached: 0 waiting, 11 to 16 the first device, 21 to 26 the device behind a hub, 30 to 35 reading the drive, 40 to 42 the hub), C (the last status byte), D (DEVCTL; 5D is a host with a full speed device), E (the last error: 1 timeout, 2 stall, 3 error, 4 no answer, 5 short, 6 bad status, 7 failed).
+- [x] Host test (usb_host_test): a model of the controller with a flash drive (EP0 of 64 and of 8 bytes), a hub with the drive on port 3, a keyboard, a drive that is not ready at first, a device that never answers, and a controller that does not answer.
 
 Left to build:
-- [ ] Find the host-mode register details for this USB controller. Check whether the AC79 SDK's USB code (Apache-2.0) covers host mode and mass storage and can be used as a reference.
-- [ ] Test firmware: a menu command switches the port to host mode, waits for a device to attach, reads its device descriptor, and shows the vendor and product on screen. Another command returns the port to device mode.
-- [ ] If that works: read sector 0 through USB mass storage (bulk-only transport), then list the root folder of a FAT32 drive. Pick a small FAT library with a GPL-compatible license (FatFs is one candidate).
-- [ ] Leave the boot stub and its update mode untouched so the unit can always be reflashed.
+- [ ] If the test works: list the root folder of a FAT32 drive (a small FAT library with a GPL-compatible license; FatFs is one candidate).
+- [ ] Leave the boot stub and its update mode untouched so the unit can always be reflashed. (The test build does not touch them.)
 
-Left to test:
-- [ ] Drive plugged straight into the FM-1 (USB-C drive or a plain adapter).
-- [ ] Drive through a powered OTG adapter or hub that supplies 5 V.
+Left to test (Menu > USB DRIVE TEST, then plug in):
+- [ ] Drive plugged straight into the FM-1 with a USB-C to USB-A OTG adapter (or a USB-C drive).
+- [ ] If the page says "USB chip silent" or nothing is found: an OTG adapter that takes a charger (it puts 5 V on the drive and on the FM-1's port).
+- [ ] A powered hub between the FM-1 and the drive.
 - [ ] Read speed: enough to copy samples into flash? Enough to stream?
-- [ ] After returning to device mode, USB MIDI, USB audio, and the web editor work again without a power cycle.
+- [ ] After OCT-, USB MIDI, USB audio and the web editor work again without a power cycle.
+- [ ] A photo of the page for each try, so the bottom line can be read.
 
 Result (fill in): works directly / works only with external power / does not work.
 

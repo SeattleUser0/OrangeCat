@@ -8,22 +8,24 @@
  * ui.c HS_*), GLO SELECT (what SELECT turns with GLO held, on any page: the same choices), UNUSED TRACKS (SHOW:
  * Stage and MIXER keep a greyed "Add track" row for each place not in use; HIDE: the tracks in use only, ui.c
  * stage_rows),
- * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
- * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
+ * CALIBRATION (the setup screen: HARDWARE CALIBRATION), USB DRIVE TEST, ABOUT.
+ * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information, 3 the USB drive test.
+ * (Orange Cat 0.4.7) USB DRIVE TEST (build doc phase 2): OCT+ turns the USB port into a host and shows what is
+ * plugged in (usb_host.c); OCT- (or leaving the menu) turns it back into the normal device. */
 /* ------------------------------------------------------------ menu --- */
 #define MENU_HEAD H_HEAD                 /* the menu's own title strip */
 enum { MI_COLOR, MI_FONT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB, MI_USB_INPUT,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_GLO_SEL, MI_TRACKS, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_GLO_SEL, MI_TRACKS, MI_SCREEN, MI_PANEL, MI_DRIVE, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO", "USB INPUT",
 #endif
                                               "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY",
-                                              "AUTOSAVE", "PICKER POPUPS", "KNOB ACCEL", "HOME SELECT", "GLO SELECT", "UNUSED TRACKS", "SCREEN OFF", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
+                                              "AUTOSAVE", "PICKER POPUPS", "KNOB ACCEL", "HOME SELECT", "GLO SELECT", "UNUSED TRACKS", "SCREEN OFF", "CALIBRATION", "USB DRIVE TEST", "ABOUT", "SOUND DESIGNER", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -192,7 +194,8 @@ static void menu_head(void)
 {
     if (head_waiting()) { draw_head(); return; }
     cv_begin(240, MENU_HEAD, T_BG);
-    cv_text(8, ty_y(MENU_HEAD / 2, TY_TX), TY_TX, ui.menu == 2 ? "About" : "Settings", T_THEME);
+    cv_text(8, ty_y(MENU_HEAD / 2, TY_TX), TY_TX, ui.menu == 2 ? "About" : ui.menu == 3 ? "USB drive test" : "Settings",
+            T_THEME);
     if (ui.menu >= 2) {                               /* the way back at the right, the REC mark before it (then */
         cv_icon_mid(218, MENU_HEAD / 2, 16, ICON_X_UNDO, T_MID, T_BG);   /* (OCT-) */
         draw_rec_mark(196, T_BG);
@@ -232,6 +235,7 @@ static void menu_words(char *d, const char *s, uint32_t n)
         if (!first && d[i] >= 'A' && d[i] <= 'Z') d[i] = (char)(d[i] + 32);
     }
 }
+static void drive_draw(void);
 static void draw_menu(void)
 {
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
@@ -240,13 +244,18 @@ static void draw_menu(void)
                             ua_off_want * 92821u + ua_tracks_want * 324161u +
 #endif
                             song.rec * 65537u + song.sel * 13u +
-                            (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u);
+                            (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u) +
+                            (ui.menu == 3 ? usbh.gen * 7368787u + UH_LINES_READ() * 99991u + usbh.step * 15731u : 0u);
     if (!ui.force && sig == ui.menu_sig) {
         if (head_waiting()) draw_head();
         return;
     }
     ui.menu_sig = sig;
     menu_head();
+    if (ui.menu == 3) {
+        drive_draw();
+        return;
+    }
     if (ui.menu >= 2) {
         int32_t scroll = ui.menu_scroll, max = menu_scroll_max();
         int32_t thumb = MENU_DOC_H * MENU_DOC_H / (max + MENU_DOC_H);
@@ -326,6 +335,33 @@ static void draw_menu(void)
         cv_blit(0, (uint32_t)top);
     }
 }
+/* (Orange Cat 0.4.7) USB DRIVE TEST: the probe's lines (usb_host.c usbh.line) in the body type, 22 px apart from y 32,
+ * the empty ones skipped, a name too long for the screen cut with an ellipsis; the diagnostic line at the foot in the
+ * small type ("L2 S25 C01 D5D E0": the D+ / D- levels, the step reached, the last CSR, DEVCTL, the last error).
+ * Before the main loop has opened the port: "Starting". OCT- (the header's way back) ends the test. */
+static void drive_draw(void)
+{
+    uint32_t pass, i, n = 0;
+    char d[32];
+    usbh_diag(d);
+    for (pass = 0; pass < 2u; pass++) {
+        int32_t top = pass ? 124 : MENU_HEAD, y = 32;
+        cv_begin(240, (uint32_t)(pass ? 240 - 124 : 124 - MENU_HEAD), T_BG);
+        cv_oy = -top;
+        for (i = 0; i < UH_LINES; i++) {
+            if (!usbh.line[i][0])
+                continue;
+            cv_free_text(8, y, TY_TX, usbh.line[i], i == 0u ? T_THEME : T_TEXT, T_BG, 224);
+            y += 22;
+            n++;
+        }
+        if (!n)
+            cv_free_text(8, y, TY_TX, "Starting", T_TEXT, T_BG, 224);
+        cv_free_text(8, 216, TY_LB, d, T_MID, T_BG, 224);
+        cv_oy = 0;
+        cv_blit(0, (uint32_t)top);
+    }
+}
 static void enc_drop(void)                             /* knob turns nobody takes */
 {
     uint32_t k;
@@ -335,6 +371,7 @@ static void enc_drop(void)                             /* knob turns nobody take
 
 static void menu_close(void)
 {
+    usbh_want(0);                                      /* (0.4.7) the USB port back to normal, if the test had it */
     settings_save();                                   /* palette / panel table, if changed */
     ui.menu = 0;
     ui.force = 1;
@@ -347,6 +384,8 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
     int32_t s;
     uint32_t ok = (oct >> 1) & 1u, back = oct & 1u;
     if (back) {
+        if (ui.menu == 3)
+            usbh_want(0);
         if (ui.menu >= 2)
             ui.menu = 1, ui.force = 1;
         else
@@ -357,7 +396,7 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         ui.menu_sel = (uint8_t)clamp((int32_t)ui.menu_sel + s, 0, (int32_t)MI_COUNT - 1);
     if ((s = panel_enc(EN_PRESET)) != 0 && ui.menu == 1)
         ui.menu_sel = (uint8_t)((ui.menu_sel + (s > 0 ? 1u : MI_COUNT - 1u)) % MI_COUNT);
-    else if (s != 0 && ui.menu >= 2) {             /* bounded document scrolling */
+    else if (s != 0 && ui.menu == 2) {             /* bounded document scrolling */
         ui.menu_scroll = (uint16_t)clamp((int32_t)ui.menu_scroll + clamp(s, -128, 128) * 18, 0, menu_scroll_max());
     }
     s = panel_enc(EN_K1);
@@ -454,6 +493,11 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
             break;
         case MI_DESIGNER:
             menu_close();designer_open();
+            break;
+        case MI_DRIVE:                                 /* (0.4.7) the port a host until OCT- */
+            usbh_want(1);                              /* (the main loop opens it: usb_host.c usbh_task) */
+            ui.menu = 3;
+            ui.force = 1;
             break;
         case MI_ABOUT:
             ui.menu = 2;
