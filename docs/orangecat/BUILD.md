@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.26  
+**Version:** 0.27  
 **Date:** October 21, 2026  
-**Tracks:** Orange Cat Specification v0.6
+**Tracks:** Orange Cat Specification v0.7
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.27 (October 21, 2026):** 0.4.10: the drive's files (FatFs): folders, WAV details, a timed file read. Plan for bounces to the card and for several FM-1s sharing one card.
 - **0.26 (October 21, 2026):** 0.4.9 on the unit: the card reader stick reads too. Phase 2 answered.
 - **0.25 (October 21, 2026):** The FM-1 read an SD card through a powered hub (29.7 GB, FAT32, 914 KB/s). 0.4.9: card reader slots, a retry after a reset, the error kept.
 - **0.24 (October 21, 2026):** First drive test on the unit: host mode works when the port gets power. 0.4.8 walks hubs inside hubs.
@@ -43,7 +44,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 |---|---|---|
 | 0 | Specification and source review | Done |
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
-| 2 | USB flash drive test | Done: works through a hub on PD power |
+| 2 | USB flash drive test, then files | Drive read: done. Files: built (0.4.10), to test |
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
@@ -154,7 +155,7 @@ Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variable
 
 ## Phase 2: USB flash drive test
 
-**Status: Done.** The FM-1 reads a drive as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. Reading files (FAT32) is the next step, in a later phase.
+**Status: In progress.** The FM-1 reads a drive as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. Reading its files is built (0.4.10) and needs a run on the unit.
 
 Goal: find out if the FM-1 can read a USB flash drive. This decides where samples and bounces can live.
 
@@ -175,9 +176,25 @@ Done:
 - [x] 0.4.8: hubs are walked up to three deep, every port with something on it, until a drive reads. A storage device that does not read (the hub's SD slot with no card) is passed over for the next. With no drive read, the page lists what it found with its place: "1.2" is port 2 of the hub on port 1. Low speed devices behind a hub are passed over.
 - [x] Host test (usb_host_test): a model of the controller with a flash drive (EP0 of 64 and of 8 bytes), a keyboard, a drive that is not ready at first, a device that never answers, a controller that does not answer, and (0.4.8) the RCA hub as found: two hubs, a low speed keyboard, an SD reader with no card, the drive behind them; the same with no drive (the list); a hub with nothing on it. The model flags two devices answering at one address.
 
+Step 2, files (0.4.10):
+- [x] FatFs R0.16 patch 2 (ChaN; BSD-style, GPL compatible) in firmware/src/fatfs, unchanged but for ffconf.h: reading only, long names (up to 64 characters shown), FAT12/16/32 and exFAT, files sharing the volume's 512-byte buffer. About 1.3 KB of RAM.
+- [x] Its disk layer on the drive test's SCSI commands (READ(10), up to 64 sectors a command), to the drive and slot the test found.
+- [x] The page: after a drive reads, OCT+ opens its files. The folder at the top, six rows (name, size; folders end in "/"), KNOB 1, KNOB 2 or PRESETS to move. OCT+ opens a folder or looks at a file: a WAV shows its rate, bits, channels and length; any file is read in 512-byte pieces (up to 1 MB) and the speed shown. OCT- goes up a folder, and from the top back to the test's lines. Names starting with "." (macOS leftovers) and hidden or system files are left out.
+- [x] OCT+ on a test that read no drive looks again, with whatever is plugged in now.
+- [x] Host test: a FAT32 card made by an independent FAT implementation (pyfatfs; tests/make_fat_fixture.py, committed as tests/fixtures/fat32_card.bin) served by the drive model; the test walks folders, a long name, two WAVs, a folder of 20 files (scrolling), and checks every byte of a 64 KB file.
+- [x] The UI never waits on the drive: the page sets a request, the main loop does it (usb_files.c usbf_task).
+
 Left to build:
-- [ ] If the test works: list the root folder of a FAT32 drive (a small FAT library with a GPL-compatible license; FatFs is one candidate).
+- [ ] Write support (FatFs read-write), for bounces. Needs care: a card pulled during a write can lose the file.
+- [ ] Background transfers: today a read blocks the main loop (the screen waits; the sound does not). Streaming needs the transfers in a timer or on the second core, with a ring buffer.
 - [ ] Leave the boot stub and its update mode untouched so the unit can always be reflashed. (The test build does not touch them.)
+
+Left to test, files (0.4.10, the RCA hub on PD power, the 32 GB card with a few WAVs and folders on it):
+- [ ] OCT+ after the drive reads: the top folder listed.
+- [ ] Folders open, OCT- goes up; a long folder scrolls.
+- [ ] A WAV's details right (rate, bits, channels, length).
+- [ ] The "Read ... at ... KB/s" figure for a WAV of a few MB (512-byte reads: how much each command costs).
+- [ ] An exFAT card (64 GB or more), if one is handy.
 
 Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] Drive plugged straight into the FM-1: not seen. The FM-1 puts no 5 V on its port.
@@ -190,6 +207,25 @@ Left to test (Menu > USB DRIVE TEST, then plug in):
 - [ ] A photo of the page for each try, so the bottom line can be read.
 
 Result: works only with external power (a hub on PD power). 914 KB/s read.
+
+### Plan: bounces on the card, and several FM-1s on one card
+
+Jeremiah's goal (October 21): bounce or freeze tracks to WAV files on the card and play them back beside new tracks;
+in the end, several FM-1s and an SMK-37 on one hub with one card, each using it as storage.
+
+What USB allows, and the plan from it:
+- A USB bus has one host. On the shared hub, one FM-1 is the host and owns the card. The other FM-1s and the SMK-37 plug into the hub as USB devices, as they are today.
+- The host FM-1 can then read the SMK-37 as a USB MIDI host (class-compliant MIDI is two bulk endpoints, simpler than the drive), pass its notes on, and talk to the other FM-1s over their USB MIDI. They could ask it for files over that link (SysEx or a bulk channel of our own). Everything on the hub shares full speed USB: about 900 KB/s in all.
+- While an FM-1 is the host, USB audio and the web editor to a computer are off. DIN MIDI and Bluetooth MIDI keep working.
+- A stereo 16-bit 44.1 kHz track is 176 KB/s; mono 88 KB/s. 900 KB/s could carry a few stereo tracks at most, less with other traffic. Mono and 22 kHz bounces would stretch it.
+
+Steps, each tested on the unit before the next:
+1. Files read (0.4.10, built).
+2. How much processor time the transfers take (time the 1 MB read against the audio load).
+3. USB MIDI host: the SMK-37 on the hub plays the host FM-1.
+4. Background reads into a ring buffer: one WAV plays from the card while the sequencer runs.
+5. Writing: a bounce recorded to a WAV on the card.
+6. Two FM-1s: the device FM-1 lists the host's card over USB MIDI.
 
 ---
 

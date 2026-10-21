@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.6  
+**Version:** 0.7  
 **Date:** October 21, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.7 (October 21, 2026):** Files on the card, bounces to it, and several FM-1s sharing one card set as goals, with what USB allows (10.5).
 - **0.6 (October 21, 2026):** USB flash drive test results (10.5): the FM-1 reads a drive as a USB host when its port gets power from a hub on PD power. It does not power the port itself.
 - **0.5 (October 21, 2026):** Arrangement changed to three levels, as in the M8 and LSDJ trackers: phrases from the shared pool, chains of phrases, and a song of chains for each track (7.3). Decided after the first device test.
 - **0.4 (October 20, 2026):** Arrangement set to Skiff's model: a shared pool of 64 patterns and a pattern list per track (7.3). BEETLE added as the tracker view reference (6, 15). Builds run on GitHub Actions through the shared FM-1 builder; local Docker builds are optional (2.2).
@@ -470,6 +471,13 @@ USB flash drive support was tested early (Build.md, phase 2). Results on the FM-
 - One port cannot be host and device at the same time. While a drive is in use, USB MIDI, USB audio, and the web editor are offline.
 
 So samples and bounces can be kept on a card or drive and copied in as needed, with a powered hub. Without one, they stay in the internal flash area above. 914 KB/s is enough to copy samples in quickly and may be enough to stream a few tracks.
+
+Goals for the card, in order (Build.md, phase 2, the plan):
+
+- Read files: FAT32 and exFAT, folders, WAV files (built in 0.4.10 as part of the drive test).
+- Bounce or freeze a track: render it to a WAV file on the card, then play it back from the card beside new tracks.
+- Several FM-1s and an SMK-37 on one hub with one card. USB allows one host per bus, so one FM-1 is the host and owns the card; the other FM-1s and the SMK-37 are USB devices on the hub. The host FM-1 reads the SMK-37 as a USB MIDI host and serves files to the other FM-1s over USB MIDI. Everything on the hub shares about 900 KB/s.
+- While an FM-1 is the host, USB audio and the web editor to a computer are off; DIN and Bluetooth MIDI keep working.
 
 Whole-track or song-length freezing is not a baseline requirement.
 

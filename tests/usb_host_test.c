@@ -3,11 +3,14 @@
  * and of the devices on the other end: a mass storage flash drive (EP0 packets of 64 or 8 bytes), a hub with the
  * drive on port 3, a keyboard (not a drive), a drive that is not ready at first, and a controller that does not
  * answer. It tests the probe's logic (the requests, their order, the addresses, the bulk-only transport and what
- * the page says), not the real controller: the bits it writes are the ones JieLi documents for MUSB host mode. */
+ * the page says), not the real controller: the bits it writes are the ones JieLi documents for MUSB host mode.
+ * (0.4.10) The drive holds a FAT32 card made by an independent FAT implementation (tests/make_fat_fixture.py,
+ * tests/fixtures/fat32_card.bin), and the file browser (usb_files.c, FatFs) is walked through it as the page would. */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
 #include "../firmware/hal/fm1_usb.h"
@@ -22,6 +25,7 @@ static int dev_in(uint8_t *d);                       /* the next control IN pack
 static void dev_bulk_out(const uint8_t *p, uint32_t n);
 static int dev_bulk_in(uint8_t *d);
 static int dev_status_ok(void);
+static void bus_reset(void);                         /* (0.4.10) POWER bit 3: everything back to address 0 */
 
 static void mock_enable(uint32_t eps) { (void)eps; }
 static void mock_txbuf(uint32_t ep, void *p) { ep_tadr[ep] = p; }
@@ -48,6 +52,7 @@ static uint32_t mock_data(void)
 static void mock_write(uint32_t r, uint32_t v)
 {
     if (r == 14) { index_reg = (uint8_t)v; return; }
+    if (r == 1 && (v & 0x08u)) bus_reset();
     if (r < 16) { common[r] = (uint8_t)v; return; }
     if (index_reg == 0 && r == 17) {                    /* host CSR0 */
         if (v == 0x0A) {                                /* SETUP: the 8 bytes from the EP0 buffer */
@@ -120,6 +125,8 @@ static void str_cpy(char *d, const char *s, unsigned max)
 #include "../firmware/src/usb.c"
 #undef fm1_ms
 #include "../firmware/src/usb_host.c"
+#define UF_HOST_LIBC 1                                  /* (strchr, strlen: the C library's) */
+#include "../firmware/src/usb_files.c"
 
 /* ------------------------------------------------------------------ the devices --- */
 /* (0.4.8) a tree: the device on the port (parent -1) and, behind hubs, devices on their ports. A device answers
@@ -135,11 +142,11 @@ typedef struct {
     uint8_t in[512 + 64];                               /* the control IN data queued */
     uint32_t in_n, in_at;
     int stall;
-} dev_t;
-static dev_t devs[8];
+} udev_t;
+static udev_t devs[8];
 static int ndev, drive_not_ready, scsi_tur_count, conflicts, bulk_resets;
 static uint32_t setups, faddr_bad;
-static dev_t *cur;
+static udev_t *cur;
 
 static const uint8_t DRIVE_DEV[18] = {18, 1, 0x00, 0x02, 0, 0, 0, 64, 0x81, 0x07, 0x67, 0x55, 0x00, 0x01, 1, 2, 3, 1};
 static const uint8_t DRIVE_CFG[32] = {9, 2, 32, 0, 1, 1, 0, 0x80, 50,
@@ -172,10 +179,10 @@ static void q_string(const char *s, uint32_t wlen)
     for (i = 0; i < n; i++) { b[2 + 2 * i] = (uint8_t)s[i]; b[3 + 2 * i] = 0; }
     q(b, b[0], wlen);
 }
-static dev_t *route(void)
+static udev_t *route(void)
 {
     int i, n = 0;
-    dev_t *d = 0;
+    udev_t *d = 0;
     for (i = 0; i < ndev; i++)
         if (devs[i].on && devs[i].addr == common[S_FADDR]) {
             if (!d) d = &devs[i];
@@ -185,7 +192,16 @@ static dev_t *route(void)
     if (!d) faddr_bad++;
     return d;
 }
-static dev_t *child(dev_t *hub, int port)
+static void bus_reset(void)
+{
+    int i;
+    for (i = 0; i < ndev; i++) {
+        devs[i].addr = 0;
+        devs[i].configured = 0;
+        devs[i].on = devs[i].parent < 0;                /* behind a hub: off until its port is reset again */
+    }
+}
+static udev_t *child(udev_t *hub, int port)
 {
     int i;
     for (i = 0; i < ndev; i++)
@@ -196,7 +212,7 @@ static int dev_setup(const uint8_t *s)
 {
     uint8_t rt = s[0], rq = s[1];
     uint16_t val = (uint16_t)(s[2] | s[3] << 8), idx = (uint16_t)(s[4] | s[5] << 8), len = (uint16_t)(s[6] | s[7] << 8);
-    dev_t *c;
+    udev_t *c;
     setups++;
     cur = route();
     if (!cur) return 0;
@@ -277,6 +293,34 @@ static int dev_status_ok(void)
     return 1;
 }
 
+/* (0.4.10) the card: the fixture's sectors, zeros elsewhere */
+static struct { uint32_t lba; uint8_t d[512]; } *card;
+static uint32_t ncard;
+static void card_load(void)
+{
+    FILE *f = fopen("tests/fixtures/fat32_card.bin", "rb");
+    long n;
+    assert(f);
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    ncard = (uint32_t)(n / 516);
+    card = malloc((size_t)ncard * sizeof *card);
+    for (uint32_t i = 0; i < ncard; i++) {
+        uint8_t le[4];
+        assert(fread(le, 1, 4, f) == 4 && fread(card[i].d, 1, 512, f) == 512);
+        card[i].lba = le[0] | (uint32_t)le[1] << 8 | (uint32_t)le[2] << 16 | (uint32_t)le[3] << 24;
+    }
+    fclose(f);
+}
+static void card_sector(uint32_t lba, uint8_t *d)
+{
+    uint32_t i;
+    for (i = 0; i < ncard; i++)
+        if (card[i].lba == lba) { memcpy(d, card[i].d, 512); return; }
+    memset(d, 0, 512);
+}
+
 /* bulk-only transport on the drive */
 static uint8_t bin[64 * 512 + 64];
 static uint32_t bin_n, bin_at, last_tag, bin_data;   /* bin_data: where the data ends and the CSW starts */
@@ -293,7 +337,7 @@ static void csw(uint32_t residue, uint8_t status)
 }
 static void dev_bulk_out(const uint8_t *p, uint32_t n)
 {
-    dev_t *d = route();
+    udev_t *d = route();
     uint32_t len;
     int lun = p[13], card;
     assert(d && (d->kind == D_DRIVE || d->kind == D_READER) && d->configured == 1);
@@ -331,8 +375,7 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
         uint32_t lba = (uint32_t)p[17] << 24 | (uint32_t)p[18] << 16 | (uint32_t)p[19] << 8 | p[20];
         uint32_t cnt = (uint32_t)p[22] << 8 | p[23];
         assert(len == cnt * 512u && cnt <= 64u);
-        memset(bin, 0, cnt * 512u);
-        if (lba == 0) { bin[0x1C2] = 0x0C; bin[510] = 0x55; bin[511] = 0xAA; }
+        for (uint32_t k = 0; k < cnt; k++) card_sector(lba + k, bin + k * 512u);   /* (0.4.10) the card */
         bin_n = cnt * 512u;
         csw(0, 0);
         break;
@@ -343,7 +386,7 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
 }
 static int dev_bulk_in(uint8_t *d)
 {
-    dev_t *v = route();
+    udev_t *v = route();
     if (v && v->deaf) return -1;
     if (v && v->stall_in) { v->stall_in = 0; return -1; }
     uint32_t n = (bin_at < bin_data ? bin_data : bin_n) - bin_at;   /* the data, then the CSW on its own */
@@ -371,7 +414,7 @@ static void reset_world(void)
 /* a device: on the port (parent -1, on from the start: the bus reset reaches it) or on a hub's port */
 static int add(int kind, int mps0, int parent, int port)
 {
-    dev_t *d = &devs[ndev];
+    udev_t *d = &devs[ndev];
     d->kind = kind;
     d->mps0 = mps0;
     d->parent = parent;
@@ -385,7 +428,7 @@ static void run_ms(uint32_t ms)
 {
     uint32_t end = fm1_ms + ms;
     while ((int32_t)(fm1_ms - end) < 0) {
-        usbh_task();
+        usbf_task();                                    /* (0.4.10: the main loop's, with the files) */
         fm1_ms++;
     }
 }
@@ -518,6 +561,102 @@ static int t_reader_deaf(void)
     run_ms(2);
     return 1;
 }
+/* (0.4.10) the files: what the page asks (view, cmd, sel), the main loop does (usbf_task) */
+static void ask(uint8_t cmd) { usbh.cmd = cmd; run_ms(3); assert(usbh.cmd == UC_NONE); }
+static int row_of(const char *name)                     /* its index in the folder (all rows read through windows) */
+{
+    uint32_t i;
+    int r = -1;
+    for (usbh.top = 0; usbh.top < usbh.count && r < 0; usbh.top += UH_ROWS) {
+        ask(UC_WINDOW);
+        for (i = 0; i < usbh.nent; i++)
+            if (!strcmp(usbh.ent[i].name, name)) r = usbh.top + (int)i;
+    }
+    usbh.top = 0;
+    ask(UC_WINDOW);
+    return r;
+}
+static void pick(const char *name) { int r = row_of(name); assert(r >= 0); usbh.sel = (uint16_t)r; ask(UC_ENTER); }
+static int t_files(void)
+{
+    FIL f;
+    UINT got;
+    uint8_t b[4096];
+    uint32_t i, total = 0;
+    reset_world();
+    add(D_DRIVE, 64, -1, 0);
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(400);
+    assert(usbh.drive == 1 && line_is(6, "Disk: FAT32"));
+    usbh.view = 1;
+    ask(UC_LIST);
+    printf("  files: / %u:", usbh.count);
+    for (i = 0; i < usbh.nent; i++) printf(" [%s%s %u]", usbh.ent[i].name, usbh.ent[i].dir ? "/" : "", usbh.ent[i].size);
+    printf(" {%s}\n", usbh.info);
+    fflush(stdout);
+    assert(usbh.count == 4 && usbh.ent_top == 0 && !usbh.path[0]);       /* ._README.TXT hidden */
+    assert(row_of("README.TXT") >= 0 && row_of("BIG.BIN") >= 0 && row_of("._README.TXT") < 0);
+    pick("SAMPLES");
+    assert(!strcmp(usbh.path, "/SAMPLES") && usbh.count == 2);
+    pick("Kick 808 Long Name.wav");
+    printf("  Kick: [%s] [%s]\n", usbh.info, usbh.info2);
+    fflush(stdout);
+    assert(!strcmp(usbh.info, "44.1 kHz 16-bit mono 0.5 s") && !strncmp(usbh.info2, "Read 43 KB at ", 14));
+    pick("drums");
+    assert(!strcmp(usbh.path, "/SAMPLES/drums") && usbh.count == 1);
+    pick("snare.wav");
+    printf("  snare: [%s] [%s]\n", usbh.info, usbh.info2);
+    fflush(stdout);
+    assert(!strncmp(usbh.info, "48 kHz 24-bit stereo 0.2", 24));
+    ask(UC_UP);
+    assert(!strcmp(usbh.path, "/SAMPLES") && usbh.sel == 0);
+    ask(UC_UP);
+    assert(!usbh.path[0] && usbh.count == 4);
+    pick("MANY");
+    assert(usbh.count == 20 && usbh.nent == UH_ROWS && !strcmp(usbh.ent[0].name, "FILE01.BIN"));
+    usbh.sel = 10; usbh.top = 5;                        /* (the page scrolled) */
+    ask(UC_WINDOW);
+    assert(usbh.ent_top == 5 && !strcmp(usbh.ent[0].name, "FILE06.BIN") && usbh.ent[5].size == 100);
+    ask(UC_UP);
+    pick("BIG.BIN");
+    printf("  BIG.BIN: [%s] [%s]\n", usbh.info, usbh.info2);
+    fflush(stdout);
+    assert(!strcmp(usbh.info, "File, 64 KB") && !strncmp(usbh.info2, "Read 64 KB at ", 14));
+    assert(f_open(&f, "/BIG.BIN", FA_READ) == FR_OK);   /* every byte as written */
+    while (f_read(&f, b, sizeof b, &got) == FR_OK && got) {
+        for (i = 0; i < got; i++) assert(b[i] == (uint8_t)(((total + i) * 7 + ((total + i) >> 9)) & 255));
+        total += got;
+    }
+    f_close(&f);
+    assert(total == 65536);
+    lines = 0;                                          /* unplugged: the volume let go */
+    run_ms(400);
+    assert(!usbh.drive && !usbh.view && !uf_mounted);
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
+static int t_files_reprobe(void)
+{
+    reset_world();
+    add(D_KEYS, 8, -1, 0);                              /* no drive: OCT+ looks again */
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(400);
+    assert(!usbh.drive && line_is(5, "Not a drive, class 03"));
+    setups = 0;
+    ask(UC_PROBE);
+    run_ms(400);
+    assert(setups > 5 && line_is(5, "Not a drive, class 03"));
+    ask(UC_LIST);                                       /* (no drive: refused) */
+    assert(!strcmp(usbh.info, "Drive not reading"));
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
 static int t_hub_empty(void)
 {
     reset_world();
@@ -594,7 +733,8 @@ static int t_silent_device(void)
 
 int main(void)
 {
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device();
+    card_load();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }

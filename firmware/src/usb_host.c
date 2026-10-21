@@ -34,12 +34,19 @@
  *          type; each is tried, "slot 2" on the page when it is not the first), 300 ms before the first command (Linux
  *          waits a second), one retry after a Bulk-Only reset and 1 s, the error kept in the reason ("3: no answer,
  *          stall"), and the list keeps hubs and disks only (a USB-C billboard device took a line).
+ *   0.4.10: the drive's files (usb_files.c). usbh.drive says a drive was read and stays until it is unplugged; the
+ *          page's file list lives here (view, cmd, path, ent, info) so the UI and its tests need no file system.
+ *          OCT+ on a test that found no drive looks again (usbh_reprobe).
  */
 #ifndef UH_LINES_READ
 #define UH_LINES_READ() fm1_usb_lines()                 /* (host tests replace the hardware read) */
 #endif
 enum { S_DEVCTL = 15, S_TXTYPE = 24, S_TXINTERVAL = 25, S_RXTYPE = 26, S_RXINTERVAL = 27 };
 enum { UH_OFF, UH_WAIT, UH_SEEN, UH_DONE };
+/* (0.4.10) what the page asks the main loop for (usbh.cmd; usb_files.c usbf_task does it) */
+enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE };
+#define UH_ROWS 6u                                      /* the file list's rows on the page */
+#define UH_NAME 32u
 /* errors (negative): the page names them */
 enum { UE_TIME = 1, UE_STALL, UE_ERR, UE_NAK, UE_SHORT, UE_CSW, UE_CHECK };
 #define UH_LINES 8u
@@ -58,6 +65,14 @@ static struct {
     uint32_t gen;               /* the page redraws when this changes */
     uint32_t tag;               /* mass storage command tag */
     char line[UH_LINES][UH_LINE];
+    /* (0.4.10) the files: drive 1 = a drive read (its address, slot and endpoints set), until it is unplugged; view
+     * 0 the probe's lines, 1 the file list (the page sets it); the folder (path, "" the top), how many in it (count),
+     * the row picked (sel) and the first shown (top), the rows as read (ent, nent, for ent_top), and the foot */
+    uint8_t drive, view, cmd, nent;
+    uint16_t count, sel, top, ent_top;
+    char path[96];
+    char info[UH_LINE], info2[UH_LINE];
+    struct { char name[UH_NAME]; uint32_t size; uint8_t dir; } ent[UH_ROWS];
 } usbh;
 static uint8_t uh_sec[512];     /* sector 0 */
 /* (0.4.8) the walk through hubs: the ports from the first device down (path), what was found (log), why the last
@@ -116,6 +131,16 @@ static char *uh_dec(char *b, uint32_t v)
     return b;
 }
 static char *uh_cat(char *b, const char *s) { while (*s) *b++ = *s++; *b = 0; return b; }
+/* (0.4.10) "100 B", "64 KB", "1.2 MB", "3.4 GB" */
+static char *uh_bytes(char *b, uint32_t n)
+{
+    static const char *const U[] = {" B", " KB", " MB", " GB"};
+    uint32_t u = 0, t = 0;
+    while (n >= 1024u && u < 3u) { t = n % 1024u * 10u / 1024u; n /= 1024u; u++; }
+    b = uh_dec(b, n);
+    if (u && n < 10u) { *b++ = '.'; b = uh_dec(b, t); }
+    return uh_cat(b, U[u]);
+}
 
 /* ---- the SIE ---- */
 static int uh_fail(int e) { usbh.err = (int8_t)e; return -e; }
@@ -658,6 +683,8 @@ static void uh_probe(void)
     char b[UH_LINE], *e;
     usbh.err = 0;
     usbh.tag = 0;
+    usbh.drive = 0;
+    usbh.view = 0;
     uh_walk.next = 1;
     uh_walk.depth = 0;
     uh_walk.n = 0;
@@ -675,6 +702,7 @@ static void uh_probe(void)
         return;
     }
     if (uh_visit(0)) {                                  /* a drive read: its lines are on the page */
+        usbh.drive = 1;                                 /* (0.4.10) its files can be opened */
         if (uh_walk.depth) {
             e = uh_path(uh_cat(b, "Through hubs: "));
             (void)e;
@@ -736,6 +764,7 @@ static void usbh_close(void)
 {
     if (usbh.st == UH_OFF) return;
     usbh.st = UH_OFF;
+    usbh.drive = usbh.view = usbh.cmd = 0;
     fm1_usb_off();
     usb.detached = 0;
     usb.retry_ms = fm1_ms;
@@ -778,10 +807,21 @@ static void usbh_task(void)
             uh_set(1, "Waiting for a drive");
             usbh.step = 0;
             usbh.err = 0;
+            usbh.drive = usbh.view = 0;
             usbh.st = UH_WAIT;
         }
         break;
     }
+}
+/* (0.4.10) OCT+ on a test that read no drive: look again, with what is plugged in now */
+static void usbh_reprobe(void)
+{
+    uint32_t i;
+    if (usbh.st != UH_DONE) return;
+    for (i = 1; i < UH_LINES; i++) usbh.line[i][0] = 0;
+    usbh.gen++;
+    usbh.st = UH_SEEN;
+    usbh.t_ms = fm1_ms - 150u;
 }
 /* the diagnostic line: "L2 A1 S35 C01 D5D E0" (lines, the device's address (0.4.8), step, last CSR, DEVCTL, last
  * error) */

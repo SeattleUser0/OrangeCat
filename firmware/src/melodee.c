@@ -122,4 +122,5 @@
 #if MELODEE_CDC
 #include "console.c"
 #endif
+#include "usb_files.c"            /* (Orange Cat 0.4.10) the drive test's files: FatFs; last, as ff.c leaves macros */
 #include "main.c"

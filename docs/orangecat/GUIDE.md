@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.7
+**Firmware:** 0.4.10
 **Date:** October 21, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -72,6 +72,10 @@ SEQ > GROOVE gives each track a template: LAID BACK, PUSH, DILLA, 2-STEP, DUB or
 Menu (hold HOME) > USB DRIVE TEST. OCT+ starts it. The USB port becomes a host, like a computer's port. Plug in a flash drive. The page shows what it finds: the maker and model, the size, how the drive is formatted, and how fast it reads. OCT- ends the test and the port goes back to normal.
 
 While the test runs, USB MIDI, USB audio and the web editor are off.
+
+After a drive reads, OCT+ opens its files. Turn KNOB 1 (or KNOB 2, or PRESETS) to move. OCT+ opens a folder, or picks a file: a WAV shows its rate, bits, channels and length, and every file shows how fast it read. OCT- goes up a folder, and from the top back to the test. Files can be looked at, not loaded yet.
+
+The FM-1 does not power its USB port. Use a hub with power on its PD port.
 
 If nothing shows up, the drive may have no power. Try an OTG adapter that takes a charger, or a powered hub. Take a photo of the page each time. The small line at the bottom tells where the test got to.
 

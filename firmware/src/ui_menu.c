@@ -72,6 +72,10 @@ static const menu_credit_t MENU_CREDITS[] = {
     {"CrispyZebra (PHASE waveforms): GPL-3.0", MC_TEXT},
     {"https://github.com/hugelton", MC_URL},
     {"", MC_TEXT},
+    {"FATFS / USB DRIVE FILES", MC_TITLE},             /* (Orange Cat 0.4.10) */
+    {"ChaN / BSD-style (1-clause)", MC_TEXT},
+    {"http://elm-chan.org/fsw/ff/", MC_URL},
+    {"", MC_TEXT},
     {"KLATTSCH / VOICE REFERENCE", MC_TITLE},
     {"Tony Gies / MIT", MC_TEXT},
     {"https://github.com/tgies/klattsch", MC_URL},
@@ -245,7 +249,8 @@ static void draw_menu(void)
 #endif
                             song.rec * 65537u + song.sel * 13u +
                             (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u) +
-                            (ui.menu == 3 ? usbh.gen * 7368787u + UH_LINES_READ() * 99991u + usbh.step * 15731u : 0u);
+                            (ui.menu == 3 ? usbh.gen * 7368787u + UH_LINES_READ() * 99991u + usbh.step * 15731u +
+                             usbh.view * 3u + usbh.sel * 2654435u + usbh.top * 40503u + usbh.drive * 6151u : 0u);
     if (!ui.force && sig == ui.menu_sig) {
         if (head_waiting()) draw_head();
         return;
@@ -339,11 +344,17 @@ static void draw_menu(void)
  * the empty ones skipped, a name too long for the screen cut with an ellipsis; the diagnostic line at the foot in the
  * small type ("L2 S25 C01 D5D E0": the D+ / D- levels, the step reached, the last CSR, DEVCTL, the last error).
  * Before the main loop has opened the port: "Starting". OCT- (the header's way back) ends the test. */
+static void files_draw(void);
 static void drive_draw(void)
 {
     uint32_t pass, i, n = 0;
     char d[32];
-    usbh_diag(d);
+    if (usbh.view) {
+        files_draw();
+        return;
+    }
+    if (usbh.drive) str_cpy(d, "OCT+ opens the files", sizeof d);   /* (0.4.10) */
+    else usbh_diag(d);
     for (pass = 0; pass < 2u; pass++) {
         int32_t top = pass ? 124 : MENU_HEAD, y = 32;
         cv_begin(240, (uint32_t)(pass ? 240 - 124 : 124 - MENU_HEAD), T_BG);
@@ -358,6 +369,60 @@ static void drive_draw(void)
         if (!n)
             cv_free_text(8, y, TY_TX, "Starting", T_TEXT, T_BG, 224);
         cv_free_text(8, 216, TY_LB, d, T_MID, T_BG, 224);
+        cv_oy = 0;
+        cv_blit(0, (uint32_t)top);
+    }
+}
+/* (0.4.10) the drive's files: the folder at the top ("/SAMPLES/drums"), six rows (the name, a folder's with "/"; a
+ * file's size at the right), the row picked on the surface colour, a bar at the right edge for where the rows are;
+ * the foot: what the picked file is and how fast it read (usb_files.c), or what the keys do */
+static void files_draw(void)
+{
+    uint32_t pass, i;
+    for (pass = 0; pass < 2u; pass++) {
+        int32_t top = pass ? 124 : MENU_HEAD;
+        cv_begin(240, (uint32_t)(pass ? 240 - 124 : 124 - MENU_HEAD), T_BG);
+        cv_oy = -top;
+        {   /* the folder: its end when the whole path is too wide ("/Drum Machines/TR-808") */
+            const char *p = usbh.path[0] ? usbh.path : "/", *q;
+            while (text_w(TY_TX, p) > 224 && (q = p + 1, 1)) {
+                while (*q && *q != '/') q++;
+                if (!*q) break;
+                p = q;
+            }
+            cv_free_text(8, 32, TY_TX, p, T_THEME, T_BG, 224);
+        }
+        if (usbh.ent_top == usbh.top)
+            for (i = 0; i < usbh.nent && i < UH_ROWS; i++) {
+                int32_t y = 56 + 22 * (int32_t)i;
+                int pick = usbh.top + i == usbh.sel;
+                uint16_t bg = pick ? T_SURF : T_BG;
+                char nm[UH_NAME + 2], sz[16];
+                if (pick) cv_rrect(2, y - 1, 232, 24, 5, T_SURF, T_BG);
+                str_cpy(nm, usbh.ent[i].name, UH_NAME);
+                if (usbh.ent[i].dir) uh_cat(nm + str_len(nm), "/");
+                if (usbh.ent[i].dir) {
+                    cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220);
+                } else {
+                    int32_t w;
+                    uh_bytes(sz, usbh.ent[i].size);
+                    w = text_w(TY_LB, sz);
+                    cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220 - w - 8);
+                    cv_text_on(228 - w, y + 3, TY_LB, sz, T_MID, bg);
+                }
+            }
+        if (usbh.count > UH_ROWS) {                     /* where the rows are */
+            int32_t h = 132, th = h * (int32_t)UH_ROWS / (int32_t)usbh.count;
+            if (th < 8) th = 8;
+            cv_rect(237, 56, 2, h, T_LINE);
+            cv_rect(237, 56 + (h - th) * (int32_t)usbh.top / (int32_t)(usbh.count - UH_ROWS), 2, th, T_THEME);
+        }
+        if (usbh.info[0] || usbh.info2[0]) {
+            cv_free_text(8, 194, TY_LB, usbh.info, T_TEXT, T_BG, 224);
+            cv_free_text(8, 216, TY_LB, usbh.info2, T_MID, T_BG, 224);
+        } else {
+            cv_free_text(8, 216, TY_LB, "OCT+ open  OCT- back", T_MID, T_BG, 224);
+        }
         cv_oy = 0;
         cv_blit(0, (uint32_t)top);
     }
@@ -379,10 +444,50 @@ static void menu_close(void)
 }
 
 /* menu: PRESETS moves, OCT+ confirms, OCT- cancels (ABOUT -> list -> close) */
+/* (Orange Cat 0.4.10) the USB drive test's keys. The probe's lines: OCT+ opens the files of a drive it read, or
+ * looks again; OCT- ends the test. The files: KNOB 1, KNOB 2 or PRESETS the row, OCT+ opens a folder or looks at a
+ * file, OCT- the folder above, at the top the probe's lines again. Only wishes: the main loop does them
+ * (usb_files.c usbf_task). 1 = taken */
+static int drive_input(uint32_t ok, uint32_t back)
+{
+    int32_t s = panel_enc(EN_K1) + panel_enc(EN_K2) + panel_enc(EN_PRESET);
+    if (!usbh.view) {
+        if (back) return 0;                             /* (menu_input: the test ends) */
+        if (ok) usbh.cmd = usbh.drive ? UC_LIST : UC_PROBE;
+        if (ok && usbh.drive) usbh.view = 1;
+        return 1;
+    }
+    if (back) {
+        if (usbh.path[0]) usbh.cmd = UC_UP;
+        else usbh.view = 0;
+        usbh.info[0] = usbh.info2[0] = 0;
+        ui.force = 1;
+        return 1;
+    }
+    if (ok && usbh.count) {
+        usbh.cmd = UC_ENTER;
+        return 1;
+    }
+    if (s && usbh.count) {
+        int32_t v = clamp((int32_t)usbh.sel + clamp(s, -8, 8), 0, (int32_t)usbh.count - 1);
+        if (v != (int32_t)usbh.sel) {
+            usbh.sel = (uint16_t)v;
+            usbh.info[0] = usbh.info2[0] = 0;
+            if (usbh.sel < usbh.top) usbh.top = usbh.sel;
+            if (usbh.sel >= usbh.top + UH_ROWS) usbh.top = (uint16_t)(usbh.sel - UH_ROWS + 1u);
+            if (usbh.top != usbh.ent_top) usbh.cmd = UC_WINDOW;
+        }
+    }
+    return 1;
+}
 static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_taps */
 {
     int32_t s;
     uint32_t ok = (oct >> 1) & 1u, back = oct & 1u;
+    if (ui.menu == 3 && drive_input(ok, back)) {
+        enc_drop();
+        return;
+    }
     if (back) {
         if (ui.menu == 3)
             usbh_want(0);

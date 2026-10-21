@@ -479,7 +479,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
        S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_RACK, S_FX_RACK_SPLIT, S_FX_RACK_PICK, S_FX_RACK_LIST, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_FX_SHARED, S_FX_SHARED_SPLIT, S_FX_SHARED_SHEET, S_FX_TONE_DARK, S_FX_TONE_THIN, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_MAP_DRUM_KIT, S_MAP_DRUM_HIT, S_MAP_DRUM_CATEGORY,
-       S_STAGE_UNUSED1, S_STAGE_UNUSED3, S_MIXER_UNUSED2, S_MENU_TRACKS, S_MENU_DRIVE, S_DRIVE_WAIT, S_DRIVE, S_DRIVE_HUB, S_DRIVE_LIST, S_COUNT };
+       S_STAGE_UNUSED1, S_STAGE_UNUSED3, S_MIXER_UNUSED2, S_MENU_TRACKS, S_MENU_DRIVE, S_DRIVE_WAIT, S_DRIVE, S_DRIVE_HUB, S_DRIVE_LIST, S_FILES, S_FILES_WAV, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -505,7 +505,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
     "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_rack", "fx_rack_split", "fx_rack_pick", "fx_rack_list", "fx_bus1", "fx_bus2", "fx_bus3", "fx_shared", "fx_shared_split", "fx_shared_sheet", "fx_tone_dark", "fx_tone_thin", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error", "map_drum_kit", "map_drum_hit", "map_drum_category",
     "stage_unused_1track", "stage_unused_3tracks", "mixer_unused_2tracks", "menu_unused_tracks", "menu_drive", "drive_wait",
-    "drive", "drive_hub", "drive_list"};
+    "drive", "drive_hub", "drive_list", "files", "files_wav"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -1439,6 +1439,26 @@ static void setup(int s)
     case S_MIXER_UNUSED2: song.ntrk = 2; go_page(GR_TRK); trk[0].peak = 9000; break;
     case S_MENU_TRACKS: ui.menu = 1; ui.menu_sel = MI_TRACKS; break;
     case S_MENU_DRIVE: ui.menu = 1; ui.menu_sel = MI_DRIVE; break;                 /* (0.4.7) the USB drive test */
+    case S_FILES: case S_FILES_WAV: {                    /* (0.4.10) the drive's files */
+        static const char *const N[] = {"Kick 808 Long Name With More.wav", "drums", "Snare 01.wav", "README.TXT",
+                                        "A Very Long Folder Name Here", "BIG.BIN"};
+        static const uint32_t Z[] = {44156, 0, 2516582, 21, 0, 1073741824u};
+        uint32_t i;
+        memset(&usbh, 0, sizeof usbh);
+        usbh.drive = 1; usbh.view = 1; usbh.count = 14; usbh.top = usbh.ent_top = 2; usbh.sel = 4; usbh.nent = 6;
+        str_cpy(usbh.path, s == S_FILES ? "/SAMPLES/Drum Machines/TR-808" : "/SAMPLES", sizeof usbh.path);
+        for (i = 0; i < 6u; i++) {
+            str_cpy(usbh.ent[i].name, N[i], UH_NAME);
+            usbh.ent[i].size = Z[i];
+            usbh.ent[i].dir = !Z[i] && i != 3u;
+        }
+        if (s == S_FILES_WAV) {
+            str_cpy(usbh.info, "44.1 kHz 16-bit stereo 1:23", UH_LINE);
+            str_cpy(usbh.info2, "Read 1.0 MB at 640 KB/s", UH_LINE);
+        }
+        ui.menu = 3;
+        break;
+    }
     case S_DRIVE_WAIT: case S_DRIVE: case S_DRIVE_HUB: case S_DRIVE_LIST: {
         static const char *const W[] = {"Host mode on", "Waiting for a drive"};
         static const char *const D[] = {"Host mode on", "Found: full speed", "ID 0781:5567", "SanDisk Cruzer Blade",
