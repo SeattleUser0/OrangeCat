@@ -14,8 +14,8 @@
  *
  * Included by melodee.c after everything but main.c, since ff.c leaves its macros defined. The firmware has no C
  * library: fatfs/sys/string.h (on the firmware build's include path only) declares what ff.c uses; memset,
- * memcpy and memcmp are libc.c's, strchr and strlen are here. The host tests use their own C library
- * (UF_HOST_LIBC).
+ * memcpy and memcmp are libc.c's, strchr and strlen are here, and so are __udivdi3 / __umoddi3 (the first build
+ * failed to link without them). The host tests use their own C library (UF_HOST_LIBC).
  *
  * Revisions:
  *   0.4.10: first version.
@@ -29,6 +29,31 @@ char *strchr(const char *s, int c)                      /* ff.c: the characters 
     }
 }
 unsigned strlen(const char *s) { unsigned n = 0; while (s[n]) n++; return n; }
+/* 64-bit division (exFAT's sizes and offsets are 64-bit): the firmware links no compiler runtime, so the calls
+ * clang makes for it land here. Shift and subtract; main loop only, never in the audio path. */
+static unsigned long long uf_divmod64(unsigned long long n, unsigned long long d, unsigned long long *rem)
+{
+    unsigned long long q = 0, r = 0;
+    int i;
+    if (!d) { if (rem) *rem = 0; return ~0ull; }
+    if (!(n >> 32) && !(d >> 32)) {                     /* the usual case: 32-bit */
+        if (rem) *rem = (uint32_t)n % (uint32_t)d;
+        return (uint32_t)n / (uint32_t)d;
+    }
+    for (i = 63; i >= 0; i--) {
+        r = r << 1 | (n >> i & 1u);
+        if (r >= d) { r -= d; q |= 1ull << i; }
+    }
+    if (rem) *rem = r;
+    return q;
+}
+unsigned long long __udivdi3(unsigned long long n, unsigned long long d) { return uf_divmod64(n, d, 0); }
+unsigned long long __umoddi3(unsigned long long n, unsigned long long d)
+{
+    unsigned long long r;
+    uf_divmod64(n, d, &r);
+    return r;
+}
 #endif
 #include "fatfs/ff.c"
 #include "fatfs/ffunicode.c"
@@ -150,7 +175,7 @@ static void uf_list(void)
 /* "44.1 kHz 16-bit mono 0.5 s" from a WAV's first 512 bytes; 0 when it is not one */
 static int uf_wav(const uint8_t *h, uint32_t n, uint32_t fsize, char *b)
 {
-    uint32_t i = 12, rate = 0, ch = 0, bits = 0, data = 0, fmt = 0, bps, ms;
+    uint32_t i = 12, rate = 0, ch = 0, bits = 0, data = 0, fmt = 0, bps, ms, secs;
     char *e;
     if (n < 12u || memcmp(h, "RIFF", 4) || memcmp(h + 8, "WAVE", 4)) return 0;
     while (i + 8u <= n) {
@@ -176,7 +201,9 @@ static int uf_wav(const uint8_t *h, uint32_t n, uint32_t fsize, char *b)
     e = uh_cat(e, fmt == 3u ? "-bit float " : "-bit ");
     e = ch == 1u ? uh_cat(e, "mono ") : ch == 2u ? uh_cat(e, "stereo ") : uh_cat(uh_dec(e, ch), " ch ");
     bps = rate * ch * (bits / 8u ? bits / 8u : 1u);
-    ms = (uint32_t)((uint64_t)data * 1000u / (bps ? bps : 1u));
+    if (!bps) bps = 1u;
+    secs = data / bps;                                  /* (32-bit: tenths of a second are all the page shows) */
+    ms = secs * 1000u + data % bps * 10u / bps * 100u;
     if (ms < 60000u) { e = uh_dec(e, ms / 1000u); *e++ = '.'; e = uh_dec(e, ms % 1000u / 100u); uh_cat(e, " s"); }
     else { e = uh_dec(e, ms / 60000u); *e++ = ':'; *e++ = (char)('0' + ms / 1000u % 60u / 10u); *e++ = (char)('0' + ms / 1000u % 10u); *e = 0; }
     return 1;
@@ -210,7 +237,7 @@ static void uf_file(const char *path, const FILINFO *fi)
     e = uh_bytes(uh_cat(usbh.info2, "Read "), total);
     if (total >= 16384u) {                              /* (too little to time) */
         e = uh_cat(e, " at ");
-        e = uh_dec(e, (uint32_t)((uint64_t)total * 1000u / 1024u / (ms ? ms : 1u)));
+        e = uh_dec(e, total * 1000u / 1024u / (ms ? ms : 1u));   /* (total <= 1 MB: fits 32 bits) */
         uh_cat(e, " KB/s");
     }
     usbh.gen++;
