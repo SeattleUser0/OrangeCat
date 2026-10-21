@@ -186,7 +186,7 @@ Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] 0.4.9: the card reader stick in the hub's port 3: "Through hubs: 3", ID 05E3:0749 (Generic USB3.0 Card Reader), Drive 29.7 GB, Disk: FAT32, Read 930 KB/s. The hub's own slot again: 911 KB/s.
 - [ ] A plain USB flash drive in one of the hub's USB-A ports (the stick reader in a USB-A port already covers that path).
 - [ ] Read speed: enough to copy samples into flash? Enough to stream?
-- [ ] After OCT-, USB MIDI, USB audio and the web editor work again without a power cycle.
+- [x] After OCT-, the web editor connects again without a power cycle (so USB MIDI is back). USB audio not checked.
 - [ ] A photo of the page for each try, so the bottom line can be read.
 
 Result: works only with external power (a hub on PD power). 914 KB/s read.
