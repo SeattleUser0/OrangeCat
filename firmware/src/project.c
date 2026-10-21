@@ -240,7 +240,9 @@ static int proj_record_unpack(project_t *q,const uint8_t *b)
 /* The bank's 64-bit step representation, also used by FUN18's active pattern. */
 static int proj_step_pack(uint8_t *b,const step_t *s)
 {
-    if(s->n>4u || s->time>ST_REST || s->flags>7u || s->probability>101u)return 0;
+    /* (Orange Cat 0.2) any flag a step may hold is accepted; RATCH, FLAM, the condition and NUDGE are not in this 64-bit
+     * form and are not saved until the pattern pool's format (build doc phase 4a, part 3) */
+    if(s->n>4u || s->time>ST_REST || (s->flags&~SF_ALL) || s->probability>101u)return 0;
     uint32_t pos=0;memset(b,0,8u);
     for(uint32_t j=0;j<4u;j++)wire_bits_put(b,&pos,s->note[j]>127u?127u:s->note[j],7u);
     wire_bits_put(b,&pos,(s->time==ST_NOTE?s->n:s->time==ST_TIE?5u:6u)|(s->flags&SF_RECORDED?8u:0u),4u);
@@ -254,6 +256,7 @@ static int step_wire_unpack(step_t *s,const uint8_t *b)
     s->n=(meta&7u)<5u?meta&7u:0;s->time=(meta&7u)<5u?ST_NOTE:(meta&7u)==5u?ST_TIE:ST_REST;
     s->flags=(uint8_t)(wire_bits_get(b,&pos,2u)|(meta&8u?SF_RECORDED:0u));s->vel=(uint8_t)wire_bits_get(b,&pos,7u);
     s->hit=(uint8_t)wire_bits_get(b,&pos,8u);s->acc=(uint8_t)wire_bits_get(b,&pos,8u);s->probability=(uint8_t)wire_bits_get(b,&pos,7u);
+    s->cond=0;s->nudge=0;   /* (Orange Cat 0.2) not in this form: always, on the grid */
     return (meta&7u)<7u && s->probability<=101u && step_acc_valid(s);
 }
 
@@ -385,6 +388,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
             s->n = meta & 7u; s->time = (meta >> 3) & 3u; s->flags = (meta >> 5) & 3u;
             if (meta & 128u) s->flags |= SF_RECORDED;
             s->vel = b[pos++]; s->hit = b[pos++]; s->acc = b[pos++]; s->probability = b[pos++];
+            s->cond = 0; s->nudge = 0;                 /* (Orange Cat 0.2) not in this form */
             if (s->n > 4u || s->time > ST_REST || s->probability > 101u) return 0;
             for (uint32_t j = 0; j < 4u; j++) if (s->note[j] > 127u) return 0;
             if (s->vel > 127u || !step_acc_valid(s)) return 0;
@@ -491,9 +495,11 @@ static void proj_bound(project_t *q)
         q->t[t].mpc_octave = (int8_t)clamp(q->t[t].mpc_octave, -3, 3);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i];
-            s->flags &= 7u;
+            s->flags &= SF_ALL;                        /* (Orange Cat 0.2: was 7, Skiff's RATCH and FLAM kept) */
             s->vel &= 127u;
             if (s->probability > 101u) s->probability = 0;
+            step_set_cond(s, s->cond);                 /* (Orange Cat 0.2) in range */
+            step_set_nudge(s, s->nudge);
         }
         for (i = 0; i < P_COUNT; i++) {
             const param_desc_t *d = param_desc_of(q->t[t].engine % NENGINES, i);

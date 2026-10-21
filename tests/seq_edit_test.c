@@ -353,7 +353,7 @@ static int test_compact_history(void)
                 }
     bad += check("compact history preserves every step byte for all control combinations", exact);
     bad += check("all eight levels have fixed storage even for dense patterns",
-                 sizeof step_history.state[0].step == NSTEP * 9u && sizeof undo_sram[0].step == NSTEP * 9u);
+                 sizeof step_history.state[0].step == NSTEP * 11u && sizeof undo_sram[0].step == NSTEP * 11u);   /* (Orange Cat 0.2: 9 -> 11, Skiff's step fields) */
     track_t *t = edit_setup();
     for (uint32_t i = 0; i < NSTEP; i++) {
         put_note(t, i, 48u + i % 36u, 1);

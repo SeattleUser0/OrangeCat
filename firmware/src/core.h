@@ -346,6 +346,19 @@ enum { ST_NOTE, ST_TIE, ST_REST };
 #define SF_ACCENT 1u
 #define SF_SLIDE 2u
 #define SF_RECORDED 4u                         /* step is a view of timed notes, played by recording.c */
+/* (Orange Cat 0.2, build doc phase 4a, from Skiff 1.3.3 core.h) RATCH and FLAM. RATCH: the hits of a NOTE step - 1
+ * (0..3: x1..x4; seq.c seq_ratchet); every older step holds 0 there, x1. FLAM: a soft grace hit, the full one
+ * FLAM_SAMPLES later (at most half the step). Skiff's bits, so its patterns import as they are */
+#define SF_RATCH_SH 3u
+#define SF_RATCH (3u << SF_RATCH_SH)           /* bits 3..4 */
+#define SF_FLAM 32u                            /* bit 5 */
+#define SF_ALL (SF_ACCENT | SF_SLIDE | SF_RECORDED | SF_RATCH | SF_FLAM)   /* every flag a step may hold */
+#define FLAM_SAMPLES 661u                      /* 15 ms at 44.1 kHz */
+/* (Orange Cat 0.2, from Skiff) the trig conditions: FILL plays only while FILL is held (PERFORM, phase 4d), !FILL only
+ * while it is not; A:B plays on the A-th of every B passes of the track's loop (the first pass since PLAY is 1) */
+enum { TC_NONE, TC_FILL, TC_NFILL, TC_1_2, TC_2_2, TC_1_3, TC_2_3, TC_3_3, TC_1_4, TC_2_4, TC_3_4, TC_4_4, TC_COUNT };
+#define NUDGE_MIN (-32)                        /* (Orange Cat 0.2, from Skiff) NUDGE: 64ths of the step, earlier .. */
+#define NUDGE_MAX 31                           /* .. later; a NOTE step's only (seq.c seq_enter) */
 #define RECORD_MAX 1024u
 #define RECORD_UNIT 65536u                     /* fractional onset within its swung step; duration uses an exponent */
 /* owner: bank/track in low 5 bits, duration exponent in high 3. step: actual index in
@@ -393,6 +406,9 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t hit;                 /* bit l: lane l hits (its GM note, on any engine): the DRUM grid */
     uint8_t acc;                 /* hit != 0: lane accents; hit == 0: recorded gate, 1..255 of a step (0 legacy) */
     uint8_t probability;         /* 0 = legacy 100%; 1..100 = percent, 101 = silent */
+    uint8_t cond;                /* (Orange Cat 0.2, from Skiff) the trig condition, TC_*; 0 = always */
+    int8_t nudge;                /* (Orange Cat 0.2, from Skiff) NUDGE_MIN..NUDGE_MAX 64ths of the step later; 0 = on
+                                  * the grid. Both appended: a step written {{..}, n, time} stays as it was */
 } step_t;
 typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
     uint8_t note[4];
@@ -402,6 +418,22 @@ typedef struct {                 /* a step as formats 1..4 (projects to FUN4) st
 /* Probability keeps zero-initialized and legacy patterns at 100%. */
 static uint32_t step_chance(const step_t *s) { return !s->probability ? 100u : s->probability <= 100u ? s->probability : 0u; }
 static void step_set_chance(step_t *s, uint32_t chance) { s->probability = (uint8_t)(chance >= 100u ? 0u : chance ? chance : 101u); }
+/* (Orange Cat 0.2, from Skiff 1.3.3) RATCH: a NOTE step plays its notes and hits this many times (1..4), in equal parts
+ * of the step. step_rflam: the RATCH control's value, x1..x4, 5 = FLAM */
+static uint32_t step_ratchet(const step_t *s) { return ((s->flags & SF_RATCH) >> SF_RATCH_SH) + 1u; }
+static void step_set_ratchet(step_t *s, uint32_t hits)   /* (no FLAM then) */
+{
+    s->flags = (uint8_t)((s->flags & ~(SF_RATCH | SF_FLAM)) | ((hits < 1u ? 0u : hits > 4u ? 3u : hits - 1u) << SF_RATCH_SH));
+}
+static uint32_t step_rflam(const step_t *s) { return (s->flags & SF_FLAM) ? 5u : step_ratchet(s); }
+static void step_set_rflam(step_t *s, uint32_t v)
+{
+    step_set_ratchet(s, v >= 5u ? 1u : v);
+    if (v >= 5u)
+        s->flags |= SF_FLAM;
+}
+static void step_set_cond(step_t *s, uint32_t c) { s->cond = (uint8_t)(c < TC_COUNT ? c : TC_NONE); }
+static void step_set_nudge(step_t *s, int32_t v) { s->nudge = (int8_t)(v < NUDGE_MIN ? NUDGE_MIN : v > NUDGE_MAX ? NUDGE_MAX : v); }
 static uint32_t step_gate(const step_t *s) { return s->hit ? 0u : s->acc; }
 static int step_acc_valid(const step_t *s) { return s->hit ? !(s->acc & ~s->hit) : s->time != ST_REST || !s->acc; }
 #define MOTION_MAX 64u
@@ -455,6 +487,14 @@ typedef struct track {
     uint8_t seq_active;          /* any step programmed */
     uint8_t rskip_idx;           /* live recording put notes into the step about to play: */
     uint8_t rskip_n, rskip[NLANE];   /* do not trigger them again there (they sound already) */
+    /* (Orange Cat 0.2, build doc phase 4a, from Skiff 1.3.3) RATCH, FLAM, NUDGE and the trig conditions (seq.c) */
+    uint8_t rat_left;            /* RATCH: repeats of the step played last still to come; FLAM: its full hit to come */
+    uint8_t fire_idx;            /* the step played last (NUDGE: not always seq_idx): its RATCH parts, FLAM */
+    uint8_t nud;                 /* NUDGE pending: NUD_LATE, NUD_EARLY, NUD_DONE (seq.c seq_enter) */
+    uint8_t early_idx;           /* NUD_EARLY / NUD_DONE: the next step, played early */
+    uint16_t seq_pass;           /* passes of the loop since PLAY, the first 1: the A:B trig conditions */
+    uint32_t late_at, early_at;  /* the seq_pos the playing step (late) / the next one (early) plays at */
+    uint32_t rat_pos;            /* samples since the step played last fired: RATCH parts, FLAM */
     /* live recording of held notes (seq.c rec_hold): the steps they are held into become TIEs */
     uint8_t rh_n, rh_note[4];    /* recorded notes still held, 0 = none */
     uint8_t rh_start;            /* the step they were recorded into */

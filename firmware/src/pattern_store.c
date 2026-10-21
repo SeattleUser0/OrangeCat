@@ -29,7 +29,8 @@ static void bank_checksum(uint8_t *raw)
 }
 static int bank_step_pack(uint8_t *b, const step_t *s)
 {
-    if (s->n > 4u || s->time > ST_REST || s->flags > 7u || s->vel > 127u || s->probability > 101u || !step_acc_valid(s)) return 0;
+    /* (Orange Cat 0.2) as proj_step_pack: Skiff's fields are accepted and not saved here yet */
+    if (s->n > 4u || s->time > ST_REST || (s->flags & ~SF_ALL) || s->vel > 127u || s->probability > 101u || !step_acc_valid(s)) return 0;
     uint32_t pos = 0;
     memset(b, 0, 8u);
     for (uint32_t j = 0; j < 4u; j++) { if (s->note[j] > 127u) return 0; wire_bits_put(b, &pos, s->note[j], 7u); }

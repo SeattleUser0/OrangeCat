@@ -217,6 +217,50 @@ static void nt_slide(void)
     st_at()->flags ^= SF_SLIDE;
     fm1_irq_on();
 }
+/* (Orange Cat 0.2, build doc phase 4a) Skiff's step fields on the note's and the hit's sheet: Ratchet x1..x4 or Flam,
+ * the trig Condition, Nudge in 64ths of the step. Changed with the audio held off, as Slide is: one step, one write */
+static void nt_ratch_v(char *b)
+{
+    uint32_t v = step_rflam(st_at());
+    if (v >= 5u) { str_cpy(b, "Flam", 8); return; }
+    b[0] = 'x'; b[1] = (char)('0' + v); b[2] = 0;
+}
+static void nt_ratch(int32_t s)
+{
+    if (!st_free())
+        return;
+    fm1_irq_off();
+    step_set_rflam(st_at(), (uint32_t)clamp((int32_t)step_rflam(st_at()) + (s > 0 ? 1 : -1), 1, 5));
+    fm1_irq_on();
+}
+static void nt_ratch_step(void) { nt_ratch(step_rflam(st_at()) >= 5u ? -4 : 1); }
+static const char *const NT_COND[TC_COUNT] = {"Always", "Fill", "Not fill", "1 of 2", "2 of 2", "1 of 3", "2 of 3",
+                                              "3 of 3", "1 of 4", "2 of 4", "3 of 4", "4 of 4"};
+static void nt_cond_v(char *b) { str_cpy(b, NT_COND[st_at()->cond < TC_COUNT ? st_at()->cond : 0], 12); }
+static void nt_cond(int32_t s)
+{
+    if (!st_free())
+        return;
+    fm1_irq_off();
+    step_set_cond(st_at(), (uint32_t)clamp((int32_t)st_at()->cond + (s > 0 ? 1 : -1), 0, TC_COUNT - 1));
+    fm1_irq_on();
+}
+static void nt_nudge_v(char *b)
+{
+    int32_t v = st_at()->nudge;
+    if (!v) { str_cpy(b, "On grid", 10); return; }
+    b[0] = v > 0 ? '+' : '-';
+    fmt_int(b + 1, v > 0 ? v : -v);
+    str_cpy(b + str_len(b), "/64", 4);
+}
+static void nt_nudge(int32_t s)
+{
+    if (!st_free())
+        return;
+    fm1_irq_off();
+    step_set_nudge(st_at(), st_at()->nudge + s);
+    fm1_irq_on();
+}
 static void nt_delete(void)
 {
     if (st_free())
@@ -224,7 +268,9 @@ static void nt_delete(void)
 }
 static void nt_copy(void) { if(st_free())note_copy_arm(); }
 static const sheet_row_t SHEET_NOTE[] = {{"Length", nt_len_v, nt_len, 0, 0}, {"Velocity", nt_vel_v, nt_vel, 0, 0},
-    {"Chance", nt_chance_v, nt_chance, 0, 0}, {"Slide", nt_slide_v, 0, nt_slide, 0}, {"Move note",0,0,note_move_arm,0}, {"Copy note",0,0,nt_copy,0}, {"Delete note", 0, 0, nt_delete, SR_RED}};
+    {"Chance", nt_chance_v, nt_chance, 0, 0}, {"Slide", nt_slide_v, 0, nt_slide, 0},
+    {"Ratchet", nt_ratch_v, nt_ratch, nt_ratch_step, 0}, {"Condition", nt_cond_v, nt_cond, 0, 0},   /* (Orange Cat 0.2) */
+    {"Nudge", nt_nudge_v, nt_nudge, 0, 0}, {"Move note",0,0,note_move_arm,0}, {"Copy note",0,0,nt_copy,0}, {"Delete note", 0, 0, nt_delete, SR_RED}};
 static const sheet_row_t SHEET_REC_NOTE[] = {{"Length", nt_len_v, nt_len, 0, 0}, {"Velocity", nt_vel_v, nt_vel, 0, 0},
     {"Move note",0,0,note_move_arm,0}, {"Copy note",0,0,nt_copy,0}, {"Delete note", 0, 0, nt_delete, SR_RED}};
 static int ht_acc_on(void) { return (step_accents(&seq_steps(TSEL)[ui.cursor]) >> ui.lane) & 1u; }
@@ -232,6 +278,8 @@ static void ht_acc_v(char *b) { str_cpy(b, ht_acc_on() ? "On" : "Off", 8); }
 static void ht_acc(void) { edit_param(3u, ht_acc_on() ? -1 : 1); }
 static void ht_clear(void) { edit_param(2u, -1); }
 static const sheet_row_t SHEET_HIT[] = {{"Accent", ht_acc_v, 0, ht_acc, 0}, {"Chance", nt_chance_v, nt_chance, 0, 0},
+    {"Ratchet", nt_ratch_v, nt_ratch, nt_ratch_step, 0}, {"Condition", nt_cond_v, nt_cond, 0, 0},   /* (Orange Cat 0.2) */
+    {"Nudge", nt_nudge_v, nt_nudge, 0, 0},
     {"Clear hit", 0, 0, ht_clear, SR_RED}};
 
 /* OCT+ on NOTES / the drum grid: an empty place gets a note (the last one played) / the lane's hit; on a note or a

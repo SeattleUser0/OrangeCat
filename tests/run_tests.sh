@@ -383,6 +383,8 @@ if core && [ $TABLES = 1 ]; then
     t "CPU lab controls absent with benchmark only" cpu_lab_bench:audio_cpu_lab_test -O2 -DMELODEE_AUDIO_BENCH=1 $FW
     t "DX7 librarian: USB voice/bank receive, dump replies and malformed frame recovery" fm6_sysex_test $FW
     t "SWING: track + global at most 100, sequencer step lengths, the SWG display" swing_test -O2 $FW
+    # (Orange Cat 0.2, build doc phase 4a) Skiff's step fields on Melodee's sequencer
+    t "Orange Cat steps: RATCH, FLAM, trig conditions, NUDGE; the compact step keeps them" oc_steps_test -O2 $FW
     t "double-tap layers, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW

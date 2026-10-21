@@ -383,6 +383,8 @@ static void step_clear(step_t *st)
     st->vel = 0;
     st->hit = st->acc = 0;
     st->probability = 0;
+    st->cond = 0;                                 /* (Orange Cat 0.2) Skiff's fields cleared too */
+    st->nudge = 0;
 }
 
 /* ------------------------------------------------------- the DRUM grid --- */

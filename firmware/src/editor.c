@@ -240,7 +240,8 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
     for (i = 0; i < 4u; i++)
         st->note[i] = a[1 + i] & 0x7Fu;
     st->time = (uint8_t)(a[5] > ST_REST ? ST_REST : a[5]);
-    st->flags = a[6] & (SF_ACCENT | SF_SLIDE);
+    /* (Orange Cat 0.2) RATCH and FLAM, which this message does not carry yet, stay as they were (phase 4g) */
+    st->flags = (uint8_t)((st->flags & (SF_RATCH | SF_FLAM)) | (a[6] & (SF_ACCENT | SF_SLIDE)));
     st->vel = a[7] & 0x7Fu;
     if (na >= 11u) {
         st->hit = (uint8_t)((a[8] & 0x7Fu) | (a[10] & 1u) << 7);

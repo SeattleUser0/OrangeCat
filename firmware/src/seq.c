@@ -1013,19 +1013,41 @@ static void seq_stop(void)
  * notes, DRUM_LANE_NOTE; an accented hit at 127); a SLIDE on the previous step makes this one legato with a
  * glide (acid style). skip: bit k = note k, bit 8 + l = the hit of lane l already sounds from live
  * recording (not triggered, not released here). */
+/* (Orange Cat 0.2, build doc phase 4a, from Skiff 1.3.3 seq.c) the skip flags of seq_step besides the notes already
+ * sounding (bits 0..15): SEQ_REP a RATCH repeat or FLAM's full hit (seq_ratchet: no chance roll, no slide in);
+ * SEQ_MISS its trig condition failed (seq_fire): nothing plays */
+#define SEQ_REP (1u << 16)
+#define SEQ_MISS (1u << 18)
+enum { NUD_LATE = 1, NUD_EARLY = 2, NUD_DONE = 4 };   /* a track's NUDGE pending (track_t nud: seq_enter) */
+/* FLAM: where the full hit comes after the grace: FLAM_SAMPLES, at most half the step */
+static uint32_t flam_at(const track_t *t, uint32_t period)
+{
+    uint32_t h = step_samples(t, period, t->fire_idx) / 2u;
+    return h < FLAM_SAMPLES ? h : FLAM_SAMPLES;
+}
+/* play one step (Melodee). (Orange Cat 0.2, from Skiff) RATCH x2..x4: a NOTE step plays all of it again in equal
+ * parts of its swung length, each part retriggered with GATE of the part; the chance is rolled once for the whole
+ * step, a slide into it glides into the first part only, and it never slides or ties out. FLAM: the first hit is a
+ * grace at 9/16 of the velocity, the full hit FLAM_SAMPLES later (seq_ratchet). A recorded step (SF_RECORDED: its
+ * notes are timed notes, recording.c) plays as Melodee plays it: x1, no FLAM */
 static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip)
 {
     skip = recording_step_skip(t, s, skip);
     uint32_t i, j, gate = step_gate(s) ? period * step_gate(s) / 255u : period * (uint32_t)t->p[P_SGATE] / 128u;
     uint32_t vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
-    uint32_t slide_in = t->seq_hold && t->seq_n;
+    uint32_t slide_in = t->seq_hold && t->seq_n && !(skip & SEQ_REP);
     uint32_t len = t->p[P_SLEN] ? (uint32_t)t->p[P_SLEN] : 1u;
-    uint32_t next_tie = seq_steps(t)[(t->seq_idx + 1u) % len].time == ST_TIE;
+    uint32_t next_tie = seq_steps(t)[(t->fire_idx + 1u) % len].time == ST_TIE;   /* (Orange Cat: fire_idx, NUDGE) */
+    uint32_t own = !(s->flags & SF_RECORDED), hits = own ? step_ratchet(s) : 1u;
+    uint32_t grace = own && (s->flags & SF_FLAM) && !(skip & SEQ_REP);
     uint8_t nn[4 + NLANE], vv[4 + NLANE];           /* the notes it plays: its notes, then its hits */
     uint32_t m = 0, sk = 0;
-    if (step_chance(s) < 100u && rng() % 100u >= step_chance(s)) {
-        seq_release(t);
-        return;
+    if (!(skip & SEQ_REP)) {
+        t->rat_left = 0;
+        if ((skip & SEQ_MISS) || (step_chance(s) < 100u && rng() % 100u >= step_chance(s))) {
+            seq_release(t);
+            return;
+        }
     }
     if (s->time == ST_TIE) {
         if (t->seq_n) {
@@ -1037,6 +1059,14 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (s->time == ST_REST || (!s->n && !s->hit)) {
         seq_release(t);
         return;
+    }
+    if (hits > 1u) {                                /* (Orange Cat, Skiff) RATCH: the gate of a part, no slide or tie out */
+        gate = step_samples(t, period, t->fire_idx) / hits * (uint32_t)t->p[P_SGATE] / 128u;
+        if (!(skip & SEQ_REP))
+            t->rat_left = (uint8_t)(hits - 1u);
+    } else if (grace) {                             /* (Orange Cat, Skiff) FLAM: this hit the grace, short */
+        gate = flam_at(t, period);
+        t->rat_left = 1;
     }
     for (i = 0; i < s->n && i < 4u; i++, m++) {
         nn[m] = s->note[i];
@@ -1050,9 +1080,15 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             sk |= ((skip >> (8u + i)) & 1u) << m;
             m++;
         }
+    if (grace)                                      /* (Orange Cat, Skiff) the grace: 9/16 of the velocity */
+        for (i = 0; i < m; i++)
+            vv[i] = (uint8_t)(vv[i] * 9u / 16u + 1u);
     t->slide_glide = (uint8_t)slide_in;
     if (!slide_in)
         seq_release(t);
+#ifdef SEQ_TEST_HOOK                                /* (Orange Cat 0.2) host tests only: the notes a step plays */
+    SEQ_TEST_HOOK(t, nn, vv, m, sk);
+#endif
     for (i = 0; i < m; i++)
         if (!((sk >> i) & 1u))
             trk_note_on(t, nn[i], vv[i]);
@@ -1068,7 +1104,128 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         if (!((sk >> i) & 1u))
             t->seq_notes[t->seq_n++] = nn[i];
     t->seq_off = gate;
-    t->seq_hold = (s->flags & SF_SLIDE) != 0 || next_tie;   /* next step a TIE: keep the notes to it */
+    /* next step a TIE: keep the notes to it ((Orange Cat, Skiff) a ratchet or a flam never slides or ties out) */
+    t->seq_hold = hits == 1u && !grace && !(s->flags & SF_FLAM && own) && ((s->flags & SF_SLIDE) != 0 || next_tie);
+}
+
+/* (Orange Cat 0.2, from Skiff) step s passes its trig condition (core.h TC_*) on this pass of the track's loop
+ * (seq_pass: the first pass since PLAY is 1; ahead 1: the next pass, a step played early by its NUDGE before its pass
+ * begins); a step without one always does. FILL: PERFORM's FILL (phase 4d; until then never held).
+ * Not inlined, and called only for a step that has one: kept out of the audio ISR's loop (tests/target_budget.py) */
+static volatile uint8_t seq_fill;
+static __attribute__((noinline)) int step_cond_ok(const track_t *t, const step_t *s, uint32_t ahead)
+{
+    static const uint8_t A[TC_COUNT] = {0, 0, 0, 1, 2, 1, 2, 3, 1, 2, 3, 4};
+    static const uint8_t B[TC_COUNT] = {1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 4};
+    uint32_t c = s->cond, p;
+    if (c == TC_NONE || c >= TC_COUNT)
+        return 1;
+    if (c == TC_FILL || c == TC_NFILL)
+        return (c == TC_FILL) == (seq_fill != 0u);
+    p = t->seq_pass + ahead;
+    return p > 0u && (p - 1u) % B[c] + 1u == A[c];
+}
+
+/* (Orange Cat 0.2, from Skiff) RATCH: the next part of the step played last once the sequencer is that far into it
+ * (rat_pos: from where it fired, its NUDGE in); FLAM: its full hit. The step is read again: an edit to fewer parts
+ * ends the repeats */
+static __attribute__((noinline)) void seq_ratchet(track_t *t, uint32_t period)
+{
+    const step_t *s = &seq_steps(t)[t->fire_idx];
+    uint32_t hits = step_ratchet(s);
+    if (s->flags & SF_RECORDED) {
+        t->rat_left = 0;
+        return;
+    }
+    if (s->flags & SF_FLAM) {                       /* the full hit once the grace has had its time */
+        if (t->rat_pos < flam_at(t, period))
+            return;
+        t->rat_left = 0;
+        seq_step(t, s, period, SEQ_REP);
+        return;
+    }
+    if (t->rat_left >= hits) {
+        t->rat_left = 0;
+        return;
+    }
+    if (t->rat_pos < (hits - t->rat_left) * (step_samples(t, period, t->fire_idx) / hits))
+        return;
+    t->rat_left--;
+    seq_step(t, s, period, SEQ_REP);
+}
+
+/* (Orange Cat 0.2) step idx plays now (Melodee's step trigger, moved here from seq_grid_tick so a NUDGE can play
+ * it later or early): its trig condition (ahead: played early, its pass not begun), the notes live recording put
+ * there already, the hush of an edit waiting on its bank, then its notes (seq_step) */
+static __attribute__((noinline)) void seq_fire(track_t *t, uint32_t idx, uint32_t period, uint32_t ahead)
+{
+    const step_t *s = &seq_steps(t)[idx];
+    uint32_t skip = 0, i, k;
+    t->fire_idx = (uint8_t)idx;
+    if (s->cond && !(s->flags & SF_RECORDED) && !step_cond_ok(t, s, ahead))
+        skip = SEQ_MISS;
+    if (t->rskip_n && t->rskip_idx == idx) {
+        for (k = 0; k < t->rskip_n; k++) {
+            for (i = 0; i < s->n; i++)
+                if (s->note[i] == t->rskip[k])
+                    skip |= 1u << i;
+            for (i = 0; i < NLANE; i++)
+                if (((s->hit >> i) & 1u) && DRUM_LANE_NOTE[i] == t->rskip[k])
+                    skip |= 1u << (8u + i);
+        }
+        t->rskip_n = 0;
+    }
+    if ((seq_hush >> trk_index(t)) & 1u)
+        s = &SEQ_HUSH_STEP;
+    seq_step(t, s, step_gate(s) ? step_samples(t, period, idx) : period, skip);
+}
+
+/* (Orange Cat 0.2, from Skiff) NUDGE: a NOTE step plays its nudge (64ths of its own length) from its start, later or
+ * earlier. On entering a step: it plays now (on the grid), later (NUD_LATE at late_at) or has already (NUD_DONE:
+ * early, in the step before). Then the next step, if it comes early, is set to play in this one (NUD_EARLY at
+ * early_at): not where the next is another bank's or the song's (a bank waiting at the loop end, the chain). A TIE,
+ * a REST or a recorded step keeps to the grid */
+static int32_t nudge_samples(int32_t nudge, uint32_t len) { return nudge * (int32_t)(len / 64u); }
+static int32_t step_nudge(const step_t *s) { return s->time == ST_NOTE && !(s->flags & SF_RECORDED) ? s->nudge : 0; }
+static __attribute__((noinline)) void seq_enter(track_t *t, uint32_t period, uint32_t len)
+{
+    uint32_t i = t->seq_idx, cur = step_samples(t, period, i), nx = (i + 1u) % len;
+    int32_t d = step_nudge(&seq_steps(t)[i]);
+    if ((t->nud & NUD_DONE) && t->early_idx == i) {
+        /* played early */
+    } else if (d > 0) {
+        t->late_at = (uint32_t)nudge_samples(d, cur);
+        t->nud |= NUD_LATE;
+    } else {
+        t->rat_pos = t->seq_pos;
+        seq_fire(t, i, period, 0u);
+    }
+    t->nud &= (uint8_t)~(NUD_EARLY | NUD_DONE);
+    if (!(nx == 0u && (t->pattern_next < NPAT || chain.running))) {
+        d = step_nudge(&seq_steps(t)[nx]);
+        if (d < 0) {
+            uint32_t e = (uint32_t)-nudge_samples(d, step_samples(t, period, nx));
+            t->early_idx = (uint8_t)nx;
+            t->early_at = cur > e ? cur - e : 0u;
+            t->nud |= NUD_EARLY;
+        }
+    }
+}
+/* (Orange Cat 0.2, from Skiff) NUDGE: a step set to play later (the playing one) or early (the next) once the
+ * sequencer is that far */
+static __attribute__((noinline)) void seq_nudge(track_t *t, uint32_t period, uint32_t len)
+{
+    if ((t->nud & NUD_LATE) && t->seq_pos >= t->late_at) {
+        t->nud &= (uint8_t)~NUD_LATE;
+        t->rat_pos = t->seq_pos - t->late_at;
+        seq_fire(t, t->seq_idx, period, 0u);
+    }
+    if ((t->nud & NUD_EARLY) && t->seq_pos >= t->early_at) {
+        t->nud = (uint8_t)((t->nud & ~NUD_EARLY) | NUD_DONE);
+        t->rat_pos = t->seq_pos - t->early_at;
+        seq_fire(t, t->early_idx, period, t->early_idx == 0u ? 1u : 0u);   /* step 0 of the next pass: ahead */
+    }
+    (void)len;
 }
 
 static void seq_grid_tick(track_t *t, uint32_t n)
@@ -1087,11 +1244,23 @@ static void seq_grid_tick(track_t *t, uint32_t n)
     period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     len = (uint32_t)t->p[P_SLEN];
     t->seq_pos += n;
+    t->rat_pos += n;                                /* (Orange Cat, Skiff) RATCH, FLAM */
     for (;;) {
         uint32_t cur_len = step_samples(t, period, t->seq_idx);
         if (t->seq_pos < cur_len && t->seq_pos != 0x7FFFFFFFu + n)
             break;
         uint32_t starting = t->seq_pos >= 0x7FFFFFFFu;
+        if (!starting && (t->nud & NUD_LATE)) {     /* (Orange Cat, Skiff) NUDGE: later than its step lasts now (an
+                                                     * edit): now */
+            t->nud &= (uint8_t)~NUD_LATE;
+            t->rat_pos = 0;
+            seq_fire(t, t->seq_idx, period, 0u);
+        }
+        if (starting) {                             /* (Orange Cat) from the top: nothing nudged or ratcheted pending */
+            t->nud = 0;
+            t->rat_left = 0;
+            t->seq_pass = 0;
+        }
         uint32_t punch_in = 0;
         t->seq_pos = starting ? (chain.running ? chain.carry : 0u) : t->seq_pos - cur_len;
         t->seq_idx = (uint16_t)((t->seq_idx + 1u) % (len ? len : 1u));
@@ -1110,6 +1279,8 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             period = seq_div_samples((uint32_t)t->p[P_SDIV]);
             len = (uint32_t)t->p[P_SLEN];
         }
+        if (!t->seq_idx)                            /* (Orange Cat, Skiff) a new pass of the loop: the conditions */
+            t->seq_pass++;
         if (!t->seq_idx && !starting) {                 /* a loop end: an edit waiting on the bank now playing keeps it
                                                          * silent until the UI has done it */
             uint32_t k = trk_index(t);
@@ -1124,25 +1295,13 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         if (punch_in) rec_begin_held(t);
         seq_erase_pass(t, t->seq_idx, 1);
         if (!seq_erase_active(t)) rec_hold(t, t->seq_idx, len ? len : 1u);
-        {
-            const step_t *s = &seq_steps(t)[t->seq_idx];
-            uint32_t skip = 0, i, k;
-            if (t->rskip_n && t->rskip_idx == t->seq_idx) {
-                for (k = 0; k < t->rskip_n; k++) {
-                    for (i = 0; i < s->n; i++)
-                        if (s->note[i] == t->rskip[k])
-                            skip |= 1u << i;
-                    for (i = 0; i < NLANE; i++)
-                        if (((s->hit >> i) & 1u) && DRUM_LANE_NOTE[i] == t->rskip[k])
-                            skip |= 1u << (8u + i);
-                }
-                t->rskip_n = 0;
-            }
-            if ((seq_hush >> trk_index(t)) & 1u)
-                s = &SEQ_HUSH_STEP;
-            seq_step(t, s, step_gate(s) ? step_samples(t, period, t->seq_idx) : period, skip);
-        }
+        seq_enter(t, period, len ? len : 1u);       /* (Orange Cat 0.2, Skiff) it plays: now, later or already
+                                                     * (NUDGE); seq_fire is Melodee's step trigger, moved */
     }
+    if (t->nud)                                     /* (Orange Cat, Skiff) NUDGE: later / early steps due */
+        seq_nudge(t, period, len ? len : 1u);
+    if (t->rat_left)                                /* (Orange Cat, Skiff) RATCH parts, FLAM's full hit */
+        seq_ratchet(t, period);
 }
 
 /* Split at pattern boundaries so raw playback follows bank changes and fires
