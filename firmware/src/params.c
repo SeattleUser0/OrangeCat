@@ -492,7 +492,7 @@ enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS 
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_MOD, GR_PATS, GR_SONG, GR_MOTION, GR_CHORD, GR_SLICES,
        GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_SCALE_PICKER, GR_DRUMHIT, GR_PATGRID,
-       GR_FXRACK }; /* NOTES shares GR_ROLL for steps and recorded events */
+       GR_FXRACK, GR_TRACKER }; /* NOTES shares GR_ROLL for steps and recorded events; (Orange Cat 0.4.2) TRACKER */
 
 typedef struct {
     const char *title;
@@ -609,6 +609,7 @@ static const page_t PAGES[] = {
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
+    {"TRACKER", FAM_SEQ, SC_STEP, GR_TRACKER, {0, 1, 2, 3}},   /* (Orange Cat 0.4.2) the phrase as rows (ui_tracker.c) */
     {"PHRASE", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},   /* (Orange Cat 0.4: was PATTERN) */
     {"TEMPO", FAM_SEQ, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_TRK_RECQ, 0xFF}},   /* the project's: saved with it; QNT: the
                                                                                   * selected track's (TIMING's, folded in) */

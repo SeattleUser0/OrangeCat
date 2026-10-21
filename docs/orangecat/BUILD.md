@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.16  
+**Version:** 0.17  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.5
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.17 (October 21, 2026):** 0.4.2: phase 5 started: SEQ > TRACKER shows a track's phrase as rows. CHAIN's KNOB 3 takes effect on the slot a track is on. FILL on PERFORM's D#4.
 - **0.16 (October 21, 2026):** 0.4.1: 4d part 1. PERFORM (ARP held): 8 scenes, staged mutes, and the launch point (LOOP, BAR, BEAT, NOW).
 - **0.15 (October 21, 2026):** 0.4.0: three levels, as a tracker (specification 0.5, 7.3). Chains (64 per project) and the SONG grid of chains; each track goes down its own song column. PLAY plays by the page it is pressed on. 0.3 projects convert when loaded.
 - **0.14 (October 21, 2026):** 0.3.7 fix (empty pattern numbers no longer stop the song). The three-level plan (phrase, chain, song) recorded.
@@ -36,7 +37,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 2 | USB flash drive test | Not started |
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
-| 5 | Track views: tracker, step, pads | Not started |
+| 5 | Track views: tracker, step, pads | In progress |
 | 6 | Loadable engine study | Not started |
 | 7 | Mutable Instruments engines | Not started |
 | 8 | Dynamic resources | Not started |
@@ -52,7 +53,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | [Skiff](https://github.com/illuminus5/skiff) | 1.3.3 | c7d53d9cbf2feb90dffbf7761dfeb88cf7816715 | Port reference |
 | [Felucca](https://github.com/hugelton/Felucca) | 1.6.1+ | 5738617968a22b5d4c0d3470cfcc95559052f446 | Common ancestor |
 | JieLi AC79 SDK | AC79NN_SDK_V1.2.1_2023-12-13 | (tag) | Three build files only |
-| [BEETLE](https://github.com/SikkenWorks/BEETLE) | 1.01d RC1 | to pin in phase 5 | Tracker view reference |
+| [BEETLE](https://github.com/SikkenWorks/BEETLE) | 1.3.8 | fc43fda1e5fbdae36aa83df9e2baff1a484c157b | Tracker view reference |
 | [fm1-build](https://github.com/zvenson/fm1-build) | v1 | (tag) | GitHub Actions builder |
 | [Mutable Instruments eurorack](https://github.com/pichenettes/eurorack) | to pin in phase 7 | | Engine source (MIT) |
 
@@ -340,12 +341,20 @@ Left to test (specification 13):
 
 ## Phase 5: Track views
 
-**Status: Not started**
+**Status: In progress (the first tracker page, 0.4.2)**
 
 Goal: tracker, step sequencer, and pad views over the same note data (specification 6).
 
 Left to build:
-- [ ] Tracker view. New work: neither Melodee nor Skiff has one. Reference: BEETLE (SikkenWorks, GPL-3.0), a six-lane FM-1 tracker with NOTE, INS, CHD, and FX columns and three-knob cell editing. Pin a BEETLE commit and review its source before designing the view.
+- [ ] Tracker view. New work: neither Melodee nor Skiff has one. Reference: BEETLE (SikkenWorks, GPL-3.0), a six-lane FM-1 tracker with NOTE, INS, CHD, and FX columns and three-knob cell editing. BEETLE pinned at fc43fda1e5fbdae36aa83df9e2baff1a484c157b (its README's controls: K1 the row, the keys enter notes, K3 the value).
+  - [x] **Part 1 (0.4.2, October 21, 2026): SEQ > TRACKER, one track's phrase as rows.** How it works on the device:
+    - SEQ, then SELECT or SEQ taps to the TRACKER page (after NOTES). It shows the selected track's phrase, one row per step, nine rows around the cursor.
+    - Columns: # (the step; every fourth brighter), NOTE (the first note, +2 for two more in a chord; a held note's later rows show a bar; an empty step --; a step of recorded notes REC), LEN (the note's length in steps), VEL (its velocity; ! means accent), FX (x2 to x4 ratchet, FL flam, a chance like 50%, a condition like 1:2 or FILL, or a nudge like +3).
+    - The cursor's row is highlighted. While playing, the step playing has a bar in the track's colour at the left.
+    - Editing is the same as NOTES' step entry: KNOB 1 moves the cursor, KNOB 2 changes the note, KNOB 3 its length in whole steps (the rows after it become ties), KNOB 4 its velocity (ENV held: slide). Keys write notes at the cursor and move it on. EDIT deletes the note on the row; EDIT held undoes. OCT+ on a note opens its sheet (chance, ratchet or flam, condition, nudge).
+    - Tested (tests/ui_test.c): a key writes a note and moves on; KNOB 1, 2, 3, 4; EDIT deletes; EDIT held undoes; OCT+ opens the note sheet. The page passes the screen lint in all 8 palettes.
+    - Left for later parts: all tracks side by side as lanes (as BEETLE), an instrument column, effect commands beyond the step's own fields, editing recorded (timed) notes on rows.
+    - Left to test on the device: enter a melody on TRACKER with the keys; change lengths and velocities; check NOTES shows the same notes.
 - [ ] Step sequencer view (from phase 4).
 - [ ] Pad view for drums, pitched layouts, and chords.
 - [ ] View choice at track creation and later.

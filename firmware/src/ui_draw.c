@@ -616,6 +616,7 @@ static void draw_foot(void)
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
+#include "ui_tracker.c"                                 /* (Orange Cat 0.4.2) SEQ > TRACKER */
 static int own_screen(void);
 static void draw_columns(void)
 {
@@ -1065,7 +1066,7 @@ static void draw_confirm(void)
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
-    return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG || g == GR_SCALE_PICKER);
+    return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG || g == GR_SCALE_PICKER || g == GR_TRACKER);
 }
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
@@ -1094,6 +1095,8 @@ static void draw_page(void)
             scales_draw();
         else if (cur_page()->graph == GR_SONG)
             song_draw();
+        else if (cur_page()->graph == GR_TRACKER)
+            tracker_draw();
         else {
             draw_head();
             patterns_draw();

@@ -211,7 +211,8 @@ static int property_edits_and_mixed_patterns(void)
 {
     track_t *t=clash_setup();
     recorded_note_t original[3];memcpy(original,recording,sizeof original);
-    uint32_t count=0;for(uint32_t p=0;p<NPAGES;p++)if(PAGES[p].fam==FAM_SEQ&&PAGES[p].scope==SC_STEP)count++;
+    uint32_t count=0;for(uint32_t p=0;p<NPAGES;p++)if(PAGES[p].fam==FAM_SEQ&&PAGES[p].scope==SC_STEP&&PAGES[p].graph==GR_ROLL)count++;
+    /* (Orange Cat 0.4.2: TRACKER is a step page too, the same steps as rows; NOTES stays the one recorded-note editor) */
     int bad=check("sequence navigation exposes exactly one note editor",count==1&&str_eq(cur_page()->title,"NOTES"));
     turn(EN_K1,1);uint32_t selected=notes_selected(t);
     turn(EN_K2,3);

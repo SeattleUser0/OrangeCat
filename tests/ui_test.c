@@ -4056,6 +4056,45 @@ static void lay_combo(uint32_t btn, uint32_t k) { btn_down(btn); key_down(k); fr
 static void oct_back(void) { btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame(); }
 static uint32_t leds_at(uint32_t ms) { fm1_ms = ms; return layer_leds(); }
 
+/* (Orange Cat 0.4.2, phase 5) SEQ > TRACKER: Melodee's step entry on rows */
+static int test_tracker(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    ui_power_on();
+    stop_transport();
+    go_title("TRACKER"); frame();
+    t = TSEL;
+    track_defaults_steps(t);
+    ok = cur_page()->graph == GR_TRACKER && cur_page()->scope == SC_STEP && ui.cursor == 0u;
+    tap_key(white(0)); frame();
+    ok &= step_on(&t->step[0]) && ui.cursor == 1u;
+    bad += check("TRACKER: a key writes its note on the cursor's row and moves on", ok);
+    tap_key(white(2)); frame();
+    turn(EN_K1, -1);
+    ok = ui.cursor == 1u && step_on(&t->step[1]);
+    {
+        uint32_t n0 = t->step[1].note[0];
+        turn(EN_K2, 2);
+        ok &= t->step[1].note[0] == n0 + 2u;
+    }
+    turn(EN_K4, -10);
+    ok &= t->step[1].vel && t->step[1].vel < 96u;
+    bad += check("TRACKER: KNOB 1 the row, KNOB 2 its note, KNOB 4 its velocity", ok);
+    turn(EN_K3, 2);
+    bad += check("TRACKER: KNOB 3 its length (the rows after it tied)", step_note_length(t, 1) == 3u &&
+                 t->step[2].time == ST_TIE);
+    press(B_EDIT);
+    bad += check("TRACKER: EDIT deletes the note on the row", !step_on(&t->step[1]) && step_on(&t->step[0]));
+    hold(B_EDIT);
+    bad += check("TRACKER: EDIT held undoes it", step_on(&t->step[1]));
+    cursor_set(1); press(B_OCTUP);
+    bad += check("TRACKER: OCT+ on a note: its sheet (CHANCE, RATCH, the condition, NUDGE)", pop.on == POP_SHEET &&
+                 pop.rows == SHEET_NOTE);
+    press(B_OCTDN);
+    return bad;
+}
+
 /* (Orange Cat 0.4.1, build doc 4d) ARP held: PERFORM: scenes on the white keys (SAVE held stores), MUTEs staged on the
  * black keys, KNOB 1 LAUNCH, OCT- puts back */
 static int test_perform(void)
@@ -5619,6 +5658,7 @@ int main(void)
     bad += test_information();
     bad += test_chain();
     bad += test_perform();
+    bad += test_tracker();
     bad += test_product_ux();
     bad += test_mono_screens();
     bad += test_roll();

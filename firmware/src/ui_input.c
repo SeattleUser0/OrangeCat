@@ -1006,7 +1006,7 @@ static void step_edit(uint32_t slot, int32_t steps)
         return;
     }
     if (grid_on()) { grid_edit(slot, steps); return; }
-    if(slot==2u){uint32_t fine=ui.step_mods&(1u<<panel.btn[B_ENV]);ui.step_used|=(uint16_t)fine;note_manual_length(steps,fine?RECORD_UNIT/16u:RECORD_UNIT/4u);return;}
+    if(slot==2u && cur_page()->graph!=GR_TRACKER){uint32_t fine=ui.step_mods&(1u<<panel.btn[B_ENV]);ui.step_used|=(uint16_t)fine;note_manual_length(steps,fine?RECORD_UNIT/16u:RECORD_UNIT/4u);return;}
     fm1_irq_off();
     uint32_t at = notes_manual_start(TSEL);
     if (at >= NSTEP && (slot != 1u || (TSEL->step[ui.cursor].flags & SF_RECORDED))) { fm1_irq_on(); ui_message("SELECT A NOTE"); return; }
@@ -1425,7 +1425,7 @@ static uint32_t step_modifier_mask(void)                /* (EDIT: NOTES only) */
 {
     if (grid_on() && live_rec_sel()) return 1u << panel.btn[B_EDIT];
     return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
-           (cur_page()->graph == GR_ROLL ? 1u << panel.btn[B_EDIT] : 0u);
+           (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_TRACKER ? 1u << panel.btn[B_EDIT] : 0u);
 }
 
 /* An EDIT chord is not a delete tap. Remember it across page/track changes
@@ -1755,7 +1755,7 @@ static void page_tap(uint32_t b)
             step_delete(TSEL, ui.cursor);
         fm1_irq_on();
         cursor_set(ui.cursor + 1);
-        ui_message("SLOT CLEARED");
+        ui_message("STEP CLEARED");
         return;
     }
     if (b == B_EDIT && !ui.home && (cur_page()->graph == GR_USER || cur_page()->graph == GR_SLOTS)) {
@@ -2510,7 +2510,9 @@ static void ui_input(void)
     } else if (song.grid) {
         if (!seq_erase_active(TSEL)) grid_keys(notes);
         else seq_midi_events(0);
-    } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* NOTES */
+    } else if (song.seq_mode && (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_TRACKER)) {   /* NOTES,
+                                                                                                 * (Orange Cat 0.4.2)
+                                                                                                 * TRACKER */
         if (live_rec_sel()) {                           /* armed and playing: the keys and MIDI record live, */
             ui.entry_open = 0;                          /* not into the cursor step too */
             seq_midi_events(0);

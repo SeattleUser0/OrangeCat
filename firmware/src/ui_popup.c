@@ -280,8 +280,8 @@ static int step_enter(void)
 {
     char t[24], sub[12];
     uint32_t chosen, start;
-    if (ui.home || ui.layer || ui.menu || cur_page()->graph != GR_ROLL)
-        return 0;
+    if (ui.home || ui.layer || ui.menu || (cur_page()->graph != GR_ROLL && cur_page()->graph != GR_TRACKER))
+        return 0;                                       /* ((Orange Cat 0.4.2) TRACKER: the row's note too) */
     str_cpy(sub, "step ", sizeof sub);
     fmt_int(sub + 5, (int32_t)ui.cursor + 1);
     if (grid_on()) {
