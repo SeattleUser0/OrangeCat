@@ -2536,6 +2536,10 @@ static void ui_input(void)
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn
          * would throw away the sound being edited */
         browse_turn(EN_PRESET, s);                       /* past the factory ones: user presets */
+    } else if (s && !ui.home && cur_page()->graph == GR_TRACKER) {   /* (Orange Cat 0.4.2) TRACKER: one track's
+                                                                      * columns, or every track as a lane */
+        ui.tk_all = (uint8_t)(s > 0);
+        ui.force = 1;
     } else if (s && !ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
         ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
         ui.force = 1;

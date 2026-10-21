@@ -352,8 +352,9 @@ Left to build:
     - Columns: # (the step; every fourth brighter), NOTE (the first note, +2 for two more in a chord; a held note's later rows show a bar; an empty step --; a step of recorded notes REC), LEN (the note's length in steps), VEL (its velocity; ! means accent), FX (x2 to x4 ratchet, FL flam, a chance like 50%, a condition like 1:2 or FILL, or a nudge like +3).
     - The cursor's row is highlighted. While playing, the step playing has a bar in the track's colour at the left.
     - Editing is the same as NOTES' step entry: KNOB 1 moves the cursor, KNOB 2 changes the note, KNOB 3 its length in whole steps (the rows after it become ties), KNOB 4 its velocity (ENV held: slide). Keys write notes at the cursor and move it on. EDIT deletes the note on the row; EDIT held undoes. OCT+ on a note opens its sheet (chance, ratchet or flam, condition, nudge).
-    - Tested (tests/ui_test.c): a key writes a note and moves on; KNOB 1, 2, 3, 4; EDIT deletes; EDIT held undoes; OCT+ opens the note sheet. The page passes the screen lint in all 8 palettes.
-    - Left for later parts: all tracks side by side as lanes (as BEETLE), an instrument column, effect commands beyond the step's own fields, editing recorded (timed) notes on rows.
+    - **PRESET right: every track as a lane** (as BEETLE shows its six). Each cell is that track's step on the row: its note (* means a chord), a bar for a held note, -- for empty. The selected track's cell on the cursor row is framed; each track's playing step has a mark in its colour. ALGORITHM picks the track the knobs and keys edit. PRESET left: back to one track's columns.
+    - Tested (tests/ui_test.c): a key writes a note and moves on; KNOB 1, 2, 3, 4; EDIT deletes; EDIT held undoes; OCT+ opens the note sheet; PRESET switches the lanes on and off. The page passes the screen lint in all 8 palettes.
+    - Left for later parts: an instrument column, effect commands beyond the step's own fields, editing recorded (timed) notes on rows.
     - Left to test on the device: enter a melody on TRACKER with the keys; change lengths and velocities; check NOTES shows the same notes.
 - [ ] Step sequencer view (from phase 4).
 - [ ] Pad view for drums, pitched layouts, and chords.

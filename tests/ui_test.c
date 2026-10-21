@@ -4092,6 +4092,10 @@ static int test_tracker(void)
     bad += check("TRACKER: OCT+ on a note: its sheet (CHANCE, RATCH, the condition, NUDGE)", pop.on == POP_SHEET &&
                  pop.rows == SHEET_NOTE);
     press(B_OCTDN);
+    turn(EN_PRESET, 1);
+    ok = ui.tk_all == 1u;
+    turn(EN_PRESET, -1);
+    bad += check("TRACKER: PRESET right, every track as a lane; left, the selected one's columns", ok && !ui.tk_all);
     return bad;
 }
 
