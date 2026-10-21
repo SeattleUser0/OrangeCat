@@ -525,10 +525,45 @@ static int test_groove(void)
         bad |= lcheck("... a recorded note quantized on the step grid lands where the grooved step plays",
                       recording_quant_on(&trk[0], &r, period, q) == want && want != 4u * period);
     }
+    {   /* (a review) a QNT take committed: each note stored where the grooved step plays, on the right step */
+        recorded_note_t r, out;
+        uint32_t q = (uint32_t)trk[0].p[P_SDIV] + 1u, okq = 1;
+        lists.groove[0] = 3;                    /* DILLA, 100 % */
+        for (uint32_t st = 0; st < 16u; st++) {
+            uint32_t want = recording_prefix(&trk[0], period, st), pos, span, at, got;
+            uint32_t c = recording_step_of(&trk[0], period, want + 200u, &pos, &span);
+            memset(&r, 0, sizeof r);
+            r.step = (uint8_t)c; r.on = (uint16_t)((uint64_t)pos * RECORD_UNIT / span); r.vel = 100; r.note = 60;
+            at = recording_quant_on(&trk[0], &r, period, q);
+            recording_quant_position(&trk[0], period, &r, at, 16, &out);
+            got = recording_raw_on(&trk[0], &out, period);
+            okq &= c == st && at == want && (out.step & 63u) == st && (got > want ? got - want : want - got) <= 2u;
+        }
+        bad |= lcheck("... a QNT take committed: every note stored on its grooved step (DILLA, all 16)", okq);
+        {   /* QNT 1/32 on a 1/16 track: the 1/32 grid swung only, not grooved */
+            uint32_t g32 = seq_div_samples(3), at = 5u * g32;
+            memset(&r, 0, sizeof r);
+            r.step = (uint8_t)recording_step_of(&trk[0], period, at, &at, &q);
+            r.on = (uint16_t)((uint64_t)at * RECORD_UNIT / q);
+            bad |= lcheck("... QNT on another grid: a note on its straight point stays there",
+                          recording_quant_on(&trk[0], &r, period, 4) == 5u * g32);
+        }
+        lists.groove[0] = 1;
+    }
     lists.gamt[0] = 50;
     bad |= lcheck("... the amount scales both", recording_prefix(&trk[0], period, 4) == 4u * period + period / 100u * 5u &&
                   groove_vel(&trk[0], 0) == 4);
     lists.groove[0] = 0; lists.gamt[0] = 100;
+    {   /* (a review) the timed notes' schedule key: any one field changed alone changes it, groove on or off */
+        uint32_t k0 = recording_key(&trk[0]), okk;
+        song.g[G_SWING] += 1; okk = recording_key(&trk[0]) != k0; song.g[G_SWING] -= 1;
+        trk[0].p[P_SLEN] = 18; okk &= recording_key(&trk[0]) != k0; trk[0].p[P_SLEN] = 16;
+        lists.groove[0] = 2; okk &= recording_key(&trk[0]) != k0;
+        k0 = recording_key(&trk[0]); lists.gamt[0] = 95; okk &= recording_key(&trk[0]) != k0;
+        k0 = recording_key(&trk[0]); song.g[G_SWING] += 1; okk &= recording_key(&trk[0]) != k0; song.g[G_SWING] -= 1;
+        lists.groove[0] = 0; lists.gamt[0] = 100;
+        bad |= lcheck("... the timed notes' schedule sees a swing, LEN or groove change", okk);
+    }
     return bad;
 }
 

@@ -229,6 +229,18 @@ static uint32_t recording_prefix(const track_t *t, uint32_t period, uint32_t idx
     int32_t sw = track_swing(t) * (int32_t)period / 250;
     return idx * period + ((idx & 1u) ? (uint32_t)sw : 0u) + (uint32_t)groove_part(t, period, idx);
 }
+/* (Orange Cat 0.4.5) the step an onset `at` (inside the loop) falls in, *pos how far into it, *span its length: the
+ * steps as they are timed (swing, groove) */
+static uint32_t recording_step_of(const track_t *t, uint32_t period, uint32_t at, uint32_t *pos, uint32_t *span)
+{
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), c = period ? at / period : 0u;
+    if (c >= len) c = len - 1u;
+    while (c > 0u && recording_prefix(t, period, c) > at) c--;
+    while (c + 1u < len && recording_prefix(t, period, c + 1u) <= at) c++;
+    *pos = at - recording_prefix(t, period, c);
+    *span = step_samples(t, period, c);
+    return c;
+}
 static uint32_t recording_loop(const track_t *t, uint32_t period)
 {
     return recording_prefix(t, period, (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP));
@@ -501,7 +513,8 @@ static uint32_t recording_quant_on(const track_t *t, const recorded_note_t *r, u
 {
     uint32_t loop = recording_loop(t, period), at = recording_raw_on(t, r, period);
     if (!q) return at;
-    uint32_t grid = seq_div_samples(q - 1u), a = step_samples(t, grid, 0), b = step_samples(t, grid, 1);
+    uint32_t grid = seq_div_samples(q - 1u), a = swing_only_len(t, grid, 0), b = swing_only_len(t, grid, 1);   /* (0.4.5:
+                                                                           * another grid: swung, not grooved) */
     uint32_t base = at / (a + b) * (a + b), best = 0, distance = at;
     if (grid == period && lists.groove[trk_index(t) % NTRK]) {   /* (Orange Cat 0.4.5) the grid the steps are: the
                                                                   * steps as they are timed, groove and all */
@@ -527,10 +540,13 @@ static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_
 }
 static uint32_t recording_key(const track_t *t)
 {
-    return (uint32_t)t->p[P_RECQ] | (uint32_t)t->p[P_SSWING] << 4 |
-        (uint32_t)song.g[G_SWING] << 11 | (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25 ^
-        ((uint32_t)lists.groove[trk_index(t) % NTRK] << 8 | (uint32_t)lists.gamt[trk_index(t) % NTRK]) * 2654435761u;   /* (Orange Cat
-                                                                                                * 0.4.5: the groove) */
+    uint32_t g = lists.groove[trk_index(t) % NTRK];
+    return ((uint32_t)t->p[P_RECQ] | (uint32_t)t->p[P_SSWING] << 4 | (uint32_t)song.g[G_SWING] << 11 |
+            (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25) ^
+           (g ? (g << 8 | (uint32_t)lists.gamt[trk_index(t) % NTRK]) * 2654435761u : 0u);   /* (Orange Cat 0.4.5: the
+                                                                                         * groove, folded in: a change of
+                                                                                         * one field alone always shows;
+                                                                                         * none at all with it off) */
 }
 static void recording_insert(track_t *t, uint32_t i)
 {

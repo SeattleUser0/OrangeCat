@@ -568,6 +568,12 @@ static inline int32_t track_swing(const track_t *t)
     int32_t sw = t->p[P_SSWING] + song.g[G_SWING];
     return sw < 0 ? 0 : sw > SWING_MAX ? SWING_MAX : sw;
 }
+/* (Orange Cat 0.4.5) swung, never grooved: a grid that is not the track's steps (record quantize at another QNT) */
+static inline uint32_t swing_only_len(const track_t *t, uint32_t base, uint32_t idx)
+{
+    int32_t sw = track_swing(t) * (int32_t)base / 250;
+    return (uint32_t)((int32_t)base + ((idx & 1u) ? -sw : sw));
+}
 /* (Orange Cat 0.4.5, build doc 4f) a track's groove: where step idx of a straight length `base` starts, against the
  * straight grid (pattern.c: the template's offset, its amount; 0 at step 0 and at the loop's end) */
 static int32_t groove_part(const track_t *t, uint32_t base, uint32_t idx);

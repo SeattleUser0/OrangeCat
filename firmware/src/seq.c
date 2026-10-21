@@ -945,12 +945,12 @@ static void seq_release(track_t *t)
 
 #include "seq_erase.c"
 
-/* Map a quantized onset back to the compact tempo-relative event format. The
- * inverse swung pair calculation is constant-time, even at a 64-step boundary. */
-static void recording_quant_position(const recorded_note_t *r, uint32_t at, uint32_t a, uint32_t b, uint32_t len, recorded_note_t *out)
+/* Map a quantized onset back to the compact tempo-relative event format. (Orange Cat 0.4.5) The step it falls in, as
+ * the steps are timed (swing, groove): recording_step_of, a few steps' look at most. */
+static void recording_quant_position(const track_t *t, uint32_t period, const recorded_note_t *r, uint32_t at, uint32_t len,
+                                     recorded_note_t *out)
 {
-    uint32_t actual = at / (a + b) * 2u, pos = at % (a + b), span = a;
-    if (pos >= a) { actual++; pos -= a; span = b; }
+    uint32_t pos, span, actual = recording_step_of(t, period, at, &pos, &span);
     uint32_t fraction = span <= 65536u ? (pos * RECORD_UNIT + span / 2u) / span :
         (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span);
     *out = *r;
@@ -967,7 +967,6 @@ static void recording_quantize(track_t *t)
     if (!t->p[P_RECQ]) return;
     uint32_t owner = recording_owner(t), q = (uint32_t)t->p[P_RECQ], period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), blocked = 0;
-    uint32_t a = step_samples(t, period, 0), b = step_samples(t, period, 1);
     recording_sync(t, period);
     /* Playback always caches captured onsets. Only punch-out prepares the
      * quantized targets; no alternate grid enters the playback cursor. */
@@ -975,8 +974,7 @@ static void recording_quantize(track_t *t)
         if (recording_flags[i] & 8u) recording_due[i] = recording_quant_on(t, &recording[i], period, q);
     if (q) for (uint32_t i = recording_head[owner]; i < RECORD_MAX; i = recording_next[i]) {
         if (!(recording_flags[i] & 8u) || !recording_active(t, i)) continue;
-        uint32_t at = recording_due[i], actual = at / (a + b) * 2u, pos = at % (a + b), span = a;
-        if (pos >= a) { actual++; pos -= a; span = b; }
+        uint32_t at = recording_due[i], pos, span, actual = recording_step_of(t, period, at, &pos, &span);   /* (0.4.5) */
         uint32_t rounded = (uint64_t)pos * RECORD_UNIT + span / 2u >= (uint64_t)span * (RECORD_UNIT / 2u);
         uint32_t view = rounded && actual + 1u == len ? 0u : actual + rounded, start = view;
         for (uint32_t n = 0; n < len && t->step[start].time == ST_TIE; n++) start = (start + len - 1u) % len;
@@ -993,7 +991,7 @@ static void recording_quantize(track_t *t)
          * the pass. Once committed, QNT cannot alter this take's playback. */
         recording_due[i] = recording_raw_on(t, &recording[i], period);
         if (!q || blocked || !recording_active(t, i)) continue;
-        recorded_note_t target; recording_quant_position(&recording[i], at, a, b, len, &target);
+        recorded_note_t target; recording_quant_position(t, period, &recording[i], at, len, &target);
         if (target.on == recording[i].on && target.step == recording[i].step) continue;
         uint32_t source = recording_view(t, &recording[i]), view = recording_view(t, &target);
         if (!(t->step[view].flags & SF_RECORDED)) {
