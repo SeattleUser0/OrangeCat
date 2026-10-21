@@ -1,12 +1,14 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.4  
-**Date:** October 20, 2026  
+**Version:** 0.6  
+**Date:** October 21, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.6 (October 21, 2026):** USB flash drive test results (10.5): the FM-1 reads a drive as a USB host when its port gets power from a hub on PD power. It does not power the port itself.
+- **0.5 (October 21, 2026):** Arrangement changed to three levels, as in the M8 and LSDJ trackers: phrases from the shared pool, chains of phrases, and a song of chains for each track (7.3). Decided after the first device test.
 - **0.4 (October 20, 2026):** Arrangement set to Skiff's model: a shared pool of 64 patterns and a pattern list per track (7.3). BEETLE added as the tracker view reference (6, 15). Builds run on GitHub Actions through the shared FM-1 builder; local Docker builds are optional (2.2).
 - **0.3 (October 20, 2026):** Engines loadable from the web editor added as a feasibility goal (8.4). USB flash drive testing moved early, with what the source shows about USB (10.5). Implementation order rewritten: strip Melodee's engines, port Skiff's sequencer and arranger, then fit Mutable engines in the space left (14). Build tracking moved to Build.md.
 - **0.2 (October 20, 2026):** Code base changed from FM1 Open to Melodee 1.4.5 after a source review of Melodee and Skiff (sections 1, 2.2, 3, 7.1, 14, 15). Notes added on what Melodee and Skiff already provide for tracks, voice budgeting, timed notes, and engines (4.1, 4.2, 5, 8.1, 8.2). Clock set to 360 MHz on both cores (2.1). Measured hardware limits added (2.1.1). Swing and groove added (7.2, 13). Skiff's existing sample zones noted as the bounce starting point (10.2). Storage, USB stems and recovery updated to match what Melodee and Skiff already do (10.5, 11.1, 11.2). Open decisions updated (13).
@@ -297,12 +299,13 @@ Pattern changes shall occur at a defined musical boundary unless the user explic
 
 ### 7.3 Arrangement
 
-Use Skiff's arrangement workflow:
+Use three levels, as in the M8 and LSDJ trackers, built on Skiff's shared pattern pool:
 
-- A shared pool of 64 patterns. Any track can use any pattern.
-- Each track has its own list of 16 entries (A to P). Each entry names a pattern and how many times it repeats.
-- SONG mode plays each track down its own list.
-- PERFORM mode launches list entries live, stages mutes, and recalls 16 scenes.
+- **Phrases:** a shared pool of 64 phrases (Skiff's patterns), used by every project. Any track can play any phrase.
+- **Chains:** each project has 64 chains. A chain has 16 slots (A to P). Each slot names a phrase and how many times it repeats. Each track plays one chain at a time.
+- **Song:** 64 rows. Each row names a chain for each track. Each track goes down its own column at its own pace. An empty cell, or the last row, sends the track back to the top of its block of filled rows.
+- PLAY on the song page plays the song from the row picked. PLAY on the chain page plays each track's chain. PLAY on a phrase page loops each track's phrase.
+- PERFORM mode launches chain slots live, stages mutes, and recalls 16 scenes.
 
 Melodee's per-track pattern banks and song sections are replaced. Melodee projects shall import into this model.
 
@@ -459,14 +462,14 @@ The FM-1 has 1 MiB of flash in total (2.1.1). Melodee disabled user samples and 
 
 Orange Cat shall set aside a sample and bounce area by reclaiming flash, and the interface shall show its size and what is left.
 
-USB flash drive support shall be tested early (Build.md, phase 1). What the source shows so far:
+USB flash drive support was tested early (Build.md, phase 2). Results on the FM-1 (October 21, 2026):
 
-- Neither Melodee nor Skiff has USB host code. Their USB driver runs the port as a device only (MIDI, audio, serial).
-- The USB controller is a MUSB-style core. That family normally supports host mode, but this has not been tried on the FM-1.
-- The FM-1 may not supply 5 V to the port. A powered OTG adapter or hub may be needed.
-- One port cannot be host and device at the same time. While a drive is in use, USB MIDI, USB audio, and the web editor would be offline.
+- Orange Cat runs the USB port as a host (Menu > USB DRIVE TEST). Neither Melodee nor Skiff had host code; Orange Cat's is written from JieLi's register notes.
+- The FM-1 does not put 5 V on its port. A drive plugged straight in gets no power and is not seen.
+- Through a USB-C hub with power on its PD port, it works: the hub powers the drive and the FM-1's port. A 32 GB FAT32 SD card in the hub's slot read at 914 KB/s, about the limit of full speed USB (12 Mbit/s).
+- One port cannot be host and device at the same time. While a drive is in use, USB MIDI, USB audio, and the web editor are offline.
 
-If a drive works, samples and bounces can be stored off the internal flash and copied in as needed. If not, they stay in the internal flash area above.
+So samples and bounces can be kept on a card or drive and copied in as needed, with a powered hub. Without one, they stay in the internal flash area above. 914 KB/s is enough to copy samples in quickly and may be enough to stream a few tracks.
 
 Whole-track or song-length freezing is not a baseline requirement.
 

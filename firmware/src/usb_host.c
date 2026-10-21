@@ -28,6 +28,12 @@
  *          storage device that does not read (a card reader with no card) is passed over for the next, and with no
  *          drive read the page lists every device found with its place ("1.3": port 3 of the hub on port 1).
  *          Waits feed the watchdog (uh_wait): a walk can take several seconds.
+ *   0.4.9 (after the second unit test): the SD card in the hub's slot read (29.7 GB, FAT32, 914 KB/s: about what full speed
+ *          USB carries). A card reader stick in the hub's port 3 failed its first command (INQUIRY) and the walk
+ *          went on, so the error code was lost. Now: GET_MAX_LUN first (a reader may have a slot for each card
+ *          type; each is tried, "slot 2" on the page when it is not the first), 300 ms before the first command (Linux
+ *          waits a second), one retry after a Bulk-Only reset and 1 s, the error kept in the reason ("3: no answer,
+ *          stall"), and the list keeps hubs and disks only (a USB-C billboard device took a line).
  */
 #ifndef UH_LINES_READ
 #define UH_LINES_READ() fm1_usb_lines()                 /* (host tests replace the hardware read) */
@@ -46,6 +52,7 @@ static struct {
     uint8_t csr, devctl;        /* the last CSR seen, DEVCTL after the session started */
     uint8_t sie;                /* 1: the controller answered when attached as a host */
     uint8_t want;               /* the page asks (ui_menu.c); the main loop opens and closes (usbh_task) */
+    uint8_t lun, ifc;           /* (0.4.9) the drive's slot (SCSI LUN) commands go to; its interface number */
     int8_t err;                 /* the last error (UE_*), 0 none */
     uint32_t t_ms;              /* when the lines changed */
     uint32_t gen;               /* the page redraws when this changes */
@@ -268,6 +275,7 @@ static int uh_scsi(const uint8_t *cb, uint32_t cl, uint8_t *d, uint32_t n)
         w[8 + i] = (uint8_t)(n >> (8u * i));
     }
     w[12] = n ? 0x80u : 0;                              /* data IN */
+    w[13] = usbh.lun;                                   /* (0.4.9) the slot */
     w[14] = (uint8_t)cl;
     for (i = 0; i < cl && i < 16u; i++) w[15 + i] = cb[i];
     if ((r = uh_out(w, 31)) < 0) {
@@ -320,14 +328,27 @@ static const char *uh_sector0_kind(const uint8_t *s)
 }
 
 static char *uh_path(char *b);
-/* a storage device that did not read: the page's line, and the reason kept for the list ("1.2: Not ready") */
+static const char *uh_err_name(int e);
+/* a storage device that did not read: the page's line, and the reason kept for the list ("1.2: no card?", "3: no
+ * answer, stall": (0.4.9) the error too, since the walk goes on and the diagnostic line moves with it) */
 static int uh_msc_fail(uint32_t line, const char *s, const char *brief)
 {
-    char *e = uh_path(uh_walk.why);
+    char *e = uh_path(uh_walk.why), b[UH_LINE];
     uh_set(line, s);
     e = uh_cat(e, ": ");
     str_cpy(e, brief, (unsigned)(UH_LINE - (uint32_t)(e - uh_walk.why)));
+    if (usbh.err && usbh.err != UE_CHECK && str_len(uh_walk.why) + 2u + str_len(uh_err_name(usbh.err)) < UH_LINE) {
+        uh_cat(uh_cat(b, ", "), uh_err_name(usbh.err));
+        uh_cat(uh_walk.why + str_len(uh_walk.why), b);
+    }
     return 0;
+}
+/* (0.4.9) Bulk-Only Mass Storage Reset, then both endpoints' halts cleared */
+static void uh_bot_reset(void)
+{
+    uh_ctrl(0x21u, 0xFFu, 0, usbh.ifc, 0, 0, 0);
+    uh_unstall((uint8_t)(usbh.ep_in | 0x80u));
+    uh_unstall(usbh.ep_out);
 }
 /* INQUIRY, TEST UNIT READY (the drive may need a moment), READ CAPACITY, sector 0, 256 KB timed. 1 read */
 static int uh_msc(void)
@@ -336,12 +357,24 @@ static int uh_msc(void)
     static const uint8_t CAP[10] = {0x25};
     uint8_t cb[10], *d = uh_sec;
     char b[UH_LINE], *e;
-    uint32_t i, tries, blocks, bsize, t0;
+    uint32_t i, tries, blocks, bsize, t0, got = 0, lun, maxlun;
     int r, ready = 0;
+    uint8_t m = 0;
     usbh.step = 30;
     for (i = 4; i < UH_LINES; i++) usbh.line[i][0] = 0;   /* (0.4.8: nothing left from a device before) */
+    usbh.lun = 0;
     uh_bulk_setup();
-    if ((r = uh_scsi(INQ, 6, d, 36)) < 0) return uh_msc_fail(5, "Drive did not answer", "no answer");
+    if (uh_ctrl(0xA1u, 0xFEu, 0, usbh.ifc, 1, &m, &got) < 0 || got < 1u)   /* GET_MAX_LUN (a stall: one slot) */
+        m = 0;
+    maxlun = m > 3u ? 3u : m;
+    uh_wait(300);                                       /* (0.4.9) a moment before the first command */
+    usbh.err = 0;
+    if (uh_scsi(INQ, 6, d, 36) < 0) {                   /* (0.4.9) once more, after a reset and a second */
+        uh_bot_reset();
+        uh_wait(1000);
+        if (uh_scsi(INQ, 6, d, 36) < 0)
+            return uh_msc_fail(5, "Drive did not answer", "no answer");
+    }
     for (i = 8, e = b; i < 32u && e < b + UH_LINE - 1; i++)  /* vendor 8..15, product 16..31 */
         if (d[i] >= 32u && d[i] < 127u && !(d[i] == ' ' && (e == b || e[-1] == ' ')))
             *e++ = (char)d[i];
@@ -349,19 +382,27 @@ static int uh_msc(void)
     *e = 0;
     if (str_len(b) != str_len(usbh.line[3]) || memcmp(b, usbh.line[3], str_len(b)))
         uh_set(4, b);                                   /* (the drive's own name, when it differs from line 3) */
-    usbh.step = 31;
-    for (tries = 0; tries < 20u; tries++) {
-        if (uh_scsi(TUR, 6, 0, 0) == 0) { ready = 1; break; }
-        uh_scsi(SENSE, 6, d, 18);
-        uh_wait(100);
+    for (lun = 0; lun <= maxlun; lun++) {             /* (0.4.9) each slot until one has a card that reads */
+        usbh.lun = (uint8_t)lun;
+        usbh.step = 31;
+        ready = 0;
+        for (tries = 0; tries < (maxlun ? 10u : 20u); tries++) {
+            if (uh_scsi(TUR, 6, 0, 0) == 0) { ready = 1; break; }
+            uh_scsi(SENSE, 6, d, 18);
+            uh_wait(100);
+        }
+        usbh.step = 32;
+        if (uh_scsi(CAP, 10, d, 8) == 0)
+            break;
     }
-    usbh.step = 32;
-    if ((r = uh_scsi(CAP, 10, d, 8)) < 0)
+    if (lun > maxlun) {
+        usbh.lun = 0;
         return uh_msc_fail(5, ready ? "Size did not read" : "Not ready (no card?)", ready ? "no size" : "no card?");
+    }
     blocks = uh_be32(d) + 1u;
     bsize = uh_be32(d + 4);
-    e = uh_cat(b, "Drive ");
-    uh_size(e, blocks, bsize);
+    e = uh_size(uh_cat(b, "Drive "), blocks, bsize);
+    if (lun) uh_dec(uh_cat(e, ", slot "), lun + 1u);     /* (0.4.9) not the reader's first slot */
     uh_set(5, b);
     usbh.step = 33;
     for (i = 0; i < 10u; i++) cb[i] = 0;
@@ -466,6 +507,7 @@ static int uh_enumerate(uint8_t a)
             uh_dev.cls = d[i + 5];
             uh_dev.sub = d[i + 6];
             uh_dev.proto = d[i + 7];
+            usbh.ifc = d[i + 2];
         }
         if (d[i + 1] == 5u && i + 7u <= got && (d[i + 3] & 3u) == 2u) {
             if (d[i + 2] & 0x80u) { if (!usbh.ep_in) usbh.ep_in = d[i + 2] & 15u; }
@@ -490,11 +532,13 @@ static char *uh_path(char *b)
     }
     return e;
 }
-/* one line of the list: "1.3 05E3:0749 disk", "top 1A40:0801 hub", "2 046D:C31C c03", "1.2 no answer" */
+/* one line of the list: "1.3 05E3:0749 disk", "top 1A40:0801 hub", "1.2 no answer" ((0.4.9) other devices left out:
+ * a keyboard, a USB-C billboard (c11) took lines a drive's place needed) */
 static void uh_log(int answered)
 {
     char *e;
     if (uh_walk.n >= UH_LOG) return;
+    if (answered && uh_dev.cls != 8u && uh_dev.cls != 9u) return;   /* (0.4.9) hubs and disks only */
     e = uh_path(uh_walk.log[uh_walk.n]);
     *e++ = ' ';
     if (!answered) {
@@ -638,7 +682,7 @@ static void uh_probe(void)
         }
         return;
     }
-    if (uh_walk.n == 1u && !uh_walk.why[0]) {           /* one device, not a drive: its lines say what it is */
+    if (uh_walk.next == 1u && !uh_walk.why[0]) {        /* one device, not a drive: its lines say what it is */
         e = uh_cat(b, uh_dev.cls == 8u ? "Storage, not bulk-only" : uh_dev.cls == 9u ? "Hub, nothing on it" :
                    "Not a drive, class ");
         if (uh_dev.cls != 8u && uh_dev.cls != 9u) uh_hex(e, uh_dev.cls, 2);

@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.24  
+**Version:** 0.25  
 **Date:** October 21, 2026  
-**Tracks:** Orange Cat Specification v0.5
+**Tracks:** Orange Cat Specification v0.6
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.25 (October 21, 2026):** The FM-1 read an SD card through a powered hub (29.7 GB, FAT32, 914 KB/s). 0.4.9: card reader slots, a retry after a reset, the error kept.
 - **0.24 (October 21, 2026):** First drive test on the unit: host mode works when the port gets power. 0.4.8 walks hubs inside hubs.
 - **0.23 (October 21, 2026):** 0.4.7: phase 2 started. Menu > USB DRIVE TEST, a test build for the flash drive question.
 - **0.22 (October 21, 2026):** 0.4.6: SEQ tools (Shift right, Shift left, Reverse). Groove review fixes. Fixes from a review of the new pages.
@@ -41,7 +42,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 |---|---|---|
 | 0 | Specification and source review | Done |
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
-| 2 | USB flash drive test | In progress (test build ready) |
+| 2 | USB flash drive test | Works with a powered hub; card reader stick left to test |
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
@@ -152,7 +153,7 @@ Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variable
 
 ## Phase 2: USB flash drive test
 
-**Status: In progress.** Host mode works on the FM-1 when its port gets power (first test, October 21). 0.4.8 needs a run to read a drive.
+**Status: Answered, with one test left.** The FM-1 reads a drive as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. A card reader stick behind the hub did not answer; 0.4.9 is for that.
 
 Goal: find out if the FM-1 can read a USB flash drive. This decides where samples and bounces can live.
 
@@ -167,6 +168,9 @@ Done:
 - [x] Test firmware (0.4.7): Menu > USB DRIVE TEST. OCT+ on it turns the port into a host. The page waits for something to be plugged in, then shows its speed, maker and model (vendor and product ID and names), and its class. A flash drive is then read: its name, its size, sector 0 (FAT32, exFAT and so on) and a read speed over 256 KB. One hub in between is followed to the first port with something on it. OCT- (or leaving the menu) turns the port back into the normal device.
 - [x] The bottom line of the page shows where the test got to, for a photo: L (the D+ and D- levels: 0 nothing, 2 a full speed device, 1 low speed), A (the address of the device being talked to: 1 the first, then one more for each device behind hubs), S (the step reached: 0 waiting, 11 to 16 setting up a device, 30 to 35 reading the drive, 40 to 42 a hub's ports), C (the last status byte), D (DEVCTL; 5D or 4D is a host with a full speed device), E (the last error: 1 timeout, 2 stall, 3 error, 4 no answer, 5 short, 6 bad status, 7 failed).
 - [x] First test on the unit (0.4.7, October 21). A USB card reader with a 32 GB FAT32 card straight into the FM-1: "Waiting for a drive" forever (no 5 V on the port). An RCA C109 hub with power on its PD port: host mode on, the hub found, and on its port 1 a second hub (1A40:0801, a Terminus FE1.1s) inside it. 0.4.7 followed only one hub, so it stopped there ("Not a drive, class 09", L2 S26 C41 D4D E0). The card reader plugged into the hub: the same, since it sits behind the second hub too.
+- [x] Second test on the unit (0.4.8, October 21). The SD card in the RCA hub's slot read: "Through hubs: 1.2", ID 05E3:0751 (the hub's own reader), Drive 29.7 GB, Disk: FAT32, Read 914 KB/s. That is about what full speed USB carries (12 Mbit/s).
+- [x] Same test with the card in a USB card reader stick in the hub's port 3: "No drive read". The list: top 2109:2817 hub (VIA), 1 1A40:0801 hub, 1.1 2109:0102 (a USB-C billboard device, class 11), 1.2 05E3:0751 disk (the hub's reader, empty now), 3 05E3:0749 disk (the stick). The stick failed its first command, INQUIRY ("3: no answer"). The walk went on, so the error code was lost.
+- [x] 0.4.9: GET_MAX_LUN first, so each slot of a reader is tried ("Drive 29.7 GB, slot 2" when the card is not in the first one); 300 ms before the first command; if INQUIRY fails, a Bulk-Only reset, 1 s, and one more try; the reason keeps the error ("3: no answer, stall"); the list keeps hubs and disks only.
 - [x] 0.4.8: hubs are walked up to three deep, every port with something on it, until a drive reads. A storage device that does not read (the hub's SD slot with no card) is passed over for the next. With no drive read, the page lists what it found with its place: "1.2" is port 2 of the hub on port 1. Low speed devices behind a hub are passed over.
 - [x] Host test (usb_host_test): a model of the controller with a flash drive (EP0 of 64 and of 8 bytes), a keyboard, a drive that is not ready at first, a device that never answers, a controller that does not answer, and (0.4.8) the RCA hub as found: two hubs, a low speed keyboard, an SD reader with no card, the drive behind them; the same with no drive (the list); a hub with nothing on it. The model flags two devices answering at one address.
 
@@ -177,12 +181,14 @@ Left to build:
 Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] Drive plugged straight into the FM-1: not seen. The FM-1 puts no 5 V on its port.
 - [x] A hub with power on its PD port: host mode works, the hub is found (0.4.7).
-- [ ] 0.4.8 with the RCA hub on PD power: the SD card in the hub's slot, then a flash drive in one of its USB-A ports.
+- [x] 0.4.8 with the RCA hub on PD power: the SD card in the hub's slot reads (914 KB/s).
+- [ ] 0.4.9: the card reader stick in the hub's port 3, card in it, hub slot empty.
+- [ ] A plain USB flash drive in one of the hub's USB-A ports.
 - [ ] Read speed: enough to copy samples into flash? Enough to stream?
 - [ ] After OCT-, USB MIDI, USB audio and the web editor work again without a power cycle.
 - [ ] A photo of the page for each try, so the bottom line can be read.
 
-Result so far: works only with external power (a hub on PD power). Reading a drive still to be seen.
+Result: works only with external power (a hub on PD power). 914 KB/s read.
 
 ---
 

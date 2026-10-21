@@ -128,6 +128,8 @@ static void str_cpy(char *d, const char *s, unsigned max)
 enum { D_DRIVE, D_HUB, D_KEYS, D_READER };
 typedef struct {
     int kind, addr, mps0, configured, parent, port, on, ls, nports;
+    int maxlun, card_lun, deaf, stall_in;              /* stall_in: the next bulk IN stalls (a failed data phase) */                         /* (0.4.8) a reader's slots, the one with a card (-1 none); deaf:
+                                                         * every bulk IN stalls until a Bulk-Only reset */
     uint16_t vid, pid;
     int pstate[8];                                      /* a hub's ports: 1 reset done (C_PORT_RESET), 2 cleared */
     uint8_t in[512 + 64];                               /* the control IN data queued */
@@ -135,7 +137,7 @@ typedef struct {
     int stall;
 } dev_t;
 static dev_t devs[8];
-static int ndev, drive_not_ready, scsi_tur_count, conflicts;
+static int ndev, drive_not_ready, scsi_tur_count, conflicts, bulk_resets;
 static uint32_t setups, faddr_bad;
 static dev_t *cur;
 
@@ -246,6 +248,12 @@ static int dev_setup(const uint8_t *s)
             st[2] = cur->pstate[idx] == 1 ? 0x10 : 0;
         }
         q(st, 4, len);
+    } else if (rt == 0xA1 && rq == 0xFE) {              /* GET_MAX_LUN: a drive stalls it (allowed), a reader answers */
+        uint8_t m = (uint8_t)cur->maxlun;
+        if (cur->kind == D_READER) q(&m, 1, len); else cur->stall = 1;
+    } else if (rt == 0x21 && rq == 0xFF) {              /* Bulk-Only Mass Storage Reset */
+        if (cur->deaf == 1) cur->deaf = 0;              /* (deaf 2: a reset does not help) */
+        bulk_resets++;
     } else if (rt == 0x02 && rq == 1) {                 /* CLEAR_FEATURE(ENDPOINT_HALT) */
     } else {
         cur->stall = 1;
@@ -287,7 +295,10 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
 {
     dev_t *d = route();
     uint32_t len;
+    int lun = p[13], card;
     assert(d && (d->kind == D_DRIVE || d->kind == D_READER) && d->configured == 1);
+    assert(lun <= d->maxlun);
+    card = d->kind == D_DRIVE || lun == d->card_lun;
     assert(n == 31 && !memcmp(p, "USBC", 4));          /* every CBW in one packet */
     memcpy(&last_tag, p + 4, 4);
     memcpy(&len, p + 8, 4);
@@ -301,7 +312,7 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
     }
     case 0x00:
         scsi_tur_count++;
-        if (d->kind == D_READER) { sense_key = 2; csw(0, 1); }          /* no card, ever */
+        if (!card) { sense_key = 2; csw(0, 1); }        /* no card in that slot */
         else if (drive_not_ready) { drive_not_ready--; sense_key = 2; csw(0, 1); }
         else csw(0, 0);
         break;
@@ -311,7 +322,7 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
         break;
     }
     case 0x25: {
-        if (d->kind == D_READER) { csw(len, 1); break; }
+        if (!card) { csw(len, 1); d->stall_in = 1; break; }   /* no data: the IN pipe stalls, then the CSW */
         uint8_t r[8] = {0x01, 0xCA, 0x3F, 0xFF, 0, 0, 2, 0};     /* 30031872 blocks of 512 */
         memcpy(bin, r, 8); bin_n = 8; csw(0, 0);
         break;
@@ -332,6 +343,9 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
 }
 static int dev_bulk_in(uint8_t *d)
 {
+    dev_t *v = route();
+    if (v && v->deaf) return -1;
+    if (v && v->stall_in) { v->stall_in = 0; return -1; }
     uint32_t n = (bin_at < bin_data ? bin_data : bin_n) - bin_at;   /* the data, then the CSW on its own */
     if (n > 64u) n = 64u;
     memcpy(d, bin + bin_at, n);
@@ -346,7 +360,7 @@ static void reset_world(void)
     memset(&usbh, 0, sizeof usbh);
     memset(common, 0, sizeof common);
     memset(regs, 0, sizeof regs);
-    ndev = drive_not_ready = scsi_tur_count = conflicts = 0;
+    ndev = drive_not_ready = scsi_tur_count = conflicts = bulk_resets = 0;
     setups = faddr_bad = 0;
     lines = 0;
     sie_alive = 1;
@@ -364,7 +378,7 @@ static int add(int kind, int mps0, int parent, int port)
     d->port = port;
     d->on = parent < 0;
     d->nports = 4;
-    if (kind == D_READER) { d->vid = 0x05E3; d->pid = 0x0749; }
+    if (kind == D_READER) { d->vid = 0x05E3; d->pid = 0x0749; d->card_lun = -1; }
     return ndev++;
 }
 static void run_ms(uint32_t ms)
@@ -426,7 +440,7 @@ static void rca(int with_drive)
     devs[add(D_KEYS, 8, h2, 1)].ls = 1;
     add(D_READER, 64, h2, 2);
     if (with_drive) add(D_DRIVE, 64, h2, 4);
-    add(D_KEYS, 8, top, 3);
+    add(D_KEYS, 8, top, 3);                             /* (not in the list: hubs and disks only) */
 }
 static int t_hub(void)
 {
@@ -458,7 +472,48 @@ static int t_hub_no_drive(void)
     assert(usbh.st == UH_DONE && !conflicts);
     assert(line_is(1, "No drive read"));
     assert(line_is(2, "top 05E3:0610 hub") && line_is(3, "1 1A40:0801 hub") && line_is(4, "1.2 05E3:0749 disk"));
-    assert(line_is(5, "3 046D:C31C c03") && line_is(7, "1.2: no card?"));
+    assert(!usbh.line[5][0] && line_is(7, "1.2: no card?"));
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
+/* (0.4.8) the second unit test: the stick reader on the top hub's port 3, here deaf until a Bulk-Only reset, with
+ * two slots and the card in the second; the hub's own reader (1.2) empty */
+static int t_reader_stick(void)
+{
+    int k;
+    reset_world();
+    rca(0);
+    k = add(D_READER, 64, 0, 4);
+    devs[k].maxlun = 1;
+    devs[k].card_lun = 1;
+    devs[k].deaf = 1;
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(20000);
+    show("stick reader: reset, card in slot 2");
+    assert(usbh.st == UH_DONE && !conflicts && bulk_resets == 1);
+    assert(line_is(1, "Through hubs: 4") && line_is(2, "ID 05E3:0749") && line_is(5, "Drive 14.3 GB, slot 2"));
+    assert(line_is(6, "Disk: FAT32"));
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
+/* a reader that never answers: the reason keeps the error */
+static int t_reader_deaf(void)
+{
+    int k;
+    reset_world();
+    rca(0);
+    k = add(D_READER, 64, 0, 4);
+    devs[k].deaf = 2;                                   /* (a reset does not help) */
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(20000);
+    show("stick reader that never answers");
+    assert(line_is(1, "No drive read") && line_is(5, "4 05E3:0749 disk") && line_is(7, "4: no answer, stall"));
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -539,7 +594,7 @@ static int t_silent_device(void)
 
 int main(void)
 {
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_hub_empty() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }
