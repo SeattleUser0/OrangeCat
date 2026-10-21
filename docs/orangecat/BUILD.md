@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.30  
+**Version:** 0.31  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.31 (October 21, 2026):** 0.4.12: the playing WAV read by the 10 kHz timer interrupt, not the main loop. By ear 0.4.11 was clean, the sequencer steady.
 - **0.30 (October 21, 2026):** 0.4.11 on the unit: a WAV plays from the card with no gaps, alone and over three tracks. The reading costs main loop time, not audio time.
 - **0.29 (October 21, 2026):** 0.4.11: a WAV plays from the card (plan steps 2 and 4 as one test): the audio load, the card's share of the main loop and any gaps on the page.
 - **0.28 (October 21, 2026):** 0.4.10 on the unit: files list and WAVs read; 470 to 480 KB/s in 512-byte reads.
@@ -202,12 +203,21 @@ Left to test, files (0.4.10, the RCA hub on PD power, the 32 GB card with a few 
 Left to test, playing (0.4.11):
 - [x] A WAV alone (October 21): 44.1 kHz 16-bit stereo: CPU 9%, card 29%, gaps 0. 44.1 kHz 24-bit mono: CPU 9%, card 23%, gaps 0.
 - [x] With three tracks playing, then the 16-bit stereo WAV: CPU 30%, card 38%, gaps 0.
-- [ ] By ear: the WAV clean, the sequencer's timing steady, the screen usable while it plays.
+- [x] By ear (0.4.11): the WAV clean, no clicks or pops; the sequencer steady; no screen flicker.
 - [ ] A 48 kHz WAV at the right pitch.
 
 What the numbers say: the audio load does not move with the card (9% with the WAV alone; 30% with three tracks, about what three tracks cost without it). The reading costs main loop time: 29% of it for one stereo 16-bit track (176 KB/s), more (38%) when the synths take more of the processor. The bus itself is only about a fifth busy at 176 KB/s; most of that 29% is the processor waiting on each 64-byte packet (the host code polls). So two stereo tracks this way would take most of the main loop, and the screen and keys would suffer.
 
-Next, to carry more tracks: move the transfers out of the main loop and stop waiting on the bus. The controller moves each packet by DMA; the processor only has to start the next one. Driven from an interrupt (the USB controller's own, or the 10 kHz timer), that is a few microseconds a packet, a few percent of the processor for a stereo track, and the main loop free. Then larger reads where memory allows.
+Built in 0.4.12 (card_stream.c): the reading moved to the 10 kHz TIMER5 interrupt. Each tick takes one step of a READ(10) of 16 sectors (8 KB): the command out, then each 64-byte packet in as it lands, turned straight into frames in the ring, then the status. Nothing waits on the bus, and there is no read buffer any more (the 4 KB one is gone). The main loop maps the file onto the card first (the runs of sectors its clusters make, from FatFs's chain; up to 32 runs) and then only watches. When FatFs needs the bus (a folder listed while the WAV plays) it waits for the command in hand to end and holds the engine. The page's "card n%" is now the processor time spent in the timer's reading.
+
+One packet a tick caps the stream at about 640 KB/s (10,000 ticks x 64 bytes), about three and a half stereo tracks; the bus itself carries about 900 KB/s. The USB controller's own interrupt could take it the rest of the way later.
+
+Left to test (0.4.12):
+- [ ] The same three runs as 0.4.11: a stereo WAV alone, a mono 24-bit WAV, and three tracks then the WAV. The "card" figure should drop well below 29%, gaps still 0.
+- [ ] Moving through the file list while the WAV plays (FatFs and the stream share the bus).
+- [ ] Pulling the card out while it plays: "Stopped: card error", nothing stuck.
+
+Earlier note, from 0.4.11: to carry more tracks, move the transfers out of the main loop and stop waiting on the bus. The controller moves each packet by DMA; the processor only has to start the next one. Driven from an interrupt (the USB controller's own, or the 10 kHz timer), that is a few microseconds a packet, a few percent of the processor for a stereo track, and the main loop free. Then larger reads where memory allows.
 
 Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] Drive plugged straight into the FM-1: not seen. The FM-1 puts no 5 V on its port.
@@ -231,6 +241,8 @@ What USB allows, and the plan from it:
 - The host FM-1 can then read the SMK-37 as a USB MIDI host (class-compliant MIDI is two bulk endpoints, simpler than the drive), pass its notes on, and talk to the other FM-1s over their USB MIDI. They could ask it for files over that link (SysEx or a bulk channel of our own). Everything on the hub shares full speed USB: about 900 KB/s in all.
 - While an FM-1 is the host, USB audio and the web editor to a computer are off. DIN MIDI and Bluetooth MIDI keep working.
 - A stereo 16-bit 44.1 kHz track is 176 KB/s; mono 88 KB/s. 900 KB/s could carry a few stereo tracks at most, less with other traffic. Mono and 22 kHz bounces would stretch it.
+
+How others do it: the Dirtywave M8 streams every sample from its SD card instead of loading it into RAM, so its only length limit is the card; heavy sample use across many tracks can still glitch, and it needs a fast card (The M8 Companion, chapter 5). The Synthstrom Deluge streams from its SD card too (firmware 1.2). The M8 talks to its card over a direct 4-bit SD bus, much faster than our full speed USB, so Orange Cat has less room: the ideas carry over (stream, read ahead in big pieces, never wait in the audio path), the numbers do not.
 
 Steps, each tested on the unit before the next:
 1. Files read (0.4.10, tested).

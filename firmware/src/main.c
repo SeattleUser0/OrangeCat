@@ -62,6 +62,10 @@ void fm1_timer5_irq(void)
         }
     }
 #endif
+    /* (Orange Cat 0.4.12) a WAV from the USB drive: its reads, one step a tick, nested in the render or not (card_stream.c
+     * cs_tick: a register look and at most one 64-byte packet; the main loop holds it off while it uses the bus) */
+    if (cs.run)
+        cs_tick();
     /* TRS RX only touches its DMA ring and publishes timestamped input. It
      * can safely nest in audio; deferring it made clock jitter depend on load. */
 #if MELODEE_UART

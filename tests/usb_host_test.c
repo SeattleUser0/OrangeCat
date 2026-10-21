@@ -130,7 +130,9 @@ static void str_cpy(char *d, const char *s, unsigned max)
 #define UF_CPU() 0u
 #define FM1_TICKS_PER_US 1u
 static uint32_t fm1_ticks(void) { return fm1_ms * 1000u; }
+#define CS_WAIT() cs_tick()                             /* (0.4.12) the timer's work while the main loop waits */
 #include "../firmware/src/card_play.c"
+#include "../firmware/src/card_stream.c"
 #include "../firmware/src/usb_files.c"
 
 /* ------------------------------------------------------------------ the devices --- */
@@ -434,6 +436,7 @@ static void run_ms(uint32_t ms)
     uint32_t end = fm1_ms + ms;
     while ((int32_t)(fm1_ms - end) < 0) {
         usbf_task();                                    /* (0.4.10: the main loop's, with the files) */
+        for (int t = 0; t < 10; t++) cs_tick();         /* (0.4.12: the 10 kHz timer) */
         fm1_ms++;
     }
 }
@@ -666,7 +669,7 @@ static int t_play(void)
     printf("  tone: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp_step);
     fflush(stdout);
     assert(!strcmp(usbh.info, "44.1 kHz 16-bit stereo 0.2 s") && cp_on && cp_step == 65536u);
-    assert(cp_w - cp_r == CP_FRAMES || cp_w >= n);      /* filled before it plays */
+    assert(cp_w >= CP_FRAMES / 2u && cs.run && cs.next == 1u);   /* half filled before it plays; one run of sectors */
     for (i = 0; i < 64u; i++) assert(cp_ring[i][0] == ramp(i) && cp_ring[i][1] == -ramp(i));
     for (j = 0; j < 700u; j++) {                        /* 44,800 frames: four times round the file */
         memset(out, 0, sizeof out);
@@ -675,10 +678,12 @@ static int t_play(void)
             int32_t v = ramp(frames % n);               /* -6 dB, as the ISR scales: (x * MASTER) >> 13 */
             if (out[2 * i] != (v * 4096) >> 13 || out[2 * i + 1] != (-v * 4096) >> 13) bad++;
         }
+        for (i = 0; i < 15u; i++) cs_tick();            /* (0.4.12) 1.45 ms of the 10 kHz timer */
         usbf_task();                                    /* the main loop between blocks */
         fm1_ms++;
+        if (j == 300u) { usbh.top = 1; ask(UC_WINDOW); usbh.top = 0; ask(UC_WINDOW); }   /* FatFs on the bus mid-play */
     }
-    printf("  tone: %u frames, %u wrong, %u gaps, [%s]\n", frames, bad, cp_gaps, usbh.info2);
+    printf("  tone: %u frames, %u wrong, %u gaps, %u commands, [%s]\n", frames, bad, cp_gaps, cs.cmds, usbh.info2);
     fflush(stdout);
     assert(!bad && !cp_gaps && !strncmp(usbh.info2, "CPU 0% card ", 12));
     ask(UC_ENTER);
@@ -693,6 +698,20 @@ static int t_play(void)
         if (out[2 * i] != (want * 4096) >> 13 || out[2 * i] != out[2 * i + 1]) bad++;
     }
     assert(!bad);
+    devs[0].deaf = 2;                                   /* (0.4.12) the card stops answering mid-play */
+    for (i = 0; i < 2000u && up.on; i++) {
+        memset(out, 0, sizeof out);
+        card_render(out, 64);
+        for (j = 0; j < 15u; j++) cs_tick();
+        usbf_task();
+        fm1_ms++;
+    }
+    printf("  card error: [%s] err %u\n", usbh.info2, cs.err);
+    fflush(stdout);
+    assert(!up.on && !cs.run && !strcmp(usbh.info2, "Stopped: card error"));
+    devs[0].deaf = 0;
+    pick("tone.wav");
+    assert(up.on && cs.run);
     lines = 0;                                          /* unplugged while playing: stopped */
     run_ms(400);
     assert(!up.on && !cp_on);

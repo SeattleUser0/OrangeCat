@@ -87,6 +87,7 @@
 #include "usb.c"
 #include "usb_host.c"            /* (Orange Cat 0.4.7) the USB drive test (Menu > USB DRIVE TEST) */
 #include "card_play.c"           /* (Orange Cat 0.4.11) a WAV from the drive: the audio side (audio.c) */
+#include "card_stream.c"         /* (Orange Cat 0.4.12) its reading, from the timer (main.c) */
 #if MELODEE_UART
 #include "midi_uart.c"
 #endif

@@ -13,8 +13,19 @@
  * One producer (the main loop: cp_w), one consumer (the audio ISR: cp_r). The main loop writes the frames, then
  * cp_w (RING_PUBLISH between); the ISR reads cp_w once a block.
  *
+ * (0.4.12) The reading is card_stream.c's (kept apart so the audio's host tests need no USB host): cs_tick, from the
+ * 10 kHz TIMER5 interrupt (main.c), drives whole SCSI READ(10)
+ * commands one step a tick (the command out, each 64-byte packet in, the status in) and turns each packet into
+ * frames in the ring as it lands (cs_feed). Nothing waits on the bus: a tick looks at one register and moves on.
+ * The main loop no longer reads during playback; it only works out where the file is on the card first (cs_ext:
+ * the runs of sectors the file's clusters make, from FatFs's cluster chain) and then watches. When it needs the
+ * bus itself (FatFs listing a folder while the WAV plays) it holds the engine at the end of its command (cs_claim)
+ * and lets it go after (cs_release).
+ *
  * Revisions:
  *   0.4.11: first version.
+ *   0.4.12: the card read from the timer interrupt (card_stream.c), straight into the ring: no read buffer, no main
+ *          loop time per read. 16 sectors (8 KB) a command.
  */
 #ifndef CP_GAIN
 #define CP_GAIN() ((int32_t)song.master_q12)            /* (host tests: a fixed level) */
@@ -59,3 +70,4 @@ static __attribute__((noinline)) void card_render(int32_t *out, uint32_t n)
     cp_phase = ph;
     cp_r = r;
 }
+
