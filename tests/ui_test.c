@@ -2563,7 +2563,7 @@ static int test_popups(void)
     hold(B_OCTUP);
     bad += check("POPUPS: SONG, OCT+ held: the song's sheet (no play)", pop.on == POP_SHEET && !song.playing);
     press(B_OCTUP);
-    bad += check("POPUPS: Insert entry (Orange Cat: SONG is the lists)", !pop.on && msg_is("ENTRY INSERTED"));
+    bad += check("POPUPS: Song mode (the sheet's first row)", !pop.on && msg_is("SONG MODE ON"));
     return bad;
 }
 static int test_song_view(void)
@@ -2694,12 +2694,14 @@ static int test_chain(void)
         bad += check("SONG OCT+ stopped: track 1 goes to entry B at once", lists.cur[0] == 1u &&
                      trk[0].step[0].note[0] == 60u);
     }
-    press(B_PLAY);
-    bad += check("PLAY on SONG: the song plays (SONG on)", lists.song == 1u && transport_req == 1u);
-    stop_transport();
+    hold(B_OCTUP); sheet_do("Song mode");
+    bad += check("the sheet's Song mode turns it on (Orange Cat 0.3.6: a switch)", lists.song == 1u && msg_is("SONG MODE ON"));
     go_home(); press(B_PLAY);
-    bad += check("PLAY elsewhere: each track loops its entry (SONG off)", lists.song == 0u && transport_req == 1u);
+    bad += check("PLAY anywhere keeps it (the song plays)", lists.song == 1u && transport_req == 1u);
     stop_transport();
+    go_title("PATTERNS"); frame();
+    press(B_OCTUP); sheet_do("Song mode");
+    bad += check("PATTERNS' sheet: Song mode off again", lists.song == 0u && msg_is("SONG MODE OFF"));
     go_title("SONG"); frame();
     hold(B_OCTUP); sheet_do("Clear lists");
     bad += check("Clear lists (the song's sheet) requires explicit confirmation", ui.confirm == CF_CLEAR_SONG && ocl_any());
@@ -3486,6 +3488,9 @@ static int test_boot_template(void)
     settings_boot = 3;                                   /* C: empty */
     project_boot();
     bad += check("  BOOT C empty: the template, SLOT on a free slot (C)", trk[1].p[P_LEVEL] == 77 && song.g[G_SLOT] == 3);
+    settings_boot = 0;                                   /* (Orange Cat 0.3.6) no BOOT slot: the last project */
+    project_boot();
+    bad += check("  no BOOT slot: the project last loaded or saved (B)", trk[1].p[P_LEVEL] == 30 && proj_cur == 1u);
     trk[1].p[P_LEVEL] = 99;
     bootguard.failed = 1;
     settings_boot = 2;
@@ -4826,6 +4831,16 @@ static int test_stage(void)
                  ocl_staged_ent(2) == 1u);
     turn(EN_K3, -1);
     bad += check("  .. back to the one playing: nothing waits", trk[2].pattern_next == 0xFFu);
+    stop_transport();
+    lists.ent[3][1][0] = 0;                             /* (Orange Cat 0.3.6) track 4 with one pattern, on A */
+    ocl_go(3, 0);
+    turn(EN_K4, 1);
+    bad += check("  one pattern only: KNOB 4 right goes to entry B, a new empty pattern (no NO OTHER ENTRY)",
+                 lists.cur[3] == 1u && seq_is_empty(&trk[3]) && msg_is("T4 ENTRY B NEW"));
+    turn(EN_K4, 1);
+    bad += check("  .. no further than one past the last pattern", lists.cur[3] == 1u);
+    turn(EN_K4, -1);
+    bad += check("  .. left: back on A", lists.cur[3] == 0u && trk[3].step[0].note[0] == 60u);
     {   /* the lights: SEQ held, the pattern keys; REC armed while stopped */
         static const uint8_t PK[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};
         ui_power_on();

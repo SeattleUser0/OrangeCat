@@ -205,7 +205,7 @@ static void pt_song(void)
         b[7] = (char)('0' + v / 10u); b[8] = (char)('0' + v % 10u); b[9] = 0;
     }
     cv_text_on(8, ty_y(19, TY_LB), TY_LB, b, T_MID, T_BG);
-    cv_text_r(232, ty_y(19, TY_LB), TY_LB, lists.song ? "SONG ON" : "SONG OFF", lists.song ? T_TEXT : T_DIM, T_BG);
+    cv_text_r(232, ty_y(19, TY_LB), TY_LB, lists.song ? "SONG MODE ON" : "SONG MODE OFF", lists.song ? T_TEXT : T_DIM, T_BG);
     cv_blit(0, PT_SONG_Y);
 }
 static void patterns_draw(void)
@@ -230,23 +230,32 @@ static int patterns_queued(void)
 /* KNOB k: track k's next pattern (stopped: at once; playing: at the end of its bar; a song plays: refused); Copy to:
  * any knob the place */
 static int ocl_launch(uint32_t k, uint32_t e);
+static int ocl_go_empty(uint32_t k, uint32_t e);
 static void patgrid_edit(uint32_t k, int32_t steps)
 {
-    /* (Orange Cat 0.3, 4c) KNOB k: track k to its next (or previous) entry naming a pattern (stopped: at once;
-     * playing: at its loop end) */
-    uint32_t e, i, from;
+    /* (Orange Cat 0.3.6, 4c) KNOB k: track k one entry right or left, A up to one past its last pattern (an empty
+     * entry there: a new empty pattern, ready to record). Stopped: at once; playing: at its loop end */
+    uint32_t from, last, e;
     int rc;
+    char m[16];
     if (k >= trk_n())                                   /* (no track there) */
         return;
     from = ocl_staged_ent(k) < OCL_NENT ? ocl_staged_ent(k) : lists.cur[k] % OCL_NENT;
-    for (i = 1, e = OCL_NENT; i < OCL_NENT; i++) {
-        uint32_t c = (from + (steps > 0 ? i : OCL_NENT - i)) % OCL_NENT;
-        if (lists.ent[k][c][0]) { e = c; break; }
+    for (last = OCL_NENT; last > 0u && !lists.ent[k][last - 1u][0]; last--)
+        ;
+    if (last >= OCL_NENT) last = OCL_NENT - 1u;         /* (the furthest it goes: one past the last pattern) */
+    e = (uint32_t)clamp((int32_t)from + (steps > 0 ? 1 : -1), 0, (int32_t)(last > from ? last : from));
+    if (e == from) return;
+    rc = lists.ent[k][e][0] ? ocl_launch(k, e) : ocl_go_empty(k, e);
+    if (rc) {
+        ui_message(rc == 1 ? "EMPTY ENTRY" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PATTERNS FULL") :
+                   rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
+    } else {
+        str_cpy(m, "T1 ENTRY A", sizeof m);
+        m[1] = (char)('1' + k); m[9] = (char)('A' + e);
+        if (!lists.ent[k][e][0]) str_cpy(m + 10, " NEW", 5);
+        ui_message(m);
     }
-    if (e == OCL_NENT) { ui_message("NO OTHER ENTRY"); return; }
-    rc = ocl_launch(k, e);
-    if (rc) ui_message(rc == 1 ? "EMPTY ENTRY" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PATTERNS FULL") :
-                       rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
     ui.force = 1;
 }
 
@@ -440,7 +449,8 @@ static void sg_foot(void)                               /* the cell picked: trac
         str_cpy(b + 4, " \xb7 no pattern", 14);
     }
     cv_text_on(8, ty_y(13, TY_LB), TY_LB, b, T_TEXT, T_BG);
-    cv_text_on(8, ty_y(33, TY_LB), TY_LB, "OCT+ go \xb7 PLAY: song", T_MID, T_BG);
+    cv_text_on(8, ty_y(33, TY_LB), TY_LB, lists.song ? "OCT+ go \xb7 song mode on" : "OCT+ go \xb7 song mode off", T_MID,
+               T_BG);
     cv_blit(0, SG_FOOT_Y);
 }
 static void song_draw(void)

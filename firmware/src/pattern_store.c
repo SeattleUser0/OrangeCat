@@ -196,6 +196,18 @@ static void bank_restore(const uint8_t *raw)
         }
     }
     if (xs) lists = proj_lists;               /* (Orange Cat 0.3, 4c) */
+    for (uint32_t k = 0; xs && k < NTRK; k++) {   /* (0.3.6) a track whose list is empty (a Melodee project, restored):
+                                                   * its banks in use as its entries, in order, on the one active */
+        uint32_t e = 0, any = 0;
+        for (uint32_t i = 0; i < OCL_NENT; i++) any |= lists.ent[k][i][0];
+        if (any) continue;
+        for (uint32_t b = 0; b < NPAT; b++) {
+            if (!bank_pid[k][b]) continue;
+            if (b == trk[k].pattern) lists.cur[k] = (uint8_t)e;
+            lists.ent[k][e][0] = bank_pid[k][b];
+            lists.ent[k][e++][1] = 0;
+        }
+    }
     motion_unguard(f);
 }
 

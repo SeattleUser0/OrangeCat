@@ -126,8 +126,16 @@ static void ps_unused(void)                            /* the pool's patterns no
     str_cpy(m + str_len(m), n == 1 ? " PATTERN FREED" : " PATTERNS FREED", 16);
     ui_message(m);
 }
+static void ps_songmode_v(char *b) { str_cpy(b, lists.song ? "On" : "Off", 8); }
+static void ps_songmode(void)                          /* (Orange Cat 0.3.6) the tracks down their lists, or each
+                                                        * looping its entry */
+{
+    lists.song = (uint8_t)!lists.song;
+    ui_message(lists.song ? "SONG MODE ON" : "SONG MODE OFF");
+    ui.force = 1;
+}
 static const sheet_row_t SHEET_SONG[] = {
-    {"Insert entry", 0, 0, ps_insert, 0}, {"Duplicate entry", 0, 0, ps_dup, 0}, {"Own copy", 0, 0, ps_copy, 0},
+    {"Song mode", ps_songmode_v, 0, ps_songmode, 0}, {"Insert entry", 0, 0, ps_insert, 0}, {"Duplicate entry", 0, 0, ps_dup, 0}, {"Own copy", 0, 0, ps_copy, 0},
     {"Delete entry", 0, 0, 0, CF_DEL_ROW}, {"Clear lists", 0, 0, 0, CF_CLEAR_SONG}, {"Free unused patterns", 0, 0, ps_unused, 0}};
 
 /* the pattern's (NOTES, the drum grid, PATTERN: OCT+ held; TOOLS' Clear pattern lives here) */
@@ -148,7 +156,8 @@ static void ps_own(void)                               /* (Orange Cat 0.3, 4c) t
     ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY ENTRY" : rc == 4 ? "PATTERNS FULL" : song.playing ? "STOP FIRST" :
                "SAVE ERROR");
 }
-static const sheet_row_t SHEET_PATTERNS[] = {{"Own copy", 0, 0, ps_own, 0}, {"Delete pattern", 0, 0, 0, CF_DEL_PAT}};
+static const sheet_row_t SHEET_PATTERNS[] = {{"Song mode", ps_songmode_v, 0, ps_songmode, 0}, {"Own copy", 0, 0, ps_own, 0},
+    {"Delete pattern", 0, 0, 0, CF_DEL_PAT}};
 
 /* the step's: NOTES' note at the cursor (KNOB 1 its length, velocity, chance), the drum grid's hit of the lane there */
 static void st_cap(uint32_t c, char *b)                 /* NOTES' column c as its chip shows it (draw_columns) */

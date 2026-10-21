@@ -245,9 +245,31 @@ static int test_unused(void)
                   n == 1 && !ocp.len[1] && ocp.len[0] && note_of(0) == 50u);
 }
 
+static int test_melodee_lists(void)
+{
+    static uint8_t fbkk[BANK_STORE_SIZE];
+    reset();
+    for (uint32_t b = 0; b < 3u; b++) {          /* banks 1..3 of track 1 used, as a Melodee project has them */
+        pattern_request(&trk[0], b);
+        put_note(0, 70u + b);
+    }
+    pattern_request(&trk[0], 1);
+    project_capture(&proj_scratch);
+    bank_pack(fbkk, &proj_scratch, 1);
+    proj_x_tag = 0;                              /* (from a backup: no lists beside it) */
+    memcpy(proj_wire_u.raw, fbkk, sizeof fbkk);
+    proj_write_slot(2, proj_wire_u.raw, BANK_STORE_SIZE);
+    wipe_runtime();
+    project_load(2);
+    return lcheck("a Melodee project (no lists): its banks in use become entries A B C, on B as its bank was",
+                  lists.ent[0][0][0] && lists.ent[0][1][0] && lists.ent[0][2][0] && !lists.ent[0][3][0] &&
+                  lists.cur[0] == 1u && note_of(0) == 71u);
+}
+
 int main(void)
 {
     int bad = 0;
+    bad |= test_melodee_lists();
     bad |= test_unused();
     bad |= test_song();
     bad |= test_new_and_shared();

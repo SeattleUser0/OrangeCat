@@ -15,6 +15,8 @@
  * Revisions:
  *   0.3.3: first version (lists, the cache, keep, going to an entry while stopped).
  *   0.3.4: playing: the song (SONG on: each track down its list, REPS passes an entry) and launches (ocl_stage).
+ *   0.3.6: (UI) PATTERNS knobs step one entry; SONG MODE a switch (ui_popup.c); Melodee projects get lists
+ *          (pattern_store.c bank_restore).
  *   0.3.5: rests (an empty entry between the list's first and last patterns: silence, Skiff 1.2.1); entry edits.
  */
 

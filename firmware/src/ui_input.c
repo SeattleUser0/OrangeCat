@@ -2337,11 +2337,9 @@ static void ui_input(void)
                 break;
             if (song.playing || seq_counting() || chain_busy())
                 transport_req = 2;
-            else {                                      /* (Orange Cat 0.3, 4c) on SONG the song; else each track
-                                                         * loops its entry */
-                lists.song = (uint8_t)(!ui.home && cur_page()->graph == GR_SONG);
+            else                                        /* (Orange Cat 0.3.6: SONG MODE, a switch of its own,
+                                                         * says whether the tracks go down their lists) */
                 transport_req = 1;
-            }
             break;
         case B_SEQ:
         case B_REC:                                     /* tap / hold: above */

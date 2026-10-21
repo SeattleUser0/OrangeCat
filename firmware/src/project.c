@@ -471,6 +471,7 @@ static union {                               /* serialized main-loop work, also 
     uint8_t raw[PROJ_BANK_BYTES];              /* complete FBKG, including legacy imports */
 } proj_wire_u __attribute__((section(".pool")));
 #define proj_wire proj_wire_u.p
+static void proj_last_set(uint32_t slot);      /* (Orange Cat 0.3.6) below */
 static uint8_t proj_wire_gen;                /* +1 whenever proj_wire is rewritten (a backup's runtime copy lives there) */
 static uint8_t *proj_wire_borrow(void) { proj_wire_gen++; return proj_wire_u.raw; }   /* scratch for another job */
 
@@ -638,6 +639,7 @@ static int project_save_as(uint32_t slot, const char *name)
     if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
+    proj_last_set(slot & 3u);
     ui_message(MELODEE_FLASH ? "SAVED" : "SAVED (RAM)");
     return 0;
 }
@@ -845,6 +847,14 @@ static int project_restore_runtime(const project_t *input)
     ui_message("LOADED");
     return 0;
 }
+/* (Orange Cat 0.3.6) the project last loaded or saved, kept with the settings (favorites.factory[15][30]: 0xC0 + the
+ * slot; anything else none) so power-on loads it again (project_boot) */
+#define PROJ_LAST (favorites.factory[15][30])
+static void proj_last_set(uint32_t slot)
+{
+    uint8_t v = (uint8_t)(slot < 4u ? 0xC0u | slot : 0u);
+    if (PROJ_LAST != v) { PROJ_LAST = v; settings_save(); }
+}
 static void project_load(uint32_t slot)
 {
     int n = proj_read_slot(slot);
@@ -852,6 +862,7 @@ static void project_load(uint32_t slot)
     if (!project_restore_runtime(&proj_scratch)) {
         if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);
         proj_cur = (uint8_t)(slot & 3u);
+        proj_last_set(slot & 3u);
     }
 }
 
@@ -1187,6 +1198,15 @@ static void project_boot(void)
             ui_message("BOOT PROJECT SKIPPED");
         else
             project_load(settings_boot - 1u);
+        return;
+    }
+    if (!settings_boot && (PROJ_LAST & 0xFCu) == 0xC0u && project_used(PROJ_LAST & 3u)) {   /* (Orange Cat 0.3.6) the
+                                                      * last project, unless a BOOT slot is chosen */
+        song.g[G_SLOT] = (int16_t)((PROJ_LAST & 3u) + 1u);
+        if (bootguard.failed)
+            ui_message("BOOT PROJECT SKIPPED");
+        else
+            project_load(PROJ_LAST & 3u);
         return;
     }
     song.ntrk = NTRK;                                   /* the power-on sounds: four tracks (theirs: the template's) */
