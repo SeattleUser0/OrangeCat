@@ -36,15 +36,68 @@ static uint32_t pattern_fallbacks;
 static uint8_t chain_patterns[CHAIN_ROWS][NTRK];
 static uint8_t motion_pattern[MOTION_MAX];
 static uint16_t pattern_epoch; /* invalidates destructive edits waiting for a loop end */
-/* (Orange Cat 0.3, build doc 4c, Skiff's lists) each track's list of OCL_NENT entries, A..P: byte 0 a pool pattern + 1
- * (0: empty), byte 1 its REPS - 1; the entry each track is on; SONG on. The banks are the lists' cache: bank_pid, the
- * pool pattern + 1 each bank holds (0: none, or steps not kept yet); bank_sig, the CRC of its pattern as it came in or
- * was last kept (as ocp.hash: a bank whose pattern packs to another is changed); bank_use, when it was last gone to
- * (the least recent one is reused). oc_lists.c keeps them; pattern_init clears them */
+/* (Orange Cat 0.4, build doc 4c) three levels, as a tracker (M8, LSDJ):
+ *   a phrase is a pool pattern, 01..64 (oc_pool.c);
+ *   a chain is OCL_NENT steps, A..P, each a phrase + 1 (0: none) and its REPS - 1; OCL_NCHAIN chains, 01..64, the
+ *   project's;
+ *   the song is OCL_NROW rows, 01..64, each naming a chain + 1 (0: none) for every track.
+ * Each track is on a chain (tchain), a step of it (cur) and, in the song, a row (row; 0xFF: none). mode: what PLAY
+ * started: OCL_PHRASE (each track loops its phrase), OCL_CHAIN (each track down its chain, round), OCL_SONG (each track
+ * down its column of the song, its own pace, as a tracker's channels; an empty cell or the end: back to the top of its
+ * block of rows). (0.3: one list per track, kept as chain 01..04 when an 0.3 project loads: oc_project.c.)
+ * The banks are the cache: bank_pid, the pool pattern + 1 each bank holds (0: none, or steps not kept yet); bank_sig,
+ * the CRC of its pattern as it came in or was last kept (as ocp.hash: a bank whose pattern packs to another is
+ * changed); bank_use, when it was last gone to (the least recent one is reused). oc_lists.c keeps them; pattern_init
+ * sets them as a new project's: track k on chain k + 1, row 01 of the song naming them */
 #define OCL_NENT 16u
 #define OCL_NPOOL 64u                                   /* the pool's patterns (oc_pool.c OCP_N) */
-typedef struct { uint8_t ent[NTRK][OCL_NENT][2]; uint8_t cur[NTRK]; uint8_t song, rsv[3]; } ocl_lists_t;
+#define OCL_NCHAIN 64u
+#define OCL_NROW 64u
+#define OCL_NOROW 0xFFu
+enum { OCL_PHRASE, OCL_CHAIN, OCL_SONG };
+typedef struct {
+    uint8_t chain[OCL_NCHAIN][OCL_NENT][2];
+    uint8_t song[OCL_NROW][NTRK];
+    uint8_t tchain[NTRK], cur[NTRK], row[NTRK];
+    uint8_t mode, rsv[3];
+} ocl_lists_t;
+typedef struct { uint8_t ent[NTRK][OCL_NENT][2]; uint8_t cur[NTRK]; uint8_t song, rsv[3]; } ocl_lists_v2_t;   /* (0.3) */
 static ocl_lists_t lists __attribute__((section(".pool")));
+#define OCL_ENT(k, e) (lists.chain[lists.tchain[(k) % NTRK] % OCL_NCHAIN][(e) % OCL_NENT])   /* track k's step e */
+static void ocl_lists_init(ocl_lists_t *l)
+{
+    memset(l, 0, sizeof *l);
+    for (uint32_t k = 0; k < NTRK; k++) {
+        l->tchain[k] = (uint8_t)k;
+        l->song[0][k] = (uint8_t)(k + 1u);
+        l->row[k] = 0;
+    }
+}
+static int ocl_lists_empty(const ocl_lists_t *l)      /* no chain names a phrase, no song row a chain */
+{
+    const uint8_t *p = &l->chain[0][0][0];
+    for (uint32_t i = 0; i < sizeof l->chain; i++) if (p[i]) return 0;
+    for (uint32_t r = 0; r < OCL_NROW; r++)
+        for (uint32_t k = 0; k < NTRK; k++) if (l->song[r][k] && (r || l->song[r][k] != k + 1u)) return 0;
+    return 1;
+}
+/* in range (a record read back): what is not, as none */
+static void ocl_lists_fix(ocl_lists_t *l)
+{
+    for (uint32_t c = 0; c < OCL_NCHAIN; c++)
+        for (uint32_t e = 0; e < OCL_NENT; e++) {
+            if (l->chain[c][e][0] > OCL_NPOOL) l->chain[c][e][0] = 0;
+            l->chain[c][e][1] &= 15u;
+        }
+    for (uint32_t r = 0; r < OCL_NROW; r++)
+        for (uint32_t k = 0; k < NTRK; k++) if (l->song[r][k] > OCL_NCHAIN) l->song[r][k] = 0;
+    for (uint32_t k = 0; k < NTRK; k++) {
+        l->tchain[k] %= OCL_NCHAIN;
+        l->cur[k] %= OCL_NENT;
+        if (l->row[k] >= OCL_NROW) l->row[k] = OCL_NOROW;
+    }
+    if (l->mode > OCL_SONG) l->mode = OCL_PHRASE;
+}
 static uint8_t bank_pid[NTRK][NPAT] __attribute__((section(".pool")));
 static uint32_t bank_sig[NTRK][NPAT] __attribute__((section(".pool")));
 static uint8_t bank_use[NTRK][NPAT] __attribute__((section(".pool")));
@@ -250,7 +303,7 @@ static void pattern_init(void)
     for (uint32_t i = 0; i < PAT_CHUNKS; i++) pattern_link[i] = (uint16_t)(i + 1u < PAT_CHUNKS ? i + 1u : PAT_NONE);
     memset(chain_patterns, 0, sizeof chain_patterns); memset(motion_pattern, 0, sizeof motion_pattern);
     memset(pattern_stage, 0, sizeof pattern_stage);
-    memset(&lists, 0, sizeof lists); memset(bank_pid, 0, sizeof bank_pid);   /* (Orange Cat 0.3) the lists, their cache */
+    ocl_lists_init(&lists); memset(bank_pid, 0, sizeof bank_pid);   /* (Orange Cat 0.4) the lists, their cache */
     memset(bank_sig, 0, sizeof bank_sig); memset(bank_use, 0, sizeof bank_use); bank_clock = 0;
     for (uint32_t k = 0; k < NTRK; k++) {
         pattern_stage[k].bank = 0xff;

@@ -9,13 +9,17 @@
  *    pattern share it (Skiff).
  * 6. no free pattern: PATTERNS FULL, the track as it was.
  * Playing:
- * 7. SONG on: a track down its list, each entry its REPS passes, from flash through the bank cache; a stop drops the
- *    song's next.
- * 8. SONG off: an entry loops; a launch comes in at the loop end.
+ * 7. CHAIN: a track down its chain, each step its REPS passes, from flash through the bank cache; a stop drops the
+ *    chain's next.
+ * 8. PHRASE: a step loops; a launch comes in at the loop end.
+ * 9. SONG: each track down its own column of the song, a row's chain then the next row's, the end of its block of rows
+ *    back to the block's top; from a row picked.
+ * 10. an 0.3 project (OCJ2) loads as chains 01..04 and row 01, and saves as OCJ3.
  *
  * Revisions:
  *   0.3.3: first version.
  *   0.3.4: SONG and launches while playing.
+ *   0.4.0: chains and the song (9, 10).
  */
 #define OC_PROJECT_NO_MAIN
 #include "oc_project_test.c"
@@ -98,13 +102,13 @@ static int test_project(void)
     ocl_set(0, 3, OCP_N, 1);
     project_save_as(0, "FIRST");               /* (pattern 01 on track 1's entry A) */
     ocl_set(1, 4, 0, 3);                       /* track 2's entry E names 01, REPS 3 */
-    lists.song = 1;
+    lists.mode = OCL_CHAIN;
     ocl_go(1, 4);
     project_save(0);
     wipe_runtime();
     project_load(0);
-    bad |= lcheck("a project keeps its lists, REPS, SONG and the entry each track is on",
-                  ocl_ent_pat(1, 4) == 0u && lists.ent[1][4][1] == 2u && lists.song == 1u && lists.cur[1] == 4u &&
+    bad |= lcheck("a project keeps its chains, REPS, PLAY's mode and the step each track is on",
+                  ocl_ent_pat(1, 4) == 0u && OCL_ENT(1, 4)[1] == 2u && lists.mode == OCL_CHAIN && lists.cur[1] == 4u &&
                       note_of(1) == 50u && note_of(0) == 50u && bank_pid[1][trk[1].pattern] == 1u);
     reboot();
     wipe_runtime();
@@ -128,7 +132,7 @@ static int test_full(void)
         put_note(3, 30u + id % 60u);
         bank_pid[3][trk[3].pattern] = 0;
         lists.cur[3] = (uint8_t)(id % OCL_NENT);
-        lists.ent[3][id % OCL_NENT][0] = 0;
+        OCL_ENT(3, id % OCL_NENT)[0] = 0;
         ocl_keep(3, trk[3].pattern);
     }
     put_note(0, 99);
@@ -181,31 +185,31 @@ static int test_song(void)
     int bad = 0;
     uint32_t got[16], n, per;
     three_patterns();
-    lists.ent[0][0][1] = 1;                    /* A: REPS 2 */
-    lists.song = 1;
+    OCL_ENT(0, 0)[1] = 1;                    /* A: REPS 2 */
+    lists.mode = OCL_CHAIN;
     per = seq_div_samples((uint32_t)trk[0].p[P_SDIV]) * 4u / CTL + 1u;
     n = passes(got, 9, per * 9u, -1, 0);
     {
         static const uint32_t want[9] = {60, 60, 62, 64, 60, 60, 62, 64, 60};
         int ok = n >= 8u;
         for (uint32_t i = 0; ok && i < 8u; i++) ok = got[i] == want[i];
-        bad |= lcheck("SONG on: each pass A A B C A A B C (A's REPS 2), from flash through the bank cache", ok);
+        bad |= lcheck("CHAIN: each pass A A B C A A B C (A's REPS 2), from flash through the bank cache", ok);
     }
     bad |= lcheck("... a stop drops the song's next: the track stays on the entry it played", !song.playing &&
                   trk[0].pattern_next == 0xff && ocl_ent_pat(0, lists.cur[0]) == (note_of(0) - 60u) / 2u);
     three_patterns();
-    lists.song = 0;
+    lists.mode = OCL_PHRASE;
     n = passes(got, 6, per * 5u, (int)per, 2);
-    bad |= lcheck("SONG off: A loops; a launch of C comes in at the loop end, the track then on C",
+    bad |= lcheck("PHRASE: A loops; a launch of C comes in at the loop end, the track then on C",
                   n >= 4u && got[0] == 60u && got[1] == 60u && got[n - 1u] == 64u && lists.cur[0] == 2u);
     {   /* a rest: A (REPS 1), an empty B, C: A, silence, C, A .. */
         uint32_t g3[12];
         three_patterns();
-        lists.ent[0][1][0] = 0;                    /* (B emptied: a rest between A and C) */
-        lists.song = 1;
+        OCL_ENT(0, 1)[0] = 0;                    /* (B emptied: a rest between A and C) */
+        lists.mode = OCL_CHAIN;
         n = passes(g3, 12, per * 7u, -1, 0);
         int ok = n >= 6u && g3[0] == 60u && g3[1] == 0u && g3[2] == 64u && g3[3] == 60u && g3[4] == 0u && g3[5] == 64u;
-        bad |= lcheck("SONG: an empty entry between patterns is a rest (silence for its REPS), A - C A - C", ok);
+        bad |= lcheck("CHAIN: an empty step between phrases is a rest (silence for its REPS), A - C A - C", ok);
     }
     {   /* ten patterns through 8 banks while playing (clean banks reused) */
         uint32_t g2[24];
@@ -223,11 +227,11 @@ static int test_song(void)
             ocl_keep_all();
         }
         ocl_go(0, 0);
-        lists.song = 1;
+        lists.mode = OCL_CHAIN;
         n = passes(g2, 24, per * 22u, -1, 0);
         int ok = n >= 21u;
         for (uint32_t i = 0; ok && i < 21u; i++) ok = g2[i] == 40u + i % 10u;
-        bad |= lcheck("SONG over ten patterns with 8 banks: each pass the right one, loaded while playing", ok);
+        bad |= lcheck("CHAIN over ten patterns with 8 banks: each pass the right one, loaded while playing", ok);
     }
     return bad;
 }
@@ -238,10 +242,10 @@ static int test_unused(void)
     put_note(0, 50); ocl_keep_all();            /* 01, named by track 1's entry A */
     ocl_go_empty(0, 1); put_note(0, 51); ocl_keep_all();   /* 02 on B */
     ocl_go(0, 0);
-    lists.ent[0][1][0] = 0;                     /* (B let go: 02 is still in a bank of track 1 .. */
+    OCL_ENT(0, 1)[0] = 0;                     /* (B let go: 02 is still in a bank of track 1 .. */
     bank_pid[0][ocl_bank_of(0, 1)] = 0;         /* .. and that bank given up too: nothing names 02) */
     int n = ocl_clear_unused();
-    return lcheck("Free unused patterns: the one nothing names emptied, the others kept",
+    return lcheck("Free unused phrases: the one nothing names emptied, the others kept",
                   n == 1 && !ocp.len[1] && ocp.len[0] && note_of(0) == 50u);
 }
 
@@ -261,9 +265,9 @@ static int test_melodee_lists(void)
     proj_write_slot(2, proj_wire_u.raw, BANK_STORE_SIZE);
     wipe_runtime();
     project_load(2);
-    return lcheck("a Melodee project (no lists): its banks in use become entries A B C, on B as its bank was",
-                  lists.ent[0][0][0] && lists.ent[0][1][0] && lists.ent[0][2][0] && !lists.ent[0][3][0] &&
-                  lists.cur[0] == 1u && note_of(0) == 71u);
+    return lcheck("a Melodee project (no lists): its banks in use become chain 01's steps A B C, on B as its bank was",
+                  OCL_ENT(0, 0)[0] && OCL_ENT(0, 1)[0] && OCL_ENT(0, 2)[0] && !OCL_ENT(0, 3)[0] &&
+                  lists.cur[0] == 1u && note_of(0) == 71u && lists.tchain[0] == 0u && lists.song[0][0] == 1u);
 }
 
 static int test_named_empty(void)
@@ -271,24 +275,129 @@ static int test_named_empty(void)
     uint32_t got[12], n, per;
     int bad = 0;
     three_patterns();                           /* 01 02 03 on A B C */
-    lists.ent[0][3][0] = 10;                    /* D names 10: nothing in it yet */
-    lists.song = 1;
+    OCL_ENT(0, 3)[0] = 10;                    /* D names 10: nothing in it yet */
+    lists.mode = OCL_CHAIN;
     per = seq_div_samples((uint32_t)trk[0].p[P_SDIV]) * 4u / CTL + 1u;
     n = passes(got, 12, per * 9u, -1, 0);
-    bad |= lcheck("SONG: a slot naming an empty pattern plays silent and the song goes on: 01 02 03 - 01 02 03 -",
+    bad |= lcheck("CHAIN: a step naming an empty pattern plays silent and the song goes on: 01 02 03 - 01 02 03 -",
                   n >= 8u && got[0] == 60u && got[1] == 62u && got[2] == 64u && got[3] == 0u && got[4] == 60u &&
                       got[7] == 0u);
     ocl_go(0, 3);
     put_note(0, 77);
     ocl_keep_all();
     bad |= lcheck("... going there and recording keeps the steps as pattern 10", ocp.len[9] && pool_note(9) == 77u &&
-                  lists.ent[0][3][0] == 10u);
+                  OCL_ENT(0, 3)[0] == 10u);
+    return bad;
+}
+
+/* --------------------------------------------- 9. SONG: rows of chains --- */
+static int test_song_rows(void)
+{
+    uint32_t got[16], n, per;
+    int bad = 0;
+    three_patterns();                           /* 01 02 03 on chain 01's steps A B C */
+    OCL_ENT(0, 2)[0] = 0;                       /* chain 01: 01 02 */
+    lists.chain[4][0][0] = 3;                   /* chain 05: 03 */
+    memset(lists.song, 0, sizeof lists.song);
+    lists.song[0][0] = 1; lists.song[1][0] = 5; /* track 1: row 01 chain 01, row 02 chain 05, row 03 empty */
+    lists.song[0][1] = 2;                       /* track 2: row 01 chain 02 (nothing in it: silent), then nothing */
+    per = seq_div_samples((uint32_t)trk[0].p[P_SDIV]) * 4u / CTL + 1u;
+    bad |= lcheck("SONG from row 01: track 1 on chain 01 step A, the mode the song's",
+                  ocl_song_start(0) == 0 && lists.mode == OCL_SONG && lists.tchain[0] == 0u && lists.cur[0] == 0u &&
+                      lists.row[0] == 0u && note_of(0) == 60u);
+    n = passes(got, 9, per * 8u, -1, 0);
+    bad |= lcheck("... 01 02 (row 01's chain) 03 (row 02's), then the block's top again: 01 02 03 01 02",
+                  n >= 7u && got[0] == 60u && got[1] == 62u && got[2] == 64u && got[3] == 60u && got[4] == 62u &&
+                      got[5] == 64u && got[6] == 60u);
+    ocl_go_chain(0, 0);
+    bad |= lcheck("SONG from row 02: track 1 on chain 05 (03), track 2 out of the song (its cell empty)",
+                  ocl_song_start(1) == 0 && lists.tchain[0] == 4u && note_of(0) == 64u && lists.row[1] == OCL_NOROW);
+    n = passes(got, 9, per * 6u, -1, 0);
+    bad |= lcheck("... 03, then row 03 empty: the top of its block, row 01: 03 01 02 03 01",
+                  n >= 5u && got[0] == 64u && got[1] == 60u && got[2] == 62u && got[3] == 64u && got[4] == 60u);
+    lists.song[3][0] = 5;                       /* a second block: rows 04 .. 04, chain 05 alone */
+    ocl_go_chain(0, 0);
+    n = (ocl_song_start(3), passes(got, 9, per * 4u, -1, 0));
+    bad |= lcheck("a block of one row, one step: it loops, 03 03 03", n >= 3u && got[0] == 64u && got[1] == 64u &&
+                  got[2] == 64u && lists.row[0] == 3u);
+    {
+        uint32_t c = ocl_free_chain();
+        bad |= lcheck("a free chain: none in the song, on no track, naming nothing (chain 03 is track 3's)",
+                      c != OCL_NCHAIN && c != 0u && c != 1u && c != 2u && c != 3u && c != 4u && !ocl_chain_any(c));
+        bad |= lcheck("SONG's Copy chain: the cell's chain copied to a new number",
+                      ocl_chain_clone(1, 0) == 0 && lists.song[1][0] == c + 1u && lists.chain[c][0][0] == 3u);
+    }
+    ocl_row_insert(0);
+    bad |= lcheck("a row inserted: the rows after it a place down, the track's row with them",
+                  !lists.song[0][0] && lists.song[1][0] == 1u && lists.song[4][0] == 5u);
+    ocl_row_delete(0);
+    bad |= lcheck("... and deleted again", lists.song[0][0] == 1u && lists.song[3][0] == 5u);
+    return bad;
+}
+
+/* --------------------------------------------- 10. an 0.3 project --- */
+static uint8_t rec_buf[64000], rec_dec[sizeof(ocl_lists_t) + PROJ_STORE_SIZE], rec_out[64000];
+static int test_ocj2(void)
+{
+    ocj_head_t h;
+    ocj_head2_t h2;
+    uint32_t n, i, o, z;
+    int bad = 0;
+    three_patterns();                           /* 01 02 03 on track 1's A B C, on A */
+    ocl_set(1, 0, 0, 2);                        /* track 2's A: 01, REPS 2 */
+    project_save_as(0, "OLD");
+    n = (uint32_t)ocs_read(OCS_PROJECT, 0, rec_buf, sizeof rec_buf);
+    memcpy(&h, rec_buf, sizeof h);
+    for (i = sizeof h, o = 0; i < n;) {         /* (its coded part: the lists, then the project part) */
+        uint8_t v = rec_buf[i++];
+        if (v) { rec_dec[o++] = v; continue; }
+        for (z = rec_buf[i++]; z; z--) rec_dec[o++] = 0;
+    }
+    bad |= lcheck("an OCJ3 record: its head, then the lists and the project part coded",
+                  h.magic == OCJ_MAGIC && h.len == n && o == sizeof rec_dec);
+    memset(&h2, 0, sizeof h2);                  /* as 0.3.7 wrote it: OCJ2, the lists one a track at the head's end */
+    h2.magic = OCJ_MAGIC2;
+    memcpy(h2.pid, h.pid, sizeof h2.pid); memcpy(h2.active, h.active, sizeof h2.active);
+    memcpy(h2.chain, h.chain, sizeof h2.chain); memcpy(h2.name, h.name, sizeof h2.name); memcpy(h2.fn, h.fn, sizeof h2.fn);
+    {
+        const ocl_lists_t *l = (const ocl_lists_t *)rec_dec;
+        for (uint32_t k = 0; k < NTRK; k++) memcpy(h2.lists.ent[k], l->chain[k], sizeof h2.lists.ent[k]);
+        memcpy(h2.lists.cur, l->cur, sizeof h2.lists.cur);
+        h2.lists.song = 1;
+    }
+    o = sizeof h2;
+    for (i = sizeof(ocl_lists_t); i < sizeof rec_dec;) {   /* the project part alone, coded */
+        if (rec_dec[i]) { rec_out[o++] = rec_dec[i++]; continue; }
+        for (z = 0; z < 255u && i < sizeof rec_dec && !rec_dec[i]; z++, i++)
+            ;
+        rec_out[o++] = 0; rec_out[o++] = (uint8_t)z;
+    }
+    h2.len = o; h2.zlen = o - (uint32_t)sizeof h2;
+    memcpy(rec_out, &h2, sizeof h2);
+    ocs_write(OCS_PROJECT, 0, rec_out, o);
+    reboot();
+    wipe_runtime();
+    project_load(0);
+    bad |= lcheck("an 0.3 project loads: each track's list its chain, row 01 naming them, SONG on as the chains",
+                  ocl_ent_pat(0, 0) == 0u && ocl_ent_pat(0, 1) == 1u && ocl_ent_pat(0, 2) == 2u &&
+                      ocl_ent_pat(1, 0) == 0u && OCL_ENT(1, 0)[1] == 1u && lists.tchain[0] == 0u &&
+                      lists.tchain[1] == 1u && lists.song[0][0] == 1u && lists.song[0][1] == 2u &&
+                      lists.mode == OCL_CHAIN && lists.cur[0] == 0u && note_of(0) == 60u);
+    project_save(0);
+    n = (uint32_t)ocs_read(OCS_PROJECT, 0, rec_buf, sizeof rec_buf);
+    memcpy(&h, rec_buf, sizeof h);
+    wipe_runtime();
+    project_load(0);
+    bad |= lcheck("... saved again, as OCJ3, and loads the same", h.magic == OCJ_MAGIC && ocl_ent_pat(0, 2) == 2u &&
+                  lists.tchain[1] == 1u && lists.song[0][1] == 2u && lists.mode == OCL_CHAIN && note_of(0) == 60u);
     return bad;
 }
 
 int main(void)
 {
     int bad = 0;
+    bad |= test_song_rows();
+    bad |= test_ocj2();
     bad |= test_named_empty();
     bad |= test_melodee_lists();
     bad |= test_unused();

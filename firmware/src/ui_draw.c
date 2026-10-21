@@ -880,11 +880,20 @@ static void confirm_text(char *a, char *b)
         if (!project_name(k & 3u, b) || !b[0])
             str_cpy(b, "Its song and patterns go", 32);
         break;
-    case CF_DEL_ROW:
-        str_cpy(a, "DELETE ENTRY?", 24);
+    case CF_DEL_ROW:                                    /* (Orange Cat 0.4) CHAIN's sheet */
+        str_cpy(a, "DELETE STEP A?", 24);
+        a[12] = (char)('A' + ui.chain_step % OCL_NENT);
+        str_cpy(b, "The steps after it move up", 32);
         break;
-    case CF_CLEAR_SONG:
-        str_cpy(a, "CLEAR ALL LISTS?", 24);
+    case CF_CLEAR_CHAIN:
+        str_cpy(a, "CLEAR CHAIN 01?", 24);
+        a[12] = (char)('0' + (lists.tchain[song.sel % NTRK] % OCL_NCHAIN + 1u) / 10u);
+        a[13] = (char)('0' + (lists.tchain[song.sel % NTRK] % OCL_NCHAIN + 1u) % 10u);
+        str_cpy(b, "Its phrases stay in the pool", 32);
+        break;
+    case CF_CLEAR_SONG:                                 /* (Orange Cat 0.4) SONG's sheet */
+        str_cpy(a, "CLEAR THE SONG?", 24);
+        str_cpy(b, "The chains stay", 32);
         break;
     case CF_NEW_SONG:                                   /* what is lost */
         str_cpy(a, "START A NEW SONG?", 24);
@@ -957,7 +966,7 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_PAT_KEY: {                                  /* SEQ + a white key held: its length, what its keys do now
                                                          * (b: CF_DETAIL) */
-        uint32_t p = ui.pat_dlg % NPAT, n, v = lists.ent[k % NTRK][p][0];   /* (Orange Cat 0.3, 4c) the key's entry */
+        uint32_t p = ui.pat_dlg % NPAT, n, v = OCL_ENT(k % NTRK, p)[0];   /* (Orange Cat 0.3, 4c) the key's entry */
         n = p == lists.cur[k % NTRK] % OCL_NENT ? (uint32_t)clamp(trk[k % NTRK].p[P_SLEN], 1, NSTEP) :
             v ? ocl_pat_len(v - 1u) : 0u;
         str_cpy(a, "ENTRY A \xB7 ", 24);

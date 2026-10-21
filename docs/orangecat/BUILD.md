@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.14  
-**Date:** October 20, 2026  
-**Tracks:** Orange Cat Specification v0.4
+**Version:** 0.15  
+**Date:** October 21, 2026  
+**Tracks:** Orange Cat Specification v0.5
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.15 (October 21, 2026):** 0.4.0: three levels, as a tracker (specification 0.5, 7.3). Chains (64 per project) and the SONG grid of chains; each track goes down its own song column. PLAY plays by the page it is pressed on. 0.3 projects convert when loaded.
 - **0.14 (October 21, 2026):** 0.3.7 fix (empty pattern numbers no longer stop the song). The three-level plan (phrase, chain, song) recorded.
 - **0.13 (October 20, 2026):** Fixes from the first device test: SONG MODE switch, PATTERNS knobs step one entry, the last project loads at power-on, Melodee projects get lists.
 - **0.12 (October 20, 2026):** 4c steps 1 to 3: tracks' lists of pool patterns, SONG while playing, the SONG and PATTERNS pages and the SEQ keys on entries.
@@ -33,7 +34,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
 | 2 | USB flash drive test | Not started |
 | 3 | Strip Melodee's engines | Done |
-| 4 | Port Skiff's sequencer and arranger | Not started |
+| 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | Not started |
 | 6 | Loadable engine study | Not started |
 | 7 | Mutable Instruments engines | Not started |
@@ -225,7 +226,7 @@ Coupling: Prophet, CZ-1, FM6 and DRUM are each referenced in 34 to 56 source fil
 
 ## Phase 4: Port Skiff's sequencer and arranger
 
-**Status: Not started (plan written October 20, 2026)**
+**Status: In progress (4a done, 4c mostly done)**
 
 Goal: Skiff's sequencer and arranger features running on Melodee's note data, plus swing and groove.
 
@@ -282,17 +283,28 @@ Each step builds, passes the host tests, and is measured before the next.
     - HOME's SELECT knob set to PATTERN steps through the entries.
   - [x] Fixes from the first device test (0.3.6, October 20, 2026): SONG MODE is now a switch of its own, the first row of the SONG and PATTERNS sheets, and PLAY no longer changes it. On PATTERNS each knob moves its track one entry at a time, up to one past its last pattern (an empty entry there starts a new pattern), so it never says NO OTHER ENTRY. Power-on loads the project last loaded or saved (a BOOT slot, if chosen, still wins). A Melodee project restored from a backup gets its banks in use as entries A, B, C and so on.
   - [x] 0.3.7: a slot naming a pattern number with nothing in it yet plays silent instead of stopping the song; what is recorded there is kept as that number.
-  - [ ] **Next: three levels, as a tracker (decided October 21, 2026, after the first device test).** The first version had the SONG and PATTERNS screens showing the same rows, which did not make sense on the device. The new plan, using M8 / LSDJ words on the screens:
-    - Phrase: a pattern of up to 64 steps (01 to 64, the shared pool). Edited on the step pages, later the tracker view.
-    - Chain: an ordered list of phrases with repeats, for one track. The PATTERNS screen becomes the chain editor.
-    - Song: rows, each row naming a chain for every track. All tracks move to the next row together. The SONG screen becomes the song editor.
-    - Song mode plays the song rows top to bottom; with it off, each track loops the chain it is on.
+  - [x] **0.4.0: three levels, as a tracker (October 21, 2026).** The first version had the SONG and PATTERNS screens showing the same rows, which did not make sense on the device. Now the screens use M8 and LSDJ words:
+    - **Phrase:** a pattern of up to 64 steps, numbered 01 to 64 in the shared pool. Edited on NOTES and PHRASE (the page called PATTERN before), later the tracker view.
+    - **Chain:** 16 steps, A to P. Each step names a phrase and its REPS (x1 to x16). A project has 64 chains, 01 to 64. Each track is on one chain. A new project puts track 1 on chain 01, track 2 on chain 02, and so on.
+    - **Song:** 64 rows, 01 to 64. Each row names a chain for each track (or nothing). A new project's row 01 names chains 01 to 04.
+    - **How the song plays.** Each track goes down its own column at its own pace, as the channels of a tracker do. A track plays its row's chain from the first step to the last, then the next row's chain. An empty cell, or the last row, sends it back to the top of its block of filled rows. So a short chain repeats against a long one on another track without any extra setup. A track whose cell is empty in the row PLAY starts from stays silent until the next PLAY.
+    - **What PLAY does depends on the page.** On SONG: the song from the row picked. On CHAIN: each track goes down the chain it is on and loops it. On NOTES and PHRASE: each track loops its phrase. On any other page (HOME, the sound pages): the same as the last time. On SONG with an empty song, the chains play and the screen says so.
+    - **SEQ > CHAIN** (was PATTERNS; SEQ held still opens it): a row per track. The chip at the left is the chain number the track is on. Eight of its 16 steps show (A to H, or I to P when the step picked is past H). The step the track plays is filled; a step staged to come next is dashed; the step picked is framed. KNOB 1 picks the step, KNOB 2 the track, KNOB 3 the step's phrase (-- or 01 to 64), KNOB 4 its REPS. OCT+ sends the track to that step (stopped: now; playing: at its loop end). OCT- clears anything staged, then goes HOME. OCT+ held, the sheet: Insert step, Duplicate step, Own copy (the step gets its own copy of its phrase, a new number), Delete step, Clear chain.
+    - **SEQ > SONG:** the rows, six at a time, a column per track. Each cell shows its chain number. While the song plays, the row each track is in is filled in its colour and the row it goes to next is dashed. KNOB 1 picks the row, KNOB 2 the track, KNOB 3 the cell's chain (-- or 01 to 64). OCT+ sends the track to that chain and opens CHAIN to edit it. On an empty cell, OCT+ first puts the first unused chain there. While playing, OCT+ only opens a chain the track is already on. OCT+ held, the sheet: Insert row, Delete row, Copy chain (the cell gets a copy of its chain under a new number, for a variation), Clear song, Free unused phrases.
+    - **The SEQ keys** (SEQ held, the white keys) are the steps A to H of the selected track's chain, as before. HOME's SELECT setting CHAIN STEP (was PATTERN) steps through them.
+    - **Projects from 0.3** convert when loaded: each track's list becomes its chain (track 1's list is chain 01, and so on), row 01 of the song names them, and SONG MODE on becomes PLAY on the chains. The next save writes the new format (OCJ3). Nothing is lost.
+    - Words on the screen: pool patterns are now "phrases" (PHRASES FULL, Free unused phrases).
+    - Tested (tests/oc_lists_test.c, tests/ui_test.c): the song from row 01 plays 01 02 03 01 02 (two rows, then back to the top); from row 02 it plays 03 01 02; a block of one row and one step loops; a track with an empty start cell is silent; free chains; Copy chain; Insert and Delete row; an 0.3 project record converts and saves back as OCJ3; the CHAIN and SONG knobs, OCT+, sheets and PLAY by page. 0 lint findings on all 265 screens in 8 palettes.
   - Melodee's section SONG and TAKE JAM are no longer reachable from the pages (their code stays for older projects and the web editor until 4g).
     - Rests: with SONG on, an empty entry between a track's first and last pattern is silence for its REPS passes (Skiff 1.2.1).
     - The SONG sheet's Free unused patterns empties every pool pattern that no list entry, no loaded bank and no saved project names.
     - Stage (HOME) shows each track's entry letter, and the staged one beside it.
-  - Left to do in 4c: a page listing all 64 pool patterns (Skiff's SEQ > PATTERN); the web editor's view of the lists (4g).
-  - Left to test on the device (4c): make two patterns on a track and switch between them with SEQ + white keys; build a list on the SONG page and play it from there; save, power off and on, load: lists and patterns come back; a second project naming the same pattern hears an edit made in the first.
+  - Left to do in 4c: a page listing all 64 pool phrases (Skiff's SEQ > PATTERN); the web editor's view of chains and the song (4g).
+  - Left to test on the device (4c, 0.4.0):
+    - Load a project saved with 0.3.7. Its lists should show as chains 01 to 04 on CHAIN, and SONG row 01 should name 01 02 03 04.
+    - On CHAIN, put phrases 01 02 03 04 in track 1's steps A to D (KNOB 1 the step, KNOB 3 the phrase). Press PLAY on CHAIN: track 1 should play 01, 02, 03, 04, then 01 again.
+    - On SONG, put chain 01 in row 01 and chain 05 in row 02 for track 1. Press OCT+ on row 02 to edit chain 05 and give it a phrase. Go back to SONG, pick row 01, press PLAY: track 1 should play chain 01, then chain 05, then chain 01 again.
+    - Save, power off and on: chains, the song and the phrases come back.
 - [ ] **4d. PERFORM and scenes.** Skiff's launch.c (launch at LOOP / BAR / BEAT / NOW), staged mutes, 16 scenes, FILL, throws.
 - [ ] **4e. Sequencer pages.** Skiff's STEP tiles with step locks, CHANCE page (chance, RATCH or FLAM, condition), NUDGE, DIR, SEQ TOOLS (clear, reverse, shift, random, cook), DOUBLE and HALF, the AUTOMATION list, TAKE, the SONG list page and the PATTERNS pool page. Melodee's NOTES piano roll stays as the note editor.
 - [ ] **4f. Groove templates.** Per-step timing shift and accent, applied the same way in playback and in record quantize.

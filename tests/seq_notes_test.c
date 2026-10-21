@@ -480,7 +480,7 @@ static int bulk_and_pattern_clears(void)
     recording_restore_note(&trk[1],2,other);
     saved[0]=recording[0];saved[1]=recording[1];
     motion_set_event(t,0,P_LEVEL,80);motion_store_t before;motion_snapshot_track(t,&before);
-    go_title("PATTERN");frame();
+    go_title("PHRASE");frame();
     confirm_open(CF_CLEAR_SEQ,0);press(B_OCTUP);
     bad+=check("Clear pattern physically erases the bank's precise events and preserves other owners",
         !recording[0].vel&&!recording[1].vel&&!memcmp(&recording[2],&other,sizeof other)&&seq_is_empty(t)&&!t->rh_n&&!motion.count);
@@ -511,7 +511,7 @@ static int bulk_and_pattern_clears(void)
     count=0;only=1;for(uint32_t i=recording_head[recording_owner(t)];i<RECORD_MAX;i=recording_next[i]){count++;only&=recording[i].note==79;}
     bad+=check("overwritten dormant events are retired before new recording can reactivate their overview",count==1&&only);
     raw_begin();t=TSEL;seq_advance(12u*6144u+600u);input_on(t,60,80);seq_advance(300);input_off(t,60);
-    seq_stop();song.rec=0;t->p[P_SLEN]=8;go_title("PATTERN");frame();
+    seq_stop();song.rec=0;t->p[P_SLEN]=8;go_title("PHRASE");frame();
     confirm_open(CF_CLEAR_SEQ,0);press(B_OCTUP);
     bad+=check("full pattern clear also deletes retained events beyond a shortened LEN",!recording[0].vel&&recording_head[recording_owner(t)]==RECORD_MAX);
     return bad;

@@ -54,7 +54,7 @@ static void buttons_and_mapping(void)
     song.sel = 1;
     fm1_in.buttons = 0; frame();
     assert(trk[0].mpc_octave == -1 && trk[1].mpc_octave == -1);
-    go_title("PATTERN"); press(B_OCTDN);
+    go_title("PHRASE"); press(B_OCTDN);
     assert(ui.home && trk[1].mpc_octave == -1 && song.octave == 2);
     /* All other QNT modes retain the global input octave. */
     for (uint32_t q = Q_OFF; q < Q_MPC; q++) {
@@ -148,7 +148,7 @@ static void track_follow(void)
     midi_event(0x90, 0, MPC_PAD_NOTES[3][1], 100); frame(); assert(song.sel == 0);
     song.ntrk = NTRK;
     /* Follow works on parameter pages too, preserving the current page and unrelated feedback. */
-    go_title("PATTERN"); uint32_t page = ui.page;
+    go_title("PHRASE"); uint32_t page = ui.page;
     ui_message("KEPT");
     midi_event(0x90, 0, MPC_PAD_NOTES[1][1], 100); frame();
     assert(song.sel == 1 && ui.page == page && !ui.home && msg_is("KEPT"));

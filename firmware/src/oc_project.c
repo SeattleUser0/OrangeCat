@@ -23,15 +23,20 @@
  * let go are left in the pool, unnamed, until a later save takes them as free.
  *
  * The record (all little-endian):
- *   ocj_head_t, then the FUN22 project part run-length coded: a byte other than 0 is itself, 0 then n (1..255) is n
- *   zero bytes.
+ *   ocj_head_t, then the lists (ocl_lists_t) and the FUN22 project part run-length coded as one: a byte other than 0
+ *   is itself, 0 then n (1..255) is n zero bytes. (OCJ2: the lists, 0.3's, at the head's end; the project part
+ *   alone coded.)
  *
  * Revisions:
  *   0.3.2: first version.
  *   0.3.3: (4c) OCJ2: the lists in the record; the banks' patterns as the sequencer has them (proj_pid: shared, as
  *          Skiff's projects share patterns); a pattern anything loaded names is not emptied.
+ *   0.4.0: OCJ3: the chains, the song, where each track is in them (pattern.c ocl_lists_t), coded with the project
+ *          part (ahead of it: mostly zeros). An OCJ2 record reads as one: each track's list its chain (track 1 on
+ *          chain 01 ..), row 01 of the song naming them.
  */
-#define OCJ_MAGIC 0x324A434Fu                  /* "OCJ2" (OCJ1, before the lists: never released) */
+#define OCJ_MAGIC 0x334A434Fu                  /* "OCJ3" */
+#define OCJ_MAGIC2 0x324A434Fu                 /* "OCJ2" (0.3: the lists, one a track; OCJ1, before them: never released) */
 #define OCJ_FN (4u + NTRK * FM6_NFN)           /* FBKK's FM6 function settings (BANK_FN_OFF: their magic, then them) */
 typedef struct {
     uint32_t magic, len, zlen;                 /* len: the whole record; zlen: the coded project part after this */
@@ -40,8 +45,18 @@ typedef struct {
     uint8_t chain[CHAIN_ROWS * NTRK];          /* FBKK's song columns (BANK_CHAIN_OFF) */
     char name[PROJ_NAME_LEN];                  /* the project's name (the slot list) */
     uint8_t fn[OCJ_FN];
-    ocl_lists_t lists;                         /* (4c) the tracks' lists, the entry each is on, SONG */
 } ocj_head_t;
+static ocl_lists_t ocj_l __attribute__((section(".pool")));   /* (4c) the chains, the song, where each track is */
+static uint32_t ocj_lead;                      /* (0.4) the lists' bytes ahead of the project part, coded (OCJ2: 0) */
+typedef struct {                               /* (0.3) OCJ2: as ocj_head_t to the lists */
+    uint32_t magic, len, zlen;
+    uint8_t pid[NTRK][NPAT];
+    uint8_t active[NTRK];
+    uint8_t chain[CHAIN_ROWS * NTRK];
+    char name[PROJ_NAME_LEN];
+    uint8_t fn[OCJ_FN];
+    ocl_lists_v2_t lists;
+} ocj_head2_t;
 
 static struct {
     uint8_t pid[4][NTRK][NPAT];                /* each slot's map, as its record has it (all 0: no record) */
@@ -60,17 +75,51 @@ static uint32_t ocj_refs(uint32_t id, uint32_t but)
     return n;
 }
 
-/* pool pattern id named by what is loaded (a bank's, a list entry's) or by the project being written (proj_pid,
+/* pool pattern id named by what is loaded (a bank's, a chain step's) or by the project being written (proj_pid,
  * proj_lists, when xs) */
 static int ocj_named_now(uint32_t id, int xs)
 {
-    for (uint32_t k = 0; k < NTRK; k++) {
+    for (uint32_t k = 0; k < NTRK; k++)
         for (uint32_t b = 0; b < NPAT; b++)
             if (bank_pid[k][b] == id + 1u || (xs && proj_pid[k][b] == id + 1u)) return 1;
+    for (uint32_t c = 0; c < OCL_NCHAIN; c++)
         for (uint32_t e = 0; e < OCL_NENT; e++)
-            if (lists.ent[k][e][0] == id + 1u || (xs && proj_lists.ent[k][e][0] == id + 1u)) return 1;
-    }
+            if (lists.chain[c][e][0] == id + 1u || (xs && proj_lists.chain[c][e][0] == id + 1u)) return 1;
     return 0;
+}
+
+/* (0.4) record r's head into ocj_h (an OCJ2's converted), *hsz its size in the record. 0, or -1 none that reads */
+static int ocj_head_load(ocs_rec_t *r, uint32_t *hsz)
+{
+    static ocj_head2_t h2 __attribute__((section(".pool")));
+    uint32_t magic;
+    if (r->total < 4u || ocs_at(r, 0, &magic, 4)) return -1;
+    if (magic == OCJ_MAGIC) {
+        if (r->total < sizeof ocj_h || ocs_at(r, 0, &ocj_h, sizeof ocj_h)) return -1;
+        *hsz = sizeof ocj_h;
+        ocj_lead = sizeof ocj_l;
+    } else if (magic == OCJ_MAGIC2) {
+        if (r->total < sizeof h2 || ocs_at(r, 0, &h2, sizeof h2)) return -1;
+        *hsz = sizeof h2;
+        memset(&ocj_h, 0, sizeof ocj_h);
+        ocj_h.magic = OCJ_MAGIC; ocj_h.len = h2.len; ocj_h.zlen = h2.zlen;
+        memcpy(ocj_h.pid, h2.pid, sizeof ocj_h.pid);
+        memcpy(ocj_h.active, h2.active, sizeof ocj_h.active);
+        memcpy(ocj_h.chain, h2.chain, sizeof ocj_h.chain);
+        memcpy(ocj_h.name, h2.name, sizeof ocj_h.name);
+        memcpy(ocj_h.fn, h2.fn, sizeof ocj_h.fn);
+        ocl_lists_init(&ocj_l);                /* track k's list chain k + 1, row 01 naming them */
+        for (uint32_t k = 0; k < NTRK; k++) {
+            memcpy(ocj_l.chain[k], h2.lists.ent[k], sizeof h2.lists.ent[k]);
+            ocj_l.cur[k] = h2.lists.cur[k];
+        }
+        ocj_l.mode = h2.lists.song ? OCL_CHAIN : OCL_PHRASE;
+        ocl_lists_fix(&ocj_l);
+        ocj_lead = 0;
+    } else {
+        return -1;
+    }
+    return ocj_h.len == r->total && ocj_h.zlen == r->total - *hsz ? 0 : -1;
 }
 
 /* boot (after ocs_boot, ocp_scan): each slot's map */
@@ -79,8 +128,8 @@ static void ocj_scan(void)
     memset(&ocj, 0, sizeof ocj);
     for (uint32_t s = 0; s < 4u; s++) {
         ocs_rec_t r;
-        if (ocs_open(OCS_PROJECT, s, &r) || r.total < sizeof ocj_h || ocs_at(&r, 0, &ocj_h, sizeof ocj_h) ||
-            ocj_h.magic != OCJ_MAGIC || ocj_h.len != r.total)
+        uint32_t hsz;
+        if (ocs_open(OCS_PROJECT, s, &r) || ocj_head_load(&r, &hsz))
             continue;
         memcpy(ocj.pid[s], ocj_h.pid, sizeof ocj.pid[s]);
         for (uint32_t k = 0; k < NTRK; k++)
@@ -111,20 +160,25 @@ static uint32_t ocj_gen_fbkk(ocp_gen_t *g, const project_t *q, const uint8_t *ra
     return ocp_gen_count(g);
 }
 
-/* the record streamed: the head, then the project part (at raw + 8) run-length coded */
+/* the record streamed: the head, then the lists (ocj_l) and the project part (at raw + 8) run-length coded */
+#define OCJ_CODED ((uint32_t)sizeof ocj_l + PROJ_STORE_SIZE)
 typedef struct {
     ocs_src_t src;
     const uint8_t *in;
     uint32_t pos, hpos;
     int pending;                               /* a zero run's count still to give, -1 none */
 } ocj_src_t;
+static uint8_t ocj_in(const ocj_src_t *z, uint32_t pos)
+{
+    return pos < sizeof ocj_l ? ((const uint8_t *)&ocj_l)[pos] : z->in[pos - sizeof ocj_l];
+}
 static int ocj_rle_byte(ocj_src_t *z, uint8_t *out)
 {
     if (z->pending >= 0) { *out = (uint8_t)z->pending; z->pending = -1; return 0; }
-    if (z->pos >= PROJ_STORE_SIZE) return -1;
-    if (z->in[z->pos]) { *out = z->in[z->pos++]; return 0; }
+    if (z->pos >= OCJ_CODED) return -1;
+    if (ocj_in(z, z->pos)) { *out = ocj_in(z, z->pos++); return 0; }
     uint32_t n = 0;
-    while (n < 255u && z->pos < PROJ_STORE_SIZE && !z->in[z->pos]) { n++; z->pos++; }
+    while (n < 255u && z->pos < OCJ_CODED && !ocj_in(z, z->pos)) { n++; z->pos++; }
     *out = 0; z->pending = (int)n;
     return 0;
 }
@@ -223,7 +277,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
                         for (uint32_t b2 = 0; b2 < NPAT; b2++) taken |= npid[k2][b2] == id;
                     if (!taken) break;
                 }
-                if (id > OCP_N) { ui_message("PATTERNS FULL"); return 2; }
+                if (id > OCP_N) { ui_message("PHRASES FULL"); return 2; }
             }
             npid[k][b] = (uint8_t)id;
         }
@@ -244,7 +298,8 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     memcpy(ocj_h.chain, raw + BANK_CHAIN_OFF, sizeof ocj_h.chain);
     memcpy(ocj_h.name, q->name, PROJ_NAME_LEN);
     memcpy(ocj_h.fn, raw + BANK_FN_OFF, OCJ_FN);
-    if (xs) ocj_h.lists = proj_lists;          /* (4c; a project from elsewhere: no lists) */
+    if (xs) ocj_l = proj_lists;                /* (4c; a project from elsewhere: a new project's) */
+    else ocl_lists_init(&ocj_l);
     for (k = 0; k < NTRK; k++)
         for (uint32_t i = 0; i < NSTEP; i++) step_clear(&q->t[k].step[i]);
     memset(q->recording, 0, sizeof q->recording);
@@ -282,25 +337,32 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     static ocp_rd_t rd __attribute__((section(".pool")));
     project_t *q = &proj_scratch;
     ocs_rec_t r, pr;
-    uint32_t k, b, i, at, out = 0, nmot = 0, nnote = 0, notes_at = 0;
+    uint32_t k, b, i, at, out = 0, nmot = 0, nnote = 0, notes_at = 0, hsz;
     slot &= 3u;
-    if (ocs_open(OCS_PROJECT, slot, &r) || r.total < sizeof ocj_h || ocs_at(&r, 0, &ocj_h, sizeof ocj_h) ||
-        ocj_h.magic != OCJ_MAGIC || ocj_h.len != r.total || ocj_h.zlen != r.total - sizeof ocj_h)
+    if (ocs_open(OCS_PROJECT, slot, &r) || ocj_head_load(&r, &hsz))
         return -1;
     /* the project part, decoded into raw + 8 */
     memset(&rd, 0, sizeof rd);
-    rd.r = &r; rd.off = sizeof ocj_h; rd.end = r.total;
+    rd.r = &r; rd.off = hsz; rd.end = r.total;
     for (at = 0; at < ocj_h.zlen;) {
         uint8_t v, n;
         if (ocp_rd(&rd, &v, 1)) return -1;
         at++;
-        if (v) { if (out >= PROJ_STORE_SIZE) return -1; raw[8u + out++] = v; continue; }
-        if (ocp_rd(&rd, &n, 1) || !n || out + n > PROJ_STORE_SIZE) return -1;
+        if (v) {
+            if (out >= ocj_lead + PROJ_STORE_SIZE) return -1;
+            if (out < ocj_lead) ((uint8_t *)&ocj_l)[out++] = v;   /* (0.4: the lists first) */
+            else { raw[8u + out - ocj_lead] = v; out++; }
+            continue;
+        }
+        if (ocp_rd(&rd, &n, 1) || !n || out + n > ocj_lead + PROJ_STORE_SIZE) return -1;
         at++;
-        memset(raw + 8u + out, 0, n);
-        out += n;
+        for (; n; n--, out++) {
+            if (out < ocj_lead) ((uint8_t *)&ocj_l)[out] = 0;
+            else raw[8u + out - ocj_lead] = 0;
+        }
     }
-    if (out != PROJ_STORE_SIZE || !proj_import(q, raw + 8u, PROJ_STORE_SIZE)) return -1;
+    if (out != ocj_lead + PROJ_STORE_SIZE || !proj_import(q, raw + 8u, PROJ_STORE_SIZE)) return -1;
+    ocl_lists_fix(&ocj_l);
     memset(q->recording, 0, sizeof q->recording);
     q->motion.count = 0;
     memset(raw + BANK_ACTIVE_OFF, 0, BANK_STORE_SIZE - BANK_ACTIVE_OFF);
@@ -360,15 +422,7 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     if (!proj_pack((project_store_t *)(raw + 8u), q)) return -1;
     bank_checksum(raw);
     memcpy(proj_pid, ocj_h.pid, sizeof proj_pid);    /* (4c) the patterns the banks are, the lists */
-    proj_lists = ocj_h.lists;
-    for (k = 0; k < NTRK; k++) {
-        proj_lists.cur[k] %= OCL_NENT;
-        for (uint32_t e = 0; e < OCL_NENT; e++) {
-            if (proj_lists.ent[k][e][0] > OCP_N) proj_lists.ent[k][e][0] = 0;
-            proj_lists.ent[k][e][1] &= 15u;
-        }
-    }
-    proj_lists.song = proj_lists.song ? 1u : 0u;
+    proj_lists = ocj_l;                        /* (in range: ocl_lists_fix above) */
     proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
     return (int)BANK_STORE_SIZE;
 }

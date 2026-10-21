@@ -108,7 +108,7 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
         memcpy(raw + BANK_FN_OFF + 4u, q->fm6_fn, sizeof q->fm6_fn);
     }
     memset(proj_x, 0, sizeof proj_x);
-    memset(&proj_lists, 0, sizeof proj_lists); memset(proj_pid, 0, sizeof proj_pid);
+    ocl_lists_init(&proj_lists); memset(proj_pid, 0, sizeof proj_pid);
     if (runtime) { proj_lists = lists; memcpy(proj_pid, bank_pid, sizeof proj_pid); }   /* (Orange Cat 0.3, 4c) */
     for (uint32_t k = 0; k < NTRK; k++) {          /* (Orange Cat 0.3) Skiff's fields beside it */
         if (!runtime) { proj_x_put(k, q->pattern[k] % NPAT, q->t[k].step); continue; }
@@ -196,16 +196,19 @@ static void bank_restore(const uint8_t *raw)
         }
     }
     if (xs) lists = proj_lists;               /* (Orange Cat 0.3, 4c) */
-    for (uint32_t k = 0; xs && k < NTRK; k++) {   /* (0.3.6) a track whose list is empty (a Melodee project, restored):
-                                                   * its banks in use as its entries, in order, on the one active */
-        uint32_t e = 0, any = 0;
-        for (uint32_t i = 0; i < OCL_NENT; i++) any |= lists.ent[k][i][0];
-        if (any) continue;
-        for (uint32_t b = 0; b < NPAT; b++) {
-            if (!bank_pid[k][b]) continue;
-            if (b == trk[k].pattern) lists.cur[k] = (uint8_t)e;
-            lists.ent[k][e][0] = bank_pid[k][b];
-            lists.ent[k][e++][1] = 0;
+    if (xs && ocl_lists_empty(&lists)) {      /* (0.3.6; 0.4 chains) no chain names anything (a Melodee project,
+                                               * restored): each track's banks in use its chain's steps, in order, on
+                                               * the one active; row 01 of the song naming the chains */
+        ocl_lists_init(&lists);
+        for (uint32_t k = 0; k < NTRK; k++) {
+            uint32_t e = 0;
+            for (uint32_t b = 0; b < NPAT; b++) {
+                if (!bank_pid[k][b]) continue;
+                if (b == trk[k].pattern) lists.cur[k] = (uint8_t)e;
+                OCL_ENT(k, e)[0] = bank_pid[k][b];
+                OCL_ENT(k, e)[1] = 0;
+                e++;
+            }
         }
     }
     motion_unguard(f);

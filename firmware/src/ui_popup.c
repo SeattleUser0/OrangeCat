@@ -98,23 +98,22 @@ static const sheet_row_t SHEET_STAGE[] = {
     {"Init sound", 0, 0, 0, CF_INIT_SOUND}, {"Save as user\x85", 0, 0, ps_save, 0}, {"Favourite", ps_fav_v, 0, ps_fav, 0},
     {"Undo last load", 0, 0, ps_undo, 0}, {"Sound designer", 0, 0, designer_open, 0},
     {"Add track", ps_add_v, 0, track_add, 0}, {"Remove track", ps_remove_v, 0, 0, CF_DEL_TRACK}};
-/* the song's (SONG): (Orange Cat 0.3, 4c) the selected track's list at the entry picked (oc_lists.c) */
+/* (Orange Cat 0.4, build doc 4c) the song's (SONG, OCT+ held): rows in and out, the cell's chain copied, the song
+ * cleared, the pool's patterns nothing names emptied (oc_lists.c) */
 static void ocl_insert(uint32_t k, uint32_t e);
 static void ocl_dup(uint32_t k, uint32_t e);
 static int ocl_copy(uint32_t k, uint32_t e);
-static int ocl_any(void);
-static void ps_insert(void) { ocl_insert(song.sel, ui.song_row); ui_message("ENTRY INSERTED"); }
-static void ps_dup(void)
+static int ocl_song_any(void);
+static int ocl_chain_any(uint32_t c);
+static void ocl_row_insert(uint32_t r);
+static void ocl_row_delete(uint32_t r);
+static int ocl_chain_clone(uint32_t r, uint32_t k);
+static void ps_row_insert(void) { ocl_row_insert(ui.song_row); ui_message("ROW INSERTED"); }
+static void ps_row_delete(void) { ocl_row_delete(ui.song_row); ui_message("ROW DELETED"); }
+static void ps_clone(void)                             /* the cell's chain: a copy of its own, a new number */
 {
-    if (!lists.ent[song.sel % NTRK][ui.song_row % OCL_NENT][0]) { ui_message("EMPTY ENTRY"); return; }
-    ocl_dup(song.sel, ui.song_row);
-    ui_message("ENTRY DUPLICATED");
-}
-static void ps_copy(void)
-{
-    int rc = ocl_copy(song.sel, ui.song_row);
-    ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY ENTRY" : rc == 4 ? "PATTERNS FULL" : song.playing ? "STOP FIRST" :
-               "SAVE ERROR");
+    int rc = ocl_chain_clone(ui.song_row, song.sel);
+    ui_message(!rc ? "CHAIN COPIED" : rc == 1 ? "NO CHAIN THERE" : "CHAINS FULL");
 }
 static int ocl_clear_unused(void);
 static void ps_unused(void)                            /* the pool's patterns nothing names emptied */
@@ -123,20 +122,12 @@ static void ps_unused(void)                            /* the pool's patterns no
     char m[24];
     if (n < 0) { ui_message(n == -2 ? "STOP FIRST" : "SAVE ERROR"); return; }
     fmt_int(m, n);
-    str_cpy(m + str_len(m), n == 1 ? " PATTERN FREED" : " PATTERNS FREED", 16);
+    str_cpy(m + str_len(m), n == 1 ? " PHRASE FREED" : " PHRASES FREED", 16);
     ui_message(m);
 }
-static void ps_songmode_v(char *b) { str_cpy(b, lists.song ? "On" : "Off", 8); }
-static void ps_songmode(void)                          /* (Orange Cat 0.3.6) the tracks down their lists, or each
-                                                        * looping its entry */
-{
-    lists.song = (uint8_t)!lists.song;
-    ui_message(lists.song ? "SONG MODE ON" : "SONG MODE OFF");
-    ui.force = 1;
-}
 static const sheet_row_t SHEET_SONG[] = {
-    {"Song mode", ps_songmode_v, 0, ps_songmode, 0}, {"Insert entry", 0, 0, ps_insert, 0}, {"Duplicate entry", 0, 0, ps_dup, 0}, {"Own copy", 0, 0, ps_copy, 0},
-    {"Delete entry", 0, 0, 0, CF_DEL_ROW}, {"Clear lists", 0, 0, 0, CF_CLEAR_SONG}, {"Free unused patterns", 0, 0, ps_unused, 0}};
+    {"Insert row", 0, 0, ps_row_insert, 0}, {"Delete row", 0, 0, ps_row_delete, 0}, {"Copy chain", 0, 0, ps_clone, 0},
+    {"Clear song", 0, 0, 0, CF_CLEAR_SONG}, {"Free unused phrases", 0, 0, ps_unused, 0}};
 
 /* the pattern's (NOTES, the drum grid, PATTERN: OCT+ held; TOOLS' Clear pattern lives here) */
 static void nt_quantize_v(char *b){str_cpy(b,ui.note_grid==2u?"0.25 step":ui.note_grid==1u?"0.5 step":"1 step",16);}
@@ -149,15 +140,22 @@ static void sh_route_turn(int32_t s) { song.g[G_FXMODE] = (int16_t)(s > 0); ui.f
 static void sh_route(void) { sh_route_turn(!song.g[G_FXMODE]); }
 static const sheet_row_t SHEET_SHARED[] = {{"Routing", sh_route_v, sh_route_turn, sh_route, 0},
                                            {"Clear shared FX", 0, 0, 0, CF_CLEAR_SHARED}};
-/* PATTERNS' (OCT+): the selected track's pattern; Copy to: its place picked on the grid (ui_patterns.c) */
-static void ps_own(void)                               /* (Orange Cat 0.3, 4c) the selected track's entry: its own copy */
+/* (Orange Cat 0.4) CHAIN's (OCT+ held): the selected track's chain at the step picked */
+static void ps_insert(void) { ocl_insert(song.sel, ui.chain_step); ui_message("STEP INSERTED"); }
+static void ps_dup(void)
 {
-    int rc = ocl_copy(song.sel, lists.cur[song.sel % NTRK]);
-    ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY ENTRY" : rc == 4 ? "PATTERNS FULL" : song.playing ? "STOP FIRST" :
+    if (!OCL_ENT(song.sel % NTRK, ui.chain_step)[0]) { ui_message("EMPTY STEP"); return; }
+    ocl_dup(song.sel, ui.chain_step);
+    ui_message("STEP DUPLICATED");
+}
+static void ps_own(void)                               /* the step's phrase: a copy of its own, a new number */
+{
+    int rc = ocl_copy(song.sel, ui.chain_step);
+    ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY STEP" : rc == 4 ? "PHRASES FULL" : song.playing ? "STOP FIRST" :
                "SAVE ERROR");
 }
-static const sheet_row_t SHEET_PATTERNS[] = {{"Song mode", ps_songmode_v, 0, ps_songmode, 0}, {"Own copy", 0, 0, ps_own, 0},
-    {"Delete pattern", 0, 0, 0, CF_DEL_PAT}};
+static const sheet_row_t SHEET_PATTERNS[] = {{"Insert step", 0, 0, ps_insert, 0}, {"Duplicate step", 0, 0, ps_dup, 0},
+    {"Own copy", 0, 0, ps_own, 0}, {"Delete step", 0, 0, 0, CF_DEL_ROW}, {"Clear chain", 0, 0, 0, CF_CLEAR_CHAIN}};
 
 /* the step's: NOTES' note at the cursor (KNOB 1 its length, velocity, chance), the drum grid's hit of the lane there */
 static void st_cap(uint32_t c, char *b)                 /* NOTES' column c as its chip shows it (draw_columns) */
@@ -343,9 +341,10 @@ static void page_sheet_open(void)
             sheet_open(nm[0] ? nm : "Sound", ENGINES[eng_idx(TSEL->eng_req)]->name, SHEET_SOUND, NELEM(SHEET_SOUND));
         break;
     case 2:
-        str_cpy(nm, "T1 \xb7 entry A", sizeof nm);      /* (Orange Cat 0.3: the cell picked) */
-        nm[1] = (char)('1' + song.sel % NTRK);
-        nm[str_len(nm) - 1u] = (char)('A' + ui.song_row % OCL_NENT);
+        str_cpy(nm, "Row 01 \xb7 T1", sizeof nm);        /* (Orange Cat 0.4: the cell picked) */
+        nm[4] = (char)('0' + (ui.song_row % OCL_NROW + 1u) / 10u);
+        nm[5] = (char)('0' + (ui.song_row % OCL_NROW + 1u) % 10u);
+        nm[str_len(nm) - 1u] = (char)('1' + song.sel % NTRK);
         sheet_open("Song", nm, SHEET_SONG, NELEM(SHEET_SONG));
         break;
     case 3:
@@ -353,11 +352,13 @@ static void page_sheet_open(void)
         nm[1] = (char)('1' + song.sel % NTRK);
         sheet_open("Pattern", nm, SHEET_PATTERN, NELEM(SHEET_PATTERN));
         break;
-    case 4: {                                           /* "Entry C", "T2" (Orange Cat 0.3: the list's) */
-        char t[12] = "Entry A";
-        t[6] = (char)('A' + lists.cur[song.sel % NTRK] % OCL_NENT);
-        str_cpy(nm, "T1", sizeof nm);
+    case 4: {                                           /* "Chain 05", "T2 \xb7 step C" (Orange Cat 0.4) */
+        char t[12] = "Chain 01";
+        uint32_t c = lists.tchain[song.sel % NTRK] % OCL_NCHAIN + 1u;
+        t[6] = (char)('0' + c / 10u); t[7] = (char)('0' + c % 10u);
+        str_cpy(nm, "T1 \xb7 step A", sizeof nm);
         nm[1] = (char)('1' + song.sel % NTRK);
+        nm[str_len(nm) - 1u] = (char)('A' + ui.chain_step % OCL_NENT);
         sheet_open(t, nm, SHEET_PATTERNS, NELEM(SHEET_PATTERNS));
         break;
     }
@@ -380,10 +381,10 @@ static int cf_refused(uint32_t cf)
         ui_message("ONLY ONE TRACK");
     else if (cf == CF_DEL_TRACK && transport_busy())
         ui_message("STOP FIRST");
-    else if ((cf == CF_DEL_ROW && !lists.ent[song.sel % NTRK][ui.song_row % OCL_NENT][0]) ||
-             (cf == CF_DEL_PAT && pattern_empty(song.sel % NTRK, TSEL->pattern)))
+    else if (cf == CF_DEL_PAT && pattern_empty(song.sel % NTRK, TSEL->pattern))
         ui_message("NOTHING TO DELETE");
-    else if ((cf == CF_CLEAR_SONG && !ocl_any()) || (cf == CF_CLEAR_SEQ && seq_is_empty(TSEL)) ||
+    else if ((cf == CF_CLEAR_SONG && !ocl_song_any()) || (cf == CF_CLEAR_SEQ && seq_is_empty(TSEL)) ||
+             (cf == CF_CLEAR_CHAIN && !ocl_chain_any(lists.tchain[song.sel % NTRK])) ||
              (cf == CF_CLEAR_MOTION && !motion_count(TSEL)) ||
              (cf == CF_CLEAR_SHARED && !song.g[G_MFXTYPE] && !song.g[G_MFX2TYPE] && !song.g[G_MFX3TYPE]))
         ui_message("NOTHING TO CLEAR");
@@ -408,7 +409,7 @@ static void sheet_input(int32_t k1, int32_t k2, uint32_t oct)
         if (r->act)
             r->act();
         else if (r->cf && !cf_refused(r->cf))
-            confirm_open(r->cf, r->cf == CF_DEL_ROW ? ui.song_row : song.sel);
+            confirm_open(r->cf, song.sel);
         else if (r->turn)
             r->turn(1);
     }

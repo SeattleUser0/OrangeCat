@@ -289,7 +289,7 @@ static int test_slots(void)
     wipe_runtime();
     fill_all(5, NPAT);
     bad |= check("another into slot C: past 64, refused (PATTERNS FULL); what fitted is kept in the pool, slot C empty",
-                 project_save_as(2, "TOO BIG") != 0 && !strcmp(ui.msg, "PATTERNS FULL") && used_patterns() == 64u &&
+                 project_save_as(2, "TOO BIG") != 0 && !strcmp(ui.msg, "PHRASES FULL") && used_patterns() == 64u &&
                      !project_name(2, n));
     reboot();
     wipe_runtime(); project_load(0); snap(&C);

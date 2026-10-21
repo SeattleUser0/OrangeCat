@@ -626,7 +626,7 @@ static int project_save_as(uint32_t slot, const char *name)
     momentary_restore();
     {   /* (Orange Cat 0.3, 4c) what the tracks have kept to the pool first: their banks then name their patterns */
         int rc = ocl_keep_all();
-        if (rc) { ui_message(rc == 4 ? "PATTERNS FULL" : "SAVE ERROR"); return 2; }
+        if (rc) { ui_message(rc == 4 ? "PHRASES FULL" : "SAVE ERROR"); return 2; }
     }
     project_capture(p);
     if (name) {

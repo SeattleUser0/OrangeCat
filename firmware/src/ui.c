@@ -78,7 +78,7 @@ static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the brows
 static uint32_t ty_pixel(void) { return (PREF_BITS & PREF_PIXEL) != 0u; }   /* (gfx.c TY_*: the type's roles) */
 /* HOME SELECT (the menu): what SELECT turns on HOME, kept in favorites.factory[15][25] (0, any other: BPM) */
 enum { HS_BPM, HS_MOD, HS_LEVEL, HS_SWING, HS_TRANS, HS_CHORD, HS_ARATE, HS_PATTERN, HS_OFF, HS_N };
-static const char *const HS_NAME[HS_N] = {"BPM", "MOD WHEEL", "LEVEL", "SWING", "TRANSPOSE", "CHORD", "ARP RATE", "PATTERN",
+static const char *const HS_NAME[HS_N] = {"BPM", "MOD WHEEL", "LEVEL", "SWING", "TRANSPOSE", "CHORD", "ARP RATE", "CHAIN STEP",
                                           "OFF"};
 #define HOME_SELECT (favorites.factory[15][25])
 static uint32_t home_select(void) { return HOME_SELECT < HS_N ? HOME_SELECT : HS_BPM; }
@@ -167,7 +167,8 @@ static struct {
     uint8_t confirm;             /* the OCT- / OCT+ dialog: CF_*, 0 = none */
     uint16_t confirm_trk;         /* the track it clears, the slot it overwrites */
     uint16_t uslot;               /* SAVE > USER: the selected user preset slot */
-    uint8_t song_row;            /* SONG: row selected, count selects the next empty row */
+    uint8_t song_row;            /* SONG: the song row picked (Orange Cat 0.4: 00..63) */
+    uint8_t chain_step;          /* (Orange Cat 0.4) CHAIN: the step picked, A..P */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
     uint8_t proj_new;            /* SAVE > PROJECT: KNOB 1 past TMPL, NEW (a new song: ui_new.c); SLOT unchanged */
     uint32_t ly_t0;              /* the layer button's press time | 1, LY_* bits (ui_layer.c layer_gesture) */
@@ -210,7 +211,7 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
        CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE,
-       CF_DEL_TRACK, CF_PAT_KEY, CF_CLEAR_SHARED };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
+       CF_DEL_TRACK, CF_PAT_KEY, CF_CLEAR_SHARED, CF_CLEAR_CHAIN };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
                                       * pattern over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to
                                       * over a pattern in use; SEQ + a white key held: its pattern (ui_input.c) */
 
@@ -366,6 +367,8 @@ static void page_entered(void)
     ui.act = 0;
     ui.proj_new = 0;
     ui.ptc_on = 0;
+    if (pg->graph == GR_PATGRID && !ui.home)     /* (Orange Cat 0.4) CHAIN: the step the selected track is on */
+        ui.chain_step = lists.cur[song.sel % NTRK] % OCL_NENT;
     if (pg->graph == GR_BROWSE) {                /* (OCT- goes back to the sound from before: its loads, a level */
         browse_mark = browse_loads;              /* of their own) */
         undo_seal();
@@ -1117,8 +1120,9 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     const page_t *pg = cur_page();
     if (ui.home)
         return 0;
-    if (pg->graph == GR_SONG)
-        return 1u;                               /* (Orange Cat 0.3, 4c) GO: the track to the entry picked */
+    if (pg->graph == GR_SONG || pg->graph == GR_PATGRID)
+        return 1u;                               /* (Orange Cat 0.4) SONG: EDIT the cell's chain; CHAIN: GO to the
+                                                  * step picked */
     if (pg->graph == GR_SLICES)
         return slice_page_ok() ? 12u : 0u;       /* SPLIT JOIN (a SLICE track only) */
     if (pg->graph == GR_CZTOOLS)
@@ -1129,13 +1133,15 @@ static uint32_t act_cols(void)                   /* the columns that are actions
 /* the action OCT+ does: its column + 1, 0 = none picked yet */
 static uint32_t act_col(void)
 {
-    if (!ui.home && cur_page()->graph == GR_SONG) return 1u;
+    if (!ui.home && (cur_page()->graph == GR_SONG || cur_page()->graph == GR_PATGRID)) return 1u;
     return ui.act;
 }
 
 static const char *act_name(uint32_t c)          /* column c's action (the footer hint) */
 {
     if (cur_page()->graph == GR_SONG)
+        return "EDIT";
+    if (cur_page()->graph == GR_PATGRID)
         return "GO";
     if (cur_page()->graph == GR_SLICES)
         return c == 3u ? "JOIN" : "SPLIT";
@@ -1148,8 +1154,8 @@ static int act_ready(void)
     uint32_t c = act_col();
     if (!c--)
         return 0;
-    if (cur_page()->graph == GR_SONG)
-        return lists.ent[song.sel % NTRK][ui.song_row % OCL_NENT][0] != 0u;
+    if (cur_page()->graph == GR_SONG || cur_page()->graph == GR_PATGRID)
+        return song.sel < trk_n();
 #if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES)
         return slice_act_ready(c);

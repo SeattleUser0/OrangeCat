@@ -87,14 +87,14 @@ static int panel_banks(void)
     ocl_keep_all();                                     /* (entry H names its steps now) */
     btn_down(B_SEQ); frame(); key_down(PAT_KEY[7]); frame(); key_down(PAT_KEY[2]); frame();
     key_up(PAT_KEY[2]); key_up(PAT_KEY[7]); frame(); btn_up(B_SEQ); frame();
-    bad += check("SEQ plus two pattern keys does not copy", !lists.ent[0][2][0] && TSEL->step[3].note[3] == 71);
+    bad += check("SEQ plus two pattern keys does not copy", !OCL_ENT(0, 2)[0] && TSEL->step[3].note[3] == 71);
     fm1_ms += 400u;
     song.rec = 0;
     btn_down(B_SEQ); frame(); key_down(PAT_KEY[7]); frames(1100u);
     key_up(PAT_KEY[7]); frame(); tap_key(PAT_KEY[2]); btn_up(B_SEQ); frame();
     ocl_go(0, 2);
     bad += check("the compact held-entry dialog copies its full chord (entry C its own copy)", lists.cur[0] == 2u &&
-                 TSEL->step[3].n == 4 && TSEL->step[3].note[3] == 71 && lists.ent[0][2][0] != lists.ent[0][7][0]);
+                 TSEL->step[3].n == 4 && TSEL->step[3].note[3] == 71 && OCL_ENT(0, 2)[0] != OCL_ENT(0, 7)[0]);
     return bad;
 }
 static int arranged_chords(void)

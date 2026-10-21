@@ -743,7 +743,7 @@ static void ref_scene(int s)
              * T4 A..D on D */
             static const uint8_t N[NTRK] = {3, 4, 2, 4}, CUR[NTRK] = {0, 1, 0, 3};
             for (k = 0; k < NTRK; k++) {
-                for (uint32_t e = 0; e < N[k]; e++) lists.ent[k][e][0] = (uint8_t)(1u + 4u * k + e);
+                for (uint32_t e = 0; e < N[k]; e++) OCL_ENT(k, e)[0] = (uint8_t)(1u + 4u * k + e);
                 lists.cur[k] = CUR[k];
             }
         }
@@ -769,13 +769,20 @@ static void ref_scene(int s)
          * C staged */
         for (k = 0; k < NTRK; k++) {
             for (b = 0; b < 4u; b++) {
-                lists.ent[k][b][0] = (uint8_t)(1u + SP[b][k] + 6u * k);
-                lists.ent[k][b][1] = (uint8_t)(b == 1u);
+                OCL_ENT(k, b)[0] = (uint8_t)(1u + SP[b][k] + 6u * k);
+                OCL_ENT(k, b)[1] = (uint8_t)(b == 1u);
             }
             lists.cur[k] = 1;
         }
-        lists.song = 1;
-        ui.song_row = 3; go_page(GR_SONG);
+        {   /* (Orange Cat 0.4) the song: five rows of chains, a track out of row 03, the tracks in rows 02 .. 03 */
+            static const uint8_t SG[5][NTRK] = {{1, 2, 3, 4}, {1, 2, 3, 4}, {5, 6, 0, 4}, {5, 6, 7, 8}, {9, 2, 0, 0}};
+            static const uint8_t ROW[NTRK] = {1, 2, 1, 3};
+            memset(lists.song, 0, sizeof lists.song);
+            memcpy(lists.song, SG, sizeof SG);
+            memcpy(lists.row, ROW, sizeof ROW);
+            lists.mode = OCL_SONG;
+        }
+        ui.song_row = 2; go_page(GR_SONG);
         song.playing = 1; trk[0].seq_idx = 4;
         break;
     }
@@ -877,7 +884,7 @@ static void ref_scene(int s)
             track_defaults_steps(&trk[1]); trk[1].p[P_SLEN] = 32; trk[1].p[P_SSWING] = 0;
             for (i = 0; i < 32u; i++)
                 if ((0x8A2A4A2Bu >> i) & 1u) { trk[1].step[i].time = ST_NOTE; trk[1].step[i].n = 1; trk[1].step[i].note[0] = 57; }
-            song.playing = 1; trk[1].seq_idx = 6; go_title("PATTERN"); ui.hot_col = 0;
+            song.playing = 1; trk[1].seq_idx = 6; go_title("PHRASE"); ui.hot_col = 0;
         }
         ui.hot_t = 30;
         break;
@@ -1202,7 +1209,7 @@ static void setup(int s)
         }
         break;
     }
-    case S_PATTERN: go_title("PATTERN"); ui.cursor = 3; break;
+    case S_PATTERN: go_title("PHRASE"); ui.cursor = 3; break;
     case S_MOTION: go_page(GR_MOTION); break;
     case S_DRUM: drum(0); go_page(GR_ROLL); ui.cursor = 4; ui.lane = 1; trk[3].seq_idx = 9; break;
     case S_MIXER:

@@ -14,7 +14,12 @@ static int ocl_copy(uint32_t k, uint32_t e);
 static uint32_t ocl_staged_ent(uint32_t k);
 static uint32_t ocl_pat_len(uint32_t id);
 static void ocl_delete(uint32_t k, uint32_t e);
-static void ocl_clear(void);
+static void ocl_clear_chain(uint32_t k);               /* (Orange Cat 0.4) chains and the song */
+static void ocl_song_clear(void);
+static int ocl_song_start(uint32_t row);
+static int ocl_go_chain(uint32_t k, uint32_t c);
+static uint32_t ocl_free_chain(void);
+static int ocl_song_any(void);
 static uint8_t led_pos[41];                        /* (col << 3) | row bit, 0xFF = none */
 
 static void led_pos_init(void)
@@ -142,7 +147,7 @@ static uint32_t pattern_leds(uint32_t *dim, uint32_t *breath)
     uint32_t m = cur < NPAT ? 1u << PAT_KEY[cur] : 0u;
     *dim = *breath = 0;
     for (b = 0; b < NPAT; b++)
-        if (b != cur && lists.ent[k][b][0])
+        if (b != cur && OCL_ENT(k, b)[0])
             *dim |= 1u << PAT_KEY[b];
     if (dlg && ((fm1_ms / 250u) & 1u) == 0u)
         m |= 1u << LEN_KEY[0] | 1u << LEN_KEY[1];
@@ -285,15 +290,15 @@ static void pattern_key_release(void)
 {
     if (ui.pat_key && (!pattern_keys_on() || !(fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])))) {
         if (!ui.pat_copy) {                     /* (Orange Cat 0.3, 4c) the key's entry, A..H */
-            uint32_t e = ui.pat_key - 1u, armed = 0, k = song.sel % NTRK, empty = !lists.ent[k][e][0];
+            uint32_t e = ui.pat_key - 1u, armed = 0, k = song.sel % NTRK, empty = !OCL_ENT(k, e)[0];
             int rc = e == lists.cur[k] % OCL_NENT && ocl_staged_ent(k) == OCL_NENT ? 0 :   /* (the one it is on: stays) */
                      empty ? ocl_go_empty(k, e) : ocl_launch(k, e);
             empty = empty && seq_is_empty(TSEL);
-            if (rc) ui_message(rc == 1 ? "EMPTY ENTRY" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PATTERNS FULL") :
+            if (rc) ui_message(rc == 1 ? "EMPTY STEP" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
                                rc == 5 ? "PATTERN DATA FULL" : "STOP SONG TO SWITCH");
             else {
-                char m[12] = "ENTRY A";
-                m[6] = (char)('A' + e); ui_message(m);
+                char m[12] = "STEP A";
+                m[5] = (char)('A' + e); ui_message(m);
                 if (empty) {                            /* an empty one: arm a single pattern pass */
                     armed = 1;
                     if (!((song.rec >> song.sel) & 1u)) rec_toggle(0);
@@ -348,8 +353,8 @@ static void pattern_key_delete(uint32_t k, uint32_t b)
     /* (Orange Cat 0.3, 4c) b is an entry: the one the track is on, its pattern deleted as before; another, the entry
      * emptied (its pattern stays in the pool) */
     if (b != lists.cur[k % NTRK] % OCL_NENT) {
-        if (!lists.ent[k % NTRK][b % OCL_NENT][0]) ui_message("NOTHING TO DELETE");
-        else { lists.ent[k % NTRK][b % OCL_NENT][0] = 0; ui_message("ENTRY CLEARED"); }
+        if (!OCL_ENT(k % NTRK, b % OCL_NENT)[0]) ui_message("NOTHING TO DELETE");
+        else { OCL_ENT(k % NTRK, b % OCL_NENT)[0] = 0; ui_message("STEP CLEARED"); }
         ui.force = 1;
         return;
     }
@@ -420,18 +425,18 @@ static int pattern_key_dialog(uint32_t notes)
     ui.force = 1;
     if (b == src)
         pattern_key_delete(k, b);
-    else if (!lists.ent[k][src % OCL_NENT][0])             /* (Orange Cat 0.3, 4c) entry src's own copy into b */
+    else if (!OCL_ENT(k, src % OCL_NENT)[0])             /* (Orange Cat 0.3, 4c) entry src's own copy into b */
         ui_message("NOTHING TO COPY");
     else if (song.playing)
         ui_message("STOP TO COPY");
     else {
-        uint32_t was = lists.ent[k][b][0], wr = lists.ent[k][b][1];
+        uint32_t was = OCL_ENT(k, b)[0], wr = OCL_ENT(k, b)[1];
         int rc;
-        lists.ent[k][b][0] = lists.ent[k][src % OCL_NENT][0];
-        lists.ent[k][b][1] = lists.ent[k][src % OCL_NENT][1];
+        OCL_ENT(k, b)[0] = OCL_ENT(k, src % OCL_NENT)[0];
+        OCL_ENT(k, b)[1] = OCL_ENT(k, src % OCL_NENT)[1];
         rc = ocl_copy(k, b);
-        if (rc) { lists.ent[k][b][0] = (uint8_t)was; lists.ent[k][b][1] = (uint8_t)wr; }
-        ui_message(!rc ? "PATTERN COPIED" : rc == 4 ? "PATTERNS FULL" : "SAVE ERROR");
+        if (rc) { OCL_ENT(k, b)[0] = (uint8_t)was; OCL_ENT(k, b)[1] = (uint8_t)wr; }
+        ui_message(!rc ? "PATTERN COPIED" : rc == 4 ? "PHRASES FULL" : "SAVE ERROR");
     }
     return 1;
 }
@@ -1052,25 +1057,14 @@ static void edit_param(uint32_t slot, int32_t steps)
         if (!ui.proj_new && ui.act == 4u) ui.act = 0;
         return;
     }
-    if (pg->graph == GR_PATGRID) {                      /* PATTERNS: KNOB k queues track k's (ui_stage.c) */
+    if (pg->graph == GR_PATGRID) {                      /* (Orange Cat 0.4) CHAIN: 1 the step, 2 the track, 3 the
+                                                         * step's phrase, 4 its REPS (ui_patterns.c) */
         patgrid_edit(slot, steps);
         return;
     }
-    if (pg->graph == GR_SONG) {                       /* (Orange Cat 0.3, 4c) KNOB 1 the entry, 2 the track, 3 the
-                                                       * entry's pool pattern (-- none, 01..64), 4 its REPS (1..16) */
-        uint32_t k = song.sel % NTRK, e = ui.song_row % OCL_NENT;
-        if (slot == 0u) {
-            ui.song_row = (uint8_t)clamp((int32_t)e + steps, 0, OCL_NENT - 1u);
-            return;
-        }
-        if (slot == 1u) {
-            track_select((uint32_t)clamp((int32_t)song.sel + (steps > 0 ? 1 : -1), 0, (int32_t)trk_n() - 1));
-            return;
-        }
-        if (slot == 2u)
-            lists.ent[k][e][0] = (uint8_t)clamp((int32_t)lists.ent[k][e][0] + steps, 0, OCL_NPOOL);
-        else if (lists.ent[k][e][0])
-            lists.ent[k][e][1] = (uint8_t)clamp((int32_t)lists.ent[k][e][1] + steps, 0, 15);
+    if (pg->graph == GR_SONG) {                         /* (Orange Cat 0.4) SONG: 1 the row, 2 the track, 3 the cell's
+                                                         * chain (ui_patterns.c) */
+        song_edit(slot, steps);
         return;
     }
     if (chain_busy() && (pg->scope == SC_STEP || pg->graph == GR_STEPS ||
@@ -1227,6 +1221,52 @@ static int cz_compare_swap(uint32_t tr)
 
 /* OCT+ on an action page: the picked action. A load stays picked (browse and load again); the others
  * are dropped once done. Flash writes only while stopped; over the user's data: the dialog */
+/* (Orange Cat 0.4, build doc 4c) PLAY, stopped: SONG plays the song from the row picked (each track down its own
+ * column); CHAIN plays the chains (each track down the chain it is on); NOTES and PHRASE loop the phrases; any other
+ * page plays as PLAY last did */
+static void play_start(void)
+{
+    if (!ui.home && cur_page()->graph == GR_SONG && !chain_busy() && !ocl_song_any()) {
+        lists.mode = OCL_CHAIN;                         /* (nothing in the song yet: the chains) */
+        ui_message("SONG EMPTY: CHAINS PLAY");
+    } else if (!ui.home && cur_page()->graph == GR_SONG && !chain_busy()) {
+        int rc = ocl_song_start(ui.song_row % OCL_NROW);
+        if (rc) ui_message(rc == 4 ? "PHRASES FULL" : rc == 5 ? "PATTERN DATA FULL" : rc == 1 ? "A PHRASE DOES NOT READ" :
+                           "SAVE ERROR");
+    } else if (!ui.home && cur_page()->graph == GR_PATGRID) {
+        lists.mode = OCL_CHAIN;
+    } else if (!ui.home && cur_page()->fam == FAM_SEQ && (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS)) {
+        lists.mode = OCL_PHRASE;
+    }
+    transport_req = 1;
+}
+/* (Orange Cat 0.4) SONG's OCT+: the selected track to the chain of the cell picked (an empty cell: a new chain there
+ * first), then CHAIN. Playing: only to look at the chain the track is on */
+static void song_go(void)
+{
+    uint32_t k = song.sel % NTRK, r = ui.song_row % OCL_NROW, c, p;
+    int rc;
+    if (k >= trk_n())
+        return;
+    if (!lists.song[r][k]) {
+        if (transport_busy()) { ui_message("STOP TO ADD A CHAIN"); return; }
+        if ((c = ocl_free_chain()) == OCL_NCHAIN) { ui_message("CHAINS FULL"); return; }
+        lists.song[r][k] = (uint8_t)(c + 1u);
+    }
+    c = lists.song[r][k] - 1u;
+    if (c != lists.tchain[k]) {
+        if (transport_busy()) { ui_message("STOP TO EDIT CHAIN"); return; }
+        if ((rc = ocl_go_chain(k, c)) != 0) {
+            ui_message(rc == 4 ? "PHRASES FULL" : rc == 5 ? "PATTERN DATA FULL" : rc == 1 ? "A PHRASE DOES NOT READ" :
+                       "SAVE ERROR");
+            return;
+        }
+        lists.row[k] = (uint8_t)r;
+    }
+    ui.chain_step = lists.cur[k] % OCL_NENT;
+    for (p = 0; p < NPAGES; p++) if (PAGES[p].graph == GR_PATGRID) break;
+    ui.home = 0; ui.page = (uint8_t)p; ui.fam_last[FAM_SEQ] = ui.page; page_entered();
+}
 static void act_do(void)
 {
     uint32_t c = act_col(), id, k = (uint32_t)song.g[G_SLOT] - 1u;
@@ -1254,10 +1294,15 @@ static void act_do(void)
         ui.force = 1;
         return;
     }
-    if (cur_page()->graph == GR_SONG) {                 /* (Orange Cat 0.3, 4c) OCT+: the track to the entry picked */
-        uint32_t k = song.sel % NTRK;
-        int rc = ocl_launch(k, ui.song_row % OCL_NENT);
-        if (rc) ui_message(rc == 1 ? "EMPTY ENTRY" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PATTERNS FULL") :
+    if (cur_page()->graph == GR_SONG) {                 /* (Orange Cat 0.4) OCT+: the cell's chain on CHAIN */
+        song_go();
+        ui.force = 1;
+        return;
+    }
+    if (cur_page()->graph == GR_PATGRID) {              /* (Orange Cat 0.4) OCT+: the track to the step picked */
+        uint32_t k = song.sel % NTRK, e = ui.chain_step % OCL_NENT;
+        int rc = OCL_ENT(k, e)[0] ? ocl_launch(k, e) : ocl_go_empty(k, e);
+        if (rc) ui_message(rc == 1 ? "EMPTY STEP" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
                            rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
         ui.force = 1;
         return;
@@ -1965,13 +2010,12 @@ static void select_turn(uint32_t hs, int32_t s)
         str_cpy(v + str_len(v), unit, 4);
         ui_say("SWING ", v);
         return;
-    case HS_PATTERN: {                                  /* (Orange Cat 0.3, 4c) the next entry naming a pattern */
+    case HS_PATTERN: {                                  /* (Orange Cat 0.3, 4c) the next step of the track's chain */
         uint32_t k = song.sel % NTRK, e;
-        patgrid_edit(k, s);
+        pt_step_go(k, s);
         e = ocl_staged_ent(k) < OCL_NENT ? ocl_staged_ent(k) : lists.cur[k] % OCL_NENT;
         v[0] = (char)('A' + e); v[1] = 0;
-        if (!ui.msg_t || !str_eq(ui.msg, "NO OTHER ENTRY"))
-            ui_say(song.playing ? "NEXT ENTRY " : "ENTRY ", v);
+        ui_say(song.playing ? "NEXT STEP " : "STEP ", v);
         (void)t; (void)x;
         return;
     }
@@ -2008,17 +2052,20 @@ static void ui_confirm_accept(void)
         uint32_t k = ui.confirm_trk % NTRK;
         if (!chain_busy() && !dq_defer(kind, k, trk[k].pattern, 0))
             dq_do(kind, k, trk[k].pattern, 0);
-    } else if (kind == CF_DEL_ROW) {                     /* (Orange Cat 0.3, 4c) the selected track's entry */
-        ocl_delete(song.sel, ui.song_row);
-        ui_message("ENTRY DELETED");
+    } else if (kind == CF_DEL_ROW) {                     /* (Orange Cat 0.4) CHAIN: the selected track's step */
+        ocl_delete(song.sel, ui.chain_step);
+        ui_message("STEP DELETED");
+    } else if (kind == CF_CLEAR_CHAIN) {                 /* (Orange Cat 0.4) CHAIN: the selected track's chain */
+        ocl_clear_chain(song.sel);
+        ui.chain_step = 0; ui_message("CHAIN CLEARED");
     } else if (kind == CF_DEL_TRACK) {
         track_remove(ui.confirm_trk % NTRK);
     } else if (kind == CF_TAKE_JAM) {
         jam_take();
     } else if (kind == CF_NEW_SONG) {
         new_open();
-    } else if (kind == CF_CLEAR_SONG) {                  /* (Orange Cat 0.3, 4c) the lists */
-        ocl_clear(); ui.song_row = 0; ui_message("LISTS CLEARED");
+    } else if (kind == CF_CLEAR_SONG) {                  /* (Orange Cat 0.4) SONG: its rows (the chains stay) */
+        ocl_song_clear(); ui.song_row = 0; ui_message("SONG CLEARED");
     } else if (kind == CF_PASTE_PAT) {          /* PATTERNS' Copy to over a pattern in use */
         if (ui.ptc_on && ui.ptc_trk == ui.confirm_trk)
             ptc_paste(1);
@@ -2337,9 +2384,8 @@ static void ui_input(void)
                 break;
             if (song.playing || seq_counting() || chain_busy())
                 transport_req = 2;
-            else                                        /* (Orange Cat 0.3.6: SONG MODE, a switch of its own,
-                                                         * says whether the tracks go down their lists) */
-                transport_req = 1;
+            else                                        /* (Orange Cat 0.4: what plays by the page it is pressed on) */
+                play_start();
             break;
         case B_SEQ:
         case B_REC:                                     /* tap / hold: above */
@@ -2404,10 +2450,19 @@ static void ui_input(void)
     } else if (act_cols() && (oct & 2u)) {              /* action pages: OCT+ does the picked action, */
         act_do();
     } else if (act_cols() && (oct & 1u)) {              /* OCT- drops it, or (none picked) goes HOME */
-        if (ui.act)
+        if (ui.act) {
             ui.act = 0;
-        else
+        } else if (cur_page()->graph == GR_PATGRID && patterns_queued()) {   /* (Orange Cat 0.4) CHAIN: the queue
+                                                                            * first */
+            uint32_t k, f = motion_guard();
+            for (k = 0; k < NTRK; k++)
+                trk[k].pattern_next = 0xFFu;
+            motion_unguard(f);
+            ui_message("QUEUE CLEARED");
+            ui.force = 1;
+        } else {
             go_home();
+        }
     } else if (oct_nav() && !ui.layer && (oct & 2u)) {  /* any other page: OCT+ Enter (a slot's sheet, the page's), */
         if (ptc_on())                                   /* PATTERNS' Copy to: there */
             ptc_paste(0);
@@ -2432,7 +2487,7 @@ static void ui_input(void)
         } else if (ptc_on()) {                          /* PATTERNS' Copy to: left, the page stays */
             ui.ptc_on = 0;
             ui.force = 1;
-        } else if (str_eq(cur_page()->title, "PATTERNS") && patterns_queued()) {   /* PATTERNS: the queue first */
+        } else if (cur_page()->graph == GR_PATGRID && patterns_queued()) {   /* CHAIN: the queue first */
             uint32_t k, f = motion_guard();
             for (k = 0; k < NTRK; k++)
                 trk[k].pattern_next = 0xFFu;
