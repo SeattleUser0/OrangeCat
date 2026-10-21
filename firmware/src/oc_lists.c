@@ -595,3 +595,57 @@ static int ocl_scene_recall(uint32_t s)
     }
     return rc;
 }
+
+/* ------------------------------------------- PHRASES: the pool (0.4.4) --- */
+/* pool phrase id named by this project: a chain's slot, or a bank of a track (it is in one) */
+static int ocl_pat_named(uint32_t id)
+{
+    for (uint32_t c = 0; c < OCL_NCHAIN; c++)
+        for (uint32_t e = 0; e < OCL_NENT; e++)
+            if (lists.chain[c][e][0] == id + 1u) return 1;
+    for (uint32_t k = 0; k < NTRK; k++)
+        for (uint32_t b = 0; b < NPAT; b++)
+            if (bank_pid[k][b] == id + 1u) return 1;
+    return 0;
+}
+static uint32_t ocl_pat_slots(uint32_t id)      /* this project's chain slots naming it */
+{
+    uint32_t n = 0;
+    for (uint32_t c = 0; c < OCL_NCHAIN; c++)
+        for (uint32_t e = 0; e < OCL_NENT; e++) n += lists.chain[c][e][0] == id + 1u;
+    return n;
+}
+static int ocl_pat_used(uint32_t id) { return id < OCP_N && (ocp.len[id] || ocp.hash[id]); }
+/* phrase id copied to the first free number (stopped; what a bank holds of it kept first): the new number, or OCP_N
+ * + 1 an empty phrase, OCP_N + 2 PHRASES FULL, OCP_N + 3 a flash error or playing */
+static uint32_t ocl_pool_copy(uint32_t id)
+{
+    uint32_t n;
+    int rc;
+    if (!ocl_pat_used(id)) return OCP_N + 1u;
+    if (transport_busy()) return OCP_N + 3u;
+    if (ocl_keep_all() == 2) return OCP_N + 3u;
+    if ((n = ocl_free_pat()) == OCP_N) return OCP_N + 2u;
+    if ((rc = ocp_copy(id, n)) != 0) return rc == 2 ? OCP_N + 2u : OCP_N + 3u;
+    return n;
+}
+/* phrase id emptied (stopped): 0 done; 1 nothing in it; 2 named here or by a saved project; 3 a flash error or
+ * playing */
+static int ocl_pool_clear(uint32_t id)
+{
+    uint8_t want[OCP_N];
+    if (!ocl_pat_used(id)) return 1;
+    if (transport_busy()) return 3;
+    if (ocl_pat_named(id) || ocj_refs(id, 4u)) return 2;
+    memset(want, 0, sizeof want);
+    want[id] = 255u;
+    return ocj_put_chunks(want, &proj_scratch, proj_wire_u.raw, 0) ? 3 : 0;
+}
+/* the selected track's chain slot e names phrase id and the track goes there (stopped: at once; playing: at the
+ * launch point). As ocl_launch */
+static int ocl_pool_put(uint32_t k, uint32_t e, uint32_t id)
+{
+    k %= NTRK; e %= OCL_NENT;
+    OCL_ENT(k, e)[0] = (uint8_t)(id + 1u);
+    return ocl_launch(k, e);
+}

@@ -492,7 +492,8 @@ enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS 
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_MOD, GR_PATS, GR_SONG, GR_MOTION, GR_CHORD, GR_SLICES,
        GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_SCALE_PICKER, GR_DRUMHIT, GR_PATGRID,
-       GR_FXRACK, GR_TRACKER }; /* NOTES shares GR_ROLL for steps and recorded events; (Orange Cat 0.4.2) TRACKER */
+       GR_FXRACK, GR_TRACKER, GR_POOL }; /* NOTES shares GR_ROLL for steps and recorded events; (Orange Cat 0.4.2)
+                                         * TRACKER, (0.4.4) PHRASES */
 
 typedef struct {
     const char *title;
@@ -616,6 +617,7 @@ static const page_t PAGES[] = {
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, {0, 1, 2, 3}},   /* GLO button; LEVEL PAN MUTE */
     {"CHAIN", FAM_SEQ, SC_GLOBAL, GR_PATGRID, {0xFF, 0xFF, 0xFF, 0xFF}},   /* (Orange Cat 0.4) the chains (ui_patterns.c) */
     {"SONG", FAM_SEQ, SC_GLOBAL, GR_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PHRASES", FAM_SEQ, SC_GLOBAL, GR_POOL, {0xFF, 0xFF, 0xFF, 0xFF}},   /* (Orange Cat 0.4.4) the pool (ui_pool.c) */
     {"MOTION", FAM_SEQ, SC_TRACK, GR_MOTION, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"DRUM HIT",FAM_SEQ,SC_DRUMHIT,GR_DRUMHIT,{0,1,2,3}},
 };

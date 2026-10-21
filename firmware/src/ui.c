@@ -172,6 +172,7 @@ static struct {
     uint8_t chain_set;           /* (0.4.1) CHAIN's KNOB 3 turned on the slot a track is on: track + 1 (0 none), */
     uint32_t chain_set_ms;       /* .. when: 300 ms after the last detent the track goes to the new phrase */
     uint8_t tk_all;              /* (0.4.2) TRACKER: every track as a lane (PRESET), else the selected one's columns */
+    uint8_t pool_sel;            /* (0.4.4) PHRASES: the phrase picked, 00..63 */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
     uint8_t proj_new;            /* SAVE > PROJECT: KNOB 1 past TMPL, NEW (a new song: ui_new.c); SLOT unchanged */
     uint32_t ly_t0;              /* the layer button's press time | 1, LY_* bits (ui_layer.c layer_gesture) */
@@ -1123,7 +1124,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     const page_t *pg = cur_page();
     if (ui.home)
         return 0;
-    if (pg->graph == GR_SONG || pg->graph == GR_PATGRID)
+    if (pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_POOL)
         return 1u;                               /* (Orange Cat 0.4) SONG: EDIT the cell's chain; CHAIN: GO to the
                                                   * step picked */
     if (pg->graph == GR_SLICES)
@@ -1136,7 +1137,8 @@ static uint32_t act_cols(void)                   /* the columns that are actions
 /* the action OCT+ does: its column + 1, 0 = none picked yet */
 static uint32_t act_col(void)
 {
-    if (!ui.home && (cur_page()->graph == GR_SONG || cur_page()->graph == GR_PATGRID)) return 1u;
+    if (!ui.home && (cur_page()->graph == GR_SONG || cur_page()->graph == GR_PATGRID || cur_page()->graph == GR_POOL))
+        return 1u;
     return ui.act;
 }
 
@@ -1146,6 +1148,8 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
         return "EDIT";
     if (cur_page()->graph == GR_PATGRID)
         return "GO";
+    if (cur_page()->graph == GR_POOL)
+        return "PUT";
     if (cur_page()->graph == GR_SLICES)
         return c == 3u ? "JOIN" : "SPLIT";
     return CZ_ACTIONS[c & 3u].label;             /* (CZ TOOLS) */
@@ -1157,7 +1161,7 @@ static int act_ready(void)
     uint32_t c = act_col();
     if (!c--)
         return 0;
-    if (cur_page()->graph == GR_SONG || cur_page()->graph == GR_PATGRID)
+    if (cur_page()->graph == GR_SONG || cur_page()->graph == GR_PATGRID || cur_page()->graph == GR_POOL)
         return song.sel < trk_n();
 #if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES)

@@ -129,6 +129,27 @@ static const sheet_row_t SHEET_SONG[] = {
     {"Insert row", 0, 0, ps_row_insert, 0}, {"Delete row", 0, 0, ps_row_delete, 0}, {"Copy chain", 0, 0, ps_clone, 0},
     {"Clear song", 0, 0, 0, CF_CLEAR_SONG}, {"Free unused phrases", 0, 0, ps_unused, 0}};
 
+/* (Orange Cat 0.4.4) PHRASES' (OCT+ held): the phrase picked copied to a new number, or emptied */
+static void pp_copy(void)
+{
+    uint32_t n = ocl_pool_copy(ui.pool_sel % 64u);
+    char m[24];
+    if (n == OCL_NPOOL + 1u) { ui_message("EMPTY PHRASE"); return; }
+    if (n == OCL_NPOOL + 2u) { ui_message("PHRASES FULL"); return; }
+    if (n >= OCL_NPOOL) { ui_message(song.playing ? "STOP FIRST" : "SAVE ERROR"); return; }
+    str_cpy(m, "COPIED TO 01", sizeof m);
+    m[10] = (char)('0' + (n + 1u) / 10u); m[11] = (char)('0' + (n + 1u) % 10u);
+    ui.pool_sel = (uint8_t)n;
+    ui_message(m);
+}
+static void pp_clear(void)
+{
+    int rc = ocl_pool_clear(ui.pool_sel % 64u);
+    ui_message(!rc ? "PHRASE CLEARED" : rc == 1 ? "NOTHING TO CLEAR" : rc == 2 ? "IN USE: NOT CLEARED" :
+               song.playing ? "STOP FIRST" : "SAVE ERROR");
+}
+static const sheet_row_t SHEET_POOL[] = {{"Copy to new", 0, 0, pp_copy, 0}, {"Clear phrase", 0, 0, pp_clear, 0}};
+
 /* the pattern's (NOTES, the drum grid, PATTERN: OCT+ held; TOOLS' Clear pattern lives here) */
 static void nt_quantize_v(char *b){str_cpy(b,ui.note_grid==2u?"0.25 step":ui.note_grid==1u?"0.5 step":"1 step",16);}
 static void nt_quantize_grid(int32_t s){ui.note_grid=(uint8_t)clamp((int32_t)ui.note_grid+s,0,2);ui.force=1;}
@@ -322,6 +343,8 @@ static uint32_t page_sheet(void)
         return 2;
     if (cur_page()->graph == GR_PATGRID)
         return 4;
+    if (cur_page()->graph == GR_POOL)                   /* (Orange Cat 0.4.4) */
+        return 6;
     if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS)
         return 3;
     fam = cur_page()->fam;
@@ -365,6 +388,12 @@ static void page_sheet_open(void)
     case 5:
         sheet_open("Shared FX", "All tracks", SHEET_SHARED, NELEM(SHEET_SHARED));
         break;
+    case 6: {                                           /* "Phrase 07" (Orange Cat 0.4.4) */
+        char t[12] = "Phrase 01";
+        t[7] = (char)('0' + (ui.pool_sel % 64u + 1u) / 10u); t[8] = (char)('0' + (ui.pool_sel % 64u + 1u) % 10u);
+        sheet_open(t, "the pool", SHEET_POOL, NELEM(SHEET_POOL));
+        break;
+    }
     default:
         break;
     }

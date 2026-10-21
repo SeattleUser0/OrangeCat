@@ -471,7 +471,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_STAGE_T1, S_STAGE_T1_ARP, S_STAGE_T1_KNOBS, S_STAGE_T1_SYNTH, S_STAGE_T1_SYNTH_ARP, S_STAGE_T2, S_STAGE_T3, S_SHEET_STAGE, S_CONFIRM_TRACK,
        S_VIEW, S_VIEW_LETGO, S_VIEW_NOTE, S_VIEW_EMPTY, S_VIEW_KNOBS, S_VIEW_SLASH, S_MENU_HOME_SEL, S_HOME_SEL_MOD, S_HOME_SEL_CHORD,
        S_HOME_SEL_LEVEL, S_PAT_DIALOG, S_STAGE_T1_REC,
-       S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_PERFORM, S_TRACKER, S_TRACKER_ALL, S_NEW_ROLES_T1,
+       S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_PERFORM, S_TRACKER, S_TRACKER_ALL, S_POOL, S_NEW_ROLES_T1,
        S_STAGE_LONG, S_STAGE_T3_LONG, S_STAGE_T2_LONG, S_STAGE_T1_LONG,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
        S_REF_ENV, S_REF_LFO, S_REF_EDIT_OSC, S_REF_MIXER, S_REF_NOTES, S_REF_SETTINGS, S_REF_DIALOG,
@@ -501,7 +501,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "stage_1track", "stage_1track_arp", "stage_1track_knobs", "stage_1track_synth", "stage_1track_synth_arp", "stage_2tracks", "stage_3tracks", "sheet_stage", "confirm_track",
     "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
     "home_select_level", "pattern_key_dialog", "stage_1track_rec",
-    "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "layer_perform", "tracker", "tracker_lanes", "new_roles_1track",
+    "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "layer_perform", "tracker", "tracker_lanes", "phrases", "new_roles_1track",
     "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
     "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_rack", "fx_rack_split", "fx_rack_pick", "fx_rack_list", "fx_bus1", "fx_bus2", "fx_bus3", "fx_shared", "fx_shared_split", "fx_shared_sheet", "fx_tone_dark", "fx_tone_thin", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error", "map_drum_kit", "map_drum_hit", "map_drum_category",
     "stage_unused_1track", "stage_unused_3tracks", "mixer_unused_2tracks", "menu_unused_tracks"};
@@ -1177,6 +1177,21 @@ static void setup(int s)
         trk[1].step[2] = (step_t){{55, 59, 62}, 3, ST_NOTE, 0, 100, 0, 0};
         trk[2].p[P_MUTE] = 1;
         go_title("TRACKER"); track_select(1); ui.tk_all = 1; cursor_set(2); song.playing = 1; break;
+    }
+    case S_POOL: {                                   /* (0.4.4) phrases 01..05 and 12 made, track 1 on 03, 07 picked */
+        pattern_t p;
+        memset(ocs_ram, 0xFF, sizeof ocs_ram); ocs_boot(); ocp_scan(); ocj_scan(); pattern_init();
+        for (uint32_t id = 0; id < 12u; id++) {
+            if (id >= 5u && id != 11u) continue;
+            pattern_read(3, 7, &p);
+            for (uint32_t i = 0; i < NSTEP; i++) step_clear(&p.step[i]);
+            p.step[0] = (step_t){{(uint8_t)(50u + id)}, 1, ST_NOTE, 0, 96, 0, 0};
+            pattern_write(3, 7, &p);
+            ocp_save(id, 3, 7);
+        }
+        OCL_ENT(0, 0)[0] = 1; OCL_ENT(0, 1)[0] = 3; OCL_ENT(1, 0)[0] = 2;
+        song.playing = 0; transport_req = 0; ocl_go(0, 1);
+        go_title("PHRASES"); ui.pool_sel = 6; break;
     }
     case S_PERFORM:                                  /* (Orange Cat 0.4.1) scenes 1 2 5 kept, 2 the last; T2 muted, T3's
                                                       * MUTE staged; LAUNCH BAR */

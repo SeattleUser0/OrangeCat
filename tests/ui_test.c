@@ -450,8 +450,9 @@ static int test_no_phrases(void)
     step_t keep[NSTEP];
     ui_power_on();
     for (i = 0; i < NPAGES; i++)
-        found |= str_eq(PAGES[i].title, "PHRASES");
-    bad += check("no SEQ > PHRASES page", !found);
+        found |= str_eq(PAGES[i].title, "PHRASES") && PAGES[i].graph != GR_POOL;   /* (Orange Cat 0.4.4: PHRASES is
+                                                                                   * the pool now) */
+    bad += check("no SEQ > PHRASES page of factory patterns", !found);
     bad += check("the parts power on with empty sequencers", seq_is_empty(&trk[0]) && seq_is_empty(&trk[1]) &&
                  seq_is_empty(&trk[2]) && seq_is_empty(&trk[3]));
     demo_pat16(t, DEMO_ACID);
@@ -4056,6 +4057,34 @@ static void lay_combo(uint32_t btn, uint32_t k) { btn_down(btn); key_down(k); fr
 static void oct_back(void) { btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame(); }
 static uint32_t leds_at(uint32_t ms) { fm1_ms = ms; return layer_leds(); }
 
+/* (Orange Cat 0.4.4) SEQ > PHRASES: the pool */
+static int test_pool(void)
+{
+    int bad = 0, ok;
+    ui_power_on();
+    stop_transport();
+    pool_empty();
+    pattern_init();
+    two_entries(0);                               /* (phrases 01 02 on track 1's slots A B, on A) */
+    go_title("PHRASES"); frame();
+    turn(EN_K1, 1);
+    ok = ui.pool_sel == 1u && cur_page()->graph == GR_POOL;
+    ui.chain_step = 2;
+    press(B_OCTUP);
+    bad += check("PHRASES: KNOB 1 phrase 02, OCT+ puts it in track 1's slot C and the track goes there", ok &&
+                 OCL_ENT(0, 2)[0] == 2u && lists.cur[0] == 2u && trk[0].step[0].note[0] == 62u &&
+                 msg_is("T1 SLOT C: 02"));
+    hold(B_OCTUP); sheet_do("Copy to new");
+    ok = msg_is("COPIED TO 03") && ui.pool_sel == 2u && ocl_pat_used(2) && ocl_pat_len(2) == ocl_pat_len(1);
+    bad += check("PHRASES' sheet: Copy to new (the first free number, picked)", ok);
+    hold(B_OCTUP); sheet_do("Clear phrase");
+    bad += check("..Clear phrase: one nothing names emptied", msg_is("PHRASE CLEARED") && !ocl_pat_used(2));
+    turn(EN_K1, -1);
+    hold(B_OCTUP); sheet_do("Clear phrase");
+    bad += check("..one a chain names: not cleared", msg_is("IN USE: NOT CLEARED") && ocl_pat_used(1));
+    return bad;
+}
+
 /* (Orange Cat 0.4.2, phase 5) SEQ > TRACKER: Melodee's step entry on rows */
 static int test_tracker(void)
 {
@@ -5678,6 +5707,7 @@ int main(void)
     bad += test_chain();
     bad += test_perform();
     bad += test_tracker();
+    bad += test_pool();
     bad += test_product_ux();
     bad += test_mono_screens();
     bad += test_roll();
