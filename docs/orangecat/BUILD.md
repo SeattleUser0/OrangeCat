@@ -10,7 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
-- **0.34 (October 21, 2026):** 0.4.13 on the unit: four 24-bit mono WAVs over four sequencer tracks drop out. 0.4.14: the main loop helps the card reading, the page shows read against needed KB/s, and the foot no longer overwrites the first row.
+- **0.34 (October 21, 2026):** 0.4.13 on the unit: four WAVs over four sequencer tracks drop out. 0.4.14: the main loop helps the card reading, the page shows read against needed KB/s, and the foot no longer overwrites the first row.
 - **0.33 (October 21, 2026):** 0.4.13: up to four WAVs from the card at once.
 - **0.32 (October 21, 2026):** 0.4.12 on the unit: the card's share of the processor down from 23% to 2%.
 - **0.31 (October 21, 2026):** 0.4.12: the playing WAV read by the 10 kHz timer interrupt, not the main loop. By ear 0.4.11 was clean, the sequencer steady.
@@ -256,9 +256,9 @@ Several at once (0.4.13, the plan's next step after the timer reading):
 - Host test: two streams summed sample for sample (16-bit stereo and 22.05 kHz 24-bit mono), one stopped while the other plays on, four at once with no gaps, an error stopping all, playing again after.
 
 Tested (0.4.13 on the unit, October 21):
-- [x] One to four WAVs (44.1 kHz 24-bit mono, the "1 1-Audio" files), over four sequencer tracks: CPU 49%, card 8% with four. Not good by ear.
+- [x] One to four WAVs over four sequencer tracks: CPU 49%, card 8% with four. Not good by ear. (Only the last one picked is known: 44.1 kHz 24-bit mono. The others were not all that.)
 - [x] The foot line was too long: it ran past its 30 characters into the first row's name. The "8" (or blank) at the top of the list was the end of the gap count. The gap count was in the tens of thousands (it counted every short audio block, not each dropout).
-- Why: four 24-bit mono files need 529 KB/s. The timer moves at most one 64-byte packet a tick, 640 KB/s, and each command's own steps (the command out, the card's first answer, the status back) take more. So the total is near or past what the timer alone can move.
+- Why (best guess): four files need from about 350 KB/s (16-bit mono) to 700 KB/s (16-bit stereo). The timer moves at most one 64-byte packet a tick, 640 KB/s, and each command's own steps (the command out, the card's first answer, the status back) take more. So the total is near or past what the timer alone can move.
 
 0.4.14 (built):
 - The main loop helps: each pass of the main loop, and every wait, takes a step of the card reading too. The timer still does its step every tick. They never run it at the same time.
