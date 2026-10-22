@@ -106,10 +106,11 @@ families, or about 41 selectable models and modes (the Jiant inventory, section 
      so it is taken first;
    - at most 4 new blocks a block (16 KB zeroed in one audio block, as the first version's 32 KB halves). A delay comes
      in over 4 blocks, 3 ms;
-   - the card's 36 KB pool (the frozen tracks' players and recorder) is lent to the effects while the card plays and
-     records nothing. Before the card uses it, the main loop takes it back and waits (about 1 ms) for the audio
-     interrupt to let go of every effect with a block there. Those effects stop and come back elsewhere if there is
-     room, else FX FULL. The effects use the lent pool first, so the SRAM stays free for engines;
+   - the card's 36 KB pool (the frozen phrases' four players and the recorder) is lent to the effects, each 9 KB
+     slot the card is not using. Before the card uses a slot, the main loop takes it back and waits (about 1 ms) for
+     the audio interrupt to let go of every effect bus with a block there. Those buses stop and come back elsewhere if
+     there is room, else FX FULL; the others play on. The effects try the arena first and the lent slots last, so the
+     card's memory is borrowed only when the arena is short;
    - an engine that finds no memory while the effects hold some makes them give all of it back at the next block, and
      they wait half a second before taking any again. The tracks' sound comes first. The note that found no memory is
      lost (the next one plays);
@@ -126,6 +127,13 @@ families, or about 41 selectable models and modes (the Jiant inventory, section 
    it cannot drift; AUTO PAN BEAT reads the block's end as its free count does; the FX FULL flicker (decision 15).
 18. When the delay's line becomes complete after other buses already ran, the delay starts as on a first block (its
    rate and read points set, no rate-change fade). Without this the first echo was faded out.
+19. A second independent review (of checkpoint 2) found no memory-safety defect and four behavior ones, all fixed: a
+   take loading cut every bus (now only the bus with a block in that slot; lent slots tried last); effect growth
+   threw away the recording's undo (effects no longer evict it); the FX layer could play on a fresh zeroed buffer
+   after its buffer was taken (it stops); an engine's shortage made the effects let go even when that could not
+   help (now only when an effect block sits in a bank big enough for the engine). Also: a boot with a sample in
+   the slot reads none of its sectors as records; a slot the audio was slow to give back does not mark the frozen
+   phrase as failed.
 
 ## How it works (the notes the assignment asks for)
 
@@ -178,10 +186,12 @@ sequencer first (editor.c ed_flash_stop).
 | SLICER / FX layer buffer | 32 KB, one piece | while STUT runs or a buffer effect plays |
 
 Totals: all three buses 84 KB (112 KB with CLOUD), plus 32 KB for the SLICER's STUT or the FX layer's buffer effects.
-The arena is 90 KB on the device (104.5 KB with the cache RAM), plus the 36 KB card pool when the card is idle. The
-engines come first. Four of the largest engines take 45.7 KB; then the delay, the reverb (not CLOUD) and the chorus
-still fit when the card pool is lent, and do not all fit when the card is playing frozen phrases. Typical engines
-(most take a few KB) leave room for everything. The page says FX FULL whenever a bus is short.
+The arena is 89.9 KB on the device (104.2 KB with the cache RAM), plus whatever card slots are idle (up to 36 KB). The
+engines come first. Measured on the host with the device's bank sizes (tests/jfx_arena_test.c, the table is in
+BUILD.md): with the card idle, the delay, a reverb (not CLOUD) and the chorus all hold beside any four engines, four
+SHAPES or MACRO tracks included. With one take loaded they hold beside lighter sets (DRUM FM6 MACRO SHAPES, two heavy
+tracks), not beside four heavy ones. With all four card slots busy the delay holds only with no engine memory taken.
+CLOUD or STUT with heavy engines: the delay says FX FULL. The page says FX FULL whenever a bus is short.
 
 ## Progress
 

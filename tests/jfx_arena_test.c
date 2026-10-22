@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Orange Cat 0.6.0 rev 2: the effects' memory in an arena of the device's sizes (the linker's numbers from the CI build
- * of 0.6.0: main 54,272 B, low SRAM 23,848 B, data tail 7,416 B, retained tail 4,688 B, cache RAM 28,672 B of which the
+ * of 0.6.0 rev 2 (9041a85): main 54,208 B, low SRAM 23,844 B, data tail 7,112 B, retained tail 4,688 B, cache RAM 28,672 B of which the
  * UI keeps 14,336 B; the card pool 36,864 B). The real jfx.c and resources.c through the UI test's harness.
  *
  * For each case: some engines' states taken first (as the tracks take them), the cache RAM ready or not, the card pool
@@ -12,9 +12,9 @@
  *   - four MACRO tracks, cache ready, the card idle: the same, and the SLICER's 32 KB too;
  *   - whatever does not fit says FX FULL, and nothing an engine took is touched.
  * Run by tests/run_tests.sh. */
-#define RES_HOST_MAIN_WORDS (54272u / 4u)
-#define RES_HOST_LOW_WORDS (23848u / 4u)
-#define RES_HOST_DATA_WORDS (7416u / 4u)
+#define RES_HOST_MAIN_WORDS (54208u / 4u)
+#define RES_HOST_LOW_WORDS (23844u / 4u)
+#define RES_HOST_DATA_WORDS (7112u / 4u)
 #define RES_HOST_RETAINED_WORDS (4688u / 4u)
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -103,6 +103,9 @@ static const char *ja_card(int lend)
 static void ja_row(const char *what, uint32_t n, uint32_t bytes, int cache, int lend, int cloud, int stut, ja_res_t *out)
 {
     ja_res_t r = ja_case(n, bytes, cache, lend, cloud, stut);
+    char label[80];
+    snprintf(label, sizeof label, "%s%s", what, cloud ? ", CLOUD" : "");
+    what = label;
     printf("| %-34s | %-5s | %-7s | %-5s | %-5s | %-6s | %-5s |\n", what, cache ? "ready" : "off", ja_card(lend),
            ja_yn(r.dly), ja_yn(r.rev), ja_yn(r.cho), stut ? ja_yn(r.sl) : "-");
     if (out) *out = r;
@@ -124,9 +127,9 @@ int main(void)
     ja_row("none", 0, 0, 1, 0, 0, 0, &r0);
     ja_row("none", 0, 0, 0, 0, 0, 0, 0);
     ja_row("none", 0, 0, 1, 15, 0, 1, 0);
-    ja_row("none, CLOUD", 0, 0, 1, 0, 1, 0, 0);
-    ja_row("none, CLOUD", 0, 0, 1, 15, 1, 0, 0);
-    ja_row("none, CLOUD", 0, 0, 1, 15, 1, 1, 0);
+    ja_row("none", 0, 0, 1, 0, 1, 0, 0);
+    ja_row("none", 0, 0, 1, 15, 1, 0, 0);
+    ja_row("none", 0, 0, 1, 15, 1, 1, 0);
     snprintf(what, sizeof what, "4 x largest (%u B)", big);
     ja_row(what, 4, big, 1, 15, 0, 0, &r1);
     ja_row(what, 4, big, 1, 14, 0, 0, 0);

@@ -258,6 +258,15 @@ static int smp_claim(void)
 static void smp_slot_boot(void)
 {
     memset(&smp, 0, sizeof smp);
+    if (smp_marked()) {                                       /* (a sample was begun here: written only once the slot
+                                                               * was claimed) the 22 sectors are the slot's: not read
+                                                               * as the store's (a sample's bytes can never pass for a
+                                                               * record) */
+        ocs_resv = smp_resv_mask();
+        ocs_boot();
+        smp_slot_scan();
+        return;
+    }
     ocs_resv = 0;
     ocs_boot();
     if (smp_claim() == 0) {

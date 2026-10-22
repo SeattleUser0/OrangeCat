@@ -81,6 +81,17 @@ static const struct { uint8_t *start, *end; } resource_banks[] = {
 };
 #define RESOURCE_BANKS ((uint32_t)(sizeof resource_banks / sizeof resource_banks[0]))
 enum { RESOURCE_CACHE_BANK = 3 };
+/* the size of the bank block id lies in (0: none, or the lent card pool) */
+static uint32_t resource_bank_size(uint32_t id)
+{
+    uintptr_t p = (uintptr_t)resource[id].ptr;
+    for (uint32_t b = 0; b < RESOURCE_BANKS; b++) {
+        if (b == RESOURCE_CACHE_BANK && !RESOURCE_CACHE_AVAILABLE) continue;
+        if (p >= (uintptr_t)resource_banks[b].start && p < (uintptr_t)resource_banks[b].end)
+            return (uint32_t)((uintptr_t)resource_banks[b].end - (uintptr_t)resource_banks[b].start);
+    }
+    return 0;
+}
 /* the card slots block id lies in (bit s: slot s), 0: not in the card pool */
 static uint32_t resource_lent(uint32_t id)
 {
@@ -109,18 +120,19 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
     uint32_t size = (bytes + 3u) & ~3u;
     if (!size) { resource_release(id); return 0; }
     uint32_t lend = RES_IS_JFX(id) ? res_lend_ok & ((1u << CP_N) - 1u) : 0u;   /* (0.6.0 rev 2) the effects: the
-                                                         * lent card slots first (no use to an engine), then the banks
-                                                         * as everything else */
-    for (uint32_t step = 0; step < CP_N + RESOURCE_BANKS; step++) {
+                                                         * banks as everything else, then the lent card slots (last: so
+                                                         * the card's memory is borrowed only when the arena is short,
+                                                         * and a take loading cuts no effect it need not) */
+    for (uint32_t step = 0; step < RESOURCE_BANKS + CP_N; step++) {
         uintptr_t at, limit;
-        if (step < CP_N) {                              /* (a run of lent slots from step: not one of resource_banks) */
-            uint32_t e = step;
-            if (!((lend >> step) & 1u) || (step && ((lend >> (step - 1u)) & 1u))) continue;
+        if (step >= RESOURCE_BANKS) {                   /* (a run of lent slots from slot c: not one of resource_banks) */
+            uint32_t c = step - RESOURCE_BANKS, e = c;
+            if (!((lend >> c) & 1u) || (c && ((lend >> (c - 1u)) & 1u))) continue;
             while (e < CP_N && ((lend >> e) & 1u)) e++;
-            at = (uintptr_t)cp_pool + step * CP_SLOT_BYTES;
+            at = (uintptr_t)cp_pool + c * CP_SLOT_BYTES;
             limit = (uintptr_t)cp_pool + e * CP_SLOT_BYTES;
         } else {
-            uint32_t bank = step - CP_N;
+            uint32_t bank = step;
             if (bank == RESOURCE_CACHE_BANK && !RESOURCE_CACHE_AVAILABLE) continue;
             at = (uintptr_t)resource_banks[bank].start;
             limit = (uintptr_t)resource_banks[bank].end;
@@ -139,7 +151,7 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
             if (next == at) {
                 void *p = (void *)at;
                 resource[id].ptr = p; resource[id].size = size;
-                if (step < CP_N) res_lend_used |= (uint8_t)resource_lent(id);
+                if (step >= RESOURCE_BANKS) res_lend_used |= (uint8_t)resource_lent(id);
                 uint32_t *words=p;
                 for (uint32_t j=0;j<size/4u;j++)words[j]=0;
                 uint32_t used = resource_used();
@@ -166,9 +178,10 @@ static inline void *resource_get(uint32_t id, uint32_t bytes)
         recording_undo_skip|=recording_undo_active;recording_undo_active=0;
         p=resource_allocate(id,bytes);
     }
-    /* (Orange Cat 0.6.0 rev 2) an engine first: the effects give back theirs at the next block (jfx.c jfx_lend_check) */
+    /* (Orange Cat 0.6.0 rev 2) an engine first: the effects give back theirs at the next block (jfx.c jfx_lend_check),
+     * when one of their blocks is in a bank that could hold this engine's state (else giving it back cannot help) */
     if(!p && bytes && id<RES_NOTE_HISTORY){
-        for(uint32_t k=RES_JFX0;k<RES_JFX0+RES_JFX_N;k++)if(resource[k].size&&!resource_lent(k)){res_jfx_yield=1;break;}
+        for(uint32_t k=RES_JFX0;k<RES_JFX0+RES_JFX_N;k++)if(resource[k].size&&!resource_lent(k)&&resource_bank_size(k)>=bytes){res_jfx_yield=1;break;}
     }
     return p;
 }

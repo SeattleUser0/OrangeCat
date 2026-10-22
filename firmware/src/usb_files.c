@@ -466,6 +466,7 @@ static void frz_begin(uint32_t k)
 /* (0.5.6) phrase id's take loaded into track k's player (its slot, else a free one; not 2 or 3 while the recorder
  * has them), looping, its ring half filled, armed: the audio side starts it at the phrase's next pass. 0: not
  * (fzt[k].why says why) */
+static uint8_t frz_take_late;                           /* (0.6.0 rev 2) frz_load: the audio was late giving the slot back */
 static int frz_load(uint32_t k, uint32_t id)
 {
     char p[40];
@@ -497,8 +498,8 @@ static int frz_load(uint32_t k, uint32_t id)
         return 0;
     }
     f_close(&uf_pf);
-    if (!card_pool_take(1u << s)) { fzt[k].why = FZW_FULL; return 0; }   /* (0.6.0 rev 2: the slot back from the
-                                                         * effects) */
+    if (!card_pool_take(1u << s)) { fzt[k].why = FZW_FULL; frz_take_late = 1; return 0; }   /* (0.6.0 rev 2: the
+                                                         * slot back from the effects; late: tried again, not latched) */
     cp_setup(s, 2u, 44100u);
     o->bytes = 2u;
     o->bpf = 4u;
@@ -647,7 +648,8 @@ static void frz_manage(void)
         if (playing) continue;                          /* (another take playing: loaded once it stops) */
         if (!usbh.drive) { if (s < CP_N) frz_unload(k, FZW_CARD); fzt[k].why = FZW_CARD; continue; }
         if (fzt[k].fail == want) continue;              /* (it failed: not again until the track moves on) */
-        if (!frz_load(k, want)) fzt[k].fail = (uint8_t)want;
+        frz_take_late = 0;
+        if (!frz_load(k, want) && !frz_take_late) fzt[k].fail = (uint8_t)want;
     }
     frz_need = (uint8_t)need;
     for (k = 0, need = 0; k < 4u && k < NTRK; k++) if (frz_track_frozen(k)) need |= 1u << k;

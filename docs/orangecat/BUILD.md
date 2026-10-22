@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.48  
+**Version:** 0.49  
 **Date:** October 22, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.49 (October 22, 2026):** 0.6.0 on branch fx-jiant (not on main, not released): Jiant FM's effects replace the old ones, one internal user sample slot, projects FUN23. Built and host tested; nothing tried on the unit yet. See "Effects from Jiant FM".
 - **0.48 (October 22, 2026):** 0.5.6: freezes belong to phrases. A frozen phrase plays its take on any track, is locked against edits, is kept through power off, and HOME shows its track greyed in blue.
 - **0.47 (October 22, 2026):** 0.5.5: frozen tracks came back distorted (the take clipped at 16 bits); HARP and the string presets sounded like a wooden bar (HARM at the module's dispersion).
 - **0.46 (October 22, 2026):** 0.5.4: two bugs from the unit. EDIT then SELECT back crashed (the unhooked engines' pages were shown); a four note ORGAN DRAWBAR chord broke up (MACRO's voice units too low). A new host test builds Orange Cat's own engine set under sanitizers.
@@ -73,7 +74,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
-| 10 | Other engines and effects | Not started |
+| 10 | Other engines and effects | In progress: Jiant FM's effects built on branch fx-jiant (0.6.0), not tested on the unit |
 | 11 | Later extensions | Not started |
 
 ## Reference versions
@@ -806,6 +807,137 @@ Measurements (fill in):
 - [ ] WHEEL (Melodee's legacy engine 7, out since phase 3 with the other legacy engines: core.h MELODEE_LEGACY_EXTRAS).
 - [ ] DRUM-X (Skiff's drum engine; also what the drum grid needs to be heard, see phase 4).
 - Not urgent. ORGAN DRAWBAR at two notes is fine for now (Jeremiah, October 22, 2026).
+
+---
+
+## Effects from Jiant FM (0.6.0, branch fx-jiant)
+
+**Status: Built and host tested. Not tried on the unit. Not on main, not released.**
+
+Asked for October 22, 2026: replace Orange Cat's effects with Jiant FM's, keep one internal user sample slot, keep
+everything else working. The full record of decisions is docs/orangecat/FX_MIGRATION.md (on the branch).
+
+### Done
+
+- [x] Per track: DIST (SOFT HARD FOLD CRUSH RECT AMP; DRIVE, TONE), AUTO PAN (free or on the beat, five waves), the
+      sends REV, DLY, CHO, and SLC (the track into the SLICER).
+- [x] Shared: DELAY (ANALOG, DIGITAL, synced or free time to 2.95 s, feedback past 100 %, TONE, wow, WIDE, PING, GRAIN
+      pitch and spray), REVERB (ROOM, SPRING, SHIMMER, RESO, CLOUD with FREEZE), CHORUS, SLICER (GATE, STUT, 16
+      patterns, pitch steps, FX through it).
+- [x] Master: DJ filter, CLIP, leveler (LEVEL, off by default), speaker EQ, then the limiter as before.
+- [x] Punch-in effects (hold FX): REPEAT 1/8 1/16 1/32, GLITCH, TAPE stop, FREEZE, SHUFFLE, CRUSH and THROW sweeps,
+      track mutes (now they also stop new notes), FILTER on KNOB 4. OCT- turns everything off.
+- [x] The old effects (three inserts, three shared slots, ECHO ROOM REVERB CHORUS PHASER TAPE and the rest) are gone,
+      with their code, RAM and tests.
+- [x] Controls: device pages (FX pages and SHARED FX), MIDI CC 91 REV, 93 CHO, 94 DLY, 104 DIST, motion for DIST, TONE,
+      AUTO PAN DEPTH and the sends, the web editor's tables.
+- [x] Storage: projects FUN23 (the effects' globals in the record's tail), template TPLM. FUN16 to FUN22 and TPLF to
+      TPLL convert on load: old sends to the new effect of the same kind; old inserts dropped (no match).
+- [x] Memory (second version): effects take arena memory in 4 KB blocks while a send is set; the card's unused player
+      slots are lent to them; engines come first; FX FULL when there is not enough (table below).
+- [x] Internal user sample slot: 22 sectors (0xB2000..0xC7FFF) of the record store, 81,408 bytes of data and
+      Felucca's header. Written only through new editor commands 110..114 (tools/fm1_sample_upload.py); torn writes
+      read as empty; untouched by saves, deletes, presets, backups and updates. A boot with nothing in those sectors
+      writes nothing.
+- [x] Fixes from an independent review of the first checkpoint (FX_MIGRATION.md decision 17).
+- [x] Audition WAVs of every model (build/audition/ from tests/jfx_test.c).
+
+### Left to build
+
+- [ ] A sample engine that plays the internal slot (nothing plays it yet).
+- [ ] Jiant's punch-in note effects (octave, decay, stutter, arp, random, half tempo), DUCK and PUNCH (they need
+      DRUM-X), the punch-in lane. Not ported (FX_MIGRATION.md decisions 8 and 11).
+- [ ] Web editor backups still do not hold Orange Cat's own data (an older gap, not this work's).
+
+### Left to test (on the unit)
+
+- [ ] Everything. No hardware here. The procedure is below.
+- [ ] CPU time of each effect on the device: not measured. Host times (x86, not the device) are below for comparison
+      only.
+
+### Measurements
+
+Firmware (CI builds of the branch; baseline 0.5.6 at 10615fc):
+
+| Measure | 0.5.6 (10615fc) | 0.6.0 first build (e3ee00e) | 0.6.0 (9041a85) |
+|---|---|---|---|
+| Firmware image | 542,664 B | 563,568 B | 564,208 B (of 573,440) |
+| RAM .data + .bss | 93,912 B | 90,888 B | 91,192 B (of 98,304) |
+| POOL | 218,656 B | 218,400 B | 218,400 B (of 344,064) |
+| Arena: main / low / data / retained | 55,328 / 17,392 / 4,392 / 4,688 B | 54,272 / 23,848 / 7,416 / 4,688 B | 54,208 / 23,844 / 7,112 / 4,688 B |
+| Arena total (with cache RAM) | 81,800 B (96,136 B) | 90,224 B (104,560 B) | 89,852 B (104,188 B) |
+| Card pool lent when idle | none | none | up to 36,864 B (4 slots of 9 KB) |
+| RAM code: .audio_text / .dsp_text / .ram_text | 61,812 / 7,106 / 3,394 B | 63,138 / 666 / 3,378 B | 63,180 / 666 / 3,382 B |
+| Effects group (size report): flash / static RAM | 11,928 / 19,967 B | 12,414 / 1,376 B | 12,522 / 1,481 B |
+| Effect buffers | from the arena, per slot | from the arena, 2 x 32 KB delay | from the arena, 4 KB blocks |
+
+Effects' memory in an arena of the device's sizes (tests/jfx_arena_test.c, host, the linker's bank sizes). "yes":
+the bus holds its memory; "FULL": it plays dry and says FX FULL. Card: idle (no frozen phrase playing), 1 take (one
+frozen phrase loaded), freeze (a freeze recording), 4 takes (all four slots in use).
+
+| engines                            | cache | card    | DELAY | REV   | CHORUS | STUT  |
+|------------------------------------|-------|---------|-------|-------|--------|-------|
+| none                               | ready | 4 takes | yes   | yes   | yes    | -     |
+| none                               | off   | 4 takes | FULL  | yes   | yes    | -     |
+| none                               | ready | idle    | yes   | yes   | yes    | yes   |
+| none, CLOUD                        | ready | 4 takes | FULL  | yes   | yes    | -     |
+| none, CLOUD                        | ready | idle    | yes   | yes   | yes    | -     |
+| none, CLOUD                        | ready | idle    | FULL  | yes   | yes    | yes   |
+| 4 x largest (11424 B)              | ready | idle    | yes   | yes   | yes    | -     |
+| 4 x largest (11424 B)              | ready | 1 take  | FULL  | yes   | yes    | -     |
+| 4 x largest (11424 B)              | ready | freeze  | FULL  | yes   | yes    | -     |
+| 4 x largest (11424 B)              | ready | 4 takes | FULL  | yes   | yes    | -     |
+| 4 x largest (11424 B)              | off   | idle    | FULL  | yes   | yes    | -     |
+| 4 x largest (11424 B)              | ready | idle    | FULL  | yes   | yes    | yes   |
+| 4 x MACRO (11320 B)                | ready | idle    | yes   | yes   | yes    | -     |
+| 4 x MACRO (11320 B)                | ready | 4 takes | FULL  | yes   | yes    | -     |
+| 2 x largest (11424 B)              | ready | idle    | yes   | yes   | yes    | -     |
+| 2 x largest (11424 B)              | ready | 1 take  | yes   | yes   | yes    | -     |
+| 2 x largest (11424 B)              | ready | 4 takes | FULL  | yes   | yes    | -     |
+| 2 x largest (11424 B), CLOUD       | ready | idle    | FULL  | yes   | yes    | -     |
+| DRUM FM6 SID CZ-1                  | ready | idle    | yes   | yes   | yes    | -     |
+| DRUM FM6 SID CZ-1                  | ready | 1 take  | yes   | yes   | yes    | -     |
+| DRUM FM6 SID CZ-1                  | ready | 4 takes | FULL  | yes   | yes    | -     |
+| DRUM FM6 SID CZ-1, CLOUD           | ready | idle    | yes   | yes   | yes    | -     |
+| DRUM FM6 MACRO SHAPES              | ready | idle    | yes   | yes   | yes    | -     |
+| DRUM FM6 MACRO SHAPES              | ready | 1 take  | yes   | yes   | yes    | -     |
+| DRUM FM6 MACRO SHAPES              | ready | 4 takes | FULL  | yes   | yes    | -     |
+
+Host time for one 32-sample block (x86 at -O1, this machine; not the device, not a CPU measurement of the FM-1):
+
+| Block | Time |
+|---|---|
+| dry (no effect) | 591 ns |
+| DELAY ANALOG / DIGITAL | 1,119 / 1,136 ns |
+| REVERB ROOM / SPRING / SHIMMER / RESO / CLOUD | 1,227 / 1,566 / 1,435 / 1,295 / 1,716 ns |
+| CHORUS | 1,192 ns |
+
+(One run on a quiet machine; a busy machine reads 20 to 30 % higher. tests/jfx_test.c prints these each run.)
+
+### On-device test procedure
+
+Install the CI package of the branch (Actions > build > the run for fx-jiant > packages) with the web installer's
+file option. Back up first (web editor > Backup). Then:
+
+1. **Basics.** New project. Track 1 any sound. Turn DLY up on the track page and play: echoes. Try TIME, FDBK, PING,
+   ANALOG and DIGITAL. Turn REV up: try each model (ROOM, SPRING, SHIMMER, RESO, CLOUD; CLOUD SIZE 127 freezes).
+   CHO up: chorus. Each DIST type, then AUTO PAN at 1/4 BEAT while playing.
+2. **Memory.** Four tracks of MACRO or SHAPES, all sends up on one track. Play: delay, reverb and chorus should all
+   sound, no FX FULL. Switch the reverb to CLOUD: the delay or CLOUD may say FX FULL (expected). Back to ROOM.
+3. **Card.** With a powered hub and card, freeze a phrase, then play it with the delay on. A take loading may cut
+   the delay's tail once; it may say FX FULL with heavy sounds. No crash, no noise, the freeze still records clean.
+4. **Punch-in.** Hold FX: the map. While playing, hold F3 / G3 / A3 (REPEAT), B3, C4, G#4, C#5, D#5, F#5; the mute
+   keys. OCT- turns all off. Double-tap FX locks the map.
+5. **Old project.** Load a project saved with 0.5.6: it plays, sends moved to the new effects. Save, power off, on:
+   it loads the same.
+6. **MIDI.** CC 91, 93, 94, 104 on a track's channel move its REV, CHO, DLY, DIST.
+7. **Sample slot.** On a computer: `python3 tools/fm1_sample_upload.py info`, then `load TEST file.wav`, then `info`
+   again (name and size). Power off and on: `info` the same. Save a project, delete one: `info` the same. `erase`.
+8. **External clock.** Slave the FM-1 to a MIDI clock: REPEAT and the SLICER stay on the beat for minutes.
+9. **CPU (optional).** The CPU tools (tools/audio_cpu_device.py) need a profiling build (MELODEE_AUDIO_PROFILE=1),
+   which CI does not make. Without it: listen for clicks with four heavy tracks and every effect on.
+
+Report anything odd with what was on the screen.
 
 ---
 

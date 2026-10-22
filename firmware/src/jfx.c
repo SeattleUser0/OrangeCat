@@ -1864,9 +1864,21 @@ static void *jfx_take(uint32_t jb, uint32_t bytes, uint8_t *nomem)
     if (jfx_wait || jfx_grow >= JFX_GROW)
         return 0;
     jfx_grow++;
-    p = resource_get(RES_JFX0 + jb, bytes);
+    p = resource_allocate(RES_JFX0 + jb, bytes);        /* (0.6.0 rev 2, a reviewer's catch: not resource_get, which
+                                                         * gives up the recording's undo for any block a bus wants and
+                                                         * may then give back whole) */
     if (!p) *nomem = 1;
     return p;
+}
+/* (0.6.0 rev 2) the SLICER's and the FX layer's buffer taken away (the card's slot, an engine's memory): the SLICER
+ * and the buffer effect stop at once, and nothing takes the buffer again this block */
+static void jfx_sl_lost(void)
+{
+    resource_release(RES_JFX0 + JB_SL);
+    sl_buf = 0;
+    slicer_drop();
+    perf_buf_lost();
+    if (!jfx_wait) jfx_wait = 1;
 }
 static void jfx_mem(void)
 {
@@ -1931,11 +1943,7 @@ static void jfx_lend_check(void)
     if (res_jfx_yield) {
         res_jfx_yield = 0;
         jfx_free_buses();
-        if (sl_buf) {
-            resource_release(RES_JFX0 + JB_SL);
-            sl_buf = 0;
-            slicer_drop();
-        }
+        if (sl_buf) jfx_sl_lost();
         jfx_wait = JFX_YIELD;
         jfx_full_acc |= jfx_sends & 7u;                 /* (what was playing: FX FULL a while) */
         jfx_full_hold = JFX_FULL_HOLD;
@@ -1943,15 +1951,28 @@ static void jfx_lend_check(void)
     if (!(res_lend_used & (uint8_t)~res_lend_ok))
         return;
     {
-        uint32_t k, back = res_lend_used & (uint8_t)~res_lend_ok, lent = 0, used = 0;
-        for (k = 0; k < JB_N; k++)
-            if (k != JB_SL && (resource_lent(RES_JFX0 + k) & back)) lent = 1;
-        if (lent) jfx_free_buses();                     /* (a bus with a block there: the whole bus) */
-        if (sl_buf && (resource_lent(RES_JFX0 + JB_SL) & back)) {
-            resource_release(RES_JFX0 + JB_SL);
-            sl_buf = 0;
-            slicer_drop();
+        uint32_t k, back = res_lend_used & (uint8_t)~res_lend_ok, d = 0, r = 0, used = 0;
+        for (k = 0; k < DLY_NSEG; k++) d |= resource_lent(RES_JFX0 + JB_DLY0 + k) & back;
+        for (k = 0; k < RX_NSEG; k++) r |= resource_lent(RES_JFX0 + JB_RX0 + k) & back;
+        r |= resource_lent(RES_JFX0 + JB_REV) & back;
+        if (d) {                                        /* (a bus with a block there: that whole bus, the others go on) */
+            jfx_free_dly();
+            dly_lo_reset();
+            fx.dsw = 0;
+            fx.din_g = 0;
         }
+        if (r) {
+            resource_release(RES_JFX0 + JB_REV);
+            jrev = 0;
+            jfx_free_rx(0);
+            rev_state_clear();
+        }
+        if (resource_lent(RES_JFX0 + JB_CHO) & back) {
+            resource_release(RES_JFX0 + JB_CHO);
+            cho_buf = 0;
+        }
+        if (sl_buf && (resource_lent(RES_JFX0 + JB_SL) & back))
+            jfx_sl_lost();
         for (k = 0; k < JB_N; k++)                      /* (what is still lent: other slots) */
             used |= resource_lent(RES_JFX0 + k);
         RES_LEND_PUBLISH();

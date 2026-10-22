@@ -800,6 +800,15 @@ static JFX_XIP int perf_shuf(int32_t l, int32_t r)
 
 static int (*const PERF_RING[4])(int32_t, int32_t) = {perf_glt, perf_tape, perf_shuf, perf_frz};
 
+/* (Orange Cat 0.6.0 rev 2) the buffer taken away (jfx.c jfx_sl_lost): the buffer effect out at once, as perf_buf does
+ * when it finds no buffer (a new one may come back zeroed in the same block: it must not play on it) */
+static void perf_buf_lost(void)
+{
+    pf.mode = BM_NONE;
+    pf.next = PF_N;
+    pf.w = 0;
+    sl_lent = 0;
+}
 /* the buffer effect faded out: the next one, or the buffer back */
 static JFX_XIP void perf_buf_done(void)
 {
