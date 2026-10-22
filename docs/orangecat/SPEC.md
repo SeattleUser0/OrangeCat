@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.8  
+**Version:** 0.9  
 **Date:** October 21, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.9 (October 21, 2026):** Frozen tracks decided: stereo, to the card, played through a sampled instrument, with resampling and undo (10.6). Sampled instruments load WAVs from the card, after Skiff's SAMPLE engine and the M8 (10.7).
 - **0.8 (October 21, 2026):** Frozen tracks on the card: a design draft for review (10.6), from what the card tests showed (0.4.14 to 0.4.17).
 - **0.7 (October 21, 2026):** Files on the card, bounces to it, and several FM-1s sharing one card set as goals, with what USB allows (10.5).
 - **0.6 (October 21, 2026):** USB flash drive test results (10.5): the FM-1 reads a drive as a USB host when its port gets power from a hub on PD power. It does not power the port itself.
@@ -484,32 +485,47 @@ Whole-track freezing to the card is now a goal (10.6). Song-length freezing into
 
 Short sampled-instrument bounces may use internal storage, subject to measured capacity, quality, write behavior, and playback requirements.
 
-### 10.6 Frozen tracks on the card (design draft, for review)
+### 10.6 Frozen tracks on the card
 
 A frozen track plays a recording of itself from the card instead of running its engine. Its notes and sound stay in the project, so it can be unfrozen and changed. Freezing frees the track's voices and processor time for new tracks (4.4, option 2).
 
 What the tests showed (Build.md, phase 2):
 
 - The card reads at about 550 KB/s while the FM-1 plays, whatever the sequencer is doing. That is three 16-bit stereo files at 44.1 kHz, or six mono ones. A file that would go past that does not start.
-- One track alone can be recorded as a mono WAV before its pan, the effects and MASTER (0.4.17). That is the capture point 10.3 asks for (before the shared delay and reverb). It needs half the card speed of stereo.
-- A take armed while the sequencer is stopped starts and ends with it, in the same audio block. A WAV armed the same way plays from its first sample when the sequencer starts.
+- One track alone can be recorded before its pan, the effects and MASTER (0.4.17).
+- A take armed while the sequencer is stopped starts and ends with it, in the same audio block. A WAV armed the same way plays from its first sample when the sequencer starts. A frozen track played this way, with the original muted, stayed in time (0.4.18 on the unit).
 - Not yet measured: how fast the card takes writes while WAVs play, and how long its slowest write lasts.
 
-Proposed design:
+Decisions (Jeremiah, October 21, 2026):
 
-1. **Freeze.** On a track, FREEZE records the track from the top of what PLAY plays (the song, the chain, or the phrase loop) to its end, with the sequencer running as normal. The take is mono, dry, before MASTER. The project keeps the file's name, its length, the tempo it was recorded at, and where it starts (song row, chain, or phrase).
-2. **Play.** A frozen track does not run its engine. Its WAV starts when the sequencer starts. Starting from another song row starts the WAV that far in (the time from the top at the recorded tempo). A take from a phrase loop is cut to whole loops and starts again at each loop.
-3. **Keeping in step.** If the tempo, the notes, or the sound change after freezing, the track is marked out of date and plays its old take until it is frozen again. Unfreeze goes back to the engine, after a resource check (4.2).
-4. **The track's own controls.** Level, mute, solo and pan still work on a frozen track (pan and the effect sends act on the take, as they did on the engine).
-5. **Files.** Takes go in a folder for the project on the card, named by track and number (for example /ORANGECAT/MYSONG/T1_003.WAV). Old takes stay until deleted. A project loaded without its card plays its frozen tracks live if they fit, and otherwise silent, with a flag on the track.
-6. **Limits.** The track admission check (4.2) counts card speed as a resource: about 88 KB/s for each mono frozen track, and room for the writes of a freeze in progress. With the numbers so far, about four frozen tracks play while a fifth freezes.
-7. **Freezing beside frozen tracks.** The player's 40 KB of RAM is split between playing and recording while a freeze runs. To measure: whether the card's write pauses stall the reading.
-8. **The USB port.** While frozen tracks play, the port is a USB host: USB MIDI, USB audio and the web editor to a computer are off. DIN and Bluetooth MIDI work.
+- Frozen tracks are recorded in stereo, to the card.
+- A frozen track plays through a sampled instrument (10.7), as the M8 does. The take is loaded into the track's sampler instrument, which the track triggers from the start point. Because it is the track's instrument, the track's level, pan, effect sends (reverb, delay) and inserts all still work on it.
+- A frozen track can be resampled: its sound with the effects added since freezing is recorded to a new WAV, which becomes the track's take.
+- Undo puts back the track's previous take. The take files are kept, so undo goes back as far as the takes are kept.
 
-Open questions:
+Design:
 
-- A stereo take with the track's own effects, for tracks whose sound depends on them.
-- Whether takes should also be copied into the internal flash sample area (10.5) for projects that must run without a card.
+1. **Freeze.** On a track, FREEZE records the track from the top of what PLAY plays (the song, the chain, or the phrase loop) to its end, with the sequencer running as normal. The take is stereo: the track after its pan and its own inserts, before the shared effects and MASTER (10.3). The project keeps the take's file name, its length, the tempo it was recorded at, where it starts (song row, chain, or phrase), and the track's live sound (to unfreeze).
+2. **Play.** A frozen track's instrument becomes the sampler, loaded with the take; its engine does not run. The take starts when the sequencer starts. Starting from another song row starts it that far in (the time from the top at the recorded tempo). A take from a phrase loop is cut to whole loops and starts again at each loop.
+3. **Resample.** RESAMPLE on a frozen track records it again with its current level, pan, sends and inserts, to a new file. While it records, the track plays solo, so the shared reverb and delay hear only that track and their tails go into the take. The new file becomes the track's take; its sends are set back to zero so the effects are not added twice. The previous take is kept.
+4. **Undo.** UNDO TAKE on a frozen track goes back to its previous take, with the sends it had then. Repeated, it steps back through the takes kept. Unfreeze goes back to the live engine, after a resource check (4.2).
+5. **Keeping in step.** If the tempo, the notes, or the sound change after freezing, the track is marked out of date and plays its old take until it is frozen again.
+6. **Files.** Takes go in a folder for the project on the card, named by track and number (for example /ORANGECAT/MYSONG/T1_003.WAV). Old takes stay until deleted. A project loaded without its card plays its frozen tracks live if they fit, and otherwise silent, with a flag on the track.
+7. **Limits.** The track admission check (4.2) counts card speed as a resource: about 176 KB/s for each stereo frozen track, and room for the writes of a freeze in progress. With the numbers so far, two frozen tracks play while a third freezes. Faster card reads (bigger reads, Build.md) would raise this.
+8. **Freezing beside frozen tracks.** The player's 40 KB of RAM is split between playing and recording while a freeze runs. To measure: whether the card's write pauses stall the reading.
+9. **The USB port.** While frozen tracks play, the port is a USB host: USB MIDI, USB audio and the web editor to a computer are off. DIN and Bluetooth MIDI work.
+
+Open question:
+
+- Whether takes should also go to internal flash (asked October 21). A stereo minute at 44.1 kHz is about 10.6 MB; the FM-1 has 1 MiB of flash in all, so flash holds a few seconds at most.
+
+### 10.7 Sampled instruments
+
+Sampled music follows Skiff's SAMPLE engine (10.2): IMA ADPCM sample sets with up to 16 pitch zones and loops. Orange Cat adds loading the sample from a WAV on the card into a sampled instrument, as the M8 does. One instrument type then covers sampled sounds, bounced instruments (10.2) and frozen tracks (10.6).
+
+- The sampler instrument names its WAV on the card, with start, end, loop and pitch settings.
+- Short samples are loaded into memory (the flash sample area, 10.5) and play with full polyphony. Long ones, frozen takes among them, stream from the card, one voice per stream, within the card's speed (10.6).
+- A project that uses a sample keeps its file name, so it can find it again (10.1).
 
 ## 11. MIDI, Audio, and Persistence
 

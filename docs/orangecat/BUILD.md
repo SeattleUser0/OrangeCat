@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.38  
+**Version:** 0.39  
 **Date:** October 21, 2026  
-**Tracks:** Orange Cat Specification v0.8
+**Tracks:** Orange Cat Specification v0.9
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.39 (October 21, 2026):** 0.4.18 on the unit: a track frozen, muted and played back in time from the card, through PLAY. Spec 0.9: frozen tracks are stereo, on the card, played through a sampled instrument, with resampling and undo.
 - **0.38 (October 21, 2026):** 0.4.17 on the unit: takes record and play back. A WAV picked with the sequencer stopped only waited, and PLAY brought the song in with it. 0.4.18: OCT+ plays a WAV now, by itself; SEQ ties it to the song.
 - **0.37 (October 21, 2026):** 0.4.17: WAVs and takes in time with the sequencer; one track recorded alone (a freeze); PLAY on the drive page; WAVs at their own level.
 - **0.36 (October 21, 2026):** 0.4.16: the recorder. REC on the file list records what the FM-1 plays to a WAV on the card.
@@ -323,6 +324,9 @@ Tested (0.4.17 on the unit, October 21):
 - The foot says how many play and how many wait: "1 play, 1 ready, CPU 25%" (the card's share of the processor is left out: it stayed at 2 to 8%).
 - The idle foot's last line: "OCT+ play  SEQ with song".
 
+Tested (0.4.18 on the unit, October 21):
+- [x] The freeze: a track recorded alone with REC armed and PLAY, muted on the MIXER page, its take tied to the song with SEQ: it played in time with the other tracks.
+
 Left to test (0.4.17, with 0.4.18's keys):
 - [ ] PLAY on the file list starts and stops the sequencer.
 - [ ] OCT+ on a WAV with the sequencer stopped: it plays at once, alone. OCT+ again stops it.
@@ -330,9 +334,15 @@ Left to test (0.4.17, with 0.4.18's keys):
 - [ ] The frozen track's level against the live one (they should match with MASTER at full; the take has no pan or effects).
 - [ ] REC, then REC again before PLAY: "Take cancelled", no file left.
 
+Left to build (spec 0.9, 10.6 and 10.7), in order:
+1. A stereo track take: the track after its pan and inserts, before the shared effects and MASTER (a new capture point in mix.c).
+2. Play WAVs while recording: the 40 KB split, reads and writes sharing the card. Measure first: write speed and the slowest write with WAVs playing.
+3. The sampled instrument: Skiff's SAMPLE engine, with its sample loaded from a WAV on the card (short ones into memory, long ones streamed).
+4. Freeze, resample and undo on the track pages, through the sampled instrument; takes in a folder per project; the project keeps the take names.
+5. The drive staying on while the normal pages are in use (no trip back to the menu).
+
 Left to build (later):
 - Record the mix before MASTER.
-- A track take with its effects and pan (stereo).
 - Play WAVs while recording (the memory split two ways, and the 550 KB/s shared). Needed to freeze a second track while the first plays back.
 - WAVs as tracks in the sequencer (started by patterns and the song, not only by PLAY).
 - [ ] Stopping one with OCT+ while others play: the rest unbroken.
