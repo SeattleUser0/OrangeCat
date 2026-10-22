@@ -21,6 +21,9 @@
 #if MELODEE_MACRO
 #include "eng_macro.c"          /* (Orange Cat 0.5.0) MACRO: fourteen sound models (plaits/, MIT) */
 #endif
+#if MELODEE_SHAPES
+#include "eng_shapes.c"         /* (Orange Cat 0.5.1) SHAPES: a Braids-style macro oscillator (braids/, MIT) */
+#endif
 #if MELODEE_SLICE
 #include "eng_slice.c"
 #else
@@ -75,6 +78,9 @@ static uint32_t eng_state_size(uint32_t e)
 #if MELODEE_MACRO
     case ENGI_MACRO: return sizeof(mc_part_t);      /* (Orange Cat 0.5.0) */
 #endif
+#if MELODEE_SHAPES
+    case ENGI_SHAPES: return sizeof(sh_part_t);     /* (Orange Cat 0.5.1) */
+#endif
 #if MELODEE_SLICE
     case ENGI_SLICE: return sizeof(slc_rb_t);
 #endif
@@ -99,6 +105,9 @@ static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + 
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
 #if MELODEE_MACRO
 static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(mc_part_t)); }
+#endif
+#if MELODEE_SHAPES
+static sh_part_t *sh_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(sh_part_t)); }
 #endif
 static cz_part_t *cz_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(cz_part_t)); }
 static sid_part_t *sid_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(sid_part_t)); }
@@ -173,7 +182,11 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,             /* 13: reserved (MELODEE_SLICE=0 builds without SLICE) */
 #endif
+#if MELODEE_SHAPES
+    &ENG_SHAPES,                 /* 14: (Orange Cat 0.5.1) SHAPES (ENGI_SHAPES), in the slot of Melodee's retired OBXF */
+#else
     &ENG_RETIRED,                /* 14: retired OBXF; stored index reserved */
+#endif
 #if MELODEE_CZ
     &ENG_CZ,                     /* 15: native Casio CZ-1 */
 #else
@@ -242,6 +255,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     ENGI_MACRO,                  /* (Orange Cat 0.5.0) MACRO: after Melodee's own (first in Orange Cat's build, where
                                   * they are unhooked) */
 #endif
+#if MELODEE_SHAPES
+    ENGI_SHAPES,                 /* (Orange Cat 0.5.1) SHAPES */
+#endif
 };
 
 /* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
@@ -258,7 +274,7 @@ static int eng_extra_retired(uint32_t e)
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
 static int eng_ok(uint32_t e)
 {
-    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && (MELODEE_MACRO || e != 8u) && e != 14u && (MELODEE_SLICE || e != ENGI_SLICE);
+    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && (MELODEE_MACRO || e != 8u) && (MELODEE_SHAPES || e != 14u) && (MELODEE_SLICE || e != ENGI_SLICE);
 }
 static uint32_t eng_sound_idx(uint32_t e)
 {

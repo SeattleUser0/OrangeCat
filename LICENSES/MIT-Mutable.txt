@@ -3,12 +3,16 @@ Gillet's eurorack code <https://github.com/pichenettes/eurorack> (MIT): Plaits (
 oscillators, drums, noise, physical models, chords and effects) and the parts of stmlib they use (stmlib/dsp,
 stmlib/utils/random.h). tools/gen_plaits_tables.py copies their lookup tables.
 
-The ported files stay under the MIT licence below; the rest of Orange Cat is GPL-3.0-only (LICENSE). "Plaits" names
-the source only: no Orange Cat engine, model or preset is named after it.
+The SHAPES engine's oscillator (firmware/src/braids/, Orange Cat 0.5.1 and later) is ported to C from the same
+repository's Braids (braids/macro_oscillator, analog_oscillator, digital_oscillator, excitation, svf,
+parameter_interpolation) and stmlib/utils (dsp.h, random.h). tools/gen_braids_tables.py copies its lookup tables.
+
+The ported files stay under the MIT licence below; the rest of Orange Cat is GPL-3.0-only (LICENSE). "Plaits" and
+"Braids" name the sources only: no Orange Cat engine, model or preset is named after them.
 
 -------------------------------------------------------------------------------
 
-Plaits and stmlib, copyright 2012-2021 Emilie Gillet (emilie.o.gillet@gmail.com)
+Plaits, Braids and stmlib, copyright 2012-2021 Emilie Gillet (emilie.o.gillet@gmail.com)
 
 Published under the MIT license:
 

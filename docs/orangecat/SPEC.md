@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.11  
+**Version:** 0.12  
 **Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.12 (October 22, 2026):** Braids built as the SHAPES engine (0.5.1, 8.1.1).
 - **0.11 (October 22, 2026):** Plaits built as the MACRO engine (0.5.0, 8.1.1). Engines take names of their own, not the module names (8.1).
 - **0.10 (October 21, 2026):** Freezing built (0.4.20): the MIXER page's KNOB 3; what is built and what is not yet (10.6).
 - **0.9 (October 21, 2026):** Frozen tracks decided: stereo, to the card (never to internal flash), played through a sampled instrument, with resampling and undo (10.6). Sampled instruments load WAVs from the card, after Skiff's SAMPLE engine and the M8 (10.7).
@@ -344,6 +345,7 @@ Mutable Instruments asks that derivative works not carry its name or keep the mo
 #### 8.1.1 Built so far
 
 - **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. One voice per track, as the module. Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
+- **Braids, as SHAPES (0.5.1).** All of Braids' shapes but the four wavetable ones (their 33 KB of waves), ported to C and checked sample for sample against the original. Set up as the M8's Macrosynth: shape, TIMBRE, COLOR, then a filter (cutoff, resonance), drive, bit reduction and sample-rate reduction; Melodee's ADSR, LFO and modulation for the rest. A note strikes the shape. Not yet: the wavetable shapes; Braids' own AD envelope routings.
 
 Clouds’ buffer freeze is a sound-processing function and shall be distinguished from instrument bouncing or whole-track audio freezing.
 

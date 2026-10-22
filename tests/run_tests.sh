@@ -404,6 +404,9 @@ if sound && [ $TABLES = 1 ]; then
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \
         macro_test -O2 $FW -- "$OUT/macro_test" build/macro_demo
+    mkdir -p build/shapes_demo
+    t "SHAPES (Orange Cat 0.5.1): every shape and preset through the voices, A4 at 440 Hz, the tone section; WAVs" \
+        shapes_test -O2 $FW -- "$OUT/shapes_test" build/shapes_demo
     t "PHYS: stability C-1..G9 over the parameter corners, worst-case cost against PHASE WIRE, demos" phys_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/phys_test" build/phys_demo
     t "paired FM6/Prophet voices: serial/concurrent sample equality and eight-voice allocation" dual_core_test \

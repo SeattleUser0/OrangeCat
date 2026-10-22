@@ -4,6 +4,7 @@
 # The host tests themselves compile with the defaults (every engine), whatever is set here.
 #
 # Revisions:
+#   0.5.1: SHAPES in (engine 14: a Braids-style macro oscillator, eng_shapes.c).
 #   0.5.0: MACRO in (engine 8: fourteen sound models, eng_macro.c). TRIO out again (MELODEE_TRIO=0): MACRO replaces it as
 #          the power-on sounds and the fallback.
 #   0.1.5: DRUM unhooked (MELODEE_DRUM=0). All of Melodee's engines are now out; TRIO is the only one left.
@@ -16,6 +17,7 @@ export MELODEE_SID=0
 export MELODEE_CZ=0
 export MELODEE_TRIO=0
 export MELODEE_MACRO=1
+export MELODEE_SHAPES=1
 export MELODEE_FM6=0
 export MELODEE_P5=0
 export MELODEE_DRUM=0

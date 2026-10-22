@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Orange Cat 0.5.1: the lookup tables of the SHAPES engine (firmware/src/braids/), copied value for value from
+Mutable Instruments' Braids (braids/resources.cc, MIT licensed, Copyright 2012 Emilie Gillet).
+
+  tools/gen_braids_tables.py <eurorack checkout> > firmware/src/braids/pb_tables.h
+
+The tables are Braids' own, made for 96 kHz: the SHAPES engine renders at 88.2 kHz with every pitch raised by the
+ratio (eng_shapes.c), so they stay right. The wavetables (wt_waves, 33 KB, and wt_map) are only compiled
+with PB_WAVETABLES. The output is committed: the build does not run this.
+
+Revisions:
+  0.5.1: first version.
+"""
+import re
+import sys
+from pathlib import Path
+
+SKIP = {"chr_characters"}                               # (the module's display font)
+WAVETABLE = {"wt_waves", "wt_map"}                  # (wt_code, 1 KB, is also QUESTION_MARK's)
+
+
+def main(root):
+    src = (Path(root) / "braids/resources.cc").read_text()
+    out = ["/* SPDX-License-Identifier: MIT",
+           " * Copyright 2012 Emilie Gillet (Mutable Instruments Braids). MIT License: LICENSES/MIT-Mutable.txt",
+           " * Orange Cat 0.5.1: Braids' lookup tables, made by tools/gen_braids_tables.py (do not edit). */",
+           "#pragma once", "#include <stdint.h>", ""]
+    waves = []
+    for m in re.finditer(r"^const (\w+) (\w+)\[\] = \{(.*?)\};", src, re.S | re.M):
+        ctype, name, body = m.group(1), m.group(2), m.group(3)
+        if name in SKIP:
+            continue
+        body = re.sub(r"//[^\n]*", "", body)
+        v = [x.strip() for x in body.split(",") if x.strip()]
+        if name in WAVETABLE:
+            out.append("#if PB_WAVETABLES")
+        out.append(f"static const {ctype} pb_{name}[{len(v)}] = {{")
+        for i in range(0, len(v), 12):
+            out.append("    " + ", ".join(v[i:i + 12]) + ",")
+        out.append("};")
+        if name in WAVETABLE:
+            out.append("#endif")
+        out.append(f"#define PB_{name.upper()}_SIZE {len(v)}u")
+        out.append("")
+        if name.startswith("wav_bandlimited_comb_"):
+            waves.append(name)
+    # waveform_table[WAV_BANDLIMITED_COMB_0 + index] (analog_oscillator.cc): the 15 band-limited combs in order
+    waves.sort(key=lambda n: int(n.rsplit("_", 1)[1]))
+    out.append("static const int16_t *const pb_wav_bandlimited_comb[%d] = {" % len(waves))
+    out.append("    " + ", ".join("pb_" + n for n in waves) + ",")
+    out.append("};")
+    out.append("")
+    sys.stdout.write("\n".join(out))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

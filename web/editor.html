@@ -2044,7 +2044,7 @@ function makeMockDevice(opt = {}) {
     E("MIDI", ["USB", "TRS"], 0), E("DRUM", ["OFF", ...Array.from({ length: 16 }, (_, i) => String(i + 1))], 10), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 5, 1), E("BOOT", ["OFF", "A", "B", "C", "D"], 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["-", "-", "-", "SID", "-", "-", "-", "-",
-      "MACRO", "-", "DRUM", "-", "FM6", "-", "-", "CZ-1", "-", "-", "-", "PROPHET"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
+      "MACRO", "-", "DRUM", "-", "FM6", "-", "SHAPES", "CZ-1", "-", "-", "-", "PROPHET"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     ...Array.from({length:3},()=>D("",F.INT,0,127,0)),
   ];
@@ -2136,7 +2136,31 @@ function makeMockDevice(opt = {}) {
         P("TUBULAR", [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 127, 0], 0),
         P("INIT VOICE", [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 127, 0], 0)] },   // the DX7 init voice, after F24
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
-    {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
+    { name: "SHAPES", titles: ["SHAPE", "TONE"], edit: [E("WAVE", ["CSAW", "MORPH", "SAWSQR", "FOLD", "BUZZ", "SQRSUB", "SAWSUB", "SQRSYN", "SAWSYN", "SAWx3", "SQRx3", "TRIx3", "SINx3", "RING", "SWARM", "COMB", "TOY", "ZLPF", "ZPKF", "ZBPF", "ZHPF", "VOSIM", "VOWEL", "VFOF", "HARM", "FM", "FBFM", "WTFM", "PLUCK", "BOWED", "BLOWN", "FLUTE", "BELL", "DRUM", "KICK", "CYMBAL", "SNARE", "NOISE", "TWINQ", "CLKN", "CLOUD", "PRTCL", "QPSK"], 0), D("TIMB", F.PCT, 0, 127, 64), D("COLR", F.PCT, 0, 127, 64), D("CUT", F.PCT, 0, 127, 127), D("RES", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0), E("BITS", ["16", "12", "8", "5", "4", "3", "2"], 0), E("RATE", ["OFF", "1/2", "1/3", "1/4", "1/6", "1/12", "1/24"], 0)],   /* 14: (Orange Cat 0.5.1) SHAPES, in retired OBXF's slot */
+      presets: [P("CSAW BASS", [0, 40, 50, 70, 30, 20, 0, 0], [0, 60, 80, 20], 1),
+        P("MORPH LEAD", [1, 64, 64, 100, 20, 0, 0, 0], [0, 70, 110, 40], 1),
+        P("SYNC LEAD", [8, 70, 40, 110, 10, 30, 0, 0], [0, 70, 110, 40], 1),
+        P("SUB BASS", [5, 50, 90, 60, 20, 0, 0, 0], [0, 60, 100, 20], 1),
+        P("TRIPLE SAW PAD", [9, 40, 70, 90, 10, 0, 0, 0], [70, 90, 110, 90], 1),
+        P("RING BELL", [13, 70, 50, 127, 0, 0, 0, 0], [0, 90, 0, 80], 1),
+        P("SAW SWARM", [14, 80, 60, 100, 0, 0, 0, 0], [40, 90, 110, 80], 1),
+        P("TOY CHIP", [16, 64, 40, 127, 0, 0, 2, 2], [0, 60, 90, 30], 1),
+        P("RESO LPF", [17, 50, 90, 127, 0, 0, 0, 0], [0, 70, 90, 40], 1),
+        P("VOSIM VOX", [21, 50, 60, 127, 0, 0, 0, 0], [20, 80, 110, 60], 1),
+        P("VOWEL", [22, 30, 60, 127, 0, 0, 0, 0], [10, 80, 110, 60], 1),
+        P("FOF CHOIR", [23, 60, 40, 120, 0, 0, 0, 0], [60, 90, 110, 90], 1),
+        P("HARMONICS", [24, 60, 70, 127, 0, 0, 0, 0], [10, 80, 110, 60], 1),
+        P("FM KEYS", [25, 50, 40, 127, 0, 0, 0, 0], [0, 90, 40, 70], 1),
+        P("FEEDBACK FM", [26, 70, 50, 120, 0, 10, 0, 0], [0, 70, 100, 40], 1),
+        P("PLUCK", [28, 60, 64, 127, 0, 0, 0, 0], [0, 127, 127, 96], 1),
+        P("BOWED", [29, 60, 64, 127, 0, 0, 0, 0], [40, 90, 120, 80], 1),
+        P("BLOWN", [30, 60, 64, 127, 0, 0, 0, 0], [30, 90, 120, 70], 1),
+        P("FLUTE", [31, 60, 64, 127, 0, 0, 0, 0], [30, 90, 120, 70], 1),
+        P("BELL", [32, 60, 64, 127, 0, 0, 0, 0], [0, 127, 127, 104], 1),
+        P("TOM", [33, 60, 64, 127, 0, 0, 0, 0], [0, 127, 127, 96], 1),
+        P("KICK", [34, 64, 64, 127, 0, 20, 0, 0], [0, 127, 127, 96], 1),
+        P("CYMBAL", [35, 64, 64, 127, 0, 0, 0, 0], [0, 127, 127, 100], 1),
+        P("SNARE", [36, 64, 64, 127, 0, 0, 0, 0], [0, 127, 127, 90], 1)] },
     {name:"CZ-1",titles:["CZ-1","TONE"],edit:[D("-",F.INT,0,7,0),D("-",F.INT,0,16,0),...Array(5).fill(NONE),D("TONE",F.INT,2,2,2)],
       presets:[P("INIT TONE",[0,0,0,0,0,0,0,2],[0,70,127,60],0),   // + Casio's 64 CZ-1 preset tones: BANK A..D, PTCH 1..16
         ...["BRASS 1","BRASS 2","BRASS 3","STRINGS 1","STRINGS 2","STRINGS 3","STRINGS 4","ORCHESTRA","ACO.GUITAR","JAZZ GUITAR","ELEC.GUITAR","SLAP BASS","SYNTH.BASS","ELEC.BASS 1","ELEC.BASS 2","HARP","BRASS 4","SAXOPHONE","CELLO","FLUTE","WHISTLE","HARMONICA","RECORDER","KOTO","PIANO 1","PIANO 2","PIANO 3","ELEC.PIANO","HONKY-TONK","FUNKY CLAV 1","FUNKY CLAV 2","HARPSICHORD","JAZZ ORGAN 1","JAZZ ORGAN 2","PIPE ORGAN 1","PIPE ORGAN 2","ACCORDION","VOICE 1","VOICE 2","VOICE 3","MUSIC BOX","VIBRAPHONE","XYLOPHONE","MARIMBA","MALLET LOG","AFRO PERC","BELLS","METALLIC","SYN STRINGS","FAT ENSEMBLE","SITAR","SYNTH.LEAD 1","SYNTH.LEAD 2","SYNTH.LEAD 3","SYNTH.LEAD 4","SWEEP 1","SYN DRUMS 1","SYN DRUMS 2","CONGA","STEEL DRUM","SWEEP 2","JET ROAR","MOTORCYCLE","TYPHOON"]
@@ -2834,7 +2858,7 @@ function aliasOf(names, i) { const k = names ? names.indexOf(names[i]) : -1; ret
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
 const ENGINE_ORDER = ["PROPHET", "ANALOG", "FM6", "DIGITAL", "PHASE", "CZ-1", "SID", "VOICE", "NOISE",
-  "DRUM", "MACRO"];   /* (Orange Cat 0.5.0) MACRO after DRUM */
+  "DRUM", "MACRO", "SHAPES"];   /* (Orange Cat 0.5.0, 0.5.1) MACRO and SHAPES after DRUM */
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
   return (names || []).map((n, i) => i).filter((i) => !["-","SAMPLE","GRAIN","SLICE","OBXF"].includes(names[i])&&!(names.includes("PROPHET")&&names[i]==="ANALOG"))

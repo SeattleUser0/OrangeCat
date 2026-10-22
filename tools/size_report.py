@@ -14,6 +14,7 @@ The groups are estimates: shared helpers an engine uses are counted where their 
 Used for Orange Cat build doc phase 3 (strip Melodee's engines): the cost of each engine before it is removed.
 
 Revisions:
+  0.1.3 (Orange Cat 0.5.1): groups for the MACRO (Plaits port) and SHAPES (Braids port) engines.
   0.1.2: SRAM-resident code (.audio_text and the rest copied at boot) counted in flash and RAM; 909 (d9_) and
          drum sample kit (dsk) names in the DRUM group; all RAM sections listed.
   0.1.1: bytes per section and the largest ungrouped symbols in the report (to refine GROUPS); every sized
@@ -26,6 +27,9 @@ import sys
 from collections import defaultdict
 
 GROUPS = [   # (group, name pattern), first match wins; case-insensitive
+    ("MACRO engine (Plaits port)", r"^pl_|^pla_|^plb_|^plc_|^pld_|^mc_|ENG_MACRO|^MC_|N_MC_"),          # (Orange Cat 0.5.0)
+    ("SHAPES engine (Braids port)", r"^pb_|^pba_|^pbb_|^pbc_|^pbd_|^pbm_|^sh_render|^sh_note_on|^sh_units|^sh_part"
+     r"|ENG_SHAPES|^SH_|N_SH_"),                                                                        # (Orange Cat 0.5.1)
     ("PROPHET engine", r"prophet|^p5_|_p5_|^P5_|p5edit|prophet_"),
     ("CZ-1 engine", r"^cz_|_cz_|^CZ_|cz1|^upd933|ENG_CZ|eng_cz"),
     ("SID engine", r"^sid_|_sid_|^SID_|resid|ENG_SID|eng_sid|drum_sid"),

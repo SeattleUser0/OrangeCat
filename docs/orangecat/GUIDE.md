@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.5.0
+**Firmware:** 0.5.1
 **Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -69,7 +69,7 @@ SEQ > GROOVE gives each track a template: LAID BACK, PUSH, DILLA, 2-STEP, DUB or
 
 ## The MACRO engine
 
-MACRO is the new synth engine. It has 14 sound models, each shaped by the same three knobs. The models are ported from the open source code of a well known Eurorack macro oscillator. It replaces the TRIO test voice: the four tracks start on MACRO sounds, and it is the only engine for now.
+MACRO is the new synth engine. It has 14 sound models, each shaped by the same three knobs. The models are ported from the open source code of a well known Eurorack macro oscillator. It replaces the TRIO test voice: the four tracks start on MACRO sounds. SHAPES (below) is the other engine.
 
 To play it:
 
@@ -110,6 +110,34 @@ The ADSR, LFO and modulation pages work as for any engine. ENV and LFO to SHAPE 
 Each track plays one note at a time on MACRO (CHORD plays chords from one key). STRING, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
 
 The models run at the FM-1's 44.1 kHz, so their own decay times are about 9% longer than on the module.
+
+## The SHAPES engine
+
+SHAPES is a second synth engine: a macro oscillator with 43 shapes, from analog style waves to vowels, FM, plucked
+and blown models and drums, each shaped by TIMB (timbre) and COLR (color). It is ported from the open source code of
+another well known Eurorack macro oscillator, and set up the way the M8's Macrosynth is: a filter, drive, and bit
+and sample-rate reduction after the oscillator.
+
+To play it, turn PRESETS to its 24 sounds (CSAW BASS, SYNC LEAD, VOWEL, PLUCK, KICK and so on), or turn the
+browser's KNOB 4 (ENGINE) to SHAPES. On HOME the knobs are WAVE, TIMB, COLR and CUT. Press EDIT for its pages.
+
+| Page | KNOB 1 | KNOB 2 | KNOB 3 | KNOB 4 |
+|---|---|---|---|---|
+| SHAPE | WAVE | TIMB | COLR | CUT |
+| TONE | RES | DRV | BITS | RATE |
+
+- **WAVE** picks the shape. **TIMB** and **COLR** shape it; what they do depends on the shape.
+- **CUT** and **RES**: a low-pass filter (CUT at full is open). ENV and LFO to FILTER move it.
+- **DRV**: soft saturation.
+- **BITS**: 16 bits down to 2, for grit. **RATE**: sample-rate reduction, OFF then 1/2 down to 1/24.
+- ENV and LFO to SHAPE move TIMB. A note strikes the shape, so the plucked, struck and drum shapes start a new hit.
+
+The shapes: CSAW, MORPH, SAWSQR, FOLD, BUZZ, SQRSUB, SAWSUB, SQRSYN, SAWSYN, SAWx3, SQRx3, TRIx3, SINx3, RING,
+SWARM, COMB, TOY, ZLPF, ZPKF, ZBPF, ZHPF, VOSIM, VOWEL, VFOF, HARM, FM, FBFM, WTFM, PLUCK, BOWED, BLOWN, FLUTE, BELL,
+DRUM, KICK, CYMBAL, SNARE, NOISE, TWINQ, CLKN, CLOUD, PRTCL, QPSK. The four wavetable shapes are left out for now:
+their waves take 33 KB of flash.
+
+One note at a time per track, as with MACRO. Like MACRO, its times (decays) run about 9% longer than on the module.
 
 ## Freezing a track
 

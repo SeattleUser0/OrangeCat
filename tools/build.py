@@ -247,7 +247,7 @@ def build_app(stub):
                  "MELODEE_BENCH_SILENT", "MELODEE_FX_PROFILE", "MELODEE_AUDIO_PROFILE", "MELODEE_BATCH_AUDIO", "MELODEE_ADMISSION", "MELODEE_AUDIO_BENCH", "MELODEE_DUAL_CORE", "MELODEE_CACHE_RAM", "MELODEE_CORE1_TEST", "MELODEE_RAM_AUDIO", "MELODEE_HW_EQ", "MELODEE_MOD_CACHE", "MELODEE_CONTROL_FAST", "MELODEE_MIX_FAST", "MELODEE_FX_DORMANT", "MELODEE_RECORD_INDEX", "MELODEE_PROPHET_FAST", "MELODEE_PANEL_FAST", "MELODEE_FM6_FAST", "MELODEE_CZ_FAST", "MELODEE_DRUM_FAST", "MELODEE_SID_FAST", "MELODEE_CAPTURE_FAST",
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5", "MELODEE_TRIO",
-                 "MELODEE_MACRO"):            # (Orange Cat 0.5.0) MACRO
+                 "MELODEE_MACRO", "MELODEE_SHAPES"):   # (Orange Cat 0.5.0, 0.5.1) MACRO, SHAPES
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

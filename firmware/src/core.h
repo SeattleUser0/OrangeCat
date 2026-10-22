@@ -82,6 +82,11 @@
                                    * (eng_macro.c, plaits/). 0: the slot is retired again */
 #endif
 #define ENGI_MACRO 8u
+#ifndef MELODEE_SHAPES
+#define MELODEE_SHAPES 1          /* (Orange Cat 0.5.1) SHAPES (engine 14, the slot of the retired OBXF): a Braids-style macro
+                                   * oscillator (eng_shapes.c, braids/). 0: the slot is retired again */
+#endif
+#define ENGI_SHAPES 14u
 #define ENGI_FM6 12u
 #define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
 /* (Orange Cat) the engine a retired, reserved or unknown sound falls back to, and new sounds start on: FM6 as in
@@ -95,8 +100,8 @@
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM \
-                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 - PROPHET - DRUM + TRIO + MACRO) */   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + MELODEE_SHAPES - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM \
+                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 - PROPHET - DRUM + TRIO + MACRO + SHAPES) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

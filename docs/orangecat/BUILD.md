@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.42  
+**Version:** 0.43  
 **Date:** October 22, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.43 (October 22, 2026):** 0.5.1: SHAPES, a second engine: Braids ported to C, all 47 shapes checked sample for sample against the original.
 - **0.42 (October 22, 2026):** 0.5.0: phase 7 started. MACRO, a new engine of 14 sound models ported from Plaits to C, checked sample for sample against the original. It replaces TRIO.
 - **0.41 (October 21, 2026):** 0.4.19 on the unit: a track take recorded (write 683 KB/s, slowest write 25 ms, nothing lost) and played back in place. 0.4.20: freezing a track, from the MIXER page.
 - **0.40 (October 21, 2026):** 0.4.19: a track take is stereo, after the track's pan and its own effects. Spec 0.9: frozen takes never go to internal flash.
@@ -64,7 +65,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
 | 6 | Loadable engine study | Not started |
-| 7 | Mutable Instruments engines | In progress: Plaits ported (MACRO, 0.5.0); Braids next |
+| 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
 | 10 | Other engines and effects | Not started |
@@ -641,7 +642,7 @@ Decision (fill in): slots adopted / built-in engines only.
 
 ## Phase 7: Mutable Instruments engines
 
-**Status: In progress.** Plaits is in, as the MACRO engine (0.5.0). Braids is next.
+**Status: In progress.** Plaits is in as the MACRO engine (0.5.0), Braids as SHAPES (0.5.1). Clouds is next.
 
 Goal: fit as many Mutable engines as the space left allows, measuring each.
 
@@ -686,16 +687,49 @@ Left to test (0.5.0):
 - [ ] KICK DEEP, SNARE and HI-HAT on three tracks as a drum kit from the sequencer.
 - [ ] Saving and loading a project with MACRO sounds.
 
-### Braids (next)
+### Braids: the SHAPES engine (0.5.1, built)
 
-Braids is integer C++ at 96 kHz, 2,567 lines in its digital oscillator alone. Its tables are 56 KB, 33 KB of them wavetables. Plan: port to C the same way with its own parity check; regenerate its pitch and delay tables for 44.1 kHz; leave out the wavetable models if flash is short. The flash left after MACRO decides how much fits.
+- All 47 of Braids' shapes ported to C (firmware/src/braids/), integer as the original. tests/braids_parity runs
+  Braids' own MacroOscillator (g++) beside the port through five scenarios per shape (held; a TIMBRE / COLOR sweep with
+  a pitch glide and strikes; 24 random settings, each struck; the lowest and highest notes; a sync pulse train): all
+  48 shapes (the 47 and the hidden one) give the same 16-bit samples, 240 of 240 scenarios.
+- Four helpers ported it in parallel (analog oscillator and macro shapes; three groups of digital shapes) against
+  that check, on base headers written first (the state, the dispatchers, stmlib's integer helpers, the tables).
+- Rate: Braids is written for 96 kHz, its tables too. SHAPES renders at 88.2 kHz (twice per output sample) with every
+  pitch raised by 12 log2(96 / 88.2) = 1.47 semitones (188 of its 1/128 semitones), so every pitch table stays right
+  without new tables; its times run 8.8% long, as MACRO's. A 7-tap half-band filter takes it down to 44.1 kHz. A4
+  measures 440.04 Hz on the host.
+- After the oscillator, as the M8's Macrosynth: a low-pass filter (CUT, RES), drive (DRV), bit reduction (BITS) and
+  sample-rate reduction (RATE) in Braids' own steps, and a DC blocker (VOSIM sat 700 off zero).
+- Engine 14 (the slot of Melodee's retired OBXF). Pages SHAPE (WAVE TIMB COLR CUT, also the HOME knobs) and TONE (RES
+  DRV BITS RATE). 24 presets. One voice per track, 2 voice units.
+- Device memory: 9,112 B a track from the arena. The comb's delay line is 4,096 samples (8,192 in Braids): its
+  lowest comb pitch goes from 11.7 Hz to 23 Hz.
+- Flash: the four wavetable shapes are out (PB_WAVETABLES 0): their waves are 33 KB. The rest of the tables are about
+  12 KB.
+- The code runs from flash (section .text.xip_shapes), as MACRO's.
+- Small differences from the C++, none heard: two divides by a pitch increment return 0 below MIDI note -28 (the
+  STM32 returns 0 for a divide by zero); FLUTED's table index stops at its end above MIDI note 127 (the C++ reads past
+  it); a few signed overflows done in unsigned (the same bits). WAVE_LINE's read one past its table is kept with the
+  value the reference build reads there.
+- Host test tests/shapes_test.c: every shape and preset sounds and frees its voice, A4 at 440 Hz, CUT, DRV, BITS and
+  RATE each change the sound, four tracks at once. Host cost per shape: 0.5x to 1x CZ-1's INIT TONE.
+
+Left to test (0.5.1):
+- [ ] Each SHAPES preset plays at the right pitch; WAVE through all shapes on one held note.
+- [ ] CUT, RES, DRV, BITS and RATE by ear.
+- [ ] The CPU meter with four SHAPES tracks, and with two MACRO and two SHAPES.
+
+Left to build:
+- [ ] The wavetable shapes, if flash allows after the measurements.
+- [ ] Braids' own AD envelope routings (to TIMBRE, COLOR, pitch) as Macrosynth has them.
 
 Measurements (fill in):
 
 | Engine | App flash | RAM | CPU per voice | Fits? |
 |---|---|---|---|---|
 | Plaits (MACRO) | (CI) | 8,560 B a track from the arena | (unit) | Yes |
-| Braids | | | | |
+| Braids (SHAPES) | (CI) | 9,112 B a track from the arena | (unit) | Yes, without the wavetables |
 | Clouds | | | | |
 | Rings | | | | |
 | Elements | | | | |
