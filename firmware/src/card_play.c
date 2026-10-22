@@ -35,10 +35,31 @@
 #ifndef CR_STEM_TRK
 #define CR_STEM_TRK(t) (mix_stem_trk = (uint8_t)(t))    /* (0.4.19) mix.c keeps track t's stereo stem (0xFF: none) */
 #endif
+#ifndef CP_POOL_DEFINED                                 /* (0.6.0 rev 2: the firmware defines it in resources.c, which
+                                                         * lends it to the effects while the card is idle) */
 #define CP_N 4u                                         /* streams at once */
 #define CP_SLOT 4608u                                   /* 16-bit words a slot: 9 KB (0.4.20: was 10 KB; the freeze's audio
                                                          * code took the arena's margin) */
 static int16_t cp_pool[CP_N * CP_SLOT] __attribute__((section(".pool"), aligned(4)));
+#endif
+static volatile uint8_t res_lend_ok, res_lend_used;     /* (resources.c's: bit s, slot s lent to the effects) */
+/* (0.6.0 rev 2) the slots in mask (bit s: slot s) back from the effects before the card uses them: their lending
+ * stopped, then (the device) a wait for the audio interrupt to give back every effect with a block there (jfx.c
+ * jfx_lend_check, the next block, ~1 ms). 1: the slots are the card's (until usb_files.c finds them unused and lends
+ * them again); 0: the audio did not answer in 100 ms */
+static int card_pool_take(uint32_t mask)
+{
+    res_lend_ok &= (uint8_t)~mask;
+    RING_PUBLISH();
+#ifdef FM1_IRQ_TARGET
+    {
+        uint32_t t0 = fm1_ms;
+        while ((res_lend_used & mask) && fm1_ms - t0 < 100u)
+            ;
+    }
+#endif
+    return !(res_lend_used & mask);
+}
 static struct cp_stream {
     volatile uint32_t w, r;                             /* frames written (producer), frames passed (ISR), for ever */
     uint32_t wi, ri;                                    /* where in the ring: the producer's, the ISR's */

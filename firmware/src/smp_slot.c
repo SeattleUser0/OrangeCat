@@ -16,16 +16,20 @@
  *   40..55).
  *
  * The claim
- *   The slot's first sector starts with a claim mark ("OCSL", its CRC). At boot (smp_slot_boot, before the store is
- *   read): a mark there: the 22 sectors are the slot's, the store never looks at them (oc_store.c ocs_resv). No mark
- *   (the first boot of 0.6.0, or a write torn before the mark came back): the store is read over all 56 sectors, every
- *   record whose current copy lies in the slot's sectors is saved again into the rest (copy on write: a power cut
- *   leaves the copy before in charge), then the 22 sectors are erased and marked. When the rest has no room for them,
- *   nothing is moved or erased and the slot is not there (SMP_UNCLAIMED) until the store has room (a project or
- *   patterns deleted; the next boot tries again).
+ *   At every boot (smp_slot_boot) the record store is read over all 56 sectors. Every record whose current copy has a
+ *   part in the slot's 22 sectors is saved again into the rest (copy on write: a power cut leaves the copy before in
+ *   charge, the next boot tries again). Old copies left there are erased (a deleted record's old copy must not come back
+ *   at the next boot's scan); sectors with no record header (blank, or the sample's) are not touched. Then the 22
+ *   sectors are the slot's: the store never looks at them again until the next boot (oc_store.c ocs_resv). A boot with
+ *   nothing there writes nothing. When the rest has no room for the moves, nothing is
+ *   moved and the slot is not there (SMP_UNCLAIMED) until the store has room (a project or patterns deleted; the next
+ *   boot tries again).
+ *   (0.6.0 rev 1 erased the 22 sectors and wrote a claim mark at the first boot. That broke the rule that a boot with
+ *   nothing to repair writes nothing, which the first boot tests check: rev 2 dropped it.)
  *
  * The layout (bytes into the slot's room, the tails skipped: smp_slot_addr)
- *   0 .. 31      the claim mark: magic "OCSL", version 1, then 0xFF, CRC-32 of the 28 bytes before
+ *   0 .. 31      the slot's tag: magic "OCSL", version 1, then 0xFF, CRC-32 of the 28 bytes before (written as a
+ *                sample begins)
  *   32 .. 543    Felucca's header (smp_user_hdr_t: "FSMP", version 1, zones 1..16, name, data_len, the data's CRC-32,
  *                the zones), written LAST: it is the commit
  *   544 ..       the data, data_len bytes
@@ -37,7 +41,7 @@
  *   sample there before is gone once a new one begins (there is room for one copy only).
  *
  * Kept from everything else
- *   The record store skips the 22 sectors once marked (saves, deletes, the boot scan). Presets, settings, the template
+ *   The record store skips the 22 sectors once claimed (saves, deletes). Presets, settings, the template
  *   and backups have their own sectors (storage.c). Restoring a backup writes records and presets, never the slot.
  *   The update loader programs only the app area and erases a data sector only for an update record in its tail: the
  *   tails here stay erased. The old sample SysEx (ED_SMP_BEGIN .. ED_SMP_ERASE, which wrote at 0xA0000 over what is
@@ -48,6 +52,8 @@
  *
  * Revisions:
  *   0.6.0: first version.
+ *   0.6.0 rev 2: no mark at boot, only sectors holding record copies erased (see The claim); a boot with nothing
+ *                there writes nothing.
  */
 #define SMP_SLOT_BASE 0xB2000u
 #define SMP_SLOT_NSECT 22u
@@ -118,7 +124,7 @@ static void smp_mark_make(uint32_t m[8])
     m[1] = 1u;
     m[7] = ocs_crc32(m, 28);
 }
-static int smp_marked(void)
+static int smp_marked(void)                      /* (the slot's tag: written as a sample begins) */
 {
     uint32_t m[8], want[8];
     smp_mark_make(want);
@@ -133,6 +139,11 @@ static int smp_mark(void)                         /* the first sector erased, th
     if ((rc = ocs_prog(SMP_SLOT_BASE, (const uint8_t *)m, sizeof m)) != 0) return rc;
     return smp_marked() ? 0 : -7;
 }
+#ifdef FM1_IRQ_TARGET
+#define SMP_FEED() fm1_wdt_feed()                        /* (the claim at boot: up to ~56 erases, the 8 s watchdog) */
+#else
+#define SMP_FEED() ((void)0)
+#endif
 static uint64_t smp_resv_mask(void) { return ((1ull << SMP_SLOT_NSECT) - 1ull) << SMP_SLOT_S0; }
 
 /* the header: Felucca's, its zones and length within the slot */
@@ -213,6 +224,7 @@ static int smp_claim(void)
             if (smp_live(s)) found = 1;
         if (!found) break;
         s--;
+        SMP_FEED();
         {
             smp_mv_t mv = {{smp_mv_get}, {{0}, 0, 0}, 0};
             uint32_t type = ocs_hdr[s].type, id = ocs_hdr[s].id;
@@ -224,26 +236,28 @@ static int smp_claim(void)
             if (rc) { ocs_resv = 0; return rc; }
         }
     }
-    for (s = SMP_SLOT_S0; s < SMP_SLOT_S0 + SMP_SLOT_NSECT; s++)     /* (every move made, or nothing erased) */
+    for (s = SMP_SLOT_S0; s < SMP_SLOT_S0 + SMP_SLOT_NSECT; s++)     /* (every move made, or the slot not taken) */
         if (smp_live(s)) { ocs_resv = 0; return -1; }
-    for (s = SMP_SLOT_S0; s < SMP_SLOT_S0 + SMP_SLOT_NSECT; s++) {   /* now only old copies there: erased */
+    for (s = SMP_SLOT_S0; s < SMP_SLOT_S0 + SMP_SLOT_NSECT; s++) {   /* only old copies left there: erased (a deleted
+                                                                      * record's old copy would come back as its
+                                                                      * current one at the next boot); a sector with
+                                                                      * no record header (blank, or the sample's) is
+                                                                      * left alone */
         int rc;
+        if (ocs_hdr[s].magic != OCS_MAGIC) continue;
+        SMP_FEED();
         if ((rc = OCS_ER(ocs_addr(s))) != 0) { ocs_resv = 0; return rc; }
         memset(&ocs_hdr[s], 0, OCS_HDR);
     }
-    return smp_mark();
+    return 0;
 }
 
-/* boot (project.c, in place of ocs_boot): the slot's mark, the record store, the claim when there is no mark */
+/* boot (project.c, in place of ocs_boot): the record store read over all 56 sectors, then the slot's 22 taken from it.
+ * Nothing is written unless a record's current copy lies there (only a store 0.5.x filled that far): that record is
+ * saved again in the rest first. A boot with nothing to move writes nothing (0.6.0 rev 2). */
 static void smp_slot_boot(void)
 {
     memset(&smp, 0, sizeof smp);
-    if (smp_marked()) {
-        ocs_resv = smp_resv_mask();
-        ocs_boot();
-        smp_slot_scan();
-        return;
-    }
     ocs_resv = 0;
     ocs_boot();
     if (smp_claim() == 0) {
@@ -322,8 +336,10 @@ static int smp_slot_erase(void)
     int rc;
     if (smp.state == SMP_UNCLAIMED) return -1;
     smp.writing = 0;
-    for (uint32_t k = 1; k < SMP_SLOT_NSECT; k++)
+    for (uint32_t k = 1; k < SMP_SLOT_NSECT; k++) {
+        SMP_FEED();
         if ((rc = OCS_ER(SMP_SLOT_BASE + k * OCS_SECTOR)) != 0) return rc;
+    }
     if ((rc = smp_mark()) != 0) return rc;
     smp_slot_scan();
     return 0;

@@ -13,8 +13,8 @@
  *   DIST        SOFT HARD FOLD CRUSH RECT AMP each its own sound, bounded; DRIVE 0 fades out of the chain
  *   AUTO PAN    BEAT 1/4: 7..9 swings through the centre in 4 beats; DEPTH 0: no movement
  *   SLICER      GATE cuts the SLICER's bus to its pattern while playing; OFF: the bus is not in the mix
- *   FX layer    REPEAT 1/16 starts exactly on the next 1/16 and loops; let go: back to the dry signal; a track's mute
- *               ramps to 0; THROW feeds the delay and the reverb
+ *   FX layer    REPEAT 1/16 records from the next 1/16 and plays its loop exactly a 1/16 later; let go: back to the dry
+ *               signal; a track's mute ramps to 0; THROW feeds the delay and the reverb
  *   FX FULL     a bus that gets no memory plays dry, says so (jfx_full), and comes in once there is memory
  *   storage     FUN23 round trip of every effect setting; out-of-range bytes clamp to the range; the template (TPLM)
  *               round trip; FUN22 written as 0.5.6 wrote it, and the frozen FUN16 .. FUN21, TPLF .. TPLK fixtures,
@@ -51,6 +51,7 @@ static void jt_block(const int32_t *l, const int32_t *r, const int32_t *sl, cons
     uint32_t n = CTL, i;
     int perf;
     if (jfx_reset_req) jfx_reset_now();
+    jfx_lend_check();
     for (i = 0; i < n; i++) {
         mix_l[i] = l ? l[i] : 0;
         mix_r[i] = r ? r[i] : 0;
@@ -89,12 +90,28 @@ static int32_t jt_in(uint32_t kind, uint32_t t, uint32_t len, int32_t a)
 }
 /* where: 0 the dry mix, 1 the chorus send, 2 the delay send, 3 the reverb send, 4 the SLICER's bus; dry: the input
  * also in the dry mix. Renders `secs` into jt_l / jt_r */
+/* (0.6.0 rev 2) the bus's memory in before a render, as on the device a track's send set brings it in before its first
+ * note (jfx.c jfx_bus_start): the send set on track 1, silent blocks until the bus holds its memory (8 at most: an
+ * arena that has none stays so, FX FULL) */
+static int jt_bus_ready(uint32_t where)
+{
+    return where == 1 ? cho_buf != 0 : where == 2 ? dly_have == DLY_NSEG : where == 3 ? jrev != 0 && rx_have : 1;
+}
+static void jt_warm(uint32_t where)
+{
+    static int32_t z[CTL];
+    if (where < 1u || where > 3u) return;
+    trk[0].p[where == 1 ? P_CHOR : where == 2 ? P_DLY : P_REV] = 100;
+    for (uint32_t b = 0; b < 8u && !jt_bus_ready(where); b++)
+        jt_block(z, z, 0, 0, 0, 0);
+}
 static void jt_render(uint32_t where, int dry, uint32_t kind, uint32_t len, int32_t a, uint32_t samples)
 {
     static int32_t x[CTL], z[CTL];
     uint32_t t = 0, i;
     jt_rng = 1u;
     memset(z, 0, sizeof z);
+    jt_warm(where);
     while (t + CTL <= samples) {
         for (i = 0; i < CTL; i++) x[i] = jt_in(kind, t + i, len, a);
         jt_block(where == 0 || dry ? x : z, where == 0 || dry ? x : z, where == 4 ? x : 0, where == 1 ? x : 0,
@@ -217,17 +234,23 @@ static void t_delay(void)
         for (i = 0; i < n / CTL * CTL; i++) diff += jt_l[i] != jt_r[i];
         bad += check("jfx: DELAY PING and WIDE off: L == R exactly; PING on: the echoes go to the sides", same && diff > 1000u);
     }
-    {   /* memory: taken on the first send, all of it given back 2 s after the buses rest */
-        uint32_t taken, back;
+    {   /* memory: taken while a send is set (16 blocks of 4 KB, 4 a block), all of it given back 2 s after the sends
+         * are 0 and the buses rest */
+        uint32_t taken = 0, first, back;
+        static int32_t z[CTL];
         jt_fresh();
         song.g[G_DTIME] = 2;
         song.g[G_DFDBK] = 0;
+        trk[0].p[P_DLY] = 100;
+        jt_block(z, z, 0, 0, 0, 0);
+        first = dly_have;
         jt_render(2, 0, 0, 0, 16000, CTL * 4u);
-        taken = resource[RES_JFX0 + JB_DLY0].size + resource[RES_JFX0 + JB_DLY1].size;
-        jt_render(2, 0, 0, 0, 0, JT_SECS(5));            /* (the echo, the rest, 2 s idle) */
+        for (uint32_t k = 0; k < DLY_NSEG; k++) taken += resource[RES_JFX0 + JB_DLY0 + k].size;
+        trk[0].p[P_DLY] = 0;
+        jt_render(0, 0, 0, 0, 0, JT_SECS(5));            /* (the echo, the rest, 2 s idle) */
         back = jt_held();
-        bad += check("jfx: DELAY's 64 KB taken on its first send (two 32 KB halves), given back 2 s after it rests",
-                     taken == DLY_LEN * sizeof(int16_t) && back == 0u);
+        bad += check("jfx: DELAY's 64 KB taken while its send is set (4 KB blocks, 4 a block), given back 2 s after rest",
+                     first == JFX_GROW && taken == DLY_LEN * sizeof(int16_t) && back == 0u);
     }
     {   /* FEEDBK past 100 % (120): driven, it saturates; the output stays within the master's range */
         int32_t pk;
@@ -301,10 +324,11 @@ static void t_reverb(void)
         uint32_t room, cloud;
         jt_fresh();
         jt_render(3, 0, 0, 0, 16000, CTL * 2u);
-        room = resource[RES_JFX0 + JB_REV].size + resource[RES_JFX0 + JB_REVX].size;
+        room = resource[RES_JFX0 + JB_REV].size + resource[RES_JFX0 + JB_RX0].size;
         song.g[G_RTYPE] = 4;
-        jt_render(3, 0, 0, 0, 16000, CTL * 2u);
-        cloud = resource[RES_JFX0 + JB_REVX].size;
+        jt_render(3, 0, 0, 0, 16000, CTL * 4u);
+        cloud = 0;
+        for (uint32_t k = 0; k < RX_NSEG; k++) cloud += resource[RES_JFX0 + JB_RX0 + k].size;
         bad += check("jfx: REVERB's memory: its tank and pre-delay; CLOUD's 32 KB line when CLOUD is picked",
                      room == ((sizeof(jrev_t) + 3u) & ~3u) + SH_LEN * 2u && cloud == CL_LEN * 2u);
     }
@@ -516,10 +540,98 @@ static void t_full(void)
     }
     for (i = 0; i < JT_SECS(0.5) / CTL * CTL; i++) same &= jt_l[i] == dry_l[i];
     for (uint32_t k = 0; k < 4u; k++) resource_release(RES_ENGINE0 + k);
-    jt_render(2, 1, 1, 2000, 12000, CTL * 2u);
+    jt_render(2, 1, 1, 2000, 12000, JT_SECS(1.5));   /* (the retry after 0.25 s, FX FULL shown 1 s past the last) */
     if (!(same && full)) printf("  FX FULL: dry %d, full %d, after %d\n", same, full, jfx_full);
     bad += check("jfx: FX FULL: a bus with no memory plays dry and says so; it comes in once there is memory",
-                 same && full && !(jfx_full & JFX_FULL_DLY) && resource[RES_JFX0 + JB_DLY0].size);
+                 same && full && !(jfx_full & JFX_FULL_DLY) && dly_have == DLY_NSEG);
+}
+
+/* (0.6.0 rev 2) the arena as the device has it: banks of a few KB and the lent card pool */
+static void jt_fill_to(uint32_t id, uint8_t *start, uint8_t *end, uint32_t leave)   /* a bank taken but `leave` bytes */
+{
+    uint32_t n = (uint32_t)(end - start);
+    if (n > leave) assert(resource_get(id, n - leave));
+}
+static void t_arena(void)
+{
+    static int32_t z[CTL];
+    {   /* no bank with 32 KB free, 70 KB in all: the delay's 16 blocks spread over them; it echoes */
+        uint32_t banks = 0, k;
+        int32_t pk = 0;
+        jt_fresh();
+        for (k = 0; k < RES_JFX0; k++) resource_release(k);
+        resource_host_cache_enabled = 1;
+        jt_fill_to(RES_ENGINE0, _resource_start, _resource_end, 30u * 1024u);
+        jt_fill_to(RES_ENGINE0 + 1, _resource_data_start, _resource_data_end, 0);
+        song.g[G_DTIME] = 2;
+        song.g[G_DFDBK] = 0;
+        jt_render(2, 0, 0, 0, 16000, JT_SECS(1));
+        for (k = 0; k < DLY_NSEG; k++) {
+            uint8_t *p = resource[RES_JFX0 + JB_DLY0 + k].ptr;
+            banks |= p >= _resource_start && p < _resource_end ? 1u : p >= _resource_low_start && p < _resource_low_end ? 2u
+                   : p >= _resource_cache_start && p < _resource_cache_end ? 4u : 8u;
+        }
+        jt_peak_at(CTL, JT_SECS(1) / CTL * CTL, &pk);
+        bad += check("jfx: arena in pieces (no bank with 32 KB free): the delay's blocks in three banks, it echoes",
+                     dly_have == DLY_NSEG && (banks & 7u) == 7u && pk > 1000 && !(jfx_full & JFX_FULL_DLY));
+        resource_host_cache_enabled = 0;
+        jfx_power_on();
+        for (k = 0; k < RES_JFX0; k++) resource_release(k);
+    }
+    {   /* the arena full: the card pool lent holds the reverb and the chorus; taken back, every block there let go */
+        uint32_t k, lent = 0, after = 0;
+        jt_fresh();
+        for (k = 0; k < RES_JFX0; k++) resource_release(k);
+        jt_fill_to(RES_ENGINE0, _resource_start, _resource_end, 0);
+        jt_fill_to(RES_ENGINE0 + 1, _resource_low_start, _resource_low_end, 0);
+        jt_fill_to(RES_ENGINE0 + 2, _resource_data_start, _resource_data_end, 0);
+        jt_fill_to(RES_ENGINE0 + 3, _resource_retained_start, _resource_retained_end, 0);
+        res_lend_ok = 15u;                              /* (all four card slots idle) */
+        trk[0].p[P_REV] = 100;
+        trk[0].p[P_CHOR] = 100;
+        for (k = 0; k < 8u; k++) jt_block(z, z, 0, 0, 0, 0);
+        for (k = 0; k < JB_N; k++) lent += resource_lent(RES_JFX0 + k) != 0u;
+        int had = jrev && cho_buf && res_lend_used && lent >= 3u;
+        res_lend_ok = 0;                                /* (card_play.c card_pool_take, as the host runs it: no
+                                                         * interrupt to wait for, the pool back the block after) */
+        int took = !res_lend_used;
+        jt_block(z, z, 0, 0, 0, 0);
+        for (k = 0; k < JB_N; k++) after += resource_lent(RES_JFX0 + k) != 0u;
+        bad += check("jfx: card pool lent while idle: the reverb and chorus there; taken back, nothing of theirs left",
+                     had && !took && !after && !res_lend_used && !jrev && !cho_buf);
+        trk[0].p[P_REV] = trk[0].p[P_CHOR] = 0;
+        jfx_power_on();
+        for (k = 0; k < RES_JFX0; k++) resource_release(k);
+        res_lend_ok = 0;
+    }
+    {   /* an engine short of memory while the delay holds some: the effects give it back, the engine gets it */
+        uint32_t k;
+        void *eng;
+        jt_fresh();
+        for (k = 0; k < RES_JFX0; k++) resource_release(k);
+        jt_fill_to(RES_ENGINE0, _resource_start, _resource_end, 64u * 1024u);
+        jt_fill_to(RES_ENGINE0 + 1, _resource_low_start, _resource_low_end, 0);
+        jt_fill_to(RES_ENGINE0 + 2, _resource_data_start, _resource_data_end, 0);
+        jt_fill_to(RES_ENGINE0 + 3, _resource_retained_start, _resource_retained_end, 0);
+        trk[0].p[P_DLY] = 100;
+        for (k = 0; k < 8u; k++) jt_block(z, z, 0, 0, 0, 0);
+        int had = dly_have == DLY_NSEG;
+        resource_release(RES_ENGINE0 + 3);
+        eng = resource_get(RES_ENGINE0 + 3, 20000u);    /* (more than the retained bank: the main bank's, the delay's) */
+        int asked = !eng && res_jfx_yield;
+        jt_block(z, z, 0, 0, 0, 0);
+        eng = resource_get(RES_ENGINE0 + 3, 20000u);
+        for (k = 0; k < JFX_YIELD - 4u; k++) jt_block(z, z, 0, 0, 0, 0);
+        int waited = eng != 0 && dly_have == 0;
+        for (k = 0; k < 16u; k++) jt_block(z, z, 0, 0, 0, 0);
+        if (!(had && asked && waited && !res_jfx_yield && (jfx_full & JFX_FULL_DLY)))
+            printf("  had %d asked %d waited %d yield %d full %d have %u\n", had, asked, waited, res_jfx_yield, jfx_full, dly_have);
+        bad += check("jfx: an engine short of memory: the effects give theirs back first, wait, then take what is left",
+                     had && asked && waited && !res_jfx_yield && (jfx_full & JFX_FULL_DLY));
+        trk[0].p[P_DLY] = 0;
+        jfx_power_on();
+        for (k = 0; k < RES_JFX0; k++) resource_release(k);
+    }
 }
 
 /* --------------------------------------------------------------- storage --- */
@@ -753,6 +865,7 @@ int main(void)
     t_slicer();
     t_layer();
     t_full();
+    t_arena();
     t_storage();
     t_legacy();
     t_audition();

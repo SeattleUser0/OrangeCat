@@ -437,6 +437,8 @@ static void frz_begin(uint32_t k)
         if (r != FR_OK) { frz_cancel(k, "Error"); return; }
     }
     if (i == 1000u) { frz_cancel(k, "Full"); return; }
+    if (!card_pool_take(12u)) { frz_cancel(k, "Busy"); return; }   /* (0.6.0 rev 2: slots 2 and 3 back from the
+                                                         * effects) */
     str_cpy(ur.path, p, sizeof ur.path);
     ur.ch = 2u;
     r = f_open(&uf_rf, p, FA_CREATE_NEW | FA_WRITE | FA_READ);   /* (read too: frz_finish reads its ends back) */
@@ -495,6 +497,8 @@ static int frz_load(uint32_t k, uint32_t id)
         return 0;
     }
     f_close(&uf_pf);
+    if (!card_pool_take(1u << s)) { fzt[k].why = FZW_FULL; return 0; }   /* (0.6.0 rev 2: the slot back from the
+                                                         * effects) */
     cp_setup(s, 2u, 44100u);
     o->bytes = 2u;
     o->bpf = 4u;
@@ -725,6 +729,20 @@ static void frz_task(void)
                                                          * is being made) */
 }
 /* main loop (main.c), each pass: the card engine's turn, frozen tracks, the port, takes the sequencer stopped */
+/* (0.6.0 rev 2) the card's slots in use (bit s: slot s): a stream, a take loaded there, the recorder and a freeze under
+ * way (slots 2 and 3). The effects may borrow the others (resources.c res_lend_ok) */
+static uint32_t uf_pool_busy(void)
+{
+    uint32_t k, m = 0;
+    for (k = 0; k < CP_N; k++)
+        if (cp[k].on || cp[k].armed || cs.st[k].run) m |= 1u << k;
+    for (k = 0; k < 4u; k++) {
+        if (fzt[k].slot < CP_N) m |= 1u << fzt[k].slot;
+        if (frz[k].st != FZ_OFF) m |= 12u;
+    }
+    if (ur.on) m |= 12u;
+    return m;
+}
 static void usbf_task(void)
 {
     uint32_t s;
@@ -739,4 +757,5 @@ static void usbf_task(void)
         f_unmount("");
         uf_mounted = 0;
     }
+    res_lend_ok = (uint8_t)(~uf_pool_busy() & ((1u << CP_N) - 1u));   /* (0.6.0 rev 2) the slots not in use: lent */
 }

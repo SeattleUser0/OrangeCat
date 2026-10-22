@@ -3,7 +3,7 @@
  * (erase sets 0xFF, programming only clears bits, no program across a 256-byte page, power cut after any program call):
  *   build/host/smp_slot_test
  * 1. the claim: a store with records in the slot's sectors moves them, every one reads back after a reboot; the slot's
- *    22 sectors are marked and the store never hands them out again (a full store refuses, the slot is untouched);
+ *    22 sectors are the slot's and the store never hands them out again; a boot with nothing to move writes nothing (a full store refuses, the slot is untouched);
  *    a store with no room for the moves keeps everything and has no slot (UNCLAIMED), until it has room.
  * 2. a power cut at every program call of the claim: after the reboot every record reads back, and the claim ends.
  * 3. a sample of the largest size (81,408 bytes) and of 1 byte: written, read back at every offset, after a reboot too;
@@ -135,11 +135,11 @@ int main(void)
         fill_records(24, 2000);                          /* 24 sectors from the cursor: 6 in 18..39 */
         for (uint32_t s = 0; s < OCS_NSECT; s++) in += in_slot(s) && ocs_hdr[s].magic == OCS_MAGIC;
         reboot();
-        ok = in > 0 && smp_slot_info(0, 0, 0) == SMP_EMPTY && smp_marked() && records_ok(24, 2000);
+        ok = in > 0 && smp_slot_info(0, 0, 0) == SMP_EMPTY && records_ok(24, 2000);
         reboot();
         ok &= smp_slot_info(0, 0, 0) == SMP_EMPTY && records_ok(24, 2000) && ocs_resv == smp_resv_mask();
         for (uint32_t s = 0; s < OCS_NSECT; s++) ok &= !in_slot(s) || !ocs_hdr[s].magic;
-        check("claim: the records in the slot's 22 sectors moved, all 24 read back after reboots; the slot marked", ok);
+        check("claim: the records in the slot's 22 sectors moved, all 24 read back after reboots", ok);
     }
     {   /* a full store refuses and leaves the slot alone */
         int ok = 1, n = 0;
@@ -154,6 +154,30 @@ int main(void)
         for (uint32_t k = 100; k < 100u + (uint32_t)n; k++) ok &= !ocs_delete(OCS_POOL, k);
         ok &= !memcmp(nor_before + SMP_SLOT_BASE, nor + SMP_SLOT_BASE, SMP_SLOT_NSECT * 4096u) && records_ok(24, 2000);
         check("the store keeps to its 34 sectors: filled, refused and emptied again without touching the slot", ok);
+    }
+    {   /* (0.6.0 rev 2) nothing in the slot's sectors: the boot writes nothing, the slot is there */
+        int ok;
+        wipe();
+        fill_records(8, 3000);                           /* (one sector each: 0..7) */
+        memcpy(nor_before, nor, sizeof nor);
+        reboot();
+        ok = smp_slot_info(0, 0, 0) == SMP_EMPTY && ocs_resv == smp_resv_mask() && !memcmp(nor_before, nor, sizeof nor);
+        reboot();
+        ok &= smp_slot_info(0, 0, 0) == SMP_EMPTY && !memcmp(nor_before, nor, sizeof nor) && records_ok(8, 3000);
+        check("claim with nothing to move: no flash written at boot, the slot there", ok);
+    }
+    {   /* a record moved out of the slot, then deleted: its old copy there does not come back */
+        int ok;
+        uint32_t back = 0;
+        wipe();
+        fill_records(24, 2000);
+        reboot();
+        for (uint32_t k = 0; k < 24u; k++) ocs_delete(OCS_POOL, k);
+        reboot();
+        reboot();
+        for (uint32_t k = 0; k < 24u; k++) back += ocs_read(OCS_POOL, k, got, sizeof got) > 0;
+        ok = !back && smp_slot_info(0, 0, 0) == SMP_EMPTY;
+        check("records moved out of the slot and deleted stay deleted after reboots", ok);
     }
     {   /* no room for the moves: nothing moved, no slot; room made: claimed */
         int ok;

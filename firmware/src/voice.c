@@ -487,10 +487,15 @@ static void mono_push(track_t *t, uint32_t note)       /* the latest key on top 
 /* SID's MODEL C64 in POLY: the keys held (the mono stack) are the chord its one voice arpeggiates (eng_sid.c) */
 static int trk_chord(const track_t *t) { return MELODEE_SID && ENGINES[t->engine] == &ENG_SID && sid_chord(t); }   /* (Orange Cat: MELODEE_SID) */
 
+static volatile uint8_t perf_hush;                      /* (Orange Cat 0.6.0) the FX layer's track mutes (jfx_perform.c,
+                                                         * which defines it): a track muted there starts no notes */
 static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
     if (t->p[P_MUTE] || (uint32_t)(t - trk) >= trk_n())   /* (a track not in use: silent) */
+        return;
+    if ((perf_hush >> (uint32_t)(t - trk)) & 1u)         /* (0.6.0 rev 2) muted by the FX layer: no new note (its
+                                                         * sound ramped to silence, its voices ended: perf_mute) */
         return;
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
         for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)

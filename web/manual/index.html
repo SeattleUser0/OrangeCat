@@ -160,7 +160,7 @@
           <li>Named values often open a picker. Hold <kbd>HOME</kbd> and set <strong>PICKER POPUPS</strong> to <strong>OFF</strong> to edit those names on the knob instead. The choice is remembered. Sheets, and lists you open yourself, stay as they are. Short pages (CHORD, ENV DEST, LFO DEST, LFO 2, ARP 2) put their settings straight on the four knobs.</li>
         </ul>
         <h3>Holds and locks</h3>
-        <p>Hold <kbd>GLO</kbd> or <kbd>SCL</kbd> for a quick layer on the keys and knobs (hold time is set in the global settings menu as <strong>HOLD</strong>). Double-press the same button within about 300&nbsp;ms to lock the layer open with both hands free; press it again to close. Holding <kbd>FX</kbd> does not open a layer. Hold <kbd>EDIT</kbd> to undo, <kbd>SAVE</kbd> to write the project back to its slot, <kbd>HOME</kbd> for the menu, <kbd>SEQ</kbd> for the PATTERNS grid, <kbd>REC</kbd> to capture.</p>
+        <p>Hold <kbd>GLO</kbd> or <kbd>SCL</kbd> for a quick layer on the keys and knobs (hold time is set in the global settings menu as <strong>HOLD</strong>). Double-press the same button within about 300&nbsp;ms to lock the layer open with both hands free; press it again to close. Hold <kbd>FX</kbd> for the punch-in effects (below). Hold <kbd>EDIT</kbd> to undo, <kbd>SAVE</kbd> to write the project back to its slot, <kbd>HOME</kbd> for the menu, <kbd>SEQ</kbd> for the PATTERNS grid, <kbd>REC</kbd> to capture.</p>
         <h3>Sheets and undo</h3>
         <p>Hold <kbd>OCT+</kbd> on pages that have a sheet (Stage, sound pages, NOTES, PATTERNS, SONG, and others) to open actions such as Init sound, Copy to…, or Sound designer.</p>
         <p><strong>Undo / redo:</strong></p>
@@ -577,39 +577,28 @@
 
       <section id="effects">
         <h2>Effects</h2>
-        <p>Press <kbd>FX</kbd> to open the selected track’s rack: three inserts in series, followed by a Shared row. All three inserts can run together, including repeated effect types. Effects save with the project and template. Loading a sound, changing the engine, Init sound and sound undo leave them in place.</p>
+        <p>Orange Cat 0.6.0’s effects come from Jiant FM. Press <kbd>FX</kbd> for the selected track’s FX page; press it again for the next page. FX, DIST and AUTO PAN belong to the track; DELAY, REVERB, CHORUS, SLICER and MASTER are shared by all tracks. Track effects stay with the track when its sound changes.</p>
         <div class="shots">
-          <figure class="shot"><img src="fx_rack.png" alt="Track effects rack" width="240" height="240"><figcaption>FX: three inserts and the Shared row.</figcaption></figure>
-          <figure class="shot"><img src="fx_echo.png" alt="Echo controls" width="240" height="240"><figcaption>ECHO: MIX, TIME, REPEAT, TONE.</figcaption></figure>
-          <figure class="shot"><img src="fx_reverb.png" alt="Reverb controls" width="240" height="240"><figcaption>REVERB: MIX, SIZE, DEPTH, TONE.</figcaption></figure>
-          <figure class="shot"><img src="fx_shared.png" alt="Shared effects rack" width="240" height="240"><figcaption>SHARED: slots A–C, ROUTE and RETURN.</figcaption></figure>
-          <figure class="shot"><img src="fx_tone_dark.png" alt="Effect tone filter set to dark" width="240" height="240"><figcaption>TONE: the lit band reaches the effect.</figcaption></figure>
+          <figure class="shot"><img src="fx_sends.png" alt="Track effect sends" width="240" height="240"><figcaption>FX: DIST and the CHO, DLY, REV sends.</figcaption></figure>
+          <figure class="shot"><img src="fx_dist.png" alt="Distortion" width="240" height="240"><figcaption>DIST: drive, TYPE, TONE, SLICER route.</figcaption></figure>
+          <figure class="shot"><img src="fx_delay.png" alt="Delay" width="240" height="240"><figcaption>DELAY: TIME, FDBK, TONE, MIX.</figcaption></figure>
+          <figure class="shot"><img src="fx_room.png" alt="Reverb" width="240" height="240"><figcaption>REVERB: TYPE, SIZE, DAMP, PRE.</figcaption></figure>
+          <figure class="shot"><img src="fx_layer.png" alt="Punch-in effects" width="240" height="240"><figcaption>Hold FX: the punch-in effects.</figcaption></figure>
         </div>
-        <p>On the rack, <kbd>KNOB 2</kbd> picks a row, <kbd>KNOB 1</kbd> chooses its effect, and <kbd>KNOB 4</kbd> sets its amount (an insert’s MIX, or the track’s SEND on the Shared row in CHAIN mode). Empty slots show <strong>--</strong>. <kbd>OCT+</kbd> opens the selected slot, its effect picker if empty, or the SHARED rack. <kbd>SELECT</kbd> visits the racks and occupied slots; empty slot pages are skipped. Pressing <kbd>FX</kbd> from a slot returns to its rack.</p>
-        <p>On a slot’s page, <kbd>KNOB 1</kbd> is MIX, <kbd>KNOB 2</kbd> is RATE / TIME / SIZE, <kbd>KNOB 3</kbd> shapes its character, and <kbd>KNOB 4</kbd> is TONE for ECHO, ROOM and REVERB (unused for other types):</p>
         <table>
-          <thead><tr><th>Effect</th><th><kbd>KNOB 2</kbd></th><th><kbd>KNOB 3</kbd></th></tr></thead>
+          <thead><tr><th>Page</th><th>Knobs 1–4</th></tr></thead>
           <tbody>
-            <tr><td>PHASER</td><td>RATE</td><td>DEPTH — swept notches.</td></tr>
-            <tr><td>WIDTH</td><td>RATE</td><td>DEPTH — all-pass on the left, dry on the right. Mono changes the tone.</td></tr>
-            <tr><td>FORMANT</td><td>RATE</td><td>FOCUS — vowel shapes.</td></tr>
-            <tr><td>TAPE</td><td>RATE</td><td>JITTER — drifting filters.</td></tr>
-            <tr><td>SPIT</td><td>RATE</td><td>BITE — a resonant band that jumps and saturates.</td></tr>
-            <tr><td>ECHO</td><td>TIME</td><td>REPEAT — a short delay.</td></tr>
-            <tr><td>ROOM</td><td>SIZE</td><td>DECAY — a small space.</td></tr>
-            <tr><td>REVERB</td><td>SIZE</td><td>DEPTH — diffused stereo reverb. MIX is the balance; DEPTH adds body and a longer tail.</td></tr>
-            <tr><td>CHORUS</td><td>RATE</td><td>DEPTH — stereo pitch movement. Start MIX near 50%.</td></tr>
+            <tr><td>FX</td><td>DIST, CHO send, DLY send, REV send</td></tr>
+            <tr><td>DIST</td><td>DIST, TYPE (SOFT HARD FOLD CRUSH RECT AMP), TONE, SLC (through the SLICER)</td></tr>
+            <tr><td>AUTO PAN</td><td>DEPTH, RATE, SYNC (FREE / BEAT), WAVE</td></tr>
+            <tr><td>DELAY, DELAY 2, DELAY 3</td><td>TIME, FDBK, TONE, MIX; WIDE, PITCH, SPRAY, MOD; TYPE (ANALOG / DIGITAL), PING</td></tr>
+            <tr><td>REVERB, REVERB 2</td><td>TYPE (ROOM SPRING SHIMR RESO CLOUD), SIZE, DAMP, PRE; MOD, RATE, FILT, WIDE</td></tr>
+            <tr><td>CHORUS</td><td>RATE, DEPTH, WIDE</td></tr>
+            <tr><td>SLICER, SLICER 2, SL PITCH</td><td>MODE (OFF GATE STUT), PAT, RATE, DEPTH; FX, LEN, QUANT; the pitch steps</td></tr>
+            <tr><td>MASTER</td><td>DJF (DJ filter), CLIP, LEVEL (leveler), SPK (speaker EQ)</td></tr>
           </tbody>
         </table>
-        <p><strong>TONE</strong> goes from DARK through FULL to THIN. Below FULL it cuts highs; above FULL it cuts lows from what enters the wet effect. The dry sound stays intact. ECHO, ROOM and REVERB also keep a low cut at FULL to stop bass building up in their tails.</p>
-        <p>MIX at zero, or OFF, fades that slot dry. If a time effect cannot get its buffer, the picture says <strong>MEMORY FULL</strong>; turn the slot off and on to try again. Hold <kbd>OCT+</kbd> for the sound sheet. Tap <kbd>OCT−</kbd> to return from a slot to its rack, from SHARED to FX, and from FX to Stage.</p>
-        <h3>Shared return</h3>
-        <p>The Shared row feeds one shared three-slot return after this track’s level and pan. In the <strong>SHARED</strong> rack, <kbd>KNOB 2</kbd> selects slots A–C or RETURN, <kbd>KNOB 1</kbd> chooses a slot’s effect, <kbd>KNOB 3</kbd> sets <strong>ROUTE</strong>, and <kbd>KNOB 4</kbd> sets the selected amount. <kbd>OCT+</kbd> opens a slot. Hold <kbd>OCT+</kbd>, or tap it on RETURN, for Routing and Clear shared FX (asks first).</p>
-        <ul>
-          <li><strong>CHAIN</strong> (default) — raise the selected track’s SEND on FX’s Shared row. Slots A–C run in series. On SHARED, <kbd>KNOB 4</kbd> sets each slot’s MIX, initially fully wet, or the overall RETURN.</li>
-          <li><strong>SPLIT</strong> — each shared slot has its own send. On SHARED, <kbd>KNOB 4</kbd> sets this track’s SEND to the selected slot, or RETURN on the last row. Each slot’s return joins the dry output. SEND 2 and SEND 3 are remembered when you go back to CHAIN. Shared slot pages still edit their MIX.</li>
-        </ul>
-        <p>One shared reverb covers several tracks and costs less than a reverb on every insert. Projects saved before these effects load with the new effects off, so they play dry; their old distortion, slicer, delay, reverb, chorus and performance-effect settings are ignored. Projects saved with the inserts and sends keep that routing. Back up before upgrading: older firmware may not reproduce these effects.</p>
+        <p>Hold <kbd>FX</kbd> for the punch-in effects: while held, F3 G3 A3 repeat 1/8 1/16 1/32, B3 GLITCH, C4 TAPE stop, the black keys F#3–C#4 mute tracks 1–4, G#4 FREEZE, C#5 SHUFFLE, D#5 CRUSH, F#5 THROW. <kbd>OCT−</kbd> turns them all off. The delay, reverb, chorus and SLICER take memory only while used; if none is free the page says <strong>FX FULL</strong> and that effect plays dry until memory frees. Projects from before 0.6.0 load with their sends on the matching new effect; their old track inserts are dropped.</p>
       </section>
 
       <section id="scales">

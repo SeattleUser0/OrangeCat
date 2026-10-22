@@ -336,6 +336,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     if(track_capture_on)memset(track_capture,0,n*NTRK*sizeof *track_capture);
 #endif
     if(jfx_reset_req)jfx_reset_now();                   /* (0.6.0) a project load: the effects from silence */
+    jfx_lend_check();                                   /* (0.6.0 rev 2) the card's pool back, an engine's memory first */
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
     memset(sl_l,0,n*sizeof *sl_l);memset(sl_r,0,n*sizeof *sl_r);
     memset(send_c,0,n*sizeof *send_c);memset(send_d,0,n*sizeof *send_d);memset(send_r,0,n*sizeof *send_r);

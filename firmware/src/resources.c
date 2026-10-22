@@ -6,14 +6,30 @@
  * Linker-derived SRAM tails are separate banks: an allocation never spans a
  * code/data/retained-state boundary. Small banks first preserve the large
  * contiguous POOL bank for engine state and note history. */
-#define RES_JFX_N 6u                     /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the delay's halves, the
-                                          * reverb's, its model line, the chorus's, the SLICER's) */
+#define RES_JFX_N 27u                    /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the reverb's, the chorus's,
+                                          * the SLICER's, then (rev 2) the delay's line in 16 blocks of 4 KB and the
+                                          * reverb's model line in 8) */
 enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_JFX0,
        RES_RECORD_UNDO = RES_JFX0 + RES_JFX_N, RES_COUNT };
 static uint8_t recording_undo_lost;
 static uint8_t recording_undo_active, recording_undo_skip;
 static struct { void *ptr; uint32_t size; } resource[RES_COUNT];
 static uint32_t resource_peak, resource_failures;
+/* (Orange Cat 0.6.0 rev 2) the card's 36 KB pool (card_play.c's cp_pool, defined here so the arena can lend it), four
+ * slots of 9 KB: each slot the card does not use is lent to the effects (res_lend_ok bit s: the main loop's say,
+ * usb_files.c). Each run of lent slots side by side is one more bank, for the effects' blocks only, tried before the
+ * others (no engine can use it). Before the card uses a slot the main loop clears its bit and waits for its
+ * res_lend_used bit to clear: the audio interrupt gives back every effect with a block there first (jfx.c
+ * jfx_lend_check) */
+#define CP_N 4u                                         /* streams at once */
+#define CP_SLOT 4608u                                   /* 16-bit words a slot: 9 KB */
+#define CP_POOL_DEFINED 1
+static int16_t cp_pool[CP_N * CP_SLOT] __attribute__((section(".pool"), aligned(4)));
+static volatile uint8_t res_lend_ok, res_lend_used;     /* bit s, slot s: the main loop's leave; a block there (audio's) */
+#define CP_SLOT_BYTES (CP_SLOT * (uint32_t)sizeof(int16_t))
+static volatile uint8_t res_jfx_yield;                  /* an engine found no memory while the effects held some */
+#define RES_LEND_PUBLISH() __asm__ volatile("" ::: "memory")   /* (the main loop and the audio interrupt: one core) */
+#define RES_IS_JFX(id) ((id) >= RES_JFX0 && (id) < RES_JFX0 + RES_JFX_N)
 #ifdef FM1_IRQ_TARGET
 extern uint8_t _resource_start[], _resource_end[];
 extern uint8_t _resource_low_start[], _resource_low_end[];
@@ -27,20 +43,29 @@ extern uint8_t _resource_cache_start[], _resource_cache_end[];
 #endif
 #define RESOURCE_MAIN_CAPACITY ((uint32_t)((uintptr_t)_resource_end - (uintptr_t)_resource_start))
 #else
-static uint32_t resource_host[40960];
-static uint32_t resource_host_low[5120], resource_host_data[512], resource_host_retained[1024];
-static uint32_t resource_host_cache[7168], resource_host_cache_enabled;
+/* the host's banks (words). (Orange Cat 0.6.0 rev 2) a test can set the device's sizes (tests/jfx_arena_test.c) */
+#ifndef RES_HOST_MAIN_WORDS
+#define RES_HOST_MAIN_WORDS 40960u
+#define RES_HOST_LOW_WORDS 5120u
+#define RES_HOST_DATA_WORDS 512u
+#define RES_HOST_RETAINED_WORDS 1024u
+#endif
+#define RES_HOST_CACHE_WORDS 7168u
+static uint32_t resource_host[RES_HOST_MAIN_WORDS];
+static uint32_t resource_host_low[RES_HOST_LOW_WORDS], resource_host_data[RES_HOST_DATA_WORDS];
+static uint32_t resource_host_retained[RES_HOST_RETAINED_WORDS];
+static uint32_t resource_host_cache[RES_HOST_CACHE_WORDS], resource_host_cache_enabled;
 #define RESOURCE_CACHE_AVAILABLE resource_host_cache_enabled
 #define _resource_cache_start ((uint8_t *)resource_host_cache)
-#define _resource_cache_end ((uint8_t *)(resource_host_cache + 7168))
+#define _resource_cache_end ((uint8_t *)(resource_host_cache + RES_HOST_CACHE_WORDS))
 #define _resource_start ((uint8_t *)resource_host)
-#define _resource_end ((uint8_t *)(resource_host + 40960))
+#define _resource_end ((uint8_t *)(resource_host + RES_HOST_MAIN_WORDS))
 #define _resource_low_start ((uint8_t *)resource_host_low)
-#define _resource_low_end ((uint8_t *)(resource_host_low + 5120))
+#define _resource_low_end ((uint8_t *)(resource_host_low + RES_HOST_LOW_WORDS))
 #define _resource_data_start ((uint8_t *)resource_host_data)
-#define _resource_data_end ((uint8_t *)(resource_host_data + 512))
+#define _resource_data_end ((uint8_t *)(resource_host_data + RES_HOST_DATA_WORDS))
 #define _resource_retained_start ((uint8_t *)resource_host_retained)
-#define _resource_retained_end ((uint8_t *)(resource_host_retained + 1024))
+#define _resource_retained_end ((uint8_t *)(resource_host_retained + RES_HOST_RETAINED_WORDS))
 #define RESOURCE_MAIN_CAPACITY ((uint32_t)sizeof resource_host)
 #endif
 /* The cache RAM's first UI_CACHE_BYTES are the UI's (ui.c: the undo levels), the rest the audio's: the audio's worst
@@ -56,6 +81,16 @@ static const struct { uint8_t *start, *end; } resource_banks[] = {
 };
 #define RESOURCE_BANKS ((uint32_t)(sizeof resource_banks / sizeof resource_banks[0]))
 enum { RESOURCE_CACHE_BANK = 3 };
+/* the card slots block id lies in (bit s: slot s), 0: not in the card pool */
+static uint32_t resource_lent(uint32_t id)
+{
+    uintptr_t p = (uintptr_t)resource[id].ptr, b = (uintptr_t)cp_pool;
+    uint32_t m = 0, s;
+    if (!resource[id].size || p < b || p >= b + sizeof cp_pool) return 0;
+    for (s = (uint32_t)(p - b) / CP_SLOT_BYTES; s < CP_N && b + s * CP_SLOT_BYTES < p + resource[id].size; s++)
+        m |= 1u << s;
+    return m;
+}
 #define RESOURCE_CAPACITY (RESOURCE_MAIN_CAPACITY + \
     (uint32_t)((uintptr_t)_resource_low_end - (uintptr_t)_resource_low_start) + \
     (uint32_t)((uintptr_t)_resource_data_end - (uintptr_t)_resource_data_start) + \
@@ -73,10 +108,23 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
     if (bytes > RESOURCE_CAPACITY) { resource_failures++; return 0; }
     uint32_t size = (bytes + 3u) & ~3u;
     if (!size) { resource_release(id); return 0; }
-    for (uint32_t bank = 0; bank < RESOURCE_BANKS; bank++) {
-        if (bank == RESOURCE_CACHE_BANK && !RESOURCE_CACHE_AVAILABLE) continue;
-        uintptr_t at = (uintptr_t)resource_banks[bank].start;
-        uintptr_t limit = (uintptr_t)resource_banks[bank].end;
+    uint32_t lend = RES_IS_JFX(id) ? res_lend_ok & ((1u << CP_N) - 1u) : 0u;   /* (0.6.0 rev 2) the effects: the
+                                                         * lent card slots first (no use to an engine), then the banks
+                                                         * as everything else */
+    for (uint32_t step = 0; step < CP_N + RESOURCE_BANKS; step++) {
+        uintptr_t at, limit;
+        if (step < CP_N) {                              /* (a run of lent slots from step: not one of resource_banks) */
+            uint32_t e = step;
+            if (!((lend >> step) & 1u) || (step && ((lend >> (step - 1u)) & 1u))) continue;
+            while (e < CP_N && ((lend >> e) & 1u)) e++;
+            at = (uintptr_t)cp_pool + step * CP_SLOT_BYTES;
+            limit = (uintptr_t)cp_pool + e * CP_SLOT_BYTES;
+        } else {
+            uint32_t bank = step - CP_N;
+            if (bank == RESOURCE_CACHE_BANK && !RESOURCE_CACHE_AVAILABLE) continue;
+            at = (uintptr_t)resource_banks[bank].start;
+            limit = (uintptr_t)resource_banks[bank].end;
+        }
         /* Each collision advances past a live block; at most RES_COUNT passes.
          * Integer addresses permit distinct host arrays and disjoint SRAM banks. */
         for (uint32_t pass = 0; pass <= RES_COUNT; pass++) {
@@ -91,6 +139,7 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
             if (next == at) {
                 void *p = (void *)at;
                 resource[id].ptr = p; resource[id].size = size;
+                if (step < CP_N) res_lend_used |= (uint8_t)resource_lent(id);
                 uint32_t *words=p;
                 for (uint32_t j=0;j<size/4u;j++)words[j]=0;
                 uint32_t used = resource_used();
@@ -116,6 +165,10 @@ static inline void *resource_get(uint32_t id, uint32_t bytes)
         resource_release(RES_RECORD_UNDO);recording_undo_lost=1;
         recording_undo_skip|=recording_undo_active;recording_undo_active=0;
         p=resource_allocate(id,bytes);
+    }
+    /* (Orange Cat 0.6.0 rev 2) an engine first: the effects give back theirs at the next block (jfx.c jfx_lend_check) */
+    if(!p && bytes && id<RES_NOTE_HISTORY){
+        for(uint32_t k=RES_JFX0;k<RES_JFX0+RES_JFX_N;k++)if(resource[k].size&&!resource_lent(k)){res_jfx_yield=1;break;}
     }
     return p;
 }

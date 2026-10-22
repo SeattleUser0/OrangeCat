@@ -13,7 +13,7 @@ Each file becomes one zone: mono, 22050 Hz, IMA ADPCM (sampleio.py, the same enc
 as the built-in sets and the web editor). ROOT is a MIDI note (default: from the file
 name, C4 = 60, else 60); without LO-HI the zones split the keyboard between their roots.
 The slot holds 81,408 bytes of data (about 7 s at 22050 Hz), as one of Felucca's three did.
-Protocol: web/EDITOR_PROTOCOL.md, cmds 80..84 (Orange Cat 0.6.0: firmware/src/smp_slot.c).
+Protocol: web/EDITOR_PROTOCOL.md, cmds 110..114 (Orange Cat 0.6.0: firmware/src/smp_slot.c).
 The old commands 11..15 (USR1..USR3) are retired: they wrote over what is now the record store.
 Needs mido (and a backend such as python-rtmidi) for the device commands.
 """
@@ -105,26 +105,26 @@ def main():
             return
     link = Link()
     if cmd == "info":
-        r = link.req(80, [])
+        r = link.req(110, [])
         state, size, nz, cap = r[0], r[1] | r[2] << 7 | r[3] << 14, r[4], r[5] | r[6] << 7 | r[7] << 14
         name = bytes(r[8:r.index(0, 8)]).decode()
         print("slot:", ["not there (the record store has no room for it yet)", "empty",
                         f"{name}, {nz} zones, {size} B"][min(state, 2)], f"(holds {cap} B)")
         return
     if cmd == "erase":
-        print("erase:", "ok" if link.req(84, [], 10)[0] == 0 else "FAILED")
+        print("erase:", "ok" if link.req(114, [], 10)[0] == 0 else "FAILED")
         return
     print(f"{sys.argv[2]}: {len(data)} B ADPCM, {hdr[6]} zones")
     n = len(data)
-    if link.req(81, [n & 0x7F, (n >> 7) & 0x7F, (n >> 14) & 0x7F], 10)[0]:
+    if link.req(111, [n & 0x7F, (n >> 7) & 0x7F, (n >> 14) & 0x7F], 10)[0]:
         sys.exit("begin refused (no slot, or too long)")
     t0 = time.time()
     for off in range(0, n, 256):
-        r = link.req(82, [off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F] + pack7(data[off:off + 256]))
+        r = link.req(112, [off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F] + pack7(data[off:off + 256]))
         if r[0]:
             sys.exit(f"write at {off} failed ({r[0]})")
         print(f"\r  {min(off + 256, n)} / {n}", end="", flush=True)
-    r = link.req(83, pack7(hdr[:512] + bytes(max(0, 512 - len(hdr)))), 5)
+    r = link.req(113, pack7(hdr[:512] + bytes(max(0, 512 - len(hdr)))), 5)
     print(f"\n  {time.time() - t0:.1f} s, end:", "ok" if r[0] == 0 else f"FAILED ({r[0]})")
 
 if __name__ == "__main__":

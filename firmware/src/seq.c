@@ -277,6 +277,8 @@ static void arp_off(track_t *t)                  /* the sounding arp note ends (
 /* n and gate_n: sample time (INT), musical units (MIDI); a stopped external
  * transport uses real time converted to musical units for a tapped note's gate. */
 static volatile uint32_t beat_pos, beat_n;      /* clock units into the beat, beat of the bar (0..3) */
+static volatile uint32_t seq_beats;             /* (Orange Cat 0.6.0 rev 2) whole beats since PLAY: the effects' grid
+                                                 * follows an external clock from here (jfx.c jfx_clock_begin) */
 /* (Orange Cat 0.4.1, build doc 4d; Skiff 1.3.3 launch.c) where a step gone to by hand (pattern_next with no REPS, not a
  * song's) and a staged MUTE come in while playing, lists.launch: LOOP the track's loop end (Melodee's), BAR / BEAT the
  * step that begins on the next bar / beat line (within half a step of it: a 1/32 or triplet track's step a little
@@ -963,7 +965,7 @@ static void seq_start(void)
     cap_from = cap_w;                              /* capture and the jam log: this run */
     jam.n = 0;
     song.tick = 0;
-    beat_pos = 0; beat_n = 0;                      /* the ARP LED's beat from the top too */
+    beat_pos = 0; beat_n = 0; seq_beats = 0;       /* the ARP LED's beat from the top too (and the effects' grid) */
     seq_start_count++;                                  /* (Orange Cat 0.4.17) WAVs and takes on the card start with it */
     song.playing = 1;
     if (click_wanted()) click_req=2;
@@ -1511,6 +1513,7 @@ static void seq_advance_part(uint32_t n)
     while (beat_pos >= beat) {
         beat_pos -= beat;
         beat_n = (beat_n + 1u) & 3u;
+        seq_beats++;
         if(song.playing && click_wanted())click_req=beat_n?1:2;
     }
 }

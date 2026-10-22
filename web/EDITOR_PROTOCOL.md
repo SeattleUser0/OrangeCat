@@ -408,6 +408,30 @@ grid lives in the steps themselves, so every engine has it:
   Melodee's own storage; never the app or the update area.
 
 
+## Orange Cat: the internal sample slot (commands 110–114, firmware 0.6.0)
+
+One user sample slot in internal flash (firmware/src/smp_slot.c): 22 sectors at 0xB2000..0xC7FFF, taken from the
+record store at the first boot of 0.6.0 (its records there are moved first; with no room for them the slot is not
+there until the store has room). Each sector keeps its last 256 bytes erased (the update loader's tail scan), so the
+slot holds 3,840 bytes a sector. Its data limit is a Felucca slot's: 81,408 bytes of IMA ADPCM, with Felucca's
+512-byte header (480 bytes of fields, "FSMP", version 1, 1..16 zones, name, data length, the data's CRC-32 (zlib)).
+The old commands 11–14 wrote at 0xA0000, over what is now the record store: they stay retired (no reply), and
+`SMP_INFO` (15) still reports no slots, so an older editor never offers an upload. Every write stops the transport
+first (100 ms, else rc 2), as user-preset writes do.
+
+| Command | Request | Reply |
+|---|---|---|
+| 110 SLOT_INFO | — | state (0 no slot yet, 1 empty, 2 a sample), data length (3 × 7 bits, low first), zones, capacity (3 × 7 bits: 81,408), name (string) |
+| 111 SLOT_BEGIN | data length (3 × 7 bits), 1..81,408 | rc, bytes written (3 × 7 bits). The sample there is gone from now on |
+| 112 SLOT_WRITE | offset (3 × 7 bits), pack7 data (≤ 256 bytes) | rc, bytes written. The offset must be where the last write ended; nothing past the length |
+| 113 SLOT_END | pack7 header (512 bytes) | rc, bytes written. The header's length and CRC must be the data's; then it is programmed (the commit) |
+| 114 SLOT_ERASE | — | rc, 0. The slot empty, still the slot's |
+
+rc: 0 done, 1 refused (no slot, a bad length or offset, a header that does not match), 2 the flash failed or the
+transport did not stop. A write torn anywhere (power, a refusal) leaves the slot empty, never part of a sample.
+`tools/fm1_sample_upload.py` builds a slot from WAV files and uploads it with these commands. Nothing in 0.6.0 plays
+the slot yet (a sample engine is phase 9's).
+
 ## Pattern banks (commands 73–74)
 
 INFO sends 0 in the former untagged CHAIN_ROWS byte, then retains the tagged UI, motion and backup

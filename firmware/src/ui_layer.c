@@ -391,10 +391,17 @@ static int layer_play(void)
 static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 {
     uint32_t dn = panel.btn[B_OCTDN], up = panel.btn[B_OCTUP], k, mine;
-    if (layer_open() == LAYER_FX && ((pressed >> dn) & 1u)) {   /* (0.6.0) FX + OCT-: every effect off */
+    static uint8_t fx_oct;                              /* (0.6.0) FX + OCT-: every effect off; its tap eaten (no octave) */
+    if (layer_open() == LAYER_FX && ((pressed >> dn) & 1u)) {
         perf_off_req = 1;
+        fx_oct = 1;
         ui_message("PUNCH-IN: ALL OFF");
-        return oct & ~1u;
+    }
+    if (fx_oct && (oct & 1u)) {
+        fx_oct = 0;
+        oct &= ~1u;
+    } else if (fx_oct && !((fm1_in.buttons >> dn) & 1u) && !(oct & 1u) && !((pressed >> dn) & 1u)) {
+        fx_oct = 0;
     }
     if (layer_set_open())
         lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);

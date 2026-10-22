@@ -327,7 +327,8 @@ static int test_held_gestures(void)
     {
         uint32_t ly = ui.ly;
         fm1_in.buttons &= ~(1u << panel.btn[B_FX]); frame();
-        bad += check("  retired FX while recording live: no layer, the note stays", !ly &&
+        /* (Orange Cat 0.6.0: FX held is the punch-in layer again; its keys play effects, never notes or steps) */
+        bad += check("  FX held while recording live: the punch-in layer, the note stays", ly == LAYER_FX &&
                      step_on(&t->step[9]));
     }
     song.octave = 0; song.rec = 0; song.playing = 0;

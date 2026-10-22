@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.5.6
+**Firmware:** 0.6.0 (branch fx-jiant, not released)
 **Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -76,7 +76,7 @@ Turn PRESET right to see every track as a lane; ALGORITHM picks the track you ed
 | Black keys 1 to 4 | Mute or unmute tracks 1 to 4, at the launch point |
 | D#4 held | FILL |
 | KNOB 1 (AT) | The launch point: LOOP, BAR, BEAT, NOW |
-| KNOB 2 to 4 | Throw the selected track's SEND 1 to 3; it glides back over a bar |
+| KNOB 2 to 4 | Throw the selected track's REV, DLY or CHO send; it glides back over a bar |
 | OCT- | Put back the mutes and AT as they were when you opened it |
 
 A scene stores each track's chain, slot and mute. AT decides when a scene, a staged mute, or a slot you go to by hand comes in while playing. Double-tap ARP to lock the map open.
@@ -200,6 +200,70 @@ If the row shows a word in red, the freeze did not finish: Card? (no card found)
 While a track has a frozen phrase in its banks, the USB port talks to the card, so USB MIDI, USB audio and the web editor to a computer are off.
 
 Freezes made before 0.5.6 belonged to the track and were not saved. Freeze those phrases again.
+
+## Effects (0.6.0)
+
+Orange Cat's effects now come from Jiant FM. Press FX for the track's FX page; press FX again to step through the
+pages. The first three pages belong to the selected track. The rest are shared by all four tracks.
+
+| Page | KNOB 1 | KNOB 2 | KNOB 3 | KNOB 4 |
+|---|---|---|---|---|
+| FX | DIST (drive) | CHO send | DLY send | REV send |
+| DIST | DIST (drive) | TYPE: SOFT, HARD, FOLD, CRUSH, RECT, AMP | TONE | SLC: the track goes through the SLICER |
+| AUTO PAN | DEPTH | RATE | SYNC: FREE or BEAT | WAVE |
+| DELAY | TIME (synced 1/4 to 4BAR, or 5 ms to 2.95 s) | FDBK (past 100% it saturates) | TONE | MIX |
+| DELAY 2 | WIDE | PITCH (grain delay) | SPRAY | MOD (wow and flutter) |
+| DELAY 3 | TYPE: ANALOG or DIGITAL | PING: ping-pong | | |
+| REVERB | TYPE: ROOM, SPRING, SHIMR, RESO, CLOUD | SIZE | DAMP (RESO: FOLW, the track it tunes to) | PRE (SHIMMER and CLOUD: AIR; RESO: PITCH) |
+| REVERB 2 | MOD | RATE | FILT | WIDE |
+| CHORUS | RATE | DEPTH | WIDE | |
+| SLICER | MODE: OFF, GATE, STUT | PAT (1 to 16) | RATE | DEPTH |
+| SLICER 2 | FX: the effects' return goes through the SLICER | LEN (pitch steps) | QUANT (CHR or SCL) | |
+| SL PITCH 1 to 4 | The pitch steps S1 to S16 (only while the SLICER is on) | | | |
+| MASTER | DJF (DJ filter: left darker, right thinner) | CLIP | LEVEL (the leveler, OFF by default) | SPK (speaker EQ: LOWCUT, BASS+) |
+
+CLOUD at SIZE 127 freezes what it holds. The shared pages' OCT+ sheet has Reset effects (all shared settings back to a
+new project's).
+
+**FX FULL.** The delay, reverb and chorus take their memory as soon as a track's send to them is up (REV, DLY or CHO
+above 0), and give it back two seconds after all those sends are at 0. The SLICER takes its own while STUT runs. The
+synths always come first: if a sound needs memory an effect holds, the effect lets go and its page says FX FULL. An
+effect that cannot get memory plays dry and says FX FULL. It comes in by itself once there is memory.
+
+What fits: with the card idle (no frozen phrase playing, no freeze running), the delay, a reverb (not CLOUD) and the
+chorus fit beside any four sounds, even four MACRO or SHAPES tracks. While frozen phrases play from the card, the
+card needs its own memory back, and the delay may say FX FULL with heavy sounds. CLOUD and STUT need 32 KB more each.
+
+**Punch-in effects (hold FX).** Hold FX for the map. Keys you press while FX is held play an effect on the whole mix
+while you hold them. They start on the next 1/16 when playing. Double-tap FX to lock the map open.
+
+| Key | Effect |
+|---|---|
+| F3, G3, A3 | REPEAT 1/8, 1/16, 1/32 (1/8 needs about 81 BPM or faster) |
+| B3 | GLITCH |
+| C4 | TAPE stop |
+| F#3, G#3, A#3, C#4 | Mute track 1 to 4 |
+| G#4 | FREEZE |
+| C#5 | SHUFFLE |
+| D#5 | CRUSH (sweeps in over two bars) |
+| F#5 | THROW (the mix into the delay and reverb) |
+| OCT- | Everything off |
+
+While GLITCH, TAPE, SHUFFLE or FREEZE is held, KNOB 1 to 4 are its settings (not saved). Otherwise KNOB 4 is FILTER
+(a low-pass on the whole mix).
+
+**MIDI.** CC 91 REV send, CC 93 CHO send, CC 94 DLY send, CC 104 DIST, on the track the channel plays. DIST, its
+TONE, AUTO PAN DEPTH and the three sends can be recorded as motion.
+
+**Old projects.** Projects from 0.5.6 and before load with their sends moved to the new effect of the same kind (an
+old ECHO send to DLY, ROOM or REVERB to REV, CHORUS to CHO). The old per-track effects (PHASER, TAPE and the others)
+have no new match and are dropped, so old projects will sound different. The leveler stays off for them.
+
+## The internal sample slot (0.6.0)
+
+The FM-1 keeps one user sample slot in its own flash, as large as one of Felucca's three (81,408 bytes, about 7
+seconds of mono). It took 22 sectors from the phrase store, which now has 34. Load it from a computer with
+tools/fm1_sample_upload.py (load NAME file.wav ...). Nothing plays it yet: a sample engine comes later.
 
 ## Saving and loading
 

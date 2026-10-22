@@ -52,8 +52,13 @@
 #ifndef DLY_LEN
 #define DLY_LEN 32768u                                  /* the delay's line, int16 samples (Jiant params.c): 64 KB */
 #endif
-#define DLY_SEG 16384u                                  /* .. in two halves of 32 KB, each its own arena block */
-_Static_assert(DLY_LEN == 2u * DLY_SEG, "the delay's line: two halves");
+#define JFX_SEG 2048u                                   /* (0.6.0 rev 2) the long lines in 4 KB arena blocks: the
+                                                         * arena's banks are 4.6 .. 54 KB (resources.c), and a line in
+                                                         * one or two pieces fitted only an empty main bank */
+#define JFX_SEG_SH 11u
+#define DLY_NSEG (DLY_LEN / JFX_SEG)                    /* the delay's line: 16 blocks */
+_Static_assert(JFX_SEG == 1u << JFX_SEG_SH && DLY_LEN % JFX_SEG == 0u && (DLY_NSEG & (DLY_NSEG - 1u)) == 0u,
+               "the delay's line: a power of two of 4 KB blocks");
 #define CHO_LEN 2048u
 #define REV_NCOMB (1116u + 1188u + 1277u + 1356u)
 #define REV_NAP (556u + 441u)
@@ -64,14 +69,22 @@ typedef struct {
 #define RPRE_LEN 2048u                                  /* the reverb's pre-delay line, at half rate (4 KB): up to 92 ms */
 #define SH_LEN 2048u                                    /* SHIMMER's line (4 KB) */
 #define CL_LEN 16384u                                   /* .. CLOUD's, half rate: ~0.74 s (32 KB) */
+#define RX_NSEG (CL_LEN / JFX_SEG)                      /* the model line: 8 blocks for CLOUD, the first one for the
+                                                         * others (the pre-delay, SHIMMER's line) */
+_Static_assert(RPRE_LEN == JFX_SEG && SH_LEN == JFX_SEG && (RX_NSEG & (RX_NSEG - 1u)) == 0u,
+               "the model line: the pre-delay and SHIMMER in its first block");
 #define SL_FR 8192u                                     /* the SLICER's recording: stereo frames (32 KB) */
-enum { JB_DLY0, JB_DLY1, JB_REV, JB_REVX, JB_CHO, JB_SL, JB_N };
+enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_N = JB_RX0 + RX_NSEG };
 _Static_assert(JB_N == RES_JFX_N, "resources.c: an arena handle a block");
 /* the arena's blocks now (0: not held); CPU0 sets them before a job, the job reads them */
-static int16_t *dly_seg[2], *jrev_x, *cho_buf;
+static int16_t *dly_seg[DLY_NSEG], *rx_seg[RX_NSEG], *cho_buf;
+static uint8_t dly_have, rx_have;                       /* (0.6.0 rev 2) the blocks held, from the first */
+#define jrev_x rx_seg[0]                                /* the model line's first block (the pre-delay, SHIMMER) */
+static uint32_t jfx_grow, jfx_wait;                     /* (0.6.0 rev 2) new blocks taken this block; blocks to wait
+                                                         * before more (jfx_mem) */
 static jrev_t *jrev;
 static int16_t (*sl_buf)[2];
-static uint32_t jrev_x_len;                             /* the model line's samples held (CL_LEN, or SH_LEN = RPRE_LEN) */
+#define jrev_x_len ((uint32_t)rx_have * JFX_SEG)        /* the model line's samples held (CL_LEN, or SH_LEN = RPRE_LEN) */
 static volatile uint8_t jfx_full;                       /* a bit a bus (1 chorus, 2 delay, 4 reverb, 8 SLICER / FX layer)
                                                          * that wanted memory and had none (the pages: FX FULL) */
 #define JFX_FULL_CHO 1u
@@ -89,20 +102,31 @@ static inline __attribute__((always_inline)) int32_t fx_div_pow2(int32_t x, uint
 /* the delay's line, sample i (the two halves as one ring) */
 static inline __attribute__((always_inline)) int32_t dly_get(uint32_t i)
 {
-    return dly_seg[(i >> 14) & 1u][i & (DLY_SEG - 1u)];
+    return dly_seg[(i >> JFX_SEG_SH) & (DLY_NSEG - 1u)][i & (JFX_SEG - 1u)];
 }
 static inline __attribute__((always_inline)) void dly_put(uint32_t i, int32_t v)
 {
-    dly_seg[(i >> 14) & 1u][i & (DLY_SEG - 1u)] = (int16_t)v;
+    dly_seg[(i >> JFX_SEG_SH) & (DLY_NSEG - 1u)][i & (JFX_SEG - 1u)] = (int16_t)v;
+}
+/* CLOUD's line, sample i (its blocks as one ring) */
+static inline __attribute__((always_inline)) int32_t cl_get(uint32_t i)
+{
+    return rx_seg[(i >> JFX_SEG_SH) & (RX_NSEG - 1u)][i & (JFX_SEG - 1u)];
+}
+static inline __attribute__((always_inline)) void cl_put(uint32_t i, int32_t v)
+{
+    rx_seg[(i >> JFX_SEG_SH) & (RX_NSEG - 1u)][i & (JFX_SEG - 1u)] = (int16_t)v;
 }
 
 /* ------------------------------------------------------- tempo, the clock --- */
 /* Jiant's transport grid (mod.c clk_n, clk_pos, ms_clock): the 1/16s since PLAY, the samples into the one now (CLK_START:
  * stopped), the samples since PLAY on the grid. Orange Cat's sequencer has its own per track; this one is kept here,
  * from the block the sequencer starts in, at the block's start while the block is processed (jfx_clock_end moves it on).
- * With an external clock it follows the tempo measured (beat_samples), not the clock's ticks. */
+ * With an external clock it is taken each block from the sequencer's own place (seq.c seq_beats, beat_pos, in the
+ * clock's units), so it never drifts from the steps (0.6.0 rev 2: it ran on the measured tempo before, and could). */
 #define CLK_START 0xFFFFFFFFu
 static uint32_t clk_n, clk_pos = CLK_START, ms_clock, jfx_starts;
+static volatile uint32_t beat_pos, seq_beats;           /* (seq.c's: declared here as the unity build reads it first) */
 static void jfx_clock_begin(void)
 {
     if (!song.playing) {
@@ -114,6 +138,11 @@ static void jfx_clock_begin(void)
         clk_n = 0;
         clk_pos = 0;
         jfx_clock_started();                            /* (the SLICER, the FX layer) */
+    }
+    if (midi_sync_active) {                             /* external clock: the sequencer's place, in samples */
+        uint32_t six = MIDI_BEAT_UNITS / 4u, u = beat_pos, p = div_samples(2);
+        clk_n = seq_beats * 4u + u / six;
+        clk_pos = p ? (uint32_t)((uint64_t)(u % six) * p / six) : 0u;
     }
     ms_clock = clk_n * div_samples(2) + clk_pos;
 }
@@ -280,7 +309,8 @@ static JFX_XIP int32_t autopan(const track_t *t, uint32_t ti, uint32_t n)   /* t
         if (len < 64u)
             len = 64u;
         ap_free[ti] += n;
-        pos = song.playing && clk_pos != CLK_START ? ms_clock : ap_free[ti];
+        pos = song.playing && clk_pos != CLK_START ? ms_clock + n : ap_free[ti];   /* (the block's end, as the free
+                                                          * count: 0.6.0 rev 2, a reviewer's catch) */
         ph = (pos % len) * (0xFFFFFFFFu / len);
     } else {
         ph = old + LFO_INC[p[P_APRATE] & 127] * (n / CTL);   /* (the LFO's rates: once a block) */
@@ -320,6 +350,9 @@ static struct {
     uint16_t dl_xf, dr_xf;               /* .. the fades left (DXF_LEN .. 0 samples) */
     uint8_t gr_on, gr_old;               /* .. the GRAIN read now, and in the read faded from */
     uint8_t primed;                      /* .. set on the first block (no fade nor glide from 0 then) */
+    uint8_t dfresh;                      /* (Orange Cat 0.6.0 rev 2) the delay's line just complete (jfx_mem): its rate
+                                          * and read points set as on the first block (the other buses may have run
+                                          * before it had its memory) */
     uint8_t dr_sh, dsw, dsw_to;          /* .. (0.8.4) the line's rate, FS >> dr_sh (0 full, 1 half, 2 a quarter); a change of
                                          * it: 1 the delay fading out, 2 the line being cleared; the rate it goes to */
     uint16_t dsw_n, din_g;               /* .. the fade's samples left / the chunk being cleared; the input's fade-in left */
@@ -351,7 +384,6 @@ static struct {
 #define rev_ap (jrev->u.ap)
 #define rpre_buf jrev_x
 #define shim_buf jrev_x
-#define cloud_buf jrev_x
 
 /* SPRING (G_RTYPE 1): one spring of a spring tank, mono like the other buses, in the ROOM's own buffers (no
  * RAM of its own): the input and the loop's return -> a low cut (~110 Hz: a spring carries little bass) ->
@@ -841,7 +873,7 @@ static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
             fx.cl_dc += ((x << 8) - fx.cl_dc) >> 9;     /* (0.9.14) a low cut (~14 Hz, Q8) in the loop */
             x -= (fx.cl_dc + 128) >> 8;
             if (fx.cl_w & 1u)
-                cloud_buf[(fx.cl_w >> 1) & (CL_LEN - 1u)] = (int16_t)rv_knee((fx.cl_half + x) >> 1);
+                cl_put(fx.cl_w >> 1, rv_knee((fx.cl_half + x) >> 1));
             else
                 fx.cl_half = x;
             fx.cl_w++;
@@ -872,7 +904,7 @@ static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
                 if (!cl_g[k].len) continue;
                 {
                     uint32_t p = cl_g[k].pos >> 16, f = (cl_g[k].pos >> 8) & 255u, a = cl_g[k].age, L = cl_g[k].len;
-                    int32_t x0 = cloud_buf[p & (CL_LEN - 1u)], x1 = cloud_buf[(p + 1u) & (CL_LEN - 1u)];
+                    int32_t x0 = cl_get(p), x1 = cl_get(p + 1u);
                     int32_t x = x0 + (((x1 - x0) * (int32_t)f) >> 8), w = (int32_t)((a < L - a ? a : L - a) * 2u * 256u / L);
                     x = (x * w) >> 8;
                     ws += w;
@@ -918,6 +950,13 @@ static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
     }
 }
 /* the model ty's block into out */
+/* (0.6.0 rev 2) the model ty can run: CLOUD needs its 32 KB line, SHIMMER its 4 KB one (jfx_mem may not have them:
+ * FX FULL). Checked before every rev_run, the fade of a model being left too (a reviewer found SHIMMER faded out with
+ * no line read a null pointer) */
+static int rev_can_run(uint32_t ty)
+{
+    return !(ty == 4u && rx_have < RX_NSEG) && !(ty == 2u && !jrev_x);
+}
 static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     int32_t wd = clamp(song.g[G_RWIDE], 0, 127);
@@ -955,9 +994,8 @@ static void rev_state_clear(void)
 /* the first n samples of the model line silenced (as far as it is held) */
 static void rev_line_clear(uint32_t n)
 {
-    if (!jrev_x) return;
-    if (n > jrev_x_len) n = jrev_x_len;
-    memset(jrev_x, 0, n * sizeof *jrev_x);
+    for (uint32_t k = 0; k < rx_have && k * JFX_SEG < n; k++)
+        memset(rx_seg[k], 0, (n - k * JFX_SEG < JFX_SEG ? n - k * JFX_SEG : JFX_SEG) * sizeof(int16_t));
 }
 /* (0.8.4) how much of the model line a change from the model `from` to `to` silences */
 static uint32_t rev_line_dirty(uint32_t from, uint32_t to)
@@ -1047,7 +1085,7 @@ static struct {
 static int32_t dlo_x[CTL], dlo_xr[CTL];
 #define DSW_LOG2 7u
 #define DSW_FADE (1u << DSW_LOG2)                        /* a rate change's fade out (and the input's in): 2.9 ms */
-#define DLY_CLR DLY_SEG                                  /* .. the line cleared 32 KB a block */
+#define DLY_CLR 16384u                                   /* .. the line cleared 32 KB a block */
 static inline int32_t hb_sum(const int32_t *h)           /* h[0] the newest: the pairs about the middle (lag 13.5) */
 {
     int32_t a = 0;
@@ -1102,8 +1140,9 @@ static void dly_lo_reset(void)
 static void dly_line_clear(uint32_t from, uint32_t n)
 {
     while (n) {
-        uint32_t s = (from >> 14) & 1u, o = from & (DLY_SEG - 1u), k = DLY_SEG - o < n ? DLY_SEG - o : n;
-        if (dly_seg[s]) memset(dly_seg[s] + o, 0, k * sizeof(int16_t));
+        uint32_t s = (from >> JFX_SEG_SH) & (DLY_NSEG - 1u), o = from & (JFX_SEG - 1u);
+        uint32_t k = JFX_SEG - o < n ? JFX_SEG - o : n;
+        if (s < dly_have) memset(dly_seg[s] + o, 0, k * sizeof(int16_t));
         from += k;
         n -= k;
     }
@@ -1228,7 +1267,7 @@ static int dly_rate(uint32_t *dl, uint32_t *dr, uint32_t dro, int png, int gr)
     uint32_t need = png ? *dl * 2u : *dl + dro, s, span;
     int fresh = 0;
     s = dly_stage(need, fx.primed ? fx.dr_sh : 0u);
-    if (!fx.primed) {
+    if (!fx.primed || fx.dfresh) {
         fx.dr_sh = (uint8_t)s;
         fx.dsw = 0; fx.din_g = 0;
         memset(&dlo, 0, sizeof dlo);
@@ -1273,7 +1312,9 @@ static int fx_rest(int32_t any, int32_t *wet, uint32_t n)
 {
     uint32_t ph = fx_rest_ph;
     if (any || fxg_g || fxg_dly || song.g[G_DFDBK] >= 100 || fx.dsw || jfx_cloud_frozen() ||
-        (uint32_t)clamp(song.g[G_RTYPE], 0, 4) != fx.rtype) {
+        (jrev && (uint32_t)clamp(song.g[G_RTYPE], 0, 4) != fx.rtype)) {   /* (0.6.0 rev 2: a model change waits to
+                                                         * fade only while the reverb is held: with none, nothing to
+                                                         * fade, and the buses could never rest) */
         fx_rest_ph = 0;
         return 0;
     }
@@ -1299,7 +1340,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
 {
     uint32_t i, dl = delay_samples();
     int32_t dcd, dcw, ddm;
-    int have_d = dly_seg[0] && dly_seg[1], have_r = jrev != 0, have_c = cho_buf != 0;
+    int have_d = dly_have == DLY_NSEG, have_r = jrev != 0, have_c = cho_buf != 0;
     for (i = 0; i < n; i++)
         fx_sl[i] = fx_sr[i] = 0;
     {   /* (0.6.14) anything sent to the buses this block: their gate open */
@@ -1340,6 +1381,11 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
         fx.primed = 1;
         fx.dl_now = dl; fx.dr_now = dr; fx.gr_on = (uint8_t)gr;
         fx.cd_cur = cdepth; fx.cw_cur = cw; fx.dm_cur = dmix;
+    }
+    if (fx.dfresh && have_d) {                          /* (0.6.0 rev 2) the delay's first block with its line */
+        fx.dfresh = 0;
+        fx.dl_now = dl; fx.dr_now = dr; fx.gr_on = (uint8_t)gr;
+        fx.dl_xf = fx.dr_xf = 0;
     }
     if (!fx.dl_xf && (dl != fx.dl_now || (uint32_t)gr != fx.gr_on)) {
         fx.dl_old = fx.dl_now; fx.gr_old = fx.gr_on;
@@ -1457,16 +1503,18 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
             fx_sr[i] -= side;
         }
     }
-    if (!have_r) {
+    rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4);
+    if (!have_r) {                                      /* (0.6.0 rev 2) no reverb held: the model taken as it is
+                                                         * (nothing playing to fade) */
+        fx.rtype = (uint8_t)rt;
         fx_gate(wet, n);
         return;
     }
-    rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4);
     if ((uint32_t)rt != fx.rtype) {                     /* the model changed: the old one's block fades out, */
         int32_t *t = fx_tmp, g = 65536, d = 65536 / (int32_t)n;   /* its buffers are cleared, the new one starts */
         for (i = 0; i < n; i++)                                   /* from silence (never two at once: their */
             t[i] = 0;                                             /* lines shared) */
-        if (fx.rtype != 4u || jrev_x_len >= CL_LEN)    /* (Orange Cat: the old model's line still held) */
+        if (rev_can_run(fx.rtype))                      /* (Orange Cat: the old model's line still held) */
             rev_run(fx.rtype, rev_in, t, n);
         for (i = 0; i < n; i++, g -= d)
             wet[i] += mulq16(t[i], (uint32_t)g);
@@ -1476,8 +1524,8 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
         fx_gate(wet, n);
         return;
     }
-    if (!(rt == 4 && jrev_x_len < CL_LEN) && !(rt == 2 && !jrev_x))   /* (CLOUD without its 32 KB line, SHIMMER
-                                                         * without its 4 KB: not run, jfx_full says so) */
+    if (rev_can_run((uint32_t)rt))                      /* (CLOUD without its 32 KB line, SHIMMER without its 4 KB:
+                                                         * not run, jfx_full says so) */
         rev_run((uint32_t)rt, rev_in, wet, n);
     fx_gate(wet, n);
 }
@@ -1747,21 +1795,55 @@ static void jfx_clock_started(void)
 /* (Orange Cat) each block, CPU0, before the buses' job: their memory. A bus takes its blocks on its first send (or, the
  * reverb, when its model wants a longer line: CLOUD) and keeps them until the buses rest (fx_rest's clearing done, then
  * JFX_IDLE blocks more): then all are given back and the next send starts from silence, as fx_rest would have left it.
- * The SLICER's and the FX layer's 32 KB: while STUT runs or a buffer effect plays (jfx_perform.c perf_mem) */
+ * The SLICER's and the FX layer's 32 KB: while STUT runs or a buffer effect plays (jfx_perform.c perf_mem).
+ *
+ * (0.6.0 rev 2) How the memory is found (the first build could never hold the delay: its two 32 KB halves fitted only
+ * the arena's main bank, 54 KB, one at a time):
+ *   - the delay's line is 16 blocks of 4 KB, CLOUD's 8: they fit wherever the arena has room (resources.c's banks);
+ *   - the reverb's 11.9 KB, the one block that must be one piece, is taken first;
+ *   - at most JFX_GROW new blocks a block (16 KB zeroed, a bounded cost in the audio interrupt): a delay comes in over
+ *     4 blocks (3 ms), a bus waiting for its last blocks plays dry;
+ *   - the card's 36 KB pool: each of its four 9 KB slots the card does not use is lent to the effects (resources.c
+ *     res_lend_ok: the main loop's say), and taken back before the card uses it (card_play.c card_pool_take,
+ *     jfx_lend_check);
+ *   - an engine that finds no memory while the effects hold some has them give it all back (resources.c
+ *     res_jfx_yield, jfx_lend_check): the tracks' sound first. The effects then wait JFX_YIELD blocks before taking
+ *     any again, so the engine gets its memory first;
+ *   - the arena short (a bus asked, none to be had): the bus's partial blocks given back, FX FULL, and no new block
+ *     taken for JFX_RETRY blocks (no search and zeroing every block). */
 #define JFX_IDLE ((uint32_t)FS * 2u / CTL)              /* 2 s at rest: the memory back */
+#define JFX_FULL_HOLD ((uint32_t)FS / CTL)              /* (0.6.0 rev 2) FX FULL shown 1 s past its last block */
+#define JFX_GROW 4u                                     /* (0.6.0 rev 2) new blocks a block, at most */
+#define JFX_RETRY ((uint32_t)FS / CTL / 4u)             /* (0.6.0 rev 2) 0.25 s after the arena was short */
+#define JFX_YIELD ((uint32_t)FS / CTL / 2u)             /* (0.6.0 rev 2) 0.5 s after the effects gave way to an engine */
+static uint8_t jfx_full_acc;
+static uint32_t jfx_full_hold;
 static uint32_t jfx_idle;
-static uint8_t jfx_sends;                               /* this block's sends that are not silent: 1 chorus 2 delay 4 reverb */
+static uint8_t jfx_sends;                               /* the buses wanted this block: 1 chorus 2 delay 4 reverb (a send
+                                                         * not silent, or a track's send set) */
+static void jfx_free_dly(void)
+{
+    for (uint32_t k = 0; k < DLY_NSEG; k++) {
+        resource_release(RES_JFX0 + JB_DLY0 + k);
+        dly_seg[k] = 0;
+    }
+    dly_have = 0;
+}
+static void jfx_free_rx(uint32_t from)                  /* the model line's blocks from `from` on */
+{
+    for (uint32_t k = from; k < RX_NSEG; k++) {
+        resource_release(RES_JFX0 + JB_RX0 + k);
+        rx_seg[k] = 0;
+    }
+    if (rx_have > from) rx_have = (uint8_t)from;
+}
 static void jfx_free_buses(void)
 {
-    resource_release(RES_JFX0 + JB_DLY0);
-    resource_release(RES_JFX0 + JB_DLY1);
+    jfx_free_dly();
+    jfx_free_rx(0);
     resource_release(RES_JFX0 + JB_REV);
-    resource_release(RES_JFX0 + JB_REVX);
     resource_release(RES_JFX0 + JB_CHO);
-    dly_seg[0] = dly_seg[1] = 0;
     jrev = 0;
-    jrev_x = 0;
-    jrev_x_len = 0;
     cho_buf = 0;
     {   /* as from a new project: the states from silence (the lines come back zeroed) */
         uint32_t keep_rt = fx.rtype;
@@ -1771,11 +1853,27 @@ static void jfx_free_buses(void)
         rev_state_clear();
     }
 }
+/* block jb of `bytes`: held (its pointer), else taken now when this block may take one more; 0 otherwise (*nomem set
+ * when the arena had none) */
+static void *jfx_take(uint32_t jb, uint32_t bytes, uint8_t *nomem)
+{
+    uint32_t size = (bytes + 3u) & ~3u;
+    void *p;
+    if (resource[RES_JFX0 + jb].size == size)
+        return resource[RES_JFX0 + jb].ptr;
+    if (jfx_wait || jfx_grow >= JFX_GROW)
+        return 0;
+    jfx_grow++;
+    p = resource_get(RES_JFX0 + jb, bytes);
+    if (!p) *nomem = 1;
+    return p;
+}
 static void jfx_mem(void)
 {
-    uint32_t want = jfx_sends, rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4), xl;
-    uint8_t full = 0;
-    int held = dly_seg[0] || jrev || cho_buf;
+    uint32_t want = jfx_sends, rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4), k, need;
+    uint8_t full = 0, nm_r = 0, nm_c = 0, nm_d = 0;
+    int held = dly_have || jrev || cho_buf || rx_have;
+    jfx_grow = 0;
     if (!want && held && fx_rest_ph >= 6u) {            /* at rest, cleared: count to the release */
         if (++jfx_idle >= JFX_IDLE) {
             jfx_free_buses();
@@ -1784,42 +1882,81 @@ static void jfx_mem(void)
     } else {
         jfx_idle = 0;
     }
-    if (((want & 1u) || cho_buf) && !cho_buf) {
-        cho_buf = resource_get(RES_JFX0 + JB_CHO, CHO_LEN * sizeof(int16_t));
-        if (!cho_buf) full |= JFX_FULL_CHO;
-    } else if (cho_buf) {
-        cho_buf = resource_get(RES_JFX0 + JB_CHO, CHO_LEN * sizeof(int16_t));   /* (the same block: its pointer) */
-    }
-    if ((want & 2u) || dly_seg[0]) {
-        dly_seg[0] = resource_get(RES_JFX0 + JB_DLY0, DLY_SEG * sizeof(int16_t));
-        dly_seg[1] = dly_seg[0] ? resource_get(RES_JFX0 + JB_DLY1, DLY_SEG * sizeof(int16_t)) : 0;
-        if (!dly_seg[1]) {                              /* (both halves or none) */
-            resource_release(RES_JFX0 + JB_DLY0);
-            resource_release(RES_JFX0 + JB_DLY1);
-            dly_seg[0] = 0;
-            full |= JFX_FULL_DLY;
+    if ((want & 4u) || jrev) {                          /* the reverb first: its 11.9 KB in one piece */
+        jrev = jfx_take(JB_REV, sizeof(jrev_t), &nm_r);
+        need = rt == 4u ? RX_NSEG : 1u;                 /* (CLOUD its 0.74 s; the others the pre-delay or SHIMMER's) */
+        if (need < rx_have) need = rx_have;             /* (never shrunk while held) */
+        for (k = 0; jrev && k < need; k++)
+            if ((rx_seg[k] = jfx_take(JB_RX0 + k, JFX_SEG * sizeof(int16_t), &nm_r)) == 0)
+                break;
+        if (jrev) rx_have = (uint8_t)k;
+        if (nm_r) {                                     /* (short: the reverb keeps what its model can run with) */
+            if (!jrev) jfx_free_rx(0);
+            else if (rx_have < RX_NSEG) jfx_free_rx(rx_have ? 1u : 0u);
         }
-    }
-    if ((want & 4u) || jrev) {
-        jrev = resource_get(RES_JFX0 + JB_REV, sizeof(jrev_t));
-        xl = rt == 4u ? CL_LEN : SH_LEN;                /* (CLOUD its 0.74 s; the others the pre-delay or SHIMMER's) */
-        if (!jrev) {
+        if ((want & 4u) && (!jrev || !rev_can_run(rt) || (rt <= 1u && !rx_have)) && (nm_r || jfx_wait))
             full |= JFX_FULL_REV;
-            jrev_x = 0;
-        } else if (xl > jrev_x_len || !jrev_x) {        /* (a longer line: CLOUD; never shrunk while held) */
-            int16_t *p = resource_get(RES_JFX0 + JB_REVX, xl * sizeof(int16_t));
-            if (p) {
-                jrev_x = p;
-                jrev_x_len = xl;
-            } else {
-                full |= JFX_FULL_REV;
-                if (jrev_x_len) jrev_x = resource_get(RES_JFX0 + JB_REVX, jrev_x_len * sizeof(int16_t));
-            }
-        } else {
-            jrev_x = resource_get(RES_JFX0 + JB_REVX, jrev_x_len * sizeof(int16_t));
-        }
     }
-    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | full);
+    if ((want & 1u) || cho_buf) {
+        cho_buf = jfx_take(JB_CHO, CHO_LEN * sizeof(int16_t), &nm_c);
+        if ((want & 1u) && !cho_buf && (nm_c || jfx_wait)) full |= JFX_FULL_CHO;
+    }
+    if ((want & 2u) || dly_have) {
+        for (k = 0; k < DLY_NSEG; k++)
+            if ((dly_seg[k] = jfx_take(JB_DLY0 + k, JFX_SEG * sizeof(int16_t), &nm_d)) == 0)
+                break;
+        if (k == DLY_NSEG && dly_have < DLY_NSEG) fx.dfresh = 1;   /* (complete now: set up as new, fx_buses) */
+        dly_have = (uint8_t)k;
+        if (nm_d) jfx_free_dly();                       /* (all or none: a part given back) */
+        if ((want & 2u) && dly_have < DLY_NSEG && (nm_d || jfx_wait)) full |= JFX_FULL_DLY;
+    }
+    if (jfx_wait) jfx_wait--;
+    if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;
+    if (full) {                                         /* (0.6.0 rev 2) FX FULL held on screen a second past the
+                                                         * last block that wanted memory and got none: a send between
+                                                         * notes is silent, and the words flickered */
+        jfx_full_acc |= full;
+        jfx_full_hold = JFX_FULL_HOLD;
+    } else if (jfx_full_hold && !--jfx_full_hold) {
+        jfx_full_acc = 0;
+    }
+    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | jfx_full_acc);
+}
+/* (0.6.0 rev 2) mix.c, each block first (CPU0, no bus job outstanding): an engine short of memory while the effects
+ * held some (resources.c res_jfx_yield): all of theirs given back, none taken for JFX_YIELD blocks. The card's pool
+ * slots taken back by the main loop (their res_lend_ok bits cleared): every bus with a block there given back, then
+ * their res_lend_used bits cleared (the main loop waits for them before the card uses the slots) */
+static void jfx_lend_check(void)
+{
+    if (res_jfx_yield) {
+        res_jfx_yield = 0;
+        jfx_free_buses();
+        if (sl_buf) {
+            resource_release(RES_JFX0 + JB_SL);
+            sl_buf = 0;
+            slicer_drop();
+        }
+        jfx_wait = JFX_YIELD;
+        jfx_full_acc |= jfx_sends & 7u;                 /* (what was playing: FX FULL a while) */
+        jfx_full_hold = JFX_FULL_HOLD;
+    }
+    if (!(res_lend_used & (uint8_t)~res_lend_ok))
+        return;
+    {
+        uint32_t k, back = res_lend_used & (uint8_t)~res_lend_ok, lent = 0, used = 0;
+        for (k = 0; k < JB_N; k++)
+            if (k != JB_SL && (resource_lent(RES_JFX0 + k) & back)) lent = 1;
+        if (lent) jfx_free_buses();                     /* (a bus with a block there: the whole bus) */
+        if (sl_buf && (resource_lent(RES_JFX0 + JB_SL) & back)) {
+            resource_release(RES_JFX0 + JB_SL);
+            sl_buf = 0;
+            slicer_drop();
+        }
+        for (k = 0; k < JB_N; k++)                      /* (what is still lent: other slots) */
+            used |= resource_lent(RES_JFX0 + k);
+        RES_LEND_PUBLISH();
+        res_lend_used = (uint8_t)used;
+    }
 }
 
 /* the buses' job (CPU1 when there is one): the sends of this block in, fx_wet / fx_sl / fx_sr out */
@@ -1838,11 +1975,22 @@ static void jfx_bus_start(uint32_t n)
         s |= send_d[i] ? 2u : 0u;
         s |= send_r[i] ? 4u : 0u;
     }
+    {   /* (0.6.0 rev 2) a track with a send set wants its bus too, silent or not: the memory comes in (over a few
+         * blocks, JFX_GROW) before its first note, and stays while the send is set (an engine short of memory still
+         * comes first: res_jfx_yield) */
+        uint32_t k, nt = trk_n();
+        for (k = 0; k < nt; k++) {
+            const int16_t *p = trk[k].p;
+            s |= p[P_CHOR] > 0 ? 1u : 0u;
+            s |= p[P_DLY] > 0 ? 2u : 0u;
+            s |= p[P_REV] > 0 ? 4u : 0u;
+        }
+    }
     jfx_sends = (uint8_t)s;
     jfx_mem();
     jfx_bus_n = n;
     jfx_bus_pending = 0;
-    jfx_bus_ran = dly_seg[0] || jrev || cho_buf;
+    jfx_bus_ran = dly_have || jrev || cho_buf;
     if (!jfx_bus_ran) {                                 /* nothing held, nothing sent: no buses at all */
         memset(fx_wet, 0, n * sizeof *fx_wet);
         memset(fx_sl, 0, n * sizeof *fx_sl);
@@ -1908,8 +2056,11 @@ static void jfx_power_on(void)
     jfx_free_buses();
     resource_release(RES_JFX0 + JB_SL);
     sl_buf = 0;
-    jfx_full = 0;
+    jfx_full = jfx_full_acc = 0;
+    jfx_full_hold = 0;
     jfx_idle = 0;
+    jfx_wait = jfx_grow = 0;
+    res_jfx_yield = 0;
     jfx_reset_now();
     lim_env = LIM_T;                                    /* the master's own states (a project load keeps them: no step) */
     lev_env = lev_dg = 0;

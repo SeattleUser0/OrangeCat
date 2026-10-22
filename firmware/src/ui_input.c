@@ -56,6 +56,7 @@ static uint32_t cur_fam(void)                       /* (an engine's own envelope
 }
 
 static int layer_set_open(void);                       /* (ui_layer.c) */
+static uint32_t layer_open(void);
 static int8_t *octave_control(void)
 { return TSEL->p[P_QUANT] == Q_MPC ? &TSEL->mpc_octave : &song.octave; }
 /* OCT- / OCT+ shift the octave on Stage (HOME) only; everywhere else, and over Stage's menu, dialogs and popups,
@@ -2527,8 +2528,8 @@ static void ui_input(void)
                 oct_eat |= (uint8_t)bit;
                 break;
             }
-            if (act_cols() || layer_set_open() || list_on())   /* action, list pages: enter / back (below); SET layers:
-                                                                 * OCT- */
+            if (act_cols() || layer_set_open() || layer_open() == LAYER_FX || list_on())   /* action, list pages: enter /
+                                                                 * back (below); SET layers: OCT-; (0.6.0) FX: all off */
                 break;
             if (!ui.home && cur_page()->graph == GR_BROWSE) {   /* the browser: OCT- back, OCT+ keep (ui_browser.c) */
                 browser_key(b == B_OCTUP);

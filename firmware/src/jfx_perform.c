@@ -288,7 +288,8 @@ static void jfx_sl_mem(uint32_t held)
 {
     int want = song.g[G_SLMODE] == SL_STUT || sl.w || pf.mode != BM_NONE || (held & PF_BUF);
     if (want) {
-        sl_buf = resource_get(RES_JFX0 + JB_SL, SL_FR * 2u * sizeof(int16_t));
+        sl_buf = sl_buf || !jfx_wait ? resource_get(RES_JFX0 + JB_SL, SL_FR * 2u * sizeof(int16_t)) : 0;   /* (0.6.0
+                                                     * rev 2: none taken while the effects wait, jfx.c jfx_mem) */
         if (sl_buf) jfx_full &= (uint8_t)~JFX_FULL_SL;
         else jfx_full |= JFX_FULL_SL;
     } else {

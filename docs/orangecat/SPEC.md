@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.16  
+**Version:** 0.17  
 **Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.17 (October 22, 2026):** The effects are Jiant FM's (9.3.1, on the fx-jiant branch, not released): per-track DIST and AUTO PAN, shared DELAY, five REVERBs, CHORUS, SLICER, master chain and punch-in effects. One internal user sample slot of a Felucca slot's size (10.5). Projects FUN23 (11.2).
 - **0.16 (October 22, 2026):** Freezes belong to phrases, not tracks: a frozen phrase plays its take on any track that plays it, is locked against edits and recording until unfrozen, is kept in the record store, and shows on HOME greyed with a blue tint (10.6).
 - **0.15 (October 22, 2026):** MACRO and SHAPES voices claim budget units by measured cost, so heavy models play fewer notes at once (8.1.1).
 - **0.14 (October 22, 2026):** MACRO's HARP model, Orange Cat's own (8.1.1). The USB drive test removed: the card is used by frozen tracks only, with no page of its own (10.5).
@@ -433,6 +434,26 @@ Prioritize:
 
 Effects shall provide useful grit and motion without requiring destructive processing of source samples.
 
+#### 9.3.1 Built (0.6.0, branch fx-jiant): Jiant FM's effects
+
+Orange Cat's effects are ported from Jiant FM (main dc8d025, 0.9.18). Melodee's PHASER, WIDTH, FORMANT, TAPE, SPIT,
+ECHO, ROOM, REVERB and CHORUS (three inserts and three shared slots) are removed.
+
+- Per track: DIST (SOFT HARD FOLD CRUSH RECT AMP; drive, tone), AUTO PAN (depth, free or tempo rate, five waves),
+  three sends (chorus, delay, reverb), and a route into the SLICER.
+- Shared: DELAY (analog or digital, synced or free time to 2.95 s, feedback past 100 % into saturation, resonant tone,
+  wow and flutter, width, ping-pong, grain pitch and spray), REVERB (ROOM, SPRING, SHIMMER, RESO tuned to a track,
+  CLOUD with FREEZE), CHORUS, the SLICER (gate and stutter, 16 patterns, pitch sequence, its own input routing and
+  the effects' return through it).
+- Master: DJ filter, CLIP, a leveler (off by default), speaker EQ, then the limiter and soft clip.
+- Punch-in (FX held): REPEAT 1/8 1/16 1/32, GLITCH, TAPE stop, FREEZE, SHUFFLE, CRUSH and THROW sweeps, track mutes,
+  a filter macro. Jiant's note effects (octave, decay, stutter, arp, random, half tempo) are not ported.
+- Memory: the shared effects take their buffers from the audio arena while a send to them is set, in 4 KB blocks
+  (the reverb's tank in one piece). The card's player slots the card is not using are lent to them. Engines come
+  first: an engine short of memory makes the effects let go. When there is not enough, an effect plays dry and says
+  FX FULL; nothing is shortened or simplified.
+- Control: device pages, MIDI CC 91/93/94/104, motion for DIST, TONE, AUTO PAN depth and the sends, the web editor.
+
 ## 10. Sampling and Instrument Bouncing
 
 ### 10.1 Sample management
@@ -490,6 +511,11 @@ Editing the source patch and rebouncing shall be supported.
 The FM-1 has 1 MiB of flash in total (2.1.1). Melodee disabled user samples and gave that flash to other data. Skiff reserves about 240 KB for three 80 KB user sample slots. At IMA ADPCM, one 80 KB slot holds only a few seconds of mono audio.
 
 Orange Cat shall set aside a sample and bounce area by reclaiming flash, and the interface shall show its size and what is left.
+
+Built in 0.6.0 (branch fx-jiant): one internal user sample slot, as large as one of Felucca's three (81,408 bytes of
+data and its header). It is 22 sectors at 0xB2000..0xC7FFF taken from the record store (which keeps 34), each with
+its last 256 bytes erased for the update loader's scan. Felucca's other two slots stay reclaimed. Loading goes through
+new editor commands (110..114); the old upload commands stay retired. No engine plays it yet.
 
 USB flash drive support was tested early (Build.md, phase 2). Results on the FM-1 (October 21, 2026):
 
@@ -592,6 +618,9 @@ Native projects shall preserve:
 Provide complete backup packages containing required audio assets, or an explicit manifest of missing assets.
 
 Separate project-specific state from global device preferences.
+
+Since 0.6.0 a project record is FUN23 and the template TPLM: the effects' settings are in both. FUN22 and older, TPLL
+and older load converted (each old send to the new effect of its slot's kind; the old inserts dropped).
 
 Saves and imports shall detect incomplete or corrupt data and preserve a recoverable prior state where practical.
 

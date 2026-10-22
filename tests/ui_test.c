@@ -3089,11 +3089,14 @@ static int test_layer(void)
     go_home(); hold(B_SEQ); ok &= cur_page()->graph == GR_PATGRID;
     bad += check("HOME (menu) and SEQ (PATTERNS) holds of 0.7 s", ok);
 
+    /* (Orange Cat 0.6.0) FX is a layer now (the punch-in effects): held, its map and its keys; a tap, its page */
     ui_power_on();btn_down(B_FX);frames(800);
-    ok=ui.home && !ui.layer && !(kb_mask & (1u<<panel.btn[B_FX]));
-    key_down(white(0));frame();ok &= gates()>0 && !kb_layer;
+    ok=ui.layer==LAYER_FX && (kb_mask & (1u<<panel.btn[B_FX])) && kb_fx;
+    key_down(white(0));frame();ok &= !gates() && kb_layer && ((perf_down>>PF_R8)&1u);
     key_up(white(0));btn_up(B_FX);frame();
-    bad += check("FX opens its page on release, with no layer or key capture",ok && !ui.home && cur_page()->fam==FAM_FX && !ui.layer);
+    ok &= ui.home && !((perf_down>>PF_R8)&1u);
+    ui_power_on();press(B_FX);frame();
+    bad += check("FX held: the punch-in map, its keys play effects (no notes); FX tapped: its page",ok && !ui.home && cur_page()->fam==FAM_FX && !ui.layer);
     return bad;
 }
 
@@ -4708,12 +4711,16 @@ static int test_bughunt_ui(void)
             btn_up(LB[i]); frame();
             ok &= oct_leds() == 2u;
         }
-        ui_power_on();
+        ui_power_on();                                  /* (0.6.0) FX (HOLD): OCT- every punch-in off, not the octave */
+        song.octave = 1;
         btn_down(B_FX); frames(500);
-        ok &= !ui.layer && ui.home;
+        ok &= ui.layer == LAYER_FX;
+        perf_down = 1u << PF_GLT; perf_held = 1u << PF_GLT;
+        press(B_OCTDN); { int32_t o[2 * CTL]; mix_block(o, CTL); }
+        ok &= !perf_held && !perf_down && song.octave == 1;
         btn_up(B_FX); frame();
     }
-    bad += check("SET layers: the OCT- LED lit (UNDO), OCT+ dark; after: the octave; FX: the octave", ok);
+    bad += check("SET layers: the OCT- LED lit (UNDO), OCT+ dark; after: the octave; FX: OCT- every effect off", ok);
     /* 9: no "HOLD [EDIT] QUICK" over NAME (EDIT tapped on USER / PROJECT renames) */
     ui_power_on_general();
     up_ui(2, 0);

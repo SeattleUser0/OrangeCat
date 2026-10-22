@@ -682,9 +682,54 @@ static int library_transfers(void)
     sysex_cancel();bad+=check("cancel releases a pending import without changing its destination",!sx_import.count&&native_used(ENGI_FM6,3));
     return bad;
 }
+/* (Orange Cat 0.6.0) the internal sample slot's commands 110..114 (smp_slot.c); the old 11..14 stay inert */
+static int sample_slot_protocol(void)
+{
+    static uint8_t data[1000], hdr[512], a[600];
+    smp_hdr_t h;
+    uint32_t n, i;
+    int bad = 0;
+    reset(); smp_slot_boot();
+    request(110, 0, 0);
+    bad += check("SLOT_INFO: the slot there and empty, its capacity 81,408 bytes",
+                 host_wire[5] == SMP_EMPTY && (host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14) == SMP_SLOT_MAX);
+    for (i = 0; i < sizeof data; i++) data[i] = (uint8_t)(i * 7u + 3u);
+    a[0] = 1000u & 127u; a[1] = 1000u >> 7; a[2] = 0;
+    request(111, a, 3);
+    int ok = host_wire[5] == 0;
+    for (uint32_t off = 0; off < sizeof data; off += 256u) {
+        uint32_t k = sizeof data - off < 256u ? sizeof data - off : 256u;
+        a[0] = off & 127u; a[1] = (off >> 7) & 127u; a[2] = 0;
+        n = pack7(data + off, k, a + 3);
+        request(112, a, 3u + n);
+        ok &= host_wire[5] == 0 && (host_wire[6] | host_wire[7] << 7) == off + k;
+    }
+    a[0] = 0; a[1] = 0; a[2] = 0; n = pack7(data, 10, a + 3);
+    request(112, a, 3u + n);                                    /* (out of order: refused) */
+    ok &= host_wire[5] == 1;
+    memset(&h, 0, sizeof h); memset(hdr, 0, sizeof hdr);
+    h.magic = SMP_FSMP_MAGIC; h.version = 1; h.nz = 1; memcpy(h.name, "BELL", 4); h.data_len = sizeof data;
+    h.crc = ocs_crc32(data, sizeof data); memcpy(hdr, &h, sizeof h);
+    n = pack7(hdr, sizeof hdr, a);
+    request(113, a, n);
+    ok &= host_wire[5] == 0;
+    request(110, 0, 0);
+    ok &= host_wire[5] == SMP_FULL && (host_wire[6] | host_wire[7] << 7) == sizeof data && host_wire[9] == 1 &&
+          !memcmp(host_wire + 13, "BELL", 4);
+    {
+        uint8_t back[1000];
+        ok &= !smp_slot_read(0, back, sizeof back) && !memcmp(back, data, sizeof data);
+    }
+    bad += check("SLOT_BEGIN / WRITE / END: a sample written in order, its header checked, read back; out of order refused", ok);
+    request(11, a, 1);
+    bad += check("the old SMP_BEGIN (11) stays inert: no reply, the slot as it was", host_wire_n == 0 && smp_slot_info(0, 0, 0) == SMP_FULL);
+    request(114, 0, 0);
+    bad += check("SLOT_ERASE: the slot empty", host_wire[5] == 0 && smp_slot_info(0, 0, 0) == SMP_EMPTY);
+    return bad;
+}
 int main(void)
 {
-    int bad = library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
