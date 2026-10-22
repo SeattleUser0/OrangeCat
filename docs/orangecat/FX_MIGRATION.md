@@ -186,7 +186,7 @@ sequencer first (editor.c ed_flash_stop).
 | SLICER / FX layer buffer | 32 KB, one piece | while STUT runs or a buffer effect plays |
 
 Totals: all three buses 84 KB (112 KB with CLOUD), plus 32 KB for the SLICER's STUT or the FX layer's buffer effects.
-The arena is 89.9 KB on the device (104.2 KB with the cache RAM), plus whatever card slots are idle (up to 36 KB). The
+The arena is 89.4 KB on the device (103.7 KB with the cache RAM), plus whatever card slots are idle (up to 36 KB). The
 engines come first. Measured on the host with the device's bank sizes (tests/jfx_arena_test.c, the table is in
 BUILD.md): with the card idle, the delay, a reverb (not CLOUD) and the chorus all hold beside any four engines, four
 SHAPES or MACRO tracks included. With one take loaded they hold beside lighter sets (DRUM FM6 MACRO SHAPES, two heavy

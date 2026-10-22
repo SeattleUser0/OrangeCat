@@ -859,16 +859,16 @@ everything else working. The full record of decisions is docs/orangecat/FX_MIGRA
 
 Firmware (CI builds of the branch; baseline 0.5.6 at 10615fc):
 
-| Measure | 0.5.6 (10615fc) | 0.6.0 first build (e3ee00e) | 0.6.0 (9041a85) |
+| Measure | 0.5.6 (10615fc) | 0.6.0 first build (e3ee00e) | 0.6.0 (538da90) |
 |---|---|---|---|
-| Firmware image | 542,664 B | 563,568 B | 564,208 B (of 573,440) |
-| RAM .data + .bss | 93,912 B | 90,888 B | 91,192 B (of 98,304) |
+| Firmware image | 542,664 B | 563,568 B | 564,852 B (of 573,440) |
+| RAM .data + .bss | 93,912 B | 90,888 B | 91,208 B (of 98,304) |
 | POOL | 218,656 B | 218,400 B | 218,400 B (of 344,064) |
-| Arena: main / low / data / retained | 55,328 / 17,392 / 4,392 / 4,688 B | 54,272 / 23,848 / 7,416 / 4,688 B | 54,208 / 23,844 / 7,112 / 4,688 B |
-| Arena total (with cache RAM) | 81,800 B (96,136 B) | 90,224 B (104,560 B) | 89,852 B (104,188 B) |
+| Arena: main / low / data / retained | 55,328 / 17,392 / 4,392 / 4,688 B | 54,272 / 23,848 / 7,416 / 4,688 B | 53,728 / 23,844 / 7,096 / 4,688 B |
+| Arena total (with cache RAM) | 81,800 B (96,136 B) | 90,224 B (104,560 B) | 89,356 B (103,692 B) |
 | Card pool lent when idle | none | none | up to 36,864 B (4 slots of 9 KB) |
-| RAM code: .audio_text / .dsp_text / .ram_text | 61,812 / 7,106 / 3,394 B | 63,138 / 666 / 3,378 B | 63,180 / 666 / 3,382 B |
-| Effects group (size report): flash / static RAM | 11,928 / 19,967 B | 12,414 / 1,376 B | 12,522 / 1,481 B |
+| RAM code: .audio_text / .dsp_text / .ram_text | 61,812 / 7,106 / 3,394 B | 63,138 / 666 / 3,378 B | 63,664 / 666 / 3,382 B |
+| Effects group (size report): flash / static RAM | 11,928 / 19,967 B | 12,414 / 1,376 B | 12,524 / 14 B (the report files most effect state under Other, for example dlo 1,628 B) |
 | Effect buffers | from the arena, per slot | from the arena, 2 x 32 KB delay | from the arena, 4 KB blocks |
 
 Effects' memory in an arena of the device's sizes (tests/jfx_arena_test.c, host, the linker's bank sizes). "yes":
