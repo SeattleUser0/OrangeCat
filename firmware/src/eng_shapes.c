@@ -29,6 +29,7 @@
  *   0.5.1: first version.
  *   0.5.2: polyphonic: four voices (SH_POLY) but in the delay line shapes (sh_cap), which share one set of delay lines
  *          (sh_part_t.lines, voice 0's); the pad, keys, bell and choir presets play POLY.
+ *   0.5.3: voice units by shape from measured costs (sh_units: 2 to 4; was 2 for all).
  */
 #include "braids/pb_macro.h"
 #include "plaits/pl_dsp.h"                                /* (its float filter and soft clip) */
@@ -181,7 +182,22 @@ static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
     pl_flush(&s->dc_y);
 }
 
-static SH_XIP uint32_t sh_units(const track_t *t) { (void)t; return 2u; }
+/* the voice budget's units a voice takes (voice.c; a CZ-1 voice 2, 16 in all). (0.5.3) Measured on the host against
+ * CZ-1 INIT TONE (as eng_macro.c MC_UNITS): most shapes 1.2x to 1.8x (2 units), the three-oscillator, folding, additive
+ * and FM ones about 2x (3), DRUM 3x (4) */
+static SH_XIP uint32_t sh_units(const track_t *t)
+{
+    switch (SH_SHAPES[clamp(t->p[P_E0], 0, SH_N - 1)]) {
+    case PB_SHAPE_SINE_TRIANGLE: case PB_SHAPE_TRIPLE_SQUARE: case PB_SHAPE_TRIPLE_TRIANGLE:
+    case PB_SHAPE_DIGITAL_FILTER_LP: case PB_SHAPE_HARMONICS: case PB_SHAPE_FM: case PB_SHAPE_FEEDBACK_FM:
+    case PB_SHAPE_STRUCK_BELL:
+        return 3u;
+    case PB_SHAPE_STRUCK_DRUM:
+        return 4u;
+    default:
+        return 2u;
+    }
+}
 
 /* name, {SHAPE, TIMBRE, COLOR, CUTOFF, RES, DRIVE, BITS, RATE}, {A D S R}, ENV -> FILTER, mono (0.5.2: 0, POLY, for
  * the pads, keys, bells and the choir: they play a step's four notes) */

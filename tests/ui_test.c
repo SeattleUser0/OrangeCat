@@ -5805,6 +5805,7 @@ static int test_seq_keys(void)
     ui_power_on();
     return bad;
 }
+#ifndef UI_TEST_NO_MAIN                                 /* (Orange Cat 0.5.3: tests/oc_pages_test.c has its own) */
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -5888,4 +5889,5 @@ int main(void)
     printf(bad ? "ui: %d FAILED\n" : "ui: all passed\n", bad);
     return bad ? 1 : 0;
 }
+#endif
 #endif

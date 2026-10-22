@@ -36,7 +36,8 @@
  *   0.5.0: first version.
  *   0.5.2: polyphonic: four voices (MC_POLY) but in PARTCL and STRING (mc_cap); a voice's state apart (mc_vhead_t, the
  *          model's in mc_part_t.m.small[voice]); the pad, keys, chord and bell presets play POLY. HARP (a 15th model,
- *          one string a voice) with presets HARP and STRING CHORDS.
+ *          one string a voice) with presets HARP and STRING CHORDS. Voice units by model from measured costs (MC_UNITS):
+ *          0.5.2's flat 3 let a four note ORGAN DRAWBAR chord overload the unit.
  */
 #include "plaits/pl_dsp.h"
 #include "plaits/pl_osc.h"
@@ -258,17 +259,22 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
     }
 }
 
-/* the voice budget's units a voice takes (voice.c): (0.5.2) by its model's cost, now that a track may sound four.
- * VA, WAVSHP and HARP (one string) about a CZ-1 voice: 2; ADDTV the dearest: 4; the rest 3 (host figures:
- * tests/macro_test) */
+/* the voice budget's units a voice takes (voice.c): by its model's cost, now that a track may sound four. The budget is
+ * 16 units for the whole FM-1 (GLO > GLOBAL BUDGET), a CZ-1 voice 2. (0.5.3) Measured: each model's single voice on the
+ * host against CZ-1 INIT TONE's, minus the idle mix (VA 1.8x, WAVSHP 2.2, FM 5.4, GRAIN 2.8, ADDTV 4.0 to 4.8, CHORD
+ * 2.4 to 3.5, SWARM 2.8 to 3.7, NOISE 2.6, PARTCL 3.9, STRING 3.6, MODAL 3.6 to 4.2, KICK 2.5, SNARE 2.4, HI-HAT 2.9,
+ * HARP 1.9), units 1.5 x that, rounded (the host's ratios are not the unit's: halfway between them and 0.5.2's flat
+ * 3, until the unit's CPU meter says better). 0.5.2's 3 for every model let four ADDTV voices (ORGAN DRAWBAR, a four
+ * note chord) run past the processor on the unit: the sound broke up. Now ADDTV takes 7: two notes at once. */
+static const uint8_t MC_UNITS[MC_N] = {3, 3, 8, 4, 7, 5, 5, 4, 6, 6, 6, 4, 4, 5, 3};
 static MC_XIP uint32_t mc_units(const track_t *t)
 {
-    uint32_t model = (uint32_t)clamp(t->p[P_E0], 0, MC_N - 1);
-    return model <= MC_WAVSHP || model == MC_HARP ? 2u : model == MC_ADDTV ? 4u : 3u;
+    return MC_UNITS[clamp(t->p[P_E0], 0, MC_N - 1)];
 }
 
 /* name, {MODEL, HARM, TIMBRE, MORPH, AUX, LPG, DECAY, T.MOD}, {A D S R}, ENV -> FILTER (MORPH), mono (0.5.2: 0, POLY,
- * for the pads, keys, chords and bells: they play a step's four notes) */
+ * for the pads, keys and bells: they play a step's four notes; 0.5.3: the CHORD presets LEG again, the model makes its
+ * own four note chord from one key, and four of those would take 20 voice units) */
 static const preset_t MC_PRESETS[] = {
     {"VA BASS", {MC_VA, 64, 30, 70, 0, 40, 50, 20}, {0, 60, 90, 20}, 10, 1},
     {"VA SYNC LEAD", {MC_VA, 76, 90, 40, 100, 0, 70, 0}, {0, 70, 110, 40}, 0, 1},
@@ -280,8 +286,8 @@ static const preset_t MC_PRESETS[] = {
     {"GRAIN SWEEP", {MC_GRAIN, 80, 90, 100, 60, 0, 90, -30}, {10, 90, 100, 70}, 0, 1},
     {"ORGAN DRAWBAR", {MC_ADDTV, 40, 50, 20, 0, 0, 70, 0}, {2, 60, 120, 30}, 0, 0},
     {"ADDITIVE PAD", {MC_ADDTV, 90, 64, 90, 64, 0, 100, 20}, {60, 90, 110, 90}, 0, 0},
-    {"CHORD MINOR", {MC_CHORD, 36, 40, 30, 0, 0, 70, 0}, {20, 80, 110, 70}, 0, 0},
-    {"CHORD STAB", {MC_CHORD, 70, 64, 60, 0, 80, 40, 0}, {0, 60, 0, 50}, 0, 0},
+    {"CHORD MINOR", {MC_CHORD, 36, 40, 30, 0, 0, 70, 0}, {20, 80, 110, 70}, 0, 1},
+    {"CHORD STAB", {MC_CHORD, 70, 64, 60, 0, 80, 40, 0}, {0, 60, 0, 50}, 0, 1},
     {"SWARM PAD", {MC_SWARM, 50, 40, 70, 0, 0, 90, 0}, {70, 90, 110, 90}, 0, 0},
     {"NOISE WIND", {MC_NOISE, 70, 50, 90, 0, 0, 90, 0}, {80, 90, 100, 90}, 0, 1},
     {"NOISE SWEEP", {MC_NOISE, 40, 90, 30, 64, 0, 80, -40}, {10, 80, 100, 70}, 0, 1},

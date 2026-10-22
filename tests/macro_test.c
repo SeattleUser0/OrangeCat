@@ -147,7 +147,7 @@ int main(int argc, char **argv)
         uint32_t i, b, n4 = 0, n1 = 0, pitches = 1;
         int finite = 1;
         fresh();
-        host_preset(&trk[0], ENGI_MACRO, 9);            /* (ADDITIVE PAD: POLY) */
+        host_preset(&trk[0], ENGI_MACRO, 2);            /* (FOLD PLUCK: POLY, 3 units a voice) */
         for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
         for (b = 0; b < 100; b++) {
             mix_block(out, CTL);
@@ -163,6 +163,20 @@ int main(int argc, char **argv)
         for (i = 0; i < NVOICE; i++) n1 += trk[0].v[i].active && trk[0].v[i].gate;
         snprintf(line, sizeof line, "POLY: a four note chord plays four voices (%u), STRING one (%u), no fault", n4, n1);
         check(line, n4 == 4u && n1 == 1u && pitches && finite);
+    }
+    {   /* (0.5.3) the voice budget (16 units) holds a heavy model's chord down: ORGAN DRAWBAR (ADDTV, 7 a voice) plays
+         * two of four held keys, the newest (0.5.2: four, which overloaded the unit) */
+        static const uint8_t chord[4] = {48, 52, 55, 59};
+        int32_t out[2 * CTL];
+        uint32_t i, b, n = 0, newest = 0;
+        fresh();
+        host_preset(&trk[0], ENGI_MACRO, 8);
+        for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
+        for (b = 0; b < 50; b++) mix_block(out, CTL);
+        for (i = 0; i < NVOICE; i++)
+            if (trk[0].v[i].active && trk[0].v[i].gate) { n++; newest |= trk[0].v[i].note == 59; }
+        snprintf(line, sizeof line, "budget: ORGAN DRAWBAR, four keys held: %u voices sound (7 units each of 16), the newest kept", n);
+        check(line, n == 2u && newest);
     }
     {   /* (0.5.2) HARP: STRING's string, one a voice: a chord rings on four */
         static const uint8_t chord[4] = {48, 52, 55, 59};

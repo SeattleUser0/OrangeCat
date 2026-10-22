@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.46 (October 22, 2026):** 0.5.4: two bugs from the unit. EDIT then SELECT back crashed (the unhooked engines' pages were shown); a four note ORGAN DRAWBAR chord broke up (MACRO's voice units too low). A new host test builds Orange Cat's own engine set under sanitizers.
 - **0.45 (October 22, 2026):** 0.5.3: HARP, a 15th MACRO model: STRING's string, one per voice, so chords ring. The USB drive test and the TRIO test voice switch removed from the firmware.
 - **0.44 (October 22, 2026):** 0.5.2: TRACKER gets four note columns and an FX column you can edit. MACRO and SHAPES play four voices a track, so a step's chord sounds.
 - **0.43 (October 22, 2026):** 0.5.1: SHAPES, a second engine: Braids ported to C, all 47 shapes checked sample for sample against the original.
@@ -595,6 +596,12 @@ Left to test (specification 13):
 - [ ] A Melodee 1.4.5 project imports with its notes, banks and arrangement.
 
 ---
+
+## Bugs found on the unit
+
+- [x] **0.5.4: EDIT, then SELECT two clicks back, crashed (0.5.2, track 1 on CHORD MINOR).** From EDIT 1, SELECT back goes to VOICE, then to the page before it, which was one of the Prophet's (P5 BEND). The Prophet is unhooked in Orange Cat, and its pages should never show. They did: the page filter (ui.c page_visible) had the engine switch inside the test of the page's kind, "(MELODEE_P5 && page is a Prophet page)", so with the switch off the test was false and the page fell through to "shown". The page then read parameter 155 of 124 and the firmware stopped. FM6's and DRUM's pages had the same fault. Fixed: those pages are shown only when their engine is in the build and on the track. Why the tests missed it: every host test builds all engines in. New: tests/oc_pages_test.c builds Orange Cat's own engine set (tools/orangecat_engines.sh) under the address and undefined-behaviour sanitizers, and on MACRO and SHAPES (a spread of presets) presses each family button and turns SELECT 40 pages back and 40 forward, checking every page reached. With the old filter it stops on this crash.
+- [x] **0.5.4: a four note ORGAN DRAWBAR chord broke up (0.5.2).** MACRO's voices each claimed 3 of the 16 voice budget units (a CZ-1 voice is 2), whatever the model. Measured on the host, a voice costs 1.8x (VA) to 5.4x (FM) a CZ-1 voice; ADDTV (ORGAN DRAWBAR, ADDITIVE PAD) about 4 to 5x, so four of them were far past the processor. On the host the output stayed clean (the mixer's limiter held it), so this was the unit running out of time. Now each model claims 1.5x its measured cost (eng_macro.c MC_UNITS: VA 3, WAVSHP 3, FM 8, GRAIN 4, ADDTV 7, CHORD 5, SWARM 5, NOISE 4, PARTCL 6, STRING 6, MODAL 6, KICK 4, SNARE 4, HI-HAT 5, HARP 3), and SHAPES' shapes 2 to 4 (sh_units). ORGAN DRAWBAR now holds two notes; held keys past that take the oldest note's place. The CHORD presets play one voice again (LEG): the model already makes a four note chord from one key. Tested: macro_test holds four keys on ORGAN DRAWBAR and finds two voices, the newest kept. The 1.5x is a guess between the host's figures and 0.5.2's: the unit's CPU meter will tell (left to test below).
+  - Left to test: ORGAN DRAWBAR, four keys held: two notes, clean. The CPU meter with one, two notes; with the power-on song playing.
 
 ## Phase 5: Track views
 

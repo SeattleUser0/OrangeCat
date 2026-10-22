@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.14  
+**Version:** 0.15  
 **Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.15 (October 22, 2026):** MACRO and SHAPES voices claim budget units by measured cost, so heavy models play fewer notes at once (8.1.1).
 - **0.14 (October 22, 2026):** MACRO's HARP model, Orange Cat's own (8.1.1). The USB drive test removed: the card is used by frozen tracks only, with no page of its own (10.5).
 - **0.13 (October 22, 2026):** The tracker view's columns: four notes a step, velocity, and effects with a command and an amount (6.1). MACRO and SHAPES play four voices a track (8.1.1).
 - **0.12 (October 22, 2026):** Braids built as the SHAPES engine (0.5.1, 8.1.1).
@@ -358,7 +359,7 @@ Mutable Instruments asks that derivative works not carry its name or keep the mo
 
 #### 8.1.1 Built so far
 
-- **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. Four voices per track in POLY (0.5.2), one in PARTCL and STRING (their 8 KB states). HARP (0.5.3), a model of Orange Cat's own, gives each voice one of STRING's strings so that chords ring. Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
+- **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. Four voices per track in POLY (0.5.2), one in PARTCL and STRING (their 8 KB states). HARP (0.5.3), a model of Orange Cat's own, gives each voice one of STRING's strings so that chords ring. Each voice claims budget units by its model's measured cost (0.5.4), so the heavy models (ADDTV, FM, MODAL) play two notes at once and the light ones four. Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
 - **Braids, as SHAPES (0.5.1).** All of Braids' shapes but the four wavetable ones (their 33 KB of waves), ported to C and checked sample for sample against the original. Set up as the M8's Macrosynth: shape, TIMBRE, COLOR, then a filter (cutoff, resonance), drive, bit reduction and sample-rate reduction; Melodee's ADSR, LFO and modulation for the rest. A note strikes the shape. Four voices per track in POLY (0.5.2), one in the five shapes with delay lines, which share one set. Not yet: the wavetable shapes; Braids' own AD envelope routings.
 
 Clouds’ buffer freeze is a sound-processing function and shall be distinguished from instrument bouncing or whole-track audio freezing.

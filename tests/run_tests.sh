@@ -358,6 +358,11 @@ if core && [ $TABLES = 1 ]; then
     t "settings: PER5 records, palette ids and preference preservation" settings_test -O1 -w -Ibuild/gen
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
+    # (Orange Cat 0.5.3) the pages Orange Cat's own build reaches, built with its engine switches (tools/orangecat_engines.sh:
+    # the other tests build every engine in), under ASan and UBSan
+    t "Orange Cat pages: every family and SELECT both ways on MACRO and SHAPES, its engine set, sanitizers" \
+        oc_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
+        -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW
     t "Prophet: all native tone knobs through the panel and sound engine" prophet_knob_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sound designer: native recipes, dependencies, compare, discard and save" designer_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sequencer: tied length/move/delete, eight-level undo/redo, MIDI step entry and playing-step recording" seq_edit_test \

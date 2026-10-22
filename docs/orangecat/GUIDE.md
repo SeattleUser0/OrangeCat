@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.5.3
+**Firmware:** 0.5.4
 **Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -126,7 +126,18 @@ The ADSR, LFO and modulation pages work as for any engine. ENV and LFO to SHAPE 
 | HI-HAT | Hi-hat | Metal against noise | High-pass cutoff | Decay |
 | HARP | Plucked strings, one per note, for chords | Material | Brightness | Decay |
 
-Each track plays up to four notes at once on MACRO when its voice mode is POLY (press EDIT until the VOICE page shows; KNOB 1 is VCE). The pad, keys, chord and bell presets start in POLY; the bass and lead presets in LEG (one note). PARTCL and STRING play one note at a time. STRING has three strings that ring on over each other as you play notes one after another, but notes started together (a chord) give only one. For chords on strings use HARP: each of the four notes gets its own string. Its presets are HARP and STRING CHORDS. CHORD also plays chords from one key. STRING, HARP, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
+Each track plays up to four notes at once on MACRO when its voice mode is POLY (press EDIT until the VOICE page shows; KNOB 1 is VCE). The pad, keys and bell presets start in POLY; the bass, lead and CHORD presets in LEG (one note; the CHORD model already plays a chord from one key).
+
+Some models cost the processor much more than others, so the FM-1 limits how many of their notes sound at once, across all tracks. If you hold more, the oldest notes stop. Roughly, on one track with nothing else playing:
+
+| Notes at once | Models |
+|---|---|
+| 4 | VA, WAVSHP, GRAIN, NOISE, KICK, SNARE, HARP |
+| 3 | CHORD, SWARM, HI-HAT |
+| 2 | ADDTV (ORGAN DRAWBAR, ADDITIVE PAD), MODAL, FM |
+| 1 | PARTCL, STRING (always one at a time, see above) |
+
+Other tracks playing at the same time take their share, so fewer notes are left. (Before 0.5.4 an ORGAN DRAWBAR chord of four notes ran the processor past its limit, and the sound broke up.) PARTCL and STRING play one note at a time. STRING has three strings that ring on over each other as you play notes one after another, but notes started together (a chord) give only one. For chords on strings use HARP: each of the four notes gets its own string. Its presets are HARP and STRING CHORDS. CHORD also plays chords from one key. STRING, HARP, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
 
 The models run at the FM-1's 44.1 kHz, so their own decay times are about 9% longer than on the module.
 

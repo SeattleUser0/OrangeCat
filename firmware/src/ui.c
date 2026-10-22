@@ -280,17 +280,20 @@ static int page_visible(uint32_t i)
         return motion_has_lanes(TSEL) || (!ui.home && ui.page == i);
     if (PAGES[i].fam == FAM_ENV && native_titles(FAM_ENV))   /* (the track's ADSR, ENV DEST: nothing there) */
         return 0;
-    if((MELODEE_DRUM && PAGES[i].scope == SC_DRUM) || (MELODEE_DRUM && PAGES[i].scope == SC_DRUMHIT))return drum_track(TSEL);
+    /* (Orange Cat 0.5.3) an unhooked engine's pages: never shown. The switch was in the test of the scope (0.1.x:
+     * "(MELODEE_P5 && scope == SC_P5)"), so with the engine out its pages fell through to "shown" on every track: SELECT
+     * turned back from EDIT 1 reached the Prophet's pages and read past the parameters (a crash on the unit) */
+    if (PAGES[i].scope == SC_DRUM || PAGES[i].scope == SC_DRUMHIT) return MELODEE_DRUM && drum_track(TSEL);
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum_track(TSEL);
     if(MELODEE_CZ && TSEL->eng_req==ENGI_CZ && PAGES[i].scope==SC_ENGINE && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
     if (PAGES[i].scope == SC_CZ)                       /* (PHASE's CZ mode; PHASE retired without MELODEE_LEGACY_EXTRAS) */
         return TSEL->eng_req == 2u && eng_ok(2u) && TSEL->p[P_E7] == 1;
-    if((MELODEE_P5 && PAGES[i].scope == SC_P5) || (MELODEE_P5 && PAGES[i].scope == SC_P5STORE))return (MELODEE_P5 && TSEL->eng_req == ENGI_PROPHET);
+    if (PAGES[i].scope == SC_P5 || PAGES[i].scope == SC_P5STORE) return MELODEE_P5 && TSEL->eng_req == ENGI_PROPHET;
     if (PAGES[i].scope == SC_CZ1)
         return MELODEE_CZ && TSEL->eng_req == ENGI_CZ;   /* CZ-1's tone: every panel value (Orange Cat: MELODEE_CZ) */
-    if ((MELODEE_FM6 && PAGES[i].scope == SC_FM6) || (MELODEE_FM6 && PAGES[i].scope == SC_FMOP))
-        return (MELODEE_FM6 && TSEL->eng_req == ENGI_FM6);              /* FM6's patch, operators and functions */
+    if (PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP)
+        return MELODEE_FM6 && TSEL->eng_req == ENGI_FM6;    /* FM6's patch, operators and functions */
 #if MELODEE_SLICE
     if (PAGES[i].graph == GR_SLICES)
         return SMP_USER_SLOTS && ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
