@@ -16,6 +16,9 @@
  *
  * Revisions:
  *   0.5.0: first version.
+ *   0.5.2: pl_harp_t, for MACRO's HARP model (Orange Cat's own, not the module's): one of these strings alone, so
+ *          that each of a track's four voices can have one (2.7 KB each; STRING's three take 8 KB). The string and
+ *          its excitation are the same code as STRING's.
  */
 #pragma once
 #include "pl_grp_c.h"
@@ -362,4 +365,36 @@ static inline void pl_string_flush(pl_string_t *e)
         pl_flush(&v->string.dc_blocker.y);
         pl_flush_n(v->string.out_sample, 2);
     }
+}
+
+/* --------------------------------------------- (Orange Cat 0.5.2) HARP --- */
+/* One string of STRING's, for a voice of its own: the engine's four voices are four strings, so a chord rings on four
+ * strings at once (STRING plays its three in turn, one note at a time). No f0 delay or string rotation: a new note on
+ * a voice restarts its string at once (the voice's ADSR covers the step). Same parameters as STRING. */
+typedef struct {
+    pl_string_voice_t voice;
+    float temp_buffer[PL_MAX_BLOCK];
+} pl_harp_t;
+
+static void pl_harp_init(pl_harp_t *e) { pl_string_voice_init(&e->voice); }
+static void pl_harp_reset(pl_harp_t *e) { pl_string_voice_reset(&e->voice); }
+static void pl_harp_render(pl_harp_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
+                           int *already_enveloped)
+{
+    size_t i;
+    (void)already_enveloped;
+    for (i = 0; i < size; ++i) out[i] = 0.0f;
+    for (i = 0; i < size; ++i) aux[i] = 0.0f;
+    pl_string_voice_render(&e->voice, (p->trigger & PL_TRIGGER_UNPATCHED) != 0,
+                           (p->trigger & PL_TRIGGER_RISING_EDGE) != 0, p->accent, pl_note_to_frequency(p->note),
+                           p->harmonics, p->timbre * p->timbre, p->morph, e->temp_buffer, out, aux, size);
+}
+static inline void pl_harp_flush(pl_harp_t *e)
+{
+    pl_string_voice_t *v = &e->voice;
+    pl_flush_svf(&v->excitation_filter);
+    pl_flush_svf(&v->string.iir_damping_filter);
+    pl_flush(&v->string.dc_blocker.x);
+    pl_flush(&v->string.dc_blocker.y);
+    pl_flush_n(v->string.out_sample, 2);
 }

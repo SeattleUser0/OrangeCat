@@ -85,8 +85,8 @@
 #define MIDI_TIME_NOW() fm1_ticks()
 #define MIDI_TICKS_PER_MS (1000u * FM1_TICKS_PER_US)
 #include "usb.c"
-#include "usb_host.c"            /* (Orange Cat 0.4.7) the USB drive test (Menu > USB DRIVE TEST) */
-#include "card_play.c"           /* (Orange Cat 0.4.11) a WAV from the drive: the audio side (audio.c) */
+#include "usb_host.c"            /* (Orange Cat 0.4.7) the USB port as a host, for the card frozen tracks use */
+#include "card_play.c"           /* (Orange Cat 0.4.11) frozen tracks' takes: the audio side (card_freeze.c) */
 #include "card_stream.c"         /* (Orange Cat 0.4.12) its reading, from the timer (main.c) */
 #if MELODEE_UART
 #include "midi_uart.c"
@@ -125,5 +125,5 @@
 #if MELODEE_CDC
 #include "console.c"
 #endif
-#include "usb_files.c"            /* (Orange Cat 0.4.10) the drive test's files: FatFs; last, as ff.c leaves macros */
+#include "usb_files.c"            /* (Orange Cat 0.4.10) the card's files (FatFs), frozen tracks' card side; last, as ff.c leaves macros */
 #include "main.c"

@@ -111,7 +111,7 @@ int main(int argc, char **argv)
         const preset_t *p = &MC_PRESETS[k];
         fresh();
         host_preset(&trk[0], ENGI_MACRO, k);
-        int32_t peak = play(p->e[0] >= MC_KICK ? 36 : 48, blocks / 5, blocks, &ns, &fr);
+        int32_t peak = play(p->e[0] >= MC_KICK && p->e[0] <= MC_HIHAT ? 36 : 48, blocks / 5, blocks, &ns, &fr);
         snprintf(line, sizeof line, "preset %-15s sounds (peak %5d), frees its voice %s", p->name, peak,
                  fr > 0 ? "" : "(NOT FREED)");
         check(line, peak > 300 && peak < 32768 && fr > 0);
@@ -163,6 +163,21 @@ int main(int argc, char **argv)
         for (i = 0; i < NVOICE; i++) n1 += trk[0].v[i].active && trk[0].v[i].gate;
         snprintf(line, sizeof line, "POLY: a four note chord plays four voices (%u), STRING one (%u), no fault", n4, n1);
         check(line, n4 == 4u && n1 == 1u && pitches && finite);
+    }
+    {   /* (0.5.2) HARP: STRING's string, one a voice: a chord rings on four */
+        static const uint8_t chord[4] = {48, 52, 55, 59};
+        int32_t out[2 * CTL], peak = 0;
+        uint32_t i, b, n = 0;
+        fresh();
+        host_preset(&trk[0], ENGI_MACRO, 25);           /* (HARP) */
+        for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
+        for (b = 0; b < 100; b++) {
+            mix_block(out, CTL);
+            for (i = 0; i < 2 * CTL; i++) peak = out[i] > peak ? out[i] : -out[i] > peak ? -out[i] : peak;
+        }
+        for (i = 0; i < NVOICE; i++) n += trk[0].v[i].active;
+        snprintf(line, sizeof line, "HARP: a four note chord rings on four voices (%u), peak %d", n, peak);
+        check(line, n == 4u && peak > 300 && peak < 32768 && !strcmp(MC_PRESETS[25].name, "HARP"));
     }
 
     {   /* four tracks of MACRO at once: the heaviest models */

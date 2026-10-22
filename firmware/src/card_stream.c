@@ -5,12 +5,11 @@
  * card_play.c's ring (cs_feed): it never waits on the bus. The file's place on the card comes from the main loop
  * (usb_files.c uf_extents: runs of sectors); this file only follows it, round and round (a loop).
  *
- * The bus has one user at a time: the main loop (FatFs listing a folder, the drive test) calls cs_claim, which lets
+ * The bus has one user at a time: the main loop (FatFs writing a take) calls cs_claim, which lets
  * the command in hand finish and then holds the engine, and cs_release after. Errors (a stall, a status that did
  * not pass, 2 s with nothing) stop the engine (cs.err); the main loop stops the playing and resets the drive.
  *
- * Its cost is measured where it is spent: TIMER4 ticks inside cs_tick (cs.cpu_ticks), which the page shows as
- * "card n%". Included by melodee.c after card_play.c and usb_host.c (it uses their ring, SIE access and buffers).
+ * Included by melodee.c after card_play.c and usb_host.c (it uses their ring, SIE access and buffers).
  *
  * (0.4.13) Up to four streams (card_play.c's slots), one engine: the bus carries one command at a time, so the
  * engine picks, each time it is free, the running stream whose ring is emptiest and has room for at least a quarter
@@ -33,6 +32,8 @@
  *           the timeout on the clock.
  *   0.4.17: a stream may play once (once): at the end of its samples it stops reading (done) and tells the player
  *           (card_play.c cp[].eof), which ends it when its ring runs dry.
+ *   0.5.3: what only the drive test used is gone: playing once (a frozen take always loops), the timer's own cost
+ *          (cs.cpu_ticks: a clock read twice a tick) and the bytes and commands counted for its page.
  */
 /* ---- the streams: the card read from TIMER5 ---- */
 #define CS_SECS 8u                                      /* sectors a READ(10) at most: 4 KB */
@@ -45,8 +46,8 @@ struct cs_one {
     uint32_t data0, data, pos;                          /* the samples: their file offset, length; how far fed */
     uint8_t carry[32], nc;                              /* a frame split over two packets (8 channels of 32 bits at most) */
     uint8_t next;                                       /* extents: how many */
-    uint32_t bps;                                       /* (0.4.14) the file's bytes a second (the page's "needed") */
-    uint8_t once, done;                                 /* (0.4.17) play once (no loop); its last bytes are read */
+    uint32_t bps;                                       /* (0.4.14) the file's bytes a second (what the card must keep up
+                                                         * with: usb_files.c uf_budget) */
     struct { uint32_t fsec, lba, n; } ext[CS_EXT];      /* file sector fsec.. lies at lba.. for n sectors */
 };
 static struct {
@@ -56,9 +57,6 @@ static struct {
     uint32_t skip, take, got, len;                      /* this command: bytes to drop first, to feed, fed so far; its
                                                          * data bytes (whole sectors) */
     uint32_t t_ms;                                      /* (0.4.14) when this state began (a timeout; was a tick count) */
-    uint32_t cmds;                                      /* commands done */
-    uint32_t bytes;                                     /* (0.4.14) sample bytes fed, for ever (the page's KB/s) */
-    uint32_t cpu_ticks;                                 /* TIMER4 ticks spent in cs_tick (the page's "card" share) */
     struct cs_one st[CP_N];
 } cs;
 
@@ -95,13 +93,7 @@ static int cs_plan_one(uint32_t s, uint32_t *lba, uint32_t *nsec)
 {
     struct cs_one *o = &cs.st[s];
     uint32_t off, fsec, i, room, take;
-    if (o->done) return 0;                              /* (0.4.17) once, and read to the end */
     if (o->pos >= o->data) {
-        if (o->once) {                                  /* (0.4.17) the end of a once: no more reading */
-            o->done = 1;
-            cp[s].eof = 1;
-            return 0;
-        }
         o->pos = 0;                                     /* the end: round again */
         o->nc = 0;
     }
@@ -131,7 +123,7 @@ static int cs_plan(uint32_t *lba, uint32_t *nsec)
 {
     uint32_t s, best = CP_N, fill, best_fill = ~0u;
     for (s = 0; s < CP_N; s++) {
-        if (!cs.st[s].run || cs.st[s].done) continue;
+        if (!cs.st[s].run) continue;
         fill = (cp[s].w - cp[s].r) * 65536u / (cp[s].step ? cp[s].step : 1u);   /* (0.4.14) output frames left: time */
         if (fill < best_fill) { best_fill = fill; best = s; }
     }
@@ -147,11 +139,8 @@ static void cs_step(void);
 static volatile uint8_t cs_busy;                        /* (0.4.14) the main loop is in cs_step: the timer stays out */
 static void cs_tick(void)
 {
-    uint32_t t0;
     if (!cs.run || cs.err || cs_busy) return;
-    t0 = fm1_ticks();
     cs_step();
-    cs.cpu_ticks += fm1_ticks() - t0;
 }
 /* (0.4.14) the main loop's turn: one step when the timer is not in the middle of one (it cannot be: it interrupts
  * the main loop, never the reverse, so a main-loop line runs only when no timer step is under way) */
@@ -221,7 +210,6 @@ static void cs_step(void)
             d = cs.take - cs.got < n ? cs.take - cs.got : n;   /* the samples */
             if (cs.st[cs.cur].run) cs_feed(cs.cur, p, d);   /* (a stream stopped mid-command: its bytes dropped) */
             cs.got += d;
-            cs.bytes += d;
             cs.len -= k < cs.len ? k : cs.len;
         } else if (k != 13u || ep1rx[0] != 'U' || ep1rx[3] != 'S' || ep1rx[12]) {
             cs.err = 4;                                 /* the status: not passed */
@@ -237,7 +225,6 @@ static void cs_step(void)
             cs.state = CS_CSW;
         } else {
             cs.st[cs.cur].pos += cs.got;
-            cs.cmds++;
             cs.state = CS_IDLE;
             cs_start();                                 /* (0.4.14) the next at once: a step saved a command */
             return;

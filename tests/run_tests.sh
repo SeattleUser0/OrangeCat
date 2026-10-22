@@ -296,7 +296,7 @@ if core; then
     t "TRS MIDI parser" midi_uart_test
     t "USB audio: routing, clock drift and stream recovery" usb_audio_test
     t "USB audio: endpoint lifecycle and packet ownership" usb_audio_driver_test
-    t "USB drive test (0.4.7): host mode probe, hub, mass storage, a silent controller; (0.4.16) the recorder, its card checked by pyfatfs" usb_host_test -- sh -c "$OUT/usb_host_test && python3 tests/check_rec_card.py"
+    t "USB host (0.4.7): probe, hubs, mass storage, a silent controller; the card through FatFs, streams, frozen tracks, the card checked by pyfatfs" usb_host_test -- sh -c "$OUT/usb_host_test && python3 tests/check_rec_card.py"
     run "USB descriptors: MIDI, CDC and audio configurations" python3 tests/usb_audio_desc_test.py
     run "resident audio: call graph and flash/RAM ABI boundaries" python3 tests/audio_ram_test.py
     t "removed effects: old songs and motion, MIDI, physical input and dry output" no_effects_test -O1 $FW

@@ -62,8 +62,9 @@ void fm1_timer5_irq(void)
         }
     }
 #endif
-    /* (Orange Cat 0.4.12) a WAV from the USB drive: its reads, one step a tick, nested in the render or not (card_stream.c
-     * cs_tick: a register look and at most one 64-byte packet; the main loop holds it off while it uses the bus) */
+    /* (Orange Cat 0.4.12) a frozen track's take on the card: its reads, one step a tick, nested in the render or not
+     * (card_stream.c cs_tick: a register look and at most one 64-byte packet; the main loop holds it off while it uses
+     * the bus) */
     if (cs.run)
         cs_tick();
     /* TRS RX only touches its DMA ring and publishes timestamped input. It
@@ -252,10 +253,10 @@ static void fm1_main(void)
         fm1_wdt_feed();
         pattern_poll();
         usb_retry(fm1_ms);
-        if (usbh.want && ui.menu != 3u && !frz_busy())  /* (Orange Cat 0.4.7) the drive test left some other way (0.4.20:
-                                                         * frozen tracks keep the card) */
+        if (usbh.want && !frz_busy())                   /* (Orange Cat 0.4.20) no track frozen any more: the port the
+                                                         * device again (0.5.3: the drive test is gone) */
             usbh_want(0);
-        usbf_task();                                    /* the drive test and its files, while its page is open */
+        usbf_task();                                    /* (Orange Cat) frozen tracks and their card (usb_files.c) */
 #if MELODEE_USB_AUDIO
         if (ua_off_apply(fm1_ms)) {                     /* USB direction or capture mode changed: the host re-reads */
             settings_save();                            /* while off the bus: no USB deadline missed */

@@ -27,12 +27,11 @@ static const char *const PRESET_CAT[NENGINES] = {
     [11] = "FFFF",                                      /* NOISE */
 #endif
     [3] = "OLBBBBBBLLLLLLLLPSPPGGKKUUERFFFF",          /* SID */
-#if MELODEE_TRIO || MELODEE_LEGACY_EXTRAS              /* (Orange Cat) only where TRIO is in the engine table */
-    [6] = "BLLEP",                                      /* TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR
-                                                         * (Orange Cat: categories for its test voice) */
+#if MELODEE_LEGACY_EXTRAS                               /* (Orange Cat) only where TRIO is in the engine table */
+    [6] = "BLLEP",                                      /* TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR */
 #endif
 #if MELODEE_MACRO
-    [8] = "BLULEBOFGPPKPFFFUSUEDDDDD",                  /* (Orange Cat 0.5.0) MACRO (eng_macro.c MC_PRESETS) */
+    [8] = "BLULEBOFGPPKPFFFUSUEDDDDDUS",                /* (Orange Cat 0.5.0) MACRO (eng_macro.c MC_PRESETS; 0.5.3: HARP, STRING CHORDS) */
 #endif
     [10] = "DDDD",                                      /* DRUM: the kits (808, 909, SID, SID DIGI) */
 #if MELODEE_SHAPES

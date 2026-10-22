@@ -8,24 +8,24 @@
  * ui.c HS_*), GLO SELECT (what SELECT turns with GLO held, on any page: the same choices), UNUSED TRACKS (SHOW:
  * Stage and MIXER keep a greyed "Add track" row for each place not in use; HIDE: the tracks in use only, ui.c
  * stage_rows),
- * CALIBRATION (the setup screen: HARDWARE CALIBRATION), USB DRIVE TEST, ABOUT.
- * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information, 3 the USB drive test.
- * (Orange Cat 0.4.7) USB DRIVE TEST (build doc phase 2): OCT+ turns the USB port into a host and shows what is
- * plugged in (usb_host.c); OCT- (or leaving the menu) turns it back into the normal device. */
+ * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
+ * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information.
+ * (Orange Cat 0.4.7 to 0.5.2: USB DRIVE TEST, menu 3, the page that found out whether the FM-1 could read a drive;
+ * 0.5.3 took it out. Frozen tracks use the drive without a page: usb_host.c.) */
 /* ------------------------------------------------------------ menu --- */
 #define MENU_HEAD H_HEAD                 /* the menu's own title strip */
 enum { MI_COLOR, MI_FONT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB, MI_USB_INPUT,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_GLO_SEL, MI_TRACKS, MI_SCREEN, MI_PANEL, MI_DRIVE, MI_ABOUT, MI_DESIGNER, MI_BACK,
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_GLO_SEL, MI_TRACKS, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO", "USB INPUT",
 #endif
                                               "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY",
-                                              "AUTOSAVE", "PICKER POPUPS", "KNOB ACCEL", "HOME SELECT", "GLO SELECT", "UNUSED TRACKS", "SCREEN OFF", "CALIBRATION", "USB DRIVE TEST", "ABOUT", "SOUND DESIGNER", "BACK"};
+                                              "AUTOSAVE", "PICKER POPUPS", "KNOB ACCEL", "HOME SELECT", "GLO SELECT", "UNUSED TRACKS", "SCREEN OFF", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -72,7 +72,7 @@ static const menu_credit_t MENU_CREDITS[] = {
     {"CrispyZebra (PHASE waveforms): GPL-3.0", MC_TEXT},
     {"https://github.com/hugelton", MC_URL},
     {"", MC_TEXT},
-    {"FATFS / USB DRIVE FILES", MC_TITLE},             /* (Orange Cat 0.4.10) */
+    {"FATFS / CARD FILES", MC_TITLE},                  /* (Orange Cat 0.4.10: frozen tracks' takes on the card) */
     {"ChaN / BSD-style (1-clause)", MC_TEXT},
     {"http://elm-chan.org/fsw/ff/", MC_URL},
     {"", MC_TEXT},
@@ -198,7 +198,7 @@ static void menu_head(void)
 {
     if (head_waiting()) { draw_head(); return; }
     cv_begin(240, MENU_HEAD, T_BG);
-    cv_text(8, ty_y(MENU_HEAD / 2, TY_TX), TY_TX, ui.menu == 2 ? "About" : ui.menu == 3 ? "USB drive test" : "Settings",
+    cv_text(8, ty_y(MENU_HEAD / 2, TY_TX), TY_TX, ui.menu == 2 ? "About" : "Settings",
             T_THEME);
     if (ui.menu >= 2) {                               /* the way back at the right, the REC mark before it (then */
         cv_icon_mid(218, MENU_HEAD / 2, 16, ICON_X_UNDO, T_MID, T_BG);   /* (OCT-) */
@@ -239,7 +239,6 @@ static void menu_words(char *d, const char *s, uint32_t n)
         if (!first && d[i] >= 'A' && d[i] <= 'Z') d[i] = (char)(d[i] + 32);
     }
 }
-static void drive_draw(void);
 static void draw_menu(void)
 {
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
@@ -248,19 +247,13 @@ static void draw_menu(void)
                             ua_off_want * 92821u + ua_tracks_want * 324161u +
 #endif
                             song.rec * 65537u + song.sel * 13u +
-                            (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u) +
-                            (ui.menu == 3 ? usbh.gen * 7368787u + UH_LINES_READ() * 99991u + usbh.step * 15731u +
-                             usbh.view * 3u + usbh.sel * 2654435u + usbh.top * 40503u + usbh.drive * 6151u : 0u);
+                            (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u);
     if (!ui.force && sig == ui.menu_sig) {
         if (head_waiting()) draw_head();
         return;
     }
     ui.menu_sig = sig;
     menu_head();
-    if (ui.menu == 3) {
-        drive_draw();
-        return;
-    }
     if (ui.menu >= 2) {
         int32_t scroll = ui.menu_scroll, max = menu_scroll_max();
         int32_t thumb = MENU_DOC_H * MENU_DOC_H / (max + MENU_DOC_H);
@@ -340,106 +333,6 @@ static void draw_menu(void)
         cv_blit(0, (uint32_t)top);
     }
 }
-/* (Orange Cat 0.4.7) USB DRIVE TEST: the probe's lines (usb_host.c usbh.line) in the body type, 22 px apart from y 32,
- * the empty ones skipped, a name too long for the screen cut with an ellipsis; the diagnostic line at the foot in the
- * small type ("L2 S25 C01 D5D E0": the D+ / D- levels, the step reached, the last CSR, DEVCTL, the last error).
- * Before the main loop has opened the port: "Starting". OCT- (the header's way back) ends the test. */
-static void files_draw(void);
-static void drive_draw(void)
-{
-    uint32_t pass, i, n = 0;
-    char d[32];
-    if (usbh.view) {
-        files_draw();
-        return;
-    }
-    if (usbh.drive) str_cpy(d, "OCT+ opens the files", sizeof d);   /* (0.4.10) */
-    else usbh_diag(d);
-    for (pass = 0; pass < 2u; pass++) {
-        int32_t top = pass ? 124 : MENU_HEAD, y = 32;
-        cv_begin(240, (uint32_t)(pass ? 240 - 124 : 124 - MENU_HEAD), T_BG);
-        cv_oy = -top;
-        for (i = 0; i < UH_LINES; i++) {
-            if (!usbh.line[i][0])
-                continue;
-            cv_free_text(8, y, TY_TX, usbh.line[i], i == 0u ? T_THEME : T_TEXT, T_BG, 224);
-            y += 22;
-            n++;
-        }
-        if (!n)
-            cv_free_text(8, y, TY_TX, "Starting", T_TEXT, T_BG, 224);
-        cv_free_text(8, 216, TY_LB, d, T_MID, T_BG, 224);
-        cv_oy = 0;
-        cv_blit(0, (uint32_t)top);
-    }
-}
-/* (0.4.10) the drive's files: the folder at the top ("/SAMPLES/drums"), six rows (the name, a folder's with "/"; a
- * file's size at the right), the row picked on the surface colour, a bar at the right edge for where the rows are;
- * the foot: what the picked file is and how fast it read (usb_files.c), or what the keys do.
- * (0.4.16) With nothing in the foot, it says what REC does; (0.4.17) what it records (the mix, or a track: KNOB 3).
- * A WAV waiting for the sequencer to start says READY.
- * (0.4.14) Five rows and three foot lines (the players' gaps and speed on the last); the row picked on the selection
- * colour mixed with 30% of the theme (the surface colour hardly showed on the device). */
-static void files_draw(void)
-{
-    uint32_t pass, i;
-    for (pass = 0; pass < 2u; pass++) {
-        int32_t top = pass ? 124 : MENU_HEAD;
-        cv_begin(240, (uint32_t)(pass ? 240 - 124 : 124 - MENU_HEAD), T_BG);
-        cv_oy = -top;
-        {   /* the folder: its end when the whole path is too wide ("/Drum Machines/TR-808") */
-            const char *p = usbh.path[0] ? usbh.path : "/", *q;
-            while (text_w(TY_TX, p) > 224 && (q = p + 1, 1)) {
-                while (*q && *q != '/') q++;
-                if (!*q) break;
-                p = q;
-            }
-            cv_free_text(8, 32, TY_TX, p, T_THEME, T_BG, 224);
-        }
-        if (usbh.ent_top == usbh.top)
-            for (i = 0; i < usbh.nent && i < UH_ROWS; i++) {
-                int32_t y = 56 + 22 * (int32_t)i;
-                int pick = usbh.top + i == usbh.sel;
-                uint16_t bg = pick ? ux_mix(T_BG, T_THEME, 30) : T_BG;
-                char nm[UH_NAME + 2], sz[16];
-                if (pick) cv_rrect(2, y - 1, 232, 24, 5, bg, T_BG);
-                str_cpy(nm, usbh.ent[i].name, UH_NAME);
-                if (usbh.ent[i].dir) uh_cat(nm + str_len(nm), "/");
-                if (usbh.ent[i].dir) {
-                    cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220);
-                } else {
-                    int32_t w;
-                    if (usbh.ent[i].play) str_cpy(sz, usbh.ent[i].play == 2u ? "READY" : "PLAY", sizeof sz);   /* (0.4.13) a
-                                                         * WAV playing; (0.4.17) one waiting for PLAY */
-                    else uh_bytes(sz, usbh.ent[i].size);
-                    w = text_w(TY_LB, sz);
-                    cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220 - w - 8);
-                    cv_text_on(228 - w, y + 3, TY_LB, sz, usbh.ent[i].play ? T_THEME : T_MID, bg);
-                }
-            }
-        if (usbh.count > UH_ROWS) {                     /* where the rows are */
-            int32_t h = 22 * (int32_t)UH_ROWS, th = h * (int32_t)UH_ROWS / (int32_t)usbh.count;
-            if (th < 8) th = 8;
-            cv_rect(237, 56, 2, h, T_LINE);
-            cv_rect(237, 56 + (h - th) * (int32_t)usbh.top / (int32_t)(usbh.count - UH_ROWS), 2, th, T_THEME);
-        }
-        if (usbh.info[0] || usbh.info2[0] || usbh.info3[0]) {
-            cv_free_text(8, 172, TY_LB, usbh.info, T_TEXT, T_BG, 224);
-            cv_free_text(8, 194, TY_LB, usbh.info2, T_MID, T_BG, 224);
-            cv_free_text(8, 216, TY_LB, usbh.info3, T_MID, T_BG, 224);
-        } else {
-            char r[32];                                 /* (0.4.16) what REC does; (0.4.17) what it records (KNOB 3) */
-            str_cpy(r, usbh.src ? "REC records track 1" : "REC records the mix", sizeof r);
-            if (usbh.src) r[18] = (char)('0' + usbh.src);
-            cv_free_text(8, 172, TY_LB, r, T_TEXT, T_BG, 224);
-            if (UH_SRC_MAX) cv_free_text(8, 194, TY_LB, "KNOB 3 changes it", T_MID, T_BG, 224);
-            cv_free_text(8, 216, TY_LB, "OCT+ play  SEQ with song", T_MID, T_BG, 224);   /* (0.4.18: was "OCT+ open
-                                                         * OCT- back") */
-        }
-        cv_oy = 0;
-        cv_blit(0, (uint32_t)top);
-    }
-}
 static void enc_drop(void)                             /* knob turns nobody takes */
 {
     uint32_t k;
@@ -449,7 +342,6 @@ static void enc_drop(void)                             /* knob turns nobody take
 
 static void menu_close(void)
 {
-    usbh_want(0);                                      /* (0.4.7) the USB port back to normal, if the test had it */
     settings_save();                                   /* palette / panel table, if changed */
     ui.menu = 0;
     ui.force = 1;
@@ -457,71 +349,11 @@ static void menu_close(void)
 }
 
 /* menu: PRESETS moves, OCT+ confirms, OCT- cancels (ABOUT -> list -> close) */
-/* (Orange Cat 0.4.10) the USB drive test's keys. The probe's lines: OCT+ opens the files of a drive it read, or
- * looks again; OCT- ends the test. The files: KNOB 1, KNOB 2 or PRESETS the row, OCT+ opens a folder or looks at a
- * file, OCT- the folder above, at the top the probe's lines again. Only wishes: the main loop does them
- * (usb_files.c usbf_task). 1 = taken */
-/* (0.4.16) REC on the file list: record what the FM-1 plays to a WAV in this folder, or stop (usb_files.c) */
-static void drive_rec(void)
-{
-    if (usbh.view && usbh.drive) usbh.cmd = UC_REC;
-}
-/* (0.4.18) SEQ on the file list: the WAV picked plays with the song (READY until PLAY), or stops */
-static void drive_seq(void)
-{
-    if (usbh.view && usbh.drive && usbh.count) usbh.cmd = UC_SYNC;
-}
-static int drive_input(uint32_t ok, uint32_t back)
-{
-    int32_t s = panel_enc(EN_K1) + panel_enc(EN_K2) + panel_enc(EN_PRESET);
-    if (!usbh.view) {
-        if (back) return 0;                             /* (menu_input: the test ends) */
-        if (ok) usbh.cmd = usbh.drive ? UC_LIST : UC_PROBE;
-        if (ok && usbh.drive) usbh.view = 1;
-        return 1;
-    }
-    {   /* (0.4.17) KNOB 3: what REC records (the mix, track 1..4), not while it records */
-        int32_t k = panel_enc(EN_K3);
-        if (k && !usbh.rec) {
-            usbh.src = (uint8_t)clamp((int32_t)usbh.src + (k > 0 ? 1 : -1), 0, (int32_t)UH_SRC_MAX);
-            usbh.info[0] = usbh.info2[0] = usbh.info3[0] = 0;   /* (the foot says what it is now) */
-            ui.force = 1;
-        }
-    }
-    if (back) {
-        if (usbh.path[0]) usbh.cmd = UC_UP;
-        else usbh.view = 0;
-        usbh.info[0] = usbh.info2[0] = 0;
-        ui.force = 1;
-        return 1;
-    }
-    if (ok && usbh.count) {
-        usbh.cmd = UC_ENTER;
-        return 1;
-    }
-    if (s && usbh.count) {
-        int32_t v = clamp((int32_t)usbh.sel + clamp(s, -8, 8), 0, (int32_t)usbh.count - 1);
-        if (v != (int32_t)usbh.sel) {
-            usbh.sel = (uint16_t)v;
-            usbh.info[0] = usbh.info2[0] = 0;
-            if (usbh.sel < usbh.top) usbh.top = usbh.sel;
-            if (usbh.sel >= usbh.top + UH_ROWS) usbh.top = (uint16_t)(usbh.sel - UH_ROWS + 1u);
-            if (usbh.top != usbh.ent_top) usbh.cmd = UC_WINDOW;
-        }
-    }
-    return 1;
-}
 static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_taps */
 {
     int32_t s;
     uint32_t ok = (oct >> 1) & 1u, back = oct & 1u;
-    if (ui.menu == 3 && drive_input(ok, back)) {
-        enc_drop();
-        return;
-    }
     if (back) {
-        if (ui.menu == 3)
-            usbh_want(0);
         if (ui.menu >= 2)
             ui.menu = 1, ui.force = 1;
         else
@@ -629,11 +461,6 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
             break;
         case MI_DESIGNER:
             menu_close();designer_open();
-            break;
-        case MI_DRIVE:                                 /* (0.4.7) the port a host until OCT- */
-            usbh_want(1);                              /* (the main loop opens it: usb_host.c usbh_task) */
-            ui.menu = 3;
-            ui.force = 1;
             break;
         case MI_ABOUT:
             ui.menu = 2;

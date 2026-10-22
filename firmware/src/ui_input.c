@@ -487,7 +487,7 @@ static void ui_leds(void)
         led_put(nl, panel.btn[layer_btn()], ((fm1_ms / 250u) & 1u) == 0u);
     led_put(nl, panel.btn[B_PLAY], rolling && !counting); /* steady transport state, independent of audio block rate; */
     led_put(nw, panel.btn[B_PLAY], counting);           /* counting in: waiting */
-    led_put(nl, panel.btn[B_REC], recording_now || usbh.rec);   /* (Orange Cat 0.4.16: the card recorder too) */
+    led_put(nl, panel.btn[B_REC], recording_now);
     led_put(nw, panel.btn[B_REC], armed && !recording_now);
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
@@ -2394,12 +2394,8 @@ static void ui_input(void)
         }
     }
     if (ui.menu || ui.confirm || name_on()) {
-        /* REC does nothing in the menu, a dialog or NAME (no transport start there); (Orange Cat 0.4.16) but on the
-         * USB drive test's file list it records to the card (ui_menu.c drive_rec) */
-        if (ui.menu == 3u && !ui.confirm && rec == BT_TAP)
-            drive_rec();
-        if (ui.menu == 3u && !ui.confirm && seq == BT_TAP)   /* (Orange Cat 0.4.18) SEQ: a WAV with the song */
-            drive_seq();
+        /* REC does nothing in the menu, a dialog or NAME (no transport start there). (Orange Cat 0.5.3: the USB drive
+         * test's REC, SEQ and PLAY are gone with it) */
     } else if (chain_busy() && rec == BT_TAP) {
         ui_message("STOP TO RECORD");
     } else if (rec == BT_TAP) {
@@ -2409,14 +2405,6 @@ static void ui_input(void)
             ui_message("[SEQ] TO RECORD");
         else
             capture_take();
-    }
-    if (ui.menu == 3u && !ui.confirm && ((pressed >> panel.btn[B_PLAY]) & 1u)) {   /* (Orange Cat 0.4.17) PLAY on the
-                                                         * USB drive test: the sequencer starts and stops there too
-                                                         * (WAVs and takes on the card follow it) */
-        if (song.playing || seq_counting() || chain_busy())
-            transport_req = 2;
-        else
-            play_start();
     }
     if (ui.menu) {
         momentary_restore();                                      /* HOME / SAVE / REC taps do nothing here */

@@ -20,7 +20,6 @@ static void fm1_audio_ack_half(void) { host_acks++; }
 static void fm1_audio_init(int32_t *b, uint32_t n, void (*isr)(void), uint32_t p)
 { (void)b; (void)n; (void)isr; (void)p; }
 void isr_alnk0(void) {}
-#include "../firmware/src/card_play.c"            /* (Orange Cat 0.4.11) audio_block plays a drive WAV */
 #include "../firmware/src/audio.c"
 
 static int bad;

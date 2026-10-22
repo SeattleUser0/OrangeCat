@@ -2079,7 +2079,7 @@ function makeMockDevice(opt = {}) {
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},   /* 5: retired VOICE; stored ID reserved */
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
-    { name: "MACRO", titles: ["MODEL", "SHAPE"], edit: [E("MODL", ["VA", "WAVSHP", "FM", "GRAIN", "ADDTV", "CHORD", "SWARM", "NOISE", "PARTCL", "STRING", "MODAL", "KICK", "SNARE", "HI-HAT"], 0), D("HARM", F.PCT, 0, 127, 64), D("TIMB", F.PCT, 0, 127, 64), D("MRPH", F.PCT, 0, 127, 64), D("AUX", F.PCT, 0, 127, 0), D("LPG", F.PCT, 0, 127, 0), D("DECY", F.PCT, 0, 127, 64), D("TMOD", F.BIPCT, -64, 63, 0)],   /* 8: (Orange Cat 0.5.0) MACRO, in retired GRAIN's slot */
+    { name: "MACRO", titles: ["MODEL", "SHAPE"], edit: [E("MODL", ["VA", "WAVSHP", "FM", "GRAIN", "ADDTV", "CHORD", "SWARM", "NOISE", "PARTCL", "STRING", "MODAL", "KICK", "SNARE", "HI-HAT", "HARP"], 0), D("HARM", F.PCT, 0, 127, 64), D("TIMB", F.PCT, 0, 127, 64), D("MRPH", F.PCT, 0, 127, 64), D("AUX", F.PCT, 0, 127, 0), D("LPG", F.PCT, 0, 127, 0), D("DECY", F.PCT, 0, 127, 64), D("TMOD", F.BIPCT, -64, 63, 0)],   /* 8: (Orange Cat 0.5.0) MACRO, in retired GRAIN's slot */
       presets: [P("VA BASS", [0, 64, 30, 70, 0, 40, 50, 20], [0, 60, 90, 20], 1),
         P("VA SYNC LEAD", [0, 76, 90, 40, 100, 0, 70, 0], [0, 70, 110, 40], 1),
         P("FOLD PLUCK", [1, 40, 40, 80, 0, 90, 40, 40], [0, 64, 0, 50], 0),
@@ -2104,7 +2104,9 @@ function makeMockDevice(opt = {}) {
         P("KICK 909", [11, 90, 64, 60, 127, 0, 50, 0], [0, 127, 127, 96], 1),
         P("SNARE", [12, 50, 64, 64, 0, 0, 50, 0], [0, 127, 127, 90], 1),
         P("HI-HAT", [13, 64, 90, 30, 0, 0, 50, 0], [0, 127, 127, 80], 1),
-        P("OPEN HAT", [13, 64, 90, 90, 0, 0, 50, 0], [0, 127, 127, 96], 1)] },
+        P("OPEN HAT", [13, 64, 90, 90, 0, 0, 50, 0], [0, 127, 127, 96], 1),
+        P("HARP", [14, 64, 80, 70, 0, 0, 60, 0], [0, 127, 127, 100], 0),   /* (0.5.2) HARP, one string a voice */
+        P("STRING CHORDS", [14, 40, 50, 100, 0, 0, 80, 0], [0, 127, 127, 104], 0)] },
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
     { name: "DRUM", titles: ["KIT", "HIT"], edit: [D("KIT", F.ENUM, 4, 6, 4, ["808","909","SID"]), D("TUNE", F.PCT, 0, 127, 64),
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100),

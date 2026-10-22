@@ -26,7 +26,7 @@ static uint8_t last_note = 60;
 static uint32_t live_held[NTRK][4], live_last[NTRK][4];
 static uint8_t live_velocity[NTRK][128] __attribute__((section(".pool")));
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
-static volatile uint32_t seq_start_count;     /* (Orange Cat 0.4.17) times the sequencer started (a RESTART too): card_play.c card_sync */
+static volatile uint32_t seq_start_count;     /* (Orange Cat 0.4.17) times the sequencer started (a RESTART too): card_freeze.c frz_block */
 /* (Orange Cat 0.4.20) each block, where in it each track began a new pass of its phrase (step 0): the frame (0..n; n:
  * at the next block's start), SEQ_NOPASS none. card_freeze.c counts them: a frozen track's cycle is a number of passes,
  * and its take starts, records and loops on them, to the sample */

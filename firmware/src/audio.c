@@ -47,14 +47,10 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
         ua_audio(out, track_capture_on ? track_capture : 0, n, song.master_q12);
     fm1_irq_on();
 #endif
-    card_sync(song.playing, seq_start_count);           /* (Orange Cat 0.4.17) WAVs and takes in time with the sequencer */
-    card_capture(out, mix_stem_n ? mix_stem_l : 0, mix_stem_r, n);   /* (Orange Cat 0.4.16) the recorder (card_play.c):
-                                                         * the mix as USB audio takes it, before the click and the
-                                                         * card's WAVs; (0.4.19) or one track, stereo (mix.c) */
     if (mix_frz_after) mix_frz_after(n);                /* (Orange Cat 0.4.20) a freeze's take: its frames this block
-                                                         * (card_freeze.c frz_after) */
+                                                         * (card_freeze.c frz_after). (0.5.3: the drive test's WAVs at
+                                                         * the DAC and its recorder are gone: card_play.c) */
     click_render(out, n);
-    card_render(out, n);                                /* (Orange Cat 0.4.11) a WAV from the drive (card_play.c) */
     for (i = 0; i < n; i++) {
         if (i & 1u)
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];

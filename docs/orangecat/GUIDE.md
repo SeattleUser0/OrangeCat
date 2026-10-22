@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.5.2
+**Firmware:** 0.5.3
 **Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -87,11 +87,11 @@ SEQ > GROOVE gives each track a template: LAID BACK, PUSH, DILLA, 2-STEP, DUB or
 
 ## The MACRO engine
 
-MACRO is the new synth engine. It has 14 sound models, each shaped by the same three knobs. The models are ported from the open source code of a well known Eurorack macro oscillator. It replaces the TRIO test voice: the four tracks start on MACRO sounds. SHAPES (below) is the other engine.
+MACRO is the new synth engine. It has 15 sound models, each shaped by the same three knobs. Fourteen are ported from the open source code of a well known Eurorack macro oscillator; HARP is Orange Cat's own, built from its string model. The four tracks start on MACRO sounds. SHAPES (below) is the other engine.
 
 To play it:
 
-1. Turn PRESETS to browse its 25 sounds (VA BASS, CHORD MINOR, PLUCKED STRING, KICK DEEP and so on). KNOB 1 on the browser picks a list (BASS, LEAD, PAD, DRUM and so on).
+1. Turn PRESETS to browse its 27 sounds (VA BASS, CHORD MINOR, PLUCKED STRING, HARP, KICK DEEP and so on). KNOB 1 on the browser picks a list (BASS, LEAD, PAD, DRUM and so on).
 2. On the HOME page, the four knobs are MODL (the model), HARM, TIMB (timbre) and MRPH (morph).
 3. Press EDIT for its pages. Press EDIT again (or turn SELECT) for the second page.
 
@@ -124,8 +124,9 @@ The ADSR, LFO and modulation pages work as for any engine. ENV and LFO to SHAPE 
 | KICK | Bass drum | Punch and drive | Brightness | Decay |
 | SNARE | Snare drum | Tone against noise | Body tone | Decay |
 | HI-HAT | Hi-hat | Metal against noise | High-pass cutoff | Decay |
+| HARP | Plucked strings, one per note, for chords | Material | Brightness | Decay |
 
-Each track plays up to four notes at once on MACRO when its voice mode is POLY (press EDIT until the VOICE page shows; KNOB 1 is VCE). The pad, keys, chord and bell presets start in POLY; the bass and lead presets in LEG (one note). PARTCL and STRING play one note at a time. CHORD also plays chords from one key. STRING, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
+Each track plays up to four notes at once on MACRO when its voice mode is POLY (press EDIT until the VOICE page shows; KNOB 1 is VCE). The pad, keys, chord and bell presets start in POLY; the bass and lead presets in LEG (one note). PARTCL and STRING play one note at a time. STRING has three strings that ring on over each other as you play notes one after another, but notes started together (a chord) give only one. For chords on strings use HARP: each of the four notes gets its own string. Its presets are HARP and STRING CHORDS. CHORD also plays chords from one key. STRING, HARP, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
 
 The models run at the FM-1's 44.1 kHz, so their own decay times are about 9% longer than on the module.
 
@@ -159,9 +160,9 @@ Up to four notes at once per track in POLY, as with MACRO. The pad, keys, bell a
 
 ## Freezing a track
 
-Freezing records a track to the card and plays the recording in its place, so its synth stops using the processor. You need the card in a hub with power on its PD port, as for the USB drive test.
+Freezing records a track to the card and plays the recording in its place, so its synth stops using the processor. The FM-1 does not power its USB port, so put the card in a hub with power on its PD port (or a card reader plugged into that hub), and plug the hub into the FM-1.
 
-1. Tap GLO for the MIXER page. Turn ALGORITHM to the track.
+1. Tap GLO until the title at the top of the screen says MIXER. GLO steps through MIXER, then GLOBAL (where KNOB 3 is CLK) and the other setting pages, then back to MIXER. If you see CLK you are one page past MIXER. Turn ALGORITHM to the track.
 2. Turn KNOB 3 right. The track's row says Card while the FM-1 finds the card, then Ready.
 3. Press PLAY (from the phrase, chain or song page, as you want it to play). The row says Wait while one whole round of the track plays, then Rec while the next round records, then Save, then Frozen.
 4. At the start of the following round the recording takes over from the synth. It loops in time with the sequencer for as long as it runs.
@@ -179,35 +180,6 @@ If the row shows a word in red, the freeze stopped: Card? (no card found), Stop 
 While a track is frozen, the USB port talks to the card, so USB MIDI, USB audio and the web editor to a computer are off. Unfreeze every track to get them back.
 
 Frozen tracks are not saved with the project yet: loading a project unfreezes them.
-
-## USB drive test
-
-Menu (hold HOME) > USB DRIVE TEST. OCT+ starts it. The USB port becomes a host, like a computer's port. Plug in a flash drive. The page shows what it finds: the maker and model, the size, how the drive is formatted, and how fast it reads. OCT- ends the test and the port goes back to normal.
-
-While the test runs, USB MIDI, USB audio and the web editor are off.
-
-After a drive reads, OCT+ opens its files. Turn KNOB 1 (or KNOB 2, or PRESETS) to move. OCT+ opens a folder, or picks a file: a WAV shows its rate, bits, channels and length, and every file shows how fast it read. OCT- goes up a folder, and from the top back to the test. OCT+ on a WAV plays it from the card, over and over, mixed in with whatever else is playing. Up to four play at once: OCT+ on another WAV adds it, OCT+ on one that is playing (its row says PLAY) stops it. They keep playing while you move through folders, and stop when you leave the file list. The bottom lines show how many play and the processor load; then the gaps (each time the sound dropped out) and how fast the card is read against how fast the playing files need it ("gap 0, 512 of 529 KB/s"). The card keeps up with about three CD-quality stereo files, or six mono. A file that would go past that does not start, and the page says "Too much for the card".
-
-PLAY starts and stops the sequencer on this page too.
-
-REC on the file list records to a new WAV in the folder you are in (OC001.WAV, OC002.WAV and so on). KNOB 3 picks what it records: the mix, or one track alone. A track is recorded in stereo with its level, pan and its own effects, but without its reverb and delay sends, and before MASTER, so it plays back as it went into the mix. That is how you freeze a track. Set the track's level before you record it, and record before you mute it.
-
-- REC while the sequencer plays starts recording at once. REC again stops it.
-- REC while the sequencer is stopped makes the take wait. PLAY then starts the song and the take together, and stopping the song saves it. REC again before PLAY cancels it.
-
-The new file shows in the list when it is saved. Any WAVs playing stop when you start recording. The bottom lines show the time, any sound lost because the card fell behind, how loud it is, and how fast the card takes the writes. If you pull the card while recording, it keeps what was recorded up to a few seconds before.
-
-OCT+ on a WAV plays it now, by itself, over and over. OCT+ again stops it.
-
-SEQ on a WAV ties it to the song: its row says READY. PLAY starts it from the top with the song. It plays once, then waits for the next PLAY. Stopping the song stops it and takes it back to the start. SEQ or OCT+ on it again stops it.
-
-The bottom lines say how many play and how many are ready.
-
-Other files are read once and timed.
-
-The FM-1 does not power its USB port. Use a hub with power on its PD port.
-
-If nothing shows up, the drive may have no power. Try an OTG adapter that takes a charger, or a powered hub. Take a photo of the page each time. The small line at the bottom tells where the test got to.
 
 ## Saving and loading
 

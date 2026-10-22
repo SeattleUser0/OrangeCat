@@ -15,11 +15,13 @@
  *                 the screen's cells.)
  * The models: VA (two analog style oscillators), WAVSHP (waveshaper and folder), FM (two operators), GRAIN (formant
  * grains), ADDTV (additive), CHORD (four voice chords), SWARM (eight sawtooths), NOISE (filtered noise), PARTCL (dust
- * through filters and a diffuser), STRING (plucked strings), MODAL (struck resonators), KICK, SNARE, HI-HAT.
+ * through filters and a diffuser), STRING (plucked strings), MODAL (struck resonators), KICK, SNARE, HI-HAT, and
+ * (0.5.2, Orange Cat's own) HARP: STRING's string, one a voice, so its chords ring.
  *
  * Voices: four per track in POLY (and UNISON), each a model of its own (0.5.2), for chords; PARTCL and STRING, whose
- * states are 8 KB each, play one at a time. The voices' states are the part's (mc_part_t, from the audio arena: one
- * STRING or four of the others). A note starts its voice's trigger; the key held keeps it high.
+ * states are 8 KB each, play one at a time (STRING's three strings ring in turn, note after note; HARP has a string
+ * a voice for chords). The voices' states are the part's (mc_part_t, from the audio arena: one STRING, four HARPs
+ * (11 KB, the largest) or four of the others). A note starts its voice's trigger; the key held keeps it high.
  * Pitch comes from the voice (glide, bend, TUNE, A4 and the pitch modulations: pitch16 and fine). The voice's ADSR
  * is the VCA as for every engine; for STRING, MODAL and the drums (models with their own decay) the presets hold
  * the ADSR open and let the model decay. ENV -> SHAPE and LFO -> SHAPE move TIMBRE; ENV -> FILTER and LFO -> FILTER
@@ -33,7 +35,8 @@
  * Revisions:
  *   0.5.0: first version.
  *   0.5.2: polyphonic: four voices (MC_POLY) but in PARTCL and STRING (mc_cap); a voice's state apart (mc_vhead_t, the
- *          model's in mc_part_t.m.small[voice]); the pad, keys, chord and bell presets play POLY.
+ *          model's in mc_part_t.m.small[voice]); the pad, keys, chord and bell presets play POLY. HARP (a 15th model,
+ *          one string a voice) with presets HARP and STRING CHORDS.
  */
 #include "plaits/pl_dsp.h"
 #include "plaits/pl_osc.h"
@@ -56,15 +59,15 @@
 #define MC_SUB 16u                                    /* frames per model render (<= PL_MAX_BLOCK) */
 
 enum { MC_VA, MC_WAVSHP, MC_FM, MC_GRAIN, MC_ADDTV, MC_CHORD, MC_SWARM, MC_NOISE, MC_PARTCL, MC_STRING, MC_MODAL,
-       MC_KICK, MC_SNARE, MC_HIHAT, MC_N };
+       MC_KICK, MC_SNARE, MC_HIHAT, MC_HARP, MC_N };   /* (0.5.2: HARP at the end, so stored sounds keep theirs) */
 static const char *const N_MC_MODEL[MC_N] = {"VA", "WAVSHP", "FM", "GRAIN", "ADDTV", "CHORD", "SWARM", "NOISE",
-                                             "PARTCL", "STRING", "MODAL", "KICK", "SNARE", "HI-HAT"};
+                                             "PARTCL", "STRING", "MODAL", "KICK", "SNARE", "HI-HAT", "HARP"};
 /* the module's output levels per model (OUT, AUX; below 0: through a limiter at that drive) and the models that make
  * their own envelope (the low-pass gate is skipped there, as on the module) */
 static const struct { float out, aux; uint8_t enveloped; } MC_POST[MC_N] = {
     {0.8f, 0.8f, 0}, {0.7f, 0.6f, 0}, {0.6f, 0.6f, 0}, {0.7f, 0.6f, 0}, {0.8f, 0.8f, 0}, {0.8f, 0.8f, 0},
     {-3.0f, 1.0f, 0}, {-1.0f, -1.0f, 0}, {-2.0f, 1.0f, 0}, {-1.0f, 0.8f, 1}, {-1.0f, 0.8f, 1}, {0.8f, 0.8f, 1},
-    {0.8f, 0.8f, 1}, {0.8f, 0.8f, 1},
+    {0.8f, 0.8f, 1}, {0.8f, 0.8f, 1}, {-1.0f, 0.8f, 1},   /* (HARP: STRING's levels) */
 };
 
 #define MC_POLY 4u                                    /* (0.5.2) voices per track, PARTCL and STRING: 1 */
@@ -87,6 +90,7 @@ typedef struct {
     mc_vhead_t h[MC_POLY];
     union {
         mc_small_t small[MC_POLY];
+        pl_harp_t harp[MC_POLY];                      /* (0.5.2) HARP: a string a voice */
         pl_particle_t particle;                       /* PARTCL and STRING: one voice */
         pl_string_t string;
     } m;
@@ -102,6 +106,7 @@ static inline void *mc_state(mc_part_t *s, uint32_t i)
 {
     if (s->model == MC_PARTCL) return &s->m.particle;
     if (s->model == MC_STRING) return &s->m.string;
+    if (s->model == MC_HARP) return &s->m.harp[i % MC_POLY];
     return &s->m.small[i % MC_POLY];
 }
 
@@ -127,6 +132,7 @@ static MC_XIP void mc_start(mc_part_t *s, uint32_t model)
         case MC_MODAL: pl_modal_init(m); pl_modal_reset(m); break;
         case MC_KICK: pl_bd_init(m); pl_bd_reset(m); break;
         case MC_SNARE: pl_sd_init(m); pl_sd_reset(m); break;
+        case MC_HARP: pl_harp_init(m); pl_harp_reset(m); break;
         default: pl_hh_init(m); pl_hh_reset(m); break;
         }
         pl_limiter_init(&h->limit_out);
@@ -155,6 +161,7 @@ static MC_XIP void mc_model_render(mc_part_t *s, uint32_t vi, const pl_params_t 
     case MC_MODAL: pl_modal_render(m, q, o, a, n, &env); pl_modal_flush(m); break;
     case MC_KICK: pl_bd_render(m, q, o, a, n, &env); pl_bd_flush(m); break;
     case MC_SNARE: pl_sd_render(m, q, o, a, n, &env); pl_sd_flush(m); break;
+    case MC_HARP: pl_harp_render(m, q, o, a, n, &env); pl_harp_flush(m); break;
     default: pl_hh_render(m, q, o, a, n, &env); pl_hh_flush(m); break;
     }                                                 /* (the flushes: tiny decaying states to 0, pl_dsp.h pl_flush) */
     pl_flush_svf(&s->h[vi].lpg);
@@ -252,11 +259,12 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
 }
 
 /* the voice budget's units a voice takes (voice.c): (0.5.2) by its model's cost, now that a track may sound four.
- * VA and WAVSHP about a CZ-1 voice: 2; ADDTV the dearest: 4; the rest 3 (host figures: tests/macro_test) */
+ * VA, WAVSHP and HARP (one string) about a CZ-1 voice: 2; ADDTV the dearest: 4; the rest 3 (host figures:
+ * tests/macro_test) */
 static MC_XIP uint32_t mc_units(const track_t *t)
 {
     uint32_t model = (uint32_t)clamp(t->p[P_E0], 0, MC_N - 1);
-    return model <= MC_WAVSHP ? 2u : model == MC_ADDTV ? 4u : 3u;
+    return model <= MC_WAVSHP || model == MC_HARP ? 2u : model == MC_ADDTV ? 4u : 3u;
 }
 
 /* name, {MODEL, HARM, TIMBRE, MORPH, AUX, LPG, DECAY, T.MOD}, {A D S R}, ENV -> FILTER (MORPH), mono (0.5.2: 0, POLY,
@@ -287,6 +295,8 @@ static const preset_t MC_PRESETS[] = {
     {"SNARE", {MC_SNARE, 50, 64, 64, 0, 0, 50, 0}, {0, 127, 127, 90}, 0, 1},
     {"HI-HAT", {MC_HIHAT, 64, 90, 30, 0, 0, 50, 0}, {0, 127, 127, 80}, 0, 1},
     {"OPEN HAT", {MC_HIHAT, 64, 90, 90, 0, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
+    {"HARP", {MC_HARP, 64, 80, 70, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},          /* (0.5.2) */
+    {"STRING CHORDS", {MC_HARP, 40, 50, 100, 0, 0, 80, 0}, {0, 127, 127, 104}, 0, 0},
 };
 
 static const engine_t ENG_MACRO = {

@@ -66,10 +66,6 @@
                                    * patch each track and project stores stays. FM6 is Melodee's fallback for retired and
                                    * unknown sounds: without it ENGI_FALLBACK takes over */
 #endif
-#ifndef MELODEE_TRIO
-#define MELODEE_TRIO 0            /* TRIO (engine 6, retired in Melodee 1.2). 1: back, without the other legacy engines, as
-                                   * Orange Cat's small test voice while the big engines are unhooked (5 presets) */
-#endif
 #ifndef MELODEE_CZ
 #define MELODEE_CZ 1              /* CZ-1 (engine 15). 0: the engine, its tone pages, banks and SysEx go; the tone each
                                    * track and project stores (cz_patch) stays, so projects keep their format */
@@ -100,8 +96,8 @@
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + MELODEE_SHAPES - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM \
-                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 - PROPHET - DRUM + TRIO + MACRO + SHAPES) */   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + MELODEE_SHAPES - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM)   /* (Orange Cat: - SID - CZ-1 - FM6 -
+                                                 * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

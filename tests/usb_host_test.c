@@ -1,11 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Orange Cat 0.4.7: the USB drive test (firmware/src/usb_host.c) against a model of the controller in host mode
- * and of the devices on the other end: a mass storage flash drive (EP0 packets of 64 or 8 bytes), a hub with the
- * drive on port 3, a keyboard (not a drive), a drive that is not ready at first, and a controller that does not
- * answer. It tests the probe's logic (the requests, their order, the addresses, the bulk-only transport and what
- * the page says), not the real controller: the bits it writes are the ones JieLi documents for MUSB host mode.
+ * Orange Cat 0.4.7: the USB port as a host (firmware/src/usb_host.c) against a model of the controller in host mode
+ * and of the devices on the other end: a mass storage flash drive (EP0 packets of 64 or 8 bytes), hubs with the drive
+ * behind them, a card reader with two slots, a keyboard (not a drive), a drive that is not ready at first, and a
+ * controller that does not answer. It tests the probe's logic (the requests, their order, the addresses, the
+ * bulk-only transport), not the real controller: the bits it writes are the ones JieLi documents for MUSB host mode.
  * (0.4.10) The drive holds a FAT32 card made by an independent FAT implementation (tests/make_fat_fixture.py,
- * tests/fixtures/fat32_card.bin), and the file browser (usb_files.c, FatFs) is walked through it as the page would. */
+ * tests/fixtures/fat32_card.bin), read through usb_files.c's FatFs.
+ * (0.4.11 to 0.4.20) WAVs streamed from the card (card_stream.c, card_play.c); frozen tracks recorded to it and played
+ * back from it (card_freeze.c, usb_files.c frz_*), the card then checked by pyfatfs (tests/check_rec_card.py).
+ * (0.5.3) The drive test's page is gone: what it showed (its lines, the file list, its players and recorder) is no
+ * longer tested here; the probe is checked by what it leaves (a drive ready, its address and slot), the streams by
+ * starting them as a freeze does. */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -126,22 +131,16 @@ static void str_cpy(char *d, const char *s, unsigned max)
 #undef fm1_ms
 #include "../firmware/src/usb_host.c"
 #define UF_HOST_LIBC 1                                  /* (strchr, strlen: the C library's) */
-#define CP_GAIN() 4096                                  /* (0.4.11) MASTER at 1 */
-#define UF_CPU() 0u
-#define FM1_TICKS_PER_US 1u
-static uint32_t fm1_ticks(void) { return fm1_ms * 1000u; }
 #define CS_WAIT() cs_tick()                             /* (0.4.12) the timer's work while the main loop waits */
 static uint8_t mix_stem_trk = 0xFFu;                    /* (0.4.19) as mix.c: the track the recorder takes */
 /* (0.4.20) the sequencer, the mixer and the arrangement as the freeze code sees them: just what it reads and calls */
 #define NTRK 4u
 #define NPART 4u
 #define CTL 64u                                         /* (this test's blocks) */
-static struct { uint32_t playing; } song = {1};         /* (0.4.17: the sequencer as card_sync sees it; running, but in
-                                                         * t_sync and t_freeze) */
+static struct { uint32_t playing; } song = {1};         /* (the sequencer as card_freeze.c sees it) */
 #define t_playing (song.playing)
 static uint32_t t_starts;
 #define seq_start_count t_starts
-#define UF_PLAYING() (t_playing)
 #define SEQ_NOPASS 0xFFFFu
 static uint16_t seq_pass_at[NTRK];
 enum { P_LEVEL, P_MUTE, P_N };
@@ -525,15 +524,10 @@ static void run_ms(uint32_t ms)
 }
 static void show(const char *title)
 {
-    uint32_t i;
-    char d[32];
-    usbh_diag(d);
-    printf("  %s:", title);
-    for (i = 0; i < UH_LINES; i++) if (usbh.line[i][0]) printf(" [%s]", usbh.line[i]);
-    printf(" {%s}\n", d);
+    printf("  %s: %s, address %u, slot %u, error %d\n", title, usbh.drive ? "drive ready" : "no drive", usbh.addr, usbh.lun,
+           usbh.err);
     fflush(stdout);
 }
-static int line_is(uint32_t i, const char *s) { return !strcmp(usbh.line[i], s); }
 
 static int t_drive(int mps0)
 {
@@ -541,24 +535,16 @@ static int t_drive(int mps0)
     add(D_DRIVE, mps0, -1, 0);
     usbh_want(1);
     run_ms(5);
-    assert(usbh.st == UH_WAIT && usb.up == 0 && usb.detached == 1 && attached_host == 1);
-    assert(line_is(0, "Host mode on") && line_is(1, "Waiting for a drive"));
+    assert(usbh.st == UH_WAIT && usb.up == 0 && usb.detached == 1 && attached_host == 1 && usbh.sie);
     lines = 2;                                          /* plugged in: D+ high */
     run_ms(400);
     show(mps0 == 64 ? "drive, EP0 64" : "drive, EP0 8");
-    assert(usbh.st == UH_DONE && !faddr_bad);
+    assert(usbh.st == UH_DONE && !faddr_bad && usbh.drive && usbh.addr == 1 && !usbh.lun);
     assert(devs[0].addr == 1 && devs[0].configured == 1);
-    assert(line_is(1, "Found: full speed"));
-    assert(line_is(2, "ID 0781:5567"));
-    assert(line_is(3, "SanDisk Cruzer Blade"));
-    assert(!usbh.line[4][0]);                          /* the same name as line 3: not twice */
-    assert(line_is(5, "Drive 14.3 GB"));
-    assert(line_is(6, "Disk: FAT32"));
-    assert(!strncmp(usbh.line[7], "Read ", 5));
     lines = 0;                                          /* unplugged */
     run_ms(400);
-    assert(usbh.st == UH_WAIT && line_is(0, "Host mode on") && line_is(1, "Waiting for a drive") && !usbh.line[2][0]);
-    usbh_want(0);                                       /* OCT-: the device again */
+    assert(usbh.st == UH_WAIT && !usbh.drive);
+    usbh_want(0);                                       /* no track frozen: the device again */
     run_ms(2);
     assert(usbh.st == UH_OFF && usb.detached == 0 && attached_device == 1);
     return 1;
@@ -588,8 +574,7 @@ static int t_hub(void)
     assert(usbh.st == UH_DONE && !conflicts);
     assert(devs[0].addr == 1 && devs[1].addr == 2 && devs[3].addr == 3 && devs[4].addr == 4 && devs[4].configured == 1);
     assert(!devs[2].on);                                /* (the low speed keyboard: never enabled) */
-    assert(line_is(1, "Through hubs: 1.4") && line_is(2, "ID 0781:5567") && line_is(5, "Drive 14.3 GB"));
-    assert(line_is(6, "Disk: FAT32") && !strncmp(usbh.line[7], "Read ", 5));
+    assert(usbh.drive && usbh.addr == 4 && !usbh.lun);
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -603,10 +588,7 @@ static int t_hub_no_drive(void)
     lines = 2;
     run_ms(12000);
     show("two hubs, empty reader, no drive");
-    assert(usbh.st == UH_DONE && !conflicts);
-    assert(line_is(1, "No drive read"));
-    assert(line_is(2, "top 05E3:0610 hub") && line_is(3, "1 1A40:0801 hub") && line_is(4, "1.2 05E3:0749 disk"));
-    assert(!usbh.line[5][0] && line_is(7, "1.2: no card?"));
+    assert(usbh.st == UH_DONE && !conflicts && !usbh.drive);
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -628,13 +610,12 @@ static int t_reader_stick(void)
     run_ms(20000);
     show("stick reader: reset, card in slot 2");
     assert(usbh.st == UH_DONE && !conflicts && bulk_resets == 1);
-    assert(line_is(1, "Through hubs: 4") && line_is(2, "ID 05E3:0749") && line_is(5, "Drive 14.3 GB, slot 2"));
-    assert(line_is(6, "Disk: FAT32"));
+    assert(usbh.drive && usbh.lun == 1 && usbh.addr == devs[k].addr);
     usbh_want(0);
     run_ms(2);
     return 1;
 }
-/* a reader that never answers: the reason keeps the error */
+/* a reader that never answers: no drive */
 static int t_reader_deaf(void)
 {
     int k;
@@ -647,78 +628,31 @@ static int t_reader_deaf(void)
     lines = 2;
     run_ms(20000);
     show("stick reader that never answers");
-    assert(line_is(1, "No drive read") && line_is(5, "4 05E3:0749 disk") && line_is(7, "4: no answer, stall"));
+    assert(usbh.st == UH_DONE && !usbh.drive);
     usbh_want(0);
     run_ms(2);
     return 1;
 }
-/* (0.4.10) the files: what the page asks (view, cmd, sel), the main loop does (usbf_task) */
-static void ask(uint8_t cmd) { usbh.cmd = cmd; run_ms(3); assert(usbh.cmd == UC_NONE); }
-static int row_of(const char *name)                     /* its index in the folder (all rows read through windows) */
-{
-    uint32_t i;
-    int r = -1;
-    for (usbh.top = 0; usbh.top < usbh.count && r < 0; usbh.top += UH_ROWS) {
-        ask(UC_WINDOW);
-        for (i = 0; i < usbh.nent; i++)
-            if (!strcmp(usbh.ent[i].name, name)) r = usbh.top + (int)i;
-    }
-    usbh.top = 0;
-    ask(UC_WINDOW);
-    return r;
-}
-static void pick(const char *name) { int r = row_of(name); assert(r >= 0); usbh.sel = (uint16_t)r; ask(UC_ENTER); }
-static void pick_seq(const char *name) { int r = row_of(name); assert(r >= 0); usbh.sel = (uint16_t)r; ask(UC_SYNC); }   /* (0.4.18) SEQ */
-static int t_files(void)
+/* (0.4.10) the card through FatFs: the folders, a long name, every byte of a 64 KB file; unplugged, the volume let go */
+static int t_fs(void)
 {
     FIL f;
+    DIR d;
+    FILINFO fi;
     UINT got;
     uint8_t b[4096];
-    uint32_t i, total = 0;
+    uint32_t i, total = 0, n = 0;
     reset_world();
     add(D_DRIVE, 64, -1, 0);
     usbh_want(1);
     run_ms(5);
     lines = 2;
     run_ms(400);
-    assert(usbh.drive == 1 && line_is(6, "Disk: FAT32"));
-    usbh.view = 1;
-    ask(UC_LIST);
-    printf("  files: / %u:", usbh.count);
-    for (i = 0; i < usbh.nent; i++) printf(" [%s%s %u]", usbh.ent[i].name, usbh.ent[i].dir ? "/" : "", usbh.ent[i].size);
-    printf(" {%s}\n", usbh.info);
-    fflush(stdout);
-    assert(usbh.count == 4 && usbh.ent_top == 0 && !usbh.path[0]);       /* ._README.TXT hidden */
-    assert(row_of("README.TXT") >= 0 && row_of("BIG.BIN") >= 0 && row_of("._README.TXT") < 0);
-    pick("SAMPLES");
-    assert(!strcmp(usbh.path, "/SAMPLES") && usbh.count == 4);
-    pick("Kick 808 Long Name.wav");
-    printf("  Kick: [%s] [%s]\n", usbh.info, usbh.info2);
-    fflush(stdout);
-    assert(!strcmp(usbh.info, "44.1 kHz 16-bit mono 0.5 s") && !strcmp(usbh.info2, "Playing") && cp[0].on && up.n == 1);
-    ask(UC_ENTER);                                      /* (0.4.11) OCT+ again: stopped */
-    assert(!cp[0].on && !up.n && !strcmp(usbh.info2, "Stopped"));
-    pick("drums");
-    assert(!strcmp(usbh.path, "/SAMPLES/drums") && usbh.count == 1);
-    pick("snare.wav");
-    printf("  snare: [%s] [%s]\n", usbh.info, usbh.info2);
-    fflush(stdout);
-    assert(!strncmp(usbh.info, "48 kHz 24-bit stereo 0.2", 24) && up.n == 1);
-    ask(UC_UP);                                         /* (0.4.13: it plays on through the folders) */
-    assert(up.n == 1 && cp[0].on);
-    assert(!strcmp(usbh.path, "/SAMPLES") && usbh.sel == 0);
-    ask(UC_UP);
-    assert(!usbh.path[0] && usbh.count == 4);
-    pick("MANY");
-    assert(usbh.count == 20 && usbh.nent == UH_ROWS && !strcmp(usbh.ent[0].name, "FILE01.BIN"));
-    usbh.sel = 10; usbh.top = 5;                        /* (the page scrolled) */
-    ask(UC_WINDOW);
-    assert(usbh.ent_top == 5 && !strcmp(usbh.ent[0].name, "FILE06.BIN") && usbh.ent[UH_ROWS - 1u].size == 100);
-    ask(UC_UP);
-    pick("BIG.BIN");
-    printf("  BIG.BIN: [%s] [%s]\n", usbh.info, usbh.info2);
-    fflush(stdout);
-    assert(!strcmp(usbh.info, "File, 64 KB") && !strncmp(usbh.info2, "Read 64 KB at ", 14));
+    assert(usbh.drive == 1 && uf_mount() == FR_OK && uf_mounted);
+    assert(f_opendir(&d, "/SAMPLES") == FR_OK);
+    while (f_readdir(&d, &fi) == FR_OK && fi.fname[0]) n += !strcmp(fi.fname, "Kick 808 Long Name.wav");
+    f_closedir(&d);
+    assert(n == 1);
     assert(f_open(&f, "/BIG.BIN", FA_READ) == FR_OK);   /* every byte as written */
     while (f_read(&f, b, sizeof b, &got) == FR_OK && got) {
         for (i = 0; i < got; i++) assert(b[i] == (uint8_t)(((total + i) * 7 + ((total + i) >> 9)) & 255));
@@ -726,17 +660,19 @@ static int t_files(void)
     }
     f_close(&f);
     assert(total == 65536);
+    printf("  files: /SAMPLES read, BIG.BIN %u bytes right\n", total);
+    fflush(stdout);
     lines = 0;                                          /* unplugged: the volume let go */
     run_ms(400);
-    assert(!usbh.drive && !usbh.view && !uf_mounted);
+    assert(!usbh.drive && !uf_mounted);
     usbh_want(0);
     run_ms(2);
     return 1;
 }
-/* (0.4.11) a WAV playing: the ring holds the file's frames in order, the audio side plays them with no gaps while
- * the reading keeps it full, across the loop back to the start; a 22.05 kHz 24-bit mono file at half speed.
- * (0.4.13) Two at once, summed sample for sample; one stopped by OCT+ on it while the other plays on; four at once;
- * an error stops them all. */
+/* (0.4.11) WAVs streamed from the card into the players' rings (as frz_load starts a take): the ring holds the file's
+ * frames in order, the audio side plays them with no gaps while the reading keeps it full, across the loop back to
+ * the start; a 22.05 kHz 24-bit mono file at half speed beside it, sample for sample; the card stopping mid-way stops
+ * them all. */
 static int32_t ramp(uint32_t i) { return (int32_t)((i * 37u) % 32768u) - 16384; }
 static int32_t at_half(uint32_t k)                     /* tone24 (2,205 frames, looped) at half speed, frame k */
 {
@@ -744,119 +680,80 @@ static int32_t at_half(uint32_t k)                     /* tone24 (2,205 frames, 
     int32_t a = ramp(i), b = ramp(j);
     return (k & 1u) ? a + (((b - a) * 16384) >> 15) : a;
 }
-static void block(int32_t *out, uint32_t ticks)        /* one 64-frame block, then the timer and the main loop */
+static void stream_start(const char *path, uint32_t s)
+{
+    FILINFO fi;
+    struct uf_wi w;
+    struct cs_one *o = &cs.st[s];
+    uint32_t t0, want;
+    assert(f_stat(path, &fi) == FR_OK && f_open(&uf_pf, path, FA_READ) == FR_OK);
+    assert(uf_wav_scan(&uf_pf, (uint32_t)fi.fsize, &w) && uf_extents(&uf_pf, (uint32_t)fi.fsize, o));
+    f_close(&uf_pf);
+    cp_setup(s, w.ch, w.rate);
+    o->bytes = (uint8_t)(w.bits / 8u);
+    o->bpf = (uint8_t)(o->bytes * w.ch);
+    o->bps = w.rate * o->bpf;
+    o->right = (uint8_t)(w.ch > 1u ? o->bytes : 0u);
+    o->ch = cp[s].ch;
+    o->data0 = w.data0;
+    o->data = w.data;
+    o->pos = 0;
+    o->nc = 0;
+    sie_wr(S_FADDR, usbh.addr);
+    o->run = 1;
+    cs_update_run();
+    want = w.data / o->bpf < cp[s].cap / 2u ? w.data / o->bpf : cp[s].cap / 2u;
+    for (t0 = fm1_ms; cp[s].w < want && !cs.err && fm1_ms - t0 < 1000u;) CS_WAIT();
+    assert(cp[s].w >= want);
+    cp[s].on = 1;
+}
+static int32_t st_l[64], st_r[64];
+static void stream_block(uint32_t ticks)                /* one 64-frame block of the timer and the main loop */
 {
     uint32_t i;
-    memset(out, 0, 2 * 64 * sizeof *out);
-    card_sync(t_playing, t_starts);                     /* (0.4.17: as audio.c, after the sequencer's events) */
-    card_render(out, 64);
     for (i = 0; i < ticks; i++) cs_tick();
     usbf_task();
     fm1_ms++;
 }
 static uint32_t gaps_all(void) { uint32_t s, g = 0; for (s = 0; s < CP_N; s++) g += cp[s].gaps; return g; }
-static int t_play(void)
+static int t_stream(void)
 {
-    int32_t out[2 * 64];
     uint32_t i, j, n = 11025, frames = 0, k24 = 0, bad = 0;
-    t_playing = 1;                                      /* (0.4.17) the sequencer runs: WAVs loop at once */
     reset_world();
     add(D_DRIVE, 64, -1, 0);
     usbh_want(1);
     run_ms(5);
     lines = 2;
     run_ms(400);
-    usbh.view = 1;
-    ask(UC_LIST);
-    pick("SAMPLES");
-    pick("tone.wav");
-    printf("  tone: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp[0].step);
-    fflush(stdout);
-    assert(!strcmp(usbh.info, "44.1 kHz 16-bit stereo 0.2 s") && cp[0].on && cp[0].step == 65536u && cp[0].ch == 2u);
-    assert(cp[0].w >= cp[0].cap / 2u && cs.run && cs.st[0].next == 1u);   /* half filled first; one run of sectors */
+    assert(usbh.drive && uf_mount() == FR_OK);
+    stream_start("/SAMPLES/tone.wav", 0);
+    assert(cp[0].step == 65536u && cp[0].ch == 2u && cs.run && cs.st[0].next == 1u);   /* one run of sectors */
     for (i = 0; i < 64u; i++) assert(cp[0].buf[2 * i] == ramp(i) && cp[0].buf[2 * i + 1] == -ramp(i));
-    for (i = 0; i < usbh.nent; i++)                     /* its row says PLAY */
-        assert(usbh.ent[i].play == !strcmp(usbh.ent[i].name, "tone.wav"));
     for (j = 0; j < 700u; j++) {                        /* 44,800 frames: four times round the file */
-        block(out, 15);                                 /* (15 ticks: 1.45 ms of the 10 kHz timer, one block's time) */
-        for (i = 0; i < 64u; i++, frames++) {
-            int32_t v = ramp(frames % n);               /* as the ISR scales: (x * MASTER) >> 12 (0.4.17) */
-            if (out[2 * i] != (v * 4096) >> 12 || out[2 * i + 1] != (-v * 4096) >> 12) bad++;
-        }
-        if (j == 300u) { usbh.top = 1; ask(UC_WINDOW); usbh.top = 0; ask(UC_WINDOW); }   /* FatFs on the bus mid-play */
+        cp_pull(&cp[0], st_l, st_r, 0, 64);
+        for (i = 0; i < 64u; i++, frames++)
+            if (st_l[i] != ramp(frames % n) || st_r[i] != -ramp(frames % n)) bad++;
+        stream_block(15);                               /* (15 ticks: 1.45 ms of the 10 kHz timer, one block's time) */
     }
-    up.msg_ms -= 2000u; up.show_ms -= 250u; usbf_task(); /* (0.4.14: "Playing" is held 2 s, then the loads) */
-    printf("  tone: %u frames, %u wrong, %u gaps, %u commands, [%s] [%s]\n", frames, bad, gaps_all(), cs.cmds, usbh.info2,
-           usbh.info3);
+    printf("  tone: %u frames, %u wrong, %u gaps\n", frames, bad, gaps_all());
     fflush(stdout);
-    assert(!bad && !gaps_all() && !strcmp(usbh.info2, "1 play, CPU 0%") && !strncmp(usbh.info3, "gap 0, ", 7));
-    pick("tone24.wav");                                 /* (0.4.13) a second one, beside the first */
-    printf("  tone24: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp[1].step);
-    fflush(stdout);
-    assert(!strcmp(usbh.info, "22.05 kHz 24-bit mono 0.1 s") && cp[1].step == 32768u && cp[1].ch == 1u && up.n == 2);
-    for (j = 0; j < 400u; j++) {                        /* the two summed, sample for sample */
-        block(out, 15);
-        for (i = 0; i < 64u; i++, frames++, k24++) {
-            int32_t v = ramp(frames % n), m = at_half(k24);
-            if (out[2 * i] != ((v * 4096) >> 12) + ((m * 4096) >> 12) ||
-                out[2 * i + 1] != ((-v * 4096) >> 12) + ((m * 4096) >> 12)) bad++;
-        }
+    assert(!bad && !gaps_all());
+    stream_start("/SAMPLES/tone24.wav", 1);             /* a second one beside it: 22.05 kHz 24-bit mono */
+    assert(cp[1].step == 32768u && cp[1].ch == 1u);
+    for (j = 0; j < 400u; j++) {
+        cp_pull(&cp[0], st_l, st_r, 0, 64);
+        for (i = 0; i < 64u; i++, frames++) if (st_l[i] != ramp(frames % n)) bad++;
+        cp_pull(&cp[1], st_l, st_r, 0, 64);
+        for (i = 0; i < 64u; i++, k24++) if (st_l[i] != at_half(k24) || st_r[i] != at_half(k24)) bad++;
+        stream_block(15);
     }
     printf("  two: %u wrong, %u gaps\n", bad, gaps_all());
     fflush(stdout);
     assert(!bad && !gaps_all());
-    pick("tone.wav");                                   /* OCT+ on a playing one: that one stops, the other plays on */
-    assert(!cp[0].on && !cs.st[0].run && cp[1].on && up.n == 1);
-    for (j = 0; j < 50u; j++) {
-        block(out, 15);
-        for (i = 0; i < 64u; i++, k24++)
-            if (out[2 * i] != (at_half(k24) * 4096) >> 12) bad++;
-    }
-    assert(!bad && !gaps_all());
-    pick("tone.wav");                                   /* four at once: tone, tone24, Kick, drums/snare */
-    pick("Kick 808 Long Name.wav");
-    pick("drums");
-    pick("snare.wav");                                  /* (0.4.15) past the card's limit: refused */
-    assert(up.n == 3 && !cp[3].on && !strcmp(usbh.info2, "Too much for the card"));
-    uf_budget = 1000000u;                               /* (the test's card is fast: four, 604 KB/s) */
-    pick("snare.wav");
-    assert(up.n == 4 && cp[0].on && cp[1].on && cp[2].on && cp[3].on);
-    for (j = 0; j < 400u; j++) block(out, 20);
-    up.msg_ms -= 2000u; up.show_ms -= 250u; usbf_task();
-    printf("  four: [%s] [%s] %u commands\n", usbh.info2, usbh.info3, cs.cmds);
-    fflush(stdout);
-    assert(!gaps_all() && !strcmp(usbh.info2, "4 play, CPU 0%"));
-    ask(UC_UP);
     devs[0].deaf = 2;                                   /* (0.4.12) the card stops answering mid-play: all stop */
-    for (i = 0; i < 2000u && up.n; i++) block(out, 15);
-    printf("  card error: [%s]\n", usbh.info2);
-    fflush(stdout);
-    assert(!up.n && !cs.run && !cp[0].on && !cp[3].on && !strcmp(usbh.info2, "Stopped: card error"));
+    for (i = 0; i < 2000u && cs.run; i++) { cp_pull(&cp[0], st_l, st_r, 0, 64); stream_block(15); }
+    assert(!cs.run && !cp[0].on && !cp[1].on && !cs.err);
     devs[0].deaf = 0;
-    pick("tone.wav");                                   /* and play again after */
-    assert(up.n == 1 && cs.run && cp[0].on);
-    lines = 0;                                          /* unplugged while playing: stopped */
-    run_ms(400);
-    assert(!up.n && !cp[0].on && !cs.run);
-    usbh_want(0);
-    run_ms(2);
-    return 1;
-}
-static int t_files_reprobe(void)
-{
-    reset_world();
-    add(D_KEYS, 8, -1, 0);                              /* no drive: OCT+ looks again */
-    usbh_want(1);
-    run_ms(5);
-    lines = 2;
-    run_ms(400);
-    assert(!usbh.drive && line_is(5, "Not a drive, class 03"));
-    setups = 0;
-    ask(UC_PROBE);
-    run_ms(400);
-    assert(setups > 5 && line_is(5, "Not a drive, class 03"));
-    ask(UC_LIST);                                       /* (no drive: refused) */
-    assert(!strcmp(usbh.info, "Drive not reading"));
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -870,7 +767,7 @@ static int t_hub_empty(void)
     lines = 2;
     run_ms(5000);
     show("a hub with nothing on it");
-    assert(line_is(5, "Hub, nothing on it"));
+    assert(usbh.st == UH_DONE && !usbh.drive);
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -884,7 +781,7 @@ static int t_keys(void)
     lines = 2;
     run_ms(400);
     show("keyboard");
-    assert(line_is(2, "ID 046D:C31C") && line_is(3, "Logitech USB Keyboard") && line_is(5, "Not a drive, class 03"));
+    assert(usbh.st == UH_DONE && !usbh.drive && devs[0].configured == 1);
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -899,7 +796,7 @@ static int t_not_ready(void)
     lines = 2;
     run_ms(2000);
     show("drive not ready at first");
-    assert(scsi_tur_count == 4 && line_is(5, "Drive 14.3 GB") && line_is(6, "Disk: FAT32"));
+    assert(scsi_tur_count == 4 && usbh.drive);
     usbh_want(0);
     run_ms(2);
     return 1;
@@ -912,10 +809,10 @@ static int t_no_answer(void)
     usbh_want(1);
     run_ms(5);
     show("controller not answering");
-    assert(line_is(0, "USB chip silent"));
+    assert(!usbh.sie);
     sie_alive = 1;                                      /* 5 V arrives with what is plugged in */
     run_ms(1100);
-    assert(line_is(0, "Host mode on"));
+    assert(usbh.sie);
     usbh_want(0);
     run_ms(2);
     assert(usbh.st == UH_OFF);
@@ -929,41 +826,12 @@ static int t_silent_device(void)
     lines = 2;
     run_ms(400);
     show("nothing answers");
-    assert(usbh.st == UH_DONE && !strncmp(usbh.line[5], "Did not answer", 14));
+    assert(usbh.st == UH_DONE && !usbh.drive && usbh.err);
     usbh_want(0);
     run_ms(2);
     return 1;
 }
 
-/* (0.4.16) the recorder: REC on the file list records the mix to OC001.WAV in the folder shown; the samples on the
- * card are the ones the audio ISR gave, the header says how many, a sync every 3 s, the file plays back through
- * the player, the next one is OC002.WAV; a WAV will not play while recording; a card that stops answering ends
- * it with what the last sync kept. The card is written as an image for an independent check (pyfatfs:
- * tests/check_rec_card.py). */
-static int32_t rec_l(uint32_t f) { return ramp(f); }
-static int32_t rec_r(uint32_t f) { return -ramp(f * 3u) / 2; }
-static int32_t rec_t(uint32_t f, uint32_t t) { return (int32_t)((f * (7u + t) + t * 1000u) % 70000u) - 35000; }   /* (0.4.17)
-                                                         * track t's stem: past 16 bits both ways (held) */
-static int32_t rec_u(uint32_t f, uint32_t t) { return (int32_t)((f * (11u + t) + 500u) % 50000u) - 25000; }   /* (0.4.19) its
-                                                         * right side */
-static void rec_block(int32_t *out, uint32_t *f)        /* one 64-frame block of the known signal into the ring */
-{
-    static int32_t sl[64], sr[64];
-    uint32_t i;
-    for (i = 0; i < 64u; i++, (*f)++) {
-        out[2 * i] = rec_l(*f);
-        out[2 * i + 1] = rec_r(*f);
-        sl[i] = mix_stem_trk < 4u ? rec_t(*f, mix_stem_trk) : 0;   /* (as mix.c: the picked track's stem) */
-        sr[i] = mix_stem_trk < 4u ? rec_u(*f, mix_stem_trk) : 0;
-    }
-    card_sync(t_playing, t_starts);
-    card_capture(out, mix_stem_trk < 4u ? sl : 0, sr, 64);
-    memset(out, 0, 2 * 64 * sizeof *out);
-    card_render(out, 64);
-    cs_tick();
-    usbf_task();
-    fm1_ms++;
-}
 static void dump_card(const char *path)
 {
     FILE *f = fopen(path, "wb");
@@ -973,210 +841,6 @@ static void dump_card(const char *path)
     fseek(f, 96L * 1024L * 512L - 1L, SEEK_SET);        /* (the whole 48 MB card) */
     fputc(0, f);
     fclose(f);
-}
-static int t_rec(void)
-{
-    int32_t out[2 * 64];
-    uint32_t i, f = 0, frames, bad = 0, w0;
-    FIL fl;
-    UINT got;
-    uint8_t h[512];
-    int16_t smp[2 * 256];
-    t_playing = 1;                                      /* (0.4.17) the sequencer runs: REC starts at once */
-    reset_world();
-    add(D_DRIVE, 64, -1, 0);
-    usbh_want(1);
-    run_ms(5);
-    lines = 2;
-    run_ms(400);
-    usbh.view = 1;
-    ask(UC_LIST);
-    w0 = card_writes;
-    ask(UC_REC);
-    printf("  rec: [%s] [%s] [%s]\n", usbh.info, usbh.info2, usbh.info3);
-    fflush(stdout);
-    assert(ur.on && cr.on && !strcmp(ur.name, "OC001.WAV") && !strncmp(usbh.info, "REC OC001.WAV 0.0 s", 19));
-    for (i = 0; i < 4000u; i++) {                       /* 256,000 frames (5.8 s) in 4 s of the test's clock: a sync */
-        rec_block(out, &f);
-        if (i == 1000u) {
-            pick("SAMPLES");                            /* a WAV while recording: refused */
-            pick("tone.wav");
-            assert(!up.n && !strcmp(usbh.info2, "Recording: REC stops it"));
-            ask(UC_UP);
-        }
-    }
-    printf("  rec: [%s] [%s] [%s] %u writes\n", usbh.info, usbh.info2, usbh.info3, card_writes - w0);
-    fflush(stdout);
-    assert(ur.on && !cr.lost && !strncmp(usbh.info, "REC OC001.WAV 5.", 16) && !strncmp(usbh.info2, "lost 0, peak -6 dB", 18));
-    ask(UC_REC);                                        /* stop: the rest out, the header, the list */
-    printf("  stopped: [%s] [%s] [%s]\n", usbh.info, usbh.info2, usbh.info3);
-    fflush(stdout);
-    assert(!ur.on && !cr.on && ur.frames == f && !strcmp(usbh.info, "Saved OC001.WAV, 5.8 s") &&
-           !strcmp(usbh.info2, "lost 0 frames") && row_of("OC001.WAV") >= 0);
-    frames = f;
-    assert(f_open(&fl, "/OC001.WAV", FA_READ) == FR_OK && f_size(&fl) == 512u + frames * 4u);   /* the file as written */
-    assert(f_read(&fl, h, 512, &got) == FR_OK && got == 512u && !memcmp(h, "RIFF", 4) && !memcmp(h + 36, "JUNK", 4) &&
-           !memcmp(h + 504, "data", 4) && (uint32_t)(h[508] | h[509] << 8 | h[510] << 16 | (uint32_t)h[511] << 24) == frames * 4u);
-    for (f = 0; f < frames;) {
-        uint32_t k = frames - f > 256u ? 256u : frames - f;
-        assert(f_read(&fl, smp, k * 4u, &got) == FR_OK && got == k * 4u);
-        for (i = 0; i < k; i++, f++)
-            if (smp[2 * i] != rec_l(f) || smp[2 * i + 1] != rec_r(f)) bad++;
-    }
-    f_close(&fl);
-    printf("  OC001.WAV: %u frames, %u wrong\n", frames, bad);
-    fflush(stdout);
-    assert(!bad);
-    pick("OC001.WAV");                                  /* it plays */
-    printf("  play it: [%s] [%s]\n", usbh.info, usbh.info2);
-    fflush(stdout);
-    assert(!strcmp(usbh.info, "44.1 kHz 16-bit stereo 5.8 s") && up.n == 1 && cp[0].on);
-    for (i = 0, f = 0; i < 50u; i++) {
-        block(out, 15);
-        for (uint32_t j = 0; j < 64u; j++, f++)
-            if (out[2 * j] != (rec_l(f) * 4096) >> 12 || out[2 * j + 1] != (rec_r(f) * 4096) >> 12) bad++;
-    }
-    assert(!bad);
-    ask(UC_REC);                                        /* again: the player stops, OC002.WAV */
-    assert(ur.on && !up.n && !strcmp(ur.name, "OC002.WAV"));
-    for (i = 0, f = 0; i < 300u; i++) rec_block(out, &f);
-    ask(UC_REC);
-    assert(!ur.on && !strcmp(usbh.info, "Saved OC002.WAV, 0.4 s"));
-    ask(UC_REC);                                        /* OC003.WAV, and the card stops answering mid-way */
-    assert(ur.on && !strcmp(ur.name, "OC003.WAV"));
-    for (i = 0, f = 0; i < 4000u && ur.on; i++) {
-        rec_block(out, &f);
-        if (i == 3500u) devs[0].deaf = 2;
-    }
-    printf("  card gone mid-way: [%s] [%s]\n", usbh.info, usbh.info2);
-    fflush(stdout);
-    assert(!ur.on && !cr.on && !strncmp(usbh.info, "Card error: OC003.WAV", 21));
-    usbh_want(0);
-    run_ms(2);
-    return 1;
-}
-/* (0.4.17) with the sequencer: a WAV picked while it is stopped waits (READY), plays once from its first frame when
- * it starts, rewinds and waits again at its end and when it stops; a take armed while it is stopped records exactly
- * the blocks between start and stop, one track as a mono WAV; REC again before PLAY cancels a take and deletes its
- * file. Then the card is written out for tests/check_rec_card.py. */
-static int t_sync(void)
-{
-    int32_t out[2 * 64];
-    uint32_t i, j, f = 0, bad = 0, loud = 0, n = 11025;
-    FIL fl;
-    FILINFO fi;
-    UINT got;
-    uint8_t h[512];
-    int16_t smp[256];
-    int row;
-    t_playing = 0;
-    reset_world();
-    add(D_DRIVE, 64, -1, 0);
-    usbh_want(1);
-    run_ms(5);
-    lines = 2;
-    run_ms(400);
-    usbh.view = 1;
-    ask(UC_LIST);
-    pick("SAMPLES");
-    pick("tone.wav");                                   /* (0.4.18) OCT+, stopped: it plays now, by itself */
-    row = row_of("tone.wav") - (int)usbh.top;
-    assert(cp[0].on && !cp[0].synced && !cs.st[0].once && !strcmp(usbh.info2, "Playing") && usbh.ent[row].play == 1u);
-    for (i = 0, f = 0; i < 20u; i++) {
-        block(out, 15);
-        for (j = 0; j < 64u; j++, f++)
-            if (out[2 * j] != (ramp(f) * 4096) >> 12) bad++;
-    }
-    assert(!bad);
-    pick("tone.wav");                                   /* OCT+ again: stopped */
-    assert(!up.n && !cp[0].on);
-    pick_seq("drums");                                  /* SEQ on a folder: refused */
-    assert(!strcmp(usbh.info2, "SEQ: on a WAV") && !strcmp(usbh.path, "/SAMPLES"));
-    pick_seq("tone.wav");                               /* SEQ: it waits for the song */
-    printf("  sync: [%s] [%s]\n", usbh.info, usbh.info2);
-    fflush(stdout);
-    assert(cp[0].armed && !cp[0].on && cp[0].synced && cs.st[0].once && !strcmp(usbh.info2, "Ready: plays with PLAY") &&
-           usbh.ent[row].play == 2u);
-    up.msg_ms -= 2000u; up.show_ms -= 250u; usbf_task();
-    assert(!strcmp(usbh.info2, "0 play, 1 ready, CPU 0%"));
-    for (i = 0; i < 100u; i++) {                        /* nothing until PLAY */
-        block(out, 15);
-        for (j = 0; j < 128u; j++) loud |= (uint32_t)out[j];
-    }
-    assert(!loud && cp[0].armed && !gaps_all());
-    t_playing = 1; t_starts++;                          /* PLAY: from its first frame, in the block it starts */
-    for (i = 0, f = 0; i < 300u; i++) {                        /* 19,200 frames: the file (11,025) once, then silence */
-        block(out, 15);
-        for (j = 0; j < 64u; j++, f++) {
-            int32_t v = f < n ? ramp(f) : 0;
-            if (out[2 * j] != (v * 4096) >> 12 || out[2 * j + 1] != (-v * 4096) >> 12) bad++;
-        }
-    }
-    printf("  sync: once, %u wrong, %u gaps, [%s]\n", bad, gaps_all(), usbh.info2);
-    fflush(stdout);
-    assert(!bad && !gaps_all() && cp[0].armed && !cp[0].on && usbh.ent[row].play == 2u);   /* waiting again */
-    t_starts++;                                         /* (a RESTART: it plays again from the top) */
-    for (i = 0, f = 0; i < 50u; i++) {
-        block(out, 15);
-        for (j = 0; j < 64u; j++, f++)
-            if (out[2 * j] != (ramp(f) * 4096) >> 12) bad++;
-    }
-    assert(!bad && cp[0].on && usbh.ent[row].play == 1u);
-    t_playing = 0;                                      /* STOP mid-way: silent at once, then back to its start */
-    for (i = 0, loud = 0; i < 20u; i++) {
-        block(out, 15);
-        for (j = 0; j < 128u; j++) loud |= (uint32_t)out[j];
-    }
-    assert(!loud && cp[0].armed && !cp[0].on && cp[0].w >= cp[0].cap / 2u && cs.st[0].pos <= cp[0].w * 4u + 512u);
-    t_playing = 1; t_starts++;
-    for (i = 0, f = 0; i < 20u; i++) {
-        block(out, 15);
-        for (j = 0; j < 64u; j++, f++)
-            if (out[2 * j] != (ramp(f) * 4096) >> 12) bad++;
-    }
-    assert(!bad && !gaps_all());
-    t_playing = 0;
-    for (i = 0; i < 5u; i++) block(out, 15);
-    ask(UC_UP);
-    usbh.src = 2;                                       /* track 2, armed while stopped */
-    ask(UC_REC);                                        /* (the WAV stops: the recorder takes its memory) */
-    printf("  synced take: [%s] [%s]\n", usbh.info, usbh.info2);
-    fflush(stdout);
-    assert(ur.on && cr.armed && !cr.on && cr.ch == 2u && cr.trk == 1u && mix_stem_trk == 1u && !up.n && !strcmp(usbh.info, "REC OC004.WAV waits for PLAY"));
-    for (i = 0, f = 0; i < 200u; i++) rec_block(out, &f);   /* nothing until PLAY */
-    assert(!ur.frames && cr.w == 0u);
-    t_playing = 1; t_starts++;
-    for (i = 0, f = 0; i < 3000u; i++) rec_block(out, &f);   /* 192,000 frames */
-    t_playing = 0;                                      /* STOP: the take ends in that block, and is saved */
-    for (i = 0; i < 10u && ur.on; i++) rec_block(out, &j);
-    printf("  synced take: [%s] [%s] %u frames\n", usbh.info, usbh.info2, ur.frames);
-    fflush(stdout);
-    assert(!ur.on && ur.frames == 192000u && !strcmp(usbh.info, "Saved OC004.WAV, 4.3 s") && row_of("OC004.WAV") >= 0);
-    assert(mix_stem_trk == 0xFFu);                      /* (the stem let go) */
-    assert(f_open(&fl, "/OC004.WAV", FA_READ) == FR_OK && f_size(&fl) == 512u + 192000u * 4u);
-    assert(f_read(&fl, h, 512, &got) == FR_OK && h[22] == 2 && h[32] == 4 && h[28] == 0x10 && h[29] == 0xB1 && h[30] == 2);
-    for (f = 0; f < 192000u;) {
-        uint32_t k = 192000u - f > 128u ? 128u : 192000u - f;
-        assert(f_read(&fl, smp, k * 4u, &got) == FR_OK && got == k * 4u);
-        for (i = 0; i < k; i++, f++) {
-            int32_t v = rec_t(f, 1), u = rec_u(f, 1);
-            v = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
-            if (smp[2 * i] != v || smp[2 * i + 1] != u) bad++;
-        }
-    }
-    f_close(&fl);
-    printf("  OC004.WAV: track 2, stereo, %u wrong\n", bad);
-    fflush(stdout);
-    assert(!bad);
-    ask(UC_REC);                                        /* armed, then REC again: cancelled, its file gone */
-    assert(ur.on && cr.armed && !strcmp(ur.name, "OC005.WAV"));
-    ask(UC_REC);
-    assert(!ur.on && !cr.armed && !strcmp(usbh.info2, "Take cancelled") && f_stat("/OC005.WAV", &fi) == FR_NO_FILE);
-    usbh.src = 0;
-    dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it) */
-    usbh_want(0);
-    run_ms(2);
-    return 1;
 }
 /* (0.4.20) frozen tracks (card_freeze.c, usb_files.c frz_*): a model sequencer marks each track's passes (PL frames
  * a pass, from the block after PLAY, as seq.c); a track's stem is periodic over its cycle (fz_val). KNOB 3 right
@@ -1254,7 +918,6 @@ static int t_freeze(void)
     add(D_DRIVE, 64, -1, 0);
     for (i = 0; i < 128u; i++) LEVEL_Q12[i] = (int32_t)i * 32;
     for (i = 0; i < NTRK; i++) trk[i].p[P_LEVEL] = 100, trk[i].p[P_MUTE] = 0;
-    usbh.view = 0;
     fz_stop();
     fz_pl = 5003u;
     lists.mode = OCL_PHRASE;
@@ -1266,7 +929,7 @@ static int t_freeze(void)
     fflush(stdout);
     assert(frz[1].st == FZ_ARMED && usbh.want && usbh.drive && frz[1].passes == 1u && mix_stem_trk == 1u &&
            !strcmp(ur.path, "/ORANGECAT/T2_001.WAV") && !strcmp(frz_word(1, 0), "Ready") && !strcmp(frz_word(1, 1), "Wait"));
-    usbh_want(0);                                       /* (leaving the drive test: the port stays a host) */
+    usbh_want(0);                                       /* (asked to let go: a freezing track keeps the port a host) */
     assert(usbh.want);
     fz_play();
     for (b = 0; b < 2000u && frz[1].st != FZ_ON && frz[1].st != FZ_OFF; b++) fz_block();
@@ -1371,6 +1034,23 @@ static int t_freeze(void)
     assert(frz_cycle(1) == 18u);
     lists.mode = OCL_PHRASE;
     assert(frz_cycle(1) == 1u);
+    {   /* (0.5.3) the card stops answering while a take plays: the track back to its engine, "Error" */
+        frz_knob(3, 1);
+        for (b = 0; b < 600u && frz[3].st != FZ_ARMED; b++) fz_block();
+        fz_play();
+        for (b = 0; b < 3000u && frz[3].st != FZ_ON; b++) fz_block();
+        assert(frz[3].st == FZ_ON);
+        for (b = 0; b < 200u && !((mix_frozen >> 3) & 1u); b++) fz_block();
+        assert((mix_frozen >> 3) & 1u);
+        dump_card("build/host/rec_card.img");           /* (tests/check_rec_card.py reads it: T2, T3 and T4's takes) */
+        devs[0].deaf = 2;
+        for (b = 0; b < 2000u && frz[3].st != FZ_OFF; b++) fz_block();
+        printf("  card gone while frozen: %s\n", frz_word(3, 1));
+        fflush(stdout);
+        assert(frz[3].st == FZ_OFF && !strcmp(frz_word(3, 1), "Error") && !cs.run);
+        devs[0].deaf = 0;
+        fz_stop();
+    }
     frz_drop_all("");
     usbh_want(0);
     run_ms(2);
@@ -1379,7 +1059,7 @@ static int t_freeze(void)
 int main(void)
 {
     card_load();
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_play() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_rec() && t_sync() && t_freeze();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_fs() && t_stream() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_freeze();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }

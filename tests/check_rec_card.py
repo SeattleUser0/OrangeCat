@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Orange Cat 0.4.16: the card the recorder wrote, checked by an independent FAT implementation (pyfatfs) and
+"""Orange Cat 0.4.16: the card the firmware wrote, checked by an independent FAT implementation (pyfatfs) and
 Python's own WAV reader.
 
-tests/usb_host_test.c (t_rec) records two WAVs onto the test card through the firmware's FatFs and writes the
-card out as build/host/rec_card.img (48 MB, an MBR with one FAT32 partition at sector 2048). This opens that image
-with pyfatfs, reads /OC001.WAV and /OC002.WAV, and checks with the wave module that each is 16-bit stereo 44.1 kHz
-with the frames the test gave: left ramp(f), right -ramp(3 f) / 2 (the test's rec_l, rec_r). The other files on the
-card must still read as they were made (tests/make_fat_fixture.py), and no cluster may belong to two files or
+tests/usb_host_test.c (t_freeze) freezes tracks onto the test card through the firmware's FatFs and writes the card
+out as build/host/rec_card.img (48 MB, an MBR with one FAT32 partition at sector 2048). This opens that image with
+pyfatfs and checks the takes in /ORANGECAT with the wave module: each is 16-bit stereo 44.1 kHz, exactly one cycle of
+its track (T2_001.WAV: 5,003 frames; T3_001.WAV: two passes of 3,001; T4_001.WAV: 3,001), sample for sample the
+test's stem (its fz_val). T1_001.WAV was cancelled and then stopped mid-take: it must not be there. The other files on
+the card must still read as they were made (tests/make_fat_fixture.py), and no cluster may belong to two files or
 folders, nor a chain be shorter than its file.
-
-(0.4.17) The card now also holds OC003.WAV, a take the card stopped answering in the middle of (the test's "pulled
-card"): its header and size must agree with each other at the last sync, its frames up to there must be right,
-and its cluster chain may run past its size (clusters taken after the last sync), but not be shorter. OC004.WAV is
-a synced take of track 2 alone: 192,000 frames, (0.4.19) stereo: the test's rec_t(f, 1) held to 16 bits on the
-left, rec_u(f, 1) on the right. OC005.WAV was cancelled: it must not be there.
 
 Needs pyfatfs (pip install pyfatfs). Without it, it says so and passes (the C test has checked the files through
 FatFs already).
@@ -23,6 +18,7 @@ Revisions:
   0.4.16: first version.
   0.4.17: the pulled take (OC003), the mono track take (OC004), the cancelled one (OC005).
   0.4.19: the track take is stereo.
+  0.5.3: the drive test's recorder is gone (OC001 to OC005): frozen tracks' takes are checked instead.
 """
 import io
 import struct
@@ -32,22 +28,10 @@ import wave
 IMG = "build/host/rec_card.img"
 
 
-def ramp(i):
-    return ((i * 37) % 32768) - 16384
-
-
-def rec_t(f, t):                                # the test's track stem, held to 16 bits
-    v = (f * (7 + t) + t * 1000) % 70000 - 35000
-    return max(-32768, min(32767, v))
-
-
-def rec_u(f, t):                                # (0.4.19) its right side
-    return (f * (11 + t) + 500) % 50000 - 25000
-
-
-def c_div(a, b):                                # C's integer division (towards zero)
-    q = abs(a) // abs(b)
-    return q if (a >= 0) == (b >= 0) else -q
+def fz_val(k, p, right):                         # the test's stem of track k, p frames into its cycle
+    if right:
+        return (p * (17 + k) + 300) % 24000 - 12000
+    return (p * (13 + k) + k * 77) % 20000 - 10000
 
 
 def main():
@@ -57,32 +41,18 @@ def main():
         print("check_rec_card: pyfatfs not installed; not checked")
         return 0
     fs = PyFatFS(IMG, offset=2048 * 512, read_only=True)
-    names = sorted(fs.listdir("/"))
-    print("check_rec_card: / holds", names)
-    for name, frames in (("OC001.WAV", 256000), ("OC002.WAV", 19200), ("OC003.WAV", None)):
-        data = fs.readbytes("/" + name)
+    names = sorted(fs.listdir("/ORANGECAT"))
+    print("check_rec_card: /ORANGECAT holds", names)
+    for name, k, frames in (("T2_001.WAV", 1, 5003), ("T3_001.WAV", 2, 2 * 3001), ("T4_001.WAV", 3, 3001)):
+        data = fs.readbytes("/ORANGECAT/" + name)
         with wave.open(io.BytesIO(data)) as w:
             assert w.getnchannels() == 2 and w.getsampwidth() == 2 and w.getframerate() == 44100, name
-            if frames is None:                  # (the pulled take: what the last sync kept)
-                frames = w.getnframes()
-                assert frames > 0 and len(data) == 512 + 4 * frames, (name, frames, len(data))
-            assert w.getnframes() == frames, (name, w.getnframes())
+            assert w.getnframes() == frames and len(data) == 512 + 4 * frames, (name, w.getnframes(), len(data))
             pcm = w.readframes(frames)
-        bad = 0
-        for f in range(frames):
-            l, r = struct.unpack_from("<hh", pcm, 4 * f)
-            if l != ramp(f) or r != c_div(-ramp(f * 3), 2):
-                bad += 1
+        bad = sum(1 for f in range(frames) if struct.unpack_from("<hh", pcm, 4 * f) != (fz_val(k, f, 0), fz_val(k, f, 1)))
         print(f"check_rec_card: {name}: {frames} frames, {bad} wrong")
         assert not bad
-    with wave.open(io.BytesIO(fs.readbytes("/OC004.WAV"))) as w:
-        assert w.getnchannels() == 2 and w.getsampwidth() == 2 and w.getframerate() == 44100
-        assert w.getnframes() == 192000
-        pcm = w.readframes(192000)
-    bad = sum(1 for f in range(192000) if struct.unpack_from("<hh", pcm, 4 * f) != (rec_t(f, 1), rec_u(f, 1)))
-    print(f"check_rec_card: OC004.WAV: track 2, stereo, 192000 frames, {bad} wrong")
-    assert not bad
-    assert "OC005.WAV" not in names
+    assert "T1_001.WAV" not in names
     assert fs.readtext("/README.TXT") == "Orange Cat test card\n"
     assert fs.readbytes("/BIG.BIN") == bytes((i * 7 + (i >> 9)) & 255 for i in range(65536))
     assert len(fs.listdir("/MANY")) == 20
@@ -100,10 +70,7 @@ def main():
             chain = list(pf.get_cluster_chain(c)) if c else []
             if not e.is_directory():
                 need = -(-e.filesize // cb)
-                if name == "OC003.WAV":         # (pulled: clusters taken after the last sync may hang on)
-                    assert len(chain) >= need, (path + name, len(chain), need)
-                else:
-                    assert len(chain) == need, (path + name, len(chain), need)
+                assert len(chain) == need, (path + name, len(chain), need)
             for k in chain:
                 assert k not in seen, (path + name, k, seen.get(k))
                 seen[k] = path + name

@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.13  
+**Version:** 0.14  
 **Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.14 (October 22, 2026):** MACRO's HARP model, Orange Cat's own (8.1.1). The USB drive test removed: the card is used by frozen tracks only, with no page of its own (10.5).
 - **0.13 (October 22, 2026):** The tracker view's columns: four notes a step, velocity, and effects with a command and an amount (6.1). MACRO and SHAPES play four voices a track (8.1.1).
 - **0.12 (October 22, 2026):** Braids built as the SHAPES engine (0.5.1, 8.1.1).
 - **0.11 (October 22, 2026):** Plaits built as the MACRO engine (0.5.0, 8.1.1). Engines take names of their own, not the module names (8.1).
@@ -357,7 +358,7 @@ Mutable Instruments asks that derivative works not carry its name or keep the mo
 
 #### 8.1.1 Built so far
 
-- **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. Four voices per track in POLY (0.5.2), one in PARTCL and STRING (their 8 KB states). Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
+- **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. Four voices per track in POLY (0.5.2), one in PARTCL and STRING (their 8 KB states). HARP (0.5.3), a model of Orange Cat's own, gives each voice one of STRING's strings so that chords ring. Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
 - **Braids, as SHAPES (0.5.1).** All of Braids' shapes but the four wavetable ones (their 33 KB of waves), ported to C and checked sample for sample against the original. Set up as the M8's Macrosynth: shape, TIMBRE, COLOR, then a filter (cutoff, resonance), drive, bit reduction and sample-rate reduction; Melodee's ADSR, LFO and modulation for the rest. A note strikes the shape. Four voices per track in POLY (0.5.2), one in the five shapes with delay lines, which share one set. Not yet: the wavetable shapes; Braids' own AD envelope routings.
 
 Clouds’ buffer freeze is a sound-processing function and shall be distinguished from instrument bouncing or whole-track audio freezing.
@@ -490,7 +491,7 @@ Orange Cat shall set aside a sample and bounce area by reclaiming flash, and the
 
 USB flash drive support was tested early (Build.md, phase 2). Results on the FM-1 (October 21, 2026):
 
-- Orange Cat runs the USB port as a host (Menu > USB DRIVE TEST). Neither Melodee nor Skiff had host code; Orange Cat's is written from JieLi's register notes.
+- Orange Cat runs the USB port as a host. Neither Melodee nor Skiff had host code; Orange Cat's is written from JieLi's register notes. (The test page, Menu > USB DRIVE TEST, was removed in 0.5.3. Today the port turns into a host only while a track is frozen or freezing.)
 - The FM-1 does not put 5 V on its port. A drive plugged straight in gets no power and is not seen.
 - Through a USB-C hub with power on its PD port, it works: the hub powers the drive and the FM-1's port. A 32 GB FAT32 SD card in the hub's slot read at 914 KB/s, about the limit of full speed USB (12 Mbit/s).
 - One port cannot be host and device at the same time. While a drive is in use, USB MIDI, USB audio, and the web editor are offline.

@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.45 (October 22, 2026):** 0.5.3: HARP, a 15th MACRO model: STRING's string, one per voice, so chords ring. The USB drive test and the TRIO test voice switch removed from the firmware.
 - **0.44 (October 22, 2026):** 0.5.2: TRACKER gets four note columns and an FX column you can edit. MACRO and SHAPES play four voices a track, so a step's chord sounds.
 - **0.43 (October 22, 2026):** 0.5.1: SHAPES, a second engine: Braids ported to C, all 47 shapes checked sample for sample against the original.
 - **0.42 (October 22, 2026):** 0.5.0: phase 7 started. MACRO, a new engine of 14 sound models ported from Plaits to C, checked sample for sample against the original. It replaces TRIO.
@@ -175,6 +176,8 @@ Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variable
 
 **Status: Done.** The FM-1 reads a drive and its files as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. Next: the steps in the plan below.
 
+**0.5.3 (October 22, 2026): the drive test is removed.** Its page (Menu > USB DRIVE TEST) was for finding out whether the FM-1 could use a drive at all, and it can. Jeremiah asked for the test code to come out of the firmware. Gone: the page and its menu item; what it showed (the device's maker and model, the list of hubs and disks, the diagnostic line, sector 0, the read speed); its file list; its WAV players (OCT+ and SEQ on a WAV, the card's speed and gaps on the foot); its recorder (REC on the file list, OC001.WAV and so on); the audio side's hooks for them (card_render, card_capture, card_sync); playing a file once. What freezing a track uses stays, with no page: the USB host, the walk through hubs, the drive made ready, FatFs (reading and writing), the card read from the timer, the take written and played back. The port turns into a host only while a track is frozen or freezing. Tests: tests/usb_host_test.c now checks the probe by what it leaves (a drive ready, its address and slot), FatFs on the card, two streams at once sample for sample, and the freeze tests as before plus the card failing while a track plays frozen; tests/check_rec_card.py now checks the frozen tracks' takes on the card with pyfatfs. The items below that tested the page are marked dropped.
+
 Goal: find out if the FM-1 can read a USB flash drive. This decides where samples and bounces can live.
 
 What is known:
@@ -203,22 +206,22 @@ Step 2, files (0.4.10):
 - [x] The UI never waits on the drive: the page sets a request, the main loop does it (usb_files.c usbf_task).
 
 Left to build:
-- [ ] Write support (FatFs read-write), for bounces. Needs care: a card pulled during a write can lose the file.
-- [ ] Background transfers: today a read blocks the main loop (the screen waits; the sound does not). Streaming needs the transfers in a timer or on the second core, with a ring buffer.
+- [x] Write support (FatFs read-write), for bounces. Needs care: a card pulled during a write can lose the file. (Built: FatFs writes since 0.4.16.)
+- [x] Background transfers: today a read blocks the main loop (the screen waits; the sound does not). Streaming needs the transfers in a timer or on the second core, with a ring buffer. (Built: the timer reads since 0.4.12.)
 - [ ] Leave the boot stub and its update mode untouched so the unit can always be reflashed. (The test build does not touch them.)
 
 Left to test, files (0.4.10, the RCA hub on PD power, the 32 GB card with a few WAVs and folders on it):
 - [x] OCT+ after the drive reads: the top folder listed, with sizes (October 21).
 - [x] A WAV's details right: 44.1 kHz 24-bit mono 42.2 s (5.3 MB), 52.8 s (6.6 MB), 44.1 kHz 16-bit stereo 0.6 s (112 KB).
 - [x] Reading in 512-byte pieces: 469 to 479 KB/s, the same for a 112 KB file and 1 MB of a larger one. Against 911 to 930 KB/s in 32 KB reads: each command costs about as much as its 512 bytes of data. So a player or loader should read 8 KB or more at a time.
-- [ ] Folders open, OCT- goes up; a long folder scrolls (the card had no folders).
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Folders open, OCT- goes up; a long folder scrolls (the card had no folders).
 - [ ] An exFAT card (64 GB or more), if one is handy.
 
 Left to test, playing (0.4.11):
 - [x] A WAV alone (October 21): 44.1 kHz 16-bit stereo: CPU 9%, card 29%, gaps 0. 44.1 kHz 24-bit mono: CPU 9%, card 23%, gaps 0.
 - [x] With three tracks playing, then the 16-bit stereo WAV: CPU 30%, card 38%, gaps 0.
 - [x] By ear (0.4.11): the WAV clean, no clicks or pops; the sequencer steady; no screen flicker.
-- [ ] A 48 kHz WAV at the right pitch.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) A 48 kHz WAV at the right pitch.
 
 What the numbers say: the audio load does not move with the card (9% with the WAV alone; 30% with three tracks, about what three tracks cost without it). The reading costs main loop time: 29% of it for one stereo 16-bit track (176 KB/s), more (38%) when the synths take more of the processor. The bus itself is only about a fifth busy at 176 KB/s; most of that 29% is the processor waiting on each 64-byte packet (the host code polls). So two stereo tracks this way would take most of the main loop, and the screen and keys would suffer.
 
@@ -228,8 +231,8 @@ One packet a tick caps the stream at about 640 KB/s (10,000 ticks x 64 bytes), a
 
 Left to test (0.4.12):
 - [x] Four tracks playing and the largest WAV on the card (44.1 kHz 24-bit mono, 6.6 MB): CPU 44%, card 2%, gaps 0 (October 21). The same file in 0.4.11 took 23% of the main loop.
-- [ ] Moving through the file list while the WAV plays (FatFs and the stream share the bus).
-- [ ] Pulling the card out while it plays: "Stopped: card error", nothing stuck.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Moving through the file list while the WAV plays (FatFs and the stream share the bus).
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Pulling the card out while it plays: "Stopped: card error", nothing stuck.
 
 Earlier note, from 0.4.11: to carry more tracks, move the transfers out of the main loop and stop waiting on the bus. The controller moves each packet by DMA; the processor only has to start the next one. Driven from an interrupt (the USB controller's own, or the 10 kHz timer), that is a few microseconds a packet, a few percent of the processor for a stereo track, and the main loop free. Then larger reads where memory allows.
 
@@ -238,10 +241,10 @@ Left to test (Menu > USB DRIVE TEST, then plug in):
 - [x] A hub with power on its PD port: host mode works, the hub is found (0.4.7).
 - [x] 0.4.8 with the RCA hub on PD power: the SD card in the hub's slot reads (914 KB/s).
 - [x] 0.4.9: the card reader stick in the hub's port 3: "Through hubs: 3", ID 05E3:0749 (Generic USB3.0 Card Reader), Drive 29.7 GB, Disk: FAT32, Read 930 KB/s. The hub's own slot again: 911 KB/s.
-- [ ] A plain USB flash drive in one of the hub's USB-A ports (the stick reader in a USB-A port already covers that path).
-- [ ] Read speed: enough to copy samples into flash? Enough to stream?
+- [x] (Dropped in 0.5.3: the drive test page is gone.) A plain USB flash drive in one of the hub's USB-A ports (the stick reader in a USB-A port already covers that path).
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Read speed: enough to copy samples into flash? Enough to stream?
 - [x] After OCT-, the web editor connects again without a power cycle (so USB MIDI is back). USB audio not checked.
-- [ ] A photo of the page for each try, so the bottom line can be read.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) A photo of the page for each try, so the bottom line can be read.
 
 Result: works only with external power (a hub on PD power). 914 KB/s read.
 
@@ -290,7 +293,7 @@ Tested (0.4.14 on the unit, October 21; four 44.1 kHz 16-bit stereo files, 0.5 t
 - A WAV that would take the playing ones past 532 KB/s does not start. The page says "Too much for the card".
 
 Left to test (0.4.15):
-- [ ] Three 16-bit stereo files play; a fourth says "Too much for the card" and the three play on.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Three 16-bit stereo files play; a fourth says "Too much for the card" and the three play on.
 
 Recording to the card (0.4.16, plan step 5, built):
 - On the file list, REC starts recording what the FM-1 plays into a new WAV in the folder shown: OC001.WAV, then OC002.WAV and so on (the first free name). REC again stops it. The list then shows the new file, and OCT+ plays it. The REC light is on while it records.
@@ -305,12 +308,12 @@ Recording to the card (0.4.16, plan step 5, built):
 - Host tests: a known signal recorded for 5.8 s, every sample checked through FatFs, the header's length, the file played back through the player sample for sample, the next file named OC002.WAV, a WAV refused while recording, the card going silent mid-take. The card is then checked by a second FAT library (pyfatfs) and Python's own WAV reader: both files read back exactly, the other files unchanged, no cluster in two files.
 
 Left to test (0.4.16):
-- [ ] REC on the file list: the REC light comes on, the foot counts up. REC again: "Saved OC001.WAV", the file in the list.
-- [ ] OCT+ on OC001.WAV plays it back. It should sound like what was playing, about 6 dB quieter (the player plays WAVs 6 dB down).
-- [ ] The foot's numbers during a take with the sequencer running: lost (should stay 0), write KB/s and max ms.
-- [ ] The card in a computer: OC001.WAV opens and sounds right.
-- [ ] A take of a few minutes.
-- [ ] Pull the card mid-take, then check it in a computer: the file keeps what was recorded up to a few seconds before.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) REC on the file list: the REC light comes on, the foot counts up. REC again: "Saved OC001.WAV", the file in the list.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) OCT+ on OC001.WAV plays it back. It should sound like what was playing, about 6 dB quieter (the player plays WAVs 6 dB down).
+- [x] (Dropped in 0.5.3: the drive test page is gone.) The foot's numbers during a take with the sequencer running: lost (should stay 0), write KB/s and max ms.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) The card in a computer: OC001.WAV opens and sounds right.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) A take of a few minutes.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Pull the card mid-take, then check it in a computer: the file keeps what was recorded up to a few seconds before.
 
 In time with the sequencer, and freezing one track (0.4.17, built; tested on the computer only):
 - PLAY works on the drive test's page: it starts and stops the sequencer there.
@@ -334,11 +337,11 @@ Tested (0.4.18 on the unit, October 21):
 - [x] The freeze: a track recorded alone with REC armed and PLAY, muted on the MIXER page, its take tied to the song with SEQ: it played in time with the other tracks.
 
 Left to test (0.4.17, with 0.4.18's keys):
-- [ ] PLAY on the file list starts and stops the sequencer.
-- [ ] OCT+ on a WAV with the sequencer stopped: it plays at once, alone. OCT+ again stops it.
-- [ ] Freeze: KNOB 3 to track 1, stop the sequencer, REC (waits), PLAY: the take runs with the song; PLAY again: "Saved". Mute track 1, SEQ on the new file (READY), PLAY: the take plays in time with the other tracks.
-- [ ] The frozen track's level against the live one (they should match with MASTER at full; the take has no pan or effects).
-- [ ] REC, then REC again before PLAY: "Take cancelled", no file left.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) PLAY on the file list starts and stops the sequencer.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) OCT+ on a WAV with the sequencer stopped: it plays at once, alone. OCT+ again stops it.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Freeze: KNOB 3 to track 1, stop the sequencer, REC (waits), PLAY: the take runs with the song; PLAY again: "Saved". Mute track 1, SEQ on the new file (READY), PLAY: the take plays in time with the other tracks.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) The frozen track's level against the live one (they should match with MASTER at full; the take has no pan or effects).
+- [x] (Dropped in 0.5.3: the drive test page is gone.) REC, then REC again before PLAY: "Take cancelled", no file left.
 
 Stereo track takes (0.4.19, built; plan item 1):
 - KNOB 3 on a track: REC records that track in stereo, as it goes into the mix: after its level, pan, spread and its own effects, before its sends to the shared effects and before MASTER. 0.4.17's track takes were mono and before the pan.
@@ -347,7 +350,7 @@ Stereo track takes (0.4.19, built; plan item 1):
 - Host tests: with one track sounding, its stem equals the mix sample for sample; a silent track's stem is silent while another plays; none picked, none kept. The recorder writes a stereo track take that reads back exactly through FatFs and pyfatfs.
 
 Left to test (0.4.19):
-- [ ] Freeze a track panned hard left: the take is left only. Mute the original, SEQ on the take, PLAY: it sounds like the original, in place.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Freeze a track panned hard left: the take is left only. Mute the original, SEQ on the take, PLAY: it sounds like the original, in place.
 - [ ] A track with its own effect (if it has one) keeps it in the take; its reverb and delay sends do not go into the take.
 
 Tested (0.4.19 on the unit, October 21):
@@ -384,8 +387,8 @@ Left to build (later):
 - Record the mix before MASTER.
 - Play WAVs while recording (the memory split two ways, and the 550 KB/s shared). Needed to freeze a second track while the first plays back.
 - WAVs as tracks in the sequencer (started by patterns and the song, not only by PLAY).
-- [ ] Stopping one with OCT+ while others play: the rest unbroken.
-- [ ] Moving through folders while they play.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Stopping one with OCT+ while others play: the rest unbroken.
+- [x] (Dropped in 0.5.3: the drive test page is gone.) Moving through folders while they play.
 
 Steps, each tested on the unit before the next:
 1. Files read (0.4.10, tested).
@@ -692,6 +695,7 @@ Left to build:
 - [ ] Measure on the unit: CPU per model, four tracks of the heaviest models.
 - [ ] If flash allows: the wavetable model with a reduced set of waves; Plaits 1.2's second bank.
 - [x] Polyphony (0.5.2): four voices a track in POLY, each with its own model state (all but PARTCL and STRING, which stay at one: their states are 8 KB). Voice units by model: VA and WAVSHP 2, ADDTV 4, the rest 3. The pad, keys, chord and bell presets now start in POLY; bass and lead presets stay LEG. Part state 8,696 B. Tested: tests/macro_test.c plays a four note chord (four voices) and one on STRING (one voice).
+- [x] HARP (0.5.3): a 15th model, Orange Cat's own: one of STRING's strings for each voice (2,744 B each), so a chord rings on four strings. STRING keeps its three strings played in turn, one note at a time, as the module. Same knobs as STRING (HARM material, TIMB brightness, MRPH decay); voice units 2. Two presets, HARP and STRING CHORDS, both POLY. Added at the end of the model list and the preset list, so stored sounds keep theirs. The part state is now 11,284 B on the device (four HARPs are the largest), under the 12 KB a part may take. Tested: macro_test plays HARP and its presets, and a four note chord on four voices.
 - [ ] Web editor pages for MACRO (the mock tables have it).
 
 Left to test (0.5.0):
@@ -744,6 +748,7 @@ Left to test (0.5.2, both engines):
 - [ ] A four note chord from TRACKER on ADDITIVE PAD, CHORD MINOR, SWARM PAD (MACRO) and TRIPLE SAW PAD, FM KEYS (SHAPES): all four notes sound, no crackle.
 - [ ] The CPU meter with two tracks each playing four note chords.
 - [ ] A bass preset (LEG) still glides from note to note.
+- [ ] HARP and STRING CHORDS: a four note chord rings on four strings; compare with PLUCKED STRING (one note at a time).
 
 Left to build:
 - [ ] The wavetable shapes: their 33 KB of waves do not fit the 22 KB left. Possible with a smaller set of waves, or
@@ -754,7 +759,7 @@ Measurements (fill in):
 
 | Engine | App flash | RAM | CPU per voice | Fits? |
 |---|---|---|---|---|
-| Plaits (MACRO) | 55,374 B | 8,696 B a track from the arena (0.5.2, four voices) | (unit) | Yes |
+| Plaits (MACRO) | 55,374 B | 11,284 B a track from the arena (0.5.3: four voices, HARP) | (unit) | Yes |
 | Braids (SHAPES) | 43,362 B | 11,136 B a track from the arena (0.5.2, four voices) | (unit) | Yes, without the wavetables (33 KB; 22 KB left) |
 | Clouds | | | | |
 | Rings | | | | |

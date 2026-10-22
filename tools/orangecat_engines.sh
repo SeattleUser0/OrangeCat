@@ -4,6 +4,7 @@
 # The host tests themselves compile with the defaults (every engine), whatever is set here.
 #
 # Revisions:
+#   0.5.3: the MELODEE_TRIO switch itself gone (TRIO was the early test voice; it is Melodee's retired engine again).
 #   0.5.1: SHAPES in (engine 14: a Braids-style macro oscillator, eng_shapes.c).
 #   0.5.0: MACRO in (engine 8: fourteen sound models, eng_macro.c). TRIO out again (MELODEE_TRIO=0): MACRO replaces it as
 #          the power-on sounds and the fallback.
@@ -15,7 +16,6 @@
 #   0.1.0: SID unhooked.
 export MELODEE_SID=0
 export MELODEE_CZ=0
-export MELODEE_TRIO=0
 export MELODEE_MACRO=1
 export MELODEE_SHAPES=1
 export MELODEE_FM6=0
