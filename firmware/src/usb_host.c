@@ -40,6 +40,7 @@
  *   0.4.14: the foot's lines hold 48 characters (UH_FOOT) and there are three (info3: the players' gaps and speed);
  *          the list shows five rows to make room. (0.4.13's foot ran past its 30 and wrote over the first row's
  *          name: the "8" on the device was the end of the gap count.)
+ *   0.4.16: WRITE(10): uh_scsi_w (the recorder's, through FatFs: usb_files.c disk_write).
  */
 #ifndef UH_LINES_READ
 #define UH_LINES_READ() fm1_usb_lines()                 /* (host tests replace the hardware read) */
@@ -47,7 +48,7 @@
 enum { S_DEVCTL = 15, S_TXTYPE = 24, S_TXINTERVAL = 25, S_RXTYPE = 26, S_RXINTERVAL = 27 };
 enum { UH_OFF, UH_WAIT, UH_SEEN, UH_DONE };
 /* (0.4.10) what the page asks the main loop for (usbh.cmd; usb_files.c usbf_task does it) */
-enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE };
+enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE, UC_REC };   /* (0.4.16: UC_REC, REC on the files) */
 #define UH_ROWS 5u                                      /* the file list's rows on the page (0.4.14: was 6) */
 #define UH_NAME 32u
 /* errors (negative): the page names them */
@@ -76,6 +77,7 @@ static struct {
     uint16_t count, sel, top, ent_top;
     char path[96];
     char info[UH_FOOT], info2[UH_FOOT], info3[UH_FOOT];   /* (0.4.14: info3, and 48 each) */
+    uint8_t rec;                                        /* (0.4.16) the recorder runs (usb_files.c; the REC light) */
     struct { char name[UH_NAME]; uint32_t size; uint8_t dir, play; } ent[UH_ROWS];   /* (0.4.13: play, a WAV playing) */
 } usbh;
 static uint8_t uh_sec[512];     /* sector 0 */
@@ -326,6 +328,44 @@ static int uh_scsi(const uint8_t *cb, uint32_t cl, uint8_t *d, uint32_t n)
         return uh_fail(UE_CSW);
     if (s[12]) return uh_fail(UE_CHECK);                /* command failed (the drive has sense data) */
     return got < 0 ? got : 0;
+}
+/* (0.4.16) one SCSI command with n bytes OUT from d (WRITE(10)): the CBW, the data in 64-byte packets, the status.
+ * The drive may hold off the data while the card is busy writing (it NAKs; uh_out waits up to 1 s a packet) and
+ * the status until the card is done (uh_in waits up to 1 s). 0 done and passed, < 0 an error */
+static int uh_scsi_w(const uint8_t *cb, uint32_t cl, const uint8_t *d, uint32_t n)
+{
+    uint8_t w[31], s[13];
+    uint32_t i;
+    int r;
+    for (i = 0; i < 31u; i++) w[i] = 0;
+    w[0] = 'U'; w[1] = 'S'; w[2] = 'B'; w[3] = 'C';
+    usbh.tag++;
+    for (i = 0; i < 4u; i++) {
+        w[4 + i] = (uint8_t)(usbh.tag >> (8u * i));
+        w[8 + i] = (uint8_t)(n >> (8u * i));
+    }
+    w[12] = 0;                                          /* data OUT */
+    w[13] = usbh.lun;
+    w[14] = (uint8_t)cl;
+    for (i = 0; i < cl && i < 16u; i++) w[15 + i] = cb[i];
+    if ((r = uh_out(w, 31)) < 0) {
+        if (r == -UE_STALL) uh_unstall(usbh.ep_out);
+        return r;
+    }
+    if (n && (r = uh_out(d, n)) < 0) {
+        if (r != -UE_STALL) return r;
+        uh_unstall(usbh.ep_out);                        /* (the drive refused the data: its status says why) */
+    }
+    r = uh_in(s, 13);
+    if (r == -UE_STALL) {
+        uh_unstall((uint8_t)(usbh.ep_in | 0x80u));
+        r = uh_in(s, 13);
+    }
+    if (r < 0) return r;
+    if (r != 13 || s[0] != 'U' || s[1] != 'S' || s[2] != 'B' || s[3] != 'S')
+        return uh_fail(UE_CSW);
+    if (s[12]) return uh_fail(UE_CHECK);                /* (a locked card, or past its end) */
+    return 0;
 }
 static uint32_t uh_be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
 

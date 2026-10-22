@@ -47,6 +47,8 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
         ua_audio(out, track_capture_on ? track_capture : 0, n, song.master_q12);
     fm1_irq_on();
 #endif
+    card_capture(out, n);                               /* (Orange Cat 0.4.16) the recorder (card_play.c): the mix as USB
+                                                         * audio takes it, before the click and the card's WAVs */
     click_render(out, n);
     card_render(out, n);                                /* (Orange Cat 0.4.11) a WAV from the drive (card_play.c) */
     for (i = 0; i < n; i++) {

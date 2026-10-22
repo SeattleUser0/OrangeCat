@@ -320,6 +320,18 @@ static void card_load(void)
     }
     fclose(f);
 }
+/* (0.4.16) a sector written: replaces the one there, or joins the card */
+static void card_put(uint32_t lba, const uint8_t *d)
+{
+    uint32_t i;
+    for (i = 0; i < ncard; i++)
+        if (card[i].lba == lba) { memcpy(card[i].d, d, 512); return; }
+    card = realloc(card, (size_t)(ncard + 1u) * sizeof *card);
+    card[ncard].lba = lba;
+    memcpy(card[ncard].d, d, 512);
+    ncard++;
+}
+static uint32_t card_writes, card_written;              /* (0.4.16) WRITE(10) commands, sectors */
 static void card_sector(uint32_t lba, uint8_t *d)
 {
     uint32_t i;
@@ -342,12 +354,23 @@ static void csw(uint32_t residue, uint8_t status)
     memcpy(bin + bin_n, s, 13);
     bin_n += 13;
 }
+static uint32_t bout_left, bout_lba, bout_n;            /* (0.4.16) a WRITE(10)'s data still to come, where, in sec */
+static uint8_t bout_sec[512];
 static void dev_bulk_out(const uint8_t *p, uint32_t n)
 {
     udev_t *d = route();
     uint32_t len;
     int lun = p[13], card;
     assert(d && (d->kind == D_DRIVE || d->kind == D_READER) && d->configured == 1);
+    if (bout_left) {                                    /* (0.4.16) the data of a WRITE(10), 64 bytes a packet */
+        assert(n == 64u && n <= bout_left);
+        memcpy(bout_sec + bout_n, p, n);
+        bout_n += n;
+        bout_left -= n;
+        if (bout_n == 512u) { card_put(bout_lba++, bout_sec); bout_n = 0; card_written++; }
+        if (!bout_left) csw(0, 0);
+        return;
+    }
     assert(lun <= d->maxlun);
     card = d->kind == D_DRIVE || lun == d->card_lun;
     assert(n == 31 && !memcmp(p, "USBC", 4));          /* every CBW in one packet */
@@ -385,6 +408,15 @@ static void dev_bulk_out(const uint8_t *p, uint32_t n)
         for (uint32_t k = 0; k < cnt; k++) card_sector(lba + k, bin + k * 512u);   /* (0.4.10) the card */
         bin_n = cnt * 512u;
         csw(0, 0);
+        break;
+    }
+    case 0x2A: {                                        /* (0.4.16) WRITE(10): the data comes next, then the CSW */
+        uint32_t cnt = (uint32_t)p[22] << 8 | p[23];
+        assert(len == cnt * 512u && cnt && cnt <= 64u && !(p[12] & 0x80u));
+        bout_lba = (uint32_t)p[17] << 24 | (uint32_t)p[18] << 16 | (uint32_t)p[19] << 8 | p[20];
+        bout_left = len;
+        bout_n = 0;
+        card_writes++;
         break;
     }
     default:
@@ -849,10 +881,119 @@ static int t_silent_device(void)
     return 1;
 }
 
+/* (0.4.16) the recorder: REC on the file list records the mix to OC001.WAV in the folder shown; the samples on the
+ * card are the ones the audio ISR gave, the header says how many, a sync every 3 s, the file plays back through
+ * the player, the next one is OC002.WAV; a WAV will not play while recording; a card that stops answering ends
+ * it with what the last sync kept. The card is written as an image for an independent check (pyfatfs:
+ * tests/check_rec_card.py). */
+static int32_t rec_l(uint32_t f) { return ramp(f); }
+static int32_t rec_r(uint32_t f) { return -ramp(f * 3u) / 2; }
+static void rec_block(int32_t *out, uint32_t *f)        /* one 64-frame block of the known signal into the ring */
+{
+    uint32_t i;
+    for (i = 0; i < 64u; i++, (*f)++) { out[2 * i] = rec_l(*f); out[2 * i + 1] = rec_r(*f); }
+    card_capture(out, 64);
+    memset(out, 0, 2 * 64 * sizeof *out);
+    card_render(out, 64);
+    cs_tick();
+    usbf_task();
+    fm1_ms++;
+}
+static void dump_card(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    uint32_t i;
+    assert(f);
+    for (i = 0; i < ncard; i++) { fseek(f, (long)card[i].lba * 512L, SEEK_SET); fwrite(card[i].d, 1, 512, f); }
+    fseek(f, 96L * 1024L * 512L - 1L, SEEK_SET);        /* (the whole 48 MB card) */
+    fputc(0, f);
+    fclose(f);
+}
+static int t_rec(void)
+{
+    int32_t out[2 * 64];
+    uint32_t i, f = 0, frames, bad = 0, w0;
+    FIL fl;
+    UINT got;
+    uint8_t h[512];
+    int16_t smp[2 * 256];
+    reset_world();
+    add(D_DRIVE, 64, -1, 0);
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(400);
+    usbh.view = 1;
+    ask(UC_LIST);
+    w0 = card_writes;
+    ask(UC_REC);
+    printf("  rec: [%s] [%s] [%s]\n", usbh.info, usbh.info2, usbh.info3);
+    fflush(stdout);
+    assert(ur.on && cr.on && !strcmp(ur.name, "OC001.WAV") && !strncmp(usbh.info, "REC OC001.WAV 0.0 s", 19));
+    for (i = 0; i < 4000u; i++) {                       /* 256,000 frames (5.8 s) in 4 s of the test's clock: a sync */
+        rec_block(out, &f);
+        if (i == 1000u) {
+            pick("SAMPLES");                            /* a WAV while recording: refused */
+            pick("tone.wav");
+            assert(!up.n && !strcmp(usbh.info2, "Recording: REC stops it"));
+            ask(UC_UP);
+        }
+    }
+    printf("  rec: [%s] [%s] [%s] %u writes\n", usbh.info, usbh.info2, usbh.info3, card_writes - w0);
+    fflush(stdout);
+    assert(ur.on && !cr.lost && !strncmp(usbh.info, "REC OC001.WAV 5.", 16) && !strncmp(usbh.info2, "lost 0, peak -6 dB", 18));
+    ask(UC_REC);                                        /* stop: the rest out, the header, the list */
+    printf("  stopped: [%s] [%s] [%s]\n", usbh.info, usbh.info2, usbh.info3);
+    fflush(stdout);
+    assert(!ur.on && !cr.on && ur.frames == f && !strcmp(usbh.info, "Saved OC001.WAV, 5.8 s") &&
+           !strcmp(usbh.info2, "lost 0 frames") && row_of("OC001.WAV") >= 0);
+    frames = f;
+    assert(f_open(&fl, "/OC001.WAV", FA_READ) == FR_OK && f_size(&fl) == 512u + frames * 4u);   /* the file as written */
+    assert(f_read(&fl, h, 512, &got) == FR_OK && got == 512u && !memcmp(h, "RIFF", 4) && !memcmp(h + 36, "JUNK", 4) &&
+           !memcmp(h + 504, "data", 4) && (uint32_t)(h[508] | h[509] << 8 | h[510] << 16 | (uint32_t)h[511] << 24) == frames * 4u);
+    for (f = 0; f < frames;) {
+        uint32_t k = frames - f > 256u ? 256u : frames - f;
+        assert(f_read(&fl, smp, k * 4u, &got) == FR_OK && got == k * 4u);
+        for (i = 0; i < k; i++, f++)
+            if (smp[2 * i] != rec_l(f) || smp[2 * i + 1] != rec_r(f)) bad++;
+    }
+    f_close(&fl);
+    printf("  OC001.WAV: %u frames, %u wrong\n", frames, bad);
+    fflush(stdout);
+    assert(!bad);
+    pick("OC001.WAV");                                  /* it plays */
+    printf("  play it: [%s] [%s]\n", usbh.info, usbh.info2);
+    fflush(stdout);
+    assert(!strcmp(usbh.info, "44.1 kHz 16-bit stereo 5.8 s") && up.n == 1 && cp[0].on);
+    for (i = 0, f = 0; i < 50u; i++) {
+        block(out, 15);
+        for (uint32_t j = 0; j < 64u; j++, f++)
+            if (out[2 * j] != (rec_l(f) * 4096) >> 13 || out[2 * j + 1] != (rec_r(f) * 4096) >> 13) bad++;
+    }
+    assert(!bad);
+    ask(UC_REC);                                        /* again: the player stops, OC002.WAV */
+    assert(ur.on && !up.n && !strcmp(ur.name, "OC002.WAV"));
+    for (i = 0, f = 0; i < 300u; i++) rec_block(out, &f);
+    ask(UC_REC);
+    assert(!ur.on && !strcmp(usbh.info, "Saved OC002.WAV, 0.4 s"));
+    dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it) */
+    ask(UC_REC);                                        /* OC003.WAV, and the card stops answering mid-way */
+    assert(ur.on && !strcmp(ur.name, "OC003.WAV"));
+    for (i = 0, f = 0; i < 4000u && ur.on; i++) {
+        rec_block(out, &f);
+        if (i == 3500u) devs[0].deaf = 2;
+    }
+    printf("  card gone mid-way: [%s] [%s]\n", usbh.info, usbh.info2);
+    fflush(stdout);
+    assert(!ur.on && !cr.on && !strncmp(usbh.info, "Card error: OC003.WAV", 21));
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
 int main(void)
 {
     card_load();
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_play() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_play() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_rec();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }

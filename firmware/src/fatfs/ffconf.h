@@ -1,13 +1,13 @@
 /* Orange Cat 0.4.10: FatFs configured for the USB drive test's file browser (firmware/src/usb_files.c).
  * Only this file differs from FatFs R0.16 patch 2 as released (ff.c, ff.h, ffunicode.c, diskio.h unchanged).
  * Changes from the release defaults:
- *   FF_FS_READONLY 1    reading only for now (writing comes with bounces)
+ *   FF_FS_READONLY 0    (0.4.16) reading and writing: the recorder (bounces) writes WAVs (0.4.10 to 0.4.15: 1, read only)
  *   FF_CODE_PAGE 437    US English short names (smallest table)
  *   FF_USE_LFN 1        long names, one static buffer; FF_MAX_LFN 128, FF_LFN_BUF 64 (RAM is tight: names longer than
  *                       64 come back as their short name)
  *   FF_FS_TINY 1        files share the volume's 512-byte window (no buffer per file)
  *   FF_FS_EXFAT 1       exFAT too (cards over 32 GB come formatted that way)
- *   FF_FS_NORTC 1       no clock (read only: no times written)
+ *   FF_FS_NORTC 1       no clock: files written get FF_NORTC's date (0.4.16: October 21, 2026, the first recording)
  */
 /*---------------------------------------------------------------------------/
 /  Configurations of FatFs Module
@@ -19,7 +19,7 @@
 / Function Configurations
 /---------------------------------------------------------------------------*/
 
-#define FF_FS_READONLY	1
+#define FF_FS_READONLY	0
 /* This option switches read-only configuration. (0:Read/Write or 1:Read-only)
 /  Read-only configuration removes writing API functions, f_write(), f_sync(),
 /  f_unlink(), f_mkdir(), f_chmod(), f_rename(), f_truncate(), f_getfree()
@@ -261,8 +261,8 @@
 
 
 #define FF_FS_NORTC		1
-#define FF_NORTC_MON	1
-#define FF_NORTC_MDAY	1
+#define FF_NORTC_MON	10
+#define FF_NORTC_MDAY	21
 #define FF_NORTC_YEAR	2026
 /* The option FF_FS_NORTC switches timestamp feature. If the system does not have
 /  an RTC or valid timestamp is not needed, set FF_FS_NORTC = 1 to disable the

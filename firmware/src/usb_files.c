@@ -32,6 +32,9 @@
  *          (card_stream.c cs_poll).
  *   0.4.15: a WAV that would take the playing ones past what the card keeps up with (uf_budget, 532 KB/s: measured on
  *          the unit) does not start: "Too much for the card".
+ *   0.4.16: the recorder (below): REC on the file list records what the FM-1 plays to a new WAV in the folder shown
+ *          (OC001.WAV, OC002.WAV, ...), REC again stops it and the list shows the file, ready to play. FatFs writes
+ *          now (ffconf.h), through disk_write (WRITE(10)).
  */
 #ifndef UF_HOST_LIBC
 char *strchr(const char *s, int c)                      /* ff.c: the characters a name may not hold */
@@ -88,6 +91,29 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
         cb[2] = (uint8_t)(lba >> 24); cb[3] = (uint8_t)(lba >> 16); cb[4] = (uint8_t)(lba >> 8); cb[5] = (uint8_t)lba;
         cb[8] = (uint8_t)n;
         if (uh_scsi(cb, 10, buff, n * 512u) < 0) { cs_release(); return RES_ERROR; }
+        buff += n * 512u;
+        sector += n;
+        count -= n;
+        uh_feed();
+    }
+    cs_release();
+    return RES_OK;
+}
+/* (0.4.16) WRITE(10), up to 64 sectors (32 KB) a command */
+DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
+{
+    uint8_t cb[10];
+    uint32_t i;
+    if (pdrv || !usbh.drive) return RES_NOTRDY;
+    if (!cs_claim()) return RES_ERROR;
+    sie_wr(S_FADDR, usbh.addr);
+    while (count) {
+        uint32_t n = count > 64u ? 64u : count, lba = (uint32_t)sector;
+        for (i = 0; i < 10u; i++) cb[i] = 0;
+        cb[0] = 0x2A;                                   /* WRITE(10) */
+        cb[2] = (uint8_t)(lba >> 24); cb[3] = (uint8_t)(lba >> 16); cb[4] = (uint8_t)(lba >> 8); cb[5] = (uint8_t)lba;
+        cb[8] = (uint8_t)n;
+        if (uh_scsi_w(cb, 10, buff, n * 512u) < 0) { cs_release(); return RES_ERROR; }
         buff += n * 512u;
         sector += n;
         count -= n;
@@ -401,6 +427,11 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
     struct cs_one *o;
     for (s = 0; s < CP_N && (cs.st[s].run || cp[s].on); s++)
         ;
+    if (cr.on) {                                        /* (0.4.16) the recorder has the players' memory */
+        f_close(&uf_pf);
+        uf_say("Recording: REC stops it");
+        return;
+    }
     if (s == CP_N) {
         f_close(&uf_pf);
         uf_say("Four play already");
@@ -545,13 +576,209 @@ static void uf_up(void)
 }
 
 /* main loop (main.c): the drive test, then what the page asked for */
+/* ---- (0.4.16) the recorder: what the FM-1 plays, to a WAV on the card ----
+ * REC on the file list starts it (any WAVs playing stop first: the recorder takes their memory) in the folder shown,
+ * under the first free name OC001.WAV .. OC999.WAV. The audio ISR fills card_play.c's ring (cr, 232 ms); the main
+ * loop writes it out 8 KB at a time (16 sectors, one WRITE(10)) with f_write. The file is a plain 16-bit stereo
+ * 44.1 kHz WAV whose samples start at byte 512 (a JUNK chunk fills the header's sector), so every write is whole
+ * sectors and goes straight to the card (FatFs's window is not used for the samples).
+ *
+ * Pulled out mid-way: every 3 s the header gets the length so far and the file is synced (f_sync: its size and
+ * clusters on the card), so the card keeps what was recorded up to then. A write that fails (the card full, gone or
+ * locked) stops the recording; what was synced stays.
+ *
+ * The foot while recording: "REC OC001.WAV 12.3 s", then "lost 0, peak -6 dB" (frames the ring had no room for;
+ * the loudest sample), then "write 412 KB/s, max 45 ms" (the card's speed for the writes, the longest one: the
+ * ring holds 232 ms, so a write near that loses sound). At most 30 minutes (318 MB). */
+#define UR_CHUNK 2048u                                  /* frames a write: 8 KB, 16 sectors (the ring holds five) */
+#define UR_MAX (44100u * 60u * 30u)                     /* frames: 30 minutes */
+static FIL uf_rf;
+static struct {
+    uint8_t on;
+    char name[12];                                      /* "OC001.WAV" */
+    uint32_t frames;                                    /* written to the card */
+    uint32_t sync_ms, show_ms;
+    uint32_t wr_ms, wr_bytes, slow_ms;                  /* time in writes, bytes written, the longest write */
+} ur;
+/* the header sector: RIFF, fmt (16-bit stereo 44.1 kHz), JUNK to byte 504, data (its length) at 504 */
+static void ur_header(uint8_t *h, uint32_t frames)
+{
+    uint32_t i, data = frames * 4u;
+    static const uint8_t FMT[24] = {'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 2, 0, 0x44, 0xAC, 0, 0,
+                                    0x10, 0xB1, 0x02, 0, 4, 0, 16, 0};      /* PCM, 2 ch, 44100, 176400 B/s, 4, 16 */
+    for (i = 0; i < 512u; i++) h[i] = 0;
+    h[0] = 'R'; h[1] = 'I'; h[2] = 'F'; h[3] = 'F';
+    for (i = 0; i < 4u; i++) h[4 + i] = (uint8_t)((data + 504u) >> (8u * i));   /* the file's length less 8 */
+    h[8] = 'W'; h[9] = 'A'; h[10] = 'V'; h[11] = 'E';
+    for (i = 0; i < 24u; i++) h[12 + i] = FMT[i];
+    h[36] = 'J'; h[37] = 'U'; h[38] = 'N'; h[39] = 'K';
+    h[40] = 460u & 0xFFu; h[41] = 460u >> 8;            /* 44 + 460 = 504 */
+    h[504] = 'd'; h[505] = 'a'; h[506] = 't'; h[507] = 'a';
+    for (i = 0; i < 4u; i++) h[508 + i] = (uint8_t)(data >> (8u * i));
+}
+/* the header with the length so far, then f_sync: what was recorded stays if the card is pulled */
+static FRESULT ur_sync(void)
+{
+    UINT bw;
+    FRESULT r;
+    FSIZE_t at = f_tell(&uf_rf);
+    ur_header(uh_sec, ur.frames);
+    r = f_lseek(&uf_rf, 0);
+    if (r == FR_OK) r = f_write(&uf_rf, uh_sec, 512, &bw);
+    if (r == FR_OK && bw != 512u) r = FR_DENIED;
+    if (r == FR_OK) r = f_lseek(&uf_rf, at);
+    if (r == FR_OK) r = f_sync(&uf_rf);
+    ur.sync_ms = fm1_ms;
+    return r;
+}
+/* n frames from the ring (from where the main loop is: whole chunks never wrap) to the card */
+static FRESULT ur_write(uint32_t n)
+{
+    UINT bw;
+    FRESULT r;
+    uint32_t t0 = fm1_ms, ms, at = cr.r % CR_CAP;
+    r = f_write(&uf_rf, cp_pool + 2u * at, n * 4u, &bw);
+    ms = fm1_ms - t0;
+    ur.wr_ms += ms;
+    ur.wr_bytes += bw;
+    if (ms > ur.slow_ms) ur.slow_ms = ms;
+    if (r == FR_OK && bw != n * 4u) r = FR_DENIED;      /* (the card full) */
+    if (r != FR_OK) return r;
+    ur.frames += n;
+    RING_PUBLISH();
+    cr.r = cr.r + n;
+    return FR_OK;
+}
+static void ur_time(char *e, uint32_t frames)           /* "12.3 s" under a minute, then "12:34" */
+{
+    uint32_t t = frames / 44100u;
+    if (t < 60u) {
+        e = uh_dec(e, t);
+        *e++ = '.';
+        uh_cat(uh_dec(e, frames % 44100u * 10u / 44100u), " s");
+    } else {
+        e = uh_dec(e, t / 60u);
+        *e++ = ':';
+        *e++ = (char)('0' + t % 60u / 10u);
+        *e++ = (char)('0' + t % 10u);
+        *e = 0;
+    }
+}
+static void ur_show(void)
+{
+    char b[64], *e;
+    uint32_t pk = (uint32_t)cr.peak, db = 0, kbs;
+    ur_time(uh_cat(uh_cat(uh_cat(b, "REC "), ur.name), " "), ur.frames);
+    str_cpy(usbh.info, b, UH_FOOT);
+    if (fm1_ms - up.msg_ms >= 2000u) {
+        cr.peak = 0;                                    /* (the loudest since the last look) */
+        while (pk && pk < 32768u / 2u && db < 60u) { pk *= 2u; db += 6u; }   /* (to 6 dB: enough to set a level) */
+        e = uh_dec(uh_cat(b, "lost "), cr.lost);
+        e = uh_cat(e, !pk ? ", silent" : db ? ", peak -" : ", peak 0 dB");
+        if (pk && db) uh_cat(uh_dec(e, db), " dB");
+        str_cpy(usbh.info2, b, UH_FOOT);
+    }
+    kbs = ur.wr_ms ? ur.wr_bytes / ur.wr_ms * 1000u / 1024u : 0u;
+    e = uh_dec(uh_cat(b, "write "), kbs);
+    uh_cat(uh_dec(uh_cat(e, " KB/s, max "), ur.slow_ms), " ms");
+    str_cpy(usbh.info3, b, UH_FOOT);
+    usbh.gen++;
+}
+/* stop: the rest of the ring out, the header with the length, the file closed (ok 0: the drive is gone, nothing
+ * more can be written) */
+static void ur_stop(int ok, const char *why)
+{
+    FRESULT r = FR_OK;
+    uint32_t n;
+    char b[64], *e;
+    cr.on = 0;                                          /* (the ISR runs on this core: no block is half in) */
+    ur.on = usbh.rec = 0;
+    if (ok) {
+        while (r == FR_OK && (n = cr.w - cr.r) != 0u) {
+            uint32_t at = cr.r % CR_CAP;
+            if (n > CR_CAP - at) n = CR_CAP - at;       /* (the last piece may end at the ring's end) */
+            if (n > UR_CHUNK) n = UR_CHUNK;
+            r = ur_write(n);
+        }
+        if (r == FR_OK) r = ur_sync();
+        f_close(&uf_rf);
+    }
+    ur_time(uh_cat(uh_cat(uh_cat(b, why ? why : "Saved "), ur.name), ", "), ur.frames);
+    if (ok && r == FR_OK) uf_list();                    /* (the new file in the list) */
+    str_cpy(usbh.info, b, UH_FOOT);
+    if (r != FR_OK) str_cpy(usbh.info2, "Card error at the end", UH_FOOT);
+    else { e = uh_dec(uh_cat(b, "lost "), cr.lost); uh_cat(e, " frames"); str_cpy(usbh.info2, b, UH_FOOT); }
+    up.msg_ms = fm1_ms;
+    usbh.gen++;
+}
+static void ur_start(void)
+{
+    char p[sizeof usbh.path + 16];
+    uint32_t i, n;
+    UINT bw;
+    FRESULT r = uf_mount();
+    if (r != FR_OK) { uf_fail(r); return; }
+    if (up.n) uf_play_stop_all();                       /* (the recorder takes the players' memory) */
+    n = str_len(usbh.path);
+    if (n + 11u > sizeof usbh.path) { uf_say("Folder too deep"); return; }
+    for (i = 1; i < 1000u; i++) {                       /* the first free name */
+        FILINFO fi;
+        char *e = ur.name;
+        e = uh_cat(e, i < 10u ? "OC00" : i < 100u ? "OC0" : "OC");
+        uh_cat(uh_dec(e, i), ".WAV");
+        uh_cat(uh_cat(uh_cat(p, usbh.path), "/"), ur.name);
+        r = f_stat(p, &fi);
+        if (r == FR_NO_FILE) break;
+        if (r != FR_OK) { uf_fail(r); return; }
+    }
+    if (i == 1000u) { uf_say("No free name left"); return; }
+    r = f_open(&uf_rf, p, FA_CREATE_NEW | FA_WRITE);
+    if (r == FR_OK) {
+        ur_header(uh_sec, 0);
+        r = f_write(&uf_rf, uh_sec, 512, &bw);
+        if (r == FR_OK && bw != 512u) r = FR_DENIED;
+        if (r == FR_OK) r = f_sync(&uf_rf);
+        if (r != FR_OK) f_close(&uf_rf);
+    }
+    if (r != FR_OK) {
+        uf_say(r == FR_DENIED || r == FR_WRITE_PROTECTED ? "Card full or locked" : "Card would not write");
+        return;
+    }
+    ur.frames = 0;
+    ur.wr_ms = ur.wr_bytes = ur.slow_ms = 0;
+    ur.sync_ms = ur.show_ms = fm1_ms;
+    ur.on = usbh.rec = 1;
+    up.msg_ms = fm1_ms - 2000u;                         /* (no message in the way) */
+    cr_start();                                         /* (last: the ISR fills the ring from here) */
+    ur_show();
+}
+/* each pass of the main loop while recording: whole chunks to the card, the header every 3 s, the foot */
+static void ur_task(void)
+{
+    FRESULT r = FR_OK;
+    uint32_t k;
+    for (k = 0; k < 5u && r == FR_OK && cr.w - cr.r >= UR_CHUNK; k++) r = ur_write(UR_CHUNK);
+    if (r == FR_OK && fm1_ms - ur.sync_ms >= 3000u) r = ur_sync();
+    if (r != FR_OK) {                                   /* (the last sync's length stays on the card) */
+        cr.on = 0;
+        ur.on = usbh.rec = 0;
+        f_close(&uf_rf);
+        ur_stop(0, "Card error: ");
+        return;
+    }
+    if (ur.frames >= UR_MAX) { ur_stop(1, "30 min: "); return; }
+    if (fm1_ms - ur.show_ms >= 250u) { ur.show_ms = fm1_ms; ur_show(); }
+}
 static void usbf_task(void)
 {
     uint8_t c;
     cs_poll();                                          /* (0.4.14) the main loop's turn at the card (every pass) */
     if (up.n && (!usbh.want || !usbh.drive || !usbh.view)) uf_play_stop_all();   /* the files left, the test ended:
                                                          * stopped before usbh_task turns the port off */
+    if (ur.on && (!usbh.want || !usbh.view)) ur_stop(usbh.drive, 0);   /* (0.4.16) the recording kept */
     usbh_task();
+    if (ur.on && !usbh.drive) ur_stop(0, "Drive gone: ");   /* (the card keeps what the last sync wrote) */
+    if (ur.on) ur_task();
     if (up.n && !usbh.drive) uf_play_stop_all();        /* (0.4.11) the drive gone */
     if (cs.err) uf_play_stop_all();                     /* (0.4.12) the engine stopped on an error */
     if (up.n) uf_play_show();
@@ -564,6 +791,7 @@ static void usbf_task(void)
     if (c == UC_NONE) return;
     if (c == UC_PROBE) { usbh_reprobe(); return; }
     if (!usbh.drive) { uf_fail(FR_NOT_READY); return; }
+    if (c == UC_REC) { if (ur.on) ur_stop(1, 0); else ur_start(); return; }   /* (0.4.16) */
     if (c == UC_LIST) { usbh.path[0] = 0; usbh.sel = usbh.top = 0; uf_list(); }
     else if (c == UC_WINDOW) uf_window();
     else if (c == UC_ENTER) uf_enter();

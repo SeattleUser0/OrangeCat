@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.35  
+**Version:** 0.36  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.36 (October 21, 2026):** 0.4.16: the recorder. REC on the file list records what the FM-1 plays to a WAV on the card.
 - **0.35 (October 21, 2026):** 0.4.14 on the unit: the card tops out near 550 KB/s, with or without the sequencer. Three 16-bit stereo WAVs play clean; four drop out. 0.4.15 refuses a WAV past that limit.
 - **0.34 (October 21, 2026):** 0.4.13 on the unit: four WAVs over four sequencer tracks drop out. 0.4.14: the main loop helps the card reading, the page shows read against needed KB/s, and the foot no longer overwrites the first row.
 - **0.33 (October 21, 2026):** 0.4.13: up to four WAVs from the card at once.
@@ -281,6 +282,31 @@ Tested (0.4.14 on the unit, October 21; four 44.1 kHz 16-bit stereo files, 0.5 t
 
 Left to test (0.4.15):
 - [ ] Three 16-bit stereo files play; a fourth says "Too much for the card" and the three play on.
+
+Recording to the card (0.4.16, plan step 5, built):
+- On the file list, REC starts recording what the FM-1 plays into a new WAV in the folder shown: OC001.WAV, then OC002.WAV and so on (the first free name). REC again stops it. The list then shows the new file, and OCT+ plays it. The REC light is on while it records.
+- Start the sequencer before opening the menu: PLAY does not work inside the menu yet.
+- What is recorded: the mix as USB audio takes it, after MASTER, before the metronome click and before any WAVs from the card. So the MASTER knob sets the recording level.
+- The file: 16-bit stereo 44.1 kHz WAV. The samples start at byte 512 (a filler chunk pads the header), so every write is whole sectors and goes straight to the card.
+- Memory: the recorder uses the WAV player's 40 KB, so WAVs playing stop when recording starts, and none start while it records. That holds 232 ms of sound. The main loop writes it out 8 KB at a time.
+- Safe to pull: every 3 s the header gets the length so far and FatFs writes the file's size and clusters to the card. A pulled card keeps everything up to the last of those. A write that fails stops the recording.
+- Up to 30 minutes a file.
+- The foot while recording: "REC OC001.WAV 12.3 s"; "lost 0, peak -6 dB" (sound dropped because the card fell behind, and the loudest part); "write 412 KB/s, max 45 ms" (how fast the card takes the writes, and the longest one; near 232 ms, sound is lost).
+- FatFs now writes (ffconf.h FF_FS_READONLY 0). Files get the date October 21, 2026 (no clock).
+- Host tests: a known signal recorded for 5.8 s, every sample checked through FatFs, the header's length, the file played back through the player sample for sample, the next file named OC002.WAV, a WAV refused while recording, the card going silent mid-take. The card is then checked by a second FAT library (pyfatfs) and Python's own WAV reader: both files read back exactly, the other files unchanged, no cluster in two files.
+
+Left to test (0.4.16):
+- [ ] REC on the file list: the REC light comes on, the foot counts up. REC again: "Saved OC001.WAV", the file in the list.
+- [ ] OCT+ on OC001.WAV plays it back. It should sound like what was playing, about 6 dB quieter (the player plays WAVs 6 dB down).
+- [ ] The foot's numbers during a take with the sequencer running: lost (should stay 0), write KB/s and max ms.
+- [ ] The card in a computer: OC001.WAV opens and sounds right.
+- [ ] A take of a few minutes.
+- [ ] Pull the card mid-take, then check it in a computer: the file keeps what was recorded up to a few seconds before.
+
+Left to build (later):
+- Record before MASTER, so the knob does not set the level.
+- Record one track (Melodee already splits tracks for USB audio), not just the whole mix: that is the freeze.
+- Play WAVs while recording (the memory split two ways, and the 550 KB/s shared).
 - [ ] Stopping one with OCT+ while others play: the rest unbroken.
 - [ ] Moving through folders while they play.
 
@@ -289,7 +315,7 @@ Steps, each tested on the unit before the next:
 2. How much processor time the transfers take: built into step 4's test (0.4.11).
 3. USB MIDI host: the SMK-37 on the hub plays the host FM-1.
 4. One WAV plays from the card while the sequencer runs (0.4.11, built). OCT+ on a WAV in the file list plays it, looped, at the DAC with MASTER, 6 dB down; OCT+ again (or OCT-, or leaving the files) stops it. The main loop reads 4 KB at a time into a 32 KB ring (0.19 s); the audio ISR plays from it, following the file's rate (a 48 kHz file at its own pitch, a straight line between frames). PCM 8, 16, 24 and 32-bit, mono or stereo (more channels: the first two). The foot: "CPU n% card n% gaps n": the audio load (the header's meter), the share of each second the main loop spent reading, and blocks that found the ring short. Reads still block the main loop (the screen pauses for up to about 20 ms each time); the audio does not wait. Memory: the ring and the read buffer come out of .pool, which the audio working arena shares; it must keep 48 KB, so 36 KB is about all a player can have (the first build, 72 KB, failed to link).
-5. Writing: a bounce recorded to a WAV on the card.
+5. Writing: a bounce recorded to a WAV on the card (0.4.16, built).
 6. Two FM-1s: the device FM-1 lists the host's card over USB MIDI.
 
 ---

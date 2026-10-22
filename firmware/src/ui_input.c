@@ -487,7 +487,7 @@ static void ui_leds(void)
         led_put(nl, panel.btn[layer_btn()], ((fm1_ms / 250u) & 1u) == 0u);
     led_put(nl, panel.btn[B_PLAY], rolling && !counting); /* steady transport state, independent of audio block rate; */
     led_put(nw, panel.btn[B_PLAY], counting);           /* counting in: waiting */
-    led_put(nl, panel.btn[B_REC], recording_now);
+    led_put(nl, panel.btn[B_REC], recording_now || usbh.rec);   /* (Orange Cat 0.4.16: the card recorder too) */
     led_put(nw, panel.btn[B_REC], armed && !recording_now);
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
@@ -2249,7 +2249,10 @@ static void ui_input(void)
         }
     }
     if (ui.menu || ui.confirm || name_on()) {
-        /* REC does nothing in the menu, a dialog or NAME (no transport start there) */
+        /* REC does nothing in the menu, a dialog or NAME (no transport start there); (Orange Cat 0.4.16) but on the
+         * USB drive test's file list it records to the card (ui_menu.c drive_rec) */
+        if (ui.menu == 3u && !ui.confirm && rec == BT_TAP)
+            drive_rec();
     } else if (chain_busy() && rec == BT_TAP) {
         ui_message("STOP TO RECORD");
     } else if (rec == BT_TAP) {

@@ -376,6 +376,7 @@ static void drive_draw(void)
 /* (0.4.10) the drive's files: the folder at the top ("/SAMPLES/drums"), six rows (the name, a folder's with "/"; a
  * file's size at the right), the row picked on the surface colour, a bar at the right edge for where the rows are;
  * the foot: what the picked file is and how fast it read (usb_files.c), or what the keys do.
+ * (0.4.16) With nothing in the foot, it says what REC does.
  * (0.4.14) Five rows and three foot lines (the players' gaps and speed on the last); the row picked on the selection
  * colour mixed with 30% of the theme (the surface colour hardly showed on the device). */
 static void files_draw(void)
@@ -425,6 +426,7 @@ static void files_draw(void)
             cv_free_text(8, 194, TY_LB, usbh.info2, T_MID, T_BG, 224);
             cv_free_text(8, 216, TY_LB, usbh.info3, T_MID, T_BG, 224);
         } else {
+            cv_free_text(8, 194, TY_LB, "REC records a WAV here", T_MID, T_BG, 224);   /* (0.4.16) */
             cv_free_text(8, 216, TY_LB, "OCT+ open  OCT- back", T_MID, T_BG, 224);
         }
         cv_oy = 0;
@@ -452,6 +454,11 @@ static void menu_close(void)
  * looks again; OCT- ends the test. The files: KNOB 1, KNOB 2 or PRESETS the row, OCT+ opens a folder or looks at a
  * file, OCT- the folder above, at the top the probe's lines again. Only wishes: the main loop does them
  * (usb_files.c usbf_task). 1 = taken */
+/* (0.4.16) REC on the file list: record what the FM-1 plays to a WAV in this folder, or stop (usb_files.c) */
+static void drive_rec(void)
+{
+    if (usbh.view && usbh.drive) usbh.cmd = UC_REC;
+}
 static int drive_input(uint32_t ok, uint32_t back)
 {
     int32_t s = panel_enc(EN_K1) + panel_enc(EN_K2) + panel_enc(EN_PRESET);

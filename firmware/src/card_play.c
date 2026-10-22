@@ -23,6 +23,11 @@
  *   0.4.12: the card read from the timer interrupt (card_stream.c), straight into the ring.
  *   0.4.13: up to four streams in four 10 KB slots; mono kept mono (twice the time a slot holds); the sum clamped.
  *   0.4.14: a gap counted once per dropout (short: the last block ran short), not once per block.
+ *   0.4.16: the recorder's ring (cr, card_capture): what the FM-1 plays, as 16-bit stereo, for usb_files.c to write
+ *           to a WAV on the card. It takes the players' 40 KB (nothing plays from the card while it records):
+ *           10,240 frames, 232 ms. The audio ISR fills it (audio.c, before the click and the card's own WAVs, so
+ *           neither is recorded; after MASTER, as USB audio takes it); the main loop empties it 8 KB at a time. A
+ *           block that finds no room is dropped and counted (cr.lost, frames).
  */
 #ifndef CP_GAIN
 #define CP_GAIN() ((int32_t)song.master_q12)            /* (host tests: a fixed level) */
@@ -120,4 +125,55 @@ static __attribute__((noinline)) void card_render(int32_t *out, uint32_t n)
                                                          * audio.c's OUT_SHIFT puts Q15 at -6 dBFS), never wrapped */
         for (i = 0; i < 2u * n; i++)
             out[i] = out[i] > 65535 ? 65535 : out[i] < -65536 ? -65536 : out[i];
+}
+
+/* ---- (0.4.16) the recorder's ring ---- */
+#define CR_CAP (CP_N * CP_SLOT / 2u)                    /* stereo frames: 10,240 (40 KB, 232 ms) */
+static struct {
+    volatile uint32_t w, r;                             /* frames in (the ISR), frames written to the card (main loop) */
+    uint32_t wi;                                        /* where the ISR writes */
+    volatile uint8_t on;                                /* the ISR records */
+    volatile uint32_t lost;                             /* frames dropped: no room */
+    volatile int32_t peak;                              /* the loudest sample since the page last looked */
+} cr;
+static void cr_start(void)
+{
+    cr.on = 0;
+    cr.w = cr.r = cr.wi = 0;
+    cr.lost = 0;
+    cr.peak = 0;
+    RING_PUBLISH();
+    cr.on = 1;
+}
+/* one block of the mix (stereo Q15, MASTER in) into the ring, held to 16 bits */
+static __attribute__((noinline)) void card_capture(const int32_t *out, uint32_t n)
+{
+    uint32_t i, wi;
+    int32_t pk;
+    int16_t *b;
+    if (!cr.on)
+        return;
+    if (CR_CAP - (cr.w - cr.r) < n) {                   /* the card is behind: this block is lost */
+        cr.lost = cr.lost + n;
+        return;
+    }
+    wi = cr.wi;
+    pk = cr.peak;
+    b = cp_pool;
+    for (i = 0; i < n; i++) {
+        int32_t l = out[2u * i], r = out[2u * i + 1u];
+        l = l > 32767 ? 32767 : l < -32768 ? -32768 : l;
+        r = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
+        b[2u * wi] = (int16_t)l;
+        b[2u * wi + 1u] = (int16_t)r;
+        if (l < 0) l = -l;
+        if (r < 0) r = -r;
+        if (l > pk) pk = l;
+        if (r > pk) pk = r;
+        if (++wi == CR_CAP) wi = 0;
+    }
+    cr.wi = wi;
+    cr.peak = pk;
+    RING_PUBLISH();
+    cr.w = cr.w + n;
 }
