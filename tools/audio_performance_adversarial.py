@@ -96,8 +96,7 @@ def main():
         else:d.request(99,[0])
         _,g=param_ids()
         def shared_setup():
-            for key,value in dict(G_ROUTE=0,G_CLOCK=0,G_FXMODE=0,G_MFXTYPE=9,G_MFXMIX=127,G_MFXRATE=127,G_MFXCHAR=127,
-                                  G_MFX2TYPE=0,G_MFX3TYPE=0,G_FXRETURN=127).items():
+            for key,value in dict(G_ROUTE=0,G_CLOCK=0,G_RTYPE=4,G_RSIZE=110,G_DFDBK=100,G_CDEPTH=127).items():   # (0.6.0)
                 v=value+8192;d.request(3,[1,g[key],v&127,v>>7])
             time.sleep(1.8) # stopped kept-global persistence before measurement
         shared_setup()

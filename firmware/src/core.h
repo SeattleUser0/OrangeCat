@@ -149,44 +149,22 @@ enum {                          /* per-track parameters */
     P_MPCDEG,                                  /* QNT MPC: the scale degree pad 02 of each bank plays, 1 = root */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
     P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
-    P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR, /* new FX; legacy effect IDs remain inert */
-    P_FX2TYPE, P_FX2MIX, P_FX2RATE, P_FX2CHAR,
-    P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR,
-    P_FXSEND, /* post-fader chain send, or send to slot 1 in separate mode */
-    P_FXSEND2, P_FXSEND3,
-    P_FXTONE, P_FX2TONE, P_FX3TONE, /* each slot's wet-input TONE (fx_tone_hz): appended so existing common IDs stay fixed */
+    /* (Orange Cat 0.6.0) the effects (jfx.c, Jiant FM's), in the ids Melodee's FX had (96 .. 113: P_FXTYPE .. P_FX3TONE).
+     * A project's FUN magic says which meaning they hold: FUN22 and before are converted on load (project.c) */
+    P_DIST, P_DTYPE, P_DTONE,                  /* DIST: drive 0..127 (0: out), SOFT HARD FOLD CRUSH RECT AMP, tone -64..63 */
+    P_APDEP, P_APRATE, P_APWAVE, P_APSYNC,     /* AUTO PAN: depth, rate (FREE: LFO_INC; BEAT: 4BAR .. 1/32), wave, sync */
+    P_SLROUTE,                                 /* the track into the SLICER's bus (it running) */
+    P_JRES0, P_JRES1, P_JRES2, P_JRES3,        /* (free: Melodee's FX 3 slot) */
+    P_REV, P_DLY, P_CHOR,                      /* the sends: reverb, delay, chorus (were SEND, SEND 2, SEND 3) */
+    P_JRES4, P_JRES5, P_JRES6,                 /* (free: Melodee's TONEs) */
     P_STRUM, P_STROKE, /* chord sweep duration and direction; appended for stored-layout compatibility */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
-#define FX_SLOTS 3u
-#define FX_PARAMS 4u
-#define FX_CHAIN_COUNT (NPART+1u)
-#define FX_STATE_COUNT (FX_CHAIN_COUNT*FX_SLOTS)
-#define FX_TONE_MAX 63
-static int param_fx_tone(uint32_t id) { return id>=P_FXTONE && id<=P_FX3TONE; }
-static int fx_has_tone(int32_t type) { return type>=6 && type<=8; }   /* fx.c FX_ECHO, FX_ROOM, FX_REVERB */
-static int param_fx(uint32_t id) { return (id>=P_FXTYPE && id<=P_FX3CHAR) || param_fx_tone(id); }
-/* TONE -63..63 -> the cut it sets (Hz), 0 = FULL (none but the effect's own floor, fx_floor_hz): below 0 a high cut,
- * 2640 Hz at -1 down to 120 Hz at -63; above 0 a low cut, 150 Hz at 1 up to 1280 Hz at 63 (squared: fine steps where
- * the ear needs them) */
-static int32_t fx_tone_hz(int32_t v)
-{
-    int32_t a = v < 0 ? -v : v;
-    if (a > FX_TONE_MAX) a = FX_TONE_MAX;
-    return v > 0 ? 150 + a * a * 1130 / 3969 : v < 0 ? 120 + (64 - a) * (64 - a) * 2520 / 3969 : 0;
-}
-/* the low cut ECHO (100 Hz), ROOM and REVERB (150 Hz) keep at FULL and under a high cut: what enters them never booms */
-#define FX_FLOOR_ECHO 100
-#define FX_FLOOR_SPACE 150
-static int32_t fx_floor_hz(int32_t type) { return type == 6 ? FX_FLOOR_ECHO : FX_FLOOR_SPACE; }
-static int32_t fx_low_cut_hz(int32_t type, int32_t v)   /* an ECHO / ROOM / REVERB slot's low cut at TONE v */
-{
-    int32_t f = fx_floor_hz(type), t = v > 0 ? fx_tone_hz(v) : 0;
-    return t > f ? t : f;
-}
-static int param_fx_send(uint32_t id) { return id>=P_FXSEND && id<=P_FXSEND3; }
-
+/* the effect ids (jfx.c): the ones a project's conversion and the editor treat as effects */
+static int param_jfx(uint32_t id) { return id >= P_DIST && id <= P_JRES6; }
+static int param_jfx_send(uint32_t id) { return id >= P_REV && id <= P_CHOR; }
+static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3) || (id >= P_JRES4 && id <= P_JRES6); }
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
@@ -199,16 +177,22 @@ enum {                          /* global parameters */
                                  * G_ENGGO id, reads tuning_a4 instead of song.g (ids/count stay fixed) */
     G_CLRSEQ, G_INITSND,
     G_RESERVED24, G_RESERVED25, G_RESERVED26, /* retired global format padding */
-    G_MFXTYPE, G_MFXMIX, G_MFXRATE, G_MFXCHAR,
-    G_MFX2TYPE, G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR,
-    G_MFX3TYPE, G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR,
-    G_FXRETURN,
-    G_FXMODE, /* 0: one shared serial chain; 1: independent slot sends */
-    G_BUDGET, /* device-wide shared workload allowance; appended, not a song field */
-    G_MFXTONE, G_MFX2TONE, G_MFX3TONE, /* the shared slots' TONE */
+    /* (Orange Cat 0.6.0) the effects' globals (jfx.c), in Melodee's FX ids 27..44 (G_BUDGET, 41, stays) and after */
+    G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX,        /* DELAY: TIME (0..9 divisions, 10..63 free), FEEDBK, TONE, MIX */
+    G_WIDTH, G_DPIT, G_DSPRY, G_DMOD,          /* .. WIDE, PITCH (GRAIN), SPRAY, MOD (wow, flutter) */
+    G_DTYPE, G_DPING,                          /* .. ANALOG / DIGITAL, PING-PONG */
+    G_RTYPE, G_RSIZE, G_RDAMP, G_RPRE,         /* REVERB: ROOM SPRING SHIMMER RESO CLOUD, SIZE, DAMP (RESO: FOLW), PRE (AIR, PITCH) */
+    G_BUDGET, /* device-wide shared workload allowance; appended, not a song field (41: as before) */
+    G_RMOD, G_RRATE, G_RFILT,                  /* .. MOD, RATE, FILT */
+    G_RWIDE,                                   /* .. WIDE (45: the new ids from here) */
+    G_CRATE, G_CDEPTH, G_CSTER,                /* CHORUS: RATE, DEPTH, STEREO */
+    G_SLMODE, G_SLPAT, G_SLRATE, G_SLDEP,      /* SLICER: OFF GATE STUT, pattern 1..16, rate, depth */
+    G_SLFX, G_SLPLEN, G_SLPQ,                  /* .. the returns through it, the pitch sequence's length, QUANT */
+    G_SLP0, G_SLP15 = G_SLP0 + 15,             /* .. the pitch steps, -24..24 */
+    G_DJF, G_CLIP, G_LEVEL, G_SPKEQ,           /* MASTER: DJ FILTER, CLIP, LEVELER, speaker EQ (OFF LOWCUT BASS+) */
     G_COUNT
 };
-static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}
+static int param_master_jfx(uint32_t id) { return id >= G_DTIME && id < G_COUNT && id != G_BUDGET; }   /* (0.6.0) */
 #define G_DRLVL G_RESERVED25         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
 /* GLO > WEIGHTS: device settings shown on unused ids (params.c page_desc). Never song.g, never in a project
  * or the editor's tables: global_reserved() stays true for them. */
@@ -221,7 +205,7 @@ static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}
 #define G_DRREV G_RESERVED26
 
 static int param_reserved(uint32_t id)
-{ return (id>=P_RESERVED33 && id<=P_RESERVED36) || (id>=P_RESERVED45 && id<=P_RESERVED48); }
+{ return (id>=P_RESERVED33 && id<=P_RESERVED36) || (id>=P_RESERVED45 && id<=P_RESERVED48) || param_jfx_free(id); }   /* (0.6.0: the effects' free ids) */
 static int global_reserved(uint32_t id)
 { return (id>=G_RESERVED4 && id<=G_RESERVED11) || (id>=G_RESERVED24 && id<=G_RESERVED26); }
 

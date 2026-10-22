@@ -158,9 +158,8 @@ static uint8_t bank_pid[NTRK][NPAT];
 static uint32_t trk_n(void) { return NTRK; }
 static int32_t LEVEL_Q12[128];
 static int32_t solo_gain[NPART] = {32768, 32768, 32768, 32768};
-static uint8_t track_solo, fx_send_on;
+static uint8_t track_solo;
 static volatile uint8_t panic_req;
-static uint32_t fx_send_gain(const track_t *t) { (void)t; return 0; }
 static int32_t fx_scale(int32_t a, uint32_t k) { return (a >> 16) * (int32_t)k + (int32_t)(((uint32_t)(a & 65535) * k) >> 16); }
 static int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int32_t mix_stem_l[CTL], mix_stem_r[CTL], t_mix_l[CTL], t_mix_r[CTL];
@@ -169,7 +168,8 @@ static volatile uint8_t mix_frozen;
 static void (*mix_frz_block)(uint32_t n);
 static int (*mix_frz_take)(track_t *t, uint32_t n);
 static void (*mix_frz_after)(uint32_t n);
-static void mix_add(int32_t l, int32_t r, uint32_t i, uint32_t send) { (void)send; t_mix_l[i] += l; t_mix_r[i] += r; }
+static void mix_add(int32_t l, int32_t r, uint32_t i) { t_mix_l[i] += l; t_mix_r[i] += r; }   /* (0.6.0) */
+static void mix_send(int32_t x, uint32_t i) { (void)x; (void)i; }
 static int t_busy;                                      /* transport_busy (a count-in) */
 static int transport_busy(void) { return t_busy; }
 static struct { uint32_t hash[64]; } ocp;               /* (oc_pool.c) each pool phrase's CRC */

@@ -6,8 +6,10 @@
  * Linker-derived SRAM tails are separate banks: an allocation never spans a
  * code/data/retained-state boundary. Small banks first preserve the large
  * contiguous POOL bank for engine state and note history. */
-enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_FX0,
-       RES_RECORD_UNDO = RES_FX0 + FX_STATE_COUNT, RES_COUNT };
+#define RES_JFX_N 6u                     /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the delay's halves, the
+                                          * reverb's, its model line, the chorus's, the SLICER's) */
+enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_JFX0,
+       RES_RECORD_UNDO = RES_JFX0 + RES_JFX_N, RES_COUNT };
 static uint8_t recording_undo_lost;
 static uint8_t recording_undo_active, recording_undo_skip;
 static struct { void *ptr; uint32_t size; } resource[RES_COUNT];

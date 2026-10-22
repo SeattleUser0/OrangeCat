@@ -435,7 +435,7 @@ static int strum_storage(void)
 {
     reset(); track_t *t = &trk[0];
     t->p[P_STRUM]=4; t->p[P_STROKE]=2; t->p[P_E3]=23;
-    t->p[P_FXTONE]=-20; song.g[G_MFXTONE]=17;
+    t->p[P_REV]=40;                                       /* (0.6.0: a FUN22 record's FX: converted on load) */
     project_capture(&proj_scratch);
     proj_scratch.motion.count=1; proj_scratch.motion.on=1;
     proj_scratch.motion.event[0]=(motion_event_t){0,P_E3,23};
@@ -453,13 +453,21 @@ static int strum_storage(void)
     /* Rewrite the source-era engine motion ID and count, then authenticate. */
     old.raw[motion_at+__builtin_offsetof(motion_store_t,event)+__builtin_offsetof(motion_event_t,param)]=117;
     old.raw[66]=122;
+    {   /* (Orange Cat 0.6.0) a pre-strum record is FUN22: its magic, its old FX wire (no shared effect, MODE 0) */
+        uint32_t m=PROJ_FUN22_MAGIC;memcpy(old.raw,&m,4);
+        old.raw[PROJ_FX_WIRE_OFF]='M';old.raw[PROJ_FX_WIRE_OFF+1]='F';old.raw[PROJ_FX_WIRE_OFF+2]='X';old.raw[PROJ_FX_WIRE_OFF+3]=100;
+        for(uint32_t i=0;i<12u;i++)old.raw[PROJ_MASTER_WIRE+i]=0;
+        old.raw[PROJ_FX_MODE_OFF]=old.raw[PROJ_FX_MODE_OFF+1]=0;
+        for(uint32_t i=0;i<3u;i++){old.raw[PROJ_TONE_WIRE+i]=64;old.raw[PROJ_LP_WIRE+i]=0;}
+        memset(old.raw+PROJ_JFX_WIRE,0,4u+PROJ_JFX_N);
+    }
     uint32_t hash=proj_hash(old.raw,sizeof old-4);
     memcpy(old.raw+sizeof old-4,&hash,4);
     int ok=proj_import(&proj_scratch,&old,sizeof old);
-    bad+=check("pre-strum project imports with OFF, original engine values/motion and FX tones",
+    bad+=check("pre-strum project (FUN22) imports with OFF, original engine values/motion; its FX converted",
         ok && !proj_scratch.t[0].p[P_STRUM] && !proj_scratch.t[0].p[P_STROKE] &&
         proj_scratch.t[0].p[P_E3]==23 && proj_scratch.motion.event[0].param==P_E3 &&
-        proj_scratch.t[0].p[P_FXTONE]==-20 && proj_scratch.g[G_MFXTONE]==17);
+        !proj_scratch.t[0].p[P_REV] && !proj_scratch.g[G_LEVEL]);
     persist_old=tmpl_old=0; template_save();
     static uint8_t blob[sizeof(tmpl_t)]; memcpy(blob,&tmpl,sizeof tmpl);
     src=dst=2*PROJ_GLOBALS+2;
@@ -468,13 +476,16 @@ static int strum_storage(void)
         memmove(blob+dst,blob+src,head);dst+=head;src+=head+4;
         memmove(blob+dst,blob+src,16);dst+=16;src+=16;
     }
-    memmove(blob+dst,blob+src,sizeof tmpl-src);
-    uint32_t len=sizeof tmpl-(src-dst);
-    memcpy(blob+len-8,&len,4);
-    ok=tmpl_take(blob,len);
-    bad+=check("pre-strum template imports with OFF and original native/engine/FX data",
+    {   /* (Orange Cat 0.6.0) a pre-strum template is TPLL: the old FX's 20 bytes in place of jfx[] */
+        uint32_t native=__builtin_offsetof(tmpl_t,jfx)-__builtin_offsetof(tmpl_t,fm6),magic=TMPL_LL_MAGIC;
+        memmove(blob+dst,blob+src,native);dst+=native;
+        memset(blob+dst,0,20);blob[dst+12]=100;blob[dst+14]=blob[dst+15]=blob[dst+16]=64;dst+=20;
+        uint32_t len=dst+8u;memcpy(blob+dst,&len,4);memcpy(blob+dst+4,&magic,4);
+        ok=tmpl_take(blob,len);
+    }
+    bad+=check("pre-strum template (TPLL) imports with OFF and original native/engine data; its FX converted",
         ok && !tmpl.t[0].p[P_STRUM] && !tmpl.t[0].p[P_STROKE] &&
-        tmpl.t[0].p[P_E3]==23 && tmpl.t[0].p[P_FXTONE]==-20 && tmpl.master[14]==81);
+        tmpl.t[0].p[P_E3]==23 && !tmpl.t[0].p[P_REV] && tmpl.magic==TMPL_MAGIC);
     up_rec_t preset; memset(&preset,0,sizeof preset);
     preset.used=UP_USED; preset.ver=UP_VER_CZ; preset.engine=ENGI_CZ;
     preset.np=122; memcpy(preset.name,"OLD CZ",7); cz_patch_init(preset.packed);

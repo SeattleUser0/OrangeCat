@@ -117,7 +117,8 @@ def setup(d,categories,voices,variant):
         if r[:2]!=[ENGINES[c],PRESETS[c]]:raise RuntimeError(f'Preset rejected: {p}/{c}')
         common=dict(P_VOICE=0,P_LEVEL=getattr(d,'performance_track_level',35),P_ALLOC=0,P_MUTE=0,P_GLIDE=0,P_AMODE=0,P_QUANT=0,P_CHRD=0,P_TRANS=0,P_SPRD=0,
                     P_LD_PIT=0,P_LD_FLT=0,P_LD_SHP=0,P_LD_AMP=0,P_M1AMT=0,P_M2AMT=0,P_M3AMT=0,P_M4AMT=0,
-                    P_FXTYPE=0,P_FX2TYPE=0,P_FX3TYPE=0,P_FXSEND=127 if getattr(d,'performance_fx',False) else 0,P_FXSEND2=0,P_FXSEND3=0)
+                    P_DIST=0,P_REV=127 if getattr(d,'performance_fx',False) else 0,P_DLY=127 if getattr(d,'performance_fx',False) else 0,
+                    P_CHOR=127 if getattr(d,'performance_fx',False) else 0)   # (0.6.0: the effects' sends)
         if getattr(d,'performance_modulation',False):
             common.update(P_M1SRC=1,P_M1DST=2,P_M1AMT=24,P_M2SRC=2,P_M2DST=1,P_M2AMT=24,
                           P_M3SRC=3,P_M3DST=3,P_M3AMT=24,P_M4SRC=4,P_M4DST=4,P_M4AMT=24)
@@ -301,10 +302,10 @@ def main():
         if a.budget is not None:
             if 'budget_points' not in metadata(d):raise RuntimeError('Requires adjustable shared-budget firmware')
             v=a.budget+8192;d.request(3,[1,g['G_BUDGET'],v&127,v>>7])
-        for key,value in dict(G_ROUTE=0,G_CLOCK=0,G_MFXTYPE=0,G_MFX2TYPE=0,G_MFX3TYPE=0).items():
+        for key,value in dict(G_ROUTE=0,G_CLOCK=0).items():
             v=value+8192;d.request(3,[1,g[key],v&127,v>>7])
         if a.fx:
-            for key,value in dict(G_FXMODE=0,G_MFXTYPE=9,G_MFXMIX=127,G_MFXRATE=127,G_MFXCHAR=127,G_FXRETURN=127).items():
+            for key,value in dict(G_RTYPE=4,G_RSIZE=110,G_DFDBK=100,G_CDEPTH=127).items():   # (0.6.0) the heaviest effects
                 v=value+8192;d.request(3,[1,g[key],v&127,v>>7])
         # CLOCK/ROUTE are persisted after 1500 ms. Let that stopped setup
         # finish before opening USB or measuring live notes; flash pauses

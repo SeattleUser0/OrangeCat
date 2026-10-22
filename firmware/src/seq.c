@@ -87,6 +87,16 @@ static void live_note_on(const track_t *t, uint32_t note, uint32_t vel)
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black
  * 0..10). The DRUM grid: white keys are steps, black keys 1..8 lanes, 9 ACC, 10 / 11 the page */
 static int key_black(uint32_t k) { return (int)((0x54Au >> ((k + 5u) % 12u)) & 1u); }
+static uint32_t key_place(uint32_t k);
+/* (Orange Cat 0.6.0) a key in the FX layer -> its punch-in effect (jfx_perform.c PF_*; Jiant seq.c perf_key, its
+ * places): the white keys F3 .. C4 REPEAT 1/8 1/16 1/32, GLITCH, TAPE STOP (D4 .. F5: Jiant's MIDI ones, not here);
+ * the black keys F#3 G#3 A#3 C#4 mute T1..T4, G#4 FREEZE, C#5 SHUFFLE, D#5 CRUSH, F#5 THROW; PF_N: none */
+static uint32_t jfx_key(uint32_t k)
+{
+    uint32_t p = key_place(k);
+    if (!key_black(k)) return p <= PF_TAPE ? p : PF_N;
+    return p < NTRK ? PF_M1 + p : p == 6u ? PF_FRZ : p >= 8u && p <= 10u ? PF_SHUF + p - 8u : PF_N;
+}
 static uint32_t key_place(uint32_t k)
 {
     uint32_t i, n = 0;
@@ -846,6 +856,10 @@ static void keyboard_block(void)
             if ((fm1_in.buttons & kb_mask) || kb_lock) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
                 kb_note[k] = KB_SILENT;           /* a quick-layer key */
                 kb_layer |= 1u << k;
+                if (kb_fx) {                      /* (0.6.0) FX held: a punch-in effect, from this block (perform.c) */
+                    kb_fxk |= 1u << k;
+                    perf_press(jfx_key(k), 1);
+                }
 
                 continue;
             }
@@ -864,6 +878,10 @@ static void keyboard_block(void)
         } else {
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
+                if ((kb_fxk >> k) & 1u) {         /* (0.6.0) its effect let go, wherever the layer is now */
+                    kb_fxk &= ~(1u << k);
+                    perf_press(jfx_key(k), 0);
+                }
                 continue;
             }
             if (kb_note[k] == KB_SILENT)

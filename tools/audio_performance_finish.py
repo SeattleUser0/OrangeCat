@@ -33,7 +33,7 @@ def main():
         d.silence();restore_runtime(d,a.backup)
         cat=(0,1,2,4);quotas=json.loads(Path('tools/audio_voice_contract.json').read_text())['caps'];q=quotas[((cat[0]*6+cat[1])*6+cat[2])*6+cat[3]]
         _,g=param_ids()
-        for key,value in dict(G_ROUTE=0,G_CLOCK=0,G_MFXTYPE=0,G_MFX2TYPE=0,G_MFX3TYPE=0).items():
+        for key,value in dict(G_ROUTE=0,G_CLOCK=0).items():
             v=value+8192;d.request(3,[1,g[key],v&127,v>>7])
         setup(d,cat,q,0)
         time.sleep(1.8) # finish deferred kept-global persistence while stopped

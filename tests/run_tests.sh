@@ -223,15 +223,6 @@ dsp_tracks() {
     step "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" \
         env TRACKS=build/tracks_demo "$OUT/hostsim" 15 0 1 "$OUT/tracks.wav"
 }
-fx_dormancy() {
-    build fx_dormant_test fx_dormant_test -O2 $FW -UMELODEE_FX_DORMANT -DMELODEE_FX_DORMANT=1 || return
-    step "Chorus dormancy: independent kernel PCM/state/ring parity and cost" "$OUT/fx_dormant_test"
-    build fx_dormant_reference fx_dormant_test -O2 $FW -UMELODEE_FX_DORMANT -DMELODEE_FX_DORMANT=0 || return
-    "$OUT/fx_dormant_reference" --trace > "$OUT/fx-dormant-reference.trace" || fail "FX reference route trace"
-    "$OUT/fx_dormant_test" --trace > "$OUT/fx-dormant-candidate.trace" || fail "FX candidate route trace"
-    step "FX dormant/active: exact insert/CHAIN/SPLIT traces with all other effects, tails, edits and wakeups" \
-        cmp "$OUT/fx-dormant-reference.trace" "$OUT/fx-dormant-candidate.trace"
-}
 prophet() {
     build prophet_test prophet_test -O2 $FW || return
     step "Prophet native frames, five voices, filters, sync and Poly-Mod" "$OUT/prophet_test"
@@ -256,8 +247,8 @@ phys_ref() {
 
 # ------------------------------------------------------------------ tests ---
 # the longest first: they set the length of the run
-sound && t "FX performance: all effects, four-track mixer, shared send bus and ordered three-effect chains" fx_performance -O2 $FW -- "$OUT/fx_performance" full
-sound && t "FX: three-slot chains, reverb decay/density/rate conversion, smooth Tape, track ownership, dry bypass and frozen legacy storage" fx_test -O1 $FW
+sound && t "effects (Orange Cat 0.6.0, Jiant FM's): DIST, AUTO PAN, DELAY, REVERB x5, CHORUS, SLICER, the FX layer, FX FULL, FUN23 / TPLM storage and the old records converted; audition WAVs" jfx_test -O1 $FW
+core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks
@@ -417,7 +408,6 @@ if sound && [ $TABLES = 1 ]; then
     t "paired FM6/Prophet voices: serial/concurrent sample equality and eight-voice allocation" dual_core_test \
         -O2 $FW -pthread
     t "audio: 1296 ordered engine assignments, releases, controls and concurrent PCM parity" audio_matrix_test -O2 $FW -pthread
-    t "Reverb inserts: private tanks, fallback and failed-worker drops" reverb_parallel_test -O2 $FW -pthread
     t "CZ-1: every knob changes a full tone; the dim ones leave INIT and factory tones bit for bit" cz1_knob_test -O2 $FW
     t "native fp32: independent numerical references, exact pitch, quiet signals and fractional envelopes" synth_fpu_test \
         -O2 $FW
@@ -439,7 +429,6 @@ if sound && [ $TABLES = 1 ]; then
     t "Prophet zero-wheel: exact shared state and static/changing cost" prophet_fast_test -O2 $FW
     t "Prophet zero-wheel at 2x: exact shared state and static/changing cost" prophet_fast_os2:prophet_fast_test -O2 -DP5_OVERSAMPLE=2 $FW
     t "centered bend fast path: full raw/range oracle and control cost" control_prepare_test -O2 $FW
-    job fx_dormancy
     t "mono mixer fast path: output/send/peak/stem reference parity and cost" mix_fast_test -O2 $FW
     t "CZ: oscillator boundaries, native rate/target envelopes and independent lines" phase_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW

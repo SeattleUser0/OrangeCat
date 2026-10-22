@@ -23,7 +23,6 @@ static uint64_t instructions(void)
 }
 static __attribute__((noinline)) void reference(track_t *t,int32_t *b,uint32_t n,const mix_cache_t *mc)
 {
-    uint32_t send=fx_send_on?fx_send_gain(t):0u;
     int32_t lvl=mc->lvl,gl=mc->gl,gr=mc->gr,pk=t->peak;
     for(uint32_t i=0;i<n;i++){
         int32_t x=clamp(((clamp(b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287),a=x<0?-x:x;
@@ -31,7 +30,7 @@ static __attribute__((noinline)) void reference(track_t *t,int32_t *b,uint32_t n
         if(track_capture_on)track_capture[i*NTRK+(uint32_t)(t-trk)]=x;
 #endif
         if(a>pk)pk=a;
-        mix_add((x*gl)>>12,(x*gr)>>12,i,send);
+        mix_add((x*gl)>>12,(x*gr)>>12,i);mix_send(x,i);   /* (0.6.0: the sends, mono, the track's gains) */
     }
     t->peak=pk;
 }
@@ -44,9 +43,10 @@ static int32_t source[CTL];
 static struct { int32_t left[CTL],right[CTL],send_l[CTL],send_r[CTL],capture[CTL*NTRK],peak; } expected;
 static void reset(void)
 {
+    mix_dl=mix_l;mix_dr=mix_r;
     for(uint32_t i=0;i<CTL;i++){
         mix_l[i]=(int32_t)i*139;mix_r[i]=-(int32_t)i*173;
-        fx_send_l[i]=319;fx_send_r[i]=-497;
+        send_d[i]=319;send_r[i]=-497;send_c[i]=11;
     }
     for(uint32_t i=0;i<CTL*NTRK;i++)track_capture[i]=123456;
 }
@@ -58,15 +58,15 @@ static void parity(void)
     for(uint32_t ti=0;ti<NTRK;ti++)for(int32_t level=0;level<128;level++)for(int32_t pan=-64;pan<64;pan++)
         for(uint32_t send=0;send<3;send++)for(uint32_t capture=0;capture<2;capture++){
             track_t *t=&trk[ti];t->p[P_LEVEL]=(int16_t)level;t->p[P_PAN]=(int16_t)pan;
-            t->p[P_FXSEND]=(int16_t)(send==2?127:send);fx_send_on=send!=0;track_capture_on=(uint8_t)capture;
-            mix_cache_t mc;mix_cache_update(t,&mc);
+            t->p[P_REV]=(int16_t)(send==2?127:send);t->p[P_DLY]=(int16_t)(send?64:0);track_capture_on=(uint8_t)capture;
+            mix_send_gains(t);mix_cache_t mc;mix_cache_update(t,&mc);
             reset();t->peak=123;reference(t,source,CTL,&mc);
             memcpy(expected.left,mix_l,sizeof mix_l);memcpy(expected.right,mix_r,sizeof mix_r);
-            memcpy(expected.send_l,fx_send_l,sizeof fx_send_l);memcpy(expected.send_r,fx_send_r,sizeof fx_send_r);
+            memcpy(expected.send_l,send_d,sizeof send_d);memcpy(expected.send_r,send_r,sizeof send_r);
             memcpy(expected.capture,track_capture,sizeof track_capture);expected.peak=t->peak;
             reset();t->peak=123;candidate(t,source,CTL,&mc);
             assert(!memcmp(expected.left,mix_l,sizeof mix_l) && !memcmp(expected.right,mix_r,sizeof mix_r));
-            assert(!memcmp(expected.send_l,fx_send_l,sizeof fx_send_l) && !memcmp(expected.send_r,fx_send_r,sizeof fx_send_r));
+            assert(!memcmp(expected.send_l,send_d,sizeof send_d) && !memcmp(expected.send_r,send_r,sizeof send_r));
             assert(!memcmp(expected.capture,track_capture,sizeof track_capture) && expected.peak==t->peak);
         }
     puts("mono mixer: every level/pan, send extremes, capture on/off, all tracks and input clipping exact");
@@ -77,8 +77,8 @@ static void benchmark(void)
     puts("pan,send,reference_instructions_per_sample,fast_instructions_per_sample");
     track_t *t=&trk[0];track_capture_on=0;t->p[P_LEVEL]=100;
     for(uint32_t pan=0;pan<2;pan++)for(uint32_t send=0;send<2;send++){
-        double cost[2];t->p[P_PAN]=(int16_t)(pan?17:0);t->p[P_FXSEND]=127;fx_send_on=(uint8_t)send;
-        mix_cache_t mc;mix_cache_update(t,&mc);
+        double cost[2];t->p[P_PAN]=(int16_t)(pan?17:0);t->p[P_REV]=(int16_t)(send?127:0);
+        mix_send_gains(t);mix_cache_t mc;mix_cache_update(t,&mc);
         for(uint32_t fast=0;fast<2;fast++){
             void (*volatile run)(track_t *,int32_t *,uint32_t,const mix_cache_t *)=fast?candidate:reference;
             uint64_t start=instructions();

@@ -247,7 +247,7 @@ async function editorMock() {
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
-  ok(descs === info.pcount-8, "editor: DESC for every parameter");
+  ok(descs === info.pcount-15, "editor: DESC for every parameter");   /* (0.6.0: 8 reserved and the effects' 7 free ids) */
   {
     for(const id of [33,34,35,36,45,46,47,48]){
       const d=E.parse[E.CMD.DESC](await rq(E.req.desc(0,id)));
@@ -382,7 +382,7 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 45,
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 76,
       "editor: MIDI IN routing (ROUT four-channel ranges / SEL, global id 14)");
   }
   {
@@ -613,23 +613,21 @@ const emptyStep = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0 };
 async function trackEffects() {
   const {rq,done}=attachMock({});
   try {
+    /* (Orange Cat 0.6.0) the effects (ids 96..113: DIST TYPE TONE, AUTO PAN, SLICER route, the sends) are the track's,
+       never a sound's: captures and stored presets take their defaults, sound loads keep them */
     const info=E.parse[E.CMD.INFO](await rq(E.req.info()));
     await rq(E.req.preset(12,0));
-    const fx=[1,80,30,71,6,95,55,65,8,105,88,99];
+    const fx=[90,3,-20,64,5,2,1,0];
     for(let i=0;i<fx.length;i++)await rq(E.req.set(0,96+i,fx[i]));
-    for(let i=0;i<3;i++)await rq(E.req.set(0,111+i,i?-20-i:24));
+    for(let i=0;i<3;i++)await rq(E.req.set(0,108+i,40+i));
     const cap=(await E.capturePatch(rq,info,"DRY PATCH")).patch;
-    ok(eq(cap.p.slice(111,114),[0,0,0]),"FX: librarian capture excludes TONE");
-    ok(eq(cap.p.slice(96,108),[0,0,60,64,0,0,60,64,0,0,60,64]),"FX: librarian capture excludes the track's chain");
+    ok(eq(cap.p.slice(96,104),[0,0,0,0,2,1,1,1]) && eq(cap.p.slice(108,111),[0,0,0]),"FX: librarian capture excludes the track's effects");
     await E.bank.store(rq,30,"DRY PATCH");
     const stored=await E.bank.get(rq,info,30);
-    ok(eq(stored.p.slice(96,108),cap.p.slice(96,108)),"FX: device preset store uses dry insert defaults");
+    ok(eq(stored.p.slice(96,111),cap.p.slice(96,111)),"FX: device preset store uses the effects' defaults");
     await rq(E.req.preset(3,1));await E.bank.load(rq,30);await E.auditionPatch(rq,info,cap);
     const dump=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);
-    ok(eq(dump.p.slice(96,108),fx),"FX: factory, user and librarian sound loads preserve all three track slots");
-    ok(eq(dump.p.slice(111,114),[24,-21,-22]),"FX: sound loads preserve TONE");
-    ok(eq(E.fmtValue({fmt:E.F.TONE},0),["Full",""]) && eq(E.fmtValue({fmt:E.F.TONE},24),["Thin 313","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-39),["Dark 516","Hz"]) &&
-       eq(E.fmtValue({fmt:E.F.TONE},63),["Thin 1280","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},1),["Thin 150","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-63),["Dark 120","Hz"]),"FX: TONE formats Full, Dark / Thin and the cut's frequency");
+    ok(eq(dump.p.slice(96,104),fx) && eq(dump.p.slice(108,111),[40,41,42]),"FX: factory, user and librarian sound loads keep the track's effects");
     const common={step:0,param:info.pe0+1,value:63},native={step:0,param:info.pe0+1,value:(3<<8)|80};
     await rq(E.req.motion(0,3,common));let m=E.parse[E.CMD.MOTION](await rq(E.req.motion(0,3,native)));
     ok(m.count===2,"motion: native and common events sharing an engine ID coexist");
@@ -744,8 +742,8 @@ async function editorLibrarian() {
     for (const [i,name] of [[8,"FX"],[33,"MIX"],[34,"RATE"],[35,"CHAR"]]) {legacyKeys[i]=name;legacyValues[i]=127;}
     const mapped=E.readLibraryFile({...file,pCount:104,pE0:96,paramLabels:legacyKeys,
       patches:[{...file.patches[0],params:legacyValues}]},ctx).patches[0].p;
-    ok(keys.slice(96,100).join()==="FX.TYPE,FX.MIX,FX.RATE,FX.CHAR" && mapped.slice(96,100).every(v=>v===null),
-      "library file: retired effect labels never activate new FX controls");
+    ok(keys.slice(96,100).join()==="JFX.DIST,JFX.TYPE,JFX.TONE,JFX.DEPTH" && mapped.slice(96,100).every(v=>v===null),
+      "library file: retired effect labels never activate the effects (0.6.0: their own JFX keys)");
   }
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
     && js(back.patches[1].pattern) === js(bass.pattern) && back.patches[1].tags.join() === "bass,device" && back.patches[1].engineName === "SID",

@@ -250,6 +250,8 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
     uint32_t id=P_COUNT;
     switch(cc){case 5:id=P_GLIDE;break;case 7:id=P_LEVEL;break;case 10:id=P_PAN;break;
     case 72:id=P_REL;break;case 73:id=P_ATK;break;case 75:id=P_DEC;break;
+    case 91:id=P_REV;break;case 93:id=P_CHOR;break;case 94:id=P_DLY;break;case 104:id=P_DIST;break;   /* (0.6.0: the
+                                                * effects, Jiant's map: REVERB, CHORUS, DELAY sends, DIST) */
     case 74:case 71:{
         static const uint8_t map[NENGINES]={0,0,0x30,0x56,0,0x07,0,0,0x34,0,0x30,0x34,0x30,0,0x45,0,0,0,0,0x12};   /* (8: MACRO's TIMBRE, MORPH; 14: SHAPES' CUTOFF, RES) */
         uint32_t macro=(map[t->eng_req%NENGINES]>>(cc==74?4:0))&15u;

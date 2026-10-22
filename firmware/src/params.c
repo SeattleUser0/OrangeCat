@@ -10,7 +10,19 @@ static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "
 static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
-static const char *const N_FX[] = {"OFF", "PHASER", "WIDTH", "FORMANT", "TAPE", "SPIT", "ECHO", "ROOM", "REVERB", "CHORUS"};
+/* (Orange Cat 0.6.0) the effects' names (jfx.c: Jiant FM's) */
+static const char *const N_DTYPE[] = {"SOFT", "HARD", "FOLD", "CRUSH", "RECT", "AMP"};   /* DIST TYPE: jfx.c DT_* */
+static const char *const N_APSYNC[] = {"FREE", "BEAT"};
+static const char *const N_APDIV[] = {"4BAR", "2BAR", "1BAR", "1/2", "1/4", "1/8", "1/16", "1/32"};   /* AUTO PAN on the tempo */
+/* the delay's TIME: the ten divisions, then free times (5 ms .. 2.95 s; jfx.c DTIME_MS) */
+static const char *const N_DTIME[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR", "5ms", "6ms", "7ms", "8ms", "9ms", "10ms", "11ms", "12ms", "13ms", "15ms", "17ms", "19ms", "21ms", "24ms", "27ms", "31ms", "35ms", "39ms", "44ms", "50ms", "56ms", "64ms", "72ms", "81ms", "91ms", "103ms", "116ms", "131ms", "148ms", "167ms", "189ms", "213ms", "241ms", "272ms", "307ms", "346ms", "391ms", "441ms", "498ms", "562ms", "634ms", "716ms", "808ms", "912ms", "1.03s", "1.16s", "1.31s", "1.48s", "1.67s", "1.89s", "2.13s", "2.40s", "2.71s", "2.95s"};
+static const char *const N_DLYTYPE[] = {"ANALOG", "DIGITAL"};
+static const char *const N_RTYPE[] = {"ROOM", "SPRING", "SHIMR", "RESO", "CLOUD"};
+static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};
+static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};
+static const char *const N_SLPQ[] = {"CHR", "SCL"};
+static const char *const N_SPKEQ[] = {"OFF", "LOWCUT", "BASS+"};
+static const char *const N_FOLW[] = {"OFF", "T1", "T2", "T3", "T4"};   /* RESO's FOLW (G_RDAMP on RESO) */
 static const char *const N_ONOFF[] = {"OFF", "ON"};
 static const char *const N_VPOINTS[] = {"AUTO", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
                                         "14", "15"};
@@ -134,14 +146,17 @@ static void fm6_freq_text(char *val, const char **unit, int coarse)
 }
 
 static const param_desc_t TP[P_COUNT] = {
-    [P_FXTYPE] = PE("FX", N_FX, 0),
-    [P_FXMIX] = PD("MIX", F_PCT, 0, 127, 0),
-    [P_FXRATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
-    [P_FXCHAR] = PD("CHAR", F_PCT, 0, 127, 64),
-    [P_FX2TYPE] = PE("FX", N_FX, 0), [P_FX2MIX] = PD("MIX", F_PCT, 0, 127, 0),
-    [P_FX2RATE] = PD("RATE", F_LFOHZ, 0, 127, 60), [P_FX2CHAR] = PD("CHAR", F_PCT, 0, 127, 64),
-    [P_FX3TYPE] = PE("FX", N_FX, 0), [P_FX3MIX] = PD("MIX", F_PCT, 0, 127, 0),
-    [P_FX3RATE] = PD("RATE", F_LFOHZ, 0, 127, 60), [P_FX3CHAR] = PD("CHAR", F_PCT, 0, 127, 64),
+    /* (Orange Cat 0.6.0) the effects (jfx.c, Jiant FM's), in Melodee's FX ids */
+    [P_DIST] = PD("DIST", F_PCT, 0, 127, 0),
+    [P_DTYPE] = PE("TYPE", N_DTYPE, 0),
+    [P_DTONE] = PD("TONE", F_BIPCT, -64, 63, 0),
+    [P_APDEP] = PD("DEPTH", F_PCT, 0, 127, 0),
+    [P_APRATE] = PD("RATE", F_LFOHZ, 0, 127, 2),     /* (BEAT: 0..7, track_desc) */
+    [P_APWAVE] = PE("WAVE", N_LWAVE, 1),
+    [P_APSYNC] = PE("SYNC", N_APSYNC, 1),
+    [P_SLROUTE] = PE("SLC", N_ONOFF, 1),
+    [P_JRES0] = PD("", F_INT, 0, 127, 0), [P_JRES1] = PD("", F_INT, 0, 127, 0),
+    [P_JRES2] = PD("", F_INT, 0, 127, 0), [P_JRES3] = PD("", F_INT, 0, 127, 0),
     [P_LN0] = PD("KICK", F_PCT, 0, 127, 127),
     [P_LN1] = PD("SNARE", F_PCT, 0, 127, 127),
     [P_LN2] = PD("CLAP", F_PCT, 0, 127, 127),
@@ -216,12 +231,10 @@ static const param_desc_t TP[P_COUNT] = {
                 [P_FM##k##_LEVEL] = PD("LVL", F_PCT, 0, 127, 127)
     FMOP(1), FMOP(2), FMOP(3), FMOP(4),
 #undef FMOP
-    [P_FXSEND] = PD("SEND", F_PCT, 0, 127, 0),
-    [P_FXSEND2] = PD("SEND 2", F_PCT, 0, 127, 0),
-    [P_FXSEND3] = PD("SEND 3", F_PCT, 0, 127, 0),
-    [P_FXTONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
-    [P_FX2TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
-    [P_FX3TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
+    [P_REV] = PD("REV", F_PCT, 0, 127, 0),          /* (0.6.0) the sends (were SEND, SEND 2, SEND 3) */
+    [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
+    [P_CHOR] = PD("CHO", F_PCT, 0, 127, 0),
+    [P_JRES4] = PD("", F_INT, 0, 127, 0), [P_JRES5] = PD("", F_INT, 0, 127, 0), [P_JRES6] = PD("", F_INT, 0, 127, 0),
     [P_CHRD] = PE("CHRD", N_CHRD, 0),
     [P_VOIC] = PE("VOIC", N_VOIC, 0),
     [P_STRUM] = PE("STRUM", N_STRUM, 0),
@@ -257,47 +270,73 @@ static const param_desc_t GP[G_COUNT] = {
     [G_RESERVED24] = PD("", F_INT, 0, 127, 0),
     [G_RESERVED25] = PD("", F_INT, 0, 127, 0),
     [G_RESERVED26] = PD("", F_INT, 0, 127, 0),
-    [G_MFXTYPE] = PE("TYPE", N_FX, 0),
-    [G_MFXMIX] = PD("MIX", F_PCT, 0, 127, 127),
-    [G_MFXRATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
-    [G_MFXCHAR] = PD("CHAR", F_PCT, 0, 127, 64),
-    [G_MFX2TYPE] = PE("TYPE", N_FX, 0),
-    [G_MFX2MIX] = PD("MIX", F_PCT, 0, 127, 127),
-    [G_MFX2RATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
-    [G_MFX2CHAR] = PD("CHAR", F_PCT, 0, 127, 64),
-    [G_MFX3TYPE] = PE("TYPE", N_FX, 0),
-    [G_MFX3MIX] = PD("MIX", F_PCT, 0, 127, 127),
-    [G_MFX3RATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
-    [G_MFX3CHAR] = PD("CHAR", F_PCT, 0, 127, 64),
-    [G_FXRETURN] = PD("RETURN", F_PCT, 0, 127, 100),
-    [G_FXMODE] = {"MODE", F_ENUM, 0, 1, 0, (const char *const []){"CHAIN", "SPLIT"}, 0},
+    /* (Orange Cat 0.6.0) the effects' globals (jfx.c, Jiant FM's defaults) */
+    [G_DTIME] = PE("TIME", N_DTIME, 1),
+    [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
+    [G_DCOLOR] = PD("TONE", F_PCT, 0, 127, 64),      /* below 64 darker, above thinner, both resonant */
+    [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
+    [G_WIDTH] = PD("WIDE", F_PCT, 0, 127, 0),
+    [G_DPIT] = PD("PITCH", F_SEMI, -12, 12, 0),
+    [G_DSPRY] = PD("SPRAY", F_PCT, 0, 127, 0),
+    [G_DMOD] = PD("MOD", F_PCT, 0, 127, 0),
+    [G_DTYPE] = PE("TYPE", N_DLYTYPE, 0),
+    [G_DPING] = PE("PING", N_ONOFF, 0),
+    [G_RTYPE] = PE("TYPE", N_RTYPE, 0),
+    [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
+    [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
+    [G_RPRE] = {"PRE", F_INT, -24, 100, 0, 0, "ms"},   /* (SHIMMER, CLOUD: AIR; RESO: PITCH: global_desc) */
     [G_BUDGET] = {"BUDGET", F_INT, 8, 32, VOICE_BUDGET_DEFAULT, 0, "pts"},
-    [G_MFXTONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
-    [G_MFX2TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
-    [G_MFX3TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
-
+    [G_RMOD] = PD("MOD", F_PCT, 0, 127, 0),
+    [G_RRATE] = PD("RATE", F_LFOHZ, 0, 127, 30),
+    [G_RFILT] = PD("FILT", F_BIPCT, -64, 63, 0),
+    [G_RWIDE] = PD("WIDE", F_PCT, 0, 127, 0),
+    [G_CRATE] = PD("RATE", F_LFOHZ, 0, 127, 40),
+    [G_CDEPTH] = PD("DEPTH", F_PCT, 0, 127, 60),
+    [G_CSTER] = PD("WIDE", F_BIPCT, -64, 63, 0),
+    [G_SLMODE] = PE("MODE", N_SLCR, 0),
+    [G_SLPAT] = PD("PAT", F_INT, 1, 16, 1),
+    [G_SLRATE] = PE("RATE", N_SLDIV, 1),
+    [G_SLDEP] = PD("DEPTH", F_PCT, 0, 127, 127),
+    [G_SLFX] = PE("FX", N_ONOFF, 1),
+    [G_SLPLEN] = PD("LEN", F_INT, 1, 16, 16),
+    [G_SLPQ] = PE("QUANT", N_SLPQ, 1),
+#define SLP(k) [G_SLP0 + k] = PD("PITCH", F_SEMI, -24, 24, 0)
+    SLP(0), SLP(1), SLP(2), SLP(3), SLP(4), SLP(5), SLP(6), SLP(7), SLP(8), SLP(9), SLP(10), SLP(11), SLP(12), SLP(13),
+    SLP(14), SLP(15),
+#undef SLP
+    [G_DJF] = PD("DJF", F_BIPCT, -64, 63, 0),
+    [G_CLIP] = PD("CLIP", F_PCT, 0, 100, 0),
+    [G_LEVEL] = PE("LEVEL", N_ONOFF, 0),          /* (Orange Cat: OFF, the master as it was; Jiant: always on) */
+    [G_SPKEQ] = PE("SPK", N_SPKEQ, 0),
 };
 
 static const param_desc_t *global_desc(uint32_t id)
 {
-    if(param_master_fx(id) && (id-G_MFXTYPE)%FX_PARAMS>=2u){
-        static param_desc_t d;static const char *const character[]={"CHAR","DEPTH","DEPTH","FOCUS","JITTER","BITE","REPEAT","DECAY","DEPTH","DEPTH"};
-        uint32_t base=G_MFXTYPE+(id-G_MFXTYPE)/FX_PARAMS*FX_PARAMS,type=(uint32_t)clamp(song.g[base],0,NELEM(N_FX)-1);d=GP[id];
-        if(id-base==3u)d.label=character[type];else if(type>=6u && type<=8u){d.label=type==6u?"TIME":"SIZE";d.fmt=F_PCT;}return &d;
+    /* (Orange Cat 0.6.0, Jiant params.c page_desc) the REVERB's PRE and DAMP mean another thing on some models: AIR
+     * (SHIMMER, CLOUD), PITCH and FOLW (RESO) */
+    static const param_desc_t REV_AIR = {"AIR", F_SEMI, -24, 24, 0, 0, 0}, REV_PITCH = {"PITCH", F_INT, 0, 14, 0, 0, 0},
+                              REV_FOLW = {"FOLW", F_ENUM, 0, 4, 0, N_FOLW, 0}, REV_PRE = {"PRE", F_INT, 0, 100, 0, 0, "ms"};
+    if (id == G_RPRE)
+        return song.g[G_RTYPE] == 3 ? &REV_PITCH : song.g[G_RTYPE] == 2 || song.g[G_RTYPE] == 4 ? &REV_AIR : &REV_PRE;
+    if (id == G_RDAMP && song.g[G_RTYPE] == 3)
+        return &REV_FOLW;
+    if (id >= G_SLP0 && id <= G_SLP15) {               /* the SLICER's pitch steps: S1 .. S16 */
+        static param_desc_t d;
+        static char l[4];
+        uint32_t k = id - G_SLP0 + 1u;
+        d = GP[id];
+        l[0] = 'S'; l[1] = (char)(k < 10u ? '0' + k : '1'); l[2] = k < 10u ? 0 : (char)('0' + k - 10u); l[3] = 0;
+        d.label = l;
+        return &d;
     }
     return &GP[id];
 }
 static uint32_t scale_count(const track_t *t);          /* seq.c */
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
-    if (param_fx(id) && !param_fx_tone(id) && ((id-P_FXTYPE)%FX_PARAMS)>=2u) {
-        static param_desc_t fx_desc;
-        static const char *const character[] = {"CHAR", "DEPTH", "DEPTH", "FOCUS", "JITTER", "BITE", "REPEAT", "DECAY", "DEPTH", "DEPTH"};
-        uint32_t base=P_FXTYPE+(id-P_FXTYPE)/FX_PARAMS*FX_PARAMS;
-        fx_desc=TP[id];uint32_t type=(uint32_t)clamp(t->p[base],0,NELEM(N_FX)-1);
-        if(id-base==3u)fx_desc.label=character[type];
-        else if(type>=6u && type<=8u){fx_desc.label=type==6u?"TIME":"SIZE";fx_desc.fmt=F_PCT;}
-        return &fx_desc;
+    if (id == P_APRATE && t->p[P_APSYNC]) {           /* (Orange Cat 0.6.0, Jiant) AUTO PAN on the tempo: a division */
+        static const param_desc_t AP_BEAT = {"RATE", F_ENUM, 0, 7, 2, N_APDIV, 0};
+        return &AP_BEAT;
     }
     if (t->eng_req == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)
         return &CZ_ED[id - P_FM1_ATK];
@@ -512,17 +551,24 @@ typedef struct {
 
 #define G_TRK_RECQ 0xFEu                                 /* a global page's column that is the selected track's P_RECQ */
 static const page_t PAGES[] = {
-    /* FX (docs/design README "FX rack"): the track's rack, its three slots (shown while they hold an effect), the
-     * shared rack, its three slots. A rack: KNOB 2 the row (fx_rack_row), 1 its effect, 4 its amount, SHARED's 3 ROUTE
-     * (page_desc) */
-    {"FX", FAM_FX, SC_TRACK, GR_FXRACK, {P_FXTYPE, 0xFF, 0xFF, P_FXMIX}},
-    {"FX 1", FAM_FX, SC_TRACK, GR_NONE, {P_FXMIX, P_FXRATE, P_FXCHAR, P_FXTONE}},
-    {"FX 2", FAM_FX, SC_TRACK, GR_NONE, {P_FX2MIX, P_FX2RATE, P_FX2CHAR, P_FX2TONE}},
-    {"FX 3", FAM_FX, SC_TRACK, GR_NONE, {P_FX3MIX, P_FX3RATE, P_FX3CHAR, P_FX3TONE}},
-    {"SHARED", FAM_FX, SC_GLOBAL, GR_FXRACK, {G_MFXTYPE, 0xFF, 0xFF, G_MFXMIX}},
-    {"SEND FX 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFXMIX, G_MFXRATE, G_MFXCHAR, G_MFXTONE}},
-    {"SEND FX 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR, G_MFX2TONE}},
-    {"SEND FX 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR, G_MFX3TONE}},
+    /* (Orange Cat 0.6.0) FX: the effects (jfx.c, Jiant FM's pages). The track's: its DIST and sends, DIST, AUTO PAN;
+     * the project's: the buses, the SLICER, the MASTER */
+    {"FX", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_CHOR, P_DLY, P_REV}},
+    {"DIST", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_DTYPE, P_DTONE, P_SLROUTE}},
+    {"AUTO PAN", FAM_FX, SC_TRACK, GR_NONE, {P_APDEP, P_APRATE, P_APSYNC, P_APWAVE}},
+    {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
+    {"DELAY 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_WIDTH, G_DPIT, G_DSPRY, G_DMOD}},
+    {"DELAY 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTYPE, G_DPING, 0xFF, 0xFF}},
+    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, G_RPRE}},
+    {"REVERB 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_RMOD, G_RRATE, G_RFILT, G_RWIDE}},
+    {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, G_CSTER, 0xFF}},
+    {"SLICER", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLMODE, G_SLPAT, G_SLRATE, G_SLDEP}},
+    {"SLICER 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLFX, G_SLPLEN, G_SLPQ, 0xFF}},
+    {"SL PITCH 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0, G_SLP0 + 1, G_SLP0 + 2, G_SLP0 + 3}},
+    {"SL PITCH 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 4, G_SLP0 + 5, G_SLP0 + 6, G_SLP0 + 7}},
+    {"SL PITCH 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 8, G_SLP0 + 9, G_SLP0 + 10, G_SLP0 + 11}},
+    {"SL PITCH 4", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 12, G_SLP0 + 13, G_SLP0 + 14, G_SLP15}},
+    {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, {G_DJF, G_CLIP, G_LEVEL, G_SPKEQ}},
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot: SEQ > TEMPO's QNT */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
@@ -624,8 +670,6 @@ static const page_t PAGES[] = {
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
-static uint8_t fx_rack_row[2];   /* the racks' rows KNOB 2 picks: FX's (0..2 its slots, 3 the shared FX), SHARED's
-                                  * (0..2 its slots, 3 RETURN) */
 
 /* FM6's pages: the value in column slot (a copy in fm6_cell) and its descriptor; 0 = none (not an FM6 track) */
 static const param_desc_t *fm6_page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
@@ -683,53 +727,6 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
     fm6_put_patch(tr, v, 0);
 }
 
-/* a rack's KNOB 1 (its row's effect) and KNOB 4 (the row's amount): FX's slots their MIX, its shared row the track's
- * SEND (CHAIN; in SPLIT the track's three sends are SHARED's rows); SHARED's slots their MIX (SPLIT: the track's send to
- * each), its last row RETURN. SHARED's KNOB 3: ROUTE (G_FXMODE) */
-static const param_desc_t *fx_rack_desc(const page_t *pg, uint32_t slot, int16_t **valp)
-{
-    uint32_t shared = pg->scope == SC_GLOBAL, r = fx_rack_row[shared] & 3u, id;
-    *valp = 0;
-    if (slot == 0u && r < FX_SLOTS && !shared) {
-        id = P_FXTYPE + r * FX_PARAMS;
-        *valp = &TSEL->p[id];
-        return track_desc(TSEL, id);
-    }
-    if (slot == 0u && r < FX_SLOTS) {                   /* (SHARED's effect: "FX" as the track's, not TYPE) */
-        static param_desc_t type;
-        id = G_MFXTYPE + r * FX_PARAMS;
-        *valp = &song.g[id];
-        type = *global_desc(id);
-        type.label = "FX";
-        return &type;
-    }
-    if (slot == 2u && shared) {                         /* SHARED's KNOB 3: the routing, CHAIN or SPLIT (its sheet too) */
-        static param_desc_t route;
-        *valp = &song.g[G_FXMODE];
-        route = *global_desc(G_FXMODE);
-        route.label = "ROUTE";
-        return &route;
-    }
-    if (slot != 3u || (!shared && r == FX_SLOTS && song.g[G_FXMODE]))
-        return 0;
-    if (shared && r == FX_SLOTS) {
-        *valp = &song.g[G_FXRETURN];
-        return global_desc(G_FXRETURN);
-    }
-    if (shared && !song.g[G_FXMODE]) {
-        *valp = &song.g[G_MFXMIX + r * FX_PARAMS];
-        return global_desc(G_MFXMIX + r * FX_PARAMS);
-    }
-    id = shared ? P_FXSEND + r : r < FX_SLOTS ? P_FXMIX + r * FX_PARAMS : P_FXSEND;
-    *valp = &TSEL->p[id];
-    if (shared) {                                       /* (SPLIT: "SEND", the row says to which) */
-        static param_desc_t send;
-        send = *track_desc(TSEL, id);
-        send.label = "SEND";
-        return &send;
-    }
-    return track_desc(TSEL, id);
-}
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
@@ -759,8 +756,6 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if ((MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP))
         return fm6_page_desc(pg, slot, valp);
     if((MELODEE_DRUM && pg->scope == SC_DRUM) || (MELODEE_DRUM && pg->scope == SC_DRUMHIT)){*valp=0;return 0;}
-    if (pg->graph == GR_FXRACK)
-        return fx_rack_desc(pg, slot, valp);
     if (id == 0xFFu) {
         *valp = 0;
         return 0;
@@ -796,12 +791,6 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         drumch_cell = settings_drumch;                   /* (as BOOT) */
         *valp = &drumch_cell;
         return global_desc(id);
-    }
-    if ((pg->scope == SC_GLOBAL && id >= G_MFXTONE && id <= G_MFX3TONE &&    /* TONE: ECHO, ROOM and REVERB only */
-         !fx_has_tone(song.g[G_MFXTYPE + (id - G_MFXTONE) * FX_PARAMS])) ||
-        (pg->scope == SC_TRACK && param_fx_tone(id) && !fx_has_tone(TSEL->p[P_FXTYPE + (id - P_FXTONE) * FX_PARAMS]))) {
-        *valp = 0;
-        return 0;
     }
     if (pg->scope == SC_GLOBAL) {
         *valp = &song.g[id];

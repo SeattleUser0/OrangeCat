@@ -231,7 +231,8 @@ static uint32_t drum_hit_selected(void);
 static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
-enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_PERF, LAYER_N };   /* (Orange Cat 0.4.1: PERF) */
+enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_PERF, LAYER_FX, LAYER_N };   /* (Orange Cat 0.4.1: PERF;
+                                                                                  * 0.6.0: FX, the punch-in effects) */
 static void draw_layer(void);
 static const char *layer_head(void);
 static uint32_t layer_leds(void);
@@ -270,9 +271,9 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 static int page_visible(uint32_t i)
 {
-    if (PAGES[i].fam == FAM_FX && PAGES[i].graph != GR_FXRACK)   /* a slot's page (its MIX first): while it holds an
-                                                                 * effect (the rack shows it either way) */
-        return (PAGES[i].scope == SC_GLOBAL ? song.g : TSEL->p)[PAGES[i].id[0] - 1u] != FX_OFF;
+    if (PAGES[i].fam == FAM_FX && PAGES[i].scope == SC_GLOBAL && PAGES[i].id[0] >= G_SLP0 && PAGES[i].id[0] <= G_SLP15)
+        return song.g[G_SLMODE] && PAGES[i].id[0] < G_SLP0 + song.g[G_SLPLEN];   /* (0.6.0) SLICER's pitch steps: the
+                                                                 * pages its LENGTH reaches, while it is on */
     if (list_gone(i))
         return 0;
     if (PAGES[i].graph == GR_MOTION)                   /* MOTION: once there is motion (Kerem: an empty page; the one
@@ -944,7 +945,7 @@ static void track_defaults_steps(track_t *t)
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           i == P_CHRD || i == P_VOIC || i == P_STRUM || i == P_STROKE || i == P_MPCDEG || i == P_RECQ || param_fx(i) || param_fx_send(i);
+           i == P_CHRD || i == P_VOIC || i == P_STRUM || i == P_STROKE || i == P_MPCDEG || i == P_RECQ || param_jfx(i);   /* (0.6.0: the effects) */
 }
 
 /* ROOT, SCL, QNT and the MPC degree are the project's: kept the same in each track's own slots

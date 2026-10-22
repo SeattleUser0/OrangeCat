@@ -84,9 +84,7 @@ def prepare(d, directory):
     # autosave cannot overwrite the user's saved song during construction.
     restore_runtime(d, original)
     verify(d, original)
-    for key, value in {'G_BPM': 180, 'G_SWING': 0, 'G_CLOCK': 0,
-                       'G_MFXTYPE': 0, 'G_MFX2TYPE': 0,
-                       'G_MFX3TYPE': 0}.items():
+    for key, value in {'G_BPM': 180, 'G_SWING': 0, 'G_CLOCK': 0}.items():
         global_value(d, key, value)
     engines = (19, 12, 15, 10)
     presets = (3, 4, 4, 0)  # Forever Keys, PAD, STRINGS 1, 808
@@ -103,8 +101,8 @@ def prepare(d, directory):
                       P_SLEN=64, P_SDIV=2, P_SSWING=0, P_SGATE=120,
                       P_LD_PIT=0, P_LD_FLT=0, P_LD_SHP=0, P_LD_AMP=0,
                       P_ED_FLT=0, P_ED_PIT=0, P_M1AMT=0, P_M2AMT=0,
-                      P_M3AMT=0, P_M4AMT=0, P_FXTYPE=0,
-                      P_FX2TYPE=0, P_FX3TYPE=0)
+                      P_M3AMT=0, P_M4AMT=0, P_DIST=0,
+                      P_REV=0, P_DLY=0, P_CHOR=0)
         if track == 3:
             common['P_E0'] = 4  # explicitly 808 rather than 909
         d.params(track, common)

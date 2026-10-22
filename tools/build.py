@@ -361,10 +361,17 @@ def check(img, syms, dis, rt):
                 call = re.search(r"\bcall -?\d+ <[^>]* : ([0-9a-f]+) >", line)
                 if call and int(call[1], 16) >= APP_XIP:
                     errors.append(f"audio function {current} calls XIP directly")
-        notes.append(f"audio RAM: {live} linked functions verified in SRAM; optional bounded FX inserts")
-    for name in ("rev_room", "rev_spring", "rev_hall", "dly_bus", "chorus", "distortion", "sl_enter", "sl_block", "perf_begin", "perf_block", "perf_end"):
+        notes.append(f"audio RAM: {live} linked functions verified in SRAM; the effects' DSP in flash (.text.xip_jfx)")
+    # (Orange Cat 0.6.0) the effects are Jiant FM's now (firmware/src/jfx.c: rev_room, sl_enter, perf_block ..); the old
+    # three-slot effects (fx.c) and their master must be gone
+    for name in ("fx_process", "fx_bus_start", "fx_bus_join", "fx_time", "fx_reverb", "master_samples", "mix_fx_samples",
+                 "rev_hall", "dly_bus", "distortion", "sl_block", "perf_end"):
         if sym(name):
             errors.append(f"removed effect {name} must not be linked")
+    for name in ("rev_room", "rev_cloud", "fx_buses", "perf_block", "slicer_bus", "dly_lo"):
+        address = sym(name)                         # (0.6.0) in flash on purpose: .text.xip_jfx (jfx.c JFX_XIP)
+        if address and address < APP_XIP:
+            notes.append(f"effects: {name} is not in flash (expected .text.xip_jfx)")
     # FM6's sample loops share internal RAM with Prophet. Outlined helpers
     # must stay there too: a flash fetch per sample defeats the optimization,
     # and direct RAM/XIP calls exceed the target's branch range.
@@ -375,7 +382,7 @@ def check(img, syms, dis, rt):
             if (name == kernel or address) and not sym("_dsp_start") <= address < sym("_dsp_end"):
                 errors.append(f"{name} must remain in internal DSP RAM")
         notes.append("FM6: sample kernel and operator helpers in internal DSP RAM")
-    for name in ("fm6_output", "fm6_dc_samples", "fm6_eg_go", "fm6_eg_step", "fm6_peg_go", "p5_dc_samples", "mix_mono_samples", "master_samples", "master_out"):
+    for name in ("fm6_output", "fm6_dc_samples", "fm6_eg_go", "fm6_eg_step", "fm6_peg_go", "p5_dc_samples", "mix_mono_samples", "master_out"):
         address = sym(name)
         if address and not sym("_dsp_start") <= address < sym("_dsp_end"):
             errors.append(f"{name} must remain in internal DSP RAM")

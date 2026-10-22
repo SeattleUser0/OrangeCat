@@ -14,7 +14,7 @@
 #define THROW_REST 120u                                 /* ms the knob rests before its throw glides back */
 #define THR_ONE 65536                                   /* an offset of 1 (fine enough that a bar's glide is a bar) */
 #define THR_N 3u                                        /* SEND, SEND 2, SEND 3 */
-static const uint8_t THR_ID[THR_N] = {P_FXSEND, P_FXSEND2, P_FXSEND3};
+static const uint8_t THR_ID[THR_N] = {P_REV, P_DLY, P_CHOR};   /* (0.6.0: the reverb, delay and chorus sends) */
 static struct {
     int32_t off, dec;                                   /* the offset, x THR_ONE; how much of it a block takes (0: still) */
     uint32_t t;                                         /* fm1_ms of its knob's last turn */

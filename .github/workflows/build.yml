@@ -21,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 9 (Orange Cat 0.6.0): the target budget's lines (tests/target_budget.py) to the run page as a notice.
 #   Rev 7: the failed tests' summary list first in the run page's annotation.
 #   Rev 6: engine switches in tools/orangecat_engines.sh (SID and CZ-1 off), read by the build and the test step.
 #   Rev 5 (build doc phase 3): the firmware is built with MELODEE_SID=0 (the SID engine unhooked); tests keep the
@@ -98,6 +99,11 @@ jobs:
         # the tests look for build/melodee.fwsc; a nightly or release build names it differently
         [ -f build/melodee.fwsc ] || cp "$(ls build/melodee-*.fwsc | head -1)" build/melodee.fwsc
         ok=0; tests/run_tests.sh > test.log 2>&1 || ok=1
+        # (rev 9, Orange Cat 0.6.0) the render loops' target cost, every line, to the run page (the new effects' budgets
+        # are taken from it)
+        tb=$(python3 tests/target_budget.py build/melodee.dis tests/target_budget.txt 2>&1 | grep -E "^target: " | cut -c9- \
+             | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+        echo "::notice title=target budget::$tb"
         if [ "$ok" != 0 ]; then
           # (rev 7) the summary's list of failed steps first (it can be cut off at the end of a long message)
           msg=$( { awk '/HOST TESTS .*FAILED/{f=1} f' test.log | head -40; echo ----; grep -inE "FAIL|abort|segmentation|assert|traceback|exception" test.log | grep -vE " ok$|0 fail|0 FAIL" | head -30; } \

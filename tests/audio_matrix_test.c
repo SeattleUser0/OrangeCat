@@ -11,9 +11,9 @@ static void matrix_setup(const uint32_t cat[4],uint32_t variant)
 {
     memset(trk,0,sizeof trk);memset(&song,0,sizeof song);eng_state_reset();
     memset(fm6_eff,0,sizeof fm6_eff);memset(p5_ready,0,sizeof p5_ready);cz_init();
-    memset(mix_cache,0,sizeof mix_cache);memset(&mod,0,sizeof mod);memset(fx_state,0,sizeof fx_state);
+    memset(mix_cache,0,sizeof mix_cache);memset(&mod,0,sizeof mod);
     memset(midi_bend_q8,0,sizeof midi_bend_q8);memset(midi_bend_target,0,sizeof midi_bend_target);
-    fx_bus_mix=fx_bus_target=fx_bus_pending=fx_bus_result=0;fx_epoch++;
+    jfx_power_on();for(uint32_t i=G_DTIME;i<G_COUNT;i++)song.g[i]=GP[i].def;   /* (0.6.0) the effects from silence */
     rng_state=0x12345678u;mod_seed=0x2545f491u;vage=voice_kills=0;track_solo=0;
     lim_env=LIM_T;dc_l=dc_r=dce_l=dce_r=0;host_tracks_init();fm6_fn_reset();
     for(uint32_t p=0;p<NPART;p++){
@@ -37,7 +37,7 @@ static void matrix_render(const uint32_t cat[4],uint32_t variant,int parallel)
         if(block==16u)for(uint32_t p=0;p<4;p++){trk[p].p[P_SPRD]=42;trk[p].p[P_M1SRC]=MS_LFO;trk[p].p[P_M1DST]=MD_CUT;trk[p].p[P_M1AMT]=24;}
         if(block==32u)for(uint32_t p=0;p<4;p++)for(uint32_t k=0;k<2;k++)trk_note_off(&trk[p],cat[p]>=4?(k?38:36):48+p*3+k*7);
         if(block==40u)for(uint32_t p=0;p<4;p++)for(uint32_t k=0;k<2;k++)trk_note_on(&trk[p],cat[p]>=4?(k?38:36):48+p*3+k*7,100);
-        if(block==56u){song.g[G_MFXTYPE]=FX_CHORUS;for(uint32_t p=0;p<4;p++)trk[p].p[P_FXSEND]=30;}
+        if(block==56u)for(uint32_t p=0;p<4;p++)trk[p].p[P_CHOR]=30;   /* (0.6.0: the CHORUS send) */
         if(block==72u)for(uint32_t p=0;p<4;p++){trk[p].p[P_E1]+=cat[p]==3?0:1;trk[p].p[P_LD_PIT]=4;}
         mix_block(out,CTL);
         assert(!audio_batch_count && AW_LOAD(&audio_worker.request)==AW_LOAD(&audio_worker.complete));

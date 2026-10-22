@@ -27,13 +27,14 @@ FUNCS = ["phase_render", "sid_render", "cz_native_render", "cz_native_wave", "fo
          "fm1_alnk0_irq", "track_render_audio",       # per-track renderer has its own bounded function
          "midi_parameter", "audition_tick", "click_render", # bounded optional recording/performance paths
          "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
-         "fx_filter", "fx_down", "fx_up", "fx_time", "mix_fx_samples",
-         "fx_tape",                                        # fused, smoothed stereo Tape path
-         "fx_reverb",                                      # reduced-rate tank and input conversion
-         "fx_chorus",                                      # full-rate integer stereo taps
-         "mix_extra_sends", "fx_bus_kernel",                # optional independent sends and returns
          ]
 OPTIONAL = {}                   # built only with an option, not in BUDGET: absent, skipped; present, checked against these
+# (Orange Cat 0.6.0) the effects (firmware/src/jfx.c, Jiant FM's; the old fx.c's fx_time, fx_reverb .. are gone): measured
+# when the compiler keeps them apart (absent, inlined: skipped), checked once tests/target_budget.txt has their budget
+JFX = ["fx_buses", "dly_lo", "rev_room", "rev_room_mod", "rev_spring", "rev_shimmer", "rev_reso", "rev_cloud", "fx_gate",
+       "dist_run", "dist_amp", "autopan", "clip_block", "djf_block", "lev_block", "slicer_bus", "sl_seg", "perf_block",
+       "perf_mute", "perf_pre", "jfx_master", "jfx_bus_kernel"]
+FUNCS += JFX
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
 EXTRACTED = {
@@ -42,7 +43,7 @@ EXTRACTED = {
     "drum_render": ("drum_render_into",),
     "dr8_run": ("dr8_run_into",),
     "fm6_render": ("fm6_run", "fm6_run_into", "fm6_output", "fm6_join"),
-    "fm1_alnk0_irq": ("mix_block", "mix_part", "mix_prepare_batch", "audio_batch_flush", "mix_mono_samples", "master_samples", "master_out"),
+    "fm1_alnk0_irq": ("mix_block", "mix_part", "mix_prepare_batch", "audio_batch_flush", "mix_mono_samples", "master_out"),
     "track_render_audio": ("fm6_dc_samples", "p5_dc_samples"),
 }
 KERNEL_NAMES = {n for names in EXTRACTED.values() for n in names}
@@ -213,7 +214,7 @@ def main():
         if os.environ.get(flag) == "0":
             disabled |= names
             print(f"target: {flag}=0, its render loops are excluded: {', '.join(sorted(names))}")
-    missing = [n for n in FUNCS if n not in res and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
+    missing = [n for n in FUNCS if n not in res and n not in JFX and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
     # (Orange Cat) the only disabled loops now are unhooked engines, reported above
     base = {}
     if os.path.exists(budget):

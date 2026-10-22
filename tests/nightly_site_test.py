@@ -245,7 +245,7 @@ class NightlySite(unittest.TestCase):
         self.assertIn('<span data-firmware-version>next-abcdef0</span>', text)
         self.assertIn('href="../../installer/"', text)
         self.assertIn('href="../../editor/"', text)
-        self.assertTrue((nightly / "fx_rack.png").is_file())
+        self.assertTrue((nightly / "fx_sends.png").is_file())
         self.assertEqual(stable.read_bytes(), before)
         self.build_site(self.dual, "1.3.2", self.site)
         self.assertEqual((nightly / "index.html").read_text(), text)

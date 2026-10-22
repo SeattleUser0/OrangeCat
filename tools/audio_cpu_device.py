@@ -390,11 +390,12 @@ def main():
             if fixture is not None:
                 write_ram(d, 0, fixture)
             _, globals_ = param_ids()
-            values = dict(G_BUDGET=a.budget, G_CLOCK=int(fixture is not None and a.sequence_clock == 'usb'), G_ROUTE=0, G_MFXTYPE=0, G_MFX2TYPE=0, G_MFX3TYPE=0)
+            values = dict(G_BUDGET=a.budget, G_CLOCK=int(fixture is not None and a.sequence_clock == 'usb'), G_ROUTE=0)
             if fixture is not None or plan:
                 values['G_BPM'] = round(a.sequence_bpm)
             if a.fx:
-                values.update(G_FXMODE=0, G_MFXTYPE=9, G_MFXMIX=127, G_MFXRATE=127, G_MFXCHAR=127, G_FXRETURN=127)
+                # (Orange Cat 0.6.0) the heaviest effects: CLOUD, the delay fed back, the chorus deep (the tracks' sends: fx_sends)
+                values.update(G_RTYPE=4, G_RSIZE=110, G_DFDBK=100, G_CDEPTH=127)
             def apply_globals():
                 for key, value in values.items():
                     v = value+8192

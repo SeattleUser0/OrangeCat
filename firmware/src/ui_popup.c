@@ -159,12 +159,14 @@ static void nt_quantize(void){ui.note_copy=ui.note_move=0;note_quantize(RECORD_U
 static const sheet_row_t SHEET_PATTERN[] = {{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0}, {"Shift right", 0, 0, st_shift_r, 0},
     {"Shift left", 0, 0, st_shift_l, 0}, {"Reverse", 0, 0, st_reverse, 0},   /* (Orange Cat 0.4.6: seq_tools.c) */
     {"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
-/* SHARED's (its rack, its slots): the routing (one chain, or each slot its own send from every track), clearing them */
-static void sh_route_v(char *b) { str_cpy(b, song.g[G_FXMODE] ? "Split" : "Chain", 8); }
-static void sh_route_turn(int32_t s) { song.g[G_FXMODE] = (int16_t)(s > 0); ui.force = 1; }
-static void sh_route(void) { sh_route_turn(!song.g[G_FXMODE]); }
-static const sheet_row_t SHEET_SHARED[] = {{"Routing", sh_route_v, sh_route_turn, sh_route, 0},
-                                           {"Clear shared FX", 0, 0, 0, CF_CLEAR_SHARED}};
+/* the shared effects' pages (0.6.0: DELAY .. MASTER): their settings back to a new project's */
+static int jfx_globals_default(void)
+{
+    for (uint32_t i = G_DTIME; i < G_COUNT; i++)
+        if (param_master_jfx(i) && song.g[i] != GP[i].def) return 0;
+    return 1;
+}
+static const sheet_row_t SHEET_SHARED[] = {{"Reset effects", 0, 0, 0, CF_CLEAR_SHARED}};
 /* (Orange Cat 0.4) CHAIN's (OCT+ held): the selected track's chain at the step picked */
 static void ps_insert(void) { ocl_insert(song.sel, ui.chain_step); ui_message("SLOT INSERTED"); }
 static void ps_dup(void)
@@ -353,7 +355,7 @@ static uint32_t page_sheet(void)
     if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS || cur_page()->graph == GR_TRACKER)
         return 3;                                       /* ((Orange Cat 0.4.6) TRACKER's too) */
     fam = cur_page()->fam;
-    if (fam == FAM_FX && cur_page()->scope == SC_GLOBAL)   /* SHARED, its slots */
+    if (fam == FAM_FX && cur_page()->scope == SC_GLOBAL)   /* the shared effects' pages */
         return 5;
     return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX ? 1u : 0u;
 }
@@ -420,7 +422,7 @@ static int cf_refused(uint32_t cf)
     else if ((cf == CF_CLEAR_SONG && !ocl_song_any()) || (cf == CF_CLEAR_SEQ && seq_is_empty(TSEL)) ||
              (cf == CF_CLEAR_CHAIN && !ocl_chain_any(lists.tchain[song.sel % NTRK])) ||
              (cf == CF_CLEAR_MOTION && !motion_count(TSEL)) ||
-             (cf == CF_CLEAR_SHARED && !song.g[G_MFXTYPE] && !song.g[G_MFX2TYPE] && !song.g[G_MFX3TYPE]))
+             (cf == CF_CLEAR_SHARED && jfx_globals_default()))
         ui_message("NOTHING TO CLEAR");
     else
         return 0;

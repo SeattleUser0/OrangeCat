@@ -147,10 +147,7 @@ static int check(const char *what, int ok)
 static void ui_power_on(void)
 {
     uint32_t i;
-    fx_clear_all();
-    for(uint32_t k=0;k<FX_STATE_COUNT;k++)resource_release(RES_FX0+k);
-    fx_bus_result=fx_bus_pending=0;fx_bus_mix=fx_bus_target=0;
-    memset(fx_state,0,sizeof fx_state);
+    jfx_power_on();                               /* (0.6.0) the effects' memory back, their states from silence */
     kb_strum_pending = midi_strum_pending = 0;
     memset(kb_strum, 0, sizeof kb_strum);
     memset(chord_alternate, 0, sizeof chord_alternate);
@@ -4382,19 +4379,19 @@ static int test_perform(void)
     btn_up(B_ARP); frame();
     bad += check("ARP KNOB 1: LAUNCH BAR; OCT-: LAUNCH and the MUTEs as it opened, nothing staged", ok);
     {   /* (0.4.3) KNOB 2: a throw of SEND 1, never saved, gliding back over a bar */
-        int16_t base = TSEL->p[P_FXSEND];
+        int16_t base = TSEL->p[P_REV];
         btn_down(B_ARP); frame();
         turn(EN_K2, 2);
-        ok = (thr_out & 1u << (song.sel * THR_N)) && throw_value(song.sel, 0) == base + 8 && TSEL->p[P_FXSEND] == base;
+        ok = (thr_out & 1u << (song.sel * THR_N)) && throw_value(song.sel, 0) == base + 8 && TSEL->p[P_REV] == base;
         throw_on(32);                             /* (in the audio block: on over the value; after it: off again) */
-        ok &= TSEL->p[P_FXSEND] > base && TSEL->p[P_FXSEND] <= base + 8;   /* (gliding already, the knob at rest) */
+        ok &= TSEL->p[P_REV] > base && TSEL->p[P_REV] <= base + 8;   /* (gliding already, the knob at rest) */
         throw_off();
-        ok &= TSEL->p[P_FXSEND] == base;
+        ok &= TSEL->p[P_REV] == base;
         btn_up(B_ARP); frame();
         fm1_ms += 500u;                           /* (the knob at rest; then a bar of audio blocks) */
         for (uint32_t b = 0; b < 4u * 22050u * 4u / 32u && thr_out; b++) { int32_t o[64]; mix_block(o, 32); }
         bad += check("ARP KNOB 2: the selected track's SEND thrown (its own value kept), back over a bar", ok &&
-                     !(thr_out & 1u << (song.sel * THR_N)) && TSEL->p[P_FXSEND] == base);
+                     !(thr_out & 1u << (song.sel * THR_N)) && TSEL->p[P_REV] == base);
     }
     trk[0].mute_arm = 2;
     seq_stop();

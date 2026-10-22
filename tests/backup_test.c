@@ -294,7 +294,7 @@ int main(void)
         if(f)fclose(f);
         bad+=check("previous TPLF settings archive restores through PUT and remains dry",
             n==sizeof(tmpl_fx_legacy_t) && put_all(1,old_settings,sizeof old_settings,st_crc32(old_settings,sizeof old_settings))==0 &&
-            template_used() && tmpl.t[0].p[P_E0]==17 && !tmpl.t[0].p[P_FXTYPE]);
+            template_used() && tmpl.t[0].p[P_E0]==17 && !tmpl.t[0].p[P_DIST]);
         uint32_t before=erases;old_settings[sizeof defaults+__builtin_offsetof(tmpl_fx_legacy_t,cz)+2u]=255;
         bad+=check("damaged previous template is refused before any flash erase",
             put_all(1,old_settings,sizeof old_settings,st_crc32(old_settings,sizeof old_settings))==2 && erases==before);

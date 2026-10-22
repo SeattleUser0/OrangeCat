@@ -39,6 +39,8 @@
  *   0.3.1: saves stream their payload from a source (ocs_src_t): no RAM image of a record. ocs_open / ocs_at read
  *          pieces of one. CRC by nibbles (ocs_crc_add).
  *   0.3.2: its own CRC for the headers too (no storage.c needed); without the flash driver the sectors are in RAM.
+ *   0.6.0: ocs_resv: sectors 18..39 (0xB2000..0xC7FFF) can be the internal sample slot's (smp_slot.c): once claimed the
+ *          store has 34 sectors and never reads, hands out or erases those.
  */
 #define OCS_MAGIC 0x3153434Fu                  /* "OCS1" */
 #define OCS_SECTOR 4096u
@@ -64,6 +66,8 @@ _Static_assert(sizeof(ocs_hdr_t) == OCS_HDR, "record store commit header");
 
 static ocs_hdr_t ocs_hdr[OCS_NSECT] __attribute__((section(".pool")));
 static uint8_t ocs_cursor;                     /* where the next save starts looking for free sectors */
+static uint64_t ocs_resv;                      /* (0.6.0) sectors that are not the store's: the sample slot's
+                                                * (smp_slot.c), once claimed. Never read, handed out or erased here */
 
 /* sector s's flash offset: 0..39 at 0xA0000, 40..55 at 0xEA000 */
 static uint32_t ocs_addr(uint32_t s) { return s < 40u ? 0xA0000u + s * OCS_SECTOR : 0xEA000u + (s - 40u) * OCS_SECTOR; }
@@ -137,7 +141,8 @@ static int ocs_body_ok(uint32_t s)
 static void ocs_boot(void)
 {
     for (uint32_t s = 0; s < OCS_NSECT; s++) {
-        if (OCS_RD(ocs_addr(s), &ocs_hdr[s], OCS_HDR) || !ocs_hdr_ok(&ocs_hdr[s]) || !ocs_body_ok(s))
+        if (((ocs_resv >> s) & 1u) ||
+            OCS_RD(ocs_addr(s), &ocs_hdr[s], OCS_HDR) || !ocs_hdr_ok(&ocs_hdr[s]) || !ocs_body_ok(s))
             memset(&ocs_hdr[s], 0, OCS_HDR);
     }
     ocs_cursor = 0;
@@ -210,6 +215,8 @@ static int ocs_free(uint32_t s)
     const ocs_hdr_t *h = &ocs_hdr[s];
     uint8_t sect[OCS_PARTS_MAX];
     uint32_t seq, parts;
+    if ((ocs_resv >> s) & 1u)
+        return 0;                              /* (0.6.0) the sample slot's */
     if (h->magic != OCS_MAGIC)
         return 1;
     parts = ocs_current(h->type, h->id, sect, &seq, 0);
@@ -345,7 +352,8 @@ static int ocs_delete(uint32_t type, uint32_t id)
 {
     int rc = 0;
     for (uint32_t s = 0; s < OCS_NSECT; s++) {
-        if (ocs_hdr[s].magic != OCS_MAGIC || ocs_hdr[s].type != type || ocs_hdr[s].id != id) continue;
+        if (ocs_hdr[s].magic != OCS_MAGIC || ocs_hdr[s].type != type || ocs_hdr[s].id != id || ((ocs_resv >> s) & 1u))
+            continue;
         memset(&ocs_hdr[s], 0, OCS_HDR);
         if (OCS_ER(ocs_addr(s))) rc = -8;
     }

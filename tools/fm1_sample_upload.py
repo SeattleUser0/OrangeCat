@@ -2,17 +2,19 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Load WAV files into a Melodee user sample slot (USR1..USR3) over USB-MIDI.
+"""Load WAV files into Orange Cat's internal user sample slot over USB-MIDI.
 
   fm1_sample_upload.py info
-  fm1_sample_upload.py load SLOT NAME file.wav[:ROOT[:LO-HI]] ...   (SLOT 1..3)
-  fm1_sample_upload.py erase SLOT
+  fm1_sample_upload.py load NAME file.wav[:ROOT[:LO-HI]] ...
+  fm1_sample_upload.py erase
   fm1_sample_upload.py build NAME OUT_PREFIX file.wav[...] ...      (no device: writes OUT_PREFIX.hdr / .bin)
 
 Each file becomes one zone: mono, 22050 Hz, IMA ADPCM (sampleio.py, the same encoder
 as the built-in sets and the web editor). ROOT is a MIDI note (default: from the file
 name, C4 = 60, else 60); without LO-HI the zones split the keyboard between their roots.
-A slot holds 80 KiB (about 7 s at 22050 Hz). Protocol: web/EDITOR_PROTOCOL.md, cmds 11..15.
+The slot holds 81,408 bytes of data (about 7 s at 22050 Hz), as one of Felucca's three did.
+Protocol: web/EDITOR_PROTOCOL.md, cmds 80..84 (Orange Cat 0.6.0: firmware/src/smp_slot.c).
+The old commands 11..15 (USR1..USR3) are retired: they wrote over what is now the record store.
 Needs mido (and a backend such as python-rtmidi) for the device commands.
 """
 import re
@@ -24,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sampleio as sio  # noqa: E402
 
 HDR = [0x7D, 0x46, 0x4C]
-RC = {1: "size", 2: "header", 3: "data CRC", 4: "flash", 5: "zones"}
 
 
 def pack7(b):
@@ -91,10 +92,10 @@ def main():
         sys.exit(__doc__)
     cmd = sys.argv[1]
     if cmd in ("load", "build"):
-        if len(sys.argv) < 5:
+        if len(sys.argv) < (4 if cmd == "load" else 5):
             sys.exit(__doc__)
         try:
-            hdr, data = build(sys.argv[3] if cmd == "load" else sys.argv[2], sys.argv[4:])
+            hdr, data = build(sys.argv[2], sys.argv[3:] if cmd == "load" else sys.argv[4:])
         except (OSError, ValueError) as e:
             sys.exit(f"cannot build the slot: {e}")
         if cmd == "build":
@@ -102,36 +103,29 @@ def main():
             Path(sys.argv[3] + ".bin").write_bytes(data)
             print(f"{sys.argv[2]}: {len(data)} B ADPCM, {hdr[6]} zones")
             return
-    if cmd != "info":
-        if len(sys.argv) < 3 or sys.argv[2] not in ("1", "2", "3"):
-            sys.exit("SLOT is 1, 2 or 3")
-        slot = int(sys.argv[2]) - 1
     link = Link()
     if cmd == "info":
-        r = link.req(15, [])
-        n, i = r[0], 2
-        for k in range(n):
-            nz = r[i]
-            j = r.index(0, i + 1)
-            print(f"USR{k + 1}: {'empty' if not nz else f'{nz} zones, {bytes(r[i + 1:j]).decode()}, {r[j + 1]} KiB'}")
-            i = j + 2
+        r = link.req(80, [])
+        state, size, nz, cap = r[0], r[1] | r[2] << 7 | r[3] << 14, r[4], r[5] | r[6] << 7 | r[7] << 14
+        name = bytes(r[8:r.index(0, 8)]).decode()
+        print("slot:", ["not there (the record store has no room for it yet)", "empty",
+                        f"{name}, {nz} zones, {size} B"][min(state, 2)], f"(holds {cap} B)")
         return
     if cmd == "erase":
-        print("erase:", "ok" if link.req(14, [slot], 10)[1] == 0 else "FAILED")
+        print("erase:", "ok" if link.req(84, [], 10)[0] == 0 else "FAILED")
         return
-    print(f"USR{slot + 1} {sys.argv[3]}: {len(data)} B ADPCM, {hdr[6]} zones")
-    if link.req(11, [slot])[1]:
-        sys.exit("begin failed")
+    print(f"{sys.argv[2]}: {len(data)} B ADPCM, {hdr[6]} zones")
+    n = len(data)
+    if link.req(81, [n & 0x7F, (n >> 7) & 0x7F, (n >> 14) & 0x7F], 10)[0]:
+        sys.exit("begin refused (no slot, or too long)")
     t0 = time.time()
-    for off in range(0, len(data), 256):
-        a = sio.SLOT_DATA_OFF + off
-        r = link.req(12, [slot, a & 0x7F, (a >> 7) & 0x7F, (a >> 14) & 0x7F] + pack7(data[off:off + 256]))
-        if r[4]:
-            sys.exit(f"write at {a:#x} failed ({r[4]})")
-        print(f"\r  {min(off + 256, len(data))} / {len(data)}", end="", flush=True)
-    r = link.req(13, [slot] + pack7(hdr), 5)
-    print(f"\n  {time.time() - t0:.1f} s, end:", "ok" if r[1] == 0 else f"FAILED ({r[1]}, {RC.get(r[1], '?')})")
-
+    for off in range(0, n, 256):
+        r = link.req(82, [off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F] + pack7(data[off:off + 256]))
+        if r[0]:
+            sys.exit(f"write at {off} failed ({r[0]})")
+        print(f"\r  {min(off + 256, n)} / {n}", end="", flush=True)
+    r = link.req(83, pack7(hdr[:512] + bytes(max(0, 512 - len(hdr)))), 5)
+    print(f"\n  {time.time() - t0:.1f} s, end:", "ok" if r[0] == 0 else f"FAILED ({r[0]})")
 
 if __name__ == "__main__":
     try:

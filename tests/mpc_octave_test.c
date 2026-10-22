@@ -100,7 +100,7 @@ static void persistence(void)
     hash = proj_hash(wire.raw, PROJ_STORE_SIZE - 4u); memcpy(wire.raw+PROJ_STORE_SIZE-4u, &hash, 4);
     assert(!proj_unpack(&restored, wire.raw));
     template_save(); saved = tmpl;
-    assert(!saved.master[17] && !saved.master[18] && !saved.master[19]); /* older readers retain the FX layout */
+    assert(!saved.jfx[PROJ_JFX_N] && !saved.jfx[PROJ_JFX_N + 1u] && !saved.jfx[TMPL_JFX_BYTES - 1u]); /* (0.6.0) the effects block: its padding 0 */
     assert(tmpl_blob_valid((const uint8_t *)&saved, sizeof saved));
     memset(&tmpl, 0, sizeof tmpl);
     assert(tmpl_take((const uint8_t *)&saved, sizeof saved));

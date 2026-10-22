@@ -153,7 +153,9 @@ static int motion_param(uint32_t id)
      * changes never become automation. Continuous mix parameters are safe. */
     return id != P_RECQ && id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         id == P_GLIDE || id == P_PAN ||
-        id == P_DETUNE || id == P_SPRD || (id >= P_LN0 && id <= P_LN7) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || id >= P_E0);   /* (not the chord keys) */
+        id == P_DETUNE || id == P_SPRD || (id >= P_LN0 && id <= P_LN7) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || id >= P_E0 ||
+        id == P_DIST || id == P_DTONE || id == P_APDEP || param_jfx_send(id));   /* (not the chord keys; 0.6.0: the effects'
+                                                * amounts, as Jiant's locks: DIST, TONE, AUTO PAN DEPTH, the sends) */
 }
 static int motion_valid(const motion_store_t *m)
 {

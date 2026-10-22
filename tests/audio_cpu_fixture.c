@@ -23,8 +23,7 @@ static int fixture_tracks(uint32_t quant,const char *assignment)
         if(category>=4u)t->p[P_E0]=(int16_t)(category==4u?4:5);
         t->p[P_VOICE]=V_POLY;t->p[P_LEVEL]=35;t->p[P_MUTE]=0;t->p[P_SLEN]=64;t->p[P_SDIV]=2;
         t->p[P_SSWING]=0;t->p[P_RECQ]=quant?3:0;t->p[P_AMODE]=0;t->p[P_QUANT]=0;
-        t->p[P_FXTYPE]=t->p[P_FX2TYPE]=t->p[P_FX3TYPE]=0;
-        t->p[P_FXSEND]=t->p[P_FXSEND2]=t->p[P_FXSEND3]=0;
+        for(uint32_t i=P_DIST;i<=P_JRES6;i++)t->p[i]=TP[i].def;   /* (0.6.0) the effects off: no DIST, no sends */
         for(uint32_t v=0;v<NSTEP;v++){
             memset(&t->step[v],0,sizeof t->step[v]);t->step[v].time=ST_REST;
         }

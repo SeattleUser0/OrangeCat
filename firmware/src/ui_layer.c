@@ -15,6 +15,12 @@
  *              BAR BEAT NOW: where a step gone to by hand, a scene, a staged MUTE come in while playing); D#4 held:
  *              FILL (steps whose condition is FILL play, !FILL ones do not: seq.c seq_fill); KNOB 2..4 (0.4.3) throw the
  *              selected track's SEND 1..3, gliding back over a bar once the knob rests (oc_throw.c)
+ *   FX   PUNCH-IN (Orange Cat 0.6.0, Jiant FM's FX hold layer, jfx_perform.c): keys held play an effect on the whole
+ *              mix while held (seq.c jfx_key; the ISR presses them, so they start on the next 1/16 to the sample): the
+ *              white keys F3 G3 A3 REPEAT 1/8 1/16 1/32, B3 GLITCH, C4 TAPE STOP; the black keys F#3 .. C#4 mute
+ *              T1..T4, G#4 FREEZE, C#5 SHUFFLE, D#5 CRUSH (a sweep), F#5 THROW (the mix into the delay and reverb). With
+ *              a GLITCH / TAPE / SHUFFLE / FREEZE key down KNOB 1..4 are its settings (never saved); else KNOB 4 the
+ *              FILTER (the DJ FILTER's low-pass). OCT-: every effect off
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
  * Held past HOLD alone: the map (a peek), letting go does nothing. A key, a knob or a button meanwhile: a combo,
  * the map at once, no tap. Keys pressed with the button down are the layer's (seq.c keyboard_block): silent, no
@@ -35,6 +41,7 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_GLO, LK_SET, FAM_HOME, "[GLO] SET", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
     {B_SCL, LK_SET, FAM_SCL, "[SCL] SET", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
     {B_ARP, LK_SET, FAM_HOME, "[ARP] PERF", {{KC_SAVE, "+ KEY: STORE"}, {KC_OCTDN, "UNDO"}, {0, 0}}},
+    {B_FX, LK_HOLD, FAM_HOME, "[FX] PUNCH", {{KC_KEYS, "HOLD: EFFECT"}, {KC_OCTDN, "ALL OFF"}, {0, 0}}},
 };
 /* (Orange Cat 0.4.1) PERFORM's: oc_lists.c */
 static void ocl_mute(uint32_t k);
@@ -85,7 +92,7 @@ static uint32_t layer_bits(void)
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
 static const char *layer_head(void)
 {
-    static const char *const locked[LAYER_N] = {"", "", "[GLO] LOCK", "[SCL] LOCK", "[ARP] LOCK"};
+    static const char *const locked[LAYER_N] = {"", "", "[GLO] LOCK", "[SCL] LOCK", "[ARP] LOCK", "[FX] LOCK"};
     return ui.lock ? locked[ui.layer % LAYER_N] : LAYERS[ui.layer % LAYER_N].head;
 }
 static uint32_t layer_open(void) { return ui.ly && (ui.ly_t0 & LY_OPEN) && ly_down(ui.ly) && layer_allowed() ? ui.ly : 0u; }
@@ -103,6 +110,8 @@ static void layer_masks(void)
     kb_mask = m | (layer_allowed() && !ui.ly ? 1u << panel.btn[B_SEQ] : 0u);
 
     kb_lock = m && ui.lock ? 1u : 0u;
+    kb_fx = (uint8_t)(ui.ly == LAYER_FX && layer_allowed() && !(ui.ly_t0 & LY_DEAD));   /* (0.6.0) */
+    perf_kill = (uint8_t)(ui.menu || ui.confirm || name_on());   /* (a menu, a dialog: every effect suspended) */
 
 }
 
@@ -314,9 +323,31 @@ static void layer_keys(uint32_t keys)
 }
 
 /* KNOB 1..4 in the open layer: its own (GLO levels), else the four of its page */
+/* (0.6.0) the FX layer's knobs: the glitcher's settings while its key is down (perf_gfocus), else KNOB 4 FILTER.
+ * GX_GLT DENS PITCH SIZE VARI; GX_TAPE (SCRATCH) TIME CURVE; GX_SHUF AMOUNT SIZE SPEED VARI; GX_FRZ DENS PITCH SPRAY SIZE */
+static const int8_t FXK_MIN[4][4] = {{0, -12, 0, 1}, {0, 0, -100, 0}, {0, 0, 0, 1}, {0, -12, 0, 0}};
+static const int8_t FXK_MAX[4][4] = {{100, 12, 3, 16}, {0, 4, 100, 0}, {100, 2, 100, 16}, {100, 12, 100, 4}};
+static const char *const FXK_LABEL[4][4] = {{"DENS", "PITCH", "SIZE", "VARI"}, {"SCRATCH", "TIME", "CURVE", ""},
+                                            {"AMOUNT", "SIZE", "SPEED", "VARI"}, {"DENS", "PITCH", "SPRAY", "SIZE"}};
+static void fx_layer_knob(uint32_t k, int32_t s)
+{
+    uint32_t g = perf_gfocus();
+    if (g < PF_N) {
+        uint32_t x = perf_gx(g);
+        if (x == GX_TAPE && k == 0u) { perf_scr += (uint32_t)s; return; }   /* (TAPE: KNOB 1 moves the tape by hand) */
+        if (FXK_MIN[x][k] == FXK_MAX[x][k]) return;
+        perf_gp[x][k] = (int8_t)clamp(perf_gp[x][k] + s, FXK_MIN[x][k], FXK_MAX[x][k]);
+    } else if (k == 3u) {
+        perf_m[3] = (uint8_t)clamp((int32_t)perf_m[3] + s * 2, 0, 100);
+    }
+}
 static void layer_knob(uint32_t k, int32_t s)
 {
     uint32_t l = layer_open();
+    if (l == LAYER_FX) {
+        fx_layer_knob(k, s);
+        return;
+    }
     if (l == LAYER_PERF) {                       /* (Orange Cat 0.4.1) KNOB 1 LAUNCH; (0.4.3) KNOB 2..4 the selected
                                                   * track's SEND 1..3 thrown, gliding back over a bar (oc_throw.c) */
         if (k == 0u)
@@ -360,6 +391,11 @@ static int layer_play(void)
 static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 {
     uint32_t dn = panel.btn[B_OCTDN], up = panel.btn[B_OCTUP], k, mine;
+    if (layer_open() == LAYER_FX && ((pressed >> dn) & 1u)) {   /* (0.6.0) FX + OCT-: every effect off */
+        perf_off_req = 1;
+        ui_message("PUNCH-IN: ALL OFF");
+        return oct & ~1u;
+    }
     if (layer_set_open())
         lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);
     mine = oct & lys.oct;
@@ -409,6 +445,9 @@ static uint32_t layer_leds(void)
                                                          * lit, the last one blinking */
             on = b ? (p == NTRK ? lys.fill != 0u || blink : p < trk_n() && (trk[p].mute_arm ? blink : !trk[p].p[P_MUTE])) :
                  p < OCL_NSCENE && ocl_scene_used(p) && (p != perf_scene || blink);
+        } else if (l == LAYER_FX) {                     /* (0.6.0) running or held lit, the others there blink */
+            e = jfx_key(k);
+            on = e < PF_N && (((perf_act | perf_down) >> e) & 1u || (((perf_avail() >> e) & 1u) && blink));
         } else if (l == LAYER_SCL) {                    /* the root lit, the scale's notes blink */
             e = (k + 5u + 12u - root) % 12u;
             on = e == 0u || (((mask >> e) & 1u) && blink);
@@ -533,13 +572,77 @@ static void layer_perf_keys(int32_t h)
     }
 }
 
+/* (Orange Cat 0.6.0) FX held: its keys as a list in two columns, each row the key's name and its effect; held: the
+ * theme's colour, running: the accent, one the tempo or the memory does not allow now (REPEAT 1/8 under ~81 BPM; FX
+ * FULL; a track not in use): dim */
+static const struct { const char *key, *name; uint8_t e; } FX_CELL[13] = {
+    {"F3", "RPT 1/8", PF_R8}, {"G3", "RPT 1/16", PF_R16}, {"A3", "RPT 1/32", PF_R32}, {"B3", "GLITCH", PF_GLT},
+    {"C4", "TAPE", PF_TAPE}, {"G#4", "FREEZE", PF_FRZ}, {"C#5", "SHUF", PF_SHUF}, {"D#5", "CRUSH", PF_SCRU},
+    {"F#5", "THROW", PF_STHR}, {"F#3", "MUTE T1", PF_M1}, {"G#3", "MUTE T2", PF_M1 + 1}, {"A#3", "MUTE T3", PF_M1 + 2},
+    {"C#4", "MUTE T4", PF_M1 + 3}};
+#define FXL_ROWS 7
+static void layer_fx_keys(int32_t h)
+{
+    const int32_t cw = (PV_PANEL_W - 8) / 2, ch = (h - 8) / FXL_ROWS;
+    uint32_t i, avail = perf_avail(), full = (jfx_full & JFX_FULL_SL) != 0;
+    for (i = 0; i < NELEM(FX_CELL); i++) {
+        int32_t x = 4 + (int32_t)(i / FXL_ROWS) * cw, y = 4 + (int32_t)(i % FXL_ROWS) * ch;
+        uint32_t e = FX_CELL[i].e, run = (perf_act >> e) & 1u, held = (perf_down >> e) & 1u;
+        int none = (e >= PF_M1 && e - PF_M1 >= trk_n()) || !((avail >> e) & 1u) || (full && ((PF_BUF >> e) & 1u));
+        uint16_t f = run ? T_ACCENT : held ? T_THEME : T_PANEL;
+        uint16_t ink = run ? T_BG : held ? T_INK : none ? T_DIM : T_TEXT;
+        if (run || held) cv_rrect(x, y, cw - 4, ch - 1, 4, f, T_PANEL);
+        {   /* the key's name, then the effect's after it */
+            int32_t nx = cv_text_on(x + 4, ty_y(y + ch / 2, TY_LB), TY_LB, FX_CELL[i].key, run || held ? ink : T_SEC, f) + 6;
+            cv_free_text(nx, ty_y(y + ch / 2, TY_LB), TY_LB, FX_CELL[i].name, ink, f, x + cw - 2 - nx);
+        }
+    }
+}
+static void layer_fx_cards(void)
+{
+    static const char *const GSIZE[4] = {"LONG", "MID", "SHORT", "TINY"}, *const TTIME[5] = {"1/64", "1/32", "1/16", "1/8", "1/4"};
+    static const char *const SSIZE[3] = {"1/4", "1/8", "1/16"}, *const FSIZE[5] = {"1/128", "1/64", "1/32", "1/16", "1/8"};
+    uint32_t g = perf_gfocus(), c;
+    char val[12];
+    for (c = 0; c < 4u; c++) {
+        const char *lb = "", *v = val, *unit = "";
+        int32_t r = -1;
+        val[0] = 0;
+        if (g < PF_N) {
+            uint32_t x = perf_gx(g);
+            int32_t p = perf_gp[x][c], lo = FXK_MIN[x][c], hi = FXK_MAX[x][c];
+            lb = FXK_LABEL[x][c];
+            if (x == GX_TAPE && c == 0u) v = "TURN";
+            else if (x == GX_GLT && c == 2u) v = GSIZE[clamp(p, 0, 3)];
+            else if (x == GX_TAPE && c == 1u) v = TTIME[clamp(p, 0, 4)];
+            else if (x == GX_SHUF && c == 1u) v = SSIZE[clamp(p, 0, 2)];
+            else if (x == GX_FRZ && c == 3u) v = FSIZE[clamp(p, 0, 4)];
+            else if (lb[0]) {
+                fmt_int(val, p);
+                unit = c == 1u && (x == GX_GLT || x == GX_FRZ) ? "st" : (c == 0u || c == 2u) && x != GX_TAPE ? "%" : "";
+            }
+            if (lb[0] && hi > lo) r = (p - lo) * 1000 / (hi - lo);
+        } else if (c == 3u) {
+            lb = "FILTER";
+            fmt_int(val, perf_m[3]);
+            unit = "%";
+            r = perf_m[3] * 10;
+        }
+        if (!lb[0]) { draw_column(c, "", "", "", T_THEME, -1, ICON_NONE); continue; }
+        draw_column(c, lb, v, unit, VAL(c), r, ICON_NONE);
+    }
+}
 static void layer_cards(uint32_t l)
 {
+    if (l == LAYER_FX) {
+        layer_fx_cards();
+        return;
+    }
     char val[12];
     const char *unit;
     uint32_t c;
     if (l == LAYER_PERF) {                       /* (Orange Cat 0.4.1) KNOB 1 LAUNCH */
-        static const char *const FXN[3] = {"FX1", "FX2", "FX3"};
+        static const char *const FXN[3] = {"REV", "DLY", "CHO"};   /* (0.6.0: oc_throw.c THR_ID) */
         draw_column(0, "AT", LAUNCH_NAME[lists.launch % OCL_NLAUNCH], "", VAL(0),
                     (int32_t)(lists.launch % OCL_NLAUNCH) * 1000 / (OCL_NLAUNCH - 1), ICON_NONE);
         for (c = 1; c < 4u; c++) {                      /* (0.4.3) the selected track's sends as they sound (thrown) */
@@ -573,13 +676,13 @@ static void layer_cards(uint32_t l)
 static void draw_layer(void)
 {
     uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u, c;
-    if (l == LAYER_GLO || l == LAYER_PERF) {            /* the four levels as strips at the top, each track's colour */
+    if (l == LAYER_GLO || l == LAYER_PERF || l == LAYER_FX) {   /* the four levels as strips at the top, each track's colour */
         uint8_t cs = col_style;
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
         col_style = CS_CARD;
-        for (c = 0; c < NTRK; c++)                      /* (PERFORM: the selected track's sends, its colour) */
-            card_tc[c] = l == LAYER_PERF ? T_TRK(song.sel % NTRK) : T_TRK(c);
+        for (c = 0; c < NTRK; c++)                      /* (PERFORM: the selected track's sends, its colour; FX: the theme) */
+            card_tc[c] = l == LAYER_PERF ? T_TRK(song.sel % NTRK) : l == LAYER_FX ? 0 : T_TRK(c);
         layer_cards(l);
         memset(card_tc, 0, sizeof card_tc);
         col_style = cs;
@@ -599,10 +702,17 @@ static void draw_layer(void)
         for (c = 0; c < NTRK; c++)
             sig += (uint32_t)((trk[c].p[P_MUTE] != 0) + 2u * trk[c].mute_arm) << (4u * c) << 8;
     }
-    if (l == LAYER_PERF) {                              /* (Orange Cat 0.4.1) LAUNCH on top, the keys, the footer */
+    if (l == LAYER_FX) {                                /* (0.6.0) what runs, what is held, the knobs' settings */
+        uint32_t g = perf_gfocus();
+        sig += (perf_act * 31u) ^ (perf_down * 131u) ^ (perf_avail() * 7u) ^ (uint32_t)jfx_full * 977u ^ trk_n() * 40503u;
+        sig += (uint32_t)perf_m[3] * 65537u;
+        if (g < PF_N)
+            for (c = 0; c < 4u; c++) sig += (uint32_t)(perf_gp[perf_gx(g)][c] + 128) << (c * 8u) ^ g * 2654435761u;
+    }
+    if (l == LAYER_PERF || l == LAYER_FX) {             /* (Orange Cat 0.4.1) LAUNCH on top, the keys, the footer */
         if (ui.force || sig != ui.layer_sig) {
             ui.layer_sig = sig;
-            pv_panel(Y_GRAPH, Y_FOOT - Y_GRAPH - 2, layer_perf_keys);
+            pv_panel(Y_GRAPH, Y_FOOT - Y_GRAPH - 2, l == LAYER_FX ? layer_fx_keys : layer_perf_keys);
         }
         if (ui.force) {
             cv_begin(240, H_FOOT, T_BG);

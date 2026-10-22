@@ -170,8 +170,6 @@ static void head_chip_text(char *b)
     } else if (pg->graph == GR_FMEG) {                  /* FM6's EG RATE / LVL: "OP3 EG" */
         str_cpy(b, "OP1 EG", 16);
         b[2] = (char)('1' + fm6_opsel % 6u);
-    } else if (pg->fam == FAM_FX && pg->graph == GR_NONE) {   /* an FX slot: its effect ("ECHO") */
-        str_cpy(b, N_FX[clamp((pg->scope == SC_GLOBAL ? song.g : TSEL->p)[pg->id[0] - 1u], 0, FX_COUNT - 1)], 16);
     } else if (pg->scope != SC_ENGINE && sec_on()) {   /* an engine in sections: the page's name in its section */
         sec_chip(ui.page, b, 16);
     } else {
@@ -798,13 +796,6 @@ static void draw_columns(void)
             draw_column(c, "FAV", scale_favorite((uint32_t)TSEL->p[P_SCALE]) ? "ON" : "OFF", "", VAL(c), -1, ICON_X_STAR);
             continue;
         }
-        if (cur_page()->graph == GR_FXRACK && c == 1u) {   /* a rack's KNOB 2: the row ("2", "Shared"; SHARED: "B") */
-            uint32_t sh = cur_page()->scope == SC_GLOBAL, r = fx_rack_row[sh] & 3u;
-            val[0] = (char)((sh ? 'A' : '1') + r);
-            val[1] = 0;
-            draw_column(c, "SLOT", r < FX_SLOTS ? val : sh ? "Return" : "Shared", "", VAL(c), -1, ICON_AUTO);
-            continue;
-        }
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
         if (!d || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);
@@ -833,8 +824,7 @@ static void draw_columns(void)
         } else {
             param_format(d, *vp, val, &unit);
             /* Rows have room for enum names that the compact parameter formatter abbreviates. */
-            if (d->fmt == F_ENUM && (col_style == CS_CAPTURE ||
-                (d->names == N_FX && (*vp == FX_REVERB || *vp == FX_CHORUS))))
+            if (d->fmt == F_ENUM && (col_style == CS_CAPTURE || d->names == N_RTYPE))   /* (0.6.0: SHIMMER in full) */
                 str_cpy(val, d->names[clamp(*vp, d->min, d->max)], sizeof val);
         }
         draw_column(c, d->label, val, unit, (MELODEE_CZ && cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
@@ -942,8 +932,8 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "CLEAR T1 MOTION?", 24); a[7] = (char)('1' + k % NTRK);
         break;
     case CF_CLEAR_SHARED:                               /* SHARED's sheet */
-        str_cpy(a, "CLEAR SHARED FX?", 24);
-        str_cpy(b, "All tracks \xB7 three slots off", 32);
+        str_cpy(a, "RESET EFFECTS?", 24);              /* (0.6.0) the shared effects' settings */
+        str_cpy(b, "Delay, reverb, chorus, slicer", 32);
         break;
     case CF_OVR_USER:
         if (up_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 18 old slots replaced", 32); break; }

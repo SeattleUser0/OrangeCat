@@ -21,6 +21,9 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
        ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT,                               /* v6: song chain */
        ED_AUDIO_STATS = 72, ED_PATTERN, ED_BANK_SONG };                                       /* USB audio diagnostics (68..71: FM6, editor_fm6.c) */
+/* (Orange Cat 0.6.0) the internal user sample slot (smp_slot.c). New ids: the old ED_SMP_* (11..15) wrote at 0xA0000,
+ * over what is now the record store, and stay retired */
+enum { ED_SLOT_INFO = 80, ED_SLOT_BEGIN, ED_SLOT_WRITE, ED_SLOT_END, ED_SLOT_ERASE };
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
 enum { ED_CORE1_TEST = 79 };                         /* test builds only: CPU1 failure injection */
 static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
@@ -833,6 +836,37 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     }
     case ED_SMP_BEGIN: case ED_SMP_WRITE: case ED_SMP_END: case ED_SMP_ERASE:
         return;                                           /* retired: never write pattern storage */
+    case ED_SLOT_INFO: {                                   /* -> state (0 none, 1 empty, 2 a sample), length (3 x 7 bits),
+                                                            * zones, capacity (3 x 7 bits), name */
+        char nm[9];
+        uint32_t len, nz, st = smp_slot_info(nm, &len, &nz);
+        ed_b(st); ed_b(len); ed_b(len >> 7); ed_b(len >> 14); ed_b(nz);
+        ed_b(SMP_SLOT_MAX); ed_b(SMP_SLOT_MAX >> 7); ed_b(SMP_SLOT_MAX >> 14);
+        ed_str(nm, 8);
+        break;
+    }
+    case ED_SLOT_BEGIN: case ED_SLOT_WRITE: case ED_SLOT_END: case ED_SLOT_ERASE: {
+        /* BEGIN length (3 x 7 bits); WRITE offset (3 x 7 bits) then up to 256 bytes packed 7-bit, in order; END the
+         * 512-byte header packed 7-bit; ERASE nothing. -> 0 done, 1 refused (no slot, a bad length, out of order, an
+         * END that does not match the data), 2 the flash failed or the transport would not stop; then the bytes
+         * written so far (3 x 7 bits) */
+        uint32_t rc = 1, v = na >= 3u ? a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 : 0u, got;
+        if (cmd == ED_SLOT_BEGIN && na == 3u) {
+            rc = ed_flash_stop() ? 2u : 0u;
+            if (!rc) { int r = smp_slot_begin(v); rc = r == -1 ? 1u : r ? 2u : 0u; }
+        } else if (cmd == ED_SLOT_WRITE && na > 3u && (got = ed_unpack7(a + 3, na - 3u, ed_smp_buf, 256u)) != 0) {
+            rc = ed_flash_stop() ? 2u : 0u;
+            if (!rc) { int r = smp_slot_write(v, ed_smp_buf, got); rc = r == -1 ? 1u : r ? 2u : 0u; }
+        } else if (cmd == ED_SLOT_END && ed_unpack7(a, na, ed_smp_buf, 512u) == 512u) {
+            rc = ed_flash_stop() ? 2u : 0u;
+            if (!rc) { int r = smp_slot_end(ed_smp_buf); rc = r == -1 ? 1u : r ? 2u : 0u; }
+        } else if (cmd == ED_SLOT_ERASE && !na) {
+            rc = ed_flash_stop() ? 2u : 0u;
+            if (!rc) { int r = smp_slot_erase(); rc = r == -1 ? 1u : r ? 2u : 0u; }
+        }
+        ed_b(rc); ed_b(smp.done); ed_b(smp.done >> 7); ed_b(smp.done >> 14);
+        break;
+    }
     case ED_SMP_INFO:
         ed_b(0); ed_b(0);                                  /* no sample slots/material */
         break;

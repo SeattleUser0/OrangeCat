@@ -220,7 +220,7 @@ static void frz_block(uint32_t n)
 static int32_t fz_l[CTL], fz_r[CTL];
 static int frz_take(track_t *t, uint32_t n)
 {
-    uint32_t ti = (uint32_t)(t - trk), i, from, to, send = fx_send_on ? fx_send_gain(t) : 0u, id;
+    uint32_t ti = (uint32_t)(t - trk), i, from, to, id;
     struct cp_stream *c;
     int32_t g, lvl0, gain, target;
     if (ti >= 4u || n > CTL || fzt[ti].slot >= CP_N) { mix_frozen &= (uint8_t)~(1u << (ti & 7u)); return 0; }
@@ -251,7 +251,8 @@ static int frz_take(track_t *t, uint32_t n)
             l = (l * (int32_t)(to - i)) >> 5;
             r = (r * (int32_t)(to - i)) >> 5;
         }
-        mix_add(l, r, i, send);
+        mix_add(l, r, i);                               /* (0.6.0: where the track goes, the SLICER's bus too) */
+        mix_send((l + r) >> 1, i);                      /* .. its sends, mono (mix.c: the track's gains) */
     }
     if (fzt[ti].stop_at_to) {                           /* over: the main loop rewinds it (uf_rearm) */
         c->on = 0;
