@@ -186,10 +186,41 @@ static void safety(void)
     }
     settings_safety = 1;
 }
+/* (Orange Cat 0.4.19) the card recorder's stereo track stem (mix.c mix_stem_l / _r): the track exactly as it goes into
+ * the mix. Only track 2 sounds: its stem is the whole mix (MASTER at unity: mix_l keeps its top 30 bits); track 1,
+ * silent, has a silent stem; none picked, no stem. */
+static void stem(void)
+{
+    int32_t out[2 * CTL];
+    uint32_t i, k, same = 1, loud = 0, zero = 1;
+    fresh();
+    song.master_q12 = 4096;
+    trk_note_on(&trk[1], 60, 110);
+    trk_note_on(&trk[1], 67, 110);
+    mix_stem_trk = 1;
+    for (k = 0; k < 8u; k++) {
+        mix_block(out, CTL);
+        if (mix_stem_n != CTL) same = 0;                /* (the picked track's block is kept) */
+        for (i = 0; i < CTL; i++) {
+            if ((mix_stem_l[i] >> 2) * 4 != mix_l[i] || (mix_stem_r[i] >> 2) * 4 != mix_r[i]) same = 0;
+            if (mix_stem_l[i] || mix_stem_r[i]) loud = 1;
+        }
+    }
+    check("stem: the only track sounding is the whole mix, sample for sample", same && loud);
+    mix_stem_trk = 0;
+    for (k = 0; k < 4u; k++) {
+        mix_block(out, CTL);
+        for (i = 0; i < CTL; i++) if (mix_stem_l[i] || mix_stem_r[i]) zero = 0;
+    }
+    check("stem: a silent track's stem is silent while another plays", zero && mix_stem_n == CTL);
+    mix_stem_trk = 0xFFu;
+    mix_block(out, CTL);
+    check("stem: none picked, none kept", mix_stem_n == 0u);
+}
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    overload(); dma(); safety(); bench_output();
+    overload(); dma(); safety(); bench_output(); stem();
     printf(bad ? "audio: %d FAILED\n" : "audio: all passed\n", bad);
     return bad != 0;
 }

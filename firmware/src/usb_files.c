@@ -41,6 +41,7 @@
  *          arms a take that starts and stops with the sequencer; REC again before PLAY cancels it (the empty file
  *          deleted). The recorder records the mix or one track (usbh.src, KNOB 3 on the page): a track is a mono
  *          WAV of its own signal, before MASTER (a freeze).
+ *   0.4.19: a track take is stereo (card_play.c, mix.c's stem): after its pan and own effects, before its sends.
  *   0.4.18: what a WAV does no longer depends on whether the sequencer happens to run (0.4.17 on the unit: a WAV
  *          picked while it was stopped only waited, and PLAY brought the song in with it). OCT+ plays it now, by
  *          itself, looping; SEQ (UC_SYNC) ties it to the song: READY, then once from its start with each PLAY. The
@@ -640,9 +641,10 @@ static void uf_up(void)
  * WAV whose samples start at byte 512 (a JUNK chunk fills the header's sector), so every write is whole sectors and
  * goes straight to the card (FatFs's window is not used for the samples).
  *
- * (0.4.17) What it records (usbh.src, KNOB 3 on the page): 0 the mix, stereo, after MASTER; 1..4 that track alone,
- * mono, before its pan, the effects and MASTER (a freeze: it plays back as it went in). Mono holds twice the time
- * in the ring (464 ms) and needs half the card's speed. When it starts: REC while the sequencer plays starts at
+ * (0.4.17) What it records (usbh.src, KNOB 3 on the page): 0 the mix, stereo, after MASTER; 1..4 that track alone
+ * (a freeze: it plays back as it went in). (0.4.19) A track take is stereo: the track after its level, pan and its
+ * own effects, before the shared effects (its sends) and MASTER (0.4.17 took it mono, before its pan). When it
+ * starts: REC while the sequencer plays starts at
  * once and REC stops it; REC while it is stopped arms it ("waits for PLAY"): the take starts in the block the
  * sequencer starts and ends in the block it stops (card_play.c card_sync), so it lines up with the song from its
  * first step. REC again before PLAY cancels it and deletes the empty file.
@@ -666,7 +668,7 @@ static struct {
     uint32_t sync_ms, show_ms;
     uint32_t wr_ms, wr_bytes, slow_ms;                  /* time in writes, bytes written, the longest write */
 } ur;
-static uint32_t ur_chunk(void) { return UR_CHUNK_B / (2u * ur.ch); }   /* frames a write: 2,048 stereo, 4,096 mono */
+static uint32_t ur_chunk(void) { return UR_CHUNK_B / (2u * ur.ch); }   /* frames a write: 2,048 (stereo) */
 /* the header sector: RIFF, fmt (16-bit, ch channels, 44.1 kHz), JUNK to byte 504, data (its length) at 504 */
 static void ur_header(uint8_t *h, uint32_t frames, uint32_t ch)
 {
@@ -765,7 +767,7 @@ static void ur_stop(int ok, const char *why)
     char b[64], *e;
     cr.on = cr.armed = 0;                               /* (the ISR runs on this core: no block is half in) */
     cr.ended = 0;
-    CR_STEMS(0);
+    CR_STEM_TRK(0xFFu);
     ur.on = usbh.rec = 0;
     if (ok) {
         while (r == FR_OK && (n = cr.w - cr.r) != 0u) {
@@ -789,7 +791,7 @@ static void ur_stop(int ok, const char *why)
 static void ur_cancel(void)
 {
     cr.on = cr.armed = 0;
-    CR_STEMS(0);
+    CR_STEM_TRK(0xFFu);
     ur.on = usbh.rec = 0;
     f_close(&uf_rf);
     f_unlink(ur.path);
@@ -816,7 +818,7 @@ static void ur_start(void)
         if (r != FR_OK) { uf_fail(r); return; }
     }
     if (i == 1000u) { uf_say("No free name left"); return; }
-    ur.ch = (uint8_t)(src ? 1u : 2u);
+    ur.ch = 2u;                                         /* (0.4.19: a track take too; 0.4.17 recorded a track mono) */
     r = f_open(&uf_rf, ur.path, FA_CREATE_NEW | FA_WRITE);
     if (r == FR_OK) {
         ur_header(uh_sec, 0, ur.ch);
@@ -846,7 +848,7 @@ static void ur_task(void)
     if (r == FR_OK && !cr.armed && fm1_ms - ur.sync_ms >= 3000u) r = ur_sync();
     if (r != FR_OK) {                                   /* (the last sync's length stays on the card) */
         cr.on = cr.armed = 0;
-        CR_STEMS(0);
+        CR_STEM_TRK(0xFFu);
         ur.on = usbh.rec = 0;
         f_close(&uf_rf);
         ur_stop(0, "Card error: ");

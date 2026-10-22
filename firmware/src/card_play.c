@@ -36,16 +36,15 @@
  *           sequencer. The recorder can take one track instead of the mix (cr.ch 1: mono, the track's own signal
  *           before its pan, the effects and MASTER: Melodee's USB stems, mix.c track_capture). WAVs play at their
  *           own level times MASTER (was -6 dB): a frozen track comes back as loud as it went in.
+ *   0.4.19: a track take is stereo (spec 0.9, 10.6): the track as it goes into the mix, after its level, pan,
+ *           spread and its own effects, before the shared effects and MASTER (mix.c mix_stem_l / _r, picked by
+ *           mix_stem_trk). The mono take (0.4.17, the USB stems before pan) is gone: every take is stereo.
  */
 #ifndef CP_GAIN
 #define CP_GAIN() ((int32_t)song.master_q12)            /* (host tests: a fixed level) */
 #endif
-#ifndef CR_STEMS
-#if MELODEE_USB_AUDIO
-#define CR_STEMS(v) (mix_stems_wanted = (uint8_t)(v))   /* (0.4.17) mix.c fills its per-track buffer for the recorder */
-#else
-#define CR_STEMS(v) ((void)(v))                         /* (no stems without USB audio: the mix only) */
-#endif
+#ifndef CR_STEM_TRK
+#define CR_STEM_TRK(t) (mix_stem_trk = (uint8_t)(t))    /* (0.4.19) mix.c keeps track t's stereo stem (0xFF: none) */
 #endif
 #define CP_N 4u                                         /* streams at once */
 #define CP_SLOT 5120u                                   /* 16-bit words a slot: 10 KB */
@@ -155,39 +154,37 @@ static __attribute__((noinline)) void card_render(int32_t *out, uint32_t n)
 
 /* ---- (0.4.16) the recorder's ring ---- */
 #define CR_CAP (CP_N * CP_SLOT / 2u)                    /* stereo frames: 10,240 (40 KB, 232 ms) */
-#ifndef CR_NTRK
-#define CR_NTRK 4u                                      /* (0.4.17) tracks in mix.c's track_capture (NTRK) */
-#endif
 static struct {
     volatile uint32_t w, r;                             /* frames in (the ISR), frames written to the card (main loop) */
     uint32_t wi;                                        /* where the ISR writes */
     volatile uint8_t on;                                /* the ISR records */
     volatile uint32_t lost;                             /* frames dropped: no room */
     volatile int32_t peak;                              /* the loudest sample since the page last looked */
-    uint8_t ch, trk;                                    /* (0.4.17) 2: the mix; 1: track trk (0..3) alone */
-    uint32_t cap;                                       /* (0.4.17) frames the ring holds: 10,240 stereo, 20,480 mono */
+    uint8_t ch, trk;                                    /* 2 (0.4.19: always; 0.4.17 had 1 for a track); track trk (0..3)
+                                                         * alone, or the mix (trk 0xFF) */
+    uint32_t cap;                                       /* frames the ring holds: 10,240 (232 ms) */
     volatile uint8_t armed;                             /* (0.4.17) starts when the sequencer starts */
     volatile uint8_t synced;                            /* (0.4.17) stops when the sequencer stops */
     volatile uint8_t ended;                             /* (0.4.17) the sequencer stopped it: the main loop saves it */
 } cr;
-/* ready to record: src 0 the mix (stereo), 1..4 that track (mono); armed: from the sequencer's next start */
+/* ready to record: src 0 the mix, 1..4 that track; armed: from the sequencer's next start */
 static void cr_start(uint32_t src, int armed)
 {
     cr.on = cr.armed = cr.synced = cr.ended = 0;
-    cr.ch = (uint8_t)(src ? 1u : 2u);
-    cr.trk = (uint8_t)(src ? src - 1u : 0u);
+    cr.ch = 2u;
+    cr.trk = (uint8_t)(src ? src - 1u : 0xFFu);
     cr.cap = CP_N * CP_SLOT / cr.ch;
     cr.w = cr.r = cr.wi = 0;
     cr.lost = 0;
     cr.peak = 0;
-    CR_STEMS(src != 0u);
+    CR_STEM_TRK(cr.trk);
     RING_PUBLISH();
     if (armed) cr.armed = cr.synced = 1;
     else cr.on = 1;
 }
-/* one block into the ring, held to 16 bits: the mix (stereo Q15, MASTER in), or (0.4.17) one track of trk (mix.c's
- * track_capture: frame i, track t at i * NTRK + t; 0 when mix.c did not fill it) */
-static __attribute__((noinline)) void card_capture(const int32_t *out, const int32_t *trk, uint32_t n)
+/* one block into the ring, held to 16 bits: the mix (stereo Q15, MASTER in), or (0.4.19) the track's stereo stem
+ * (sl, sr: mix.c's mix_stem_l / _r; 0 when the track is not in use: silence) */
+static __attribute__((noinline)) void card_capture(const int32_t *out, const int32_t *sl, const int32_t *sr, uint32_t n)
 {
     uint32_t i, wi;
     int32_t pk;
@@ -201,23 +198,11 @@ static __attribute__((noinline)) void card_capture(const int32_t *out, const int
     wi = cr.wi;
     pk = cr.peak;
     b = cp_pool;
-    if (cr.ch == 1u) {                                  /* (0.4.17) one track, mono */
-        for (i = 0; i < n; i++) {
-            int32_t x = trk ? trk[i * CR_NTRK + cr.trk] : 0;
-            x = x > 32767 ? 32767 : x < -32768 ? -32768 : x;
-            b[wi] = (int16_t)x;
-            if (x < 0) x = -x;
-            if (x > pk) pk = x;
-            if (++wi == cr.cap) wi = 0;
-        }
-        cr.wi = wi;
-        cr.peak = pk;
-        RING_PUBLISH();
-        cr.w = cr.w + n;
-        return;
-    }
     for (i = 0; i < n; i++) {
-        int32_t l = out[2u * i], r = out[2u * i + 1u];
+        int32_t l, r;
+        if (cr.trk == 0xFFu) { l = out[2u * i]; r = out[2u * i + 1u]; }   /* the mix */
+        else if (sl) { l = sl[i]; r = sr[i]; }          /* (0.4.19) the track */
+        else l = r = 0;
         l = l > 32767 ? 32767 : l < -32768 ? -32768 : l;
         r = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
         b[2u * wi] = (int16_t)l;

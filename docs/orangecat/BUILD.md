@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.39  
+**Version:** 0.40  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.9
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.40 (October 21, 2026):** 0.4.19: a track take is stereo, after the track's pan and its own effects. Spec 0.9: frozen takes never go to internal flash.
 - **0.39 (October 21, 2026):** 0.4.18 on the unit: a track frozen, muted and played back in time from the card, through PLAY. Spec 0.9: frozen tracks are stereo, on the card, played through a sampled instrument, with resampling and undo.
 - **0.38 (October 21, 2026):** 0.4.17 on the unit: takes record and play back. A WAV picked with the sequencer stopped only waited, and PLAY brought the song in with it. 0.4.18: OCT+ plays a WAV now, by itself; SEQ ties it to the song.
 - **0.37 (October 21, 2026):** 0.4.17: WAVs and takes in time with the sequencer; one track recorded alone (a freeze); PLAY on the drive page; WAVs at their own level.
@@ -334,8 +335,18 @@ Left to test (0.4.17, with 0.4.18's keys):
 - [ ] The frozen track's level against the live one (they should match with MASTER at full; the take has no pan or effects).
 - [ ] REC, then REC again before PLAY: "Take cancelled", no file left.
 
+Stereo track takes (0.4.19, built; plan item 1):
+- KNOB 3 on a track: REC records that track in stereo, as it goes into the mix: after its level, pan, spread and its own effects, before its sends to the shared effects and before MASTER. 0.4.17's track takes were mono and before the pan.
+- How: each audio block, the mixer notes the mix just before the picked track adds itself and keeps the difference after (Melodee uses the same trick for its extra effect sends). No change to the sound code; two copies and a subtraction for one track a block. The take works with or without USB audio.
+- The take is cut to 16 bits. A track louder than full scale before the output limiter is clipped in the take (the limiter does not act on it).
+- Host tests: with one track sounding, its stem equals the mix sample for sample; a silent track's stem is silent while another plays; none picked, none kept. The recorder writes a stereo track take that reads back exactly through FatFs and pyfatfs.
+
+Left to test (0.4.19):
+- [ ] Freeze a track panned hard left: the take is left only. Mute the original, SEQ on the take, PLAY: it sounds like the original, in place.
+- [ ] A track with its own effect (if it has one) keeps it in the take; its reverb and delay sends do not go into the take.
+
 Left to build (spec 0.9, 10.6 and 10.7), in order:
-1. A stereo track take: the track after its pan and inserts, before the shared effects and MASTER (a new capture point in mix.c).
+1. A stereo track take (0.4.19, built).
 2. Play WAVs while recording: the 40 KB split, reads and writes sharing the card. Measure first: write speed and the slowest write with WAVs playing.
 3. The sampled instrument: Skiff's SAMPLE engine, with its sample loaded from a WAV on the card (short ones into memory, long ones streamed).
 4. Freeze, resample and undo on the track pages, through the sampled instrument; takes in a folder per project; the project keeps the take names.

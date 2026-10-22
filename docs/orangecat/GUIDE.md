@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.18
+**Firmware:** 0.4.19
 **Date:** October 21, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -77,7 +77,7 @@ After a drive reads, OCT+ opens its files. Turn KNOB 1 (or KNOB 2, or PRESETS) t
 
 PLAY starts and stops the sequencer on this page too.
 
-REC on the file list records to a new WAV in the folder you are in (OC001.WAV, OC002.WAV and so on). KNOB 3 picks what it records: the mix, or one track alone. A track is recorded mono, dry (no pan or effects) and before MASTER, so it plays back as loud as it went in. That is how you freeze a track.
+REC on the file list records to a new WAV in the folder you are in (OC001.WAV, OC002.WAV and so on). KNOB 3 picks what it records: the mix, or one track alone. A track is recorded in stereo with its level, pan and its own effects, but without its reverb and delay sends, and before MASTER, so it plays back as it went into the mix. That is how you freeze a track. Set the track's level before you record it, and record before you mute it.
 
 - REC while the sequencer plays starts recording at once. REC again stops it.
 - REC while the sequencer is stopped makes the take wait. PLAY then starts the song and the take together, and stopping the song saves it. REC again before PLAY cancels it.

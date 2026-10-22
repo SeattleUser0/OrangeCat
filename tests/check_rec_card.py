@@ -13,8 +13,8 @@ folders, nor a chain be shorter than its file.
 (0.4.17) The card now also holds OC003.WAV, a take the card stopped answering in the middle of (the test's "pulled
 card"): its header and size must agree with each other at the last sync, its frames up to there must be right,
 and its cluster chain may run past its size (clusters taken after the last sync), but not be shorter. OC004.WAV is
-a synced take of track 2 alone: mono, 192,000 frames, the test's rec_t(f, 1) held to 16 bits. OC005.WAV was
-cancelled: it must not be there.
+a synced take of track 2 alone: 192,000 frames, (0.4.19) stereo: the test's rec_t(f, 1) held to 16 bits on the
+left, rec_u(f, 1) on the right. OC005.WAV was cancelled: it must not be there.
 
 Needs pyfatfs (pip install pyfatfs). Without it, it says so and passes (the C test has checked the files through
 FatFs already).
@@ -22,6 +22,7 @@ FatFs already).
 Revisions:
   0.4.16: first version.
   0.4.17: the pulled take (OC003), the mono track take (OC004), the cancelled one (OC005).
+  0.4.19: the track take is stereo.
 """
 import io
 import struct
@@ -38,6 +39,10 @@ def ramp(i):
 def rec_t(f, t):                                # the test's track stem, held to 16 bits
     v = (f * (7 + t) + t * 1000) % 70000 - 35000
     return max(-32768, min(32767, v))
+
+
+def rec_u(f, t):                                # (0.4.19) its right side
+    return (f * (11 + t) + 500) % 50000 - 25000
 
 
 def c_div(a, b):                                # C's integer division (towards zero)
@@ -71,11 +76,11 @@ def main():
         print(f"check_rec_card: {name}: {frames} frames, {bad} wrong")
         assert not bad
     with wave.open(io.BytesIO(fs.readbytes("/OC004.WAV"))) as w:
-        assert w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == 44100
+        assert w.getnchannels() == 2 and w.getsampwidth() == 2 and w.getframerate() == 44100
         assert w.getnframes() == 192000
         pcm = w.readframes(192000)
-    bad = sum(1 for f in range(192000) if struct.unpack_from("<h", pcm, 2 * f)[0] != rec_t(f, 1))
-    print(f"check_rec_card: OC004.WAV: track 2, mono, 192000 frames, {bad} wrong")
+    bad = sum(1 for f in range(192000) if struct.unpack_from("<hh", pcm, 4 * f) != (rec_t(f, 1), rec_u(f, 1)))
+    print(f"check_rec_card: OC004.WAV: track 2, stereo, 192000 frames, {bad} wrong")
     assert not bad
     assert "OC005.WAV" not in names
     assert fs.readtext("/README.TXT") == "Orange Cat test card\n"

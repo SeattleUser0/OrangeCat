@@ -92,11 +92,18 @@ static uint32_t seq_div_samples(uint32_t div)
 
 
 static void events_block(uint32_t n);
+/* (Orange Cat 0.4.19) the card recorder's stereo track take (card_play.c): mix_stem_trk names the track (0xFF none);
+ * each block, mix_block notes the mix just before that track adds itself and keeps the difference after, so the
+ * stem is the track exactly as it goes into the mix: after its level, pan, spread and its own effects, before the
+ * shared effects (its sends go there, not here) and MASTER. mix_stem_n: frames in it this block (0: the track is
+ * not in use, the take gets silence). No sample loop changes: two copies and a subtraction for one track. */
+static volatile uint8_t mix_stem_trk = 0xFFu;
+static int32_t mix_stem_l[CTL], mix_stem_r[CTL];
+static uint32_t mix_stem_n;
 #if MELODEE_USB_AUDIO
 static int ua_capture_active(void);
 static uint8_t track_capture_on;
 static int32_t track_capture[CTL * NTRK];
-static volatile uint8_t mix_stems_wanted;               /* (Orange Cat 0.4.17) the card recorder takes one track (card_play.c) */
 #endif
 
 typedef struct {
@@ -338,7 +345,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     fx_profile_poll();
 #endif
 #if MELODEE_USB_AUDIO
-    track_capture_on=(uint8_t)(ua_capture_active() || mix_stems_wanted);   /* (Orange Cat 0.4.17: or the card recorder) */
+    track_capture_on=(uint8_t)ua_capture_active();
     if(track_capture_on)memset(track_capture,0,n*NTRK*sizeof *track_capture);
 #endif
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
@@ -351,7 +358,14 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     mix_prepare_batch(n,nt);
 #endif
-    for(uint32_t i=0;i<nt;i++)mix_part(&trk[i],n);
+    mix_stem_n=0;
+    for(uint32_t i=0;i<nt;i++){
+        if(i!=mix_stem_trk){mix_part(&trk[i],n);continue;}
+        memcpy(mix_stem_l,mix_l,n*sizeof *mix_l);memcpy(mix_stem_r,mix_r,n*sizeof *mix_r);   /* (Orange Cat 0.4.19) */
+        mix_part(&trk[i],n);
+        for(uint32_t j=0;j<n;j++){mix_stem_l[j]=mix_l[j]-mix_stem_l[j];mix_stem_r[j]=mix_r[j]-mix_stem_r[j];}
+        mix_stem_n=n;
+    }
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     batch_ready=0;part_buf=part_storage;spread_buf=spread_storage;
 #endif

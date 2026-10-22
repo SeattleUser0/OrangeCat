@@ -56,11 +56,8 @@ enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE, UC_REC, UC_SYNC }
 enum { UE_TIME = 1, UE_STALL, UE_ERR, UE_NAK, UE_SHORT, UE_CSW, UE_CHECK };
 #define UH_LINES 8u
 #define UH_LINE 30u
-#if MELODEE_USB_AUDIO
-#define UH_SRC_MAX 4u                                   /* (0.4.17) REC: the mix or tracks 1..4 (mix.c's USB stems) */
-#else
-#define UH_SRC_MAX 0u                                   /* (no stems: the mix only) */
-#endif
+#define UH_SRC_MAX 4u                                   /* (0.4.17) REC: the mix or tracks 1..4 (0.4.19: mix.c's stereo stem,
+                                                         * with or without USB audio) */
 #define UH_FOOT 48u                                     /* (0.4.14) the foot's lines: longer than the page shows */
 static struct {
     uint8_t st;                 /* UH_* */

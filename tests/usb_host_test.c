@@ -131,6 +131,7 @@ static void str_cpy(char *d, const char *s, unsigned max)
 #define FM1_TICKS_PER_US 1u
 static uint32_t fm1_ticks(void) { return fm1_ms * 1000u; }
 #define CS_WAIT() cs_tick()                             /* (0.4.12) the timer's work while the main loop waits */
+static uint8_t mix_stem_trk = 0xFFu;                    /* (0.4.19) as mix.c: the track the recorder takes */
 static uint32_t t_playing = 1, t_starts;                /* (0.4.17) the sequencer as card_sync sees it (running, but in t_sync) */
 #define UF_PLAYING() (t_playing)
 #include "../firmware/src/card_play.c"
@@ -895,17 +896,20 @@ static int32_t rec_l(uint32_t f) { return ramp(f); }
 static int32_t rec_r(uint32_t f) { return -ramp(f * 3u) / 2; }
 static int32_t rec_t(uint32_t f, uint32_t t) { return (int32_t)((f * (7u + t) + t * 1000u) % 70000u) - 35000; }   /* (0.4.17)
                                                          * track t's stem: past 16 bits both ways (held) */
+static int32_t rec_u(uint32_t f, uint32_t t) { return (int32_t)((f * (11u + t) + 500u) % 50000u) - 25000; }   /* (0.4.19) its
+                                                         * right side */
 static void rec_block(int32_t *out, uint32_t *f)        /* one 64-frame block of the known signal into the ring */
 {
-    static int32_t trk[64 * 4];
-    uint32_t i, t;
+    static int32_t sl[64], sr[64];
+    uint32_t i;
     for (i = 0; i < 64u; i++, (*f)++) {
         out[2 * i] = rec_l(*f);
         out[2 * i + 1] = rec_r(*f);
-        for (t = 0; t < 4u; t++) trk[i * 4u + t] = rec_t(*f, t);
+        sl[i] = mix_stem_trk < 4u ? rec_t(*f, mix_stem_trk) : 0;   /* (as mix.c: the picked track's stem) */
+        sr[i] = mix_stem_trk < 4u ? rec_u(*f, mix_stem_trk) : 0;
     }
     card_sync(t_playing, t_starts);
-    card_capture(out, trk, 64);
+    card_capture(out, mix_stem_trk < 4u ? sl : 0, sr, 64);
     memset(out, 0, 2 * 64 * sizeof *out);
     card_render(out, 64);
     cs_tick();
@@ -1090,7 +1094,7 @@ static int t_sync(void)
     ask(UC_REC);                                        /* (the WAV stops: the recorder takes its memory) */
     printf("  synced take: [%s] [%s]\n", usbh.info, usbh.info2);
     fflush(stdout);
-    assert(ur.on && cr.armed && !cr.on && cr.ch == 1u && !up.n && !strcmp(usbh.info, "REC OC004.WAV waits for PLAY"));
+    assert(ur.on && cr.armed && !cr.on && cr.ch == 2u && cr.trk == 1u && mix_stem_trk == 1u && !up.n && !strcmp(usbh.info, "REC OC004.WAV waits for PLAY"));
     for (i = 0, f = 0; i < 200u; i++) rec_block(out, &f);   /* nothing until PLAY */
     assert(!ur.frames && cr.w == 0u);
     t_playing = 1; t_starts++;
@@ -1100,19 +1104,20 @@ static int t_sync(void)
     printf("  synced take: [%s] [%s] %u frames\n", usbh.info, usbh.info2, ur.frames);
     fflush(stdout);
     assert(!ur.on && ur.frames == 192000u && !strcmp(usbh.info, "Saved OC004.WAV, 4.3 s") && row_of("OC004.WAV") >= 0);
-    assert(f_open(&fl, "/OC004.WAV", FA_READ) == FR_OK && f_size(&fl) == 512u + 192000u * 2u);
-    assert(f_read(&fl, h, 512, &got) == FR_OK && h[22] == 1 && h[32] == 2 && h[28] == 0x88 && h[29] == 0x58 && h[30] == 1);
+    assert(mix_stem_trk == 0xFFu);                      /* (the stem let go) */
+    assert(f_open(&fl, "/OC004.WAV", FA_READ) == FR_OK && f_size(&fl) == 512u + 192000u * 4u);
+    assert(f_read(&fl, h, 512, &got) == FR_OK && h[22] == 2 && h[32] == 4 && h[28] == 0x10 && h[29] == 0xB1 && h[30] == 2);
     for (f = 0; f < 192000u;) {
-        uint32_t k = 192000u - f > 256u ? 256u : 192000u - f;
-        assert(f_read(&fl, smp, k * 2u, &got) == FR_OK && got == k * 2u);
+        uint32_t k = 192000u - f > 128u ? 128u : 192000u - f;
+        assert(f_read(&fl, smp, k * 4u, &got) == FR_OK && got == k * 4u);
         for (i = 0; i < k; i++, f++) {
-            int32_t v = rec_t(f, 1);
+            int32_t v = rec_t(f, 1), u = rec_u(f, 1);
             v = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
-            if (smp[i] != v) bad++;
+            if (smp[2 * i] != v || smp[2 * i + 1] != u) bad++;
         }
     }
     f_close(&fl);
-    printf("  OC004.WAV: track 2, mono, %u wrong\n", bad);
+    printf("  OC004.WAV: track 2, stereo, %u wrong\n", bad);
     fflush(stdout);
     assert(!bad);
     ask(UC_REC);                                        /* armed, then REC again: cancelled, its file gone */
