@@ -674,8 +674,13 @@ Host tests:
 - The regression suite's golden renders and health checks now cover MACRO's 25 presets.
 - tests/audio_ram_test.py: a .text.xip function stays in flash, with far calls both ways.
 
+Built sizes (CI): 0.5.0 image 506,896 B (+52,156 B on 0.4.20, with TRIO taken out); 0.5.1 image 550,888 B
+(SHAPES +43,992 B). App area 573,440 B, so 22,552 B are left. RAM .data+.bss 94,824 B of 98,304 (no change); the
+audio working arena 54,880 B (minimum 49,152; up 2,720 B, TRIO's audio code is gone from SRAM). Size report:
+MACRO 55,374 B of flash, SHAPES 43,362 B.
+
 Left to build:
-- [ ] Measure on the unit: CPU per model, four tracks of the heaviest models, the image and arena sizes (CI build).
+- [ ] Measure on the unit: CPU per model, four tracks of the heaviest models.
 - [ ] If flash allows: the wavetable model with a reduced set of waves; Plaits 1.2's second bank.
 - [ ] Polyphony for the light models (several voices a track, each with its own small state).
 - [ ] Web editor pages for MACRO (the mock tables have it).
@@ -721,15 +726,16 @@ Left to test (0.5.1):
 - [ ] The CPU meter with four SHAPES tracks, and with two MACRO and two SHAPES.
 
 Left to build:
-- [ ] The wavetable shapes, if flash allows after the measurements.
+- [ ] The wavetable shapes: their 33 KB of waves do not fit the 22 KB left. Possible with a smaller set of waves, or
+  after other code moves out.
 - [ ] Braids' own AD envelope routings (to TIMBRE, COLOR, pitch) as Macrosynth has them.
 
 Measurements (fill in):
 
 | Engine | App flash | RAM | CPU per voice | Fits? |
 |---|---|---|---|---|
-| Plaits (MACRO) | (CI) | 8,560 B a track from the arena | (unit) | Yes |
-| Braids (SHAPES) | (CI) | 9,112 B a track from the arena | (unit) | Yes, without the wavetables |
+| Plaits (MACRO) | 55,374 B | 8,560 B a track from the arena | (unit) | Yes |
+| Braids (SHAPES) | 43,362 B | 9,112 B a track from the arena | (unit) | Yes, without the wavetables (33 KB; 22 KB left) |
 | Clouds | | | | |
 | Rings | | | | |
 | Elements | | | | |
