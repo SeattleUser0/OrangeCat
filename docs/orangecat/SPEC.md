@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.12  
+**Version:** 0.13  
 **Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.13 (October 22, 2026):** The tracker view's columns: four notes a step, velocity, and effects with a command and an amount (6.1). MACRO and SHAPES play four voices a track (8.1.1).
 - **0.12 (October 22, 2026):** Braids built as the SHAPES engine (0.5.1, 8.1.1).
 - **0.11 (October 22, 2026):** Plaits built as the MACRO engine (0.5.0, 8.1.1). Engines take names of their own, not the module names (8.1).
 - **0.10 (October 21, 2026):** Freezing built (0.4.20): the MIXER page's KNOB 3; what is built and what is not yet (10.6).
@@ -271,6 +272,18 @@ BEETLE (SikkenWorks), a GPL-3.0 tracker firmware for the FM-1, is the reference 
 
 Changing views shall not silently quantize, truncate, merge, or delete musical content.
 
+### 6.1 Tracker columns (built in 0.5.2)
+
+A tracker row is a step. Its columns:
+
+| Column | Holds | KNOB 3 | KNOB 4 |
+|---|---|---|---|
+| N1 to N4 | Up to four notes of the step, one each | That note's pitch; on an empty column, adds a note | The step's length in steps |
+| VEL | The step's velocity | Velocity | The step's length |
+| FX | The step's effects | Which effect: RATCHET, CHANCE, CONDITION, NUDGE, SLIDE, ACCENT | Its amount |
+
+KNOB 1 moves through the rows and KNOB 2 through the columns. Keys write notes from the picked note column on, one column a key, keeping the step's other notes. EDIT deletes the note in its column, the whole step in VEL, or the picked effect in FX. A step's length shows as bars on the rows it holds. The effects are the step's own fields, the same ones the note sheet edits; a row shows its first effect, and the cursor's row in FX shows the picked one.
+
 A view that cannot display a detail shall preserve it and provide access through an appropriate detail editor.
 
 Pad mappings shall remain associated with the track when switching views. Multiple pad sounds shall be included in resource accounting.
@@ -344,8 +357,8 @@ Mutable Instruments asks that derivative works not carry its name or keep the mo
 
 #### 8.1.1 Built so far
 
-- **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. One voice per track, as the module. Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
-- **Braids, as SHAPES (0.5.1).** All of Braids' shapes but the four wavetable ones (their 33 KB of waves), ported to C and checked sample for sample against the original. Set up as the M8's Macrosynth: shape, TIMBRE, COLOR, then a filter (cutoff, resonance), drive, bit reduction and sample-rate reduction; Melodee's ADSR, LFO and modulation for the rest. A note strikes the shape. Not yet: the wavetable shapes; Braids' own AD envelope routings.
+- **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. Four voices per track in POLY (0.5.2), one in PARTCL and STRING (their 8 KB states). Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
+- **Braids, as SHAPES (0.5.1).** All of Braids' shapes but the four wavetable ones (their 33 KB of waves), ported to C and checked sample for sample against the original. Set up as the M8's Macrosynth: shape, TIMBRE, COLOR, then a filter (cutoff, resonance), drive, bit reduction and sample-rate reduction; Melodee's ADSR, LFO and modulation for the rest. A note strikes the shape. Four voices per track in POLY (0.5.2), one in the five shapes with delay lines, which share one set. Not yet: the wavetable shapes; Braids' own AD envelope routings.
 
 Clouds’ buffer freeze is a sound-processing function and shall be distinguished from instrument bouncing or whole-track audio freezing.
 

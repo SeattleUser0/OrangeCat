@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: MIT
  * Orange Cat 0.5.1: the C port of Braids' MacroOscillator (firmware/src/braids/), for tests/braids_parity. Built with
- * PB_PARITY (the C++'s buffer sizes, the wavetables). */
+ * PB_PARITY (the C++'s buffer sizes, the wavetables). (0.5.2) The delay lines apart (pb_delay_lines_t), zeroed as
+ * the C++'s inline ones. */
 #include <stdlib.h>
 #include "../../firmware/src/braids/pb_macro.h"
 void *port_new(void)
 {
     pb_macro_t *m = calloc(1, sizeof *m);
     pb_macro_init(m);
+    m->digital_oscillator.delay_lines = calloc(1, sizeof *m->digital_oscillator.delay_lines);
     return m;
 }
 void port_set(void *o, int shape, int pitch, int timbre, int color)

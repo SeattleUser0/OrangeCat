@@ -20,11 +20,15 @@
  * How it runs: the oscillator is Braids' own code with its own tables, made for the module's 96 kHz. It renders at
  * 88.2 kHz (two samples per output sample) with every pitch raised by 12 log2(96 / 88.2) = 1.47 semitones (188 of
  * Braids' 1/128 semitones), so every table indexed by pitch gives the right frequency; its times (decays) run 8.8 %
- * longer than on the module. A half-band filter takes it down to 44.1 kHz. One voice per track. Its code stays in
- * flash (section .text.xip_shapes: tools/audio_ram.py), as MACRO's.
+ * longer than on the module. A half-band filter takes it down to 44.1 kHz. Its code stays in flash (section
+ * .text.xip_shapes: tools/audio_ram.py), as MACRO's.
+ * Voices (0.5.2): four per track in POLY (and UNISON), each an oscillator and tone section of its own, for chords.
+ * The shapes with delay lines (COMB, PLUCK, BOWED, BLOWN, FLUTE: 8 KB of them) play one at a time.
  *
  * Revisions:
  *   0.5.1: first version.
+ *   0.5.2: polyphonic: four voices (SH_POLY) but in the delay line shapes (sh_cap), which share one set of delay lines
+ *          (sh_part_t.lines, voice 0's); the pad, keys, bell and choir presets play POLY.
  */
 #include "braids/pb_macro.h"
 #include "plaits/pl_dsp.h"                                /* (its float filter and soft clip) */
@@ -65,40 +69,57 @@ static const uint8_t SH_DECIMATE[7] = {1, 2, 3, 4, 6, 12, 24};   /* braids.cc de
 static const uint16_t SH_BITS_MASK[7] = {0xffff, 0xfff0, 0xff00, 0xf800, 0xf000, 0xe000, 0xc000};   /* bit_reduction_masks, reversed */
 static const char *const N_SH_BITS[] = {"16", "12", "8", "5", "4", "3", "2"};
 
-typedef struct {
+#define SH_POLY 4u                                        /* (0.5.2) voices per track; the delay line shapes: 1 */
+typedef struct {                                          /* (0.5.2) a voice's */
     pb_macro_t osc;
     uint8_t started, strike;
     uint8_t rate_count;                               /* the sample-rate reduction's counter */
     int16_t held;
-    int16_t buf[2 * CTL];                             /* one block at 88.2 kHz */
-    uint8_t sync[SH_CHUNK];                           /* (no sync input: zeros) */
     float hb[7];                                      /* the half-band filter's history */
     pl_svf_t filter;
     float dc_x, dc_y;                                 /* the DC blocker (VOSIM and others sit off zero) */
+} sh_voice_t;
+typedef struct {
+    sh_voice_t v[SH_POLY];
+    int16_t buf[2 * CTL];                             /* one block at 88.2 kHz (the voices one after another) */
+    uint8_t sync[SH_CHUNK];                           /* (no sync input: zeros) */
+    pb_delay_lines_t lines;                           /* (0.5.2) voice 0's delay lines (braids/pb_digital.h) */
 } sh_part_t;
 static sh_part_t *sh_part(uint32_t part);           /* engines.c */
+static inline int sh_lines(int shape)               /* (0.5.2) the shapes with delay lines */
+{
+    return shape == PB_SHAPE_SAW_COMB || shape == PB_SHAPE_PLUCKED || shape == PB_SHAPE_BOWED ||
+           shape == PB_SHAPE_BLOWN || shape == PB_SHAPE_FLUTED;
+}
+static SH_XIP uint32_t sh_cap(const track_t *t)
+{
+    return sh_lines(SH_SHAPES[clamp(t->p[P_E0], 0, SH_N - 1)]) ? 1u : SH_POLY;
+}
 
 static SH_XIP void sh_note_on(track_t *t, voice_t *v)
 {
     sh_part_t *s = sh_part((uint32_t)(t - trk));
-    (void)v;
-    if (s) s->strike = 1;
+    if (s) s->v[(uint32_t)(v - t->v) % SH_POLY].strike = 1;
 }
 
 static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    sh_part_t *s = sh_part((uint32_t)(t - trk));
+    sh_part_t *P = sh_part((uint32_t)(t - trk));
     const int16_t *p = t->p;
-    uint32_t i, done;
-    (void)v;
-    if (!s) return;
+    uint32_t i, done, vi = (uint32_t)(v - t->v) % SH_POLY;
+    sh_voice_t *s;
+    if (!P) return;
+    s = &P->v[vi];
+    int32_t shape_ix = clamp(p[P_E0], 0, SH_N - 1);
+    if (sh_lines(SH_SHAPES[shape_ix]) && vi)          /* (voices left from a shape of four: silent to their end) */
+        return;
     if (!s->started) {
         pb_macro_init(&s->osc);
         pl_svf_init(&s->filter);
         s->osc.shape = -1;                            /* (so the first shape set strikes) */
         s->started = 1;
     }
-    int32_t shape_ix = clamp(p[P_E0], 0, SH_N - 1);
+    s->osc.digital_oscillator.delay_lines = vi ? 0 : &P->lines;
     int32_t timbre = clamp(p[P_E1] * 258 + (m->shape - (64 << 8)) * 2, 0, 32767);
     int32_t color = clamp(p[P_E2] * 258, 0, 32767);
     /* the voice's pitch in Braids' 1/128 semitones (pitch16 is 1/16; the residual in 1/4096 of the frequency, 0.541
@@ -114,7 +135,7 @@ static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
     }
     for (done = 0; done < 2u * n;) {                  /* 2 n samples at 88.2 kHz, in Braids' blocks of 24 */
         uint32_t k = 2u * n - done < SH_CHUNK ? 2u * n - done : SH_CHUNK;
-        pb_macro_render(&s->osc, s->sync, s->buf + done, k);
+        pb_macro_render(&s->osc, P->sync, P->buf + done, k);
         done += k;
     }
     /* the tone section, at 44.1 kHz: half-band down (coefficients for a 7-tap half-band, 0.5 at the centre),
@@ -132,8 +153,8 @@ static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
     for (i = 0; i < n; i++) {
         float *h = s->hb, y;
         h[0] = h[2]; h[1] = h[3]; h[2] = h[4]; h[3] = h[5]; h[4] = h[6];
-        h[5] = (float)s->buf[2 * i];
-        h[6] = (float)s->buf[2 * i + 1];
+        h[5] = (float)P->buf[2 * i];
+        h[6] = (float)P->buf[2 * i + 1];
         /* the 7-tap half-band (-1 0 9 16 9 0 -1) / 32: flat to 10 kHz, -40 dB past 30 kHz; a new output every two
          * inputs */
         y = 0.5f * h[3] + 0.28125f * (h[2] + h[4]) - 0.03125f * (h[0] + h[6]);
@@ -162,28 +183,29 @@ static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
 
 static SH_XIP uint32_t sh_units(const track_t *t) { (void)t; return 2u; }
 
-/* name, {SHAPE, TIMBRE, COLOR, CUTOFF, RES, DRIVE, BITS, RATE}, {A D S R}, ENV -> FILTER, mono */
+/* name, {SHAPE, TIMBRE, COLOR, CUTOFF, RES, DRIVE, BITS, RATE}, {A D S R}, ENV -> FILTER, mono (0.5.2: 0, POLY, for
+ * the pads, keys, bells and the choir: they play a step's four notes) */
 static const preset_t SH_PRESETS[] = {
     {"CSAW BASS", {0, 40, 50, 70, 30, 20, 0, 0}, {0, 60, 80, 20}, 30, 1},
     {"MORPH LEAD", {1, 64, 64, 100, 20, 0, 0, 0}, {0, 70, 110, 40}, 10, 1},
     {"SYNC LEAD", {8, 70, 40, 110, 10, 30, 0, 0}, {0, 70, 110, 40}, 0, 1},
     {"SUB BASS", {5, 50, 90, 60, 20, 0, 0, 0}, {0, 60, 100, 20}, 20, 1},
-    {"TRIPLE SAW PAD", {9, 40, 70, 90, 10, 0, 0, 0}, {70, 90, 110, 90}, 0, 1},
-    {"RING BELL", {13, 70, 50, 127, 0, 0, 0, 0}, {0, 90, 0, 80}, 0, 1},
-    {"SAW SWARM", {14, 80, 60, 100, 0, 0, 0, 0}, {40, 90, 110, 80}, 0, 1},
+    {"TRIPLE SAW PAD", {9, 40, 70, 90, 10, 0, 0, 0}, {70, 90, 110, 90}, 0, 0},
+    {"RING BELL", {13, 70, 50, 127, 0, 0, 0, 0}, {0, 90, 0, 80}, 0, 0},
+    {"SAW SWARM", {14, 80, 60, 100, 0, 0, 0, 0}, {40, 90, 110, 80}, 0, 0},
     {"TOY CHIP", {16, 64, 40, 127, 0, 0, 2, 2}, {0, 60, 90, 30}, 0, 1},
-    {"RESO LPF", {17, 50, 90, 127, 0, 0, 0, 0}, {0, 70, 90, 40}, 0, 1},
+    {"RESO LPF", {17, 50, 90, 127, 0, 0, 0, 0}, {0, 70, 90, 40}, 0, 0},
     {"VOSIM VOX", {21, 50, 60, 127, 0, 0, 0, 0}, {20, 80, 110, 60}, 0, 1},
     {"VOWEL", {22, 30, 60, 127, 0, 0, 0, 0}, {10, 80, 110, 60}, 0, 1},
-    {"FOF CHOIR", {23, 60, 40, 120, 0, 0, 0, 0}, {60, 90, 110, 90}, 0, 1},
-    {"HARMONICS", {24, 60, 70, 127, 0, 0, 0, 0}, {10, 80, 110, 60}, 0, 1},
-    {"FM KEYS", {25, 50, 40, 127, 0, 0, 0, 0}, {0, 90, 40, 70}, 0, 1},
+    {"FOF CHOIR", {23, 60, 40, 120, 0, 0, 0, 0}, {60, 90, 110, 90}, 0, 0},
+    {"HARMONICS", {24, 60, 70, 127, 0, 0, 0, 0}, {10, 80, 110, 60}, 0, 0},
+    {"FM KEYS", {25, 50, 40, 127, 0, 0, 0, 0}, {0, 90, 40, 70}, 0, 0},
     {"FEEDBACK FM", {26, 70, 50, 120, 0, 10, 0, 0}, {0, 70, 100, 40}, 0, 1},
     {"PLUCK", {28, 60, 64, 127, 0, 0, 0, 0}, {0, 127, 127, 96}, 0, 1},
     {"BOWED", {29, 60, 64, 127, 0, 0, 0, 0}, {40, 90, 120, 80}, 0, 1},
     {"BLOWN", {30, 60, 64, 127, 0, 0, 0, 0}, {30, 90, 120, 70}, 0, 1},
     {"FLUTE", {31, 60, 64, 127, 0, 0, 0, 0}, {30, 90, 120, 70}, 0, 1},
-    {"BELL", {32, 60, 64, 127, 0, 0, 0, 0}, {0, 127, 127, 104}, 0, 1},
+    {"BELL", {32, 60, 64, 127, 0, 0, 0, 0}, {0, 127, 127, 104}, 0, 0},
     {"TOM", {33, 60, 64, 127, 0, 0, 0, 0}, {0, 127, 127, 96}, 0, 1},
     {"KICK", {34, 64, 64, 127, 0, 20, 0, 0}, {0, 127, 127, 96}, 0, 1},
     {"CYMBAL", {35, 64, 64, 127, 0, 0, 0, 0}, {0, 127, 127, 100}, 0, 1},
@@ -205,7 +227,8 @@ static const engine_t ENG_SHAPES = {
     },
     .presets = SH_PRESETS,
     .npresets = NELEM(SH_PRESETS),
-    .poly = 1,
+    .poly = SH_POLY,
+    .cap = sh_cap,                                     /* (0.5.2) the delay line shapes: 1 */
     .note_on = sh_note_on,
     .render = sh_render,
     .units = sh_units,

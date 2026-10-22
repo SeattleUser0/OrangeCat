@@ -19,6 +19,7 @@
  *
  * Revisions:
  *   0.5.1: first version.
+ *   0.5.2: o->delay_lines.x is o->delay_lines->x (pb_digital.h pb_delay_lines_t).
  */
 #pragma once
 #include "pb_dsp.h"
@@ -114,7 +115,7 @@ static void pb_dig_render_plucked(pb_dig_t *o, const uint8_t *sync, int16_t *buf
         int32_t sample = 0;
         for (size_t i = 0; i < PB_NUM_PLUCK_VOICES; ++i) {
             pb_pluck_state_t *p = &o->state.plk[i];
-            int16_t *dl = o->delay_lines.ks + i * 1025;
+            int16_t *dl = o->delay_lines->ks + i * 1025;
             if (p->initialization_ptr) {
                 /* initialization: white noise into the delay line */
                 --p->initialization_ptr;
@@ -155,12 +156,12 @@ static void pb_dig_render_plucked(pb_dig_t *o, const uint8_t *sync, int16_t *buf
 /* -------------------------------------------------------------- RenderBowed --- */
 static void pb_dig_render_bowed(pb_dig_t *o, const uint8_t *sync, int16_t *buffer, size_t size)
 {
-    int8_t *dl_b = o->delay_lines.bowed.bridge;
-    int8_t *dl_n = o->delay_lines.bowed.neck;
+    int8_t *dl_b = o->delay_lines->bowed.bridge;
+    int8_t *dl_n = o->delay_lines->bowed.neck;
 
     if (o->strike) {
-        pbc_zero(dl_b, sizeof o->delay_lines.bowed.bridge);
-        pbc_zero(dl_n, sizeof o->delay_lines.bowed.neck);
+        pbc_zero(dl_b, sizeof o->delay_lines->bowed.bridge);
+        pbc_zero(dl_n, sizeof o->delay_lines->bowed.neck);
         pbc_zero(&o->state, sizeof o->state);
         o->strike = 0;
     }
@@ -249,9 +250,9 @@ static void pb_dig_render_blown(pb_dig_t *o, const uint8_t *sync, int16_t *buffe
     uint16_t delay_ptr = o->state.phy.delay_ptr;
     int32_t lp_state = o->state.phy.lp_state;
 
-    int16_t *dl = o->delay_lines.bore;
+    int16_t *dl = o->delay_lines->bore;
     if (o->strike) {
-        pbc_zero(dl, sizeof o->delay_lines.bore);
+        pbc_zero(dl, sizeof o->delay_lines->bore);
         o->strike = 0;
     }
 
@@ -305,13 +306,13 @@ static void pb_dig_render_fluted(pb_dig_t *o, const uint8_t *sync, int16_t *buff
     int32_t dc_blocking_x0 = o->state.phy.filter_state[0];
     int32_t dc_blocking_y0 = o->state.phy.filter_state[1];
 
-    int8_t *dl_b = o->delay_lines.fluted.bore;
-    int8_t *dl_j = o->delay_lines.fluted.jet;
+    int8_t *dl_b = o->delay_lines->fluted.bore;
+    int8_t *dl_j = o->delay_lines->fluted.jet;
 
     if (o->strike) {
         excitation_ptr = 0;
-        pbc_zero(dl_b, sizeof o->delay_lines.fluted.bore);
-        pbc_zero(dl_j, sizeof o->delay_lines.fluted.jet);
+        pbc_zero(dl_b, sizeof o->delay_lines->fluted.bore);
+        pbc_zero(dl_j, sizeof o->delay_lines->fluted.jet);
         lp_state = 0;
         o->strike = 0;
     }

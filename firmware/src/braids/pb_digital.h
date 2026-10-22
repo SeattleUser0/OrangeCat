@@ -16,7 +16,7 @@
  * Each defines PB_DIG_B (C, D) as 1; a group not there yet renders silence (pb_dig_supported says which shapes are).
  * A render function is `static void pb_dig_render_<name>(pb_dig_t *o, const uint8_t *sync, int16_t *buffer,
  * size_t size)`; o->field is the C++'s field_ (phase_ is o->phase, state_.vow is o->state.vow, delay_lines_.comb is
- * o->delay_lines.comb, pulse_[i] is o->pulse[i], svf_[i] is o->svf[i]).
+ * o->delay_lines->comb, pulse_[i] is o->pulse[i], svf_[i] is o->svf[i]).
  *
  * The shape numbers: the C++'s DigitalOscillatorShape enum mislabels 15 to 23 (its names say STRUCK_BELL ... SNARE,
  * PLUCKED ... FLUTED; its fn_table_ says PLUCKED, BOWED, BLOWN, FLUTED, STRUCK_BELL, STRUCK_DRUM, KICK, CYMBAL,
@@ -29,6 +29,7 @@
  *
  * Revisions:
  *   0.5.1: first version.
+ *   0.5.2: the delay lines out of pb_dig_t, behind a pointer (pb_delay_lines_t): SHAPES' voices share one set.
  */
 #pragma once
 #include "pb_dsp.h"
@@ -188,6 +189,17 @@ typedef union {
 } pb_dig_state_t;
 
 /* ----------------------------------------------------------- DigitalOscillator --- */
+/* (0.5.2) the delay lines of the comb, plucked, bowed, blown and fluted shapes: 8 KB, kept apart from the oscillator
+ * (the C++ holds them inline) so that the SHAPES engine can give its four voices one shared set (the shapes that use
+ * them play one voice at a time) and the oscillators stay small. Whoever makes a pb_dig_t points delay_lines at one
+ * before it renders those shapes (eng_shapes.c, tests/braids_parity/port.c) */
+typedef union {
+    int16_t comb[PB_COMB_DELAY_LENGTH];
+    int16_t ks[1025 * 4];
+    struct { int8_t bridge[PB_WG_BRIDGE_LENGTH]; int8_t neck[PB_WG_NECK_LENGTH]; } bowed;
+    int16_t bore[PB_WG_BORE_LENGTH];
+    struct { int8_t jet[PB_WG_JET_LENGTH]; int8_t bore[PB_WG_FBORE_LENGTH]; } fluted;
+} pb_delay_lines_t;
 typedef struct {
     uint32_t phase, phase_increment, delay;
     int16_t parameter[2], previous_parameter[2];
@@ -199,13 +211,7 @@ typedef struct {
     pb_dig_state_t state;
     pb_excitation_t pulse[4];
     pb_svf_t svf[3];
-    union {
-        int16_t comb[PB_COMB_DELAY_LENGTH];
-        int16_t ks[1025 * 4];
-        struct { int8_t bridge[PB_WG_BRIDGE_LENGTH]; int8_t neck[PB_WG_NECK_LENGTH]; } bowed;
-        int16_t bore[PB_WG_BORE_LENGTH];
-        struct { int8_t jet[PB_WG_JET_LENGTH]; int8_t bore[PB_WG_FBORE_LENGTH]; } fluted;
-    } delay_lines;
+    pb_delay_lines_t *delay_lines;                      /* (0.5.2: the C++'s delay_lines_, now apart: see above) */
 } pb_dig_t;
 
 static inline void pb_dig_init(pb_dig_t *o)

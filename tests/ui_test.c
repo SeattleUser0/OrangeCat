@@ -4174,7 +4174,8 @@ static int test_pool(void)
     return bad;
 }
 
-/* (Orange Cat 0.4.2, phase 5) SEQ > TRACKER: Melodee's step entry on rows */
+/* (Orange Cat 0.4.2, phase 5) SEQ > TRACKER: Melodee's step entry on rows. (0.5.2) four note columns, VEL, FX: KNOB 2
+ * the column, KNOB 3 its value (in FX which effect), KNOB 4 the length (in FX the effect's amount) */
 static int test_tracker(void)
 {
     int bad = 0, ok;
@@ -4184,6 +4185,7 @@ static int test_tracker(void)
     go_title("TRACKER"); frame();
     t = TSEL;
     track_defaults_steps(t);
+    ui.tk_col = TKC_N1; ui.tk_fx = TFX_RATCH;
     ok = cur_page()->graph == GR_TRACKER && cur_page()->scope == SC_STEP && ui.cursor == 0u;
     tap_key(white(0)); frame();
     ok &= step_on(&t->step[0]) && ui.cursor == 1u;
@@ -4193,17 +4195,57 @@ static int test_tracker(void)
     ok = ui.cursor == 1u && step_on(&t->step[1]);
     {
         uint32_t n0 = t->step[1].note[0];
-        turn(EN_K2, 2);
-        ok &= t->step[1].note[0] == n0 + 2u;
+        turn(EN_K3, 2);
+        ok &= t->step[1].note[0] == n0 + 2u && t->step[1].n == 1u;
     }
-    turn(EN_K4, -10);
+    turn(EN_K2, 4);
+    ok &= ui.tk_col == TKC_VEL;
+    turn(EN_K3, -10);
     ok &= t->step[1].vel && t->step[1].vel < 96u;
-    bad += check("TRACKER: KNOB 1 the row, KNOB 2 its note, KNOB 4 its velocity", ok);
-    turn(EN_K3, 2);
-    bad += check("TRACKER: KNOB 3 its length (the rows after it tied)", step_note_length(t, 1) == 3u &&
+    bad += check("TRACKER: KNOB 1 the row, KNOB 2 the column, KNOB 3 the note's pitch (N1), the velocity (VEL)", ok);
+    turn(EN_K4, 2);
+    bad += check("TRACKER: KNOB 4 the length (the rows after it tied)", step_note_length(t, 1) == 3u &&
                  t->step[2].time == ST_TIE);
+    {   /* a chord: KNOB 3 on an empty note column adds a note; a key on N3 writes the third */
+        uint32_t n0 = t->step[1].note[0];
+        turn(EN_K2, -3);                                /* (VEL to N2) */
+        ok = ui.tk_col == TKC_N2;
+        turn(EN_K3, 4);
+        ok &= t->step[1].n == 2u && t->step[1].note[0] == n0 && t->step[1].note[1] == n0 + 4u;
+        turn(EN_K2, 1);
+        tap_key(white(4)); frame();
+        ok &= t->step[1].n == 3u && t->step[1].note[0] == n0 && t->step[1].note[1] == n0 + 4u && ui.cursor == 4u;
+        bad += check("TRACKER: four note columns: KNOB 3 on an empty one adds a note, a key writes in its column", ok);
+        turn(EN_K1, -3);
+        turn(EN_K2, -1);                                /* (N2) */
+        tap_key(white(1)); frame();
+        ok = t->step[1].n == 3u && t->step[1].note[0] == n0;
+        turn(EN_K1, -3);
+        press(B_EDIT);
+        ok &= t->step[1].n == 2u && t->step[1].note[0] == n0 && step_on(&t->step[1]);
+        bad += check("TRACKER: a key on N2 replaces only that note; EDIT deletes only the column's note", ok);
+    }
+    {   /* FX: KNOB 3 picks the effect, KNOB 4 sets it, EDIT turns it off */
+        turn(EN_K2, 9);
+        ok = ui.tk_col == TKC_FX;
+        turn(EN_K3, 1);
+        ok &= ui.tk_fx == TFX_CHANCE;
+        turn(EN_K4, -5);
+        ok &= step_chance(&t->step[1]) < 100u;
+        turn(EN_K3, -1);
+        turn(EN_K4, 2);
+        ok &= step_rflam(&t->step[1]) == 3u;
+        turn(EN_K3, 5);
+        turn(EN_K4, 1);
+        ok &= ui.tk_fx == TFX_ACCENT && (t->step[1].flags & SF_ACCENT);
+        turn(EN_K3, -5);
+        press(B_EDIT);
+        ok &= step_rflam(&t->step[1]) == 1u && step_on(&t->step[1]) && (t->step[1].flags & SF_ACCENT);
+        bad += check("TRACKER: FX: KNOB 3 the effect (CHANCE, RATCHET, ACCENT ..), KNOB 4 its amount, EDIT turns it off", ok);
+    }
+    turn(EN_K2, -1);                                    /* (VEL: EDIT deletes the step) */
     press(B_EDIT);
-    bad += check("TRACKER: EDIT deletes the note on the row", !step_on(&t->step[1]) && step_on(&t->step[0]));
+    bad += check("TRACKER: EDIT in VEL deletes the note on the row", !step_on(&t->step[1]) && step_on(&t->step[0]));
     hold(B_EDIT);
     bad += check("TRACKER: EDIT held undoes it", step_on(&t->step[1]));
     cursor_set(1); press(B_OCTUP);
@@ -4214,6 +4256,7 @@ static int test_tracker(void)
     ok = ui.tk_all == 1u;
     turn(EN_PRESET, -1);
     bad += check("TRACKER: PRESET right, every track as a lane; left, the selected one's columns", ok && !ui.tk_all);
+    ui.tk_col = TKC_N1;
     return bad;
 }
 

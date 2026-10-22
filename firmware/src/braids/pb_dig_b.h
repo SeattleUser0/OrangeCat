@@ -35,6 +35,7 @@
  *
  * Revisions:
  *   0.5.1: first version.
+ *   0.5.2: o->delay_lines.x is o->delay_lines->x (pb_digital.h pb_delay_lines_t).
  */
 #pragma once
 #include "pb_dsp.h"
@@ -164,7 +165,7 @@ static void pb_dig_render_comb(pb_dig_t *o, const uint8_t *sync, int16_t *buffer
     filtered_pitch = (15 * filtered_pitch + pitch) >> 4;
     o->state.ffm.previous_sample = (int16_t)filtered_pitch;
 
-    int16_t *dl = o->delay_lines.comb;
+    int16_t *dl = o->delay_lines->comb;
     uint32_t delay = pb_dig_compute_delay((int16_t)filtered_pitch);
     if (delay > (PB_COMB_DELAY_LENGTH << 16)) {
         delay = PB_COMB_DELAY_LENGTH << 16;

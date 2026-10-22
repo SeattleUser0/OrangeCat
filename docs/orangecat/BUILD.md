@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.44 (October 22, 2026):** 0.5.2: TRACKER gets four note columns and an FX column you can edit. MACRO and SHAPES play four voices a track, so a step's chord sounds.
 - **0.43 (October 22, 2026):** 0.5.1: SHAPES, a second engine: Braids ported to C, all 47 shapes checked sample for sample against the original.
 - **0.42 (October 22, 2026):** 0.5.0: phase 7 started. MACRO, a new engine of 14 sound models ported from Plaits to C, checked sample for sample against the original. It replaces TRIO.
 - **0.41 (October 21, 2026):** 0.4.19 on the unit: a track take recorded (write 683 KB/s, slowest write 25 ms, nothing lost) and played back in place. 0.4.20: freezing a track, from the MIXER page.
@@ -594,7 +595,7 @@ Left to test (specification 13):
 
 ## Phase 5: Track views
 
-**Status: In progress (the first tracker page, 0.4.2)**
+**Status: In progress (the tracker page: 0.4.2, its columns 0.5.2)**
 
 Goal: tracker, step sequencer, and pad views over the same note data (specification 6).
 
@@ -609,6 +610,14 @@ Left to build:
     - Tested (tests/ui_test.c): a key writes a note and moves on; KNOB 1, 2, 3, 4; EDIT deletes; EDIT held undoes; OCT+ opens the note sheet; PRESET switches the lanes on and off. The page passes the screen lint in all 8 palettes.
     - Left for later parts: an instrument column, effect commands beyond the step's own fields, editing recorded (timed) notes on rows.
     - Left to test on the device: enter a melody on TRACKER with the keys; change lengths and velocities; check NOTES shows the same notes.
+  - [x] **Part 2 (0.5.2, October 22, 2026): four note columns and the FX column.** Asked for after the first look on the unit: the page let you change only one note per step, and there was no way to pick or set an effect. How it works now:
+    - Columns: # N1 N2 N3 N4 VEL FX. A step's four notes each have a column. The LEN column is gone to make room: a held note shows bars under each of its notes on the rows it holds, and the bottom line gives the length.
+    - KNOB 2 picks the column (its name at the top lit, the cursor's cell framed). KNOB 3 changes the cell: a note's pitch by semitones (on an empty note column it adds a note, starting at the note before it), the velocity, or in FX which effect (RATCHET, CHANCE, CONDITION, NUDGE, SLIDE, ACCENT). KNOB 4 sets the step's length, or in FX the effect's amount. The bottom line says what KNOB 3 and KNOB 4 do, with the value ("K3 PITCH · K4 LENGTH 3", "K3 CHANCE · K4 50%").
+    - Keys write from the picked note column on, one column a key: a key in N2 replaces only N2's note, keeping the others. Held keys fill the next columns. Any track takes four notes here; a MONO, LEG or UNI track says "MONO TRACK: SET VOICE POLY" when it gets a second note, since it plays only one.
+    - EDIT in a note column deletes that note (the rest move left); in VEL the whole step; in FX the picked effect ("RATCHET OFF"). EDIT held undoes, as before.
+    - FX shows a row's first effect: x2 to x4, FL, 50%, 1:2, FIL, !FL, +3, SL, AC. The accent moved here from VEL (it was "127!").
+    - Tested (tests/ui_test.c): KNOB 2 the column; KNOB 3 pitch, velocity, adding a note; KNOB 4 the length; a key in N3 and in N2; EDIT on one note, on an effect, on the step; EDIT held undoes; FX: CHANCE, RATCHET, ACCENT set and turned off. Two new screens in the lint (a row of four sharps, the widest; every effect in the FX column), all palettes clean.
+    - Left to test on the device: write a four note chord with held keys and with KNOB 3; set each effect from FX and hear it; check the bottom line reads clearly; check NOTES shows the same chords.
 - [ ] Step sequencer view (from phase 4).
 - [ ] Pad view for drums, pitched layouts, and chords.
 - [ ] View choice at track creation and later.
@@ -682,7 +691,7 @@ MACRO 55,374 B of flash, SHAPES 43,362 B.
 Left to build:
 - [ ] Measure on the unit: CPU per model, four tracks of the heaviest models.
 - [ ] If flash allows: the wavetable model with a reduced set of waves; Plaits 1.2's second bank.
-- [ ] Polyphony for the light models (several voices a track, each with its own small state).
+- [x] Polyphony (0.5.2): four voices a track in POLY, each with its own model state (all but PARTCL and STRING, which stay at one: their states are 8 KB). Voice units by model: VA and WAVSHP 2, ADDTV 4, the rest 3. The pad, keys, chord and bell presets now start in POLY; bass and lead presets stay LEG. Part state 8,696 B. Tested: tests/macro_test.c plays a four note chord (four voices) and one on STRING (one voice).
 - [ ] Web editor pages for MACRO (the mock tables have it).
 
 Left to test (0.5.0):
@@ -719,11 +728,22 @@ Left to test (0.5.0):
   value the reference build reads there.
 - Host test tests/shapes_test.c: every shape and preset sounds and frees its voice, A4 at 440 Hz, CUT, DRV, BITS and
   RATE each change the sound, four tracks at once. Host cost per shape: 0.5x to 1x CZ-1's INIT TONE.
+- Polyphony (0.5.2): four voices a track in POLY, each its own oscillator, filter and DC blocker. The delay lines
+  (8 KB) came out of the oscillator into one shared set (braids/pb_digital.h pb_delay_lines_t, behind a pointer), so
+  the shapes that use them (COMB, PLUCK, BOWED, BLOWN, FLUTE) play one voice. Braids parity still 240 of 240 after the
+  change. The pad, keys, bell and choir presets start in POLY. Part state 11,424 B on the host (under the 12 KB a part
+  may take); the device figure comes with the next build. Tested: shapes_test plays a four note chord (four voices)
+  and one on PLUCK (one voice).
 
 Left to test (0.5.1):
 - [ ] Each SHAPES preset plays at the right pitch; WAVE through all shapes on one held note.
 - [ ] CUT, RES, DRV, BITS and RATE by ear.
 - [ ] The CPU meter with four SHAPES tracks, and with two MACRO and two SHAPES.
+
+Left to test (0.5.2, both engines):
+- [ ] A four note chord from TRACKER on ADDITIVE PAD, CHORD MINOR, SWARM PAD (MACRO) and TRIPLE SAW PAD, FM KEYS (SHAPES): all four notes sound, no crackle.
+- [ ] The CPU meter with two tracks each playing four note chords.
+- [ ] A bass preset (LEG) still glides from note to note.
 
 Left to build:
 - [ ] The wavetable shapes: their 33 KB of waves do not fit the 22 KB left. Possible with a smaller set of waves, or

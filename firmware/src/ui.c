@@ -114,6 +114,10 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 #define BOX_X 2                       /* panels and rows: x 2 .. 237 */
 #define BOX_W 236
 
+/* (Orange Cat 0.5.2) SEQ > TRACKER's columns (ui_tracker.c draws them, ui_input.c tracker_edit edits them): the four
+ * notes of a step, its velocity, its effects. And the effects the FX column holds, in the order KNOB 3 picks them */
+enum { TKC_N1, TKC_N2, TKC_N3, TKC_N4, TKC_VEL, TKC_FX, TKC_N };
+enum { TFX_RATCH, TFX_CHANCE, TFX_COND, TFX_NUDGE, TFX_SLIDE, TFX_ACCENT, TFX_N };
 static struct {
     uint8_t designer_mode;       /* the sound designer: START, the stages (ui_designer.c) */
     uint8_t home;
@@ -172,6 +176,9 @@ static struct {
     uint8_t chain_set;           /* (0.4.1) CHAIN's KNOB 3 turned on the slot a track is on: track + 1 (0 none), */
     uint32_t chain_set_ms;       /* .. when: 300 ms after the last detent the track goes to the new phrase */
     uint8_t tk_all;              /* (0.4.2) TRACKER: every track as a lane (PRESET), else the selected one's columns */
+    uint8_t tk_col;              /* (0.5.2) TRACKER: the column KNOB 2 picked, TKC_N1 .. TKC_FX */
+    uint8_t tk_fx;               /* (0.5.2) TRACKER: the effect KNOB 3 picked in the FX column, TFX_RATCH .. TFX_ACCENT */
+    uint8_t tk_put;              /* (0.5.2) TRACKER: the note column the next key of an entry writes */
     uint8_t pool_sel;            /* (0.4.4) PHRASES: the phrase picked, 00..63 */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
     uint8_t proj_new;            /* SAVE > PROJECT: KNOB 1 past TMPL, NEW (a new song: ui_new.c); SLOT unchanged */

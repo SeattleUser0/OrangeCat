@@ -3,7 +3,8 @@
  *   build/host/shapes_test [wav folder]
  * Each shape at the engine's defaults, then every factory preset: a note held and released. Checked: each makes
  * sound inside 16 bits and frees its voice; A4 plays at 440 Hz (the 88.2 kHz rendering and its pitch offset); the
- * filter, drive, bits and rate do something; four tracks at once. Host cost per shape in ns per sample, with CZ-1
+ * filter, drive, bits and rate do something; a chord in POLY (0.5.2: four voices; PLUCK one); four tracks at once.
+ * Host cost per shape in ns per sample, with CZ-1
  * INIT TONE for scale (printed only). With a folder: a WAV of each preset.
  * The shapes themselves are checked against the original C++ by tests/braids_parity (needs a checkout of it).
  */
@@ -170,6 +171,30 @@ int main(int argc, char **argv)
             for (char *c = path + strlen(dir) + 1; *c; c++) if (*c == ' ') *c = '_';
             wav_write(path, take, NELEM(take));
         }
+    }
+
+    {   /* (0.5.2) a step's chord: four voices on a POLY preset, one on PLUCK; each voice's own pitch */
+        static const uint8_t chord[4] = {48, 52, 55, 59};
+        int32_t out[2 * CTL];
+        uint32_t i, b, n4 = 0, n1 = 0, pitches = 1;
+        int finite = 1;
+        fresh();
+        host_preset(&trk[0], ENGI_SHAPES, 13);          /* (FM KEYS: POLY) */
+        for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
+        for (b = 0; b < 100; b++) {
+            mix_block(out, CTL);
+            for (i = 0; i < 2 * CTL; i++) finite &= out[i] == out[i];
+        }
+        for (i = 0; i < NVOICE; i++) n4 += trk[0].v[i].active;
+        for (i = 1; i < 4u; i++) pitches &= trk[0].v[i].note != trk[0].v[0].note;
+        fresh();
+        host_preset(&trk[0], ENGI_SHAPES, 15);          /* (PLUCK: one voice) */
+        trk[0].p[P_VOICE] = V_POLY;
+        for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
+        for (b = 0; b < 50; b++) mix_block(out, CTL);
+        for (i = 0; i < NVOICE; i++) n1 += trk[0].v[i].active && trk[0].v[i].gate;
+        snprintf(line, sizeof line, "POLY: a four note chord plays four voices (%u), PLUCK one (%u), no fault", n4, n1);
+        check(line, n4 == 4u && n1 == 1u && pitches && finite);
     }
 
     {   /* four tracks at once */

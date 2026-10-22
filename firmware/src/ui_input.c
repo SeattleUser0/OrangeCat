@@ -990,6 +990,111 @@ static void drum_hit_key(uint32_t accent)
     notes_preview();
 }
 
+/* (Orange Cat 0.5.2) a track that plays one note at a time (VOICE MONO, LEG, UNI; not a kit) and a step given a
+ * second note: said once per entry, so the chord's other notes are no surprise */
+static void tracker_mono_note(const track_t *t, const step_t *st)
+{
+    if (st->n == 2u && t->p[P_VOICE] && !ENGINES[t->engine]->oneshot)
+        ui_message("MONO TRACK: SET VOICE POLY");
+}
+/* (Orange Cat 0.5.2) SEQ > TRACKER's knobs (ui_tracker.c draws the columns). KNOB 2 the column: N1 .. N4, VEL, FX.
+ * In a note column KNOB 3 that note's pitch by semitones (an empty column: a note added after the step's last, one
+ * semitone a detent from it; an empty step: the last note played), KNOB 4 the step's length in steps (the rows after
+ * it tied). In VEL KNOB 3 the velocity, KNOB 4 the length. In FX KNOB 3 which effect (RATCHET, CHANCE, CONDITION,
+ * NUDGE, SLIDE, ACCENT), KNOB 4 its amount on the step (the note sheet's own steps). A held note's rows edit the
+ * note they hold. KNOB 1 (the row) is step_edit's */
+static void tracker_edit(uint32_t slot, int32_t steps)
+{
+    track_t *t = TSEL;
+    uint32_t col = ui.tk_col % TKC_N, at;
+    step_t *st;
+    if (slot == 1u) {
+        ui.tk_col = (uint8_t)clamp((int32_t)col + steps, 0, TKC_N - 1);
+        return;
+    }
+    if (col == TKC_FX && slot == 2u) {
+        ui.tk_fx = (uint8_t)clamp((int32_t)(ui.tk_fx % TFX_N) + steps, 0, TFX_N - 1);
+        return;
+    }
+    fm1_irq_off();
+    at = notes_manual_start(t);
+    if (at >= NSTEP && (t->step[ui.cursor].flags & SF_RECORDED)) { fm1_irq_on(); ui_message("RECORDED: EDIT ON NOTES"); return; }
+    if (at >= NSTEP && !(slot == 2u && col < TKC_VEL)) { fm1_irq_on(); ui_message("ADD A NOTE FIRST"); return; }
+    st = &t->step[at < NSTEP ? at : ui.cursor];
+    if (slot == 2u && col < TKC_VEL) {                  /* KNOB 3 in a note column: the pitch */
+        if (at >= NSTEP || !st->n) {
+            st->note[0] = last_note; st->n = 1; st->time = ST_NOTE;
+            ui.tk_col = TKC_N1;
+            col = 0;
+        } else if (col >= st->n) {
+            st->note[st->n] = (uint8_t)clamp((int32_t)st->note[st->n - 1u] + steps, 1, 127);
+            col = st->n++;
+            ui.tk_col = (uint8_t)col;
+            tracker_mono_note(t, st);
+        } else {
+            st->note[col] = (uint8_t)clamp((int32_t)st->note[col] + steps, 1, 127);
+        }
+        last_note = st->note[col];
+    } else if (slot == 2u) {                            /* KNOB 3 in VEL */
+        st->vel = (uint8_t)clamp((int32_t)(st->vel ? st->vel : 96) + list_accel(EN_K3, steps, 127, 0), 1, 127);
+    } else if (col != TKC_FX) {                         /* KNOB 4: the length */
+        step_note_resize(t, at, (int32_t)step_note_length(t, at) + steps);
+    } else {                                            /* KNOB 4 in FX: the effect's amount */
+        int32_t d = steps > 0 ? 1 : -1;
+        switch (ui.tk_fx % TFX_N) {
+        case TFX_RATCH: step_set_rflam(st, (uint32_t)clamp((int32_t)step_rflam(st) + steps, 1, 5)); break;
+        case TFX_CHANCE:
+            step_set_chance(st, (uint32_t)clamp((int32_t)step_chance(st) + list_accel(EN_K4, steps, 101, 0), 0, 100));
+            break;
+        case TFX_COND: step_set_cond(st, (uint32_t)clamp((int32_t)st->cond + steps, 0, TC_COUNT - 1)); break;
+        case TFX_NUDGE: step_set_nudge(st, st->nudge + steps); break;
+        case TFX_SLIDE: if (d > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE; break;
+        default: if (d > 0) st->flags |= SF_ACCENT; else st->flags &= (uint8_t)~SF_ACCENT; break;
+        }
+    }
+    fm1_irq_on();
+}
+/* (Orange Cat 0.5.2) EDIT tapped on SEQ > TRACKER: in a note column that note alone (the step's other notes move up a
+ * column; its only note: the step, as before), in FX the picked effect. 0 = not handled here (VEL: the step) */
+static int tracker_delete(void)
+{
+    track_t *t = TSEL;
+    uint32_t col = ui.tk_col % TKC_N, at = notes_manual_start(t), j;
+    step_t *st;
+    char m[24];
+    if (at >= NSTEP || col == TKC_VEL)
+        return 0;
+    st = &t->step[at];
+    if (col < TKC_VEL && (st->n <= 1u || col >= st->n)) {
+        if (col >= st->n && st->n) { ui_message("NO NOTE THERE"); return 1; }
+        return 0;
+    }
+    step_history_end();
+    step_history_finish();
+    fm1_irq_off();
+    if (col < TKC_VEL) {
+        for (j = col; j + 1u < st->n; j++) st->note[j] = st->note[j + 1u];
+        st->n--;
+        if (ui.tk_col >= st->n) ui.tk_col = (uint8_t)(st->n - 1u);
+        fm1_irq_on();
+        ui_message("NOTE DELETED");
+        return 1;
+    }
+    switch (ui.tk_fx % TFX_N) {
+    case TFX_RATCH: step_set_rflam(st, 1); break;
+    case TFX_CHANCE: step_set_chance(st, 100); break;
+    case TFX_COND: step_set_cond(st, TC_NONE); break;
+    case TFX_NUDGE: step_set_nudge(st, 0); break;
+    case TFX_SLIDE: st->flags &= (uint8_t)~SF_SLIDE; break;
+    default: st->flags &= (uint8_t)~SF_ACCENT; break;
+    }
+    fm1_irq_on();
+    str_cpy(m, TFX_NAME[ui.tk_fx % TFX_N], sizeof m);
+    str_cpy(m + str_len(m), " OFF", sizeof m - str_len(m));
+    ui_message(m);
+    return 1;
+}
+
 static void step_edit(uint32_t slot, int32_t steps)
 {
     if (slot == 0u) {                                   /* KNOB 1: the notes one by one, the steps (empty ones too) */
@@ -1007,6 +1112,7 @@ static void step_edit(uint32_t slot, int32_t steps)
         return;
     }
     if (grid_on()) { grid_edit(slot, steps); return; }
+    if (cur_page()->graph == GR_TRACKER) { tracker_edit(slot, steps); return; }   /* (0.5.2) its columns */
     if(slot==2u && cur_page()->graph!=GR_TRACKER){uint32_t fine=ui.step_mods&(1u<<panel.btn[B_ENV]);ui.step_used|=(uint16_t)fine;note_manual_length(steps,fine?RECORD_UNIT/16u:RECORD_UNIT/4u);return;}
     fm1_irq_off();
     uint32_t at = notes_manual_start(TSEL);
@@ -1569,6 +1675,7 @@ static void notes_delete_edit(void)
 
 static void step_delete_edit(void)
 {
+    if (cur_page()->graph == GR_TRACKER && tracker_delete()) return;   /* (0.5.2) a note column's note, an effect */
     if(cur_page()->graph==GR_ROLL&&bulk.on){notes_bulk_delete();return;}
     if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_delete_edit(); return; }
     if (cur_page()->graph == GR_ROLL) {
@@ -1593,6 +1700,39 @@ static void step_delete_edit(void)
     ui_message(at < NSTEP ? "NOTE CLEARED" : "STEP CLEARED");
 }
 
+/* (Orange Cat 0.5.2) SEQ > TRACKER: keys write notes from the picked note column on (VEL, FX: from N1), one column a
+ * key, the step's notes before that column kept (a tracker's way: a key replaces the note in its column, not the
+ * step), on any track up to four (a MONO track is told it plays one). A step that held no note starts afresh. A note
+ * the step has already is not written twice */
+static void tracker_entry_notes(step_t *st, const uint8_t *n, uint32_t cnt)
+{
+    uint32_t i, j, col = ui.tk_col % TKC_N;
+    if (!ui.entry_open) {
+        step_history.cursor_before = ui.cursor;
+        ui.entry_open = 1;
+        if (!step_on(st) || (st->flags & SF_RECORDED)) st->n = 0;
+        st->flags &= (uint8_t)~SF_RECORDED;
+        st->time = ST_NOTE;
+        col = col < TKC_VEL ? col : 0u;
+        ui.tk_put = (uint8_t)(col < st->n ? col : st->n);
+    }
+    for (i = 0; i < cnt; i++) {
+        for (j = 0; j < st->n && st->note[j] != n[i]; j++)
+            ;
+        if (j < st->n)
+            continue;
+        if (ui.tk_put < st->n) {
+            st->note[ui.tk_put++] = n[i];
+        } else if (st->n < 4u) {
+            st->note[st->n++] = n[i];
+            ui.tk_put = st->n;
+            tracker_mono_note(TSEL, st);
+        } else {
+            ui_message("CHORD FULL");
+        }
+    }
+}
+
 /* the cursor step takes notes n[0..cnt) (a key's chord, or what a MIDI note played): the first of an entry starts
  * the step afresh. MONO / LEGATO / UNISON (not a kit): one note, the first */
 static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
@@ -1602,6 +1742,10 @@ static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
     uint32_t i, j;
     if (!cnt)
         return;
+    if (cur_page()->graph == GR_TRACKER && !settings_chord_add) {   /* (0.5.2) TRACKER: from the picked note column */
+        tracker_entry_notes(st, n, cnt);
+        return;
+    }
     if (!ui.entry_open) {
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;

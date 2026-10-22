@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.5.1
+**Firmware:** 0.5.2
 **Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -35,7 +35,7 @@ Tap SEQ to step through them. Hold SEQ to jump to CHAIN.
 | Page | What it shows | Knobs | OCT+ | OCT+ held |
 |---|---|---|---|---|
 | NOTES | The piano roll (Melodee's) | | | |
-| TRACKER | The phrase as rows: # NOTE LEN VEL FX | 1 row, 2 note, 3 length, 4 velocity | The note's sheet | |
+| TRACKER | The phrase as rows: # N1 N2 N3 N4 VEL FX | 1 row, 2 column, 3 value, 4 length (in FX: amount) | The note's sheet | |
 | PHRASE | LEN, DIV, SWING, GATE | | | |
 | GROOVE | The track's groove | 1 template, 2 amount | | |
 | TEMPO | BPM, swing, quantize | | | |
@@ -43,11 +43,29 @@ Tap SEQ to step through them. Hold SEQ to jump to CHAIN.
 | SONG | The song rows, a column per track | 1 row, 2 track, 3 chain | Edit that chain | Insert row, Delete row, Copy chain, Clear song, Free unused phrases |
 | PHRASES | All 64 phrases | 1 phrase, 2 a row of 8 | Put it in the CHAIN slot picked | Copy to new, Clear phrase |
 
-On TRACKER, the keys write notes at the cursor and move it on. EDIT deletes the note on the row. EDIT held undoes. Turn PRESET right to see every track as a lane; ALGORITHM picks the track you edit. Turn PRESET left to go back.
-
 On CHAIN, if you change the phrase in the slot a track is on, the track switches to it when the knob rests.
 
 On NOTES, TRACKER and PHRASE, OCT+ held opens the pattern's sheet: Quantize, Shift right, Shift left, Reverse, Clear pattern, Clear motion.
+
+### TRACKER
+
+Each row is a step. A step holds up to four notes, one in each column N1 to N4, plus its velocity (VEL) and its effects (FX). The cursor's cell has a frame. The column name at the top is lit, and the bottom line says what KNOB 3 and KNOB 4 do there.
+
+- **KNOB 1** moves up and down the rows.
+- **KNOB 2** picks the column: N1, N2, N3, N4, VEL, FX.
+- **In a note column (N1 to N4):** KNOB 3 changes that note's pitch, one semitone per click. On an empty column, KNOB 3 adds a note (it starts at the note before it). KNOB 4 sets how many steps the step's notes last. A held note shows bars on the rows after it.
+- **In VEL:** KNOB 3 sets the velocity. KNOB 4 sets the length.
+- **In FX:** KNOB 3 picks the effect: RATCHET, CHANCE, CONDITION, NUDGE, SLIDE, ACCENT. KNOB 4 sets it. The bottom line shows both, for example "K3 CHANCE · K4 50%".
+- **Keys** write notes starting in the picked note column, then move down. Hold several keys to write a chord across the columns. A key in N2 replaces only N2's note; the step's other notes stay. In VEL or FX, keys start in N1.
+- **EDIT** in a note column deletes that note only. In VEL it deletes the whole step. In FX it turns off the picked effect. EDIT held undoes.
+
+To write a four note chord: KNOB 2 to N1, hold four keys together, let go. Or write one note, then KNOB 2 to N2 and turn KNOB 3 to add the next.
+
+What FX shows: x2 to x4 ratchet, FL flam, a chance like 50%, a condition like 1:2, FIL (fill) or !FL (not fill), a nudge like +3, SL slide, AC accent. A row with several effects shows the first; put the cursor on it in FX and turn KNOB 3 to see each.
+
+A track set to MONO, LEG or UNI still plays one note at a time. The page says so when you add a second note. To hear the chord, press EDIT until the VOICE page shows, then turn KNOB 1 (VCE) to POLY.
+
+Turn PRESET right to see every track as a lane; ALGORITHM picks the track you edit. Turn PRESET left to go back.
 
 ## PERFORM (hold ARP)
 
@@ -107,7 +125,7 @@ The ADSR, LFO and modulation pages work as for any engine. ENV and LFO to SHAPE 
 | SNARE | Snare drum | Tone against noise | Body tone | Decay |
 | HI-HAT | Hi-hat | Metal against noise | High-pass cutoff | Decay |
 
-Each track plays one note at a time on MACRO (CHORD plays chords from one key). STRING, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
+Each track plays up to four notes at once on MACRO when its voice mode is POLY (press EDIT until the VOICE page shows; KNOB 1 is VCE). The pad, keys, chord and bell presets start in POLY; the bass and lead presets in LEG (one note). PARTCL and STRING play one note at a time. CHORD also plays chords from one key. STRING, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
 
 The models run at the FM-1's 44.1 kHz, so their own decay times are about 9% longer than on the module.
 
@@ -137,7 +155,7 @@ SWARM, COMB, TOY, ZLPF, ZPKF, ZBPF, ZHPF, VOSIM, VOWEL, VFOF, HARM, FM, FBFM, WT
 DRUM, KICK, CYMBAL, SNARE, NOISE, TWINQ, CLKN, CLOUD, PRTCL, QPSK. The four wavetable shapes are left out for now:
 their waves take 33 KB of flash.
 
-One note at a time per track, as with MACRO. Like MACRO, its times (decays) run about 9% longer than on the module.
+Up to four notes at once per track in POLY, as with MACRO. The pad, keys, bell and choir presets start in POLY. COMB, PLUCK, BOWED, BLOWN and FLUTE play one note at a time. Like MACRO, its times (decays) run about 9% longer than on the module.
 
 ## Freezing a track
 

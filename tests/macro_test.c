@@ -3,7 +3,8 @@
  *   build/host/macro_test [wav folder]
  * Each of its 14 models at the engine's defaults, then every factory preset: a note held 1 s and released. Checked:
  * no NaN or wrap (the mixer's output stays inside 16 bits), each makes sound, the voice ends after the release, a
- * model change while a note sounds, a second note while one sounds (one voice per track), four tracks at once.
+ * model change while a note sounds, a second note while one sounds (one voice in MONO), a chord in POLY (0.5.2: four
+ * voices; STRING one), four tracks at once.
  * Host cost per model in ns per sample, with CZ-1 INIT TONE for scale (printed only). With a folder: a WAV of each
  * preset (16-bit mono 44.1 kHz) to listen to.
  * The models themselves are checked against the original C++ by tests/plaits_parity (needs a checkout of it).
@@ -138,6 +139,30 @@ int main(int argc, char **argv)
         }
         for (i = 0; i < NVOICE; i++) n += trk[0].v[i].active;
         check("model changed every 20 blocks under a held note; a second note: one voice, no fault", n == 1 && finite);
+    }
+
+    {   /* (0.5.2) a step's chord: four voices on a POLY preset, one on STRING; each voice's own pitch */
+        static const uint8_t chord[4] = {48, 52, 55, 59};
+        int32_t out[2 * CTL];
+        uint32_t i, b, n4 = 0, n1 = 0, pitches = 1;
+        int finite = 1;
+        fresh();
+        host_preset(&trk[0], ENGI_MACRO, 9);            /* (ADDITIVE PAD: POLY) */
+        for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
+        for (b = 0; b < 100; b++) {
+            mix_block(out, CTL);
+            for (i = 0; i < 2 * CTL; i++) finite &= out[i] == out[i];
+        }
+        for (i = 0; i < NVOICE; i++) n4 += trk[0].v[i].active;
+        for (i = 1; i < 4u; i++) pitches &= trk[0].v[i].note != trk[0].v[0].note;
+        fresh();
+        host_preset(&trk[0], ENGI_MACRO, 17);           /* (LOW STRING: one voice) */
+        trk[0].p[P_VOICE] = V_POLY;
+        for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
+        for (b = 0; b < 50; b++) mix_block(out, CTL);
+        for (i = 0; i < NVOICE; i++) n1 += trk[0].v[i].active && trk[0].v[i].gate;
+        snprintf(line, sizeof line, "POLY: a four note chord plays four voices (%u), STRING one (%u), no fault", n4, n1);
+        check(line, n4 == 4u && n1 == 1u && pitches && finite);
     }
 
     {   /* four tracks of MACRO at once: the heaviest models */

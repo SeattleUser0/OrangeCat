@@ -471,7 +471,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_STAGE_T1, S_STAGE_T1_ARP, S_STAGE_T1_KNOBS, S_STAGE_T1_SYNTH, S_STAGE_T1_SYNTH_ARP, S_STAGE_T2, S_STAGE_T3, S_SHEET_STAGE, S_CONFIRM_TRACK,
        S_VIEW, S_VIEW_LETGO, S_VIEW_NOTE, S_VIEW_EMPTY, S_VIEW_KNOBS, S_VIEW_SLASH, S_MENU_HOME_SEL, S_HOME_SEL_MOD, S_HOME_SEL_CHORD,
        S_HOME_SEL_LEVEL, S_PAT_DIALOG, S_STAGE_T1_REC,
-       S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_PERFORM, S_TRACKER, S_TRACKER_ALL, S_POOL, S_GROOVE, S_NEW_ROLES_T1,
+       S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_PERFORM, S_TRACKER, S_TRACKER_ALL, S_TRACKER_FX, S_POOL, S_GROOVE, S_NEW_ROLES_T1,
        S_STAGE_LONG, S_STAGE_T3_LONG, S_STAGE_T2_LONG, S_STAGE_T1_LONG,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
        S_REF_ENV, S_REF_LFO, S_REF_EDIT_OSC, S_REF_MIXER, S_REF_NOTES, S_REF_SETTINGS, S_REF_DIALOG,
@@ -501,7 +501,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "stage_1track", "stage_1track_arp", "stage_1track_knobs", "stage_1track_synth", "stage_1track_synth_arp", "stage_2tracks", "stage_3tracks", "sheet_stage", "confirm_track",
     "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
     "home_select_level", "pattern_key_dialog", "stage_1track_rec",
-    "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "layer_perform", "tracker", "tracker_lanes", "phrases", "groove", "new_roles_1track",
+    "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "layer_perform", "tracker", "tracker_lanes", "tracker_fx", "phrases", "groove", "new_roles_1track",
     "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
     "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_rack", "fx_rack_split", "fx_rack_pick", "fx_rack_list", "fx_bus1", "fx_bus2", "fx_bus3", "fx_shared", "fx_shared_split", "fx_shared_sheet", "fx_tone_dark", "fx_tone_thin", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error", "map_drum_kit", "map_drum_hit", "map_drum_category",
     "stage_unused_1track", "stage_unused_3tracks", "mixer_unused_2tracks", "menu_unused_tracks", "menu_drive", "drive_wait",
@@ -1159,13 +1159,24 @@ static void setup(int s)
         track_t *t = &trk[0];
         track_defaults_steps(t); t->p[P_SLEN] = 16;
         t->step[0] = (step_t){{48, 55, 60}, 3, ST_NOTE, 0, 100, 0, 0};
+        t->step[1] = (step_t){{61, 66, 70, 73}, 4, ST_NOTE, 0, 127, 0, 0};   /* (0.5.2) four sharps: the widest row */
         t->step[2] = (step_t){{50}, 1, ST_NOTE, SF_ACCENT, 100, 0, 0};
-        t->step[3] = (step_t){{62}, 1, ST_NOTE, 0, 80, 0, 0};
+        t->step[3] = (step_t){{62, 66}, 2, ST_NOTE, 0, 80, 0, 0};
         t->step[4].time = ST_TIE; t->step[5].time = ST_TIE;
         t->step[6] = (step_t){{57}, 1, ST_NOTE, 0, 64, 0, 0}; step_set_ratchet(&t->step[6], 3);
         t->step[8] = (step_t){{60}, 1, ST_NOTE, 0, 90, 0, 0}; step_set_chance(&t->step[8], 50);
         t->step[9] = (step_t){{67}, 1, ST_NOTE, 0, 90, 0, 0}; step_set_cond(&t->step[9], TC_1_2);
-        go_title("TRACKER"); cursor_set(3); song.playing = 1; t->seq_idx = 4; t->seq_pos = 10; break;
+        go_title("TRACKER"); cursor_set(3); ui.tk_col = TKC_N2; song.playing = 1; t->seq_idx = 4; t->seq_pos = 10; break;
+    }
+    case S_TRACKER_FX: {                             /* (0.5.2) the FX column picked, CONDITION on a step that has one;
+                                                      * every effect on some row */
+        track_t *t = &trk[0];
+        track_defaults_steps(t); t->p[P_SLEN] = 16;
+        for (uint32_t i = 0; i < 9u; i++) t->step[i] = (step_t){{(uint8_t)(60 + i)}, 1, ST_NOTE, 0, 100, 0, 0};
+        step_set_rflam(&t->step[0], 5); step_set_ratchet(&t->step[1], 4); step_set_chance(&t->step[2], 5);
+        step_set_cond(&t->step[3], TC_NFILL); step_set_nudge(&t->step[4], NUDGE_MIN); t->step[5].flags |= SF_SLIDE;
+        t->step[6].flags |= SF_ACCENT; step_set_cond(&t->step[7], TC_3_4); step_set_chance(&t->step[8], 50);
+        go_title("TRACKER"); cursor_set(3); ui.tk_col = TKC_FX; ui.tk_fx = TFX_COND; break;
     }
     case S_TRACKER_ALL: {                            /* (0.4.2) the lanes: four tracks, track 2 selected, track 3 muted */
         for (uint32_t k = 0; k < NTRK; k++) {
