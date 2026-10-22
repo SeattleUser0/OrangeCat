@@ -7,7 +7,7 @@
 
 ### Revision history
 
-- **0.9 (October 21, 2026):** Frozen tracks decided: stereo, to the card, played through a sampled instrument, with resampling and undo (10.6). Sampled instruments load WAVs from the card, after Skiff's SAMPLE engine and the M8 (10.7).
+- **0.9 (October 21, 2026):** Frozen tracks decided: stereo, to the card (never to internal flash), played through a sampled instrument, with resampling and undo (10.6). Sampled instruments load WAVs from the card, after Skiff's SAMPLE engine and the M8 (10.7).
 - **0.8 (October 21, 2026):** Frozen tracks on the card: a design draft for review (10.6), from what the card tests showed (0.4.14 to 0.4.17).
 - **0.7 (October 21, 2026):** Files on the card, bounces to it, and several FM-1s sharing one card set as goals, with what USB allows (10.5).
 - **0.6 (October 21, 2026):** USB flash drive test results (10.5): the FM-1 reads a drive as a USB host when its port gets power from a hub on PD power. It does not power the port itself.
@@ -502,6 +502,7 @@ Decisions (Jeremiah, October 21, 2026):
 - A frozen track plays through a sampled instrument (10.7), as the M8 does. The take is loaded into the track's sampler instrument, which the track triggers from the start point. Because it is the track's instrument, the track's level, pan, effect sends (reverb, delay) and inserts all still work on it.
 - A frozen track can be resampled: its sound with the effects added since freezing is recorded to a new WAV, which becomes the track's take.
 - Undo puts back the track's previous take. The take files are kept, so undo goes back as far as the takes are kept.
+- Frozen tracks are never recorded to internal flash.
 
 Design:
 
@@ -515,9 +516,7 @@ Design:
 8. **Freezing beside frozen tracks.** The player's 40 KB of RAM is split between playing and recording while a freeze runs. To measure: whether the card's write pauses stall the reading.
 9. **The USB port.** While frozen tracks play, the port is a USB host: USB MIDI, USB audio and the web editor to a computer are off. DIN and Bluetooth MIDI work.
 
-Open question:
-
-- Whether takes should also go to internal flash (asked October 21). A stereo minute at 44.1 kHz is about 10.6 MB; the FM-1 has 1 MiB of flash in all, so flash holds a few seconds at most.
+- Takes never go to internal flash (decided October 21): a stereo minute at 44.1 kHz is about 10.6 MB, and the FM-1 has 1 MiB of flash in all. No card, no freeze.
 
 ### 10.7 Sampled instruments
 
