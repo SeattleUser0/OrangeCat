@@ -731,8 +731,8 @@ Left to test (0.5.0):
 - Polyphony (0.5.2): four voices a track in POLY, each its own oscillator, filter and DC blocker. The delay lines
   (8 KB) came out of the oscillator into one shared set (braids/pb_digital.h pb_delay_lines_t, behind a pointer), so
   the shapes that use them (COMB, PLUCK, BOWED, BLOWN, FLUTE) play one voice. Braids parity still 240 of 240 after the
-  change. The pad, keys, bell and choir presets start in POLY. Part state 11,424 B on the host (under the 12 KB a part
-  may take); the device figure comes with the next build. Tested: shapes_test plays a four note chord (four voices)
+  change. The pad, keys, bell and choir presets start in POLY. Part state 11,136 B on the device (11,424 B on the 64-bit
+  host), under the 12 KB a part may take. CI build of 0.5.2 green; app 554,136 B. Tested: shapes_test plays a four note chord (four voices)
   and one on PLUCK (one voice).
 
 Left to test (0.5.1):
@@ -754,8 +754,8 @@ Measurements (fill in):
 
 | Engine | App flash | RAM | CPU per voice | Fits? |
 |---|---|---|---|---|
-| Plaits (MACRO) | 55,374 B | 8,560 B a track from the arena | (unit) | Yes |
-| Braids (SHAPES) | 43,362 B | 9,112 B a track from the arena | (unit) | Yes, without the wavetables (33 KB; 22 KB left) |
+| Plaits (MACRO) | 55,374 B | 8,696 B a track from the arena (0.5.2, four voices) | (unit) | Yes |
+| Braids (SHAPES) | 43,362 B | 11,136 B a track from the arena (0.5.2, four voices) | (unit) | Yes, without the wavetables (33 KB; 22 KB left) |
 | Clouds | | | | |
 | Rings | | | | |
 | Elements | | | | |
