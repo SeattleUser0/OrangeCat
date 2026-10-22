@@ -77,11 +77,16 @@
 #ifndef MELODEE_SID
 #define MELODEE_SID 1             /* SID (engine 3). 0: the engine goes; its chip model stays while DRUM's SID kit uses it */
 #endif
+#ifndef MELODEE_MACRO
+#define MELODEE_MACRO 1           /* (Orange Cat 0.5.0) MACRO (engine 8, the slot of the retired GRAIN): fourteen sound models
+                                   * (eng_macro.c, plaits/). 0: the slot is retired again */
+#endif
+#define ENGI_MACRO 8u
 #define ENGI_FM6 12u
 #define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
 /* (Orange Cat) the engine a retired, reserved or unknown sound falls back to, and new sounds start on: FM6 as in
- * Melodee, else Prophet, else TRIO (the test voice) */
-#define ENGI_FALLBACK (MELODEE_FM6 ? ENGI_FM6 : MELODEE_P5 ? ENGI_PROPHET : 6u)
+ * Melodee, else Prophet, else (0.5.0) MACRO, else TRIO (the test voice) */
+#define ENGI_FALLBACK (MELODEE_FM6 ? ENGI_FM6 : MELODEE_P5 ? ENGI_PROPHET : MELODEE_MACRO ? ENGI_MACRO : 6u)
 #define USER_GENERAL 16u
 #define USER_NATIVE_P5 20u
 #define NENGINES 20               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
@@ -90,8 +95,8 @@
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM \
-                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 - PROPHET - DRUM + TRIO) */   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM \
+                    + (MELODEE_TRIO && !MELODEE_LEGACY_EXTRAS))   /* (Orange Cat: - SID - CZ-1 - FM6 - PROPHET - DRUM + TRIO + MACRO) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

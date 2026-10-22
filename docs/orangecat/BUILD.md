@@ -1,7 +1,7 @@
 # Orange Cat Build Document
 
-**Version:** 0.41  
-**Date:** October 21, 2026  
+**Version:** 0.42  
+**Date:** October 22, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.42 (October 22, 2026):** 0.5.0: phase 7 started. MACRO, a new engine of 14 sound models ported from Plaits to C, checked sample for sample against the original. It replaces TRIO.
 - **0.41 (October 21, 2026):** 0.4.19 on the unit: a track take recorded (write 683 KB/s, slowest write 25 ms, nothing lost) and played back in place. 0.4.20: freezing a track, from the MIXER page.
 - **0.40 (October 21, 2026):** 0.4.19: a track take is stereo, after the track's pan and its own effects. Spec 0.9: frozen takes never go to internal flash.
 - **0.39 (October 21, 2026):** 0.4.18 on the unit: a track frozen, muted and played back in time from the card, through PLAY. Spec 0.9: frozen tracks are stereo, on the card, played through a sampled instrument, with resampling and undo.
@@ -63,7 +64,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
 | 6 | Loadable engine study | Not started |
-| 7 | Mutable Instruments engines | Not started |
+| 7 | Mutable Instruments engines | In progress: Plaits ported (MACRO, 0.5.0); Braids next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
 | 10 | Other engines and effects | Not started |
@@ -79,7 +80,8 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | JieLi AC79 SDK | AC79NN_SDK_V1.2.1_2023-12-13 | (tag) | Three build files only |
 | [BEETLE](https://github.com/SikkenWorks/BEETLE) | 1.3.8 | fc43fda1e5fbdae36aa83df9e2baff1a484c157b | Tracker view reference |
 | [fm1-build](https://github.com/zvenson/fm1-build) | v1 | (tag) | GitHub Actions builder |
-| [Mutable Instruments eurorack](https://github.com/pichenettes/eurorack) | to pin in phase 7 | | Engine source (MIT) |
+| [Mutable Instruments eurorack](https://github.com/pichenettes/eurorack) | master (October 12, 2026) | f4cfa7697095a28d292bff758beb51deb49b5a86 | Engine source (MIT) |
+| [stmlib](https://github.com/pichenettes/stmlib) | master | d18def816c51d1da0c108236928b2bbd25c17481 | Its DSP helpers (MIT) |
 
 ## Test units
 
@@ -639,27 +641,60 @@ Decision (fill in): slots adopted / built-in engines only.
 
 ## Phase 7: Mutable Instruments engines
 
-**Status: Not started**
+**Status: In progress.** Plaits is in, as the MACRO engine (0.5.0). Braids is next.
 
 Goal: fit as many Mutable engines as the space left allows, measuring each.
 
 Order: Plaits, Braids, Clouds, then Rings, Elements, Warps, Tides.
 
-Left to build:
-- [ ] Pin the eurorack repository commit.
-- [ ] Confirm the toolchain builds freestanding C++ (no exceptions, no RTTI, no standard library). The Mutable code is C++ and the firmware is C. If it does not, port to C.
-- [ ] Adapt each engine from its native rate (Plaits runs at 48 kHz) to the FM-1's rate.
-- [ ] Wrap each engine in the engine interface, with RAM state from the audio arena.
+Naming: Mutable Instruments asks that derivative works not use its name and not keep the module names. So the engines get names of their own on the FM-1 (Plaits is MACRO). The license file and the code name the source, as Melodee already does for its Rings port.
 
-Left to test, per engine:
-- [ ] Sound matches the reference module's behavior for each model.
-- [ ] CPU time per voice measured on device at 360 MHz, both cores.
+### Plaits: the MACRO engine (0.5.0, built)
+
+How it was ported:
+- The C++ was ported to C, not compiled as C++: the toolchain has no C++ runtime and the firmware has no libc. Each class became a struct, each template an argument. Every float operation is in the same order as the C++.
+- tests/plaits_parity runs each ported model beside Mutable's own C++ (built from the eurorack checkout with g++) through four scenarios (free running; a sweep of all three knobs with a glide and triggers; 24 random settings; very low and very high notes) and compares every sample. All 14 models match bit for bit (56 of 56 scenarios, difference 0). The check needs the eurorack checkout, so it runs by hand, not in CI: `tests/plaits_parity/run.sh <eurorack checkout>`.
+- Four helpers ported the models in parallel, one group each (pitched, textures, physical models, drums), against that check; the shared parts (stmlib's filters and helpers, the oscillators, the tables) were written first.
+- Lookup tables are copied by tools/gen_plaits_tables.py into firmware/src/plaits/pl_tables.h (about 14 KB). The chord model's 15 waves are copied alone (the whole wave table is 50 KB).
+
+What is in: 14 of Plaits' 16 original models: VA, waveshaping, FM, grain (formant), additive, chords, swarm, noise, particles, string, modal, bass drum, snare, hi-hat. Left out: the wavetable model (its waves are 50 KB) and speech (large tables). Plaits 1.2's second bank (six-op FM, wave terrain, string machine, chiptune, phase distortion, VA with filter) is not ported yet.
+
+Changes from the module, on purpose:
+- 44.1 kHz instead of 48 kHz. Pitch is exact; the models' own decays are 8.8% longer.
+- Memory: each track's model state comes from the audio arena, at most 8,560 B (STRING, PARTCL). Two models shrink on the device: STRING keeps its 3 voices but stores its delay lines as 16-bit (8,152 B instead of 15 KB; within 0.03 dB of the original when plucked); PARTCL's diffuser is half size (4,096 words instead of 8,192, every delay and its modulation halved).
+- Denormals: decaying states are set to 0 once below 6e-30 (pl_X_flush after each render). On the host this took MODAL from 900 to 75 ns a sample. The parity check run with the flushes (PARITY_FLUSH=1) differs by under 1e-29.
+- One voice per track (as the module). Plaits' own low-pass gate and envelope are replaced by Melodee's ADSR, with an LPG knob (the ADSR also closes a filter, Plaits' own curves) and a DECAY envelope with T.MOD (Plaits' internal envelope on TIMBRE). The trigger is always patched: a note is a trigger, the key held keeps it high.
+- Where the code runs: the models (about 40 KB of code) do not fit the SRAM the audio code lives in (the audio working arena would drop below its 48 KB minimum). tools/audio_ram.py now leaves functions in a .text.xip* section in flash, with what only they call, and reaches them through a pointer. eng_macro.c's callbacks are in .text.xip_macro. The audio interrupt never runs during a flash write (interrupts are off then), so this is safe; it is slower only when the code is not in the cache.
+
+Engine: MACRO, engine 8 (the slot of Melodee's retired GRAIN, so no stored engine number changes). Pages MODEL (MODL, HARM, TIMB, MRPH; also the HOME knobs) and SHAPE (AUX, LPG, DECY, TMOD). Labels are four letters at most (the screen's cells; the layout lint caught TIMBRE and MORPH). 25 presets. The power-on sounds: CHORD MINOR, VA BASS, VA SYNC LEAD, KICK DEEP. TRIO is unhooked again (MELODEE_TRIO=0); MACRO is the fallback engine. Budget: 3 voice units per track.
+
+Host tests:
+- tests/macro_test.c: each model and each preset through the real voices and mixer (sounds, stays in range, frees its voice after the release), a model change every 20 blocks under a held note, four heavy tracks at once; WAVs of every preset in build/macro_demo. Host cost per model at 0.8x to 2x CZ-1's INIT TONE.
+- The regression suite's golden renders and health checks now cover MACRO's 25 presets.
+- tests/audio_ram_test.py: a .text.xip function stays in flash, with far calls both ways.
+
+Left to build:
+- [ ] Measure on the unit: CPU per model, four tracks of the heaviest models, the image and arena sizes (CI build).
+- [ ] If flash allows: the wavetable model with a reduced set of waves; Plaits 1.2's second bank.
+- [ ] Polyphony for the light models (several voices a track, each with its own small state).
+- [ ] Web editor pages for MACRO (the mock tables have it).
+
+Left to test (0.5.0):
+- [ ] Each preset plays at the right pitch, with no clicks, crackle or dropouts.
+- [ ] MODL, HARM, TIMB, MRPH on HOME change the sound; EDIT shows the MODEL and SHAPE pages.
+- [ ] The CPU meter with one, two and four MACRO tracks playing (try STRING, CHORD, PARTCL and MODAL together).
+- [ ] KICK DEEP, SNARE and HI-HAT on three tracks as a drum kit from the sequencer.
+- [ ] Saving and loading a project with MACRO sounds.
+
+### Braids (next)
+
+Braids is integer C++ at 96 kHz, 2,567 lines in its digital oscillator alone. Its tables are 56 KB, 33 KB of them wavetables. Plan: port to C the same way with its own parity check; regenerate its pitch and delay tables for 44.1 kHz; leave out the wavetable models if flash is short. The flash left after MACRO decides how much fits.
 
 Measurements (fill in):
 
 | Engine | App flash | RAM | CPU per voice | Fits? |
 |---|---|---|---|---|
-| Plaits | | | | |
+| Plaits (MACRO) | (CI) | 8,560 B a track from the arena | (unit) | Yes |
 | Braids | | | | |
 | Clouds | | | | |
 | Rings | | | | |

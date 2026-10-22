@@ -18,6 +18,9 @@
 #include "eng_drum.c"           /* DRUM: synthesized 808 circuits (drum_808.c), the 909, a C64's SID (drum_sid.c) */
 #include "eng_noise.c"
 #include "eng_fm6.c"            /* FM6: 6-operator FM rendered as Dexed renders it (fm6_core.c) */
+#if MELODEE_MACRO
+#include "eng_macro.c"          /* (Orange Cat 0.5.0) MACRO: fourteen sound models (plaits/, MIT) */
+#endif
 #if MELODEE_SLICE
 #include "eng_slice.c"
 #else
@@ -69,6 +72,9 @@ static uint32_t eng_state_size(uint32_t e)
 #if MELODEE_FM6
     case ENGI_FM6: return sizeof(fm6_part_t);
 #endif
+#if MELODEE_MACRO
+    case ENGI_MACRO: return sizeof(mc_part_t);      /* (Orange Cat 0.5.0) */
+#endif
 #if MELODEE_SLICE
     case ENGI_SLICE: return sizeof(slc_rb_t);
 #endif
@@ -91,6 +97,9 @@ static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGIN
 static dsk_part_t *dsk_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dsk_part_t)); }
 static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
+#if MELODEE_MACRO
+static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(mc_part_t)); }
+#endif
 static cz_part_t *cz_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(cz_part_t)); }
 static sid_part_t *sid_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(sid_part_t)); }
 #if MELODEE_PROPHET
@@ -134,7 +143,11 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,                /* 7: retired WHEEL; stored ID reserved */
 #endif
+#if MELODEE_MACRO
+    &ENG_MACRO,                  /* 8: (Orange Cat 0.5.0) MACRO (ENGI_MACRO), in the slot of Melodee's retired GRAIN */
+#else
     &ENG_RETIRED,                /* 8: retired GRAIN; stored index reserved */
+#endif
 #if MELODEE_LEGACY_EXTRAS
     &ENG_PHYS,
 #else
@@ -225,6 +238,10 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_DRUM
     10,                          /* DRUM */
 #endif
+#if MELODEE_MACRO
+    ENGI_MACRO,                  /* (Orange Cat 0.5.0) MACRO: after Melodee's own (first in Orange Cat's build, where
+                                  * they are unhooked) */
+#endif
 };
 
 /* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
@@ -241,7 +258,7 @@ static int eng_extra_retired(uint32_t e)
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
 static int eng_ok(uint32_t e)
 {
-    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && e != 8u && e != 14u && (MELODEE_SLICE || e != ENGI_SLICE);
+    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && (MELODEE_MACRO || e != 8u) && e != 14u && (MELODEE_SLICE || e != ENGI_SLICE);
 }
 static uint32_t eng_sound_idx(uint32_t e)
 {
@@ -266,9 +283,11 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
  * PROPHET 5, FM6 SOLID BASS, CZ-1 SYNTH.LEAD 1, 808 KIT (until 2026-10-16: PROPHET FUNK BASS II, FM6 PAD, SID INIT
  * SID, 808 KIT) */
 /* (Orange Cat) an unhooked engine's track takes the fallback: FM6 SOLID BASS, else TRIO FAT BASS (track 2); FM6
- * SOLID BASS, else TRIO ARP LEAD (track 3, when CZ-1 is out too) */
+ * SOLID BASS, else TRIO ARP LEAD (track 3, when CZ-1 is out too). (0.5.0) MACRO before TRIO: CHORD MINOR, VA BASS,
+ * VA SYNC LEAD, KICK DEEP (eng_macro.c MC_PRESETS 10, 0, 1, 20; TRIO's were 4, 0, 1, 3) */
+#define TRK_ALT (MELODEE_MACRO ? ENGI_MACRO : 6u)
 static const uint8_t TRK_DEF[NPART][2] = {
-    {MELODEE_P5 ? ENGI_PROPHET : 6u, MELODEE_P5 ? 1 : 4},   /* (Orange Cat) without PROPHET: TRIO CHIP CHOIR */
-    {MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_FM6 ? 10 : 0},
-    {MELODEE_CZ ? ENGI_CZ : MELODEE_FM6 ? ENGI_FM6 : 6u, MELODEE_CZ ? 52 : MELODEE_FM6 ? 10 : 1},
-    {MELODEE_DRUM ? ENGI_DRUM : 6u, MELODEE_DRUM ? 0 : 3}};   /* (Orange Cat) without DRUM: TRIO RING BELL */
+    {MELODEE_P5 ? ENGI_PROPHET : TRK_ALT, MELODEE_P5 ? 1 : (MELODEE_MACRO ? 10 : 4)},
+    {MELODEE_FM6 ? ENGI_FM6 : TRK_ALT, MELODEE_FM6 ? 10 : 0},
+    {MELODEE_CZ ? ENGI_CZ : MELODEE_FM6 ? ENGI_FM6 : TRK_ALT, MELODEE_CZ ? 52 : MELODEE_FM6 ? 10 : 1},
+    {MELODEE_DRUM ? ENGI_DRUM : TRK_ALT, MELODEE_DRUM ? 0 : (MELODEE_MACRO ? 20 : 3)}};

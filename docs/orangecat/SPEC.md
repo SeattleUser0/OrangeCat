@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.10  
-**Date:** October 21, 2026  
+**Version:** 0.11  
+**Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.11 (October 22, 2026):** Plaits built as the MACRO engine (0.5.0, 8.1.1). Engines take names of their own, not the module names (8.1).
 - **0.10 (October 21, 2026):** Freezing built (0.4.20): the MIXER page's KNOB 3; what is built and what is not yet (10.6).
 - **0.9 (October 21, 2026):** Frozen tracks decided: stereo, to the card (never to internal flash), played through a sampled instrument, with resampling and undo (10.6). Sampled instruments load WAVs from the card, after Skiff's SAMPLE engine and the M8 (10.7).
 - **0.8 (October 21, 2026):** Frozen tracks on the card: a design draft for review (10.6), from what the card tests showed (0.4.14 to 0.4.17).
@@ -337,6 +338,12 @@ Temporary performance changes shall have a clear return-to-saved-state action.
 | **Sample playback** | User samples and bounced instruments, with the mapping and playback features described below. Port Skiff's SAMPLE and SLICE engines. |
 
 Mutable Instruments engines have first synthesis priority.
+
+Mutable Instruments asks that derivative works not carry its name or keep the module names. Each engine ported from its code gets a name of its own on the FM-1; the license files and the code credit the source.
+
+#### 8.1.1 Built so far
+
+- **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. One voice per track, as the module. Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
 
 Clouds’ buffer freeze is a sound-processing function and shall be distinguished from instrument bouncing or whole-track audio freezing.
 

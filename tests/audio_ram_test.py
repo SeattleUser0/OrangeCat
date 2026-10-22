@@ -48,6 +48,31 @@ class AudioRamTest(unittest.TestCase):
         self.assertIn('section ".dsp_text"',functions['hot'][4])
         self.assertNotIn('section',functions['boot'][4])
 
+    def test_xip_section_stays_in_flash(self):
+        # (Orange Cat 0.5.0) .text.xip*: reached from the ISR, kept in flash with what only it calls
+        ir = IR + '''define void @macro_render(i32 %n) section ".text.xip_macro" {
+  call void @model(i32 %n)
+  call fastcc void @render(i32 %n)
+  ret void
+}
+define void @model(i32 %n) {
+  ret void
+}
+define void @isr2() {
+  call void @macro_render(i32 1)
+  ret void
+}
+'''
+        output, selected, far = relocate(ir, {'fm1_alnk0_irq', 'isr2', 'macro_render'})
+        self.assertNotIn('macro_render', selected)
+        self.assertNotIn('model', selected)
+        self.assertIn('macro_render', far)                      # RAM -> flash: through a pointer
+        self.assertIn('render', far)                            # flash -> RAM: through a pointer
+        functions = {m[2]: m for m in FUNCTION.finditer(output)}
+        self.assertIn('section ".text.xip_macro"', functions['macro_render'][4])
+        self.assertNotIn('section', functions['model'][4])
+        self.assertIn('call void @model(i32 %n)', output)       # flash -> flash: direct
+
     def test_callback_abi(self):
         fn=next(m for m in FUNCTION.finditer(IR) if m[2]=='accept')
         self.assertEqual(function_type(fn),'void (void (i8*, i32)*, i8*)')

@@ -7,6 +7,12 @@ The resident profile places the complete dry audio graph in executable POOL SRAM
 Existing flash-safe and low-SRAM DSP sections keep their placement. Crossing
 XIP/SRAM uses a volatile function pointer: pi32v2 direct branches cannot span
 that distance. Calling conventions and function signatures stay unchanged.
+
+(Orange Cat 0.5.0) A function placed in a section named .text.xip* stays in flash
+(XIP) even when the audio graph reaches it, and so does everything only it calls:
+the MACRO engine's models (eng_macro.c) are too big for the SRAM left. The audio
+interrupt never runs while the flash is being written (fm1_flash.h: interrupts off),
+so code in flash is safe there; it only runs slower when it is not in the cache.
 """
 import json
 import re
@@ -76,23 +82,33 @@ def function_type(match):
     return f'{ret} ({", ".join(args)})'
 
 
+def xip(section):
+    # (Orange Cat 0.5.0) audio code kept in flash on purpose (see the header)
+    return section.startswith('.text.xip')
+
+
+def ram(section):
+    # executable SRAM: what the pass places, and the sections that are already there
+    return section in ('.audio_text', '.dsp_text', '.ram_text')
+
+
 def relocate(ir, roots):
     functions = {m[2]: m for m in FUNCTION.finditer(ir)}
+    sections = {name: (re.search(r'\bsection "([^"]+)"', m[4]) or [None, ''])[1]
+                for name, m in functions.items()}
     selected = set()
     pending = list(roots)
     while pending:
         name = pending.pop()
         # usb_poll is deliberately excluded: TIMER5 calls it only outside
         # the audio interrupt. Nested endpoint/UART/input work remains resident.
-        if name == 'usb_poll' or name not in functions or name in selected:
+        if name == 'usb_poll' or name not in functions or name in selected or xip(sections[name]):
             continue
         selected.add(name)
         pending.extend(REFERENCE.findall(functions[name][5]))
     if 'fm1_alnk0_irq' not in selected:
         raise ValueError('Audio ISR is missing from the optimized module')
 
-    sections = {name: (re.search(r'\bsection "([^"]+)"', m[4]) or [None, ''])[1]
-                for name, m in functions.items()}
     for name in selected:
         if not sections[name]:
             sections[name] = '.audio_text'
@@ -111,7 +127,7 @@ def relocate(ir, roots):
             if call and call[1] in functions and sections[name] != sections[call[1]]:
                 # SRAM sections can call each other directly; all fit well
                 # inside branch range. Only a flash/RAM crossing needs this.
-                if bool(sections[name]) != bool(sections[call[1]]):
+                if ram(sections[name]) != ram(sections[call[1]]):
                     target = call[1]
                     typ = function_type(functions[target])
                     far[target] = typ

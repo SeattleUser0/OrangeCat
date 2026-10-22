@@ -136,7 +136,8 @@ static int replaced_motion(void)
     edit.event[0] = (motion_event_t){0,P_LEVEL,80};
     bad += check("replacing motion in another bank preserves valid tagged duplicates", !motion_replace_track(TSEL, &edit) &&
         motion_valid(&motion) && motion.count == 2 && motion_pattern[0] == 0 && motion_pattern[1] == 1);
-    bad += check("retired user sample sources remain silent in GRAIN", !SMP_USER_SLOTS && !eng_ok(8) && !ENGINES[8]->npresets);
+    bad += check("retired user sample sources remain silent in GRAIN (its slot is MACRO since Orange Cat 0.5.0)",
+                 !SMP_USER_SLOTS && (MELODEE_MACRO ? eng_ok(8) && ENGINES[8] == &ENG_MACRO : !eng_ok(8) && !ENGINES[8]->npresets));
     return bad;
 }
 static int migrated_bank_rename(void)

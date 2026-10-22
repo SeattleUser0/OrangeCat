@@ -1,7 +1,7 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.20
-**Date:** October 21, 2026
+**Firmware:** 0.5.0
+**Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
 
@@ -66,6 +66,50 @@ A scene stores each track's chain, slot and mute. AT decides when a scene, a sta
 ## Groove
 
 SEQ > GROOVE gives each track a template: LAID BACK, PUSH, DILLA, 2-STEP, DUB or HUMAN. KNOB 2 sets how much. Swing still works on top. Recording with quantize on the track's own step grid lands in the groove.
+
+## The MACRO engine
+
+MACRO is the new synth engine. It has 14 sound models, each shaped by the same three knobs. The models are ported from the open source code of a well known Eurorack macro oscillator. It replaces the TRIO test voice: the four tracks start on MACRO sounds, and it is the only engine for now.
+
+To play it:
+
+1. Turn PRESETS to browse its 25 sounds (VA BASS, CHORD MINOR, PLUCKED STRING, KICK DEEP and so on). KNOB 1 on the browser picks a list (BASS, LEAD, PAD, DRUM and so on).
+2. On the HOME page, the four knobs are MODL (the model), HARM, TIMB (timbre) and MRPH (morph).
+3. Press EDIT for its pages. Press EDIT again (or turn SELECT) for the second page.
+
+| Page | KNOB 1 | KNOB 2 | KNOB 3 | KNOB 4 |
+|---|---|---|---|---|
+| MODEL | MODL | HARM | TIMB | MRPH |
+| SHAPE | AUX | LPG | DECY | TMOD |
+
+- **MODL** picks the sound model (below).
+- **HARM, TIMB, MRPH** (harmonics, timbre, morph) shape it. What each does depends on the model.
+- **AUX** blends to the model's second output, which is a different sound from the same model (0 is the main one, 127 the other).
+- **LPG** adds a low-pass gate: the envelope closes a filter as well as the level, for a plucked, woody sound. 0 is off.
+- **DECY** sets the length of a second, simple envelope that each note starts. **TMOD** sets how much it moves TIMB, up or down.
+
+The ADSR, LFO and modulation pages work as for any engine. ENV and LFO to SHAPE move TIMB; ENV and LFO to FILTER move MRPH. Velocity is the model's accent.
+
+| Model | Sound | HARM | TIMB | MRPH |
+|---|---|---|---|---|
+| VA | Two analog style oscillators | Detune | Square width, then sync | Saw shape |
+| WAVSHP | Waveshaper and wavefolder | Waveshaper curve | Fold amount | Asymmetry |
+| FM | Two operator FM | Frequency ratio | Mod index | Feedback |
+| GRAIN | Formant grains | Formant ratio | Formant frequency | Formant width |
+| ADDTV | Additive (sine harmonics) | Number of peaks | Loudest harmonic | Peak shape |
+| CHORD | Four note chords | Chord type | Inversion | Waveform |
+| SWARM | A cloud of eight sawtooth grains | Pitch spread | Grain density | Grain length |
+| NOISE | Filtered noise | Filter type | Clock frequency | Resonance |
+| PARTCL | Random clicks through filters | Pitch spread | Density | Filter type and echo |
+| STRING | Plucked strings | Material | Brightness | Decay |
+| MODAL | Struck bells, bars and plates | Material | Brightness | Decay |
+| KICK | Bass drum | Punch and drive | Brightness | Decay |
+| SNARE | Snare drum | Tone against noise | Body tone | Decay |
+| HI-HAT | Hi-hat | Metal against noise | High-pass cutoff | Decay |
+
+Each track plays one note at a time on MACRO (CHORD plays chords from one key). STRING, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
+
+The models run at the FM-1's 44.1 kHz, so their own decay times are about 9% longer than on the module.
 
 ## Freezing a track
 

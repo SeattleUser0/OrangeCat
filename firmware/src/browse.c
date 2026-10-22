@@ -31,6 +31,9 @@ static const char *const PRESET_CAT[NENGINES] = {
     [6] = "BLLEP",                                      /* TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR
                                                          * (Orange Cat: categories for its test voice) */
 #endif
+#if MELODEE_MACRO
+    [8] = "BLULEBOFGPPKPFFFUSUEDDDDD",                  /* (Orange Cat 0.5.0) MACRO (eng_macro.c MC_PRESETS) */
+#endif
     [10] = "DDDD",                                      /* DRUM: the kits (808, 909, SID, SID DIGI) */
     [12] = "KEBRPEGUKRBEEKGSPLUEWEBEO",                 /* FM6, INIT VOICE */
     [ENGI_CZ] = "ORRRSSSSSUUUBBBBURWSWWWWUKKKKKKKKGGGGGPPPEEEEEDEESSULLLLFDDDEFFFF",   /* INIT TONE, Casio's 64 */
