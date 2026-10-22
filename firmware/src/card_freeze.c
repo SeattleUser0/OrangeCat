@@ -18,7 +18,7 @@
  * and the engine plays until it comes in again.
  *
  * Recorded: the track's stereo stem (mix.c mix_stem_l / _r, as 0.4.19's track takes) into the recorder's ring (card_play.c
- * cr: slots 2 and 3 of the players' memory, 116 ms), frames [from, to) of each block (frz_after, from audio.c after
+ * cr: slots 2 and 3 of the players' memory, 104 ms), frames [from, to) of each block (frz_after, from audio.c after
  * the mix); the main loop writes it out (usb_files.c).
  *
  * Included by melodee.c after seq.c (its marks) and usb_host.c (frz[]); mix.c and audio.c reach it through mix.c's

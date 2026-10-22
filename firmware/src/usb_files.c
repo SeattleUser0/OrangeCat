@@ -661,7 +661,7 @@ static void uf_up(void)
 /* main loop (main.c): the drive test, then what the page asked for */
 /* ---- (0.4.16) the recorder: what the FM-1 plays, to a WAV on the card ----
  * REC on the file list starts it (any WAVs playing stop first: the recorder takes their memory) in the folder shown,
- * under the first free name OC001.WAV .. OC999.WAV. The audio ISR fills card_play.c's ring (cr, 40 KB); the main
+ * under the first free name OC001.WAV .. OC999.WAV. The audio ISR fills card_play.c's ring (cr, 36 KB; 0.4.20); the main
  * loop writes it out 8 KB at a time (16 sectors, one WRITE(10)) with f_write. The file is a plain 16-bit 44.1 kHz
  * WAV whose samples start at byte 512 (a JUNK chunk fills the header's sector), so every write is whole sectors and
  * goes straight to the card (FatFs's window is not used for the samples).
@@ -680,7 +680,7 @@ static void uf_up(void)
  *
  * The foot while recording: "REC OC001.WAV 12.3 s", then "lost 0, peak -6 dB" (frames the ring had no room for;
  * the loudest sample), then "write 412 KB/s, max 45 ms" (the card's speed for the writes, the longest one: the
- * ring holds 232 ms of stereo, so a write near that loses sound). At most 30 minutes. */
+ * ring holds 209 ms of stereo (0.4.20; was 232), so a write near that loses sound). At most 30 minutes. */
 #define UR_CHUNK_B 8192u                                /* bytes a write: 16 sectors (the ring holds five) */
 #define UR_MAX (44100u * 60u * 30u)                     /* frames: 30 minutes */
 static FIL uf_rf;
@@ -872,7 +872,11 @@ static void ur_task(void)
 {
     FRESULT r = FR_OK;
     uint32_t k, ch = ur_chunk();
-    for (k = 0; k < 5u && r == FR_OK && cr.w - cr.r >= ch; k++) r = ur_write(ch);
+    for (k = 0; k < 5u && r == FR_OK && cr.w - cr.r >= ch; k++) {
+        uint32_t at = cr.r % cr.cap, n = ch;
+        if (n > cr.cap - at) n = cr.cap - at;           /* (0.4.20: 9,216 frames is not whole chunks: to the ring's end) */
+        r = ur_write(n);
+    }
     if (r == FR_OK && !cr.armed && fm1_ms - ur.sync_ms >= 3000u) r = ur_sync();
     if (r != FR_OK) {                                   /* (the last sync's length stays on the card) */
         cr.on = cr.armed = 0;
@@ -1031,7 +1035,7 @@ static void frz_begin(uint32_t k)
     ur.frz = (uint8_t)(k + 1u);
     cr.on = cr.armed = 0;                               /* (the page's capture stays off: card_freeze.c fills it) */
     cr.ch = 2u;
-    cr.buf = cp_pool + 2u * CP_SLOT;                    /* slots 2 and 3: 5,120 frames, 116 ms */
+    cr.buf = cp_pool + 2u * CP_SLOT;                    /* slots 2 and 3: 4,608 frames, 104 ms */
     cr.cap = CP_SLOT;
     cr.w = cr.r = cr.wi = 0;
     cr.lost = 0;
@@ -1173,8 +1177,8 @@ static void frz_task(void)
             if (fzi[k].lost) { frz_cancel(k, "Slow"); break; }
             for (i = 0; i < 5u && r == FR_OK && cr.w - cr.r >= ur_chunk(); i++) {
                 uint32_t at = cr.r % cr.cap, n = ur_chunk();
-                if (n > cr.cap - at) n = cr.cap - at;   /* (the ring, 5,120 frames, is not whole chunks: to its end,
-                                                         * then on from its start; 1,024 frames still whole sectors) */
+                if (n > cr.cap - at) n = cr.cap - at;   /* (the ring, 4,608 frames, is not whole chunks: to its end,
+                                                         * then on from its start; 512 frames still whole sectors) */
                 r = ur_write(n);
             }
             if (r != FR_OK) frz_cancel(k, "Error");

@@ -36,6 +36,9 @@
  *           sequencer. The recorder can take one track instead of the mix (cr.ch 1: mono, the track's own signal
  *           before its pan, the effects and MASTER: Melodee's USB stems, mix.c track_capture). WAVs play at their
  *           own level times MASTER (was -6 dB): a frozen track comes back as loud as it went in.
+ *   0.4.20: the slots 9 KB (36 KB in all): the freeze's code in the audio RAM took the arena's last 928 bytes. A slot
+ *           holds 2,304 stereo frames (52 ms); the recorder 9,216 (209 ms), a freeze 4,608 (104 ms; the slowest write
+ *           measured, 25 ms). cp_pull split out of card_render; cp[].trk marks a frozen track's take (card_freeze.c).
  *   0.4.19: a track take is stereo (spec 0.9, 10.6): the track as it goes into the mix, after its level, pan,
  *           spread and its own effects, before the shared effects and MASTER (mix.c mix_stem_l / _r, picked by
  *           mix_stem_trk). The mono take (0.4.17, the USB stems before pan) is gone: every take is stereo.
@@ -47,7 +50,8 @@
 #define CR_STEM_TRK(t) (mix_stem_trk = (uint8_t)(t))    /* (0.4.19) mix.c keeps track t's stereo stem (0xFF: none) */
 #endif
 #define CP_N 4u                                         /* streams at once */
-#define CP_SLOT 5120u                                   /* 16-bit words a slot: 10 KB */
+#define CP_SLOT 4608u                                   /* 16-bit words a slot: 9 KB (0.4.20: was 10 KB; the freeze's audio
+                                                         * code took the arena's margin) */
 static int16_t cp_pool[CP_N * CP_SLOT] __attribute__((section(".pool"), aligned(4)));
 static struct cp_stream {
     volatile uint32_t w, r;                             /* frames written (producer), frames passed (ISR), for ever */
@@ -180,7 +184,7 @@ static __attribute__((noinline)) void card_render(int32_t *out, uint32_t n)
 }
 
 /* ---- (0.4.16) the recorder's ring ---- */
-#define CR_CAP (CP_N * CP_SLOT / 2u)                    /* stereo frames: 10,240 (40 KB, 232 ms) */
+#define CR_CAP (CP_N * CP_SLOT / 2u)                    /* stereo frames: 9,216 (36 KB, 209 ms; 0.4.16 to 0.4.19: 232 ms) */
 static struct {
     volatile uint32_t w, r;                             /* frames in (the ISR), frames written to the card (main loop) */
     uint32_t wi;                                        /* where the ISR writes */
@@ -189,7 +193,7 @@ static struct {
     volatile int32_t peak;                              /* the loudest sample since the page last looked */
     uint8_t ch, trk;                                    /* 2 (0.4.19: always; 0.4.17 had 1 for a track); track trk (0..3)
                                                          * alone, or the mix (trk 0xFF) */
-    uint32_t cap;                                       /* frames the ring holds: 10,240 (232 ms) */
+    uint32_t cap;                                       /* frames the ring holds: 9,216 (209 ms); a freeze's 4,608 (104 ms) */
     volatile uint8_t armed;                             /* (0.4.17) starts when the sequencer starts */
     volatile uint8_t synced;                            /* (0.4.17) stops when the sequencer stops */
     volatile uint8_t ended;                             /* (0.4.17) the sequencer stopped it: the main loop saves it */
