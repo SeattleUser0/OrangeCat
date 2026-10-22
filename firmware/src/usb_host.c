@@ -55,6 +55,11 @@ enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE, UC_REC };   /* (0
 enum { UE_TIME = 1, UE_STALL, UE_ERR, UE_NAK, UE_SHORT, UE_CSW, UE_CHECK };
 #define UH_LINES 8u
 #define UH_LINE 30u
+#if MELODEE_USB_AUDIO
+#define UH_SRC_MAX 4u                                   /* (0.4.17) REC: the mix or tracks 1..4 (mix.c's USB stems) */
+#else
+#define UH_SRC_MAX 0u                                   /* (no stems: the mix only) */
+#endif
 #define UH_FOOT 48u                                     /* (0.4.14) the foot's lines: longer than the page shows */
 static struct {
     uint8_t st;                 /* UH_* */
@@ -78,6 +83,7 @@ static struct {
     char path[96];
     char info[UH_FOOT], info2[UH_FOOT], info3[UH_FOOT];   /* (0.4.14: info3, and 48 each) */
     uint8_t rec;                                        /* (0.4.16) the recorder runs (usb_files.c; the REC light) */
+    uint8_t src;                                        /* (0.4.17) what REC records: 0 the mix, 1..4 that track (KNOB 3) */
     struct { char name[UH_NAME]; uint32_t size; uint8_t dir, play; } ent[UH_ROWS];   /* (0.4.13: play, a WAV playing) */
 } usbh;
 static uint8_t uh_sec[512];     /* sector 0 */

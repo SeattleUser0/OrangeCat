@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.16
+**Firmware:** 0.4.17
 **Date:** October 21, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -75,7 +75,18 @@ While the test runs, USB MIDI, USB audio and the web editor are off.
 
 After a drive reads, OCT+ opens its files. Turn KNOB 1 (or KNOB 2, or PRESETS) to move. OCT+ opens a folder, or picks a file: a WAV shows its rate, bits, channels and length, and every file shows how fast it read. OCT- goes up a folder, and from the top back to the test. OCT+ on a WAV plays it from the card, over and over, mixed in with whatever else is playing. Up to four play at once: OCT+ on another WAV adds it, OCT+ on one that is playing (its row says PLAY) stops it. They keep playing while you move through folders, and stop when you leave the file list. The bottom lines show how many play, the processor load and how much of it goes to reading the card; then the gaps (each time the sound dropped out) and how fast the card is read against how fast the playing files need it ("gap 0, 512 of 529 KB/s"). The card keeps up with about three CD-quality stereo files, or six mono. A file that would go past that does not start, and the page says "Too much for the card".
 
-REC on the file list records what the FM-1 plays to a new WAV in the folder you are in (OC001.WAV, OC002.WAV and so on). REC again stops it, and the new file shows in the list, ready to play with OCT+. Start the sequencer before you open the menu. The MASTER knob sets the recording level. Any WAVs playing stop when you start recording. The bottom lines show the time, any sound lost because the card fell behind, how loud it is, and how fast the card takes the writes. If you pull the card while recording, it keeps what was recorded up to a few seconds before. Other files are read once and timed.
+PLAY starts and stops the sequencer on this page too.
+
+REC on the file list records to a new WAV in the folder you are in (OC001.WAV, OC002.WAV and so on). KNOB 3 picks what it records: the mix, or one track alone. A track is recorded mono, dry (no pan or effects) and before MASTER, so it plays back as loud as it went in. That is how you freeze a track.
+
+- REC while the sequencer plays starts recording at once. REC again stops it.
+- REC while the sequencer is stopped makes the take wait. PLAY then starts the song and the take together, and stopping the song saves it. REC again before PLAY cancels it.
+
+The new file shows in the list when it is saved. Any WAVs playing stop when you start recording. The bottom lines show the time, any sound lost because the card fell behind, how loud it is, and how fast the card takes the writes. If you pull the card while recording, it keeps what was recorded up to a few seconds before.
+
+OCT+ on a WAV while the sequencer is stopped makes it wait: its row says READY. PLAY starts it from the top with the song. It plays once, then waits for the next PLAY. Stopping the song stops it and takes it back to the start. OCT+ on a WAV while the sequencer plays starts it at once, looping.
+
+To freeze a track: KNOB 3 to that track, stop the sequencer, REC, PLAY, and PLAY again at the end. Then mute the track, OCT+ on the new file, and PLAY: the take plays in time with the rest. Other files are read once and timed.
 
 The FM-1 does not power its USB port. Use a hub with power on its PD port.
 

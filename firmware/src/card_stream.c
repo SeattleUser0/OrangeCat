@@ -31,6 +31,8 @@
  *           stops them all (the bus needs a reset).
  *   0.4.14: the main loop steps it too (cs_poll); bytes counted; the next command at once; least time left first;
  *           the timeout on the clock.
+ *   0.4.17: a stream may play once (once): at the end of its samples it stops reading (done) and tells the player
+ *           (card_play.c cp[].eof), which ends it when its ring runs dry.
  */
 /* ---- the streams: the card read from TIMER5 ---- */
 #define CS_SECS 8u                                      /* sectors a READ(10) at most: 4 KB */
@@ -44,6 +46,7 @@ struct cs_one {
     uint8_t carry[32], nc;                              /* a frame split over two packets (8 channels of 32 bits at most) */
     uint8_t next;                                       /* extents: how many */
     uint32_t bps;                                       /* (0.4.14) the file's bytes a second (the page's "needed") */
+    uint8_t once, done;                                 /* (0.4.17) play once (no loop); its last bytes are read */
     struct { uint32_t fsec, lba, n; } ext[CS_EXT];      /* file sector fsec.. lies at lba.. for n sectors */
 };
 static struct {
@@ -92,7 +95,16 @@ static int cs_plan_one(uint32_t s, uint32_t *lba, uint32_t *nsec)
 {
     struct cs_one *o = &cs.st[s];
     uint32_t off, fsec, i, room, take;
-    if (o->pos >= o->data) { o->pos = 0; o->nc = 0; }   /* the end: round again */
+    if (o->done) return 0;                              /* (0.4.17) once, and read to the end */
+    if (o->pos >= o->data) {
+        if (o->once) {                                  /* (0.4.17) the end of a once: no more reading */
+            o->done = 1;
+            cp[s].eof = 1;
+            return 0;
+        }
+        o->pos = 0;                                     /* the end: round again */
+        o->nc = 0;
+    }
     off = o->data0 + o->pos;
     fsec = off >> 9;
     for (i = 0; i < o->next; i++)
@@ -119,7 +131,7 @@ static int cs_plan(uint32_t *lba, uint32_t *nsec)
 {
     uint32_t s, best = CP_N, fill, best_fill = ~0u;
     for (s = 0; s < CP_N; s++) {
-        if (!cs.st[s].run) continue;
+        if (!cs.st[s].run || cs.st[s].done) continue;
         fill = (cp[s].w - cp[s].r) * 65536u / (cp[s].step ? cp[s].step : 1u);   /* (0.4.14) output frames left: time */
         if (fill < best_fill) { best_fill = fill; best = s; }
     }

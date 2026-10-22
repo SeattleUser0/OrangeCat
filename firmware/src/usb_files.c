@@ -35,6 +35,12 @@
  *   0.4.16: the recorder (below): REC on the file list records what the FM-1 plays to a new WAV in the folder shown
  *          (OC001.WAV, OC002.WAV, ...), REC again stops it and the list shows the file, ready to play. FatFs writes
  *          now (ffconf.h), through disk_write (WRITE(10)).
+ *   0.4.17: in time with the sequencer. A WAV picked while it is stopped waits ("READY" on its row) and plays once
+ *          from its start when PLAY starts the sequencer; when the sequencer stops (or the WAV ends) it rewinds and
+ *          waits again (uf_rearm). Picked while the sequencer plays, it loops at once, as before. REC while stopped
+ *          arms a take that starts and stops with the sequencer; REC again before PLAY cancels it (the empty file
+ *          deleted). The recorder records the mix or one track (usbh.src, KNOB 3 on the page): a track is a mono
+ *          WAV of its own signal, before MASTER (a freeze).
  */
 #ifndef UF_HOST_LIBC
 char *strchr(const char *s, int c)                      /* ff.c: the characters a name may not hold */
@@ -288,6 +294,9 @@ static void uf_wav_text(const struct uf_wi *w, char *b)
 #define UF_BUDGET 545000u                               /* bytes a second (532 KB/s) */
 #endif
 static uint32_t uf_budget = UF_BUDGET;                  /* (host tests change it) */
+#ifndef UF_PLAYING
+#define UF_PLAYING() (song.playing)                     /* (0.4.17) the sequencer runs (host tests: their own) */
+#endif
 #ifndef UF_CPU
 #define UF_CPU() (song.cpu_q8 * 100u / 256u)
 #endif
@@ -320,11 +329,13 @@ static int uf_playing(const char *name)                 /* the slot playing this
         if (cs.st[s].run && up.who[s].dir == d && !memcmp(up.who[s].name, name, str_len(name) + 1u)) return (int)s;
     return -1;
 }
-static void uf_marks(void)                              /* the rows shown: which play */
+static void uf_marks(void)                              /* the rows shown: which play (1), which wait (2, 0.4.17) */
 {
     uint32_t i;
-    for (i = 0; i < usbh.nent && i < UH_ROWS; i++)
-        usbh.ent[i].play = (uint8_t)(!usbh.ent[i].dir && uf_playing(usbh.ent[i].name) >= 0);
+    for (i = 0; i < usbh.nent && i < UH_ROWS; i++) {
+        int k = usbh.ent[i].dir ? -1 : uf_playing(usbh.ent[i].name);
+        usbh.ent[i].play = (uint8_t)(k < 0 ? 0u : cp[k].on ? 1u : 2u);
+    }
     usbh.gen++;
 }
 static int uf_playable(const struct uf_wi *w)
@@ -363,7 +374,7 @@ static int uf_extents(FIL *f, uint32_t fsize, struct cs_one *o)
 static void uf_play_stop(uint32_t s)
 {
     if (!cs.st[s].run && !cp[s].on) return;
-    cp[s].on = 0;
+    cp[s].on = cp[s].armed = 0;
     cs_claim();
     cs.st[s].run = 0;
     cs_update_run();
@@ -378,7 +389,7 @@ static void uf_play_stop_all(void)
     uint8_t err = cs.err;
     uint32_t s;
     if (!up.n && !err) return;
-    for (s = 0; s < CP_N; s++) cp[s].on = 0;
+    for (s = 0; s < CP_N; s++) cp[s].on = cp[s].armed = 0;
     cs_claim();
     for (s = 0; s < CP_N; s++) cs.st[s].run = 0;
     cs.run = 0;
@@ -427,7 +438,7 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
     struct cs_one *o;
     for (s = 0; s < CP_N && (cs.st[s].run || cp[s].on); s++)
         ;
-    if (cr.on) {                                        /* (0.4.16) the recorder has the players' memory */
+    if (usbh.rec) {                                     /* (0.4.16) the recorder has the players' memory */
         f_close(&uf_pf);
         uf_say("Recording: REC stops it");
         return;
@@ -471,6 +482,9 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
     o->data = w->data;
     o->pos = 0;
     o->nc = 0;
+    o->done = 0;
+    o->once = (uint8_t)!UF_PLAYING();                   /* (0.4.17) the sequencer stopped: in time with it, once */
+    cp[s].synced = o->once;
     up.who[s].dir = uf_hash(usbh.path);
     str_cpy(up.who[s].name, name, UH_NAME);
     if (!up.n) {                                        /* the first: the engine and the meter from fresh */
@@ -495,9 +509,41 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
         uf_say("Card too slow to start");
         return;
     }
-    cp[s].on = 1;
-    uf_say("Playing");
+    if (cp[s].synced) {                                 /* (0.4.17) it waits for PLAY (card_play.c card_sync) */
+        cp[s].armed = 1;
+        uf_say("Ready: PLAY starts it");
+    } else {
+        cp[s].on = 1;
+        uf_say("Playing");
+    }
     uf_marks();
+}
+/* (0.4.17) a synced WAV the sequencer stopped (or that played to its end): back to its start, its ring half full,
+ * waiting for the next start. 0: the card did not keep up (stopped) */
+static int uf_rearm(uint32_t s)
+{
+    struct cs_one *o = &cs.st[s];
+    struct cp_stream *c = &cp[s];
+    uint32_t t0, want;
+    c->on = c->armed = 0;                               /* (the ISR leaves the slot alone from here) */
+    c->ended = 0;
+    cs_claim();                                         /* (a command for it ends first: its bytes go, then the reset) */
+    o->pos = 0;
+    o->nc = 0;
+    o->done = 0;
+    c->w = c->r = c->wi = c->ri = c->phase = 0;
+    c->eof = c->shrt = 0;
+    cs_release();
+    want = o->data / o->bpf < c->cap / 2u ? o->data / o->bpf : c->cap / 2u;
+    for (t0 = fm1_ms; c->w < want && !cs.err && fm1_ms - t0 < 1000u;)
+        CS_WAIT();
+    if (cs.err || c->w < want) {
+        uf_play_stop(s);
+        uf_say("Card too slow to start");
+        return 0;
+    }
+    c->armed = 1;
+    return 1;
 }
 
 /* a file picked: a WAV that can play plays (OCT+ on it again stops it); any other is read, up to 1 MB in 512-byte
@@ -578,10 +624,17 @@ static void uf_up(void)
 /* main loop (main.c): the drive test, then what the page asked for */
 /* ---- (0.4.16) the recorder: what the FM-1 plays, to a WAV on the card ----
  * REC on the file list starts it (any WAVs playing stop first: the recorder takes their memory) in the folder shown,
- * under the first free name OC001.WAV .. OC999.WAV. The audio ISR fills card_play.c's ring (cr, 232 ms); the main
- * loop writes it out 8 KB at a time (16 sectors, one WRITE(10)) with f_write. The file is a plain 16-bit stereo
- * 44.1 kHz WAV whose samples start at byte 512 (a JUNK chunk fills the header's sector), so every write is whole
- * sectors and goes straight to the card (FatFs's window is not used for the samples).
+ * under the first free name OC001.WAV .. OC999.WAV. The audio ISR fills card_play.c's ring (cr, 40 KB); the main
+ * loop writes it out 8 KB at a time (16 sectors, one WRITE(10)) with f_write. The file is a plain 16-bit 44.1 kHz
+ * WAV whose samples start at byte 512 (a JUNK chunk fills the header's sector), so every write is whole sectors and
+ * goes straight to the card (FatFs's window is not used for the samples).
+ *
+ * (0.4.17) What it records (usbh.src, KNOB 3 on the page): 0 the mix, stereo, after MASTER; 1..4 that track alone,
+ * mono, before its pan, the effects and MASTER (a freeze: it plays back as it went in). Mono holds twice the time
+ * in the ring (464 ms) and needs half the card's speed. When it starts: REC while the sequencer plays starts at
+ * once and REC stops it; REC while it is stopped arms it ("waits for PLAY"): the take starts in the block the
+ * sequencer starts and ends in the block it stops (card_play.c card_sync), so it lines up with the song from its
+ * first step. REC again before PLAY cancels it and deletes the empty file.
  *
  * Pulled out mid-way: every 3 s the header gets the length so far and the file is synced (f_sync: its size and
  * clusters on the card), so the card keeps what was recorded up to then. A write that fails (the card full, gone or
@@ -589,21 +642,24 @@ static void uf_up(void)
  *
  * The foot while recording: "REC OC001.WAV 12.3 s", then "lost 0, peak -6 dB" (frames the ring had no room for;
  * the loudest sample), then "write 412 KB/s, max 45 ms" (the card's speed for the writes, the longest one: the
- * ring holds 232 ms, so a write near that loses sound). At most 30 minutes (318 MB). */
-#define UR_CHUNK 2048u                                  /* frames a write: 8 KB, 16 sectors (the ring holds five) */
+ * ring holds 232 ms of stereo, so a write near that loses sound). At most 30 minutes. */
+#define UR_CHUNK_B 8192u                                /* bytes a write: 16 sectors (the ring holds five) */
 #define UR_MAX (44100u * 60u * 30u)                     /* frames: 30 minutes */
 static FIL uf_rf;
 static struct {
-    uint8_t on;
+    uint8_t on;                                         /* a file open: recording, or armed */
+    uint8_t ch;                                         /* (0.4.17) 2 the mix, 1 a track */
     char name[12];                                      /* "OC001.WAV" */
+    char path[sizeof usbh.path + 16];                   /* (0.4.17) its path (a cancelled take is deleted) */
     uint32_t frames;                                    /* written to the card */
     uint32_t sync_ms, show_ms;
     uint32_t wr_ms, wr_bytes, slow_ms;                  /* time in writes, bytes written, the longest write */
 } ur;
-/* the header sector: RIFF, fmt (16-bit stereo 44.1 kHz), JUNK to byte 504, data (its length) at 504 */
-static void ur_header(uint8_t *h, uint32_t frames)
+static uint32_t ur_chunk(void) { return UR_CHUNK_B / (2u * ur.ch); }   /* frames a write: 2,048 stereo, 4,096 mono */
+/* the header sector: RIFF, fmt (16-bit, ch channels, 44.1 kHz), JUNK to byte 504, data (its length) at 504 */
+static void ur_header(uint8_t *h, uint32_t frames, uint32_t ch)
 {
-    uint32_t i, data = frames * 4u;
+    uint32_t i, data = frames * 2u * ch, bps = 44100u * 2u * ch;
     static const uint8_t FMT[24] = {'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 2, 0, 0x44, 0xAC, 0, 0,
                                     0x10, 0xB1, 0x02, 0, 4, 0, 16, 0};      /* PCM, 2 ch, 44100, 176400 B/s, 4, 16 */
     for (i = 0; i < 512u; i++) h[i] = 0;
@@ -611,6 +667,9 @@ static void ur_header(uint8_t *h, uint32_t frames)
     for (i = 0; i < 4u; i++) h[4 + i] = (uint8_t)((data + 504u) >> (8u * i));   /* the file's length less 8 */
     h[8] = 'W'; h[9] = 'A'; h[10] = 'V'; h[11] = 'E';
     for (i = 0; i < 24u; i++) h[12 + i] = FMT[i];
+    h[22] = (uint8_t)ch;                                /* (0.4.17) channels, bytes a second, bytes a frame */
+    for (i = 0; i < 4u; i++) h[28 + i] = (uint8_t)(bps >> (8u * i));
+    h[32] = (uint8_t)(2u * ch);
     h[36] = 'J'; h[37] = 'U'; h[38] = 'N'; h[39] = 'K';
     h[40] = 460u & 0xFFu; h[41] = 460u >> 8;            /* 44 + 460 = 504 */
     h[504] = 'd'; h[505] = 'a'; h[506] = 't'; h[507] = 'a';
@@ -622,7 +681,7 @@ static FRESULT ur_sync(void)
     UINT bw;
     FRESULT r;
     FSIZE_t at = f_tell(&uf_rf);
-    ur_header(uh_sec, ur.frames);
+    ur_header(uh_sec, ur.frames, ur.ch);
     r = f_lseek(&uf_rf, 0);
     if (r == FR_OK) r = f_write(&uf_rf, uh_sec, 512, &bw);
     if (r == FR_OK && bw != 512u) r = FR_DENIED;
@@ -636,13 +695,13 @@ static FRESULT ur_write(uint32_t n)
 {
     UINT bw;
     FRESULT r;
-    uint32_t t0 = fm1_ms, ms, at = cr.r % CR_CAP;
-    r = f_write(&uf_rf, cp_pool + 2u * at, n * 4u, &bw);
+    uint32_t t0 = fm1_ms, ms, at = cr.r % cr.cap, bytes = n * 2u * ur.ch;
+    r = f_write(&uf_rf, cp_pool + at * ur.ch, bytes, &bw);
     ms = fm1_ms - t0;
     ur.wr_ms += ms;
     ur.wr_bytes += bw;
     if (ms > ur.slow_ms) ur.slow_ms = ms;
-    if (r == FR_OK && bw != n * 4u) r = FR_DENIED;      /* (the card full) */
+    if (r == FR_OK && bw != bytes) r = FR_DENIED;       /* (the card full) */
     if (r != FR_OK) return r;
     ur.frames += n;
     RING_PUBLISH();
@@ -668,7 +727,9 @@ static void ur_show(void)
 {
     char b[64], *e;
     uint32_t pk = (uint32_t)cr.peak, db = 0, kbs;
-    ur_time(uh_cat(uh_cat(uh_cat(b, "REC "), ur.name), " "), ur.frames);
+    e = uh_cat(uh_cat(uh_cat(b, "REC "), ur.name), " ");
+    if (cr.armed) uh_cat(e, "waits for PLAY");          /* (0.4.17) */
+    else ur_time(e, ur.frames);
     str_cpy(usbh.info, b, UH_FOOT);
     if (fm1_ms - up.msg_ms >= 2000u) {
         cr.peak = 0;                                    /* (the loudest since the last look) */
@@ -691,13 +752,15 @@ static void ur_stop(int ok, const char *why)
     FRESULT r = FR_OK;
     uint32_t n;
     char b[64], *e;
-    cr.on = 0;                                          /* (the ISR runs on this core: no block is half in) */
+    cr.on = cr.armed = 0;                               /* (the ISR runs on this core: no block is half in) */
+    cr.ended = 0;
+    CR_STEMS(0);
     ur.on = usbh.rec = 0;
     if (ok) {
         while (r == FR_OK && (n = cr.w - cr.r) != 0u) {
-            uint32_t at = cr.r % CR_CAP;
-            if (n > CR_CAP - at) n = CR_CAP - at;       /* (the last piece may end at the ring's end) */
-            if (n > UR_CHUNK) n = UR_CHUNK;
+            uint32_t at = cr.r % cr.cap;
+            if (n > cr.cap - at) n = cr.cap - at;       /* (the last piece may end at the ring's end) */
+            if (n > ur_chunk()) n = ur_chunk();
             r = ur_write(n);
         }
         if (r == FR_OK) r = ur_sync();
@@ -711,10 +774,20 @@ static void ur_stop(int ok, const char *why)
     up.msg_ms = fm1_ms;
     usbh.gen++;
 }
+/* (0.4.17) REC again before PLAY: the armed take dropped, its empty file deleted */
+static void ur_cancel(void)
+{
+    cr.on = cr.armed = 0;
+    CR_STEMS(0);
+    ur.on = usbh.rec = 0;
+    f_close(&uf_rf);
+    f_unlink(ur.path);
+    usbh.info[0] = usbh.info3[0] = 0;
+    uf_say("Take cancelled");
+}
 static void ur_start(void)
 {
-    char p[sizeof usbh.path + 16];
-    uint32_t i, n;
+    uint32_t i, n, src = usbh.src;
     UINT bw;
     FRESULT r = uf_mount();
     if (r != FR_OK) { uf_fail(r); return; }
@@ -726,15 +799,16 @@ static void ur_start(void)
         char *e = ur.name;
         e = uh_cat(e, i < 10u ? "OC00" : i < 100u ? "OC0" : "OC");
         uh_cat(uh_dec(e, i), ".WAV");
-        uh_cat(uh_cat(uh_cat(p, usbh.path), "/"), ur.name);
-        r = f_stat(p, &fi);
+        uh_cat(uh_cat(uh_cat(ur.path, usbh.path), "/"), ur.name);
+        r = f_stat(ur.path, &fi);
         if (r == FR_NO_FILE) break;
         if (r != FR_OK) { uf_fail(r); return; }
     }
     if (i == 1000u) { uf_say("No free name left"); return; }
-    r = f_open(&uf_rf, p, FA_CREATE_NEW | FA_WRITE);
+    ur.ch = (uint8_t)(src ? 1u : 2u);
+    r = f_open(&uf_rf, ur.path, FA_CREATE_NEW | FA_WRITE);
     if (r == FR_OK) {
-        ur_header(uh_sec, 0);
+        ur_header(uh_sec, 0, ur.ch);
         r = f_write(&uf_rf, uh_sec, 512, &bw);
         if (r == FR_OK && bw != 512u) r = FR_DENIED;
         if (r == FR_OK) r = f_sync(&uf_rf);
@@ -749,23 +823,25 @@ static void ur_start(void)
     ur.sync_ms = ur.show_ms = fm1_ms;
     ur.on = usbh.rec = 1;
     up.msg_ms = fm1_ms - 2000u;                         /* (no message in the way) */
-    cr_start();                                         /* (last: the ISR fills the ring from here) */
+    cr_start(src, !UF_PLAYING());                       /* (last: the ISR fills the ring from here, or from PLAY) */
     ur_show();
 }
 /* each pass of the main loop while recording: whole chunks to the card, the header every 3 s, the foot */
 static void ur_task(void)
 {
     FRESULT r = FR_OK;
-    uint32_t k;
-    for (k = 0; k < 5u && r == FR_OK && cr.w - cr.r >= UR_CHUNK; k++) r = ur_write(UR_CHUNK);
-    if (r == FR_OK && fm1_ms - ur.sync_ms >= 3000u) r = ur_sync();
+    uint32_t k, ch = ur_chunk();
+    for (k = 0; k < 5u && r == FR_OK && cr.w - cr.r >= ch; k++) r = ur_write(ch);
+    if (r == FR_OK && !cr.armed && fm1_ms - ur.sync_ms >= 3000u) r = ur_sync();
     if (r != FR_OK) {                                   /* (the last sync's length stays on the card) */
-        cr.on = 0;
+        cr.on = cr.armed = 0;
+        CR_STEMS(0);
         ur.on = usbh.rec = 0;
         f_close(&uf_rf);
         ur_stop(0, "Card error: ");
         return;
     }
+    if (cr.ended) { ur_stop(1, 0); return; }            /* (0.4.17) the sequencer stopped: the take is done */
     if (ur.frames >= UR_MAX) { ur_stop(1, "30 min: "); return; }
     if (fm1_ms - ur.show_ms >= 250u) { ur.show_ms = fm1_ms; ur_show(); }
 }
@@ -779,6 +855,15 @@ static void usbf_task(void)
     usbh_task();
     if (ur.on && !usbh.drive) ur_stop(0, "Drive gone: ");   /* (the card keeps what the last sync wrote) */
     if (ur.on) ur_task();
+    {   /* (0.4.17) synced WAVs the sequencer stopped, or that played to their end: back to the start, waiting; the
+         * rows' PLAY / READY when the sequencer started some */
+        static uint32_t was_on;
+        uint32_t s, on = 0;
+        for (s = 0; s < CP_N; s++)
+            if (cp[s].ended && cs.st[s].run) uf_rearm(s);
+        for (s = 0; s < CP_N; s++) on |= (uint32_t)(cp[s].on != 0) << s;
+        if (on != was_on) { was_on = on; uf_marks(); }
+    }
     if (up.n && !usbh.drive) uf_play_stop_all();        /* (0.4.11) the drive gone */
     if (cs.err) uf_play_stop_all();                     /* (0.4.12) the engine stopped on an error */
     if (up.n) uf_play_show();
@@ -791,7 +876,12 @@ static void usbf_task(void)
     if (c == UC_NONE) return;
     if (c == UC_PROBE) { usbh_reprobe(); return; }
     if (!usbh.drive) { uf_fail(FR_NOT_READY); return; }
-    if (c == UC_REC) { if (ur.on) ur_stop(1, 0); else ur_start(); return; }   /* (0.4.16) */
+    if (c == UC_REC) {                                  /* (0.4.16) REC: start, stop, (0.4.17) or cancel one waiting */
+        if (ur.on && cr.armed) ur_cancel();
+        else if (ur.on) ur_stop(1, 0);
+        else ur_start();
+        return;
+    }
     if (c == UC_LIST) { usbh.path[0] = 0; usbh.sel = usbh.top = 0; uf_list(); }
     else if (c == UC_WINDOW) uf_window();
     else if (c == UC_ENTER) uf_enter();

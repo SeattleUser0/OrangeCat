@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.36  
+**Version:** 0.37  
 **Date:** October 21, 2026  
-**Tracks:** Orange Cat Specification v0.7
+**Tracks:** Orange Cat Specification v0.8
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.37 (October 21, 2026):** 0.4.17: WAVs and takes in time with the sequencer; one track recorded alone (a freeze); PLAY on the drive page; WAVs at their own level.
 - **0.36 (October 21, 2026):** 0.4.16: the recorder. REC on the file list records what the FM-1 plays to a WAV on the card.
 - **0.35 (October 21, 2026):** 0.4.14 on the unit: the card tops out near 550 KB/s, with or without the sequencer. Three 16-bit stereo WAVs play clean; four drop out. 0.4.15 refuses a WAV past that limit.
 - **0.34 (October 21, 2026):** 0.4.13 on the unit: four WAVs over four sequencer tracks drop out. 0.4.14: the main loop helps the card reading, the page shows read against needed KB/s, and the foot no longer overwrites the first row.
@@ -303,10 +304,25 @@ Left to test (0.4.16):
 - [ ] A take of a few minutes.
 - [ ] Pull the card mid-take, then check it in a computer: the file keeps what was recorded up to a few seconds before.
 
+In time with the sequencer, and freezing one track (0.4.17, built; tested on the computer only):
+- PLAY works on the drive test's page: it starts and stops the sequencer there.
+- KNOB 3 on the file list picks what REC records: the mix, or track 1 to 4 alone. A track is recorded mono, its own signal before its pan, the effects and MASTER (the same split Melodee sends to a computer as USB audio). So the MASTER knob does not change a track take, it uses half the card speed of the mix, and the ring holds 464 ms of it.
+- REC while the sequencer plays starts at once, as before; REC stops it. REC while it is stopped arms the take ("REC OC004.WAV waits for PLAY"): it starts in the same audio block as the sequencer and ends in the block it stops, then saves itself. REC again before PLAY cancels it and deletes the empty file.
+- A WAV picked while the sequencer is stopped waits: its row says READY and the foot "Ready: PLAY starts it". PLAY starts it from its first sample with the sequencer. It plays once. When it ends, or the sequencer stops, it goes back to its start and waits (READY) for the next PLAY. GLO + PLAY (restart) stops it and it waits for the next start. A WAV picked while the sequencer plays loops at once, as before.
+- WAVs now play at their own level times MASTER (they played 6 dB down). A track frozen with MASTER at full comes back as loud as it went in, before its pan and effects.
+- Host tests: a READY WAV silent until PLAY, then sample for sample from its first frame, once, no gaps, then READY again; a restart; a stop mid-way; an armed take of track 2 recording exactly the 192,000 frames between start and stop; a cancelled take's file gone. pyfatfs checks the mono take, and a take cut off mid-way by the card (its kept part right, its header and size agreeing).
+
+Left to test (0.4.17):
+- [ ] PLAY on the file list starts and stops the sequencer.
+- [ ] Freeze: KNOB 3 to track 1, stop the sequencer, REC (waits), PLAY: the take runs with the song; PLAY again: "Saved". Mute track 1, OCT+ on the new file (READY), PLAY: the take plays in time with the other tracks.
+- [ ] The frozen track's level against the live one (they should match with MASTER at full; the take has no pan or effects).
+- [ ] REC, then REC again before PLAY: "Take cancelled", no file left.
+
 Left to build (later):
-- Record before MASTER, so the knob does not set the level.
-- Record one track (Melodee already splits tracks for USB audio), not just the whole mix: that is the freeze.
-- Play WAVs while recording (the memory split two ways, and the 550 KB/s shared).
+- Record the mix before MASTER.
+- A track take with its effects and pan (stereo).
+- Play WAVs while recording (the memory split two ways, and the 550 KB/s shared). Needed to freeze a second track while the first plays back.
+- WAVs as tracks in the sequencer (started by patterns and the song, not only by PLAY).
 - [ ] Stopping one with OCT+ while others play: the rest unbroken.
 - [ ] Moving through folders while they play.
 

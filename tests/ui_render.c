@@ -1451,7 +1451,7 @@ static void setup(int s)
             str_cpy(usbh.ent[i].name, N[i], UH_NAME);
             usbh.ent[i].size = Z[i];
             usbh.ent[i].dir = !Z[i] && i != 3u;
-            usbh.ent[i].play = s == S_FILES_WAV && (i == 0u || i == 2u);   /* (0.4.13) two playing */
+            usbh.ent[i].play = (uint8_t)(s != S_FILES_WAV ? 0u : i == 0u ? 1u : i == 2u ? 2u : 0u);   /* (0.4.13) playing; (0.4.17) READY */
         }
         if (s == S_FILES_REC) {
             str_cpy(usbh.info, "REC OC012.WAV 12:34", UH_FOOT);

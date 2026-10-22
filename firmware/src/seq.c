@@ -26,6 +26,7 @@ static uint8_t last_note = 60;
 static uint32_t live_held[NTRK][4], live_last[NTRK][4];
 static uint8_t live_velocity[NTRK][128] __attribute__((section(".pool")));
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
+static volatile uint32_t seq_start_count;     /* (Orange Cat 0.4.17) times the sequencer started (a RESTART too): card_play.c card_sync */
 /* audio ISR -> the UI's STEP entry (ui_input.c seq_midi_events): the edges of the notes MIDI plays, with the track and
  * the pitch they went to (after the scale layout and the chord), so the UI never guesses after a change */
 #define STEP_MIDI_Q 64u
@@ -927,6 +928,7 @@ static void seq_start(void)
     jam.n = 0;
     song.tick = 0;
     beat_pos = 0; beat_n = 0;                      /* the ARP LED's beat from the top too */
+    seq_start_count++;                                  /* (Orange Cat 0.4.17) WAVs and takes on the card start with it */
     song.playing = 1;
     if (click_wanted()) click_req=2;
 }

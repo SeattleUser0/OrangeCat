@@ -2263,6 +2263,14 @@ static void ui_input(void)
         else
             capture_take();
     }
+    if (ui.menu == 3u && !ui.confirm && ((pressed >> panel.btn[B_PLAY]) & 1u)) {   /* (Orange Cat 0.4.17) PLAY on the
+                                                         * USB drive test: the sequencer starts and stops there too
+                                                         * (WAVs and takes on the card follow it) */
+        if (song.playing || seq_counting() || chain_busy())
+            transport_req = 2;
+        else
+            play_start();
+    }
     if (ui.menu) {
         momentary_restore();                                      /* HOME / SAVE / REC taps do nothing here */
         if (ui.save_t0)

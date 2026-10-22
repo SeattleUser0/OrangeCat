@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.7  
+**Version:** 0.8  
 **Date:** October 21, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.8 (October 21, 2026):** Frozen tracks on the card: a design draft for review (10.6), from what the card tests showed (0.4.14 to 0.4.17).
 - **0.7 (October 21, 2026):** Files on the card, bounces to it, and several FM-1s sharing one card set as goals, with what USB allows (10.5).
 - **0.6 (October 21, 2026):** USB flash drive test results (10.5): the FM-1 reads a drive as a USB host when its port gets power from a hub on PD power. It does not power the port itself.
 - **0.5 (October 21, 2026):** Arrangement changed to three levels, as in the M8 and LSDJ trackers: phrases from the shared pool, chains of phrases, and a song of chains for each track (7.3). Decided after the first device test.
@@ -479,9 +480,36 @@ Goals for the card, in order (Build.md, phase 2, the plan):
 - Several FM-1s and an SMK-37 on one hub with one card. USB allows one host per bus, so one FM-1 is the host and owns the card; the other FM-1s and the SMK-37 are USB devices on the hub. The host FM-1 reads the SMK-37 as a USB MIDI host and serves files to the other FM-1s over USB MIDI. Everything on the hub shares about 900 KB/s.
 - While an FM-1 is the host, USB audio and the web editor to a computer are off; DIN and Bluetooth MIDI keep working.
 
-Whole-track or song-length freezing is not a baseline requirement.
+Whole-track freezing to the card is now a goal (10.6). Song-length freezing into internal flash is not a baseline requirement.
 
 Short sampled-instrument bounces may use internal storage, subject to measured capacity, quality, write behavior, and playback requirements.
+
+### 10.6 Frozen tracks on the card (design draft, for review)
+
+A frozen track plays a recording of itself from the card instead of running its engine. Its notes and sound stay in the project, so it can be unfrozen and changed. Freezing frees the track's voices and processor time for new tracks (4.4, option 2).
+
+What the tests showed (Build.md, phase 2):
+
+- The card reads at about 550 KB/s while the FM-1 plays, whatever the sequencer is doing. That is three 16-bit stereo files at 44.1 kHz, or six mono ones. A file that would go past that does not start.
+- One track alone can be recorded as a mono WAV before its pan, the effects and MASTER (0.4.17). That is the capture point 10.3 asks for (before the shared delay and reverb). It needs half the card speed of stereo.
+- A take armed while the sequencer is stopped starts and ends with it, in the same audio block. A WAV armed the same way plays from its first sample when the sequencer starts.
+- Not yet measured: how fast the card takes writes while WAVs play, and how long its slowest write lasts.
+
+Proposed design:
+
+1. **Freeze.** On a track, FREEZE records the track from the top of what PLAY plays (the song, the chain, or the phrase loop) to its end, with the sequencer running as normal. The take is mono, dry, before MASTER. The project keeps the file's name, its length, the tempo it was recorded at, and where it starts (song row, chain, or phrase).
+2. **Play.** A frozen track does not run its engine. Its WAV starts when the sequencer starts. Starting from another song row starts the WAV that far in (the time from the top at the recorded tempo). A take from a phrase loop is cut to whole loops and starts again at each loop.
+3. **Keeping in step.** If the tempo, the notes, or the sound change after freezing, the track is marked out of date and plays its old take until it is frozen again. Unfreeze goes back to the engine, after a resource check (4.2).
+4. **The track's own controls.** Level, mute, solo and pan still work on a frozen track (pan and the effect sends act on the take, as they did on the engine).
+5. **Files.** Takes go in a folder for the project on the card, named by track and number (for example /ORANGECAT/MYSONG/T1_003.WAV). Old takes stay until deleted. A project loaded without its card plays its frozen tracks live if they fit, and otherwise silent, with a flag on the track.
+6. **Limits.** The track admission check (4.2) counts card speed as a resource: about 88 KB/s for each mono frozen track, and room for the writes of a freeze in progress. With the numbers so far, about four frozen tracks play while a fifth freezes.
+7. **Freezing beside frozen tracks.** The player's 40 KB of RAM is split between playing and recording while a freeze runs. To measure: whether the card's write pauses stall the reading.
+8. **The USB port.** While frozen tracks play, the port is a USB host: USB MIDI, USB audio and the web editor to a computer are off. DIN and Bluetooth MIDI work.
+
+Open questions:
+
+- A stereo take with the track's own effects, for tracks whose sound depends on them.
+- Whether takes should also be copied into the internal flash sample area (10.5) for projects that must run without a card.
 
 ## 11. MIDI, Audio, and Persistence
 

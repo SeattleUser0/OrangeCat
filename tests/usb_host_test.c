@@ -131,6 +131,8 @@ static void str_cpy(char *d, const char *s, unsigned max)
 #define FM1_TICKS_PER_US 1u
 static uint32_t fm1_ticks(void) { return fm1_ms * 1000u; }
 #define CS_WAIT() cs_tick()                             /* (0.4.12) the timer's work while the main loop waits */
+static uint32_t t_playing = 1, t_starts;                /* (0.4.17) the sequencer as card_sync sees it (running, but in t_sync) */
+#define UF_PLAYING() (t_playing)
 #include "../firmware/src/card_play.c"
 #include "../firmware/src/card_stream.c"
 #include "../firmware/src/usb_files.c"
@@ -696,6 +698,7 @@ static void block(int32_t *out, uint32_t ticks)        /* one 64-frame block, th
 {
     uint32_t i;
     memset(out, 0, 2 * 64 * sizeof *out);
+    card_sync(t_playing, t_starts);                     /* (0.4.17: as audio.c, after the sequencer's events) */
     card_render(out, 64);
     for (i = 0; i < ticks; i++) cs_tick();
     usbf_task();
@@ -706,6 +709,7 @@ static int t_play(void)
 {
     int32_t out[2 * 64];
     uint32_t i, j, n = 11025, frames = 0, k24 = 0, bad = 0;
+    t_playing = 1;                                      /* (0.4.17) the sequencer runs: WAVs loop at once */
     reset_world();
     add(D_DRIVE, 64, -1, 0);
     usbh_want(1);
@@ -726,8 +730,8 @@ static int t_play(void)
     for (j = 0; j < 700u; j++) {                        /* 44,800 frames: four times round the file */
         block(out, 15);                                 /* (15 ticks: 1.45 ms of the 10 kHz timer, one block's time) */
         for (i = 0; i < 64u; i++, frames++) {
-            int32_t v = ramp(frames % n);               /* -6 dB, as the ISR scales: (x * MASTER) >> 13 */
-            if (out[2 * i] != (v * 4096) >> 13 || out[2 * i + 1] != (-v * 4096) >> 13) bad++;
+            int32_t v = ramp(frames % n);               /* as the ISR scales: (x * MASTER) >> 12 (0.4.17) */
+            if (out[2 * i] != (v * 4096) >> 12 || out[2 * i + 1] != (-v * 4096) >> 12) bad++;
         }
         if (j == 300u) { usbh.top = 1; ask(UC_WINDOW); usbh.top = 0; ask(UC_WINDOW); }   /* FatFs on the bus mid-play */
     }
@@ -744,8 +748,8 @@ static int t_play(void)
         block(out, 15);
         for (i = 0; i < 64u; i++, frames++, k24++) {
             int32_t v = ramp(frames % n), m = at_half(k24);
-            if (out[2 * i] != ((v * 4096) >> 13) + ((m * 4096) >> 13) ||
-                out[2 * i + 1] != ((-v * 4096) >> 13) + ((m * 4096) >> 13)) bad++;
+            if (out[2 * i] != ((v * 4096) >> 12) + ((m * 4096) >> 12) ||
+                out[2 * i + 1] != ((-v * 4096) >> 12) + ((m * 4096) >> 12)) bad++;
         }
     }
     printf("  two: %u wrong, %u gaps\n", bad, gaps_all());
@@ -756,7 +760,7 @@ static int t_play(void)
     for (j = 0; j < 50u; j++) {
         block(out, 15);
         for (i = 0; i < 64u; i++, k24++)
-            if (out[2 * i] != (at_half(k24) * 4096) >> 13) bad++;
+            if (out[2 * i] != (at_half(k24) * 4096) >> 12) bad++;
     }
     assert(!bad && !gaps_all());
     pick("tone.wav");                                   /* four at once: tone, tone24, Kick, drums/snare */
@@ -888,11 +892,19 @@ static int t_silent_device(void)
  * tests/check_rec_card.py). */
 static int32_t rec_l(uint32_t f) { return ramp(f); }
 static int32_t rec_r(uint32_t f) { return -ramp(f * 3u) / 2; }
+static int32_t rec_t(uint32_t f, uint32_t t) { return (int32_t)((f * (7u + t) + t * 1000u) % 70000u) - 35000; }   /* (0.4.17)
+                                                         * track t's stem: past 16 bits both ways (held) */
 static void rec_block(int32_t *out, uint32_t *f)        /* one 64-frame block of the known signal into the ring */
 {
-    uint32_t i;
-    for (i = 0; i < 64u; i++, (*f)++) { out[2 * i] = rec_l(*f); out[2 * i + 1] = rec_r(*f); }
-    card_capture(out, 64);
+    static int32_t trk[64 * 4];
+    uint32_t i, t;
+    for (i = 0; i < 64u; i++, (*f)++) {
+        out[2 * i] = rec_l(*f);
+        out[2 * i + 1] = rec_r(*f);
+        for (t = 0; t < 4u; t++) trk[i * 4u + t] = rec_t(*f, t);
+    }
+    card_sync(t_playing, t_starts);
+    card_capture(out, trk, 64);
     memset(out, 0, 2 * 64 * sizeof *out);
     card_render(out, 64);
     cs_tick();
@@ -917,6 +929,7 @@ static int t_rec(void)
     UINT got;
     uint8_t h[512];
     int16_t smp[2 * 256];
+    t_playing = 1;                                      /* (0.4.17) the sequencer runs: REC starts at once */
     reset_world();
     add(D_DRIVE, 64, -1, 0);
     usbh_want(1);
@@ -968,7 +981,7 @@ static int t_rec(void)
     for (i = 0, f = 0; i < 50u; i++) {
         block(out, 15);
         for (uint32_t j = 0; j < 64u; j++, f++)
-            if (out[2 * j] != (rec_l(f) * 4096) >> 13 || out[2 * j + 1] != (rec_r(f) * 4096) >> 13) bad++;
+            if (out[2 * j] != (rec_l(f) * 4096) >> 12 || out[2 * j + 1] != (rec_r(f) * 4096) >> 12) bad++;
     }
     assert(!bad);
     ask(UC_REC);                                        /* again: the player stops, OC002.WAV */
@@ -976,7 +989,6 @@ static int t_rec(void)
     for (i = 0, f = 0; i < 300u; i++) rec_block(out, &f);
     ask(UC_REC);
     assert(!ur.on && !strcmp(usbh.info, "Saved OC002.WAV, 0.4 s"));
-    dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it) */
     ask(UC_REC);                                        /* OC003.WAV, and the card stops answering mid-way */
     assert(ur.on && !strcmp(ur.name, "OC003.WAV"));
     for (i = 0, f = 0; i < 4000u && ur.on; i++) {
@@ -990,10 +1002,118 @@ static int t_rec(void)
     run_ms(2);
     return 1;
 }
+/* (0.4.17) with the sequencer: a WAV picked while it is stopped waits (READY), plays once from its first frame when
+ * it starts, rewinds and waits again at its end and when it stops; a take armed while it is stopped records exactly
+ * the blocks between start and stop, one track as a mono WAV; REC again before PLAY cancels a take and deletes its
+ * file. Then the card is written out for tests/check_rec_card.py. */
+static int t_sync(void)
+{
+    int32_t out[2 * 64];
+    uint32_t i, j, f = 0, bad = 0, loud = 0, n = 11025;
+    FIL fl;
+    FILINFO fi;
+    UINT got;
+    uint8_t h[512];
+    int16_t smp[256];
+    int row;
+    t_playing = 0;
+    reset_world();
+    add(D_DRIVE, 64, -1, 0);
+    usbh_want(1);
+    run_ms(5);
+    lines = 2;
+    run_ms(400);
+    usbh.view = 1;
+    ask(UC_LIST);
+    pick("SAMPLES");
+    pick("tone.wav");                                   /* stopped: it waits */
+    row = row_of("tone.wav") - (int)usbh.top;
+    printf("  sync: [%s] [%s]\n", usbh.info, usbh.info2);
+    fflush(stdout);
+    assert(cp[0].armed && !cp[0].on && cp[0].synced && cs.st[0].once && !strcmp(usbh.info2, "Ready: PLAY starts it") &&
+           usbh.ent[row].play == 2u);
+    for (i = 0; i < 100u; i++) {                        /* nothing until PLAY */
+        block(out, 15);
+        for (j = 0; j < 128u; j++) loud |= (uint32_t)out[j];
+    }
+    assert(!loud && cp[0].armed && !gaps_all());
+    t_playing = 1; t_starts++;                          /* PLAY: from its first frame, in the block it starts */
+    for (i = 0; i < 300u; i++) {                        /* 19,200 frames: the file (11,025) once, then silence */
+        block(out, 15);
+        for (j = 0; j < 64u; j++, f++) {
+            int32_t v = f < n ? ramp(f) : 0;
+            if (out[2 * j] != (v * 4096) >> 12 || out[2 * j + 1] != (-v * 4096) >> 12) bad++;
+        }
+    }
+    printf("  sync: once, %u wrong, %u gaps, [%s]\n", bad, gaps_all(), usbh.info2);
+    fflush(stdout);
+    assert(!bad && !gaps_all() && cp[0].armed && !cp[0].on && usbh.ent[row].play == 2u);   /* waiting again */
+    t_starts++;                                         /* (a RESTART: it plays again from the top) */
+    for (i = 0, f = 0; i < 50u; i++) {
+        block(out, 15);
+        for (j = 0; j < 64u; j++, f++)
+            if (out[2 * j] != (ramp(f) * 4096) >> 12) bad++;
+    }
+    assert(!bad && cp[0].on && usbh.ent[row].play == 1u);
+    t_playing = 0;                                      /* STOP mid-way: silent at once, then back to its start */
+    for (i = 0, loud = 0; i < 20u; i++) {
+        block(out, 15);
+        for (j = 0; j < 128u; j++) loud |= (uint32_t)out[j];
+    }
+    assert(!loud && cp[0].armed && !cp[0].on && cp[0].w >= cp[0].cap / 2u && cs.st[0].pos <= cp[0].w * 4u + 512u);
+    t_playing = 1; t_starts++;
+    for (i = 0, f = 0; i < 20u; i++) {
+        block(out, 15);
+        for (j = 0; j < 64u; j++, f++)
+            if (out[2 * j] != (ramp(f) * 4096) >> 12) bad++;
+    }
+    assert(!bad && !gaps_all());
+    t_playing = 0;
+    for (i = 0; i < 5u; i++) block(out, 15);
+    ask(UC_UP);
+    usbh.src = 2;                                       /* track 2, armed while stopped */
+    ask(UC_REC);                                        /* (the WAV stops: the recorder takes its memory) */
+    printf("  synced take: [%s] [%s]\n", usbh.info, usbh.info2);
+    fflush(stdout);
+    assert(ur.on && cr.armed && !cr.on && cr.ch == 1u && !up.n && !strcmp(usbh.info, "REC OC004.WAV waits for PLAY"));
+    for (i = 0, f = 0; i < 200u; i++) rec_block(out, &f);   /* nothing until PLAY */
+    assert(!ur.frames && cr.w == 0u);
+    t_playing = 1; t_starts++;
+    for (i = 0, f = 0; i < 3000u; i++) rec_block(out, &f);   /* 192,000 frames */
+    t_playing = 0;                                      /* STOP: the take ends in that block, and is saved */
+    for (i = 0; i < 10u && ur.on; i++) rec_block(out, &j);
+    printf("  synced take: [%s] [%s] %u frames\n", usbh.info, usbh.info2, ur.frames);
+    fflush(stdout);
+    assert(!ur.on && ur.frames == 192000u && !strcmp(usbh.info, "Saved OC004.WAV, 4.3 s") && row_of("OC004.WAV") >= 0);
+    assert(f_open(&fl, "/OC004.WAV", FA_READ) == FR_OK && f_size(&fl) == 512u + 192000u * 2u);
+    assert(f_read(&fl, h, 512, &got) == FR_OK && h[22] == 1 && h[32] == 2 && h[28] == 0x88 && h[29] == 0x58 && h[30] == 1);
+    for (f = 0; f < 192000u;) {
+        uint32_t k = 192000u - f > 256u ? 256u : 192000u - f;
+        assert(f_read(&fl, smp, k * 2u, &got) == FR_OK && got == k * 2u);
+        for (i = 0; i < k; i++, f++) {
+            int32_t v = rec_t(f, 1);
+            v = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+            if (smp[i] != v) bad++;
+        }
+    }
+    f_close(&fl);
+    printf("  OC004.WAV: track 2, mono, %u wrong\n", bad);
+    fflush(stdout);
+    assert(!bad);
+    ask(UC_REC);                                        /* armed, then REC again: cancelled, its file gone */
+    assert(ur.on && cr.armed && !strcmp(ur.name, "OC005.WAV"));
+    ask(UC_REC);
+    assert(!ur.on && !cr.armed && !strcmp(usbh.info2, "Take cancelled") && f_stat("/OC005.WAV", &fi) == FR_NO_FILE);
+    usbh.src = 0;
+    dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it) */
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
 int main(void)
 {
     card_load();
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_play() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_rec();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_play() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_rec() && t_sync();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }

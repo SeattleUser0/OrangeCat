@@ -376,7 +376,8 @@ static void drive_draw(void)
 /* (0.4.10) the drive's files: the folder at the top ("/SAMPLES/drums"), six rows (the name, a folder's with "/"; a
  * file's size at the right), the row picked on the surface colour, a bar at the right edge for where the rows are;
  * the foot: what the picked file is and how fast it read (usb_files.c), or what the keys do.
- * (0.4.16) With nothing in the foot, it says what REC does.
+ * (0.4.16) With nothing in the foot, it says what REC does; (0.4.17) what it records (the mix, or a track: KNOB 3).
+ * A WAV waiting for the sequencer to start says READY.
  * (0.4.14) Five rows and three foot lines (the players' gaps and speed on the last); the row picked on the selection
  * colour mixed with 30% of the theme (the surface colour hardly showed on the device). */
 static void files_draw(void)
@@ -408,7 +409,8 @@ static void files_draw(void)
                     cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220);
                 } else {
                     int32_t w;
-                    if (usbh.ent[i].play) str_cpy(sz, "PLAY", sizeof sz);   /* (0.4.13) a WAV playing */
+                    if (usbh.ent[i].play) str_cpy(sz, usbh.ent[i].play == 2u ? "READY" : "PLAY", sizeof sz);   /* (0.4.13) a
+                                                         * WAV playing; (0.4.17) one waiting for PLAY */
                     else uh_bytes(sz, usbh.ent[i].size);
                     w = text_w(TY_LB, sz);
                     cv_free_text(8, y, TY_TX, nm, T_TEXT, bg, 220 - w - 8);
@@ -426,7 +428,11 @@ static void files_draw(void)
             cv_free_text(8, 194, TY_LB, usbh.info2, T_MID, T_BG, 224);
             cv_free_text(8, 216, TY_LB, usbh.info3, T_MID, T_BG, 224);
         } else {
-            cv_free_text(8, 194, TY_LB, "REC records a WAV here", T_MID, T_BG, 224);   /* (0.4.16) */
+            char r[32];                                 /* (0.4.16) what REC does; (0.4.17) what it records (KNOB 3) */
+            str_cpy(r, usbh.src ? "REC records track 1" : "REC records the mix", sizeof r);
+            if (usbh.src) r[18] = (char)('0' + usbh.src);
+            cv_free_text(8, 172, TY_LB, r, T_TEXT, T_BG, 224);
+            if (UH_SRC_MAX) cv_free_text(8, 194, TY_LB, "KNOB 3 changes it", T_MID, T_BG, 224);
             cv_free_text(8, 216, TY_LB, "OCT+ open  OCT- back", T_MID, T_BG, 224);
         }
         cv_oy = 0;
@@ -467,6 +473,14 @@ static int drive_input(uint32_t ok, uint32_t back)
         if (ok) usbh.cmd = usbh.drive ? UC_LIST : UC_PROBE;
         if (ok && usbh.drive) usbh.view = 1;
         return 1;
+    }
+    {   /* (0.4.17) KNOB 3: what REC records (the mix, track 1..4), not while it records */
+        int32_t k = panel_enc(EN_K3);
+        if (k && !usbh.rec) {
+            usbh.src = (uint8_t)clamp((int32_t)usbh.src + (k > 0 ? 1 : -1), 0, (int32_t)UH_SRC_MAX);
+            usbh.info[0] = usbh.info2[0] = usbh.info3[0] = 0;   /* (the foot says what it is now) */
+            ui.force = 1;
+        }
     }
     if (back) {
         if (usbh.path[0]) usbh.cmd = UC_UP;

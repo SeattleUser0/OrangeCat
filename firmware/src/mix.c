@@ -96,6 +96,7 @@ static void events_block(uint32_t n);
 static int ua_capture_active(void);
 static uint8_t track_capture_on;
 static int32_t track_capture[CTL * NTRK];
+static volatile uint8_t mix_stems_wanted;               /* (Orange Cat 0.4.17) the card recorder takes one track (card_play.c) */
 #endif
 
 typedef struct {
@@ -337,7 +338,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     fx_profile_poll();
 #endif
 #if MELODEE_USB_AUDIO
-    track_capture_on=(uint8_t)ua_capture_active();
+    track_capture_on=(uint8_t)(ua_capture_active() || mix_stems_wanted);   /* (Orange Cat 0.4.17: or the card recorder) */
     if(track_capture_on)memset(track_capture,0,n*NTRK*sizeof *track_capture);
 #endif
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
