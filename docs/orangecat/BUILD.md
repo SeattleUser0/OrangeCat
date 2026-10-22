@@ -781,6 +781,12 @@ Measurements (fill in):
 | Warps | | | | |
 | Tides | | | | |
 
+### Engines to bring back (asked for October 22, 2026)
+
+- [ ] WHEEL (Melodee's legacy engine 7, out since phase 3 with the other legacy engines: core.h MELODEE_LEGACY_EXTRAS).
+- [ ] DRUM-X (Skiff's drum engine; also what the drum grid needs to be heard, see phase 4).
+- Not urgent. ORGAN DRAWBAR at two notes is fine for now (Jeremiah, October 22, 2026).
+
 ---
 
 ## Phases 8 to 11
