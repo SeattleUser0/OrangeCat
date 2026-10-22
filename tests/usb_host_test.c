@@ -730,6 +730,9 @@ static int t_play(void)
     pick("tone.wav");                                   /* four at once: tone, tone24, Kick, drums/snare */
     pick("Kick 808 Long Name.wav");
     pick("drums");
+    pick("snare.wav");                                  /* (0.4.15) past the card's limit: refused */
+    assert(up.n == 3 && !cp[3].on && !strcmp(usbh.info2, "Too much for the card"));
+    uf_budget = 1000000u;                               /* (the test's card is fast: four, 604 KB/s) */
     pick("snare.wav");
     assert(up.n == 4 && cp[0].on && cp[1].on && cp[2].on && cp[3].on);
     for (j = 0; j < 400u; j++) block(out, 20);

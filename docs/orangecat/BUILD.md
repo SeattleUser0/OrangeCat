@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.34  
+**Version:** 0.35  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.7
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.35 (October 21, 2026):** 0.4.14 on the unit: the card tops out near 550 KB/s, with or without the sequencer. Three 16-bit stereo WAVs play clean; four drop out. 0.4.15 refuses a WAV past that limit.
 - **0.34 (October 21, 2026):** 0.4.13 on the unit: four WAVs over four sequencer tracks drop out. 0.4.14: the main loop helps the card reading, the page shows read against needed KB/s, and the foot no longer overwrites the first row.
 - **0.33 (October 21, 2026):** 0.4.13: up to four WAVs from the card at once.
 - **0.32 (October 21, 2026):** 0.4.12 on the unit: the card's share of the processor down from 23% to 2%.
@@ -269,10 +270,17 @@ Tested (0.4.13 on the unit, October 21):
 - The file list shows five rows. The foot has three lines: the file picked; a message for 2 s, then "4 on, CPU 49%, card 8%"; then "gap 0, 512 of 529 KB/s": dropouts first, then the KB/s read in the last second against the KB/s the playing files need. The lines are built in a buffer and cut to fit.
 - The picked row is easier to see: the background mixed with 30% of the theme colour.
 
-Left to test (0.4.14):
-- [ ] One WAV, then two, three, four: the gap count and the two KB/s numbers at each, with and without the sequencer.
-- [ ] If "read" stays below "needed", the card cannot keep up: note both numbers. That sets how many tracks we allow.
-- [ ] The top row's name stays put; the picked row shows.
+Tested (0.4.14 on the unit, October 21; four 44.1 kHz 16-bit stereo files, 0.5 to 1.6 s long):
+- [x] No sequencer: 2 on, 345 of 344 KB/s, gap 0. 3 on, 515 of 516, gap 0. 4 on, 554 of 689, 2,021 gaps. CPU 11 to 13%, card 5 to 8%.
+- [x] Four sequencer tracks playing: 2 on, 344 of 344, gap 0, CPU 48%. 3 on, 516 of 516, gap 0, CPU 52%. 4 on, 550 of 689, 1,228 gaps, CPU 56%.
+- [x] The top row's name stays put; the picked row shows.
+- Result: the card tops out near 550 KB/s, the sequencer or not. That is three 16-bit stereo 44.1 kHz files, or about six mono. The main loop's help did not raise it much: the limit is the small reads (4 KB or less) and each one's round trip. The 0.4.10 speed test read 914 KB/s in 32 KB pieces, so bigger reads would help, but they need memory the player does not have yet.
+
+0.4.15 (built):
+- A WAV that would take the playing ones past 532 KB/s does not start. The page says "Too much for the card".
+
+Left to test (0.4.15):
+- [ ] Three 16-bit stereo files play; a fourth says "Too much for the card" and the three play on.
 - [ ] Stopping one with OCT+ while others play: the rest unbroken.
 - [ ] Moving through folders while they play.
 

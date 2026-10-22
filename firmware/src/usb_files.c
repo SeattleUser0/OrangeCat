@@ -30,6 +30,8 @@
  *          lines: the file picked, a message (held 2 s) or how many play with the loads, and the gaps (dropouts, not
  *          blocks) with the card's speed: "read" against "needed" KB/s. The main loop steps the card engine too
  *          (card_stream.c cs_poll).
+ *   0.4.15: a WAV that would take the playing ones past what the card keeps up with (uf_budget, 532 KB/s: measured on
+ *          the unit) does not start: "Too much for the card".
  */
 #ifndef UF_HOST_LIBC
 char *strchr(const char *s, int c)                      /* ff.c: the characters a name may not hold */
@@ -253,6 +255,13 @@ static void uf_wav_text(const struct uf_wi *w, char *b)
  * (0.4.11 read in the main loop: 29% of its time for one stereo track. 0.4.12 moved the reading to the timer: 2%.
  * 0.4.13: up to four at once; OCT+ on a playing one stops it; they play on through the folders, and stop when the
  * file list is left or the drive goes.) */
+/* (0.4.15) what the card keeps up with: 0.4.14 on the unit read 550 KB/s at most, with or without the sequencer
+ * (3 files of 16-bit stereo 44.1 kHz, 516 KB/s, played clean; 4, 689 KB/s, dropped out). A file that would take the
+ * playing ones past this does not start. */
+#ifndef UF_BUDGET
+#define UF_BUDGET 545000u                               /* bytes a second (532 KB/s) */
+#endif
+static uint32_t uf_budget = UF_BUDGET;                  /* (host tests change it) */
 #ifndef UF_CPU
 #define UF_CPU() (song.cpu_q8 * 100u / 256u)
 #endif
@@ -396,6 +405,16 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
         f_close(&uf_pf);
         uf_say("Four play already");
         return;
+    }
+    {   /* (0.4.15) the card's limit */
+        uint32_t k, need = w->rate * (w->bits / 8u) * w->ch;
+        for (k = 0; k < CP_N; k++)
+            if (cs.st[k].run) need += cs.st[k].bps;
+        if (need > uf_budget) {
+            f_close(&uf_pf);
+            uf_say("Too much for the card");
+            return;
+        }
     }
     o = &cs.st[s];
     if (!uf_extents(&uf_pf, fsize, o)) {
