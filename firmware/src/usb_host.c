@@ -41,6 +41,8 @@
  *          the list shows five rows to make room. (0.4.13's foot ran past its 30 and wrote over the first row's
  *          name: the "8" on the device was the end of the gap count.)
  *   0.4.16: WRITE(10): uh_scsi_w (the recorder's, through FatFs: usb_files.c disk_write).
+ *   0.4.20: frozen tracks' state (frz[], below: the MIXER page's KNOB 3 asks, usb_files.c does it, card_freeze.c plays
+ *           and records); the port stays a host while any track is frozen or freezing (usbh_want(0) leaves it on).
  */
 #ifndef UH_LINES_READ
 #define UH_LINES_READ() fm1_usb_lines()                 /* (host tests replace the hardware read) */
@@ -773,7 +775,50 @@ static void uh_probe(void)
 
 /* ---- the page ---- */
 /* the page's side: only a wish (the UI never touches the controller; the host tests run it without one) */
-static void usbh_want(int on) { usbh.want = (uint8_t)!!on; usbh.gen++; }
+/* ---- (0.4.20) frozen tracks: their state, shared by the MIXER page (ui_input.c, ui_draw.c), the card side
+ * (usb_files.c frz_task) and the audio side (card_freeze.c) ----
+ * A freeze: KNOB 3 right asks (want +1); the main loop wakes the port and the card (FZ_CARD), opens the take's file
+ * and arms the audio side (FZ_ARMED: it waits for the track's cycle to come round, with one whole cycle played
+ * first so its tails are in); the audio side records the cycle (FZ_REC) and a little past its end (FZ_POST); the
+ * main loop blends that into the take's start, cuts it to the cycle and loads it (FZ_SAVE); then the take plays in
+ * the track's place (FZ_ON). KNOB 3 left (want -1): unfreeze, or cancel. FZ_FAIL: the audio side gave up (the
+ * sequencer stopped mid-take); the main loop cleans up. why: the last word for the page (an error). */
+enum { FZ_OFF, FZ_CARD, FZ_ARMED, FZ_REC, FZ_POST, FZ_SAVE, FZ_ON, FZ_FAIL };
+static struct {
+    volatile uint8_t st;
+    volatile int8_t want;                               /* the knob: +1 freeze, -1 unfreeze or cancel */
+    uint8_t slot;                                       /* the player slot its take plays in (card_play.c cp[]) */
+    uint16_t take;                                      /* its file: /ORANGECAT/T<k+1>_<take>.WAV */
+    uint16_t passes;                                    /* the passes of its phrase in one cycle */
+    int16_t lvl;                                        /* its LEVEL when frozen (the take has it in) */
+    uint32_t t0;                                        /* (FZ_CARD) since when */
+    uint16_t epoch;                                     /* the project it was frozen in (pattern_epoch) */
+    char why[10];                                       /* the page's word after a failure ("Card?") */
+} frz[4];
+static void frz_knob(uint32_t k, int32_t dir) { if (k < 4u && dir) frz[k].want = (int8_t)(dir > 0 ? 1 : -1); }
+static int frz_busy(void)                               /* a track frozen or freezing: the port stays a host */
+{
+    uint32_t k;
+    for (k = 0; k < 4u; k++) if (frz[k].st != FZ_OFF || frz[k].want > 0) return 1;
+    return 0;
+}
+/* the MIXER page's word for a track's freeze (ui_pages.c pv_strip, where its pan is): Card (waking it), Ready
+ * (stopped: PLAY), Wait (the first cycle), Rec, Save, Frozen, or the failure's word ("Card?": none found; "Error",
+ * "Full", "Slow", "Busy", "Stop", "Short", "Lvl 0"); "" none */
+static const char *frz_word(uint32_t k, int playing)
+{
+    static const char *const W[] = {"", "Card", "Ready", "Rec", "Rec", "Save", "Frozen", "Stop"};
+    if (k >= 4u) return "";
+    if (frz[k].st == FZ_OFF && frz[k].why[0]) return frz[k].why;
+    if (frz[k].st == FZ_ARMED && playing) return "Wait";
+    return W[frz[k].st & 7u];
+}
+static void usbh_want(int on)
+{
+    if (!on && frz_busy()) { usbh.view = 0; usbh.gen++; return; }   /* (0.4.20) frozen tracks keep the card */
+    usbh.want = (uint8_t)!!on;
+    usbh.gen++;
+}
 /* the controller as a host. Melodee found that it does not answer at power-on without a cable (usb.c usb_retry):
  * it may need 5 V on the port. usbh.sie says whether it answered; line 0 says it in words. */
 static void uh_attach(void)

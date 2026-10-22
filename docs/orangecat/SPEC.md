@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.9  
+**Version:** 0.10  
 **Date:** October 21, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.10 (October 21, 2026):** Freezing built (0.4.20): the MIXER page's KNOB 3; what is built and what is not yet (10.6).
 - **0.9 (October 21, 2026):** Frozen tracks decided: stereo, to the card (never to internal flash), played through a sampled instrument, with resampling and undo (10.6). Sampled instruments load WAVs from the card, after Skiff's SAMPLE engine and the M8 (10.7).
 - **0.8 (October 21, 2026):** Frozen tracks on the card: a design draft for review (10.6), from what the card tests showed (0.4.14 to 0.4.17).
 - **0.7 (October 21, 2026):** Files on the card, bounces to it, and several FM-1s sharing one card set as goals, with what USB allows (10.5).
@@ -502,7 +503,7 @@ Decisions (Jeremiah, October 21, 2026):
 - A frozen track plays through a sampled instrument (10.7), as the M8 does. The take is loaded into the track's sampler instrument, which the track triggers from the start point. Because it is the track's instrument, the track's level, pan, effect sends (reverb, delay) and inserts all still work on it.
 - A frozen track can be resampled: its sound with the effects added since freezing is recorded to a new WAV, which becomes the track's take.
 - Undo puts back the track's previous take. The take files are kept, so undo goes back as far as the takes are kept.
-- Frozen tracks are never recorded to internal flash.
+- Frozen tracks are never recorded to internal flash: a stereo minute at 44.1 kHz is about 10.6 MB, and the FM-1 has 1 MiB of flash in all. No card, no freeze.
 
 Design:
 
@@ -516,7 +517,10 @@ Design:
 8. **Freezing beside frozen tracks.** The player's 40 KB of RAM is split between playing and recording while a freeze runs. To measure: whether the card's write pauses stall the reading.
 9. **The USB port.** While frozen tracks play, the port is a USB host: USB MIDI, USB audio and the web editor to a computer are off. DIN and Bluetooth MIDI work.
 
-- Takes never go to internal flash (decided October 21): a stereo minute at 44.1 kHz is about 10.6 MB, and the FM-1 has 1 MiB of flash in all. No card, no freeze.
+Built (0.4.20, Build.md):
+
+- FREEZE is KNOB 3 on the MIXER page: right freezes the selected track, left unfreezes. Design points 1 and 2 as written, with the take mixed at the track's place in the mixer (its level, mute, solo and sends; the sampled instrument of 10.7 comes later and will play the same takes). One cycle is recorded plus 46 ms past its end, blended into its start, so the loop has no click.
+- Not yet: points 3 (resample), 4 (undo), 5 (out of date), the project keeping its frozen tracks, and a folder per project (takes are /ORANGECAT/T<track>_<nnn>.WAV).
 
 ### 10.7 Sampled instruments
 

@@ -64,7 +64,16 @@ static struct cp_stream {
     volatile uint8_t eof;                               /* (0.4.17) the reading has fed the file's last frame */
     volatile uint8_t ended;                             /* (0.4.17) the ISR stopped it (the end, a stop): the main loop
                                                          * rewinds it */
+    uint8_t trk;                                        /* (0.4.20) 0: the page's; k + 1: track k's frozen take
+                                                         * (card_freeze.c plays it, card_render and card_sync leave it) */
 } cp[CP_N];
+#ifndef CTL_MAX_CP
+#ifdef CTL
+#define CTL_MAX_CP CTL                                  /* (0.4.20) frames a block at most (audio.c's blocks) */
+#else
+#define CTL_MAX_CP 256u
+#endif
+#endif
 
 /* a slot's ring made ready for a file of ch channels (1 or 2 kept), rate Hz; the ISR does not play it yet */
 static void cp_setup(uint32_t s, uint32_t ch, uint32_t rate)
@@ -80,6 +89,7 @@ static void cp_setup(uint32_t s, uint32_t ch, uint32_t rate)
     c->gaps = 0;
     c->shrt = 0;
     c->armed = c->synced = c->eof = c->ended = 0;
+    c->trk = 0;
     c->step = rate * 16384u / 11025u;                   /* rate / 44100 in Q16 (192 kHz fits 32 bits) */
 }
 static uint32_t cp_room(uint32_t s) { return cp[s].cap - 2u - (cp[s].w - cp[s].r); }   /* (2: the line looks ahead) */
@@ -96,55 +106,72 @@ static void cp_put(uint32_t s, int16_t l, int16_t r)
 }
 
 /* add the streams to one block of DAC samples (stereo Q15, after the master and the click) */
+/* (0.4.20) stream c's frames [from, n) into l and r at the file's level (no MASTER), 0 where it runs short; the
+ * gaps and a once-played file's end counted as card_render did (split out of it: a frozen track's take is mixed as
+ * the track, card_freeze.c, not added at the DAC) */
+static void cp_pull(struct cp_stream *c, int32_t *l, int32_t *rt, uint32_t from, uint32_t n)
+{
+    uint32_t i, r, w, ri, ph, st, cap, ch, next, sh = 0;
+    const int16_t *b;
+    r = c->r; w = c->w; ri = c->ri; ph = c->phase; st = c->step; cap = c->cap; ch = c->ch; b = c->buf;
+    for (i = 0; i < from && i < n; i++) l[i] = rt[i] = 0;
+    for (i = from; i < n; i++) {
+        int32_t f, a0, a1, x, y;
+        if (w - r < 2u && !(c->eof && w - r == 1u)) {   /* short: silence for the rest of the block */
+            sh = 1;
+            break;
+        }
+        next = w - r < 2u ? ri : ri + 1u == cap ? 0u : ri + 1u;   /* (0.4.17: a file's last frame, nothing after) */
+        f = (int32_t)(ph >> 1);                         /* Q15 */
+        a0 = b[ri * ch];
+        a1 = b[next * ch];
+        x = a0 + (((a1 - a0) * f) >> 15);
+        if (ch == 2u) {
+            a0 = b[ri * 2u + 1u];
+            a1 = b[next * 2u + 1u];
+            y = a0 + (((a1 - a0) * f) >> 15);
+        } else {
+            y = x;
+        }
+        l[i] = x;
+        rt[i] = y;
+        ph += st;
+        while (ph >= 65536u) {                          /* (a step above 1: a file faster than 44.1 kHz) */
+            ph -= 65536u;
+            r++;
+            if (++ri == cap) ri = 0;
+        }
+    }
+    for (; i < n; i++) l[i] = rt[i] = 0;
+    c->phase = ph;
+    c->ri = ri;
+    c->r = r;
+    if (sh && c->eof) {                                 /* (0.4.17) played once to its end: over, not a gap */
+        c->on = 0;
+        c->ended = 1;
+        return;
+    }
+    if (sh && !c->shrt) c->gaps++;                      /* (0.4.14) a dropout starts */
+    c->shrt = (uint8_t)sh;
+}
+/* add the streams the page plays (not a frozen track's: card_freeze.c) to one block of DAC samples (stereo Q15, after
+ * the master and the click) */
+static int32_t cp_tl[CTL_MAX_CP], cp_tr[CTL_MAX_CP];
 static __attribute__((noinline)) void card_render(int32_t *out, uint32_t n)
 {
     uint32_t s, i, any = 0;
     int32_t g = CP_GAIN();
+    if (n > CTL_MAX_CP) n = CTL_MAX_CP;
     for (s = 0; s < CP_N; s++) {
         struct cp_stream *c = &cp[s];
-        uint32_t r, w, ri, ph, st, cap, ch, next, sh = 0;
-        const int16_t *b;
-        if (!c->on)
+        if (!c->on || c->trk)
             continue;
         any = 1;
-        r = c->r; w = c->w; ri = c->ri; ph = c->phase; st = c->step; cap = c->cap; ch = c->ch; b = c->buf;
+        cp_pull(c, cp_tl, cp_tr, 0, n);
         for (i = 0; i < n; i++) {
-            int32_t f, a0, a1, l, rr;
-            if (w - r < 2u && !(c->eof && w - r == 1u)) {   /* short: silence for the rest of the block */
-                sh = 1;
-                break;
-            }
-            next = w - r < 2u ? ri : ri + 1u == cap ? 0u : ri + 1u;   /* (0.4.17: a file's last frame, nothing after) */
-            f = (int32_t)(ph >> 1);                     /* Q15 */
-            a0 = b[ri * ch];
-            a1 = b[next * ch];
-            l = a0 + (((a1 - a0) * f) >> 15);
-            if (ch == 2u) {
-                a0 = b[ri * 2u + 1u];
-                a1 = b[next * 2u + 1u];
-                rr = a0 + (((a1 - a0) * f) >> 15);
-            } else {
-                rr = l;
-            }
-            out[2u * i] += (l * g) >> 12;               /* MASTER (Q12) (0.4.17: at the file's level; was -6 dB) */
-            out[2u * i + 1u] += (rr * g) >> 12;
-            ph += st;
-            while (ph >= 65536u) {                      /* (a step above 1: a file faster than 44.1 kHz) */
-                ph -= 65536u;
-                r++;
-                if (++ri == cap) ri = 0;
-            }
+            out[2u * i] += (cp_tl[i] * g) >> 12;        /* MASTER (Q12) (0.4.17: at the file's level; was -6 dB) */
+            out[2u * i + 1u] += (cp_tr[i] * g) >> 12;
         }
-        c->phase = ph;
-        c->ri = ri;
-        c->r = r;
-        if (sh && c->eof) {                             /* (0.4.17) played once to its end: over, not a gap */
-            c->on = 0;
-            c->ended = 1;
-            continue;
-        }
-        if (sh && !c->shrt) c->gaps++;                  /* (0.4.14) a dropout starts */
-        c->shrt = (uint8_t)sh;
     }
     if (any)                                            /* (0.4.13) several at once: held to the DAC's full scale (Q15 x 2:
                                                          * audio.c's OUT_SHIFT puts Q15 at -6 dBFS), never wrapped */
@@ -166,6 +193,8 @@ static struct {
     volatile uint8_t armed;                             /* (0.4.17) starts when the sequencer starts */
     volatile uint8_t synced;                            /* (0.4.17) stops when the sequencer stops */
     volatile uint8_t ended;                             /* (0.4.17) the sequencer stopped it: the main loop saves it */
+    int16_t *buf;                                       /* (0.4.20) the ring: the whole pool (the page's REC), or slots 2
+                                                         * and 3 (a freeze: frozen takes play in 0 and 1) */
 } cr;
 /* ready to record: src 0 the mix, 1..4 that track; armed: from the sequencer's next start */
 static void cr_start(uint32_t src, int armed)
@@ -173,6 +202,7 @@ static void cr_start(uint32_t src, int armed)
     cr.on = cr.armed = cr.synced = cr.ended = 0;
     cr.ch = 2u;
     cr.trk = (uint8_t)(src ? src - 1u : 0xFFu);
+    cr.buf = cp_pool;
     cr.cap = CP_N * CP_SLOT / cr.ch;
     cr.w = cr.r = cr.wi = 0;
     cr.lost = 0;
@@ -197,7 +227,7 @@ static __attribute__((noinline)) void card_capture(const int32_t *out, const int
     }
     wi = cr.wi;
     pk = cr.peak;
-    b = cp_pool;
+    b = cr.buf;
     for (i = 0; i < n; i++) {
         int32_t l, r;
         if (cr.trk == 0xFFu) { l = out[2u * i]; r = out[2u * i + 1u]; }   /* the mix */
@@ -232,6 +262,7 @@ static void card_sync(uint32_t playing, uint32_t starts)
         return;
     for (s = 0; s < CP_N; s++) {
         struct cp_stream *c = &cp[s];
+        if (c->trk) continue;                           /* (0.4.20) a frozen track's: card_freeze.c */
         if (c->on && c->synced) {                       /* (a RESTART too: it rewinds and waits for the next start) */
             c->on = 0;
             c->ended = 1;

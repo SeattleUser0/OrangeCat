@@ -450,7 +450,7 @@ static void eng(uint32_t e) { set_engine_of(TSEL, e); }
 #define E_FM ENGI_FM6
 
 enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PROJECT, S_PROJECT_BOOT, S_TEMPO,
-       S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
+       S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN, S_MIXER_FROZEN,
        S_ENV, S_ENVDEST, S_LFO, S_MOD, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_GLOBAL, S_SYSTEM,
        S_EDIT_SID, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_PHYS,
        S_ALG1, S_ALG2, S_ALG3, S_ALG4, S_ALG5, S_ALG6, S_ALG7, S_ALG8, S_OP_LEVEL,
@@ -482,7 +482,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_STAGE_UNUSED1, S_STAGE_UNUSED3, S_MIXER_UNUSED2, S_MENU_TRACKS, S_MENU_DRIVE, S_DRIVE_WAIT, S_DRIVE, S_DRIVE_HUB, S_DRIVE_LIST, S_FILES, S_FILES_WAV, S_FILES_REC, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
-    "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
+    "mixer", "mixer_pan", "mixer_frozen", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
     "voice", "global", "system", "edit_sid", "edit_fm6", "op_env", "edit_wheel",
     "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "cz1_env", "confirm_seq", "confirm_project", "confirm_user",
     "confirm_motion", "confirm_erase", "menu", "about", "about_rec", "about_credits", "about_end", "uboot", "calibration",
@@ -939,6 +939,7 @@ static void setup(int s)
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
     memset(&stage, 0, sizeof stage);                /* (Stage's knobs in) */
     chain.running = 0;                              /* (the song the SONG scene plays) */
+    memset(frz, 0, sizeof frz);                     /* (Orange Cat 0.4.20: no track frozen but in mixer_frozen) */
     if (s >= S_MOCK_HOME && s <= S_MOCK_MENU) {
         mock_state(s);
         return;
@@ -1265,6 +1266,13 @@ static void setup(int s)
         trk[0].p[P_LEVEL] = 100; trk[1].p[P_LEVEL] = 84; trk[2].p[P_LEVEL] = 64; trk[3].p[P_LEVEL] = 110;
         trk[0].p[P_PAN] = -20; trk[1].p[P_PAN] = 24; trk[3].p[P_PAN] = -4; trk[1].p[P_RESERVED36] = 80;
         trk[2].p[P_MUTE] = 1; trk[3].p[P_MUTE] = 1; song.rec = 2u | 8u; trk[0].peak = 9000;
+        break;
+    case S_MIXER_FROZEN:                         /* (Orange Cat 0.4.20) track 1 frozen, 2 recording its take, 3 the card
+                                                         * missing, 4 waiting for its cycle; KNOB 3 just turned on 2 */
+        go_page(GR_TRK); song.sel = 1;
+        trk[0].p[P_LEVEL] = 100; trk[1].p[P_LEVEL] = 84; trk[2].p[P_LEVEL] = 64; trk[3].p[P_LEVEL] = 110;
+        frz[0].st = FZ_ON; frz[1].st = FZ_REC; str_cpy(frz[2].why, "Card?", sizeof frz[2].why); frz[3].st = FZ_ARMED;
+        ui.hot_col = 2; ui.hot_t = 30;
         break;
     case S_MIXER_PAN:                            /* PAN just turned, the ends of each knob, OFF, armed while stopped */
         go_page(GR_TRK); song.playing = 0; song.sel = 1;

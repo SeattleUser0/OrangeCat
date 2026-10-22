@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.40  
+**Version:** 0.41  
 **Date:** October 21, 2026  
-**Tracks:** Orange Cat Specification v0.9
+**Tracks:** Orange Cat Specification v0.10
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.41 (October 21, 2026):** 0.4.19 on the unit: a track take recorded (write 683 KB/s, slowest write 25 ms, nothing lost) and played back in place. 0.4.20: freezing a track, from the MIXER page.
 - **0.40 (October 21, 2026):** 0.4.19: a track take is stereo, after the track's pan and its own effects. Spec 0.9: frozen takes never go to internal flash.
 - **0.39 (October 21, 2026):** 0.4.18 on the unit: a track frozen, muted and played back in time from the card, through PLAY. Spec 0.9: frozen tracks are stereo, on the card, played through a sampled instrument, with resampling and undo.
 - **0.38 (October 21, 2026):** 0.4.17 on the unit: takes record and play back. A WAV picked with the sequencer stopped only waited, and PLAY brought the song in with it. 0.4.18: OCT+ plays a WAV now, by itself; SEQ ties it to the song.
@@ -345,11 +346,34 @@ Left to test (0.4.19):
 - [ ] Freeze a track panned hard left: the take is left only. Mute the original, SEQ on the take, PLAY: it sounds like the original, in place.
 - [ ] A track with its own effect (if it has one) keeps it in the take; its reverb and delay sends do not go into the take.
 
+Tested (0.4.19 on the unit, October 21):
+- [x] A track take: 6.4 s, lost 0 frames, write 683 KB/s, slowest write 25 ms. Played back in place of the track, it sounded right (the pan could not be heard on the one speaker).
+
+Freezing a track (0.4.20, built; spec 0.9, 10.6):
+- MIXER page, KNOB 3 (was unused): right freezes the track ALGORITHM picks, left unfreezes (or cancels a freeze). The row says Card, Ready, Wait, Rec, Save, then Frozen where its pan is; a failure in red (Card?, Stop, Full, Slow, Error, Lvl 0).
+- Only what replaces the track: one cycle of it, counted in passes of its phrase (seq.c marks the frame each pass begins, each block): its phrase (the phrase mode), its chain with each step's REPS (the chain mode), its block of song rows (the song mode). One cycle plays first, so the tails of the one before are in the take's start; the next cycle is recorded, and 2,048 frames (46 ms) past its end.
+- No click where it loops: those frames past the end are blended into the take's start (a straight crossfade), so its end runs on into its start; the file is then cut to the cycle. The take is exactly the sequencer's cycle in frames, so it loops in step with it and does not drift.
+- It comes in at the start of the next cycle: that block the synth fades out and the take fades in over 32 frames from the exact frame (mix.c mix_part_swap). While frozen the synth is not rendered at all.
+- Mixed as the track: LEVEL (against the level it was frozen at), MUTE, SOLO and the effect sends work; its pan and own effects are in the take. Sequencer stopped: it stops and rewinds; the synth plays until the next start brings the take in.
+- Files: /ORANGECAT/T<track>_<nnn>.WAV. The port stays on the card while any track is frozen or freezing (USB MIDI, audio and the editor are off meanwhile).
+- Memory: takes play in player slots; a freeze records into slots 2 and 3 (116 ms of ring; the slowest write measured was 25 ms). So two frozen tracks play while a third freezes; three can play at once (a fourth freeze finds no ring). The card's limit (532 KB/s, with the write counted) is checked first.
+- Not yet: kept with the project (loading a project unfreezes); resample; undo; tempo changes after freezing (the take keeps its tempo).
+- Host tests: a model sequencer and card. Track 2 frozen: the take on the card is the cycle exactly (5,003 frames); from the cycle it comes in, the track's output is the take, sample for sample, for five cycles (no seam, no drift, no gaps); STOP and PLAY again start it from its first frame; LEVEL 50 of 100 halves it exactly; KNOB 3 left gives the synth back. A two-pass cycle (the chain mode) the same. A cancelled freeze and one stopped mid-take leave no file. The cycle counts in the chain mode (with a rest and REPS) and the song mode. The mixer's stem test (audio_test) still passes.
+
+Left to test (0.4.20):
+- [ ] Freeze a track in the phrase mode: the row goes Card, Ready (PLAY), Wait, Rec, Save, Frozen, and the sound carries on with no click or gap where the take comes in, and none at each loop.
+- [ ] The CPU meter drops when the take takes over (the synth is no longer rendered).
+- [ ] LEVEL and MUTE on the frozen track; its reverb send.
+- [ ] STOP, then PLAY: the take starts with the song.
+- [ ] KNOB 3 left: the synth is back.
+- [ ] Freeze a second track while the first plays frozen.
+- [ ] The chain mode: a chain of two or more steps frozen, looping in step.
+
 Left to build (spec 0.9, 10.6 and 10.7), in order:
 1. A stereo track take (0.4.19, built).
 2. Play WAVs while recording: the 40 KB split, reads and writes sharing the card. Measure first: write speed and the slowest write with WAVs playing.
 3. The sampled instrument: Skiff's SAMPLE engine, with its sample loaded from a WAV on the card (short ones into memory, long ones streamed).
-4. Freeze, resample and undo on the track pages, through the sampled instrument; takes in a folder per project; the project keeps the take names.
+4. Freeze (0.4.20, built, from the MIXER page); resample and undo; takes in a folder per project; the project keeps the take names.
 5. The drive staying on while the normal pages are in use (no trip back to the menu).
 
 Left to build (later):

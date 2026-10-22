@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.4.19
+**Firmware:** 0.4.20
 **Date:** October 21, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -67,6 +67,29 @@ A scene stores each track's chain, slot and mute. AT decides when a scene, a sta
 
 SEQ > GROOVE gives each track a template: LAID BACK, PUSH, DILLA, 2-STEP, DUB or HUMAN. KNOB 2 sets how much. Swing still works on top. Recording with quantize on the track's own step grid lands in the groove.
 
+## Freezing a track
+
+Freezing records a track to the card and plays the recording in its place, so its synth stops using the processor. You need the card in a hub with power on its PD port, as for the USB drive test.
+
+1. Tap GLO for the MIXER page. Turn ALGORITHM to the track.
+2. Turn KNOB 3 right. The track's row says Card while the FM-1 finds the card, then Ready.
+3. Press PLAY (from the phrase, chain or song page, as you want it to play). The row says Wait while one whole round of the track plays, then Rec while the next round records, then Save, then Frozen.
+4. At the start of the following round the recording takes over from the synth. It loops in time with the sequencer for as long as it runs.
+
+What one round is depends on what PLAY plays: the track's phrase (phrase page), its whole chain with each step's repeats (chain page), or its block of song rows (song page). Start it from the same place each time.
+
+While frozen, LEVEL, MUTE, SOLO and the effect sends still work. Pan and the track's own effects are in the recording. Stopping the sequencer stops it; PLAY starts it again from its start.
+
+Turn KNOB 3 left to unfreeze: the synth comes back. Turned left while it is freezing, it cancels and deletes the half-made file.
+
+The recordings go in /ORANGECAT on the card: T1_001.WAV for track 1's first, and so on. They stay on the card after you unfreeze.
+
+If the row shows a word in red, the freeze stopped: Card? (no card found), Stop (the sequencer stopped mid-recording), Full (the card or the FM-1's player memory is full: two frozen tracks can play while a third freezes), Slow (the card fell behind), Error (the card would not write), Lvl 0 (the track's level is off).
+
+While a track is frozen, the USB port talks to the card, so USB MIDI, USB audio and the web editor to a computer are off. Unfreeze every track to get them back.
+
+Frozen tracks are not saved with the project yet: loading a project unfreezes them.
+
 ## USB drive test
 
 Menu (hold HOME) > USB DRIVE TEST. OCT+ starts it. The USB port becomes a host, like a computer's port. Plug in a flash drive. The page shows what it finds: the maker and model, the size, how the drive is formatted, and how fast it reads. OCT- ends the test and the port goes back to normal.
@@ -90,7 +113,7 @@ SEQ on a WAV ties it to the song: its row says READY. PLAY starts it from the to
 
 The bottom lines say how many play and how many are ready.
 
-To freeze a track: KNOB 3 to that track, stop the sequencer, REC, PLAY, and PLAY again at the end. Then mute the track, SEQ on the new file, and PLAY: the take plays in time with the rest. Other files are read once and timed.
+Other files are read once and timed.
 
 The FM-1 does not power its USB port. Use a hub with power on its PD port.
 

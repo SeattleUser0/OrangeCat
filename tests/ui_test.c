@@ -97,10 +97,10 @@ static struct { uint32_t stage; } melodee_dbg;
 #include "../firmware/src/ui.c"
 #include "../firmware/src/icons.c"
 #include "../firmware/src/ui_graph.c"
-#include "../firmware/src/ui_draw.c"
 static uint32_t host_usb_lines;                   /* (usb_host.c: the D+ / D- levels the drive test reads) */
 #define UH_LINES_READ() host_usb_lines
-#include "../firmware/src/usb_host.c"
+#include "../firmware/src/usb_host.c"            /* (Orange Cat 0.4.20: before ui_draw.c, as in melodee.c: its frz[]) */
+#include "../firmware/src/ui_draw.c"
 #include "../firmware/src/ui_menu.c"
 #include "../firmware/src/ui_input.c"
 #include "../firmware/src/ui_layer.c"

@@ -655,7 +655,12 @@ static void draw_columns(void)
         draw_column(0, "LEVEL", val, unit, lvl && !t->p[P_MUTE] ? VAL(0u) : T_DIM, (int32_t)lvl * 1000 / 127, ICON_AUTO);
         param_format(&TP[P_PAN], t->p[P_PAN], val, &unit);
         draw_column(1, "PAN", val, unit, VAL(1u), RATIO(&TP[P_PAN], t->p[P_PAN]), param_icon(&TP[P_PAN], t->p[P_PAN]));
-        draw_column(2, "", "", "", T_DIM, -1, ICON_NONE);
+        {   /* (Orange Cat 0.4.20) FREEZE (usb_host.c frz_word; the MIXER rows show it: ui_pages.c pv_strip) */
+            const char *w = frz_word(song.sel, song.playing);
+            uint32_t st = song.sel < 4u ? frz[song.sel].st : FZ_OFF;
+            draw_column(2, "FREEZE", w[0] ? w : "Off", "", st == FZ_ON ? T_ACCENT : st != FZ_OFF ? T_THEME : VAL(2u), -1,
+                        ICON_AUTO);
+        }
         draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);
         return;
     }

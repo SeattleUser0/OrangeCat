@@ -228,6 +228,7 @@ static void fm1_main(void)
     fm1_guard_enable(FM1_GUARD_PC);
 #endif
     audio_init();
+    frz_init();                               /* (Orange Cat 0.4.20) frozen tracks: mix.c's hooks */
     usb_start();
 #if MELODEE_UART
     uart_midi_init();
@@ -251,7 +252,8 @@ static void fm1_main(void)
         fm1_wdt_feed();
         pattern_poll();
         usb_retry(fm1_ms);
-        if (usbh.want && ui.menu != 3u)                 /* (Orange Cat 0.4.7) the drive test left some other way */
+        if (usbh.want && ui.menu != 3u && !frz_busy())  /* (Orange Cat 0.4.7) the drive test left some other way (0.4.20:
+                                                         * frozen tracks keep the card) */
             usbh_want(0);
         usbf_task();                                    /* the drive test and its files, while its page is open */
 #if MELODEE_USB_AUDIO

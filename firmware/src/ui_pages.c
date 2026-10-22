@@ -711,7 +711,9 @@ static void pv_picture(void)
 /* MIXER (large type: C, rows as Stage's, ui_stage.c st_row_*): a track a row tinted in its colour (the selected one
  * more, outlined): its numeral, its sound, its level in dB at the right; under them the level as a bar in the track's
  * colour, the meter under it, its pan at the right ("L20", "C"); muted: dim, "Mute" in red; armed: a REC dot on the
- * numeral. The knob turning (LEVEL, PAN, MUTE: the selected track's) in text */
+ * numeral. The knob turning (LEVEL, PAN, MUTE: the selected track's) in text. (Orange Cat 0.4.20) A track frozen or
+ * freezing (KNOB 3, usb_host.c frz_word) says so where its pan is: "Frozen" in the theme's colour, "Ready", "Wait",
+ * "Rec", "Save", "Card" in the text's, a failure ("Card?") in red; Mute still wins */
 #define PV_MIX_BAR_X 46                                 /* the level's bar: x 46 .. 46 + PV_MIX_BAR_W, in the row */
 #define PV_MIX_BAR_W 120
 static struct { uint32_t strip[NTRK]; uint8_t meter[NTRK]; } pvm;
@@ -736,7 +738,9 @@ static void pv_strip(uint32_t k)
 {
     track_t *t = &trk[k];
     uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0, arm = (song.rec >> k) & 1u, lvl = trk_level(k), sig;
-    uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* 1 LEVEL, 2 PAN, 3 unused, 4 MUTE */
+    uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* 1 LEVEL, 2 PAN, 3 FREEZE (0.4.20), 4 MUTE */
+    const char *fw = frz_word(k, song.playing);         /* (Orange Cat 0.4.20) */
+    uint32_t fst = k < 4u ? frz[k].st : FZ_OFF;
     int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), h = st_row_h(), y = st_row_y(k), top;
     uint16_t tc = mute ? T_DIM : T_TRK(k), bg = ux_mix(T_BG, mute ? T_TRK(k) : tc, sel ? 24 : 11);
     const aafont_t *tf = TY_TX, *lf = TY_LB;
@@ -747,7 +751,7 @@ static void pv_strip(uint32_t k)
     if (m < pvm.meter[k] - 1)
         m = pvm.meter[k] - 1;                           /* (falls ~2 dB a frame) */
     sound_name(t, nm);
-    sig = str_hash(1u + sel * 2u + mute * 4u + arm * 8u + hot * 16u, nm) + lvl * 7919u +
+    sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + hot * 16u, nm), fw) + lvl * 7919u +
           (uint32_t)(pan + 128) * 104729u + (uint32_t)h * 31u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == pvm.strip[k]) {
         if (m != pvm.meter[k]) {                        /* the meter alone */
@@ -794,6 +798,8 @@ static void pv_strip(uint32_t k)
         pv_meter_draw(k, PV_MIX_BAR_X, ly + 7, tc, bg);
         if (mute) {
             cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? T_TEXT : T_REC, bg);
+        } else if (fw[0]) {                             /* (Orange Cat 0.4.20) frozen or freezing */
+            cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? T_TEXT : fst == FZ_ON ? T_THEME : fst != FZ_OFF ? T_TEXT : T_REC, bg);
         } else {
             if (pan) {
                 b[0] = pan < 0 ? 'L' : 'R';

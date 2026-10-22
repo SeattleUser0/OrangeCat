@@ -100,6 +100,18 @@ static void events_block(uint32_t n);
 static volatile uint8_t mix_stem_trk = 0xFFu;
 static int32_t mix_stem_l[CTL], mix_stem_r[CTL];
 static uint32_t mix_stem_n;
+/* (Orange Cat 0.4.20) frozen tracks (card_freeze.c): a frozen track's take stands in for its engine. mix_frozen: bit k,
+ * track k plays its take (its engine is not rendered: the batch skips it, mix_part mixes the take instead); the hooks
+ * are set by card_freeze.c at start (none in the host tests that do not include it): mix_frz_block after the events
+ * (the sequencer's pass marks are known), mix_frz_take for a frozen track's block (1: mixed). mix_frz_swap: bit k,
+ * this block track k goes from its engine to its take at mix_frz_at[k] (its engine renders, then fades out over
+ * MIX_FRZ_FADE frames from there while the take fades in: no click at the change). */
+#define MIX_FRZ_FADE 32u
+static volatile uint8_t mix_frozen, mix_frz_swap;
+static uint8_t mix_frz_at[NPART];
+static void (*mix_frz_block)(uint32_t n);
+static int (*mix_frz_take)(track_t *t, uint32_t n);
+static void (*mix_frz_after)(uint32_t n);             /* (audio.c, after the mix: the take's frames to record) */
 #if MELODEE_USB_AUDIO
 static int ua_capture_active(void);
 static uint8_t track_capture_on;
@@ -237,7 +249,9 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
     }
 #endif
     for(uint32_t p=0;p<nt;p++){
-        track_t *t=&trk[p];mod_begin(t);batch_mod[p]=mod;memcpy(batch_params[p],t->p,sizeof t->p);
+        track_t *t=&trk[p];
+        if(((mix_frozen&~mix_frz_swap)>>p)&1u){batch_rendered[p]=0;batch_mod[p].on=0;batch_spread_on[p]=0;continue;}   /* (Orange Cat 0.4.20) frozen: its take, not its engine */
+        mod_begin(t);batch_mod[p]=mod;memcpy(batch_params[p],t->p,sizeof t->p);
         spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
         batch_spread_on[p]=spread_on;spread_buf=batch_spread[p];
         batch_rendered[p]=track_render_audio(t,batch_pcm[p],n,0);
@@ -246,16 +260,10 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
     audio_batch_flush();audio_batch_active=0;batch_ready=1;
 }
 #endif
-static __attribute__((noinline)) void mix_part(track_t *t,uint32_t n)
+/* the track's engine (or its silence) into the mix, its effects, level and pan (Orange Cat 0.4.20: split out of
+ * mix_part, so a frozen track's change to its take can render it and fade it out) */
+static void mix_part_engine(track_t *t,uint32_t n)
 {
-    uint32_t extra=0;
-    if(fx_send_on && fx_bus_separate)for(uint32_t slot=0;slot<FX_SLOTS-1u;slot++){
-        uint32_t amount=(uint32_t)t->p[P_FXSEND2+slot];fx_extra_gain[slot]=(amount+(amount==127u))*512u;extra|=amount;
-    }
-    /* Reuse the return workspace until the worker starts. The difference is
-     * this track's exact post-fader/pan/solo contribution; CHAIN's sample loops
-     * stay unchanged and zero extra sends need no extra mixing pass. */
-    if(extra){memcpy(fx_bus_sum_l,mix_l,n*sizeof *mix_l);memcpy(fx_bus_sum_r,mix_r,n*sizeof *mix_r);}
     int rendered;
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     if(batch_ready){
@@ -324,6 +332,49 @@ static __attribute__((noinline)) void mix_part(track_t *t,uint32_t n)
     }
     AP_END(AP_MIX,mix_start);
     if(mod.on)mod_end(t);
+}
+/* (Orange Cat 0.4.20) the block a frozen track goes from its engine to its take: its engine as ever, then what it added
+ * from mix_frz_at fades out over MIX_FRZ_FADE frames (the mix and the effect sends: the difference, as the extra sends
+ * do), and the take comes in there (card_freeze.c fades it in) */
+static int32_t mix_swap_l[CTL],mix_swap_r[CTL],mix_swap_sl[CTL],mix_swap_sr[CTL];
+static void mix_part_swap(track_t *t,uint32_t n)
+{
+    uint32_t ti=(uint32_t)(t-trk),at=mix_frz_at[ti],i,sends=fx_send_on;
+    if(at>n)at=n;
+    memcpy(mix_swap_l,mix_l,n*sizeof *mix_l);memcpy(mix_swap_r,mix_r,n*sizeof *mix_r);
+    if(sends){memcpy(mix_swap_sl,fx_send_l,n*sizeof *fx_send_l);memcpy(mix_swap_sr,fx_send_r,n*sizeof *fx_send_r);}
+    mix_part_engine(t,n);
+    for(i=at;i<n;i++){
+        int32_t k=i-at<MIX_FRZ_FADE?(int32_t)(MIX_FRZ_FADE-(i-at)):0;   /* (the engine's share: MIX_FRZ_FADE..0) */
+        mix_l[i]=mix_swap_l[i]+(((mix_l[i]-mix_swap_l[i])*k)>>5);   /* (MIX_FRZ_FADE 32; no 64 bits: no runtime) */
+        mix_r[i]=mix_swap_r[i]+(((mix_r[i]-mix_swap_r[i])*k)>>5);
+        if(sends){
+            fx_send_l[i]=mix_swap_sl[i]+(((fx_send_l[i]-mix_swap_sl[i])*k)>>5);
+            fx_send_r[i]=mix_swap_sr[i]+(((fx_send_r[i]-mix_swap_sr[i])*k)>>5);
+        }
+    }
+    if(mix_frz_take)mix_frz_take(t,n);
+}
+static __attribute__((noinline)) void mix_part(track_t *t,uint32_t n)
+{
+    uint32_t extra=0;
+    if(fx_send_on && fx_bus_separate)for(uint32_t slot=0;slot<FX_SLOTS-1u;slot++){
+        uint32_t amount=(uint32_t)t->p[P_FXSEND2+slot];fx_extra_gain[slot]=(amount+(amount==127u))*512u;extra|=amount;
+    }
+    /* Reuse the return workspace until the worker starts. The difference is
+     * this track's exact post-fader/pan/solo contribution; CHAIN's sample loops
+     * stay unchanged and zero extra sends need no extra mixing pass. */
+    if(extra){memcpy(fx_bus_sum_l,mix_l,n*sizeof *mix_l);memcpy(fx_bus_sum_r,mix_r,n*sizeof *mix_r);}
+    {   /* (Orange Cat 0.4.20) a frozen track: its take, mixed as its engine would be (its level, mute, solo, sends) */
+        uint32_t ti=(uint32_t)(t-trk),bit=1u<<ti;
+        if((mix_frozen&~mix_frz_swap)&bit){
+            if(mix_frz_take)mix_frz_take(t,n);
+            if(extra){void (*volatile run)(uint32_t)=mix_extra_sends;run(n);}
+            return;
+        }
+        if(mix_frz_swap&bit){mix_part_swap(t,n);if(extra){void (*volatile run)(uint32_t)=mix_extra_sends;run(n);}return;}
+    }
+    mix_part_engine(t,n);
     if(extra){void (*volatile run)(uint32_t)=mix_extra_sends;run(n);}
 }
 static __attribute__((noinline,section(".dsp_text"))) void master_samples(int32_t *out,uint32_t n)
@@ -350,6 +401,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
 #endif
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
     AP_START(events_start);events_block(n);AP_END(AP_EVENTS,events_start);
+    if(mix_frz_block)mix_frz_block(n);                  /* (Orange Cat 0.4.20) frozen tracks: after the sequencer's pass marks */
     if(thr_out)throw_on(n);                             /* (Orange Cat 0.4.3) the throws over the sends, this block: after
                                                          * the events (0.4.4: motion's base never takes them in) */
     fx_bus_select();fx_send_on=(uint8_t)fx_bus_active();if(fx_send_on){memset(fx_send_l,0,n*sizeof *fx_send_l);memset(fx_send_r,0,n*sizeof *fx_send_r);

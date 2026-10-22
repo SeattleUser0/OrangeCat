@@ -132,10 +132,58 @@ static void str_cpy(char *d, const char *s, unsigned max)
 static uint32_t fm1_ticks(void) { return fm1_ms * 1000u; }
 #define CS_WAIT() cs_tick()                             /* (0.4.12) the timer's work while the main loop waits */
 static uint8_t mix_stem_trk = 0xFFu;                    /* (0.4.19) as mix.c: the track the recorder takes */
-static uint32_t t_playing = 1, t_starts;                /* (0.4.17) the sequencer as card_sync sees it (running, but in t_sync) */
+/* (0.4.20) the sequencer, the mixer and the arrangement as the freeze code sees them: just what it reads and calls */
+#define NTRK 4u
+#define NPART 4u
+#define CTL 64u                                         /* (this test's blocks) */
+static struct { uint32_t playing; } song = {1};         /* (0.4.17: the sequencer as card_sync sees it; running, but in
+                                                         * t_sync and t_freeze) */
+#define t_playing (song.playing)
+static uint32_t t_starts;
+#define seq_start_count t_starts
 #define UF_PLAYING() (t_playing)
+#define SEQ_NOPASS 0xFFFFu
+static uint16_t seq_pass_at[NTRK];
+enum { P_LEVEL, P_MUTE, P_N };
+typedef struct { int16_t p[P_N]; } track_t;
+static track_t trk[NTRK];
+static uint32_t trk_n(void) { return NTRK; }
+static int32_t LEVEL_Q12[128];
+static int32_t solo_gain[NPART] = {32768, 32768, 32768, 32768};
+static uint8_t track_solo, fx_send_on;
+static volatile uint8_t panic_req;
+static uint16_t pattern_epoch;
+static uint32_t fx_send_gain(const track_t *t) { (void)t; return 0; }
+static int32_t fx_scale(int32_t a, uint32_t k) { return (a >> 16) * (int32_t)k + (int32_t)(((uint32_t)(a & 65535) * k) >> 16); }
+static int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+static int32_t mix_stem_l[CTL], mix_stem_r[CTL], t_mix_l[CTL], t_mix_r[CTL];
+static uint32_t mix_stem_n;
+#define MIX_FRZ_FADE 32u
+static volatile uint8_t mix_frozen, mix_frz_swap;
+static uint8_t mix_frz_at[NPART];
+static void (*mix_frz_block)(uint32_t n);
+static int (*mix_frz_take)(track_t *t, uint32_t n);
+static void (*mix_frz_after)(uint32_t n);
+static void mix_add(int32_t l, int32_t r, uint32_t i, uint32_t send) { (void)send; t_mix_l[i] += l; t_mix_r[i] += r; }
+enum { OCL_PHRASE, OCL_CHAIN, OCL_SONG };
+#define OCL_NCHAIN 64u
+#define OCL_NENT 16u
+#define OCL_NROW 64u
+static struct { uint8_t chain[OCL_NCHAIN][OCL_NENT][2]; uint8_t song[OCL_NROW][NTRK]; uint8_t tchain[NTRK], cur[NTRK], row[NTRK];
+                uint8_t mode; } lists;
+static void ocl_chain_span(uint32_t c, uint32_t *first, uint32_t *last)   /* (as oc_lists.c) */
+{
+    uint32_t f, l;
+    for (f = 0; f < OCL_NENT && !lists.chain[c][f][0]; f++)
+        ;
+    if (f == OCL_NENT) { *first = *last = OCL_NENT; return; }
+    for (l = OCL_NENT - 1u; !lists.chain[c][l][0]; l--)
+        ;
+    *first = f; *last = l;
+}
 #include "../firmware/src/card_play.c"
 #include "../firmware/src/card_stream.c"
+#include "../firmware/src/card_freeze.c"
 #include "../firmware/src/usb_files.c"
 
 /* ------------------------------------------------------------------ the devices --- */
@@ -1130,10 +1178,208 @@ static int t_sync(void)
     run_ms(2);
     return 1;
 }
+/* (0.4.20) frozen tracks (card_freeze.c, usb_files.c frz_*): a model sequencer marks each track's passes (PL frames
+ * a pass, from the block after PLAY, as seq.c); a track's stem is periodic over its cycle (fz_val). KNOB 3 right
+ * wakes the card and arms the freeze; PLAY; one cycle played, the next recorded and FZ_X frames past it; the take
+ * blended, cut to the cycle, loaded; it comes in at the following cycle and from then on the track's output is its
+ * stem again, sample for sample, cycle after cycle (no drift, no seam). The sequencer stopping stops it and it comes
+ * in again at the next start, from its first frame; LEVEL scales it against the level it was frozen at; KNOB 3 left
+ * unfreezes. A two-pass cycle (the chain mode) the same; a freeze cancelled, and one stopped mid-take, leave no
+ * file. frz_cycle counts the chain and song modes' passes. */
+static uint32_t fz_abs, fz_start_abs, fz_pl;           /* frames since the test's start; pass 0's; a pass's frames */
+static int fz_seq;                                      /* the model sequencer runs */
+static int32_t fz_val(uint32_t k, uint32_t p, int right) /* track k's stem, p frames into its cycle */
+{
+    return right ? (int32_t)((p * (17u + k) + 300u) % 24000u) - 12000 : (int32_t)((p * (13u + k) + k * 77u) % 20000u) - 10000;
+}
+static uint32_t fz_cyc_frames(uint32_t k) { return fz_pl * (frz[k].passes ? frz[k].passes : 1u); }
+static void fz_block(void)                              /* one 64-frame block: the sequencer, the mix, the card, the main loop */
+{
+    uint32_t i, k;
+    memset(t_mix_l, 0, sizeof t_mix_l);
+    memset(t_mix_r, 0, sizeof t_mix_r);
+    for (k = 0; k < NTRK; k++) seq_pass_at[k] = SEQ_NOPASS;
+    if (fz_seq && fz_abs + 64u > fz_start_abs) {       /* a pass begins in this block */
+        uint32_t from = fz_abs > fz_start_abs ? fz_abs - fz_start_abs : 0u, p = (from + fz_pl - 1u) / fz_pl * fz_pl;
+        if (fz_abs < fz_start_abs) p = 0;
+        if (fz_start_abs + p < fz_abs + 64u)
+            for (k = 0; k < NTRK; k++) seq_pass_at[k] = (uint16_t)(fz_start_abs + p - fz_abs);
+    }
+    frz_block(64);
+    for (k = 0; k < NTRK; k++)
+        if ((mix_frozen >> k) & 1u) frz_take(&trk[k], 64);
+    mix_stem_n = 0;
+    if (mix_stem_trk < NTRK) {                          /* (as mix.c: the picked track's stem) */
+        uint32_t k2 = mix_stem_trk;
+        for (i = 0; i < 64u; i++) {
+            uint32_t a = fz_abs + i, p = a >= fz_start_abs ? (a - fz_start_abs) % fz_cyc_frames(k2) : 0u;
+            mix_stem_l[i] = fz_val(k2, p, 0);
+            mix_stem_r[i] = fz_val(k2, p, 1);
+        }
+        mix_stem_n = 64;
+    }
+    frz_after(64);
+    for (i = 0; i < 15u; i++) cs_tick();
+    usbf_task();
+    fm1_ms++;
+    fz_abs += 64u;
+}
+static void fz_play(void) { fz_seq = 1; t_playing = 1; t_starts++; fz_start_abs = fz_abs + 64u; }   /* PLAY (seq.c: pass 0 at
+                                                         * the next block) */
+static void fz_stop(void) { fz_seq = 0; t_playing = 0; }
+/* blocks until track k's take plays, then cycles of it checked: the stem again, after the fade-in; frames wrong */
+static uint32_t fz_check(uint32_t k, uint32_t blocks, int32_t g)   /* (g: the level against the frozen one, Q12) */
+{
+    uint32_t b, i, bad = 0, fade_end = 0;
+    for (b = 0; b < 4000u && !((mix_frozen >> k) & 1u); b++) fz_block();
+    if (!((mix_frozen >> k) & 1u)) return 1000000u;
+    fade_end = fz_abs - 64u + mix_frz_at[k] + MIX_FRZ_FADE;   /* (the block it came in: faded in from its frame) */
+    for (b = 0; b < blocks; b++) {
+        uint32_t base = fz_abs;
+        if (b) fz_block();
+        for (i = 0; i < 64u; i++) {
+            uint32_t a = (b ? base : fz_abs - 64u) + i, p = (a - fz_start_abs) % fz_cyc_frames(k);
+            int32_t l = (fz_val(k, p, 0) * g) >> 12, r = (fz_val(k, p, 1) * g) >> 12;
+            if (a < fade_end) continue;
+            if (t_mix_l[i] != l || t_mix_r[i] != r) bad++;
+        }
+    }
+    return bad;
+}
+static int t_freeze(void)
+{
+    uint32_t i, b, bad, s;
+    FILINFO fi;
+    reset_world();
+    add(D_DRIVE, 64, -1, 0);
+    for (i = 0; i < 128u; i++) LEVEL_Q12[i] = (int32_t)i * 32;
+    for (i = 0; i < NTRK; i++) trk[i].p[P_LEVEL] = 100, trk[i].p[P_MUTE] = 0;
+    usbh.view = 0;
+    fz_stop();
+    fz_pl = 5003u;
+    lists.mode = OCL_PHRASE;
+    frz_init();
+    lines = 2;
+    frz_knob(1, 1);                                     /* KNOB 3 right on track 2: the card woken, the freeze armed */
+    for (b = 0; b < 600u && frz[1].st != FZ_ARMED; b++) fz_block();
+    printf("  freeze: %s, [%s], %u passes\n", frz_word(1, 0), ur.path, frz[1].passes);
+    fflush(stdout);
+    assert(frz[1].st == FZ_ARMED && usbh.want && usbh.drive && frz[1].passes == 1u && mix_stem_trk == 1u &&
+           !strcmp(ur.path, "/ORANGECAT/T2_001.WAV") && !strcmp(frz_word(1, 0), "Ready") && !strcmp(frz_word(1, 1), "Wait"));
+    usbh_want(0);                                       /* (leaving the drive test: the port stays a host) */
+    assert(usbh.want);
+    fz_play();
+    for (b = 0; b < 2000u && frz[1].st != FZ_ON && frz[1].st != FZ_OFF; b++) fz_block();
+    assert(f_stat("/ORANGECAT/T2_001.WAV", &fi) == FR_OK);
+    printf("  frozen: %s after %u blocks, take %u bytes (cycle %u frames)\n", frz_word(1, 1), b, (unsigned)fi.fsize, fz_pl);
+    fflush(stdout);
+    assert(frz[1].st == FZ_ON && fi.fsize == 512u + fz_pl * 4u && cp[frz[1].slot].trk == 2u && !ur.on && mix_stem_trk == 0xFFu);
+    {   /* the take on the card: the cycle exactly (its blend of equal ends changes nothing) */
+        FIL fl;
+        UINT got;
+        int16_t sm[2];
+        uint32_t wrong = 0, first = 0xFFFFFFFFu;
+        assert(f_open(&fl, "/ORANGECAT/T2_001.WAV", FA_READ) == FR_OK && f_lseek(&fl, 512) == FR_OK);
+        for (i = 0; i < fz_pl; i++) {
+            assert(f_read(&fl, sm, 4, &got) == FR_OK && got == 4u);
+            if (sm[0] != fz_val(1, i, 0) || sm[1] != fz_val(1, i, 1)) { if (first == 0xFFFFFFFFu) first = i; wrong++; }
+        }
+        f_close(&fl);
+        printf("  T2_001.WAV: %u frames wrong (first %d)\n", wrong, (int)first);
+        fflush(stdout);
+        assert(!wrong);
+    }
+    bad = fz_check(1, 400, 4096);                       /* five cycles of the take, as the track was */
+    s = frz[1].slot;
+    printf("  take playing: %u wrong over 400 blocks, %u gaps\n", bad, cp[s].gaps);
+    fflush(stdout);
+    assert(!bad && !cp[s].gaps);
+    fz_stop();                                          /* STOP: the take stops, rewinds, waits */
+    for (b = 0; b < 20u; b++) fz_block();
+    assert(!(mix_frozen & 2u) && !cp[s].on && cp[s].armed && !strcmp(frz_word(1, 0), "Frozen"));
+    fz_play();                                          /* PLAY again: from its first frame, at pass 0 */
+    bad = fz_check(1, 200, 4096);
+    printf("  again: %u wrong\n", bad);
+    fflush(stdout);
+    assert(!bad);
+    trk[1].p[P_LEVEL] = 50;                             /* LEVEL against the level it was frozen at */
+    for (b = 0; b < 3u; b++) fz_block();
+    for (i = 0, bad = 0; i < 100u; i++) {              /* (it plays on: the next blocks at half) */
+        uint32_t base = fz_abs, j;
+        fz_block();
+        for (j = 0; j < 64u; j++) {
+            uint32_t p = (base + j - fz_start_abs) % fz_cyc_frames(1);
+            if (t_mix_l[j] != ((fz_val(1, p, 0) * 2048) >> 12) || t_mix_r[j] != ((fz_val(1, p, 1) * 2048) >> 12)) bad++;
+        }
+    }
+    printf("  LEVEL 50 of 100: %u wrong\n", bad);
+    fflush(stdout);
+    assert(!bad);
+    trk[1].p[P_LEVEL] = 100;
+    frz_knob(1, -1);                                    /* KNOB 3 left: the engine back */
+    fz_block();
+    assert(frz[1].st == FZ_OFF && !(mix_frozen & 2u) && !cs.st[s].run && !cp[s].trk && (panic_req & 2u));
+    panic_req = 0;
+    fz_stop();
+    for (b = 0; b < 5u; b++) fz_block();
+    lists.mode = OCL_CHAIN;                             /* a two-pass cycle: its chain, one step played twice */
+    lists.tchain[2] = 5;
+    memset(lists.chain[5], 0, sizeof lists.chain[5]);
+    lists.chain[5][0][0] = 9; lists.chain[5][0][1] = 1;
+    fz_pl = 3001u;
+    frz_knob(2, 1);
+    for (b = 0; b < 600u && frz[2].st != FZ_ARMED; b++) fz_block();
+    assert(frz[2].st == FZ_ARMED && frz[2].passes == 2u && !strcmp(ur.path, "/ORANGECAT/T3_001.WAV"));
+    fz_play();
+    for (b = 0; b < 3000u && frz[2].st != FZ_ON; b++) fz_block();
+    assert(frz[2].st == FZ_ON && f_stat("/ORANGECAT/T3_001.WAV", &fi) == FR_OK && fi.fsize == 512u + 2u * fz_pl * 4u);
+    bad = fz_check(2, 400, 4096);
+    printf("  two-pass cycle: take %u bytes, %u wrong\n", (unsigned)fi.fsize, bad);
+    fflush(stdout);
+    assert(!bad);
+    frz_knob(2, -1);
+    fz_block();
+    fz_stop();
+    lists.mode = OCL_PHRASE;
+    frz_knob(0, 1);                                     /* armed, then KNOB 3 left: cancelled, no file */
+    for (b = 0; b < 600u && frz[0].st != FZ_ARMED; b++) fz_block();
+    assert(frz[0].st == FZ_ARMED && !strcmp(ur.path, "/ORANGECAT/T1_001.WAV"));
+    frz_knob(0, -1);
+    fz_block();
+    assert(frz[0].st == FZ_OFF && !ur.on && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE);
+    frz_knob(0, 1);                                     /* stopped mid-take: dropped, "STOP" */
+    for (b = 0; b < 600u && frz[0].st != FZ_ARMED; b++) fz_block();
+    fz_play();
+    for (b = 0; b < 3000u && frz[0].st != FZ_REC; b++) fz_block();
+    for (b = 0; b < 20u; b++) fz_block();
+    fz_stop();
+    for (b = 0; b < 3u; b++) fz_block();
+    printf("  stopped mid-take: %s\n", frz_word(0, 0));
+    fflush(stdout);
+    assert(frz[0].st == FZ_OFF && !strcmp(frz_word(0, 0), "Stop") && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE);
+    lists.mode = OCL_CHAIN;                             /* the cycle counts: a chain with a rest, REPS 2 and 3 */
+    lists.tchain[1] = 3;
+    memset(lists.chain[3], 0, sizeof lists.chain[3]);
+    lists.chain[3][0][0] = 5; lists.chain[3][0][1] = 1;
+    lists.chain[3][2][0] = 7; lists.chain[3][2][1] = 2;
+    lists.chain[3][1][1] = 0;                           /* (a rest between: one pass) */
+    assert(frz_cycle(1) == 6u);
+    lists.mode = OCL_SONG;                              /* its block of rows 2..4, chain 3 each: 18 */
+    memset(lists.song, 0, sizeof lists.song);
+    for (i = 2; i <= 4u; i++) lists.song[i][1] = 4;
+    lists.row[1] = 3;
+    assert(frz_cycle(1) == 18u);
+    lists.mode = OCL_PHRASE;
+    assert(frz_cycle(1) == 1u);
+    frz_drop_all("");
+    usbh_want(0);
+    run_ms(2);
+    return 1;
+}
 int main(void)
 {
     card_load();
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_play() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_rec() && t_sync();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_files() && t_play() && t_files_reprobe() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_rec() && t_sync() && t_freeze();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }

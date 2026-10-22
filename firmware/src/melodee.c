@@ -93,6 +93,7 @@
 #endif
 #include "song_chain.c"
 #include "seq.c"
+#include "card_freeze.c"         /* (Orange Cat 0.4.20) frozen tracks: the audio side (seq.c's pass marks, mix.c's hooks) */
 #include "audio.c"
 
 /* -------------------------------------------------------------- UI --- */

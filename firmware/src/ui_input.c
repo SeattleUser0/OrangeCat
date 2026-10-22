@@ -573,7 +573,7 @@ static int32_t list_accel(uint32_t role, int32_t s, uint32_t total, uint32_t *fa
     return accel_by(role, s, total > 256u ? 16u : total > 64u ? 8u : total > 16u ? 4u : 1u, fast);
 }
 
-/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 unused, 4 MUTE of the selected track (right = ON, left = OFF: the
+/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 FREEZE (Orange Cat 0.4.20; was unused), 4 MUTE of the selected track (right = ON, left = OFF: the
  * track itself is ALGORITHM's, on every page). Pattern length stays on SEQ. */
 static void tracks_edit(uint32_t slot, int32_t steps)
 {
@@ -588,7 +588,8 @@ static void tracks_edit(uint32_t slot, int32_t steps)
         vp = &t->p[P_LEVEL];
         d = &TP[P_LEVEL];
         break;
-    case 2:
+    case 2:                                             /* (Orange Cat 0.4.20) FREEZE: right freezes, left unfreezes */
+        frz_knob(song.sel, steps);
         return;
     default:
         vp = &t->p[P_PAN];

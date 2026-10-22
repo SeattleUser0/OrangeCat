@@ -51,6 +51,8 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
     card_capture(out, mix_stem_n ? mix_stem_l : 0, mix_stem_r, n);   /* (Orange Cat 0.4.16) the recorder (card_play.c):
                                                          * the mix as USB audio takes it, before the click and the
                                                          * card's WAVs; (0.4.19) or one track, stereo (mix.c) */
+    if (mix_frz_after) mix_frz_after(n);                /* (Orange Cat 0.4.20) a freeze's take: its frames this block
+                                                         * (card_freeze.c frz_after) */
     click_render(out, n);
     card_render(out, n);                                /* (Orange Cat 0.4.11) a WAV from the drive (card_play.c) */
     for (i = 0; i < n; i++) {

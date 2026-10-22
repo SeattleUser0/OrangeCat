@@ -27,6 +27,13 @@ static uint32_t live_held[NTRK][4], live_last[NTRK][4];
 static uint8_t live_velocity[NTRK][128] __attribute__((section(".pool")));
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
 static volatile uint32_t seq_start_count;     /* (Orange Cat 0.4.17) times the sequencer started (a RESTART too): card_play.c card_sync */
+/* (Orange Cat 0.4.20) each block, where in it each track began a new pass of its phrase (step 0): the frame (0..n; n:
+ * at the next block's start), SEQ_NOPASS none. card_freeze.c counts them: a frozen track's cycle is a number of passes,
+ * and its take starts, records and loops on them, to the sample */
+#define SEQ_NOPASS 0xFFFFu
+static uint16_t seq_pass_at[NTRK];
+static uint32_t seq_chunk_at;                    /* (0.4.20) where in the block seq_grid_tick's n begins (seq_tick's chunks) */
+static uint32_t seq_adv_at;                      /* (0.4.20) where in the block seq_advance_part's n begins (strums, a count-in) */
 /* audio ISR -> the UI's STEP entry (ui_input.c seq_midi_events): the edges of the notes MIDI plays, with the track and
  * the pitch they went to (after the scale layout and the chord), so the UI never guesses after a change */
 #define STEP_MIDI_Q 64u
@@ -1351,6 +1358,8 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         }
         if (!t->seq_idx)                            /* (Orange Cat, Skiff) a new pass of the loop: the conditions */
             t->seq_pass++;
+        if (!t->seq_idx)                            /* (Orange Cat 0.4.20) where it began in this block */
+            seq_pass_at[trk_index(t)] = (uint16_t)(seq_chunk_at + (t->seq_pos < n ? n - t->seq_pos : 0u));
         if (!t->seq_idx && !starting) {                 /* a loop end: an edit waiting on the bank now playing keeps it
                                                          * silent until the UI has done it */
             uint32_t k = trk_index(t);
@@ -1378,6 +1387,8 @@ static void seq_grid_tick(track_t *t, uint32_t n)
  * loop zero once. MIDI batches may cross several boundaries in one call. */
 static void seq_tick(track_t *t, uint32_t n)
 {
+    uint32_t done = seq_adv_at;
+    seq_chunk_at = done;                            /* (Orange Cat 0.4.20: the pass marks' frame) */
     seq_erase_pass(t, t->seq_idx, 0);
     if (!((recording_tracks | song.rec) & (1u << trk_index(t)))) { seq_grid_tick(t, n); return; }
     if (!song.playing) { seq_grid_tick(t, n); return; }
@@ -1393,9 +1404,11 @@ static void seq_tick(track_t *t, uint32_t n)
         if (chunk > n) chunk = n;
         uint32_t before = t->seq_idx;
         if (recording_tracks & (1u << trk_index(t))) recording_tick(t, chunk);
+        seq_chunk_at = done;
         seq_grid_tick(t, chunk);
         if (!t->seq_idx && (before || t->p[P_SLEN] == 1) && t->seq_pos < chunk) recording_zero(t);
         n -= chunk;
+        done += chunk;
     }
 }
 
@@ -1454,6 +1467,7 @@ static void seq_advance_part(uint32_t n)
     chain_tick(n);
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], n);
+    seq_adv_at += n;                                /* (Orange Cat 0.4.20) */
     for (i = 0; i < NPART; i++)
         /* Held keys play at the local tempo while the selected master is
          * stopped. A released HOLD chord still waits for external transport. */
@@ -1509,6 +1523,8 @@ static void events_block(uint32_t n)
         }
         transport_req = 0;
     }
+    for (i = 0; i < NTRK; i++) seq_pass_at[i] = SEQ_NOPASS;   /* (Orange Cat 0.4.20) */
+    seq_adv_at = 0;
     pr = panic_req;
     panic_req = 0;
     if (midi_in_overflow) {                            /* a lost note-off must never leave a held note */
@@ -1621,6 +1637,7 @@ static void events_block(uint32_t n)
                 }
             }
         }
+        seq_adv_at = n - left;                          /* (Orange Cat 0.4.20: after the count-in's part) */
         if(left)seq_advance(left);
     }
     if (song.playing)
