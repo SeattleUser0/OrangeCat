@@ -8,6 +8,7 @@
  * tests/fixtures/fat32_card.bin), read through usb_files.c's FatFs.
  * (0.4.11 to 0.4.20) WAVs streamed from the card (card_stream.c, card_play.c); frozen tracks recorded to it and played
  * back from it (card_freeze.c, usb_files.c frz_*), the card then checked by pyfatfs (tests/check_rec_card.py).
+ * (0.5.5) The frozen track's stem runs past 16 bits (as a loud track's does): the take keeps it whole (FZ_HEAD).
  * (0.5.3) The drive test's page is gone: what it showed (its lines, the file list, its players and recorder) is no
  * longer tested here; the probe is checked by what it leaves (a drive ready, its address and slot), the streams by
  * starting them as a freeze does. */
@@ -852,10 +853,12 @@ static void dump_card(const char *path)
  * file. frz_cycle counts the chain and song modes' passes. */
 static uint32_t fz_abs, fz_start_abs, fz_pl;           /* frames since the test's start; pass 0's; a pass's frames */
 static int fz_seq;                                      /* the model sequencer runs */
-static int32_t fz_val(uint32_t k, uint32_t p, int right) /* track k's stem, p frames into its cycle */
+static int32_t fz_val(uint32_t k, uint32_t p, int right) /* track k's stem, p frames into its cycle: (0.5.5) past 16 bits
+                                                         * both ways, up to 4.6 times, as a loud track's is */
 {
-    return right ? (int32_t)((p * (17u + k) + 300u) % 24000u) - 12000 : (int32_t)((p * (13u + k) + k * 77u) % 20000u) - 10000;
+    return right ? (int32_t)((p * (17u + k) + 300u) % 300000u) - 150000 : (int32_t)((p * (13u + k) + k * 77u) % 240000u) - 120000;
 }
+static int32_t fz_file(int32_t v) { return v >> FZ_HEAD; }   /* (0.5.5) what the take holds: the headroom's bits down */
 static uint32_t fz_cyc_frames(uint32_t k) { return fz_pl * (frz[k].passes ? frz[k].passes : 1u); }
 static void fz_block(void)                              /* one 64-frame block: the sequencer, the mix, the card, the main loop */
 {
@@ -903,7 +906,7 @@ static uint32_t fz_check(uint32_t k, uint32_t blocks, int32_t g)   /* (g: the le
         if (b) fz_block();
         for (i = 0; i < 64u; i++) {
             uint32_t a = (b ? base : fz_abs - 64u) + i, p = (a - fz_start_abs) % fz_cyc_frames(k);
-            int32_t l = (fz_val(k, p, 0) * g) >> 12, r = (fz_val(k, p, 1) * g) >> 12;
+            int32_t l = (fz_file(fz_val(k, p, 0)) * g) >> (12 - FZ_HEAD), r = (fz_file(fz_val(k, p, 1)) * g) >> (12 - FZ_HEAD);
             if (a < fade_end) continue;
             if (t_mix_l[i] != l || t_mix_r[i] != r) bad++;
         }
@@ -945,7 +948,7 @@ static int t_freeze(void)
         assert(f_open(&fl, "/ORANGECAT/T2_001.WAV", FA_READ) == FR_OK && f_lseek(&fl, 512) == FR_OK);
         for (i = 0; i < fz_pl; i++) {
             assert(f_read(&fl, sm, 4, &got) == FR_OK && got == 4u);
-            if (sm[0] != fz_val(1, i, 0) || sm[1] != fz_val(1, i, 1)) { if (first == 0xFFFFFFFFu) first = i; wrong++; }
+            if (sm[0] != fz_file(fz_val(1, i, 0)) || sm[1] != fz_file(fz_val(1, i, 1))) { if (first == 0xFFFFFFFFu) first = i; wrong++; }
         }
         f_close(&fl);
         printf("  T2_001.WAV: %u frames wrong (first %d)\n", wrong, (int)first);
@@ -972,7 +975,8 @@ static int t_freeze(void)
         fz_block();
         for (j = 0; j < 64u; j++) {
             uint32_t p = (base + j - fz_start_abs) % fz_cyc_frames(1);
-            if (t_mix_l[j] != ((fz_val(1, p, 0) * 2048) >> 12) || t_mix_r[j] != ((fz_val(1, p, 1) * 2048) >> 12)) bad++;
+            if (t_mix_l[j] != ((fz_file(fz_val(1, p, 0)) * 2048) >> (12 - FZ_HEAD)) ||
+                t_mix_r[j] != ((fz_file(fz_val(1, p, 1)) * 2048) >> (12 - FZ_HEAD))) bad++;
         }
     }
     printf("  LEVEL 50 of 100: %u wrong\n", bad);

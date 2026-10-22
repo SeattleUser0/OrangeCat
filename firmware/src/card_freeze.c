@@ -26,8 +26,15 @@
  *
  * Revisions:
  *   0.4.20: first version.
+ *   0.5.5: the take recorded FZ_HEAD bits down, played back FZ_HEAD bits up. A track's stem is the mix's own scale, where
+ *          the master's limiter brings the sum down after: one track alone runs past 16 bits (measured on the host: a
+ *          VA BASS note 1.3 times full scale, ORGAN DRAWBAR's two notes 2.6, a four note chord on FM KEYS 4.4). 0.4.20
+ *          held it to 16 bits, so frozen tracks came back clipped hard (heard on the unit: badly distorted). 3 bits
+ *          (18 dB) holds 8 times full scale; the take keeps 13 of its bits for a stem at full scale, the noise of the
+ *          lowest still under what the DAC plays. On a computer a take plays 18 dB quieter than the track did.
  */
 #define FZ_X 2048u                                      /* frames recorded past the cycle's end (46 ms): the blend */
+#define FZ_HEAD 3                                       /* (0.5.5) bits of headroom in a take (see above) */
 static struct {
     uint32_t pass;                                      /* passes since the sequencer started; FZ_NONE before the first */
     uint32_t rec_end;                                   /* the pass the take ends on */
@@ -124,14 +131,16 @@ static int frz_take(track_t *t, uint32_t n)
     cp_pull(c, fz_l, fz_r, from, n);
     lvl0 = LEVEL_Q12[frz[ti].lvl & 127];
     g = lvl0 ? (int32_t)((uint32_t)LEVEL_Q12[t->p[P_LEVEL] & 127] * 4096u / (uint32_t)lvl0) : 4096;   /* Q12 */
+    if (g > 16384) g = 16384;                           /* (0.5.5) at most 4 times (+12 dB) the level it was frozen at */
     gain = solo_gain[ti];
     to = !t->p[P_MUTE] && (!track_solo || ((track_solo >> ti) & 1u)) ? 32768 : 0;
     for (i = 0; i < n; i++) {
         int32_t l, r;
         gain += clamp(to - gain, -256, 256);
         if (i < from) continue;
-        l = (fz_l[i] * g) >> 12;
-        r = (fz_r[i] * g) >> 12;
+        l = (fz_l[i] * g) >> (12 - FZ_HEAD);            /* (0.5.5: the take's headroom back; 32,767 x a Q12 gain of up
+                                                         * to 16,384 fits 31 bits) */
+        r = (fz_r[i] * g) >> (12 - FZ_HEAD);
         l = fx_scale(l, (uint32_t)gain * 2u);           /* (as mix_fx_samples: no 64 bits) */
         r = fx_scale(r, (uint32_t)gain * 2u);
         if (fade && i - from < MIX_FRZ_FADE) {          /* (the take's share: 0..MIX_FRZ_FADE) */
@@ -161,7 +170,7 @@ static void frz_after(uint32_t n)
         } else {
             wi = cr.wi;
             for (i = from; i < to; i++) {
-                int32_t l = mix_stem_l[i], r = mix_stem_r[i];
+                int32_t l = mix_stem_l[i] >> FZ_HEAD, r = mix_stem_r[i] >> FZ_HEAD;   /* (0.5.5: headroom) */
                 l = l > 32767 ? 32767 : l < -32768 ? -32768 : l;
                 r = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
                 cr.buf[2u * wi] = (int16_t)l;

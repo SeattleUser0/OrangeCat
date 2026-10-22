@@ -272,7 +272,11 @@ static MC_XIP uint32_t mc_units(const track_t *t)
     return MC_UNITS[clamp(t->p[P_E0], 0, MC_N - 1)];
 }
 
-/* name, {MODEL, HARM, TIMBRE, MORPH, AUX, LPG, DECAY, T.MOD}, {A D S R}, ENV -> FILTER (MORPH), mono (0.5.2: 0, POLY,
+/* (0.5.5) The string presets (PLUCKED STRING, HARP, STRING CHORDS) at HARM 32: the string's non-linearity is zero
+ * there (0.24 to 0.26), its partials whole multiples, a string. At 64 (0.5.0 to 0.5.4) it was the module's dispersion,
+ * its partials stretched (2.92, 3.78, 5.46 times the note): a wooden bar, as heard on the unit. HARP's MRPH 100: it
+ * rings on.
+ * name, {MODEL, HARM, TIMBRE, MORPH, AUX, LPG, DECAY, T.MOD}, {A D S R}, ENV -> FILTER (MORPH), mono (0.5.2: 0, POLY,
  * for the pads, keys and bells: they play a step's four notes; 0.5.3: the CHORD presets LEG again, the model makes its
  * own four note chord from one key, and four of those would take 20 voice units) */
 static const preset_t MC_PRESETS[] = {
@@ -292,7 +296,7 @@ static const preset_t MC_PRESETS[] = {
     {"NOISE WIND", {MC_NOISE, 70, 50, 90, 0, 0, 90, 0}, {80, 90, 100, 90}, 0, 1},
     {"NOISE SWEEP", {MC_NOISE, 40, 90, 30, 64, 0, 80, -40}, {10, 80, 100, 70}, 0, 1},
     {"DUST RAIN", {MC_PARTCL, 64, 70, 80, 0, 0, 90, 0}, {10, 90, 110, 90}, 0, 1},
-    {"PLUCKED STRING", {MC_STRING, 64, 70, 64, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 1},
+    {"PLUCKED STRING", {MC_STRING, 32, 70, 64, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 1},
     {"LOW STRING", {MC_STRING, 40, 40, 110, 0, 0, 80, 0}, {0, 127, 127, 96}, 0, 1},
     {"MALLET", {MC_MODAL, 50, 50, 70, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},
     {"GLASS BELL", {MC_MODAL, 100, 90, 100, 0, 0, 60, 0}, {0, 127, 127, 104}, 0, 0},
@@ -301,8 +305,8 @@ static const preset_t MC_PRESETS[] = {
     {"SNARE", {MC_SNARE, 50, 64, 64, 0, 0, 50, 0}, {0, 127, 127, 90}, 0, 1},
     {"HI-HAT", {MC_HIHAT, 64, 90, 30, 0, 0, 50, 0}, {0, 127, 127, 80}, 0, 1},
     {"OPEN HAT", {MC_HIHAT, 64, 90, 90, 0, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
-    {"HARP", {MC_HARP, 64, 80, 70, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},          /* (0.5.2) */
-    {"STRING CHORDS", {MC_HARP, 40, 50, 100, 0, 0, 80, 0}, {0, 127, 127, 104}, 0, 0},
+    {"HARP", {MC_HARP, 32, 70, 100, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},         /* (0.5.3; 0.5.5: HARM 32, MRPH 100) */
+    {"STRING CHORDS", {MC_HARP, 32, 50, 110, 0, 0, 80, 0}, {0, 127, 127, 104}, 0, 0},
 };
 
 static const engine_t ENG_MACRO = {

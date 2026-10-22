@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.5.4
+**Firmware:** 0.5.5
 **Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -119,12 +119,12 @@ The ADSR, LFO and modulation pages work as for any engine. ENV and LFO to SHAPE 
 | SWARM | A cloud of eight sawtooth grains | Pitch spread | Grain density | Grain length |
 | NOISE | Filtered noise | Filter type | Clock frequency | Resonance |
 | PARTCL | Random clicks through filters | Pitch spread | Density | Filter type and echo |
-| STRING | Plucked strings | Material | Brightness | Decay |
+| STRING | Plucked strings | Material (32 is a plain string; higher is wood, then metal) | Brightness | Decay |
 | MODAL | Struck bells, bars and plates | Material | Brightness | Decay |
 | KICK | Bass drum | Punch and drive | Brightness | Decay |
 | SNARE | Snare drum | Tone against noise | Body tone | Decay |
 | HI-HAT | Hi-hat | Metal against noise | High-pass cutoff | Decay |
-| HARP | Plucked strings, one per note, for chords | Material | Brightness | Decay |
+| HARP | Plucked strings, one per note, for chords | Material (32 is a plain string; higher is wood, then metal) | Brightness | Decay |
 
 Each track plays up to four notes at once on MACRO when its voice mode is POLY (press EDIT until the VOICE page shows; KNOB 1 is VCE). The pad, keys and bell presets start in POLY; the bass, lead and CHORD presets in LEG (one note; the CHORD model already plays a chord from one key).
 
@@ -137,7 +137,7 @@ Some models cost the processor much more than others, so the FM-1 limits how man
 | 2 | ADDTV (ORGAN DRAWBAR, ADDITIVE PAD), MODAL, FM |
 | 1 | PARTCL, STRING (always one at a time, see above) |
 
-Other tracks playing at the same time take their share, so fewer notes are left. (Before 0.5.4 an ORGAN DRAWBAR chord of four notes ran the processor past its limit, and the sound broke up.) PARTCL and STRING play one note at a time. STRING has three strings that ring on over each other as you play notes one after another, but notes started together (a chord) give only one. For chords on strings use HARP: each of the four notes gets its own string. Its presets are HARP and STRING CHORDS. CHORD also plays chords from one key. STRING, HARP, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
+Other tracks playing at the same time take their share, so fewer notes are left. When notes have to stop, the lowest note held and the newest ones keep playing. (Before 0.5.4 an ORGAN DRAWBAR chord of four notes ran the processor past its limit, and the sound broke up.) PARTCL and STRING play one note at a time. STRING has three strings that ring on over each other as you play notes one after another, but notes started together (a chord) give only one. For chords on strings use HARP: each of the four notes gets its own string. Its presets are HARP and STRING CHORDS. CHORD also plays chords from one key. STRING, HARP, MODAL and the drums decay on their own: their presets hold the envelope open, so MRPH sets how long they ring. Raise REL if a sound is cut short.
 
 The models run at the FM-1's 44.1 kHz, so their own decay times are about 9% longer than on the module.
 
@@ -184,7 +184,7 @@ While frozen, LEVEL, MUTE, SOLO and the effect sends still work. Pan and the tra
 
 Turn KNOB 3 left to unfreeze: the synth comes back. Turned left while it is freezing, it cancels and deletes the half-made file.
 
-The recordings go in /ORANGECAT on the card: T1_001.WAV for track 1's first, and so on. They stay on the card after you unfreeze.
+The recordings go in /ORANGECAT on the card: T1_001.WAV for track 1's first, and so on. They stay on the card after you unfreeze. They are recorded 18 dB down so loud tracks are not clipped, so on a computer they sound quieter than the track did. Recordings made before 0.5.5 are clipped and sound distorted: freeze those tracks again.
 
 If the row shows a word in red, the freeze stopped: Card? (no card found), Stop (the sequencer stopped mid-recording), Full (the card or the FM-1's player memory is full: two frozen tracks can play while a third freezes), Slow (the card fell behind), Error (the card would not write), Lvl 0 (the track's level is off).
 

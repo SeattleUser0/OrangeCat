@@ -19,6 +19,7 @@ Revisions:
   0.4.17: the pulled take (OC003), the mono track take (OC004), the cancelled one (OC005).
   0.4.19: the track take is stereo.
   0.5.3: the drive test's recorder is gone (OC001 to OC005): frozen tracks' takes are checked instead.
+  0.5.5: the takes hold the stem 3 bits down (headroom: a loud track runs past 16 bits).
 """
 import io
 import struct
@@ -28,10 +29,10 @@ import wave
 IMG = "build/host/rec_card.img"
 
 
-def fz_val(k, p, right):                         # the test's stem of track k, p frames into its cycle
-    if right:
-        return (p * (17 + k) + 300) % 24000 - 12000
-    return (p * (13 + k) + k * 77) % 20000 - 10000
+def fz_val(k, p, right):                         # the test's stem of track k, p frames into its cycle, as the take
+    if right:                                   # holds it: (0.5.5) past 16 bits, 3 bits down (card_freeze.c FZ_HEAD)
+        return ((p * (17 + k) + 300) % 300000 - 150000) >> 3
+    return ((p * (13 + k) + k * 77) % 240000 - 120000) >> 3
 
 
 def main():
