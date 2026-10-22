@@ -537,6 +537,73 @@ static int test_rec(void)
     return bad;
 }
 
+/* (Orange Cat 0.5.6) a frozen phrase (card_freeze.c; here ui.c's stand-in, frz_host_frozen): its steps, notes,
+ * PHRASE settings and motion cannot be edited, nor recorded into, until it is unfrozen; moving about still works */
+static int test_frozen_lock(void)
+{
+    int bad = 0;
+    step_t before[NSTEP];
+    int16_t len;
+    ui_power_on();
+    open_family(FAM_SEQ);
+    bank_pid[0][trk[0].pattern % NPAT] = 5;
+    frz_host_frozen = 1ull << 4;                        /* phrase 5 frozen */
+    memcpy(before, trk[0].step, sizeof before);
+    fm1_in.notes = host_notes = 1u << 7;
+    frame();
+    fm1_in.notes = 0;
+    frame();
+    bad += check("frozen phrase: a key does not write the step, and says why",
+                 !memcmp(before, trk[0].step, sizeof before) && msg_is("UNFREEZE TO EDIT"));
+    turn(EN_K2, 3);
+    turn(EN_K3, 2);
+    bad += check("frozen phrase: the step knobs change nothing", !memcmp(before, trk[0].step, sizeof before));
+    ui.cursor = 0;
+    turn(EN_K1, 2);
+    bad += check("frozen phrase: KNOB 1 still moves about", ui.cursor == 2u);
+    ui.msg_t = 0;
+    press(B_REC);
+    bad += check("frozen phrase: REC refused", song.rec == 0u && msg_is("UNFREEZE TO EDIT"));
+    go_page(GR_STEPS);
+    len = TSEL->p[P_SLEN];
+    turn(EN_K1, 4);
+    bad += check("frozen phrase: PHRASE's LEN stays", TSEL->p[P_SLEN] == len);
+    go_home();
+    ui.force = 1;
+    frame();
+    {   /* HOME: the frozen track's row greyed with a blue tint (ui_stage.c), its role FROZEN */
+        uint32_t mono = ux.mono, sel = song.sel == 0u;
+        uint16_t tc, bg, px;
+        ux.mono = 0;                                    /* (a colour palette: the tint is blue) */
+        ui.msg_t = 0;                                   /* (the message over the first row gone) */
+        ui.force = 1;
+        frame();
+        tc = ux_mix(T_DIM, ST_FROZEN_BLUE, 55);
+        bg = ux_mix(T_BG, tc, sel ? 24 : 11);
+        px = host_screen[(uint32_t)(st_row_y(0) + 3) * 240u + BOX_X + 20u];
+        px = (uint16_t)((px >> 8) | (px << 8));
+        bad += check("frozen phrase: HOME shows the track greyed with a blue tint",
+                     px == bg && (tc & 31u) > ((tc >> 11) & 31u) + 4u);
+        ux.mono = (uint8_t)mono;
+        ui.force = 1;
+    }
+    frz_host_frozen = 0;                                /* unfrozen: as ever */
+    open_family(FAM_SEQ);
+    go_page(GR_STEPS);
+    turn(EN_K1, 4);
+    bad += check("unfrozen: PHRASE's LEN changes", TSEL->p[P_SLEN] != len);
+    ui_power_on();
+    open_family(FAM_SEQ);
+    bank_pid[0][trk[0].pattern % NPAT] = 5;             /* (phrase 5, no longer frozen) */
+    fm1_in.notes = host_notes = 1u << 7;
+    frame();
+    fm1_in.notes = 0;
+    frame();
+    bad += check("unfrozen: a key writes the step", trk[0].step[0].n == 1);
+    bank_pid[0][trk[0].pattern % NPAT] = 0;
+    return bad;
+}
+
 /* Waiting is persistent transport state, confined to the header. */
 static int test_recording_header(void)
 {
@@ -5815,6 +5882,7 @@ int main(void)
     bad += test_home_notes();
     bad += test_stage();
     bad += test_capture();
+    bad += test_frozen_lock();
     bad += test_undo_levels();
     bad += test_new_song();
     bad += test_sound_loads();

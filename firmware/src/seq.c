@@ -32,6 +32,16 @@ static volatile uint32_t seq_start_count;     /* (Orange Cat 0.4.17) times the s
  * and its take starts, records and loops on them, to the sample */
 #define SEQ_NOPASS 0xFFFFu
 static uint16_t seq_pass_at[NTRK];
+/* (Orange Cat 0.5.6) frozen phrases (card_freeze.c): at each pass a track begins, seq_frz_hook says whether the
+ * phrase's take plays it; then seq_frz_quiet's bit k keeps track k's notes quiet for the pass (its steps play as
+ * SEQ_HUSH_STEP: what was sounding is let go as usual, nothing new starts; its recorded notes and motion stay quiet
+ * too). A launch mid-pass (BAR, BEAT, NOW) clears it: a take only starts at a pass. No hook (host tests without
+ * card_freeze.c): never quiet. */
+static volatile uint8_t seq_frz_quiet;
+static int (*seq_frz_hook)(uint32_t k);
+static volatile uint8_t seq_frz_lock;            /* (0.5.6) bit k: track k is on a frozen phrase (usb_files.c frz_manage,
+                                                  * the main loop): nothing recorded into it (notes: below; motion:
+                                                  * motion.c motion_capture) */
 static uint32_t seq_chunk_at;                    /* (0.4.20) where in the block seq_grid_tick's n begins (seq_tick's chunks) */
 static uint32_t seq_adv_at;                      /* (0.4.20) where in the block seq_advance_part's n begins (strums, a count-in) */
 /* audio ISR -> the UI's STEP entry (ui_input.c seq_midi_events): the edges of the notes MIDI plays, with the track and
@@ -488,6 +498,7 @@ static void rec_note(track_t *t, uint32_t note, uint32_t vel)
     if (t->rh_n && t->rh_start != idx)
         rec_finish(t);
     s = &t->step[idx];
+    if ((seq_frz_lock >> trk_index(t)) & 1u) return;   /* (0.5.6) a frozen phrase: as it was frozen */
     if (!recording_note(t, note, vel, idx)) return;
     if (drum_track(t)) {                            /* DRUM: into the grid, no holds (hits) */
         uint32_t l = drum_lane(note);
@@ -1229,7 +1240,7 @@ static __attribute__((noinline)) void seq_fire(track_t *t, uint32_t idx, uint32_
         }
         t->rskip_n = 0;
     }
-    if ((seq_hush >> trk_index(t)) & 1u)
+    if (((seq_hush | seq_frz_quiet) >> trk_index(t)) & 1u)   /* (0.5.6: a frozen phrase's take plays) */
         s = &SEQ_HUSH_STEP;
     seq_step(t, s, step_gate(s) ? step_samples(t, period, idx) : period, skip);
 }
@@ -1340,6 +1351,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             t->ent_pass = 0;
             t->pattern_reps = 0;
             pattern_switch(t, t->pattern_next);
+            seq_frz_quiet &= (uint8_t)~(1u << trk_index(t));   /* (0.5.6: a launch mid-pass plays its notes) */
             period = seq_div_samples((uint32_t)t->p[P_SDIV]);
             len = (uint32_t)t->p[P_SLEN];
             t->seq_idx = (uint16_t)(now ? at % (len ? len : 1u) : 0u);
@@ -1358,8 +1370,12 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         }
         if (!t->seq_idx)                            /* (Orange Cat, Skiff) a new pass of the loop: the conditions */
             t->seq_pass++;
-        if (!t->seq_idx)                            /* (Orange Cat 0.4.20) where it began in this block */
-            seq_pass_at[trk_index(t)] = (uint16_t)(seq_chunk_at + (t->seq_pos < n ? n - t->seq_pos : 0u));
+        if (!t->seq_idx) {                          /* (Orange Cat 0.4.20) where it began in this block */
+            uint32_t k = trk_index(t);
+            seq_pass_at[k] = (uint16_t)(seq_chunk_at + (t->seq_pos < n ? n - t->seq_pos : 0u));
+            if (seq_frz_hook && seq_frz_hook(k)) seq_frz_quiet |= (uint8_t)(1u << k);   /* (0.5.6) its take plays it */
+            else seq_frz_quiet &= (uint8_t)~(1u << k);
+        }
         if (!t->seq_idx && !starting) {                 /* a loop end: an edit waiting on the bank now playing keeps it
                                                          * silent until the UI has done it */
             uint32_t k = trk_index(t);
@@ -1370,7 +1386,8 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         cap_step[trk_index(t)]++;
         if (!t->seq_idx && t == &trk[0] && !chain.running)
             jam_loop();
-        motion_step(t, t->seq_idx, &motion);
+        if (!((seq_frz_quiet >> trk_index(t)) & 1u))   /* (0.5.6: a frozen phrase's motion is in its take) */
+            motion_step(t, t->seq_idx, &motion);
         if (punch_in) rec_begin_held(t);
         seq_erase_pass(t, t->seq_idx, 1);
         if (!seq_erase_active(t)) rec_hold(t, t->seq_idx, len ? len : 1u);

@@ -144,7 +144,9 @@ static void pp_copy(void)
 }
 static void pp_clear(void)
 {
-    int rc = ocl_pool_clear(ui.pool_sel % 64u);
+    int rc;
+    if (frz_phrase_frozen(ui.pool_sel % 64u + 1u)) { ui_message("UNFREEZE FIRST"); return; }   /* (Orange Cat 0.5.6) */
+    rc = ocl_pool_clear(ui.pool_sel % 64u);
     ui_message(!rc ? "PHRASE CLEARED" : rc == 1 ? "NOTHING TO CLEAR" : rc == 2 ? "IN USE: NOT CLEARED" :
                song.playing ? "STOP FIRST" : "SAVE ERROR");
 }
@@ -305,6 +307,7 @@ static int step_enter(void)
     uint32_t chosen, start;
     if (ui.home || ui.layer || ui.menu || (cur_page()->graph != GR_ROLL && cur_page()->graph != GR_TRACKER))
         return 0;                                       /* ((Orange Cat 0.4.2) TRACKER: the row's note too) */
+    if (frz_locked()) return 1;                         /* (Orange Cat 0.5.6) a frozen phrase: no note sheet */
     str_cpy(sub, "step ", sizeof sub);
     fmt_int(sub + 5, (int32_t)ui.cursor + 1);
     if (grid_on()) {

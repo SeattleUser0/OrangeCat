@@ -178,6 +178,7 @@ static uint8_t dq_n;
 static void seq_clear_now(uint32_t kind, uint32_t k)
 {
     track_t *t = &trk[k % NTRK];
+    if (frz_locked_k(k)) return;                        /* (Orange Cat 0.5.6) a frozen phrase */
     if (recording_head[recording_owner(t)] < RECORD_MAX) {
         if (!note_clear_pattern(t)) return;
     } else {
@@ -202,6 +203,7 @@ static void dq_do(uint32_t cf, uint32_t k, uint32_t a, uint32_t b)
     ui.force = 1;
     if (chain_busy()) {
         ui_message("STOP TO EDIT");
+    } else if (frz_locked_bank(k, a)) {                 /* (Orange Cat 0.5.6) a frozen phrase: as it was frozen */
     } else if (cf == CF_CLEAR_MOTION) {
         load_begin(t, UNDO_PAT);
         motion_clear_bank(t, a);
@@ -378,6 +380,7 @@ static void pattern_key_len(uint32_t k, uint32_t b, int up)
         return;
     }
     b = t->pattern;
+    if (frz_locked_k(k)) return;                        /* (Orange Cat 0.5.6) a frozen phrase */
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
     int rc = up ? pattern_double(t, b, 0) : pattern_half(t, b, 0);
     ui.force = 1;
@@ -610,6 +613,7 @@ static void rec_toggle(uint32_t latch)
         ui_message("[SEQ] TO RECORD");
         return;
     }
+    if (!(song.rec & bit) && frz_locked()) return;     /* (Orange Cat 0.5.6) no recording into a frozen phrase */
     fm1_irq_off();
     rec_set(TSEL, !(song.rec & bit));
     if (latch && (song.rec & bit)) song.rec_latch |= bit;
@@ -685,6 +689,7 @@ static void capture_take(void)
     track_t *t = TSEL;
     uint32_t k = song.sel, n = 0, i, now, first = 0xFFFFu, last = 0, end, w, start, put = 0, full = 0, j = 0, from;
     uint64_t touched = 0;
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     int empty;
     cap_ev_t captured[CAP_N];
     uint32_t until;
@@ -967,6 +972,7 @@ static void drum_hit_jog(int32_t delta)
 static void drum_hit_delete(void)
 {
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     step_history_end();step_history_finish();fm1_irq_off();step_history_sync_locked();
     uint32_t i=drum_hit_selected(),sound=ui.drum_sound%drum_sound_count(TSEL);int32_t had=step_sound_note(TSEL,&TSEL->step[ui.cursor],sound);
     uint32_t note=had>=0?(uint32_t)had:drum_sound_note(TSEL,sound);
@@ -983,6 +989,7 @@ static void drum_hit_delete(void)
 static void drum_hit_key(uint32_t accent)
 {
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     uint32_t sound=ui.drum_sound%drum_sound_count(TSEL),lane=drum_lane(drum_sound_note(TSEL,sound));
     if((drum_hit_selected()<RECORD_MAX || step_sound_note(TSEL,&TSEL->step[ui.cursor],sound)>=0) && !accent){drum_hit_delete();return;}
     drum_hit_edit(2,0);
@@ -1061,6 +1068,7 @@ static int tracker_delete(void)
     track_t *t = TSEL;
     uint32_t col = ui.tk_col % TKC_N, at = notes_manual_start(t), j;
     step_t *st;
+    if (frz_locked()) return 1;                         /* (Orange Cat 0.5.6) a frozen phrase */
     char m[24];
     if (at >= NSTEP || col == TKC_VEL)
         return 0;
@@ -1182,6 +1190,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         groove_edit(slot, steps);
         return;
     }
+    if ((pg->scope == SC_STEP || pg->graph == GR_STEPS || (MELODEE_DRUM && pg->scope == SC_DRUMHIT)) &&
+        !(pg->scope != SC_TRACK && slot == 0u) && frz_locked())   /* (Orange Cat 0.5.6) a frozen phrase's steps and
+                                                         * PHRASE settings (KNOB 1 on NOTES still moves about) */
+        return;
     if (chain_busy() && (pg->scope == SC_STEP || pg->graph == GR_STEPS ||
         0)) {
         ui_message("STOP TO EDIT"); return;
@@ -1558,6 +1570,7 @@ static void step_edit_combo(void)
 
 static void step_length_edit(int32_t delta)
 {
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_event_edit(2, delta); return; }
     uint32_t at, n = 0;
     fm1_irq_off();
@@ -1577,6 +1590,7 @@ static void step_length_edit(int32_t delta)
 
 static void step_move_edit(int32_t delta)
 {
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if(bulk.on || ui.note_move || ui.note_copy || (ui.step_mods&(1u<<panel.btn[B_ENV]))) {
         note_move_snapped(delta,RECORD_UNIT/4u,ui.note_copy);ui.note_copy=0;return;
     }
@@ -1591,6 +1605,7 @@ static void step_move_edit(int32_t delta)
 static void notes_event_edit(uint32_t slot, int32_t delta)
 {
     if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
     step_history_end(); step_history_finish();
     fm1_irq_off();
@@ -1641,6 +1656,7 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
 static void notes_delete_edit(void)
 {
     if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
     step_history_end();
     step_history_finish();
@@ -1675,6 +1691,7 @@ static void notes_delete_edit(void)
 
 static void step_delete_edit(void)
 {
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (cur_page()->graph == GR_TRACKER && tracker_delete()) return;   /* (0.5.2) a note column's note, an effect */
     if(cur_page()->graph==GR_ROLL&&bulk.on){notes_bulk_delete();return;}
     if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_delete_edit(); return; }
@@ -1707,6 +1724,7 @@ static void step_delete_edit(void)
 static void tracker_entry_notes(step_t *st, const uint8_t *n, uint32_t cnt)
 {
     uint32_t i, j, col = ui.tk_col % TKC_N;
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (!ui.entry_open) {
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;
@@ -1739,6 +1757,7 @@ static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
 {
     track_t *t = TSEL;
     step_t *st = &t->step[ui.cursor];
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     uint32_t i, j;
     if (!cnt)
         return;
@@ -2103,6 +2122,7 @@ static int bulk_context(void)
 static int bulk_jog(int32_t delta)
 {
     if(!bulk_context()||!(fm1_in.buttons&(1u<<panel.btn[B_OCTUP])))return 0;
+    if (frz_locked()) return 1;                         /* (Orange Cat 0.5.6) a frozen phrase */
     uint32_t slots=slot_kind(),cur=slots?slot_cur(slots):ui.cursor;
     if(!bulk.on||bulk.on==2u){bulk.anchor=(uint16_t)cur;bulk.engine=(uint8_t)library_engine();bulk.track=song.sel;bulk.pattern=TSEL->pattern;bulk.generation=TSEL->pattern_gen;}
     bulk.on=1;uint32_t limit=slots?UP_SLOTS:step_pattern_len(TSEL);

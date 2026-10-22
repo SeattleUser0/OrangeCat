@@ -467,7 +467,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
        S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_MENU_AUTOSAVE_ON, S_MENU_AUTOSAVE_OFF, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG, S_DRUM_HIT_TOMS,
-       S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_PATGRID, S_PATGRID_STOPPED, S_PATGRID_SHEET, S_PATGRID_COPY, S_PATGRID_REPLACE, S_PATGRID_DELETE, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
+       S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_FROZEN, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_PATGRID, S_PATGRID_STOPPED, S_PATGRID_SHEET, S_PATGRID_COPY, S_PATGRID_REPLACE, S_PATGRID_DELETE, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
        S_STAGE_T1, S_STAGE_T1_ARP, S_STAGE_T1_KNOBS, S_STAGE_T1_SYNTH, S_STAGE_T1_SYNTH_ARP, S_STAGE_T2, S_STAGE_T3, S_SHEET_STAGE, S_CONFIRM_TRACK,
        S_VIEW, S_VIEW_LETGO, S_VIEW_NOTE, S_VIEW_EMPTY, S_VIEW_KNOBS, S_VIEW_SLASH, S_MENU_HOME_SEL, S_HOME_SEL_MOD, S_HOME_SEL_CHORD,
        S_HOME_SEL_LEVEL, S_PAT_DIALOG, S_STAGE_T1_REC,
@@ -497,7 +497,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "menu_autosave_on", "menu_autosave_off", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long", "drum_hit_toms",
-    "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "patterns", "patterns_stopped", "patterns_sheet", "patterns_copy", "patterns_replace", "patterns_delete", "project_new", "new_key", "new_roles",
+    "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_frozen", "stage_browse", "stage_stopped", "stage_filter", "patterns", "patterns_stopped", "patterns_sheet", "patterns_copy", "patterns_replace", "patterns_delete", "project_new", "new_key", "new_roles",
     "stage_1track", "stage_1track_arp", "stage_1track_knobs", "stage_1track_synth", "stage_1track_synth_arp", "stage_2tracks", "stage_3tracks", "sheet_stage", "confirm_track",
     "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
     "home_select_level", "pattern_key_dialog", "stage_1track_rec",
@@ -939,6 +939,7 @@ static void setup(int s)
     memset(&stage, 0, sizeof stage);                /* (Stage's knobs in) */
     chain.running = 0;                              /* (the song the SONG scene plays) */
     memset(frz, 0, sizeof frz);                     /* (Orange Cat 0.4.20: no track frozen but in mixer_frozen) */
+    frz_host_frozen = 0;                            /* (0.5.6: no phrase frozen but there, and in the Stage one) */
     if (s >= S_MOCK_HOME && s <= S_MOCK_MENU) {
         mock_state(s);
         return;
@@ -1224,6 +1225,8 @@ static void setup(int s)
         input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); break;
     case S_STAGE_QUEUED:
         go_home(); trk[1].pattern_next = 2; trk[2].p[P_MUTE] = 1; song.rec = 2u; fm1_ms = 0; break;
+    case S_STAGE_FROZEN:                                 /* (Orange Cat 0.5.6) track 2 on a frozen phrase: greyed, a blue tint */
+        go_home(); bank_pid[1][trk[1].pattern % NPAT] = 7; frz_host_frozen = 1u << 6; break;
     case S_STAGE_BROWSE:
         go_home(); brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode(); brw.n = 9; brw.t = fm1_ms; break;
     case S_STAGE_STOPPED:
@@ -1277,11 +1280,12 @@ static void setup(int s)
         trk[0].p[P_PAN] = -20; trk[1].p[P_PAN] = 24; trk[3].p[P_PAN] = -4; trk[1].p[P_RESERVED36] = 80;
         trk[2].p[P_MUTE] = 1; trk[3].p[P_MUTE] = 1; song.rec = 2u | 8u; trk[0].peak = 9000;
         break;
-    case S_MIXER_FROZEN:                         /* (Orange Cat 0.4.20) track 1 frozen, 2 recording its take, 3 the card
-                                                         * missing, 4 waiting for its cycle; KNOB 3 just turned on 2 */
+    case S_MIXER_FROZEN:                         /* (Orange Cat 0.4.20) track 1 frozen (0.5.6: on a frozen phrase), 2
+                                                         * recording its take, 3 the card missing, 4 waiting for its pass;
+                                                         * KNOB 3 just turned on 2 */
         go_page(GR_TRK); song.sel = 1;
         trk[0].p[P_LEVEL] = 100; trk[1].p[P_LEVEL] = 84; trk[2].p[P_LEVEL] = 64; trk[3].p[P_LEVEL] = 110;
-        frz[0].st = FZ_ON; frz[1].st = FZ_REC; str_cpy(frz[2].why, "Card?", sizeof frz[2].why); frz[3].st = FZ_ARMED;
+        bank_pid[0][trk[0].pattern % NPAT] = 3; frz_host_frozen = 1u << 2; frz[1].st = FZ_REC; str_cpy(frz[2].why, "Card?", sizeof frz[2].why); frz[3].st = FZ_ARMED;
         ui.hot_col = 2; ui.hot_t = 30;
         break;
     case S_MIXER_PAN:                            /* PAN just turned, the ends of each knob, OFF, armed while stopped */

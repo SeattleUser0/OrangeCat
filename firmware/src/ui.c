@@ -326,6 +326,22 @@ static void ui_say(const char *a, const char *b)
 }
 
 static void ui_message(const char *s) { ui_say(s, ""); }
+#ifndef FRZ_AUDIO
+static uint64_t frz_host_frozen;                        /* (host builds of the UI without card_freeze.c: the phrases the
+                                                         * tests mark frozen, bit id - 1) */
+static int frz_phrase_frozen(uint32_t id) { return id && id <= 64u && ((frz_host_frozen >> (id - 1u)) & 1u); }
+static int frz_track_frozen(uint32_t k) { return k < NTRK && frz_phrase_frozen(bank_pid[k][trk[k].pattern % NPAT]); }
+#endif
+/* (0.5.6) the track selected is on a frozen phrase: its notes, steps, settings and motion are its take's; an edit
+ * is refused with the word (card_freeze.c; KNOB 3 left on the MIXER page unfreezes it). 1: refused */
+static int frz_locked_bank(uint32_t k, uint32_t b)     /* .. track k's bank b */
+{
+    if (!frz_phrase_frozen(bank_pid[k % NTRK][b % NPAT])) return 0;
+    ui_message("UNFREEZE TO EDIT");
+    return 1;
+}
+static int frz_locked_k(uint32_t k) { return frz_locked_bank(k, trk[k % NTRK].pattern); }   /* .. track k */
+static int frz_locked(void) { return frz_locked_k(song.sel % NTRK); }
 
 static int chain_busy(void) { return chain.running || chain.armed; }
 /* Main loop only, with interrupts enabled. PLAY may be consumed between reads;

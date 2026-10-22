@@ -740,7 +740,7 @@ static void pv_strip(uint32_t k)
     uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0, arm = (song.rec >> k) & 1u, lvl = trk_level(k), sig;
     uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* 1 LEVEL, 2 PAN, 3 FREEZE (0.4.20), 4 MUTE */
     const char *fw = frz_word(k, song.playing);         /* (Orange Cat 0.4.20) */
-    uint32_t fst = k < 4u ? frz[k].st : FZ_OFF;
+    uint32_t fst = frz_state(k);                        /* (0.5.6) 2 the phrase frozen, 1 a freeze being made */
     int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), h = st_row_h(), y = st_row_y(k), top;
     uint16_t tc = mute ? T_DIM : T_TRK(k), bg = ux_mix(T_BG, mute ? T_TRK(k) : tc, sel ? 24 : 11);
     const aafont_t *tf = TY_TX, *lf = TY_LB;
@@ -799,7 +799,7 @@ static void pv_strip(uint32_t k)
         if (mute) {
             cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? T_TEXT : T_REC, bg);
         } else if (fw[0]) {                             /* (Orange Cat 0.4.20) frozen or freezing */
-            cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? T_TEXT : fst == FZ_ON ? T_THEME : fst != FZ_OFF ? T_TEXT : T_REC, bg);
+            cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? T_TEXT : fst == 2u ? T_THEME : fst ? T_TEXT : T_REC, bg);
         } else {
             if (pan) {
                 b[0] = pan < 0 ? 'L' : 'R';

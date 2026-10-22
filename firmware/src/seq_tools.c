@@ -49,7 +49,9 @@ static int seq_tool(track_t *t, uint32_t kind)
 static void seq_tool_ui(uint32_t kind)
 {
     static const char *const DONE[3] = {"SHIFTED RIGHT", "SHIFTED LEFT", "REVERSED"};
-    int rc = seq_tool(TSEL, kind);
+    int rc;
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
+    rc = seq_tool(TSEL, kind);
     ui_message(!rc ? DONE[kind % 3u] : rc == 1 ? "RECORDED NOTES: USE NOTES" : rc == 2 ? "STOP TO EDIT" : "NOTHING THERE");
     ui.force = 1;
 }

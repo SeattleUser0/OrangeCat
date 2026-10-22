@@ -47,7 +47,8 @@
 #define OCS_PAYLOAD_MAX (OCS_SECTOR - OCS_HDR - OCS_TAIL)   /* 3808 */
 #define OCS_PARTS_MAX 12u                      /* (a pool chunk of four patterns full of timed notes: 45 KB) */
 #define OCS_NSECT 56u
-enum { OCS_NONE, OCS_PROJECT, OCS_POOL, OCS_SAMPLE, OCS_TYPES };
+enum { OCS_NONE, OCS_PROJECT, OCS_POOL, OCS_SAMPLE, OCS_FREEZE, OCS_TYPES };   /* (0.5.6) OCS_FREEZE: the frozen phrases
+                                                * (usb_files.c frz_table_save), one record */
 
 typedef struct {
     uint32_t magic;

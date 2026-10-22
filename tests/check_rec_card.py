@@ -5,8 +5,8 @@ Python's own WAV reader.
 
 tests/usb_host_test.c (t_freeze) freezes tracks onto the test card through the firmware's FatFs and writes the card
 out as build/host/rec_card.img (48 MB, an MBR with one FAT32 partition at sector 2048). This opens that image with
-pyfatfs and checks the takes in /ORANGECAT with the wave module: each is 16-bit stereo 44.1 kHz, exactly one cycle of
-its track (T2_001.WAV: 5,003 frames; T3_001.WAV: two passes of 3,001; T4_001.WAV: 3,001), sample for sample the
+pyfatfs and checks the takes in /ORANGECAT with the wave module: each is 16-bit stereo 44.1 kHz, exactly one pass of
+its phrase (T2_001.WAV: 5,003 frames; T3_001.WAV: 5,003; T4_001.WAV: 3,001), sample for sample the
 test's stem (its fz_val). T1_001.WAV was cancelled and then stopped mid-take: it must not be there. The other files on
 the card must still read as they were made (tests/make_fat_fixture.py), and no cluster may belong to two files or
 folders, nor a chain be shorter than its file.
@@ -20,6 +20,7 @@ Revisions:
   0.4.19: the track take is stereo.
   0.5.3: the drive test's recorder is gone (OC001 to OC005): frozen tracks' takes are checked instead.
   0.5.5: the takes hold the stem 3 bits down (headroom: a loud track runs past 16 bits).
+  0.5.6: a take is one pass of a phrase (frozen phrases): T3_001.WAV one pass of 5,003 frames.
 """
 import io
 import struct
@@ -44,7 +45,7 @@ def main():
     fs = PyFatFS(IMG, offset=2048 * 512, read_only=True)
     names = sorted(fs.listdir("/ORANGECAT"))
     print("check_rec_card: /ORANGECAT holds", names)
-    for name, k, frames in (("T2_001.WAV", 1, 5003), ("T3_001.WAV", 2, 2 * 3001), ("T4_001.WAV", 3, 3001)):
+    for name, k, frames in (("T2_001.WAV", 1, 5003), ("T3_001.WAV", 2, 5003), ("T4_001.WAV", 3, 3001)):
         data = fs.readbytes("/ORANGECAT/" + name)
         with wave.open(io.BytesIO(data)) as w:
             assert w.getnchannels() == 2 and w.getsampwidth() == 2 and w.getframerate() == 44100, name

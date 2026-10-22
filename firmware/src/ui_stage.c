@@ -15,6 +15,9 @@
  * Each part remembers what it drew: a row redraws when its sound, pattern or steps change, the playhead its steps
  * alone; the band follows the scope every other frame, drawn last (the SPI, 12 MHz, sends it while the next frame is
  * worked out: a blit right after it would wait for it, lcd_window).
+ * Revisions (Orange Cat):
+ *   0.5.6: a track on a frozen phrase (card_freeze.c) is greyed with a blue tint, its role "FROZEN": its notes cannot
+ *          be edited until it is unfrozen (MIXER, KNOB 3 left).
  */
 #define ST_ROW_Y 32                                     /* the rows: 32 .. 205, 2 px apart */
 #define ST_ROWS_H 174
@@ -437,6 +440,7 @@ static void stage_rec_paint(int32_t ox, int32_t oy, int32_t w, int32_t h, int32_
     }
 }
 
+#define ST_FROZEN_BLUE 0x547Fu                          /* (Orange Cat 0.5.6) a frozen track's tint: RGB 80, 140, 255 */
 static void stage_row(uint32_t k)
 {
     static const char *const AM[7] = {"ARP", "ARP UP", "ARP DOWN", "ARP UP-DOWN", "ARP RANDOM", "ARP ORDER", "REPEAT"};
@@ -452,7 +456,9 @@ static void stage_row(uint32_t k)
     st_lay_t lay = {4, 4, 1, 1, ST_PMIN, 0, 0};
     int32_t steps_row = h >= 80, showrole = 1;          /* (one, two tracks: the role under the name; three, four: beside it,
                                                          * at the right) */
-    uint16_t tc = mute ? T_DIM : T_TRK(k), bg = ux_mix(T_BG, tc, sel ? 24 : 11);   /* (the track's tint) */
+    uint32_t frozen = frz_track_frozen(k);              /* (Orange Cat 0.5.6) on a frozen phrase: greyed, a blue tint */
+    uint16_t tc = mute ? T_DIM : frozen ? ux_mix(T_DIM, ST_FROZEN_BLUE, 55) : T_TRK(k), bg = ux_mix(T_BG, tc, sel ? 24 : 11);
+                                                        /* (the track's tint) */
     const aafont_t *lf = TY_LB, *nf = h >= 80 ? TY_VL : TY_TX;
     char nm[24], line[48], more[48], ml[TL_MAX][32], d[3] = {(char)('1' + k), 0, 0}, role[16];
     char pt[3] = {(char)('A' + cur_e), 0, 0}, pn[3] = {(char)('A' + (next ? next - 1u : 0u)), 0, 0};
@@ -471,10 +477,11 @@ static void stage_row(uint32_t k)
     cat = entry_cat(src, kk) % CAT_N;
     {   /* the role (NEW SONG's words: DRUMS, CHORDS; none, OTHER: the track), then what plays */
         char tn[3] = {'T', (char)('1' + k), 0};
-        str_cpy(line, cat == CAT_DRUM ? "DRUMS" : cat == CAT_KEYS ? "CHORDS" : cat && cat != CAT_OTHER ? CAT_NAME[cat] : tn,
-                sizeof line);
+        str_cpy(line, frozen ? "FROZEN" : cat == CAT_DRUM ? "DRUMS" : cat == CAT_KEYS ? "CHORDS" :
+                cat && cat != CAT_OTHER ? CAT_NAME[cat] : tn, sizeof line);   /* ((0.5.6) frozen: says so) */
     }
-    sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + (uint32_t)pending * 16u + stage.out * 32u, nm), line) +
+    sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + (uint32_t)pending * 16u + stage.out * 32u + frozen * 64u, nm),
+                   line) +
           next * 131u + (t->pattern + 8u * cur_e) * 7919u + len * 13u + ux.gen * 977u + ux.pal * 31u + n * 7u + (uint32_t)h * 211u + idle * 3u +
           lv * 50021u;
     if (wide)
@@ -563,9 +570,10 @@ static void stage_row(uint32_t k)
         cv_text_c(6 + cs / 2, ty_y(h / 2 - ny, cs > 30 ? TY_VL : TY_TX), cs > 30 ? TY_VL : TY_TX, d, T_INK, tc);
         if (arm)                                        /* armed: a REC dot on its corner */
             cv_disc(6 + cs - 2, h / 2 - cs / 2 - ny + 2, 9, T_REC, 0);
-        cv_free_text(tx, by, nf, nm, pending ? T_ACCENT : mute ? T_DIM : T_TEXT, bg, room);
+        cv_free_text(tx, by, nf, nm, pending ? T_ACCENT : mute ? T_DIM : frozen ? tc : T_TEXT, bg, room);
         if (l2[0])
-            cv_free_text(tx, by + nf->h - 4, nf, l2, pending ? T_ACCENT : mute ? T_DIM : T_TEXT, bg, BOX_W - 6 - tx);
+            cv_free_text(tx, by + nf->h - 4, nf, l2, pending ? T_ACCENT : mute ? T_DIM : frozen ? tc : T_TEXT, bg,
+                         BOX_W - 6 - tx);
         {   /* the role, then the pattern (a pill in the track's colour), the next one waiting for the bar dashed */
             int32_t lx = steps_row ? tx : BOX_W - 6 - pills - (showrole ? text_w(lf, role) + 8 : 0), cy = pcy,
                     ly = ty_y(cy, lf), re = BOX_W - 6;

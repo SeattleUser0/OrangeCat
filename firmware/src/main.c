@@ -244,6 +244,7 @@ static void fm1_main(void)
     }
     glo_restore();                            /* CLK TUNE MIDI ROUT as last used, */
     project_boot();                           /* then the BOOT project or the template (theirs win) */
+    frz_table_load();                         /* (Orange Cat 0.5.6) the frozen phrases (after persist_boot's pool) */
     fm1_delay_ms(400);
     if (boot_work.state != 2u)
         lcd_fill(0, 0, 240, 240, T_BG);

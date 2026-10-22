@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.43  
+**Version:** 0.48  
 **Date:** October 22, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.48 (October 22, 2026):** 0.5.6: freezes belong to phrases. A frozen phrase plays its take on any track, is locked against edits, is kept through power off, and HOME shows its track greyed in blue.
 - **0.47 (October 22, 2026):** 0.5.5: frozen tracks came back distorted (the take clipped at 16 bits); HARP and the string presets sounded like a wooden bar (HARM at the module's dispersion).
 - **0.46 (October 22, 2026):** 0.5.4: two bugs from the unit. EDIT then SELECT back crashed (the unhooked engines' pages were shown); a four note ORGAN DRAWBAR chord broke up (MACRO's voice units too low). A new host test builds Orange Cat's own engine set under sanitizers.
 - **0.45 (October 22, 2026):** 0.5.3: HARP, a 15th MACRO model: STRING's string, one per voice, so chords ring. The USB drive test and the TRIO test voice switch removed from the firmware.
@@ -377,6 +378,25 @@ Left to test (0.4.20):
 - [ ] KNOB 3 left: the synth is back.
 - [ ] Freeze a second track while the first plays frozen.
 - [ ] The chain mode: a chain of two or more steps frozen, looping in step.
+
+Frozen phrases (0.5.6, built; asked for October 22, 2026; spec 0.16, 10.6):
+- The freeze and its take belong to the phrase (card_freeze.c frzp[], 64 entries), not the track. A take is one pass of the phrase. Whenever any track plays a frozen phrase (phrase, chain or song mode), the take plays from that pass's first frame and the phrase's notes and motion stay quiet for the pass (seq.c seq_frz_quiet, asked of card_freeze.c frz_pass at each pass's start). Another phrase's pass stops the take at its first frame (32 frames of fade) and plays its notes. The engine now always renders (0.4.20 skipped it), so the tails of the phrase before ring out under the take; the swap fade into the take is gone (the take's start is the blend of its own end).
+- Each track has one player slot. The main loop (usb_files.c frz_manage) loads the take of the frozen phrase the track is on, or the one queued next, while the slot is not playing. Back to back different frozen phrases: the second plays its notes for its first pass while its take loads.
+- Freezing (MIXER, KNOB 3 right): stopped, the track's steps are kept to the pool first (a phrase number). Playing, a phrase with no number or with unsaved changes says Save?. KNOB 3 left unfreezes the phrase the track is on at once (the take fades out mid-pass, the notes play from there).
+- Locked while frozen (ui.c frz_locked): step and note edits, the key entry, the note sheet, PHRASE's LEN DIV SWG GATE, motion points, the SEQ tools and note tools, clear, double and half, paste onto it, REC arming, and the record (REC held) capture. Live recording and motion recording into a frozen phrase are dropped in seq.c and motion.c (seq_frz_lock, set by the main loop). Moving the cursor still works. The PHRASES page will not clear a frozen phrase.
+- HOME: a track on a frozen phrase is greyed with a blue tint, its role FROZEN (ui_stage.c).
+- Kept: the table goes to the record store (record type OCS_FREEZE, 1,024 bytes) when the sequencer is stopped, and is read at power on. Each entry keeps the phrase's CRC: a phrase changed since (emptied, copied over) is no longer frozen. Each entry has a version; an unknown one is not read.
+- A frozen phrase plays its notes when: no card (Card?), another tempo (Tempo; the take is kept loaded for the tempo coming back), no slot or card speed (Full), the card behind (Slow), the file missing or not the recorded length (Error). Freezes from 0.5.5 and before were not saved, so nothing converts.
+- Decisions made without asking (to review): the take is one pass of the phrase (0.4.20 took the whole chain cycle); RESTART on a frozen phrase plays its notes for that pass; the port stays a USB host while any track has a frozen phrase in its eight banks; with an external clock, the take plays at the tempo it was made at.
+- Host tests: usb_host_test's freeze test rewritten for phrases (model sequencer with banks and queued phrases): the take sample for sample over five passes with the notes quiet; STOP and PLAY; LEVEL; another phrase stops it and plays notes; queued again it is loaded ahead and comes back; another track playing the phrase plays it too; unfreeze stops both at once; another tempo plays the notes and coming back plays the take; Save? when playing; cancel and stop mid-take leave no file; the card failing leaves the phrase frozen with Error; the table kept and read back, an unknown version and a wrong size not read, a changed CRC not frozen. ui_test: a frozen phrase refuses keys, knobs, PHRASE's LEN and REC, still moves the cursor, and HOME draws the row in the blue tint. pyfatfs checks the three takes.
+
+Left to test (0.5.6):
+- [ ] Freeze a phrase on track 1 (stopped, KNOB 3 right, PLAY): Card, Ready, Wait, Rec, Frozen; then the take plays from the next pass, with no click at each loop.
+- [ ] Select an empty phrase on the same track, write notes: they play as normal; going back to the frozen phrase plays the take.
+- [ ] On the frozen phrase: keys, knobs on NOTES and TRACKER, PHRASE's LEN, REC all say UNFREEZE TO EDIT. HOME shows the track greyed in blue with FROZEN.
+- [ ] A chain of a frozen phrase and a normal one: each plays as it should, in time.
+- [ ] Power off and on: the phrase is still frozen and plays its take.
+- [ ] KNOB 3 left on the frozen phrase: the notes come back at once.
 
 Left to build (spec 0.9, 10.6 and 10.7), in order:
 1. A stereo track take (0.4.19, built).

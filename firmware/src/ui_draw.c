@@ -611,6 +611,16 @@ static void draw_foot(void)
     }
     cv_blit(0, Y_FOOT);
 }
+#ifndef FRZ_AUDIO
+/* (Orange Cat 0.5.6) host builds of the UI without card_freeze.c: the MIXER's freeze word and colour from frz[] and
+ * ui.c's stand-in alone */
+static const char *frz_word(uint32_t k, int playing)
+{
+    (void)playing;
+    return k >= 4u ? "" : frz[k].st != FZ_OFF ? "Rec" : frz_track_frozen(k) ? "Frozen" : frz[k].why;
+}
+static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OFF ? 1u : frz_track_frozen(k) ? 2u : 0u; }
+#endif
 #include "ui_sections.c"                                /* the EDIT pages in sections, the map */
 #include "ui_stage.c"                                   /* Stage (HOME) */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
@@ -657,8 +667,8 @@ static void draw_columns(void)
         draw_column(1, "PAN", val, unit, VAL(1u), RATIO(&TP[P_PAN], t->p[P_PAN]), param_icon(&TP[P_PAN], t->p[P_PAN]));
         {   /* (Orange Cat 0.4.20) FREEZE (usb_host.c frz_word; the MIXER rows show it: ui_pages.c pv_strip) */
             const char *w = frz_word(song.sel, song.playing);
-            uint32_t st = song.sel < 4u ? frz[song.sel].st : FZ_OFF;
-            draw_column(2, "FREEZE", w[0] ? w : "Off", "", st == FZ_ON ? T_ACCENT : st != FZ_OFF ? T_THEME : VAL(2u), -1,
+            uint32_t st = frz_state(song.sel);          /* (0.5.6) 2 the phrase frozen, 1 a freeze being made */
+            draw_column(2, "FREEZE", w[0] ? w : "Off", "", st == 2u ? T_ACCENT : st ? T_THEME : VAL(2u), -1,
                         ICON_AUTO);
         }
         draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);

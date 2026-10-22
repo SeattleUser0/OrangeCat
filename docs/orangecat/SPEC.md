@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.15  
+**Version:** 0.16  
 **Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.16 (October 22, 2026):** Freezes belong to phrases, not tracks: a frozen phrase plays its take on any track that plays it, is locked against edits and recording until unfrozen, is kept in the record store, and shows on HOME greyed with a blue tint (10.6).
 - **0.15 (October 22, 2026):** MACRO and SHAPES voices claim budget units by measured cost, so heavy models play fewer notes at once (8.1.1).
 - **0.14 (October 22, 2026):** MACRO's HARP model, Orange Cat's own (8.1.1). The USB drive test removed: the card is used by frozen tracks only, with no page of its own (10.5).
 - **0.13 (October 22, 2026):** The tracker view's columns: four notes a step, velocity, and effects with a command and an amount (6.1). MACRO and SHAPES play four voices a track (8.1.1).
@@ -512,6 +513,17 @@ Short sampled-instrument bounces may use internal storage, subject to measured c
 
 ### 10.6 Frozen tracks on the card
 
+**Frozen phrases (Jeremiah, October 22, 2026; built 0.5.6).** This replaces design points 1, 2, 5 and 6 below. A freeze belongs to a phrase of the pool, not to a track:
+
+- A freeze records one pass of the phrase (on the track it is frozen from, one pass after PLAY so the tails of the pass before are in its start), stereo, after pan and the track's inserts, before the shared effects.
+- Whenever any track plays that phrase, in phrase, chain or song mode, the take plays and the phrase's notes stay quiet (their motion too). The track's engine still runs, so tails of the phrase before ring out under the take. When the track moves to another phrase, its engine plays that one.
+- The user can go on writing other phrases for the same track. A phrase with no frozen state plays as normal.
+- A frozen phrase is locked: notes, steps, PHRASE settings, motion, live recording and motion recording into it are refused (UNFREEZE TO EDIT) until it is unfrozen. Selecting it again shows it frozen.
+- HOME (Stage) shows a track on a frozen phrase greyed with a blue tint, its role FROZEN.
+- The pool keeps a table of frozen phrases in the record store (record type OCS_FREEZE): the take's number and track (its file, /ORANGECAT/T<track>_<nnn>.WAV), the level and tempo it was made at, its length, and the phrase's CRC. A phrase whose CRC no longer matches (emptied, copied over) is no longer frozen.
+- A frozen phrase plays its notes instead of its take, and the MIXER says why, when: the card is missing (Card?), the tempo differs from the one it was frozen at (Tempo), no player slot or card speed is free (Full), the card fell behind (Slow), the file is missing or not the length recorded (Error). Two different frozen phrases back to back on one track: the second plays its notes for its first pass while its take loads (one player per track).
+- Not yet: resample (3), undo of takes (4), a folder per project on the card.
+
 A frozen track plays a recording of itself from the card instead of running its engine. Its notes and sound stay in the project, so it can be unfrozen and changed. Freezing frees the track's voices and processor time for new tracks (4.4, option 2).
 
 What the tests showed (Build.md, phase 2):
@@ -544,7 +556,7 @@ Design:
 Built (0.4.20, Build.md):
 
 - FREEZE is KNOB 3 on the MIXER page: right freezes the selected track, left unfreezes. Design points 1 and 2 as written, with the take mixed at the track's place in the mixer (its level, mute, solo and sends; the sampled instrument of 10.7 comes later and will play the same takes). One cycle is recorded plus 46 ms past its end, blended into its start, so the loop has no click.
-- Not yet: points 3 (resample), 4 (undo), 5 (out of date), the project keeping its frozen tracks, and a folder per project (takes are /ORANGECAT/T<track>_<nnn>.WAV).
+- Not yet: points 3 (resample), 4 (undo), 5 (out of date), the project keeping its frozen tracks, and a folder per project (takes are /ORANGECAT/T<track>_<nnn>.WAV). (0.5.6: frozen phrases, above, replace frozen tracks.)
 
 ### 10.7 Sampled instruments
 

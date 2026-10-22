@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.5.5
+**Firmware:** 0.5.6
 **Date:** October 22, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -169,28 +169,37 @@ their waves take 33 KB of flash.
 
 Up to four notes at once per track in POLY, as with MACRO. The pad, keys, bell and choir presets start in POLY. COMB, PLUCK, BOWED, BLOWN and FLUTE play one note at a time. Like MACRO, its times (decays) run about 9% longer than on the module.
 
-## Freezing a track
+## Freezing a phrase
 
-Freezing records a track to the card and plays the recording in its place, so its synth stops using the processor. The FM-1 does not power its USB port, so put the card in a hub with power on its PD port (or a card reader plugged into that hub), and plug the hub into the FM-1.
+Freezing records one pass of a phrase to the card and plays the recording in place of its notes, so the synth has no notes to play while it runs. The freeze belongs to the phrase: whenever any track plays that phrase, the recording plays. When the track moves on to another phrase, its synth plays that one as usual. You can freeze one phrase and keep writing new phrases for the same track.
 
-1. Tap GLO until the title at the top of the screen says MIXER. GLO steps through MIXER, then GLOBAL (where KNOB 3 is CLK) and the other setting pages, then back to MIXER. If you see CLK you are one page past MIXER. Turn ALGORITHM to the track.
-2. Turn KNOB 3 right. The track's row says Card while the FM-1 finds the card, then Ready.
-3. Press PLAY (from the phrase, chain or song page, as you want it to play). The row says Wait while one whole round of the track plays, then Rec while the next round records, then Save, then Frozen.
-4. At the start of the following round the recording takes over from the synth. It loops in time with the sequencer for as long as it runs.
+The FM-1 does not power its USB port, so put the card in a hub with power on its PD port (or a card reader plugged into that hub), and plug the hub into the FM-1.
 
-What one round is depends on what PLAY plays: the track's phrase (phrase page), its whole chain with each step's repeats (chain page), or its block of song rows (song page). Start it from the same place each time.
+1. Stop the sequencer. Go to the phrase you want to freeze on the track (the phrase page, or the chain).
+2. Tap GLO until the title at the top of the screen says MIXER. GLO steps through MIXER, then GLOBAL (where KNOB 3 is CLK) and the other setting pages, then back to MIXER. If you see CLK you are one page past MIXER. Turn ALGORITHM to the track.
+3. Turn KNOB 3 right. The phrase is saved first if it has changes. The track's row says Card while the FM-1 finds the card, then Ready.
+4. Press PLAY. The row says Wait while the phrase plays once, then Rec while the next pass of it records, then Frozen.
+5. From the next pass of that phrase, the recording plays and the phrase's notes stay quiet. It loops in time with the sequencer for as long as the phrase plays.
 
-While frozen, LEVEL, MUTE, SOLO and the effect sends still work. Pan and the track's own effects are in the recording. Stopping the sequencer stops it; PLAY starts it again from its start.
+If the track is in a chain, the phrase records the next time the chain comes to it.
 
-Turn KNOB 3 left to unfreeze: the synth comes back. Turned left while it is freezing, it cancels and deletes the half-made file.
+**A frozen phrase is locked.** Its notes, steps, PHRASE settings (LEN and the others) and motion cannot be changed, and REC will not record into it. Trying shows UNFREEZE TO EDIT. You can still move around in it and look. On HOME, a track that is on a frozen phrase is greyed out with a blue tint and says FROZEN.
 
-The recordings go in /ORANGECAT on the card: T1_001.WAV for track 1's first, and so on. They stay on the card after you unfreeze. They are recorded 18 dB down so loud tracks are not clipped, so on a computer they sound quieter than the track did. Recordings made before 0.5.5 are clipped and sound distorted: freeze those tracks again.
+The track's sound settings are not locked, but the recording already has the sound in it, so changing them does nothing to the frozen phrase. While it plays, LEVEL, MUTE, SOLO and the effect sends still work. Pan and the track's own effects are in the recording.
 
-If the row shows a word in red, the freeze stopped: Card? (no card found), Stop (the sequencer stopped mid-recording), Full (the card or the FM-1's player memory is full: two frozen tracks can play while a third freezes), Slow (the card fell behind), Error (the card would not write), Lvl 0 (the track's level is off).
+To unfreeze, go to the phrase on the track, then turn KNOB 3 left on the MIXER page. The notes play again at once. Turned left while it is freezing, it cancels and deletes the half-made file.
 
-While a track is frozen, the USB port talks to the card, so USB MIDI, USB audio and the web editor to a computer are off. Unfreeze every track to get them back.
+Frozen phrases are kept when you turn the FM-1 off, as part of the phrases. The FM-1 saves the list the next time the sequencer is stopped.
 
-Frozen tracks are not saved with the project yet: loading a project unfreezes them.
+When a frozen phrase plays its notes instead of the recording, the row says why: Card? (no card), Tempo (the tempo is not the one it was frozen at; set it back and the recording returns), Full (no free player for it), Slow (the card fell behind), Error (the file is missing or will not read). Two different frozen phrases back to back on one track: the second plays its notes for its first pass while its recording loads.
+
+The recordings go in /ORANGECAT on the card: T1_001.WAV for the first one made on track 1, and so on. They stay on the card after you unfreeze. They are recorded 18 dB down so loud tracks are not clipped, so on a computer they sound quieter than the track did.
+
+If the row shows a word in red, the freeze did not finish: Card? (no card found), Stop (the sequencer stopped mid-recording), Save? (the phrase has no number yet, or changes that are not saved: stop the sequencer and try again), Full (the card or the FM-1's player memory is full), Slow (the card fell behind), Error (the card would not write), Lvl 0 (the track's level is off).
+
+While a track has a frozen phrase in its banks, the USB port talks to the card, so USB MIDI, USB audio and the web editor to a computer are off.
+
+Freezes made before 0.5.6 belonged to the track and were not saved. Freeze those phrases again.
 
 ## Saving and loading
 

@@ -314,7 +314,8 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
 {
     uint32_t k = trk_index(t), idx, f;
     if (!motion_param(id)) return 0;
-    if (!rec_on(t) || t != TSEL) {
+    if (!rec_on(t) || t != TSEL || ((seq_frz_lock >> k) & 1u)) {   /* (Orange Cat 0.5.6: a frozen phrase's motion
+                                                         * stays as frozen: the move is the base only) */
         /* A live edit becomes a new base, even when an earlier motion value is
          * currently sounding. Subsequent recorded events can still override it. */
         f = motion_guard();

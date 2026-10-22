@@ -134,53 +134,56 @@ static void str_cpy(char *d, const char *s, unsigned max)
 #define UF_HOST_LIBC 1                                  /* (strchr, strlen: the C library's) */
 #define CS_WAIT() cs_tick()                             /* (0.4.12) the timer's work while the main loop waits */
 static uint8_t mix_stem_trk = 0xFFu;                    /* (0.4.19) as mix.c: the track the recorder takes */
-/* (0.4.20) the sequencer, the mixer and the arrangement as the freeze code sees them: just what it reads and calls */
+/* (0.4.20) the sequencer, the mixer and the arrangement as the freeze code sees them: just what it reads and calls.
+ * (0.5.6) A freeze belongs to a phrase: each track's banks name phrases (bank_pid), trk[].pattern the bank playing,
+ * pattern_next the one queued; seq.c's quiet bits and its hook; the pool's CRCs; the record store in RAM. */
 #define NTRK 4u
 #define NPART 4u
+#define NPAT 8u
 #define CTL 64u                                         /* (this test's blocks) */
-static struct { uint32_t playing; } song = {1};         /* (the sequencer as card_freeze.c sees it) */
+enum { G_BPM, G_N };
+static struct { uint32_t playing; int16_t g[G_N]; } song = {1, {120}};   /* (the sequencer as card_freeze.c sees it) */
 #define t_playing (song.playing)
 static uint32_t t_starts;
 #define seq_start_count t_starts
 #define SEQ_NOPASS 0xFFFFu
 static uint16_t seq_pass_at[NTRK];
+static volatile uint8_t seq_frz_quiet;                  /* (0.5.6, seq.c) a track's notes quiet: its take plays the pass */
+static int (*seq_frz_hook)(uint32_t k);
+static volatile uint8_t seq_frz_lock;                   /* (0.5.6, seq.c) tracks on a frozen phrase: nothing recorded */
 enum { P_LEVEL, P_MUTE, P_N };
-typedef struct { int16_t p[P_N]; } track_t;
+typedef struct { int16_t p[P_N]; volatile uint8_t pattern, pattern_next; } track_t;
 static track_t trk[NTRK];
+static uint8_t bank_pid[NTRK][NPAT];
 static uint32_t trk_n(void) { return NTRK; }
 static int32_t LEVEL_Q12[128];
 static int32_t solo_gain[NPART] = {32768, 32768, 32768, 32768};
 static uint8_t track_solo, fx_send_on;
 static volatile uint8_t panic_req;
-static uint16_t pattern_epoch;
 static uint32_t fx_send_gain(const track_t *t) { (void)t; return 0; }
 static int32_t fx_scale(int32_t a, uint32_t k) { return (a >> 16) * (int32_t)k + (int32_t)(((uint32_t)(a & 65535) * k) >> 16); }
 static int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int32_t mix_stem_l[CTL], mix_stem_r[CTL], t_mix_l[CTL], t_mix_r[CTL];
 static uint32_t mix_stem_n;
-#define MIX_FRZ_FADE 32u
-static volatile uint8_t mix_frozen, mix_frz_swap;
-static uint8_t mix_frz_at[NPART];
+static volatile uint8_t mix_frozen;
 static void (*mix_frz_block)(uint32_t n);
 static int (*mix_frz_take)(track_t *t, uint32_t n);
 static void (*mix_frz_after)(uint32_t n);
 static void mix_add(int32_t l, int32_t r, uint32_t i, uint32_t send) { (void)send; t_mix_l[i] += l; t_mix_r[i] += r; }
-enum { OCL_PHRASE, OCL_CHAIN, OCL_SONG };
-#define OCL_NCHAIN 64u
-#define OCL_NENT 16u
-#define OCL_NROW 64u
-static struct { uint8_t chain[OCL_NCHAIN][OCL_NENT][2]; uint8_t song[OCL_NROW][NTRK]; uint8_t tchain[NTRK], cur[NTRK], row[NTRK];
-                uint8_t mode; } lists;
-static void ocl_chain_span(uint32_t c, uint32_t *first, uint32_t *last)   /* (as oc_lists.c) */
+static int t_busy;                                      /* transport_busy (a count-in) */
+static int transport_busy(void) { return t_busy; }
+static struct { uint32_t hash[64]; } ocp;               /* (oc_pool.c) each pool phrase's CRC */
+static uint32_t t_bank_hash[NTRK][NPAT];                /* each bank's steps' CRC as they are now */
+static int t_keeps;
+static uint32_t ocl_bank_hash(uint32_t k, uint32_t b) { return t_bank_hash[k][b]; }
+static int ocl_keep(uint32_t k, uint32_t b)             /* (oc_lists.c) the bank kept to the pool: a number if it had none */
 {
-    uint32_t f, l;
-    for (f = 0; f < OCL_NENT && !lists.chain[c][f][0]; f++)
-        ;
-    if (f == OCL_NENT) { *first = *last = OCL_NENT; return; }
-    for (l = OCL_NENT - 1u; !lists.chain[c][l][0]; l--)
-        ;
-    *first = f; *last = l;
+    t_keeps++;
+    if (!bank_pid[k][b]) bank_pid[k][b] = (uint8_t)(k * NPAT + b + 1u);
+    ocp.hash[bank_pid[k][b] - 1u] = t_bank_hash[k][b];
+    return 0;
 }
+#include "../firmware/src/oc_store.c"                   /* (0.5.6) the frozen phrases' record, in RAM */
 #include "../firmware/src/card_play.c"
 #include "../firmware/src/card_stream.c"
 #include "../firmware/src/card_freeze.c"
@@ -843,23 +846,25 @@ static void dump_card(const char *path)
     fputc(0, f);
     fclose(f);
 }
-/* (0.4.20) frozen tracks (card_freeze.c, usb_files.c frz_*): a model sequencer marks each track's passes (PL frames
- * a pass, from the block after PLAY, as seq.c); a track's stem is periodic over its cycle (fz_val). KNOB 3 right
- * wakes the card and arms the freeze; PLAY; one cycle played, the next recorded and FZ_X frames past it; the take
- * blended, cut to the cycle, loaded; it comes in at the following cycle and from then on the track's output is its
- * stem again, sample for sample, cycle after cycle (no drift, no seam). The sequencer stopping stops it and it comes
- * in again at the next start, from its first frame; LEVEL scales it against the level it was frozen at; KNOB 3 left
- * unfreezes. A two-pass cycle (the chain mode) the same; a freeze cancelled, and one stopped mid-take, leave no
- * file. frz_cycle counts the chain and song modes' passes. */
+/* (0.4.20) frozen tracks, (0.5.6) frozen phrases (card_freeze.c, usb_files.c frz_*): a model sequencer marks each
+ * track's passes (PL frames a pass, from the block after PLAY, as seq.c), takes a queued bank at a pass's start and
+ * asks seq_frz_hook whether the take plays the pass (as seq.c); a track's stem is periodic over the pass (fz_val).
+ * KNOB 3 right (stopped) keeps the bank as a phrase, wakes the card and arms the freeze; PLAY; one pass played, the
+ * next recorded and FZ_X frames past it; the take blended, cut to the pass, the phrase frozen and its take loaded;
+ * it comes in at the following pass and from then on the track's output is its stem again, sample for sample, pass
+ * after pass (no drift, no seam), its notes quiet. Another phrase's pass stops it (the notes play); queued again, it
+ * is loaded ahead and comes back at its pass. Another track playing the phrase plays the take too. STOP stops it,
+ * PLAY brings it in from its first frame; LEVEL scales it; another tempo plays the notes; KNOB 3 left unfreezes the
+ * phrase at once. Refused: no phrase number or changes not kept while playing ("Save?"). A freeze cancelled, and one
+ * stopped mid-take, leave no file. The table of frozen phrases kept and read back (the record store). */
 static uint32_t fz_abs, fz_start_abs, fz_pl;           /* frames since the test's start; pass 0's; a pass's frames */
 static int fz_seq;                                      /* the model sequencer runs */
-static int32_t fz_val(uint32_t k, uint32_t p, int right) /* track k's stem, p frames into its cycle: (0.5.5) past 16 bits
+static int32_t fz_val(uint32_t k, uint32_t p, int right) /* track k's stem, p frames into its pass: (0.5.5) past 16 bits
                                                          * both ways, up to 4.6 times, as a loud track's is */
 {
     return right ? (int32_t)((p * (17u + k) + 300u) % 300000u) - 150000 : (int32_t)((p * (13u + k) + k * 77u) % 240000u) - 120000;
 }
 static int32_t fz_file(int32_t v) { return v >> FZ_HEAD; }   /* (0.5.5) what the take holds: the headroom's bits down */
-static uint32_t fz_cyc_frames(uint32_t k) { return fz_pl * (frz[k].passes ? frz[k].passes : 1u); }
 static void fz_block(void)                              /* one 64-frame block: the sequencer, the mix, the card, the main loop */
 {
     uint32_t i, k;
@@ -870,7 +875,12 @@ static void fz_block(void)                              /* one 64-frame block: t
         uint32_t from = fz_abs > fz_start_abs ? fz_abs - fz_start_abs : 0u, p = (from + fz_pl - 1u) / fz_pl * fz_pl;
         if (fz_abs < fz_start_abs) p = 0;
         if (fz_start_abs + p < fz_abs + 64u)
-            for (k = 0; k < NTRK; k++) seq_pass_at[k] = (uint16_t)(fz_start_abs + p - fz_abs);
+            for (k = 0; k < NTRK; k++) {
+                seq_pass_at[k] = (uint16_t)(fz_start_abs + p - fz_abs);
+                if (trk[k].pattern_next < NPAT) { trk[k].pattern = trk[k].pattern_next; trk[k].pattern_next = 0xFFu; }
+                if (seq_frz_hook && seq_frz_hook(k)) seq_frz_quiet |= (uint8_t)(1u << k);
+                else seq_frz_quiet &= (uint8_t)~(1u << k);
+            }
     }
     frz_block(64);
     for (k = 0; k < NTRK; k++)
@@ -879,7 +889,7 @@ static void fz_block(void)                              /* one 64-frame block: t
     if (mix_stem_trk < NTRK) {                          /* (as mix.c: the picked track's stem) */
         uint32_t k2 = mix_stem_trk;
         for (i = 0; i < 64u; i++) {
-            uint32_t a = fz_abs + i, p = a >= fz_start_abs ? (a - fz_start_abs) % fz_cyc_frames(k2) : 0u;
+            uint32_t a = fz_abs + i, p = a >= fz_start_abs ? (a - fz_start_abs) % fz_pl : 0u;
             mix_stem_l[i] = fz_val(k2, p, 0);
             mix_stem_r[i] = fz_val(k2, p, 1);
         }
@@ -894,24 +904,40 @@ static void fz_block(void)                              /* one 64-frame block: t
 static void fz_play(void) { fz_seq = 1; t_playing = 1; t_starts++; fz_start_abs = fz_abs + 64u; }   /* PLAY (seq.c: pass 0 at
                                                          * the next block) */
 static void fz_stop(void) { fz_seq = 0; t_playing = 0; }
-/* blocks until track k's take plays, then cycles of it checked: the stem again, after the fade-in; frames wrong */
-static uint32_t fz_check(uint32_t k, uint32_t blocks, int32_t g)   /* (g: the level against the frozen one, Q12) */
+static void fz_blocks(uint32_t n) { while (n--) fz_block(); }
+/* blocks until track k's take plays, then blocks of it checked against track src's stem (the track it was frozen
+ * on): frames wrong; its notes must be quiet throughout */
+static uint32_t fz_check(uint32_t k, uint32_t src, uint32_t blocks, int32_t g)   /* (g: the level against the frozen
+                                                         * one, Q12) */
 {
-    uint32_t b, i, bad = 0, fade_end = 0;
+    uint32_t b, i, bad = 0, from;
     for (b = 0; b < 4000u && !((mix_frozen >> k) & 1u); b++) fz_block();
     if (!((mix_frozen >> k) & 1u)) return 1000000u;
-    fade_end = fz_abs - 64u + mix_frz_at[k] + MIX_FRZ_FADE;   /* (the block it came in: faded in from its frame) */
+    from = fz_abs - 64u + fzi[k].play_from;             /* (the block it came in: from its pass's first frame) */
     for (b = 0; b < blocks; b++) {
         uint32_t base = fz_abs;
         if (b) fz_block();
+        if (!((seq_frz_quiet >> k) & 1u)) bad++;
         for (i = 0; i < 64u; i++) {
-            uint32_t a = (b ? base : fz_abs - 64u) + i, p = (a - fz_start_abs) % fz_cyc_frames(k);
-            int32_t l = (fz_file(fz_val(k, p, 0)) * g) >> (12 - FZ_HEAD), r = (fz_file(fz_val(k, p, 1)) * g) >> (12 - FZ_HEAD);
-            if (a < fade_end) continue;
+            uint32_t a = (b ? base : fz_abs - 64u) + i, p = (a - fz_start_abs) % fz_pl;
+            int32_t l = (fz_file(fz_val(src, p, 0)) * g) >> (12 - FZ_HEAD), r = (fz_file(fz_val(src, p, 1)) * g) >> (12 - FZ_HEAD);
+            if (a < from) continue;
             if (t_mix_l[i] != l || t_mix_r[i] != r) bad++;
         }
     }
     return bad;
+}
+/* the blocks up to the next pass's start and past it (n blocks after) */
+static void fz_to_pass(uint32_t after)
+{
+    uint32_t b, k;
+    for (b = 0; b < 4000u; b++) {
+        int at = 0;
+        fz_block();
+        for (k = 0; k < NTRK; k++) at |= seq_pass_at[k] != SEQ_NOPASS;
+        if (at) break;
+    }
+    fz_blocks(after);
 }
 static int t_freeze(void)
 {
@@ -920,27 +946,38 @@ static int t_freeze(void)
     reset_world();
     add(D_DRIVE, 64, -1, 0);
     for (i = 0; i < 128u; i++) LEVEL_Q12[i] = (int32_t)i * 32;
-    for (i = 0; i < NTRK; i++) trk[i].p[P_LEVEL] = 100, trk[i].p[P_MUTE] = 0;
+    for (i = 0; i < NTRK; i++) trk[i].p[P_LEVEL] = 100, trk[i].p[P_MUTE] = 0, trk[i].pattern = 0, trk[i].pattern_next = 0xFFu;
+    memset(bank_pid, 0, sizeof bank_pid);
+    for (i = 0; i < NTRK * NPAT; i++) t_bank_hash[i / NPAT][i % NPAT] = 0x1000u + i;
+    song.g[G_BPM] = 120;
     fz_stop();
     fz_pl = 5003u;
-    lists.mode = OCL_PHRASE;
     frz_init();
+    frz_table_load();                                   /* (nothing kept: nothing frozen; the pool's CRCs checked) */
+    assert(frz_pool_hash == ocp.hash);
     lines = 2;
-    frz_knob(1, 1);                                     /* KNOB 3 right on track 2: the card woken, the freeze armed */
+    frz_knob(1, 1);                                     /* KNOB 3 right on track 2 (stopped): bank kept as phrase 9 */
     for (b = 0; b < 600u && frz[1].st != FZ_ARMED; b++) fz_block();
-    printf("  freeze: %s, [%s], %u passes\n", frz_word(1, 0), ur.path, frz[1].passes);
+    printf("  freeze: %s, [%s], phrase %u\n", frz_word(1, 0), ur.path, frz[1].phrase);
     fflush(stdout);
-    assert(frz[1].st == FZ_ARMED && usbh.want && usbh.drive && frz[1].passes == 1u && mix_stem_trk == 1u &&
-           !strcmp(ur.path, "/ORANGECAT/T2_001.WAV") && !strcmp(frz_word(1, 0), "Ready") && !strcmp(frz_word(1, 1), "Wait"));
+    assert(frz[1].st == FZ_ARMED && usbh.want && usbh.drive && t_keeps == 1 && bank_pid[1][0] == 9u && frz[1].phrase == 9u &&
+           mix_stem_trk == 1u && !strcmp(ur.path, "/ORANGECAT/T2_001.WAV") && !strcmp(frz_word(1, 0), "Ready") &&
+           !strcmp(frz_word(1, 1), "Wait") && frz_state(1) == 1u);
     usbh_want(0);                                       /* (asked to let go: a freezing track keeps the port a host) */
     assert(usbh.want);
     fz_play();
-    for (b = 0; b < 2000u && frz[1].st != FZ_ON && frz[1].st != FZ_OFF; b++) fz_block();
+    for (b = 0; b < 2000u && frz[1].st != FZ_OFF; b++) fz_block();
     assert(f_stat("/ORANGECAT/T2_001.WAV", &fi) == FR_OK);
-    printf("  frozen: %s after %u blocks, take %u bytes (cycle %u frames)\n", frz_word(1, 1), b, (unsigned)fi.fsize, fz_pl);
+    printf("  frozen: %s after %u blocks, take %u bytes (pass %u frames)\n", frz_word(1, 1), b, (unsigned)fi.fsize, fz_pl);
     fflush(stdout);
-    assert(frz[1].st == FZ_ON && fi.fsize == 512u + fz_pl * 4u && cp[frz[1].slot].trk == 2u && !ur.on && mix_stem_trk == 0xFFu);
-    {   /* the take on the card: the cycle exactly (its blend of equal ends changes nothing) */
+    assert(frz[1].st == FZ_OFF && fi.fsize == 512u + fz_pl * 4u && !ur.on && mix_stem_trk == 0xFFu && frzp[8].take == 1u &&
+           frzp[8].trk == 1u && frzp[8].frames == fz_pl && frzp[8].lvl == 100 && frzp[8].bpm == 120 && frzp[8].hash == 0x1008u &&
+           frzp_dirty && frz_phrase_frozen(9) && frz_track_frozen(1) && !frz_track_frozen(0) && frz_state(1) == 2u &&
+           !strcmp(frz_word(1, 0), "Frozen"));
+    s = fzt[1].slot;
+    assert(s < CP_N && fzt[1].phr == 9u && cp[s].trk == 2u && cp[s].armed && seq_frz_lock == 2u);   /* (loaded ahead of
+                                                         * the next pass; nothing to be recorded into it) */
+    {   /* the take on the card: the pass exactly (its blend of equal ends changes nothing) */
         FIL fl;
         UINT got;
         int16_t sm[2];
@@ -955,26 +992,49 @@ static int t_freeze(void)
         fflush(stdout);
         assert(!wrong);
     }
-    bad = fz_check(1, 400, 4096);                       /* five cycles of the take, as the track was */
-    s = frz[1].slot;
+    bad = fz_check(1, 1, 400, 4096);                    /* five passes of the take, as the track was, its notes quiet */
     printf("  take playing: %u wrong over 400 blocks, %u gaps\n", bad, cp[s].gaps);
     fflush(stdout);
     assert(!bad && !cp[s].gaps);
     fz_stop();                                          /* STOP: the take stops, rewinds, waits */
-    for (b = 0; b < 20u; b++) fz_block();
-    assert(!(mix_frozen & 2u) && !cp[s].on && cp[s].armed && !strcmp(frz_word(1, 0), "Frozen"));
+    fz_blocks(20);
+    assert(!(mix_frozen & 2u) && !cp[s].on && cp[s].armed && !strcmp(frz_word(1, 0), "Frozen") && !seq_frz_quiet);
+    frz_table_save();                                   /* stopped: the table kept */
+    assert(!frzp_dirty);
+    {   /* read back as at boot; an entry of another version is not read */
+        frzp_t keep = frzp[8];
+        memset(frzp, 0, sizeof frzp);
+        frz_table_load();
+        assert(!memcmp(&frzp[8], &keep, sizeof keep) && frz_phrase_frozen(9));
+        frzp[8].ver = 9;
+        assert(!ocs_write(OCS_FREEZE, 0, frzp, sizeof frzp));
+        frz_table_load();
+        assert(!frzp[8].take);
+        frzp[8] = keep;
+        assert(!ocs_write(OCS_FREEZE, 0, frzp, 100));   /* (a record of another size: nothing read) */
+        frz_table_load();
+        assert(!frzp[8].take);
+        frzp[8] = keep;
+        frzp_dirty = 1;
+        frz_table_save();
+        frz_table_load();
+        assert(frz_phrase_frozen(9));
+        ocp.hash[8] ^= 1u;                              /* (the phrase changed since: no longer frozen) */
+        assert(!frz_phrase_frozen(9));
+        ocp.hash[8] ^= 1u;
+    }
     fz_play();                                          /* PLAY again: from its first frame, at pass 0 */
-    bad = fz_check(1, 200, 4096);
+    bad = fz_check(1, 1, 200, 4096);
     printf("  again: %u wrong\n", bad);
     fflush(stdout);
     assert(!bad);
     trk[1].p[P_LEVEL] = 50;                             /* LEVEL against the level it was frozen at */
-    for (b = 0; b < 3u; b++) fz_block();
+    fz_blocks(3);
     for (i = 0, bad = 0; i < 100u; i++) {              /* (it plays on: the next blocks at half) */
         uint32_t base = fz_abs, j;
         fz_block();
         for (j = 0; j < 64u; j++) {
-            uint32_t p = (base + j - fz_start_abs) % fz_cyc_frames(1);
+            uint32_t p = (base + j - fz_start_abs) % fz_pl;
             if (t_mix_l[j] != ((fz_file(fz_val(1, p, 0)) * 2048) >> (12 - FZ_HEAD)) ||
                 t_mix_r[j] != ((fz_file(fz_val(1, p, 1)) * 2048) >> (12 - FZ_HEAD))) bad++;
         }
@@ -983,79 +1043,109 @@ static int t_freeze(void)
     fflush(stdout);
     assert(!bad);
     trk[1].p[P_LEVEL] = 100;
-    frz_knob(1, -1);                                    /* KNOB 3 left: the engine back */
-    fz_block();
-    assert(frz[1].st == FZ_OFF && !(mix_frozen & 2u) && !cs.st[s].run && !cp[s].trk && (panic_req & 2u));
-    panic_req = 0;
-    fz_stop();
-    for (b = 0; b < 5u; b++) fz_block();
-    lists.mode = OCL_CHAIN;                             /* a two-pass cycle: its chain, one step played twice */
-    lists.tchain[2] = 5;
-    memset(lists.chain[5], 0, sizeof lists.chain[5]);
-    lists.chain[5][0][0] = 9; lists.chain[5][0][1] = 1;
-    fz_pl = 3001u;
-    frz_knob(2, 1);
-    for (b = 0; b < 600u && frz[2].st != FZ_ARMED; b++) fz_block();
-    assert(frz[2].st == FZ_ARMED && frz[2].passes == 2u && !strcmp(ur.path, "/ORANGECAT/T3_001.WAV"));
-    fz_play();
-    for (b = 0; b < 3000u && frz[2].st != FZ_ON; b++) fz_block();
-    assert(frz[2].st == FZ_ON && f_stat("/ORANGECAT/T3_001.WAV", &fi) == FR_OK && fi.fsize == 512u + 2u * fz_pl * 4u);
-    bad = fz_check(2, 400, 4096);
-    printf("  two-pass cycle: take %u bytes, %u wrong\n", (unsigned)fi.fsize, bad);
+    bank_pid[1][1] = 10;                                /* another phrase queued (not frozen): its pass plays its notes */
+    trk[1].pattern_next = 1;
+    fz_to_pass(2);
+    printf("  another phrase: take %s, notes %s\n", (mix_frozen & 2u) ? "on" : "off", (seq_frz_quiet & 2u) ? "quiet" : "on");
+    fflush(stdout);
+    assert(!(mix_frozen & 2u) && !(seq_frz_quiet & 2u) && !cp[s].on && fzt[1].slot == CP_N && !strcmp(frz_word(1, 1), "") &&
+           !(seq_frz_lock & 2u));
+    trk[1].pattern_next = 0;                            /* the frozen one queued again: loaded ahead, back at its pass */
+    fz_blocks(3);
+    assert(fzt[1].phr == 9u && fzt[1].slot < CP_N && cp[fzt[1].slot].armed && !(mix_frozen & 2u));
+    bad = fz_check(1, 1, 200, 4096);
+    printf("  back to the frozen phrase: %u wrong\n", bad);
     fflush(stdout);
     assert(!bad);
-    frz_knob(2, -1);
-    fz_block();
+    bank_pid[0][2] = 9;                                 /* track 1 on phrase 9 too: the take recorded on track 2 */
+    trk[0].pattern_next = 2;
+    assert(!frz_track_frozen(0));
+    bad = fz_check(0, 1, 200, 8192);                    /* (both tracks play it: the mix holds it twice) */
+    printf("  phrase 9 on track 1: %u wrong (slots %u and %u)\n", bad, fzt[0].slot, fzt[1].slot);
+    fflush(stdout);
+    assert(!bad && frz_track_frozen(0) && fzt[0].slot != fzt[1].slot && (mix_frozen & 3u) == 3u);
+    frz_knob(1, -1);                                    /* KNOB 3 left: phrase 9 unfrozen, both tracks' notes at once */
+    fz_blocks(3);
+    printf("  unfrozen: %s, takes %x, notes quiet %x\n", frz_word(1, 1), mix_frozen, seq_frz_quiet);
+    fflush(stdout);
+    assert(!frzp[8].take && frzp_dirty && !(mix_frozen & 3u) && !(seq_frz_quiet & 3u) && fzt[0].slot == CP_N &&
+           fzt[1].slot == CP_N && !frz_track_frozen(1) && f_stat("/ORANGECAT/T2_001.WAV", &fi) == FR_OK);
+    trk[0].pattern_next = 0;
     fz_stop();
-    lists.mode = OCL_PHRASE;
+    fz_blocks(5);
+    frz_knob(2, 1);                                     /* track 3 frozen again stopped; then another tempo */
+    for (b = 0; b < 600u && frz[2].st != FZ_ARMED; b++) fz_block();
+    assert(frz[2].st == FZ_ARMED && !strcmp(ur.path, "/ORANGECAT/T3_001.WAV") && frz[2].phrase == 17u);
+    fz_play();
+    for (b = 0; b < 3000u && frz[2].st != FZ_OFF; b++) fz_block();
+    assert(frz_phrase_frozen(17) && f_stat("/ORANGECAT/T3_001.WAV", &fi) == FR_OK && fi.fsize == 512u + fz_pl * 4u);
+    bad = fz_check(2, 2, 100, 4096);
+    assert(!bad);
+    song.g[G_BPM] = 121;
+    fz_to_pass(2);
+    printf("  another tempo: %s, take %s\n", frz_word(2, 1), (mix_frozen & 4u) ? "on" : "off");
+    fflush(stdout);
+    assert(!strcmp(frz_word(2, 1), "Tempo") && !(mix_frozen & 4u) && !(seq_frz_quiet & 4u) && frz_state(2) == 2u);
+    song.g[G_BPM] = 120;                                /* back: the take again */
+    bad = fz_check(2, 2, 100, 4096);
+    assert(!bad);
+    frz_knob(2, 1);                                     /* KNOB 3 right on a frozen phrase: nothing new */
+    fz_block();
+    assert(frz[2].st == FZ_OFF && frz_phrase_frozen(17));
+    frz_knob(3, 1);                                     /* playing: a bank with no phrase number cannot be frozen */
+    fz_block();
+    printf("  playing, no number: %s\n", frz_word(3, 1));
+    fflush(stdout);
+    assert(frz[3].st == FZ_OFF && !strcmp(frz_word(3, 1), "Save?"));
+    bank_pid[3][0] = 25;                                /* nor one whose changes are not kept yet */
+    ocp.hash[24] = 0x77u;
+    frz_knob(3, 1);
+    fz_block();
+    assert(frz[3].st == FZ_OFF && !strcmp(frz_word(3, 1), "Save?"));
+    fz_stop();
+    fz_blocks(3);
     frz_knob(0, 1);                                     /* armed, then KNOB 3 left: cancelled, no file */
     for (b = 0; b < 600u && frz[0].st != FZ_ARMED; b++) fz_block();
     assert(frz[0].st == FZ_ARMED && !strcmp(ur.path, "/ORANGECAT/T1_001.WAV"));
     frz_knob(0, -1);
     fz_block();
-    assert(frz[0].st == FZ_OFF && !ur.on && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE);
+    assert(frz[0].st == FZ_OFF && !ur.on && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE && !frz_phrase_frozen(1));
     frz_knob(0, 1);                                     /* stopped mid-take: dropped, "STOP" */
     for (b = 0; b < 600u && frz[0].st != FZ_ARMED; b++) fz_block();
     fz_play();
     for (b = 0; b < 3000u && frz[0].st != FZ_REC; b++) fz_block();
-    for (b = 0; b < 20u; b++) fz_block();
+    fz_blocks(20);
     fz_stop();
-    for (b = 0; b < 3u; b++) fz_block();
+    fz_blocks(3);
     printf("  stopped mid-take: %s\n", frz_word(0, 0));
     fflush(stdout);
-    assert(frz[0].st == FZ_OFF && !strcmp(frz_word(0, 0), "Stop") && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE);
-    lists.mode = OCL_CHAIN;                             /* the cycle counts: a chain with a rest, REPS 2 and 3 */
-    lists.tchain[1] = 3;
-    memset(lists.chain[3], 0, sizeof lists.chain[3]);
-    lists.chain[3][0][0] = 5; lists.chain[3][0][1] = 1;
-    lists.chain[3][2][0] = 7; lists.chain[3][2][1] = 2;
-    lists.chain[3][1][1] = 0;                           /* (a rest between: one pass) */
-    assert(frz_cycle(1) == 6u);
-    lists.mode = OCL_SONG;                              /* its block of rows 2..4, chain 3 each: 18 */
-    memset(lists.song, 0, sizeof lists.song);
-    for (i = 2; i <= 4u; i++) lists.song[i][1] = 4;
-    lists.row[1] = 3;
-    assert(frz_cycle(1) == 18u);
-    lists.mode = OCL_PHRASE;
-    assert(frz_cycle(1) == 1u);
-    {   /* (0.5.3) the card stops answering while a take plays: the track back to its engine, "Error" */
-        frz_knob(3, 1);
+    assert(frz[0].st == FZ_OFF && !strcmp(frz_word(0, 0), "Stop") && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE &&
+           !frz_phrase_frozen(1));
+    {   /* (0.5.3) the card stops answering while a take plays: the phrase plays its notes, "Error"; still frozen */
+        fz_pl = 3001u;
+        frz_knob(3, -1);
+        frz_knob(3, 1);                                 /* (stopped: phrase 25 kept, its CRC the bank's) */
         for (b = 0; b < 600u && frz[3].st != FZ_ARMED; b++) fz_block();
+        assert(frz[3].st == FZ_ARMED && frz[3].phrase == 25u);
         fz_play();
-        for (b = 0; b < 3000u && frz[3].st != FZ_ON; b++) fz_block();
-        assert(frz[3].st == FZ_ON);
-        for (b = 0; b < 200u && !((mix_frozen >> 3) & 1u); b++) fz_block();
+        for (b = 0; b < 3000u && frz[3].st != FZ_OFF; b++) fz_block();
+        assert(frz_phrase_frozen(25));
+        for (b = 0; b < 2000u && !((mix_frozen >> 3) & 1u); b++) fz_block();
         assert((mix_frozen >> 3) & 1u);
         dump_card("build/host/rec_card.img");           /* (tests/check_rec_card.py reads it: T2, T3 and T4's takes) */
         devs[0].deaf = 2;
-        for (b = 0; b < 2000u && frz[3].st != FZ_OFF; b++) fz_block();
+        for (b = 0; b < 2000u && fzt[3].slot != CP_N; b++) fz_block();
         printf("  card gone while frozen: %s\n", frz_word(3, 1));
         fflush(stdout);
-        assert(frz[3].st == FZ_OFF && !strcmp(frz_word(3, 1), "Error") && !cs.run);
+        assert(fzt[3].slot == CP_N && !strcmp(frz_word(3, 1), "Error") && !cs.run && frz_phrase_frozen(25) &&
+               !(mix_frozen & 8u));
         devs[0].deaf = 0;
         fz_stop();
     }
     frz_drop_all("");
+    memset(frzp, 0, sizeof frzp);
+    memset(bank_pid, 0, sizeof bank_pid);
+    fz_blocks(2);
     usbh_want(0);
     run_ms(2);
     return 1;

@@ -171,6 +171,7 @@ static void motion_knob(uint32_t k, int32_t s)
     uint32_t n = mo_lanes(ids), len = (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP);
     int clear = (fm1_in.buttons & (1u << panel.btn[B_SEQ])) && (k == 1u || k == 3u);
     if (clear) ui.seq_t0 |= 2u;                       /* consume SEQ's tap and hold */
+    if ((k == 0u || k == 3u || clear) && frz_locked()) return;   /* (Orange Cat 0.5.6) a frozen phrase's motion */
     if (k == 1u && n && !clear)
         mo.lane = (uint8_t)clamp((int32_t)mo.lane + (s > 0 ? 1 : -1), 0, (int32_t)n - 1);
     else if (k == 0u && mo_free())

@@ -32,6 +32,8 @@
  *   0.4.16: WRITE(10): uh_scsi_w (through FatFs: usb_files.c disk_write).
  *   0.4.20: frozen tracks' state (frz[], below: the MIXER page's KNOB 3 asks, usb_files.c does it, card_freeze.c plays
  *           and records); the port stays a host while any track is frozen or freezing.
+ *   0.5.6: a freeze belongs to a phrase (card_freeze.c frzp[]); frz[] is a freeze being made; frz_need; frz_word moved
+ *          to card_freeze.c (it reads the phrases).
  *   0.5.3: the drive test is gone (it was for finding out whether the FM-1 could use a drive at all, and it can):
  *          no page, no lines of what was found (uh_set, the device's strings, the list of hubs and disks, the
  *          diagnostic line), no sector 0 look, no read speed test. What freezing needs stays: the host, the walk
@@ -495,43 +497,38 @@ static void uh_probe(void)
         usbh.drive = 1;                                 /* (0.4.10) its files can be opened */
 }
 
-/* ---- (0.4.20) frozen tracks: their state, shared by the MIXER page (ui_input.c, ui_draw.c), the card side
- * (usb_files.c frz_task) and the audio side (card_freeze.c) ----
- * A freeze: KNOB 3 right asks (want +1); the main loop wakes the port and the card (FZ_CARD), opens the take's file
- * and arms the audio side (FZ_ARMED: it waits for the track's cycle to come round, with one whole cycle played
- * first so its tails are in); the audio side records the cycle (FZ_REC) and a little past its end (FZ_POST); the
- * main loop blends that into the take's start, cuts it to the cycle and loads it (FZ_SAVE); then the take plays in
- * the track's place (FZ_ON). KNOB 3 left (want -1): unfreeze, or cancel. FZ_FAIL: the audio side gave up (the
- * sequencer stopped mid-take); the main loop cleans up. why: the last word for the page (an error). */
-enum { FZ_OFF, FZ_CARD, FZ_ARMED, FZ_REC, FZ_POST, FZ_SAVE, FZ_ON, FZ_FAIL };
+/* ---- (0.4.20) frozen tracks: a track's freeze in progress, shared by the MIXER page (ui_input.c, ui_draw.c), the
+ * card side (usb_files.c frz_task) and the audio side (card_freeze.c) ----
+ * (0.5.6) A freeze belongs to a phrase now (card_freeze.c frzp[]: its take, kept on the card and in the record
+ * store); frz[] is only a track's freeze while it is made. KNOB 3 right asks (want +1) to freeze the phrase the
+ * track is on; the main loop wakes the port and the card (FZ_CARD), opens the take's file and arms the audio side
+ * (FZ_ARMED: it waits for a pass of that phrase, with one pass played before so its tails are in); the audio side
+ * records the pass (FZ_REC) and a little past its end (FZ_POST); the main loop blends that into the take's start,
+ * cuts it to the pass and hands it to the phrase (FZ_SAVE), and the freeze is done (FZ_OFF): from then on the take
+ * plays whenever a track plays that phrase. KNOB 3 left (want -1): cancel a freeze, or unfreeze the phrase the
+ * track is on. FZ_FAIL: the audio side gave up (the sequencer stopped mid-take); the main loop cleans up. why: the
+ * last word for the page (an error). frz_need: bit k, track k needs the card (a frozen phrase in its banks, or a
+ * freeze under way): the port stays a host. */
+enum { FZ_OFF, FZ_CARD, FZ_ARMED, FZ_REC, FZ_POST, FZ_SAVE, FZ_ON_UNUSED, FZ_FAIL };
 static struct {
     volatile uint8_t st;
     volatile int8_t want;                               /* the knob: +1 freeze, -1 unfreeze or cancel */
-    uint8_t slot;                                       /* the player slot its take plays in (card_play.c cp[]) */
+    uint8_t phrase;                                     /* (0.5.6) the phrase being frozen (1..64) */
     uint16_t take;                                      /* its file: /ORANGECAT/T<k+1>_<take>.WAV */
-    uint16_t passes;                                    /* the passes of its phrase in one cycle */
     int16_t lvl;                                        /* its LEVEL when frozen (the take has it in) */
+    int16_t bpm;                                        /* (0.5.6) the tempo when frozen */
+    uint32_t hash;                                      /* (0.5.6) the phrase's CRC when frozen (card_freeze.c frzp_t) */
     uint32_t t0;                                        /* (FZ_CARD) since when */
-    uint16_t epoch;                                     /* the project it was frozen in (pattern_epoch) */
     char why[10];                                       /* the page's word after a failure ("Card?") */
 } frz[4];
+static volatile uint8_t frz_need;                       /* (0.5.6) see above */
 static void frz_knob(uint32_t k, int32_t dir) { if (k < 4u && dir) frz[k].want = (int8_t)(dir > 0 ? 1 : -1); }
-static int frz_busy(void)                               /* a track frozen or freezing: the port stays a host */
+static int frz_busy(void)                               /* a frozen phrase in use or a freeze under way: a host */
 {
     uint32_t k;
+    if (frz_need) return 1;
     for (k = 0; k < 4u; k++) if (frz[k].st != FZ_OFF || frz[k].want > 0) return 1;
     return 0;
-}
-/* the MIXER page's word for a track's freeze (ui_pages.c pv_strip, where its pan is): Card (waking it), Ready
- * (stopped: PLAY), Wait (the first cycle), Rec, Save, Frozen, or the failure's word ("Card?": none found; "Error",
- * "Full", "Slow", "Busy", "Stop", "Short", "Lvl 0"); "" none */
-static const char *frz_word(uint32_t k, int playing)
-{
-    static const char *const W[] = {"", "Card", "Ready", "Rec", "Rec", "Save", "Frozen", "Stop"};
-    if (k >= 4u) return "";
-    if (frz[k].st == FZ_OFF && frz[k].why[0]) return frz[k].why;
-    if (frz[k].st == FZ_ARMED && playing) return "Wait";
-    return W[frz[k].st & 7u];
 }
 /* the port a host (on) or the normal device again; frozen tracks keep it a host (frz_task asks) */
 static void usbh_want(int on)
