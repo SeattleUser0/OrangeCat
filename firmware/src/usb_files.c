@@ -41,6 +41,10 @@
  *          arms a take that starts and stops with the sequencer; REC again before PLAY cancels it (the empty file
  *          deleted). The recorder records the mix or one track (usbh.src, KNOB 3 on the page): a track is a mono
  *          WAV of its own signal, before MASTER (a freeze).
+ *   0.4.18: what a WAV does no longer depends on whether the sequencer happens to run (0.4.17 on the unit: a WAV
+ *          picked while it was stopped only waited, and PLAY brought the song in with it). OCT+ plays it now, by
+ *          itself, looping; SEQ (UC_SYNC) ties it to the song: READY, then once from its start with each PLAY. The
+ *          foot says how many play and how many wait ("1 play, 1 ready, CPU 25%").
  */
 #ifndef UF_HOST_LIBC
 char *strchr(const char *s, int c)                      /* ff.c: the characters a name may not hold */
@@ -419,10 +423,14 @@ static void uf_play_show(void)
         gaps += cp[s].gaps;
         if (cs.st[s].run) need += cs.st[s].bps;
     }
-    if (fm1_ms - up.msg_ms >= 2000u) {                  /* "4 on, CPU 49%, card 8%" (a message first, for 2 s) */
-        e = uh_dec(b, up.n);
-        e = uh_dec(uh_cat(e, " on, CPU "), UF_CPU());
-        uh_cat(uh_dec(uh_cat(e, "%, card "), up.pct), "%");
+    if (fm1_ms - up.msg_ms >= 2000u) {                  /* "1 play, 1 ready, CPU 25%" (a message first, for 2 s); (0.4.18:
+                                                         * was "2 on, CPU 25%, card 2%": the card's share is small) */
+        uint32_t on = 0;
+        for (s = 0; s < CP_N; s++) on += cp[s].on != 0;
+        e = uh_dec(b, on);
+        e = uh_cat(e, " play, ");
+        if (up.n > on) e = uh_cat(uh_dec(e, up.n - on), " ready, ");
+        uh_cat(uh_dec(uh_cat(e, "CPU "), UF_CPU()), "%");
         str_cpy(usbh.info2, b, UH_FOOT);
     }
     e = uh_dec(uh_cat(b, "gap "), gaps);                /* "gap 0, 512 of 529 KB/s": the gaps first (always seen) */
@@ -432,7 +440,7 @@ static void uf_play_show(void)
     usbh.gen++;
 }
 /* start one in a free slot: the file mapped, its reading started, its ring half filled, then the audio ISR plays it */
-static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *name)
+static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *name, int sync)
 {
     uint32_t s, t0, want;
     struct cs_one *o;
@@ -483,7 +491,7 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
     o->pos = 0;
     o->nc = 0;
     o->done = 0;
-    o->once = (uint8_t)!UF_PLAYING();                   /* (0.4.17) the sequencer stopped: in time with it, once */
+    o->once = (uint8_t)(sync != 0);                     /* (0.4.17) in time with the sequencer, once (0.4.18: SEQ asked) */
     cp[s].synced = o->once;
     up.who[s].dir = uf_hash(usbh.path);
     str_cpy(up.who[s].name, name, UH_NAME);
@@ -511,7 +519,7 @@ static void uf_play_start(const struct uf_wi *w, uint32_t fsize, const char *nam
     }
     if (cp[s].synced) {                                 /* (0.4.17) it waits for PLAY (card_play.c card_sync) */
         cp[s].armed = 1;
-        uf_say("Ready: PLAY starts it");
+        uf_say(UF_PLAYING() ? "Ready: plays at the next start" : "Ready: plays with PLAY");
     } else {
         cp[s].on = 1;
         uf_say("Playing");
@@ -547,8 +555,8 @@ static int uf_rearm(uint32_t s)
 }
 
 /* a file picked: a WAV that can play plays (OCT+ on it again stops it); any other is read, up to 1 MB in 512-byte
- * pieces, and timed */
-static void uf_file(const char *path, const FILINFO *fi)
+ * pieces, and timed. (0.4.18) sync: SEQ: a WAV waits for the song; anything else is refused */
+static void uf_file(const char *path, const FILINFO *fi, int sync)
 {
     FIL f;
     UINT got = 0;
@@ -559,12 +567,13 @@ static void uf_file(const char *path, const FILINFO *fi)
     if (r != FR_OK) { uf_fail(r); return; }
     if (uf_wav_scan(&uf_pf, (uint32_t)fi->fsize, &w)) {
         uf_wav_text(&w, usbh.info);
-        if (uf_playable(&w)) { uf_play_start(&w, (uint32_t)fi->fsize, fi->fname); return; }
+        if (uf_playable(&w)) { uf_play_start(&w, (uint32_t)fi->fsize, fi->fname, sync); return; }
         f_close(&uf_pf);
         uf_say("This WAV does not play yet");
         return;
     }
     f_close(&uf_pf);
+    if (sync) { uf_say("SEQ: on a WAV"); return; }      /* (0.4.18) */
     r = f_open(&f, path, FA_READ);
     if (r != FR_OK) { uf_fail(r); return; }
     e = uh_cat(usbh.info, "File, ");
@@ -588,8 +597,9 @@ static void uf_file(const char *path, const FILINFO *fi)
     }
     usbh.gen++;
 }
-/* OCT+ on a row: a folder is entered, a file looked at (a playing WAV: stopped) */
-static void uf_enter(void)
+/* OCT+ on a row: a folder is entered, a file looked at (a playing WAV: stopped). (0.4.18) sync: SEQ on a row: a WAV
+ * waits for the song (a playing or waiting one: stopped) */
+static void uf_enter(int sync)
 {
     FILINFO f;
     FRESULT r;
@@ -598,6 +608,7 @@ static void uf_enter(void)
     char fp[sizeof usbh.path + UH_NAME * 2];
     r = uf_nth(usbh.sel, &f);
     if (r != FR_OK) { uf_fail(r); return; }
+    if ((f.fattrib & AM_DIR) && sync) { uf_say("SEQ: on a WAV"); return; }
     if (f.fattrib & AM_DIR) {
         if (n + 1u + str_len(f.fname) + 1u > sizeof usbh.path) { str_cpy(usbh.info, "Folder too deep", UH_LINE); usbh.gen++; return; }
         uh_cat(uh_cat(usbh.path + n, "/"), f.fname);
@@ -609,7 +620,7 @@ static void uf_enter(void)
     if (n + 1u + str_len(f.fname) + 1u > sizeof fp) { str_cpy(usbh.info, "Path too long", UH_LINE); usbh.gen++; return; }
     uh_cat(uh_cat(uh_cat(fp, usbh.path), "/"), f.fname);
     usbh.info[0] = usbh.info2[0] = 0;
-    uf_file(fp, &f);
+    uf_file(fp, &f, sync);
 }
 /* OCT- in a folder: the one above */
 static void uf_up(void)
@@ -884,6 +895,7 @@ static void usbf_task(void)
     }
     if (c == UC_LIST) { usbh.path[0] = 0; usbh.sel = usbh.top = 0; uf_list(); }
     else if (c == UC_WINDOW) uf_window();
-    else if (c == UC_ENTER) uf_enter();
+    else if (c == UC_ENTER) uf_enter(0);
+    else if (c == UC_SYNC) uf_enter(1);                 /* (0.4.18) SEQ */
     else if (c == UC_UP) uf_up();                       /* (0.4.13: they play on) */
 }

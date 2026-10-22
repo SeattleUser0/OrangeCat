@@ -1460,7 +1460,7 @@ static void setup(int s)
         }
         if (s == S_FILES_WAV) {
             str_cpy(usbh.info, "44.1 kHz 16-bit stereo 1:23", UH_LINE);
-            str_cpy(usbh.info2, "4 on, CPU 49%, card 8%", UH_FOOT);   /* (0.4.14: three lines; long numbers) */
+            str_cpy(usbh.info2, "1 play, 1 ready, CPU 25%", UH_FOOT);   /* (0.4.14: three lines; long numbers) */
             str_cpy(usbh.info3, "gap 12348, 512 of 529 KB/s", UH_FOOT);
         }
         ui.menu = 3;

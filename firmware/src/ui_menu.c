@@ -433,7 +433,8 @@ static void files_draw(void)
             if (usbh.src) r[18] = (char)('0' + usbh.src);
             cv_free_text(8, 172, TY_LB, r, T_TEXT, T_BG, 224);
             if (UH_SRC_MAX) cv_free_text(8, 194, TY_LB, "KNOB 3 changes it", T_MID, T_BG, 224);
-            cv_free_text(8, 216, TY_LB, "OCT+ open  OCT- back", T_MID, T_BG, 224);
+            cv_free_text(8, 216, TY_LB, "OCT+ play  SEQ with song", T_MID, T_BG, 224);   /* (0.4.18: was "OCT+ open
+                                                         * OCT- back") */
         }
         cv_oy = 0;
         cv_blit(0, (uint32_t)top);
@@ -464,6 +465,11 @@ static void menu_close(void)
 static void drive_rec(void)
 {
     if (usbh.view && usbh.drive) usbh.cmd = UC_REC;
+}
+/* (0.4.18) SEQ on the file list: the WAV picked plays with the song (READY until PLAY), or stops */
+static void drive_seq(void)
+{
+    if (usbh.view && usbh.drive && usbh.count) usbh.cmd = UC_SYNC;
 }
 static int drive_input(uint32_t ok, uint32_t back)
 {

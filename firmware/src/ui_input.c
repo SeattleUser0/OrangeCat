@@ -2253,6 +2253,8 @@ static void ui_input(void)
          * USB drive test's file list it records to the card (ui_menu.c drive_rec) */
         if (ui.menu == 3u && !ui.confirm && rec == BT_TAP)
             drive_rec();
+        if (ui.menu == 3u && !ui.confirm && seq == BT_TAP)   /* (Orange Cat 0.4.18) SEQ: a WAV with the song */
+            drive_seq();
     } else if (chain_busy() && rec == BT_TAP) {
         ui_message("STOP TO RECORD");
     } else if (rec == BT_TAP) {

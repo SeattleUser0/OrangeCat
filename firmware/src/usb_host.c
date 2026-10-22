@@ -48,7 +48,8 @@
 enum { S_DEVCTL = 15, S_TXTYPE = 24, S_TXINTERVAL = 25, S_RXTYPE = 26, S_RXINTERVAL = 27 };
 enum { UH_OFF, UH_WAIT, UH_SEEN, UH_DONE };
 /* (0.4.10) what the page asks the main loop for (usbh.cmd; usb_files.c usbf_task does it) */
-enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE, UC_REC };   /* (0.4.16: UC_REC, REC on the files) */
+enum { UC_NONE, UC_LIST, UC_WINDOW, UC_ENTER, UC_UP, UC_PROBE, UC_REC, UC_SYNC };   /* (0.4.16: UC_REC, REC on the
+                                                         * files; 0.4.18: UC_SYNC, SEQ: a WAV with the song) */
 #define UH_ROWS 5u                                      /* the file list's rows on the page (0.4.14: was 6) */
 #define UH_NAME 32u
 /* errors (negative): the page names them */

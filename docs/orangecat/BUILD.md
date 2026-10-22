@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.37  
+**Version:** 0.38  
 **Date:** October 21, 2026  
 **Tracks:** Orange Cat Specification v0.8
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.38 (October 21, 2026):** 0.4.17 on the unit: takes record and play back. A WAV picked with the sequencer stopped only waited, and PLAY brought the song in with it. 0.4.18: OCT+ plays a WAV now, by itself; SEQ ties it to the song.
 - **0.37 (October 21, 2026):** 0.4.17: WAVs and takes in time with the sequencer; one track recorded alone (a freeze); PLAY on the drive page; WAVs at their own level.
 - **0.36 (October 21, 2026):** 0.4.16: the recorder. REC on the file list records what the FM-1 plays to a WAV on the card.
 - **0.35 (October 21, 2026):** 0.4.14 on the unit: the card tops out near 550 KB/s, with or without the sequencer. Three 16-bit stereo WAVs play clean; four drop out. 0.4.15 refuses a WAV past that limit.
@@ -312,9 +313,20 @@ In time with the sequencer, and freezing one track (0.4.17, built; tested on the
 - WAVs now play at their own level times MASTER (they played 6 dB down). A track frozen with MASTER at full comes back as loud as it went in, before its pan and effects.
 - Host tests: a READY WAV silent until PLAY, then sample for sample from its first frame, once, no gaps, then READY again; a restart; a stop mid-way; an armed take of track 2 recording exactly the 192,000 frames between start and stop; a cancelled take's file gone. pyfatfs checks the mono take, and a take cut off mid-way by the card (its kept part right, its header and size agreeing).
 
-Left to test (0.4.17):
+Tested (0.4.17 on the unit, October 21):
+- [x] Takes recorded (OC002.WAV 1.1 MB, OC003.WAV 0.8 s, 16-bit stereo) and played back, several times.
+- [x] Confusing: with the sequencer stopped, OCT+ on a WAV only made it wait (READY), and PLAY then started the song with it, so both played. A short take (0.8 s) played once and went back to READY before it was noticed. "2 on" in the foot did not say that both were waiting.
+
+0.4.18 (built):
+- OCT+ on a WAV plays it now, by itself, looping, whether or not the sequencer runs. OCT+ again stops it.
+- SEQ on a WAV ties it to the song: READY, then it plays once from its start with each PLAY. SEQ (or OCT+) on it again stops it. SEQ on a folder or another file says "SEQ: on a WAV".
+- The foot says how many play and how many wait: "1 play, 1 ready, CPU 25%" (the card's share of the processor is left out: it stayed at 2 to 8%).
+- The idle foot's last line: "OCT+ play  SEQ with song".
+
+Left to test (0.4.17, with 0.4.18's keys):
 - [ ] PLAY on the file list starts and stops the sequencer.
-- [ ] Freeze: KNOB 3 to track 1, stop the sequencer, REC (waits), PLAY: the take runs with the song; PLAY again: "Saved". Mute track 1, OCT+ on the new file (READY), PLAY: the take plays in time with the other tracks.
+- [ ] OCT+ on a WAV with the sequencer stopped: it plays at once, alone. OCT+ again stops it.
+- [ ] Freeze: KNOB 3 to track 1, stop the sequencer, REC (waits), PLAY: the take runs with the song; PLAY again: "Saved". Mute track 1, SEQ on the new file (READY), PLAY: the take plays in time with the other tracks.
 - [ ] The frozen track's level against the live one (they should match with MASTER at full; the take has no pan or effects).
 - [ ] REC, then REC again before PLAY: "Take cancelled", no file left.
 

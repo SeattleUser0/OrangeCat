@@ -619,6 +619,7 @@ static int row_of(const char *name)                     /* its index in the fold
     return r;
 }
 static void pick(const char *name) { int r = row_of(name); assert(r >= 0); usbh.sel = (uint16_t)r; ask(UC_ENTER); }
+static void pick_seq(const char *name) { int r = row_of(name); assert(r >= 0); usbh.sel = (uint16_t)r; ask(UC_SYNC); }   /* (0.4.18) SEQ */
 static int t_files(void)
 {
     FIL f;
@@ -739,7 +740,7 @@ static int t_play(void)
     printf("  tone: %u frames, %u wrong, %u gaps, %u commands, [%s] [%s]\n", frames, bad, gaps_all(), cs.cmds, usbh.info2,
            usbh.info3);
     fflush(stdout);
-    assert(!bad && !gaps_all() && !strncmp(usbh.info2, "1 on, CPU 0%, card ", 19) && !strncmp(usbh.info3, "gap 0, ", 7));
+    assert(!bad && !gaps_all() && !strcmp(usbh.info2, "1 play, CPU 0%") && !strncmp(usbh.info3, "gap 0, ", 7));
     pick("tone24.wav");                                 /* (0.4.13) a second one, beside the first */
     printf("  tone24: [%s] [%s] step %u\n", usbh.info, usbh.info2, cp[1].step);
     fflush(stdout);
@@ -775,7 +776,7 @@ static int t_play(void)
     up.msg_ms -= 2000u; up.show_ms -= 250u; usbf_task();
     printf("  four: [%s] [%s] %u commands\n", usbh.info2, usbh.info3, cs.cmds);
     fflush(stdout);
-    assert(!gaps_all() && !strncmp(usbh.info2, "4 on, CPU ", 10));
+    assert(!gaps_all() && !strcmp(usbh.info2, "4 play, CPU 0%"));
     ask(UC_UP);
     devs[0].deaf = 2;                                   /* (0.4.12) the card stops answering mid-play: all stop */
     for (i = 0; i < 2000u && up.n; i++) block(out, 15);
@@ -1026,19 +1027,33 @@ static int t_sync(void)
     usbh.view = 1;
     ask(UC_LIST);
     pick("SAMPLES");
-    pick("tone.wav");                                   /* stopped: it waits */
+    pick("tone.wav");                                   /* (0.4.18) OCT+, stopped: it plays now, by itself */
     row = row_of("tone.wav") - (int)usbh.top;
+    assert(cp[0].on && !cp[0].synced && !cs.st[0].once && !strcmp(usbh.info2, "Playing") && usbh.ent[row].play == 1u);
+    for (i = 0, f = 0; i < 20u; i++) {
+        block(out, 15);
+        for (j = 0; j < 64u; j++, f++)
+            if (out[2 * j] != (ramp(f) * 4096) >> 12) bad++;
+    }
+    assert(!bad);
+    pick("tone.wav");                                   /* OCT+ again: stopped */
+    assert(!up.n && !cp[0].on);
+    pick_seq("drums");                                  /* SEQ on a folder: refused */
+    assert(!strcmp(usbh.info2, "SEQ: on a WAV") && !strcmp(usbh.path, "/SAMPLES"));
+    pick_seq("tone.wav");                               /* SEQ: it waits for the song */
     printf("  sync: [%s] [%s]\n", usbh.info, usbh.info2);
     fflush(stdout);
-    assert(cp[0].armed && !cp[0].on && cp[0].synced && cs.st[0].once && !strcmp(usbh.info2, "Ready: PLAY starts it") &&
+    assert(cp[0].armed && !cp[0].on && cp[0].synced && cs.st[0].once && !strcmp(usbh.info2, "Ready: plays with PLAY") &&
            usbh.ent[row].play == 2u);
+    up.msg_ms -= 2000u; up.show_ms -= 250u; usbf_task();
+    assert(!strcmp(usbh.info2, "0 play, 1 ready, CPU 0%"));
     for (i = 0; i < 100u; i++) {                        /* nothing until PLAY */
         block(out, 15);
         for (j = 0; j < 128u; j++) loud |= (uint32_t)out[j];
     }
     assert(!loud && cp[0].armed && !gaps_all());
     t_playing = 1; t_starts++;                          /* PLAY: from its first frame, in the block it starts */
-    for (i = 0; i < 300u; i++) {                        /* 19,200 frames: the file (11,025) once, then silence */
+    for (i = 0, f = 0; i < 300u; i++) {                        /* 19,200 frames: the file (11,025) once, then silence */
         block(out, 15);
         for (j = 0; j < 64u; j++, f++) {
             int32_t v = f < n ? ramp(f) : 0;
