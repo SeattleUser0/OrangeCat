@@ -29,7 +29,8 @@ static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint
         idx = AI12_IDX;
         dat = AI12_DATA;
     }
-    cv_alpha(x, y, size, size, dat + (uint32_t)idx[id] * (size * size / 2u), ramp(fg, bg));
+    (void)bg;
+    cv_pix(x, y, size, size, 1u, dat + (uint32_t)idx[id] * (size * size / 8u), swap16(fg));   /* (gui-slim: 1 bit) */
     GFX_HOOK_TEXT(x, y + cv_oy, x + (int32_t)size, y + cv_oy + (int32_t)size, "icon", 4u | (cv_dim || cv_under ? 16u : 0u));
     return (int32_t)size;
 }
@@ -40,10 +41,10 @@ static int32_t cv_icon_mid(int32_t x, int32_t cy, uint32_t size, uint32_t id, ui
     const uint8_t *dat = size == 16u ? AI16_DATA : AI12_DATA;
     int32_t top = -1, bot = 0, r, k;
     if (id < ICON_COUNT && idx[id] != 0xFFu) {
-        const uint8_t *c = dat + (uint32_t)idx[id] * (size * size / 2u);
+        const uint8_t *c = dat + (uint32_t)idx[id] * (size * size / 8u);   /* (gui-slim: 1 bit, a row 12 or 16 bits) */
         for (r = 0; r < (int32_t)size; r++)
-            for (k = 0; k < (int32_t)size / 2; k++)
-                if (c[r * (int32_t)size / 2 + k]) {
+            for (k = 0; k < (int32_t)size; k++)
+                if ((c[(r * (int32_t)size + k) >> 3] >> (7 - ((r * (int32_t)size + k) & 7))) & 1) {
                     if (top < 0) top = r;
                     bot = r;
                     break;

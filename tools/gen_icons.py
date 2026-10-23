@@ -227,7 +227,14 @@ def raster(name, px):
     pn = Pen(px)
     DRAW[name](pn)
     img = pn.img.reduce(SS)
+    if BITS[0] == 1:                     # (gui-slim) 1 bit a pixel: ink where the cover is half or more, MSB first
+        bits = [v >= 128 for v in img.tobytes()]
+        return [sum(1 << (7 - k) for k, b in enumerate(bits[i:i + 8]) if b) for i in range(0, len(bits), 8)], \
+            img.point(lambda v: 255 if v >= 128 else 0)
     return ar.pack([ar.alpha4(v) for v in img.tobytes()]), img
+
+
+BITS = [4]
 
 
 def main():
@@ -236,7 +243,9 @@ def main():
     ap.add_argument("--json", default=str(ROOT / "assets" / "icons.json"), help="legacy icon names (order = enum)")
     ap.add_argument("--sizes", default="12,16")
     ap.add_argument("--sheet")
+    ap.add_argument("--bits", type=int, default=4, choices=[1, 4], help="1: one bit a pixel (cv_pix), 4: alpha")
     a = ap.parse_args()
+    BITS[0] = a.bits
     legacy = json.loads(Path(a.json).read_text())["names"]
     names = list(legacy) + EXTRA
     unknown = [n for n in list(DRAW) + BIG + HUGE if n not in names]
