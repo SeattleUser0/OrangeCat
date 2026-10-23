@@ -288,6 +288,18 @@ memcpy, memset, the sine and pitch tables, `voice_amp`, `tuning_log`, the resour
 and keeps it in its state. Direct calls would need the firmware's addresses at link time and break with every
 firmware build.
 
+**The firmware services SHAPES uses (audited in 0.8.0, step 6).** From the final AST of eng_shapes.c and braids/ (host
+build): five things from outside them. `trk` (the track array, to read the track's parameters), `tuning_log()` (reads a
+firmware global), `resource_get` (through `sh_part`, the part's state from the arena), `oc_pack_good` (the pack's ready
+flag), and memcpy and memset. Header-only helpers go into the module: `clamp`, `voice_amp` with `amp_at`, and the
+plaits/pl_dsp.h functions (`pl_soft_clip`, `pl_svf_init`, `pl_svf_process`, `pl_svf_set_f_q`, `pl_semitones_to_ratio`,
+`pl_flush`, `pl_flush_svf`) that SHAPES shares with MACRO. The tables are the pack's, at fixed addresses, so not imports.
+`firmware/src/fw_api.h` defines `fw_api_t` with exactly those services behind a magic, its own size and a version;
+engines.c holds an instance that nothing refers to; tests/fw_api_test.c checks each member against the real service.
+The interface identifier (a hash of the layouts of track_t, voice_t, vmod_t, engine_t and fw_api.h) is not built:
+`FW_API_VERSION` is the number until it is. This is preparation: nothing loads from the table, and neither the flash
+layout nor the PC guard changed.
+
 **Editing metadata travels with the engine.** `edit[]` (eight parameter descriptors: label, format, range, default,
 names) and the preset list are in the module; the screens read them through `engine_t` as they do now. The PAGES
 rows an engine needs (EDIT 1, EDIT 2) are the generic ones already. Eight controls are what MACRO and SHAPES use and

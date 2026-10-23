@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.55  
+**Version:** 0.57  
 **Date:** October 23, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -10,6 +10,8 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.57 (October 23, 2026):** 0.8.0 on branch sonnet-work (not on main, not released, not on the unit): the asset pack. SHAPES' and MACRO's 57 constant tables (40,232 B) leave the image and are read from a pack in the Prophet bank area (0x93000); image 512,440 B to 477,356 B (99,892 B free). Installed from the web editor or the card; PACK MISSING without it. fw_api_t prepared. DRUM-X measured as a lower bound (4.4 KB of flash, 608 B of state a track). See "Overnight run (0.7.2 to 0.8.0)".
+- **0.56 (October 23, 2026):** 0.7.2 on branch sonnet-work: the tracker review's cleanup (one event edit primitive, one delete path for a recorded step), the stack-frame fix of the size audit (shared_boot's one bank scratch, the Prophet migration frame only with MELODEE_P5), and the flash map in one place with run-time retirement of the retired engines' bank objects (storage.c, fm1_flash.h).
 - **0.55 (October 23, 2026):** docs/orangecat/ENGINE_LOADING_PLAN.md 0.4: the web configurator the primary way to install and manage engines, one flash map (the pack at 0x93000, 80 KB of modules at 0xC8000), modules placed by variants in one package, an interface identifier checked before registration, install and activate checked apart; not every engine need be a module. Build.md merged from gui-slim and size-audit.
 - **0.54 (October 23, 2026):** 0.7.1 on branch tracker-events: the tracker edits a recorded step's notes through NOTES' event editor, each note's pitch, velocity and length alone (docs/orangecat/TRACKER_REVIEW.md: the data model mapped, the duplication measured, the one-authority cleanup planned). docs/orangecat/ENGINE_LOADING_PLAN.md: asset packs and loadable engines, with budgets.
 - **0.53 (October 23, 2026):** Size audit of the whole firmware (branch size-audit, docs/orangecat/SIZE_AUDIT.md): 10,692 B of flash recovered without a feature touched (an unused Prophet table the linker could not drop, the card's and store's main-loop files built for size, retired-engine tables and pages compiled out); the 76 KB storage and sequencer growth attributed from the CI record; the cost of Prophet, FM6 and DRUM measured in comparison builds; the stacks bounded; a plan for a data pack on the card. See "Size audit" below.
@@ -1112,6 +1114,120 @@ shipping build (about 2 KB with DRUM in: the pads' own event editor); the next c
 recorded step's events (the overview a derived cache only).
 
 Left to test (on the unit): the tracker on a live recording; KNOB 4 at a step a detent.
+
+## Overnight run (0.7.2 to 0.8.0, branch sonnet-work, October 23, 2026)
+
+**Status: built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on
+branch `sonnet-work` (from `size-audit-gui`, f6394df: image 512,164 B, 65,084 B free, RAM .data+.bss 92,728 B, arena
+95,808 B). The reference branches (size-audit, tracker-events, gui-slim, exp/*) were not changed.
+
+| Step | Version | Status | Measured (CI, .ci_quick, the shipping engine set) |
+|---|---|---|---|
+| 1. Shared editor cleanup | 0.7.2 | Done | exp/sonnet-s1: 512,452 B (+288), RAM 0. 1a alone (exp/sonnet-1a): 512,180 B (+16) |
+| 2. Stack frame fix | 0.7.2 | Done | exp/sonnet-s2: 512,372 B (-80 on s1); RAM 92,728 B, arena 95,808 B, pool 176,768 B unchanged; static worst case -7.9 KB in the source, not re-measured |
+| 3. DRUM-X | exp only | Measured, lower bound | exp/sonnet-drumx: image +4,452 B, .data+.bss +96 B, arena -3,776 B (voice in SRAM) or 0 (voice in flash), pool 0, 608 B of arena state a track |
+| 4. Flash map and guards | 0.7.2 | Done | exp/sonnet-s4: 512,440 B (+68 on s2); RAM, arena, pool unchanged |
+| 5. Asset pack | 0.8.0 | Done (core, editor, card, web); unit untried | exp/sonnet-s5: image 477,356 B (-35,084 on s4), .data+.bss 92,744 B (+16), arena 95,840 B (+32), pool 176,768 B, 99,892 B free |
+| 6. fw_api_t | 0.8.0 | Done (preparation only) | exp/sonnet-s6: image 477,356 B, RAM and arena identical to s5 |
+| 7. Comparison builds | | Done | the table above; each exp/sonnet-* branch has .ci_quick, sonnet-work has none |
+| 9. Docs | | Done | this file, SPEC 0.20, GUIDE, ENGINE_LOADING_PLAN 0.5, TRACKER_REVIEW 0.2, SIZE_AUDIT "After the fix", web/EDITOR_PROTOCOL.md |
+
+(Free flash is the audit's limit, 577,248 B = 512,164 + 65,084, less the image.)
+
+### Done
+
+- [x] **Step 1 (docs/orangecat/TRACKER_REVIEW.md).** `event_open`, `event_replace`, `event_delete` in seq_undo.c carry the
+  one sequence NOTES, the tracker and the pads each wrote out. A manual overwrite of a recorded step deletes its events
+  through the history (`events_delete_view`); EDIT held brings them back. The review's "a key replaces the step" row was
+  wrong: the dispatcher refuses a key on a recorded step, so the test calls the entry functions directly.
+- [x] **Step 2 (SIZE_AUDIT.md "After the fix").** One `up_bank_t` scratch in `shared_boot`; the Prophet migration and
+  its 3,600 B frame only with MELODEE_P5. `up_save_bank`'s disk image stays and the reason is written down.
+- [x] **Step 4.** storage.c's top comment is the flash map; `ST_PACK_*` and `ST_MODULE_*` are checked against
+  hal/fm1_flash.h (`FL_PACK_*`, `FL_MODULE_*`, `FL_STORE_OK`) by a static assert. `st_retire_engines(mask)` retires the
+  Prophet, CZ-1 or FM6 objects at run time: reads give no record, writes are refused, nothing is erased, object numbers
+  kept. Nothing is retired by the build alone (see Decisions); `ST_RETIRE_BY_BUILD` is the spec's guard for later.
+- [x] **Step 5.** The pack: `tools/gen_pack.py`, `firmware/src/oc_pack.h` and `oc_pack.c`, editor commands 115 to 119, the
+  web editor's Asset pack box, `.pak` install in the card browser, PACK MISSING, the CI artifact
+  (`orangecat-<name>.pak` beside the .fwsc). `OC_PACK=0` keeps the tables in the image (the host tests build that way).
+  Details: ENGINE_LOADING_PLAN.md "Built in 0.8.0", web/EDITOR_PROTOCOL.md.
+- [x] **Step 6.** `fw_api.h`, an unused instance in engines.c, `tests/fw_api_test.c`. The audit of what SHAPES calls is in
+  the plan. No interface identifier, no flash layout or PC guard change.
+- [x] **Step 3.** DRUM-X: ENGINE_LOADING_PLAN.md "DRUM-X". A lower bound: Jiant's voice (528 lines, unchanged) with 69 lines
+  of glue, not the 615-line engine wiring.
+
+### Decisions made without asking
+
+1. **The retired engines' areas are not free**, so the spec's build-time retirement of the Prophet, CZ-1 and FM6 bank objects
+   would delete library banks 4, 5 and 8 to 20 (up_obj in upreset.c). It is off by default. The pack retires only the
+   Prophet objects, and only while its area is the pack's. If you want the spec's unconditional guard, define
+   `ST_RETIRE_BY_BUILD`; the library then loses those banks on every unit.
+2. **Installing a pack erases library banks 16 to 20** (slots 288 to 377). The editor and the card browser ask first. The
+   installer refuses (rc 3) without the yes.
+3. **The pack uses the sectors' last 256 bytes**, which every other store leaves erased for the update loader. The tables
+   need 40,232 B and ten sectors with erased tails hold 38,400 B. The generator and the installer instead test the
+   loader's record rule on every tail. If an update ever erased a pack sector, the pack reads as damaged (PACK MISSING)
+   and installs again.
+4. **Only the generated tables moved** (57, from pb_tables.h and pl_tables.h). The small tables (formants, chords and the
+   like) and the wavetables stay in the image.
+5. **A missing pack silences SHAPES and MACRO in render; they stay selectable** and the screen says PACK MISSING when one
+   is chosen or a key is played on it. The spec's boot-time message is not shown at boot.
+6. **A pack install while the transport runs is refused (rc 2), not forced to stop**, on the card and in the editor.
+7. **Step 1 costs 288 B** of flash. It is documented as a cost; it saves nothing, as the review expected.
+8. **DRUM-X is a lower bound** (see the plan). A full port needs the sequencer fields Jiant's eng_drum.c reads.
+9. **The web editor probes command 115 once at connect** (150 ms, no retry) and hides the box when there is no reply.
+10. The VERSION file was not touched (it holds the release number, 0.6.2); the feature versions 0.7.2 and 0.8.0 are in the
+    code comments and Revisions lists.
+
+### Left to build
+
+- A real DRUM-X port (the wiring of Jiant's eng_drum.c to Orange Cat's track fields), then the question of keeping it resident.
+- Moving the user preset library out of the Prophet, CZ-1 and FM6 areas, which frees them without asking: the module area
+  needs it before any module is installed.
+- The interface identifier, the module header, the loader and the SHAPES module (milestone 2).
+- PACK MISSING at boot, not only when an engine is chosen.
+- Stopping the transport for a pack install instead of refusing.
+
+### Left to test (on the unit)
+
+Nothing here has run on hardware. In this order; stop at the first failure and keep the unit as it is.
+
+1. **0.8.0 without a pack.** Update the firmware. Boot. Pick MACRO: the screen says PACK MISSING and there is no sound. Pick
+   SHAPES: the same. Pick an engine that is not them: it plays. The sequencer, the effects, the card and projects work.
+2. **Install from the computer.** Stop the sequencer. Web editor, Settings, Asset pack: "No pack installed". Install pack, pick
+   orangecat-<version>.pak from the CI artifact. The progress runs; the state becomes "Pack installed and checked"; MACRO
+   and SHAPES play. Power off, power on: the state is the same and no PACK MISSING.
+3. **The library banks.** Before step 2, save a sound into slot 289 (bank 16). Install: the page asks about banks 16 to 20.
+   Answer no: nothing changes. Answer yes: the sound is gone, other banks keep theirs, and a save into slots 288 to 377
+   now refuses. Erase pack: MACRO goes silent, the banks save again, empty.
+4. **A cut install.** Start an install and pull the USB cable in the middle of the write. Power on: PACK MISSING, nothing
+   else wrong. Install again from the start: it works.
+5. **A pack for another build.** Install a pack from another firmware build: the page refuses before it sends anything.
+   Put it on the card instead: the browser refuses it ("Not this build's pack").
+6. **Install from the card.** Put the pack on the card. MIXER, OCT+ held, Assign clip, pick the .pak (value Pack), OCT+. If
+   banks 16 to 20 hold sounds the first OCT+ says "Uses banks 16-20: again"; the same OCT+ again goes on. The screen
+   says PACK INSTALLED.
+7. **The update loader.** With a pack installed, run a firmware update (OTA). Boot: the pack is still checked and OK. If it
+   reads as damaged after an update, the loader erased a pack sector: tell me which update and the unit's state.
+8. **Sound under load.** With the pack: four tracks, MACRO and SHAPES, a take playing from the card. Read `audio_max_us`
+   and late renders with tools/usb_audio_stats.py and compare with a 0.7.1 build. The tables now come through the data window
+   beside the sample slot's reads; nothing else changed in the render loops.
+9. **Step 1 and 2 on the unit.** The tracker on a live recording: change a note's pitch, velocity and length, undo
+   each; overwrite a recorded step with EDIT in the VEL column and bring it back with EDIT held. Boot with user sounds in
+   many banks, and restore a complete backup from the web editor (the code that had the 12 KB frame).
+10. **Project save and load, the sample slot and the card's takes** once more with the pack installed (they share
+    the flash map; none writes 0x93000..0x9CFFF).
+
+### Tests added or changed
+
+- `tests/oc_pack_test.c` (new): boot states, install, a write torn at every program, bad CRC, hash, length and header
+  CRC, the tail rule, the library's banks, take, the boot wipe, erase.
+- `tests/editor_test.c`: `pack_protocol()` (commands 115 to 119, malformed arguments, a simulated pack area).
+- `tests/usb_host_test.c`: the card install (list, wrong size, wrong build, the banks question, the writes in order, the header last).
+- `tests/ui_test.c`: `test_pack_notice` with the gate on (run twice: `ui_pack_gate`).
+- `tests/storage_test.c`, `tests/storage_safety_test.c`: the map checks, per-engine retirement, library banks under it.
+- `tests/fw_api_test.c` (new): the services table.
+- `tools/gen_pack.py --check` as a step of the suite; `web/test_web.mjs`: the pack's requests and replies.
+- The full suite in CI (tests/run_tests.sh, no .ci_quick): green on 874b320 (run 39924263772, tests step 8 min 24 s). Local runs without the built package stop at the package-dependent tests, and five checks of the `_oc` engine-set preset tests fail in a local run before and after this work (the same places on f6394df); they pass in CI, where the package is built first.
 
 ## Phases 8 to 11
 
