@@ -486,6 +486,50 @@ firmware before 0.9.1 answering rc 3 means the unit must be updated first. The P
 half installed. The update loader erases a sector whose last 256 bytes look like one of its update records;
 `gen_pack.py` lays the tables out so none does, and PACK_END tests the same rule.
 
+## Orange Cat: engine modules (commands 120-124, firmware 0.10.0)
+
+SHAPES can run from a module kept in the MODULE area of the flash map (12 sectors at 0xC8000..0xD3FFF) instead of from the firmware
+image. A module is a built piece of code (`tools/build.py --module`, source `tools/module/shapes_mod.c`) that reaches the firmware only through
+the services table `fw_api_t` (`firmware/src/fw_api.h`), which sits in the image at a fixed address. It has no RAM of its own. Its package is
+`orangecat-shapes-VERSION-COMMIT.ocm`, with one image for each place the module can be linked for: SHAPES' module is 6 sectors, so it has an image for
+start 0 (flash 0xC8000, runs at XIP 0x020C4000) and one for start 6 (flash 0xCE000, XIP 0x020CA000). The unit names the start to use, so a replacement
+can go where the old module is (in place) or into a free place, and the page sends that image.
+
+The package (little endian): magic "OCMF" (0x464D434F), version u16 = 1, variant count u16 (1..8), interface identifier u32 (at 8), table address u32
+(at 12), engine u32 (at 16), state size u32 (at 20), pack hash u32 (at 24), name 16 bytes (at 28, zero filled), table version u32 (at 44), table size u32
+(at 48), sectors u32 (at 52); then per variant 16 bytes {start sector index, image length, CRC-32 of the image, file offset}; then a CRC-32 of everything
+before it; then the images. An image's first 256 bytes are the header page (`fw_mod_hdr_t`, 52 bytes, the rest zero), its code starts at byte 256; its CRC
+(zlib) covers bytes 256..length and the header's own CRC covers bytes 0..47.
+
+A command a firmware does not know gets no reply, so an editor offers modules only after a reply to 120. Every write is refused while the transport
+runs (rc 2). The pack's commands 115-119 are unchanged (their BEGIN already carries an optional byte older pages send, so an area selector there would be
+ambiguous); the module has ids of its own.
+
+| Command | Request | Reply |
+|---|---|---|
+| 120 MOD_INFO | optionally an engine | starts (2), sectors of the area (12), flags (1 SHAPES is built in, 2 a module takes the slot of a built-in engine, 4 an install is under way), table version, table size, interface identifier (5 x 7 bits), table address (5 x 7), pack hash (5 x 7), the start an install of the engine goes to (0, 1, or 127 none; 127 too without an engine), then per start: state, why, engine, length (3 x 7 bits) |
+| 121 MOD_BEGIN | engine, start, length (3 x 7 bits) | rc, bytes written (3 x 7 bits). The engine is taken out of the table, the voices and arena state of the tracks that play it are cleared, the 6 sectors of the start (and of any other module of that engine) are erased |
+| 122 MOD_WRITE | offset (3 x 7 bits), pack7 data (up to 256 bytes) | rc, bytes written. The first offset is 256; each is where the last write ended |
+| 123 MOD_END | pack7 header page (256 bytes) | rc, bytes written. The header must agree with the code just sent (its CRC), the start, and this firmware; it is programmed last (the commit); the area is then read as at boot and the module registered |
+| 124 MOD_REMOVE | engine (127: the whole area) | rc, bytes written. The engine's module out of the table and its sectors erased |
+
+State: 0 empty, 1 torn header, 2 refused (another interface, another table address, a table the firmware does not have; `why` is the check's code: 3 identifier,
+4 table too new, 5 address), 3 a header field out of range (link address, length, engine_ptr, engine number, state size, pack hash), 4 bad code CRC, 5 stopped
+after a crash (below), 6 valid but the built-in engine keeps the slot (flag 2 clear), 7 registered.
+
+rc: 0 done, 1 refused (not the start named by MOD_INFO, a bad length, an engine a module may not supply, out of order, a header that does not match), 2 the flash
+failed or the transport is running, 4 the move of the old preset pairs into the library group has not finished (restart the unit), 5 no start free, 7 written but
+not readable as a module (install it again).
+
+Checks at boot, in this order: magic, header CRC, `fw_module_check` (interface identifier, table address, table size and version), the link address (it is
+linked for one start and refused at any other), the length (a multiple of 4, at most 6 sectors), the engine_t inside the code, the engine number (SHAPES only),
+the state size, the pack hash, then the CRC of the code. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
+lower start is used. The engine number a track holds is never changed by an install or a removal; the table answers for the number (the built-in engine if there is
+one, else silence).
+
+Crash mark: a module that is playing in the first 30 s of a boot that then dies is not loaded at the next boot (state 5) until the unit loses power or the
+start is installed or removed. A crash after the first 30 s is not seen, as the boot guard does not see it for the firmware.
+
 ## Pattern banks (commands 73–74)
 
 INFO sends 0 in the former untagged CHAIN_ROWS byte, then retains the tagged UI, motion and backup

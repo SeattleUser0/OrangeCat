@@ -206,6 +206,7 @@ enum { PK_MISSING, PK_OK };
 static uint32_t t_pk_begun, t_pk_at, t_pk_ended, t_pk_sum;
 static uint8_t t_pk_hdr[512];
 static uint32_t pk_rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static uint32_t pk_rd16(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8; }
 static uint32_t pk_header_state(const uint8_t *h) { return pk_rd32(h) == 0x4B50434Fu ? PK_OK : PK_MISSING; }
 static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash) { (void)len; (void)hash; return 0; }
 static int oc_pack_begin(uint32_t len) { t_pk_begun++; t_pk_at = OC_PACK_HDR; t_pk_sum = 0; return len == OC_PACK_LEN ? 0 : -1; }
@@ -218,6 +219,33 @@ static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
     return 0;
 }
 static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; memcpy(t_pk_hdr, h, sizeof t_pk_hdr); t_pk_ended++; return 0; }
+/* (Orange Cat 0.10.0) an engine module, as card_browse.c's installer sees it (oc_module.c itself is tested by oc_module_test.c): the identifiers it
+ * checks the package against, and the calls recording what they were given */
+#define OC_MODULES 1
+#define FW_API_IFACE 0xA1B2C3D4u
+#define FW_API_ADDR 0x02001100u
+#define FW_API_VERSION 3u
+#define FW_MOD_CODE_OFF 0x100u
+#define OC_PACK_HASH 0x5EEDu
+typedef struct { uint8_t z[60]; } fw_api_t;
+static int t_plan = 0, t_md_fail;
+static uint32_t t_md_begun, t_md_engine, t_md_start, t_md_len, t_md_at, t_md_sum, t_md_ended;
+static uint8_t t_md_page[256];
+static int oc_mod_plan(uint32_t engine) { (void)engine; return t_plan; }
+static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
+{
+    t_md_begun++; t_md_engine = engine; t_md_start = start; t_md_len = len; t_md_at = FW_MOD_CODE_OFF; t_md_sum = 0;
+    return t_md_fail == 1 ? -2 : 0;
+}
+static int oc_mod_write(uint32_t off, const void *src, uint32_t n)
+{
+    const uint8_t *q = src;
+    if (off != t_md_at) return -1;
+    for (uint32_t i = 0; i < n; i++) t_md_sum += q[i];
+    t_md_at += n;
+    return 0;
+}
+static int oc_mod_end(const void *h) { if (t_md_at != t_md_len || t_md_fail == 2) return -1; memcpy(t_md_page, h, sizeof t_md_page); t_md_ended++; return 0; }
 #include "../firmware/src/oc_store.c"                   /* (0.5.6) the frozen phrases' record, in RAM */
 #include "../firmware/src/card_play.c"
 #include "../firmware/src/card_stream.c"
@@ -1411,6 +1439,87 @@ static int t_folders(void)
         assert(!fb_pack_done());
         fb_close();
         printf("  browser: .PAK listed; another size or build refused; no question about banks (0.9.1); the pack written in order, header last\n");
+    }
+    /* 8. (0.10.0) a .OCM in the browser: listed ("Module"); a file that is not a package, a package for another firmware or with no image for the named place
+     * refused with nothing erased; installed: the image for the place oc_mod_plan names, the code in order from byte 256, the header page last */
+    {
+        FIL pf;
+        UINT bw;
+        static uint8_t ocm[8192];
+        uint32_t k, o, sum0 = 0, sum1 = 0, crc;
+        const uint32_t base = 56u + 32u + 4u;
+        char nm[44], v[16];
+        #define W32(at, x) do { ocm[(at)] = (uint8_t)(x); ocm[(at) + 1] = (uint8_t)((x) >> 8); ocm[(at) + 2] = (uint8_t)((x) >> 16); ocm[(at) + 3] = (uint8_t)((x) >> 24); } while (0)
+        #define MKOCM(iface_) do { memset(ocm, 0, sizeof ocm); W32(0, 0x464D434Fu); ocm[4] = 1; ocm[6] = 2; W32(8, (iface_)); W32(12, FW_API_ADDR); W32(16, 14u); \
+            W32(20, 11136u); W32(24, OC_PACK_HASH); W32(44, FW_API_VERSION); W32(48, 60u); W32(52, 6u); \
+            for (k = 0; k < 2u; k++) { W32(56 + 16 * k, 6u * k); W32(56 + 16 * k + 4, 1000u); W32(56 + 16 * k + 8, 0u); W32(56 + 16 * k + 12, base + 1000u * k); \
+                for (o = 0; o < 1000u; o++) ocm[base + 1000u * k + o] = (uint8_t)(o * 5u + k * 11u + 1u); } \
+            crc = ocs_crc32(ocm, 88); W32(88, crc); } while (0)
+        MKOCM(FW_API_IFACE);
+        for (o = 0x100; o < 1000u; o++) { sum0 += ocm[base + o]; sum1 += ocm[base + 1000u + o]; }
+        assert(f_mkdir("/MODS") == FR_OK);
+        assert(f_open(&pf, "/MODS/GOOD.OCM", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, ocm, base + 2000u, &bw) == FR_OK && bw == base + 2000u);
+        f_close(&pf);
+        MKOCM(FW_API_IFACE ^ 1u);
+        assert(f_open(&pf, "/MODS/OTHER.OCM", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, ocm, base + 2000u, &bw) == FR_OK);
+        f_close(&pf);
+        MKOCM(FW_API_IFACE);
+        ocm[60] ^= 1;/* a bad table CRC */
+        assert(f_open(&pf, "/MODS/DAMAGED.OCM", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, ocm, base + 2000u, &bw) == FR_OK);
+        f_close(&pf);
+        assert(f_open(&pf, "/MODS/JUNK.OCM", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, "not a package at all, only text, long enough to read 64 bytes of it....", 70, &bw) == FR_OK);
+        f_close(&pf);
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/MODS");
+        fb.st = FB_LIST;
+        fz_block();
+        assert(fb.st == FB_READY && fb.n == 5u);          /* .. DAMAGED GOOD JUNK OTHER */
+        assert(fb_row(2, nm, sizeof nm, v, sizeof v) && !strcmp(nm, "GOOD.OCM") && !strcmp(v, "Module"));
+        fb.sel = 1;                                       /* the damaged table */
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Not a module") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        fb.sel = 3;                                       /* not a package */
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Not a module") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        fb.sel = 4;                                       /* another firmware's identifier */
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Not for this firmware") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        t_plan = -1;
+        fb.sel = 2;                                       /* a good one, no place free */
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No place free") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        t_plan = 5;                                       /* a place the package has no image for */
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No image for it") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        t_md_fail = 1;                                    /* begin fails (a flash error) */
+        t_plan = 1;
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Install failed") && t_md_begun == 1u && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_md_fail = 2;                                    /* end refuses */
+        t_md_begun = 0;
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Install failed") && t_md_begun == 1u && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_md_fail = 0; t_md_begun = 0;
+        t_plan = 1;
+        fb.sel = 2;
+        assert(fb_ok() && fb.st == FB_OFF && !uf_browse && fb_pack_done() == 2);
+        assert(t_md_begun == 1u && t_md_ended == 1u && t_md_engine == 14u && t_md_start == 1u && t_md_len == 1000u && t_md_at == 1000u && t_md_sum == sum1 &&
+               !memcmp(t_md_page, ocm + base + 1000u, 256));
+        t_md_begun = t_md_ended = 0; t_plan = 0;
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/MODS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2;
+        assert(fb_ok() && fb_pack_done() == 2 && t_md_start == 0u && t_md_sum == sum0 && !memcmp(t_md_page, ocm + base, 256));
+        fb_open(0);
+        assert(!fb_pack_done());
+        fb_close();
+        (void)sum0;
+        printf("  browser: .OCM listed; a damaged table, a stranger, another firmware's package, no place and no image refused; the code written in order, the header page last\n");
     }
     dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it: the takes in their folders) */
     frz_drop_all("");

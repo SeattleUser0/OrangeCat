@@ -29,9 +29,14 @@
  *   is this build's (the file's size and header agree with OC_PACK_LEN and OC_PACK_HASH). It takes no preset (0.9.1: the
  *   library is in the group of lib_group.c, outside the pack area), so there is nothing to ask. Only while stopped, as every flash write. The browser closes on success ("PACK INSTALLED").
  *
+ * Engine modules (Orange Cat 0.10.0, oc_module.c): .OCM files are listed too (value "Module"); OCT+ on one installs the image for the place the unit
+ *   names (oc_mod_plan), if the package is for this firmware (interface identifier, table address and version, pack hash; the web page's checks, ocmCheck).
+ *   Only while stopped. The browser closes on success ("MODULE INSTALLED").
+ *
  * Revisions:
  *   0.6.1: first version.
  *   0.8.0: .PAK files listed and installed.
+ *   0.10.0: .OCM files listed and installed.
  */
 
 /* ---------------------------------------------------------------- naming --- */
@@ -177,9 +182,22 @@ static int fb_pak(const char *n)                        /* (0.8.0) ends in .PAK 
     uint32_t l = str_len(n);
     return l > 4u && n[l - 4u] == '.' && (n[l - 3u] | 32) == 'p' && (n[l - 2u] | 32) == 'a' && (n[l - 1u] | 32) == 'k';
 }
+#if OC_MODULES
+#define FB_OCM 1
+static int fb_ocm(const char *n)                        /* (0.10.0) ends in .OCM (any case) */
+{
+    uint32_t l = str_len(n);
+    return l > 4u && n[l - 4u] == '.' && (n[l - 3u] | 32) == 'o' && (n[l - 2u] | 32) == 'c' && (n[l - 1u] | 32) == 'm';
+}
+#else
+#define FB_OCM 0
+static int fb_ocm(const char *n) { (void)n; return 0; }
+#endif
 #else
 #define FB_PAK 0
+#define FB_OCM 0
 static int fb_pak(const char *n) { (void)n; return 0; }
+static int fb_ocm(const char *n) { (void)n; return 0; }
 #endif
 static int fb_before(const fb_ent_t *a, const fb_ent_t *b)   /* folders first, then by name (case aside) */
 {
@@ -216,7 +234,7 @@ static void fb_list(void)
     if (f_opendir(&d, fb.path) != FR_OK) { fb_fail("Folder unreadable"); return; }
     while (n < FB_MAX && f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
         int dir = (fi.fattrib & AM_DIR) != 0;
-        if ((fi.fattrib & (AM_HID | AM_SYS)) || fi.fname[0] == '.' || (!dir && !fb_wav(fi.fname) && !(FB_PAK && fb_pak(fi.fname)))) continue;
+        if ((fi.fattrib & (AM_HID | AM_SYS)) || fi.fname[0] == '.' || (!dir && !fb_wav(fi.fname) && !(FB_PAK && fb_pak(fi.fname)) && !(FB_OCM && fb_ocm(fi.fname)))) continue;
         str_cpy(e[n].name, fi.fname, FB_NAME);
         e[n].dir = (uint8_t)dir;
         e[n].longname = (uint8_t)(str_len(fi.fname) >= FB_NAME);
@@ -309,6 +327,8 @@ static int fb_row(uint32_t i, char *name, uint32_t nlen, char *val, uint32_t vle
         str_cpy(val, ">", vlen);
     } else if (fb_pak(e->name)) {
         str_cpy(val, "Pack", vlen);
+    } else if (fb_ocm(e->name)) {
+        str_cpy(val, "Module", vlen);
     } else {                                            /* (seconds of 16-bit stereo 44.1 kHz, one decimal) */
         uint32_t ds = e->size > 44u ? (e->size - 44u) / 17640u : 0u;
         char *v = uh_dec(val, ds / 10u);
@@ -436,6 +456,55 @@ static int fb_install(const fb_ent_t *e)
     return 0;
 }
 #endif
+#if FB_OCM
+/* (0.10.0) the module package at (fb.path, e) installed: 0 done, else fb.msg says why. The package: a 56 byte header, a table of 16 byte variants, a CRC-32 of
+ * both, then the images (web/EDITOR_PROTOCOL.md). The image for the place oc_mod_plan names goes to oc_mod_begin / write in 256 byte pieces; its first
+ * 256 bytes (the header page) go to oc_mod_end, which programs them last. */
+static int fb_install_mod(const fb_ent_t *e)
+{
+    char p[FB_PATH + FB_NAME + 2u];
+    uint8_t buf[256], pg[256];
+    FIL *f = &uf_pf;
+    UINT got;
+    uint32_t n, tab = 56u, hc, engine, start, off = 0, len = 0, o;
+    int plan, rc = 0;
+    if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
+    uh_cat(uh_cat(uh_cat(p, fb.path), str_eq(fb.path, "/") ? "" : "/"), e->name);
+    if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    if (f_read(f, buf, sizeof buf, &got) != FR_OK || got < 64u || pk_rd32(buf) != 0x464D434Fu || pk_rd16(buf + 4) != 1u) {
+        f_close(f);
+        str_cpy(fb.msg, "Not a module", sizeof fb.msg);
+        return 1;
+    }
+    n = pk_rd16(buf + 6);
+    hc = tab + 16u * n;
+    if (n < 1u || n > 8u || hc + 4u > got || ocs_crc32(buf, hc) != pk_rd32(buf + hc)) { f_close(f); str_cpy(fb.msg, "Not a module", sizeof fb.msg); return 1; }
+    engine = pk_rd32(buf + 16);
+    if (pk_rd32(buf + 8) != FW_API_IFACE || pk_rd32(buf + 12) != FW_API_ADDR || pk_rd32(buf + 44) > FW_API_VERSION ||
+        pk_rd32(buf + 48) > sizeof(fw_api_t) || pk_rd32(buf + 24) != OC_PACK_HASH) {
+        f_close(f);
+        str_cpy(fb.msg, "Not for this firmware", sizeof fb.msg);
+        return 1;
+    }
+    plan = oc_mod_plan(engine);
+    if (plan < 0) { f_close(f); str_cpy(fb.msg, "No place free", sizeof fb.msg); return 1; }
+    start = (uint32_t)plan;
+    for (o = 0; o < n; o++)
+        if (pk_rd32(buf + tab + 16u * o) == start * 6u) { len = pk_rd32(buf + tab + 16u * o + 4u); off = pk_rd32(buf + tab + 16u * o + 12u); }
+    if (!len || off + len > e->size || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
+    if (f_lseek(f, off) != FR_OK || f_read(f, pg, sizeof pg, &got) != FR_OK || got != sizeof pg) { f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    if (oc_mod_begin(engine, start, len) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    for (o = FW_MOD_CODE_OFF; o < len && !rc; o += got) {
+        uint32_t k = len - o > sizeof buf ? (uint32_t)sizeof buf : len - o;
+        if (f_read(f, buf, k, &got) != FR_OK || got != k || oc_mod_write(o, buf, k) != 0) rc = 1;
+        SMP_FEED();
+    }
+    f_close(f);
+    if (rc || oc_mod_end(pg) != 0) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    fb.packed = 2;
+    return 0;
+}
+#endif
 /* OCT+: ".." up, a folder opened, a WAV given to the track's phrase. 1: done (the browser closed) */
 static int fb_ok(void)
 {
@@ -456,6 +525,19 @@ static int fb_ok(void)
     if (FB_PAK && fb_pak(e->name)) {
 #if FB_PAK
         if (fb_install(e)) {
+            char m[24];
+            str_cpy(m, fb.msg, sizeof m);
+            fb_fail(m);
+            fb.relist = fb.ask ? 2u : 1u;
+            return 0;
+        }
+#endif
+        fb_close();
+        return 1;
+    }
+    if (FB_OCM && fb_ocm(e->name)) {
+#if FB_OCM
+        if (fb_install_mod(e)) {
             char m[24];
             str_cpy(m, fb.msg, sizeof m);
             fb_fail(m);

@@ -394,6 +394,13 @@
       <p class="bar"><button id="pack-install" data-t="packInstall"></button>
         <button id="pack-erase" data-t="packErase"></button><input id="pack-file" type="file" accept=".pak,application/octet-stream" hidden></p>
     </div>
+    <div class="group" id="device-module" hidden style="margin-top:12px">
+      <h2 data-t="modTitle"></h2>
+      <p class="dim" data-t="modHelp"></p>
+      <p id="mod-state" aria-live="polite"></p>
+      <p class="bar"><button id="mod-install" data-t="modInstall"></button>
+        <button id="mod-remove" data-t="modRemove"></button><input id="mod-file" type="file" accept=".ocm,application/octet-stream" hidden></p>
+    </div>
     <div class="group" style="margin-top:12px">
       <h2 data-t="system" data-ic="symbol_cog"></h2>
       <table id="sysinfo"></table>
@@ -432,6 +439,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
   PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,   /* (Orange Cat 0.8.0) the asset pack */
+  MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124,   /* (Orange Cat 0.10.0) loadable engine modules */
   FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, LIBRARY:80, PROPHET:95 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 
@@ -615,6 +623,19 @@ const parse = {
   [CMD.PACK_WRITE](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
   [CMD.PACK_END](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
   [CMD.PACK_ERASE](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
+  [CMD.MOD_INFO](a) {
+    const r = new Reader(a), o = { nstarts: r.b(), sectors: r.b(), flags: r.b(), apiVersion: r.b(), apiSize: r.b() };
+    const n3 = () => r.b() | (r.b() << 7) | (r.b() << 14);
+    const n5 = () => { let v = 0; for (let i = 0; i < 5; i++) v += r.b() * 2 ** (7 * i); return v >>> 0; };
+    o.iface = n5(); o.apiAddr = n5(); o.packHash = n5(); o.plan = r.b();
+    o.starts = Array.from({ length: o.nstarts }, () => ({ state: r.b(), why: r.b(), engine: r.b(), length: n3() }));
+    o.shapesBuiltIn = !!(o.flags & 1); o.moduleWins = !!(o.flags & 2); o.writing = !!(o.flags & 4);
+    return o;
+  },
+  [CMD.MOD_BEGIN](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
+  [CMD.MOD_WRITE](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
+  [CMD.MOD_END](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
+  [CMD.MOD_REMOVE](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
   [CMD.CZ_BANK](a) { const r=new Reader(a),o={bank:r.b(),rc:r.b()};if(!o.rc){o.name=r.s();o.slots=Array.from({length:16},()=>({used:!!r.b(),name:r.s()}));}return o; },
   [CMD.CZ_GET](a) { if (a.length<3) throw new Error("Short CZ reply"); const r={target:a[0],index:a[1],rc:a[2]}; if(!r.rc)r.raw=CZ.bytes(a.slice(3));else if(a.length!==3)throw new Error("Invalid CZ reply");return r; },
   [CMD.CZ_PUT](a) { if(a.length!==3)throw new Error("Invalid CZ reply");return {target:a[0],index:a[1],rc:a[2]}; },
@@ -818,6 +839,11 @@ const req = {
   packWrite: (off, bytes) => [CMD.PACK_WRITE, [off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F, ...pack7(bytes)]],
   packEnd: (hdr) => [CMD.PACK_END, pack7(hdr)],
   packErase: () => [CMD.PACK_ERASE, [0]],
+  modInfo: (engine) => [CMD.MOD_INFO, engine === undefined ? [] : [engine]],
+  modBegin: (engine, start, len) => [CMD.MOD_BEGIN, [engine, start, len & 0x7F, (len >> 7) & 0x7F, (len >> 14) & 0x7F]],
+  modWrite: (off, bytes) => [CMD.MOD_WRITE, [off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F, ...pack7(bytes)]],
+  modEnd: (page) => [CMD.MOD_END, pack7(page)],
+  modRemove: (engine) => [CMD.MOD_REMOVE, [engine]],
   czGet: (target,index) => [CMD.CZ_GET,[target,index]],
   czPut: (target,index,raw,pattern=null) => [CMD.CZ_PUT,[target,index,...CZ.nibbles(raw),...(pattern?Array.from({length:16},(_,i)=>patNorm(...(pattern[i]||[0,0]))).flat():[])]],
   uiState: () => [CMD.UI_STATE, []],
@@ -2977,6 +3003,46 @@ function devicePresetRows(info, names, preferences) {
     .filter((row) => !preferences.state.filter || row.favorite);
 }
 
+
+/* (Orange Cat 0.10.0) an engine module package (.ocm, tools/build.py --module, the layout in the comment block there): one image per place a module can be
+ * linked for. The page reads it, checks it against ED_MOD_INFO (the interface identifier, the table's address, the pack) and sends the image for the place the
+ * unit names. The unit checks everything again (oc_module.c). */
+const OCM_MAGIC = 0x464D434F, OCM_STATE = ["empty", "torn", "refused", "badhdr", "badcrc", "crashed", "noslot", "ok"];
+function ocmParse(bytes) {
+  const fail = (key) => ({ ok: false, key });
+  if (!bytes || !bytes.buffer || bytes.length < 60) return fail("modWrongFile");
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.getUint32(0, true) !== OCM_MAGIC || dv.getUint16(4, true) !== 1) return fail("modWrongFile");
+  const n = dv.getUint16(6, true), tab = 56, hcrcAt = tab + 16 * n;
+  if (n < 1 || n > 8 || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
+  let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
+  const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
+              name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [] };
+  for (let i = 0; i < n; i++) {
+    const start = dv.getUint32(tab + 16 * i, true), length = dv.getUint32(tab + 16 * i + 4, true), crc = dv.getUint32(tab + 16 * i + 8, true), off = dv.getUint32(tab + 16 * i + 12, true);
+    if (off + length > bytes.length || length < 0x200 || (length & 3)) return fail("modWrongFile");
+    const img = bytes.subarray(off, off + length);
+    if (crc32(img) !== crc || new DataView(img.buffer, img.byteOffset, 4).getUint32(0, true) !== 0x444F4D4F) return fail("modWrongFile");
+    o.variants.push({ start, length, image: img });
+  }
+  return o;
+}
+/* the file against the unit's ED_MOD_INFO answer for the file's engine: {ok, variant} or {ok: false, key} */
+function ocmCheck(ocm, info) {
+  if (!ocm.ok) return ocm;
+  if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
+    return { ok: false, key: "modWrongFw" };
+  if (info.plan > 1) return { ok: false, key: "modNoFree" };
+  const v = ocm.variants.find((x) => x.start === info.plan * 6);
+  return v ? { ok: true, variant: v } : { ok: false, key: "modNoVariant" };
+}
+function modSummary(info) {                           /* the state line's key for a unit's ED_MOD_INFO answer */
+  const st = info.starts.map((s) => OCM_STATE[s.state] || "badhdr");
+  if (st.includes("ok")) return "modStateOk";
+  if (st.includes("crashed")) return "modStateCrash";
+  if (st.includes("noslot")) return "modStateNoslot";
+  return st.every((x) => x === "empty") ? "modState0" : "modStateBad";
+}
 /*PROTO-END*/
 
 /* ===================================================================== UI === */
@@ -3045,7 +3111,7 @@ const TEXT = {
     fm6Loaded: "読み込みました", fm6Factory: "F1〜F24 はファクトリー音色です。B1〜B32 を選んでください。", fm6BadSum: "チェックサム不一致あり",
     fm6Exported: "バンクを書き出しました",
     motion: "モーション", motionOn: "再生", motionClear: "モーションを消去", motionConfirm: "選択トラックのモーションを消しますか？", chance: "確率 %", motionStep: "ステップ", motionParam: "パラメーター", motionValue: "値",
-    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました", packTitle: "アセットパック", packHelp: "SHAPESとMACROは本体フラッシュ内のパックからテーブルを読みます。正しいパックが無いと音が出ず、画面にPACK MISSINGと出ます。パックは各リリースに付属します(orangecat-VERSION.pak)。音色は消えません。", packInstall: "パックを入れる", packErase: "パックを消す", packState0: "パックは入っていません。", packState1: "パックは入っていて、確認済みです。", packState2: "別のファームウェア用のパックが入っています。", packState3: "入っているパックが壊れています。", packWrongBuild: "このパックはこのファームウェア用ではありません。", packEraseConfirm: "パックを消しますか？入れ直すまでSHAPESとMACROは鳴りません。", packWorking: "パックを書き込み中 ", packDone: "パックを入れました", packErased: "パックを消しました", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした", packOldFw: "このファームウェアはパックのためにライブラリのバンク16〜20を消します。先にファームウェアを0.9.1以降に更新してください。", packRestart: "本体を再起動してもう一度お試しください。",
+    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました", packTitle: "アセットパック", packHelp: "SHAPESとMACROは本体フラッシュ内のパックからテーブルを読みます。正しいパックが無いと音が出ず、画面にPACK MISSINGと出ます。パックは各リリースに付属します(orangecat-VERSION.pak)。音色は消えません。", packInstall: "パックを入れる", packErase: "パックを消す", packState0: "パックは入っていません。", packState1: "パックは入っていて、確認済みです。", packState2: "別のファームウェア用のパックが入っています。", packState3: "入っているパックが壊れています。", packWrongBuild: "このパックはこのファームウェア用ではありません。", packEraseConfirm: "パックを消しますか？入れ直すまでSHAPESとMACROは鳴りません。", packWorking: "パックを書き込み中 ", packDone: "パックを入れました", packErased: "パックを消しました", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした", packOldFw: "このファームウェアはパックのためにライブラリのバンク16〜20を消します。先にファームウェアを0.9.1以降に更新してください。", packRestart: "本体を再起動してもう一度お試しください。", modTitle: "エンジンモジュール", modHelp: "SHAPESをファームウェアの代わりに、本体フラッシュ内のモジュールから鳴らせます。モジュールは各リリースに付属します(orangecat-shapes-VERSION.ocm)。音色は消えません。", modInstall: "モジュールを入れる", modRemove: "モジュールを消す", modState0: "モジュールは入っていません。", modStateOk: "モジュールは入っていて、確認済みで、使われています。", modStateCrash: "入っているモジュールで本体が止まりました。入れ直すか、消すか、電源を入れ直すまで無効です。", modStateNoslot: "モジュールは入っていますが、このファームウェアは内蔵のエンジンを使います。", modStateBad: "このファームウェアでは動かないモジュールがあるか、壊れています。", modWrongFile: "モジュールのファイルではありません。", modWrongFw: "このモジュールはこのファームウェア用ではありません。", modNoVariant: "本体の空き場所に合うイメージがこのファイルにありません。", modNoFree: "モジュールを入れる空きがありません。", modWorking: "モジュールを書き込み中 ", modDone: "モジュールを入れました", modRemoved: "モジュールを消しました", modRemoveConfirm: "モジュールを消しますか？SHAPESが内蔵ならファームウェアから鳴り、内蔵でなければ鳴りません。", modStop: "先に再生を止めてください", modFail: "モジュールを入れられませんでした", modRestart: "本体を再起動してもう一度お試しください。", modUnreadable: "書き込みましたが正しく読み戻せません。もう一度入れてください。",
     deviceDisplay: "本体の画面",
     deviceDisplayHelp: "FM-1 の画面に反映し、保存します。再生中の変更は停止後に保存されます。",
     devicePresets: "本体のプリセット",
@@ -3139,7 +3205,7 @@ const TEXT = {
     fm6Loaded: "Loaded", fm6Factory: "F1..F24 are the factory patches: pick B1..B32.", fm6BadSum: "a checksum did not match",
     fm6Exported: "Bank exported",
     motion: "Motion", motionOn: "Play motion", motionClear: "Clear motion", motionConfirm: "Clear this track's motion?", chance: "Chance %", motionStep: "Step", motionParam: "Parameter", motionValue: "Value",
-    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks and settings to this computer.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored", packTitle: "Asset pack", packHelp: "SHAPES and MACRO read their tables from a pack kept in the unit's flash. Without the right pack they stay silent and the screen says PACK MISSING. The pack comes with each release (orangecat-VERSION.pak). It takes none of your sounds.", packInstall: "Install pack", packErase: "Erase pack", packState0: "No pack installed.", packState1: "Pack installed and checked.", packState2: "A pack for another firmware is installed.", packState3: "The installed pack is damaged.", packWrongBuild: "This pack is not for this firmware.", packEraseConfirm: "Erase the pack? SHAPES and MACRO go silent until a pack is installed.", packWorking: "Installing pack ", packDone: "Pack installed", packErased: "Pack erased", packStop: "Stop playback first", packFail: "The pack could not be installed", packOldFw: "This firmware would erase library banks 16 to 20 to make room. Update the firmware to 0.9.1 or later first.", packRestart: "Restart the unit and try again.",
+    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks and settings to this computer.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored", packTitle: "Asset pack", packHelp: "SHAPES and MACRO read their tables from a pack kept in the unit's flash. Without the right pack they stay silent and the screen says PACK MISSING. The pack comes with each release (orangecat-VERSION.pak). It takes none of your sounds.", packInstall: "Install pack", packErase: "Erase pack", packState0: "No pack installed.", packState1: "Pack installed and checked.", packState2: "A pack for another firmware is installed.", packState3: "The installed pack is damaged.", packWrongBuild: "This pack is not for this firmware.", packEraseConfirm: "Erase the pack? SHAPES and MACRO go silent until a pack is installed.", packWorking: "Installing pack ", packDone: "Pack installed", packErased: "Pack erased", packStop: "Stop playback first", packFail: "The pack could not be installed", packOldFw: "This firmware would erase library banks 16 to 20 to make room. Update the firmware to 0.9.1 or later first.", packRestart: "Restart the unit and try again.", modTitle: "Engine module", modHelp: "SHAPES can play from a module kept in the unit's flash instead of from the firmware. The module comes with each release (orangecat-shapes-VERSION.ocm). It takes none of your sounds.", modInstall: "Install module", modRemove: "Remove module", modState0: "No module installed.", modStateOk: "Module installed, checked and in use.", modStateCrash: "The installed module stopped the unit. It is switched off until you install it again, remove it or turn the unit off and on.", modStateNoslot: "A module is installed, but this firmware plays its own built-in engine.", modStateBad: "There is a module that cannot run on this firmware, or it is damaged.", modWrongFile: "This is not a module file.", modWrongFw: "This module is not for this firmware.", modNoVariant: "This module file has no image for the free place in the unit.", modNoFree: "No place is free for the module.", modWorking: "Installing module ", modDone: "Module installed", modRemoved: "Module removed", modRemoveConfirm: "Remove the module? SHAPES plays from the firmware if it is built in, otherwise it goes silent.", modStop: "Stop playback first", modFail: "The module could not be installed", modRestart: "Restart the unit and try again.", modUnreadable: "The module was written but does not read back correctly. Install it again.",
     deviceDisplay: "Device display",
     deviceDisplayHelp: "Changes apply to the FM-1 screen and save. Changes made while playing save after STOP.",
     devicePresets: "Device presets",
@@ -3538,6 +3604,7 @@ async function load(d) {
     renderBank();
     renderSysinfo();
     await packProbe(d);
+    await modProbe(d);                                   // (0.10.0) engine modules
     sayK("ready");
   } finally { releaseBusy(); }
 }
@@ -4040,6 +4107,54 @@ $("pack-erase").addEventListener("click", () => op(async () => {
   await packProbe(d);
   if (r.rc) throw new Error(t(packCode(r.rc)));
   await load(d); sayK("packErased");
+}));
+
+/* (Orange Cat 0.10.0) engine modules: commands 120..124 (EDITOR_PROTOCOL.md). A firmware without them never replies to 120, so the section stays hidden. */
+async function modProbe(d, engine) {
+  d.mod = null;
+  try { d.mod = parse[CMD.MOD_INFO](await sessionRequest(d, req.modInfo(engine), { timeout: 150, retries: 0, quiet: true })); }
+  catch (e) { if (e.message === "closed") throw e; }
+  if (d === dev) renderModule();
+}
+function renderModule() {
+  const m = dev?.mod;
+  $("device-module").hidden = !m;
+  if (!m) return;
+  $("mod-state").textContent = t(modSummary(m));
+  $("mod-remove").disabled = m.starts.every((s) => s.state === 0);
+}
+const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : "modFail");
+$("mod-install").addEventListener("click", () => { if (dev?.mod) $("mod-file").click(); });
+$("mod-file").addEventListener("change", () => {
+  const file = $("mod-file").files[0], d = dev; $("mod-file").value = "";
+  if (!file || !d?.mod) return;
+  op(async () => {
+    const ocm = ocmParse(new Uint8Array(await file.arrayBuffer()));
+    if (!ocm.ok) throw new Error(t(ocm.key));
+    await modProbe(d, ocm.engine);                      /* the place the unit names for this engine, now */
+    const chk = ocmCheck(ocm, d.mod || {});
+    if (!chk.ok) throw new Error(t(chk.key));
+    const img = chk.variant.image, start = chk.variant.start / 6;
+    let r = parse[CMD.MOD_BEGIN](await sessionRequest(d, req.modBegin(ocm.engine, start, img.length), { timeout: 3000 }));
+    if (r.rc) throw new Error(t(modCode(r.rc)));
+    for (let off = 256; off < img.length; off += 256) {
+      r = parse[CMD.MOD_WRITE](await sessionRequest(d, req.modWrite(off, img.subarray(off, Math.min(off + 256, img.length))), { timeout: 1000 }));
+      if (r.rc) throw new Error(t(modCode(r.rc)));
+      if (((off - 256) >> 8) % 8 === 0) sayK("modWorking", `${Math.round(off / img.length * 100)}%`);
+    }
+    r = parse[CMD.MOD_END](await sessionRequest(d, req.modEnd(img.subarray(0, 256)), { timeout: 3000 }));
+    await modProbe(d);
+    if (r.rc) throw new Error(t(modCode(r.rc)));
+    await load(d); sayK("modDone");
+  });
+});
+$("mod-remove").addEventListener("click", () => op(async () => {
+  const d = dev;
+  if (!d?.mod || !confirm(t("modRemoveConfirm"))) return;
+  const r = parse[CMD.MOD_REMOVE](await sessionRequest(d, req.modRemove(127), { timeout: 3000 }));
+  await modProbe(d);
+  if (r.rc) throw new Error(t(modCode(r.rc)));
+  await load(d); sayK("modRemoved");
 }));
 
 /* Complete archives remain on this computer; no project or sample is uploaded to a server. */

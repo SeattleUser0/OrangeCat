@@ -32,7 +32,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, modSummary, OCM_STATE })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
@@ -49,6 +49,61 @@ const E = vm.runInNewContext(proto + `
   ok(r.state === 1 && r.banks === 0 && r.len === 40232 && r.hash === hash && r.buildLen === 40232 && r.buildHash === hash && r.area === 40960, "pack: the reply of INFO");
   const e = E.parse[C.PACK_END]([3, ...n3(40232)]);
   ok(e.rc === 3 && e.done === 40232, "pack: the reply of an install step");
+}
+
+/* (Orange Cat 0.10.0) engine modules: commands 120..124, the .ocm package as tools/build.py --module lays it out, and the checks the page makes before it sends anything */
+{
+  const C = E.CMD;
+  ok(C.MOD_INFO === 120 && C.MOD_BEGIN === 121 && C.MOD_WRITE === 122 && C.MOD_END === 123 && C.MOD_REMOVE === 124, "module: commands 120 to 124");
+  ok(eq(E.req.modBegin(14, 1, 3000)[1], [14, 1, 3000 & 127, (3000 >> 7) & 127, 3000 >> 14]) && eq(E.req.modInfo()[1], []) && eq(E.req.modInfo(14)[1], [14]) && eq(E.req.modRemove(127)[1], [127]), "module: BEGIN is engine, start and length (3 x 7 bits); INFO takes an optional engine; REMOVE an engine (127: all)");
+  const w = E.req.modWrite(0x300, new Uint8Array(256).fill(0xA5));
+  ok(w[0] === 122 && eq(w[1].slice(0, 3), [0x300 & 127, (0x300 >> 7) & 127, 0]) && w[1].length === 3 + 36 * 8 + 5, "module: WRITE is the offset and 256 bytes packed 7-bit");
+  ok(E.req.modEnd(new Uint8Array(256))[1].length === 37 * 8 - 3 + 0 || E.req.modEnd(new Uint8Array(256))[1].length === 293, "module: END is the 256-byte header page packed 7-bit (293 bytes)");
+  const n5 = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) & 127), n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127];
+  const iface = 0xE3CB357E >>> 0, hash = 0xD0657ED9 >>> 0;
+  const reply = (plan, a, b) => [2, 12, 1 | 2, 3, 60, ...n5(iface), ...n5(0x02001100), ...n5(hash), plan, ...a, ...b];
+  const info = E.parse[C.MOD_INFO](reply(0, [7, 0, 14, ...n3(23780)], [0, 0, 0, 0, 0, 0]));
+  ok(info.nstarts === 2 && info.sectors === 12 && info.apiVersion === 3 && info.apiSize === 60 && info.iface === iface && info.apiAddr === 0x02001100 && info.packHash === hash &&
+     info.plan === 0 && info.starts[0].state === 7 && info.starts[0].engine === 14 && info.starts[0].length === 23780 && info.starts[1].state === 0 && info.shapesBuiltIn && info.moduleWins && !info.writing, "module: the reply of INFO");
+  const sum = (a, b) => E.modSummary(E.parse[C.MOD_INFO](reply(0, a, b)));
+  ok(sum([7, 0, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateOk" && sum([0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modState0" && sum([5, 0, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateCrash" &&
+     sum([6, 2, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateNoslot" && sum([4, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateBad" && sum([4, 0, 0, 0, 0, 0], [7, 0, 14, 0, 0, 0]) === "modStateOk", "module: the state line for each start state");
+
+  /* a package as build.py writes it: header, a table of variants, a CRC-32 of both, then the images */
+  const crc = (b) => { let c = 0xFFFFFFFF; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xEDB88320 : c >>> 1; } return (c ^ 0xFFFFFFFF) >>> 0; };
+  const image = (len, seed) => { const b = new Uint8Array(len); for (let i = 0; i < len; i++) b[i] = (i * 7 + seed) & 255; new DataView(b.buffer).setUint32(0, 0x444F4D4F, true); return b; };
+  const pkg = (o = {}) => {
+    const imgs = [image(3000, 1), image(3000, 2)], starts = [0, 6], tab = 56, hc = tab + 32, base = hc + 4;
+    const b = new Uint8Array(base + 6000), dv = new DataView(b.buffer);
+    dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, 2, true);
+    dv.setUint32(8, o.iface ?? iface, true); dv.setUint32(12, o.apiAddr ?? 0x02001100, true); dv.setUint32(16, 14, true); dv.setUint32(20, 11136, true); dv.setUint32(24, o.packHash ?? hash, true);
+    b.set([...new TextEncoder().encode("SHAPES")], 28); dv.setUint32(44, o.apiVersion ?? 3, true); dv.setUint32(48, o.apiSize ?? 60, true); dv.setUint32(52, 6, true);
+    imgs.forEach((im, i) => { dv.setUint32(tab + 16 * i, starts[i], true); dv.setUint32(tab + 16 * i + 4, im.length, true); dv.setUint32(tab + 16 * i + 8, crc(im) ^ (o.badImageCrc ? 1 : 0), true); dv.setUint32(tab + 16 * i + 12, base + 3000 * i, true); b.set(im, base + 3000 * i); });
+    dv.setUint32(hc, crc(b.subarray(0, hc)) ^ (o.badHeaderCrc ? 1 : 0), true);
+    return b;
+  };
+  const good = E.ocmParse(pkg());
+  ok(good.ok && good.name === "SHAPES" && good.engine === 14 && good.stateSize === 11136 && good.variants.length === 2 && good.variants[1].start === 6 && good.variants[1].length === 3000 && good.iface === iface, "module: a package is read, its images found by their table");
+  ok(!E.ocmParse(pkg({ badHeaderCrc: 1 })).ok && !E.ocmParse(pkg({ badImageCrc: 1 })).ok && !E.ocmParse(new Uint8Array(100)).ok && !E.ocmParse(new Uint8Array(0)).ok && E.ocmParse(pkg({ badImageCrc: 1 })).key === "modWrongFile",
+     "module: a bad table CRC, a bad image CRC and a file that is no package are refused as 'not a module file'");
+  { const cut = pkg().slice(0, 100); ok(!E.ocmParse(cut).ok, "module: a package cut short is refused"); }
+  const unit = (over = {}) => ({ iface, apiAddr: 0x02001100, apiVersion: 3, apiSize: 60, packHash: hash, plan: 0, ...over });
+  ok(E.ocmCheck(good, unit()).ok && E.ocmCheck(good, unit()).variant.start === 0 && E.ocmCheck(good, unit({ plan: 1 })).variant.start === 6, "module: the image sent is the one for the place the unit names (start 0 or 6)");
+  ok(E.ocmCheck(good, unit({ iface: iface ^ 1 })).key === "modWrongFw" && E.ocmCheck(good, unit({ apiAddr: 0x02001104 })).key === "modWrongFw" && E.ocmCheck(good, unit({ packHash: hash ^ 1 })).key === "modWrongFw" &&
+     E.ocmCheck(E.ocmParse(pkg({ apiVersion: 4 })), unit()).key === "modWrongFw" && E.ocmCheck(E.ocmParse(pkg({ apiSize: 64 })), unit()).key === "modWrongFw", "module: another interface identifier, table address, pack, a later table version or a longer table: 'not for this firmware'");
+  ok(E.ocmCheck(E.ocmParse(pkg({ apiVersion: 2, apiSize: 56 })), unit()).ok, "module: a module built for an earlier, shorter table still works");
+  ok(E.ocmCheck(good, unit({ plan: 127 })).key === "modNoFree" && E.ocmCheck(good, unit({ plan: 1 })).ok, "module: no free place is reported before anything is sent");
+  { const one = pkg(); /* a package with only the start 6 image: the unit names start 0 */
+    const dv = new DataView(one.buffer); dv.setUint32(56, 3, true); dv.setUint32(hcrcFix(one), crc(one.subarray(0, 88)), true);
+    function hcrcFix(b) { return 88; }
+    const p1 = E.ocmParse(one); ok(p1.ok && E.ocmCheck(p1, unit()).key === "modNoVariant", "module: a package with no image for the named place is refused with its own message"); }
+  /* the real package from tools/build.py (module_build_test.py writes one from a stand-in toolchain), when it is there */
+  import("node:fs").then((fs) => {
+    const f = new URL("../build/shapes-" + fs.readFileSync(new URL("../VERSION", import.meta.url), "utf8").trim() + ".ocm", import.meta.url);
+    if (!fs.existsSync(f)) return;
+    const real = E.ocmParse(new Uint8Array(fs.readFileSync(f)));
+    ok(real.ok && real.name === "SHAPES" && real.variants.length === 2 && real.variants[0].start === 0 && real.variants[1].start === 6, "module: the package build.py writes is read by the page");
+  });
 }
 
 {
@@ -1232,7 +1287,7 @@ async function editorSessions() {
     paramKeys: noop, libAdopt: () => { adoptStarted?.(); return adopted || Promise.resolve(); },
     buildUI: () => { shown++; }, renderPanels: noop, loadSteps: noop,
     startWatch: async () => false, renderLive: noop, renderLib: noop,
-    renderBank: noop, renderSysinfo: noop, sayK: noop, report: noop, syncPreferences: noop, packProbe: noop,
+    renderBank: noop, renderSysinfo: noop, sayK: noop, report: noop, syncPreferences: noop, packProbe: noop, modProbe: noop,
   });
   const oldRelease = S.beginBusy();
   S.resetBusy();
