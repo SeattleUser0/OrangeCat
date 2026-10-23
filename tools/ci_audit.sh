@@ -19,9 +19,8 @@ with open('build/gaps.txt','w') as f:
         d=subprocess.run([od,'-s','--start-address',hex(a),'--stop-address',hex(b),'build/melodee.elf'],capture_output=True,text=True).stdout
         f.write(f"=== {a:x}..{b:x} ({b-a} B)\n{d}\n")
 PY
-  python3 tools/ci_blob.py emit gaps build/gaps.txt --start 1 --max 1
   ;;
 test)
-  python3 tools/ci_blob.py emit gaps build/gaps.txt --start 2 --max 9
+  python3 tools/ci_blob.py emit gaps build/gaps.txt --start 1 --max 9
   ;;
 esac
