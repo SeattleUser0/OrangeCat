@@ -88,7 +88,8 @@ two notes byte for byte the same; NOTES opened: nothing changed by the switch, a
 one; three undos, one each, back to the recording; a note edited, saved, changed again, loaded: the saved edit comes
 back; CHANCE works and RATCHET is refused on the recorded step; EDIT deletes one recorded note and EDIT held brings
 it back. The existing tracker, NOTES, note-tools and render tests pass unchanged (host, and the full CI suite: run
-39909021856).
+39909021856). With the GUI work (branch size-audit-gui, 0.7.0 stages 1 to 5 plus the audit): image 512,164 B, arena
+95,808 B, full CI suite green (run 39909046086).
 
 Measured on the target (CI, the shipping configuration, against `size-audit` at 560,252 B):
 
