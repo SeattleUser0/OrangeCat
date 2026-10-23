@@ -60,7 +60,7 @@ static uint8_t *motion_native_at(track_t *t, uint32_t i)
 {
     uint32_t k = trk_index(t);
     switch (motion_native_tag(t)) {
-#if MELODEE_PROPHET
+#if MELODEE_PROPHET && MELODEE_P5                       /* (Orange Cat size audit: P5_PANEL only with the Prophet in) */
     case MO_TAG_P5:
         return i < NELEM(P5_PANEL) && P5_PANEL[i].label && i != P5_UNISON && i != P5_UNISON_COUNT &&
                i != P5_UNISON_DETUNE && i != P5_RETRIGGER ? &p5_patch_of(t)->raw[i] : 0;
@@ -78,11 +78,14 @@ static int motion_native_ok(uint32_t id, int32_t value)    /* (a store's event: 
     uint32_t i = id - MO_NATIVE, tag = (uint32_t)value >> 8, v = (uint32_t)value & 255u;
     if (id < MO_NATIVE || id >= MO_NATIVE + MO_NATIVE_N || value < 0) return 0;
     if (tag == MO_TAG_P5) {
-#if MELODEE_PROPHET
+#if MELODEE_PROPHET && MELODEE_P5
         return i < NELEM(P5_PANEL) && P5_PANEL[i].label && i != P5_UNISON && i != P5_UNISON_COUNT &&
             i != P5_UNISON_DETUNE && i != P5_RETRIGGER && v >= (uint32_t)P5_PANEL[i].min && v <= (uint32_t)P5_PANEL[i].max;
 #else
-        return 0;
+        /* (Orange Cat size audit) the Prophet unhooked: a stored Prophet event is kept as it is (no track can be a
+         * Prophet, so it never applies; a firmware with the Prophet in checks it against P5_PANEL again). The panel
+         * table (1,760 B) stays out of the image. */
+        return i < 88u;
 #endif
     }
     if (tag == MO_TAG_CZ) {
