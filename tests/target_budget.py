@@ -35,6 +35,11 @@ JFX = ["fx_buses", "dly_lo", "rev_room", "rev_room_mod", "rev_spring", "rev_shim
        "dist_run", "dist_amp", "autopan", "clip_block", "djf_block", "lev_block", "slicer_bus", "sl_seg", "perf_block",
        "perf_mute", "perf_pre", "jfx_master", "jfx_bus_kernel"]
 FUNCS += JFX
+# (Orange Cat 0.9.0) DRUM-X (firmware/src/drumx_voice.c, eng_drumx.c; section .text.xip_drumx): the voice's loops and the part's
+# post stage. Measured when the compiler keeps them apart (absent, inlined: skipped); checked once tests/target_budget.txt has
+# their line, taken from the first CI build that measured them, at the same +10 % as the other engines.
+DRUMX = ["dx_run", "dx_layer", "dx_hands_step", "dxe_render", "dxe_post"]
+FUNCS += DRUMX
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
 EXTRACTED = {
@@ -209,12 +214,13 @@ def main():
     # tools/orangecat_engines.sh set it for the build): their render loops are not in the disassembly
     unhooked = {"MELODEE_SID": {"sid_render"}, "MELODEE_CZ": {"cz_native_render", "cz_native_wave"},
                 "MELODEE_FM6": {"fm6_render"}, "MELODEE_P5": {"p5_samples", "p5_mod_samples"},
-                "MELODEE_DRUM": {n for n in FUNCS if n.startswith(("dr_", "dr8_", "drum_", "d9_"))}}
+                "MELODEE_DRUM": {n for n in FUNCS if n.startswith(("dr_", "dr8_", "drum_", "d9_"))},
+                "MELODEE_DRUMX": set(DRUMX)}
     for flag, names in unhooked.items():
         if os.environ.get(flag) == "0":
             disabled |= names
             print(f"target: {flag}=0, its render loops are excluded: {', '.join(sorted(names))}")
-    missing = [n for n in FUNCS if n not in res and n not in JFX and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
+    missing = [n for n in FUNCS if n not in res and n not in JFX and n not in DRUMX and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
     # (Orange Cat) the only disabled loops now are unhooked engines, reported above
     base = {}
     if os.path.exists(budget):
