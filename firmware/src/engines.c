@@ -145,7 +145,11 @@ static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return resource_get(RES_ENGI
 #endif
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
+#ifdef OC_TEST_ENGINES_RW   /* (0.10.0, step 3) the host module test swaps SHAPES' entry for the module's; step 4 makes the table RAM for good */
+static const engine_t *ENGINES[NENGINES] = {
+#else
 static const engine_t *const ENGINES[NENGINES] = {
+#endif
 #if MELODEE_PROPHET_PROTOTYPE
     &ENG_P5_TEST,                /* test firmware only: RAM patches, NEVER persist */
 #else

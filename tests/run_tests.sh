@@ -250,6 +250,13 @@ prophet() {
             "$P5/P5_Factory_Programs_FACTORY_v1.03.syx" "$P5/P5_Factory_Programs_USER_v1.03.syx"
     fi
 }
+module_host() {                                   # (Orange Cat 0.10.0, PoC step 3) SHAPES' module source as its own unit, through the table
+    $CC -c -O2 $FW -o "$OUT/module_host_tu.o" tests/module_host_tu.c || { fail "compile tests/module_host_tu.c"; return 1; }
+    $CC -O2 $FW -DOC_TEST_ENGINES_RW -o "$OUT/module_host_test" tests/module_host_test.c "$OUT/module_host_tu.o" -lm ||
+        { fail "compile tests/module_host_test.c"; return 1; }
+    step "SHAPES as a module on the host (Orange Cat 0.10.0, step 3): registration check, 24 presets through the table, hashes equal the built-in engine's and the golden file" \
+        "$OUT/module_host_test" tests/golden.txt
+}
 phys_ref() {
     D=${DAISYSP:-vendor/DaisySP}/Source
     if [ ! -d "$D/PhysicalModeling" ] || ! command -v c++ >/dev/null 2>&1; then
@@ -430,6 +437,7 @@ if sound && [ $TABLES = 1 ]; then
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    job module_host
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \
         macro_test -O2 $FW -- "$OUT/macro_test" build/macro_demo

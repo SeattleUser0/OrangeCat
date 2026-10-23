@@ -963,7 +963,11 @@ static job_t *add(uint32_t kind, const char *name)
     return j;
 }
 
+#ifdef REGRESS_MODULE_HOST      /* (0.10.0, step 3) tests/module_host_test.c includes this file and has a main of its own */
+int regress_main(int argc, char **argv)
+#else
 int main(int argc, char **argv)
+#endif
 {
     const char *gpath = argc > 1 ? argv[1] : "tests/golden.txt";
     const char *cpath = argc > 2 ? argv[2] : "tests/cpu_baseline.txt";
