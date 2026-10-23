@@ -18,6 +18,6 @@ export MELODEE_SID=0
 export MELODEE_CZ=0
 export MELODEE_MACRO=1
 export MELODEE_SHAPES=1
-export MELODEE_FM6=0
+export MELODEE_FM6=1
 export MELODEE_P5=0
 export MELODEE_DRUM=0
