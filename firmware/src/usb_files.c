@@ -365,7 +365,7 @@ typedef struct {
                                                          * "ORANGECAT"; "" a free entry */
     uint8_t mv_from[FZD_MV], mv_to[FZD_MV];             /* whole folders still to rename: FZD_N none */
 } frzd_t;
-static frzd_t frzd;
+static frzd_t frzd __attribute__((section(".audio_scratch")));   /* (filled at boot: frz_table_load; out of .bss) */
 #ifndef FRZ_MUSIC_NAME
 #define FRZ_MUSIC_NAME() proj_name                      /* (project.c: the music's name now; "" none) */
 #endif
@@ -775,12 +775,12 @@ static void (*frz_named_hook)(const char *old, const char *nw, uint32_t slot, in
 static void frz_table_load(void)
 {
     frz_named_hook = frz_named;                         /* (0.6.1) project.c tells it a project's new name */
+    memset(frzp, 0, sizeof frzp);                       /* (0.6.1: not zeroed at boot, .audio_scratch) */
+    frzd_init();
 #if FRZ_STORE
     uint32_t i;
     ocs_rec_t r;
     frz_pool_hash = ocp.hash;
-    memset(frzp, 0, sizeof frzp);
-    frzd_init();
     if (ocs_open(OCS_FREEZE, 0, &r) == 0) {
         if (r.total == FRZ_REC) {                       /* (0.6.1) */
             if (ocs_at(&r, 0, frzp, sizeof frzp) || ocs_at(&r, sizeof frzp, &frzd, sizeof frzd)) {

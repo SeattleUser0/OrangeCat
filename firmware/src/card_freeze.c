@@ -75,7 +75,9 @@ typedef struct {
 _Static_assert(sizeof(frzp_t) == 32u, "a frozen phrase's entry: 32 bytes");
 #define FZP_VER 2u                                      /* (0.6.1: 2, the folder and the name; 1 was 16 bytes, the file
                                                          * always /ORANGECAT/T<trk + 1>_<take>.WAV) */
-static frzp_t frzp[FZP_N];
+static frzp_t frzp[FZP_N]                               /* (0.6.1: 2 KB, not zeroed at boot: usb_files.c */
+    __attribute__((section(".audio_scratch")));         /* frz_table_load fills it; out of .bss, where it took the
+                                                         * effects' arena's memory) */
 static volatile uint8_t frzp_dirty;                     /* changed since kept (the main loop keeps it, stopped) */
 static const uint32_t *frz_pool_hash;                   /* oc_pool.c's ocp.hash (set by usb_files.c frz_table_load;
                                                          * host tests without the pool: not checked) */
@@ -306,6 +308,7 @@ static void frz_after(uint32_t n)
 
 static void frz_init(void)
 {
+    memset(frzp, 0, sizeof frzp);                       /* (0.6.1: not zeroed at boot; before the audio side can read it) */
     mix_frz_block = frz_block;
     mix_frz_take = frz_take;
     mix_frz_after = frz_after;
