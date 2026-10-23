@@ -65,6 +65,11 @@ def preset(name):
                 ("VL", v + "@500", 28, (32, 126), EXTRAS, 0.0, 1),
                 ("HR", v + "@500", 48, (32, 32), [ord(c) for c in HR_CHARS[1:]], 0.0, 1),
                 ("PIX", str(PIXEL), 0, (32, 126), EXTRAS, None, 1, [("LB", 2, 1), ("TX", 2, 0), ("VL", 3, 0), ("HR", 5, 0)])]
+    if name == "compact":              # (gui-slim experiment) Rubik LB TX VL, one phase each; no hero, no pixel faces
+        v = str(FONTS.parent / "assets" / "fonts" / "Rubik[wght].ttf")
+        return [("LB", v + "@500", 16, (32, 126), EXTRAS, 0.0, 1),
+                ("TX", v + "@500", 20, (32, 126), EXTRAS, 0.0, 1),
+                ("VL", v + "@500", 28, (32, 126), EXTRAS, 0.0, 1)]
     raise SystemExit(f"unknown preset {name}")
 
 
@@ -362,7 +367,7 @@ def emit_pixel(face, metrics):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
-    ap.add_argument("--preset", choices=["rubik"])
+    ap.add_argument("--preset", choices=["rubik", "compact"])
     ap.add_argument("--face", action="append", default=[])
     ap.add_argument("--tracking", type=float, default=0.0, help="extra advance per glyph in em")
     ap.add_argument("--gamma", type=float, default=1.0, help="coverage curve; <1 thickens light-on-dark text")

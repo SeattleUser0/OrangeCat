@@ -37,11 +37,10 @@ typedef struct { const char *label; } kc_t;
 /* the type's roles (docs/design/README.md "Large type"): Rubik, or Melodee Pixel as Settings > FONT says (ui.c
  * ty_pixel). A role's two faces share its line height and baseline, so a layout holds in both; widths differ (a
  * layout fits the wider) */
-static uint32_t ty_pixel(void);
-#define TY_LB (ty_pixel() ? &AP_LB : &AF_LB)  /* labels, units, chips, tags: 16 px, pixel 2 x */
-#define TY_TX (ty_pixel() ? &AP_TX : &AF_TX)  /* names, rows, the header, text: 20 px, pixel 2 x */
-#define TY_VL (ty_pixel() ? &AP_VL : &AF_VL)  /* values: 28 px, pixel 3 x */
-#define TY_HR (ty_pixel() ? &AP_HR : &AF_HR)  /* the hero (the chord, a sound's name alone): 48 px, pixel 5 x */
+#define TY_LB (&AF_LB)
+#define TY_TX (&AF_TX)
+#define TY_VL (&AF_VL)
+#define TY_HR (&AF_VL)
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
@@ -900,40 +899,6 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
     GFX_HOOK_PIXELS(w * h);
 }
 
-/* a Melodee Pixel glyph: w x h font pixels, 1 bit each (MSB first, rows back to back), each s x s canvas pixels at
- * (x, y); ink c (byte-swapped; cv_over: over the canvas) */
-static void cv_pix(int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t s, const uint8_t *d, uint16_t c)
-{
-    uint32_t k = 0, gx, gy, j;
-    y += cv_oy;
-    for (gy = 0; gy < h; gy++) {
-        for (gx = 0; gx < w; ) {
-            uint32_t n = 0;
-            while (gx + n < w && ((d[(k + n) >> 3] >> (7u - ((k + n) & 7u))) & 1u))
-                n++;
-            if (!n) {
-                gx++;
-                k++;
-                continue;
-            }
-            for (j = 0; j < s; j++) {                    /* the run, s rows of n * s pixels */
-                int32_t py = y + (int32_t)(gy * s + j), px = x + (int32_t)(gx * s), e = px + (int32_t)(n * s);
-                uint16_t *row;
-                if (py < cv_cy0 || py >= cv_cy1)
-                    continue;
-                row = cv_px + (uint32_t)py * cv_w;
-                if (px < 0) px = 0;
-                if (e > (int32_t)cv_w) e = (int32_t)cv_w;
-                for (; px < e; px++)
-                    row[px] = cv_over ? cv_over_px(row[px], 15u) : c;
-            }
-            gx += n;
-            k += n;
-        }
-    }
-    GFX_HOOK_PIXELS(w * h * s * s);
-}
-
 /* ------------------------------------------------------------- text --- */
 /* the glyph number of ch in f, -1 = not in the face */
 static int32_t glyph_at(const aafont_t *f, uint32_t ch)
@@ -960,16 +925,7 @@ static uint32_t glyph(const aafont_t *f, uint32_t ch)
     return (uint32_t)k << f->psh;
 }
 
-static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px */
-{
-    int32_t i, j;
-    uint32_t l, r;
-    if (!f->nkr || (i = glyph_at(f, a)) < 0 || (j = glyph_at(f, b)) < 0 || !(l = f->kl[i]) || !(r = f->kr[j]))
-        return 0;
-    return (f->km[(l - 1u) * f->nkr + r - 1u] * (int32_t)f->ks + 128) >> 8;   /* (rounded) */
-}
-
-static int32_t gadv(const aafont_t *f, const aag_t *g) { return f->px ? g->adv * f->px : g->adv; }   /* 1/16 px */
+static int32_t gadv(const aafont_t *f, const aag_t *g) { (void)f; return g->adv; }   /* 1/16 px */
 static uint32_t fold(const aafont_t *f, uint32_t c)
 {
     return c >= 'a' && c <= 'z' && f->last < 'a' && glyph_at(f, c) < 0 ? c - 32u : c;
@@ -981,8 +937,6 @@ static int32_t text_w(const aafont_t *f, const char *s)
     uint32_t prev = 0;
     for (; *s; s++) {
         uint32_t c = fold(f, (uint8_t)*s);
-        if (prev)
-            pen += kern(f, prev, c);
         pen += gadv(f, &f->g[glyph(f, c)]);
         prev = c;
     }
@@ -1017,46 +971,15 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
 {
     const uint16_t *rv = ramp(fg, bg);
     const char *s0 = s;
-    int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
-    const int32_t step = 16 >> f->psh;
-    uint32_t prev = 0;
-    uint16_t lut[1u << HC_LUT_BITS];                 /* (a coded face: its codes' table, for this string only) */
+    int32_t pen = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
+    uint16_t lut[1u << HC_LUT_BITS];
     if (f->hc)
         hc_lut(f->hc, lut);
-    cv_over_fg = fg;                                 /* (cv_over: blended over the canvas, bg unused) */
+    cv_over_fg = fg;
     for (; *s; s++) {
         uint32_t c = fold(f, (uint8_t)*s);
-        const aag_t *g;
-        int32_t pos, d0, d1;
-        if (prev)
-            pen += kern(f, prev, c);
-        g = &f->g[glyph(f, c)];
-        if (f->px) {                                 /* a pixel face: whole pixels, at the rounded pen */
-            pos = (pen + 8) & ~15;
-            if (g->bw) {
-                int32_t gx = x + (pos >> 4) + g->bx * f->px, gy = y + f->asc - 9 * f->px + g->by * f->px;
-                cv_pix(gx, gy, g->bw, g->bh, f->px, f->data + g->off, rv[15]);
-                if (gx < x0) x0 = gx;
-                if (gy < y0) y0 = gy;
-                if (gx + g->bw * f->px > x1) x1 = gx + g->bw * f->px;
-                if (gy + g->bh * f->px > y1) y1 = gy + g->bh * f->px;
-            }
-            err = 0;
-            pen += gadv(f, g);
-            prev = c;
-            continue;
-        }
-        if (f->psh && g[1].off != g->off) {
-            pos = pen - (pen & (step - 1));          /* the phase position at or left of the pen */
-            d0 = pos - pen - err;                    /* .. and the one right of it: which keeps the gap truer */
-            d1 = d0 + step;
-            if ((d0 < 0 ? -d0 : d0) > (d1 < 0 ? -d1 : d1))
-                pos += step;
-            g += ((uint32_t)pos >> (4u - f->psh)) & ((1u << f->psh) - 1u);
-        } else {
-            pos = (pen + 8) & ~15;                   /* one phase (figures, ., blanks): the rounded pen */
-        }
-        err = pos - pen;
+        const aag_t *g = &f->g[glyph(f, c)];
+        int32_t pos = (pen + 8) & ~15;
         if (g->bw) {
             int32_t gx = x + (pos >> 4) + g->bx, gy = y + g->by;
             if (f->hc)
@@ -1069,7 +992,6 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
             if (gy + g->bh > y1) y1 = gy + g->bh;
         }
         pen += g->adv;
-        prev = c;
     }
     if (x1 > x0) {
         if (x0 < 0 || x1 > (int32_t)cv_w || y0 + cv_oy < cv_cy0 || y1 + cv_oy > cv_cy1)
