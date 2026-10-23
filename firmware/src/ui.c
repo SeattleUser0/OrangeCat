@@ -1176,7 +1176,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
         return "PUT";
     if (cur_page()->graph == GR_SLICES)
         return c == 3u ? "JOIN" : "SPLIT";
-    return CZ_ACTIONS[c & 3u].label;             /* (CZ TOOLS) */
+    return MELODEE_CZ ? CZ_ACTIONS[c & 3u].label : "";   /* (CZ TOOLS; size audit: no CZ TOOLS page without the CZ-1) */
 }
 
 /* the picked action would do something now (OCT+ blinks) */
