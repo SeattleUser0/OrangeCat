@@ -25,7 +25,7 @@ static uint32_t audio_batch_count, audio_batch_pairs;
 static uint8_t audio_batch_active;
 /* TIMER5 preempts CPU0 only. Partition a group around measured kernel
  * costs and a CPU0 service allowance. Profiling does not change scheduling. */
-static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_tables"),aligned(32)))={
+static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_tables.audio_batch_cost"),aligned(32)))={
     [AP_PROPHET]=3100,[AP_FM6]=1250,[AP_CZ]=2100,
     [AP_SID]=2000,[AP_808]=1150,[AP_909]=1900
 };
