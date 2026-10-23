@@ -1,6 +1,6 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.6
+**Version:** 0.7
 **Date:** October 23, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) is a plan with budgets; its preparation is built (the services table, the interface
@@ -9,6 +9,11 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.7: option (d) built (0.9.1): the library lives in one group of 23 sectors with a shared spare (storage.c, lib_group.c); the
+  old pairs move in at boot, once, before the pack check; the PACK area is the pack's alone (the installer asks nothing,
+  erases no preset); the MODULE area is 12 sectors (0xC8000..0xD3FFF) because 23 sectors do not exist outside the two areas
+  (15 do). The new sector table, the format, the migration, the wear argument and the measurements are in "The library
+  group (0.9.1)" below. The proof of concept steps 1 to 6 as built are in "The SHAPES module, as built (0.10.0)".
 - 0.6: the library's banks, the sector inventory and the options (Fix 1 of the second night: no bank can move, today's
   behaviour kept, option (a) recommended now and (d) before the first module). DRUM-X built in full as engine 9
   (0.9.0): the numbers replace the lower bound. The interface identifier built (step 5a: tools/gen_fw_api_id.py,
@@ -268,6 +273,125 @@ module at start 0 (0xC8000) displaces banks 8 upward, two sectors a bank; banks 
 17 to 20 sector set. Until (d), a module install must ask as the pack does, for the banks its span covers that hold
 records, and must refuse while the user has not agreed. The 20 sector module area is all or nothing for the library
 otherwise.
+
+## The library group (0.9.1, option (d) built)
+
+**Decision.** You approved (d) and engine slot 9 stays DRUM-X. This section is the design as built; storage.c and
+lib_group.c carry the same text.
+
+### 1a. The sector table
+
+The group is 22 banks in 23 sectors: one group, because a second group would need a spare of its own. The flash above the
+app has 109 sectors (0x93000..0xFFFFF). Outside the pack area (10 sectors) and the module area (20) there are **15** usable
+sectors: 0x9D000, 0x9E000, 0x9F000 (3), 0xDC000..0xDF000 (4), 0xE5000..0xE9000 (5), 0xFA000, 0xFB000 (2) and 0xFE000 (1). 23
+do not exist there, so the group cannot be outside both areas as they were. **The pack area stays whole** (10 sectors, the
+pack's alone). **The module area gives up its high 8 sectors**: 0xD4000..0xDBFFF go to the group, and the module area is
+**12 sectors, 0xC8000..0xD3FFF**. 15 + 8 = 23.
+
+| Range | Sectors | Owner now | Was |
+|---|---|---|---|
+| 0x93000..0x9CFFF | 10 | **PACK area** (the pack's alone) | library banks 16 to 20 |
+| 0x9D000, 0x9E000 | 2 | group sectors 0, 1 | bank 21's pair |
+| 0x9F000 | 1 | group sector 2 | bank 6's pair, A |
+| 0xA0000..0xC7FFF | 40 | record store (projects, patterns, the sample slot) | the same |
+| 0xC8000..0xD3FFF | 12 | **MODULE area** (12 sectors, was 20) | CZ-1 banks 0 to 5 (library banks 8 to 13) |
+| 0xD4000..0xD7FFF | 4 | group sectors 3 to 6 | CZ-1 banks 6, 7 (library banks 14, 15) |
+| 0xD8000..0xDBFFF | 4 | group sectors 7 to 10 | native FM6 pairs (banks 4, 5) |
+| 0xDC000..0xDFFFF | 4 | group sectors 11 to 14 | user preset pairs (banks 0, 1) |
+| 0xE0000..0xE4FFF | 5 | the update loader's staging | the same |
+| 0xE5000..0xE8FFF | 4 | group sectors 15 to 18 | extension pairs (banks 2, 3) |
+| 0xE9000 | 1 | group sector 19 | bank 7's pair, A |
+| 0xEA000..0xF9FFF | 16 | record store extension | the same |
+| 0xFA000 | 1 | group sector 20 | bank 7's pair, B |
+| 0xFB000 | 1 | group sector 21 (**the first spare**) | free, outside FL_STORE_OK |
+| 0xFC000..0xFDFFF | 2 | settings | the same |
+| 0xFE000 | 1 | group sector 22 | bank 6's pair, B |
+| 0xFF000 | 1 | not used | the same |
+
+Moved out of the two areas: banks 8 to 13 (12 sectors, in the new module area) and banks 16 to 20 (10 sectors, the pack
+area) are the 22 sectors that move; banks 14 and 15 and the two native FM6 pairs (8 sectors at 0xD4000..0xDBFFF) are in the
+8 sectors the module area gives up and stay where they are. The module area loses 8 sectors (20 to 12): a SHAPES module
+(6 sectors) fits at starts 0 and 6, MACRO's 10 at start 0, and the two do not fit together (16).
+
+`FL_STORE_OK` gets 0xFB000 (FL_BANK_EXT_HI 0xFC000), and FL_MODULE_HI is 0xD4000.
+
+### 1b. The format
+
+A sector holds one bank image: `st_hdr_t` (32 bytes, the same commit record as every object), then the payload at byte 32 for
+every image of 3,808 bytes or less (all real banks are 3,716), so the last 256 bytes of the sector stay erased for the update
+loader's scan; a longer image (never made) keeps its payload at byte 256 as the old objects did. In the header, `type` is
+`0x100` (the group; above every old object number, so firmware without groups never takes a group sector for an object),
+`slot` is the bank number 0 to 21, `seq` is that bank's save counter (wrap-aware compare), `len`, `crc` and the header CRC as
+before. Save: choose a free sector (none owns it; round the table from a cursor), erase it, program the image, program
+the header **last**, read the header and the body back; then the sector the bank left is free. Boot: read the 23 headers, a
+valid one is checked against its body CRC, the newest valid `seq` per bank wins, and the RAM table (22 bytes of sector
+index + 22 words of seq = 110 B, plus the cursor and flags) is built.
+
+A save cut at any flash operation leaves the previous copy in charge (tested at each of the 17 operations of a save and at
+each byte of the header). **Two valid copies after a cut** (the header was written, the old copy not yet reused): the newer
+`seq` wins; the older stays in a free sector and is **erased lazily**, by the next save that picks that sector, never at boot
+(boot writes nothing once the migration is done). If the newer copy's body fails its CRC, the older one is in charge. The
+wipe of the library (`shared_wipe`) calls `lg_scrub` at its end, which erases every free sector that still carries a valid
+record, so a wipe leaves no copy of the old presets behind.
+
+### 1c. The migration
+
+`lg_migrate`, from `up_boot` and from `persist_boot` (which runs it **first**, before the pack check and before anything
+else touches the areas): for each bank whose old pair has a valid current copy and that has no group copy (or an older one),
+copy it into a free sector (erase, payload, header last), read it back, and only then erase the old pair's two sectors
+(`lg_leftovers`). In-group pairs go first (banks 0 to 7, 14, 15, 21) so that each erase hands the next copy a sector; the
+only free sector at the start is 0xFB000. The sectors of a pair that is still waiting are never chosen (`lg_busy`). It is
+safe against a cut anywhere: before the header is written the old pair is whole; after it, both exist and the group copy is
+newer or equal, and the next boot erases the old pair. The old pairs of retired engines (the Orange Cat build retires the
+Prophet, CZ-1 and native FM6 objects, below) are read past the retirement (`st_legacy_io`) by the migration and nothing
+else. A move that cannot finish (a flash error) sets `up_migration_error` (writes locked) and `lg_incomplete` (the pack
+installer refuses), and the next boot retries. A second boot with nothing to move does no erase and no program.
+
+**Downgrade.** Firmware without groups does not know a group sector (its readers refuse type 0x100): it sees the migrated
+banks as empty, and a save there would write an old pair. A downgrade after 0.9.1 therefore loses sight of the library
+(the data is still in the group, and 0.9.1 again finds it). **Take a full backup (the editor backup, the "Save backup"
+button, `editor_backup.c`) before installing 0.9.1**; the build document and the guide say so. A backup made by any earlier
+firmware restores into the group (the restore writes `st_save(up_obj(bank))`) and a backup made by 0.9.1 restores again.
+
+### 1d. After the migration
+
+The pack installer asks nothing and erases no preset (`pk_banks_used`, `pk_library_forget`, the `take` argument and the
+claimed state are gone; the web page, the card browser and the protocol note lost their prompts). The web editor still sends
+the old 4th byte (0) so that a 0.9.1 page works with an older firmware (which then answers rc 3 and the page says to update).
+The build retires the Prophet, CZ-1 and native FM6 objects (`ST_RETIRE_BY_BUILD`, set in storage.c whenever the engine
+switches are known): writing them is refused, reads give no record, the object numbers stay. The library does not use them
+any more, so nothing is lost; the lab inventory and the backup identity keep the old numbers (a library bank answers from the
+group).
+
+### 1e. Tests
+
+`tests/lib_group_test.c` on a simulated NOR (erase gives 0xFF, program clears bits, a power cut leaves a program half done or
+an erase as junk): all 22 banks saved and reloaded (twice, and after a boot); a save cut at each of its 17 flash operations
+and at each of the 32 header bytes; two valid copies after a cut, the older one erased lazily, the newer one rotted; the
+save sequence wrapping; a full group under 2,300 random saves (one erase a save, every sector takes its share) and one bank
+hammered 200 times (it alternates two sectors, as the pair did); the migration of all 22 banks, a mixed set, none and one;
+the migration cut at each of its 418 flash operations then a second cut in the recovery; at no cut is a bank in neither the
+group nor its old pair; an old pair newer than the group's copy moves in again; the old readers refuse group sectors;
+backups; and both areas byte for byte untouched by 400 saves. The existing tests that wrote the old objects as fixtures
+(`unified_presets_test`, `storage_safety_test`, `backup_test`, `persistence_test`, `fm6_preset_test`, `oc_pack_test`,
+`storage_test`) keep what they check: their fixtures write the old pairs and `up_lg_boot()` moves them in first, as the boot
+does, or they use the library's bank handles (`up_obj(b)`) where the check is about the bank.
+
+### 1f. Measurements and wear
+
+(Measured numbers: see BUILD.md, "Third run".) Per save: **one erase and 17 programs** (16 page programs of 256 bytes, the
+header), as a pair did. Wear: with a full library the spare is the sector the last save left, so one bank saved over and over
+alternates two sectors (the pair's wear exactly); saves over several banks spread over all 23 sectors (2,300 random saves: 84 to
+117 erases a sector, mean 100). The worst case is no worse than the pair, the usual case is better. Migration of a full library:
+66 erases (22 copies, 44 old-pair sectors) and 352 page programs; the time is 66 sector erases plus 352 page programs (about
+1.3 to 3 s at 20 to 45 ms a sector erase, an assumed figure: the part's datasheet is not in the repository) and the boot screen
+says MOVING PRESETS with a count; it happens once.
+
+### What the module needs now
+
+The MODULE area is 12 sectors (0xC8000..0xD3FFF): a SHAPES module of 6 sectors fits at starts 0 and 6; MACRO's 10 sectors
+fits at start 0 only; both do not fit together (16). Starts for 6 sector modules are 0 and 6 (12 is outside). The pack area
+(10) is free for the pack with the library untouched.
 
 ## Milestone 1: asset packs
 
