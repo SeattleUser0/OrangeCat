@@ -1,19 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
- * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* The firmware's text (src/gfx.c cv_text) against the reference text path of the UI-redesign prototype that
- * drew the UI design screens (its aa_text / aa_blit4 / ramp_make,
- * restated below): pen in 1/16 px accumulated over the string, pair kerning (now class tables), no extra tracking,
- * the 16-entry ramp with the light / dark coverage curve. Glyph placement has since moved on from the prototype's
- * (the glyph at the rounded pen) to horizontal phases (tools/aa_raster.py): of the two phase positions around
- * the pen, the one whose offset is nearer the previous glyph's, plus that phase's ink offset; a glyph with one
- * phase (figures, .) at the rounded pen as before; restated here too.
- * How close that lands to the font's own spacing is tests/text_spacing_test.py's question. Every string below, in LB TX VL (the large type's Rubik roles), THEME on SURF and TEXT on BG, in every palette: the end pen and every
- * pixel must be identical (MONO expands its gray with G = 2 R, the gray rule; the prototype's G = 2 R + R / 16
- * differed by one green LSB there, and that is the only difference to the mock renders). */
-#include <math.h>
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* (Orange Cat 0.7.0) The firmware's text (src/gfx.c cv_text, Melodee Pixel alone) against the font's own source,
+ * assets/fonts/melodee_pixel.txt, read here without the generator (tools/gen_aa_font.py): every glyph of every role
+ * (LB its condensed set where it has one, TX, VL, HR) and some strings, drawn by the firmware and by the reference
+ * below on a 240 x 62 canvas: every pixel and the end pen must be equal. A font pixel is a px x px square; a glyph's
+ * row 0 is the capitals' top, at y + asc - 7 px; its advance is its width + 1, in font pixels. A character the face
+ * lacks is drawn as '?' (the ellipsis as '.'), and the string itself is left as it is.
+ * (To 0.6.2 this compared the Rubik text path with the redesign prototype's; that path is gone.) */
+#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #define __attribute__(x)
 static void lcd_sync(void) {}
@@ -21,143 +18,113 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #include "../firmware/src/gfx.c"
-static uint32_t ty_pixel(void) { return 0; }            /* (ui.c: Settings > FONT; the Rubik faces here) */
 
-static const char *const STR[] = {
-    "CUTOFF", "RESO", "ATK", "DEC", "LEVEL", "PAN", "REV", "MUTE", "STEP", "LANE", "HIT", "ACC", "No.",
-    "124", "1234.5", "-12", "+3", "0.87", "100 %", "/32", "C#4", "ANALOG", "DIGITAL", "OFF", "ON",
-    "OVERWRITE PROJECT A?", "SONG PATTERN CHANGES", "OCT-   NO", "OCT+   YES", "PRESETS", "MOVE", "BACK",
-    "AV AW LT TA YO To Vo", "KEYS = STEPS", "PAGE 1/2", "HARDWARE CALIBRATION", "Multi-engine synthesizer",
-    "H\xFCgelton Instruments", "MELODEE", "MENU", "HOME", "ENV DEST 2/2", "ANLG", "SUPER SAW", "WIRE",
-    "oeo coco eco nono", "minimum hello level", "decay release sound", "Pitch Cutoff", "bdpq doob", "-1 +2.5",
-};
-#define NSTR (sizeof STR / sizeof STR[0])
-#define W 240
-#define H 40
-static uint16_t ref[W * H];
+typedef struct { int top, w, h; char rows[11][9]; } src_glyph_t;
+static src_glyph_t reg[256], nar[256];
+static uint8_t has_reg[256], has_nar[256];
 
-/* --- the prototype's text path (gfx_aa.h), on a plain frame buffer --- */
-static uint16_t rv[16];
-static void ref_ramp(uint16_t fg, uint16_t bg)
+static void load(const char *path)
 {
-    static const uint8_t SH[3] = {11, 5, 0}, MK[3] = {31, 63, 31};
-    const uint8_t *cv = ux.light ? CURVE_LIGHT : CURVE_DARK;
-    for (uint32_t a = 0; a < 16u; a++) {
-        uint32_t out = 0;
-        if (ux.mono) {
-            int32_t x = bg >> 11, y = fg >> 11;
-            rv[a] = ux_gray((uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)));
+    FILE *f = fopen(path, "r");
+    char line[256];
+    src_glyph_t *cur = 0;
+    assert(f);
+    while (fgets(line, sizeof line, f)) {
+        unsigned cp;
+        line[strcspn(line, "\r\n")] = 0;
+        if (!strncmp(line, "# ", 2) || !strcmp(line, "#!"))
+            continue;                                    /* a comment (as tools/gen_aa_font.py pixel_glyphs reads them) */
+        if (sscanf(line, "glyph U+%x", &cp) == 1) {
+            unsigned code = cp == 0x2026u ? 0x85u : cp;   /* (the ellipsis: its one-byte code, gfx.c ELLIPSIS) */
+            int narrow = strstr(line, " narrow") != 0;
+            const char *t = strstr(line, " top ");
+            assert(code < 256u);
+            cur = narrow ? &nar[code] : &reg[code];
+            (narrow ? has_nar : has_reg)[code] = 1;
+            memset(cur, 0, sizeof *cur);
+            cur->top = t ? atoi(t + 5) : 0;
             continue;
         }
-        for (uint32_t k = 0; k < 3u; k++) {
-            int32_t x = (bg >> SH[k]) & MK[k], y = (fg >> SH[k]) & MK[k];
-            out |= (uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)) << SH[k];
+        if (cur && line[0] && strspn(line, "#.") > 0 && line[strspn(line, "#.")] <= ' ') {
+            int n = (int)strspn(line, "#.");
+            assert(cur->h < 11 && n < 9);
+            memcpy(cur->rows[cur->h], line, (size_t)n);
+            cur->w = n;
+            cur->h++;
+        } else {
+            cur = 0;
         }
-        rv[a] = (uint16_t)out;
     }
-}
-static int32_t ref_at(const aafont_t *f, uint32_t ch)       /* the glyph's number in the face, -1 = none */
-{
-    if (ch >= f->first && ch <= f->last) return (int32_t)(ch - f->first);
-    for (uint32_t i = 0; i < f->nex; i++)
-        if (f->ex[i] == ch) return (int32_t)(f->last - f->first + 1 + i);
-    return -1;
-}
-static uint32_t ref_gi(const aafont_t *f, uint32_t ch)      /* the glyph's number (its phases: g[n << psh] ..) */
-{
-    int32_t k;
-    if (ch >= 'a' && ch <= 'z' && f->last < 'a' && ref_at(f, ch) < 0) ch -= 32u;   /* (a face without it: the capital) */
-    k = ref_at(f, ch);
-    if (k < 0 && ch == 0x85u) k = ref_at(f, '.');          /* the ellipsis */
-    if (k < 0) k = ref_at(f, '?');
-    return k < 0 ? 0u : (uint32_t)k;                        /* a sparse face (L) without '?': its first glyph */
-}
-static int32_t ref_kern(const aafont_t *f, uint32_t a, uint32_t b)   /* the class matrix, glyph by glyph, scaled */
-{
-    int32_t i = ref_at(f, a), j = ref_at(f, b);
-    if (!f->nkr || i < 0 || j < 0 || !f->kl[i] || !f->kr[j]) return 0;
-    return (int32_t)floor((f->km[(f->kl[i] - 1u) * f->nkr + f->kr[j] - 1u] * (int32_t)f->ks + 128) / 256.0);   /* (Q8) */
-}
-/* a glyph's alpha values: 2 px per byte, or (f->hc) the Huffman bit stream of tools/gen_aa_font.py, decoded
- * here by matching each (length, code) against the canonical code table built from hc's length counts */
-static uint8_t alpha[64 * 64];
-static void ref_unpack(const aafont_t *f, const aag_t *g)
-{
-    uint32_t n = (uint32_t)g->bw * g->bh, k = 0, pos = 0;
-    const uint8_t *d = f->data + g->off;
-    if (!f->hc) {
-        for (k = 0; k < n; k++) alpha[k] = (d[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
-        return;
-    }
-    while (k < n) {
-        uint32_t code = 0, len, s = 0, found = 0;
-        for (len = 1; len <= 15u && !found; len++) {
-            uint32_t c = 0, sym = 15, l;
-            code = code << 1 | ((d[pos >> 3] >> (7u - (pos & 7u))) & 1u);
-            pos++;
-            for (l = 1; l <= 15u && !found; l++, c <<= 1)       /* canonical: codes of length l, in order */
-                for (uint32_t i = 0; i < f->hc[l - 1u]; i++, c++, sym++)
-                    if (l == len && c == code) { s = f->hc[sym]; found = 1; break; }
-        }
-        for (uint32_t r = 0; r <= (s >> 4) && k < n; r++) alpha[k++] = (uint8_t)(s & 15u);
-    }
+    fclose(f);
 }
 
-static int32_t ref_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)
+static uint16_t ref[240 * 62];
+/* s in face f at (x, y) by the source's glyphs; returns the pen */
+static int32_t ref_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t ink)
 {
-    int32_t pen = 0, err = 0, n = 1 << f->psh, step = 16 / n;
-    uint32_t prev = 0;
-    ref_ramp(fg, bg);
+    int32_t px = f->px, narrow = f == TY_LB;
     for (; *s; s++) {
-        uint32_t c = (uint8_t)*s, k = 0;
-        const aag_t *g;
-        int32_t lo, hi, pos;
-        if (c >= 'a' && c <= 'z' && f->last < 'a' && ref_at(f, c) < 0) c -= 32u;
-        if (prev) pen += ref_kern(f, prev, c);
-        g = &f->g[ref_gi(f, c) * (uint32_t)n];
-        if (n > 1 && g[1].off != g[0].off) {
-            lo = step * (int32_t)floor((double)pen / step);       /* the phase positions around the pen */
-            hi = lo + step;
-            pos = fabs((double)(lo - pen - err)) <= fabs((double)(hi - pen - err)) ? lo : hi;
-            g += ((pos / step) % n + n) % n;
-        } else {
-            pos = 16 * (int32_t)floor((pen + 8) / 16.0);           /* one phase: the rounded pen */
-        }
-        err = pos - pen;
-        ref_unpack(f, g);
-        for (uint32_t gy = 0; gy < g->bh; gy++)
-            for (uint32_t gx = 0; gx < g->bw; gx++, k++) {
-                uint32_t v = alpha[k];
-                int32_t px = x + (int32_t)floor(pos / 16.0) + g->bx + (int32_t)gx, py = y + g->by + (int32_t)gy;
-                if (v && (uint32_t)px < W && (uint32_t)py < H) ref[py * W + px] = v == 15u ? fg : rv[v];
-            }
-        pen += g->adv;
-        prev = c;
+        unsigned c = (uint8_t)*s;
+        const src_glyph_t *g;
+        if (c >= 'a' && c <= 'z' && !has_reg[c]) c -= 32u;
+        if (!has_reg[c]) c = c == 0x85u && has_reg['.'] ? '.' : '?';
+        g = narrow && has_nar[c] ? &nar[c] : &reg[c];
+        for (int r = 0; r < g->h; r++)
+            for (int k = 0; k < g->w; k++)
+                if (g->rows[r][k] == '#')
+                    for (int j = 0; j < px; j++)
+                        for (int i = 0; i < px; i++) {
+                            int32_t X = x + k * px + i, Y = y + f->asc - 7 * px + (g->top + r) * px + j;
+                            if (X >= 0 && X < 240 && Y >= 0 && Y < 62) ref[Y * 240 + X] = ink;
+                        }
+        x += (g->w + 1) * px;
     }
-    return x + ((pen + 8) >> 4);
+    return x;
+}
+
+static void same(const aafont_t *f, const char *name, const char *s, int32_t x, int32_t y)
+{
+    const uint16_t ink = swap16(T_TEXT), bg = swap16(T_BG);
+    int32_t e1, e2;
+    cv_begin(240, 62, T_BG);
+    e1 = cv_text(x, y, f, s, T_TEXT);
+    for (unsigned i = 0; i < 240u * 62u; i++) ref[i] = bg;
+    e2 = ref_text(x, y, f, s, ink);
+    if (e1 != e2 || memcmp(ref, cv_px, sizeof ref)) {
+        fprintf(stderr, "text_ref: %s '%s': pen %d, reference %d%s\n", name, s, (int)e1, (int)e2,
+                memcmp(ref, cv_px, sizeof ref) ? ", pixels differ" : "");
+        exit(1);
+    }
+    assert(text_w(f, s) == e1 - x);
 }
 
 int main(void)
 {
-    const aafont_t *F[3] = {&AF_LB, &AF_TX, &AF_VL};
-    uint32_t n = 0, bad_px = 0, bad_pen = 0;
-    for (uint32_t p = 0; p < NPALETTES; p++) {
-        palette_set(p);
-        for (uint32_t k = 0; k < 2u; k++)
-            for (uint32_t f = 0; f < 3u; f++)
-                for (uint32_t s = 0; s < NSTR; s++) {
-                    uint16_t fg = k ? T_TEXT : T_THEME, bg = k ? T_BG : T_SURF;
-                    int32_t e0, e1;
-                    for (uint32_t i = 0; i < W * H; i++) ref[i] = bg;
-                    e0 = ref_text(3, 2, F[f], STR[s], fg, bg);
-                    cv_begin(W, H, bg);
-                    e1 = cv_text(3, 2, F[f], STR[s], fg);
-                    bad_pen += e0 != e1;
-                    for (uint32_t i = 0; i < W * H; i++) bad_px += swap16(cv_px[i]) != ref[i];
-                    n++;
-                }
+    static const struct { const aafont_t *f; const char *name; } F[] = {
+        {TY_LB, "LB"}, {TY_TX, "TX"}, {TY_VL, "VL"}, {TY_HR, "HR"}};
+    static const char *const STR[] = {"CUTOFF 127", "Hello, world", "-12.5 dB", "C#4 / Ab3", "A minor", "100 %",
+                                      "\xC4\xD6\xDC \xE4\xF6\xFC \xA9 \xB0 \xB7", "LONG NAME\x85", "~{}|", "WWWW",
+                                      "a\x01z"};   /* (\x01: no glyph, drawn as '?') */
+    unsigned n = 0;
+    load("assets/fonts/melodee_pixel.txt");
+    palette_set(0);
+    for (unsigned k = 0; k < 4; k++) {
+        const int32_t y = F[k].f->h <= 62 ? (62 - F[k].f->h) / 2 : 0;
+        assert(F[k].f->h <= 62);
+        for (unsigned c = 32; c < 256; c++) {            /* every glyph, alone */
+            char s[2] = {(char)c, 0};
+            if (!has_reg[c] && c != 0x85u) continue;
+            same(F[k].f, F[k].name, s, 7, y);
+            n++;
+        }
+        for (unsigned i = 0; i < sizeof STR / sizeof STR[0]; i++) {
+            char s[24];
+            snprintf(s, sizeof s, "%s", STR[i]);
+            if (F[k].f->px >= 5) s[6] = 0;              /* (the hero: what fits 240 px) */
+            same(F[k].f, F[k].name, s, 2, y);
+            n++;
+        }
     }
-    printf("text: %u strings x fonts x palettes against the mock renderer: %u end pens and %u pixels differ %s\n",
-           n, bad_pen, bad_px, bad_pen || bad_px ? "FAIL" : "ok");
-    return bad_pen || bad_px ? 1 : 0;
+    printf("text: %u glyphs and strings in LB TX VL HR equal to assets/fonts/melodee_pixel.txt, pixels and pens\n", n);
+    return 0;
 }

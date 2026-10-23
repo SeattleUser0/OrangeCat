@@ -17,7 +17,7 @@
  * operator boxes overlapping or touching, no route, loop, bus or label inside a box or touching one it does not
  * connect, no two nets (one gap's routes that share an operator, the output, the loop, the label) sharing or
  * touching a pixel, everything inside the panel.
- * Every screen and the page/value sweep again in Melodee Pixel (Settings > FONT PIXEL, NIGHT): PIXEL_<screen>.ppm.
+ * (0.7.0) The text is Melodee Pixel alone: the second pass in it (Settings > FONT PIXEL, PIXEL_<screen>.ppm) is gone.
  * Output: OUTDIR/ppm/<PALETTE>_<screen>.ppm for MONO GREEN PAPER, OUTDIR/report.txt (findings, ellipsised free
  * text, the draw cost), OUTDIR/text_audit.tsv (MONO, per screen: texts, icons and keycaps with their ink-box px, the
  * ellipsised ones, the texts closer than 2 px to their cell's edge, the words).
@@ -1597,7 +1597,7 @@ static void sweep_mpc_octaves(const char *out)
     int previous_face = render_pixel;
     static uint16_t screen[240 * 240];
     static const int8_t oct[] = {-3, 3, 0, 1};
-    for (uint32_t face = 0; face < 2u; face++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++) {
+    for (uint32_t face = 0; face < 1u; face++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++) {
         char name[80];
         render_pixel = face; setup(S_HOME); pal(p);
         song.octave = 2; song.rec = song.rec_wait = 0; ui.msg_t = 0;
@@ -1634,7 +1634,7 @@ static void sweep_waiting_headers(const char *out)
     int previous_face = render_pixel;
     static const int scenes[] = {S_HOME, S_TEMPO, S_PRESETS, S_SONG, S_PATGRID, S_SCALE_PICKER_EDO, S_MENU, S_ABOUT};
     static uint16_t screen[240 * 240];
-    for (uint32_t face = 0; face < 2u; face++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++)
+    for (uint32_t face = 0; face < 1u; face++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++)
     for (uint32_t s = 0; s < NELEM(scenes); s++) {
         char name[96];
         uint32_t seen = 0;
@@ -2166,12 +2166,12 @@ int main(int argc, char **argv)
         state(); pal(0); cur_name = "self-test";
         nscr = npend = 0;
         cv_begin(COL_W, COL_H, T_BG);
-        cv_text(0, 0, &AF_LB, "AAAA", T_TEXT);
-        cv_text(10, 4, &AF_LB, "BBBB", T_TEXT);
-        cv_text_fit(0, 12, &AF_TX, "WWWWWWWW", T_THEME, T_BG, COL_W);
-        cv_text(40, 20, &AF_TX, "CUT", T_THEME);
+        cv_text(0, 0, TY_LB, "AAAA", T_TEXT);
+        cv_text(10, 4, TY_LB, "BBBB", T_TEXT);
+        cv_text_fit(0, 12, TY_TX, "WWWWWWWW", T_THEME, T_BG, COL_W);
+        cv_text(40, 20, TY_TX, "CUT", T_THEME);
         cv_rrect(2, 28, 20, 17, 3, T_SURF, T_BG);          /* a cell narrower than its word */
-        cv_text(4, 27, &AF_LB, "SPILL", T_TEXT);
+        cv_text(4, 27, TY_LB, "SPILL", T_TEXT);
         cv_blit(4, Y_LABEL);
         lint();
         if (nfind < 4u || !nspill) { fprintf(stderr, "ui_render: the lint missed its self-test (%u)\n", nfind); return 1; }
@@ -2195,25 +2195,8 @@ int main(int argc, char **argv)
             for (k = 0; k < UI_RENDER_SHOW; k++)    /* (the suite: NIGHT DAY CONTRAST; -DUI_RENDER_SHOW=8 all) */
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
-    render_pixel = 1;                               /* every screen again in Melodee Pixel (NIGHT) */
-    for (s = 0; s < S_COUNT; s++) {
-        char name[64];
-        if (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL))
-            continue;
-        snprintf(name, sizeof name, "PIXEL/%s", S_NAME[s]);
-        cur_name = name;
-        setup((int)s);
-        pal(0);
-        draw((int)s);
-        lint();
-        write_ppm(out, "PIXEL", S_NAME[s]);
-    }
-    sweep_waiting_headers(out);
-    sweep_screen_messages();
-    sweep_mpc_octaves(out);
-    sweep_list_rows();
-    sweep_columns();
-    render_pixel = 0;
+    /* (0.7.0) the second pass in Melodee Pixel (Settings > FONT PIXEL) is gone with the setting: the text is Melodee
+     * Pixel alone, so the pass above draws it */
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

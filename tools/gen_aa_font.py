@@ -2,9 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Pre-rasterise TTF fonts into anti-aliased 4-bit alpha glyph tables for the UI (run by
-tools/build.py generate() with --preset rubik).
+"""The UI's glyph tables (run by tools/build.py generate() with --preset pixel).
 
+(Orange Cat 0.7.0) The firmware draws Melodee Pixel alone: --preset pixel writes its four role faces (AP_LB AP_TX AP_VL
+AP_HR) on the line heights and baselines the Rubik roles had (ROLE_METRICS), and nothing else. Each glyph's record is
+one 32-bit word (emit_pixel; gfx.c AG_*). The Rubik preset below (anti-aliased 4-bit alpha, Huffman, kerning) is kept
+as a tool only: its output no longer matches gfx.c's aafont_t.
+
+  gen_aa_font.py OUT.h --preset pixel
   gen_aa_font.py OUT.h --preset rubik [--tracking EM] [--gamma G] [--kern-min N]
   gen_aa_font.py OUT.h --face NAME=FONT[#index]:PX:FIRST-LAST[+0xNN,...] ...   (explicit faces)
 
@@ -54,6 +59,9 @@ HUFF = [("LB", "TX", "VL", "HR")]
 # factory names' ' ( ) too); the space as its range and the rest as extras. A string with another character is drawn
 # in VL (gfx.c text_has)
 HR_CHARS = " #'()+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz%&*,:<>"
+# the roles' line height and baseline (Rubik 500's at 16 / 20 / 28 / 48 px, as the rubik preset measures them): the
+# pixel preset keeps them, so every layout stays where it was
+ROLE_METRICS = {"LB": (19, 15), "TX": (24, 19), "VL": (34, 27), "HR": (57, 45)}
 PIXEL = Path(__file__).resolve().parents[1] / "assets" / "fonts" / "melodee_pixel.txt"
 
 
@@ -65,6 +73,8 @@ def preset(name):
                 ("VL", v + "@500", 28, (32, 126), EXTRAS, 0.0, 1),
                 ("HR", v + "@500", 48, (32, 32), [ord(c) for c in HR_CHARS[1:]], 0.0, 1),
                 ("PIX", str(PIXEL), 0, (32, 126), EXTRAS, None, 1, [("LB", 2, 1), ("TX", 2, 0), ("VL", 3, 0), ("HR", 5, 0)])]
+    if name == "pixel":                # (gui-slim) Melodee Pixel alone, on the Rubik roles' line heights and baselines
+        return [("PIX", str(PIXEL), 0, (32, 126), EXTRAS, None, 1, [("LB", 2, 1), ("TX", 2, 0), ("VL", 3, 0), ("HR", 5, 0)])]
     raise SystemExit(f"unknown preset {name}")
 
 
@@ -311,13 +321,20 @@ def emit_pixel(face, metrics):
     """Melodee Pixel: 1-bit glyph tables (AP_G; AP_GN the condensed set's: its glyphs where it has them, else the
     regular ones), their bitmaps (AP_DATA), and a face per role, drawn at a whole multiple (aafont_t px) on its Rubik
     role's line height and baseline (roles: (role, multiple, condensed)). A glyph's box starts two font rows above the
-    capital's top (gfx.c cv_pix: row by of the box at y + asc - 9 px + by px); adv in 1/16 font px, times px drawn"""
+    capital's top (gfx.c cv_pix: row by of the box at y + asc - 9 px + by px).
+    (Orange Cat 0.7.0) a glyph's record is one 32-bit word (gfx.c AG_*): its bitmap's offset (bits 0..11), its advance
+    in font pixels (12..15), its ink box x (16..19), first row (20..23), width (24..27), height (28..31); it was an
+    8-byte aag_t with the advance in 1/16 px"""
     name, font, _, (first, last), extras, _, _, roles = face
     g, gn = pixel_glyphs(font), pixel_glyphs(font, True)
     chars = [chr(c) for c in range(first, last + 1)] + [chr(c) for c in extras]
     missing = [c for c in chars if c not in g]
     assert not missing, f"melodee_pixel.txt lacks {missing}"
     data, made = bytearray(), {}
+
+    def word(off, adv, bx, by, bw, bh):
+        assert off < 4096 and 0 < adv < 16 and all(0 <= v < 16 for v in (bx, by, bw, bh)), (off, adv, bx, by, bw, bh)
+        return off | adv << 12 | bx << 16 | by << 20 | bw << 24 | bh << 28
 
     def entry(top, rows):
         key = (top, tuple(rows))
@@ -326,7 +343,7 @@ def emit_pixel(face, metrics):
         lit = [r for r, row in enumerate(rows) if "#" in row]
         w = len(rows[0])
         if not lit:
-            made[key] = (0, (w + 1) * 16, 0, 0, 0, 0)
+            made[key] = word(0, w + 1, 0, 0, 0, 0)
             return made[key]
         r0, r1 = lit[0], lit[-1] + 1
         cols = [c for c in range(w) if any(rows[r][c] == "#" for r in range(r0, r1))]
@@ -335,34 +352,31 @@ def emit_pixel(face, metrics):
         off = len(data)
         for i in range(0, len(bits), 8):
             data.append(sum(1 << (7 - k) for k, b in enumerate(bits[i:i + 8]) if b))
-        made[key] = (off, (w + 1) * 16, c0, top + r0 + 2, c1 - c0, r1 - r0)
+        made[key] = word(off, w + 1, c0, top + r0 + 2, c1 - c0, r1 - r0)
         return made[key]
 
     table = [entry(*g[ch]) for ch in chars]
     ntable = [entry(*(gn.get(ch) or g[ch])) for ch in chars]
-    assert len(data) < 65536
     lines = [f"/* Melodee Pixel ({os.path.basename(font)}): {len(chars)} glyphs (+ {len(gn)} condensed), 1 bit a pixel, "
              f"{len(data)} B; drawn at a whole multiple per role */",
              ar.c_array("AP_DATA", "uint8_t", list(data), 24, "0x{:02x}")]
     for tname, t in (("AP_G", table), ("AP_GN", ntable)):
-        lines.append(f"static const aag_t {tname}[{len(t)}] = {{")
-        lines += [f"    {{{off}, {adv}, {bx}, {by}, {bw}, {bh}}}," for off, adv, bx, by, bw, bh in t]
-        lines.append("};")
+        lines.append(ar.c_array(tname, "aag_t", t, 6, "0x{:08x}u"))
     ex = ", ".join(str(CODE.get(c, c)) for c in extras) or "0"
     lines.append(f"static const uint8_t AP_EX[{max(1, len(extras))}] = {{{ex}}};")
     for role, scale, narrow in roles:
         h, asc = metrics[role]
         assert asc >= 7 * scale and h >= asc + 2 * scale, f"pixel {role}: {scale}x does not fit {h}/{asc}"
-        lines.append(f"static const aafont_t AP_{role} = {{{h}, {asc}, {first}, {last}, {len(extras)}, 0, "
-                     f"{'AP_GN' if narrow else 'AP_G'}, AP_DATA, 0, 0, 0, AP_EX, 0, 0, {7 * scale}, {scale}}};")
-    cost = len(data) + 16 * len(table) + len(extras)
+        lines.append(f"static const aafont_t AP_{role} = {{{h}, {asc}, {first}, {last}, {len(extras)}, {7 * scale}, "
+                     f"{scale}, {'AP_GN' if narrow else 'AP_G'}, AP_DATA, AP_EX}};")
+    cost = len(data) + 4 * (len(table) + len(ntable)) + len(extras)
     return "\n".join(lines) + "\n", cost, len(chars)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
-    ap.add_argument("--preset", choices=["rubik"])
+    ap.add_argument("--preset", choices=["rubik", "pixel"])
     ap.add_argument("--face", action="append", default=[])
     ap.add_argument("--tracking", type=float, default=0.0, help="extra advance per glyph in em")
     ap.add_argument("--gamma", type=float, default=1.0, help="coverage curve; <1 thickens light-on-dark text")
@@ -378,7 +392,7 @@ def main():
     out = ["/* generated by tools/gen_aa_font.py: 4-bit alpha glyphs (Rubik, SIL OFL 1.1; Melodee Pixel; see "
            "assets/fonts) */",
            "#pragma once", "#include <stdint.h>", ""]
-    total, metrics, kern = 0, {}, None
+    total, metrics, kern = 0, ({} if a.preset != "pixel" else dict(ROLE_METRICS)), None
     aa = [f for f in faces if f[0] != "PIX"]
     if aa and a.kern_min:
         text, *kern = shared_kern(aa, a.kern_min)

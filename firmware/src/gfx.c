@@ -4,44 +4,44 @@
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
  * byte-swapped (the panel takes RGB565 big-endian).
- * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Rubik;
- * tools/gen_icons.py: Melodee's own drawings). A glyph is trimmed to its ink box, advances are in 1/16 px, and
- * each glyph is rasterised at 1 << psh horizontal phases (2: drawn at a pen of +0, +1/2 px);
- * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
- * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens.
+ * Text is Melodee Pixel (assets/fonts/melodee_pixel.txt, tools/gen_aa_font.py --preset pixel): a 5 x 7 1-bit face,
+ * each font pixel drawn as a px x px square (cv_pix). Icons are 4-bit alpha cells of Melodee's own drawings
+ * (tools/gen_icons.py). Colours come from the theme tokens.
  * The large type (docs/design/README.md "Large type"): text is set in four roles, TY_LB labels, TY_TX text, TY_VL values,
- * TY_HR the hero, each Rubik (16 / 20 / 28 / 48 px) or Melodee Pixel (a 5 x 7 1-bit face at 2 / 2 / 3 / 5 times: aafont_t
- * px), as Settings > FONT says (ui.c TY_*); a role's two faces share its line height and baseline. */
-typedef struct { uint16_t off, adv; int8_t bx; uint8_t by, bw, bh; } aag_t;
+ * TY_HR the hero, at 2 / 2 / 3 / 5 times, on the line heights and baselines the Rubik roles had (19 / 24 / 34 / 57 px).
+ * (Orange Cat 0.7.0) Melodee Pixel alone: the four Rubik faces (16 / 20 / 28 / 48 px, 4-bit alpha, Huffman-coded, two
+ * phases, shared kerning: 29,066 B) and Settings > FONT are gone, with the anti-aliased text path (its phases,
+ * kerning and Huffman decoder): about 35 KB of flash. Melodee Pixel was the FONT setting's PIXEL choice, so every
+ * layout already fitted it (the host lint drew both faces). */
+/* a glyph's record (tools/gen_aa_font.py emit_pixel): its bitmap's offset in data, bits 0..11; its advance in font
+ * pixels, 12..15; its ink box: x 16..19, first row 20..23 (of the 11-row box: two rows above the capitals' top),
+ * width 24..27, height 28..31 (0.7.0: one 32-bit word, was 8 bytes) */
+typedef uint32_t aag_t;
+#define AG_OFF(g) ((g) & 0xFFFu)
+#define AG_ADV(g) (((g) >> 12) & 15u)
+#define AG_BX(g) (((g) >> 16) & 15u)
+#define AG_BY(g) (((g) >> 20) & 15u)
+#define AG_BW(g) (((g) >> 24) & 15u)
+#define AG_BH(g) ((g) >> 28)
 typedef struct {
     uint8_t h, asc, first, last, nex;   /* line height, baseline; ASCII range; extras */
-    uint8_t nkr;                        /* right kerning classes (0: no kerning) */
-    const aag_t *g;
-    const uint8_t *data;
-    const uint8_t *kl, *kr;             /* each glyph's left / right kerning class, 0 = no pair */
-    const int8_t *km;                   /* 1/16 px at the shared size: [(left class - 1) * nkr + right class - 1] */
-    const uint8_t *ex;                  /* codes of the extra glyphs */
-    uint8_t psh;                        /* log2 of the phases per glyph: g[i << psh] .. g[(i << psh) + phases - 1] */
-    const uint8_t *hc;                  /* data's Huffman code (cv_alpha_hc), 0 = 2 px per byte (cv_alpha) */
     uint8_t cap;                        /* the capitals' height in px (ty_y: capitals centred on a row) */
-    uint8_t px;                         /* a pixel face: its multiple (1-bit glyphs, adv in 1/16 font px; cv_pix); 0 = AA */
-    uint16_t ks;                        /* km's scale to this size, Q8 (one kerning table for every face) */
+    uint8_t px;                         /* the multiple a font pixel is drawn at */
+    const aag_t *g;                     /* the glyphs: ASCII first .. last, then the extras */
+    const uint8_t *data;                /* their bitmaps: 1 bit a pixel, MSB first, rows back to back */
+    const uint8_t *ex;                  /* codes of the extra glyphs */
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4], knob[4][4]; } ui_pal_t;
 typedef struct { const char *label; } kc_t;
-#include "ui_fonts.h"                   /* the large type's AF_LB 16, AF_TX 20, AF_VL 28, AF_HR 48 px (Rubik 500) and
-                                         * Melodee Pixel's AP_* (tools/gen_aa_font.py) */
+#include "ui_fonts.h"                   /* Melodee Pixel's faces AP_LB, AP_TX, AP_VL, AP_HR (tools/gen_aa_font.py) */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps' / badges' labels (tools/gen_aa_keycaps.py) */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph (every face's extras) */
-/* the type's roles (docs/design/README.md "Large type"): Rubik, or Melodee Pixel as Settings > FONT says (ui.c
- * ty_pixel). A role's two faces share its line height and baseline, so a layout holds in both; widths differ (a
- * layout fits the wider) */
-static uint32_t ty_pixel(void);
-#define TY_LB (ty_pixel() ? &AP_LB : &AF_LB)  /* labels, units, chips, tags: 16 px, pixel 2 x */
-#define TY_TX (ty_pixel() ? &AP_TX : &AF_TX)  /* names, rows, the header, text: 20 px, pixel 2 x */
-#define TY_VL (ty_pixel() ? &AP_VL : &AF_VL)  /* values: 28 px, pixel 3 x */
-#define TY_HR (ty_pixel() ? &AP_HR : &AF_HR)  /* the hero (the chord, a sound's name alone): 48 px, pixel 5 x */
+/* the type's roles (docs/design/README.md "Large type") */
+#define TY_LB (&AP_LB)                  /* labels, units, chips, tags: 2 x (the condensed glyphs), line 19 px */
+#define TY_TX (&AP_TX)                  /* names, rows, the header, text: 2 x, line 24 px */
+#define TY_VL (&AP_VL)                  /* values: 3 x, line 34 px */
+#define TY_HR (&AP_HR)                  /* the hero (the chord, a sound's name alone): 5 x, line 57 px */
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
@@ -868,78 +868,6 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
     GFX_HOOK_PIXELS(w * h);
 }
 
-/* the same from a glyph's Huffman-coded bit stream (tools/gen_aa_font.py huff_pack): canonical codes, MSB
- * first; hc = the number of codes of each length 1..15, then the symbols in code order, each a value and
- * its repeat count ((count - 1) << 4 | value: runs of zeros and 15s). Codes of up to HC_LUT_BITS bits come from a
- * small table the text's draw builds on its stack for the string (hc_lut: symbol | length << 8; 0 = a longer code:
- * bit by bit), so no font keeps anything in RAM. The stream is read in order, so rows outside the clip are decoded
- * and dropped; a run spans rows */
-#define HC_LUT_BITS 6u
-static void hc_lut(const uint8_t *hc, uint16_t *lut)
-{
-    uint32_t i, len, code = 0, sym = 15;
-    for (i = 0; i < (1u << HC_LUT_BITS); i++)
-        lut[i] = 0;
-    for (len = 1; len <= HC_LUT_BITS; len++, code <<= 1)
-        for (i = 0; i < hc[len - 1u]; i++, code++, sym++) {
-            uint32_t a = code << (HC_LUT_BITS - len), n = 1u << (HC_LUT_BITS - len);
-            while (n--)
-                lut[a + n] = (uint16_t)(hc[sym] | len << 8);
-        }
-}
-
-static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint8_t *hc,
-                        const uint16_t *lut, const uint16_t *rv)
-{
-    uint32_t gy, v = 0, run = 0, acc = 0, nb = 0;
-    y += CV_OY;
-    for (gy = 0; gy < h; gy++) {
-        int32_t py = y + (int32_t)gy;
-        uint16_t *row = py < cv_cy0 || py >= cv_cy1 ? 0 : cv_px + (uint32_t)py * cv_w;
-        uint32_t gx = 0;
-        while (gx < w) {
-            uint32_t n;
-            if (!run) {                              /* the next symbol */
-                uint32_t e, s;
-                while (nb < 16u) {                   /* (the data ends with 2 spare bytes) */
-                    acc = acc << 8 | *d++;
-                    nb += 8;
-                }
-                e = lut[(acc >> (nb - HC_LUT_BITS)) & ((1u << HC_LUT_BITS) - 1u)];
-                if (e) {
-                    nb -= e >> 8;
-                    s = e & 255u;
-                } else {                             /* a code over 8 bits */
-                    uint32_t code = 0, first = 0, idx = 0, len = 0;
-                    for (;;) {
-                        code |= (acc >> --nb) & 1u;
-                        if (code - first < hc[len])
-                            break;
-                        idx += hc[len];
-                        first = (first + hc[len]) << 1;
-                        code <<= 1;
-                        len++;
-                    }
-                    s = hc[15u + idx + code - first];
-                }
-                v = s & 15u;
-                run = (s >> 4) + 1u;
-            }
-            n = run < w - gx ? run : w - gx;
-            if (v && row) {
-                int32_t px = x + (int32_t)gx;
-                uint32_t k;
-                for (k = 0; k < n; k++, px++)
-                    if ((uint32_t)px < cv_w)
-                        row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
-            }
-            gx += n;
-            run -= n;
-        }
-    }
-    GFX_HOOK_PIXELS(w * h);
-}
-
 /* a Melodee Pixel glyph: w x h font pixels, 1 bit each (MSB first, rows back to back), each s x s canvas pixels at
  * (x, y); ink c (byte-swapped; cv_over: over the canvas) */
 static void cv_pix(int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t s, const uint8_t *d, uint16_t c)
@@ -987,8 +915,8 @@ static int32_t glyph_at(const aafont_t *f, uint32_t ch)
     return -1;
 }
 
-/* the table entry of ch at phase 0 (its other phases follow it). Not in the face: the ellipsis as '.',
- * else '?', else the face's first glyph (L is sparse: its space) */
+/* the table entry of ch. Not in the face: the ellipsis as '.', else '?', else the face's first glyph (a name keeps its
+ * characters: only the drawing falls back) */
 static uint32_t glyph(const aafont_t *f, uint32_t ch)
 {
     int32_t k;
@@ -997,19 +925,10 @@ static uint32_t glyph(const aafont_t *f, uint32_t ch)
     if ((k = glyph_at(f, ch)) < 0 && (ch != (uint8_t)ELLIPSIS || (k = glyph_at(f, '.')) < 0) &&
         (k = glyph_at(f, '?')) < 0)
         k = 0;
-    return (uint32_t)k << f->psh;
+    return (uint32_t)k;
 }
 
-static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px */
-{
-    int32_t i, j;
-    uint32_t l, r;
-    if (!f->nkr || (i = glyph_at(f, a)) < 0 || (j = glyph_at(f, b)) < 0 || !(l = f->kl[i]) || !(r = f->kr[j]))
-        return 0;
-    return (f->km[(l - 1u) * f->nkr + r - 1u] * (int32_t)f->ks + 128) >> 8;   /* (rounded) */
-}
-
-static int32_t gadv(const aafont_t *f, const aag_t *g) { return f->px ? g->adv * f->px : g->adv; }   /* 1/16 px */
+static int32_t gadv(const aafont_t *f, aag_t g) { return (int32_t)(AG_ADV(g) * f->px) << 4; }   /* 1/16 px */
 static uint32_t fold(const aafont_t *f, uint32_t c)
 {
     return c >= 'a' && c <= 'z' && f->last < 'a' && glyph_at(f, c) < 0 ? c - 32u : c;
@@ -1018,14 +937,8 @@ static uint32_t fold(const aafont_t *f, uint32_t c)
 static int32_t text_w(const aafont_t *f, const char *s)
 {
     int32_t pen = 0;
-    uint32_t prev = 0;
-    for (; *s; s++) {
-        uint32_t c = fold(f, (uint8_t)*s);
-        if (prev)
-            pen += kern(f, prev, c);
-        pen += gadv(f, &f->g[glyph(f, c)]);
-        prev = c;
-    }
+    for (; *s; s++)
+        pen += gadv(f, f->g[glyph(f, fold(f, (uint8_t)*s))]);
     return (pen + 8) >> 4;
 }
 /* the line top that centres f's capitals on row cy (a pill, a row, a chip: the same place in Rubik and pixel) */
@@ -1045,75 +958,30 @@ static int text_has(const aafont_t *f, const char *s)
     return 1;
 }
 
-/* y = top of the line box (the baseline is y + f->asc); returns the pen x at the end.
- * fg on bg: bg is what lies under the text (the canvas, a card, a selection).
- * Placement: the pen (1/16 px) lies between two phase positions a step (16 >> psh) apart; the glyph takes the
- * one whose offset from the pen is nearer the previous glyph's offset, so the space between neighbours stays
- * truest and no glyph is a whole step from its true place (tools/aa_raster.py, text_spacing_test.py).
- * A glyph with one phase (its phases share one bitmap: figures and .) sits at the rounded pen, as when it
- * is drawn alone at text_w of what precedes it (ui_draw.c roll_text). */
+/* y = top of the line box (the baseline is y + f->asc); returns the pen x at the end. fg: the ink (bg: what lies under
+ * the text, unused since the text is 1-bit; kept for the callers). Each glyph sits at the pen, in whole pixels; a glyph
+ * wholly outside the clip (a band of CV_BANDS) is skipped */
 static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg,
                              uint32_t flags)
 {
-    const uint16_t *rv = ramp(fg, bg);
     const char *s0 = s;
-    int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
-    const int32_t step = 16 >> f->psh;
-    uint32_t prev = 0;
-    uint16_t lut[1u << HC_LUT_BITS];                 /* (a coded face: its codes' table, for this string only) */
-    if (f->hc)
-        hc_lut(f->hc, lut);
-    cv_over_fg = fg;                                 /* (cv_over: blended over the canvas, bg unused) */
+    const uint16_t ink = swap16(fg);
+    int32_t pen = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF, px = f->px;
+    (void)bg;
+    cv_over_fg = fg;                                 /* (cv_over: blended over the canvas) */
     for (; *s; s++) {
-        uint32_t c = fold(f, (uint8_t)*s);
-        const aag_t *g;
-        int32_t pos, d0, d1;
-        if (prev)
-            pen += kern(f, prev, c);
-        g = &f->g[glyph(f, c)];
-        if (f->px) {                                 /* a pixel face: whole pixels, at the rounded pen */
-            pos = (pen + 8) & ~15;
-            if (g->bw) {
-                int32_t gx = x + (pos >> 4) + g->bx * f->px, gy = y + f->asc - 9 * f->px + g->by * f->px;
-                if (gy + CV_OY < cv_cy1 && gy + CV_OY + (int32_t)(g->bh * f->px) > cv_cy0)   /* (0.7.0: else
-                                                                                             * outside the clip) */
-                    cv_pix(gx, gy, g->bw, g->bh, f->px, f->data + g->off, rv[15]);
-                if (gx < x0) x0 = gx;
-                if (gy < y0) y0 = gy;
-                if (gx + g->bw * f->px > x1) x1 = gx + g->bw * f->px;
-                if (gy + g->bh * f->px > y1) y1 = gy + g->bh * f->px;
-            }
-            err = 0;
-            pen += gadv(f, g);
-            prev = c;
-            continue;
-        }
-        if (f->psh && g[1].off != g->off) {
-            pos = pen - (pen & (step - 1));          /* the phase position at or left of the pen */
-            d0 = pos - pen - err;                    /* .. and the one right of it: which keeps the gap truer */
-            d1 = d0 + step;
-            if ((d0 < 0 ? -d0 : d0) > (d1 < 0 ? -d1 : d1))
-                pos += step;
-            g += ((uint32_t)pos >> (4u - f->psh)) & ((1u << f->psh) - 1u);
-        } else {
-            pos = (pen + 8) & ~15;                   /* one phase (figures, ., blanks): the rounded pen */
-        }
-        err = pos - pen;
-        if (g->bw) {
-            int32_t gx = x + (pos >> 4) + g->bx, gy = y + g->by;
-            if (gy + CV_OY >= cv_cy1 || gy + CV_OY + (int32_t)g->bh <= cv_cy0)
-                ;                                    /* (0.7.0: wholly outside the clip, a band: not decoded) */
-            else if (f->hc)
-                cv_alpha_hc(gx, gy, g->bw, g->bh, f->data + g->off, f->hc, lut, rv);
-            else
-                cv_alpha(gx, gy, g->bw, g->bh, f->data + g->off, rv);
+        aag_t g = f->g[glyph(f, fold(f, (uint8_t)*s))];
+        if (AG_BW(g)) {
+            int32_t gx = x + (pen >> 4) + (int32_t)AG_BX(g) * px, gy = y + f->asc - 9 * px + (int32_t)AG_BY(g) * px;
+            int32_t gw = (int32_t)AG_BW(g) * px, gh = (int32_t)AG_BH(g) * px;
+            if (gy + CV_OY < cv_cy1 && gy + CV_OY + gh > cv_cy0)
+                cv_pix(gx, gy, AG_BW(g), AG_BH(g), (uint32_t)px, f->data + AG_OFF(g), ink);
             if (gx < x0) x0 = gx;
             if (gy < y0) y0 = gy;
-            if (gx + g->bw > x1) x1 = gx + g->bw;
-            if (gy + g->bh > y1) y1 = gy + g->bh;
+            if (gx + gw > x1) x1 = gx + gw;
+            if (gy + gh > y1) y1 = gy + gh;
         }
-        pen += g->adv;
-        prev = c;
+        pen += gadv(f, g);
     }
     if (x1 > x0) {
         if (x0 < 0 || x1 > (int32_t)cv_w || y0 + CV_OY < cv_cy0 || y1 + CV_OY > cv_cy1)

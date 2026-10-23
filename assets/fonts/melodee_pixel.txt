@@ -1,5 +1,5 @@
-# Melodee Pixel 5x7: the UI's pixel face (a Settings choice: FONT PIXEL), drawn for Melodee, GPL-3.0-only like
-# the firmware. Capital height 7, x-height 5, descenders 2; proportional, one pixel between letters. Drawn at whole
+# Melodee Pixel 5x7: the UI's face (Orange Cat 0.7.0: the only one; to 0.6.2 a Settings choice, FONT PIXEL),
+# drawn for Melodee, GPL-3.0-only like the firmware. Capital height 7, x-height 5, descenders 2; proportional, one pixel between letters. Drawn at whole
 # multiples only (2x labels and text, 3x values, 5x the hero), so every edge is sharp. I has serifs, l a foot,
 # 1 a flag and 0 a slash, so none of them reads as another.
 # A glyph: 'glyph U+XXXX' (and its first row when it is not the capital's top, 'top -1'), then its rows, '#' ink,
@@ -932,6 +932,7 @@ glyph U+2026  …
 #.#.#
 
 # The condensed set (the label role: letters and figures four pixels wide; M W V m w and the rest as above): 'narrow'.
+# (Orange Cat 0.7.0) its 1 has a blank fourth column, so the figures stay tabular (a value does not shift as it counts).
 
 glyph U+0041 narrow  A
 .##.
@@ -1141,13 +1142,13 @@ glyph U+0030 narrow  0
 .##.
 
 glyph U+0031 narrow  1
-.#.
-##.
-.#.
-.#.
-.#.
-.#.
-###
+.#..
+##..
+.#..
+.#..
+.#..
+.#..
+###.
 
 glyph U+0032 narrow  2
 .##.

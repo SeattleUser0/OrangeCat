@@ -42,7 +42,7 @@ GROUPS = [   # (group, name pattern), first match wins; case-insensitive
     ("Voices, mixing and audio core", r"voice|^mix_|^audio|^dsp_|^eng_|engine|resource|batch|worker|core1|cpu1"),
     ("Storage and projects", r"^st_|storage|^proj|project|^fl_|flash|upreset|preset|bank|backup|persist|settings|favor"),
     ("USB, MIDI and editor link", r"^usb|^ua_|^midi|^ed_|editor|sysex|^cdc|^con_|console|ota|uart"),
-    ("Screen, fonts and UI", r"^ui_|^cv_|^gfx|^draw|^lcd|^menu|^AF_|font|icon|keycap|palette|^scr_|glyph|page|^panel|^T_|theme"),
+    ("Screen, fonts and UI", r"^ui_|^cv_|^gfx|^draw|^lcd|^menu|^AF_|^AP_|font|icon|keycap|palette|^scr_|glyph|page|^panel|^T_|theme"),
 ]
 
 

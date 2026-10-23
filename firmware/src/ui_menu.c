@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee menu (HOME held): COLOR, FONT (the type: RUBIK or PIXEL, ui.c TY_*), HOLD (the layer threshold), LIGHTS (the keys' and buttons'
+/* Melodee menu (HOME held): COLOR, HOLD (the layer threshold), LIGHTS (the keys' and buttons'
  * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (IN+OUT, IN, OUT or OFF; usb.c ua_off_set),
  * USB INPUT (stereo master or four track stems; usb.c ua_tracks_set),
  * AUTOSAVE (automatic project saves after five seconds stopped and untouched), HOME SELECT (what SELECT turns on HOME:
@@ -10,17 +10,18 @@
  * stage_rows),
  * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information.
+ * (Orange Cat 0.7.0) FONT is gone: the text is Melodee Pixel alone (gfx.c); so is Rubik's credit (no Rubik in the image).
  * (Orange Cat 0.4.7 to 0.5.2: USB DRIVE TEST, menu 3, the page that found out whether the FM-1 could read a drive;
  * 0.5.3 took it out. Frozen tracks use the drive without a page: usb_host.c.) */
 /* ------------------------------------------------------------ menu --- */
 #define MENU_HEAD H_HEAD                 /* the menu's own title strip */
-enum { MI_COLOR, MI_FONT, MI_HOLD, MI_LIGHTS,
+enum { MI_COLOR, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB, MI_USB_INPUT,
 #endif
        MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_GLO_SEL, MI_TRACKS, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS",
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO", "USB INPUT",
 #endif
@@ -102,11 +103,6 @@ static const menu_credit_t MENU_CREDITS[] = {
     {"Emilie Gillet / MIT", MC_TEXT},
     {"https://github.com/pichenettes/eurorack", MC_URL},
     {"", MC_TEXT},
-    {"RUBIK / FONT", MC_TITLE},
-    {"The Rubik Project Authors", MC_TEXT},
-    {"SIL Open Font License 1.1", MC_TEXT},
-    {"https://github.com/googlefonts/rubik", MC_URL},
-    {"", MC_TEXT},
     {"VSCO-2 CE + VCSL / SAMPLES", MC_TITLE},
     {"Versilian Studios / CC0 1.0", MC_TEXT},
     {"https://github.com/sgossner/VSCO-2-CE", MC_URL},
@@ -123,14 +119,13 @@ static int32_t menu_text(const char *s, int32_t y, uint16_t col, int draw)
 {
     while (*s) {
         char line[64];
-        uint32_t n = 0, space = 0, take, prev = 0;
+        uint32_t n = 0, space = 0, take;
         int32_t pen = 0;                                 /* 1/16 px, as text_w adds it up */
         while (s[n] && n < sizeof line - 1u) {
             uint32_t c = (uint8_t)s[n];
             line[n] = s[n];
             line[n + 1u] = 0;
-            pen += (prev ? kern(TY_TX, prev, c) : 0) + gadv(TY_TX, &TY_TX->g[glyph(TY_TX, c)]);
-            prev = c;
+            pen += gadv(TY_TX, TY_TX->g[glyph(TY_TX, c)]);
             if ((pen + 8) >> 4 > 226)
                 break;
             if (s[n] == ' ')
@@ -286,7 +281,6 @@ static void draw_menu(void)
                   i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
             if (i == MI_ACCEL) value = PREF_BITS & PREF_ACCEL_OFF ? "OFF" : "ON";
             if (i == MI_PICKER) value = PREF_BITS & PREF_PICK_OFF ? "OFF" : "ON";
-            if (i == MI_FONT) value = TY_PIXEL ? "PIXEL" : "RUBIK";
             if (i == MI_AUTOSAVE) value = settings_autosave ? "ON" : "OFF";
             if (i == MI_HOME_SEL) value = HS_NAME[home_select()];
             if (i == MI_GLO_SEL) value = HS_NAME[glo_select()];
@@ -403,12 +397,6 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
     }
     if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_AUTOSAVE) {
         settings_autosave = (uint8_t)(s > 0 ? 1u : s < 0 ? 0u : !settings_autosave);
-        ui.force = 1; ok = 0;
-    }
-    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_FONT) {   /* KNOB 1 right PIXEL, left RUBIK; OCT+ toggles */
-        uint32_t px = s > 0 ? 1u : s < 0 ? 0u : !TY_PIXEL;
-        PREF_BITS = (uint8_t)(px ? PREF_BITS | PREF_PIXEL : PREF_BITS & ~PREF_PIXEL);
-        palette_set(settings.palette);                 /* (ux.gen: every part's signature, the rolls redraw) */
         ui.force = 1; ok = 0;
     }
     if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_PICKER) {

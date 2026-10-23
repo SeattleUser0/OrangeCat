@@ -284,9 +284,14 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
             char name[8];
             if (micro_active(t)) str_cpy(name, "D1", sizeof name); else note_name(name, (uint32_t)note);
             uint16_t lf = (held >> row) & 1u ? T_ACCENT : T_RAISE;   /* (held: the accent, as the key) */
-            cv_rrect(3, ty_y(y + PR_RH / 2, TY_LB) + TY_LB->asc - TY_LB->cap - 3, text_w(TY_LB, name) + 8, TY_LB->cap + 6, 4,
+            /* (0.7.0) the chip is taller than a row (the pixel face's capitals: 14 px): on the last row it stays inside
+             * the panel (lim: the region's last row, in these rows) */
+            int32_t cy = y + PR_RH / 2, lim = (cv_region_h ? cv_region_h : (int32_t)cv_h) - cv_oy;
+            if (cy + TY_LB->cap / 2 + 4 > lim)
+                cy = lim - TY_LB->cap / 2 - 4;
+            cv_rrect(3, ty_y(cy, TY_LB) + TY_LB->asc - TY_LB->cap - 3, text_w(TY_LB, name) + 8, TY_LB->cap + 6, 4,
                      lf, T_PANEL);
-            cv_text_on(7, ty_y(y + PR_RH / 2, TY_LB), TY_LB, name, lf == T_ACCENT ? T_INK : T_TEXT, lf);
+            cv_text_on(7, ty_y(cy, TY_LB), TY_LB, name, lf == T_ACCENT ? T_INK : T_TEXT, lf);
         }
     }
     uint32_t base = notes_base(), end = base + notes_span();

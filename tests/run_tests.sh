@@ -344,12 +344,9 @@ if core && [ $TABLES = 1 ]; then
     t "MPC bank octaves: controls, held notes, persistence and compatibility" mpc_octave_test -O1 $FW
     t "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" tuning_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O1 -DMELODEE_USB_AUDIO=1 $FW
-    t "themes: contrast, text blending and font metrics" theme_test -O1 $FW
-    t "text: pens, kerning and pixels equal the reference renderer" text_ref_test -O1 $FW
-    if [ $PIL = 1 ]; then
-        run "text spacing: glyph gaps against the font's own (16x supersampled), S M <= 0.25 px, L <= 0.5 px" \
-            python3 tests/text_spacing_test.py build/gen/ui_fonts.h
-    fi
+    t "themes: contrast, 1-bit text and font metrics" theme_test -O1 $FW
+    # (0.7.0) the text is Melodee Pixel alone: its glyphs against the font's source (the Rubik spacing test is gone)
+    t "text: Melodee Pixel's pens and pixels equal its source (assets/fonts/melodee_pixel.txt)" text_ref_test -O1 $FW
     t "settings: PER5 records, palette ids and preference preservation" settings_test -O1 -w -Ibuild/gen
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
