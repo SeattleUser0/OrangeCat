@@ -455,10 +455,12 @@ static void grid_own(step_t *s, uint32_t l)
 }
 
 /* lane l of step i: on 1, off 0, toggled 2 */
+static void events_delete_view(track_t *t, uint32_t view);   /* seq_undo.c (0.7.2) */
 static void grid_hit(track_t *t, uint32_t i, uint32_t l, uint32_t on)
 {
     step_t *s = &t->step[i % NSTEP];
     uint32_t b = 1u << (l % NLANE);
+    if (s->flags & SF_RECORDED) events_delete_view(t, i % NSTEP);   /* (0.7.2) a manual hit replaces the recording: through the history */
     s->flags &= (uint8_t)~SF_RECORDED;
     if (on == 2u)
         on = !(step_lanes(s) & b);

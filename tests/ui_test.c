@@ -4281,6 +4281,95 @@ static int test_tracker_events(void)
     return bad;
 }
 
+/* (Orange Cat 0.7.2, step 1b) a manual overwrite of a recorded step deletes the step's events through the step history
+ * (they were left in the pool for recording_prune): a key on the tracker, a key on NOTES, EDIT in the tracker's VEL
+ * column (step_delete). Each time: the step's events are gone from the pool (not merely inactive), the next step's
+ * event is untouched, and EDIT held brings every one back, byte for byte, in the slot it had. */
+static uint32_t events_of(const track_t *t, uint32_t view, uint32_t stored)   /* events whose cell is `view` (stored: in the pool at all) */
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < RECORD_MAX; i++)
+        if (recording[i].vel && (recording[i].owner & 31u) == recording_owner(t) && recording_view(t, &recording[i]) == view &&
+            (stored || recording_active(t, i)))
+            n++;
+    return n;
+}
+static void overwrite_setup(track_t *t, recorded_note_t *a, recorded_note_t *b, recorded_note_t *c, recorded_note_t *d)
+{
+    track_defaults_steps(t);
+    t->p[P_SLEN] = 16;
+    ui.tk_col = TKC_N1; ui.tk_fx = TFX_RATCH;
+    *a = (recorded_note_t){.step = 2, .on = 1000, .note = 60, .vel = 70, .duration = RECORD_UNIT / 2u, .owner = (uint8_t)recording_owner(t), .length = 1};
+    *b = *a; b->note = 64; b->vel = 90; b->owner |= 1u << 5;
+    *c = *a; c->note = 67; c->vel = 110; c->owner |= 2u << 5;
+    *d = *a; d->step = 5; d->note = 72;
+    recording_restore_note(t, 0, *a); recording_restore_note(t, 1, *b); recording_restore_note(t, 2, *c); recording_restore_note(t, 3, *d);
+    note_rebuild_all();
+}
+static int overwrite_undone(track_t *t, const recorded_note_t *a, const recorded_note_t *b, const recorded_note_t *c, const recorded_note_t *d,
+                            uint32_t *holds)
+{
+    uint32_t n;
+    for (n = 0; n < 5u && events_of(t, 2, 1) < 3u; n++)
+        hold(B_EDIT);
+    *holds = n;
+    return events_of(t, 2, 0) == 3u && (t->step[2].flags & SF_RECORDED) && !memcmp(&recording[0], a, sizeof *a) &&
+           !memcmp(&recording[1], b, sizeof *b) && !memcmp(&recording[2], c, sizeof *c) && !memcmp(&recording[3], d, sizeof *d);
+}
+static int test_overwrite_recorded(void)
+{
+    int bad = 0, ok;
+    uint32_t holds;
+    uint8_t key = 62;
+    track_t *t;
+    recorded_note_t a, b, c, d;
+    ui_power_on();
+    stop_transport();
+    t = TSEL;
+    go_title("TRACKER"); frame();
+    overwrite_setup(t, &a, &b, &c, &d);
+    cursor_set(2); frame();
+    ok = events_of(t, 2, 0) == 3u && events_of(t, 5, 0) == 1u;
+    bad += check("OVERWRITE: a recorded chord of three on step 3, one on step 6", ok);
+    /* (the dispatcher refuses a key on a recorded step, as it always did: ui_input.c, "STOP TO EDIT"; the entry code
+     * below it is called directly, for the day that gate goes) */
+    tap_key(white(4)); frame();
+    ok = events_of(t, 2, 0) == 3u && (t->step[2].flags & SF_RECORDED) && ui.cursor == 2u && msg_is("STOP TO EDIT");
+    bad += check("OVERWRITE: a key on a recorded step is refused (STOP TO EDIT); the recording is untouched", ok);
+    seq_entry_notes(&key, 1);                           /* (TRACKER: tracker_entry_notes) */
+    seq_entry_finish(); frame();
+    ok = events_of(t, 2, 1) == 0u && events_of(t, 5, 0) == 1u && !memcmp(&recording[3], &d, sizeof d) && !(t->step[2].flags & SF_RECORDED) &&
+         t->step[2].n == 1u && t->step[2].note[0] == key && step_on(&t->step[2]);
+    bad += check("OVERWRITE: the tracker's entry on a recorded step: its three events are gone from the pool, the other step's stays", ok);
+    ok = overwrite_undone(t, &a, &b, &c, &d, &holds);
+    bad += check("OVERWRITE: EDIT held brings all three events back, byte for byte, the step recorded again (one entry each)", ok && holds <= 3u);
+
+    ui_power_on(); stop_transport(); t = TSEL;
+    go_title("NOTES"); frame();
+    overwrite_setup(t, &a, &b, &c, &d);
+    cursor_set(2); frame();
+    seq_entry_notes(&key, 1);                           /* (NOTES: the step page's entry) */
+    seq_entry_finish(); frame();
+    ok = events_of(t, 2, 1) == 0u && events_of(t, 5, 0) == 1u && !(t->step[2].flags & SF_RECORDED) && step_on(&t->step[2]) &&
+         t->step[2].note[0] == key;
+    bad += check("OVERWRITE: the step page's entry on a recorded step: its events are gone from the pool", ok);
+    ok = overwrite_undone(t, &a, &b, &c, &d, &holds);
+    bad += check("OVERWRITE: ... EDIT held brings them back", ok && holds <= 3u);
+
+    ui_power_on(); stop_transport(); t = TSEL;
+    go_title("TRACKER"); frame();
+    overwrite_setup(t, &a, &b, &c, &d);
+    cursor_set(2); frame();
+    ui.tk_col = TKC_VEL;
+    press(B_EDIT);
+    ok = events_of(t, 2, 1) == 0u && events_of(t, 5, 0) == 1u && !step_on(&t->step[2]) && !(t->step[2].flags & SF_RECORDED);
+    bad += check("OVERWRITE: EDIT in the tracker's VEL column deletes the recorded step: its events are gone from the pool", ok);
+    ok = overwrite_undone(t, &a, &b, &c, &d, &holds);
+    bad += check("OVERWRITE: ... EDIT held brings them back", ok && holds <= 3u);
+    ui.tk_col = TKC_N1;
+    return bad;
+}
+
 /* (Orange Cat 0.4.1, build doc 4d) ARP held: PERFORM: scenes on the white keys (SAVE held stores), MUTEs staged on the
  * black keys, KNOB 1 LAUNCH, OCT- puts back */
 static int test_perform(void)
@@ -5868,6 +5957,7 @@ int main(void)
     bad += test_perform();
     bad += test_tracker();
     bad += test_tracker_events();
+    bad += test_overwrite_recorded();
     bad += test_pool();
     bad += test_groove_page();
     bad += test_seq_tools();

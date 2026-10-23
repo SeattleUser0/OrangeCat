@@ -248,15 +248,14 @@ static void events_delete_view(track_t *t, uint32_t view)
 {
     for (;;) {
         uint32_t i;
-        event_open();
         for (i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
             if (recording_active(t, i) && recording_view(t, &recording[i]) == view)
                 break;
-        if (i >= RECORD_MAX) {
-            fm1_irq_on();
-            return;
-        }
-        event_delete(t, i, 0);
+        if (i >= RECORD_MAX)
+            return;                             /* (the last delta stays open: it joins the overwrite's own history entry) */
+        event_open();
+        if (recording_active(t, i) && recording_view(t, &recording[i]) == view)   /* (a recorder ISR may have been first) */
+            event_delete(t, i, 0);
         fm1_irq_on();
     }
 }

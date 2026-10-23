@@ -1724,6 +1724,9 @@ static void step_delete_edit(void)
     uint32_t at;
     step_history_end();                              /* deletion is separate from a held entry */
     step_history_finish();
+    at = step_note_start(TSEL, ui.cursor);
+    if (TSEL->step[at < NSTEP ? at : ui.cursor].flags & SF_RECORDED)   /* (0.7.2) a recorded note: its events go through the history */
+        events_delete_view(TSEL, at < NSTEP ? at : ui.cursor);
     fm1_irq_off();
     at = step_note_start(TSEL, ui.cursor);
     step_delete(TSEL, ui.cursor);
@@ -1736,11 +1739,12 @@ static void step_delete_edit(void)
  * key, the step's notes before that column kept (a tracker's way: a key replaces the note in its column, not the
  * step), on any track up to four (a MONO track is told it plays one). A step that held no note starts afresh. A note
  * the step has already is not written twice */
-static void tracker_entry_notes(step_t *st, const uint8_t *n, uint32_t cnt)
+static void tracker_entry_notes(track_t *t, step_t *st, const uint8_t *n, uint32_t cnt)
 {
     uint32_t i, j, col = ui.tk_col % TKC_N;
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (!ui.entry_open) {
+        if (st->flags & SF_RECORDED) events_delete_view(t, ui.cursor);   /* (0.7.2) the step's events go through the history */
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;
         if (!step_on(st) || (st->flags & SF_RECORDED)) st->n = 0;
@@ -1777,10 +1781,11 @@ static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
     if (!cnt)
         return;
     if (cur_page()->graph == GR_TRACKER && !settings_chord_add) {   /* (0.5.2) TRACKER: from the picked note column */
-        tracker_entry_notes(st, n, cnt);
+        tracker_entry_notes(t, st, n, cnt);
         return;
     }
     if (!ui.entry_open) {
+        if (st->flags & SF_RECORDED) events_delete_view(t, ui.cursor);   /* (0.7.2) the step's events go through the history */
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;
         if (!settings_chord_add) st->n = 0;
