@@ -12,6 +12,7 @@
 #pragma once
 #include "drumx_voice.c"
 
+#define DXE_XIP 1
 #define DXE_XIP_ATTR
 #ifdef DXE_XIP
 #define DXE_XIP_ATTR __attribute__((section(".text.xip_drumx"), noinline))
