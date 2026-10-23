@@ -67,7 +67,12 @@ for ln in ir.splitlines():
     if cur:
         for c in re.findall(r'\bcall\b[^\n@]*@([\w.]+)\(',ln):
             if not c.startswith('llvm.'): edges.add((cur,c))
-open('build/calls.txt','w').write("\n".join(f"{a} {b}" for a,b in sorted(edges))+"\n")
+        for c in re.findall(r'@__audio_far_([\w.]+)',ln):       # the flash/RAM crossings (volatile pointers)
+            edges.add((cur,c))
+names=sorted({x for e in edges for x in e}); idx={n:i for i,n in enumerate(names)}
+with open('build/calls.txt','w') as f:
+    f.write(" ".join(names)+"\n")
+    f.write("\n".join(f"{idx[a]} {idx[b]}" for a,b in sorted(edges))+"\n")
 PY
   [ -f tools/ci_probe.conf ] && . tools/ci_probe.conf           # FRAMES_START / CALLS_START: the next chunks
   python3 tools/ci_blob.py emit frames build/frames.txt --start ${FRAMES_START:-1} --max ${FRAMES_MAX:-3}
