@@ -73,6 +73,10 @@
 #ifndef MELODEE_SID
 #define MELODEE_SID 1             /* SID (engine 3). 0: the engine goes; its chip model stays while DRUM's SID kit uses it */
 #endif
+#ifndef MELODEE_DRUMX
+#define MELODEE_DRUMX 1           /* exp/sonnet-drumx only: Jiant FM's DRUM-X in the retired PHYS slot (ENGI_DRUMX) */
+#endif
+#define ENGI_DRUMX 9u
 #ifndef MELODEE_MACRO
 #define MELODEE_MACRO 1           /* (Orange Cat 0.5.0) MACRO (engine 8, the slot of the retired GRAIN): fourteen sound models
                                    * (eng_macro.c, plaits/). 0: the slot is retired again */

@@ -21,6 +21,9 @@
 #if MELODEE_MACRO
 #include "eng_macro.c"          /* (Orange Cat 0.5.0) MACRO: fourteen sound models (plaits/, MIT) */
 #endif
+#if MELODEE_DRUMX
+#include "eng_drumx.c"          /* exp/sonnet-drumx: Jiant FM's DRUM-X voice, measurement only */
+#endif
 #if MELODEE_SHAPES
 #include "eng_shapes.c"         /* (Orange Cat 0.5.1) SHAPES: a Braids-style macro oscillator (braids/, MIT) */
 #endif
@@ -75,6 +78,9 @@ static uint32_t eng_state_size(uint32_t e)
 #if MELODEE_FM6
     case ENGI_FM6: return sizeof(fm6_part_t);
 #endif
+#if MELODEE_DRUMX
+    case ENGI_DRUMX: return sizeof(dxe_part_t);
+#endif
 #if MELODEE_MACRO
     case ENGI_MACRO: return sizeof(mc_part_t);      /* (Orange Cat 0.5.0) */
 #endif
@@ -103,6 +109,9 @@ static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGIN
 static dsk_part_t *dsk_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dsk_part_t)); }
 static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
+#if MELODEE_DRUMX
+static dxe_part_t *dxe_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dxe_part_t)); }
+#endif
 #if MELODEE_MACRO
 static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(mc_part_t)); }
 #endif
@@ -157,7 +166,9 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,                /* 8: retired GRAIN; stored index reserved */
 #endif
-#if MELODEE_LEGACY_EXTRAS
+#if MELODEE_DRUMX
+    &ENG_DRUMX,                  /* 9: exp/sonnet-drumx */
+#elif MELODEE_LEGACY_EXTRAS
     &ENG_PHYS,
 #else
     &ENG_RETIRED,                /* 9: retired PHYS; stored ID reserved */
