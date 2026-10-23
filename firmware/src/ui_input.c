@@ -931,7 +931,7 @@ static void drum_hit_edit(uint32_t slot,int32_t delta)
     if(!slot){drum_hit_jog(delta);return;}         /* KNOB 1: the hits one by one, the steps */
     if(slot==1){drum_pick(drum_sound_step(TSEL,ui.drum_sound,delta));ui.note_pick=0;notes_preview();return;}
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
-    step_history_end();step_history_finish();fm1_irq_off();step_history_sync_locked();
+    event_open();                                       /* (0.7.2) seq_undo.c: the one event edit primitive */
     uint32_t i=drum_hit_selected(), created=i>=RECORD_MAX;
     recorded_note_t before={0},after;
     if(!created)before=recording_snapshot(i);
@@ -953,16 +953,12 @@ static void drum_hit_edit(uint32_t slot,int32_t delta)
         after.duration=(uint16_t)duration;after.owner=(uint8_t)((after.owner&31u)|(exp<<5));
     }
     if(!created && !memcmp(&before,&after,sizeof before)){fm1_irq_on();return;}
-    note_assign(&step_history.removed,&before);note_assign(&step_history.replacement,&after);step_history.removed_index=(uint16_t)i;step_history.has_removed=1;
-    if(!created)recording_remove(TSEL,i);
-    recording_restore_note(TSEL,i,after);
-    step_t *st=&TSEL->step[ui.cursor];st->time=ST_NOTE;st->flags|=SF_RECORDED;
+    event_replace(TSEL,i,&after,0);                     /* (the cell is marked recorded; its hit is patched, not rebuilt) */
+    step_t *st=&TSEL->step[ui.cursor];
     uint32_t lane=drum_lane(after.note);
     if(after.note==DRUM_LANE_NOTE[lane])st->hit|=(uint8_t)(1u<<lane);
     else {uint32_t j;for(j=0;j<st->n && st->note[j]!=after.note;j++){}if(j==st->n && st->n<4u)st->note[st->n++]=after.note;}
-    step_history.recording_gen=recording_generation;
-    ui.note_pick=(uint16_t)(i+1);note_assign(&ui.note_identity,&after);ui.note_generation=recording_generation;
-    fm1_irq_on();ui.force=1;notes_preview();
+    event_close();notes_preview();
 }
 
 static void drum_hit_jog(int32_t delta)
@@ -975,10 +971,10 @@ static void drum_hit_delete(void)
 {
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
-    step_history_end();step_history_finish();fm1_irq_off();step_history_sync_locked();
+    event_open();
     uint32_t i=drum_hit_selected(),sound=ui.drum_sound%drum_sound_count(TSEL);int32_t had=step_sound_note(TSEL,&TSEL->step[ui.cursor],sound);
     uint32_t note=had>=0?(uint32_t)had:drum_sound_note(TSEL,sound);
-    if(i<RECORD_MAX){note=recording[i].note;step_history.removed=recording_snapshot(i);memset(&step_history.replacement,0,sizeof step_history.replacement);step_history.removed_index=(uint16_t)i;step_history.has_removed=1;recording_remove(TSEL,i);}
+    if(i<RECORD_MAX){note=recording[i].note;event_delete(TSEL,i,0);}
     uint32_t remain=0,same=0;
     for(uint32_t j=recording_head[recording_owner(TSEL)];j<RECORD_MAX;j=recording_next[j])if(recording_active(TSEL,j) && recording_view(TSEL,&recording[j])==ui.cursor){remain++;same|=recording[j].note==note;}
     step_t *st=&TSEL->step[ui.cursor];
@@ -986,7 +982,7 @@ static void drum_hit_delete(void)
         for(uint32_t j=0;j<st->n;j++)if(st->note[j]==note){for(uint32_t k=j;k+1<st->n;k++)st->note[k]=st->note[k+1];st->n--;break;}}
     if(!remain)st->flags&=(uint8_t)~SF_RECORDED;
     if(!st->n && !st->hit && !remain)step_clear(st);
-    step_history.recording_gen=recording_generation;ui.note_pick=0;ui.note_generation=recording_generation;fm1_irq_on();ui.force=1;ui_message("HIT CLEARED");
+    ui.note_pick=0;ui.note_generation=recording_generation;event_close();ui_message("HIT CLEARED");
 }
 static void drum_hit_key(uint32_t accent)
 {
@@ -1656,14 +1652,11 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
     if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
-    step_history_end(); step_history_finish();
-    fm1_irq_off();
-    step_history_sync_locked();
+    event_open();                                       /* (0.7.2) seq_undo.c: the one event edit primitive */
     uint32_t i = notes_selected(TSEL);
     if (i >= RECORD_MAX) { fm1_irq_on(); return; }
     recorded_note_t before = recording_snapshot(i), after;
     note_assign(&after,&before);
-    uint32_t oldview = recording_view(TSEL, &before);
     if (slot == 0u) {
         uint32_t len = step_pattern_len(TSEL);
         int32_t actual = ((int32_t)(before.step & 63u) + delta) % (int32_t)len;
@@ -1686,20 +1679,8 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
         if(drum_track(TSEL))after.length=1;
     } else after.vel = (uint8_t)clamp((int32_t)before.vel + delta, 1, 127);
     if (!memcmp(&before, &after, sizeof before)) { fm1_irq_on(); return; }
-    step_history.state[step_history_index()].selection = ui.note_pick;
-    step_history.state[step_history_index()].cursor = ui.cursor;
-    note_assign(&step_history.removed,&before); note_assign(&step_history.replacement,&after);
-    step_history.removed_index = (uint16_t)i; step_history.has_removed = 1;
-    recording_remove(TSEL, i); recording_restore_note(TSEL, i, after);
-    uint32_t view = recording_view(TSEL, &after);
-    TSEL->step[view].time = ST_NOTE; TSEL->step[view].flags |= SF_RECORDED;
-    notes_rebuild(TSEL, oldview);
-    if (view != oldview) notes_rebuild(TSEL, view);
-    step_history.recording_gen = recording_generation;
-    if (slot == 0u) cursor_set(after.step & 63u);
-    ui.note_pick = (uint16_t)(i + 1u); note_assign(&ui.note_identity,&after);
-    ui.note_generation = recording_generation;
-    fm1_irq_on(); ui.force = 1;
+    event_replace(TSEL, i, &after, EV_MARK | EV_REBUILD | (slot == 0u ? EV_FOLLOW : 0u));
+    event_close();
 }
 
 static void notes_delete_edit(void)
@@ -1707,10 +1688,7 @@ static void notes_delete_edit(void)
     if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
-    step_history_end();
-    step_history_finish();
-    fm1_irq_off();
-    step_history_sync_locked(); /* a recorder ISR could have run since the frame's first sync */
+    event_open();                                       /* (0.7.2) seq_undo.c: the one event edit primitive */
     uint32_t i = notes_selected(TSEL);
     if (i >= RECORD_MAX) {
         fm1_irq_on();
@@ -1719,23 +1697,11 @@ static void notes_delete_edit(void)
     }
     /* One event delta per history entry keeps undo bounded without copying
      * all 1,024 events for each of the eight edits. */
-    step_history.state[step_history_index()].selection = ui.note_pick;
-    step_history.state[step_history_index()].cursor = ui.cursor;
-    step_history.removed = recording_snapshot(i);
-    step_history.removed_index = (uint16_t)i;
-    step_history.has_removed = 1;
-    memset(&step_history.replacement, 0, sizeof step_history.replacement);
-    uint32_t view = recording_view(TSEL, &recording[i]);
-    notes_cycle(1);
-    recording_remove(TSEL, i);
-    notes_rebuild(TSEL, view);
-    step_history.recording_gen = recording_generation; /* accept only this protected UI mutation */
-    ui.note_generation = recording_generation;
+    event_delete(TSEL, i, EV_MARK | EV_REBUILD | EV_NEXT);
     if (ui.note_pick == i + 1u) ui.note_pick = 0;
     notes_selected(TSEL);
-    fm1_irq_on();
+    event_close();
     ui_message("NOTE DELETED");
-    ui.force = 1;
 }
 
 static void step_delete_edit(void)
