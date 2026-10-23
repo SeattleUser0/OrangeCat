@@ -41,7 +41,8 @@ SIZE_FILES = ["ui.c", "gfx.c", "favorites.c", "icons.c", "ui_graph.c", "ui_draw.
 # for size. From the resident list of a target build (build/melodee_audio.json); audio_ram.py reports a resident function
 # that was built for size, so the list can be kept current.
 RESIDENT_NAMES = {"motion_begin", "motion_capture", "motion_native_ok", "motion_param", "motion_rec_step", "motion_restore",
-                  "motion_set_event", "motion_snapshot_track", "motion_step",
+                  "motion_set_event", "motion_snapshot_track", "motion_step", "motion_native_tag", "motion_native_at",
+                  "motion_valid", "motion_native_ok",
                   "groove_part", "pattern_apply", "pattern_encode", "pattern_flush", "pattern_free_block", "pattern_read",
                   "pattern_stream_step", "pattern_switch", "recording_stop", "seq_release",
                   "perf_avail", "perf_press",
