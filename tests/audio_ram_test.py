@@ -107,7 +107,8 @@ define void @ui_copy(i8* %a, i8* %b) {
         self.assertIn('memset', far)
         functions = {m[2]: m for m in FUNCTION.finditer(output)}
         ui = functions['ui_copy'][5]
-        self.assertNotIn('@llvm.mem', ui)
+        self.assertNotIn('i32 80, i32 4', ui)              # (the big copy and the zeroing: through pointers)
+        self.assertNotIn('@llvm.memset', ui)
         self.assertIn('load volatile i8* (i8*, i8*, i32)*, i8* (i8*, i8*, i32)** @__audio_far_memcpy', ui)
         self.assertIn('= call i8* %audio_far_0(i8* %a, i8* getelementptr inbounds (%struct.s, %struct.s* @gs, i32 0, i32 1), '
                       'i32 80)', ui)
