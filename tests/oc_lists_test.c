@@ -249,6 +249,22 @@ static int test_unused(void)
                   n == 1 && !ocp.len[1] && ocp.len[0] && note_of(0) == 50u);
 }
 
+/* (0.6.1) an empty phrase given a clip (card_browse.c): ocl_keep_any numbers it, the pool's CRC its own; kept, and a
+ * phrase with steps keeps as ocl_keep does */
+static int test_keep_any(void)
+{
+    reset();
+    uint32_t b = trk[0].pattern % NPAT, id;
+    int ok = !bank_pid[0][b] && !ocl_bank_hash(0, b) && !ocl_keep(0, b) && !bank_pid[0][b];   /* (keep: nothing to keep) */
+    ok &= !ocl_keep_any(0, b);
+    id = bank_pid[0][b];
+    ok &= id >= 1u && id <= OCP_N && ocp.hash[id - 1u] == ocl_bank_hash(0, b) && ocl_free_pat() != id - 1u;
+    ok &= !ocl_keep_any(0, b) && bank_pid[0][b] == id;     /* (again: the same number) */
+    put_note(0, 60);
+    ok &= !ocl_keep_any(0, b) && bank_pid[0][b] == id && ocp.hash[id - 1u] == ocl_bank_hash(0, b);
+    return lcheck("an empty phrase kept for a clip gets its own number; kept again, the same", ok);
+}
+
 static int test_melodee_lists(void)
 {
     static uint8_t fbkk[BANK_STORE_SIZE];
@@ -632,6 +648,7 @@ int main(void)
     bad |= test_named_empty();
     bad |= test_melodee_lists();
     bad |= test_unused();
+    bad |= test_keep_any();
     bad |= test_song();
     bad |= test_new_and_shared();
     bad |= test_cache();

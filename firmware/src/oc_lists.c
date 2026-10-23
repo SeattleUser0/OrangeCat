@@ -122,6 +122,21 @@ static int ocl_keep(uint32_t k, uint32_t b)
     return 0;
 }
 
+/* (Orange Cat 0.6.1) track k's bank b kept even when it is empty: a clip from the card given to an empty phrase
+ * (card_browse.c) needs the phrase to have a number. 0, else as ocl_keep */
+static int ocl_keep_any(uint32_t k, uint32_t b)
+{
+    uint32_t n;
+    int rc;
+    if ((bank_pid[k][b] && bank_pid[k][b] <= OCP_N) || ocl_bank_hash(k, b)) return ocl_keep(k, b);
+    n = ocl_free_pat();
+    if (n == OCP_N) return 4;
+    if ((rc = ocp_save(n, k, b)) != 0) return rc == 2 ? 4 : 2;
+    ocl_name(k, b, n);
+    bank_sig[k][b] = ocp.hash[n];
+    return 0;
+}
+
 /* every bank of every track kept (stopped: a SAVE, the autosave): 0, else the first failure's (ocl_keep) */
 static int ocl_keep_all(void)
 {

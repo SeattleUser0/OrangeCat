@@ -745,7 +745,7 @@ static void pick_draw(void)
     }
 }
 /* (Orange Cat 0.6.1) the card's browser: the folder's rows, KNOB 2 the row (ui_input.c files_input) */
-static uint32_t fb_first;
+static uint32_t fb_first, fb_rows_drawn;
 static void files_row(uint32_t i, int32_t y)
 {
     char nm[44], v[16];
@@ -760,6 +760,15 @@ static void files_draw(void)
         return;
     pop.sig = sig;
     while (n < 64u && fb_row(n, nm, sizeof nm, v, sizeof v)) n++;
+    if ((n < POP_VIS ? n : POP_VIS) != fb_rows_drawn && !ui.force) {   /* (the card's height changed: the page under it
+                                                         * drawn again first, else the taller card stays behind it; 0.6.1
+                                                         * on the unit: "Save first" drawn over the list) */
+        fb_rows_drawn = n < POP_VIS ? n : POP_VIS;
+        ui.force = 1;
+        pop.sig = 0;
+        return;
+    }
+    fb_rows_drawn = n < POP_VIS ? n : POP_VIS;
     if (sel < fb_first) fb_first = sel;
     if (sel >= fb_first + POP_VIS) fb_first = sel - POP_VIS + 1u;
     if (fb_first + POP_VIS > n) fb_first = n > POP_VIS ? n - POP_VIS : 0u;

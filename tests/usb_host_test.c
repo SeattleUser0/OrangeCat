@@ -195,6 +195,7 @@ static uint8_t t_fb_gen;
 #define FB_SCRATCH() ((fb_ent_t *)t_fb_rows)
 #define FB_BORROW() ((void)0)
 #define FB_GEN() t_fb_gen
+static int ocl_keep_any(uint32_t k, uint32_t b) { return ocl_keep(k, b); }   /* (0.6.1: the stub numbers empty ones too) */
 #include "../firmware/src/oc_store.c"                   /* (0.5.6) the frozen phrases' record, in RAM */
 #include "../firmware/src/card_play.c"
 #include "../firmware/src/card_stream.c"

@@ -302,6 +302,8 @@ static uint32_t fb_sig(void)                            /* what the popup shows 
 }
 static void fb_move(int32_t d)
 {
+    if (fb.st == FB_FAIL && fb.relist && d) { fb.relist = 0; fb.st = FB_LIST; return; }   /* (a word over the list: a
+                                                         * turn goes back to it) */
     if (fb.st != FB_READY || !fb.n || !d) return;
     fb.sel = (uint16_t)clamp((int32_t)fb.sel + (d > 0 ? 1 : -1), 0, (int32_t)fb.n - 1);
 }
@@ -337,7 +339,8 @@ static int fb_assign(uint32_t k, const fb_ent_t *e)
     if (e->longname || str_len(e->name) > 13u) { str_cpy(fb.msg, "Name too long", sizeof fb.msg); return 1; }
     if (str_eq(fb.path, "/")) { str_cpy(fb.msg, "Use a folder", sizeof fb.msg); return 1; }
     if (str_len(fb.path) - 1u >= FZD_LEN) { str_cpy(fb.msg, "Path too long", sizeof fb.msg); return 1; }
-    if (ocl_keep(k, b)) { str_cpy(fb.msg, "Phrases full", sizeof fb.msg); return 1; }   /* (the steps kept: a number) */
+    if (ocl_keep_any(k, b)) { str_cpy(fb.msg, "Phrases full", sizeof fb.msg); return 1; }   /* (the steps kept: a number,
+                                                         * an empty phrase too: 0.6.1 on the unit said "Save first") */
     id = frz_phrase_of(k);
     hash = ocl_bank_hash(k, b);
     if (!id || (frz_pool_hash && frz_pool_hash[id - 1u] != hash)) { str_cpy(fb.msg, "Save first", sizeof fb.msg); return 1; }

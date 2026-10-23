@@ -2457,7 +2457,10 @@ static void ui_input(void)
     if (pop.on == POP_SHEET || pop.on == POP_LIST || pop.on == POP_FILES) {   /* an action sheet, a value's list,
                                                          * (0.6.1) the card's browser: KNOB 1 / 2, OCT+ / OCT- (ui_popup.c) */
         int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);
-        if (pop.on == POP_FILES) files_input(k2, oct);
+        if (pop.on == POP_FILES) {                      /* (0.6.1: SELECT, KNOB 1 or KNOB 2 move the browser) */
+            int32_t ks = panel_enc(EN_SELECT);
+            files_input(k2 ? k2 : ks ? ks : k1, oct);
+        }
         else if (pop.on == POP_LIST) vlist_input(k2, oct);
         else sheet_input(k1, k2, oct);
         ui.pg_down = 0;
