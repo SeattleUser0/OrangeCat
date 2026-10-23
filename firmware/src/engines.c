@@ -69,8 +69,12 @@ FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
     fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
     RES_ENGINE0, NENGINES, &fw_rng_cell,
 };
+/* (0.10.0) the module registered under an engine number, or 0 (the loader, eng_register): its header says the state size */
+static const fw_mod_hdr_t *eng_mod[NENGINES];
 static uint32_t eng_state_size(uint32_t e)
 {
+    if (e < NENGINES && eng_mod[e])
+        return eng_mod[e]->state_size;
     switch (e) {
 #if MELODEE_PROPHET && MELODEE_P5                 /* (Orange Cat: MELODEE_P5) */
     case ENGI_PROPHET: return sizeof(p5_part_t);
@@ -145,11 +149,9 @@ static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return resource_get(RES_ENGI
 #endif
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
-#ifdef OC_TEST_ENGINES_RW   /* (0.10.0, step 3) the host module test swaps SHAPES' entry for the module's; step 4 makes the table RAM for good */
+/* (Orange Cat 0.10.0, step 4) The table is RAM (80 B of .data, copied from flash by the startup code like every initialized
+ * variable): a loaded module takes its slot at boot (eng_register, below). The entries are still these, until one does. */
 static const engine_t *ENGINES[NENGINES] = {
-#else
-static const engine_t *const ENGINES[NENGINES] = {
-#endif
 #if MELODEE_PROPHET_PROTOTYPE
     &ENG_P5_TEST,                /* test firmware only: RAM patches, NEVER persist */
 #else
@@ -287,8 +289,8 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     ENGI_MACRO,                  /* (Orange Cat 0.5.0) MACRO: after Melodee's own (first in Orange Cat's build, where
                                   * they are unhooked) */
 #endif
-#if MELODEE_SHAPES
-    ENGI_SHAPES,                 /* (Orange Cat 0.5.1) SHAPES */
+#if MELODEE_SHAPES || OC_MODULES
+    ENGI_SHAPES,                 /* (Orange Cat 0.5.1) SHAPES; (0.10.0) kept in the order while a module may supply it (eng_ok says whether it is there) */
 #endif
 };
 
@@ -306,7 +308,7 @@ static int eng_extra_retired(uint32_t e)
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
 static int eng_ok(uint32_t e)
 {
-    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && (MELODEE_MACRO || e != 8u) && (MELODEE_SHAPES || e != 14u) && (MELODEE_SLICE || e != ENGI_SLICE);
+    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && (MELODEE_MACRO || e != 8u) && (MELODEE_SHAPES || e != 14u || eng_mod[14]) && (MELODEE_SLICE || e != ENGI_SLICE);
 }
 static uint32_t eng_sound_idx(uint32_t e)
 {
@@ -324,7 +326,53 @@ static uint32_t eng_rank(uint32_t e)
 }
 static uint32_t eng_step(uint32_t e, int32_t dir)
 {
-    return eng_vis((eng_rank(e % NENGINES) + (dir > 0 ? 1u : NENG_SHOWN - 1u)) % NENG_SHOWN);
+    uint32_t n = eng_rank(e % NENGINES), tries;
+    for (tries = 0; tries < NENG_SHOWN; tries++) {
+        n = (n + (dir > 0 ? 1u : NENG_SHOWN - 1u)) % NENG_SHOWN;
+        if (eng_ok(eng_vis(n)))
+            break;                                   /* (0.10.0) an engine only a module can supply, with none there, is not stopped on */
+    }
+    return eng_vis(n);
+}
+
+/* ------------------------------------------------------------------------------ modules (Orange Cat 0.10.0, step 4) ---
+ * The loader (oc_module.c, step 5) finds a valid module in the module area at boot and registers it here: the engine number
+ * in its header takes the slot of the table, eng_state_size and eng_ok then answer from its header. Only the engines a module
+ * may supply are accepted (eng_module_slot: SHAPES). A built-in engine of the same number stays unless OC_MODULE_WINS (core.h)
+ * says the module takes over; eng_unregister puts the original back. Nothing here reads flash. */
+enum { EM_OK = 0, EM_SLOT = -1, EM_SHADOWED = -2, EM_BAD = -3 };
+static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES; }
+static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
+{
+#if MELODEE_SHAPES
+    if (e == ENGI_SHAPES)
+        return &ENG_SHAPES;
+#endif
+    (void)e;
+    return &ENG_RETIRED;
+}
+/* the module with header h and engine_t engine takes its slot: 0, EM_SLOT (not a number a module may supply), EM_SHADOWED
+ * (built in, and OC_MODULE_WINS is 0), EM_BAD (nothing given) */
+static int eng_register(const fw_mod_hdr_t *h, const engine_t *engine)
+{
+    uint32_t e;
+    if (!h || !engine)
+        return EM_BAD;
+    e = h->engine;
+    if (e >= NENGINES || !eng_module_slot(e))
+        return EM_SLOT;
+    if (eng_default(e) != &ENG_RETIRED && !OC_MODULE_WINS)
+        return EM_SHADOWED;
+    ENGINES[e] = engine;
+    eng_mod[e] = h;
+    return EM_OK;
+}
+static void eng_unregister(uint32_t e)
+{
+    if (e >= NENGINES)
+        return;
+    eng_mod[e] = 0;
+    ENGINES[e] = eng_default(e);
 }
 
 /* the parts at power-on and in a new song (engine, preset; the steps empty): poly, bass, lead, drums. IT'S A

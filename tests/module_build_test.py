@@ -88,8 +88,8 @@ errors, notes = run(fk)
 check("a good module builds with no error", errors == [])
 ocm = (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").read_bytes()
 lds = [Path(build.OUT / "module" / f"shapes.{s}.ld").read_text() for s in (0, 6)]
-check("the link scripts place the module at 0x020C8000 and 0x020CE000 with room for 6 sectors",
-      "ORIGIN = 0x20c8000, LENGTH = 0x6000" in lds[0] and "ORIGIN = 0x20ce000, LENGTH = 0x6000" in lds[1])
+check("the link scripts place the module at XIP 0x020C4000 and 0x020CA000 (flash 0xC8000 and 0xCE000, less the 0x4000 of FM1_XIP) with room for 6 sectors",
+      "ORIGIN = 0x20c4000, LENGTH = 0x6000" in lds[0] and "ORIGIN = 0x20ca000, LENGTH = 0x6000" in lds[1])
 check("the link scripts put the header first and the code at +0x100, and discard nothing else",
       all("KEEP(*(.modhdr)) . = _modstart + 0x100;" in l for l in lds))
 
@@ -113,7 +113,7 @@ for start, length, crc, off in rows:
                  build.MOD_HDR.unpack_from(img, 0)))
     ok &= h["length"] == length and h["crc"] == zlib.crc32(img[0x100:]) & 0xFFFFFFFF
     ok &= h["hcrc"] == zlib.crc32(img[:build.MOD_HDR.size - 4]) & 0xFFFFFFFF
-    ok &= h["link_addr"] == 0x02000000 + 0xC8000 + start * 0x1000
+    ok &= h["link_addr"] == 0x02000000 - 0x4000 + 0xC8000 + start * 0x1000
 check("every variant: its length, its CRC-32 in the table, the header's length / crc / hcrc, its link address", ok)
 check("the images are the last thing in the file and fill it", rows[-1][3] + rows[-1][1] == len(ocm))
 check("the variants differ only where the link address does (same length, different bytes)",

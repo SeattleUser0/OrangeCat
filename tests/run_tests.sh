@@ -252,7 +252,7 @@ prophet() {
 }
 module_host() {                                   # (Orange Cat 0.10.0, PoC step 3) SHAPES' module source as its own unit, through the table
     $CC -c -O2 $FW -o "$OUT/module_host_tu.o" tests/module_host_tu.c || { fail "compile tests/module_host_tu.c"; return 1; }
-    $CC -O2 $FW -DOC_TEST_ENGINES_RW -o "$OUT/module_host_test" tests/module_host_test.c "$OUT/module_host_tu.o" -lm ||
+    $CC -O2 $FW -o "$OUT/module_host_test" tests/module_host_test.c "$OUT/module_host_tu.o" -lm ||
         { fail "compile tests/module_host_test.c"; return 1; }
     step "SHAPES as a module on the host (Orange Cat 0.10.0, step 3): registration check, 24 presets through the table, hashes equal the built-in engine's and the golden file" \
         "$OUT/module_host_test" tests/golden.txt
@@ -280,6 +280,9 @@ core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut a
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
 core && run "the interface identifier (Orange Cat 0.9.0): the generated header is what the sources give; a comment leaves it, a changed field moves it" sh -c "python3 tools/gen_fw_api_id.py --check build/gen/fw_api_id.h && python3 tools/gen_fw_api_id.py --selftest"
 core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable engine would be given, against the real services" fw_api_test -O1 $FW
+core && t "engine table in RAM (Orange Cat 0.10.0, step 4): register / unregister a module's engine, the refusals, SHAPES built in" engine_table_test:engine_table_test -O1 $FW
+core && t "engine table in RAM (0.10.0, step 4): the module wins the slot (OC_MODULE_WINS 1), unregistering gives the built-in engine back" engine_table_wins:engine_table_test -O1 $FW -DOC_MODULE_WINS=1
+core && t "engine table in RAM (0.10.0, step 4): SHAPES built out, the slot is retired until a module supplies it" engine_table_out:engine_table_test -O1 $FW -DMELODEE_SHAPES=0
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks

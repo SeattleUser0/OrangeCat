@@ -4,6 +4,8 @@
 # The host tests themselves compile with the defaults (every engine), whatever is set here.
 #
 # Revisions:
+#   0.10.0: OC_MODULE_WINS=1: a valid module takes the slot of an engine that is also built in (the proof of concept's SHAPES module); the
+#          built-in SHAPES stays in the image as the fallback when the module is skipped.
 #   0.9.0: DRUM-X in (MELODEE_DRUMX=1, engine 9: Jiant FM's drum engine, eng_drumx.c and drumx_voice.c).
 #   0.5.3: the MELODEE_TRIO switch itself gone (TRIO was the early test voice; it is Melodee's retired engine again).
 #   0.5.1: SHAPES in (engine 14: a Braids-style macro oscillator, eng_shapes.c).
@@ -23,3 +25,4 @@ export MELODEE_DRUMX=1
 export MELODEE_FM6=0
 export MELODEE_P5=0
 export MELODEE_DRUM=0
+export OC_MODULE_WINS=1

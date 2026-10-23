@@ -34,7 +34,7 @@ static const char *const PRESET_CAT[NENGINES] = {
     [8] = "BLULEBOFGPPKPFFFUSUEDDDDDUS",                /* (Orange Cat 0.5.0) MACRO (eng_macro.c MC_PRESETS; 0.5.3: HARP, STRING CHORDS) */
 #endif
     [10] = "DDDD",                                      /* DRUM: the kits (808, 909, SID, SID DIGI) */
-#if MELODEE_SHAPES
+#if MELODEE_SHAPES || OC_MODULES
     [14] = "BLLBPEPKFOOOOKLUSWWEDDDD",                   /* (Orange Cat 0.5.1) SHAPES (eng_shapes.c SH_PRESETS) */
 #endif
     [12] = "KEBRPEGUKRBEEKGSPLUEWEBEO",                 /* FM6, INIT VOICE */

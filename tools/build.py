@@ -253,7 +253,8 @@ def app_flags():
                  "MELODEE_BENCH_SILENT", "MELODEE_FX_PROFILE", "MELODEE_AUDIO_PROFILE", "MELODEE_BATCH_AUDIO", "MELODEE_ADMISSION", "MELODEE_AUDIO_BENCH", "MELODEE_DUAL_CORE", "MELODEE_CACHE_RAM", "MELODEE_CORE1_TEST", "MELODEE_RAM_AUDIO", "MELODEE_HW_EQ", "MELODEE_MOD_CACHE", "MELODEE_CONTROL_FAST", "MELODEE_MIX_FAST", "MELODEE_FX_DORMANT", "MELODEE_RECORD_INDEX", "MELODEE_PROPHET_FAST", "MELODEE_PANEL_FAST", "MELODEE_FM6_FAST", "MELODEE_CZ_FAST", "MELODEE_DRUM_FAST", "MELODEE_SID_FAST", "MELODEE_CAPTURE_FAST",
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
-                 "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX"):   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
+                 "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
+                 "OC_MODULES", "OC_MODULE_WINS"):    # (Orange Cat 0.10.0) loadable engine modules (core.h)
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
@@ -540,7 +541,7 @@ def build_module(name):
     sectors = spec["sectors"]
     variants, ifaces = [], set()
     for start in module_starts(sectors):
-        base = 0x02000000 + lo + start * 0x1000          # flash + the XIP window
+        base = 0x02000000 - 0x4000 + lo + start * 0x1000  # flash offset to XIP: FM1_XIP(off) = 0x02000000 + off - 0x4000 (fm1_xip.h; gen_pack.py's XIP_BASE). 0.10.0 step 4 fix: step 2 had left the 0x4000 out
         ld = mdir / f"{name}.{start}.ld"
         ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {sectors * 0x1000:#x} }}
 SECTIONS {{
