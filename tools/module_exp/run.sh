@@ -67,6 +67,10 @@ total() {       # total FILE: bytes of .text + .rodata* + .data* in an object
     echo "$t"
 }
 
+hexdump_noaddr() {   # hexdump_noaddr ELF: the contents of the loaded sections, the address column dropped
+    "$OBJDUMP" -s "$1" 2>/dev/null | awk '/^ [0-9a-f]+ /{ $1=""; print; next } /^Contents/ {print}'
+}
+
 try() {         # try NAME FLAGS...: one position strategy
     name=$1; shift
     o=$D/$name.o
@@ -78,29 +82,26 @@ try() {         # try NAME FLAGS...: one position strategy
         say "compile: REFUSED: $(grep -m3 -E 'error|unknown|unsupported|not supported' $D/$name.cc.txt | head -c 500 | tr '\n' ' ')"
         return
     fi
-    say "object: code+rodata+data $(total $o) B; sections: $(sect $o)"
+    say "object: code+rodata+data $(total $o) B"
     "$OBJDUMP" -r $o > $D/$name.rel.txt 2>&1
-    n=$(grep -cE '^[0-9a-f]+ +[A-Za-z_0-9]+ ' $D/$name.rel.txt)
-    say "relocations in the object: $n; types: $(awk 'NF>=3 && $1 ~ /^[0-9a-f]+$/ {c[$2]++} END {for (k in c) printf "%s=%d ", k, c[k]}' $D/$name.rel.txt | cut -c1-400)"
-    undef=$("$TC/common/bin/nm" -u $o 2>/dev/null | tr '\n' ' ')
-    [ -x "$TC/common/bin/nm" ] || undef=$("$OBJDUMP" -t $o 2>/dev/null | awk '$0 ~ /\*UND\*/ {printf "%s ", $NF}')
+    say "relocations in the object: $(grep -c ' R_PI32V2_' $D/$name.rel.txt); by type: $(grep -o ' R_PI32V2_[A-Z0-9_]*' $D/$name.rel.txt | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}')"
+    undef=$("$TC/pi32v2/bin/nm" -u $o 2>&1 | tr '\n' ' ')
     say "undefined symbols: ${undef:-none}"
     for at in a b; do
         if "$LD" --gc-sections -e oc_module_entry -T $D/at_$at.ld $o -o $D/$name.$at.elf > $D/$name.ld_$at.txt 2>&1; then
-            "$OBJCOPY" -O binary $D/$name.$at.elf $D/$name.$at.bin 2>/dev/null
-            say "link at $( [ $at = a ] && echo $A || echo $B ): ok, image $(stat -c %s $D/$name.$at.bin) B"
+            say "link at $( [ $at = a ] && echo $A || echo $B ): ok; sections: $(sect $D/$name.$at.elf)"
+            hexdump_noaddr $D/$name.$at.elf > $D/$name.$at.hex
         else
             say "link at $( [ $at = a ] && echo $A || echo $B ): FAILED: $(head -c 300 $D/$name.ld_$at.txt | tr '\n' ' ')"
         fi
     done
-    if [ -f $D/$name.a.bin ] && [ -f $D/$name.b.bin ]; then
-        d=$(cmp -l $D/$name.a.bin $D/$name.b.bin 2>/dev/null | wc -l)
-        say "bytes that differ between the two links: $d of $(stat -c %s $D/$name.a.bin)$( [ "$d" = 0 ] && echo ' (the image is the same at both addresses: no fixup needed)')"
+    if [ -s $D/$name.a.hex ] && [ -s $D/$name.b.hex ]; then
+        say "content lines (16 bytes) that differ between the two links: $(diff $D/$name.a.hex $D/$name.b.hex | grep -c '^<') of $(wc -l < $D/$name.a.hex)"
     fi
-    # relocations the linker can keep (for a loader to apply)
+    # the first link's calls: relocation sites, for a loader to apply
     if "$LD" --gc-sections --emit-relocs -e oc_module_entry -T $D/at_a.ld $o -o $D/$name.r.elf > $D/$name.ld_r.txt 2>&1; then
-        rr=$("$OBJDUMP" -r $D/$name.r.elf 2>/dev/null | grep -cE '^[0-9a-f]+ +[A-Za-z_0-9]+ ')
-        say "ld --emit-relocs: accepted, $rr relocation entries kept in the linked file"
+        say "ld --emit-relocs: accepted; sections: $("$OBJDUMP" -h $D/$name.r.elf | awk '$2 ~ /^\.rel/ {printf "%s ", $2}' | head -c 300); relocation lines in the linked file: $("$OBJDUMP" -r $D/$name.r.elf 2>&1 | grep -c ' R_PI32V2_')"
+        "$OBJDUMP" -r $D/$name.r.elf 2>&1 | grep ' R_PI32V2_' | head -4 | sed 's/^/    /' | tee -a "$REP" > /dev/null
     else
         say "ld --emit-relocs: $(head -c 200 $D/$name.ld_r.txt | tr '\n' ' ')"
     fi
@@ -119,6 +120,7 @@ try long_calls -mlong-calls
 
 # the linker's own position options on the fixed object
 say ""
+say "== ld --help (position and relocation options): $("$LD" --help 2>&1 | grep -iE "pie|shared|emit-relocs|relocatable|dynamic-linker|rosegment|pic" | head -12 | sed "s/  */ /g" | tr "\n" "|")"
 say "== linker options (on the fixed object)"
 for opt in "-pie" "-shared" "--relocatable" "-q" "--no-dynamic-linker" "-z notext"; do
     if "$LD" $opt --gc-sections -e oc_module_entry -T $D/at_a.ld $D/fixed.o -o $D/opt.elf > $D/opt.txt 2>&1; then
