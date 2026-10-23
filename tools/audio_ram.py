@@ -13,6 +13,14 @@ that distance. Calling conventions and function signatures stay unchanged.
 the MACRO engine's models (eng_macro.c) are too big for the SRAM left. The audio
 interrupt never runs while the flash is being written (fm1_flash.h: interrupts off),
 so code in flash is safe there; it only runs slower when it is not in the cache.
+
+(Orange Cat 0.6.1) memcpy and memset live in SRAM (the audio graph reaches them). A
+struct copy or a zeroing in a flash function is an llvm.memcpy / llvm.memset intrinsic
+here, which the backend lowers to a direct call of memcpy / memset after this pass:
+from far enough into the flash image that call is out of branch range ("relocation
+truncated to fit: R_PI32V2_LONG_JUMP_23M2 against symbol memcpy"; 0.6.1's first build,
+from seq_tool_ui). So in flash functions those intrinsics become calls through the same
+volatile pointers (the byte value of a memset widened to the int memset takes).
 """
 import json
 import re
@@ -22,6 +30,30 @@ from pathlib import Path
 FUNCTION = re.compile(r'^define ([^\n]+?)@([\w.]+)\(([^\n]*)\)([^\n]*)\{\n(.*?)^}', re.M | re.S)
 REFERENCE = re.compile(r'@([\w.]+)')
 CALL = re.compile(r'\bcall\b[^\n@]*@([\w.]+)\(')
+# (0.6.1) LLVM 4's typed pointers (i8*, the alignment an argument) and later LLVMs' ptr; the arguments are split by
+# hand (a constant GEP holds commas)
+INTRINSIC = re.compile(r'\bcall void @llvm\.(memcpy|memset)\.p0(?:i8)?(?:\.p0(?:i8)?)?\.i32\(')
+
+
+def intrinsic_args(line, m):
+    """the intrinsic call at m: its arguments (split at the top level) and where its ')' ends"""
+    args, depth, begin = [], 0, m.end()
+    for pos in range(m.end(), len(line)):
+        c = line[pos]
+        if c in '([{<':
+            depth += 1
+        elif c in ')]}>':
+            if not depth:
+                args.append(line[begin:pos].strip())
+                return args, pos + 1
+            depth -= 1
+        elif c == ',' and not depth:
+            args.append(line[begin:pos].strip())
+            begin = pos + 1
+    return None, None
+
+
+TBAA = re.compile(r', !tbaa(?:\.struct)? ![\w.]+')
 ROOTS = {'fm1_alnk0_irq', 'audio_block', 'mix_block', 'ua_audio', 'click_render',
          'p5_worker_kernel', 'fm6_worker_kernel', 'audio_batch_worker', 'audio_batch_parallel', 'p5_batch_kernel', 'fm6_batch_kernel', 'engine_batch_kernel', 'fm1_timer5_irq'}
 CALLBACKS = {'note_on', 'render', 'amp', 'block', 'done', 'alloc', 'legato',
@@ -62,7 +94,7 @@ def function_type(match):
             args_source.append(match[3][begin:pos].strip())
             begin = pos + 1
     for arg in filter(None, args_source):
-        token = re.match(r'(?:void|i\d+|float|double|%[\w.]+)\**|\.\.\.', arg)
+        token = re.match(r'(?:void|ptr|i\d+|float|double|%[\w.]+)\**|\.\.\.', arg)
         if not token:
             raise ValueError(f'Unsupported audio argument type for {match[2]}: {arg}')
         end = token.end()
@@ -123,6 +155,23 @@ def relocate(ir, roots):
             header = header[:-1].rstrip() + ' section ".audio_text" {'
         body = []
         for line in match[5].splitlines():
+            if not ram(sections[name]):             # (0.6.1) a flash function's memcpy / memset: through a pointer
+                m = INTRINSIC.search(line)
+                args, end = intrinsic_args(line, m) if m else (None, None)
+                if args and m[1] in selected and len(args) in (4, 5):
+                    typ = function_type(functions[m[1]])
+                    far[m[1]] = typ
+                    local = f'%audio_far_{len(body)}'
+                    body.append(f'  {local} = load volatile {typ}*, {typ}** @__audio_far_{m[1]}, align 4')
+                    if m[1] == 'memset':            # (memset's byte as the int it takes)
+                        value = args[1].split(None, 1)
+                        body.append(f'  {local}_c = zext i8 {value[1]} to i32')
+                        args[1] = f'i32 {local}_c'
+                    pre = line[:m.start()]                 # (its result named: an unnamed one would take a number)
+                    line = TBAA.sub('', pre[:len(pre) - len(pre.lstrip())] + f'{local}_r = ' + pre.lstrip() +
+                                    f'call {typ.split()[0]} {local}({args[0]}, {args[1]}, {args[2]})' + line[end:])
+                    body.append(line)
+                    continue
             call = CALL.search(line)
             if call and call[1] in functions and sections[name] != sections[call[1]]:
                 # SRAM sections can call each other directly; all fit well
