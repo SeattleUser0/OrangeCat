@@ -5941,6 +5941,61 @@ static int test_pack_notice(void)
     bad += check("pack there: MACRO says nothing about it", !msg_is("PACK MISSING"));
     return bad;
 }
+/* (Orange Cat 0.8.1) power-on: the pack is not there and the project loaded uses MACRO or SHAPES on a track: PACK MISSING once on the
+ * home screen (pack_boot_notice, main.c after project_boot); never with the pack, never for a project without them */
+static int test_pack_boot_notice(void)
+{
+    int bad = 0;
+    uint32_t i;
+    ui_power_on();
+    stop_transport();
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(&tmpl, 0, sizeof tmpl);
+    bootguard.failed = 0;
+    settings_boot = 2;                                   /* BOOT B */
+    for (i = 0; i < NTRK; i++) set_engine_of(&trk[i], 0);
+    set_engine_of(&trk[1], ENGI_SHAPES);
+    project_save(1);
+    set_engine_of(&trk[1], 0);
+    oc_pack_good = 0;
+    ui.msg_t = 0;
+    project_boot();
+    pack_boot_notice(bootguard.failed);
+    bad += check("boot, no pack, a SHAPES track in the project: PACK MISSING", trk[1].eng_req == ENGI_SHAPES && msg_is("PACK MISSING"));
+    ui.msg_t = 0;
+    frames(1500);
+    bad += check("  once: the home screen does not bring it back", !msg_is("PACK MISSING"));
+    set_engine_of(&trk[1], ENGI_MACRO);
+    project_save(1);
+    set_engine_of(&trk[1], 0);
+    ui.msg_t = 0;
+    project_boot();
+    pack_boot_notice(bootguard.failed);
+    bad += check("  a MACRO track too", trk[1].eng_req == ENGI_MACRO && msg_is("PACK MISSING"));
+    oc_pack_good = 1;
+    set_engine_of(&trk[1], 0);
+    ui.msg_t = 0;
+    project_boot();
+    pack_boot_notice(bootguard.failed);
+    bad += check("boot, the pack there: nothing said", trk[1].eng_req == ENGI_MACRO && !msg_is("PACK MISSING"));
+    oc_pack_good = 0;
+    set_engine_of(&trk[1], 0);
+    project_save(1);
+    ui.msg_t = 0;
+    project_boot();
+    pack_boot_notice(bootguard.failed);
+    bad += check("boot, no pack, no MACRO or SHAPES track: nothing said", trk[1].eng_req == 0 && !msg_is("PACK MISSING"));
+    set_engine_of(&trk[1], ENGI_SHAPES);
+    project_save(1);
+    bootguard.failed = 1;
+    ui.msg_t = 0;
+    project_boot();
+    pack_boot_notice(bootguard.failed);
+    bad += check("  a boot the guard skipped: BOOT PROJECT SKIPPED stays", msg_is("BOOT PROJECT SKIPPED"));
+    bootguard.failed = 0;
+    oc_pack_good = 1;
+    return bad;
+}
 #endif
 int main(void)
 {
@@ -5948,6 +6003,7 @@ int main(void)
     int bad = test_boot_maintenance();
 #if OC_PACK_GATE
     bad += test_pack_notice();
+    bad += test_pack_boot_notice();
 #endif
     bad += test_prophet_pages();
     bad += test_large_face();

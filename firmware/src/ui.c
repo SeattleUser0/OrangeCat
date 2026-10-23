@@ -333,6 +333,18 @@ static void pack_notice(uint32_t force)
     if (OC_PACK_READY() || (e != ENGI_MACRO && e != ENGI_SHAPES)) return;
     if (force || !ui.msg_t) ui_message("PACK MISSING");
 }
+/* (Orange Cat 0.8.1) once at power-on, after the project is loaded (main.c, after project_boot, the way "BOOT PROJECT SKIPPED" is
+ * shown): the pack is not there and a track of the project uses MACRO or SHAPES. It replaces the "LOADED" the project load said.
+ * skipped: the boot guard skipped the project or template (their own word stays; nothing of theirs was loaded) */
+static void pack_boot_notice(uint32_t skipped)
+{
+    uint32_t k;
+    if (OC_PACK_READY() || skipped) return;
+    for (k = 0; k < NTRK && k < song.ntrk; k++) {
+        uint32_t e = trk[k].eng_req % NENGINES;
+        if (e == ENGI_MACRO || e == ENGI_SHAPES) { ui_message("PACK MISSING"); return; }
+    }
+}
 #ifndef FRZ_AUDIO
 static uint64_t frz_host_frozen;                        /* (host builds of the UI without card_freeze.c: the phrases the
                                                          * tests mark frozen, bit id - 1) */

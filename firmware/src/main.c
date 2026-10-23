@@ -244,6 +244,7 @@ static void fm1_main(void)
     }
     glo_restore();                            /* CLK TUNE MIDI ROUT as last used, */
     project_boot();                           /* then the BOOT project or the template (theirs win) */
+    pack_boot_notice(bootguard.failed);       /* (Orange Cat 0.8.1) PACK MISSING once, if a track needs the asset pack */
     frz_table_load();                         /* (Orange Cat 0.5.6) the frozen phrases (after persist_boot's pool) */
     fm1_delay_ms(400);
     if (boot_work.state != 2u)
