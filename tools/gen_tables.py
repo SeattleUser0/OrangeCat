@@ -112,14 +112,14 @@ def main(path):
         L += ["#if P5_OVERSAMPLE == 2" if os == 2 else "#else"]
         vals = [math.tan(math.pi * f / (os * FS)) / (1 + math.tan(math.pi * f / (os * FS))) for f in fc]
         g = arr("P5_TPT_G", "float", [f"{v:.9e}f" for v in vals])
-        g[0] = g[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+        g[0] = g[0].replace(" =", ' __attribute__((section(".dsp_tables.P5_TPT_G"))) =')
         L += g
     L += ["#endif"]  # oversampling
     tanh = arr("P5_TANH", "float", [f"{math.tanh(i / 128):.9e}f" for i in range(1025)])
-    tanh[0] = tanh[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    tanh[0] = tanh[0].replace(" =", ' __attribute__((section(".dsp_tables.P5_TANH"))) =')
     L += tanh
     exp2 = arr("P5_EXP2", "float", [f"{2 ** (i / 512):.9e}f" for i in range(514)])
-    exp2[0] = exp2[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    exp2[0] = exp2[0].replace(" =", ' __attribute__((section(".dsp_tables.P5_EXP2"))) =')
     L += exp2
     L += ["#endif"]
     # level: 0 = off, else dB = (v - 112) / 2  (112 = 0 dB, 127 = +7.5 dB)
@@ -130,8 +130,11 @@ def main(path):
     dms = [5.0 * (800 ** (v / 127)) for v in range(128)]
     L += arr("DECAY_K", "uint16_t", [min(65535, int(65536 * math.exp(-6.9 / (m / 1000 * FS)))) for m in dms])
     # soft clip curve for |x| in 0..2 (Q12 in, Q15 out): tanh
+    # (Orange Cat size audit) each RAM table in a section of its own name (.dsp_tables.NAME; app.ld takes .dsp_tables*):
+    # one shared ".dsp_tables" kept every table once any was used, so P5_TANH (4,100 B of flash and of low SRAM) stayed
+    # linked with the Prophet and DRUM engines unhooked
     tanh_q15 = arr("TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
-    tanh_q15[0] = tanh_q15[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    tanh_q15[0] = tanh_q15[0].replace(" =", ' __attribute__((section(".dsp_tables.TANH_Q15"))) =')
     L += tanh_q15
     L += fm6_tables()
     L += sid_tables()
