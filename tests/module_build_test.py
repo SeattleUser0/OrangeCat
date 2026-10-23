@@ -125,6 +125,9 @@ def refused(what, fake, text):
     errs, _ = run(fake)
     check(f"refused: {what}", any(text in e for e in errs))
 
+ok_fake = Fake()
+ok_fake.undef = "         U _modstart\n"
+check("_modstart (the link script's symbol) is not an undefined symbol", run(ok_fake)[0] == [])
 refused("an undefined symbol", (lambda f: (setattr(f, "undef", "         U memcpy\n"), f)[1])(Fake()), "undefined symbols")
 refused("a .data section", (lambda f: (f.sections.update({".data": 4}), f)[1])(Fake()), "no RAM of its own")
 refused("a .bss section", (lambda f: (f.sections.update({".bss": 8}), f)[1])(Fake()), "no RAM of its own")

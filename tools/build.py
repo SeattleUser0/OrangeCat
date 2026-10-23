@@ -531,6 +531,7 @@ def build_module(name):
     obj = mdir / f"{name}.o"
     tc("cc", *flags, "-w", "-c", SRC / spec["src"], "-o", obj)
     undef = [ln.split()[-1] for ln in tc("pi32v2/bin/nm", "-u", obj).splitlines() if ln.strip()]
+    undef = [u for u in undef if u != "_modstart"]            # (the link script defines it: the address the variant is linked for)
     if undef:
         errors.append(f"{name}: undefined symbols {undef}: the firmware's table is a module's only import")
     api_addr = gen_define("FW_API_ADDR")
