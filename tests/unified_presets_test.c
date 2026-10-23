@@ -5,6 +5,7 @@
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
+#include "need_all_engines.h"
 
 static int32_t fm1_enc_take(uint32_t e) { (void)e; return 0; }
 static uint32_t irq_start_race, irq_races;

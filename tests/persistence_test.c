@@ -5,6 +5,9 @@
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
+#ifndef OC_SET_OK                           /* (settings_origin_test.c includes this file and passes with the Orange Cat set) */
+#include "need_all_engines.h"
+#endif
 
 static int32_t fm1_enc_take(uint32_t e) { (void)e; return 0; }
 static uint32_t irq_start_race, irq_races;

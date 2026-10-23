@@ -90,6 +90,15 @@ cd "$(dirname "$0")/.."
 [ "$(uname -s)" = Darwin ] && export DYLD_FALLBACK_LIBRARY_PATH="${DYLD_FALLBACK_LIBRARY_PATH:-/opt/homebrew/lib:/usr/local/lib:/usr/lib}"
 OUT=build/host
 LOG=$OUT/log
+# (Orange Cat 0.8.1) the host tests build every engine in; only oc_pages_test below is built with the Orange Cat set. A CC that
+# carries engine switches would build the preset, backup and storage tests without the engines whose banks they fill:
+# about 20 of their checks fail for that reason alone (tests/need_all_engines.h). Stop here with it said.
+case "${CC:-}" in
+*-DMELODEE_SID=* | *-DMELODEE_CZ=* | *-DMELODEE_FM6=* | *-DMELODEE_P5=* | *-DMELODEE_DRUM=* | *-DMELODEE_MACRO=* | *-DMELODEE_SHAPES=*)
+    echo "run_tests.sh: CC carries engine switches ($CC). The host tests build every engine in; unset them" >&2
+    echo "  (tools/orangecat_engines.sh's set is only for oc_pages_test, which run_tests.sh builds itself)." >&2
+    exit 2 ;;
+esac
 CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
@@ -362,6 +371,14 @@ if core && [ $TABLES = 1 ]; then
     t "Orange Cat pages: every family and SELECT both ways on MACRO and SHAPES, its engine set, sanitizers" \
         oc_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
         -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW
+    # (Orange Cat 0.8.1, Fix 3) the two preset-library tests that also pass with the engines the firmware ships without
+    # (the others fill Prophet, CZ-1, FM6 and DRUM banks as fixtures and need those engines: tests/need_all_engines.h)
+    t "first boot with the Orange Cat engine set: foreign settings, ownership, interrupted cleanup" \
+        settings_origin_oc:settings_origin_test -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 \
+        -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW
+    t "user presets with the Orange Cat engine set: UP_PUT parser, bank round trip, versions" \
+        upreset_oc:upreset_test -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 \
+        -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 $FW
     t "Prophet: all native tone knobs through the panel and sound engine" prophet_knob_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sound designer: native recipes, dependencies, compare, discard and save" designer_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sequencer: tied length/move/delete, eight-level undo/redo, MIDI step entry and playing-step recording" seq_edit_test \

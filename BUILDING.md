@@ -58,6 +58,13 @@ states and off-record note history. Additional SRAM tails remain available.
 Factory banks and cold assets remain in flash; loaded patches and active engine
 state are in SRAM. Old effect values remain readable as inert format padding; the new FX use separate parameter IDs.
 Run the host suite with `MELODEE_RAM_AUDIO=1` when checking this target variant.
+
+The host tests build every engine in, whatever `tools/orangecat_engines.sh` sets for the firmware; the one test built
+with the Orange Cat set is `oc_pages_test` (run_tests.sh does that itself). Do not export those switches into `CC` or
+build the preset, backup and storage tests (`persistence_test`, `preset_boot_reset_test`, `storage_safety_test`,
+`unified_presets_test`, `backup_test`) with them: their fixtures are Prophet, CZ-1, FM6 and DRUM presets, so about 20
+checks fail for want of those engines, not because anything is wrong. A CC with the switches stops `run_tests.sh` with
+the reason, and a by-hand build of those tests stops at an `#error`.
 Both target profiles reject the retired effect processors. Host sound regressions
 validate dry output against the original engines with all effect sends off.
 `tools/usb_audio_stats.py --parts` identifies cuts on each of the four tracks.

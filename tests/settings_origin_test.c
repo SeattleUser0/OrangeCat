@@ -3,6 +3,7 @@
 /* Real boot/import and A/B saves, including the shared PER5 fork collision. */
 #define MELODEE_USB_AUDIO 1
 #define PERSISTENCE_TEST_NO_MAIN
+#define OC_SET_OK 1                        /* (Orange Cat 0.8.1) this one passes built with the Orange Cat engine set too */
 #include "persistence_test.c"
 
 static void fixture(void)
