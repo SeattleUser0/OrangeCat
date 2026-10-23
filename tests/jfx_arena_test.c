@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Orange Cat 0.6.0 rev 2: the effects' memory in an arena of the device's sizes (the linker's numbers from the CI build
- * of 0.6.1 (b3 build): main 53,984 B, low SRAM 23,844 B, data tail 5,368 B, retained tail 4,688 B, cache RAM 28,672 B of which the
+ * of 0.6.1: main 53,984 B, low SRAM 23,844 B, data tail 5,368 B, retained tail 4,688 B, cache RAM 28,672 B of which the
  * UI keeps 14,336 B; the card pool 36,864 B). The real jfx.c and resources.c through the UI test's harness.
  *
  * For each case: some engines' states taken first (as the tracks take them), the cache RAM ready or not, the card pool

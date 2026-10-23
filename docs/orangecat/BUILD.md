@@ -975,6 +975,30 @@ after the project; the folder renamed when an unnamed project is saved with a na
 - A take shared by two projects stays in the folder of the project that made it when the other is renamed.
 - Files with no phrase using them move only with a whole-folder rename.
 
+### Build fix found on the way (tools/audio_ram.py)
+
+The first 0.6.1 build would not link: a struct copy in flash code (seq_tool_ui) became a call of memcpy, which lives in
+SRAM for the audio code, and from that far into the flash the call is out of the processor's branch range. Code
+moving around had pushed it past the line; any new feature could do it again somewhere else. The build now gives flash
+code its own copies of memcpy and memset, and every flash function calls those. A first fix through function pointers
+worked but cost 8 KB of flash.
+
+### Measurements (CI)
+
+| | 0.6.0 (51a6557) | 0.6.1 |
+|---|---|---|
+| Firmware image | 564,852 B | about 570,800 B of 573,440 (2.6 KB free) |
+| RAM .data + .bss | 91,208 B | 92,936 B (the frozen phrases' table: 2 KB, was 1 KB; the folders 0.5 KB) |
+| Effects' arena (total, with cache RAM) | 89,356 B (103,692 B) | 87,884 B (102,220 B) |
+
+The 1.7 KB more fixed RAM comes out of the effects' arena (its data tail bank). Two borderline cases in the memory
+table lose the delay (FX FULL): DRUM FM6 MACRO SHAPES with one frozen take loaded, and DRUM FM6 SID CZ-1 with the
+reverb on CLOUD. Every case the guide promises still holds (tests/jfx_arena_test.c at the new sizes). Putting the
+table in the boot-filled scratch RAM was tried: it took the arena's retained bank instead, which was worse.
+
+**Flash is nearly full.** About 2.7 KB is left. The next feature of any size needs flash freed first (a size review of
+what the image holds, tools/size_report.py, is the place to start).
+
 ### Left to build
 
 - [ ] Deleting takes from the card (the browser only picks).
