@@ -769,16 +769,22 @@ static int pack_protocol(void)
     for (i = 0; i < 4; i++) { pak[8 + i] = (uint8_t)(OC_PACK_HASH >> (8 * i)); pak[12 + i] = (uint8_t)(len >> (8 * i)); }
     { uint32_t c = ocs_crc32(pak + OC_PACK_HDR, len - OC_PACK_HDR); for (i = 0; i < 4; i++) pak[16 + i] = (uint8_t)(c >> (8 * i)); }
     { uint32_t c = ocs_crc32(pak, 508); for (i = 0; i < 4; i++) pak[508 + i] = (uint8_t)(c >> (8 * i)); }
-    a[0] = (uint8_t)(len & 127u); a[1] = (uint8_t)(len >> 7 & 127u); a[2] = (uint8_t)(len >> 14); a[3] = 0;
-    request(ED_PACK_BEGIN, a, 3);
-    bad += check("PACK_BEGIN without its take byte is refused (1), nothing erased", host_wire[5] == 1 && host_pack_erases == 0);
+    a[0] = (uint8_t)(len & 127u); a[1] = (uint8_t)(len >> 7 & 127u); a[2] = (uint8_t)(len >> 14); a[3] = 2;
+    request(ED_PACK_BEGIN, a, 4);
+    bad += check("PACK_BEGIN with a take byte of 2 is refused (1), nothing erased (0 and 1 are accepted and ignored since 0.9.1)", host_wire[5] == 1 && host_pack_erases == 0);
+    a[3] = 0; lg_incomplete = 1;
+    request(ED_PACK_BEGIN, a, 4);
+    bad += check("PACK_BEGIN while the move of the old preset pairs is unfinished is refused (4), nothing erased", host_wire[5] == 4 && host_pack_erases == 0);
+    request(ED_PACK_ERASE, 0, 0);
+    bad += check("... and so is PACK_ERASE (4)", host_wire[5] == 4 && host_pack_erases == 0);
+    lg_incomplete = 0;
     a[0] = 1;
     request(ED_PACK_BEGIN, a, 4);
     bad += check("PACK_BEGIN with another length is refused (1), nothing erased", host_wire[5] == 1 && host_pack_erases == 0);
     a[0] = (uint8_t)(len & 127u);
     song.playing = 1; host_progress = 0;
     request(ED_PACK_BEGIN, a, 4);
-    bad += check("PACK_BEGIN while the transport runs is refused (2), nothing erased", host_wire[5] == 2 && host_pack_erases == 0 && !pk.claimed);
+    bad += check("PACK_BEGIN while the transport runs is refused (2), nothing erased", host_wire[5] == 2 && host_pack_erases == 0);
     song.playing = 0; host_progress = 1;
     request(ED_PACK_BEGIN, a, 4);
     ok = host_wire[5] == 0 && host_pack_erases == 10u && pk.writing;
@@ -806,7 +812,10 @@ static int pack_protocol(void)
     a[0] = 0; request(ED_PACK_ERASE, a, 1);
     bad += check("PACK_ERASE: the area blank, no pack", host_wire[5] == 0 && host_pack[0] == 0xFF && pk.state == PK_MISSING);
     request(ED_PACK_ERASE, 0, 0);
-    bad += check("PACK_ERASE without its take byte is refused (1)", host_wire[5] == 1);
+    bad += check("PACK_ERASE without a take byte is accepted (0): older and newer pages both work", host_wire[5] == 0);
+    a[0] = (uint8_t)(len & 127u); a[1] = (uint8_t)(len >> 7 & 127u); a[2] = (uint8_t)(len >> 14);
+    request(ED_PACK_BEGIN, a, 3);
+    bad += check("PACK_BEGIN without a take byte is accepted (0) too", host_wire[5] == 0 && pk.writing);
     a[0] = 2; request(ED_PACK_ERASE, a, 1);
     bad += check("PACK_ERASE with take 2 is refused (1)", host_wire[5] == 1);
     return bad;

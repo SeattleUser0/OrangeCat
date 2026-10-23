@@ -246,17 +246,19 @@ int main(void)
                      ST_PACK_LO == 0x93000u && st_sector(OBJ_P5BANK0, 0) == ST_PACK_LO &&
                          st_sector(OBJ_P5BANK0 + 4, 1) + ST_SECTOR == ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR &&
                          ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR == 0x9D000u && st_sector(OBJ_SHARED_EXT, 0) == 0x9D000u);
-        bad += check("module area: CZ-1 and native FM6 banks fill 0xC8000..0xDBFFF",
-                     ST_MODULE_LO == 0xC8000u && st_sector(OBJ_CZBANK0, 0) == ST_MODULE_LO && st_sector(OBJ_NATIVEFM0, 0) == 0xD8000u &&
-                         st_sector(OBJ_NATIVEFM0 + 1, 1) + ST_SECTOR == ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR &&
-                         ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR == 0xDC000u);
-        for (o = 0; o < OBJ_COUNT; o++)       /* no object but the engines' own reaches into either area from outside */
+        /* (0.9.1) the module area is 12 sectors: the CZ-1 banks 0..5 (library banks 8..13) fill 0xC8000..0xD3FFF as old pairs;
+         * the sectors from 0xD4000 are the library group's */
+        bad += check("module area: CZ-1 banks 0..5 fill 0xC8000..0xD3FFF (12 sectors)",
+                     ST_MODULE_LO == 0xC8000u && ST_MODULE_SECTORS == 12u && st_sector(OBJ_CZBANK0, 0) == ST_MODULE_LO &&
+                         st_sector(OBJ_CZBANK0 + 5, 1) + ST_SECTOR == ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR &&
+                         ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR == 0xD4000u && st_sector(OBJ_NATIVEFM0, 0) == 0xD8000u);
+        for (o = 0; o < OBJ_LEGACY_COUNT; o++)       /* no object but the engines' own reaches into either area from outside */
             for (k = 0; k < 2u; k++) {
                 uint32_t a = st_sector(o, k), in_pack = a >= ST_PACK_LO && a < ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR,
                          in_mod = a >= ST_MODULE_LO && a < ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR;
                 if (o >= OBJ_PROJECT0 && o < OBJ_PROJECT0 + 4u) continue;           /* retired, overlapping the pack area by design */
                 if ((in_pack && !st_engine_of(o)) || (in_mod && !st_engine_of(o))) ok = 0;
-                if (st_engine_of(o) && !in_pack && !in_mod) ok = 0;
+                if (st_engine_of(o) && !in_pack && !in_mod && !(lg_index_of(st_sector(o, k)) != LG_NONE)) ok = 0;   /* (0.9.1) or a group sector */
             }
         bad += check("only the Prophet, CZ-1 and native FM6 objects live in the two areas", ok);
     }
@@ -266,7 +268,7 @@ int main(void)
         uint32_t e, k, o, calls;
         int ok = 1;
         memset(nor, 0xFF, sizeof nor);
-        for (o = 0; o < OBJ_COUNT; o++) if (!st_retired(o)) ok &= st_save(o, a, 64) == 0;
+        for (o = 0; o < OBJ_LEGACY_COUNT; o++) if (!st_retired(o)) ok &= st_save(o, a, 64) == 0;
         bad += check("nothing is retired by default but the legacy projects", ok && st_engines_off == 0 && !st_retired(OBJ_P5BANK0) && !st_retired(OBJ_CZBANK0) && !st_retired(OBJ_NATIVEFM0));
         for (e = 0; e < 3u; e++) {
             uint8_t before[ST_SECTOR];
@@ -282,7 +284,7 @@ int main(void)
             ok &= !memcmp(before, nor + st_sector(E[e].first, 0), ST_SECTOR);  /* and the sector as it was */
             bad += check("retired engine objects: no record, no write, no flash access", ok);
             ok = 1;                                                            /* the other engines and everything else go on */
-            for (o = 0; o < OBJ_COUNT; o++)
+            for (o = 0; o < OBJ_LEGACY_COUNT; o++)
                 if (!(o >= OBJ_PROJECT0 && o < OBJ_PROJECT0 + 4u) && !(st_engine_of(o) & E[e].bit))
                     ok &= !st_retired(o) && st_load(o, got, sizeof got) == 64 && st_save(o, b, 64) == 0 && st_save(o, a, 64) == 0;
             bad += check("... and every other object still loads and saves", ok);

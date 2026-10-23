@@ -401,8 +401,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if(na==1u && a[0]==4u){
             /* Actual committed headers, including settings (backup inventory
              * exports live preferences). Reads validate object CRCs as usual. */
-            ed_b(0);ed_b(4);ed_b(OBJ_COUNT);
-            for(uint32_t obj=0;obj<OBJ_COUNT;obj++){
+            ed_b(0);ed_b(4);ed_b(OBJ_LEGACY_COUNT);
+            for(uint32_t id=0;id<OBJ_LEGACY_COUNT;id++){
+                /* (0.9.1) the ids are the object numbers they always were; a library bank answers from the group */
+                uint32_t lb=lg_legacy_bank(id),obj=lb<LG_BANKS?OBJ_LIB0+lb:id;
                 st_hdr_t h;int cur=st_current(obj,&h);
                 ed_b(cur>=0);
                 ed_bk_u32(cur>=0?h.len:0);ed_bk_u32(cur>=0?h.crc:0);ed_bk_u32(cur>=0?h.seq:0);
@@ -870,11 +872,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         break;
     }
 #if MELODEE_FLASH || defined(OC_PACK_HOST)
-    case ED_PACK_INFO: {                                   /* -> state (0 none, 1 this build's pack, 2 another build's, 3 damaged), whether the
-                                                            * library's banks it would take hold presets, the stored length (3 x 7 bits), the stored
+    case ED_PACK_INFO: {                                   /* -> state (0 none, 1 this build's pack, 2 another build's, 3 damaged), 0 (it said whether
+                                                            * library banks held presets until 0.9.0; the pack takes none now), the stored length (3 x 7 bits), the stored
                                                             * hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) */
-        uint32_t len, hash, banks, st = oc_pack_info(&len, &hash, &banks);
-        ed_b(st); ed_b(banks);
+        uint32_t len, hash, st = oc_pack_info(&len, &hash);
+        ed_b(st); ed_b(0);
         ed_b(len); ed_b(len >> 7); ed_b(len >> 14);
         for (i = 0; i < 5u; i++) ed_b(hash >> (7u * i));
         ed_b(OC_PACK_LEN); ed_b(OC_PACK_LEN >> 7); ed_b(OC_PACK_LEN >> 14);
@@ -883,21 +885,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         break;
     }
     case ED_PACK_BEGIN: case ED_PACK_WRITE: case ED_PACK_END: case ED_PACK_ERASE: {
-        /* BEGIN length (3 x 7 bits), take (0, or 1 to take the library's banks 16..20 although they hold presets); WRITE offset (3 x 7 bits)
-         * then up to 256 bytes packed 7-bit, in order from byte 512; END the 512-byte header packed 7-bit; ERASE take (0 or 1). -> rc: 0 done,
-         * 1 refused (not this build's pack, out of order, a header that does not match), 2 the flash failed or the transport is running (nothing
-         * is written while it runs: stop it first), 3 the banks hold presets and take was 0; then the bytes written so far (3 x 7 bits) */
+        /* BEGIN length (3 x 7 bits), and a byte 0 or 1 that older pages sent (ignored since 0.9.1: a pack takes no presets); WRITE offset (3 x 7 bits)
+         * then up to 256 bytes packed 7-bit, in order from byte 512; END the 512-byte header packed 7-bit; ERASE with or without that byte.
+         * -> rc: 0 done, 1 refused (not this build's pack, out of order, a header that does not match), 2 the flash failed, the transport is
+         * running (nothing is written while it runs: stop it first) or the move of the old preset pairs has not finished (restart the unit);
+         * then the bytes written so far (3 x 7 bits). rc 3 is no longer given. */
         uint32_t rc = 1, v = na >= 3u ? a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 : 0u, got;
         int r = 0;
-        if (cmd != ED_PACK_ERASE || na == 1u) {
+        if (cmd != ED_PACK_ERASE || na <= 1u) {
             if (transport_busy()) { rc = 2; }
-            else if (cmd == ED_PACK_BEGIN && na == 4u && a[3] <= 1u) r = oc_pack_begin(v, a[3]), rc = r == -1 ? 1u : r == -3 ? 3u : r ? 2u : 0u;
+            else if (cmd == ED_PACK_BEGIN && (na == 3u || (na == 4u && a[3] <= 1u))) r = oc_pack_begin(v), rc = r == -1 ? 1u : r == -4 ? 4u : r ? 2u : 0u;
             else if (cmd == ED_PACK_WRITE && na > 3u && (got = ed_unpack7(a + 3, na - 3u, ed_smp_buf, 256u)) != 0)
                 r = oc_pack_write(v, ed_smp_buf, got), rc = r == -1 ? 1u : r ? 2u : 0u;
             else if (cmd == ED_PACK_END && ed_unpack7(a, na, ed_smp_buf, 512u) == 512u)
                 r = oc_pack_end(ed_smp_buf), rc = r == -1 ? 1u : r ? 2u : 0u;
-            else if (cmd == ED_PACK_ERASE && a[0] <= 1u)
-                r = oc_pack_erase(a[0]), rc = r == -3 ? 3u : r ? 2u : 0u;
+            else if (cmd == ED_PACK_ERASE && (na == 0u || a[0] <= 1u))
+                r = oc_pack_erase(), rc = r == -4 ? 4u : r ? 2u : 0u;
         }
         ed_b(rc); ed_b(pk.done); ed_b(pk.done >> 7); ed_b(pk.done >> 14);
         break;

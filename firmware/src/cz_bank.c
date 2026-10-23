@@ -46,7 +46,7 @@ static cz_bank_t *cz_bank_load(uint32_t k)
         native_cz_cached=255;
 #if MELODEE_FLASH
         bank_claim(BK_CZOLD);
-        int n=flash_ok?st_load(OBJ_CZBANK0+k,&cz_bank_cache,sizeof cz_bank_cache):-1;
+        int n=flash_ok?st_load(up_obj(8u+k),&cz_bank_cache,sizeof cz_bank_cache):-1;
         cz_bank_saved=n==(int)sizeof cz_bank_cache && cz_bank_valid(&cz_bank_cache);
 #else
         cz_bank_cache=cz_banks_host[k];cz_bank_saved=(uint8_t)cz_bank_valid(&cz_bank_cache);

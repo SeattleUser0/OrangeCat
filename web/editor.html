@@ -813,10 +813,11 @@ const req = {
   native: (engine,op,index,...args) => [CMD.NATIVE,[engine,op,index,...args]],
   czBank: bank => [CMD.CZ_BANK,[bank]],
   packInfo: () => [CMD.PACK_INFO, []],
-  packBegin: (len, take) => [CMD.PACK_BEGIN, [len & 0x7F, (len >> 7) & 0x7F, (len >> 14) & 0x7F, take ? 1 : 0]],
+  /* (0.9.1) a pack takes no library bank any more: the last byte is always 0 (firmware before 0.9.1 reads it as "do not take the banks", which keeps them) */
+  packBegin: (len) => [CMD.PACK_BEGIN, [len & 0x7F, (len >> 7) & 0x7F, (len >> 14) & 0x7F, 0]],
   packWrite: (off, bytes) => [CMD.PACK_WRITE, [off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F, ...pack7(bytes)]],
   packEnd: (hdr) => [CMD.PACK_END, pack7(hdr)],
-  packErase: (take) => [CMD.PACK_ERASE, [take ? 1 : 0]],
+  packErase: () => [CMD.PACK_ERASE, [0]],
   czGet: (target,index) => [CMD.CZ_GET,[target,index]],
   czPut: (target,index,raw,pattern=null) => [CMD.CZ_PUT,[target,index,...CZ.nibbles(raw),...(pattern?Array.from({length:16},(_,i)=>patNorm(...(pattern[i]||[0,0]))).flat():[])]],
   uiState: () => [CMD.UI_STATE, []],
@@ -3044,7 +3045,7 @@ const TEXT = {
     fm6Loaded: "読み込みました", fm6Factory: "F1〜F24 はファクトリー音色です。B1〜B32 を選んでください。", fm6BadSum: "チェックサム不一致あり",
     fm6Exported: "バンクを書き出しました",
     motion: "モーション", motionOn: "再生", motionClear: "モーションを消去", motionConfirm: "選択トラックのモーションを消しますか？", chance: "確率 %", motionStep: "ステップ", motionParam: "パラメーター", motionValue: "値",
-    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました", packTitle: "アセットパック", packHelp: "SHAPESとMACROは本体フラッシュ内のパックからテーブルを読みます。正しいパックが無いと音が出ず、画面にPACK MISSINGと出ます。パックは各リリースに付属します(orangecat-VERSION.pak)。入れるとライブラリのバンク16〜20(旧Prophetバンク)を使います。", packInstall: "パックを入れる", packErase: "パックを消す", packState0: "パックは入っていません。", packState1: "パックは入っていて、確認済みです。", packState2: "別のファームウェア用のパックが入っています。", packState3: "入っているパックが壊れています。", packWrongBuild: "このパックはこのファームウェア用ではありません。", packBanks: "ライブラリのバンク16〜20に音色があります。パックを入れると消えます。続けますか？", packEraseConfirm: "パックを消しますか？入れ直すまでSHAPESとMACROは鳴りません。", packEraseBanks: "ライブラリのバンク16〜20に音色があり、これも消えます。続けますか？", packWorking: "パックを書き込み中 ", packDone: "パックを入れました", packErased: "パックを消しました", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした",
+    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました", packTitle: "アセットパック", packHelp: "SHAPESとMACROは本体フラッシュ内のパックからテーブルを読みます。正しいパックが無いと音が出ず、画面にPACK MISSINGと出ます。パックは各リリースに付属します(orangecat-VERSION.pak)。音色は消えません。", packInstall: "パックを入れる", packErase: "パックを消す", packState0: "パックは入っていません。", packState1: "パックは入っていて、確認済みです。", packState2: "別のファームウェア用のパックが入っています。", packState3: "入っているパックが壊れています。", packWrongBuild: "このパックはこのファームウェア用ではありません。", packEraseConfirm: "パックを消しますか？入れ直すまでSHAPESとMACROは鳴りません。", packWorking: "パックを書き込み中 ", packDone: "パックを入れました", packErased: "パックを消しました", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした", packOldFw: "このファームウェアはパックのためにライブラリのバンク16〜20を消します。先にファームウェアを0.9.1以降に更新してください。", packRestart: "本体を再起動してもう一度お試しください。",
     deviceDisplay: "本体の画面",
     deviceDisplayHelp: "FM-1 の画面に反映し、保存します。再生中の変更は停止後に保存されます。",
     devicePresets: "本体のプリセット",
@@ -3138,7 +3139,7 @@ const TEXT = {
     fm6Loaded: "Loaded", fm6Factory: "F1..F24 are the factory patches: pick B1..B32.", fm6BadSum: "a checksum did not match",
     fm6Exported: "Bank exported",
     motion: "Motion", motionOn: "Play motion", motionClear: "Clear motion", motionConfirm: "Clear this track's motion?", chance: "Chance %", motionStep: "Step", motionParam: "Parameter", motionValue: "Value",
-    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks and settings to this computer.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored", packTitle: "Asset pack", packHelp: "SHAPES and MACRO read their tables from a pack kept in the unit's flash. Without the right pack they stay silent and the screen says PACK MISSING. The pack comes with each release (orangecat-VERSION.pak). Installing one takes library banks 16 to 20, the old Prophet banks.", packInstall: "Install pack", packErase: "Erase pack", packState0: "No pack installed.", packState1: "Pack installed and checked.", packState2: "A pack for another firmware is installed.", packState3: "The installed pack is damaged.", packWrongBuild: "This pack is not for this firmware.", packBanks: "Library banks 16 to 20 hold sounds. Installing the pack erases them. Go on?", packEraseConfirm: "Erase the pack? SHAPES and MACRO go silent until a pack is installed.", packEraseBanks: "Library banks 16 to 20 hold sounds and will be erased too. Go on?", packWorking: "Installing pack ", packDone: "Pack installed", packErased: "Pack erased", packStop: "Stop playback first", packFail: "The pack could not be installed",
+    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks and settings to this computer.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored", packTitle: "Asset pack", packHelp: "SHAPES and MACRO read their tables from a pack kept in the unit's flash. Without the right pack they stay silent and the screen says PACK MISSING. The pack comes with each release (orangecat-VERSION.pak). It takes none of your sounds.", packInstall: "Install pack", packErase: "Erase pack", packState0: "No pack installed.", packState1: "Pack installed and checked.", packState2: "A pack for another firmware is installed.", packState3: "The installed pack is damaged.", packWrongBuild: "This pack is not for this firmware.", packEraseConfirm: "Erase the pack? SHAPES and MACRO go silent until a pack is installed.", packWorking: "Installing pack ", packDone: "Pack installed", packErased: "Pack erased", packStop: "Stop playback first", packFail: "The pack could not be installed", packOldFw: "This firmware would erase library banks 16 to 20 to make room. Update the firmware to 0.9.1 or later first.", packRestart: "Restart the unit and try again.",
     deviceDisplay: "Device display",
     deviceDisplayHelp: "Changes apply to the FM-1 screen and save. Changes made while playing save after STOP.",
     devicePresets: "Device presets",
@@ -4007,7 +4008,7 @@ function renderPack() {
   $("pack-state").textContent = t("packState" + Math.min(3, p.state));
   $("pack-erase").disabled = p.state === 0 && !p.len;
 }
-const packCode = (rc) => (rc === 2 ? "packStop" : "packFail");
+const packCode = (rc) => (rc === 2 ? "packStop" : rc === 3 ? "packOldFw" : rc === 4 ? "packRestart" : "packFail");
 $("pack-install").addEventListener("click", () => { if (dev?.pack) $("pack-file").click(); });
 $("pack-file").addEventListener("change", () => {
   const file = $("pack-file").files[0], d = dev; $("pack-file").value = "";
@@ -4019,8 +4020,7 @@ $("pack-file").addEventListener("change", () => {
     if (!magic || bytes.length !== info.buildLen || dv.getUint32(12, true) !== info.buildLen || dv.getUint32(8, true) !== info.buildHash ||
         crc32(bytes.subarray(0, 508)) !== dv.getUint32(508, true) || crc32(bytes.subarray(512)) !== dv.getUint32(16, true))
       throw new Error(t("packWrongBuild"));
-    if (info.banks && !confirm(t("packBanks"))) return;
-    let r = parse[CMD.PACK_BEGIN](await sessionRequest(d, req.packBegin(bytes.length, info.banks)));
+    let r = parse[CMD.PACK_BEGIN](await sessionRequest(d, req.packBegin(bytes.length)));
     if (r.rc) throw new Error(t(packCode(r.rc)));
     for (let off = 512; off < bytes.length; off += 256) {
       r = parse[CMD.PACK_WRITE](await sessionRequest(d, req.packWrite(off, bytes.subarray(off, Math.min(off + 256, bytes.length))), { timeout: 1000 }));
@@ -4035,8 +4035,8 @@ $("pack-file").addEventListener("change", () => {
 });
 $("pack-erase").addEventListener("click", () => op(async () => {
   const d = dev;
-  if (!d?.pack || !confirm(t(d.pack.banks ? "packEraseBanks" : "packEraseConfirm"))) return;
-  const r = parse[CMD.PACK_ERASE](await sessionRequest(d, req.packErase(d.pack.banks), { timeout: 3000 }));
+  if (!d?.pack || !confirm(t("packEraseConfirm"))) return;
+  const r = parse[CMD.PACK_ERASE](await sessionRequest(d, req.packErase(), { timeout: 3000 }));
   await packProbe(d);
   if (r.rc) throw new Error(t(packCode(r.rc)));
   await load(d); sayK("packErased");

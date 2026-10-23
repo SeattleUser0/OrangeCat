@@ -5,8 +5,9 @@
  * (the gate is on in this test, OC_PACK_GATE); an install (begin, write, end) puts the pack in and the engines back; a write torn at
  * EVERY program leaves no pack (never half of one); a bad payload CRC, another build's hash, a wrong length, writes out of order and
  * a sector tail that would read as an update record are refused; a damaged byte is found at the next boot; erase empties the area;
- * the shared preset library's banks 16..20 (the Prophet objects, the pack's place) are protected while a pack is there, and an
- * install asks before it takes them; the loader's tail rule agrees with tools/gen_pack.py's (the same C test on the real pack is in
+ * (0.9.1) the preset library is the group of lib_group.c and not in the pack's area: an install, an erase and a wipe of bank 16 touch no
+ * preset and no pack sector, an old Prophet pair in the area moves into the group at boot BEFORE the pack check, and an install is
+ * refused while that move has not finished; the loader's tail rule agrees with tools/gen_pack.py's (the same C test on the real pack is in
  * tests/run_tests.sh: python3 tools/gen_pack.py --check).
  * The in-memory tables of the host build stand for the device's (OC_PACK_XIP 0): this test is about the pack's flash life. */
 #define OC_PACK_GATE 1
@@ -43,9 +44,9 @@ static void fix_header(uint8_t *pak, uint32_t len)      /* after the test change
 }
 static uint8_t PAK[OC_PACK_AREA];
 /* the install of PAK: 0 the whole of it; else the call that failed (1 begin, 2 write, 3 end) */
-static int install(uint32_t take, int *rc_out)
+static int install(int *rc_out)
 {
-    int rc = oc_pack_begin(OC_PACK_LEN, take);
+    int rc = oc_pack_begin(OC_PACK_LEN);
     if (rc) { *rc_out = rc; return 1; }
     for (uint32_t off = OC_PACK_HDR; off < OC_PACK_LEN; off += 256u) {
         uint32_t n = OC_PACK_LEN - off > 256u ? 256u : OC_PACK_LEN - off;
@@ -60,7 +61,7 @@ static void fresh_flash(void)
     reset();
     memset(&pk, 0, sizeof pk);
     oc_pack_good = 0;
-    st_retire_engines(0);
+    st_retire_engines(7);                     /* (the Orange Cat build: the engines' bank objects retired by the build) */
 }
 static void reboot(void)                      /* the next power-on: the RAM state forgotten, the flash read */
 {
@@ -104,22 +105,22 @@ int main(void)
     /* ---- boot: nothing there */
     oc_pack_boot();
     chk("empty flash: no pack, the gate closed", pk.state == PK_MISSING && !oc_pack_good && !OC_PACK_READY());
-    chk("empty flash: the Prophet objects are the library's (not retired)", !st_retired(OBJ_P5BANK0) && !pk.claimed);
+    chk("empty flash: the Prophet objects are retired by the build, the library is the group's", st_retired(OBJ_P5BANK0) && !st_retired(up_obj(16)));
     chk("without the pack MACRO and SHAPES are silent", peak_of_note(ENGI_MACRO) == 0 && peak_of_note(ENGI_SHAPES) == 0);
 
     /* ---- an install */
     {
         uint32_t before = erases;
-        chk("install: the whole of it", install(0, &rc) == 0 && rc == 0);
+        chk("install: the whole of it", install(&rc) == 0 && rc == 0);
         chk("install: erased the ten sectors once", erases - before == PK_SECTORS);
     }
-    chk("installed: state OK, the gate open", pk.state == PK_OK && oc_pack_good && OC_PACK_READY() && pk.claimed);
+    chk("installed: state OK, the gate open", pk.state == PK_OK && oc_pack_good && OC_PACK_READY());
     chk("installed: the flash holds the pack byte for byte", !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN));
     chk("installed: the Prophet objects retired (read empty, refuse to save)", st_retired(OBJ_P5BANK0 + 4) && st_save(OBJ_P5BANK0, PAK, 64) < 0);
     chk("installed: MACRO and SHAPES sound again", peak_of_note(ENGI_MACRO) > 200 && peak_of_note(ENGI_SHAPES) > 200);
     {
-        uint32_t len, hash, banks, st = oc_pack_info(&len, &hash, &banks);
-        chk("info: this build's pack, its length and hash", st == PK_OK && len == OC_PACK_LEN && hash == OC_PACK_HASH && !banks);
+        uint32_t len, hash, st = oc_pack_info(&len, &hash);
+        chk("info: this build's pack, its length and hash", st == PK_OK && len == OC_PACK_LEN && hash == OC_PACK_HASH);
     }
     reboot();
     chk("reboot: the pack is checked and found, the Prophet objects retired from the first read", pk.state == PK_OK && oc_pack_good && st_retired(OBJ_P5BANK0));
@@ -127,7 +128,7 @@ int main(void)
     /* ---- damaged bytes, another build's pack */
     nor[OC_PACK_LO + 5000] ^= 0x10;
     reboot();
-    chk("a changed payload byte: DAMAGED at boot, the engines silent, the area still the pack's", pk.state == PK_DAMAGED && !oc_pack_good && pk.claimed && st_retired(OBJ_P5BANK0));
+    chk("a changed payload byte: DAMAGED at boot, the engines silent, the area still the pack's", pk.state == PK_DAMAGED && !oc_pack_good && st_retired(OBJ_P5BANK0));
     nor[OC_PACK_LO + 5000] ^= 0x10;
     reboot();
     chk("... put back: OK again", pk.state == PK_OK && oc_pack_good);
@@ -140,7 +141,7 @@ int main(void)
         make_pack(other, OC_PACK_HASH ^ 1u, OC_PACK_LEN);
         memcpy(nor + OC_PACK_LO, other, OC_PACK_LEN);
         reboot();
-        chk("another build's pack (its hash): OTHER, the engines silent, the area kept", pk.state == PK_OTHER && !oc_pack_good && pk.claimed);
+        chk("another build's pack (its hash): OTHER, the engines silent, the area kept", pk.state == PK_OTHER && !oc_pack_good);
         make_pack(other, OC_PACK_HASH, OC_PACK_LEN + 4u);
         memcpy(nor + OC_PACK_LO, other, OC_PACK_LEN + 4u);
         reboot();
@@ -151,12 +152,12 @@ int main(void)
     {
         uint32_t i, blank = 1;
         reboot();
-        chk("erase: done", oc_pack_erase(0) == 0);
+        chk("erase: done", oc_pack_erase() == 0);
         for (i = 0; i < OC_PACK_AREA; i++) blank &= nor[OC_PACK_LO + i] == 0xFF;
         chk("erase: the ten sectors blank, no pack, the engines silent", blank && pk.state == PK_MISSING && !oc_pack_good && peak_of_note(ENGI_MACRO) == 0);
-        chk("erase: the Prophet objects the library's again", !st_retired(OBJ_P5BANK0) && !pk.claimed);
+        chk("erase: the Prophet objects stay retired (the build's), the library is not in the area", st_retired(OBJ_P5BANK0));
         reboot();
-        chk("erase: and so after a reboot", pk.state == PK_MISSING && !st_retired(OBJ_P5BANK0));
+        chk("erase: and so after a reboot", pk.state == PK_MISSING && st_retired(OBJ_P5BANK0));
     }
 
     /* ---- refusals: nothing written */
@@ -164,9 +165,9 @@ int main(void)
         uint32_t before;
         fresh_flash(); oc_pack_boot();
         before = erases;
-        chk("begin refuses another length, erasing nothing", oc_pack_begin(OC_PACK_LEN + 1u, 0) == -1 && oc_pack_begin(0, 0) == -1 && erases == before && !pk.claimed);
+        chk("begin refuses another length, erasing nothing", oc_pack_begin(OC_PACK_LEN + 1u) == -1 && oc_pack_begin(0) == -1 && erases == before);
         chk("write, end without begin are refused", oc_pack_write(OC_PACK_HDR, PAK, 16) == -1 && oc_pack_end(PAK) == -1);
-        chk("begin", oc_pack_begin(OC_PACK_LEN, 0) == 0);
+        chk("begin", oc_pack_begin(OC_PACK_LEN) == 0);
         chk("write out of order is refused", oc_pack_write(OC_PACK_HDR + 16u, PAK, 16) == -1);
         chk("... and the install goes on: the right write is taken", oc_pack_write(OC_PACK_HDR, PAK + OC_PACK_HDR, 16) == 0);
         chk("no pack, no header on the flash", nor[OC_PACK_LO] == 0xFF);
@@ -174,10 +175,10 @@ int main(void)
     {   /* a write past the length; the end before all the data */
         int r;
         fresh_flash(); oc_pack_boot();
-        oc_pack_begin(OC_PACK_LEN, 0);
+        oc_pack_begin(OC_PACK_LEN);
         r = oc_pack_write(OC_PACK_HDR, PAK + OC_PACK_HDR, OC_PACK_LEN - OC_PACK_HDR + 1u);
         chk("a write past the length is refused", r == -1);
-        oc_pack_begin(OC_PACK_LEN, 0);
+        oc_pack_begin(OC_PACK_LEN);
         oc_pack_write(OC_PACK_HDR, PAK + OC_PACK_HDR, 1000);
         chk("end before all the data is refused, no header written", oc_pack_end(PAK) == -1 && nor[OC_PACK_LO] == 0xFF);
     }
@@ -188,18 +189,18 @@ int main(void)
         memcpy(h, PAK, OC_PACK_LEN);
         wr32(h + 16, crc32_of(h + OC_PACK_HDR, OC_PACK_LEN - OC_PACK_HDR) ^ 1u); wr32(h + 508, crc32_of(h, 508));
         memcpy(PAK, h, OC_PACK_LEN);
-        r = install(0, &rc);
+        r = install(&rc);
         chk("a header with a wrong payload CRC is refused at end (3), nothing committed", r == 3 && rc == -1 && pk.state == PK_MISSING && nor[OC_PACK_LO] == 0xFF && !oc_pack_good);
         make_pack(PAK, OC_PACK_HASH ^ 0x100u, OC_PACK_LEN);
-        r = install(0, &rc);
+        r = install(&rc);
         chk("another build's hash is refused at end, nothing committed", r == 3 && rc == -1 && nor[OC_PACK_LO] == 0xFF && !oc_pack_good);
         make_pack(PAK, OC_PACK_HASH, OC_PACK_LEN);
         PAK[508] ^= 1;
-        r = install(0, &rc);
+        r = install(&rc);
         chk("a header whose own CRC fails is refused", r == 3 && rc == -1 && nor[OC_PACK_LO] == 0xFF);
         make_pack(PAK, OC_PACK_HASH, OC_PACK_LEN);
         PAK[OC_PACK_HDR + 500] ^= 0x40;                 /* the payload differs from the CRC in the header */
-        r = install(0, &rc);
+        r = install(&rc);
         chk("a payload that does not match its header's CRC is refused", r == 3 && rc == -1 && nor[OC_PACK_LO] == 0xFF);
         make_pack(PAK, OC_PACK_HASH, OC_PACK_LEN);
     }
@@ -217,11 +218,11 @@ int main(void)
             fix_header(PAK, OC_PACK_LEN);
         }
         chk("the test's record reads as an update record (the rule)", pk_record_like(PAK + 0xF00));
-        r = install(0, &rc);
+        r = install(&rc);
         chk("a pack whose sector tail would read as an update record is refused, no header written", r == 3 && rc == -1 && nor[OC_PACK_LO] == 0xFF && pk.state == PK_MISSING);
         PAK[0xF00 + 7] = 0x55;                           /* one byte off: not a record */
         fix_header(PAK, OC_PACK_LEN);
-        chk("... one byte different: installs", install(0, &rc) == 0 && pk.state == PK_OK);
+        chk("... one byte different: installs", install(&rc) == 0 && pk.state == PK_OK);
         make_pack(PAK, OC_PACK_HASH, OC_PACK_LEN);
     }
 
@@ -232,7 +233,7 @@ int main(void)
             int r;
             fresh_flash(); oc_pack_boot();
             fail_after = (int)k;
-            r = install(0, &rc);
+            r = install(&rc);
             fail_after = -1;
             reboot();
             if (r == 0) { done++; ok &= pk.state == PK_OK && oc_pack_good && !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN); }
@@ -243,32 +244,72 @@ int main(void)
         chk("... cut between the header's two pages: DAMAGED, the engines silent (at least that one case)", half == 1);
     }
 
-    /* ---- the library's banks 16..20 */
+    /* ---- the library and the pack (0.9.1): the group is outside the pack's area */
     {
         up_rec_t r2 = {0};
         uint32_t i, slot = 16u * UP_PER_BANK, before;
+        static uint8_t image[ST_PAYLOAD_MAX];
+        int n;
         r2.used = UP_USED; r2.ver = UP_VER; r2.engine = 9u; r2.np = P_COUNT; strcpy(r2.name, "KEPT");
         for (i = 0; i < P_COUNT; i++) r2.packed[i] = 64;
         fresh_flash(); oc_pack_boot(); up_cache_reset();
-        chk("a preset in bank 16 (a Prophet object) saves", up_put(slot, &r2) == 0 && up_used(slot) && st_exists(OBJ_P5BANK0));
+        chk("a preset in bank 16 saves (into the group, not the pack's area)", up_put(slot, &r2) == 0 && up_used(slot) && st_exists(up_obj(16)));
         {
-            uint32_t len, hash, banks;
-            oc_pack_info(&len, &hash, &banks);
-            chk("info says the banks hold presets", banks == 1);
+            int outside = 1;
+            for (i = 0; i < LG_SECTORS; i++) outside &= lg_addr[i] + ST_SECTOR <= OC_PACK_LO || lg_addr[i] >= OC_PACK_LO + OC_PACK_AREA;
+            chk("every group sector is outside the pack's ten", outside && !st_exists(OBJ_P5BANK0));
         }
-        before = erases;
-        chk("install asks first: begin without taking them is refused (-3), nothing erased", oc_pack_begin(OC_PACK_LEN, 0) == -3 && erases == before && !pk.claimed);
-        chk("erase asks first too", oc_pack_erase(0) == -3 && erases == before);
-        chk("the preset is still there", up_used(slot) && st_exists(OBJ_P5BANK0));
         make_pack(PAK, OC_PACK_HASH, OC_PACK_LEN);
-        chk("install taking them: done", install(1, &rc) == 0);
-        chk("the library forgot them: bank 16 reads empty, saving there fails, flash untouched",
-            !up_used(slot) && !st_exists(OBJ_P5BANK0) && (before = erases, up_put(slot, &r2) != 0) && erases == before);
-        chk("the pack is whole after the failed save", !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN) && pk.state == PK_OK);
-        chk("a wipe of the library skips a retired bank (it would fail the boot's wipe otherwise)", shared_wipe_bank(16, 0) == 0 && !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN));
+        before = erases;
+        chk("install: no question, the ten sectors erased once, nothing else", install(&rc) == 0 && erases - before == PK_SECTORS);
+        chk("... the preset is still there, bank 16 saves again, the pack is whole",
+            up_used(slot) && st_exists(up_obj(16)) && up_put(slot, &r2) == 0 && up_used(slot) && !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN) && pk.state == PK_OK);
+        {
+            int ok = 1;
+            for (uint32_t b = 16u; b < 21u; b++) ok &= up_put(b * UP_PER_BANK + 3u, &r2) == 0;
+            for (uint32_t k = 0; k < 60u; k++) ok &= up_put((16u + k % 5u) * UP_PER_BANK + k % UP_PER_BANK, &r2) == 0;
+            chk("65 saves into banks 16..20 leave the pack byte for byte as it was", ok && !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN) && pk.state == PK_OK);
+        }
+        chk("a wipe of bank 16 is a save like any other (the pack stays whole)", shared_wipe_bank(16, 0) == 0 && !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN) && !up_used(slot));
         chk("another bank saves as before", up_put(0, &r2) == 0 && up_used(0));
-        chk("erase of the pack: no question (nothing of the library is there)", oc_pack_erase(0) == 0 && !st_retired(OBJ_P5BANK0));
-        chk("the banks are the library's again, empty, and save", !up_used(slot) && up_put(slot, &r2) == 0 && up_used(slot));
+        before = erases;
+        chk("erase of the pack: no question, the ten sectors, no preset touched", oc_pack_erase() == 0 && erases - before == PK_SECTORS && up_used(0));
+    }
+    {   /* an old unit: the Prophet banks' pairs hold presets in the pack's area. The boot moves them first; the pack check sees a blank area */
+        up_rec_t r2 = {0};
+        uint32_t i, slot = 17u * UP_PER_BANK + 2u;
+        static uint8_t image[ST_PAYLOAD_MAX];
+        int n, ok;
+        char nm[16];
+        r2.used = UP_USED; r2.ver = UP_VER; r2.engine = 9u; r2.np = P_COUNT; strcpy(r2.name, "OLDPAIR");
+        for (i = 0; i < P_COUNT; i++) r2.packed[i] = 64;
+        fresh_flash(); oc_pack_boot(); up_cache_reset();
+        up_put(slot, &r2);
+        n = st_load(up_obj(17), image, sizeof image);                     /* bank 17 as the group has it ... */
+        memset(nor, 0xFF, sizeof nor);                                   /* ... a unit as 0.9.0 left it: the same bank in its pair */
+        st_retire_engines(0);
+        ok = n > 0 && st_save(OBJ_P5BANK0 + 1, image, (uint32_t)n) == 0 && st_save(OBJ_P5BANK0 + 1, image, (uint32_t)n) == 0;
+        st_retire_engines(7);
+        up_cache_reset();
+        chk("fixture: an old Prophet pair holds a preset in the pack's area", ok && nor[ST_PACK_LO + 2u * ST_SECTOR] == 0x46);
+        ok = up_lg_boot() == 1;                                           /* persist_boot: the move comes before the pack check */
+        oc_pack_boot();
+        up_cache_reset();
+        {
+            int blank = 1;
+            for (i = 0; i < OC_PACK_AREA; i++) blank &= nor[OC_PACK_LO + i] == 0xFF;
+            chk("boot: the pair moved into the group, the pack area blank, no pack found", ok && blank && pk.state == PK_MISSING && up_used(slot) && (up_name(slot, nm), !strncmp(nm, "OLDPAIR", 7)));
+        }
+        make_pack(PAK, OC_PACK_HASH, OC_PACK_LEN);
+        chk("install over the area: the preset stays", install(&rc) == 0 && up_used(slot) && pk.state == PK_OK);
+        /* the move not finished (a flash error at boot): the area may still hold an old pair, so the installer and the eraser refuse */
+        lg_incomplete = 1;
+        {
+            uint32_t before = erases;
+            chk("a move not finished: install and erase are refused (-4), nothing erased",
+                oc_pack_begin(OC_PACK_LEN) == -4 && oc_pack_erase() == -4 && erases == before && !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN));
+        }
+        lg_incomplete = 0;
     }
 
     /* ---- the pack area and the engines' gate on a firmware build without the gate: the tables are the image's */

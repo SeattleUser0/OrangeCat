@@ -30,16 +30,16 @@ int main(void)
     project_load(0);
     bad += check("unreadable project load keeps its flash bytes", !strcmp(ui.msg, "OLD FORMAT") && same_record(old, sizeof old));
 
-    reset(); st_save(OBJ_UPRESET0, old, sizeof old); up_cache_reset();
-    bad += check("live access protects a wrong-shape bank until boot", up_old(0) && up_old(15) && !up_used(0) && same_object(OBJ_UPRESET0, old, sizeof old));
+    reset(); st_save(up_obj(0), old, sizeof old); up_cache_reset();
+    bad += check("live access protects a wrong-shape bank until boot", up_old(0) && up_old(15) && !up_used(0) && same_object(up_obj(0), old, sizeof old));
     up_rec_t rec = {0}; rec.used = UP_USED; rec.ver = UP_VER; rec.engine = 9u; rec.np = P_COUNT; strcpy(rec.name, "NEW");
     for (uint32_t i = 0; i < P_COUNT; i++) rec.packed[i] = 64;
     uint32_t before = erases;
-    bad += check("protocol cannot overwrite an old bank implicitly", up_put(0, &rec) == 2 && erases == before && same_object(OBJ_UPRESET0, old, sizeof old));
+    bad += check("protocol cannot overwrite an old bank implicitly", up_put(0, &rec) == 2 && erases == before && same_object(up_obj(0), old, sizeof old));
     set_engine(9u); user_page(); confirm_open(CF_OVR_USER, 0);
     bad += check("device save asks about the whole old bank", ui.confirm == CF_OVR_USER && up_old_bank(0));
     ui.confirm = 0;
-    bad += check("cancel retains old bank and no write authority", !preset_old_write && same_object(OBJ_UPRESET0, old, sizeof old));
+    bad += check("cancel retains old bank and no write authority", !preset_old_write && same_object(up_obj(0), old, sizeof old));
     confirm_open(CF_OVR_USER, 0); ui.confirm = 0; ui.name_active = 1;
     bad += check("accept opens naming without authorizing protocol writes", ui.name_active && !preset_old_write && up_put(0, &rec) == 2);
     ui.name_active = 0; up_ui_named(2, 0, "NEW");
@@ -48,34 +48,37 @@ int main(void)
     reset(); up_bank_t bank = {0}; bank.magic = UP_BANK_MAGIC; bank.rsize = sizeof(up_rec_t); bank.nslot = UP_PER_BANK;
     bank.r[0] = rec; bank.r[0].ver = 1;
     up_disk_bank_t disk;memset(&disk,0,sizeof disk);disk.magic=UP_DISK_MAGIC;disk.rsize=sizeof(up_disk_rec_t);disk.nslot=UP_PER_BANK;memcpy(disk.r[0].head,&bank.r[0],160u);memcpy(disk.r[0].extra,bank.r[0].cz_extra,46u);
-    st_save(OBJ_UPRESET0,&disk,sizeof disk);up_cache_reset();
+    st_save(up_obj(0),&disk,sizeof disk);up_cache_reset();
     bad += check("unknown record inside current bank stays occupied", up_old(0) && !up_used(0) && !up_old(1));
     up_put(1, &rec); up_cache_reset();
     bad += check("saving another slot retains unknown record bytes", !memcmp(up_rec(0), &bank.r[0], sizeof(up_rec_t)) && up_old(0));
 
-    reset(); st_save(OBJ_NATIVEFM0, old, sizeof old); st_save(OBJ_CZBANK0, old, sizeof old); native_cache_reset();
-    bad += check("live access protects unreadable FM or CZ banks", native_old(ENGI_FM6, 72) && native_old(ENGI_CZ, 144) && same_object(OBJ_NATIVEFM0, old, sizeof old) && same_object(OBJ_CZBANK0, old, sizeof old));
+    reset(); st_save(up_obj(4), old, sizeof old); st_save(up_obj(8), old, sizeof old); native_cache_reset();
+    bad += check("live access protects unreadable FM or CZ banks", native_old(ENGI_FM6, 72) && native_old(ENGI_CZ, 144) && same_object(up_obj(4), old, sizeof old) && same_object(up_obj(8), old, sizeof old));
     before = erases;
     bad += check("native direct saves cannot erase old banks", native_put(ENGI_FM6, 72, FM6_INIT) == 2 && native_put(ENGI_CZ, 144, cz_patch[0].raw) == 2 && erases == before);
     sysex_stage(ENGI_FM6, FM6_INIT, 1, FM6_PACKED);ui.uslot=72;sysex_choose();
-    bad += check("incoming patch waits for old-bank confirmation", ui.confirm == CF_IMPORT && sx_import.count == 1 && same_object(OBJ_NATIVEFM0, old, sizeof old));
+    bad += check("incoming patch waits for old-bank confirmation", ui.confirm == CF_IMPORT && sx_import.count == 1 && same_object(up_obj(4), old, sizeof old));
     preset_old_allow(1); sysex_commit(); preset_old_allow(0);
     bad += check("confirmed import replaces old native bank", !sx_import.count && native_used(ENGI_FM6, 72) && !native_old(ENGI_FM6, 72) && !preset_old_write);
 
-    /* (Orange Cat 0.7.2) the preset library lives in the Prophet, CZ-1 and native FM6 objects: while an engine's area is
-     * retired (an asset pack there) its banks refuse to save and read as empty; the other banks are untouched */
+    /* (Orange Cat 0.7.2, changed in 0.9.1) the library used to live in the Prophet, CZ-1 and native FM6 objects, so a retired
+     * engine area (an asset pack there) took banks away. Now the library is the group (lib_group.c): retiring an engine's
+     * objects refuses and hides those objects only, every library bank reads and saves as before */
     reset(); up_cache_reset();
     {
         up_rec_t r2 = rec; r2.engine = 9u;
         int saved = up_put(16u * UP_PER_BANK, &r2) == 0 && up_put(0, &r2) == 0;
-        bad += check("library: a Prophet-object bank and a plain bank save while nothing is retired", saved && st_exists(up_obj(16)) && st_exists(up_obj(0)));
-        st_retire_engines(ST_ENG_PROPHET); up_cache_reset();
+        bad += check("library: bank 16 and a plain bank save while nothing is retired", saved && st_exists(up_obj(16)) && st_exists(up_obj(0)));
+        st_retire_engines(ST_ENG_PROPHET | ST_ENG_CZ | ST_ENG_FM6); up_cache_reset();
         before = erases;
-        bad += check("library: a retired Prophet bank reads as empty and refuses to save",
-                     !up_used(16u * UP_PER_BANK) && up_put(17u * UP_PER_BANK, &r2) != 0 && erases == before && !st_exists(up_obj(17)));
+        bad += check("library: with every engine's objects retired the library is untouched: banks 16..20 read and save",
+                     up_used(16u * UP_PER_BANK) && up_put(17u * UP_PER_BANK, &r2) == 0 && up_used(17u * UP_PER_BANK) && st_exists(up_obj(17)));
+        bad += check("library: ... and the retired objects themselves still refuse to save and read as empty",
+                     st_retired(OBJ_P5BANK0) && st_save(OBJ_P5BANK0, &r2, sizeof r2) < 0 && !st_exists(OBJ_P5BANK0) && st_retired(OBJ_CZBANK0) && st_retired(OBJ_NATIVEFM0));
         bad += check("library: the other banks still read and save", up_used(0) && up_put(1, &r2) == 0 && up_used(1));
         st_retire_engines(0); up_cache_reset();
-        bad += check("library: the retired bank's data was kept", up_used(16u * UP_PER_BANK));
+        bad += check("library: nothing was lost", up_used(16u * UP_PER_BANK) && up_used(17u * UP_PER_BANK));
     }
 
     reset(); st_save(OBJ_SETTINGS, old, sizeof old); persist_boot();

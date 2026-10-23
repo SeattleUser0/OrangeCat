@@ -169,7 +169,6 @@ static int shared_wipe_bank(uint32_t b,int pending)
     bank->magic=UP_BANK_MAGIC;bank->rsize=sizeof(up_rec_t);bank->nslot=UP_PER_BANK;
     if(pending)memcpy(bank->r[UP_PER_BANK-1u].name,SHARED_WIPE_TAG,12u);
     up_fav_dirty&=~(1u<<b);
-    if(st_retired(up_obj(b)))return 0;     /* (Orange Cat 0.8.0: a bank whose object the asset pack holds is empty already, and not ours to erase) */
     return up_save_bank(b);
 }
 static int shared_wipe(void)
@@ -188,6 +187,7 @@ static int shared_wipe(void)
         if(shared_wipe_bank(UP_BANKS-1u,0))goto failed;
         BOOT_WORK_PROGRESS(++done);
     }
+    lg_scrub();                                /* (0.9.1) no stale copy of the old presets stays in a free sector of the group */
     up_cache_reset();native_cache_reset();if(MELODEE_CZ)cz_bank_boot();   /* (Orange Cat: MELODEE_CZ) */
     for(uint32_t b=0;b<UP_BANKS;b++)(void)up_cache_bank(b);
     for(uint32_t tr=0;tr<NTRK;tr++)trk[tr].user=trk[tr].user_native=0;

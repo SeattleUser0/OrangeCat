@@ -6,7 +6,7 @@
 #define NATIVE_CZ_SLOTS UP_SLOTS
 typedef struct { uint32_t magic; uint16_t ver,slots; uint32_t used; uint8_t tone[16][FM6_PACKED]; } native_fm_t;
 #if MELODEE_FLASH
-static uint32_t native_fm_obj(uint32_t b){return b<2u?OBJ_NATIVEFM0+b:b==2u?OBJ_FM6BANK:OBJ_UPFM6_EXT;}
+static uint32_t native_fm_obj(uint32_t b){return up_obj(b<2u?4u+b:b==2u?6u:7u);}   /* (0.9.1) the group's banks 4, 5, 6, 7 */
 static native_fm_t *bank_fm(void);
 #define native_fm_cache (*bank_fm())
 static uint8_t native_fm_cached=255;

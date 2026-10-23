@@ -32,6 +32,8 @@ static int test_reset(void)
     st_save(OBJ_UPRESET0, old, sizeof old);
     st_save(OBJ_NATIVEFM0, old, sizeof old);
     st_save(OBJ_CZBANK0, old, sizeof old);
+    up_lg_boot();                                   /* (0.9.1) the old pairs move into the library group first; the reset below works on the group */
+    memset(&boot_work, 0, sizeof boot_work); boot_syncs = boot_trace_bad = 0;
     mixed_bank();
     uint32_t app_crc = st_crc32(nor, 0x93000u), before = erases;
     boot_trace = 1; up_boot();

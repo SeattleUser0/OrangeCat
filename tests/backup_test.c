@@ -234,9 +234,9 @@ static int prophet_archive(void)
     bad+=check("out-of-range Prophet slot masks are rejected before an erase",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==2&&erases==before);
     readback=saved[4];readback.patch[23].model=99;
     bad+=check("invalid Prophet wire metadata is rejected before an erase",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==2&&erases==before);
-    up_disk_bank_t disk;int n=st_load(OBJ_P5BANK0+4,&disk,sizeof disk);readback=saved[4];erase_error=1;
+    up_disk_bank_t disk;int n=st_load(up_obj(20),&disk,sizeof disk);readback=saved[4];erase_error=1;
     bad+=check("failed legacy backup commit keeps the previous shared bank",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==4&&n==sizeof disk);erase_error=0;
-    up_disk_bank_t after;bad+=check("failed restore retains committed native bytes",st_load(OBJ_P5BANK0+4,&after,sizeof after)==sizeof after&&!memcmp(&after,&disk,sizeof after));
+    up_disk_bank_t after;bad+=check("failed restore retains committed native bytes",st_load(up_obj(20),&after,sizeof after)==sizeof after&&!memcmp(&after,&disk,sizeof after));
     return bad;
 }
 static int expanded_recording_archive(void)
@@ -445,7 +445,7 @@ int main(void)
     reset();
     {
         uint8_t old[3080]; memset(old, 0x5a, sizeof old);
-        const uint32_t objects[] = {OBJ_SETTINGS, OBJ_UPRESET0, OBJ_NATIVEFM0, OBJ_CZBANK0};
+        const uint32_t objects[] = {OBJ_SETTINGS, up_obj(0), up_obj(4), up_obj(8)};
         const uint32_t ids[] = {1u, 6u, 21u, 9u};
         int intact = 1;
         for (uint32_t k = 0; k < NELEM(objects); k++) intact &= st_save(objects[k], old, sizeof old) == 0;
@@ -471,7 +471,7 @@ int main(void)
         future.packed[0] = 55;memcpy(b.r[4].head,&future,160u);
         bad += check("a bank with a future record version restores byte for byte",
                      put_all(6, &b, sizeof b, st_crc32(&b, sizeof b)) == 0 &&
-                     st_load(OBJ_UPRESET0, &proj_wire, sizeof proj_wire) == (int)sizeof b &&
+                     st_load(up_obj(0), &proj_wire, sizeof proj_wire) == (int)sizeof b &&
                      !memcmp(&proj_wire, &b, sizeof b));
         b.nslot = 3;
         bad += check("a bank with the wrong slot count is refused", put_all(7, &b, sizeof b, st_crc32(&b, sizeof b)) == 2u);

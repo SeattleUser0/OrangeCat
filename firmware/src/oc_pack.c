@@ -2,12 +2,13 @@
  * Orange Cat 0.8.0: the asset pack at run time (oc_pack.h says what it is; tools/gen_pack.py makes it).
  *
  * Where it is
- *   The PACK area of storage.c's flash map: 10 sectors at 0x93000..0x9CFFF, the Prophet banks' five A/B pairs
- *   (OBJ_P5BANK0..+4). Those objects hold banks 16..20 of the shared user preset library, so a pack and those banks cannot
- *   both be there: installing a pack takes the banks (the installer refuses while any holds a preset, unless the caller says
- *   to take them: the editor asks first), and while the pack area is in use (a pack's header there, or an install under way)
- *   storage.c retires the Prophet objects (st_retire_engines): they read as empty and refuse to save, so a preset save can never
- *   erase a pack sector. Erasing the pack gives them back, empty.
+ *   The PACK area of storage.c's flash map: 10 sectors at 0x93000..0x9CFFF. Until 0.9.0 these were the Prophet banks' five A/B
+ *   pairs (OBJ_P5BANK0..+4, banks 16..20 of the user preset library), and a pack could be installed only by taking those banks.
+ *   Since 0.9.1 the library lives in the group of lib_group.c (23 sectors outside this area and the module area); the boot moves
+ *   the old pairs there (once, before the pack check), and the area is the pack's alone. The installer asks nothing and erases
+ *   no preset. The Prophet objects are retired by the build (storage.c ST_RETIRE_BY_BUILD: refused for writing, no record on
+ *   reads), so nothing can write a pack sector through them. One condition: while the move of the old pairs has not finished
+ *   (a flash error at boot, retried at the next) the installer refuses (-4), since an old pair may still be in this area.
  *
  * What is stored
  *   byte 0..511 the header, 512.. the tables (the layout in tools/gen_pack.py). Nothing else; the 256 bytes at the end of each
@@ -30,13 +31,14 @@
  *
  * Revisions:
  *   0.8.0: first version.
+ *   0.9.1: the library is no longer in this area (lib_group.c): no question about banks, no preset erased, the Prophet objects retired
+ *          by the build instead of by the pack's presence; oc_pack_begin(len), oc_pack_erase(), oc_pack_info(len, hash).
  */
 enum { PK_MISSING, PK_OK, PK_OTHER, PK_DAMAGED };           /* oc_pack_state */
 #define PK_SECTORS (OC_PACK_AREA / 0x1000u)
 
 static struct {
     uint8_t state;                                           /* PK_* */
-    uint8_t claimed;                                         /* the area is the pack's (a pack's magic, or an install begun) */
     uint8_t writing;                                         /* an install begun, not ended */
     uint32_t len, done, crc;                                 /* the install's length, bytes written (from OC_PACK_HDR), their CRC so far */
 } pk;
@@ -93,22 +95,7 @@ static int pk_payload_ok(const uint8_t *h)
     }
     return ~crc == pk_rd32(h + 16);
 }
-/* the library's banks 16..20 (the Prophet objects) are read again: their cached index and bank forgotten (a pack took them, or gave
- * them back empty) */
-static void pk_library_forget(void)
-{
-#if MELODEE_FLASH && !defined(UP_HOST)
-    for (uint32_t b = 16u; b < 21u; b++) {
-        if (up_cached == b) up_cached = 255;
-        memset(&up_meta[b * UP_PER_BANK], 0, UP_PER_BANK * sizeof up_meta[0]);
-        up_bank_old &= ~(1u << b);
-        up_migrate &= ~(1u << b);
-    }
-    up_gen++;
-    sync_reload = 1;
-#endif
-}
-/* the state of the area now; oc_pack_good and the retired Prophet objects follow */
+/* the state of the area now; oc_pack_good follows */
 static void oc_pack_scan(void)
 {
     uint8_t h[OC_PACK_HDR];
@@ -116,27 +103,17 @@ static void oc_pack_scan(void)
     if (!st_read(OC_PACK_LO, h, sizeof h)) {
         pk.state = (uint8_t)pk_header_state(h);
         if (pk.state == PK_OK && !pk_payload_ok(h)) pk.state = PK_DAMAGED;
-        if (pk_rd32(h) == OC_PACK_MAGIC) pk.claimed = 1;
     }
-    if (pk.writing) pk.claimed = 1;
     oc_pack_good = pk.state == PK_OK;
-    st_retire_engines(pk.claimed ? ST_ENG_PROPHET : 0u);
-    pk_library_forget();
 }
-static void oc_pack_boot(void)                               /* persist_boot: after the flash is known, before the presets are read */
+static void oc_pack_boot(void)                               /* persist_boot: after the flash is known and the library group is in place (lib_group.c) */
 {
     memset(&pk, 0, sizeof pk);
     oc_pack_scan();
 }
 /* ------------------------------------------------------------------ the interface --- */
-/* state (PK_*), length, hash of the pack there (0 when none), whether the banks it would take hold presets */
-static int pk_banks_used(void)                               /* the shared library's banks 16..20 (the Prophet objects) hold a preset */
-{
-    for (uint32_t k = 16u * UP_PER_BANK; k < 21u * UP_PER_BANK && k < UP_SLOTS; k++)
-        if (up_used(k) || up_old(k)) return 1;
-    return 0;
-}
-static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash, uint32_t *banks_used)
+/* state (PK_*), length, hash of the pack there (0 when none) */
+static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash)
 {
     uint8_t h[OC_PACK_HDR];
     if (len) *len = 0;
@@ -145,7 +122,6 @@ static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash, uint32_t *banks_used
         if (len) *len = pk_rd32(h + 12);
         if (hash) *hash = pk_rd32(h + 8);
     }
-    if (banks_used) *banks_used = pk.claimed ? 0u : (uint32_t)pk_banks_used();
     return pk.state;
 }
 static int pk_erase_all(void)
@@ -157,19 +133,17 @@ static int pk_erase_all(void)
     }
     return 0;
 }
-/* an install of len bytes begins: 0 ok; -1 refused (not this build's length, one under way is replaced: no); -3 the banks hold presets
- * and take was 0; else flash. From here the pack is gone and the engines silent */
-static int oc_pack_begin(uint32_t len, uint32_t take)
+/* an install of len bytes begins: 0 ok; -1 refused (not this build's length, one under way is replaced: no); -4 the move of the old
+ * preset pairs into the group has not finished (an old pair may still be in the area); else flash. From here the pack is gone and
+ * the engines silent. Presets are never in the way (0.9.1). */
+static int oc_pack_begin(uint32_t len)
 {
     int rc;
     if (len != OC_PACK_LEN || len > OC_PACK_AREA) return -1;
-    if (!pk.claimed && !take && pk_banks_used()) return -3;
+    if (lg_incomplete) return -4;
     pk.writing = 0;
-    pk.claimed = 1;                                          /* (the library may not save into the area from here) */
     pk.state = PK_MISSING;
     oc_pack_good = 0;
-    st_retire_engines(ST_ENG_PROPHET);
-    pk_library_forget();
     rc = pk_erase_all();
     if (rc) return rc;
     pk.writing = 1;
@@ -211,17 +185,14 @@ static int oc_pack_end(const void *hdr512)
     oc_pack_scan();
     return pk.state == PK_OK ? 0 : -7;
 }
-/* the area erased: no pack, the Prophet objects the library's again (empty). 0 ok; -1 refused (it holds presets and take is 0) */
-static int oc_pack_erase(uint32_t take)
+/* the area erased: no pack. 0 ok; -4 the move of the old preset pairs has not finished; else flash */
+static int oc_pack_erase(void)
 {
     int rc;
-    if (!pk.claimed && !take && pk_banks_used()) return -3;
+    if (lg_incomplete) return -4;
     pk.writing = 0;
     oc_pack_good = 0;
-    st_retire_engines(ST_ENG_PROPHET);
     rc = pk_erase_all();
     pk.state = PK_MISSING;
-    if (!rc) { pk.claimed = 0; st_retire_engines(0u); }      /* (a failed erase leaves the area the pack's) */
-    pk_library_forget();
     return rc;
 }

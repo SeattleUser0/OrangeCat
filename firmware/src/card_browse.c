@@ -26,9 +26,8 @@
  *     has the folder read again).
  *
  * The asset pack (Orange Cat 0.8.0, oc_pack.c): the list shows the .PAK files too (value "Pack"); OCT+ on one installs it, if it
- *   is this build's (the file's size and header agree with OC_PACK_LEN and OC_PACK_HASH). Library banks 16 to 20 are taken by a pack;
- *   when any holds a preset the first OCT+ says so ("Uses banks 16-20: again") and the same OCT+ on the same file again goes on.
- *   Only while stopped, as every flash write. The browser closes on success ("PACK INSTALLED").
+ *   is this build's (the file's size and header agree with OC_PACK_LEN and OC_PACK_HASH). It takes no preset (0.9.1: the
+ *   library is in the group of lib_group.c, outside the pack area), so there is nothing to ask. Only while stopped, as every flash write. The browser closes on success ("PACK INSTALLED").
  *
  * Revisions:
  *   0.6.1: first version.
@@ -410,7 +409,7 @@ static int fb_install(const fb_ent_t *e)
     uint8_t buf[512];
     FIL *f = &uf_pf;
     UINT got;
-    uint32_t len = OC_PACK_LEN, banks = 0, off;
+    uint32_t len = OC_PACK_LEN, off;
     int rc;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
     if (e->size != len) { str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg); return 1; }
@@ -422,14 +421,7 @@ static int fb_install(const fb_ent_t *e)
         str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg);
         return 1;
     }
-    (void)oc_pack_info(0, 0, &banks);
-    if (banks && fb.ask != (uint8_t)(fb.sel + 1u)) {    /* (the library's banks 16..20 hold presets: asked once) */
-        f_close(f);
-        fb.ask = (uint8_t)(fb.sel + 1u);
-        str_cpy(fb.msg, "Uses banks 16-20: again", sizeof fb.msg);
-        return 1;
-    }
-    if (oc_pack_begin(len, 1u) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    if (oc_pack_begin(len) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
     rc = 0;
     for (off = OC_PACK_HDR; off < len && !rc; off += got) {
         uint32_t n = len - off > sizeof buf ? (uint32_t)sizeof buf : len - off;

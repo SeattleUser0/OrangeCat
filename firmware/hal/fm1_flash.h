@@ -41,7 +41,7 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define FL_GLOB_LO      0x000FC000u                /* Melodee superblock / globals */
 #define FL_GLOB_HI      0x000FF000u
 #define FL_BANK_EXT_LO  0x000E5000u                /* expanded presets and project extension copies; after OTA staging */
-#define FL_BANK_EXT_HI  0x000FB000u
+#define FL_BANK_EXT_HI  0x000FC000u                /* (0.9.1: one sector longer, the library group's initial spare at 0xFB000) */
 #define FL_OTA_LO       0x000E0000u                /* M-UPGRADE loader staging, ota.c */
 #define FL_OTA_HI       0x000E5000u
 /* [off, off + n) inside [lo, hi), without wrapping: off + n can overflow, and
@@ -55,8 +55,8 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
  * only part that needed its own clause */
 #define FL_PACK_LO      0x00093000u                /* 10 sectors */
 #define FL_PACK_HI      0x0009D000u
-#define FL_MODULE_LO    0x000C8000u                /* 20 sectors */
-#define FL_MODULE_HI    0x000DC000u
+#define FL_MODULE_LO    0x000C8000u                /* 12 sectors (0.9.1: was 20, the library group took the top 8) */
+#define FL_MODULE_HI    0x000D4000u
 #define FL_STORE_OK(off, n) (FL_IN(off, n, FL_PACK_LO, FL_PACK_HI) || FL_IN(off, n, FL_MODULE_LO, FL_MODULE_HI) || FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_GLOB_LO, FL_GLOB_HI) || FL_IN(off, n, FL_BANK_EXT_LO, FL_BANK_EXT_HI))
 /* Where the RAM driver may erase / program. The app build allows only its own
  * data regions; the update loader (firmware/loader) defines its own window. */

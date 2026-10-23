@@ -89,7 +89,7 @@ static uint32_t up_fav_dirty;
  * (preset_old_write is scoped to that write). A bank of another shape is old as a whole. */
 static uint32_t up_bank_old;
 static up_bank_t *up_cache_bank(uint32_t b);
-static void up_cache_reset(void) { up_cached=255; memset(up_meta,0,sizeof up_meta); up_bank_old=up_migrate=0; up_migration_error=up_converting=0;up_fav_dirty=0; }
+static void up_cache_reset(void) { lg_ready=0; up_cached=255; memset(up_meta,0,sizeof up_meta); up_bank_old=up_migrate=0; up_migration_error=up_converting=0;up_fav_dirty=0; }
 #else
 static up_bank_t up_banks_host[UP_BANKS] __attribute__((section(".pool")));
 static up_bank_t *up_cache_bank(uint32_t b) { return &up_banks_host[b]; }
@@ -100,18 +100,10 @@ static void up_cache_reset(void) { memset(up_banks_host,0,sizeof up_banks_host);
 static uint8_t preset_old_write;
 static void preset_old_allow(uint32_t allow) { preset_old_write = (uint8_t)allow; }
 
-/* Reuse every former preset object, preserving its numeric backup identity.
- * The final six slots use the previously free 0x9D000/0x9E000 pair. */
+/* (0.9.1) The library lives in the group of lib_group.c: 22 banks in 23 sectors. The numeric backup identity of each bank is
+ * its former object number (ed_bk_preset_bank), which the migration and the lab inventory keep. */
 #if !defined(UP_HOST) && MELODEE_FLASH
-static uint32_t up_obj(uint32_t b)
-{
-    if(b<2u)return OBJ_UPRESET0+b;
-    if(b<4u)return OBJ_UPRESET_EXT0+b-2u;
-    if(b<8u)return b==4u?OBJ_NATIVEFM0:b==5u?OBJ_NATIVEFM0+1u:b==6u?OBJ_FM6BANK:OBJ_UPFM6_EXT;
-    if(b<16u)return OBJ_CZBANK0+b-8u;
-    if(b<21u)return OBJ_P5BANK0+b-16u;
-    return OBJ_SHARED_EXT;
-}
+static uint32_t up_obj(uint32_t b) { return OBJ_LIB0 + b; }   /* (0.9.1) a library bank is a bank of the group (lib_group.c); the old pairs are lg_legacy_obj */
 typedef struct { uint8_t head[160], extra[46]; } up_disk_rec_t;
 typedef struct { uint32_t magic; uint16_t rsize,nslot; up_disk_rec_t r[UP_PER_BANK]; } up_disk_bank_t;
 _Static_assert(sizeof(up_disk_bank_t)<=3808u,"unified presets fit every A/B sector");
@@ -385,12 +377,33 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
 static void shared_boot(void);
 static void native_cache_reset(void);
 
+#if MELODEE_FLASH
+/* (0.9.1) the library group's boot: scan, and move the old A/B pairs in (lib_group.c) with the keep-power screen and its
+ * count while there are banks to move. persist_boot calls it first of all (before the pack check); up_boot calls it again,
+ * which finds nothing to do. */
+static uint8_t up_lg_open;
+static void up_lg_progress(uint32_t done, uint32_t total)
+{
+    if (!done) { BOOT_WORK_BEGIN("MOVING PRESETS", total); up_lg_open = 1; }
+    else { BOOT_WORK_PROGRESS(done); if (done == total) { BOOT_WORK_END(0); up_lg_open = 0; } }
+}
+static int up_lg_boot(void)
+{
+    lg_progress = up_lg_progress;
+    up_lg_open = 0;
+    int rc = lg_boot();
+    lg_progress = 0;
+    if (rc < 0 && up_lg_open) { BOOT_WORK_END(1); up_lg_open = 0; }
+    return rc;
+}
+#endif
+
 static void up_boot(void)                      /* persist_boot: the banks from flash */
 {
 #if MELODEE_FLASH
     up_cache_reset();
-#endif
-#if MELODEE_FLASH
+    if (flash_ok && up_lg_boot() < 0) { up_migration_error = 1; return; }   /* (0.9.1) the group's table; the old pairs move in (persist_boot did it first: nothing
+                                                   * to do then). A move that could not finish locks the writes until the next boot retries it */
     /* shared_boot indexes and converts in source-preserving order. */
 #endif
     native_cache_reset();

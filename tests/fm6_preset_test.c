@@ -72,12 +72,14 @@ int main(void)
     int layout=1;
     /* (the legacy projects are retired: the Prophet banks took their place when the app area grew) */
     #define RETIRED(o) st_retired(o)
-    for(uint32_t a=0;a<OBJ_COUNT;a++)for(uint32_t ac=0;ac<2;ac++){
+    for(uint32_t a=0;a<OBJ_LEGACY_COUNT;a++)for(uint32_t ac=0;ac<2;ac++){
         uint32_t lo=st_sector(a,ac),len=st_banked(a)?5u*ST_SECTOR:ST_SECTOR;
         if(RETIRED(a))continue;
         layout &= !(lo<0xE5000u && lo+len>0xE0000u) && lo>=0x93000u;   /* (above the app area) */
-        for(uint32_t b=a+1;b<OBJ_COUNT;b++)for(uint32_t bc=0;bc<2;bc++){uint32_t blo=st_sector(b,bc),blen=st_banked(b)?5u*ST_SECTOR:ST_SECTOR;if(RETIRED(b))continue;layout &=lo+len<=blo || blo+blen<=lo;}
+        for(uint32_t b=a+1;b<OBJ_LEGACY_COUNT;b++)for(uint32_t bc=0;bc<2;bc++){uint32_t blo=st_sector(b,bc),blen=st_banked(b)?5u*ST_SECTOR:ST_SECTOR;if(RETIRED(b))continue;layout &=lo+len<=blo || blo+blen<=lo;}
     }
+    /* (0.9.1) the library's 23 group sectors take the old pairs' places: none touches the OTA staging, a bank project, an extension or the settings */
+    for(uint32_t i=0;i<LG_SECTORS;i++){uint32_t lo=lg_addr[i];layout &= lo>=0x93000u && !(lo>=0xE0000u && lo<0xE5000u) && !(lo>=0xA0000u && lo<0xC8000u) && !(lo>=0xEA000u && lo<0xFA000u) && !(lo>=0xFC000u && lo!=0xFE000u);}
     bad+=check("native storage stays separate from projects, general presets and OTA",layout);
     bad+=bank_import();
     printf("Native preset test %s\n",bad?"FAILED":"passed");return !!bad;

@@ -1352,6 +1352,8 @@ static void persist_boot(void)                    /* before settings_init / pane
         return;
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP
                                                     * (user sample sets are played from there) */
+    up_lg_boot();                                  /* (0.9.1) the library group first: the old pairs move in before anything touches the */
+                                                   /* areas the pack and the module take (an error is retried at the next boot) */
     oc_pack_boot();                                /* (Orange Cat 0.8.0) the asset pack there? SHAPES and MACRO play only with it */
 #if MELODEE_SLICE
     slc_store_boot();                              /* (the scans read each slot's stored slices) */

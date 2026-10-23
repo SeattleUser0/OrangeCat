@@ -39,7 +39,7 @@ const E = vm.runInNewContext(proto + `
 {
   const C = E.CMD;
   ok(C.PACK_INFO === 115 && C.PACK_BEGIN === 116 && C.PACK_WRITE === 117 && C.PACK_END === 118 && C.PACK_ERASE === 119, "pack: commands 115 to 119");
-  ok(eq(E.req.packBegin(40232, 1)[1], [40232 & 127, (40232 >> 7) & 127, 40232 >> 14, 1]) && E.req.packBegin(40232, 0)[1][3] === 0, "pack: BEGIN is the length (3 x 7 bits) and the take byte");
+  ok(eq(E.req.packBegin(40232)[1], [40232 & 127, (40232 >> 7) & 127, 40232 >> 14, 0]) && E.req.packBegin(40232, 1)[1][3] === 0 && eq(E.req.packErase()[1], [0]), "pack: BEGIN is the length (3 x 7 bits) and a take byte that is always 0 (0.9.1: a pack takes no library bank); ERASE sends 0");
   const w = E.req.packWrite(0x9F00, new Uint8Array(256).fill(0xA5));
   ok(w[0] === 117 && eq(w[1].slice(0, 3), [0x9F00 & 127, (0x9F00 >> 7) & 127, 0x9F00 >> 14]) && w[1].length === 3 + 36 * 8 + 5, "pack: WRITE is the offset and 256 bytes packed 7-bit");
   ok(E.req.packEnd(new Uint8Array(512))[1].length === 73 * 8 + 2, "pack: END is the 512-byte header packed 7-bit");

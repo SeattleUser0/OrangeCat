@@ -14,6 +14,10 @@
  *   st_read(off, dst, n)   st_erase(off)   st_prog(off, src, n)
  *
  * Revisions:
+ *   0.9.1 (Orange Cat): the user preset library moved out of the PACK and MODULE areas into a group of 23 sectors with one shared
+ *          spare (lib_group.c, included at the end of this file). Handles OBJ_LIB0 + bank (22) are the group's banks; the old
+ *          object numbers 5..30 stay, as the old pairs the move at boot reads, and as the ids the lab inventory and the backup
+ *          identity use. The MODULE area is 12 sectors now (was 20). OBJ_LEGACY_COUNT is the old OBJ_COUNT.
  *   0.7.2 (Orange Cat): the flash map below in one place, with its two engine areas named (ST_PACK_LO, ST_MODULE_LO, as
  *         FL_PACK_LO and FL_MODULE_LO in hal/fm1_flash.h); the Prophet, CZ-1 and native FM6 bank objects can be retired
  *         at run time (st_retire_engines): refused for writing, reads give "no record", the object numbers kept. Nothing
@@ -44,8 +48,10 @@
  * native FM6 object is refused for writing (st_save gives -1, the flash untouched) and reads as "no record" (st_head -1),
  * its object number kept so the backup identity and the layout stay. st_retire_engines(mask) sets which engines are off
  * (ST_ENG_PROPHET, ST_ENG_CZ, ST_ENG_FM6). The default is none: the user preset library lives in those objects, and
- * retiring them would take its banks 4, 5 and 8..20 away. Two ways to retire: define ST_RETIRE_BY_BUILD (the engines the
- * build turns off, MELODEE_P5/CZ/FM6 = 0) or call st_retire_engines when an asset pack has taken the area (Step 5) */
+ * retiring them would take its banks 4, 5 and 8..20 away. [Until 0.9.0. Since 0.9.1 the library is in the group of lib_group.c
+ * and these objects are the OLD pairs: only the move at boot reads them.] Retirement is on by build (ST_RETIRE_BY_BUILD, set below
+ * when the engine switches are known: the engines the build turns off, MELODEE_P5/CZ/FM6 = 0); st_retire_engines(mask) still
+ * sets it by hand (the tests do) */
 #define ST_MAGIC 0x554C4546u                   /* "FELU" */
 #define ST_COMPACT_TAG 0x32504D43u             /* CMP2: preset payload begins at byte 32 */
 #define ST_SECTOR 4096u
@@ -57,8 +63,8 @@
 /* (Orange Cat 0.7.2) the two areas the engines can leave to the asset pack and the module (flash map above) */
 #define ST_PACK_LO 0x93000u                    /* 10 sectors: 0x93000..0x9CFFF */
 #define ST_PACK_SECTORS 10u
-#define ST_MODULE_LO 0xC8000u                  /* 20 sectors: 0xC8000..0xDBFFF */
-#define ST_MODULE_SECTORS 20u
+#define ST_MODULE_LO 0xC8000u                  /* 12 sectors: 0xC8000..0xD3FFF */
+#define ST_MODULE_SECTORS 12u                  /* (0.9.1: was 20; 0xD4000..0xDBFFF went to the library group, lib_group.c) */
 #ifdef FL_PACK_LO                              /* the firmware build includes hal/fm1_flash.h first: the two must agree */
 _Static_assert(ST_PACK_LO == FL_PACK_LO && ST_PACK_LO + ST_PACK_SECTORS * 0x1000u == FL_PACK_HI &&
                ST_MODULE_LO == FL_MODULE_LO && ST_MODULE_LO + ST_MODULE_SECTORS * 0x1000u == FL_MODULE_HI, "flash map");
@@ -77,7 +83,9 @@ _Static_assert(ST_PACK_LO == FL_PACK_LO && ST_PACK_LO + ST_PACK_SECTORS * 0x1000
 /* Object numbers 0..19 stay fixed. U33..U64 use E5000..E8FFF;
  * owned FM6 U01..U32 reuse the old bank pair, U33..U64 use E9000/FA000.
  * E0000..E4FFF remains reserved for OTA loader staging. */
-enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_CZBANK0 = OBJ_BANK0 + 4, OBJ_UPRESET_EXT0 = OBJ_CZBANK0 + 8, OBJ_UPFM6_EXT = OBJ_UPRESET_EXT0 + 2, OBJ_NATIVEFM0, OBJ_P5BANK0 = OBJ_NATIVEFM0 + 2, OBJ_SHARED_EXT = OBJ_P5BANK0 + 5, OBJ_COUNT };
+enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_CZBANK0 = OBJ_BANK0 + 4, OBJ_UPRESET_EXT0 = OBJ_CZBANK0 + 8, OBJ_UPFM6_EXT = OBJ_UPRESET_EXT0 + 2, OBJ_NATIVEFM0, OBJ_P5BANK0 = OBJ_NATIVEFM0 + 2, OBJ_SHARED_EXT = OBJ_P5BANK0 + 5,
+       OBJ_LEGACY_COUNT,                                  /* 31: the objects with a number of their own (the old OBJ_COUNT; the lab inventory lists these) */
+       OBJ_LIB0 = OBJ_LEGACY_COUNT, OBJ_COUNT = OBJ_LIB0 + 22 };   /* (0.9.1) OBJ_LIB0 + bank: a library bank in the group (lib_group.c) */
 
 typedef struct {
     uint32_t magic;
@@ -106,8 +114,14 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
     return ~c;
 }
 
-static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
+static uint32_t lg_sector(uint32_t bank);
+static int lg_current(uint32_t bank, st_hdr_t *h), lg_head(uint32_t bank, st_hdr_t *h), lg_save(uint32_t bank, const void *src, uint32_t len);
+static int lg_read_range(uint32_t bank, uint32_t off, void *dst, uint32_t n);
+static uint8_t st_legacy_io;                   /* 1 while the migration reads the old pairs: build-time retirement does not hide them */
+
+static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1); a group bank: its sector now */
 {
+    if (obj >= OBJ_LIB0) return lg_sector(obj - OBJ_LIB0);
     if (obj == OBJ_SHARED_EXT) return 0x9D000u+copy*ST_SECTOR;
     if (obj >= OBJ_P5BANK0) return ST_PACK_LO+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;
     if (obj >= OBJ_NATIVEFM0) return ST_MODULE_LO + 16u * ST_SECTOR + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;   /* 0xD8000 */
@@ -130,13 +144,14 @@ static int st_banked(uint32_t obj) { return obj >= OBJ_BANK0 && obj < OBJ_CZBANK
 /* New preset objects start directly after the commit header, leaving the last
  * 256 bytes erased so the SPL/update loader cannot interpret musical data as OTA. */
 static uint32_t st_payload_off(uint32_t obj) { return obj >= OBJ_UPRESET_EXT0 ? sizeof(st_hdr_t) : ST_PAYLOAD_OFF; }
-static uint32_t st_capacity(uint32_t obj) { return st_banked(obj) ? ST_BANK_BASE_MAX + ST_BANK_EXT_MAX : obj >= OBJ_UPRESET_EXT0 ? ST_SECTOR - 256u - sizeof(st_hdr_t) : ST_PAYLOAD_MAX; }
+static uint32_t st_capacity(uint32_t obj) { return obj >= OBJ_LIB0 ? ST_PAYLOAD_MAX : st_banked(obj) ? ST_BANK_BASE_MAX + ST_BANK_EXT_MAX : obj >= OBJ_UPRESET_EXT0 ? ST_SECTOR - 256u - sizeof(st_hdr_t) : ST_PAYLOAD_MAX; }
 static int st_preset_object(uint32_t obj)
 {
     return (obj>=OBJ_UPRESET0 && obj<OBJ_BANK0) || (obj>=OBJ_CZBANK0 && obj<OBJ_COUNT);
 }
 static uint32_t st_payload_off_header(uint32_t obj,const st_hdr_t *h)
 {
+    if(obj>=OBJ_LIB0)return h->rsv[0]==ST_COMPACT_TAG ? sizeof(st_hdr_t) : ST_PAYLOAD_OFF;
     return st_preset_object(obj) && h->rsv[0]==ST_COMPACT_TAG ? sizeof(st_hdr_t) : st_payload_off(obj);
 }
 static uint32_t st_extension(uint32_t obj, uint32_t copy)
@@ -168,6 +183,7 @@ static uint32_t st_address(uint32_t obj,uint32_t copy,uint32_t off,uint32_t *spa
 static int st_read_range(uint32_t obj, uint32_t copy, uint32_t off, void *dst, uint32_t n)
 {
     if (obj >= OBJ_COUNT || copy > 1u || off > st_capacity(obj) || n > st_capacity(obj) - off) return -1;
+    if (obj >= OBJ_LIB0) return lg_read_range(obj - OBJ_LIB0, off, dst, n);
     uint8_t *d = dst;
     while (n) {
         uint32_t span, addr = st_address(obj, copy, off, &span), k = n < span ? n : span;
@@ -182,6 +198,12 @@ static uint8_t st_buf[256] __attribute__((aligned(4)));
 /* the legacy single-pattern projects (OBJ_PROJECT0..+3): retired, their numbers reserved */
 /* (Orange Cat 0.7.2) the engine that owns a bank object, as a mask bit (0: none) */
 enum { ST_ENG_PROPHET = 1, ST_ENG_CZ = 2, ST_ENG_FM6 = 4 };
+/* (0.9.1) On wherever the engine switches are known (the device build, and every host test that includes core.h or sets them): an
+ * engine the build leaves out has its bank objects retired. The library no longer lives in them (lib_group.c), so nothing is lost;
+ * the move of the old pairs reads them past the retirement (st_legacy_io) once, and erases them. */
+#if defined(MELODEE_P5) && defined(MELODEE_CZ) && defined(MELODEE_FM6) && !defined(ST_RETIRE_BY_BUILD)
+#define ST_RETIRE_BY_BUILD 1
+#endif
 #ifdef ST_RETIRE_BY_BUILD
 static uint8_t st_engines_off = (MELODEE_P5 ? 0 : ST_ENG_PROPHET) | (MELODEE_CZ ? 0 : ST_ENG_CZ) | (MELODEE_FM6 ? 0 : ST_ENG_FM6);
 #else
@@ -201,7 +223,8 @@ static int st_retired(uint32_t obj)
 
 static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record valid: 0 */
 {
-    if (obj >= OBJ_COUNT || copy > 1u || st_retired(obj))
+    if (obj >= OBJ_LIB0 && obj < OBJ_COUNT) return copy ? -1 : lg_head(obj - OBJ_LIB0, h);
+    if (obj >= OBJ_COUNT || copy > 1u || (st_retired(obj) && !st_legacy_io))
         return -1;
     if (st_read(st_sector(obj, copy), h, sizeof *h))
         return -1;
@@ -233,6 +256,7 @@ static int st_body(uint32_t obj, uint32_t copy, const st_hdr_t *h)   /* streamin
 static int st_current(uint32_t obj, st_hdr_t *h)
 {
     st_hdr_t a, b;
+    if (obj >= OBJ_LIB0 && obj < OBJ_COUNT) return lg_current(obj - OBJ_LIB0, h);
     int va = st_head(obj, 0, &a) == 0, vb = st_head(obj, 1, &b) == 0;
     if (vb && (!va || (b.seq != a.seq && b.seq - a.seq < 0x80000000u))) {
         if (st_body(obj, 1, &b) == 0) {
@@ -279,6 +303,7 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     st_hdr_t h;
     if (obj >= OBJ_COUNT || st_retired(obj) || len > st_capacity(obj))
         return -1;
+    if (obj >= OBJ_LIB0) return lg_save(obj - OBJ_LIB0, src, len);
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
@@ -315,3 +340,5 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     }
     return 0;
 }
+
+#include "lib_group.c"

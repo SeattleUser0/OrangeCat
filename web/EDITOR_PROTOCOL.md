@@ -455,10 +455,11 @@ of a step (v5) play their General MIDI notes on it, and `UP_GET` / `UP_PUT` kind
 drum pages (the grid and the levels) show for engines 9 and 10. A firmware without DRUM-X reports engine 9 as "-" and plays a
 track that holds it silent; an old sound of PHYS (engine 9, not a drum) now plays as a DRUM-X kit.
 
-## Orange Cat: the asset pack (commands 115-119, firmware 0.8.0)
+## Orange Cat: the asset pack (commands 115-119, firmware 0.8.0; no library banks taken since 0.9.1)
 
 SHAPES and MACRO read 57 constant tables (40,232 bytes) from a pack kept in the PACK area of the flash map
-(storage.c: 10 sectors at 0x93000..0x9CFFF, the Prophet banks' five A/B pairs). `tools/gen_pack.py` makes the pack
+(storage.c: 10 sectors at 0x93000..0x9CFFF; until 0.9.0 the Prophet banks' five A/B pairs, since 0.9.1 the pack's alone: the user
+preset library lives in 23 other sectors, `firmware/src/lib_group.c`). `tools/gen_pack.py` makes the pack
 with the firmware (`orangecat-VERSION.pak`) and the pointer header the firmware is built with. The pack's first 512
 bytes are its header: magic "OCPK" (0x4B50434F), version 1, flags, the table hash (u32 at 8), the length (u32 at 12),
 the payload CRC-32 (zlib, at 16) and a CRC-32 of bytes 0..507 (at 508). The firmware accepts only a pack with its own
@@ -470,16 +471,18 @@ write is refused while the transport runs (rc 2): stop it first, as for the samp
 
 | Command | Request | Reply |
 |---|---|---|
-| 115 PACK_INFO | - | state (0 none, 1 this build's pack, 2 another build's, 3 damaged), banks (1 when library banks 16..20 hold presets), stored length (3 x 7 bits), stored hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) |
-| 116 PACK_BEGIN | length (3 x 7 bits), take (0 or 1) | rc, bytes written (3 x 7 bits). The pack there is gone and the 10 sectors are erased |
+| 115 PACK_INFO | - | state (0 none, 1 this build's pack, 2 another build's, 3 damaged), 0 (until 0.9.0: 1 when library banks 16..20 held presets; a pack takes none now), stored length (3 x 7 bits), stored hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) |
+| 116 PACK_BEGIN | length (3 x 7 bits), optionally a byte 0 or 1 (ignored since 0.9.1; older pages send it) | rc, bytes written (3 x 7 bits). The pack there is gone and the 10 sectors are erased |
 | 117 PACK_WRITE | offset (3 x 7 bits), pack7 data (up to 256 bytes) | rc, bytes written. The first offset is 512; each is where the last write ended |
 | 118 PACK_END | pack7 header (512 bytes) | rc, bytes written. The header must agree with the data and the build; it is programmed last (the commit) |
-| 119 PACK_ERASE | take (0 or 1) | rc, bytes written. The area erased; the Prophet banks are the library's again, empty |
+| 119 PACK_ERASE | optionally a byte 0 or 1 (ignored since 0.9.1) | rc, bytes written. The area erased; no preset is touched |
 
 rc: 0 done, 1 refused (not this build's length, out of order, a header that does not match), 2 the flash failed or
-the transport is running, 3 library banks 16..20 hold presets and take was 0. A pack takes those banks: the editor
-asks first and sends take 1. While the area is a pack's, the Prophet bank objects read as empty and refuse to save, so
-a preset save cannot erase a pack sector. A write torn anywhere leaves no header, so the pack reads as missing, never
+the transport is running, 3 never given since 0.9.1 (firmware before it: library banks 16..20 hold presets and the take byte was 0; a
+page sending take 0 keeps them), 4 the move of the old preset pairs into the library group has not finished (restart the unit;
+BEGIN and ERASE only; the area may still hold an old pair). A pack takes no preset since 0.9.1: the editor asks nothing, and a
+firmware before 0.9.1 answering rc 3 means the unit must be updated first. The Prophet bank objects are retired by the build
+(refused for writing, no record on reads), so nothing can write a pack sector through them. A write torn anywhere leaves no header, so the pack reads as missing, never
 half installed. The update loader erases a sector whose last 256 bytes look like one of its update records;
 `gen_pack.py` lays the tables out so none does, and PACK_END tests the same rule.
 
@@ -516,6 +519,13 @@ range, target, foot, breath and aftertouch the same, Dexed velocity, ENGINE 0 MO
 record saved before them: Dexed's defaults. Remaining bytes are reserved; the final uint32 is FNV-1a over every
 preceding byte. The inner motion record's reserved byte 0
 is 1 when bank tags accompany it. Duplicate (place,param) events are valid on different banks only.
+
+Library (0.9.1): the 22 user preset banks are no longer 22 A/B pairs but one group of 23 sectors with a shared spare
+(`firmware/src/lib_group.c`): a sector's commit record names the group (type 0x100), the bank (slot 0..21) and that bank's
+save counter; a save goes to the free sector, header last, and the sector the bank left is the new spare. The ids of the
+inventory (command 4's `lab` list, 31 objects) and of BACKUP_LIST stay the old object numbers; a library bank answers from the
+group. A backup made by 0.9.0 or earlier restores into the group unchanged; firmware before 0.9.1 cannot find banks that
+0.9.1 moved: back up before installing it.
 
 Flash objects 8..11 have two five-sector copies each at 0xA0000..0xC7FFF; CRC-verified payload precedes
 its header-last commit. The old single-sector project objects remain readable for migration. Old FUN8,
