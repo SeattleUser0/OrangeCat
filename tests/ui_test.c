@@ -1986,165 +1986,33 @@ static int32_t ring_vx(uint32_t c)
     uw = uu[0] ? text_w(TY_LB, uu) + 2 : 0;
     return RX(c) + COL_W / 2 - (text_w(TY_TX, w) + uw) / 2;
 }
+/* (Orange Cat 0.7.0) values change at once (the rolling digits are gone): the frame after a change is the static
+ * render; only the changed card (or the header's BPM strip) differs from the frame before; a fast turn, the header BPM
+ * and MONO too */
 static int test_roll(void)
 {
     int bad = 0, ok;
-    uint32_t k, n, e, id;
-    int32_t up, down, st;
-    static const struct { const char *a, *b; int d; } DIRS[] = {
-        {"120", "121", 1}, {"121", "120", -1}, {"129", "130", 1}, {"-12", "-13", -1}, {"-13", "-12", 1}, {"+5", "+6", 1},
-        {"1.25", "1.30", 1}, {"0.9", "0.8", -1}, {"9", "10", 0}, {"0", "-1", 0}, {"+5", "-5", 0}, {"C3", "C4", 0},
-        {"1/4", "1/8", 0}, {"OFF", "ON", 0}, {"2X", "4X", 0}, {"120", "120", 0}, {"123456", "123457", 1},
-        {"1234567", "1234568", 0}, {"12%", "13%", 0}};
-
-    ok = 1;
-    for (k = 0; k < sizeof DIRS / sizeof DIRS[0]; k++)
-        if (roll_dir(DIRS[k].a, DIRS[k].b) != DIRS[k].d) { printf("  roll_dir %s -> %s\n", DIRS[k].a, DIRS[k].b); ok = 0; }
-    bad += check("roll: numbers of one shape roll by the sign of the change; names, length, sign changes snap", ok);
-    ok = 1;                                         /* every page of every engine: names never roll, numbers do */
-    n = 0;
-    for (e = 0; e < NENGINES; e++)
-        for (id = 0; id < NPAGES && eng_ok(e); id++) {
-            uint32_t c;
-            ui_power_on(); set_engine_of(TSEL, e);
-            ui.home = 0; ui.page = (uint8_t)id; page_entered();
-            if (!page_visible(id) || PAGES[id].graph == GR_MOD) continue;
-            ui.force = 1; ui_draw();
-            for (c = 0; c < 4u; c++) {
-                int16_t *vp;
-                const param_desc_t *d = PAGES[id].scope == SC_GLOBAL || PAGES[id].scope == SC_TRACK ||
-                                        PAGES[id].scope == SC_ENGINE ? page_desc(cur_page(), c, &vp) : 0;
-                int32_t v, v0;
-                if (!d || !d->label || d->label[0] == '-' || ((act_cols() >> c) & 1u)) continue;
-                v0 = *vp;
-                for (v = d->min; v < d->max && v - d->min < 40; v++) {
-                    *vp = (int16_t)v; ui.frame += ROLL_SNAP; draw_columns();
-                    *vp = (int16_t)(v + 1); ui.frame += ROLL_SNAP; draw_columns();
-                    if (ui.roll[c].from[0] && (d->fmt == F_ENUM || d->fmt == F_NOTE || d->fmt == F_ONOFF)) {
-                        printf("  %s/%s %s: %s rolls\n", ENGINES[e]->name, PAGES[id].title, d->label, ui.roll[c].from);
-                        ok = 0;
-                    }
-                    n += ui.roll[c].from[0] != 0;
-                }
-                *vp = (int16_t)v0;
-            }
-        }
-    ok &= n > 500u;
-    bad += check("roll: every page and engine: a name (enum, even ALG 1..8, note, ON/OFF) snaps, numbers roll", ok);
-
-    /* TUNE 0 -> 1 (card 4): a roll of ROLL_FRAMES frames, the last one the static render */
+    uint32_t k;
     ui_power_on(); roll_settle();
-    turn(EN_K4, 1);
-    ok = song.g[G_TUNE] == 1 && str_eq(ui.roll[3].from, "0") && ui.roll[3].dir == 1;
-    for (n = 1; ui.roll[3].from[0] && n < 20u; n++) frame();
-    ok &= n == ROLL_FRAMES;
-    bad += check("roll: a card's value rolls for 9 frames (TUNE 0 -> 1), the value itself at once", ok);
-    bad += check("roll: the roll's last frame is pixel-identical to the static render", roll_static_now());
-
-    /* mid-roll: only the value strip differs from the static render */
-    ui_power_on(); roll_settle();
-    turn(EN_K4, 1); frame(); frame(); frame();
     memcpy(roll_shot, host_screen, sizeof roll_shot);
-    ui.force = 1; ui_draw();                       /* (snaps: the static render) */
-    ok = roll_diff(STRIP(3), 0) == 0 && roll_diff(STRIP(3), 1) > 20u && !ui.roll[3].from[0];
-    bad += check("roll: a mid-roll frame differs from the static render inside the value strip only", ok);
-
-    /* BPM 120 -> 121 (SEQ > TEMPO KNOB 1): the header rolls, the digits 1 and 2 stay; the BPM card too (no unit:
-     * the label says BPM: set in M, it rolls like any number) */
+    turn(EN_K4, 1);
+    ok = song.g[G_TUNE] == 1 && roll_diff(RX(3), Y_LABEL, RX(3) + COL_W, Y_LABEL + COL_H, 1) > 20u &&
+         roll_diff(RX(3), Y_LABEL, RX(3) + COL_W, Y_LABEL + COL_H, 0) == 0;
+    ok &= roll_static_now();
+    bad += check("values: TUNE 0 -> 1 shows at once; only its card changed", ok);
     ui_power_on(); roll_settle_on("TEMPO");
+    memcpy(roll_shot, host_screen, sizeof roll_shot);
     turn(EN_K1, 1);
-    ok = song.g[G_BPM] == 121 && str_eq(ui.roll[ROLL_BPM].from, "120") && ui.roll[ROLL_BPM].dir == 1 &&
-         str_eq(ui.roll[0].from, "120") && ui.roll[0].dir == 1;
-    frame(); frame();
-    memcpy(roll_shot, host_screen, sizeof roll_shot);
-    ui.force = 1; ui_draw();
-    n = roll_diff(BPM_X, 0, BPM_X + BPM_W, H_HEAD, 1);
-    ok &= n > 20u && roll_diff(BPM_X, 0, BPM_X + BPM_W, H_HEAD, 0) == roll_diff(STRIP(0), 1);   /* (+ the card's strip) */
-    ok &= roll_diff(BPM_X, 0, BPM_X + text_w(TY_TX, "12"), H_HEAD, 1) == 0;
-    ok &= roll_diff(ring_vx(0), VY, ring_vx(0) + text_w(TY_TX, "12"), VY + ROLL_H, 1) == 0;
-    /* TUNE 10 -> 11 on a card: the 1 stays */
-    ui_power_on(); song.g[G_TUNE] = 10; roll_settle();
-    turn(EN_K4, 1); frame(); frame();
-    memcpy(roll_shot, host_screen, sizeof roll_shot);
-    ui.force = 1; ui_draw();
-    ok &= song.g[G_TUNE] == 11 && roll_diff(STRIP(3), 1) > 20u && roll_diff(STRIP(3), 0) == 0;
-    ok &= roll_diff(ring_vx(3), VY, ring_vx(3) + text_w(TY_TX, "1"), VY + ROLL_H, 1) == 0;
-    bad += check("roll: header BPM 120 -> 121 and a card 10 -> 11: only the strip changes, unchanged digits stay put", ok);
-
-    /* the direction: 5 -> 6 and -5 -> -6 at frame 4: the new digit comes from below (up) / above (down) */
-    ui_power_on(); song.g[G_TUNE] = 5; roll_settle();
-    st = roll_ink_row(host_screen, ring_vx(3), ring_vx(3) + 11, VY, VY + ROLL_H);
-    turn(EN_K4, 1); frame(); frame(); frame();
-    up = roll_ink_row(host_screen, ring_vx(3), ring_vx(3) + 11, VY, VY + ROLL_H);
-    ok = ui.roll[3].dir == 1;
-    ui_power_on(); song.g[G_TUNE] = 7; roll_settle();
-    turn(EN_K4, -1); frame(); frame(); frame();
-    down = roll_ink_row(host_screen, ring_vx(3), ring_vx(3) + 11, VY, VY + ROLL_H);
-    ok &= ui.roll[3].dir == -1 && st > 0 && up > st + 16 && down < st - 16;
-    ui_power_on(); song.g[G_TUNE] = -5; roll_settle();
-    turn(EN_K4, -1);
-    ok &= song.g[G_TUNE] == -6 && str_eq(ui.roll[3].from, "-5") && ui.roll[3].dir == -1;
-    bad += check("roll: an increase rolls up, a decrease down (-5 -> -6 is down)", ok);
-
-    /* retarget: a change mid-roll restarts from the value it was going to; a fast turn snaps */
-    ui_power_on(); song.g[G_TUNE] = 1; roll_settle();
-    turn(EN_K4, 1); frame(); frame(); frame();
-    turn(EN_K4, 1);
-    ok = song.g[G_TUNE] == 3 && str_eq(ui.roll[3].from, "2") && (uint8_t)(ui.frame - ui.roll[3].t0) == 0;
-    for (n = 1; ui.roll[3].from[0] && n < 20u; n++) frame();
-    ok &= n == ROLL_FRAMES && roll_static_now();
-    bad += check("roll: a change mid-roll retargets (from the last value, restarted) and ends static", ok);
-    ui_power_on(); song.g[G_TUNE] = 1; roll_settle();
-    turn(EN_K4, 1); turn(EN_K4, 1);
-    ok = song.g[G_TUNE] == 3 && !ui.roll[3].from[0] && roll_static_now();
-    bad += check("roll: a change within 40 ms of the last one snaps (a fast turn)", ok);
-    /* the header BPM snapping (a fast turn mid-roll, 99 -> 100): the new value drawn that frame, no roll frame left */
-    ui_power_on(); roll_settle_on("TEMPO");
-    turn(EN_K1, 1); frame(); turn(EN_K1, 1);
-    ok = song.g[G_BPM] == 122 && !ui.roll[ROLL_BPM].from[0] && roll_static_now();
+    ok = song.g[G_BPM] == 121 && roll_diff(BPM_X, 0, BPM_X + BPM_W, H_HEAD, 1) > 20u &&
+         roll_diff(BPM_X, 0, BPM_X + text_w(TY_TX, "12"), H_HEAD, 1) == 0 && roll_static_now();
     for (k = 0; k < 6u; k++) turn(EN_K1, 1);
-    ok &= song.g[G_BPM] == 128 && roll_static_now();
-    ui_power_on(); song.g[G_BPM] = 99; roll_settle_on("TEMPO");
-    turn(EN_K1, 1);
-    ok &= song.g[G_BPM] == 100 && !ui.roll[ROLL_BPM].from[0] && roll_static_now();
-    bad += check("roll: the header BPM snapping (a fast turn, 99 -> 100) shows the new value at once", ok);
-
-    /* snaps: another shape, a name, the page, the track, the palette, ui.force */
+    ok &= song.g[G_BPM] == 127 && roll_static_now();
+    bad += check("values: the header BPM 120 -> 121 at once (its 12 unchanged), a fast turn too", ok);
     ui_power_on(); roll_settle();
+    song.g[G_BPM] += 9;
     turn(EN_K4, -1);
-    ok = song.g[G_TUNE] == -1 && !ui.roll[3].from[0] && roll_static_now();
-    for (k = 0; k < 5u; k++) frame();
-    turn(EN_K3, 1);
-    ok &= song.g[G_CLOCK] != 0 && !ui.roll[2].from[0] && roll_static_now();
-    bad += check("roll: a sign / length change (0 -> -1) and a name (CLK) snap", ok);
-    ok = 1;
-    for (k = 0; k < 5u; k++) {
-        ui_power_on(); roll_settle();
-        turn(EN_K4, 1);
-        ok &= ui.roll[3].from[0] != 0;
-        if (k == 0) go_title("SYSTEM");
-        else if (k == 1) turn(EN_ALGO, 1);
-        else if (k == 2) { settings.palette = 1; palette_set(1); }          /* (no ui.force) */
-        else if (k == 3) set_engine_of(TSEL, eng_step(TSEL->eng_req, 1));   /* (no ui.force) */
-        else ui.force = 1;
-        frame();
-        ok &= !ui.roll[3].from[0] && !ui.roll[ROLL_BPM].from[0];
-    }
-    ui_power_on(); roll_settle_on("TEMPO");
-    turn(EN_K1, 1);
-    ok &= ui.roll[ROLL_BPM].from[0] != 0;
-    ui.force = 1; frame();
-    ok &= !ui.roll[ROLL_BPM].from[0];
-    bad += check("roll: a page, track, palette or engine change and ui.force snap", ok);
-    palette_set(UI_GRAY_INDEX);
-
-    /* MONO: every roll frame is gray */
-    ui_power_on(); roll_settle();
-    ok = 1;
-    song.g[G_BPM] += 9;                                  /* (the header rolls too) */
-    turn(EN_K4, -1);
-    for (k = 0; k < ROLL_FRAMES; k++) { ok &= screen_gray(); frame(); }
-    bad += check("roll: MONO roll frames are gray", ok);
+    ok = screen_gray() && roll_static_now();
+    bad += check("values: MONO stays gray", ok);
     ui_power_on();
     return bad;
 }

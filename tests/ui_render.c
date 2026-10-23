@@ -1801,6 +1801,8 @@ static void sweep_columns(void)
  * and TUNE 19 -> 20 on a card, then back. Every frame is linted and (MONO) checked for gray; with a directory,
  * filmstrips of both (each frame side by side, x4: the static frame before, then the roll's frames) as
  * DIR/<PALETTE>_bpm_roll.ppm and DIR/<PALETTE>_card_roll.ppm, the up roll above the down roll. */
+#define ROLL_FRAMES 9u                            /* (0.7.0: values change at once; the films keep the 9 frames the rolls
+                                                   * took, to show nothing moves after the change) */
 #define FS_N (1u + ROLL_FRAMES)                   /* frames per filmstrip row */
 #define FS_Z 4u                                   /* zoom */
 #define FS_GAP 2u                                 /* px between frames, before the zoom */
@@ -1867,7 +1869,7 @@ static void roll_frames(const char *dir)
                 roll_film_put(bimg, biw, row, k, HX, 0, HW, HH);
                 roll_film_put(cimg, ciw, row, k, CARD_X(3), Y_LABEL, COL_W, COL_H);
             }
-            if (ui.roll[3].from[0] || ui.roll[ROLL_BPM].from[0] || song.g[G_BPM] != (row ? 129 : 130) ||
+            if (song.g[G_BPM] != (row ? 129 : 130) ||
                 song.g[G_TUNE] != (row ? 19 : 20)) {
                 fprintf(rep, "ROLL %s: not over after %u frames (BPM %d TUNE %d)\n", name, ROLL_FRAMES, song.g[G_BPM], song.g[G_TUNE]);
                 nfind++;

@@ -193,11 +193,9 @@ static struct {
     /* drawn-state cache */
     char col[4][32];
     uint32_t graph_sig, head_sig, foot_sig, frame;
-    /* rolling digits (ui_draw.c roll_*): the four card values and the header BPM */
+    /* the four cards' values and the header BPM (ui_draw.c; to 0.6.2 their rolling digits: the value rolling out, when,
+     * which way) */
     struct {
-        char from[7];            /* the value rolling out; "" = idle */
-        uint8_t t0;              /* (ui.frame) of the value's last change */
-        int8_t dir;              /* +1: it went up (the old digit leaves upward), -1: down */
         uint8_t sig;             /* a card: what its value is of (label, unit, track, engine, palette) */
     } roll[5];
     int16_t roll_bpm;            /* the BPM last drawn */

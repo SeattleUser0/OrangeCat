@@ -38,99 +38,19 @@ static void draw_rec_mark(int32_t x, uint16_t bg)
         cv_icon_mid(x, H_HEAD / 2, 16, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
 }
 
-/* ---------------------------------------------------- rolling digits --- */
-/* A number that changes rolls its changed digits like a slot machine; only the drawing: the value, the gauge,
- * the hot colour and the sound change at once. Up: the old digit leaves upward and the new one comes from below;
- * down: the reverse. ROLL_FRAMES UI frames (ui.frame, ~135 ms) on an integer ease-out (ROLL_EASE: cubic, over
- * half-way in a quarter of the time, no overshoot); the ones digit first, each place one frame later, all ending
- * together on a frame equal to the static render. Clipped to the value strip, which alone is redrawn while it
- * rolls (a card: rows ROLL_Y.., the header: the BPM's columns). Characters other than digits never roll.
- * A change during a roll retargets it: it restarts from the value it was going to. Shown at once (no roll):
- * a change within ROLL_SNAP frames of the last one (a fast turn reads better as plain numbers), another
- * shape (length, sign, a non-digit, a name or an enum, a value set in S), another label or unit, a track /
- * engine / palette change (ui.roll[].sig), ui.force (a page change), a card's first draw. */
-#define ROLL_FRAMES 9u
-#define ROLL_SNAP 3u                                    /* frames (~45 ms) */
+/* ------------------------------------------------------ value strips --- */
+/* (Orange Cat 0.7.0) values change at once: the rolling digits are gone (they rolled a changed number's digits like a
+ * slot machine over 9 frames; about 0.9 KB, and 9 strip sends a change). What is left of them: a card's value strip
+ * (rows ROLL_Y.., the text face) and the header's BPM strip, which is sent alone when the tempo is all that changed. */
 #define ROLL_BPM 4u                                     /* ui.roll[]: the four cards, then the header BPM */
 #define ROLL_Y 20                                       /* a cell's value strip: rows 20..43 (the text face) */
-#define ROLL_H 24
 #define BPM_X 26
 #define BPM_W 42                                        /* the header's BPM strip: 42 columns, every row (the text face) */
 static uint16_t roll_bg;                                /* what a card's value lies on (its fill: tinted while hot) */
-static const uint8_t ROLL_EASE[17] = {0, 45, 84, 118, 147, 172, 193, 210, 223, 234, 242, 247, 251, 253, 254, 255, 255};
-
-static int roll_digit(char c) { return c >= '0' && c <= '9'; }
-/* +1 / -1: b rolls in from a (same length, digits where a has digits, the rest equal and one of + - .),
- * the sign of b - a; 0: b is shown at once */
-static int roll_dir(const char *a, const char *b)
-{
-    uint32_t i;
-    int d = 0, neg = 0;
-    for (i = 0; a[i] || b[i]; i++) {
-        if (i + 1u >= sizeof ui.roll[0].from || roll_digit(a[i]) != roll_digit(b[i]))
-            return 0;
-        if (!roll_digit(a[i]) && (a[i] != b[i] || (a[i] != '-' && a[i] != '+' && a[i] != '.')))
-            return 0;
-        neg |= a[i] == '-';
-        if (!d && a[i] != b[i])
-            d = b[i] > a[i] ? 1 : -1;
-    }
-    return neg ? -d : d;
-}
-/* field k now shows b instead of a: roll (a retarget mid-roll), or snap */
-static void roll_note(uint32_t k, const char *a, const char *b, int snap)
-{
-    uint32_t el = (uint8_t)(ui.frame - ui.roll[k].t0);
-    int d = roll_dir(a, b);
-    ui.roll[k].t0 = (uint8_t)ui.frame;
-    ui.roll[k].from[0] = 0;
-    if (snap || !d || el < ROLL_SNAP)
-        return;
-    str_cpy(ui.roll[k].from, a, sizeof ui.roll[k].from);
-    ui.roll[k].dir = (int8_t)d;
-}
-/* s (the text face) at x, y with field k's roll: each character at its pen in s (the digits are tabular and never kerned,
- * so the old value has the same pens); a rolling digit has moved o of the strip's h rows (ROLL_EASE, one frame
- * later per place from the right), clipped to the strip. The roll's last frame clears it: the static text. */
+/* s (the text face) at x, y: a card's value (k < ROLL_BPM: on its fill) or the header's BPM */
 static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16_t fg)
 {
-    const aafont_t *f = TY_TX;
-    uint32_t e = (uint8_t)(ui.frame - ui.roll[k].t0) + 1u, i, p = 0;
-    const char *a = ui.roll[k].from;
-    int32_t cy = k < ROLL_BPM ? y : 0, h = k < ROLL_BPM ? ROLL_H : H_HEAD;   /* (a card's value: at ROLL_Y) */
-    uint16_t bg = k < ROLL_BPM ? roll_bg : T_BG;
-    char t[8], ch[2] = {0, 0};
-    if (e >= ROLL_FRAMES)
-        ui.roll[k].from[0] = 0;
-    if (!a[0])
-        return cv_text_on(x, y, f, s, fg, bg);
-    str_cpy(t, s, sizeof t);
-    for (i = 0; s[i]; i++)
-        p += (uint32_t)roll_digit(s[i]);
-    cv_cy0 = (int16_t)(cy + CV_OY);                     /* the strip (the static characters lie inside it) */
-    cv_cy1 = (int16_t)(cy + CV_OY + h);
-    cv_scroll = 1;                                      /* (the lint: rolling digits are cut on purpose) */
-    for (i = 0; s[i]; i++) {
-        int32_t px, ny = y;
-        t[i] = 0;
-        px = x + text_w(f, t);                          /* (its pen: no digit kerns) */
-        t[i] = s[i];
-        p -= (uint32_t)roll_digit(s[i]);
-        if (s[i] != a[i]) {                             /* p: the places right of it */
-            int32_t o = 0, dir = ui.roll[k].dir;
-            if (e > p)                                  /* (e < ROLL_FRAMES: the LUT index stays in 1..16) */
-                o = (int32_t)((ROLL_EASE[((e - p) * 32u / (ROLL_FRAMES - p) + 1u) >> 1] * (uint32_t)h + 128u) >> 8);
-            ch[0] = a[i];
-            cv_text_on(px, y - dir * o, f, ch, fg, bg);
-            ny = y + dir * (h - o);
-        }
-        ch[0] = s[i];
-        cv_text_on(px, ny, f, ch, fg, bg);
-    }
-    cv_cy0 = 0;
-    cv_cy1 = (int16_t)cv_h;
-    cv_scroll = 0;
-    return x + text_w(f, s);
+    return cv_text_on(x, y, TY_TX, s, fg, k < ROLL_BPM ? roll_bg : T_BG);
 }
 
 /* the header (large type, 30 px): the transport (16 px; a song playing: its disc) at x 5, the BPM (the text face,
@@ -238,18 +158,12 @@ static void draw_head(void)
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
           (ui.home ? ui.home_pg * 40503u : ui.page * 2654435761u) + page_sheet() * 524287u;
     if (bpm != ui.roll_bpm) {
-        char a[8];
-        fmt_int(a, ui.roll_bpm);
-        fmt_int(b, bpm);
-        roll_note(ROLL_BPM, a, b, ui.force);
         ui.roll_bpm = bpm;
         moved = 1;
-    } else if (ui.force) {
-        ui.roll[ROLL_BPM].from[0] = 0;
     }
     fmt_int(b, bpm);
     if (!ui.force && sig == ui.head_sig) {
-        if (ui.roll[ROLL_BPM].from[0] || moved) {       /* rolling, or snapped to the new value: the BPM's strip only */
+        if (moved) {                                    /* the tempo alone changed: the BPM's strip only */
             cv_begin(BPM_W, H_HEAD, T_BG);
             roll_text(ROLL_BPM, 0, ty_y(H_HEAD / 2, TY_TX), b, ui.bpm_t ? T_ACCENT : T_TEXT);
             cv_blit(BPM_X, Y_HEAD);
@@ -351,16 +265,6 @@ static void binary_badge(int32_t xc, int32_t y, int32_t h, const char *val, uint
     cv_text_c(xc, ty_y(y + h / 2, TY_LB), TY_LB, on ? "ON" : "OFF", on ? T_INK : T_MID, fill);
 }
 static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
-static void col_old_value(uint32_t c, char *ov)          /* the value card c drew before (in its cache key), 16 bytes */
-{
-    const char *k = ui.col[c];
-    uint32_t i = 0;
-    while (*k && *k != '|')
-        k++;
-    while (*k && k[1] && k[1] != '|' && i + 1u < 16u)
-        ov[i++] = *++k;
-    ov[i] = 0;
-}
 enum { CS_CARD, CS_RING, CS_CAPTURE };               /* how draw_column draws a knob: CARD, RING: the strip's cell (the
                                                          * large type); CAPTURE: kept for a list's rows, ui_list.c */
 static void list_capture(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc);
@@ -392,7 +296,7 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
                         int32_t ratio, uint32_t icon)
 {
     char key[48], label[12], val[16], unit[8];
-    int hot = c == ui.hot_col && ui.hot_t, named = fmt_named, strip, snap;
+    int hot = c == ui.hot_col && ui.hot_t, snap;
     uint8_t sig;
     uint16_t lc = vc == T_DIM ? T_DIM : card_tc[c & 3u] ? card_tc[c & 3u] : T_KNOB(c), cbg = T_BG;   /* (knob c's colour) */
     int32_t x, uw, room = COL_W;                        /* (the 3 px between cells keep values apart) */
@@ -433,34 +337,22 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
         vf = lf;
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u, label), unit);
     snap = ui.force || sig != ui.roll[c].sig;           /* what the value is of: label, unit, track, engine, palette */
-    strip = !snap && str_eq(key, ui.col[c]);
-    if (strip && !ui.roll[c].from[0])
+    if (!snap && str_eq(key, ui.col[c]))                /* (0.7.0: nothing rolls; the same card: not drawn again) */
         return;
     roll_bg = cbg;
     if (hot && vc != T_DIM)                             /* the knob turning: its value in the track's colour */
         vc = lc;
-    if (strip) {                                        /* rolling: the value strip only */
-        cv_begin(COL_W, ROLL_H, cbg);
-        cv_oy = -ROLL_Y;
-    } else {
-        char ov[16];                                    /* the value drawn before (in the cache key) */
-        col_old_value(c, ov);
-        ui.roll[c].sig = sig;
-        if (!str_eq(ov, val))
-            roll_note(c, ov, val, snap || named || vf != TY_TX || kid >= 0);
-        else if (snap)
-            ui.roll[c].from[0] = 0;
-        str_cpy(ui.col[c], key, sizeof ui.col[c]);
-        cv_begin(COL_W, COL_H, T_BG);
-        if (hot)                                        /* (and a bar under it) */
-            cv_rrect(COL_W / 2 - 14, COL_H - 4, 28, 3, 1, lc, T_BG);
-    }
+    ui.roll[c].sig = sig;
+    str_cpy(ui.col[c], key, sizeof ui.col[c]);
+    cv_begin(COL_W, COL_H, T_BG);
+    if (hot)                                            /* (and a bar under it) */
+        cv_rrect(COL_W / 2 - 14, COL_H - 4, 28, 3, 1, lc, T_BG);
     if (label[0] || val[0]) {
         /* the label: capitals in the track's colour, centred, rows 3..21; the value under it (the text face, rolling),
          * the unit (label face, mid) on its baseline, both centred; the gauge: 3 px at row 44 */
         int32_t vw = text_w(vf, val) + uw, vx = COL_W / 2 - (vw < room ? vw : room) / 2;
         (void)icon;                                     /* (the design draws no card icons) */
-        if (!strip && label[0]) {
+        if (label[0]) {
             const char *ls = cell_label(label, COL_W - 2);
             cv_text_fit(COL_W / 2 - (text_w(lf, ls) < COL_W - 2 ? text_w(lf, ls) : COL_W - 2) / 2, 3, lf, ls, lc,
                         cbg, COL_W - 2);
@@ -471,7 +363,7 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
         else if (binary_value(val) >= 0) {
             binary_badge(COL_W / 2, 21, 22, val, cbg);
             x = COL_W - 6;
-        } else if (vf == TY_TX)                         /* the value rolls */
+        } else if (vf == TY_TX)                         /* the value in the text face */
             x = roll_text(c, vx, ROLL_Y, val, vc);
         else if (val[0] >= 'A' && val[0] <= 'Z' && val[1] >= 'a' && val[1] <= 'z')   /* a name ("Chorus"): free text */
             x = cv_free_text(vx, ROLL_Y + TY_TX->asc - vf->asc, vf, val, vc, cbg, room - uw);
@@ -481,10 +373,10 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
             cv_text_on(x + 2, ROLL_Y + TY_TX->asc - lf->asc, lf, unit, T_MID, cbg);
     }
     cv_oy = 0;
-    if (stage_drop_rows && !strip)                      /* (rows r0 .. under the header: Y_LABEL - r0 wraps, + r0 back) */
+    if (stage_drop_rows)                                /* (rows r0 .. under the header: Y_LABEL - r0 wraps, + r0 back) */
         cv_blit_from((uint32_t)CARD_X(c), (uint32_t)card_y - (uint32_t)(COL_H - stage_drop_rows), COL_H - stage_drop_rows);
     else
-        cv_blit((uint32_t)CARD_X(c), (uint32_t)(card_y + (strip ? ROLL_Y : 0)));
+        cv_blit((uint32_t)CARD_X(c), (uint32_t)card_y);
 }
 
 /* an action's column (act_cols): picked, the OCT+ keycap (accent while it would do something); else "--" */
