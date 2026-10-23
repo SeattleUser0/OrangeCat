@@ -209,12 +209,16 @@ static void shared_boot(void)
     if(shared_wipe_pending()){(void)shared_wipe();return;}
     /* Startup replaces unreadable preset banks/entries through A/B commits.
      * Valid legacy banks still take the conversion path below. */
+    /* (Orange Cat 0.7.2) ONE function-scope bank scratch (4,292 B). The repair loop and the FM sidecar loop each
+     * declared an up_bank_t of their own in a scope of their own, and the compiler kept both on the stack
+     * (docs/orangecat/SIZE_AUDIT.md, "Stacks"); they are never live together. */
+    up_bank_t bank;
     uint32_t repair = 0, repair_total = 0, repaired = 0;
     for (uint32_t b = 0; b < UP_BANKS; b++) {
-        up_bank_t *bank = up_cache_bank(b);
+        up_bank_t *cached = up_cache_bank(b);
         int damaged = (up_bank_old >> b) & 1u;
         for (uint32_t j = 0; j < UP_PER_BANK; j++)
-            damaged |= bank->r[j].used && !up_valid(&bank->r[j]);
+            damaged |= cached->r[j].used && !up_valid(&cached->r[j]);
         if (damaged) { repair |= 1u << b; repair_total++; }
     }
     if (repair) {
@@ -222,7 +226,7 @@ static void shared_boot(void)
         up_converting = 1;
         for (uint32_t b = 0; b < UP_BANKS; b++) {
             if (!(repair >> b & 1u)) continue;
-            up_bank_t bank = *up_cache_bank(b);
+            bank = *up_cache_bank(b);
             int legacy = (up_bank_old >> b) & 1u;
             if (bank.magic != UP_BANK_MAGIC || bank.rsize != sizeof(up_rec_t) || bank.nslot != UP_PER_BANK)
                 memset(&bank, 0, sizeof bank);
@@ -260,8 +264,9 @@ static void shared_boot(void)
     up_converting=1;
     /* FM sidecars must be embedded before their source objects are converted. */
     for(uint32_t b=0;b<4u;b++){
-        up_bank_t bank=*up_cache_bank(b);
+        up_bank_t *source=up_cache_bank(b);              /* (the call loads bank b; the copy only when it migrates) */
         if(!(up_migrate>>b&1u))continue;
+        bank=*source;
         for(uint32_t j=0;j<16u;j++)if(up_valid(&bank.r[j]) && (MELODEE_FM6 && bank.r[j].engine == ENGI_FM6) && !up_native(&bank.r[j])){
             int16_t values[P_COUNT];up_values(&bank.r[j],values);
             uint8_t raw[FM6_PACKED];memcpy(raw,legacy_native_used(ENGI_FM6,b*16u+j)?legacy_native_raw(ENGI_FM6,b*16u+j):FM6_INIT,sizeof raw);
@@ -280,8 +285,11 @@ static void shared_boot(void)
         }
     }
     for(uint32_t b=16u;b<21u;b++){
+#if MELODEE_P5
+        /* (Orange Cat 0.7.2) the Prophet banks' migration, and its 3,600 B p5_bank_t on the stack, only in a firmware
+         * with the Prophet in; without it the loop below only indexes and saves the banks (the host builds every engine) */
         p5_bank_t old;int n=st_load(up_obj(b),&old,sizeof old);
-        if(MELODEE_P5 && n==(int)sizeof old && p5_bank_valid(&old,b-16u)){   /* (Orange Cat: MELODEE_P5) */
+        if(n==(int)sizeof old && p5_bank_valid(&old,b-16u)){   /* (Orange Cat: MELODEE_P5) */
             if(b==16u && (old.favorites&0x80000000u)){
                 if(!p5_favorite_has(0,1))p5_favorite_set(0,1,1);
                 if(shared_preferences_save()){up_migration_error=1;goto done;}
@@ -297,6 +305,7 @@ static void shared_boot(void)
                 }
             }
         }
+#endif
         (void)up_cache_bank(b);
         if(up_migrate>>b&1u){
             if(up_save_bank(b)){up_migration_error=1;goto done;}
