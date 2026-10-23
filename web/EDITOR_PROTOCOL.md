@@ -65,7 +65,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 reserved (ANALOG before 2.0), 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 SID (LOFI before this change), 4 reserved (SAMPLE retired), 5 VOICE, 6 reserved (TRIO retired), 7 reserved (WHEEL retired), 8 reserved (GRAIN retired), 9 reserved (PHYS retired), 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 reserved (OBXF retired), 15 CZ-1, 16–18 reserved, 19 PROPHET (NENGINES 20). The new-sound browser order is PROPHET FM6 PHASE CZ-1 SID VOICE NOISE DRUM (`ENGINE_ORDER`). 0 ANALOG is retired since 2.0 (its stored sounds keep the number and play silent); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 reserved (ANALOG before 2.0), 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 SID (LOFI before this change), 4 reserved (SAMPLE retired), 5 VOICE, 6 reserved (TRIO retired), 7 reserved (WHEEL retired), 8 reserved (GRAIN retired), 9 DRUM-X (Orange Cat 0.9.0, with MELODEE_DRUMX; the slot of the retired PHYS, reserved where the switch is off), 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 reserved (OBXF retired), 15 CZ-1, 16–18 reserved, 19 PROPHET (NENGINES 20). The new-sound browser order is PROPHET FM6 PHASE CZ-1 SID VOICE NOISE DRUM (`ENGINE_ORDER`), and in Orange Cat DRUM-X after DRUM (`ENGINE_ORDER`). 0 ANALOG is retired since 2.0 (its stored sounds keep the number and play silent); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (83..90), and `INFO` gives `P_E0`.
 Their meaning, range and names depend on the current engine, so re-read `DESC` for them
@@ -431,6 +431,29 @@ rc: 0 done, 1 refused (no slot, a bad length or offset, a header that does not m
 transport did not stop. A write torn anywhere (power, a refusal) leaves the slot empty, never part of a sample.
 `tools/fm1_sample_upload.py` builds a slot from WAV files and uploads it with these commands. Nothing in 0.6.0 plays
 the slot yet (a sample engine is phase 9's).
+
+## Orange Cat: DRUM-X (engine 9, firmware 0.9.0)
+
+No command is new. `INFO` names engine 9 "DRUM-X" instead of "-" (the number of engines stays 20), `ED_DESC` and `ED_NAMES` give its
+eight edit values, and its nine kits are its presets. An editor that reads the descriptors needs no change; one that keeps its
+own table (web/editor.html does, and web/test_web.mjs compares it with the firmware's dump) gets the entry below.
+
+| Value | Label | Range | Default | Meaning |
+|---|---|---|---|---|
+| P_E0 | MRPH | 0..127 | 64 | MORPH, patch A to B, every lane |
+| P_E1 | TUNE | 0..127 | 64 | +-12 semitones (64: the kit's) |
+| P_E2 | TONE | 0..127 | 64 | colour |
+| P_E3 | DECY | 0..127 | 64 | decay |
+| P_E4 | NOIS | 0..127 | 64 | noise |
+| P_E5 | FM | 0..127 | 0 | FM strike with each hit |
+| P_E6 | FOLD | 0..127 | 0 | wavefolder after each sound |
+| P_E7 | DRV | 0..127 | 0 | soft clip of the kit's sum |
+
+Presets 0..8: DRUM-X, 909 CLUB, 808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS, TECHNO RAW, BREAKS; the preset number is
+the kit. The eight lane levels are `P_LN0..P_LN7` as for DRUM (v5), and a DRUM-X track is a drum track for the step grid: the hits
+of a step (v5) play their General MIDI notes on it, and `UP_GET` / `UP_PUT` kind 1 (a drum grid) is allowed for it. The editor's
+drum pages (the grid and the levels) show for engines 9 and 10. A firmware without DRUM-X reports engine 9 as "-" and plays a
+track that holds it silent; an old sound of PHYS (engine 9, not a drum) now plays as a DRUM-X kit.
 
 ## Orange Cat: the asset pack (commands 115-119, firmware 0.8.0)
 

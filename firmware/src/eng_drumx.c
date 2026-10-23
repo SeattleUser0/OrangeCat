@@ -32,6 +32,16 @@
  * released key does not end a hit. The step's accent (SF_ACCENT, a lane's acc bit) is the velocity 127, as for every engine;
  * its ratchet and flam (the sequencer's) are more hits in a step.
  *
+ * Jiant's step fields on Orange Cat's step_t (core.h), field by field. Same field, same meaning: note[4], n, time, vel, hit (bit l:
+ * lane l hits) and acc (bit l: accented, velocity 127), flags SF_ACCENT and SF_SLIDE, probability. RATCH (x1..x4, flags
+ * bits 3..4) is the same bits. FLAM: Jiant has it as a lane mode (LM_FLAM); Orange Cat has it as the step's SF_FLAM (bit 5, Skiff's):
+ * the whole step, not one lane. Orange Cat has two fields Jiant does not (cond: the trig condition; nudge: the step later in
+ * 64ths); they work on a DRUM-X track as on any. NO EQUIVALENT, fixed default: lm[3], each lane's own way of playing on a
+ * step (LM_NONE, X2, X4, X8, SHORT, GHOST, FLAM, ONCE): fixed LM_NONE, every lane plays what the step plays (the step's
+ * RATCH and FLAM apply to all its lanes); comp, carg, comp2, carg2, cwhen, ctime, the step components (ARPN, ECHO, TRIG,
+ * RAND, OCT, JUMP, REV, FILL, KILL, TOUCH and the rest, with their DIV and LEN): fixed none; ST_MICRO and SF_MFINE (the
+ * sixteenth's 64ths): nudge does the timing. Orange Cat has no import of Jiant's patterns; these fields have no place in its pool.
+ *
  * What of Jiant's DRUM-X is NOT here, with the fixed value it takes (BUILD.md, "DRUM-X as built"):
  *   - the kit editor (EDIT > SOUND, every lane's two patches): the kit is a factory kit, read-only. Jiant keeps the edited
  *     kit in its project; Orange Cat has no place in its project format for it (a format change, left for a later version).

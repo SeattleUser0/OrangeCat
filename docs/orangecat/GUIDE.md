@@ -171,6 +171,35 @@ their waves take 33 KB of flash.
 
 Up to four notes at once per track in POLY, as with MACRO. The pad, keys, bell and choir presets start in POLY. COMB, PLUCK, BOWED, BLOWN and FLUTE play one note at a time. Like MACRO, its times (decays) run about 9% longer than on the module.
 
+## The DRUM-X engine (0.9.0)
+
+DRUM-X is a drum engine from Jiant FM, in engine slot 9. It is a kit of eight synthesized sounds: KICK, SNARE, CLAP,
+HAT CL (closed), HAT OP (open), TOM, RIM and BELL. Each sound has two patches, A and B, and MRPH blends between them.
+It is made in the spirit of Sonic Charge's Microtonic.
+
+To play it, turn PRESETS to one of its nine kits (DRUM-X, 909 CLUB, 808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS,
+TECHNO RAW, BREAKS), or turn the browser's KNOB 4 (ENGINE) to DRUM-X. The kit is the preset: a saved sound, a saved
+project and the PRESETS list keep it. The keys play the General MIDI drum map with the kick on the first C. A closed hat
+cuts the open hat.
+
+| Page | KNOB 1 | KNOB 2 | KNOB 3 | KNOB 4 |
+|---|---|---|---|---|
+| KIT | MRPH | TUNE | TONE | DECY |
+| KIT 2 | NOIS | FM | FOLD | DRV |
+
+- **MRPH** blends patch A to patch B for every sound. **TUNE** moves every sound up or down 12 semitones. **TONE** moves
+  the colour. **DECY** lengthens or shortens every sound. At 64 each sets the kit as it was made.
+- **NOIS** is the noise in each sound. **FM** adds a short FM strike to each hit (a click, a beater, a metal edge). **FOLD**
+  runs each sound through a wavefolder. 0 is off for these.
+- **DRV** is a soft clip on the whole kit. Its level is kept.
+- The LANES pages set the level of each of the eight sounds.
+- SEQ > STEP on a DRUM-X track is the eight lane grid, as for the DRUM engine. Accents, ratchets and flams of the sequencer
+  work on it.
+
+Not in this version: editing a kit's own patches, the second oscillator controls of each sound, the sends of each sound,
+lane mutes, and Jiant FM's step components. Each is fixed at the kit's value or off. The engine takes the slot of the old
+PHYS engine: an old PHYS sound that was not a drum now plays as a DRUM-X kit.
+
 ## Freezing a phrase
 
 Freezing records one pass of a phrase to the card and plays the recording in place of its notes, so the synth has no notes to play while it runs. The freeze belongs to the phrase: whenever any track plays that phrase, the recording plays. When the track moves on to another phrase, its synth plays that one as usual. You can freeze one phrase and keep writing new phrases for the same track.
@@ -294,6 +323,10 @@ Install it from the card:
 3. Open the clip browser (MIXER, then OCT+ held, Assign clip). The .pak shows with the value Pack.
 4. Pick it and press OCT+. If banks 16 to 20 hold sounds, the screen says "Uses banks 16-20: again". Press OCT+ on the
    same file again to go on.
+
+When the unit starts with a project that has a MACRO or SHAPES track and no pack, the screen says PACK MISSING once at power-on
+(0.8.1). The library banks 4, 5 and 8 to 15 keep your sounds: they are the area a future engine module would use, and nothing
+uses it yet.
 
 Erase pack in the web editor takes it out again and gives the banks back, empty. Do not unplug during an install. If
 power is lost, the pack reads as missing and you install it again. Nothing is ever half installed.

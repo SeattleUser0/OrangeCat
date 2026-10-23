@@ -10,6 +10,9 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.60 (October 23, 2026):** docs for 0.9.0 final: the module experiment's finding (SHAPES builds as a separate 23,780 B object with 188 relocations; the toolchain links it at a fixed address only; no ROPI, RWPI or linkable PIC), the proof of concept's next steps in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, SPEC 0.21, GUIDE (DRUM-X), web/EDITOR_PROTOCOL.md. See "Second run".
+- **0.59 (October 23, 2026):** 0.9.0 on branch sonnet-work (not on main, not released, not on the unit): DRUM-X, Jiant FM's drum engine, in engine slot 9 behind MELODEE_DRUMX (on in the Orange Cat set): Jiant's voice sample for sample (288 of 288 renders equal), nine kits as presets, the grid, the LANES pages, 640 B of arena a track, voice code in flash. Image 487,544 B (+10,188), .data+.bss +32 B, arena -736 B, pool 0. The loadable-engine interface identifier (tools/gen_fw_api_id.py, FW_API_IFACE, fw_module_check). See "Second run".
+- **0.58 (October 23, 2026):** 0.8.1 on branch sonnet-work: the library's banks (sector inventory, no bank can move, options (a) to (f), no code), PACK MISSING once at power-on, why five `_oc` preset tests failed locally (they fail only in a build with Prophet, CZ-1, FM6 and DRUM off; the engines they test are the ones that are off). See "Second run".
 - **0.57 (October 23, 2026):** 0.8.0 on branch sonnet-work (not on main, not released, not on the unit): the asset pack. SHAPES' and MACRO's 57 constant tables (40,232 B) leave the image and are read from a pack in the Prophet bank area (0x93000); image 512,440 B to 477,356 B (99,892 B free). Installed from the web editor or the card; PACK MISSING without it. fw_api_t prepared. DRUM-X measured as a lower bound (4.4 KB of flash, 608 B of state a track). See "Overnight run (0.7.2 to 0.8.0)".
 - **0.56 (October 23, 2026):** 0.7.2 on branch sonnet-work: the tracker review's cleanup (one event edit primitive, one delete path for a recorded step), the stack-frame fix of the size audit (shared_boot's one bank scratch, the Prophet migration frame only with MELODEE_P5), and the flash map in one place with run-time retirement of the retired engines' bank objects (storage.c, fm1_flash.h).
 - **0.55 (October 23, 2026):** docs/orangecat/ENGINE_LOADING_PLAN.md 0.4: the web configurator the primary way to install and manage engines, one flash map (the pack at 0x93000, 80 KB of modules at 0xC8000), modules placed by variants in one package, an interface identifier checked before registration, install and activate checked apart; not every engine need be a module. Build.md merged from gui-slim and size-audit.
@@ -78,11 +81,11 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
-| 6 | Loadable engine study | Planned: docs/orangecat/ENGINE_LOADING_PLAN.md 0.4 (asset pack first, then modules in 80 KB of data flash, installed from the web page; SHAPES as the proof of concept) |
+| 6 | Loadable engine study | Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); a module experiment answers the toolchain question (address-fixed, one link a start). Next: the module loader and SHAPES as a module (docs/orangecat/ENGINE_LOADING_PLAN.md 0.6) |
 | 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
-| 10 | Other engines and effects | In progress: Jiant FM's effects built on branch fx-jiant (0.6.0), not tested on the unit |
+| 10 | Other engines and effects | In progress: Jiant FM's effects built on branch fx-jiant (0.6.0); DRUM-X built on branch sonnet-work (0.9.0); neither tested on the unit |
 | 11 | Later extensions | Not started |
 
 ## Reference versions
@@ -1227,7 +1230,193 @@ Nothing here has run on hardware. In this order; stop at the first failure and k
 - `tests/storage_test.c`, `tests/storage_safety_test.c`: the map checks, per-engine retirement, library banks under it.
 - `tests/fw_api_test.c` (new): the services table.
 - `tools/gen_pack.py --check` as a step of the suite; `web/test_web.mjs`: the pack's requests and replies.
-- The full suite in CI (tests/run_tests.sh, no .ci_quick): green on 874b320 (run 39924263772, tests step 8 min 24 s). Local runs without the built package stop at the package-dependent tests, and five checks of the `_oc` engine-set preset tests fail in a local run before and after this work (the same places on f6394df); they pass in CI, where the package is built first.
+- The full suite in CI (tests/run_tests.sh, no .ci_quick): green on 874b320 (run 39924263772, tests step 8 min 24 s). Local runs without the built package stop at the package-dependent tests. Five `_oc` preset tests failed in a local run: explained in Fix 3 below (they need Prophet, CZ-1, FM6 and DRUM on).
+
+## Second run (0.8.1 and 0.9.0, branch sonnet-work, October 23, 2026)
+
+**Status: built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on branch
+`sonnet-work`, from 62346dc (image 477,356 B, 99,892 B free, RAM .data+.bss 92,744 B, arena 95,840 B, pool 176,768 B). The
+reference branches (size-audit, tracker-events, gui-slim, exp/*) were not changed; two new experiment branches were made
+(exp/sonnet-drumx-port and exp/sonnet-module, both `.ci_quick`).
+
+| Item | Version | Status | Result |
+|---|---|---|---|
+| Fix 1. The library's banks | 0.8.1 | Done (inventory and decision; no code) | No bank can move: 109 sectors, the library holds 44, the pack and module areas hold exactly banks 4, 5 and 8 to 20 (30 sectors), one free sector outside them. 1b and 1e not built. Plan 0.6 has the options |
+| Fix 2. PACK MISSING once at boot | 0.8.1 | Done | `pack_boot_notice` (ui.c), called from main.c after the project load; `test_pack_boot_notice` |
+| Fix 3. Five `_oc` tests | 0.8.1 | Done (explained) | They need Prophet, CZ-1, FM6 and DRUM on; `tests/need_all_engines.h` stops a by-hand build with that reason |
+| Step 4. DRUM-X | 0.9.0 | Done, switch on in the Orange Cat set | exp/sonnet-drumx-port, run 39995665147: image 487,544 B (+10,188), 89,704 B free, .data+.bss 92,776 B (+32), arena 95,104 B (-736), pool 176,768 B (0), 640 B of arena a DRUM-X track |
+| Step 5a. Interface identifier | 0.9.0 | Done | `FW_API_ID` from the headers, `FW_API_IFACE`, `fw_mod_hdr_t`, `fw_module_check`, `FW_API_VERSION` 2; the image is unchanged by it |
+| Step 5b. Module experiment | exp only | Done, report in the plan | exp/sonnet-module, run 39995546707: SHAPES as a separate object, 23,780 B, 188 relocations, address fixed |
+| Step 5c. PoC steps | | Done (written) | docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, "The proof of concept, the next steps" |
+| Step 6. Docs | | Done | this file (0.58 to 0.60), plan 0.6, SPEC 0.21, GUIDE, web/EDITOR_PROTOCOL.md, the Project and the Mac folder |
+
+### Fix 1 (docs/orangecat/ENGINE_LOADING_PLAN.md "Where the library's banks can go")
+
+The inventory lists every sector from 0x93000 to 0xFFFFF: object, content, pair, free or not. 109 sectors. The library has 22
+banks of two sectors (44). The pack (0x93000, 10 sectors) and the module area (0xC8000, 20 sectors) sit exactly on banks 16 to
+20 and on banks 4, 5 and 8 to 15. Banks 6 and 7 are in the four sectors the plan 0.5 called spare (that was wrong). One
+sector outside the two areas is free (0xFB000), and it is not a pair. Because a bank is a pair of sectors with a header rule
+that ties the slot to the sector's place, moving a bank is a placement format change: not done. The options (a) keep, (b)
+shrink the module area, (c) one sector a bank, (d) a shared spare sector, (e) the record store, (f) application slack, with
+slots lost for each install, are in the plan. **Recommendation: (a) now, (d) before the first module is installed**; (c) is
+not recommended (a power cut loses a whole bank). Not implemented: (c) or (d) without your say. 1d, the inventory for banks 4,
+5 and 8 to 15, is in the same table.
+
+### Fix 2
+
+`pack_boot_notice` in ui.c runs in main.c right after `project_boot`, where BOOT PROJECT SKIPPED is said. When the pack is
+not there and a track of the loaded project uses MACRO or SHAPES, it says PACK MISSING in place of LOADED. A boot the guard
+skipped keeps its own word. The notice on choosing an engine and on playing a key is as it was. Test: a SHAPES track, a MACRO
+track, the pack there, no such track, a skipped boot, and no repeat after 1.5 s of frames.
+
+### Fix 3
+
+The five `_oc` tests (persistence, preset_boot_reset, storage_safety, backup, unified_presets) fail only when built with
+tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off). Measured by turning one switch off at a time: FM6 off
+alone fails persistence (4 checks), preset_boot_reset (2), storage_safety (3), backup (4) and unified_presets (8); P5 off fails
+backup (2) and unified_presets (12); CZ off fails unified_presets (6); DRUM off fails unified_presets (2); SID off fails nothing.
+The fixtures of those tests are the presets and backups of the engines that are off, so the fixture cannot be made. With the
+default engine set, which run_tests.sh uses, all pass. No firmware bug is hidden. A by-hand build now stops with the reason
+(tests/need_all_engines.h), run_tests.sh refuses a CC that carries engine switches, BUILDING.md says so, and settings_origin_test
+and upreset_test, which pass with the Orange Cat set, also run in it.
+
+### Step 4: DRUM-X as built
+
+Source: Jiant FM (juanjiant-bit/jiant, commit dc8d025, GPL-3.0-only). Files: `firmware/src/drumx_voice.c` (the voice, Jiant's
+with the kit passed as a parameter and TONE BP and HANDS fixed at 0), `firmware/src/eng_drumx.c` (the engine_t). Switch:
+`MELODEE_DRUMX` in core.h (default 1; forced 0 when MELODEE_LEGACY_EXTRAS keeps PHYS in slot 9), exported in
+tools/orangecat_engines.sh and listed in tools/build.py.
+
+What is in: nine kits as nine presets; eight lanes (KICK, SNARE, CLAP, HAT CL, HAT OP, TOM, RIM, BELL) on the General MIDI map
+with Jiant's note table; MORPH, TUNE, TONE, DECY, NOIS (EDIT 1 KIT) and FM, FOLD, DRV (EDIT 2 KIT 2); the closed hat chokes
+the open one; voice reuse per lane; the lane levels on the LANES pages; the grid (SEQ > STEP), accents, ratchets and flams of
+the sequencer; the pad keys (the kick on the first C); LFO to pitch and to MORPH; a user preset, a project and the browser
+(category DRUM) keep the kit as the preset number; the web editor's engine table, labels and presets.
+
+**What is not in (a fixed default each; the engine header says the same):**
+
+| Jiant feature | Fixed default |
+|---|---|
+| The kit editor (each lane's two patches) | The factory kit, read-only. The project format has no place for an edited kit |
+| LAYER (the second oscillator, FEEDBK) | The kit's own value |
+| TONE's BP and FEEDBK, the clap's HANDS | 0 |
+| IMAGE and each sound's SEND (the buses) | 0, no send; the part is one sum through its chain |
+| Lane and group mutes | None muted |
+| Octaves of the kit (ratchet above, SHORT, GHOST, FLAM below, TOUCH) | OCT moves the keys by octaves; the step's RATCH and FLAM do the job |
+| PUNCH and the DUCK of the other parts | None |
+| ATK+, the step's BEND, X-MOD | None |
+| The step's per-lane modes `lm[3]` | LM_NONE: every lane plays what the step plays |
+| The step components (`comp`, `carg`, `comp2`, `carg2`, `cwhen`, `ctime`) and MICRO | None; `nudge` times a step |
+| The web editor's kit pages | The eight values, the lane levels and the presets |
+
+Sequencer fields that map: note, n, time, vel, hit, acc, SF_ACCENT, SF_SLIDE, probability, RATCH x1..x4 (same bits). FLAM is the
+step's SF_FLAM here (Jiant: a lane mode). Orange Cat's `cond` and `nudge` have no Jiant counterpart and work as on any engine.
+
+**Sizes (CI, exp/sonnet-drumx-port run 39995665147; base run 39925548685):**
+
+| | Base | DRUM-X | Change |
+|---|---|---|---|
+| Image | 477,356 B | 487,544 B | +10,188 B |
+| Free flash | 99,892 B | 89,704 B | -10,188 B |
+| .data + .bss | 92,744 B | 92,776 B | +32 B |
+| Arena | 95,840 B | 95,104 B | -736 B |
+| Pool | 176,768 B | 176,768 B | 0 |
+| Arena a DRUM-X track | | 640 B | 8 lanes of 80 B |
+
+By file: drumx_voice.c 4,018 B (dx_run 2,562, nine kits 936, dx_layer 306), eng_drumx.c 1,604 B, and about 4,500 B in the files of the
+grid (ui_draw.c +864, ui_graph.c +606, seq.c +426, ui.c +390, main.c +338, ui_input.c +294, ui_popup.c +290, seq_notes.c +204,
+note_tools.c +144, eng_drum.c +122, upreset.c +94, voice.c +86, seq_erase.c +80, midi_control.c +70, ui_pages.c +74): **that
+code was in the source but unreachable with MELODEE_DRUM=0, so the linker dropped it; DRUM-X makes it live.** 712 B of it is audio
+side code in SRAM (seq.c, voice.c, seq_erase.c, midi_control.c, eng_drum.c), which is the arena's -736 B. The voice code is in
+flash (`.text.xip_drumx`); the first measurement (run 39994670692) had it in SRAM and the arena fell to 90,464 B. Nothing of
+DRUM-X is in the pack.
+
+Slot 9 was the retired PHYS. `drum_from_phys()` still maps a PHYS sound whose MODEL was DRUM to the DRUM engine (10). **An old
+stored PHYS sound that was not a drum (engine 9, MODEL 0..3) now plays DRUM-X** with its stored values as the knobs and kit 0 to
+8 by preset number. A project or user preset that holds one will sound different. Nothing is lost: the bytes are
+kept and the engine number is the same.
+
+DRUM-X uses the DRUM engine's voice weight (`settings_vpoints[4]`, 2 units a voice). The default of track 4 (TRK_DEF) is not
+changed: a new project still starts with DRUM there, which in the Orange Cat set is not available, as before.
+
+Tests: see "Tests added or changed" below. **Target budget:** tests/target_budget.py measures `dx_run`, `dx_layer`,
+`dx_hands_step` (not in the image: HANDS is 0), `dxe_render` and `dxe_post` when the compiler keeps them apart; their lines come
+from the first full CI run (below).
+
+### Step 5a: the interface identifier
+
+`tools/gen_fw_api_id.py` hashes the text of `fw_api_t` and of `param_desc_t`, `voice_t`, `vmod_t`, `preset_t`, `engine_t` and
+`track_t` (comments and white space removed) into `build/gen/fw_api_id.h`, made by build.py and by run_tests.sh. `FW_API_IFACE`
+adds four `sizeof` values the text cannot show. `fw_api_t.iface` holds it (the old `reserved` word; the table keeps its size),
+`FW_API_VERSION` is 2, `fw_mod_hdr_t` and `fw_module_check` are in fw_api.h. Nothing in the image calls the check. Details and
+the tests: plan 0.6 "Built (0.9.0, step 5a)".
+
+### Step 5b: the module experiment (exp/sonnet-module, never merged)
+
+`tools/module_exp/shapes_mod.c` and `run.sh` build eng_shapes.c and braids/ as a separate object with the JieLi clang 4.0.1 under
+several options and link it at 0x020C8000 and 0x020D4000. Result: the object is 23,789 B (23,780 B linked), 188 relocations
+(ABS32 100, MOV_ABS32 48, LONG_JUMP_23M2 40); the two links differ at those sites; -fPIC and -fPIE compile (+1.6 %) but do
+not link (GOT16 truncated); -fropi, -frwpi, -mno-pic are not accepted; ld -q keeps `.rela.text`; ld -pie and -shared are not
+available. A module is therefore address fixed: one link a start address. The full table and the reasoning are in the plan.
+The experiment branch stays on origin for reference; `tools/module_exp/` is not on sonnet-work.
+
+### Decisions made without asking
+
+1. **No bank moves (Fix 1).** The inventory says it cannot be done without a placement format change; that needs your say.
+2. **Slot 9 is DRUM-X, not a new engine number.** The numbers are fixed and new engines are appended, but the slot was retired
+   and DRUM-X is the engine that was asked for as the PHYS slot's heir (the plan's lower bound did the same). The cost is the
+   old PHYS sound case above. LEGACY_EXTRAS turns DRUM-X off.
+3. **The kit is the preset number**, so no new project field. A kit editor would need one.
+4. **DRUM-X is on in the Orange Cat set** (the task asked for it) and costs 10,188 B of flash mostly because it makes the drum
+   grid code live.
+5. **The voice stays in flash** (the arena would lose 3,776 B otherwise).
+6. **The interface identifier is a text hash plus four sizes**, not a hash of the compiled layout: a rename or a retype moves it
+   even when the bytes do not. That is the safe side.
+7. **FW_API_VERSION 2**: the `reserved` word became `iface`. Nothing consumed version 1.
+8. **No golden or budget entry that existed was changed.** Nine golden lines (DRUM-X's presets) were added.
+9. **tests/cpu_baseline.txt was not given DRUM-X lines**: the host has no instruction counter in this environment (the check
+   prints that the budget is not checked), so a measured line is not possible here.
+
+### Left to build
+
+- The kit editor and the other items in the table above (each is a project format change or a larger piece of wiring).
+- The library move, option (d) (a shared spare sector), before the first module is installed.
+- The module loader and SHAPES as a module: plan 0.6 "The proof of concept, the next steps".
+- `tests/cpu_baseline.txt` lines for DRUM-X, on a host with an instruction counter.
+- Stopping the transport for a pack install instead of refusing.
+
+### Left to test (on the unit)
+
+Everything from "Overnight run" above still stands (nothing there has run on hardware). Added by this run:
+
+1. **DRUM-X sound.** Pick DRUM-X on a track. Play the keys: the kick is on the first C. Step through the nine presets. Each
+   should sound as its name says; compare 808 BOOM and DUB ROOTS (long kicks, up to 8.8 s) and INDUSTRIAL.
+2. **The grid and LANES.** SEQ > STEP on the DRUM-X track is the 8 lane grid. Enter hits and accents; ratchet and flam a step;
+   the LANES pages' levels change the lane. The Stage flashes the lane.
+3. **Choke.** Closed hat after the open hat cuts it.
+4. **Load under four tracks.** DRUM-X on two or three tracks with MACRO and SHAPES, a take playing: read `audio_max_us` and late
+   renders as in item 8 above. The voice runs from flash through the cache; this is the open measurement.
+5. **Saving.** Save a user preset from a DRUM-X track, a project, power off and on: the kit and the knobs are back.
+6. **An old PHYS sound.** If you have a stored PHYS (not drum) sound, load it: it now plays DRUM-X. Say if that matters.
+7. **The web editor.** Connect: the engine list has DRUM-X after DRUM; its eight values and nine presets show.
+8. **PACK MISSING at boot (Fix 2).** Erase the pack, save a project with a SHAPES track, power off and on: PACK MISSING once.
+
+### Tests added or changed
+
+- `tests/drumx_test.c` (new), `tests/drumx_ref.h`, `tests/drumx_ref.txt`, `tools/drumx_ref_gen.sh`: 288 of 288 reference renders equal to
+  Jiant's own file (9 kits x 8 lanes x 4 scenarios, FNV-1a 64 of every output sample); registration, the GM map against the grid's
+  lane notes, every kit and lane sounds and ends (longest voice 8.84 s), stays under full scale, the closed hat chokes the open
+  one, voice reuse, eight lanes at once, the LANES levels, the knobs, DRV, two kits at once, the grid's hits to GM notes, the keys.
+- `tests/ui_test.c`: `test_drumx` (pick, the knob, the browser category, the grid, lane keys, the LANES page, playing a step, EDIT 1
+  and EDIT 2, a preset loads a kit, a project keeps it), run in its three builds; `test_pack_boot_notice`.
+- `tests/golden.txt`: nine new lines (preset/DRUM-X/*). No existing line changed.
+- `tests/engine_retirement_test.c`: slot 9 is live when MELODEE_DRUMX; `web/test_web.mjs`: engine 9 is DRUM-X, the order and the mock tables.
+- `tests/fw_api_test.c`: version 2, the identifier, the registration check (accept, each refusal, every one-bit change); `tools/gen_fw_api_id.py
+  --check` and `--selftest` in run_tests.sh.
+- `tests/need_all_engines.h` and run_tests.sh's CC guard (Fix 3).
+- The host suite on 051e85c and later: the same 12 jobs fail locally as on the base commit (the ones that need the built package or
+  a USB device: the web page tests' RangeError, CPU tools, power cuts, M-UPGRADE, installer CLI, ROM recovery). Nothing else.
+- Full suite in CI on the final commit: see the next line.
 
 ## Phases 8 to 11
 

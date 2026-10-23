@@ -1,12 +1,21 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.5
+**Version:** 0.6
 **Date:** October 23, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
-Milestone 2 (loadable engines) is a plan with budgets; its preparation is in "Order of work". DRUM-X is measured as a
-lower bound. Measurements are from docs/orangecat/SIZE_AUDIT.md and CI runs of the branches named below.
+Milestone 2 (loadable engines) is a plan with budgets; its preparation is built (the services table, the interface
+identifier, the registration check) and its toolchain question is answered by an experiment ("The module experiment").
+DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_AUDIT.md and CI runs of the branches
+named below.
 
 Revisions:
+- 0.6: the library's banks, the sector inventory and the options (Fix 1 of the second night: no bank can move, today's
+  behaviour kept, option (a) recommended now and (d) before the first module). DRUM-X built in full as engine 9
+  (0.9.0): the numbers replace the lower bound. The interface identifier built (step 5a: tools/gen_fw_api_id.py,
+  FW_API_IFACE, fw_mod_hdr_t, fw_module_check, FW_API_VERSION 2). The module experiment (step 5b, branch
+  exp/sonnet-module, CI run 39995546707): SHAPES builds as a separate object of 23,780 B with 188 relocations; the
+  JieLi clang 4.0.1 has no position independent code that links (GOT only), no ROPI or RWPI; the module is address
+  fixed, one link a start address. The next concrete steps of the proof of concept written out.
 - 0.5: milestone 1 built (0.8.0): the pack, its generator, the installer, the web page and the card path, with the
   numbers (image 477,356 B, 99,892 B free). The flash map corrected: the Prophet, CZ-1 and native FM6 areas are the
   shared user preset library's banks 16 to 20, 8 to 15 and 4 and 5, so they are not free until the library is moved
@@ -124,6 +133,19 @@ on the page and in the menu, the engine stays uninstalled or disabled, projects 
 missing engine. A firmware update that changes the identifier disables every module until the matching packages are
 installed again; the page says so and offers them. Freezing a stable interface, with a version instead of a hash,
 comes after the first modules exist.
+
+**Built (0.9.0, step 5a).** `tools/gen_fw_api_id.py` takes the text of `fw_api_t` (fw_api.h) and of `param_desc_t`,
+`voice_t`, `vmod_t`, `preset_t`, `engine_t` and `track_t` (core.h), removes the comments, folds the white space and
+hashes the result with FNV-1a, 32 bits. build.py writes it to build/gen/fw_api_id.h as `FW_API_ID`; run_tests.sh makes
+it again and checks it (`--check`), and `--selftest` shows that a comment or an indent leaves it where it is and that a
+field added, renamed or retyped in `engine_t`, `vmod_t` or `fw_api_t` moves it. The text cannot show array lengths
+behind a macro (P_COUNT, NVOICE), so `FW_API_IFACE` mixes in `sizeof` of `track_t`, `voice_t`, `engine_t` and `vmod_t`;
+that is the number a module carries. The module's first bytes are `fw_mod_hdr_t` (magic "OMOD", the identifier, the
+size of the table it needs, its version) and `fw_module_check` refuses a wrong magic, any other identifier, a longer
+table or a later version (a shorter or earlier one works). `fw_api_t.iface` holds the firmware's own number (it
+took the old `reserved` word, so the table keeps its size; `FW_API_VERSION` is 2). Nothing in the image calls the check:
+the compiler drops it with the table. tests/fw_api_test.c: the accept and each refusal, every one-bit change of the
+identifier refused.
 
 ## Installation and activation are two checks
 
@@ -365,9 +387,9 @@ plaits/pl_dsp.h functions (`pl_soft_clip`, `pl_svf_init`, `pl_svf_process`, `pl_
 `pl_flush`, `pl_flush_svf`) that SHAPES shares with MACRO. The tables are the pack's, at fixed addresses, so not imports.
 `firmware/src/fw_api.h` defines `fw_api_t` with exactly those services behind a magic, its own size and a version;
 engines.c holds an instance that nothing refers to; tests/fw_api_test.c checks each member against the real service.
-The interface identifier (a hash of the layouts of track_t, voice_t, vmod_t, engine_t and fw_api.h) is not built:
-`FW_API_VERSION` is the number until it is. This is preparation: nothing loads from the table, and neither the flash
-layout nor the PC guard changed.
+The interface identifier was built in 0.9.0 (above). This is preparation: nothing loads from the table, and neither
+the flash layout nor the PC guard changed. The experiment below found two more things the module needs from the
+firmware: the arena ids (`RES_ENGINE0` is a constant in resources.c, 0) and a place to find the table.
 
 **Editing metadata travels with the engine.** `edit[]` (eight parameter descriptors: label, format, range, default,
 names) and the preset list are in the module; the screens read them through `engine_t` as they do now. The PAGES
@@ -458,10 +480,130 @@ DRUM-X resident and put one large synth in the area" therefore has an easy answe
 built in whatever else is decided. The tree's own DRUM (Skiff's, 51,392 B and about 33.5 KB of pool) is the thing that
 does not fit.
 
+**DRUM-X as built (0.9.0, step 4).** The whole engine is in: `drumx_voice.c` (Jiant's voice, 525 lines, the kit passed
+to `dx_run` as a parameter instead of a global, TONE BP and HANDS fixed at 0) and `eng_drumx.c` (the engine_t: note-on
+to lane by Jiant's GM map, the choke of the open hat by the closed one, voice reuse per lane, the level and LFO, DRV and
+the soft knee on the part's output, nine kits as presets, the grid, the LANES pages and the pad keys). Measured by CI
+(exp/sonnet-drumx-port, run 39995665147, from sonnet-work 19a7fb3 plus the port; `.ci_quick`):
+
+| | Base (19a7fb3, run 39925548685) | With DRUM-X | Change |
+|---|---|---|---|
+| Image | 477,356 B | 487,544 B | +10,188 B |
+| Free flash | 99,892 B | 89,704 B | -10,188 B |
+| .data + .bss | 92,744 B | 92,776 B | +32 B |
+| Pool | 176,768 B | 176,768 B | 0 |
+| Arena | 95,840 B | 95,104 B | -736 B |
+| A DRUM-X track's state, from the arena | | 640 B (8 lanes of 80 B) | only on a track that uses it |
+
+Where the 10,188 B went (per source file, tools/size_by_file.py): drumx_voice.c 4,018 B (dx_run 2,562, the nine kits 936,
+dx_layer 306), eng_drumx.c 1,604 B (dxe_render 296, engine_t 248, dxe_post 208), and about 4,500 B in the files that
+draw and run the drum grid: ui_draw.c +864, ui_graph.c +606, seq.c +426, ui.c +390, main.c +338, ui_input.c +294,
+ui_popup.c +290, seq_notes.c +204, the rest smaller. **The grid, the LANES pages and the pad lanes were already in
+the source but unreachable in the Orange Cat set (MELODEE_DRUM=0 for Skiff's DRUM), so the linker dropped them; DRUM-X
+makes them live.** That is the real cost of a drum engine here, more than the voice. The arena lost 736 B because
+712 B of that grid code is audio-side code that tools/audio_ram.py puts in SRAM (seq.c 426, voice.c 86, seq_erase.c 80,
+midi_control.c 70, eng_drum.c 50). The first measurement of the port (run 39994670692) had the voice in SRAM too: the
+arena fell to 90,464 B (dx_run in .audio_text, 2,976 B). The fix was one attribute on each voice and glue function
+(`DX_XIP`, section `.text.xip_drumx`), as the estimate above said; the table's right-hand column of the lower bound was
+right about the voice (dx_run 2,562 B against 2,928 B then).
+
+The estimate of 8 to 9 KB whole was low by 1.2 to 2 KB: the voice and glue are 5.6 KB and the grid code is 4.5 KB. Free flash
+after DRUM-X is 89,704 B, so the MACRO and SHAPES modules still have the room the plan gave them. The unit has not been
+tried with DRUM-X: its cost at audio rate from flash is the open item (the cache under four tracks, as for MACRO).
+
+Mapping of Jiant's sequencer to step_t (the engine header says it field by field): hit, acc, note, n, time, vel, flags
+(accent, slide), probability and RATCH x1..x4 are the same fields. FLAM is Jiant's lane mode and Orange Cat's step flag
+(the whole step). With no equivalent, fixed defaults: the per-lane modes `lm[3]` (X2, X4, X8, SHORT, GHOST, FLAM, ONCE:
+none, every lane plays what the step plays), and the step components (`comp`, `carg`, `comp2`, `carg2`, `cwhen`,
+`ctime`: none) with MICRO's fine part (`nudge` times a step instead). The voice features left at fixed values are in the
+engine header and BUILD.md: the kit editor, LAYER, TONE BP and FEEDBK, HANDS, the IMAGE and SEND buses, lane and group
+mutes, octaves and TOUCH, PUNCH and DUCK, ATK+, BEND and X-MOD.
+
+## The module experiment (0.9.0, step 5b)
+
+Question: can SHAPES (eng_shapes.c and braids/) be built as a separate object that the JieLi toolchain places at a
+module slot, and is it position independent? Method: branch exp/sonnet-module (throwaway, never merged, `.ci_quick`).
+`tools/module_exp/shapes_mod.c` is the module's translation unit: it includes dsp.c's header-only helpers and
+eng_shapes.c, and replaces the five firmware services by the fw_api_t table (`trk`, `tuning_log`, `resource_get`, the
+pack's ready flag, memcpy and memset) with the module header first and an entry function that returns the engine_t.
+`tools/module_exp/run.sh` ran in CI with the toolchain's own clang (version 4.0.1) at the release flags
+(-Os -ffunction-sections -fdata-sections -mcpu=r3 -mfprev1), compiled it under each option, linked it with a script at
+0x020C8000 (flash 0xC8000 in the XIP window) and at 0x020D4000 (sector 12 of the area), and printed what the tools said.
+Run 39995546707.
+
+| Option | Compiler | Linker | Result |
+|---|---|---|---|
+| none (fixed address) | accepted, 23,789 B in the object | links at both addresses; .text 23,780 B, .data 4 B, .bss 4 B | **works** |
+| -fno-pic -fno-pie, -mlong-calls | accepted, same object as above | same | same bytes (calls are already 23 bit jumps and absolute immediates) |
+| -fPIC, -fPIE | accepted, 24,161 B (+1.6 %) | **fails**: `R_PI32V2_GOT16 against fw: relocation truncated to fit` | needs a GOT the static link does not make |
+| -fropi, -frwpi | `unsupported option for target pi32v2` | n/a | no |
+| -mno-pic, -mpc-relative-literal-loads | `unknown argument` | n/a | no |
+| ld -pie, -shared | n/a | `File format not recognized` | no shared objects |
+| ld -q (--emit-relocs), --relocatable | n/a | accepted; `.rela.text` kept in the linked file | usable for a post-link tool |
+
+What the numbers say:
+
+- **The blob is address fixed.** The two links differ in 164 of 1,623 sixteen byte lines of content, and the object has
+  188 relocations: `R_PI32V2_ABS32` 100 (pointers in data: the engine_t, the preset and name tables), `R_PI32V2_MOV_ABS32`
+  48 (an absolute 32 bit constant loaded into a register, in code) and `R_PI32V2_LONG_JUMP_23M2` 40 (a call or jump). The
+  differences are those sites and nothing else.
+- **The placement strategy the toolchain supports is a link per start address**, as section "Placement" says. The
+  alternative, one image with a table of the 188 sites for the installer to patch, is possible (the linker keeps
+  `.rela.text` with -q) but needs the encoding of `MOV_ABS32` and `LONG_JUMP_23M2`, which the toolchain does not
+  document; a wrong patch is a crash in the audio path. It is a later optimization if the variant count hurts, not for the
+  proof of concept.
+- **Position independent code exists in the compiler (-fPIC) but not in the linker.** It would need a GOT and a base
+  register set up by the loader: more than the engine is worth.
+- **Size.** The module is 23,780 B of code and constants: six sectors of 4 KB (24,576 B) with 796 B left for the header
+  and the CRC. The plan said 21.7 KB; the module includes the shared helpers and the memcpy and memset trampolines.
+  There is no room to spare: any growth of SHAPES moves it to seven sectors, and a variant grid of starts 0, 6 and 12
+  stops fitting exactly (7 sectors: starts 0 and 7 for 14 of 20).
+- **No undefined symbols.** With memcpy and memset as trampolines, the object refers to nothing outside itself. The
+  firmware's table is the only import.
+- **Two things are not clean yet.** The module holds 4 B of `.data` (the copy of oc_pack.h's `oc_pack_good`) and 4 B
+  of `.bss` (the `fw` pointer). A module with no RAM of its own needs neither; see the steps below.
+
+## The proof of concept, the next steps (5c)
+
+In order, each one buildable and testable alone. Nothing here writes flash on the unit until step 7.
+
+1. **Find the table without a pointer in RAM.** Put `FW_API` at a fixed address in the image (a linker section at a
+   known offset from the app start, like the vector table; add it to the PC guard's view as data) and let the module
+   use `(const fw_api_t *)FW_API_ADDR`. That removes the module's `.bss`. Add `res_engine0` (and the engine count) to
+   the table, and make the module's copy of `oc_pack_good` go away (a macro in oc_pack.h that reads the table). Goal: a
+   module with `.data` and `.bss` of zero bytes, checked by the experiment's own script.
+2. **A build target for the module.** `tools/build.py --module shapes` builds shapes_mod.c (moved out of the experiment
+   branch into tools/module/) and links it once for each start the size allows (a 6 sector module: 0, 6, 12), then
+   writes a package: a header (the module's fw_mod_hdr_t, engine number, state size, voice units, preset count, the
+   variants' start, length and CRC) and the images. The interface identifier is read from build/gen/fw_api_id.h.
+3. **The host build.** The same translation unit compiled for the host with the table filled by the host's services,
+   registered through the same check, run through tests/regress.c's SHAPES presets: the 24 golden hashes must equal the
+   built-in engine's. This proves the wrapper changes nothing before any hardware is touched.
+4. **The engine table in RAM.** `ENGINES[]` is a table of const pointers in flash. A module slot needs a pointer that
+   changes at boot: 20 words (80 B) of RAM, filled from the const table, then the module's. `eng_state_size` and
+   `eng_ok` read the module header for its engine. With the module out of the image the SHAPES switch is off in a
+   second build (its number kept).
+5. **The loader.** At boot, after the pack check: for each start in the area read the header (the flash is mapped), run
+   `fw_module_check`, check the length and the CRC (the pack's CRC code is reused), then register the engine under its
+   number. A module that was being used when the last boot crashed is marked and skipped (the sample slot's pattern).
+   Host test: a simulated NOR for every refusal, a torn header, a bad CRC.
+6. **Install.** The pack's commands (115 to 119) generalized with an area selector (pack or module slot) so the web page,
+   the host harness and test_web.mjs get the module install nearly for free; the page asks before taking the library's
+   banks (Fix 1 option (a): the module area's ten pairs are banks 4, 5 and 8 to 15, 180 slots). The library decision is
+   the user's: nothing here writes the library.
+7. **On the unit.** The package written to slot A from the page, the computer unplugged, power off and on, SHAPES
+   played from the module. Then the measurements in step 6 of the proof of concept above.
+
+Open question for step 1: a fixed address for the table means every firmware build keeps it there. The identifier already
+refuses a module built against another layout, so a firmware that moves the table simply fails the check; but the module
+cannot read the table to find that out, so the address has to be part of the header's checked data (an `api_addr` word
+in fw_mod_hdr_t, compared with the firmware's own).
+
 ## Order of work
 
-Status after the overnight run (0.7.2 to 0.8.0, branch sonnet-work): steps 1 to 4 are done and 5 is built and
-measured; the unit has been tried on none of it.
+Status after the second run (0.8.1 and 0.9.0, branch sonnet-work): steps 1 to 4 are done and 5 is built and
+measured; DRUM-X (step 2's measurement) is now built in full; the interface identifier and the registration check are
+built; the module experiment is done (above). The unit has been tried on none of it.
 
 1. The shared-editor cleanup (the pads' editor under the shared one, one delete path for a recorded step's events:
    docs/orangecat/TRACKER_REVIEW.md) and the stack-frame fix (SIZE_AUDIT.md: shared_boot's bank copies).

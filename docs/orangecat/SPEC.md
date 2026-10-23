@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.20  
+**Version:** 0.21  
 **Date:** October 23, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.21 (October 23, 2026):** DRUM-X built (0.9.0, branch sonnet-work, not on the unit yet; 8.1.1): Jiant FM's drum engine in engine slot 9, nine kits, eight lanes, Jiant's voice sample for sample; 10,188 bytes of flash (4,500 of them the drum grid code that DRUM-X makes live), 640 bytes of arena a track, the voice in flash. The interface identifier built (8.4): a hash of the layouts, a registration check; the toolchain question answered by an experiment (8.4): a module is linked for its start address, one link each. The library's bank placement (8.4) written from the sector inventory: no bank can move without a placement format change; keep it for the pack, move to a shared spare sector before the first module.
 - **0.20 (October 23, 2026):** The asset pack built (0.8.0, branch sonnet-work, not on the unit yet; 8.4): 57 tables, 40,232 bytes, in the Prophet bank area; installed from the web editor or from a .PAK file on the card; checked at boot; without it SHAPES and MACRO are silent and the screen says PACK MISSING. The flash map corrected: the retired engines' areas are the shared user preset library's banks 4, 5 and 8 to 20, not free; the pack takes banks 16 to 20 and asks first. Runtime engine retirement (storage.c). DRUM-X measured as a lower bound: about 4.4 KB of flash for the voice and 608 B of state a track.
 - **0.19 (October 23, 2026):** Loadable engines (8.4) rewritten from the plan (docs/orangecat/ENGINE_LOADING_PLAN.md 0.4): the web configurator is the primary way to install, replace, remove and assign engines; the card is a second transport; the module format, placement, the interface identifier, install against activate, the flash map, asset packs; not every engine need be a module. The tracker edits recorded notes (6.1, 0.7.1); where the views still differ by input origin (5.2). The flash figures of 2.1.1 brought up to date.
 - **0.18 (October 22, 2026):** Takes in project folders, moved when a project is named or renamed; a card browser to assign a WAV to a phrase (10.6, 0.6.1 on branch fx-jiant).
@@ -373,6 +374,8 @@ Mutable Instruments asks that derivative works not carry its name or keep the mo
 - **Plaits, as MACRO (0.5.0).** 14 of Plaits' 16 original models, ported from C++ to C and checked sample for sample against the original. HARMONICS, TIMBRE and MORPH on the HOME knobs; AUX blends the main and auxiliary outputs; LPG adds Plaits' low-pass gate curves on the ADSR; DECAY and T.MOD give Plaits' internal envelope on TIMBRE. A note is the trigger. Four voices per track in POLY (0.5.2), one in PARTCL and STRING (their 8 KB states). HARP (0.5.3), a model of Orange Cat's own, gives each voice one of STRING's strings so that chords ring. Each voice claims budget units by its model's measured cost (0.5.4), so the heavy models (ADDTV, FM, MODAL) play two notes at once and the light ones four. Not yet: the wavetable and speech models, Plaits 1.2's second bank. Build.md phase 7 has the detail.
 - **Braids, as SHAPES (0.5.1).** All of Braids' shapes but the four wavetable ones (their 33 KB of waves), ported to C and checked sample for sample against the original. Set up as the M8's Macrosynth: shape, TIMBRE, COLOR, then a filter (cutoff, resonance), drive, bit reduction and sample-rate reduction; Melodee's ADSR, LFO and modulation for the rest. A note strikes the shape. Four voices per track in POLY (0.5.2), one in the five shapes with delay lines, which share one set. Not yet: the wavetable shapes; Braids' own AD envelope routings.
 
+- **Jiant FM's DRUM-X, as DRUM-X (0.9.0, engine 9).** A kit of eight synthesized drum sounds (KICK, SNARE, CLAP, HAT CL, HAT OP, TOM, RIM, BELL), each with two patches and a MORPH between them, nine factory kits as presets; the voice is Jiant's drumx_voice.c, checked sample for sample against Jiant's own build (288 renders). The General MIDI map, the step grid and the LANES levels of the drum track, MORPH, TUNE, TONE, DECY, NOIS, FM, FOLD and DRV on the two edit pages, the closed hat choking the open one. Eight voices a track at two budget units; 640 bytes of arena a track; the voice code runs from flash. Not yet: the kit editor, LAYER, TONE BP and FEEDBK, HANDS, the IMAGE and SEND buses, lane and group mutes, octaves and TOUCH, PUNCH and DUCK, ATK+, BEND, X-MOD, and the step's per-lane modes and components (they need project format changes or wiring that Orange Cat's sequencer lacks); each has a fixed default, listed in Build.md. It uses the retired PHYS slot: an old stored PHYS sound that was not a drum now plays it.
+
 Clouds’ buffer freeze is a sound-processing function and shall be distinguished from instrument bouncing or whole-track audio freezing.
 
 ### 8.2 Additional inclusion candidates
@@ -428,20 +431,31 @@ Design:
   4 and 5): taking an area means the library gives those banks up, so an install asks first, and while the area is
   taken the library reads them empty and cannot save into them (storage.c `st_retire_engines`, run time; the build
   does not retire them by itself). The map is in storage.c's top comment and hal/fm1_flash.h (FL_PACK_*, FL_MODULE_*).
+  **Bank placement (0.21).** The sector inventory of 0x93000..0xFFFFF shows the pack and module areas hold exactly banks 4, 5
+  and 8 to 20 (30 sectors) and that one sector outside them is free and not a pair: no bank can move without a placement
+  format change. Today's rule stands: the pack's install asks first and costs the banks that hold records (up to 90 slots of
+  384). Before the first module is installed the library moves to a shared spare sector (22 banks in 23 sectors, a save
+  writes the spare, header last, and the sector it leaves becomes the spare), which frees 21 sectors; that needs a migration
+  and the user's say. The options and numbers are in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6.
 - **Asset pack first (built, 0.8.0).** The SHAPES and MACRO tables (57 tables, 40,232 bytes) leave the image and
   are read in place from the pack through the plaintext flash window the sample slot already uses. The pack is a
   512-byte header (magic, version, table hash, length, CRCs) and the tables; the firmware accepts only a pack with
   its own hash. Installed from the web editor (commands 115 to 119) or from a .PAK file in the card browser, only
   while the transport is stopped, header last. Without the pack those engines play silent and the screen says PACK
   MISSING; everything else works. The image fell by 35,084 bytes.
-- **Modules.** A module is an engine's code and metadata linked for a fixed address, with a header: magic, the
+- **Modules.** (The experiment, 0.9.0: SHAPES builds as a separate object of 23,780 bytes with 188 relocations; the JieLi
+  clang 4.0.1 has no ROPI or RWPI and its PIC does not link, so a module is linked once for each start address.) A module
+  is an engine's code and metadata linked for a fixed address, with a header: magic, the
   interface identifier, the engine's number, version, length, state size, voice units, CRC. One package file holds
   the variants an engine needs (one image per permitted start: a 6-sector engine has three, a 10-sector one two);
   the installer picks the variant that fits a free span. No compaction on the device: when nothing fits, the page
   says which engine to move. Module code runs from flash through the cache, as MACRO's models do today; the PC
   guard is widened to the module area.
-- **Interface identifier.** A hash of the structure layouts, parameter ids and the firmware function table a
-  module depends on, computed at build time for the firmware and each module. A mismatch is refused before
+- **Interface identifier (built, 0.9.0).** A 32-bit hash of the text of fw_api_t, param_desc_t, voice_t, vmod_t, preset_t,
+  engine_t and track_t with the four sizes the text cannot show (tools/gen_fw_api_id.py, FW_API_IFACE), computed at build
+  time for the firmware and each module; the module's header carries it and fw_module_check refuses any other, a longer
+  table or a later version. In the plan it was "parameter ids and the function table" as well; the table is fw_api_t and the
+  parameter ids are in track_t's layout. Nothing in the image calls the check yet. A mismatch is refused before
   registration; a firmware update that changes it disables the modules until matching packages are installed.
   A frozen interface with a version number comes once modules exist.
 - **Install and activate are two checks.** Installing needs a matching identifier, a free span and a good CRC and
@@ -452,11 +466,11 @@ Design:
   it on the next start.
 - **Not every engine need be a module.** Moving code to the area frees the body and fills the area; the flash is
   the same. Which engines stay built in is decided on measured sizes (MACRO 38.2 KB of code and metadata, SHAPES
-  21.7 KB, the Prophet 30.2 KB plus its tables, DRUM 51.4 KB and 33.5 KB of RAM; DRUM-X's voice about 4.4 KB of
-  flash and 608 B of state a track in the arena, about 8 to 9 KB estimated whole; see the plan).
+  21.7 KB (23.8 KB as built), the Prophet 30.2 KB plus its tables, DRUM 51.4 KB and 33.5 KB of RAM; DRUM-X, built in, 10.2 KB
+  of flash with the drum grid code it makes live and 640 B of state a track in the arena; see the plan).
 
-Order: the shared-editor cleanup and the stack fix, DRUM-X measured, the flash map adopted, the asset pack (these
-four done in 0.7.2 and 0.8.0, off the unit), then SHAPES as a module installed from the page and running after the computer is unplugged and the FM-1 restarted,
+Order: the shared-editor cleanup and the stack fix, DRUM-X, the flash map adopted, the asset pack, the interface identifier (these
+done in 0.7.2 to 0.9.0, off the unit), then SHAPES as a module installed from the page and running after the computer is unplugged and the FM-1 restarted,
 then the engines tab, the admission check and the card.
 
 ## 9. Modulation, Mixing, and Effects
