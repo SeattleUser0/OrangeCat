@@ -24,8 +24,27 @@ SIZE_FILES = ["ui.c", "gfx.c", "favorites.c", "icons.c", "ui_graph.c", "ui_draw.
               # main-loop only too: the boot and the main loop (main.c, not its ISR), parameters and their text, the
               # browser, the screen saver, calibration, the CZ / Prophet editing helpers, the update entry
               "main.c", "params.c", "browse.c", "screen.c", "panel.c", "cz_edit.h", "prophet_edit.h", "ota.c", "favorites.c",
-              "cz_panel.h"]
-DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)
+              "cz_panel.h",
+              # (Orange Cat size audit) main-loop files of the card, the record store and the pool, the USB host and
+              # the screen driver: none of their code is in the audio graph (tools/audio_ram.py's manifest), and the
+              # card's playing stream (card_stream.c) reads sectors itself, not through FatFs
+              "fatfs/ff.c", "fatfs/ffunicode.c", "usb_host.c", "usb_files.c", "oc_pool.c", "oc_lists.c", "oc_store.c",
+              "smp_slot.c", "ota_hw.c", "storage_hw.c", "lcd.c",
+              # (size audit) files with both main-loop and audio code: their functions in the audio graph (RESIDENT_NAMES
+              # below) keep -Os, the rest is built for size
+              "motion.c", "pattern.c", "jfx_perform.c", "usb.c", "jfx_slicer.c", "song_chain.c", "oc_throw.c"]
+# (Orange Cat size audit) the audio graph's functions in the files above that mix main-loop and audio code: never built
+# for size. From the resident list of a target build (build/melodee_audio.json); audio_ram.py reports a resident function
+# that was built for size, so the list can be kept current.
+RESIDENT_NAMES = {"motion_begin", "motion_capture", "motion_native_ok", "motion_param", "motion_rec_step", "motion_restore",
+                  "motion_set_event", "motion_snapshot_track", "motion_step",
+                  "groove_part", "pattern_apply", "pattern_encode", "pattern_flush", "pattern_free_block", "pattern_read",
+                  "pattern_stream_step", "pattern_switch", "recording_stop", "seq_release",
+                  "perf_avail", "perf_press",
+                  "e0_chunk", "e0_send", "midi_enqueue", "midi_out_event", "sie_rd", "sie_wr", "sysex_byte",
+                  "slicer_bus", "slicer_routes", "chain_apply", "throw_off", "throw_on"}
+# (size audit) FatFs writes its types first (FRESULT f_open (..), static DWORD clst2sect (..))
+DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const|FRESULT|DWORD|WORD|UINT|BYTE|FSIZE_t|LBA_t|TCHAR|WCHAR|FF_FS)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)
 # Stopped note transforms are infrequent main-loop work.
 # Keep their callers' common input/render paths compact as well as the helpers.
 COLD_NAMES = {"note_convert", "note_transform", "ui_confirm_accept"}
@@ -60,7 +79,7 @@ def size_names():
              "audio_batch_push", "mix_prepare_batch", "fm6_sync", "cz_native_block"}
     for f in SIZE_FILES:
         names.update(n for n in definitions((SRC / f).read_text()) if not n.endswith("_irq"))   # (ISRs stay as they are)
-    return names
+    return names - RESIDENT_NAMES
 
 
 def main(src, dst):

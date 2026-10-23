@@ -210,6 +210,15 @@ def relocate(ir, roots):
     return result, sorted(selected), sorted(far)
 
 
+def FUNCTION_ATTRS(ir, name):
+    """the attribute group text of function name's definition in ir ('' if none)"""
+    m = re.search(r'^define [^\n]*?@' + re.escape(name) + r'\([^\n]*\) [^\n]*?#(\d+)', ir, re.M)
+    if not m:
+        return ''
+    a = re.search(r'^attributes #' + m[1] + r' = (.*)$', ir, re.M)
+    return a[1] if a else ''
+
+
 def main(source, destination):
     src = Path(__file__).resolve().parents[1] / 'firmware/src'
     roots = engine_roots(src)
@@ -217,6 +226,11 @@ def main(source, destination):
     Path(destination).write_text(result)
     Path(destination).with_suffix('.json').write_text(json.dumps({'resident': selected, 'far_calls': far}, indent=2))
     print(f'audio RAM: {len(selected)} reachable functions; {len(far)} flash/RAM call boundaries')
+    # (Orange Cat size audit) functions the graph reaches that were built for size (size_fns.py): a few are meant to be
+    # (voice_start, mix_prepare_batch ..); a new one from a file in SIZE_FILES belongs in size_fns.py RESIDENT_NAMES
+    small = sorted(n for n in selected if re.search(r'\bminsize\b', FUNCTION_ATTRS(result, n)))
+    if small:
+        print(f'audio RAM: {len(small)} resident functions built for size: {" ".join(small)}')
 
 
 if __name__ == '__main__':
