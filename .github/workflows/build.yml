@@ -91,12 +91,11 @@ jobs:
         rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \
               | head -70 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
         echo "::notice title=size by engine and area::$rep"
-        # (gui-slim, temporary) the image by source file (tools/size_by_file.py) and every symbol of the UI's files, as
-        # notices (the packages artifact cannot be fetched from where the GUI size work runs)
-        "$JIELI_TOOLCHAIN/common/bin/objdump" -t build/melodee.elf > build/syms_all.txt
-        python3 tools/size_by_file.py build/syms_all.txt firmware/src build/gen --notices 3 || true
-        python3 tools/size_by_file.py build/syms_all.txt firmware/src build/gen --notices 5 \
-          --detail '^(gfx|ui|icons|lcd|screen|browse|params)' || true
+        # (size-audit, temporary) the symbol and section tables as compressed notices (tools/ci_blob.py), the first
+        # eight chunks here, the rest in the test step; the audit's workspace cannot read artifacts or logs
+        python3 tools/ci_syms.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/syms.tsv
+        cp build/syms.tsv /tmp/syms.tsv
+        python3 tools/ci_blob.py emit syms build/syms.tsv --start 1 --max 6
         # (rev 2) the package under Orange Cat's name: orangecat-X.Y[.Z].fwsc (tag) or orangecat-0.1.0-<commit>.fwsc
         if [ "$GITHUB_REF_TYPE" = tag ]; then
           cp "build/melodee-${GITHUB_REF_NAME#v}.fwsc" "build/orangecat-${GITHUB_REF_NAME#v}.fwsc"
@@ -116,6 +115,8 @@ jobs:
       test: |
         set -euo pipefail
         # (gui-slim, temporary) an experiment branch with .ci_quick: the build and its sizes only, no host tests
+        # (size-audit, temporary) the symbol table's remaining chunks; .ci_quick: the build and its sizes only, no host tests
+        python3 tools/ci_blob.py emit syms build/syms.tsv --start 7 --max 10 || true
         if [ -f .ci_quick ]; then echo "quick: no host tests"; exit 0; fi
         export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
         export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
