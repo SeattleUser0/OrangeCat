@@ -575,6 +575,9 @@ static void proj_bound(project_t *q)
 #include "oc_store.c"            /* (Orange Cat 0.3) the record store over the project area (build doc 4a part 3; in
                                   * RAM without the flash driver) */
 #include "smp_slot.c"            /* (Orange Cat 0.6.0) the internal user sample slot, 22 of its sectors */
+#if MELODEE_FLASH || defined(OC_PACK_HOST)      /* (OC_PACK_HOST: a host test with its own flash hooks, tests/editor_test.c) */
+#include "oc_pack.c"             /* (Orange Cat 0.8.0) the asset pack: SHAPES' and MACRO's tables in flash, checked at boot (oc_pack.h) */
+#endif
 #include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
 #include "oc_lists.c"            /* (Orange Cat 0.3, 4c) each track's list of pool patterns; the banks its cache */
@@ -1349,6 +1352,7 @@ static void persist_boot(void)                    /* before settings_init / pane
         return;
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP
                                                     * (user sample sets are played from there) */
+    oc_pack_boot();                                /* (Orange Cat 0.8.0) the asset pack there? SHAPES and MACRO play only with it */
 #if MELODEE_SLICE
     slc_store_boot();                              /* (the scans read each slot's stored slices) */
 #endif

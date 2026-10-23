@@ -21,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 10 (Orange Cat 0.8.0): the asset pack (build/orangecat-<name>.pak, tools/gen_pack.py) joins the packages artifact.
 #   Rev 9 (Orange Cat 0.6.0): the target budget's lines (tests/target_budget.py) to the run page as a notice.
 #   Rev 7: the failed tests' summary list first in the run page's annotation.
 #   Rev 6: engine switches in tools/orangecat_engines.sh (SID and CZ-1 off), read by the build and the test step.
@@ -95,6 +96,12 @@ jobs:
           cp "build/melodee-${GITHUB_REF_NAME#v}.fwsc" "build/orangecat-${GITHUB_REF_NAME#v}.fwsc"
         else
           cp build/melodee-nightly.fwsc "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.fwsc"
+        fi
+        # (rev 10, Orange Cat 0.8.0) the asset pack of this build, tools/gen_pack.py: orangecat-<same name>.pak, in the packages
+        # artifact; the firmware reads SHAPES' and MACRO's tables from it (firmware/src/oc_pack.h)
+        if [ -f build/melodee.pak ]; then
+          if [ "$GITHUB_REF_TYPE" = tag ]; then cp build/melodee.pak "build/orangecat-${GITHUB_REF_NAME#v}.pak"
+          else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
       test: |
         set -euo pipefail

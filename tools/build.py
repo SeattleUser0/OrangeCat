@@ -110,7 +110,9 @@ def generate():
             [tools / "gen_tables.py", GEN / "melodee_tables.h"],
             [tools / "gen_fm6_patches.py", GEN / "melodee_fm6.h"],
             [tools / "gen_cz1_factory.py", GEN / "melodee_cz1.h"],
-            [tools / "gen_prophet_factory.py", GEN / "melodee_prophet_factory.h", "--web", "check"]]
+            [tools / "gen_prophet_factory.py", GEN / "melodee_prophet_factory.h", "--web", "check"],
+            # (Orange Cat 0.8.0) the asset pack of SHAPES' and MACRO's tables, and the header that points the firmware at it
+            [tools / "gen_pack.py", "--pak", OUT / "melodee.pak", "--header", GEN / "oc_pack_tables.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
     failed = []
@@ -253,6 +255,8 @@ def build_app(stub):
             flags.append(f"-D{flag}={v}")
     if os.environ.get("P5_OVERSAMPLE") in ("1", "2"):
         flags.append("-DP5_OVERSAMPLE=" + os.environ["P5_OVERSAMPLE"])
+    if os.environ.get("OC_PACK") != "0":            # (Orange Cat 0.8.0) the tables read from the asset pack (oc_pack.h); OC_PACK=0: in the image
+        flags.append("-DOC_PACK_XIP=1")
     flags.append(f'-DMELODEE_ID="{PRODUCT}"')
     if VERSION:
         flags.append(f'-DMELODEE_VERSION="{VERSION}"')

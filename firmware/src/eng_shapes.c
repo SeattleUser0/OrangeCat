@@ -30,6 +30,7 @@
  *   0.5.2: polyphonic: four voices (SH_POLY) but in the delay line shapes (sh_cap), which share one set of delay lines
  *          (sh_part_t.lines, voice 0's); the pad, keys, bell and choir presets play POLY.
  *   0.5.3: voice units by shape from measured costs (sh_units: 2 to 4; was 2 for all).
+ *   0.8.0: sh_render is silent while the asset pack (Braids' tables, oc_pack.h) is not there (OC_PACK_READY).
  */
 #include "braids/pb_macro.h"
 #include "plaits/pl_dsp.h"                                /* (its float filter and soft clip) */
@@ -109,7 +110,7 @@ static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
     const int16_t *p = t->p;
     uint32_t i, done, vi = (uint32_t)(v - t->v) % SH_POLY;
     sh_voice_t *s;
-    if (!P) return;
+    if (!P || !OC_PACK_READY()) return;               /* (Orange Cat 0.8.0: the asset pack, with Braids' tables, is not there: silent) */
     s = &P->v[vi];
     int32_t shape_ix = clamp(p[P_E0], 0, SH_N - 1);
     if (sh_lines(SH_SHAPES[shape_ix]) && vi)          /* (voices left from a shape of four: silent to their end) */

@@ -44,6 +44,32 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/panel.c"
 #include "../firmware/src/ui.c"
 static void panel_setup(void) {}
+#define OC_PACK_HOST 1                    /* (Orange Cat 0.8.0) the asset pack's code without MELODEE_FLASH: its flash is the simulation below */
+/* (Orange Cat 0.8.0) storage.c's flash is unavailable here, except the asset pack's area (0x93000..0x9CFFF): a simulated NOR for oc_pack.c */
+static uint8_t host_pack[0xA000];
+static uint32_t host_pack_erases;
+static int host_pack_in(uint32_t off, uint32_t n) { return off >= 0x93000u && off <= 0x9D000u && n <= 0x9D000u - off; }
+static int st_read(uint32_t off, void *p, uint32_t n)
+{
+    if (!host_pack_in(off, n)) return -1;
+    memcpy(p, host_pack + (off - 0x93000u), n);
+    return 0;
+}
+static int st_prog(uint32_t off, const void *p, uint32_t n)
+{
+    const uint8_t *s = p;
+    if (!host_pack_in(off, n) || (off & 0xFFu) + n > 256u) return -1;
+    for (uint32_t i = 0; i < n; i++) host_pack[off - 0x93000u + i] &= s[i];
+    return 0;
+}
+static int st_erase(uint32_t off)
+{
+    if (!host_pack_in(off, 4096u)) return -1;
+    memset(host_pack + (off - 0x93000u), 0xFF, 4096u);
+    host_pack_erases++;
+    return 0;
+}
+#include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
 
@@ -59,10 +85,6 @@ static int fl_write(uint32_t off, const void *p, uint32_t n)
 {
     memcpy(host_flash_ptr(off), p, n); host_writes++; return 0;
 }
-static int st_read(uint32_t off, void *p, uint32_t n) { (void)off; (void)p; (void)n; return -1; }
-static int st_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p; (void)n; return -1; }
-static int st_erase(uint32_t off) { (void)off; return -1; }
-#include "../firmware/src/storage.c"
 #include "../firmware/src/editor.c"
 #include "../firmware/src/cz_store.c"
 
@@ -727,9 +749,71 @@ static int sample_slot_protocol(void)
     bad += check("SLOT_ERASE: the slot empty", host_wire[5] == 0 && smp_slot_info(0, 0, 0) == SMP_EMPTY);
     return bad;
 }
+/* (Orange Cat 0.8.0) the asset pack's commands 115..119 (oc_pack.c) */
+static int pack_protocol(void)
+{
+    static uint8_t pak[OC_PACK_LEN], a[600];
+    uint32_t n, i, off, len = OC_PACK_LEN;
+    int bad = 0, ok;
+    reset();
+    memset(host_pack, 0xFF, sizeof host_pack); host_pack_erases = 0;
+    memset(&pk, 0, sizeof pk); oc_pack_boot();
+    request(ED_PACK_INFO, 0, 0);
+    bad += check("PACK_INFO: no pack, this build's length and hash, the 10-sector area",
+                 host_wire[5] == 0 && host_wire[6] == 0 && (host_wire[15] | host_wire[16] << 7 | host_wire[17] << 14) == OC_PACK_LEN &&
+                 (host_wire[23] | host_wire[24] << 7 | host_wire[25] << 14) == OC_PACK_AREA &&
+                 (host_wire[18] | host_wire[19] << 7 | host_wire[20] << 14 | (uint32_t)host_wire[21] << 21 | (uint32_t)host_wire[22] << 28) == OC_PACK_HASH);
+    memset(pak, 0xFF, OC_PACK_HDR);
+    for (i = OC_PACK_HDR; i < len; i++) pak[i] = (uint8_t)(i * 13u + 5u);
+    memcpy(pak, "OCPK", 4); pak[4] = 1; pak[5] = pak[6] = pak[7] = 0;
+    for (i = 0; i < 4; i++) { pak[8 + i] = (uint8_t)(OC_PACK_HASH >> (8 * i)); pak[12 + i] = (uint8_t)(len >> (8 * i)); }
+    { uint32_t c = ocs_crc32(pak + OC_PACK_HDR, len - OC_PACK_HDR); for (i = 0; i < 4; i++) pak[16 + i] = (uint8_t)(c >> (8 * i)); }
+    { uint32_t c = ocs_crc32(pak, 508); for (i = 0; i < 4; i++) pak[508 + i] = (uint8_t)(c >> (8 * i)); }
+    a[0] = (uint8_t)(len & 127u); a[1] = (uint8_t)(len >> 7 & 127u); a[2] = (uint8_t)(len >> 14); a[3] = 0;
+    request(ED_PACK_BEGIN, a, 3);
+    bad += check("PACK_BEGIN without its take byte is refused (1), nothing erased", host_wire[5] == 1 && host_pack_erases == 0);
+    a[0] = 1;
+    request(ED_PACK_BEGIN, a, 4);
+    bad += check("PACK_BEGIN with another length is refused (1), nothing erased", host_wire[5] == 1 && host_pack_erases == 0);
+    a[0] = (uint8_t)(len & 127u);
+    song.playing = 1; host_progress = 0;
+    request(ED_PACK_BEGIN, a, 4);
+    bad += check("PACK_BEGIN while the transport runs is refused (2), nothing erased", host_wire[5] == 2 && host_pack_erases == 0 && !pk.claimed);
+    song.playing = 0; host_progress = 1;
+    request(ED_PACK_BEGIN, a, 4);
+    ok = host_wire[5] == 0 && host_pack_erases == 10u && pk.writing;
+    for (off = OC_PACK_HDR; off < len; off += 256u) {
+        uint32_t k = len - off < 256u ? len - off : 256u;
+        a[0] = (uint8_t)(off & 127u); a[1] = (uint8_t)(off >> 7 & 127u); a[2] = (uint8_t)(off >> 14);
+        n = pack7(pak + off, k, a + 3);
+        request(ED_PACK_WRITE, a, 3u + n);
+        ok &= host_wire[5] == 0 && (host_wire[6] | host_wire[7] << 7 | host_wire[8] << 14) == off + k;
+        if (off == OC_PACK_HDR + 256u) {                       /* once out of order: refused, the install goes on */
+            a[0] = 0; a[1] = 1; a[2] = 0;
+            request(ED_PACK_WRITE, a, 3u + n);
+            ok &= host_wire[5] == 1;
+        }
+    }
+    bad += check("PACK_BEGIN / WRITE: erased once, the payload taken in order, an out-of-order write refused (1)", ok);
+    request(ED_PACK_INFO, 0, 0);
+    bad += check("before END the pack is not there: INFO says none", host_wire[5] == 0 && !oc_pack_good);
+    n = pack7(pak, OC_PACK_HDR, a);
+    request(ED_PACK_END, a, n);
+    bad += check("PACK_END: the header taken, the pack checked", host_wire[5] == 0 && pk.state == PK_OK);
+    request(ED_PACK_INFO, 0, 0);
+    bad += check("PACK_INFO: this build's pack, its stored length", host_wire[5] == 1 && (host_wire[7] | host_wire[8] << 7 | host_wire[9] << 14) == OC_PACK_LEN);
+    bad += check("the flash holds the pack byte for byte", !memcmp(host_pack, pak, len));
+    a[0] = 0; request(ED_PACK_ERASE, a, 1);
+    bad += check("PACK_ERASE: the area blank, no pack", host_wire[5] == 0 && host_pack[0] == 0xFF && pk.state == PK_MISSING);
+    request(ED_PACK_ERASE, 0, 0);
+    bad += check("PACK_ERASE without its take byte is refused (1)", host_wire[5] == 1);
+    a[0] = 2; request(ED_PACK_ERASE, a, 1);
+    bad += check("PACK_ERASE with take 2 is refused (1)", host_wire[5] == 1);
+    return bad;
+}
 int main(void)
 {
-    int bad = sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

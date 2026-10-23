@@ -10,6 +10,9 @@ ratio (eng_shapes.c), so they stay right. The wavetables (wt_waves, 33 KB, and w
 with PB_WAVETABLES. The output is committed: the build does not run this.
 
 Revisions:
+  0.8.0: the tables are declared OC_TBL(type, name)[n] (firmware/src/oc_pack.h): in the device build they are read in place
+         from the asset pack (tools/gen_pack.py) and the array here is dropped; the wavetables keep `static const`.
+         The committed output was changed by hand to match; regenerate with this version to get the same file.
   0.5.1: first version.
 """
 import re
@@ -25,7 +28,7 @@ def main(root):
     out = ["/* SPDX-License-Identifier: MIT",
            " * Copyright 2012 Emilie Gillet (Mutable Instruments Braids). MIT License: LICENSES/MIT-Mutable.txt",
            " * Orange Cat 0.5.1: Braids' lookup tables, made by tools/gen_braids_tables.py (do not edit). */",
-           "#pragma once", "#include <stdint.h>", ""]
+           "#pragma once", '#include "../oc_pack.h"', "#include <stdint.h>", ""]
     waves = []
     for m in re.finditer(r"^const (\w+) (\w+)\[\] = \{(.*?)\};", src, re.S | re.M):
         ctype, name, body = m.group(1), m.group(2), m.group(3)
@@ -35,7 +38,7 @@ def main(root):
         v = [x.strip() for x in body.split(",") if x.strip()]
         if name in WAVETABLE:
             out.append("#if PB_WAVETABLES")
-        out.append(f"static const {ctype} pb_{name}[{len(v)}] = {{")
+        out.append((f"static const {ctype} pb_{name}" if name in WAVETABLE else f"OC_TBL({ctype}, pb_{name})") + f"[{len(v)}] = {{")
         for i in range(0, len(v), 12):
             out.append("    " + ", ".join(v[i:i + 12]) + ",")
         out.append("};")

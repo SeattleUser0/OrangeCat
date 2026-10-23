@@ -49,6 +49,7 @@
 # EFFECTS (tests/jfx_test.c, 0.6.0): Jiant FM's effects through the master path; their storage and conversions.
 # EFFECTS' MEMORY (tests/jfx_arena_test.c, 0.6.0 rev 2): the arena at the device's sizes, the table in BUILD.md.
 # SAMPLE SLOT (tests/smp_slot_test.c, 0.6.0): the internal user sample slot on a simulated NOR.
+# ASSET PACK (tests/oc_pack_test.c and tools/gen_pack.py --check, 0.8.0): SHAPES' and MACRO's tables in flash: install, power cuts, refusals.
 # MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
 # LAYERS / SCREEN (tests/layer_screen_test.c): GLO/SCL double-tapped layers, SCREEN OFF, LFO 2.
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
@@ -253,6 +254,8 @@ phys_ref() {
 sound && t "effects (Orange Cat 0.6.0, Jiant FM's): DIST, AUTO PAN, DELAY, REVERB x5, CHORUS, SLICER, the FX layer, FX FULL, FUN23 / TPLM storage and the old records converted; audition WAVs" jfx_test -O1 $FW
 core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which buses hold with which engines, the cache RAM and the card's slots" jfx_arena_test -O1 $FW
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
+core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
+core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks

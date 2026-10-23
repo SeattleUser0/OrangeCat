@@ -2,9 +2,10 @@
  * Copyright 2012 Emilie Gillet (Mutable Instruments Braids). MIT License: LICENSES/MIT-Mutable.txt
  * Orange Cat 0.5.1: Braids' lookup tables, made by tools/gen_braids_tables.py (do not edit). */
 #pragma once
+#include "../oc_pack.h"
 #include <stdint.h>
 
-static const uint16_t pb_lut_resonator_coefficient[129] = {
+OC_TBL(uint16_t, pb_lut_resonator_coefficient)[129] = {
     65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535,
     65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535,
     65535, 65535, 65535, 65535, 65535, 65534, 65534, 65534, 65534, 65534, 65534, 65533,
@@ -19,7 +20,7 @@ static const uint16_t pb_lut_resonator_coefficient[129] = {
 };
 #define PB_LUT_RESONATOR_COEFFICIENT_SIZE 129u
 
-static const uint16_t pb_lut_resonator_scale[129] = {
+OC_TBL(uint16_t, pb_lut_resonator_scale)[129] = {
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2,
     2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6,
@@ -34,7 +35,7 @@ static const uint16_t pb_lut_resonator_scale[129] = {
 };
 #define PB_LUT_RESONATOR_SCALE_SIZE 129u
 
-static const uint16_t pb_lut_svf_cutoff[257] = {
+OC_TBL(uint16_t, pb_lut_svf_cutoff)[257] = {
     17, 18, 19, 20, 22, 23, 24, 26, 27, 29, 31, 33,
     35, 37, 39, 41, 44, 46, 49, 52, 55, 58, 62, 66,
     70, 74, 78, 83, 88, 93, 99, 105, 111, 117, 124, 132,
@@ -60,7 +61,7 @@ static const uint16_t pb_lut_svf_cutoff[257] = {
 };
 #define PB_LUT_SVF_CUTOFF_SIZE 257u
 
-static const uint16_t pb_lut_svf_damp[257] = {
+OC_TBL(uint16_t, pb_lut_svf_damp)[257] = {
     65534, 49213, 46125, 44055, 42453, 41129, 39991, 38988, 38086, 37266, 36512, 35812,
     35158, 34544, 33965, 33416, 32893, 32395, 31918, 31460, 31021, 30597, 30188, 29793,
     29411, 29041, 28681, 28332, 27992, 27661, 27339, 27024, 26717, 26418, 26125, 25838,
@@ -86,7 +87,7 @@ static const uint16_t pb_lut_svf_damp[257] = {
 };
 #define PB_LUT_SVF_DAMP_SIZE 257u
 
-static const uint16_t pb_lut_svf_scale[257] = {
+OC_TBL(uint16_t, pb_lut_svf_scale)[257] = {
     32767, 28395, 27490, 26866, 26373, 25958, 25596, 25273, 24979, 24709, 24458, 24222,
     24000, 23790, 23589, 23398, 23214, 23037, 22867, 22703, 22544, 22389, 22239, 22093,
     21951, 21812, 21677, 21544, 21415, 21288, 21163, 21041, 20922, 20804, 20688, 20574,
@@ -112,7 +113,7 @@ static const uint16_t pb_lut_svf_scale[257] = {
 };
 #define PB_LUT_SVF_SCALE_SIZE 257u
 
-static const uint16_t pb_lut_granular_envelope[513] = {
+OC_TBL(uint16_t, pb_lut_granular_envelope)[513] = {
     0, 4, 19, 44, 78, 123, 177, 241, 314, 398, 490, 593,
     705, 826, 957, 1097, 1247, 1405, 1572, 1749, 1934, 2128, 2330, 2541,
     2761, 2988, 3224, 3467, 3718, 3977, 4244, 4517, 4798, 5086, 5381, 5682,
@@ -159,7 +160,7 @@ static const uint16_t pb_lut_granular_envelope[513] = {
 };
 #define PB_LUT_GRANULAR_ENVELOPE_SIZE 513u
 
-static const uint16_t pb_lut_granular_envelope_rate[257] = {
+OC_TBL(uint16_t, pb_lut_granular_envelope_rate)[257] = {
     2048, 2070, 2092, 2115, 2138, 2161, 2185, 2209, 2233, 2257, 2282, 2307,
     2332, 2357, 2383, 2409, 2435, 2462, 2488, 2515, 2543, 2571, 2599, 2627,
     2655, 2684, 2714, 2743, 2773, 2803, 2834, 2865, 2896, 2927, 2959, 2991,
@@ -185,7 +186,7 @@ static const uint16_t pb_lut_granular_envelope_rate[257] = {
 };
 #define PB_LUT_GRANULAR_ENVELOPE_RATE_SIZE 257u
 
-static const uint16_t pb_lut_bowing_envelope[752] = {
+OC_TBL(uint16_t, pb_lut_bowing_envelope)[752] = {
     0, 10, 21, 32, 43, 54, 65, 76, 87, 98, 109, 120,
     131, 142, 153, 164, 175, 185, 196, 207, 218, 229, 240, 251,
     262, 273, 284, 295, 306, 317, 328, 339, 350, 361, 371, 382,
@@ -252,7 +253,7 @@ static const uint16_t pb_lut_bowing_envelope[752] = {
 };
 #define PB_LUT_BOWING_ENVELOPE_SIZE 752u
 
-static const uint16_t pb_lut_bowing_friction[257] = {
+OC_TBL(uint16_t, pb_lut_bowing_friction)[257] = {
     32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768,
     32768, 32768, 32768, 32768, 32768, 30797, 28973, 27281, 25711, 24253, 22896, 21633,
     20456, 19358, 18333, 17374, 16478, 15638, 14852, 14114, 13421, 12771, 12159, 11583,
@@ -278,7 +279,7 @@ static const uint16_t pb_lut_bowing_friction[257] = {
 };
 #define PB_LUT_BOWING_FRICTION_SIZE 257u
 
-static const uint16_t pb_lut_blowing_envelope[392] = {
+OC_TBL(uint16_t, pb_lut_blowing_envelope)[392] = {
     0, 178, 357, 536, 715, 894, 1073, 1252, 1431, 1610, 1789, 1968,
     2147, 2326, 2505, 2684, 2863, 3042, 3221, 3400, 3579, 3758, 3937, 4116,
     4295, 4474, 4653, 4832, 5011, 5190, 5369, 5548, 5727, 5906, 6085, 6264,
@@ -315,7 +316,7 @@ static const uint16_t pb_lut_blowing_envelope[392] = {
 };
 #define PB_LUT_BLOWING_ENVELOPE_SIZE 392u
 
-static const uint16_t pb_lut_flute_body_filter[128] = {
+OC_TBL(uint16_t, pb_lut_flute_body_filter)[128] = {
     30, 32, 34, 36, 38, 40, 43, 45, 48, 51, 54, 57,
     60, 64, 68, 72, 76, 81, 86, 91, 96, 102, 108, 114,
     121, 129, 136, 144, 153, 162, 172, 182, 193, 204, 216, 229,
@@ -330,7 +331,7 @@ static const uint16_t pb_lut_flute_body_filter[128] = {
 };
 #define PB_LUT_FLUTE_BODY_FILTER_SIZE 128u
 
-static const uint16_t pb_lut_fm_frequency_quantizer[129] = {
+OC_TBL(uint16_t, pb_lut_fm_frequency_quantizer)[129] = {
     7168, 7168, 7168, 7360, 7552, 7744, 7936, 8128, 8320, 8512, 8704, 8896,
     9088, 9280, 9472, 9664, 9856, 10048, 10240, 10240, 10240, 10432, 10624, 10816,
     11008, 11200, 11392, 11584, 11776, 11968, 12160, 12352, 12544, 12736, 12928, 13312,
@@ -345,7 +346,7 @@ static const uint16_t pb_lut_fm_frequency_quantizer[129] = {
 };
 #define PB_LUT_FM_FREQUENCY_QUANTIZER_SIZE 129u
 
-static const uint16_t pb_lut_vco_detune[257] = {
+OC_TBL(uint16_t, pb_lut_vco_detune)[257] = {
     10, 10, 10, 47, 116, 184, 252, 321, 389, 456, 524, 592,
     659, 727, 794, 862, 929, 996, 1063, 1130, 1196, 1263, 1330, 1396,
     1463, 1529, 1595, 1662, 1728, 1794, 1860, 1926, 1992, 2058, 2124, 2189,
@@ -371,7 +372,7 @@ static const uint16_t pb_lut_vco_detune[257] = {
 };
 #define PB_LUT_VCO_DETUNE_SIZE 257u
 
-static const uint16_t pb_lut_bell[257] = {
+OC_TBL(uint16_t, pb_lut_bell)[257] = {
     0, 670, 2655, 5873, 10191, 15434, 21387, 27805, 34427, 40980, 47198, 52824,
     57630, 61417, 64032, 65366, 65534, 65528, 65517, 65500, 65477, 65449, 65415, 65376,
     65331, 65280, 65224, 65162, 65095, 65022, 64944, 64860, 64770, 64675, 64574, 64468,
@@ -397,7 +398,7 @@ static const uint16_t pb_lut_bell[257] = {
 };
 #define PB_LUT_BELL_SIZE 257u
 
-static const uint16_t pb_lut_env_expo[257] = {
+OC_TBL(uint16_t, pb_lut_env_expo)[257] = {
     0, 1034, 2053, 3057, 4044, 5016, 5974, 6916, 7844, 8757, 9656, 10542,
     11413, 12271, 13116, 13948, 14766, 15572, 16366, 17147, 17916, 18673, 19419, 20153,
     20875, 21587, 22287, 22976, 23655, 24323, 24981, 25629, 26267, 26894, 27512, 28121,
@@ -423,7 +424,7 @@ static const uint16_t pb_lut_env_expo[257] = {
 };
 #define PB_LUT_ENV_EXPO_SIZE 257u
 
-static const int16_t pb_lut_blowing_jet[257] = {
+OC_TBL(int16_t, pb_lut_blowing_jet)[257] = {
     0, -255, -511, -767, -1022, -1278, -1532, -1786, -2039, -2292, -2544, -2795,
     -3044, -3293, -3541, -3787, -4031, -4275, -4516, -4756, -4994, -5231, -5465, -5697,
     -5927, -6155, -6381, -6604, -6824, -7042, -7257, -7470, -7679, -7886, -8089, -8289,
@@ -449,7 +450,7 @@ static const int16_t pb_lut_blowing_jet[257] = {
 };
 #define PB_LUT_BLOWING_JET_SIZE 257u
 
-static const uint32_t pb_lut_oscillator_increments[97] = {
+OC_TBL(uint32_t, pb_lut_oscillator_increments)[97] = {
     594573364, 598881888, 603221633, 607592826, 611995694, 616430467, 620897376, 625396654, 629928536, 634493258, 639091058, 643722175,
     648386851, 653085330, 657817855, 662584675, 667386036, 672222191, 677093390, 681999888, 686941940, 691919804, 696933740, 701984010,
     707070875, 712194602, 717355458, 722553711, 727789633, 733063497, 738375577, 743726151, 749115497, 754543897, 760011633, 765518991,
@@ -462,7 +463,7 @@ static const uint32_t pb_lut_oscillator_increments[97] = {
 };
 #define PB_LUT_OSCILLATOR_INCREMENTS_SIZE 97u
 
-static const uint32_t pb_lut_oscillator_delays[97] = {
+OC_TBL(uint32_t, pb_lut_oscillator_delays)[97] = {
     1939073583, 1925123345, 1911273470, 1897523234, 1883871922, 1870318821, 1856863224, 1843504431, 1830241745, 1817074474, 1804001933, 1791023438,
     1778138315, 1765345891, 1752645499, 1740036478, 1727518169, 1715089920, 1702751084, 1690501017, 1678339080, 1666264640, 1654277066, 1642375735,
     1630560024, 1618829320, 1607183009, 1595620485, 1584141146, 1572744391, 1561429629, 1550196268, 1539043722, 1527971412, 1516978758, 1506065189,
@@ -475,7 +476,7 @@ static const uint32_t pb_lut_oscillator_delays[97] = {
 };
 #define PB_LUT_OSCILLATOR_DELAYS_SIZE 97u
 
-static const uint32_t pb_lut_env_portamento_increments[128] = {
+OC_TBL(uint32_t, pb_lut_env_portamento_increments)[128] = {
     1431655765, 1208633567, 1025339217, 873854034, 747996982, 642910145, 554750639, 480459775, 417588783, 364166300, 318596895, 279582889,
     246063710, 217168604, 192179528, 170501890, 151641346, 135185326, 120788231, 108159539, 97054201, 87264844, 78615425, 70956050,
     64158714, 58113796, 52727166, 47917783, 43615697, 39760385, 36299356, 33186980, 30383504, 27854220, 25568762, 23500507,
@@ -490,7 +491,7 @@ static const uint32_t pb_lut_env_portamento_increments[128] = {
 };
 #define PB_LUT_ENV_PORTAMENTO_INCREMENTS_SIZE 128u
 
-static const int16_t pb_wav_formant_sine[256] = {
+OC_TBL(int16_t, pb_wav_formant_sine)[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 2, 2, 3, 3, 4, 5, 6,
     7, 8, 10, 12, 14, 17, 20, 24, 0, 3, 4, 5,
@@ -516,7 +517,7 @@ static const int16_t pb_wav_formant_sine[256] = {
 };
 #define PB_WAV_FORMANT_SINE_SIZE 256u
 
-static const int16_t pb_wav_formant_square[256] = {
+OC_TBL(int16_t, pb_wav_formant_square)[256] = {
     0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 6, 8,
     9, 11, 13, 16, 0, 1, 1, 2, 2, 3, 3, 4,
     4, 5, 6, 8, 9, 11, 13, 16, 0, 1, 1, 2,
@@ -542,7 +543,7 @@ static const int16_t pb_wav_formant_square[256] = {
 };
 #define PB_WAV_FORMANT_SQUARE_SIZE 256u
 
-static const int16_t pb_wav_sine[257] = {
+OC_TBL(int16_t, pb_wav_sine)[257] = {
     -32512, -32502, -32473, -32423, -32356, -32265, -32160, -32031, -31885, -31719, -31533, -31331,
     -31106, -30864, -30605, -30324, -30028, -29712, -29379, -29026, -28658, -28272, -27868, -27449,
     -27011, -26558, -26089, -25604, -25103, -24588, -24056, -23512, -22953, -22378, -21793, -21191,
@@ -568,7 +569,7 @@ static const int16_t pb_wav_sine[257] = {
 };
 #define PB_WAV_SINE_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_0[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_0)[257] = {
     -142, -146, -143, -139, -129, -125, -122, -125, -133, -142, -146, -146,
     -141, -133, -124, -120, -123, -129, -140, -147, -149, -145, -136, -125,
     -117, -119, -126, -136, -148, -154, -150, -139, -127, -115, -113, -119,
@@ -594,7 +595,7 @@ static const int16_t pb_wav_bandlimited_comb_0[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_0_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_1[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_1)[257] = {
     -150, -157, -152, -144, -132, -121, -119, -125, -135, -149, -157, -157,
     -149, -135, -123, -114, -120, -131, -146, -158, -162, -156, -139, -123,
     -112, -113, -124, -142, -160, -167, -164, -147, -125, -108, -104, -113,
@@ -620,7 +621,7 @@ static const int16_t pb_wav_bandlimited_comb_1[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_1_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_2[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_2)[257] = {
     -159, -164, -128, -110, -139, -167, -154, -114, -116, -153, -171, -138,
     -105, -127, -170, -163, -119, -105, -147, -176, -149, -104, -114, -165,
     -178, -127, -94, -134, -183, -164, -104, -97, -159, -193, -140, -83,
@@ -646,7 +647,7 @@ static const int16_t pb_wav_bandlimited_comb_2[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_2_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_3[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_3)[257] = {
     -190, -184, -179, -172, -166, -156, -150, -143, -133, -128, -121, -114,
     -110, -106, -103, -102, -103, -102, -107, -111, -116, -124, -132, -141,
     -152, -161, -174, -185, -197, -206, -218, -226, -235, -241, -246, -249,
@@ -672,7 +673,7 @@ static const int16_t pb_wav_bandlimited_comb_3[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_3_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_4[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_4)[257] = {
     -201, -92, -117, -221, -162, -74, -164, -225, -112, -86, -211, -197,
     -73, -128, -236, -148, -61, -183, -232, -91, -84, -235, -191, -50,
     -140, -260, -125, -44, -211, -243, -57, -83, -272, -181, -12, -162,
@@ -698,7 +699,7 @@ static const int16_t pb_wav_bandlimited_comb_4[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_4_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_5[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_5)[257] = {
     0, -130, -195, -104, 21, 14, -125, -204, -116, 24, 26, -117,
     -214, -130, 25, 42, -108, -225, -147, 26, 61, -98, -237, -168,
     28, 83, -84, -254, -191, 28, 111, -68, -273, -222, 29, 146,
@@ -724,7 +725,7 @@ static const int16_t pb_wav_bandlimited_comb_5[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_5_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_6[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_6)[257] = {
     0, -260, 12, -272, 24, -285, 38, -298, 50, -310, 62, -322,
     74, -334, 85, -344, 96, -356, 108, -368, 120, -380, 131, -390,
     142, -401, 151, -410, 161, -419, 169, -428, 180, -439, 189, -447,
@@ -750,7 +751,7 @@ static const int16_t pb_wav_bandlimited_comb_6[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_6_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_7[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_7)[257] = {
     0, -101, -495, -60, -22, -500, -136, 49, -484, -223, 106, -442,
     -317, 142, -375, -412, 155, -288, -501, 141, -184, -574, 94, -66,
     -628, 18, 57, -656, -87, 177, -648, -222, 287, -602, -378, 375,
@@ -776,7 +777,7 @@ static const int16_t pb_wav_bandlimited_comb_7[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_7_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_8[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_8)[257] = {
     -640, -727, -239, 149, -114, -674, -747, -215, 185, -116, -715, -769,
     -188, 228, -118, -761, -800, -155, 282, -120, -820, -836, -115, 349,
     -122, -894, -881, -65, 433, -123, -988, -942, 2, 543, -123, -1115,
@@ -802,7 +803,7 @@ static const int16_t pb_wav_bandlimited_comb_8[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_8_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_9[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_9)[257] = {
     0, -521, -1050, -1263, -1024, -465, 82, 279, 1, -602, -1168, -1350,
     -1024, -374, 216, 378, -1, -706, -1320, -1462, -1024, -252, 391, 508,
     0, -848, -1529, -1615, -1025, -83, 643, 694, 1, -1056, -1839, -1848,
@@ -828,7 +829,7 @@ static const int16_t pb_wav_bandlimited_comb_9[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_9_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_10[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_10)[257] = {
     0, -492, -1080, -1617, -1967, -2040, -1807, -1322, -691, -79, 371, 533,
     359, -114, -784, -1487, -2044, -2316, -2219, -1765, -1053, -252, 439, 843,
     844, 423, -334, -1250, -2106, -2679, -2811, -2442, -1639, -575, 491, 1293,
@@ -854,7 +855,7 @@ static const int16_t pb_wav_bandlimited_comb_10[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_10_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_11[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_11)[257] = {
     0, -465, -1027, -1635, -2234, -2768, -3185, -3439, -3506, -3375, -3045, -2548,
     -1922, -1222, -513, 144, 677, 1040, 1185, 1096, 768, 223, -497, -1330,
     -2206, -3042, -3759, -4284, -4553, -4537, -4211, -3596, -2730, -1681, -535, 609,
@@ -880,7 +881,7 @@ static const int16_t pb_wav_bandlimited_comb_11[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_11_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_12[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_12)[257] = {
     0, -449, -979, -1569, -2199, -2835, -3457, -4036, -4543, -4957, -5256, -5424,
     -5448, -5325, -5052, -4639, -4096, -3442, -2703, -1903, -1081, -263, 507, 1203,
     1783, 2222, 2496, 2578, 2462, 2138, 1613, 892, 1, -1039, -2188, -3405,
@@ -906,7 +907,7 @@ static const int16_t pb_wav_bandlimited_comb_12[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_12_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_13[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_13)[257] = {
     0, 457, 858, 1194, 1456, 1640, 1738, 1748, 1666, 1490, 1224, 864,
     416, -111, -718, -1393, -2126, -2908, -3728, -4569, -5424, -6274, -7104, -7901,
     -8651, -9333, -9938, -10453, -10856, -11145, -11301, -11319, -11186, -10901, -10454, -9844,
@@ -932,7 +933,7 @@ static const int16_t pb_wav_bandlimited_comb_13[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_13_SIZE 257u
 
-static const int16_t pb_wav_bandlimited_comb_14[257] = {
+OC_TBL(int16_t, pb_wav_bandlimited_comb_14)[257] = {
     0, 804, 1608, 2410, 3212, 4011, 4808, 5601, 6393, 7178, 7963, 8738,
     9512, 10278, 11038, 11793, 12539, 13277, 14011, 14731, 15446, 16150, 16845, 17530,
     18204, 18867, 19518, 20159, 20787, 21402, 22003, 22595, 23168, 23731, 24278, 24811,
@@ -958,7 +959,7 @@ static const int16_t pb_wav_bandlimited_comb_14[257] = {
 };
 #define PB_WAV_BANDLIMITED_COMB_14_SIZE 257u
 
-static const int16_t pb_ws_moderate_overdrive[257] = {
+OC_TBL(int16_t, pb_ws_moderate_overdrive)[257] = {
     -32766, -32728, -32689, -32648, -32607, -32564, -32519, -32474, -32427, -32378, -32328, -32277,
     -32224, -32170, -32113, -32056, -31996, -31935, -31872, -31807, -31740, -31671, -31600, -31527,
     -31451, -31374, -31294, -31212, -31128, -31041, -30951, -30859, -30765, -30667, -30567, -30464,
@@ -984,7 +985,7 @@ static const int16_t pb_ws_moderate_overdrive[257] = {
 };
 #define PB_WS_MODERATE_OVERDRIVE_SIZE 257u
 
-static const int16_t pb_ws_violent_overdrive[257] = {
+OC_TBL(int16_t, pb_ws_violent_overdrive)[257] = {
     -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766,
     -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766,
     -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32766, -32765, -32765,
@@ -1010,7 +1011,7 @@ static const int16_t pb_ws_violent_overdrive[257] = {
 };
 #define PB_WS_VIOLENT_OVERDRIVE_SIZE 257u
 
-static const int16_t pb_ws_sine_fold[257] = {
+OC_TBL(int16_t, pb_ws_sine_fold)[257] = {
     -32766, -32682, -32595, -32504, -32410, -32315, -32218, -32121, -32025, -31931, -31840, -31754,
     -31673, -31599, -31531, -31470, -31416, -31367, -31322, -31279, -31235, -31188, -31132, -31064,
     -30980, -30874, -30744, -30584, -30392, -30166, -29903, -29605, -29273, -28911, -28524, -28119,
@@ -1036,7 +1037,7 @@ static const int16_t pb_ws_sine_fold[257] = {
 };
 #define PB_WS_SINE_FOLD_SIZE 257u
 
-static const int16_t pb_ws_tri_fold[257] = {
+OC_TBL(int16_t, pb_ws_tri_fold)[257] = {
     -78, -20070, -31636, -30481, -17545, 1825, 20257, 31198, 31144, 20555, 3335, -14748,
     -28051, -32765, -27869, -15160, 1526, 17553, 28787, 32606, 28401, 17522, 2767, -12404,
     -24698, -31675, -32164, -26370, -15686, -2305, 11261, 22670, 30122, 32609, 29985, 22895,
@@ -3848,7 +3849,7 @@ static const uint8_t pb_wt_map[256] = {
 #endif
 #define PB_WT_MAP_SIZE 256u
 
-static const uint8_t pb_wt_code[1064] = {
+OC_TBL(uint8_t, pb_wt_code)[1064] = {
     5, 0, 132, 0, 20, 16, 20, 81, 16, 65, 8, 17,
     4, 65, 17, 5, 0, 69, 1, 88, 17, 25, 0, 132,
     144, 0, 64, 80, 0, 21, 148, 0, 65, 17, 5, 129,

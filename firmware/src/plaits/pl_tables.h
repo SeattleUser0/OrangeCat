@@ -2,8 +2,9 @@
  * Copyright 2016-2021 Emilie Gillet (Mutable Instruments Plaits, stmlib). MIT License: LICENSES/MIT-Mutable.txt
  * Orange Cat 0.5.0: Plaits' lookup tables, made by tools/gen_plaits_tables.py (do not edit). */
 #pragma once
+#include "../oc_pack.h"
 
-static const float pl_lut_pitch_ratio_high[256] = {
+OC_TBL(float, pl_lut_pitch_ratio_high)[256] = {
     6.151958251e-04f, 6.517772725e-04f, 6.905339660e-04f, 7.315952524e-04f, 7.750981699e-04f, 8.211879055e-04f,
     8.700182794e-04f, 9.217522585e-04f, 9.765625000e-04f, 1.034631928e-03f, 1.096154344e-03f, 1.161335073e-03f,
     1.230391650e-03f, 1.303554545e-03f, 1.381067932e-03f, 1.463190505e-03f, 1.550196340e-03f, 1.642375811e-03f,
@@ -50,7 +51,7 @@ static const float pl_lut_pitch_ratio_high[256] = {
 };
 #define PL_LUT_PITCH_RATIO_HIGH_SIZE 256u
 
-static const float pl_lut_pitch_ratio_low[256] = {
+OC_TBL(float, pl_lut_pitch_ratio_low)[256] = {
     1.000000000e+00f, 1.000225659e+00f, 1.000451370e+00f, 1.000677131e+00f, 1.000902943e+00f, 1.001128806e+00f,
     1.001354720e+00f, 1.001580685e+00f, 1.001806701e+00f, 1.002032768e+00f, 1.002258886e+00f, 1.002485055e+00f,
     1.002711275e+00f, 1.002937546e+00f, 1.003163868e+00f, 1.003390242e+00f, 1.003616666e+00f, 1.003843141e+00f,
@@ -97,7 +98,7 @@ static const float pl_lut_pitch_ratio_low[256] = {
 };
 #define PL_LUT_PITCH_RATIO_LOW_SIZE 256u
 
-static const float pl_lut_sine[641] = {
+OC_TBL(float, pl_lut_sine)[641] = {
     0.000000000e+00f, 1.227153829e-02f, 2.454122852e-02f, 3.680722294e-02f, 4.906767433e-02f, 6.132073630e-02f,
     7.356456360e-02f, 8.579731234e-02f, 9.801714033e-02f, 1.102222073e-01f, 1.224106752e-01f, 1.345807085e-01f,
     1.467304745e-01f, 1.588581433e-01f, 1.709618888e-01f, 1.830398880e-01f, 1.950903220e-01f, 2.071113762e-01f,
@@ -208,7 +209,7 @@ static const float pl_lut_sine[641] = {
 };
 #define PL_LUT_SINE_SIZE 641u
 
-static const float pl_lut_fm_frequency_quantizer[130] = {
+OC_TBL(float, pl_lut_fm_frequency_quantizer)[130] = {
     -1.200000000e+01f, -1.200000000e+01f, -1.200000000e+01f, -1.184000000e+01f, -1.184000000e+01f, -1.184000000e+01f,
     -1.111000000e+01f, -1.038000000e+01f, -9.650000000e+00f, -8.920000000e+00f, -8.190000000e+00f, -7.460000000e+00f,
     -6.730000000e+00f, -6.000000000e+00f, -6.000000000e+00f, -6.000000000e+00f, -5.545511612e+00f, -5.091023223e+00f,
@@ -234,7 +235,7 @@ static const float pl_lut_fm_frequency_quantizer[130] = {
 };
 #define PL_LUT_FM_FREQUENCY_QUANTIZER_SIZE 130u
 
-static const float pl_lut_fold[516] = {
+OC_TBL(float, pl_lut_fold)[516] = {
     -9.980545825e-01f, -9.970653772e-01f, -9.960649692e-01f, -9.950532582e-01f, -9.940301939e-01f, -9.929957802e-01f,
     -9.919500809e-01f, -9.908932239e-01f, -9.898254054e-01f, -9.887468930e-01f, -9.876580288e-01f, -9.865592310e-01f,
     -9.854509946e-01f, -9.843338912e-01f, -9.832085672e-01f, -9.820757409e-01f, -9.809361977e-01f, -9.797907840e-01f,
@@ -324,7 +325,7 @@ static const float pl_lut_fold[516] = {
 };
 #define PL_LUT_FOLD_SIZE 516u
 
-static const float pl_lut_fold_2[516] = {
+OC_TBL(float, pl_lut_fold_2)[516] = {
     1.000000000e+00f, 9.992967758e-01f, 9.985815484e-01f, 9.978540078e-01f, 9.971138332e-01f, 9.963606927e-01f,
     9.955942426e-01f, 9.948141269e-01f, 9.940199768e-01f, 9.932114103e-01f, 9.923880310e-01f, 9.915494283e-01f,
     9.906951760e-01f, 9.898248319e-01f, 9.889379369e-01f, 9.880340145e-01f, 9.871125695e-01f, 9.861730874e-01f,
@@ -414,7 +415,7 @@ static const float pl_lut_fold_2[516] = {
 };
 #define PL_LUT_FOLD_2_SIZE 516u
 
-static const float pl_lut_stiffness[65] = {
+OC_TBL(float, pl_lut_stiffness)[65] = {
     -6.250000000e-02f, -5.859375000e-02f, -5.468750000e-02f, -5.078125000e-02f, -4.687500000e-02f, -4.296875000e-02f,
     -3.906250000e-02f, -3.515625000e-02f, -3.125000000e-02f, -2.734375000e-02f, -2.343750000e-02f, -1.953125000e-02f,
     -1.562500000e-02f, -1.171875000e-02f, -7.812500000e-03f, -3.906250000e-03f, 0.000000000e+00f, 0.000000000e+00f,
@@ -429,7 +430,7 @@ static const float pl_lut_stiffness[65] = {
 };
 #define PL_LUT_STIFFNESS_SIZE 65u
 
-static const float pl_lut_svf_shift[257] = {
+OC_TBL(float, pl_lut_svf_shift)[257] = {
     7.500000000e-01f, 7.591880421e-01f, 7.683455389e-01f, 7.774424499e-01f, 7.864497239e-01f, 7.953397451e-01f,
     8.040867240e-01f, 8.126670211e-01f, 8.210593968e-01f, 8.292451828e-01f, 8.372083767e-01f, 8.449356653e-01f,
     8.524163823e-01f, 8.596424124e-01f, 8.666080494e-01f, 8.733098228e-01f, 8.797462999e-01f, 8.859178746e-01f,
@@ -476,12 +477,12 @@ static const float pl_lut_svf_shift[257] = {
 };
 #define PL_LUT_SVF_SHIFT_SIZE 257u
 
-static const float pl_lut_4x_downsampler_fir[4] = {
+OC_TBL(float, pl_lut_4x_downsampler_fir)[4] = {
     2.442415000e-02f, 9.297315000e-02f, 1.671293800e-01f, 2.154733200e-01f,
 };
 #define PL_LUT_4X_DOWNSAMPLER_FIR_SIZE 4u
 
-static const int16_t pl_lut_ws_inverse_tan[257] = {
+OC_TBL(int16_t, pl_lut_ws_inverse_tan)[257] = {
     -32767, -26872, -24921, -23661, -22748, -22047,
     -21486, -21026, -20640, -20310, -20025, -19775,
     -19554, -19358, -19181, -19021, -18875, -18742,
@@ -528,7 +529,7 @@ static const int16_t pl_lut_ws_inverse_tan[257] = {
 };
 #define PL_LUT_WS_INVERSE_TAN_SIZE 257u
 
-static const int16_t pl_lut_ws_inverse_sin[257] = {
+OC_TBL(int16_t, pl_lut_ws_inverse_sin)[257] = {
     -32767, -30921, -30153, -29561, -29060, -28617,
     -28215, -27843, -27496, -27169, -26858, -26561,
     -26276, -26001, -25736, -25479, -25229, -24986,
@@ -575,7 +576,7 @@ static const int16_t pl_lut_ws_inverse_sin[257] = {
 };
 #define PL_LUT_WS_INVERSE_SIN_SIZE 257u
 
-static const int16_t pl_lut_ws_linear[257] = {
+OC_TBL(int16_t, pl_lut_ws_linear)[257] = {
     -32767, -32511, -32255, -31999, -31743, -31487,
     -31231, -30975, -30719, -30463, -30207, -29951,
     -29695, -29439, -29183, -28927, -28671, -28415,
@@ -622,7 +623,7 @@ static const int16_t pl_lut_ws_linear[257] = {
 };
 #define PL_LUT_WS_LINEAR_SIZE 257u
 
-static const int16_t pl_lut_ws_bump[257] = {
+OC_TBL(int16_t, pl_lut_ws_bump)[257] = {
     0, -36, -150, -348, -636, -1017,
     -1496, -2074, -2752, -3528, -4401, -5366,
     -6417, -7548, -8750, -10013, -11327, -12679,
@@ -669,7 +670,7 @@ static const int16_t pl_lut_ws_bump[257] = {
 };
 #define PL_LUT_WS_BUMP_SIZE 257u
 
-static const int16_t pl_lut_ws_double_bump[257] = {
+OC_TBL(int16_t, pl_lut_ws_double_bump)[257] = {
     32767, 32745, 32678, 32567, 32412, 32213,
     31971, 31685, 31356, 30985, 30571, 30117,
     29621, 29085, 28510, 27896, 27245, 26556,
@@ -716,7 +717,7 @@ static const int16_t pl_lut_ws_double_bump[257] = {
 };
 #define PL_LUT_WS_DOUBLE_BUMP_SIZE 257u
 
-static const int16_t pl_chord_waves[15 * 132] = {
+OC_TBL(int16_t, pl_chord_waves)[15 * 132] = {
     /* WAVE(2, 6, 1) */
     29437, 30461, 31485, 32509, 31501, 30493, 29485, 28477, 27469, 26461, 25453, 24445,
     23436, 22428, 21420, 20412, 19404, 18396, 17388, 16380, 15372, 14364, 13356, 12348,

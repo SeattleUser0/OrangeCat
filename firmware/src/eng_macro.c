@@ -38,6 +38,7 @@
  *          model's in mc_part_t.m.small[voice]); the pad, keys, chord and bell presets play POLY. HARP (a 15th model,
  *          one string a voice) with presets HARP and STRING CHORDS. Voice units by model from measured costs (MC_UNITS):
  *          0.5.2's flat 3 let a four note ORGAN DRAWBAR chord overload the unit.
+ *   0.8.0: mc_render is silent while the asset pack (Plaits' tables, oc_pack.h) is not there (OC_PACK_READY).
  */
 #include "plaits/pl_dsp.h"
 #include "plaits/pl_osc.h"
@@ -192,7 +193,7 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
     const int16_t *p = t->p;
     uint32_t model = (uint32_t)clamp(p[P_E0], 0, MC_N - 1), done = 0, i, vi = (uint32_t)(v - t->v) % MC_POLY;
     mc_vhead_t *h;
-    if (!s) return;
+    if (!s || !OC_PACK_READY()) return;               /* (Orange Cat 0.8.0: the asset pack, with Plaits' tables, is not there: silent) */
     if (s->model != model)
         mc_start(s, model);
     if (mc_big(model) && vi)                          /* (voices left from a model of four: silent to their end) */

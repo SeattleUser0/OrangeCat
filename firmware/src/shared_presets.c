@@ -169,6 +169,7 @@ static int shared_wipe_bank(uint32_t b,int pending)
     bank->magic=UP_BANK_MAGIC;bank->rsize=sizeof(up_rec_t);bank->nslot=UP_PER_BANK;
     if(pending)memcpy(bank->r[UP_PER_BANK-1u].name,SHARED_WIPE_TAG,12u);
     up_fav_dirty&=~(1u<<b);
+    if(st_retired(up_obj(b)))return 0;     /* (Orange Cat 0.8.0: a bank whose object the asset pack holds is empty already, and not ours to erase) */
     return up_save_bank(b);
 }
 static int shared_wipe(void)

@@ -9,6 +9,8 @@ Mutable Instruments' Plaits (plaits/resources.cc) and stmlib (stmlib/dsp/units.c
 The eurorack checkout needs its stmlib submodule. The output is committed: the build does not run this.
 
 Revisions:
+  0.8.0: the tables are declared OC_TBL(type, name)[n] (firmware/src/oc_pack.h): in the device build they are read in place
+         from the asset pack (tools/gen_pack.py). The committed output was changed by hand to match.
   0.5.0: first version.
 """
 import re
@@ -46,13 +48,13 @@ def main(root):
     out = ["/* SPDX-License-Identifier: MIT",
            " * Copyright 2016-2021 Emilie Gillet (Mutable Instruments Plaits, stmlib). MIT License: LICENSES/MIT-Mutable.txt",
            " * Orange Cat 0.5.0: Plaits' lookup tables, made by tools/gen_plaits_tables.py (do not edit). */",
-           "#pragma once", ""]
+           "#pragma once", '#include "../oc_pack.h"', ""]
     for file, name, ctype, ours in TABLES:
         v = values((root / file).read_text(), name)
         if ctype == "float":
             v = [x if re.search(r"[.eE]", x) else x + ".0" for x in v]
             v = [x + "f" if not x.endswith("f") else x for x in v]
-        out.append(f"static const {ctype} {ours}[{len(v)}] = {{")
+        out.append(f"OC_TBL({ctype}, {ours})[{len(v)}] = {{")
         for i in range(0, len(v), 6):
             out.append("    " + ", ".join(v[i:i + 6]) + ",")
         out.append("};")
@@ -63,7 +65,7 @@ def main(root):
     waves = values((root / "plaits/resources.cc").read_text(), "wav_integrated_waves")
     picks = [(2, 6, 1), (2, 6, 6), (2, 6, 4), (0, 6, 0), (0, 6, 1), (0, 6, 2), (0, 6, 7), (2, 4, 7), (2, 4, 6),
              (2, 4, 5), (2, 4, 4), (2, 4, 3), (2, 4, 2), (2, 4, 1), (2, 4, 0)]
-    out.append(f"static const int16_t pl_chord_waves[{len(picks)} * 132] = {{")
+    out.append(f"OC_TBL(int16_t, pl_chord_waves)[{len(picks)} * 132] = {{")
     for bank, row, col in picks:
         at = (bank * 64 + row * 8 + col) * 132
         w = waves[at:at + 132]

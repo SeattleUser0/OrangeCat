@@ -24,6 +24,8 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
 /* (Orange Cat 0.6.0) the internal user sample slot (smp_slot.c). New ids: the old ED_SMP_* (11..15) wrote at 0xA0000,
  * over what is now the record store, and stay retired */
 enum { ED_SLOT_INFO = 110, ED_SLOT_BEGIN, ED_SLOT_WRITE, ED_SLOT_END, ED_SLOT_ERASE };   /* (80: the library, 95..101 taken) */
+/* (Orange Cat 0.8.0) the asset pack (oc_pack.c): SHAPES' and MACRO's tables, installed into flash. 115..119 (web/EDITOR_PROTOCOL.md) */
+enum { ED_PACK_INFO = 115, ED_PACK_BEGIN, ED_PACK_WRITE, ED_PACK_END, ED_PACK_ERASE };
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
 enum { ED_CORE1_TEST = 79 };                         /* test builds only: CPU1 failure injection */
 static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
@@ -305,7 +307,7 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     switch (cmd) {
     case ED_INFO: case ED_DUMP: case ED_SMP_INFO: case ED_PING:
-    case ED_UI_STATE: case ED_UI_PALETTES:
+    case ED_UI_STATE: case ED_UI_PALETTES: case ED_PACK_INFO:
         return !n;
     case ED_GET: case ED_DESC: case ED_PRESET: case ED_PROJECT: case ED_UP_LIST:
     case ED_TRACK_PARAM:
@@ -867,6 +869,40 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(rc); ed_b(smp.done); ed_b(smp.done >> 7); ed_b(smp.done >> 14);
         break;
     }
+#if MELODEE_FLASH || defined(OC_PACK_HOST)
+    case ED_PACK_INFO: {                                   /* -> state (0 none, 1 this build's pack, 2 another build's, 3 damaged), whether the
+                                                            * library's banks it would take hold presets, the stored length (3 x 7 bits), the stored
+                                                            * hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) */
+        uint32_t len, hash, banks, st = oc_pack_info(&len, &hash, &banks);
+        ed_b(st); ed_b(banks);
+        ed_b(len); ed_b(len >> 7); ed_b(len >> 14);
+        for (i = 0; i < 5u; i++) ed_b(hash >> (7u * i));
+        ed_b(OC_PACK_LEN); ed_b(OC_PACK_LEN >> 7); ed_b(OC_PACK_LEN >> 14);
+        for (i = 0; i < 5u; i++) ed_b(OC_PACK_HASH >> (7u * i));
+        ed_b(OC_PACK_AREA); ed_b(OC_PACK_AREA >> 7); ed_b(OC_PACK_AREA >> 14);
+        break;
+    }
+    case ED_PACK_BEGIN: case ED_PACK_WRITE: case ED_PACK_END: case ED_PACK_ERASE: {
+        /* BEGIN length (3 x 7 bits), take (0, or 1 to take the library's banks 16..20 although they hold presets); WRITE offset (3 x 7 bits)
+         * then up to 256 bytes packed 7-bit, in order from byte 512; END the 512-byte header packed 7-bit; ERASE take (0 or 1). -> rc: 0 done,
+         * 1 refused (not this build's pack, out of order, a header that does not match), 2 the flash failed or the transport is running (nothing
+         * is written while it runs: stop it first), 3 the banks hold presets and take was 0; then the bytes written so far (3 x 7 bits) */
+        uint32_t rc = 1, v = na >= 3u ? a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 : 0u, got;
+        int r = 0;
+        if (cmd != ED_PACK_ERASE || na == 1u) {
+            if (transport_busy()) { rc = 2; }
+            else if (cmd == ED_PACK_BEGIN && na == 4u && a[3] <= 1u) r = oc_pack_begin(v, a[3]), rc = r == -1 ? 1u : r == -3 ? 3u : r ? 2u : 0u;
+            else if (cmd == ED_PACK_WRITE && na > 3u && (got = ed_unpack7(a + 3, na - 3u, ed_smp_buf, 256u)) != 0)
+                r = oc_pack_write(v, ed_smp_buf, got), rc = r == -1 ? 1u : r ? 2u : 0u;
+            else if (cmd == ED_PACK_END && ed_unpack7(a, na, ed_smp_buf, 512u) == 512u)
+                r = oc_pack_end(ed_smp_buf), rc = r == -1 ? 1u : r ? 2u : 0u;
+            else if (cmd == ED_PACK_ERASE && a[0] <= 1u)
+                r = oc_pack_erase(a[0]), rc = r == -3 ? 3u : r ? 2u : 0u;
+        }
+        ed_b(rc); ed_b(pk.done); ed_b(pk.done >> 7); ed_b(pk.done >> 14);
+        break;
+    }
+#endif
     case ED_SMP_INFO:
         ed_b(0); ed_b(0);                                  /* no sample slots/material */
         break;
