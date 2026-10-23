@@ -90,7 +90,7 @@ static dxe_lane_t *dxe_lane_of(track_t *t, const voice_t *v)
 }
 
 /* Different GM pitches on a lane still share its one sounding voice (voice.c voice_alloc) */
-static voice_t *dxe_reuse(track_t *t, uint32_t note)
+static DX_XIP voice_t *dxe_reuse(track_t *t, uint32_t note)
 {
     dxe_part_t *s = dxe_part((uint32_t)(t - trk));
     uint32_t lane = dxe_lane(note), owner = s ? s->l[lane].owner : 0;
@@ -101,7 +101,7 @@ static voice_t *dxe_reuse(track_t *t, uint32_t note)
     return v->active && (uint32_t)v->s[0] == lane ? v : 0;
 }
 
-static void dxe_note_on(track_t *t, voice_t *v)
+static DX_XIP void dxe_note_on(track_t *t, voice_t *v)
 {
     dxe_part_t *s = dxe_part((uint32_t)(t - trk));
     dxe_lane_t *L;
@@ -127,7 +127,7 @@ static void dxe_note_on(track_t *t, voice_t *v)
 
 /* the voice's amplitude: the hit, not the ADSR (which still runs, held at full so a release never ends it). A voice that
  * plays no lane any more, or whose drum has rung out, ends here */
-static int32_t dxe_amp(track_t *t, voice_t *v, int32_t adsr)
+static DX_XIP int32_t dxe_amp(track_t *t, voice_t *v, int32_t adsr)
 {
     const dxe_lane_t *L = dxe_lane_of(t, v);
     if (!v->active)                                      /* (taken for another part: env_tick ended it) */
@@ -144,7 +144,7 @@ static int32_t dxe_amp(track_t *t, voice_t *v, int32_t adsr)
     return 32767;
 }
 
-static void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+static DX_XIP void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     const int16_t *p = t->p;
     dxe_lane_t *L = dxe_lane_of(t, v);
@@ -176,7 +176,7 @@ static void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
 
 /* (Jiant 0.6.16, drum_bus) the kit's sum, once a block (voice.c track_render, after the part's voices): DRV x1..x4 into the
  * soft clip, its level kept, and the knee (were each hit's: eight lanes, two curves a sample each; now the bus's, a glue) */
-static __attribute__((noinline)) void dxe_post(track_t *t, int32_t *out, uint32_t n, uint32_t nr)
+static DX_XIP void dxe_post(track_t *t, int32_t *out, uint32_t n, uint32_t nr)
 {
     int32_t drv = t->p[P_E7], g = 0, mk = 0;
     uint32_t i;
@@ -196,10 +196,10 @@ static __attribute__((noinline)) void dxe_post(track_t *t, int32_t *out, uint32_
     }
 }
 
-static uint32_t dxe_units(const track_t *t) { (void)t; return 2u; }   /* as DRUM, FM6, SID: two budget units a voice */
+static DX_XIP uint32_t dxe_units(const track_t *t) { (void)t; return 2u; }   /* as DRUM, FM6, SID: two budget units a voice */
 
 /* the GM drum map, the first C (key 7) is the kick (C2, 36); OCT moves it by octaves, as for DRUM */
-static int32_t dxe_keys(const track_t *t, uint32_t k)
+static DX_XIP int32_t dxe_keys(const track_t *t, uint32_t k)
 {
     return clamp(29 + 12 * input_octave(t) + (int32_t)k, 0, 127);
 }
