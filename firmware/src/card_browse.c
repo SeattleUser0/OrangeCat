@@ -200,9 +200,9 @@ static void fb_list(void)
         e[n].size = (uint32_t)fi.fsize;
         for (i = n; i > 0u && fb_before(&e[n], &e[i - 1u]); i--)   /* (in order as they come) */
             ;
-        if (i < n) {
+        if (i < n) {                                    /* (no memmove in the firmware's libc: one by one, from the end) */
             fb_ent_t t = e[n];
-            memmove(&e[i + 1u], &e[i], (n - i) * sizeof *e);
+            for (uint32_t j = n; j > i; j--) e[j] = e[j - 1u];
             e[i] = t;
         }
         n++;
