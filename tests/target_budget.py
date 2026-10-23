@@ -29,17 +29,17 @@ FUNCS = ["phase_render", "sid_render", "cz_native_render", "cz_native_wave", "fo
          "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
          ]
 OPTIONAL = {}                   # built only with an option, not in BUDGET: absent, skipped; present, checked against these
+# (Orange Cat 0.9.0) DRUM-X (firmware/src/drumx_voice.c, eng_drumx.c; section .text.xip_drumx): the voice's loops and the part's
+# post stage. Measured when the compiler keeps them apart (absent, inlined: skipped); checked once tests/target_budget.txt has
+# their line, taken from the first CI build that measured them, at the same +10 % as the other engines.
+DRUMX = ["dx_run", "dx_layer", "dx_hands_step", "dxe_render", "dxe_post"]
+FUNCS += DRUMX
 # (Orange Cat 0.6.0) the effects (firmware/src/jfx.c, Jiant FM's; the old fx.c's fx_time, fx_reverb .. are gone): measured
 # when the compiler keeps them apart (absent, inlined: skipped), checked once tests/target_budget.txt has their budget
 JFX = ["fx_buses", "dly_lo", "rev_room", "rev_room_mod", "rev_spring", "rev_shimmer", "rev_reso", "rev_cloud", "fx_gate",
        "dist_run", "dist_amp", "autopan", "clip_block", "djf_block", "lev_block", "slicer_bus", "sl_seg", "perf_block",
        "perf_mute", "perf_pre", "jfx_master", "jfx_bus_kernel"]
 FUNCS += JFX
-# (Orange Cat 0.9.0) DRUM-X (firmware/src/drumx_voice.c, eng_drumx.c; section .text.xip_drumx): the voice's loops and the part's
-# post stage. Measured when the compiler keeps them apart (absent, inlined: skipped); checked once tests/target_budget.txt has
-# their line, taken from the first CI build that measured them, at the same +10 % as the other engines.
-DRUMX = ["dx_run", "dx_layer", "dx_hands_step", "dxe_render", "dxe_post"]
-FUNCS += DRUMX
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
 EXTRACTED = {
