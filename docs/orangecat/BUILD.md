@@ -1,7 +1,7 @@
 # Orange Cat Build Document
 
-**Version:** 0.51  
-**Date:** October 22, 2026  
+**Version:** 0.55  
+**Date:** October 23, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
@@ -10,6 +10,10 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.55 (October 23, 2026):** docs/orangecat/ENGINE_LOADING_PLAN.md 0.4: the web configurator the primary way to install and manage engines, one flash map (the pack at 0x93000, 80 KB of modules at 0xC8000), modules placed by variants in one package, an interface identifier checked before registration, install and activate checked apart; not every engine need be a module. Build.md merged from gui-slim and size-audit.
+- **0.54 (October 23, 2026):** 0.7.1 on branch tracker-events: the tracker edits a recorded step's notes through NOTES' event editor, each note's pitch, velocity and length alone (docs/orangecat/TRACKER_REVIEW.md: the data model mapped, the duplication measured, the one-authority cleanup planned). docs/orangecat/ENGINE_LOADING_PLAN.md: asset packs and loadable engines, with budgets.
+- **0.53 (October 23, 2026):** Size audit of the whole firmware (branch size-audit, docs/orangecat/SIZE_AUDIT.md): 10,692 B of flash recovered without a feature touched (an unused Prophet table the linker could not drop, the card's and store's main-loop files built for size, retired-engine tables and pages compiled out); the 76 KB storage and sequencer growth attributed from the CI record; the cost of Prophet, FM6 and DRUM measured in comparison builds; the stacks bounded; a plan for a data pack on the card. See "Size audit" below.
+- **0.52 (October 22, 2026):** 0.7.0 on branch gui-slim (not on main, not released): smaller screen code, to make room for more engines. Flash 570,944 B to 520,976 B (49,968 B freed); the effects' memory bank 53,984 B to 95,616 B. Built and host tested; nothing tried on the unit yet. See "Smaller screen code".
 - **0.51 (October 22, 2026):** 0.6.2, from the unit: Assign clip said "Save first" on an empty phrase (it now gets a number), the knobs did not move the browser after a refusal (SELECT, KNOB 1 or 2 move it; a turn goes back to the list), and the refusal was drawn over the list.
 - **0.50 (October 22, 2026):** 0.6.1 on branch fx-jiant: takes in project folders on the card, moved when a project is named or renamed; Assign clip, a card browser on the MIXER page's sheet. See "Take folders and the clip browser".
 - **0.49 (October 22, 2026):** 0.6.0 on branch fx-jiant (not on main, not released): Jiant FM's effects replace the old ones, one internal user sample slot, projects FUN23. Built and host tested; nothing tried on the unit yet. See "Effects from Jiant FM".
@@ -72,7 +76,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
-| 6 | Loadable engine study | Not started |
+| 6 | Loadable engine study | Planned: docs/orangecat/ENGINE_LOADING_PLAN.md 0.4 (asset pack first, then modules in 80 KB of data flash, installed from the web page; SHAPES as the proof of concept) |
 | 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
@@ -1014,6 +1018,100 @@ what the image holds, tools/size_report.py, is the place to start).
 - [ ] USB MIDI comes back when the browser closes (with no frozen phrase in use).
 
 ---
+
+## Smaller screen code (0.7.0, branch gui-slim)
+
+Asked for October 22, 2026: shrink the screen code to make room for more synth engines and more effect memory. Keep
+every musical feature. A plainer look is fine. The full record (research, every experiment, the numbers) is in
+docs/orangecat/GUI_SLIM.md.
+
+What changed:
+
+- Text is the pixel font alone (the old Settings > FONT > PIXEL). The four Rubik faces and the FONT setting are gone.
+  Fonts 31,353 B to 1,447 B.
+- Only the icons the screens draw are kept, at 1 bit. Icons 11,153 B to 746 B.
+- One drawing buffer of 240 x 62 (was 240 x 124 plus a second one of 240 x 24). Taller parts are drawn in bands.
+  This frees 41,280 B of RAM; the effects get it.
+- Numbers change at once (no rolling digits).
+- The newer screen files are built for size.
+- Kept on purpose: the eight palettes (the web editor and backups use the palette number; 1.4 KB only).
+
+Measured (CI builds of the shipping engine set):
+
+| | 0.6.2 | 0.7.0 |
+|---|---|---|
+| Firmware image | 570,944 B | 520,976 B |
+| Free flash | 2,496 B | 52,464 B |
+| RAM .data + .bss | 92,936 B | 92,728 B |
+| Effects' main bank | 53,984 B | 95,616 B |
+| All audio memory (cache ready) | 102,220 B | 144,060 B |
+
+Effects' memory (tests/jfx_arena_test.c at the device's sizes): in 0.6.2, 15 of the 25 cases ran out of room
+(FX FULL), mostly the delay. In 0.7.0 all of them hold. Only a new worst case still runs short: four of the largest
+engines, no cache, four takes playing, CLOUD and the stutter (the delay and the chorus say FX FULL).
+
+- [x] Pixel text, packed glyph records, the condensed 1 made tabular.
+- [x] Icons: only those drawn, 1 bit.
+- [x] One canvas, band drawing, the screen diff resized.
+- [x] Rolling digits removed.
+- [x] Host tests: every screen linted (no findings); the band drawing matched the old screens pixel for pixel before
+  the font change; text checked against the font's source file; one-canvas DMA test; effects' memory table.
+- [x] CI build with all host tests.
+- [ ] Unit: see the test list in GUI_SLIM.md ("On the unit").
+
+## Size audit (branch size-audit, October 23, 2026)
+
+**Status: Done (measurements and five changes); not merged.** Full report: docs/orangecat/SIZE_AUDIT.md.
+
+Baseline main 19271b0 (0.6.2): image 570,944 B, body 567,136 of 573,440 (6,304 B free; the body's limit is what
+counts, the stub is outside it). After the branch: image 560,252 B, 16,996 B free; the audio arena +160 B and the low
+bank's share of the audio resources +4,100 B; host suite green, render loops within budget.
+
+| Change | Flash |
+|---|---|
+| Each RAM table in its own section: P5_TANH (4,100 B) was kept by the shared `.dsp_tables` section with the Prophet and DRUM off | -4,100 |
+| The card (FatFs, USB host, files), the record store and pool, the sample slot and the screen driver built for size; audio functions kept at -Os | -1,960 |
+| Retired-engine remnants out: the Prophet's panel table, the CZ-1's editing tables, PHASE's descriptors, and 79 PAGES rows with their titles | -4,632 |
+
+Measured and not adopted: `-fmerge-all-constants` (0 B), ED_AUDIO_STATS (788 B, a diagnostic to keep), duplicate
+constant tables (none).
+
+The 75,748 B from phase 3 done (378,992 B) to 0.4.20 (454,740 B), from the CI record of every push: the sequencer,
+arranger and their views +37,008; USB host, hubs and mass storage +7,732 (with the test page since removed); FatFs and
+the files page +11,296; WAV playback +4,760; the recorder and freezing +14,952.
+
+What an engine costs to put back, today (comparison builds): PROPHET +30,236 B flash (+34,336 against the fixed
+table) and 7.2 KB of low SRAM, fits on the combined branch; FM6 +34,752 B flash and 13.6 KB of .data + .bss (8.2 KB
+over: its patches and state would have to move to POOL); DRUM +51,392 B flash and about 33.5 KB of POOL (resident
+kernels; the arena would drop to 20 KB). The stack: a static worst case of 23,832 B on the 24,320 B user stack through
+the preset banks' repair at boot and the editor's backup restore (up_boot keeps whole banks on the stack); the audio
+interrupt 1,716 B of 7,936.
+
+Combined with gui-slim at 38ce0b6 (branch size-audit-gui): image 510,500 B, 66,748 B free, arena 95,808 B, host
+suite green. The Prophet fits again there; FM6 fits in flash but its 13.6 KB of static RAM has to move to POOL first;
+DRUM still does not fit.
+
+Next, in order of worth: the GUI work (done on gui-slim, about 50 KB); a data pack on the card installed into the
+retired engines' data flash and read in place through the plaintext window, as the sample slot is (the engines'
+tables, 39,750 B, first); then the app area's end moved from 0x93000 to 0x9D000 (+40,960 B, a stub change).
+
+Left to test (on the unit): a take recorded with FatFs built for size (write speed), the UI with the screen driver
+built for size.
+
+## Tracker review (branch tracker-events, October 23, 2026)
+
+**Status: Done (the review and one change); not merged.** docs/orangecat/TRACKER_REVIEW.md.
+
+Two representations, both authoritative for their steps: manual steps (step_t) and recorded notes (recorded_note_t in
+a pool of 1,024) with an overview step marked SF_RECORDED. NOTES edited recorded notes one by one; the tracker refused
+them. 0.7.1: the tracker's columns are a recorded step's notes in NOTES' order (seq_notes.c notes_nth), and its knobs
+and EDIT go through NOTES' event editor: one operation, one undo. Cost +1,584 B of flash (image 561,836 B on the audit
+branch), 0 RAM. Host test: a chord of three release times, one note edited on the tracker, the others untouched, the
+same note on NOTES, undo, save, load. Full CI suite green. The duplication the review suspected is under 1 KB in the
+shipping build (about 2 KB with DRUM in: the pads' own event editor); the next cleanup is one delete path for a
+recorded step's events (the overview a derived cache only).
+
+Left to test (on the unit): the tracker on a live recording; KNOB 4 at a step a detent.
 
 ## Phases 8 to 11
 

@@ -61,6 +61,8 @@ Each row is a step. A step holds up to four notes, one in each column N1 to N4, 
 
 To write a four note chord: KNOB 2 to N1, hold four keys together, let go. Or write one note, then KNOB 2 to N2 and turn KNOB 3 to add the next.
 
+**Recorded notes** (0.7.1). A step you played in live, or fine-tuned on NOTES, shows its notes in the columns too, in the order NOTES goes through them (earliest first, then lowest). Each has its own velocity and length: KNOB 3 in its column changes that note's pitch, in VEL its velocity (of the note you last picked in a note column); KNOB 4 its length, a step a click (NOTES has quarter and sixteenth steps). EDIT in its column deletes that note only. The bottom line gives the note's length, "1.75" and the like. CHANCE and SLIDE in FX work on a recorded step; RATCHET, CONDITION, NUDGE and ACCENT are for steps written by hand. A key on a recorded step replaces the whole step with what you play. A step marked REC holds notes that were played just before it and rounded into it: go to NOTES to reach those.
+
 What FX shows: x2 to x4 ratchet, FL flam, a chance like 50%, a condition like 1:2, FIL (fill) or !FL (not fill), a nudge like +3, SL slide, AC accent. A row with several effects shows the first; put the cursor on it in FX and turn KNOB 3 to see each.
 
 A track set to MONO, LEG or UNI still plays one note at a time. The page says so when you add a second note. To hear the chord, press EDIT until the VOICE page shows, then turn KNOB 1 (VCE) to POLY.

@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.18  
-**Date:** October 22, 2026  
+**Version:** 0.19  
+**Date:** October 23, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.19 (October 23, 2026):** Loadable engines (8.4) rewritten from the plan (docs/orangecat/ENGINE_LOADING_PLAN.md 0.4): the web configurator is the primary way to install, replace, remove and assign engines; the card is a second transport; the module format, placement, the interface identifier, install against activate, the flash map, asset packs; not every engine need be a module. The tracker edits recorded notes (6.1, 0.7.1); where the views still differ by input origin (5.2). The flash figures of 2.1.1 brought up to date.
 - **0.18 (October 22, 2026):** Takes in project folders, moved when a project is named or renamed; a card browser to assign a WAV to a phrase (10.6, 0.6.1 on branch fx-jiant).
 - **0.17 (October 22, 2026):** The effects are Jiant FM's (9.3.1, on the fx-jiant branch, not released): per-track DIST and AUTO PAN, shared DELAY, five REVERBs, CHORUS, SLICER, master chain and punch-in effects. One internal user sample slot of a Felucca slot's size (10.5). Projects FUN23 (11.2).
 - **0.16 (October 22, 2026):** Freezes belong to phrases, not tracks: a frozen phrase plays its take on any track that plays it, is locked against edits and recording until unfrozen, is kept in the record store, and shows on HOME greyed with a blue tint (10.6).
@@ -62,8 +63,8 @@ Taken from the Melodee and Skiff source and Melodee's storage notes:
 |---|---|
 | Processor | JieLi AC791N (WL82), two pi32v2 cores, single-precision FPU (float only, no libm) |
 | Flash | 1 MiB SPI NOR (Puya, JEDEC 0x856014). No larger part exists for this board. |
-| App code area | About 572 KB, executed in place from flash |
-| User data area | About 400 KB, stored as A/B copies for power-loss safety (about 174 KB of payload in Melodee's layout) |
+| App code area | 573,440 bytes for the application body (the boot stub and the commit marker are outside it), executed in place from flash. 512,164 bytes used with the GUI work, the size audit and the tracker change (October 23, 2026): 65,084 free. |
+| User data area | 436 KB above 0x93000: the record store (projects, phrases, timed notes, the frozen table), the sample slot, user presets, settings, the update staging; 120 KB of it is retired engine banks, free for the asset pack (40 KB) and engine modules (80 KB), see 8.4 |
 | SRAM | 96 KB for data and variables, about 336 KB pool for audio buffers and engine state, plus a small RAM code region |
 
 Flash is the binding limit on the engine catalogue, factory sounds, samples, and bounces. Melodee 1.2 had to remove engines, legacy formats, and user samples to fit. Every addition shall report its flash and RAM cost.
@@ -263,6 +264,10 @@ Continuing notes shall retain their sounding voice and envelope state. Changing 
 
 Ties across pattern boundaries shall be explicit and deterministic. Stopping, seeking, changing patterns, or losing external clock shall not leave unintended stuck notes.
 
+### 5.2 Where the views still differ (October 23, 2026)
+
+Two representations exist today: manual steps (up to four pitches with one velocity and one length) and recorded notes (independent onset, duration, pitch and velocity in a pool of 1,024), with a step overview that marks which steps are recorded. Every view edits both since 0.7.1, with two differences left: ratchet, flam, condition, nudge and accent apply to manual steps only, and a key on a recorded step replaces the step. The intended end state is one set of capabilities for every note whichever way it came in; the overview may stay as a derived cache but shall not decide what an editor may do. docs/orangecat/TRACKER_REVIEW.md has the data flow and the cleanup plan.
+
 ## 6. Interchangeable Track Views
 
 A user shall choose a view during track creation and may change it later.
@@ -288,6 +293,8 @@ A tracker row is a step. Its columns:
 | FX | The step's effects | Which effect: RATCHET, CHANCE, CONDITION, NUDGE, SLIDE, ACCENT | Its amount |
 
 KNOB 1 moves through the rows and KNOB 2 through the columns. Keys write notes from the picked note column on, one column a key, keeping the step's other notes. EDIT deletes the note in its column, the whole step in VEL, or the picked effect in FX. A step's length shows as bars on the rows it holds. The effects are the step's own fields, the same ones the note sheet edits; a row shows its first effect, and the cursor's row in FX shows the picked one.
+
+**Recorded notes on the tracker (0.7.1).** A step played in live, or fine-tuned on NOTES, shows its notes in the columns in NOTES' order (onset, then pitch). KNOB 3 edits that note's pitch, in VEL its velocity; KNOB 4 its length a step a click; EDIT deletes that note alone. The edits go through NOTES' event editor, so an edit here and one on NOTES are the same operation with the same undo. CHANCE and SLIDE work on a recorded step; RATCHET, CONDITION, NUDGE and ACCENT are refused with a message (the sequencer applies them to steps written by hand only). A key on a recorded step replaces the whole step. A step marked REC holds notes rounded into it from the step before; NOTES reaches them.
 
 A view that cannot display a detail shall preserve it and provide access through an appropriate detail editor.
 
@@ -387,21 +394,62 @@ Engines shall expose named parameters to hardware controls, the web editor, MIDI
 
 Allocate large working buffers to active engines where practical. Installed engine count and simultaneous engine count shall be treated separately.
 
-### 8.4 Engines loadable from the web editor
+### 8.4 Engines installed from the web configurator
 
-Goal: install, replace, and remove synth engines from the web editor without installing a whole new firmware.
+Goal: install, replace, remove and assign synth engines from the web configurator over the USB link the editor
+already uses, without a new firmware. A bare FM-1 on a cable to a computer gets everything. The card is a second
+way in, never a requirement. The plan with budgets is docs/orangecat/ENGINE_LOADING_PLAN.md (0.4).
 
-This is a feasibility item. Today both Melodee and Skiff compile every engine into the firmware image and list them in a fixed table. A loadable design would need:
+Requirements:
 
-- Reserved flash engine slots, separate from the core firmware.
-- Engine images built for a slot, with a header giving the engine interface version, code size, RAM state size, and a checksum. The firmware checks the header before using a slot.
-- A fixed table of shared functions the core firmware hands to each engine, so engines do not depend on where core code sits in flash.
-- Engine RAM state taken from the existing audio memory arena.
-- Projects that name an engine that is not installed load with that track silent and flagged, not lost (3.3).
-- A bad engine shall not stop the device from booting. A crash after loading a slot shall disable that slot on the next start.
-- Writes through the existing USB update path, with the same power-loss protection as firmware updates.
+1. **Discover.** The page lists the installed engines with name, version, sectors used, availability (valid, or
+   disabled after a crash), and the free room in the module area.
+2. **Configure.** An installed engine's controls and presets open from the connected FM-1 as the built-in engines'
+   do. The editor reads parameter descriptors and preset names from the device at run time (ED_DESC, ED_NAMES), so
+   a module's controls reach the page without a page update. Engines with more than the eight generic controls
+   carry their own page table and descriptors as module data.
+3. **Install from the computer.** A module file picked in the page is sent over the link in 512-byte SysEx messages
+   (the sample slot's commands are the pattern); the FM-1 verifies and writes its own flash; the page never sees
+   addresses. Installation only while the transport is stopped.
+4. **Replace or remove one module.** That engine's sectors only; the core firmware, the other modules, the pack,
+   projects and settings are untouched. Refused while a live track uses the engine.
+5. **Assign engines to tracks.** The page shows each track's engine, the installed set and what fits, with the
+   admission check's reason when a combination does not.
+6. **Persist.** An installed engine stays installed through power off and the computer's absence. Nothing is loaded
+   at boot from outside the FM-1.
+7. **The card.** The same module file, validation and installer, through the file browser.
 
-The slot layout affects the flash map, so this shall be decided before the Mutable engines are ported. Until it is proven, engines are built into the firmware.
+Design:
+
+- **One flash map.** The asset pack takes the retired Prophet banks (0x93000, 40 KB); engine modules take the
+  retired CZ-1 and FM6 banks (0xC8000, 80 KB, twenty sectors of 4 KB). The application boundary does not move;
+  the stub and the update loader are unchanged.
+- **Asset pack first.** The SHAPES and MACRO tables (39,776 bytes) leave the image and are read in place from the
+  pack through the plaintext flash window the sample slot already uses. Without the pack those engines play
+  silent with a message; everything else works.
+- **Modules.** A module is an engine's code and metadata linked for a fixed address, with a header: magic, the
+  interface identifier, the engine's number, version, length, state size, voice units, CRC. One package file holds
+  the variants an engine needs (one image per permitted start: a 6-sector engine has three, a 10-sector one two);
+  the installer picks the variant that fits a free span. No compaction on the device: when nothing fits, the page
+  says which engine to move. Module code runs from flash through the cache, as MACRO's models do today; the PC
+  guard is widened to the module area.
+- **Interface identifier.** A hash of the structure layouts, parameter ids and the firmware function table a
+  module depends on, computed at build time for the firmware and each module. A mismatch is refused before
+  registration; a firmware update that changes it disables the modules until matching packages are installed.
+  A frozen interface with a version number comes once modules exist.
+- **Install and activate are two checks.** Installing needs a matching identifier, a free span and a good CRC and
+  reserves no RAM. Assigning the engine to a track needs its state in the audio arena, voice units within the
+  budget and render cost within the budget file; a refusal keeps the track's engine and says why.
+- **Identity.** An engine keeps its number; a project whose engine is not installed plays that track silent and
+  flagged, with every byte kept (3.3). Frozen phrases play regardless. A crash after loading a module disables
+  it on the next start.
+- **Not every engine need be a module.** Moving code to the area frees the body and fills the area; the flash is
+  the same. Which engines stay built in is decided on measured sizes (MACRO 38.2 KB of code and metadata, SHAPES
+  21.7 KB, the Prophet 30.2 KB plus its tables, DRUM 51.4 KB and 33.5 KB of RAM; DRUM-X not yet measured).
+
+Order: the shared-editor cleanup and the stack fix, DRUM-X measured, the flash map adopted, the asset pack, then
+SHAPES as a module installed from the page and running after the computer is unplugged and the FM-1 restarted,
+then the engines tab, the admission check and the card.
 
 ## 9. Modulation, Mixing, and Effects
 
@@ -694,7 +742,7 @@ Build.md tracks progress against this order.
 3. **Strip Melodee's engines:** remove them one at a time, recording the flash and RAM each one frees, and keep only a minimal test voice so sequencing can be heard.
 4. **Sequencer and arranger:** port Skiff's sequencer features and arranger onto Melodee's note data. Add swing and groove.
 5. **Track views:** tracker view (new work; neither Melodee nor Skiff has one), step sequencer, and pads.
-6. **Loadable engine study:** decide on engine slots (8.4) before the flash map is set for engines.
+6. **Loadable engines:** the asset pack, then SHAPES as a module from the web configurator (8.4, the plan).
 7. **Mutable engines:** port them one at a time, measuring each, until the space is used.
 8. **Dynamic resources:** track count increase, admission checks, preset availability, and suspension.
 9. **Sampling and bouncing:** Skiff's SAMPLE engine, sample storage, and instrument bouncing.
