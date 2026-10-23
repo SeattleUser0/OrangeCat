@@ -443,7 +443,7 @@ hash and length. Without one, SHAPES and MACRO are silent and the screen says PA
 everything else plays.
 
 A command a firmware does not know gets no reply, so an editor offers the pack only after a reply to 115. Every
-write stops nothing: it is refused while the transport runs (rc 2), as the sample slot's writes are not.
+write is refused while the transport runs (rc 2): stop it first, as for the sample slot.
 
 | Command | Request | Reply |
 |---|---|---|
