@@ -35,6 +35,7 @@ DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z
 COLD_NAMES = {"note_convert", "note_transform", "ui_confirm_accept"}
 # Share event copies and keep confirmed writes out of the input dispatcher.
 NOINLINE_NAMES = {"ui_confirm_accept", "note_assign"}
+F2_LINES = 80                     # (exp f2) IR lines (unoptimised) from which a function called twice stays out of line
 IR_DEF = re.compile(r"^(define [^\n]*?@\"?([\w.]+)\"?\([^\n]*\)(?: unnamed_addr| local_unnamed_addr)?)( #\d+[^\n]*\{)$",
                     re.M)
 
@@ -75,7 +76,18 @@ def main(src, dst):
             return m.group(0)
         hit.add(m.group(2))
         return m.group(1) + " minsize" + (" cold" if m.group(2) in COLD_NAMES else "") + (" noinline" if m.group(2) in NOINLINE_NAMES else "") + m.group(3)
-    ir = IR_DEF.sub(mark, Path(src).read_text())
+    text = Path(src).read_text()
+    # (exp f2) a main-loop function of some size called from two places or more: kept out of line (one copy)
+    bodies = {m.group(2): text[m.end():text.find("\n}\n", m.end())] for m in IR_DEF.finditer(text)}
+    calls = {}
+    for b in bodies.values():
+        for n in re.findall(r"@\"?([\w.]+)\"?\(", b):
+            calls[n] = calls.get(n, 0) + 1
+    for n, b in bodies.items():
+        if n in names and calls.get(n, 0) >= 2 and b.count("\n") >= F2_LINES:
+            NOINLINE_NAMES.add(n)
+    print(f"size: {sum(1 for n in NOINLINE_NAMES if n in bodies)} main-loop functions kept out of line")
+    ir = IR_DEF.sub(mark, text)
     attrs = {int(n): a for n,a in re.findall(r"^attributes #(\d+) = (.*)$",ir,re.M)}
     nextattr = max(attrs)+1
     hotattrs = {}
