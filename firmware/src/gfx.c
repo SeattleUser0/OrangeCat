@@ -74,7 +74,6 @@ static uint32_t ty_pixel(void);
 /* Most regions (cards, header, footer) fit the small second canvas. Draw
  * there while SPI reads the first; large graphs reuse the full canvas only
  * after its transfer finishes. No second full-screen-sized allocation. */
-#define CV_ALT_MAX (240u * 24u)                   /* (240 x 24: the diff's hashes took the rest, below) */
 /* Decoded projects use this canvas between draws. A borrow waits for SPI;
  * the wire/archive buffer stays separate because transfers span UI frames. */
 static union {
@@ -83,7 +82,6 @@ static union {
 } cv_primary_u __attribute__((section(".pool")));
 #define cv_primary cv_primary_u.pixels
 #define CV_WORK_BYTES (sizeof cv_primary_u)
-static uint16_t cv_alt[CV_ALT_MAX] __attribute__((section(".pool")));
 static uint16_t *cv_px = cv_primary;
 static const uint16_t *cv_flight;
 static void *cv_work(void)
@@ -227,7 +225,7 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
         h = CV_MAX / w;
     }
     n = w * h;
-    cv_px = cv_flight != cv_primary ? cv_primary : n <= CV_ALT_MAX ? cv_alt : cv_primary;
+    cv_px = cv_primary;             /* (exp e2: one canvas; drawing waits for the transfer before it) */
     if (cv_px == cv_flight) {
         lcd_sync();                 /* never overwrite a buffer still on SPI */
         cv_flight = 0;
@@ -352,26 +350,15 @@ static void df_keep(uint32_t x, uint32_t y)             /* the canvas just sent 
  * into the small canvas (the canvas is it, or they do not fit: whole rows) */
 static void df_send(uint32_t x, uint32_t y, uint32_t c0, uint32_t w, uint32_t r0, uint32_t h, uint32_t keep)
 {
-    uint32_t r, i;
-    if (w < cv_w && (cv_px == cv_alt || w * h > CV_ALT_MAX)) {
-        c0 = 0;
-        w = cv_w;
-    }
     df_damage(x + c0, y + r0, w, h, keep);
     if (w == cv_w) {
         lcd_blit(x, y + r0, w, h, cv_px + r0 * cv_w);
         cv_flight = cv_px;
         return;
     }
-    if (cv_flight == cv_alt) {
-        lcd_sync();
-        cv_flight = 0;
-    }
-    for (r = 0; r < h; r++)
-        for (i = 0; i < w; i++)
-            cv_alt[r * w + i] = cv_px[(r0 + r) * cv_w + c0 + i];
-    lcd_blit(x + c0, y + r0, w, h, cv_alt);
-    cv_flight = cv_alt;
+    for (uint32_t r = 0; r < h; r++)                    /* (exp e2: no second canvas to gather into: a row a transfer) */
+        lcd_blit(x + c0, y + r0 + r, w, 1u, cv_px + (r0 + r) * cv_w + c0);
+    cv_flight = cv_px;
 }
 /* runs of the dirty marks d[0..n-1] (gaps up to gap joined), up to 6: run k from a[k] to b[k] */
 static uint32_t df_runs(const uint8_t *d, uint32_t n, uint32_t gap, uint8_t *a, uint8_t *b)
@@ -418,10 +405,6 @@ static int df_diff(uint32_t x, uint32_t y)
     if (nr * nc > 6u) {                                 /* scattered: their bounding box */
         rb[0] = rb[nr - 1u]; cb[0] = cb[nc - 1u];
         nr = nc = 1;
-    }
-    if (nc > 1u && cv_px == cv_alt) {                   /* (nothing gathers from the small canvas: whole rows, once) */
-        cb[0] = cb[nc - 1u];
-        nc = 1;
     }
     for (j = 0; j < nc; j++) {
         uint32_t c0 = ca[j] * DF_BLK, c1 = (cb[j] + 1u) * DF_BLK < cv_w ? (cb[j] + 1u) * DF_BLK : cv_w;
