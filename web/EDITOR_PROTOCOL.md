@@ -432,6 +432,34 @@ transport did not stop. A write torn anywhere (power, a refusal) leaves the slot
 `tools/fm1_sample_upload.py` builds a slot from WAV files and uploads it with these commands. Nothing in 0.6.0 plays
 the slot yet (a sample engine is phase 9's).
 
+## Orange Cat: the asset pack (commands 115-119, firmware 0.8.0)
+
+SHAPES and MACRO read 57 constant tables (40,232 bytes) from a pack kept in the PACK area of the flash map
+(storage.c: 10 sectors at 0x93000..0x9CFFF, the Prophet banks' five A/B pairs). `tools/gen_pack.py` makes the pack
+with the firmware (`orangecat-VERSION.pak`) and the pointer header the firmware is built with. The pack's first 512
+bytes are its header: magic "OCPK" (0x4B50434F), version 1, flags, the table hash (u32 at 8), the length (u32 at 12),
+the payload CRC-32 (zlib, at 16) and a CRC-32 of bytes 0..507 (at 508). The firmware accepts only a pack with its own
+hash and length. Without one, SHAPES and MACRO are silent and the screen says PACK MISSING; the unit boots and
+everything else plays.
+
+A command a firmware does not know gets no reply, so an editor offers the pack only after a reply to 115. Every
+write stops nothing: it is refused while the transport runs (rc 2), as the sample slot's writes are not.
+
+| Command | Request | Reply |
+|---|---|---|
+| 115 PACK_INFO | - | state (0 none, 1 this build's pack, 2 another build's, 3 damaged), banks (1 when library banks 16..20 hold presets), stored length (3 x 7 bits), stored hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) |
+| 116 PACK_BEGIN | length (3 x 7 bits), take (0 or 1) | rc, bytes written (3 x 7 bits). The pack there is gone and the 10 sectors are erased |
+| 117 PACK_WRITE | offset (3 x 7 bits), pack7 data (up to 256 bytes) | rc, bytes written. The first offset is 512; each is where the last write ended |
+| 118 PACK_END | pack7 header (512 bytes) | rc, bytes written. The header must agree with the data and the build; it is programmed last (the commit) |
+| 119 PACK_ERASE | take (0 or 1) | rc, bytes written. The area erased; the Prophet banks are the library's again, empty |
+
+rc: 0 done, 1 refused (not this build's length, out of order, a header that does not match), 2 the flash failed or
+the transport is running, 3 library banks 16..20 hold presets and take was 0. A pack takes those banks: the editor
+asks first and sends take 1. While the area is a pack's, the Prophet bank objects read as empty and refuse to save, so
+a preset save cannot erase a pack sector. A write torn anywhere leaves no header, so the pack reads as missing, never
+half installed. The update loader erases a sector whose last 256 bytes look like one of its update records;
+`gen_pack.py` lays the tables out so none does, and PACK_END tests the same rule.
+
 ## Pattern banks (commands 73–74)
 
 INFO sends 0 in the former untagged CHAIN_ROWS byte, then retains the tagged UI, motion and backup

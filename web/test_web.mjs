@@ -35,6 +35,22 @@ const E = vm.runInNewContext(proto + `
    FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
+/* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
+{
+  const C = E.CMD;
+  ok(C.PACK_INFO === 115 && C.PACK_BEGIN === 116 && C.PACK_WRITE === 117 && C.PACK_END === 118 && C.PACK_ERASE === 119, "pack: commands 115 to 119");
+  ok(eq(E.req.packBegin(40232, 1)[1], [40232 & 127, (40232 >> 7) & 127, 40232 >> 14, 1]) && E.req.packBegin(40232, 0)[1][3] === 0, "pack: BEGIN is the length (3 x 7 bits) and the take byte");
+  const w = E.req.packWrite(0x9F00, new Uint8Array(256).fill(0xA5));
+  ok(w[0] === 117 && eq(w[1].slice(0, 3), [0x9F00 & 127, (0x9F00 >> 7) & 127, 0x9F00 >> 14]) && w[1].length === 3 + 36 * 8 + 5, "pack: WRITE is the offset and 256 bytes packed 7-bit");
+  ok(E.req.packEnd(new Uint8Array(512))[1].length === 73 * 8 + 2, "pack: END is the 512-byte header packed 7-bit");
+  const n5 = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) & 127), n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127];
+  const hash = 0xD0657ED9 >>> 0;
+  const r = E.parse[C.PACK_INFO]([1, 0, ...n3(40232), ...n5(hash), ...n3(40232), ...n5(hash), ...n3(40960)]);
+  ok(r.state === 1 && r.banks === 0 && r.len === 40232 && r.hash === hash && r.buildLen === 40232 && r.buildHash === hash && r.area === 40960, "pack: the reply of INFO");
+  const e = E.parse[C.PACK_END]([3, ...n3(40232)]);
+  ok(e.rc === 3 && e.done === 40232, "pack: the reply of an install step");
+}
+
 {
   const mock=E.makeMockDevice({shared:true}),input=[...mock.access.inputs.values()][0],output=[...mock.access.outputs.values()][0];
   const link=new E.Link(d=>output.send(d),{timeout:500});input.onmidimessage=e=>link.receive(e.data);const rq=(r,o)=>link.request(r,o),info=E.parse[E.CMD.INFO](await rq(E.req.info()));
@@ -1216,7 +1232,7 @@ async function editorSessions() {
     paramKeys: noop, libAdopt: () => { adoptStarted?.(); return adopted || Promise.resolve(); },
     buildUI: () => { shown++; }, renderPanels: noop, loadSteps: noop,
     startWatch: async () => false, renderLive: noop, renderLib: noop,
-    renderBank: noop, renderSysinfo: noop, sayK: noop, report: noop, syncPreferences: noop,
+    renderBank: noop, renderSysinfo: noop, sayK: noop, report: noop, syncPreferences: noop, packProbe: noop,
   });
   const oldRelease = S.beginBusy();
   S.resetBusy();
