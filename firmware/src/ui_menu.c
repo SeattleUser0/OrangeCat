@@ -14,13 +14,13 @@
  * 0.5.3 took it out. Frozen tracks use the drive without a page: usb_host.c.) */
 /* ------------------------------------------------------------ menu --- */
 #define MENU_HEAD H_HEAD                 /* the menu's own title strip */
-enum { MI_COLOR, MI_FONT, MI_HOLD, MI_LIGHTS,
+enum { MI_FONT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB, MI_USB_INPUT,
 #endif
        MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_GLO_SEL, MI_TRACKS, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS",
+static const char *const MI_NAME[MI_COUNT] = {"FONT", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO", "USB INPUT",
 #endif
@@ -307,15 +307,7 @@ static void draw_menu(void)
                 b[2] = (char)('0' + HOLD_MS[settings_hold % 4u] / 100u);
                 value = b;
             }
-            if (i == MI_COLOR) {                        /* the palette's four track colours as swatches */
-                uint32_t k;
-                int32_t x;
-                uint16_t bg = sel ? ux_mix(T_BG, T_KNOB(i), 18) : T_BG;
-                menu_words(v, UI_PALETTES[settings.palette % NPALETTES].name, sizeof v);
-                x = row_draw(y, w, v, T_TEXT, sel, 0, i) - 10 - 16 * 4;
-                for (k = 0; k < 4u; k++)
-                    cv_rrect(x + 16 * (int32_t)k + 2, y + MENU_RH / 2 - 5, 10, 10, 3, T_TRK(k), bg);
-            } else {
+            {
                 v[0] = 0;
                 if (value)
                     menu_words(v, value, sizeof v);
@@ -368,11 +360,6 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         ui.menu_scroll = (uint16_t)clamp((int32_t)ui.menu_scroll + clamp(s, -128, 128) * 18, 0, menu_scroll_max());
     }
     s = panel_enc(EN_K1);
-    if (s != 0 && ui.menu == 1 && ui.menu_sel == MI_COLOR) {
-        settings.palette = (settings.palette + (s > 0 ? 1u : NPALETTES - 1u)) % NPALETTES;   /* (wraps) */
-        palette_set(settings.palette);              /* (the menu signature redraws) */
-        ui.force = 1;
-    }
 
 #if MELODEE_USB_AUDIO
     if ((s != 0 || ok) && ui.menu == 1 && ui.menu_sel == MI_USB_INPUT) {
@@ -450,11 +437,6 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
     }
     if (ok && ui.menu == 1) {
         switch (ui.menu_sel) {
-        case MI_COLOR:                                 /* OCT+ steps through the palettes too */
-            settings.palette = (settings.palette + 1u) % NPALETTES;
-            palette_set(settings.palette);
-            ui.force = 1;
-            break;
         case MI_PANEL:
             panel_setup();
             ui.force = 1;

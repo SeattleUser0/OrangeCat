@@ -48,6 +48,7 @@ PALETTES = [
     ("LO-FI",    (32, 28, 26),    (48, 42, 38),    (236, 226, 208), (250, 244, 232),
      ((218, 140, 128), (214, 182, 104), (146, 184, 142), (142, 164, 206))),
 ]
+PALETTES = PALETTES[:1]            # (exp c1: NIGHT alone)
 TEST_GRAY = ("GRAY", (14, 14, 14), (36, 36, 36), (204, 204, 204), (255, 255, 255),
              ((232, 232, 232), (220, 220, 220), (208, 208, 208), (244, 244, 244)))
 PAL_TAG = 96                       # stored id = PAL_TAG + index (ids below: earlier firmware, read as the default)
