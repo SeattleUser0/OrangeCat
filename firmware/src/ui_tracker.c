@@ -21,6 +21,9 @@
  *   0.5.2: four note columns (N1 .. N4) in place of NOTE (the first note, +n), KNOB 2 picks the column; the FX column
  *          edits its effects (KNOB 3 which, KNOB 4 how much); LEN's column gone (a held note's bars show it, KNOB 4
  *          sets it, the foot says it); the accent moved from VEL ("127!") to FX (AC).
+ *   0.7.1: a recorded step's notes (live recording, NOTES' fine edits) in the note columns too, in NOTES' order
+ *          (seq_notes.c notes_nth: onset, pitch), each with its own velocity and length; "REC" only for a step whose
+ *          notes were rounded into it. The knobs edit them through NOTES' event editor (ui_input.c tracker_edit).
  */
 #define TK_HEAD_Y H_HEAD                                /* the columns' names: rows 30 .. 47 */
 #define TK_ROW_Y 48                                     /* a row: 18 px, nine, 48 .. 209 */
@@ -209,12 +212,27 @@ static uint32_t tk_notes(const step_t *st, uint8_t *n, uint32_t *more)
     *more = extra;
     return c;
 }
+/* (0.7.1) the recorded notes of step i (seq_notes.c notes_nth's order): their pitches in n[], velocities in v[], the
+ * store's index of each in idx[]; past four, more. 0: the step has no recorded note (then it is a manual step, or the
+ * overview of notes rounded into it from the step before) */
+static uint32_t tk_events(const track_t *t, uint32_t i, uint8_t *n, uint8_t *v, uint16_t *idx, uint32_t *more)
+{
+    uint32_t c = 0, k;
+    *more = 0;
+    for (k = 0; k < 8u; k++) {
+        uint32_t e = notes_nth(t, i, k);
+        if (e >= RECORD_MAX) break;
+        if (c < 4u) { n[c] = recording[e].note; v[c] = recording[e].vel; idx[c++] = (uint16_t)e; }
+        else (*more)++;
+    }
+    return c;
+}
 static void tk_row(uint32_t j)
 {
     const track_t *t = TSEL;
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), i = tk_first() + j, cur = i == ui.cursor,
              play = song.playing && t->seq_pos < 0x7FFFFFFFu && t->seq_idx == i, h, c, col = ui.tk_col % TKC_N,
-             start = NSTEP, held = 0, cnt, more;
+             start = NSTEP, held = 0, cnt = 0, more;
     uint16_t tc = T_TRK(song.sel), bg = cur ? T_SURF : T_BG;
     const step_t *st;
     uint8_t nn[4];
@@ -227,10 +245,21 @@ static void tk_row(uint32_t j)
         cv_blit(0, (uint32_t)(TK_ROW_Y + (int32_t)j * TK_ROW_H));
         return;
     }
+    uint8_t vv[4];
+    uint16_t ev[4];
+    uint32_t rec, sel = 0;
     st = &seq_steps(t)[i];
     if (st->time == ST_TIE && (start = step_note_start(t, i)) < NSTEP) {   /* (a held note: bars under its notes) */
-        held = tk_notes(&seq_steps(t)[start], nn, &more);
+        held = tk_events(t, start, nn, vv, ev, &more);
+        if (!held) held = tk_notes(&seq_steps(t)[start], nn, &more);
         if (!held) held = 1;
+    }
+    rec = tk_events(t, i, nn, vv, ev, &more);         /* (0.7.1) a recorded step: its notes, NOTES' order */
+    if (rec) {                                          /* (the VEL column: the note the knobs edit, else the first) */
+        uint32_t pick = cur ? notes_selected(t) : RECORD_MAX;
+        for (c = 0; c < rec; c++) if (ev[c] == pick) sel = c;
+    } else {
+        cnt = tk_notes(st, nn, &more);
     }
     h = fnv1(fnv1(fnv1(2166136261u, i + 64u * cur + 128u * play + 256u * song.sel + 4096u * (cur ? col + 1u : 0u) +
                                         65536u * (cur ? ui.tk_fx : 0u)), ux.gen * 977u + ux.pal * 31u),
@@ -240,6 +269,10 @@ static void tk_row(uint32_t j)
                          (uint32_t)(uint8_t)st->nudge << 24),
              (uint32_t)st->note[1] | (uint32_t)st->note[2] << 8 | (uint32_t)st->note[3] << 16);
     h = fnv1(h, held + 8u * (start < NSTEP ? start : 0u));
+    if (rec) {
+        for (c = 0; c < rec; c++) h = fnv1(h, (uint32_t)nn[c] | (uint32_t)vv[c] << 8 | (uint32_t)ev[c] << 16);
+        h = fnv1(h, rec | sel << 4 | more << 8);
+    }
     if (!ui.force && h == tkv.row[j])
         return;
     tkv.row[j] = h;
@@ -255,8 +288,15 @@ static void tk_row(uint32_t j)
     fmt_int(nb, (int32_t)i + 1);
     if (i + 1u < 10u) { nb[1] = nb[0]; nb[0] = '0'; nb[2] = 0; }
     cv_text_on(TK_X_STEP, ty_y(TK_ROW_H / 2, TY_LB), TY_LB, nb, i % 4u == 0u ? T_TEXT : T_MID, bg);
-    cnt = tk_notes(st, nn, &more);
-    if (step_on(st) && cnt) {
+    if (rec) {                                          /* (0.7.1) recorded notes: each its own pitch and velocity */
+        for (c = 0; c < rec; c++) {
+            if (c == 3u && more) { nb[0] = '+'; fmt_int(nb + 1, (int32_t)more + 1); }
+            else note_name(nb, nn[c]);
+            cv_text_on(TK_X_NOTE(c), ty_y(TK_ROW_H / 2, TY_LB), TY_LB, nb, tc, bg);
+        }
+        fmt_int(nb, (int32_t)vv[sel]);
+        cv_text_on(TK_X_VEL, ty_y(TK_ROW_H / 2, TY_LB), TY_LB, nb, T_TEXT, bg);
+    } else if (step_on(st) && cnt) {
         for (c = 0; c < cnt; c++) {
             if (c == 3u && more) {                      /* (a drum step of more than four hits: +n) */
                 nb[0] = '+';
@@ -276,7 +316,7 @@ static void tk_row(uint32_t j)
     } else {
         cv_text_on(TK_X_NOTE(0), ty_y(TK_ROW_H / 2, TY_LB), TY_LB, "--", T_DIM, bg);
     }
-    if (step_on(st) && cnt) {
+    if (rec || (step_on(st) && cnt)) {
         uint32_t picked = cur && col == TKC_FX;
         tk_fx(st, fb, picked);
         if (fb[0])
@@ -302,8 +342,23 @@ static void tk_hint(char *b, uint32_t n)
         str_cpy(b + str_len(b), v, n - str_len(b));
         return;
     }
+    {   /* (0.7.1) a recorded step: the note the knobs edit, its length in steps (a quarter step the finest) */
+        uint32_t e = notes_nth(t, ui.cursor % NSTEP, col < TKC_VEL ? col : 0u);
+        if (e < RECORD_MAX && col >= TKC_VEL) e = notes_selected(t);
+        if (e < RECORD_MAX && col != TKC_FX) {
+            uint32_t d = (recording[e].duration << (recording[e].owner >> 5)) * 4u / RECORD_UNIT;
+            str_cpy(b, col == TKC_VEL ? "K3 VELOCITY \xb7 K4 LENGTH " : "K3 PITCH \xb7 K4 LENGTH ", n);
+            fmt_int(b + str_len(b), (int32_t)(d / 4u));
+            if (d % 4u) { uint32_t k = str_len(b); b[k] = '.'; b[k + 1] = (char)('0' + (d % 4u) * 25u / 10u); b[k + 2] = (char)('0' + (d % 4u) * 25u % 10u); b[k + 3] = 0; }
+            return;
+        }
+        if (e >= RECORD_MAX && col < TKC_VEL && notes_nth(t, ui.cursor % NSTEP, 0) < RECORD_MAX) {
+            str_cpy(b, "NO NOTE THERE", n);
+            return;
+        }
+    }
     if ((st && (st->flags & SF_RECORDED)) || (!st && (seq_steps(t)[ui.cursor % NSTEP].flags & SF_RECORDED))) {
-        str_cpy(b, "RECORDED NOTES", n);        /* (played in live: NOTES edits them) */
+        str_cpy(b, "RECORDED NOTES", n);        /* (rounded into this step: NOTES edits them) */
         return;
     }
     if (!st || !st->n) {
