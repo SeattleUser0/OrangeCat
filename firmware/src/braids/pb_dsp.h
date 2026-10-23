@@ -109,7 +109,11 @@ static inline uint16_t pb_mix_u16(uint16_t a, uint16_t b, uint16_t balance)
 }
 
 /* --------------------------------------------------- stmlib/utils/random.h --- */
+#ifdef OC_MODULE            /* (Orange Cat 0.10.0) a module has no RAM of its own: the generator's word is the firmware's (fw_api_t.rng_cell, initial 0x21) */
+#define pb_rng_state (*OC_FW()->rng_cell)
+#else
 static uint32_t pb_rng_state = 0x21u;
+#endif
 static inline uint32_t pb_rng_word(void) { pb_rng_state = pb_rng_state * 1664525u + 1013904223u; return pb_rng_state; }
 static inline int16_t pb_rng_sample(void) { return (int16_t)(pb_rng_word() >> 16); }
 

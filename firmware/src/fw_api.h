@@ -26,7 +26,8 @@
  * --module checks it). The module cannot read the table to learn that the address moved, so the address is part of its header
  * (api_addr) and fw_module_check compares it with the firmware's. The table is data inside the PC guard's code window
  * (0x02000120.._etext, fm1_guard.h): nothing executes it, so the guard is unchanged. The table also carries what the module
- * would otherwise hold as constants: the arena id of the first engine state (res_engine0) and the number of engines.
+ * would otherwise hold as constants (the arena id of the first engine state, res_engine0, and the number of engines) and the one
+ * word of state SHAPES keeps outside its part (Braids' random generator, rng_cell: the same cell, shared by the parts, as the built-in engine has).
  *
  * Revisions:
  *   0.8.0: first version.
@@ -54,6 +55,7 @@ typedef struct fw_api {
     const uint8_t *pack_ready;                           /* 1 when the asset pack is there (oc_pack_good) */
     uint32_t res_engine0;                                /* the arena id of the first engine state (RES_ENGINE0): a module's part p is res_engine0 + p */
     uint32_t nengines;                                   /* NENGINES: the length of the engine table */
+    uint32_t *rng_cell;                                  /* SHAPES' random generator word (pb_rng_state, 0x21 at power-on): a module has no RAM, so the firmware keeps it */
 } fw_api_t;
 
 /* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything. */

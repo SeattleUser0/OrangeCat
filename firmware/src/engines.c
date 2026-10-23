@@ -58,6 +58,7 @@ static FW_UNUSED void *fw_mem_copy(void *d, const void *s, uint32_t n) { return 
 static FW_UNUSED void *fw_mem_set(void *d, int c, uint32_t n) { return memset(d, c, n); }
 static FW_UNUSED void *fw_resource_get(uint32_t id, uint32_t bytes) { return resource_get(id, bytes); }
 static FW_UNUSED int32_t fw_tuning_log(void) { return tuning_log(); }
+uint32_t fw_rng_cell = 0x21u;                /* (0.10.0) the module SHAPES' pb_rng_state (braids/pb_dsp.h): the firmware's word, same start value */
 #if defined(__APPLE__)
 #define FW_API_SECTION                      /* (the host on macOS: Mach-O section names differ; nothing reads the address there) */
 #else
@@ -66,7 +67,7 @@ static FW_UNUSED int32_t fw_tuning_log(void) { return tuning_log(); }
 FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
     FW_API_MAGIC, sizeof(fw_api_t), FW_API_VERSION, FW_API_IFACE,
     fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
-    RES_ENGINE0, NENGINES,
+    RES_ENGINE0, NENGINES, &fw_rng_cell,
 };
 static uint32_t eng_state_size(uint32_t e)
 {

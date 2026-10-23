@@ -23,6 +23,7 @@ int main(void)
     check("every service is there", a->mem_copy && a->mem_set && a->resource_get && a->tuning_log && a->trk && a->pack_ready);
     /* 0.10.0 (step 1) the arena id a module's part state starts at, and the engine count, come from the table */
     check("res_engine0 is the arena id of the first engine state and nengines the table's length", a->res_engine0 == RES_ENGINE0 && a->nengines == NENGINES && NENGINES == 20u);
+    check("rng_cell is the generator word SHAPES starts with (0x21), shared by the parts", a->rng_cell && *a->rng_cell == 0x21u);
     check("a module's part p gets the block the built-in engine gets (res_engine0 + p)", (memset(resource, 0, sizeof resource), a->resource_get(a->res_engine0 + 1u, 64u) == resource_get(RES_ENGINE0 + 1u, 64u)));
     for (i = 0; i < 16; i++) x[i] = (uint8_t)(i * 13u + 1u);
     a->mem_copy(y, x, 16);

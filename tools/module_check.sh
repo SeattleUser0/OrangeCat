@@ -72,7 +72,7 @@ EOF
     t=$(sect "$elf" .text); d=$(sect "$elf" .data); b=$(sect "$elf" .bss)
     say "link at $at: ok; .text $t B, .data $d B, .bss $b B"
     if [ "$d" != 0 ] || [ "$b" != 0 ]; then
-        say "FAIL a module has no RAM of its own: .data $d B, .bss $b B at $at"
+        say "FAIL a module has no RAM of its own: .data $d B, .bss $b B at $at; symbols: $("$NM" -n "$elf" 2>&1 | grep -iE ' [dDbB] ' | head -8 | tr '\n' ';')"
         fail=1
     fi
 done
