@@ -21,6 +21,7 @@
 #if MELODEE_MACRO
 #include "eng_macro.c"          /* (Orange Cat 0.5.0) MACRO: fourteen sound models (plaits/, MIT) */
 #endif
+#include "eng_drumx.c"          /* (Orange Cat 0.9.0) DRUM-X: Jiant FM's drum engine (drumx_voice.c, GPL-3.0-only); in slot 9 when MELODEE_DRUMX */
 #if MELODEE_SHAPES
 #include "eng_shapes.c"         /* (Orange Cat 0.5.1) SHAPES: a Braids-style macro oscillator (braids/, MIT) */
 #endif
@@ -57,7 +58,7 @@ static FW_UNUSED void *fw_mem_set(void *d, int c, uint32_t n) { return memset(d,
 static FW_UNUSED void *fw_resource_get(uint32_t id, uint32_t bytes) { return resource_get(id, bytes); }
 static FW_UNUSED int32_t fw_tuning_log(void) { return tuning_log(); }
 static FW_UNUSED const fw_api_t FW_API = {
-    FW_API_MAGIC, sizeof(fw_api_t), FW_API_VERSION, 0,
+    FW_API_MAGIC, sizeof(fw_api_t), FW_API_VERSION, FW_API_IFACE,
     fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
 };
 static uint32_t eng_state_size(uint32_t e)
@@ -88,6 +89,9 @@ static uint32_t eng_state_size(uint32_t e)
 #if MELODEE_FM6
     case ENGI_FM6: return sizeof(fm6_part_t);
 #endif
+#if MELODEE_DRUMX
+    case ENGI_DRUMX: return sizeof(dxe_part_t);
+#endif
 #if MELODEE_MACRO
     case ENGI_MACRO: return sizeof(mc_part_t);      /* (Orange Cat 0.5.0) */
 #endif
@@ -116,6 +120,7 @@ static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGIN
 static dsk_part_t *dsk_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dsk_part_t)); }
 static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
+static dxe_part_t *dxe_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dxe_part_t)); }   /* (0.9.0) DRUM-X */
 #if MELODEE_MACRO
 static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(mc_part_t)); }
 #endif
@@ -172,6 +177,8 @@ static const engine_t *const ENGINES[NENGINES] = {
 #endif
 #if MELODEE_LEGACY_EXTRAS
     &ENG_PHYS,
+#elif MELODEE_DRUMX
+    &ENG_DRUMX,                  /* 9: (Orange Cat 0.9.0) DRUM-X (ENGI_DRUMX), in the slot of the retired PHYS */
 #else
     &ENG_RETIRED,                /* 9: retired PHYS; stored ID reserved */
 #endif
@@ -261,6 +268,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_DRUM
     10,                          /* DRUM */
 #endif
+#if MELODEE_DRUMX
+    ENGI_DRUMX,                  /* (Orange Cat 0.9.0) DRUM-X: next to DRUM (first of the drums in Orange Cat's build, where DRUM is out) */
+#endif
 #if MELODEE_MACRO
     ENGI_MACRO,                  /* (Orange Cat 0.5.0) MACRO: after Melodee's own (first in Orange Cat's build, where
                                   * they are unhooked) */
@@ -277,7 +287,7 @@ static int eng_extra_retired(uint32_t e)
 #if !MELODEE_PROPHET_PROTOTYPE
     if (e == ENGI_ANALOG) return 1;
 #endif
-    return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u))
+    return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || (e == 9u && !MELODEE_DRUMX) || e == 11u))
         || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET) || (!MELODEE_DRUM && e == ENGI_DRUM);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them

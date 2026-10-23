@@ -19,7 +19,7 @@ int main(void)
     uint8_t x[16], y[16];
     uint32_t i;
     void *p1, *p2;
-    check("the table starts with the magic, its own size and version 1", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 1u);
+    check("the table starts with the magic, its own size, version 2 and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 2u && a->iface == FW_API_IFACE);
     check("every service is there", a->mem_copy && a->mem_set && a->resource_get && a->tuning_log && a->trk && a->pack_ready);
     for (i = 0; i < 16; i++) x[i] = (uint8_t)(i * 13u + 1u);
     a->mem_copy(y, x, 16);
@@ -40,6 +40,28 @@ int main(void)
     oc_pack_good = 1;
     check("pack_ready follows the pack's flag (1)", *a->pack_ready == 1);
     oc_pack_good = OC_PACK_GATE ? 0 : 1;
+    /* 0.9.0 (step 5a): the identifier and the registration check */
+    {
+        fw_mod_hdr_t h = {FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION}, g;
+        check("the identifier is the generated hash mixed with the sizes it cannot see",
+              FW_API_IFACE == (FW_API_ID ^ ((uint32_t)sizeof(track_t) * 0x9E3779B1u) ^ ((uint32_t)sizeof(voice_t) * 0x85EBCA6Bu) ^
+                               ((uint32_t)sizeof(engine_t) * 0xC2B2AE35u) ^ ((uint32_t)sizeof(vmod_t) * 0x27D4EB2Fu)) && FW_API_ID != 0u);
+        check("a module built for this firmware is accepted", fw_module_check(&h) == FW_MOD_OK);
+        check("no header is refused", fw_module_check(0) == FW_MOD_NONE);
+        g = h; g.magic ^= 1u;
+        check("a wrong magic is refused", fw_module_check(&g) == FW_MOD_BAD_MAGIC);
+        for (i = 0; i < 32; i++) {
+            g = h; g.iface ^= 1u << i;
+            if (fw_module_check(&g) != FW_MOD_BAD_IFACE) break;
+        }
+        check("an identifier differing in any one bit is refused", i == 32);
+        g = h; g.api_size = sizeof(fw_api_t) + 4u;
+        check("a module that needs a longer table is refused", fw_module_check(&g) == FW_MOD_API_TOO_NEW);
+        g = h; g.api_version = FW_API_VERSION + 1u;
+        check("a module built for a later version is refused", fw_module_check(&g) == FW_MOD_API_TOO_NEW);
+        g = h; g.api_size = sizeof(fw_api_t) - 8u; g.api_version = 1u;
+        check("a module that needs a shorter table and an earlier version is accepted", fw_module_check(&g) == FW_MOD_OK);
+    }
     printf(bad ? "fw_api: FAILED\n" : "fw_api: all passed\n");
     return bad != 0;
 }

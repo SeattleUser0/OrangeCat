@@ -41,8 +41,8 @@ static uint32_t drum_lane(uint32_t note);
 static uint32_t drum_gm(const int16_t *p,uint32_t note,int32_t *st);
 static int32_t drum_event_pitch;
 static uint32_t drum_event_length;
-static int drum_is909(const track_t *t) { return t->p[P_E0] == DK_909; }
-static int drum_issid(const track_t *t) { return t->p[P_E0] == DK_SID; }
+static int drum_is909(const track_t *t) { return t->p[P_E0] == DK_909 && !(MELODEE_DRUMX && t->eng_req == ENGI_DRUMX); }   /* (0.9.0: DRUM-X's MRPH is not a KIT) */
+static int drum_issid(const track_t *t) { return t->p[P_E0] == DK_SID && !(MELODEE_DRUMX && t->eng_req == ENGI_DRUMX); }
 typedef struct dsk_part dsk_part_t;
 static uint32_t dsk_bytes(void);
 static uint32_t drum_bytes(const track_t *t) { return drum_is909(t) ? sizeof(drum909_part_t) : drum_issid(t) ? dsk_bytes() : sizeof(drum_lane_t)*DV_NLANE; }

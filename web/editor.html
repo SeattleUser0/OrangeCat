@@ -1606,7 +1606,7 @@ async function capturePatch(rq, info, name) {
   const dump = parse[CMD.DUMP](await rq(req.dump()), info);
   const steps = [];
   for (let i = 0; i < UP.PAT && i < info.nstep; i++) steps.push(parse[CMD.STEP_GET](await rq(req.stepGet(i))));
-  const drum = info.engines[dump.engine] === "DRUM";   /* (a DRUM track that strikes a lane: its grid) */
+  const drum = info.engines[dump.engine] === "DRUM" || info.engines[dump.engine] === "DRUM-X";   /* (a DRUM track that strikes a lane: its grid) */
   let p5=null;
   if(dump.engine===19){const r=parse[CMD.PROPHET](await rq(req.prophetGet(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw Error("Cannot read Prophet patch");p5=r.raw;}
   let cz=null;
@@ -2072,7 +2072,7 @@ function makeMockDevice(opt = {}) {
     E("MIDI", ["USB", "TRS"], 0), E("DRUM", ["OFF", ...Array.from({ length: 16 }, (_, i) => String(i + 1))], 10), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 5, 1), E("BOOT", ["OFF", "A", "B", "C", "D"], 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["-", "-", "-", "SID", "-", "-", "-", "-",
-      "MACRO", "-", "DRUM", "-", "FM6", "-", "SHAPES", "CZ-1", "-", "-", "-", "PROPHET"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
+      "MACRO", "DRUM-X", "DRUM", "-", "FM6", "-", "SHAPES", "CZ-1", "-", "-", "-", "PROPHET"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     ...Array.from({length:3},()=>D("",F.INT,0,127,0)),
   ];
@@ -2135,7 +2135,12 @@ function makeMockDevice(opt = {}) {
         P("OPEN HAT", [13, 64, 90, 90, 0, 0, 50, 0], [0, 127, 127, 96], 1),
         P("HARP", [14, 32, 70, 100, 0, 0, 60, 0], [0, 127, 127, 100], 0),   /* (0.5.2) HARP, one string a voice */
         P("STRING CHORDS", [14, 32, 50, 110, 0, 0, 80, 0], [0, 127, 127, 104], 0)] },
-    {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
+    { name: "DRUM-X", titles: ["KIT", "KIT 2"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
+        D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FM", F.PCT, 0, 127, 0),
+        D("FOLD", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0)],   /* 9: (Orange Cat 0.9.0) DRUM-X, in retired PHYS's slot: Jiant FM's drum engine, a kit a preset */
+      presets: [P("DRUM-X", [64, 64, 70, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0), P("909 CLUB", [60, 64, 76, 64, 64, 0, 0, 10], [0, 100, 127, 100], 0), P("808 BOOM", [58, 60, 56, 76, 60, 0, 0, 0], [0, 100, 127, 100], 0),
+        P("LOFI DUST", [70, 64, 50, 54, 76, 0, 0, 20], [0, 100, 127, 100], 0), P("INDUSTRIAL", [72, 66, 88, 70, 74, 20, 0, 40], [0, 100, 127, 100], 0), P("ACOUSTIC", [56, 64, 58, 62, 64, 0, 0, 0], [0, 100, 127, 100], 0),
+        P("DUB ROOTS", [60, 60, 52, 70, 60, 0, 0, 0], [0, 100, 127, 100], 0), P("TECHNO RAW", [66, 64, 80, 62, 66, 10, 0, 30], [0, 100, 127, 100], 0), P("BREAKS", [62, 66, 72, 62, 70, 0, 0, 10], [0, 100, 127, 100], 0)] },
     { name: "DRUM", titles: ["KIT", "HIT"], edit: [D("KIT", F.ENUM, 4, 6, 4, ["808","909","SID"]), D("TUNE", F.PCT, 0, 127, 64),
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100),
         E("KICK", ["PUNCH", "ROUND"], 0), D("DRV", F.PCT, 0, 127, 0)],
@@ -2317,7 +2322,7 @@ function makeMockDevice(opt = {}) {
   const desc = (scope, id) => scope === 0 && id === P_MPCDEG ? {...TP[id], max: SCALE_DEGREES[st.p[26]] ?? 12} : scope === 0 && st.engine === 2 && id >= 61 && id <= 80 ? czDesc(id) : (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
     : scope === 1 && id < G_COUNT ? GP[id] : null);
   const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 };
-  const isDrum = () => ENG[st.engine].name === "DRUM";
+  const isDrum = () => ENG[st.engine].name === "DRUM" || ENG[st.engine].name === "DRUM-X";
   const clearSteps = () => st.step.forEach((s) => Object.assign(s, EMPTY, { notes: [0, 0, 0, 0] }));
   function toGrid(s) {                            /* eng_drum.c step_to_grid: a lane's own note becomes its hit */
     if (s.time !== 0) return;
@@ -2952,7 +2957,7 @@ function aliasOf(names, i) { const k = names ? names.indexOf(names[i]) : -1; ret
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
 const ENGINE_ORDER = ["PROPHET", "ANALOG", "FM6", "DIGITAL", "PHASE", "CZ-1", "SID", "VOICE", "NOISE",
-  "DRUM", "MACRO", "SHAPES"];   /* (Orange Cat 0.5.0, 0.5.1) MACRO and SHAPES after DRUM */
+  "DRUM", "DRUM-X", "MACRO", "SHAPES"];   /* (Orange Cat 0.5.0, 0.5.1, 0.9.0) DRUM-X after DRUM, then MACRO and SHAPES */
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
   return (names || []).map((n, i) => i).filter((i) => !["-","SAMPLE","GRAIN","SLICE","OBXF"].includes(names[i])&&!(names.includes("PROPHET")&&names[i]==="ANALOG"))
@@ -3355,7 +3360,7 @@ const LAYOUT = (pe0) => [
                                                     MELODEE_FM4=1 firmware only: DIGITAL retired, its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
-  ...(pe0>=92 && engName()==="DRUM"?[{t:"DRUM LEVELS",pages:[["LANES",0,[84,85,86,87]],["LANES 2",0,[88,89,90,91]]]}]:[]),
+  ...(pe0>=92 && (engName()==="DRUM" || engName()==="DRUM-X")?[{t:"DRUM LEVELS",pages:[["LANES",0,[84,85,86,87]],["LANES 2",0,[88,89,90,91]]]}]:[]),
   /* (Orange Cat 0.6.0, 76 globals) the effects: the track's (FX, DIST, AUTO PAN), the shared ones (the device's FX pages) */
   ...(dev && dev.info && dev.info.gcount>=76 ? [{t:"FX",pages:[["FX",0,[96,110,109,108]],["DIST",0,[96,97,98,103]],["AUTO PAN",0,[99,100,102,101]]]},
     {t:"SHARED FX",pages:[["DELAY",1,[27,28,29,30]],["DELAY 2",1,[31,32,33,34]],["DELAY 3",1,[35,36]],["REVERB",1,[37,38,39,40]],

@@ -259,7 +259,7 @@ async function editorMock() {
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
   ok(info.nengines === 20 && info.engines[14] === "SHAPES" && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
- && info.engines[2] === "-" && info.engines[5] === "-" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "MACRO" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 124 && info.pe0 === 116 && info.engines[4] === "-",
+ && info.engines[2] === "-" && info.engines[5] === "-" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "MACRO" && info.engines[9] === "DRUM-X" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 124 && info.pe0 === 116 && info.engines[4] === "-",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -361,16 +361,16 @@ async function editorMock() {
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM then (Orange Cat 0.5.0) MACRO last,
          "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "PROPHET,FM6,CZ-1,SID,DRUM,MACRO,SHAPES" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-3) === 10 && E.engineOrder(info.engines).at(-2) === 8 &&
+    ok(shown.join() === "PROPHET,FM6,CZ-1,SID,DRUM,DRUM-X,MACRO,SHAPES" &&
+       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-4) === 10 && E.engineOrder(info.engines).at(-3) === 9 && E.engineOrder(info.engines).at(-2) === 8 &&
        E.engineOrder(info.engines).at(-1) === 14,
-       "editor: engines listed FM6 second, DRUM, then MACRO and SHAPES last (indices kept)");
+       "editor: engines listed FM6 second, DRUM, DRUM-X, then MACRO and SHAPES last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
     await rq(E.req.uiSet(3, 0));
     prefs = await E.readDevicePreferences(rq, info, names, prefs);
     const rows = E.devicePresetRows(info, names, prefs).filter((r) => !r.user), eng = [...new Set(rows.map((r) => r.engine))];
-    ok(eng[0] === 19 && eng[1] === 12 && eng[eng.length - 3] === 10 && eng[eng.length - 2] === 8 && eng[eng.length - 1] === 14,
+    ok(eng[0] === 19 && eng[1] === 12 && eng[eng.length - 4] === 10 && eng[eng.length - 3] === 9 && eng[eng.length - 2] === 8 && eng[eng.length - 1] === 14,
        "editor: device presets in the device's engine order");
   }
   const none = await E.readDevicePreferences(() => { throw new Error("unexpected request"); }, { uiCaps: 0 }, []);
@@ -448,7 +448,7 @@ async function editorMock() {
 
 async function editorSamplePresets() {
  const {rq,done}=attachMock();const info=E.parse[E.CMD.INFO](await rq(E.req.info()));
- ok([4,6,7,9,13].every(i=>info.engines[i]==="-" && !E.engineOrder(info.engines).includes(i)) && info.engines[8]==="MACRO" && info.engines[14]==="SHAPES",
+ ok([4,6,7,13].every(i=>info.engines[i]==="-" && !E.engineOrder(info.engines).includes(i)) && info.engines[8]==="MACRO" && info.engines[14]==="SHAPES",
     "editor: SAMPLE and SLICE removed; other engine IDs kept; (Orange Cat) GRAIN's slot 8 is MACRO, OBXF's 14 SHAPES");done();
 }
 
@@ -458,8 +458,8 @@ function mockTables() {
   {
     const m0 = E.makeMockDevice({ auto: false }), ph = m0.tables.ENG[9], dr = m0.tables.ENG[10];
     m0.stop();
-    ok([2,5,6,7,9,11].every((i) => m0.tables.ENG[i].name === "-" && !m0.tables.ENG[i].presets.length),
-       "editor: PHASE, VOICE, TRIO, WHEEL, PHYS and NOISE retired with their original IDs reserved");
+    ok([2,5,6,7,11].every((i) => m0.tables.ENG[i].name === "-" && !m0.tables.ENG[i].presets.length),
+       "editor: PHASE, VOICE, TRIO, WHEEL and NOISE retired (slot 9 is DRUM-X since 0.9.0) with their original IDs reserved");
     ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "KIT,TUNE,TONE,DECY,SNAP,ACC,KICK,DRV" &&
        dr.edit[0].names.join() === "808,909,SID" && dr.edit[0].min === 4 && dr.edit[0].max === 6 && dr.presets.length === 4 && dr.presets[0].name === "808 KIT" && dr.presets[2].name === "SID KIT" && dr.presets[3].name === "SID DIGI",
        "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV, KIT 808), 808, 909 and SID kits");

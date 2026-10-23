@@ -130,7 +130,7 @@ static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     /* GLO > WEIGHTS: the player's points per voice replace the built-in rule; AUTO (0) keeps it. */
-    int k = (MELODEE_P5 && e == &ENG_P5_TEST) ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : (MELODEE_DRUM && e == &ENG_DRUM) ? 4 : -1;
+    int k = (MELODEE_P5 && e == &ENG_P5_TEST) ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : ((MELODEE_DRUM && e == &ENG_DRUM) || (MELODEE_DRUMX && e == &ENG_DRUMX)) ? 4 : -1;   /* (0.9.0: DRUM-X has the DRUM weight) */
     if (k >= 0 && settings_vpoints[k] > 0)
         return (uint32_t)settings_vpoints[k];
 #if MELODEE_ADMISSION
@@ -138,7 +138,7 @@ static uint32_t voice_units(const track_t *t)
         return voice_p5_parts()>1u?4u:3u;
     }
     if(MELODEE_CZ && e==&ENG_CZ)return 3u;
-    if((MELODEE_FM6 && e==&ENG_FM6) || (MELODEE_SID && e==&ENG_SID) || (MELODEE_DRUM && e == &ENG_DRUM))return 2u;
+    if((MELODEE_FM6 && e==&ENG_FM6) || (MELODEE_SID && e==&ENG_SID) || (MELODEE_DRUM && e == &ENG_DRUM) || (MELODEE_DRUMX && e == &ENG_DRUMX))return 2u;
 #endif
     return e->units ? e->units(t) : trk_nvoice(t) > NPOLY ? 1u : 2u;
 }
@@ -279,6 +279,11 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     }
     if ((MELODEE_DRUM && t->engine == ENGI_DRUM)) {
         voice_t *v = drum_reuse(t, note);
+        if (v)
+            return voice_reuse(t, v);
+    }
+    if ((MELODEE_DRUMX && t->engine == ENGI_DRUMX)) {   /* (0.9.0) DRUM-X: a lane's one voice, at any pitch */
+        voice_t *v = dxe_reuse(t, note);
         if (v)
             return voice_reuse(t, v);
     }
@@ -764,7 +769,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     int32_t tune, tune_fine;
     int32_t bend, bend16, bend_fine;
     uint32_t ti = (uint32_t)(t - trk);
-    if ((MELODEE_DRUM && ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM)) {
+    if ((MELODEE_DRUM && ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) || (MELODEE_DRUMX && ENGINES[eng_idx(t->eng_req)] == &ENG_DRUMX)) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
         int32_t d = midi_bend_target[ti] - midi_bend_q8[ti];

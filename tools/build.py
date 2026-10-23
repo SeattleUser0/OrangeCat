@@ -111,6 +111,8 @@ def generate():
             [tools / "gen_fm6_patches.py", GEN / "melodee_fm6.h"],
             [tools / "gen_cz1_factory.py", GEN / "melodee_cz1.h"],
             [tools / "gen_prophet_factory.py", GEN / "melodee_prophet_factory.h", "--web", "check"],
+            # (Orange Cat 0.9.0) the identifier of the loadable-engine interface (fw_api.h)
+            [tools / "gen_fw_api_id.py", GEN / "fw_api_id.h"],
             # (Orange Cat 0.8.0) the asset pack of SHAPES' and MACRO's tables, and the header that points the firmware at it
             [tools / "gen_pack.py", "--pak", OUT / "melodee.pak", "--header", GEN / "oc_pack_tables.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -249,7 +251,7 @@ def build_app(stub):
                  "MELODEE_BENCH_SILENT", "MELODEE_FX_PROFILE", "MELODEE_AUDIO_PROFILE", "MELODEE_BATCH_AUDIO", "MELODEE_ADMISSION", "MELODEE_AUDIO_BENCH", "MELODEE_DUAL_CORE", "MELODEE_CACHE_RAM", "MELODEE_CORE1_TEST", "MELODEE_RAM_AUDIO", "MELODEE_HW_EQ", "MELODEE_MOD_CACHE", "MELODEE_CONTROL_FAST", "MELODEE_MIX_FAST", "MELODEE_FX_DORMANT", "MELODEE_RECORD_INDEX", "MELODEE_PROPHET_FAST", "MELODEE_PANEL_FAST", "MELODEE_FM6_FAST", "MELODEE_CZ_FAST", "MELODEE_DRUM_FAST", "MELODEE_SID_FAST", "MELODEE_CAPTURE_FAST",
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
-                 "MELODEE_MACRO", "MELODEE_SHAPES"):   # (Orange Cat 0.5.0, 0.5.1) MACRO, SHAPES
+                 "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX"):   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

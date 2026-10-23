@@ -49,7 +49,10 @@
 # EFFECTS (tests/jfx_test.c, 0.6.0): Jiant FM's effects through the master path; their storage and conversions.
 # EFFECTS' MEMORY (tests/jfx_arena_test.c, 0.6.0 rev 2): the arena at the device's sizes, the table in BUILD.md.
 # SAMPLE SLOT (tests/smp_slot_test.c, 0.6.0): the internal user sample slot on a simulated NOR.
-# FW API (tests/fw_api_test.c, 0.8.0): fw_api_t, the services table prepared for loadable engines (nothing loads from it yet).
+# DRUM-X (tests/drumx_test.c, tests/drumx_ref.txt, 0.9.0): Jiant FM's drum engine: the voice against 288 renders of Jiant's own file, the
+#                   engine through the voices, the grid and the mixer (tools/drumx_ref_gen.sh makes the reference).
+# FW API (tests/fw_api_test.c, 0.8.0): fw_api_t, the services table prepared for loadable engines (nothing loads from it yet);
+#                   0.9.0: its interface identifier (tools/gen_fw_api_id.py) and the registration check (fw_module_check).
 # ASSET PACK (tests/oc_pack_test.c and tools/gen_pack.py --check, 0.8.0): SHAPES' and MACRO's tables in flash: install, power cuts, refusals.
 # MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
 # LAYERS / SCREEN (tests/layer_screen_test.c): GLO/SCL double-tapped layers, SCREEN OFF, LFO 2.
@@ -94,7 +97,7 @@ LOG=$OUT/log
 # carries engine switches would build the preset, backup and storage tests without the engines whose banks they fill:
 # about 20 of their checks fail for that reason alone (tests/need_all_engines.h). Stop here with it said.
 case "${CC:-}" in
-*-DMELODEE_SID=* | *-DMELODEE_CZ=* | *-DMELODEE_FM6=* | *-DMELODEE_P5=* | *-DMELODEE_DRUM=* | *-DMELODEE_MACRO=* | *-DMELODEE_SHAPES=*)
+*-DMELODEE_SID=* | *-DMELODEE_CZ=* | *-DMELODEE_FM6=* | *-DMELODEE_P5=* | *-DMELODEE_DRUM=* | *-DMELODEE_MACRO=* | *-DMELODEE_SHAPES=* | *-DMELODEE_DRUMX=*)
     echo "run_tests.sh: CC carries engine switches ($CC). The host tests build every engine in; unset them" >&2
     echo "  (tools/orangecat_engines.sh's set is only for oc_pages_test, which run_tests.sh builds itself)." >&2
     exit 2 ;;
@@ -113,6 +116,8 @@ fi
 [ "$PARALLEL" -ge 1 ] 2>/dev/null || { echo "PARALLEL=n, n >= 1"; exit 2; }
 python3 tools/gen_scales.py --check || exit 1
 python3 tools/audio_contract.py --check || exit 1
+# (Orange Cat 0.9.0) the loadable-engine interface identifier, from the headers (fw_api.h); the host builds include it
+python3 tools/gen_fw_api_id.py build/gen/fw_api_id.h || exit 1
 if [ "$UI" = renders ]; then
     [ -f build/gen/melodee_tables.h ] || { echo "run ./build.sh first"; exit 1; }
 else
@@ -266,6 +271,7 @@ core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
+core && run "the interface identifier (Orange Cat 0.9.0): the generated header is what the sources give; a comment leaves it, a changed field moves it" sh -c "python3 tools/gen_fw_api_id.py --check build/gen/fw_api_id.h && python3 tools/gen_fw_api_id.py --selftest"
 core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable engine would be given, against the real services" fw_api_test -O1 $FW
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
@@ -428,6 +434,8 @@ if sound && [ $TABLES = 1 ]; then
     mkdir -p build/shapes_demo
     t "SHAPES (Orange Cat 0.5.1): every shape and preset through the voices, A4 at 440 Hz, the tone section; WAVs" \
         shapes_test -O2 $FW -- "$OUT/shapes_test" build/shapes_demo
+    t "DRUM-X (Orange Cat 0.9.0): the voice equals Jiant FM's, sample for sample; registration, the GM map, every kit and lane, LANES levels, the knobs, two kits at once, the grid, the keys" \
+        drumx_test -O2 $FW -- "$OUT/drumx_test" tests/drumx_ref.txt
     t "PHYS: stability C-1..G9 over the parameter corners, worst-case cost against PHASE WIRE, demos" phys_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/phys_test" build/phys_demo
     t "paired FM6/Prophet voices: serial/concurrent sample equality and eight-voice allocation" dual_core_test \

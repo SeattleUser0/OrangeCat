@@ -6,8 +6,9 @@ int main(void)
 {
     int bad=0; reset(); up_boot();
     bad+=check("engine and native collection IDs remain unchanged",NENGINES==20 && USER_GENERAL==16 && USER_NATIVE_FM==17 && USER_NATIVE_CZ==18 && ENGI_PROPHET==19 && USER_NATIVE_P5==20);
-    const uint8_t retired[]={2,5,6,7,9,11};
-    for(uint32_t j=0;j<NELEM(retired);j++) {
+    /* 0.9.0: slot 9 is DRUM-X when MELODEE_DRUMX is on, so it is no longer a retired identity. */
+    const uint8_t retired[]={2,5,6,7,11,9};
+    for(uint32_t j=0;j<NELEM(retired)-(MELODEE_DRUMX?1u:0u);j++) {
         uint32_t e=retired[j];
         bad+=check("retired engine absent from browser and DSP resources",!eng_ok(e) && !ENGINES[e]->npresets && !eng_state_size(e));
         favorite_set(e,3,1);

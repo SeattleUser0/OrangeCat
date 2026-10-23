@@ -43,7 +43,7 @@ static const char *const PRESET_CAT[NENGINES] = {
         "OOOKBPROOOGKLPWPOLOUUBEOEGFPOOBOEOOODDDEOOGKSGBPEPPLBROOOOPOKPKOFOSOOEPRODFLFOOEOULWOPBOLOPKFORGLPOBULROOSKOO"
         "PSBUEFDEEEWEUOUEOOOOSERPUOBOOOBOFLGUGRLOOOBUFOOFEUFORSKKWKLGLGGKROGBGLKSLOOFOFOFLUUEFFEOFEPF",
 };
-static uint32_t cat_of_engine(uint32_t e) { return (MELODEE_DRUM && e == ENGI_DRUM) ? CAT_DRUM : e == 11u ? CAT_FX : CAT_OTHER; }
+static uint32_t cat_of_engine(uint32_t e) { return ((MELODEE_DRUM && e == ENGI_DRUM) || (MELODEE_DRUMX && e == ENGI_DRUMX)) ? CAT_DRUM : e == 11u ? CAT_FX : CAT_OTHER; }
 static uint32_t preset_cat(uint32_t e, uint32_t k)           /* factory preset k of engine e */
 {
     const char *s = e < NENGINES ? PRESET_CAT[e] : 0;
@@ -114,7 +114,7 @@ static uint32_t cat_guess(uint32_t e, const char *nm)
 {
     const engine_t *en = ENGINES[e % NENGINES];
     uint32_t k;
-    if ((MELODEE_DRUM && e == ENGI_DRUM) || e == 11u)
+    if ((MELODEE_DRUM && e == ENGI_DRUM) || (MELODEE_DRUMX && e == ENGI_DRUMX) || e == 11u)
         return cat_of_engine(e);
     for (k = 0; k < en->npresets; k++)
         if (name_same(eng_preset(en, k)->name, nm))

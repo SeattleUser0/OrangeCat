@@ -1298,6 +1298,92 @@ static uint32_t lane_steps(const track_t *t, uint32_t l)   /* bit i: lane l stri
     return m;
 }
 
+/* (Orange Cat 0.9.0) DRUM-X: picked on a track, its grid and LANES pages, a step played through the sequencer and the
+ * voices, its EDIT page edited, the browser's category and the engine knob */
+static int test_drumx(void)
+{
+    int bad = 0, ok;
+    track_t *t = &trk[0];
+    int32_t o[2 * CTL], peak = 0;
+    uint32_t b, i;
+    dxe_part_t *s;
+    ui_power_on();
+    select_engine(ENGI_DRUMX);
+    t->engine = t->eng_req;
+    bad += check("picking DRUM-X: the track is DRUM-X, preset 0 (DRUM-X), the screen says ENGINE DRUM-X",
+                 t->eng_req == ENGI_DRUMX && t->preset == 0u && str_eq(eng_preset(ENGINES[ENGI_DRUMX], 0)->name, "DRUM-X") &&
+                 msg_is("ENGINE DRUM-X"));
+    bad += check("  the engine knob reaches it and leaves it (eng_step both ways)",
+                 eng_step(eng_step(ENGI_DRUMX, 1), -1) == ENGI_DRUMX && eng_step(ENGI_DRUMX, 1) != ENGI_DRUMX &&
+                 eng_ok(ENGI_DRUMX));
+    bad += check("  its sounds are in the DRUM category of the browser", preset_cat(ENGI_DRUMX, 2) == CAT_DRUM && cat_guess(ENGI_DRUMX, "ANY") == CAT_DRUM);
+    bad += check("  the knobs on HOME are MRPH TUNE TONE DECY", ENG_DRUMX.knob[0] == P_E0 && ENG_DRUMX.knob[3] == P_E3);
+    open_family(FAM_SEQ);
+    frame();
+    bad += check("SEQ > STEP on a DRUM-X track is the grid (keys to the UI), GRID in the footer", grid_on() && song.grid == 1u &&
+                 cur_page()->scope == SC_STEP);
+    tap_key(key_at(1, 1));
+    bad += check("  black key 2: lane 2 (SNARE) selected", ui.lane == 1u);
+    tap_key(key_at(0, 0));
+    bad += check("  white key 1: SNARE on step 1, the cursor there", t->step[0].hit == 1u << DV_SNARE && t->step[0].time == ST_NOTE &&
+                 ui.cursor == 0u);
+    tap_key(key_at(1, 0));
+    tap_key(key_at(0, 2));
+    bad += check("  black key 1 then white key 3: KICK on step 3", t->step[2].hit == 1u << DV_KICK);
+    /* the LANES pages show on a DRUM-X track and not on a MACRO track */
+    go_title("LANES");
+    ok = page_visible(ui.page) && cur_page()->id[0] == P_LN0;
+    set_engine_of(&trk[1], ENGI_MACRO);
+    bad += check("the LANES pages are visible on the DRUM-X track", ok);
+    /* a step played through the sequencer, the voices and the mixer */
+    t->p[P_SLEN] = 4;
+    t->p[P_SSWING] = 0;
+    song.g[G_SWING] = 0;
+    t->p[P_SGATE] = 64;
+    memset(&t->step[1], 0, sizeof t->step[1]);
+    t->step[1].time = ST_REST;
+    song.master_q12 = 4096;
+    transport_req = 1;
+    for (b = 0; b < 40u; b++) {
+        mix_block(o, CTL);
+        for (i = 0; i < CTL; i++) {
+            int32_t a = o[2 * i] < 0 ? -o[2 * i] : o[2 * i];
+            if (a > peak) peak = a;
+        }
+    }
+    s = dxe_part(0);
+    bad += check("PLAY: the first step strikes the snare on its lane, and it sounds", s && s->l[DV_SNARE].owner != 0 && s->l[DV_SNARE].x.live && peak > 500);
+    transport_req = 2;
+    mix_block(o, CTL);
+    song.playing = 0;
+    /* the EDIT page: KNOB 1..4 are MRPH TUNE TONE DECY, the labels are DRUM-X's */
+    go_title("EDIT 1");
+    frame();
+    ok = str_eq(cur_page()->title, "EDIT 1") && cur_page()->id[0] == P_E0;
+    t->p[P_E0] = 64;
+    turn(EN_K1, 3);
+    ok &= t->p[P_E0] != 64;
+    t->p[P_E1] = 64;
+    turn(EN_K2, -2);
+    ok &= t->p[P_E1] < 64;
+    bad += check("EDIT 1 on a DRUM-X track: KNOB 1 moves MRPH, KNOB 2 moves TUNE", ok);
+    go_title("EDIT 2");
+    t->p[P_E7] = 0;
+    turn(EN_K4, 5);
+    bad += check("EDIT 2: KNOB 4 moves DRV", t->p[P_E7] > 0);
+    /* a preset (a kit) on the track: the same track plays another kit */
+    apply_preset_to(t, 4);
+    bad += check("a preset loads a kit: INDUSTRIAL's values, preset 4, still DRUM-X", t->eng_req == ENGI_DRUMX && t->preset == 4u &&
+                 t->p[P_E0] == 72 && t->p[P_E5] == 20 && t->p[P_E7] == 40 && dxe_kit(t) == &DX_KITS[4]);
+    /* the project keeps the kit: the preset number is in the track's stored form */
+    project_save(0);
+    t->preset = 0;
+    t->eng_req = ENGI_MACRO;
+    project_load(0);
+    bad += check("a project keeps a DRUM-X track and its kit (engine 9, preset 4)", t->eng_req == ENGI_DRUMX && t->preset == 4u);
+    return bad;
+}
+
 static int test_grid(void)
 {
     int bad = 0;
@@ -1537,7 +1623,7 @@ static int test_browser(void)
                 ok &= (c = preset_cat(e, k)) >= 1u && c < CAT_N && CAT_LETTER[c] == PRESET_CAT[e][k];
         }
     for (i = 0; i < NENG_SHOWN; i++)
-        ok &= (PRESET_CAT[eng_vis(i)] && PRESET_CAT[eng_vis(i)][0]) || eng_vis(i) == ENGI_DRUM || eng_vis(i) == 11u;
+        ok &= (PRESET_CAT[eng_vis(i)] && PRESET_CAT[eng_vis(i)][0]) || eng_vis(i) == ENGI_DRUM || eng_vis(i) == ENGI_DRUMX || eng_vis(i) == 11u;
     bad += check("BROWSE: a category letter for each factory preset of every engine shown", ok);
     bad += check("BROWSE: factory categories (Prophet, FM6, CZ-1, the kits)",
                  preset_cat(ENGI_PROPHET, find_preset(ENGI_PROPHET, "Fat Poly Bass")) == CAT_BASS &&
@@ -6029,6 +6115,7 @@ int main(void)
     bad += test_pattern_key_handoff();
     bad += test_loop_end_edits();
     bad += test_grid();
+    bad += test_drumx();
     bad += test_screen();
     bad += test_favorites();
     bad += test_browser();

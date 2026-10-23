@@ -71,7 +71,13 @@ static uint32_t trk_index(const track_t *t) { return (uint32_t)(t - trk); }
 
 static uint32_t trk_midi_ch(uint32_t i) { return i % NTRK; }   /* MIDI channel 0..15 of track i (keys -> MIDI out) */
 
-static int drum_track(const track_t *t) { return (MELODEE_DRUM && ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM); }
+/* (Orange Cat 0.9.0) a drum track: DRUM or DRUM-X. The step grid (hit / acc lanes), the LANES pages, the lane keys and the
+ * Stage's lane names are the same for both; DRUM's own sound pages and DRUM HIT stay DRUM's (MELODEE_DRUM) */
+static int drum_track(const track_t *t)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    return (MELODEE_DRUM && e == &ENG_DRUM) || (MELODEE_DRUMX && e == &ENG_DRUMX);
+}
 
 static void live_note_on(const track_t *t, uint32_t note, uint32_t vel)
 {
