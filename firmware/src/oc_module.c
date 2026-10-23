@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Orange Cat 0.10.0 (module PoC step 5): the module loader. A loadable engine (tools/module/*.c, fw_api.h) is found in the
+ * Orange Cat 0.10.0 (module PoC step 5): the module loader. A loadable engine (the sources in tools/module, fw_api.h) is found in the
  * MODULE area of the flash map at boot, checked, and registered in the engine table (engines.c eng_register).
  *
  * Where a module is
@@ -47,9 +47,7 @@
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
 static uint32_t fm1_guard_code_end;
 #endif
-#ifndef FL_XIP
-#define FL_XIP(off) (0x02000000u + (uint32_t)(off) - 0x4000u)  /* fm1_xip.h FM1_XIP: a host build has no HAL */
-#endif
+/* FL_XIP(off): the XIP address of flash offset off (hal/fm1_flash.h on the device; tests/hostsim.c for a host build) */
 #define OC_MOD_STARTS 2u                                       /* the places a 6 sector module can be: sector index 0 and 6 of the area */
 #define OC_MOD_START_SECTOR(i) ((i) * 6u)
 #define OC_MOD_MAXLEN (6u * 0x1000u)                           /* the most a module may be: the sectors up to the next start (6) or the end of the area */

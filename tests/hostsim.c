@@ -24,6 +24,9 @@
 #define memcpy melodee_memcpy
 #define memcmp melodee_memcmp
 #include "melodee_tables.h"
+#ifndef FL_XIP                                       /* (0.10.0) the module loader's XIP address of a flash offset (hal/fm1_flash.h on the device; fm1_xip.h FM1_XIP) */
+#define FL_XIP(off) (0x02000000u + (uint32_t)(off) - 0x4000u)
+#endif
 #include "../firmware/src/libc.c"
 #undef memset
 #undef memcpy
