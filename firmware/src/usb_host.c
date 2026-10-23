@@ -514,7 +514,8 @@ static struct {
     volatile uint8_t st;
     volatile int8_t want;                               /* the knob: +1 freeze, -1 unfreeze or cancel */
     uint8_t phrase;                                     /* (0.5.6) the phrase being frozen (1..64) */
-    uint16_t take;                                      /* its file: /ORANGECAT/T<k+1>_<take>.WAV */
+    uint16_t take;                                      /* its file: T<k+1>_<take>.WAV in folder dir */
+    uint8_t dir;                                        /* (0.6.1) its folder (usb_files.c frzd): the project's */
     int16_t lvl;                                        /* its LEVEL when frozen (the take has it in) */
     int16_t bpm;                                        /* (0.5.6) the tempo when frozen */
     uint32_t hash;                                      /* (0.5.6) the phrase's CRC when frozen (card_freeze.c frzp_t) */
@@ -523,6 +524,8 @@ static struct {
 } frz[4];
 static volatile uint8_t frz_need;                       /* (0.5.6) see above */
 static void frz_knob(uint32_t k, int32_t dir) { if (k < 4u && dir) frz[k].want = (int8_t)(dir > 0 ? 1 : -1); }
+static volatile uint8_t uf_browse;                      /* (0.6.1) the card's browser open (usb_files.c fb): the port
+                                                         * stays a host (main.c) */
 static int frz_busy(void)                               /* a frozen phrase in use or a freeze under way: a host */
 {
     uint32_t k;

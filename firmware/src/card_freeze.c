@@ -56,8 +56,9 @@
  * frz_table_save: the record store, OCS_FREEZE) ---- */
 #define FZP_N 64u
 typedef struct {
-    uint16_t take;                                      /* its file: /ORANGECAT/T<trk + 1>_<take>.WAV; 0: not frozen */
-    uint8_t trk;                                        /* the track it was recorded on (the file's name) */
+    uint16_t take;                                      /* its take number (T<trk + 1>_<take>.WAV when it was recorded
+                                                         * here; 1 for a clip assigned from the card); 0: not frozen */
+    uint8_t trk;                                        /* the track it was recorded on (or assigned from) */
     uint8_t ver;                                        /* FZP_VER */
     int16_t lvl;                                        /* that track's LEVEL then (the take has it in) */
     int16_t bpm;                                        /* the tempo then (song.g[G_BPM]): another tempo, its notes play */
@@ -65,8 +66,15 @@ typedef struct {
     uint32_t hash;                                      /* the phrase's CRC then (oc_pool.c ocp.hash): the phrase changed
                                                          * since (emptied, a copy over it, an edit kept another way), the
                                                          * freeze no longer counts */
+    uint8_t dir;                                        /* (0.6.1) the folder its file is in now (usb_files.c frzd: 0 is
+                                                         * /ORANGECAT itself, where 0.4.20 .. 0.6.0 put every take) */
+    uint8_t want;                                       /* (0.6.1) the folder it belongs in (its project's): the file is
+                                                         * moved there once the card is in and the sequencer stopped */
+    char name[14];                                      /* (0.6.1) its file's name in that folder, 13 characters at most */
 } frzp_t;
-#define FZP_VER 1u
+_Static_assert(sizeof(frzp_t) == 32u, "a frozen phrase's entry: 32 bytes");
+#define FZP_VER 2u                                      /* (0.6.1: 2, the folder and the name; 1 was 16 bytes, the file
+                                                         * always /ORANGECAT/T<trk + 1>_<take>.WAV) */
 static frzp_t frzp[FZP_N];
 static volatile uint8_t frzp_dirty;                     /* changed since kept (the main loop keeps it, stopped) */
 static const uint32_t *frz_pool_hash;                   /* oc_pool.c's ocp.hash (set by usb_files.c frz_table_load;

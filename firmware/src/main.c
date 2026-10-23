@@ -254,7 +254,7 @@ static void fm1_main(void)
         fm1_wdt_feed();
         pattern_poll();
         usb_retry(fm1_ms);
-        if (usbh.want && !frz_busy())                   /* (Orange Cat 0.4.20) no track frozen any more: the port the
+        if (usbh.want && !frz_busy() && !uf_browse)     /* (Orange Cat 0.4.20) no track frozen any more: the port the
                                                          * device again (0.5.3: the drive test is gone) */
             usbh_want(0);
         usbf_task();                                    /* (Orange Cat) frozen tracks and their card (usb_files.c) */

@@ -18,7 +18,7 @@ typedef struct {
                                                          * SR_RED: no question, red (a destructive act) */
 } sheet_row_t;
 #define SR_RED 0xFFu
-enum { POP_NONE, POP_SHEET, POP_PICK, POP_LIST };
+enum { POP_NONE, POP_SHEET, POP_PICK, POP_LIST, POP_FILES };   /* (Orange Cat 0.6.1: FILES, the card's browser) */
 #define POP_X BOX_X                                     /* a sheet (large type): 236 wide, its title row 34, its rows
                                                          * 32 px, 34 apart (ui_list.c row_draw), five at most shown */
 #define POP_W BOX_W
@@ -45,8 +45,35 @@ static void slot_save_sheet(void);
 static int track_remove(uint32_t k);                    /* tracks.c */
 static void track_add(void);
 
+/* (Orange Cat 0.6.1) the card's browser (card_browse.c, included later by usb_files.c); stand-ins where it is not in
+ * (host tests without the card side) */
+#ifdef FRZ_AUDIO
+static void fb_open(uint32_t k);
+static void fb_close(void);
+static int fb_on(void);
+static int fb_back(void);
+static int fb_ok(void);
+static void fb_move(int32_t d);
+static const char *fb_where(void);
+static int fb_row(uint32_t i, char *name, uint32_t nlen, char *val, uint32_t vlen);
+static uint32_t fb_sig(void);
+static uint32_t fb_sel_now(void);
+#else
+static void fb_open(uint32_t k) { (void)k; }
+static void fb_close(void) {}
+static int fb_on(void) { return 0; }
+static int fb_back(void) { return 1; }
+static int fb_ok(void) { return 1; }
+static void fb_move(int32_t d) { (void)d; }
+static const char *fb_where(void) { return "Card"; }
+static int fb_row(uint32_t i, char *name, uint32_t nlen, char *val, uint32_t vlen)
+{ (void)nlen; (void)vlen; name[0] = val[0] = 0; if (i) return 0; str_cpy(name, "No card side", 16); return 1; }
+static uint32_t fb_sig(void) { return 0; }
+static uint32_t fb_sel_now(void) { return 0; }
+#endif
 static void pop_close(void)
 {
+    if (pop.on == POP_FILES && fb_on()) fb_close();
     if (pop.on) {
         pop.on = POP_NONE;
         ui.force = 1;
@@ -167,6 +194,16 @@ static int jfx_globals_default(void)
     return 1;
 }
 static const sheet_row_t SHEET_SHARED[] = {{"Reset effects", 0, 0, 0, CF_CLEAR_SHARED}};
+/* (Orange Cat 0.6.1) MIXER's: a WAV from the card for the phrase the selected track is on (card_browse.c) */
+static void mx_assign(void)
+{
+    pop_close();
+    fb_open(song.sel);
+    pop.on = POP_FILES;
+    pop.sig = 0;
+    ui.force = 1;
+}
+static const sheet_row_t SHEET_MIXER[] = {{"Assign clip", 0, 0, mx_assign, 0}};
 /* (Orange Cat 0.4) CHAIN's (OCT+ held): the selected track's chain at the step picked */
 static void ps_insert(void) { ocl_insert(song.sel, ui.chain_step); ui_message("SLOT INSERTED"); }
 static void ps_dup(void)
@@ -352,6 +389,8 @@ static uint32_t page_sheet(void)
         return 4;
     if (cur_page()->graph == GR_POOL)                   /* (Orange Cat 0.4.4) */
         return 6;
+    if (cur_page()->graph == GR_TRK)                    /* (Orange Cat 0.6.1) MIXER */
+        return 7;
     if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS || cur_page()->graph == GR_TRACKER)
         return 3;                                       /* ((Orange Cat 0.4.6) TRACKER's too) */
     fam = cur_page()->fam;
@@ -399,6 +438,12 @@ static void page_sheet_open(void)
         char t[12] = "Phrase 01";
         t[7] = (char)('0' + (ui.pool_sel % 64u + 1u) / 10u); t[8] = (char)('0' + (ui.pool_sel % 64u + 1u) % 10u);
         sheet_open(t, "the pool", SHEET_POOL, NELEM(SHEET_POOL));
+        break;
+    }
+    case 7: {                                           /* "Track 2", "card" (Orange Cat 0.6.1) */
+        char t[8] = "Track 1";
+        t[6] = (char)('1' + song.sel % NTRK);
+        sheet_open(t, "card", SHEET_MIXER, NELEM(SHEET_MIXER));
         break;
     }
     default:
@@ -699,6 +744,41 @@ static void pick_draw(void)
     cv_blit((uint32_t)x, Y_LABEL + CARD_H + 2);
     }
 }
+/* (Orange Cat 0.6.1) the card's browser: the folder's rows, KNOB 2 the row (ui_input.c files_input) */
+static uint32_t fb_first;
+static void files_row(uint32_t i, int32_t y)
+{
+    char nm[44], v[16];
+    if (!fb_row(i, nm, sizeof nm, v, sizeof v)) return;
+    pop_row(y, nm, v, (int)(i == fb_sel_now()), 0, 0);
+}
+static void files_draw(void)
+{
+    uint32_t n = 0, sel = fb_sel_now(), sig = fb_sig() * 7919u + ux.gen * 977u + ux.pal * 31u + 1u;
+    char nm[44], v[16];
+    if (!ui.force && sig == pop.sig)
+        return;
+    pop.sig = sig;
+    while (n < 64u && fb_row(n, nm, sizeof nm, v, sizeof v)) n++;
+    if (sel < fb_first) fb_first = sel;
+    if (sel >= fb_first + POP_VIS) fb_first = sel - POP_VIS + 1u;
+    if (fb_first + POP_VIS > n) fb_first = n > POP_VIS ? n - POP_VIS : 0u;
+    pop_card(POP_ROW + (int32_t)(n < POP_VIS ? n : POP_VIS) * POP_ROW + 4, "Assign clip", fb_where(), fb_first,
+             n < POP_VIS ? n : POP_VIS, files_row);
+}
+static void files_input(int32_t k2, uint32_t oct)
+{
+    if (k2) fb_move(k2);
+    if (oct & 1u) {
+        if (fb_back()) pop_close();
+    } else if (oct & 2u) {
+        if (fb_ok()) {
+            pop_close();
+            ui_message("CLIP ASSIGNED");
+        }
+    }
+    ui.force |= fb_on() ? 0u : 1u;
+}
 static void pop_draw(void)
 {
     if (pop.on == POP_SHEET)
@@ -707,4 +787,6 @@ static void pop_draw(void)
         pick_draw();
     else if (pop.on == POP_LIST)
         vlist_draw();
+    else if (pop.on == POP_FILES)
+        files_draw();
 }

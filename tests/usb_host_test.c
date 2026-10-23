@@ -121,6 +121,7 @@ static void mock_write(uint32_t r, uint32_t v)
 static void fm1_delay_ms(uint32_t ms) { fm1_ms += ms; }
 static void fm1_wdt_feed(void) {}
 static unsigned str_len(const char *s) { unsigned n = 0; while (s[n]) n++; return n; }
+static int str_eq(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return *a == *b; }   /* (0.6.1) */
 static void str_cpy(char *d, const char *s, unsigned max)
 {
     unsigned i = 0;
@@ -183,6 +184,17 @@ static int ocl_keep(uint32_t k, uint32_t b)             /* (oc_lists.c) the bank
     ocp.hash[bank_pid[k][b] - 1u] = t_bank_hash[k][b];
     return 0;
 }
+/* (0.6.1) the take folders and the browser: the music's name (project.c's proj_name), the phrases a slot names
+ * (oc_project.c's ocj.names), the browser's rows (project.c's staging RAM) */
+static char t_music_name[13];
+static uint32_t t_slot_names[4][2];
+#define FRZ_MUSIC_NAME() t_music_name
+#define FRZ_SLOT_NAMES(s, i) ((t_slot_names[(s) & 3u][(i) >> 5] >> ((i) & 31u)) & 1u)
+static uint32_t t_fb_rows[1024];
+static uint8_t t_fb_gen;
+#define FB_SCRATCH() ((fb_ent_t *)t_fb_rows)
+#define FB_BORROW() ((void)0)
+#define FB_GEN() t_fb_gen
 #include "../firmware/src/oc_store.c"                   /* (0.5.6) the frozen phrases' record, in RAM */
 #include "../firmware/src/card_play.c"
 #include "../firmware/src/card_stream.c"
@@ -961,13 +973,13 @@ static int t_freeze(void)
     printf("  freeze: %s, [%s], phrase %u\n", frz_word(1, 0), ur.path, frz[1].phrase);
     fflush(stdout);
     assert(frz[1].st == FZ_ARMED && usbh.want && usbh.drive && t_keeps == 1 && bank_pid[1][0] == 9u && frz[1].phrase == 9u &&
-           mix_stem_trk == 1u && !strcmp(ur.path, "/ORANGECAT/T2_001.WAV") && !strcmp(frz_word(1, 0), "Ready") &&
+           mix_stem_trk == 1u && !strcmp(ur.path, "/ORANGECAT/UNTITLED/T2_001.WAV") && !strcmp(frz_word(1, 0), "Ready") &&
            !strcmp(frz_word(1, 1), "Wait") && frz_state(1) == 1u);
     usbh_want(0);                                       /* (asked to let go: a freezing track keeps the port a host) */
     assert(usbh.want);
     fz_play();
     for (b = 0; b < 2000u && frz[1].st != FZ_OFF; b++) fz_block();
-    assert(f_stat("/ORANGECAT/T2_001.WAV", &fi) == FR_OK);
+    assert(f_stat("/ORANGECAT/UNTITLED/T2_001.WAV", &fi) == FR_OK);
     printf("  frozen: %s after %u blocks, take %u bytes (pass %u frames)\n", frz_word(1, 1), b, (unsigned)fi.fsize, fz_pl);
     fflush(stdout);
     assert(frz[1].st == FZ_OFF && fi.fsize == 512u + fz_pl * 4u && !ur.on && mix_stem_trk == 0xFFu && frzp[8].take == 1u &&
@@ -982,7 +994,7 @@ static int t_freeze(void)
         UINT got;
         int16_t sm[2];
         uint32_t wrong = 0, first = 0xFFFFFFFFu;
-        assert(f_open(&fl, "/ORANGECAT/T2_001.WAV", FA_READ) == FR_OK && f_lseek(&fl, 512) == FR_OK);
+        assert(f_open(&fl, "/ORANGECAT/UNTITLED/T2_001.WAV", FA_READ) == FR_OK && f_lseek(&fl, 512) == FR_OK);
         for (i = 0; i < fz_pl; i++) {
             assert(f_read(&fl, sm, 4, &got) == FR_OK && got == 4u);
             if (sm[0] != fz_file(fz_val(1, i, 0)) || sm[1] != fz_file(fz_val(1, i, 1))) { if (first == 0xFFFFFFFFu) first = i; wrong++; }
@@ -1003,11 +1015,15 @@ static int t_freeze(void)
     assert(!frzp_dirty);
     {   /* read back as at boot; an entry of another version is not read */
         frzp_t keep = frzp[8];
+        frzd_t keepd = frzd;                            /* (0.6.1: its folder's table with it) */
         memset(frzp, 0, sizeof frzp);
         frz_table_load();
         assert(!memcmp(&frzp[8], &keep, sizeof keep) && frz_phrase_frozen(9));
+        assert(!strcmp(frzp[8].name, "T2_001.WAV") && !strcmp(frzd.d[frzp[8].dir], "ORANGECAT/UNTITLED") &&
+               frzp[8].want == frzp[8].dir);             /* (0.6.1: its folder, the project's: no name, UNTITLED) */
         frzp[8].ver = 9;
-        assert(!ocs_write(OCS_FREEZE, 0, frzp, sizeof frzp));
+        frzp_dirty = 1;
+        frz_table_save();
         frz_table_load();
         assert(!frzp[8].take);
         frzp[8] = keep;
@@ -1015,6 +1031,7 @@ static int t_freeze(void)
         frz_table_load();
         assert(!frzp[8].take);
         frzp[8] = keep;
+        frzd = keepd;
         frzp_dirty = 1;
         frz_table_save();
         frz_table_load();
@@ -1069,16 +1086,16 @@ static int t_freeze(void)
     printf("  unfrozen: %s, takes %x, notes quiet %x\n", frz_word(1, 1), mix_frozen, seq_frz_quiet);
     fflush(stdout);
     assert(!frzp[8].take && frzp_dirty && !(mix_frozen & 3u) && !(seq_frz_quiet & 3u) && fzt[0].slot == CP_N &&
-           fzt[1].slot == CP_N && !frz_track_frozen(1) && f_stat("/ORANGECAT/T2_001.WAV", &fi) == FR_OK);
+           fzt[1].slot == CP_N && !frz_track_frozen(1) && f_stat("/ORANGECAT/UNTITLED/T2_001.WAV", &fi) == FR_OK);
     trk[0].pattern_next = 0;
     fz_stop();
     fz_blocks(5);
     frz_knob(2, 1);                                     /* track 3 frozen again stopped; then another tempo */
     for (b = 0; b < 600u && frz[2].st != FZ_ARMED; b++) fz_block();
-    assert(frz[2].st == FZ_ARMED && !strcmp(ur.path, "/ORANGECAT/T3_001.WAV") && frz[2].phrase == 17u);
+    assert(frz[2].st == FZ_ARMED && !strcmp(ur.path, "/ORANGECAT/UNTITLED/T3_001.WAV") && frz[2].phrase == 17u);
     fz_play();
     for (b = 0; b < 3000u && frz[2].st != FZ_OFF; b++) fz_block();
-    assert(frz_phrase_frozen(17) && f_stat("/ORANGECAT/T3_001.WAV", &fi) == FR_OK && fi.fsize == 512u + fz_pl * 4u);
+    assert(frz_phrase_frozen(17) && f_stat("/ORANGECAT/UNTITLED/T3_001.WAV", &fi) == FR_OK && fi.fsize == 512u + fz_pl * 4u);
     bad = fz_check(2, 2, 100, 4096);
     assert(!bad);
     song.g[G_BPM] = 121;
@@ -1106,10 +1123,10 @@ static int t_freeze(void)
     fz_blocks(3);
     frz_knob(0, 1);                                     /* armed, then KNOB 3 left: cancelled, no file */
     for (b = 0; b < 600u && frz[0].st != FZ_ARMED; b++) fz_block();
-    assert(frz[0].st == FZ_ARMED && !strcmp(ur.path, "/ORANGECAT/T1_001.WAV"));
+    assert(frz[0].st == FZ_ARMED && !strcmp(ur.path, "/ORANGECAT/UNTITLED/T1_001.WAV"));
     frz_knob(0, -1);
     fz_block();
-    assert(frz[0].st == FZ_OFF && !ur.on && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE && !frz_phrase_frozen(1));
+    assert(frz[0].st == FZ_OFF && !ur.on && f_stat("/ORANGECAT/UNTITLED/T1_001.WAV", &fi) == FR_NO_FILE && !frz_phrase_frozen(1));
     frz_knob(0, 1);                                     /* stopped mid-take: dropped, "STOP" */
     for (b = 0; b < 600u && frz[0].st != FZ_ARMED; b++) fz_block();
     fz_play();
@@ -1119,7 +1136,7 @@ static int t_freeze(void)
     fz_blocks(3);
     printf("  stopped mid-take: %s\n", frz_word(0, 0));
     fflush(stdout);
-    assert(frz[0].st == FZ_OFF && !strcmp(frz_word(0, 0), "Stop") && f_stat("/ORANGECAT/T1_001.WAV", &fi) == FR_NO_FILE &&
+    assert(frz[0].st == FZ_OFF && !strcmp(frz_word(0, 0), "Stop") && f_stat("/ORANGECAT/UNTITLED/T1_001.WAV", &fi) == FR_NO_FILE &&
            !frz_phrase_frozen(1));
     {   /* (0.5.3) the card stops answering while a take plays: the phrase plays its notes, "Error"; still frozen */
         fz_pl = 3001u;
@@ -1132,7 +1149,6 @@ static int t_freeze(void)
         assert(frz_phrase_frozen(25));
         for (b = 0; b < 2000u && !((mix_frozen >> 3) & 1u); b++) fz_block();
         assert((mix_frozen >> 3) & 1u);
-        dump_card("build/host/rec_card.img");           /* (tests/check_rec_card.py reads it: T2, T3 and T4's takes) */
         devs[0].deaf = 2;
         for (b = 0; b < 2000u && fzt[3].slot != CP_N; b++) fz_block();
         printf("  card gone while frozen: %s\n", frz_word(3, 1));
@@ -1150,10 +1166,196 @@ static int t_freeze(void)
     run_ms(2);
     return 1;
 }
+/* (0.6.1) a WAV of `frames` frames on the card: ch channels at rate, 16-bit (its samples: the frame number) */
+static void tf_wav(const char *path, uint32_t ch, uint32_t rate, uint32_t frames)
+{
+    FIL fl;
+    UINT bw;
+    uint8_t h[44];
+    uint32_t i, data = frames * 2u * ch;
+    static const uint8_t H[16] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' '};
+    memcpy(h, H, 16);
+    for (i = 0; i < 4u; i++) h[4 + i] = (uint8_t)((data + 36u) >> (8u * i));
+    h[16] = 16; h[17] = h[18] = h[19] = 0; h[20] = 1; h[21] = 0; h[22] = (uint8_t)ch; h[23] = 0;
+    for (i = 0; i < 4u; i++) h[24 + i] = (uint8_t)(rate >> (8u * i)), h[28 + i] = (uint8_t)((rate * 2u * ch) >> (8u * i));
+    h[32] = (uint8_t)(2u * ch); h[33] = 0; h[34] = 16; h[35] = 0;
+    memcpy(h + 36, "data", 4);
+    for (i = 0; i < 4u; i++) h[40 + i] = (uint8_t)(data >> (8u * i));
+    assert(f_open(&fl, path, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK && f_write(&fl, h, 44, &bw) == FR_OK && bw == 44u);
+    for (i = 0; i < frames * ch; i++) {
+        int16_t v = (int16_t)(i / ch);
+        assert(f_write(&fl, &v, 2, &bw) == FR_OK && bw == 2u);
+    }
+    f_close(&fl);
+}
+static int tf_is(const char *path) { FILINFO fi; return f_stat(path, &fi) == FR_OK; }
+static void tf_settle(void)                             /* main-loop passes until no move is left (stopped) */
+{
+    for (uint32_t b = 0; b < 400u && frz_pending(); b++) fz_block();
+    fz_blocks(3);
+}
+static void tf_entry(uint32_t id, uint32_t k, uint32_t take, uint32_t frames, uint32_t dir)   /* a frozen phrase as kept */
+{
+    frzp_t *f = &frzp[id - 1u];
+    memset(f, 0, sizeof *f);
+    f->take = (uint16_t)take; f->trk = (uint8_t)k; f->ver = FZP_VER; f->lvl = 100; f->bpm = 120;
+    f->frames = frames; f->hash = ocp.hash[id - 1u] = 0x5000u + id; f->dir = f->want = (uint8_t)dir;
+    frz_take_name(f->name, k, take);
+}
+/* (0.6.1) the takes' folders: named, renamed, into a folder that is there already; the browser */
+static int t_folders(void)
+{
+    uint32_t b, i, un, jam;
+    FILINFO fi;
+    reset_world();
+    add(D_DRIVE, 64, -1, 0);
+    for (i = 0; i < 128u; i++) LEVEL_Q12[i] = (int32_t)i * 32;
+    for (i = 0; i < NTRK; i++) trk[i].p[P_LEVEL] = 100, trk[i].p[P_MUTE] = 0, trk[i].pattern = 0, trk[i].pattern_next = 0xFFu;
+    memset(bank_pid, 0, sizeof bank_pid);
+    song.g[G_BPM] = 120;
+    fz_stop();
+    frz_init();
+    frz_table_load();
+    lines = 2;
+    usbh_want(1);
+    for (b = 0; b < 600u && !usbh.drive; b++) fz_block();
+    assert(usbh.drive && uf_mount() == FR_OK);
+    /* the three takes t_freeze left in UNTITLED, kept again as frozen phrases 9, 17, 25 */
+    un = frzd_get("ORANGECAT/UNTITLED");
+    tf_entry(9, 1, 1, 5003, un);
+    tf_entry(17, 2, 1, 5003, un);
+    tf_entry(25, 3, 1, 3001, un);
+    t_slot_names[0][0] = (1u << 8) | (1u << 16);        /* (slot A's project names phrases 9 and 17, not 25) */
+    /* 1. music with no name saved as JAM in slot A: its phrases' takes go to /ORANGECAT/JAM, 25's stays */
+    frz_named("", "JAM", 0, 0);
+    jam = frzd_find("ORANGECAT/JAM");
+    assert(jam < FZD_N && frzp[8].want == jam && frzp[16].want == jam && frzp[24].want == un && frzp[8].dir == un);
+    tf_settle();
+    assert(tf_is("/ORANGECAT/JAM/T2_001.WAV") && tf_is("/ORANGECAT/JAM/T3_001.WAV") && tf_is("/ORANGECAT/UNTITLED/T4_001.WAV") &&
+           !tf_is("/ORANGECAT/UNTITLED/T2_001.WAV") && frzp[8].dir == jam && frzp[16].dir == jam && frzp[24].dir == un);
+    printf("  folders: no name -> JAM: phrase 9 and 17's takes moved, 25's stayed\n");
+    /* 2. JAM renamed DUB 2: the folder renamed whole (a file no phrase names goes with it) */
+    tf_wav("/ORANGECAT/JAM/NOTE.WAV", 2, 44100, 300);
+    frz_named("JAM", "DUB 2", 0, 1);
+    frz_table_save();                                   /* (kept with the move still to do: a power cut here) */
+    frz_table_load();
+    assert(frz_pending() && frzd.mv_from[0] == jam);
+    tf_settle();
+    i = frzd_find("ORANGECAT/DUB 2");
+    assert(i < FZD_N && !tf_is("/ORANGECAT/JAM") && tf_is("/ORANGECAT/DUB 2/NOTE.WAV") && tf_is("/ORANGECAT/DUB 2/T2_001.WAV") &&
+           frzp[8].dir == i && frzp[8].want == i && frzp[16].dir == i);
+    printf("  folders: JAM renamed DUB 2, whole\n");
+    /* 3. renamed TAKEN, a folder already there with a T2_001.WAV: each take moved in, the name taken renumbered */
+    assert(f_mkdir("/ORANGECAT/TAKEN") == FR_OK);
+    tf_wav("/ORANGECAT/TAKEN/T2_001.WAV", 2, 44100, 256);
+    frz_named("DUB 2", "TAKEN", 0, 1);
+    tf_settle();
+    i = frzd_find("ORANGECAT/TAKEN");
+    assert(tf_is("/ORANGECAT/TAKEN/T2_002.WAV") && tf_is("/ORANGECAT/TAKEN/T3_001.WAV") && tf_is("/ORANGECAT/DUB 2/NOTE.WAV") &&
+           !strcmp(frzp[8].name, "T2_002.WAV") && frzp[8].dir == i && frzp[16].dir == i && f_stat("/ORANGECAT/TAKEN/T2_001.WAV", &fi) == FR_OK &&
+           fi.fsize == 44u + 256u * 4u);
+    printf("  folders: into TAKEN (there already): T2_001.WAV taken there, the take is T2_002.WAV\n");
+    /* 4. the card out when named: the phrase still plays from where its take is; it moves when the card is back */
+    {
+        uint32_t pend;
+        usbh.drive = 0;
+        frz_named("TAKEN", "LATER", 0, 1);
+        fz_blocks(5);
+        pend = frz_pending();
+        frz_entry_path(ur.path, &frzp[8]);
+        assert(pend && !strcmp(ur.path, "/ORANGECAT/TAKEN/T2_002.WAV"));
+        usbh.drive = 1;
+        tf_settle();
+        assert(tf_is("/ORANGECAT/LATER/T2_002.WAV") && tf_is("/ORANGECAT/LATER/T2_001.WAV") && !frz_pending());
+        printf("  folders: named with the card out: moved once it was back\n");
+    }
+    /* 5. a 0.5.6 .. 0.6.0 record (16-byte entries): read, its takes in /ORANGECAT itself */
+    {
+        uint8_t v1[64 * 16];
+        frzp_t keep[FZP_N];
+        memcpy(keep, frzp, sizeof keep);
+        memset(v1, 0, sizeof v1);
+        memcpy(v1 + 8 * 16, &frzp[8], 16);
+        v1[8 * 16 + 3] = 1;                             /* (ver 1) */
+        v1[8 * 16 + 0] = 7;                             /* (take 7) */
+        assert(!ocs_write(OCS_FREEZE, 0, v1, sizeof v1));
+        frz_table_load();
+        assert(frzp[8].take == 7u && frzp[8].dir == 0u && frzp[8].want == 0u && !strcmp(frzp[8].name, "T2_007.WAV") &&
+               frzp[8].frames == 5003u && !frzp[16].take);
+        frz_entry_path(ur.path, &frzp[8]);
+        assert(!strcmp(ur.path, "/ORANGECAT/T2_007.WAV"));
+        memcpy(frzp, keep, sizeof keep);
+        printf("  folders: a 0.6.0 record read, its take in /ORANGECAT\n");
+    }
+    /* 6. the browser: it opens in the music's folder; up to the root; CLIPS; a mono WAV refused; LOOP.WAV given
+     * to track 1's phrase, which then plays it */
+    assert(f_mkdir("/CLIPS") == FR_OK);
+    tf_wav("/CLIPS/LOOP.WAV", 2, 44100, 4000);
+    tf_wav("/CLIPS/MONO.WAV", 1, 44100, 4000);
+    tf_wav("/CLIPS/A FAR TOO LONG NAME.WAV", 2, 44100, 4000);
+    str_cpy(t_music_name, "later", sizeof t_music_name);   /* (case aside: the folder LATER) */
+    fb_open(0);
+    for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+    printf("  browser: %u [%s] up %u n %u msg %s\n", fb.st, fb.path, fb.up, fb.n, fb.msg);
+    fflush(stdout);
+    assert(fb.st == FB_READY && frz_same_dir(fb.path, "/ORANGECAT/LATER") && fb.up && fb.n == 4u);   /* .. T2_001 T2_002 T3_001 */
+    {
+        char nm[44], v[16];
+        assert(fb_row(1, nm, sizeof nm, v, sizeof v) && !strcmp(nm, "T2_001.WAV") && !strcmp(v, "0.0 s"));
+        assert(fb_row(2, nm, sizeof nm, v, sizeof v) && !strcmp(nm, "T2_002.WAV") && !strcmp(v, "0.1 s"));
+    }
+    assert(!fb_back());
+    fz_block();
+    assert(fb.st == FB_READY && !strcmp(fb.path, "/ORANGECAT") && !strcmp(fb_where(), "ORANGECAT"));
+    assert(!fb_back());
+    fz_block();
+    assert(fb.st == FB_READY && !strcmp(fb.path, "/") && !fb.up && !strcmp(fb_where(), "Card"));
+    for (i = 0; i < fb.n && !(fb_ent(i) && !strcmp(fb_ent(i)->name, "CLIPS")); i++) ;
+    assert(i < fb.n && fb_ent(i)->dir);
+    fb.sel = (uint16_t)i;
+    assert(!fb_ok());
+    fz_block();
+    assert(fb.st == FB_READY && !strcmp(fb.path, "/CLIPS") && fb.n == 4u && !strcmp(fb_ent(1)->name, "A FAR TOO LONG NAME.WAV") &&
+           !strcmp(fb_ent(2)->name, "LOOP.WAV") && !strcmp(fb_ent(3)->name, "MONO.WAV"));
+    t_bank_hash[0][0] = 0x1234u;
+    fb.sel = 3;
+    assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Needs 44.1k 16b stereo") && fb.relist);
+    assert(!fb_back());
+    fz_block();
+    fb.sel = 1;
+    assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Name too long"));
+    assert(!fb_ok());
+    fz_block();
+    fb.sel = 2;
+    assert(fb_ok() && fb.st == FB_OFF && !uf_browse);
+    {
+        uint32_t id = bank_pid[0][0];
+        frzp_t *f = &frzp[id - 1u];
+        assert(id && f->take && f->trk == 0u && f->frames == 4000u && f->bpm == 120 && f->lvl == 100 && f->hash == 0x1234u &&
+               !strcmp(frzd.d[f->dir], "CLIPS") && f->want == f->dir && !strcmp(f->name, "LOOP.WAV") && frz_track_frozen(0) &&
+               frzp_dirty);
+        fz_pl = 4000u;
+        fz_play();
+        for (b = 0; b < 3000u && !(mix_frozen & 1u); b++) fz_block();
+        assert(mix_frozen & 1u);
+        fz_stop();
+        fz_blocks(3);
+        printf("  browser: CLIPS/LOOP.WAV given to track 1's phrase %u: it plays; MONO.WAV and a long name refused\n", id);
+    }
+    dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it: the takes in their folders) */
+    frz_drop_all("");
+    memset(frzp, 0, sizeof frzp);
+    memset(bank_pid, 0, sizeof bank_pid);
+    fz_blocks(2);
+    usbh_want(0);
+    run_ms(2);
+    fflush(stdout);
+    return 1;
+}
 int main(void)
 {
     card_load();
-    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_fs() && t_stream() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_freeze();
+    int ok = t_drive(64) && t_drive(8) && t_hub() && t_hub_no_drive() && t_reader_stick() && t_reader_deaf() && t_hub_empty() && t_fs() && t_stream() && t_keys() && t_not_ready() && t_no_answer() && t_silent_device() && t_freeze() && t_folders();
     printf("usb_host: %s\n", ok ? "all passed" : "FAILED");
     return !ok;
 }

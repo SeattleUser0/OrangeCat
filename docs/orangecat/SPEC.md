@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.17  
+**Version:** 0.18  
 **Date:** October 22, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.18 (October 22, 2026):** Takes in project folders, moved when a project is named or renamed; a card browser to assign a WAV to a phrase (10.6, 0.6.1 on branch fx-jiant).
 - **0.17 (October 22, 2026):** The effects are Jiant FM's (9.3.1, on the fx-jiant branch, not released): per-track DIST and AUTO PAN, shared DELAY, five REVERBs, CHORUS, SLICER, master chain and punch-in effects. One internal user sample slot of a Felucca slot's size (10.5). Projects FUN23 (11.2).
 - **0.16 (October 22, 2026):** Freezes belong to phrases, not tracks: a frozen phrase plays its take on any track that plays it, is locked against edits and recording until unfrozen, is kept in the record store, and shows on HOME greyed with a blue tint (10.6).
 - **0.15 (October 22, 2026):** MACRO and SHAPES voices claim budget units by measured cost, so heavy models play fewer notes at once (8.1.1).
@@ -583,6 +584,13 @@ Built (0.4.20, Build.md):
 
 - FREEZE is KNOB 3 on the MIXER page: right freezes the selected track, left unfreezes. Design points 1 and 2 as written, with the take mixed at the track's place in the mixer (its level, mute, solo and sends; the sampled instrument of 10.7 comes later and will play the same takes). One cycle is recorded plus 46 ms past its end, blended into its start, so the loop has no click.
 - Not yet: points 3 (resample), 4 (undo), 5 (out of date), the project keeping its frozen tracks, and a folder per project (takes are /ORANGECAT/T<track>_<nnn>.WAV). (0.5.6: frozen phrases, above, replace frozen tracks.)
+
+**Take folders and assigning clips (Jeremiah, October 22, 2026; built 0.6.1).**
+
+- Takes go in a folder named after the project: /ORANGECAT/<name>/T<track>_<nnn>.WAV; /ORANGECAT/UNTITLED while the music has no name. Characters a FAT name cannot hold become "_".
+- Naming moves them. Unnamed music saved with a name: the takes in UNTITLED of the phrases that project names move to its folder. A project renamed (its slot renamed, or saved back to the slot it came from under a new name): its folder is renamed whole; if a folder of the new name exists, each take moves in, renumbered if its name is taken. A copy saved under a new name moves nothing.
+- Each frozen phrase keeps its file's folder and name, and the folder it belongs in. Files move when the card is in and the sequencer stopped, one a pass of the main loop; until then the take plays from where it is. Both survive power loss (the OCS_FREEZE record, now version 2: 32 bytes a phrase, plus a table of up to 16 folders and up to 4 folder renames still to do). Version 1 records read as takes in /ORANGECAT.
+- A browser (the MIXER page's OCT+ sheet, Assign clip) lists the card's folders and WAVs and gives a WAV to the phrase the selected track is on, as a freeze would: 16-bit stereo 44.1 kHz PCM, a name of 13 characters or fewer, in a folder. While it is open the USB port is a host (USB MIDI and the web editor offline).
 
 ### 10.7 Sampled instruments
 

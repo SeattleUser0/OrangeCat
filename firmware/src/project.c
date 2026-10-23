@@ -676,11 +676,19 @@ static void project_capture(project_t *p)
     p->sum = proj_sum(p);
 }
 
+/* (Orange Cat 0.6.1) the takes' folders follow a project's name (usb_files.c card_browse.c frz_named, set at boot by
+ * frz_table_load; none in the host tests without the card): old, new name, the slot written, the project itself
+ * renamed (not a copy) */
+static void (*frz_named_hook)(const char *old, const char *nw, uint32_t slot, int rename);
+
 /* the music as it is now -> slot, named `name` (0: the current name; "" none); 0 saved, nonzero refused or failed.
  * The current name becomes the saved one */
 static int project_save_as(uint32_t slot, const char *name)
 {
     project_t *p = &proj_scratch;
+    char was[PROJ_NAME_LEN + 1u];                       /* (0.6.1) the name before, and the slot it was from */
+    uint32_t was_slot = proj_cur;
+    str_cpy(was, proj_name, sizeof was);
     if (transport_busy()) {                            /* a flash erase silences the audio and stalls the */
         ui_message("STOP TO SAVE");                     /* sequencer (storage_hw.c): only while stopped */
         return 1;
@@ -702,6 +710,7 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
     proj_last_set(slot & 3u);
+    if (frz_named_hook) frz_named_hook(was, proj_name, slot & 3u, was_slot == (slot & 3u));   /* (0.6.1) */
     ui_message(MELODEE_FLASH ? "SAVED" : "SAVED (RAM)");
     return 0;
 }
@@ -771,12 +780,14 @@ static int project_name(uint32_t slot, char *b)
 static int project_rename(uint32_t slot, const char *name)
 {
     project_t *p = &proj_scratch;
+    char was[PROJ_NAME_LEN + 1u];                       /* (0.6.1) its name before */
     if (transport_busy()) {
         ui_message("STOP TO SAVE");
         return 1;
     }
     int n = proj_read_slot(slot);
     if (!n) { ui_message("EMPTY SLOT"); return 1; }
+    proj_name_get(was, (const uint8_t *)p->name);
     memset(p->name, 0, sizeof p->name);
     memcpy(p->name, name, str_len(name) < PROJ_NAME_LEN ? str_len(name) : PROJ_NAME_LEN);
     p->sum = proj_sum(p);
@@ -791,6 +802,11 @@ static int project_rename(uint32_t slot, const char *name)
     if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
     if (proj_cur == (slot & 3u))
         proj_name_get(proj_name, (const uint8_t *)p->name);
+    if (frz_named_hook) {                               /* (0.6.1) its takes' folder renamed with it */
+        char nw[PROJ_NAME_LEN + 1u];
+        proj_name_get(nw, (const uint8_t *)p->name);
+        frz_named_hook(was, nw, slot & 3u, 1);
+    }
 #if MELODEE_FLASH
     if (flash_ok) { ui_message("RENAMED"); return 0; }
 #endif

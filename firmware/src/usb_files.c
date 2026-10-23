@@ -260,7 +260,7 @@ static struct {
     uint8_t on;                                         /* a file open */
     uint8_t frz;                                        /* (0.4.20) track frz - 1's freeze (frz_task drives it) */
     uint8_t ch;                                         /* 2: stereo */
-    char path[40];                                      /* its path (a cancelled take is deleted) */
+    char path[64];                                      /* its path (a cancelled take is deleted; 0.6.1: 64, a folder) */
     uint32_t frames;                                    /* written to the card */
 } ur;
 static uint32_t ur_chunk(void) { return UR_CHUNK_B / (2u * ur.ch); }   /* frames a write: 2,048 (stereo) */
@@ -340,12 +340,140 @@ static FRESULT ur_write(uint32_t n)
  * page says why: Card? (no card), Full (no free slot, or the card too slow for one more stream), Tempo (frozen at
  * another tempo), Slow (the card did not keep up), Error (the file unreadable or gone). */
 static void frz_say(uint32_t k, const char *why) { str_cpy(frz[k].why, why, sizeof frz[k].why); }
-static void frz_path(char *p, uint32_t k, uint32_t take)   /* "/ORANGECAT/T1_003.WAV" */
+/* ---- (0.6.1) take folders (Jeremiah, October 22, 2026: "the wav files should be better organized on the SD card,
+ * perhaps in folders named after the project ... when they save the project, it will also need to rename the
+ * folder") ----
+ * A take is made in its project's folder: /ORANGECAT/<the project's name>/, or /ORANGECAT/UNTITLED/ while the music has
+ * no name (a name's characters a card cannot hold become "_"). Each frozen phrase keeps its file's folder (dir, an
+ * index into frzd: the folders in use, 16 at most) and the folder it belongs in (want). The music given a name
+ * (usb_files.c frz_named, from project.c's save and rename) changes want; the files move when the card is in and the
+ * sequencer stopped (frz_reconcile, card_browse.c), one move a pass of the main loop, and dir follows each move. Until
+ * then a take plays from where it is: nothing is lost if the card is out when the project is named, or the power goes
+ * in between (both kept in the record store, with frzp).
+ *   - A project renamed (its own slot, or saved again to the slot it came from under a new name): its folder renamed
+ *     whole (mv_from, mv_to), so the takes no phrase names any more go with it. Its name taken already by another
+ *     folder: each of its phrases' takes moved in one by one (a name already there: the next free T<n>_<nnn>).
+ *   - Music with no name saved with one (or saved as a copy under a new name): the takes in UNTITLED of the phrases
+ *     that project names move to its folder. Other projects' folders are not touched (a phrase shared with another
+ *     project keeps its take where it was made).
+ *   - Takes of 0.4.20 .. 0.6.0 stay in /ORANGECAT itself (folder 0) unless their project is named or renamed. */
+#define FZD_N 16u
+#define FZD_LEN 32u                                     /* "ORANGECAT/" and a name of 12: 22, and room */
+#define FZD_MV 4u
+typedef struct {
+    char d[FZD_N][FZD_LEN];                             /* folders from the card's root, no slash at either end; d[0]
+                                                         * "ORANGECAT"; "" a free entry */
+    uint8_t mv_from[FZD_MV], mv_to[FZD_MV];             /* whole folders still to rename: FZD_N none */
+} frzd_t;
+static frzd_t frzd;
+#ifndef FRZ_MUSIC_NAME
+#define FRZ_MUSIC_NAME() proj_name                      /* (project.c: the music's name now; "" none) */
+#endif
+#ifndef FRZ_SLOT_NAMES
+#define FRZ_SLOT_NAMES(s, i) ((ocj.names[(s) & 3u][(i) >> 5] >> ((i) & 31u)) & 1u)   /* slot s's project names pool
+                                                         * phrase i + 1 (oc_project.c) */
+#endif
+static void frzd_init(void)
 {
-    char *e = uh_cat(p, "/ORANGECAT/T");
+    memset(&frzd, 0, sizeof frzd);
+    str_cpy(frzd.d[0], "ORANGECAT", FZD_LEN);
+    memset(frzd.mv_from, FZD_N, sizeof frzd.mv_from);
+    memset(frzd.mv_to, FZD_N, sizeof frzd.mv_to);
+}
+/* the folder for a project named name ("" or 0: none): "ORANGECAT/<name>", "ORANGECAT/UNTITLED"; d: FZD_LEN */
+static void frz_dir_for(char *d, const char *name)
+{
+    char *e = uh_cat(d, "ORANGECAT/");
+    uint32_t i = 0, n = 0;
+    while (name && name[i] == ' ') i++;                 /* (no leading spaces) */
+    for (; name && name[i] && n < 12u; i++) {
+        char c = name[i];
+        if (c < 32 || c > 126 || c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' ||
+            c == '>' || c == '|')
+            c = '_';                                    /* (what a FAT name cannot hold) */
+        e[n++] = c;
+    }
+    while (n && (e[n - 1u] == ' ' || e[n - 1u] == '.')) n--;   /* (nor trailing spaces and dots) */
+    e[n] = 0;
+    if (!n) uh_cat(e, "UNTITLED");
+}
+static int frz_same_dir(const char *a, const char *b)   /* the same folder on a FAT card: case aside */
+{
+    for (; *a && *b; a++, b++) {
+        char x = (char)(*a >= 'a' && *a <= 'z' ? *a - 32 : *a), y = (char)(*b >= 'a' && *b <= 'z' ? *b - 32 : *b);
+        if (x != y) return 0;
+    }
+    return *a == *b;
+}
+static uint32_t frzd_find(const char *d)                /* its index, FZD_N none */
+{
+    for (uint32_t i = 0; i < FZD_N; i++) if (frzd.d[i][0] && frz_same_dir(frzd.d[i], d)) return i;
+    return FZD_N;
+}
+static int frzd_used(uint32_t i)                        /* a phrase, a freeze being made or a rename still names it */
+{
+    uint32_t k;
+    if (i == 0u) return 1;
+    for (k = 0; k < FZP_N; k++) if (frzp[k].take && (frzp[k].dir == i || frzp[k].want == i)) return 1;
+    for (k = 0; k < 4u; k++) if (frz[k].st != FZ_OFF && frz[k].dir == i) return 1;
+    for (k = 0; k < FZD_MV; k++) if (frzd.mv_from[k] == i || frzd.mv_to[k] == i) return 1;
+    return 0;
+}
+static uint32_t frzd_get(const char *d)                 /* its index, made when new (unused ones freed first); FZD_N full */
+{
+    uint32_t i = frzd_find(d);
+    if (i < FZD_N) return i;
+    for (i = 1; i < FZD_N; i++)
+        if (frzd.d[i][0] && !frzd_used(i)) frzd.d[i][0] = 0;
+    for (i = 1; i < FZD_N; i++)
+        if (!frzd.d[i][0]) {
+            str_cpy(frzd.d[i], d, FZD_LEN);
+            return i;
+        }
+    return FZD_N;
+}
+/* the music's folder now: its index (FZD_N: the table full; then the takes go to /ORANGECAT itself, folder 0) */
+static uint32_t frz_music_dir(void)
+{
+    char d[FZD_LEN];
+    uint32_t i;
+    frz_dir_for(d, FRZ_MUSIC_NAME());
+    i = frzd_get(d);
+    return i < FZD_N ? i : 0u;
+}
+static void frz_take_name(char *n, uint32_t k, uint32_t take)   /* "T1_003.WAV" */
+{
+    char *e = uh_cat(n, "T");
     e = uh_dec(e, k + 1u);
     e = uh_cat(e, take < 10u ? "_00" : take < 100u ? "_0" : "_");
     uh_cat(uh_dec(e, take), ".WAV");
+}
+static char *frz_dir_path(char *p, uint32_t dir)        /* "/ORANGECAT/JAM" (dir out of range: "/ORANGECAT") */
+{
+    char *e = uh_cat(p, "/");
+    return uh_cat(e, dir < FZD_N && frzd.d[dir][0] ? frzd.d[dir] : "ORANGECAT");
+}
+static void frz_path(char *p, uint32_t dir, const char *name)   /* "/ORANGECAT/JAM/T1_003.WAV"; p: 64 bytes */
+{
+    uh_cat(uh_cat(frz_dir_path(p, dir), "/"), name);
+}
+static void frz_entry_path(char *p, const frzp_t *f) { frz_path(p, f->dir, f->name); }
+/* the folders on the way made (FR_EXIST is fine) */
+static FRESULT frz_mkdirs(uint32_t dir)
+{
+    char p[FZD_LEN + 2u], *e;
+    FRESULT r;
+    frz_dir_path(p, dir);
+    for (e = p + 1; ; e++) {                            /* (each "/" after the first: the folder before it) */
+        if (*e == '/' || !*e) {
+            char c = *e;
+            *e = 0;
+            r = f_mkdir(p);
+            *e = c;
+            if (r != FR_OK && r != FR_EXIST) return r;
+            if (!c) return FR_OK;
+        }
+    }
 }
 /* the recorder let go (its file closed; deleted when drop) */
 static void frz_rec_end(int drop)
@@ -410,11 +538,11 @@ static void frz_unfreeze_phrase(uint32_t id)
 /* the take's file and the recorder made ready; the audio side armed */
 static void frz_begin(uint32_t k)
 {
-    char p[40];
+    char p[64], nm[14];
     FILINFO fi;
     UINT bw;
     FRESULT r;
-    uint32_t i, s, need = 176400u;
+    uint32_t i, s, need = 176400u, dir;
     if (ur.on) { frz_cancel(k, "Busy"); return; }
     if (k >= trk_n()) { frz_cancel(k, "No trk"); return; }
     if (!trk[k].p[P_LEVEL]) { frz_cancel(k, "Lvl 0"); return; }
@@ -428,10 +556,12 @@ static void frz_begin(uint32_t k)
     for (s = 0; s < CP_N; s++) if (cs.st[s].run) need += cs.st[s].bps;
     if (need > uf_budget) { frz_cancel(k, "Full"); return; }
     r = uf_mount();
-    if (r == FR_OK) { r = f_mkdir("/ORANGECAT"); if (r == FR_EXIST) r = FR_OK; }
+    dir = frz_music_dir();                              /* (0.6.1) the project's folder: /ORANGECAT/<its name> */
+    if (r == FR_OK) r = frz_mkdirs(dir);
     if (r != FR_OK) { frz_cancel(k, "Error"); return; }
     for (i = 1; i < 1000u; i++) {
-        frz_path(p, k, i);
+        frz_take_name(nm, k, i);
+        frz_path(p, dir, nm);
         r = f_stat(p, &fi);
         if (r == FR_NO_FILE) break;
         if (r != FR_OK) { frz_cancel(k, "Error"); return; }
@@ -451,6 +581,7 @@ static void frz_begin(uint32_t k)
     }
     if (r != FR_OK) { frz_cancel(k, r == FR_DENIED || r == FR_WRITE_PROTECTED ? "Full" : "Error"); return; }
     frz[k].take = (uint16_t)i;
+    frz[k].dir = (uint8_t)dir;
     ur.frames = 0;
     ur.on = 1;
     ur.frz = (uint8_t)(k + 1u);
@@ -469,7 +600,7 @@ static void frz_begin(uint32_t k)
 static uint8_t frz_take_late;                           /* (0.6.0 rev 2) frz_load: the audio was late giving the slot back */
 static int frz_load(uint32_t k, uint32_t id)
 {
-    char p[40];
+    char p[64];
     struct uf_wi w;
     struct cs_one *o;
     FILINFO fi;
@@ -486,7 +617,7 @@ static int frz_load(uint32_t k, uint32_t id)
     for (t0 = 0; t0 < CP_N; t0++) if (cs.st[t0].run) need += cs.st[t0].bps;
     if (need > uf_budget) { fzt[k].why = FZW_FULL; return 0; }
     r = uf_mount();
-    frz_path(p, f->trk, f->take);
+    frz_entry_path(p, f);                               /* (0.6.1: where its file is now) */
     if (r == FR_OK) r = f_stat(p, &fi);
     if (r == FR_OK) r = f_open(&uf_pf, p, FA_READ);
     if (r != FR_OK) { fzt[k].why = FZW_ERROR; return 0; }
@@ -575,6 +706,8 @@ static void frz_finish(uint32_t k)
     frzp[id - 1u].take = frz[k].take;                   /* (0.5.6) the phrase frozen: its take, and what it was made at */
     frzp[id - 1u].trk = (uint8_t)k;
     frzp[id - 1u].ver = (uint8_t)FZP_VER;
+    frzp[id - 1u].dir = frzp[id - 1u].want = frz[k].dir;   /* (0.6.1) its folder and its file's name */
+    frz_take_name(frzp[id - 1u].name, k, frz[k].take);
     frzp[id - 1u].lvl = frz[k].lvl;
     frzp[id - 1u].bpm = frz[k].bpm;
     frzp[id - 1u].frames = L;
@@ -592,6 +725,29 @@ static void frz_finish(uint32_t k)
 #ifndef FRZ_STORE
 #define FRZ_STORE 1
 #endif
+/* (0.6.1) the record: frzp (64 entries of 32 bytes), then frzd (the folders and the renames still to do). 0.5.6 ..
+ * 0.6.0 wrote frzp alone at 16 bytes an entry (FZP_VER 1): read as their takes in /ORANGECAT itself */
+#define FRZ_REC_V1 (FZP_N * 16u)
+#define FRZ_REC (sizeof frzp + sizeof frzd)
+typedef struct { ocs_src_t src; uint32_t at; } frz_rec_src_t;
+static int frz_rec_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
+{
+    frz_rec_src_t *r = (frz_rec_src_t *)s;
+    while (n) {
+        uint32_t k;
+        if (r->at < sizeof frzp) {
+            k = (uint32_t)sizeof frzp - r->at < n ? (uint32_t)sizeof frzp - r->at : n;
+            memcpy(dst, (const uint8_t *)frzp + r->at, k);
+        } else {
+            uint32_t o = r->at - (uint32_t)sizeof frzp;
+            if (o >= sizeof frzd) return -1;
+            k = (uint32_t)sizeof frzd - o < n ? (uint32_t)sizeof frzd - o : n;
+            memcpy(dst, (const uint8_t *)&frzd + o, k);
+        }
+        dst += k; n -= k; r->at += k;
+    }
+    return 0;
+}
 static void frz_table_save(void)
 {
 #if FRZ_STORE
@@ -599,19 +755,64 @@ static void frz_table_save(void)
     if (!frzp_dirty || song.playing || transport_busy()) return;
     frzp_dirty = 0;                                     /* (a failed write is not tried again at once: the next change) */
     for (i = 0; i < FZP_N; i++) any |= frzp[i].take;
-    if (any) (void)ocs_write(OCS_FREEZE, 0, frzp, sizeof frzp);
-    else (void)ocs_delete(OCS_FREEZE, 0);
+    for (i = 0; i < FZD_MV; i++) any |= frzd.mv_from[i] < FZD_N;   /* (0.6.1: a rename still to do) */
+    if (any) {
+        frz_rec_src_t r = {{frz_rec_get}, 0};
+        (void)ocs_write_src(OCS_FREEZE, 0, &r.src, (uint32_t)FRZ_REC);
+    } else {
+        (void)ocs_delete(OCS_FREEZE, 0);
+    }
 #endif
 }
+static int frz_name_ok(const char *n)                   /* a file's name as kept: 1 .. 13 characters, ended */
+{
+    uint32_t i;
+    for (i = 0; i < 14u && n[i]; i++) if (n[i] < 32 || n[i] == '/' || n[i] == '\\') return 0;
+    return i > 0u && i < 14u;
+}
+static void frz_named(const char *old, const char *nw, uint32_t slot, int rename);   /* (0.6.1) card_browse.c */
+static void (*frz_named_hook)(const char *old, const char *nw, uint32_t slot, int rename);   /* (project.c's) */
 static void frz_table_load(void)
 {
+    frz_named_hook = frz_named;                         /* (0.6.1) project.c tells it a project's new name */
 #if FRZ_STORE
     uint32_t i;
+    ocs_rec_t r;
     frz_pool_hash = ocp.hash;
-    if (ocs_read(OCS_FREEZE, 0, frzp, sizeof frzp) != (int)sizeof frzp) memset(frzp, 0, sizeof frzp);
+    memset(frzp, 0, sizeof frzp);
+    frzd_init();
+    if (ocs_open(OCS_FREEZE, 0, &r) == 0) {
+        if (r.total == FRZ_REC) {                       /* (0.6.1) */
+            if (ocs_at(&r, 0, frzp, sizeof frzp) || ocs_at(&r, sizeof frzp, &frzd, sizeof frzd)) {
+                memset(frzp, 0, sizeof frzp);
+                frzd_init();
+            }
+        } else if (r.total == FRZ_REC_V1) {             /* (0.5.6 .. 0.6.0: converted, their takes in /ORANGECAT) */
+            for (i = 0; i < FZP_N; i++) {
+                uint8_t b[16];
+                frzp_t *f = &frzp[i];
+                if (ocs_at(&r, i * 16u, b, 16u)) { memset(frzp, 0, sizeof frzp); break; }
+                memcpy(f, b, 16u);                      /* (the first 16 bytes are the same fields) */
+                if (f->ver != 1u) { memset(f, 0, sizeof *f); continue; }
+                f->ver = (uint8_t)FZP_VER;
+                f->dir = f->want = 0;
+                if (f->trk < 4u && f->take && f->take < 1000u) frz_take_name(f->name, f->trk, f->take);
+            }
+        }
+    }
+    if (!str_eq(frzd.d[0], "ORANGECAT")) frzd_init();   /* (the folders' table: each ended, renames in range) */
+    for (i = 0; i < FZD_N; i++) {
+        frzd.d[i][FZD_LEN - 1u] = 0;
+        if (frzd.d[i][0] && (frzd.d[i][0] == '/' || frzd.d[i][str_len(frzd.d[i]) - 1u] == '/')) frzd.d[i][0] = 0;
+    }
+    for (i = 0; i < FZD_MV; i++)
+        if (frzd.mv_from[i] >= FZD_N || frzd.mv_to[i] >= FZD_N || !frzd.d[frzd.mv_from[i]][0] || !frzd.d[frzd.mv_to[i]][0])
+            frzd.mv_from[i] = frzd.mv_to[i] = FZD_N;
     for (i = 0; i < FZP_N; i++) {
         frzp_t *f = &frzp[i];
-        if (f->ver != FZP_VER || f->trk >= 4u || f->take >= 1000u || f->frames < 256u) memset(f, 0, sizeof *f);
+        if (f->ver != FZP_VER || f->trk >= 4u || f->take >= 1000u || f->frames < 256u || f->dir >= FZD_N ||
+            f->want >= FZD_N || !frzd.d[f->dir][0] || !frzd.d[f->want][0] || !frz_name_ok(f->name))
+            memset(f, 0, sizeof *f);
     }
 #endif
     frzp_dirty = 0;
@@ -731,6 +932,8 @@ static void frz_task(void)
                                                          * is being made) */
 }
 /* main loop (main.c), each pass: the card engine's turn, frozen tracks, the port, takes the sequencer stopped */
+#include "card_browse.c"                                /* (0.6.1) take folders, their moves, the card's browser */
+
 /* (0.6.0 rev 2) the card's slots in use (bit s: slot s): a stream, a take loaded there, the recorder and a freeze under
  * way (slots 2 and 3). The effects may borrow the others (resources.c res_lend_ok) */
 static uint32_t uf_pool_busy(void)
@@ -750,6 +953,10 @@ static void usbf_task(void)
     uint32_t s;
     cs_poll();                                          /* (0.4.14) the main loop's turn at the card (every pass) */
     frz_task();                                         /* (0.4.20) frozen tracks: before usbh_task (it keeps the port) */
+    if (usbh.drive && frz_card_quiet() && frz_pending() && uf_mount() == FR_OK)   /* (0.6.1) a take toward its
+                                                         * project's folder, one a pass */
+        (void)frz_reconcile();
+    fb_task();                                          /* (0.6.1) the card's browser */
     usbh_task();
     for (s = 0; s < CP_N; s++)                          /* (0.4.17) takes the sequencer stopped: back to their start */
         if (cp[s].ended && cs.st[s].run) uf_rearm(s);

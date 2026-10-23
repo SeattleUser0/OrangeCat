@@ -2412,7 +2412,7 @@ static void ui_input(void)
             } else undo_step(dir == 2u);
         } else if (!(step_page() && step_history_apply(0))) undo_swap();
     } else if (edit == BT_TAP && !(ui.step_mods & ed) && !ui.confirm &&
-               pop.on != POP_SHEET && pop.on != POP_LIST) {
+               pop.on != POP_SHEET && pop.on != POP_LIST && pop.on != POP_FILES) {
         page_tap(B_EDIT);
     }
     if (ui.confirm) {                                   /* OCT- cancels, OCT+ does it; nothing else reacts (SEQ's
@@ -2454,10 +2454,11 @@ static void ui_input(void)
                 panel_enc(k);
         return;
     }
-    if (pop.on == POP_SHEET || pop.on == POP_LIST) {   /* an action sheet, a value's list: KNOB 1 / 2, OCT+ / OCT-
-                                                         * (ui_popup.c) */
+    if (pop.on == POP_SHEET || pop.on == POP_LIST || pop.on == POP_FILES) {   /* an action sheet, a value's list,
+                                                         * (0.6.1) the card's browser: KNOB 1 / 2, OCT+ / OCT- (ui_popup.c) */
         int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);
-        if (pop.on == POP_LIST) vlist_input(k2, oct);
+        if (pop.on == POP_FILES) files_input(k2, oct);
+        else if (pop.on == POP_LIST) vlist_input(k2, oct);
         else sheet_input(k1, k2, oct);
         ui.pg_down = 0;
         enc_drop();

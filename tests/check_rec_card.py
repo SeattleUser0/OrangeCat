@@ -21,6 +21,7 @@ Revisions:
   0.5.3: the drive test's recorder is gone (OC001 to OC005): frozen tracks' takes are checked instead.
   0.5.5: the takes hold the stem 3 bits down (headroom: a loud track runs past 16 bits).
   0.5.6: a take is one pass of a phrase (frozen phrases): T3_001.WAV one pass of 5,003 frames.
+  0.6.1: the takes in their projects' folders (renamed and moved by t_folders), the browser's test clips.
 """
 import io
 import struct
@@ -45,7 +46,10 @@ def main():
     fs = PyFatFS(IMG, offset=2048 * 512, read_only=True)
     names = sorted(fs.listdir("/ORANGECAT"))
     print("check_rec_card: /ORANGECAT holds", names)
-    for name, k, frames in (("T2_001.WAV", 1, 5003), ("T3_001.WAV", 2, 5003), ("T4_001.WAV", 3, 3001)):
+    # (0.6.1) the takes in their projects' folders, after t_folders named, renamed and moved them: phrases 9 and 17
+    # (slot A's) into JAM, renamed DUB 2, moved into LATER (TAKEN renamed: T2_001 renumbered T2_002 there, where a
+    # T2_001.WAV was already); phrase 25's (no project of slot A's) still in UNTITLED
+    for name, k, frames in (("LATER/T2_002.WAV", 1, 5003), ("LATER/T3_001.WAV", 2, 5003), ("UNTITLED/T4_001.WAV", 3, 3001)):
         data = fs.readbytes("/ORANGECAT/" + name)
         with wave.open(io.BytesIO(data)) as w:
             assert w.getnchannels() == 2 and w.getsampwidth() == 2 and w.getframerate() == 44100, name
@@ -54,7 +58,11 @@ def main():
         bad = sum(1 for f in range(frames) if struct.unpack_from("<hh", pcm, 4 * f) != (fz_val(k, f, 0), fz_val(k, f, 1)))
         print(f"check_rec_card: {name}: {frames} frames, {bad} wrong")
         assert not bad
-    assert "T1_001.WAV" not in names
+    assert sorted(fs.listdir("/ORANGECAT/LATER")) == ["T2_001.WAV", "T2_002.WAV", "T3_001.WAV"]
+    assert sorted(fs.listdir("/ORANGECAT/UNTITLED")) == ["T4_001.WAV"]    # (T1_001.WAV cancelled, then stopped)
+    assert sorted(fs.listdir("/ORANGECAT/DUB 2")) == ["NOTE.WAV"]
+    assert "JAM" not in names and "TAKEN" not in names
+    assert sorted(fs.listdir("/CLIPS")) == ["A FAR TOO LONG NAME.WAV", "LOOP.WAV", "MONO.WAV"]
     assert fs.readtext("/README.TXT") == "Orange Cat test card\n"
     assert fs.readbytes("/BIG.BIN") == bytes((i * 7 + (i >> 9)) & 255 for i in range(65536))
     assert len(fs.listdir("/MANY")) == 20

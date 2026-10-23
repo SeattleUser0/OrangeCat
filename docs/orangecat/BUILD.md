@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.49  
+**Version:** 0.50  
 **Date:** October 22, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.50 (October 22, 2026):** 0.6.1 on branch fx-jiant: takes in project folders on the card, moved when a project is named or renamed; Assign clip, a card browser on the MIXER page's sheet. See "Take folders and the clip browser".
 - **0.49 (October 22, 2026):** 0.6.0 on branch fx-jiant (not on main, not released): Jiant FM's effects replace the old ones, one internal user sample slot, projects FUN23. Built and host tested; nothing tried on the unit yet. See "Effects from Jiant FM".
 - **0.48 (October 22, 2026):** 0.5.6: freezes belong to phrases. A frozen phrase plays its take on any track, is locked against edits, is kept through power off, and HOME shows its track greyed in blue.
 - **0.47 (October 22, 2026):** 0.5.5: frozen tracks came back distorted (the take clipped at 16 bits); HARP and the string presets sounded like a wooden bar (HARM at the module's dispersion).
@@ -938,6 +939,54 @@ file option. Back up first (web editor > Backup). Then:
    which CI does not make. Without it: listen for clicks with four heavy tracks and every effect on.
 
 Report anything odd with what was on the screen.
+
+---
+
+## Take folders and the clip browser (0.6.1, branch fx-jiant)
+
+**Status: Built and host tested. Not tried on the unit.**
+
+Asked for October 22, 2026: a simple file browser to assign existing clips to phrases; WAVs on the card in folders named
+after the project; the folder renamed when an unnamed project is saved with a name.
+
+### Done
+
+- [x] New takes in /ORANGECAT/<project name>/ (/ORANGECAT/UNTITLED while unnamed).
+- [x] Saving unnamed music with a name moves its phrases' takes out of UNTITLED. Renaming a project (or saving it back to
+      its slot under a new name) renames its folder whole; into a folder that exists, take by take, renumbered when a
+      name is taken. A copy saved under a new name moves nothing.
+- [x] Moves wait for the card and a stopped sequencer, one file a pass of the main loop; each phrase plays its file from
+      where it is until then; the moves still to do are kept through power loss.
+- [x] Assign clip: the MIXER page's OCT+ sheet opens a browser of the card (folders, WAVs, their seconds). A 16-bit stereo
+      44.1 kHz WAV picked becomes the take of the phrase the selected track is on (frozen, as by a freeze).
+- [x] Old frozen phrases (0.5.6 to 0.6.0) read from their old record, their takes where they were (/ORANGECAT).
+- [x] Tests: tests/usb_host_test.c t_folders (named, renamed whole, renamed into a folder that is there, named with the
+      card out, the old record, the browser: folders, refusals, a clip given and played), and tests/check_rec_card.py
+      reads the card the test wrote with an independent FAT reader (pyfatfs): every take where it should be, sample
+      for sample, no cluster in two files.
+
+### Decisions made without asking
+
+- The browser lives on the MIXER page's OCT+ sheet (where freezing already is), not a page of its own.
+- A clip must already be in the takes' format (16-bit stereo 44.1 kHz). No conversion on the FM-1.
+- A clip's name must be 13 characters or fewer, and it must be in a folder (not the top of the card): the phrase keeps
+  the name and the folder, not a full path.
+- A clip stays where it is (it is not copied into the project's folder).
+- A take shared by two projects stays in the folder of the project that made it when the other is renamed.
+- Files with no phrase using them move only with a whole-folder rename.
+
+### Left to build
+
+- [ ] Deleting takes from the card (the browser only picks).
+- [ ] Converting other WAV formats (mono, 48 kHz, 24-bit).
+
+### Left to test (on the unit)
+
+- [ ] Freeze in a new project: the take is in /ORANGECAT/UNTITLED. Save it as a name: after a moment (stopped), the take is
+      in /ORANGECAT/<name>, and the phrase still plays it.
+- [ ] Rename the project on the PROJECT page: the folder is renamed.
+- [ ] Assign clip: a WAV from a computer (16-bit stereo 44.1 kHz) in a folder of the card, given to a phrase, plays.
+- [ ] USB MIDI comes back when the browser closes (with no frozen phrase in use).
 
 ---
 
