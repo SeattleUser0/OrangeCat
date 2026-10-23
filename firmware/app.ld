@@ -17,7 +17,7 @@ MEMORY
     XIP    (rx)  : ORIGIN = 0x02001000, LENGTH = 0xC0000   /* PROBE BUILD ONLY: oversize for the engine cost comparison */   /* body ends before commit-marker sector 0x91000 */
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x7F00
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 160K   /* PROBE BUILD ONLY */
-    POOL   (rwx) : ORIGIN = 0x01C20000, LENGTH = 0x54000
+    POOL   (rwx) : ORIGIN = 0x01C30000, LENGTH = 0x54000   /* PROBE BUILD ONLY */
     NOINIT (rw)  : ORIGIN = 0x01C7C020, LENGTH = 0x3D30
     CACHE  (rw)  : ORIGIN = 0x01F28000, LENGTH = 28K
 }
