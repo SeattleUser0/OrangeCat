@@ -84,6 +84,11 @@ jobs:
         rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \
               | head -70 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
         echo "::notice title=size by engine and area::$rep"
+        # (size-audit, temporary) the symbol and section tables as compressed notices (tools/ci_blob.py), the first
+        # eight chunks here, the rest in the test step; the audit's workspace cannot read artifacts or logs
+        python3 tools/ci_syms.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/syms.tsv
+        cp build/syms.tsv /tmp/syms.tsv
+        python3 tools/ci_blob.py emit syms build/syms.tsv --start 1 --max 8
         # (rev 2) the package under Orange Cat's name: orangecat-X.Y[.Z].fwsc (tag) or orangecat-0.1.0-<commit>.fwsc
         if [ "$GITHUB_REF_TYPE" = tag ]; then
           cp "build/melodee-${GITHUB_REF_NAME#v}.fwsc" "build/orangecat-${GITHUB_REF_NAME#v}.fwsc"
@@ -92,6 +97,9 @@ jobs:
         fi
       test: |
         set -euo pipefail
+        # (size-audit, temporary) the symbol table's remaining chunks; .ci_quick: the build and its sizes only, no host tests
+        python3 tools/ci_blob.py emit syms build/syms.tsv --start 9 --max 10 || true
+        if [ -f .ci_quick ]; then echo "quick: no host tests"; exit 0; fi
         export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
         export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
         export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
