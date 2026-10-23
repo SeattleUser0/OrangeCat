@@ -41,6 +41,11 @@ BIG = ["x_play", "x_stop", "x_pause", "x_rec", "x_rec_o", "x_trk1", "x_trk2", "x
        "x_trk2_o", "x_trk3_o", "x_trk4_o", "x_usb", "x_star", "x_star_o", "x_check", "x_cog", "x_power", "x_warn",
        "x_palette", "x_info", "x_doc", "tempo", "x_song", "x_motion_del", "x_doctor", "x_timer",
        "x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "mute"]
+# (gui-slim) the icons the screens draw, by size (grep cv_icon_mid / cv_icon_on; a 16 px one without a 16 px cell
+# falls back to its 12 px cell); only these are rasterised
+SHOWN = {12: ["x_undo", "x_right"],
+         16: ["x_star", "x_star_o", "x_check", "x_rec", "x_rec_o", "x_song", "x_play", "x_stop", "x_bat0", "x_bat1",
+              "x_motion_del", "x_warn", "x_doctor", "mute"]}
 HUGE = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb", "cutoff", ]
 
 
@@ -229,7 +234,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
     ap.add_argument("--json", default=str(ROOT / "assets" / "icons.json"), help="legacy icon names (order = enum)")
-    ap.add_argument("--sizes", default="12,16,24")
+    ap.add_argument("--sizes", default="12,16")
     ap.add_argument("--sheet")
     a = ap.parse_args()
     legacy = json.loads(Path(a.json).read_text())["names"]
@@ -244,7 +249,8 @@ def main():
     out += ["    ICON_COUNT", "};", ""]
     tot, sheet = 0, []
     for s in sizes:
-        subset = [n for n in names if n in DRAW and (s == min(sizes) or n in (HUGE if s == 24 else BIG))]
+        subset = [n for n in names if n in DRAW and (s == min(sizes) or n in (HUGE if s == 24 else BIG))
+                  and n in SHOWN.get(s, [])]
         data, idx = [], [0xFF] * len(names)
         for n in subset:
             b, img = raster(n, s)

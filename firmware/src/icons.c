@@ -18,8 +18,8 @@ static uint32_t trk_icon(uint32_t k, int filled) { return (filled ? ICON_X_TRK1 
  * fg on bg; returns its width */
 static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint16_t fg, uint16_t bg)
 {
-    const uint8_t *idx = size == 24u ? AI24_IDX : size == 16u ? AI16_IDX : AI12_IDX;
-    const uint8_t *dat = size == 24u ? AI24_DATA : size == 16u ? AI16_DATA : AI12_DATA;
+    const uint8_t *idx = size == 16u ? AI16_IDX : AI12_IDX;
+    const uint8_t *dat = size == 16u ? AI16_DATA : AI12_DATA;
     if (id >= ICON_COUNT)
         return 0;
     if (idx[id] == 0xFFu) {
@@ -36,8 +36,8 @@ static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint
 /* the same, its ink centred on row cy (header icons: each glyph sits differently in its cell) */
 static int32_t cv_icon_mid(int32_t x, int32_t cy, uint32_t size, uint32_t id, uint16_t fg, uint16_t bg)
 {
-    const uint8_t *idx = size == 24u ? AI24_IDX : size == 16u ? AI16_IDX : AI12_IDX;
-    const uint8_t *dat = size == 24u ? AI24_DATA : size == 16u ? AI16_DATA : AI12_DATA;
+    const uint8_t *idx = size == 16u ? AI16_IDX : AI12_IDX;
+    const uint8_t *dat = size == 16u ? AI16_DATA : AI12_DATA;
     int32_t top = -1, bot = 0, r, k;
     if (id < ICON_COUNT && idx[id] != 0xFFu) {
         const uint8_t *c = dat + (uint32_t)idx[id] * (size * size / 2u);
