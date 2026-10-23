@@ -11,6 +11,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 ## Revision history
 
 - **0.60 (October 23, 2026):** docs for 0.9.0 final: the module experiment's finding (SHAPES builds as a separate 23,780 B object with 188 relocations; the toolchain links it at a fixed address only; no ROPI, RWPI or linkable PIC), the proof of concept's next steps in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, SPEC 0.21, GUIDE (DRUM-X), web/EDITOR_PROTOCOL.md. See "Second run".
+- **0.61 (October 23, 2026):** 0.9.1 on branch sonnet-work (not on main, not released, not on the unit): the user preset library moves from A/B pairs to a group of 23 sectors with one shared spare (lib_group.c). One-time migration at boot. The pack area is the pack's alone: no question about banks, no preset erased. Module area 12 sectors. Image 487,840 B (+296), 89,408 B free, .data+.bss 92,920 B (+144). Back up the unit before installing it. See "Third run".
 - **0.59 (October 23, 2026):** 0.9.0 on branch sonnet-work (not on main, not released, not on the unit): DRUM-X, Jiant FM's drum engine, in engine slot 9 behind MELODEE_DRUMX (on in the Orange Cat set): Jiant's voice sample for sample (288 of 288 renders equal), nine kits as presets, the grid, the LANES pages, 640 B of arena a track, voice code in flash. Image 487,544 B (+10,188), .data+.bss +32 B, arena -736 B, pool 0. The loadable-engine interface identifier (tools/gen_fw_api_id.py, FW_API_IFACE, fw_module_check). See "Second run".
 - **0.58 (October 23, 2026):** 0.8.1 on branch sonnet-work: the library's banks (sector inventory, no bank can move, options (a) to (f), no code), PACK MISSING once at power-on, why five `_oc` preset tests failed locally (they fail only in a build with Prophet, CZ-1, FM6 and DRUM off; the engines they test are the ones that are off). See "Second run".
 - **0.57 (October 23, 2026):** 0.8.0 on branch sonnet-work (not on main, not released, not on the unit): the asset pack. SHAPES' and MACRO's 57 constant tables (40,232 B) leave the image and are read from a pack in the Prophet bank area (0x93000); image 512,440 B to 477,356 B (99,892 B free). Installed from the web editor or the card; PACK MISSING without it. fw_api_t prepared. DRUM-X measured as a lower bound (4.4 KB of flash, 608 B of state a track). See "Overnight run (0.7.2 to 0.8.0)".
@@ -1420,6 +1421,46 @@ Everything from "Overnight run" above still stands (nothing there has run on har
   a USB device: the web page tests' RangeError, CPU tools, power cuts, M-UPGRADE, installer CLI, ROM recovery). Nothing else.
 - Full suite in CI (tests/run_tests.sh, no .ci_quick): green on aa267e1 (run 39996162974) and on the commit after the list
   reorder (run 39998191949, which gave the budget lines). The final commit's run is named in the report that ended the work.
+
+## Third run (0.9.1 and 0.10.0, branch sonnet-work, October 23, 2026)
+
+**Status: Part 1 built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on
+branch `sonnet-work`, from 23fda9c (image 487,544 B, 89,704 B free, .data+.bss 92,776 B, arena 95,104 B, pool 176,768 B).
+
+**Back up the unit before installing 0.9.1.** The first boot moves every preset into the new group and then erases the old
+pairs. Firmware before 0.9.1 cannot read the group: it sees empty banks. Restore a backup made before 0.9.1 with this
+firmware and the presets are migrated again at the next boot. A backup made after 0.9.1 restores the same way.
+
+### Part 1: the library group (0.9.1)
+
+| Item | Status | Result |
+|---|---|---|
+| 1a. Sector table | Done | plan 0.7: 23 sectors outside the pack area; module area 20 to 12 sectors (0xC8000..0xD3FFF) because only 15 usable sectors lie outside both areas |
+| 1b. Format | Done | header type 0x100, slot = bank, seq = save counter; a save writes the spare, header last; boot scans, newest valid seq wins; the older copy is erased lazily by the next save that picks its sector |
+| 1c. Migration | Done | before the pack check; banks in the group's own sectors first (no deadlock); old pair erased only after the group copy reads back; a cut anywhere is safe; a failure retries at the next boot and the pack installer refuses (rc 4) meanwhile |
+| 1d. Pack installer | Done | no banks prompt, no preset erased; `pk_banks_used` gone from firmware, web page, card browser and protocol; Prophet, CZ-1 and FM6 objects retired by the build (`ST_RETIRE_BY_BUILD`); object numbers kept |
+| 1e. Tests | Done | see "Tests added or changed" |
+| 1f. Measurements | Done | below |
+
+Measured on the host: a save is 1 erase and 17 flash operations. A full migration (22 banks) is 66 erases and 352 programs. 2,300 random
+saves give 84 to 117 erases a sector (mean 100). One bank saved over and over alternates two sectors. Time on the unit is not measured; the
+plan's estimate (about 1.3 to 3 s for a full migration) assumes 20 to 45 ms an erase.
+
+CI run 40028869448 (`.ci_quick`): image 487,840 B (+296), 89,408 B free, .data+.bss 92,920 B of 98,304 (+144), arena 95,232 B (+128), pool 176,768 B (0).
+Budgets unchanged.
+
+### Left to test (on the unit)
+
+1. **Migration.** With 0.9.0 on the unit and presets in several banks (user, FM6, CZ-1, Prophet), make a full web backup, install 0.9.1, power on.
+   "MOVING PRESETS" shows once with a bar. Every preset is there afterwards. Power off during the bar once, power on: it finishes.
+2. **Pack.** Install the pack from the web page and from the card: no question about banks, no preset lost.
+3. **Restore.** Restore the backup made before 0.9.1: the presets come back after the next boot.
+
+### Tests added or changed
+
+- `tests/lib_group_test.c` (new): table, save and reload of all 22 banks, a cut at each program step and each header byte, two valid copies after a cut, a full group, 2,300 random saves, migration (all, some, none, a cut at each of 418 operations plus a second cut), old firmware refusing group sectors, backups made with pairs and with the group restored, a newer old pair re-migrating, the other areas untouched.
+- Adapted: `storage_test`, `fm6_preset_test`, `persistence_test`, `unified_presets_test`, `storage_safety_test`, `backup_test`, `oc_pack_test`, `editor_test`, `preset_boot_reset_test`, `usb_host_test`, `web/test_web.mjs`. No golden hash or budget changed.
+- The host suite on this commit: the same environment failures as on the base commit (the package-dependent jobs, `mido`, the SDK loader file). Nothing else.
 
 ## Phases 8 to 11
 
