@@ -1,11 +1,16 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.4
+**Version:** 0.5
 **Date:** October 23, 2026
-**Status:** a plan with budgets. Nothing here is built. Measurements are from docs/orangecat/SIZE_AUDIT.md and the
-symbol table of the audit-plus-tracker build; the engines' code is the same in every branch.
+**Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
+Milestone 2 (loadable engines) is a plan with budgets; its preparation is in "Order of work". DRUM-X is measured as a
+lower bound. Measurements are from docs/orangecat/SIZE_AUDIT.md and CI runs of the branches named below.
 
 Revisions:
+- 0.5: milestone 1 built (0.8.0): the pack, its generator, the installer, the web page and the card path, with the
+  numbers (image 477,356 B, 99,892 B free). The flash map corrected: the Prophet, CZ-1 and native FM6 areas are the
+  shared user preset library's banks 16 to 20, 8 to 15 and 4 and 5, so they are not free until the library is moved
+  (the pack takes banks 16 to 20 and asks first). DRUM-X measured as a lower bound.
 - 0.4: after a second review: a placement strategy for fixed-address modules (permitted start addresses, one package
   holding every variant, the installer picks; fragmentation and replacement defined); an exact interface identifier
   checked before registration; the size statements corrected (MACRO fits a 40 KB allocation; DRUM fits the headroom
@@ -150,6 +155,25 @@ Internal flash above the app area, what is in use and what is free (storage.c, o
 | 0xFC000..0xFDFFF | 8 KB | settings | kept |
 | 0xFE000 | 4 KB | FM6 patch bank copy B, retired | spare |
 
+**Correction (0.5, found while building the pack).** The three retired areas are not empty in the shipping firmware.
+The shared user preset library (upreset.c, 384 slots in banks of 18) keeps its banks in those objects: `up_obj(b)` maps
+banks 4 and 5 to the native FM objects (0xD8000..), banks 8 to 15 to the CZ-1 objects (0xC8000..) and banks 16 to 20 to
+the five Prophet A/B pairs (0x93000..0x9CFFF). A user who saved a sound into slot 289 has it there. So "retired" meant
+no engine writes them, not that the library does not. Consequences, all built or written down:
+
+- storage.c can retire an engine's objects at run time (`st_retire_engines`): they read as empty and refuse a save, with
+  nothing erased. Nothing is retired by the build alone, because that would delete library banks; `ST_RETIRE_BY_BUILD`
+  is the spec's build-time guard for when the library has been moved.
+- The pack takes banks 16 to 20 (slots 288 to 377, 90 slots). The installer asks first; the editor and the card
+  browser both do. While the area is a pack's, those banks read empty and refuse saves, so a preset save cannot erase a
+  pack sector. Erasing the pack gives the banks back, empty.
+- The module area (0xC8000, 80 KB) has the same conflict with banks 4, 5 and 8 to 15 (180 slots). It stays unused until
+  the library is moved or a module install asks the same question. This is the first thing to settle before milestone 2.
+- The update loader erases any sector whose last 256 bytes look like one of its records (ldr_core.c). Everything else
+  in the map keeps those 256 bytes erased. The pack cannot (40,232 B need ten full sectors, and ten sectors with tails
+  hold 38,400), so its generator moves the tables on by four bytes until no tail passes the loader's record test
+  (probability about 2^-32 a sector, never needed so far), and the installer tests the same rule.
+
 Free: 40 KB in one piece, 80 KB in one piece, and four 4 KB sectors apart. The pack takes the 40 KB; the modules get
 the 80 KB; the pack and the modules never share a byte. If the Prophet comes back as a module with user banks, those
 banks need a home too (the four spare sectors hold two A/B pairs; more needs the record store's rules, or the card).
@@ -181,6 +205,42 @@ the scales (4,832 B) and the preset names do not fit beside them and stay in the
   (`tools/usb_audio_stats.py`: `audio_max_us`, late renders, four MACRO and SHAPES tracks, a take playing).
 - Cost: a generator for the pack (tools), the install path (usb_files.c, smp_slot.c's writer generalised), the editor
   command, a host test with a simulated NOR.
+
+**Built in 0.8.0 (branch sonnet-work).** What was made, against the plan above:
+
+- `tools/gen_pack.py` takes the tables from the two generated headers (`OC_TBL(type, name)[n]` in braids/pb_tables.h and
+  plaits/pl_tables.h; `tools/gen_braids_tables.py` and `gen_plaits_tables.py` emit the same), compiles a small host
+  program so the bytes are the compiler's own, lays them out widest element first from byte 512, and writes
+  `orangecat-<version>.pak` and `build/gen/oc_pack_tables.h` (one pointer macro per table into the plaintext XIP window,
+  plus the table hash and length). CI attaches the .pak beside the .fwsc. 57 tables, 40,232 of 40,960 B, 728 spare.
+  Wavetables (pb_wt_waves, pb_wt_map) and the small formant and chord tables stay in the image.
+- Header (512 B): magic "OCPK", version 1, flags, table hash, length, payload CRC-32, entry list, header CRC-32. The
+  hash is the CRC-32 of the manifest text and the payload, so a pack of another build has another hash.
+- `firmware/src/oc_pack.c`: checked at boot (magic, version, header CRC, hash, length, then the payload CRC-32 over the
+  flash, a few milliseconds). Missing, another build's or damaged: SHAPES and MACRO render nothing (OC_PACK_READY at the
+  top of `sh_render` and `mc_render`), the screen says PACK MISSING when either is chosen or a key is played on one,
+  and everything else plays. Settings, presets and projects keep every byte.
+- Install: begin (length and a take flag; the 10 sectors erased), write (in order, 256 B pages), end (header must agree
+  with the data and the build, the loader's tail rule passes; the header is programmed last, so a torn write reads as no
+  pack). Editor commands 115 to 119 (web/EDITOR_PROTOCOL.md); the web editor's Settings tab has the page; the card
+  browser lists .PAK files and OCT+ installs one. Only while the transport is stopped (refused otherwise; the transport
+  is not stopped for it).
+- Build option `OC_PACK=0` (tools/build.py) keeps the tables in the image. Host tests build that way (OC_PACK_XIP=0).
+
+Measured (CI, .ci_quick, branches exp/sonnet-s4 and exp/sonnet-s5; baseline f6394df):
+
+| Build | Image | .data+.bss | Arena | Pool | Free flash |
+|---|---|---|---|---|---|
+| baseline f6394df | 512,164 | 92,728 | 95,808 | 176,768 | 65,084 |
+| steps 1, 2 and 4 (exp/sonnet-s4) | 512,440 | 92,728 | 95,808 | 176,768 | 64,808 |
+| plus the pack (exp/sonnet-s5, final code) | 477,356 | 92,744 | 95,840 | 176,768 | 99,892 |
+
+The image fell 35,084 B against s4. The tables are about 40 KB, so the installer, the five editor commands, the card
+path, the PACK MISSING notice and the pointer indirection together cost about 5 KB of flash (the plan allowed 1.5 to 2 KB
+for the installer alone; the card path and the notice were not in that figure). MACRO is now 39,149 B and SHAPES
+23,012 B in the size report (from 55,875 B and 43,746 B). RAM +16 B (the pack's state). The host tests prove the
+format, the install, the torn writes and the gate; **the unit has not been tried**, so the read of the tables through
+the data window at audio rate is unmeasured: BUILD.md "Left to test" has the procedure.
 
 ## Milestone 2: loadable engines, a proof of concept
 
@@ -281,12 +341,46 @@ beyond the replacement rule, no module API versioning beyond the header's number
 about 3 to 5 KB together. Free in the body: about 123 KB with SHAPES out, about 161 KB with MACRO out as well. Which
 engines stay built in is decided after DRUM-X is measured (above).
 
-**DRUM-X (Jiant FM's drum engine) as a resident default.** Not measured. Its cost is a port into this tree behind a
-switch and one CI build, as the other engines were measured; the number to get is its code, tables, metadata and
-per-track state, in Orange Cat's build options. Until then the only drum figure is Melodee's DRUM: 51,392 B of flash
-and about 33.5 KB of POOL, which does not fit either place.
+**DRUM-X (Jiant FM's drum engine) as a resident default.** Measured as a lower bound (CI, .ci_quick, branches
+exp/sonnet-drumx and exp/sonnet-drumx-xip, both from sonnet-work with the pack, so the base is s5: image 477,356 B,
+.data+.bss 92,744 B, arena 95,840 B, pool 176,768 B).
+
+What was ported: Jiant's `drumx_voice.c` (528 lines, copied unchanged but for the lane enum, which Orange Cat's DRUM
+already defines with the same names) and 69 lines of glue (`eng_drumx.c`) in the retired PHYS slot (engine 9): a hit's
+lane from its note, MORPH from E0, the nine factory kits as presets, `dx_run` for every lane of a part. That drives all
+of the voice: the four oscillator waves, the three filters, the pitch modulations, DRIVE, TONE, LAYER and the clap's
+HANDS. Not ported, because Jiant's `eng_drum.c` (615 lines) is wired to fields this tree does not have (P_LN0, P_LD_PIT,
+pfx_pit, the mute groups, IMAGE and SEND buses, PUNCH and ATK, FLAM and RATCHET, BEND, motion lanes, the pad grid's
+names, the GM map): that is about 500 lines, estimated at 3 to 4 KB of code at the voice's density (6 to 7 B a line)
+and some 100 B of state a lane.
+
+| | Default (the voice in SRAM) | Voice in flash (.text.xip_drumx) |
+|---|---|---|
+| Image | 481,808 B (+4,452) | 481,804 B (+4,448) |
+| Of it: code | about 3.3 KB (dx_run 2,928 B, the layer, hands and helpers) | the same |
+| Of it: tables | about 1.1 KB (9 kits of 104 B = 936 B, the ratios, 180 B of preset rows) | the same |
+| Of it: metadata | 248 B (engine_t) | the same |
+| .data + .bss | 92,840 B (+96: the kit, 88 B, and the layers, 8 B) | 92,840 B (+96) |
+| Pool | 176,768 B (0) | 176,768 B (0) |
+| Arena | 92,064 B (-3,776) | 95,840 B (0) |
+| Part state, from the arena | 608 B a track (8 lanes of 76 B), only on a track that uses it | the same |
+| Audio code in SRAM | 66,956 B (+3,778, dx_run) | 63,178 B (0) |
+
+Reading it: **RAM-resident code is not needed for the size, and costs 3,778 B of the effects' arena if the voice goes
+to SRAM, which is where tools/audio_ram.py puts audio-reachable code unless the function sits in a `.text.xip_*`
+section.** With the voice in flash, as MACRO's models are, the arena is untouched. Whether the voice keeps its time
+from flash at audio rate on the unit is not measured (the cache behaviour under four tracks is the open item, as for
+MACRO). The voice runs at half rate (22 kHz) inside, with integer products only, so its cost is a few multiplies a
+sample. With the rest of the wiring the whole engine is estimated at about 8 to 9 KB of flash and 100 B a lane more
+state: it fits beside both SHAPES and MACRO in the image, which has 99,892 B free after the pack. The question "keep
+DRUM-X resident and put one large synth in the area" therefore has an easy answer: DRUM-X is small enough to stay
+built in whatever else is decided. The tree's own DRUM (Skiff's, 51,392 B and about 33.5 KB of pool) is the thing that
+does not fit.
 
 ## Order of work
+
+Status after the overnight run (0.7.2 to 0.8.0, branch sonnet-work): steps 1 to 4 are done and 5 is built and
+measured; the unit has been tried on none of it.
 
 1. The shared-editor cleanup (the pads' editor under the shared one, one delete path for a recorded step's events:
    docs/orangecat/TRACKER_REVIEW.md) and the stack-frame fix (SIZE_AUDIT.md: shared_boot's bank copies).

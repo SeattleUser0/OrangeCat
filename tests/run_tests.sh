@@ -49,6 +49,7 @@
 # EFFECTS (tests/jfx_test.c, 0.6.0): Jiant FM's effects through the master path; their storage and conversions.
 # EFFECTS' MEMORY (tests/jfx_arena_test.c, 0.6.0 rev 2): the arena at the device's sizes, the table in BUILD.md.
 # SAMPLE SLOT (tests/smp_slot_test.c, 0.6.0): the internal user sample slot on a simulated NOR.
+# FW API (tests/fw_api_test.c, 0.8.0): fw_api_t, the services table prepared for loadable engines (nothing loads from it yet).
 # ASSET PACK (tests/oc_pack_test.c and tools/gen_pack.py --check, 0.8.0): SHAPES' and MACRO's tables in flash: install, power cuts, refusals.
 # MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
 # LAYERS / SCREEN (tests/layer_screen_test.c): GLO/SCL double-tapped layers, SCREEN OFF, LFO 2.
@@ -256,6 +257,7 @@ core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
+core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable engine would be given, against the real services" fw_api_test -O1 $FW
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks

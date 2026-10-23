@@ -214,6 +214,27 @@ image staged in POOL's bank_buf, whose owner at boot and during a restore must b
 about 11.6 KB off the worst case, to about 12 KB on a 24 KB stack. sysex_commit's 5,084 B frame is the same
 pattern. Not changed in this branch: it is a lifetime question, not a size one.
 
+### After the fix (0.7.2, branch sonnet-work)
+
+Done in the source, from the frame list above:
+
+- `shared_boot` keeps ONE function-scope `up_bank_t` scratch (4,292 B). The repair loop and the FM sidecar loop each had
+  a copy in a scope of their own; the sidecar loop now copies a bank only when it migrates. Worst case -4,292 B.
+- The Prophet banks' migration and its 3,600 B `p5_bank_t old` exist only with `MELODEE_P5`. Orange Cat's engine set
+  has it off. Worst case -3,600 B in the shipping build.
+- `up_save_bank`'s 3,760 B disk image **stays**. Its source is the cached bank, which is `bank_buf` itself, so staging
+  the image in `bank_buf` would copy a buffer onto itself; moving it needs a second buffer or a rewrite of how the
+  disk form is built, and that is not a cleanup. The frame is still one call deeper than the shared scratch.
+- `sysex_commit`'s 5,084 B frame is not changed (a lifetime question, as before).
+
+Result in the source: about 7.9 KB off the static worst case in the shipping build (the audit's estimate was 11.6 KB
+with the disk image). The static bound itself was **not re-measured**: it came from the disassembly of a local build
+(build/melodee.dis), and CI publishes sizes, not the disassembly. The change is visible in CI only as the image:
+512,372 B with the fix (exp/sonnet-s2) against 512,452 B before it (exp/sonnet-s1), RAM .data+.bss 92,728 B, arena
+95,808 B and pool 176,768 B unchanged. The preset, boot, storage and backup host tests give the same results in both
+engine sets. The next stack step is the disk image above, with the unit's high-water mark read from the guard if it can
+be had.
+
 ## The largest remaining costs
 
 In the combined branch, flash:

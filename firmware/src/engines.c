@@ -47,6 +47,19 @@ static const engine_t ENG_RETIRED = {         /* 13 without MELODEE_SLICE: reser
 /* Each track owns only its selected engine's working state. Simple engines
  * use voice_t alone. State is released after the old engine's switch fade. */
 #include "resources.c"
+/* (Orange Cat 0.8.0, step 6) the services a loadable engine would be given (fw_api.h). Unused by the image: the compiler drops
+ * the table and its wrappers; tests/fw_api_test.c reads them. */
+#include "oc_pack.h"
+#include "fw_api.h"
+#define FW_UNUSED __attribute__((unused))
+static FW_UNUSED void *fw_mem_copy(void *d, const void *s, uint32_t n) { return memcpy(d, s, n); }
+static FW_UNUSED void *fw_mem_set(void *d, int c, uint32_t n) { return memset(d, c, n); }
+static FW_UNUSED void *fw_resource_get(uint32_t id, uint32_t bytes) { return resource_get(id, bytes); }
+static FW_UNUSED int32_t fw_tuning_log(void) { return tuning_log(); }
+static FW_UNUSED const fw_api_t FW_API = {
+    FW_API_MAGIC, sizeof(fw_api_t), FW_API_VERSION, 0,
+    fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
+};
 static uint32_t eng_state_size(uint32_t e)
 {
     switch (e) {

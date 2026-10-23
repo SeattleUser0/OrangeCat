@@ -1,10 +1,15 @@
 # Orange Cat tracker architecture review
 
-**Version:** 0.1
+**Version:** 0.2
 **Date:** October 23, 2026
 **Branch:** `tracker-events` (on `size-audit`; also on `size-audit-gui` with the GUI work). Not merged.
 **Reviewed at:** main 19271b0 (0.6.2) and the combined branch; GPT's notes on fx-jiant at the same commit were checked
 against the code and hold.
+
+Revisions:
+- 0.2 (0.7.2, branch sonnet-work): step 1 of the overnight list done: one event edit primitive and one delete path for
+  a recorded step's events (section "What was changed, second step"); the table "Where views still differ" corrected.
+- 0.1: first version, with the 0.7.1 change.
 
 ## The intended design
 
@@ -104,6 +109,33 @@ Measured on the target (CI, the shipping configuration, against `size-audit` at 
 It costs flash rather than saving it: the tracker gained a capability it did not have. The review's hypotheses about
 savings are answered below.
 
+## What was changed, second step: one primitive, one delete path (0.7.2)
+
+Two edits, host tested, no format changed.
+
+**1a. One event edit primitive** (seq_undo.c: `event_open`, `event_replace`, `event_delete`). Four sites each wrote out
+the same sequence (end and close the pending edit, interrupts off, resync, record the removed event and its replacement
+in the step history, remove and restore, rebuild the overview's cells, accept the generation): `notes_event_edit` and
+`notes_delete_edit` (NOTES and the tracker) and `drum_hit_edit` and `drum_hit_delete` (the pads). They now call the
+primitive. The pads patch their cell where NOTES rebuilds the overview, so the primitive takes flags (EV_REBUILD,
+EV_MARK, EV_FOLLOW, EV_NEXT) and each caller keeps what it did. The host tests (NOTES, the tracker events, the pads,
+note tools) pass unchanged. Cost: see the table below.
+
+**1b. A manual overwrite of a recorded step deletes the step's events through the history** (`events_delete_view` in
+seq_undo.c, one history entry each, the last one joining the overwrite's own entry), instead of clearing SF_RECORDED and
+leaving the events for `recording_prune`. The sites: `tracker_entry_notes`, `seq_entry_notes`, `grid_hit` and the step
+delete. UI test: the events are gone from the pool, the next step's event is untouched, and EDIT held brings every
+event back byte for byte in three undos.
+
+**A correction to the 0.1 text.** The table below said a key on a recorded step replaces the whole step. The
+dispatcher refuses a key there ("STOP TO EDIT", ui_input.c), so the two entry sites (`tracker_entry_notes`,
+`seq_entry_notes`) are not reached by a key today, and the test calls them directly. The reachable overwrite is EDIT
+in the tracker's VEL column. The path is now right for whichever way a key is allowed later.
+
+Measured (CI, .ci_quick, exp/sonnet-s1, against f6394df at 512,164 B): +288 B of flash (512,452 B), 0 RAM. 1a alone
+(exp/sonnet-1a) is +16 B (512,180 B), so the primitive pays for itself within 16 B; 1b costs the remaining +272 B (the
+history entries and the view delete). The cleanup saves no flash, as the review expected: the duplication was under 1 KB.
+
 ## The savings hypotheses, measured or bounded
 
 1. **Shared edit operations.** The manual paths of `step_edit` (the step page) and `tracker_edit` (the tracker) repeat
@@ -165,10 +197,10 @@ For the record, after 0.7.1, by input origin:
 | Onset within the step | converts to an event (fine LENGTH, moves) | NOTES, a sixteenth |
 | Chance, slide | yes | yes |
 | Ratchet, flam, condition, nudge, accent | yes | no: the sequencer skips them for recorded steps (seq.c) |
-| A key on the step | replaces the column (TRACKER) or the step | replaces the whole step; the events are reclaimed later |
+| A key on the step | replaces the column (TRACKER) or the step | refused by the dispatcher ("STOP TO EDIT"); the entry code deletes the events through the history since 0.7.2 |
 | Delete one note | yes | yes (NOTES, TRACKER) |
 
-The ratchet row and the key row are the remaining input-origin differences. Ratchet and the others are a sequencer
+The ratchet row is the remaining input-origin difference; the key row is closed in the code (1b) and moot in practice. Ratchet and the others are a sequencer
 change (apply the step's properties to its events' onsets: a design question for the nudge and ratchet of a chord
 with three onsets); the key is the one-authority cleanup below.
 
@@ -177,5 +209,7 @@ with three onsets); the key is the one-authority cleanup below.
 - On the unit: the tracker on a live recording (the rows while recording, the knobs after), the feel of KNOB 4 at a
   step a detent, REC rows.
 - The consolidation in point 3, after the pads' editor is shared (point 1).
-- Keys on a recorded step: today they replace the step (the events are reclaimed later). With the shared delete they
-  would delete the events through the history, so EDIT held brings the recording back.
+- Keys on a recorded step: refused today; 0.7.2 made the entry code delete the events through the history, so EDIT
+  held brings the recording back if keys are ever allowed there.
+- Ratchet, flam, condition, nudge and accent on recorded steps: a sequencer change (the design question for a chord
+  with three onsets), not attempted.

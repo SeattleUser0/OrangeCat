@@ -1,7 +1,7 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.6.0 (branch fx-jiant, not released)
-**Date:** October 22, 2026
+**Firmware:** 0.8.0 (branch sonnet-work, not released, not yet tried on the unit)
+**Date:** October 23, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
 
@@ -270,6 +270,33 @@ have no new match and are dropped, so old projects will sound different. The lev
 The FM-1 keeps one user sample slot in its own flash, as large as one of Felucca's three (81,408 bytes, about 7
 seconds of mono). It took 22 sectors from the phrase store, which now has 34. Load it from a computer with
 tools/fm1_sample_upload.py (load NAME file.wav ...). Nothing plays it yet: a sample engine comes later.
+
+## The asset pack (0.8.0)
+
+SHAPES and MACRO read their big tables from a small file kept in the unit's flash. That file is the asset pack. It
+comes with each release as orangecat-VERSION.pak. It has to match the firmware.
+
+Without the pack, SHAPES and MACRO make no sound. The screen says PACK MISSING when you pick one or play a key on it.
+Everything else works. Your projects and sounds are not touched.
+
+Install it from the computer:
+
+1. Stop the sequencer.
+2. Open the web editor and go to the Settings tab. The Asset pack box is there when the firmware has it.
+3. Press Install pack and pick the .pak file. The page checks that it matches this firmware before it sends anything.
+4. If your user sounds in library banks 16 to 20 are in use, the page asks first. The pack uses that space and erases
+   those banks. Say no and nothing changes.
+
+Install it from the card:
+
+1. Stop the sequencer.
+2. Put the .pak file on the card. Any folder works.
+3. Open the clip browser (MIXER, then OCT+ held, Assign clip). The .pak shows with the value Pack.
+4. Pick it and press OCT+. If banks 16 to 20 hold sounds, the screen says "Uses banks 16-20: again". Press OCT+ on the
+   same file again to go on.
+
+Erase pack in the web editor takes it out again and gives the banks back, empty. Do not unplug during an install. If
+power is lost, the pack reads as missing and you install it again. Nothing is ever half installed.
 
 ## Saving and loading
 

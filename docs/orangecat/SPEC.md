@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.19  
+**Version:** 0.20  
 **Date:** October 23, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.20 (October 23, 2026):** The asset pack built (0.8.0, branch sonnet-work, not on the unit yet; 8.4): 57 tables, 40,232 bytes, in the Prophet bank area; installed from the web editor or from a .PAK file on the card; checked at boot; without it SHAPES and MACRO are silent and the screen says PACK MISSING. The flash map corrected: the retired engines' areas are the shared user preset library's banks 4, 5 and 8 to 20, not free; the pack takes banks 16 to 20 and asks first. Runtime engine retirement (storage.c). DRUM-X measured as a lower bound: about 4.4 KB of flash for the voice and 608 B of state a track.
 - **0.19 (October 23, 2026):** Loadable engines (8.4) rewritten from the plan (docs/orangecat/ENGINE_LOADING_PLAN.md 0.4): the web configurator is the primary way to install, replace, remove and assign engines; the card is a second transport; the module format, placement, the interface identifier, install against activate, the flash map, asset packs; not every engine need be a module. The tracker edits recorded notes (6.1, 0.7.1); where the views still differ by input origin (5.2). The flash figures of 2.1.1 brought up to date.
 - **0.18 (October 22, 2026):** Takes in project folders, moved when a project is named or renamed; a card browser to assign a WAV to a phrase (10.6, 0.6.1 on branch fx-jiant).
 - **0.17 (October 22, 2026):** The effects are Jiant FM's (9.3.1, on the fx-jiant branch, not released): per-track DIST and AUTO PAN, shared DELAY, five REVERBs, CHORUS, SLICER, master chain and punch-in effects. One internal user sample slot of a Felucca slot's size (10.5). Projects FUN23 (11.2).
@@ -64,7 +65,7 @@ Taken from the Melodee and Skiff source and Melodee's storage notes:
 | Processor | JieLi AC791N (WL82), two pi32v2 cores, single-precision FPU (float only, no libm) |
 | Flash | 1 MiB SPI NOR (Puya, JEDEC 0x856014). No larger part exists for this board. |
 | App code area | 573,440 bytes for the application body (the boot stub and the commit marker are outside it), executed in place from flash. 512,164 bytes used with the GUI work, the size audit and the tracker change (October 23, 2026): 65,084 free. |
-| User data area | 436 KB above 0x93000: the record store (projects, phrases, timed notes, the frozen table), the sample slot, user presets, settings, the update staging; 120 KB of it is retired engine banks, free for the asset pack (40 KB) and engine modules (80 KB), see 8.4 |
+| User data area | 436 KB above 0x93000: the record store (projects, phrases, timed notes, the frozen table), the sample slot, user presets, settings, the update staging; 120 KB of it is the retired engines' bank objects (Prophet 40 KB, CZ-1 64 KB, native FM6 16 KB); the shared user preset library keeps its banks 4, 5 and 8 to 20 there, so the asset pack (40 KB, built) takes banks 16 to 20 and engine modules (80 KB) would take 4, 5 and 8 to 15, each after asking; see 8.4 |
 | SRAM | 96 KB for data and variables, about 336 KB pool for audio buffers and engine state, plus a small RAM code region |
 
 Flash is the binding limit on the engine catalogue, factory sounds, samples, and bounces. Melodee 1.2 had to remove engines, legacy formats, and user samples to fit. Every addition shall report its flash and RAM cost.
@@ -423,10 +424,16 @@ Design:
 
 - **One flash map.** The asset pack takes the retired Prophet banks (0x93000, 40 KB); engine modules take the
   retired CZ-1 and FM6 banks (0xC8000, 80 KB, twenty sectors of 4 KB). The application boundary does not move;
-  the stub and the update loader are unchanged.
-- **Asset pack first.** The SHAPES and MACRO tables (39,776 bytes) leave the image and are read in place from the
-  pack through the plaintext flash window the sample slot already uses. Without the pack those engines play
-  silent with a message; everything else works.
+  the stub and the update loader are unchanged. Those banks are the user preset library's (banks 16 to 20, 8 to 15,
+  4 and 5): taking an area means the library gives those banks up, so an install asks first, and while the area is
+  taken the library reads them empty and cannot save into them (storage.c `st_retire_engines`, run time; the build
+  does not retire them by itself). The map is in storage.c's top comment and hal/fm1_flash.h (FL_PACK_*, FL_MODULE_*).
+- **Asset pack first (built, 0.8.0).** The SHAPES and MACRO tables (57 tables, 40,232 bytes) leave the image and
+  are read in place from the pack through the plaintext flash window the sample slot already uses. The pack is a
+  512-byte header (magic, version, table hash, length, CRCs) and the tables; the firmware accepts only a pack with
+  its own hash. Installed from the web editor (commands 115 to 119) or from a .PAK file in the card browser, only
+  while the transport is stopped, header last. Without the pack those engines play silent and the screen says PACK
+  MISSING; everything else works. The image fell by 35,084 bytes.
 - **Modules.** A module is an engine's code and metadata linked for a fixed address, with a header: magic, the
   interface identifier, the engine's number, version, length, state size, voice units, CRC. One package file holds
   the variants an engine needs (one image per permitted start: a 6-sector engine has three, a 10-sector one two);
@@ -445,10 +452,11 @@ Design:
   it on the next start.
 - **Not every engine need be a module.** Moving code to the area frees the body and fills the area; the flash is
   the same. Which engines stay built in is decided on measured sizes (MACRO 38.2 KB of code and metadata, SHAPES
-  21.7 KB, the Prophet 30.2 KB plus its tables, DRUM 51.4 KB and 33.5 KB of RAM; DRUM-X not yet measured).
+  21.7 KB, the Prophet 30.2 KB plus its tables, DRUM 51.4 KB and 33.5 KB of RAM; DRUM-X's voice about 4.4 KB of
+  flash and 608 B of state a track in the arena, about 8 to 9 KB estimated whole; see the plan).
 
-Order: the shared-editor cleanup and the stack fix, DRUM-X measured, the flash map adopted, the asset pack, then
-SHAPES as a module installed from the page and running after the computer is unplugged and the FM-1 restarted,
+Order: the shared-editor cleanup and the stack fix, DRUM-X measured, the flash map adopted, the asset pack (these
+four done in 0.7.2 and 0.8.0, off the unit), then SHAPES as a module installed from the page and running after the computer is unplugged and the FM-1 restarted,
 then the engines tab, the admission check and the card.
 
 ## 9. Modulation, Mixing, and Effects
