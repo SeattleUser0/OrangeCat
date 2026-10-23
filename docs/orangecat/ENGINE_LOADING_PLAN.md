@@ -138,22 +138,33 @@ comes after the first modules exist.
 
 Internal flash above the app area, what is in use and what is free (storage.c, oc_store.c, smp_slot.c, upreset.c):
 
-| Range | Size | Today | Plan |
-|---|---|---|---|
-| 0x93000..0x9CFFF | 40 KB | Prophet user banks, retired (nothing writes them) | **asset pack** |
-| 0x9D000..0x9EFFF | 8 KB | shared preset extension | kept |
-| 0x9F000 | 4 KB | FM6 patch bank copy A, retired | spare |
-| 0xA0000..0xB1FFF | 72 KB | the record store (projects, phrases, their timed notes) | kept |
-| 0xB2000..0xC7FFF | 88 KB | the internal sample slot | kept |
-| 0xC8000..0xDBFFF | 80 KB | CZ-1 banks and native FM6 banks, retired | **engine modules** |
-| 0xDC000..0xDFFFF | 16 KB | user preset banks | kept |
-| 0xE0000..0xE4FFF | 20 KB | update loader staging | kept |
-| 0xE5000..0xE8FFF | 16 KB | user preset extension | kept |
-| 0xE9000 | 4 KB | FM6 user extension A, retired | spare |
-| 0xEA000..0xF9FFF | 64 KB | the record store's extension | kept |
-| 0xFA000 | 4 KB | FM6 user extension B, retired | spare |
-| 0xFC000..0xFDFFF | 8 KB | settings | kept |
-| 0xFE000 | 4 KB | FM6 patch bank copy B, retired | spare |
+| Range | Sectors | Object | What it holds today | Pair | Free |
+|---|---|---|---|---|---|
+| 0x93000..0x9CFFF | 10 | OBJ_P5BANK0..+4 | library banks 16 to 20 (slots 288 to 377); the pack's place when one is installed | 5 A/B pairs, interleaved (A at 0x93000, B at 0x94000, ...) | no |
+| 0x9D000..0x9EFFF | 2 | OBJ_SHARED_EXT | library bank 21 (slots 378 to 383, six slots) | 1 pair | no |
+| 0x9F000 | 1 | OBJ_FM6BANK copy A | library bank 6 (slots 108 to 125) | pair with 0xFE000 | no |
+| 0xA0000..0xB1FFF | 18 | record store sectors 0 to 17 | projects, pattern pool, phrases | store | no |
+| 0xB2000..0xC7FFF | 22 | record store sectors 18 to 39 | the same, or the internal sample slot once it is claimed | store | no |
+| 0xC8000..0xD7FFF | 16 | OBJ_CZBANK0..+7 | library banks 8 to 15 (slots 144 to 287) | 8 A/B pairs | no |
+| 0xD8000..0xDBFFF | 4 | OBJ_NATIVEFM0..+1 | library banks 4 and 5 (slots 72 to 107) | 2 A/B pairs | no |
+| 0xDC000..0xDFFFF | 4 | OBJ_UPRESET0..+1 | library banks 0 and 1 | 2 A/B pairs | no |
+| 0xE0000..0xE4FFF | 5 | the update loader's | staged loader | none | no |
+| 0xE5000..0xE8FFF | 4 | OBJ_UPRESET_EXT0..+1 | library banks 2 and 3 | 2 A/B pairs | no |
+| 0xE9000 | 1 | OBJ_UPFM6_EXT copy A | library bank 7 (slots 126 to 143) | pair with 0xFA000 | no |
+| 0xEA000..0xF9FFF | 16 | record store sectors 40 to 55 | the store's extension | store | no |
+| 0xFA000 | 1 | OBJ_UPFM6_EXT copy B | library bank 7 | pair with 0xE9000 | no |
+| 0xFB000 | 1 | none | nothing. Inside the loader's record range, outside FL_STORE_OK (FL_BANK_EXT_HI), so the drivers refuse it today | none | **yes, one sector** |
+| 0xFC000..0xFDFFF | 2 | OBJ_SETTINGS | settings | 1 pair | no |
+| 0xFE000 | 1 | OBJ_FM6BANK copy B | library bank 6 | pair with 0x9F000 | no |
+| 0xFF000 | 1 | none | the part's last sector. Outside FL_GLOB_HI and outside the loader's range; README.md warns that even TransitFM1 may not protect it. Not used | none | not offered |
+
+109 sectors from 0x93000 to 0xFFFFF. The library (22 banks, 384 slots) holds 44 of them: all of the table's A/B pairs
+except the settings. The 0.5 version of this table called 0x9F000, 0xE9000, 0xFA000 and 0xFE000 "spare, retired". They are
+not: they are library banks 6 and 7, which upreset.c keeps in the old FM6 objects. That was an error in 0.5.
+
+Counts: banks 4, 5 and 8 to 20 are 15 banks, two sectors each, **30 sectors**: exactly the PACK area (10) and the
+MODULE area (20). Free sectors outside those two areas: **one** (0xFB000), and it is not a pair. Banks that fit
+elsewhere without a format change: **none** (each needs a pair; the part has one free sector).
 
 **Correction (0.5, found while building the pack).** The three retired areas are not empty in the shipping firmware.
 The shared user preset library (upreset.c, 384 slots in banks of 18) keeps its banks in those objects: `up_obj(b)` maps
@@ -174,9 +185,67 @@ no engine writes them, not that the library does not. Consequences, all built or
   hold 38,400), so its generator moves the tables on by four bytes until no tail passes the loader's record test
   (probability about 2^-32 a sector, never needed so far), and the installer tests the same rule.
 
-Free: 40 KB in one piece, 80 KB in one piece, and four 4 KB sectors apart. The pack takes the 40 KB; the modules get
-the 80 KB; the pack and the modules never share a byte. If the Prophet comes back as a module with user banks, those
-banks need a home too (the four spare sectors hold two A/B pairs; more needs the record store's rules, or the card).
+### Where the library's banks can go (0.6, Fix 1 of the second night)
+
+The question: can banks 16 to 20 leave the PACK area, and banks 4, 5 and 8 to 15 the MODULE area, so that neither the
+pack nor a module ever erases a preset? The answer from the table above is no, not without changing how a bank is
+stored. A bank is an A/B pair (two sectors), the 15 banks need 30 sectors, and the part has one free sector outside
+the two areas. So nothing moved, and 1b and 1e (the migration, and the build-time retirement of the five Prophet
+objects) were not built. Today's behaviour stays: the pack installer asks first, and only when one of banks 16 to 20
+holds a record.
+
+What each install costs the library today (slots lost; a bank is 18 slots, bank 21 is 6):
+
+| Install | Banks erased | Slots lost | Of 384 |
+|---|---|---|---|
+| the pack (10 sectors) | 16 to 20 | 90 | 23% |
+| SHAPES module at start 0 (6 sectors) | 8, 9, 10 | 54 | 14% |
+| MACRO module (10 sectors) | 8 to 12 | 90 | 23% |
+| MACRO and SHAPES (16 sectors) | 8 to 15 | 144 | 38% |
+| a 20 sector set | 4, 5 and 8 to 15 | 180 | 47% |
+| the pack and a 20 sector set | 4, 5 and 8 to 20 | 270 | 70% (114 remain: banks 0 to 3, 6, 7, 21) |
+
+The options:
+
+- **(a) Keep it (today).** Nothing to build. The pack costs the banks that hold records, after a question. A module
+  install would have to ask the same question for its banks. No format change, no new risk.
+- **(b) Shrink the module area.** One module sector costs 9 slots, whatever the arrangement. Ending the area at
+  0xD7FFF (16 sectors) keeps banks 4 and 5 (36 slots) and still holds MACRO and SHAPES together, nothing more. A
+  10 sector area (one large module) keeps banks 13 to 15 as well as 4 and 5 (90 slots). It costs module room and
+  nothing else.
+- **(c) One sector a bank, no spare.** 22 banks in 22 sectors frees 22. A power cut between the erase and the header
+  loses the whole bank (up to 18 slots, including ones the user was not saving); today a cut costs only the save in
+  progress. A format change (object layout, migration). Not built, and not recommended: (d) saves nearly the same
+  space and keeps the safety.
+- **(d) A shared spare sector.** Banks live in a group of K+1 sectors. A save writes the bank into the group's spare
+  sector, header last (the same commit rule as storage.c), and the sector the bank leaves becomes the spare. At boot
+  each sector's header (it already names the object in `type`) says which bank it holds, and the newest valid seq per
+  bank wins. A cut leaves the previous copy in charge, as the pair does. The bank bytes do not change. 22 banks in 23
+  sectors instead of 44 frees **21 sectors**; wear spreads over 23 sectors instead of 2 per bank. What changes:
+  the header check (today it requires `slot` to equal the sector's place in its pair, storage.c line 208), the
+  object-to-sector lookup (a 23 entry table built at boot, about 100 B of RAM), and a downgrade to a firmware that
+  does not know the scheme may not find a bank that has rotated out of its pair. It is a placement format change, so it
+  needs a migration test (pairs in, group out) and your say.
+- **(e) Take sectors from the record store.** The store has 56 sectors (34 with the sample slot claimed), and a full
+  pool alone could use more than that (16 chunks of up to 12 sectors). It has no spare to give.
+- **(f) The application slack.** The loader writes every sector of 0x4000..0x92FFF on each update (ldr_core.c step 3),
+  so the 99,892 B of image slack is overwritten by an update. Not usable for data.
+
+What the sectors would buy under (d): the library in 23 sectors leaves 22 of the 45 usable sectors (44 plus 0xFB000)
+for the pack and modules. The pack (10) and SHAPES (6) fit with 6 spare; the pack and MACRO (10) fit with 2 spare; the
+pack, MACRO and SHAPES (26) do not, by 4 sectors. Without (d) no arrangement keeps every preset: the pack alone needs the ten sectors
+that banks 16 to 20 hold.
+
+**Recommendation: (a) for the pack, now; (d) before the first module is installed.** The pack's cost is a question
+the user answers, and the editor and the card browser already ask it. A module install would repeat the question for
+54 to 180 slots, so (d) is the milestone-2 prerequisite. (b) is the fallback if (d) is not wanted: it is free, but it
+caps the module set at 16 sectors. (c) is dominated by (d) and not recommended. Nothing here is built.
+
+**What the module milestone needs from banks 4, 5 and 8 to 15.** The module area is exactly those ten pairs. A
+module at start 0 (0xC8000) displaces banks 8 upward, two sectors a bank; banks 4 and 5 (0xD8000) go only with a
+17 to 20 sector set. Until (d), a module install must ask as the pack does, for the banks its span covers that hold
+records, and must refuse while the user has not agreed. The 20 sector module area is all or nothing for the library
+otherwise.
 
 ## Milestone 1: asset packs
 
