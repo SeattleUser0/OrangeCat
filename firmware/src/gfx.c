@@ -775,57 +775,11 @@ static void cv_dashed(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uin
     }
 }
 
-/* ------------------------------------------------- 4-bit alpha blit --- */
-/* coverage curves: a little heavier for light ink on dark, lighter for dark ink on light */
-static const uint8_t CURVE_DARK[16] = {0, 24, 43, 62, 80, 97, 114, 130, 147, 163, 178, 194, 210, 225, 240, 255};
-static const uint8_t CURVE_LIGHT[16] = {0, 12, 27, 42, 58, 75, 91, 109, 126, 144, 162, 180, 199, 217, 236, 255};
-#define NRAMP 6u
-static struct {
-    uint16_t fg[NRAMP], bg[NRAMP], v[NRAMP][16];   /* v: byte-swapped panel values */
-    uint32_t gen;
-    uint8_t next, n;
-} rc;
-
-static const uint16_t *ramp(uint16_t fg, uint16_t bg)
-{
-    static const uint8_t SH[3] = {11, 5, 0}, MK[3] = {31, 63, 31};
-    const uint8_t *cv = ux.light ? CURVE_LIGHT : CURVE_DARK;
-    uint32_t i, a, k;
-    uint16_t *v;
-    if (rc.gen != ux.gen) {
-        rc.gen = ux.gen;
-        rc.n = rc.next = 0;
-    }
-    for (i = 0; i < rc.n; i++)
-        if (rc.fg[i] == fg && rc.bg[i] == bg)
-            return rc.v[i];
-    i = rc.next;
-    rc.next = (uint8_t)((i + 1u) % NRAMP);
-    if (rc.n < NRAMP)
-        rc.n++;
-    rc.fg[i] = fg;
-    rc.bg[i] = bg;
-    v = rc.v[i];
-    for (a = 0; a < 16u; a++) {
-        uint32_t out = 0;
-        if (ux.mono) {
-            int32_t x = bg >> 11;
-            out = ux_gray((uint32_t)(x + ((((fg >> 11) - x) * (int32_t)cv[a] + 128) >> 8)));
-        } else {
-            for (k = 0; k < 3u; k++) {
-                int32_t x = (bg >> SH[k]) & MK[k], y = (fg >> SH[k]) & MK[k];
-                out |= (uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)) << SH[k];
-            }
-        }
-        v[a] = swap16(out);
-    }
-    return v;
-}
-
-/* text over a picture (the Stage's notes over the waveform): with cv_over set, a glyph's pixel blends cv_over_fg into
- * the pixel already on the canvas, with the ramps' coverage curve, instead of taking a ramp's colour over a flat bg */
-static uint8_t cv_over;
-static uint16_t cv_over_fg;
+/* ------------------------------------------------------------ blend --- */
+/* (Orange Cat 0.7.0) the 4-bit alpha path is gone: text and icons are 1 bit (cv_pix). With it went the coverage curves,
+ * the cached ramps (6 x 16 colours a (ink, background) pair), cv_alpha and cv_over (text blended over a picture: at
+ * 1 bit a glyph's pixel is the ink, over anything). What still blends (rounded corners, discs, the wave's trace, the
+ * dimmed page) uses mix565. */
 /* fg over bg, a of 32 (0..32): the three channels at once, spread apart in a word (no division); MONO on the red
  * channel, so it stays gray */
 static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a)
@@ -840,36 +794,8 @@ static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a)
     b = (b + (((f - b) * a) >> 5)) & 0x07E0F81Fu;
     return (uint16_t)(b | b >> 16);
 }
-static uint16_t cv_over_px(uint16_t under, uint32_t v)       /* under: the canvas pixel (byte-swapped), v: 1..15 */
-{
-    return swap16(mix565(swap16(under), cv_over_fg, ((ux.light ? CURVE_LIGHT : CURVE_DARK)[v & 15u] + 4u) >> 3));
-}
-
-/* w x h nibbles, rows back to back, at canvas (x, y) */
-static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint16_t *rv)
-{
-    uint32_t k = 0, gx, gy;
-    y += CV_OY;
-    for (gy = 0; gy < h; gy++) {
-        int32_t py = y + (int32_t)gy;
-        uint16_t *row;
-        if (py < cv_cy0 || py >= cv_cy1) {
-            k += w;
-            continue;
-        }
-        row = cv_px + (uint32_t)py * cv_w;
-        for (gx = 0; gx < w; gx++, k++) {
-            uint32_t v = (d[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
-            int32_t px = x + (int32_t)gx;
-            if (v && (uint32_t)px < cv_w)
-                row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
-        }
-    }
-    GFX_HOOK_PIXELS(w * h);
-}
-
-/* a Melodee Pixel glyph: w x h font pixels, 1 bit each (MSB first, rows back to back), each s x s canvas pixels at
- * (x, y); ink c (byte-swapped; cv_over: over the canvas) */
+/* a Melodee Pixel glyph or an icon: w x h font pixels, 1 bit each (MSB first, rows back to back), each s x s canvas
+ * pixels at (x, y); ink c (byte-swapped) */
 static void cv_pix(int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t s, const uint8_t *d, uint16_t c)
 {
     uint32_t k = 0, gx, gy, j;
@@ -893,7 +819,7 @@ static void cv_pix(int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t s, con
                 if (px < 0) px = 0;
                 if (e > (int32_t)cv_w) e = (int32_t)cv_w;
                 for (; px < e; px++)
-                    row[px] = cv_over ? cv_over_px(row[px], 15u) : c;
+                    row[px] = c;
             }
             gx += n;
             k += n;
@@ -968,7 +894,6 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
     const uint16_t ink = swap16(fg);
     int32_t pen = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF, px = f->px;
     (void)bg;
-    cv_over_fg = fg;                                 /* (cv_over: blended over the canvas) */
     for (; *s; s++) {
         aag_t g = f->g[glyph(f, fold(f, (uint8_t)*s))];
         if (AG_BW(g)) {

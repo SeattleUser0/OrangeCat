@@ -129,7 +129,7 @@ static void stage_wave(uint16_t c, int32_t top, int32_t h)
 }
 
 /* the notes the selected track played (live_last: its last voicing, held or let go), the chord they make, in front of
- * what is on the canvas (cv_over), capitals centred on row cy: the chord (the text face), then the notes (the label
+ * what is on the canvas (0.7.0: 1-bit text, the ink over anything), capitals centred on row cy: the chord (the text face), then the notes (the label
  * face, the track's colour). Held: in text; let go: faded into the background. 0 none, 1 let go, 2 held */
 static int stage_notes(int32_t x1, int32_t cy)
 {
@@ -179,7 +179,6 @@ static void stage_hits(void)
 {
     uint32_t l;
     const aafont_t *lf = TY_LB;
-    cv_over = 0;
     for (l = 0; l < NLANE; l++) {
         int32_t xc = 4 + 29 * (int32_t)l + 14;
         int lit = stage.hit_t[l] != 0u;
@@ -276,14 +275,10 @@ static void stage_band(void)
         for (i = 0; i < 4u; i++) held |= live_held[sel][i] != 0u;
         fm1_irq_on();
     }
-    cv_over = 1;                                        /* (blended over what is there) */
     if (drum)
         stage_hits();
-    else if (!stage_notes(228, ST_BAND_H / 2)) {        /* nothing played yet: the waveform alone */
-        cv_over = 0;
+    else if (!stage_notes(228, ST_BAND_H / 2))          /* nothing played yet: the waveform alone */
         stage_wave(ux_mix(T_BG, T_THEME, 45), 1, ST_BAND_H - 2);
-    }
-    cv_over = 0;
     (void)held;
     cv_blit(0, ST_BAND_Y);
 }

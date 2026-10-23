@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Icons: 4-bit alpha cells of Melodee's own drawings (tools/gen_icons.py -> build/gen/ui_icons.h; the enum names
- * from assets/icons.json), 12 px (lists, cells), 16 px (header, dialogs, menu) and 24 px (the battery).
+/* Icons: cells of Melodee's own drawings (tools/gen_icons.py -> build/gen/ui_icons.h; the enum names from
+ * assets/icons.json), 12 px (lists, cells) and 16 px (header, dialogs, menu).
+ * (Orange Cat 0.7.0) only the icons the screens draw are made (2 at 12 px, 14 at 16 px, none at 24 px: 61 + 34 + 7
+ * cells before), at 1 bit a pixel, drawn like the text (gfx.c cv_pix): 11,153 B to 746 B. An icon without a cell is
+ * not drawn (cv_icon_on returns 0).
  * Parameter icons are off (MELODEE_ICONS 0: the labels have their full width, in the track's colour); MELODEE_ICONS=1
  * brings back the label lookup below, for the parameter icons that have drawings. */
 #include "ui_icons.h"
@@ -14,12 +17,12 @@
 /* the circled numeral of track k (filled: the selected one), 12 or 16 px: tracks have no colours */
 static uint32_t trk_icon(uint32_t k, int filled) { return (filled ? ICON_X_TRK1 : ICON_X_TRK1_O) + k % NTRK; }
 
-/* icon id at size 12, 16 or 24 px (24: the header battery and USB; one missing: its 12 px cell),
+/* icon id at size 12 or 16 px (one missing at 16: its 12 px cell),
  * fg on bg; returns its width */
 static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint16_t fg, uint16_t bg)
 {
-    const uint8_t *idx = size == 24u ? AI24_IDX : size == 16u ? AI16_IDX : AI12_IDX;
-    const uint8_t *dat = size == 24u ? AI24_DATA : size == 16u ? AI16_DATA : AI12_DATA;
+    const uint8_t *idx = size == 16u ? AI16_IDX : AI12_IDX;
+    const uint8_t *dat = size == 16u ? AI16_DATA : AI12_DATA;
     if (id >= ICON_COUNT)
         return 0;
     if (idx[id] == 0xFFu) {
@@ -29,21 +32,22 @@ static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint
         idx = AI12_IDX;
         dat = AI12_DATA;
     }
-    cv_alpha(x, y, size, size, dat + (uint32_t)idx[id] * (size * size / 2u), ramp(fg, bg));
+    (void)bg;                                           /* (0.7.0: 1 bit, the ink alone) */
+    cv_pix(x, y, size, size, 1u, dat + (uint32_t)idx[id] * (size * size / 8u), swap16(fg));
     GFX_HOOK_TEXT(x, y + CV_OY, x + (int32_t)size, y + CV_OY + (int32_t)size, "icon", 4u | (cv_dim || cv_under ? 16u : 0u));
     return (int32_t)size;
 }
 /* the same, its ink centred on row cy (header icons: each glyph sits differently in its cell) */
 static int32_t cv_icon_mid(int32_t x, int32_t cy, uint32_t size, uint32_t id, uint16_t fg, uint16_t bg)
 {
-    const uint8_t *idx = size == 24u ? AI24_IDX : size == 16u ? AI16_IDX : AI12_IDX;
-    const uint8_t *dat = size == 24u ? AI24_DATA : size == 16u ? AI16_DATA : AI12_DATA;
+    const uint8_t *idx = size == 16u ? AI16_IDX : AI12_IDX;
+    const uint8_t *dat = size == 16u ? AI16_DATA : AI12_DATA;
     int32_t top = -1, bot = 0, r, k;
     if (id < ICON_COUNT && idx[id] != 0xFFu) {
-        const uint8_t *c = dat + (uint32_t)idx[id] * (size * size / 2u);
+        const uint8_t *c = dat + (uint32_t)idx[id] * (size * size / 8u);   /* (0.7.0: 1 bit, a row 12 or 16 bits) */
         for (r = 0; r < (int32_t)size; r++)
-            for (k = 0; k < (int32_t)size / 2; k++)
-                if (c[r * (int32_t)size / 2 + k]) {
+            for (k = 0; k < (int32_t)size; k++)
+                if ((c[(r * (int32_t)size + k) >> 3] >> (7 - ((r * (int32_t)size + k) & 7))) & 1) {
                     if (top < 0) top = r;
                     bot = r;
                     break;
