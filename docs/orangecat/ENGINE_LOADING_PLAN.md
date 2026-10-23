@@ -1,11 +1,16 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.3
+**Version:** 0.4
 **Date:** October 23, 2026
 **Status:** a plan with budgets. Nothing here is built. Measurements are from docs/orangecat/SIZE_AUDIT.md and the
 symbol table of the audit-plus-tracker build; the engines' code is the same in every branch.
 
 Revisions:
+- 0.4: after a second review: a placement strategy for fixed-address modules (permitted start addresses, one package
+  holding every variant, the installer picks; fragmentation and replacement defined); an exact interface identifier
+  checked before registration; the size statements corrected (MACRO fits a 40 KB allocation; DRUM fits the headroom
+  and the area, its RAM is the question); installation and activation checked apart; not every engine need be a
+  module.
 - 0.3: the web configurator is the primary way to install and manage engines; the card is a second transport for
   the same installer. Requirements written down; the proof of concept must install from the computer and run after
   the computer is unplugged.
@@ -84,6 +89,46 @@ erase a module; the engine table reports a module engine as it reports a built-i
 the version and the sector count added). The page side is a tab in the editor: the list, a file picker, the
 progress, the assignment view. The protocol document (web/EDITOR_PROTOCOL.md) gets the commands.
 
+## Placement: fixed addresses without the user choosing a file
+
+A module is position-dependent code linked for where it will sit. The rule set:
+
+- The module area is 20 sectors of 4 KB at 0xC8000. The permitted start addresses are the sector boundaries, but a
+  module is linked for a short list of them, not all twenty: the engine package carries one image per **variant**,
+  and the variants are the starts that make sense for its size. A 6-sector module gets starts 0, 6 and 12 (three
+  variants); a 10-sector module starts 0 and 10 (two); a 16-sector one start 0 only. A package is one file
+  (`shapes-1.0.ocm`: a header, then each variant with its start, length and CRC); the user never sees addresses.
+- The installer (the FM-1, over the SysEx link or from the card) reads the free sectors, picks the first variant
+  whose span is free, and writes that one. The page shows the choice as "6 sectors at 1 of 20" and nothing else.
+- Replacement of the same engine writes the new package's matching variant in place when it fits the old span, or
+  erases the old one first and places the new one as a fresh install when it does not.
+- Fragmentation: with every module's start on its variant grid, two 6-sector modules and one 10-sector module can
+  always be placed (0 and 6, 10 or 12); when a free span exists but no variant fits it, the page says which engine
+  to move, and "move" is remove and install again (the FM-1 holds no copy of a package; the computer or the card
+  does). No compaction on the device.
+- A module whose package has no variant for any free span is refused before any write.
+
+## Compatibility: an exact interface identifier
+
+A module depends on more than `engine_t`: on the layouts of `track_t`, the voice and state structures its callbacks
+receive, the parameter ids, the shared tables it reads through the firmware table, and that table's own layout. Until
+the binary interface is deliberately frozen, the module header carries an **interface identifier** (a hash of the
+headers that define those layouts and of `fw_api_t`, computed at build time for the firmware and for each module),
+and the firmware registers a module only when the identifier is equal. A mismatch is "ENGINE NEEDS FIRMWARE x.y"
+on the page and in the menu, the engine stays uninstalled or disabled, projects that name it play silent as for any
+missing engine. A firmware update that changes the identifier disables every module until the matching packages are
+installed again; the page says so and offers them. Freezing a stable interface, with a version instead of a hash,
+comes after the first modules exist.
+
+## Installation and activation are two checks
+
+- Install: the interface identifier matches, a variant fits a free span, the CRC verifies. Nothing else. An installed
+  engine reserves no RAM: no state, no voices, nothing in the arena.
+- Activate (a track set to the engine, by the page, the menu or a project load): the engine's state size for that
+  track fits the arena beside the effects' memory and the other tracks' states (resources.c lends and reclaims per
+  track as it does today), its voice units within VBUDGET, its render cost within the budget. A refusal keeps the
+  track's previous engine and says why. An installed engine that no track uses costs flash sectors only.
+
 ## One flash map
 
 Internal flash above the app area, what is in use and what is free (storage.c, oc_store.c, smp_slot.c, upreset.c):
@@ -153,24 +198,26 @@ Flash wins: no RAM taken from the effects, the firmware's own precedent for engi
 verify and disable paths already exist for the sample slot. The PC guard (fm1_guard.h) is widened to the module area
 for instruction fetch.
 
-**What the 80 KB holds.** Not three fixed 40 KB slots: MACRO's code does not fit one and SHAPES' would waste half of
-one. The area is sectors (20 of 4 KB) handed out whole to modules by size, each module linked for its own start
-address (a build-time matter: a module image per start address it may use; two or three per engine). What fits
-together, by the measured sizes (code plus metadata, rounded up to sectors):
+**What the 80 KB holds.** Modules by size, placed as above (code plus metadata, rounded up to sectors): MACRO 38.2
+KB (10 sectors; it fits a 40 KB allocation, before the loader's own per-module overhead, which is bytes of header),
+SHAPES 21.7 KB (6), the Prophet 30.2 KB of code with its 7.2 KB of tables in flash instead of SRAM (10), DRUM
+51.4 KB (13 sectors: it fits the area, and it fits today's 65 KB of application headroom too; what it does not fit
+is RAM, about 33.5 KB of POOL for its resident kernels and buffers).
 
 | Set | Sectors | Fits 80 KB |
 |---|---|---|
-| MACRO (38.2 KB, 10) + SHAPES (21.7 KB, 6) | 16 | yes, 4 spare |
+| MACRO + SHAPES | 16 | yes, 4 spare |
 | MACRO + SHAPES + a 16 KB engine | 20 | just |
-| SHAPES + Prophet (30.2 KB code, its 7.2 KB of tables in flash instead of SRAM: 10) | 16 | yes |
+| SHAPES + Prophet | 16 | yes |
 | MACRO + Prophet | 20 | just |
 | MACRO + SHAPES + Prophet | 26 | no |
-| DRUM (51 KB code, and 33 KB of POOL) | 13 | alone, and not its RAM |
+| DRUM alone | 13 | yes (not its RAM) |
 
-So "about three" holds for small engines beside one large one, and two large ones fill the area. More room means
-the boundary move (SIZE_AUDIT.md item 3, +40 KB to the application body, which then holds the engines that stay
-built in) or a larger module area taken from the record store's extension (64 KB at 0xEA000; a storage change).
-Jiant's DRUM-X is not measured yet (below).
+**Not every engine need be a module.** Moving code into the area frees the application body and fills the area;
+the flash is the same. The sensible shape is built-in engines that every project can count on, and the area for
+the alternatives. After DRUM-X is measured, keeping it and one large synth (MACRO, say) built in, with the area
+holding SHAPES, the Prophet and a third 16 KB engine as the selectable set, gives more combinations than MACRO and
+SHAPES both in the area with 16 KB left for anything else. The choice is made on the measured numbers, in step 6.
 
 **The module image.** Built from the same sources with the same toolchain, as a second link: `-T slot.ld` placing
 `.text`, `.rodata` and the tables at the slot's address, no `.data` (constants only; state comes from the arena), one
@@ -231,10 +278,8 @@ beyond the replacement rule, no module API versioning beyond the header's number
 
 **Budget after both milestones** (from the combined build's 65,084 B free): the pack takes the tables out, about
 +39.8 KB; SHAPES as a module takes its code and metadata out, +21.7 KB; the loader and the pack's installer cost
-about 3 to 5 KB together. Free in the body: about 123 KB. MACRO as a module too: about 161 KB free, with the card,
-the effects, the sequencer and the screens in a core of about 410 KB. The module area then holds MACRO and SHAPES
-with 16 KB over; the Prophet or FM6 back means one of the large ones stays built in (there is room in the body) or
-the area grows.
+about 3 to 5 KB together. Free in the body: about 123 KB with SHAPES out, about 161 KB with MACRO out as well. Which
+engines stay built in is decided after DRUM-X is measured (above).
 
 **DRUM-X (Jiant FM's drum engine) as a resident default.** Not measured. Its cost is a port into this tree behind a
 switch and one CI build, as the other engines were measured; the number to get is its code, tables, metadata and
