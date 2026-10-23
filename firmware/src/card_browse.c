@@ -25,8 +25,14 @@
  *     project staging RAM (project.c proj_wire, borrowed while the browser shows them; another job using it there
  *     has the folder read again).
  *
+ * The asset pack (Orange Cat 0.8.0, oc_pack.c): the list shows the .PAK files too (value "Pack"); OCT+ on one installs it, if it
+ *   is this build's (the file's size and header agree with OC_PACK_LEN and OC_PACK_HASH). Library banks 16 to 20 are taken by a pack;
+ *   when any holds a preset the first OCT+ says so ("Uses banks 16-20: again") and the same OCT+ on the same file again goes on.
+ *   Only while stopped, as every flash write. The browser closes on success ("PACK INSTALLED").
+ *
  * Revisions:
  *   0.6.1: first version.
+ *   0.8.0: .PAK files listed and installed.
  */
 
 /* ---------------------------------------------------------------- naming --- */
@@ -153,6 +159,7 @@ enum { FB_OFF, FB_CARD, FB_LIST, FB_READY, FB_FAIL };
 static struct {
     uint8_t st, trk, gen, up;                           /* FB_*; the track; FB_GEN when listed; a ".." row first */
     uint8_t relist;                                     /* FB_FAIL over the list (a WAV refused): OCT+ / OCT- back to it */
+    uint8_t ask, packed;                                /* (0.8.0) the row (+1) a pack install waits to be confirmed on; a pack was installed */
     uint16_t n, sel;                                    /* the rows (".." too), the one picked */
     uint32_t t0;
     char path[FB_PATH];                                 /* the folder shown: "/" or "/ORANGECAT/JAM" */
@@ -164,6 +171,17 @@ static int fb_wav(const char *n)                        /* ends in .WAV (any cas
     uint32_t l = str_len(n);
     return l > 4u && n[l - 4u] == '.' && (n[l - 3u] | 32) == 'w' && (n[l - 2u] | 32) == 'a' && (n[l - 1u] | 32) == 'v';
 }
+#if MELODEE_FLASH || defined(OC_PACK_HOST)
+#define FB_PAK 1
+static int fb_pak(const char *n)                        /* (0.8.0) ends in .PAK (any case) */
+{
+    uint32_t l = str_len(n);
+    return l > 4u && n[l - 4u] == '.' && (n[l - 3u] | 32) == 'p' && (n[l - 2u] | 32) == 'a' && (n[l - 1u] | 32) == 'k';
+}
+#else
+#define FB_PAK 0
+static int fb_pak(const char *n) { (void)n; return 0; }
+#endif
 static int fb_before(const fb_ent_t *a, const fb_ent_t *b)   /* folders first, then by name (case aside) */
 {
     const char *x = a->name, *y = b->name;
@@ -173,6 +191,12 @@ static int fb_before(const fb_ent_t *a, const fb_ent_t *b)   /* folders first, t
         if (c != d) return c < d;
     }
     return !*x && *y;
+}
+static void fb_unfail(void)                             /* (0.8.0) a word over the list gone: the list again; a pack install's question (relist 2)
+                                                         * keeps the rows and the row */
+{
+    fb.st = fb.relist == 2u ? FB_READY : FB_LIST;
+    fb.relist = 0;
 }
 static void fb_fail(const char *m)
 {
@@ -193,7 +217,7 @@ static void fb_list(void)
     if (f_opendir(&d, fb.path) != FR_OK) { fb_fail("Folder unreadable"); return; }
     while (n < FB_MAX && f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
         int dir = (fi.fattrib & AM_DIR) != 0;
-        if ((fi.fattrib & (AM_HID | AM_SYS)) || fi.fname[0] == '.' || (!dir && !fb_wav(fi.fname))) continue;
+        if ((fi.fattrib & (AM_HID | AM_SYS)) || fi.fname[0] == '.' || (!dir && !fb_wav(fi.fname) && !(FB_PAK && fb_pak(fi.fname)))) continue;
         str_cpy(e[n].name, fi.fname, FB_NAME);
         e[n].dir = (uint8_t)dir;
         e[n].longname = (uint8_t)(str_len(fi.fname) >= FB_NAME);
@@ -284,6 +308,8 @@ static int fb_row(uint32_t i, char *name, uint32_t nlen, char *val, uint32_t vle
     str_cpy(name, e->name, nlen);
     if (e->dir) {
         str_cpy(val, ">", vlen);
+    } else if (fb_pak(e->name)) {
+        str_cpy(val, "Pack", vlen);
     } else {                                            /* (seconds of 16-bit stereo 44.1 kHz, one decimal) */
         uint32_t ds = e->size > 44u ? (e->size - 44u) / 17640u : 0u;
         char *v = uh_dec(val, ds / 10u);
@@ -302,9 +328,10 @@ static uint32_t fb_sig(void)                            /* what the popup shows 
 }
 static void fb_move(int32_t d)
 {
-    if (fb.st == FB_FAIL && fb.relist && d) { fb.relist = 0; fb.st = FB_LIST; return; }   /* (a word over the list: a
+    if (fb.st == FB_FAIL && fb.relist && d) { fb_unfail(); return; }   /* (a word over the list: a
                                                          * turn goes back to it) */
     if (fb.st != FB_READY || !fb.n || !d) return;
+    fb.ask = 0;
     fb.sel = (uint16_t)clamp((int32_t)fb.sel + (d > 0 ? 1 : -1), 0, (int32_t)fb.n - 1);
 }
 static void fb_go_up(void)                              /* the folder above (the root: none) */
@@ -318,7 +345,7 @@ static void fb_go_up(void)                              /* the folder above (the
 /* OCT-: up a folder, or (the root, or not reading) closed. 1: it closed */
 static int fb_back(void)
 {
-    if (fb.st == FB_FAIL && fb.relist) { fb.relist = 0; fb.st = FB_LIST; return 0; }
+    if (fb.st == FB_FAIL && fb.relist) { fb_unfail(); return 0; }
     if (fb.st == FB_READY && fb.up) { fb_go_up(); return 0; }
     fb_close();
     return 1;
@@ -374,11 +401,54 @@ static int fb_assign(uint32_t k, const fb_ent_t *e)
     fzt[k].fail = 0;
     return 0;
 }
+#if FB_PAK
+/* (0.8.0) the pack file at (fb.path, e) installed: 0 done, else fb.msg says why. Reads it in 512-byte pieces: the header, the
+ * tables to oc_pack_write, the header again to oc_pack_end (it is programmed last). */
+static int fb_install(const fb_ent_t *e)
+{
+    char p[FB_PATH + FB_NAME + 2u];
+    uint8_t buf[512];
+    FIL *f = &uf_pf;
+    UINT got;
+    uint32_t len = OC_PACK_LEN, banks = 0, off;
+    int rc;
+    if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
+    if (e->size != len) { str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg); return 1; }
+    uh_cat(uh_cat(uh_cat(p, fb.path), str_eq(fb.path, "/") ? "" : "/"), e->name);
+    if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    if (f_read(f, buf, sizeof buf, &got) != FR_OK || got != sizeof buf || pk_header_state(buf) != PK_OK ||
+        pk_rd32(buf + 12) != len) {
+        f_close(f);
+        str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg);
+        return 1;
+    }
+    (void)oc_pack_info(0, 0, &banks);
+    if (banks && fb.ask != (uint8_t)(fb.sel + 1u)) {    /* (the library's banks 16..20 hold presets: asked once) */
+        f_close(f);
+        fb.ask = (uint8_t)(fb.sel + 1u);
+        str_cpy(fb.msg, "Uses banks 16-20: again", sizeof fb.msg);
+        return 1;
+    }
+    if (oc_pack_begin(len, 1u) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    rc = 0;
+    for (off = OC_PACK_HDR; off < len && !rc; off += got) {
+        uint32_t n = len - off > sizeof buf ? (uint32_t)sizeof buf : len - off;
+        if (f_read(f, buf, n, &got) != FR_OK || got != n || oc_pack_write(off, buf, n) != 0) rc = 1;
+        SMP_FEED();
+    }
+    if (!rc && (f_lseek(f, 0) != FR_OK || f_read(f, buf, sizeof buf, &got) != FR_OK || got != sizeof buf || oc_pack_end(buf) != 0))
+        rc = 1;
+    f_close(f);
+    if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    fb.packed = 1;
+    return 0;
+}
+#endif
 /* OCT+: ".." up, a folder opened, a WAV given to the track's phrase. 1: done (the browser closed) */
 static int fb_ok(void)
 {
     const fb_ent_t *e;
-    if (fb.st == FB_FAIL && fb.relist) { fb.relist = 0; fb.st = FB_LIST; return 0; }
+    if (fb.st == FB_FAIL && fb.relist) { fb_unfail(); return 0; }
     if (fb.st == FB_FAIL) { fb_close(); return 1; }
     if (fb.st != FB_READY || !fb.n) return 0;
     if (fb.up && fb.sel == 0u) { fb_go_up(); return 0; }
@@ -391,6 +461,19 @@ static int fb_ok(void)
         fb.st = FB_LIST;
         return 0;
     }
+    if (FB_PAK && fb_pak(e->name)) {
+#if FB_PAK
+        if (fb_install(e)) {
+            char m[24];
+            str_cpy(m, fb.msg, sizeof m);
+            fb_fail(m);
+            fb.relist = fb.ask ? 2u : 1u;
+            return 0;
+        }
+#endif
+        fb_close();
+        return 1;
+    }
     if (fb_assign(fb.trk, e)) {                         /* (refused: its words a moment, the list again) */
         char m[24];
         str_cpy(m, fb.msg, sizeof m);
@@ -401,3 +484,4 @@ static int fb_ok(void)
     fb_close();
     return 1;
 }
+static int fb_pack_done(void) { return fb.packed; }      /* (0.8.0) the browser's last close was a pack installed */

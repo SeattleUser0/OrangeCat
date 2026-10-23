@@ -196,6 +196,28 @@ static uint8_t t_fb_gen;
 #define FB_BORROW() ((void)0)
 #define FB_GEN() t_fb_gen
 static int ocl_keep_any(uint32_t k, uint32_t b) { return ocl_keep(k, b); }   /* (0.6.1: the stub numbers empty ones too) */
+/* (Orange Cat 0.8.0) the asset pack, as card_browse.c's installer sees it (oc_pack.c itself is tested by oc_pack_test.c): a header
+ * check, the banks flag, and the three calls recording what they were given */
+#define OC_PACK_HOST 1
+#define SMP_FEED() ((void)0)
+enum { PK_MISSING, PK_OK };
+#define OC_PACK_LEN 2048u
+#define OC_PACK_HDR 512u
+static uint32_t t_pk_banks, t_pk_begun, t_pk_take, t_pk_at, t_pk_ended, t_pk_sum;
+static uint8_t t_pk_hdr[512];
+static uint32_t pk_rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static uint32_t pk_header_state(const uint8_t *h) { return pk_rd32(h) == 0x4B50434Fu ? PK_OK : PK_MISSING; }
+static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash, uint32_t *banks) { (void)len; (void)hash; if (banks) *banks = t_pk_banks; return 0; }
+static int oc_pack_begin(uint32_t len, uint32_t take) { t_pk_begun++; t_pk_take = take; t_pk_at = OC_PACK_HDR; t_pk_sum = 0; return len == OC_PACK_LEN ? 0 : -1; }
+static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
+{
+    const uint8_t *q = src;
+    if (off != t_pk_at) return -1;
+    for (uint32_t i = 0; i < n; i++) t_pk_sum += q[i];
+    t_pk_at += n;
+    return 0;
+}
+static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; memcpy(t_pk_hdr, h, sizeof t_pk_hdr); t_pk_ended++; return 0; }
 #include "../firmware/src/oc_store.c"                   /* (0.5.6) the frozen phrases' record, in RAM */
 #include "../firmware/src/card_play.c"
 #include "../firmware/src/card_stream.c"
@@ -1342,6 +1364,57 @@ static int t_folders(void)
         fz_stop();
         fz_blocks(3);
         printf("  browser: CLIPS/LOOP.WAV given to track 1's phrase %u: it plays; MONO.WAV and a long name refused\n", id);
+    }
+    /* 7. (0.8.0) a .PAK in the browser: listed with its words; another size refused; the banks asked about once; installed in
+     * order, the header read again last */
+    {
+        FIL pf;
+        UINT bw;
+        uint8_t blob[2048];
+        uint32_t k, sum = 0;
+        char nm[44], v[16];
+        for (k = 0; k < sizeof blob; k++) blob[k] = (uint8_t)(k * 7u + 3u);
+        memcpy(blob, "OCPK", 4);
+        blob[12] = (uint8_t)(OC_PACK_LEN & 255u);
+        blob[13] = (uint8_t)(OC_PACK_LEN >> 8);
+        blob[14] = blob[15] = 0;
+        for (k = 512; k < sizeof blob; k++) sum += blob[k];
+        assert(f_mkdir("/PACKS") == FR_OK);
+        assert(f_open(&pf, "/PACKS/OK.PAK", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, blob, sizeof blob, &bw) == FR_OK && bw == sizeof blob);
+        f_close(&pf);
+        assert(f_open(&pf, "/PACKS/SHORT.PAK", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, blob, 1024, &bw) == FR_OK);
+        f_close(&pf);
+        blob[0] = 'X';
+        assert(f_open(&pf, "/PACKS/BAD.PAK", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, blob, sizeof blob, &bw) == FR_OK);
+        f_close(&pf);
+        blob[0] = 'O';
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/PACKS");
+        fb.st = FB_LIST;
+        fz_block();
+        assert(fb.st == FB_READY && fb.n == 4u);          /* .. BAD.PAK OK.PAK SHORT.PAK */
+        assert(fb_row(2, nm, sizeof nm, v, sizeof v) && !strcmp(nm, "OK.PAK") && !strcmp(v, "Pack"));
+        fb.sel = 3;                                       /* the wrong size */
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Not this build's pack") && !t_pk_begun);
+        assert(!fb_ok());
+        fz_block();
+        fb.sel = 1;                                       /* the right size, the wrong magic */
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Not this build's pack") && !t_pk_begun);
+        assert(!fb_ok());
+        fz_block();
+        fb.sel = 2;
+        t_pk_banks = 1;                                   /* presets in banks 16..20: asked first */
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Uses banks 16-20: again") && !t_pk_begun);
+        assert(!fb_ok() && fb.st == FB_READY && fb.sel == 2u);   /* (back to the list, the same row) */
+        assert(fb_ok() && fb.st == FB_OFF && !uf_browse && fb_pack_done());
+        assert(t_pk_begun == 1u && t_pk_take == 1u && t_pk_ended == 1u && t_pk_at == OC_PACK_LEN && t_pk_sum == sum &&
+               !memcmp(t_pk_hdr, blob, 512));
+        t_pk_banks = 0;
+        fb_open(0);
+        assert(!fb_pack_done());
+        fb_close();
+        printf("  browser: .PAK listed; another size or build refused; the banks asked about once; the pack written in order, header last\n");
     }
     dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it: the takes in their folders) */
     frz_drop_all("");
