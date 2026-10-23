@@ -269,6 +269,16 @@ The FM-1 keeps one user sample slot in its own flash, as large as one of Felucca
 seconds of mono). It took 22 sectors from the phrase store, which now has 34. Load it from a computer with
 tools/fm1_sample_upload.py (load NAME file.wav ...). Nothing plays it yet: a sample engine comes later.
 
+## The screen (0.7.0)
+
+The screen got simpler, to free room for more synth engines and more effect memory. Nothing you can do changed.
+
+- All text is in the pixel font. It is the one Settings > FONT > PIXEL showed before. The FONT setting is gone.
+- The few icons left (play, stop, record, the star, the check mark) are drawn in the same blocky style.
+- Numbers change at once when you turn a knob. They no longer roll like a slot machine.
+- COLOR still picks one of the eight palettes.
+- A page change may draw a little slower than before. Tell me if the screen ever feels slow or shows a torn picture.
+
 ## Saving and loading
 
 - Projects save as before (SAVE, the autosave). Phrases keep themselves in the pool.

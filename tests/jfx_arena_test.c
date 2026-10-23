@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Orange Cat 0.6.0 rev 2: the effects' memory in an arena of the device's sizes (the linker's numbers from the CI build
- * of 0.6.1: main 53,984 B, low SRAM 23,844 B, data tail 5,368 B, retained tail 4,688 B, cache RAM 28,672 B of which the
+ * Orange Cat 0.6.0 rev 2: the effects' memory in an arena of the device's sizes (the linker's numbers from the CI build;
+ * 0.7.0: main 95,616 B, data tail 5,576 B (JA_* below); 0.6.1: main 53,984 B, low SRAM 23,844 B, data tail 5,368 B, retained tail 4,688 B, cache RAM 28,672 B of which the
  * UI keeps 14,336 B; the card pool 36,864 B). The real jfx.c and resources.c through the UI test's harness.
  *
  * For each case: some engines' states taken first (as the tracks take them), the cache RAM ready or not, the card pool
@@ -12,10 +12,24 @@
  *   - four MACRO tracks, cache ready, the card idle: the same, and the SLICER's 32 KB too;
  *   - whatever does not fit says FX FULL, and nothing an engine took is touched.
  * Run by tests/run_tests.sh. */
-#define RES_HOST_MAIN_WORDS (53984u / 4u)
-#define RES_HOST_LOW_WORDS (23844u / 4u)
-#define RES_HOST_DATA_WORDS (5368u / 4u)
-#define RES_HOST_RETAINED_WORDS (4688u / 4u)
+/* the banks' sizes (B): the CI build's linker numbers. (Orange Cat 0.7.0) the GUI's one smaller canvas returned
+ * 41,632 B to the main bank; -DJA_MAIN=53984 -DJA_DATA=5368 gives 0.6.2's table again (docs/orangecat/GUI_SLIM.md) */
+#ifndef JA_MAIN
+#define JA_MAIN 95616u
+#endif
+#ifndef JA_LOW
+#define JA_LOW 23844u
+#endif
+#ifndef JA_DATA
+#define JA_DATA 5576u
+#endif
+#ifndef JA_RETAINED
+#define JA_RETAINED 4688u
+#endif
+#define RES_HOST_MAIN_WORDS (JA_MAIN / 4u)
+#define RES_HOST_LOW_WORDS (JA_LOW / 4u)
+#define RES_HOST_DATA_WORDS (JA_DATA / 4u)
+#define RES_HOST_RETAINED_WORDS (JA_RETAINED / 4u)
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 #include <assert.h>
@@ -137,6 +151,7 @@ int main(void)
     ja_row(what, 4, big, 1, 0, 0, 0, 0);
     ja_row(what, 4, big, 0, 15, 0, 0, 0);
     ja_row(what, 4, big, 1, 15, 0, 1, 0);
+    ja_row(what, 4, big, 0, 0, 1, 1, 0);               /* (0.7.0) the worst: no cache, 4 takes, CLOUD and the STUTTER */
     snprintf(what, sizeof what, "4 x MACRO (%u B)", macro);
     ja_row(what, 4, macro, 1, 15, 0, 0, &r2);
     ja_row(what, 4, macro, 1, 0, 0, 0, &r3);

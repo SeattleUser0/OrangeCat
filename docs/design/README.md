@@ -199,7 +199,7 @@ and incremental redraws when the state ends or the selected track changes (`test
   back), the page's picture under the rows where it has one: SCL (OCT+ on Scale: the SCALES list; with Quantise MPC
   a row for MPC degree, which had a page of its own), VOICE
   1-3 (one list), FM6's LFO and controller pages (a list each).
-  TEMPO, GLOBAL, SYSTEM stay knobs (BPM and TUNE are turned while playing, their digits roll); TEMPO's third knob is
+  TEMPO, GLOBAL, SYSTEM stay knobs (BPM and TUNE are turned while playing; to 0.6.2 their digits rolled); TEMPO's third knob is
   the selected track's Quantize (TIMING's page retired, Kerem 2026-10-10).
 - **Knob pages** (played while tweaked): four rings over the page's picture (R5): the engines' EDIT pages, ENV, LFO,
   DLY, REVERB, CHORUS, FX, SLICER, ARP, PATTERN; and the pages of four settings or fewer: CHORD (over its chord),
@@ -275,9 +275,11 @@ in every palette by `tests/ui_render.c` (fx_*).
 
 ## Large type (2026-10-14)
 
-The 1.54" panel (27.7 mm across) needs larger text: every screen is set in four type roles, and Settings > FONT picks
-the face. Rubik 500 or Melodee Pixel (`assets/fonts/melodee_pixel.txt`, a 5 x 7 1-bit face drawn at whole multiples);
-a role has the same line height and baseline in both, so a layout holds in either (`gfx.c` `TY_*`, `ui.c` PREF_PIXEL).
+The 1.54" panel (27.7 mm across) needs larger text: every screen is set in four type roles.
+
+(Orange Cat 0.7.0) The face is Melodee Pixel alone (`assets/fonts/melodee_pixel.txt`, a 5 x 7 1-bit face drawn at whole
+multiples). Rubik and Settings > FONT are gone, to free flash for engines; every layout already fitted the pixel face,
+since the lint drew both. The table keeps the Rubik sizes for the line heights and baselines the roles still use.
 
 | Role | Use | Rubik | Pixel |
 |---|---|---|---|
@@ -302,10 +304,13 @@ turning: its value in the track's colour and a bar); the picture at y 84, 124 ta
 
 Rules, from the reviews: screens stay calm (no boxes or rings around cells, no tabs, no hint rows); nothing is ever
 cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT; dialogs and toasts
-wrap); Stage is multicolour. `tests/ui_render.c` lints every screen in both faces: overlaps, texts past their canvas
+wrap); Stage is multicolour. `tests/ui_render.c` lints every screen: overlaps, texts past their canvas
 or cell, ellipsised labels; it must report none.
 
-Storage: the four Rubik faces are 4-bit alpha kept in four steps (0, 5, 10, 15) and Huffman-coded, with one kerning
-table for all of them (at 28 px, scaled per face); with the pixel face 31.4 KB in all. Glyphs stay in flash: no
-decode table lives in RAM (`gfx.c` builds a 64-entry one on the stack per string).
+Storage (0.7.0): the pixel face is 1,447 B: 1-bit glyphs and a 32-bit record a glyph. Until 0.6.2 the four Rubik faces
+(4-bit alpha in four steps, Huffman-coded, one shared kerning table) and the pixel face took 31.4 KB.
+
+Drawing (0.7.0): one canvas of 240 x 62 (was 240 x 124 plus a second 240 x 24). A region taller than that is drawn
+in bands (`gfx.c` `CV_BANDS`): its drawing runs once per band, clipped to it. Icons are only those drawn, at 1 bit.
+Values change at once (the rolling digits are gone). One look still: the eight palettes stay.
 

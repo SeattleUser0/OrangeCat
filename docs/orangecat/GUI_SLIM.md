@@ -8,8 +8,8 @@ effects memory. It is the place to resume from. It is updated at each milestone.
 - Start: `main` at 19271b0 ("Build doc 0.51: 0.6.2's fixes"). That is 0.6.2, with the Jiant effects and the clip
   browser.
 - Work branch: `gui-slim` (not merged, not released).
-- Experiment branches: `exp/a1`, `exp/a2`, `exp/b1`, `exp/b2`, `exp/c1`, `exp/d1`, `exp/e1`, `exp/e2`, `exp/f1`,
-  `exp/f2`. Each holds one idea on top of the start (b2 is on b1, e2 on e1, f2 on f1). They carry a `.ci_quick`
+- Experiment branches (pushed): `exp/a1`, `exp/a2`, `exp/b1`, `exp/b2`, `exp/c1`, `exp/d1`, `exp/e1`, `exp/e2`,
+  `exp/f1`, `exp/f2`. E3 was tried on the host only. Each holds one idea on top of the start (b2 is on b1, e2 on e1, f2 on f1). They carry a `.ci_quick`
   file, so CI builds the firmware and skips the host tests.
 - References: Jiant FM (https://github.com/juanjiant-bit/JIANT, GPL-3.0-only), Melodee
   (https://github.com/keremimo/melodee, GPL-3.0-only), the Felucca 0.8-beta history inside Jiant (5684e18).
@@ -81,15 +81,15 @@ Each row is measured against the start (570,944 B image, 53,984 B arena) unless 
 | A2b | Rubik LB and TX only, one phase, no kerning | asset only: 6,997 B of fonts | about -29,000 | | | still 4.7 KB more font data than A1, and values at 20 px | Reject (A1 smaller) |
 | B1 | Only the icons the screens draw (2 at 12 px, 14 at 16 px, none at 24 px) | 561,968 | -8,976 | 53,984 | 0 | no visible change | Adopt |
 | B2 | Those icons at 1 bit, drawn like the pixel font (on B1) | 560,708 | -10,236 | 53,696 | -288 (same ISR effect) | blocky icons to match the pixel text | Adopt |
-| C1 | One palette (NIGHT), no COLOR setting | 569,504 | -1,440 | 53,984 | 0 | appearance only | Adopt |
+| C1 | One palette (NIGHT), no COLOR setting | 569,504 | -1,440 | 53,984 | 0 | the palette number is part of the web editor's protocol (UI_SET, 8 palettes advertised), backups and stored settings: 7 host tests broke | Reject (small gain, wide reach) |
 | D1 | No rolling digits: values change at once | 570,068 | -876 | 53,984 | 0 | animation only | Adopt |
 | E1 | Canvas 240 x 62 (was 124): taller parts drawn in bands | 569,948 | -996 | 84,416 | +30,432 | every screen pixel for pixel the same on the host; see below | Adopt |
-| E2 | No second canvas (on E1) | pending | | | | drawing no longer overlaps sending | pending |
+| E2 | No second canvas (on E1) | 569,820 | -1,124 | 95,936 | +41,952 | drawing the next part waits for the last transfer; partial sends go a row at a time; host renders identical, fewer pixels sent in some cases | Adopt |
 | E3 | Canvas 240 x 42 (host only) | | | | about +9,600 more | 3,552 canvases cut in the host run: 12 more places need bands, the graph drawn 3 times | Not now |
 | F1 | Build the newer screen files for size (ui_boot, ui_view, ui_tracker, ui_pool, ui_groove, card_browse, seq_tools, shared_presets, oc_project, tracks, editor_library) | 568,848 | -2,096 | 53,984 | 0 | slower code only in the main loop | Adopt |
 | F2 | Keep shared screen helpers out of line (on F1) | 568,784 | -64 more | 53,984 | 0 | | Reject (no gain) |
 | G | Compile out retired-engine screen tables | not built | | | | P5_PANEL (1,760 B) is read by the stored-automation check (motion.c:65-83) and the editor protocol (editor_prophet.c:24); screen branches are already behind MELODEE_P5 / CZ / FM6 constants (params.c:734, ui_stage.c:95), so the compiler drops them | Reject (would change what stored projects keep) |
-| H | Pixel glyph records packed (8 B to 4 B) | in the cumulative build | about -840 | | | | Adopt |
+| H | Pixel glyph records packed (8 B to 4 B) | in the cumulative build | asset 2,287 B to 1,447 B | | | the condensed 1 also made tabular (a blank column) | Adopt |
 | I | 8-bit indexed canvas | not built | | | | rounded corners, discs and the wave trace blend colours into the canvas (gfx.c mix565 over the canvas); DMA cannot expand indices, so every send needs a conversion pass and line buffers; E1 frees the same RAM with no change on screen | Reject |
 | J | Faster SPI clock | not built | | | | cannot be checked without the unit; a wrong clock can garble the screen | Reject for now (a device test) |
 
@@ -108,6 +108,72 @@ Each row is measured against the start (570,944 B image, 53,984 B arena) unless 
 - The decoded project (17,028 B) still fits the canvas (29,760 B). The static check in project.c stays.
 - The screen diff now keeps 13 places of 48 slots (was 9 of 76), 2,688 B instead of 3,040 B.
 - The host lint now reports any canvas asked taller than the canvas holds (a part that would be cut).
+
+## Selected design and why
+
+- A1 + H: the biggest flash win (about 35 KB) and the safest: the pixel face was already a shipped choice and the
+  host lint already drew every screen in it. A2 kept anti-aliasing but cost 10.6 KB more.
+- B1 + B2: 10.2 KB, and the icons now match the pixel text.
+- E1 + E2: 41.6 KB back to the audio arena. Every screen drew the same pixels with bands (checked on the host before
+  the font change). The cost is CPU and overlap, not memory: see "Costs".
+- D1: 0.9 KB and fewer screen sends while a knob turns.
+- F1: 2.1 KB, no behaviour change.
+- Rejected: A2 (A1 smaller), C1 (protocol reach), E3 (more band work for 9.6 KB, not now), F2 (no gain), G
+  (compatibility readers), I (complexity, same RAM as E1), J (needs the unit).
+
+## Cumulative results (target, CI)
+
+| Build | Image B | Free flash B | .data+.bss B | Main bank B | All audio B (cache ready) |
+|---|---|---|---|---|---|
+| 0.6.2 (start) | 570,944 | 2,496 | 92,936 | 53,984 | 102,220 |
+| F1 + E1 + E2 (stage 2, 6c39402) | 567,692 | 5,748 | 93,032 | 95,936 | 144,076 |
+| All (stage 5) | 520,976 | 52,464 | 92,728 | 95,616 | 144,060 |
+
+- Screen code and data (the size report's group): 121,046 B flash and 71,675 B RAM to 95,527 B and 30,451 B.
+- Fonts 31,705 B to 1,527 B; icons 11,153 B to 746 B; gfx.c 9,104 B to 7,480 B (RAM 74,382 B to 32,528 B).
+- RAM code (.audio_text) 63,420 B to 63,406 B. Stacks and the cache split are unchanged (CPU1 8 KB; cache 14,336 B UI
+  and 14,336 B audio).
+- Net memory for engines and effects: the main bank grew 41,632 B, the data tail 208 B: 41,840 B in all.
+- draw_page grew (29,904 B to 35,118 B): the compiler inlined more into it once the files around it shrank. It is
+  the same code in one place, not a copy.
+
+## Effects' memory (host, tests/jfx_arena_test.c, the device's bank sizes)
+
+Rows with FX FULL in 0.6.2 (main 53,984 B): 16 of 26 (the delay in all of them, more in the worst). In 0.7.0 (main
+95,616 B): 1 of 26, the new worst case (four of the largest engines, no cache, four takes, CLOUD and the stutter: the
+delay and the chorus). Every case with frozen phrases playing (1 take, a freeze, 4 takes) now holds the delay.
+
+## Costs
+
+- CPU: a region taller than 62 rows is drawn once per band. Host draw cost of a full redraw (us): home 310 to 355,
+  presets 240 to 305, menu 140 to 149, about credits 327 to 294 (glyphs outside a band are skipped), confirm 1,408 to
+  1,411. Only the ratios mean anything for the device.
+- With one canvas, drawing the next part waits for the transfer before it. The SPI was already the bottleneck (a
+  full screen about 77 ms); what is lost is the drawing that used to happen during a transfer. Not measured on the
+  unit.
+- Look: pixel text everywhere, blocky icons, numbers jump instead of rolling.
+
+## On the unit (left to test)
+
+1. Install 0.7.0 (the nightly from branch gui-slim). Turn it on: the boot screen and HOME draw cleanly.
+2. Change pages fast (SEQ, NOTES, TRACKER, MIXER, FX, the menu). Look for torn or half-drawn panels, and for any
+   page that now feels slow.
+3. Turn a knob fast on GLOBAL (TUNE) and TEMPO (BPM): numbers follow at once, no smears.
+4. Open the menu's document (ABOUT, scroll the credits): it scrolls smoothly.
+5. Play a chord on the chord wheel (VIEW): the ring and the chord name draw whole.
+6. Assign a clip (MIXER sheet, Assign clip), freeze a phrase, play frozen phrases: the screen keeps up while the card
+   streams.
+7. Save and load a project, make a backup and restore it (the canvas is still the decode scratch).
+8. With four tracks of SHAPES or MACRO and frozen phrases playing, turn on DELAY, REVERB and CHORUS: none should say FX
+   FULL.
+9. Listen for clicks or dropouts while paging fast during playback.
+
+## Build and test state
+
+- gui-slim stage 5 (c.f. git log): CI build and all host tests pass (run 39900238037). Locally the host tests pass
+  except the ones that need the firmware image (web, boot packages, power cuts, loader, installer, ROM recovery);
+  those pass in CI.
+- Not merged to main. Not released. No hardware tests.
 
 ## Resume
 
