@@ -21,6 +21,26 @@ with open('build/gaps.txt','w') as f:
 PY
   ;;
 test)
-  python3 tools/ci_blob.py emit gaps build/gaps.txt --start 1 --max 9
+  python3 tools/ci_blob.py emit gaps build/gaps.txt --start 1 --max 8
+  ;;
+esac
+# ---- (probe 2) byte-identical constant objects in flash: every sized data symbol of .text hashed, duplicates listed
+case "$1" in
+test)
+  python3 - "$OD" <<'PY'
+import re,subprocess,sys,hashlib,collections
+od=sys.argv[1]
+syms=subprocess.run([od,'-t','build/melodee.elf'],capture_output=True,text=True).stdout
+line=re.compile(r"^([0-9a-f]{8}) (.{7}) (\S+)\s+([0-9a-f]{8})\s+(\S+)\s*$")
+rows=[(int(m[1],16),int(m[4],16),m[5]) for m in map(line.match,syms.splitlines()) if m and m[3]=='.text' and int(m[4],16)>=16 and 'F' not in m[2]]
+img=open('build/text.bin','rb').read(); base=0x02001000
+by=collections.defaultdict(list)
+for a,z,n in rows:
+    by[hashlib.sha1(img[a-base:a-base+z]).hexdigest()].append((z,n))
+with open('build/dups.txt','w') as f:
+    for h,l in sorted(by.items(),key=lambda kv:-kv[1][0][0]*(len(kv[1])-1)):
+        if len(l)>1: f.write(f"{l[0][0]:6} x{len(l)} {' '.join(n for z,n in l)}\n")
+PY
+  python3 tools/ci_blob.py emit dups build/dups.txt --start 1 --max 1
   ;;
 esac
