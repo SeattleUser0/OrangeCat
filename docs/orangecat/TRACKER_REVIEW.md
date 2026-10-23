@@ -130,7 +130,12 @@ savings are answered below.
    the step, the notes stay in the pool, the project format stays. It is the next step after this one; it needs the
    pads' editor brought under the shared one first (point 1), so that there is one place that deletes. A representation
    change (one note record for manual and recorded alike) would cost a format migration for every phrase, the pool
-   record and the backups, and buys nothing the derived-overview design does not.
+   record and the backups. What it would buy is one set of capabilities for every note, whichever way it came in:
+   today a recorded note still has no ratchet, condition or nudge, and a key on a recorded step still replaces the
+   whole step. Those gaps can be closed on the derived-overview design too (the step properties live on the step, and
+   the sequencer could apply them to a recorded step's events the way it applies chance), so the representation is
+   an engineering choice to be made on cost, not the thing that fixes the gaps. What must not stay is the overview
+   deciding what an editor may do; this change removed the tracker's case of that and the remaining ones are listed.
 4. **Undo, validation, persistence.** One history (seq_undo.c) serves every view already; the pool record stores
    steps and events once. The duplicated bookkeeping is the "snapshot, remove, restore, rebuild, generation" sequence,
    written out in `notes_event_edit`, `notes_delete_edit`, `drum_hit_edit`, `drum_hit_delete` and `note_tools.c`'s
@@ -149,6 +154,23 @@ From the CI history (SIZE_AUDIT.md): the first tracker view and lanes +4,480 B (
 FX column +3,248 B (0.5.2, with MACRO's polyphony in the same version); this change +1,584 B. The 37 KB of sequencer
 and arranger growth is twelve versions of phrases, chains, the song, PERFORM, PHRASES, GROOVE and the record store,
 of which the tracker is a fifth.
+
+## Where views still differ
+
+For the record, after 0.7.1, by input origin:
+
+| | Manual step | Recorded step |
+|---|---|---|
+| Pitch, velocity, length of one note | every view | NOTES, TRACKER (0.7.1), the step page with a note picked |
+| Onset within the step | converts to an event (fine LENGTH, moves) | NOTES, a sixteenth |
+| Chance, slide | yes | yes |
+| Ratchet, flam, condition, nudge, accent | yes | no: the sequencer skips them for recorded steps (seq.c) |
+| A key on the step | replaces the column (TRACKER) or the step | replaces the whole step; the events are reclaimed later |
+| Delete one note | yes | yes (NOTES, TRACKER) |
+
+The second-to-last two rows are the remaining input-origin differences. Ratchet and the others are a sequencer
+change (apply the step's properties to its events' onsets: a design question for the nudge and ratchet of a chord
+with three onsets); the key is the one-authority cleanup below.
 
 ## Left to do
 

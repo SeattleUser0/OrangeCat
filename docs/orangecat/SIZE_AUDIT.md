@@ -203,10 +203,15 @@ the high-water mark on the unit; the hardware stack guards (fm1_guard.h) catch a
 The one finding: the preset banks' repair and migration at boot (shared_boot, inlined into up_boot) keeps whole
 banks on the stack (`up_bank_t bank = *up_cache_bank(b)`, 4,292 B, and more in the migration part), 12,248 B in one
 frame, and the same function runs from the editor's backup restore (ed_handle, itself 3,216 B) on top of the main
-loop's 3,160 B: a static worst case of 23,832 B on a 24,320 B stack, 488 B short of the guard. Melodee has shipped
+loop's 3,160 B: a static worst case of 23,832 B on a 24,320 B stack, 488 B short of the guard. The frame's parts,
+from the source: two `up_bank_t bank` copies in two scopes of shared_boot (4,292 B each; the compiler did not overlap
+them), a `p5_bank_t old` in the Prophet bank migration (3,600 B, compiled with the Prophet out), and up_save_bank's
+`up_disk_bank_t disk` (3,760 B) one call deeper. Melodee has shipped
 with it, so the real depth is less than the bound (the chain's deepest callee frames are not all live at once), but
-it leaves no margin to grow. Staging those bank copies in POOL (bank_buf is the obvious home; its owner at that
-moment must be traced first) would take about 8 KB off the worst case. sysex_commit's 5,084 B frame is the same
+it leaves no margin to grow. The fix: one function-scope `up_bank_t` scratch in shared_boot instead of two (-4,292 B of worst case, no
+behaviour change), the Prophet migration's `old` behind `MELODEE_P5` (-3,600 B with the Prophet out), and the disk
+image staged in POOL's bank_buf, whose owner at boot and during a restore must be traced first (-3,760 B). Together
+about 11.6 KB off the worst case, to about 12 KB on a 24 KB stack. sysex_commit's 5,084 B frame is the same
 pattern. Not changed in this branch: it is a lifetime question, not a size one.
 
 ## The largest remaining costs
