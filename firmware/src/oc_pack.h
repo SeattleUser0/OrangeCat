@@ -20,8 +20,13 @@
  *   and SHAPES and MACRO render nothing (OC_PACK_READY, tested at the top of their note-on and render) and the screen
  *   says PACK MISSING; every setting, preset and project stays as it is. The device boots and everything else plays.
  *
+ * In a loadable module (0.10.0, step 1: OC_MODULE defined, tools/module/*.c)
+ *   There is no oc_pack_good of the module's own (it would be a byte of .data, and a module has none): OC_PACK_READY reads the
+ *   firmware's flag through the services table (OC_FW(), which the module's source defines before any engine code runs).
+ *
  * Revisions:
  *   0.8.0: first version.
+ *   0.10.0: OC_MODULE: the ready flag is read through fw_api_t.
  */
 #pragma once
 #include <stdint.h>
@@ -52,6 +57,10 @@
 #endif
 #endif
 
+#ifdef OC_MODULE
+#define OC_PACK_READY() (*OC_FW()->pack_ready)         /* (a module is built for the device: the gate is on) */
+#else
 /* 1: the pack was checked and is there. Without the gate there is nothing to wait for. */
 static uint8_t oc_pack_good = OC_PACK_GATE ? 0u : 1u;
 #define OC_PACK_READY() (!OC_PACK_GATE || oc_pack_good)
+#endif

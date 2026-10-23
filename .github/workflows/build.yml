@@ -21,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 11 (Orange Cat 0.10.0): the module check (tools/module_check.sh) after the build.
 #   Rev 10 (Orange Cat 0.8.0): the asset pack (build/orangecat-<name>.pak, tools/gen_pack.py) joins the packages artifact.
 #   Rev 9 (Orange Cat 0.6.0): the target budget's lines (tests/target_budget.py) to the run page as a notice.
 #   Rev 7: the failed tests' summary list first in the run page's annotation.
@@ -80,6 +81,13 @@ jobs:
           echo "::error title=build failed::$msg"
           exit 1
         fi
+        # (rev 11, Orange Cat 0.10.0) SHAPES as a loadable module (tools/module_check.sh; step 2 moves it to tools/build.py --module):
+        # compiled and linked at two starts of the module area, no .data / .bss, no undefined symbol; the report as a notice
+        modok=0; bash tools/module_check.sh build/module-report.txt > /dev/null 2>&1 || modok=1
+        if [ -f build/module-report.txt ]; then
+          echo "::notice title=module check::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report.txt)"
+        fi
+        if [ "$modok" != 0 ]; then echo "::error title=module check failed::see the module check notice"; exit 1; fi
         # (rev 3) what the image is made of, by engine and area (tools/size_report.py): the run page, and
         # build/orangecat-size-report.txt in the packages artifact
         rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \

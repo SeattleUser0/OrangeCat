@@ -23,7 +23,10 @@ MEMORY
 }
 SECTIONS
 {
-    .text : { KEEP(*(.text.crt0)) *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
+    /* (Orange Cat 0.10.0, step 1) fw_api_t, the services table of loadable engines, sits 0x100 bytes into the body (FW_API_ADDR,
+     * tools/gen_fw_api_id.py; tools/build.py checks the symbol). Moving the location counter back is an error, so the entry code
+     * must stay under 0x100 bytes. */
+    .text : { KEEP(*(.text.crt0)) . = ORIGIN(XIP) + 0x100; _fwapi = .; KEEP(*(.fwapi)) *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
     _rt_load = LOADADDR(.ram_text);
     .dsp_text : { _dsp_start = .; *(.dsp_text*) . = ALIGN(4); _dsp_end = .; } > RAMTEXT AT > XIP

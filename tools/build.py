@@ -347,6 +347,13 @@ def check(img, syms, dis, rt):
     def sym(name):
         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
         return int(mm.group(1), 16) if mm else 0
+    # (Orange Cat 0.10.0, step 1) the services table of loadable engines is where modules look for it
+    m = re.search(r"#define FW_API_ADDR (0x[0-9A-Fa-f]+)u", (GEN / "fw_api_id.h").read_text())
+    fw_api_addr = int(m.group(1), 16) if m else 0
+    if not fw_api_addr or sym("FW_API") != fw_api_addr or sym("_fwapi") != fw_api_addr:
+        errors.append(f"fw_api_t is at {sym('FW_API'):#x} (_fwapi {sym('_fwapi'):#x}), not at FW_API_ADDR {fw_api_addr:#x}")
+    else:
+        notes.append(f"fw_api_t at {fw_api_addr:#x} (a fixed offset from the app start, for loadable engines)")
     code_end = sym("_audio_end") if sym("_audio_end") > sym("_audio_start") else sym("_dsp_end")
     if sym("_guard_ram_end") != code_end:
         errors.append("hardware PC guard does not cover all executable SRAM sections")

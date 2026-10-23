@@ -19,8 +19,11 @@ int main(void)
     uint8_t x[16], y[16];
     uint32_t i;
     void *p1, *p2;
-    check("the table starts with the magic, its own size, version 2 and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 2u && a->iface == FW_API_IFACE);
+    check("the table starts with the magic, its own size, version 3 and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 3u && a->iface == FW_API_IFACE);
     check("every service is there", a->mem_copy && a->mem_set && a->resource_get && a->tuning_log && a->trk && a->pack_ready);
+    /* 0.10.0 (step 1) the arena id a module's part state starts at, and the engine count, come from the table */
+    check("res_engine0 is the arena id of the first engine state and nengines the table's length", a->res_engine0 == RES_ENGINE0 && a->nengines == NENGINES && NENGINES == 20u);
+    check("a module's part p gets the block the built-in engine gets (res_engine0 + p)", (memset(resource, 0, sizeof resource), a->resource_get(a->res_engine0 + 1u, 64u) == resource_get(RES_ENGINE0 + 1u, 64u)));
     for (i = 0; i < 16; i++) x[i] = (uint8_t)(i * 13u + 1u);
     a->mem_copy(y, x, 16);
     check("mem_copy copies", !memcmp(x, y, 16));
@@ -42,7 +45,7 @@ int main(void)
     oc_pack_good = OC_PACK_GATE ? 0 : 1;
     /* 0.9.0 (step 5a): the identifier and the registration check */
     {
-        fw_mod_hdr_t h = {FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION}, g;
+        fw_mod_hdr_t h = {FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR}, g;
         check("the identifier is the generated hash mixed with the sizes it cannot see",
               FW_API_IFACE == (FW_API_ID ^ ((uint32_t)sizeof(track_t) * 0x9E3779B1u) ^ ((uint32_t)sizeof(voice_t) * 0x85EBCA6Bu) ^
                                ((uint32_t)sizeof(engine_t) * 0xC2B2AE35u) ^ ((uint32_t)sizeof(vmod_t) * 0x27D4EB2Fu)) && FW_API_ID != 0u);
@@ -55,6 +58,12 @@ int main(void)
             if (fw_module_check(&g) != FW_MOD_BAD_IFACE) break;
         }
         check("an identifier differing in any one bit is refused", i == 32);
+        for (i = 0; i < 32; i++) {
+            g = h; g.api_addr ^= 1u << i;
+            if (fw_module_check(&g) != FW_MOD_BAD_ADDR) break;
+        }
+        check("a table address differing in any one bit is refused (0.10.0: the module would read some other place)", i == 32);
+        check("the table's address is a word-aligned XIP address 0x100 bytes into the body", (FW_API_ADDR & 3u) == 0 && FW_API_ADDR == 0x02001000u + 0x100u);
         g = h; g.api_size = sizeof(fw_api_t) + 4u;
         check("a module that needs a longer table is refused", fw_module_check(&g) == FW_MOD_API_TOO_NEW);
         g = h; g.api_version = FW_API_VERSION + 1u;
