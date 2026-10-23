@@ -71,3 +71,10 @@ p5_samples 1075
 p5_mod_samples 105
 
 # (Orange Cat 0.6.0: the old effects' budgets removed with fx.c; the new effects (target_budget.py JFX) get theirs from a CI build)
+
+# (Orange Cat 0.9.0) DRUM-X (drumx_voice.c, eng_drumx.c), measured in CI run 39998191949 (the build of 0.9.0 on sonnet-work);
+# the check allows +10 % as for the other engines. dx_hands_step is not in the image (HANDS is 0), so it has no line.
+dx_run 324
+dx_layer 61
+dxe_render 13
+dxe_post 31
