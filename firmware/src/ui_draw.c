@@ -59,6 +59,7 @@ static void draw_rec_mark(int32_t x, uint16_t bg)
 static uint16_t roll_bg;                                /* what a card's value lies on (its fill: tinted while hot) */
 static const uint8_t ROLL_EASE[17] = {0, 45, 84, 118, 147, 172, 193, 210, 223, 234, 242, 247, 251, 253, 254, 255, 255};
 
+static int roll_digit(char c) __attribute__((unused));
 static int roll_digit(char c) { return c >= '0' && c <= '9'; }
 /* +1 / -1: b rolls in from a (same length, digits where a has digits, the rest equal and one of + - .),
  * the sign of b - a; 0: b is shown at once */
@@ -80,57 +81,15 @@ static int roll_dir(const char *a, const char *b)
 /* field k now shows b instead of a: roll (a retarget mid-roll), or snap */
 static void roll_note(uint32_t k, const char *a, const char *b, int snap)
 {
-    uint32_t el = (uint8_t)(ui.frame - ui.roll[k].t0);
-    int d = roll_dir(a, b);
-    ui.roll[k].t0 = (uint8_t)ui.frame;
+    (void)a; (void)b; (void)snap;                       /* (exp d1: never rolls) */
     ui.roll[k].from[0] = 0;
-    if (snap || !d || el < ROLL_SNAP)
-        return;
-    str_cpy(ui.roll[k].from, a, sizeof ui.roll[k].from);
-    ui.roll[k].dir = (int8_t)d;
 }
 /* s (the text face) at x, y with field k's roll: each character at its pen in s (the digits are tabular and never kerned,
  * so the old value has the same pens); a rolling digit has moved o of the strip's h rows (ROLL_EASE, one frame
  * later per place from the right), clipped to the strip. The roll's last frame clears it: the static text. */
 static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16_t fg)
 {
-    const aafont_t *f = TY_TX;
-    uint32_t e = (uint8_t)(ui.frame - ui.roll[k].t0) + 1u, i, p = 0;
-    const char *a = ui.roll[k].from;
-    int32_t cy = k < ROLL_BPM ? y : 0, h = k < ROLL_BPM ? ROLL_H : H_HEAD;   /* (a card's value: at ROLL_Y) */
-    uint16_t bg = k < ROLL_BPM ? roll_bg : T_BG;
-    char t[8], ch[2] = {0, 0};
-    if (e >= ROLL_FRAMES)
-        ui.roll[k].from[0] = 0;
-    if (!a[0])
-        return cv_text_on(x, y, f, s, fg, bg);
-    str_cpy(t, s, sizeof t);
-    for (i = 0; s[i]; i++)
-        p += (uint32_t)roll_digit(s[i]);
-    cv_cy0 = (int16_t)(cy + cv_oy);                     /* the strip (the static characters lie inside it) */
-    cv_cy1 = (int16_t)(cy + cv_oy + h);
-    cv_scroll = 1;                                      /* (the lint: rolling digits are cut on purpose) */
-    for (i = 0; s[i]; i++) {
-        int32_t px, ny = y;
-        t[i] = 0;
-        px = x + text_w(f, t);                          /* (its pen: no digit kerns) */
-        t[i] = s[i];
-        p -= (uint32_t)roll_digit(s[i]);
-        if (s[i] != a[i]) {                             /* p: the places right of it */
-            int32_t o = 0, dir = ui.roll[k].dir;
-            if (e > p)                                  /* (e < ROLL_FRAMES: the LUT index stays in 1..16) */
-                o = (int32_t)((ROLL_EASE[((e - p) * 32u / (ROLL_FRAMES - p) + 1u) >> 1] * (uint32_t)h + 128u) >> 8);
-            ch[0] = a[i];
-            cv_text_on(px, y - dir * o, f, ch, fg, bg);
-            ny = y + dir * (h - o);
-        }
-        ch[0] = s[i];
-        cv_text_on(px, ny, f, ch, fg, bg);
-    }
-    cv_cy0 = 0;
-    cv_cy1 = (int16_t)cv_h;
-    cv_scroll = 0;
-    return x + text_w(f, s);
+    return cv_text_on(x, y, TY_TX, s, fg, k < ROLL_BPM ? roll_bg : T_BG);   /* (exp d1: at once) */
 }
 
 /* the header (large type, 30 px): the transport (16 px; a song playing: its disc) at x 5, the BPM (the text face,
