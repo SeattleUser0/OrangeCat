@@ -69,7 +69,8 @@ for ln in ir.splitlines():
             if not c.startswith('llvm.'): edges.add((cur,c))
 open('build/calls.txt','w').write("\n".join(f"{a} {b}" for a,b in sorted(edges))+"\n")
 PY
-  python3 tools/ci_blob.py emit frames build/frames.txt --start 1 --max 3
-  python3 tools/ci_blob.py emit calls build/calls.txt --start ${CALLS_START:-1} --max 4
+  [ -f tools/ci_probe.conf ] && . tools/ci_probe.conf           # FRAMES_START / CALLS_START: the next chunks
+  python3 tools/ci_blob.py emit frames build/frames.txt --start ${FRAMES_START:-1} --max ${FRAMES_MAX:-3}
+  python3 tools/ci_blob.py emit calls build/calls.txt --start ${CALLS_START:-1} --max ${CALLS_MAX:-4}
   ;;
 esac
