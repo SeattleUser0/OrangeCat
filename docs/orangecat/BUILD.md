@@ -1,7 +1,7 @@
 # Orange Cat Build Document
 
-**Version:** 0.51  
-**Date:** October 22, 2026  
+**Version:** 0.52  
+**Date:** October 23, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.52 (October 23, 2026):** Size audit of the whole firmware (branch size-audit, docs/orangecat/SIZE_AUDIT.md): 10,692 B of flash recovered without a feature touched (an unused Prophet table the linker could not drop, the card's and store's main-loop files built for size, retired-engine tables and pages compiled out); the 76 KB storage and sequencer growth attributed from the CI record; the cost of Prophet, FM6 and DRUM measured in comparison builds; the stacks bounded; a plan for a data pack on the card. See "Size audit" below.
 - **0.51 (October 22, 2026):** 0.6.2, from the unit: Assign clip said "Save first" on an empty phrase (it now gets a number), the knobs did not move the browser after a refusal (SELECT, KNOB 1 or 2 move it; a turn goes back to the list), and the refusal was drawn over the list.
 - **0.50 (October 22, 2026):** 0.6.1 on branch fx-jiant: takes in project folders on the card, moved when a project is named or renamed; Assign clip, a card browser on the MIXER page's sheet. See "Take folders and the clip browser".
 - **0.49 (October 22, 2026):** 0.6.0 on branch fx-jiant (not on main, not released): Jiant FM's effects replace the old ones, one internal user sample slot, projects FUN23. Built and host tested; nothing tried on the unit yet. See "Effects from Jiant FM".
@@ -1014,6 +1015,41 @@ what the image holds, tools/size_report.py, is the place to start).
 - [ ] USB MIDI comes back when the browser closes (with no frozen phrase in use).
 
 ---
+
+## Size audit (branch size-audit, October 23, 2026)
+
+**Status: Done (measurements and five changes); not merged.** Full report: docs/orangecat/SIZE_AUDIT.md.
+
+Baseline main 19271b0 (0.6.2): image 570,944 B, body 567,136 of 573,440 (6,304 B free; the body's limit is what
+counts, the stub is outside it). After the branch: image 560,252 B, 16,996 B free; the audio arena +160 B and the low
+bank's share of the audio resources +4,100 B; host suite green, render loops within budget.
+
+| Change | Flash |
+|---|---|
+| Each RAM table in its own section: P5_TANH (4,100 B) was kept by the shared `.dsp_tables` section with the Prophet and DRUM off | -4,100 |
+| The card (FatFs, USB host, files), the record store and pool, the sample slot and the screen driver built for size; audio functions kept at -Os | -1,960 |
+| Retired-engine remnants out: the Prophet's panel table, the CZ-1's editing tables, PHASE's descriptors, and 79 PAGES rows with their titles | -4,632 |
+
+Measured and not adopted: `-fmerge-all-constants` (0 B), ED_AUDIO_STATS (788 B, a diagnostic to keep), duplicate
+constant tables (none).
+
+The 75,748 B from phase 3 done (378,992 B) to 0.4.20 (454,740 B), from the CI record of every push: the sequencer,
+arranger and their views +37,008; USB host, hubs and mass storage +7,732 (with the test page since removed); FatFs and
+the files page +11,296; WAV playback +4,760; the recorder and freezing +14,952.
+
+What an engine costs to put back, today (comparison builds): PROPHET +30,236 B flash (+34,336 against the fixed
+table) and 7.2 KB of low SRAM, fits on the combined branch; FM6 +34,752 B flash and 13.6 KB of .data + .bss (8.2 KB
+over: its patches and state would have to move to POOL); DRUM +51,392 B flash and about 33.5 KB of POOL (resident
+kernels; the arena would drop to 20 KB). The stack: a static worst case of 23,832 B on the 24,320 B user stack through
+the preset banks' repair at boot and the editor's backup restore (up_boot keeps whole banks on the stack); the audio
+interrupt 1,716 B of 7,936.
+
+Next, in order of worth: the GUI work (done on gui-slim, about 50 KB); a data pack on the card installed into the
+retired engines' data flash and read in place through the plaintext window, as the sample slot is (the engines'
+tables, 39,750 B, first); then the app area's end moved from 0x93000 to 0x9D000 (+40,960 B, a stub change).
+
+Left to test (on the unit): a take recorded with FatFs built for size (write speed), the UI with the screen driver
+built for size.
 
 ## Phases 8 to 11
 
