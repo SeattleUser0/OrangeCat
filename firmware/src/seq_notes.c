@@ -39,6 +39,32 @@ static uint32_t notes_selected(const track_t *t)
     if (chosen < RECORD_MAX) note_assign(&ui.note_identity,&recording[chosen]);
     return chosen;
 }
+/* (Orange Cat 0.7.1, the tracker) the step's recorded notes in the shared order (notes_before: onset, pitch, then the
+ * store's index), as NOTES cycles them: the c-th one, RECORD_MAX past the last. The tracker's note columns show and
+ * edit a recorded step's notes in this order, so N2 on the tracker and the second note on NOTES are the same note */
+static uint32_t notes_nth(const track_t *t, uint32_t step, uint32_t c)
+{
+    uint32_t chosen = RECORD_MAX, k;
+    for (k = 0; k <= c; k++) {
+        uint32_t next = RECORD_MAX;
+        for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+            if (recording_active(t, i) && (recording[i].step & 63u) == step && (chosen >= RECORD_MAX || notes_before(chosen, i)) &&
+                (next >= RECORD_MAX || notes_before(i, next)))
+                next = i;
+        if (next >= RECORD_MAX) return RECORD_MAX;
+        chosen = next;
+    }
+    return chosen;
+}
+/* (0.7.1) recorded note i picked as NOTES picks one: the knobs edit it (notes_selected keeps it while it is in the step) */
+static void notes_pick(const track_t *t, uint32_t i)
+{
+    ui.note_pick = (uint16_t)(i + 1u);
+    note_assign(&ui.note_identity, &recording[i]);
+    ui.note_generation = recording_generation;
+    ui.note_track = (uint8_t)trk_index(t);
+    ui.note_pattern_gen = t->pattern_gen;
+}
 static uint32_t notes_rank(const track_t *t, uint32_t chosen, uint32_t *count)
 {
     uint32_t rank = 0;

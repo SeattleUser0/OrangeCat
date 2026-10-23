@@ -900,6 +900,7 @@ static void grid_keys(uint32_t pressed)
 
 static int live_rec_sel(void);
 static void notes_event_edit(uint32_t slot, int32_t delta);
+static void notes_delete_edit(void);
 static void step_move_edit(int32_t delta);
 /* The sound page edits a kit voice; HIT edits only one event, retaining its instrument. */
 static uint32_t drum_hit_selected(void)
@@ -1011,6 +1012,47 @@ static void tracker_mono_note(const track_t *t, const step_t *st)
  * it tied). In VEL KNOB 3 the velocity, KNOB 4 the length. In FX KNOB 3 which effect (RATCHET, CHANCE, CONDITION,
  * NUDGE, SLIDE, ACCENT), KNOB 4 its amount on the step (the note sheet's own steps). A held note's rows edit the
  * note they hold. KNOB 1 (the row) is step_edit's */
+/* (Orange Cat 0.7.1) the tracker on a recorded step (live recording, or NOTES' fine edits): the note columns are the
+ * step's recorded notes in NOTES' order (seq_notes.c notes_nth), each with its own pitch, velocity and length; the
+ * knobs edit the column's note through NOTES' own event editor (notes_event_edit), so an edit here and one on NOTES
+ * are the same operation with the same undo. KNOB 3 in a note column the pitch, in VEL the velocity (of the note last
+ * picked in a note column, else the first); KNOB 4 the length, a step a detent (NOTES' KNOB 3 and ENV for finer);
+ * the FX column: CHANCE and SLIDE (what a recorded step keeps), the others are a manual step's. 1: handled here */
+static int tracker_event_edit(track_t *t, uint32_t col, uint32_t slot, int32_t steps)
+{
+    uint32_t cursor = ui.cursor % NSTEP, e;
+    if (notes_nth(t, cursor, 0) >= RECORD_MAX) return 0;   /* (no recorded note here: a manual step) */
+    if (col == TKC_FX) {
+        step_t *st = &t->step[recording_view(t, &recording[notes_nth(t, cursor, 0)])];
+        if (chain_busy() || live_rec_sel()) { ui_message("STOP TO EDIT"); return 1; }
+        if (frz_locked()) return 1;
+        fm1_irq_off();
+        switch (ui.tk_fx % TFX_N) {
+        case TFX_CHANCE:
+            step_set_chance(st, (uint32_t)clamp((int32_t)step_chance(st) + list_accel(EN_K4, steps, 101, 0), 0, 100));
+            break;
+        case TFX_SLIDE: if (steps > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE; break;
+        default: fm1_irq_on(); ui_message("NOT ON RECORDED NOTES"); return 1;   /* (RATCH, FLAM, a condition, NUDGE,
+                                                                                * the accent: a manual step's) */
+        }
+        fm1_irq_on();
+        return 1;
+    }
+    if (col < TKC_VEL) {
+        e = notes_nth(t, cursor, col);
+        if (e >= RECORD_MAX) { ui_message("NO NOTE THERE"); return 1; }
+        notes_pick(t, e);
+    } else if (notes_selected(t) >= RECORD_MAX) {
+        notes_pick(t, notes_nth(t, cursor, 0));
+    }
+    notes_event_edit(slot == 2u ? (col < TKC_VEL ? 1u : 3u) : 5u, steps);
+    if (col < TKC_VEL) {                                /* (a pitch change can reorder the columns: follow the note) */
+        e = notes_selected(t);
+        for (uint32_t c = 0; c < 4u; c++)
+            if (notes_nth(t, cursor, c) == e) ui.tk_col = (uint8_t)c;
+    }
+    return 1;
+}
 static void tracker_edit(uint32_t slot, int32_t steps)
 {
     track_t *t = TSEL;
@@ -1024,6 +1066,7 @@ static void tracker_edit(uint32_t slot, int32_t steps)
         ui.tk_fx = (uint8_t)clamp((int32_t)(ui.tk_fx % TFX_N) + steps, 0, TFX_N - 1);
         return;
     }
+    if (tracker_event_edit(t, col, slot, steps)) return;   /* (0.7.1) a recorded step: NOTES' event editor */
     fm1_irq_off();
     at = notes_manual_start(t);
     if (at >= NSTEP && (t->step[ui.cursor].flags & SF_RECORDED)) { fm1_irq_on(); ui_message("RECORDED: EDIT ON NOTES"); return; }
@@ -1071,6 +1114,15 @@ static int tracker_delete(void)
     step_t *st;
     if (frz_locked()) return 1;                         /* (Orange Cat 0.5.6) a frozen phrase */
     char m[24];
+    if (col < TKC_VEL && notes_nth(t, ui.cursor % NSTEP, 0) < RECORD_MAX) {   /* (0.7.1) a recorded step's note: NOTES'
+                                                                                 * deletion, the same undo */
+        uint32_t e = notes_nth(t, ui.cursor % NSTEP, col);
+        if (e >= RECORD_MAX) { ui_message("NO NOTE THERE"); return 1; }
+        notes_pick(t, e);
+        notes_delete_edit();
+        if (ui.tk_col && notes_nth(t, ui.cursor % NSTEP, ui.tk_col) >= RECORD_MAX) ui.tk_col--;
+        return 1;
+    }
     if (at >= NSTEP || col == TKC_VEL)
         return 0;
     st = &t->step[at];
@@ -1114,7 +1166,8 @@ static void step_edit(uint32_t slot, int32_t steps)
         return;
     }
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
-    if (notes_selected(TSEL) < RECORD_MAX) {
+    if (cur_page()->graph != GR_TRACKER && notes_selected(TSEL) < RECORD_MAX) {   /* (0.7.1: the tracker's columns map
+                                                                                  * the knobs themselves, tracker_edit) */
         uint32_t fine = slot == 2u ? ui.step_mods & (1u << panel.btn[B_ENV]) : 0u;
         ui.step_used |= (uint16_t)fine;
         notes_event_edit(fine ? 4u : slot, steps);
@@ -1624,9 +1677,9 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
         if(drum_track(TSEL))after.pitch=(int8_t)clamp(before.pitch+delta,-24,24);
         else after.note=(uint8_t)clamp((int32_t)before.note+delta,1,127);
     }
-    else if (slot == 2u || slot == 4u) {
+    else if (slot == 2u || slot == 4u || slot == 5u) {   /* (0.7.1: 5, the tracker's KNOB 4, a whole step) */
         int32_t duration = (int32_t)before.duration * (1u << (before.owner >> 5));
-        uint32_t quantum=slot==4u?RECORD_UNIT/16u:RECORD_UNIT/4u;
+        uint32_t quantum=slot==4u?RECORD_UNIT/16u:slot==5u?RECORD_UNIT:RECORD_UNIT/4u;
         duration=clamp(note_snap(duration,delta,quantum),(int32_t)quantum,128*RECORD_UNIT);
         uint32_t exp=0;while(duration>65535&&exp<7u){duration>>=1;exp++;}
         after.duration=(uint16_t)duration;after.owner=(uint8_t)((after.owner&31u)|(exp<<5));

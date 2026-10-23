@@ -4195,6 +4195,92 @@ static int test_tracker(void)
     return bad;
 }
 
+/* (Orange Cat 0.7.1) the tracker on recorded notes: three notes of a chord recorded with their own release times,
+ * one edited on the tracker, the others untouched; the same note on NOTES; undo; a save and a load */
+static int test_tracker_events(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    recorded_note_t a, b, c, r0, r1, r2;
+    uint32_t i;
+    ui_power_on();
+    stop_transport();
+    go_title("TRACKER"); frame();
+    t = TSEL;
+    track_defaults_steps(t);
+    t->p[P_SLEN] = 16;
+    ui.tk_col = TKC_N1; ui.tk_fx = TFX_RATCH;
+    a = (recorded_note_t){.step = 2, .on = 1000, .note = 60, .vel = 70, .duration = RECORD_UNIT / 2u, .owner = (uint8_t)recording_owner(t), .length = 1};
+    b = a; b.note = 64; b.vel = 90; b.owner |= 1u << 5;                     /* (a step: a later release) */
+    c = a; c.note = 67; c.vel = 110; c.owner |= 2u << 5;                    /* (two steps) */
+    recording_restore_note(t, 0, a); recording_restore_note(t, 1, b); recording_restore_note(t, 2, c);
+    note_rebuild_all();
+    cursor_set(2); frame();
+    ok = (t->step[2].flags & SF_RECORDED) && notes_nth(t, 2, 0) == 0u && notes_nth(t, 2, 1) == 1u && notes_nth(t, 2, 2) == 2u &&
+         notes_nth(t, 2, 3) >= RECORD_MAX;
+    bad += check("TRACKER: a recorded chord's notes in the columns, in NOTES' order (onset, then pitch)", ok);
+    turn(EN_K2, 1);                                     /* (N2: the 64) */
+    turn(EN_K3, 2);
+    r0 = recording[0]; r1 = recording[1]; r2 = recording[2];
+    ok = ui.tk_col == TKC_N2 && r1.note == 66u && r1.vel == 90u && r1.duration == RECORD_UNIT / 2u && r1.owner == b.owner && r1.on == 1000u &&
+         !memcmp(&r0, &a, sizeof a) && !memcmp(&r2, &c, sizeof c);
+    bad += check("TRACKER: KNOB 3 in N2 moves that note's pitch alone; the other notes' timing, velocity and length stay", ok);
+    turn(EN_K4, 1);
+    ok = recording[1].duration * (1u << (recording[1].owner >> 5)) == 2u * RECORD_UNIT && !memcmp(&recording[0], &a, sizeof a) &&
+         !memcmp(&recording[2], &c, sizeof c);
+    bad += check("TRACKER: KNOB 4 lengthens that note by a step, the others untouched", ok);
+    turn(EN_K2, 3);                                     /* (VEL: the note last picked, N2's) */
+    turn(EN_K3, -5);
+    ok = ui.tk_col == TKC_VEL && recording[1].vel == 85u && recording[0].vel == 70u && recording[2].vel == 110u;
+    bad += check("TRACKER: KNOB 3 in VEL changes that note's velocity alone", ok);
+    go_title("NOTES"); frame(); cursor_set(2); frame();
+    ok = recording[1].note == 66u && recording[1].vel == 85u && !memcmp(&recording[0], &a, sizeof a) &&
+         !memcmp(&recording[2], &c, sizeof c);
+    notes_cycle(1); i = notes_selected(t);
+    ok &= i == 1u;                                      /* (NOTES reaches the same note: the second in its order) */
+    bad += check("TRACKER: switching to NOTES changes nothing; NOTES' second note is the one the tracker edited", ok);
+    go_title("TRACKER"); frame(); cursor_set(2); frame();
+    hold(B_EDIT);
+    ok = recording[1].vel == 90u;
+    hold(B_EDIT);
+    ok &= recording[1].duration * (1u << (recording[1].owner >> 5)) == RECORD_UNIT;
+    hold(B_EDIT);
+    ok &= !memcmp(&recording[1], &b, sizeof b) && !memcmp(&recording[0], &a, sizeof a) && !memcmp(&recording[2], &c, sizeof c);
+    bad += check("TRACKER: EDIT held undoes the velocity, the length and the pitch, one each, back to the recording", ok);
+    go_title("TRACKER"); frame(); cursor_set(2); frame();
+    ui.tk_col = TKC_N3;
+    turn(EN_K3, -1);                                    /* (the 67 down to 66) */
+    r2 = recording[2];
+    project_save(0);
+    turn(EN_K3, 3);                                     /* (changed again after the save: the load brings the saved one) */
+    project_load(0);
+    frame(); cursor_set(2); frame();                    /* (a load puts the cursor at the start) */
+    ok = ui.cursor == 2u ? 0 : -1;
+    for (i = 0; i < RECORD_MAX; i++)
+        if (!ok && recording_active(t, i) && recording[i].note == 66u && recording[i].vel == 110u &&
+            recording[i].duration * (1u << (recording[i].owner >> 5)) == 2u * RECORD_UNIT) ok = 1;
+    bad += check("TRACKER: the edited recording survives a save and a load", ok);
+    turn(EN_K2, 4);                                     /* (FX) */
+    turn(EN_K3, 1);                                     /* (CHANCE) */
+    turn(EN_K4, -3);
+    ok = ui.tk_fx == TFX_CHANCE && step_chance(&t->step[2]) < 100u;
+    turn(EN_K3, -1);                                    /* (RATCHET: a manual step's) */
+    turn(EN_K4, 1);
+    ok &= step_rflam(&t->step[2]) == 1u && msg_is("NOT ON RECORDED NOTES");
+    bad += check("TRACKER: FX on a recorded step: CHANCE works, RATCHET is refused", ok);
+    ui.tk_col = TKC_N1;
+    press(B_EDIT);
+    ok = 1;
+    for (i = 0; i < RECORD_MAX; i++)
+        if (recording_active(t, i) && recording[i].note == 60u) ok = 0;
+    ok &= notes_nth(t, 2, 0) < RECORD_MAX && notes_nth(t, 2, 1) < RECORD_MAX && notes_nth(t, 2, 2) >= RECORD_MAX;
+    hold(B_EDIT);
+    ok &= notes_nth(t, 2, 2) < RECORD_MAX;
+    bad += check("TRACKER: EDIT in N1 deletes that recorded note alone; EDIT held brings it back", ok);
+    ui.tk_col = TKC_N1;
+    return bad;
+}
+
 /* (Orange Cat 0.4.1, build doc 4d) ARP held: PERFORM: scenes on the white keys (SAVE held stores), MUTEs staged on the
  * black keys, KNOB 1 LAUNCH, OCT- puts back */
 static int test_perform(void)
@@ -5781,6 +5867,7 @@ int main(void)
     bad += test_chain();
     bad += test_perform();
     bad += test_tracker();
+    bad += test_tracker_events();
     bad += test_pool();
     bad += test_groove_page();
     bad += test_seq_tools();
