@@ -8,6 +8,7 @@ static unsigned char host_samples[3][0x14000];
 #define MELODEE_OTA 1
 #define MELODEE_FLASH 0
 #define MELODEE_VERSION "TEST"
+#define OC_MODULE_WINS 1                  /* (Orange Cat 0.10.0) the module commands are tested with a module that takes the slot (the build default is 0; the Orange Cat set turns it on) */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
