@@ -107,8 +107,8 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
     str_cpy(t, s, sizeof t);
     for (i = 0; s[i]; i++)
         p += (uint32_t)roll_digit(s[i]);
-    cv_cy0 = (int16_t)(cy + cv_oy);                     /* the strip (the static characters lie inside it) */
-    cv_cy1 = (int16_t)(cy + cv_oy + h);
+    cv_cy0 = (int16_t)(cy + CV_OY);                     /* the strip (the static characters lie inside it) */
+    cv_cy1 = (int16_t)(cy + CV_OY + h);
     cv_scroll = 1;                                      /* (the lint: rolling digits are cut on purpose) */
     for (i = 0; s[i]; i++) {
         int32_t px, ny = y;

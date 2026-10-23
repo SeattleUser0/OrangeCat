@@ -79,8 +79,8 @@ static void browser_list(uint32_t cur, uint32_t total)
     if (!ui.force && sig == brv.list)
         return;
     brv.list = sig;
-    for (top = 0; top < h; top += 124) {                /* (in two slices: a canvas holds 124 rows) */
-        int32_t sh = h - top < 124 ? h - top : 124;
+    for (top = 0; top < h; top += (int32_t)CV_ROWS) {   /* (in slices: a canvas holds CV_ROWS rows) */
+        int32_t sh = h - top < (int32_t)CV_ROWS ? h - top : (int32_t)CV_ROWS;
         cv_begin(240, (uint32_t)sh, T_BG);
         cv_oy = -top;
         if (!total) {

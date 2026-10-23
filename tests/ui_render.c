@@ -28,7 +28,7 @@
 #include <time.h>
 #include <math.h>
 
-typedef struct { int16_t x0, y0, x1, y1; uint8_t flags; char s[28]; } rbox_t;
+typedef struct { int16_t x0, y0, x1, y1; uint8_t flags; char s[28]; int16_t oy0, oy1; } rbox_t;   /* oy0, oy1: its rows as drawn (cover trims y0, y1) */
 static rbox_t pend[256], scr[1200];
 static int16_t cells[64][4];                    /* GFX_HOOK_CELL: the cells and cards of the canvas being drawn */
 static uint32_t ncells, nspill;
@@ -74,6 +74,8 @@ static void hk_whole(uint32_t x, uint32_t y, uint32_t r0, uint32_t fill);
 #define GFX_HOOK_WHOLE(x, y, r0, fill) hk_whole(x, y, r0, fill)
 #define GFX_HOOK_BEGIN() (npend = ncells = 0)
 #define GFX_HOOK_CELL(x0, y0, x1, y1) hk_cell(x0, y0, x1, y1)
+static uint32_t n_clamped;                       /* (gui-slim) canvases asked taller than the canvas holds (cut) */
+#define GFX_HOOK_CLAMP(w, h) (n_clamped++, fprintf(stderr, "ui_render: %s: a canvas %ux%u asked, more than CV_MAX\n", cur_name, (unsigned)(w), (unsigned)(h)))
 #define GFX_HOOK_COVER(x0, y0, x1, y1) hk_cover(x0, y0, x1, y1)
 #define GFX_HOOK_PIXELS(n) (px_visited += (n))
 #define UI_FILL_HOOK(x, y, w, h) hk_fill(x, y, w, h)
@@ -86,7 +88,7 @@ static void fm6_hook(uint32_t kind, uint32_t a, uint32_t b);
  * (bit: the part), then the canvas as drawn restored with the part on it; at FMH_END the parts are checked */
 #define FMP_MAX 48u
 #define FMP_SENT 0x0861u
-static uint64_t fmp_mask[CV_MAX];
+static uint64_t fmp_mask[240u * H_GRAPH];   /* (gui-slim: the chart's region, drawn in bands: region rows) */
 static uint16_t fmp_save[CV_MAX];
 static uint8_t fmp_kind[FMP_MAX], fmp_a[FMP_MAX], fmp_b[FMP_MAX];
 static uint32_t fmp_n, fmp_charts;
@@ -103,7 +105,7 @@ static void fmp_find(uint32_t alg, const char *what, uint32_t i, int32_t x, int3
 static void fmp_check(uint32_t alg)
 {
     int32_t bx0[FMP_MAX], by0[FMP_MAX], bx1[FMP_MAX], by1[FMP_MAX], x, y, dx, dy;
-    uint32_t net[FMP_MAX], par[12], i, j, w = cv_w, h = cv_h;
+    uint32_t net[FMP_MAX], par[12], i, j, w = cv_w, h = cv_region_h ? (uint32_t)cv_region_h : cv_h;
     for (i = 0; i < 12u; i++) par[i] = i;               /* the routes' nets: an operator as source (0..5), as destination (6..11) */
     #define FMP_ROOT(v) ({ uint32_t r_ = (v); while (par[r_] != r_) r_ = par[r_]; r_; })
     for (i = 0; i < fmp_n; i++)
@@ -160,18 +162,21 @@ static void fmp_check(uint32_t alg)
         }
     fmp_charts++;
 }
+/* (gui-slim) a chart drawn in bands (gfx.c CV_BANDS): each band draws every part again, clipped; the parts' pixels
+ * are kept in region rows (o: the band's first), the check runs after the last band */
 static void fm6_hook(uint32_t kind, uint32_t a, uint32_t b)
 {
-    uint32_t i, n = cv_w * cv_h;
+    uint32_t i, n = cv_w * cv_h, o = (uint32_t)cv_band * cv_w;
     if (fmp_n) {                                         /* the part just drawn: its pixels */
         for (i = 0; i < n; i++)
-            if (cv_px[i] != FMP_SENT) fmp_mask[i] |= (uint64_t)1u << (fmp_n - 1u);
+            if (cv_px[i] != FMP_SENT) fmp_mask[o + i] |= (uint64_t)1u << (fmp_n - 1u);
             else cv_px[i] = fmp_save[i];
-    } else {
-        memset(fmp_mask, 0, n * sizeof fmp_mask[0]);
+    } else if (!cv_band) {
+        memset(fmp_mask, 0, sizeof fmp_mask);
     }
     if (kind == FMH_END) {
-        fmp_check(a);
+        if (!cv_region_h || cv_band + (int32_t)cv_h >= cv_region_h)
+            fmp_check(a);
         fmp_n = 0;
         return;
     }
@@ -227,15 +232,16 @@ static void cover(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
     nscr = k;
 }
 static void hk_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { cover((int32_t)x, (int32_t)y, (int32_t)(x + w), (int32_t)(y + h)); }
-/* a text across two bands (the menu and the document draw 124 + 85 rows): each band draws its part, the same
- * screen box twice, cut at the band edge; together they are whole (flag 16) */
+/* a text across bands (the menu and the document draw 124 + 85 rows; gui-slim: bands of 64 rows, CV_BANDS): each band
+ * draws its part, the same screen box, cut at the band edge; together they are whole (flag 16). A third band's part
+ * joins the two already joined */
 static int split_pair(rbox_t *b)
 {
     uint32_t j;
     if (!(b->flags & 2u)) return 0;
     for (j = 0; j < nscr; j++) {
         rbox_t *o = &scr[j];
-        if ((o->flags & 2u) && o->x0 == b->x0 && o->x1 == b->x1 && o->y0 == b->y0 && o->y1 == b->y1 && !strcmp(o->s, b->s)) {
+        if ((o->flags & 18u) && o->x0 == b->x0 && o->x1 == b->x1 && o->oy0 == b->y0 && o->oy1 == b->y1 && !strcmp(o->s, b->s)) {
             o->flags = (uint8_t)((o->flags & ~2u) | 16u);
             return 1;
         }
@@ -307,8 +313,11 @@ static void hk_blit(uint32_t x, uint32_t y, uint32_t r0, uint32_t w, uint32_t h)
     for (i = 0; i < npend; i++) {
         rbox_t b = pend[i];
         if (b.y1 <= (int32_t)r0) continue;           /* rows not blitted */
+        if (b.y0 >= (int32_t)h) continue;            /* (gui-slim) wholly below the canvas: a later slice or band of
+                                                      * the same region draws it (as a text wholly above, just above) */
         if (b.y0 < (int32_t)r0) b.flags |= 2u;
         b.x0 += (int16_t)x; b.x1 += (int16_t)x; b.y0 += (int16_t)y; b.y1 += (int16_t)y;
+        b.oy0 = b.y0; b.oy1 = b.y1;
         if (!split_pair(&b)) pend[k++] = b;
     }
     cover((int32_t)x, (int32_t)(y + r0), (int32_t)(x + w), (int32_t)(y + h));
@@ -2326,5 +2335,6 @@ int main(int argc, char **argv)
     fclose(rep);
     printf("ui_render: %u screens x %u palettes + the page/value sweep; %u lint findings, %u ellipsised free texts (%u distinct), "
            "%u MONO pixels off gray; report %s\n", (unsigned)(S_COUNT - (1 + S_OP_LEVEL - S_ALG1 + 1)), (unsigned)NPALETTES, nfind, nfree, nfree_seen, mono_bad, path);
-    return nfind || mono_bad ? 1 : 0;
+    if (n_clamped) fprintf(stderr, "ui_render: %u canvases cut (taller than CV_MAX: draw them with CV_BANDS)\n", n_clamped);
+    return nfind || mono_bad || n_clamped ? 1 : 0;
 }

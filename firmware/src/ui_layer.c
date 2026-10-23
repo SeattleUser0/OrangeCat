@@ -739,11 +739,11 @@ static void draw_layer(void)
     }
     if (ui.force || sig != ui.layer_sig) {
         ui.layer_sig = sig;
-        cv_begin(240, H_GRAPH, T_BG);
-        cv_rrect(BOX_X, 0, BOX_W, H_GRAPH, 6, T_SURF, T_BG);
-        cv_bg = T_SURF;
-        layer_scl();
-        cv_blit(0, Y_GRAPH);
+        CV_BANDS(0, Y_GRAPH, 240, H_GRAPH, T_BG) {   /* (gui-slim: in bands of the canvas's rows) */
+            cv_rrect(BOX_X, 0, BOX_W, H_GRAPH, 6, T_SURF, T_BG);
+            cv_bg = T_SURF;
+            layer_scl();
+        }
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
         cv_begin(240, H_FOOT, T_BG);

@@ -23,7 +23,7 @@ static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c *
 static void menu_words(char *d, const char *s, uint32_t n);         /* ui_menu.c */
 #define PV_PANEL_X BOX_X                                /* a panel: x 2 .. 237 */
 #define PV_PANEL_W BOX_W
-#define PV_SLICE 124                                    /* rows of a panel slice (236 x 124 fits CV_MAX) */
+#define PV_SLICE ((int32_t)CV_ROWS)                     /* rows of a panel slice (gui-slim: 62, was 124) */
 #define PV_CURVE_Y Y_GRAPH                              /* CURVE: the panel, rows 84 .. 207 */
 #define PV_CURVE_H H_GRAPH
 #define PV_SOUND_Y Y_FOOT                               /* the sound: rows 212 .. 239 */
@@ -615,15 +615,15 @@ static void pv_picture(void)
         return;
     pv.panel = sig;                                     /* (PATTERN, the step playing alone moved: cv_blit sends its */
     pv.pplay = pp;                                      /*  two dots) */
-    cv_begin(240, (uint32_t)h, T_BG);
-    cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, h, 6, T_PANEL, T_BG);
-    cv_bg = T_PANEL;
-    if (pic == 5u) pv_arp(h);
-    else if (pic == 6u) pv_steps(h);
-    else if (pic == 3u) pv_filter(cut, res, h);
-    else if (pic == 9u) pv_fx(h);
-    else stage_wave(T_THEME, 8, h - 16);
-    cv_blit(0, (uint32_t)y);
+    CV_BANDS(0, (uint32_t)y, 240, (uint32_t)h, T_BG) {   /* (gui-slim: in bands of the canvas's rows) */
+        cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, h, 6, T_PANEL, T_BG);
+        cv_bg = T_PANEL;
+        if (pic == 5u) pv_arp(h);
+        else if (pic == 6u) pv_steps(h);
+        else if (pic == 3u) pv_filter(cut, res, h);
+        else if (pic == 9u) pv_fx(h);
+        else stage_wave(T_THEME, 8, h - 16);
+    }
 }
 
 /* ---------------------------------------------------------- MIXER --- */
@@ -753,8 +753,8 @@ static void pv_draw(void)
             int32_t top, from = proll.play, cols = !ui.force && sig == ui.graph_sig;
             ui.graph_sig = sig;
             proll.play = px;
-            for (top = 0; top < PR_H; top += H_GRAPH) {
-                int32_t sh = PR_H - top < H_GRAPH ? PR_H - top : H_GRAPH;
+            for (top = 0; top < PR_H; top += (int32_t)CV_ROWS) {   /* (gui-slim: slices of the canvas's rows) */
+                int32_t sh = PR_H - top < (int32_t)CV_ROWS ? PR_H - top : (int32_t)CV_ROWS;
                 cv_begin(240, (uint32_t)sh, T_BG);
                 cv_oy = -top;
                 cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PR_H, 6, T_PANEL, T_BG);

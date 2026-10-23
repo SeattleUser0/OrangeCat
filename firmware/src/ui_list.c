@@ -242,7 +242,7 @@ static void list_rows(uint32_t n, uint32_t row, uint32_t first, uint32_t vis,
     char lb[16], v[16];
     uint16_t vc;
     for (top = 0; top < (int32_t)vis * LIST_ROW; ) {   /* in slices between rows */
-        int32_t sh = (int32_t)vis * LIST_ROW - top <= 3 * LIST_ROW ? (int32_t)vis * LIST_ROW - top : 3 * LIST_ROW;
+        int32_t sh = (int32_t)vis * LIST_ROW - top <= (int32_t)CV_ROWS ? (int32_t)vis * LIST_ROW - top : (int32_t)CV_ROWS;
         cv_begin(240, (uint32_t)sh, T_BG);
         cv_oy = -top;
         for (r = first; r < n && r < first + vis; r++) {

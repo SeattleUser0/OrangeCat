@@ -560,9 +560,9 @@ static void designer_start_draw(void)
         cv_blit(0,(uint32_t)(LIST_Y0+(int32_t)k*LIST_ROW));
     }
     if(text_w(f,ENGINES[ds.eng]->name)>220 || !text_has(f,ENGINES[ds.eng]->name))f=TY_VL;
-    cv_begin(240,Y_FOOT-(LIST_Y0+3*LIST_ROW),T_BG);   /* (the engine: large) */
-    cv_text_c(120,ty_y((Y_FOOT-(LIST_Y0+3*LIST_ROW))/2,f),f,ENGINES[ds.eng]->name,T_THEME,T_BG);
-    cv_blit(0,LIST_Y0+3*LIST_ROW);
+    CV_BANDS(0, LIST_Y0+3*LIST_ROW, 240, Y_FOOT-(LIST_Y0+3*LIST_ROW), T_BG) {   /* (gui-slim: in bands of the canvas's rows) */
+        cv_text_c(120,ty_y((Y_FOOT-(LIST_Y0+3*LIST_ROW))/2,f),f,ENGINES[ds.eng]->name,T_THEME,T_BG);
+    }
     new_keys_row("Design",ICON_X_RIGHT);
 }
 /* FEATURES: a row a path, its state at the right (off: dim); an FM operator says what it is in the algorithm */

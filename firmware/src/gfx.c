@@ -59,11 +59,18 @@ static uint32_t ty_pixel(void);
 #define GFX_HOOK_COVER(x0, y0, x1, y1) ((void)0)   /* a card over the screen (the toast): the texts under it covered on
                                                      * purpose */
 #endif
+#ifndef GFX_HOOK_CLAMP
+#define GFX_HOOK_CLAMP(w, h) ((void)0)              /* (gui-slim) a canvas asked taller than CV_MAX holds: cut */
+#endif
 #ifndef GFX_HOOK_CELL
 #define GFX_HOOK_CELL(x0, y0, x1, y1) ((void)0)    /* a cell, card, row or button (cv_rrect): a box touching it lies inside it */
 #endif
 
-#define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
+/* (gui-slim) the canvas holds 62 rows of 240 px (half the graph strip, so its two bands meet where the old canvas's
+ * slices did: at row 124 of a taller panel); a taller region (the graph strip, 240 x 124) is drawn in bands (CV_BANDS
+ * below): its drawing runs once per band, clipped to it */
+#define CV_ROWS 62u
+#define CV_MAX (240u * CV_ROWS)
 /* Most regions (cards, header, footer) fit the small second canvas. Draw
  * there while SPI reads the first; large graphs reuse the full canvas only
  * after its transfer finishes. No second full-screen-sized allocation. */
@@ -91,6 +98,9 @@ static uint32_t cv_w, cv_h;
 static uint16_t cv_bg;           /* what cv_begin cleared the canvas to */
 static uint8_t cv_scroll;        /* 1: drawing a scrolled view (its text may run past the canvas) */
 static int32_t cv_oy;            /* y offset for graph drawing */
+static int32_t cv_band;          /* (gui-slim) a region drawn in bands: the band's first row in the region (0: none) */
+static int32_t cv_region_h;      /* .. the region's height (0: not in bands) */
+#define CV_OY (cv_oy - cv_band)  /* what the primitives add to y: region rows to the band's canvas rows */
 static int16_t cv_cy0, cv_cy1;   /* text clip: canvas rows cv_cy0 .. cv_cy1 - 1 (cv_begin: the whole canvas) */
 
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
@@ -212,8 +222,10 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
 {
     uint32_t i, n;
     uint16_t s = swap16(bg);
-    if (w * h > CV_MAX)
+    if (w * h > CV_MAX) {
+        GFX_HOOK_CLAMP(w, h);       /* (a region taller than the canvas: CV_BANDS; the host lint reports one cut here) */
         h = CV_MAX / w;
+    }
     n = w * h;
     cv_px = cv_flight != cv_primary ? cv_primary : n <= CV_ALT_MAX ? cv_alt : cv_primary;
     if (cv_px == cv_flight) {
@@ -246,7 +258,8 @@ static void cv_dim_rows(uint32_t r0)
  * before (the same x, y, w, h) sends only what changed: DF_N such places keep 32-bit hashes of their 4-row bands and
  * 8-column blocks as last sent, and a blit sends the dirty band runs x the dirty block runs. Anything else written
  * over a place (another canvas, a fill: gfx_fill) marks the bands and blocks it covered dirty: sent again next time */
-#define DF_N 9u                                         /* (tests/ui_render.c's LCD audit: as much sent as with 14) */
+#define DF_N 13u                                        /* (gui-slim: 13, was 9: a region in bands is a place a band;
+                                                         * the 48 slots keep it under the 9 x 76 it was) */
 #ifndef DF_MIN
 #define DF_MIN 2048u                                    /* (smaller canvases: sent whole) */
 #endif
@@ -254,7 +267,8 @@ static void cv_dim_rows(uint32_t r0)
 #define DF_BLK 8u
 #define DF_NB (240u / DF_BAND)
 #define DF_NK (240u / DF_BLK)
-#define DF_SLOTS 76u                                    /* a canvas's bands, then its blocks: at most 60 + 16 (CV_MAX) */
+#define DF_SLOTS 48u                                    /* a canvas's bands, then its blocks (240 x 62: 16 + 30; the
+                                                         * picker's 116 x 128: 32 + 15) */
 #define DF_FITS() ((cv_h + DF_BAND - 1u) / DF_BAND + (cv_w + DF_BLK - 1u) / DF_BLK <= DF_SLOTS)
 static struct { uint64_t pb; uint32_t pk; uint8_t x, y, w, h, on; uint16_t use; } df_key[DF_N];   /* pb, pk: bands and
                                                                                     * blocks drawn over since (dirty) */
@@ -525,6 +539,49 @@ static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
     }
 }
 
+/* (gui-slim) a region taller than the canvas, drawn in bands: CV_BANDS(x, y, w, h, bg) { drawing in region rows }
+ * runs its body once per band of CV_MAX / w rows (the canvas begun for the band, cv_band its first row: the primitives
+ * subtract it, CV_OY), then sends the band to screen row y + cv_band. The body draws the whole region each time and the
+ * primitives clip it to the band, so a text across two bands is drawn in two parts, each exact. A band always starts at
+ * the same row, so the screen diff (df_*) finds each band in its place frame after frame. The body must not blit,
+ * return or break out of the loop (a break in a switch is fine), and leaves cv_oy at 0 */
+static uint32_t cv_bx, cv_by, cv_bw;
+static uint16_t cv_bbg;
+static void cv_bands_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
+{
+    cv_bx = x;
+    cv_by = y;
+    cv_bw = w;
+    cv_bbg = bg;
+    cv_region_h = (int32_t)h;
+    cv_band = 0;
+    cv_begin(w, h < CV_MAX / w ? h : CV_MAX / w, bg);
+}
+static uint32_t cv_bands_from;   /* the region's rows above this one are not sent (cv_blit_from: the wheel under the
+                                  * knobs); set before CV_BANDS, cleared after it */
+static int cv_bands_more(void)
+{
+    if (cv_band < cv_region_h)
+        return 1;
+    cv_band = cv_region_h = 0;
+    cv_bands_from = 0;
+    return 0;
+}
+static void cv_bands_next(void)
+{
+    uint32_t rows = CV_MAX / cv_bw, left, b = (uint32_t)cv_band;
+    if (b >= cv_bands_from)
+        cv_blit(cv_bx, cv_by + b);
+    else if (b + cv_h > cv_bands_from)
+        cv_blit_from(cv_bx, cv_by + b, cv_bands_from - b);
+    cv_band += (int32_t)cv_h;
+    if (cv_band < cv_region_h) {
+        left = (uint32_t)(cv_region_h - cv_band);
+        cv_begin(cv_bw, left < rows ? left : rows, cv_bbg);
+    }
+}
+#define CV_BANDS(x, y, w, h, bg) for (cv_bands_begin((x), (y), (w), (h), (bg)); cv_bands_more(); cv_bands_next())
+
 /* the caller knows only columns a0 .. a0+aw-1 and b0 .. b0+bw-1 changed (bw 0: one span; a playhead moved over a big
  * view): only they are sent, faster than df_diff finds them (8-column blocks) */
 static void cv_blit_spans(uint32_t x, uint32_t y, uint32_t a0, uint32_t aw, uint32_t b0, uint32_t bw)
@@ -584,16 +641,16 @@ static void gfx_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)
 {
-    y += cv_oy;
+    y += CV_OY;
     if ((uint32_t)x < cv_w && (uint32_t)y < cv_h)
         cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16(c);
 }
 
 static void cv_rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 {
-    int32_t x1 = x + w, y1 = y + h + cv_oy, i;
+    int32_t x1 = x + w, y1 = y + h + CV_OY, i;
     uint16_t sc = swap16(c);
-    y += cv_oy;                             /* clipped once, then filled row by row */
+    y += CV_OY;                             /* clipped once, then filled row by row */
     if (x < 0)
         x = 0;
     if (y < 0)
@@ -661,7 +718,7 @@ static uint32_t rr_cov(int32_t r, int32_t i, int32_t j)
 static void cv_rrect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint16_t c, uint16_t under)
 {
     int32_t i, j;
-    GFX_HOOK_CELL(x, y + cv_oy, x + w, y + h + cv_oy);   /* (the lint: what is drawn on it stays inside it) */
+    GFX_HOOK_CELL(x, y + CV_OY, x + w, y + h + CV_OY);   /* (the lint: what is drawn on it stays inside it) */
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
     if (r < 1) {
@@ -687,8 +744,8 @@ static void cv_rrect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint
 static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
 static void cv_disc(int32_t cx, int32_t cy, int32_t d, uint16_t c, int ring)
 {
-    int32_t qx = cx * 8 + ((d & 1) ? 4 : 0), qy = (cy + cv_oy) * 8 + ((d & 1) ? 4 : 0), r = d * 4, ri = r - 8, x, y;
-    for (y = cy + cv_oy - d / 2 - 1; y <= cy + cv_oy + d / 2 + 1; y++)
+    int32_t qx = cx * 8 + ((d & 1) ? 4 : 0), qy = (cy + CV_OY) * 8 + ((d & 1) ? 4 : 0), r = d * 4, ri = r - 8, x, y;
+    for (y = cy + CV_OY - d / 2 - 1; y <= cy + CV_OY + d / 2 + 1; y++)
         for (x = cx - d / 2 - 1; x <= cx + d / 2 + 1; x++) {
             int32_t n = 0, i, j;
             if ((uint32_t)x >= cv_w || (uint32_t)y >= cv_h) continue;
@@ -713,7 +770,7 @@ static void cv_vspan_aa(int32_t x, int32_t a, int32_t b, uint16_t c)
     if ((uint32_t)x >= cv_w)
         return;
     for (y = lo >> 4; y <= (hi - 1) >> 4; y++) {
-        int32_t py = y + cv_oy, top = y * 16, cov = (hi < top + 16 ? hi : top + 16) - (lo > top ? lo : top);
+        int32_t py = y + CV_OY, top = y * 16, cov = (hi < top + 16 ? hi : top + 16) - (lo > top ? lo : top);
         uint16_t *p;
         if ((uint32_t)py >= cv_h || cov <= 0) continue;
         p = &cv_px[(uint32_t)py * cv_w + (uint32_t)x];
@@ -809,7 +866,7 @@ static uint16_t cv_over_px(uint16_t under, uint32_t v)       /* under: the canva
 static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint16_t *rv)
 {
     uint32_t k = 0, gx, gy;
-    y += cv_oy;
+    y += CV_OY;
     for (gy = 0; gy < h; gy++) {
         int32_t py = y + (int32_t)gy;
         uint16_t *row;
@@ -852,7 +909,7 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
                         const uint16_t *lut, const uint16_t *rv)
 {
     uint32_t gy, v = 0, run = 0, acc = 0, nb = 0;
-    y += cv_oy;
+    y += CV_OY;
     for (gy = 0; gy < h; gy++) {
         int32_t py = y + (int32_t)gy;
         uint16_t *row = py < cv_cy0 || py >= cv_cy1 ? 0 : cv_px + (uint32_t)py * cv_w;
@@ -905,7 +962,7 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
 static void cv_pix(int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t s, const uint8_t *d, uint16_t c)
 {
     uint32_t k = 0, gx, gy, j;
-    y += cv_oy;
+    y += CV_OY;
     for (gy = 0; gy < h; gy++) {
         for (gx = 0; gx < w; ) {
             uint32_t n = 0;
@@ -1035,7 +1092,9 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
             pos = (pen + 8) & ~15;
             if (g->bw) {
                 int32_t gx = x + (pos >> 4) + g->bx * f->px, gy = y + f->asc - 9 * f->px + g->by * f->px;
-                cv_pix(gx, gy, g->bw, g->bh, f->px, f->data + g->off, rv[15]);
+                if (gy + CV_OY < cv_cy1 && gy + CV_OY + (int32_t)(g->bh * f->px) > cv_cy0)   /* (gui-slim: else
+                                                                                             * outside the clip) */
+                    cv_pix(gx, gy, g->bw, g->bh, f->px, f->data + g->off, rv[15]);
                 if (gx < x0) x0 = gx;
                 if (gy < y0) y0 = gy;
                 if (gx + g->bw * f->px > x1) x1 = gx + g->bw * f->px;
@@ -1059,7 +1118,9 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         err = pos - pen;
         if (g->bw) {
             int32_t gx = x + (pos >> 4) + g->bx, gy = y + g->by;
-            if (f->hc)
+            if (gy + CV_OY >= cv_cy1 || gy + CV_OY + (int32_t)g->bh <= cv_cy0)
+                ;                                    /* (gui-slim: wholly outside the clip, a band: not decoded) */
+            else if (f->hc)
                 cv_alpha_hc(gx, gy, g->bw, g->bh, f->data + g->off, f->hc, lut, rv);
             else
                 cv_alpha(gx, gy, g->bw, g->bh, f->data + g->off, rv);
@@ -1072,16 +1133,16 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         prev = c;
     }
     if (x1 > x0) {
-        if (x0 < 0 || x1 > (int32_t)cv_w || y0 + cv_oy < cv_cy0 || y1 + cv_oy > cv_cy1)
+        if (x0 < 0 || x1 > (int32_t)cv_w || y0 + CV_OY < cv_cy0 || y1 + CV_OY > cv_cy1)
             flags |= 2u;                             /* cut by the canvas */
         if (cv_scroll) {                             /* a scrolled view: what lands on the screen is its visible part */
             flags |= 32u;
-            if (y0 + cv_oy < cv_cy0) y0 = cv_cy0 - cv_oy;
-            if (y1 + cv_oy > cv_cy1) y1 = cv_cy1 - cv_oy;
+            if (y0 + CV_OY < cv_cy0) y0 = cv_cy0 - CV_OY;
+            if (y1 + CV_OY > cv_cy1) y1 = cv_cy1 - CV_OY;
         }
         if (cv_dim || cv_under)                      /* (the page under a question: covered on purpose) */
             flags |= 16u;
-        GFX_HOOK_TEXT(x0, y0 + cv_oy, x1, y1 + cv_oy, s0, flags);
+        GFX_HOOK_TEXT(x0, y0 + CV_OY, x1, y1 + CV_OY, s0, flags);
     }
     (void)s0;
     return x + ((pen + 8) >> 4);
