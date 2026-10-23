@@ -168,7 +168,7 @@ For the record, after 0.7.1, by input origin:
 | A key on the step | replaces the column (TRACKER) or the step | replaces the whole step; the events are reclaimed later |
 | Delete one note | yes | yes (NOTES, TRACKER) |
 
-The second-to-last two rows are the remaining input-origin differences. Ratchet and the others are a sequencer
+The ratchet row and the key row are the remaining input-origin differences. Ratchet and the others are a sequencer
 change (apply the step's properties to its events' onsets: a design question for the nudge and ratchet of a chord
 with three onsets); the key is the one-authority cleanup below.
 
