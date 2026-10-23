@@ -150,8 +150,16 @@ glue of that time; the restore costs above are the current ones.
 
 ## Combined with the GUI work
 
-`size-audit-gui` is `gui-slim` (0.7.0 stages 1 to 5, image 520,976 B, POOL 176,768 B) with this branch's five product
-commits on top. See "Checkpoint" at the end for its build.
+`size-audit-gui` is `gui-slim` at 38ce0b6 (0.7.0 stages 1 to 5, image 520,976 B, POOL 176,768 B) with this branch's
+five product commits on top (one conflict, size_fns.py's file list, merged). Built and host tested green
+(run 39901458405): image **510,500 B**, body 506,692, **66,748 B free**; RAM .data + .bss 92,728; audio working arena
+95,808 B; audio resources 134,016 B (148,352 with the cache). The two branches' savings add almost exactly
+(-10,476 B here against -10,692 B alone: inlining in the shared files moved by 216 B).
+
+At that size the Prophet fits again in flash (+34,336 B leaves about 32 KB) and in RAM (its tables take 7.2 KB of the
+low bank; the arena has room now). FM6 fits in flash (+34,752 B) but not in `.data` + `.bss` (13.6 KB more; 5.6 KB
+free): its patches and state would have to live in POOL, which the GUI work has made roomy. DRUM does not fit flash
+(+51,392 B) and needs 33.5 KB of POOL for its resident kernels and buffers.
 
 ## RAM
 

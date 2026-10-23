@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.52  
+**Version:** 0.53  
 **Date:** October 23, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -10,7 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
-- **0.52 (October 23, 2026):** Size audit of the whole firmware (branch size-audit, docs/orangecat/SIZE_AUDIT.md): 10,692 B of flash recovered without a feature touched (an unused Prophet table the linker could not drop, the card's and store's main-loop files built for size, retired-engine tables and pages compiled out); the 76 KB storage and sequencer growth attributed from the CI record; the cost of Prophet, FM6 and DRUM measured in comparison builds; the stacks bounded; a plan for a data pack on the card. See "Size audit" below.
+- **0.53 (October 23, 2026):** Size audit of the whole firmware (branch size-audit, docs/orangecat/SIZE_AUDIT.md): 10,692 B of flash recovered without a feature touched (an unused Prophet table the linker could not drop, the card's and store's main-loop files built for size, retired-engine tables and pages compiled out); the 76 KB storage and sequencer growth attributed from the CI record; the cost of Prophet, FM6 and DRUM measured in comparison builds; the stacks bounded; a plan for a data pack on the card. See "Size audit" below.
 - **0.51 (October 22, 2026):** 0.6.2, from the unit: Assign clip said "Save first" on an empty phrase (it now gets a number), the knobs did not move the browser after a refusal (SELECT, KNOB 1 or 2 move it; a turn goes back to the list), and the refusal was drawn over the list.
 - **0.50 (October 22, 2026):** 0.6.1 on branch fx-jiant: takes in project folders on the card, moved when a project is named or renamed; Assign clip, a card browser on the MIXER page's sheet. See "Take folders and the clip browser".
 - **0.49 (October 22, 2026):** 0.6.0 on branch fx-jiant (not on main, not released): Jiant FM's effects replace the old ones, one internal user sample slot, projects FUN23. Built and host tested; nothing tried on the unit yet. See "Effects from Jiant FM".
@@ -1043,6 +1043,10 @@ over: its patches and state would have to move to POOL); DRUM +51,392 B flash an
 kernels; the arena would drop to 20 KB). The stack: a static worst case of 23,832 B on the 24,320 B user stack through
 the preset banks' repair at boot and the editor's backup restore (up_boot keeps whole banks on the stack); the audio
 interrupt 1,716 B of 7,936.
+
+Combined with gui-slim at 38ce0b6 (branch size-audit-gui): image 510,500 B, 66,748 B free, arena 95,808 B, host
+suite green. The Prophet fits again there; FM6 fits in flash but its 13.6 KB of static RAM has to move to POOL first;
+DRUM still does not fit.
 
 Next, in order of worth: the GUI work (done on gui-slim, about 50 KB); a data pack on the card installed into the
 retired engines' data flash and read in place through the plaintext window, as the sample slot is (the engines'
