@@ -1340,8 +1340,10 @@ DRUM-X uses the DRUM engine's voice weight (`settings_vpoints[4]`, 2 units a voi
 changed: a new project still starts with DRUM there, which in the Orange Cat set is not available, as before.
 
 Tests: see "Tests added or changed" below. **Target budget:** tests/target_budget.py measures `dx_run`, `dx_layer`,
-`dx_hands_step` (not in the image: HANDS is 0), `dxe_render` and `dxe_post` when the compiler keeps them apart; their lines come
-from the first full CI run (below).
+`dx_hands_step` (not in the image: HANDS is 0), `dxe_render` and `dxe_post` when the compiler keeps them apart. Lines added to
+tests/target_budget.txt from the full CI run 39998191949: dx_run 324, dx_layer 61, dxe_render 13, dxe_post 31, at the +10 % the
+other engines have. The render loops are small because the voice does little per sample (it runs at half rate with integer
+products); the host cost in the regression suite's table is 49.9 ns a sample for the heaviest kit, the same as DRUM's.
 
 ### Step 5a: the interface identifier
 
@@ -1416,7 +1418,8 @@ Everything from "Overnight run" above still stands (nothing there has run on har
 - `tests/need_all_engines.h` and run_tests.sh's CC guard (Fix 3).
 - The host suite on 051e85c and later: the same 12 jobs fail locally as on the base commit (the ones that need the built package or
   a USB device: the web page tests' RangeError, CPU tools, power cuts, M-UPGRADE, installer CLI, ROM recovery). Nothing else.
-- Full suite in CI on the final commit: see the next line.
+- Full suite in CI (tests/run_tests.sh, no .ci_quick): green on aa267e1 (run 39996162974) and on the commit after the list
+  reorder (run 39998191949, which gave the budget lines). The final commit's run is named in the report that ended the work.
 
 ## Phases 8 to 11
 
