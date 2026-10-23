@@ -10,18 +10,16 @@ od=sys.argv[1]
 syms=subprocess.run([od,'-t','build/melodee.elf'],capture_output=True,text=True).stdout
 line=re.compile(r"^([0-9a-f]{8}) (.{7}) (\S+)\s+([0-9a-f]{8})\s+(\S+)\s*$")
 rows=sorted((int(m[1],16),int(m[4],16),m[5]) for m in map(line.match,syms.splitlines()) if m and m[3]=='.text' and int(m[4],16))
-gaps=[]
-for i in range(len(rows)-1):
-    e=rows[i][0]+rows[i][1]; g=rows[i+1][0]-e
-    if g>=64: gaps.append((e,rows[i+1][0]))
-with open('build/gaps.txt','w') as f:
-    for a,b in gaps:
-        d=subprocess.run([od,'-s','--start-address',hex(a),'--stop-address',hex(b),'build/melodee.elf'],capture_output=True,text=True).stdout
-        f.write(f"=== {a:x}..{b:x} ({b-a} B)\n{d}\n")
+img=open('build/text.bin','rb').read(); base=0x02001000
+with open('build/gaps.bin','wb') as f:
+    for i in range(len(rows)-1):
+        e=rows[i][0]+rows[i][1]; g=rows[i+1][0]-e
+        if g>=64:
+            f.write(f"=== {e:x}..{rows[i+1][0]:x} ({g} B) after {rows[i][2]}\n".encode()); f.write(img[e-base:rows[i+1][0]-base]); f.write(b"\n")
 PY
   ;;
 test)
-  python3 tools/ci_blob.py emit gaps build/gaps.txt --start 1 --max 8
+  python3 tools/ci_blob.py emit gaps build/gaps.bin --start 1 --max 8
   ;;
 esac
 # ---- (probe 2) byte-identical constant objects in flash: every sized data symbol of .text hashed, duplicates listed
