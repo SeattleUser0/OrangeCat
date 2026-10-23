@@ -96,6 +96,7 @@ define void @ui_copy(i8* %a, i8* %b) {
   call void @llvm.memcpy.p0i8.p0i8.i32(i8* %a, i8* getelementptr inbounds (%struct.s, %struct.s* @gs, i32 0, i32 1), i32 80, i32 4, i1 false), !tbaa.struct !3
   tail call void @llvm.memset.p0i8.i32(i8* %b, i8 0, i32 64, i32 4, i1 false)
   %3 = load i8, i8* %a
+  call void @llvm.memcpy.p0i8.p0i8.i32(i8* %a, i8* %b, i32 16, i32 4, i1 false)
   ret void
 }
 '''
@@ -114,6 +115,8 @@ define void @ui_copy(i8* %a, i8* %b) {
         self.assertIn('zext i8 0 to i32', ui)
         self.assertIn('= tail call i8* %audio_far_', ui)
         self.assertIn('%3 = load i8, i8* %a', ui)          # (no unnamed value added: the numbering holds)
+        self.assertIn('call void @llvm.memcpy.p0i8.p0i8.i32(i8* %a, i8* %b, i32 16, i32 4, i1 false)', ui)   # (small:
+                                                            # written out inline by the backend, left as it is)
         self.assertIn('call void @llvm.memcpy.p0i8.p0i8.i32(i8* %p, i8* %p, i32 16, i32 4, i1 false)',
                       functions['isr3'][5])                 # (SRAM code keeps its intrinsics: memcpy is near)
         self.assertIn('@__audio_far_memset = internal global i8* (i8*, i32, i32)* @memset', output)

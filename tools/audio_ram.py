@@ -35,6 +35,10 @@ CALL = re.compile(r'\bcall\b[^\n@]*@([\w.]+)\(')
 INTRINSIC = re.compile(r'\bcall void @llvm\.(memcpy|memset)\.p0(?:i8)?(?:\.p0(?:i8)?)?\.i32\(')
 
 
+INLINE_MAX = 32      # (a copy or a zeroing of this many bytes or fewer: the backend writes it out inline, no call;
+                     # through a pointer they cost 8 KB of flash, the image near full)
+
+
 def intrinsic_args(line, m):
     """the intrinsic call at m: its arguments (split at the top level) and where its ')' ends"""
     args, depth, begin = [], 0, m.end()
@@ -158,7 +162,8 @@ def relocate(ir, roots):
             if not ram(sections[name]):             # (0.6.1) a flash function's memcpy / memset: through a pointer
                 m = INTRINSIC.search(line)
                 args, end = intrinsic_args(line, m) if m else (None, None)
-                if args and m[1] in selected and len(args) in (4, 5):
+                small = args and re.fullmatch(r'i32 (\d+)', args[2]) and int(args[2].split()[1]) <= INLINE_MAX
+                if args and m[1] in selected and len(args) in (4, 5) and not small:
                     typ = function_type(functions[m[1]])
                     far[m[1]] = typ
                     local = f'%audio_far_{len(body)}'
