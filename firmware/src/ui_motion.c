@@ -57,7 +57,7 @@ static const param_desc_t *mo_desc(uint32_t id)         /* its range (and name) 
     uint32_t i = (id&255u) - MO_NATIVE;
     if (!(id&256u))
         return param_desc_of(eng_idx(TSEL->eng_req), id);
-#if MELODEE_PROPHET
+#if MELODEE_PROPHET && MELODEE_P5                       /* (Orange Cat size audit: P5_PANEL only with the Prophet in) */
     if (motion_native_tag(TSEL) == MO_TAG_P5 && i < NELEM(P5_PANEL) && P5_PANEL[i].label)
         return &P5_PANEL[i];
 #endif

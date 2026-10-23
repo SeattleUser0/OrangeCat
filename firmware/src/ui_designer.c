@@ -397,7 +397,7 @@ static int designer_in(uint32_t i,uint32_t st)
 static int designer_live(uint32_t i)
 {
     const char *s=PAGES[i].title;
-    if(PAGES[i].scope!=SC_CZ1)return 1;
+    if(!MELODEE_CZ || PAGES[i].scope!=SC_CZ1)return 1;   /* (size audit: cz_ed_active only with the CZ-1 in) */
     if(str_prefix(s,"CZ1 ") || str_prefix(s,"C1 "))return cz_ed_active(cz_patch[song.sel].raw,LCZ_LBASE(0)+LCZ_W1);
     if(str_prefix(s,"CZ2 ") || str_prefix(s,"C2 "))return cz_ed_active(cz_patch[song.sel].raw,LCZ_LBASE(1)+LCZ_W1);
     return 1;
@@ -469,7 +469,7 @@ static uint32_t designer_need(void)
         default:return DF_LFO;                          /* rate, waves, initial, mix */
     }
     if((MELODEE_FM6 && p->scope == SC_FMOP) && id!=FP_OP && !designer_feat_get(DF_OP1+fm6_opsel%6u))return DF_OP1+fm6_opsel%6u;
-    if(p->scope==SC_CZ1 && !cz_ed_active(cz_patch[song.sel].raw,id)){
+    if(MELODEE_CZ && p->scope==SC_CZ1 && !cz_ed_active(cz_patch[song.sel].raw,id)){   /* (size audit: MELODEE_CZ) */
         uint32_t line;
         if(id==LCZ_VWAVE || id==LCZ_VRATE || id==LCZ_VDELAY)return DF_CZVIB;
         if(id==LCZ_SIGN)return DF_DETUNE;

@@ -338,7 +338,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
         static const param_desc_t AP_BEAT = {"RATE", F_ENUM, 0, 7, 2, N_APDIV, 0};
         return &AP_BEAT;
     }
-    if (t->eng_req == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)
+    if (MELODEE_LEGACY_EXTRAS && t->eng_req == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)   /* (size audit: PHASE is a
+                                                                                           * legacy extra) */
         return &CZ_ED[id - P_FM1_ATK];
     if (id == P_MPCDEG) {                             /* a degree of the track's scale */
         static param_desc_t degree;
@@ -358,7 +359,7 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
-    if (e == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)
+    if (MELODEE_LEGACY_EXTRAS && e == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)   /* (size audit: as track_desc) */
         return &CZ_ED[id - P_FM1_ATK];
     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
 }
