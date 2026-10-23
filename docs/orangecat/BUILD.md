@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.57  
+**Version:** 0.62  
 **Date:** October 23, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -11,6 +11,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 ## Revision history
 
 - **0.60 (October 23, 2026):** docs for 0.9.0 final: the module experiment's finding (SHAPES builds as a separate 23,780 B object with 188 relocations; the toolchain links it at a fixed address only; no ROPI, RWPI or linkable PIC), the proof of concept's next steps in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, SPEC 0.21, GUIDE (DRUM-X), web/EDITOR_PROTOCOL.md. See "Second run".
+- **0.62 (October 23, 2026):** 0.10.0 on branch sonnet-work (not on main, not released, not on the unit): SHAPES as a loadable module, the proof of concept's steps 1 to 6. The services table at a fixed address; `tools/build.py --module` and the .ocm package (23,780 B a start, no RAM of its own); the engine table in RAM; a loader that checks and registers modules at boot with a crash mark and a widened PC guard; an installer (commands 120 to 124), a Settings box on the web page and .OCM files in the card browser. A bug in step 2 found and fixed: the module was linked for XIP 0x020C8000 where flash 0xC8000 reads at 0x020C4000. Image 489,916 B (87,332 B free), .data+.bss 93,128 B, arena 95,104 B; built without SHAPES the image is 466,680 B. Step 7 (the unit) is the user's. See "Third run", Part 2.
 - **0.61 (October 23, 2026):** 0.9.1 on branch sonnet-work (not on main, not released, not on the unit): the user preset library moves from A/B pairs to a group of 23 sectors with one shared spare (lib_group.c). One-time migration at boot. The pack area is the pack's alone: no question about banks, no preset erased. Module area 12 sectors. Image 487,840 B (+296), 89,408 B free, .data+.bss 92,920 B (+144). Back up the unit before installing it. See "Third run".
 - **0.59 (October 23, 2026):** 0.9.0 on branch sonnet-work (not on main, not released, not on the unit): DRUM-X, Jiant FM's drum engine, in engine slot 9 behind MELODEE_DRUMX (on in the Orange Cat set): Jiant's voice sample for sample (288 of 288 renders equal), nine kits as presets, the grid, the LANES pages, 640 B of arena a track, voice code in flash. Image 487,544 B (+10,188), .data+.bss +32 B, arena -736 B, pool 0. The loadable-engine interface identifier (tools/gen_fw_api_id.py, FW_API_IFACE, fw_module_check). See "Second run".
 - **0.58 (October 23, 2026):** 0.8.1 on branch sonnet-work: the library's banks (sector inventory, no bank can move, options (a) to (f), no code), PACK MISSING once at power-on, why five `_oc` preset tests failed locally (they fail only in a build with Prophet, CZ-1, FM6 and DRUM off; the engines they test are the ones that are off). See "Second run".
@@ -82,7 +83,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
-| 6 | Loadable engine study | Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); a module experiment answers the toolchain question (address-fixed, one link a start). Next: the module loader and SHAPES as a module (docs/orangecat/ENGINE_LOADING_PLAN.md 0.6) |
+| 6 | Loadable engine study | Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); the library group built (0.9.1); SHAPES as a module built, installed from the page and the card, host tested and built in CI (0.10.0, steps 1 to 6). Next: step 7, the unit (docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "Left to test" below), then the engines tab and the admission check |
 | 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
@@ -1424,7 +1425,7 @@ Everything from "Overnight run" above still stands (nothing there has run on har
 
 ## Third run (0.9.1 and 0.10.0, branch sonnet-work, October 23, 2026)
 
-**Status: Part 1 built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on
+**Status: Parts 1 and 2 built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on
 branch `sonnet-work`, from 23fda9c (image 487,544 B, 89,704 B free, .data+.bss 92,776 B, arena 95,104 B, pool 176,768 B).
 
 **Back up the unit before installing 0.9.1.** The first boot moves every preset into the new group and then erases the old
@@ -1449,18 +1450,67 @@ plan's estimate (about 1.3 to 3 s for a full migration) assumes 20 to 45 ms an e
 CI run 40028869448 (`.ci_quick`): image 487,840 B (+296), 89,408 B free, .data+.bss 92,920 B of 98,304 (+144), arena 95,232 B (+128), pool 176,768 B (0).
 Budgets unchanged.
 
+### Part 2: SHAPES as a module (0.10.0)
+
+Each step is its own commit on `sonnet-work`, built in CI and tested on the host. The description, the decisions and the measurements are in
+docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "The SHAPES module, as built". The short form:
+
+| Step | Status | Result |
+|---|---|---|
+| 1. Table at a fixed address | Done | `fw_api_t` at 0x02001100 in section `.fwapi`; `res_engine0`, `nengines`, `rng_cell` added (FW_API_VERSION 3); the module's .data and .bss are 0 B; `api_addr` is checked header data |
+| 2. Build target | Done | `tools/build.py --module shapes`, one image per start (0 and 6), `.ocm` package; 23,780 B a start of 24,576; package 47,652 B. Fixed here at step 4: the link address lacked the 0x4000 of FM1_XIP |
+| 3. Host build | Done | the module's source on the host through the table: 24 of 24 hashes equal the built-in engine's and the golden lines |
+| 4. Engine table in RAM | Done | `ENGINES[]` 80 B and a header table 80 B in RAM; `eng_register` / `eng_unregister`; `OC_MODULE_WINS`; SHAPES built out leaves the slot empty until a module supplies it: image 466,680 B |
+| 5. Loader | Done | oc_module.c: both starts, every check in order, the crash mark, the PC guard widened to the registered module |
+| 6. Install | Done | oc_mod_plan / begin / write / end / remove; commands 120 to 124; Settings box; .OCM on the card |
+| 7. On the unit | Not started | the user's; the procedure is under "Left to test" |
+
+CI run 40035050715 (`.ci_quick`, step 6): image 489,916 B (+1,724 B over step 4), 87,332 B free, .data+.bss 93,128 B of 98,304 (+192 B over step 4), arena 95,104 B, pool 176,768 B.
+Run 40035076669 (branch `exp/sonnet-noshapes`, throwaway, SHAPES built out): image 466,680 B, 110,568 B free, the same RAM. The module in both: 23,780 B, CRC 0c148033 (start 0) and c4520c1c (start 6).
+Budgets and golden hashes unchanged. Total over the base commit 23fda9c (image 487,544 B, 89,704 B free, .data+.bss 92,776 B): image +2,372 B, free -2,372 B, RAM +352 B.
+
+**Decisions made without asking (you may disagree).**
+- Commands 120 to 124 for modules, not a selector on 115 to 119: the pack's BEGIN already carries an optional byte older pages send.
+- A replace is in place and a cut leaves no module (the built-in engine plays if it is there). The other way could leave the old module in use while the page says the new one went in.
+- A remove or a replace does not rewrite any project: the track keeps engine number 14; the table answers for it. Voices and arena state of the tracks that play it are cleared first.
+- `OC_MODULE_WINS` is 1 in the Orange Cat set, with the built-in SHAPES kept in the image as the fallback. The module therefore adds to the flash; it does not save any until a build leaves SHAPES out (a 23,236 B smaller image against 23,780 B of module).
+- The crash mark sees only crashes in the boot guard's first 30 s, and bans until power loss, install or removal. It is not written to flash.
+- A module image's sector tails are not tested against the update loader's record rule (the pack's are; the generator lays the pack out to pass it). The chance is about 2^-32 a sector; a hit
+  would make the update loader erase that sector at the next update, and the module would then read as damaged and fall back.
+- The throwaway branch `exp/sonnet-noshapes` exists on the remote for the measurement only. Delete it when you like.
+
+### Left to build
+
+- Step 7 and what it shows (below). Then the engines tab (discover, assign, replace, remove from one list), the admission check, MACRO as a module (10 sectors: start 0 only, so SHAPES and MACRO do not both fit the 12 sector area), the Prophet back as a module with its own pages carried as data.
+- The module's tail rule, if the unit shows it matters.
+- Time of a migration and of an install on the unit (both estimated, not measured).
+
 ### Left to test (on the unit)
 
-1. **Migration.** With 0.9.0 on the unit and presets in several banks (user, FM6, CZ-1, Prophet), make a full web backup, install 0.9.1, power on.
-   "MOVING PRESETS" shows once with a bar. Every preset is there afterwards. Power off during the bar once, power on: it finishes.
+1. **Migration.** (Part 1.) With 0.9.0 on the unit and presets in several banks, make a full web backup, install this firmware, power on. "MOVING PRESETS" shows once. Every preset is there afterwards. Power off during the bar once: it finishes at the next power-on.
 2. **Pack.** Install the pack from the web page and from the card: no question about banks, no preset lost.
 3. **Restore.** Restore the backup made before 0.9.1: the presets come back after the next boot.
+4. **Step 7: the module.** Use the three files from the same CI run's `packages` artifact (the `.fwsc`, the `.pak` and the `orangecat-shapes-...ocm`).
+   a. Install the firmware. Install the pack. Make a project with a SHAPES track and play it: note what it sounds like (this is the built-in engine; the module is not installed yet).
+   b. Stop the sequencer. Open the web editor, Settings, Engine module. It says "No module installed." Press Install module and pick the `.ocm`. The page counts up, then says "Module installed".
+      The box says "Module installed, checked and in use." Write down how long the install took.
+   c. Unplug the USB cable. Turn the unit off and on. Load the project and play SHAPES. It should sound as before, all 24 presets. Plug the computer in again: the box still says the module is installed and in use.
+      (The built-in SHAPES is still in this firmware, so the ear cannot tell the two apart. The next step does.)
+   d. Install the build with SHAPES left out: run 40035076669 on branch `exp/sonnet-noshapes` has the same code with the engine out of the image (466,680 B). Install its `.fwsc` over the first.
+      The pack and the module stay where they are. Play SHAPES: it plays, now only from the module. Presets: all 24.
+   e. In the web editor press Remove module. SHAPES goes silent on the track; the project still shows SHAPES (engine number kept). Install the module again from the page: SHAPES plays again (after the next power-on, if it does not at once).
+   f. Also try the card: put the `.ocm` on the card, clip browser, pick it (value Module), OCT+. The screen says MODULE INSTALLED.
+   g. Watch for: a restart within 30 s of power-on with the module playing (the next boot should leave it out and the box should say it stopped the unit), a slow install, anything in the library, pack or projects that changed.
+   What to send back: whether each of a to g did what it says, and the time for b.
 
 ### Tests added or changed
 
-- `tests/lib_group_test.c` (new): table, save and reload of all 22 banks, a cut at each program step and each header byte, two valid copies after a cut, a full group, 2,300 random saves, migration (all, some, none, a cut at each of 418 operations plus a second cut), old firmware refusing group sectors, backups made with pairs and with the group restored, a newer old pair re-migrating, the other areas untouched.
-- Adapted: `storage_test`, `fm6_preset_test`, `persistence_test`, `unified_presets_test`, `storage_safety_test`, `backup_test`, `oc_pack_test`, `editor_test`, `preset_boot_reset_test`, `usb_host_test`, `web/test_web.mjs`. No golden hash or budget changed.
-- The host suite on this commit: the same environment failures as on the base commit (the package-dependent jobs, `mido`, the SDK loader file). Nothing else.
+- Part 1: `tests/lib_group_test.c` (new): table, save and reload of all 22 banks, a cut at each program step and each header byte, two valid copies after a cut, a full group, 2,300 random saves, migration (all, some, none, a cut at each of 418 operations plus a second cut), old firmware refusing group sectors, backups made with pairs and with the group restored, a newer old pair re-migrating, the other areas untouched.
+- Part 1, adapted: `storage_test`, `fm6_preset_test`, `persistence_test`, `unified_presets_test`, `storage_safety_test`, `backup_test`, `oc_pack_test`, `editor_test`, `preset_boot_reset_test`, `usb_host_test`, `web/test_web.mjs`.
+- The host suite on the final commit: the same environment failures as on the base commit (the package-dependent jobs, `mido`, the SDK loader file). Nothing else.
+- New: `tests/module_build_test.py` (build.py's work against a stand-in toolchain: starts, link scripts, every header refusal, the package), `tests/module_host_test.c` (step 3), `tests/engine_table_test.c` (step 4, in three builds), `tests/oc_module_test.c` (steps 5 and 6: every refusal at both starts, torn header and code, an install cut off before its header page, two modules, removal, the crash mark, install, a cut at every program, every refusal at end, replace while a track plays it, remove, no free start, pairs unfinished; in three builds).
+- Extended: `tests/fw_api_test.c` (version 3, the new fields, single-bit refusals of the table address), `tests/editor_test.c` (commands 120 to 124 over a simulated flash with the module window), `tests/usb_host_test.c` (the card path: damaged table, stranger, another firmware, no place, no image, a flash error, the whole install), `web/test_web.mjs` (requests, replies, the package, every check the page makes), `tests/regress.c` (a guard only).
+- No golden hash or budget changed.
 
 ## Phases 8 to 11
 
