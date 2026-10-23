@@ -76,7 +76,7 @@ int main(int argc, char **argv)
     check("the built-in engine renders all presets", crashed == 0);
     for (i = 0; i < np; i++) snprintf(names[i], sizeof names[i], "%s", J[i].name);
 
-    ENGINES[ENGI_SHAPES] = em;                         /* the loader's registration, by hand (steps 4 and 5 do it at boot) */
+    ENGINES[ENGI_SHAPES] = em;                         /* the loader's registration, by hand (the built-in engine is in the slot here, so eng_register would call it shadowed; step 5 registers at boot) */
     render(module, &crashed, np);
     check("the module renders all presets", crashed == 0);
     for (i = 0; i < np; i++) {

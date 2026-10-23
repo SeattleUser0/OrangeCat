@@ -265,6 +265,10 @@ static void fm1_main(void)
             ui_say("USB ", "RECONNECTING");
         }
 #endif
+#if OC_MODULES && MELODEE_FLASH
+        if (bootguard.pending)                          /* (0.10.0) in the first 30 s: which registered module a track plays (oc_module.c, the crash mark) */
+            oc_mod_note_use();
+#endif
         if (fm1_ms > 30000u && bootguard.pending) {     /* a crash or hang in the first 30 s counts */
             bootguard.pending = 0;
             bootguard.failed = 0;

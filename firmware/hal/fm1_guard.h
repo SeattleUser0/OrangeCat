@@ -36,6 +36,10 @@
 #define FM1_EMU_USP_H (*(volatile uint32_t *)0x1EEF0E0u)
 #define FM1_EMU_USP_L (*(volatile uint32_t *)0x1EEF0E4u)
 
+/* (Orange Cat 0.10.0) the last byte instruction fetch may reach beyond _etext: the end of the highest loadable module (oc_module.c), 0 when none.
+ * Set at boot before the guard is enabled. One window (LIMIT0) covers the image and the module area, so the flash between them is inside it. */
+static uint32_t fm1_guard_code_end;
+#define FM1_GUARD_CODE_END_DEFINED 1
 extern char _guard0[], _ustack_lo[], _guard1[], _sstack_lo[], _sstack_top[], _etext[];
 extern uint32_t _rt_start[], _guard_ram_end[];
 
@@ -76,7 +80,7 @@ static void fm1_guard_enable(uint32_t which)
         FM1_DBG_EN |= (0x3Fu << 16) | (0x3u << 4);
     if (which & FM1_GUARD_PC) {
         FM1_PC_LIMIT0_L = 0x02000120u;
-        FM1_PC_LIMIT0_H = (uint32_t)(uintptr_t)_etext;
+        FM1_PC_LIMIT0_H = fm1_guard_code_end > (uint32_t)(uintptr_t)_etext ? fm1_guard_code_end : (uint32_t)(uintptr_t)_etext;
         {   /* Both executable SRAM banks share the hardware's second PC
              * window. Include resident POOL code before allowing audio/CPU1
              * to execute it; an empty .audio_text keeps the original limit. */

@@ -577,6 +577,9 @@ static void proj_bound(project_t *q)
 #include "smp_slot.c"            /* (Orange Cat 0.6.0) the internal user sample slot, 22 of its sectors */
 #if MELODEE_FLASH || defined(OC_PACK_HOST)      /* (OC_PACK_HOST: a host test with its own flash hooks, tests/editor_test.c) */
 #include "oc_pack.c"             /* (Orange Cat 0.8.0) the asset pack: SHAPES' and MACRO's tables in flash, checked at boot (oc_pack.h) */
+#if OC_MODULES
+#include "oc_module.c"           /* (Orange Cat 0.10.0) loadable engine modules: found, checked and registered at boot */
+#endif
 #endif
 #include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
@@ -1355,6 +1358,9 @@ static void persist_boot(void)                    /* before settings_init / pane
     up_lg_boot();                                  /* (0.9.1) the library group first: the old pairs move in before anything touches the */
                                                    /* areas the pack and the module take (an error is retried at the next boot) */
     oc_pack_boot();                                /* (Orange Cat 0.8.0) the asset pack there? SHAPES and MACRO play only with it */
+#if OC_MODULES
+    oc_mod_boot(bootguard.failed);                 /* (0.10.0) a module in the module area, checked, in the engine table; before the PC guard is armed */
+#endif
 #if MELODEE_SLICE
     slc_store_boot();                              /* (the scans read each slot's stored slices) */
 #endif
