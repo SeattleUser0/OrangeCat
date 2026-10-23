@@ -1,11 +1,14 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** October 23, 2026
 **Status:** a plan with budgets. Nothing here is built. Measurements are from docs/orangecat/SIZE_AUDIT.md and the
 symbol table of the audit-plus-tracker build; the engines' code is the same in every branch.
 
 Revisions:
+- 0.3: the web configurator is the primary way to install and manage engines; the card is a second transport for
+  the same installer. Requirements written down; the proof of concept must install from the computer and run after
+  the computer is unplugged.
 - 0.2: the accounting corrected after review (ChatGPT, October 23): one flash map for the pack and the modules (the
   first draft gave the same 120 KB to both), the engines' code, tables and metadata counted apart (the first draft
   counted SHAPES' tables twice), every projection from the combined build (512,164 B, 65,084 B free), the module's
@@ -52,6 +55,35 @@ tracks within the CPU and memory budgets. Two milestones, kept apart: constant t
   0xC8000..0xD7FFF (64 KB), the native FM6 banks 0xD8000..0xDBFFF (16 KB). 120 KB, none of it written by the shipping
   firmware. The sample slot's 88 KB stays the sample slot.
 
+## Requirements for installing and managing engines
+
+The web configurator (web/editor.html, over the USB MIDI SysEx link the editor already uses) is the primary way.
+A bare FM-1 on a USB cable to a computer gets everything; a hub with a card is a convenience, never a requirement.
+
+1. Discover: the page lists the installed engines with name, version, sectors used, and whether each is available
+   (installed and valid, or disabled after a crash), and the free room in the module area.
+2. Configure: an installed engine's controls and presets open from the connected FM-1 as the built-in engines' do.
+   The editor already reads every engine's parameter descriptors (ED_DESC) and preset names (ED_NAMES) from the
+   device at run time, so a module's `edit[]`, pages and presets reach the page the same way, with no page update.
+3. Install from the computer: pick a module file in the page, send it over the existing link in 512 B SysEx
+   messages (the sample slot's ED_SLOT_* commands are the pattern: begin with the size and CRC, write, end verifies
+   and commits the header last). The FM-1 writes its own flash; the page never sees addresses.
+4. Replace or remove one module: the chosen engine's sectors only; the core firmware, the other modules, the pack,
+   projects and settings are untouched. Refused while that engine is in use by a live track or the transport runs.
+5. Assign engines to tracks: the page shows each track's engine, the installed set, and what fits (the admission
+   check's answer and its reason: sectors, state in the arena, voice units, render cost) before a change.
+6. Persist: an installed engine stays installed through power off and the computer's absence, like the sample slot.
+   Nothing is loaded at boot from outside the FM-1.
+7. The card: the same module file, the same validation, the same installer, through the file browser instead of
+   the SysEx link. Second, after the computer path works.
+
+The pack (milestone 1) follows the same rule: installed from the page first, from the card second.
+
+The firmware side of 1 to 6 is a small set of editor commands beside ED_SLOT_*: list modules; begin, write, end,
+erase a module; the engine table reports a module engine as it reports a built-in one (ED_INFO's engine list, with
+the version and the sector count added). The page side is a tab in the editor: the list, a file picker, the
+progress, the assignment view. The protocol document (web/EDITOR_PROTOCOL.md) gets the commands.
+
 ## One flash map
 
 Internal flash above the app area, what is in use and what is free (storage.c, oc_store.c, smp_slot.c, upreset.c):
@@ -91,9 +123,10 @@ the scales (4,832 B) and the preset names do not fit beside them and stay in the
 - Flash saved: 39,776 B less the install code (about 1.5 to 2 KB): the image from 512,164 to about 474 KB, about
   103 KB free. The tables become fixed addresses (`#define pl_lut_sine ((const float *)(PACK_XIP + off))`): no base
   register, no runtime cost in the models.
+- Installed from the page (the ED_SLOT_* pattern) or from the card.
 - Without the pack: MACRO and SHAPES play silent and the header says PACK MISSING (as a missing sample slot is
-  handled); the sequencer, the effects, the card, projects all work. The installer page offers the pack after the
-  firmware; the firmware's file browser installs it from the card too.
+  handled); the sequencer, the effects, the card, projects all work. The installer page offers the pack right after
+  the firmware; the editor's engines tab can install it again, and the file browser from the card.
 - Version tie: the pack carries the firmware's table hash; a mismatch is refused with a message, never used.
 - Installation only while the transport is stopped and the audio quiet (`fm1_flash.h`: interrupts off during a
   sector write, the SFC switched off; the sample slot's writer already follows this). Not during playback: every
@@ -177,11 +210,16 @@ a live track uses, and installs only while stopped.
    braids/ code calls only its own helpers and libm-free math).
 2. The firmware built with SHAPES out (its number kept) and the slot loader in: at boot, a slot with a valid header
    and CRC registers its `engine_t` under the engine's number.
-3. Install from the card through the file browser; the editor command as a second path.
+3. Install from the computer: the editor's engines tab and the module commands (list, begin, write, end, erase),
+   then unplug the computer, power the FM-1 off and on, and play SHAPES from the module with no computer and no
+   card attached. The card's file browser as the second transport, through the same installer.
 4. Tests: host, the module built for the host as a separate object loaded through the same table (the golden renders
-   of every SHAPES preset must match the built-in engine's hashes, tests/golden.txt); a simulated NOR for the install,
-   a torn write, a bad CRC, a crash-disable; the arena test with the slot engine's state size.
-5. On the unit: SHAPES from the slot against SHAPES built in: `audio_max_us`, late renders, voice shedding at four
+   of every SHAPES preset must match the built-in engine's hashes, tests/golden.txt); the module commands against the
+   editor's host harness and the web page's test (web/test_web.mjs); a simulated NOR for the install, a torn write, a
+   bad CRC, a crash-disable, a replace with another module in place; the arena test with the module engine's state
+   size.
+5. On the unit: the install from the page, the restart without the computer, then SHAPES from the module against
+   SHAPES built in: `audio_max_us`, late renders, voice shedding at four
    tracks, with and without a take playing. The budget file gets the module's loops.
 6. Measure: the image without SHAPES' code and metadata (about -21.7 KB; its tables are the pack's by then), the
    module's size, the loader's cost (estimate 2 to 3 KB), the render cost difference (the far calls through the table
@@ -211,6 +249,8 @@ and about 33.5 KB of POOL, which does not fit either place.
 3. The flash map above adopted (storage.c's comments and FL_STORE_OK, fm1_flash.h, the stub's and loader's view of
    the data area unchanged: nothing moves the app boundary).
 4. The asset pack (milestone 1), with the device test of the data window at audio rate.
-5. The SHAPES module on hardware (milestone 2, steps 1 to 6).
-6. The menu and the admission check around the measured results; MACRO as a module; the Prophet back as a module
-   with its own pages carried as data.
+5. The SHAPES module on hardware (milestone 2, steps 1 to 6): installed from the web page, running after the
+   computer is unplugged and the FM-1 restarted.
+6. The engines tab in full (discover, assign, replace, remove), the admission check around the measured results,
+   the card as the second transport; MACRO as a module; the Prophet back as a module with its own pages carried
+   as data.
