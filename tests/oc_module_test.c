@@ -260,6 +260,143 @@ int main(void)
     chk("... a crash bans that one; the other (valid, not registered before) takes the engine number",
         oc_mod.state[0] == MD_CRASHED && oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
 
+    /* ---------------------------------------------------------------- the installer (step 6) */
+    {
+        int rc;
+        uint32_t before, k, n;
+        /* a module for start i as the .ocm carries it: header page + code, header sealed; installs it with begin / write / end */
+        #define BUILD(i_, len_, seed_) do { fw_mod_hdr_t hh_ = mk(i_, len_); code(seed_); seal(&hh_); memcpy(IMG, &hh_, sizeof hh_); } while (0)
+        #define INSTALL(i_, len_, outrc) ({ int r_ = oc_mod_begin(ENGI_SHAPES, i_, len_); uint32_t o_; \
+            for (o_ = FW_MOD_CODE_OFF; !r_ && o_ < (len_); o_ += 256u) r_ = oc_mod_write(o_, IMG + o_, (len_) - o_ > 256u ? 256u : (len_) - o_); \
+            if (!r_) r_ = oc_mod_end(IMG); *(outrc) = r_; r_; })
+
+        clean(); oc_mod_boot(0);
+        chk("the plan on an empty area: start 0 for SHAPES; none for an engine a module may not supply", oc_mod_plan(ENGI_SHAPES) == 0 && oc_mod_plan(3) == -1);
+        BUILD(0, LEN, 21);
+        before = erases;
+        chk("install at start 0: the whole of it", INSTALL(0, LEN, &rc) == 0 && rc == 0);
+        chk("... registered, the 6 sectors of the start erased once and nothing else", oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] && erases - before == 6u);
+        chk("... the flash holds the header page and the code as sent", !memcmp(nor + oc_mod_flash(0), IMG, LEN));
+        chk("... the plan now says start 0 again (a replace is in place)", oc_mod_plan(ENGI_SHAPES) == 0);
+        chk("a begin for the other start is refused (the plan is start 0)", oc_mod_begin(ENGI_SHAPES, 1, LEN) == -1 && !mw.writing);
+        chk("a begin for an engine a module may not supply, a length of 0, an odd length, too long: refused",
+            oc_mod_begin(3, 0, LEN) == -1 && oc_mod_begin(ENGI_SHAPES, 0, 0) == -1 && oc_mod_begin(ENGI_SHAPES, 0, LEN + 1u) == -1 &&
+            oc_mod_begin(ENGI_SHAPES, 0, OC_MOD_MAXLEN + 4u) == -1 && oc_mod_begin(ENGI_SHAPES, 2, LEN) == -1);
+        chk("... and none of them touched the module that was there", oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] && !memcmp(nor + oc_mod_flash(0), IMG, LEN));
+
+        /* a replace while a track plays it */
+        trk[1].engine = ENGI_SHAPES; trk[1].v[0].active = trk[1].v[0].gate = 1; trk[1].v[0].stage = 2; trk[1].v[0].env = 1000;
+        oc_modguard.banned = 1u;
+        BUILD(0, LEN + 512u, 22);
+        before = erases;
+        chk("replace in place, a track playing it: begin takes it out of the table first",
+            oc_mod_begin(ENGI_SHAPES, 0, LEN + 512u) == 0 && !eng_mod[ENGI_SHAPES] && ENGINES[ENGI_SHAPES] == eng_default(ENGI_SHAPES));
+        chk("... the track's voice is off, the ban on the start is gone, the engine number the project holds is untouched",
+            !trk[1].v[0].active && !trk[1].v[0].gate && trk[1].v[0].env == 0 && oc_modguard.banned == 0 && trk[1].engine == ENGI_SHAPES);
+        chk("... the old module's 6 sectors are erased: no header, no old code", erases - before == 6u && nor[oc_mod_flash(0)] == 0xFF && oc_mod.state[0] == MD_EMPTY);
+        for (n = FW_MOD_CODE_OFF; n < LEN + 512u; n += 256u) oc_mod_write(n, IMG + n, LEN + 512u - n > 256u ? 256u : LEN + 512u - n);
+        chk("... the new one is committed and registered", oc_mod_end(IMG) == 0 && oc_mod.state[0] == MD_OK && !memcmp(nor + oc_mod_flash(0), IMG, LEN + 512u));
+
+        /* refusals at end: nothing committed */
+        {   struct { const char *what; mut_t f; } E[] = {
+                {"a header for the other start (the wrong variant)", m_link}, {"another interface identifier", m_iface}, {"another table address", m_addr},
+                {"another engine than begin named", m_eng}, {"a state size of 0", m_st0}, {"another build's pack", m_pack}, {"an engine_t outside the code", m_eptr_hi},
+            };
+            for (k = 0; k < sizeof E / sizeof E[0]; k++) {
+                char w[160];
+                fw_mod_hdr_t hh = mk(0, LEN);
+                clean(); oc_mod_boot(0);
+                code(5);
+                E[k].f(&hh); hh.length = LEN;
+                seal(&hh); memcpy(IMG, &hh, sizeof hh);
+                if (E[k].f == m_eng) { /* begin as SHAPES, header says 3 */ }
+                oc_mod_begin(ENGI_SHAPES, 0, LEN);
+                for (n = FW_MOD_CODE_OFF; n < LEN; n += 256u) oc_mod_write(n, IMG + n, LEN - n > 256u ? 256u : LEN - n);
+                snprintf(w, sizeof w, "end refused: %s; no header page written, nothing registered", E[k].what);
+                chk(w, oc_mod_end(IMG) == -1 && nor[oc_mod_flash(0)] == 0xFF && !eng_mod[ENGI_SHAPES] && !mw.writing);
+            }
+        }
+        /* the CRC of the stream against the header: one byte sent differently from what the header sealed */
+        clean(); oc_mod_boot(0); BUILD(0, LEN, 8);
+        oc_mod_begin(ENGI_SHAPES, 0, LEN);
+        for (n = FW_MOD_CODE_OFF; n < LEN; n += 256u) {
+            uint8_t b[256]; uint32_t m = LEN - n > 256u ? 256u : LEN - n;
+            memcpy(b, IMG + n, m); if (n == 0x300u) b[5] ^= 0x40u;
+            oc_mod_write(n, b, m);
+        }
+        chk("end refused: a code byte sent differently from what the header's CRC sealed", oc_mod_end(IMG) == -1 && nor[oc_mod_flash(0)] == 0xFF && !eng_mod[ENGI_SHAPES]);
+        oc_mod_begin(ENGI_SHAPES, 0, LEN);
+        oc_mod_write(FW_MOD_CODE_OFF, IMG + FW_MOD_CODE_OFF, 1000);
+        chk("end before all the code is in: refused, no header page", oc_mod_end(IMG) == -1 && nor[oc_mod_flash(0)] == 0xFF);
+        oc_mod_begin(ENGI_SHAPES, 0, LEN);
+        chk("a write out of order is refused", oc_mod_write(FW_MOD_CODE_OFF + 16u, IMG, 16) == -1);
+        chk("... a write past the length is refused", oc_mod_write(FW_MOD_CODE_OFF, IMG, LEN) == -1);
+        chk("... a write with no begin is refused", (mw.writing = 0, oc_mod_write(FW_MOD_CODE_OFF, IMG, 16) == -1));
+
+        /* a cut at every program */
+        {   uint32_t progs = 0, bad_cut = 0;
+            clean(); oc_mod_boot(0); BUILD(0, LEN, 33);
+            for (k = 0; k < 40u; k++) {
+                int r;
+                clean(); oc_mod_boot(0);
+                fail_after = (int)k;
+                r = INSTALL(0, LEN, &rc);
+                fail_after = -1;
+                if (r == 0) { progs = k; break; }
+                oc_mod_boot(0);                        /* the next power-on */
+                bad_cut += oc_mod.state[0] == MD_OK || eng_mod[ENGI_SHAPES] || oc_mod.state[0] == MD_BAD_CRC || fm1_guard_code_end;
+                if (oc_mod.state[0] != MD_EMPTY && oc_mod.state[0] != MD_TORN) bad_cut++;
+            }
+            chk("an install cut at every program (the code pages, then the header page): never half a module, the area reads as empty after", bad_cut == 0 && progs == 12u);
+            chk("... the cut-off install is replaced by a new one, or the area is reusable (plan 0)", oc_mod_plan(ENGI_SHAPES) == 0);
+        }
+        /* the erase fails at begin */
+        clean(); oc_mod_boot(0); BUILD(0, LEN, 40); INSTALL(0, LEN, &rc);
+        erase_error = 1;
+        chk("a flash that will not erase: begin returns the flash error, nothing is writing, the module is out of the table",
+            oc_mod_begin(ENGI_SHAPES, 0, LEN) < 0 && !mw.writing && !eng_mod[ENGI_SHAPES]);
+        erase_error = 0;
+        /* the plan with junk */
+        clean(); BUILD(0, LEN, 41);
+        { fw_mod_hdr_t hh = mk(0, LEN); code(41); seal(&hh); put(0, &hh, 1); nor[oc_mod_flash(0) + 0x500u] ^= 1u; }
+        oc_mod_boot(0);
+        chk("(setup) start 0 holds a damaged module", oc_mod.state[0] == MD_BAD_CRC);
+        chk("the plan prefers the empty start (1) to the damaged one", oc_mod_plan(ENGI_SHAPES) == 1);
+        { fw_mod_hdr_t hh = mk(1, LEN); code(42); seal(&hh); put(1, &hh, 1); nor[oc_mod_flash(1) + 0x500u] ^= 1u; }
+        oc_mod_boot(0);
+        chk("with both damaged the plan is the first of them (0)", oc_mod.state[0] == MD_BAD_CRC && oc_mod.state[1] == MD_BAD_CRC && oc_mod_plan(ENGI_SHAPES) == 0);
+        /* two usable modules of other engines fill the area: no start free */
+        oc_mod.state[0] = oc_mod.state[1] = MD_OK; oc_mod.engine[0] = oc_mod.engine[1] = 99;
+        chk("no start free (both hold usable modules of other engines): -5, nothing erased", (before = erases, oc_mod_begin(ENGI_SHAPES, 0, LEN) == -5) && erases == before);
+        /* the old preset pairs not yet moved */
+        clean(); oc_mod_boot(0);
+        lg_incomplete = 1;
+        chk("the move of the old preset pairs not finished: begin and remove return -4, nothing erased", (before = erases, oc_mod_begin(ENGI_SHAPES, 0, LEN) == -4 && oc_mod_remove(ENGI_SHAPES) == -4) && erases == before);
+        lg_incomplete = 0;
+
+        /* remove */
+        clean(); oc_mod_boot(0); BUILD(0, LEN, 50); INSTALL(0, LEN, &rc);
+        trk[0].engine = ENGI_SHAPES; trk[0].v[1].active = 1;
+        before = erases;
+        chk("remove: the engine out of the table, its voices off, its 6 sectors erased", oc_mod_remove(ENGI_SHAPES) == 0 && !eng_mod[ENGI_SHAPES] && !trk[0].v[1].active &&
+            erases - before == 6u && nor[oc_mod_flash(0)] == 0xFF && oc_mod.state[0] == MD_EMPTY && !fm1_guard_code_end);
+        chk("... again with nothing there is a no-op that still answers ok", (before = erases, oc_mod_remove(ENGI_SHAPES) == 0) && erases == before);
+        chk("remove of an engine a module may not supply is refused", oc_mod_remove(3) == -1);
+        { fw_mod_hdr_t hh = mk(1, LEN); code(60); seal(&hh); put(1, &hh, 1); nor[oc_mod_flash(1) + 0x700u] ^= 1u; }
+        oc_mod_boot(0);
+        chk("(setup) a damaged module remains", oc_mod.state[1] == MD_BAD_CRC);
+        chk("remove of the engine leaves what is not a module of it; remove 127 wipes the whole area",
+            oc_mod_remove(ENGI_SHAPES) == 0 && oc_mod.state[1] == MD_BAD_CRC && oc_mod_remove(127) == 0 && oc_mod.state[1] == MD_EMPTY && nor[oc_mod_flash(1)] == 0xFF);
+        /* the ban is cleared by an install */
+        clean(); oc_mod_boot(0); BUILD(0, LEN, 70); INSTALL(0, LEN, &rc);
+        trk[2].engine = ENGI_SHAPES; oc_mod_note_use(); oc_mod_boot(1);
+        chk("(setup) banned after a crash", oc_mod.state[0] == MD_CRASHED);
+        BUILD(0, LEN, 71);
+        chk("a new install over a banned module is registered at once", INSTALL(0, LEN, &rc) == 0 && oc_mod.state[0] == MD_OK && oc_modguard.banned == 0);
+        #undef BUILD
+        #undef INSTALL
+    }
+
     /* a flash that will not read */
     clean(); good(0, LEN);
     flash_ok = 0;

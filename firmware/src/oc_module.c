@@ -173,3 +173,154 @@ static void oc_mod_note_use(void)
                 oc_modguard.inuse |= 1u << i;
     }
 }
+
+/* ------------------------------------------------------------------------- installing (Orange Cat 0.10.0, step 6) ---
+ * The web editor's ED_MOD_* (editor.c) or a .ocm on the card (card_browse.c) puts a module in the area; only while the transport is stopped, as
+ * every flash write. The page reads ED_MOD_INFO for the engine it has, which names the start to use (oc_mod_plan), takes that variant's image
+ * from the .ocm, and sends it:
+ *   oc_mod_begin(engine, start, len)   the start must be oc_mod_plan's; the engine is taken out of the table and its tracks' voices and state are
+ *                                      cleared (oc_mod_park); the 6 sectors of the start are erased (and those of any other module for the same
+ *                                      engine); the install is under way. From here the old module is gone: a cut leaves none (the built-in
+ *                                      engine, if built in, or silence; the project keeps its engine numbers).
+ *   oc_mod_write(off, data, n)         the code in order from FW_MOD_CODE_OFF, in 256 byte pages
+ *   oc_mod_end(page)                   the 256 byte header page, checked against what was written (its CRC against the stream, the link address
+ *                                      against the start, every field as at boot), programmed LAST (the commit). Then the area is read again as at
+ *                                      boot and the module registered.
+ *   oc_mod_remove(engine)              the engine taken out as above and its start(s) erased (engine 127: the whole area)
+ * Where a module goes (oc_mod_plan): the start that holds a module for the same engine (a replace is in place, so there is never a second
+ * one); else the first empty start; else the first that holds something this firmware cannot use (another firmware's module, damage, a cut-off
+ * install); else none (rc 5). */
+static struct {
+    uint8_t writing;
+    uint8_t start;
+    uint32_t engine, len, done, crc;
+} mw;
+enum { MI_OK = 0, MI_REFUSED = -1, MI_FLASH = -2, MI_PAIRS = -4, MI_NOFREE = -5, MI_BAD = -7 };
+
+static int oc_mod_has(uint32_t i, uint32_t engine)      /* start i holds a usable module of this engine, registered or not */
+{
+    return (oc_mod.state[i] == MD_OK || oc_mod.state[i] == MD_CRASHED || oc_mod.state[i] == MD_NOSLOT) && oc_mod.engine[i] == engine;
+}
+/* the start an install of `engine` goes to, or -1 */
+static int oc_mod_plan(uint32_t engine)
+{
+    uint32_t i;
+    if (!eng_module_slot(engine))
+        return -1;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod_has(i, engine)) return (int)i;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod.state[i] == MD_EMPTY) return (int)i;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod.state[i] != MD_OK && oc_mod.state[i] != MD_CRASHED && oc_mod.state[i] != MD_NOSLOT) return (int)i;
+    return -1;
+}
+/* the engine out of the table; the voices and the arena state of the tracks that play it cleared: nothing calls into the module after this */
+static void oc_mod_park(uint32_t engine)
+{
+    uint32_t t, i;
+    if (engine < NENGINES && eng_mod[engine])
+        eng_unregister(engine);
+    for (t = 0; t < NTRK; t++) {
+        if (trk[t].engine != engine) continue;
+        for (i = 0; i < NVOICE; i++) {
+            voice_t *v = &trk[t].v[i];
+            v->active = v->gate = 0;
+            v->stage = 0;
+            v->env = v->env_out = 0;
+        }
+        eng_state_clear(t);
+    }
+}
+static int oc_mod_erase_start(uint32_t i)
+{
+    uint32_t s;
+    for (s = 0; s < 6u; s++) {
+        int rc;
+        SMP_FEED();
+        if ((rc = st_erase(oc_mod_flash(i) + s * 0x1000u)) != 0) return rc;
+    }
+    oc_mod_unban(i);
+    oc_mod.state[i] = MD_EMPTY;
+    return 0;
+}
+/* 0 ok; -1 refused (not the planned start, a bad length, an engine a module may not supply); -4 the move of the old preset pairs has not finished
+ * (an old pair may still be in the area); -5 no start free; else flash */
+static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
+{
+    int plan, rc;
+    uint32_t i;
+    mw.writing = 0;
+    if (!eng_module_slot(engine) || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || len > OC_MOD_MAXLEN || (len & 3u))
+        return MI_REFUSED;
+    if (lg_incomplete)
+        return MI_PAIRS;
+    plan = oc_mod_plan(engine);
+    if (plan < 0)
+        return MI_NOFREE;
+    if ((uint32_t)plan != start)
+        return MI_REFUSED;
+    oc_mod_park(engine);
+    for (i = 0; i < OC_MOD_STARTS; i++)                  /* every usable module of this engine, and the start asked for */
+        if (i == start || oc_mod_has(i, engine))
+            if ((rc = oc_mod_erase_start(i)) != 0) { fm1_guard_code_end = 0; return rc; }
+    mw.writing = 1; mw.start = (uint8_t)start; mw.engine = engine; mw.len = len;
+    mw.done = FW_MOD_CODE_OFF; mw.crc = 0xFFFFFFFFu;
+    return MI_OK;
+}
+/* the code in order: n bytes at off (where the last write ended; the first at FW_MOD_CODE_OFF). 0 ok; -1 refused; else flash */
+static int oc_mod_write(uint32_t off, const void *src, uint32_t n)
+{
+    const uint8_t *p = src;
+    if (!mw.writing || off != mw.done || n > mw.len - mw.done)
+        return MI_REFUSED;
+    while (n) {
+        uint32_t k = 256u - (off & 0xFFu);
+        int rc;
+        if (k > n) k = n;
+        if ((rc = st_prog(oc_mod_flash(mw.start) + off, p, k)) != 0) { mw.writing = 0; return rc; }
+        mw.crc = ocs_crc_add(mw.crc, p, k);
+        p += k; off += k; n -= k;
+        mw.done = off;
+    }
+    return MI_OK;
+}
+/* the header page (256 bytes) when all the code is in: 0 ok; -1 refused (the header does not match what was written, the start or the firmware);
+ * -7 programmed but the area does not read as a module; else flash */
+static int oc_mod_end(const void *page256)
+{
+    uint8_t pg[256];
+    const fw_mod_hdr_t *h = (const fw_mod_hdr_t *)pg;
+    int rc;
+    memcpy(pg, page256, sizeof pg);
+    if (!mw.writing || mw.done != mw.len)
+        { mw.writing = 0; return MI_REFUSED; }
+    mw.writing = 0;
+    if (h->magic != FW_MOD_MAGIC || ocs_crc32(pg, FW_MOD_HDR_BYTES - 4u) != h->hcrc || fw_module_check(h) != FW_MOD_OK ||
+        h->length != mw.len || h->engine != mw.engine || h->link_addr != oc_mod_link(mw.start) || h->crc != ~mw.crc ||
+        h->engine_ptr < h->link_addr + FW_MOD_CODE_OFF || h->engine_ptr >= h->link_addr + h->length || (h->engine_ptr & 3u) ||
+        h->state_size == 0 || h->state_size > OC_MOD_STATE_MAX || h->pack_hash != OC_PACK_HASH)
+        return MI_REFUSED;
+    if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
+        return rc;
+    oc_mod_boot(0);                                                        /* read as at boot: the module is registered when it is good */
+    return oc_mod.state[mw.start] == MD_OK || oc_mod.state[mw.start] == MD_NOSLOT ? MI_OK : MI_BAD;
+}
+/* the module(s) of this engine out and their sectors erased (engine 127: both starts whatever they hold). 0 ok; -4; else flash */
+static int oc_mod_remove(uint32_t engine)
+{
+    uint32_t i;
+    int rc = 0;
+    if (lg_incomplete)
+        return MI_PAIRS;
+    mw.writing = 0;
+    if (engine != 127u && !eng_module_slot(engine))
+        return MI_REFUSED;
+    if (engine == 127u) { for (i = 0; i < NENGINES; i++) if (eng_mod[i]) oc_mod_park(i); }
+    else oc_mod_park(engine);
+    for (i = 0; i < OC_MOD_STARTS && !rc; i++)
+        if (engine == 127u || oc_mod_has(i, engine))
+            rc = oc_mod_erase_start(i);
+    oc_mod_boot(0);
+    return rc;
+}

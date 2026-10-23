@@ -47,31 +47,45 @@ static void panel_setup(void) {}
 #define OC_PACK_HOST 1                    /* (Orange Cat 0.8.0) the asset pack's code without MELODEE_FLASH: its flash is the simulation below */
 /* (Orange Cat 0.8.0) storage.c's flash is unavailable here, except the asset pack's area (0x93000..0x9CFFF): a simulated NOR for oc_pack.c */
 static uint8_t host_pack[0xA000];
-static uint32_t host_pack_erases;
-static int host_pack_in(uint32_t off, uint32_t n) { return off >= 0x93000u && off <= 0x9D000u && n <= 0x9D000u - off; }
+static uint8_t host_mod[0xC000];            /* (Orange Cat 0.10.0) the module area 0xC8000..0xD3FFF for oc_module.c */
+static uint32_t host_pack_erases, host_mod_erases;
+/* the byte of the simulated flash an access starts at, or 0 when it is outside the two windows */
+static uint8_t *host_nor(uint32_t off, uint32_t n)
+{
+    if (off >= 0x93000u && off <= 0x9D000u && n <= 0x9D000u - off) return host_pack + (off - 0x93000u);
+    if (off >= 0xC8000u && off <= 0xD4000u && n <= 0xD4000u - off) return host_mod + (off - 0xC8000u);
+    return 0;
+}
 static int st_read(uint32_t off, void *p, uint32_t n)
 {
-    if (!host_pack_in(off, n)) return -1;
-    memcpy(p, host_pack + (off - 0x93000u), n);
+    uint8_t *m = host_nor(off, n);
+    if (!m) return -1;
+    memcpy(p, m, n);
     return 0;
 }
 static int st_prog(uint32_t off, const void *p, uint32_t n)
 {
     const uint8_t *s = p;
-    if (!host_pack_in(off, n) || (off & 0xFFu) + n > 256u) return -1;
-    for (uint32_t i = 0; i < n; i++) host_pack[off - 0x93000u + i] &= s[i];
+    uint8_t *m = host_nor(off, n);
+    if (!m || (off & 0xFFu) + n > 256u) return -1;
+    for (uint32_t i = 0; i < n; i++) m[i] &= s[i];
     return 0;
 }
 static int st_erase(uint32_t off)
 {
-    if (!host_pack_in(off, 4096u)) return -1;
-    memset(host_pack + (off - 0x93000u), 0xFF, 4096u);
-    host_pack_erases++;
+    uint8_t *m = host_nor(off, 4096u);
+    if (!m) return -1;
+    memset(m, 0xFF, 4096u);
+    if (off >= 0xC8000u) host_mod_erases++; else host_pack_erases++;
     return 0;
 }
+#define OC_MOD_HOST_XIP 1                 /* (0.10.0) a registered header is read from the simulated flash, not from an XIP address */
+struct fw_mod_hdr;
+static const struct fw_mod_hdr *oc_mod_hdr_ptr(uint32_t i);
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr_t *)(host_mod + oc_mod_flash(i) - 0xC8000u); }
 
 static uint32_t flash_ok = 1;
 static void audio_silence(void) {}
@@ -820,9 +834,97 @@ static int pack_protocol(void)
     bad += check("PACK_ERASE with take 2 is refused (1)", host_wire[5] == 1);
     return bad;
 }
+/* (Orange Cat 0.10.0) the module commands 120..124 (oc_module.c) */
+static int module_protocol(void)
+{
+    static uint8_t img[3000], a[600];
+    uint32_t n, i, off, len = 3000u, link0 = oc_mod_link(0);
+    fw_mod_hdr_t h;
+    int bad = 0, ok;
+    reset();
+    memset(host_mod, 0xFF, sizeof host_mod); host_mod_erases = 0;
+    memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+    oc_mod_boot(0);
+    song.playing = 0; host_progress = 1;
+    for (i = FW_MOD_CODE_OFF; i < len; i++) img[i] = (uint8_t)(i * 7u + 3u);
+    memset(img, 0, FW_MOD_CODE_OFF);
+    memset(&h, 0, sizeof h);
+    h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
+    h.engine = ENGI_SHAPES; h.state_size = 1234u; h.engine_ptr = link0 + 0x180u; h.link_addr = link0; h.pack_hash = OC_PACK_HASH; h.length = len;
+    h.crc = ocs_crc32(img + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
+    memcpy(img, &h, sizeof h);
+    ((fw_mod_hdr_t *)img)->hcrc = ocs_crc32(img, FW_MOD_HDR_BYTES - 4u);
+
+    a[0] = ENGI_SHAPES;
+    request(ED_MOD_INFO, a, 1);
+    bad += check("MOD_INFO: two starts, 12 sectors, this firmware's table version, size, identifier, address and pack hash; the plan is start 0; both empty",
+                 host_wire[5] == 2 && host_wire[6] == 12 && host_wire[8] == FW_API_VERSION && host_wire[9] == sizeof(fw_api_t) &&
+                 (host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14 | (uint32_t)host_wire[13] << 21 | (uint32_t)host_wire[14] << 28) == FW_API_IFACE &&
+                 (host_wire[15] | host_wire[16] << 7 | host_wire[17] << 14 | (uint32_t)host_wire[18] << 21 | (uint32_t)host_wire[19] << 28) == FW_API_ADDR &&
+                 (host_wire[20] | host_wire[21] << 7 | host_wire[22] << 14 | (uint32_t)host_wire[23] << 21 | (uint32_t)host_wire[24] << 28) == OC_PACK_HASH &&
+                 host_wire[25] == 0 && host_wire[26] == MD_EMPTY && host_wire[32] == MD_EMPTY);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO without an engine: no plan (127)", host_wire[25] == 127);
+    a[0] = ENGI_SHAPES; a[1] = 0; a[2] = (uint8_t)(len & 127u); a[3] = (uint8_t)(len >> 7 & 127u); a[4] = (uint8_t)(len >> 14);
+    song.playing = 1; host_progress = 0;
+    request(ED_MOD_BEGIN, a, 5);
+    bad += check("MOD_BEGIN while the transport runs is refused (2), nothing erased", host_wire[5] == 2 && host_mod_erases == 0);
+    song.playing = 0; host_progress = 1;
+    a[1] = 1;
+    request(ED_MOD_BEGIN, a, 5);
+    bad += check("MOD_BEGIN for a start that is not the plan's is refused (1), nothing erased", host_wire[5] == 1 && host_mod_erases == 0);
+    a[1] = 0; a[0] = 3;
+    request(ED_MOD_BEGIN, a, 5);
+    bad += check("MOD_BEGIN for an engine a module may not supply is refused (1)", host_wire[5] == 1 && host_mod_erases == 0);
+    a[0] = ENGI_SHAPES;
+    lg_incomplete = 1;
+    request(ED_MOD_BEGIN, a, 5);
+    bad += check("MOD_BEGIN while the move of the old preset pairs is unfinished is refused (4), nothing erased", host_wire[5] == 4 && host_mod_erases == 0);
+    request(ED_MOD_REMOVE, a, 1);
+    bad += check("... and so is MOD_REMOVE (4)", host_wire[5] == 4 && host_mod_erases == 0);
+    lg_incomplete = 0;
+    request(ED_MOD_BEGIN, a, 4);
+    bad += check("MOD_BEGIN with a short payload is refused (1)", host_wire[5] == 1 && host_mod_erases == 0);
+    request(ED_MOD_BEGIN, a, 5);
+    ok = host_wire[5] == 0 && host_mod_erases == 6u && mw.writing;
+    for (off = FW_MOD_CODE_OFF; off < len; off += 256u) {
+        uint32_t k = len - off < 256u ? len - off : 256u;
+        a[0] = (uint8_t)(off & 127u); a[1] = (uint8_t)(off >> 7 & 127u); a[2] = (uint8_t)(off >> 14);
+        n = pack7(img + off, k, a + 3);
+        request(ED_MOD_WRITE, a, 3u + n);
+        ok &= host_wire[5] == 0 && (host_wire[6] | host_wire[7] << 7 | host_wire[8] << 14) == off + k;
+        if (off == FW_MOD_CODE_OFF + 256u) {                   /* once out of order: refused, the install goes on */
+            a[0] = 0; a[1] = 1; a[2] = 0;
+            request(ED_MOD_WRITE, a, 3u + n);
+            ok &= host_wire[5] == 1;
+        }
+    }
+    bad += check("MOD_BEGIN / WRITE: the start erased once, the code taken in order, an out-of-order write refused (1)", ok);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("before END the module is not there: INFO says empty, the install under way (flag 4)", host_wire[26] == MD_EMPTY && (host_wire[7] & 4u));
+    n = pack7(img, 256u, a);
+    request(ED_MOD_END, a, n);
+    bad += check("MOD_END: the header page taken, the module checked and registered", host_wire[5] == 0 && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES]);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO: start 0 is OK, SHAPES, its length", host_wire[26] == MD_OK && host_wire[28] == ENGI_SHAPES &&
+                 (host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14) == len && !(host_wire[7] & 4u));
+    bad += check("the flash holds the header page and the code byte for byte", !memcmp(host_mod, img, len));
+    n = pack7(img, 256u, a);
+    request(ED_MOD_END, a, n);
+    bad += check("a second MOD_END with nothing under way is refused (1)", host_wire[5] == 1);
+    a[0] = ENGI_SHAPES;
+    request(ED_MOD_REMOVE, a, 1);
+    bad += check("MOD_REMOVE: the module out, the start blank", host_wire[5] == 0 && host_mod[0] == 0xFF && oc_mod.state[0] == MD_EMPTY && !eng_mod[ENGI_SHAPES]);
+    a[0] = 3;
+    request(ED_MOD_REMOVE, a, 1);
+    bad += check("MOD_REMOVE of an engine a module may not supply is refused (1)", host_wire[5] == 1);
+    request(ED_MOD_REMOVE, 0, 0);
+    bad += check("MOD_REMOVE without an engine is refused (1)", host_wire[5] == 1);
+    return bad;
+}
 int main(void)
 {
-    int bad = pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = module_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

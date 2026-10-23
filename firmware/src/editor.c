@@ -26,6 +26,9 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
 enum { ED_SLOT_INFO = 110, ED_SLOT_BEGIN, ED_SLOT_WRITE, ED_SLOT_END, ED_SLOT_ERASE };   /* (80: the library, 95..101 taken) */
 /* (Orange Cat 0.8.0) the asset pack (oc_pack.c): SHAPES' and MACRO's tables, installed into flash. 115..119 (web/EDITOR_PROTOCOL.md) */
 enum { ED_PACK_INFO = 115, ED_PACK_BEGIN, ED_PACK_WRITE, ED_PACK_END, ED_PACK_ERASE };
+/* (Orange Cat 0.10.0) loadable engine modules (oc_module.c): 120..124. The pack's ids and payloads are unchanged; the module has its own ids because the pack's
+ * BEGIN already carries an optional byte (older pages sent one), so an area selector in it would be ambiguous. */
+enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE };
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
 enum { ED_CORE1_TEST = 79 };                         /* test builds only: CPU1 failure injection */
 static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
@@ -309,6 +312,8 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
     case ED_INFO: case ED_DUMP: case ED_SMP_INFO: case ED_PING:
     case ED_UI_STATE: case ED_UI_PALETTES: case ED_PACK_INFO:
         return !n;
+    case ED_MOD_INFO:
+        return n <= 1u;
     case ED_GET: case ED_DESC: case ED_PRESET: case ED_PROJECT: case ED_UP_LIST:
     case ED_TRACK_PARAM:
         return n == 2u || (cmd == ED_TRACK_PARAM && n == 4u) || (cmd == ED_PRESET && n == 3u);
@@ -903,6 +908,44 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 r = oc_pack_erase(), rc = r == -4 ? 4u : r ? 2u : 0u;
         }
         ed_b(rc); ed_b(pk.done); ed_b(pk.done >> 7); ed_b(pk.done >> 14);
+        break;
+    }
+#endif
+#if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
+    case ED_MOD_INFO: {                                    /* [engine] -> nstarts, sectors of the area, flags (1 SHAPES built in, 2 a module wins a built-in slot, 4 an install is under way),
+                                                            * api_version, api_size, iface (5 x 7 bits), api_addr (5 x 7), pack_hash (5 x 7), the start an install of `engine` goes to
+                                                            * (0, 1, or 127 none; 127 too without the argument), then per start: state (MD_*), why, engine, length (3 x 7) */
+        int plan = na ? oc_mod_plan(a[0]) : -1;
+        ed_b(OC_MOD_STARTS); ed_b(12);
+        ed_b((MELODEE_SHAPES ? 1u : 0u) | (OC_MODULE_WINS ? 2u : 0u) | (mw.writing ? 4u : 0u));
+        ed_b(FW_API_VERSION); ed_b(sizeof(fw_api_t));
+        for (i = 0; i < 5u; i++) ed_b(FW_API_IFACE >> (7u * i));
+        for (i = 0; i < 5u; i++) ed_b(FW_API_ADDR >> (7u * i));
+        for (i = 0; i < 5u; i++) ed_b(OC_PACK_HASH >> (7u * i));
+        ed_b(plan < 0 ? 127u : (uint32_t)plan);
+        for (i = 0; i < OC_MOD_STARTS; i++) {
+            ed_b(oc_mod.state[i]); ed_b(oc_mod.why[i]); ed_b(oc_mod.engine[i]);
+            ed_b(oc_mod.length[i]); ed_b(oc_mod.length[i] >> 7); ed_b(oc_mod.length[i] >> 14);
+        }
+        break;
+    }
+    case ED_MOD_BEGIN: case ED_MOD_WRITE: case ED_MOD_END: case ED_MOD_REMOVE: {
+        /* BEGIN engine, start, length (3 x 7 bits); WRITE offset (3 x 7 bits) then up to 256 bytes packed 7-bit, in order from byte 256; END the 256-byte header page
+         * packed 7-bit (programmed last); REMOVE engine (127: the whole area). -> rc: 0 done, 1 refused (not the planned start, a bad length, out of order, a header
+         * that does not match the code or this firmware), 2 the flash failed or the transport is running (stop it first), 4 the move of the old preset pairs has not
+         * finished (restart the unit), 5 no start free, 7 written but not readable as a module; then the bytes written so far (3 x 7 bits). */
+        uint32_t rc = 1, v = na >= 3u ? a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 : 0u, got;
+        int r = 0;
+        if (transport_busy()) rc = 2;
+        else {
+            if (cmd == ED_MOD_BEGIN && na == 5u) r = oc_mod_begin(a[0], a[1], a[2] | (uint32_t)a[3] << 7 | (uint32_t)a[4] << 14);
+            else if (cmd == ED_MOD_WRITE && na > 3u && (got = ed_unpack7(a + 3, na - 3u, ed_smp_buf, 256u)) != 0) r = oc_mod_write(v, ed_smp_buf, got);
+            else if (cmd == ED_MOD_END && ed_unpack7(a, na, ed_smp_buf, 256u) == 256u) r = oc_mod_end(ed_smp_buf);
+            else if (cmd == ED_MOD_REMOVE && na == 1u) r = oc_mod_remove(a[0]);
+            else r = -1;
+            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : r == -7 ? 7u : 2u;
+        }
+        ed_b(rc); ed_b(mw.done); ed_b(mw.done >> 7); ed_b(mw.done >> 14);
         break;
     }
 #endif
