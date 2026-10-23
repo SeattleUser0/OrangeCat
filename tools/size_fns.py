@@ -24,7 +24,11 @@ SIZE_FILES = ["ui.c", "gfx.c", "favorites.c", "icons.c", "ui_graph.c", "ui_draw.
               # main-loop only too: the boot and the main loop (main.c, not its ISR), parameters and their text, the
               # browser, the screen saver, calibration, the CZ / Prophet editing helpers, the update entry
               "main.c", "params.c", "browse.c", "screen.c", "panel.c", "cz_edit.h", "prophet_edit.h", "ota.c", "favorites.c",
-              "cz_panel.h"]
+              "cz_panel.h",
+              # (gui-slim) main-loop files added since: Orange Cat's screens, the clip browser, the project slots, tracks,
+              # SEQ tools, the shared slots and the editor's library command
+              "ui_boot.c", "ui_view.c", "ui_tracker.c", "ui_pool.c", "ui_groove.c", "card_browse.c", "seq_tools.c",
+              "shared_presets.c", "oc_project.c", "tracks.c", "editor_library.c"]
 DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)
 # Stopped note transforms are infrequent main-loop work.
 # Keep their callers' common input/render paths compact as well as the helpers.
