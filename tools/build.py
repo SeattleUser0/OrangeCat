@@ -25,6 +25,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -242,8 +243,9 @@ def build_stub():
 
 # ---- app
 
-def build_app(stub):
-    subprocess.run([sys.executable, SRC / "tools/gen_909_tables.py", GEN / "x0x_drum_tables.h"], check=True)
+def app_flags():
+    """the compile flags of the app (and, since 0.10.0, of the modules): the toolchain's, the include paths, and the build
+    switches the environment sets (an unset one keeps the default in firmware/src/core.h)"""
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen",
              "-Ifirmware/src/fatfs/sys"]   # (Orange Cat 0.4.10) the <string.h> FatFs includes (usb_files.c)
     for flag in ("MELODEE_FLASH", "MELODEE_OTA", "MELODEE_OTA_DRYRUN", "MELODEE_OTA_RAMONLY", "MELODEE_CDC",
@@ -262,6 +264,12 @@ def build_app(stub):
     flags.append(f'-DMELODEE_ID="{PRODUCT}"')
     if VERSION:
         flags.append(f'-DMELODEE_VERSION="{VERSION}"')
+    return flags
+
+
+def build_app(stub):
+    subprocess.run([sys.executable, SRC / "tools/gen_909_tables.py", GEN / "x0x_drum_tables.h"], check=True)
+    flags = app_flags()
     # melodee.c goes to LLVM IR without the optimizer, the main-loop functions (UI, stores, editor) are
     # marked minsize (tools/size_fns.py), then the IR is compiled at -Os. MELODEE_SIZE=0: -Os everywhere
     size = os.environ.get("MELODEE_SIZE") != "0"
@@ -455,6 +463,159 @@ def check(img, syms, dis, rt):
     return errors, notes
 
 
+# ---- loadable engine modules (Orange Cat 0.10.0, step 2; docs/orangecat/ENGINE_LOADING_PLAN.md "The proof of concept")
+#
+# A module is the engine's source (tools/module/<name>_mod.c) built as a separate object and linked once for each start the
+# module area allows: the code is address fixed (the toolchain has no position independent link, see the plan's experiment), so
+# the same module has one image a start. A module of N sectors starts on a multiple of N inside the area (the area is 12 sectors:
+# a 6 sector module has starts 0 and 6; 12 is outside). tools/build.py --module NAME writes build/NAME-<version>.ocm:
+#
+#   offset  size  field
+#   0       4     magic "OCMF" (0x464D434F)
+#   4       2     format version (1)
+#   6       2     variants
+#   8       4     iface        the FW_API_IFACE it was built with (the same in every variant)
+#   12      4     api_addr     FW_API_ADDR
+#   16      4     engine       the engine number it registers under
+#   20      4     state_size   bytes of arena state a part needs
+#   24      4     pack_hash    OC_PACK_HASH of the pack it reads
+#   28      16    name         NUL padded
+#   44      4     api_version  FW_API_VERSION
+#   48      4     api_size     sizeof(fw_api_t)
+#   52      4     sectors      sectors the image takes (all variants)
+#   56      16*n  variants:    u32 start (sector index in the module area), u32 length, u32 CRC-32 of the image, u32 file offset
+#   ...     4     CRC-32 of everything before it
+#   then    the images, each padded to a multiple of 4 (the first image's offset is a multiple of 4)
+#
+# Each image is fw_api.h's fw_mod_hdr_t in its first 256 byte page, the code from FW_MOD_CODE_OFF; length, crc and hcrc are filled
+# here after the link. The checks: no undefined symbol, no .data or .bss, the header fields are what the source says (magic, the
+# firmware's address of the table, the link address, the pack's hash), the engine_t lies inside the image, the image fits its sectors.
+
+MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": "SHAPES"}}
+OCM_MAGIC = 0x464D434F
+FW_MOD_MAGIC = 0x444F4D4F
+FW_MOD_CODE_OFF = 0x100
+MOD_HDR = struct.Struct("<13I")          # fw_mod_hdr_t (firmware/src/fw_api.h): 13 words, FW_MOD_HDR_BYTES 52
+MOD_AREA_LO, MOD_AREA_HI = None, None
+
+
+def module_area():
+    """the module area's flash range, from the one place that defines it (firmware/hal/fm1_flash.h)"""
+    t = (FW / "hal" / "fm1_flash.h").read_text()
+    lo = int(re.search(r"#define FL_MODULE_LO\s+(0x[0-9A-Fa-f]+)u", t).group(1), 16)
+    hi = int(re.search(r"#define FL_MODULE_HI\s+(0x[0-9A-Fa-f]+)u", t).group(1), 16)
+    return lo, hi
+
+
+def module_starts(sectors):
+    """the sector indices a module of that many sectors may start at (multiples of its size that fit the area)"""
+    lo, hi = module_area()
+    n = (hi - lo) // 0x1000
+    return [i for i in range(0, n - sectors + 1, sectors)]
+
+
+def gen_define(name, file="fw_api_id.h"):
+    m = re.search(r"#define " + name + r" (0x[0-9A-Fa-f]+|\d+)u?\b", (GEN / file).read_text())
+    return int(m.group(1), 0) if m else None
+
+
+def build_module(name):
+    spec = MODULES[name]
+    mdir = OUT / "module"
+    mdir.mkdir(parents=True, exist_ok=True)
+    if not (GEN / "fw_api_id.h").exists() or not (GEN / "oc_pack_tables.h").exists() or not (GEN / "melodee_tables.h").exists():
+        generate()
+    notes, errors = [], []
+    flags = [f for f in app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES="))]
+    flags += ["-DOC_PACK_XIP=1"] if "-DOC_PACK_XIP=1" not in flags else []
+    obj = mdir / f"{name}.o"
+    tc("cc", *flags, "-w", "-c", SRC / spec["src"], "-o", obj)
+    undef = [ln.split()[-1] for ln in tc("pi32v2/bin/nm", "-u", obj).splitlines() if ln.strip()]
+    if undef:
+        errors.append(f"{name}: undefined symbols {undef}: the firmware's table is a module's only import")
+    api_addr = gen_define("FW_API_ADDR")
+    pack_hash = gen_define("OC_PACK_HASH", "oc_pack_tables.h")
+    lo, hi = module_area()
+    sectors = spec["sectors"]
+    variants, ifaces = [], set()
+    for start in module_starts(sectors):
+        base = 0x02000000 + lo + start * 0x1000          # flash + the XIP window
+        ld = mdir / f"{name}.{start}.ld"
+        ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {sectors * 0x1000:#x} }}
+SECTIONS {{
+    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF:#x}; *(.text*) *(.rodata*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
+    .data : {{ *(.data*) *(.sdata*) . = ALIGN(4); }} > MOD
+    .bss (NOLOAD) : {{ *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); }} > MOD
+    /DISCARD/ : {{ *(.comment) *(.note*) }}
+}}
+""")
+        elf, binf = mdir / f"{name}.{start}.elf", mdir / f"{name}.{start}.bin"
+        tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+        binf.unlink(missing_ok=True)
+        tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+        sizes = {}
+        for ln in tc("common/bin/objdump", "-h", elf).splitlines():
+            p = ln.split()
+            if len(p) > 3 and p[0].isdigit() and p[1].startswith("."):
+                sizes[p[1]] = int(p[2], 16)
+        if sizes.get(".data", 0) or sizes.get(".bss", 0):
+            syms = [ln for ln in tc("pi32v2/bin/nm", "-n", elf).splitlines() if re.search(r" [dDbB] ", ln)][:8]
+            errors.append(f"{name}@{start}: a module has no RAM of its own: .data {sizes.get('.data', 0)} B, .bss {sizes.get('.bss', 0)} B {syms}")
+        img = bytearray(binf.read_bytes())
+        img += b"\0" * (-len(img) % 4)
+        if len(img) > sectors * 0x1000:
+            errors.append(f"{name}@{start}: {len(img)} B do not fit {sectors} sectors")
+        h = list(MOD_HDR.unpack_from(img, 0))
+        names = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash length crc hcrc".split()
+        d = dict(zip(names, h))
+        if d["magic"] != FW_MOD_MAGIC:
+            errors.append(f"{name}@{start}: header magic {d['magic']:#x}")
+        if d["api_addr"] != api_addr:
+            errors.append(f"{name}@{start}: header api_addr {d['api_addr']:#x} is not FW_API_ADDR {api_addr:#x}")
+        if d["link_addr"] != base:
+            errors.append(f"{name}@{start}: header link_addr {d['link_addr']:#x} is not the start {base:#x}")
+        if d["pack_hash"] != pack_hash:
+            errors.append(f"{name}@{start}: header pack_hash {d['pack_hash']:#x} is not OC_PACK_HASH {pack_hash:#x}")
+        if not base + FW_MOD_CODE_OFF <= d["engine_ptr"] < base + len(img):
+            errors.append(f"{name}@{start}: engine_ptr {d['engine_ptr']:#x} is outside the image")
+        if any(d[k] for k in ("length", "crc", "hcrc")):
+            errors.append(f"{name}@{start}: length/crc/hcrc must be zero in the linked image")
+        if any(img[MOD_HDR.size:FW_MOD_CODE_OFF]):
+            errors.append(f"{name}@{start}: the header page is not zero after the header")
+        ifaces.add((d["iface"], d["api_size"], d["api_version"], d["engine"], d["state_size"]))
+        d["length"] = len(img)
+        d["crc"] = zlib.crc32(bytes(img[FW_MOD_CODE_OFF:])) & 0xFFFFFFFF
+        MOD_HDR.pack_into(img, 0, *[d[k] for k in names])
+        d["hcrc"] = zlib.crc32(bytes(img[:MOD_HDR.size - 4])) & 0xFFFFFFFF
+        struct.pack_into("<I", img, MOD_HDR.size - 4, d["hcrc"])
+        variants.append((start, bytes(img)))
+        notes.append(f"module {name} start {start} (flash {lo + start * 0x1000:#x}): {len(img)} B of {sectors * 0x1000}, "
+                     f".data 0 B, .bss 0 B, crc {d['crc']:08x}")
+    if len(ifaces) != 1:
+        errors.append(f"{name}: the variants disagree on the header: {sorted(ifaces)}")
+        return errors, notes
+    iface, api_size, api_version, engine, state_size = next(iter(ifaces))
+    # the package
+    n = len(variants)
+    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 1, n, iface, api_addr, engine, state_size, pack_hash,
+                                 spec["name"].encode(), api_version, api_size, sectors))
+    off = (len(head) + 16 * n + 4 + 3) & ~3
+    table = bytearray()
+    for start, img in variants:
+        table += struct.pack("<IIII", start, len(img), zlib.crc32(img) & 0xFFFFFFFF, off)
+        off += len(img)
+    head += table
+    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
+    ocm = bytes(head) + b"".join(img for _, img in variants)
+    vf = SRC / "VERSION"
+    ver = vf.read_text().strip() if vf.exists() else "0"
+    out = OUT / f"{name}-{ver}.ocm"
+    out.write_bytes(ocm)
+    notes.append(f"package {out.name}: {len(ocm)} B, {n} variants, engine {engine} {spec['name']}, state {state_size} B, "
+                 f"interface {iface:08x}, table at {api_addr:#x}")
+    return errors, notes
+
+
 # Every hardware register access lives in hal/. In src/ and loader/ (comments stripped):
 #  - no volatile pointer cast, except of a C object's address (`*(volatile T *)&x`: a read-once
 #    of a RAM flag shared with an ISR, e.g. usb.c ota_wire_send);
@@ -506,6 +667,7 @@ def main():
     mode.add_argument("--nightly", action="store_true", help="development package from the current Git commit")
     mode.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
+    ap.add_argument("--module", metavar="NAME", choices=sorted(MODULES), help="build a loadable engine module (build/NAME-<version>.ocm) and check it")
     ap.add_argument("--cpu-manifest", type=Path, help="Write source/package identity for CPU experiments")
     ap.add_argument("--no-core1-fallback", action="store_true",
                     help="Diagnostic: halt for watchdog reset on CPU1 failure instead of rendering on one core")
@@ -541,6 +703,15 @@ def main():
         vf = SRC / "VERSION"
         VERSION = ("v" + vf.read_text().strip() + "-" + revision[:6]) if vf.exists() else "dev-" + revision
         name = f"melodee-nightly.fwsc"
+    if a.module:                    # (Orange Cat 0.10.0) a module only needs the toolchain and build/gen
+        errors, notes = build_module(a.module)
+        for n in notes:
+            print("  ok   ", n)
+        for e in errors:
+            print("  FAIL ", e)
+        if errors:
+            raise SystemExit("build: module checks failed")
+        return 0
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:

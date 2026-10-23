@@ -58,15 +58,35 @@ typedef struct fw_api {
     uint32_t *rng_cell;                                  /* SHAPES' random generator word (pb_rng_state, 0x21 at power-on): a module has no RAM, so the firmware keeps it */
 } fw_api_t;
 
-/* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything. */
+/* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything.
+ * The image: the header in the first 256 byte page of the module's first sector (the rest of the page is zero), the code from
+ * FW_MOD_CODE_OFF on. The installer programs the code first and this page last, so a torn install has no header (the pack's rule).
+ * tools/build.py --module fills length, crc and hcrc after the link; the other fields are the module's own source.
+ *   length   bytes of the image from the header page on, a multiple of 4
+ *   crc      CRC-32 (zlib's) of bytes FW_MOD_CODE_OFF .. length
+ *   hcrc     CRC-32 of bytes 0 .. offsetof(hcrc)
+ *   engine   the engine number it is (ENGI_*): the table slot the loader puts it in
+ *   engine_ptr  the address of its engine_t, inside the module (the code is linked for the address it sits at)
+ *   link_addr  the XIP address it was linked for; the loader refuses it anywhere else
+ *   pack_hash  OC_PACK_HASH the module's tables were taken from (the asset pack it reads); must be the firmware's */
 #define FW_MOD_MAGIC 0x444F4D4Fu                         /* "OMOD" little endian */
+#define FW_MOD_CODE_OFF 0x100u
 typedef struct fw_mod_hdr {
     uint32_t magic;                                      /* FW_MOD_MAGIC */
     uint32_t iface;                                      /* the FW_API_IFACE the module was built with */
     uint32_t api_size;                                   /* sizeof(fw_api_t) it was built with: the table it needs */
     uint32_t api_version;                                /* FW_API_VERSION it was built with */
     uint32_t api_addr;                                   /* FW_API_ADDR it reads the table at: checked data (0.10.0) */
+    uint32_t engine;                                     /* the engine number (ENGI_*) it registers under */
+    uint32_t state_size;                                 /* bytes of arena state a part of this engine needs (sizeof its part struct) */
+    uint32_t engine_ptr;                                 /* address of its engine_t */
+    uint32_t link_addr;                                  /* the address it was linked for */
+    uint32_t pack_hash;                                  /* OC_PACK_HASH of the pack it reads */
+    uint32_t length;                                     /* see above: filled after the link */
+    uint32_t crc;
+    uint32_t hcrc;
 } fw_mod_hdr_t;
+#define FW_MOD_HDR_BYTES 52u                             /* sizeof(fw_mod_hdr_t) */
 enum { FW_MOD_OK = 0, FW_MOD_NONE, FW_MOD_BAD_MAGIC, FW_MOD_BAD_IFACE, FW_MOD_API_TOO_NEW, FW_MOD_BAD_ADDR };
 
 /* The registration check: 0 when the module may be given FW_API, else why not. A module that needs a longer table or a
