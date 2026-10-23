@@ -5920,10 +5920,35 @@ static int test_seq_keys(void)
     return bad;
 }
 #ifndef UI_TEST_NO_MAIN                                 /* (Orange Cat 0.5.3: tests/oc_pages_test.c has its own) */
+#if OC_PACK_GATE
+/* (Orange Cat 0.8.0) the asset pack missing: choosing MACRO or SHAPES says PACK MISSING; another engine, or the pack there, does not */
+static int test_pack_notice(void)
+{
+    int bad = 0;
+    oc_pack_good = 0;
+    ui.msg_t = 0;
+    set_engine(ENGI_MACRO);
+    bad += check("pack missing: MACRO chosen says PACK MISSING", msg_is("PACK MISSING"));
+    ui.msg_t = 0;
+    set_engine(ENGI_SHAPES);
+    bad += check("pack missing: SHAPES chosen says PACK MISSING", msg_is("PACK MISSING"));
+    ui.msg_t = 0;
+    set_engine(0);
+    bad += check("pack missing: another engine says nothing about it", !msg_is("PACK MISSING"));
+    oc_pack_good = 1;
+    ui.msg_t = 0;
+    set_engine(ENGI_MACRO);
+    bad += check("pack there: MACRO says nothing about it", !msg_is("PACK MISSING"));
+    return bad;
+}
+#endif
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     int bad = test_boot_maintenance();
+#if OC_PACK_GATE
+    bad += test_pack_notice();
+#endif
     bad += test_prophet_pages();
     bad += test_large_face();
     bad += test_home_notes();

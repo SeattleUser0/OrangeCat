@@ -53,6 +53,7 @@ static void fb_close(void);
 static int fb_on(void);
 static int fb_back(void);
 static int fb_ok(void);
+static int fb_pack_done(void);                          /* (Orange Cat 0.8.0) */
 static void fb_move(int32_t d);
 static const char *fb_where(void);
 static int fb_row(uint32_t i, char *name, uint32_t nlen, char *val, uint32_t vlen);
@@ -64,6 +65,7 @@ static void fb_close(void) {}
 static int fb_on(void) { return 0; }
 static int fb_back(void) { return 1; }
 static int fb_ok(void) { return 1; }
+static int fb_pack_done(void) { return 0; }
 static void fb_move(int32_t d) { (void)d; }
 static const char *fb_where(void) { return "Card"; }
 static int fb_row(uint32_t i, char *name, uint32_t nlen, char *val, uint32_t vlen)
@@ -783,7 +785,7 @@ static void files_input(int32_t k2, uint32_t oct)
     } else if (oct & 2u) {
         if (fb_ok()) {
             pop_close();
-            ui_message("CLIP ASSIGNED");
+            ui_message(fb_pack_done() ? "PACK INSTALLED" : "CLIP ASSIGNED");
         }
     }
     ui.force |= fb_on() ? 0u : 1u;

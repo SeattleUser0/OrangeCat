@@ -41,7 +41,7 @@
 
 #if OC_PACK_XIP
 #include "oc_pack_tables.h"            /* build/gen: OC_PACK_HASH, OC_PACK_LEN, one macro per table */
-#define OC_TBL(type, name) static const type OC_UNUSED_##name __attribute__((unused))
+#define OC_TBL(type, name) static const type __attribute__((unused)) OC_UNUSED_##name
 #else
 #define OC_TBL(type, name) static const type name
 #ifndef OC_PACK_HASH

@@ -66,6 +66,7 @@ static uint32_t user_of(const track_t *t)    /* user preset slot its sound came 
 }
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
+#include "oc_pack.h"               /* (Orange Cat 0.8.0) OC_PACK_READY, for the PACK MISSING notice */
 #include "favorites.c"
 /* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
  * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 retired
@@ -324,6 +325,14 @@ static void ui_say(const char *a, const char *b)
 }
 
 static void ui_message(const char *s) { ui_say(s, ""); }
+/* (Orange Cat 0.8.0) the selected track's engine is SHAPES or MACRO and the asset pack is not there (oc_pack.h): it plays nothing, and
+ * the screen says so: when the engine is chosen (force), and when a key is played on it (not over another word) */
+static void pack_notice(uint32_t force)
+{
+    uint32_t e = TSEL->eng_req % NENGINES;
+    if (OC_PACK_READY() || (e != ENGI_MACRO && e != ENGI_SHAPES)) return;
+    if (force || !ui.msg_t) ui_message("PACK MISSING");
+}
 #ifndef FRZ_AUDIO
 static uint64_t frz_host_frozen;                        /* (host builds of the UI without card_freeze.c: the phrases the
                                                          * tests mark frozen, bit id - 1) */
@@ -1013,6 +1022,7 @@ static void engine_load_of(track_t *t, uint32_t ei, uint32_t pi)
     apply_preset_to(t, pi);
     fm1_irq_on();
     load_end(t);
+    if (t == TSEL) pack_notice(1u);
 }
 /* the engine's defaults and its first preset (PROPHET: Sequential's first factory program, not INIT) */
 static void set_engine_of(track_t *t, uint32_t ei) { engine_load_of(t, ei, (MELODEE_P5 && ei % NENGINES == ENGI_PROPHET) ? 1u : 0u); }

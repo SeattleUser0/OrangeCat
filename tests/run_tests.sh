@@ -353,6 +353,8 @@ if core && [ $TABLES = 1 ]; then
     t "settings: PER5 records, palette ids and preference preservation" settings_test -O1 -w -Ibuild/gen
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
+    # (Orange Cat 0.8.0) the same with the asset pack's gate on: the engines are silent until a pack is there, and the screen says so
+    t "UI with the asset pack's gate on: PACK MISSING when MACRO or SHAPES is chosen without a pack" ui_pack_gate:ui_test -DMELODEE_USB_AUDIO=1 -DOC_PACK_GATE=1 $FW
     # (Orange Cat 0.5.3) the pages Orange Cat's own build reaches, built with its engine switches (tools/orangecat_engines.sh:
     # the other tests build every engine in), under ASan and UBSan
     t "Orange Cat pages: every family and SELECT both ways on MACRO and SHAPES, its engine set, sanitizers" \
