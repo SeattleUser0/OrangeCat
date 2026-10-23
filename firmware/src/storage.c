@@ -12,7 +12,40 @@
  *
  * Flash access goes through three hooks (also used by the host test):
  *   st_read(off, dst, n)   st_erase(off)   st_prog(off, src, n)
- */
+ *
+ * Revisions:
+ *   0.7.2 (Orange Cat): the flash map below in one place, with its two engine areas named (ST_PACK_LO, ST_MODULE_LO, as
+ *         FL_PACK_LO and FL_MODULE_LO in hal/fm1_flash.h); the Prophet, CZ-1 and native FM6 bank objects can be retired
+ *         at run time (st_retire_engines): refused for writing, reads give "no record", the object numbers kept. Nothing
+ *         is retired unless a caller asks (see "Retired engine areas").
+ *
+ * THE FLASH MAP (one place; hal/fm1_flash.h has the same ranges as FL_*, FL_STORE_OK is what the drivers allow)
+ *   0x004000..0x092FFF  app image (the update loader's; never written here)
+ *   0x093000..0x09CFFF  PACK area, 10 sectors: the Prophet banks' five A/B pairs today (OBJ_P5BANK0..+4); the asset pack
+ *                       (Orange Cat 0.8.0, tools/gen_pack.py) when one is installed, tables read in place through XIP
+ *   0x09D000..0x09EFFF  shared preset extension pair (OBJ_SHARED_EXT)
+ *   0x09F000, 0x0FE000  FM6 patch bank, copy A and copy B (OBJ_FM6BANK)
+ *   0x0A0000..0x0C7FFF  bank projects: two five-sector copies per slot (OBJ_BANK0..+3)
+ *   0x0C8000..0x0DBFFF  MODULE area, 20 sectors: the CZ-1 banks (OBJ_CZBANK0..+7, 0xC8000..0xD7FFF) and the native FM6
+ *                       banks (OBJ_NATIVEFM0..+1, 0xD8000..0xDBFFF); the SHAPES/MACRO code module's place later
+ *   0x0DC000..0x0DFFFF  user preset banks 0 and 1 (OBJ_UPRESET0..+1, upreset.c)
+ *   0x0E0000..0x0E4FFF  OTA staging (the update loader's)
+ *   0x0E5000..0x0FAFFF  extensions: preset banks 2 and 3 (E5000..E8FFF), FM6 user bank copy A (E9000) and B (FA000),
+ *                       the expanded project copies (EA000..F9FFF)
+ *   0x0FC000..0x0FDFFF  settings, copies A and B (OBJ_SETTINGS); 0xFE000 is the FM6 bank's copy B
+ * The four legacy single-pattern project objects (OBJ_PROJECT0..+3, 0x97000..0x9EFFF by st_sector) are retired: their place is
+ * the PACK area's upper sectors and the shared extension pair above. FL_STORE_OK allows 0x93000..0xDFFFF, 0xE5000..0xFAFFF and
+ * 0xFC000..0xFEFFF
+ * The shared user preset library (upreset.c up_obj) keeps its 384 slots in the PACK and MODULE areas' objects: banks 4 and 5
+ * in the native FM6 objects, banks 8..15 in the CZ-1 objects, banks 16..20 in the Prophet objects. That is why nothing is
+ * retired by the build alone (below).
+ *
+ * Retired engine areas (Orange Cat 0.7.2). An engine that is off has no bank objects of its own to keep: a Prophet, CZ-1 or
+ * native FM6 object is refused for writing (st_save gives -1, the flash untouched) and reads as "no record" (st_head -1),
+ * its object number kept so the backup identity and the layout stay. st_retire_engines(mask) sets which engines are off
+ * (ST_ENG_PROPHET, ST_ENG_CZ, ST_ENG_FM6). The default is none: the user preset library lives in those objects, and
+ * retiring them would take its banks 4, 5 and 8..20 away. Two ways to retire: define ST_RETIRE_BY_BUILD (the engines the
+ * build turns off, MELODEE_P5/CZ/FM6 = 0) or call st_retire_engines when an asset pack has taken the area (Step 5) */
 #define ST_MAGIC 0x554C4546u                   /* "FELU" */
 #define ST_COMPACT_TAG 0x32504D43u             /* CMP2: preset payload begins at byte 32 */
 #define ST_SECTOR 4096u
@@ -21,6 +54,15 @@
 #define ST_BANK_BASE_MAX (5u * ST_SECTOR - ST_PAYLOAD_OFF)
 #define ST_BANK_EXT_LO 0xEA000u
 #define ST_BANK_EXT_MAX (2u * ST_PAYLOAD_MAX)
+/* (Orange Cat 0.7.2) the two areas the engines can leave to the asset pack and the module (flash map above) */
+#define ST_PACK_LO 0x93000u                    /* 10 sectors: 0x93000..0x9CFFF */
+#define ST_PACK_SECTORS 10u
+#define ST_MODULE_LO 0xC8000u                  /* 20 sectors: 0xC8000..0xDBFFF */
+#define ST_MODULE_SECTORS 20u
+#ifdef FL_PACK_LO                              /* the firmware build includes hal/fm1_flash.h first: the two must agree */
+_Static_assert(ST_PACK_LO == FL_PACK_LO && ST_PACK_LO + ST_PACK_SECTORS * 0x1000u == FL_PACK_HI &&
+               ST_MODULE_LO == FL_MODULE_LO && ST_MODULE_LO + ST_MODULE_SECTORS * 0x1000u == FL_MODULE_HI, "flash map");
+#endif
 
 /* The Prophet user banks: 0x93000..0x9CFFF. The old banks at 0x89000 are retired and never migrated.
  * The current banks occupy the legacy single-pattern projects' place: those objects are retired (2026-10-10, Kerem: not
@@ -67,12 +109,12 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
     if (obj == OBJ_SHARED_EXT) return 0x9D000u+copy*ST_SECTOR;
-    if (obj >= OBJ_P5BANK0) return 0x93000u+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;
-    if (obj >= OBJ_NATIVEFM0) return 0xD8000u + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;
+    if (obj >= OBJ_P5BANK0) return ST_PACK_LO+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;
+    if (obj >= OBJ_NATIVEFM0) return ST_MODULE_LO + 16u * ST_SECTOR + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;   /* 0xD8000 */
     if (obj == OBJ_UPFM6_EXT) return copy ? 0xFA000u : 0xE9000u;
     if (obj >= OBJ_UPRESET_EXT0) return 0xE5000u + (obj - OBJ_UPRESET_EXT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_CZBANK0)
-        return 0xC8000u + (obj - OBJ_CZBANK0) * 2u * ST_SECTOR + copy * ST_SECTOR;
+        return ST_MODULE_LO + (obj - OBJ_CZBANK0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_BANK0)
         return 0xA0000u + (obj - OBJ_BANK0) * 10u * ST_SECTOR + copy * 5u * ST_SECTOR;
     if (obj == OBJ_SETTINGS)
@@ -138,7 +180,24 @@ static int st_read_range(uint32_t obj, uint32_t copy, uint32_t off, void *dst, u
 static uint8_t st_buf[256] __attribute__((aligned(4)));
 
 /* the legacy single-pattern projects (OBJ_PROJECT0..+3): retired, their numbers reserved */
-static int st_retired(uint32_t obj) { return obj >= OBJ_PROJECT0 && obj < OBJ_PROJECT0 + 4u; }
+/* (Orange Cat 0.7.2) the engine that owns a bank object, as a mask bit (0: none) */
+enum { ST_ENG_PROPHET = 1, ST_ENG_CZ = 2, ST_ENG_FM6 = 4 };
+#ifdef ST_RETIRE_BY_BUILD
+static uint8_t st_engines_off = (MELODEE_P5 ? 0 : ST_ENG_PROPHET) | (MELODEE_CZ ? 0 : ST_ENG_CZ) | (MELODEE_FM6 ? 0 : ST_ENG_FM6);
+#else
+static uint8_t st_engines_off;
+#endif
+static void st_retire_engines(uint32_t mask) { st_engines_off = (uint8_t)(mask & 7u); }
+static uint32_t st_engine_of(uint32_t obj)
+{
+    return obj >= OBJ_P5BANK0 && obj < OBJ_SHARED_EXT ? ST_ENG_PROPHET :
+           obj >= OBJ_CZBANK0 && obj < OBJ_UPRESET_EXT0 ? ST_ENG_CZ :
+           obj >= OBJ_NATIVEFM0 && obj < OBJ_P5BANK0 ? ST_ENG_FM6 : 0u;
+}
+static int st_retired(uint32_t obj)
+{
+    return (obj >= OBJ_PROJECT0 && obj < OBJ_PROJECT0 + 4u) || (st_engine_of(obj) & st_engines_off);
+}
 
 static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record valid: 0 */
 {

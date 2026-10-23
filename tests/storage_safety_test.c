@@ -62,6 +62,22 @@ int main(void)
     preset_old_allow(1); sysex_commit(); preset_old_allow(0);
     bad += check("confirmed import replaces old native bank", !sx_import.count && native_used(ENGI_FM6, 72) && !native_old(ENGI_FM6, 72) && !preset_old_write);
 
+    /* (Orange Cat 0.7.2) the preset library lives in the Prophet, CZ-1 and native FM6 objects: while an engine's area is
+     * retired (an asset pack there) its banks refuse to save and read as empty; the other banks are untouched */
+    reset(); up_cache_reset();
+    {
+        up_rec_t r2 = rec; r2.engine = 9u;
+        int saved = up_put(16u * UP_PER_BANK, &r2) == 0 && up_put(0, &r2) == 0;
+        bad += check("library: a Prophet-object bank and a plain bank save while nothing is retired", saved && st_exists(up_obj(16)) && st_exists(up_obj(0)));
+        st_retire_engines(ST_ENG_PROPHET); up_cache_reset();
+        before = erases;
+        bad += check("library: a retired Prophet bank reads as empty and refuses to save",
+                     !up_used(16u * UP_PER_BANK) && up_put(17u * UP_PER_BANK, &r2) != 0 && erases == before && !st_exists(up_obj(17)));
+        bad += check("library: the other banks still read and save", up_used(0) && up_put(1, &r2) == 0 && up_used(1));
+        st_retire_engines(0); up_cache_reset();
+        bad += check("library: the retired bank's data was kept", up_used(16u * UP_PER_BANK));
+    }
+
     reset(); st_save(OBJ_SETTINGS, old, sizeof old); persist_boot();
     bad += check("boot resets foreign settings to owned sane defaults", !template_old() && settings_owned(&persist_saved) && settings.palette == UI_DEFAULT_INDEX);
     settings.palette = 2; settings_save();

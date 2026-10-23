@@ -239,6 +239,68 @@ int main(void)
         ok=st_save(OBJ_BANK0,old,sizeof old)!=0;fail_erase_off=0xFFFFFFFFu;
         bad+=check("extension erase failure preserves the committed expanded copy",ok && st_load(OBJ_BANK0,got,sizeof got)==sizeof payload && !memcmp(got,payload,sizeof got));
     }
+    {   /* (Orange Cat 0.7.2) the flash map: the pack area and the module area, named and exact */
+        uint32_t o, k;
+        int ok = 1;
+        bad += check("pack area: the Prophet banks fill 0x93000..0x9CFFF",
+                     ST_PACK_LO == 0x93000u && st_sector(OBJ_P5BANK0, 0) == ST_PACK_LO &&
+                         st_sector(OBJ_P5BANK0 + 4, 1) + ST_SECTOR == ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR &&
+                         ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR == 0x9D000u && st_sector(OBJ_SHARED_EXT, 0) == 0x9D000u);
+        bad += check("module area: CZ-1 and native FM6 banks fill 0xC8000..0xDBFFF",
+                     ST_MODULE_LO == 0xC8000u && st_sector(OBJ_CZBANK0, 0) == ST_MODULE_LO && st_sector(OBJ_NATIVEFM0, 0) == 0xD8000u &&
+                         st_sector(OBJ_NATIVEFM0 + 1, 1) + ST_SECTOR == ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR &&
+                         ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR == 0xDC000u);
+        for (o = 0; o < OBJ_COUNT; o++)       /* no object but the engines' own reaches into either area from outside */
+            for (k = 0; k < 2u; k++) {
+                uint32_t a = st_sector(o, k), in_pack = a >= ST_PACK_LO && a < ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR,
+                         in_mod = a >= ST_MODULE_LO && a < ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR;
+                if (o >= OBJ_PROJECT0 && o < OBJ_PROJECT0 + 4u) continue;           /* retired, overlapping the pack area by design */
+                if ((in_pack && !st_engine_of(o)) || (in_mod && !st_engine_of(o))) ok = 0;
+                if (st_engine_of(o) && !in_pack && !in_mod) ok = 0;
+            }
+        bad += check("only the Prophet, CZ-1 and native FM6 objects live in the two areas", ok);
+    }
+    {   /* retired engine areas: refused for writing, "no record" on reads, numbers kept, the flash untouched */
+        static const struct { uint32_t first, count, bit; } E[3] = {
+            { OBJ_P5BANK0, 5u, ST_ENG_PROPHET }, { OBJ_CZBANK0, 8u, ST_ENG_CZ }, { OBJ_NATIVEFM0, 2u, ST_ENG_FM6 } };
+        uint32_t e, k, o, calls;
+        int ok = 1;
+        memset(nor, 0xFF, sizeof nor);
+        for (o = 0; o < OBJ_COUNT; o++) if (!st_retired(o)) ok &= st_save(o, a, 64) == 0;
+        bad += check("nothing is retired by default but the legacy projects", ok && st_engines_off == 0 && !st_retired(OBJ_P5BANK0) && !st_retired(OBJ_CZBANK0) && !st_retired(OBJ_NATIVEFM0));
+        for (e = 0; e < 3u; e++) {
+            uint8_t before[ST_SECTOR];
+            memcpy(before, nor + st_sector(E[e].first, 0), ST_SECTOR);
+            st_retire_engines(E[e].bit);
+            calls = io_calls;
+            ok = 1;
+            for (k = 0; k < E[e].count; k++) {
+                ok &= st_retired(E[e].first + k) && st_load(E[e].first + k, got, sizeof got) < 0 && !st_exists(E[e].first + k);
+                ok &= st_save(E[e].first + k, b, 64) < 0;
+            }
+            ok &= io_calls == calls;                                           /* not one flash access */
+            ok &= !memcmp(before, nor + st_sector(E[e].first, 0), ST_SECTOR);  /* and the sector as it was */
+            bad += check("retired engine objects: no record, no write, no flash access", ok);
+            ok = 1;                                                            /* the other engines and everything else go on */
+            for (o = 0; o < OBJ_COUNT; o++)
+                if (!(o >= OBJ_PROJECT0 && o < OBJ_PROJECT0 + 4u) && !(st_engine_of(o) & E[e].bit))
+                    ok &= !st_retired(o) && st_load(o, got, sizeof got) == 64 && st_save(o, b, 64) == 0 && st_save(o, a, 64) == 0;
+            bad += check("... and every other object still loads and saves", ok);
+            st_retire_engines(0);
+            ok = st_load(E[e].first, got, sizeof got) == 64 && !memcmp(got, a, 64);
+            bad += check("... the data is kept: back on, it reads again", ok);
+            for (k = 0; k < E[e].count; k++) st_save(E[e].first + k, a, 64);
+        }
+        st_retire_engines(7);
+        ok = 1;
+        for (o = OBJ_P5BANK0; o < OBJ_SHARED_EXT; o++) ok &= st_retired(o);
+        for (o = OBJ_CZBANK0; o < OBJ_UPRESET_EXT0; o++) ok &= st_retired(o);
+        for (o = OBJ_NATIVEFM0; o < OBJ_P5BANK0; o++) ok &= st_retired(o);
+        ok &= !st_retired(OBJ_SHARED_EXT) && !st_retired(OBJ_FM6BANK) && !st_retired(OBJ_UPRESET0) && !st_retired(OBJ_SETTINGS) &&
+              !st_retired(OBJ_BANK0) && !st_retired(OBJ_UPRESET_EXT0) && !st_retired(OBJ_UPFM6_EXT);
+        bad += check("all three off: exactly the 15 engine objects, none of the others", ok);
+        st_retire_engines(0);
+    }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     bad += check("CZ banks have disjoint A/B sectors outside project and preset data",
         st_sector(OBJ_CZBANK0,0)==0xC8000u && st_sector(OBJ_CZBANK0+7,1)+ST_SECTOR==0xD8000u &&

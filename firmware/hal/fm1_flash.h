@@ -49,7 +49,15 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define FL_IN(off, n, lo, hi) ((uint32_t)(off) >= (lo) && (uint32_t)(off) <= (hi) && \
                                (uint32_t)(n) <= (hi) - (uint32_t)(off))
 /* Melodee's own store (projects, user samples; settings) */
-#define FL_STORE_OK(off, n) (FL_IN(off, n, 0x93000u, 0x97000u) || FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_GLOB_LO, FL_GLOB_HI) || FL_IN(off, n, FL_BANK_EXT_LO, FL_BANK_EXT_HI))
+/* (Orange Cat 0.7.2) the flash map is in firmware/src/storage.c's top comment. The two engine areas, named: the PACK area
+ * (asset pack, or the Prophet banks) and the MODULE area (CZ-1 and native FM6 banks, or the code module later). Both are
+ * writable by the store; the same ranges are inside FL_DATA already (0x97000..), the pack area's first four sectors were the
+ * only part that needed its own clause */
+#define FL_PACK_LO      0x00093000u                /* 10 sectors */
+#define FL_PACK_HI      0x0009D000u
+#define FL_MODULE_LO    0x000C8000u                /* 20 sectors */
+#define FL_MODULE_HI    0x000DC000u
+#define FL_STORE_OK(off, n) (FL_IN(off, n, FL_PACK_LO, FL_PACK_HI) || FL_IN(off, n, FL_MODULE_LO, FL_MODULE_HI) || FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_GLOB_LO, FL_GLOB_HI) || FL_IN(off, n, FL_BANK_EXT_LO, FL_BANK_EXT_HI))
 /* Where the RAM driver may erase / program. The app build allows only its own
  * data regions; the update loader (firmware/loader) defines its own window. */
 #ifndef FL_RANGE_OK
