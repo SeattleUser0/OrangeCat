@@ -19,8 +19,12 @@ struct copy or a zeroing in a flash function is an llvm.memcpy / llvm.memset int
 here, which the backend lowers to a direct call of memcpy / memset after this pass:
 from far enough into the flash image that call is out of branch range ("relocation
 truncated to fit: R_PI32V2_LONG_JUMP_23M2 against symbol memcpy"; 0.6.1's first build,
-from seq_tool_ui). So in flash functions those intrinsics become calls through the same
-volatile pointers (the byte value of a memset widened to the int memset takes).
+from seq_tool_ui; functions built for size make a call even of a few bytes). So flash
+gets its own copies, __flash_memcpy and __flash_memset (the same code, in flash, kept out
+of line), and every memcpy / memset of a flash function calls them directly: the
+intrinsics (the byte value of a memset widened to the int memset takes) and the calls
+written in the source. SRAM code keeps memcpy / memset in SRAM. (A first try went
+through the volatile pointers: 8 KB more flash, the image within 600 bytes of full.)
 """
 import json
 import re
@@ -35,8 +39,7 @@ CALL = re.compile(r'\bcall\b[^\n@]*@([\w.]+)\(')
 INTRINSIC = re.compile(r'\bcall void @llvm\.(memcpy|memset)\.p0(?:i8)?(?:\.p0(?:i8)?)?\.i32\(')
 
 
-INLINE_MAX = 32      # (a copy or a zeroing of this many bytes or fewer: the backend writes it out inline, no call;
-                     # through a pointer they cost 8 KB of flash, the image near full)
+LIBC = ('memcpy', 'memset')
 
 
 def intrinsic_args(line, m):
@@ -151,6 +154,7 @@ def relocate(ir, roots):
         elif sections[name] not in ('.audio_text', '.dsp_text', '.ram_text'):
             raise ValueError(f'Unexpected audio section for {name}: {sections[name]}')
     far = {}
+    clones = {n for n in LIBC if n in selected and n in functions}   # (0.6.1) memcpy / memset in SRAM: flash's copies
 
     def rewrite(match):
         name = match[2]
@@ -159,23 +163,24 @@ def relocate(ir, roots):
             header = header[:-1].rstrip() + ' section ".audio_text" {'
         body = []
         for line in match[5].splitlines():
-            if not ram(sections[name]):             # (0.6.1) a flash function's memcpy / memset: through a pointer
-                m = INTRINSIC.search(line)
+            if not ram(sections[name]) and name not in clones:   # (0.6.1) a flash function's memcpy / memset:
+                m = INTRINSIC.search(line)                          # flash's own copy, directly
                 args, end = intrinsic_args(line, m) if m else (None, None)
-                small = args and re.fullmatch(r'i32 (\d+)', args[2]) and int(args[2].split()[1]) <= INLINE_MAX
-                if args and m[1] in selected and len(args) in (4, 5) and not small:
+                if args and m[1] in clones and len(args) in (4, 5):
                     typ = function_type(functions[m[1]])
-                    far[m[1]] = typ
-                    local = f'%audio_far_{len(body)}'
-                    body.append(f'  {local} = load volatile {typ}*, {typ}** @__audio_far_{m[1]}, align 4')
+                    local = f'%flash_{m[1]}_{len(body)}'
                     if m[1] == 'memset':            # (memset's byte as the int it takes)
                         value = args[1].split(None, 1)
                         body.append(f'  {local}_c = zext i8 {value[1]} to i32')
                         args[1] = f'i32 {local}_c'
-                    pre = line[:m.start()]                 # (its result named: an unnamed one would take a number)
-                    line = TBAA.sub('', pre[:len(pre) - len(pre.lstrip())] + f'{local}_r = ' + pre.lstrip() +
-                                    f'call {typ.split()[0]} {local}({args[0]}, {args[1]}, {args[2]})' + line[end:])
+                    pre = line[:m.start()]          # (its result named: an unnamed one would take a number)
+                    line = TBAA.sub('', pre[:len(pre) - len(pre.lstrip())] + f'{local} = ' + pre.lstrip() +
+                                    f'call {typ.split()[0]} @__flash_{m[1]}({args[0]}, {args[1]}, {args[2]})' + line[end:])
                     body.append(line)
+                    continue
+                call = CALL.search(line)
+                if call and call[1] in clones:      # (written in the source: memcpy(..) in flash code)
+                    body.append(line[:call.start(1)] + '__flash_' + call[1] + line[call.end(1):])
                     continue
             call = CALL.search(line)
             if call and call[1] in functions and sections[name] != sections[call[1]]:
@@ -192,6 +197,13 @@ def relocate(ir, roots):
         return header + '\n' + '\n'.join(body) + '\n}'
 
     result = FUNCTION.sub(rewrite, ir)
+    for n in sorted(clones):                    # (0.6.1) flash's own memcpy / memset: the same code, out of line
+        m = functions[n]
+        head = m[0].split('\n', 1)[0]
+        head = re.sub(r'^define (?:(?:dso_local|internal|private|weak|linkonce_odr) )*', 'define internal ', head)
+        head = head.replace('@' + n + '(', '@__flash_' + n + '(', 1)
+        head = head[:-1].rstrip() + ' noinline {'
+        result += '\n' + head + '\n' + m[5] + '}\n'
     globals_ir = '\n'.join(f'@__audio_far_{name} = internal global {typ}* @{name}, align 4'
                            for name, typ in sorted(far.items()))
     result += '\n' + globals_ir + '\n'

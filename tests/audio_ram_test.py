@@ -77,13 +77,14 @@ define void @isr2() {
         fn=next(m for m in FUNCTION.finditer(IR) if m[2]=='accept')
         self.assertEqual(function_type(fn),'void (void (i8*, i32)*, i8*)')
 
-    def test_flash_memcpy_memset_through_pointers(self):
-        # (Orange Cat 0.6.1) memcpy / memset in SRAM: a flash function's struct copy or zeroing (LLVM 4's intrinsics,
-        # a constant GEP among the arguments) calls them through a pointer, out of branch range otherwise
-        ir = IR + '''define i8* @memcpy(i8* returned %d, i8* nocapture readonly %s, i32 %n) {
+    def test_flash_memcpy_memset_own_copies(self):
+        # (Orange Cat 0.6.1) memcpy / memset in SRAM: flash functions call flash's own copies, directly (their struct
+        # copies and zeroings: LLVM 4's intrinsics, a constant GEP among the arguments; their written calls); a
+        # direct call of the SRAM ones is out of branch range from far into the flash
+        ir = IR + '''define i8* @memcpy(i8* returned %d, i8* nocapture readonly %s, i32 %n) #1 {
   ret i8* %d
 }
-define i8* @memset(i8* returned %d, i32 %c, i32 %n) {
+define i8* @memset(i8* returned %d, i32 %c, i32 %n) local_unnamed_addr #1 {
   ret i8* %d
 }
 define void @isr3(i8* %p, i32 %n) {
@@ -96,31 +97,35 @@ define void @ui_copy(i8* %a, i8* %b) {
   call void @llvm.memcpy.p0i8.p0i8.i32(i8* %a, i8* getelementptr inbounds (%struct.s, %struct.s* @gs, i32 0, i32 1), i32 80, i32 4, i1 false), !tbaa.struct !3
   tail call void @llvm.memset.p0i8.i32(i8* %b, i8 0, i32 64, i32 4, i1 false)
   %3 = load i8, i8* %a
-  call void @llvm.memcpy.p0i8.p0i8.i32(i8* %a, i8* %b, i32 16, i32 4, i1 false)
+  call void @llvm.memcpy.p0i8.p0i8.i32(i8* %a, i8* %b, i32 4, i32 4, i1 false)
+  %4 = call i8* @memcpy(i8* %a, i8* %b, i32 8)
   ret void
 }
 '''
         output, selected, far = relocate(ir, {'fm1_alnk0_irq', 'isr3'})
         self.assertIn('memcpy', selected)
         self.assertIn('memset', selected)
-        self.assertIn('memcpy', far)
-        self.assertIn('memset', far)
+        self.assertNotIn('memcpy', far)
+        self.assertNotIn('memset', far)
         functions = {m[2]: m for m in FUNCTION.finditer(output)}
         ui = functions['ui_copy'][5]
-        self.assertNotIn('i32 80, i32 4', ui)              # (the big copy and the zeroing: through pointers)
-        self.assertNotIn('@llvm.memset', ui)
-        self.assertIn('load volatile i8* (i8*, i8*, i32)*, i8* (i8*, i8*, i32)** @__audio_far_memcpy', ui)
-        self.assertIn('= call i8* %audio_far_0(i8* %a, i8* getelementptr inbounds (%struct.s, %struct.s* @gs, i32 0, i32 1), '
-                      'i32 80)', ui)
+        self.assertNotIn('@llvm.mem', ui)
+        self.assertNotIn('@memcpy(', ui)
+        self.assertIn('= call i8* @__flash_memcpy(i8* %a, i8* getelementptr inbounds (%struct.s, %struct.s* @gs, i32 0, '
+                      'i32 1), i32 80)', ui)
         self.assertNotIn('!tbaa', ui)
         self.assertIn('zext i8 0 to i32', ui)
-        self.assertIn('= tail call i8* %audio_far_', ui)
+        self.assertIn('= tail call i8* @__flash_memset(i8* %b, i32 %flash_memset_1_c, i32 64)', ui)
         self.assertIn('%3 = load i8, i8* %a', ui)          # (no unnamed value added: the numbering holds)
-        self.assertIn('call void @llvm.memcpy.p0i8.p0i8.i32(i8* %a, i8* %b, i32 16, i32 4, i1 false)', ui)   # (small:
-                                                            # written out inline by the backend, left as it is)
+        self.assertIn('%4 = call i8* @__flash_memcpy(i8* %a, i8* %b, i32 8)', ui)
         self.assertIn('call void @llvm.memcpy.p0i8.p0i8.i32(i8* %p, i8* %p, i32 16, i32 4, i1 false)',
-                      functions['isr3'][5])                 # (SRAM code keeps its intrinsics: memcpy is near)
-        self.assertIn('@__audio_far_memset = internal global i8* (i8*, i32, i32)* @memset', output)
+                      functions['isr3'][5])                 # (SRAM code keeps memcpy in SRAM: near)
+        self.assertIn('call i8* @memcpy(i8* %p', functions['isr3'][5])
+        self.assertIn('section ".audio_text"', functions['memcpy'][4])
+        self.assertIn('define internal i8* @__flash_memcpy(i8* returned %d, i8* nocapture readonly %s, i32 %n) #1 noinline {',
+                      output)
+        self.assertNotIn('section', functions['__flash_memset'][4])
+        self.assertIn('noinline', functions['__flash_memset'][4])
 
     def test_missing_isr_rejected(self):
         with self.assertRaises(ValueError):relocate('', {'fm1_alnk0_irq'})
