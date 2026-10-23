@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.53  
+**Version:** 0.54  
 **Date:** October 23, 2026  
 **Tracks:** Orange Cat Specification v0.10
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.54 (October 23, 2026):** 0.7.1 on branch tracker-events: the tracker edits a recorded step's notes through NOTES' event editor, each note's pitch, velocity and length alone (docs/orangecat/TRACKER_REVIEW.md: the data model mapped, the duplication measured, the one-authority cleanup planned). docs/orangecat/ENGINE_LOADING_PLAN.md: asset packs and loadable engines, with budgets.
 - **0.53 (October 23, 2026):** Size audit of the whole firmware (branch size-audit, docs/orangecat/SIZE_AUDIT.md): 10,692 B of flash recovered without a feature touched (an unused Prophet table the linker could not drop, the card's and store's main-loop files built for size, retired-engine tables and pages compiled out); the 76 KB storage and sequencer growth attributed from the CI record; the cost of Prophet, FM6 and DRUM measured in comparison builds; the stacks bounded; a plan for a data pack on the card. See "Size audit" below.
 - **0.51 (October 22, 2026):** 0.6.2, from the unit: Assign clip said "Save first" on an empty phrase (it now gets a number), the knobs did not move the browser after a refusal (SELECT, KNOB 1 or 2 move it; a turn goes back to the list), and the refusal was drawn over the list.
 - **0.50 (October 22, 2026):** 0.6.1 on branch fx-jiant: takes in project folders on the card, moved when a project is named or renamed; Assign clip, a card browser on the MIXER page's sheet. See "Take folders and the clip browser".
@@ -73,7 +74,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
-| 6 | Loadable engine study | Not started |
+| 6 | Loadable engine study | Planned: docs/orangecat/ENGINE_LOADING_PLAN.md (asset packs first, then flash slots; SHAPES as the proof of concept) |
 | 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
@@ -1054,6 +1055,21 @@ tables, 39,750 B, first); then the app area's end moved from 0x93000 to 0x9D000 
 
 Left to test (on the unit): a take recorded with FatFs built for size (write speed), the UI with the screen driver
 built for size.
+
+## Tracker review (branch tracker-events, October 23, 2026)
+
+**Status: Done (the review and one change); not merged.** docs/orangecat/TRACKER_REVIEW.md.
+
+Two representations, both authoritative for their steps: manual steps (step_t) and recorded notes (recorded_note_t in
+a pool of 1,024) with an overview step marked SF_RECORDED. NOTES edited recorded notes one by one; the tracker refused
+them. 0.7.1: the tracker's columns are a recorded step's notes in NOTES' order (seq_notes.c notes_nth), and its knobs
+and EDIT go through NOTES' event editor: one operation, one undo. Cost +1,584 B of flash (image 561,836 B on the audit
+branch), 0 RAM. Host test: a chord of three release times, one note edited on the tracker, the others untouched, the
+same note on NOTES, undo, save, load. Full CI suite green. The duplication the review suspected is under 1 KB in the
+shipping build (about 2 KB with DRUM in: the pads' own event editor); the next cleanup is one delete path for a
+recorded step's events (the overview a derived cache only).
+
+Left to test (on the unit): the tracker on a live recording; KNOB 4 at a step a detent.
 
 ## Phases 8 to 11
 
