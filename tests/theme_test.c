@@ -100,30 +100,31 @@ int main(int argc, char **argv)
             for (k = 1; w[k]; k++) if (w[k] >= 'A' && w[k] <= 'Z') w[k] = (char)(w[k] + 32);
             assert(text_w(&AF_TX, w) <= 120);
         }
-        cv_begin(240, 124, T_BG);
-        cv_text(4, 0, &AF_TX, UI_PALETTES[p].name, T_TEXT);      /* (the large type's roles) */
-        for (unsigned k = 0; k < 5; k++) cv_rect(150 + k * 16, 6, 12, 12, tok[k]);
-        cv_text(4, 26, &AF_LB, "LABEL", T_MID);
-        cv_text(70, 24, &AF_TX, "VALUE 127", T_THEME);
-        cv_text(180, 24, &AF_TX, "HOT", T_ACCENT);
-        cv_text(4, 46, &AF_LB, "INACTIVE", T_DIM);
-        cv_rect(84, 46, 150, 20, T_SEL);
-        cv_text_on(90, 47, &AF_LB, "SELECTED ROW", T_INK, T_SEL);
-        cv_rect(4, 70, 232, 1, T_LINE);
-        cv_rect(4, 76, 120, 3, T_LINE);
-        cv_rect(4, 76, 70, 3, T_SEL);
-        cv_rect(74, 74, 1, 7, T_THEME);
-        cv_text(136, 70, &AF_LB, "REC", T_REC);
-        cv_text(4, 84, &AF_VL, "124", T_THEME);
-        cv_text(80, 82, &AF_LB, "Mixed case text", T_TEXT);
-        cv_key_hint(80, 100, KC_OCTUP, "LOAD", 1, T_BG);          /* keycaps: available, unavailable */
-        cv_key_hint(160, 100, KC_OCTDN, "BACK", 0, T_BG);
-        for (unsigned y = 0; y < 124; y++)
-            for (unsigned x = 0; x < 240; x++) {
-                uint16_t v = swap16(cv_px[y * 240 + x]);
-                if (p == UI_GRAY_INDEX) assert(gray(v));          /* every blended pixel of GRAY */
-                if (!t) sheet[(p / 4 * 124 + y) * 960 + p % 4 * 240 + x] = v;
-            }
+        CV_BANDS(0, 0, 240, 124, T_BG) {   /* (0.7.0: the canvas holds 62 rows: the sheet in bands) */
+            cv_text(4, 0, &AF_TX, UI_PALETTES[p].name, T_TEXT);      /* (the large type's roles) */
+            for (unsigned k = 0; k < 5; k++) cv_rect(150 + k * 16, 6, 12, 12, tok[k]);
+            cv_text(4, 26, &AF_LB, "LABEL", T_MID);
+            cv_text(70, 24, &AF_TX, "VALUE 127", T_THEME);
+            cv_text(180, 24, &AF_TX, "HOT", T_ACCENT);
+            cv_text(4, 46, &AF_LB, "INACTIVE", T_DIM);
+            cv_rect(84, 46, 150, 20, T_SEL);
+            cv_text_on(90, 47, &AF_LB, "SELECTED ROW", T_INK, T_SEL);
+            cv_rect(4, 70, 232, 1, T_LINE);
+            cv_rect(4, 76, 120, 3, T_LINE);
+            cv_rect(4, 76, 70, 3, T_SEL);
+            cv_rect(74, 74, 1, 7, T_THEME);
+            cv_text(136, 70, &AF_LB, "REC", T_REC);
+            cv_text(4, 84, &AF_VL, "124", T_THEME);
+            cv_text(80, 82, &AF_LB, "Mixed case text", T_TEXT);
+            cv_key_hint(80, 100, KC_OCTUP, "LOAD", 1, T_BG);          /* keycaps: available, unavailable */
+            cv_key_hint(160, 100, KC_OCTDN, "BACK", 0, T_BG);
+            for (unsigned y = 0; y < cv_h; y++)
+                for (unsigned x = 0; x < 240; x++) {
+                    uint16_t v = swap16(cv_px[y * 240 + x]);
+                    if (p == UI_GRAY_INDEX) assert(gray(v));          /* every blended pixel of GRAY */
+                    if (!t) sheet[(p / 4 * 124 + (unsigned)cv_band + y) * 960 + p % 4 * 240 + x] = v;
+                }
+        }
     }
     /* the ramp cache follows the palette (a stale ramp would blend toward the old background) */
     palette_set(0);

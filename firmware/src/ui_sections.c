@@ -300,10 +300,10 @@ static void smap_draw(void)
     for (top = 0; top < h; ) {                          /* in slices between rows */
         int32_t sh = 0, y = 2;
         for (r = first; r < last; y += smap_h(r) + 2, r++)
-            if (y >= top && y + smap_h(r) + 2 - top <= 124)
+            if (y >= top && y + smap_h(r) + 2 - top <= (int32_t)CV_ROWS)
                 sh = y + smap_h(r) + 2 - top;
         if (sh <= 0)
-            sh = h - top < 124 ? h - top : 124;
+            sh = h - top < (int32_t)CV_ROWS ? h - top : (int32_t)CV_ROWS;
         cv_begin(240, (uint32_t)sh, T_BG);
         cv_oy = -top;
         for (r = first, y = 2; r < last; y += smap_h(r) + 2, r++) {

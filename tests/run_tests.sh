@@ -282,7 +282,7 @@ if core; then
     run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
     t "retired synth identities, project/user patch preservation and favorites" engine_retirement_test -O2 $FW
     t "capture gating, derived caches and silent-track clocks" performance_test -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
-    t "canvas drawing overlaps DMA without changing pending pixels" lcd_overlap_test -O1 -w -Ibuild/gen
+    t "one canvas: each transfer done before it is drawn over; bands" lcd_overlap_test -O1 -w -Ibuild/gen
     t "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records)" upreset_test
     t "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders, fast spins" input_test
     t "LED hardware PWM: pin ownership, duty per scan, overlapping planes, blanking" led_pwm_test

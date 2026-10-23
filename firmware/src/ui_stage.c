@@ -293,18 +293,19 @@ static void stage_shape(void)
 {
     int32_t pv[4];
     uint32_t pic = stage_picture(pv);
-    cv_begin(240, H_GRAPH, T_BG);
-    cv_bg = T_BG;
-    if (pic == SP_FILTER)
-        stage_filter(pv[0], pv[1], ux_mix(T_BG, T_THEME, 70), 8, H_GRAPH - 8);
-    else if (pic == SP_ENV)
-        graph_adsr_v(pv[0], pv[1], pv[2], pv[3], 8, H_GRAPH - 8, ux_mix(T_BG, T_THEME, 70));
-    else
-        stage_wave(ux_mix(T_BG, T_THEME, 70), 8, H_GRAPH - 16);
-    cv_blit(0, Y_GRAPH);
+    CV_BANDS(0, Y_GRAPH, 240, H_GRAPH, T_BG) {   /* (0.7.0: in bands of the canvas's rows) */
+        cv_bg = T_BG;
+        if (pic == SP_FILTER)
+            stage_filter(pv[0], pv[1], ux_mix(T_BG, T_THEME, 70), 8, H_GRAPH - 8);
+        else if (pic == SP_ENV)
+            graph_adsr_v(pv[0], pv[1], pv[2], pv[3], 8, H_GRAPH - 8, ux_mix(T_BG, T_THEME, 70));
+        else
+            stage_wave(ux_mix(T_BG, T_THEME, 70), 8, H_GRAPH - 16);
+    }
 }
 
 /* ------------------------------------------------------- the rows --- */
+
 /* track k's sound as a list entry (browse.c cur_entry, which reads the selected track) */
 static void stage_entry(uint32_t k, uint32_t *src, uint32_t *kk)
 {
@@ -413,7 +414,7 @@ static void stage_rec_paint(int32_t ox, int32_t oy, int32_t w, int32_t h, int32_
     for (x = 0; x < rb; x++)
         f[x] = (uint8_t)((uint32_t)((rb - x) * (rb - x)) * 3u * lv / (uint32_t)(rb * rb));
     for (y = 0; y < (int32_t)cv_h; y++) {
-        int32_t Y = oy + y - cv_oy, dy = Y < h - 1 - Y ? Y : h - 1 - Y;
+        int32_t Y = oy + y - CV_OY, dy = Y < h - 1 - Y ? Y : h - 1 - Y;
         uint16_t *row = cv_px + (uint32_t)y * cv_w;
         if (dy < 0)
             continue;

@@ -212,12 +212,12 @@ static void menu_head(void)
 /* the list (large type, C): six rows, 32 px, 34 apart from y 32 (ui_list.c row_draw): the name and its value at the
  * right in words ("Night", "0.4 s"); the selected row tinted in the track's colour, its value in it; COLOR: the
  * palettes as swatches, the one chosen outlined. Where the rows are in the list: a bar at the right edge. Drawn in two
- * bands (the canvas holds 124 rows), split between two rows */
+ * bands (the canvas holds 124 rows), split between two rows (0.7.0: CV_BANDS, in bands of the canvas's 62 rows,
+ * a row drawn in two parts where a band ends) */
 #define MENU_VISIBLE 6u
 #define MENU_Y0 32
 #define MENU_ROW 34
 #define MENU_RH 32
-#define MENU_SPLIT (MENU_Y0 + 3 * MENU_ROW)
 /* "AUDIO CLICK" -> "Audio click", "P5 OSC A" -> "Osc A" (acronyms and a letter alone stay capitals) */
 static void menu_words(char *d, const char *s, uint32_t n)
 {
@@ -241,7 +241,7 @@ static void menu_words(char *d, const char *s, uint32_t n)
 }
 static void draw_menu(void)
 {
-    uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
+    uint32_t i, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
                             settings_hold * 3511u + settings_lights * 6151u + settings_autosave * 15485863u +
 #if MELODEE_USB_AUDIO
                             ua_off_want * 92821u + ua_tracks_want * 324161u +
@@ -258,23 +258,18 @@ static void draw_menu(void)
         int32_t scroll = ui.menu_scroll, max = menu_scroll_max();
         int32_t thumb = MENU_DOC_H * MENU_DOC_H / (max + MENU_DOC_H);
         if (thumb < 12) thumb = 12;
-        for (pass = 0; pass < 2u; pass++) {
-            cv_begin(240, pass ? MENU_DOC_H - 124u : 124u, T_BG);
-            cv_oy = pass ? -124 : 0;
+        CV_BANDS(0, MENU_HEAD, 240, MENU_DOC_H, T_BG) {   /* (0.7.0: in bands of the canvas's rows) */
             cv_scroll = 1;
             menu_document(-scroll, 1);
             cv_scroll = 0;
             cv_rrect(235, 2, 3, MENU_DOC_H - 4, 1, T_LINE, T_BG);           /* the scroll bar */
             cv_rrect(235, 2 + (max ? scroll * (MENU_DOC_H - 4 - thumb) / max : 0), 3, thumb, 1, T_THEME, T_LINE);
-            cv_oy = 0;
-            cv_blit(0, MENU_HEAD + pass * 124u);
         }
         return;
     }
-    for (pass = 0; pass < 2u; pass++) {
-        int32_t top = pass ? MENU_SPLIT : MENU_HEAD;
-        cv_begin(240, (uint32_t)(pass ? 240 - MENU_SPLIT : MENU_SPLIT - MENU_HEAD), T_BG);
-        cv_oy = -top;                                 /* drawn in screen rows */
+    CV_BANDS(0, MENU_HEAD, 240, 240 - MENU_HEAD, T_BG) {   /* (0.7.0: in bands of the canvas's rows) */
+        int32_t top = MENU_HEAD + cv_band;            /* (the band's first screen row) */
+        cv_oy = -MENU_HEAD;                           /* drawn in screen rows */
         uint32_t first=ui.menu_sel>=MENU_VISIBLE?ui.menu_sel-MENU_VISIBLE+1u:0u;
         for (i = first; i < first+MENU_VISIBLE && i<MI_COUNT; i++) {
             int32_t y = MENU_Y0 + (int32_t)(i-first) * MENU_ROW;
@@ -330,7 +325,6 @@ static void draw_menu(void)
             cv_rect(238, ty, 2, th, T_THEME);
         }
         cv_oy = 0;
-        cv_blit(0, (uint32_t)top);
     }
 }
 static void enc_drop(void)                             /* knob turns nobody takes */

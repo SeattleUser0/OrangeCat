@@ -38,16 +38,16 @@ static void gv_bar(void)
     if (!ui.force && sig == gvv.bar)
         return;
     gvv.bar = sig;
-    cv_begin(240, GV_BAR_H, T_BG);
-    for (i = 0; i < 16u; i++) {
-        int32_t x = 8 + 14 * (int32_t)i, off = GROOVE_OFF[g][i] * (int32_t)a / 100, acc = GROOVE_ACC[g][i] * (int32_t)a / 100;
-        int32_t h = 56 + acc * 2, gx = x + off * 28 / 100;   /* (the shift drawn twice as wide: it shows) */
-        cv_rect(x + 5, 8, 1, GV_BAR_H - 16, i % 4u == 0u ? T_MID : T_LINE);   /* (the straight place; a beat brighter) */
-        if (h < 16) h = 16;
-        if (h > GV_BAR_H - 20) h = GV_BAR_H - 20;
-        cv_rrect(gx + 1, GV_BAR_H - 10 - h, 9, h, 3, g ? tc : T_LINE, T_BG);
+    CV_BANDS(0, GV_BAR_Y, 240, GV_BAR_H, T_BG) {   /* (0.7.0: in bands of the canvas's rows) */
+        for (i = 0; i < 16u; i++) {
+            int32_t x = 8 + 14 * (int32_t)i, off = GROOVE_OFF[g][i] * (int32_t)a / 100, acc = GROOVE_ACC[g][i] * (int32_t)a / 100;
+            int32_t h = 56 + acc * 2, gx = x + off * 28 / 100;   /* (the shift drawn twice as wide: it shows) */
+            cv_rect(x + 5, 8, 1, GV_BAR_H - 16, i % 4u == 0u ? T_MID : T_LINE);   /* (the straight place; a beat brighter) */
+            if (h < 16) h = 16;
+            if (h > GV_BAR_H - 20) h = GV_BAR_H - 20;
+            cv_rrect(gx + 1, GV_BAR_H - 10 - h, 9, h, 3, g ? tc : T_LINE, T_BG);
+        }
     }
-    cv_blit(0, GV_BAR_Y);
 }
 static void gv_foot(void)
 {

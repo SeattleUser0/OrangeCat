@@ -228,7 +228,7 @@ static void new_draw(void)
     static uint32_t sig;
     uint32_t k, s = nw.on * 7u + nw.root * 131u + nw.scale * 1031u + (uint32_t)nw.bpm * 40503u + ux.gen * 977u +
                     (ui.hot_t ? ui.hot_col + 1u : 0u) * 7u + ux.pal * 31u;
-    char v[12];
+    char v[12], bp[20];
     const char *unit;
     for (k = 0; k < NTRK; k++)
         s = s * 33u + nw.role[k];
@@ -258,12 +258,12 @@ static void new_draw(void)
         new_scale_word(key + str_len(key), sizeof key - str_len(key), 1);   /* "A minor" */
         if (text_w(f, key) > 220 || !text_has(f, key)) f = TY_VL;   /* (the key large: "A minor") */
         if (text_w(f, key) > 220) f = TY_TX;
-        cv_begin(240, H_GRAPH, T_BG);
-        cv_text_c(120, ty_y(44, f), f, key, T_TEXT, T_BG);
-        fmt_int(key, nw.bpm);
-        str_cpy(key + str_len(key), " bpm \xB7 4/4", 14);
-        cv_text_c(120, ty_y(92, TY_TX), TY_TX, key, T_MID, T_BG);
-        cv_blit(0, Y_GRAPH);
+        fmt_int(bp, nw.bpm);
+        str_cpy(bp + str_len(bp), " bpm \xB7 4/4", 14);
+        CV_BANDS(0, Y_GRAPH, 240, H_GRAPH, T_BG) {   /* (0.7.0: in bands of the canvas's rows) */
+            cv_text_c(120, ty_y(44, f), f, key, T_TEXT, T_BG);
+            cv_text_c(120, ty_y(92, TY_TX), TY_TX, bp, T_MID, T_BG);
+        }
         new_keys(0);
     } else {                                        /* ROLES: a row each */
         for (k = 0; k < NTRK; k++)
