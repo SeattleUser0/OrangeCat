@@ -82,6 +82,8 @@ static uint32_t dv_kb(uint32_t us)
     return k > 65535u ? 65535u : k;
 }
 
+/* (Orange Cat 0.9.0) the voice code stays in flash, as MACRO's and SHAPES' do (tools/audio_ram.py keeps .text.xip* out of SRAM) */
+#define DX_XIP __attribute__((section(".text.xip_drumx"), noinline))
 static void dx_trigger(dx_voice_t *v) { v->trig = 1; v->choke = 0; }
 static void dx_choke(dx_voice_t *v) { if (v->live) v->choke = 1; }
 
@@ -98,7 +100,7 @@ static inline int32_t dx_tri(uint32_t ph)
 /* (0.6.49) the oscillator's loop with LAYER (dx_run's FM ENV / FEEDBK loop and a triangle at sqrt 2 of it, frequency
  * modulated by it, its index up as LAYER's square; up to ~70 % of the mix): a function of its own (dx_run's loops as
  * they were) */
-static __attribute__((noinline)) void dx_layer(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t *php, uint32_t *ph2p,
+static DX_XIP void dx_layer(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t *php, uint32_t *ph2p,
                                                int32_t *op, int32_t inc, int32_t dinc, int32_t ga, int32_t dga, int32_t ix,
                                                int32_t dix, uint32_t ratio, int32_t fbk, int32_t lay)
 {
@@ -158,7 +160,7 @@ static const uint8_t dx_hands = 0;  /* (Orange Cat: constant, no HANDS page; Jia
  * the noise's gain at the block's start and end, gn and *g1 (Q23), times 1 + the hands in. Hand k strikes at its own
  * moment (this hit's dice, v->hseed, 3 .. 45 ms), at its own level, then decays as the hit: in the sum it is the hit's
  * envelope times its level over where that envelope was when it struck, so one sum carries them all (v->hsum, Q12) */
-static __attribute__((noinline)) int32_t dx_hands_step(dx_voice_t *v, uint32_t n, int32_t gn, int32_t *g1, int32_t en1)
+static DX_XIP int32_t dx_hands_step(dx_voice_t *v, uint32_t n, int32_t gn, int32_t *g1, int32_t en1)
 {
     uint32_t k, nh = 1u + (uint32_t)dx_hands * 5u / 15u, span = 60u + (uint32_t)dx_hands * 60u, p0 = v->hpos;
     int32_t s0 = v->hsum, s = s0, w = 8 + dx_hands;      /* (the hands louder as there are more of them) */
@@ -178,7 +180,7 @@ static __attribute__((noinline)) int32_t dx_hands_step(dx_voice_t *v, uint32_t n
 }
 typedef struct { dx_lane_t lane[8]; uint8_t lay[8]; uint8_t snd[8]; } dx_kit_t;   /* (Jiant's, moved up from the kits) */
 /* (Orange Cat) kit: the track's row of DX_KITS; ln: the lane (DV_*), where Jiant's took L = &dx_kit[ln] */
-static __attribute__((noinline)) void dx_run(const dx_kit_t *kit, uint32_t ln, dx_voice_t *v, int32_t morph, int32_t tune16,
+static DX_XIP void dx_run(const dx_kit_t *kit, uint32_t ln, dx_voice_t *v, int32_t morph, int32_t tune16,
                                              int32_t dofs, int32_t cofs, int32_t nofs, int32_t warp, int32_t fm, int32_t *y,
                                              uint32_t n)
 {
