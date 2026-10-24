@@ -300,6 +300,23 @@ The FM-1 keeps one user sample slot in its own flash, as large as one of Felucca
 seconds of mono). It took 22 sectors from the phrase store, which now has 34. Load it from a computer with
 tools/fm1_sample_upload.py (load NAME file.wav ...). Nothing plays it yet: a sample engine comes later.
 
+## Installing everything from the installer page (0.11.2)
+
+The installer page puts the firmware, the pack and the SHAPES module on the unit in one run. You need the three files of one release: the .fwsc,
+the .pak and the .ocm. The page's site has all three; they belong together, so take them from one release.
+
+1. Open the installer page and connect the unit as the page says.
+2. Press Install Orange Cat. The boxes above it say what it will install. Firmware, Pack and Module are each a box; clear a box to skip that part.
+   Without the pack, MACRO and SHAPES make no sound. Without the module nothing is lost today, because SHAPES is still built in.
+3. Wait. One bar and one summary cover all three parts. The unit restarts after the firmware, and the page waits for it to come back.
+   Then it asks the unit what it has. A part the unit already has at the right version is skipped, and the summary says so.
+4. Do not unplug until the summary says it is done.
+
+If the unit has the stock firmware, or an Orange Cat before 0.8.0, it cannot be asked. The page then installs the firmware only and says to run it again.
+Run it again and it does the pack and the module. Your projects and sounds are not touched by any part.
+
+Stop the sequencer first. The pack and the module are refused while it plays.
+
 ## The asset pack (0.8.0, changed in 0.9.1)
 
 SHAPES and MACRO read their big tables from a small file kept in the unit's flash. That file is the asset pack. It
@@ -371,6 +388,19 @@ Do not unplug during an install.
 
 A module whose engine is too heavy for the voice budget, or whose state does not fit the audio memory, is refused when you give it to a track: the screen says ENGINE TOO HEAVY or
 NO ROOM and the track keeps its engine and its sound.
+
+## The Engines table: Use and Replace (0.12.0)
+
+Each engine the unit can play has a Use button in the Engines table, with a track list beside it. Use puts that engine on that track. The unit may say no: ENGINE TOO HEAVY or NO ROOM
+shows in the page, and the track keeps its engine and its sound. The track you were on is selected again afterwards.
+
+Replace takes a module file of a different engine, not only the same one. Pick the file; the page checks it, asks, takes the old module out and puts the new one in its place. The tracks that
+used the old engine keep its number and are silent until you give them another engine. Your sounds are kept. Install on an empty row still takes only that engine's own file.
+
+## The Prophet as a module (not yet)
+
+The Prophet is not in this firmware, and it cannot be a module yet. It is 31,148 bytes and a module place holds 24,576. What it would need is in docs/orangecat/ENGINE_LOADING_PLAN.md.
+The engine number 19 is ready for a module, so a Prophet in an old project stays silent until one exists. Its sound is kept in the project.
 
 ## Saving and loading
 

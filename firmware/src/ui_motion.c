@@ -60,6 +60,9 @@ static const param_desc_t *mo_desc(uint32_t id)         /* its range (and name) 
 #if MELODEE_PROPHET && MELODEE_P5                       /* (Orange Cat size audit: P5_PANEL only with the Prophet in) */
     if (motion_native_tag(TSEL) == MO_TAG_P5 && i < NELEM(P5_PANEL) && P5_PANEL[i].label)
         return &P5_PANEL[i];
+#else
+    if (motion_native_tag(TSEL) == MO_TAG_P5 && mod_panel(track_pages(TSEL), i))   /* (0.12.0) the module's panel */
+        return mod_panel(track_pages(TSEL), i);
 #endif
     if (motion_native_tag(TSEL) == MO_TAG_FM6)
         return i < FP_PR1 ? &FM6_OPD[i % FP_OP] : i < FP_NAME ? &FM6_GD[i - FP_PR1] : &MO_CZ_BYTE;

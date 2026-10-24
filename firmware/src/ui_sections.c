@@ -32,7 +32,7 @@ static const char *sec_rule(uint32_t i, uint32_t *plen)   /* page i's section na
     uint32_t r;
     for (r = 0; r < NELEM(SEC_RULE); r++) {
         uint32_t n = str_len(SEC_RULE[r].prefix);
-        if (str_prefix(PAGES[i].title, SEC_RULE[r].prefix)) {
+        if (str_prefix(page_at(i)->title, SEC_RULE[r].prefix)) {
             if (plen) *plen = n;
             return SEC_RULE[r].name;
         }
@@ -54,11 +54,11 @@ static void sec_build(void)
     sec.e7 = e7;
     sec.ok = 1;
     for (pass = 0; pass < 2u; pass++)
-        for (i = 0; i < NPAGES; i++) {
+        for (i = 0; i < page_n(); i++) {
             const char *nm;
-            if (PAGES[i].fam != FAM_EDIT || !page_visible(i))
+            if (page_at(i)->fam != FAM_EDIT || !page_visible(i))
                 continue;
-            if ((MELODEE_FM6 && PAGES[i].scope == SC_FMOP)) {            /* the operators: a section each, on their first page */
+            if ((MELODEE_FM6 && page_at(i)->scope == SC_FMOP)) {            /* the operators: a section each, on their first page */
                 if (pass || (sec.n && sec.op[sec.n - 1u]))
                     continue;
                 for (k = 0; k < 6u && sec.n < SEC_MAX; k++) {
@@ -87,7 +87,7 @@ static uint32_t sec_of(uint32_t i)                      /* page i's section (an 
     uint32_t k;
     const char *nm;
     sec_build();
-    if ((MELODEE_FM6 && PAGES[i].scope == SC_FMOP)) {
+    if ((MELODEE_FM6 && page_at(i)->scope == SC_FMOP)) {
         for (k = 0; k < sec.n && sec.op[k] != fm6_opsel % 6u + 1u; k++)
             ;
         return k < sec.n ? k : 0u;
@@ -112,7 +112,7 @@ static void sec_go(uint32_t k)                          /* to section k: the pag
     if (k >= sec.n)
         return;
     p = sec.last[k];
-    if (PAGES[p].fam != FAM_EDIT || !page_visible(p))
+    if (page_at(p)->fam != FAM_EDIT || !page_visible(p))
         p = sec.first[k];
     if (sec.op[k])
         fm6_opsel = (uint8_t)(sec.op[k] - 1u);
@@ -138,10 +138,10 @@ static void sec_chip(uint32_t i, char *b, uint32_t n)
 {
     static const char *const STRIP[] = {"P5 ", "FM ", "CZ1 ", "CZ2 ", "CZ ", "C1 PIT ", "C1 WAV ", "C1 AMP ", "C2 PIT ",
                                         "C2 WAV ", "C2 AMP "};
-    const char *t = PAGES[i].title;
+    const char *t = page_at(i)->title;
     uint32_t k;
-    if (PAGES[i].scope == SC_ENGINE) {
-        str_cpy(b, ENGINES[eng_idx(TSEL->eng_req)]->page_title[PAGES[i].id[0] != P_E0], n);
+    if (page_at(i)->scope == SC_ENGINE) {
+        str_cpy(b, ENGINES[eng_idx(TSEL->eng_req)]->page_title[page_at(i)->id[0] != P_E0], n);
         return;
     }
     for (k = 0; k < NELEM(STRIP); k++)
@@ -192,10 +192,10 @@ static void tabs_draw(const char *const *name, uint32_t n, uint32_t cur, uint32_
 static uint32_t smap_pages(uint32_t r, uint8_t *pg)     /* section r's pages (an operator's: the operator pages) */
 {
     uint32_t i, n = 0;
-    for (i = 0; i < NPAGES && n < 8u; i++) {
-        if (PAGES[i].fam != FAM_EDIT || !page_visible(i))
+    for (i = 0; i < page_n() && n < 8u; i++) {
+        if (page_at(i)->fam != FAM_EDIT || !page_visible(i))
             continue;
-        if (sec.op[r] ? (MELODEE_FM6 && PAGES[i].scope == SC_FMOP) : (!MELODEE_FM6 || PAGES[i].scope != SC_FMOP) && str_eq(sec_rule(i, 0), sec.name[r]))
+        if (sec.op[r] ? (MELODEE_FM6 && page_at(i)->scope == SC_FMOP) : (!MELODEE_FM6 || page_at(i)->scope != SC_FMOP) && str_eq(sec_rule(i, 0), sec.name[r]))
             pg[n++] = (uint8_t)i;
     }
     return n;

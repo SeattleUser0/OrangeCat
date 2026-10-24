@@ -27,6 +27,8 @@
   pre { color: var(--dim); font-size: 12px; white-space: pre-wrap; margin-top: 16px; max-height: 200px; overflow-y: auto; overflow-wrap: anywhere; }
   select { font: inherit; max-width: 100%; padding: 4px; background: var(--bg); color: var(--fg); }
   details { margin-bottom: 16px; }
+  fieldset { border: 1px solid var(--line); margin: 0 0 16px; padding: 8px 12px; }
+  fieldset p { margin: 0 0 8px; }
   .site { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 24px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .site .brand { font-size: 24px; font-weight: 600; }
   .site .links { display: flex; gap: 16px; font-size: 13px; }
@@ -69,6 +71,13 @@
       <p class="small" id="nightly-info"></p>
     </section>
   </details>
+  <fieldset id="stages">
+    <legend data-t="stagesTitle"></legend>
+    <p><label><input type="checkbox" id="stage-fw" checked> <span data-t="stageFw"></span></label></p>
+    <p><label><input type="checkbox" id="stage-pack" checked> <span data-t="stagePack"></span></label><br><span class="small" data-t="packWhy"></span></p>
+    <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
+    <p class="small" id="set-note"></p>
+  </fieldset>
   <p><button id="go" disabled data-t="install"></button></p>
   <section style="margin-top:24px" aria-labelledby="transit-title">
     <h2 id="transit-title" data-t="transitTitle"></h2>
@@ -113,7 +122,7 @@ const TEXT = {
   ja: {
     intro: "FM-1 を USB で接続してください。（Chrome か Edge で使えます）",
     warn: "書き込み中は USB を抜かないでください。",
-    install: "インストール", other: "English",
+    install: "Orange Catをインストール", other: "English",
     releaseTitle: "安定版のバージョン", latest: "最新版",
     advancedTitle: "詳細なインストール（RC・Nightly）",
     rcTitle: "リリース候補", "rc-dual": "RC",
@@ -169,12 +178,28 @@ const TEXT = {
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
+    stagesTitle: "インストールする内容", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール",
+    packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "モジュールが無くても今は変わりません（SHAPESはファームウェアに内蔵されています）。",
+    noPackFile: "このリリースにはパックのファイルがありません。", noModFile: "このリリースにはモジュールのファイルがありません。",
+    nothingChosen: "インストールする内容を選んでください。",
+    unitWait: "FM-1が戻るのを待っています", unitProbe: "FM-1の中身を確認しています", packWorking: "パックを書き込み中", modWorking: "モジュールを書き込み中",
+    sumTitle: "結果: ", sumFw: "ファームウェア", sumPack: "パック", sumMod: "モジュール",
+    sInstalled: "インストールしました", sCurrent: "すでに最新です（そのまま）", sOff: "選びませんでした", sNofile: "このリリースにはありません",
+    sOldfw: "このファームウェアにはパックのコマンドがありません。ページをもう一度開いて、もう一度押してください",
+    sNounit: "FM-1が見つかりません。USBを挿し直して、ページをもう一度開いて押してください",
+    ocLost: "USBの接続が切れました。挿し直してもう一度押してください。", ocBusy: "FM-1が応答しません。もう一度押してください。",
+    packWrongBuild: "このパックはこのファームウェア用ではありません。", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした",
+    packOldFw: "先にファームウェアを0.9.1以降に更新してください。", packRestart: "本体を再起動してもう一度お試しください。",
+    modWrongFile: "モジュールのファイルではありません。", modWrongFw: "このモジュールはこのファームウェア用ではありません。", modNoVariant: "本体の空き場所に合うイメージがありません。",
+    modNoFree: "モジュールを入れる空きがありません。", modTail: "このモジュールにはアップデートで消されるセクターがあります。入れていません。", modStop: "先に再生を止めてください",
+    modRestart: "本体を再起動してもう一度お試しください。", modUnreadable: "書き込みましたが正しく読み戻せません。もう一度入れてください。", modFail: "モジュールを入れられませんでした",
+    modDeclined: "モジュールは入れませんでした。", modInPlaceConfirm: "ほかに空きがないため、今入っているモジュールを先に消してから書き込みます。書き込み中に電源が切れると、モジュールは無くなります（入れ直せます）。続けますか？",
     license: "GPL-3.0、無保証。ソース:",
   },
   en: {
     intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
     warn: "Do not unplug the USB cable while writing.",
-    install: "Install", other: "日本語",
+    install: "Install Orange Cat", other: "日本語",
     releaseTitle: "Stable release", latest: "Latest",
     advancedTitle: "Advanced installs",
     rcTitle: "Release candidate", "rc-dual": "Release candidate",
@@ -230,12 +255,28 @@ const TEXT = {
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
+    stagesTitle: "What to install", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module",
+    packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "Without the module nothing changes today: SHAPES is still built into the firmware.",
+    noPackFile: "This release has no pack file.", noModFile: "This release has no module file.",
+    nothingChosen: "Choose something to install.",
+    unitWait: "Waiting for the FM-1 to come back", unitProbe: "Checking what the FM-1 has", packWorking: "Writing the pack", modWorking: "Writing the module",
+    sumTitle: "Result: ", sumFw: "Firmware", sumPack: "Pack", sumMod: "Module",
+    sInstalled: "installed", sCurrent: "already current, left as it is", sOff: "not chosen", sNofile: "this release has none",
+    sOldfw: "this firmware has no pack commands. Open this page again and press Install again",
+    sNounit: "the FM-1 was not found. Replug USB, open this page again and press Install again",
+    ocLost: "The USB connection was lost. Replug it and press Install again.", ocBusy: "The FM-1 is not answering. Press Install again.",
+    packWrongBuild: "This pack is not for this firmware.", packStop: "Stop playback first", packFail: "The pack could not be installed",
+    packOldFw: "Update the firmware to 0.9.1 or later first.", packRestart: "Restart the unit and try again.",
+    modWrongFile: "This is not a module file.", modWrongFw: "This module is not for this firmware.", modNoVariant: "This module file has no image for the free place in the unit.",
+    modNoFree: "No place is free for the module.", modTail: "A sector of this module would be erased by a firmware update, so it was not installed.", modStop: "Stop playback first",
+    modRestart: "Restart the unit and try again.", modUnreadable: "The module was written but does not read back correctly. Install it again.", modFail: "The module could not be installed",
+    modDeclined: "The module was not installed.", modInPlaceConfirm: "No other place is free, so the module that is in the unit is erased first. If the power is cut during the write there will be no module (install it again). Continue?",
     license: "GPL-3.0, no warranty. Source:",
   },
 };
 let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
 const t = (k) => TEXT[lang][k];
-let lastKey = null, lastArg = "";
+let lastKey = null, lastArg = "", pageReady = false;     /* pageReady: the release metadata is read (stageNote needs it) */
 function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t(e.dataset.t); });
@@ -243,6 +284,7 @@ function applyLang() {
   $("stock-go").textContent = t($("stock-skip-backup").checked ? "stockGoNoBackup" : "stockGo");
   $("transit-go").textContent = t($("transit-skip-backup").checked ? "transitGoNoBackup" : "transitGo");
   if ($("release").options.length) releaseOptions();
+  if (pageReady) stageNote();
   if (lastKey === "ready") ready();
   else if (lastKey) $("status").textContent = t(lastKey) + lastArg;
 }
@@ -258,6 +300,15 @@ const selection = () => {     /* the release, or a channel ("nightly-dual": meta
   const kind = build(), dash = kind.indexOf("-");
   return dash < 0 ? {kind, channel: (meta.releases || []).find(r => r.version === $("release").value) || meta, key: kind} : {kind, channel: meta[kind.slice(0, dash)], key: kind.slice(dash + 1)};
 };
+/* (0.11.2) what the chosen release offers beside the firmware: its pack and its module packages (the site build, web/make_site.py) */
+const offered = () => { const c = selection().channel || {}; return {pak: c.pak || "", ocm: c.ocm || []}; };
+function stageNote() {
+  const o = offered(), notes = [];
+  if (!o.pak) notes.push(t("noPackFile"));
+  if (!o.ocm.length) notes.push(t("noModFile"));
+  $("set-note").textContent = notes.join(" ");
+  ["stage-pack", "stage-mod"].forEach(id => { $(id).disabled = writing || (id === "stage-pack" ? !o.pak : !o.ocm.length); });
+}
 const ready = () => { lastKey = "ready"; $("status").textContent = `Orange Cat ${selection().channel.version} (${t(build() + "Tag")})`; };
 const log = (t) => { const box = $("log"); box.textContent += t + "\n"; box.scrollTop = box.scrollHeight; };
 let image = null;
@@ -285,6 +336,7 @@ const lockInstaller = (on) => {
   writing = on; $("release").disabled = on; $("go").disabled = on || !image;
   buildIds.forEach(k => { $("build-" + k).disabled = on; });
   $("stock-go").disabled = on || !stock;
+  ["stage-fw", "stage-pack", "stage-mod"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !offered().ocm.length); });
   ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
 };
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
@@ -294,6 +346,7 @@ async function choose() {
   if (writing) return;
   if (!navigator.requestMIDIAccess) { sayK("nomidi"); return; }
   const {kind, channel, key} = selection(), epoch = ++buildEpoch;
+  stageNote();
   const cacheKey = kind + ":" + (channel?.version || "") + ":" + (channel?.commit || "");
   image = null; $("go").disabled = true;
   try {
@@ -315,39 +368,89 @@ $("release").addEventListener("change", () => {
   if (build().includes("-")) $("build-dual").checked = true;
   choose();
 });
+pageReady = true;
 choose();
 
 // an update loader that is not the package's own gets nothing: the official one would write a Melodee
 // package's head over the boot data, Melodee's would write only V15's application (docs/RECOVERY.md)
 const refuseLoader = (id) => id === STOCK_LOADER ? sayK("loaderStock") : id === MELODEE_LOADER ? sayK("loaderMelodee") : sayK("loaderUnknown", id);
 
+// the firmware stage (unchanged since 0.10): the unit's update, resolving when the new firmware has come back. f(0..1) is its share of the bar.
+async function flashFirmware(midi, product, f) {
+  const up = new Updater(midi, log);
+  const total = 74 + 1167;
+  const step = (k, a) => {
+    log(`${k} ${a ?? ""}`);
+    if (k === "start") sayK("start");
+    if (k === "verify") { sayK("verify"); f(a / total); }
+    if (k === "loader") sayK("loader");
+    if (k === "write") { sayK("write"); f((74 + a) / total); }
+    if (k === "reboot") sayK("reboot");
+    if (k === "done") { f(1); sayK("done"); }
+  };
+  const ota = await up.find((id) => /^ota-/i.test(id.model));
+  if (ota) {
+    ota.link.close();
+    if (ota.id.text !== MELODEE_LOADER) { const e = new Error("loader"); e.code = "wrongloader"; e.detail = ota.id.text; throw e; }
+    if (!(await up.resume(image, step, product, MELODEE_LOADER))) { const e = new Error("stopped"); e.code = "stopped"; throw e; }
+  } else {
+    await up.install(image, product, step, MELODEE_LOADER);
+  }
+}
+// (0.11.2) the unit's editor port after the update: the page looks for up to a minute (the new firmware is starting)
+async function openUnit(midi, waitMs = 60000) {
+  const end = Date.now() + waitMs, isU = (p) => /orange cat|melodee|felucca|fm-1/i.test(p.name || "") && p.state !== "disconnected";
+  for (;;) {
+    const input = [...midi.inputs.values()].find(isU);
+    const output = input && [...midi.outputs.values()].find((o) => o.name === input.name && o.state !== "disconnected");
+    if (input && output) {
+      try { if (input.open) await input.open(); if (output.open) await output.open(); return new OcLink(input, output); } catch (_) { /* try again */ }
+    }
+    if (Date.now() > end) return null;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+const getFile = async (url) => {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  return new Uint8Array(await r.arrayBuffer());
+};
+// the summary: one line a stage
+const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : (TEXT[lang][v.error] || v.error);
+function summaryText(sum) {
+  const lines = [t("sumFw") + ": " + sumWord(sum.firmware), t("sumPack") + ": " + sumWord(sum.pack)];
+  (sum.module.length ? sum.module : ["off"]).forEach((m) => lines.push(t("sumMod") + ": " + sumWord(m)));
+  return lines;
+}
+
 $("go").addEventListener("click", async () => {
   if (writing || !image) return;
-  const product = selection().channel.product;
+  const ch = selection().channel, product = ch.product, o = offered();
+  const stages = {firmware: $("stage-fw").checked, pack: $("stage-pack").checked && !!o.pak, module: $("stage-mod").checked && o.ocm.length > 0};
+  if (!stages.firmware && !stages.pack && !stages.module) { sayK("nothingChosen"); return; }
   lockInstaller(true);
   let midi;
   try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
   catch (e) { sayK("denied"); lockInstaller(false); return; }
+  const files = {pack: null, modules: []};
+  try {                                   // everything is fetched before the first byte is written
+    if (stages.pack) files.pack = await getFile(o.pak);
+    if (stages.module) files.modules = await Promise.all(o.ocm.map(getFile));
+  } catch (e) { sayK("loadfail", e.message); lockInstaller(false); return; }
   try {
-    const up = new Updater(midi, log);
-    const total = 74 + 1167;
-    const step = (k, a) => {
-      log(`${k} ${a ?? ""}`);
-      if (k === "start") sayK("start");
-      if (k === "verify") { sayK("verify"); $("bar").value = (a / total) * 100; }
-      if (k === "loader") sayK("loader");
-      if (k === "write") { sayK("write"); $("bar").value = ((74 + a) / total) * 100; }
-      if (k === "reboot") sayK("reboot");
-      if (k === "done") { $("bar").value = 100; sayK("done"); }
-    };
-    const ota = await up.find((id) => /^ota-/i.test(id.model));
-    if (ota) {
-      ota.link.close();
-      if (ota.id.text !== MELODEE_LOADER) refuseLoader(ota.id.text);
-      else sayK((await up.resume(image, step, product, MELODEE_LOADER)) ? "done" : "stopped");
-    } else {
-      await up.install(image, product, step, MELODEE_LOADER);
-    }
+    const sum = await runSet({
+      stages, files, log,
+      runFirmware: (f) => flashFirmware(midi, product, f),
+      openUnit: () => openUnit(midi),
+      say: (k) => sayK(k),
+      progress: (x) => { $("bar").value = x * 100; },
+      confirmInPlace: () => confirm(t("modInPlaceConfirm")),
+    });
+    const lines = summaryText(sum);
+    lines.forEach((l) => log(l));
+    if (stages.pack || stages.module) say(t("sumTitle") + lines.join(" | "));
+    else sayK("done");
+    $("bar").value = 100;
   } catch (e) {
     if (e && e.code === "wrongloader") refuseLoader(e.detail);
     else if (e && e.code && TEXT[lang][e.code]) sayK(e.code, e.detail || "");

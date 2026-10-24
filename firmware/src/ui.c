@@ -226,7 +226,7 @@ enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
 
 static const page_t *page_over;   /* a quick layer's own four knobs (ui_layer.c), while it edits or draws them */
 static uint32_t drum_hit_selected(void);
-static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
+static const page_t *cur_page(void) { return page_over ? page_over : page_at(ui.page); }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
 enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_PERF, LAYER_FX, LAYER_N };   /* (Orange Cat 0.4.1: PERF;
@@ -252,6 +252,9 @@ static const char *const *native_titles(uint32_t fam)
     static const char *const FM_LFO[] = {"FM LFO", 0};
     static const char *const CZ_LFO[] = {"CZ VIBRATO", 0};
     uint32_t e = TSEL->eng_req;
+    const fw_pages_t *mp = (MELODEE_P5 && e == ENGI_PROPHET) ? 0 : track_pages(TSEL);   /* (0.12.0) a module's own lists */
+    if (mp)
+        return fam == FAM_ENV ? mp->env_titles : fam == FAM_LFO ? mp->lfo_titles : 0;
     if (fam == FAM_ENV)
         return (MELODEE_P5 && e == ENGI_PROPHET) ? P5_ENV : (MELODEE_FM6 && e == ENGI_FM6) ? FM_ENV : e == ENGI_CZ ? CZ_ENV : 0;
     if (fam == FAM_LFO)
@@ -262,53 +265,55 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 {
     const char *const *t = native_titles(fam);
     for (; t && *t; t++)
-        if (str_prefix(PAGES[i].title, *t))
+        if (str_prefix(page_at(i)->title, *t))
             return 1;
     return 0;
 }
 
 static int page_visible(uint32_t i)
 {
-    if (PAGES[i].fam == FAM_FX && PAGES[i].scope == SC_GLOBAL && PAGES[i].id[0] >= G_SLP0 && PAGES[i].id[0] <= G_SLP15)
-        return song.g[G_SLMODE] && PAGES[i].id[0] < G_SLP0 + song.g[G_SLPLEN];   /* (0.6.0) SLICER's pitch steps: the
+    if (page_at(i)->scope == SC_MOD)                      /* (0.12.0) a module's page: its engine is the track's */
+        return modpage_engine(i, 0) == TSEL->eng_req;
+    if (page_at(i)->fam == FAM_FX && page_at(i)->scope == SC_GLOBAL && page_at(i)->id[0] >= G_SLP0 && page_at(i)->id[0] <= G_SLP15)
+        return song.g[G_SLMODE] && page_at(i)->id[0] < G_SLP0 + song.g[G_SLPLEN];   /* (0.6.0) SLICER's pitch steps: the
                                                                  * pages its LENGTH reaches, while it is on */
     if (list_gone(i))
         return 0;
-    if (PAGES[i].graph == GR_MOTION)                   /* MOTION: once there is motion (Kerem: an empty page; the one
+    if (page_at(i)->graph == GR_MOTION)                   /* MOTION: once there is motion (Kerem: an empty page; the one
                                                          * shown stays until it is left) */
         return motion_has_lanes(TSEL) || (!ui.home && ui.page == i);
-    if (PAGES[i].fam == FAM_ENV && native_titles(FAM_ENV))   /* (the track's ADSR, ENV DEST: nothing there) */
+    if (page_at(i)->fam == FAM_ENV && native_titles(FAM_ENV))   /* (the track's ADSR, ENV DEST: nothing there) */
         return 0;
     /* (Orange Cat 0.5.3) an unhooked engine's pages: never shown. The switch was in the test of the scope (0.1.x:
      * "(MELODEE_P5 && scope == SC_P5)"), so with the engine out its pages fell through to "shown" on every track: SELECT
      * turned back from EDIT 1 reached the Prophet's pages and read past the parameters (a crash on the unit) */
-    if (PAGES[i].scope == SC_DRUM || PAGES[i].scope == SC_DRUMHIT) return MELODEE_DRUM && drum_track(TSEL);
-    if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
+    if (page_at(i)->scope == SC_DRUM || page_at(i)->scope == SC_DRUMHIT) return MELODEE_DRUM && drum_track(TSEL);
+    if (page_at(i)->scope == SC_TRACK && page_at(i)->id[0] >= P_LN0 && page_at(i)->id[0] <= P_LN7)
         return drum_track(TSEL);
-    if(MELODEE_CZ && TSEL->eng_req==ENGI_CZ && PAGES[i].scope==SC_ENGINE && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
-    if (PAGES[i].scope == SC_CZ)                       /* (PHASE's CZ mode; PHASE retired without MELODEE_LEGACY_EXTRAS) */
+    if(MELODEE_CZ && TSEL->eng_req==ENGI_CZ && page_at(i)->scope==SC_ENGINE && page_at(i)->fam==FAM_EDIT && (page_at(i)->id[0]==P_E0 || page_at(i)->id[0]==P_E4))return 0;
+    if (page_at(i)->scope == SC_CZ)                       /* (PHASE's CZ mode; PHASE retired without MELODEE_LEGACY_EXTRAS) */
         return TSEL->eng_req == 2u && eng_ok(2u) && TSEL->p[P_E7] == 1;
-    if (PAGES[i].scope == SC_P5 || PAGES[i].scope == SC_P5STORE) return MELODEE_P5 && TSEL->eng_req == ENGI_PROPHET;
-    if (PAGES[i].scope == SC_CZ1)
+    if (page_at(i)->scope == SC_P5 || page_at(i)->scope == SC_P5STORE) return MELODEE_P5 && TSEL->eng_req == ENGI_PROPHET;
+    if (page_at(i)->scope == SC_CZ1)
         return MELODEE_CZ && TSEL->eng_req == ENGI_CZ;   /* CZ-1's tone: every panel value (Orange Cat: MELODEE_CZ) */
-    if (PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP)
+    if (page_at(i)->scope == SC_FM6 || page_at(i)->scope == SC_FMOP)
         return MELODEE_FM6 && TSEL->eng_req == ENGI_FM6;    /* FM6's patch, operators and functions */
 #if MELODEE_SLICE
-    if (PAGES[i].graph == GR_SLICES)
+    if (page_at(i)->graph == GR_SLICES)
         return SMP_USER_SLOTS && ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
 #else
-    if (PAGES[i].graph == GR_SLICES)
+    if (page_at(i)->graph == GR_SLICES)
         return 0;
 #endif
-    return !(PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK &&
-             PAGES[i].id[0] <= P_FM4_LEVEL);
+    return !(page_at(i)->fam == FAM_EDIT && page_at(i)->id[0] >= P_FM1_ATK &&
+             page_at(i)->id[0] <= P_FM4_LEVEL);
 }
 
 static uint32_t page_first(uint32_t fam)
 {
     uint32_t i;
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == fam && page_visible(i))
+    for (i = 0; i < page_n(); i++)
+        if (page_at(i)->fam == fam && page_visible(i))
             return i;
     return 0;
 }
@@ -562,9 +567,9 @@ static void note_name(char *b, uint32_t n)
 static void page_scroll(int32_t dir)
 {
     uint32_t fam = cur_page()->fam, n, i = ui.page;
-    for (n = 0; n < NPAGES; n++) {
-        i = (i + (dir > 0 ? 1u : NPAGES - 1u)) % NPAGES;
-        if (PAGES[i].fam == fam && page_visible(i))
+    for (n = 0; n < page_n(); n++) {
+        i = (i + (dir > 0 ? 1u : page_n() - 1u)) % page_n();
+        if (page_at(i)->fam == fam && page_visible(i))
             break;
     }
     if (i == ui.page)
@@ -579,23 +584,23 @@ static void page_scroll(int32_t dir)
 static uint32_t fam_pages(uint32_t fam, uint8_t *pg)
 {
     uint32_t i, n = 0;
-    for (i = 0; i < NPAGES; i++)
+    for (i = 0; i < page_n(); i++)
         if (native_page(i, fam) && page_visible(i))
             pg[n++] = (uint8_t)i;
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == fam && page_visible(i) && !native_page(i, fam))
+    for (i = 0; i < page_n(); i++)
+        if (page_at(i)->fam == fam && page_visible(i) && !native_page(i, fam))
             pg[n++] = (uint8_t)i;
     return n;
 }
 static int fam_has(uint32_t fam, uint32_t page)         /* page: one the family's button visits */
 {
-    return page < NPAGES && (native_page(page, fam) || PAGES[page].fam == fam) && page_visible(page);
+    return page < page_n() && (native_page(page, fam) || page_at(page)->fam == fam) && page_visible(page);
 }
 
 static void open_family(uint32_t fam)
 {
     if ((fam == FAM_ENV || fam == FAM_LFO) && native_titles(fam)) {   /* ENV / LFO of the Prophet, FM6, CZ-1 */
-        uint8_t pg[NPAGES];
+        uint8_t pg[NPAGES_ALL];
         uint32_t n = fam_pages(fam, pg), k;
         for (k = 0; k < n && pg[k] != ui.page; k++) {}
         if (!n)
@@ -607,18 +612,18 @@ static void open_family(uint32_t fam)
         ui.page = (uint8_t)page_first(FAM_FX);        /* FX: the track's rack (from its slots and SHARED too); */
     } else if (!ui.home && cur_page()->fam == fam) {   /* same button again: next page (FX: on from its rack) */
         uint32_t n, i = ui.page;
-        for (n = 0; n < NPAGES; n++) {
-            i = (i + 1u) % NPAGES;
-            if (PAGES[i].fam == fam && page_visible(i)) break;
+        for (n = 0; n < page_n(); n++) {
+            i = (i + 1u) % page_n();
+            if (page_at(i)->fam == fam && page_visible(i)) break;
         }
         ui.page = (uint8_t)i;
     } else if (fam == FAM_SAVE) {
         uint32_t i;
         for (i = 0; i < NPAGES; i++)
-            if (PAGES[i].graph == GR_USER) break;
+            if (page_at(i)->graph == GR_USER) break;
         ui.page = (uint8_t)i;                         /* SAVE enters the sound save screen directly */
     } else {
-        ui.page = ui.fam_last[fam] && PAGES[ui.fam_last[fam]].fam == fam && page_visible(ui.fam_last[fam]) ? ui.fam_last[fam]
+        ui.page = ui.fam_last[fam] && page_at(ui.fam_last[fam])->fam == fam && page_visible(ui.fam_last[fam]) ? ui.fam_last[fam]
                                                                           : (uint8_t)page_first(fam);
     }
     ui.fam_last[fam] = ui.page;
@@ -636,7 +641,7 @@ static void open_global(void)
     if (!ui.home && cur_page()->fam == FAM_TRK) {
         ui.page = (uint8_t)page_first(FAM_GLO);
     } else if (!ui.home && cur_page()->fam == FAM_GLO) {
-        for (i = ui.page + 1u; i < NPAGES && (PAGES[i].fam != FAM_GLO || !page_visible(i)); i++) {}
+        for (i = ui.page + 1u; i < NPAGES && (page_at(i)->fam != FAM_GLO || !page_visible(i)); i++) {}
         ui.page = (uint8_t)(i < NPAGES ? i : page_first(FAM_TRK));
     } else {
         ui.page = (uint8_t)page_first(FAM_TRK);
@@ -763,6 +768,7 @@ static void momentary_take(uint32_t slot)
     if(!(fm1_in.buttons&(1u<<panel.btn[B_LFO])) || pg->graph==GR_FMSTORE || pg->graph==GR_CZTOOLS)return;
     d=page_desc(pg,slot,&vp);
     if(!d || !vp || d->max==d->min)return;
+    if(pg->scope==SC_MOD)return;   /* (0.12.0) a module's native values: no momentary take (the module keeps no copy to put back) */
     uint32_t native=(MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)?1:pg->scope==SC_CZ1?2:(MELODEE_P5 && pg->scope == SC_P5)?3:0;
     if(!native && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
        !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING)))return;
@@ -1178,9 +1184,10 @@ static const page_t *stage_page(void)
     stage_pg.title = "STAGE";
     stage_pg.fam = FAM_HOME;
     stage_pg.graph = GR_NONE;
-    stage_pg.scope = (MELODEE_P5 && e == ENGI_PROPHET) ? SC_P5 : (MELODEE_CZ && e == ENGI_CZ) ? SC_CZ1 : SC_ENGINE;
+    const fw_pages_t *mp = (MELODEE_P5 && e == ENGI_PROPHET) ? 0 : track_pages(TSEL);   /* (0.12.0) a module's own knobs */
+    stage_pg.scope = (MELODEE_P5 && e == ENGI_PROPHET) ? SC_P5 : mp ? SC_MOD : (MELODEE_CZ && e == ENGI_CZ) ? SC_CZ1 : SC_ENGINE;
     for (k = 0; k < 4u; k++)
-        stage_pg.id[k] = (MELODEE_P5 && e == ENGI_PROPHET) ? P5_K[k] : (MELODEE_CZ && e == ENGI_CZ) ? CZ_K[k] : ENGINES[e]->knob[k];
+        stage_pg.id[k] = (MELODEE_P5 && e == ENGI_PROPHET) ? P5_K[k] : mp ? mp->knob[k] : (MELODEE_CZ && e == ENGI_CZ) ? CZ_K[k] : ENGINES[e]->knob[k];
     return &stage_pg;
 }
 /* HOME: what KNOB k edits (0: nothing there) */

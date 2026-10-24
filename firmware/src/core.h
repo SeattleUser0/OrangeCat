@@ -346,6 +346,9 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     uint32_t (*units)(const struct track *t);
     /* with presets 0: preset k (< npresets) made on demand, its name into name (21 bytes); engines.c eng_preset */
     void (*preset_make)(uint32_t k, preset_t *p, char *name);
+    /* (0.12.0) optional: the engine's pages and native parameters as data (fw_pages.h), for an engine whose rows are not in the firmware's PAGES
+     * (a module's). 0 = none: the engine's pages are the firmware's. Read in place. */
+    const struct fw_pages *pages;
 } engine_t;
 /* voice_start: what the voice it starts did just before (0 free, 1 released, 2 its key down: a steal or a move);
  * engine_t.note_on may read it  */

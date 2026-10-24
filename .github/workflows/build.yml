@@ -21,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 12 (Orange Cat 0.11.2): build/orangecat-*.manifest.json (tools/oc_manifest.py); the pages job gives the site the pack and the modules with the firmware.
 #   Rev 11 (Orange Cat 0.10.0): the module build and its checks (tools/build.py --module) after the build; the .ocm joins the packages.
 #   Rev 10 (Orange Cat 0.8.0): the asset pack (build/orangecat-<name>.pak, tools/gen_pack.py) joins the packages artifact.
 #   Rev 9 (Orange Cat 0.6.0): the target budget's lines (tests/target_budget.py) to the run page as a notice.
@@ -113,6 +114,9 @@ jobs:
         if [ -f build/shapes-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
           cp build/shapes-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-shapes-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
         fi
+        # (rev 12, Orange Cat 0.11.2) what the firmware was compiled with (pack hash and length, interface identifier): the pages job checks the pack and the
+        # modules against it before the installer offers them with the firmware (tools/oc_manifest.py)
+        python3 tools/oc_manifest.py "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.manifest.json"
       test: |
         set -euo pipefail
         # (gui-slim, temporary) an experiment branch with .ci_quick: the build and its sizes only, no host tests
@@ -156,7 +160,9 @@ jobs:
           name: packages
           path: pkg
       - name: The site
-        run: python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site   # (rev 8) VERSION, X.Y.Z
+        run: python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site \
+            --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
+            $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done)   # (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

@@ -149,6 +149,29 @@ static int oc_mod_tails(uint32_t i, uint32_t len)
     }
     return 0;
 }
+/* (0.12.0) the module's page descriptor, if its engine_t has one (engine_t.pages), checked on the flash bytes (fw_pages_check): the UI follows pointers
+ * in it, so one that leaves the image refuses the module. The engine_t is read at the device layout (4 byte pointers); the host builds (8 byte pointers,
+ * fake link addresses) skip this and test fw_pages_check on hand-built bytes (tests/mod_pages_test.c). 0 = fine or none. */
+static int oc_mod_rd(void *ctx, uint32_t addr, void *buf, uint32_t n)
+{
+    const uint32_t *b = ctx;                                    /* {flash offset of the start, its link address} */
+    return st_read(b[0] + (addr - b[1]), buf, n);
+}
+static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
+{
+    uint32_t ctx[2], p;
+    uint8_t w[4];
+    if (sizeof(void *) != 4u)
+        return 0;
+    ctx[0] = oc_mod_flash(i); ctx[1] = oc_mod_link(i);
+    if (h->engine_ptr + offsetof(engine_t, pages) + 4u > ctx[1] + h->length ||
+        oc_mod_rd(ctx, h->engine_ptr + (uint32_t)offsetof(engine_t, pages), w, 4u))
+        return FWP_ADDR;
+    p = fwp_u32(w);
+    if (!p)
+        return 0;
+    return fw_pages_check(oc_mod_rd, ctx, p, ctx[1] + FW_MOD_CODE_OFF, ctx[1] + h->length);
+}
 /* the header at start i read from the flash (st_read), its checks, then the code's CRC and the sector tails: the state */
 static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
 {
@@ -181,6 +204,8 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     }
     if (~crc != h->crc)
         return MD_BAD_CRC;
+    if (oc_mod_pages_check(i, h))
+        return MD_BAD_HDR;                                      /* (0.12.0) a page descriptor that leaves the image */
     rc = oc_mod_tails(i, len);
     if (rc < 0)
         return MD_BAD_CRC;

@@ -93,7 +93,7 @@ static void stage_columns(void)
         char val[12];
         const param_desc_t *d = page_desc(sp, c, &vp);
         int dim = (MELODEE_CZ && sp->scope == SC_CZ1 && !cz_ed_active(cz_patch[song.sel % NTRK].raw, sp->id[c])) ||
-                  ((MELODEE_P5 && sp->scope == SC_P5) && !p5_ed_active(TSEL, sp->id[c]));
+                  ((MELODEE_P5 && sp->scope == SC_P5) && !p5_ed_active(TSEL, sp->id[c])) || mod_dim(sp, sp->id[c]);
         if (!d || !vp || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
             continue;

@@ -7,6 +7,8 @@
   index.html                        redirect to the installer (the old URL keeps working)
   firmware/melodee-VER.fwsc         the package, both cores (+ LICENSE, LICENSING.md, LICENSES/: the
                                     packages hold JieLi SDK files under Apache-2.0, see LICENSING.md)
+  firmware/orangecat-VER.pak        (0.11.2) the asset pack of the same build, offered by the installer after the firmware
+  firmware/orangecat-NAME-VER.ocm   (0.11.2) the engine module packages of the same build (shapes), likewise
   firmware/melodee-nightly*.fwsc    next's development builds (nightly.json; publish_nightly.py), kept as published
   firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
@@ -103,6 +105,37 @@ def channel(spec, label, stem, branch):
                    "builtAt": spec["builtAt"], "pkg": {"dual": "../../firmware/" + f"{stem}.fwsc"}}
 
 
+def check_set(pak, ocms, manifest):
+    """(0.11.2) the three files of a build belong together: the pack's header is sound and carries the table hash the firmware was built with, each module's
+    header is sound and names the same pack hash and the firmware's interface identifier. `manifest` (tools/oc_manifest.py, made in the build from the headers
+    the firmware was compiled with) says what the firmware has: {"pack_hash", "pack_len", "iface", "api_addr"}."""
+    import struct
+    import zlib
+    info = json.loads(Path(manifest).read_text())
+    raw = Path(pak).read_bytes()
+    if len(raw) < 512 or struct.unpack_from("<I", raw, 0)[0] != 0x4B50434F:
+        raise SystemExit(f"{pak}: not an asset pack")
+    phash, plen, pcrc = struct.unpack_from("<III", raw, 8)
+    if zlib.crc32(raw[:508]) != struct.unpack_from("<I", raw, 508)[0] or zlib.crc32(raw[512:]) != pcrc or plen != len(raw):
+        raise SystemExit(f"{pak}: damaged (length or CRC)")
+    if phash != info["pack_hash"] or plen != info["pack_len"]:
+        raise SystemExit(f"{pak}: hash {phash:08x} / length {plen} is not the firmware's ({info['pack_hash']:08x} / {info['pack_len']})")
+    for ocm in ocms:
+        b = Path(ocm).read_bytes()
+        magic, ver, n, iface, api_addr, engine = struct.unpack_from("<IHHIII", b, 0)
+        mhash = struct.unpack_from("<I", b, 24)[0]
+        if magic != 0x464D434F or ver != 1 or not 1 <= n <= 8:
+            raise SystemExit(f"{ocm}: not a module package")
+        head = 56 + 16 * n
+        if zlib.crc32(b[:head]) != struct.unpack_from("<I", b, head)[0]:
+            raise SystemExit(f"{ocm}: damaged (header CRC)")
+        if iface != info["iface"] or api_addr != info["api_addr"]:
+            raise SystemExit(f"{ocm}: interface {iface:08x} at {api_addr:#x} is not the firmware's ({info['iface']:08x} at {info['api_addr']:#x})")
+        if mhash != phash:
+            raise SystemExit(f"{ocm}: reads pack {mhash:08x}, the pack file is {phash:08x}")
+    return info
+
+
 def release_history(out, current):
     """Offer validated stable dual-core packages, including historical releases."""
     releases = {current["version"]: current}
@@ -115,6 +148,10 @@ def release_history(out, current):
         raw, product = check_package(dual)
         releases[version] = {"version": version, "product": product,
                              "pkg": {"dual": "../../firmware/" + dual.name}}
+        pak = fw / f"orangecat-{version}.pak"                     # (0.11.2) an older release the site still carries with its pack and modules
+        if pak.exists():
+            releases[version]["pak"] = "../../firmware/" + pak.name
+            releases[version]["ocm"] = ["../../firmware/" + o.name for o in sorted(fw.glob(f"orangecat-*-{version}.ocm"))]
     return [current] + [releases[v] for v in sorted(releases, key=lambda v: tuple(map(int, v.split("."))), reverse=True)
                         if v != current["version"]]
 
@@ -170,7 +207,7 @@ def publish_manual(src, dest, version=None, preserve_nightly=False):
         page.write_text(text, encoding="utf-8")
 
 
-def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None):
+def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None, pak=None, ocms=(), manifest=None):
     pkg, out = Path(pkg), Path(out)
     raw, product = check_package(pkg)
     if nightly is None:
@@ -186,11 +223,27 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     html = (HERE / "index_pkg.html").read_text(encoding="utf-8")
     lib = strip_module((HERE / "fm1pkg.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
-        strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8"))
+        strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8")) + "\n" + \
+        strip_module((HERE / "fm1oc.js").read_text(encoding="utf-8"))      # (0.11.2) the pack and module stages
     v = re.sub(r'[^A-Za-z0-9.-]', '-', version)
     name = f"melodee-{v}.fwsc"
     release_meta = {"version": version, "product": product,
                     "pkg": {"dual": "../../firmware/" + name}}
+    set_files = {}                                          # (0.11.2) the pack and the modules of this build, beside the firmware
+    if pak or ocms:
+        if not pak or not manifest:
+            raise SystemExit("a pack and its manifest go together with the modules (tools/oc_manifest.py)")
+        check_set(pak, ocms, manifest)
+        set_files[f"orangecat-{v}.pak"] = Path(pak)
+        release_meta["pak"] = "../../firmware/" + f"orangecat-{v}.pak"
+        release_meta["ocm"] = []
+        for o in sorted(map(Path, ocms)):
+            m = re.fullmatch(r"orangecat-([a-z0-9]+)-.*\.ocm", o.name)
+            if not m:
+                raise SystemExit(f"{o}: a module package is named orangecat-NAME-VERSION[-COMMIT].ocm")
+            fname = f"orangecat-{m[1]}-{v}.ocm"
+            set_files[fname] = o
+            release_meta["ocm"].append("../../firmware/" + fname)
     releases = release_history(out, release_meta)
     meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta, "releases": releases})
     for mark in ("/*LIB*/", "/*META*/{}"):
@@ -203,6 +256,15 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
         require_manual(man_src)                     # before any write: a missing figure must leave the site untouched
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
+    set_keep = set(set_files)
+    for r in releases:
+        set_keep.update(Path(x).name for x in ([r["pak"]] if r.get("pak") else []) + list(r.get("ocm", [])))
+    for old in list(fw.glob("orangecat-*.pak")) + list(fw.glob("orangecat-*.ocm")):
+        if old.name not in set_keep:
+            old.unlink()
+    for fname, src in set_files.items():
+        if src.resolve() != (fw / fname).resolve():
+            shutil.copy(src, fw / fname)
     keep = {name, "melodee-nightly.fwsc"}
     keep.update(file[3] for file in rc_files.values())
     keep.update(Path(path).name for release in releases for path in release["pkg"].values())
