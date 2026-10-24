@@ -2160,7 +2160,7 @@ Instruction counts (valgrind callgrind over 12,289 blocks; the loaded run plays 
 
 Above idle, per hit: plain 20.8 k instructions, loaded 23.2 k, so the loaded hit costs 12% more. Host times per block: idle about 150 ns, plain about 350 ns, loaded about 810 ns (the host is not the FM-1 core; the ratio carries over, not the number). Where the loaded case spends it: `recording_shape` 9%, `groove_part` (the nudge) 9%, `recording_active` 5%, `seq_advance` 6% plus the inlined scheduler 34%.
 
-Decision: not optimized. The loaded case plays three times the hits; the cost per block is 2.4 times plain, less than the 3.0 times the hits would give. The 12% per hit is the property work itself (the shape of each hit, the nudge, the chance and condition roll), which plain does not do at all, not a loop that grew. The per-block scan is the same in both cases. The functions `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are in `tests/target_budget.py`; their lines in `tests/target_budget.txt` are from CI (below).
+Decision: not optimized. The loaded case plays three times the hits; the cost per block is 2.4 times plain, less than the 3.0 times the hits would give. The 12% per hit is the property work itself (the shape of each hit, the nudge, the chance and condition roll), which plain does not do at all, not a loop that grew. The per-block scan is the same in both cases. The functions `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are in `tests/target_budget.py`; no line in `tests/target_budget.txt` yet: the compiler inlines them (see Sizes and CI).
 
 ### Part 5: the unit checklist, two new cases (after step 22)
 
@@ -2176,7 +2176,11 @@ Decision: not optimized. The loaded case plays three times the hits; the cost pe
 | Erase table (Hardening 1) | Done: two cases remain by design (sample slot, in-place module page descriptor) |
 | Scheduler under load (Hardening 2) | Done: measured, not optimized, budget lines from CI |
 
-SIZES_PLACEHOLDER
+### Sizes and CI (Ninth run)
+
+- Run 40117440506 (id), full suite, head after 1f2bb92: `build` and `tests-gate` success, `pages` skipped (not main). Image 505,312 B (up 1,592 B from 503,720 B: the shared check functions, the card installers, the per-event repeat record code, the web checks are not in it), RAM .data+.bss 93,240 B of 98,304 B (unchanged), pool 181,768 B of 344,064 B (up 4,248 B: the repeat record, 4,096 B of times and 512 B of bits, less the 384 B queue, and the bench-free rest).
+- The first full run (40116507940) failed `tests-gate` on the target budget check: `recording_rep_tick` was in `FUNCS` but inlined, and the check treats a missing function as a failure. The scheduler names are now skipped when absent, like the JFX and DRUM-X ones.
+- No budget line was added. In the target disassembly `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are not kept apart (inlined into `seq_advance`), so there is nothing to measure per function; they stay in `FUNCS`, and a line will be taken from the first CI build that keeps one apart.
 
 ## Phases 8 to 11
 
