@@ -1584,7 +1584,7 @@ and 10 ms for a program. The 0.9.1 migration is 66 erases and 352 programs: abou
 - `fm1_guard_pc_window()` rewrites only LIMIT0_H, and only after the guard has been armed.
 - The Engines table hides retired engine numbers (name "-") unless a module was found for them or a module may supply them (14).
 - The Engines table shows the module's own version from its header, not the package file's name.
-- The throwaway branch `exp/sonnet-noshapes` is kept: this file and the unit procedure name it. It is brought to the current head (a merge, no force) so its build takes the current module. `exp/sonnet-sdkgrep` was deleted.
+- The throwaway branch `exp/sonnet-noshapes` is kept: this file and the unit procedure name it. It is brought to the current head (a merge, no force) so its build takes the current module. `exp/sonnet-sdkgrep` (the SDK header search, run 40047398043) could not be deleted from the session (the git proxy refuses a branch delete); delete it when you like.
 - The wall time of the migration comes from the P25Q32H sheet of the same family, not the P25Q80H sheet.
 
 ### Left to build

@@ -839,7 +839,7 @@ three deaths ban; a clean reset between breaks the streak; a death without the e
 
 ### Fix 4. The PC guard window
 
-Checked in the SDK headers (CI run 40047398043, branch exp/sonnet-sdkgrep): the chip has two PC limit register pairs, LIMIT0 and LIMIT1, and no more. LIMIT1
+Checked in the SDK headers (CI run 40047398043, throwaway branch exp/sonnet-sdkgrep): the chip has two PC limit register pairs, LIMIT0 and LIMIT1, and no more. LIMIT1
 holds the SRAM code window (POOL code), so instruction fetch from flash has one window. A second window for the module area alone does not exist. Therefore:
 
 - With no module registered the window is [0x02000120, _etext], as in 0.9.x.
