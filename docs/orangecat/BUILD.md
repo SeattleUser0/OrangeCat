@@ -1902,7 +1902,17 @@ ACC held + a lane key on a DRUM-X track mutes or unmutes that lane (`dxe_mute[]`
 
 ### Static analysis
 
-(Filled in when 2c finishes.)
+clang `--analyze` (the host test translation units, the module TUs; outputs kept in /tmp/an during the run, not in the repo). cppcheck is not installed here. No finding was a defect that a test reaches; the sanitizer suite (2a) found the real ones. Reviewed, left as they are, one line each:
+
+- `chord.c:128,131` garbage left operand / index past `iv`: `chord_tones` returns at least one tone for a mode in range (the early return above handles the other modes), so `n >= 1`; the analyzer does not follow it.
+- `mod.c:210` uninitialized `off[j]`: `off[j]` is set to 0 when a slot is claimed (line 207); the path the analyzer takes skips that claim and cannot occur.
+- `oc_project.c:422` address of stack `r` kept by static `rd`: `rd` is reset at the start of each call (`ocp_rd` is given `&rd` fresh) and never read after return.
+- `seq.c:147` division by zero: `scale_count` is at least 1 for every scale; the mask has 5 to 12 bits set.
+- `storage.c:124` garbage assigned in `st_crc32`: the table `T` is fully initialized; a path through `n--` with a pointer the analyzer thinks undefined (the callers pass initialized buffers).
+- `ui_draw.c:1043` past the end of `l`: `text_lines` is limited to 3 lines and `l` has 3 entries.
+- `ui_input.c:486,487` past the end of `FAM_BTN`: `cur_fam()` is below the number of families (a modulo in its definition).
+- Dead stores (`g4`, `note`, `n`, `y0`, `y1`, `old`, `flags`, `rc`, `e`): values kept for readability or by the shape of a macro; none is a missing use. Tests only: `editor_test.c:697`, `lib_group_test.c:63,107`, `oc_pack_test.c:86`, `regress.c:975` (fixtures indexed one past the end on purpose or after a bound check).
+
 
 ### Before merging (checklist)
 
