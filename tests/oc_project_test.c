@@ -10,9 +10,11 @@
  *    (PATTERNS FULL) and keeps the slot as it was.
  * 5. a Melodee FBKK record handed to a slot (a backup restored) reads back byte for byte.
  * 6. power cut at every program call of a save: after the reboot the slot loads, each bank as before or as saved.
+ * 7. (0.13.2) the analyzer's stack-address claim in ocj_read: no use of a returned frame (poisoned stack, damaged records, ASan).
  *
  * Revisions:
  *   0.3.2: first version.
+ *   0.13.2: 7, the stack-address claim of the analyzer at oc_project.c:406 and :422.
  */
 static unsigned char host_samples[3][0x14000];
 #define SMP_USER_XIP(k) host_samples[k]
@@ -353,6 +355,68 @@ static int test_cuts(void)
     return check(what, ok && done);
 }
 
+
+/* ----------------------------------------------------------------- 7 --- */
+/* (Orange Cat 0.13.2, Part 3) the analyzer's claim at oc_project.c:406 and :422 (core.StackAddressEscape): ocj_read stores &r (and, through
+ * ocp_check, &pr), locals of its frame, in the function-local static rd. A real fault would be a read through rd.r after the call has
+ * returned. rd is cleared and given its record at the top of every call (memset, rd.r = &r) and ocp_check sets it again before the
+ * first read of a pattern, so the dangling pointer is never used. This test makes the claim fail loudly if it ever becomes true:
+ * the stack under the next call is overwritten with a pattern between calls (a stale pointer reads the pattern, not the record),
+ * the project is read after reads that stop early at every kind of damage (no record; one 4-byte window cleared in each used
+ * sector, which breaks the project part, a pattern or a chunk in turn), and the same reads run under AddressSanitizer with
+ * detect_stack_use_after_return=1 (__asan_default_options below; SAN=1), which aborts on any use of a returned frame. */
+const char *__asan_default_options(void) { return "detect_stack_use_after_return=1"; }
+static void __attribute__((noinline)) stack_poison(uint8_t v)
+{
+    volatile uint8_t buf[24576];
+    for (uint32_t i = 0; i < sizeof buf; i++) buf[i] = v;
+}
+static int test_stack_escape(void)
+{
+    static uint8_t clean[sizeof nor];
+    int ok = 1;
+    uint32_t damaged = 0, refused = 0;
+    reset();
+    fill_all(11, NPAT);
+    snap(&A);
+    ok &= project_save_as(0, "ESCAPE") == 0;
+    reboot();
+    for (uint32_t v = 0; v < 4u; v++) {         /* four patterns under the call's frame */
+        stack_poison(v == 0 ? 0x00 : v == 1 ? 0xFF : v == 2 ? 0xA5 : 0x5A);
+        wipe_runtime();
+        project_load(0);
+        snap(&C);
+        ok &= same(&A, &C);
+    }
+    stack_poison(0xA5);
+    ok &= proj_read_slot(2) <= 0;                /* no record: ocj_read leaves at ocs_open, before it touches rd */
+    stack_poison(0x5A);
+    wipe_runtime(); project_load(0); snap(&C);
+    ok &= same(&A, &C);                          /* ... and the next read is whole */
+    memcpy(clean, nor, sizeof nor);
+    for (uint32_t sec = 0; sec < sizeof nor / 4096u; sec++) {
+        int used = 0;
+        for (uint32_t i = 0; i < 4096u; i++) if (nor[sec * 4096u + i] != 0xFF) { used = 1; break; }
+        if (!used) continue;
+        for (uint32_t off = 64u; off < 4096u - 4u; off += 1024u) {   /* the damage at 3 places of the sector */
+            memset(nor + sec * 4096u + off, 0x00, 4u);
+            reboot();
+            stack_poison((uint8_t)(0xA5u ^ sec));
+            int rc = proj_read_slot(0);          /* may fail at any depth of ocj_read; must not crash or read a dead frame */
+            damaged++; if (rc <= 0) refused++;
+            memcpy(nor, clean, sizeof nor);
+        }
+    }
+    reboot();
+    stack_poison(0xA5);
+    wipe_runtime(); project_load(0); snap(&C);
+    ok &= same(&A, &C);                          /* the store as it was reads as before, after every early exit */
+    char what[160];
+    snprintf(what, sizeof what, "ocj_read leaves no use of a returned frame: %u damaged reads (%u refused), poisoned stack, ASan use-after-return",
+             damaged, refused);
+    return check(what, ok && damaged > 0);
+}
+
 #ifndef OC_PROJECT_NO_MAIN
 int main(void)
 {
@@ -361,6 +425,7 @@ int main(void)
     bad |= test_slots();
     bad |= test_fbkk();
     bad |= test_cuts();
+    bad |= test_stack_escape();
     printf(bad ? "oc project: FAILED\n" : "oc project: all passed\n");
     return bad ? 1 : 0;
 }
