@@ -12,6 +12,7 @@ static unsigned char host_samples[3][0x14000];
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
+#include "fake_pages.h"
 
 static uint32_t host_progress = 1, host_erases, host_writes;
 static uint8_t host_wire[8192];
@@ -966,6 +967,53 @@ static int module_protocol(void)
         trk[1].eng_req = trk[3].eng_req = ENGI_FM6;
         a[0] = 0; request(ED_ENGINES, a, 1);
         bad += check("ENGINES with an argument is refused (no reply)", host_wire_n == 0);
+    }
+    {   /* (0.12.0, Part 2b) ED_PAGES / ED_PANEL: a registered module's page descriptor, read in place; a built-in engine and an unregistered number answer "none" */
+        static engine_t fe;
+        static fw_mod_hdr_t fh;
+        uint32_t p, pos, k;
+        int ok;
+        fe = ENG_MACRO; fe.name = "PROPHET"; fe.pages = &FP_DESC;
+        fh = (fw_mod_hdr_t){FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR, ENGI_PROPHET, 1234u, 0, 0, OC_PACK_HASH, 0, 0, 0};
+        a[0] = ENGI_PROPHET; request(ED_PAGES, a, 1);
+        bad += check("PAGES: no module for 19: engine, source 0, no pages, no panel", host_wire[5] == ENGI_PROPHET && host_wire[6] == 0 && host_wire[7] == 0 && host_wire[8] == 0);
+        bad += check("PAGES: the module registers; a built-in engine's pages are not in a descriptor (source 0)", eng_register(&fh, &fe) == EM_OK && (a[0] = ENGI_FM6, request(ED_PAGES, a, 1), host_wire[6] == 0));
+        a[0] = ENGI_PROPHET; request(ED_PAGES, a, 1);
+        ok = host_wire[5] == ENGI_PROPHET && host_wire[6] == 2 && host_wire[7] == 4 && host_wire[8] == 8;
+        for (p = 0, pos = 9; p < 4u && ok; p++) {
+            uint32_t len = 0;
+            while (host_wire[pos + len]) len++;
+            ok &= len == strlen(FP_ROWS[p].title) && !memcmp(host_wire + pos, FP_ROWS[p].title, len);
+            pos += len + 1u;
+            for (k = 0; k < 4u; k++) ok &= host_wire[pos + k] == (FP_ROWS[p].id[k] == 0xFF ? 127 : FP_ROWS[p].id[k]);
+            pos += 4u;
+        }
+        bad += check("PAGES: source 2, 4 pages, 8 panel entries; each page's title and its four panel indices (127 none)", ok && host_wire[pos] == 0xF7);
+        a[0] = ENGI_PROPHET; request(ED_PANEL, a, 1);
+        ok = host_wire[5] == ENGI_PROPHET && host_wire[8] == 8;
+        pos = 9;
+        for (p = 0; p < 8u && ok; p++) {
+            if (!FP_PANEL[p].label) { ok &= host_wire[pos++] == 0; continue; }
+            ok &= host_wire[pos] == 1 && host_wire[pos + 1] == FP_PANEL[p].fmt;
+            pos += 2u + 6u;                                             /* present, format, min, max, default (2 x 7 bits each) */
+            ok &= !strcmp((const char *)host_wire + pos, FP_PANEL[p].label);
+            pos += strlen(FP_PANEL[p].label) + 1u;
+            ok &= !strcmp((const char *)host_wire + pos, FP_PANEL[p].unit ? FP_PANEL[p].unit : "");
+            pos += (FP_PANEL[p].unit ? strlen(FP_PANEL[p].unit) : 0) + 1u;
+            ok &= host_wire[pos++] == (p == 4);                         /* motion skip */
+            if (FP_PANEL[p].fmt == F_ENUM)
+                for (k = 0; k <= (uint32_t)FP_PANEL[p].max; k++) { ok &= !strcmp((const char *)host_wire + pos, FP_MODES[k]); pos += strlen(FP_MODES[k]) + 1u; }
+        }
+        bad += check("PANEL: per entry present, format, range, label, unit, motion skip and an enum's names; a hole is present 0; the total last", ok && host_wire[pos] == 8 && host_wire[pos + 1] == 0xF7);
+        a[0] = ENGI_PROPHET; a[1] = 6; a[2] = 0; request(ED_PANEL, a, 3);
+        bad += check("PANEL from entry 6: the hole, then LEVEL (2 entries)", host_wire[6] == 6 && host_wire[8] == 2 && host_wire[9] == 0 && host_wire[10] == 1);
+        a[0] = 99; request(ED_PAGES, a, 1);
+        bad += check("PAGES of a number past the table is refused (no reply)", host_wire_n == 0);
+        request(ED_PAGES, 0, 0);
+        bad += check("PAGES without its engine is refused (no reply)", host_wire_n == 0);
+        eng_unregister(ENGI_PROPHET);
+        a[0] = ENGI_PROPHET; request(ED_PAGES, a, 1);
+        bad += check("PAGES after the module is out: source 0 again", host_wire[6] == 0 && host_wire[7] == 0);
     }
     a[0] = ENGI_SHAPES;
     request(ED_MOD_INFO, a, 1);

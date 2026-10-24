@@ -394,6 +394,11 @@ if core && [ $TABLES = 1 ]; then
     t "Orange Cat pages: every family and SELECT both ways on MACRO and SHAPES, its engine set, sanitizers" \
         oc_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
         -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW
+    # (Orange Cat 0.12.0, Part 2b) a module's pages as data: a fake module for the Prophet's number brings a page descriptor (fw_pages.h): the loader's check of
+    # its bytes, the pages shown and edited, ENV / LFO / HOME, motion recorded and played back, the module out again; the same engine set, sanitizers
+    t "module pages (0.12.0, Part 2b): the descriptor check, the pages from a module's data, edit, motion, removal; the Orange Cat set, sanitizers" \
+        mod_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
+        -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 -DOC_MODULE_WINS=1 $FW
     # (Orange Cat 0.8.1, Fix 3) the two preset-library tests that also pass with the engines the firmware ships without
     # (the others fill Prophet, CZ-1, FM6 and DRUM banks as fixtures and need those engines: tests/need_all_engines.h)
     t "first boot with the Orange Cat engine set: foreign settings, ownership, interrupted cleanup" \

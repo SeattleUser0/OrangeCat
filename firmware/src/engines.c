@@ -341,7 +341,7 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
  * may supply are accepted (eng_module_slot: SHAPES). A built-in engine of the same number stays unless OC_MODULE_WINS (core.h)
  * says the module takes over; eng_unregister puts the original back. Nothing here reads flash. */
 enum { EM_OK = 0, EM_SLOT = -1, EM_SHADOWED = -2, EM_BAD = -3 };
-static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES; }
+static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET; }
 static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
 {
 #if MELODEE_SHAPES

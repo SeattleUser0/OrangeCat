@@ -44,7 +44,7 @@ int main(void)
 
     /* refusals that hold in every build */
     check("no header or no engine is refused", eng_register(0, &fake_engine) == EM_BAD && eng_register(&h, 0) == EM_BAD);
-    {   uint32_t bads[] = {0, 1, 3, 4, ENGI_MACRO, 10, ENGI_FM6, 13, ENGI_CZ, 16, 17, 18, ENGI_PROPHET, 20, 255, 0xFFFFFFFFu}, ok = 1, i;
+    {   uint32_t bads[] = {0, 1, 3, 4, ENGI_MACRO, 10, ENGI_FM6, 13, ENGI_CZ, 16, 17, 18, 20, 255, 0xFFFFFFFFu}, ok = 1, i;
         for (i = 0; i < sizeof bads / sizeof bads[0]; i++) {
             fw_mod_hdr_t g = hdr(bads[i]);
             ok &= eng_register(&g, &fake_engine) == EM_SLOT;

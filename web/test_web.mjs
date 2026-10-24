@@ -33,7 +33,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE, enginesRows, ocmReason })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
@@ -119,7 +119,7 @@ const E = vm.runInNewContext(proto + `
        L.engines[14].size === 23780 && L.engines[14].use === 2 && L.engines[12].start === null && L.engines[12].src === 1 && L.starts.length === 2 && L.starts[0].engine === 14 && L.starts[1].state === 0,
        "engines: the list parses (number, source, state, start, version, size, tracks that use it, then the starts)");
     let R = E.enginesRows(L, names);
-    ok(R.map((r) => r.num).join() === "9,12,14", "engines table: a row for each engine with a name or a module (retired numbers are not rows), in number order");
+    ok(R.map((r) => r.num).join() === "9,12,14,19", "engines table: a row for each engine with a name or a module or a number a module may supply (the other retired numbers are not rows), in number order");
     const r14 = R.find((r) => r.num === 14), r12 = R.find((r) => r.num === 12);
     ok(r14.source === "module" && r14.state === "ok" && r14.version === "1.2.3" && r14.size === 23780 && r14.start === 0 && r14.tracks === 2 && r14.actions.join() === "replace,remove",
        "engines table: the module's row: source, OK, version, size, start, tracks, and the actions Replace and Remove");
@@ -140,6 +140,32 @@ const E = vm.runInNewContext(proto + `
     const L6 = E.parse[E.CMD.ENGINES](mk({ 14: rec(0, 8, 2, 0, [1, 0, 0], 9000, 0) }, [8, 2, 14, 0, 0, 0]));
     ok(E.enginesRows(L6, names).find((r) => r.num === 14).reason === "reasonTail", "engines table: a module with a sector tail says so (state 8)");
     ok(E.ocmReason(7, 0) === "" && E.ocmReason(0, 0) === "", "engines table: a good or an empty start has no reason"); }
+  { /* (0.12.0, Part 2b) a module engine's pages: ED_PAGES and ED_PANEL, the page list for engine 19 */
+    const str = (s) => [...Array.from(s, (c) => c.charCodeAt(0)), 0], vv = (v) => [(v + 8192) & 127, (v + 8192) >> 7];
+    const pagesReply = [19, 2, 2, 3, ...str("X FILTER"), 0, 1, 127, 127, ...str("X MISC"), 2, 127, 127, 127];
+    const ent = (fmt, mn, mx, df, label, unit, skip, names = []) => [1, fmt, ...vv(mn), ...vv(mx), ...vv(df), ...str(label), ...str(unit), skip, ...names.flatMap(str)];
+    const e0 = ent(0, 0, 127, 64, "CUTOFF", "", 0), e1 = ent(8, 0, 2, 0, "MODE", "", 0, ["LP", "BP", "HP"]), e2 = ent(0, 0, 12, 2, "BEND", "st", 1);
+    const calls = [];
+    const send = async (r) => {
+      calls.push(r);
+      if (r[0] === E.CMD.PAGES) return pagesReply;
+      const first = r[1].length > 1 ? r[1][1] | (r[1][2] << 7) : 0;
+      return first === 0 ? [19, 0, 0, 2, ...e0, ...e1, 3] : [19, first, 0, 1, ...e2, 3];   /* two parts: the reply is cut to what fits */
+    };
+    const mp = await E.fetchModPages(send, 19);
+    ok(E.CMD.PAGES === 126 && E.CMD.PANEL === 127 && JSON.stringify(E.req.pages(19)) === "[126,[19]]" && JSON.stringify(E.req.panel(19, 2)) === "[127,[19,2,0]]" && JSON.stringify(E.req.panel(19)) === "[127,[19]]",
+       "pages: the requests (126 with the engine, 127 with the engine and the first entry)");
+    ok(mp && mp.engine === 19 && mp.pages.map((p) => p.title).join() === "X FILTER,X MISC" && mp.panel.length === 3 && calls.length === 3 && calls[2][1].join() === "19,2,0",
+       "pages: engine 19's page list, titles and a panel fetched in two parts until the total is in");
+    ok(mp.pages[0].params[0].label === "CUTOFF" && mp.pages[0].params[1].names.join() === "LP,BP,HP" && mp.pages[0].params[2] === undefined && mp.pages[1].params[0].unit === "st" && mp.pages[1].params[0].skip === true &&
+       mp.pages[1].params[0].max === 12 && mp.pages[0].params[0].def === 64, "pages: each page's four columns resolve to the panel's entries (label, range, unit, enum names, motion skip; an empty column is undefined)");
+    ok(await E.fetchModPages(async () => [19, 0, 0, 0], 19) === null && await E.fetchModPages(async () => { throw new Error("timeout"); }, 19) === null, "pages: no descriptor (source 0) or an older firmware that does not answer: null, not an error");
+    let thrown = false; try { await E.fetchModPages(async (r) => (r[0] === E.CMD.PAGES ? pagesReply : [19, 5, 0, 0, 3]), 19); } catch (e) { thrown = true; }
+    ok(thrown, "pages: a panel answer that does not continue where it was asked is an error (no endless loop)");
+    const holes = E.parse[E.CMD.PANEL]([19, 6, 0, 2, 0, ...ent(0, 0, 127, 100, "LEVEL", "", 0), 8]);
+    ok(holes.first === 6 && holes.entries[0] === null && holes.entries[1].label === "LEVEL" && holes.total === 8, "pages: a hole in the panel is null");
+    ok(E.enginesRows(E.parse[E.CMD.ENGINES]([20, ...Array.from({ length: 20 }, (_, e) => (e === 19 ? [0, 0, 0, 127, 0, 0, 0, 0, 0, 0, 0] : [0, 0, 0, 127, 0, 0, 0, 0, 0, 0, 0])).flat(), 2, 0, 0, 0, 0, 0, 0]), Array.from({ length: 20 }, (_, e) => (e === 19 ? "PROPHET" : "-"))).find((r) => r.num === 19).actions.join() === "install",
+       "engines table: the Prophet's number is a module slot now (Install)"); }
   { const P = E.parse[E.CMD.PRESET];
     ok(P([14, 5, 0]).refused === 0 && P([14, 5, 0]).engine === 14 && P([14, 5, 0]).preset === 5, "admission: the ordinary PRESET reply (three bytes) is not a refusal");
     ok(P([3, 7, 0, 1]).refused === 1 && P([3, 7, 0, 2]).refused === 2 && P([3, 7, 0, 1]).engine === 3, "admission: a fourth byte is the refusal (1 ENGINE TOO HEAVY, 2 NO ROOM) and the engine is the one the track kept"); }

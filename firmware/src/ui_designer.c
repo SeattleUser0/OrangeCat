@@ -353,7 +353,7 @@ static void designer_recipe(void)
 /* a page's stage: ENV MOD (the filter envelope's amount, velocity, release) with the envelopes */
 static int designer_category(uint32_t i)
 {
-    const page_t *p=&PAGES[i];const char *s=p->title;
+    const page_t *p=page_at(i);const char *s=p->title;
     if(p->fam==FAM_ENV || str_prefix(s,"P5 FLT ENV") || str_prefix(s,"P5 AMP ENV") || str_prefix(s,"P5 ENV MOD") ||
        str_prefix(s,"EG ") || str_prefix(s,"PITCH E") || str_prefix(s,"PITCH L") || str_prefix(s,"C1 ") || str_prefix(s,"C2 "))return DT_ENV;
     if(p->fam==FAM_LFO || str_prefix(s,"P5 LFO") || str_prefix(s,"P5 WHEEL") || str_prefix(s,"P5 POLY") ||
@@ -365,7 +365,7 @@ static int designer_category(uint32_t i)
 }
 static int designer_page_ok(uint32_t i)
 {
-    const page_t *p=&PAGES[i];
+    const page_t *p=page_at(i);
     if(!page_visible(i) || (p->fam!=FAM_EDIT && p->fam!=FAM_ENV && p->fam!=FAM_LFO))return 0;
     if(p->graph==GR_FMSTORE || p->graph==GR_CZTOOLS || (MELODEE_P5 && p->scope == SC_P5STORE) || p->graph==GR_MOTION)return 0;
     /* Track mixer/performance parameters and the drum lanes' notes are outside a tone. */
@@ -381,7 +381,7 @@ static int designer_guided(uint32_t i)
 {
     static const char *const skip[]={"P5 BEND","FM BEND","FM PORTA","FM WH/FT","FM BR/AT","SCALE","CURVE","VOICE 3","CZ WINDOW",
                                      "PITCH EG","PITCH LV","LFO 2","MOD"};
-    const page_t *p=&PAGES[i];const char *s=p->title;uint32_t e=TSEL->eng_req;
+    const page_t *p=page_at(i);const char *s=p->title;uint32_t e=TSEL->eng_req;
     for(uint32_t j=0;j<NELEM(skip);j++)if(str_eq(s,skip[j]))return 0;
     if(p->scope==SC_TRACK && p->fam==FAM_LFO && ((MELODEE_P5 && e == ENGI_PROPHET) || (MELODEE_FM6 && e == ENGI_FM6) || e==ENGI_CZ || drum_track(TSEL)))return 0;
     if((MELODEE_FM6 && e == ENGI_FM6) && p->scope==SC_ENGINE)return 0;
@@ -396,8 +396,8 @@ static int designer_in(uint32_t i,uint32_t st)
 /* what FEATURES leaves out: an FM operator switched off, a CZ line its line mode does not play */
 static int designer_live(uint32_t i)
 {
-    const char *s=PAGES[i].title;
-    if(!MELODEE_CZ || PAGES[i].scope!=SC_CZ1)return 1;   /* (size audit: cz_ed_active only with the CZ-1 in) */
+    const char *s=page_at(i)->title;
+    if(!MELODEE_CZ || page_at(i)->scope!=SC_CZ1)return 1;   /* (size audit: cz_ed_active only with the CZ-1 in) */
     if(str_prefix(s,"CZ1 ") || str_prefix(s,"C1 "))return cz_ed_active(cz_patch[song.sel].raw,LCZ_LBASE(0)+LCZ_W1);
     if(str_prefix(s,"CZ2 ") || str_prefix(s,"C2 "))return cz_ed_active(cz_patch[song.sel].raw,LCZ_LBASE(1)+LCZ_W1);
     return 1;
@@ -416,13 +416,13 @@ static void designer_route(void)
     if(feats)designer_add(DS_FEAT,0,DT_BUILD);
     for(st=DT_SOURCE;st<DT_COUNT;st++)for(pass=0;pass<2u;pass++){
         int ops_done=0;
-        for(i=0;i<NPAGES;i++){
-            if(!designer_in(i,st) || (PAGES[i].scope==SC_TRACK)!=(int)pass)continue;
-            if((!MELODEE_FM6 || PAGES[i].scope != SC_FMOP)){if(designer_live(i))designer_add(i,0,st);continue;}
+        for(i=0;i<page_n();i++){
+            if(!designer_in(i,st) || (page_at(i)->scope==SC_TRACK)!=(int)pass)continue;
+            if((!MELODEE_FM6 || page_at(i)->scope != SC_FMOP)){if(designer_live(i))designer_add(i,0,st);continue;}
             if(ops_done)continue;
             ops_done=1;
             for(op=0;op<6u;op++)if(designer_feat_get(DF_OP1+op))
-                for(j=i;j<NPAGES;j++)if((MELODEE_FM6 && PAGES[j].scope == SC_FMOP) && designer_in(j,st))designer_add(j,op,st);
+                for(j=i;j<page_n();j++)if((MELODEE_FM6 && page_at(j)->scope == SC_FMOP) && designer_in(j,st))designer_add(j,op,st);
         }
     }
 }
@@ -454,7 +454,7 @@ static uint32_t designer_need(void)
     if(l){
         const lrow_t *rw=list_at(l,lst.row);uint32_t pg=page_titled(rw->page);
         if(ds.focus || pg>=NPAGES)return DF_NONE;     /* (KNOB 2: the row) */
-        p=&PAGES[pg];id=p->id[rw->slot&3u];
+        p=page_at(pg);id=p->id[rw->slot&3u];
     }
     if((MELODEE_P5 && p->scope == SC_P5) && !p5_ed_active(TSEL,id))switch(id){
         case P5_PW_A:case P5_WHEEL_PW_A:return DF_PULSEA;
