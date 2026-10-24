@@ -16,9 +16,13 @@
  */
 /* Revisions:
  * (Orange Cat 0.13.4) first version
+ * (Orange Cat 0.13.5) a set of two modules that both ask the in-place question: the press that answers goes on from the module that asked (set_resume() below)
  */
 #include <stdint.h>
 #define OC_MOD_HOST_XIP 1
+/* (0.13.5) the geometry table of oc_module.c can be changed by a test: set_resume() gives SHAPES start 0 only and the Prophet start 1 only, 2 sectors each. They fit together,
+ * and each can only be replaced in place: a set of the two asks twice */
+#define OC_MOD_GEO_QUAL
 struct fw_mod_hdr;
 static const struct fw_mod_hdr *oc_mod_hdr_ptr(uint32_t i);
 #define PERSISTENCE_TEST_NO_MAIN
@@ -96,12 +100,13 @@ static void make_pack(uint8_t *pak, uint32_t salt)
 }
 #define LEN 5000u                                       /* sector 0's tail (0xF00) is inside it */
 static uint8_t IMG[OC_MOD_MAXLEN];
+static uint32_t IMG_ENGINE = ENGI_SHAPES;                /* the engine the images are made for */
 static fw_mod_hdr_t mk(uint32_t i, uint32_t len)
 {
     fw_mod_hdr_t h;
     memset(&h, 0, sizeof h);
     h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
-    h.engine = ENGI_SHAPES; h.state_size = 1234u; h.engine_ptr = oc_mod_link(i) + 0x180u; h.link_addr = oc_mod_link(i);
+    h.engine = IMG_ENGINE; h.state_size = 1234u; h.engine_ptr = oc_mod_link(i) + 0x180u; h.link_addr = oc_mod_link(i);
     h.pack_hash = OC_PACK_HASH; h.length = len;
     return h;
 }
@@ -145,6 +150,7 @@ static void package(uint32_t seed, mut_t f, int flip_code, int rec)
 }
 /* ---- the state of the unit */
 static uint8_t snap[0x100000];
+static uint32_t PRE0 = ENGI_SHAPES, PRE1 = ENGI_SHAPES;   /* the engines of the modules unit() puts at start 0 and 1 */
 static void unit(void)                                   /* a unit with a working pack and a working module at start 0 and at start 1 (so a new install is in place) */
 {
     memset(nor, 0xFF, sizeof nor);
@@ -152,9 +158,11 @@ static void unit(void)                                   /* a unit with a workin
     memcpy(nor + OC_PACK_LO, PAKF, OC_PACK_LEN);
     for (uint32_t i = 0; i < 2u; i++) {
         uint8_t v[LEN];
+        IMG_ENGINE = i ? PRE1 : PRE0;
         variant(v, i, 40u + i, 0, 0, 0);
         memcpy(nor + oc_mod_flash(i), v, LEN);
     }
+    IMG_ENGINE = ENGI_SHAPES;
     memset(&pk, 0, sizeof pk); oc_pack_good = 0;
     memset(&oc_modguard, 0, sizeof oc_modguard);
     memset(trk, 0, sizeof trk);
@@ -183,6 +191,59 @@ static int same(void) { return !memcmp(snap, nor, sizeof nor); }
 /* run a single-file install of /C/<name> as the browser does */
 static int do_pak(void) { cf_t *c = cf_find("/C/X.PAK"); return fb_pak_file("/C/X.PAK", c->size, 0); }
 static int do_mod(void) { cf_t *c = cf_find("/C/X.OCM"); fb.sel = 0; return fb_mod_file("/C/X.OCM", c->size, 0, 0u, 0, 0); }
+
+
+/* (0.13.5) a set of two modules that both need the in-place question: three presses (ask for the first, install it and ask for the second, install the second). Before the
+ * fix the third press began again at the first module, which asked again, and the two asked by turns for ever. The images are written once each (4 sector erases). */
+static void package1(uint8_t *out, uint32_t *size, uint32_t engine, uint32_t s, uint32_t seed)
+{
+    IMG_ENGINE = engine;
+    memset(out, 0, 512 + LEN);
+    wr32(out, 0x464D434Fu); out[4] = 1; out[6] = 1;
+    wr32(out + 8, FW_API_IFACE); wr32(out + 12, FW_API_ADDR); wr32(out + 16, engine);
+    wr32(out + 20, 11136u); wr32(out + 24, OC_PACK_HASH); wr32(out + 44, FW_API_VERSION); wr32(out + 48, sizeof(fw_api_t)); wr32(out + 52, 2u);
+    wr32(out + 56, OC_MOD_START_SECTOR(s)); wr32(out + 60, LEN); wr32(out + 68, 512u);
+    variant(out + 512, s, seed, 0, 0, 0);
+    wr32(out + 72, ocs_crc32(out, 72));
+    *size = 512u + LEN;
+    IMG_ENGINE = ENGI_SHAPES;
+}
+static int set_resume(void)
+{
+    static uint8_t A[512 + LEN], B[512 + LEN], pk2[OC_PACK_LEN];
+    uint32_t sa, sb, presses = 0, e0;
+    char m[512];
+    fb_ent_t e;
+    int rc = 1;
+    oc_mod_geo[0].sectors = 2u; oc_mod_geo[0].starts = 0x01u; oc_mod_geo[1].sectors = 2u; oc_mod_geo[1].starts = 0x02u;
+    PRE0 = ENGI_SHAPES; PRE1 = ENGI_PROPHET;
+    unit();
+    PRE0 = PRE1 = ENGI_SHAPES;
+    chk("(setup) the unit has working modules of SHAPES (start 0) and the Prophet (start 1), 2 sectors each", oc_mod.engine[0] == ENGI_SHAPES && oc_mod.engine[1] == ENGI_PROPHET);
+    package1(A, &sa, ENGI_SHAPES, 0u, 90u); package1(B, &sb, ENGI_PROPHET, 1u, 91u);
+    cf_put("/C/A.OCM", A, sa); cf_put("/C/B.OCM", B, sb);
+    make_pack(pk2, 0); cf_put("/C/S.PAK", pk2, sizeof pk2);
+    snprintf(m, sizeof m, "{\n  \"version\": \"%u.%u.%u\",\n  \"pack_hash\": %u,\n  \"pack_len\": %u,\n  \"iface\": %u,\n  \"api_addr\": %u,\n  \"files\": {\"pak\": \"S.PAK\", \"ocm\": [\"A.OCM\", \"B.OCM\"]}\n}\n",
+             (OC_FW_VERSION >> 16) & 255u, (OC_FW_VERSION >> 8) & 255u, OC_FW_VERSION & 255u, (unsigned)OC_PACK_HASH, (unsigned)OC_PACK_LEN, (unsigned)FW_API_IFACE, (unsigned)FW_API_ADDR);
+    memset(&e, 0, sizeof e); strcpy(e.name, "U.SET.JSON"); e.size = (uint32_t)strlen(m);
+    cf_put("/C/U.SET.JSON", (const uint8_t *)m, e.size);
+    fb.sel = 0; erases = 0;
+    while (rc && presses < 6u) {
+        rc = fb_install_set(&e); presses++;
+        if (presses == 1u) e0 = (uint32_t)erases;
+        if (rc) printf("press %u: %d msg \"%s\" ask %u setq %u\n", presses, rc, fb.msg, fb.ask, fb.setq);
+    }
+    (void)e0;
+    chk("a set of two in-place modules is installed by three presses, not for ever", !rc && presses == 3u && fb.packed == 3);
+    chk("... each module written once (2 sectors each: 4 erases)", erases == 4);
+    {
+        uint8_t va[LEN], vb[LEN];
+        IMG_ENGINE = ENGI_SHAPES; variant(va, 0, 90u, 0, 0, 0); IMG_ENGINE = ENGI_PROPHET; variant(vb, 1, 91u, 0, 0, 0); IMG_ENGINE = ENGI_SHAPES;
+        chk("... both new images are in flash at their starts", !memcmp(nor + oc_mod_flash(0), va, LEN) && !memcmp(nor + oc_mod_flash(1), vb, LEN));
+    }
+    oc_mod_geo[0].sectors = 6u; oc_mod_geo[0].starts = 0x03u; oc_mod_geo[1].sectors = 8u; oc_mod_geo[1].starts = 0x05u;     /* the real ones back */
+    return 0;
+}
 
 int main(void)
 {
@@ -267,6 +328,7 @@ int main(void)
         erases = 0; fb.ask = 0;
         chk("the good set installs whole (the pack, then the module): erases happen, the unit works", fb_install_set(&e) == 0 && fb.packed == 3 && erases >= PK_SECTORS && working());
     }
+    set_resume();
     printf("card install: %s\n", bad ? "FAILED" : "all passed");
     return bad != 0;
 }

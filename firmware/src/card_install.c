@@ -6,6 +6,7 @@
  * erase. Authorship of the moved code is as in card_browse.c.
  *
  * Revisions: 0.13.4 split from card_browse.c.
+ *   0.13.5 fb_install_set: the press that answers an in-place question goes on from the module that asked (a set of two modules asking by turns for ever).
  */
 #if FB_PAK
 /* (0.8.0) the pack file at (fb.path, e) installed: 0 done, else fb.msg says why. Reads it in 512-byte pieces: the header, the
@@ -216,6 +217,7 @@ static int fb_install_set(const fb_ent_t *e)
     oc_set_t *o = FB_SETS();
     uint32_t k, j, size, plen, phash, eng[OC_SET_OCM];
     uint8_t ask0 = fb.ask, q0 = fb.setq;
+    uint32_t k0 = 0;
     fb.ask = 0;
     fb.setq = 0;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
@@ -240,7 +242,10 @@ static int fb_install_set(const fb_ent_t *e)
     if (!(oc_pack_info(&plen, &phash) == PK_OK && plen == OC_PACK_LEN && phash == OC_PACK_HASH)) {
         if (fb_set_file(p, o->pak, &size) || fb_pak_file(p, size, 0)) return 1;
     }
-    for (k = 0; k < o->nocm; k++) {
+    /* (0.13.5) the press that answers an in-place question goes on from the module that asked: the ones before it were installed by the presses before, and a
+     * loop from the first would write the first again (beside: one more erase; in place: its question again, and the two modules asking by turns for ever) */
+    if (ask0 == (uint8_t)(fb.sel + 1u) && q0 >= 1u && q0 <= o->nocm) k0 = (uint32_t)q0 - 1u;
+    for (k = k0; k < o->nocm; k++) {
         if (fb_set_file(p, o->ocm[k], &size) ||
             fb_mod_file(p, size, ask0 == (uint8_t)(fb.sel + 1u) && q0 == (uint8_t)(k + 1u), k + 1u, 0, 0))
             return 1;

@@ -509,6 +509,8 @@ length, link address 0x020C4000 + sector x 4096, an aligned engine_t inside the 
 oc_mod_image_check). The page descriptor check of a device build stays the unit's. The unit still checks everything at the end, as before; the commands and replies
 are unchanged. The card's installer (OCT+ on a .PAK, .OCM or .set.json) reads the whole selected file through the same two functions before its first erase.
 
+(0.13.5) The reply to 116 and to 121 comes after the unit has erased (a module in place up to 16 sectors, the pack 10; the driver allows 500 ms a sector), so the page waits 16 x 500 ms + 2 s = 10 s for it (`OC_BEGIN_MS` in web/fm1oc.js and web/editor.html) and never repeats the command: a repeated BEGIN would erase again. The other choice, answering before the erase and reporting its result on the first 117 or 122, would change the protocol and what a write's rc means; the longer wait changes neither.
+
 A command a firmware does not know gets no reply, so an editor offers modules only after a reply to 120. Every write is refused while the transport
 runs (rc 2). The pack's commands 115-119 are unchanged (their BEGIN already carries an optional byte older pages send, so an area selector there would be
 ambiguous); the module has ids of its own.
