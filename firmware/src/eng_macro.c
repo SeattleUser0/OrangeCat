@@ -254,7 +254,7 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
             int32_t y;
             x = x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x;
             y = (int32_t)(x * 32767.0f);
-            out[done + i] += voice_amp(y << 1, m, done + i) << 1;
+            out[done + i] += voice_amp(y * 2, m, done + i) * 2;
         }
         done += k;
     }

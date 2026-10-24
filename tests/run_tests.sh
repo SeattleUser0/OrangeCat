@@ -104,8 +104,9 @@ case "${CC:-}" in
 esac
 CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 # (Orange Cat 0.12.2, Part 2a) SAN=1: every test of the suite built and run under AddressSanitizer and UndefinedBehaviorSanitizer (the first finding stops the test).
+#   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
 #   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
-case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
+case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
 FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
@@ -296,6 +297,8 @@ sound && t "effects (Orange Cat 0.6.0, Jiant FM's): DIST, AUTO PAN, DELAY, REVER
 core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which buses hold with which engines, the cache RAM and the card's slots" jfx_arena_test -O1 $FW
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
+core && run "web/EDITOR_PROTOCOL.md against editor.c's switch, both directions (Orange Cat 0.12.2)" python3 tools/check_editor_protocol.py
+core && run "the set checker (web/make_site.py check_set): sector bounds of the module area (Orange Cat 0.12.1)" python3 tests/check_set_test.py
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
 core && run "the interface identifier (Orange Cat 0.9.0): the generated header is what the sources give; a comment leaves it, a changed field moves it" sh -c "python3 tools/gen_fw_api_id.py --check build/gen/fw_api_id.h && python3 tools/gen_fw_api_id.py --selftest"
 core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable engine would be given, against the real services" fw_api_test -O1 $FW
@@ -310,6 +313,7 @@ core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies
 FUZZ_SECONDS=${FUZZ_SECONDS:-3}
 core && t "fuzz: the library group's scan, migration and leftovers against mutated sectors ($FUZZ_SECONDS s)" fuzz_lib_group -O1 $FW -- "$OUT/fuzz_lib_group" "$FUZZ_SECONDS"
 core && t "fuzz: the asset pack's boot check and install against a mutated pack area ($FUZZ_SECONDS s)" fuzz_oc_pack -O1 $FW -- "$OUT/fuzz_oc_pack" "$FUZZ_SECONDS"
+core && t "fuzz: the project record loader (record store and pool chunks) against a mutated store, then a save and a power-on ($FUZZ_SECONDS s)" fuzz_oc_project -O1 $FW -- "$OUT/fuzz_oc_project" "$FUZZ_SECONDS"
 core && t "fuzz: the module loader at every start, the planner and an install against a mutated module area ($FUZZ_SECONDS s)" fuzz_oc_module -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fuzz_oc_module" "$FUZZ_SECONDS"
 fuzz_fw_pages() {
     $CC -c -O1 -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/fuzz_fw_pages_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (fuzz)"; return 1; }

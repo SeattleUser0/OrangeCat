@@ -1303,6 +1303,11 @@ laboratory coverage. Both reply `rc`. Neither writes saved projects or patches.
 These controls are absent from production builds. A passing performance contract
 must also be checked with normal admission and emergency protection enabled.
 
+Editor 97 (device builds with `MELODEE_FX_PROFILE=1` only, laboratory): the effects' profiler. `[mask, fx1, fx2, fx3, ticks1, ticks2 [, mode 0|1]]` (mask 0..15,
+the three effect numbers below `FX_COUNT`; mask 0 or no argument: read only) arms a measurement, and every call replies `rc` (1: a bad argument) then 14 values of five
+7-bit groups (LSB first): the control word, three words (ticks, blocks, maximum) for each of four measured slots, and the effects hardware status. It writes no musical or
+persisted state and is absent from production builds (0.12.2: documented; the code is unchanged).
+
 ### Laboratory persistence guard and transport/REC controls
 
 With `MELODEE_AUDIO_PROFILE=1`, editor 98 also accepts:

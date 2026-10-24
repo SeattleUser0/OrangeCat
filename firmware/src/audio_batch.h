@@ -18,7 +18,7 @@ typedef struct {
 #if MELODEE_AUDIO_PROFILE
     uint32_t elapsed;
 #endif
-    uint32_t data[AUDIO_BATCH_BYTES/4u] __attribute__((aligned(8)));int32_t pcm[CTL];
+    _Alignas(8) uint32_t data[AUDIO_BATCH_BYTES/4u];int32_t pcm[CTL];   /* (0.12.2: _Alignas, not the attribute: the host tests define __attribute__ away, and the kernels read int64/double members of the descriptor; UBSan found the host's copy at 4 bytes) */
 } audio_batch_job_t;
 static audio_batch_job_t audio_batch_jobs[AUDIO_BATCH_JOBS] __attribute__((section(".audio_scratch"),aligned(32)));
 static uint32_t audio_batch_count, audio_batch_pairs;

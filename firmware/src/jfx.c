@@ -1207,7 +1207,7 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
                 int32_t ax = xr < 0 ? -xr : xr; if (ax > fxg_dpk) fxg_dpk = ax;
             }
             lf = k->png ? xr : x;
-            fx.dly_hp += (((lf << 8) - fx.dly_hp) * k->hk + 16384) >> 15;
+            fx.dly_hp += (((lf * 256) - fx.dly_hp) * k->hk + 16384) >> 15;
             lf -= (fx.dly_hp + 128) >> 8;
             if (k->dton) lf = tone_run(&k->tn, lf, &fx.dt1, &fx.dt2);
             w = u + mulq15(clamp(lf, -32767, 32767), k->png ? k->fb2 : k->fb);

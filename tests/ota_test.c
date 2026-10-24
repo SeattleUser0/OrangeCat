@@ -185,6 +185,7 @@ int main(int argc, char **argv)
     raw = malloc(0x200000);
     n = fread(raw, 1, 0x200000, f);
     fclose(f);
+    if (n < 20 * 48 + 1) { printf("%s: image too short (%zu B)\n", argv[1], n); return 2; }
     logical = malloc(n);
     for (i = 0; i < 20; i++) memcpy(logical + i * 47, raw + i * 48, 47);   /* drop the marker bytes */
     memcpy(logical + 20 * 47, raw + 20 * 48, n - 20 * 48);
@@ -296,6 +297,7 @@ int main(int argc, char **argv)
         if (!f) { perror(argv[2]); return 2; }
         n = fread(raw, 1, 0x200000, f);
         fclose(f);
+        if (n < 20 * 48 + 1) { printf("%s: image too short (%zu B)\n", argv[2], n); return 2; }
         free(logical);
         logical = malloc(n);
         for (i = 0; i < 20; i++) memcpy(logical + i * 47, raw + i * 48, 47);

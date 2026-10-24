@@ -140,6 +140,9 @@ static int smp_mark(void)                         /* the first sector erased, th
     if ((rc = ocs_prog(SMP_SLOT_BASE, (const uint8_t *)m, sizeof m)) != 0) return rc;
     return smp_marked() ? 0 : -7;
 }
+#ifndef OC_FEED
+#define OC_FEED() ((void)0)            /* (0.12.2: a host unit that includes this file without storage.c, ui_test.c: no feed to count; clang's analyzer found the undeclared name) */
+#endif
 #define SMP_FEED() OC_FEED()                             /* (the claim at boot: up to ~56 erases, the 8 s watchdog; 0.12.2: storage.c's OC_FEED, which the host tests can count) */
 static uint64_t smp_resv_mask(void) { return ((1ull << SMP_SLOT_NSECT) - 1ull) << SMP_SLOT_S0; }
 

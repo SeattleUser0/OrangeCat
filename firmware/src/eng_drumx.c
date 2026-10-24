@@ -181,7 +181,7 @@ static DX_XIP void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, 
     dx_run(dxe_kit(t), ln, &L->x, p[P_E0] + lfo_shp, L->st * 16 + (p[P_E1] - 64) * 3 + lfo_pit, p[P_E3] - 64, p[P_E2] - 64,
            p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
     for (i = 0; i < n; i++)                              /* x1.25 */
-        out[i] += voice_amp(y[i] + (y[i] >> 2), m, i) << 1;
+        out[i] += voice_amp(y[i] + (y[i] >> 2), m, i) * 2;
 }
 
 /* (Jiant 0.6.16, drum_bus) the kit's sum, once a block (voice.c track_render, after the part's voices): DRV x1..x4 into the
@@ -202,7 +202,7 @@ static DX_XIP void dxe_post(track_t *t, int32_t *out, uint32_t n, uint32_t nr)
                                                           * high wrapped it: a full-scale click) */
             y = (softclip((clamp(s, -131071, 131071) * g) >> 12) * mk) >> 15;
         y = soft_knee(y, 24000);
-        out[i] = y << 1;
+        out[i] = y * 2;
     }
 }
 

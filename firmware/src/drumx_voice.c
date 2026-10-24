@@ -110,7 +110,7 @@ static DX_XIP void dx_layer(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t *php
         for (i = 0; i < n; i++, inc += dinc, ga += dga, ix += dix) {
             int32_t o2;
             o = sine_i(ph + (uint32_t)(sine_i(ph2) * ix) * 512u + (uint32_t)(o * fbk));
-            o2 = dx_tri(ph4 + (uint32_t)(o * lx));
+            o2 = dx_tri(ph4 + (uint32_t)o * (uint32_t)lx);
             y[i] = mulq15(o + (((o2 - o) * lm) >> 6), ga >> 8);
             ph += (uint32_t)inc << 4;
             ph2 += ((uint32_t)inc >> 8) * ratio;
