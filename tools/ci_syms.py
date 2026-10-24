@@ -16,15 +16,19 @@ def main(objdump, elf, out):
     secs = subprocess.run([objdump, "-h", elf], capture_output=True, text=True, check=True).stdout
     line = re.compile(r"^([0-9a-f]{8}) (.{7}) (\S+)\s+([0-9a-f]{8})\s+(\S+)\s*$")
     rows = []
+    cur = ""
     for ln in syms.splitlines():
         m = line.match(ln)
         if not m:
             continue
         addr, flags, sect, size, name = m.groups()
+        if "df" in flags:                      # (size audit) a FILE symbol: the symbols that follow belong to it
+            cur = name
+            continue
         size = int(size, 16)
         if size == 0 or sect.startswith("*"):
             continue
-        rows.append((sect, int(addr, 16), size, name, flags.strip()))
+        rows.append((sect, int(addr, 16), size, name, flags.strip() + "@" + (cur if "l" in flags else "")))
     rows.sort(key=lambda r: (r[0], r[1]))
     with open(out, "w") as f:
         f.write("# sections (objdump -h)\n")
