@@ -4,8 +4,13 @@
  *
  * Where a module is
  *   The module area is 12 sectors, 0xC8000..0xD3FFF. SHAPES' module is 6 sectors, so it has two places it can be linked for, "starts" 0 and 6
- *   (sector index in the area; tools/build.py --module makes one image for each and the .ocm carries both). The installer (step 6) writes
- *   the free one, so a replacement is written beside the old module and the old one is erased after. The loader looks at both starts.
+ *   (sector index in the area; tools/build.py --module makes one image for each and the .ocm carries both). The installer writes a
+ *   replacement BESIDE the old module when another start is free (0.10.1; before that the code said in place while this comment said beside):
+ *   the new module is written there, its header page last, read back from the flash and checked as the loader checks it, and only then is
+ *   the old module taken out of the table and its start erased. A power cut at any point before the new header page is programmed leaves
+ *   the old module; after it, the new one (or, in the instant between the commit and the first erase of the old start, both: the lower
+ *   start is used, and both are good). Only when no other start is free is a replacement written IN PLACE: the old module is erased first
+ *   and a power cut leaves none (the web page and the card browser say so before they start). The loader looks at both starts.
  *   Flash offset 0xC8000 reads at XIP 0x020C4000 (FM1_XIP: the loader header takes the first 0x4000): that is where start 0 runs.
  *
  * The checks (in this order; the first that fails names the state of the start)
@@ -56,7 +61,8 @@
  *
  * Revisions:
  *   0.10.0: first version.
- *   0.10.1: the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails).
+ *   0.10.1: the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
+ *           module when another start is free (oc_mod_plan, oc_mod_inplace, mw.inplace); the header comment now says what the code does.
  */
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
 static uint32_t fm1_guard_code_end;
@@ -214,21 +220,27 @@ static void oc_mod_note_use(void)
  * The web editor's ED_MOD_* (editor.c) or a .ocm on the card (card_browse.c) puts a module in the area; only while the transport is stopped, as
  * every flash write. The page reads ED_MOD_INFO for the engine it has, which names the start to use (oc_mod_plan), takes that variant's image
  * from the .ocm, and sends it:
- *   oc_mod_begin(engine, start, len)   the start must be oc_mod_plan's; the engine is taken out of the table and its tracks' voices and state are
- *                                      cleared (oc_mod_park); the 6 sectors of the start are erased (and those of any other module for the same
- *                                      engine); the install is under way. From here the old module is gone: a cut leaves none (the built-in
- *                                      engine, if built in, or silence; the project keeps its engine numbers).
+ *   oc_mod_begin(engine, start, len)   the start must be oc_mod_plan's. Beside (the start is free): its 6 sectors are erased and nothing else is
+ *                                      touched; the old module, if any, goes on playing and stays registered. In place (no other start is free and
+ *                                      this one holds the engine's old module): the engine is taken out of the table and its tracks' voices and
+ *                                      state are cleared (oc_mod_park), then the 6 sectors of the start are erased (and those of any other module
+ *                                      for the same engine); from here the old module is gone: a cut leaves none (the built-in engine, if built
+ *                                      in, or silence; the project keeps its engine numbers).
  *   oc_mod_write(off, data, n)         the code in order from FW_MOD_CODE_OFF, in 256 byte pages
  *   oc_mod_end(page)                   the 256 byte header page, checked against what was written (its CRC against the stream, the link address
  *                                      against the start, every field as at boot), programmed LAST (the commit). Then the area is read again as at
- *                                      boot and the module registered.
+ *                                      boot and the module registered. Beside, the new start is first read back and checked as the loader checks
+ *                                      it; if it fails it is erased and the old module stays (rc 7). If it passes, the old module is taken out of
+ *                                      the table (oc_mod_park), its start erased (the header sector first), and the new one registered.
  *   oc_mod_remove(engine)              the engine taken out as above and its start(s) erased (engine 127: the whole area)
- * Where a module goes (oc_mod_plan): the start that holds a module for the same engine (a replace is in place, so there is never a second
- * one); else the first empty start; else the first that holds something this firmware cannot use (another firmware's module, damage, a cut-off
- * install); else none (rc 5). */
+ * Where a module goes (oc_mod_plan, 0.10.1): the first empty start; else the first that holds something this firmware cannot use (another
+ * firmware's module, damage, a cut-off install, a sector tail the update loader would erase); else, with no start free, the start that holds a
+ * module for the same engine (an install in place: the old module is erased first); else none (rc 5). A start is "free" when it holds no usable
+ * module, whatever it holds otherwise. oc_mod_inplace(engine, start) says whether an install at that start is in place. */
 static struct {
     uint8_t writing;
     uint8_t start;
+    uint8_t inplace;                                     /* (0.10.1) this install replaced the engine's old module where it stood */
     uint32_t engine, len, done, crc;
 } mw;
 enum { MI_OK = 0, MI_REFUSED = -1, MI_FLASH = -2, MI_PAIRS = -4, MI_NOFREE = -5, MI_BAD = -7, MI_TAIL = -8 };   /* MI_TAIL (0.10.1): a sector tail the update loader would erase */
@@ -237,19 +249,29 @@ static int oc_mod_has(uint32_t i, uint32_t engine)      /* start i holds a usabl
 {
     return (oc_mod.state[i] == MD_OK || oc_mod.state[i] == MD_CRASHED || oc_mod.state[i] == MD_NOSLOT) && oc_mod.engine[i] == engine;
 }
-/* the start an install of `engine` goes to, or -1 */
+/* start i holds a module this firmware can run (usable), whatever its state is for the engine */
+static int oc_mod_usable(uint32_t i)
+{
+    return oc_mod.state[i] == MD_OK || oc_mod.state[i] == MD_CRASHED || oc_mod.state[i] == MD_NOSLOT;
+}
+/* the start an install of `engine` goes to, or -1 (0.10.1: a free start first, so a replacement is written beside the old module) */
 static int oc_mod_plan(uint32_t engine)
 {
     uint32_t i;
     if (!eng_module_slot(engine))
         return -1;
     for (i = 0; i < OC_MOD_STARTS; i++)
-        if (oc_mod_has(i, engine)) return (int)i;
-    for (i = 0; i < OC_MOD_STARTS; i++)
         if (oc_mod.state[i] == MD_EMPTY) return (int)i;
     for (i = 0; i < OC_MOD_STARTS; i++)
-        if (oc_mod.state[i] != MD_OK && oc_mod.state[i] != MD_CRASHED && oc_mod.state[i] != MD_NOSLOT) return (int)i;
+        if (!oc_mod_usable(i)) return (int)i;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod_has(i, engine)) return (int)i;         /* no start free: in place */
     return -1;
+}
+/* an install of `engine` at `start` replaces its old module where it stands (the old one is erased first; a cut leaves none) */
+static int oc_mod_inplace(uint32_t engine, uint32_t start)
+{
+    return start < OC_MOD_STARTS && oc_mod_has(start, engine);
 }
 /* the engine out of the table; the voices and the arena state of the tracks that play it cleared: nothing calls into the module after this */
 static void oc_mod_park(uint32_t engine)
@@ -296,10 +318,15 @@ static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
         return MI_NOFREE;
     if ((uint32_t)plan != start)
         return MI_REFUSED;
-    oc_mod_park(engine);
-    for (i = 0; i < OC_MOD_STARTS; i++)                  /* every usable module of this engine, and the start asked for */
-        if (i == start || oc_mod_has(i, engine))
-            if ((rc = oc_mod_erase_start(i)) != 0) { fm1_guard_code_end = 0; return rc; }
+    mw.inplace = (uint8_t)oc_mod_inplace(engine, start);
+    if (mw.inplace) {                                    /* in place: the old module out first, then every usable module of this engine, and the start asked for */
+        oc_mod_park(engine);
+        for (i = 0; i < OC_MOD_STARTS; i++)
+            if (i == start || oc_mod_has(i, engine))
+                if ((rc = oc_mod_erase_start(i)) != 0) { fm1_guard_code_end = 0; return rc; }
+    } else if ((rc = oc_mod_erase_start(start)) != 0) {  /* beside: only the free start; the old module stays registered and playable */
+        return rc;
+    }
     mw.writing = 1; mw.start = (uint8_t)start; mw.engine = engine; mw.len = len;
     mw.done = FW_MOD_CODE_OFF; mw.crc = 0xFFFFFFFFu;
     return MI_OK;
@@ -341,6 +368,25 @@ static int oc_mod_end(const void *page256)
         return MI_TAIL;
     if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
         return rc;
+    if (!mw.inplace) {                                                     /* beside (0.10.1): the old module goes only after the new one reads back good */
+        fw_mod_hdr_t nh;
+        uint32_t i, st = oc_mod_check(mw.start, &nh), old = 0;
+        if (st != MD_OK && st != MD_NOSLOT) {
+            oc_mod_erase_start(mw.start);                                  /* the new one is junk: out of the way, the old module untouched */
+            oc_mod_boot(0);
+            return MI_BAD;
+        }
+        for (i = 0; i < OC_MOD_STARTS; i++)
+            if (i != mw.start && oc_mod_has(i, mw.engine)) old |= 1u << i;
+        if (old) {
+            oc_mod_park(mw.engine);                                        /* nothing calls into the old module from here */
+            for (i = 0; i < OC_MOD_STARTS && !rc; i++)
+                if (old & (1u << i)) rc = oc_mod_erase_start(i);           /* its header sector first: from the first erase the new module is the only valid one */
+        }
+        oc_mod_boot(0);                                                    /* registered as at boot: the new one */
+        if (rc) return rc;                                                 /* the new module is in; the old one could not be erased (both valid: the lower start is used) */
+        return oc_mod.state[mw.start] == MD_OK ? MI_OK : MI_BAD;
+    }
     oc_mod_boot(0);                                                        /* read as at boot: the module is registered when it is good */
     return oc_mod.state[mw.start] == MD_OK || oc_mod.state[mw.start] == MD_NOSLOT ? MI_OK : MI_BAD;
 }

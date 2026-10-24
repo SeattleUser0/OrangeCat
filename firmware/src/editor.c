@@ -912,12 +912,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     }
 #endif
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
-    case ED_MOD_INFO: {                                    /* [engine] -> nstarts, sectors of the area, flags (1 SHAPES built in, 2 a module wins a built-in slot, 4 an install is under way),
+    case ED_MOD_INFO: {                                    /* [engine] -> nstarts, sectors of the area, flags (1 SHAPES built in, 2 a module wins a built-in slot, 4 an install is under way,
+                                                            * 8 (0.10.1) the install the plan names is in place: no other start is free, so the old module is erased first and a power cut leaves none),
                                                             * api_version, api_size, iface (5 x 7 bits), api_addr (5 x 7), pack_hash (5 x 7), the start an install of `engine` goes to
                                                             * (0, 1, or 127 none; 127 too without the argument), then per start: state (MD_*), why, engine, length (3 x 7) */
         int plan = na ? oc_mod_plan(a[0]) : -1;
         ed_b(OC_MOD_STARTS); ed_b(12);
-        ed_b((MELODEE_SHAPES ? 1u : 0u) | (OC_MODULE_WINS ? 2u : 0u) | (mw.writing ? 4u : 0u));
+        ed_b((MELODEE_SHAPES ? 1u : 0u) | (OC_MODULE_WINS ? 2u : 0u) | (mw.writing ? 4u : 0u) | (plan >= 0 && oc_mod_inplace(a[0], (uint32_t)plan) ? 8u : 0u));
         ed_b(FW_API_VERSION); ed_b(sizeof(fw_api_t));
         for (i = 0; i < 5u; i++) ed_b(FW_API_IFACE >> (7u * i));
         for (i = 0; i < 5u; i++) ed_b(FW_API_ADDR >> (7u * i));

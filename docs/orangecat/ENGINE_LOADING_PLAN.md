@@ -809,6 +809,18 @@ pk_record_like):
 The XIP address of a flash offset is one function too (`ocflash.xip`, the text of fm1_xip.h); gen_pack.py and build.py both call it, and
 tests/ocflash_test.py compares it with the header, so the 0.10.0 step 4 mistake cannot come back.
 
+### Fix 2. Replace beside the old module when a start is free
+
+0.10.0 wrote a replacement over the start that held the same engine: a power cut mid-install left no working module, and the header comment of oc_module.c said
+"beside" while the code said "in place". Now `oc_mod_plan` names a free start first (empty, then one that holds nothing this firmware can use), and the
+start that holds the engine's module only when no other is free. Beside, the order is: erase the free start; write the code; read the code back for the sector
+tails; program the header page (the commit); read the new start back with the loader's own checks (`oc_mod_check`); only then take the old module out of the
+table (`oc_mod_park`) and erase its start, header sector first; register the new one. A new module that does not read back good is erased and the old one
+stays (rc 7). In place, the web page asks first ("the module that is in the unit is erased first; a power cut leaves none") and the card browser says "Erases old first. Again" and goes on at
+the second OCT+ on the same row. MOD_INFO flag 8 tells the page. Tests (oc_module_test.c): a cut at every program (15) and every erase (12) of a replacement:
+the old module until the commit, the new one after the old start's first erase, and in the one instant between them both are valid and the lower start is used;
+replacement with no free start; erase errors at begin both ways; the card's question; the page's flag.
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

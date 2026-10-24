@@ -65,6 +65,8 @@ const E = vm.runInNewContext(proto + `
   const info = E.parse[C.MOD_INFO](reply(0, [7, 0, 14, ...n3(23780)], [0, 0, 0, 0, 0, 0]));
   ok(info.nstarts === 2 && info.sectors === 12 && info.apiVersion === 3 && info.apiSize === 60 && info.iface === iface && info.apiAddr === 0x02001100 && info.packHash === hash &&
      info.plan === 0 && info.starts[0].state === 7 && info.starts[0].engine === 14 && info.starts[0].length === 23780 && info.starts[1].state === 0 && info.shapesBuiltIn && info.moduleWins && !info.writing, "module: the reply of INFO");
+  ok(E.parse[C.MOD_INFO]([2, 12, 1 | 2 | 8, 3, 60, ...n5(iface), ...n5(0x02001100), ...n5(hash), 0, 7, 0, 14, ...n3(23780), 7, 0, 99, ...n3(100)]).inPlace === true && info.inPlace === false,
+     "module: flag 8 of INFO says the install the unit names is in place (the old module erased first); clear when it goes beside");
   const sum = (a, b) => E.modSummary(E.parse[C.MOD_INFO](reply(0, a, b)));
   ok(sum([7, 0, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateOk" && sum([0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modState0" && sum([5, 0, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateCrash" &&
      sum([6, 2, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateNoslot" && sum([4, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateBad" && sum([4, 0, 0, 0, 0, 0], [7, 0, 14, 0, 0, 0]) === "modStateOk", "module: the state line for each start state");

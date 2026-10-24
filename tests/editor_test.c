@@ -910,6 +910,13 @@ static int module_protocol(void)
     bad += check("MOD_INFO: start 0 is OK, SHAPES, its length", host_wire[26] == MD_OK && host_wire[28] == ENGI_SHAPES &&
                  (host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14) == len && !(host_wire[7] & 4u));
     bad += check("the flash holds the header page and the code byte for byte", !memcmp(host_mod, img, len));
+    a[0] = ENGI_SHAPES;
+    request(ED_MOD_INFO, a, 1);
+    bad += check("MOD_INFO after the install: the plan is the other start (1, beside the old module) and flag 8 (in place) is clear", host_wire[25] == 1 && !(host_wire[7] & 8u));
+    oc_mod.state[1] = MD_OK; oc_mod.engine[1] = 99;            /* the other start held a usable module of another engine: no start free */
+    request(ED_MOD_INFO, a, 1);
+    bad += check("MOD_INFO with no other start free: the plan is the old module's start (0) and flag 8 says the install there is in place", host_wire[25] == 0 && (host_wire[7] & 8u));
+    oc_mod.state[1] = MD_EMPTY; oc_mod.engine[1] = 0;
     n = pack7(img, 256u, a);
     request(ED_MOD_END, a, n);
     bad += check("a second MOD_END with nothing under way is refused (1)", host_wire[5] == 1);
