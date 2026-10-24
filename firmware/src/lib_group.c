@@ -62,6 +62,9 @@
  *
  * Revisions:
  *   0.9.1: first version.
+ *   0.11.1: a save whose read-back fails after the header was programmed erases the sector (or, if that fails too, moves lg_seq past it):
+ *           the failed save no longer appears after a reset and no later save shares its sequence; lg_seq is 0 for a bank with no copy and
+ *           every save takes lg_seq + 1.
  *   0.11.1: after a downgrade below 0.9.1 and an upgrade the migration could never finish (22 busy sectors, no free one: -8 on every
  *           boot, writes locked for good). A sector is busy only for the current record of a waiting bank; stale group copies of
  *           waiting banks are given up when there is no free sector (lg_pick_move); the state that remains impossible by count is
@@ -128,7 +131,7 @@ static int lg_rd_body(uint32_t s, const st_hdr_t *h)   /* the payload's CRC-32 m
     return ~crc == h->crc ? 0 : -1;
 }
 
-/* Build the RAM table from the 23 sectors: the newest valid copy of each bank. */
+/* Build the RAM table from the 23 sectors: the newest valid copy of each bank. (A bank with no copy has lg_seq 0.) */
 static void lg_scan(void)
 {
     for (uint32_t b = 0; b < LG_BANKS; b++) { lg_map[b] = LG_NONE; lg_seq[b] = 0; }
@@ -220,14 +223,20 @@ static int lg_save(uint32_t bank, const void *src, uint32_t len)
     h.magic = ST_MAGIC;
     h.type = LG_TYPE;
     h.slot = (uint16_t)bank;
-    h.seq = old == LG_NONE ? 1u : lg_seq[bank] + 1u;
+    h.seq = lg_seq[bank] + 1u;                                           /* (0.11.1: lg_seq is 0 for a bank with no copy, so one rule; it also moves past a failed save, below) */
     h.len = len;
     h.crc = st_crc32(src, len);
     h.rsv[0] = compact ? ST_COMPACT_TAG : 0xFFFFFFFFu;
     h.rsv[1] = 0xFFFFFFFFu;
     h.hcrc = st_crc32(&h, sizeof h - 4u);
     if ((rc = lg_prog(lg_addr[s], &h, sizeof h)) != 0) return rc;       /* the commit record, last */
-    if (lg_rd_hdr(s, &chk) || memcmp(&chk, &h, sizeof h) || lg_rd_body(s, &chk)) return -7;   /* read back */
+    if (lg_rd_hdr(s, &chk) || memcmp(&chk, &h, sizeof h) || lg_rd_body(s, &chk)) {   /* read back */
+        /* (0.11.1) The header is programmed, so the sector may hold a complete record with the next sequence: it would win at the next
+         * boot over the copy this save reported as still in charge, and a later save would share its sequence. Erase it (the previous
+         * copy stays in charge for good). If the erase fails too, move lg_seq past it, so that no later save of this bank can share the sequence. */
+        if (lg_erase(s) != 0) lg_seq[bank] = h.seq;
+        return -7;
+    }
     lg_map[bank] = (uint8_t)s;
     lg_seq[bank] = h.seq;
     lg_cursor = (uint8_t)((s + 1u) % LG_SECTORS);

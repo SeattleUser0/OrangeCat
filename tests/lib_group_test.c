@@ -28,18 +28,22 @@
 static uint8_t nor[0x100000];
 static long ops, cut_at = -1;           /* flash operations since the last reset; the operation that loses power (-1: none) */
 static int dead;                        /* power is gone: every later operation fails until "boot" */
+static long fail_read_n = -1;           /* (0.11.1) the read this many reads from now fails once (-1: none); 0 is the next one */
+static long fail_erase_n = -1;          /* (0.11.1) the same for erases: the one this many erases from now returns an error (the sector is left as it was) */
 static uint32_t er[256], prog_bytes;    /* erases per 4 KiB sector */
 static uint32_t n_erase, n_prog;
 
 static int st_read(uint32_t off, void *dst, uint32_t n)
 {
     if (dead) return -9;
+    if (fail_read_n >= 0 && fail_read_n-- == 0) { fail_read_n = -1; return -9; }
     memcpy(dst, nor + off, n);
     return 0;
 }
 static int st_erase(uint32_t off)
 {
     if (dead) return -9;
+    if (fail_erase_n >= 0 && fail_erase_n-- == 0) { fail_erase_n = -1; return -9; }
     if (cut_at == ops++) {              /* power lost in the middle of an erase: junk */
         dead = 1;
         for (uint32_t i = 0; i < 4096u; i++) nor[off + i] = (uint8_t)(0xA5u ^ (i * 7u));
@@ -617,6 +621,78 @@ int main(void)
             }
         }
         check("... and a second power loss during the recovery, the same", ok3);
+    }
+
+    /* ---- (0.11.1, fix 2) the read-back of a save fails after the header was programmed ---------------------------------------------
+     * lg_save programs the header last and reads the sector back. When that read fails the save reports -7, the previous copy is
+     * still in charge in RAM, but the sector holds a complete, valid record with the next sequence: at the next boot it won over the
+     * previous copy (a save that said no appeared after a reset), and lg_seq was not advanced. Now the sector is erased (the previous
+     * copy stays in charge for good); if the erase fails too, lg_seq is advanced past it so that no later save can share its sequence. */
+    {
+        int ok;
+        long where[4] = {0, 1, 2, 6};                 /* the header read, the first body read, the second, a later one */
+        const char *names[4] = {"the header read-back", "the first read of the body", "the second read of the body", "a later read of the body"};
+        for (int v = 0; v < 4; v++) {
+            blank();
+            st_retire_engines(7);
+            for (b = 0; b < LG_BANKS; b++) { make(b, 1, buf, &l); st_save(OBJ_LIB0 + b, buf, l); expect(b, 1); }
+            uint32_t was = lg_map[5], spare = lg_pick();
+            make(5, 2, buf, &l);
+            fail_read_n = where[v];
+            int rc = st_save(OBJ_LIB0 + 5, buf, l);
+            fail_read_n = -1;
+            ok = rc == -7 && lg_map[5] == was && all_ok();
+            check(v == 0 ? "a save whose read-back fails (the header read): -7, the previous copy in charge" :
+                  v == 1 ? "... the first read of the body fails: the same" : v == 2 ? "... the second read of the body fails: the same" : "... a later read of the body fails: the same", ok);
+            st_hdr_t hh;
+            ok = lg_rd_hdr(spare, &hh) != 0;          /* the sector it tried is erased: no valid record of the failed save is left */
+            check("... the sector of the failed save holds no valid record", ok);
+            boot();                                   /* a reset right after: the failed save must not appear */
+            ok = all_ok() && lg_map[5] == was;
+            check("... after a reset the previous copy is still the bank's (the failed save did not appear)", ok);
+            make(5, 3, buf, &l);
+            ok = st_save(OBJ_LIB0 + 5, buf, l) == 0;
+            expect(5, 3);
+            ok &= all_ok();
+            boot();
+            ok &= all_ok();
+            check("... the next save goes through and is the one that wins at the next boot", ok);
+            (void)names;
+        }
+        /* the erase fails as well (a part in trouble): the sector keeps its record, lg_seq goes past it */
+        blank();
+        st_retire_engines(7);
+        for (b = 0; b < LG_BANKS; b++) { make(b, 1, buf, &l); st_save(OBJ_LIB0 + b, buf, l); expect(b, 1); }
+        uint32_t s0 = lg_seq[5], spare = lg_pick();
+        make(5, 2, buf, &l);
+        fail_read_n = 0; fail_erase_n = 1;       /* (the save's own erase is the first, the clean-up the second) */
+        int rc = st_save(OBJ_LIB0 + 5, buf, l);
+        st_hdr_t hh;
+        ok = rc == -7 && lg_seq[5] == s0 + 1u && !lg_rd_hdr(spare, &hh) && hh.seq == s0 + 1u;
+        check("read-back and erase both fail: -7, the sector keeps its record, lg_seq is advanced past it", ok);
+        fail_read_n = fail_erase_n = -1;
+        make(5, 3, buf, &l);
+        ok = st_save(OBJ_LIB0 + 5, buf, l) == 0 && lg_seq[5] == s0 + 2u;
+        expect(5, 3);
+        ok &= all_ok();
+        boot();
+        ok &= all_ok() && lg_seq[5] == s0 + 2u;
+        check("... the next save takes the sequence after it and wins at the next boot", ok);
+        /* a bank with no copy at all: the same rule (the first save has sequence 1; after a failure with a failed erase the next has 2) */
+        blank();
+        st_retire_engines(7);
+        boot();                                   /* (the scan reads: it must not meet the injected failure) */
+        make(8, 1, buf, &l);
+        fail_read_n = 0; fail_erase_n = 1;       /* (the save's own erase is the first, the clean-up the second) */
+        rc = st_save(OBJ_LIB0 + 8, buf, l);
+        fail_read_n = fail_erase_n = -1;
+        ok = rc == -7 && lg_map[8] == LG_NONE && lg_seq[8] == 1u;
+        make(8, 2, buf, &l);
+        ok &= st_save(OBJ_LIB0 + 8, buf, l) == 0 && lg_seq[8] == 2u;
+        expect(8, 2);
+        boot();
+        ok &= all_ok() && lg_seq[8] == 2u;
+        check("... and a bank that had no copy: the next save has sequence 2 and wins", ok);
     }
 
     /* ---- (0.11.1, fix 1) the stale group copy of a waiting bank is given up when nothing else is free ------------------------------
