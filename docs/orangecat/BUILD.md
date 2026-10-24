@@ -10,6 +10,8 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.65 (October 24, 2026):** 0.11.1, Fixes 3 to 6 on branch sonnet-work (not on main, not released, not on the unit): one helper writes the PC window on every path that takes a module out of the table; an install or remove in a running session parks the engine's voices first and the table's two stores are one critical section; two valid modules of one engine at boot: the higher version wins and the loser is erased; the project load marks a module's use before audio renders it. See "Fifth run".
+- **0.64 (October 24, 2026):** 0.11.1, Fixes 1 and 2 on branch sonnet-work (not on main, not released, not on the unit): the library migration after a downgrade below 0.9.1 and an upgrade can finish (a stale group copy is released), LIBRARY NEEDS WIPE and a wipe that completes from it, a save whose read-back fails no longer leaves a record that wins after a reset. A downgrade below 0.9.1 destroys the library: back up before, restore after. See "Fifth run".
 - **0.60 (October 23, 2026):** docs for 0.9.0 final: the module experiment's finding (SHAPES builds as a separate 23,780 B object with 188 relocations; the toolchain links it at a fixed address only; no ROPI, RWPI or linkable PIC), the proof of concept's next steps in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, SPEC 0.21, GUIDE (DRUM-X), web/EDITOR_PROTOCOL.md. See "Second run".
 - **0.63 (October 23, 2026):** 0.10.1 and 0.11.0 on branch sonnet-work (not on main, not released, not on the unit): the module's sector tails against the update loader's record rule, replace beside the old module, the crash ban at any time in a session, the PC guard window (one fetch window; the cost written down; a window bug fixed), small things (12 sectors everywhere, one XIP function, the migration wall time); admission at assignment on voice units and the arena (no render budget exists); the Engines table and the engine list command 125; the unit procedure as one ordered checklist. See "Fourth run".
 - **0.62 (October 23, 2026):** 0.10.0 on branch sonnet-work (not on main, not released, not on the unit): SHAPES as a loadable module, the proof of concept's steps 1 to 6. The services table at a fixed address; `tools/build.py --module` and the .ocm package (23,780 B a start, no RAM of its own); the engine table in RAM; a loader that checks and registers modules at boot with a crash mark and a widened PC guard; an installer (commands 120 to 124), a Settings box on the web page and .OCM files in the card browser. A bug in step 2 found and fixed: the module was linked for XIP 0x020C8000 where flash 0xC8000 reads at 0x020C4000. Image 489,916 B (87,332 B free), .data+.bss 93,128 B, arena 95,104 B; built without SHAPES the image is 466,680 B. Step 7 (the unit) is the user's. See "Third run", Part 2.
@@ -1550,7 +1552,7 @@ erases anything), the installer (before it programs the header page) and the loa
 (the code moves 4 bytes and the link is run again; a record that moves with the code is refused with no package); `oc_module_test.c` plants records in the flash image.
 
 **Fix 2 in short.** Cut at every program (15) and every erase (12) of a replacement: the old module is the one that loads until the header page is committed, the new one after the old
-start's first erase, and in the one instant between both are valid and the lower start is used. Replacement with no free start; erase errors at begin; the card's question ("Erases old first. Again").
+start's first erase, and in the one instant between both are valid and the lower start is used (0.11.1: the higher version is used and the other erased at that boot, see the Fifth run). Replacement with no free start; erase errors at begin; the card's question ("Erases old first. Again").
 
 **Fix 3 in short.** How an unclean reset is told from a clean one: the reset reason register cannot (a fault ends in a soft reset, as an orderly one does), so the firmware's own mark is used,
 `oc_modguard.run`, set at power-on and cleared by `reset_intended()` (UBOOT, an update, a test reboot). A boot that finds it set follows a session that died. A power loss clears the RAM,
@@ -1650,6 +1652,57 @@ The commits after run 40051607092 change documents only, so its numbers are the 
   `test_web.mjs` (the parse); `module_build_test.py` (the cost sum, the 60 byte header). Existing tests adapted to the 60 byte header: `module_build_test.py`, `oc_module_test.c`.
 - Part 3: `editor_test.c` (the reply byte for byte, a banned module, an argument refused); `test_web.mjs` (the parse and the rows: OK, built in, absent, banned, refused, torn, wrong tail).
 - Found on the way: a module's translation unit (tools/module/shapes_mod.c) must not define `oc_modguard` (core.h now leaves it out under `OC_MODULE`); `module_host_test` caught it.
+
+## Fifth run (0.11.1, branch sonnet-work, October 24, 2026)
+
+**Status: the six fixes are built and host tested. Green in CI. Not tried on the unit. Not merged, not released.**
+Everything is on branch `sonnet-work`, from fae1483 (CI run 40053801428; image 491,620 B). Each fix is its own commit with a test that failed before it and passes after.
+Fixes 1 to 3 were tested in that way (the new tests were run against the old code and failed); Fix 4's parking test failed for a fresh install before the change; Fix 5's tests failed on the old loader (18 checks).
+
+**A downgrade below 0.9.1 destroys the library.** Firmware before 0.9.1 cannot read the library group, and its first save writes over group sectors. Back the unit up before a downgrade and restore the backup after
+the upgrade. The 0.11.1 migration finishes after such a round trip, but the presets saved in the group before the downgrade are lost where the old firmware wrote over them.
+
+### What was done
+
+| Fix | Result | Test |
+|---|---|---|
+| 1. Migration after a downgrade and an upgrade (lib_group.c, shared_presets.c, ui_boot.c, upreset.c) | A bank that needs migrating releases its stale group copy (its pair is the newer save) before the picker runs, and the sector the migration keeps busy is only the one old record it is reading. Where no sector is free the boot says LIBRARY NEEDS WIPE (boot screen with WIPE and KEEP), saves and installs stay refused, and the wipe completes: it also erases every old pair record. | `lib_group_test.c`: the exact sequence (migrate, the old firmware's pair saves over group sectors, boot: all banks in the group with the pair's content, lg_incomplete 0, saves work), a cut at every flash op of the second migration and double cuts, a full group, bank 0's two record pair. `unified_presets_test.c needwipe_recovery`: the screen, KEEP, BACK, WIPE and its confirmation, the wipe completes, no old record is left, other flash is untouched, saves work. |
+| 2. Read-back failure in lg_save | When the header page programmed and the read-back fails, the sector is erased; if that erase fails too, lg_seq is advanced past the sector. The previous valid copy stays in charge. | `lib_group_test.c`: the simulated NOR fails one read (four positions), the read-back and the erase both failing, and a bank with no copy yet. Each ends with the newest content winning after a reset. |
+| 3. PC window on every unregister path (oc_module.c) | `oc_mod_window()` writes the window from what is registered. oc_mod_boot, oc_mod_park and the erase-error path of an in-place begin all call it. An install abandoned without its end leaves the engine unregistered and the window at `_etext`. | `oc_module_test.c`: the window value after an in-place begin, its erase error, an abandoned install, a boot after it, the next begin, a beside begin, a refused beside end, a shorter replacement, the helper and oc_mod_park alone. |
+| 4. Voices parked, one critical section (oc_module.c) | `oc_mod_reload()` replaces oc_mod_boot in begin, end and remove: every engine a module may supply is taken out of the table and its voices and arena state are cleared first, then the area is read again. The window is written last. `oc_mod_reg` and `oc_mod_unreg` make `ENGINES[e]` and `eng_mod[e]` one interrupts-off section in a running session. | `oc_module_test.c`: the voices are parked on a fresh install, in place, beside and on remove; the interrupts-off and on calls are in pairs for the unregister and the register; the power-on boot touches the interrupt state not at all. |
+| 5. Two valid modules at boot (oc_module.c) | The higher header version wins; on equal versions the higher start. The loser is erased at that boot (not while lg_incomplete, and an erase error leaves it for the next boot). The next install then sees one module and a free start and goes beside. | `oc_module_test.c`: a replacement beside cut at every erase (12), the boot picks the newer, the loser is erased, the next install goes beside; the higher version at start 0; equal versions; lg_incomplete; an erase error; a banned winner. |
+| 6. Use marked at project load (oc_module.c, project.c) | `oc_mod_note_engine(e)` is called by `project_restore_runtime` as each track is given its engine. The main loop's `oc_mod_note_use` still runs. | `oc_module_test.c`: a project with a track on the module's engine is loaded and the use bit is set with no loop pass, a death then bans the module; a project without it marks and bans nothing. |
+
+### Decisions made without asking (you may disagree)
+
+- From the flash contents alone, the picker cannot run out of sectors in the migration (a count shows at most 22 of the 23 sectors can be taken). LIBRARY NEEDS WIPE is a defensive state; it is tested through a host hook (`lg_test_reserve`), not through a real flash image.
+- The sequence rule cannot tell a pair written by the old firmware (it counts from 1) from a leftover. A bank whose group copy survives with a sequence at or above the pair's keeps the group copy, and the pair is erased as a leftover. After a downgrade, the presets saved with the old firmware can be lost for such a bank. The warning says to back up and restore.
+- Fix 2: the "older copy wins on equal sequence" case could not be made to happen (the next pick returns the same sector). The case that does happen is a record that read back wrong but is valid in flash and wins after a reset. That is what is fixed. Erase first, advance the sequence only if the erase fails.
+- Fix 4: the voices are parked at the start of the reload. A note that arrives during the milliseconds of the SPI re-read still renders the built-in slot (or silence) until the new module is registered. The only way to close that is to hold notes off for the install, which the page does not do now.
+- Fix 4: the interrupts-off section is used in a running session only. At power-on (before audio) the interrupt state is left alone, as it was.
+- Fix 4: in a running session the window is written last, so it is never narrower than code that CPU1 may still be inside.
+- Fix 5: on equal versions the higher start wins, as written. A replacement of the SAME version written to start 0 over an old module at start 1, cut before the old erase, leaves the old one in charge at the next boot. Bump the version of a rebuilt module.
+- Fix 5: the loser is not erased while the library migration is incomplete (an old preset pair may lie in the module area). It stays as NOSLOT until the next boot.
+- Fix 6: the use bit is set for the project the unit loads at boot and for every later load. The gap that remains is a death in the few milliseconds between persist_boot and the project load (nothing holds the engine yet).
+- The older two module tests (the lower start wins, a ban hands the number to the other) keep their intent with lg_incomplete set, which holds back the new erase. The erase itself has its own tests.
+
+### Left to build
+
+- Nothing new. The Fourth run's list stands (step 7, a render budget, a measured cost, MACRO and the Prophet as modules).
+
+### Left to test (on the unit)
+
+- The Fourth run's checklist stands. Add: after a downgrade below 0.9.1 and an upgrade, the unit must finish the move or say LIBRARY NEEDS WIPE (do this only with a backup).
+
+### Sizes and CI
+
+Run 40068253460 (the code of Fixes 1 to 6, full suite, no `.ci_quick`, no "tests failed" annotation): image 492,692 B, 84,556 B free, .data+.bss 93,112 B of 98,304, arena 95,072 B, pool 176,768 B.
+Over fae1483 (run 40053801428, image 491,620 B, 85,628 B free, .data+.bss 93,128 B): image +1,072 B, free -1,072 B, RAM -16 B, arena 0, pool 0. No golden hash or budget changed.
+The commit after this run changes documents only. The final full-suite run is named in the last message of the session.
+
+### Tests added or changed
+
+- `tests/lib_group_test.c` (`LG_TEST_HOOKS`, `fail_read_n`, `fail_erase_n`), `tests/unified_presets_test.c` (`needwipe_recovery`), `tests/oc_module_test.c` (the window, the parking, the irq pairs, two valid modules, project load), `tests/persistence_test.c` (the interrupt calls counted).
 
 ## Phases 8 to 11
 

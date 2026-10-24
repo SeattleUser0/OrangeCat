@@ -789,12 +789,13 @@ Nothing here has run on the unit. Source: firmware/src/oc_module.c (loader and i
 - (Superseded in 0.10.1, Fix 2: beside when a start is free.) A replace is in place. `oc_mod_plan` names the start that holds a module of the engine; begin takes the engine out of the table, clears the voices and the arena state of the
   tracks that play it (the project's engine numbers are not changed), and erases the old module before the new one is written. A cut leaves no module: the built-in engine
   plays when it is built in, otherwise the track is silent. The other way (write beside, erase after) leaves two valid modules for a moment, and with the lower start winning,
-  a cut could leave the old one in use while the page says the new one went in.
+  a cut could leave the old one in use while the page says the new one went in. (0.11.1: the higher version wins, then the higher start, and the loser is erased at boot.)
 - (0.10.1: a free start first, the start that holds the engine only when none is free.) Free start rule: the start that holds the engine; else the first empty; else the first that holds something this firmware cannot use (another firmware's module, damage, a
   cut-off install); else none (rc 5). With one engine a module may supply, "none" cannot happen outside a test.
 - `OC_MODULE_WINS` is 1 in the Orange Cat set (tools/orangecat_engines.sh) and the built-in SHAPES stays in the image, so a skipped module costs nothing but its place.
   With 0 the built-in engine keeps the slot and a valid module is "installed, not used".
 - (Extended in 0.10.1, Fix 3.) The crash mark sees what the boot guard sees: a boot that dies in 30 s. A module that crashes later is not noticed.
+- (0.11.1, Fix 6.) The use bit is also set when the project load gives a track the module's engine (oc_mod_note_engine), so a death before the main loop's first pass is attributed. A death between persist_boot and the project load is not (nothing holds the engine yet).
 - The PC guard has one window for flash. With a module registered it ends at the module's last byte, so the flash between the image and the module (the pack, the library) is
   inside it. With none the window is what it was.
 
@@ -856,7 +857,7 @@ tails; program the header page (the commit); read the new start back with the lo
 table (`oc_mod_park`) and erase its start, header sector first; register the new one. A new module that does not read back good is erased and the old one
 stays (rc 7). In place, the web page asks first ("the module that is in the unit is erased first; a power cut leaves none") and the card browser says "Erases old first. Again" and goes on at
 the second OCT+ on the same row. MOD_INFO flag 8 tells the page. Tests (oc_module_test.c): a cut at every program (15) and every erase (12) of a replacement:
-the old module until the commit, the new one after the old start's first erase, and in the one instant between them both are valid and the lower start is used;
+the old module until the commit, the new one after the old start's first erase, and in the one instant between them both are valid (0.11.1: the higher header version is used, on equal versions the higher start, and the other is erased at that boot);
 replacement with no free start; erase errors at begin both ways; the card's question; the page's flag.
 
 ### Fix 3. The crash ban at any time
