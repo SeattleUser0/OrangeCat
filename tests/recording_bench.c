@@ -11,7 +11,8 @@
  * The two lines end in the ratio. Host numbers; the FM-1 core is not this machine, so the ratio is what carries over.
  *
  * Revisions:
- *   0.13.4 `props` mode (idle, plain, loaded), the hit counter, Linux perf_event_open and the callgrind switch. */
+ *   0.13.4 `props` mode (idle, plain, loaded), the hit counter, Linux perf_event_open and the callgrind switch.
+ *   0.13.5 reports recording_rep_over (repeats finished early because the slots were full: 0 in both cases). */
 #define MIDI_TIMING_NO_MAIN 1
 #include <stdint.h>
 static volatile uint32_t bench_hits;                    /* (0.13.4) the hits the scheduler played (recording.c's hook) */
@@ -115,7 +116,7 @@ static props_res_t props_run(int mode, int reps)
         uint64_t ns = now_ns() - t0, ins = bench_instructions() - i0;
 #ifdef BENCH_CALLGRIND
         CALLGRIND_STOP_INSTRUMENTATION;
-        fprintf(stderr, "blocks measured: %u, hits: %u\n", blocks, (unsigned)bench_hits);
+        fprintf(stderr, "blocks measured: %u, hits: %u, repeat slots finished early: %u\n", blocks, (unsigned)bench_hits, (unsigned)recording_rep_over);
 #endif
         if ((double)ns / blocks < best.mean_ns) { best.mean_ns = (double)ns / blocks; best.mean_ins = (double)ins / blocks; best.hits = bench_hits; }
         if (rep == 0 || (double)worst < best.worst_ns) best.worst_ns = (double)worst;   /* the least disturbed repeat's worst block (an interrupted one is the machine's, not the scheduler's) */

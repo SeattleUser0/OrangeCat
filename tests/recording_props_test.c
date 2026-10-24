@@ -6,7 +6,7 @@
  * way), played by the real sequencer one sample at a time; recording.c's RECORDING_HIT_HOOK logs every hit (note, velocity, gate, and when).
  * Revisions: 0.13.0: first version. 0.13.4: hl is 8,192 hits; the repeat tests (repeats() below): chords on adjacent steps with late onsets, ratchets and flams mixed,
  * nudge, a full run of eight passes: every hit present, at its time, in every pass (the per-track repeat queue of 0.13.0 dropped repeats when its six entries were full).
- *   0.13.5: unlink_reuse(): a slot freed while its event has repeats pending and reused by another track's event, fired in the same block, keeps all four hits. */
+ *   0.13.5: loop_end() (a repeat past the loop end plays in the next pass), overflow() and the slots peak; unlink_reuse(): a slot freed while its event has repeats pending and reused by another track's event, fired in the same block, keeps all four hits. */
 #include <stdint.h>
 #define RECORDING_NO_MAIN 1
 #include <assert.h>
@@ -47,7 +47,8 @@ static void begin_to(void (*prepare)(void))
     seq_start(); seq_advance(0);
 }
 static void begin(void) { VIEW = 2; EARLY = 0; begin_to(0); }
-static void run(uint32_t samples) { for (uint32_t i = 0; i < samples; i++) { seq_advance(1); T++; } }
+static uint32_t rep_peak;                               /* (0.13.5) most repeat slots in use on track 0 at once */
+static void run(uint32_t samples) { for (uint32_t i = 0; i < samples; i++) { seq_advance(1); T++; if (recording_rep_n[0] > rep_peak) rep_peak = recording_rep_n[0]; } }
 /* the n-th hit of a pass of the loop, by note */
 static uint32_t base_at(uint32_t k) { return 2u * PERIOD + (uint32_t)((uint64_t)ON[k] * PERIOD / RECORD_UNIT); }
 static int near(uint32_t a, uint32_t b) { return a + 1u >= b && a <= b + 1u; }
@@ -246,7 +247,7 @@ static int hits_equal(void)
 static int repeats(void)
 {
     /* 1. the reviewer's case: two adjacent chords of four notes, RATCH x4, the first at 0.75 of its step: 4, 4, 4, 4 hits for both chords */
-    NCH = 2;
+    NCH = 2; rep_peak = 0; recording_rep_over = 0;
     CH[0].step = 2; CH[1].step = 3;
     for (uint32_t k = 0; k < 4; k++) { CH[0].on[k] = 49152; CH[1].on[k] = 0; }
     CH[0].nudge = CH[1].nudge = 0; CH[0].rflam = CH[1].rflam = 4; CH[0].flags = CH[1].flags = 0;
@@ -278,7 +279,59 @@ static int repeats(void)
     chords_begin(8); run(8u * LOOP);
     nwant = 0; for (uint32_t p = 0; p < 8u; p++) want_pass(p);
     int r4 = check("eight passes of the loop: the hit counts and times are the same every pass", hits_equal());
-    return r1 + r2 + r3 + r4;
+    int r5 = check("the worst cases used at most RECORDING_REP_SLOTS slots, and no entry was finished early", rep_peak <= RECORDING_REP_SLOTS && !recording_rep_over);
+    fprintf(stderr, "repeats: peak slots in use %u of %u\n", rep_peak, RECORDING_REP_SLOTS);
+    return r1 + r2 + r3 + r4 + r5;
+}
+/* (0.13.5) documented expectation: a repeat whose time falls past the loop end plays in the next pass. The last step, nudged forward (clamped to the last sample of the loop), with
+ * x4: one hit at the end of the pass, three in step 0 of the next (recording.c, the 0.13.0 header). Four notes at the same onset, so four and twelve hits. When the step is
+ * no longer recorded at the boundary (the pattern changed), the three are dropped: only the one at the end plays. */
+static int loop_end(void)
+{
+    int ok[2];
+    for (uint32_t edit = 0; edit < 2; edit++) {
+        NCH = 1;
+        CH[0].step = 7; for (uint32_t k = 0; k < 4; k++) CH[0].on[k] = 60000;
+        CH[0].nudge = 30; CH[0].rflam = 4; CH[0].flags = 0;
+        chords_begin(8);
+        run(LOOP);                                               /* the hit at the end has played */
+        if (edit) { trk[0].step[7].time = ST_REST; trk[0].step[7].flags = 0; recording_resched(&trk[0]); }   /* the pattern changes just before the boundary */
+        run(PERIOD);
+        uint32_t before = 0, after = 0;
+        for (uint32_t h = 0; h < hn; h++) { if (hl[h].at < LOOP) before++; else after++; }
+        ok[edit] = before == 4u && after == (edit ? 0u : 12u);
+        if (!ok[edit]) fprintf(stderr, "loop_end(%u): %u hits before the loop end, %u after\n", edit, before, after);
+    }
+    return check("a nudged last step with x4: one hit at the loop end and three in step 0 of the next pass (four notes: 4 and 12)", ok[0]) +
+           check("the same when the step is erased at the boundary: only the hit at the end plays", ok[1]);
+}
+/* (0.13.5) more events than slots (one step recorded with 20 notes, x4): the bound is not a proof, so the overflow is checked to be what the comment says: every event plays its
+ * first hit, an earlier ratchet is shortened and counted (recording_rep_over), nothing else breaks */
+static int overflow(void)
+{
+    raw_begin();
+    track_t *t = &trk[0];
+    seq_stop(); song.rec = 0;
+    recording_reset();
+    t->p[P_SLEN] = 8;
+    for (uint32_t i = 0; i < NSTEP; i++) { memset(&t->step[i], 0, sizeof t->step[i]); t->step[i].time = ST_REST; }
+    t->step[2].time = ST_NOTE; t->step[2].flags = SF_RECORDED; step_set_rflam(&t->step[2], 4);
+    for (uint32_t k = 0; k < 20; k++) {
+        recorded_note_t r = {0};
+        r.on = (uint16_t)(30000u + k * 1000u); r.duration = 4096; r.note = (uint8_t)(40u + k); r.vel = 100; r.step = 2;
+        recording_restore_note(t, k, r);
+    }
+    PERIOD = seq_div_samples((uint32_t)t->p[P_SDIV]);
+    LOOP = recording_prefix(t, PERIOD, 8);
+    hn = 0; T = 0; recording_rep_over = 0; rep_peak = 0;
+    seq_start(); seq_advance(0);
+    run(LOOP);
+    uint32_t first[20] = {0}, any = 0;
+    for (uint32_t h = 0; h < hn; h++) { uint32_t n = hl[h].note - 40u; if (n < 20u) { first[n]++; any++; } }
+    int ok = rep_peak == RECORDING_REP_SLOTS && recording_rep_over > 0u && recording_rep_n[0] == 0u;
+    for (uint32_t k = 0; k < 20; k++) ok &= first[k] >= 1u;
+    if (!ok) fprintf(stderr, "overflow: peak %u over %u hits %u\n", rep_peak, recording_rep_over, any);
+    return check("20 events with x4 in one step: all 20 play, the earlier ratchets are shortened and counted, none is left pending", ok);
 }
 /* (0.13.5) an event on track 1 is ratcheting (x4); it is un-recorded and its slot taken by an event of track 0, which fires with x4 in the block where track 1's tick still
  * ran over the old bit: before the fix track 1's tick cleared the new event's repeats and it played once. Notes 60 (track 0) and 70 (track 1) tell the hits apart. */
@@ -303,7 +356,7 @@ static int unlink_reuse(void)
     while (T < at + 8u) { seq_advance(1); T++; }                        /* its first hit has played; three repeats are pending */
     int pending = recording_rep_n[1] == 1u && (recording_flags[0] & RECORDING_RF_REP);
     recording_remove(&trk[1], 0);                                       /* un-recorded: the bit is gone with it */
-    int gone = !recording_rep_n[1] && !(recording_rep_bits[1][0] & 1u);
+    int gone = !recording_rep_n[1] && !recording_rep_ev[1][0];
     recorded_note_t a = {0};                                            /* track 0 takes slot 0, x4 as well */
     a.on = (uint16_t)(((uint64_t)(T + 1u - PERIOD) * RECORD_UNIT + PERIOD - 1u) / PERIOD); a.duration = 8192; a.note = 60; a.vel = 100; a.step = 1;     /* due in the very next sample */
     recording_restore_note(&trk[0], 0, a);
@@ -317,7 +370,7 @@ static int unlink_reuse(void)
 }
 int main(void)
 {
-    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats() + unlink_reuse();
+    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats() + loop_end() + overflow() + unlink_reuse();
     printf("%s\n", bad ? "RECORDED STEP PROPERTIES TEST FAILED" : "Recorded step properties: all passed");
     return !!bad;
 }

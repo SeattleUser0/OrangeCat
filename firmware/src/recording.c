@@ -4,10 +4,13 @@
  * (Orange Cat 0.13.5) an event's pending repeats end where the event leaves its track: recording_rep_drop (its bit in the old track's recording_rep_bits, its count, its
  * flags) runs in recording_unlink and at every place that sets recording_flags to 0 whole (remove, restore, drop, copy, double, the undo swap, the pool load, the reset).
  * Before, the old track's next tick cleared the bit, and when another track had reused the slot and fired it in the same block that tick cleared the new event's repeats.
+ * The record is also smaller: the 0.13.4 record for each of the 1,024 events (recording_rep_at, 4,096 B, and 512 B of bits) took 5,000 B from the audio arena; the repeats
+ * pending are now in RECORDING_REP_SLOTS (16) slots a track, {event, time of the next repeat}, 384 B in all (the arithmetic of the bound is at the declaration; when it is
+ * exceeded the entry with the fewest repeats left is finished early and recording_rep_over counts it). Nothing is dropped that fits; the first hit always plays.
  * (Orange Cat 0.13.4) the repeats of a ratchet or a flam are never dropped. Design (a), no queue: every event has a record of its own (recording_rep_at: the time,
  * on the track's repeat clock, of its next repeat; two bits of recording_flags: how many are left), so there is nothing to run out of. The 0.13.0 queue held six
  * repeats a track and a ratcheted chord late in one step, followed by another in the next, gave the second chord's last notes one hit each. A track's pending events
- * are a bit each in recording_rep_bits, and recording_rep_tick visits only those (one compare when none are pending: cheaper than the six entries it replaces; with
+ * are a bit each in recording_rep_bits (0.13.5: now a slot each, see above), and recording_rep_tick visits only those (one compare when none are pending: cheaper than the six entries it replaces; with
  * some, a scan of 32 words and the pending events, flat in the number of events that exist). The parameters of a repeat (velocity, gate, spacing) are worked out again
  * from the event and its step when it plays (recording_shape, the same function the first hit uses), so only the time and the count are kept. RAM: 4,096 B for the
  * times, 512 B for the bits, 8 B of counts, 16 B of clocks, in the pool; the six-entry queue (384 B) is gone.
@@ -15,6 +18,9 @@
  * condition are rolled once for the step on each pass of its loop (recording_roll_ok), the accent plays every onset at velocity 127, RATCH x2..x4 plays each
  * onset again in equal parts of the step (gate of a part, at most the note's own), FLAM a grace at 9/16 of its velocity and the full hit FLAM_SAMPLES later,
  * NUDGE moves every onset by the step's nudge (64ths of the step), clamped inside the loop: no wrap.
+ * (0.13.5) A repeat is on the track's own repeat clock, not on the loop's phase: one whose time falls past the loop end plays in the next pass. A nudged last step with x4
+ * gives one hit at the end of the pass (the clamped onset) and three in step 0 of the next; they end early only when the step is no longer recorded at the boundary
+ * (the pattern changed: recording_active is false), when the first hit has played but the rest is dropped. tests/recording_props_test.c loop_end() holds both cases.
  * Nothing in a stored format changed: the properties were in the step all along. */
 /* A bounded performance store shared by the project's 32 banks. Step notes
  * are its editable overview; the original onsets, velocities and independent
@@ -48,16 +54,25 @@ static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t curs
  * (seen) and the ones that failed (skip). recording_nudge_sum: the track's nudges as the schedule was last ordered with them.
  * (0.13.4) the repeats of a ratchet or a flam: recording_rep_at[i] is the time of event i's next repeat on its track's repeat clock (recording_rep_clock: the
  * samples recording_rep_tick has gone through, compared by difference so its wrap does not matter); recording_flags bit 16 says repeats are pending and bits 5 and 6
- * how many (0..3: x4 is three, a flam one); recording_rep_bits[track] has a bit for each pending event and recording_rep_n[track] counts them. Runtime state only:
+ * how many (0..3: x4 is three, a flam one); the slots of the track (below) say which events are pending and recording_rep_n[track] counts them. Runtime state only:
  * not stored. */
 #define RECORDING_RF_REP 16u
 #define RECORDING_RF_LEFT_SHIFT 5u
 #define RECORDING_RF_LEFT_MASK (3u << RECORDING_RF_LEFT_SHIFT)
 static struct { uint64_t seen, skip; } recording_roll[NTRK] __attribute__((section(".pool")));   /* (0.13.2) runtime-only, zeroed at boot with the pool */
-static uint32_t recording_rep_at[RECORD_MAX] __attribute__((section(".pool")));
-static uint32_t recording_rep_bits[NTRK][RECORD_MAX / 32u] __attribute__((section(".pool")));
+/* (0.13.5) the records of the repeats pending, a bounded array a track instead of one record for each of the 1,024 events (4,096 B of times and 512 B of bits, which took
+ * 5,000 B from the audio arena): RECORDING_REP_SLOTS slots a track, each the event (index + 1, 0: free) and the time of its next repeat. How many are needed at once: a
+ * repeat is outstanding for at most 3/4 of a step after its first hit (x4: three parts of a quarter; a flam: FLAM_SAMPLES, less), and the first hit of an event is at its
+ * onset, which a nudge of at most +-24/64 of a step moves: the events whose first hit lies in a window of 3/4 step are those of at most three adjacent steps, 4 notes a step
+ * (a step entry holds four) is 12, so 16 slots. It is a bound, not a proof: a step can be recorded with more than four events (live takes keep every hit), and when all
+ * slots are in use the entry with the fewest repeats left is finished early to make room, never the new event dropped: the worst case is a shortened earlier
+ * ratchet. recording_rep_over counts those, and the host tests read it. */
+#define RECORDING_REP_SLOTS 16u
+static uint16_t recording_rep_ev[NTRK][RECORDING_REP_SLOTS] __attribute__((section(".pool")));
+static uint32_t recording_rep_at[NTRK][RECORDING_REP_SLOTS] __attribute__((section(".pool")));
 static uint16_t recording_rep_n[NTRK] __attribute__((section(".pool")));
 static uint32_t recording_rep_clock[NTRK] __attribute__((section(".pool")));
+static uint32_t recording_rep_over __attribute__((section(".pool")));
 static uint32_t recording_nudge_sum[NTRK] __attribute__((section(".pool")));
 /* the track's nudges folded into one number, to see an edit that changed one (checked once a loop, and by the editors that know) */
 static uint32_t recording_nudge_fold(const track_t *t)
@@ -474,20 +489,20 @@ static void recording_reindex(void)
     for (uint32_t tr = 0; tr < NTRK; tr++) recording_nudge_sum[tr] = recording_nudge_fold(&trk[tr]);
 }
 /* (0.13.5) every path that takes an event out of its track goes through recording_unlink, so the event's pending repeats end there: its bit in the old track's
- * recording_rep_bits and its count in recording_rep_n go, with its flags. Left to the old track's next tick, the bit could still be set when another track reused the
+ * slot (recording_rep_ev) and its count in recording_rep_n go, with its flags. Left to the old track's next tick, the bit could still be set when another track reused the
  * slot and fired it in the same block, and that tick would then clear the new event's repeats. The bit is looked for on every track, not read from the owner byte:
  * a slot with no velocity has no owner worth trusting. RECORDING_REP_CHECK (the host tests) asserts that nothing of the event is left. */
 static void recording_rep_drop(uint32_t i)
 {
-    uint32_t w = i >> 5, bit = 1u << (i & 31u);
     for (uint32_t tr = 0; tr < NTRK; tr++)
-        if (recording_rep_bits[tr][w] & bit) { recording_rep_bits[tr][w] &= ~bit; recording_rep_n[tr]--; }
+        for (uint32_t k = 0; k < RECORDING_REP_SLOTS; k++)
+            if (recording_rep_ev[tr][k] == i + 1u) { recording_rep_ev[tr][k] = 0; recording_rep_n[tr]--; }
     recording_flags[i] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
 }
 #ifdef RECORDING_REP_CHECK
 static void recording_rep_agree(uint32_t i)    /* after an unlink the event is in no track's bits and its flags say no repeats */
 {
-    for (uint32_t tr = 0; tr < NTRK; tr++) RECORDING_REP_CHECK(!((recording_rep_bits[tr][i >> 5] >> (i & 31u)) & 1u));
+    for (uint32_t tr = 0; tr < NTRK; tr++) for (uint32_t k = 0; k < RECORDING_REP_SLOTS; k++) RECORDING_REP_CHECK(recording_rep_ev[tr][k] != i + 1u);
     RECORDING_REP_CHECK(!(recording_flags[i] & (RECORDING_RF_REP | RECORDING_RF_LEFT_MASK)));
 }
 #endif
@@ -946,19 +961,36 @@ static void recording_shape(const track_t *t, uint32_t i, uint32_t period, uint3
 /* the repeats of the track: none waiting */
 static void recording_rep_clear(uint32_t tr)
 {
-    if (recording_rep_n[tr])
-        for (uint32_t w = 0; w < RECORD_MAX / 32u; w++) {
-            uint32_t bits = recording_rep_bits[tr][w];
-            while (bits) { recording_flags[w * 32u + (uint32_t)__builtin_ctz(bits)] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK); bits &= bits - 1u; }
-            recording_rep_bits[tr][w] = 0;
-        }
+    for (uint32_t k = 0; k < RECORDING_REP_SLOTS; k++) {
+        uint32_t e = recording_rep_ev[tr][k];
+        if (e) recording_flags[e - 1u] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
+        recording_rep_ev[tr][k] = 0;
+    }
     recording_rep_n[tr] = 0;
 }
 static void recording_rep_clear_all(void)
 {
-    memset(recording_rep_bits, 0, sizeof recording_rep_bits);
+    memset(recording_rep_ev, 0, sizeof recording_rep_ev);
     memset(recording_rep_n, 0, sizeof recording_rep_n);
     for (uint32_t i = 0; i < RECORD_MAX; i++) recording_flags[i] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
+}
+/* the slot of event i on track tr: the one it has, else a free one, else (all in use) the one with the fewest repeats left, finished early */
+static uint32_t recording_rep_slot(uint32_t tr, uint32_t i)
+{
+    uint32_t freek = RECORDING_REP_SLOTS, victim = 0, vleft = 4u;
+    for (uint32_t k = 0; k < RECORDING_REP_SLOTS; k++) {
+        uint32_t e = recording_rep_ev[tr][k];
+        if (e == i + 1u) return k;
+        if (!e) { if (freek == RECORDING_REP_SLOTS) freek = k; }
+        else {
+            uint32_t left = (recording_flags[e - 1u] & RECORDING_RF_LEFT_MASK) >> RECORDING_RF_LEFT_SHIFT;
+            if (left < vleft) { vleft = left; victim = k; }
+        }
+    }
+    if (freek != RECORDING_REP_SLOTS) { recording_rep_n[tr]++; return freek; }
+    recording_flags[recording_rep_ev[tr][victim] - 1u] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
+    recording_rep_over++;
+    return victim;
 }
 static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t late)
 {
@@ -978,11 +1010,11 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     }
     recording_hit(t, i, vel, first, late);
     if (hits > 1u || grace) {                         /* the rest waits: its time is counted on the track's repeat clock, from the start of the next block */
-        uint32_t w = i >> 5, bit = 1u << (i & 31u);
-        if (!(recording_rep_bits[tr][w] & bit)) { recording_rep_bits[tr][w] |= bit; recording_rep_n[tr]++; }
+        uint32_t k = recording_rep_slot(tr, i);
+        recording_rep_ev[tr][k] = (uint16_t)(i + 1u);
         recording_flags[i] = (uint8_t)((recording_flags[i] & ~RECORDING_RF_LEFT_MASK) | RECORDING_RF_REP |
                                        ((grace ? 1u : hits - 1u) << RECORDING_RF_LEFT_SHIFT));
-        recording_rep_at[i] = recording_rep_clock[tr] + (grace ? first : part) - late;
+        recording_rep_at[tr][k] = recording_rep_clock[tr] + (grace ? first : part) - late;
     }
 }
 /* the repeats due in the n samples about to be played: each plays again with the event's own state checked (a note edited away, a step no longer
@@ -993,28 +1025,26 @@ static void recording_rep_tick(track_t *t, uint32_t n)
     recording_rep_clock[tr] = clk + n;
     if (!recording_rep_n[tr]) return;
     uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]);
-    for (uint32_t w = 0; w < RECORD_MAX / 32u; w++) {
-        uint32_t bits = recording_rep_bits[tr][w];
-        while (bits) {
-            uint32_t i = w * 32u + (uint32_t)__builtin_ctz(bits), left = (recording_flags[i] & RECORDING_RF_LEFT_MASK) >> RECORDING_RF_LEFT_SHIFT;
-            bits &= bits - 1u;
-            if (!(recording_flags[i] & RECORDING_RF_REP) || !left || !recording[i].vel || !recording_active(t, i)) left = 0;
-            else {
-                uint32_t vel, gate, hits, part, grace;
-                recording_shape(t, i, period, &vel, &gate, &hits, &part, &grace);
-                while (left && (int32_t)(recording_rep_at[i] - clk) <= (int32_t)n) {
-                    uint32_t late = (uint32_t)((int32_t)n - (int32_t)(recording_rep_at[i] - clk));
-                    if (!((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> tr) & 1u))) recording_hit(t, i, vel, gate, late);
-                    left--;
-                    recording_rep_at[i] += part;
-                }
+    for (uint32_t k = 0; k < RECORDING_REP_SLOTS; k++) {
+        uint32_t e = recording_rep_ev[tr][k];
+        if (!e) continue;
+        uint32_t i = e - 1u, left = (recording_flags[i] & RECORDING_RF_LEFT_MASK) >> RECORDING_RF_LEFT_SHIFT;
+        if (!(recording_flags[i] & RECORDING_RF_REP) || !left || !recording[i].vel || !recording_active(t, i)) left = 0;
+        else {
+            uint32_t vel, gate, hits, part, grace;
+            recording_shape(t, i, period, &vel, &gate, &hits, &part, &grace);
+            while (left && (int32_t)(recording_rep_at[tr][k] - clk) <= (int32_t)n) {
+                uint32_t late = (uint32_t)((int32_t)n - (int32_t)(recording_rep_at[tr][k] - clk));
+                if (!((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> tr) & 1u))) recording_hit(t, i, vel, gate, late);
+                left--;
+                recording_rep_at[tr][k] += part;
             }
-            if (left) recording_flags[i] = (uint8_t)((recording_flags[i] & ~RECORDING_RF_LEFT_MASK) | (left << RECORDING_RF_LEFT_SHIFT));
-            else {
-                recording_flags[i] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
-                recording_rep_bits[tr][w] &= ~(1u << (i & 31u));
-                recording_rep_n[tr]--;
-            }
+        }
+        if (left) recording_flags[i] = (uint8_t)((recording_flags[i] & ~RECORDING_RF_LEFT_MASK) | (left << RECORDING_RF_LEFT_SHIFT));
+        else {
+            recording_flags[i] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
+            recording_rep_ev[tr][k] = 0;
+            recording_rep_n[tr]--;
         }
     }
 }
