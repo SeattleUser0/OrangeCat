@@ -154,6 +154,7 @@ jobs:
         # (rev 16, Orange Cat 0.13.5) the step ends non-zero without having reported (a source that fails, a copy that fails): say so in the failed marker. The gate
         # (tools/ci_gate.sh) is red with no marker at all as well, for the cases a trap cannot catch (the step killed or cancelled).
         mkdir -p build
+        kill -KILL $$     # (throwaway, exp/sonnet-cigate) the script dies before the tests, past the trap: the gate must go red
         trap 'rc=$?; if [ "$rc" -ne 0 ] && [ ! -f build/orangecat-tests-failed.txt ]; then echo "the test step ended with status $rc before the host tests reported (see the run log)" > build/orangecat-tests-failed.txt; fi' EXIT
         # (gui-slim, temporary) an experiment branch with .ci_quick: the build and its sizes only, no host tests
         if [ -f .ci_quick ]; then echo "quick: no host tests"; echo "quick: .ci_quick is in the repository, so no host test ran (sizes only)" > build/orangecat-tests-skipped.txt; exit 0; fi
