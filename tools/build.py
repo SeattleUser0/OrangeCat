@@ -684,14 +684,16 @@ def measure_module(name):
         p = ln.split()
         if len(p) > 3 and p[0].isdigit() and p[1].startswith("."):
             secs[p[1]] = int(p[2], 16)
-    out.append("object sections: " + ", ".join(f"{k} {v}" for k, v in secs.items() if v))
+    detail = "object sections (not text of one function): " + ", ".join(f"{k} {v}" for k, v in secs.items() if v and not k.startswith((".text.", ".rela", ".strtab", ".symtab")))
     code = sum(v for k, v in secs.items() if k.startswith((".text", ".dsp_text", ".audio_text")))
     tabs = sum(v for k, v in secs.items() if k.startswith((".rodata", ".dsp_tables", ".data.rel.ro")))
     out.append(f"object: code {code} B, tables and constants {tabs} B, .data {secs.get('.data', 0)} B, .bss {secs.get('.bss', 0)} B")
+    head_at = len(out)
     rel = tc("common/bin/objdump", "-r", obj)
+    out.append(detail)
     out.append("relocations: " + str(sum(1 for ln in rel.splitlines() if re.match(r"^[0-9a-fA-F]+\s+\S+", ln) and not ln.startswith("RELOCATION"))))
     try:
-        big = [ln for ln in tc("pi32v2/bin/nm", "-S", "--size-sort", obj).splitlines()][-30:]
+        big = [ln for ln in tc("pi32v2/bin/nm", "-S", "--size-sort", obj).splitlines()][-12:]
         out.append("largest symbols (hex size, kind, name):\n  " + "\n  ".join(f"{ln.split()[1]} {ln.split()[2]} {ln.split()[3]}" for ln in big if len(ln.split()) >= 4))
     except Exception as e:                                # (the toolchain's nm may lack -S)
         out.append(f"nm -S: {e}")
@@ -722,7 +724,8 @@ SECTIONS {{
                 sizes[p[1]] = int(p[2], 16)
         img = binf.read_bytes()
         h = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(img + b"\0" * 64, 0)))
-        out.append(f"linked at start {start}: image {len(img)} B ({len(img) / 4096:.2f} sectors), .data {sizes.get('.data', 0)} B, .bss {sizes.get('.bss', 0)} B, state {h['state_size']} B a track")
+        out.insert(head_at, f"linked at start {start}: image {len(img)} B ({len(img) / 4096:.2f} sectors), .data {sizes.get('.data', 0)} B, .bss {sizes.get('.bss', 0)} B, state {h['state_size']} B a track")
+        head_at += 1
     return out
 
 
