@@ -85,4 +85,6 @@ assert.equal(elements.log.scrollTop, 777);
 assert.match(template, /max-height: 200px; overflow-y: auto/);
 assert.doesNotMatch(template, /Melodee 1\.0/);
 assert.doesNotMatch(template, /build-(?:rc-|nightly-)?single|singleWhy|fallback-options/);
+// 0.11.2: the whole set (firmware, pack, modules) against a mocked unit
+await import("./test_installer_set.mjs");
 console.log("installer: dual-core release/channel selection, cache separation, fetch races, language, write lock and scrolling passed");

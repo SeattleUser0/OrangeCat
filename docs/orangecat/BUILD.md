@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.66 (October 24, 2026):** 0.11.2 on branch sonnet-work (not on main, not released, not on the unit): the installer page installs the whole set (firmware, then the asset pack, then the SHAPES module) in one go, with one bar and one summary, each stage skippable and skipped when the unit already has it. See "Sixth run", Part 1.
 - **0.65 (October 24, 2026):** 0.11.1, Fixes 3 to 6 on branch sonnet-work (not on main, not released, not on the unit): one helper writes the PC window on every path that takes a module out of the table; an install or remove in a running session parks the engine's voices first and the table's two stores are one critical section; two valid modules of one engine at boot: the higher version wins and the loser is erased; the project load marks a module's use before audio renders it. See "Fifth run".
 - **0.64 (October 24, 2026):** 0.11.1, Fixes 1 and 2 on branch sonnet-work (not on main, not released, not on the unit): the library migration after a downgrade below 0.9.1 and an upgrade can finish (a stale group copy is released), LIBRARY NEEDS WIPE and a wipe that completes from it, a save whose read-back fails no longer leaves a record that wins after a reset. A downgrade below 0.9.1 destroys the library: back up before, restore after. See "Fifth run".
 - **0.60 (October 23, 2026):** docs for 0.9.0 final: the module experiment's finding (SHAPES builds as a separate 23,780 B object with 188 relocations; the toolchain links it at a fixed address only; no ROPI, RWPI or linkable PIC), the proof of concept's next steps in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, SPEC 0.21, GUIDE (DRUM-X), web/EDITOR_PROTOCOL.md. See "Second run".
@@ -1703,6 +1704,57 @@ The commit after this run changes documents only. The final full-suite run is na
 ### Tests added or changed
 
 - `tests/lib_group_test.c` (`LG_TEST_HOOKS`, `fail_read_n`, `fail_erase_n`), `tests/unified_presets_test.c` (`needwipe_recovery`), `tests/oc_module_test.c` (the window, the parking, the irq pairs, two valid modules, project load), `tests/persistence_test.c` (the interrupt calls counted).
+
+## Sixth run (0.11.2 and on, branch sonnet-work, October 24, 2026)
+
+**Status: Part 1 (0.11.2) is built and host tested. Parts 2 to 4 follow in this section as they land. Not tried on the unit. Not merged, not released.**
+
+### Part 1: the installer page installs the whole set (0.11.2)
+
+The firmware is unchanged. No reply was missing anything the page needs.
+
+**What the pages site serves** (the build of one commit, the names the site build writes into `firmware/`):
+
+| File | What it is |
+|---|---|
+| `firmware/melodee-VER.fwsc` | The firmware update package (unchanged name). |
+| `firmware/orangecat-VER.pak` | The asset pack: the constant tables of SHAPES and MACRO (header 512 B, then the tables). |
+| `firmware/orangecat-shapes-VER.ocm` | The SHAPES module, one image for each start (0 and 6). More `orangecat-NAME-VER.ocm` follow with more modules. |
+| `firmware/release.json`, `firmware/releases.json` | The current release and the list. Each entry names its `.fwsc`, its `pak` and its `ocm` list. An older release keeps its set. |
+
+In the packages artifact of a CI run the same files are named `orangecat-VER-SHA.fwsc`, `.pak`, `orangecat-NAME-VER-SHA.ocm` and `orangecat-VER-SHA.manifest.json`. The site build (`tools/orangecat_site.py --pak --manifest --ocm`) renames them.
+
+**How the three files relate.** They are one build:
+- Same commit. The pages job takes the three from the same build job.
+- The pack's hash is checked against the firmware's. `tools/oc_manifest.py` writes `orangecat-VER-SHA.manifest.json` from the build's generated headers (`OC_PACK_HASH`, `OC_PACK_LEN`, `FW_API_ID`, the table address). The site build refuses a pack whose header hash or length differs from the manifest, or whose CRCs fail.
+- The module's identifier is checked against the firmware's. The site build refuses a `.ocm` whose interface identifier or API address differs from the manifest, whose pack hash differs from the firmware's pack hash, or whose image CRCs fail.
+- A refused set writes nothing to the site. A site built without `--pak` is the site it was (firmware only).
+- At install time the page checks the same things again against the running unit: `packFits` (115's build length and hash) and `ocmCheck` (120's identifier, address, API version and size, pack hash).
+
+**The page's flow** (`web/fm1oc.js`, inlined into `web/index_pkg.html`):
+1. The user ticks the stages (all on by default; a stage with no file in this build is off and says so). One line says what is lost without the pack (MACRO and SHAPES stay silent) and without the module (nothing today; SHAPES is built in).
+2. Pack and module files are fetched before the first byte is written.
+3. Firmware: the page's own OTA update. The page then looks for the unit's editor port for up to a minute.
+4. Probe: 115 (pack), 120 (modules), 125 (engines).
+5. Pack: skipped as current when 115 says state 1 and the unit's hash equals this build's hash. Else 116 (BEGIN, retried while rc 4), 117 (256 B pieces from offset 512), 118.
+6. Probe again (the module check reads the pack hash from the unit). Module: skipped as current when 125 lists the engine from a module, state ok, the same version word and an image size of the file. Else 121, 122 (from offset 256), 123.
+7. One summary: a line for the firmware, the pack and each module: installed, current, left out, no file, old firmware, unit not found, or the error.
+
+**Old firmware (1c).** No reply to 115 means a firmware without the commands (the stock unit, or Orange Cat before 0.8.0). The firmware stage runs, the pack and module lines say "old firmware", and the summary says to run the page again. A firmware with 115 but not 120 installs the pack and says the same for the modules. A firmware with 120 but not 125 never skips a module as current (it installs it again).
+
+### Left to build (Part 1)
+
+- Nothing.
+
+### Left to test (Part 1, on the unit)
+
+- Add to the unit checklist, in order: on a unit with the previous Orange Cat, open the installer page, leave all stages on, press Install. Expected: one bar to the end; the unit restarts; the summary lists firmware installed, pack installed or current, module installed or current. Run the page again: pack and module say current. Then a unit with the stock firmware: the firmware installs, the pack and module say old firmware, and a second run finishes the set.
+
+### Tests added (Part 1)
+
+- `web/test_installer_set.mjs` (run by `web/test_installer.mjs`): a mocked unit speaking 115 to 125; all stages in order; pack and module current (nothing written); pack current and module missing; no reply to 115, 120 or 125; BEGIN refused with rc 4 then accepted; stages left out; the unit not coming back; no pack file; a pack of another build; a tail refusal (rc 8); a module of another interface; the unit lost during a write; `probeUnit` and `moduleCurrent`; the `.ocm` reader compared as text with the editor's.
+- `tests/orangecat_site_test.py`: the served names and `release.json`, a site without a set, each refusal (pack hash, pack length, module interface, module pack hash, damaged files, no manifest), an older release keeping its set, stale files removed, the manifest writer.
+- `web/test_web.mjs`: the older installer tests now give their fake page the new Firmware checkbox and the flow functions.
 
 ## Phases 8 to 11
 

@@ -11,6 +11,7 @@
 // - fm1pkg.js: productOf and logicalImage on build/melodee.fwsc (skipped without a build)
 // - fm1ota.js: a full install and an unplug during the write against a simulated FM-1
 
+import * as OC from "./fm1oc.js";   // (0.11.2) the installer page calls runSet and OcLink, which make_site.py inlines
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1666,7 +1667,7 @@ async function stockRestore() {
   async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false, motionVersion = 2, backupVersion = 1, backupCaps = 1, installError = null, button = "stock-go"} = {}) {
     const calls = [], writes = [], elements = new Map();
     const element = (id) => {
-      if (!elements.has(id)) elements.set(id, {checked:false, disabled:false, textContent:"", value:0, listeners:{}, options:[],
+      if (!elements.has(id)) elements.set(id, {checked:id === "stage-fw", disabled:false, textContent:"", value:0, listeners:{}, options:[],
         replaceChildren(...options) { this.options = options; this.value = options.find(o => o.selected)?.value || options[0]?.value || ""; },
         addEventListener(k, fn) { this.listeners[k] = fn; }});
       return elements.get(id);
@@ -1677,7 +1678,7 @@ async function stockRestore() {
       navigator:{language:"en", requestMIDIAccess:async () => ({})},
       document:{documentElement:{}, querySelectorAll:() => [], getElementById:element,
         body:{append() {}}, createElement:() => ({click() { calls.push("save"); }, remove() {}})},
-      window:{addEventListener() {}},
+      window:{addEventListener() {}}, runSet:OC.runSet, OcLink:OC.OcLink,
       fetch:async (url) => { calls.push("fetch " + url); return {ok:true, arrayBuffer:async () => Uint8Array.of(2).buffer}; },
       STOCK_V15_SIZE:1, MELODEE_LOADER, STOCK_LOADER,
       validateStockPackage:async (bytes) => {
@@ -1795,7 +1796,7 @@ async function installerBuilds() {
   const ALL = ["dual", "rc-dual", "nightly-dual"];
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
-    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{}, options:[],
+    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual" || id === "stage-fw", disabled:false, textContent:"", value:0, listeners:{}, options:[],
       replaceChildren(...options) { this.options = options; this.value = options.find(o => o.selected)?.value || options[0]?.value || ""; },
       addEventListener(k, fn) { this.listeners[k] = fn; }});
     return elements.get(id);
@@ -1803,7 +1804,7 @@ async function installerBuilds() {
   const context = vm.createContext({
     navigator:{language:"en", requestMIDIAccess:async () => ({})},
     document:{documentElement:{}, querySelectorAll:() => [], getElementById:element, createElement:() => ({})},
-    window:{addEventListener() {}},
+    window:{addEventListener() {}}, runSet:OC.runSet, OcLink:OC.OcLink,
     fetch:async (url) => { fetched.push(url); return {ok:true, arrayBuffer:async () => new Uint8Array(Buffer.from(url)).buffer}; },
     productOf:(pkg) => /-rc\./.test(String.fromCharCode(...pkg)) ? "FM-1_91040" : /nightly/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
     MELODEE_LOADER, STOCK_LOADER,
@@ -1844,13 +1845,13 @@ async function installerBuildRaces() {
     ]}));
   const elements = new Map(), pending = new Map(); let installDone, installed;
   const element = id => {
-    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual",disabled:false,textContent:"",listeners:{}, options:[],
+    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual" || id === "stage-fw",disabled:false,textContent:"",listeners:{}, options:[],
       replaceChildren(...options) { this.options = options; this.value = options.find(o => o.selected)?.value || options[0]?.value || ""; },
       addEventListener(k,fn) { this.listeners[k] = fn; }});
     return elements.get(id);
   };
   const context = vm.createContext({navigator:{language:"en",requestMIDIAccess:async()=>({})},
-    document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}},
+    document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}}, runSet:OC.runSet, OcLink:OC.OcLink,
     fetch:url=>new Promise(resolve=>pending.set(url,resolve)),
     productOf:pkg=>String.fromCharCode(...pkg)==="older"?"FM-1_91001":"FM-1_91002",
     logicalImage:pkg=>String.fromCharCode(...pkg), MELODEE_LOADER, STOCK_LOADER,
