@@ -73,6 +73,7 @@
  * Host tests: tests/oc_module_test.c (a simulated NOR: every refusal, the crash mark, a good module, two modules).
  *
  * Revisions:
+ * (Orange Cat 0.13.5) the geometry table can be made writable by a host test (OC_MOD_GEO_QUAL); nothing else changed.
  * (Orange Cat 0.13.4) oc_mod_image_check / oc_mod_hdr_matches / oc_mod_pages_check_rd: the checks of an image take a reader, so the card checks the file it is about to write
  * with the code oc_mod_end and the boot check use; oc_mod_tails is oc_pack.c's oc_rule_tails over the flash.
  * (Orange Cat 0.13.4, Hardening 1) oc_mod_end runs the page descriptor check before the commit (it was only in the boot check after it).
@@ -111,8 +112,11 @@ static const uint8_t oc_mod_sect[OC_MOD_STARTS] = { 0u, 6u, 4u };
  * SHAPES: 6 sectors, starts 0 and 1 (sectors 0 and 6). The Prophet: 8 sectors, starts 0 and 2 (sectors 0 and 4). Spans of different engines overlap, so
  * no SHAPES module can stand beside a Prophet module in a 12 sector area (the planner refuses; see oc_mod_plan). */
 typedef struct { uint8_t engine, sectors, starts; } oc_mod_geo_t;
-static const oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u }, { ENGI_PROPHET, 8u, 0x05u } };
-static const oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
+#ifndef OC_MOD_GEO_QUAL
+#define OC_MOD_GEO_QUAL const                           /* (0.13.5) a host test defines it empty to change the geometries for one case (tests/card_install_test.c) */
+#endif
+static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u }, { ENGI_PROPHET, 8u, 0x05u } };
+static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
 {
     uint32_t k;
     for (k = 0; k < sizeof oc_mod_geo / sizeof oc_mod_geo[0]; k++)
@@ -472,7 +476,7 @@ static int oc_mod_usable(uint32_t i)
  * (8) never can in 12; the card browser's "Install set" asks before it writes anything */
 static int oc_mod_pair_fits(uint32_t a, uint32_t b)
 {
-    const oc_mod_geo_t *ga = oc_mod_geo_of(a), *gb = oc_mod_geo_of(b);
+    OC_MOD_GEO_QUAL oc_mod_geo_t *ga = oc_mod_geo_of(a), *gb = oc_mod_geo_of(b);
     uint32_t i, j;
     if (!ga || !gb) return 0;
     for (i = 0; i < OC_MOD_STARTS; i++)

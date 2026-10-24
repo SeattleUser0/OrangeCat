@@ -11,6 +11,7 @@
 // - fm1pkg.js: productOf and logicalImage on build/melodee.fwsc (skipped without a build)
 // - fm1ota.js: a full install and an unplug during the write against a simulated FM-1
 // Revisions:
+// (Orange Cat 0.13.5 the editor's BEGIN wait)
 // (Orange Cat 0.12.2 the Prophet package, modBlocked and the swap planner; 0.12.0 the Engines table (swap plan))
 
 import * as OC from "./fm1oc.js";   // (0.11.2) the installer page calls runSet and OcLink, which make_site.py inlines
@@ -2031,5 +2032,11 @@ editorIcons();
 samplesMatch();
 await packages();
 await updater();
+// (0.13.5) the editor's BEGIN waits for the unit's erase as the installer page does, and does not send BEGIN twice (a retry would erase again)
+{
+  const m = /const OC_BEGIN_MS = (.*?);/.exec(html);
+  ok(m && Function("return " + m[1])() === OC.OC_BEGIN_MS && OC.OC_BEGIN_MS >= 10000, "editor: the BEGIN wait is the installer page's (16 x 500 ms + 2 s)");
+  ok(/req\.modBegin\([^)]*\)\s*,\s*\{ timeout: OC_BEGIN_MS, retries: 0 \}/.test(html) && /req\.packBegin\([^)]*\)\s*,\s*\{ timeout: OC_BEGIN_MS, retries: 0 \}/.test(html), "editor: module and pack BEGIN use that wait, with no retry");
+}
 console.log(failed ? `WEB TESTS FAILED (${failed})` : "web tests passed");
 process.exit(failed ? 1 : 0);
