@@ -524,22 +524,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 }
 
 /* ------------------------------------------------------------ pages --- */
-enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
-       FAM_FX, FAM_COUNT };
-enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
-       SC_FM6, SC_FMOP, SC_CZ, SC_CZ1, SC_P5, SC_P5STORE, SC_DRUM, SC_DRUMHIT };                         /* FM6: its patch, functions; operator fm6_opsel;
-                                                                  * CZ1: a native CZ-1 tone (cz_edit.h) */
-enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_MOD, GR_PATS, GR_SONG, GR_MOTION, GR_CHORD, GR_SLICES,
-       GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_SCALE_PICKER, GR_DRUMHIT, GR_PATGRID,
-       GR_FXRACK, GR_TRACKER, GR_POOL, GR_GROOVE }; /* NOTES shares GR_ROLL for steps and recorded events; (Orange Cat
-                                                    * 0.4.2) TRACKER, (0.4.4) PHRASES, (0.4.5) GROOVE */
-
-typedef struct {
-    const char *title;
-    uint8_t fam, scope, graph;
-    uint8_t id[4];               /* param ids; 0xFF = empty slot */
-} page_t;
+#include "fw_pages.h"          /* (0.12.0) FAM_, SC_, GR_ and page_t moved there: a module's page descriptor (fw_pages_t) uses them */
 
 #include "cz_edit.h"
 #include "prophet_edit.h"
@@ -682,6 +667,89 @@ static const page_t PAGES[] = {
 #endif
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
+
+/* ------------------------------------------------- a module's pages (0.12.0, fw_pages.h) ---
+ * The engines that may bring pages are listed here; each has FW_PAGES_MAX indices after PAGES, in this order, so a page keeps its index while another
+ * module comes and goes. page_at(i) is every page the UI shows; page_n() the count to loop to (holes in it are pages that are never visible). */
+static const uint8_t MODPAGE_ENG[] = {ENGI_SHAPES, ENGI_PROPHET};
+#define NMODPAGE ((uint32_t)sizeof MODPAGE_ENG)
+#define NPAGES_ALL (NPAGES + NMODPAGE * FW_PAGES_MAX)
+static const page_t PAGE_NONE = {"", FAM_COUNT, SC_MOD, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}};
+/* the descriptor of the module registered for slot s (an index into MODPAGE_ENG), or 0 */
+static const fw_pages_t *modpages_of(uint32_t s)
+{
+    uint32_t e = s < NMODPAGE ? MODPAGE_ENG[s] : NENGINES;
+    return e < NENGINES && eng_mod[e] && ENGINES[e]->pages ? ENGINES[e]->pages : 0;
+}
+/* the engine a module page belongs to (and the row's number in its descriptor), or 0xFF: a built-in page, or a hole */
+static uint32_t modpage_engine(uint32_t i, uint32_t *k)
+{
+    const fw_pages_t *p;
+    uint32_t s;
+    if (i < NPAGES)
+        return 0xFFu;
+    s = (i - NPAGES) / FW_PAGES_MAX;
+    if (k)
+        *k = (i - NPAGES) % FW_PAGES_MAX;
+    p = modpages_of(s);
+    return p && (i - NPAGES) % FW_PAGES_MAX < p->npages ? MODPAGE_ENG[s] : 0xFFu;
+}
+static uint32_t page_n(void)
+{
+    uint32_t n = NPAGES, s;
+    for (s = 0; s < NMODPAGE; s++) {
+        const fw_pages_t *p = modpages_of(s);
+        if (p)
+            n = NPAGES + s * FW_PAGES_MAX + p->npages;
+    }
+    return n;
+}
+static const page_t *page_at(uint32_t i)
+{
+    uint32_t k;
+    if (i < NPAGES)
+        return &PAGES[i];
+    if (modpage_engine(i, &k) != 0xFFu)
+        return &modpages_of((i - NPAGES) / FW_PAGES_MAX)->rows[k];
+    return &PAGE_NONE;
+}
+/* the descriptor of engine e's module, or 0 (a built-in engine, or none registered) */
+static const fw_pages_t *pages_of_engine(uint32_t e)
+{
+    uint32_t s;
+    for (s = 0; s < NMODPAGE; s++)
+        if (MODPAGE_ENG[s] == e)
+            return modpages_of(s);
+    return 0;
+}
+/* the descriptor of the track's engine, or 0 */
+static const fw_pages_t *track_pages(const track_t *t) { return pages_of_engine(t->eng_req); }
+/* parameter i of a module's panel, or 0 (no such parameter) */
+static const param_desc_t *mod_panel(const fw_pages_t *p, uint32_t i)
+{
+    return p && i < p->npanel && p->panel[i].label ? &p->panel[i] : 0;
+}
+/* motion does not move parameter i of this module */
+static int mod_skip(const fw_pages_t *p, uint32_t i)
+{
+    return p->motion_skip && (p->motion_skip[i >> 3] >> (i & 7u) & 1u);
+}
+/* the byte of the track's native block that parameter i is, or 0 (no block, no such parameter, or one motion leaves) */
+static uint8_t *mod_native_at(track_t *t, uint32_t i)
+{
+    const fw_pages_t *p = track_pages(t);
+    uint8_t *b;
+    if (!mod_panel(p, i) || mod_skip(p, i) || !p->native || !(b = p->native(t)))
+        return 0;
+    return b + i;
+}
+/* SC_MOD: parameter id has no effect on the sound as it is (drawn dim) */
+static int mod_dim(const page_t *pg, uint32_t id)
+{
+    const fw_pages_t *p = pg->scope == SC_MOD ? track_pages(TSEL) : 0;
+    return p && p->active && !p->active(TSEL, id);
+}
+static int16_t mod_cell[4];     /* SC_MOD: the value in column slot */
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
 
 /* FM6's pages: the value in column slot (a copy in fm6_cell) and its descriptor; 0 = none (not an FM6 track) */
@@ -743,6 +811,18 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
+    if (pg->scope == SC_MOD) {                           /* a module's page (fw_pages.h): the byte of its native block, shown as it asks */
+        const fw_pages_t *mp = track_pages(TSEL);
+        const param_desc_t *sd;
+        uint8_t *nb;
+        *valp = 0;
+        if (!mod_panel(mp, id) || !mp->native || !(nb = mp->native(TSEL)))
+            return 0;
+        mod_cell[slot & 3u] = nb[id];
+        sd = mp->shown ? mp->shown(TSEL, id, &mod_cell[slot & 3u]) : 0;
+        *valp = &mod_cell[slot & 3u];
+        return sd ? sd : &mp->panel[id];
+    }
     if((MELODEE_P5 && pg->scope == SC_P5) || (MELODEE_P5 && pg->scope == SC_P5STORE)){
         if(id==255u || ((MELODEE_P5 && pg->scope == SC_P5) && (id>=88u || !P5_PANEL[id].label))){*valp=0;return 0;}
         p5_cell[slot&3u]=(MELODEE_P5 && pg->scope == SC_P5STORE)?(slot?0:p5_store_slot):p5_patch_of(TSEL)->raw[id]+(id==P5_BEND?1:0);

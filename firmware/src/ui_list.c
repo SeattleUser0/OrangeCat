@@ -42,7 +42,7 @@ static const list_t *list_of(uint32_t page)             /* the list page i shows
 {
     uint32_t l;
     for (l = 0; l < NELEM(LISTS); l++)
-        if (str_eq(PAGES[page].title, LISTS[l].title))
+        if (str_eq(page_at(page)->title, LISTS[l].title))
             return &LISTS[l];
     return 0;
 }
@@ -52,7 +52,7 @@ static int list_gone(uint32_t i)
     uint32_t l, r;
     for (l = 0; l < NELEM(LISTS); l++)
         for (r = 0; r < LISTS[l].n; r++)
-            if (!str_eq(LISTS[l].row[r].page, LISTS[l].title) && str_eq(LISTS[l].row[r].page, PAGES[i].title))
+            if (!str_eq(LISTS[l].row[r].page, LISTS[l].title) && str_eq(LISTS[l].row[r].page, page_at(i)->title))
                 return 1;
     return 0;
 }

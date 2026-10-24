@@ -28,7 +28,8 @@ enum { ED_SLOT_INFO = 110, ED_SLOT_BEGIN, ED_SLOT_WRITE, ED_SLOT_END, ED_SLOT_ER
 enum { ED_PACK_INFO = 115, ED_PACK_BEGIN, ED_PACK_WRITE, ED_PACK_END, ED_PACK_ERASE };
 /* (Orange Cat 0.10.0) loadable engine modules (oc_module.c): 120..124. The pack's ids and payloads are unchanged; the module has its own ids because the pack's
  * BEGIN already carries an optional byte (older pages sent one), so an area selector in it would be ambiguous. */
-enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE, ED_ENGINES };   /* (0.11.0) 125 ED_ENGINES: the engine list */
+enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE, ED_ENGINES,   /* (0.11.0) 125 ED_ENGINES: the engine list */
+       ED_PAGES, ED_PANEL };      /* (0.12.0) 126 ED_PAGES, 127 ED_PANEL: a module engine's pages and native parameters (fw_pages.h) */
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
 enum { ED_CORE1_TEST = 79 };                         /* test builds only: CPU1 failure injection */
 static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
@@ -316,6 +317,10 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
         return n <= 1u;
     case ED_ENGINES:
         return !n;
+    case ED_PAGES:
+        return n == 1u;
+    case ED_PANEL:
+        return n == 1u || n == 3u;
     case ED_GET: case ED_DESC: case ED_PRESET: case ED_PROJECT: case ED_UP_LIST:
     case ED_TRACK_PARAM:
         return n == 2u || (cmd == ED_TRACK_PARAM && n == 4u) || (cmd == ED_PRESET && n == 3u);
@@ -972,6 +977,64 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (s = 0; s < OC_MOD_STARTS; s++) {
             ed_b(oc_mod.state[s]); ed_b(oc_mod.why[s]); ed_b(oc_mod.engine[s]);
         }
+        break;
+    }
+    case ED_PAGES: {                                       /* (0.12.0) engine -> engine, src (0 none, 2 a module's descriptor), npages, npanel, then per page: its title
+                                                            * (8) and its four panel indices (127 = none). Only a registered module's descriptor answers (a built-in
+                                                            * engine's pages are the editor's own), read in place from its flash. */
+        const fw_pages_t *mp;
+        uint32_t p, k;
+        if (a[0] >= NENGINES)
+            return;
+        mp = pages_of_engine(a[0]);
+        ed_b(a[0]);
+        ed_b(mp ? 2u : 0u);
+        ed_b(mp ? mp->npages : 0u);
+        ed_b(mp ? mp->npanel : 0u);
+        for (p = 0; mp && p < mp->npages; p++) {
+            ed_str(mp->rows[p].title, 8);
+            for (k = 0; k < 4u; k++)
+                ed_b(mp->rows[p].id[k] == 0xFFu ? 127u : mp->rows[p].id[k]);
+        }
+        break;
+    }
+    case ED_PANEL: {                                       /* (0.12.0) engine [, first lo, hi] -> engine, first, count, then per parameter: present (0 = none; 1), format,
+                                                            * min, max, default (2 x 7 bits each), label (8), unit (8), motion skip (0/1), and for an enum its names (8). As
+                                                            * many as fit the reply; the editor asks again from first + count. */
+        const fw_pages_t *mp;
+        uint32_t i0, i, n = 0, cnt_at;
+        if (a[0] >= NENGINES)
+            return;
+        mp = pages_of_engine(a[0]);
+        i0 = na >= 3u ? a[1] | (uint32_t)a[2] << 7 : 0u;
+        ed_b(a[0]);
+        ed_b(i0);
+        ed_b(i0 >> 7);
+        cnt_at = ed_n;
+        ed_b(0);
+        for (i = i0; mp && i < mp->npanel; i++) {
+            const param_desc_t *d = mod_panel(mp, i);
+            uint32_t need = d ? 1u + 1u + 6u + 9u + 9u + 1u + (d->fmt == F_ENUM && d->names ? (uint32_t)(d->max - d->min + 1) * 9u : 0u) : 1u;
+            if (ed_n + need + 2u > sizeof ed_out - 1u || n >= 127u)
+                break;
+            ed_b(d ? 1u : 0u);
+            if (d) {
+                uint32_t j;
+                ed_b(d->fmt);
+                ed_v(d->min);
+                ed_v(d->max);
+                ed_v(d->def);
+                ed_str(d->label, 8);
+                ed_str(d->unit, 8);
+                ed_b(mod_skip(mp, i));
+                if (d->fmt == F_ENUM && d->names)
+                    for (j = 0; j <= (uint32_t)(d->max - d->min); j++)
+                        ed_str(d->names[j + d->min], 8);
+            }
+            n++;
+        }
+        ed_out[cnt_at] = (uint8_t)n;
+        ed_b(mp ? mp->npanel : 0u);                        /* the total, then the unit asks again until it has them */
         break;
     }
     case ED_MOD_BEGIN: case ED_MOD_WRITE: case ED_MOD_END: case ED_MOD_REMOVE: {

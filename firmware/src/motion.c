@@ -52,7 +52,7 @@ static void motion_unguard(uint32_t f)
 static uint32_t motion_native_tag(const track_t *t)
 {
     uint32_t e = t->eng_req;
-    return (MELODEE_P5 && e == ENGI_PROPHET) ? MO_TAG_P5 : e == ENGI_CZ ? MO_TAG_CZ : (MELODEE_FM6 && e == ENGI_FM6) ? MO_TAG_FM6 : MO_TAG_NONE;
+    return (e == ENGI_PROPHET && (MELODEE_P5 || track_pages(t))) ? MO_TAG_P5 : e == ENGI_CZ ? MO_TAG_CZ : (MELODEE_FM6 && e == ENGI_FM6) ? MO_TAG_FM6 : MO_TAG_NONE;
 }
 /* byte i of the patch of the track's engine, 0: none motion moves (the Prophet's voice assignment, the CZ-1's line
  * select, FM6's TRANSPOSE and name: what changes the voices themselves) */
@@ -60,10 +60,12 @@ static uint8_t *motion_native_at(track_t *t, uint32_t i)
 {
     uint32_t k = trk_index(t);
     switch (motion_native_tag(t)) {
-#if MELODEE_PROPHET && MELODEE_P5                       /* (Orange Cat size audit: P5_PANEL only with the Prophet in) */
     case MO_TAG_P5:
+#if MELODEE_PROPHET && MELODEE_P5                       /* (Orange Cat size audit: P5_PANEL only with the Prophet in) */
         return i < NELEM(P5_PANEL) && P5_PANEL[i].label && i != P5_UNISON && i != P5_UNISON_COUNT &&
                i != P5_UNISON_DETUNE && i != P5_RETRIGGER ? &p5_patch_of(t)->raw[i] : 0;
+#else
+        return mod_native_at(t, i);                     /* (0.12.0) the Prophet as a module: its descriptor's panel and skip bits */
 #endif
     case MO_TAG_CZ:
         return i && i < 128u ? &cz_patch[k].raw[i] : 0;
@@ -85,7 +87,11 @@ static int motion_native_ok(uint32_t id, int32_t value)    /* (a store's event: 
         /* (Orange Cat size audit) the Prophet unhooked: a stored Prophet event is kept as it is (no track can be a
          * Prophet, so it never applies; a firmware with the Prophet in checks it against P5_PANEL again). The panel
          * table (1,760 B) stays out of the image. */
-        return i < 88u;
+        {   const fw_pages_t *mp = pages_of_engine(ENGI_PROPHET);   /* (0.12.0) with the module in, its panel decides */
+            const param_desc_t *d = mod_panel(mp, i);
+            if (!mp) return i < 88u;
+            return d && !mod_skip(mp, i) && v >= (uint32_t)d->min && v <= (uint32_t)d->max;
+        }
 #endif
     }
     if (tag == MO_TAG_CZ) {

@@ -1312,6 +1312,21 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
     *vp = (int16_t)v;
+    if (pg->scope == SC_MOD) {                            /* (0.12.0) a module's value: its hook (or the clamped byte), recorded as motion */
+        const fw_pages_t *mp = track_pages(TSEL);
+        uint8_t old[MO_NATIVE_N], *nb = mp && mp->native ? mp->native(TSEL) : 0;
+        uint32_t f = motion_guard(), id = pg->id[slot];
+        if (nb && mod_panel(mp, id)) {
+            motion_native_peek(TSEL, old);
+            if (mp->put)
+                mp->put(TSEL, id, v);
+            else
+                nb[id] = (uint8_t)v;
+            native_motion(old);
+        }
+        motion_unguard(f);
+        return;
+    }
     if((MELODEE_P5 && pg->scope == SC_P5)){
         uint8_t old[MO_NATIVE_N];uint32_t f=motion_guard();
         motion_native_peek(TSEL,old);p5_edit_value(TSEL,pg->id[slot],p5_panel_raw(TSEL,pg->id[slot],v));native_motion(old);

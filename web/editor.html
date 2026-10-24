@@ -446,7 +446,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
   PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,   /* (Orange Cat 0.8.0) the asset pack */
-  MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124, ENGINES: 125,   /* (Orange Cat 0.10.0) loadable engine modules; (0.11.0) 125 the engine list */
+  MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124, ENGINES: 125, PAGES: 126, PANEL: 127,   /* (0.12.0) 126 and 127 a module engine's pages and native parameters; (Orange Cat 0.10.0) loadable engine modules; (0.11.0) 125 the engine list */
   FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, LIBRARY:80, PROPHET:95 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 
@@ -649,6 +649,22 @@ const parse = {
     }
     const ns = r.b();
     for (let i = 0; i < ns; i++) o.starts.push({ state: r.b(), why: r.b(), engine: r.b() });
+    return o;
+  },
+  [CMD.PAGES](a) {                                      /* (0.12.0) a module engine's pages: engine, source (0 none, 2 a module's descriptor), npages, npanel; per page its title and four panel indices (null none) */
+    const r = new Reader(a), o = { engine: r.b(), src: r.b(), npages: r.b(), npanel: r.b(), pages: [] };
+    for (let i = 0; i < o.npages; i++) { const title = r.s(); o.pages.push({ title, ids: [r.b(), r.b(), r.b(), r.b()].map((x) => (x === 127 ? null : x)) }); }
+    return o;
+  },
+  [CMD.PANEL](a) {                                      /* (0.12.0) the native parameters from entry `first`: per entry null (a hole) or {fmt, min, max, def, label, unit, skip, names?}; then the total */
+    const r = new Reader(a), o = { engine: r.b(), first: r.b() | (r.b() << 7), count: r.b(), entries: [] };
+    for (let i = 0; i < o.count; i++) {
+      if (!r.b()) { o.entries.push(null); continue; }
+      const e = { fmt: r.b(), min: r.v(), max: r.v(), def: r.v(), label: r.s(), unit: r.s(), skip: !!r.b() };
+      if (e.fmt === 8) { e.names = []; for (let k = e.min; k <= e.max; k++) e.names.push(r.s()); }   /* F_ENUM */
+      o.entries.push(e);
+    }
+    o.total = r.b();
     return o;
   },
   [CMD.MOD_BEGIN](a) { const r = new Reader(a); return { rc: r.b(), done: r.b() | (r.b() << 7) | (r.b() << 14) }; },
@@ -864,6 +880,8 @@ const req = {
   modEnd: (page) => [CMD.MOD_END, pack7(page)],
   modRemove: (engine) => [CMD.MOD_REMOVE, [engine]],
   engines: () => [CMD.ENGINES, []],                  /* (0.11.0) */
+  pages: (engine) => [CMD.PAGES, [engine]],          /* (0.12.0) */
+  panel: (engine, first = 0) => [CMD.PANEL, first ? [engine, first & 0x7F, first >> 7] : [engine]],
   czGet: (target,index) => [CMD.CZ_GET,[target,index]],
   czPut: (target,index,raw,pattern=null) => [CMD.CZ_PUT,[target,index,...CZ.nibbles(raw),...(pattern?Array.from({length:16},(_,i)=>patNorm(...(pattern[i]||[0,0]))).flat():[])]],
   uiState: () => [CMD.UI_STATE, []],
@@ -3088,7 +3106,7 @@ function modSummary(info) {                           /* the state line's key fo
  * start (0, 1 or null), state (a key: ok, empty, refused, noslot, badhdr, badcrc, badtail, crashed), reason (a text key or ""), tracks (how many hold it), actions (a list of
  * "install", "replace", "remove")}. Plus a row per start that holds something no engine number can show (torn, or a header that names no engine of the list): {num: null, start,
  * state, actions: ["removeAll"]}. MODULE_SLOTS mirrors engines.c eng_module_slot. */
-const MODULE_SLOTS = [14];
+const MODULE_SLOTS = [14, 19];                          /* (0.12.0) 19: the Prophet, the second engine a module may supply */
 function ocmReason(state, why) {                       /* the text key for why a module found was not used ("" none) */
   const st = OCM_STATE[state];
   if (st === "refused") return why === 3 ? "reasonOtherFw" : why === 4 ? "reasonTooNew" : why === 5 ? "reasonAddr" : "reasonRefused";
@@ -3120,6 +3138,23 @@ function enginesRows(list, names) {
     rows.push({ num: null, name: "", source: "none", version: "", size: 0, start: i, state: OCM_STATE[s.state] || "badhdr", reason: ocmReason(s.state, s.why), tracks: 0, actions: ["removeAll"] });
   });
   return rows;
+}
+/* (0.12.0) A module engine's pages from the unit: ED_PAGES, then ED_PANEL until every native parameter is in. `send(request)` answers a request [cmd, args] with the
+ * parsed reply's bytes (the page passes its session; the test a mock). Returns null when the unit has no descriptor for the engine (a built-in engine, no module, an older
+ * firmware that does not answer: send throws or returns null), else {engine, pages: [{title, params: [entry | null | undefined x 4]}], panel: [entry | null]}. */
+async function fetchModPages(send, engine) {
+  let a;
+  try { a = await send(req.pages(engine)); } catch (e) { if (e.message === "closed") throw e; return null; }
+  if (!a) return null;
+  const P = parse[CMD.PAGES](a);
+  if (P.src !== 2 || !P.npages) return null;
+  const panel = [];
+  while (panel.length < P.npanel) {
+    const q = parse[CMD.PANEL](await send(req.panel(engine, panel.length)));
+    if (q.first !== panel.length || !q.count) throw new Error("PANEL: the unit's answer does not continue where it was asked");
+    panel.push(...q.entries);
+  }
+  return { engine, pages: P.pages.map((p) => ({ title: p.title, params: p.ids.map((i) => (i === null ? undefined : panel[i])) })), panel };
 }
 /*PROTO-END*/
 
@@ -4200,6 +4235,14 @@ async function modProbe(d, engine) {
     try { d.engines = parse[CMD.ENGINES](await sessionRequest(d, req.engines(), { timeout: 150, retries: 0, quiet: true })); }
     catch (e) { if (e.message === "closed") throw e; }
   }
+  d.modPages = {};                                    /* (0.12.0) the pages of the module engines that bring a descriptor, by engine number */
+  if (d.engines) {
+    for (const x of d.engines.engines) {
+      if (x.src !== 2 || !MODULE_SLOTS.includes(x.num)) continue;
+      const mp = await fetchModPages((r) => sessionRequest(d, r, { timeout: 150, retries: 0, quiet: true }).then((a) => a), x.num).catch((e) => { if (e.message === "closed") throw e; return null; });
+      if (mp) d.modPages[x.num] = mp;
+    }
+  }
   if (d === dev) renderModule();
 }
 function renderModule() {
@@ -4224,7 +4267,8 @@ function renderModule() {
       acts.append(el("button", { text: t("act_" + a), onclick: () => (a === "install" || a === "replace" ? modPick(r.num) : modRemoveRow(r)) }));
     }
     return el("tr", { class: ["ok", "empty"].includes(r.state) ? "" : "bad" },
-      el("td", { class: "num", text: r.num === null ? "" : String(r.num) }), el("td", { text: r.name }), el("td", { text: src }), el("td", { text: r.version }),
+      el("td", { class: "num", text: r.num === null ? "" : String(r.num) }),
+      el("td", { text: r.name, title: dev.modPages?.[r.num] ? dev.modPages[r.num].pages.map((p) => p.title).join(", ") : null }),   /* (0.12.0) a module's pages, from its descriptor */ el("td", { text: src }), el("td", { text: r.version }),
       el("td", { class: "num", text: r.size ? String(r.size) : "" }), el("td", { class: "num", text: r.start === null ? "" : String(r.start) }),
       el("td", { class: "st", text: st }), el("td", { class: "num", text: r.num === null ? "" : String(r.tracks) }), acts);
   });

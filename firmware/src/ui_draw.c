@@ -105,9 +105,9 @@ static void head_pages(int32_t x, int32_t x1)          /* (x: after the transpor
     uint32_t i, n = 0, k = 0, sc = sec_on() ? sec_of(ui.page) + 1u : 0u;
     if (designer_on() && !name_on())                    /* the designer: its stage's pages */
         designer_pages(&n, &k);
-    else for (i = 0; i < NPAGES; i++)                   /* (an engine in sections: the section's pages) */
-        if (PAGES[i].fam == pg->fam && page_visible(i) &&
-            (!sc || ((MELODEE_FM6 && PAGES[i].scope == SC_FMOP) ? (MELODEE_FM6 && PAGES[ui.page].scope == SC_FMOP) : sec_of(i) + 1u == sc))) {
+    else for (i = 0; i < page_n(); i++)                 /* (an engine in sections: the section's pages) */
+        if (page_at(i)->fam == pg->fam && page_visible(i) &&
+            (!sc || ((MELODEE_FM6 && page_at(i)->scope == SC_FMOP) ? (MELODEE_FM6 && page_at(ui.page)->scope == SC_FMOP) : sec_of(i) + 1u == sc))) {
             if (i == ui.page)
                 k = n;
             n++;
@@ -721,7 +721,7 @@ static void draw_columns(void)
         }
         draw_column(c, d->label, val, unit, (MELODEE_CZ && cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
                     !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c])) ||
-                    ((MELODEE_P5 && cur_page()->scope == SC_P5) && !p5_ed_active(TSEL, cur_page()->id[c])) ||
+                    ((MELODEE_P5 && cur_page()->scope == SC_P5) && !p5_ed_active(TSEL, cur_page()->id[c])) || mod_dim(cur_page(), cur_page()->id[c]) ||
                     (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) ? T_DIM : VAL(c),   /* LFO 2 SYNC on: RATE does nothing */
                     d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, *vp), param_icon(d, *vp));
     }
