@@ -148,7 +148,7 @@ def build(cc):
         f"#define OC_PACK_LEN {total}u",
     ]
     # (Orange Cat 0.13.6) OC_PACK_BUILTIN (the A/B build): the tables are the arrays in the image, so the pointer macros are left out; the hash and the length stay
-    lines.append("#ifndef OC_PACK_BUILTIN")
+    lines.append("#if !OC_PACK_BUILTIN")
     for k, n in enumerate(names):
         ctype = tbl[order[k]][0]
         lines.append(f"#define {n} ((const {ctype} *)0x{ocflash.xip(PACK_LO) + offs[n]:08X}u)")
