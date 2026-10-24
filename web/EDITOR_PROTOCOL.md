@@ -531,8 +531,8 @@ on 4 bytes at a time until none does, the page tests the image it is about to se
 loader tests it at every boot (state 8).
 
 Checks at boot, in this order: magic, header CRC, `fw_module_check` (interface identifier, table address, table size and version), the link address (it is
-linked for one start and refused at any other), the length (a multiple of 4, at most 6 sectors), the engine_t inside the code, the engine number (SHAPES only),
-the state size, the pack hash, then the CRC of the code, then the sector tails. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
+linked for one start and refused at any other), the length (a multiple of 4, at most 6 sectors), the engine_t inside the code, the engine number (SHAPES, and from 0.12.0 the Prophet's 19),
+the state size, the pack hash, then the CRC of the code, then (0.12.0) the page descriptor if the engine_t has one (state 3 when a pointer leaves the image), then the sector tails. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
 higher header version is used (equal versions: the higher start) and the other is erased at that boot (0.11.1). Power cuts of a replacement beside (tested at every program and every erase): before the new header page is programmed the old module is the one that loads; once
 the old start's first erase has run it is the new one; between the two (the commit done, no erase yet) both are valid and the newer is used (0.11.1). The engine
 number a track holds is never changed by an install or a removal; the table answers for the number (the built-in engine if there is
@@ -540,6 +540,27 @@ one, else silence).
 
 Crash mark: a module that is playing in the first 30 s of a boot that then dies is not loaded at the next boot (state 5) until the unit loses power or the
 start is installed or removed. (0.10.1) A crash later than that is counted too. A flag in noinit RAM says a session is running; every orderly reset (UBOOT, an update, a test reboot) clears it and the count. A reset that finds the flag still set is a session that died (the chip's reset reason cannot tell: a fault ends in a soft reset too). If the module's engine was held by a track in that session, the start's count goes up; a death without it, a clean reset, a power loss, an install or a removal sets it to 0. Three in a row ban the start (state 5) until power loss, install or remove, and the home screen says MODULE BANNED with the engine name, once.
+
+## Orange Cat: pages from a module (commands 126-127, firmware 0.12.0)
+
+A module engine may bring its own pages: `engine_t.pages` points at a descriptor in the module's flash (`firmware/src/fw_pages.h`): up to 24 page rows, up to 128 native
+parameters (one byte each of the track's native block; the engine's motion events are `MO_NATIVE + index` as for the built-in Prophet), hooks, and the lists the ENV and LFO
+tabs use. The unit answers from the descriptor in place. A built-in engine, a number with no module and a firmware before 0.12.0 give no descriptor (no reply from an old
+firmware: the command is unknown). The Prophet's number (19) is a module slot from 0.12.0; no Prophet module exists yet (docs/orangecat/ENGINE_LOADING_PLAN.md, "The Prophet as a module").
+
+| Command | Request | Reply |
+|---|---|---|
+| 126 PAGES | engine (exactly one byte; a number past the table, or any other length, is refused: no reply) | engine, source (0 no descriptor, 2 a registered module's), page count (0..24), panel count (0..128); then per page its title (ASCII, up to 8, 0 ended) and four panel indices (127 = no parameter in that column) |
+| 127 PANEL | engine, optionally the first entry (2 x 7 bits) | engine, first (2 x 7 bits), count (as many entries as fit the 1024 byte reply, at most 127), then per entry: present (0 a hole in the panel, nothing more; 1), format (the `F_` number), min, max, default (14 bit values, 2 bytes each, offset 8192 as everywhere), label (up to 8, 0 ended), unit (up to 8, 0 ended, empty if none), motion skip (1 = motion leaves this parameter), and for a format 8 (F_ENUM) the names of min..max (up to 8 each, 0 ended); then the panel count. The editor asks again from first + count until it has the panel count. |
+
+A page's value is the byte of the track's native block at its panel index; the Prophet module's block is the Prophet patch. The editor shows the titles of a module's pages in
+the Engines table (`fetchModPages` in web/editor.html: both commands, in parts). Setting a value on such a page is not a new command: the Prophet's native commands (95) and
+TRACK_PARAM are the ways in once the module exists; the descriptor says what exists.
+
+The Engines table (0.12.0) also has, per row for an engine the unit plays: **Use** on a track (the page selects the track, sends PRESET with the engine and preset 0, which is the
+track engine command, and selects the track that was selected; the unit's admission may refuse it with the fourth reply byte, 1 engine too heavy, 2 no room, and the track keeps
+its engine); and **Replace** with a file of another engine (a swap): the page checks the file against the unit, asks, sends MOD_REMOVE for the old engine, reads MOD_INFO for the new
+engine (the freed start is the plan) and sends MOD_BEGIN, MOD_WRITE, MOD_END as for an install. The tracks that held the old engine keep its number and are silent.
 
 ## Pattern banks (commands 73–74)
 

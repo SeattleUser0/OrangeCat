@@ -1,6 +1,6 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.8
+**Version:** 0.9
 **Date:** October 23, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) has its proof of concept built in 0.10.0 on the same branch ("The SHAPES module, as built"):
@@ -10,6 +10,10 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.9: the Prophet as a module, measured (Part 2a of the sixth run) and its pages as data built (Part 2b): the page descriptor (fw_pages.h, engine_t.pages), the loader's
+  check of it, the page lookup, edit and motion that follow it, editor commands 126 and 127. The Prophet does NOT fit the 6 sectors a start has (7.60), so it is not built
+  as the second module (2c) and its admission line (2d) is not added; "The Prophet as a module (0.12.0)" below has the numbers and what it would need. The Engines table
+  assigns an engine to a track and Replace takes a file of another engine (0.12.0, Part 3); the installer page installs firmware, pack and module in one go (0.11.2).
 - 0.8: the proof of concept after review (0.10.1 and 0.11.0). 0.10.1: the sector tails against the update loader's record rule (Fix 1), a replacement written beside the old module (Fix 2), the crash ban at any
   time in a session (Fix 3), the PC guard window (Fix 4: one fetch window only, so the widening stays and its cost is written down; the window follows install and remove in a running session), small
   things (Fix 5: 12 sectors everywhere, one XIP function, the migration wall time). 0.11.0: admission at assignment (voice units and the arena; no render budget exists, the cost word is carried),
@@ -914,6 +918,109 @@ Per row: Install (a number a module may supply, with none found; the file picker
 The card browser is unchanged. Tests: editor_test.c (the reply byte for byte, a banned module, an argument refused), test_web.mjs (the parse and the rows for OK, absent, banned,
 refused, torn, wrong tail).
 
+## The Prophet as a module (0.12.0)
+
+Measured on the throwaway branch exp/sonnet-p5mod (tools/module/prophet_mod.c, the Pi32 compiler at -Os, the flags of the shipping build with MELODEE_P5=0, CI runs
+40072070279 and 40072274702, `tools/build.py --module prophet --measure`). The module is the Prophet's engine (eng_prophet_test.c, prophet_patch.c) in a translation unit of
+its own that calls the firmware through fw_api_t, as shapes_mod.c does. Nothing of it is on sonnet-work except the descriptor below.
+
+### 2a. The numbers
+
+| | PROPHET | MACRO (for the record) |
+|---|---|---|
+| object code | 8,836 B | 37,996 B |
+| tables and constants (read only data) | 22,098 B | 2,050 B |
+| .data / .bss | 0 / 0 | **4** / 0 (pl_rng_state, a seed in the Plaits-derived code) |
+| relocations | 73 | 181 |
+| linked image (header page and code), at start 0 and at start 6 | 31,148 B = 7.60 sectors | 40,276 B = 9.83 sectors |
+| fits the 6 sectors (24,576 B) of a start | **no**, over by 6,572 B | no, over by 15,700 B |
+| state per track (engine_t / eng_state_size) | 1,456 B on the unit (1,472 on the host) | 11,284 B |
+| voice units per voice | 2 with the CPU1 worker online (poly 8), else 3 (poly 5) | MC_UNITS |
+| undefined symbols | `_modstart` only (the link address) | the same |
+| the image of the firmware with the new fw_api_t members | 492,740 B (+48 B) | |
+
+The Prophet's tables (22,098 B): P5_FPACK 11,000, P5_TANH 4,100, P5_EXP2 2,056, PITCH_OCT 768, six tables of 512 (ENV_LIN, P5_ENV_ATK, P5_ENV_SSM, P5_ENV_EXP, P5_LFO_INC,
+P5_AMOUNT), P5_TPT_G 512, P5_FWIDTH 133, P5_FBASE 133, ENG_P5_TEST 248, strings 76. With the big tables left out of the module (about 21.8 KB, to be read from a pack) the image
+is about 9,374 B, 3 sectors.
+
+What the Prophet module needs from the firmware beyond SHAPES' list (added to fw_api_t on the experiment branch, not on sonnet-work): p5_patch (the four patches, 4 x 138 B),
+p5_ready (4 B), p5_job (one CPU1 job block, 312 B), midi_bend_target, worker_online, batch_active, worker_submit, worker_join, batch_push, ap_prophet. About 868 B of
+firmware RAM stays when the engine goes, because the patches are the track's and the project stores them. The hot code (p5_render, p5_samples, 4,626 B in .dsp_text and
+.audio_text) runs from RAM on the firmware; in a module it runs from flash. The source says "XIP stalls dominated the first hardware run": the Prophet as a module is slower
+until it is measured on the unit, and the unit has not been flashed.
+
+### The module area's arithmetic with two modules
+
+The area is 12 sectors (0xC8000..0xD3FFF) in two starts, 0 and 6, of 6 sectors each (24,576 B). A module takes one start whole.
+
+| | image | sectors | beside SHAPES (6) | in 12 |
+|---|---|---|---|---|
+| SHAPES | 23,780 B | 6 | | fits one start |
+| PROPHET | 31,148 B | 7.60 (8) | 14, over by 2 sectors (8,192 B) | fits alone |
+| PROPHET, tables in a pack | about 9,374 B | 3 | 9, fits beside SHAPES, in a start of 6 | |
+| MACRO | 40,276 B | 9.83 (10) | 16, over by 4 sectors (16,384 B) | fits alone |
+
+So the Prophet and MACRO cannot be a module beside SHAPES in the area as it is. The two ways, with what each costs:
+
+1. A second pack for the Prophet's tables (about 21.8 KB). The pack area holds one pack of 40,232 B in ten sectors (40,960 B): no room. A second area would be
+   six more sectors out of the one free sector and the library group's spare, which do not exist. The tables could live in the firmware image (84,556 B free): that is 21.8 KB of
+   the 31 KB the Prophet cost when it was built in, so the saving is 9 KB and the engine would play from flash tables with the code in a module. Not recommended.
+2. The area at 12 for one module. The Prophet or MACRO alone, or SHAPES alone, not two together. The installer already swaps (Replace with another engine's file, 0.12.0).
+   This needs no format change: a start would be 12 sectors and the plan's two starts become one.
+
+The descriptor below is built either way. The Prophet's descriptor itself (88 native parameters, 16 pages, the keyed tuning, the unison default, the bend shown from 1,
+the dim rule) is not written: with no module to carry it, it would be a table nothing reads.
+
+### 2b. The page descriptor, as built
+
+A module brings its pages with it. `engine_t.pages` (core.h; 0 for the firmware's own engines) points at a `fw_pages_t` in the module's flash (firmware/src/fw_pages.h). It is
+not a new header word: the module header (60 bytes) is unchanged, and a module built before this field (a shorter engine_t) is refused by the interface identifier, which
+now covers page_t and fw_pages_t as well as engine_t. Read in place, nothing copied to RAM.
+
+- `rows`: page_t as PAGES has them (title, family, scope SC_MOD, graph, four panel indices, 0xFF empty). At most 24 (FW_PAGES_MAX).
+- `panel`: param_desc_t per native parameter (label 0 = no such parameter, the format, range, default, enum names, unit). At most 128 (FW_PANEL_MAX; motion's native range).
+  A native parameter is one byte of the track's native block, byte i is panel index i. That is what motion needs: its event is `MO_NATIVE + i` with the engine tag in the value.
+- hooks, all optional: `native(track)` the block; `shown(track, id, &value)` a descriptor and value to show when they are not the panel's and the byte (the keyed tune, the
+  unison default, a bend from 1); `put(track, id, value)` a new value (the Prophet re-reads its voices); `active(track, id)` 0 draws the column dim.
+- `motion_skip`: a bit table of parameters motion leaves (the Prophet's voice assignment). `env_titles`, `lfo_titles`: title prefixes of the pages the ENV and LFO tabs take.
+  `knob[4]`: HOME's four knobs.
+- the preset list and names are the engine_t's own (npresets, preset_make); the editor's names command already reads them.
+
+Page numbers: the firmware's PAGES come first; each engine that may bring pages (params.c MODPAGE_ENG: SHAPES, then the Prophet) has 24 indices of its own after them, so a page
+keeps its number while the other module comes and goes. `page_at(i)` and `page_n()` replace PAGES[i] and NPAGES wherever the UI walks pages; a lookup of a built-in page by
+title or graph stays on PAGES. A page is visible when its engine is the track's. The Prophet's number, 19, is now an engine a module may supply (eng_module_slot).
+
+The loader checks the descriptor before it registers a module (oc_module.c oc_mod_pages_check, on the flash bytes, `fw_pages_check` in fw_pages.h): the magic, size and version,
+the counts, every pointer (rows, panel, hooks, skip table, title lists, strings, enum names) inside the module's image and 4 byte aligned, strings of at most 24 bytes that end,
+a row's scope, its indices inside the panel, a range with min above max, a knob past the panel. A module that fails is MD_BAD_HDR ("the header is not valid here"). The check
+reads the device layout (4 byte pointers), so on the host it runs on hand-built bytes and the loader's call is skipped for the host's 8 byte pointers.
+
+Motion: the Prophet's native tag (MO_TAG_P5) now means the module's panel when the module is registered. Events stored in old projects are kept while no module is there (the old
+rule: byte index under 88) and are checked against the module's panel and skip table when it is. HOME's knobs, ENV and LFO, the dim and the edit all ask the descriptor. Not
+carried over: momentary take (LFO held) for a module's native values, because the module keeps no copy to put back; the project's saving of a Prophet patch (project.c) is unchanged.
+
+The editor: command 126 (ED_PAGES, engine) answers source (0 none, 2 a module's descriptor), the page count, the panel count, and per page its title and four panel indices.
+Command 127 (ED_PANEL, engine [, first]) answers the panel in parts that fit one reply, per entry present, format, range, default, label, unit, motion skip and an enum's names.
+A built-in engine and an unregistered number answer source 0. The page fetches both for a module engine that brings a descriptor (fetchModPages) and lists the page titles in the
+Engines table. Details in web/EDITOR_PROTOCOL.md.
+
+Tests: tests/mod_pages_test.c (a fake module for engine 19 with a descriptor of eight parameters and four pages, built with the Orange Cat engine set under the sanitizers:
+the wire check against 16 hand-built defects, the pages exist only while the module is registered and only on a track of its engine, EDIT and SELECT, a knob edit through the hook,
+a shown value that is not the byte, a dim column, ENV and LFO lists, HOME's knobs, a native parameter recorded as motion, played back and restored, the skip bit, the stored-event
+rule, removal), editor_test.c (commands 126 and 127 byte for byte, refusals), test_web.mjs (the parse and the fetch in parts). The fake module stands in for the Prophet because the
+Prophet does not fit; a descriptor for the real engine is the next piece when its module does.
+
+### What the Prophet would need to ship as a module
+
+1. The area at 12 for one module (or a second place for 21.8 KB of tables), as above. Without one of them it does not fit.
+2. The fw_api_t additions above and the 868 B of firmware RAM, the interface identifier bumped (it already moved with fw_pages.h).
+3. Its descriptor (88 parameters, 16 pages, the four hooks, the skip table) written from params.c's SC_P5 rows and P5_PANEL, with the golden renders checked byte for byte against the
+   built-in engine (tests/golden.txt).
+4. The cost lines for admission (tests/target_budget.txt, the Prophet's loops from the first CI measurement of the module, as DRUM-X got them) and eng_admit's voice-unit check with
+   p5_units (2 or 3). eng_admit already reads units from the registered engine_t, so the check needs the module, not new code.
+5. A measurement on the unit of the hot code running from flash.
+
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,
@@ -929,6 +1036,6 @@ built; the module experiment is done (above). The unit has been tried on none of
 4. The asset pack (milestone 1), with the device test of the data window at audio rate.
 5. The SHAPES module on hardware (milestone 2, steps 1 to 6): installed from the web page, running after the
    computer is unplugged and the FM-1 restarted.
-6. The engines tab in full (discover, assign, replace, remove), the admission check around the measured results,
+6. The engines tab in full (discover, assign, replace, remove: done in 0.12.0), the admission check around the measured results,
    the card as the second transport; MACRO as a module; the Prophet back as a module with its own pages carried
-   as data.
+   as data (the pages as data are built in 0.12.0; the Prophet does not fit a start, see "The Prophet as a module").

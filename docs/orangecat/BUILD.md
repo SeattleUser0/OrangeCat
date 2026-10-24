@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.63  
-**Date:** October 23, 2026  
-**Tracks:** Orange Cat Specification v0.23
+**Version:** 0.67  
+**Date:** October 24, 2026  
+**Tracks:** Orange Cat Specification v0.25
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.67 (October 24, 2026):** 0.12.0 on branch sonnet-work (not on main, not released, not on the unit): a module's pages as data (a page descriptor the engine_t points at, checked by the loader, followed by the page lookup, the edit path and motion; editor commands 126 and 127), tested with a fake module; the Prophet measured as a module (31,148 B, 7.60 sectors: it does not fit a start, so it is not built as the second module, and its admission line is not added); the Engines table assigns an engine to a track and Replace takes another engine's file (a swap). See "Sixth run", Parts 2 and 3.
 - **0.66 (October 24, 2026):** 0.11.2 on branch sonnet-work (not on main, not released, not on the unit): the installer page installs the whole set (firmware, then the asset pack, then the SHAPES module) in one go, with one bar and one summary, each stage skippable and skipped when the unit already has it. See "Sixth run", Part 1.
 - **0.65 (October 24, 2026):** 0.11.1, Fixes 3 to 6 on branch sonnet-work (not on main, not released, not on the unit): one helper writes the PC window on every path that takes a module out of the table; an install or remove in a running session parks the engine's voices first and the table's two stores are one critical section; two valid modules of one engine at boot: the higher version wins and the loser is erased; the project load marks a module's use before audio renders it. See "Fifth run".
 - **0.64 (October 24, 2026):** 0.11.1, Fixes 1 and 2 on branch sonnet-work (not on main, not released, not on the unit): the library migration after a downgrade below 0.9.1 and an upgrade can finish (a stale group copy is released), LIBRARY NEEDS WIPE and a wipe that completes from it, a save whose read-back fails no longer leaves a record that wins after a reset. A downgrade below 0.9.1 destroys the library: back up before, restore after. See "Fifth run".
@@ -87,7 +88,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
-| 6 | Loadable engine study | Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); the library group built (0.9.1); SHAPES as a module built, installed from the page and the card, host tested and built in CI (0.10.0, steps 1 to 6); the module's fixes, admission and the Engines table built (0.10.1 and 0.11.0, Fourth run). Next: the unit checklist (Fourth run), step 7 (docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "Left to test" below), then the engines tab and the admission check |
+| 6 | Loadable engine study | (0.12.0: a module's pages as data built and tested with a fake module; the Prophet measured as a module, 7.60 sectors, does not fit a start; Use and Replace in the Engines table) Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); the library group built (0.9.1); SHAPES as a module built, installed from the page and the card, host tested and built in CI (0.10.0, steps 1 to 6); the module's fixes, admission and the Engines table built (0.10.1 and 0.11.0, Fourth run). Next: the unit checklist (Fourth run), step 7 (docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "Left to test" below), then the engines tab and the admission check |
 | 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
@@ -1707,7 +1708,7 @@ The commit after this run changes documents only. The final full-suite run is na
 
 ## Sixth run (0.11.2 and on, branch sonnet-work, October 24, 2026)
 
-**Status: Part 1 (0.11.2) is built and host tested. Parts 2 to 4 follow in this section as they land. Not tried on the unit. Not merged, not released.**
+**Status: Part 1 (0.11.2), Part 2a (measurements), Part 2b (pages as data) and Part 3 (Use and Replace) are built and host tested (0.12.0). Part 2c and 2d are not built: the Prophet does not fit a start. Part 4 is these documents. Not tried on the unit. Not merged, not released.**
 
 ### Part 1: the installer page installs the whole set (0.11.2)
 
@@ -1755,6 +1756,76 @@ In the packages artifact of a CI run the same files are named `orangecat-VER-SHA
 - `web/test_installer_set.mjs` (run by `web/test_installer.mjs`): a mocked unit speaking 115 to 125; all stages in order; pack and module current (nothing written); pack current and module missing; no reply to 115, 120 or 125; BEGIN refused with rc 4 then accepted; stages left out; the unit not coming back; no pack file; a pack of another build; a tail refusal (rc 8); a module of another interface; the unit lost during a write; `probeUnit` and `moduleCurrent`; the `.ocm` reader compared as text with the editor's.
 - `tests/orangecat_site_test.py`: the served names and `release.json`, a site without a set, each refusal (pack hash, pack length, module interface, module pack hash, damaged files, no manifest), an older release keeping its set, stale files removed, the manifest writer.
 - `web/test_web.mjs`: the older installer tests now give their fake page the new Firmware checkbox and the flow functions.
+
+### Part 2a: the Prophet and MACRO measured as modules (branch exp/sonnet-p5mod, not merged)
+
+CI runs 40072070279 and 40072274702 (`.ci_quick`, the Pi32 compiler at -Os, `tools/build.py --module prophet|macro --measure`). The module sources and the new `fw_api_t` members live on the experiment branch only.
+
+| | PROPHET | MACRO |
+|---|---|---|
+| object code | 8,836 B | 37,996 B |
+| tables and constants | 22,098 B | 2,050 B |
+| .data / .bss | 0 / 0 | 4 / 0 (pl_rng_state) |
+| relocations | 73 | 181 |
+| linked image | 31,148 B = 7.60 sectors (start 0 and start 6 alike) | 40,276 B = 9.83 sectors |
+| fits the 6 sectors (24,576 B) of a start | no, over by 6,572 B (fits 8) | no, over by 15,700 B |
+| beside SHAPES (6 sectors) in the 12 | 14, over by 2 sectors (8,192 B) | 16, over by 4 sectors (16,384 B) |
+| state per track | 1,456 B on the unit | 11,284 B |
+| voice units per voice (engine_t) | 2 with the worker online (poly 8), 3 otherwise (poly 5) | MC_UNITS |
+| tables without which the image is about 3 sectors | 21.8 KB (P5_FPACK 11,000, P5_TANH 4,100, P5_EXP2 2,056, ...) | |
+| firmware RAM the module needs kept | about 868 B (4 patches of 138 B, ready flags, one CPU1 job block of 312 B) | |
+| image of the firmware with the added fw_api_t members | 492,740 B (+48 B) | |
+
+Findings: the Prophet fits a start only with its tables elsewhere; a second pack has no room (the pack area is ten sectors and the pack is 40,232 B). MACRO has 4 bytes of .data; the build refuses a module with .data, so MACRO needs that seed moved into the engine state before it could be a module. The hot code of the Prophet runs from RAM on the firmware and from flash in a module (the source's own warning: XIP stalls dominated the first hardware run). The write-up is in docs/orangecat/ENGINE_LOADING_PLAN.md 0.9, "The Prophet as a module".
+
+### Part 2b: a module's pages as data (0.12.0)
+
+**Done.** The design and the byte layout are in the plan 0.9 ("The page descriptor, as built") and `firmware/src/fw_pages.h`. What was built:
+- `fw_pages.h` (new): FAM_, SC_ (with SC_MOD), GR_ and `page_t` moved there from params.c, `fw_pages_t` (52 B on the device) and `fw_pages_check`, the loader's check on the flash bytes.
+- `engine_t.pages` (core.h). The interface identifier now covers page_t and fw_pages_t (`tools/gen_fw_api_id.py`): 0x6865AF16 became 0x3EA02A2B.
+- params.c: `page_at`, `page_n`, `modpages_of`, `modpage_engine`, `pages_of_engine`, `track_pages`, `mod_panel`, `mod_skip`, `mod_native_at`, `mod_dim`, and the SC_MOD case of `page_desc`. Module page numbers are 24 a module slot after the firmware's PAGES (SHAPES, then the Prophet).
+- ui.c (page_visible, ENV and LFO lists, HOME's knobs, momentary take refused for SC_MOD), ui_input.c (edit through the module's put hook), ui_draw.c and ui_stage.c (dim), ui_list.c and ui_popup.c (page lookups by number), motion.c and ui_motion.c (the native tag, the module's panel and skip bits, the stored-event rule).
+- engines.c: engine 19 is an engine a module may supply (`eng_module_slot`). oc_module.c: the loader refuses a module whose descriptor leaves its image (state 3, device builds only).
+- editor.c: commands 126 (pages) and 127 (panel). web/editor.html: the parse, `fetchModPages`, the page titles in the Engines table; the Prophet's number is a module slot there too (`MODULE_SLOTS`).
+
+Decision you may dispute: the descriptor is reached through `engine_t.pages`, not through a new header word, so the `.ocm` header does not change and an older module is refused by the identifier.
+Not done: momentary take (LFO held) for a module's native values; the real Prophet descriptor (it would be a table nothing reads while the Prophet does not fit).
+
+### Part 2c and 2d: not built
+
+2a says the Prophet does not fit 6 sectors, so it is not built as a second module on sonnet-work (no `tools/build.py --module prophet`, no `.ocm` in the packages artifact or the site), and no cost line or voice-unit entry is added to `tests/target_budget.txt` or `eng_admit`. `eng_admit` reads the units from the registered engine_t already (voice units of the Prophet: 2 or 3), so a module would be admitted with its own numbers. What the Prophet needs is the list at the end of the plan's section.
+
+### Part 3: the Engines table assigns and swaps (0.12.0)
+
+**Done.** In web/editor.html:
+- **Use on track N.** A row for an engine the unit plays now (built in or a module) has a track list and a Use button. `assignEngine` selects the track, sends PRESET (engine, preset 0), which is the track engine command, reads the reply, and selects the previous track again. The unit's admission can refuse (fourth reply byte 1 engine too heavy, 2 no room): the text shows and the track keeps its engine.
+- **Replace with another engine's file.** `replaceOcm` (the install sequence moved out of the page's handler into the protocol part, with `ocmWrite`): a file of the row's own engine installs as before; a file of another engine a module may supply is a swap: checked against the unit, asked ("the tracks that use the present engine (N) are silent"), MOD_REMOVE for the old engine, MOD_INFO for the new (the freed start is the plan), then BEGIN, WRITE, END. Install on an empty row still takes only its own engine's file. Nothing is touched when the file is wrong, the user says no, or the unit refuses the remove.
+- Only SHAPES has a `.ocm` today, so a swap to another engine cannot be tried on the unit; it is tested on the host.
+
+### Left to build
+
+- The Prophet as a module: the area at 12 sectors for one module, or a second place for 21.8 KB of tables; the descriptor for the real engine; the cost lines; a measurement on the unit of its hot code from flash.
+- MACRO as a module (4 bytes of .data to move; 10 sectors).
+- Momentary take for a module's native values.
+
+### Unit checklist, additions (after step 17 of the Fourth run's list)
+
+18. **Install everything from the page.** Stop the sequencer. Open the installer page, leave Firmware, Pack and Module on, press Install Orange Cat with the three files of one release. *See:* one bar to the end; the unit restarts after the firmware and the page finds it again; the summary lists the firmware, the pack and the SHAPES module as installed. Write down the total time and anything that stopped.
+19. **Run it again.** Press Install Orange Cat again with the same files. *See:* the summary says the firmware is current, the pack is current, the module is current, and nothing was written.
+20. **An old firmware.** (Only if you still have a unit on the stock firmware or an Orange Cat before 0.8.0.) Run the page. *See:* the firmware is installed, the pack and module lines say old firmware, and the summary says to run the page again.
+21. **Use.** In the Engines table press Use on a row for a built-in engine with a track chosen. *See:* the track takes the engine and its first preset; the selected track is the one you had. With GLO > GLOBAL BUDGET at 8 try the heaviest engine: ENGINE TOO HEAVY in the page, the track unchanged.
+22. **Replace.** Only the same-engine Replace of step 9 can be tried (there is one `.ocm`). The swap to another engine is host tested only. The Prophet module is not built, so there is nothing of it to try.
+
+### Sizes and CI (Parts 2 and 3)
+
+SIZES_PLACEHOLDER
+
+### Tests added or changed (Parts 2 and 3)
+
+- `tests/mod_pages_test.c` (new, in tests/run_tests.sh; the Orange Cat engine set, sanitizers) with `tests/fake_pages.h`: sixteen defects of the wire check, the pages exist only with the module and only on its engine's track, EDIT and SELECT, a knob edit through the hook, clamping, a dim column, an enum, a shown value, ENV, LFO and HOME, a native parameter recorded as motion and played back and restored, the skip bit, the stored-event rule with and without the module, removal. 47 checks.
+- `tests/editor_test.c`: commands 126 and 127 byte for byte (none, a built-in engine, a module, parts of the panel, refusals, after removal); a swap through the commands (SHAPES' module out, the Prophet's number into the same start, the plan, ENGINES, the refusals).
+- `tests/engine_table_test.c`: engine 19 is no longer in the list of numbers a module is refused.
+- `web/test_web.mjs`: the PAGES and PANEL parse and the fetch in parts (a hole, no descriptor, a reply that does not continue); the Replace/swap flow against a mock unit (own engine, swap, both starts full, declined, wrong file, wrong firmware, wrong engine, a refused remove); Use (order of the requests, the selection put back, the two refusal reasons, a track that does not exist); the Engines table row for the Prophet's number and `canUse`.
 
 ## Phases 8 to 11
 

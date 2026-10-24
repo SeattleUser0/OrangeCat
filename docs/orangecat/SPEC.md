@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.23  
-**Date:** October 23, 2026  
+**Version:** 0.25  
+**Date:** October 24, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.25 (October 24, 2026):** 0.11.2 and 0.12.0 on branch sonnet-work (not on the unit yet; 8.4). The installer page installs the whole set in one go: firmware, then the pack, then the SHAPES module, each stage skippable and skipped when the unit already has it. A module's pages are data in the module's flash (a page descriptor the engine_t points at); the Prophet's number is an engine a module may supply. The Prophet measured as a module does not fit a start (7.60 sectors against 6), so it stays out of the build; the numbers and what it would need are in the plan. The Engines table assigns an engine to a track and Replace takes a file of another engine.
 - **0.24 (October 24, 2026):** 0.11.1 on branch sonnet-work (not on the unit yet; 8.4). Two valid modules of one engine at boot: the higher header version is used, on equal versions the higher start, and the other is erased at that boot. An install or remove in a running session parks the engine's voices first. The library migration after a downgrade below 0.9.1 and an upgrade can finish, and where it cannot the boot says LIBRARY NEEDS WIPE and a wipe completes; a downgrade below 0.9.1 destroys the library (back up before, restore after).
 - **0.23 (October 23, 2026):** The module proof of concept after review (0.10.1 and 0.11.0, branch sonnet-work, not on the unit yet; 8.4). A module's sector tails are tested against the update loader's record rule (build, installer, loader); a replacement is written beside the old module when a start is free; a module that crashes at any time in a session is banned after three sessions in a row that died with its engine in use; the PC guard follows the registered modules in a running session and its one-window cost is written down; a module's engine is admitted to a track only when one voice fits the voice budget and the state fits the arena (the cost word is carried, there is no render budget yet); the module header is 60 bytes (cost, version); the web page has an Engines table fed by one device command.
 
@@ -459,12 +460,16 @@ Design:
   (`OC_MODULE_WINS`; the Orange Cat set turns it on and keeps the built-in SHAPES as the fallback). Built out (MELODEE_SHAPES=0) the slot is empty until a
   module supplies it; the image is 23,236 bytes smaller and the module area holds the 23,780.
 - **Interface identifier (built, 0.9.0).** A 32-bit hash of the text of fw_api_t, param_desc_t, voice_t, vmod_t, preset_t,
-  engine_t and track_t with the four sizes the text cannot show (tools/gen_fw_api_id.py, FW_API_IFACE), computed at build
+  engine_t and track_t (0.12.0: and page_t and fw_pages_t) with the four sizes the text cannot show (tools/gen_fw_api_id.py, FW_API_IFACE), computed at build
   time for the firmware and each module; the module's header carries it and fw_module_check refuses any other, a longer
   table or a later version. In the plan it was "parameter ids and the function table" as well; the table is fw_api_t and the
   parameter ids are in track_t's layout. The loader calls the check at boot (0.10.0). A mismatch is refused before
   registration; a firmware update that changes it disables the modules until matching packages are installed.
   A frozen interface with a version number comes once modules exist.
+- **Installing the whole set from the page (built, 0.11.2).** The installer page (the GitHub Pages site) installs firmware, pack and the SHAPES module in one run, with one progress bar and one summary. After the firmware update it waits for the unit to return, then asks the unit what it has (the pack state and hash, the engine list) and skips a stage that is already current; each stage can be switched off, and the page says in one line what is lost without it (MACRO and SHAPES silent without the pack; nothing today without the module, SHAPES is still built in). A firmware before 0.8.0, or the stock one, answers neither question: the firmware stage runs alone and the page says to run it again. The site serves `firmware/melodee-VERSION.fwsc`, `orangecat-VERSION.pak`, `orangecat-NAME-VERSION.ocm`, `release.json` and `releases.json`; the three files of one build belong together (the pack's hash is checked against the firmware's, the module's interface identifier against the firmware's).
+- **Pages from a module (built, 0.12.0).** A module that has its own parameters brings its pages as data: `engine_t.pages` points at a descriptor in the module's flash with the page rows, the panel of native parameters (what motion records), hooks for what needs the engine's code (a shown value, a put, a dim rule), the lists the ENV and LFO tabs use and HOME's four knobs. It is read in place, checked by the loader before the module is registered, and gives the module's pages a place after the firmware's in the page table (24 for each engine that may bring pages). The editor reads the page list and the panel with two commands (126, 127). The interface identifier covers the descriptor's structures.
+- **The Prophet as a module (measured, not built, 0.12.0).** Engine 19 is an engine a module may supply. As a module the Prophet is 31,148 bytes (7.60 sectors: 8,836 of code, 22,098 of tables, no .data or .bss, 73 relocations) and does not fit the 6 sectors of a start; with its tables in a pack it would be about 3 sectors, and a pack has no room for them. It needs the module area as one 12 sector start for itself, or a second place for 21.8 KB of tables. MACRO, 40,276 bytes (9.83 sectors, with 4 bytes of .data), is the same case. Details in docs/orangecat/ENGINE_LOADING_PLAN.md, "The Prophet as a module".
+- **Assign and swap (built, 0.12.0).** The Engines table's Use puts an engine on a track through the track engine command (the unit's admission may refuse it and says why); Replace takes a file of another engine and swaps it into the start the old module held.
 - **Install and activate are two checks.** Installing needs a matching identifier, a free span and a good CRC and
   reserves no RAM. Assigning the engine to a track needs (built, 0.11.0) its state in the audio arena and one voice within the voice budget; a refusal keeps the track's engine and its sound
   and says ENGINE TOO HEAVY or NO ROOM on the screen, and in a fourth byte of the editor's PRESET reply. The firmware has no run-time render budget (MELODEE_ADMISSION is off, the audio loop is not timed
