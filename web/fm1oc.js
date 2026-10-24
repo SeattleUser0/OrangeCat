@@ -18,6 +18,7 @@
 //   0.12.1: three module starts (sectors 0, 6 and 4: OCM_SECTOR); MOD_INFO's last byte names the blocker, a module of another engine in the way (modBlocked, detail "engine:start"),
 //           which an install never erases.
 //   0.13.4: the pack's payload CRC and sector tails (packProblem) and a module variant's inner header and code CRC (ocmImage) are checked on the page before the unit is asked to erase.
+//   0.13.5: BEGIN waits OC_BEGIN_MS (16 x 500 ms + 2 s) for the unit's answer, which comes after its erase; the codes the page raises all have texts (test_installer_set.mjs 12c).
 
 import { bkPack, bkCrc } from "./fm1backup.js";
 
@@ -218,11 +219,14 @@ const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc ===
 // the pack file against PACK_INFO: this build's length and hash in its header (oc_pack.c accepts nothing else), the payload CRC and the sector tails (0.13.4: packProblem)
 export function packFits(bytes, info) { return packProblem(bytes, info) === ""; }
 
+// (0.13.5) how long the unit may take to answer BEGIN: it erases before it replies (a module in place up to 16 sectors, the pack 10), and the driver allows 500 ms a sector;
+// 16 x 500 ms + 2 s. The reply stays after the erase (the protocol is unchanged: a simpler page-side wait than answering first and reporting the erase on the first WRITE).
+export const OC_BEGIN_MS = 16 * 500 + 2000;
 // BEGIN is refused with rc 4 while the first boot of a new firmware is still moving the old preset pairs (a minute or so): ask again, up to waitMs
 async function begin(link, request, parse, code, waitMs, sleep) {
   const end = Date.now() + waitMs;
   for (;;) {
-    const a = await link.ask(request, { timeout: 3000 });
+    const a = await link.ask(request, { timeout: OC_BEGIN_MS });
     if (!a) throw new OcError("ocLost");
     const r = parse(a);
     if (r.rc === 4 && Date.now() < end) { await sleep(2000); continue; }
