@@ -57,6 +57,17 @@ typedef struct fw_api {
     uint32_t res_engine0;                                /* the arena id of the first engine state (RES_ENGINE0): a module's part p is res_engine0 + p */
     uint32_t nengines;                                   /* NENGINES: the length of the engine table */
     uint32_t *rng_cell;                                  /* SHAPES' random generator word (pb_rng_state, 0x21 at power-on): a module has no RAM, so the firmware keeps it */
+    /* (exp/sonnet-p5mod, the Prophet as a module: what its source calls outside itself; a measurement, not yet the firmware's) */
+    void *p5_patch;                                      /* p5_patch_t[NPART] (the patches the editor, the presets and motion also use; the pool) */
+    uint8_t *p5_ready;                                   /* NPART flags for them */
+    void *p5_job;                                        /* P5_JOB_BYTES for the one outstanding CPU1 job */
+    int32_t *midi_bend_target;                           /* NTRK: the bend target p5_update_bend writes */
+    const int *worker_online;                            /* audio_worker_online */
+    const uint8_t *batch_active;                         /* audio_batch_active */
+    int (*worker_submit)(void (*fn)(void *), void *context);
+    int (*worker_join)(void);
+    void (*batch_push)(void (*run)(const void *, int32_t *), const void *data, uint32_t bytes, int32_t *out, uint32_t n, uint32_t profile_id);
+    uint32_t ap_prophet;                                 /* AP_PROPHET: the batch profile id */
 } fw_api_t;
 
 /* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything.

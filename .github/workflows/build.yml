@@ -87,6 +87,11 @@ jobs:
         modok=0; python3 tools/build.py --module shapes > build/module-report.txt 2>&1 || modok=1
         echo "::notice title=module shapes::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report.txt)"
         if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module shapes notice"; exit 1; fi
+        # (exp/sonnet-p5mod) the Prophet's and MACRO's module units, measured whatever their size
+        for m in prophet macro; do
+          python3 tools/build.py --module $m --measure > build/measure-$m.txt 2>&1 || true
+          echo "::notice title=measure $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/measure-$m.txt)"
+        done
         # (rev 3) what the image is made of, by engine and area (tools/size_report.py): the run page, and
         # build/orangecat-size-report.txt in the packages artifact
         rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \

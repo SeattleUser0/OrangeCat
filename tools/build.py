@@ -498,7 +498,9 @@ def check(img, syms, dis, rt):
 # time until none does, and the package is not written if no placement passes).
 
 TAIL_PAD_TRIES = 64                      # (0.10.1) code placements tried per start before the build gives up
-MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": "SHAPES"}}
+MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": "SHAPES"},
+           "prophet": {"src": "tools/module/prophet_mod.c", "sectors": 6, "name": "PROPHET"},      # (exp/sonnet-p5mod: measured with --measure only)
+           "macro": {"src": "tools/module/macro_mod.c", "sectors": 10, "name": "MACRO"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
@@ -663,6 +665,67 @@ SECTIONS {{
     return errors, notes
 
 
+def measure_module(name):
+    """(exp/sonnet-p5mod) what a module's translation unit costs on the device, whatever its size: the object's sections, the largest symbols,
+    the relocations, the undefined symbols, and the linked image at the area's two starts of 6 sectors (the link script has room for 64 sectors)."""
+    spec = MODULES[name]
+    mdir = OUT / "module"
+    mdir.mkdir(parents=True, exist_ok=True)
+    if not (GEN / "fw_api_id.h").exists() or not (GEN / "oc_pack_tables.h").exists() or not (GEN / "melodee_tables.h").exists():
+        generate()
+    flags = [f for f in app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES="))]
+    flags += ["-DOC_PACK_XIP=1"] if "-DOC_PACK_XIP=1" not in flags else []
+    out = [f"MEASURE {name}: flags {' '.join(f for f in flags if f.startswith('-DMELODEE_') or f.startswith('-DOC_') or f.startswith('-O'))}"]
+    obj = mdir / f"{name}.o"
+    tc("cc", *flags, "-w", "-c", SRC / spec["src"], "-o", obj)
+    out.append("undefined: " + (" ".join(u.split()[-1] for u in tc("pi32v2/bin/nm", "-u", obj).splitlines() if u.strip()) or "none"))
+    secs = {}
+    for ln in tc("common/bin/objdump", "-h", obj).splitlines():
+        p = ln.split()
+        if len(p) > 3 and p[0].isdigit() and p[1].startswith("."):
+            secs[p[1]] = int(p[2], 16)
+    out.append("object sections: " + ", ".join(f"{k} {v}" for k, v in secs.items() if v))
+    code = sum(v for k, v in secs.items() if k.startswith((".text", ".dsp_text", ".audio_text")))
+    tabs = sum(v for k, v in secs.items() if k.startswith((".rodata", ".dsp_tables", ".data.rel.ro")))
+    out.append(f"object: code {code} B, tables and constants {tabs} B, .data {secs.get('.data', 0)} B, .bss {secs.get('.bss', 0)} B")
+    rel = tc("common/bin/objdump", "-r", obj)
+    out.append("relocations: " + str(sum(1 for ln in rel.splitlines() if re.match(r"^[0-9a-fA-F]+\s+\S+", ln) and not ln.startswith("RELOCATION"))))
+    try:
+        big = [ln for ln in tc("pi32v2/bin/nm", "-S", "--size-sort", obj).splitlines()][-30:]
+        out.append("largest symbols (hex size, kind, name):\n  " + "\n  ".join(f"{ln.split()[1]} {ln.split()[2]} {ln.split()[3]}" for ln in big if len(ln.split()) >= 4))
+    except Exception as e:                                # (the toolchain's nm may lack -S)
+        out.append(f"nm -S: {e}")
+    base0 = ocflash.xip(module_area()[0])
+    for start in (0, 6):
+        base = ocflash.xip(module_area()[0] + start * 0x1000)
+        ld = mdir / f"{name}.m{start}.ld"
+        elf, binf = mdir / f"{name}.m{start}.elf", mdir / f"{name}.m{start}.bin"
+        ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = 0x40000 }}
+SECTIONS {{
+    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF:#x}; *(.text*) *(.dsp_text*) *(.audio_text*) *(.rodata*) *(.dsp_tables*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
+    .data : {{ *(.data*) *(.sdata*) . = ALIGN(4); }} > MOD
+    .bss (NOLOAD) : {{ *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); }} > MOD
+    /DISCARD/ : {{ *(.comment) *(.note*) }}
+}}
+""")
+        try:
+            tc("pi32v2/bin/ld", "--gc-sections", "--unresolved-symbols=ignore-all", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+        except Exception as e:
+            out.append(f"start {start}: link failed: {e}")
+            continue
+        binf.unlink(missing_ok=True)
+        tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+        sizes = {}
+        for ln in tc("common/bin/objdump", "-h", elf).splitlines():
+            p = ln.split()
+            if len(p) > 3 and p[0].isdigit() and p[1].startswith("."):
+                sizes[p[1]] = int(p[2], 16)
+        img = binf.read_bytes()
+        h = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(img + b"\0" * 64, 0)))
+        out.append(f"linked at start {start}: image {len(img)} B ({len(img) / 4096:.2f} sectors), .data {sizes.get('.data', 0)} B, .bss {sizes.get('.bss', 0)} B, state {h['state_size']} B a track")
+    return out
+
+
 # Every hardware register access lives in hal/. In src/ and loader/ (comments stripped):
 #  - no volatile pointer cast, except of a C object's address (`*(volatile T *)&x`: a read-once
 #    of a RAM flag shared with an ISR, e.g. usb.c ota_wire_send);
@@ -715,6 +778,7 @@ def main():
     mode.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--module", metavar="NAME", choices=sorted(MODULES), help="build a loadable engine module (build/NAME-<version>.ocm) and check it")
+    ap.add_argument("--measure", action="store_true", help="with --module: report the module unit's size and imports whatever they are (exp/sonnet-p5mod)")
     ap.add_argument("--cpu-manifest", type=Path, help="Write source/package identity for CPU experiments")
     ap.add_argument("--no-core1-fallback", action="store_true",
                     help="Diagnostic: halt for watchdog reset on CPU1 failure instead of rendering on one core")
@@ -750,6 +814,10 @@ def main():
         vf = SRC / "VERSION"
         VERSION = ("v" + vf.read_text().strip() + "-" + revision[:6]) if vf.exists() else "dev-" + revision
         name = f"melodee-nightly.fwsc"
+    if a.module and a.measure:      # (exp/sonnet-p5mod)
+        for ln in measure_module(a.module):
+            print(ln)
+        return 0
     if a.module:                    # (Orange Cat 0.10.0) a module only needs the toolchain and build/gen
         errors, notes = build_module(a.module)
         for n in notes:

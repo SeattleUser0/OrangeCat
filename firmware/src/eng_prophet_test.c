@@ -38,8 +38,13 @@ typedef struct {
 } p5_render_params_t;
 typedef struct { p5_voice_t voice[P5_POLY]; uint32_t lfo; int32_t lfo_value, last_pitch, mod_noise, dc_x1, dc_y1; float wheel[CTL * P5_OVERSAMPLE], wheel_pitch[CTL * P5_OVERSAMPLE]; uint8_t value[56],input_key[56],base_valid; int16_t base_e[8]; int32_t coarse_a,coarse_b,fixed_b,fine_b; p5_render_params_t base; } p5_part_t;
 static p5_part_t *p5_part(uint32_t part);
+#ifdef OC_MODULE      /* (exp) a module has no RAM: the firmware keeps the patches and the ready flags and hands the addresses over in the table */
+#define p5_patch ((p5_patch_t *)OC_FW()->p5_patch)
+#define p5_ready (OC_FW()->p5_ready)
+#else
 static p5_patch_t p5_patch[NPART] __attribute__((section(".pool")));
 static uint8_t p5_ready[NPART];
+#endif
 static p5_patch_t *p5_patch_of(const track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk) % NPART;
@@ -410,17 +415,25 @@ static void p5_batch_kernel(const void *data,int32_t *pcm)
 #if MELODEE_DUAL_CORE
 /* The sample kernel owns only its voice and private PCM. Part-wide wheel
  * buffers and patch bytes remain read-only until post joins the worker. */
-static struct {
+typedef struct {
     p5_voice_t *voice;
     const uint8_t *patch;
     p5_render_params_t params;
     vmod_t modulation;
     uint32_t n;
     int32_t pcm[CTL];
-} p5_job;
-static int p5_pending;
-static uint32_t p5_pairs;
-static int32_t *p5_pending_out;
+    int pending;
+    uint32_t pairs;
+    int32_t *pending_out;
+} p5_job_t;
+#ifdef OC_MODULE      /* (exp) the one outstanding job lives in a block the firmware reserves (fw_api_t p5_job, P5_JOB_BYTES) */
+#define p5_job (*(p5_job_t *)OC_FW()->p5_job)
+#else
+static p5_job_t p5_job;
+#endif
+#define p5_pending (p5_job.pending)
+#define p5_pairs (p5_job.pairs)
+#define p5_pending_out (p5_job.pending_out)
 static void p5_worker_kernel(void *unused)
 {
     (void)unused;
