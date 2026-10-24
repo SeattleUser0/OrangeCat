@@ -79,6 +79,7 @@
  *   0.11.1: two valid modules of one engine at boot (a cut between the commit of a replacement and the erase of the old one): the higher header version
  *           wins, on equal versions the higher start; the loser is erased at that boot (oc_mod_boot). Before it the lower start won and the next install went in place.
  *           oc_mod_window, the one helper for the PC guard's window (an in-place begin that failed to erase, and an install abandoned without its end, left it wide).
+ *           oc_mod_note_engine: the project load marks the module's use as it gives a track the engine (a death before the main loop's first pass is attributed).
  *           oc_mod_reload: every oc_mod_boot from a running session (end of an install, remove) first takes the engine out of the table and parks its voices
  *           (oc_mod_park_voices); the table's two stores are one critical section there (oc_mod_reg, oc_mod_unreg).
  */
@@ -329,6 +330,15 @@ static void oc_mod_ban_notice(void)
         ui_say("MODULE BANNED ", oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : "ENGINE");
         return;
     }
+}
+/* (0.11.1) set the use bit of the registered module that supplies `engine`. The project load calls it for every track as it gives the track its engine
+ * (project_restore_runtime), so a death before the main loop's first pass (oc_mod_note_use) is still attributed to the module. */
+static void oc_mod_note_engine(uint32_t engine)
+{
+    uint32_t i;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod.state[i] == MD_OK && oc_mod.engine[i] == engine && engine < NENGINES && eng_mod[engine] == oc_mod_hdr_ptr(i))
+            oc_modguard.inuse |= 1u << i;
 }
 /* main loop, all session (0.10.1; the first 30 s before): set the use bit of every registered module a track is playing */
 static void oc_mod_note_use(void)

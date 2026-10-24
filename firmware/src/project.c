@@ -870,6 +870,9 @@ static int project_restore_runtime(const project_t *input)
         const proj_trk_t *s = &p->t[k];
         uint32_t e = s->engine % NENGINES;
         t->eng_req = (uint8_t)e;
+#if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
+        oc_mod_note_engine(e);                          /* (0.11.1) the module's use is marked now, before audio renders it (the main loop's pass comes later) */
+#endif
         t->mpc_octave = (int8_t)clamp(s->mpc_octave, -3, 3);
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */

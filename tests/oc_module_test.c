@@ -789,6 +789,26 @@ int main(void)
             #undef TWO
         }
 
+        /* (0.11.1) a crash before the first pass of the main loop: the project load marks the module's use at once (oc_mod_note_use runs only in the loop) */
+        {
+            clean(); reset(); good(0, LEN); oc_mod_boot(0);
+            ENGINES[ENGI_SHAPES] = eng_default(ENGI_SHAPES);   /* (the host cannot run the made module's engine_t: the registry, eng_mod and the state, say it is there; the table's entry is the built-in's) */
+            trk[2].eng_req = ENGI_SHAPES;
+            project_save(0);
+            chk("(setup) a project with a track on the module's engine is saved", !strcmp(ui.msg, "SAVED"));
+            oc_modguard.inuse = 0; trk[2].eng_req = 0; trk[2].engine = 0;
+            project_load(0);
+            chk("project load: the module's use bit is set as soon as the track is given the engine (no main loop pass yet)", trk[2].eng_req == ENGI_SHAPES && oc_modguard.inuse == 1u);
+            oc_mod_boot(1);
+            chk("... the death before the loop's first pass bans the module (it was attributed)", oc_mod.state[0] == MD_CRASHED && (oc_modguard.notice & 1u));
+            clean(); reset(); good(0, LEN); oc_mod_boot(0);
+            ENGINES[ENGI_SHAPES] = eng_default(ENGI_SHAPES);
+            trk[2].eng_req = 6; project_save(0); oc_modguard.inuse = 0; project_load(0);
+            chk("a project with no track on the module's engine marks nothing", oc_modguard.inuse == 0);
+            oc_mod_boot(1);
+            chk("... and a death then bans nothing", oc_mod.state[0] == MD_OK && oc_modguard.banned == 0);
+        }
+
         /* the ban is cleared by an install */
         clean(); oc_mod_boot(0); BUILD(0, LEN, 70); INSTALL(0, LEN, &rc);
         trk[2].engine = ENGI_SHAPES; oc_mod_note_use(); oc_mod_boot(1);
