@@ -592,7 +592,19 @@ SECTIONS {{
     /DISCARD/ : {{ *(.comment) *(.note*) }}
 }}
 """)
-            tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+            try:
+                tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+            except SystemExit:                 # (0.12.1) too big for its sectors: link again into a region of 4 times the size, to say by how much
+                big = mdir / f"{name}.{start}.measure.ld"
+                big.write_text(ld.read_text().replace(f"LENGTH = {sectors * 0x1000:#x}", f"LENGTH = {4 * sectors * 0x1000:#x}"))
+                try:
+                    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", big, obj, "-o", elf)
+                    tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+                    errors.append(f"{name}@{start}: the code is {binf.stat().st_size} B and the {sectors} sectors hold {sectors * 0x1000} B")
+                except SystemExit:
+                    errors.append(f"{name}@{start}: the link failed (not a matter of size)")
+                hit = -2
+                break
             binf.unlink(missing_ok=True)
             tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
             raw = binf.read_bytes()
@@ -600,6 +612,8 @@ SECTIONS {{
             hit = ocflash.tail_hit(raw)
             if hit < 0:
                 break
+        if hit == -2:
+            continue
         if hit >= 0:
             errors.append(f"{name}@{start}: no layout of {TAIL_PAD_TRIES} avoids the update loader's record test (sector {hit} tail); not written")
             continue

@@ -288,6 +288,7 @@ static void oc_mod_window(void)
 /* persist_boot, after oc_pack_boot: look at every start, register what is good. `crashed`: the last boot died in its first 30 s
  * (bootguard.failed). Safe to call again (the installer does, after an install or a removal): the registry is rebuilt. */
 static int oc_mod_erase_start(uint32_t i);
+static int oc_mod_erase_loser(uint32_t i);
 static void oc_mod_boot(uint32_t crashed)
 {
     uint32_t i, e, loser = 0;
@@ -345,7 +346,7 @@ static void oc_mod_boot(uint32_t crashed)
     if (loser && !lg_incomplete) {
         for (i = 0; i < OC_MOD_STARTS; i++)
             if ((loser & (1u << i)) && eng_mod[oc_mod.engine[i]])
-                (void)oc_mod_erase_start(i);
+                (void)oc_mod_erase_loser(i);
     }
 }
 /* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
@@ -579,6 +580,30 @@ static int oc_mod_erase_start(uint32_t i)
     int rc;
     if (n > OC_MOD_AREA - OC_MOD_START_SECTOR(i)) n = OC_MOD_AREA - OC_MOD_START_SECTOR(i);
     if ((rc = oc_mod_erase_span(OC_MOD_START_SECTOR(i), n)) != 0) return rc;
+    oc_mod_unban(i);
+    oc_mod.state[i] = MD_EMPTY;
+    return 0;
+}
+/* (0.12.2, found by tests/fuzz_oc_module.c) the loser of two valid modules of one engine, erased lazily at boot: its sectors EXCEPT those a registered module
+ * stands in (two Prophet starts, sector 0 and sector 4, share the sectors 4 to 7: the erase of the loser at start 0 took the winner's header sector with it).
+ * The loser's own header sector goes first (from that erase it is no module); a sector that belongs to the winner is not touched. */
+static int oc_mod_erase_loser(uint32_t i)
+{
+    uint32_t n = oc_mod_geo_of(oc_mod.engine[i]) ? oc_mod_geo_of(oc_mod.engine[i])->sectors : 1u, q, j;
+    int rc;
+    for (q = 0; q < n && OC_MOD_START_SECTOR(i) + q < OC_MOD_AREA; q++) {
+        uint32_t sec = OC_MOD_START_SECTOR(i) + q;
+        int keep = 0;
+        for (j = 0; j < OC_MOD_STARTS; j++) {
+            const oc_mod_geo_t *g = oc_mod.state[j] == MD_OK && j != i ? oc_mod_geo_of(oc_mod.engine[j]) : 0;
+            if (g && sec >= OC_MOD_START_SECTOR(j) && sec < OC_MOD_START_SECTOR(j) + g->sectors)
+                keep = 1;
+        }
+        if (keep)
+            continue;
+        if ((rc = oc_mod_erase_span(sec, 1u)) != 0)
+            return rc;
+    }
     oc_mod_unban(i);
     oc_mod.state[i] = MD_EMPTY;
     return 0;

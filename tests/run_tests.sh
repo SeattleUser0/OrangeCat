@@ -103,6 +103,9 @@ case "${CC:-}" in
     exit 2 ;;
 esac
 CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
+# (Orange Cat 0.12.2, Part 2a) SAN=1: every test of the suite built and run under AddressSanitizer and UndefinedBehaviorSanitizer (the first finding stops the test).
+#   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
+case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
 FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
