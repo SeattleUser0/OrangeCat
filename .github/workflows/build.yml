@@ -57,6 +57,10 @@ jobs:
       tests-block: false
       build: |
         set -euo pipefail
+        # (throwaway) print the SDK's PC limit registers, then stop
+        g=$( { echo "SDK=$AC79_SDK"; grep -rIn -i "pc_limit\|PC_LIM" "$AC79_SDK" 2>/dev/null | head -80; echo ----; ls "$AC79_SDK/cpu/wl82" 2>/dev/null | head -50; } | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+        echo "::notice title=sdk pc limit::$g"
+        exit 0
         # Melodee 1.4.5 release build options (see the header)
         export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
         export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
