@@ -464,6 +464,18 @@ static int oc_mod_usable(uint32_t i)
  * The choice: the first beside candidate with an empty start; else the first beside candidate that holds junk; else (in place) the candidate that holds
  * the engine's own module, else the first not blocked; else none. Examples in a 12 sector area: SHAPES at 0 -> a SHAPES replacement goes to 6 (beside);
  * a Prophet at 0 or 4 -> a Prophet replacement is always in place (8 sectors of 12 leave no room beside); SHAPES and a Prophet never fit together. */
+/* (0.13.3) can modules of these two engines stand in the area together: some allowed start of each leaves their spans disjoint. SHAPES (6 sectors) and the Prophet
+ * (8) never can in 12; the card browser's "Install set" asks before it writes anything */
+static int oc_mod_pair_fits(uint32_t a, uint32_t b)
+{
+    const oc_mod_geo_t *ga = oc_mod_geo_of(a), *gb = oc_mod_geo_of(b);
+    uint32_t i, j;
+    if (!ga || !gb) return 0;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        for (j = 0; j < OC_MOD_STARTS; j++)
+            if (oc_mod_allowed(a, i) && oc_mod_allowed(b, j) && !oc_mod_overlap(i, ga->sectors, j, gb->sectors)) return 1;
+    return 0;
+}
 /* the sectors a usable module at start j holds for itself: its engine's geometry (a SHAPES module of one sector still keeps the six: a replacement of it
  * may take them), not just the sectors its length reaches */
 static uint32_t oc_mod_reach(uint32_t j)

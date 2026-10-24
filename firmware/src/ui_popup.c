@@ -790,7 +790,7 @@ static void files_input(int32_t k2, uint32_t oct)
     } else if (oct & 2u) {
         if (fb_ok()) {
             pop_close();
-            ui_message(fb_pack_done() == 2u ? "MODULE INSTALLED" : fb_pack_done() ? "PACK INSTALLED" : "CLIP ASSIGNED");
+            ui_message(fb_pack_done() == 3u ? "SET INSTALLED" : fb_pack_done() == 2u ? "MODULE INSTALLED" : fb_pack_done() ? "PACK INSTALLED" : "CLIP ASSIGNED");
         }
     }
     ui.force |= fb_on() ? 0u : 1u;

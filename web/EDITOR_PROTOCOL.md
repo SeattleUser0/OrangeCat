@@ -562,6 +562,10 @@ track engine command, and selects the track that was selected; the unit's admiss
 its engine); and **Replace** with a file of another engine (a swap): the page checks the file against the unit, asks, sends MOD_REMOVE for the old engine, reads MOD_INFO for the new
 engine (the freed start is the plan) and sends MOD_BEGIN, MOD_WRITE, MOD_END as for an install. The tracks that held the old engine keep its number and are silent.
 
+## Orange Cat: set manifests (0.13.3)
+
+No SysEx command. The card browser's "Install set" reads a `*.set.json` from the card. The format, the checks and the messages are in docs/orangecat/SET_FORMAT.md.
+
 ## Pattern banks (commands 73–74)
 
 INFO sends 0 in the former untagged CHAIN_ROWS byte, then retains the tagged UI, motion and backup

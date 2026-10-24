@@ -199,12 +199,16 @@ static uint32_t t_slot_names[4][2];
 static uint32_t t_fb_rows[1024];
 static uint8_t t_fb_gen;
 #define FB_SCRATCH() ((fb_ent_t *)t_fb_rows)
+static char t_fb_text[2048 + 512];                       /* (0.13.3) a set's manifest and the parsed set */
+#define FB_TEXT() t_fb_text
+#define FB_SETS() ((oc_set_t *)(t_fb_text + 2048))
 #define FB_BORROW() ((void)0)
 #define FB_GEN() t_fb_gen
 static int ocl_keep_any(uint32_t k, uint32_t b) { return ocl_keep(k, b); }   /* (0.6.1: the stub numbers empty ones too) */
 /* (Orange Cat 0.8.0) the asset pack, as card_browse.c's installer sees it (oc_pack.c itself is tested by oc_pack_test.c): a header
  * check, the banks flag, and the three calls recording what they were given */
 #define OC_PACK_HOST 1
+#define OC_PACK_HASH 0x5EEDu
 #define SMP_FEED() ((void)0)
 enum { PK_MISSING, PK_OK };
 #define OC_PACK_LEN 2048u
@@ -214,8 +218,15 @@ static uint8_t t_pk_hdr[512];
 static uint32_t pk_rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static uint32_t pk_rd16(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8; }
 static uint32_t pk_header_state(const uint8_t *h) { return pk_rd32(h) == 0x4B50434Fu ? PK_OK : PK_MISSING; }
-static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash) { (void)len; (void)hash; return 0; }
-static int oc_pack_begin(uint32_t len) { t_pk_begun++; t_pk_at = OC_PACK_HDR; t_pk_sum = 0; return len == OC_PACK_LEN ? 0 : -1; }
+static uint32_t t_pk_state = PK_MISSING, t_seq;          /* (0.13.3) this build's pack is there and sound (PK_OK); the order the installs began in */
+static uint32_t t_pk_seq, t_md_seq;
+static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash)
+{
+    if (len) *len = t_pk_state == PK_OK ? OC_PACK_LEN : 0u;
+    if (hash) *hash = t_pk_state == PK_OK ? OC_PACK_HASH : 0u;
+    return t_pk_state;
+}
+static int oc_pack_begin(uint32_t len) { t_pk_begun++; t_pk_seq = ++t_seq; t_pk_state = PK_MISSING; t_pk_at = OC_PACK_HDR; t_pk_sum = 0; return len == OC_PACK_LEN ? 0 : -1; }
 static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
 {
     const uint8_t *q = src;
@@ -224,7 +235,7 @@ static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
     t_pk_at += n;
     return 0;
 }
-static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; memcpy(t_pk_hdr, h, sizeof t_pk_hdr); t_pk_ended++; return 0; }
+static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; memcpy(t_pk_hdr, h, sizeof t_pk_hdr); t_pk_ended++; t_pk_state = PK_OK; return 0; }
 /* (Orange Cat 0.10.0) an engine module, as card_browse.c's installer sees it (oc_module.c itself is tested by oc_module_test.c): the identifiers it
  * checks the package against, and the calls recording what they were given */
 #define OC_MODULES 1
@@ -232,7 +243,7 @@ static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; m
 #define FW_API_ADDR 0x02001100u
 #define FW_API_VERSION 3u
 #define FW_MOD_CODE_OFF 0x100u
-#define OC_PACK_HASH 0x5EEDu
+#define OC_FW_VERSION 0x000D03u                         /* (0.13.3) this test's firmware is 0.13.3 */
 typedef struct { uint8_t z[60]; } fw_api_t;
 static int t_plan = 0, t_md_fail, t_inplace;
 static uint32_t t_md_begun, t_md_engine, t_md_start, t_md_len, t_md_at, t_md_sum, t_md_ended;
@@ -250,9 +261,10 @@ static const t_engine_t t_shapes = { "SHAPES" }, t_prophet = { "PROPHET" }, t_ot
 static const t_engine_t *const ENGINES[NENGINES] = { &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other,
     &t_shapes, &t_other, &t_other, &t_other, &t_other, &t_prophet };
 static int oc_mod_inplace(uint32_t engine, uint32_t start) { (void)engine; (void)start; return t_inplace; }   /* (0.10.1) */
+static int oc_mod_pair_fits(uint32_t a, uint32_t b) { return !((a == 14u && b == 19u) || (a == 19u && b == 14u)); }   /* (0.13.3) SHAPES and the Prophet never fit together */
 static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
 {
-    t_md_begun++; t_md_engine = engine; t_md_start = start; t_md_len = len; t_md_at = FW_MOD_CODE_OFF; t_md_sum = 0;
+    t_md_begun++; t_md_seq = ++t_seq; t_md_engine = engine; t_md_start = start; t_md_len = len; t_md_at = FW_MOD_CODE_OFF; t_md_sum = 0;
     return t_md_fail == 1 ? -2 : 0;
 }
 static int oc_mod_write(uint32_t off, const void *src, uint32_t n)
@@ -1628,6 +1640,215 @@ static int t_folders(void)
         }
         (void)sum0;
         printf("  browser: .OCM listed; a damaged table, a stranger, another firmware's package, no place (and a module of another engine in the way, named) and no image refused; the code written in order, the header page last; the Prophet package picks its variant by sector\n");
+    }
+    /* 9. (0.13.3) "Install set": a .set.json in the browser (value "Set"). The manifest (docs/orangecat/SET_FORMAT.md) is checked against the firmware (version, then the
+     * build's identifiers), every file of it found and checked with nothing written, the modules checked in pairs; then the pack (not when this build's is there), then
+     * the modules in the manifest's order. A set from another build, a missing file, a cut between the stages, a module that cannot stand beside another, and the
+     * in-place question. */
+    {
+        FIL pf;
+        UINT bw;
+        static uint8_t ocm[8192], blob[2048];
+        uint32_t k, o, crc, bi;
+        const uint32_t base = 56u + 32u + 4u;
+        char nm[64], v[16], man[1024];
+        #define W32S(at, x) do { ocm[(at)] = (uint8_t)(x); ocm[(at) + 1] = (uint8_t)((x) >> 8); ocm[(at) + 2] = (uint8_t)((x) >> 16); ocm[(at) + 3] = (uint8_t)((x) >> 24); } while (0)
+        #define PUTFILE(path, data, len) do { assert(f_open(&pf, (path), FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, (data), (len), &bw) == FR_OK && bw == (len)); f_close(&pf); } while (0)
+        /* a module package for engine eng: two variants (sectors 0 and 6), as the earlier cases make them */
+        #define MKSETOCM(eng_) do { memset(ocm, 0, sizeof ocm); W32S(0, 0x464D434Fu); ocm[4] = 1; ocm[6] = 2; W32S(8, FW_API_IFACE); W32S(12, FW_API_ADDR); W32S(16, (eng_)); \
+            W32S(20, 11136u); W32S(24, OC_PACK_HASH); W32S(44, FW_API_VERSION); W32S(48, 60u); W32S(52, 6u); \
+            for (k = 0; k < 2u; k++) { W32S(56 + 16 * k, 6u * k); W32S(56 + 16 * k + 4, 1000u); W32S(56 + 16 * k + 8, 0u); W32S(56 + 16 * k + 12, base + 1000u * k); \
+                for (o = 0; o < 1000u; o++) ocm[base + 1000u * k + o] = (uint8_t)(o * 5u + k * 11u + 1u); } \
+            crc = ocs_crc32(ocm, 88); W32S(88, crc); } while (0)
+        #define MANIFEST(ver_, iface_, addr_, hash_, len_, files_) snprintf(man, sizeof man, \
+            "{\n  \"version\": \"%s\",\n  \"pack_hash\": %u,\n  \"pack_len\": %u,\n  \"iface\": %u,\n  \"api_addr\": %u,\n  \"files\": %s\n}\n", \
+            (ver_), (unsigned)(hash_), (unsigned)(len_), (unsigned)(iface_), (unsigned)(addr_), (files_))
+        #define GOODMAN(name_, files_) do { MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, (files_)); PUTFILE("/SET/" name_, man, strlen(man)); } while (0)
+        #define OPENSET(name_) do { fb_open(0); for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block(); strcpy(fb.path, "/SET"); fb.st = FB_LIST; fz_block(); \
+            for (k = 0; k < fb.n && !(fb_ent(k) && !strcmp(fb_ent(k)->name, (name_))); k++) ; assert(k < fb.n); fb.sel = (uint16_t)k; } while (0)
+        #define RESET() do { t_pk_begun = t_pk_ended = t_md_begun = t_md_ended = 0; t_pk_state = PK_MISSING; t_seq = t_pk_seq = t_md_seq = 0; t_plan = 0; t_blocked = -1; \
+            t_inplace = 0; t_md_fail = 0; t_busy = 0; song.playing = 0; } while (0)
+        #define REFUSED(msg_) do { assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, (msg_)) && !t_pk_begun && !t_md_begun); assert(!fb_ok()); fz_block(); } while (0)
+        for (k = 0; k < sizeof blob; k++) blob[k] = (uint8_t)(k * 7u + 3u);
+        memcpy(blob, "OCPK", 4);
+        blob[12] = (uint8_t)(OC_PACK_LEN & 255u); blob[13] = (uint8_t)(OC_PACK_LEN >> 8); blob[14] = blob[15] = 0;
+        assert(f_mkdir("/SET") == FR_OK);
+        PUTFILE("/SET/S.PAK", blob, sizeof blob);
+        MKSETOCM(14u);
+        PUTFILE("/SET/SHAPES.OCM", ocm, base + 2000u);
+        MKSETOCM(19u);
+        W32S(56, 0u); W32S(56 + 16, 4u);
+        crc = ocs_crc32(ocm, 88); W32S(88, crc);
+        PUTFILE("/SET/PROPHET.OCM", ocm, base + 2000u);
+        GOODMAN("GOOD.SET.JSON", "{\n    \"pak\": \"S.PAK\",\n    \"fwsc\": \"S.FWSC\",\n    \"ocm\": [\n      \"SHAPES.OCM\"\n    ]\n  }");
+        GOODMAN("BOTH.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"SHAPES.OCM\", \"PROPHET.OCM\"]}");
+        GOODMAN("PACKONLY.SET.JSON", "{\"pak\": \"S.PAK\"}");
+        GOODMAN("NOPAK.SET.JSON", "{\"pak\": \"NOPE.PAK\", \"ocm\": [\"SHAPES.OCM\"]}");
+        GOODMAN("NOMOD.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"GONE.OCM\"]}");
+        GOODMAN("PATH.SET.JSON", "{\"pak\": \"../S.PAK\"}");
+        GOODMAN("THREE.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"A.OCM\", \"B.OCM\", \"C.OCM\"]}");
+        GOODMAN("SAME.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"SHAPES.OCM\", \"SHAPES.OCM\"]}");
+        MANIFEST("0.13.3", FW_API_IFACE ^ 1u, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/IFACE.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR + 4u, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/ADDR.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH + 1u, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/HASH.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN + 4u, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/LEN.SET.JSON", man, strlen(man));
+        MANIFEST("0.14.0", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/NEWER.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.2", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/OLDER.SET.JSON", man, strlen(man));
+        PUTFILE("/SET/JUNK.SET.JSON", "this is not a manifest, only some text that is long enough", 56);
+        PUTFILE("/SET/OTHER.JSON", "{}", 2);                                  /* not a set: not listed */
+        /* listed with the word "Set"; other .json files are not listed */
+        RESET();
+        OPENSET("GOOD.SET.JSON");
+        assert(fb_row(fb.sel, nm, sizeof nm, v, sizeof v) && !strcmp(nm, "GOOD.SET.JSON") && !strcmp(v, "Set"));
+        for (k = 0; k < fb.n; k++) assert(!fb_ent(k) || strcmp(fb_ent(k)->name, "OTHER.JSON"));
+        /* a good set: the pack, then the module, in that order; the browser closes; "SET INSTALLED" (fb_pack_done() 3) */
+        assert(fb_ok() && fb.st == FB_OFF && !uf_browse && fb_pack_done() == 3);
+        assert(t_pk_begun == 1u && t_pk_ended == 1u && t_pk_sum > 0 && t_md_begun == 1u && t_md_ended == 1u && t_md_engine == 14u && t_md_start == 0u && t_pk_seq < t_md_seq);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        printf("  browser: a set (pack, SHAPES module) installs: the pack first, then the module, \"SET INSTALLED\"\n");
+        /* the same set again: this build's pack is there and sound, so it is not written again; the module is */
+        t_pk_begun = t_pk_ended = t_md_begun = t_md_ended = 0;
+        OPENSET("GOOD.SET.JSON");
+        assert(fb_ok() && fb_pack_done() == 3 && !t_pk_begun && t_md_begun == 1u && t_md_ended == 1u);
+        fb_open(0); fb_close();
+        /* a pack-only set */
+        RESET();
+        OPENSET("PACKONLY.SET.JSON");
+        assert(fb_ok() && fb_pack_done() == 3 && t_pk_ended == 1u && !t_md_begun);
+        fb_open(0); fb_close();
+        /* a set from another build: refused with nothing written (the identifiers, then the version) */
+        {   static const struct { const char *file, *msg; } bad[] = {
+                { "IFACE.SET.JSON", "Set: another build" }, { "ADDR.SET.JSON", "Set: another build" }, { "HASH.SET.JSON", "Set: another build" },
+                { "LEN.SET.JSON", "Set: another build" }, { "NEWER.SET.JSON", "Update firmware first" }, { "OLDER.SET.JSON", "Set is for older build" },
+                { "JUNK.SET.JSON", "Not a set" }, { "PATH.SET.JSON", "Not a set" }, { "THREE.SET.JSON", "Not a set" } };
+            RESET();
+            for (bi = 0; bi < sizeof bad / sizeof bad[0]; bi++) {
+                OPENSET(bad[bi].file);
+                REFUSED(bad[bi].msg);
+                fb_close();
+            }
+            printf("  browser: a set from another build (interface, table address, pack hash or length), a newer or older version, a junk file, a path and three modules are refused, nothing written\n");
+        }
+        /* a missing file: the pack or a module; nothing is written, not even the pack that is there */
+        RESET();
+        OPENSET("NOPAK.SET.JSON");
+        REFUSED("Missing NOPE.PAK");
+        fb_close();
+        OPENSET("NOMOD.SET.JSON");
+        REFUSED("Missing GONE.OCM");
+        assert(t_pk_state == PK_MISSING);
+        fb_close();
+        /* two modules that cannot stand in the area together (SHAPES and the Prophet), or one twice: refused before the pack is written */
+        OPENSET("BOTH.SET.JSON");
+        REFUSED("Modules don't fit");
+        fb_close();
+        OPENSET("SAME.SET.JSON");
+        REFUSED("Modules don't fit");
+        fb_close();
+        /* the overlap rule of the single module: a module of another engine in the way is named, nothing written */
+        t_plan = -1; t_blocked = 2;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "PROPHET at 2: remove it") && !t_pk_begun && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        fb_close();
+        t_plan = -1; t_blocked = -1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No place free") && !t_pk_begun && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        fb_close();
+        printf("  browser: a missing pack or module file, two modules that cannot stand together, a module in the way (named) and no place are refused before anything is written\n");
+        /* a cut between the stages: the module's begin fails after the pack went in; the next press skips the pack and does the module */
+        RESET();
+        t_md_fail = 1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Install failed") && t_pk_ended == 1u && t_md_begun == 1u && !t_md_ended && !fb_pack_done());
+        assert(!fb_ok()); fz_block();
+        t_md_fail = 2;                                         /* the module's end refuses (a cut after its code) */
+        OPENSET("GOOD.SET.JSON");
+        t_pk_begun = t_pk_ended = t_md_begun = t_md_ended = 0;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Install failed") && !t_pk_begun && t_md_begun == 1u && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_md_fail = 0;
+        OPENSET("GOOD.SET.JSON");
+        t_md_begun = t_md_ended = 0;
+        assert(fb_ok() && fb_pack_done() == 3 && !t_pk_begun && t_md_begun == 1u && t_md_ended == 1u);   /* the pack stayed, the module is done now */
+        fb_open(0); fb_close();
+        printf("  browser: a cut between the stages: the pack stays, the next press installs the module only (the pack is skipped)\n");
+        /* the in-place question: the first press says the old module is erased first and has written the pack; OCT+ again on the row goes on with the pack skipped */
+        RESET();
+        t_inplace = 1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Erases old first. Again") && fb.relist == 2u && t_pk_ended == 1u && !t_md_begun);
+        assert(!fb_ok() && fb.st == FB_READY && fb.sel == k);                         /* the word gone, the rows and the row kept */
+        assert(fb_ok() && fb_pack_done() == 3 && t_pk_begun == 1u && t_md_begun == 1u && t_md_ended == 1u);   /* the second press goes on: no second question, no second pack */
+        fb_open(0); fb_close();
+        /* another row pressed in between drops the question: the next press on the set asks again */
+        RESET();
+        t_inplace = 1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && fb.relist == 2u);
+        assert(!fb_ok() && fb.st == FB_READY);
+        fb_move(-1);                                           /* another row */
+        fb_move(1);
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Erases old first. Again") && !t_md_begun);
+        fb_close();
+        printf("  browser: the in-place question is asked once per module and answered by OCT+ on the same row; the pack is not written twice\n");
+        /* the transport running: "Stop first", nothing written */
+        RESET();
+        OPENSET("GOOD.SET.JSON");
+        t_busy = 1;
+        REFUSED("Stop first");
+        song.playing = 1;
+        t_busy = 0;
+        REFUSED("Stop first");
+        song.playing = 0;
+        fb_close();
+        /* the reader itself: every byte string it is given ends in a result without a read outside it (the build runs under the sanitizers in SAN=1) */
+        {   oc_set_t ps;
+            static const char good[] = "{\n  \"version\": \"0.13.3\",\n  \"pack_hash\": 4294967295,\n  \"pack_len\": 40232,\n  \"iface\": 1,\n  \"api_addr\": 33558784,\n"
+                "  \"files\": {\n    \"pak\": \"a.pak\",\n    \"fwsc\": \"a.fwsc\",\n    \"ocm\": [\n      \"m1.ocm\",\n      \"m2.ocm\"\n    ]\n  }\n}\n";
+            char mut[sizeof good];
+            uint32_t seed = 12345u, n_ok = 0, i;
+            assert(oc_set_parse(good, sizeof good - 1u, &ps) == OC_SET_OK && ps.version == 0x000D03u && ps.pack_hash == 0xFFFFFFFFu && ps.pack_len == 40232u && ps.iface == 1u &&
+                   ps.api_addr == 33558784u && !strcmp(ps.pak, "a.pak") && !strcmp(ps.fwsc, "a.fwsc") && ps.nocm == 2u && !strcmp(ps.ocm[0], "m1.ocm") && !strcmp(ps.ocm[1], "m2.ocm"));
+            assert(oc_set_vs(&ps, 0x000D03u, 1u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_THIS && oc_set_vs(&ps, 0x000D04u, 1u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_OLDER &&
+                   oc_set_vs(&ps, 0x000D02u, 1u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_NEWER && oc_set_vs(&ps, 0x000D03u, 2u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_OTHER);
+            for (i = 0; i <= sizeof good - 1u; i++) {            /* every cut of it: a result, never a read past the cut (the copy has no byte after it) */
+                char *cut = malloc(i ? i : 1u);
+                memcpy(cut, good, i);
+                (void)oc_set_parse(cut, i, &ps);
+                free(cut);
+            }
+            for (i = 0; i < 200000u; i++) {                      /* mutations: a few bytes changed or the length cut */
+                uint32_t len = sizeof good - 1u, m;
+                char *cut;
+                memcpy(mut, good, sizeof good);
+                for (m = 0; m < 1u + (seed & 3u); m++) {
+                    seed = seed * 1664525u + 1013904223u;
+                    mut[(seed >> 8) % len] = (char)(seed >> 24);
+                }
+                seed = seed * 1664525u + 1013904223u;
+                if (seed & 1u) len = (seed >> 8) % len;
+                cut = malloc(len ? len : 1u);
+                memcpy(cut, mut, len);
+                if (oc_set_parse(cut, len, &ps) == OC_SET_OK) {  /* what it accepts is plain: names without a path, a version, at most two modules */
+                    n_ok++;
+                    assert(ps.nocm <= 2u && ps.pak[0] && ps.pak[0] != '.' && !strchr(ps.pak, '/') && !strchr(ps.pak, '\\') && strlen(ps.pak) < OC_SET_NAME);
+                }
+                free(cut);
+            }
+            assert(oc_set_parse("{\"version\": \"0.13.3\", \"pack_hash\": 99999999999, \"pack_len\": 1, \"iface\": 1, \"api_addr\": 1, \"files\": {\"pak\": \"a\"}}", 112, &ps) != OC_SET_OK);   /* 33 bits */
+            assert(oc_set_parse("", 0, &ps) == OC_SET_BAD);
+            printf("  browser: the set reader: a good manifest, every cut of it and 200000 mutations of it end in a result inside the buffer (%u of them still accepted, all plain)\n", n_ok);
+        }
+        #undef W32S
+        #undef PUTFILE
+        #undef MKSETOCM
+        #undef MANIFEST
+        #undef GOODMAN
+        #undef OPENSET
+        #undef RESET
+        #undef REFUSED
     }
     dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it: the takes in their folders) */
     frz_drop_all("");

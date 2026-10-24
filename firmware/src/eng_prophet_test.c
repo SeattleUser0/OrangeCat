@@ -433,7 +433,7 @@ typedef struct {
 #ifdef OC_MODULE      /* (exp) the one outstanding job lives in a block the firmware reserves (fw_api_t p5_job, P5_JOB_BYTES) */
 #define p5_job (*(p5_job_t *)OC_FW()->p5_job)
 #else
-static p5_job_t p5_job;
+static p5_job_t p5_job __attribute__((section(".pool")));   /* (0.13.2) the one outstanding CPU1 job: zeroed with the pool at boot, in the arena's part of SRAM instead of the 96 KiB of .bss */
 #endif
 #define p5_pending (p5_job.pending)
 #define p5_pairs (p5_job.pairs)

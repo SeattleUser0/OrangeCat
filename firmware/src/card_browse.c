@@ -155,7 +155,7 @@ static int frz_reconcile(void)
 
 /* ------------------------------------------------------------ the browser --- */
 #define FB_MAX 64u
-#define FB_NAME 40u
+#define FB_NAME 48u                                     /* (0.13.3: 40; a set manifest of a CI run is orangecat-X.Y.Z-abcdef0.prophet.set.json, 40 characters) */
 #define FB_PATH 96u
 typedef struct { char name[FB_NAME]; uint8_t dir, longname; uint32_t size; } fb_ent_t;
 #ifndef FB_SCRATCH
@@ -168,7 +168,8 @@ enum { FB_OFF, FB_CARD, FB_LIST, FB_READY, FB_FAIL };
 static struct {
     uint8_t st, trk, gen, up;                           /* FB_*; the track; FB_GEN when listed; a ".." row first */
     uint8_t relist;                                     /* FB_FAIL over the list (a WAV refused): OCT+ / OCT- back to it */
-    uint8_t ask, packed;                                /* (0.8.0) the row (+1) a pack install waits to be confirmed on; a pack was installed */
+    uint8_t ask, packed;                                /* (0.8.0) the row (+1) a pack install waits to be confirmed on; a pack was installed (1), a module (2), a set (3) */
+    uint8_t setq;                                       /* (0.13.3) a set install: the module (+1) whose in-place question is waiting on that row */
     uint16_t n, sel;                                    /* the rows (".." too), the one picked */
     uint32_t t0;
     char path[FB_PATH];                                 /* the folder shown: "/" or "/ORANGECAT/JAM" */
@@ -189,6 +190,18 @@ static int fb_pak(const char *n)                        /* (0.8.0) ends in .PAK 
 }
 #if OC_MODULES
 #define FB_OCM 1
+#define FB_SET 1
+static int fb_set(const char *n)                        /* (0.13.3) ends in .set.json (any case): a set's manifest (docs/orangecat/SET_FORMAT.md) */
+{
+    static const char tail[] = ".set.json";
+    uint32_t l = str_len(n), k;
+    if (l <= sizeof tail - 1u) return 0;
+    for (k = 0; k < sizeof tail - 1u; k++) {
+        char c = n[l - (sizeof tail - 1u) + k];
+        if ((c >= 'A' && c <= 'Z' ? c + 32 : c) != tail[k]) return 0;
+    }
+    return 1;
+}
 static int fb_ocm(const char *n)                        /* (0.10.0) ends in .OCM (any case) */
 {
     uint32_t l = str_len(n);
@@ -196,13 +209,17 @@ static int fb_ocm(const char *n)                        /* (0.10.0) ends in .OCM
 }
 #else
 #define FB_OCM 0
+#define FB_SET 0
 static int fb_ocm(const char *n) { (void)n; return 0; }
+static int fb_set(const char *n) { (void)n; return 0; }
 #endif
 #else
 #define FB_PAK 0
 #define FB_OCM 0
+#define FB_SET 0
 static int fb_pak(const char *n) { (void)n; return 0; }
 static int fb_ocm(const char *n) { (void)n; return 0; }
+static int fb_set(const char *n) { (void)n; return 0; }
 #endif
 static int fb_before(const fb_ent_t *a, const fb_ent_t *b)   /* folders first, then by name (case aside) */
 {
@@ -239,7 +256,7 @@ static void fb_list(void)
     if (f_opendir(&d, fb.path) != FR_OK) { fb_fail("Folder unreadable"); return; }
     while (n < FB_MAX && f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
         int dir = (fi.fattrib & AM_DIR) != 0;
-        if ((fi.fattrib & (AM_HID | AM_SYS)) || fi.fname[0] == '.' || (!dir && !fb_wav(fi.fname) && !(FB_PAK && fb_pak(fi.fname)) && !(FB_OCM && fb_ocm(fi.fname)))) continue;
+        if ((fi.fattrib & (AM_HID | AM_SYS)) || fi.fname[0] == '.' || (!dir && !fb_wav(fi.fname) && !(FB_PAK && fb_pak(fi.fname)) && !(FB_OCM && fb_ocm(fi.fname)) && !(FB_SET && fb_set(fi.fname)))) continue;
         str_cpy(e[n].name, fi.fname, FB_NAME);
         e[n].dir = (uint8_t)dir;
         e[n].longname = (uint8_t)(str_len(fi.fname) >= FB_NAME);
@@ -334,6 +351,8 @@ static int fb_row(uint32_t i, char *name, uint32_t nlen, char *val, uint32_t vle
         str_cpy(val, "Pack", vlen);
     } else if (fb_ocm(e->name)) {
         str_cpy(val, "Module", vlen);
+    } else if (fb_set(e->name)) {
+        str_cpy(val, "Set", vlen);
     } else {                                            /* (seconds of 16-bit stereo 44.1 kHz, one decimal) */
         uint32_t ds = e->size > 44u ? (e->size - 44u) / 17640u : 0u;
         char *v = uh_dec(val, ds / 10u);
@@ -428,17 +447,20 @@ static int fb_assign(uint32_t k, const fb_ent_t *e)
 #if FB_PAK
 /* (0.8.0) the pack file at (fb.path, e) installed: 0 done, else fb.msg says why. Reads it in 512-byte pieces: the header, the
  * tables to oc_pack_write, the header again to oc_pack_end (it is programmed last). */
-static int fb_install(const fb_ent_t *e)
+static void fb_file(char *p, const char *name)          /* (0.13.3) the path of a file of the folder shown */
 {
-    char p[FB_PATH + FB_NAME + 2u];
+    uh_cat(uh_cat(uh_cat(p, fb.path), str_eq(fb.path, "/") ? "" : "/"), name);
+}
+/* (0.13.3) the pack file at p (size bytes) installed, or with dry only checked as far as nothing is written: 0 done, else fb.msg says why */
+static int fb_pak_file(const char *p, uint32_t size, int dry)
+{
     uint8_t buf[512];
     FIL *f = &uf_pf;
     UINT got;
     uint32_t len = OC_PACK_LEN, off;
     int rc;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
-    if (e->size != len) { str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg); return 1; }
-    uh_cat(uh_cat(uh_cat(p, fb.path), str_eq(fb.path, "/") ? "" : "/"), e->name);
+    if (size != len) { str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg); return 1; }
     if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
     if (f_read(f, buf, sizeof buf, &got) != FR_OK || got != sizeof buf || pk_header_state(buf) != PK_OK ||
         pk_rd32(buf + 12) != len) {
@@ -446,6 +468,7 @@ static int fb_install(const fb_ent_t *e)
         str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg);
         return 1;
     }
+    if (dry) { f_close(f); return 0; }
     if (oc_pack_begin(len) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
     rc = 0;
     for (off = OC_PACK_HDR; off < len && !rc; off += got) {
@@ -457,6 +480,13 @@ static int fb_install(const fb_ent_t *e)
         rc = 1;
     f_close(f);
     if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    return 0;
+}
+static int fb_install(const fb_ent_t *e)
+{
+    char p[FB_PATH + FB_NAME + 2u];
+    fb_file(p, e->name);
+    if (fb_pak_file(p, e->size, 0)) return 1;
     fb.packed = 1;
     return 0;
 }
@@ -471,18 +501,14 @@ static uint32_t fb_put(char *d, uint32_t at, const char *s, uint32_t max)       
 /* (0.10.0) the module package at (fb.path, e) installed: 0 done, else fb.msg says why. The package: a 56 byte header, a table of 16 byte variants, a CRC-32 of
  * both, then the images (web/EDITOR_PROTOCOL.md). The image for the place oc_mod_plan names goes to oc_mod_begin / write in 256 byte pieces; its first
  * 256 bytes (the header page) go to oc_mod_end, which programs them last. */
-static int fb_install_mod(const fb_ent_t *e)
+static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int dry, uint32_t *engine_out)
 {
-    char p[FB_PATH + FB_NAME + 2u];
     uint8_t buf[256], pg[256];
     FIL *f = &uf_pf;
     UINT got;
     uint32_t n, tab = 56u, hc, engine, start, off = 0, len = 0, o;
-    int plan, rc = 0, armed;
-    armed = fb.ask == (uint8_t)(fb.sel + 1u);      /* (0.10.1) the in-place question was asked on this row; any other press drops it */
-    fb.ask = 0;
+    int plan, rc = 0;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
-    uh_cat(uh_cat(uh_cat(p, fb.path), str_eq(fb.path, "/") ? "" : "/"), e->name);
     if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
     if (f_read(f, buf, sizeof buf, &got) != FR_OK || got < 64u || pk_rd32(buf) != 0x464D434Fu || pk_rd16(buf + 4) != 1u) {
         f_close(f);
@@ -493,6 +519,7 @@ static int fb_install_mod(const fb_ent_t *e)
     hc = tab + 16u * n;
     if (n < 1u || n > 8u || hc + 4u > got || ocs_crc32(buf, hc) != pk_rd32(buf + hc)) { f_close(f); str_cpy(fb.msg, "Not a module", sizeof fb.msg); return 1; }
     engine = pk_rd32(buf + 16);
+    if (engine_out) *engine_out = engine;
     if (pk_rd32(buf + 8) != FW_API_IFACE || pk_rd32(buf + 12) != FW_API_ADDR || pk_rd32(buf + 44) > FW_API_VERSION ||
         pk_rd32(buf + 48) > sizeof(fw_api_t) || pk_rd32(buf + 24) != OC_PACK_HASH) {
         f_close(f);
@@ -517,12 +544,14 @@ static int fb_install_mod(const fb_ent_t *e)
     start = (uint32_t)plan;
     for (o = 0; o < n; o++)
         if (pk_rd32(buf + tab + 16u * o) == OC_MOD_START_SECTOR(start)) { len = pk_rd32(buf + tab + 16u * o + 4u); off = pk_rd32(buf + tab + 16u * o + 12u); }
-    if (!len || off + len > e->size || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
+    if (!len || off + len > size || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
     if (f_lseek(f, off) != FR_OK || f_read(f, pg, sizeof pg, &got) != FR_OK || got != sizeof pg) { f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    if (dry) { f_close(f); return 0; }
     if (oc_mod_inplace(engine, start) && !armed) {      /* (0.10.1) no other place is free: the old module is erased first and a power cut leaves none.
                                                                                   * Said once; OCT+ on the same row again goes on (fb.ask is the row, as for a pack's question) */
         f_close(f);
         fb.ask = (uint8_t)(fb.sel + 1u);
+        fb.setq = (uint8_t)q;                           /* (0.13.3) for a set: which of its modules asked */
         str_cpy(fb.msg, "Erases old first. Again", sizeof fb.msg);
         return 1;
     }
@@ -537,9 +566,92 @@ static int fb_install_mod(const fb_ent_t *e)
     rc = oc_mod_end(pg);
     if (rc == -8) { str_cpy(fb.msg, "Update would erase it", sizeof fb.msg); return 1; }   /* (0.10.1) -8 is oc_module.c MI_TAIL: a sector tail like an update record, nothing committed */
     if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    return 0;
+}
+static int fb_install_mod(const fb_ent_t *e)
+{
+    char p[FB_PATH + FB_NAME + 2u];
+    int armed = fb.ask == (uint8_t)(fb.sel + 1u);      /* (0.10.1) the in-place question was asked on this row; any other press drops it */
+    fb.ask = 0;
+    fb.setq = 0;
+    fb_file(p, e->name);
+    if (fb_mod_file(p, e->size, armed, 0u, 0, 0)) return 1;
     fb.packed = 2;
     return 0;
 }
+#if FB_SET
+#include "oc_set.h"
+#ifndef FB_TEXT
+#define FB_TEXT() ((char *)proj_wire_u.raw + 4096u)      /* (0.13.3) a set's manifest, and the parsed set after it, in the borrowed RAM behind the rows */
+#define FB_SETS() ((oc_set_t *)(proj_wire_u.raw + 4096u + 2048u))
+#endif
+#define FB_TEXT_MAX 2048u
+#ifndef OC_FW_VERSION
+#define OC_FW_VERSION 0u
+#endif
+/* (0.13.3) the file `name` of the set's folder: its path in p, its size in *size. 0, or 1 and fb.msg "Missing <name>" */
+static int fb_set_file(char *p, const char *name, uint32_t *size)
+{
+    FILINFO fi;
+    fb_file(p, name);
+    if (f_stat(p, &fi) != FR_OK || (fi.fattrib & AM_DIR)) {
+        uint32_t at = fb_put(fb.msg, 0u, "Missing ", 8u);
+        at = fb_put(fb.msg, at, name, 15u);
+        fb.msg[at] = 0;
+        return 1;
+    }
+    *size = (uint32_t)fi.fsize;
+    return 0;
+}
+/* (0.13.3) "Install set": the manifest at (fb.path, e) read, checked against this firmware (version, then interface identifier, table address, pack hash and
+ * length), every file of it found and checked as far as nothing is written (the pack's header, each module's header and the place the unit names), the
+ * modules checked in pairs (the 12 sector area holds SHAPES or the Prophet, not both); then the pack (unless this build's is there and sound), then the
+ * modules in the order of the manifest, each through fb_mod_file as OCT+ on a .OCM does, with its own in-place question (OCT+ again on the row answers
+ * the one that asked). Nothing is kept between the presses but fb.ask and fb.setq: a cut or a question leaves the stages done and the next press does the
+ * rest (the pack is skipped, a module is installed again). Only the stages the card can do: the firmware package of the set is not started from here
+ * (the update loader takes it from a computer over USB), so a set for another version of the firmware is refused with the words to update it first.
+ * 0 done (fb.packed 3), else fb.msg says why. */
+static int fb_install_set(const fb_ent_t *e)
+{
+    char p[FB_PATH + FB_NAME + 2u];
+    FIL *f = &uf_pf;
+    UINT got;
+    oc_set_t *o = FB_SETS();
+    uint32_t k, j, size, plen, phash, eng[OC_SET_OCM];
+    uint8_t ask0 = fb.ask, q0 = fb.setq;
+    fb.ask = 0;
+    fb.setq = 0;
+    if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
+    if (e->size < 16u || e->size >= FB_TEXT_MAX) { str_cpy(fb.msg, "Not a set", sizeof fb.msg); return 1; }
+    fb_file(p, e->name);
+    if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    if (f_read(f, FB_TEXT(), e->size, &got) != FR_OK || got != e->size) { f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    f_close(f);
+    if (oc_set_parse(FB_TEXT(), e->size, o) != OC_SET_OK) { str_cpy(fb.msg, "Not a set", sizeof fb.msg); return 1; }
+    switch (oc_set_vs(o, OC_FW_VERSION, FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN)) {
+    case OC_SET_NEWER: str_cpy(fb.msg, "Update firmware first", sizeof fb.msg); return 1;
+    case OC_SET_OLDER: str_cpy(fb.msg, "Set is for older build", sizeof fb.msg); return 1;
+    case OC_SET_OTHER: str_cpy(fb.msg, "Set: another build", sizeof fb.msg); return 1;
+    default: break;
+    }
+    if (fb_set_file(p, o->pak, &size) || fb_pak_file(p, size, 1)) return 1;
+    for (k = 0; k < o->nocm; k++) {
+        if (fb_set_file(p, o->ocm[k], &size) || fb_mod_file(p, size, 0, 0u, 1, &eng[k])) return 1;
+        for (j = 0; j < k; j++)
+            if (eng[j] == eng[k] || !oc_mod_pair_fits(eng[j], eng[k])) { str_cpy(fb.msg, "Modules don't fit", sizeof fb.msg); return 1; }
+    }
+    if (!(oc_pack_info(&plen, &phash) == PK_OK && plen == OC_PACK_LEN && phash == OC_PACK_HASH)) {
+        if (fb_set_file(p, o->pak, &size) || fb_pak_file(p, size, 0)) return 1;
+    }
+    for (k = 0; k < o->nocm; k++) {
+        if (fb_set_file(p, o->ocm[k], &size) ||
+            fb_mod_file(p, size, ask0 == (uint8_t)(fb.sel + 1u) && q0 == (uint8_t)(k + 1u), k + 1u, 0, 0))
+            return 1;
+    }
+    fb.packed = 3;
+    return 0;
+}
+#endif
 #endif
 /* OCT+: ".." up, a folder opened, a WAV given to the track's phrase. 1: done (the browser closed) */
 static int fb_ok(void)
@@ -561,6 +673,19 @@ static int fb_ok(void)
     if (FB_PAK && fb_pak(e->name)) {
 #if FB_PAK
         if (fb_install(e)) {
+            char m[24];
+            str_cpy(m, fb.msg, sizeof m);
+            fb_fail(m);
+            fb.relist = fb.ask ? 2u : 1u;
+            return 0;
+        }
+#endif
+        fb_close();
+        return 1;
+    }
+    if (FB_SET && fb_set(e->name)) {
+#if FB_SET
+        if (fb_install_set(e)) {
             char m[24];
             str_cpy(m, fb.msg, sizeof m);
             fb_fail(m);
