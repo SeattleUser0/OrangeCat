@@ -181,6 +181,25 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     return MD_OK;
 }
 
+/* (0.11.1) The PC guard's window follows what is REGISTERED: the last byte of the highest registered module, 0 with none (then the window is _etext).
+ * ONE helper for every path that registers or unregisters a module (oc_mod_boot, oc_mod_park, the error paths of oc_mod_begin), so that no path leaves
+ * a window wider than the table. A start counts when its state is MD_OK and the engine it names is registered (a parked module keeps its state until
+ * its start is erased). */
+static void oc_mod_window(void)
+{
+    uint32_t i, end = 0;
+    for (i = 0; i < OC_MOD_STARTS; i++) {
+        uint32_t e = oc_mod.engine[i], last;
+        if (oc_mod.state[i] != MD_OK || e >= NENGINES || !eng_mod[e])
+            continue;
+        last = oc_mod_link(i) + oc_mod.length[i] - 1u;
+        if (end < last)
+            end = last;
+    }
+    fm1_guard_code_end = end;
+    fm1_guard_pc_window();
+}
+
 /* persist_boot, after oc_pack_boot: look at every start, register what is good. `crashed`: the last boot died in its first 30 s
  * (bootguard.failed). Safe to call again (the installer does, after an install or a removal): the registry is rebuilt. */
 static void oc_mod_boot(uint32_t crashed)
@@ -191,7 +210,6 @@ static void oc_mod_boot(uint32_t crashed)
         if (eng_mod[e])
             eng_unregister(e);
     memset(&oc_mod, 0, sizeof oc_mod);
-    fm1_guard_code_end = 0;
     if (crashed) {
         oc_modguard.notice |= (uint8_t)(oc_modguard.inuse & ~oc_modguard.banned);
         oc_modguard.banned |= oc_modguard.inuse;                /* the module(s) in use when it died */
@@ -213,17 +231,14 @@ static void oc_mod_boot(uint32_t crashed)
             continue;
         }
         {   int rc = eng_mod[h.engine] ? EM_SLOT : eng_register(oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);   /* (one already there: the lower start won) */
-            uint32_t end = oc_mod_link(i) + h.length - 1u;
             if (rc != EM_OK) {
                 oc_mod.state[i] = MD_NOSLOT;
                 oc_mod.why[i] = (uint8_t)-rc;
                 continue;
             }
-            if (fm1_guard_code_end < end)
-                fm1_guard_code_end = end;
         }
     }
-    fm1_guard_pc_window();                                      /* (0.10.1) a running session too: the window follows the registered modules */
+    oc_mod_window();                                            /* (0.10.1) a running session too: the window follows the registered modules (0.11.1: the one helper) */
 }
 /* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
  * `run` says whether the last session ended in an orderly reset (reset_intended clears it). If it did not, the session died (the watchdog, a CPU
@@ -351,6 +366,7 @@ static void oc_mod_park(uint32_t engine)
         }
         eng_state_clear(t);
     }
+    oc_mod_window();                                             /* (0.11.1) the engine is out of the table: the window follows at once, not at the next boot */
 }
 static int oc_mod_erase_start(uint32_t i)
 {
@@ -385,7 +401,7 @@ static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
         oc_mod_park(engine);
         for (i = 0; i < OC_MOD_STARTS; i++)
             if (i == start || oc_mod_has(i, engine))
-                if ((rc = oc_mod_erase_start(i)) != 0) { fm1_guard_code_end = 0; return rc; }
+                if ((rc = oc_mod_erase_start(i)) != 0) { oc_mod_window(); return rc; }   /* (0.11.1: this set the end to 0 and never wrote the window) */
     } else if ((rc = oc_mod_erase_start(start)) != 0) {  /* beside: only the free start; the old module stays registered and playable */
         return rc;
     }

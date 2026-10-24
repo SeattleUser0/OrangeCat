@@ -479,8 +479,11 @@ int main(void)
         chk("in place: begin takes the old module out of the table first, its voices off, and erases its 6 sectors",
             oc_mod_begin(ENGI_SHAPES, 0, LEN + 512u) == 0 && mw.inplace && !eng_mod[ENGI_SHAPES] && ENGINES[ENGI_SHAPES] == eng_default(ENGI_SHAPES) &&
             !trk[1].v[0].active && erases - before == 6u && nor[oc_mod_flash(0)] == 0xFF && oc_mod.state[0] == MD_EMPTY);
+        chk("... the PC window narrows at once to _etext (the module is gone; 0.11.1: it stayed at the old module's end until the next boot)",
+            host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
         for (n = FW_MOD_CODE_OFF; n < LEN + 512u; n += 256u) oc_mod_write(n, IMG + n, LEN + 512u - n > 256u ? 256u : LEN + 512u - n);
         chk("... the new one is committed and registered", oc_mod_end(IMG) == 0 && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0));
+        chk("... and the window ends at the new module's last byte", host_pc_hi == oc_mod_link(0) + LEN + 512u - 1u && fm1_guard_code_end == host_pc_hi);
 
         /* refusals at end: nothing committed */
         {   struct { const char *what; mut_t f; } E[] = {
@@ -587,6 +590,7 @@ int main(void)
         erase_error = 1;
         chk("... in place (no other start free): begin returns the flash error, nothing is writing, the module is out of the table",
             oc_mod_begin(ENGI_SHAPES, 0, LEN) < 0 && !mw.writing && !eng_mod[ENGI_SHAPES]);
+        chk("... and the PC window is _etext (0.11.1: the error path set the end to 0 and never wrote the window)", host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
         erase_error = 0;
         /* the plan with junk */
         clean(); BUILD(0, LEN, 41);
@@ -619,6 +623,58 @@ int main(void)
         chk("(setup) a damaged module remains", oc_mod.state[1] == MD_BAD_CRC);
         chk("remove of the engine leaves what is not a module of it; remove 127 wipes the whole area",
             oc_mod_remove(ENGI_SHAPES) == 0 && oc_mod.state[1] == MD_BAD_CRC && oc_mod_remove(127) == 0 && oc_mod.state[1] == MD_EMPTY && nor[oc_mod_flash(1)] == 0xFF);
+        /* (0.11.1, fix 3) the PC window after every path that takes a module out of the table */
+        {
+            uint32_t sets;
+            fw_mod_hdr_t hh;
+            /* an in-place install begun and never ended: the engine stays out of the table, so the window must not stay at the old module's end */
+            clean(); oc_mod_boot(0); BUILD(0, LEN + 512u, 80); INSTALL(0, LEN + 512u, &rc);
+            oc_mod.state[1] = MD_OK; oc_mod.engine[1] = 99;                    /* start 1 is not free: the install is in place */
+            chk("(setup) a module at start 0, the window at its end", eng_mod[ENGI_SHAPES] && host_pc_hi == oc_mod_link(0) + LEN + 512u - 1u);
+            BUILD(0, LEN, 81);
+            sets = host_pc_sets;
+            chk("an in-place install begun: the window is written (once) and is _etext", oc_mod_begin(ENGI_SHAPES, 0, LEN) == 0 && mw.inplace && host_pc_sets > sets && host_pc_hi == OC_HOST_ETEXT);
+            for (n = FW_MOD_CODE_OFF; n < LEN / 2u; n += 256u) oc_mod_write(n, IMG + n, 256u);
+            chk("... a part of the code written, then the install is abandoned (no end): engine out of the table, window still _etext",
+                mw.writing && !eng_mod[ENGI_SHAPES] && host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
+            oc_mod_boot(0);                                                    /* a re-read of the area (a reset would do it): nothing registered, the same window */
+            chk("... a boot after it: nothing registered (no header was written), the window _etext", !eng_mod[ENGI_SHAPES] && oc_mod.state[0] == MD_EMPTY && host_pc_hi == OC_HOST_ETEXT);
+            /* ... and the next begin: start 0 is empty now, so this one goes beside (into the free start), the window stays until the new module is registered */
+            sets = host_pc_sets;
+            chk("the next begin after an abandoned install (the start is empty: not in place): the window stays _etext", oc_mod_begin(ENGI_SHAPES, 0, LEN) == 0 && !mw.inplace && host_pc_hi == OC_HOST_ETEXT);
+            for (n = FW_MOD_CODE_OFF; n < LEN; n += 256u) oc_mod_write(n, IMG + n, LEN - n > 256u ? 256u : LEN - n);
+            chk("... its end registers the module and the window ends at its last byte", oc_mod_end(IMG) == 0 && eng_mod[ENGI_SHAPES] && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            /* an install abandoned in place, begun again in place: the window is _etext both times */
+            clean(); oc_mod_boot(0); BUILD(0, LEN, 82); INSTALL(0, LEN, &rc);
+            oc_mod.state[1] = MD_OK; oc_mod.engine[1] = 99;
+            oc_mod_begin(ENGI_SHAPES, 0, LEN);
+            chk("in place, begun twice (the first abandoned): the second begin also ends with the window at _etext",
+                (oc_mod.state[0] = MD_OK, oc_mod.engine[0] = ENGI_SHAPES, oc_mod_begin(ENGI_SHAPES, 0, LEN)) == 0 && host_pc_hi == OC_HOST_ETEXT);
+            /* beside: begin erases the free start only, the old module stays registered and the window stays at its end */
+            clean(); oc_mod_boot(0); BUILD(0, LEN, 83); INSTALL(0, LEN, &rc);
+            sets = host_pc_sets;
+            chk("a beside begin: the old module stays registered, the window stays at its end", oc_mod_begin(ENGI_SHAPES, 1, LEN) == 0 && eng_mod[ENGI_SHAPES] && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            /* beside, refused at end: nothing taken out, the window as it was */
+            for (n = FW_MOD_CODE_OFF; n < LEN; n += 256u) oc_mod_write(n, IMG + n, LEN - n > 256u ? 256u : LEN - n);
+            hh = mk(1, LEN); hh.state_size = 0; code(83); seal(&hh); memcpy(IMG, &hh, sizeof hh);
+            chk("... its end refused (a header that does not fit): the old module and the window are as they were", oc_mod_end(IMG) == -1 && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            /* beside with a SHORTER new module at a LOWER end: the old, longer one goes, the window follows the new one */
+            clean(); oc_mod_boot(0); BUILD(1, LEN + 1024u, 84);
+            oc_mod.state[1] = MD_EMPTY;
+            { fw_mod_hdr_t h1 = mk(1, LEN + 1024u); code(84); seal(&h1); put(1, &h1, 1); oc_mod_boot(0); }
+            chk("(setup) a long module at start 1", eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && host_pc_hi == oc_mod_link(1) + LEN + 1024u - 1u);
+            BUILD(0, LEN, 85);
+            chk("a shorter module beside it, at the lower start: after the swap the window ends at the new module (below the old end)",
+                INSTALL(0, LEN, &rc) == 0 && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && host_pc_hi == oc_mod_link(0) + LEN - 1u && oc_mod.state[1] == MD_EMPTY);
+            /* the helper on its own */
+            sets = host_pc_sets;
+            oc_mod_window();
+            chk("oc_mod_window: writes the window from what is registered (the module at start 0)", host_pc_sets == sets + 1u && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            oc_mod_park(ENGI_SHAPES);
+            chk("... oc_mod_park writes it too: with the module out of the table the window is _etext (the state still says MD_OK, the registry decides)",
+                oc_mod.state[0] == MD_OK && !eng_mod[ENGI_SHAPES] && host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
+        }
+
         /* the ban is cleared by an install */
         clean(); oc_mod_boot(0); BUILD(0, LEN, 70); INSTALL(0, LEN, &rc);
         trk[2].engine = ENGI_SHAPES; oc_mod_note_use(); oc_mod_boot(1);
