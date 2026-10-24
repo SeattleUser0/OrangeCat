@@ -268,6 +268,14 @@ module_host_prophet() {                           # (Orange Cat 0.12.1, Part 1b)
     step "the Prophet as a module on the host (Orange Cat 0.12.1): header check, 201 presets through the table equal the built-in engine's and the golden file, descriptor rows, panel, hooks" \
         "$OUT/module_host_prophet_test" tests/golden.txt
 }
+mod_pages_prophet() {                             # (Orange Cat 0.12.1, Part 1b) the Prophet module's own descriptor in the UI (the Orange Cat engine set, sanitizers)
+    $CC -c -O1 -fsanitize=address,undefined -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/mod_pages_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (pages)"; return 1; }
+    $CC -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 \
+        -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW -o "$OUT/mod_pages_prophet_test" tests/mod_pages_prophet_test.c "$OUT/mod_pages_prophet_tu.o" -lm ||
+        { fail "compile tests/mod_pages_prophet_test.c"; return 1; }
+    step "the Prophet module's real pages (0.12.1, Part 1b): 15 pages, hooks, HOME, ENV, LFO, motion recorded and played back, the module out and in; Orange Cat set, sanitizers" \
+        "$OUT/mod_pages_prophet_test"
+}
 phys_ref() {
     D=${DAISYSP:-vendor/DaisySP}/Source
     if [ ! -d "$D/PhysicalModeling" ] || ! command -v c++ >/dev/null 2>&1; then
@@ -475,6 +483,7 @@ if sound && [ $TABLES = 1 ]; then
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     job module_host
     job module_host_prophet
+    job mod_pages_prophet
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \
         macro_test -O2 $FW -- "$OUT/macro_test" build/macro_demo

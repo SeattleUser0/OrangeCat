@@ -316,6 +316,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_SHAPES || OC_MODULES
     ENGI_SHAPES,                 /* (Orange Cat 0.5.1) SHAPES; (0.10.0) kept in the order while a module may supply it (eng_ok says whether it is there) */
 #endif
+#if !MELODEE_P5 && OC_MODULES
+    ENGI_PROPHET,                /* (Orange Cat 0.12.1) the Prophet as a module: offered only while one is registered (eng_ok) */
+#endif
 };
 
 /* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
@@ -326,7 +329,7 @@ static int eng_extra_retired(uint32_t e)
     if (e == ENGI_ANALOG) return 1;
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || (e == 9u && !MELODEE_DRUMX) || e == 11u))
-        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET) || (!MELODEE_DRUM && e == ENGI_DRUM);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
+        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -371,6 +374,10 @@ static const engine_t *eng_default(uint32_t e)     /* what the slot holds withou
 #if MELODEE_SHAPES
     if (e == ENGI_SHAPES)
         return &ENG_SHAPES;
+#endif
+#if MELODEE_P5
+    if (e == ENGI_PROPHET)
+        return &ENG_P5_TEST;       /* (0.12.1) built in: the slot's own engine */
 #endif
     (void)e;
     return &ENG_RETIRED;
