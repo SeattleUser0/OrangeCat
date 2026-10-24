@@ -4,6 +4,7 @@
 # Copyright (C) 2026 ChoralRoot FM-1 contributors
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Revisions:
+# (Orange Cat 0.13.6) build_module writes build/gen/fw_api_iface.h (FW_API_IFACE as the module headers carry it) for tools/oc_manifest.py
 # (Orange Cat 0.7.0) text in Melodee Pixel alone. The Rubik faces, kerning, phases and the Huffman decoder are gone (fonts 31,353 B to 1,447 B), with Settings > FONT; g...
 # (Orange Cat 0.10.1) module sector tails against the update loader's record rule
 # (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
@@ -675,6 +676,10 @@ SECTIONS {{
         (OUT / f"{name}-{(SRC / 'VERSION').read_text().strip() if (SRC / 'VERSION').exists() else '0'}.ocm").unlink(missing_ok=True)
         return errors, notes
     iface, api_size, api_version, engine, state_size = next(iter(ifaces))
+    # (Orange Cat 0.13.6) the interface identifier the modules and the firmware really compare is FW_API_IFACE (FW_API_ID mixed with four sizeof, fw_api.h), which the
+    # generated header does not hold; the module header carries it, built with the firmware's compiler and flags. tools/oc_manifest.py reads it from here, so the
+    # manifest and the set manifests name what the unit compares (before, they named FW_API_ID alone and the site and "Install set" refused every module).
+    (GEN / "fw_api_iface.h").write_text(f"/* written by tools/build.py --module: FW_API_IFACE as the module headers carry it */\n#define FW_API_IFACE_BUILT 0x{iface:08X}u\n")
     # the package
     n = len(variants)
     head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 1, n, iface, api_addr, engine, state_size, pack_hash,

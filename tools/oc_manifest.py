@@ -15,6 +15,7 @@ firmware package if given, and of the modules, as they are in the folder the man
 Revisions:
   0.11.2: first version.
   0.13.3: --set, the set manifest.
+  0.13.6: "iface" is FW_API_IFACE (build/gen/fw_api_iface.h, written by the module build), not FW_API_ID: the modules and the unit compare FW_API_IFACE.
 """
 import json
 import re
@@ -35,8 +36,10 @@ def info_of(gen=None, version=None):
     gen = Path(gen) if gen else ROOT / "build" / "gen"
     pack = (gen / "oc_pack_tables.h").read_text()
     api = (gen / "fw_api_id.h").read_text()
+    built = gen / "fw_api_iface.h"          # (0.13.6) FW_API_IFACE, the number the unit compares, as tools/build.py --module read it from the module headers
+    iface = define(built.read_text(), "FW_API_IFACE_BUILT") if built.exists() else define(api, "FW_API_ID")     # without a module build only the id is known
     return {"version": version or (ROOT / "VERSION").read_text().strip(), "pack_hash": define(pack, "OC_PACK_HASH"), "pack_len": define(pack, "OC_PACK_LEN"),
-            "iface": define(api, "FW_API_ID"), "api_addr": define(api, "FW_API_ADDR")}
+            "iface": iface, "api_addr": define(api, "FW_API_ADDR")}
 
 
 def plain_name(name):

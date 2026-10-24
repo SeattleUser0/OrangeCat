@@ -181,6 +181,16 @@ class SetSite(unittest.TestCase):
 
 
 class Manifest(unittest.TestCase):
+    def test_the_manifest_names_the_interface_the_modules_carry(self):
+        """(0.13.6) FW_API_IFACE (the module headers', the unit's) and not FW_API_ID alone: build/gen/fw_api_iface.h from the module build wins; without it the id"""
+        with tempfile.TemporaryDirectory() as d:
+            gen = Path(d)
+            (gen / "oc_pack_tables.h").write_text("#define OC_PACK_HASH 0x657ED950u\n#define OC_PACK_LEN 40232u\n")
+            (gen / "fw_api_id.h").write_text("#define FW_API_ID 0xA3A39B53u\n#define FW_API_ADDR 0x02001100u\n")
+            self.assertEqual(oc_manifest.info_of(gen)["iface"], 0xA3A39B53)
+            (gen / "fw_api_iface.h").write_text("#define FW_API_IFACE_BUILT 0x12F6BE4Fu\n")
+            self.assertEqual(oc_manifest.info_of(gen)["iface"], 0x12F6BE4F)
+
     def test_a_set_manifest_names_its_files(self):
         """(0.13.3) tools/oc_manifest.py --set: the numbers of the build and the file names; a name with a path or an odd character is refused"""
         with tempfile.TemporaryDirectory() as d:
