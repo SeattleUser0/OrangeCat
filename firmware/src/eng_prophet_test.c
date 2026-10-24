@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 /* Prophet prototype: native patches and five (experimental dual-core: eight) voices, with two provisional
  * filter characters. Stored engine ID 19 is independent of legacy ANALOG.
  * MELODEE_PROPHET_PROTOTYPE additionally aliases ID 0 for measurement rigs. */
@@ -38,8 +42,13 @@ typedef struct {
 } p5_render_params_t;
 typedef struct { p5_voice_t voice[P5_POLY]; uint32_t lfo; int32_t lfo_value, last_pitch, mod_noise, dc_x1, dc_y1; float wheel[CTL * P5_OVERSAMPLE], wheel_pitch[CTL * P5_OVERSAMPLE]; uint8_t value[56],input_key[56],base_valid; int16_t base_e[8]; int32_t coarse_a,coarse_b,fixed_b,fine_b; p5_render_params_t base; } p5_part_t;
 static p5_part_t *p5_part(uint32_t part);
+#ifdef OC_MODULE      /* (exp) a module has no RAM: the firmware keeps the patches and the ready flags and hands the addresses over in the table */
+#define p5_patch ((p5_patch_t *)OC_FW()->p5_patch)
+#define p5_ready (OC_FW()->p5_ready)
+#else
 static p5_patch_t p5_patch[NPART] __attribute__((section(".pool")));
 static uint8_t p5_ready[NPART];
+#endif
 static p5_patch_t *p5_patch_of(const track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk) % NPART;
@@ -410,17 +419,25 @@ static void p5_batch_kernel(const void *data,int32_t *pcm)
 #if MELODEE_DUAL_CORE
 /* The sample kernel owns only its voice and private PCM. Part-wide wheel
  * buffers and patch bytes remain read-only until post joins the worker. */
-static struct {
+typedef struct {
     p5_voice_t *voice;
     const uint8_t *patch;
     p5_render_params_t params;
     vmod_t modulation;
     uint32_t n;
     int32_t pcm[CTL];
-} p5_job;
-static int p5_pending;
-static uint32_t p5_pairs;
-static int32_t *p5_pending_out;
+    int pending;
+    uint32_t pairs;
+    int32_t *pending_out;
+} p5_job_t;
+#ifdef OC_MODULE      /* (exp) the one outstanding job lives in a block the firmware reserves (fw_api_t p5_job, P5_JOB_BYTES) */
+#define p5_job (*(p5_job_t *)OC_FW()->p5_job)
+#else
+static p5_job_t p5_job __attribute__((section(".pool")));   /* (0.13.2) the one outstanding CPU1 job: zeroed with the pool at boot, in the arena's part of SRAM instead of the 96 KiB of .bss */
+#endif
+#define p5_pending (p5_job.pending)
+#define p5_pairs (p5_job.pairs)
+#define p5_pending_out (p5_job.pending_out)
 static void p5_worker_kernel(void *unused)
 {
     (void)unused;
@@ -559,6 +576,17 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
 /* Sequential's factory program k (0..P5_FACTORY_N-1), unpacked (tools/gen_prophet_factory.py pack) */
 static void p5_factory(uint32_t k,p5_patch_t *p)
 {
+#ifdef OC_MODULE
+    /* (0.12.2) the module's table is the palette form (P5_FZ, tools/gen_prophet_factory.py pack_z): 1.6 KB smaller, the same bytes out */
+    const uint8_t *b=P5_FZ+k*P5_FZ_BYTES,*pal=P5_FZ_PAL;
+    uint32_t pos=0;
+    for(uint32_t i=0;i<P5_RAW_MAX;i++){
+        uint32_t v=0;
+        for(uint32_t j=0;j<P5_FZ_IW[i];j++,pos++)v|=(uint32_t)(b[pos>>3]>>(pos&7u)&1u)<<j;
+        if(P5_FZ_PN[i]){v=pal[v];pal+=P5_FZ_PN[i];}
+        p->raw[i]=(uint8_t)(P5_FBASE[i]+v);
+    }
+#else
     const uint8_t *b=P5_FPACK+k*P5_FACTORY_BYTES;
     uint32_t pos=0;
     for(uint32_t i=0;i<P5_RAW_MAX;i++){
@@ -566,6 +594,7 @@ static void p5_factory(uint32_t k,p5_patch_t *p)
         for(uint32_t j=0;j<P5_FWIDTH[i];j++,pos++)v|=(uint32_t)(b[pos>>3]>>(pos&7u)&1u)<<j;
         p->raw[i]=(uint8_t)(P5_FBASE[i]+v);
     }
+#endif
     p->size=P5_RAW_MAX;p->model=0x32;p->command=2;p->group=(uint8_t)(k/40u);p->program=(uint8_t)(k%40u);
 }
 /* INIT, then Sequential's factory programs in their order (111..588 on the
@@ -588,6 +617,9 @@ static void p5_preset_loaded(track_t *t,uint32_t pi)
  * paired path provisionally charges two: eight voices fill the same sixteen
  * units, so adding another track still steals voices. Validate on hardware. */
 static uint32_t p5_units(const track_t *t) { (void)t; return p5_poly()>5u?2u:3u; }
+#ifdef OC_MODULE      /* (0.12.1) the Prophet's pages come with the module: tools/module/prophet_mod.c defines the descriptor after this file */
+static const fw_pages_t P5_PAGES;
+#endif
 static const engine_t ENG_P5_TEST = {
     .name="PROPHET", .page_title={"FILTER/TUNE","PW/MIX"},
     .edit={{"CUT",F_INT,-63,63,0,0,0},{"RES",F_INT,-63,63,0,0,0},
@@ -598,4 +630,7 @@ static const engine_t ENG_P5_TEST = {
     .note_on=p5_note_on,.render=p5_render,.done=p5_done,.block=p5_block,.units=p5_units,.cap=p5_cap,.legato=p5_legato,
     .post=p5_post,
     .knob={P_E0,P_E1,P_RESERVED34,P_RESERVED36}
+#ifdef OC_MODULE
+    ,.pages=&P5_PAGES
+#endif
 };

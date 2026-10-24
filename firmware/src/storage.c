@@ -14,6 +14,9 @@
  *   st_read(off, dst, n)   st_erase(off)   st_prog(off, src, n)
  *
  * Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) module area comments say 12 sectors; migration wall time from the part's data sheet and the driver's limits
+ *   0.12.2 (Orange Cat): OC_FEED(), the one watchdog feed of the long flash operations (below); every erase of the library group feeds it.
  *   0.9.1 (Orange Cat): the user preset library moved out of the PACK and MODULE areas into a group of 23 sectors with one shared
  *          spare (lib_group.c, included at the end of this file). Handles OBJ_LIB0 + bank (22) are the group's banks; the old
  *          object numbers 5..30 stay, as the old pairs the move at boot reads, and as the ids the lab inventory and the backup
@@ -66,6 +69,18 @@
 #define ST_PACK_SECTORS 10u
 #define ST_MODULE_LO 0xC8000u                  /* 12 sectors: 0xC8000..0xD3FFF */
 #define ST_MODULE_SECTORS 12u                  /* (0.9.1: was 20; 0xD4000..0xDBFFF went to the library group, lib_group.c) */
+/* (Orange Cat 0.12.2, Part 2d) the watchdog feed of the long flash operations: the migration of the old pairs, a pack or module install, a library wipe, a backup
+ * restore. On the device it is fm1_wdt_feed(); the host builds count it (OC_FEED_COUNT: tests/persistence_test.c, tests/lib_group_test.c, the feed-count tests) or
+ * ignore it. Every erase (the longest single operation, up to ~0.4 s) is preceded by one, so no gap between two feeds is longer than an erase and the pages programmed after it. */
+#ifndef OC_FEED
+#if defined(FM1_IRQ_TARGET)
+#define OC_FEED() fm1_wdt_feed()
+#elif defined(OC_FEED_COUNT)
+#define OC_FEED() (oc_feeds++)
+#else
+#define OC_FEED() ((void)0)
+#endif
+#endif
 #ifdef FL_PACK_LO                              /* the firmware build includes hal/fm1_flash.h first: the two must agree */
 _Static_assert(ST_PACK_LO == FL_PACK_LO && ST_PACK_LO + ST_PACK_SECTORS * 0x1000u == FL_PACK_HI &&
                ST_MODULE_LO == FL_MODULE_LO && ST_MODULE_LO + ST_MODULE_SECTORS * 0x1000u == FL_MODULE_HI, "flash map");
@@ -313,10 +328,14 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     if(compact)payload=sizeof(st_hdr_t);
     uint32_t crc = st_crc32(src, len);
     uint32_t extent = obj >= OBJ_BANK0 && obj < OBJ_CZBANK0 ? 5u * ST_SECTOR : ST_SECTOR;
-    for (off = 0; off < extent; off += ST_SECTOR)
+    for (off = 0; off < extent; off += ST_SECTOR) {
+        OC_FEED();
         if ((rc = st_erase(base + off)) != 0) return rc;
-    if (st_banked(obj)) for (off = 0; off < 2u * ST_SECTOR; off += ST_SECTOR)
+    }
+    if (st_banked(obj)) for (off = 0; off < 2u * ST_SECTOR; off += ST_SECTOR) {
+        OC_FEED();
         if ((rc = st_erase(st_extension(obj, cur == 0 ? 1u : 0u) + off)) != 0) return rc;
+    }
     for (off = 0; off < len; off += sizeof st_buf) {
         uint32_t n = len - off > sizeof st_buf ? sizeof st_buf : len - off;
         memcpy(st_buf, (const uint8_t *)src + off, n);

@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ */
 /* SEQ > MOTION (docs/design: mock/r6_pages MOTION, mock/r6_popups): the selected track's recorded motion as lanes, one
  * per parameter it moves on the pattern playing: the value step by step (held from one event to the next, the sound's
  * own before the first), the playhead over them. No chips: KNOB 2 the lane, KNOB 1 Play on / off, OCT+ the lane's

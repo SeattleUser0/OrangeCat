@@ -73,6 +73,15 @@
  * Host tests: tests/oc_module_test.c (a simulated NOR: every refusal, the crash mark, a good module, two modules).
  *
  * Revisions:
+ * (Orange Cat 0.13.4) oc_mod_image_check / oc_mod_hdr_matches / oc_mod_pages_check_rd: the checks of an image take a reader, so the card checks the file it is about to write
+ * with the code oc_mod_end and the boot check use; oc_mod_tails is oc_pack.c's oc_rule_tails over the flash.
+ * (Orange Cat 0.13.4, Hardening 1) oc_mod_end runs the page descriptor check before the commit (it was only in the boot check after it).
+ * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+ * (Orange Cat 0.11.0) ED_ENGINES (125) and the Engines table in the web page; module header gains version; lint fix for the host window constant
+ * (Orange Cat 0.11.1) every path that takes a module out of the table writes the PC window
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) fuzzers for the library group, the pack and the module loader; the loser of two modules no longer erases the winner's sectors; module link overflow...
  *   0.10.0: first version.
  *   0.10.1: the crash count beyond the first 30 s (oc_mod_power_on, oc_mod_ban_notice); the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
  *           module when another start is free (oc_mod_plan, oc_mod_inplace, mw.inplace); the header comment now says what the code does.
@@ -82,6 +91,8 @@
  *           oc_mod_note_engine: the project load marks the module's use as it gives a track the engine (a death before the main loop's first pass is attributed).
  *           oc_mod_reload: every oc_mod_boot from a running session (end of an install, remove) first takes the engine out of the table and parks its voices
  *           (oc_mod_park_voices); the table's two stores are one critical section there (oc_mod_reg, oc_mod_unreg).
+ *   0.12.1: three starts (sector 0, 6 and 4; oc_mod_geo): SHAPES takes 6 sectors (starts 0, 1), the Prophet 8 (sectors 0 and 4). A candidate whose span shares a sector with a
+ *           usable module of ANOTHER engine is blocked, never erased (oc_mod_plan, oc_mod_blocked_by; MI_NOFREE); the same engine's module is replaced beside or in place as before.
  */
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
 static uint32_t fm1_guard_code_end;
@@ -91,9 +102,39 @@ static uint32_t host_pc_hi, host_pc_sets;                       /* what the devi
 static void fm1_guard_pc_window(void) { host_pc_hi = fm1_guard_pc_hi(fm1_guard_code_end, OC_HOST_ETEXT); host_pc_sets++; }
 #endif
 /* FL_XIP(off): the XIP address of flash offset off (hal/fm1_flash.h on the device; tests/hostsim.c for a host build) */
-#define OC_MOD_STARTS 2u                                       /* the places a 6 sector module can be: sector index 0 and 6 of the area */
-#define OC_MOD_START_SECTOR(i) ((i) * 6u)
-#define OC_MOD_MAXLEN (6u * 0x1000u)                           /* the most a module may be: the sectors up to the next start (6) or the end of the area */
+#define OC_MOD_STARTS 3u                                       /* (0.12.1) the places a module can start: sector index 0, 6 and 4 of the area (start numbers 0, 1, 2) */
+#define OC_MOD_AREA 12u                                        /* sectors in the area */
+static const uint8_t oc_mod_sect[OC_MOD_STARTS] = { 0u, 6u, 4u };
+#define OC_MOD_START_SECTOR(i) ((uint32_t)oc_mod_sect[i])
+#define OC_MOD_MAXLEN (8u * 0x1000u)                           /* the most any module may be (the Prophet's 8 sectors); oc_mod_geo has each engine's own */
+/* (0.12.1) What a module of each engine looks like: how many sectors its image may take and which starts it may be linked for (a bit a start number).
+ * SHAPES: 6 sectors, starts 0 and 1 (sectors 0 and 6). The Prophet: 8 sectors, starts 0 and 2 (sectors 0 and 4). Spans of different engines overlap, so
+ * no SHAPES module can stand beside a Prophet module in a 12 sector area (the planner refuses; see oc_mod_plan). */
+typedef struct { uint8_t engine, sectors, starts; } oc_mod_geo_t;
+static const oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u }, { ENGI_PROPHET, 8u, 0x05u } };
+static const oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
+{
+    uint32_t k;
+    for (k = 0; k < sizeof oc_mod_geo / sizeof oc_mod_geo[0]; k++)
+        if (oc_mod_geo[k].engine == engine)
+            return &oc_mod_geo[k];
+    return 0;
+}
+static int oc_mod_allowed(uint32_t engine, uint32_t i)      /* may a module of this engine start at start i */
+{
+    const oc_mod_geo_t *g = oc_mod_geo_of(engine);
+    return g && i < OC_MOD_STARTS && ((g->starts >> i) & 1u) && OC_MOD_START_SECTOR(i) + g->sectors <= OC_MOD_AREA;
+}
+static int oc_mod_fits(uint32_t engine, uint32_t i, uint32_t len)
+{
+    return oc_mod_allowed(engine, i) && len <= (uint32_t)oc_mod_geo_of(engine)->sectors * 0x1000u;
+}
+static uint32_t oc_mod_nsec(uint32_t len) { return (len + 0xFFFu) / 0x1000u; }
+/* do the sectors [sect(i), +ni) and [sect(j), +nj) share a sector */
+static int oc_mod_overlap(uint32_t i, uint32_t ni, uint32_t j, uint32_t nj)
+{
+    return OC_MOD_START_SECTOR(i) < OC_MOD_START_SECTOR(j) + nj && OC_MOD_START_SECTOR(j) < OC_MOD_START_SECTOR(i) + ni;
+}
 #define OC_MOD_STATE_MAX 16384u                                /* a sanity limit on state_size (bytes of arena per part) */
 enum { MD_EMPTY, MD_TORN, MD_REFUSED, MD_BAD_HDR, MD_BAD_CRC, MD_CRASHED, MD_NOSLOT, MD_OK,
        MD_BAD_TAIL };                                          /* oc_mod.state[i]; MD_BAD_TAIL (0.10.1) is last so the numbers the web page knows stay */
@@ -122,7 +163,7 @@ static void oc_mod_guard_init(void)
         oc_modguard.inuse = 0;
         oc_modguard.banned = 0;
         oc_modguard.run = 0;
-        oc_modguard.unclean[0] = oc_modguard.unclean[1] = 0;
+        oc_modguard.unclean[0] = oc_modguard.unclean[1] = oc_modguard.unclean[2] = 0;
         oc_modguard.notice = 0;
     }
 }
@@ -139,38 +180,39 @@ static void oc_mod_unban(uint32_t i)
  * 256 bytes would be taken for an update record; -1 when the flash would not read */
 static int oc_mod_tails(uint32_t i, uint32_t len)
 {
-    uint8_t r[80];
-    uint32_t s, n = (len + 0xFFFu) / 0x1000u;
-    for (s = 0; s < n; s++) {
-        if (st_read(oc_mod_flash(i) + s * 0x1000u + 0x1000u - 0x100u, r, sizeof r))
-            return -1;
-        if (pk_record_like(r))
-            return (int)(s + 1u);
-    }
-    return 0;
+    uint32_t base = oc_mod_flash(i);                            /* (0.13.4) the rule is oc_pack.c's oc_rule_tails: one copy for the flash and for the card's file */
+    return oc_rule_tails(oc_rd_flash, &base, (len + 0xFFFu) / 0x1000u * 0x1000u, (len + 0xFFFu) / 0x1000u);
 }
 /* (0.12.0) the module's page descriptor, if its engine_t has one (engine_t.pages), checked on the flash bytes (fw_pages_check): the UI follows pointers
  * in it, so one that leaves the image refuses the module. The engine_t is read at the device layout (4 byte pointers); the host builds (8 byte pointers,
  * fake link addresses) skip this and test fw_pages_check on hand-built bytes (tests/mod_pages_test.c). 0 = fine or none. */
+/* (0.13.4) ctx: {a reader, its context, the module's link address}: an address of the module's own space is read from the image at the offset from its link address */
+typedef struct { oc_rd_t rd; void *ctx; uint32_t link; } oc_mod_rdctx_t;
 static int oc_mod_rd(void *ctx, uint32_t addr, void *buf, uint32_t n)
 {
-    const uint32_t *b = ctx;                                    /* {flash offset of the start, its link address} */
-    return st_read(b[0] + (addr - b[1]), buf, n);
+    const oc_mod_rdctx_t *b = ctx;
+    return b->rd(b->ctx, addr - b->link, buf, n);
 }
-static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
+static int oc_mod_pages_check_rd(oc_rd_t rd, void *rctx, uint32_t link, const fw_mod_hdr_t *h)
 {
-    uint32_t ctx[2], p;
+    oc_mod_rdctx_t c;
+    uint32_t p;
     uint8_t w[4];
     if (sizeof(void *) != 4u)
         return 0;
-    ctx[0] = oc_mod_flash(i); ctx[1] = oc_mod_link(i);
-    if (h->engine_ptr + offsetof(engine_t, pages) + 4u > ctx[1] + h->length ||
-        oc_mod_rd(ctx, h->engine_ptr + (uint32_t)offsetof(engine_t, pages), w, 4u))
+    c.rd = rd; c.ctx = rctx; c.link = link;
+    if (h->engine_ptr + offsetof(engine_t, pages) + 4u > link + h->length ||
+        oc_mod_rd(&c, h->engine_ptr + (uint32_t)offsetof(engine_t, pages), w, 4u))
         return FWP_ADDR;
     p = fwp_u32(w);
     if (!p)
         return 0;
-    return fw_pages_check(oc_mod_rd, ctx, p, ctx[1] + FW_MOD_CODE_OFF, ctx[1] + h->length);
+    return fw_pages_check(oc_mod_rd, &c, p, link + FW_MOD_CODE_OFF, link + h->length);
+}
+static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
+{
+    uint32_t base = oc_mod_flash(i);
+    return oc_mod_pages_check_rd(oc_rd_flash, &base, oc_mod_link(i), h);
 }
 /* the header at start i read from the flash (st_read), its checks, then the code's CRC and the sector tails: the state */
 static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
@@ -190,9 +232,9 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
         return MD_REFUSED;
     }
     len = h->length;
-    if (h->link_addr != link || len <= FW_MOD_CODE_OFF || len > OC_MOD_MAXLEN || (len & 3u) ||
+    if (h->link_addr != link || len <= FW_MOD_CODE_OFF || (len & 3u) ||
         h->engine_ptr < link + FW_MOD_CODE_OFF || h->engine_ptr >= link + len || (h->engine_ptr & 3u) ||
-        !eng_module_slot(h->engine) || h->state_size == 0 || h->state_size > OC_MOD_STATE_MAX ||
+        !eng_module_slot(h->engine) || !oc_mod_fits(h->engine, i, len) || h->state_size == 0 || h->state_size > OC_MOD_STATE_MAX ||
         h->pack_hash != OC_PACK_HASH)
         return MD_BAD_HDR;
     for (off = FW_MOD_CODE_OFF; off < len; off += sizeof buf) {
@@ -256,6 +298,7 @@ static void oc_mod_window(void)
 /* persist_boot, after oc_pack_boot: look at every start, register what is good. `crashed`: the last boot died in its first 30 s
  * (bootguard.failed). Safe to call again (the installer does, after an install or a removal): the registry is rebuilt. */
 static int oc_mod_erase_start(uint32_t i);
+static int oc_mod_erase_loser(uint32_t i);
 static void oc_mod_boot(uint32_t crashed)
 {
     uint32_t i, e, loser = 0;
@@ -313,7 +356,7 @@ static void oc_mod_boot(uint32_t crashed)
     if (loser && !lg_incomplete) {
         for (i = 0; i < OC_MOD_STARTS; i++)
             if ((loser & (1u << i)) && eng_mod[oc_mod.engine[i]])
-                (void)oc_mod_erase_start(i);
+                (void)oc_mod_erase_loser(i);
     }
 }
 /* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
@@ -352,7 +395,7 @@ static void oc_mod_ban_notice(void)
         if (!(oc_modguard.notice & (1u << i)))
             continue;
         oc_modguard.notice &= (uint8_t)~(1u << i);
-        ui_say("MODULE BANNED ", oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : "ENGINE");
+        ui_say("MODULE BANNED ", oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : oc_mod.engine[i] == ENGI_PROPHET ? "PROPHET" : "ENGINE");
         return;
     }
 }
@@ -416,24 +459,88 @@ static int oc_mod_usable(uint32_t i)
 {
     return oc_mod.state[i] == MD_OK || oc_mod.state[i] == MD_CRASHED || oc_mod.state[i] == MD_NOSLOT;
 }
+/* (0.12.1) The planner. A module of `engine` goes to one of the starts its geometry allows (oc_mod_geo). A candidate is
+ *   BLOCKED when its span (the engine's sectors from the start) shares a sector with a usable module of ANOTHER engine: that module is never erased by an
+ *            install; the user removes it first (oc_mod_blocker names it; the editor, the installer page and the card browser say
+ *            "ENGINE X INSTALLED AT START N: REMOVE IT FIRST"). A module that is not usable (damaged, torn, for another firmware, a bad tail) does not block;
+ *   OWN-OVERLAPPING when its span shares a sector with a usable module of the SAME engine: the install would have to erase that module first (in place);
+ *   else it is BESIDE: written where nothing usable stands, the old module going on playing until the new one reads back good.
+ * The choice: the first beside candidate with an empty start; else the first beside candidate that holds junk; else (in place) the candidate that holds
+ * the engine's own module, else the first not blocked; else none. Examples in a 12 sector area: SHAPES at 0 -> a SHAPES replacement goes to 6 (beside);
+ * a Prophet at 0 or 4 -> a Prophet replacement is always in place (8 sectors of 12 leave no room beside); SHAPES and a Prophet never fit together. */
+/* (0.13.3) can modules of these two engines stand in the area together: some allowed start of each leaves their spans disjoint. SHAPES (6 sectors) and the Prophet
+ * (8) never can in 12; the card browser's "Install set" asks before it writes anything */
+static int oc_mod_pair_fits(uint32_t a, uint32_t b)
+{
+    const oc_mod_geo_t *ga = oc_mod_geo_of(a), *gb = oc_mod_geo_of(b);
+    uint32_t i, j;
+    if (!ga || !gb) return 0;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        for (j = 0; j < OC_MOD_STARTS; j++)
+            if (oc_mod_allowed(a, i) && oc_mod_allowed(b, j) && !oc_mod_overlap(i, ga->sectors, j, gb->sectors)) return 1;
+    return 0;
+}
+/* the sectors a usable module at start j holds for itself: its engine's geometry (a SHAPES module of one sector still keeps the six: a replacement of it
+ * may take them), not just the sectors its length reaches */
+static uint32_t oc_mod_reach(uint32_t j)
+{
+    const oc_mod_geo_t *g = oc_mod_geo_of(oc_mod.engine[j]);
+    uint32_t n = g ? g->sectors : oc_mod_nsec(oc_mod.length[j]);
+    return n ? n : 1u;
+}
+static int oc_mod_blocker(uint32_t engine, uint32_t c)                       /* the start that blocks an install at c, or -1 */
+{
+    uint32_t j, ns = oc_mod_geo_of(engine)->sectors;
+    for (j = 0; j < OC_MOD_STARTS; j++)
+        if (oc_mod_usable(j) && oc_mod.engine[j] != engine && oc_mod_overlap(c, ns, j, oc_mod_reach(j)))
+            return (int)j;
+    return -1;
+}
+static int oc_mod_own_overlap(uint32_t engine, uint32_t c)                  /* an install at c shares a sector with a usable module of this engine */
+{
+    uint32_t j, ns = oc_mod_geo_of(engine)->sectors;
+    for (j = 0; j < OC_MOD_STARTS; j++)
+        if (oc_mod_has(j, engine) && oc_mod_overlap(c, ns, j, oc_mod_reach(j)))
+            return 1;
+    return 0;
+}
+/* the start that stands in the way of this engine, or -1: only when no start can take it (oc_mod_plan < 0) and a usable module of another engine is why */
+static int oc_mod_blocked_by(uint32_t engine)
+{
+    uint32_t c;
+    int b = -1;
+    if (!eng_module_slot(engine) || !oc_mod_geo_of(engine))
+        return -1;
+    for (c = 0; c < OC_MOD_STARTS; c++) {
+        if (!oc_mod_allowed(engine, c))
+            continue;
+        if (oc_mod_blocker(engine, c) < 0)
+            return -1;                                  /* a candidate is not blocked: nothing stands in the way */
+        if (b < 0)
+            b = oc_mod_blocker(engine, c);
+    }
+    return b;
+}
 /* the start an install of `engine` goes to, or -1 (0.10.1: a free start first, so a replacement is written beside the old module) */
 static int oc_mod_plan(uint32_t engine)
 {
-    uint32_t i;
-    if (!eng_module_slot(engine))
+    uint32_t c;
+    if (!eng_module_slot(engine) || !oc_mod_geo_of(engine))
         return -1;
-    for (i = 0; i < OC_MOD_STARTS; i++)
-        if (oc_mod.state[i] == MD_EMPTY) return (int)i;
-    for (i = 0; i < OC_MOD_STARTS; i++)
-        if (!oc_mod_usable(i)) return (int)i;
-    for (i = 0; i < OC_MOD_STARTS; i++)
-        if (oc_mod_has(i, engine)) return (int)i;         /* no start free: in place */
+    for (c = 0; c < OC_MOD_STARTS; c++)
+        if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
+    for (c = 0; c < OC_MOD_STARTS; c++)
+        if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && !oc_mod_usable(c)) return (int)c;
+    for (c = 0; c < OC_MOD_STARTS; c++)
+        if (oc_mod_allowed(engine, c) && oc_mod_has(c, engine)) return (int)c;          /* in place, where the old module stands */
+    for (c = 0; c < OC_MOD_STARTS; c++)
+        if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0) return (int)c;  /* in place, over a module that overlaps the span */
     return -1;
 }
 /* an install of `engine` at `start` replaces its old module where it stands (the old one is erased first; a cut leaves none) */
 static int oc_mod_inplace(uint32_t engine, uint32_t start)
 {
-    return start < OC_MOD_STARTS && oc_mod_has(start, engine);
+    return start < OC_MOD_STARTS && oc_mod_geo_of(engine) && oc_mod_own_overlap(engine, start);
 }
 /* the engine out of the table; the voices and the arena state of the tracks that play it cleared: nothing calls into the module after this */
 static void oc_mod_park_voices(uint32_t engine)
@@ -475,13 +582,49 @@ static void oc_mod_reload(void)
     oc_mod_boot(0);
     oc_mod_live = 0;
 }
-static int oc_mod_erase_start(uint32_t i)
+/* sectors of the area erased in order from `first` (the header sector first), the watchdog fed between. 0 or the flash's error */
+static int oc_mod_erase_span(uint32_t first, uint32_t n)
 {
     uint32_t s;
-    for (s = 0; s < 6u; s++) {
+    for (s = 0; s < n && first + s < OC_MOD_AREA; s++) {
         int rc;
         SMP_FEED();
-        if ((rc = st_erase(oc_mod_flash(i) + s * 0x1000u)) != 0) return rc;
+        if ((rc = st_erase(ST_MODULE_LO + (first + s) * 0x1000u)) != 0) return rc;
+    }
+    return 0;
+}
+/* (0.12.1) start i taken out: a usable module's sectors (all those its engine's geometry gives it, as the six before: stale code left behind is not kept
+ * around), the header sector only for anything else (its length is not to be trusted, and the sectors after it may belong to a module that stands in
+ * the same span). A start without a magic is empty whatever the rest holds. */
+static int oc_mod_erase_start(uint32_t i)
+{
+    uint32_t n = oc_mod_usable(i) && oc_mod_geo_of(oc_mod.engine[i]) ? oc_mod_geo_of(oc_mod.engine[i])->sectors : 1u;
+    int rc;
+    if (n > OC_MOD_AREA - OC_MOD_START_SECTOR(i)) n = OC_MOD_AREA - OC_MOD_START_SECTOR(i);
+    if ((rc = oc_mod_erase_span(OC_MOD_START_SECTOR(i), n)) != 0) return rc;
+    oc_mod_unban(i);
+    oc_mod.state[i] = MD_EMPTY;
+    return 0;
+}
+/* (0.12.2, found by tests/fuzz_oc_module.c) the loser of two valid modules of one engine, erased lazily at boot: its sectors EXCEPT those a registered module
+ * stands in (two Prophet starts, sector 0 and sector 4, share the sectors 4 to 7: the erase of the loser at start 0 took the winner's header sector with it).
+ * The loser's own header sector goes first (from that erase it is no module); a sector that belongs to the winner is not touched. */
+static int oc_mod_erase_loser(uint32_t i)
+{
+    uint32_t n = oc_mod_geo_of(oc_mod.engine[i]) ? oc_mod_geo_of(oc_mod.engine[i])->sectors : 1u, q, j;
+    int rc;
+    for (q = 0; q < n && OC_MOD_START_SECTOR(i) + q < OC_MOD_AREA; q++) {
+        uint32_t sec = OC_MOD_START_SECTOR(i) + q;
+        int keep = 0;
+        for (j = 0; j < OC_MOD_STARTS; j++) {
+            const oc_mod_geo_t *g = oc_mod.state[j] == MD_OK && j != i ? oc_mod_geo_of(oc_mod.engine[j]) : 0;
+            if (g && sec >= OC_MOD_START_SECTOR(j) && sec < OC_MOD_START_SECTOR(j) + g->sectors)
+                keep = 1;
+        }
+        if (keep)
+            continue;
+        if ((rc = oc_mod_erase_span(sec, 1u)) != 0)
+            return rc;
     }
     oc_mod_unban(i);
     oc_mod.state[i] = MD_EMPTY;
@@ -494,24 +637,28 @@ static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
     int plan, rc;
     uint32_t i;
     mw.writing = 0;
-    if (!eng_module_slot(engine) || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || len > OC_MOD_MAXLEN || (len & 3u))
+    if (!eng_module_slot(engine) || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || !oc_mod_fits(engine, start, len))
         return MI_REFUSED;
     if (lg_incomplete)
         return MI_PAIRS;
     plan = oc_mod_plan(engine);
     if (plan < 0)
-        return MI_NOFREE;
+        return MI_NOFREE;                                /* (0.12.1) a usable module of another engine is in the way: oc_mod_blocked_by names it (ED_MOD_INFO) */
     if ((uint32_t)plan != start)
         return MI_REFUSED;
     mw.inplace = (uint8_t)oc_mod_inplace(engine, start);
-    if (mw.inplace) {                                    /* in place: the old module out first, then every usable module of this engine, and the start asked for */
+    if (mw.inplace) {                                    /* in place: the old module out first, then every usable module of this engine */
         oc_mod_park(engine);
         for (i = 0; i < OC_MOD_STARTS; i++)
-            if (i == start || oc_mod_has(i, engine))
+            if (i != start && oc_mod_has(i, engine))        /* (the old module at the start asked for is erased with the new span below, header sector first) */
                 if ((rc = oc_mod_erase_start(i)) != 0) { oc_mod_window(); return rc; }   /* (0.11.1: this set the end to 0 and never wrote the window) */
-    } else if ((rc = oc_mod_erase_start(start)) != 0) {  /* beside: only the free start; the old module stays registered and playable */
+    }
+    if ((rc = oc_mod_erase_span(OC_MOD_START_SECTOR(start), oc_mod_geo_of(engine)->sectors)) != 0) {  /* (0.12.1) the new module's own sectors; beside, the old module stays registered and playable */
+        if (mw.inplace) oc_mod_window();
         return rc;
     }
+    oc_mod_unban(start);
+    oc_mod.state[start] = MD_EMPTY;
     mw.writing = 1; mw.start = (uint8_t)start; mw.engine = engine; mw.len = len;
     mw.done = FW_MOD_CODE_OFF; mw.crc = 0xFFFFFFFFu;
     return MI_OK;
@@ -533,6 +680,46 @@ static int oc_mod_write(uint32_t off, const void *src, uint32_t n)
     }
     return MI_OK;
 }
+/* (0.13.4) the header page of an image (the 256 bytes that are programmed last) against what was written: the engine, the start it is for, its length (the CRC-32
+ * of the code is compared by the callers). One copy for oc_mod_end (the code as it was programmed) and for the card's check of a file before anything is erased. 1 ok. */
+static int oc_mod_hdr_matches(const uint8_t *pg, uint32_t engine, uint32_t start, uint32_t len)
+{
+    const fw_mod_hdr_t *h = (const fw_mod_hdr_t *)pg;
+    return h->magic == FW_MOD_MAGIC && ocs_crc32(pg, FW_MOD_HDR_BYTES - 4u) == h->hcrc && fw_module_check(h) == FW_MOD_OK &&
+           h->length == len && h->engine == engine && h->link_addr == oc_mod_link(start) &&
+           h->engine_ptr >= h->link_addr + FW_MOD_CODE_OFF && h->engine_ptr < h->link_addr + h->length && !(h->engine_ptr & 3u) &&
+           h->state_size != 0 && h->state_size <= OC_MOD_STATE_MAX && h->pack_hash == OC_PACK_HASH;
+}
+enum { MC_OK = 0, MC_HDR = -1, MC_CRC = -2, MC_PAGES = -3, MC_TAIL = -8, MC_READ = -9 };   /* oc_mod_image_check (MI_TAIL's -8 is the same verdict) */
+/* (0.13.4) a whole module image (the header page, then the code to `len`) as rd gives it, for `engine` at `start`, checked as oc_mod_end and the boot check will:
+ * the placement and length, the header page against the image (link address of the start, length, engine, state size, the pack hash, hcrc, fw_module_check),
+ * the code's CRC-32, the page descriptor (device builds), the sector tails. 0 ok, else MC_*. Writes nothing. */
+static int oc_mod_image_check(oc_rd_t rd, void *ctx, uint32_t engine, uint32_t start, uint32_t len)
+{
+    _Alignas(4) uint8_t pg[256];
+    uint8_t buf[256];
+    uint32_t crc = 0xFFFFFFFFu, off;
+    int t;
+    if (!eng_module_slot(engine) || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || !oc_mod_fits(engine, start, len))
+        return MC_HDR;
+    if (rd(ctx, 0, pg, sizeof pg))
+        return MC_READ;
+    for (off = FW_MOD_CODE_OFF; off < len; off += sizeof buf) {
+        uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
+        if (rd(ctx, off, buf, n))
+            return MC_READ;
+        crc = ocs_crc_add(crc, buf, n);
+        SMP_FEED();
+    }
+    if (!oc_mod_hdr_matches(pg, engine, start, len))
+        return MC_HDR;
+    if (((const fw_mod_hdr_t *)pg)->crc != ~crc)
+        return MC_CRC;
+    if (oc_mod_pages_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg))
+        return MC_PAGES;
+    t = oc_rule_tails(rd, ctx, len, (len + 0xFFFu) / 0x1000u);
+    return t < 0 ? MC_READ : t > 0 ? MC_TAIL : 0;
+}
 /* the header page (256 bytes) when all the code is in: 0 ok; -1 refused (the header does not match what was written, the start or the firmware);
  * -7 programmed but the area does not read as a module; -8 a sector tail would be taken for an update record (0.10.1; no header is programmed); else flash */
 static int oc_mod_end(const void *page256)
@@ -544,20 +731,19 @@ static int oc_mod_end(const void *page256)
     if (!mw.writing || mw.done != mw.len)
         { mw.writing = 0; return MI_REFUSED; }
     mw.writing = 0;
-    if (h->magic != FW_MOD_MAGIC || ocs_crc32(pg, FW_MOD_HDR_BYTES - 4u) != h->hcrc || fw_module_check(h) != FW_MOD_OK ||
-        h->length != mw.len || h->engine != mw.engine || h->link_addr != oc_mod_link(mw.start) || h->crc != ~mw.crc ||
-        h->engine_ptr < h->link_addr + FW_MOD_CODE_OFF || h->engine_ptr >= h->link_addr + h->length || (h->engine_ptr & 3u) ||
-        h->state_size == 0 || h->state_size > OC_MOD_STATE_MAX || h->pack_hash != OC_PACK_HASH)
+    if (!oc_mod_hdr_matches(pg, mw.engine, mw.start, mw.len) || h->crc != ~mw.crc)
         return MI_REFUSED;
     if (oc_mod_tails(mw.start, mw.len) != 0)                               /* (0.10.1) the code as the flash has it: no sector tail like an update record */
         return MI_TAIL;
+    if (oc_mod_pages_check(mw.start, h))                                   /* (0.13.4) the page descriptor (device builds) on the code as written, BEFORE the commit: a module the boot check would refuse gets no header, so it is never half-registered and a beside install has nothing to erase afterwards */
+        return MI_REFUSED;
     if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
         return rc;
     if (!mw.inplace) {                                                     /* beside (0.10.1): the old module goes only after the new one reads back good */
         fw_mod_hdr_t nh;
         uint32_t i, st = oc_mod_check(mw.start, &nh), old = 0;
         if (st != MD_OK && st != MD_NOSLOT) {
-            oc_mod_erase_start(mw.start);                                  /* the new one is junk: out of the way, the old module untouched */
+            (void)oc_mod_erase_span(OC_MOD_START_SECTOR(mw.start), oc_mod_geo_of(mw.engine)->sectors);   /* the new one is junk: out of the way, the old module untouched */
             oc_mod_reload();
             return MI_BAD;
         }
@@ -587,9 +773,14 @@ static int oc_mod_remove(uint32_t engine)
         return MI_REFUSED;
     if (engine == 127u) { for (i = 0; i < NENGINES; i++) if (eng_mod[i]) oc_mod_park(i); }
     else oc_mod_park(engine);
-    for (i = 0; i < OC_MOD_STARTS && !rc; i++)
-        if (engine == 127u || oc_mod_has(i, engine))
-            rc = oc_mod_erase_start(i);
+    if (engine == 127u) {                                /* (0.12.1) the whole area, sector by sector: whatever the starts hold or do not */
+        rc = oc_mod_erase_span(0u, OC_MOD_AREA);
+        for (i = 0; i < OC_MOD_STARTS; i++) { oc_mod_unban(i); oc_mod.state[i] = MD_EMPTY; }
+    } else {
+        for (i = 0; i < OC_MOD_STARTS && !rc; i++)
+            if (oc_mod_has(i, engine))
+                rc = oc_mod_erase_start(i);
+    }
     oc_mod_reload();
     return rc;
 }

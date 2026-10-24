@@ -12,6 +12,12 @@
  * (0.5.3) The drive test's page is gone: what it showed (its lines, the file list, its players and recorder) is no
  * longer tested here; the probe is checked by what it leaves (a drive ready, its address and slot), the streams by
  * starting them as a freeze does. */
+/* Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) replace beside the old module when a start is free
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -193,12 +199,16 @@ static uint32_t t_slot_names[4][2];
 static uint32_t t_fb_rows[1024];
 static uint8_t t_fb_gen;
 #define FB_SCRATCH() ((fb_ent_t *)t_fb_rows)
+static char t_fb_text[2048 + 512];                       /* (0.13.3) a set's manifest and the parsed set */
+#define FB_TEXT() t_fb_text
+#define FB_SETS() ((oc_set_t *)(t_fb_text + 2048))
 #define FB_BORROW() ((void)0)
 #define FB_GEN() t_fb_gen
 static int ocl_keep_any(uint32_t k, uint32_t b) { return ocl_keep(k, b); }   /* (0.6.1: the stub numbers empty ones too) */
 /* (Orange Cat 0.8.0) the asset pack, as card_browse.c's installer sees it (oc_pack.c itself is tested by oc_pack_test.c): a header
  * check, the banks flag, and the three calls recording what they were given */
 #define OC_PACK_HOST 1
+#define OC_PACK_HASH 0x5EEDu
 #define SMP_FEED() ((void)0)
 enum { PK_MISSING, PK_OK };
 #define OC_PACK_LEN 2048u
@@ -208,8 +218,15 @@ static uint8_t t_pk_hdr[512];
 static uint32_t pk_rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static uint32_t pk_rd16(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8; }
 static uint32_t pk_header_state(const uint8_t *h) { return pk_rd32(h) == 0x4B50434Fu ? PK_OK : PK_MISSING; }
-static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash) { (void)len; (void)hash; return 0; }
-static int oc_pack_begin(uint32_t len) { t_pk_begun++; t_pk_at = OC_PACK_HDR; t_pk_sum = 0; return len == OC_PACK_LEN ? 0 : -1; }
+static uint32_t t_pk_state = PK_MISSING, t_seq;          /* (0.13.3) this build's pack is there and sound (PK_OK); the order the installs began in */
+static uint32_t t_pk_seq, t_md_seq;
+static uint32_t oc_pack_info(uint32_t *len, uint32_t *hash)
+{
+    if (len) *len = t_pk_state == PK_OK ? OC_PACK_LEN : 0u;
+    if (hash) *hash = t_pk_state == PK_OK ? OC_PACK_HASH : 0u;
+    return t_pk_state;
+}
+static int oc_pack_begin(uint32_t len) { t_pk_begun++; t_pk_seq = ++t_seq; t_pk_state = PK_MISSING; t_pk_at = OC_PACK_HDR; t_pk_sum = 0; return len == OC_PACK_LEN ? 0 : -1; }
 static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
 {
     const uint8_t *q = src;
@@ -218,7 +235,30 @@ static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
     t_pk_at += n;
     return 0;
 }
-static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; memcpy(t_pk_hdr, h, sizeof t_pk_hdr); t_pk_ended++; return 0; }
+/* (0.13.4) the whole-image check the installer runs before it erases (pk_image_check in oc_pack.c; the real one is run against a simulated NOR by card_install_test.c): the
+ * stub reads every byte through the reader it is given (so the test can see the whole file was read), then answers what t_pk_ck says */
+typedef int (*oc_rd_t)(void *ctx, uint32_t off, void *dst, uint32_t n);
+static int t_pk_ck, t_pk_checks;
+static uint32_t t_rd_bytes;
+static int t_rd_all(oc_rd_t rd, void *ctx, uint32_t len)
+{
+    uint8_t b[256];
+    for (uint32_t o = 0; o < len; o += sizeof b) {
+        uint32_t n = len - o > sizeof b ? (uint32_t)sizeof b : len - o;
+        if (rd(ctx, o, b, n)) return -1;
+        t_rd_bytes += n;
+    }
+    return 0;
+}
+static int pk_image_check(oc_rd_t rd, void *ctx, uint32_t size)
+{
+    uint8_t m[4];
+    t_pk_checks++;
+    if (rd(ctx, 0, m, 4)) return 4;
+    if (memcmp(m, "OCPK", 4)) return 1;                  /* not a pack of this build (the real check also compares the hash and the length) */
+    return t_rd_all(rd, ctx, size) ? 4 : t_pk_ck;
+}
+static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; memcpy(t_pk_hdr, h, sizeof t_pk_hdr); t_pk_ended++; t_pk_state = PK_OK; return 0; }
 /* (Orange Cat 0.10.0) an engine module, as card_browse.c's installer sees it (oc_module.c itself is tested by oc_module_test.c): the identifiers it
  * checks the package against, and the calls recording what they were given */
 #define OC_MODULES 1
@@ -226,16 +266,39 @@ static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; m
 #define FW_API_ADDR 0x02001100u
 #define FW_API_VERSION 3u
 #define FW_MOD_CODE_OFF 0x100u
-#define OC_PACK_HASH 0x5EEDu
+#define OC_FW_VERSION 0x000D03u                         /* (0.13.3) this test's firmware is 0.13.3 */
 typedef struct { uint8_t z[60]; } fw_api_t;
 static int t_plan = 0, t_md_fail, t_inplace;
 static uint32_t t_md_begun, t_md_engine, t_md_start, t_md_len, t_md_at, t_md_sum, t_md_ended;
 static uint8_t t_md_page[256];
 static int oc_mod_plan(uint32_t engine) { (void)engine; return t_plan; }
+/* (0.12.1) three starts at sectors 0, 6 and 4 (a start with no sector here is 99: no variant matches), the blocker oc_mod_blocked_by names, the engines' names */
+static const uint8_t t_sect[8] = { 0, 6, 4, 99, 99, 99, 99, 99 };
+#define OC_MOD_START_SECTOR(i) ((uint32_t)t_sect[(i) & 7u])
+static int t_blocked = -1;
+static int oc_mod_blocked_by(uint32_t engine) { (void)engine; return t_blocked; }
+static struct { uint32_t engine[3]; } oc_mod = { { 14u, 14u, 19u } };
+#define NENGINES 32u
+typedef struct { const char *name; } t_engine_t;
+static const t_engine_t t_shapes = { "SHAPES" }, t_prophet = { "PROPHET" }, t_other = { "OTHER" };
+static const t_engine_t *const ENGINES[NENGINES] = { &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other,
+    &t_shapes, &t_other, &t_other, &t_other, &t_other, &t_prophet };
 static int oc_mod_inplace(uint32_t engine, uint32_t start) { (void)engine; (void)start; return t_inplace; }   /* (0.10.1) */
+static int oc_mod_pair_fits(uint32_t a, uint32_t b) { return !((a == 14u && b == 19u) || (a == 19u && b == 14u)); }   /* (0.13.3) SHAPES and the Prophet never fit together */
+/* (0.13.4) the module twin: oc_mod_image_check reads the variant's bytes, then answers t_md_ck (an MC_* verdict; t_md_ck_start >= 0: only for that start) */
+#define OC_MOD_STARTS 3u
+enum { MC_OK = 0, MC_HDR = -1, MC_CRC = -2, MC_PAGES = -3, MC_TAIL = -8, MC_READ = -9 };
+static int t_md_ck, t_md_ck_start = -1, t_md_checks;
+static int oc_mod_allowed(uint32_t engine, uint32_t i) { return engine == 19u ? i != 1u : i < 2u; }   /* the Prophet: starts 0 and 2; SHAPES: 0 and 1 */
+static int oc_mod_image_check(oc_rd_t rd, void *ctx, uint32_t engine, uint32_t start, uint32_t len)
+{
+    (void)engine; t_md_checks++;
+    if (t_rd_all(rd, ctx, len)) return MC_READ;
+    return t_md_ck_start < 0 || (uint32_t)t_md_ck_start == start ? t_md_ck : MC_OK;
+}
 static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
 {
-    t_md_begun++; t_md_engine = engine; t_md_start = start; t_md_len = len; t_md_at = FW_MOD_CODE_OFF; t_md_sum = 0;
+    t_md_begun++; t_md_seq = ++t_seq; t_md_engine = engine; t_md_start = start; t_md_len = len; t_md_at = FW_MOD_CODE_OFF; t_md_sum = 0;
     return t_md_fail == 1 ? -2 : 0;
 }
 static int oc_mod_write(uint32_t off, const void *src, uint32_t n)
@@ -1440,6 +1503,21 @@ static int t_folders(void)
         assert(!fb_pack_done());
         fb_close();
         printf("  browser: .PAK listed; another size or build refused; no question about banks (0.9.1); the pack written in order, header last\n");
+        /* (0.12.2, Part 2e) with the transport running (a count-in, or the song playing) the pack is refused whole: "Stop first", nothing begun, the row stays; stopped it goes on */
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/PACKS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2; t_pk_begun = t_pk_ended = 0; t_busy = 1;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_pk_begun);
+        assert(!fb_ok()); fz_block();                    /* (the message is acknowledged) */
+        t_busy = 0; song.playing = 1; fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_pk_begun);
+        assert(!fb_ok()); fz_block();
+        song.playing = 0; fb.sel = 2;
+        assert(fb_ok() && fb.st == FB_OFF && t_pk_begun == 1u && t_pk_ended == 1u);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        printf("  browser: the pack is refused while the transport runs (a count-in or the song), installed once stopped\n");
+
     }
     /* 8. (0.10.0) a .OCM in the browser: listed ("Module"); a file that is not a package, a package for another firmware or with no image for the named place
      * refused with nothing erased; installed: the image for the place oc_mod_plan names, the code in order from byte 256, the header page last */
@@ -1490,6 +1568,16 @@ static int t_folders(void)
         fb.sel = 2;                                       /* a good one, no place free */
         assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No place free") && !t_md_begun);
         assert(!fb_ok()); fz_block();
+        t_blocked = 2;                                    /* (0.12.1) no place free because the Prophet's module stands at start 2: it is named, never erased */
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "PROPHET at 2: remove it") && !t_md_begun && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_blocked = 0;                                    /* SHAPES at start 0 */
+        oc_mod.engine[0] = 14u;
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "SHAPES at 0: remove it") && !t_md_begun && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_blocked = -1;
         t_plan = 5;                                       /* a place the package has no image for */
         fb.sel = 2;
         assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No image for it") && !t_md_begun);
@@ -1534,8 +1622,293 @@ static int t_folders(void)
         fb_open(0);
         assert(!fb_pack_done());
         fb_close();
+        /* (0.12.2, Part 2e) the module is refused while the transport runs (a count-in, or the song): "Stop first", nothing begun */
+        t_md_begun = t_md_ended = 0;
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/MODS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2; t_busy = 1;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        t_busy = 0; song.playing = 1; fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        song.playing = 0; fb.sel = 2;
+        assert(fb_ok() && !t_md_begun == 0 && t_md_ended == 1u);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        t_md_begun = t_md_ended = 0;
+        printf("  browser: the module is refused while the transport runs, installed once stopped\n");
+        /* (0.12.1) the Prophet's package: engine 19, two variants for the sectors 0 and 4 (starts 0 and 2); the start the unit names picks the variant by its sector */
+        {   uint32_t sumP[2] = { 0, 0 };
+            MKOCM(FW_API_IFACE);
+            W32(16, 19u); W32(56, 0u); W32(56 + 16, 4u);
+            crc = ocs_crc32(ocm, 88); W32(88, crc);
+            for (o = 0x100; o < 1000u; o++) { sumP[0] += ocm[base + o]; sumP[1] += ocm[base + 1000u + o]; }
+            assert(f_mkdir("/MODP") == FR_OK);
+            assert(f_open(&pf, "/MODP/PROPHET.OCM", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, ocm, base + 2000u, &bw) == FR_OK && bw == base + 2000u);
+            f_close(&pf);
+            t_md_begun = t_md_ended = 0; t_plan = 2;
+            fb_open(0);
+            for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+            strcpy(fb.path, "/MODP"); fb.st = FB_LIST; fz_block();
+            fb.sel = 1;
+            assert(fb.st == FB_READY && fb.n == 2u && fb_ok() && fb_pack_done() == 2);
+            assert(t_md_begun == 1u && t_md_engine == 19u && t_md_start == 2u && t_md_sum == sumP[1] && !memcmp(t_md_page, ocm + base + 1000u, 256));   /* start 2 is sector 4: the second variant */
+            t_md_begun = t_md_ended = 0; t_plan = 0;
+            fb_open(0);
+            for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+            strcpy(fb.path, "/MODP"); fb.st = FB_LIST; fz_block();
+            fb.sel = 1;
+            assert(fb_ok() && fb_pack_done() == 2 && t_md_start == 0u && t_md_sum == sumP[0] && !memcmp(t_md_page, ocm + base, 256));
+            t_plan = -1; t_blocked = 0; oc_mod.engine[0] = 14u; t_md_begun = 0;
+            fb_open(0);
+            for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+            strcpy(fb.path, "/MODP"); fb.st = FB_LIST; fz_block();
+            fb.sel = 1;
+            assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "SHAPES at 0: remove it") && !t_md_begun);      /* the Prophet's package, SHAPES' module in the way */
+            assert(!fb_ok()); fz_block();
+            t_blocked = -1; t_plan = 0;
+            fb_open(0);
+            assert(!fb_pack_done());
+            fb_close();
+        }
         (void)sum0;
-        printf("  browser: .OCM listed; a damaged table, a stranger, another firmware's package, no place and no image refused; the code written in order, the header page last\n");
+        printf("  browser: .OCM listed; a damaged table, a stranger, another firmware's package, no place (and a module of another engine in the way, named) and no image refused; the code written in order, the header page last; the Prophet package picks its variant by sector\n");
+    }
+    /* 9. (0.13.3) "Install set": a .set.json in the browser (value "Set"). The manifest (docs/orangecat/SET_FORMAT.md) is checked against the firmware (version, then the
+     * build's identifiers), every file of it found and checked with nothing written, the modules checked in pairs; then the pack (not when this build's is there), then
+     * the modules in the manifest's order. A set from another build, a missing file, a cut between the stages, a module that cannot stand beside another, and the
+     * in-place question. */
+    {
+        FIL pf;
+        UINT bw;
+        static uint8_t ocm[8192], blob[2048];
+        uint32_t k, o, crc, bi;
+        const uint32_t base = 56u + 32u + 4u;
+        char nm[64], v[16], man[1024];
+        #define W32S(at, x) do { ocm[(at)] = (uint8_t)(x); ocm[(at) + 1] = (uint8_t)((x) >> 8); ocm[(at) + 2] = (uint8_t)((x) >> 16); ocm[(at) + 3] = (uint8_t)((x) >> 24); } while (0)
+        #define PUTFILE(path, data, len) do { assert(f_open(&pf, (path), FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, (data), (len), &bw) == FR_OK && bw == (len)); f_close(&pf); } while (0)
+        /* a module package for engine eng: two variants (sectors 0 and 6), as the earlier cases make them */
+        #define MKSETOCM(eng_) do { memset(ocm, 0, sizeof ocm); W32S(0, 0x464D434Fu); ocm[4] = 1; ocm[6] = 2; W32S(8, FW_API_IFACE); W32S(12, FW_API_ADDR); W32S(16, (eng_)); \
+            W32S(20, 11136u); W32S(24, OC_PACK_HASH); W32S(44, FW_API_VERSION); W32S(48, 60u); W32S(52, 6u); \
+            for (k = 0; k < 2u; k++) { W32S(56 + 16 * k, 6u * k); W32S(56 + 16 * k + 4, 1000u); W32S(56 + 16 * k + 8, 0u); W32S(56 + 16 * k + 12, base + 1000u * k); \
+                for (o = 0; o < 1000u; o++) ocm[base + 1000u * k + o] = (uint8_t)(o * 5u + k * 11u + 1u); } \
+            crc = ocs_crc32(ocm, 88); W32S(88, crc); } while (0)
+        #define MANIFEST(ver_, iface_, addr_, hash_, len_, files_) snprintf(man, sizeof man, \
+            "{\n  \"version\": \"%s\",\n  \"pack_hash\": %u,\n  \"pack_len\": %u,\n  \"iface\": %u,\n  \"api_addr\": %u,\n  \"files\": %s\n}\n", \
+            (ver_), (unsigned)(hash_), (unsigned)(len_), (unsigned)(iface_), (unsigned)(addr_), (files_))
+        #define GOODMAN(name_, files_) do { MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, (files_)); PUTFILE("/SET/" name_, man, strlen(man)); } while (0)
+        #define OPENSET(name_) do { fb_open(0); for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block(); strcpy(fb.path, "/SET"); fb.st = FB_LIST; fz_block(); \
+            for (k = 0; k < fb.n && !(fb_ent(k) && !strcmp(fb_ent(k)->name, (name_))); k++) ; assert(k < fb.n); fb.sel = (uint16_t)k; } while (0)
+        #define RESET() do { t_pk_begun = t_pk_ended = t_md_begun = t_md_ended = 0; t_pk_state = PK_MISSING; t_seq = t_pk_seq = t_md_seq = 0; t_plan = 0; t_blocked = -1; \
+            t_inplace = 0; t_md_fail = 0; t_busy = 0; song.playing = 0; } while (0)
+        #define REFUSED(msg_) do { assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, (msg_)) && !t_pk_begun && !t_md_begun); assert(!fb_ok()); fz_block(); } while (0)
+        for (k = 0; k < sizeof blob; k++) blob[k] = (uint8_t)(k * 7u + 3u);
+        memcpy(blob, "OCPK", 4);
+        blob[12] = (uint8_t)(OC_PACK_LEN & 255u); blob[13] = (uint8_t)(OC_PACK_LEN >> 8); blob[14] = blob[15] = 0;
+        assert(f_mkdir("/SET") == FR_OK);
+        PUTFILE("/SET/S.PAK", blob, sizeof blob);
+        MKSETOCM(14u);
+        PUTFILE("/SET/SHAPES.OCM", ocm, base + 2000u);
+        MKSETOCM(19u);
+        W32S(56, 0u); W32S(56 + 16, 4u);
+        crc = ocs_crc32(ocm, 88); W32S(88, crc);
+        PUTFILE("/SET/PROPHET.OCM", ocm, base + 2000u);
+        GOODMAN("GOOD.SET.JSON", "{\n    \"pak\": \"S.PAK\",\n    \"fwsc\": \"S.FWSC\",\n    \"ocm\": [\n      \"SHAPES.OCM\"\n    ]\n  }");
+        GOODMAN("BOTH.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"SHAPES.OCM\", \"PROPHET.OCM\"]}");
+        GOODMAN("PACKONLY.SET.JSON", "{\"pak\": \"S.PAK\"}");
+        GOODMAN("NOPAK.SET.JSON", "{\"pak\": \"NOPE.PAK\", \"ocm\": [\"SHAPES.OCM\"]}");
+        GOODMAN("NOMOD.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"GONE.OCM\"]}");
+        GOODMAN("PATH.SET.JSON", "{\"pak\": \"../S.PAK\"}");
+        GOODMAN("THREE.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"A.OCM\", \"B.OCM\", \"C.OCM\"]}");
+        GOODMAN("SAME.SET.JSON", "{\"pak\": \"S.PAK\", \"ocm\": [\"SHAPES.OCM\", \"SHAPES.OCM\"]}");
+        MANIFEST("0.13.3", FW_API_IFACE ^ 1u, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/IFACE.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR + 4u, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/ADDR.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH + 1u, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/HASH.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN + 4u, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/LEN.SET.JSON", man, strlen(man));
+        MANIFEST("0.14.0", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/NEWER.SET.JSON", man, strlen(man));
+        MANIFEST("0.13.2", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, "{\"pak\": \"S.PAK\"}"); PUTFILE("/SET/OLDER.SET.JSON", man, strlen(man));
+        PUTFILE("/SET/JUNK.SET.JSON", "this is not a manifest, only some text that is long enough", 56);
+        PUTFILE("/SET/OTHER.JSON", "{}", 2);                                  /* not a set: not listed */
+        /* listed with the word "Set"; other .json files are not listed */
+        RESET();
+        OPENSET("GOOD.SET.JSON");
+        assert(fb_row(fb.sel, nm, sizeof nm, v, sizeof v) && !strcmp(nm, "GOOD.SET.JSON") && !strcmp(v, "Set"));
+        for (k = 0; k < fb.n; k++) assert(!fb_ent(k) || strcmp(fb_ent(k)->name, "OTHER.JSON"));
+        /* a good set: the pack, then the module, in that order; the browser closes; "SET INSTALLED" (fb_pack_done() 3) */
+        assert(fb_ok() && fb.st == FB_OFF && !uf_browse && fb_pack_done() == 3);
+        assert(t_pk_begun == 1u && t_pk_ended == 1u && t_pk_sum > 0 && t_md_begun == 1u && t_md_ended == 1u && t_md_engine == 14u && t_md_start == 0u && t_pk_seq < t_md_seq);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        printf("  browser: a set (pack, SHAPES module) installs: the pack first, then the module, \"SET INSTALLED\"\n");
+        /* the same set again: this build's pack is there and sound, so it is not written again; the module is */
+        t_pk_begun = t_pk_ended = t_md_begun = t_md_ended = 0;
+        OPENSET("GOOD.SET.JSON");
+        assert(fb_ok() && fb_pack_done() == 3 && !t_pk_begun && t_md_begun == 1u && t_md_ended == 1u);
+        fb_open(0); fb_close();
+        /* a pack-only set */
+        RESET();
+        OPENSET("PACKONLY.SET.JSON");
+        assert(fb_ok() && fb_pack_done() == 3 && t_pk_ended == 1u && !t_md_begun);
+        fb_open(0); fb_close();
+        /* a set from another build: refused with nothing written (the identifiers, then the version) */
+        {   static const struct { const char *file, *msg; } bad[] = {
+                { "IFACE.SET.JSON", "Set: another build" }, { "ADDR.SET.JSON", "Set: another build" }, { "HASH.SET.JSON", "Set: another build" },
+                { "LEN.SET.JSON", "Set: another build" }, { "NEWER.SET.JSON", "Update firmware first" }, { "OLDER.SET.JSON", "Set is for older build" },
+                { "JUNK.SET.JSON", "Not a set" }, { "PATH.SET.JSON", "Not a set" }, { "THREE.SET.JSON", "Not a set" } };
+            RESET();
+            for (bi = 0; bi < sizeof bad / sizeof bad[0]; bi++) {
+                OPENSET(bad[bi].file);
+                REFUSED(bad[bi].msg);
+                fb_close();
+            }
+            printf("  browser: a set from another build (interface, table address, pack hash or length), a newer or older version, a junk file, a path and three modules are refused, nothing written\n");
+        }
+        /* a missing file: the pack or a module; nothing is written, not even the pack that is there */
+        RESET();
+        OPENSET("NOPAK.SET.JSON");
+        REFUSED("Missing NOPE.PAK");
+        fb_close();
+        OPENSET("NOMOD.SET.JSON");
+        REFUSED("Missing GONE.OCM");
+        assert(t_pk_state == PK_MISSING);
+        fb_close();
+        /* two modules that cannot stand in the area together (SHAPES and the Prophet), or one twice: refused before the pack is written */
+        OPENSET("BOTH.SET.JSON");
+        REFUSED("Modules don't fit");
+        fb_close();
+        OPENSET("SAME.SET.JSON");
+        REFUSED("Modules don't fit");
+        fb_close();
+        /* the overlap rule of the single module: a module of another engine in the way is named, nothing written */
+        t_plan = -1; t_blocked = 2;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "PROPHET at 2: remove it") && !t_pk_begun && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        fb_close();
+        t_plan = -1; t_blocked = -1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No place free") && !t_pk_begun && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        fb_close();
+        printf("  browser: a missing pack or module file, two modules that cannot stand together, a module in the way (named) and no place are refused before anything is written\n");
+        /* a cut between the stages: the module's begin fails after the pack went in; the next press skips the pack and does the module */
+        RESET();
+        t_md_fail = 1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Install failed") && t_pk_ended == 1u && t_md_begun == 1u && !t_md_ended && !fb_pack_done());
+        assert(!fb_ok()); fz_block();
+        t_md_fail = 2;                                         /* the module's end refuses (a cut after its code) */
+        OPENSET("GOOD.SET.JSON");
+        t_pk_begun = t_pk_ended = t_md_begun = t_md_ended = 0;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Install failed") && !t_pk_begun && t_md_begun == 1u && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_md_fail = 0;
+        OPENSET("GOOD.SET.JSON");
+        t_md_begun = t_md_ended = 0;
+        assert(fb_ok() && fb_pack_done() == 3 && !t_pk_begun && t_md_begun == 1u && t_md_ended == 1u);   /* the pack stayed, the module is done now */
+        fb_open(0); fb_close();
+        printf("  browser: a cut between the stages: the pack stays, the next press installs the module only (the pack is skipped)\n");
+        /* the in-place question: the first press says the old module is erased first and has written the pack; OCT+ again on the row goes on with the pack skipped */
+        RESET();
+        t_inplace = 1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Erases old first. Again") && fb.relist == 2u && t_pk_ended == 1u && !t_md_begun);
+        assert(!fb_ok() && fb.st == FB_READY && fb.sel == k);                         /* the word gone, the rows and the row kept */
+        assert(fb_ok() && fb_pack_done() == 3 && t_pk_begun == 1u && t_md_begun == 1u && t_md_ended == 1u);   /* the second press goes on: no second question, no second pack */
+        fb_open(0); fb_close();
+        /* another row pressed in between drops the question: the next press on the set asks again */
+        RESET();
+        t_inplace = 1;
+        OPENSET("GOOD.SET.JSON");
+        assert(!fb_ok() && fb.st == FB_FAIL && fb.relist == 2u);
+        assert(!fb_ok() && fb.st == FB_READY);
+        fb_move(-1);                                           /* another row */
+        fb_move(1);
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Erases old first. Again") && !t_md_begun);
+        fb_close();
+        printf("  browser: the in-place question is asked once per module and answered by OCT+ on the same row; the pack is not written twice\n");
+        /* (0.13.4) a damaged file is refused after a whole-file check and before anything is begun (begun = the first erase): a single pack, a single module (even where the
+         * answer would have been the in-place question), and a set with one bad file refuses the whole set before its first stage. The checks themselves are run against the
+         * real loader and a simulated NOR in card_install_test.c (zero sector erases, the old pack and module still registered). */
+        RESET();
+        t_pk_ck = 2; t_rd_bytes = 0; OPENSET("S.PAK");
+        REFUSED("Pack file damaged"); assert(t_rd_bytes >= OC_PACK_LEN); fb_close();
+        t_pk_ck = 3; OPENSET("S.PAK"); REFUSED("Update would erase it"); fb_close();
+        t_pk_ck = 0;
+        t_plan = 1; t_inplace = 1;                              /* a module that would be asked about in place first */
+        t_md_ck = MC_CRC; t_rd_bytes = 0; OPENSET("SHAPES.OCM");
+        REFUSED("Module file damaged"); assert(t_rd_bytes >= 1000u); fb_close();
+        t_md_ck = MC_HDR; OPENSET("SHAPES.OCM"); REFUSED("Module header bad"); fb_close();
+        t_md_ck = MC_TAIL; OPENSET("SHAPES.OCM"); REFUSED("Update would erase it"); fb_close();
+        t_md_ck = MC_PAGES; OPENSET("SHAPES.OCM"); REFUSED("Module pages bad"); fb_close();
+        t_md_ck = MC_READ; OPENSET("SHAPES.OCM"); REFUSED("Unreadable"); fb_close();
+        t_md_ck = 0;
+        RESET();
+        t_pk_ck = 0; t_md_ck = MC_CRC; t_pk_checks = 0;          /* a good pack, a damaged module: the set is refused before the pack is begun */
+        OPENSET("GOOD.SET.JSON"); REFUSED("Module file damaged"); assert(!t_pk_ended && !t_md_ended); fb_close();
+        t_md_ck = 0; t_pk_ck = 2;                                /* a damaged pack, good modules */
+        OPENSET("BOTH.SET.JSON"); REFUSED("Pack file damaged"); fb_close();
+        t_pk_ck = 0; RESET();
+        OPENSET("GOOD.SET.JSON");                                /* and with every file good, the same set installs */
+        assert(fb_ok() && t_pk_ended == 1u);
+        fb_open(0); fb_close(); RESET();
+        printf("  browser: a damaged pack or module (payload, header, tail, pages, unreadable) is refused whole before anything is begun; a set with one bad file starts no stage\n");
+        /* the transport running: "Stop first", nothing written */
+        RESET();
+        OPENSET("GOOD.SET.JSON");
+        t_busy = 1;
+        REFUSED("Stop first");
+        song.playing = 1;
+        t_busy = 0;
+        REFUSED("Stop first");
+        song.playing = 0;
+        fb_close();
+        /* the reader itself: every byte string it is given ends in a result without a read outside it (the build runs under the sanitizers in SAN=1) */
+        {   oc_set_t ps;
+            static const char good[] = "{\n  \"version\": \"0.13.3\",\n  \"pack_hash\": 4294967295,\n  \"pack_len\": 40232,\n  \"iface\": 1,\n  \"api_addr\": 33558784,\n"
+                "  \"files\": {\n    \"pak\": \"a.pak\",\n    \"fwsc\": \"a.fwsc\",\n    \"ocm\": [\n      \"m1.ocm\",\n      \"m2.ocm\"\n    ]\n  }\n}\n";
+            char mut[sizeof good];
+            uint32_t seed = 12345u, n_ok = 0, i;
+            assert(oc_set_parse(good, sizeof good - 1u, &ps) == OC_SET_OK && ps.version == 0x000D03u && ps.pack_hash == 0xFFFFFFFFu && ps.pack_len == 40232u && ps.iface == 1u &&
+                   ps.api_addr == 33558784u && !strcmp(ps.pak, "a.pak") && !strcmp(ps.fwsc, "a.fwsc") && ps.nocm == 2u && !strcmp(ps.ocm[0], "m1.ocm") && !strcmp(ps.ocm[1], "m2.ocm"));
+            assert(oc_set_vs(&ps, 0x000D03u, 1u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_THIS && oc_set_vs(&ps, 0x000D04u, 1u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_OLDER &&
+                   oc_set_vs(&ps, 0x000D02u, 1u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_NEWER && oc_set_vs(&ps, 0x000D03u, 2u, 33558784u, 0xFFFFFFFFu, 40232u) == OC_SET_OTHER);
+            for (i = 0; i <= sizeof good - 1u; i++) {            /* every cut of it: a result, never a read past the cut (the copy has no byte after it) */
+                char *cut = malloc(i ? i : 1u);
+                memcpy(cut, good, i);
+                (void)oc_set_parse(cut, i, &ps);
+                free(cut);
+            }
+            for (i = 0; i < 200000u; i++) {                      /* mutations: a few bytes changed or the length cut */
+                uint32_t len = sizeof good - 1u, m;
+                char *cut;
+                memcpy(mut, good, sizeof good);
+                for (m = 0; m < 1u + (seed & 3u); m++) {
+                    seed = seed * 1664525u + 1013904223u;
+                    mut[(seed >> 8) % len] = (char)(seed >> 24);
+                }
+                seed = seed * 1664525u + 1013904223u;
+                if (seed & 1u) len = (seed >> 8) % len;
+                cut = malloc(len ? len : 1u);
+                memcpy(cut, mut, len);
+                if (oc_set_parse(cut, len, &ps) == OC_SET_OK) {  /* what it accepts is plain: names without a path, a version, at most two modules */
+                    n_ok++;
+                    assert(ps.nocm <= 2u && ps.pak[0] && ps.pak[0] != '.' && !strchr(ps.pak, '/') && !strchr(ps.pak, '\\') && strlen(ps.pak) < OC_SET_NAME);
+                }
+                free(cut);
+            }
+            assert(oc_set_parse("{\"version\": \"0.13.3\", \"pack_hash\": 99999999999, \"pack_len\": 1, \"iface\": 1, \"api_addr\": 1, \"files\": {\"pak\": \"a\"}}", 112, &ps) != OC_SET_OK);   /* 33 bits */
+            assert(oc_set_parse("", 0, &ps) == OC_SET_BAD);
+            printf("  browser: the set reader: a good manifest, every cut of it and 200000 mutations of it end in a result inside the buffer (%u of them still accepted, all plain)\n", n_ok);
+        }
+        #undef W32S
+        #undef PUTFILE
+        #undef MKSETOCM
+        #undef MANIFEST
+        #undef GOODMAN
+        #undef OPENSET
+        #undef RESET
+        #undef REFUSED
     }
     dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it: the takes in their folders) */
     frz_drop_all("");

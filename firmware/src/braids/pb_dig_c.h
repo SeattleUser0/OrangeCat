@@ -18,6 +18,7 @@
  * parity test does not go above note 127, and past it the C++'s value is whatever follows the table in its flash.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  *   0.5.2: o->delay_lines.x is o->delay_lines->x (pb_digital.h pb_delay_lines_t).
  */
@@ -200,8 +201,8 @@ static void pb_dig_render_bowed(pb_dig_t *o, const uint8_t *sync, int16_t *buffe
         int16_t bridge_dl_b = dl_b[(bridge_delay_ptr - 1) % PB_WG_BRIDGE_LENGTH];
         int16_t nut_dl_a = dl_n[neck_delay_ptr % PB_WG_NECK_LENGTH];
         int16_t nut_dl_b = dl_n[(neck_delay_ptr - 1) % PB_WG_NECK_LENGTH];
-        int32_t bridge_value = pb_mix_s16(bridge_dl_a, bridge_dl_b, bridge_delay_fractional) << 8;
-        int32_t nut_value = pb_mix_s16(nut_dl_a, nut_dl_b, neck_delay_fractional) << 8;
+        int32_t bridge_value = pb_mix_s16(bridge_dl_a, bridge_dl_b, bridge_delay_fractional) * 256;
+        int32_t nut_value = pb_mix_s16(nut_dl_a, nut_dl_b, neck_delay_fractional) * 256;
         lp_state = (bridge_value * pbc_bridge_lp_gain + lp_state * pbc_bridge_lp_pole1) >> 15;
         int32_t bridge_reflection = -lp_state;
         int32_t nut_reflection = -nut_value;
@@ -343,8 +344,8 @@ static void pb_dig_render_fluted(pb_dig_t *o, const uint8_t *sync, int16_t *buff
         int16_t bore_dl_b = dl_b[(bore_delay_ptr - 1) % PB_WG_FBORE_LENGTH];
         int16_t jet_dl_a = dl_j[jet_delay_ptr % PB_WG_JET_LENGTH];
         int16_t jet_dl_b = dl_j[(jet_delay_ptr - 1) % PB_WG_JET_LENGTH];
-        int32_t bore_value = pb_mix_s16(bore_dl_a, bore_dl_b, bore_delay_fractional) << 9;
-        int32_t jet_value = pb_mix_s16(jet_dl_a, jet_dl_b, jet_delay_fractional) << 9;
+        int32_t bore_value = pb_mix_s16(bore_dl_a, bore_dl_b, bore_delay_fractional) * 512;
+        int32_t jet_value = pb_mix_s16(jet_dl_a, jet_dl_b, jet_delay_fractional) * 512;
 
         int32_t breath_pressure = pb_lut_blowing_envelope[excitation_ptr];
         breath_pressure <<= 1;

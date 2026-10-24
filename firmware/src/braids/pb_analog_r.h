@@ -29,6 +29,7 @@
  * division, so the parity test is unaffected.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  */
 #pragma once
@@ -146,7 +147,7 @@ static void pb_analog_render_csaw(pb_analog_t *o, const uint8_t *sync_in, int16_
         /* (the C++'s ternary has an int16_t and a uint32_t arm: its type is uint32_t) */
         next_sample = (int32_t)((uint32_t)next_sample +
                                 (o->phase < pw ? (uint32_t)o->discontinuity_depth : o->phase >> 18));
-        *buffer++ = (int16_t)((this_sample - 8192) << 1);
+        *buffer++ = (int16_t)((this_sample - 8192) * 2);
     }
     o->next_sample = next_sample;
     PB_END_INTERPOLATE_PHASE_INCREMENT(o)
@@ -213,7 +214,7 @@ static void pb_analog_render_square(pb_analog_t *o, const uint8_t *sync_in, int1
         }
 
         next_sample += o->phase < pw ? 0 : 32767;
-        *buffer++ = (int16_t)((this_sample - 16384) << 1);
+        *buffer++ = (int16_t)((this_sample - 16384) * 2);
     }
     o->next_sample = next_sample;
     PB_END_INTERPOLATE_PHASE_INCREMENT(o)
@@ -263,7 +264,7 @@ static void pb_analog_render_saw(pb_analog_t *o, const uint8_t *sync_in, int16_t
         }
 
         next_sample += (int32_t)(o->phase >> 17);
-        *buffer++ = (int16_t)((this_sample - 16384) << 1);
+        *buffer++ = (int16_t)((this_sample - 16384) * 2);
     }
     o->next_sample = next_sample;
     PB_END_INTERPOLATE_PHASE_INCREMENT(o)

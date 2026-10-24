@@ -19,6 +19,9 @@
  *     factory kits, as Jiant's, with their SENDs (not used here: IMAGE and SEND buses are not ported).
  *   - the lane enum DV_* is eng_drum.c's (the same lanes, the same order).
  */
+/* Revisions:
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 /* A DRUM-X sound (a lane of a kit) is dx_lane_t, 11 bytes: the mode and five values for each of its patches A and B:
  *   PITCH  the oscillator, MIDI 24..119 (33 Hz .. 7.9 kHz), 3/4 semitone a step
  *   PMOD   the pitch envelope: up to +4 octaves at the hit, falling with a sixth of the decay's tau (1..40 ms)
@@ -110,7 +113,7 @@ static DX_XIP void dx_layer(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t *php
         for (i = 0; i < n; i++, inc += dinc, ga += dga, ix += dix) {
             int32_t o2;
             o = sine_i(ph + (uint32_t)(sine_i(ph2) * ix) * 512u + (uint32_t)(o * fbk));
-            o2 = dx_tri(ph4 + (uint32_t)(o * lx));
+            o2 = dx_tri(ph4 + (uint32_t)o * (uint32_t)lx);
             y[i] = mulq15(o + (((o2 - o) * lm) >> 6), ga >> 8);
             ph += (uint32_t)inc << 4;
             ph2 += ((uint32_t)inc >> 8) * ratio;
@@ -333,7 +336,7 @@ static DX_XIP void dx_run(const dx_kit_t *kit, uint32_t ln, dx_voice_t *v, int32
             v2 = ic2 + ((c.a2 * ic1 + c.a3 * v3) >> 13);                                                           \
             ic1 = clamp(2 * v1 - ic1, -150000, 150000);                                                            \
             ic2 = clamp(2 * v2 - ic2, -150000, 150000);                                                            \
-            y[i] += mulq15(clamp((OUT) << 1, -32767, 32767), gn >> 8);                                            \
+            y[i] += mulq15(clamp((OUT) * 2, -32767, 32767), gn >> 8);                                            \
         }
 
         if (flt == DXF_LP)
@@ -512,16 +515,3 @@ static const dx_kit_t DX_KITS[] = {
     },
 };
 #define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
-/* a stored kit as the voice takes it: values 0..127, the mode's fields in range (wave 0..3, filter 0..2, snap) */
-static int dx_kit_ok(const dx_lane_t *k)
-{
-    uint32_t l, i;
-    for (l = 0; l < 8u; l++) {
-        if (((k[l].mode >> 2) & 3u) > DXF_HP)          /* (JIANT 0.4: bits 5..7 the pitch modulation, DRIVE) */
-            return 0;
-        for (i = 0; i < DXP_N; i++)
-            if (k[l].a[i] > 127u || k[l].b[i] > 127u)
-                return 0;
-    }
-    return 1;
-}

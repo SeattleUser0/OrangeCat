@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright 2026 Jeremiah Conner.
+# Revisions:
+# (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+# (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
 """Orange Cat 0.10.0 (module PoC step 2): tools/build.py --module, against a stand-in toolchain.
 
 The JieLi toolchain is not on the host, so `tc` is replaced: compile, nm, ld, objcopy and objdump answer from a made image of the

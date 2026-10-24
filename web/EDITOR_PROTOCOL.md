@@ -499,8 +499,15 @@ that image.
 The package (little endian): magic "OCMF" (0x464D434F), version u16 = 1, variant count u16 (1..8), interface identifier u32 (at 8), table address u32
 (at 12), engine u32 (at 16), state size u32 (at 20), pack hash u32 (at 24), name 16 bytes (at 28, zero filled), table version u32 (at 44), table size u32
 (at 48), sectors u32 (at 52); then per variant 16 bytes {start sector index, image length, CRC-32 of the image, file offset}; then a CRC-32 of everything
-before it; then the images. An image's first 256 bytes are the header page (`fw_mod_hdr_t`, 52 bytes, the rest zero), its code starts at byte 256; its CRC
-(zlib) covers bytes 256..length and the header's own CRC covers bytes 0..47.
+before it; then the images. An image's first 256 bytes are the header page (`fw_mod_hdr_t`, 60 bytes since 0.11.0, the rest zero), its code starts at byte 256; its CRC
+(zlib) covers bytes 256..length (at 52 of the header) and the header's own CRC (at 56) covers bytes 0..55.
+
+(0.13.4) Nothing the unit would refuse at 123 or 118 is sent: before 116 or 121 the page runs the unit's own checks on the file's bytes (web/fm1oc.js packProblem and
+ocmImage, the same text as web/editor.html): for a pack its header (length, hash, header CRC), the payload CRC-32 and the update loader's record rule on every sector tail
+(oc_pack.c pk_image_check); for a module variant the header page against the package and the start (interface, table address, engine, state size 1..16384, pack hash,
+length, link address 0x020C4000 + sector x 4096, an aligned engine_t inside the code, the header CRC), the CRC-32 of the code and the record rule (oc_module.c
+oc_mod_image_check). The page descriptor check of a device build stays the unit's. The unit still checks everything at the end, as before; the commands and replies
+are unchanged. The card's installer (OCT+ on a .PAK, .OCM or .set.json) reads the whole selected file through the same two functions before its first erase.
 
 A command a firmware does not know gets no reply, so an editor offers modules only after a reply to 120. Every write is refused while the transport
 runs (rc 2). The pack's commands 115-119 are unchanged (their BEGIN already carries an optional byte older pages send, so an area selector there would be
@@ -508,7 +515,7 @@ ambiguous); the module has ids of its own.
 
 | Command | Request | Reply |
 |---|---|---|
-| 120 MOD_INFO | optionally an engine | starts (2), sectors of the area (12), flags (1 SHAPES is built in, 2 a module takes the slot of a built-in engine, 4 an install is under way, 8 (0.10.1) the install the plan names is in place), table version, table size, interface identifier (5 x 7 bits), table address (5 x 7), pack hash (5 x 7), the start an install of the engine goes to (0, 1, or 127 none; 127 too without an engine: a free start first, else the start that holds the engine's module), then per start: state, why, engine, length (3 x 7 bits) |
+| 120 MOD_INFO | optionally an engine | starts (3 since 0.12.1: sector 0, sector 6, sector 4 of the area; SHAPES uses starts 0 and 1, the Prophet 0 and 2), sectors of the area (12), flags (1 SHAPES is built in, 2 a module takes the slot of a built-in engine, 4 an install is under way, 8 (0.10.1) the install the plan names is in place), table version, table size, interface identifier (5 x 7 bits), table address (5 x 7), pack hash (5 x 7), the start an install of the engine goes to (0, 1, or 127 none; 127 too without an engine: a free start first, else the start that holds the engine's module), then per start: state, why, engine, length (3 x 7 bits), then (0.12.1) the blocker: with an engine and no start that can take it, the start whose usable module of another engine is in the way (the install is refused: ENGINE X INSTALLED AT START N: REMOVE IT FIRST), else 127 |
 | 121 MOD_BEGIN | engine, start, length (3 x 7 bits) | rc, bytes written (3 x 7 bits). Beside (flag 8 clear): only the 6 sectors of the free start are erased; the old module stays registered and playing. In place (flag 8 set): the engine is taken out of the table, the voices and arena state of the tracks that play it are cleared, the 6 sectors of the start (and of any other module of that engine) are erased, and a power cut leaves no module |
 | 122 MOD_WRITE | offset (3 x 7 bits), pack7 data (up to 256 bytes) | rc, bytes written. The first offset is 256; each is where the last write ended |
 | 123 MOD_END | pack7 header page (256 bytes) | rc, bytes written. The header must agree with the code just sent (its CRC), the start, and this firmware; it is programmed last (the commit); the area is then read as at boot and the module registered. Beside, the new start is read back and checked as the loader checks it before the old module is taken out of the table and its start erased (header sector first); if it fails the new start is erased, the old module stays and the reply is 7 |
@@ -561,6 +568,10 @@ The Engines table (0.12.0) also has, per row for an engine the unit plays: **Use
 track engine command, and selects the track that was selected; the unit's admission may refuse it with the fourth reply byte, 1 engine too heavy, 2 no room, and the track keeps
 its engine); and **Replace** with a file of another engine (a swap): the page checks the file against the unit, asks, sends MOD_REMOVE for the old engine, reads MOD_INFO for the new
 engine (the freed start is the plan) and sends MOD_BEGIN, MOD_WRITE, MOD_END as for an install. The tracks that held the old engine keep its number and are silent.
+
+## Orange Cat: set manifests (0.13.3)
+
+No SysEx command. The card browser's "Install set" reads a `*.set.json` from the card. The format, the checks and the messages are in docs/orangecat/SET_FORMAT.md.
 
 ## Pattern banks (commands 73–74)
 
@@ -1302,6 +1313,11 @@ cutting voices, preventing overloaded runs from reducing their own workload.
 laboratory coverage. Both reply `rc`. Neither writes saved projects or patches.
 These controls are absent from production builds. A passing performance contract
 must also be checked with normal admission and emergency protection enabled.
+
+Editor 97 (device builds with `MELODEE_FX_PROFILE=1` only, laboratory): the effects' profiler. `[mask, fx1, fx2, fx3, ticks1, ticks2 [, mode 0|1]]` (mask 0..15,
+the three effect numbers below `FX_COUNT`; mask 0 or no argument: read only) arms a measurement, and every call replies `rc` (1: a bad argument) then 14 values of five
+7-bit groups (LSB first): the control word, three words (ticks, blocks, maximum) for each of four measured slots, and the effects hardware status. It writes no musical or
+persisted state and is absent from production builds (0.12.2: documented; the code is unchanged).
 
 ### Laboratory persistence guard and transport/REC controls
 

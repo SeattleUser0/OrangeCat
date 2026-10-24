@@ -13,6 +13,9 @@
  * half done (first half of the bytes) or an erase half done (junk).
  *
  * Revisions: 0.9.1: first version.
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ * (Orange Cat 0.13.2) commit records equal under four stack patterns, CRC checked independently (the analyzer's claim at storage.c:126)
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -65,6 +68,9 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
     prog_bytes += m;
     return dead ? -9 : 0;
 }
+static uint32_t oc_feeds;                                /* (0.12.2, Part 2d) the watchdog feeds: how many, and the longest run of flash operations between two */
+static long oc_last, oc_gap;
+#define OC_FEED() do { oc_feeds++; if (ops - oc_last > oc_gap) oc_gap = ops - oc_last; oc_last = ops; } while (0)
 #include "../firmware/src/storage.c"
 
 static int bad;
@@ -368,6 +374,19 @@ int main(void)
             }
             check("... no other sector of the flash was touched", ok);
         }
+    }
+
+    /* ---- (0.12.2, Part 2d) the watchdog is fed through the migration of all 22 banks, a save and a boot that finds the work done ---- */
+    {
+        legacy_image(0x3FFFFFu);
+        oc_feeds = 0; oc_last = 0; oc_gap = 0; n_erase = n_prog = 0; ops = 0;
+        lg_boot();
+        printf("    (migration of 22 banks: %u erases, %u programs, %u feeds, longest run between two feeds %ld flash operations)\n", n_erase, n_prog, oc_feeds, oc_gap);
+        check("the migration of all 22 banks feeds the watchdog before every erase (feeds >= erases), at most 40 flash operations between two", all_ok() && n_erase >= 22u && oc_feeds >= n_erase && oc_gap <= 40);
+        make(3, 5, buf, &l);
+        oc_feeds = 0; n_erase = 0; ops = 0; oc_last = 0;
+        check("a save feeds the watchdog before its erase", st_save(OBJ_LIB0 + 3, buf, l) == 0 && n_erase == 1u && oc_feeds >= 1u);
+        expect(3, 5);
     }
 
     /* ---- migration cut at every flash operation, then a second cut during the recovery ---- */
@@ -821,6 +840,48 @@ int main(void)
         for (b = 0; b < LG_BANKS; b++) expect(b, 1);
         ok = lg_boot() >= 0 && !lg_incomplete;
         check("lg_drop_pairs cut in the middle: what is left moves in at the next boot (no crash, no -8)", ok);
+    }
+
+
+    {   /* (Orange Cat 0.13.2, Part 3) the analyzer's claim at storage.c:126 (core.CallAndMessage: uninitialized byte read by st_crc32 through
+         * `c ^= *b++`), reproduced only in this file's build. The path: st_save (and lg_save, and the migration's copy of a record) build an
+         * st_hdr_t on the stack, set its fields, and take the CRC of its first 28 bytes. The claim is real only if one of those 28 bytes is not
+         * set. The layout has no padding (_Static_assert, 32 B: u32, u16 u16, u32 x3, u32 x2, and the CRC), and every field is set before
+         * the CRC. The test: the stack under each save is filled with four different patterns; the commit records written are compared
+         * byte for byte across the patterns (an unset byte shows as a difference), and each record's CRC is checked against an
+         * independent bitwise CRC-32 of its own first 28 bytes. */
+        static uint8_t rec[4][16][32];
+        uint32_t nrec[4] = {0, 0, 0, 0};
+        static const uint8_t pat[4] = {0x00, 0xFF, 0xA5, 0x5A};
+        int ok = 1;
+        for (int v = 0; v < 4; v++) {
+            blank(); lg_cursor = 0;
+            {   volatile uint8_t junk[16384]; for (uint32_t i = 0; i < sizeof junk; i++) junk[i] = pat[v]; }
+            uint8_t sm[40]; for (uint32_t i = 0; i < sizeof sm; i++) sm[i] = (uint8_t)(i * 3u + 1u);
+            ok &= st_save(OBJ_SETTINGS, sm, sizeof sm) == 0;
+            {   volatile uint8_t junk[16384]; for (uint32_t i = 0; i < sizeof junk; i++) junk[i] = (uint8_t)~pat[v]; }
+            ok &= st_save(OBJ_SETTINGS, sm, sizeof sm) == 0;      /* the other copy of the pair */
+            for (uint32_t b = 3; b < 6; b++) {            /* 3: 3600 B, 4: 3716 B compact, 5: 3716 B compact (b % 5 == 3 / else) */
+                uint32_t l; make(b, 1, buf, &l);
+                {   volatile uint8_t junk[16384]; for (uint32_t i = 0; i < sizeof junk; i++) junk[i] = pat[v] ^ (uint8_t)b; }
+                ok &= st_save(OBJ_LIB0 + b, buf, l) == 0;
+            }
+            for (uint32_t b = 0; b < 3; b++) legacy_put(b, 1);       /* the old pairs: the migration copies their records into the group */
+            {   volatile uint8_t junk[16384]; for (uint32_t i = 0; i < sizeof junk; i++) junk[i] = pat[v]; }
+            lg_ready = 0; lg_busy = 0; ok &= lg_boot() >= 0;
+            for (uint32_t sec = 0; sec < sizeof nor / 4096u && nrec[v] < 16u; sec++) {
+                st_hdr_t h; memcpy(&h, nor + sec * 4096u, sizeof h);
+                if (h.magic != ST_MAGIC) continue;
+                memcpy(rec[v][nrec[v]++], &h, sizeof h);
+                uint32_t c = 0xFFFFFFFFu;                              /* the independent CRC-32 (bitwise, reflected 0xEDB88320) */
+                for (uint32_t i = 0; i < 28u; i++) { c ^= ((const uint8_t *)&h)[i]; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u))); }
+                ok &= ~c == h.hcrc;
+            }
+        }
+        for (int v = 1; v < 4; v++) ok &= nrec[v] == nrec[0] && !memcmp(rec[v], rec[0], nrec[0] * 32u);
+        char what[160];
+        snprintf(what, sizeof what, "st_crc32 of a commit record: %u records (save, library save, migration) equal under 4 stack patterns, CRC matches an independent one", nrec[0]);
+        check(what, ok && nrec[0] >= 6u);
     }
 
     printf("%s\n", bad ? "LIBRARY GROUP TEST FAILED" : "library group test passed");

@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.10.0) no XIP literal in firmware/src, comment warnings
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* Host-side render of the MELODEE DSP (engines, voices, FX, sequencer) to a WAV,
  * for debugging sound without hardware. Same sources as the firmware.
  *   tests/run_tests.sh builds it into build/host/;
@@ -418,7 +422,7 @@ static int steal_test(const char *dir)
     const uint32_t frames = 4u * FS;
     char path[512];
     FILE *w;
-    int32_t prev = 0, *L = calloc(frames, sizeof *L);
+    int32_t prev = 0, *L = calloc(frames + CTL, sizeof *L);
     uint32_t f, i, p, k, events[6], nev = 0, bad = 0, kills0;
     double worst = 0;
     snprintf(path, sizeof path, "%s/steal.wav", dir);
@@ -502,7 +506,7 @@ static int xfade_test(const char *dir)
     const uint8_t to[4] = {ENGI_FM6, 2, 3, 4};
     char path[512];
     FILE *w;
-    int32_t *L = calloc(frames, sizeof *L);
+    int32_t *L = calloc(frames + CTL, sizeof *L);
     uint32_t f, i, k, bad = 0, late_ok = 0;
     double worst = 0;
     track_t *t = &trk[0];

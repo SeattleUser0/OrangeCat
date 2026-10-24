@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.67  
+**Version:** 0.71  
 **Date:** October 24, 2026  
 **Tracks:** Orange Cat Specification v0.25
 
@@ -10,6 +10,10 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.71 (October 24, 2026):** Ninth run on sonnet-work (still not on main, released or flashed): ratchet and flam repeats are never dropped (a record for each event instead of a six-entry queue); a damaged pack or module file is refused before anything is erased, on the card and on the page, with one shared check; the erase table of every data-area site; the scheduler benchmark under load (loaded costs 12% more per hit than plain, not optimized). See "Ninth run".
+- **0.70 (October 24, 2026):** Eighth run on sonnet-work (still not on main, released or flashed): CI fails when host tests fail (workflow Rev 14, job tests-gate); the 11,164 B / 880 B growth accounted by symbol and 464 + 288 B of RAM and 2,920 B of flash recovered (0.13.2); two analyzer items shown false with tests; dead code removed; Install set from the card (0.13.3, SET_FORMAT.md); the unit checklist carries exact screens, page elements and file names. See "Eighth run".
+- **0.69 (October 24, 2026):** Parts 2 to 4 of the Seventh run on sonnet-work (still not on main, released or flashed): sanitizer fixes and the SAN=1 suite, the project-record fuzzer, step properties on recorded steps (0.13.0), DRUM-X lane mutes (0.13.1). See "Seventh run".
+- **0.68 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on main, not released, not on the unit): the Prophet as the second module (8 sectors, starts 0 and 4 of the module area, 31,872 B of 32,768), the installer refusing a module that overlaps another engine's, stored Prophet sounds playing again while a module supplies engine 19, and the first hardening work (sanitizers, fuzzers, watchdog feeds). See "Seventh run".
 - **0.67 (October 24, 2026):** 0.12.0 on branch sonnet-work (not on main, not released, not on the unit): a module's pages as data (a page descriptor the engine_t points at, checked by the loader, followed by the page lookup, the edit path and motion; editor commands 126 and 127), tested with a fake module; the Prophet measured as a module (31,148 B, 7.60 sectors: it does not fit a start, so it is not built as the second module, and its admission line is not added); the Engines table assigns an engine to a track and Replace takes another engine's file (a swap). See "Sixth run", Parts 2 and 3.
 - **0.66 (October 24, 2026):** 0.11.2 on branch sonnet-work (not on main, not released, not on the unit): the installer page installs the whole set (firmware, then the asset pack, then the SHAPES module) in one go, with one bar and one summary, each stage skippable and skipped when the unit already has it. See "Sixth run", Part 1.
 - **0.65 (October 24, 2026):** 0.11.1, Fixes 3 to 6 on branch sonnet-work (not on main, not released, not on the unit): one helper writes the PC window on every path that takes a module out of the table; an install or remove in a running session parks the engine's voices first and the table's two stores are one critical section; two valid modules of one engine at boot: the higher version wins and the loser is erased; the project load marks a module's use before audio renders it. See "Fifth run".
@@ -1605,32 +1609,55 @@ and 10 ms for a program. The 0.9.1 migration is 66 erases and 352 programs: abou
 
 ### Left to test (on the unit): one ordered checklist
 
-Files, from the final CI run's `packages` artifact: the `.fwsc`, the `.pak` and `orangecat-shapes-....ocm`. For step 13, also the `.fwsc` of the run named at the end of this section
+Files, from the final CI run's `packages` artifact (names are `orangecat-0.6.2-<sha7>` with the commit the run built; the VERSION file reads 0.6.2): `.fwsc`, `.pak` (40,232 B), `orangecat-shapes-0.6.2-<sha7>.ocm` (47,660 B), `orangecat-prophet-0.6.2-<sha7>.ocm` (63,836 B) and the three set files `.pack.set.json`, `.shapes.set.json`, `.prophet.set.json`. For step 13, also the `.fwsc` of the run named at the end of this section
 (run 40052966701, branch `exp/sonnet-noshapes`, the same code with SHAPES left out of the image). Do the steps in order. Each says what you should see. Send back whether each did, and the times asked for.
 
 1. **Backup.** Web editor, Backup, Save backup (the complete one). *See:* a file saved on the computer. Keep the old firmware file too.
+    *Exact:* Editor: Backup box, button "Save backup"; the page says "Backup saved". File: a backup file on the computer.
 2. **Install the firmware.** Your usual installer path, with the `.fwsc`. *See:* the unit restarts and "MOVING PRESETS" shows once with a bar. Write down how long it ran (expected 1 to 3 s; over 5 s is a finding).
    Afterwards every preset is in its bank. Power off and on again: no bar the second time.
+    *Exact:* File: `orangecat-0.6.2-<sha7>.fwsc`. Screen: "MOVING PRESETS" with a bar (a failure shows "LIBRARY NEEDS WIPE"). Number to report: migration time, expected 1 to 3 s. Not measured: the unit has not been flashed.
 3. **Restore (optional, once).** Restore the backup of step 1 from the web page. *See:* the presets come back after the next boot. If you power off during the bar once, it finishes at the next power-on.
+    *Exact:* Editor: Backup box, button "Restore backup"; confirm the question "Restore this complete backup? ..."; the page says "Complete backup restored".
 4. **Pack.** Settings, Asset pack, Install pack, pick the `.pak`. *See:* "Pack installed", then "Pack installed and checked." No question about banks. Also once from the card (.PAK in the clip browser, OCT+).
    Before this step a SHAPES or MACRO track is silent and the screen said PACK MISSING once at power-on; after it they play.
+    *Exact:* File: `.pak`, 40,232 bytes (OC_PACK_LEN). Editor: Asset pack box, button "Install pack" (`pack-install`); the page says "Installing pack ..." then "Pack installed". Card: the unit says "PACK INSTALLED". If PACK MISSING was on the screen at power-on, it is the cure.
 5. **DRUM-X.** Give a track DRUM-X (the browser's ENGINE knob). *See:* it plays; the lanes strike; no restart. Play it for a few minutes with everything else running.
+    *Exact:* Screen: the track's ENGINE knob in the browser shows DRUM-X. No message expected.
 6. **SHAPES built in.** Make a project with a SHAPES track and play it. Write down what it sounds like. *See:* the Engines table (Settings) lists SHAPES as Built in with an Install button and no module.
+    *Exact:* Editor: the Engines table (`engines-table`), SHAPES row "Built in", button "Install".
 7. **Install the module.** Stop the sequencer. Engines table, SHAPES row, Install, pick the `.ocm`. *See:* a count up, then "Module installed". The row says Module, OK, version 1.0.0, 23,780 bytes, start 0, and the number
    of tracks that use it. Write down how long it took. The page did not ask any question (a free start was there).
+    *Exact:* File: `orangecat-shapes-0.6.2-<sha7>.ocm`, 47,660 bytes (2 variants of 23,784 B each, starts 0 and 6, engine 14). Editor: Engines table, SHAPES row, "Install"; the page says "Installing module ..." then "Module installed"; state text "Module installed, checked and in use." Number to report: install time.
 8. **Power cycle.** Unplug USB. Turn the unit off and on. Load the project and play SHAPES. *See:* it sounds as in step 6, all 24 presets. Plug the computer in: the row still says Module, OK. (The built-in SHAPES is still in
    this firmware, so the ear cannot tell the two apart; step 13 does.)
+    *Exact:* Editor: the SHAPES row still says Module and OK; state text "Module installed, checked and in use."
 9. **Replace beside.** Stop the sequencer. Press Replace on the row, pick the same `.ocm`. *See:* no question about erasing first. When it is done the row says start 1 (the other place) and OK; the project still plays SHAPES.
+    *Exact:* Editor: Engines table, SHAPES row, "Replace", same .ocm; the page says "Module replaced" or "Module installed"; no confirm question. The row shows start 1.
 10. **Cut mid-install.** Stop the sequencer. Press Replace again. When the page shows about half, pull the power (and the cable). Power on. *See:* SHAPES still plays, from the old module or the new one. The Engines table shows one OK
     module. If it shows a row "Torn", press Remove on that row. (Either result is right; a unit with no working SHAPES module at all is a finding.)
+    *Exact:* Editor: after the cut the Engines table shows one OK module; a torn row is removed with "Remove module" and the question "Remove the module? ..." confirmed; the page says "Module removed".
 11. **Card path.** Put the `.ocm` on the card. Clip browser, pick it (value Module), OCT+. *See:* MODULE INSTALLED on the screen. The Engines row moves to the free start. No "Erases old first" question appears (a start is free).
+    *Exact:* Screen: browser row value "Module"; OCT+; "MODULE INSTALLED". The question "Erases old first. Again" must not appear.
 12. **Update with the module installed.** Install the same `.fwsc` again over itself (the update loader runs). *See:* the module is still OK afterwards (the loader left its sectors alone) and SHAPES plays.
+    *Exact:* File: the same `orangecat-0.6.2-<sha7>.fwsc`. Editor: the SHAPES row still Module and OK after the loader runs.
 13. **The module alone.** Install the `.fwsc` of the noshapes build over the first. The pack and the module stay. *See:* the Engines row for SHAPES says Module (not Built in) and OK; SHAPES plays, 24 presets, from the module only.
+    *Exact:* File: `orangecat-0.6.2-<sha7>.fwsc` of the run on `exp/sonnet-noshapes`. Editor: the SHAPES row says Module, not "Built in".
 14. **Remove and install again.** Press Remove on the row, confirm. *See:* SHAPES goes silent on the track; the project still shows SHAPES; the row says no module and offers Install. Install it again from the page: SHAPES plays again (after the next power-on if not at once).
+    *Exact:* Editor: "Remove module", confirm "Remove the module? SHAPES plays from the firmware if it is built in, otherwise it goes silent."; the page says "Module removed"; then "Install module" again and "Module installed".
 15. **Admission.** Give a track SHAPES with the ENGINE knob, with GLO > GLOBAL BUDGET at its lowest (8). *See:* it is taken (the module's voices are 2 to 4 units; the lowest budget is 8). ENGINE TOO HEAVY or NO ROOM would show only for an engine this unit cannot carry; SHAPES is not one.
+    *Exact:* Screen: ENGINE TOO HEAVY or NO ROOM must not appear for SHAPES. GLO > GLOBAL BUDGET at 8.
 16. **The ban.** Do not try to provoke it. If the unit restarts three times in a row while SHAPES plays from the module (once, within 30 s of power-on), the next boot shows MODULE BANNED SHAPES once on the home screen and the Engines row says Banned with its reason.
     It is lifted by installing, removing, or turning the unit off and on. Report any restart you did not cause: what was playing and how long after power-on.
+    *Exact:* Screen: "MODULE BANNED SHAPES" once on the home screen. Editor: the state text "The installed module stopped the unit. It is switched off until you install it again, remove it or turn the unit off and on."
 17. **The guard.** Nothing to do. With a module registered a wild jump into the pack or the library is not caught (see Fix 4). If the screen ever shows a fault report, send the text.
+    *Exact:* Screen: a fault report, if any. Nothing to do.
+
+**Added in 0.13.3 (steps 18 and 19, after step 17).**
+
+18. **Install set.** Copy `orangecat-0.6.2-<sha7>.pak`, `orangecat-shapes-0.6.2-<sha7>.ocm` and `orangecat-0.6.2-<sha7>.shapes.set.json` into one folder on the card. Stop the sequencer. Card browser, go to the folder, the set row shows the value "Set". OCT+.
+    *See:* the pack is written, then the module; if the old module is in the way, "Erases old first. Again" and OCT+ again on the same row; then "SET INSTALLED". Press OCT+ on the set again: the pack is skipped and the module goes in again.
+19. **Wrong set.** Use the set file of another build. *See:* "Set: another build", or "Update firmware first" (set newer), or "Set is for older build". Nothing is written. A missing file shows "Missing <name>". Playing shows "Stop first".
 
 What to send back: for each step, whether it did what it says, the times asked for (steps 2 and 7), and anything that restarted.
 
@@ -1832,6 +1859,328 @@ CI run 40074255845 on e3db920 (the full suite, green; the device build passed ev
 - `tests/editor_test.c`: commands 126 and 127 byte for byte (none, a built-in engine, a module, parts of the panel, refusals, after removal); a swap through the commands (SHAPES' module out, the Prophet's number into the same start, the plan, ENGINES, the refusals).
 - `tests/engine_table_test.c`: engine 19 is no longer in the list of numbers a module is refused.
 - `web/test_web.mjs`: the PAGES and PANEL parse and the fetch in parts (a hole, no descriptor, a reply that does not continue); the Replace/swap flow against a mock unit (own engine, swap, both starts full, declined, wrong file, wrong firmware, wrong engine, a refused remove); Use (order of the requests, the selection put back, the two refusal reasons, a track that does not exist); the Engines table row for the Prophet's number and `canUse`.
+
+## Seventh run (0.12.1 and on, branch sonnet-work, October 24, 2026)
+
+An unattended run: the parts were done in order, decisions were made and are written down here, nothing was flashed. Nothing in this run is on the unit.
+
+### Part 0: 0.12.0 finished
+
+- The module-alone build, `exp/sonnet-noshapes` (sonnet-work merged in, SHAPES built out of the image), CI result: image 472,804 B, 104,444 B free of the 577,248 B app area, RAM .data+.bss 93,192 B of 98,304 B, pool 176,768 B, audio arena 94,752 B. That is the "module alone" line for 0.12.0; the branch is brought to the head again at the end of this run (see "Final state").
+- The sizes of the Sixth run are in "Sizes and CI (Parts 2 and 3)" above.
+
+### Part 1: the Prophet as a module (0.12.1, 0.12.2)
+
+What was done:
+
+- **The module.** `tools/build.py --module prophet` builds `tools/module/prophet_mod.c` (own translation unit, calls the firmware through the `fw_api_t` table, `.data` and `.bss` zero) into an image for each of its two starts. The module area (12 sectors, 0xC8000..0xD3FFF) now has three starts: start 0 = sector 0, start 1 = sector 6, start 2 = sector 4. SHAPES (6 sectors) can be at starts 0 and 1, the Prophet (8 sectors) at 0 and 2 (module start numbers 0 and 4 in the `.ocm` variant field, which holds the sector index). The package `prophet-<version>.ocm` carries both variants and goes in the packages artifact and the pages site manifest beside `shapes`.
+- **Size.** The first measurement was 34,764 B (2,000 B too much for 8 sectors). Two changes brought it to **31,872 B of 32,768** (both starts, crc 5f630420 and 0472aa28): the tables the module and the firmware both need (voice assignment, pitch table, envelope table) come through the API table instead of a second copy (`pitch_oct`, `env_lin`, `voice_was` are members of `fw_api_t`), and the 200 factory programs are stored with palettes for the fields that take few values (`P5_FZ`, `tools/gen_prophet_factory.py pack_z`; the built-in engine's `P5_FPACK` and the web data are unchanged). The interface id changed once (12f6be4f) and SHAPES was rebuilt with it in the same commit.
+- **Pages as data.** The module's `fw_pages_t` descriptor (15 pages, a panel of 88 entries of which 31 are empty, the hooks for the keyed tuning and the voice assignment) is the Prophet's whole page set; the firmware's own STORE page stays the firmware's. `fw_pages_check` got more rules for real data (a format past the last, names on a format that has none, an INT list not ended inside the image).
+- **Placement.** The planner refuses a start that shares a sector with a usable module of another engine; `ED_MOD_INFO` reports three starts and, as its last byte, the start of the blocker (127: none). The editor, the installer page and the card browser say "ENGINE X INSTALLED AT START N: REMOVE IT FIRST"; the loser of a double install is erased only outside any registered module's span (`oc_mod_erase_loser`: the fuzzer found that the erase of the loser could reach into a good neighbour).
+- **Availability.** A registered Prophet module makes engine 19 selectable: it is in `ENGINE_ORDER` and `NENG_SHOWN` (as SHAPES is), `eng_ok` and `eng_extra_retired` consult `eng_mod[19]`, `eng_default` gives the built-in engine back when the module is unregistered. Stored Prophet sounds and library presets play again while a module supplies it; the engine is silent (ENG_RETIRED) only while none does.
+- **Installer page** offers the Prophet module as a stage beside SHAPES with one line that they do not fit together; the choice is kept for the session only.
+
+Decisions made without asking:
+
+1. 8 sectors, not 9. The module fits in 31,872 B, so the area is shared 6 + 8 of 12 with no third layout.
+2. The palette packing for the factory programs is only in the module; the built-in engine keeps `P5_FPACK` (its golden renders and the web data do not move).
+3. The interface id was changed once for the three new table members, as the plan said.
+
+Tests: see "Tests added or changed (Seventh run)".
+
+### Sizes and CI (Part 1)
+
+Run 40082370575 (quick, on bd68aca, the device build passed every check): image 499,252 B (77,996 B free), RAM 93,528 B of 98,304 B, pool 176,768 B, audio arena 94,144 B available. SHAPES module 23,784 B of 24,576 B. Prophet module 31,872 B of 32,768 B at start 0 (0xC8000) and 4 (0xCC000), `.data` 0, `.bss` 0; `prophet-0.6.2.ocm` 63,836 B, two variants, state 1,456 B, interface 12f6be4f.
+
+### Part 2: hardening (0.12.2)
+
+**2a. Sanitizers.** `SAN=1 tests/run_tests.sh` builds and runs every host test under AddressSanitizer and UBSan (first finding stops the test). Findings and what was done:
+
+- Left shifts of negative values and `int` overflow in the sound code (`eng_drumx.c`, `eng_shapes.c`, `eng_macro.c`, `eng_drum.c`, `eng_trio.c`, `eng_sid.c`, `drum_sid.c`, `jfx.c`, `phys_symp.c`, `drumx_voice.c`, `braids/pb_analog_r.h`, `pb_dig_c.h`, `pb_digital.h`). Each is now a multiply or an unsigned shift; the arithmetic on the target is the same, so no golden hash moved.
+- `audio_batch.h`: the batch is `_Alignas(8)` (it holds 64-bit members); `smp_slot.c`: an `OC_FEED` fallback macro.
+- Test harness bugs, not firmware: `tests/hostsim.c` wrote one block past its level buffer (slack added); `tests/ota_test.c` read an image shorter than its marker header (now refuses with a message).
+- **Not changed, host artifact:** alignment checks are off in SAN builds (`-fno-sanitize=alignment`). The host arena hands out 4-byte-aligned blocks and `drum909_part_t` (`eng_drum.c`) holds a pointer; the target's 32-bit core has no alignment fault on it. The allocator was not changed.
+- **Environment only, run in CI:** the web package test (`web pages`), `boot packages`, `power cuts`, `M-UPGRADE entry`, `update loader`, `installer CLI` and `ROM USB recovery` need a real `build/melodee.fwsc` and the AC79 SDK; this sandbox has neither (the `.fwsc` is a 0-byte placeholder), so they ran only in CI, not under sanitizers. The `hostsim` TRACKS run under ASan/UBSan finished with no finding (the null function-pointer crash seen once came from the earlier shifts and misalignment and did not return).
+- Result of the sanitizer suite (sound tests skipped, `SOUND=0`): every other job passed after the fixes above.
+
+**2b. Fuzzers.** Five, fixed seeds, `FUZZ_SECONDS` each (default 3) in `run_tests.sh`; a long run is `FUZZ_SECONDS=1800`: `fuzz_lib_group` (scan, migration, leftovers), `fuzz_oc_pack` (boot check and install), `fuzz_oc_module` (every start, planner, install), `fuzz_fw_pages` (page descriptor check) and the new `fuzz_oc_project` (the project record loader: mutated record store and pool chunks, then a save and a power-on). Invariants: no crash or out-of-bounds access, no registration or bank pick that fails its CRC, save and boot still work after any mutation. Long-run mutation counts: see "Fuzzer results" below.
+
+**2c. Static analysis.** See "Static analysis" below.
+
+**2d. Watchdog.** The long loops (module/pack erase and write, scans) feed the watchdog. **2e.** The three install paths (pack, module, project) are refused while the transport runs.
+
+### Part 3: step properties on recorded steps (0.13.0)
+
+Recorded steps can carry RATCH, CHANCE, COND, NUDGE, SLIDE and ACCENT, edited in the tracker's FX column as on typed steps; "NOT ON RECORDED NOTES" is gone. `recording.c` rolls chance and condition once per step per pass, adds the step's nudge to each onset (clamped inside the loop), fires ratchets (part gate `min(gate, part*SGATE/128)`) and flams (grace at `vel*9/16+1`) from a small per-track repeat queue. `step_snapshot_t` already kept these fields, so undo (EDIT held) covers them; the project format is unchanged (the fields were in the step record already).
+
+- RAM: 464 B (`recording_roll` and the 6-entry `recording_rep` per track plus `recording_nudge_sum`). Recorded-step path is "optional bounded" in `tests/target_budget`.
+- Decision: a ratchet or flam on a recorded chord repeats every onset of the step together; accent plays at velocity 127.
+- Tests: `tests/recording_props_test.c` (new), `tests/ui_test.c` (FX edits on recorded steps, undo, save/load).
+
+### Part 4: DRUM-X lane mutes (0.13.1)
+
+ACC held + a lane key on a DRUM-X track mutes or unmutes that lane (`dxe_mute[]` in `eng_drumx.c`); the LANE column shows MUTE. A muted lane is silent and starts no voice. Mutes are not saved (no format change) and are cleared on project load. Nothing else from the DRUM-X wish list was added: the rest needs a new parameter or a format change. Tests: `drumx_test.c` `test_mutes()`, `ui_test.c`.
+
+### Fuzzer results
+
+Long runs, 1,800 s each (30 min), fixed seeds, built with ASan and UBSan (alignment checks off), `FUZZ_SECONDS=1800`, October 24, 2026. **No finding in any of the five** (no crash, no out-of-bounds access, no registration or bank pick that failed its CRC; a save and a power-on worked after every mutated state):
+
+| Fuzzer | Seed | Rounds | Mutations |
+| --- | --- | --- | --- |
+| fuzz_lib_group (scan, migration, leftovers) | 20260612 | 242,662 | 848,657 (727,986 boots, 2,051,178 banks loaded after mutation) |
+| fuzz_oc_pack (boot check, install) | 20260613 | 2,907,339 | 10,172,291 (338,950 packs still good, 2,568,389 refused) |
+| fuzz_oc_module (every start, planner, install) | 20260614 | 4,414,216 | 15,453,085 (2,228,809 modules registered, 1,041,835 starts refused, 3,506,764 installs) |
+| fuzz_fw_pages (page descriptor check) | 20260615 | 192,164,194 | 864,701,987 (26,012,980 mutated images accepted) |
+| fuzz_oc_project (project record loader) | 20260616 | 31,228 | 109,785 (59,611 slots loaded, 2,845 refused, 31,228 saves after) |
+
+The default run in `run_tests.sh` is 3 s each.
+
+### Static analysis
+
+clang `--analyze` (the host test translation units, the module TUs; outputs kept in /tmp/an during the run, not in the repo). cppcheck is not installed here. No finding was a defect that a test reaches; the sanitizer suite (2a) found the real ones. Reviewed, left as they are, one line each (the reasons come from reading the code around each report; none was reproduced, and `storage.c:124` and `oc_project.c:422` were read least closely and are worth a second look):
+
+- `chord.c:128,131` garbage left operand / index past `iv`: `chord_tones` returns at least one tone for a mode in range (the early return above handles the other modes), so `n >= 1`; the analyzer does not follow it.
+- `mod.c:210` uninitialized `off[j]`: `off[j]` is set to 0 when a slot is claimed (line 207); the path the analyzer takes skips that claim and cannot occur.
+- `oc_project.c:422` address of stack `r` kept by static `rd`: `rd` is reset at the start of each call (`ocp_rd` is given `&rd` fresh) and never read after return.
+- `seq.c:147` division by zero: `scale_count` is at least 1 for every scale; the mask has 5 to 12 bits set.
+- `storage.c:124` garbage assigned in `st_crc32`: the table `T` is fully initialized; a path through `n--` with a pointer the analyzer thinks undefined (the callers pass initialized buffers).
+- `ui_draw.c:1043` past the end of `l`: `text_lines` is limited to 3 lines and `l` has 3 entries.
+- `ui_input.c:486,487` past the end of `FAM_BTN`: `cur_fam()` is below the number of families (a modulo in its definition).
+- Dead stores (`g4`, `note`, `n`, `y0`, `y1`, `old`, `flags`, `rc`, `e`): values kept for readability or by the shape of a macro; none is a missing use. Tests only: `editor_test.c:697`, `lib_group_test.c:63,107`, `oc_pack_test.c:86`, `regress.c:975` (fixtures indexed one past the end on purpose or after a bound check).
+
+
+### Before merging (checklist)
+
+1. Full-suite CI on the head is green (no `.ci_quick` at the root), including the host jobs that need the AC79 SDK and a real `.fwsc` (package, power-cut, loader, installer and recovery tests).
+2. `exp/sonnet-noshapes` is merged with the head (merge, no force) and green.
+3. `SAN=1 tests/run_tests.sh` is clean apart from the environment-only jobs listed under Part 2 above.
+4. The long fuzzers have run (`FUZZ_SECONDS=1800`) with no finding; the counts are under "Fuzzer results".
+5. `python3 tools/check_editor_protocol.py` (web/EDITOR_PROTOCOL.md against editor.c's switch, both ways) passes.
+6. Every new or changed source file has the SPDX and copyright lines, a header comment and a Revisions line (this run: `/tmp/addrev.py`-style sweep from the commit history).
+7. CHANGES.md is current, and the two one-way doors are told to whoever merges (library migration at 0.9.1, the module header).
+8. Golden hashes and `tests/target_budget.txt` carry new lines only. Nothing was flashed: the unit checklist in "Left to test (on the unit)" is open.
+9. Tests in `tests/` not run by `run_tests.sh`, on purpose: `audio_job_bench.c`, `pitch_prepare_bench.c`, `recording_bench.c` (benchmarks), `slice_test.c` and `slice_loop.py` (SLICE is retired from the build), `make_fat_fixture.py` (makes the committed card image used by usb_host_test).
+
+### Sizes and CI (Parts 2 to 4)
+
+Run 40089465406 (quick, on ab4a024, the device build passed every check): image 503,856 B (73,392 B free of 577,248 B; +4,604 B since Part 1's run, from Parts 3 and 4 and the hardening), RAM .data+.bss 93,992 B of 98,304 B (+464 B for the recorded-step repeat queues, the rest from the hardening and DRUM-X mutes), pool 176,768 B, audio working arena 93,024 B available (94,144 B before; minimum 49,152). Prophet module 31,872 B of 32,768 B at starts 0 and 4 (unchanged, crc 5f630420 and 0472aa28), SHAPES module 23,784 B of 24,576 B, interface 12f6be4f unchanged. The per-Prophet-track admission and arena figures are not printed by the build; they stay as the budget's p5 lines give them (no new numbers measured).
+
+### Part 6 and the final state
+
+**Part 6 (card as a second transport for the whole set): not started.** It is optional; it needs a new multi-file flow in the card browser (pack, module and firmware from one folder) that cannot be tried without the unit, so it was left rather than built blind. `tests/usb_host_test.c` has no new cases for it.
+
+**Final state.** Full-suite CI on sonnet-work (run 40096354540, no `.ci_quick`): the device build passed every check and the host tests reported no failure (the run's conclusion does not show host-test failures, because the workflow did not gate on them then; since 0.13.2 it does (tests-gate): read the annotations; the first full run, 40095267933, did fail two web tests, from a bad Revisions line in `web/fm1oc.js`, fixed in the next commit). Sizes: image 503,856 B (73,392 B free), RAM 93,992 B of 98,304 B, pool 176,768 B, audio arena 93,024 B. `exp/sonnet-noshapes` merged with the head (merge, no force), run 40097533814: host tests clean, image 480,644 B (96,604 B free), RAM 93,992 B, pool 176,768 B, arena 93,024 B. Documentation commits after those runs change no source.
+
+### Tests added or changed (Seventh run)
+
+- `tests/mod_pages_prophet_test.c` (new, in run_tests.sh; the Orange Cat engine set, sanitizers): the module's real descriptor in the UI: the 15 pages, a column edit through the put hook, the keyed tuning's shown hook, HOME, ENV, LFO, motion recorded and played back, the module going away and returning.
+- `tests/module_host_prophet_test.c`, `tests/module_host_prophet_tu.c` (new): header and wire check; 201 presets through the table equal the built-in engine's renders and the golden file.
+- `tests/mod_pages_test.c`: the new descriptor-check rules.
+- `tests/fuzz_lib_group.c`, `fuzz_oc_pack.c`, `fuzz_oc_module.c`, `fuzz_fw_pages.c` (new, Part 2 below).
+- `web/test_web.mjs`: three starts, the blocker byte, the Prophet stage.
+
+## Eighth run (0.13.2 and 0.13.3, branch sonnet-work, October 24, 2026)
+
+Still not on main, released or flashed. Branch `sonnet-work` only. No tags, no force-push, no format change, no golden or budget line changed.
+
+### Part 1: CI fails when the host tests fail (workflow Rev 14)
+
+The shared workflow `zvenson/fm1-build/.github/workflows/build.yml@v1` cannot be changed, so the gate is in our wrapper. The host-test step writes `build/orangecat-tests-failed.txt` when any test fails. The marker travels in the `packages` artifact, so the packages are kept. A new job, `tests-gate`, reads the marker and fails the run. `pages` needs both `build` and `tests-gate`. The input `tests-block` of the shared build stays `github.ref_type == 'tag'`, so a tag still stops before packaging. `build` stays green by design; the red job is `tests-gate`.
+
+Proof:
+- Red: run #198 (id 40103056411), throwaway branch `exp/sonnet-cifail`, one deliberate failing assert. `build` success, `tests-gate` failure ("ALL HOST TESTS FAILED ... CI gate check: a deliberate assert"), `packages` artifact present.
+- Green: run #199 (id 40103074724), branch `sonnet-work`. `build` and `tests-gate` success.
+
+BUILDING.md has the section "Orange Cat CI runs (the run page)".
+
+### Part 2: where the 11,164 B of flash and the RAM growth came from (0.13.2)
+
+Compared: 549d580 (base, before 0.12.0) and eb101d4 (head of the Seventh run). Numbers are from CI runs (quick, device build), by symbol. The RAM growth is +880 B (the task said about 864).
+
+| Figure | 549d580 | eb101d4 | Change |
+|---|---|---|---|
+| Image | 492,692 B | 503,856 B | +11,164 B |
+| RAM .data+.bss | 93,112 B | 93,992 B | +880 B |
+
+Flash, by section: .text +8,928, .audio_text +2,052, .dsp_tables +128, .data +56 (4 B `__audio_far_*` pointers, mostly). Sum 11,164.
+
+By phase:
+
+| Phase | Flash | RAM |
+|---|---|---|
+| 549d580 to 0.12.0 (pages as data) | +3,328 | +56 |
+| to 0.12.1 (Prophet module and API) | +3,232 | +352 |
+| to eb101d4 (0.12.2 hardening, 0.13.0, 0.13.1) | +4,604 | +464 |
+| Total | +11,164 | +872 |
+| Not attributed to a phase (rounding of merged globals) | 0 | +8 |
+
+By feature group (flash, text and audio text together):
+
+| Contributor | Flash B | Intended or avoidable |
+|---|---|---|
+| Editor and UI (pages, columns, FX column, lane mute, drawing) | +3,458 | Intended |
+| Module loader and overlap rules (oc_module.c, pairs, swap planner) | +3,091 | Intended |
+| Recorded-step properties (RATCH, CHANCE, COND, NUDGE, SLIDE, ACCENT) | +1,860 | Intended |
+| Pages as data (fw_pages.h, descriptor checks) | +1,052 | Intended |
+| Audio batch and worker (base batch code revived by the `fw_batch_push` API member) | +734 | Intended |
+| Motion-native playback | +706 | Intended |
+| Other | +309 | Intended |
+| Padding and alignment | -42 | n/a |
+| Total (symbols +11,206, sections +11,164) | +11,164 | |
+
+RAM, by symbol (CI figure +880 B; the sections give .bss +816 and .data +56 = +872, and 8 B is alignment between the CI figure and the section sum):
+
+| Contributor | RAM B | Intended or avoidable |
+|---|---|---|
+| `recording_rep` 384, `recording_roll` 64, `recording_nudge_sum` 16 (recorded-step repeat queues, 0.13.0) | +464 | Avoidable: used only while stepping a recorded step; moved to `.pool` |
+| `p5_job` (Prophet test job, eng_prophet_test.c) | +288 | Avoidable: moved to `.pool` |
+| Audio batch scalars (8 words), `dxe_mute` | +36 | Intended |
+| `oc_mod` (+16, the registry's new fields), `mod_cell` (8) | +24 | Intended |
+| `.data`: `__audio_far_*` pointers (4 B each, one per audio-text function the UI calls) and one merged group | +56 | Intended |
+| Merged-globals groups (net) and alignment | +12 | n/a |
+| Total | +880 | |
+
+The named .bss items add to 812 B of the 816 B the section grew; the rest is the compiler's merged-globals groups of small statics, which cannot be told apart by name. `audio_batch_jobs` (3,840 B) is in `.audio_scratch` (NOINIT), not in `.data+.bss`.
+
+Recovered (Part 2 work, CI quick runs, device build passed every check):
+
+| Run | Change | Image | RAM .data+.bss | Audio working arena |
+|---|---|---|---|---|
+| (probe b) | eb101d4 (before) | 503,856 B | 93,992 B | 93,024 B |
+| 40104307460 | recording state to `.pool` | 500,936 B | 93,528 B | 92,832 B |
+| 40104878622 | and `p5_job` to `.pool` | 500,936 B | 93,240 B | 92,544 B |
+
+Target RAM under 93,600 B: met (93,240 B). Total audio resources are 125,892 B before and 126,164 B after (both pool). Moving a static into `.pool` lowers the contiguous arena figure by the same bytes and raises the pool use: the total is a fair comparison, the arena figure is not.
+
+The flash fell by 2,920 B as a side effect, not by design. Shrinking `.bss` by 464 B shortened the address encodings of many functions (probe run 40105157873, symbol by symbol): `draw_page` -974, `ui_input` -382, `mix_block` -256, `fm1_main` -108, `edit_param` -102, `draw_columns` -94, `note_transform` -88, and many smaller. Sections: .text -2,656, .audio_text -264. Two more dead bits were removed with it: the unread `lg_erases` and `lg_progs` counters (lib_group.c) and the unused `dx_kit_ok` (drumx_voice.c).
+
+The rest (11,164 B of flash before the recovery, 128 B of RAM after it) is intended: features that shipped.
+
+### Part 3: the two analyzer items (0.13.2)
+
+Both are false positives. No firmware change. Tests added.
+
+- **storage.c:124 (uninitialized byte read when the header CRC is computed).** Claim: a byte of a struct built from mixed-width field stores is read before it is set. The storage header has no padding and every field is set before the CRC runs. Reachable on the unit: no. The path the analyzer follows goes through the header CRC at the `st_save` call and `legacy_put`. Test: `tests/lib_group_test.c` saves under four stack patterns (settings twice, library banks 3 to 5, legacy pairs with the `lg_boot` migration) with simulated NOR. The commit records are equal byte for byte across the patterns and the CRC equals an independent bitwise CRC-32 ("st_crc32 of a commit record: 8 records ... ok").
+- **oc_project.c:422 (a stack address stored in a function-local static).** Claim: `rd` in `ocj_read` outlives the call. `rd` is cleared with memset and set again on every call, and `ocp_check` sets `rd->r` before it reads. Nothing is kept between calls. Reachable on the unit: no. Test: `tests/oc_project_test.c` `test_stack_escape()` poisons the stack between calls (ASan with `detect_stack_use_after_return=1`), runs 132 damaged-sector reads (3 refused) and a missing record. It passes plain and under ASan/UBSan.
+
+### Part 4: dead code the branch added (0.13.2)
+
+Looked at `git diff 4063a29..HEAD`. Base firmware code was not touched.
+
+- Removed: `dx_kit_ok` (drumx_voice.c, set and never read); `lg_erases` and `lg_progs` (lib_group.c, counters nobody read).
+- Kept, with the reason: `dx_hands_step` (HANDS is 0 per the cost file, so it looks dead; it is part of the engine's step table); the `FW_UNUSED` wrappers in engines.c (they are reached through `fw_api_t`, which a module calls).
+
+### Part 5: Install set from the card (0.13.3)
+
+What a player does: copy the .pak, the .ocm and the `*.set.json` into a folder, open the card browser there, OCT+ on the row with the value "Set". The unit checks the set against its own build and all files before it writes anything, then installs the pack and the module(s). "SET INSTALLED". The format, the checks and every message are in `docs/orangecat/SET_FORMAT.md`.
+
+Finding: **the card cannot update the firmware.** The update loader (`ota.c`, "M-UPGRADE") pulls the package from a host over USB SysEx (`ota_session()`), stages the loader at 0xE0000 and resets. No code path reads a .fwsc from the card. So a set installs the pack and the modules only. A set from a newer build says "Update firmware first". The installer page is how the firmware gets updated.
+
+Decisions you may disagree with:
+- One set file per module choice (pack alone, with SHAPES, with the Prophet), because the module area (12 sectors) holds SHAPES (6) or the Prophet (8), never both.
+- A repeat press skips a pack that is already this build's (same hash and length) but installs the modules again. There is no safe test that a module in flash is the same file.
+- The set's `version` is compared as a number with `OC_FW_VERSION`, which is now in the generated `fw_api_id.h` (from the VERSION file). That file reads 0.6.2 on this branch, so sets made on this branch say 0.6.2.
+- `FB_NAME` went from 40 to 48 so that `orangecat-0.6.2-abc1234.prophet.set.json` (40 characters) fits.
+- The manifest reader is a bounded key scanner, not a JSON parser.
+
+Files: `firmware/src/oc_set.h` (new), `card_browse.c`, `oc_module.c` (`oc_mod_pair_fits`), `ui_popup.c`; `tools/oc_manifest.py --set`, `tools/gen_fw_api_id.py`, `web/make_site.py`; workflow Rev 15 writes `<base>.pack.set.json`, `<base>.shapes.set.json`, `<base>.prophet.set.json` into the `packages` artifact.
+
+### Tests added (Eighth run)
+
+- `tests/usb_host_test.c`: section 9. A good set (pack, then module, "SET INSTALLED"); the repeat press (pack skipped); pack only; other-build refusals (interface, table address, pack hash, pack length, newer, older, junk, a path, three modules); a missing pack file; a missing module file; SHAPES and the Prophet together refused; the same module twice refused; transport running ("Stop first"); no place; a cut between the stages (module write fails, the pack stays, the next press does the module only); the in-place question once per module; the manifest reader on every cut of a good manifest and 200,000 mutations (no read outside the buffer; 16,282 mutations still accepted, all plain names). Passes plain and under ASan/UBSan.
+- `tests/orangecat_site_test.py`: set manifest names; the site's set files. 13 tests.
+- `tests/lib_group_test.c`: the stack-pattern block (Part 3). `tests/oc_project_test.c`: `test_stack_escape()` and the ASan option (Part 3).
+- Workflow: the cifail branch and the green run (Part 1).
+
+### Part 6: the unit checklist
+
+The "Left to test (on the unit)" list of the Fourth run now carries, under each step, the exact screen text (grepped from the source), the editor element or button and the page's reply, and the file names of the `packages` artifact, with the sizes known today (pack 40,232 B; SHAPES package 47,660 B; Prophet package 63,836 B). Steps 18 and 19 test Install set. The numbers the unit has to give (migration time, module install time) are still open: nothing was flashed.
+
+### Sizes and CI (Eighth run)
+
+- Run #213 (id 40106999229), full suite, head aca86f8 (0.13.3): `build` and `tests-gate` success, `pages` skipped (not main). Image 503,720 B, RAM .data+.bss 93,240 B of 98,304 B, pool 177,520 B, audio working arena 92,544 B. Part 5 added 2,784 B of flash and no RAM to the 500,936 B image of Part 2.
+- Part 2: before 503,856 B / 93,992 B; after 500,936 B / 93,240 B (runs 40104307460, 40104878622).
+
+### Before merging: changes in this run
+
+- Item 1 now reads: full-suite CI on the head is green **and** `tests-gate` is green (a failing host test now fails the run; the packages are kept). The older remark that host-test failures are not gated is out of date.
+
+## Ninth run (0.13.4, branch sonnet-work, October 24, 2026)
+
+Still not on main, released or flashed. Branch `sonnet-work` only. No tags, no force-push, no format change, no golden or budget line changed (new lines only).
+
+### Part 1: ratchet and flam repeats were dropped (Bug 1)
+
+Cause: `recording_rep[NTRK][6]` held the later hits of a ratchet or flam. When all six entries were in use, `recording_fire` played the first hit and left the rest unscheduled. A ratcheted chord late in a step carried its repeats into the next step, so the second of two adjacent four-note x4 chords played 4, 4, 1, 1 hits.
+
+Fix, design (a), no queue: each event has a record of its own (`recording_rep_at[i]`, the time of its next repeat on the track's repeat clock, and two bits of `recording_flags`, the repeats left). Pending events are a bit each in `recording_rep_bits`; `recording_rep_tick` visits only those. There is nothing to run out of. With none pending it is one compare, cheaper than the six entries it replaced. RAM: 4,096 B for the times, 512 B for the bits, 8 B counts, 16 B clocks, all in the pool; the 384 B queue is gone. The parameters of a repeat are worked out again from the event when it plays (`recording_shape`, the same function the first hit uses).
+
+Tests, each fails on 6d8c3cf and passes now: `tests/recording_props_test.c` `repeats()` (the reviewer's two chords, 4, 4, 4, 4 at the right sample times; the worst case of three adjacent steps of four late notes with nudge, x4, x3 and FLAM mixed; x4 with nudges, 48 hits; a full loop of eight passes with equal counts each pass; the 0.13.0 recorded-step tests unchanged); `tests/ui_test.c` (the same chords set on the tracker).
+
+### Part 2: a damaged file erased a working pack or module (Bug 2)
+
+Cause: `fb_pak_file(dry=1)` and `fb_mod_file(dry=1)` returned after the header reads. The payload CRC, the inner header, the link address and the sector-tail rule were checked only after `oc_pack_begin` or `oc_mod_begin` had erased. A good outer header with a damaged payload passed preflight; an in-place install then erased the module and failed at end.
+
+Fix: the checks are functions that take a reader callback (`oc_rd_t`): `pk_image_check`, `oc_mod_image_check`, `oc_rule_tails`, `oc_mod_hdr_matches`. The installers, the loader and the card share one copy, over flash, a buffer, or the card's file. The card moved its installers to `card_install.c`. The dry pass reads and checks the whole file for the chosen start before anything is erased; the in-place question is asked only after it passes; the set install dry-runs every file and refuses the whole set before its first stage. `oc_mod_end` also checks the page descriptor before its commit. The web page (`fm1oc.js`, `ocmImage`, `packProblem`) checks the payload CRC, the inner header and the tail rule from the file's bytes before it sends BEGIN.
+
+Messages: "Not this build's pack", "Pack file damaged", "Module file damaged", "Module header bad", "Module pages bad", "Update would erase it", "Unreadable".
+
+Tests: `tests/card_install_test.c` (new): a pack with one payload byte flipped, a module with one code byte flipped, a wrong link address, a tail that matches the loader's record rule, a set with one bad file: in every case zero sector erases in the simulated NOR, the old pack or module still registered and usable, and the message. It has a mutation switch (`CIT_NOCHECK`): with the checks off 17 checks fail. `tests/usb_host_test.c` (stubs and the flow), `tests/oc_pack_test.c` and `tests/oc_module_test.c` (the verdict over a buffer equals the verdict over simulated flash), `web/test_web.mjs` and `web/test_installer_set.mjs` (the same cases refused before BEGIN).
+
+### Part 3 (Hardening 1): every place the firmware erases a data-area sector
+
+"Before" is what is verified before the first erase. "After" is what can still fail once erasing has begun. "Less than before" means a working thing is gone and its replacement is refused.
+
+| Site | Before the first erase | Can fail after | Less than before? | Proof |
+|---|---|---|---|---|
+| Asset pack, `oc_pack_begin` .. `oc_pack_end` (`oc_pack.c`) | Length, free state. Card and web check the whole file (magic, version, hash, length, payload CRC, tail rule) first | Power cut or USB loss during the 10 sector copy; end check on a stream that differs from what was checked (the web page cannot see a flipped byte in transit) | Yes in that case: the pack is a single copy, the old pack is gone after BEGIN. The unit shows PACK MISSING | `card_install_test.c`, `oc_pack_test.c`, `test_web.mjs` |
+| Module install, `oc_mod_begin` .. `oc_mod_end` (`oc_module.c`) beside the old one | Header, placement, start, free sectors | End check fails | No: the new module is written beside the old one and only registered at end | `oc_module_test.c`, `card_install_test.c` |
+| Module install in place (the same engine, the only start that fits) | The card checks the whole file, then asks the user (flag 8). The web checks what it can; it cannot read the page descriptor | The end check (page descriptor, tail rule, CRC) fails after the stream | Yes if the web sends a file whose page descriptor is bad: the old module is erased and the new one refused. The unit now checks the pages before its commit but cannot bring the old module back | `oc_module_test.c`, `card_install_test.c` (in place, damaged file refused with no erase) |
+| Set install (`fb_install_set`) | Dry pass over every file of the set; the whole set is refused before its first stage | Each stage is the pack or a module as above | As the stage | `usb_host_test.c`, `card_install_test.c` (set with one bad file: zero erases) |
+| Preset library, `lib_group.c` (23 sectors, one shared spare) | Sector inventory, the record being written | Power cut in a save | No: copy-on-write, the old record stays until the new one is committed with a higher sequence number | `lib_group_test.c` (cut at every flash operation) |
+| Fixed objects, `st_save` (`storage.c`, A/B copies) | Object, length, capacity | Power cut or erase fail while writing the other copy | No: the other copy is written and committed last; the current copy is untouched | `persistence_test.c` `st_cow()` (new: every cut point of a save leaves the old object loadable) |
+| Record store, `ocs_write_copy` (`oc_store.c`: project, pool, freeze) | Type, id, length, source | Power cut, erase fail | No: a new copy is written and committed before the old is released | `oc_store_test.c` (cuts), `oc_pool_test.c`, `oc_project_test.c` |
+| Sample slot, `smp_slot_begin` (`smp_slot.c`) | State and length (`SMP_SLOT_MAX`) | The stream stops, the CRC does not match the header at `smp_slot_end` | Yes: one slot, no spare room, the first sector (the header's) is erased at begin; the old sample is gone. Cannot be pre-checked, since the data comes after. The editor asks first | `smp_slot_test.c` |
+| Backup restore (`editor_backup.c`) | The whole stream is validated first | Power cut between objects | Per object: each object is copy-on-write (`st_save`, the store). Not atomic across objects: a cut leaves some objects restored and some not, none damaged | `backup_test.c` |
+| Wipe (`shared_wipe`, `lg_drop_pairs`, `lg_scrub`) | The user asked; a WIPE-PENDING marker is written first | Power cut | The point is to lose the presets; the marker makes the wipe resume at boot | `lib_group_test.c` (LIBRARY NEEDS WIPE and the wipe's way out) |
+
+What changed because of the table: nothing new in the code beyond Part 2 (the pack and module checks before the erase, the page check before the module commit). Two cases remain by design and are flagged to the user: the sample slot, and the in-place module whose page descriptor only the unit can read.
+
+### Part 4 (Hardening 2): the scheduler under load
+
+`tests/recording_bench.c props [idle|plain|loaded]` runs the real sequencer, without synthesis, block by block (32 samples). The fixture: every track (NTRK is 4 here, not eight) has all 64 steps recorded with four notes (1,024 events, `RECORD_MAX`). PLAIN is the recorded notes alone. LOADED has every property on every step: accent, slide, chance 90, condition NOT FILL, a nudge of -24 to +24, RATCH x2, x3, x4 or FLAM in turn.
+
+Instruction counts (valgrind callgrind over 12,289 blocks; the loaded run plays 3,037 hits, plain 1,024, reproducible):
+
+| Case | Instructions | Per block | Hits |
+|---|---|---|---|
+| idle (no recorded notes) | 14,897,642 | 1,212 | 0 |
+| plain | 36,157,854 | 2,942 | 1,024 |
+| loaded | 85,487,037 | 6,957 | 3,037 |
+
+Above idle, per hit: plain 20.8 k instructions, loaded 23.2 k, so the loaded hit costs 12% more. Host times per block: idle about 150 ns, plain about 350 ns, loaded about 810 ns (the host is not the FM-1 core; the ratio carries over, not the number). Where the loaded case spends it: `recording_shape` 9%, `groove_part` (the nudge) 9%, `recording_active` 5%, `seq_advance` 6% plus the inlined scheduler 34%.
+
+Decision: not optimized. The loaded case plays three times the hits; the cost per block is 2.4 times plain, less than the 3.0 times the hits would give. The 12% per hit is the property work itself (the shape of each hit, the nudge, the chance and condition roll), which plain does not do at all, not a loop that grew. The per-block scan is the same in both cases. The functions `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are in `tests/target_budget.py`; no line in `tests/target_budget.txt` yet: the compiler inlines them (see Sizes and CI).
+
+### Part 5: the unit checklist, two new cases (after step 22)
+
+23. **A damaged file is refused and nothing is erased.** Copy a module file (`.ocm`) to the card and change one byte in the middle with a hex editor. In the card browser press OCT+ on it. *See:* "Module file damaged". Open Engines: the module that was there is still listed and plays. Do the same with the asset pack file: "Pack file damaged", and no PACK MISSING at the next power-on.
+24. **Adjacent ratcheted chords.** Record a four-note chord late in a step (hold the keys, release after the step is half over), the same chord on the next step, set RATCH x4 on both steps and play the loop. *See:* all four notes of both chords play four hits each. Leave it running for eight passes; the count does not change.
+
+### Status (Ninth run)
+
+| Item | Status |
+|---|---|
+| Ratchet and flam repeats never dropped (Bug 1) | Done, host tested |
+| Whole-file check before any erase, card and page (Bug 2) | Done, host tested; not tried on the unit (steps 23 and 24) |
+| Erase table (Hardening 1) | Done: two cases remain by design (sample slot, in-place module page descriptor) |
+| Scheduler under load (Hardening 2) | Done: measured, not optimized, budget lines from CI |
+
+### Sizes and CI (Ninth run)
+
+- Run 40117440506 (id), full suite, head after 1f2bb92: `build` and `tests-gate` success, `pages` skipped (not main). Image 505,312 B (up 1,592 B from 503,720 B: the shared check functions, the card installers, the per-event repeat record code, the web checks are not in it), RAM .data+.bss 93,240 B of 98,304 B (unchanged), pool 181,768 B of 344,064 B (up 4,248 B: the repeat record, 4,096 B of times and 512 B of bits, less the 384 B queue, and the bench-free rest).
+- The first full run (40116507940) failed `tests-gate` on the target budget check: `recording_rep_tick` was in `FUNCS` but inlined, and the check treats a missing function as a failure. The scheduler names are now skipped when absent, like the JFX and DRUM-X ones.
+- No budget line was added. In the target disassembly `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are not kept apart (inlined into `seq_advance`), so there is nothing to measure per function; they stay in `FUNCS`, and a line will be taken from the first CI build that keeps one apart.
 
 ## Phases 8 to 11
 

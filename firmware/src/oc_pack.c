@@ -30,7 +30,10 @@
  *   pack reads as missing, never half installed. oc_pack_erase(): the 10 sectors erased.
  *
  * Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
  *   0.8.0: first version.
+ *   0.13.4: the checks of an image (header, payload CRC, sector tails) take a reader, so the card checks the file it is about to write with the same code the
+ *          installer and the boot check use (oc_rule_tails, pk_payload_crc, pk_image_check): nothing is erased for a file that would be refused at the end.
  *   0.9.1: the library is no longer in this area (lib_group.c): no question about banks, no preset erased, the Prophet objects retired
  *          by the build instead of by the pack's presence; oc_pack_begin(len), oc_pack_erase(), oc_pack_info(len, hash).
  */
@@ -61,17 +64,31 @@ static int pk_record_like(const uint8_t *r)
     uint32_t w = pk_rd16(r);
     return pk_rd16(r + 6) == 0x5441u && w && w == pk_crc16(r + 2, 78u);
 }
-/* sector s of the area: its tail passes the rule. 0 ok, 1 would be erased by an update, -1 the flash would not read */
-static int pk_tail(uint32_t s)
+/* (0.13.4) the bytes of an image at off, for the checks below: 0 ok. The flash (st_read from a base), a buffer or a file on the card all give one. */
+typedef int (*oc_rd_t)(void *ctx, uint32_t off, void *dst, uint32_t n);
+static int oc_rd_flash(void *ctx, uint32_t off, void *dst, uint32_t n) { return st_read(*(const uint32_t *)ctx + off, dst, n); }
+static int oc_rd_buf(void *ctx, uint32_t off, void *dst, uint32_t n) { memcpy(dst, (const uint8_t *)ctx + off, n); return 0; }
+/* The update loader's rule on the sectors of an image laid from a sector boundary and `len` bytes long (erased flash, 0xFF, after its end), nsec sectors counted
+ * from the first: 0 ok; else the sector, counted from 1, whose last 256 bytes would be taken for an update record; -1 when the image would not read. One copy
+ * for the pack (all its sectors, from the flash after the install or from the file before it), a module (oc_mod_tails, the same) and the card's check. */
+static int oc_rule_tails(oc_rd_t rd, void *ctx, uint32_t len, uint32_t nsec)
 {
     uint8_t r[80];
-    if (st_read(OC_PACK_LO + s * 0x1000u + 0x1000u - 0x100u, r, sizeof r)) return -1;
-    return pk_record_like(r);
-}
-static int pk_tails(void)                                    /* every sector's: 0 ok */
-{
-    for (uint32_t s = 0; s < PK_SECTORS; s++) { int r = pk_tail(s); if (r) return r; }
+    for (uint32_t s = 0; s < nsec; s++) {
+        uint32_t at = s * 0x1000u + 0x1000u - 0x100u, k;
+        memset(r, 0xFF, sizeof r);
+        if (at < len) {
+            k = len - at < sizeof r ? len - at : (uint32_t)sizeof r;
+            if (rd(ctx, at, r, k)) return -1;
+        }
+        if (pk_record_like(r)) return (int)(s + 1u);
+    }
     return 0;
+}
+static int pk_tails(void)                                    /* every sector's, as the flash has it: 0 ok */
+{
+    uint32_t base = OC_PACK_LO;
+    return oc_rule_tails(oc_rd_flash, &base, OC_PACK_AREA, PK_SECTORS);
 }
 /* a header read from the area: the build's pack? 0 yes; else the state it makes */
 static uint32_t pk_header_state(const uint8_t *h)
@@ -81,19 +98,38 @@ static uint32_t pk_header_state(const uint8_t *h)
     if (pk_rd32(h + 8) != OC_PACK_HASH || pk_rd32(h + 12) != OC_PACK_LEN) return PK_OTHER;
     return PK_OK;
 }
-/* the payload as the flash has it: its CRC-32 equals the header's */
-static int pk_payload_ok(const uint8_t *h)
+/* the payload as the image has it (rd gives the pack's bytes from offset 0, as the area has them): its CRC-32 equals the header's */
+static int pk_payload_crc(oc_rd_t rd, void *ctx, const uint8_t *h)
 {
     uint8_t buf[256];
     uint32_t crc = 0xFFFFFFFFu, len = pk_rd32(h + 12), off;
     if (len < OC_PACK_HDR || len > OC_PACK_AREA) return 0;
     for (off = OC_PACK_HDR; off < len; off += sizeof buf) {
         uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
-        if (st_read(OC_PACK_LO + off, buf, n)) return 0;
+        if (rd(ctx, off, buf, n)) return 0;
         crc = ocs_crc_add(crc, buf, n);
         SMP_FEED();
     }
     return ~crc == pk_rd32(h + 16);
+}
+static int pk_payload_ok(const uint8_t *h)                   /* ... as the flash has it */
+{
+    uint32_t base = OC_PACK_LO;
+    return pk_payload_crc(oc_rd_flash, &base, h);
+}
+/* (0.13.4) a whole pack image, `size` bytes as rd gives them, checked as oc_pack_end and the boot check will: this build's header (magic, version, header CRC,
+ * hash, length), the size, the payload CRC, the sector tails. 0 ok; 1 not this build's pack; 2 the payload does not match its CRC; 3 a sector tail would be
+ * erased by an update; 4 the image would not read. Writes nothing. */
+static int pk_image_check(oc_rd_t rd, void *ctx, uint32_t size)
+{
+    uint8_t h[OC_PACK_HDR];
+    int t;
+    if (size != OC_PACK_LEN) return 1;
+    if (rd(ctx, 0, h, sizeof h)) return 4;
+    if (pk_header_state(h) != PK_OK || pk_rd32(h + 12) != size) return 1;
+    if (!pk_payload_crc(rd, ctx, h)) return 2;
+    t = oc_rule_tails(rd, ctx, size, PK_SECTORS);
+    return t < 0 ? 4 : t > 0 ? 3 : 0;
 }
 /* the state of the area now; oc_pack_good follows */
 static void oc_pack_scan(void)

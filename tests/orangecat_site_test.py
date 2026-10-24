@@ -166,8 +166,39 @@ class SetSite(unittest.TestCase):
         self.assertIn("async function runSet", html)
         self.assertIn('id="stage-pack"', html)
 
+    def test_the_site_carries_a_set_manifest_per_module_choice(self):
+        """(0.13.3) firmware/orangecat-V.pack.set.json and orangecat-V.NAME.set.json: the build's manifest with the names the site gives its files"""
+        self.build(pak=self.pak, ocms=[self.ocm], manifest=self.man)
+        fw = self.site / "firmware"
+        sets = sorted(p.name for p in fw.glob("*.set.json"))
+        self.assertEqual(sets, ["orangecat-0.6.2.pack.set.json", "orangecat-0.6.2.shapes.set.json"])
+        s = json.loads((fw / "orangecat-0.6.2.shapes.set.json").read_text())
+        self.assertEqual(s["files"], {"pak": "orangecat-0.6.2.pak", "fwsc": "melodee-0.6.2.fwsc", "ocm": ["orangecat-shapes-0.6.2.ocm"]})
+        self.assertEqual(json.loads((fw / "orangecat-0.6.2.pack.set.json").read_text())["files"], {"pak": "orangecat-0.6.2.pak", "fwsc": "melodee-0.6.2.fwsc"})
+        for f in s["files"].values():
+            for n in ([f] if isinstance(f, str) else f):
+                self.assertTrue((fw / n).exists(), n)
+
 
 class Manifest(unittest.TestCase):
+    def test_a_set_manifest_names_its_files(self):
+        """(0.13.3) tools/oc_manifest.py --set: the numbers of the build and the file names; a name with a path or an odd character is refused"""
+        with tempfile.TemporaryDirectory() as d:
+            gen = Path(d)
+            (gen / "oc_pack_tables.h").write_text("#define OC_PACK_HASH 0x657ED950u\n#define OC_PACK_LEN 40232u\n")
+            (gen / "fw_api_id.h").write_text("#define FW_API_ID 0x6865AF16u\n#define FW_API_ADDR 0x02001100u\n")
+            out = gen / "x.set.json"
+            oc_manifest.main_set(out, gen, "a.pak", "a.fwsc", ["m1.ocm"])
+            m = json.loads(out.read_text())
+            self.assertEqual(m["files"], {"pak": "a.pak", "fwsc": "a.fwsc", "ocm": ["m1.ocm"]})
+            self.assertEqual((m["pack_hash"], m["iface"]), (0x657ED950, 0x6865AF16))
+            for bad in ("../a.pak", "dir/a.pak", ".hidden", "a:b.pak", "", "x" * 48, "a\\b.pak", "q\"q.pak"):
+                with self.assertRaises(SystemExit, msg=bad):
+                    oc_manifest.set_manifest({}, bad)
+            with self.assertRaises(SystemExit):
+                oc_manifest.set_manifest({}, "a.pak", None, ["1.ocm", "2.ocm", "3.ocm"])
+
+
     def test_reads_the_generated_headers(self):
         with tempfile.TemporaryDirectory() as d:
             gen = Path(d)

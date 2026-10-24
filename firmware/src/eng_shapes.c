@@ -26,6 +26,7 @@
  * The shapes with delay lines (COMB, PLUCK, BOWED, BLOWN, FLUTE: 8 KB of them) play one at a time.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  *   0.5.2: polyphonic: four voices (SH_POLY) but in the delay line shapes (sh_cap), which share one set of delay lines
  *          (sh_part_t.lines, voice 0's); the pad, keys, bell and choir presets play POLY.
@@ -177,7 +178,7 @@ static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
         if (filtering) y = pl_svf_process(&s->filter, PL_LP, y);
         if (drive > 0.0f) y = pl_soft_clip(y * pre) * post * (1.0f + drive);
         y = y > 1.0f ? 1.0f : y < -1.0f ? -1.0f : y;
-        out[i] += voice_amp((int32_t)(y * 32767.0f) << 1, m, i) << 1;
+        out[i] += voice_amp((int32_t)(y * 32767.0f) * 2, m, i) * 2;
     }
     pl_flush_svf(&s->filter);
     pl_flush(&s->dc_y);

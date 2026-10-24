@@ -1,0 +1,5 @@
+# Orange Cat 0.12.2: the functions of tests/target_budget.txt whose lines make up this module's `cost` word (tools/build.py module_cost).
+# The Prophet's render loops are the module's p5_samples and p5_mod_samples; the budget already has a line for each (measured on the built-in engine in
+# the all-engines build: the same source), so the cost is their sum, 1,075 + 105. No budget line is added or moved by this file.
+p5_samples
+p5_mod_samples

@@ -654,6 +654,27 @@ Keep experimental firmware commits on `nightly`; updating `next` alone does
 not publish a nightly. The workflow routing is also kept on `main` (the
 scheduled definition) and `next` so neither retains the old source or trigger.
 
+## Orange Cat CI runs (the run page)
+
+`.github/workflows/build.yml` (the Orange Cat workflow, revision 14 and later) runs on a push to main, on a version
+tag, and by hand (Actions, build, Run workflow, pick the branch). One run has these jobs:
+
+| Job | What it shows |
+| --- | --- |
+| `build` | The shared builder: toolchain, our build command, the module builds, then the host tests. Its annotations carry the build sizes and checks, the size by engine and area, the module reports and the target budget. |
+| `tests-gate` | Red when any host test failed. Its error annotation repeats the failed tests' summary. Green means every test passed (or the run was a `.ci_quick` run, which has no host tests). |
+| `pages` | Main only: publishes the installer and the editor. It waits for `tests-gate`, so a build whose tests failed is not published. |
+
+A run is red when a host test fails. The `packages` artifact is still on the run page then: the `.fwsc`, the `.pak`, the
+`.ocm` files and the manifest of the build, plus `build/orangecat-tests-failed.txt` (the failed tests' summary and the
+last 150 lines of the test log). A build can be tried while the test is being fixed; the red run says it has a failure.
+The `build` job's own annotation "tests failed" is the same summary. A green run has no `orangecat-tests-failed.txt`.
+
+On a version tag a failing test stops the build job itself: nothing is attested, uploaded or released.
+
+A run on a branch with a `.ci_quick` file at the root builds and reports sizes only (no host tests); it is for size
+measurements and throwaway branches, never for a merge.
+
 ## EQ accelerator experiment
 
 `MELODEE_HW_EQ=1` enables the AC79 hardware EQ backend. It is **off by default**

@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* Host test of firmware/src/ota.c: a fake M-UPGRADE serves a real .fwsc over
  * the SysEx protocol (pack7, cmd 0x30 reads, 0xE0000000 -> "success") and a
  * simulated NOR plays the flash.
@@ -185,6 +188,7 @@ int main(int argc, char **argv)
     raw = malloc(0x200000);
     n = fread(raw, 1, 0x200000, f);
     fclose(f);
+    if (n < 20 * 48 + 1) { printf("%s: image too short (%zu B)\n", argv[1], n); return 2; }
     logical = malloc(n);
     for (i = 0; i < 20; i++) memcpy(logical + i * 47, raw + i * 48, 47);   /* drop the marker bytes */
     memcpy(logical + 20 * 47, raw + 20 * 48, n - 20 * 48);
@@ -296,6 +300,7 @@ int main(int argc, char **argv)
         if (!f) { perror(argv[2]); return 2; }
         n = fread(raw, 1, 0x200000, f);
         fclose(f);
+        if (n < 20 * 48 + 1) { printf("%s: image too short (%zu B)\n", argv[2], n); return 2; }
         free(logical);
         logical = malloc(n);
         for (i = 0; i < 20; i++) memcpy(logical + i * 47, raw + i * 48, 47);

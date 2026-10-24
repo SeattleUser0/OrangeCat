@@ -10,6 +10,11 @@
  * refused while that move has not finished; the loader's tail rule agrees with tools/gen_pack.py's (the same C test on the real pack is in
  * tests/run_tests.sh: python3 tools/gen_pack.py --check).
  * The in-memory tables of the host build stand for the device's (OC_PACK_XIP 0): this test is about the pack's flash life. */
+/* Revisions:
+ * (Orange Cat 0.13.4) pk_image_check over a buffer and over the flash: one verdict
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 #define OC_PACK_GATE 1
 #define OC_PACK_LEN 9000u              /* (three sectors of a made pack; the real one is 40,232 bytes of ten) */
 #define PERSISTENCE_TEST_NO_MAIN
@@ -110,9 +115,10 @@ int main(void)
 
     /* ---- an install */
     {
-        uint32_t before = erases;
+        uint32_t before = erases, f0 = oc_feeds;
         chk("install: the whole of it", install(&rc) == 0 && rc == 0);
         chk("install: erased the ten sectors once", erases - before == PK_SECTORS);
+        chk("install: the watchdog was fed before every erase and through the check of the payload (0.12.2)", oc_feeds - f0 >= PK_SECTORS);
     }
     chk("installed: state OK, the gate open", pk.state == PK_OK && oc_pack_good && OC_PACK_READY());
     chk("installed: the flash holds the pack byte for byte", !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN));
@@ -310,6 +316,36 @@ int main(void)
                 oc_pack_begin(OC_PACK_LEN) == -4 && oc_pack_erase() == -4 && erases == before && !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN));
         }
         lg_incomplete = 0;
+    }
+
+    /* ---- (0.13.4) one copy of the checks: pk_image_check over a buffer (the card's file) and over the flash (the installed image) gives the same verdict for each case */
+    {
+        uint32_t base = OC_PACK_LO, k;
+        struct { const char *what; int want; } C[4] = { { "good", 0 }, { "one payload byte flipped", 2 }, { "a record on sector 0's tail", 3 }, { "another build's hash", 1 } };
+        for (k = 0; k < 4u; k++) {
+            int vb, vf;
+            uint8_t rec[80];
+            char w[160];
+            fresh_flash();
+            make_pack(PAK, OC_PACK_HASH, OC_PACK_LEN);
+            if (k == 1) PAK[(OC_PACK_HDR + OC_PACK_LEN) / 2u] ^= 0x10;
+            if (k == 2) {
+                uint32_t c;
+                for (uint32_t j = 0; j < 80u; j++) rec[j] = (uint8_t)((j * 11u + 5u) | 1u);
+                rec[6] = 0x41; rec[7] = 0x54;
+                c = pk_crc16(rec + 2, 78u); rec[0] = (uint8_t)c; rec[1] = (uint8_t)(c >> 8);
+                memcpy(PAK + 0xF00u, rec, 80);
+                fix_header(PAK, OC_PACK_LEN);
+            }
+            if (k == 3) { make_pack(PAK, OC_PACK_HASH ^ 1u, OC_PACK_LEN); }
+            memset(nor + OC_PACK_LO, 0xFF, OC_PACK_AREA);
+            memcpy(nor + OC_PACK_LO, PAK, OC_PACK_LEN);              /* the image as an installed one would sit in the area */
+            vb = pk_image_check(oc_rd_buf, PAK, OC_PACK_LEN);
+            vf = pk_image_check(oc_rd_flash, &base, OC_PACK_LEN);
+            snprintf(w, sizeof w, "pk_image_check, %s: the file's bytes and the flash's give the same verdict (%d)", C[k].what, C[k].want);
+            chk(w, vb == C[k].want && vf == vb);
+        }
+        fresh_flash();
     }
 
     /* ---- the pack area and the engines' gate on a firmware build without the gate: the tables are the image's */

@@ -1,10 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ */
 /* Native panel descriptors. Editing one field leaves all opaque bytes intact. */
 static const char *const P5_FILTER_NAMES[]={"SSI","CURTIS"};
 static const char *const P5_TRACK_NAMES[]={"OFF","HALF","FULL"};
 static const char *const P5_ASSIGN_NAMES[]={"LOW","LOW RET","LAST","LAST RET"};
+#ifndef OC_MODULE      /* (0.12.1) the UI's own state and its STORE page's descriptors: not in a module (no RAM; the module has no STORE page) */
 static int16_t p5_cell[4],p5_store_slot=1;
+#endif
 #define P5_K(n,l) [n]=PD(l,F_INT,0,127,0)   /* stored knobs span 0..127 */
 #define P5_B(n,l) [n]=PE(l,N_ONOFF,0)
 static const param_desc_t P5_PANEL[88]={
@@ -30,7 +35,9 @@ static const param_desc_t P5_PANEL[88]={
 #undef P5_B
 static const param_desc_t P5_BEND_DISPLAY=PD("BEND",F_INT,1,12,1);
 static const param_desc_t P5_TUNE_DISPLAY[2]={PD("FREQ A",F_SEMI,-12,36,0),PD("FREQ B",F_SEMI,-12,36,0)};
+#ifndef OC_MODULE
 static const param_desc_t P5_STORE[4]={PD("SLOT",F_INT,1,UP_SLOTS,1),PD("STORE",F_INT,0,1,0),PD("SEND",F_INT,0,1,0),PD("INIT",F_INT,0,1,0)};
+#endif
 static int p5_keyed_tune(const track_t *t,uint32_t id)
 {
     return id==P5_FREQ_A || (id==P5_FREQ_B && p5_patch_of(t)->raw[P5_KEY_B]);

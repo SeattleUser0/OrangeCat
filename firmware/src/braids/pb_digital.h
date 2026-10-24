@@ -28,6 +28,7 @@
  * lines keep their sizes. The state is then 8.2 KB (the plucked strings' lines).
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  *   0.5.2: the delay lines out of pb_dig_t, behind a pointer (pb_delay_lines_t): SHAPES' voices share one set.
  */
@@ -121,8 +122,8 @@ static inline void pb_svf_set_mode(pb_svf_t *s, int mode) { s->mode = mode; }
 static inline int32_t pb_svf_process(pb_svf_t *s, int32_t in)
 {
     if (s->dirty) {
-        s->f = pb_interpolate824_u16(pb_lut_svf_cutoff, (uint32_t)(s->frequency << 17));
-        s->damp = pb_interpolate824_u16(pb_lut_svf_damp, (uint32_t)(s->resonance << 17));
+        s->f = pb_interpolate824_u16(pb_lut_svf_cutoff, (uint32_t)((uint32_t)s->frequency << 17));
+        s->damp = pb_interpolate824_u16(pb_lut_svf_damp, (uint32_t)s->resonance << 17);
         s->dirty = 0;
     }
     int32_t f = s->f, damp = s->damp;

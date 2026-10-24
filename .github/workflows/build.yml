@@ -14,13 +14,26 @@
 #   The build itself still writes Melodee's file names (build/melodee-*.fwsc); the build step copies the package to
 #   the Orange Cat name, and only that copy is published.
 #
-# The host tests (tests/run_tests.sh) run after the build. Failures are shown on the run page but do not hold the
-# package back (tests-block: false), so a build can still be installed and tried while tests are being fixed.
+# The host tests (tests/run_tests.sh) run after the build, and a failing test turns the run red (rev 14). The shared
+# builder cannot do that and keep the package: its package upload runs only after a test step that did not fail, and
+# its tests-block input only chooses between "the job stops there, nothing is uploaded" (true) and "the failure is
+# ignored" (false). So the two jobs below split the work:
+#   - build: on a branch or a manual run tests-block is false, so the shared job always goes on to upload the "packages"
+#     artifact. When the host tests fail, the test command (below) still writes the failed tests' summary to the run page
+#     as an error annotation (as before) and also to build/orangecat-tests-failed.txt, which travels in the artifact.
+#   - tests-gate: reads that file from the artifact and fails the run when it is there. The run page then shows the
+#     failure, and the packages artifact is still there, so a build can be tried while a test is being fixed.
+#   On a version tag tests-block is true: a failing test stops the job before anything is attested, uploaded or released
+#   (AGENTS.md: host and web tests are blocking for a release). The pages job waits for tests-gate, so a build whose
+#   tests failed is not published as the installer.
 #
 # Build options are Melodee 1.4.5's release settings (its .github/workflows/release.yml): dual core required, no
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 15 (Orange Cat 0.13.3): build/orangecat-*.set.json, the set manifests for the card (tools/oc_manifest.py --set), join the packages artifact.
+#   Rev 14 (Orange Cat 0.13.2): failing host tests fail the run (job tests-gate; build/orangecat-tests-failed.txt in the artifact); tests-block is true on a tag; pages waits for the gate; the artifact stays on a branch run.
+#   Rev 13 (Orange Cat 0.12.1): the Prophet module (tools/build.py --module prophet, 8 sectors, starts 0 and 4) is built beside SHAPES; its .ocm joins the packages and the site.
 #   Rev 12 (Orange Cat 0.11.2): build/orangecat-*.manifest.json (tools/oc_manifest.py); the pages job gives the site the pack and the modules with the firmware.
 #   Rev 11 (Orange Cat 0.10.0): the module build and its checks (tools/build.py --module) after the build; the .ocm joins the packages.
 #   Rev 10 (Orange Cat 0.8.0): the asset pack (build/orangecat-<name>.pak, tools/gen_pack.py) joins the packages artifact.
@@ -55,7 +68,7 @@ jobs:
       attestations: write
     with:
       sdk: true
-      tests-block: false
+      tests-block: ${{ github.ref_type == 'tag' }}   # (rev 14) false on a branch: the package is still uploaded, and tests-gate fails the run
       build: |
         set -euo pipefail
         # Melodee 1.4.5 release build options (see the header)
@@ -84,9 +97,14 @@ jobs:
         fi
         # (rev 11, Orange Cat 0.10.0) SHAPES as a loadable module (tools/build.py --module shapes): one image for each start of the
         # module area, no .data / .bss, no undefined symbol; build/shapes-<version>.ocm. The report as a notice.
-        modok=0; python3 tools/build.py --module shapes > build/module-report.txt 2>&1 || modok=1
-        echo "::notice title=module shapes::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report.txt)"
-        if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module shapes notice"; exit 1; fi
+        # (rev 13, Orange Cat 0.12.1) and the Prophet (--module prophet): 8 sectors, starts 0 and 4; build/prophet-<version>.ocm
+        modfail=0
+        for m in shapes prophet; do
+          modok=0; python3 tools/build.py --module $m > build/module-report-$m.txt 2>&1 || modok=1
+          echo "::notice title=module $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report-$m.txt)"
+          if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module $m notice"; modfail=1; fi
+        done
+        if [ "$modfail" != 0 ]; then exit 1; fi
         # (rev 3) what the image is made of, by engine and area (tools/size_report.py): the run page, and
         # build/orangecat-size-report.txt in the packages artifact
         rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \
@@ -110,13 +128,23 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then cp build/melodee.pak "build/orangecat-${GITHUB_REF_NAME#v}.pak"
           else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
-        # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm
-        if [ -f build/shapes-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
-          cp build/shapes-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-shapes-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
-        fi
+        # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm; (rev 13) and the Prophet's
+        for m in shapes prophet; do
+          if [ -f build/$m-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
+            cp build/$m-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-$m-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
+          fi
+        done
         # (rev 12, Orange Cat 0.11.2) what the firmware was compiled with (pack hash and length, interface identifier): the pages job checks the pack and the
         # modules against it before the installer offers them with the firmware (tools/oc_manifest.py)
         python3 tools/oc_manifest.py "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.manifest.json"
+        # (rev 15, Orange Cat 0.13.3) the sets for the card (docs/orangecat/SET_FORMAT.md): one manifest per module choice, naming this run's files; they go in
+        # the packages artifact beside the files, and the unit's file browser lists them as "Set" (Install set: the pack, then the module)
+        pk=$(ls build/orangecat-*.pak | head -1); base=$(basename "$pk" .pak); fw=$(ls build/orangecat-*.fwsc | head -1)
+        python3 tools/oc_manifest.py --set "build/$base.pack.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")"
+        for m in shapes prophet; do
+          ocm=$(ls build/orangecat-$m-*.ocm 2>/dev/null | head -1)
+          if [ -n "$ocm" ]; then python3 tools/oc_manifest.py --set "build/$base.$m.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")" --ocm "$(basename "$ocm")"; fi
+        done
       test: |
         set -euo pipefail
         # (gui-slim, temporary) an experiment branch with .ci_quick: the build and its sizes only, no host tests
@@ -135,15 +163,40 @@ jobs:
         echo "::notice title=target budget::$tb"
         if [ "$ok" != 0 ]; then
           # (rev 7) the summary's list of failed steps first (it can be cut off at the end of a long message)
-          msg=$( { awk '/HOST TESTS .*FAILED/{f=1} f' test.log | head -40; echo ----; grep -inE "FAIL|abort|segmentation|assert|traceback|exception" test.log | grep -vE " ok$|0 fail|0 FAIL" | head -30; } \
-                 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+          plain=$( { awk '/HOST TESTS .*FAILED/{f=1} f' test.log | head -40; echo ----; grep -inE "FAIL|abort|segmentation|assert|traceback|exception" test.log | grep -vE " ok$|0 fail|0 FAIL" | head -30; } || true )
+          # (rev 14) the same text, and the log's last lines, in the packages artifact: tests-gate reads it and fails the run. The
+          # shared builder goes on to upload the packages only because tests-block is false on a branch (continue-on-error).
+          { printf '%s\n' "$plain"; echo "---- the last 150 lines of the test log"; tail -n 150 test.log; } > build/orangecat-tests-failed.txt
+          msg=$(printf '%s' "$plain" | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
           echo "::error title=tests failed::$msg"
           exit 1
         fi
       packages: build/orangecat-*
 
-  pages:                                         # (rev 2) the installer with this build, and the editor, on GitHub Pages
+  tests-gate:                                    # (rev 14) the run is red when the host tests failed; the packages artifact is still there
     needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: pkg
+      - name: Host tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=pkg/build/orangecat-tests-failed.txt
+          if [ -f "$f" ]; then
+            msg=$(head -c 60000 "$f" | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
+            echo "::error title=host tests failed (the packages artifact of this run is still available)::$msg"
+            exit 1
+          fi
+          echo "host tests: no failure recorded in the packages artifact"
+
+  pages:                                         # (rev 2) the installer with this build, and the editor, on GitHub Pages
+    needs: [build, tests-gate]                   # (rev 14) not published when the host tests failed
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:

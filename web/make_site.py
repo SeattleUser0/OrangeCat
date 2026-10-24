@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Revisions:
+# (Orange Cat 0.11.2) the installer page installs firmware, pack and module in one go
+# (Orange Cat 0.12.2) web tests for the Prophet package, modBlocked and the swap planner; check_set checks module images against their sectors (test added); gen_fw_api_i...
 """Make the site (GitHub Pages):
 
   index.html                        redirect to the installer (the old URL keeps working)
@@ -133,6 +136,11 @@ def check_set(pak, ocms, manifest):
             raise SystemExit(f"{ocm}: interface {iface:08x} at {api_addr:#x} is not the firmware's ({info['iface']:08x} at {info['api_addr']:#x})")
         if mhash != phash:
             raise SystemExit(f"{ocm}: reads pack {mhash:08x}, the pack file is {phash:08x}")
+        sectors = struct.unpack_from("<I", b, 52)[0]            # (0.12.2) the module's size in sectors of the 12 sector area (SHAPES 6, the Prophet 8): every image fits it,
+        for k in range(n):                                       # and starts, in sectors from the area's first, leave room for it
+            start, length, _, off = struct.unpack_from("<IIII", b, 56 + 16 * k)
+            if not 1 <= sectors <= 12 or length > sectors * 4096 or start + sectors > 12 or off + length > len(b):
+                raise SystemExit(f"{ocm}: image {k + 1} (start {start}, {length} B) does not fit the module's {sectors} sectors of the 12 sector area")
     return info
 
 
@@ -278,6 +286,20 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     (inst / "index.html").write_text(html, encoding="utf-8")
     if pkg.resolve() != (fw / name).resolve():
         shutil.copy(pkg, fw / name)
+    if set_files:                                   # (0.13.3) the sets for the card: the manifest of this build with the names the site gives its files, one per module choice
+        info = json.loads(Path(manifest).read_text())
+        for old_set in fw.glob(f"orangecat-{v}.*.set.json"):
+            old_set.unlink()
+        choices = {"pack": []}
+        for fname in set_files:
+            m = re.fullmatch(r"orangecat-([a-z0-9]+)-.*\.ocm", fname)
+            if m:
+                choices[m[1]] = [fname]
+        for choice, ocm in choices.items():
+            files = {"pak": f"orangecat-{v}.pak", "fwsc": name}
+            if ocm:
+                files["ocm"] = ocm
+            (fw / f"orangecat-{v}.{choice}.set.json").write_text(json.dumps({**info, "files": files}, indent=2) + "\n")
     (fw / "release.json").write_text(json.dumps(release_meta, indent=2) + "\n")
     (fw / "releases.json").write_text(json.dumps(releases, indent=2) + "\n")
     if nightly_meta:

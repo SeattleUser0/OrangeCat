@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ */
 /* HOME's second page (HOME tapped on Stage; HOME there again: Stage): what plays as a picture, the chord in the middle. A wheel of the
  * twelve notes in fifths (C at the top), the song's key on it (its notes marked, its root larger): the notes sounding
  * on the tracks in use lit in their track's colour, joined into the chord's shape, the chord's root ringed; in the

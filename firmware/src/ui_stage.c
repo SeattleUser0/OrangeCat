@@ -16,6 +16,8 @@
  * alone; the band follows the scope every other frame, drawn last (the SPI, 12 MHz, sends it while the next frame is
  * worked out: a blit right after it would wait for it, lcd_window).
  * Revisions (Orange Cat):
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
  *   0.5.6: a track on a frozen phrase (card_freeze.c) is greyed with a blue tint, its role "FROZEN": its notes cannot
  *          be edited until it is unfrozen (MIXER, KNOB 3 left).
  */

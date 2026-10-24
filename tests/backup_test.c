@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.8.1) why five preset tests failed locally. They fail only when built with tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off): the...
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 /* The editor's full backup (editor_backup.c: LIST / GET / PUT) against simulated NOR flash:
  * CRC before any write, stale runtime copies, USB resets and timeouts, malformed objects, older
  * project formats, settings values and user preset banks kept byte for byte. */
@@ -516,6 +521,16 @@ int main(void)
         audio_lab_guard=0;
     }
 #endif
+    /* (0.12.2, Part 2e) a restore is refused while the transport runs: begin, chunk and commit all say 3 (busy), nothing is written, and it works once stopped */
+    {
+        uint32_t before = erases;
+        song.playing = 1;
+        bad += check("a restore while the transport runs is refused (begin, chunk, commit: 3), nothing erased",
+                     put_begin(1, sizeof ps, st_crc32(&ps, sizeof ps)) == 3u && put_chunk(1, 0, (const uint8_t *)&ps, 16) == 3u && put_end(1, 2) == 3u && erases == before);
+        song.playing = 0;
+        bad += check("..and stopped, the same restore goes through", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0u);
+    }
+
     printf("backup test %s\n", bad ? "FAILED" : "passed");
     return (bad + expanded_bad) != 0;
 }

@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.7.0) text in Melodee Pixel alone. The Rubik faces, kerning, phases and the Huffman decoder are gone (fonts 31,353 B to 1,447 B), with Settings > FONT; g...
+ * (Orange Cat 0.7.2) a manual overwrite of a recorded step deletes the step's events through the step history (events_delete_view in seq_undo.c, one history entry each,...
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ */
 /* MELODEE user interface.
  * Flat: SURF cards and panels on the palette's background, no rules, one type family (Rubik, three sizes), tracks
  * named by circled numerals. Four columns <-> KNOB 1..4. Rendering is lazy:
@@ -1021,6 +1027,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_ED_FLT] = pr->fenv;
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
     if((MELODEE_P5 && t->eng_req == ENGI_PROPHET))p5_preset_loaded(t,pi);
+    { const fw_pages_t *mp = pages_of_engine(t->eng_req); if (mp && mp->loaded) mp->loaded(t, pi); }   /* (0.12.1) a module's engine takes its patch from the preset */
     if (MELODEE_CZ) { cz_factory_loaded(t); cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
     if (MELODEE_FM6) fm6_track_loaded(t);             /* FM6: the preset's patch (Orange Cat: MELODEE_FM6) */
     load_end(t);

@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ */
 /* An engine's EDIT pages in sections (docs/design README "Sound pages, fast", mock/r7_sound_nav): Prophet's Osc,
  * Mixer, Filter ..; FM6's Algo, OP1 .. OP6 (the operator pages, once per operator: fm6_opsel), Pitch, LFO, Ctrl; CZ-1's
  * Line, Line 1, Pitch 1 ..; Store and Tools last. PRESETS jumps a section (to the page last used in it), SELECT turns

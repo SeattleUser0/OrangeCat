@@ -76,6 +76,7 @@
     <p><label><input type="checkbox" id="stage-fw" checked> <span data-t="stageFw"></span></label></p>
     <p><label><input type="checkbox" id="stage-pack" checked> <span data-t="stagePack"></span></label><br><span class="small" data-t="packWhy"></span></p>
     <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
+    <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
     <p class="small" id="set-note"></p>
   </fieldset>
   <p><button id="go" disabled data-t="install"></button></p>
@@ -178,8 +179,9 @@ const TEXT = {
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
-    stagesTitle: "インストールする内容", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール",
+    stagesTitle: "インストールする内容", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール", stageProphet: "Prophetモジュール",
     packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "モジュールが無くても今は変わりません（SHAPESはファームウェアに内蔵されています）。",
+    prophetWhy: "Prophetモジュール(32 KB)はSHAPESモジュールと一緒には入りません。どちらか一方を選んでください。もう一方が入っているときは、先に消してください。",
     noPackFile: "このリリースにはパックのファイルがありません。", noModFile: "このリリースにはモジュールのファイルがありません。",
     nothingChosen: "インストールする内容を選んでください。",
     unitWait: "FM-1が戻るのを待っています", unitProbe: "FM-1の中身を確認しています", packWorking: "パックを書き込み中", modWorking: "モジュールを書き込み中",
@@ -188,10 +190,10 @@ const TEXT = {
     sOldfw: "このファームウェアにはパックのコマンドがありません。ページをもう一度開いて、もう一度押してください",
     sNounit: "FM-1が見つかりません。USBを挿し直して、ページをもう一度開いて押してください",
     ocLost: "USBの接続が切れました。挿し直してもう一度押してください。", ocBusy: "FM-1が応答しません。もう一度押してください。",
-    packWrongBuild: "このパックはこのファームウェア用ではありません。", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした",
+    packWrongBuild: "このパックはこのファームウェア用ではありません。", packDamaged: "このパックのファイルは壊れています。", packTail: "このパックはアップデートで消えてしまう領域があるため入れられません。", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした",
     packOldFw: "先にファームウェアを0.9.1以降に更新してください。", packRestart: "本体を再起動してもう一度お試しください。",
     modWrongFile: "モジュールのファイルではありません。", modWrongFw: "このモジュールはこのファームウェア用ではありません。", modNoVariant: "本体の空き場所に合うイメージがありません。",
-    modNoFree: "モジュールを入れる空きがありません。", modTail: "このモジュールにはアップデートで消されるセクターがあります。入れていません。", modStop: "先に再生を止めてください",
+    modNoFree: "モジュールを入れる空きがありません。", modBlocked: "エンジン{name}のモジュールがスタート{n}に入っています。先に消してください。", modTail: "このモジュールにはアップデートで消されるセクターがあります。入れていません。", modHdrBad: "このモジュールの内部ヘッダが正しくありません。", modDamaged: "このモジュールのファイルは壊れています。", modStop: "先に再生を止めてください",
     modRestart: "本体を再起動してもう一度お試しください。", modUnreadable: "書き込みましたが正しく読み戻せません。もう一度入れてください。", modFail: "モジュールを入れられませんでした",
     modDeclined: "モジュールは入れませんでした。", modInPlaceConfirm: "ほかに空きがないため、今入っているモジュールを先に消してから書き込みます。書き込み中に電源が切れると、モジュールは無くなります（入れ直せます）。続けますか？",
     license: "GPL-3.0、無保証。ソース:",
@@ -255,8 +257,9 @@ const TEXT = {
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
-    stagesTitle: "What to install", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module",
+    stagesTitle: "What to install", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module", stageProphet: "Prophet module",
     packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "Without the module nothing changes today: SHAPES is still built into the firmware.",
+    prophetWhy: "The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
     noPackFile: "This release has no pack file.", noModFile: "This release has no module file.",
     nothingChosen: "Choose something to install.",
     unitWait: "Waiting for the FM-1 to come back", unitProbe: "Checking what the FM-1 has", packWorking: "Writing the pack", modWorking: "Writing the module",
@@ -265,10 +268,10 @@ const TEXT = {
     sOldfw: "this firmware has no pack commands. Open this page again and press Install again",
     sNounit: "the FM-1 was not found. Replug USB, open this page again and press Install again",
     ocLost: "The USB connection was lost. Replug it and press Install again.", ocBusy: "The FM-1 is not answering. Press Install again.",
-    packWrongBuild: "This pack is not for this firmware.", packStop: "Stop playback first", packFail: "The pack could not be installed",
+    packWrongBuild: "This pack is not for this firmware.", packDamaged: "This pack file is damaged.", packTail: "A sector of this pack would be erased by a firmware update, so it was not installed.", packStop: "Stop playback first", packFail: "The pack could not be installed",
     packOldFw: "Update the firmware to 0.9.1 or later first.", packRestart: "Restart the unit and try again.",
     modWrongFile: "This is not a module file.", modWrongFw: "This module is not for this firmware.", modNoVariant: "This module file has no image for the free place in the unit.",
-    modNoFree: "No place is free for the module.", modTail: "A sector of this module would be erased by a firmware update, so it was not installed.", modStop: "Stop playback first",
+    modNoFree: "No place is free for the module.", modBlocked: "ENGINE {name} INSTALLED AT START {n}: REMOVE IT FIRST", modTail: "A sector of this module would be erased by a firmware update, so it was not installed.", modHdrBad: "This module's own header does not match the file or the unit.", modDamaged: "This module file is damaged.", modStop: "Stop playback first",
     modRestart: "Restart the unit and try again.", modUnreadable: "The module was written but does not read back correctly. Install it again.", modFail: "The module could not be installed",
     modDeclined: "The module was not installed.", modInPlaceConfirm: "No other place is free, so the module that is in the unit is erased first. If the power is cut during the write there will be no module (install it again). Continue?",
     license: "GPL-3.0, no warranty. Source:",
@@ -302,12 +305,29 @@ const selection = () => {     /* the release, or a channel ("nightly-dual": meta
 };
 /* (0.11.2) what the chosen release offers beside the firmware: its pack and its module packages (the site build, web/make_site.py) */
 const offered = () => { const c = selection().channel || {}; return {pak: c.pak || "", ocm: c.ocm || []}; };
+/* (0.12.1) the module packages by engine (the file name: orangecat-shapes-VER.ocm, orangecat-prophet-VER.ocm). The two do not fit in the unit together: one stage is on at a time,
+ * and the choice lives in this variable for the session only (nothing is stored) */
+const ocmKind = (u) => /orangecat-prophet-/.test(u) ? "prophet" : "shapes";
+const ocmOf = (kind) => offered().ocm.filter(u => ocmKind(u) === kind);
+let modChoice = "shapes";
+function modStages() {
+  const sh = ocmOf("shapes").length > 0, pr = ocmOf("prophet").length > 0;
+  if (modChoice === "prophet" && !pr) modChoice = "shapes";
+  if (modChoice === "shapes" && !sh && pr && $("stage-prophet").checked) modChoice = "prophet";
+  $("stage-mod").checked = $("stage-mod").checked && modChoice === "shapes" && sh;
+  $("stage-prophet").checked = $("stage-prophet").checked && modChoice === "prophet" && pr;
+}
+$("stage-mod").addEventListener("change", () => { if ($("stage-mod").checked) { modChoice = "shapes"; $("stage-prophet").checked = false; } });
+$("stage-prophet").addEventListener("change", () => { if ($("stage-prophet").checked) { modChoice = "prophet"; $("stage-mod").checked = false; } });
 function stageNote() {
   const o = offered(), notes = [];
   if (!o.pak) notes.push(t("noPackFile"));
   if (!o.ocm.length) notes.push(t("noModFile"));
   $("set-note").textContent = notes.join(" ");
-  ["stage-pack", "stage-mod"].forEach(id => { $(id).disabled = writing || (id === "stage-pack" ? !o.pak : !o.ocm.length); });
+  $("stage-pack").disabled = writing || !o.pak;
+  $("stage-mod").disabled = writing || !ocmOf("shapes").length;
+  $("stage-prophet").disabled = writing || !ocmOf("prophet").length;
+  modStages();
 }
 const ready = () => { lastKey = "ready"; $("status").textContent = `Orange Cat ${selection().channel.version} (${t(build() + "Tag")})`; };
 const log = (t) => { const box = $("log"); box.textContent += t + "\n"; box.scrollTop = box.scrollHeight; };
@@ -336,7 +356,7 @@ const lockInstaller = (on) => {
   writing = on; $("release").disabled = on; $("go").disabled = on || !image;
   buildIds.forEach(k => { $("build-" + k).disabled = on; });
   $("stock-go").disabled = on || !stock;
-  ["stage-fw", "stage-pack", "stage-mod"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !offered().ocm.length); });
+  ["stage-fw", "stage-pack", "stage-mod", "stage-prophet"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length); });
   ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
 };
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
@@ -416,7 +436,9 @@ const getFile = async (url) => {
   return new Uint8Array(await r.arrayBuffer());
 };
 // the summary: one line a stage
-const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : (TEXT[lang][v.error] || v.error);
+/* (0.12.1) "ENGINE X INSTALLED AT START N: REMOVE IT FIRST": detail is "engine:start" (fm1oc.js installModule); only a module engine can be in the way */
+const blockedText = (detail) => { const [e, s] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", {14: "SHAPES", 19: "PROPHET"}[+e] || "#" + e).replace("{n}", s); };
+const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : v.error === "modBlocked" ? blockedText(v.detail) : (TEXT[lang][v.error] || v.error);
 function summaryText(sum) {
   const lines = [t("sumFw") + ": " + sumWord(sum.firmware), t("sumPack") + ": " + sumWord(sum.pack)];
   (sum.module.length ? sum.module : ["off"]).forEach((m) => lines.push(t("sumMod") + ": " + sumWord(m)));
@@ -426,7 +448,8 @@ function summaryText(sum) {
 $("go").addEventListener("click", async () => {
   if (writing || !image) return;
   const ch = selection().channel, product = ch.product, o = offered();
-  const stages = {firmware: $("stage-fw").checked, pack: $("stage-pack").checked && !!o.pak, module: $("stage-mod").checked && o.ocm.length > 0};
+  const modules = $("stage-prophet").checked ? ocmOf("prophet") : $("stage-mod").checked ? ocmOf("shapes") : [];   /* (0.12.1) one module stage at a time */
+  const stages = {firmware: $("stage-fw").checked, pack: $("stage-pack").checked && !!o.pak, module: modules.length > 0};
   if (!stages.firmware && !stages.pack && !stages.module) { sayK("nothingChosen"); return; }
   lockInstaller(true);
   let midi;
@@ -435,7 +458,7 @@ $("go").addEventListener("click", async () => {
   const files = {pack: null, modules: []};
   try {                                   // everything is fetched before the first byte is written
     if (stages.pack) files.pack = await getFile(o.pak);
-    if (stages.module) files.modules = await Promise.all(o.ocm.map(getFile));
+    if (stages.module) files.modules = await Promise.all(modules.map(getFile));
   } catch (e) { sayK("loadfail", e.message); lockInstaller(false); return; }
   try {
     const sum = await runSet({
@@ -453,6 +476,7 @@ $("go").addEventListener("click", async () => {
     $("bar").value = 100;
   } catch (e) {
     if (e && e.code === "wrongloader") refuseLoader(e.detail);
+    else if (e && e.code === "modBlocked") say(blockedText(e.detail));
     else if (e && e.code && TEXT[lang][e.code]) sayK(e.code, e.detail || "");
     else sayK("error", e && e.message);
     log(String(e && e.stack || e));

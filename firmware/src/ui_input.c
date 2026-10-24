@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.7.2) one event edit primitive: event_open, event_replace, event_delete in seq_undo.c carry the sequence (end and close the pending edit, interrupts off,...
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
+ * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
+ */
 /* Melodee UI input: LEDs, knobs and buttons, SEQ step entry, panel setup. */
 #include "ui_name.c"                                    /* NAME: naming user presets and projects */
 #include "ui_new.c"                                     /* NEW SONG: key, tempo, roles */
@@ -889,6 +895,13 @@ static void grid_keys(uint32_t pressed)
             else
                 grid_hit(TSEL, i, ui.lane, 2);
             cursor_set((int32_t)i);
+        } else if (p < NLANE && MELODEE_DRUMX && TSEL->eng_req == ENGI_DRUMX && black_held(GK_ACC)) {   /* (0.13.1) ACC + a lane key: that lane's mute (performance state) */
+            char m[24];
+            uint32_t on = dxe_mute_toggle(song.sel, p);
+            str_cpy(m, drum_lane_name(TSEL, p), sizeof m);
+            str_cpy(m + str_len(m), on ? " MUTED" : " ON", sizeof m - str_len(m));
+            ui_message(m);
+            ui.force = 1;
         } else if (p < NLANE) {
             drum_pick_lane(p);
             if((MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT))ui.note_pick=0;
@@ -1013,7 +1026,7 @@ static void tracker_mono_note(const track_t *t, const step_t *st)
  * knobs edit the column's note through NOTES' own event editor (notes_event_edit), so an edit here and one on NOTES
  * are the same operation with the same undo. KNOB 3 in a note column the pitch, in VEL the velocity (of the note last
  * picked in a note column, else the first); KNOB 4 the length, a step a detent (NOTES' KNOB 3 and ENV for finer);
- * the FX column: CHANCE and SLIDE (what a recorded step keeps), the others are a manual step's. 1: handled here */
+ * the FX column: all of the step's effects (0.13.0: they apply to its recorded notes as a group, recording.c). 1: handled here */
 static int tracker_event_edit(track_t *t, uint32_t col, uint32_t slot, int32_t steps)
 {
     uint32_t cursor = ui.cursor % NSTEP, e;
@@ -1023,13 +1036,15 @@ static int tracker_event_edit(track_t *t, uint32_t col, uint32_t slot, int32_t s
         if (chain_busy() || live_rec_sel()) { ui_message("STOP TO EDIT"); return 1; }
         if (frz_locked()) return 1;
         fm1_irq_off();
-        switch (ui.tk_fx % TFX_N) {
+        switch (ui.tk_fx % TFX_N) {                     /* (0.13.0) all of a step's effects: they apply to its notes as a group (recording.c) */
+        case TFX_RATCH: step_set_rflam(st, (uint32_t)clamp((int32_t)step_rflam(st) + steps, 1, 5)); break;
         case TFX_CHANCE:
             step_set_chance(st, (uint32_t)clamp((int32_t)step_chance(st) + list_accel(EN_K4, steps, 101, 0), 0, 100));
             break;
+        case TFX_COND: step_set_cond(st, (uint32_t)clamp((int32_t)st->cond + steps, 0, TC_COUNT - 1)); break;
+        case TFX_NUDGE: step_set_nudge(st, st->nudge + steps); recording_resched(t); break;
         case TFX_SLIDE: if (steps > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE; break;
-        default: fm1_irq_on(); ui_message("NOT ON RECORDED NOTES"); return 1;   /* (RATCH, FLAM, a condition, NUDGE,
-                                                                                * the accent: a manual step's) */
+        default: if (steps > 0) st->flags |= SF_ACCENT; else st->flags &= (uint8_t)~SF_ACCENT; break;
         }
         fm1_irq_on();
         return 1;
@@ -1117,6 +1132,26 @@ static int tracker_delete(void)
         notes_pick(t, e);
         notes_delete_edit();
         if (ui.tk_col && notes_nth(t, ui.cursor % NSTEP, ui.tk_col) >= RECORD_MAX) ui.tk_col--;
+        return 1;
+    }
+    if (col == TKC_FX && notes_nth(t, ui.cursor % NSTEP, 0) < RECORD_MAX) {   /* (0.13.0) a recorded step's effect: off */
+        if (chain_busy() || live_rec_sel()) { ui_message("STOP TO EDIT"); return 1; }
+        st = &t->step[recording_view(t, &recording[notes_nth(t, ui.cursor % NSTEP, 0)])];
+        step_history_end();
+        step_history_finish();
+        fm1_irq_off();
+        switch (ui.tk_fx % TFX_N) {
+        case TFX_RATCH: step_set_rflam(st, 1); break;
+        case TFX_CHANCE: step_set_chance(st, 100); break;
+        case TFX_COND: step_set_cond(st, TC_NONE); break;
+        case TFX_NUDGE: step_set_nudge(st, 0); recording_resched(t); break;
+        case TFX_SLIDE: st->flags &= (uint8_t)~SF_SLIDE; break;
+        default: st->flags &= (uint8_t)~SF_ACCENT; break;
+        }
+        fm1_irq_on();
+        str_cpy(m, TFX_NAME[ui.tk_fx % TFX_N], sizeof m);
+        str_cpy(m + str_len(m), " OFF", sizeof m - str_len(m));
+        ui_message(m);
         return 1;
     }
     if (at >= NSTEP || col == TKC_VEL)

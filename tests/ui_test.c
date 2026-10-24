@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.13.4) two adjacent recorded chords with RATCH x4 set on the tracker play every hit in each pass (the repeat queue of 0.13.0 dropped some)
+ * (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
+ * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
+ */
 /* Host test of the UI (firmware/src/ui*.c with the sound sources of hostsim.c;
  * the display and the HAL are stubs, the buttons and knobs are driven through them):
  *   SOUNDS     a sound load (PRESETS knob / page, Init sound, user preset) changes the sound only: the
@@ -31,6 +36,10 @@
 #include <stdint.h>
 static uint32_t host_slots[3u * 0x14000u / 4u];          /* USR1..3 (zero: empty), as the flash at 0xA0000 */
 #define SMP_USER_XIP(k) ((const uint8_t *)host_slots + (k) * SMP_USER_SIZE)
+static uint32_t ui_hits[128];                      /* (0.13.4) recording.c's hits by note: the ratchet tests */
+#ifndef RECORDING_HIT_HOOK                         /* (a bench that includes this file counts its own) */
+#define RECORDING_HIT_HOOK(t, i, vel, gate, late) (ui_hits[recording[i].note & 127u]++)
+#endif
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -301,6 +310,16 @@ static uint8_t stored_note(uint32_t slot, uint32_t track, uint32_t step)
     return proj_import(&p, &proj_slot[slot], sizeof proj_slot[slot]) ? p.t[track].step[step].note[0] : 0;
 }
 static int msg_is(const char *s) { return ui.msg_t && str_eq(ui.msg, s); }
+static int msg_has(const char *s)                       /* (0.13.1) the message contains s */
+{
+    if (!ui.msg_t) return 0;
+    for (uint32_t i = 0; ui.msg[i]; i++) {
+        uint32_t k = 0;
+        while (s[k] && ui.msg[i + k] == s[k]) k++;
+        if (!s[k]) return 1;
+    }
+    return 0;
+}
 static void my_steps(track_t *t)                  /* "recorded" steps */
 {
     uint32_t i;
@@ -1330,6 +1349,25 @@ static int test_drumx(void)
     tap_key(key_at(1, 0));
     tap_key(key_at(0, 2));
     bad += check("  black key 1 then white key 3: KICK on step 3", t->step[2].hit == 1u << DV_KICK);
+    {   /* (0.13.1) ACC held and a lane key: that lane's mute (performance state), the selected lane kept */
+        uint32_t lane0 = ui.lane, steps_before = t->step[2].hit;
+        fm1_in.notes |= 1u << key_at(1, GK_ACC);
+        frame();
+        tap_key(key_at(1, DV_HATC));
+        fm1_in.notes |= 1u << key_at(1, GK_ACC);
+        ok = dxe_muted(0, DV_HATC) == 1u && ui.lane == lane0 && t->step[2].hit == steps_before && msg_has("MUTED");
+        tap_key(key_at(1, DV_HATC));
+        fm1_in.notes |= 1u << key_at(1, GK_ACC);
+        ok &= dxe_muted(0, DV_HATC) == 0u && msg_has(" ON");
+        tap_key(key_at(1, DV_TOM));
+        fm1_in.notes = 0;
+        frame();
+        ok &= dxe_muted(0, DV_TOM) == 1u;
+        tap_key(key_at(1, DV_HATC));                    /* (ACC up: a lane key selects the lane, no mute) */
+        ok &= ui.lane == DV_HATC && dxe_muted(0, DV_HATC) == 0u && dxe_muted(0, DV_TOM) == 1u;
+        bad += check("ACC held + a lane key toggles that lane's mute (MUTED / ON), the lane selected stays, no step changes; a lane key alone only selects", ok);
+        dxe_mute_clear();
+    }
     /* the LANES pages show on a DRUM-X track and not on a MACRO track */
     go_title("LANES");
     ok = page_visible(ui.page) && cur_page()->id[0] == P_LN0;
@@ -1381,6 +1419,11 @@ static int test_drumx(void)
     t->eng_req = ENGI_MACRO;
     project_load(0);
     bad += check("a project keeps a DRUM-X track and its kit (engine 9, preset 4)", t->eng_req == ENGI_DRUMX && t->preset == 4u);
+    dxe_mute_toggle(0, DV_SNARE);
+    project_save(0);
+    dxe_mute_toggle(0, DV_KICK);
+    project_load(0);
+    bad += check("lane mutes are performance state: a project load puts every lane back on (they are not in the project)", dxe_muted(0, DV_SNARE) == 0u && dxe_muted(0, DV_KICK) == 0u);
     return bad;
 }
 
@@ -4350,10 +4393,53 @@ static int test_tracker_events(void)
     turn(EN_K3, 1);                                     /* (CHANCE) */
     turn(EN_K4, -3);
     ok = ui.tk_fx == TFX_CHANCE && step_chance(&t->step[2]) < 100u;
-    turn(EN_K3, -1);                                    /* (RATCHET: a manual step's) */
+    turn(EN_K3, -1);                                    /* (RATCHET: since 0.13.0 a recorded step's too, as a group) */
     turn(EN_K4, 1);
-    ok &= step_rflam(&t->step[2]) == 1u && msg_is("NOT ON RECORDED NOTES");
-    bad += check("TRACKER: FX on a recorded step: CHANCE works, RATCHET is refused", ok);
+    ok &= step_rflam(&t->step[2]) == 2u && !msg_is("NOT ON RECORDED NOTES");
+    bad += check("TRACKER: FX on a recorded step: CHANCE and RATCHET both edit the step", ok);
+    {   /* (0.13.0) every effect edits the recorded step, EDIT tapped in FX turns the picked one off, EDIT held (the history) takes the turn back */
+        step_t *q = &t->step[2];
+        uint32_t fx;
+        ok = 1;
+        for (fx = TFX_COND; fx <= TFX_ACCENT; fx++) {
+            uint32_t j = 2u - tk_first(), before;
+            ui.tk_fx = (uint8_t)fx;
+            ui.tk_col = TKC_FX;
+            frame(); before = tkv.row[j];
+            turn(EN_K4, fx == TFX_ACCENT ? 1 : 2);
+            frame();
+            ok &= tkv.row[j] != before;                 /* (the overview's hash has every effect in it: the row is redrawn) */
+        }
+        ok &= q->cond == TC_COUNT - 1u || q->cond == 2u;
+        ok &= q->nudge == 2 && (q->flags & SF_ACCENT) && !msg_is("NOT ON RECORDED NOTES");
+        ui.tk_fx = TFX_NUDGE; press(B_EDIT);
+        ok &= q->nudge == 0 && (q->flags & SF_ACCENT) && msg_is("NUDGE OFF");
+        ui.tk_fx = TFX_ACCENT; press(B_EDIT);
+        ok &= !(q->flags & SF_ACCENT);
+        ui.tk_fx = TFX_RATCH; press(B_EDIT);
+        ok &= step_rflam(q) == 1u;
+        ui.tk_fx = TFX_COND; press(B_EDIT);
+        ok &= q->cond == TC_NONE;
+        ui.tk_fx = TFX_CHANCE; press(B_EDIT);
+        ok &= step_chance(q) == 100u && q->flags & SF_RECORDED;
+        hold(B_EDIT);
+        ok &= step_chance(q) < 100u;                    /* (the history: the last edit taken back) */
+        bad += check("TRACKER: every FX edits a recorded step and redraws its row; EDIT turns the picked one off; EDIT held undoes one", ok);
+        {   /* (0.13.0) the properties are in the project: saved and loaded back with the recorded step */
+            step_t *z = &t->step[2];
+            step_set_rflam(z, 3); step_set_cond(z, 4u); step_set_nudge(z, -7); z->flags |= SF_ACCENT; step_set_chance(z, 60u);
+            step_t want = *z;
+            project_save(0);
+            memset(z, 0, sizeof *z);
+            project_load(0);
+            z = &t->step[2];
+            ok = (z->flags & SF_RECORDED) && step_rflam(z) == 3u && z->cond == want.cond && z->nudge == want.nudge && (z->flags & SF_ACCENT) &&
+                 step_chance(z) == 60u;
+            bad += check("TRACKER: a recorded step's effects survive a project save and load", ok);
+            frame(); cursor_set(2); frame();            /* (a load puts the cursor at the start) */
+        }
+        ui.tk_col = TKC_N1;
+    }
     ui.tk_col = TKC_N1;
     press(B_EDIT);
     ok = 1;
@@ -4363,6 +4449,30 @@ static int test_tracker_events(void)
     hold(B_EDIT);
     ok &= notes_nth(t, 2, 2) < RECORD_MAX;
     bad += check("TRACKER: EDIT in N1 deletes that recorded note alone; EDIT held brings it back", ok);
+    {   /* (0.13.4) two adjacent recorded chords of four notes with RATCH x4 set on the tracker, the first late in its step: no repeat is dropped (the 0.13.0
+         * queue held six: the second chord's last notes played once) */
+        recorded_note_t n4 = {.on = 49152, .vel = 100, .duration = 8192, .owner = (uint8_t)recording_owner(t), .length = 1};
+        uint32_t s5, k;
+        stop_transport();
+        memset(ui_hits, 0, sizeof ui_hits);
+        for (k = 0; k < 4; k++) {
+            n4.step = 5; n4.note = (uint8_t)(70u + k); recording_restore_note(t, 8u + k, n4);
+            n4.step = 6; n4.on = 0; n4.note = (uint8_t)(74u + k); recording_restore_note(t, 12u + k, n4); n4.on = 49152;
+        }
+        t->step[5].time = t->step[6].time = ST_NOTE; t->step[5].flags = t->step[6].flags = SF_RECORDED;
+        note_rebuild_all();
+        for (s5 = 5; s5 <= 6; s5++) {
+            cursor_set(s5); frame();
+            ui.tk_col = TKC_FX; ui.tk_fx = TFX_RATCH;       /* (the FX column, RATCH) */
+            turn(EN_K4, 3);                                  /* (x4: the amount from off, three steps) */
+        }
+        ok = step_rflam(&t->step[5]) == 4u && step_rflam(&t->step[6]) == 4u;
+        seq_start(); seq_advance(0);
+        for (k = 0; k < 2u * recording_loop(t, seq_div_samples((uint32_t)t->p[P_SDIV])); k++) seq_advance(1);
+        for (k = 0; k < 8; k++) ok &= ui_hits[70u + k] == 8u;  /* (two passes of four hits) */
+        stop_transport();
+        bad += check("TRACKER: RATCH x4 on two adjacent recorded chords: every note plays all four hits, in each of two passes", ok);
+    }
     ui.tk_col = TKC_N1;
     return bad;
 }

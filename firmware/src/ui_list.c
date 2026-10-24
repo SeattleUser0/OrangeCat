@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ */
 /* List pages (docs/design README "Pages: lists or knobs", mock/r6_pages SCL): the pages one sets and leaves as a list,
  * a row a setting: KNOB 2 the row, KNOB 1 its value, OCT+ a list value's whole list (SCL's Scale: the SCALES page),
  * OCT- Stage. Only what has more than four settings (Kerem, 2026-10-11: four or fewer are a page's own four knobs;

@@ -9,6 +9,7 @@ Mutable Instruments' Plaits (plaits/resources.cc) and stmlib (stmlib/dsp/units.c
 The eurorack checkout needs its stmlib submodule. The output is committed: the build does not run this.
 
 Revisions:
+# (Orange Cat 0.8.0) the asset pack. The 57 constant tables of SHAPES and MACRO (40,232 bytes) move out of the image into a pack stored in the Prophet bank area (0x9300...
   0.8.0: the tables are declared OC_TBL(type, name)[n] (firmware/src/oc_pack.h): in the device build they are read in place
          from the asset pack (tools/gen_pack.py). The committed output was changed by hand to match.
   0.5.0: first version.

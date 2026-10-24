@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ */
 /* Shared, synchronous progress for boot maintenance. No timer IRQ, audio or
  * normal UI loop is needed: flush the warning before any flash write begins.
  * Errors remain on screen until acknowledged; callers retain their write guards. */

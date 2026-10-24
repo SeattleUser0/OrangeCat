@@ -6,6 +6,7 @@
  * ALGORITHM the track. Swing (PHRASE, TEMPO) still applies on top. Included by ui_draw.c.
  *
  * Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
  *   0.4.5: first version.
  */
 #define GV_NAME_Y H_HEAD                                /* the name and the amount: 30 .. 89 */

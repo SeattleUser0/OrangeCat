@@ -14,6 +14,7 @@ The groups are estimates: shared helpers an engine uses are counted where their 
 Used for Orange Cat build doc phase 3 (strip Melodee's engines): the cost of each engine before it is removed.
 
 Revisions:
+# (Orange Cat 0.7.0) text in Melodee Pixel alone. The Rubik faces, kerning, phases and the Huffman decoder are gone (fonts 31,353 B to 1,447 B), with Settings > FONT; g...
   0.1.3 (Orange Cat 0.5.1): groups for the MACRO (Plaits port) and SHAPES (Braids port) engines.
   0.1.2: SRAM-resident code (.audio_text and the rest copied at boot) counted in flash and RAM; 909 (d9_) and
          drum sample kit (dsk) names in the DRUM group; all RAM sections listed.

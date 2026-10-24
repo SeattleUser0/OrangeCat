@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.9.0) DRUM-X, Jiant FM's drum engine, in engine slot 9; the loadable-engine interface identifier.
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* DRUM: synthesized TR-808 circuits, eight mono lanes per part, with GM note mapping.
  * Retriggers reuse a lane's voice; closed hats choke open hats. Key release does not end a hit.
  * KIT retains stored value 4 for existing patches. All older custom kits now use the 808.
@@ -445,7 +449,7 @@ static void drum_render_into(track_t *t,voice_t *v,int32_t *out,uint32_t n,const
         if (g)
             s = (softclip((s * g) >> 12) * mk) >> 15;
         s = voice_amp(soft_knee(s + (s >> 2), 24000), m, i);
-        out[i] += s << 1;
+        out[i] += s * 2;
     }
 }
 

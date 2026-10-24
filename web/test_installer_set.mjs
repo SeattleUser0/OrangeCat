@@ -5,6 +5,7 @@
 //
 // Revisions:
 //   0.11.2: first version.
+//   0.13.4: the module images carry a sealed inner header (the page checks it); cases for a damaged pack or module refused before BEGIN (13b).
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {bkCrc, bkPack} from "./fm1backup.js";
@@ -22,8 +23,24 @@ function makePack(hash = PHASH, len = PLEN) {
   const out = new Uint8Array(len); out.set(h); out.set(body, 512); return out;
 }
 // an .ocm with an image for each start (0 and 6)
-function makeOcm({iface = IFACE, packHash = PHASH, engine = ENGINE, version = VER, imgLen = 0x400, tail = false} = {}) {
-  const imgs = [0, 6].map((s) => { const a = new Uint8Array(imgLen); a.set([0x4F, 0x4D, 0x4F, 0x44]); new DataView(a.buffer).setUint32(44, version, true); a[100] = s; if (tail) { a[3840 + 6] = 0x41; a[3840 + 7] = 0x54; } return a; });
+function makeOcm({iface = IFACE, packHash = PHASH, engine = ENGINE, version = VER, imgLen = 0x400, tail = false, flipCode = false, linkOff = 0, stateSize = 1234} = {}) {
+  const imgs = [0, 6].map((s) => {
+    const a = new Uint8Array(imgLen);
+    for (let k = 0x100; k < imgLen; k++) a[k] = (k * 7 + s) & 255;
+    if (tail) {                                                    // a real update record (0.13.4: the page's rule needs the CRC word right too)
+      for (let k = 0; k < 80; k++) a[3840 + k] = ((k * 11 + 5) | 1) & 255;
+      a[3840 + 6] = 0x41; a[3840 + 7] = 0x54;
+      let c = 0; for (let i = 2; i < 80; i++) { c ^= a[3840 + i] << 8; for (let k = 0; k < 8; k++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF; }
+      a[3840] = c & 255; a[3841] = c >> 8;
+    }
+    /* (0.13.4) the inner header (fw_mod_hdr_t) as build.py seals it: the page checks it before the unit is asked to erase */
+    const h = new DataView(a.buffer), link = (0x020C4000 + s * 4096) >>> 0;
+    h.setUint32(0, 0x444F4D4F, true); h.setUint32(4, iface, true); h.setUint32(8, 100, true); h.setUint32(12, 1, true); h.setUint32(16, API, true); h.setUint32(20, engine, true);
+    h.setUint32(24, stateSize, true); h.setUint32(28, link + 0x180, true); h.setUint32(32, link + linkOff, true); h.setUint32(36, packHash, true); h.setUint32(44, version, true);
+    h.setUint32(48, imgLen, true); h.setUint32(52, bkCrc(a.subarray(0x100)), true); h.setUint32(56, bkCrc(a.subarray(0, 56)), true);
+    if (flipCode) a[0x180] ^= 1;
+    return a;
+  });
   const n = 2, tab = 56, hc = tab + 16 * n, off0 = hc + 4, out = new Uint8Array(off0 + imgLen * 2), dv = new DataView(out.buffer);
   dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, n, true); dv.setUint32(8, iface, true); dv.setUint32(12, API, true);
   dv.setUint32(16, engine, true); dv.setUint32(20, 1234, true); dv.setUint32(24, packHash, true);
@@ -196,6 +213,30 @@ const mono = (m) => m.every((v, i) => i === 0 || v >= m[i - 1]) && m.at(-1) === 
   assert.equal(p.pack.state, 1); assert.equal(p.pack.hash, PHASH); assert.equal(p.mod.iface, IFACE);
   assert.ok(moduleCurrent(OCM.parse(makeOcm()), p.engines));
   assert.ok(!moduleCurrent(OCM.parse(makeOcm({version: VER + 1})), p.engines), "another version is not current");
+}
+// 13b. (0.13.4) a damaged file is refused by the page before the unit is asked to begin (no 116 / 121 sent, so the unit erases nothing): the pack with a payload byte flipped
+// and a good header, the pack with a record on a sector tail, a module with a code byte flipped, a module whose inner header has a wrong link address, a module with a record on a tail
+{
+  const crc16 = (b, from, to) => { let c = 0; for (let i = from; i < to; i++) { c ^= b[i] << 8; for (let k = 0; k < 8; k++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF; } return c; };
+  const withRecord = (p, at) => {                                  // an update record on the tail at `at`, then the header made right again
+    for (let k = 0; k < 80; k++) p[at + k] = ((k * 11 + 5) | 1) & 255;
+    p[at + 6] = 0x41; p[at + 7] = 0x54;
+    const c = crc16(p, at + 2, at + 80); p[at] = c & 255; p[at + 1] = c >> 8;
+    const dv = new DataView(p.buffer); dv.setUint32(16, bkCrc(p.subarray(512)), true); dv.setUint32(508, bkCrc(p.subarray(0, 508)), true);
+    return p;
+  };
+  const flipped = makePack(); flipped[2000] ^= 0x10;
+  let u = makeUnit(), r = await run(u, ALL, {pack: flipped, modules: [makeOcm()]});
+  assert.deepEqual(r.sum.pack, {error: "packDamaged"}); assert.ok(!u.sent.includes(116) && !u.sent.includes(117));
+  u = makeUnit(); r = await run(u, ALL, {pack: withRecord(makePack(), 0xF00), modules: [makeOcm()]});
+  assert.deepEqual(r.sum.pack, {error: "packTail"}); assert.ok(!u.sent.includes(116) && !u.sent.includes(117));
+  for (const [opt, key] of [[{flipCode: true}, "modDamaged"], [{linkOff: 0x1000}, "modHdrBad"], [{stateSize: 0}, "modHdrBad"], [{imgLen: 5000, tail: true}, "modTail"]]) {
+    u = makeUnit({pack: "current"}); r = await run(u, ALL, {pack: makePack(), modules: [makeOcm(opt)]});
+    assert.deepEqual(r.sum.module, [{error: key}], JSON.stringify(opt));
+    assert.ok(!u.sent.includes(121) && !u.sent.includes(122) && !u.sent.includes(123), "no BEGIN, WRITE or END for " + JSON.stringify(opt));
+  }
+  u = makeUnit({pack: "current"}); r = await run(u, ALL, {pack: makePack(), modules: [makeOcm()]});      // and the good one goes through
+  assert.deepEqual(r.sum.module, ["installed"]);
 }
 // 14. the .ocm reader is the editor's own text
 {
