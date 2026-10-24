@@ -4350,10 +4350,53 @@ static int test_tracker_events(void)
     turn(EN_K3, 1);                                     /* (CHANCE) */
     turn(EN_K4, -3);
     ok = ui.tk_fx == TFX_CHANCE && step_chance(&t->step[2]) < 100u;
-    turn(EN_K3, -1);                                    /* (RATCHET: a manual step's) */
+    turn(EN_K3, -1);                                    /* (RATCHET: since 0.13.0 a recorded step's too, as a group) */
     turn(EN_K4, 1);
-    ok &= step_rflam(&t->step[2]) == 1u && msg_is("NOT ON RECORDED NOTES");
-    bad += check("TRACKER: FX on a recorded step: CHANCE works, RATCHET is refused", ok);
+    ok &= step_rflam(&t->step[2]) == 2u && !msg_is("NOT ON RECORDED NOTES");
+    bad += check("TRACKER: FX on a recorded step: CHANCE and RATCHET both edit the step", ok);
+    {   /* (0.13.0) every effect edits the recorded step, EDIT tapped in FX turns the picked one off, EDIT held (the history) takes the turn back */
+        step_t *q = &t->step[2];
+        uint32_t fx;
+        ok = 1;
+        for (fx = TFX_COND; fx <= TFX_ACCENT; fx++) {
+            uint32_t j = 2u - tk_first(), before;
+            ui.tk_fx = (uint8_t)fx;
+            ui.tk_col = TKC_FX;
+            frame(); before = tkv.row[j];
+            turn(EN_K4, fx == TFX_ACCENT ? 1 : 2);
+            frame();
+            ok &= tkv.row[j] != before;                 /* (the overview's hash has every effect in it: the row is redrawn) */
+        }
+        ok &= q->cond == TC_COUNT - 1u || q->cond == 2u;
+        ok &= q->nudge == 2 && (q->flags & SF_ACCENT) && !msg_is("NOT ON RECORDED NOTES");
+        ui.tk_fx = TFX_NUDGE; press(B_EDIT);
+        ok &= q->nudge == 0 && (q->flags & SF_ACCENT) && msg_is("NUDGE OFF");
+        ui.tk_fx = TFX_ACCENT; press(B_EDIT);
+        ok &= !(q->flags & SF_ACCENT);
+        ui.tk_fx = TFX_RATCH; press(B_EDIT);
+        ok &= step_rflam(q) == 1u;
+        ui.tk_fx = TFX_COND; press(B_EDIT);
+        ok &= q->cond == TC_NONE;
+        ui.tk_fx = TFX_CHANCE; press(B_EDIT);
+        ok &= step_chance(q) == 100u && q->flags & SF_RECORDED;
+        hold(B_EDIT);
+        ok &= step_chance(q) < 100u;                    /* (the history: the last edit taken back) */
+        bad += check("TRACKER: every FX edits a recorded step and redraws its row; EDIT turns the picked one off; EDIT held undoes one", ok);
+        {   /* (0.13.0) the properties are in the project: saved and loaded back with the recorded step */
+            step_t *z = &t->step[2];
+            step_set_rflam(z, 3); step_set_cond(z, 4u); step_set_nudge(z, -7); z->flags |= SF_ACCENT; step_set_chance(z, 60u);
+            step_t want = *z;
+            project_save(0);
+            memset(z, 0, sizeof *z);
+            project_load(0);
+            z = &t->step[2];
+            ok = (z->flags & SF_RECORDED) && step_rflam(z) == 3u && z->cond == want.cond && z->nudge == want.nudge && (z->flags & SF_ACCENT) &&
+                 step_chance(z) == 60u;
+            bad += check("TRACKER: a recorded step's effects survive a project save and load", ok);
+            frame(); cursor_set(2); frame();            /* (a load puts the cursor at the start) */
+        }
+        ui.tk_col = TKC_N1;
+    }
     ui.tk_col = TKC_N1;
     press(B_EDIT);
     ok = 1;

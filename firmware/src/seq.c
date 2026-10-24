@@ -1437,6 +1437,7 @@ static void seq_tick(track_t *t, uint32_t n)
     if (!song.playing) { seq_grid_tick(t, n); return; }
     if (t->seq_pos >= 0x7FFFFFFFu) {
         seq_grid_tick(t, n);
+        memset(recording_rep[trk_index(t)], 0, sizeof recording_rep[0]);   /* (0.13.0) a start: no ratchet of the last run goes on */
         recording_zero(t);
         return;
     }
