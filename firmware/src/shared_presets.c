@@ -1,5 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.8.0) the asset pack. The 57 constant tables of SHAPES and MACRO (40,232 bytes) move out of the image into a pack stored in the Prophet bank area (0x9300...
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ */
 /* Shared-slot adapters and conversion of the immediately preceding formats.
  * Only the main loop accesses banks. Audio keeps independent track patches. */
 static int up_favorite(uint32_t k)

@@ -3,6 +3,12 @@
 # Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Copyright (C) 2026 ChoralRoot FM-1 contributors
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Revisions:
+# (Orange Cat 0.7.0) text in Melodee Pixel alone. The Rubik faces, kerning, phases and the Huffman decoder are gone (fonts 31,353 B to 1,447 B), with Settings > FONT; g...
+# (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+# (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+# (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+# (Orange Cat 0.12.2) fuzzers for the library group, the pack and the module loader; the loser of two modules no longer erases the winner's sectors; module link overflow...
 """Build Melodee: the app, the update loader and an installable .fwsc package.
 
   tools/build.py [--release X.Y[.Z][-suffix]]

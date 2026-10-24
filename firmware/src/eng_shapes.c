@@ -26,6 +26,7 @@
  * The shapes with delay lines (COMB, PLUCK, BOWED, BLOWN, FLUTE: 8 KB of them) play one at a time.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  *   0.5.2: polyphonic: four voices (SH_POLY) but in the delay line shapes (sh_cap), which share one set of delay lines
  *          (sh_part_t.lines, voice 0's); the pad, keys, bell and choir presets play POLY.

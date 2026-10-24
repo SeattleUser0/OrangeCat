@@ -10,6 +10,8 @@
 //   and the user-sample pipeline byte for byte against tools/sampleio.py
 // - fm1pkg.js: productOf and logicalImage on build/melodee.fwsc (skipped without a build)
 // - fm1ota.js: a full install and an unplug during the write against a simulated FM-1
+// Revisions:
+// (Orange Cat 0.12.2 the Prophet package, modBlocked and the swap planner; 0.12.0 the Engines table (swap plan))
 
 import * as OC from "./fm1oc.js";   // (0.11.2) the installer page calls runSet and OcLink, which make_site.py inlines
 import { execFileSync } from "node:child_process";

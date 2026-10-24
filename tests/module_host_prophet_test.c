@@ -15,6 +15,7 @@
  *   build/host/module_host_prophet_test [golden file]
  *
  * Revisions:
+ * (Orange Cat 0.12.2) fw_pages_check bounds what param_format reads; fuzz_fw_pages; fuzzers in run_tests.sh; the module link overflow lists the biggest symbols
  *   0.12.1: first version.
  */
 #define REGRESS_MODULE_HOST 1

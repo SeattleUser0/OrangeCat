@@ -44,6 +44,7 @@
  * lighter models (Orange Cat always runs the full ones), the modulation matrix's bus destinations, USB stems.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.6.0: first version (Jiant 0.9.18's effects).
  */
 #define JFX_XIP __attribute__((section(".text.xip_jfx"), noinline))

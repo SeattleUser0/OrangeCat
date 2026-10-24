@@ -33,6 +33,7 @@
  * Sample rate: 44.1 kHz. Pitch is exact; the models' own times (decays) are 8.8 % longer than on the module.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.0: first version.
  *   0.5.2: polyphonic: four voices (MC_POLY) but in PARTCL and STRING (mc_cap); a voice's state apart (mc_vhead_t, the
  *          model's in mc_part_t.m.small[voice]); the pad, keys, chord and bell presets play POLY. HARP (a 15th model,

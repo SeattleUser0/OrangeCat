@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Revisions:
+# (Orange Cat 0.11.2) the installer page installs firmware, pack and module in one go
+# (Orange Cat 0.12.2) web tests for the Prophet package, modBlocked and the swap planner; check_set checks module images against their sectors (test added); gen_fw_api_i...
 """Make the site (GitHub Pages):
 
   index.html                        redirect to the installer (the old URL keeps working)

@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.2) eng_trio left shift of a negative value written as a multiply (SAN)
+ */
 /* TRIO: three oscillators with ring modulation and hard sync into a 12 dB/oct multimode
  * filter, in the style of the sound chips of early 8-bit home computers. Melodee's own design.
  *

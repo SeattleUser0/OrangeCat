@@ -34,6 +34,9 @@
  *   Only while stopped. The browser closes on success ("MODULE INSTALLED").
  *
  * Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
  *   0.6.1: first version.
  *   0.8.0: .PAK files listed and installed.
  *   0.10.0: .OCM files listed and installed.

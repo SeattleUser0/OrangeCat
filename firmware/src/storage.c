@@ -14,6 +14,8 @@
  *   st_read(off, dst, n)   st_erase(off)   st_prog(off, src, n)
  *
  * Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) module area comments say 12 sectors; migration wall time from the part's data sheet and the driver's limits
  *   0.12.2 (Orange Cat): OC_FEED(), the one watchdog feed of the long flash operations (below); every erase of the library group feeds it.
  *   0.9.1 (Orange Cat): the user preset library moved out of the PACK and MODULE areas into a group of 23 sectors with one shared
  *          spare (lib_group.c, included at the end of this file). Handles OBJ_LIB0 + bank (22) are the group's banks; the old

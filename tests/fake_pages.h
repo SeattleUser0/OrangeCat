@@ -5,6 +5,9 @@
  * Included after the firmware (it needs track_t, param_desc_t and the F_ formats). A "Prophet in the Orange Cat set" stand-in: eight native
  * parameters (one a hole), four pages, the ENV and LFO tab lists, the hooks (a shown value, a put, a dim). Host pointers (8 bytes): the UI reads these
  * as structs; the wire check (fw_pages_check) is tested on bytes built by hand in mod_pages_test.c. */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ */
 #pragma once
 static uint8_t fp_blk[16][96];                    /* the tracks' native blocks, byte i = panel index i */
 static uint32_t fp_put_calls, fp_put_id;

@@ -10,6 +10,7 @@ ratio (eng_shapes.c), so they stay right. The wavetables (wt_waves, 33 KB, and w
 with PB_WAVETABLES. The output is committed: the build does not run this.
 
 Revisions:
+# (Orange Cat 0.8.0) the asset pack. The 57 constant tables of SHAPES and MACRO (40,232 bytes) move out of the image into a pack stored in the Prophet bank area (0x9300...
   0.8.0: the tables are declared OC_TBL(type, name)[n] (firmware/src/oc_pack.h): in the device build they are read in place
          from the asset pack (tools/gen_pack.py) and the array here is dropped; the wavetables keep `static const`.
          The committed output was changed by hand to match; regenerate with this version to get the same file.

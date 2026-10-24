@@ -12,6 +12,10 @@
  *     Prophet is kept while no module is there and checked against the module's panel when one is;
  *   - removing the module takes the pages away and the track keeps its (silent) engine number.
  * Built with tools/orangecat_engines.sh's switches (run_tests.sh), under the sanitizers. */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) fw_pages_check bounds what param_format reads; fuzz_fw_pages; fuzzers in run_tests.sh; the module link overflow lists the biggest symbols
+ */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 #include "fake_pages.h"

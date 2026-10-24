@@ -29,6 +29,7 @@
  * division, so the parity test is unaffected.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  */
 #pragma once

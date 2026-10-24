@@ -21,6 +21,9 @@ generator so that no literal flash address appears in firmware/src (tools/build.
 build checks the linked image against it, and a module carries it in its header (api_addr) as checked data.
 
 Revisions:
+# (Orange Cat 0.10.0) fw_api_t at a fixed address, no RAM in the module (0.10.0)
+# (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+# (Orange Cat 0.12.2) web tests for the Prophet package, modBlocked and the swap planner; check_set checks module images against their sectors (test added); gen_fw_api_i...
   0.9.0: first version.
   0.10.0: FW_API_ADDR in the header.
   0.12.2: the self-test also moves page_t, fw_pages_t, the first and the last member the Prophet module added to fw_api_t, and a preprocessor line in a structure.

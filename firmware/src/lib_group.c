@@ -61,6 +61,8 @@
  *     bank whose group copy survived with a sequence at or above the pair's keeps the group copy, and the pair is erased as a leftover.
  *
  * Revisions:
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  *   0.9.1: first version.
  *   0.11.1: a save whose read-back fails after the header was programmed erases the sector (or, if that fails too, moves lg_seq past it):
  *           the failed save no longer appears after a reset and no later save shares its sequence; lg_seq is 0 for a bank with no copy and

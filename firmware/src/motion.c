@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ */
 /* Sparse, bounded step automation. Main-loop writes publish under the same
  * interrupt guard as parameter batches. The ISR only scans 64 fixed records.
  * p[] is the sounding value; motion_base_value() is the patch's saved value. */

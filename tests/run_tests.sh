@@ -87,6 +87,9 @@
 #                   --quick renders scores through Dexed's own code and FM6 and reports sample differences (strict parity predates the fp32 port).
 # Change baseline entries only for reviewed, intentional differences in sound or cost;
 # retain every unaffected golden / CPU / target entry. VERBOSE=1: every render.
+# Revisions:
+# (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+# (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 cd "$(dirname "$0")/.."
 # Pillow's Raqm (text spacing, renders): macOS strips DYLD_* on the way into /bin/sh (build.sh)

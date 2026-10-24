@@ -28,6 +28,8 @@
  * The preset list and the names are the engine_t's own (npresets, preset_make, in the module's code): nothing more is needed here.
  *
  * Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) fw_pages_check bounds what param_format reads; fuzz_fw_pages; fuzzers in run_tests.sh; the module link overflow lists the biggest symbols
  *   0.12.0: first version. FAM_, SC_, GR_ and page_t moved here from params.c (unchanged); SC_MOD added at the end of SC_.
  *   0.12.1: version 2 (68 bytes): the hooks loaded, env_source and bend and the cc list, which the Prophet needs to be a module (its patch follows the preset, its
  *           envelope is the matrix's ENV source, its patch sets the MIDI wheel's range, MIDI CC 72, 73, 75 edit its amplitude envelope).

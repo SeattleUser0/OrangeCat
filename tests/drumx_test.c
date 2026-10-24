@@ -20,6 +20,7 @@
  * Printed (not checked): the sizes of the part state.
  *
  * Revisions:
+ * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
  *   0.9.0: first version.
  *   0.13.1: lane mutes (11).
  */

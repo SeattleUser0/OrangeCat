@@ -13,6 +13,8 @@
  * half done (first half of the bytes) or an erase half done (junk).
  *
  * Revisions: 0.9.1: first version.
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  */
 #include <stdint.h>
 #include <stdio.h>

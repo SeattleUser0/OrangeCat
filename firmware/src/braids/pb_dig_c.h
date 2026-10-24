@@ -18,6 +18,7 @@
  * parity test does not go above note 127, and past it the C++'s value is whatever follows the table in its flash.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  *   0.5.2: o->delay_lines.x is o->delay_lines->x (pb_digital.h pb_delay_lines_t).
  */

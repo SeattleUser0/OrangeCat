@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* SID: the Commodore MOS 6581 / 8580, a whole chip per note.
  *
  * Each note plays its own SID, clocked as in a PAL C64 (985248 Hz) and modelled at the register level as reSID

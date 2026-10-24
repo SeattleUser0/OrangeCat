@@ -7,6 +7,7 @@
  * a native parameter recorded as motion and played back (and the voice assignment, which motion leaves alone), and the module going away again.
  *   build/host/mod_pages_prophet_test
  * Revisions: 0.12.1: first version.
+ * (Orange Cat 0.12.2) a registered Prophet module makes engine 19 selectable (eng_ok, ENGINE_ORDER, NENG_SHOWN); module pages test on the real descriptor
  *            0.12.2: the engine is offered while the module is there (eng_ok), admission with the module's voice units and state. */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"

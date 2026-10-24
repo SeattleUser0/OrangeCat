@@ -12,6 +12,12 @@
  * (0.5.3) The drive test's page is gone: what it showed (its lines, the file list, its players and recorder) is no
  * longer tested here; the probe is checked by what it leaves (a drive ready, its address and slot), the streams by
  * starting them as a freeze does. */
+/* Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) replace beside the old module when a start is free
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>

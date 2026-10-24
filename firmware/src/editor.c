@@ -10,6 +10,11 @@
  * while watched. Frames arrive through sx_frame (usb.c), replies leave
  * through ota_wire_send().
  * Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+ * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
  *   0.12.1: MOD_INFO (120) reports three starts and ends with the blocker's start (127: none), a module of another engine that stands in the way of the engine asked about. */
 #define ED_HDR0 0x7D
 #define ED_HDR1 0x46

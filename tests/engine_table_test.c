@@ -9,6 +9,9 @@
  * The loader that calls eng_register at boot is step 5 (tests/oc_module_test.c).
  *   build/host/engine_table_test*
  */
+/* Revisions:
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main

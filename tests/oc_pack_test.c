@@ -10,6 +10,10 @@
  * refused while that move has not finished; the loader's tail rule agrees with tools/gen_pack.py's (the same C test on the real pack is in
  * tests/run_tests.sh: python3 tools/gen_pack.py --check).
  * The in-memory tables of the host build stand for the device's (OC_PACK_XIP 0): this test is about the pack's flash life. */
+/* Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 #define OC_PACK_GATE 1
 #define OC_PACK_LEN 9000u              /* (three sectors of a made pack; the real one is 40,232 bytes of ten) */
 #define PERSISTENCE_TEST_NO_MAIN

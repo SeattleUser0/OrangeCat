@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.10.0) no XIP literal in firmware/src, comment warnings
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* Host-side render of the MELODEE DSP (engines, voices, FX, sequencer) to a WAV,
  * for debugging sound without hardware. Same sources as the firmware.
  *   tests/run_tests.sh builds it into build/host/;

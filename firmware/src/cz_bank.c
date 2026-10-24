@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ */
 /* Eight independent 16-tone banks. One main-loop cache; audio reads track copies.
  * Each bank commits through storage.c A/B sectors, never over project data. */
 #define CZ_BANK_MAGIC 0x42435A43u

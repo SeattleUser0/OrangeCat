@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 /* Complete musical archive: no raw addresses are accepted. Objects are staged
  * in main-loop RAM and fully validated before the existing A/B commit path writes.
  * Runtime and saved projects include all 32 pattern banks. Retired user sample

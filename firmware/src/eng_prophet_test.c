@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 /* Prophet prototype: native patches and five (experimental dual-core: eight) voices, with two provisional
  * filter characters. Stored engine ID 19 is independent of legacy ANALOG.
  * MELODEE_PROPHET_PROTOTYPE additionally aliases ID 0 for measurement rigs. */

@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
+ * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
+ */
 /* Host test of the UI (firmware/src/ui*.c with the sound sources of hostsim.c;
  * the display and the HAL are stubs, the buttons and knobs are driven through them):
  *   SOUNDS     a sound load (PRESETS knob / page, Init sound, user preset) changes the sound only: the

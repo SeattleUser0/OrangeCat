@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ */
 /* SAVE > PRESETS, the sound browser, a screen of its own in the large type (docs/design/README.md "Large type": C,
  * rows). At the top the track's numeral and the list (KNOB 1: ALL, the favourites, RECENT, the categories) in its
  * colour, the sound's place in it at the right (a message in its place while there is one; a fast turn's acceleration

@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* Host test of firmware/src/ota.c: a fake M-UPGRADE serves a real .fwsc over
  * the SysEx protocol (pack7, cmd 0x30 reads, 0xE0000000 -> "success") and a
  * simulated NOR plays the flash.

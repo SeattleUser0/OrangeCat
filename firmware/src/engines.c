@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.11.1) oc_mod_boot from a running session parks the engine's voices; the table's two stores are one critical section
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 /* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol) and the parts'
  * sounds at power-on. */
 #include "dsp.c"

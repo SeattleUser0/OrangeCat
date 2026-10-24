@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
+ */
 /* Melodee UI drawing: the header, the four knobs' cells (the strip), the footer (pages of the old template: one row)
  * and the frame; the panel between the strip and the footer is ui_graph.c. The layout: SURF cells and panels on
  * BG, rounded corners, no rules, colours from the theme tokens only (gfx.c T_*); THEME is the selected track's

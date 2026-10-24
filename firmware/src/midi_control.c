@@ -2,6 +2,9 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Adapted from MIDI control contribution by ChanceTheMaker (2026).
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ */
 /* Shared USB/TRS channel controls. Included by seq.c after its input helpers.
  * USB and TRS intentionally share channel state, matching the existing routing.
  * A synth part has one live bend/wheel state; channels assigned to the same part

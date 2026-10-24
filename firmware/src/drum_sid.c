@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* KIT SID: a drum track played as a C64 tune's drum routine plays it, on one MOS 6581 for the whole track
  * (eng_sid.c's model of it: oscillators, the noise register, the DACs, the envelope generator, the cutoff curve
  * and resonance, the C64's output stage).

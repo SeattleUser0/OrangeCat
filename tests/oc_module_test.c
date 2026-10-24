@@ -16,6 +16,12 @@
  * page). The wiring of the loader into persist_boot and the main loop, the guard's register writes and the
  * installer are checked on the device (CI build) and by the installer's tests (step 6).
  */
+/* Revisions:
+ * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+ * (Orange Cat 0.11.1) every path that takes a module out of the table writes the PC window
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 #include <stdint.h>
 #define OC_MOD_HOST_XIP 1
 struct fw_mod_hdr;

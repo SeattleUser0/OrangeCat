@@ -19,6 +19,9 @@
  *     factory kits, as Jiant's, with their SENDs (not used here: IMAGE and SEND buses are not ported).
  *   - the lane enum DV_* is eng_drum.c's (the same lanes, the same order).
  */
+/* Revisions:
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 /* A DRUM-X sound (a lane of a kit) is dx_lane_t, 11 bytes: the mode and five values for each of its patches A and B:
  *   PITCH  the oscillator, MIDI 24..119 (33 Hz .. 7.9 kHz), 3/4 semitone a step
  *   PMOD   the pitch envelope: up to +4 octaves at the hit, falling with a sixth of the decay's tau (1..40 ms)

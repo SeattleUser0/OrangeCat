@@ -73,6 +73,12 @@
  * Host tests: tests/oc_module_test.c (a simulated NOR: every refusal, the crash mark, a good module, two modules).
  *
  * Revisions:
+ * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+ * (Orange Cat 0.11.0) ED_ENGINES (125) and the Engines table in the web page; module header gains version; lint fix for the host window constant
+ * (Orange Cat 0.11.1) every path that takes a module out of the table writes the PC window
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) fuzzers for the library group, the pack and the module loader; the loser of two modules no longer erases the winner's sectors; module link overflow...
  *   0.10.0: first version.
  *   0.10.1: the crash count beyond the first 30 s (oc_mod_power_on, oc_mod_ban_notice); the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
  *           module when another start is free (oc_mod_plan, oc_mod_inplace, mw.inplace); the header comment now says what the code does.

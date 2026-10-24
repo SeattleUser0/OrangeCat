@@ -1,6 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.10.1) crash ban at any time (unclean session count in noinit, MODULE BANNED notice)
+ * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) a registered Prophet module makes engine 19 selectable (eng_ok, ENGINE_ORDER, NENG_SHOWN); module pages test on the real descriptor
+ */
 /* MELODEE core types: tracks, voices, engines, parameters.
  * Up to four tracks (all four to start with: song.ntrk), each a synth part: its own engine, preset, parameters, voices and
  * 64-step pattern. The parts share one budget of VBUDGET units of sounding voices (voice.c). Drums are the DRUM

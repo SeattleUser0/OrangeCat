@@ -14,6 +14,7 @@
 // Each stage can be left out by the caller; a stage that cannot run says why in the summary and the next one still runs when it can.
 //
 // Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
 //   0.11.2: first version.
 //   0.12.1: three module starts (sectors 0, 6 and 4: OCM_SECTOR); MOD_INFO's last byte names the blocker, a module of another engine in the way (modBlocked, detail "engine:start"),
 //           which an install never erases.

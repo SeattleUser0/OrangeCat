@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ */
 /* Native panel descriptors. Editing one field leaves all opaque bytes intact. */
 static const char *const P5_FILTER_NAMES[]={"SSI","CURTIS"};
 static const char *const P5_TRACK_NAMES[]={"OFF","HALF","FULL"};

@@ -31,6 +31,7 @@ so the generator tests every sector tail of the laid-out pack against that rule 
 matches (it never does in practice: 2^-32 a sector). --check lays out the pack and tests it without writing anything.
 
 Revisions:
+# (Orange Cat 0.10.1) module sector tails against the update loader's record rule
   0.8.0: first version.
   0.10.1: the loader's record rule and the flash-offset-to-XIP function moved to tools/ocflash.py (build.py --module uses them too).
 """

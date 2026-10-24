@@ -1,5 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ */
 /* The sound designer (docs/SOUND_DESIGNER.md): a sound-only transaction over the native editors, which stay the
  * authority for every control. START is NEW SONG's key screen (rings over a large panel, the keys under it), FEATURES
  * a list page (KNOB 2 the row, KNOB 1 its value), the shaping stages the sound pages themselves: the stages as the

@@ -1,6 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.8.1) why five preset tests failed locally. They fail only when built with tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off): the...
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+ * (Orange Cat 0.11.1) oc_mod_boot from a running session parks the engine's voices; the table's two stores are one critical section
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 /* Firmware save flows against NOR flash: deferred settings, retries, and failed-save rollback. */
 #ifndef OC_FEED_COUNT                       /* (0.12.2, Part 2d) the watchdog feeds of the long flash operations are counted here (storage.c OC_FEED) */
 #define OC_FEED_COUNT 1

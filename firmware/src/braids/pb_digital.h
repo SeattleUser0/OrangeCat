@@ -28,6 +28,7 @@
  * lines keep their sizes. The state is then 8.2 KB (the plucked strings' lines).
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.5.1: first version.
  *   0.5.2: the delay lines out of pb_dig_t, behind a pointer (pb_delay_lines_t): SHAPES' voices share one set.
  */

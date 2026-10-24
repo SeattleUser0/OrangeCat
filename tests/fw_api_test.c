@@ -3,6 +3,11 @@
  * the real services it points at. Nothing loads from it yet; this is the preparation's check.
  *   build/host/fw_api_test
  */
+/* Revisions:
+ * (Orange Cat 0.9.0) DRUM-X, Jiant FM's drum engine, in engine slot 9; the loadable-engine interface identifier.
+ * (Orange Cat 0.10.0) fw_api_t at a fixed address, no RAM in the module (0.10.0)
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main

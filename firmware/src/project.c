@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) crash ban at any time (unclean session count in noinit, MODULE BANNED notice)
+ * (Orange Cat 0.11.1) the project load marks a module's use before audio renders it
+ * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
+ */
 /* Projects: four slots in NOR, each holding 32 independent pattern banks.
  * FBKK (pattern_store.c) contains the FUN22 sound/current-pattern record below.
  * Hardware retains only slot names/occupancy in RAM; full records use one

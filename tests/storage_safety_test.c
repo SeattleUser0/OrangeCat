@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ */
 /* Projects and live preset writes stay protected; boot resets unsupported preset data. */
 #define PERSISTENCE_TEST_NO_MAIN
 #include "persistence_test.c"

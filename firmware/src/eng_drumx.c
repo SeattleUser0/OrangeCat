@@ -68,6 +68,7 @@
  * is not stored: not in the project, the user presets or the backup; power-on and a project load clear it.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.13.1: lane mutes as performance state (not stored); the per-kit settings, IMAGE/SEND, group mutes and TOUCH looked at and left fixed, with the reasons above.
  *   0.9.0: first version. The voice (drumx_voice.c) is Jiant's; this file is Jiant's eng_drum.c reduced to what Orange
  *          Cat's engine_t, sequencer and parameter store have a place for.

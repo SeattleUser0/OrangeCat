@@ -30,6 +30,11 @@
  * word of state SHAPES keeps outside its part (Braids' random generator, rng_cell: the same cell, shared by the parts, as the built-in engine has).
  *
  * Revisions:
+ * (Orange Cat 0.9.0) DRUM-X, Jiant FM's drum engine, in engine slot 9; the loadable-engine interface identifier.
+ * (Orange Cat 0.10.0) fw_api_t at a fixed address, no RAM in the module (0.10.0)
+ * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  *   0.8.0: first version.
  *   0.11.0: fw_mod_hdr_t gains `cost` and `version` (before length): FW_MOD_HDR_BYTES 60.
  *   0.12.2: two more members, pitch_oct and env_lin (the module shares the firmware's tables). FW_API_VERSION stays 3.

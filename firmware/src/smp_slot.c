@@ -51,6 +51,7 @@
  * window (fl_plain_window_init: flash above 0x93000 reads as plaintext) maps each offset with smp_slot_addr.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  *   0.6.0: first version.
  *   0.6.0 rev 2: no mark at boot, only sectors holding record copies erased (see The claim); a boot with nothing
  *                there writes nothing.

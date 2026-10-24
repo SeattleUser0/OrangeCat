@@ -19,6 +19,7 @@
  * The cost line of the header (fw_mod_hdr_t cost) is tools/module/prophet.cost: the budget lines of the loops that module adds, summed by tools/build.py.
  *
  * Revisions:
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  *   0.12.0 (exp/sonnet-p5mod): first version, a measurement unit (no descriptor).
  *   0.12.1: the descriptor (P5_PAGES), the hooks, and the 8 sector placement; voice_was through the table (a note on read the module's own zero).
  *   0.12.2: PITCH_OCT and ENV_LIN through the table, the factory programs in the palette form (P5_FZ): 34,764 B measured on the device with the descriptor, 32,768 B hold.

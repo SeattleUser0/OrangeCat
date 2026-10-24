@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.8.1) why five preset tests failed locally. They fail only when built with tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off): the...
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 /* Firmware save flows against NOR flash: deferred settings, retries, and failed-save rollback. */
 #define LG_TEST_HOOKS 1                          /* (0.11.1) lg_test_reserve, lib_group.c: the LIBRARY NEEDS WIPE state cannot be made from flash contents */
 #define main hostsim_main

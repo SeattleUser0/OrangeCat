@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
+ */
 /* Keyboard, scale, arpeggiator, sequencer and transport.
  * Everything here runs in the audio ISR, once per CTL-sample block, and
  * ends in trk_note_on / trk_note_off: engines never see where a note came from.

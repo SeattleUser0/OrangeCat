@@ -4,6 +4,8 @@
 # The host tests themselves compile with the defaults (every engine), whatever is set here.
 #
 # Revisions:
+# (Orange Cat 0.9.0) DRUM-X, Jiant FM's drum engine, in engine slot 9; the loadable-engine interface identifier.
+# (Orange Cat 0.10.0) the engine table in RAM, module registration
 #   0.10.0: OC_MODULE_WINS=1: a valid module takes the slot of an engine that is also built in (the proof of concept's SHAPES module); the
 #          built-in SHAPES stays in the image as the fallback when the module is skipped.
 #   0.9.0: DRUM-X in (MELODEE_DRUMX=1, engine 9: Jiant FM's drum engine, eng_drumx.c and drumx_voice.c).
