@@ -946,6 +946,7 @@ static void project_load(uint32_t slot)
 {
     int n = proj_read_slot(slot);
     if (!n) { ui_message(project_old(slot) ? "OLD FORMAT" : "EMPTY SLOT"); return; }
+    dxe_mute_clear();                                   /* (0.13.1) lane mutes are performance state: a loaded project starts with every lane on */
     if (!project_restore_runtime(&proj_scratch)) {
         if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);
         proj_cur = (uint8_t)(slot & 3u);

@@ -889,6 +889,13 @@ static void grid_keys(uint32_t pressed)
             else
                 grid_hit(TSEL, i, ui.lane, 2);
             cursor_set((int32_t)i);
+        } else if (p < NLANE && MELODEE_DRUMX && TSEL->eng_req == ENGI_DRUMX && black_held(GK_ACC)) {   /* (0.13.1) ACC + a lane key: that lane's mute (performance state) */
+            char m[24];
+            uint32_t on = dxe_mute_toggle(song.sel, p);
+            str_cpy(m, drum_lane_name(TSEL, p), sizeof m);
+            str_cpy(m + str_len(m), on ? " MUTED" : " ON", sizeof m - str_len(m));
+            ui_message(m);
+            ui.force = 1;
         } else if (p < NLANE) {
             drum_pick_lane(p);
             if((MELODEE_DRUM && cur_page()->scope == SC_DRUMHIT))ui.note_pick=0;

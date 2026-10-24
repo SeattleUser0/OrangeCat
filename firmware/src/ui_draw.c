@@ -641,7 +641,8 @@ static void draw_columns(void)
         str_cpy(sl, "/", 8);
         fmt_int(sl + 1, TSEL->p[P_SLEN]);
         draw_column(0, "STEP", sn, sl, VAL(0u), -1, ICON_AUTO);
-        draw_column(1, "", drum_lane_name(TSEL, ui.lane), "", VAL(1u), -1, ICON_AUTO);   /* (its chip: "Snare") */
+        uint32_t muted = MELODEE_DRUMX && TSEL->eng_req == ENGI_DRUMX && dxe_muted(song.sel, ui.lane);   /* (0.13.1) the lane's mute: shown beside its name */
+        draw_column(1, "", drum_lane_name(TSEL, ui.lane), muted ? "MUTE" : "", muted ? T_DIM : VAL(1u), -1, ICON_AUTO);   /* (its chip: "Snare") */
         draw_column(2, "HIT", on ? "ON" : "--", "", on ? VAL(2u) : T_DIM, -1, ICON_AUTO);
         draw_column(3, "ACC", ac ? "ON" : "--", "", ac ? VAL(3u) : T_DIM, -1, ICON_AUTO);
         return;

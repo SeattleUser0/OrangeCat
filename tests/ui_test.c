@@ -301,6 +301,16 @@ static uint8_t stored_note(uint32_t slot, uint32_t track, uint32_t step)
     return proj_import(&p, &proj_slot[slot], sizeof proj_slot[slot]) ? p.t[track].step[step].note[0] : 0;
 }
 static int msg_is(const char *s) { return ui.msg_t && str_eq(ui.msg, s); }
+static int msg_has(const char *s)                       /* (0.13.1) the message contains s */
+{
+    if (!ui.msg_t) return 0;
+    for (uint32_t i = 0; ui.msg[i]; i++) {
+        uint32_t k = 0;
+        while (s[k] && ui.msg[i + k] == s[k]) k++;
+        if (!s[k]) return 1;
+    }
+    return 0;
+}
 static void my_steps(track_t *t)                  /* "recorded" steps */
 {
     uint32_t i;
@@ -1330,6 +1340,25 @@ static int test_drumx(void)
     tap_key(key_at(1, 0));
     tap_key(key_at(0, 2));
     bad += check("  black key 1 then white key 3: KICK on step 3", t->step[2].hit == 1u << DV_KICK);
+    {   /* (0.13.1) ACC held and a lane key: that lane's mute (performance state), the selected lane kept */
+        uint32_t lane0 = ui.lane, steps_before = t->step[2].hit;
+        fm1_in.notes |= 1u << key_at(1, GK_ACC);
+        frame();
+        tap_key(key_at(1, DV_HATC));
+        fm1_in.notes |= 1u << key_at(1, GK_ACC);
+        ok = dxe_muted(0, DV_HATC) == 1u && ui.lane == lane0 && t->step[2].hit == steps_before && msg_has("MUTED");
+        tap_key(key_at(1, DV_HATC));
+        fm1_in.notes |= 1u << key_at(1, GK_ACC);
+        ok &= dxe_muted(0, DV_HATC) == 0u && msg_has(" ON");
+        tap_key(key_at(1, DV_TOM));
+        fm1_in.notes = 0;
+        frame();
+        ok &= dxe_muted(0, DV_TOM) == 1u;
+        tap_key(key_at(1, DV_HATC));                    /* (ACC up: a lane key selects the lane, no mute) */
+        ok &= ui.lane == DV_HATC && dxe_muted(0, DV_HATC) == 0u && dxe_muted(0, DV_TOM) == 1u;
+        bad += check("ACC held + a lane key toggles that lane's mute (MUTED / ON), the lane selected stays, no step changes; a lane key alone only selects", ok);
+        dxe_mute_clear();
+    }
     /* the LANES pages show on a DRUM-X track and not on a MACRO track */
     go_title("LANES");
     ok = page_visible(ui.page) && cur_page()->id[0] == P_LN0;
@@ -1381,6 +1410,11 @@ static int test_drumx(void)
     t->eng_req = ENGI_MACRO;
     project_load(0);
     bad += check("a project keeps a DRUM-X track and its kit (engine 9, preset 4)", t->eng_req == ENGI_DRUMX && t->preset == 4u);
+    dxe_mute_toggle(0, DV_SNARE);
+    project_save(0);
+    dxe_mute_toggle(0, DV_KICK);
+    project_load(0);
+    bad += check("lane mutes are performance state: a project load puts every lane back on (they are not in the project)", dxe_muted(0, DV_SNARE) == 0u && dxe_muted(0, DV_KICK) == 0u);
     return bad;
 }
 
