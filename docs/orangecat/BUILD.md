@@ -1902,7 +1902,7 @@ ACC held + a lane key on a DRUM-X track mutes or unmutes that lane (`dxe_mute[]`
 
 ### Static analysis
 
-clang `--analyze` (the host test translation units, the module TUs; outputs kept in /tmp/an during the run, not in the repo). cppcheck is not installed here. No finding was a defect that a test reaches; the sanitizer suite (2a) found the real ones. Reviewed, left as they are, one line each:
+clang `--analyze` (the host test translation units, the module TUs; outputs kept in /tmp/an during the run, not in the repo). cppcheck is not installed here. No finding was a defect that a test reaches; the sanitizer suite (2a) found the real ones. Reviewed, left as they are, one line each (the reasons come from reading the code around each report; none was reproduced, and `storage.c:124` and `oc_project.c:422` were read least closely and are worth a second look):
 
 - `chord.c:128,131` garbage left operand / index past `iv`: `chord_tones` returns at least one tone for a mode in range (the early return above handles the other modes), so `n >= 1`; the analyzer does not follow it.
 - `mod.c:210` uninitialized `off[j]`: `off[j]` is set to 0 when a slot is claimed (line 207); the path the analyzer takes skips that claim and cannot occur.
