@@ -15,6 +15,7 @@
 /* Revisions:
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
  * (Orange Cat 0.12.2) fw_pages_check bounds what param_format reads; fuzz_fw_pages; fuzzers in run_tests.sh; the module link overflow lists the biggest symbols
+ * (Orange Cat 0.13.5) the module removed while its page is on screen: SELECT does not scroll and touches nothing past fam_last (a guard: the old code did not reach the index either)
  */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -222,7 +223,20 @@ int main(void)
     {   const param_desc_t *d;
         d = mo_desc(MO_NATIVE + 5 + 256u);
         bad += check("the motion page: a native lane's descriptor is the module's panel entry (TUNE 0..96)", d && str_eq(d->label, "TUNE") && d->max == 96); }
-    eng_unregister(ENGI_PROPHET);
+    /* (0.13.5) the module removed while its page is on screen: page_at gives PAGE_NONE (family FAM_COUNT); SELECT must not scroll, and must not index fam_last[FAM_COUNT]
+     * (the byte after it, ui.bank, is a sentinel; the sanitizer build covers the read) */
+    ui.page = (uint8_t)(NPAGES + FW_PAGES_MAX + 1u);
+    {   uint8_t last[FAM_COUNT], page = ui.page, bank = ui.bank;
+        memcpy(last, ui.fam_last, sizeof last);
+        ui.bank = 0xA5;
+        eng_unregister(ENGI_PROPHET);
+        bad += check("the module removed on its own page: the page is PAGE_NONE, family FAM_COUNT", page_at(ui.page) == &PAGE_NONE && cur_page()->fam == FAM_COUNT);
+        page_scroll(1); page_scroll(-1);
+        bad += check("..SELECT on it does not scroll and does not touch fam_last or the field after it",
+                     ui.page == page && ui.bank == 0xA5 && !memcmp(last, ui.fam_last, sizeof last));
+        ui.bank = bank;
+        ui.page = 0;
+    }
     bad += check("the module out: its pages are gone, the track keeps the number", page_n() == NPAGES && shown_mod_pages() == 0 && TSEL->eng_req == ENGI_PROPHET &&
                  !pages_of_engine(ENGI_PROPHET));
     bad += check("..a stored Prophet event is kept while no module is there (the old rule), one past the old 88 is not",
