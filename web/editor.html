@@ -3130,7 +3130,8 @@ function enginesRows(list, names) {
     if (found) actions.push("remove");
     rows.push({ num: x.num, name: name === "-" ? "" : name, source: mod ? "module" : x.src === 1 ? "builtin" : "none",
       version: found ? x.version.join(".") : "", size: found ? x.size : 0, start: found ? x.start : null, state: st,
-      reason: found && !mod ? ocmReason(x.state, x.why) : "", tracks: x.use, actions });
+      reason: found && !mod ? ocmReason(x.state, x.why) : "", tracks: x.use, actions,
+      canUse: (mod || x.src === 1) && name !== "-" && name !== "" });   /* (0.12.0) an engine the unit can play now: assign it to a track */
     if (found && x.start !== null) shown.add(x.start);
   }
   list.starts.forEach((s, i) => {
@@ -3155,6 +3156,63 @@ async function fetchModPages(send, engine) {
     panel.push(...q.entries);
   }
   return { engine, pages: P.pages.map((p) => ({ title: p.title, params: p.ids.map((i) => (i === null ? undefined : panel[i])) })), panel };
+}
+/* (0.12.0, Part 3) The Engines table's two actions that change what the unit plays.
+ * modCode: the text key for MOD_* reply code rc.
+ * assignEngine(send, engine, track, ntrk, selected): "use on track N". The track engine command is the PRESET command (it sets the SELECTED track's engine and loads
+ *   preset 0 of it; the unit's admission may refuse it: reply byte 4 is 1 ENGINE TOO HEAVY or 2 NO ROOM and the track keeps its engine and sound). So: select track N,
+ *   PRESET (engine, 0), select the track that was selected before. Returns {ok, refused (0, 1, 2), key ("" or engineHeavy / engineNoRoom)}.
+ * ocmWrite(send, ocm, variant, progress): BEGIN, WRITE x n, END for one image; throws Error(key) on a nonzero rc.
+ * replaceOcm(send, probe, row, ocm, ask, progress): Replace. A file of the row's own engine installs as before (in place when the unit says no other place is free). A
+ *   file of ANOTHER engine a module may supply is a swap: the file is checked against the unit first (nothing is touched when it is wrong), the user is asked (the old
+ *   module goes first and its tracks go silent), the old module is removed (MOD_REMOVE old engine), the unit's plan for the new engine is read (now the freed start, or the
+ *   other one if it is free too) and the file is installed there. `probe(engine)` re-reads ED_MOD_INFO for that engine and returns the parsed answer; `ask(key, n)` is
+ *   the page's confirm. Returns "installed" or "swapped" ("cancelled" when the user says no). */
+const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : "modFail");
+async function assignEngine(send, engine, track, ntrk, selected) {
+  if (!(track >= 0 && track < ntrk)) throw new Error("assign: no such track");
+  let out = { ok: false, refused: 0, key: "" };
+  await send(req.track(track));
+  try {
+    const pr = parse[CMD.PRESET](await send(req.preset(engine, 0)));
+    out = { ok: !pr.refused && pr.engine === engine, refused: pr.refused || 0, key: pr.refused === 1 ? "engineHeavy" : pr.refused === 2 ? "engineNoRoom" : "" };
+  } finally { if (selected !== undefined && selected !== track) await send(req.track(selected)).catch(() => {}); }
+  return out;
+}
+async function ocmWrite(send, ocm, variant, progress = () => {}) {
+  const img = variant.image, start = variant.start / 6;
+  let r = parse[CMD.MOD_BEGIN](await send(req.modBegin(ocm.engine, start, img.length), { timeout: 3000 }));
+  if (r.rc) throw new Error(modCode(r.rc));
+  for (let off = 256; off < img.length; off += 256) {
+    r = parse[CMD.MOD_WRITE](await send(req.modWrite(off, img.subarray(off, Math.min(off + 256, img.length))), { timeout: 1000 }));
+    if (r.rc) throw new Error(modCode(r.rc));
+    if (((off - 256) >> 8) % 8 === 0) progress(Math.round(off / img.length * 100));
+  }
+  r = parse[CMD.MOD_END](await send(req.modEnd(img.subarray(0, 256)), { timeout: 3000 }));
+  if (r.rc) throw new Error(modCode(r.rc));
+}
+async function replaceOcm(send, probe, row, ocm, ask, progress) {
+  if (!ocm.ok) throw new Error(ocm.key);
+  const swap = row && row.num !== ocm.engine;
+  if (swap && (!row.replace || !MODULE_SLOTS.includes(ocm.engine))) throw new Error("modWrongEngine");   /* Install takes its own engine's file; a swap only where a module may go */
+  let info = await probe(ocm.engine);                    /* the place the unit names for this engine, now */
+  let chk = ocmCheck(ocm, swap ? { ...info, plan: row.start ?? info.plan } : info);   /* a swap: the file is judged for the start that is about to be freed */
+  if (!chk.ok) throw new Error(chk.key);
+  if (!swap) {
+    if (info.inPlace && !ask("modInPlaceConfirm")) return "cancelled";   /* (0.10.1) no other place is free: the old module is erased first */
+    await ocmWrite(send, ocm, chk.variant, progress);
+    await probe();
+    return "installed";
+  }
+  if (!ask("modSwapConfirm", row.tracks || 0)) return "cancelled";
+  const rm = parse[CMD.MOD_REMOVE](await send(req.modRemove(row.num), { timeout: 3000 }));
+  if (rm.rc) throw new Error(modCode(rm.rc));
+  info = await probe(ocm.engine);                        /* the freed start (or another free one): the unit's own plan decides */
+  chk = ocmCheck(ocm, info);
+  if (!chk.ok) throw new Error(chk.key);
+  await ocmWrite(send, ocm, chk.variant, progress);
+  await probe();
+  return "swapped";
 }
 /*PROTO-END*/
 
@@ -3224,7 +3282,7 @@ const TEXT = {
     fm6Loaded: "読み込みました", fm6Factory: "F1〜F24 はファクトリー音色です。B1〜B32 を選んでください。", fm6BadSum: "チェックサム不一致あり",
     fm6Exported: "バンクを書き出しました",
     motion: "モーション", motionOn: "再生", motionClear: "モーションを消去", motionConfirm: "選択トラックのモーションを消しますか？", chance: "確率 %", motionStep: "ステップ", motionParam: "パラメーター", motionValue: "値",
-    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました", packTitle: "アセットパック", packHelp: "SHAPESとMACROは本体フラッシュ内のパックからテーブルを読みます。正しいパックが無いと音が出ず、画面にPACK MISSINGと出ます。パックは各リリースに付属します(orangecat-VERSION.pak)。音色は消えません。", packInstall: "パックを入れる", packErase: "パックを消す", packState0: "パックは入っていません。", packState1: "パックは入っていて、確認済みです。", packState2: "別のファームウェア用のパックが入っています。", packState3: "入っているパックが壊れています。", packWrongBuild: "このパックはこのファームウェア用ではありません。", packEraseConfirm: "パックを消しますか？入れ直すまでSHAPESとMACROは鳴りません。", packWorking: "パックを書き込み中 ", packDone: "パックを入れました", packErased: "パックを消しました", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした", packOldFw: "このファームウェアはパックのためにライブラリのバンク16〜20を消します。先にファームウェアを0.9.1以降に更新してください。", packRestart: "本体を再起動してもう一度お試しください。", modTitle: "エンジンモジュール", modHelp: "SHAPESをファームウェアの代わりに、本体フラッシュ内のモジュールから鳴らせます。モジュールは各リリースに付属します(orangecat-shapes-VERSION.ocm)。音色は消えません。", modInstall: "モジュールを入れる", modRemove: "モジュールを消す", modState0: "モジュールは入っていません。", modStateOk: "モジュールは入っていて、確認済みで、使われています。", modStateCrash: "入っているモジュールで本体が止まりました。入れ直すか、消すか、電源を入れ直すまで無効です。", modStateNoslot: "モジュールは入っていますが、このファームウェアは内蔵のエンジンを使います。", modStateBad: "このファームウェアでは動かないモジュールがあるか、壊れています。", modWrongFile: "モジュールのファイルではありません。", modWrongFw: "このモジュールはこのファームウェア用ではありません。", modNoVariant: "本体の空き場所に合うイメージがこのファイルにありません。", modNoFree: "モジュールを入れる空きがありません。", modWorking: "モジュールを書き込み中 ", modDone: "モジュールを入れました", modRemoved: "モジュールを消しました", modRemoveConfirm: "モジュールを消しますか？SHAPESが内蔵ならファームウェアから鳴り、内蔵でなければ鳴りません。", modStop: "先に再生を止めてください", modFail: "モジュールを入れられませんでした", modRestart: "本体を再起動してもう一度お試しください。", modUnreadable: "書き込みましたが正しく読み戻せません。もう一度入れてください。", modInPlaceConfirm: "ほかに空きがないため、今入っているモジュールを先に消してから書き込みます。書き込み中に電源が切れると、モジュールは無くなります(入れ直せます)。続けますか？", modTail: "このモジュールには、本体のアップデートで消されてしまうセクターがあります。入れていません。作り直したモジュールを使ってください。", enginesTitle: "エンジン", enginesHelp: "本体が知っているすべてのエンジン番号です。内蔵のものと、本体フラッシュ内のモジュールから読み込むものがあります。モジュールは各リリースに付属します(orangecat-shapes-VERSION.ocm)。入れても音色は消えません。", colNo: "番号", colName: "名前", colSource: "種類", colVersion: "版", colSize: "バイト", colStart: "場所", colState: "状態", colTracks: "トラック", srcBuiltin: "内蔵", srcModule: "モジュール", st_ok: "正常", st_empty: "モジュールなし", st_refused: "拒否", st_noslot: "未使用", st_badhdr: "拒否", st_badcrc: "破損", st_badtail: "拒否", st_crashed: "停止中", st_torn: "書き込み途中", act_install: "入れる", act_replace: "入れ替える", act_remove: "消す", act_removeAll: "消す", reasonOtherFw: "別のファームウェア用", reasonTooNew: "より新しいファームウェアが必要", reasonAddr: "テーブルのアドレスが違う", reasonRefused: "このファームウェア用ではない", reasonShadowed: "内蔵のエンジンが優先", reasonSlot: "モジュールにできない番号", reasonTail: "アップデートで消されるセクターがある", reasonBadHdr: "ヘッダーが正しくない", reasonBadCrc: "コードがチェックサムと合わない", reasonCrashed: "本体を止めた。電源の入れ直し、入れ直し、消すまで無効", reasonTorn: "書き込みが途中で止まった", modWrongEngine: "選んだ行とは別のエンジンのファイルです。", enginesRemoveAllConfirm: "モジュール領域をすべて消しますか？", engineHeavy: "このエンジンは本体には重すぎます(1ボイスがボイス予算を超えます)。トラックは元のエンジンのままです。", engineNoRoom: "このエンジンの状態を置くオーディオメモリの空きがありません。トラックは元のエンジンのままです。", modStateTail: "入っているモジュールには、アップデートで消されてしまうセクターがあるため、使われていません。",
+    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました", packTitle: "アセットパック", packHelp: "SHAPESとMACROは本体フラッシュ内のパックからテーブルを読みます。正しいパックが無いと音が出ず、画面にPACK MISSINGと出ます。パックは各リリースに付属します(orangecat-VERSION.pak)。音色は消えません。", packInstall: "パックを入れる", packErase: "パックを消す", packState0: "パックは入っていません。", packState1: "パックは入っていて、確認済みです。", packState2: "別のファームウェア用のパックが入っています。", packState3: "入っているパックが壊れています。", packWrongBuild: "このパックはこのファームウェア用ではありません。", packEraseConfirm: "パックを消しますか？入れ直すまでSHAPESとMACROは鳴りません。", packWorking: "パックを書き込み中 ", packDone: "パックを入れました", packErased: "パックを消しました", packStop: "先に再生を止めてください", packFail: "パックを入れられませんでした", packOldFw: "このファームウェアはパックのためにライブラリのバンク16〜20を消します。先にファームウェアを0.9.1以降に更新してください。", packRestart: "本体を再起動してもう一度お試しください。", modTitle: "エンジンモジュール", modHelp: "SHAPESをファームウェアの代わりに、本体フラッシュ内のモジュールから鳴らせます。モジュールは各リリースに付属します(orangecat-shapes-VERSION.ocm)。音色は消えません。", modInstall: "モジュールを入れる", modRemove: "モジュールを消す", modState0: "モジュールは入っていません。", modStateOk: "モジュールは入っていて、確認済みで、使われています。", modStateCrash: "入っているモジュールで本体が止まりました。入れ直すか、消すか、電源を入れ直すまで無効です。", modStateNoslot: "モジュールは入っていますが、このファームウェアは内蔵のエンジンを使います。", modStateBad: "このファームウェアでは動かないモジュールがあるか、壊れています。", modWrongFile: "モジュールのファイルではありません。", modWrongFw: "このモジュールはこのファームウェア用ではありません。", modNoVariant: "本体の空き場所に合うイメージがこのファイルにありません。", modNoFree: "モジュールを入れる空きがありません。", modWorking: "モジュールを書き込み中 ", modDone: "モジュールを入れました", modRemoved: "モジュールを消しました", modRemoveConfirm: "モジュールを消しますか？SHAPESが内蔵ならファームウェアから鳴り、内蔵でなければ鳴りません。", modStop: "先に再生を止めてください", modFail: "モジュールを入れられませんでした", modRestart: "本体を再起動してもう一度お試しください。", modUnreadable: "書き込みましたが正しく読み戻せません。もう一度入れてください。", modInPlaceConfirm: "ほかに空きがないため、今入っているモジュールを先に消してから書き込みます。書き込み中に電源が切れると、モジュールは無くなります(入れ直せます)。続けますか？", modTail: "このモジュールには、本体のアップデートで消されてしまうセクターがあります。入れていません。作り直したモジュールを使ってください。", enginesTitle: "エンジン", enginesHelp: "本体が知っているすべてのエンジン番号です。内蔵のものと、本体フラッシュ内のモジュールから読み込むものがあります。モジュールは各リリースに付属します(orangecat-shapes-VERSION.ocm)。入れても音色は消えません。", colNo: "番号", colName: "名前", colSource: "種類", colVersion: "版", colSize: "バイト", colStart: "場所", colState: "状態", colTracks: "トラック", srcBuiltin: "内蔵", srcModule: "モジュール", st_ok: "正常", st_empty: "モジュールなし", st_refused: "拒否", st_noslot: "未使用", st_badhdr: "拒否", st_badcrc: "破損", st_badtail: "拒否", st_crashed: "停止中", st_torn: "書き込み途中", act_install: "入れる", act_replace: "入れ替える", act_remove: "消す", act_removeAll: "消す", reasonOtherFw: "別のファームウェア用", reasonTooNew: "より新しいファームウェアが必要", reasonAddr: "テーブルのアドレスが違う", reasonRefused: "このファームウェア用ではない", reasonShadowed: "内蔵のエンジンが優先", reasonSlot: "モジュールにできない番号", reasonTail: "アップデートで消されるセクターがある", reasonBadHdr: "ヘッダーが正しくない", reasonBadCrc: "コードがチェックサムと合わない", reasonCrashed: "本体を止めた。電源の入れ直し、入れ直し、消すまで無効", reasonTorn: "書き込みが途中で止まった", modWrongEngine: "選んだ行とは別のエンジンのファイルです。", act_use: "使う", useOnTrack: "このエンジンを使うトラック", useDone: "トラックのエンジンを変えました", modSwapped: "モジュールを入れ替えました", modSwapConfirm: "今のモジュールを消して、このファイルのエンジンに入れ替えますか？今のエンジンを使っているトラック({n})は、別のエンジンを選ぶまで鳴りません。音色は消えません。", enginesRemoveAllConfirm: "モジュール領域をすべて消しますか？", engineHeavy: "このエンジンは本体には重すぎます(1ボイスがボイス予算を超えます)。トラックは元のエンジンのままです。", engineNoRoom: "このエンジンの状態を置くオーディオメモリの空きがありません。トラックは元のエンジンのままです。", modStateTail: "入っているモジュールには、アップデートで消されてしまうセクターがあるため、使われていません。",
     deviceDisplay: "本体の画面",
     deviceDisplayHelp: "FM-1 の画面に反映し、保存します。再生中の変更は停止後に保存されます。",
     devicePresets: "本体のプリセット",
@@ -3318,7 +3376,7 @@ const TEXT = {
     fm6Loaded: "Loaded", fm6Factory: "F1..F24 are the factory patches: pick B1..B32.", fm6BadSum: "a checksum did not match",
     fm6Exported: "Bank exported",
     motion: "Motion", motionOn: "Play motion", motionClear: "Clear motion", motionConfirm: "Clear this track's motion?", chance: "Chance %", motionStep: "Step", motionParam: "Parameter", motionValue: "Value",
-    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks and settings to this computer.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored", packTitle: "Asset pack", packHelp: "SHAPES and MACRO read their tables from a pack kept in the unit's flash. Without the right pack they stay silent and the screen says PACK MISSING. The pack comes with each release (orangecat-VERSION.pak). It takes none of your sounds.", packInstall: "Install pack", packErase: "Erase pack", packState0: "No pack installed.", packState1: "Pack installed and checked.", packState2: "A pack for another firmware is installed.", packState3: "The installed pack is damaged.", packWrongBuild: "This pack is not for this firmware.", packEraseConfirm: "Erase the pack? SHAPES and MACRO go silent until a pack is installed.", packWorking: "Installing pack ", packDone: "Pack installed", packErased: "Pack erased", packStop: "Stop playback first", packFail: "The pack could not be installed", packOldFw: "This firmware would erase library banks 16 to 20 to make room. Update the firmware to 0.9.1 or later first.", packRestart: "Restart the unit and try again.", modTitle: "Engine module", modHelp: "SHAPES can play from a module kept in the unit's flash instead of from the firmware. The module comes with each release (orangecat-shapes-VERSION.ocm). It takes none of your sounds.", modInstall: "Install module", modRemove: "Remove module", modState0: "No module installed.", modStateOk: "Module installed, checked and in use.", modStateCrash: "The installed module stopped the unit. It is switched off until you install it again, remove it or turn the unit off and on.", modStateNoslot: "A module is installed, but this firmware plays its own built-in engine.", modStateBad: "There is a module that cannot run on this firmware, or it is damaged.", modWrongFile: "This is not a module file.", modWrongFw: "This module is not for this firmware.", modNoVariant: "This module file has no image for the free place in the unit.", modNoFree: "No place is free for the module.", modWorking: "Installing module ", modDone: "Module installed", modRemoved: "Module removed", modRemoveConfirm: "Remove the module? SHAPES plays from the firmware if it is built in, otherwise it goes silent.", modStop: "Stop playback first", modFail: "The module could not be installed", modRestart: "Restart the unit and try again.", modUnreadable: "The module was written but does not read back correctly. Install it again.", modInPlaceConfirm: "No other place is free, so the module that is in the unit is erased first. If the power is cut during the write there will be no module (install it again). Continue?", modTail: "A sector of this module would be erased by a firmware update, so it was not installed. Use a rebuilt module.", enginesTitle: "Engines", enginesHelp: "Every engine number the unit knows: built in, or loaded from a module kept in the unit's flash. A module comes with each release (orangecat-shapes-VERSION.ocm). Installing one takes none of your sounds.", colNo: "No.", colName: "Name", colSource: "Source", colVersion: "Version", colSize: "Bytes", colStart: "Start", colState: "State", colTracks: "Tracks", srcBuiltin: "Built in", srcModule: "Module", st_ok: "OK", st_empty: "No module", st_refused: "Refused", st_noslot: "Not used", st_badhdr: "Refused", st_badcrc: "Damaged", st_badtail: "Refused", st_crashed: "Banned", st_torn: "Torn", act_install: "Install", act_replace: "Replace", act_remove: "Remove", act_removeAll: "Remove", reasonOtherFw: "built for another firmware", reasonTooNew: "needs a newer firmware", reasonAddr: "wrong table address", reasonRefused: "not for this firmware", reasonShadowed: "the built-in engine keeps the slot", reasonSlot: "not an engine a module may supply", reasonTail: "a sector would be erased by an update", reasonBadHdr: "the header is not valid here", reasonBadCrc: "the code does not match its checksum", reasonCrashed: "stopped the unit, off until power is cycled, installed or removed", reasonTorn: "an install was cut off", modWrongEngine: "This file is for another engine than the row you chose.", enginesRemoveAllConfirm: "Remove everything in the module area?", engineHeavy: "This engine is too heavy for the unit (one voice is more than the voice budget). The track keeps its engine.", engineNoRoom: "There is no room in the unit's audio memory for this engine's state. The track keeps its engine.", modStateTail: "The installed module is switched off: one of its sectors would be erased by a firmware update.",
+    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks and settings to this computer.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored", packTitle: "Asset pack", packHelp: "SHAPES and MACRO read their tables from a pack kept in the unit's flash. Without the right pack they stay silent and the screen says PACK MISSING. The pack comes with each release (orangecat-VERSION.pak). It takes none of your sounds.", packInstall: "Install pack", packErase: "Erase pack", packState0: "No pack installed.", packState1: "Pack installed and checked.", packState2: "A pack for another firmware is installed.", packState3: "The installed pack is damaged.", packWrongBuild: "This pack is not for this firmware.", packEraseConfirm: "Erase the pack? SHAPES and MACRO go silent until a pack is installed.", packWorking: "Installing pack ", packDone: "Pack installed", packErased: "Pack erased", packStop: "Stop playback first", packFail: "The pack could not be installed", packOldFw: "This firmware would erase library banks 16 to 20 to make room. Update the firmware to 0.9.1 or later first.", packRestart: "Restart the unit and try again.", modTitle: "Engine module", modHelp: "SHAPES can play from a module kept in the unit's flash instead of from the firmware. The module comes with each release (orangecat-shapes-VERSION.ocm). It takes none of your sounds.", modInstall: "Install module", modRemove: "Remove module", modState0: "No module installed.", modStateOk: "Module installed, checked and in use.", modStateCrash: "The installed module stopped the unit. It is switched off until you install it again, remove it or turn the unit off and on.", modStateNoslot: "A module is installed, but this firmware plays its own built-in engine.", modStateBad: "There is a module that cannot run on this firmware, or it is damaged.", modWrongFile: "This is not a module file.", modWrongFw: "This module is not for this firmware.", modNoVariant: "This module file has no image for the free place in the unit.", modNoFree: "No place is free for the module.", modWorking: "Installing module ", modDone: "Module installed", modRemoved: "Module removed", modRemoveConfirm: "Remove the module? SHAPES plays from the firmware if it is built in, otherwise it goes silent.", modStop: "Stop playback first", modFail: "The module could not be installed", modRestart: "Restart the unit and try again.", modUnreadable: "The module was written but does not read back correctly. Install it again.", modInPlaceConfirm: "No other place is free, so the module that is in the unit is erased first. If the power is cut during the write there will be no module (install it again). Continue?", modTail: "A sector of this module would be erased by a firmware update, so it was not installed. Use a rebuilt module.", enginesTitle: "Engines", enginesHelp: "Every engine number the unit knows: built in, or loaded from a module kept in the unit's flash. A module comes with each release (orangecat-shapes-VERSION.ocm). Installing one takes none of your sounds.", colNo: "No.", colName: "Name", colSource: "Source", colVersion: "Version", colSize: "Bytes", colStart: "Start", colState: "State", colTracks: "Tracks", srcBuiltin: "Built in", srcModule: "Module", st_ok: "OK", st_empty: "No module", st_refused: "Refused", st_noslot: "Not used", st_badhdr: "Refused", st_badcrc: "Damaged", st_badtail: "Refused", st_crashed: "Banned", st_torn: "Torn", act_install: "Install", act_replace: "Replace", act_remove: "Remove", act_removeAll: "Remove", reasonOtherFw: "built for another firmware", reasonTooNew: "needs a newer firmware", reasonAddr: "wrong table address", reasonRefused: "not for this firmware", reasonShadowed: "the built-in engine keeps the slot", reasonSlot: "not an engine a module may supply", reasonTail: "a sector would be erased by an update", reasonBadHdr: "the header is not valid here", reasonBadCrc: "the code does not match its checksum", reasonCrashed: "stopped the unit, off until power is cycled, installed or removed", reasonTorn: "an install was cut off", modWrongEngine: "This file is for another engine than the row you chose.", act_use: "Use", useOnTrack: "Track to use this engine on", useDone: "The track's engine was changed", modSwapped: "Module replaced", modSwapConfirm: "Remove the module that is in the unit and put this file's engine in its place? The tracks that use the present engine ({n}) are silent until you choose another engine for them. Your sounds are kept.", enginesRemoveAllConfirm: "Remove everything in the module area?", engineHeavy: "This engine is too heavy for the unit (one voice is more than the voice budget). The track keeps its engine.", engineNoRoom: "There is no room in the unit's audio memory for this engine's state. The track keeps its engine.", modStateTail: "The installed module is switched off: one of its sectors would be erased by a firmware update.",
     deviceDisplay: "Device display",
     deviceDisplayHelp: "Changes apply to the FM-1 screen and save. Changes made while playing save after STOP.",
     devicePresets: "Device presets",
@@ -4264,7 +4322,16 @@ function renderModule() {
     const st = t("st_" + r.state) + (r.reason ? " (" + t(r.reason) + ")" : "");
     const acts = el("td", {});
     for (const a of r.actions) {
-      acts.append(el("button", { text: t("act_" + a), onclick: () => (a === "install" || a === "replace" ? modPick(r.num) : modRemoveRow(r)) }));
+      acts.append(el("button", { text: t("act_" + a), onclick: () => (a === "install" || a === "replace" ? modPick(r, a === "replace") : modRemoveRow(r)) }));
+    }
+    if (r.canUse && dev.info?.ntrk > 1) {                 /* (0.12.0, Part 3) "use on track N": the engine on a track, the unit's admission may refuse it */
+      const sel = el("select", { "aria-label": t("useOnTrack") }, ...Array.from({ length: dev.info.ntrk }, (_, k) => el("option", { value: String(k), text: t("track") + " " + (k + 1) })));
+      sel.value = String(dev.sel || 0);
+      acts.append(sel, el("button", { text: t("act_use"), onclick: () => op(async () => {
+        const d = dev, out = await assignEngine((q) => sessionRequest(d, q), r.num, +sel.value, d.info.ntrk, d.sel);
+        await modProbe(d); await load(d);
+        if (out.refused) sayK(out.key); else sayK("useDone");
+      }) }));
     }
     return el("tr", { class: ["ok", "empty"].includes(r.state) ? "" : "bad" },
       el("td", { class: "num", text: r.num === null ? "" : String(r.num) }),
@@ -4274,9 +4341,8 @@ function renderModule() {
   });
   tbl.replaceChildren(head, ...body);
 }
-const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : "modFail");
-let modTarget = null;                                 /* (0.11.0) the engine number of the row whose Install / Replace was pressed (null: the legacy button, any engine) */
-function modPick(num) { if (dev?.mod) { modTarget = num; $("mod-file").click(); } }
+let modTarget = null;                                 /* (0.11.0) the row whose Install / Replace was pressed (null: the legacy button, any engine); (0.12.0) {num, replace, start, tracks} */
+function modPick(row, replace) { if (dev?.mod) { modTarget = { num: row.num, replace, start: row.start, tracks: row.tracks }; $("mod-file").click(); } }
 $("mod-install").addEventListener("click", () => { modTarget = null; if (dev?.mod) $("mod-file").click(); });
 $("mod-file").addEventListener("change", () => {
   const file = $("mod-file").files[0], d = dev; $("mod-file").value = "";
@@ -4284,23 +4350,16 @@ $("mod-file").addEventListener("change", () => {
   op(async () => {
     const ocm = ocmParse(new Uint8Array(await file.arrayBuffer()));
     if (!ocm.ok) throw new Error(t(ocm.key));
-    if (modTarget !== null && ocm.engine !== modTarget) throw new Error(t("modWrongEngine"));   /* (0.11.0) a row takes its own engine's file */
-    await modProbe(d, ocm.engine);                      /* the place the unit names for this engine, now */
-    const chk = ocmCheck(ocm, d.mod || {});
-    if (!chk.ok) throw new Error(t(chk.key));
-    if (d.mod.inPlace && !confirm(t("modInPlaceConfirm"))) return;   /* (0.10.1) no other place is free: the old module is erased first */
-    const img = chk.variant.image, start = chk.variant.start / 6;
-    let r = parse[CMD.MOD_BEGIN](await sessionRequest(d, req.modBegin(ocm.engine, start, img.length), { timeout: 3000 }));
-    if (r.rc) throw new Error(t(modCode(r.rc)));
-    for (let off = 256; off < img.length; off += 256) {
-      r = parse[CMD.MOD_WRITE](await sessionRequest(d, req.modWrite(off, img.subarray(off, Math.min(off + 256, img.length))), { timeout: 1000 }));
-      if (r.rc) throw new Error(t(modCode(r.rc)));
-      if (((off - 256) >> 8) % 8 === 0) sayK("modWorking", `${Math.round(off / img.length * 100)}%`);
-    }
-    r = parse[CMD.MOD_END](await sessionRequest(d, req.modEnd(img.subarray(0, 256)), { timeout: 3000 }));
-    await modProbe(d);
-    if (r.rc) throw new Error(t(modCode(r.rc)));
-    await load(d); sayK("modDone");
+    const row = modTarget;
+    if (row && !row.replace && ocm.engine !== row.num) throw new Error(t("modWrongEngine"));   /* (0.11.0) Install takes its own engine's file; (0.12.0) Replace takes another's: a swap */
+    const probe = (engine) => modProbe(d, engine).then(() => d.mod);
+    const send = (r, opt) => sessionRequest(d, r, opt);
+    let how;
+    try {
+      how = await replaceOcm(send, probe, row, ocm, (key, n) => confirm(t(key).replace("{n}", String(n))), (pc) => sayK("modWorking", `${pc}%`));
+    } catch (e) { throw new Error(t(e.message)); }       /* a key becomes its text; any other message stays as it is */
+    if (how === "cancelled") return;
+    await load(d); sayK(how === "swapped" ? "modSwapped" : "modDone");
   });
 });
 async function modRemoveEngine(engine, confirmKey) {   /* (0.11.0) engine 127: the whole area */

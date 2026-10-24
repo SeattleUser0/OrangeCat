@@ -870,6 +870,35 @@ static int admission_protocol(void)
     return bad;
 }
 
+/* (0.12.0, Part 3) a module image for `engine` at `start` made and installed through the commands (BEGIN, WRITE, END); returns END's rc, or 100 + the first refusal */
+static uint32_t install_image(uint32_t engine, uint32_t start, uint32_t len)
+{
+    static uint8_t im[3000], q[600];
+    uint32_t off, n, link = oc_mod_link(start);
+    fw_mod_hdr_t g;
+    for (off = FW_MOD_CODE_OFF; off < len; off++) im[off] = (uint8_t)(off * 3u + engine);
+    memset(im, 0, FW_MOD_CODE_OFF);
+    memset(&g, 0, sizeof g);
+    g.magic = FW_MOD_MAGIC; g.iface = FW_API_IFACE; g.api_size = sizeof(fw_api_t); g.api_version = FW_API_VERSION; g.api_addr = FW_API_ADDR;
+    g.engine = engine; g.state_size = 1234u; g.engine_ptr = link + 0x180u; g.link_addr = link; g.pack_hash = OC_PACK_HASH; g.length = len; g.version = 0x00010000u;
+    g.crc = ocs_crc32(im + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
+    memcpy(im, &g, sizeof g);
+    ((fw_mod_hdr_t *)im)->hcrc = ocs_crc32(im, FW_MOD_HDR_BYTES - 4u);
+    q[0] = (uint8_t)engine; q[1] = (uint8_t)start; q[2] = (uint8_t)(len & 127u); q[3] = (uint8_t)(len >> 7 & 127u); q[4] = (uint8_t)(len >> 14);
+    request(ED_MOD_BEGIN, q, 5);
+    if (host_wire[5]) return 100u + host_wire[5];
+    for (off = FW_MOD_CODE_OFF; off < len; off += 256u) {
+        uint32_t k = len - off < 256u ? len - off : 256u;
+        q[0] = (uint8_t)(off & 127u); q[1] = (uint8_t)(off >> 7 & 127u); q[2] = (uint8_t)(off >> 14);
+        n = pack7(im + off, k, q + 3);
+        request(ED_MOD_WRITE, q, 3u + n);
+        if (host_wire[5]) return 100u + host_wire[5];
+    }
+    n = pack7(im, 256u, q);
+    request(ED_MOD_END, q, n);
+    return host_wire[5];
+}
+
 /* (Orange Cat 0.10.0) the module commands 120..124 (oc_module.c) */
 static int module_protocol(void)
 {
@@ -1057,6 +1086,24 @@ static int module_protocol(void)
         request(ED_MOD_END, a, n);
         bad += check("MOD_END of a module with a record on a sector tail: rc 8, no header page programmed, nothing registered",
                      ok && host_wire[5] == 8 && host_mod[0] == 0xFF && !eng_mod[ENGI_SHAPES] && !mw.writing);
+    }
+    {   /* (0.12.0, Part 3) Replace with another engine's file: the old module out, the new one in the same start. The Prophet's number is a module slot now. */
+        uint8_t q[8];
+        bad += check("swap: SHAPES' module installs at start 0", install_image(ENGI_SHAPES, 0, 3000u) == 0 && eng_mod[ENGI_SHAPES] && oc_mod.engine[0] == ENGI_SHAPES);
+        q[0] = ENGI_PROPHET; request(ED_MOD_INFO, q, 1);
+        bad += check("swap: the plan for the Prophet's module is the other start (1) while SHAPES' module holds start 0", host_wire[25] == 1);
+        q[0] = ENGI_SHAPES; request(ED_MOD_REMOVE, q, 1);
+        bad += check("swap: SHAPES' module removed, start 0 blank", host_wire[5] == 0 && oc_mod.state[0] == MD_EMPTY && !eng_mod[ENGI_SHAPES]);
+        q[0] = ENGI_PROPHET; request(ED_MOD_INFO, q, 1);
+        bad += check("swap: the plan for the Prophet's module is now start 0, the same start", host_wire[25] == 0);
+        bad += check("swap: the Prophet's module installs at start 0 and is registered under 19", install_image(ENGI_PROPHET, 0, 3000u) == 0 && oc_mod.state[0] == MD_OK &&
+                     oc_mod.engine[0] == ENGI_PROPHET && eng_mod[ENGI_PROPHET] && !eng_mod[ENGI_SHAPES]);
+        request(ED_ENGINES, 0, 0);
+        bad += check("swap: ENGINES says engine 19 is source 2, start 0, and SHAPES has no module", host_wire[5 + 1 + ENGI_PROPHET * 11] == 2 && host_wire[5 + 1 + ENGI_PROPHET * 11 + 3] == 0 &&
+                     host_wire[5 + 1 + ENGI_SHAPES * 11] != 2);
+        bad += check("swap: a module for an engine a module may not supply is still refused", ({ uint32_t r; q[0] = 3; q[1] = 1; q[2] = 1; q[3] = 0; q[4] = 0; request(ED_MOD_BEGIN, q, 5); r = host_wire[5]; r == 1; }));
+        q[0] = ENGI_PROPHET; request(ED_MOD_REMOVE, q, 1);
+        bad += check("swap: the Prophet's module removed again, the slot is retired", host_wire[5] == 0 && !eng_mod[ENGI_PROPHET] && oc_mod.state[0] == MD_EMPTY);
     }
     return bad;
 }

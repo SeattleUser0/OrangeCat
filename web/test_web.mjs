@@ -33,7 +33,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
@@ -80,7 +80,7 @@ const E = vm.runInNewContext(proto + `
     if (o.plant) imgs.forEach(o.plant);                  /* (0.10.1) a change to each image before its CRC is taken */
     const b = new Uint8Array(base + 2 * L), dv = new DataView(b.buffer);
     dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, 2, true);
-    dv.setUint32(8, o.iface ?? iface, true); dv.setUint32(12, o.apiAddr ?? 0x02001100, true); dv.setUint32(16, 14, true); dv.setUint32(20, 11136, true); dv.setUint32(24, o.packHash ?? hash, true);
+    dv.setUint32(8, o.iface ?? iface, true); dv.setUint32(12, o.apiAddr ?? 0x02001100, true); dv.setUint32(16, o.engine ?? 14, true); dv.setUint32(20, 11136, true); dv.setUint32(24, o.packHash ?? hash, true);
     b.set([...new TextEncoder().encode("SHAPES")], 28); dv.setUint32(44, o.apiVersion ?? 3, true); dv.setUint32(48, o.apiSize ?? 60, true); dv.setUint32(52, 6, true);
     imgs.forEach((im, i) => { dv.setUint32(tab + 16 * i, starts[i], true); dv.setUint32(tab + 16 * i + 4, im.length, true); dv.setUint32(tab + 16 * i + 8, crc(im) ^ (o.badImageCrc ? 1 : 0), true); dv.setUint32(tab + 16 * i + 12, base + L * i, true); b.set(im, base + L * i); });
     dv.setUint32(hc, crc(b.subarray(0, hc)) ^ (o.badHeaderCrc ? 1 : 0), true);
@@ -92,6 +92,56 @@ const E = vm.runInNewContext(proto + `
      "module: a bad table CRC, a bad image CRC and a file that is no package are refused as 'not a module file'");
   { const cut = pkg().slice(0, 100); ok(!E.ocmParse(cut).ok, "module: a package cut short is refused"); }
   const unit = (over = {}) => ({ iface, apiAddr: 0x02001100, apiVersion: 3, apiSize: 60, packHash: hash, plan: 0, ...over });
+  await (async () => { /* (0.12.0, Part 3) Replace with another engine's file (a swap) and "use on track N", against a mock unit */
+    const fresh = (starts) => {
+      const U = { starts, log: [], rc: {} };
+      const plan = (e) => { const f = U.starts.findIndex((s) => !s); if (f >= 0) return f; return U.starts.findIndex((s) => s === e) >= 0 ? U.starts.findIndex((s) => s === e) : 127; };
+      U.probe = async (e) => (e === undefined ? { ...unit() } : { ...unit({ plan: plan(e) }), inPlace: plan(e) < 2 && U.starts.every((s) => s) });
+      U.send = async (r) => {
+        const c = r[0], a = r[1];
+        if (c === C.MOD_REMOVE) { U.log.push("REMOVE " + a[0]); if (!U.rc.remove) U.starts = U.starts.map((s) => (s === a[0] ? 0 : s)); return [U.rc.remove || 0, 0, 0, 0]; }
+        if (c === C.MOD_BEGIN) { U.log.push(`BEGIN ${a[0]} ${a[1]}`); U.begun = [a[0], a[1]]; return [0, 0, 0, 0]; }
+        if (c === C.MOD_WRITE) { U.log.push("WRITE"); return [0, 0, 0, 0]; }
+        if (c === C.MOD_END) { U.log.push("END"); U.starts[U.begun[1]] = U.begun[0]; return [0, 0, 0, 0]; }
+        if (c === C.TRACK) { U.log.push("TRACK " + (a[0] ?? "?")); return [a[0] ?? 0]; }
+        if (c === C.PRESET) { U.log.push(`PRESET ${a[0]} ${a[1]}`); return U.refuse ? [a[0], 0, 0, U.refuse] : [a[0], 0, 0]; }
+        throw new Error("unexpected " + c);
+      };
+      return U;
+    };
+    const C2 = E.CMD, asked = [];
+    const yes = (key, n) => { asked.push([key, n]); return true; }, no = (key) => { asked.push([key]); return false; };
+    const shapes = E.ocmParse(pkg({ engine: 14 })), prophet = E.ocmParse(pkg({ engine: 19 })), row14 = { num: 14, replace: true, start: 0, tracks: 2 };
+    let U = fresh([14, 0]);
+    ok(await E.replaceOcm(U.send, U.probe, row14, shapes, yes) === "installed" && U.log[0] === "BEGIN 14 1" && U.log.at(-1) === "END" && !U.log.some((x) => x.startsWith("REMOVE")),
+       "replace: a file of the row's own engine installs beside the old module, as before (no remove)");
+    U = fresh([14, 0]); asked.length = 0;
+    ok(await E.replaceOcm(U.send, U.probe, row14, prophet, yes) === "swapped" && U.log[0] === "REMOVE 14" && U.log[1] === "BEGIN 19 0" && U.log.at(-1) === "END" && U.starts[0] === 19 && U.starts[1] === 0 &&
+       asked.length === 1 && asked[0][0] === "modSwapConfirm" && asked[0][1] === 2,
+       "replace: a file of another engine is a swap: asked (with the tracks that hold the old engine), the old module removed first, the new one written at the freed start");
+    U = fresh([14, 14 + 5]); const row2 = { num: 14, replace: true, start: 0, tracks: 0 };
+    ok(await E.replaceOcm(U.send, U.probe, row2, prophet, yes) === "swapped" && U.log[0] === "REMOVE 14" && U.log[1] === "BEGIN 19 0", "replace: a swap with both starts full: the freed start takes the new module");
+    U = fresh([14, 0]);
+    ok(await E.replaceOcm(U.send, U.probe, row14, prophet, no) === "cancelled" && U.log.length === 0 && U.starts[0] === 14, "replace: a swap the user declines touches nothing");
+    U = fresh([14, 0]);
+    for (const [row, file, key] of [[{ num: 14, replace: false, start: null, tracks: 0 }, prophet, "modWrongEngine"], [row14, E.ocmParse(pkg({ engine: 3 })), "modWrongEngine"], [row14, E.ocmParse(pkg({ iface: iface ^ 1, engine: 19 })), "modWrongFw"],
+                                    [row14, E.ocmParse(pkg({ engine: 19, badImageCrc: 1 })), "modWrongFile"]]) {
+      let got = ""; try { await E.replaceOcm(U.send, U.probe, row, file, yes); } catch (e) { got = e.message; }
+      ok(got === key && U.log.length === 0 && U.starts[0] === 14, `replace: refused before anything is touched (${key})`);
+    }
+    U = fresh([14, 0]); U.rc.remove = 4; let got = ""; try { await E.replaceOcm(U.send, U.probe, row14, prophet, yes); } catch (e) { got = e.message; }
+    ok(got === "modRestart" && U.log.join() === "REMOVE 14" && U.starts[0] === 14, "replace: a remove the unit refuses (4) stops the swap with its text, nothing written");
+    U = fresh([14, 0]);
+    const a1 = await E.assignEngine(U.send, 19, 2, 4, 0);
+    ok(a1.ok && !a1.refused && U.log.join() === "TRACK 2,PRESET 19 0,TRACK 0", "assign: select the track, the engine's preset 0 through the track engine command, select the track that was selected");
+    U = fresh([14, 0]); U.refuse = 1; const a2 = await E.assignEngine(U.send, 19, 1, 4, 3);
+    ok(!a2.ok && a2.refused === 1 && a2.key === "engineHeavy" && U.log.at(-1) === "TRACK 3", "assign: the unit's admission refuses (too heavy): the reason key, and the selection is put back");
+    U.refuse = 2; ok((await E.assignEngine(U.send, 19, 1, 4, 1)).key === "engineNoRoom" && U.log.at(-1) === "PRESET 19 0", "assign: no room is its own reason; the selected track needs no select back");
+    let bad = false; try { await E.assignEngine(U.send, 19, 4, 4, 0); } catch (e) { bad = true; }
+    ok(bad, "assign: a track that does not exist is refused");
+    const rows = E.enginesRows(E.parse[C2.ENGINES]([20, ...Array.from({ length: 20 }, (_, e) => (e === 14 ? [2, 7, 0, 0, 1, 0, 0, 0, 0, 0, 2] : e === 12 ? [1, 0, 0, 127, 0, 0, 0, 0, 0, 0, 1] : [0, 0, 0, 127, 0, 0, 0, 0, 0, 0, 0])).flat(), 2, 7, 0, 14, 0, 0, 0]), Array.from({ length: 20 }, (_, e) => (e === 12 ? "FM6" : e === 14 ? "SHAPES" : "-")));
+    ok(rows.find((r) => r.num === 14).canUse && rows.find((r) => r.num === 12).canUse && !rows.find((r) => r.num === 19).canUse, "engines table: Use is offered for an engine the unit plays now (module or built in), not for an empty slot");
+  })();
   ok(E.ocmCheck(good, unit()).ok && E.ocmCheck(good, unit()).variant.start === 0 && E.ocmCheck(good, unit({ plan: 1 })).variant.start === 6, "module: the image sent is the one for the place the unit names (start 0 or 6)");
   ok(E.ocmCheck(good, unit({ iface: iface ^ 1 })).key === "modWrongFw" && E.ocmCheck(good, unit({ apiAddr: 0x02001104 })).key === "modWrongFw" && E.ocmCheck(good, unit({ packHash: hash ^ 1 })).key === "modWrongFw" &&
      E.ocmCheck(E.ocmParse(pkg({ apiVersion: 4 })), unit()).key === "modWrongFw" && E.ocmCheck(E.ocmParse(pkg({ apiSize: 64 })), unit()).key === "modWrongFw", "module: another interface identifier, table address, pack, a later table version or a longer table: 'not for this firmware'");
