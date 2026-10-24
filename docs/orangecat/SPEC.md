@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.26  
+**Version:** 0.27  
 **Date:** October 24, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.27 (October 24, 2026):** 0.13.0 on branch sonnet-work (not on the unit yet; 5.2, 6.1). A step's ratchet, flam, condition, chance, nudge and accent apply to the notes recorded on it as a group; the message "NOT ON RECORDED NOTES" is gone. No stored format changed.
 - **0.26 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on the unit yet; 8.4). The Prophet is a second loadable module: 31,872 bytes in 8 of the module area's 12 sectors, at sectors 0 and 4 of the area, with the same placement rules as SHAPES' (6 sectors, at sectors 0 and 6). An install that would share a sector with another engine's usable module is refused with the engine and start named, in the web editor, the installer page and the card browser. A registered Prophet module makes engine 19 selectable and plays the stored Prophet sounds and library presets; with none registered engine 19 is silent as before. The installer page offers the Prophet module beside SHAPES; they do not fit together.
 - **0.25 (October 24, 2026):** 0.11.2 and 0.12.0 on branch sonnet-work (not on the unit yet; 8.4). The installer page installs the whole set in one go: firmware, then the pack, then the SHAPES module, each stage skippable and skipped when the unit already has it. A module's pages are data in the module's flash (a page descriptor the engine_t points at); the Prophet's number is an engine a module may supply. The Prophet measured as a module does not fit a start (7.60 sectors against 6), so it stays out of the build; the numbers and what it would need are in the plan. The Engines table assigns an engine to a track and Replace takes a file of another engine.
 - **0.24 (October 24, 2026):** 0.11.1 on branch sonnet-work (not on the unit yet; 8.4). Two valid modules of one engine at boot: the higher header version is used, on equal versions the higher start, and the other is erased at that boot. An install or remove in a running session parks the engine's voices first. The library migration after a downgrade below 0.9.1 and an upgrade can finish, and where it cannot the boot says LIBRARY NEEDS WIPE and a wipe completes; a downgrade below 0.9.1 destroys the library (back up before, restore after).
@@ -274,7 +275,7 @@ Ties across pattern boundaries shall be explicit and deterministic. Stopping, se
 
 ### 5.2 Where the views still differ (October 23, 2026)
 
-Two representations exist today: manual steps (up to four pitches with one velocity and one length) and recorded notes (independent onset, duration, pitch and velocity in a pool of 1,024), with a step overview that marks which steps are recorded. Every view edits both since 0.7.1, with two differences left: ratchet, flam, condition, nudge and accent apply to manual steps only, and a key on a recorded step replaces the step. The intended end state is one set of capabilities for every note whichever way it came in; the overview may stay as a derived cache but shall not decide what an editor may do. docs/orangecat/TRACKER_REVIEW.md has the data flow and the cleanup plan.
+Two representations exist today: manual steps (up to four pitches with one velocity and one length) and recorded notes (independent onset, duration, pitch and velocity in a pool of 1,024), with a step overview that marks which steps are recorded. Every view edits both since 0.7.1, with one difference left: a key on a recorded step replaces the step. Since 0.13.0 the step's ratchet, flam, condition, chance, nudge and accent apply to the notes recorded on it as a group (a nudge moves every onset by the step's amount and stops at the loop's ends, a ratchet or flam repeats each onset, chance and condition are rolled once for the step on each pass). The intended end state is one set of capabilities for every note whichever way it came in; the overview may stay as a derived cache but shall not decide what an editor may do. docs/orangecat/TRACKER_REVIEW.md has the data flow and the cleanup plan.
 
 ## 6. Interchangeable Track Views
 
@@ -302,7 +303,7 @@ A tracker row is a step. Its columns:
 
 KNOB 1 moves through the rows and KNOB 2 through the columns. Keys write notes from the picked note column on, one column a key, keeping the step's other notes. EDIT deletes the note in its column, the whole step in VEL, or the picked effect in FX. A step's length shows as bars on the rows it holds. The effects are the step's own fields, the same ones the note sheet edits; a row shows its first effect, and the cursor's row in FX shows the picked one.
 
-**Recorded notes on the tracker (0.7.1).** A step played in live, or fine-tuned on NOTES, shows its notes in the columns in NOTES' order (onset, then pitch). KNOB 3 edits that note's pitch, in VEL its velocity; KNOB 4 its length a step a click; EDIT deletes that note alone. The edits go through NOTES' event editor, so an edit here and one on NOTES are the same operation with the same undo. CHANCE and SLIDE work on a recorded step; RATCHET, CONDITION, NUDGE and ACCENT are refused with a message (the sequencer applies them to steps written by hand only). A key on a recorded step replaces the whole step. A step marked REC holds notes rounded into it from the step before; NOTES reaches them.
+**Recorded notes on the tracker (0.7.1).** A step played in live, or fine-tuned on NOTES, shows its notes in the columns in NOTES' order (onset, then pitch). KNOB 3 edits that note's pitch, in VEL its velocity; KNOB 4 its length a step a click; EDIT deletes that note alone. The edits go through NOTES' event editor, so an edit here and one on NOTES are the same operation with the same undo. All six effects work on a recorded step (0.13.0), and apply to its notes as a group: chance and condition are rolled once for the step on each pass, accent plays every onset at velocity 127, nudge moves every onset by the same amount (no wrap past the loop's ends), ratchet and flam repeat each onset (docs/orangecat/TRACKER_REVIEW.md, third step). Before 0.13.0 RATCHET, CONDITION, NUDGE and ACCENT were refused with a message. A key on a recorded step replaces the whole step. A step marked REC holds notes rounded into it from the step before; NOTES reaches them.
 
 A view that cannot display a detail shall preserve it and provide access through an appropriate detail editor.
 

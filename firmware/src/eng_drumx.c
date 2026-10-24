@@ -45,18 +45,30 @@
  * What of Jiant's DRUM-X is NOT here, with the fixed value it takes (BUILD.md, "DRUM-X as built"):
  *   - the kit editor (EDIT > SOUND, every lane's two patches): the kit is a factory kit, read-only. Jiant keeps the edited
  *     kit in its project; Orange Cat has no place in its project format for it (a format change, left for a later version).
- *   - LAYER (each sound's second oscillator and FEEDBK) is the kit's own value (DX_KITS lay); TONE's BP and FEEDBK and CLAP's
- *     HANDS are 0 (dx_tone, dx_hands, drumx_voice.c).
- *   - IMAGE (P_DXIMG) and each sound's SEND: IMAGE 0 and no SEND; the part stays one mono sum through its chain. The buses
- *     the SENDs fed (chorus, delay, reverb per sound) are Jiant's fx.c.
- *   - the lane and group mutes (dx_mute, the GLO layer): none muted.
+ *   - Every per-kit setting Jiant has beyond the eight knobs stays at the kit's own value (0.13.1 looked for a place for them): the preset
+ *     (core.h preset_t) holds eight engine values, P_E0..P_E7, and all eight are DRUM-X's knobs (MRPH TUNE TONE DECY NOIS FM FOLD DRV); a ninth value
+ *     is a change of the preset, user-preset, project and backup formats, which this version does not make. So: LAYER (each sound's second
+ *     oscillator and FEEDBK) is the kit's own value (DX_KITS lay), TONE's BP and FEEDBK and CLAP's HANDS are 0 (dx_tone, dx_hands, drumx_voice.c),
+ *     PUNCH, the DUCK of the other parts on a kick, ATK+ (a hit faded in), the step's BEND and X-MOD (the kit's tempo-synced modulator and per-hit
+ *     RAND) are none. Making any of them a constant of a factory kit would change no sound until a kit sets it, and the reference renders
+ *     (tests/drumx_ref.txt) are Jiant's with them at these values.
+ *   - IMAGE (P_DXIMG) and each sound's SEND: IMAGE 0 and no SEND. Orange Cat's part is one mono sum through its chain (engine_t.render adds to a
+ *     mono block), and its mixer has the sends and the pan of the TRACK; a send or a position per sound needs a stereo, per-lane output of the engine, which
+ *     the engine interface does not have. The track's own sends and pan are there and work on the whole kit. The buses the SENDs fed (chorus,
+ *     delay, reverb per sound) are Jiant's fx.c.
+ *   - group mutes (Jiant's GLO layer): none. Lane mutes are in (0.13.1, below).
  *   - the octaves of the kit (OCT: ratchet above, SHORT / GHOST / FLAM below, TOUCH): OCT moves the keys by octaves, as for
- *     DRUM. The sequencer's ratchets and flams do the same job on a step.
- *   - PUNCH and the DUCK of the other parts on a kick (the master's G_PUNCH, G_DUCK): none.
- *   - ATK+ (a hit faded in), the step's BEND, X-MOD (the kit's tempo-synced modulator and per-hit RAND): none.
- *   - the web editor's kit pages: the engine's EDIT pages (the eight values), the lane levels and the presets are there.
+ *     DRUM. The sequencer's ratchets and flams do the same job on a step; TOUCH has no equivalent in this tree's pads (they send a note and a
+ *     velocity), and what it does in Jiant is in nothing this tree holds (its source was not at hand for 0.13.1), so it is not mapped onto SF_RATCH on a guess.
+ *   - the web editor's kit pages: the engine's EDIT pages (the eight values), the lane levels and the presets are there; no page was added because
+ *     no value was.
+ *
+ * Lane mutes (0.13.1), PERFORMANCE STATE: ACC held and a lane key on the grid mutes the lane (again: back on), the Stage shows MUTE beside the lane's name.
+ * A muted lane's hits are not started (dxe_note_on: no voice, no flash), a ringing one is cut when the lane is struck. The mask (dxe_mute, four bytes of RAM)
+ * is not stored: not in the project, the user presets or the backup; power-on and a project load clear it.
  *
  * Revisions:
+ *   0.13.1: lane mutes as performance state (not stored); the per-kit settings, IMAGE/SEND, group mutes and TOUCH looked at and left fixed, with the reasons above.
  *   0.9.0: first version. The voice (drumx_voice.c) is Jiant's; this file is Jiant's eng_drum.c reduced to what Orange
  *          Cat's engine_t, sequencer and parameter store have a place for.
  */
@@ -69,6 +81,18 @@ typedef struct {
 } dxe_lane_t;
 typedef struct { dxe_lane_t l[DV_NLANE]; } dxe_part_t;   /* the part's eight lanes: engines.c eng_state_size, the arena */
 static dxe_part_t *dxe_part(uint32_t part);              /* engines.c */
+
+/* (Orange Cat 0.13.1) lane mutes, PERFORMANCE STATE: bit l of dxe_mute[part] mutes lane l of the part. A muted lane's hits are not started (dxe_note_on), a
+ * ringing one is cut. Not stored: a project, a user preset and a backup do not carry it, power-on and a project load clear it. The ACC key held with a lane key
+ * toggles it (ui_input.c grid_keys). Four bytes of RAM. */
+static volatile uint8_t dxe_mute[NTRK];
+static uint32_t dxe_muted(uint32_t part, uint32_t lane) { return (uint32_t)(dxe_mute[part % NTRK] >> (lane & 7u)) & 1u; }
+static uint32_t dxe_mute_toggle(uint32_t part, uint32_t lane)    /* the lane's new state */
+{
+    dxe_mute[part % NTRK] ^= (uint8_t)(1u << (lane & 7u));
+    return dxe_muted(part, lane);
+}
+static void dxe_mute_clear(void) { for (uint32_t k = 0; k < NTRK; k++) dxe_mute[k] = 0; }
 
 /* General MIDI notes 35..81 -> the lane (DV_*) and semitones from its pitch (Jiant's DRUM_GM) */
 static const int8_t DXE_GM[47][2] = {
@@ -116,6 +140,12 @@ static DX_XIP void dxe_note_on(track_t *t, voice_t *v)
     dxe_part_t *s = dxe_part((uint32_t)(t - trk));
     dxe_lane_t *L;
     uint32_t i = (uint32_t)(v - t->v), lane = dxe_lane(v->note);
+    if (dxe_muted((uint32_t)(t - trk), lane)) {          /* (0.13.1) a muted lane: no hit, nothing flashes, a ringing one is cut */
+        v->active = v->gate = 0;
+        v->stage = 0;
+        v->env = 0;
+        return;
+    }
     drum_flash[(uint32_t)(t - trk) % NTRK] |= (uint8_t)(1u << lane);   /* the Stage's lane names flash */
     if (!s || i >= NVOICE)
         return;
