@@ -683,11 +683,11 @@ The installer page (https://seattleuser0.github.io/OrangeCat/) normally offers m
 
 1. Actions, build, Run workflow. Pick the branch (not main). Tick **publish_nightly**. Run.
 2. When `build` and `tests-gate` are green, the `pages` job publishes. Its notices show the files and sizes of both channels before the deploy ("site before the deploy") and the live site after it ("live site after the deploy").
-3. On the page, open "Advanced install" (RC / Nightly), choose **Nightly**. The entry reads `branch · commit · firmware version string · build date`. Save a complete backup in the editor first. Standard still installs main's build.
+3. On the page, open "Advanced installs", choose **Nightly**. The entry reads `branch · commit · firmware version string · build date`. Save a complete backup in the editor first. Standard still installs main's build.
 
 Standard, the stable editor and the manual are copied from the live site (`web/mirror_site.py`) and checked unchanged (`web/site_check.py`); the run fails before the deploy if one differs. The Nightly files are `firmware/melodee-nightly.fwsc`, `orangecat-nightly.pak`, `orangecat-shapes-nightly.ocm`, `orangecat-prophet-nightly.ocm` and `orangecat-nightly.*.set.json` (`tools/orangecat_site.py nightly`). The site has no nightly editor: the editor stays main's, so the Settings tab's pack and module panels are missing until main catches up (the installer's set flow installs the pack and the modules). The installer page is made again from the branch's `web/index_pkg.html`.
 
-A push to main builds the whole site from scratch and so ends the Nightly. Dispatching again, from the same or another branch, replaces it. A dry run on a built site: `python3 web/site_check.py SITE --list`.
+One setting is needed once: Settings, Environments, github-pages, Deployment branches and tags must allow the branch (by default only main may deploy; the run fails at the `pages` job with \"Branch ... is not allowed to deploy to github-pages due to environment protection rules\" before any step runs). A push to main builds the whole site from scratch and so ends the Nightly. Dispatching again, from the same or another branch, replaces it. A dry run on a built site: `python3 web/site_check.py SITE --list`.
 
 ## EQ accelerator experiment
 
