@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.73  
+**Version:** 0.74  
 **Date:** October 24, 2026  
 **Tracks:** Orange Cat Specification v0.25
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.74 (October 24, 2026):** Eleventh run on sonnet-work (still not on main, released or flashed): the first hardware result (two tracks play, the third and fourth screech, whatever the engine); the Audio readout in the web editor's Settings tab (0.13.6, editor command 72 schema 8); the OC_PACK_BUILTIN switch and the A/B build that tells whether the pack's data window is the cause; the audio interrupt's recorded-step work checked (not per block). See "Eleventh run".
 - **0.73 (October 24, 2026):** 0.13.6 on sonnet-work (still not on main, released or flashed): the installer page's Nightly channel can serve a branch build with its pack, modules and set manifests (workflow Rev 17, input `publish_nightly`; `web/mirror_site.py`, `web/site_check.py`, `tools/orangecat_site.py nightly`); Standard, the editor and the manual stay main's. No firmware change. See "Tenth run" and the Before merging item 10.
 - **0.72 (October 24, 2026):** 0.13.5 on sonnet-work (still not on main, released or flashed): the second independent review of everything since 549d580 (no blocking bug; seven items), all fixed in the Ninth run's Part 6: a stale repeat bit cleared where an event leaves its track, the repeat record cut from 4,608 B to 384 B (arena 88,000 B back to 92,128 B), the loop-end rule documented, page_scroll guarded, the CI gate needs a positive marker, the installer's BEGIN wait, Install set resumes from the module that asked. See "Ninth run", Part 6.
 - **0.71 (October 24, 2026):** Ninth run on sonnet-work (still not on main, released or flashed): ratchet and flam repeats are never dropped (a record for each event instead of a six-entry queue); a damaged pack or module file is refused before anything is erased, on the card and on the page, with one shared check; the erase table of every data-area site; the scheduler benchmark under load (loaded costs 12% more per hit than plain, not optimized). See "Ninth run".
@@ -2244,3 +2245,58 @@ Still not on main, released or flashed. No firmware change, no tag, nothing to m
 **Tests.** `tests/branch_nightly_test.py` (10 cases, in `run_tests.sh`): a fake artifact and a fake live site served over HTTP, the mirror, Standard byte-identical, Nightly names as the page reads them, set manifests consistent with the manifest, a bad pack/identity/commit writes nothing, a second nightly replaces the first, a main publish has none, `--list` and `--compare`. `web/test_web.mjs`: the Nightly entry text and the stage boxes.
 
 **Found by the first real run (run 232): the manifest named the wrong interface number.** `tools/oc_manifest.py` wrote FW_API_ID (the hash of the structure text, `a3a39b53`) as `iface`, but the modules carry, and the unit compares, FW_API_IFACE (that hash mixed with four `sizeof`, `fw_api.h`; `12f6be4f`). `check_set` in the pages job refused the Prophet module ("interface 12f6be4f ... is not the firmware's (a3a39b53)"), and the set manifests (`*.set.json`, 0.13.3) carried the same wrong number, so the card's Install set would have answered "other build" to every set. Fixed in the tools only (no firmware change): `tools/build.py --module` writes `build/gen/fw_api_iface.h` from the module header, `tools/oc_manifest.py` reads it (`tests/orangecat_site_test.py`, `test_the_manifest_names_the_interface_the_modules_carry`). The unit checklist item for Install set from the card stays open; it could not have passed with the old sets.
+
+## Eleventh run (0.13.6 and on, branch sonnet-work, October 24, 2026): four tracks screech on the unit
+
+Still not on main, released or flashed. No tag, nothing to main.
+
+### Hardware
+
+First result from the unit, on the Nightly `sonnet-work 80b85fb v0.6.2-80b85f`:
+
+- The unit boots and plays.
+- Two tracks play fine. The third screeches and distorts. The fourth is worse.
+- It does not depend on the engine: MACRO, SHAPES and DRUM-X all do it.
+- 0.6.2 (main) plays four tracks.
+
+DRUM-X reads no pack table, and it screeches too. So the pack's data window is a suspect, not a proven cause. Anything that costs render time with more tracks fits: the render is late, the DMA moves on, and the half buffer is played again or half old. The A/B below tells which.
+
+### The Audio readout (0.13.6)
+
+Settings tab of the web editor, group "Audio". It shows the numbers `tools/usb_audio_stats.py` reads:
+
+| Number | Meaning | Good |
+|---|---|---|
+| Worst | slowest render of a half buffer in microseconds since the last Reset | under the budget |
+| Budget | the time a half buffer lasts (128 samples at 44.1 kHz, 2,901 us) | for reference |
+| Late | renders the DMA overtook (each one is an audible glitch) | 0 |
+| Load | the render time as a share of the budget, averaged over about 93 ms | well under 100% |
+| Block, Blocks | samples in a half buffer; half buffers since the Reset | for reference |
+
+It refreshes every second while the Settings tab is open. Reset starts the worst, the late count and the block count over. It stays in the firmware for good: editor command 72, request flag 64 (65 with the Reset), reply schema 8, 23 counters (web/EDITOR_PROTOCOL.md). `tools/usb_audio_stats.py --budget` reads the same. The page is tested in `web/test_web.mjs` (the request and the parse), the tool in `tests/usb_audio_stats_test.py`.
+
+The Nightly editor: the editor on the site is main's, and main's has no Audio group. A Nightly publish now also puts the branch's editor at `webapp/nightly-editor/` on the same site (Standard's `webapp/editor/` is not touched; `web/site_check.py` does not count the new folder as Standard). Use that one.
+
+### The A/B plan
+
+1. **Build A (the switch):** `OC_PACK_BUILTIN=1`. The SHAPES and MACRO tables are in the image as before 0.8.0. The boot pack check is skipped and the engines play without a pack. Default is 0 and changes nothing. Built on the throwaway branch `exp/sonnet-ab-builtin` (sonnet-work with the switch on and OC_MODULE_WINS=0, so the built-in SHAPES plays and no module is needed). Never merged.
+2. **What each outcome means** (read the Audio numbers with four tracks playing, a fresh Reset first):
+   - **Four tracks play clean and the worst is under the budget:** the pack's data window is the cause. Go to Part 3 (0.13.7): map the window through the cache if the SDK allows, else keep the hot small tables in RAM.
+   - **It still screeches (late renders climb, worst over the budget):** the pack is not the cause. The next A/B is the scheduler: `OC_PROPS_OFF`, which skips the 0.13.0 recorded-step properties in the interrupt. Then the arena size, then the DRUM-X and effects flash code.
+   - **Worst is under the budget and late is 0 but it still sounds wrong:** the render is not late. Look at the mix path (a clipping or a buffer fault), not the time.
+
+### Part 4: the audio interrupt's recorded-step work
+
+Checked in code (`firmware/src/recording.c`, `seq.c`). The 0.13.0 and 0.13.4 work is not per block and not proportional to tracks times steps:
+
+- `recording_tick` runs each block for a track that has recorded events. Its cost is a few divisions, then the sounding events (the live list), then the events due this block (the cursor into a list sorted at the last change). Nothing walks the steps.
+- `recording_rep_tick` (repeats of ratchets and flams) returns at once when the track has no repeat pending. With one pending it looks at 16 slots, a fixed number a track, not NSTEP.
+- `recording_sync` returns at once unless the step length, swing, groove, quantize or pattern changed. Only then it recomputes and sorts that track's list, once.
+- `recording_roll` counters are cleared in `recording_zero`, once per loop pass of a track.
+- `recording_nudge_fold` walks the steps of one track (NSTEP). It runs once per loop pass of a track (`recording_zero`), when the schedule is rebuilt, and when an editor edits a nudge. It does not run per block.
+
+Proof added: `recording_props_test` counts folds (the hook `RECORDING_FOLD_HOOK`) over eight loop passes: the folds are at most passes + 2, far under the block count. Result: nothing to fix.
+
+### Unit checklist, standing step (added)
+
+Every time a build is on the unit: **read the Audio numbers with four tracks playing** (Settings tab, Audio group, press Reset, play four tracks for a minute). Worst under the budget, Late 0. Write the numbers down.
