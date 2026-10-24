@@ -865,6 +865,16 @@ The requirement: assigning a module's engine to a track is refused when the unit
 - Tests: ui_test.c `test_admission` (a fake header and engine_t: admitted, too heavy, state over the arena, the other tracks' states counted, exact fit, the cost word not deciding);
   editor_test.c `admission_protocol` (the fourth byte, the track keeps its engine); test_web.mjs (the parse); module_build_test.py (the cost sum, the 56 byte header).
 
+## The Engines table and the engine list command (0.11.0)
+
+The Settings section of the web page had the pack and one module. It has an Engines table now. The unit answers one command, `ED_ENGINES` (125, beside 120 to 124, documented
+in web/EDITOR_PROTOCOL.md): per engine number its source (none, built in, module), the state of any module found for it (OK, refused with its reason, banned, torn tail ..),
+the start, the module's version, its length and the tracks that use it; then the starts, so a torn one, which names no engine, is not lost. The page does not guess from the
+pack and module commands. The version is a new header word, `fw_mod_hdr_t.version` (0x00MMmmpp; SHAPES is 1.0.0), as the module's own number; the header is 60 bytes since 0.11.0.
+Per row: Install (a number a module may supply, with none found; the file picker takes a .ocm for that number only), Replace (the install path of 0.10.1: beside when a start is free), Remove.
+The card browser is unchanged. Tests: editor_test.c (the reply byte for byte, a banned module, an argument refused), test_web.mjs (the parse and the rows for OK, absent, banned,
+refused, torn, wrong tail).
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

@@ -32,7 +32,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE, enginesRows, ocmReason })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
@@ -108,6 +108,37 @@ const E = vm.runInNewContext(proto + `
     ok(E.ocmTails(image(5000, 3)) === 0 && E.ocmTails(a) === 1 && E.ocmTails(b2) === 2, "module: the sector tail rule finds a record on sector 1's tail (1) and on sector 2's (2), and none in an image without one");
     ok(E.ocmTails(c2) === 0 && E.ocmTails(z) === 0, "module: a record cut off by the end of the image reads as erased flash after it (no record); a zero CRC word is not a record");
     ok(E.ocmTails(new Uint8Array(0)) === 0 && E.ocmTails(image(0xF00, 7)) === 0, "module: an image that ends before the first tail has nothing to test"); }
+  { /* (0.11.0) the engine list: the parse and the Engines table */
+    const N = 20, rec = (src, state, why, start, ver, size, use) => [src, state, why, start, ...ver, size & 127, (size >> 7) & 127, (size >> 14) & 127, use];
+    const none = rec(0, 0, 0, 127, [0, 0, 0], 0, 0), built = (u) => rec(1, 0, 0, 127, [0, 0, 0], 0, u);
+    const mk = (over, starts) => { const l = Array.from({ length: N }, (_, e) => (over[e] || (e === 12 ? built(1) : none))).flat(); return [N, ...l, 2, ...starts]; };
+    const names = Array.from({ length: N }, (_, e) => (e === 12 ? "FM6" : e === 14 ? "SHAPES" : e === 9 ? "DRUM-X" : "-"));
+    const L = E.parse[E.CMD.ENGINES](mk({ 14: rec(2, 7, 0, 0, [1, 2, 3], 23780, 2), 9: built(0) }, [7, 0, 14, 0, 0, 0]));
+    ok(L.engines.length === N && L.engines[14].src === 2 && L.engines[14].state === 7 && L.engines[14].start === 0 && L.engines[14].version.join(".") === "1.2.3" &&
+       L.engines[14].size === 23780 && L.engines[14].use === 2 && L.engines[12].start === null && L.engines[12].src === 1 && L.starts.length === 2 && L.starts[0].engine === 14 && L.starts[1].state === 0,
+       "engines: the list parses (number, source, state, start, version, size, tracks that use it, then the starts)");
+    let R = E.enginesRows(L, names);
+    ok(R.map((r) => r.num).join() === "9,12,14", "engines table: a row for each engine with a name or a module (retired numbers are not rows), in number order");
+    const r14 = R.find((r) => r.num === 14), r12 = R.find((r) => r.num === 12);
+    ok(r14.source === "module" && r14.state === "ok" && r14.version === "1.2.3" && r14.size === 23780 && r14.start === 0 && r14.tracks === 2 && r14.actions.join() === "replace,remove",
+       "engines table: the module's row: source, OK, version, size, start, tracks, and the actions Replace and Remove");
+    ok(r12.source === "builtin" && r12.state === "ok" && r12.actions.length === 0 && r12.version === "", "engines table: a built-in engine without a module has no action");
+    const L2 = E.parse[E.CMD.ENGINES](mk({}, [0, 0, 0, 0, 0, 0]));
+    R = E.enginesRows(L2, names);
+    const e14 = R.find((r) => r.num === 14);
+    ok(e14 && e14.source === "none" && e14.state === "empty" && e14.actions.join() === "install", "engines table: SHAPES with no module and none built in: a row with Install");
+    const L3 = E.parse[E.CMD.ENGINES](mk({ 14: rec(0, 5, 0, 1, [1, 0, 0], 23780, 0) }, [0, 0, 0, 5, 0, 14]));
+    const b14 = E.enginesRows(L3, names).find((r) => r.num === 14);
+    ok(b14.state === "crashed" && b14.reason === "reasonCrashed" && b14.start === 1 && b14.actions.join() === "replace,remove", "engines table: a banned module: state crashed with its reason, Replace and Remove");
+    const L4 = E.parse[E.CMD.ENGINES](mk({ 14: rec(0, 2, 3, 0, [1, 0, 0], 5000, 0) }, [2, 3, 14, 0, 0, 0]));
+    const f14 = E.enginesRows(L4, names).find((r) => r.num === 14);
+    ok(f14.state === "refused" && f14.reason === "reasonOtherFw", "engines table: a refused module says why (code 3: another firmware)");
+    const L5 = E.parse[E.CMD.ENGINES](mk({}, [1, 0, 0, 0, 0, 0]));
+    const R5 = E.enginesRows(L5, names), torn = R5.find((r) => r.num === null);
+    ok(torn && torn.start === 0 && torn.state === "torn" && torn.reason === "reasonTorn" && torn.actions.join() === "removeAll", "engines table: a torn start (no engine number) is a row of its own with Remove");
+    const L6 = E.parse[E.CMD.ENGINES](mk({ 14: rec(0, 8, 2, 0, [1, 0, 0], 9000, 0) }, [8, 2, 14, 0, 0, 0]));
+    ok(E.enginesRows(L6, names).find((r) => r.num === 14).reason === "reasonTail", "engines table: a module with a sector tail says so (state 8)");
+    ok(E.ocmReason(7, 0) === "" && E.ocmReason(0, 0) === "", "engines table: a good or an empty start has no reason"); }
   { const P = E.parse[E.CMD.PRESET];
     ok(P([14, 5, 0]).refused === 0 && P([14, 5, 0]).engine === 14 && P([14, 5, 0]).preset === 5, "admission: the ordinary PRESET reply (three bytes) is not a refusal");
     ok(P([3, 7, 0, 1]).refused === 1 && P([3, 7, 0, 2]).refused === 2 && P([3, 7, 0, 1]).engine === 3, "admission: a fourth byte is the refusal (1 ENGINE TOO HEAVY, 2 NO ROOM) and the engine is the one the track kept"); }

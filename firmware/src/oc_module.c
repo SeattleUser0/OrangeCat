@@ -76,7 +76,7 @@
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
 static uint32_t fm1_guard_code_end;
 #include "../hal/fm1_guard_pc.h"
-#define OC_HOST_ETEXT 0x02080000u                               /* a host build's _etext */
+#define OC_HOST_ETEXT 34078720u                                 /* a host build's _etext (any value above the image: the lint keeps hex addresses in hal/) */
 static uint32_t host_pc_hi, host_pc_sets;                       /* what the device's LIMIT0_H would hold, and how often it was written */
 static void fm1_guard_pc_window(void) { host_pc_hi = fm1_guard_pc_hi(fm1_guard_code_end, OC_HOST_ETEXT); host_pc_sets++; }
 #endif
@@ -93,6 +93,7 @@ static struct {
     uint8_t why[OC_MOD_STARTS];                                /* MD_REFUSED: fw_module_check's code; MD_NOSLOT: eng_register's, negated */
     uint32_t engine[OC_MOD_STARTS];                            /* the engine number the header names (valid once the header is) */
     uint32_t length[OC_MOD_STARTS];
+    uint32_t version[OC_MOD_STARTS];                           /* (0.11.0) the header's version word (valid with the engine) */
 } oc_mod;
 /* the crash mark (core.h declares oc_modguard so that reset_intended can clear its count): survives a reset, not a power loss */
 #define OC_MOD_UNCLEAN_MAX 3u                                  /* (0.10.1) sessions in a row that died with the module's engine in use: banned */
@@ -204,6 +205,7 @@ static void oc_mod_boot(uint32_t crashed)
             continue;
         oc_mod.engine[i] = h.engine;
         oc_mod.length[i] = h.length;
+        oc_mod.version[i] = h.version;
         if (st != MD_OK)
             continue;
         if (oc_modguard.banned & (1u << i)) {

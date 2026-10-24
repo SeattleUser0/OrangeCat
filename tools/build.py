@@ -502,8 +502,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": 
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
-MOD_HDR = struct.Struct("<14I")          # fw_mod_hdr_t (firmware/src/fw_api.h): 14 words, FW_MOD_HDR_BYTES 56 (0.11.0: the cost word; 13 and 52 before)
-MOD_NAMES = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash cost length crc hcrc".split()
+MOD_HDR = struct.Struct("<15I")          # fw_mod_hdr_t (firmware/src/fw_api.h): 15 words, FW_MOD_HDR_BYTES 60 (0.11.0: the cost and version words; 13 and 52 before)
+MOD_NAMES = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash cost version length crc hcrc".split()
 MOD_AREA_LO, MOD_AREA_HI = None, None
 
 

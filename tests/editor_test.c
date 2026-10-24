@@ -885,7 +885,7 @@ static int module_protocol(void)
     memset(img, 0, FW_MOD_CODE_OFF);
     memset(&h, 0, sizeof h);
     h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
-    h.engine = ENGI_SHAPES; h.state_size = 1234u; h.engine_ptr = link0 + 0x180u; h.link_addr = link0; h.pack_hash = OC_PACK_HASH; h.length = len;
+    h.engine = ENGI_SHAPES; h.state_size = 1234u; h.engine_ptr = link0 + 0x180u; h.link_addr = link0; h.pack_hash = OC_PACK_HASH; h.length = len; h.version = 0x00010203u;
     h.crc = ocs_crc32(img + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
     memcpy(img, &h, sizeof h);
     ((fw_mod_hdr_t *)img)->hcrc = ocs_crc32(img, FW_MOD_HDR_BYTES - 4u);
@@ -944,6 +944,29 @@ static int module_protocol(void)
     bad += check("MOD_INFO: start 0 is OK, SHAPES, its length", host_wire[26] == MD_OK && host_wire[28] == ENGI_SHAPES &&
                  (host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14) == len && !(host_wire[7] & 4u));
     bad += check("the flash holds the header page and the code byte for byte", !memcmp(host_mod, img, len));
+    {   /* (0.11.0) ED_ENGINES: every engine number, its source, state, start, version, length, tracks that use it; then the starts */
+        uint32_t base = 5u + 1u + ENGI_SHAPES * 11u, e, builtin = 0, use = 0, k;
+        trk[1].eng_req = ENGI_SHAPES; trk[3].eng_req = ENGI_SHAPES;
+        request(ED_ENGINES, 0, 0);
+        for (e = 0; e < NENGINES; e++) builtin += host_wire[5 + 1 + e * 11] == 1u;
+        for (k = 0; k < NTRK; k++) use += trk[k].eng_req == ENGI_SHAPES;
+        bad += check("ENGINES: the count, the module's row (source 2, state OK, start 0, version 1.2.3, its length, the tracks that hold it)",
+                     host_wire[5] == NENGINES && host_wire[base] == 2 && host_wire[base + 1] == MD_OK && host_wire[base + 3] == 0 &&
+                     host_wire[base + 4] == 1 && host_wire[base + 5] == 2 && host_wire[base + 6] == 3 &&
+                     (host_wire[base + 7] | host_wire[base + 8] << 7 | host_wire[base + 9] << 14) == len && host_wire[base + 10] == use && use == 2u);
+        bad += check("ENGINES: a built-in engine is source 1 with no module state and start 127; a retired number is 0",
+                     host_wire[5 + 1 + ENGI_FM6 * 11] == (eng_ok(ENGI_FM6) ? 1 : 0) && host_wire[5 + 1 + ENGI_FM6 * 11 + 3] == 127 && host_wire[5 + 1 + 4 * 11] == 0 && builtin >= 3u);
+        bad += check("ENGINES: the starts follow: two, start 0 OK for SHAPES, start 1 empty",
+                     host_wire[5 + 1 + NENGINES * 11] == 2 && host_wire[5 + 2 + NENGINES * 11] == MD_OK && host_wire[5 + 4 + NENGINES * 11] == ENGI_SHAPES && host_wire[5 + 5 + NENGINES * 11] == MD_EMPTY);
+        oc_mod.state[0] = MD_CRASHED; ENGINES[ENGI_SHAPES] = eng_default(ENGI_SHAPES); eng_mod[ENGI_SHAPES] = 0;
+        request(ED_ENGINES, 0, 0);
+        bad += check("ENGINES: a module found but not registered (banned): the number is not source 2, the state (5) and the start are told",
+                     host_wire[base] != 2 && host_wire[base + 1] == MD_CRASHED && host_wire[base + 3] == 0);
+        oc_mod_boot(0);
+        trk[1].eng_req = trk[3].eng_req = ENGI_FM6;
+        a[0] = 0; request(ED_ENGINES, a, 1);
+        bad += check("ENGINES with an argument is refused (no reply)", host_wire_n == 0);
+    }
     a[0] = ENGI_SHAPES;
     request(ED_MOD_INFO, a, 1);
     bad += check("MOD_INFO after the install: the plan is the other start (1, beside the old module) and flag 8 (in place) is clear", host_wire[25] == 1 && !(host_wire[7] & 8u));
