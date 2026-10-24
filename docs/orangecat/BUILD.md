@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.68  
+**Version:** 0.69  
 **Date:** October 24, 2026  
 **Tracks:** Orange Cat Specification v0.25
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.69 (October 24, 2026):** Parts 2 to 4 of the Seventh run on sonnet-work (still not on main, released or flashed): sanitizer fixes and the SAN=1 suite, the project-record fuzzer, step properties on recorded steps (0.13.0), DRUM-X lane mutes (0.13.1). See "Seventh run".
 - **0.68 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on main, not released, not on the unit): the Prophet as the second module (8 sectors, starts 0 and 4 of the module area, 31,872 B of 32,768), the installer refusing a module that overlaps another engine's, stored Prophet sounds playing again while a module supplies engine 19, and the first hardening work (sanitizers, fuzzers, watchdog feeds). See "Seventh run".
 - **0.67 (October 24, 2026):** 0.12.0 on branch sonnet-work (not on main, not released, not on the unit): a module's pages as data (a page descriptor the engine_t points at, checked by the loader, followed by the page lookup, the edit path and motion; editor commands 126 and 127), tested with a fake module; the Prophet measured as a module (31,148 B, 7.60 sectors: it does not fit a start, so it is not built as the second module, and its admission line is not added); the Engines table assigns an engine to a track and Replace takes another engine's file (a swap). See "Sixth run", Parts 2 and 3.
 - **0.66 (October 24, 2026):** 0.11.2 on branch sonnet-work (not on main, not released, not on the unit): the installer page installs the whole set (firmware, then the asset pack, then the SHAPES module) in one go, with one bar and one summary, each stage skippable and skipped when the unit already has it. See "Sixth run", Part 1.
@@ -1865,6 +1866,43 @@ Tests: see "Tests added or changed (Seventh run)".
 ### Sizes and CI (Part 1)
 
 Run 40082370575 (quick, on bd68aca, the device build passed every check): image 499,252 B (77,996 B free), RAM 93,528 B of 98,304 B, pool 176,768 B, audio arena 94,144 B available. SHAPES module 23,784 B of 24,576 B. Prophet module 31,872 B of 32,768 B at start 0 (0xC8000) and 4 (0xCC000), `.data` 0, `.bss` 0; `prophet-0.6.2.ocm` 63,836 B, two variants, state 1,456 B, interface 12f6be4f.
+
+### Part 2: hardening (0.12.2)
+
+**2a. Sanitizers.** `SAN=1 tests/run_tests.sh` builds and runs every host test under AddressSanitizer and UBSan (first finding stops the test). Findings and what was done:
+
+- Left shifts of negative values and `int` overflow in the sound code (`eng_drumx.c`, `eng_shapes.c`, `eng_macro.c`, `eng_drum.c`, `eng_trio.c`, `eng_sid.c`, `drum_sid.c`, `jfx.c`, `phys_symp.c`, `drumx_voice.c`, `braids/pb_analog_r.h`, `pb_dig_c.h`, `pb_digital.h`). Each is now a multiply or an unsigned shift; the arithmetic on the target is the same, so no golden hash moved.
+- `audio_batch.h`: the batch is `_Alignas(8)` (it holds 64-bit members); `smp_slot.c`: an `OC_FEED` fallback macro.
+- Test harness bugs, not firmware: `tests/hostsim.c` wrote one block past its level buffer (slack added); `tests/ota_test.c` read an image shorter than its marker header (now refuses with a message).
+- **Not changed, host artifact:** alignment checks are off in SAN builds (`-fno-sanitize=alignment`). The host arena hands out 4-byte-aligned blocks and `drum909_part_t` (`eng_drum.c`) holds a pointer; the target's 32-bit core has no alignment fault on it. The allocator was not changed.
+- **Environment only, run in CI:** the web package test (`web pages`), `boot packages`, `power cuts`, `M-UPGRADE entry`, `update loader`, `installer CLI` and `ROM USB recovery` need a real `build/melodee.fwsc` and the AC79 SDK; this sandbox has neither (the `.fwsc` is a 0-byte placeholder), so they ran only in CI, not under sanitizers. The `hostsim` TRACKS run under ASan/UBSan finished with no finding (the null function-pointer crash seen once came from the earlier shifts and misalignment and did not return).
+- Result of the sanitizer suite (sound tests skipped, `SOUND=0`): every other job passed after the fixes above.
+
+**2b. Fuzzers.** Five, fixed seeds, `FUZZ_SECONDS` each (default 3) in `run_tests.sh`; a long run is `FUZZ_SECONDS=1800`: `fuzz_lib_group` (scan, migration, leftovers), `fuzz_oc_pack` (boot check and install), `fuzz_oc_module` (every start, planner, install), `fuzz_fw_pages` (page descriptor check) and the new `fuzz_oc_project` (the project record loader: mutated record store and pool chunks, then a save and a power-on). Invariants: no crash or out-of-bounds access, no registration or bank pick that fails its CRC, save and boot still work after any mutation. Long-run mutation counts: see "Fuzzer results" below.
+
+**2c. Static analysis.** See "Static analysis" below.
+
+**2d. Watchdog.** The long loops (module/pack erase and write, scans) feed the watchdog. **2e.** The three install paths (pack, module, project) are refused while the transport runs.
+
+### Part 3: step properties on recorded steps (0.13.0)
+
+Recorded steps can carry RATCH, CHANCE, COND, NUDGE, SLIDE and ACCENT, edited in the tracker's FX column as on typed steps; "NOT ON RECORDED NOTES" is gone. `recording.c` rolls chance and condition once per step per pass, adds the step's nudge to each onset (clamped inside the loop), fires ratchets (part gate `min(gate, part*SGATE/128)`) and flams (grace at `vel*9/16+1`) from a small per-track repeat queue. `step_snapshot_t` already kept these fields, so undo (EDIT held) covers them; the project format is unchanged (the fields were in the step record already).
+
+- RAM: 464 B (`recording_roll` and the 6-entry `recording_rep` per track plus `recording_nudge_sum`). Recorded-step path is "optional bounded" in `tests/target_budget`.
+- Decision: a ratchet or flam on a recorded chord repeats every onset of the step together; accent plays at velocity 127.
+- Tests: `tests/recording_props_test.c` (new), `tests/ui_test.c` (FX edits on recorded steps, undo, save/load).
+
+### Part 4: DRUM-X lane mutes (0.13.1)
+
+ACC held + a lane key on a DRUM-X track mutes or unmutes that lane (`dxe_mute[]` in `eng_drumx.c`); the LANE column shows MUTE. A muted lane is silent and starts no voice. Mutes are not saved (no format change) and are cleared on project load. Nothing else from the DRUM-X wish list was added: the rest needs a new parameter or a format change. Tests: `drumx_test.c` `test_mutes()`, `ui_test.c`.
+
+### Fuzzer results
+
+(Filled in when the long runs finish.)
+
+### Static analysis
+
+(Filled in when 2c finishes.)
 
 ### Tests added or changed (Seventh run)
 
