@@ -1726,7 +1726,7 @@ In the packages artifact of a CI run the same files are named `orangecat-VER-SHA
 
 **How the three files relate.** They are one build:
 - Same commit. The pages job takes the three from the same build job.
-- The pack's hash is checked against the firmware's. `tools/oc_manifest.py` writes `orangecat-VER-SHA.manifest.json` from the build's generated headers (`OC_PACK_HASH`, `OC_PACK_LEN`, `FW_API_ID`, the table address). The site build refuses a pack whose header hash or length differs from the manifest, or whose CRCs fail.
+- The pack's hash is checked against the firmware's. `tools/oc_manifest.py` writes `orangecat-VER-SHA.manifest.json` from the build's generated headers (`OC_PACK_HASH`, `OC_PACK_LEN`, `FW_API_ID`, the services table address). The site build refuses a pack whose header hash or length differs from the manifest, or whose CRCs fail.
 - The module's identifier is checked against the firmware's. The site build refuses a `.ocm` whose interface identifier or API address differs from the manifest, whose pack hash differs from the firmware's pack hash, or whose image CRCs fail.
 - A refused set writes nothing to the site. A site built without `--pak` is the site it was (firmware only).
 - At install time the page checks the same things again against the running unit: `packFits` (115's build length and hash) and `ocmCheck` (120's identifier, address, API version and size, pack hash).
