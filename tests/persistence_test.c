@@ -10,16 +10,17 @@
 #endif
 
 static int32_t fm1_enc_take(uint32_t e) { (void)e; return 0; }
-static uint32_t irq_start_race, irq_races;
+static uint32_t irq_start_race, irq_races, irq_offs, irq_ons;   /* (0.11.1) the pairs counted: oc_module_test checks the engine table stores */
 static void fm1_irq_off(void)
 {
+    irq_offs++;
     if (irq_start_race) {                         /* audio serviced PLAY immediately before main masks it */
         irq_start_race = 0;
         events_block(CTL);
         irq_races++;
     }
 }
-static void fm1_irq_on(void) {}
+static void fm1_irq_on(void) { irq_ons++; }
 static uint32_t boot_syncs, boot_trace, boot_trace_bad;
 static void lcd_sync(void) { boot_syncs++; }
 static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }

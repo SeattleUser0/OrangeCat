@@ -363,7 +363,7 @@ static int eng_register(const fw_mod_hdr_t *h, const engine_t *engine)
         return EM_SLOT;
     if (eng_default(e) != &ENG_RETIRED && !OC_MODULE_WINS)
         return EM_SHADOWED;
-    ENGINES[e] = engine;
+    ENGINES[e] = engine;                            /* (0.11.1) the two stores are one step in a running session: oc_module.c's oc_mod_reg / oc_mod_unreg */
     eng_mod[e] = h;
     return EM_OK;
 }
@@ -371,7 +371,7 @@ static void eng_unregister(uint32_t e)
 {
     if (e >= NENGINES)
         return;
-    eng_mod[e] = 0;
+    eng_mod[e] = 0;                                 /* (0.11.1) one step in a running session, as in eng_register */
     ENGINES[e] = eng_default(e);
 }
 

@@ -675,6 +675,39 @@ int main(void)
                 oc_mod.state[0] == MD_OK && !eng_mod[ENGI_SHAPES] && host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
         }
 
+        /* (0.11.1) a running session: every oc_mod_boot from the installer parks the engine's voices first (a track on the engine would render the
+         * built-in slot, then the module, under live voices, while the module is re-read) */
+        {
+            #define LIVE() do { trk[2].engine = ENGI_SHAPES; trk[2].v[0].active = 1; trk[2].v[0].gate = 1; trk[2].v[0].stage = 3; trk[2].v[0].env = 1000; } while (0)
+            #define QUIET() (!trk[2].v[0].active && !trk[2].v[0].gate && !trk[2].v[0].stage && !trk[2].v[0].env)
+            clean(); oc_mod_boot(0); BUILD(0, LEN, 90);
+            LIVE();
+            chk("fresh install (nothing registered before): the voices on the engine are parked", INSTALL(0, LEN, &rc) == 0 && QUIET());
+            BUILD(1, LEN + 4u, 92);
+            LIVE();
+            chk("install beside: the voices are parked", INSTALL(1, LEN + 4u, &rc) == 0 && QUIET());
+            clean(); good(0, LEN); good(1, LEN); oc_mod_boot(0);
+            chk("(setup) both starts hold a module: the plan is in place", oc_mod_inplace(ENGI_SHAPES, (uint32_t)oc_mod_plan(ENGI_SHAPES)));
+            { uint32_t st = (uint32_t)oc_mod_plan(ENGI_SHAPES); BUILD(st, LEN, 91); LIVE();
+              chk("in-place install: the voices are parked", INSTALL(st, LEN, &rc) == 0 && QUIET()); }
+            LIVE();
+            LIVE();
+            chk("remove: the voices are parked", oc_mod_remove(ENGI_SHAPES) == 0 && QUIET());
+            { uint32_t o0, n0; clean(); good(0, LEN); oc_mod_boot(0); LIVE(); o0 = irq_offs; n0 = irq_ons;
+              oc_mod_remove(ENGI_SHAPES);
+              chk("the table's two stores in a running session are a critical section: interrupts off and on in pairs (unregister)", irq_offs > o0 && irq_offs - o0 == irq_ons - n0);
+              BUILD(0, LEN, 93); o0 = irq_offs; n0 = irq_ons; INSTALL(0, LEN, &rc);
+              chk("... and the register of the new module", irq_offs > o0 && irq_offs - o0 == irq_ons - n0);
+              o0 = irq_offs; clean(); good(0, LEN); oc_mod_boot(0);
+              chk("at power-on (oc_mod_boot alone) the interrupt state is not touched", irq_offs == o0); }
+            LIVE();
+            oc_mod_boot(0);
+            chk("(the boot itself, before audio runs, is not a running session: it parks nothing)", !QUIET());
+            memset(&trk[2], 0, sizeof trk[2]);
+            #undef LIVE
+            #undef QUIET
+        }
+
         /* the ban is cleared by an install */
         clean(); oc_mod_boot(0); BUILD(0, LEN, 70); INSTALL(0, LEN, &rc);
         trk[2].engine = ENGI_SHAPES; oc_mod_note_use(); oc_mod_boot(1);
