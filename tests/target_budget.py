@@ -224,7 +224,7 @@ def main():
         if os.environ.get(flag) == "0":
             disabled |= names
             print(f"target: {flag}=0, its render loops are excluded: {', '.join(sorted(names))}")
-    missing = [n for n in FUNCS if n not in res and n not in JFX and n not in DRUMX and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
+    missing = [n for n in FUNCS if n not in res and n not in JFX and n not in DRUMX and n not in SCHED and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
     # (Orange Cat) the only disabled loops now are unhooked engines, reported above
     base = {}
     if os.path.exists(budget):
