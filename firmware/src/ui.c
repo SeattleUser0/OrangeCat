@@ -6,6 +6,7 @@
  * (Orange Cat 0.7.2) a manual overwrite of a recorded step deletes the step's events through the step history (events_delete_view in seq_undo.c, one history entry each,...
  * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.13.5) page_scroll returns at once on a page with no family (a module's page whose module is gone), before any index into fam_last
  */
 /* MELODEE user interface.
  * Flat: SURF cards and panels on the palette's background, no rules, one type family (Rubik, three sizes), tracks
@@ -573,6 +574,8 @@ static void note_name(char *b, uint32_t n)
 static void page_scroll(int32_t dir)
 {
     uint32_t fam = cur_page()->fam, n, i = ui.page;
+    if (fam >= FAM_COUNT)                       /* (0.13.5) a module's page whose module is gone (page_at: PAGE_NONE, FAM_COUNT): no family to scroll in, and no index into fam_last */
+        return;
     for (n = 0; n < page_n(); n++) {
         i = (i + (dir > 0 ? 1u : page_n() - 1u)) % page_n();
         if (page_at(i)->fam == fam && page_visible(i))

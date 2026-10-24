@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.71  
+**Version:** 0.72  
 **Date:** October 24, 2026  
 **Tracks:** Orange Cat Specification v0.25
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.72 (October 24, 2026):** 0.13.5 on sonnet-work (still not on main, released or flashed): the second independent review of everything since 549d580 (no blocking bug; seven items), all fixed in the Ninth run's Part 6: a stale repeat bit cleared where an event leaves its track, the repeat record cut from 4,608 B to 384 B (arena 88,000 B back to 92,128 B), the loop-end rule documented, page_scroll guarded, the CI gate needs a positive marker, the installer's BEGIN wait, Install set resumes from the module that asked. See "Ninth run", Part 6.
 - **0.71 (October 24, 2026):** Ninth run on sonnet-work (still not on main, released or flashed): ratchet and flam repeats are never dropped (a record for each event instead of a six-entry queue); a damaged pack or module file is refused before anything is erased, on the card and on the page, with one shared check; the erase table of every data-area site; the scheduler benchmark under load (loaded costs 12% more per hit than plain, not optimized). See "Ninth run".
 - **0.70 (October 24, 2026):** Eighth run on sonnet-work (still not on main, released or flashed): CI fails when host tests fail (workflow Rev 14, job tests-gate); the 11,164 B / 880 B growth accounted by symbol and 464 + 288 B of RAM and 2,920 B of flash recovered (0.13.2); two analyzer items shown false with tests; dead code removed; Install set from the card (0.13.3, SET_FORMAT.md); the unit checklist carries exact screens, page elements and file names. See "Eighth run".
 - **0.69 (October 24, 2026):** Parts 2 to 4 of the Seventh run on sonnet-work (still not on main, released or flashed): sanitizer fixes and the SAN=1 suite, the project-record fuzzer, step properties on recorded steps (0.13.0), DRUM-X lane mutes (0.13.1). See "Seventh run".
@@ -2167,6 +2168,20 @@ Decision: not optimized. The loaded case plays three times the hits; the cost pe
 23. **A damaged file is refused and nothing is erased.** Copy a module file (`.ocm`) to the card and change one byte in the middle with a hex editor. In the card browser press OCT+ on it. *See:* "Module file damaged". Open Engines: the module that was there is still listed and plays. Do the same with the asset pack file: "Pack file damaged", and no PACK MISSING at the next power-on.
 24. **Adjacent ratcheted chords.** Record a four-note chord late in a step (hold the keys, release after the step is half over), the same chord on the next step, set RATCH x4 on both steps and play the loop. *See:* all four notes of both chords play four hits each. Leave it running for eight passes; the count does not change.
 
+### Part 6 (0.13.5): the second review
+
+An independent review of everything since 549d580 found no blocking bug and seven items. Each is fixed in its own commit, on sonnet-work, with a test; a note says where the host cannot test it.
+
+| Item | Found | Fix | Test |
+|---|---|---|---|
+| 1 | `recording_unlink` and the paths that zero `recording_flags` left an event's bit in the old track's repeat set. If another track reused the slot and fired it in the same block, the old track's tick cleared the new event's repeats (one hit instead of four). | `recording_rep_drop(i)` ends the event's repeats (slot, count, flags) in `recording_unlink` and at every place that sets the flags to 0 whole (remove, restore, drop, copy, double, the undo swap, the pool load, the reset). `RECORDING_REP_CHECK` asserts in the host build that nothing of the event is left after an unlink. | `recording_props_test.c` `unlink_reuse()`: fails before (one hit), passes after. |
+| 2 | The 0.13.4 record kept a 4-byte time for each of the 1,024 events plus 512 B of bits: 4,608 B of pool, 5,000 B less audio arena (93,024 B to 88,000 B). | 16 slots a track, each {event, time of the next repeat}: 384 B. The bound: a repeat is outstanding for at most 3/4 of a step (x4 is three parts of a quarter), an onset moves by at most 24/64 of a step (nudge), so the first hits that can have repeats outstanding are those of three adjacent steps; at four notes a step that is 12, so 16. It is a bound and not a proof (a step can be recorded with more than four events): when all 16 are in use the entry with the fewest repeats left is finished early and `recording_rep_over` counts it. The new event is never dropped. | `recording_props_test.c`: the worst cases peak at 8 of 16 slots with no early finish; `overflow()` (20 events in a step, x4): all 20 play, earlier ratchets are shortened and counted. The existing repeat tests are unchanged. |
+| 3 | The 0.13.0 header did not say what a repeat does at the loop end. | The header says a repeat past the loop end plays in the next pass (a nudged last step with x4: one hit at the end, three in step 0 of the next) and ends early only when the step is no longer recorded at the boundary. | `recording_props_test.c` `loop_end()`: 4 hits before and 12 after (four notes); 4 and 0 when the step is erased at the boundary. |
+| 4 | `page_scroll` read the family of a page whose module was gone (PAGE_NONE, FAM_COUNT) before it searched. It never indexed `fam_last[FAM_COUNT]` (the search finds no visible page of that family and returns), so it was safe, but one change from unsafe. | It returns at once when the family is FAM_COUNT or more. | `mod_pages_test.c`: the module removed on its own page; SELECT leaves the page, `fam_last` and the field after it as they were, under the sanitizers. A guard: the old code passes it too. |
+| 5 | A test step that died before the tests (the engine switch file, the fwsc copy) or was cancelled left no marker, and `tests-gate` went green with no test run. | `tests/run_tests.sh` writes `build/orangecat-tests-passed.txt` ("PASSED <n> jobs") as its last act; `tools/ci_gate.sh` is red when the failed marker is there or when neither marker is; the step writes the failed marker from an EXIT trap when it ends non-zero; a `.ci_quick` run writes a skip marker (green, warning). Workflow Rev 16. | `tests/ci_gate_test.sh` (7 cases); CI on `exp/sonnet-cigate`: run 40120482060 with the step killed before the tests: `build` green, `tests-gate` red; run 40121196916 normal: `build` and `tests-gate` green. |
+| 6 | `modDeclined` already had a text in both languages of the installer page, so the summary did not show a raw key; there was no test that every code has one. `begin()` waited 3,000 ms while the unit erases up to 16 sectors in place (500 ms each). | A test: every code the page can raise has a text in ja and en, and a declined confirm reaches the summary as `modDeclined` with no BEGIN sent. `OC_BEGIN_MS = 16 x 500 + 2,000 = 10,000 ms` for BEGIN in the installer page and the editor, with no retry in the editor (a repeated BEGIN would erase again). I chose the longer wait over answering before the erase: it changes neither the protocol nor what a write's reply code means. | `test_installer_set.mjs` 12b (a unit that answers BEGIN after 3.6 s: the pack and the module install; one that answers after 11.5 s is "lost") and 12c; `test_web.mjs` (the editor's wait and no retry). |
+| 7 | `fb_install_set` ran every module stage again on the press that answered an in-place question: with two modules that fit together the second press rewrote module 0 and asked again, by turns, for ever. | The press that answers goes on from the module that asked (`fb.setq`). | `card_install_test.c` `set_resume()`: SHAPES and the Prophet given 2 sectors each at one start each (a test-only writable geometry table): three presses, 4 sector erases, both images in flash. Before the fix the presses alternate for ever. |
+
 ### Status (Ninth run)
 
 | Item | Status |
@@ -2174,13 +2189,16 @@ Decision: not optimized. The loaded case plays three times the hits; the cost pe
 | Ratchet and flam repeats never dropped (Bug 1) | Done, host tested |
 | Whole-file check before any erase, card and page (Bug 2) | Done, host tested; not tried on the unit (steps 23 and 24) |
 | Erase table (Hardening 1) | Done: two cases remain by design (sample slot, in-place module page descriptor) |
-| Scheduler under load (Hardening 2) | Done: measured, not optimized, budget lines from CI |
+| Scheduler under load (Hardening 2) | Done: measured, not optimized; no budget line (the functions are inlined) |
+| Second review, seven items (0.13.5) | Done, host tested; the CI gate proved on exp/sonnet-cigate |
 
 ### Sizes and CI (Ninth run)
 
 - Run 40117440506 (id), full suite, head after 1f2bb92: `build` and `tests-gate` success, `pages` skipped (not main). Image 505,312 B (up 1,592 B from 503,720 B: the shared check functions, the card installers, the per-event repeat record code, the web checks are not in it), RAM .data+.bss 93,240 B of 98,304 B (unchanged), pool 181,768 B of 344,064 B (up 4,248 B: the repeat record, 4,096 B of times and 512 B of bits, less the 384 B queue, and the bench-free rest).
 - The first full run (40116507940) failed `tests-gate` on the target budget check: `recording_rep_tick` was in `FUNCS` but inlined, and the check treats a missing function as a failure. The scheduler names are now skipped when absent, like the JFX and DRUM-X ones.
 - No budget line was added. In the target disassembly `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are not kept apart (inlined into `seq_advance`), so there is nothing to measure per function; they stay in `FUNCS`, and a line will be taken from the first CI build that keeps one apart.
+- Run 40120238887 (id), full suite, head after items 1 to 3 (f2cd25f..): `build` and `tests-gate` success. Image 505,552 B (up 240 B from the 505,312 B of run 40117440506), RAM .data+.bss 93,272 B of 98,304 B (up 32 B), pool 177,548 B of 344,064 B (was 181,768 B: down 4,220 B), audio working arena 92,128 B (was 88,000 B; the 0.13.3 head had 93,024 B; the target was within 1,000 B of that). Host instruction counts of `recording_bench props` (callgrind, 12,289 blocks): plain 36.45 M (was 36.16 M, +0.8%), loaded 77.16 M (was 85.49 M, -10%), the same 1,024 and 3,037 hits; per hit above idle plain 21.0 k, loaded 20.5 k. The 16 slots are cheaper to visit than the 32 words of bits they replaced.
+- Scheduler budget lines: none added. In the target disassembly of this run `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are still not kept apart (inlined into `seq_advance`), so the target budget has nothing to measure and skips them (they are in `FUNCS`, skipped when absent). Past the 4 KB annotation cut there was nothing to move: the notice lists none of them.
 
 ## Phases 8 to 11
 

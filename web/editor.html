@@ -3201,6 +3201,7 @@ async function fetchModPages(send, engine) {
  *   module goes first and its tracks go silent), the old module is removed (MOD_REMOVE old engine), the unit's plan for the new engine is read (now the freed start, or the
  *   other one if it is free too) and the file is installed there. `probe(engine)` re-reads ED_MOD_INFO for that engine and returns the parsed answer; `ask(key, n)` is
  *   the page's confirm. Returns "installed" or "swapped" ("cancelled" when the user says no). */
+const OC_BEGIN_MS = 16 * 500 + 2000;   /* (0.13.5) the unit erases before it answers BEGIN: up to 16 sectors at 500 ms each, and 2 s over (web/fm1oc.js) */
 const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : "modFail");
 async function assignEngine(send, engine, track, ntrk, selected) {
   if (!(track >= 0 && track < ntrk)) throw new Error("assign: no such track");
@@ -3214,7 +3215,7 @@ async function assignEngine(send, engine, track, ntrk, selected) {
 }
 async function ocmWrite(send, ocm, variant, progress = () => {}) {
   const img = variant.image, start = OCM_SECTOR.indexOf(variant.start);
-  let r = parse[CMD.MOD_BEGIN](await send(req.modBegin(ocm.engine, start, img.length), { timeout: 3000 }));
+  let r = parse[CMD.MOD_BEGIN](await send(req.modBegin(ocm.engine, start, img.length), { timeout: OC_BEGIN_MS, retries: 0 }));
   if (r.rc) throw new Error(modCode(r.rc));
   for (let off = 256; off < img.length; off += 256) {
     r = parse[CMD.MOD_WRITE](await send(req.modWrite(off, img.subarray(off, Math.min(off + 256, img.length))), { timeout: 1000 }));
@@ -4312,7 +4313,7 @@ $("pack-file").addEventListener("change", () => {
     const info = d.pack, bytes = new Uint8Array(await file.arrayBuffer());
     const bad = packProblem(bytes, info);                 // (0.13.4) header, payload CRC and sector tails, as the unit checks them: nothing is erased for a file it would refuse
     if (bad) throw new Error(t(bad));
-    let r = parse[CMD.PACK_BEGIN](await sessionRequest(d, req.packBegin(bytes.length)));
+    let r = parse[CMD.PACK_BEGIN](await sessionRequest(d, req.packBegin(bytes.length), { timeout: OC_BEGIN_MS, retries: 0 }));
     if (r.rc) throw new Error(t(packCode(r.rc)));
     for (let off = 512; off < bytes.length; off += 256) {
       r = parse[CMD.PACK_WRITE](await sessionRequest(d, req.packWrite(off, bytes.subarray(off, Math.min(off + 256, bytes.length))), { timeout: 1000 }));

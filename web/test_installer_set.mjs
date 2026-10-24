@@ -5,11 +5,12 @@
 //
 // Revisions:
 //   0.11.2: first version.
+//   0.13.5: BEGIN waits for the unit's erase (OC_BEGIN_MS; case 12b); every error code the page can show has a text in both languages (12c).
 //   0.13.4: the module images carry a sealed inner header (the page checks it); cases for a damaged pack or module refused before BEGIN (13b).
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {bkCrc, bkPack} from "./fm1backup.js";
-import {OcLink, OCM, runSet, probeUnit, installPack, moduleCurrent, ocmVersion, packFits} from "./fm1oc.js";
+import {OcLink, OCM, runSet, probeUnit, installPack, installModule, moduleCurrent, ocmVersion, packFits, OC_BEGIN_MS} from "./fm1oc.js";
 
 const n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127];
 const n5 = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) & 127);
@@ -59,20 +60,21 @@ function makeUnit(opts = {}) {
   const u = {sent: [], packState: opts.pack === "current" ? 1 : 0, packHash: opts.pack === "current" ? PHASH : 0, module: !!opts.module, beginRc: [...(opts.beginRc || [])],
              writes: {117: 0, 122: 0}, plan: opts.plan ?? 0, packLen: 0};
   const reply = (cmd, data) => setImmediate(() => input.onmidimessage({data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247])}));
+  const later = (f) => (opts.beginDelay ? setTimeout(f, opts.beginDelay) : f());   // (0.13.5) a unit that erases before it answers BEGIN
   const input = {state: "connected", onmidimessage: null};
   const output = {state: "connected", send(m) {
     const cmd = m[4], args = m.slice(5, -1); u.sent.push(cmd);
     if (cmd === 115 && !opts.noPack) reply(115, [u.packState, 1, ...n3(u.packLen), ...n5(u.packHash), ...n3(PLEN), ...n5(PHASH), ...n3(4096)]);
-    else if (cmd === 120 && !opts.noMod) reply(120, [2, 12, 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(u.packState ? PHASH : 0), u.plan,
+    else if (cmd === 120 && !opts.noMod) reply(120, [2, 12, opts.flags || 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(u.packState ? PHASH : 0), u.plan,
         ...[0, 1].flatMap((i) => [u.module && i === 0 ? 7 : 0, 0, u.module && i === 0 ? ENGINE : 127, ...n3(u.module && i === 0 ? 0x400 : 0)])]);
     else if (cmd === 125 && !opts.noEngines) {
       const eng = [];
       for (let e = 0; e < 20; e++) eng.push(...(e === ENGINE && u.module ? [2, 7, 0, 0, 0, 11, 1, ...n3(0x400), 0] : [1, 7, 0, 127, 0, 0, 0, ...n3(0), 0]));
       reply(125, [20, ...eng, 2, 7, 0, 127, 0, 0, 0]);
-    } else if (cmd === 116) { const rc = u.beginRc.length ? u.beginRc.shift() : 0; if (!rc) u.packLen = PLEN; reply(116, [rc, ...n3(0)]); }
+    } else if (cmd === 116) { const rc = u.beginRc.length ? u.beginRc.shift() : 0; if (!rc) u.packLen = PLEN; later(() => reply(116, [rc, ...n3(0)])); }
     else if (cmd === 117) { u.writes[117]++; reply(117, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]); }
     else if (cmd === 118) { u.packState = 1; u.packHash = PHASH; reply(118, [0, ...n3(PLEN)]); }
-    else if (cmd === 121) reply(121, [u.beginRc.length ? u.beginRc.shift() : 0, ...n3(0)]);
+    else if (cmd === 121) later(() => reply(121, [u.beginRc.length ? u.beginRc.shift() : 0, ...n3(0)]));
     else if (cmd === 122) { u.writes[122]++; reply(122, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]); }
     else if (cmd === 123) { u.module = true; reply(123, [opts.modRc || 0, ...n3(0x400)]); }
   }};
@@ -205,6 +207,32 @@ const mono = (m) => m.every((v, i) => i === 0 || v >= m[i - 1]) && m.at(-1) === 
   const link = u.link();
   link.output.state = "disconnected";
   await assert.rejects(installPack(link, makePack(), {buildLen: PLEN, buildHash: PHASH}), (e) => e.code === "ocLost");
+}
+// 12b. (0.13.5) BEGIN is answered after the unit has erased: a slow NOR (3.6 s here, past the old 3 s wait) must not look like a lost connection
+{
+  assert.equal(OC_BEGIN_MS, 16 * 500 + 2000, "16 sectors at the driver's 500 ms, plus 2 s");
+  let u = makeUnit({beginDelay: 3600});
+  await installPack(u.link(), makePack(), {buildLen: PLEN, buildHash: PHASH});
+  assert.ok(u.sent.includes(118), "the pack went to its end");
+  u = makeUnit({pack: "current", beginDelay: 3600});
+  await installModule(u.link(), OCM.parse(makeOcm()), () => {}, {});
+  assert.ok(u.sent.includes(123), "the module went to its end");
+  u = makeUnit({beginDelay: OC_BEGIN_MS + 1500});                       // and a unit that never answers in time is still "lost", not a hang
+  await assert.rejects(installPack(u.link(), makePack(), {buildLen: PLEN, buildHash: PHASH}), (e) => e.code === "ocLost");
+}
+// 12c. (0.13.5) every code the page can raise has its text in both languages of the installer page (the summary showed the raw key for one)
+{
+  const js = readFileSync(new URL("fm1oc.js", import.meta.url), "utf8"), html = readFileSync(new URL("index_pkg.html", import.meta.url), "utf8");
+  const keys = new Set([...js.matchAll(/OcError\("(\w+)"/g)].map((m) => m[1]));
+  for (const l of js.split("\n")) if (/^const (packCode|modCode)/.test(l)) for (const m of l.matchAll(/"(\w+)"/g)) keys.add(m[1]);
+  for (const m of js.matchAll(/(?:key: |return )"(\w+)"/g)) keys.add(m[1]);
+  assert.ok(keys.has("modDeclined") && keys.size > 15, "the codes were found");
+  for (const k of keys) assert.equal([...html.matchAll(new RegExp("\\b" + k + ":", "g"))].length, 2, "a text for " + k + " in ja and en");
+  // and a declined in-place confirm reaches the summary as that key, with nothing erased
+  const u = makeUnit({pack: "current", module: true, flags: 8});
+  const r = await run(u, {module: true}, {modules: [makeOcm({version: VER + 1})]}, {confirmInPlace: () => false});
+  assert.deepEqual(r.sum.module, [{error: "modDeclined"}]);
+  assert.ok(!u.sent.includes(121), "declined: no BEGIN");
 }
 // 13. probeUnit reads what the unit says
 {
