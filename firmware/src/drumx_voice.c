@@ -515,16 +515,3 @@ static const dx_kit_t DX_KITS[] = {
     },
 };
 #define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
-/* a stored kit as the voice takes it: values 0..127, the mode's fields in range (wave 0..3, filter 0..2, snap) */
-static int dx_kit_ok(const dx_lane_t *k)
-{
-    uint32_t l, i;
-    for (l = 0; l < 8u; l++) {
-        if (((k[l].mode >> 2) & 3u) > DXF_HP)          /* (JIANT 0.4: bits 5..7 the pitch modulation, DRIVE) */
-            return 0;
-        for (i = 0; i < DXP_N; i++)
-            if (k[l].a[i] > 127u || k[l].b[i] > 127u)
-                return 0;
-    }
-    return 1;
-}
