@@ -30,8 +30,9 @@
  *   0x09D000..0x09EFFF  shared preset extension pair (OBJ_SHARED_EXT)
  *   0x09F000, 0x0FE000  FM6 patch bank, copy A and copy B (OBJ_FM6BANK)
  *   0x0A0000..0x0C7FFF  bank projects: two five-sector copies per slot (OBJ_BANK0..+3)
- *   0x0C8000..0x0DBFFF  MODULE area, 20 sectors: the CZ-1 banks (OBJ_CZBANK0..+7, 0xC8000..0xD7FFF) and the native FM6
- *                       banks (OBJ_NATIVEFM0..+1, 0xD8000..0xDBFFF); the SHAPES/MACRO code module's place later
+ *   0x0C8000..0x0D3FFF  MODULE area, 12 sectors (0.9.1; was 20): the engine modules (oc_module.c), two starts of six sectors; the retired CZ-1 and
+ *                       native FM6 bank objects (OBJ_CZBANK0..+7, OBJ_NATIVEFM0..+1) read as empty. 0x0D4000..0x0DBFFF is free ground the
+ *                       library group (lib_group.c) uses. The legacy placement below is the pre-0.9.1 map.
  *   0x0DC000..0x0DFFFF  user preset banks 0 and 1 (OBJ_UPRESET0..+1, upreset.c)
  *   0x0E0000..0x0E4FFF  OTA staging (the update loader's)
  *   0x0E5000..0x0FAFFF  extensions: preset banks 2 and 3 (E5000..E8FFF), FM6 user bank copy A (E9000) and B (FA000),

@@ -1446,6 +1446,11 @@ firmware and the presets are migrated again at the next boot. A backup made afte
 Measured on the host: a save is 1 erase and 17 flash operations. A full migration (22 banks) is 66 erases and 352 programs. 2,300 random
 saves give 84 to 117 erases a sector (mean 100). One bank saved over and over alternates two sectors. Time on the unit is not measured; the
 plan's estimate (about 1.3 to 3 s for a full migration) assumes 20 to 45 ms an erase.
+(0.10.1) Wall time from the part and the driver. The flash is a Puya P25Q80H class NOR (JEDEC 0x856014). The Puya P25Q family's data sheets give a 4 KB sector erase
+of about 10 to 30 ms typical and a 256 byte page program of about 0.5 to 2 ms typical (the P25Q32H sheet read: erase 10 ms typical, 15 ms maximum; program 2 ms typical, 3 ms maximum; I could not
+read the P25Q80H sheet itself, so treat these as the family's). The driver (hal/fm1_flash.h) waits up to 500 ms for an erase and 10 ms for a program. So 66 erases and 352 programs take
+about 0.7 s to 2 s of erase and 0.2 s to 0.7 s of program: **expect 1 to 3 s at the first boot with 0.9.1, once**. The worst case the driver allows is 66 x 500 ms + 352 x 10 ms,
+about 36 s, which a healthy part never comes near. If the first boot takes more than 5 s, say so; it is a finding.
 
 CI run 40028869448 (`.ci_quick`): image 487,840 B (+296), 89,408 B free, .data+.bss 92,920 B of 98,304 (+144), arena 95,232 B (+128), pool 176,768 B (0).
 Budgets unchanged.

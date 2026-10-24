@@ -113,7 +113,7 @@ progress, the assignment view. The protocol document (web/EDITOR_PROTOCOL.md) ge
 
 A module is position-dependent code linked for where it will sit. The rule set:
 
-- The module area is 20 sectors of 4 KB at 0xC8000. The permitted start addresses are the sector boundaries, but a
+- (0.6 text; since 0.9.1 the module area is 12 sectors, 0xC8000..0xD3FFF, with starts 0 and 6 only.) The module area is 20 sectors of 4 KB at 0xC8000. The permitted start addresses are the sector boundaries, but a
   module is linked for a short list of them, not all twenty: the engine package carries one image per **variant**,
   and the variants are the starts that make sense for its size. A 6-sector module gets starts 0, 6 and 12 (three
   variants); a 10-sector module starts 0 and 10 (two); a 16-sector one start 0 only. A package is one file
