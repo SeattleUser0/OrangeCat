@@ -40,6 +40,10 @@ JFX = ["fx_buses", "dly_lo", "rev_room", "rev_room_mod", "rev_spring", "rev_shim
        "dist_run", "dist_amp", "autopan", "clip_block", "djf_block", "lev_block", "slicer_bus", "sl_seg", "perf_block",
        "perf_mute", "perf_pre", "jfx_master", "jfx_bus_kernel"]
 FUNCS += JFX
+# (Orange Cat 0.13.4) the recording scheduler in the audio interrupt (recording.c): measured when the compiler keeps them apart (absent, inlined:
+# skipped); checked once tests/target_budget.txt has their line, taken from a CI build, at the same +10 %.
+SCHED = ["recording_fire", "recording_shape", "recording_rep_tick", "groove_part"]
+FUNCS += SCHED
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
 EXTRACTED = {

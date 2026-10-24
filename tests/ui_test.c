@@ -37,7 +37,9 @@
 static uint32_t host_slots[3u * 0x14000u / 4u];          /* USR1..3 (zero: empty), as the flash at 0xA0000 */
 #define SMP_USER_XIP(k) ((const uint8_t *)host_slots + (k) * SMP_USER_SIZE)
 static uint32_t ui_hits[128];                      /* (0.13.4) recording.c's hits by note: the ratchet tests */
+#ifndef RECORDING_HIT_HOOK                         /* (a bench that includes this file counts its own) */
 #define RECORDING_HIT_HOOK(t, i, vel, gate, late) (ui_hits[recording[i].note & 127u]++)
+#endif
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
