@@ -361,10 +361,42 @@ else. A move that cannot finish (a flash error) sets `up_migration_error` (write
 installer refuses), and the next boot retries. A second boot with nothing to move does no erase and no program.
 
 **Downgrade.** Firmware without groups does not know a group sector (its readers refuse type 0x100): it sees the migrated
-banks as empty, and a save there would write an old pair. A downgrade after 0.9.1 therefore loses sight of the library
-(the data is still in the group, and 0.9.1 again finds it). **Take a full backup (the editor backup, the "Save backup"
-button, `editor_backup.c`) before installing 0.9.1**; the build document and the guide say so. A backup made by any earlier
+banks as empty, and a save there writes an old pair, which erases the sector it writes (a group copy may be in it). **A downgrade
+below 0.9.1 destroys the library.** (Until 0.11.1 this paragraph said the data stays in the group and 0.9.1 finds it again. That holds only
+for what the old firmware did not overwrite, and the migration after such a downgrade could not finish: see "1c-bis" below.)
+**Take a full backup (the editor backup, the "Save backup" button, `editor_backup.c`) before installing 0.9.1 and before going below
+it, and restore it after coming back.** The build document and the guide say so in plain words. A backup made by any earlier
 firmware restores into the group (the restore writes `st_save(up_obj(bank))`) and a backup made by 0.9.1 restores again.
+
+### 1c-bis. After a downgrade and an upgrade again (0.11.1)
+
+An independent review found that the sequence "migrated by 0.9.1 or later, saved by firmware before 0.9.1, upgraded again" could not finish.
+The old firmware's save writes copy 0 of the pair (sequence 1 when it finds no valid pair), then copy 1, and so on, and erases the copy it
+writes; the 22 sectors of the 11 in-group pairs (banks 0 to 7, 14, 15 and 21) can all end up holding old records. Every such bank then needs
+moving, 0.9.1 called both sectors of every waiting pair busy (22 sectors), a group copy surviving in the 23rd took the last one, `lg_pick`
+returned nothing, `lg_migrate` returned -8, `lg_incomplete` stayed 1 on every boot (MOVING PRESETS / Could not finish), `up_put` refused
+saves, the pack and module installs refused, and `shared_wipe` could not complete (its first save needed a free sector). What 0.11.1 does:
+
+- **Busy is the current record only.** A sector is protected only if it holds the current old record of a bank still waiting. The other sector of
+  the pair (an older record, a group copy that is owned anyway, or nothing) can be taken.
+- **A stale group copy is given up.** A waiting bank that still owns a group copy has a stale one (its pair is newer, by the same sequence rule
+  as before). When `lg_pick` finds no free sector, those copies are given up (the bank being moved first), the pair's record wins, and the pick that
+  takes the sector erases it.
+- **The count.** A waiting bank has no group copy and at most one protected sector; a bank that is not waiting has at most one copy; so at
+  most 22 of 23 sectors are taken. From flash contents alone the picker always finds one.
+- **If it ever does not** (`lg_needwipe`): the boot screen says LIBRARY NEEDS WIPE / No room to move presets / Wipe to recover, with WIPE and
+  KEEP. WIPE asks "Wipe all user presets?" as the other preset failures do. `shared_wipe` first erases every old record that waits
+  (`lg_drop_pairs`: only sectors that carry that object's own record, in the group and in the pack and module areas), then wipes as before. A
+  power loss in that first step leaves some records; the next boot moves them in, or shows the screen again.
+- **A limit that stays.** The sequence rule cannot tell a pair written by the old firmware (sequence from 1) from a leftover of the first
+  migration. A bank whose group copy survived with a sequence at or above the pair's keeps the group copy and the pair is erased as a leftover.
+  Only a backup avoids that.
+
+Tests (tests/lib_group_test.c, tests/unified_presets_test.c): the exact sequence (migrate, three old-firmware saves of each in-group bank over the
+group's sectors, boot: every bank ends in the group with the pair's content, lg_incomplete 0, saves work), the same cut at each flash operation
+of the second migration and with a second cut in the recovery, a full group whose spare is taken by a newer record (the stale copy is given up),
+a pair with one current and one older record (busy is the current only), and the wipe from the stuck state (the picker reserved by a test hook;
+the screen, KEEP, BACK, WIPE, the confirmation, the erases behind a visible screen, no old record left, nothing else touched, saves work after).
 
 ### 1d. After the migration
 

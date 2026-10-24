@@ -1433,6 +1433,10 @@ branch `sonnet-work`, from 23fda9c (image 487,544 B, 89,704 B free, .data+.bss 9
 pairs. Firmware before 0.9.1 cannot read the group: it sees empty banks. Restore a backup made before 0.9.1 with this
 firmware and the presets are migrated again at the next boot. A backup made after 0.9.1 restores the same way.
 
+**A downgrade below 0.9.1 destroys the library** (0.11.1 states it in plain words; the first text said the data stays). The old firmware's save erases a
+sector of the group and writes an old pair record there. Back up before going below 0.9.1 and restore after coming back. See "Fifth run", Fix 1,
+for what the migration does with what is left.
+
 ### Part 1: the library group (0.9.1)
 
 | Item | Status | Result |

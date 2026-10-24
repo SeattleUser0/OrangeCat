@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define LG_TEST_HOOKS 1                 /* (0.11.1) lg_test_reserve: sectors the picker must not return (the stuck state cannot be made from data) */
 #define MELODEE_P5 0                    /* the Orange Cat engine set: the build retires the Prophet, CZ-1 and native FM6 objects */
 #define MELODEE_CZ 0
 #define MELODEE_FM6 0
@@ -505,6 +506,245 @@ int main(void)
         boot();
         ok &= !memcmp(nor + ST_PACK_LO, snap + ST_PACK_LO, ST_PACK_SECTORS * ST_SECTOR);
         check("an installed pack and module: 400 saves and a boot leave both areas byte for byte as they were", ok);
+    }
+
+    /* ---- (0.11.1, fix 1) a downgrade below 0.9.1 and an upgrade again: the migration must finish ----------------------------------
+     * Sequence: a unit migrated by 0.9.1 or later (all 22 banks in the group), then firmware before 0.9.1 saves banks. Its st_save
+     * knows the old pairs only: it sees the group's sectors as empty, erases the copy it writes (so a group copy is gone) and writes a
+     * fresh pair record with a sequence that restarts at 1. Three saves of a bank leave records in both of its sectors and the newest
+     * has sequence 3, newer than the group copy's 2. Then the unit upgrades. Before 0.11.1 every in-group bank needed moving, the
+     * 22 sectors of the 11 in-group pairs were busy and a surviving group copy held the 23rd: lg_pick found nothing, lg_migrate
+     * returned -8, lg_incomplete stayed 1 on every boot. */
+    {
+        static const uint8_t ingroup[11] = {0, 1, 2, 3, 4, 5, 6, 7, 14, 15, 21};
+        int ok = 1, ok2 = 1, ok3 = 1;
+        uint8_t was[LG_BANKS];
+        uint32_t over = 0;
+        legacy_image(0x3FFFFFu);
+        lg_boot();                                              /* the first migration, as 0.9.1 does it */
+        ok &= all_ok();
+        memcpy(was, lg_map, sizeof was);
+        st_retire_engines(0);                                   /* the old firmware: it reads and writes the pairs only */
+        for (i = 0; i < 11u; i++) {
+            b = ingroup[i];
+            for (uint32_t k = 0; k < 3u; k++) {
+                make(b, 5, buf, &l);
+                ok &= st_save(lg_legacy_obj(b), buf, l) == 0;
+            }
+            for (uint32_t c = 0; c < 2u; c++) over |= 1u << lg_index_of(st_sector(lg_legacy_obj(b), c));
+        }
+        st_retire_engines(7);
+        reset_exp();
+        for (b = 0; b < LG_BANKS; b++) {
+            int wrote = 0;
+            for (i = 0; i < 11u; i++) wrote |= ingroup[i] == b;
+            if (wrote) expect(b, 5);                            /* the old firmware's save is the newest */
+            else if (!((over >> was[b]) & 1u)) expect(b, 1);    /* a group copy it did not overwrite is still there */
+        }
+        printf("    (downgrade: %d sectors of the 11 in-group pairs now hold an old record, %d banks have one)\n",
+               __builtin_popcount(over), 11);
+        memcpy(snap, nor, sizeof nor);
+        uint8_t cursor0 = lg_cursor;                            /* (the cursor decides which sector a pick takes: every run starts from this one) */
+        ops = 0; dead = 0; cut_at = -1; lg_ready = 0; lg_busy = 0;
+        int rc = lg_boot();
+        long total = ops;
+        ok &= rc >= 0 && !lg_incomplete && total > 100;
+        check("downgrade then upgrade: the migration finishes (no -8, lg_incomplete 0)", ok);
+        ok = all_ok();
+        check("... every bank the old firmware saved holds the pair's content, the others are as they were", ok);
+        n_erase = n_prog = 0; boot();
+        check("... a second boot has nothing to move (no erase, no program)", n_erase == 0 && n_prog == 0 && all_ok() && !lg_incomplete);
+        make(3, 9, buf, &l);
+        ok = st_save(OBJ_LIB0 + 3, buf, l) == 0;
+        expect(3, 9);
+        ok &= all_ok();
+        make(10, 9, buf, &l);
+        ok &= st_save(OBJ_LIB0 + 10, buf, l) == 0;
+        expect(10, 9);
+        ok &= all_ok();
+        check("... saves work afterwards", ok);
+        ok = 1;
+        for (b = 0; b < LG_BANKS; b++) {
+            for (uint32_t c = 0; c < 2u; c++) {
+                uint32_t a = st_sector(lg_legacy_obj(b), c);
+                st_hdr_t h;
+                if (lg_index_of(a) != LG_NONE || st_read(a, &h, sizeof h)) continue;
+                ok &= !(h.magic == ST_MAGIC && h.type == lg_legacy_obj(b));      /* no pair record is left outside the group */
+            }
+        }
+        check("... no old pair record is left behind", ok);
+        /* the same, cut at every flash operation of the second migration, then a second cut in the recovery */
+        for (long cut = 0; cut < total; cut++) {
+            memcpy(nor, snap, sizeof nor);
+            reset_exp();
+            for (b = 0; b < LG_BANKS; b++) {
+                int wrote = 0;
+                for (i = 0; i < 11u; i++) wrote |= ingroup[i] == b;
+                if (wrote) expect(b, 5);
+                else if (!((over >> was[b]) & 1u)) expect(b, 1);
+            }
+            lg_cursor = cursor0;
+            dead = 0; cut_at = cut; ops = 0; lg_ready = 0; lg_busy = 0;
+            lg_boot();
+            int a1 = dead;
+            boot();                                             /* power back */
+            int a2 = all_ok() && !lg_incomplete;
+            n_erase = n_prog = 0; boot();
+            int a3 = n_erase == 0 && n_prog == 0;
+            make(3, 7, buf, &l);
+            int a4 = st_save(OBJ_LIB0 + 3, buf, l) == 0;
+            if (!(a1 && a2 && a3 && a4)) printf("    cut %ld: dead %d, recovered %d (incomplete %d), settled %d, save %d\n", cut, a1, a2, lg_incomplete, a3, a4);
+            ok2 &= a1 && a2 && a3 && a4;
+        }
+        check("... cut at each flash operation of the second migration: the next boot finishes with the pair's content", ok2);
+        for (long cut = 0; cut < total; cut += 5) {
+            for (long cut2 = 0; cut2 < 40; cut2 += 7) {
+                memcpy(nor, snap, sizeof nor);
+                reset_exp();
+                for (b = 0; b < LG_BANKS; b++) {
+                    int wrote = 0;
+                    for (i = 0; i < 11u; i++) wrote |= ingroup[i] == b;
+                    if (wrote) expect(b, 5);
+                    else if (!((over >> was[b]) & 1u)) expect(b, 1);
+                }
+                lg_cursor = cursor0;
+                dead = 0; cut_at = cut; ops = 0; lg_ready = 0; lg_busy = 0; lg_boot();
+                dead = 0; cut_at = cut2; ops = 0; lg_ready = 0; lg_busy = 0; lg_boot();       /* a second power loss in the recovery */
+                boot();
+                ok3 &= all_ok() && !lg_incomplete;
+                n_erase = n_prog = 0; boot();
+                ok3 &= n_erase == 0 && n_prog == 0;
+            }
+        }
+        check("... and a second power loss during the recovery, the same", ok3);
+    }
+
+    /* ---- (0.11.1, fix 1) the stale group copy of a waiting bank is given up when nothing else is free ------------------------------
+     * The group is full (22 copies, one spare) and the spare is a sector of an in-group pair. The old firmware's last save of that
+     * bank (sequence 3 or 4, newer than the group copy's) lands in the spare, and nothing else is overwritten. Now the bank waits,
+     * its record holds the spare, its own group copy is stale, and the other 21 banks hold the other 21 sectors: no sector is free.
+     * The bank's own stale copy has to go. (With the busy rule of 0.9.1 this was stuck too, and without the release it still is.) */
+    {
+        static const uint8_t ingroup[11] = {0, 1, 2, 3, 4, 5, 6, 7, 14, 15, 21};
+        int ok = 1, ok2 = 1;
+        uint32_t f = LG_NONE, pb = LG_NONE, pc = 0;
+        blank();
+        st_retire_engines(7);
+        for (b = 0; b < LG_BANKS; b++) { make(b, 1, buf, &l); ok &= st_save(OBJ_LIB0 + b, buf, l) == 0; expect(b, 1); }
+        for (uint32_t k = 0; k < 40u && pb == LG_NONE; k++) {          /* turn the spare round until it is a sector of an in-group pair */
+            f = lg_pick();
+            for (i = 0; i < 11u && pb == LG_NONE; i++)
+                for (uint32_t c = 0; c < 2u; c++)
+                    if (lg_index_of(st_sector(lg_legacy_obj(ingroup[i]), c)) == f) { pb = ingroup[i]; pc = c; }
+            if (pb == LG_NONE) { b = 8u + k % 6u; make(b, 2 + k, buf, &l); ok &= st_save(OBJ_LIB0 + b, buf, l) == 0; expect(b, 2 + k); }
+        }
+        ok &= pb != LG_NONE && lg_pick() == f;
+        check("the spare is a sector of an in-group pair (fixture)", ok);
+        memcpy(snap, nor, sizeof nor);
+        st_retire_engines(0);
+        for (uint32_t k = 1; k <= (pc == 0 ? 3u : 4u); k++) { make(pb, 5, buf, &l); ok &= st_save(lg_legacy_obj(pb), buf, l) == 0; }
+        st_retire_engines(7);
+        {   uint32_t other = st_sector(lg_legacy_obj(pb), 1u - pc);        /* the save before the last wrote the other sector: put back what it held */
+            memcpy(nor + other, snap + other, 4096);
+        }
+        expect(pb, 5);
+        lg_cursor = 0;
+        dead = 0; cut_at = -1; ops = 0; lg_ready = 0; lg_busy = 0;
+        lg_scan();
+        ok &= __builtin_popcount(lg_owned()) == 22 && lg_pick() == f;
+        check("... the old firmware's record sits in the spare, every other sector is a group copy", ok);
+        memcpy(snap, nor, sizeof nor);
+        uint8_t cursor0 = lg_cursor;
+        int rc = lg_boot();
+        ok = rc == 1 && !lg_incomplete && !lg_needwipe && all_ok();
+        check("a full group, the spare taken by a newer record: the stale copy is given up, the move finishes, the record's content wins", ok);
+        n_erase = n_prog = 0; boot();
+        check("... and a second boot has nothing to do", n_erase == 0 && n_prog == 0 && all_ok());
+        ops = 0; memcpy(nor, snap, sizeof nor); lg_cursor = cursor0; dead = 0; cut_at = -1; lg_ready = 0; lg_busy = 0; lg_boot();
+        long total = ops;
+        for (long cut = 0; cut < total; cut++) {
+            memcpy(nor, snap, sizeof nor);
+            lg_cursor = cursor0;
+            dead = 0; cut_at = cut; ops = 0; lg_ready = 0; lg_busy = 0;
+            lg_boot();
+            int a1 = dead;
+            boot();
+            ok2 &= a1 && all_ok() && !lg_incomplete;
+        }
+        check("... cut at each flash operation of that move: the next boot has every bank and finishes", ok2 && total > 5);
+    }
+
+    /* ---- (0.11.1, fix 1) busy means the current record only -------------------------------------------------------------------------
+     * Bank 0's pair is the sectors 0xDC000 and 0xDD000. The group is full; bank 0's copy is in the first of them and the spare in the
+     * second (the sectors of a flash image may be in any order: this one swaps them into place). The old firmware saves bank 0 three
+     * times: sequence 1 in the first sector (its group copy is gone), 2 in the second (the spare, so nothing else is lost), 3 in the
+     * first. Bank 0 has no group copy to give up, 21 other banks hold 21 sectors, and the 0.9.1 rule called both sectors of the pair
+     * busy: 23 of 23 taken. The older record in the second sector holds nothing the move needs. */
+    {
+        int ok = 1;
+        uint32_t p0 = lg_index_of(0xDC000u), p1 = lg_index_of(0xDD000u), a, f;
+        static uint8_t tmp[4096];
+        blank();
+        st_retire_engines(7);
+        for (b = 0; b < LG_BANKS; b++) { make(b, 1, buf, &l); ok &= st_save(OBJ_LIB0 + b, buf, l) == 0; expect(b, 1); }
+        a = lg_map[0];
+        if (a != p0) { memcpy(tmp, nor + lg_addr[a], 4096); memcpy(nor + lg_addr[a], nor + lg_addr[p0], 4096); memcpy(nor + lg_addr[p0], tmp, 4096); }
+        lg_ready = 0; lg_scan();
+        f = lg_pick();
+        if (f != p1) { memcpy(tmp, nor + lg_addr[f], 4096); memcpy(nor + lg_addr[f], nor + lg_addr[p1], 4096); memcpy(nor + lg_addr[p1], tmp, 4096); }
+        lg_ready = 0; lg_scan();
+        ok &= lg_map[0] == p0 && lg_pick() == p1 && __builtin_popcount(lg_owned()) == 22;
+        check("bank 0's copy in the first sector of its pair, the spare in the second (fixture)", ok);
+        st_retire_engines(0);
+        for (uint32_t k = 0; k < 3u; k++) { make(0, 5, buf, &l); ok &= st_save(lg_legacy_obj(0), buf, l) == 0; }
+        st_retire_engines(7);
+        expect(0, 5);
+        for (b = 1; b < LG_BANKS; b++) expect(b, 1);
+        lg_cursor = 0; dead = 0; cut_at = -1; ops = 0; lg_ready = 0; lg_busy = 0;
+        int rc = lg_boot();
+        ok = rc == 1 && !lg_incomplete && !lg_needwipe && all_ok();
+        check("both sectors of a pair, one with the current record and one with an older one: the older is free to take, the move finishes", ok);
+    }
+
+    /* ---- (0.11.1, fix 1) no free sector at all: LIBRARY NEEDS WIPE, and the wipe's way out --------------------------------------
+     * By the count in the file's comment flash contents cannot make this, so the test reserves every sector (lg_test_reserve) and
+     * lg_drop_pairs, which the wipe calls first, takes the reservation with the records it stands for. */
+    {
+        int ok = 1;
+        legacy_image(0x3FFFFFu);
+        memcpy(snap, nor, sizeof nor);
+        lg_test_reserve = 0x7FFFFFu;                                    /* all 23 sectors */
+        lg_ready = 0; lg_busy = 0;
+        int rc = lg_boot();
+        ok &= rc == -8 && lg_incomplete == 1 && lg_needwipe == 1;
+        check("no free sector even after giving up the stale copies: -8, lg_incomplete 1, lg_needwipe 1 (LIBRARY NEEDS WIPE)", ok);
+        ok = st_save(OBJ_LIB0 + 3, buf, 100) == -8;
+        check("... a save is refused in that state", ok);
+        lg_drop_pairs();
+        ok = !lg_incomplete && !lg_needwipe && lg_test_reserve == 0;
+        for (b = 0; b < LG_BANKS; b++)
+            for (uint32_t c = 0; c < 2u; c++) {
+                uint32_t a = st_sector(lg_legacy_obj(b), c);
+                st_hdr_t h;
+                if (st_read(a, &h, sizeof h)) continue;
+                ok &= !(h.magic == ST_MAGIC && h.type == lg_legacy_obj(b));      /* no old record left anywhere, in the group or outside */
+            }
+        check("lg_drop_pairs: every old record gone (group sectors and the pack and module areas), the state cleared", ok);
+        n_erase = n_prog = 0; boot();
+        check("... the next boot has nothing to move and no library (a wipe leaves empty banks)", n_erase == 0 && n_prog == 0 && !lg_incomplete && lg_map[0] == LG_NONE);
+        ok = 1;
+        for (b = 0; b < LG_BANKS; b++) { make(b, 6, buf, &l); ok &= st_save(OBJ_LIB0 + b, buf, l) == 0; expect(b, 6); }
+        ok &= all_ok();
+        check("... all 22 banks save again", ok);
+        memcpy(nor, snap, sizeof nor);
+        /* the old pairs are not erased by a drop that is cut: the next boot moves in what is left and the wipe can run again */
+        lg_ready = 0; lg_busy = 0; lg_test_reserve = 0;
+        dead = 0; cut_at = 5; ops = 0;
+        lg_drop_pairs();
+        dead = 0; cut_at = -1;
+        for (b = 0; b < LG_BANKS; b++) expect(b, 1);
+        ok = lg_boot() >= 0 && !lg_incomplete;
+        check("lg_drop_pairs cut in the middle: what is left moves in at the next boot (no crash, no -8)", ok);
     }
 
     printf("%s\n", bad ? "LIBRARY GROUP TEST FAILED" : "library group test passed");

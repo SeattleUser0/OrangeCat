@@ -313,6 +313,13 @@ flash ("MOVING PRESETS" with a bar) and then erases the old place. Firmware befo
 empty banks. If power is lost during the bar, the move finishes at the next power-on. A web backup made before 0.9.1
 restores with this firmware and the sounds are moved again at the next power-on.
 
+**Do not go back below 0.9.1 with sounds you want to keep.** Going back destroys the library. The old firmware cannot see the
+new place, and when it saves a sound it erases part of it. Make a full backup (the web editor's backup) before you go back.
+Restore it after you come back to 0.9.1 or later. If you come back without a backup, the sounds the old firmware did not touch
+may still be there and the sounds it saved are moved in, but the rest is gone. If the unit says LIBRARY NEEDS WIPE at
+power-on, the sounds could not be moved. OCT- (WIPE) then OCT+ wipes the presets. KEEP carries on with the presets locked.
+Projects and settings stay.
+
 Since 0.9.1 the pack takes no sounds. No bank is asked about and none is erased.
 
 Install it from the computer:

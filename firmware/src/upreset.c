@@ -18,6 +18,9 @@
 #ifndef BOOT_WIPE_BEGIN
 #define BOOT_WIPE_BEGIN(title, total) BOOT_PRESET_BEGIN(title, total)
 #endif
+#ifndef BOOT_NEEDWIPE
+#define BOOT_NEEDWIPE() BOOT_WORK_END(1)             /* (0.11.1) LIBRARY NEEDS WIPE: a harness without the boot screen sees a failed job */
+#endif
 #ifdef UP_HOST
 #define UP_PER_BANK 16u /* legacy wire-record parser harness */
 #else
@@ -393,7 +396,8 @@ static int up_lg_boot(void)
     up_lg_open = 0;
     int rc = lg_boot();
     lg_progress = 0;
-    if (rc < 0 && up_lg_open) { BOOT_WORK_END(1); up_lg_open = 0; }
+    if (rc < 0 && lg_needwipe) { BOOT_NEEDWIPE(); up_lg_open = 0; }        /* (0.11.1) no free sector: LIBRARY NEEDS WIPE, the wipe is offered */
+    else if (rc < 0 && up_lg_open) { BOOT_WORK_END(1); up_lg_open = 0; }
     return rc;
 }
 #endif
