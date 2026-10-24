@@ -27,8 +27,12 @@ COMPLETE_FIELDS=('audio_full_max_us','audio_full_last_us','audio_deadline_misses
                  'audio_batch_pairs','capacity_steals','admission_rejections','admission_enabled','fixed_voice_bench')
 
 
-def snapshot(incoming, outgoing, window=False, voices=False, cores=False, memory=False, parts=False, complete=False):
-    flags = int(window) | (2 if voices else 0) | (4 if cores else 0) | (8 if memory else 0) | (16 if parts else 0) | (32 if complete else 0)
+# (0.13.6) schema 8, the Audio readout of the web editor (flag 64, alone): the 20 base fields, then the block size, its budget and the blocks since the reset
+BUDGET_FIELDS = ('block_frames', 'block_budget_us', 'blocks')
+
+
+def snapshot(incoming, outgoing, window=False, voices=False, cores=False, memory=False, parts=False, complete=False, budget=False):
+    flags = (64 if budget else 0) | int(window) | (2 if voices else 0) | (4 if cores else 0) | (8 if memory else 0) | (16 if parts else 0) | (32 if complete else 0)
     outgoing.send(mido.Message('sysex', data=HEADER + ([flags] if flags else [])))
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
@@ -39,7 +43,10 @@ def snapshot(incoming, outgoing, window=False, voices=False, cores=False, memory
             fields = {2: FIELDS, 3: FIELDS + VOICE_FIELDS, 4: FIELDS + VOICE_FIELDS + CORE_FIELDS,
                       5: FIELDS + VOICE_FIELDS + CORE_FIELDS + MEMORY_FIELDS,
                       6: FIELDS + VOICE_FIELDS + CORE_FIELDS + MEMORY_FIELDS + PART_FIELDS,
-                      7: FIELDS + VOICE_FIELDS + CORE_FIELDS + MEMORY_FIELDS + PART_FIELDS + COMPLETE_FIELDS}.get(data[0] if data else 0, ())
+                      7: FIELDS + VOICE_FIELDS + CORE_FIELDS + MEMORY_FIELDS + PART_FIELDS + COMPLETE_FIELDS,
+                      8: FIELDS + BUDGET_FIELDS}.get(data[0] if data else 0, ())
+            if budget and data[0] != 8:
+                raise RuntimeError('The block budget requires AUDIO_STATS schema 8')
             if not fields or len(data) != 1 + 5 * len(fields):
                 raise RuntimeError('Unsupported audio diagnostics schema')
             if complete and data[0]<7:
@@ -68,13 +75,14 @@ def main():
     parser.add_argument('--memory', action='store_true', help='include SRAM capacity and cache-RAM boot self-test results')
     parser.add_argument('--parts', action='store_true', help='include voice cuts for each of the four tracks')
     parser.add_argument('--complete',action='store_true',help='include complete C interrupt timing and admission counters')
+    parser.add_argument('--budget', action='store_true', help='the Audio readout: block size, block budget (us) and blocks since the reset; with --window also zeroes the late count')
     args = parser.parse_args()
     if args.interval < 1 or args.seconds < 0:
         parser.error('interval must be >= 1 s; seconds must be >= 0')
     with mido.open_input(args.port) as incoming, mido.open_output(args.port) as outgoing:
         start = time.monotonic()
         while True:
-            stats = snapshot(incoming, outgoing, args.window, args.voices, args.cores, args.memory, args.parts, args.complete)
+            stats = snapshot(incoming, outgoing, args.window, args.voices, args.cores, args.memory, args.parts, args.complete, args.budget)
             stats['cpu_pct'] = round(stats['cpu_q8'] * 100 / 256, 1)
             stats['elapsed_s'] = round(time.monotonic() - start, 3)
             print(json.dumps(stats), flush=True)

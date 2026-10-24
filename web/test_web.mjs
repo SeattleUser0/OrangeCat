@@ -56,6 +56,17 @@ const E = vm.runInNewContext(proto + `
   ok(e.rc === 3 && e.done === 40232, "pack: the reply of an install step");
 }
 
+/* (Orange Cat 0.13.6) the Audio readout: command 72, flag 64 (+1 resets), schema 8 with 23 fields of 5 bytes (tools/usb_audio_stats.py --budget reads the same) */
+{
+  const C = E.CMD;
+  ok(C.AUDIO_STATS === 72 && E.req.audioStats(false)[0] === 72 && eq(E.req.audioStats(false)[1], [64]) && eq(E.req.audioStats(true)[1], [65]), "audio: command 72, flag 64, Reset adds 1");
+  const n5 = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) & 127);
+  const f = new Array(23).fill(0); f[16] = 3; f[18] = 2750; f[19] = 200; f[20] = 128; f[21] = 2901; f[22] = 123456;
+  const r = E.parse[C.AUDIO_STATS]([8, ...f.flatMap(n5)]);
+  ok(r.schema === 8 && r.late === 3 && r.worstUs === 2750 && r.loadPct === 78.1 && r.blockFrames === 128 && r.budgetUs === 2901 && r.blocks === 123456, "audio: the reply of schema 8 (worst, budget, late, load, block, blocks)");
+  ok(E.parse[C.AUDIO_STATS]([2, 0, 0]).schema === 2 && E.parse[C.AUDIO_STATS]([2, 0, 0]).budgetUs === undefined, "audio: an older schema gives no budget (the group stays hidden)");
+}
+
 /* (Orange Cat 0.10.0) engine modules: commands 120..124, the .ocm package as tools/build.py --module lays it out, and the checks the page makes before it sends anything */
 {
   const C = E.CMD;
@@ -1478,7 +1489,7 @@ async function editorSessions() {
     paramKeys: noop, libAdopt: () => { adoptStarted?.(); return adopted || Promise.resolve(); },
     buildUI: () => { shown++; }, renderPanels: noop, loadSteps: noop,
     startWatch: async () => false, renderLive: noop, renderLib: noop,
-    renderBank: noop, renderSysinfo: noop, sayK: noop, report: noop, syncPreferences: noop, packProbe: noop, modProbe: noop,
+    renderBank: noop, renderSysinfo: noop, sayK: noop, report: noop, syncPreferences: noop, packProbe: noop, audioProbe: noop, modProbe: noop,
   });
   const oldRelease = S.beginBusy();
   S.resetBusy();

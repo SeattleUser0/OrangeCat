@@ -8,8 +8,11 @@ metadata by a nightly publish. A branch build can carry its pack, modules and se
 channel's set (orangecat-nightly.pak, orangecat-NAME-nightly.ocm, orangecat-nightly.*.set.json). Standard, the stable editor and the stable manual are not touched.
 """
 import argparse
+import shutil
 from pathlib import Path
 from make_site import main, release_packages, require_manual, publish_manual
+
+HERE = Path(__file__).resolve().parent
 
 
 def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=(), manifest=None, branch=None):
@@ -23,6 +26,14 @@ def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=()
     if pak:
         spec.update(pak=pak, ocm=list(ocms), manifest=manifest)
     main(packages["dual"], release, out, nightly=spec, installer_only=True, keep_release=True)
+    # (0.13.6) the branch's own editor, beside the stable one (webapp/nightly-editor/): a branch build's new editor commands (the Audio readout) are not in main's
+    # editor. Standard's files (webapp/editor/) are not touched, and site_check does not count this folder as Standard.
+    ned = Path(out) / "webapp" / "nightly-editor"
+    ned.mkdir(parents=True, exist_ok=True)
+    shutil.copy(HERE / "editor.html", ned / "index.html")
+    for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
+        if (HERE / f).exists():
+            shutil.copy(HERE / f, ned / f)
     if manual is not None:
         root = Path(out) / "webapp/manual"
         publish_manual(manual, root / "nightly", version)

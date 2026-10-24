@@ -21,6 +21,7 @@ struct melodee_dbg {
     uint32_t prev_stage, prev_page, prev_home, prev_rst, prev_frames;   /* as found at boot */
 } melodee_dbg __attribute__((section(".noinit")));
 static volatile uint32_t audio_halves,audio_max_us;
+static uint32_t audio_stats_base;                      /* (0.13.6) audio_halves at the Audio readout's last Reset */
 static uint32_t audio_full_last_us,audio_full_max_us,audio_deadline_misses,audio_target_exceeded;
 /* Written by the assembly wrapper, observed at the following interrupt. */
 volatile uint32_t fm1_audio_irq_start_ticks,fm1_audio_irq_elapsed_ticks;

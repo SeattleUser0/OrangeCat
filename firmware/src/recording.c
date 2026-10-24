@@ -78,6 +78,9 @@ static uint32_t recording_nudge_sum[NTRK] __attribute__((section(".pool")));
 static uint32_t recording_nudge_fold(const track_t *t)
 {
     uint32_t h = 0;
+#ifdef RECORDING_FOLD_HOOK
+    RECORDING_FOLD_HOOK(t);                       /* (0.13.6) tests count the folds: once a loop pass a track, never a block */
+#endif
     for (uint32_t i = 0; i < NSTEP; i++) h = h * 31u + (uint32_t)(uint8_t)t->step[i].nudge + 1u;
     return h;
 }

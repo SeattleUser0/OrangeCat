@@ -121,6 +121,14 @@ class BranchNightly(unittest.TestCase):
         self.assertEqual([r["version"] for r in m["releases"]], ["0.6.2", "1.0.0"])
         self.assertEqual(m["releases"][0]["pak"], rel["pak"])
 
+    def test_the_branch_editor_is_beside_the_stable_one(self):
+        # (0.13.6) the Audio readout is in the branch's editor only: webapp/nightly-editor/ is the branch's editor.html, webapp/editor/ stays the live one
+        stable = (self.site / "webapp/editor/index.html").read_bytes()
+        self.publish()
+        self.assertEqual((self.site / "webapp/editor/index.html").read_bytes(), stable)
+        self.assertEqual((self.site / "webapp/nightly-editor/index.html").read_bytes(), (ROOT / "web/editor.html").read_bytes())
+        self.assertNotIn("webapp/nightly-editor/index.html", site_check.stable_files(self.site))
+
     def test_nightly_files_are_named_as_the_page_reads_them(self):
         self.publish()
         fw = self.site / "firmware"

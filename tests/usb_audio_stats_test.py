@@ -49,4 +49,15 @@ except RuntimeError as exc:
     assert 'schema 5' in str(exc)
 else:
     raise AssertionError('old firmware must not appear to have memory telemetry')
-print('audio stats: schemas 2/3/4/5, full-width counters, flags and malformed replies ok')
+expected, incoming, outgoing, sent = reply(8, 23)
+result = stats.snapshot(incoming, outgoing, window=True, budget=True)
+assert list(result.values()) == expected and list(result)[20:] == ['block_frames', 'block_budget_us', 'blocks']
+assert sent[0].data == stats.HEADER + [65]
+_, incoming, outgoing, _ = reply(2, 20)
+try:
+    stats.snapshot(incoming, outgoing, budget=True)
+except RuntimeError as exc:
+    assert 'schema 8' in str(exc)
+else:
+    raise AssertionError('old firmware must not appear to have the block budget')
+print('audio stats: schemas 2/3/4/5/8, full-width counters, flags and malformed replies ok')

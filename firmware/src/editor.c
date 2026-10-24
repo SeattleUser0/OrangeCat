@@ -511,8 +511,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     }
 #endif
 #if MELODEE_USB_AUDIO
-    case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims */
-        uint32_t snapshot[64] = {0}, k, count = na && (a[0] & 32u) ? 64u : na && (a[0] & 16u) ? 55u : na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
+    case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims, 32 full profile,
+                                                        * 64 the Audio readout (0.13.6, schema 8: 23 fields, alone) */
+        uint32_t snapshot[68] = {0}, k, count = na && (a[0] & 64u) ? 23u : na && (a[0] & 32u) ? 64u : na && (a[0] & 16u) ? 55u : na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
         fm1_irq_off();
         snapshot[0] = ua.play_alt;
         snapshot[1] = ua.cap_alt;
@@ -534,6 +535,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         snapshot[17] = ua_feedback();
         snapshot[18] = melodee_dbg.max_us;            /* render time excludes TIMER5; shedding includes it */
         snapshot[19] = song.cpu_q8;
+        if (count == 23u) {                           /* (0.13.6) the block, its budget and how many blocks since the reset */
+            snapshot[20] = HALF_FRAMES;
+            snapshot[21] = AUDIO_DEADLINE_TICKS / FM1_TICKS_PER_US;
+            snapshot[22] = audio_halves - audio_stats_base;
+        }
         if (count >= 26u) {
             for (uint32_t p = 0; p < NPART; p++) {
                 for (uint32_t v = 0; v < NVOICE; v++) {
@@ -603,9 +609,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #if MELODEE_DUAL_CORE
             audio_worker.max_job_ticks = audio_worker.max_wait_ticks = 0;
 #endif
+            if (count == 23u) {                     /* (0.13.6) the Audio readout's Reset also starts the late count and the block count over */
+                melodee_dbg.late = 0;
+                audio_stats_base = audio_halves;
+            }
         }
         fm1_irq_on();
-        ed_b(count == 64u ? 7u : count == 55u ? 6u : count == 47u ? 5u : count == 32u ? 4u : count == 26u ? 3u : 2u);
+        ed_b(count == 23u ? 8u : count == 64u ? 7u : count == 55u ? 6u : count == 47u ? 5u : count == 32u ? 4u : count == 26u ? 3u : 2u);
         for (i = 0; i < count; i++)
             for (k = 0; k < 5u; k++)
                 ed_b(snapshot[i] >> (7u * k));

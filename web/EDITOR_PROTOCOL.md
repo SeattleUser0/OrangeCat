@@ -859,6 +859,12 @@ favorite ranges so the editor rejects replies to a different request.
 Firmware built with USB audio (`MELODEE_USB_AUDIO`, the default) answers command 72 with its USB audio counters;
 without it there is no answer. `tools/usb_audio_stats.py` reads them.
 
+**Schema 8, the Audio readout (Orange Cat 0.13.6).** Request flag 64 (alone: the other flag bits are ignored with it) asks for 23 counters, each 5 x 7 bits, LSB first,
+reply schema 8. Fields 0 to 19 are the base counters above (16 late renders, 18 worst render in us since the reset, 19 load in 1/256). Field 20 is the block in
+samples (HALF_FRAMES), field 21 the block budget in us (the time the block lasts, 128 samples at 44.1 kHz is 2,901 us), field 22 the blocks rendered since the
+reset. Flag 65 (64 + 1) also starts the maxima, the late count and the block count over. No new flash: the numbers were already kept. The web editor's Settings
+tab shows them as "Audio" and asks once a second while the tab is open; `tools/usb_audio_stats.py --budget` reads the same.
+
 | cmd | Request args | Reply args |
 | --- | --- | --- |
 | 72 AUDIO_STATS | — or 1 (start new maxima after this reply) | schema (2), then 20 counters, each 5 × 7 bits, LSB first: play alt, capture alt, play rate, capture rate (Hz), play fill, capture fill (frames), play underruns, play overruns, capture underruns, capture overruns, bad packets, packets received, packets sent, missed USB frames, longest gap between services (µs), longest service (µs), late renders, the feedback (10.14), longest render (µs), CPU (Q8) |

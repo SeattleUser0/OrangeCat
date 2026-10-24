@@ -13,6 +13,8 @@
 #define RECORDING_REP_CHECK(c) assert(c)          /* (0.13.5) recording.c: after every unlink nothing of the event's repeats is left */
 static void hit_log(uint32_t note, uint32_t vel, uint32_t gate, uint32_t late);
 #define RECORDING_HIT_HOOK(t, i, vel, gate, late) hit_log(recording[i].note, vel, gate, late)
+static uint32_t fold_n;                                 /* (0.13.6) nudge folds so far (recording.c RECORDING_FOLD_HOOK) */
+#define RECORDING_FOLD_HOOK(t) (fold_n++)
 #include "recording_test.c"
 
 static struct { uint32_t note, vel, gate, at; } hl[8192];
@@ -368,9 +370,22 @@ static int unlink_reuse(void)
     return check("a ratcheting event un-recorded on track 1 and its slot reused by track 0 in the same block: track 0's four hits play, track 1's end",
                  pending && gone && n60 == 4u && n70 == 0u);
 }
+/* (0.13.6) the audio interrupt's recorded-step work is not per block and not NTRK x NSTEP a block: the nudge fold (NSTEP steps) runs once a loop pass, so over
+ * many passes the folds stay near the pass count, far under the block count. Runs eight passes and counts the samples (a block is CTL samples) against the folds. */
+static int fold_rate(void)
+{
+    begin();
+    fold_n = 0;
+    uint32_t passes = 8u;
+    run(passes * LOOP);
+    uint32_t blocks = passes * LOOP / 32u;                /* CTL is 32 samples or more: this only overstates the blocks' fewness */
+    int ok = fold_n <= passes + 2u && fold_n * 16u < blocks;
+    if (!ok) fprintf(stderr, "fold_rate: folds %u passes %u blocks >= %u\n", fold_n, passes, blocks);
+    return check("the nudge fold runs once a loop pass, not once a block", ok);
+}
 int main(void)
 {
-    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats() + loop_end() + overflow() + unlink_reuse();
+    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats() + loop_end() + overflow() + unlink_reuse() + fold_rate();
     printf("%s\n", bad ? "RECORDED STEP PROPERTIES TEST FAILED" : "Recorded step properties: all passed");
     return !!bad;
 }
