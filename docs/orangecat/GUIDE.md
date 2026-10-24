@@ -412,3 +412,10 @@ The engine number 19 is ready for a module, so a Prophet in an old project stays
 
 - Web editor backups do not yet hold chains, the song, scenes, grooves, or phrases that are not loaded in a bank. Do not rely on a web backup to bring back an Orange Cat project whole.
 - The web editor does not show chains or the song yet.
+
+
+## The Prophet module (0.12.1, not yet tried on the unit)
+
+The Prophet can also come as a module (orangecat-prophet-VERSION-COMMIT.ocm, kept in the unit's flash like SHAPES' one) for firmware that has the Prophet engine left out. It takes 8 of the 12 sectors of the module area and SHAPES' module 6, so the two do not fit together: with one installed, installing the other says ENGINE X INSTALLED AT START N: REMOVE IT FIRST. Remove the other from the Engines table (Remove), then install. Install it the same ways as SHAPES: the Engines table, the installer page (it offers SHAPES or the Prophet; the choice is kept until you close the page), or the card browser.
+
+With the module installed, the Prophet appears in the engine list, its 15 edit pages work, your stored Prophet sounds and library presets play, and parameter motion can be recorded on its knobs. Remove it and tracks that use it stay on the Prophet but are silent; install it again and they play. The sequencer must be stopped for any install.

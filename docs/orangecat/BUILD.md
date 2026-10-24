@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.67  
+**Version:** 0.68  
 **Date:** October 24, 2026  
 **Tracks:** Orange Cat Specification v0.25
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.68 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on main, not released, not on the unit): the Prophet as the second module (8 sectors, starts 0 and 4 of the module area, 31,872 B of 32,768), the installer refusing a module that overlaps another engine's, stored Prophet sounds playing again while a module supplies engine 19, and the first hardening work (sanitizers, fuzzers, watchdog feeds). See "Seventh run".
 - **0.67 (October 24, 2026):** 0.12.0 on branch sonnet-work (not on main, not released, not on the unit): a module's pages as data (a page descriptor the engine_t points at, checked by the loader, followed by the page lookup, the edit path and motion; editor commands 126 and 127), tested with a fake module; the Prophet measured as a module (31,148 B, 7.60 sectors: it does not fit a start, so it is not built as the second module, and its admission line is not added); the Engines table assigns an engine to a track and Replace takes another engine's file (a swap). See "Sixth run", Parts 2 and 3.
 - **0.66 (October 24, 2026):** 0.11.2 on branch sonnet-work (not on main, not released, not on the unit): the installer page installs the whole set (firmware, then the asset pack, then the SHAPES module) in one go, with one bar and one summary, each stage skippable and skipped when the unit already has it. See "Sixth run", Part 1.
 - **0.65 (October 24, 2026):** 0.11.1, Fixes 3 to 6 on branch sonnet-work (not on main, not released, not on the unit): one helper writes the PC window on every path that takes a module out of the table; an install or remove in a running session parks the engine's voices first and the table's two stores are one critical section; two valid modules of one engine at boot: the higher version wins and the loser is erased; the project load marks a module's use before audio renders it. See "Fifth run".
@@ -1832,6 +1833,46 @@ CI run 40074255845 on e3db920 (the full suite, green; the device build passed ev
 - `tests/editor_test.c`: commands 126 and 127 byte for byte (none, a built-in engine, a module, parts of the panel, refusals, after removal); a swap through the commands (SHAPES' module out, the Prophet's number into the same start, the plan, ENGINES, the refusals).
 - `tests/engine_table_test.c`: engine 19 is no longer in the list of numbers a module is refused.
 - `web/test_web.mjs`: the PAGES and PANEL parse and the fetch in parts (a hole, no descriptor, a reply that does not continue); the Replace/swap flow against a mock unit (own engine, swap, both starts full, declined, wrong file, wrong firmware, wrong engine, a refused remove); Use (order of the requests, the selection put back, the two refusal reasons, a track that does not exist); the Engines table row for the Prophet's number and `canUse`.
+
+## Seventh run (0.12.1 and on, branch sonnet-work, October 24, 2026)
+
+An unattended run: the parts were done in order, decisions were made and are written down here, nothing was flashed. Nothing in this run is on the unit.
+
+### Part 0: 0.12.0 finished
+
+- The module-alone build, `exp/sonnet-noshapes` (sonnet-work merged in, SHAPES built out of the image), CI result: image 472,804 B, 104,444 B free of the 577,248 B app area, RAM .data+.bss 93,192 B of 98,304 B, pool 176,768 B, audio arena 94,752 B. That is the "module alone" line for 0.12.0; the branch is brought to the head again at the end of this run (see "Final state").
+- The sizes of the Sixth run are in "Sizes and CI (Parts 2 and 3)" above.
+
+### Part 1: the Prophet as a module (0.12.1, 0.12.2)
+
+What was done:
+
+- **The module.** `tools/build.py --module prophet` builds `tools/module/prophet_mod.c` (own translation unit, calls the firmware through the `fw_api_t` table, `.data` and `.bss` zero) into an image for each of its two starts. The module area (12 sectors, 0xC8000..0xD3FFF) now has three starts: start 0 = sector 0, start 1 = sector 6, start 2 = sector 4. SHAPES (6 sectors) can be at starts 0 and 1, the Prophet (8 sectors) at 0 and 2 (module start numbers 0 and 4 in the `.ocm` variant field, which holds the sector index). The package `prophet-<version>.ocm` carries both variants and goes in the packages artifact and the pages site manifest beside `shapes`.
+- **Size.** The first measurement was 34,764 B (2,000 B too much for 8 sectors). Two changes brought it to **31,872 B of 32,768** (both starts, crc 5f630420 and 0472aa28): the tables the module and the firmware both need (voice assignment, pitch table, envelope table) come through the API table instead of a second copy (`pitch_oct`, `env_lin`, `voice_was` are members of `fw_api_t`), and the 200 factory programs are stored with palettes for the fields that take few values (`P5_FZ`, `tools/gen_prophet_factory.py pack_z`; the built-in engine's `P5_FPACK` and the web data are unchanged). The interface id changed once (12f6be4f) and SHAPES was rebuilt with it in the same commit.
+- **Pages as data.** The module's `fw_pages_t` descriptor (15 pages, a panel of 88 entries of which 31 are empty, the hooks for the keyed tuning and the voice assignment) is the Prophet's whole page set; the firmware's own STORE page stays the firmware's. `fw_pages_check` got more rules for real data (a format past the last, names on a format that has none, an INT list not ended inside the image).
+- **Placement.** The planner refuses a start that shares a sector with a usable module of another engine; `ED_MOD_INFO` reports three starts and, as its last byte, the start of the blocker (127: none). The editor, the installer page and the card browser say "ENGINE X INSTALLED AT START N: REMOVE IT FIRST"; the loser of a double install is erased only outside any registered module's span (`oc_mod_erase_loser`: the fuzzer found that the erase of the loser could reach into a good neighbour).
+- **Availability.** A registered Prophet module makes engine 19 selectable: it is in `ENGINE_ORDER` and `NENG_SHOWN` (as SHAPES is), `eng_ok` and `eng_extra_retired` consult `eng_mod[19]`, `eng_default` gives the built-in engine back when the module is unregistered. Stored Prophet sounds and library presets play again while a module supplies it; the engine is silent (ENG_RETIRED) only while none does.
+- **Installer page** offers the Prophet module as a stage beside SHAPES with one line that they do not fit together; the choice is kept for the session only.
+
+Decisions made without asking:
+
+1. 8 sectors, not 9. The module fits in 31,872 B, so the area is shared 6 + 8 of 12 with no third layout.
+2. The palette packing for the factory programs is only in the module; the built-in engine keeps `P5_FPACK` (its golden renders and the web data do not move).
+3. The interface id was changed once for the three new table members, as the plan said.
+
+Tests: see "Tests added or changed (Seventh run)".
+
+### Sizes and CI (Part 1)
+
+Run 40082370575 (quick, on bd68aca, the device build passed every check): image 499,252 B (77,996 B free), RAM 93,528 B of 98,304 B, pool 176,768 B, audio arena 94,144 B available. SHAPES module 23,784 B of 24,576 B. Prophet module 31,872 B of 32,768 B at start 0 (0xC8000) and 4 (0xCC000), `.data` 0, `.bss` 0; `prophet-0.6.2.ocm` 63,836 B, two variants, state 1,456 B, interface 12f6be4f.
+
+### Tests added or changed (Seventh run)
+
+- `tests/mod_pages_prophet_test.c` (new, in run_tests.sh; the Orange Cat engine set, sanitizers): the module's real descriptor in the UI: the 15 pages, a column edit through the put hook, the keyed tuning's shown hook, HOME, ENV, LFO, motion recorded and played back, the module going away and returning.
+- `tests/module_host_prophet_test.c`, `tests/module_host_prophet_tu.c` (new): header and wire check; 201 presets through the table equal the built-in engine's renders and the golden file.
+- `tests/mod_pages_test.c`: the new descriptor-check rules.
+- `tests/fuzz_lib_group.c`, `fuzz_oc_pack.c`, `fuzz_oc_module.c`, `fuzz_fw_pages.c` (new, Part 2 below).
+- `web/test_web.mjs`: three starts, the blocker byte, the Prophet stage.
 
 ## Phases 8 to 11
 

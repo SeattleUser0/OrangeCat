@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.25  
+**Version:** 0.26  
 **Date:** October 24, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.26 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on the unit yet; 8.4). The Prophet is a second loadable module: 31,872 bytes in 8 of the module area's 12 sectors, at sectors 0 and 4 of the area, with the same placement rules as SHAPES' (6 sectors, at sectors 0 and 6). An install that would share a sector with another engine's usable module is refused with the engine and start named, in the web editor, the installer page and the card browser. A registered Prophet module makes engine 19 selectable and plays the stored Prophet sounds and library presets; with none registered engine 19 is silent as before. The installer page offers the Prophet module beside SHAPES; they do not fit together.
 - **0.25 (October 24, 2026):** 0.11.2 and 0.12.0 on branch sonnet-work (not on the unit yet; 8.4). The installer page installs the whole set in one go: firmware, then the pack, then the SHAPES module, each stage skippable and skipped when the unit already has it. A module's pages are data in the module's flash (a page descriptor the engine_t points at); the Prophet's number is an engine a module may supply. The Prophet measured as a module does not fit a start (7.60 sectors against 6), so it stays out of the build; the numbers and what it would need are in the plan. The Engines table assigns an engine to a track and Replace takes a file of another engine.
 - **0.24 (October 24, 2026):** 0.11.1 on branch sonnet-work (not on the unit yet; 8.4). Two valid modules of one engine at boot: the higher header version is used, on equal versions the higher start, and the other is erased at that boot. An install or remove in a running session parks the engine's voices first. The library migration after a downgrade below 0.9.1 and an upgrade can finish, and where it cannot the boot says LIBRARY NEEDS WIPE and a wipe completes; a downgrade below 0.9.1 destroys the library (back up before, restore after).
 - **0.23 (October 23, 2026):** The module proof of concept after review (0.10.1 and 0.11.0, branch sonnet-work, not on the unit yet; 8.4). A module's sector tails are tested against the update loader's record rule (build, installer, loader); a replacement is written beside the old module when a start is free; a module that crashes at any time in a session is banned after three sessions in a row that died with its engine in use; the PC guard follows the registered modules in a running session and its one-window cost is written down; a module's engine is admitted to a track only when one voice fits the voice budget and the state fits the arena (the cost word is carried, there is no render budget yet); the module header is 60 bytes (cost, version); the web page has an Engines table fed by one device command.
