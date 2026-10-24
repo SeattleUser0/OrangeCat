@@ -663,7 +663,7 @@ tag, and by hand (Actions, build, Run workflow, pick the branch). One run has th
 | --- | --- |
 | `build` | The shared builder: toolchain, our build command, the module builds, then the host tests. Its annotations carry the build sizes and checks, the size by engine and area, the module reports and the target budget. |
 | `tests-gate` | Red when any host test failed, and (0.13.5) red when no test ran at all. Its error annotation repeats the failed tests' summary. Green means `tests/run_tests.sh` ran to its end and wrote `build/orangecat-tests-passed.txt` ("PASSED <n> jobs ..."), or the run was a `.ci_quick` run, which writes `build/orangecat-tests-skipped.txt` and gets a warning. The decision is `tools/ci_gate.sh`, tried by `tests/ci_gate_test.sh`. |
-| `pages` | Main only: publishes the installer and the editor. It waits for `tests-gate`, so a build whose tests failed is not published. |
+| `pages` | Main: publishes the installer and the editor. A branch run with the input `publish_nightly` ticked: publishes the live site plus this build as the Nightly channel (see "Publishing a Nightly from a branch"). It waits for `tests-gate`, so a build whose tests failed is not published. |
 
 A run is red when a host test fails. The `packages` artifact is still on the run page then: the `.fwsc`, the `.pak`, the
 `.ocm` files and the manifest of the build, plus `build/orangecat-tests-failed.txt` (the failed tests' summary and the
@@ -676,6 +676,18 @@ On a version tag a failing test stops the build job itself: nothing is attested,
 
 A run on a branch with a `.ci_quick` file at the root builds and reports sizes only (no host tests); it is for size
 measurements and throwaway branches, never for a merge.
+
+## Publishing a Nightly from a branch (0.13.6)
+
+The installer page (https://seattleuser0.github.io/OrangeCat/) normally offers main's build. To flash a branch build from it:
+
+1. Actions, build, Run workflow. Pick the branch (not main). Tick **publish_nightly**. Run.
+2. When `build` and `tests-gate` are green, the `pages` job publishes. Its notices show the files and sizes of both channels before the deploy ("site before the deploy") and the live site after it ("live site after the deploy").
+3. On the page, open "Advanced install" (RC / Nightly), choose **Nightly**. The entry reads `branch · commit · firmware version string · build date`. Save a complete backup in the editor first. Standard still installs main's build.
+
+Standard, the stable editor and the manual are copied from the live site (`web/mirror_site.py`) and checked unchanged (`web/site_check.py`); the run fails before the deploy if one differs. The Nightly files are `firmware/melodee-nightly.fwsc`, `orangecat-nightly.pak`, `orangecat-shapes-nightly.ocm`, `orangecat-prophet-nightly.ocm` and `orangecat-nightly.*.set.json` (`tools/orangecat_site.py nightly`). The site has no nightly editor: the editor stays main's, so the Settings tab's pack and module panels are missing until main catches up (the installer's set flow installs the pack and the modules). The installer page is made again from the branch's `web/index_pkg.html`.
+
+A push to main builds the whole site from scratch and so ends the Nightly. Dispatching again, from the same or another branch, replaces it. A dry run on a built site: `python3 web/site_check.py SITE --list`.
 
 ## EQ accelerator experiment
 

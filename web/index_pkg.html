@@ -129,9 +129,9 @@ const TEXT = {
     rcTitle: "リリース候補", "rc-dual": "RC",
     "rc-dualTag": "リリース候補",
     rcWhy: "次のリリースのテスト版です。標準を選んでインストールすると安定版へ戻せます。",
-    nightlyTitle: "Nightly（next）", "nightly-dual": "Nightly",
+    nightlyTitle: "Nightly（開発ビルド）", "nightly-dual": "Nightly",
     "nightly-dualTag": "nightly",
-    nightlyWhy: "next の開発版です。インストール前にエディタで全体バックアップを保存してください。標準版を選ぶとリリース版へ戻せます。",
+    nightlyWhy: "ブランチの開発版です（ブランチ名は下に表示）。インストール前にエディタで全体バックアップを保存してください。標準版を選ぶとリリース版へ戻せます。",
     dual: "標準", dualTag: "標準",
     editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
@@ -207,9 +207,9 @@ const TEXT = {
     rcTitle: "Release candidate", "rc-dual": "Release candidate",
     "rc-dualTag": "release candidate",
     rcWhy: "Preview of the next release, available for testing. Choose Standard to return to stable.",
-    nightlyTitle: "Nightly (next)", "nightly-dual": "Nightly",
+    nightlyTitle: "Nightly (development build)", "nightly-dual": "Nightly",
     "nightly-dualTag": "nightly",
-    nightlyWhy: "Development builds from next. Save a complete backup in the editor before installing. Choose Standard to return to the release.",
+    nightlyWhy: "Development build from a branch (named below). Save a complete backup in the editor before installing. Choose Standard to return to the release.",
     dual: "Standard", dualTag: "standard",
     editor: "Editor (after installing: edit sounds and sequences from the computer)",
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
@@ -348,7 +348,8 @@ $("advanced-installs").hidden = !meta.rc && !meta.nightly;
 $("rc-options").hidden = !meta.rc;
 if (meta.rc) $("rc-version").textContent = meta.rc.version;
 $("nightly-options").hidden = !meta.nightly;
-if (meta.nightly) $("nightly-info").textContent = `next · ${meta.nightly.commit.slice(0, 7)} · ${meta.nightly.builtAt}`;
+/* (0.13.6) the branch, the commit, the firmware's own version string and the build date: "sonnet-work · a6c6d6b · v0.6.2-a6c6d6 · 2026-10-24T12:00:00Z" (an older nightly has no branch name: next) */
+if (meta.nightly) $("nightly-info").textContent = `${meta.nightly.branchName || "next"} · ${meta.nightly.commit.slice(0, 7)} · ${meta.nightly.version} · ${meta.nightly.builtAt}`;
 const images = {};                // a build ("dual", "nightly-dual" ..) -> its package's image, each fetched once
 
 let writing = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;

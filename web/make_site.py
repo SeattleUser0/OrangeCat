@@ -3,6 +3,7 @@
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Revisions:
+# (Orange Cat 0.13.6) the Nightly channel can carry a branch build with its pack, modules and set manifests (channel(), keep_release, listing()); web/publish_nightly.py keeps the stable pack and modules
 # (Orange Cat 0.11.2) the installer page installs firmware, pack and module in one go
 # (Orange Cat 0.12.2) web tests for the Prophet package, modBlocked and the swap planner; check_set checks module images against their sectors (test added); gen_fw_api_i...
 """Make the site (GitHub Pages):
@@ -13,6 +14,8 @@
   firmware/orangecat-VER.pak        (0.11.2) the asset pack of the same build, offered by the installer after the firmware
   firmware/orangecat-NAME-VER.ocm   (0.11.2) the engine module packages of the same build (shapes), likewise
   firmware/melodee-nightly*.fwsc    next's development builds (nightly.json; publish_nightly.py), kept as published
+  firmware/orangecat-nightly.pak, orangecat-NAME-nightly.ocm, orangecat-nightly.{pack,shapes,prophet}.set.json
+                                    (0.13.6) the pack, modules and set manifests of a branch build in the Nightly channel (nightly.json)
   firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
   webapp/editor/index.html          editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
@@ -66,6 +69,20 @@ def check_package(pkg):
     return raw, product
 
 
+def release_json(out):
+    """(0.13.6) a published site's whole release entry (firmware/release.json: version, product, pkg, pak, ocm); the installer page's inline copy on an older site"""
+    out = Path(out)
+    manifest = out / "firmware/release.json"
+    if manifest.exists():
+        return json.loads(manifest.read_text())
+    html = (out / "webapp/installer/index.html").read_text()
+    match = re.search(r"^const meta = (\{.*\});$", html, re.M)
+    if not match:
+        raise SystemExit("Pages installer has no release metadata")
+    meta = json.loads(match[1])
+    return {k: meta[k] for k in ("version", "product", "pkg", "pak", "ocm") if k in meta}
+
+
 def release_packages(out):
     """A published site's release version and dual-core package path."""
     out = Path(out)
@@ -90,11 +107,19 @@ def published(out, name):
     if "dual" not in spec["pkg"]:
         return None
     spec["pkg"] = {"dual": str(out / "firmware" / Path(spec["pkg"]["dual"]).name)}
+    if spec.get("pak"):                         # (0.13.6) a nightly with its pack and modules: kept as published (the files are in the site already)
+        spec["kept"] = True
     return spec
 
 
 def channel(spec, label, stem, branch):
-    """Validate a dual-core development package and prepare installer metadata."""
+    """Validate a dual-core development package and prepare installer metadata.
+
+    (0.13.6) A nightly spec may also carry the build's set: "pak", "ocm" (a list) and "manifest" (tools/oc_manifest.py), checked by check_set() against each
+    other and the firmware's numbers, and served as orangecat-nightly.pak / orangecat-NAME-nightly.ocm. "branchName" is the branch the build was made from
+    (the installer's Nightly entry shows it); "version" is the firmware's own version string (v0.6.2-abc123). A spec read back from a published site
+    ("kept") has its set files in the site already and is passed through.
+    """
     if not re.fullmatch(r"[0-9a-f]{40}", spec["commit"]):
         raise SystemExit(f"{label} commit must be a full Git SHA")
     if set(spec["pkg"]) != {"dual"}:
@@ -104,8 +129,39 @@ def channel(spec, label, stem, branch):
     if branch == "nightly" and identity != "FM-1_900":
         raise SystemExit("Nightly firmware must use development identity FM-1_900")
     files = {"dual": (path, data, identity, f"{stem}.fwsc")}
-    return files, {"version": spec["version"], "product": identity, "branch": branch, "commit": spec["commit"],
-                   "builtAt": spec["builtAt"], "pkg": {"dual": "../../firmware/" + f"{stem}.fwsc"}}
+    meta = {"version": spec["version"], "product": identity, "branch": branch, "commit": spec["commit"],
+            "builtAt": spec["builtAt"], "pkg": {"dual": "../../firmware/" + f"{stem}.fwsc"}}
+    if spec.get("branchName"):
+        meta["branchName"] = spec["branchName"]
+    if spec.get("pak"):
+        if spec.get("kept"):
+            meta["pak"], meta["ocm"] = spec["pak"], list(spec.get("ocm", []))
+            meta["sets"] = list(spec.get("sets", []))
+            return files, meta
+        if not spec.get("manifest"):
+            raise SystemExit(f"{label}: a pack goes with its manifest (tools/oc_manifest.py)")
+        check_set(spec["pak"], spec.get("ocm", []), spec["manifest"])
+        files["pak"] = (Path(spec["pak"]), Path(spec["pak"]).read_bytes(), None, f"{stem.replace('melodee-', 'orangecat-')}.pak")
+        meta["pak"] = "../../firmware/" + files["pak"][3]
+        meta["ocm"] = []
+        for o in sorted(map(Path, spec.get("ocm", []))):
+            m = re.fullmatch(r"orangecat-([a-z0-9]+)-.*\.ocm", o.name)
+            if not m:
+                raise SystemExit(f"{o}: a module package is named orangecat-NAME-VERSION[-COMMIT].ocm")
+            fname = f"orangecat-{m[1]}-{stem.split('-', 1)[1]}.ocm"
+            files["ocm:" + m[1]] = (o, o.read_bytes(), None, fname)
+            meta["ocm"].append("../../firmware/" + fname)
+        info = json.loads(Path(spec["manifest"]).read_text())      # the set manifests for the card, one per module choice (docs/orangecat/SET_FORMAT.md)
+        base = stem.replace("melodee-", "orangecat-")
+        meta["sets"] = []
+        for choice in ["pack"] + [k[4:] for k in files if k.startswith("ocm:")]:
+            sf = {"pak": files["pak"][3], "fwsc": f"{stem}.fwsc"}
+            if choice != "pack":
+                sf["ocm"] = [files["ocm:" + choice][3]]
+            sname = f"{base}.{choice}.set.json"
+            files["set:" + choice] = (None, (json.dumps({**info, "files": sf}, indent=2) + "\n").encode(), None, sname)
+            meta["sets"].append(sname)
+    return files, meta
 
 
 def check_set(pak, ocms, manifest):
@@ -215,7 +271,9 @@ def publish_manual(src, dest, version=None, preserve_nightly=False):
         page.write_text(text, encoding="utf-8")
 
 
-def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None, pak=None, ocms=(), manifest=None):
+def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None, pak=None, ocms=(), manifest=None, keep_release=False):
+    """keep_release (0.13.6): the stable release is the one the site already publishes (firmware/release.json); its metadata, with its pack and modules, is
+    passed through, so a nightly or an RC publish cannot change what Standard offers. pkg is that release's package in the site."""
     pkg, out = Path(pkg), Path(out)
     raw, product = check_package(pkg)
     if nightly is None:
@@ -237,6 +295,12 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     name = f"melodee-{v}.fwsc"
     release_meta = {"version": version, "product": product,
                     "pkg": {"dual": "../../firmware/" + name}}
+    if keep_release:
+        kept = release_json(out)
+        kept["pkg"] = {"dual": kept["pkg"]["dual"]}          # a legacy single-core entry is retired
+        release_meta, version = kept, kept["version"]
+        name = Path(kept["pkg"]["dual"]).name
+        v = re.sub(r'[^A-Za-z0-9.-]', '-', version)
     set_files = {}                                          # (0.11.2) the pack and the modules of this build, beside the firmware
     if pak or ocms:
         if not pak or not manifest:
@@ -265,6 +329,11 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
     set_keep = set(set_files)
+    for key, entry in nightly_files.items():                # (0.13.6) the nightly's pack and modules
+        if key == "pak" or key.startswith("ocm:"):
+            set_keep.add(entry[3])
+    if nightly_meta:
+        set_keep.update(Path(x).name for x in ([nightly_meta["pak"]] if nightly_meta.get("pak") else []) + list(nightly_meta.get("ocm", [])))
     for r in releases:
         set_keep.update(Path(x).name for x in ([r["pak"]] if r.get("pak") else []) + list(r.get("ocm", [])))
     for old in list(fw.glob("orangecat-*.pak")) + list(fw.glob("orangecat-*.ocm")):
@@ -303,6 +372,9 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     (fw / "release.json").write_text(json.dumps(release_meta, indent=2) + "\n")
     (fw / "releases.json").write_text(json.dumps(releases, indent=2) + "\n")
     if nightly_meta:
+        if any(k.startswith("set:") for k in nightly_files):
+            for old_set in fw.glob("orangecat-nightly.*.set.json"):
+                old_set.unlink()
         for path, data, identity, filename in nightly_files.values():
             (fw / filename).write_bytes(data)
         (fw / "nightly.json").write_text(json.dumps(nightly_meta, indent=2) + "\n")

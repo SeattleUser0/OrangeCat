@@ -29,8 +29,14 @@
 #
 # Build options are Melodee 1.4.5's release settings (its .github/workflows/release.yml): dual core required, no
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
+#   - Actions > build > Run workflow, a branch other than main, with "publish_nightly" ticked (rev 17): after the build and the host tests, the pages job
+#     publishes the installer page with this run's firmware, pack and modules as its Nightly channel (labeled with the branch, the commit, the firmware's
+#     version string and the build date), and with Standard, the editor and the manual exactly as they are served now (web/mirror_site.py copies them,
+#     web/site_check.py proves them unchanged before and after the deploy). A push to main replaces the whole site and so ends the Nightly.
 #
 # Revisions:
+#   Rev 17 (Orange Cat 0.13.6): input publish_nightly; the pages job also runs for a branch dispatch with it set, mirrors the live site, adds the branch build as Nightly
+#     (tools/orangecat_site.py nightly), prints the file list of both channels as a notice (web/site_check.py --list) before the deploy, and checks the live site after it.
 #   Rev 16 (Orange Cat 0.13.5): the gate needs a positive marker. tests/run_tests.sh writes build/orangecat-tests-passed.txt ("PASSED <n> jobs ...") as its last act; tools/ci_gate.sh (job
 #     tests-gate, now with a checkout) is red when the failed marker is there OR when neither marker is. Before, a test step that died before the tests started (the engine switch
 #     file, the fwsc copy, a cancelled step) left no file and the gate passed a run in which no test ran. The test step also writes the failed marker from an EXIT trap when it
@@ -62,6 +68,11 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish_nightly:                           # (rev 17, Orange Cat 0.13.6) a branch run: publish this build as the installer page's Nightly channel
+        description: "Publish this branch's build as the Nightly channel of the installer page (Standard stays main's build)"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -201,7 +212,8 @@ jobs:
 
   pages:                                         # (rev 2) the installer with this build, and the editor, on GitHub Pages
     needs: [build, tests-gate]                   # (rev 14) not published when the host tests failed
-    if: github.ref == 'refs/heads/main'
+    # (rev 17) main as before; a branch only by hand with publish_nightly ticked (a tag push or any other branch run never publishes)
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && inputs.publish_nightly == true)
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -216,12 +228,66 @@ jobs:
         with:
           name: packages
           path: pkg
-      - name: The site
+      - name: The site (main, this build is Standard)
+        if: github.ref == 'refs/heads/main'
         run: python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
             $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done)   # (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
+      # (rev 17, Orange Cat 0.13.6) A branch run: the site is the live one (Standard, the editor, the manual) plus this build as Nightly. Pages deploys a whole
+      # site, so the live files are copied first (web/mirror_site.py), never rebuilt; their checksums are kept to prove, before the deploy and after it, that
+      # Standard did not change (web/site_check.py).
+      - name: The live site (Standard, editor, manual)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          owner=$(echo "${{ github.repository_owner }}" | tr 'A-Z' 'a-z')
+          echo "PAGES_URL=https://$owner.github.io/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
+          python3 web/mirror_site.py "https://$owner.github.io/${{ github.event.repository.name }}" site
+          python3 web/site_check.py site --snapshot stable.json
+      - name: The Nightly channel (this branch's build)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          fwv="v$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::6}"      # tools/build.py --nightly: "v" + VERSION + "-" + the first 6 digits of the commit
+          python3 tools/orangecat_site.py nightly site --package "$(ls pkg/build/orangecat-*.fwsc | head -1)" \
+            --branch "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --built-at "$built" --fw-version "$fwv" \
+            --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
+            $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done)
+      # The dry run: the files and sizes of both channels, as the site stands before the deploy. A missing file or a changed Standard file stops the job here.
+      - name: Check the site before the deploy
+        run: |
+          set -uo pipefail
+          ok=0
+          python3 web/site_check.py site --list > site-list.txt || ok=1
+          if [ -f stable.json ]; then python3 web/site_check.py site --compare stable.json >> site-list.txt || ok=1; fi
+          cat site-list.txt
+          { echo '```'; cat site-list.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          txt=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' site-list.txt)
+          echo "::notice title=site before the deploy::$txt"
+          exit $ok
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
       - id: deploy
         uses: actions/deploy-pages@v4
+      # After the deploy: the live site again, copied the same way. Standard must match the checksums taken before; the Nightly entry is printed as the page shows it.
+      - name: Check the live site
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -uo pipefail
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            rm -rf live
+            python3 web/mirror_site.py "$PAGES_URL" live > /dev/null 2>&1 || true
+            if grep -q "$GITHUB_SHA" live/firmware/nightly.json 2>/dev/null; then break; fi
+            sleep 15
+          done
+          ok=0
+          python3 web/site_check.py live --list > live-list.txt || ok=1
+          python3 web/site_check.py live --compare stable.json >> live-list.txt || ok=1
+          grep -q "$GITHUB_SHA" live/firmware/nightly.json 2>/dev/null || { echo "the live Nightly is not this commit (yet)" >> live-list.txt; ok=1; }
+          cat live-list.txt
+          { echo '```'; cat live-list.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          txt=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' live-list.txt)
+          echo "::notice title=live site after the deploy::$txt"
+          exit $ok

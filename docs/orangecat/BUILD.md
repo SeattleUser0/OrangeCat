@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.72  
+**Version:** 0.73  
 **Date:** October 24, 2026  
 **Tracks:** Orange Cat Specification v0.25
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.73 (October 24, 2026):** 0.13.6 on sonnet-work (still not on main, released or flashed): the installer page's Nightly channel can serve a branch build with its pack, modules and set manifests (workflow Rev 17, input `publish_nightly`; `web/mirror_site.py`, `web/site_check.py`, `tools/orangecat_site.py nightly`); Standard, the editor and the manual stay main's. No firmware change. See "Tenth run" and the Before merging item 10.
 - **0.72 (October 24, 2026):** 0.13.5 on sonnet-work (still not on main, released or flashed): the second independent review of everything since 549d580 (no blocking bug; seven items), all fixed in the Ninth run's Part 6: a stale repeat bit cleared where an event leaves its track, the repeat record cut from 4,608 B to 384 B (arena 88,000 B back to 92,128 B), the loop-end rule documented, page_scroll guarded, the CI gate needs a positive marker, the installer's BEGIN wait, Install set resumes from the module that asked. See "Ninth run", Part 6.
 - **0.71 (October 24, 2026):** Ninth run on sonnet-work (still not on main, released or flashed): ratchet and flam repeats are never dropped (a record for each event instead of a six-entry queue); a damaged pack or module file is refused before anything is erased, on the card and on the page, with one shared check; the erase table of every data-area site; the scheduler benchmark under load (loaded costs 12% more per hit than plain, not optimized). See "Ninth run".
 - **0.70 (October 24, 2026):** Eighth run on sonnet-work (still not on main, released or flashed): CI fails when host tests fail (workflow Rev 14, job tests-gate); the 11,164 B / 880 B growth accounted by symbol and 464 + 288 B of RAM and 2,920 B of flash recovered (0.13.2); two analyzer items shown false with tests; dead code removed; Install set from the card (0.13.3, SET_FORMAT.md); the unit checklist carries exact screens, page elements and file names. See "Eighth run".
@@ -1960,6 +1961,7 @@ clang `--analyze` (the host test translation units, the module TUs; outputs kept
 6. Every new or changed source file has the SPDX and copyright lines, a header comment and a Revisions line (this run: `/tmp/addrev.py`-style sweep from the commit history).
 7. CHANGES.md is current, and the two one-way doors are told to whoever merges (library migration at 0.9.1, the module header).
 8. Golden hashes and `tests/target_budget.txt` carry new lines only. Nothing was flashed: the unit checklist in "Left to test (on the unit)" is open.
+10. (0.13.6) If a Nightly was published from a branch (workflow input `publish_nightly`), unpublish or replace it when main catches up: a push to main builds the whole site again and so removes the Nightly; if main is not ready to publish, dispatch the workflow on the next branch with `publish_nightly`, which replaces it. Until then the installer page's Nightly entry and the stable editor/manual are the only things that differ from main.
 9. Tests in `tests/` not run by `run_tests.sh`, on purpose: `audio_job_bench.c`, `pitch_prepare_bench.c`, `recording_bench.c` (benchmarks), `slice_test.c` and `slice_loop.py` (SLICE is retired from the build), `make_fat_fixture.py` (makes the committed card image used by usb_host_test).
 
 ### Sizes and CI (Parts 2 to 4)
@@ -2220,3 +2222,23 @@ An independent review of everything since 549d580 found no blocking bug and seve
 | Loadable engine slots | 6 | Open |
 | Sample and bounce storage location | 2, 9 | Open |
 | Track count target | 8 | Open |
+
+## Tenth run (0.13.6, branch sonnet-work, October 24, 2026): the Nightly channel from a branch
+
+Still not on main, released or flashed. No firmware change, no tag, nothing to main.
+
+**Why.** The installer page on GitHub Pages is the only way the unit is flashed, and it only published main's build (0.6.2). The Nightly channel now serves a branch build on request, labeled as a development build, without touching Standard.
+
+**How.** Workflow Rev 17: `workflow_dispatch` input `publish_nightly` (boolean, false). With it set on a branch run (never main, never a tag), and `build` and `tests-gate` green, the `pages` job runs: `web/mirror_site.py` copies the live site (Standard's release, packs, modules and set manifests, the editor, the manual) into `site/`; `web/site_check.py --snapshot` takes their checksums; `tools/orangecat_site.py nightly` adds this run's `.fwsc`, `.pak`, both `.ocm` files and the set manifests as the Nightly channel (`web/publish_nightly.py` -> `make_site.main(keep_release=True)`); `web/site_check.py --list` prints the files and sizes of both channels as a notice and `--compare` stops the job if a Standard file differs; the deploy follows; a last step mirrors the live site again and checks the Nightly is this commit and Standard still matches the checksums.
+
+**Names** (the page reads `meta.nightly.pak` and `.ocm`; the module kind comes from the file name): `firmware/melodee-nightly.fwsc`, `orangecat-nightly.pak`, `orangecat-shapes-nightly.ocm`, `orangecat-prophet-nightly.ocm`, `orangecat-nightly.{pack,shapes,prophet}.set.json`, `nightly.json`. Standard's names (`melodee-0.6.2.fwsc`, `orangecat-0.6.2.pak`, ...) cannot collide.
+
+**What the Nightly entry shows** (`webapp/installer/index.html`): `<branch> · <commit, 7 digits> · <firmware version string> · <build date>`, for example `sonnet-work · a6c6d6b · v0.6.2-a6c6d6 · 2026-10-24T12:00:00Z`, under the warning "Save a complete backup in the editor before installing." The firmware version string is the one the unit shows (tools/build.py --nightly: `v` + VERSION + `-` + 6 digits of the commit).
+
+**What is main's, what is not.** Standard (release entry, packages, pack, modules, set manifests), the editor and the manual are the live files, byte for byte (json files by content). The installer page itself (`webapp/installer/index.html`) is made again from this branch's `web/index_pkg.html`, so Standard now runs on this branch's page code (same files offered). There is no nightly editor path in the site: the editor served is main's, so the Settings tab's pack and module panels are missing until main catches up; the installer's set flow installs the pack and the modules anyway.
+
+**Side fix.** `web/publish_nightly.py` used to drop the stable release's pack and modules from the installer's metadata (the release entry was rebuilt from the firmware alone). It now keeps the whole entry.
+
+**Ends.** A push to main builds the whole site from scratch and has no Nightly. To replace a Nightly, dispatch again with `publish_nightly`.
+
+**Tests.** `tests/branch_nightly_test.py` (10 cases, in `run_tests.sh`): a fake artifact and a fake live site served over HTTP, the mirror, Standard byte-identical, Nightly names as the page reads them, set manifests consistent with the manifest, a bad pack/identity/commit writes nothing, a second nightly replaces the first, a main publish has none, `--list` and `--compare`. `web/test_web.mjs`: the Nightly entry text and the stage boxes.

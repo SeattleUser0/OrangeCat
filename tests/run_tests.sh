@@ -88,6 +88,7 @@
 # Change baseline entries only for reviewed, intentional differences in sound or cost;
 # retain every unaffected golden / CPU / target entry. VERBOSE=1: every render.
 # Revisions:
+# (Orange Cat 0.13.6) tests/branch_nightly_test.py: a branch build as the installer's Nightly channel beside an unchanged Standard
 # (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
 # (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
@@ -346,6 +347,7 @@ if core; then
     t "system clock: read only, never written" clock_test -O1
     t "stock V15 supply startup, timeouts and read-back faults" power_test -O1
     job step "nightly and synth-only site preserve release and editor" python3 tests/nightly_site_test.py
+    job step "branch nightly: the Nightly channel beside an unchanged Standard" python3 tests/branch_nightly_test.py
     job step "Orange Cat 0.11.2: the pages site serves pack and modules of one build and refuses a set that does not belong together" python3 tests/orangecat_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     run "module build (Orange Cat 0.10.0, PoC step 2; 0.10.1: the update loader's record rule, the code moved on until no sector tail matches): the starts, the link scripts, the header checks, the .ocm package, against a stand-in toolchain" python3 tests/module_build_test.py

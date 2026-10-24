@@ -11,6 +11,7 @@
 // - fm1pkg.js: productOf and logicalImage on build/melodee.fwsc (skipped without a build)
 // - fm1ota.js: a full install and an unplug during the write against a simulated FM-1
 // Revisions:
+// (Orange Cat 0.13.6) the Nightly entry shows branch, commit, firmware version string and build date; the stage boxes follow the Nightly channel's pack and modules
 // (Orange Cat 0.13.5 the editor's BEGIN wait)
 // (Orange Cat 0.12.2 the Prophet package, modBlocked and the swap planner; 0.12.0 the Engines table (swap plan))
 
@@ -1926,8 +1927,8 @@ async function installerBuilds() {
       pkg:{dual:"melodee-1.0.2.fwsc"},
       rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"a".repeat(40),
         pkg:{dual:"melodee-1.4.0-rc.1.fwsc"}},
-      nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-15T02:00:00Z",
-        pkg:{dual:"melodee-nightly.fwsc"}}}));
+      nightly:{version:"v0.6.2-abcdef",branchName:"sonnet-work",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-15T02:00:00Z",
+        pkg:{dual:"melodee-nightly.fwsc"}, pak:"orangecat-nightly.pak", ocm:["orangecat-shapes-nightly.ocm", "orangecat-prophet-nightly.ocm"]}}));
   const ALL = ["dual", "rc-dual", "nightly-dual"];
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
@@ -1953,12 +1954,15 @@ async function installerBuilds() {
   ok(installed[0][0] === "melodee-1.0.2.fwsc" && installed[0][1] === "FM-1_91002" && installed[0][2] === MELODEE_LOADER,
     "installer: stable installs its own package and identity, through Melodee's loader only");
   for (const [kind, version, file, commit, product, tag] of [
-    ["nightly-dual", "next-abcdef0", "melodee-nightly.fwsc", "abcdef0123456789abcdef0123456789abcdef0123", "FM-1_900", "nightly"],
+    ["nightly-dual", "v0.6.2-abcdef", "melodee-nightly.fwsc", "abcdef0123456789abcdef0123456789abcdef0123", "FM-1_900", "nightly"],
     ["rc-dual", "1.4.0-rc.1", "melodee-1.4.0-rc.1.fwsc", "a".repeat(40), "FM-1_91040", "release candidate"],
   ]) {
     for (const k of ALL) element("build-" + k).checked = k === kind;
     await element("build-" + kind).listeners.change();
     ok(element("status").textContent === `Orange Cat ${version} (${tag})`, "installer: development channels report their own versions");
+    const offersSet = kind === "nightly-dual";      // (0.13.6) the Nightly channel offers the branch build's pack and both modules (names: web/make_site.py channel()); the RC has no set
+    ok(element("stage-pack").disabled === !offersSet && element("stage-mod").disabled === !offersSet && element("stage-prophet").disabled === !offersSet,
+      "installer: (0.13.6) the stage boxes follow the chosen channel's pack and modules (" + kind + ")");
     await element("go").listeners.click();
     const [image, actualProduct] = installed.at(-1);
     ok(image === file + "?commit=" + commit && actualProduct === product, "installer: development channels install their own package and identity");
@@ -1968,7 +1972,7 @@ async function installerBuilds() {
     ok(installed.at(-1)[1] === "FM-1_91002", "installer: returning to stable restores its identity");
   }
   ok(fetched.length === 3, "installer: each dual-core channel is fetched once");
-  ok(!element("nightly-options").hidden && element("nightly-info").textContent.includes("abcdef0"), "installer: nightly source and timestamp are visible");
+  ok(!element("nightly-options").hidden && element("nightly-info").textContent === "sonnet-work · abcdef0 · v0.6.2-abcdef · 2026-10-15T02:00:00Z", "installer: (0.13.6) the Nightly entry shows branch, commit, firmware version string and build date");
   ok(!element("rc-options").hidden && element("rc-version").textContent === "1.4.0-rc.1", "installer: RC version is visible");
   ok(!/build-(?:rc-|nightly-)?single/.test(installer), "installer: no channel offers single-core firmware");
 }

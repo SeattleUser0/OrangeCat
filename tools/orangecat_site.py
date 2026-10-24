@@ -18,8 +18,16 @@
 The Pages job of .github/workflows/build.yml runs this after each build of main. The manual is not published: its
 screenshots need tools/manual_shots.py, and the manual still describes Melodee.
 
+  tools/orangecat_site.py nightly SITE_DIR --package FILE --branch NAME --commit SHA --built-at ISO --fw-version STR [--pak FILE --manifest FILE [--ocm FILE ...]]
+
+  (0.13.6) The second form adds a branch build to an existing copy of the published site (web/mirror_site.py) as its Nightly channel, and nothing else:
+  Standard's release entry, packages, pack, modules, editor and manual stay as they are in SITE_DIR, and the installer page is made again with the
+  Nightly entry (branch, commit, firmware version string, build date). The pack and modules are served as firmware/orangecat-nightly.pak and
+  firmware/orangecat-NAME-nightly.ocm, the firmware as firmware/melodee-nightly.fwsc, the sets for the card as firmware/orangecat-nightly.*.set.json.
+
 Revisions:
 # (Orange Cat 0.11.2) the installer page installs firmware, pack and module in one go
+  0.13.6: "nightly": a branch build as the Nightly channel of the published site (workflow input publish_nightly).
   0.1.0: first version. Uses web/make_site.py in installer-only mode, then adds the editor and the redirect itself.
   0.11.2: --pak, --ocm and --manifest: the pack and the modules of the build beside the firmware; the installer page offers them.
 """
@@ -50,8 +58,23 @@ def main(pkg, version, out, pak=None, ocms=(), manifest=None):
     print(f"site: {out}: installer, editor, {version}")
 
 
+def nightly(out, package, branch, commit, built_at, fw_version, pak=None, ocms=(), manifest=None):
+    """(0.13.6) publish_nightly.publish on a mirror of the stable site: the editor and the manual are not written (installer_only)"""
+    import publish_nightly
+    publish_nightly.publish(Path(out), package, fw_version, commit, built_at, pak=pak, ocms=ocms, manifest=manifest, branch=branch)
+    print(f"site: {out}: Nightly {branch} {commit[:7]} {fw_version}")
+
+
 if __name__ == "__main__":
     import argparse
+    if sys.argv[1:2] == ["nightly"]:
+        ap = argparse.ArgumentParser(prog="orangecat_site.py nightly")
+        ap.add_argument("out"); ap.add_argument("--package", required=True); ap.add_argument("--branch", required=True)
+        ap.add_argument("--commit", required=True); ap.add_argument("--built-at", required=True); ap.add_argument("--fw-version", required=True)
+        ap.add_argument("--pak"); ap.add_argument("--manifest"); ap.add_argument("--ocm", action="append", default=[])
+        a = ap.parse_args(sys.argv[2:])
+        nightly(a.out, a.package, a.branch, a.commit, a.built_at, a.fw_version, a.pak, a.ocm, a.manifest)
+        sys.exit(0)
     ap = argparse.ArgumentParser(usage=__doc__)
     ap.add_argument("package"); ap.add_argument("version"); ap.add_argument("out")
     ap.add_argument("--pak"); ap.add_argument("--manifest"); ap.add_argument("--ocm", action="append", default=[])
