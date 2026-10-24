@@ -33,7 +33,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
@@ -140,6 +140,23 @@ const E = vm.runInNewContext(proto + `
     }
     U = fresh([14, 0, 0]); U.rc.remove = 4; let got = ""; try { await E.replaceOcm(U.send, U.probe, row14, prophet, yes); } catch (e) { got = e.message; }
     ok(got === "modRestart" && U.log.join() === "REMOVE 14" && U.starts[0] === 14, "replace: a remove the unit refuses (4) stops the swap with its text, nothing written");
+    {   /* (0.12.2, Part 1) the Prophet's package, the refusal that names the module in the way, and the swap planner the page mirrors from oc_module.c */
+        const pro = E.ocmParse(pkg({ engine: 19 })), sm = (arr) => arr.map((x) => (x ? { state: 7, why: 0, engine: x, length: 3000 } : { state: 0, why: 0, engine: 0, length: 0 }));
+        ok(pro.ok && pro.name === "PROPHET" && pro.engine === 19 && pro.variants.length === 2 && pro.variants[0].start === 0 && pro.variants[1].start === 4,
+           "module: the Prophet's package is read: its images are for sectors 0 and 4 of the area (starts 0 and 2)");
+        ok(E.ocmCheck(pro, unit({ plan: 0 })).variant.start === 0 && E.ocmCheck(pro, unit({ plan: 2 })).variant.start === 4 && E.ocmCheck(pro, unit({ plan: 1 })).key === "modNoVariant",
+           "module: the Prophet's image is the one for the start the unit names (0 or 2); start 1 has none");
+        const blocked = E.ocmCheck(pro, unit({ plan: 127, blocker: 1, starts: sm([0, 14, 0]) }));
+        ok(!blocked.ok && blocked.key === "modBlocked" && blocked.engine === 14 && blocked.start === 1 && E.ocmCheck(pro, unit({ plan: 127 })).key === "modNoFree",
+           "module: no start free because a usable module of another engine is in the way names that module (engine and start); with none in the way it is just 'no free place'");
+        const p1 = E.ocmSwapPlan({ starts: sm([0, 14, 0]) }, 19, -1), p2 = E.ocmSwapPlan({ starts: sm([0, 14, 0]) }, 19, 14), p3 = E.ocmSwapPlan({ starts: sm([19, 0, 0]) }, 14, -1),
+              p4 = E.ocmSwapPlan({ starts: sm([14, 0, 0]) }, 19, -1), p5 = E.ocmSwapPlan({ starts: sm([0, 0, 19]) }, 14, 19);
+        ok(p1.plan === 127 && p1.blocker === 1, "swap plan: SHAPES at start 1 blocks both starts of the Prophet (sectors 6 and 7 are in both): no start, SHAPES named");
+        ok(p2.plan === 0 && p2.blocker === null, "swap plan: with SHAPES removed in the swap the Prophet takes start 0");
+        ok(p3.plan === 127 && p3.blocker === 0 && p4.plan === 127 && p4.blocker === 0, "swap plan: SHAPES and the Prophet exclude each other at every start (12 sectors, 6 + 8)");
+        ok(p5.plan === 0 && p5.blocker === null, "swap plan: the Prophet at start 2 removed, SHAPES takes start 0");
+        ok(E.ocmSwapPlan({ starts: sm([0, 0, 0]) }, 3, -1).plan === 127 && E.ocmSwapPlan({}, 19, -1).plan === 127, "swap plan: an engine that cannot be a module, or no start data, gives 127");
+    }
     U = fresh([14, 0]);
     const a1 = await E.assignEngine(U.send, 19, 2, 4, 0);
     ok(a1.ok && !a1.refused && U.log.join() === "TRACK 2,PRESET 19 0,TRACK 0", "assign: select the track, the engine's preset 0 through the track engine command, select the track that was selected");
