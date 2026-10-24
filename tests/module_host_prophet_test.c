@@ -24,8 +24,15 @@ extern const fw_api_t *oc_host_fw;
 extern const fw_mod_hdr_t OC_MODULE_HDR;
 extern const engine_t *oc_host_module_engine(void);
 extern const fw_pages_t *oc_host_module_pages(void);
+#include "fw_pages_wire.h"
 
 static int bad;
+static int w_rd(void *ctx, uint32_t addr, void *buf, uint32_t n)
+{
+    if (addr < 0x020C4000u || addr - 0x020C4000u + n > 16384u) return 1;
+    memcpy(buf, (const uint8_t *)ctx + (addr - 0x020C4000u), n);
+    return 0;
+}
 static void check(const char *what, int ok)
 {
     printf("module host (Prophet): %-100s %s\n", what, ok ? "ok" : "FAIL");
@@ -78,6 +85,12 @@ int main(int argc, char **argv)
     {   uint32_t k, e = 1;
         for (k = 0; k < 8u; k++) e &= !strcmp(em->edit[k].label, eb->edit[k].label) && em->edit[k].min == eb->edit[k].min && em->edit[k].max == eb->edit[k].max && em->edit[k].def == eb->edit[k].def;
         check("the eight controls: names, ranges, defaults", e); }
+    {   /* (0.12.2) what the device's loader does with the real descriptor: written out as the linker lays it (4 byte pointers) and run through fw_pages_check */
+        static uint8_t wimg[16384];
+        uint32_t da = 0, n = fwp_wire(mp, wimg, sizeof wimg, 0x020C4000u, &da);
+        int rc = n ? fw_pages_check(w_rd, wimg, da, 0x020C4000u + 0x100u, 0x020C4000u + n) : -1;
+        printf("module host (Prophet):   the wire image of the descriptor is %u B, the check says %d\n", n, rc);
+        check("the real descriptor, in the device's layout, passes the loader's check (fw_pages_check)", n && rc == FWP_OK); }
     check("the module's patches are the firmware's (the same arrays, by the table)", oc_host_fw->p5_patch == (void *)p5_patch && oc_host_fw->p5_ready == p5_ready);
     ng = load_kv(gpath, gold, MAXJ);
 

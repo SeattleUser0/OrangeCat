@@ -149,6 +149,14 @@ static inline int fw_pages_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint3
         if (!label) continue;                            /* no parameter i */
         if (!fwp_str(rd, ctx, label, lo, hi) || (unit && !fwp_str(rd, ctx, unit, lo, hi))) return FWP_STR;
         if (mn > mx) return FWP_PANEL;
+        /* (0.12.2, found by tests/fuzz_fw_pages.c) what params.c's param_format reads, which the check above did not bound: the format is one it knows; an F_ENUM has its names
+         * (it indexes names[] by the value clamped to min..max, so min is not below 0); a name list on an F_INT is 0-terminated inside the image (param_format counts to the 0);
+         * no other format has one */
+        if (p[4] > F_TONE || (p[4] == F_ENUM && (!names || mn < 0)) || (names && p[4] != F_ENUM && p[4] != F_INT)) return FWP_PANEL;
+        if (names && p[4] == F_INT) {
+            if (mx < 0 || mx >= 127 || !fwp_in(names, (uint32_t)(mx + 2) * 4u, lo, hi) || (names & 3u) || rd(ctx, names + 4u * (uint32_t)(mx + 1), w, 4u)) return FWP_PANEL;
+            if (fwp_u32(w)) return FWP_PANEL;
+        }
         if (names) {                                     /* names[0 .. max]: pointers to strings */
             if (mx < 0 || mx >= 128 || !fwp_in(names, (uint32_t)(mx + 1) * 4u, lo, hi) || (names & 3u)) return FWP_PANEL;
             for (uint32_t j = 0; j <= (uint32_t)mx; j++) {

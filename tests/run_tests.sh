@@ -297,6 +297,18 @@ core && t "engine table in RAM (0.10.0, step 4): SHAPES built out, the slot is r
 core && t "module loader (Orange Cat 0.10.0, step 5): every refusal, the crash mark, a good module, two modules; the module wins the slot" oc_module_test:oc_module_test -O1 $FW -DOC_MODULE_WINS=1
 core && t "module loader (0.10.0, step 5): the built-in SHAPES wins the slot (OC_MODULE_WINS 0): a valid module is NOSLOT" oc_module_shadow:oc_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies the engine" oc_module_out:oc_module_test -O1 $FW -DMELODEE_SHAPES=0
+# (Orange Cat 0.12.2, Part 2b) the fuzzers: fixed seeds, FUZZ_SECONDS each (default 3); a long run is FUZZ_SECONDS=1800 tests/run_tests.sh (30 minutes each; the
+# mutation counts are printed). Each stops at its first finding with the seed, the round and the mutations that made it.
+FUZZ_SECONDS=${FUZZ_SECONDS:-3}
+core && t "fuzz: the library group's scan, migration and leftovers against mutated sectors ($FUZZ_SECONDS s)" fuzz_lib_group -O1 $FW -- "$OUT/fuzz_lib_group" "$FUZZ_SECONDS"
+core && t "fuzz: the asset pack's boot check and install against a mutated pack area ($FUZZ_SECONDS s)" fuzz_oc_pack -O1 $FW -- "$OUT/fuzz_oc_pack" "$FUZZ_SECONDS"
+core && t "fuzz: the module loader at every start, the planner and an install against a mutated module area ($FUZZ_SECONDS s)" fuzz_oc_module -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fuzz_oc_module" "$FUZZ_SECONDS"
+fuzz_fw_pages() {
+    $CC -c -O1 -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/fuzz_fw_pages_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (fuzz)"; return 1; }
+    build fuzz_fw_pages fuzz_fw_pages $FW "$OUT/fuzz_fw_pages_tu.o" || return 1
+    step "fuzz: the loader's check of the Prophet module's page descriptor against a mutated image ($FUZZ_SECONDS s)" "$OUT/fuzz_fw_pages" "$FUZZ_SECONDS"
+}
+core && job fuzz_fw_pages
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks

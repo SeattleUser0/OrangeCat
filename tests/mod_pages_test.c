@@ -124,6 +124,19 @@ int main(void)
     bad += check("descriptor check: a title that never ends is FWP_STR", chk() == FWP_STR);
     build_img(); img[O_PANEL + 6] = 100; img[O_PANEL + 8] = 5;
     bad += check("descriptor check: min above max is FWP_PANEL", chk() == FWP_PANEL);
+    /* (0.12.2, the fuzzer's finding) what param_format reads is bounded: the format, F_ENUM's names, F_INT's 0-terminated list */
+    build_img(); img[O_PANEL + 4] = F_TONE + 1;
+    bad += check("descriptor check: a format this firmware does not know is FWP_PANEL (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_ENUM; w32(O_PANEL + 12, 0);
+    bad += check("descriptor check: an F_ENUM with no names is FWP_PANEL (param_format indexes them) (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_ENUM; img[O_PANEL + 6] = 0xFF; img[O_PANEL + 7] = 0xFF; img[O_PANEL + 8] = 1; img[O_PANEL + 9] = 0; w32(O_PANEL + 12, IMG_BASE + 0x2D0);
+    bad += check("descriptor check: an F_ENUM whose minimum is below 0 is FWP_PANEL (names[-1]) (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_PCT; w32(O_PANEL + 12, IMG_BASE + 0x2D0);
+    bad += check("descriptor check: a name list on a format that has none is FWP_PANEL (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_INT; img[O_PANEL + 8] = 1; img[O_PANEL + 9] = 0; w32(O_PANEL + 12, IMG_BASE + 0x2F0); w32(0x2F0, IMG_BASE + O_STR); w32(0x2F4, IMG_BASE + O_STR); w32(0x2F8, 0);
+    bad += check("descriptor check: an F_INT name list ended by a 0 passes (0.12.2)", chk() == FWP_OK);
+    build_img(); img[O_PANEL + 4] = F_INT; img[O_PANEL + 8] = 1; img[O_PANEL + 9] = 0; w32(O_PANEL + 12, IMG_BASE + 0x2F0); w32(0x2F0, IMG_BASE + O_STR); w32(0x2F4, IMG_BASE + O_STR); w32(0x2F8, IMG_BASE + O_STR);
+    bad += check("descriptor check: an F_INT name list that goes on past the range is FWP_PANEL (0.12.2)", chk() == FWP_PANEL);
     build_img(); w32(O_DESC, 0); w32(O_DESC + 12, 0);
     bad += check("descriptor check: an address of 0 is not a descriptor", fw_pages_check(img_rd, 0, 0, IMG_BASE + 0x100, IMG_BASE + sizeof img) == FWP_ADDR);
     bad += check("descriptor check: the device sizes the loader reads (68, 12, 20 bytes)", FW_PAGES_WIRE == 68 && FW_PAGES_ROW_WIRE == 12 && FW_PAGES_DESC_WIRE == 20);

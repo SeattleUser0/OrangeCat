@@ -601,6 +601,13 @@ SECTIONS {{
                     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", big, obj, "-o", elf)
                     tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
                     errors.append(f"{name}@{start}: the code is {binf.stat().st_size} B and the {sectors} sectors hold {sectors * 0x1000} B")
+                    big_syms = []                    # the biggest symbols: where the bytes are
+                    for ln in tc("common/bin/objdump", "-t", elf).splitlines():
+                        p = ln.split()
+                        if len(p) >= 6 and re.fullmatch(r"[0-9a-fA-F]{8}", p[-2]) and int(p[-2], 16) >= 200 and p[0].isalnum():
+                            big_syms.append((int(p[-2], 16), p[-1], p[-3]))
+                    for sz, nm, sec in sorted(big_syms, reverse=True)[:30]:
+                        errors.append(f"    {sz:6d} B  {sec:24s} {nm}")
                 except SystemExit:
                     errors.append(f"{name}@{start}: the link failed (not a matter of size)")
                 hit = -2
