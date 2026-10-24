@@ -317,6 +317,20 @@ Run it again and it does the pack and the module. Your projects and sounds are n
 
 Stop the sequencer first. The pack and the module are refused while it plays.
 
+## Installing a set from the card (0.13.3)
+
+Copy the files of one build into a folder on the card: the .pak, the .ocm and the set file (`*.set.json`) that goes with them. There is one set file for
+each module choice: pack alone, with SHAPES, or with the Prophet. The unit holds one of the two modules at a time.
+
+1. Stop the sequencer.
+2. Open the card browser and go to the folder. The set file shows the value "Set".
+3. Press OCT+ on it. The unit checks the set against its own firmware and every file before it writes anything.
+4. If it asks about the old module ("Erases old first. Again"), press OCT+ on the same row to go on.
+5. "SET INSTALLED" says it is done.
+
+The card cannot update the firmware. If the unit says "Update firmware first", update it from the installer page, then install the set. "Set: another build"
+means the files are from a different build than the firmware on the unit. Format: SET_FORMAT.md.
+
 ## The asset pack (0.8.0, changed in 0.9.1)
 
 SHAPES and MACRO read their big tables from a small file kept in the unit's flash. That file is the asset pack. It

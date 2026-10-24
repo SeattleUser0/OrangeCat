@@ -43,3 +43,7 @@ The project format and the pool format did not change in any version below.
 **0.13.0.** Recorded steps carry RATCH, CHANCE, COND, NUDGE, SLIDE and ACCENT, edited in the FX column as on typed steps, applied to the notes recorded on the step as a group (a chord repeats together). EDIT held undoes them. The old notice NOT ON RECORDED NOTES is gone.
 
 **0.13.1.** DRUM-X lane mutes: ACC held and a lane key on a DRUM-X track mutes the lane (the LANE column shows MUTE). Mutes are not stored; they clear at power-on and on a project load.
+
+**0.13.2.** No visible change. The recorded-step state and the Prophet test job moved to the pool, and the flash image is 2,920 bytes smaller. Two analyzer notes were checked and are not faults.
+
+**0.13.3.** Install set: the card browser lists `*.set.json` files with the value "Set" and OCT+ installs the pack and the module(s) they name, after checking the build and every file first. "SET INSTALLED" says it is done. The card cannot update the firmware; the unit says "Update firmware first" when the set is newer. See SET_FORMAT.md.

@@ -31,6 +31,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 15 (Orange Cat 0.13.3): build/orangecat-*.set.json, the set manifests for the card (tools/oc_manifest.py --set), join the packages artifact.
 #   Rev 14 (Orange Cat 0.13.2): failing host tests fail the run (job tests-gate; build/orangecat-tests-failed.txt in the artifact); tests-block is true on a tag; pages waits for the gate; the artifact stays on a branch run.
 #   Rev 13 (Orange Cat 0.12.1): the Prophet module (tools/build.py --module prophet, 8 sectors, starts 0 and 4) is built beside SHAPES; its .ocm joins the packages and the site.
 #   Rev 12 (Orange Cat 0.11.2): build/orangecat-*.manifest.json (tools/oc_manifest.py); the pages job gives the site the pack and the modules with the firmware.
@@ -136,6 +137,14 @@ jobs:
         # (rev 12, Orange Cat 0.11.2) what the firmware was compiled with (pack hash and length, interface identifier): the pages job checks the pack and the
         # modules against it before the installer offers them with the firmware (tools/oc_manifest.py)
         python3 tools/oc_manifest.py "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.manifest.json"
+        # (rev 15, Orange Cat 0.13.3) the sets for the card (docs/orangecat/SET_FORMAT.md): one manifest per module choice, naming this run's files; they go in
+        # the packages artifact beside the files, and the unit's file browser lists them as "Set" (Install set: the pack, then the module)
+        pk=$(ls build/orangecat-*.pak | head -1); base=$(basename "$pk" .pak); fw=$(ls build/orangecat-*.fwsc | head -1)
+        python3 tools/oc_manifest.py --set "build/$base.pack.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")"
+        for m in shapes prophet; do
+          ocm=$(ls build/orangecat-$m-*.ocm 2>/dev/null | head -1)
+          if [ -n "$ocm" ]; then python3 tools/oc_manifest.py --set "build/$base.$m.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")" --ocm "$(basename "$ocm")"; fi
+        done
       test: |
         set -euo pipefail
         # (gui-slim, temporary) an experiment branch with .ci_quick: the build and its sizes only, no host tests

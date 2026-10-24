@@ -286,6 +286,20 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     (inst / "index.html").write_text(html, encoding="utf-8")
     if pkg.resolve() != (fw / name).resolve():
         shutil.copy(pkg, fw / name)
+    if set_files:                                   # (0.13.3) the sets for the card: the manifest of this build with the names the site gives its files, one per module choice
+        info = json.loads(Path(manifest).read_text())
+        for old_set in fw.glob(f"orangecat-{v}.*.set.json"):
+            old_set.unlink()
+        choices = {"pack": []}
+        for fname in set_files:
+            m = re.fullmatch(r"orangecat-([a-z0-9]+)-.*\.ocm", fname)
+            if m:
+                choices[m[1]] = [fname]
+        for choice, ocm in choices.items():
+            files = {"pak": f"orangecat-{v}.pak", "fwsc": name}
+            if ocm:
+                files["ocm"] = ocm
+            (fw / f"orangecat-{v}.{choice}.set.json").write_text(json.dumps({**info, "files": files}, indent=2) + "\n")
     (fw / "release.json").write_text(json.dumps(release_meta, indent=2) + "\n")
     (fw / "releases.json").write_text(json.dumps(releases, indent=2) + "\n")
     if nightly_meta:
