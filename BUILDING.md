@@ -662,13 +662,15 @@ tag, and by hand (Actions, build, Run workflow, pick the branch). One run has th
 | Job | What it shows |
 | --- | --- |
 | `build` | The shared builder: toolchain, our build command, the module builds, then the host tests. Its annotations carry the build sizes and checks, the size by engine and area, the module reports and the target budget. |
-| `tests-gate` | Red when any host test failed. Its error annotation repeats the failed tests' summary. Green means every test passed (or the run was a `.ci_quick` run, which has no host tests). |
+| `tests-gate` | Red when any host test failed, and (0.13.5) red when no test ran at all. Its error annotation repeats the failed tests' summary. Green means `tests/run_tests.sh` ran to its end and wrote `build/orangecat-tests-passed.txt` ("PASSED <n> jobs ..."), or the run was a `.ci_quick` run, which writes `build/orangecat-tests-skipped.txt` and gets a warning. The decision is `tools/ci_gate.sh`, tried by `tests/ci_gate_test.sh`. |
 | `pages` | Main only: publishes the installer and the editor. It waits for `tests-gate`, so a build whose tests failed is not published. |
 
 A run is red when a host test fails. The `packages` artifact is still on the run page then: the `.fwsc`, the `.pak`, the
 `.ocm` files and the manifest of the build, plus `build/orangecat-tests-failed.txt` (the failed tests' summary and the
 last 150 lines of the test log). A build can be tried while the test is being fixed; the red run says it has a failure.
-The `build` job's own annotation "tests failed" is the same summary. A green run has no `orangecat-tests-failed.txt`.
+The `build` job's own annotation "tests failed" is the same summary. A green run has no `orangecat-tests-failed.txt` and has `orangecat-tests-passed.txt`.
+
+(0.13.5) The gate used to look for the failed file alone, so a test step that died before the tests started (the engine switch file, the copy of the fwsc) or was cancelled left no file and the run went green with no test run. Now neither marker is a red run. The test step also writes the failed marker from an EXIT trap when it ends non-zero without one. Proof, on the throwaway branch `exp/sonnet-cigate`: run 40120482060 with the step killed before the tests (`kill -KILL $$`, past the trap): `build` green, `tests-gate` red, "no host test result"; run 40121196916 the normal workflow: green.
 
 On a version tag a failing test stops the build job itself: nothing is attested, uploaded or released.
 
