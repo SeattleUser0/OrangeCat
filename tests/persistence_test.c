@@ -2,6 +2,11 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Firmware save flows against NOR flash: deferred settings, retries, and failed-save rollback. */
+#ifndef OC_FEED_COUNT                       /* (0.12.2, Part 2d) the watchdog feeds of the long flash operations are counted here (storage.c OC_FEED) */
+#define OC_FEED_COUNT 1
+#endif
+#include <stdint.h>
+static uint32_t oc_feeds;
 #define main hostsim_main
 #include "hostsim.c"
 #undef main

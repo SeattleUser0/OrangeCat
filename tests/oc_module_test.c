@@ -439,7 +439,9 @@ int main(void)
         chk("the plan on an empty area: start 0 for SHAPES; none for an engine a module may not supply", oc_mod_plan(ENGI_SHAPES) == 0 && oc_mod_plan(3) == -1);
         BUILD(0, LEN, 21);
         before = erases;
-        chk("install at start 0: the whole of it", INSTALL(0, LEN, &rc) == 0 && rc == 0);
+        { uint32_t f0 = oc_feeds;
+          chk("install at start 0: the whole of it", INSTALL(0, LEN, &rc) == 0 && rc == 0);
+          chk("... the watchdog was fed before each of the 6 erases of the span (0.12.2, Part 2d)", oc_feeds - f0 >= 6u); }
         chk("... registered, the 6 sectors of the start erased once and nothing else", oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] && erases - before == 6u);
         chk("... the flash holds the header page and the code as sent", !memcmp(nor + oc_mod_flash(0), IMG, LEN));
         chk("... the plan now says start 1: a replacement goes beside the old module (0.10.1)", oc_mod_plan(ENGI_SHAPES) == 1 && !oc_mod_inplace(ENGI_SHAPES, 1) && oc_mod_inplace(ENGI_SHAPES, 0));

@@ -572,6 +572,17 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
 /* Sequential's factory program k (0..P5_FACTORY_N-1), unpacked (tools/gen_prophet_factory.py pack) */
 static void p5_factory(uint32_t k,p5_patch_t *p)
 {
+#ifdef OC_MODULE
+    /* (0.12.2) the module's table is the palette form (P5_FZ, tools/gen_prophet_factory.py pack_z): 1.6 KB smaller, the same bytes out */
+    const uint8_t *b=P5_FZ+k*P5_FZ_BYTES,*pal=P5_FZ_PAL;
+    uint32_t pos=0;
+    for(uint32_t i=0;i<P5_RAW_MAX;i++){
+        uint32_t v=0;
+        for(uint32_t j=0;j<P5_FZ_IW[i];j++,pos++)v|=(uint32_t)(b[pos>>3]>>(pos&7u)&1u)<<j;
+        if(P5_FZ_PN[i]){v=pal[v];pal+=P5_FZ_PN[i];}
+        p->raw[i]=(uint8_t)(P5_FBASE[i]+v);
+    }
+#else
     const uint8_t *b=P5_FPACK+k*P5_FACTORY_BYTES;
     uint32_t pos=0;
     for(uint32_t i=0;i<P5_RAW_MAX;i++){
@@ -579,6 +590,7 @@ static void p5_factory(uint32_t k,p5_patch_t *p)
         for(uint32_t j=0;j<P5_FWIDTH[i];j++,pos++)v|=(uint32_t)(b[pos>>3]>>(pos&7u)&1u)<<j;
         p->raw[i]=(uint8_t)(P5_FBASE[i]+v);
     }
+#endif
     p->size=P5_RAW_MAX;p->model=0x32;p->command=2;p->group=(uint8_t)(k/40u);p->program=(uint8_t)(k%40u);
 }
 /* INIT, then Sequential's factory programs in their order (111..588 on the

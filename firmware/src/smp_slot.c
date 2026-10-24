@@ -54,6 +54,7 @@
  *   0.6.0: first version.
  *   0.6.0 rev 2: no mark at boot, only sectors holding record copies erased (see The claim); a boot with nothing
  *                there writes nothing.
+ *   0.12.2: SMP_FEED is storage.c's OC_FEED (the host tests count the feeds of the long flash operations).
  */
 #define SMP_SLOT_BASE 0xB2000u
 #define SMP_SLOT_NSECT 22u
@@ -139,11 +140,7 @@ static int smp_mark(void)                         /* the first sector erased, th
     if ((rc = ocs_prog(SMP_SLOT_BASE, (const uint8_t *)m, sizeof m)) != 0) return rc;
     return smp_marked() ? 0 : -7;
 }
-#ifdef FM1_IRQ_TARGET
-#define SMP_FEED() fm1_wdt_feed()                        /* (the claim at boot: up to ~56 erases, the 8 s watchdog) */
-#else
-#define SMP_FEED() ((void)0)
-#endif
+#define SMP_FEED() OC_FEED()                             /* (the claim at boot: up to ~56 erases, the 8 s watchdog; 0.12.2: storage.c's OC_FEED, which the host tests can count) */
 static uint64_t smp_resv_mask(void) { return ((1ull << SMP_SLOT_NSECT) - 1ull) << SMP_SLOT_S0; }
 
 /* the header: Felucca's, its zones and length within the slot */

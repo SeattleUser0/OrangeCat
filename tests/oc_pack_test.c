@@ -110,9 +110,10 @@ int main(void)
 
     /* ---- an install */
     {
-        uint32_t before = erases;
+        uint32_t before = erases, f0 = oc_feeds;
         chk("install: the whole of it", install(&rc) == 0 && rc == 0);
         chk("install: erased the ten sectors once", erases - before == PK_SECTORS);
+        chk("install: the watchdog was fed before every erase and through the check of the payload (0.12.2)", oc_feeds - f0 >= PK_SECTORS);
     }
     chk("installed: state OK, the gate open", pk.state == PK_OK && oc_pack_good && OC_PACK_READY());
     chk("installed: the flash holds the pack byte for byte", !memcmp(nor + OC_PACK_LO, PAK, OC_PACK_LEN));

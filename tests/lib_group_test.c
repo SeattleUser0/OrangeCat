@@ -65,6 +65,9 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
     prog_bytes += m;
     return dead ? -9 : 0;
 }
+static uint32_t oc_feeds;                                /* (0.12.2, Part 2d) the watchdog feeds: how many, and the longest run of flash operations between two */
+static long oc_last, oc_gap;
+#define OC_FEED() do { oc_feeds++; if (ops - oc_last > oc_gap) oc_gap = ops - oc_last; oc_last = ops; } while (0)
 #include "../firmware/src/storage.c"
 
 static int bad;
@@ -368,6 +371,19 @@ int main(void)
             }
             check("... no other sector of the flash was touched", ok);
         }
+    }
+
+    /* ---- (0.12.2, Part 2d) the watchdog is fed through the migration of all 22 banks, a save and a boot that finds the work done ---- */
+    {
+        legacy_image(0x3FFFFFu);
+        oc_feeds = 0; oc_last = 0; oc_gap = 0; n_erase = n_prog = 0; ops = 0;
+        lg_boot();
+        printf("    (migration of 22 banks: %u erases, %u programs, %u feeds, longest run between two feeds %ld flash operations)\n", n_erase, n_prog, oc_feeds, oc_gap);
+        check("the migration of all 22 banks feeds the watchdog before every erase (feeds >= erases), at most 40 flash operations between two", all_ok() && n_erase >= 22u && oc_feeds >= n_erase && oc_gap <= 40);
+        make(3, 5, buf, &l);
+        oc_feeds = 0; n_erase = 0; ops = 0; oc_last = 0;
+        check("a save feeds the watchdog before its erase", st_save(OBJ_LIB0 + 3, buf, l) == 0 && n_erase == 1u && oc_feeds >= 1u);
+        expect(3, 5);
     }
 
     /* ---- migration cut at every flash operation, then a second cut during the recovery ---- */

@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
-"""Exact Sequential v1.03 programs -> factory presets and mock data."""
+"""Exact Sequential v1.03 programs -> factory presets and mock data.
+
+Revisions:
+  0.12.2 (Orange Cat): also writes P5_FZ, the same programs with palettes for the fields that take few values (pack_z), which the Prophet module unpacks (it has 8 sectors
+         and the page descriptor took 3 KB of them); P5_FPACK and the web data are unchanged.
+"""
 import argparse
 import hashlib
 import json
@@ -55,10 +60,55 @@ def pack(patches):
                 raise ValueError(f"program {n + 1}: packing does not round-trip")
             pos += width[k]
     rows = lambda v: ["    " + ",".join(map(str, v[i:i + 32])) + "," for i in range(0, len(v), 32)]
+    z = pack_z(patches, base, width, rows)
     return ([f"#define P5_FACTORY_BYTES {per}u",
              "static const uint8_t P5_FBASE[133] = {"] + rows(base) + ["};",
              "static const uint8_t P5_FWIDTH[133] = {"] + rows(width) + ["};",
-             f"static const uint8_t P5_FPACK[{len(data)}] = {{"] + rows(list(data)) + ["};"])
+             f"static const uint8_t P5_FPACK[{len(data)}] = {{"] + rows(list(data)) + ["};"] + z)
+
+
+def pack_z(patches, base, width, rows):
+    """(Orange Cat 0.12.2) the same programs, smaller, for the Prophet MODULE (tools/module/prophet_mod.c, 8 sectors): a field with fewer distinct values than its width
+    allows is stored as an index into a palette of the values it takes (fewer bits per program), the others as before. Per program, byte aligned, as P5_FPACK.
+    P5_FZ_IW[k] is the bits of field k per program, P5_FZ_PN[k] the size of its palette (0: the bits are the value minus P5_FBASE[k], as P5_FPACK), the palettes follow
+    one another in P5_FZ_PAL (value minus base), P5_FZ is the programs. eng_prophet_test.c p5_factory unpacks it under OC_MODULE; the host test renders all 200 through
+    the module and compares with the built-in engine's renders, so a wrong table cannot pass."""
+    n = len(patches)
+    iw, pn, pal = [], [], []
+    for k in range(133):
+        vals = sorted({p[k] - base[k] for p in patches})
+        bits = (len(vals) - 1).bit_length() if len(vals) > 1 else 0
+        if width[k] and len(vals) + bits * n / 8 < width[k] * n / 8:
+            iw.append(bits); pn.append(len(vals)); pal += vals
+        else:
+            iw.append(width[k]); pn.append(0)
+    per = (sum(iw) + 7) // 8
+    data = bytearray()
+    for p in patches:
+        bits, pos, off = 0, 0, 0
+        for k in range(133):
+            v = p[k] - base[k]
+            if pn[k]:
+                v = pal[off:off + pn[k]].index(v)
+                off += pn[k]
+            bits |= v << pos
+            pos += iw[k]
+        data += bits.to_bytes(per, "little")
+    for m, p in enumerate(patches):                      # the firmware's unpacking, checked here
+        bits, pos, off = int.from_bytes(data[m * per:(m + 1) * per], "little"), 0, 0
+        for k in range(133):
+            v = bits >> pos & ((1 << iw[k]) - 1)
+            if pn[k]:
+                v = pal[off + v]
+                off += pn[k]
+            if base[k] + v != p[k]:
+                raise ValueError(f"program {m + 1}: the palette packing does not round-trip")
+            pos += iw[k]
+    return ([f"#define P5_FZ_BYTES {per}u",
+             "static const uint8_t P5_FZ_IW[133] = {"] + rows(iw) + ["};",
+             "static const uint8_t P5_FZ_PN[133] = {"] + rows(pn) + ["};",
+             f"static const uint8_t P5_FZ_PAL[{len(pal)}] = {{"] + rows(pal) + ["};",
+             f"static const uint8_t P5_FZ[{len(data)}] = {{"] + rows(list(data)) + ["};"])
 
 
 def main():

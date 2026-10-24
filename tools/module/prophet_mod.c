@@ -21,11 +21,17 @@
  * Revisions:
  *   0.12.0 (exp/sonnet-p5mod): first version, a measurement unit (no descriptor).
  *   0.12.1: the descriptor (P5_PAGES), the hooks, and the 8 sector placement; voice_was through the table (a note on read the module's own zero).
+ *   0.12.2: PITCH_OCT and ENV_LIN through the table, the factory programs in the palette form (P5_FZ): 34,764 B measured on the device with the descriptor, 32,768 B hold.
  */
 #define OC_MODULE 1
 #define OC_MODULE_VERSION 0x00010000u
 #include "build_options.h"
 #include <stdint.h>
+/* (0.12.2) PITCH_OCT and ENV_LIN are the firmware's, through the table (fw_api.h pitch_oct, env_lin): 1,280 B the 8 sectors cannot spare. melodee_tables.h defines both as
+ * statics and defines pitch_inc over PITCH_OCT, so the header's names are moved aside here (the unused statics are dropped by the compiler) and both are written again below. */
+#define PITCH_OCT PITCH_OCT_unused
+#define ENV_LIN ENV_LIN_unused
+#define pitch_inc pitch_inc_unused
 #ifdef OC_MODULE_HOST
 #define memcpy oc_mod_memcpy
 #define memset oc_mod_memset
@@ -35,6 +41,10 @@ void *memcpy(void *d, const void *s, __SIZE_TYPE__ n);
 void *memset(void *d, int c, __SIZE_TYPE__ n);
 int memcmp(const void *a, const void *b, __SIZE_TYPE__ n);
 #include "melodee_tables.h"
+#undef PITCH_OCT
+#undef ENV_LIN
+#undef pitch_inc
+static inline uint32_t pitch_inc(uint32_t p);       /* (defined below, over the table) */
 #include "core.h"
 #include "dsp.c"
 #include "fw_api.h"
@@ -47,6 +57,13 @@ extern const fw_api_t *oc_host_fw;
 #endif
 #include "oc_pack.h"
 
+#define PITCH_OCT (OC_FW()->pitch_oct)
+#define ENV_LIN (OC_FW()->env_lin)
+static inline uint32_t pitch_inc(uint32_t p)         /* melodee_tables.h's, over the firmware's table */
+{
+    uint32_t i = p + 64u, o = (i * 21846u) >> 22;
+    return PITCH_OCT[i - o * 192u] >> (10u - o);
+}
 #define voice_was (*OC_FW()->voice_was)       /* core.h's is a static of the firmware's unit; the module's own copy is never written (0.12.1: found by the host render test) */
 #define trk (OC_FW()->trk)
 #define tuning_log() (OC_FW()->tuning_log())

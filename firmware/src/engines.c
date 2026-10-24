@@ -91,7 +91,7 @@ FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
     fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
     RES_ENGINE0, NENGINES, &fw_rng_cell,
     p5_patch, p5_ready, FW_P5_JOB, midi_bend_target, FW_WORKER_ONLINE, &audio_batch_active,
-    fw_worker_submit, fw_worker_join, fw_batch_push, AP_PROPHET, &voice_was,
+    fw_worker_submit, fw_worker_join, fw_batch_push, AP_PROPHET, &voice_was, PITCH_OCT, ENV_LIN,
 };
 /* (0.10.0) the module registered under an engine number, or 0 (the loader, eng_register): its header says the state size */
 static const fw_mod_hdr_t *eng_mod[NENGINES];

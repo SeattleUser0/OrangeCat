@@ -32,6 +32,7 @@
  * Revisions:
  *   0.8.0: first version.
  *   0.11.0: fw_mod_hdr_t gains `cost` and `version` (before length): FW_MOD_HDR_BYTES 60.
+ *   0.12.2: two more members, pitch_oct and env_lin (the module shares the firmware's tables). FW_API_VERSION stays 3.
  *   0.12.1: eleven members for the Prophet module (p5_patch .. voice_was): the patches and ready flags the project, presets and motion share, the one CPU1 job,
  *           the bend target, the audio worker and batch queue, and voice_was (a module's own copy of the firmware's static is never written). FW_API_VERSION stays 3 (the identifier changes with the struct).
  *   0.9.0: the `reserved` word is `iface`, the identifier (the table keeps its size); fw_mod_hdr_t and fw_module_check;
@@ -71,6 +72,8 @@ typedef struct fw_api {
     void (*batch_push)(void (*run)(const void *, int32_t *), const void *data, uint32_t bytes, int32_t *out, uint32_t n, uint32_t profile_id);
     uint32_t ap_prophet;                                 /* AP_PROPHET: the batch profile id */
     const uint8_t *voice_was;                            /* core.h voice_was: what the voice a note starts did just before (an engine's note_on reads it; found by the host render test) */
+    const uint32_t *pitch_oct;                           /* (0.12.2) melodee_tables.h PITCH_OCT[192] (pitch_inc) and ENV_LIN[128]: the firmware has both; the Prophet module reads them here instead of carrying 1,280 B of its own */
+    const uint32_t *env_lin;
 } fw_api_t;
 
 /* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything.
