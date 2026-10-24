@@ -235,7 +235,7 @@ jobs:
             $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done)   # (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
       # (rev 17, Orange Cat 0.13.6) A branch run: the site is the live one (Standard, the editor, the manual) plus this build as Nightly. Pages deploys a whole
       # site, so the live files are copied first (web/mirror_site.py), never rebuilt; their checksums are kept to prove, before the deploy and after it, that
-      # Standard did not change (web/site_check.py).
+      # Standard did not change (web/site_check.py). (A failing step puts its output on the run page as an error annotation.)
       - name: The live site (Standard, editor, manual)
         if: github.ref != 'refs/heads/main'
         run: |
@@ -250,10 +250,19 @@ jobs:
           set -euo pipefail
           built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           fwv="v$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::6}"      # tools/build.py --nightly: "v" + VERSION + "-" + the first 6 digits of the commit
+          ls -l pkg/build | head -40
+          # the output is kept and, when the step fails, put on the run page as an annotation (the job log cannot always be read)
+          rc=0
           python3 tools/orangecat_site.py nightly site --package "$(ls pkg/build/orangecat-*.fwsc | head -1)" \
             --branch "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --built-at "$built" --fw-version "$fwv" \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
-            $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done)
+            $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done) > nightly-out.txt 2>&1 || rc=$?
+          cat nightly-out.txt
+          if [ "$rc" != 0 ]; then
+            txt=$( { ls pkg/build; echo ----; tail -30 nightly-out.txt; } | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=Nightly step failed::$txt"
+            exit $rc
+          fi
       # The dry run: the files and sizes of both channels, as the site stands before the deploy. A missing file or a changed Standard file stops the job here.
       - name: Check the site before the deploy
         run: |
