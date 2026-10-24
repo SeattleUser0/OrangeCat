@@ -1904,6 +1904,18 @@ ACC held + a lane key on a DRUM-X track mutes or unmutes that lane (`dxe_mute[]`
 
 (Filled in when 2c finishes.)
 
+### Before merging (checklist)
+
+1. Full-suite CI on the head is green (no `.ci_quick` at the root), including the host jobs that need the AC79 SDK and a real `.fwsc` (package, power-cut, loader, installer and recovery tests).
+2. `exp/sonnet-noshapes` is merged with the head (merge, no force) and green.
+3. `SAN=1 tests/run_tests.sh` is clean apart from the environment-only jobs listed under Part 2 above.
+4. The long fuzzers have run (`FUZZ_SECONDS=1800`) with no finding; the counts are under "Fuzzer results".
+5. `python3 tools/check_editor_protocol.py` (web/EDITOR_PROTOCOL.md against editor.c's switch, both ways) passes.
+6. Every new or changed source file has the SPDX and copyright lines, a header comment and a Revisions line (this run: `/tmp/addrev.py`-style sweep from the commit history).
+7. CHANGES.md is current, and the two one-way doors are told to whoever merges (library migration at 0.9.1, the module header).
+8. Golden hashes and `tests/target_budget.txt` carry new lines only. Nothing was flashed: the unit checklist in "Left to test (on the unit)" is open.
+9. Tests in `tests/` not run by `run_tests.sh`, on purpose: `audio_job_bench.c`, `pitch_prepare_bench.c`, `recording_bench.c` (benchmarks), `slice_test.c` and `slice_loop.py` (SLICE is retired from the build), `make_fat_fixture.py` (makes the committed card image used by usb_host_test).
+
 ### Tests added or changed (Seventh run)
 
 - `tests/mod_pages_prophet_test.c` (new, in run_tests.sh; the Orange Cat engine set, sanitizers): the module's real descriptor in the UI: the 15 pages, a column edit through the put hook, the keyed tuning's shown hook, HOME, ENV, LFO, motion recorded and played back, the module going away and returning.
