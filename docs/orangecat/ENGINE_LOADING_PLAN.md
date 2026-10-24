@@ -831,6 +831,21 @@ first 30 s), and sets the count to 0 otherwise. Three in a row ban the start (st
 SHAPES once. Power loss, install and remove lift the ban and clear the count. The boot guard is unchanged and its ban shows the same notice. Tests (oc_module_test.c):
 three deaths ban; a clean reset between breaks the streak; a death without the engine in use breaks it; a power loss forgets it; unban lifts it; the notice shows once.
 
+### Fix 4. The PC guard window
+
+Checked in the SDK headers (CI run 40047398043, branch exp/sonnet-sdkgrep): the chip has two PC limit register pairs, LIMIT0 and LIMIT1, and no more. LIMIT1
+holds the SRAM code window (POOL code), so instruction fetch from flash has one window. A second window for the module area alone does not exist. Therefore:
+
+- With no module registered the window is [0x02000120, _etext], as in 0.9.x.
+- With a module registered it is [0x02000120, the module's last byte]. The pack and the library groups lie between _etext and the module area, so they are inside it.
+  THE COST: while a module is registered, a wild jump into the pack or the library is not caught by the guard (it would read data as code). Writes there are
+  still refused (XIP is not writable) and the bus guard still catches unmapped space. This is written in SPEC.md's safety section and in BUILD.md.
+- Bug found and fixed in 0.10.1: 0.10.0 set LIMIT0_H only when the guard was armed at boot. An install or a remove in a running session left the old window until the
+  next reset (a removed module stayed fetchable; an installed one faulted at its first call if the guard had been armed without it). `oc_mod_boot` now ends with
+  `fm1_guard_pc_window()`, which rewrites LIMIT0_H only (and only once the guard is armed). The arithmetic is `fm1_guard_pc_hi` in hal/fm1_guard_pc.h, which a host build can include.
+- Test (oc_module_test.c): no module, _etext; one, its last byte; a second for the same engine, still the first; remove in a running session, _etext again. The register write
+  itself is two lines in fm1_guard.h and is checked on the unit (BUILD.md checklist).
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

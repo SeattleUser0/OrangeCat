@@ -61,7 +61,10 @@
  * The PC guard (hal/fm1_guard.h)
  *   Instruction fetch is allowed in [0x02000120, _etext] and the SRAM code window. A module runs from the module area, beyond _etext. When one is
  *   registered the loader sets fm1_guard_code_end to the last byte of the highest module, before main.c enables the guard; with none the
- *   window is what it was. The window then also holds the flash between (the pack, the library); the hardware has one such window.
+ *   window is what it was. The window then also holds the flash between (the pack, the library); the hardware has one such window (two PC limit
+ *   pairs exist, LIMIT1 is the SRAM code window), so that is the cost of a module: a wild jump into the pack or the library is not caught while one is
+ *   registered. (0.10.1) oc_mod_boot rewrites LIMIT0_H at its end (fm1_guard_pc_window), so an install or remove in a running session moves the window at
+ *   once; 0.10.0 left the old one until the next reset.
  *
  * Host tests: tests/oc_module_test.c (a simulated NOR: every refusal, the crash mark, a good module, two modules).
  *
@@ -72,6 +75,10 @@
  */
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
 static uint32_t fm1_guard_code_end;
+#include "../hal/fm1_guard_pc.h"
+#define OC_HOST_ETEXT 0x02080000u                               /* a host build's _etext */
+static uint32_t host_pc_hi, host_pc_sets;                       /* what the device's LIMIT0_H would hold, and how often it was written */
+static void fm1_guard_pc_window(void) { host_pc_hi = fm1_guard_pc_hi(fm1_guard_code_end, OC_HOST_ETEXT); host_pc_sets++; }
 #endif
 /* FL_XIP(off): the XIP address of flash offset off (hal/fm1_flash.h on the device; tests/hostsim.c for a host build) */
 #define OC_MOD_STARTS 2u                                       /* the places a 6 sector module can be: sector index 0 and 6 of the area */
@@ -214,6 +221,7 @@ static void oc_mod_boot(uint32_t crashed)
                 fm1_guard_code_end = end;
         }
     }
+    fm1_guard_pc_window();                                      /* (0.10.1) a running session too: the window follows the registered modules */
 }
 /* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
  * `run` says whether the last session ended in an orderly reset (reset_intended clears it). If it did not, the session died (the watchdog, a CPU

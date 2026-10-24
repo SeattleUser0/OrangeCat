@@ -16,12 +16,13 @@
  *                     attached; fm1_guard_unlock_top() reopens it.
  *   bus-invalid       fetch/read/write of unmapped space (NULL page, XIP
  *                     writes) -> DBG_MSG bits 4, 5, 16..21.
- *   PC limit          instruction fetch outside [0x02000120, _etext]
- *                     -> DBG_MSG bit 12.
+ *   PC limit          instruction fetch outside [0x02000120, _etext] (0.10.0: to the end of the highest registered module, see
+ *                     fm1_guard_pc.h) -> DBG_MSG bit 12.
  */
 #pragma once
 #include <stdint.h>
 #include "fm1_irq.h"
+#include "fm1_guard_pc.h"
 
 #define FM1_X2(off) (*(volatile uint32_t *)(0x1EEE000u + (off)))
 #define FM1_WR_LIMIT_H(n) FM1_X2(0x280u + 4u * (n))
@@ -37,8 +38,10 @@
 #define FM1_EMU_USP_L (*(volatile uint32_t *)0x1EEF0E4u)
 
 /* (Orange Cat 0.10.0) the last byte instruction fetch may reach beyond _etext: the end of the highest loadable module (oc_module.c), 0 when none.
- * Set at boot before the guard is enabled. One window (LIMIT0) covers the image and the module area, so the flash between them is inside it. */
+ * Set at boot before the guard is enabled, and again (fm1_guard_pc_window) after an install or a remove. One window (LIMIT0) covers the image and the module
+ * area, so the flash between them is inside it: see fm1_guard_pc.h for the cost. */
 static uint32_t fm1_guard_code_end;
+static uint32_t fm1_guard_pc_armed;                    /* set by fm1_guard_enable(FM1_GUARD_PC) */
 #define FM1_GUARD_CODE_END_DEFINED 1
 extern char _guard0[], _ustack_lo[], _guard1[], _sstack_lo[], _sstack_top[], _etext[];
 extern uint32_t _rt_start[], _guard_ram_end[];
@@ -80,7 +83,8 @@ static void fm1_guard_enable(uint32_t which)
         FM1_DBG_EN |= (0x3Fu << 16) | (0x3u << 4);
     if (which & FM1_GUARD_PC) {
         FM1_PC_LIMIT0_L = 0x02000120u;
-        FM1_PC_LIMIT0_H = fm1_guard_code_end > (uint32_t)(uintptr_t)_etext ? fm1_guard_code_end : (uint32_t)(uintptr_t)_etext;
+        FM1_PC_LIMIT0_H = fm1_guard_pc_hi(fm1_guard_code_end, (uint32_t)(uintptr_t)_etext);
+        fm1_guard_pc_armed = 1;
         {   /* Both executable SRAM banks share the hardware's second PC
              * window. Include resident POOL code before allowing audio/CPU1
              * to execute it; an empty .audio_text keeps the original limit. */
@@ -89,6 +93,17 @@ static void fm1_guard_enable(uint32_t which)
             FM1_PC_LIMIT1_H = re > rs ? re - 1u : (uint32_t)(uintptr_t)_etext;
         }
     }
+    fm1__dbg_lock();
+}
+
+/* (0.10.1) rewrite the upper end of the flash window from fm1_guard_code_end, after the set of registered modules changed in a running session
+ * (install, remove). Does nothing before the guard is armed (the boot sets it itself). */
+static void fm1_guard_pc_window(void)
+{
+    if (!fm1_guard_pc_armed)
+        return;
+    fm1__dbg_unlock();
+    FM1_PC_LIMIT0_H = fm1_guard_pc_hi(fm1_guard_code_end, (uint32_t)(uintptr_t)_etext);
     fm1__dbg_lock();
 }
 

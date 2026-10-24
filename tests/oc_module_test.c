@@ -326,6 +326,23 @@ int main(void)
     chk("... a crash bans that one; the other (valid, not registered before) takes the engine number",
         oc_mod.state[0] == MD_CRASHED && oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
 
+    /* the PC guard window (0.10.1): LIMIT0_H follows the registered modules, in a running session too */
+    {
+        clean(); host_pc_sets = 0;
+        oc_mod_boot(0);
+        chk("PC window, no module registered: the upper end is _etext", host_pc_hi == OC_HOST_ETEXT && host_pc_sets == 1u);
+        good(0, LEN); oc_mod_boot(0);
+        chk("... a module registered: the end of its last byte (the flash between is inside, the cost written in fm1_guard_pc.h)",
+            host_pc_hi == oc_mod_link(0) + LEN - 1u && host_pc_hi > OC_HOST_ETEXT);
+        good(1, LEN); oc_mod_boot(0);
+        chk("... a second for the same engine is not registered (the lower start wins): the window is still the first one's", host_pc_hi == oc_mod_link(0) + LEN - 1u);
+        chk("... oc_mod_remove in a running session writes the window again, and with no module left it is _etext",
+            oc_mod_remove(ENGI_SHAPES) == 0 && host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
+        chk("... the window is written at every boot call (the install and the remove paths end in one)", host_pc_sets >= 4u);
+        chk("fm1_guard_pc_hi: below _etext stays _etext, above it is the module's end",
+            fm1_guard_pc_hi(0, 100) == 100 && fm1_guard_pc_hi(50, 100) == 100 && fm1_guard_pc_hi(150, 100) == 150);
+    }
+
     /* the crash count beyond the first 30 s (0.10.1): sessions that die with the module's engine in use */
     {
         #define SESSION_USE() do { trk[2].engine = ENGI_SHAPES; oc_mod_note_use(); } while (0)
