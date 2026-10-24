@@ -16,6 +16,12 @@
  * page). The wiring of the loader into persist_boot and the main loop, the guard's register writes and the
  * installer are checked on the device (CI build) and by the installer's tests (step 6).
  */
+/* Revisions:
+ * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+ * (Orange Cat 0.11.1) every path that takes a module out of the table writes the PC window
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 #include <stdint.h>
 #define OC_MOD_HOST_XIP 1
 struct fw_mod_hdr;
@@ -25,6 +31,8 @@ static const struct fw_mod_hdr *oc_mod_hdr_ptr(uint32_t i);
 static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr_t *)(nor + oc_mod_flash(i)); }
 
 static int bad;
+#define NSH 2u                                        /* (0.12.1) SHAPES' starts (sectors 0 and 6); the loader has a third (sector 4, the Prophet's) */
+#define SHLEN (6u * 0x1000u)                          /* SHAPES' six sectors */
 static void chk(const char *what, int ok)
 {
     printf("module loader: %-104s %s\n", what, ok ? "ok" : "FAIL");
@@ -32,6 +40,7 @@ static void chk(const char *what, int ok)
 }
 #define LEN 3000u                                     /* a made module: header page + 2,744 bytes of "code" */
 static uint8_t IMG[OC_MOD_MAXLEN];
+static uint32_t modeng = ENGI_SHAPES;                /* (0.12.1) the engine mk gives a module (the Prophet block sets it) */
 static uint32_t modver;                               /* (0.11.1) the header version word mk gives (0 unless a test sets it) */
 static fw_mod_hdr_t mk(uint32_t i, uint32_t len)      /* the fields a good SHAPES module of this start has */
 {
@@ -39,7 +48,7 @@ static fw_mod_hdr_t mk(uint32_t i, uint32_t len)      /* the fields a good SHAPE
     memset(&h, 0, sizeof h);
     h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
     h.version = modver;
-    h.engine = ENGI_SHAPES; h.state_size = 1234u; h.engine_ptr = oc_mod_link(i) + 0x180u; h.link_addr = oc_mod_link(i);
+    h.engine = modeng; h.state_size = 1234u; h.engine_ptr = oc_mod_link(i) + 0x180u; h.link_addr = oc_mod_link(i);
     h.pack_hash = OC_PACK_HASH; h.length = len;
     return h;
 }
@@ -85,7 +94,7 @@ static void m_size(fw_mod_hdr_t *h) { h->api_size += 4u; }
 static void m_ver(fw_mod_hdr_t *h) { h->api_version++; }
 static void m_len3(fw_mod_hdr_t *h) { h->length = LEN - 1u; }
 static void m_len_small(fw_mod_hdr_t *h) { h->length = FW_MOD_CODE_OFF; }
-static void m_len_big(fw_mod_hdr_t *h) { h->length = OC_MOD_MAXLEN + 4u; }
+static void m_len_big(fw_mod_hdr_t *h) { h->length = SHLEN + 4u; }
 static void m_link(fw_mod_hdr_t *h) { h->link_addr += 0x1000u; }
 static void m_eptr_lo(fw_mod_hdr_t *h) { h->engine_ptr = h->link_addr + 0x40u; }
 static void m_eptr_hi(fw_mod_hdr_t *h) { h->engine_ptr = h->link_addr + LEN; }
@@ -107,7 +116,7 @@ int main(void)
     chk("empty flash: both starts empty, nothing registered, the guard window unchanged",
         oc_mod.state[0] == MD_EMPTY && oc_mod.state[1] == MD_EMPTY && !eng_mod[ENGI_SHAPES] && !fm1_guard_code_end);
 
-    for (i = 0; i < OC_MOD_STARTS; i++) {
+    for (i = 0; i < NSH; i++) {
         const engine_t *want = (const engine_t *)(oc_mod_link(i) + 0x180u);
         clean();
         good(i, LEN);
@@ -155,7 +164,7 @@ int main(void)
         {"another build's asset pack (pack_hash)", m_pack, 1, MD_BAD_HDR, 0},
     };
     for (uint32_t k = 0; k < sizeof T / sizeof T[0]; k++)
-        for (i = 0; i < OC_MOD_STARTS; i++) {
+        for (i = 0; i < NSH; i++) {
             char w[160];
             clean();
             st = with(i, T[k].f, T[k].reseal, &why);
@@ -166,7 +175,7 @@ int main(void)
     (void)m_hcrc;
 
     /* a header whose own CRC is wrong: torn */
-    for (i = 0; i < OC_MOD_STARTS; i++) {
+    for (i = 0; i < NSH; i++) {
         clean(); good(i, LEN);
         nor[oc_mod_flash(i) + 24] ^= 0x10u;          /* a flipped bit in state_size, hcrc unchanged */
         oc_mod_boot(0);
@@ -178,7 +187,7 @@ int main(void)
         chk("... a flipped bit in hcrc itself is the same", oc_mod.state[i] == MD_TORN);
     }
     /* the code */
-    for (i = 0; i < OC_MOD_STARTS; i++) {
+    for (i = 0; i < NSH; i++) {
         clean(); good(i, LEN);
         nor[oc_mod_flash(i) + 0x400u] ^= 0x01u;
         oc_mod_boot(0);
@@ -200,10 +209,10 @@ int main(void)
         oc_mod_boot(0);
         chk("the first sector erased: empty", oc_mod.state[i] == MD_EMPTY && !eng_mod[ENGI_SHAPES]);
     }
-    clean(); good(0, OC_MOD_MAXLEN);
+    clean(); good(0, SHLEN);
     oc_mod_boot(0);
     chk("a module of the full 6 sectors is accepted (its last byte is the area's up to the next start)",
-        oc_mod.state[0] == MD_OK && fm1_guard_code_end == oc_mod_link(0) + OC_MOD_MAXLEN - 1u);
+        oc_mod.state[0] == MD_OK && fm1_guard_code_end == oc_mod_link(0) + SHLEN - 1u);
 
     /* two modules */
     /* (0.11.1) the loser of two valid modules is erased at the boot; lg_incomplete (an old preset pair may lie in the area) holds that erase back, so these
@@ -232,7 +241,7 @@ int main(void)
         { uint32_t c = pk_crc16(rec + 2, 78u); rec[0] = (uint8_t)c; rec[1] = (uint8_t)(c >> 8); }
         chk("(setup) the record is one the firmware's own rule takes (pk_record_like), and flipping its CRC clears it",
             pk_record_like(rec) && (rec[0] ^= 1u, !pk_record_like(rec)) && (rec[0] ^= 1u, pk_record_like(rec)));
-        for (i = 0; i < OC_MOD_STARTS; i++) {
+        for (i = 0; i < NSH; i++) {
             fw_mod_hdr_t h;
             /* a record on sector 0's tail */
             clean(); h = mk(i, LEN5); code(11); memcpy(IMG + 0xF00u, rec, 80); seal(&h); put(i, &h, 1);
@@ -436,18 +445,20 @@ int main(void)
         chk("the plan on an empty area: start 0 for SHAPES; none for an engine a module may not supply", oc_mod_plan(ENGI_SHAPES) == 0 && oc_mod_plan(3) == -1);
         BUILD(0, LEN, 21);
         before = erases;
-        chk("install at start 0: the whole of it", INSTALL(0, LEN, &rc) == 0 && rc == 0);
+        { uint32_t f0 = oc_feeds;
+          chk("install at start 0: the whole of it", INSTALL(0, LEN, &rc) == 0 && rc == 0);
+          chk("... the watchdog was fed before each of the 6 erases of the span (0.12.2, Part 2d)", oc_feeds - f0 >= 6u); }
         chk("... registered, the 6 sectors of the start erased once and nothing else", oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] && erases - before == 6u);
         chk("... the flash holds the header page and the code as sent", !memcmp(nor + oc_mod_flash(0), IMG, LEN));
         chk("... the plan now says start 1: a replacement goes beside the old module (0.10.1)", oc_mod_plan(ENGI_SHAPES) == 1 && !oc_mod_inplace(ENGI_SHAPES, 1) && oc_mod_inplace(ENGI_SHAPES, 0));
         chk("a begin for the start that holds the module is refused (the plan is start 1)", (before = erases, oc_mod_begin(ENGI_SHAPES, 0, LEN) == -1) && !mw.writing && erases == before);
         chk("a begin for an engine a module may not supply, a length of 0, an odd length, too long: refused",
             oc_mod_begin(3, 0, LEN) == -1 && oc_mod_begin(ENGI_SHAPES, 0, 0) == -1 && oc_mod_begin(ENGI_SHAPES, 0, LEN + 1u) == -1 &&
-            oc_mod_begin(ENGI_SHAPES, 0, OC_MOD_MAXLEN + 4u) == -1 && oc_mod_begin(ENGI_SHAPES, 2, LEN) == -1);
+            oc_mod_begin(ENGI_SHAPES, 0, SHLEN + 4u) == -1 && oc_mod_begin(ENGI_SHAPES, 2, LEN) == -1);
         chk("... and none of them touched the module that was there", oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] && !memcmp(nor + oc_mod_flash(0), IMG, LEN));
 
         /* a replacement beside the old module, a track playing the old one (0.10.1) */
-        static uint8_t keep[OC_MOD_MAXLEN];
+        static uint8_t keep[SHLEN];
         memcpy(keep, nor + oc_mod_flash(0), LEN);
         trk[1].engine = ENGI_SHAPES; trk[1].v[0].active = trk[1].v[0].gate = 1; trk[1].v[0].stage = 2; trk[1].v[0].env = 1000;
         oc_modguard.banned = 1u;
@@ -816,6 +827,144 @@ int main(void)
         BUILD(1, LEN, 71);
         chk("a new install beside a banned module is registered at once, the banned one erased, no ban left",
             INSTALL(1, LEN, &rc) == 0 && oc_mod.state[1] == MD_OK && oc_mod.state[0] == MD_EMPTY && oc_modguard.banned == 0 && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+
+        /* ------------------------------------------------------------------------------------------------------------------------------
+         * (0.12.1) The Prophet as a module: 8 sectors, starts 0 and 2 (sectors 0 and 4). Its span overlaps either SHAPES start, so the two never stand
+         * together; an install is refused with the blocker named, and a replacement of the Prophet is always in place. Needs a module to win the number. */
+#if OC_MODULE_WINS
+        {
+            enum { S_NONE, S_AT0, S_AT1, S_BOTH, P_AT0, P_AT2, NCFG };      /* what stands in the area before the install */
+            static const char *cfgname[NCFG] = { "an empty area", "SHAPES at 0", "SHAPES at 6", "SHAPES at both starts", "a Prophet at 0", "a Prophet at 4" };
+            /* the plan the rule gives, by hand: {plan for SHAPES, blocker for SHAPES, plan for the Prophet, blocker for the Prophet}; -1 none */
+            static const int want[NCFG][4] = {
+                /* S_NONE */ { 0, -1, 0, -1 },
+                /* S_AT0  */ { 1, -1, -1, 0 },
+                /* S_AT1  */ { 0, -1, -1, 1 },
+                /* S_BOTH */ { 0, -1, -1, 0 },
+                /* P_AT0  */ { -1, 0, 0, -1 },
+                /* P_AT2  */ { -1, 2, 2, -1 },
+            };
+            const uint32_t PLEN = 8u * 0x1000u - 64u;             /* a Prophet module of nearly the 8 sectors (the real one is 31,148 B of 32,768) */
+            uint32_t c, kk, e;
+            int rcp;
+            #define PBUILD(eng_, i_, len_, seed_) do { modeng = (eng_); { fw_mod_hdr_t hh_ = mk(i_, len_); code(seed_); seal(&hh_); memcpy(IMG, &hh_, sizeof hh_); } modeng = ENGI_SHAPES; } while (0)
+            #define PINSTALL(eng_, i_, len_, outrc) ({ int r_ = oc_mod_begin((eng_), (i_), (len_)); uint32_t o_; \
+                for (o_ = FW_MOD_CODE_OFF; !r_ && o_ < (len_); o_ += 256u) r_ = oc_mod_write(o_, IMG + o_, (len_) - o_ > 256u ? 256u : (len_) - o_); \
+                if (!r_) r_ = oc_mod_end(IMG); *(outrc) = r_; r_; })
+            #define PSTAND(cfg_) do { clean(); \
+                if ((cfg_) == S_AT0 || (cfg_) == S_BOTH) { modeng = ENGI_SHAPES; good(0, LEN); } \
+                if ((cfg_) == S_AT1 || (cfg_) == S_BOTH) { modeng = ENGI_SHAPES; modver = (cfg_) == S_BOTH ? 1u : 0u; good(1, LEN); modver = 0; } \
+                if ((cfg_) == P_AT0) { modeng = ENGI_PROPHET; good(0, PLEN); } \
+                if ((cfg_) == P_AT2) { modeng = ENGI_PROPHET; good(2, PLEN); } \
+                modeng = ENGI_SHAPES; lg_incomplete = (cfg_) == S_BOTH; oc_mod_boot(0); lg_incomplete = 0; } while (0)
+            /* geometry */
+            chk("the Prophet's header at start 0 and at start 4: registered, the window ends at its last byte",
+                (clean(), modeng = ENGI_PROPHET, good(0, PLEN), oc_mod_boot(0), oc_mod.state[0] == MD_OK && eng_mod[ENGI_PROPHET] == oc_mod_hdr_ptr(0) && fm1_guard_code_end == oc_mod_link(0) + PLEN - 1u) &&
+                (clean(), good(2, PLEN), oc_mod_boot(0), oc_mod.state[2] == MD_OK && eng_mod[ENGI_PROPHET] == oc_mod_hdr_ptr(2) && fm1_guard_code_end == oc_mod_link(2) + PLEN - 1u));
+            modeng = ENGI_SHAPES;
+            chk("... XIP addresses: start 2 (sector 4) runs at 0x020C8000", oc_mod_link(2) == 0x020C8000u && oc_mod_link(0) == 0x020C4000u);
+            chk("a Prophet header at start 1 (sector 6, only 6 sectors left): MD_BAD_HDR",
+                (clean(), modeng = ENGI_PROPHET, good(1, LEN), oc_mod_boot(0), modeng = ENGI_SHAPES, oc_mod.state[1] == MD_BAD_HDR && !eng_mod[ENGI_PROPHET]));
+            chk("a SHAPES header at start 2 (sector 4, not one of its starts): MD_BAD_HDR",
+                (clean(), good(2, LEN), oc_mod_boot(0), oc_mod.state[2] == MD_BAD_HDR && !eng_mod[ENGI_SHAPES]));
+            chk("a Prophet module past its 8 sectors: MD_BAD_HDR; a SHAPES module of 7 sectors: MD_BAD_HDR",
+                (clean(), modeng = ENGI_PROPHET, good(0, 8u * 0x1000u + 4u > sizeof IMG ? 8u * 0x1000u : 8u * 0x1000u + 4u), oc_mod_boot(0), modeng = ENGI_SHAPES, oc_mod.state[0] == MD_OK) &&   /* exactly 8 sectors fits */
+                (clean(), good(0, 7u * 0x1000u), oc_mod_boot(0), oc_mod.state[0] == MD_BAD_HDR));
+            /* the plan table */
+            for (c = 0; c < NCFG; c++) {
+                char w[200];
+                PSTAND(c);
+                snprintf(w, sizeof w, "plan with %s: SHAPES %d (blocked by %d), the Prophet %d (blocked by %d)", cfgname[c], want[c][0], want[c][1], want[c][2], want[c][3]);
+                chk(w, oc_mod_plan(ENGI_SHAPES) == want[c][0] && (want[c][0] >= 0 || oc_mod_blocked_by(ENGI_SHAPES) == want[c][1]) &&
+                       oc_mod_plan(ENGI_PROPHET) == want[c][2] && (want[c][2] >= 0 || oc_mod_blocked_by(ENGI_PROPHET) == want[c][3]));
+            }
+            /* every refused begin changes nothing: not one erase, nothing writing, the modules in the table as they were */
+            for (c = 0; c < NCFG; c++) {
+                uint32_t e0, before2;
+                char w[200];
+                for (kk = 0; kk < 2u; kk++) {
+                    const uint32_t eng = kk ? ENGI_PROPHET : ENGI_SHAPES;
+                    const int pl = want[c][kk * 2u];
+                    if (pl >= 0) continue;
+                    PSTAND(c);
+                    e0 = erases; before2 = fm1_guard_code_end;
+                    snprintf(w, sizeof w, "%s refused over %s (every start of it): rc -5, nothing erased, nothing writing, the modules untouched", kk ? "the Prophet" : "SHAPES", cfgname[c]);
+                    {   int ok = 1; uint32_t st;
+                        for (st = 0; st < OC_MOD_STARTS; st++) ok &= oc_mod_begin(eng, st, LEN) < 0;
+                        chk(w, ok && erases == e0 && !mw.writing && fm1_guard_code_end == before2 && oc_mod_begin(eng, (uint32_t)(want[c][kk * 2u + 1u]), LEN) == (oc_mod_geo_of(eng)->starts >> want[c][kk * 2u + 1u] & 1u ? -5 : -1)); }
+                }
+            }
+            /* installs: each engine, each way */
+            PSTAND(S_NONE);
+            PBUILD(ENGI_PROPHET, 0, PLEN, 101);
+            chk("install the Prophet at start 0 on an empty area: the 8 sectors erased once and nothing else, registered", (e = erases, PINSTALL(ENGI_PROPHET, 0, PLEN, &rcp) == 0) && erases - e == 8u &&
+                oc_mod.state[0] == MD_OK && eng_mod[ENGI_PROPHET] == oc_mod_hdr_ptr(0) && !memcmp(nor + oc_mod_flash(0), IMG, PLEN) && nor[oc_mod_flash(0) + 8u * 0x1000u] == 0xFF);
+            chk("... the next Prophet goes in place at its own start (8 of 12 sectors leave no room beside); SHAPES is refused naming start 0",
+                oc_mod_plan(ENGI_PROPHET) == 0 && oc_mod_inplace(ENGI_PROPHET, 0) && oc_mod_plan(ENGI_SHAPES) == -1 && oc_mod_blocked_by(ENGI_SHAPES) == 0);
+            { uint32_t e2 = erases;
+              PBUILD(ENGI_SHAPES, 0, LEN, 102);
+              chk("... a SHAPES install over it: begin refused, no sector erased, the Prophet registered", oc_mod_begin(ENGI_SHAPES, 0, LEN) == -5 && oc_mod_begin(ENGI_SHAPES, 1, LEN) == -5 &&
+                  erases == e2 && eng_mod[ENGI_PROPHET] == oc_mod_hdr_ptr(0)); }
+            /* replacement in place, a track on it */
+            trk[3].engine = ENGI_PROPHET; trk[3].v[0].active = trk[3].v[0].gate = 1; trk[3].v[0].env = 1000;
+            PBUILD(ENGI_PROPHET, 0, PLEN - 256u, 103);
+            chk("replace the Prophet (shorter): in place, the voices off, 8 sectors erased once, the new module registered and the window ends at it",
+                (e = erases, PINSTALL(ENGI_PROPHET, 0, PLEN - 256u, &rcp) == 0) && erases - e == 8u && !trk[3].v[0].active && oc_mod.state[0] == MD_OK &&
+                eng_mod[ENGI_PROPHET] == oc_mod_hdr_ptr(0) && fm1_guard_code_end == oc_mod_link(0) + PLEN - 256u - 1u && trk[3].engine == ENGI_PROPHET);
+            /* the same at start 4 */
+            PSTAND(P_AT2);
+            PBUILD(ENGI_PROPHET, 2, PLEN, 104);
+            chk("a Prophet at start 4 is replaced in place at start 4 (the plan names it), 8 sectors from sector 4 erased", (e = erases, oc_mod_plan(ENGI_PROPHET) == 2 && PINSTALL(ENGI_PROPHET, 2, PLEN, &rcp) == 0) &&
+                erases - e == 8u && oc_mod.state[2] == MD_OK && oc_mod.state[0] == MD_EMPTY && eng_mod[ENGI_PROPHET] == oc_mod_hdr_ptr(2));
+            chk("... a begin at start 0 while the plan is 2 is refused, nothing erased", (e = erases, oc_mod_begin(ENGI_PROPHET, 0, PLEN) == -1) && erases == e);
+            /* the Prophet over damaged junk at either start (not a usable module: written over, not refused) */
+            clean(); modeng = ENGI_SHAPES; good(1, LEN); nor[oc_mod_flash(1) + 0x500u] ^= 1u; oc_mod_boot(0);
+            chk("(setup) a damaged SHAPES module at start 6", oc_mod.state[1] == MD_BAD_CRC);
+            PBUILD(ENGI_PROPHET, 0, PLEN, 105);
+            chk("a damaged module does not block: the Prophet installs over it (the damaged one is erased with the span)", PINSTALL(ENGI_PROPHET, 0, PLEN, &rcp) == 0 &&
+                oc_mod.state[0] == MD_OK && oc_mod.state[1] == MD_EMPTY);
+            /* removal */
+            PSTAND(P_AT0);
+            chk("remove the Prophet: out of the table, 8 sectors erased, the area empty", (e = erases, oc_mod_remove(ENGI_PROPHET) == 0) && erases - e == 8u && !eng_mod[ENGI_PROPHET] &&
+                oc_mod.state[0] == MD_EMPTY && nor[oc_mod_flash(0)] == 0xFF && !fm1_guard_code_end);
+            PSTAND(P_AT2);
+            chk("remove 127 erases all 12 sectors", (e = erases, oc_mod_remove(127) == 0) && erases - e == 12u && oc_mod.state[2] == MD_EMPTY);
+            PSTAND(P_AT0); oc_mod_remove(ENGI_PROPHET); PBUILD(ENGI_SHAPES, 0, LEN, 106);
+            chk("... and after the Prophet is gone SHAPES installs at once", (PINSTALL(ENGI_SHAPES, 0, LEN, &rcp) == 0) &&
+                eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && !eng_mod[ENGI_PROPHET]);
+            /* a Prophet in place, cut at every program and every erase: never a half module registered, and the next install works */
+            {   uint32_t cutsP = 0, badP = 0, again = 0;
+                for (kk = 0; kk < 80u; kk++) {                                          /* erases (8 for the span) then programs */
+                    int r;
+                    PSTAND(P_AT0);
+                    PBUILD(ENGI_PROPHET, 0, PLEN, 107);
+                    if (kk < 20u) erase_fail_after = (int)kk; else fail_after = (int)kk - 20;
+                    r = PINSTALL(ENGI_PROPHET, 0, PLEN, &rcp);
+                    erase_fail_after = -1; fail_after = -1;
+                    oc_mod_boot(0);
+                    if (r == 0) { if (kk < 20u) continue; else break; }
+                    cutsP++;
+                    if (kk == 0u)                                                   /* the first erase never ran: the old module is whole and registered */
+                        badP += !(oc_mod.state[0] == MD_OK && eng_mod[ENGI_PROPHET] == oc_mod_hdr_ptr(0));
+                    else                                                            /* the header sector went first: no module, nothing registered */
+                        badP += (oc_mod.state[0] != MD_EMPTY && oc_mod.state[0] != MD_TORN) || eng_mod[ENGI_PROPHET] || fm1_guard_code_end;
+                    PBUILD(ENGI_PROPHET, 0, PLEN, 108);                                 /* the next install works whatever the cut left */
+                    again += PINSTALL(ENGI_PROPHET, 0, PLEN, &rcp) == 0 && oc_mod.state[0] == MD_OK;
+                }
+                chk("a Prophet replaced in place, cut at every erase and every program: the old module whole when no erase ran, else no module and nothing registered (the old one was erased first), and the next install works",
+                    cutsP > 20u && badP == 0 && again == cutsP);
+            }
+            /* the crash count of start 2 */
+            PSTAND(P_AT2);
+            trk[2].engine = ENGI_PROPHET; oc_mod_note_use();
+            chk("start 2 in use sets bit 4 of the use mark; a death in the first 30 s bans it and says MODULE BANNED once",
+                (oc_modguard.inuse & 4u) && (oc_mod_boot(1), oc_mod.state[2] == MD_CRASHED && (oc_modguard.banned & 4u) && !eng_mod[ENGI_PROPHET] && !fm1_guard_code_end));
+            chk("... removing it lifts the ban (the use bit and the count of start 2 are cleared)", (oc_mod_remove(ENGI_PROPHET), oc_mod_unban(2), !(oc_modguard.banned & 4u) && oc_modguard.unclean[2] == 0));
+            #undef PBUILD
+            #undef PINSTALL
+            #undef PSTAND
+        }
+#endif
         #undef BUILD
         #undef INSTALL
     }

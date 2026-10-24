@@ -87,6 +87,9 @@
 #                   --quick renders scores through Dexed's own code and FM6 and reports sample differences (strict parity predates the fp32 port).
 # Change baseline entries only for reviewed, intentional differences in sound or cost;
 # retain every unaffected golden / CPU / target entry. VERBOSE=1: every render.
+# Revisions:
+# (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+# (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 cd "$(dirname "$0")/.."
 # Pillow's Raqm (text spacing, renders): macOS strips DYLD_* on the way into /bin/sh (build.sh)
@@ -103,6 +106,10 @@ case "${CC:-}" in
     exit 2 ;;
 esac
 CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
+# (Orange Cat 0.12.2, Part 2a) SAN=1: every test of the suite built and run under AddressSanitizer and UndefinedBehaviorSanitizer (the first finding stops the test).
+#   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
+#   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
+case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
 FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
@@ -257,6 +264,22 @@ module_host() {                                   # (Orange Cat 0.10.0, PoC step
     step "SHAPES as a module on the host (Orange Cat 0.10.0, step 3): registration check, 24 presets through the table, hashes equal the built-in engine's and the golden file" \
         "$OUT/module_host_test" tests/golden.txt
 }
+module_host_prophet() {                           # (Orange Cat 0.12.1, Part 1b) the Prophet's module source as its own unit: 201 presets equal the built-in engine's and the golden file, then its descriptor
+    # the firmware's host unit does not include build_options.h (MELODEE_DUAL_CORE reads as 0 there: P5_POLY 5), so the module's unit is built the same way
+    $CC -c -O2 -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/module_host_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c"; return 1; }
+    $CC -O2 $FW -o "$OUT/module_host_prophet_test" tests/module_host_prophet_test.c "$OUT/module_host_prophet_tu.o" -lm ||
+        { fail "compile tests/module_host_prophet_test.c"; return 1; }
+    step "the Prophet as a module on the host (Orange Cat 0.12.1): header check, 201 presets through the table equal the built-in engine's and the golden file, descriptor rows, panel, hooks" \
+        "$OUT/module_host_prophet_test" tests/golden.txt
+}
+mod_pages_prophet() {                             # (Orange Cat 0.12.1, Part 1b) the Prophet module's own descriptor in the UI (the Orange Cat engine set, sanitizers)
+    $CC -c -O1 -fsanitize=address,undefined -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/mod_pages_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (pages)"; return 1; }
+    $CC -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 \
+        -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW -o "$OUT/mod_pages_prophet_test" tests/mod_pages_prophet_test.c "$OUT/mod_pages_prophet_tu.o" -lm ||
+        { fail "compile tests/mod_pages_prophet_test.c"; return 1; }
+    step "the Prophet module's real pages (0.12.1, Part 1b): 15 pages, hooks, HOME, ENV, LFO, motion recorded and played back, the module out and in; Orange Cat set, sanitizers" \
+        "$OUT/mod_pages_prophet_test"
+}
 phys_ref() {
     D=${DAISYSP:-vendor/DaisySP}/Source
     if [ ! -d "$D/PhysicalModeling" ] || ! command -v c++ >/dev/null 2>&1; then
@@ -277,6 +300,8 @@ sound && t "effects (Orange Cat 0.6.0, Jiant FM's): DIST, AUTO PAN, DELAY, REVER
 core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which buses hold with which engines, the cache RAM and the card's slots" jfx_arena_test -O1 $FW
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
+core && run "web/EDITOR_PROTOCOL.md against editor.c's switch, both directions (Orange Cat 0.12.2)" python3 tools/check_editor_protocol.py
+core && run "the set checker (web/make_site.py check_set): sector bounds of the module area (Orange Cat 0.12.1)" python3 tests/check_set_test.py
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
 core && run "the interface identifier (Orange Cat 0.9.0): the generated header is what the sources give; a comment leaves it, a changed field moves it" sh -c "python3 tools/gen_fw_api_id.py --check build/gen/fw_api_id.h && python3 tools/gen_fw_api_id.py --selftest"
 core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable engine would be given, against the real services" fw_api_test -O1 $FW
@@ -286,6 +311,19 @@ core && t "engine table in RAM (0.10.0, step 4): SHAPES built out, the slot is r
 core && t "module loader (Orange Cat 0.10.0, step 5): every refusal, the crash mark, a good module, two modules; the module wins the slot" oc_module_test:oc_module_test -O1 $FW -DOC_MODULE_WINS=1
 core && t "module loader (0.10.0, step 5): the built-in SHAPES wins the slot (OC_MODULE_WINS 0): a valid module is NOSLOT" oc_module_shadow:oc_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies the engine" oc_module_out:oc_module_test -O1 $FW -DMELODEE_SHAPES=0
+# (Orange Cat 0.12.2, Part 2b) the fuzzers: fixed seeds, FUZZ_SECONDS each (default 3); a long run is FUZZ_SECONDS=1800 tests/run_tests.sh (30 minutes each; the
+# mutation counts are printed). Each stops at its first finding with the seed, the round and the mutations that made it.
+FUZZ_SECONDS=${FUZZ_SECONDS:-3}
+core && t "fuzz: the library group's scan, migration and leftovers against mutated sectors ($FUZZ_SECONDS s)" fuzz_lib_group -O1 $FW -- "$OUT/fuzz_lib_group" "$FUZZ_SECONDS"
+core && t "fuzz: the asset pack's boot check and install against a mutated pack area ($FUZZ_SECONDS s)" fuzz_oc_pack -O1 $FW -- "$OUT/fuzz_oc_pack" "$FUZZ_SECONDS"
+core && t "fuzz: the project record loader (record store and pool chunks) against a mutated store, then a save and a power-on ($FUZZ_SECONDS s)" fuzz_oc_project -O1 $FW -- "$OUT/fuzz_oc_project" "$FUZZ_SECONDS"
+core && t "fuzz: the module loader at every start, the planner and an install against a mutated module area ($FUZZ_SECONDS s)" fuzz_oc_module -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fuzz_oc_module" "$FUZZ_SECONDS"
+fuzz_fw_pages() {
+    $CC -c -O1 -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/fuzz_fw_pages_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (fuzz)"; return 1; }
+    build fuzz_fw_pages fuzz_fw_pages $FW "$OUT/fuzz_fw_pages_tu.o" || return 1
+    step "fuzz: the loader's check of the Prophet module's page descriptor against a mutated image ($FUZZ_SECONDS s)" "$OUT/fuzz_fw_pages" "$FUZZ_SECONDS"
+}
+core && job fuzz_fw_pages
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks
@@ -369,6 +407,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
+    t "Recorded step properties: a chord's accent, nudge (no wrap), ratchet, flam, chance and condition as a group" recording_props_test -O1 $FW
     run "Recording storage codec probe: lossless roundtrip and malformed data" python3 tools/recording_storage_probe.py
     t "Recording ownership: independent scanner, edits, duplicates, sparse/dense queries and rebuild cost" recording_index_test -O2 $FW
     t "Timestamped releases: rollover, retrigger, 1024 cancellations, edits and track isolation" recording_queue_test -O1 $FW
@@ -451,6 +490,8 @@ if sound && [ $TABLES = 1 ]; then
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     job module_host
+    job module_host_prophet
+    job mod_pages_prophet
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \
         macro_test -O2 $FW -- "$OUT/macro_test" build/macro_demo

@@ -508,7 +508,7 @@ ambiguous); the module has ids of its own.
 
 | Command | Request | Reply |
 |---|---|---|
-| 120 MOD_INFO | optionally an engine | starts (2), sectors of the area (12), flags (1 SHAPES is built in, 2 a module takes the slot of a built-in engine, 4 an install is under way, 8 (0.10.1) the install the plan names is in place), table version, table size, interface identifier (5 x 7 bits), table address (5 x 7), pack hash (5 x 7), the start an install of the engine goes to (0, 1, or 127 none; 127 too without an engine: a free start first, else the start that holds the engine's module), then per start: state, why, engine, length (3 x 7 bits) |
+| 120 MOD_INFO | optionally an engine | starts (3 since 0.12.1: sector 0, sector 6, sector 4 of the area; SHAPES uses starts 0 and 1, the Prophet 0 and 2), sectors of the area (12), flags (1 SHAPES is built in, 2 a module takes the slot of a built-in engine, 4 an install is under way, 8 (0.10.1) the install the plan names is in place), table version, table size, interface identifier (5 x 7 bits), table address (5 x 7), pack hash (5 x 7), the start an install of the engine goes to (0, 1, or 127 none; 127 too without an engine: a free start first, else the start that holds the engine's module), then per start: state, why, engine, length (3 x 7 bits), then (0.12.1) the blocker: with an engine and no start that can take it, the start whose usable module of another engine is in the way (the install is refused: ENGINE X INSTALLED AT START N: REMOVE IT FIRST), else 127 |
 | 121 MOD_BEGIN | engine, start, length (3 x 7 bits) | rc, bytes written (3 x 7 bits). Beside (flag 8 clear): only the 6 sectors of the free start are erased; the old module stays registered and playing. In place (flag 8 set): the engine is taken out of the table, the voices and arena state of the tracks that play it are cleared, the 6 sectors of the start (and of any other module of that engine) are erased, and a power cut leaves no module |
 | 122 MOD_WRITE | offset (3 x 7 bits), pack7 data (up to 256 bytes) | rc, bytes written. The first offset is 256; each is where the last write ended |
 | 123 MOD_END | pack7 header page (256 bytes) | rc, bytes written. The header must agree with the code just sent (its CRC), the start, and this firmware; it is programmed last (the commit); the area is then read as at boot and the module registered. Beside, the new start is read back and checked as the loader checks it before the old module is taken out of the table and its start erased (header sector first); if it fails the new start is erased, the old module stays and the reply is 7 |
@@ -1302,6 +1302,11 @@ cutting voices, preventing overloaded runs from reducing their own workload.
 laboratory coverage. Both reply `rc`. Neither writes saved projects or patches.
 These controls are absent from production builds. A passing performance contract
 must also be checked with normal admission and emergency protection enabled.
+
+Editor 97 (device builds with `MELODEE_FX_PROFILE=1` only, laboratory): the effects' profiler. `[mask, fx1, fx2, fx3, ticks1, ticks2 [, mode 0|1]]` (mask 0..15,
+the three effect numbers below `FX_COUNT`; mask 0 or no argument: read only) arms a measurement, and every call replies `rc` (1: a bad argument) then 14 values of five
+7-bit groups (LSB first): the control word, three words (ticks, blocks, maximum) for each of four measured slots, and the effects hardware status. It writes no musical or
+persisted state and is absent from production builds (0.12.2: documented; the code is unchanged).
 
 ### Laboratory persistence guard and transport/REC controls
 

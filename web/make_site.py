@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Revisions:
+# (Orange Cat 0.11.2) the installer page installs firmware, pack and module in one go
+# (Orange Cat 0.12.2) web tests for the Prophet package, modBlocked and the swap planner; check_set checks module images against their sectors (test added); gen_fw_api_i...
 """Make the site (GitHub Pages):
 
   index.html                        redirect to the installer (the old URL keeps working)
@@ -133,6 +136,11 @@ def check_set(pak, ocms, manifest):
             raise SystemExit(f"{ocm}: interface {iface:08x} at {api_addr:#x} is not the firmware's ({info['iface']:08x} at {info['api_addr']:#x})")
         if mhash != phash:
             raise SystemExit(f"{ocm}: reads pack {mhash:08x}, the pack file is {phash:08x}")
+        sectors = struct.unpack_from("<I", b, 52)[0]            # (0.12.2) the module's size in sectors of the 12 sector area (SHAPES 6, the Prophet 8): every image fits it,
+        for k in range(n):                                       # and starts, in sectors from the area's first, leave room for it
+            start, length, _, off = struct.unpack_from("<IIII", b, 56 + 16 * k)
+            if not 1 <= sectors <= 12 or length > sectors * 4096 or start + sectors > 12 or off + length > len(b):
+                raise SystemExit(f"{ocm}: image {k + 1} (start {start}, {length} B) does not fit the module's {sectors} sectors of the 12 sector area")
     return info
 
 

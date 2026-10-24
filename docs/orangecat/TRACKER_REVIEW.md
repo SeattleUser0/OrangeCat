@@ -1,12 +1,14 @@
 # Orange Cat tracker architecture review
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** October 23, 2026
 **Branch:** `tracker-events` (on `size-audit`; also on `size-audit-gui` with the GUI work). Not merged.
 **Reviewed at:** main 19271b0 (0.6.2) and the combined branch; GPT's notes on fx-jiant at the same commit were checked
 against the code and hold.
 
 Revisions:
+- 0.3 (0.13.0, branch sonnet-work): the step's ratchet, flam, condition, nudge and accent apply to a recorded step's events as a group (section
+  "What was changed, third step"); the table "Where views still differ" has no row left in it for them; "Left to do" shortened.
 - 0.2 (0.7.2, branch sonnet-work): step 1 of the overnight list done: one event edit primitive and one delete path for
   a recorded step's events (section "What was changed, second step"); the table "Where views still differ" corrected.
 - 0.1: first version, with the 0.7.1 change.
@@ -80,7 +82,7 @@ A bounded change that proves the shared-editing approach without a new represent
   the pitch (slot 1), in VEL the velocity (slot 3) of the note last picked, KNOB 4 the length a whole step a detent
   (a new quantum, slot 5; NOTES keeps its quarter and sixteenth). The cursor follows the note if a pitch change
   reorders the columns. EDIT in a note column is `notes_delete_edit` on that note. FX: CHANCE and SLIDE (what a
-  recorded step keeps) edit the overview cell; the rest say "NOT ON RECORDED NOTES" instead of silently doing nothing.
+  recorded step keeps) edit the overview cell; the rest said "NOT ON RECORDED NOTES" instead of silently doing nothing (0.13.0: they edit the step; see "third step").
 - `ui_tracker.c`: a recorded step's rows show its events' pitches in the columns, the VEL of the picked note, bars
   for a long note's rows, the note's length in the foot ("K3 PITCH · K4 LENGTH 1.75"). "REC" remains only for a step
   whose notes were rounded into it from the step before (the overview's forward rounding, `recording_view`); NOTES
@@ -91,7 +93,7 @@ The acceptance case from the review, as a host test (tests/ui_test.c `test_track
 one step with three release times and velocities; on the tracker N2's pitch, length and velocity changed, the other
 two notes byte for byte the same; NOTES opened: nothing changed by the switch, and NOTES' second note is the edited
 one; three undos, one each, back to the recording; a note edited, saved, changed again, loaded: the saved edit comes
-back; CHANCE works and RATCHET is refused on the recorded step; EDIT deletes one recorded note and EDIT held brings
+back; CHANCE works and RATCHET was refused on the recorded step (0.13.0: it edits the step); EDIT deletes one recorded note and EDIT held brings
 it back. The existing tracker, NOTES, note-tools and render tests pass unchanged (host, and the full CI suite: run
 39909021856). With the GUI work (branch size-audit-gui, 0.7.0 stages 1 to 5 plus the audit): image 512,164 B, arena
 95,808 B, full CI suite green (run 39909046086).
@@ -187,6 +189,40 @@ FX column +3,248 B (0.5.2, with MACRO's polyphony in the same version); this cha
 and arranger growth is twelve versions of phrases, chains, the song, PERFORM, PHRASES, GROOVE and the record store,
 of which the tracker is a fifth.
 
+## What was changed, third step: the step's effects apply to its recorded notes (0.13.0)
+
+The design question was a chord whose onsets are not on the grid: what does a ratchet, a nudge or a chance on the step mean for three notes at three offsets?
+The answer taken: the step's properties are a GROUP effect, applied to the notes as they are, in recording.c (`recording_fire`, `recording_on`); nothing in
+the stored step or event changes, and a step that has none of them plays exactly as before.
+
+| Property | A manual step | A recorded step (0.13.0) |
+|---|---|---|
+| Chance, condition | rolled once for the step | rolled once for the step on each pass of its loop (`recording_roll_ok`), whichever of its notes is due first: the chord plays whole or not at all. Before 0.13.0 the chance was rolled for each note, so a chord could play in part |
+| Accent | velocity 127 | velocity 127 for every onset (the same cap) |
+| Nudge | the step plays 1..63 64ths of its length late or early | every onset moves by the same amount, in 64ths of the step's length (`recording_on`); an onset pushed past the end of its step plays late, in the next step's time; past the end or before the start of the loop it stops at the loop's last sample or first (no wrap) |
+| Ratchet x2..x4 | the step plays again in equal parts of its length, the gate of a part | each onset plays again at its own time plus one part, two parts, ... (a part is the step's length over the hits); the gate of a hit is the part's gate or the note's own, the shorter |
+| Flam | a grace at 9/16 of the velocity, the full hit FLAM_SAMPLES later | the same for each onset |
+
+How it plays: a ratchet's or a flam's later hits wait in a small per-track queue (`recording_rep`, six entries, runtime only; a seventh simultaneous chord's repeats are
+dropped, not queued). The queue is read each block before the new onsets are scheduled (`recording_rep_tick`); a note edited away, or a step that is no longer recorded,
+ends its repeats. A start of the transport clears it. A nudge is part of the onset's scheduled time (`recording_due`), so the cursor's sort sees it:
+an edit of a nudge from the tracker re-sorts at once (`recording_resched`), one from anywhere else (undo, a load) is seen at the next loop start by a fold of the track's 64 nudges.
+
+The tracker edits these on a recorded step as on a manual one (`tracker_event_edit`, `tracker_delete`): "NOT ON RECORDED NOTES" is gone. The overview's hash
+(`ui_tracker.c`) has had flags, condition, chance and nudge in it all along, so the row redraws; ui_test checks that for each effect. The step history snapshots all of
+them (`step_snapshot_t`), so EDIT held undoes an effect on a recorded step, and the project format stores them with the step (checked by a save and a load in ui_test).
+
+Tests: `tests/recording_props_test.c` plays a chord of three onsets one sample at a time through the real sequencer and reads every hit (note, velocity, gate and
+time): baseline, accent, nudge (later, earlier, past the step's end), nudge at the loop's edges, ratchet x2..x4, flam, chance and condition over 24 passes (whole
+or nothing), and that the events are untouched by setting the properties. tests/ui_test.c: every effect from the tracker, EDIT tapped, EDIT held (undo), the row's hash, a
+project save and load. The scheduler oracle tests (recording_scheduler_test, the countdown and scanner variants) pass unchanged.
+
+| | |
+|---|---|
+| Format | none: the step's bytes and the event's are what they were; no migration |
+| Runtime | the audio interrupt's loop is untouched; the recording path (an optional, bounded one in tests/target_budget.py) gained the roll, the repeats queue and a nudge in the onset's time |
+| RAM | 4 x (16 + 6 x 16 + 4) B = 464 B of runtime state, not stored |
+
 ## Where views still differ
 
 For the record, after 0.7.1, by input origin:
@@ -196,13 +232,12 @@ For the record, after 0.7.1, by input origin:
 | Pitch, velocity, length of one note | every view | NOTES, TRACKER (0.7.1), the step page with a note picked |
 | Onset within the step | converts to an event (fine LENGTH, moves) | NOTES, a sixteenth |
 | Chance, slide | yes | yes |
-| Ratchet, flam, condition, nudge, accent | yes | no: the sequencer skips them for recorded steps (seq.c) |
+| Ratchet, flam, condition, nudge, accent | yes | yes since 0.13.0, as a group (recording.c; "What was changed, third step") |
 | A key on the step | replaces the column (TRACKER) or the step | refused by the dispatcher ("STOP TO EDIT"); the entry code deletes the events through the history since 0.7.2 |
 | Delete one note | yes | yes (NOTES, TRACKER) |
 
-The ratchet row is the remaining input-origin difference; the key row is closed in the code (1b) and moot in practice. Ratchet and the others are a sequencer
-change (apply the step's properties to its events' onsets: a design question for the nudge and ratchet of a chord
-with three onsets); the key is the one-authority cleanup below.
+The ratchet row was the remaining input-origin difference and is closed in 0.13.0; the key row is closed in the code (1b) and moot in practice. What is left
+is the one-authority cleanup below.
 
 ## Left to do
 
@@ -211,5 +246,6 @@ with three onsets); the key is the one-authority cleanup below.
 - The consolidation in point 3, after the pads' editor is shared (point 1).
 - Keys on a recorded step: refused today; 0.7.2 made the entry code delete the events through the history, so EDIT
   held brings the recording back if keys are ever allowed there.
-- Ratchet, flam, condition, nudge and accent on recorded steps: a sequencer change (the design question for a chord
-  with three onsets), not attempted.
+- (0.13.0, on the unit) the feel of a ratchet or a flam on a chord recorded at odd offsets; the choices below were made without hearing them.
+- Not done: a nudge that carries an onset across the loop's end into the next pass (it stops at the loop's end instead, "no wrap"); a ratchet that keeps the
+  note's own velocity shape (every hit plays the same velocity, as a manual ratchet does).

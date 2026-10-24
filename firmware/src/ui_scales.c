@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ */
 /* SCL > SCALES as a screen of its own, in the large type (docs/design/README.md "Large type": C, rows): at the top the
  * track's numeral and the family (KNOB 1) in its colour, the scale's place in it at the right; under it the family's
  * scales (KNOB 2): the one picked a card tinted in the track's colour (its name, its notes and period, its star), two

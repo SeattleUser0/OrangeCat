@@ -12,6 +12,10 @@
  *     Prophet is kept while no module is there and checked against the module's panel when one is;
  *   - removing the module takes the pages away and the track keeps its (silent) engine number.
  * Built with tools/orangecat_engines.sh's switches (run_tests.sh), under the sanitizers. */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) fw_pages_check bounds what param_format reads; fuzz_fw_pages; fuzzers in run_tests.sh; the module link overflow lists the biggest symbols
+ */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 #include "fake_pages.h"
@@ -30,7 +34,7 @@ static int img_rd(void *ctx, uint32_t addr, void *buf, uint32_t n)
 static void w32(uint32_t at, uint32_t v) { img[at] = (uint8_t)v; img[at + 1] = (uint8_t)(v >> 8); img[at + 2] = (uint8_t)(v >> 16); img[at + 3] = (uint8_t)(v >> 24); }
 static uint32_t put_str(const char *s) { uint32_t at = img_n; do img[img_n++] = (uint8_t)*s; while (*s++); while (img_n & 3u) img[img_n++] = 0; return IMG_BASE + at; }
 /* offsets in the image */
-enum { O_DESC = 0x100, O_ROWS = 0x140, O_PANEL = 0x180, O_SKIP = 0x2C0, O_ENV = 0x2D0, O_STR = 0x300 };
+enum { O_DESC = 0x100, O_ROWS = 0x150, O_PANEL = 0x180, O_SKIP = 0x2C0, O_ENV = 0x2D0, O_STR = 0x300 };
 static void build_img(void)
 {
     uint32_t i, s_title, s_cut, s_env, s_x;
@@ -104,6 +108,18 @@ int main(void)
     bad += check("descriptor check: a title list entry outside the image is FWP_TITLES", chk() == FWP_TITLES);
     build_img(); img[O_DESC + 49] = 3;
     bad += check("descriptor check: a knob past the panel is FWP_KNOB", chk() == FWP_KNOB);
+    build_img(); w32(O_DESC + 52, 0x20000000u);
+    bad += check("descriptor check: a loaded hook outside the image is FWP_HOOK (0.12.1)", chk() == FWP_HOOK);
+    build_img(); w32(O_DESC + 56, 0x20000000u);
+    bad += check("descriptor check: an env_source hook outside the image is FWP_HOOK (0.12.1)", chk() == FWP_HOOK);
+    build_img(); w32(O_DESC + 60, 0x20000000u);
+    bad += check("descriptor check: a bend hook outside the image is FWP_HOOK (0.12.1)", chk() == FWP_HOOK);
+    build_img(); w32(O_DESC + 52, IMG_BASE + 0x110); w32(O_DESC + 56, IMG_BASE + 0x110); w32(O_DESC + 60, IMG_BASE + 0x110);
+    bad += check("descriptor check: the three new hooks inside the image pass (0.12.1)", chk() == FWP_OK);
+    build_img(); img[O_DESC + 65] = 3;
+    bad += check("descriptor check: a CC target past the panel is FWP_KNOB (0.12.1)", chk() == FWP_KNOB);
+    build_img(); img[O_DESC + 64] = img[O_DESC + 65] = img[O_DESC + 66] = img[O_DESC + 67] = 0xFF;
+    bad += check("descriptor check: no CC targets (0xFF) pass (0.12.1)", chk() == FWP_OK);
     build_img(); img[O_ROWS + 5] = SC_P5;
     bad += check("descriptor check: a row of another scope is FWP_ROW", chk() == FWP_ROW);
     build_img(); img[O_ROWS + 9] = 3;
@@ -112,9 +128,22 @@ int main(void)
     bad += check("descriptor check: a title that never ends is FWP_STR", chk() == FWP_STR);
     build_img(); img[O_PANEL + 6] = 100; img[O_PANEL + 8] = 5;
     bad += check("descriptor check: min above max is FWP_PANEL", chk() == FWP_PANEL);
+    /* (0.12.2, the fuzzer's finding) what param_format reads is bounded: the format, F_ENUM's names, F_INT's 0-terminated list */
+    build_img(); img[O_PANEL + 4] = F_TONE + 1;
+    bad += check("descriptor check: a format this firmware does not know is FWP_PANEL (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_ENUM; w32(O_PANEL + 12, 0);
+    bad += check("descriptor check: an F_ENUM with no names is FWP_PANEL (param_format indexes them) (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_ENUM; img[O_PANEL + 6] = 0xFF; img[O_PANEL + 7] = 0xFF; img[O_PANEL + 8] = 1; img[O_PANEL + 9] = 0; w32(O_PANEL + 12, IMG_BASE + 0x2D0);
+    bad += check("descriptor check: an F_ENUM whose minimum is below 0 is FWP_PANEL (names[-1]) (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_PCT; w32(O_PANEL + 12, IMG_BASE + 0x2D0);
+    bad += check("descriptor check: a name list on a format that has none is FWP_PANEL (0.12.2)", chk() == FWP_PANEL);
+    build_img(); img[O_PANEL + 4] = F_INT; img[O_PANEL + 8] = 1; img[O_PANEL + 9] = 0; w32(O_PANEL + 12, IMG_BASE + 0x2F0); w32(0x2F0, IMG_BASE + O_STR); w32(0x2F4, IMG_BASE + O_STR); w32(0x2F8, 0);
+    bad += check("descriptor check: an F_INT name list ended by a 0 passes (0.12.2)", chk() == FWP_OK);
+    build_img(); img[O_PANEL + 4] = F_INT; img[O_PANEL + 8] = 1; img[O_PANEL + 9] = 0; w32(O_PANEL + 12, IMG_BASE + 0x2F0); w32(0x2F0, IMG_BASE + O_STR); w32(0x2F4, IMG_BASE + O_STR); w32(0x2F8, IMG_BASE + O_STR);
+    bad += check("descriptor check: an F_INT name list that goes on past the range is FWP_PANEL (0.12.2)", chk() == FWP_PANEL);
     build_img(); w32(O_DESC, 0); w32(O_DESC + 12, 0);
     bad += check("descriptor check: an address of 0 is not a descriptor", fw_pages_check(img_rd, 0, 0, IMG_BASE + 0x100, IMG_BASE + sizeof img) == FWP_ADDR);
-    bad += check("descriptor check: the device sizes the loader reads (52, 12, 20 bytes)", FW_PAGES_WIRE == 52 && FW_PAGES_ROW_WIRE == 12 && FW_PAGES_DESC_WIRE == 20);
+    bad += check("descriptor check: the device sizes the loader reads (68, 12, 20 bytes)", FW_PAGES_WIRE == 68 && FW_PAGES_ROW_WIRE == 12 && FW_PAGES_DESC_WIRE == 20);
 
     /* ---- 2. the pages come with the module */
     ui_power_on();

@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.11.1) oc_mod_boot from a running session parks the engine's voices; the table's two stores are one critical section
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ */
 /* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol) and the parts'
  * sounds at power-on. */
 #include "dsp.c"
@@ -64,10 +69,34 @@ uint32_t fw_rng_cell = 0x21u;                /* (0.10.0) the module SHAPES' pb_r
 #else
 #define FW_API_SECTION __attribute__((section(".fwapi")))
 #endif
+/* (0.12.1) what the Prophet module calls outside itself: the patches (project.c, the presets and motion share them), the one CPU1 job, the bend target, the audio
+ * worker and the batch queue. midi_bend_target is voice.c's, declared here so the table can point at it (a second tentative definition of the same static). */
+static int32_t midi_bend_target[NTRK];
+#if MELODEE_DUAL_CORE
+#define FW_P5_JOB (&p5_job)
+#else
+#define FW_P5_JOB ((void *)0)
+#endif
+#if MELODEE_DUAL_CORE
+#define FW_WORKER_ONLINE (&audio_worker_online)
+static FW_UNUSED int fw_worker_submit(void (*fn)(void *), void *context) { return audio_worker_submit(fn, context); }
+static FW_UNUSED int fw_worker_join(void) { return audio_worker_join(); }
+#else                                           /* (a single core build: no worker, the module never submits) */
+static int fw_no_worker;
+#define FW_WORKER_ONLINE (&fw_no_worker)
+static FW_UNUSED int fw_worker_submit(void (*fn)(void *), void *context) { (void)fn; (void)context; return 0; }
+static FW_UNUSED int fw_worker_join(void) { return 0; }
+#endif
+static FW_UNUSED void fw_batch_push(void (*run)(const void *, int32_t *), const void *data, uint32_t bytes, int32_t *out, uint32_t n, uint32_t id)
+{
+    audio_batch_push(run, data, bytes, out, n, id);
+}
 FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
     FW_API_MAGIC, sizeof(fw_api_t), FW_API_VERSION, FW_API_IFACE,
     fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
     RES_ENGINE0, NENGINES, &fw_rng_cell,
+    p5_patch, p5_ready, FW_P5_JOB, midi_bend_target, FW_WORKER_ONLINE, &audio_batch_active,
+    fw_worker_submit, fw_worker_join, fw_batch_push, AP_PROPHET, &voice_was, PITCH_OCT, ENV_LIN,
 };
 /* (0.10.0) the module registered under an engine number, or 0 (the loader, eng_register): its header says the state size */
 static const fw_mod_hdr_t *eng_mod[NENGINES];
@@ -292,6 +321,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_SHAPES || OC_MODULES
     ENGI_SHAPES,                 /* (Orange Cat 0.5.1) SHAPES; (0.10.0) kept in the order while a module may supply it (eng_ok says whether it is there) */
 #endif
+#if !MELODEE_P5 && OC_MODULES
+    ENGI_PROPHET,                /* (Orange Cat 0.12.1) the Prophet as a module: offered only while one is registered (eng_ok) */
+#endif
 };
 
 /* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
@@ -302,7 +334,7 @@ static int eng_extra_retired(uint32_t e)
     if (e == ENGI_ANALOG) return 1;
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || (e == 9u && !MELODEE_DRUMX) || e == 11u))
-        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET) || (!MELODEE_DRUM && e == ENGI_DRUM);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
+        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM);              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -347,6 +379,10 @@ static const engine_t *eng_default(uint32_t e)     /* what the slot holds withou
 #if MELODEE_SHAPES
     if (e == ENGI_SHAPES)
         return &ENG_SHAPES;
+#endif
+#if MELODEE_P5
+    if (e == ENGI_PROPHET)
+        return &ENG_P5_TEST;       /* (0.12.1) built in: the slot's own engine */
 #endif
     (void)e;
     return &ENG_RETIRED;

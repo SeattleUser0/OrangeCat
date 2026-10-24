@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ */
 /* Melodee quick layers: while a page button is held, the keys and KNOB 1..4
  * are its shortcuts and its map shows over the page. One table (LAYERS) drives the gesture, the keys, the knobs,
  * the LEDs and the overlay:

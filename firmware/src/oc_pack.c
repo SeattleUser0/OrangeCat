@@ -30,6 +30,7 @@
  *   pack reads as missing, never half installed. oc_pack_erase(): the 10 sectors erased.
  *
  * Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
  *   0.8.0: first version.
  *   0.9.1: the library is no longer in this area (lib_group.c): no question about banks, no preset erased, the Prophet objects retired
  *          by the build instead of by the pack's presence; oc_pack_begin(len), oc_pack_erase(), oc_pack_info(len, hash).

@@ -25,6 +25,7 @@
  *   firmware's flag through the services table (OC_FW(), which the module's source defines before any engine code runs).
  *
  * Revisions:
+ * (Orange Cat 0.10.0) fw_api_t at a fixed address, no RAM in the module (0.10.0)
  *   0.8.0: first version.
  *   0.10.0: OC_MODULE: the ready flag is read through fw_api_t.
  */

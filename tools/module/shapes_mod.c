@@ -12,6 +12,7 @@
  * (dsp.c) and are compiled into the module as they are. The first arena id (RES_ENGINE0) comes from the table too.
  *
  * Revisions:
+ * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
  *   0.10.0: moved from the experiment; the table by its fixed address, no .data / .bss. Step 2: the header carries the engine
  *          number, the state size, the engine_t's address, the address it is linked for and the pack's hash (fw_mod_hdr_t); there
  *          is no entry function: the header says where the engine_t is. Step 3: OC_MODULE_HOST builds the same unit for the host

@@ -3,6 +3,12 @@
 # Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Copyright (C) 2026 ChoralRoot FM-1 contributors
 # Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Revisions:
+# (Orange Cat 0.7.0) text in Melodee Pixel alone. The Rubik faces, kerning, phases and the Huffman decoder are gone (fonts 31,353 B to 1,447 B), with Settings > FONT; g...
+# (Orange Cat 0.10.1) module sector tails against the update loader's record rule
+# (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+# (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+# (Orange Cat 0.12.2) fuzzers for the library group, the pack and the module loader; the loser of two modules no longer erases the winner's sectors; module link overflow...
 """Build Melodee: the app, the update loader and an installable .fwsc package.
 
   tools/build.py [--release X.Y[.Z][-suffix]]
@@ -498,7 +504,10 @@ def check(img, syms, dis, rt):
 # time until none does, and the package is not written if no placement passes).
 
 TAIL_PAD_TRIES = 64                      # (0.10.1) code placements tried per start before the build gives up
-MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": "SHAPES"}}
+MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts": [0, 6], "name": "SHAPES"},
+           # (0.12.1) the Prophet: 8 sectors (32,768 B; the code and its factory tables measured 31,148 B), sector 0 and sector 4 of the 12 sector area. It does not
+           # fit beside the SHAPES module (the loader's planner refuses the pair, firmware/src/oc_module.c).
+           "prophet": {"src": "tools/module/prophet_mod.c", "sectors": 8, "starts": [0, 4], "name": "PROPHET"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
@@ -532,10 +541,13 @@ def module_cost(name):
     return sum(budget[w] for w in want if w in budget), missing
 
 
-def module_starts(sectors):
-    """the sector indices a module of that many sectors may start at (multiples of its size that fit the area)"""
+def module_starts(sectors, spec=None):
+    """the sector indices a module may be linked for: the module's own list (MODULES "starts"; 0.12.1: SHAPES 0 and 6, the Prophet 0 and 4), else the
+    multiples of its size that fit the area. The firmware's table of starts (oc_module.c oc_mod_sect, oc_mod_geo) must agree: tests/module_build_test.py."""
     lo, hi = module_area()
     n = (hi - lo) // 0x1000
+    if spec and "starts" in spec:
+        return [i for i in spec["starts"] if i + sectors <= n]
     return [i for i in range(0, n - sectors + 1, sectors)]
 
 
@@ -567,7 +579,7 @@ def build_module(name):
     if missing:
         errors.append(f"{name}: tools/module/{name}.cost names {missing}, which tests/target_budget.txt does not have")
     variants, ifaces = [], set()
-    for start in module_starts(sectors):
+    for start in module_starts(sectors, spec):
         base = ocflash.xip(lo + start * 0x1000)           # flash offset to the address it runs at (tools/ocflash.py; 0.10.1: one function for this and gen_pack.py)
         ld = mdir / f"{name}.{start}.ld"
         elf, binf = mdir / f"{name}.{start}.elf", mdir / f"{name}.{start}.bin"
@@ -580,13 +592,32 @@ def build_module(name):
         for pad in range(0, 4 * TAIL_PAD_TRIES, 4):
             ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {sectors * 0x1000:#x} }}
 SECTIONS {{
-    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF + pad:#x}; *(.text*) *(.rodata*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
+    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF + pad:#x}; *(.text*) *(.dsp_text*) *(.audio_text*) *(.rodata*) *(.dsp_tables*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
     .data : {{ *(.data*) *(.sdata*) . = ALIGN(4); }} > MOD
     .bss (NOLOAD) : {{ *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); }} > MOD
     /DISCARD/ : {{ *(.comment) *(.note*) }}
 }}
 """)
-            tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+            try:
+                tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+            except SystemExit:                 # (0.12.1) too big for its sectors: link again into a region of 4 times the size, to say by how much
+                big = mdir / f"{name}.{start}.measure.ld"
+                big.write_text(ld.read_text().replace(f"LENGTH = {sectors * 0x1000:#x}", f"LENGTH = {4 * sectors * 0x1000:#x}"))
+                try:
+                    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", big, obj, "-o", elf)
+                    tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+                    errors.append(f"{name}@{start}: the code is {binf.stat().st_size} B and the {sectors} sectors hold {sectors * 0x1000} B")
+                    big_syms = []                    # the biggest symbols: where the bytes are
+                    for ln in tc("common/bin/objdump", "-t", elf).splitlines():
+                        p = ln.split()
+                        if len(p) >= 6 and re.fullmatch(r"[0-9a-fA-F]{8}", p[-2]) and int(p[-2], 16) >= 200 and p[0].isalnum():
+                            big_syms.append((int(p[-2], 16), p[-1], p[-3]))
+                    for sz, nm, sec in sorted(big_syms, reverse=True)[:30]:
+                        errors.append(f"    {sz:6d} B  {sec:24s} {nm}")
+                except SystemExit:
+                    errors.append(f"{name}@{start}: the link failed (not a matter of size)")
+                hit = -2
+                break
             binf.unlink(missing_ok=True)
             tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
             raw = binf.read_bytes()
@@ -594,6 +625,8 @@ SECTIONS {{
             hit = ocflash.tail_hit(raw)
             if hit < 0:
                 break
+        if hit == -2:
+            continue
         if hit >= 0:
             errors.append(f"{name}@{start}: no layout of {TAIL_PAD_TRIES} avoids the update loader's record test (sector {hit} tail); not written")
             continue

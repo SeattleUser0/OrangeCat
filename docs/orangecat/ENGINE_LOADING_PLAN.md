@@ -1,6 +1,6 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.9
+**Version:** 0.10
 **Date:** October 23, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) has its proof of concept built in 0.10.0 on the same branch ("The SHAPES module, as built"):
@@ -10,6 +10,10 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.10: the Prophet as the second module, built (0.12.1, 0.12.2): 8 sectors (32,768 B), 31,872 B built at starts 0 and 4 of the 12-sector area; SHAPES stays 6 sectors at starts 0 and 6;
+  the planner refuses a candidate that shares a sector with a usable module of another engine (MI_NOFREE, ED_MOD_INFO's blocker byte), the loser of a double install is erased only
+  outside any registered module's span, a registered Prophet module makes engine 19 selectable (eng_ok, ENGINE_ORDER, NENG_SHOWN), the interface id changed once (pitch_oct, env_lin
+  members). The 7.60-sector measurement of 0.9 came down by the shared tables and the palette-packed factory programs (BUILD.md, Seventh run, Part 1).
 - 0.9: the Prophet as a module, measured (Part 2a of the sixth run) and its pages as data built (Part 2b): the page descriptor (fw_pages.h, engine_t.pages), the loader's
   check of it, the page lookup, edit and motion that follow it, editor commands 126 and 127. The Prophet does NOT fit the 6 sectors a start has (7.60), so it is not built
   as the second module (2c) and its admission line (2d) is not added; "The Prophet as a module (0.12.0)" below has the numbers and what it would need. The Engines table

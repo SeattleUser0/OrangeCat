@@ -61,6 +61,8 @@
  *     bank whose group copy survived with a sequence at or above the pair's keeps the group copy, and the pair is erased as a leftover.
  *
  * Revisions:
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  *   0.9.1: first version.
  *   0.11.1: a save whose read-back fails after the header was programmed erases the sector (or, if that fails too, moves lg_seq past it):
  *           the failed save no longer appears after a reset and no later save shares its sequence; lg_seq is 0 for a bank with no copy and
@@ -69,6 +71,7 @@
  *           boot, writes locked for good). A sector is busy only for the current record of a waiting bank; stale group copies of
  *           waiting banks are given up when there is no free sector (lg_pick_move); the state that remains impossible by count is
  *           reported as LIBRARY NEEDS WIPE (lg_needwipe) and shared_wipe clears the old records first (lg_drop_pairs).
+ *   0.12.2: every erase of the group feeds the watchdog first (OC_FEED, storage.c): the migration of 22 banks, the leftovers, a save, the wipe.
  */
 #define LG_BANKS 22u
 #define LG_SECTORS 23u
@@ -91,7 +94,7 @@ static uint32_t lg_busy;                       /* sectors (bit per index) holdin
 static uint32_t lg_erases, lg_progs;           /* flash operations done by this layer (migration cost, tests) */
 static void (*lg_progress)(uint32_t done, uint32_t total);
 
-static int lg_erase(uint32_t s) { lg_erases++; return st_erase(lg_addr[s]); }
+static int lg_erase(uint32_t s) { lg_erases++; OC_FEED(); return st_erase(lg_addr[s]); }   /* (0.12.2) fed before every erase: the migration, a save, the wipe */
 static int lg_prog(uint32_t a, const void *p, uint32_t n) { lg_progs++; return st_prog(a, p, n); }
 static int lg_newer(uint32_t a, uint32_t b) { return a != b && a - b < 0x80000000u; }
 static uint32_t lg_off(const st_hdr_t *h) { return h->rsv[0] == ST_COMPACT_TAG ? (uint32_t)sizeof(st_hdr_t) : ST_PAYLOAD_OFF; }
@@ -289,6 +292,7 @@ static void lg_leftovers(uint32_t b)
         st_hdr_t h;
         if (i != LG_NONE && ((own >> i) & 1u)) continue;               /* a group copy lives there now */
         if (st_read(a, &h, sizeof h) || h.magic != ST_MAGIC || h.type != obj) continue;
+        OC_FEED();
         st_erase(a);
         lg_erases++;
     }
@@ -371,6 +375,7 @@ static void lg_drop_pairs(void)
             uint32_t a = st_sector(obj, c);
             st_hdr_t h;
             if (st_read(a, &h, sizeof h) || h.magic != ST_MAGIC || h.type != obj) continue;
+            OC_FEED();
             if (st_erase(a) == 0) lg_erases++;
         }
     }

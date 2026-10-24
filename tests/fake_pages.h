@@ -1,10 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
  *
- * Orange Cat 0.12.0 (Part 2b): a fake module's page descriptor (firmware/src/fw_pages.h), the one tests/mod_pages_test.c and tests/editor_test.c use.
+ * Orange Cat 0.12.0 (Part 2b; 0.12.1: the loaded, env_source, bend hooks and the cc list): a fake module's page descriptor (firmware/src/fw_pages.h), the one tests/mod_pages_test.c and tests/editor_test.c use.
  * Included after the firmware (it needs track_t, param_desc_t and the F_ formats). A "Prophet in the Orange Cat set" stand-in: eight native
  * parameters (one a hole), four pages, the ENV and LFO tab lists, the hooks (a shown value, a put, a dim). Host pointers (8 bytes): the UI reads these
  * as structs; the wire check (fw_pages_check) is tested on bytes built by hand in mod_pages_test.c. */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ */
 #pragma once
 static uint8_t fp_blk[16][96];                    /* the tracks' native blocks, byte i = panel index i */
 static uint32_t fp_put_calls, fp_put_id;
@@ -45,5 +48,9 @@ static const page_t FP_ROWS[4] = {
 static const uint8_t FP_SKIP[1] = {0x10};         /* UNISON (4): motion leaves it */
 static const char *const FP_ENV[] = {"X ENV", 0};
 static const char *const FP_LFO[] = {"X LFO", 0};
+static uint32_t fp_loaded_calls, fp_loaded_pi;
+static void fp_loaded(track_t *t, uint32_t pi) { (void)t; fp_loaded_calls++; fp_loaded_pi = pi; }     /* (0.12.1) a preset was loaded */
+static int32_t fp_env_source(track_t *t, const voice_t *v) { (void)t; return 12000 + v->note; }        /* (0.12.1) the matrix's ENV source */
+static int32_t fp_bend(const track_t *t) { (void)t; return 3 * 256; }                                 /* (0.12.1) the wheel's range, 3 semitones */
 static const fw_pages_t FP_DESC = {FW_PAGES_MAGIC, sizeof(fw_pages_t), FW_PAGES_VERSION, 4, 8, FP_ROWS, FP_PANEL, fp_native, fp_shown, fp_put, fp_active,
-                                   FP_SKIP, FP_ENV, FP_LFO, {0, 1, 2, 7}};
+                                   FP_SKIP, FP_ENV, FP_LFO, {0, 1, 2, 7}, fp_loaded, fp_env_source, fp_bend, {2, 0, 1, 0xFF}};

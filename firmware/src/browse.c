@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.9.0) DRUM-X, Jiant FM's drum engine, in engine slot 9; the loadable-engine interface identifier.
+ * (Orange Cat 0.10.0) the engine table in RAM, module registration
+ */
 /* The sound browser (the PRESETS knob, SAVE > PRESETS): one list of every sound, in ENGINE_ORDER each engine's factory
  * presets and then its native user slots, then the general user presets. LIST (KNOB 4 of PRESETS) shows all of it, the
  * favourites (FAV, favorites.filter as before), the sounds loaded lately (RECENT, kept in RAM) or one category.

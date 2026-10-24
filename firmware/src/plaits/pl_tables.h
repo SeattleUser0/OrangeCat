@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: MIT
  * Copyright 2016-2021 Emilie Gillet (Mutable Instruments Plaits, stmlib). MIT License: LICENSES/MIT-Mutable.txt
  * Orange Cat 0.5.0: Plaits' lookup tables, made by tools/gen_plaits_tables.py (do not edit). */
+/* Revisions:
+ * (Orange Cat 0.8.0) the asset pack. The 57 constant tables of SHAPES and MACRO (40,232 bytes) move out of the image into a pack stored in the Prophet bank area (0x9300...
+ */
 #pragma once
 #include "../oc_pack.h"
 

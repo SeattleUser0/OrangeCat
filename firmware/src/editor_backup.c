@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 /* Complete musical archive: no raw addresses are accepted. Objects are staged
  * in main-loop RAM and fully validated before the existing A/B commit path writes.
  * Runtime and saved projects include all 32 pattern banks. Retired user sample
@@ -261,7 +264,7 @@ static uint32_t ed_bk_commit(void) { return ed_bk_commit_inner(); }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
     if (n < 2u || a[0] > 3u || a[1] > 28u) return 1;
-    if (ed_flash_stop()) return 3;
+    if (transport_busy()) return 3;                 /* (0.12.2) a restore is REFUSED while the transport runs (it used to stop it): rc 3, as the other installs */
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);

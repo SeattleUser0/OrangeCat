@@ -17,6 +17,7 @@
  * Included by ui_draw.c (after ui_patterns.c).
  *
  * Revisions:
+ * (Orange Cat 0.7.1) the tracker edits a recorded step's notes through NOTES' event editor (notes_nth, notes_pick): pitch, velocity and length of each note alone, delet...
  *   0.4.2: first version; the lanes (PRESET).
  *   0.5.2: four note columns (N1 .. N4) in place of NOTE (the first note, +n), KNOB 2 picks the column; the FX column
  *          edits its effects (KNOB 3 which, KNOB 4 how much); LEN's column gone (a held note's bars show it, KNOB 4

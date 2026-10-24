@@ -19,6 +19,7 @@ The Pages job of .github/workflows/build.yml runs this after each build of main.
 screenshots need tools/manual_shots.py, and the manual still describes Melodee.
 
 Revisions:
+# (Orange Cat 0.11.2) the installer page installs firmware, pack and module in one go
   0.1.0: first version. Uses web/make_site.py in installer-only mode, then adds the editor and the redirect itself.
   0.11.2: --pak, --ocm and --manifest: the pack and the modules of the build beside the firmware; the installer page offers them.
 """

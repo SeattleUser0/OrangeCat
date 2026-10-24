@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
+ */
 /* The palettes and the real canvas/text renderer (src/gfx.c): NIGHT DAY CONTRAST with each track's colour as THEME,
  * the test-only GRAY stays gray in every token and blend, every palette's text contrast, the 1-bit text (0.7.0: was the
  * alpha blend), the ramp

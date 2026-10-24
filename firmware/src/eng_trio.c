@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.2) eng_trio left shift of a negative value written as a multiply (SAN)
+ */
 /* TRIO: three oscillators with ring modulation and hard sync into a 12 dB/oct multimode
  * filter, in the style of the sound chips of early 8-bit home computers. Melodee's own design.
  *
@@ -330,7 +333,7 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         a = clamp(ic1, -49152, 49152);                  /* beyond +-49152 a quarter of the excess */
         ic1 = a + ((ic1 - a) >> 2);
         y = soft_knee((x * ma + v1 * mb + v2 * mc) >> 10, 16000);   /* linear up to half scale */
-        out[i] += voice_amp(y << 1, m, i) << 1;
+        out[i] += voice_amp(y * 2, m, i) * 2;
     }
     prev = cur + cr[n];
     v->ph[0] = ph0;

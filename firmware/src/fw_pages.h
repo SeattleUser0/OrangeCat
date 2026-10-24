@@ -28,7 +28,11 @@
  * The preset list and the names are the engine_t's own (npresets, preset_make, in the module's code): nothing more is needed here.
  *
  * Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) fw_pages_check bounds what param_format reads; fuzz_fw_pages; fuzzers in run_tests.sh; the module link overflow lists the biggest symbols
  *   0.12.0: first version. FAM_, SC_, GR_ and page_t moved here from params.c (unchanged); SC_MOD added at the end of SC_.
+ *   0.12.1: version 2 (68 bytes): the hooks loaded, env_source and bend and the cc list, which the Prophet needs to be a module (its patch follows the preset, its
+ *           envelope is the matrix's ENV source, its patch sets the MIDI wheel's range, MIDI CC 72, 73, 75 edit its amplitude envelope).
  */
 #pragma once
 #include <stdint.h>
@@ -52,10 +56,10 @@ typedef struct {
 } page_t;
 
 #define FW_PAGES_MAGIC 0x47415047u                       /* "GPAG" little endian */
-#define FW_PAGES_VERSION 1u
+#define FW_PAGES_VERSION 2u                              /* (0.12.1) 2: loaded, env_source, bend and cc added; 0.12.0's descriptor (version 1) was never in a released module */
 #define FW_PAGES_MAX 24u                                 /* rows a module may bring: its indices after PAGES */
 #define FW_PANEL_MAX 128u                                /* native parameters a module may describe (motion's MO_NATIVE_N) */
-#define FW_PAGES_WIRE 52u                                /* sizeof(fw_pages_t) on the device (4 byte pointers); the loader reads this layout */
+#define FW_PAGES_WIRE 68u                                /* sizeof(fw_pages_t) on the device (4 byte pointers); the loader reads this layout */
 #define FW_PAGES_ROW_WIRE 12u                            /* sizeof(page_t) on the device */
 #define FW_PAGES_DESC_WIRE 20u                           /* sizeof(param_desc_t) on the device */
 typedef struct fw_pages {
@@ -72,6 +76,10 @@ typedef struct fw_pages {
     const char *const *env_titles;
     const char *const *lfo_titles;
     uint8_t knob[4];
+    void (*loaded)(struct track *t, uint32_t preset);    /* (0.12.1) a preset was loaded on the track: the engine takes its own patch from it (ui.c preset_apply) */
+    int32_t (*env_source)(struct track *t, const voice_t *v);   /* (0.12.1) the modulation matrix's ENV source for an engine with envelopes of its own (voice.c) */
+    int32_t (*bend)(const struct track *t);              /* (0.12.1) the MIDI wheel's range in 1/256 semitones when the patch sets it; 0 = the channel's own */
+    uint8_t cc[4];                                       /* (0.12.1) panel indices that MIDI CC 72 (release), 73 (attack), 75 (decay) set on the amplitude envelope; 0xFF = none */
 } fw_pages_t;
 _Static_assert(sizeof(void *) != 4 || sizeof(fw_pages_t) == FW_PAGES_WIRE, "the descriptor's device layout");
 _Static_assert(sizeof(void *) != 4 || sizeof(page_t) == FW_PAGES_ROW_WIRE, "the row's device layout");
@@ -108,8 +116,8 @@ static inline int fw_pages_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint3
     rows = fwp_u32(d + 12); panel = fwp_u32(d + 16);
     if (!fwp_in(rows, n * FW_PAGES_ROW_WIRE, lo, hi) || (rows & 3u)) return FWP_ROW;
     if (!fwp_in(panel, np * FW_PAGES_DESC_WIRE, lo, hi) || (panel & 3u)) return FWP_PANEL;
-    for (i = 0; i < 4u; i++) {                           /* the four hooks that may be code: inside the image after the header page, or 0 */
-        h = fwp_u32(d + 20 + 4 * i);
+    for (i = 0; i < 7u; i++) {                           /* the seven hooks that may be code: inside the image after the header page, or 0 */
+        h = fwp_u32(d + (i < 4u ? 20u + 4u * i : 52u + 4u * (i - 4u)));
         if (h && !fwp_in(h, 2u, lo, hi)) return FWP_HOOK;
     }
     skip = fwp_u32(d + 36);
@@ -125,7 +133,7 @@ static inline int fw_pages_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint3
         }
     }
     for (i = 0; i < 4u; i++)
-        if (d[48 + i] != 0xFFu && d[48 + i] >= np) return FWP_KNOB;
+        if ((d[48 + i] != 0xFFu && d[48 + i] >= np) || (d[64 + i] != 0xFFu && d[64 + i] >= np)) return FWP_KNOB;
     for (i = 0; i < n; i++) {
         uint32_t k;
         if (rd(ctx, rows + i * FW_PAGES_ROW_WIRE, r, FW_PAGES_ROW_WIRE)) return FWP_READ;
@@ -143,6 +151,14 @@ static inline int fw_pages_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint3
         if (!label) continue;                            /* no parameter i */
         if (!fwp_str(rd, ctx, label, lo, hi) || (unit && !fwp_str(rd, ctx, unit, lo, hi))) return FWP_STR;
         if (mn > mx) return FWP_PANEL;
+        /* (0.12.2, found by tests/fuzz_fw_pages.c) what params.c's param_format reads, which the check above did not bound: the format is one it knows; an F_ENUM has its names
+         * (it indexes names[] by the value clamped to min..max, so min is not below 0); a name list on an F_INT is 0-terminated inside the image (param_format counts to the 0);
+         * no other format has one */
+        if (p[4] > F_TONE || (p[4] == F_ENUM && (!names || mn < 0)) || (names && p[4] != F_ENUM && p[4] != F_INT)) return FWP_PANEL;
+        if (names && p[4] == F_INT) {
+            if (mx < 0 || mx >= 127 || !fwp_in(names, (uint32_t)(mx + 2) * 4u, lo, hi) || (names & 3u) || rd(ctx, names + 4u * (uint32_t)(mx + 1), w, 4u)) return FWP_PANEL;
+            if (fwp_u32(w)) return FWP_PANEL;
+        }
         if (names) {                                     /* names[0 .. max]: pointers to strings */
             if (mx < 0 || mx >= 128 || !fwp_in(names, (uint32_t)(mx + 1) * 4u, lo, hi) || (names & 3u)) return FWP_PANEL;
             for (uint32_t j = 0; j <= (uint32_t)mx; j++) {

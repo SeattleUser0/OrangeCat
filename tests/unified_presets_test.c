@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.8.1) why five preset tests failed locally. They fail only when built with tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off): the...
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 /* Firmware save flows against NOR flash: deferred settings, retries, and failed-save rollback. */
 #define LG_TEST_HOOKS 1                          /* (0.11.1) lg_test_reserve, lib_group.c: the LIBRARY NEEDS WIPE state cannot be made from flash contents */
 #define main hostsim_main
@@ -175,6 +181,12 @@ static int wipe_recovery(void)
     fail_after=0;up_boot();
     bad+=check("fixture fails migration before recovery",up_migration_error && boot_work.state==2u);
     bad+=check("failed wipe intent cannot erase a source bank",shared_wipe()==2 && !shared_wipe_pending() && st_load(up_obj(16u),&old,sizeof old)==sizeof old);
+    {   /* (0.12.2, Part 2e) the library wipe is refused while the transport runs: nothing erased or programmed */
+        static uint8_t snap[sizeof nor];uint32_t e0=erases;memcpy(snap,nor,sizeof nor);
+        song.playing=1;
+        bad+=check("library wipe while the transport runs is refused (2): no erase, flash unchanged",shared_wipe()==2 && erases==e0 && !memcmp(snap,nor,sizeof nor));
+        song.playing=0;
+    }
     fail_after=18;check_maintenance=1;
     bad+=check("interrupted wipe leaves durable reset intent and blocks writes",shared_wipe()==2 && shared_wipe_pending() && up_migration_error && up_store(383,"BLOCKED")==2);
     fail_after=0;up_boot();

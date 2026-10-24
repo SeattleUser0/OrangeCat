@@ -1,6 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.10.1) crash ban at any time (unclean session count in noinit, MODULE BANNED notice)
+ * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+ * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) a registered Prophet module makes engine 19 selectable (eng_ok, ENGINE_ORDER, NENG_SHOWN); module pages test on the real descriptor
+ */
 /* MELODEE core types: tracks, voices, engines, parameters.
  * Up to four tracks (all four to start with: song.ntrk), each a synth part: its own engine, preset, parameters, voices and
  * 64-step pattern. The parts share one budget of VBUDGET units of sounding voices (voice.c). Drums are the DRUM
@@ -116,7 +123,7 @@
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - !MELODEE_P5 - !MELODEE_DRUM + MELODEE_DRUMX)   /* (Orange Cat: - SID - CZ-1 - FM6 -
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX)   /* (Orange Cat: - SID - CZ-1 - FM6 -
                                                  * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
@@ -613,10 +620,11 @@ struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".n
  *            watchdog, a CPU exception, a hang. A power loss clears the RAM and with it this word.
  *   unclean  0.10.1: per start, how many sessions in a row died with that module's engine in use (three bans it)
  *   notice   0.10.1: per start, banned at this boot and not yet told on the screen (oc_mod_ban_notice)
- * The magic is new in 0.10.1 (the layout grew): RAM that kept the old layout across an update reads as fresh. */
-#define OC_MODGUARD_MAGIC 0x4D4F4432u                          /* "MOD2" */
+ * The magic is new in 0.10.1 (the layout grew): RAM that kept the old layout across an update reads as fresh. 0.12.1: three starts (unclean[3]; the
+ * word is the same size), so the magic changed again. */
+#define OC_MODGUARD_MAGIC 0x4D4F4433u                          /* "MOD3" (0.12.1: three starts) */
 #ifndef OC_MODULE                                               /* (a module's own translation unit, tools/module/shapes_mod.c, has no RAM of its own) */
-struct { uint32_t magic, inuse, banned, run; uint8_t unclean[2], notice, pad; } oc_modguard __attribute__((section(".noinit")));
+struct { uint32_t magic, inuse, banned, run; uint8_t unclean[3], notice; } oc_modguard __attribute__((section(".noinit")));
 #endif
 #endif
 static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
@@ -624,7 +632,7 @@ static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an
     bootguard.pending = 0;
 #if OC_MODULES && !defined(OC_MODULE)
     oc_modguard.run = 0;                        /* (0.10.1) an orderly end: the module crash count starts again */
-    oc_modguard.unclean[0] = oc_modguard.unclean[1] = 0;
+    oc_modguard.unclean[0] = oc_modguard.unclean[1] = oc_modguard.unclean[2] = 0;
 #endif
 }
 

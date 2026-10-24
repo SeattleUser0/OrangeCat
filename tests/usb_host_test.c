@@ -12,6 +12,12 @@
  * (0.5.3) The drive test's page is gone: what it showed (its lines, the file list, its players and recorder) is no
  * longer tested here; the probe is checked by what it leaves (a drive ready, its address and slot), the streams by
  * starting them as a freeze does. */
+/* Revisions:
+ * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
+ * (Orange Cat 0.10.1) replace beside the old module when a start is free
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -232,6 +238,17 @@ static int t_plan = 0, t_md_fail, t_inplace;
 static uint32_t t_md_begun, t_md_engine, t_md_start, t_md_len, t_md_at, t_md_sum, t_md_ended;
 static uint8_t t_md_page[256];
 static int oc_mod_plan(uint32_t engine) { (void)engine; return t_plan; }
+/* (0.12.1) three starts at sectors 0, 6 and 4 (a start with no sector here is 99: no variant matches), the blocker oc_mod_blocked_by names, the engines' names */
+static const uint8_t t_sect[8] = { 0, 6, 4, 99, 99, 99, 99, 99 };
+#define OC_MOD_START_SECTOR(i) ((uint32_t)t_sect[(i) & 7u])
+static int t_blocked = -1;
+static int oc_mod_blocked_by(uint32_t engine) { (void)engine; return t_blocked; }
+static struct { uint32_t engine[3]; } oc_mod = { { 14u, 14u, 19u } };
+#define NENGINES 32u
+typedef struct { const char *name; } t_engine_t;
+static const t_engine_t t_shapes = { "SHAPES" }, t_prophet = { "PROPHET" }, t_other = { "OTHER" };
+static const t_engine_t *const ENGINES[NENGINES] = { &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other, &t_other,
+    &t_shapes, &t_other, &t_other, &t_other, &t_other, &t_prophet };
 static int oc_mod_inplace(uint32_t engine, uint32_t start) { (void)engine; (void)start; return t_inplace; }   /* (0.10.1) */
 static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
 {
@@ -1440,6 +1457,21 @@ static int t_folders(void)
         assert(!fb_pack_done());
         fb_close();
         printf("  browser: .PAK listed; another size or build refused; no question about banks (0.9.1); the pack written in order, header last\n");
+        /* (0.12.2, Part 2e) with the transport running (a count-in, or the song playing) the pack is refused whole: "Stop first", nothing begun, the row stays; stopped it goes on */
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/PACKS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2; t_pk_begun = t_pk_ended = 0; t_busy = 1;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_pk_begun);
+        assert(!fb_ok()); fz_block();                    /* (the message is acknowledged) */
+        t_busy = 0; song.playing = 1; fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_pk_begun);
+        assert(!fb_ok()); fz_block();
+        song.playing = 0; fb.sel = 2;
+        assert(fb_ok() && fb.st == FB_OFF && t_pk_begun == 1u && t_pk_ended == 1u);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        printf("  browser: the pack is refused while the transport runs (a count-in or the song), installed once stopped\n");
+
     }
     /* 8. (0.10.0) a .OCM in the browser: listed ("Module"); a file that is not a package, a package for another firmware or with no image for the named place
      * refused with nothing erased; installed: the image for the place oc_mod_plan names, the code in order from byte 256, the header page last */
@@ -1490,6 +1522,16 @@ static int t_folders(void)
         fb.sel = 2;                                       /* a good one, no place free */
         assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No place free") && !t_md_begun);
         assert(!fb_ok()); fz_block();
+        t_blocked = 2;                                    /* (0.12.1) no place free because the Prophet's module stands at start 2: it is named, never erased */
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "PROPHET at 2: remove it") && !t_md_begun && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_blocked = 0;                                    /* SHAPES at start 0 */
+        oc_mod.engine[0] = 14u;
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "SHAPES at 0: remove it") && !t_md_begun && !t_md_ended);
+        assert(!fb_ok()); fz_block();
+        t_blocked = -1;
         t_plan = 5;                                       /* a place the package has no image for */
         fb.sel = 2;
         assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "No image for it") && !t_md_begun);
@@ -1534,8 +1576,58 @@ static int t_folders(void)
         fb_open(0);
         assert(!fb_pack_done());
         fb_close();
+        /* (0.12.2, Part 2e) the module is refused while the transport runs (a count-in, or the song): "Stop first", nothing begun */
+        t_md_begun = t_md_ended = 0;
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/MODS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2; t_busy = 1;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        t_busy = 0; song.playing = 1; fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        song.playing = 0; fb.sel = 2;
+        assert(fb_ok() && !t_md_begun == 0 && t_md_ended == 1u);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        t_md_begun = t_md_ended = 0;
+        printf("  browser: the module is refused while the transport runs, installed once stopped\n");
+        /* (0.12.1) the Prophet's package: engine 19, two variants for the sectors 0 and 4 (starts 0 and 2); the start the unit names picks the variant by its sector */
+        {   uint32_t sumP[2] = { 0, 0 };
+            MKOCM(FW_API_IFACE);
+            W32(16, 19u); W32(56, 0u); W32(56 + 16, 4u);
+            crc = ocs_crc32(ocm, 88); W32(88, crc);
+            for (o = 0x100; o < 1000u; o++) { sumP[0] += ocm[base + o]; sumP[1] += ocm[base + 1000u + o]; }
+            assert(f_mkdir("/MODP") == FR_OK);
+            assert(f_open(&pf, "/MODP/PROPHET.OCM", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK && f_write(&pf, ocm, base + 2000u, &bw) == FR_OK && bw == base + 2000u);
+            f_close(&pf);
+            t_md_begun = t_md_ended = 0; t_plan = 2;
+            fb_open(0);
+            for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+            strcpy(fb.path, "/MODP"); fb.st = FB_LIST; fz_block();
+            fb.sel = 1;
+            assert(fb.st == FB_READY && fb.n == 2u && fb_ok() && fb_pack_done() == 2);
+            assert(t_md_begun == 1u && t_md_engine == 19u && t_md_start == 2u && t_md_sum == sumP[1] && !memcmp(t_md_page, ocm + base + 1000u, 256));   /* start 2 is sector 4: the second variant */
+            t_md_begun = t_md_ended = 0; t_plan = 0;
+            fb_open(0);
+            for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+            strcpy(fb.path, "/MODP"); fb.st = FB_LIST; fz_block();
+            fb.sel = 1;
+            assert(fb_ok() && fb_pack_done() == 2 && t_md_start == 0u && t_md_sum == sumP[0] && !memcmp(t_md_page, ocm + base, 256));
+            t_plan = -1; t_blocked = 0; oc_mod.engine[0] = 14u; t_md_begun = 0;
+            fb_open(0);
+            for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+            strcpy(fb.path, "/MODP"); fb.st = FB_LIST; fz_block();
+            fb.sel = 1;
+            assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "SHAPES at 0: remove it") && !t_md_begun);      /* the Prophet's package, SHAPES' module in the way */
+            assert(!fb_ok()); fz_block();
+            t_blocked = -1; t_plan = 0;
+            fb_open(0);
+            assert(!fb_pack_done());
+            fb_close();
+        }
         (void)sum0;
-        printf("  browser: .OCM listed; a damaged table, a stranger, another firmware's package, no place and no image refused; the code written in order, the header page last\n");
+        printf("  browser: .OCM listed; a damaged table, a stranger, another firmware's package, no place (and a module of another engine in the way, named) and no image refused; the code written in order, the header page last; the Prophet package picks its variant by sector\n");
     }
     dump_card("build/host/rec_card.img");               /* (tests/check_rec_card.py reads it: the takes in their folders) */
     frz_drop_all("");

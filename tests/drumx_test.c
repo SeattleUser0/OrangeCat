@@ -15,10 +15,14 @@
  * 8. two tracks play two kits at once, each as it plays alone (no global kit).
  * 9. the step grid: a step's hit lanes play their GM notes, an accented lane at 127, a note on a lane; a RATCH repeats them.
  * 10. the keys: the first C is the kick (36); other engines' drum_track false.
+ * 11. (0.13.1) lane mutes, performance state: a muted lane does not sound or flash and holds no voice, a ringing hit of it is cut, the other lanes are unmoved,
+ *     the mute is per part, a clear puts every lane back, and the mask is not part of the stored track.
  * Printed (not checked): the sizes of the part state.
  *
  * Revisions:
+ * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
  *   0.9.0: first version.
+ *   0.13.1: lane mutes (11).
  */
 #define SEQ_TEST_HOOK(t, nn, vv, m, sk) do {                                              \
         for (uint32_t _i = 0; _i < (m); _i++)                                            \
@@ -415,6 +419,45 @@ static void test_keys(void)
     check("the keys go up in semitones: key 0 is 29, key 26 is 55", ENG_DRUMX.keys(&trk[0], 0) == 29 && ENG_DRUMX.keys(&trk[0], 26) == 55);
 }
 
+/* ----------------------------------------------------- 11. lane mutes */
+static void test_mutes(void)
+{
+    int32_t out[2 * CTL];
+    uint32_t b, freed, voices;
+    int32_t kick, snare;
+    drumx_track(0);
+    check("no lane is muted at the start", dxe_muted(0, DV_KICK) == 0 && dxe_muted(0, DV_SNARE) == 0);
+    check("the toggle reports the lane's new state, and back", dxe_mute_toggle(0, DV_KICK) == 1u && dxe_muted(0, DV_KICK) == 1u && dxe_mute_toggle(0, DV_KICK) == 0u);
+    dxe_mute_toggle(0, DV_KICK);
+    drum_flash[0] = 0;
+    freed = strike(DRUM_LANE_NOTE[DV_KICK], 110, 40u);
+    kick = peak_of(0, take_n);
+    check("a muted kick makes no sound, flashes nothing and holds no voice", kick == 0 && freed == 1u && drum_flash[0] == 0);
+    strike(DRUM_LANE_NOTE[DV_SNARE], 110, 40u);
+    snare = peak_of(0, take_n);
+    check("the snare beside it sounds as it did", snare > 1036 && (drum_flash[0] & (1u << DV_SNARE)));
+    dxe_mute_toggle(0, DV_KICK);
+    strike(DRUM_LANE_NOTE[DV_KICK], 110, 40u);
+    check("the kick sounds again when the mute is off", peak_of(0, take_n) > 1036);
+    /* a ringing open hat is cut by muting it and striking it again */
+    drumx_track(0);
+    trk_note_on(&trk[0], DRUM_LANE_NOTE[DV_HATO], 110);
+    for (b = 0; b < 10u; b++) mix_block(out, CTL);
+    dxe_mute_toggle(0, DV_HATO);
+    trk_note_on(&trk[0], DRUM_LANE_NOTE[DV_HATO], 110);
+    for (b = 0, voices = 0; b < 2u; b++) { mix_block(out, CTL); }
+    for (b = 0; b < NVOICE; b++) voices += trk[0].v[b].active;
+    check("a muted lane struck again cuts its ringing voice", voices == 0u);
+    /* per part: the mask of part 1 is its own */
+    drumx_track(0);
+    dxe_mute_toggle(1, DV_KICK);
+    check("the mute belongs to the part: part 0's kick is not muted by part 1's", dxe_muted(0, DV_KICK) == 0u && dxe_muted(1, DV_KICK) == 1u);
+    dxe_mute_toggle(0, DV_TOM);
+    dxe_mute_clear();
+    check("the clear (a project load) puts every lane of every part back", dxe_muted(0, DV_TOM) == 0u && dxe_muted(1, DV_KICK) == 0u);
+    check("the mask is runtime state: four bytes, outside the track record", sizeof dxe_mute == NTRK);
+}
+
 int main(int argc, char **argv)
 {
     test_reference(argc > 1 ? argv[1] : "tests/drumx_ref.txt");
@@ -427,6 +470,7 @@ int main(int argc, char **argv)
     test_two_kits();
     test_grid();
     test_keys();
+    test_mutes();
     printf("drumx: sizes: dx_voice_t %u B, a lane %u B, the part (arena, per DRUM-X track) %u B, DX_KITS %u B (flash)\n",
            (unsigned)sizeof(dx_voice_t), (unsigned)sizeof(dxe_lane_t), (unsigned)sizeof(dxe_part_t), (unsigned)sizeof DX_KITS);
     printf(bad ? "drumx: %d FAILED\n" : "drumx: all checks ok\n", bad);

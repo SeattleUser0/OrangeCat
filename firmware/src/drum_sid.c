@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ */
 /* KIT SID: a drum track played as a C64 tune's drum routine plays it, on one MOS 6581 for the whole track
  * (eng_sid.c's model of it: oscillators, the noise register, the DACs, the envelope generator, the cutoff curve
  * and resonance, the C64's output stage).
@@ -415,9 +418,9 @@ static __attribute__((noinline)) void dsk_render(track_t *t, int32_t *out, uint3
                 K->digi = 0;
         }
         xlp += (int32_t)(((int64_t)(clamp(s, -131071, 131071) - xlp) * SID_XLP_A) >> 15);
-        xhp += (int32_t)(((int64_t)((xlp << 8) - xhp) * SID_XHP_A) >> 16);
+        xhp += (int32_t)(((int64_t)((xlp * 256) - xhp) * SID_XHP_A) >> 16);
         o = clamp(xlp - (xhp >> 8), -32767, 32767);
-        out[i] += voice_amp(soft_knee(o * 3, 24000), m, i) << 1;   /* (x3: the kits' level from half scale; doubled
+        out[i] += voice_amp(soft_knee(o * 3, 24000), m, i) * 2;   /* (x3: the kits' level from half scale; doubled
                                                                        * after voice_amp, whose Q15 product holds
                                                                        * 16 bits: the knee's top, 40383, x 2 would wrap) */
     }

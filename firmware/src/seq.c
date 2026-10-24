@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
+ */
 /* Keyboard, scale, arpeggiator, sequencer and transport.
  * Everything here runs in the audio ISR, once per CTL-sample block, and
  * ends in trk_note_on / trk_note_off: engines never see where a note came from.
@@ -1437,6 +1440,7 @@ static void seq_tick(track_t *t, uint32_t n)
     if (!song.playing) { seq_grid_tick(t, n); return; }
     if (t->seq_pos >= 0x7FFFFFFFu) {
         seq_grid_tick(t, n);
+        memset(recording_rep[trk_index(t)], 0, sizeof recording_rep[0]);   /* (0.13.0) a start: no ratchet of the last run goes on */
         recording_zero(t);
         return;
     }

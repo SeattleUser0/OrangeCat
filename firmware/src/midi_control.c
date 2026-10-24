@@ -2,6 +2,9 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Adapted from MIDI control contribution by ChanceTheMaker (2026).
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ */
 /* Shared USB/TRS channel controls. Included by seq.c after its input helpers.
  * USB and TRS intentionally share channel state, matching the existing routing.
  * A synth part has one live bend/wheel state; channels assigned to the same part
@@ -53,6 +56,7 @@ static void midi_expression(track_t *t, const midi_channel_t *c)
 {
     int32_t range = ((int32_t)c->semis * 100 + c->cents) * 256 / 100;
     if((MELODEE_P5 && t->eng_req == ENGI_PROPHET))range=(clamp(p5_patch_of(t)->raw[P5_BEND],0,11)+1)*256;
+    else { const fw_pages_t *mp = pages_of_engine(t->eng_req); int32_t r = mp && mp->bend ? mp->bend(t) : 0; if (r) range = r; }   /* (0.12.1) a module's patch sets the wheel's range */
     if (drum_track(t))
         return;
     midi_bend_target[trk_index(t)] = (int32_t)c->bend * range / (c->bend < 0 ? 8192 : 8191);
@@ -262,6 +266,9 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
         motion_native_peek(t,old);
         if((MELODEE_P5 && t->eng_req == ENGI_PROPHET)){
             p5_edit_value(t,cc==72?P5_RELEASE_AMP:cc==73?P5_ATTACK_AMP:P5_DECAY_AMP,value);
+        }else if(pages_of_engine(t->eng_req) && pages_of_engine(t->eng_req)->put && pages_of_engine(t->eng_req)->cc[cc==72?0:cc==73?1:2] != 0xFFu){   /* (0.12.1) a module's envelope */
+            const fw_pages_t *mp = pages_of_engine(t->eng_req);
+            mp->put(t, mp->cc[cc==72?0:cc==73?1:2], value);
         }else if((MELODEE_FM6 && t->eng_req == ENGI_FM6)){
             uint8_t raw[FP_SIZE+1u];memcpy(raw,fm6_patch[trk_index(t)],sizeof raw);
             for(uint32_t op=0;op<6;op++)raw[op*FP_OP+(cc==72?3:cc==73?0:1)]=(uint8_t)(99u-value*99u/127u);

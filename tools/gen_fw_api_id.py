@@ -21,8 +21,12 @@ generator so that no literal flash address appears in firmware/src (tools/build.
 build checks the linked image against it, and a module carries it in its header (api_addr) as checked data.
 
 Revisions:
+# (Orange Cat 0.10.0) fw_api_t at a fixed address, no RAM in the module (0.10.0)
+# (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
+# (Orange Cat 0.12.2) web tests for the Prophet package, modBlocked and the swap planner; check_set checks module images against their sectors (test added); gen_fw_api_i...
   0.9.0: first version.
   0.10.0: FW_API_ADDR in the header.
+  0.12.2: the self-test also moves page_t, fw_pages_t, the first and the last member the Prophet module added to fw_api_t, and a preprocessor line in a structure.
 """
 import re
 import sys
@@ -140,6 +144,12 @@ def selftest():
         ("a field retyped in engine_t", "core.h", "    uint8_t oneshot;", "    uint16_t oneshot;"),
         ("a field added to vmod_t", "core.h", "    int32_t cutoff;", "    int32_t cutoff; int32_t more;"),
         ("a field added to fw_api_t", "fw_api.h", "    const uint8_t *pack_ready;", "    const uint8_t *pack_ready; void *more;"),
+        # (0.12.2) the page descriptor and the members the Prophet module added: each is in the hash
+        ("a field added to page_t", "fw_pages.h", "    uint8_t id[4];", "    uint8_t id[4]; uint8_t extra;"),
+        ("a field retyped in fw_pages_t (the 0.12.1 cc table)", "fw_pages.h", "    uint8_t cc[4];", "    uint16_t cc[4];"),
+        ("fw_api_t's last 0.12.1 member renamed (voice_was)", "fw_api.h", "    const uint8_t *voice_was;", "    const uint8_t *voice_wasnt;"),
+        ("fw_api_t's first 0.12.1 member retyped (p5_patch)", "fw_api.h", "    void *p5_patch;", "    const void *p5_patch;"),
+        ("a preprocessor line inside engine_t", "core.h", "    uint8_t oneshot;", "#if 1\n    uint8_t oneshot;\n#endif"),
     ]:
         if old not in base[f]:
             print(f"gen_fw_api_id: {what}: text to change not found")

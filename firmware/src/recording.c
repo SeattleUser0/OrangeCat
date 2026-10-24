@@ -1,5 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Revisions:
+ * (Orange Cat 0.13.0) the step's properties apply to the notes recorded on it, as a group (docs/orangecat/TRACKER_REVIEW.md): CHANCE and the trig
+ * condition are rolled once for the step on each pass of its loop (recording_roll_ok), the accent plays every onset at velocity 127, RATCH x2..x4 plays each
+ * onset again in equal parts of the step (gate of a part, at most the note's own), FLAM a grace at 9/16 of its velocity and the full hit FLAM_SAMPLES later
+ * (recording_rep: a few repeats waiting, per track), NUDGE moves every onset by the step's nudge (64ths of the step), clamped inside the loop: no wrap.
+ * Nothing in a stored format changed: the properties were in the step all along. */
 /* A bounded performance store shared by the project's 32 banks. Step notes
  * are its editable overview; the original onsets, velocities and independent
  * releases live here. QNT commits a grid to the new take when it finishes. */
@@ -28,6 +34,23 @@ static uint16_t recording_next[RECORD_MAX];
 static uint32_t recording_due[RECORD_MAX];
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
 static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t cursor; } recording_schedule[NTRK];
+/* (Orange Cat 0.13.0) step properties on recorded steps. recording_roll: the steps of the track whose chance and condition were rolled this pass of the loop
+ * (seen) and the ones that failed (skip). recording_rep: the repeats of a ratchet or a flam waiting to play (left: samples to the next one, from the start of the
+ * block being processed; part: the spacing of the ones after it; hits: how many are left). recording_nudge_sum: the track's nudges as the schedule was last
+ * ordered with them. Runtime state only: not stored. */
+#define RECORDING_REP 6u
+static struct { uint64_t seen, skip; } recording_roll[NTRK];
+static struct { int32_t left; uint32_t part, gate; uint16_t ev; uint8_t vel, hits; } recording_rep[NTRK][RECORDING_REP];
+static uint32_t recording_nudge_sum[NTRK];
+/* the track's nudges folded into one number, to see an edit that changed one (checked once a loop, and by the editors that know) */
+static uint32_t recording_nudge_fold(const track_t *t)
+{
+    uint32_t h = 0;
+    for (uint32_t i = 0; i < NSTEP; i++) h = h * 31u + (uint32_t)(uint8_t)t->step[i].nudge + 1u;
+    return h;
+}
+static int step_cond_ok(const track_t *t, const step_t *s, uint32_t ahead);   /* (seq.c) */
+static uint32_t flam_at(const track_t *t, uint32_t period);                  /* (seq.c) */
 #if MELODEE_RECORD_CURSOR
 /* Only capture holds (or sounding events in countdown mode) are visited. Keep the extra index in
  * the pool, rather than taking the target's remaining data SRAM. */
@@ -428,6 +451,9 @@ static void recording_reindex(void)
         if ((recording_sounding(i) || (recording_flags[i] & 1u)) && trk[owner / NPAT].pattern == owner % NPAT) recording_live_add(i);
     }
     memset(recording_schedule, 0, sizeof recording_schedule);
+    memset(recording_roll, 0, sizeof recording_roll);   /* (0.13.0) */
+    memset(recording_rep, 0, sizeof recording_rep);
+    for (uint32_t tr = 0; tr < NTRK; tr++) recording_nudge_sum[tr] = recording_nudge_fold(&trk[tr]);
 }
 static void recording_unlink(uint32_t i)
 {
@@ -534,9 +560,23 @@ static uint32_t recording_quant_on(const track_t *t, const recorded_note_t *r, u
     }
     return best == loop ? 0u : best;
 }
+/* (Orange Cat 0.13.0) where an onset plays: where it was played, moved by its step's NUDGE (64ths of the step's own length, as a manual step's); an onset
+ * pushed past the end of the step plays late, one pushed past the end (or before the start) of the loop stops there: no wrap */
 static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_t period)
 {
-    return recording_raw_on(t, r, period);
+    uint32_t at = recording_raw_on(t, r, period);
+    const step_t *s = &t->step[recording_view(t, r) % NSTEP];
+    if (!s->nudge || s->time != ST_NOTE || !(s->flags & SF_RECORDED)) return at;
+    int32_t moved = (int32_t)at + (int32_t)s->nudge * (int32_t)(step_samples(t, period, r->step & 63u) / 64u);
+    uint32_t loop = recording_loop(t, period);
+    return moved < 0 ? 0u : (uint32_t)moved >= loop ? loop - 1u : (uint32_t)moved;
+}
+static void recording_resched(const track_t *t)
+{
+    uint32_t tr = trk_index(t);
+    recording_schedule[tr].period = 0;
+    recording_schedule[tr].ordered_period = 0;
+    recording_nudge_sum[tr] = recording_nudge_fold(t);
 }
 static uint32_t recording_key(const track_t *t)
 {
@@ -801,19 +841,29 @@ static void recording_release(track_t *t, uint32_t note)
         if (recording[i].note == note && (recording_flags[i] & 1u))
             recording_finish(i);
 }
-static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t late)
+/* (Orange Cat 0.13.0) the chance and the trig condition of a recorded step, rolled once for the step on each pass of its loop, whichever of its notes is
+ * due first: 1 = the step plays this pass */
+static int recording_roll_ok(track_t *t, uint32_t view)
+{
+    uint32_t tr = trk_index(t);
+    uint64_t bit = (uint64_t)1 << (view % NSTEP);
+    if (!(recording_roll[tr].seen & bit)) {
+        const step_t *s = &t->step[view % NSTEP];
+        uint32_t chance = step_chance(s);
+        recording_roll[tr].seen |= bit;
+        if ((chance < 100u && rng() % 100u >= chance) || (s->cond && !step_cond_ok(t, s, 0u))) recording_roll[tr].skip |= bit;
+    }
+    return !(recording_roll[tr].skip & bit);
+}
+/* one hit of an event: the note on at velocity vel, held for gate samples (late: how far past its time it is) */
+static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, uint32_t late)
 {
     recorded_note_t *r = &recording[i];
-    if (recording_flags[i] & 4u) return;
-    recording_flags[i] |= 4u;
-    if ((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> trk_index(t)) & 1u)) return;   /* (an edit waiting:
-                                                         * seq.c; Orange Cat 0.5.6: a frozen phrase's take plays) */
-    uint32_t chance = step_chance(&t->step[recording_view(t, r)]);
-    if (chance < 100u && rng() % 100u >= chance) return;
-    uint32_t gate = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
-    if (!gate) gate = 1;
+#ifdef RECORDING_HIT_HOOK                           /* (Orange Cat 0.13.0) host tests only: the hits a recorded step plays */
+    RECORDING_HIT_HOOK(t, i, vel, gate, late);
+#endif
     drum_event_pitch=r->pitch; drum_event_length=r->length?gate:0;
-    trk_note_on(t, r->note, r->vel);
+    trk_note_on(t, r->note, vel);
     drum_event_pitch=0; drum_event_length=0;
     uint32_t was = recording_sounding(i), remaining = gate > late ? gate - late : 0u;
 #if MELODEE_RECORD_QUEUE
@@ -829,10 +879,69 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     }
     if (remaining) recording_live_add(i);
 }
+static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t late)
+{
+    recorded_note_t *r = &recording[i];
+    if (recording_flags[i] & 4u) return;
+    recording_flags[i] |= 4u;
+    if ((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> trk_index(t)) & 1u)) return;   /* (an edit waiting:
+                                                         * seq.c; Orange Cat 0.5.6: a frozen phrase's take plays) */
+    uint32_t view = recording_view(t, r) % NSTEP, tr = trk_index(t);
+    const step_t *s = &t->step[view];
+    if (!recording_roll_ok(t, view)) return;
+    uint32_t gate = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
+    if (!gate) gate = 1;
+    uint32_t vel = (s->flags & SF_ACCENT) ? 127u : r->vel;
+    uint32_t hits = step_ratchet(s), grace = (s->flags & SF_FLAM) != 0u, part = 0;
+    if (hits > 1u) {                                  /* RATCH: the gate of a part, as a manual step's, at most the note's own */
+        part = step_samples(t, period, r->step & 63u) / hits;
+        uint32_t g = part * (uint32_t)t->p[P_SGATE] / 128u;
+        if (!g) g = 1;
+        if (g < gate) gate = g;
+    }
+    uint32_t first = gate;
+    if (grace) {                                      /* FLAM: this the grace, short, 9/16 of the velocity */
+        first = flam_at(t, period);
+        vel = vel * 9u / 16u + 1u;
+    }
+    recording_hit(t, i, vel, first, late);
+    if (hits > 1u || grace) {                         /* the rest waits: left counts from the end of the block being played */
+        for (uint32_t k = 0; k < RECORDING_REP; k++) {
+            if (recording_rep[tr][k].hits) continue;
+            recording_rep[tr][k].ev = (uint16_t)i;
+            recording_rep[tr][k].hits = (uint8_t)(grace ? 1u : hits - 1u);
+            recording_rep[tr][k].part = grace ? 0u : part;
+            recording_rep[tr][k].gate = gate;
+            recording_rep[tr][k].vel = (uint8_t)((s->flags & SF_ACCENT) ? 127u : r->vel);
+            recording_rep[tr][k].left = (int32_t)(grace ? first : part) - (int32_t)late;
+            break;
+        }
+    }
+}
+/* the repeats due in the n samples about to be played: each plays again with the event's own state checked (a note edited away, a step no longer
+ * recorded, ends its repeats) */
+static void recording_rep_tick(track_t *t, uint32_t n)
+{
+    uint32_t tr = trk_index(t);
+    for (uint32_t k = 0; k < RECORDING_REP; k++) {
+        if (!recording_rep[tr][k].hits) continue;
+        uint32_t i = recording_rep[tr][k].ev;
+        if (i >= RECORD_MAX || !recording[i].vel || !recording_active(t, i)) { recording_rep[tr][k].hits = 0; continue; }
+        while (recording_rep[tr][k].hits && recording_rep[tr][k].left <= (int32_t)n) {
+            uint32_t late = (uint32_t)((int32_t)n - recording_rep[tr][k].left);
+            if (!((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> tr) & 1u)))
+                recording_hit(t, i, recording_rep[tr][k].vel, recording_rep[tr][k].gate, late);
+            if (--recording_rep[tr][k].hits) recording_rep[tr][k].left += (int32_t)recording_rep[tr][k].part; else break;
+        }
+        if (recording_rep[tr][k].hits) recording_rep[tr][k].left -= (int32_t)n;
+    }
+}
 static void recording_zero(track_t *t)
 {
     uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
+    recording_roll[trk_index(t)].seen = recording_roll[trk_index(t)].skip = 0;   /* (0.13.0) a new pass: the steps roll again */
+    if (recording_nudge_sum[trk_index(t)] != recording_nudge_fold(t)) recording_resched(t);   /* (a nudge edited from elsewhere) */
     recording_sync(t, period);
 #if MELODEE_RECORD_CURSOR
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) recording_flags[i] &= (uint8_t)~4u;
@@ -903,6 +1012,7 @@ static void recording_tick(track_t *t, uint32_t n)
 #if MELODEE_RECORD_QUEUE
     recording_queue_tick(t, n);
 #endif
+    recording_rep_tick(t, n);                       /* (0.13.0) the ratchet's and the flam's later hits */
 #if MELODEE_RECORD_CURSOR
     uint16_t *link = &recording_live_head[tr];
     while (*link < RECORD_MAX) {

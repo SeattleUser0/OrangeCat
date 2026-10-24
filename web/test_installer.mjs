@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 // Run the actual installer UI script with a minimal DOM and controlled fetches.
+// Revisions:
+// (Orange Cat 0.11.2 the installer page installs firmware, pack and module in one go)
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";

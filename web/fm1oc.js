@@ -14,7 +14,10 @@
 // Each stage can be left out by the caller; a stage that cannot run says why in the summary and the next one still runs when it can.
 //
 // Revisions:
+ * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
 //   0.11.2: first version.
+//   0.12.1: three module starts (sectors 0, 6 and 4: OCM_SECTOR); MOD_INFO's last byte names the blocker, a module of another engine in the way (modBlocked, detail "engine:start"),
+//           which an install never erases.
 
 import { bkPack, bkCrc } from "./fm1backup.js";
 
@@ -24,7 +27,7 @@ const crc32 = bkCrc;
 const ocSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // errors carry a code the page translates (TEXT[code]): ocLost, ocBusy, packWrongBuild, packStop, packOldFw, packRestart, packFail,
-// modWrongFile, modWrongFw, modNoVariant, modNoFree, modTail, modStop, modRestart, modUnreadable, modFail
+// modWrongFile, modWrongFw, modNoVariant, modNoFree, modBlocked, modTail, modStop, modRestart, modUnreadable, modFail
 export class OcError extends Error { constructor(code, detail = "") { super(code + (detail ? ": " + detail : "")); this.code = code; this.detail = detail; } }
 
 // one MIDI in/out pair speaking F0 7D 46 4C cmd args F7 (the editor's framing); one request at a time
@@ -87,6 +90,7 @@ export function parseModInfo(a) {
   const r = new OcReader(a), o = { nstarts: r.b(), sectors: r.b(), flags: r.b(), apiVersion: r.b(), apiSize: r.b() };
   o.iface = r.n5(); o.apiAddr = r.n5(); o.packHash = r.n5(); o.plan = r.b();
   o.starts = Array.from({ length: o.nstarts }, () => ({ state: r.b(), why: r.b(), engine: r.b(), length: r.n3() }));
+  o.blocker = r.i < a.length ? r.b() : 127; if (o.blocker === 127) o.blocker = null;   // (0.12.1) the start whose module of another engine is in the way
   o.shapesBuiltIn = !!(o.flags & 1); o.moduleWins = !!(o.flags & 2); o.writing = !!(o.flags & 4); o.inPlace = !!(o.flags & 8);
   return o;
 }
@@ -104,6 +108,7 @@ export function parseEngines(a) {
 }
 const parseWrite = (a) => { const r = new OcReader(a); return { rc: r.b(), done: r.n3() }; };
 
+const OCM_SECTOR = [0, 6, 4];                         /* (0.12.1) the sector of each start (0 and 1 hold SHAPES, 0 and 2 the Prophet); a variant's start field in the .ocm is this sector */
 const OCM_MAGIC = 0x464D434F, OCM_STATE = ["empty", "torn", "refused", "badhdr", "badcrc", "crashed", "noslot", "ok", "badtail"];
 /* (0.10.1) The update loader erases a data sector whose last 256 bytes, taken as 80 bytes, read as one of its update records: bytes 6..7 are 0x5441 and the first
  * word is not 0 and is the CRC-16 (poly 0x1021, init 0) of bytes 2..79 (firmware/loader/ldr_core.c; tools/ocflash.py; oc_pack.c pk_record_like). ocmTails: the
@@ -146,8 +151,11 @@ function ocmCheck(ocm, info) {
   if (!ocm.ok) return ocm;
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
-  if (info.plan > 1) return { ok: false, key: "modNoFree" };
-  const v = ocm.variants.find((x) => x.start === info.plan * 6);
+  if (!(info.plan < OCM_SECTOR.length)) {                               /* (0.12.1) 127: no start can take it. A usable module of another engine in the way is named, never erased by an install */
+    const b = info.blocker, s = b != null && info.starts ? info.starts[b] : null;
+    return s ? { ok: false, key: "modBlocked", engine: s.engine, start: b } : { ok: false, key: "modNoFree" };
+  }
+  const v = ocm.variants.find((x) => x.start === OCM_SECTOR[info.plan]);
   if (!v) return { ok: false, key: "modNoVariant" };
   if (ocmTails(v.image)) return { ok: false, key: "modTail" };          /* (0.10.1) refused here before anything is erased; the unit refuses it too (rc 8) */
   return { ok: true, variant: v };
@@ -223,9 +231,9 @@ export async function installModule(link, ocm, progress = () => {}, { waitMs = 9
   const ia = await link.ask(ocReq.modInfo(ocm.engine), { timeout: 600, retries: 1 });
   if (!ia) throw new OcError("ocLost");
   const info = parseModInfo(ia), chk = ocmCheck(ocm, info);
-  if (!chk.ok) throw new OcError(chk.key);
+  if (!chk.ok) throw new OcError(chk.key, chk.key === "modBlocked" ? chk.engine + ":" + chk.start : "");   // (0.12.1) the detail names the module in the way
   if (info.inPlace && !confirmInPlace()) throw new OcError("modDeclined");
-  const img = chk.variant.image, start = chk.variant.start / 6;
+  const img = chk.variant.image, start = OCM_SECTOR.indexOf(chk.variant.start);
   await begin(link, ocReq.modBegin(ocm.engine, start, img.length), parseWrite, modCode, waitMs, sleep);
   for (let off = 256; off < img.length; off += 256) {
     const a = await link.ask(ocReq.modWrite(off, img.subarray(off, Math.min(off + 256, img.length))), { timeout: 1000 });
@@ -305,7 +313,7 @@ export async function runSet(ctx) {
         if (!ocm.ok) { sum.module.push({ error: ocm.key }); continue; }
         if (moduleCurrent(ocm, probe.engines)) { sum.module.push("current"); p(1); continue; }
         try { say("modWorking"); await installModule(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); sum.module.push("installed"); }
-        catch (e) { if (e.code === "ocLost") throw e; sum.module.push({ error: e.code || "modFail" }); }
+        catch (e) { if (e.code === "ocLost") throw e; sum.module.push(e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }); }
         probe = await probeUnit(link);
       }
     } else sum.module = mods.map(() => "off");
