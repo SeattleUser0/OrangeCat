@@ -551,6 +551,7 @@ if sound; then
         build/melodee.dis tests/target_budget.txt
 fi
 [ $TABLES = 1 ] || note "== skip hostsim (run ./build.sh once)"
+t "CI gate check: a deliberate assert (exp/sonnet-cifail only)" cifail_test -O1
 
 # every slot back: every job ended
 i=0; while [ $i -lt "$PARALLEL" ]; do read -r slot <&3; flush; i=$((i + 1)); done
