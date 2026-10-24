@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Revisions:
+ * (Orange Cat 0.13.5) an event's pending repeats end where the event leaves its track: recording_rep_drop (its bit in the old track's recording_rep_bits, its count, its
+ * flags) runs in recording_unlink and at every place that sets recording_flags to 0 whole (remove, restore, drop, copy, double, the undo swap, the pool load, the reset).
+ * Before, the old track's next tick cleared the bit, and when another track had reused the slot and fired it in the same block that tick cleared the new event's repeats.
  * (Orange Cat 0.13.4) the repeats of a ratchet or a flam are never dropped. Design (a), no queue: every event has a record of its own (recording_rep_at: the time,
  * on the track's repeat clock, of its next repeat; two bits of recording_flags: how many are left), so there is nothing to run out of. The 0.13.0 queue held six
  * repeats a track and a ratcheted chord late in one step, followed by another in the next, gave the second chord's last notes one hit each. A track's pending events
@@ -470,9 +473,33 @@ static void recording_reindex(void)
     recording_rep_clear_all();
     for (uint32_t tr = 0; tr < NTRK; tr++) recording_nudge_sum[tr] = recording_nudge_fold(&trk[tr]);
 }
+/* (0.13.5) every path that takes an event out of its track goes through recording_unlink, so the event's pending repeats end there: its bit in the old track's
+ * recording_rep_bits and its count in recording_rep_n go, with its flags. Left to the old track's next tick, the bit could still be set when another track reused the
+ * slot and fired it in the same block, and that tick would then clear the new event's repeats. The bit is looked for on every track, not read from the owner byte:
+ * a slot with no velocity has no owner worth trusting. RECORDING_REP_CHECK (the host tests) asserts that nothing of the event is left. */
+static void recording_rep_drop(uint32_t i)
+{
+    uint32_t w = i >> 5, bit = 1u << (i & 31u);
+    for (uint32_t tr = 0; tr < NTRK; tr++)
+        if (recording_rep_bits[tr][w] & bit) { recording_rep_bits[tr][w] &= ~bit; recording_rep_n[tr]--; }
+    recording_flags[i] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
+}
+#ifdef RECORDING_REP_CHECK
+static void recording_rep_agree(uint32_t i)    /* after an unlink the event is in no track's bits and its flags say no repeats */
+{
+    for (uint32_t tr = 0; tr < NTRK; tr++) RECORDING_REP_CHECK(!((recording_rep_bits[tr][i >> 5] >> (i & 31u)) & 1u));
+    RECORDING_REP_CHECK(!(recording_flags[i] & (RECORDING_RF_REP | RECORDING_RF_LEFT_MASK)));
+}
+#endif
 static void recording_unlink(uint32_t i)
 {
-    if (!recording[i].vel) return;
+    recording_rep_drop(i);
+    if (!recording[i].vel) {
+#ifdef RECORDING_REP_CHECK
+        recording_rep_agree(i);
+#endif
+        return;
+    }
     recording_pitch_remove(i);
     recording_live_detach(i);
     recording_schedule[(recording[i].owner & 31u) / NPAT].period = 0;
@@ -484,6 +511,9 @@ static void recording_unlink(uint32_t i)
         recording_pitch_count[recording[i].owner&31u]--;
 #endif
     }
+#ifdef RECORDING_REP_CHECK
+    recording_rep_agree(i);
+#endif
 }
 static void recording_reset(void)
 {
@@ -495,6 +525,7 @@ static void recording_reset(void)
     memset(recording_clock, 0, sizeof recording_clock);
 #endif
     memset(recording_flags, 0, sizeof recording_flags);
+    recording_rep_clear_all();                       /* (0.13.5) */
     memset(recording_fraction, 0, sizeof recording_fraction);
     recording_full = 0;
     recording_quant_blocked = 0;
@@ -752,7 +783,7 @@ static void recording_remove(track_t *t, uint32_t i)
     recording_unlink(i);
     memset(&recording[i], 0, sizeof recording[i]);
     memset(&recording_run[i], 0, sizeof recording_run[i]);
-    recording_flags[i] = 0;
+    recording_rep_drop(i); recording_flags[i] = 0;
     recording_schedule[trk_index(t)].period = 0;
     recording_generation++;
 }
@@ -783,7 +814,7 @@ static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
     recording_live_detach(i);
     recording[i] = r;
     memset(&recording_run[i], 0, sizeof recording_run[i]);
-    recording_flags[i] = 0;
+    recording_rep_drop(i); recording_flags[i] = 0;
     recording_insert(t, i);
     recording_tracks |= (uint8_t)(1u << trk_index(t));
     recording_schedule[trk_index(t)].period = 0;
@@ -796,7 +827,7 @@ static void recording_drop(track_t *t, uint32_t owner)
     for (uint32_t i = 0; i < RECORD_MAX; i++) if ((recording[i].owner & 31u) == owner) {
         recording_end(t, i);
         memset(&recording[i], 0, sizeof recording[i]);
-        memset(&recording_run[i], 0, sizeof recording_run[i]); recording_flags[i] = 0;
+        memset(&recording_run[i], 0, sizeof recording_run[i]); recording_rep_drop(i); recording_flags[i] = 0;
     }
 }
 /* Copy recordings atomically with a bank. Check capacity before mutating
@@ -814,7 +845,7 @@ static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply)
     for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording[i].vel && (recording[i].owner & 31u) == src)
         for (uint32_t j = 0; j < RECORD_MAX; j++) if (!recording[j].vel) {
             recording[j] = recording_snapshot(i); recording[j].owner = (recording[j].owner & 224u) | dst;
-            memset(&recording_run[j], 0, sizeof recording_run[j]); recording_flags[j] = 0;
+            memset(&recording_run[j], 0, sizeof recording_run[j]); recording_rep_drop(j); recording_flags[j] = 0;
             break;
         }
     recording_reindex();
@@ -837,7 +868,7 @@ static int recording_double(track_t *t, uint32_t bank, uint32_t len, int apply)
             (recording[i].step & 63u) < 2u * len) {
             recording_end(t, i);
             memset(&recording[i], 0, sizeof recording[i]);
-            memset(&recording_run[i], 0, sizeof recording_run[i]); recording_flags[i] = 0;
+            memset(&recording_run[i], 0, sizeof recording_run[i]); recording_rep_drop(i); recording_flags[i] = 0;
         }
     for (i = j = 0; i < RECORD_MAX; i++)                /* (a copy lands past len: never copied again) */
         if (recording[i].vel && (recording[i].owner & 31u) == owner && (recording[i].step & 63u) < len) {
@@ -846,7 +877,7 @@ static int recording_double(track_t *t, uint32_t bank, uint32_t len, int apply)
             recording[j].step = (uint8_t)(recording[j].step + len);
             /* Rounded forward past the longer loop's end: shown on its first step, as a wrapped original is. */
             if ((recording[j].step & 64u) && (recording[j].step & 63u) + 1u == 2u * len) recording[j].step |= 128u;
-            memset(&recording_run[j], 0, sizeof recording_run[j]); recording_flags[j] = 0;
+            memset(&recording_run[j], 0, sizeof recording_run[j]); recording_rep_drop(j); recording_flags[j] = 0;
         }
     return 0;
 }

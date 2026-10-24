@@ -30,6 +30,7 @@
  *   0.3.1: first version.
  *   0.3.2: a pattern packs from any source (the sequencer's banks, or a project record's: oc_project.c); a chunk's
  *          patterns are replaced together (ocp_chunk_write); each pattern's CRC kept (ocp.hash).
+ *   0.13.5: a slot loaded into the event store ends any repeat pending in it (recording_rep_drop).
  */
 #define OCP_N 64u
 #define OCP_PER 4u
@@ -529,7 +530,7 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
             if (j < RECORD_MAX) {
                 recording[j] = v;
                 memset(&recording_run[j], 0, sizeof recording_run[j]);
-                recording_flags[j] = 0;
+                recording_rep_drop(j); recording_flags[j] = 0;
             }
             motion_unguard(f);
         }

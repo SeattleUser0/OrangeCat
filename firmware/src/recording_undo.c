@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* One before/after swap for a recorded pattern. Capture on its first mutation,
+/* Revisions: (Orange Cat 0.13.5) the swap ends the pending repeats of the slots it rewrites (recording_rep_drop).
+ * One before/after swap for a recorded pattern. Capture on its first mutation,
  * seal after duration/quantization processing. Other banks keep their events,
  * including when they reuse a slot formerly belonging to this pattern. The
  * audio owner allocates the bounded snapshot; no per-sample history work. */
@@ -110,7 +111,7 @@ static int recording_undo_apply(int redo)
     for(uint32_t i=0;i<RECORD_MAX;i++)if(u->notes[i].vel||(recording[i].vel&&(recording[i].owner&31u)==owner)){
         recorded_note_t r=recording[i];
         recording[i]=u->notes[i];u->notes[i]=r;
-        memset(&recording_run[i],0,sizeof recording_run[i]);recording_flags[i]=0;
+        memset(&recording_run[i],0,sizeof recording_run[i]);recording_rep_drop(i);recording_flags[i]=0;
     }
     for(uint32_t i=0;i<NSTEP;i++){step_t s=t->step[i];t->step[i]=u->steps[i];u->steps[i]=s;}
     for(uint32_t i=0;i<4u;i++){int16_t p=t->p[P_SLEN+i];t->p[P_SLEN+i]=u->timing[i];u->timing[i]=p;}

@@ -5,9 +5,12 @@
  * (firmware/src/recording.c, docs/orangecat/TRACKER_REVIEW.md). The fixture is a CHORD of three onsets inside one step (a quarter, half and three quarters of the
  * way), played by the real sequencer one sample at a time; recording.c's RECORDING_HIT_HOOK logs every hit (note, velocity, gate, and when).
  * Revisions: 0.13.0: first version. 0.13.4: hl is 8,192 hits; the repeat tests (repeats() below): chords on adjacent steps with late onsets, ratchets and flams mixed,
- * nudge, a full run of eight passes: every hit present, at its time, in every pass (the per-track repeat queue of 0.13.0 dropped repeats when its six entries were full). */
+ * nudge, a full run of eight passes: every hit present, at its time, in every pass (the per-track repeat queue of 0.13.0 dropped repeats when its six entries were full).
+ *   0.13.5: unlink_reuse(): a slot freed while its event has repeats pending and reused by another track's event, fired in the same block, keeps all four hits. */
 #include <stdint.h>
 #define RECORDING_NO_MAIN 1
+#include <assert.h>
+#define RECORDING_REP_CHECK(c) assert(c)          /* (0.13.5) recording.c: after every unlink nothing of the event's repeats is left */
 static void hit_log(uint32_t note, uint32_t vel, uint32_t gate, uint32_t late);
 #define RECORDING_HIT_HOOK(t, i, vel, gate, late) hit_log(recording[i].note, vel, gate, late)
 #include "recording_test.c"
@@ -277,9 +280,44 @@ static int repeats(void)
     int r4 = check("eight passes of the loop: the hit counts and times are the same every pass", hits_equal());
     return r1 + r2 + r3 + r4;
 }
+/* (0.13.5) an event on track 1 is ratcheting (x4); it is un-recorded and its slot taken by an event of track 0, which fires with x4 in the block where track 1's tick still
+ * ran over the old bit: before the fix track 1's tick cleared the new event's repeats and it played once. Notes 60 (track 0) and 70 (track 1) tell the hits apart. */
+static int unlink_reuse(void)
+{
+    raw_begin();
+    seq_stop(); song.rec = 0;
+    recording_reset();
+    for (uint32_t k = 0; k < 2; k++) {
+        track_t *t = &trk[k];
+        t->p[P_SLEN] = 8;
+        for (uint32_t i = 0; i < NSTEP; i++) { memset(&t->step[i], 0, sizeof t->step[i]); t->step[i].time = ST_REST; }
+        t->step[1].time = ST_NOTE; t->step[1].flags = SF_RECORDED; step_set_rflam(&t->step[1], 4);
+    }
+    PERIOD = seq_div_samples((uint32_t)trk[0].p[P_SDIV]);
+    recorded_note_t b = {0};                                            /* track 1: early in step 1 */
+    b.on = 2000; b.duration = 8192; b.note = 70; b.vel = 100; b.step = 1; b.owner = (uint8_t)(1u * NPAT);
+    recording_restore_note(&trk[1], 0, b);
+    hn = 0; T = 0;
+    seq_start(); seq_advance(0);
+    uint32_t at = PERIOD + (uint32_t)((uint64_t)2000u * PERIOD / RECORD_UNIT);
+    while (T < at + 8u) { seq_advance(1); T++; }                        /* its first hit has played; three repeats are pending */
+    int pending = recording_rep_n[1] == 1u && (recording_flags[0] & RECORDING_RF_REP);
+    recording_remove(&trk[1], 0);                                       /* un-recorded: the bit is gone with it */
+    int gone = !recording_rep_n[1] && !(recording_rep_bits[1][0] & 1u);
+    recorded_note_t a = {0};                                            /* track 0 takes slot 0, x4 as well */
+    a.on = (uint16_t)(((uint64_t)(T + 1u - PERIOD) * RECORD_UNIT + PERIOD - 1u) / PERIOD); a.duration = 8192; a.note = 60; a.vel = 100; a.step = 1;     /* due in the very next sample */
+    recording_restore_note(&trk[0], 0, a);
+    hn = 0;
+    run(PERIOD);
+    uint32_t n60 = 0, n70 = 0;
+    for (uint32_t h = 0; h < hn; h++) { n60 += hl[h].note == 60u; n70 += hl[h].note == 70u; }
+    if (!(pending && gone && n60 == 4u && n70 == 0u)) fprintf(stderr, "unlink_reuse: pending %d gone %d n60 %u n70 %u hn %u\n", pending, gone, n60, n70, hn);
+    return check("a ratcheting event un-recorded on track 1 and its slot reused by track 0 in the same block: track 0's four hits play, track 1's end",
+                 pending && gone && n60 == 4u && n70 == 0u);
+}
 int main(void)
 {
-    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats();
+    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats() + unlink_reuse();
     printf("%s\n", bad ? "RECORDED STEP PROPERTIES TEST FAILED" : "Recorded step properties: all passed");
     return !!bad;
 }
