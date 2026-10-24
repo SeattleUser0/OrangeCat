@@ -2,6 +2,7 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Revisions:
+ * (Orange Cat 0.13.4) two adjacent recorded chords with RATCH x4 set on the tracker play every hit in each pass (the repeat queue of 0.13.0 dropped some)
  * (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
  * (Orange Cat 0.13.1) DRUM-X lane mutes as performance state (ACC + a lane key; not stored; cleared at power-on and a project load); the other Jiant features left fixed,...
  */
@@ -35,6 +36,8 @@
 #include <stdint.h>
 static uint32_t host_slots[3u * 0x14000u / 4u];          /* USR1..3 (zero: empty), as the flash at 0xA0000 */
 #define SMP_USER_XIP(k) ((const uint8_t *)host_slots + (k) * SMP_USER_SIZE)
+static uint32_t ui_hits[128];                      /* (0.13.4) recording.c's hits by note: the ratchet tests */
+#define RECORDING_HIT_HOOK(t, i, vel, gate, late) (ui_hits[recording[i].note & 127u]++)
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -4444,6 +4447,30 @@ static int test_tracker_events(void)
     hold(B_EDIT);
     ok &= notes_nth(t, 2, 2) < RECORD_MAX;
     bad += check("TRACKER: EDIT in N1 deletes that recorded note alone; EDIT held brings it back", ok);
+    {   /* (0.13.4) two adjacent recorded chords of four notes with RATCH x4 set on the tracker, the first late in its step: no repeat is dropped (the 0.13.0
+         * queue held six: the second chord's last notes played once) */
+        recorded_note_t n4 = {.on = 49152, .vel = 100, .duration = 8192, .owner = (uint8_t)recording_owner(t), .length = 1};
+        uint32_t s5, k;
+        stop_transport();
+        memset(ui_hits, 0, sizeof ui_hits);
+        for (k = 0; k < 4; k++) {
+            n4.step = 5; n4.note = (uint8_t)(70u + k); recording_restore_note(t, 8u + k, n4);
+            n4.step = 6; n4.on = 0; n4.note = (uint8_t)(74u + k); recording_restore_note(t, 12u + k, n4); n4.on = 49152;
+        }
+        t->step[5].time = t->step[6].time = ST_NOTE; t->step[5].flags = t->step[6].flags = SF_RECORDED;
+        note_rebuild_all();
+        for (s5 = 5; s5 <= 6; s5++) {
+            cursor_set(s5); frame();
+            ui.tk_col = TKC_FX; ui.tk_fx = TFX_RATCH;       /* (the FX column, RATCH) */
+            turn(EN_K4, 3);                                  /* (x4: the amount from off, three steps) */
+        }
+        ok = step_rflam(&t->step[5]) == 4u && step_rflam(&t->step[6]) == 4u;
+        seq_start(); seq_advance(0);
+        for (k = 0; k < 2u * recording_loop(t, seq_div_samples((uint32_t)t->p[P_SDIV])); k++) seq_advance(1);
+        for (k = 0; k < 8; k++) ok &= ui_hits[70u + k] == 8u;  /* (two passes of four hits) */
+        stop_transport();
+        bad += check("TRACKER: RATCH x4 on two adjacent recorded chords: every note plays all four hits, in each of two passes", ok);
+    }
     ui.tk_col = TKC_N1;
     return bad;
 }
