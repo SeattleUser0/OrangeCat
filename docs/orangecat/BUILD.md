@@ -1598,7 +1598,7 @@ and 10 ms for a program. The 0.9.1 migration is 66 erases and 352 programs: abou
 ### Left to test (on the unit): one ordered checklist
 
 Files, from the final CI run's `packages` artifact: the `.fwsc`, the `.pak` and `orangecat-shapes-....ocm`. For step 13, also the `.fwsc` of the run named at the end of this section
-(branch `exp/sonnet-noshapes`, the same code with SHAPES left out of the image). Do the steps in order. Each says what you should see. Send back whether each did, and the times asked for.
+(run 40052966701, branch `exp/sonnet-noshapes`, the same code with SHAPES left out of the image). Do the steps in order. Each says what you should see. Send back whether each did, and the times asked for.
 
 1. **Backup.** Web editor, Backup, Save backup (the complete one). *See:* a file saved on the computer. Keep the old firmware file too.
 2. **Install the firmware.** Your usual installer path, with the `.fwsc`. *See:* the unit restarts and "MOVING PRESETS" shows once with a bar. Write down how long it ran (expected 1 to 3 s; over 5 s is a finding).
@@ -1632,7 +1632,8 @@ Run 40051607092 (the code of Parts 1 to 3, no `.ci_quick`, full suite): image 49
 9dbca48 (image 489,916 B, 87,332 B free, arena 95,104 B): image +1,704 B, free -1,704 B, RAM +0, arena -32 B, pool 0. No golden hash or budget changed. The run before it (40050939555) failed one lint, an
 8 digit address constant in oc_module.c outside hal/; fixed.
 
-@@FINAL@@
+Run 40052966701 (branch `exp/sonnet-noshapes`, throwaway: sonnet-work merged in, SHAPES built out of the image; its `.fwsc` is the one for checklist step 13): image 468,388 B, 108,860 B free, .data+.bss 93,128 B, arena 95,072 B, pool 176,768 B.
+The commits after run 40051607092 change documents only, so its numbers are the final code's. The final full-suite run on the last commit is named in the last message of the session.
 
 ### Tests added or changed
 
