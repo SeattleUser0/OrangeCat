@@ -39,9 +39,9 @@ static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t curs
  * block being processed; part: the spacing of the ones after it; hits: how many are left). recording_nudge_sum: the track's nudges as the schedule was last
  * ordered with them. Runtime state only: not stored. */
 #define RECORDING_REP 6u
-static struct { uint64_t seen, skip; } recording_roll[NTRK];
-static struct { int32_t left; uint32_t part, gate; uint16_t ev; uint8_t vel, hits; } recording_rep[NTRK][RECORDING_REP];
-static uint32_t recording_nudge_sum[NTRK];
+static struct { uint64_t seen, skip; } recording_roll[NTRK] __attribute__((section(".pool")));   /* (0.13.2) runtime-only, zeroed at boot with the pool */
+static struct { int32_t left; uint32_t part, gate; uint16_t ev; uint8_t vel, hits; } recording_rep[NTRK][RECORDING_REP] __attribute__((section(".pool")));
+static uint32_t recording_nudge_sum[NTRK] __attribute__((section(".pool")));
 /* the track's nudges folded into one number, to see an edit that changed one (checked once a loop, and by the editors that know) */
 static uint32_t recording_nudge_fold(const track_t *t)
 {

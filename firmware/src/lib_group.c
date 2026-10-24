@@ -91,11 +91,10 @@ static uint8_t lg_needwipe;                    /* (0.11.1) ... and it found no f
 static uint32_t lg_test_reserve;               /* host tests only: sectors lg_pick must not return (a stand-in for a state the data cannot make) */
 #endif
 static uint32_t lg_busy;                       /* sectors (bit per index) holding an old pair that is not migrated yet */
-static uint32_t lg_erases, lg_progs;           /* flash operations done by this layer (migration cost, tests) */
 static void (*lg_progress)(uint32_t done, uint32_t total);
 
-static int lg_erase(uint32_t s) { lg_erases++; OC_FEED(); return st_erase(lg_addr[s]); }   /* (0.12.2) fed before every erase: the migration, a save, the wipe */
-static int lg_prog(uint32_t a, const void *p, uint32_t n) { lg_progs++; return st_prog(a, p, n); }
+static int lg_erase(uint32_t s) { OC_FEED(); return st_erase(lg_addr[s]); }   /* (0.12.2) fed before every erase: the migration, a save, the wipe */
+static int lg_prog(uint32_t a, const void *p, uint32_t n) { return st_prog(a, p, n); }
 static int lg_newer(uint32_t a, uint32_t b) { return a != b && a - b < 0x80000000u; }
 static uint32_t lg_off(const st_hdr_t *h) { return h->rsv[0] == ST_COMPACT_TAG ? (uint32_t)sizeof(st_hdr_t) : ST_PAYLOAD_OFF; }
 
@@ -294,7 +293,6 @@ static void lg_leftovers(uint32_t b)
         if (st_read(a, &h, sizeof h) || h.magic != ST_MAGIC || h.type != obj) continue;
         OC_FEED();
         st_erase(a);
-        lg_erases++;
     }
 }
 
@@ -376,7 +374,7 @@ static void lg_drop_pairs(void)
             st_hdr_t h;
             if (st_read(a, &h, sizeof h) || h.magic != ST_MAGIC || h.type != obj) continue;
             OC_FEED();
-            if (st_erase(a) == 0) lg_erases++;
+            st_erase(a);
         }
     }
     lg_busy = 0;
