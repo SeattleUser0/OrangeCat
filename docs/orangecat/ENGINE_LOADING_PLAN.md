@@ -821,6 +821,16 @@ the second OCT+ on the same row. MOD_INFO flag 8 tells the page. Tests (oc_modul
 the old module until the commit, the new one after the old start's first erase, and in the one instant between them both are valid and the lower start is used;
 replacement with no free start; erase errors at begin both ways; the card's question; the page's flag.
 
+### Fix 3. The crash ban at any time
+
+The boot guard bans a module only when the boot that died was in its first 30 s. A module that crashed later would have rebooted for ever. The chip's reset reason
+(`fm1_boot.p3_rst`: power on, watchdog, soft) cannot tell a crash from an orderly reset, because a fault ends in `fm1_reboot`, a soft reset. So `oc_modguard`
+(noinit, magic "MOD2") holds a `run` word: set at power on, cleared by `reset_intended()` (UBOOT, update, test reboot). A boot that finds `run` still set follows a session
+that died. `oc_mod_power_on` adds one to a start's count when that session held the start's engine on a track (the `inuse` bits, now set every loop, not only in the
+first 30 s), and sets the count to 0 otherwise. Three in a row ban the start (state 5, as for the 30 s rule) and set a notice bit; `oc_mod_ban_notice` shows MODULE BANNED
+SHAPES once. Power loss, install and remove lift the ban and clear the count. The boot guard is unchanged and its ban shows the same notice. Tests (oc_module_test.c):
+three deaths ban; a clean reset between breaks the streak; a death without the engine in use breaks it; a power loss forgets it; unban lifts it; the notice shows once.
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

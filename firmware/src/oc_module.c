@@ -49,8 +49,14 @@
  *   track plays the engine a registered module supplies. At the next boot: bootguard.failed != 0 and the bit is set -> the module is marked
  *   banned (MD_CRASHED) and not registered; the boot goes on without it. Tracks that used it fall to the engine table's answer for the number
  *   (the built-in SHAPES when it is built in, else the retired slot, as for any engine that is not there). `banned` stays until power is lost (the noinit
- *   RAM is gone) or the start is installed or removed (oc_mod_unban). A crash after the first 30 s is not seen, as it is not for the whole
- *   firmware by the boot guard. Neither the bits nor the bans are written to flash.
+ *   RAM is gone) or the start is installed or removed (oc_mod_unban). Neither the bits nor the bans are written to flash.
+ *   Beyond the first 30 s (0.10.1): the boot guard does not see a death later than that, so a module that crashes reliably after 30 s would
+ *   reboot the unit for ever. oc_modguard also keeps `run` (1 from the first boot until an orderly reset: reset_intended, i.e. UBOOT, an update; a
+ *   power loss clears the RAM) and, per start, `unclean`. The reset reason does not tell an orderly reset from a crash on this chip (a fault ends in
+ *   fm1_reboot, which is also what a soft reset is), so the firmware's own mark is used: at a boot with `run` still 1 the last session died (the
+ *   watchdog, a CPU exception, a hang); each start whose module's engine a track held in it (`inuse`, now set all session, not only in the first 30 s)
+ *   has `unclean` + 1, any other start (or a clean end) is back to 0. Three in a row bans the module as above and the screen says
+ *   MODULE BANNED SHAPES once (oc_mod_ban_notice). The 30 second rule bans at the first death, as before.
  *
  * The PC guard (hal/fm1_guard.h)
  *   Instruction fetch is allowed in [0x02000120, _etext] and the SRAM code window. A module runs from the module area, beyond _etext. When one is
@@ -61,7 +67,7 @@
  *
  * Revisions:
  *   0.10.0: first version.
- *   0.10.1: the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
+ *   0.10.1: the crash count beyond the first 30 s (oc_mod_power_on, oc_mod_ban_notice); the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
  *           module when another start is free (oc_mod_plan, oc_mod_inplace, mw.inplace); the header comment now says what the code does.
  */
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
@@ -81,9 +87,8 @@ static struct {
     uint32_t engine[OC_MOD_STARTS];                            /* the engine number the header names (valid once the header is) */
     uint32_t length[OC_MOD_STARTS];
 } oc_mod;
-/* the crash mark: survives a reset, not a power loss */
-#define OC_MODGUARD_MAGIC 0x4D4F4447u                          /* "MODG" */
-struct { uint32_t magic, inuse, banned; } oc_modguard __attribute__((section(".noinit")));
+/* the crash mark (core.h declares oc_modguard so that reset_intended can clear its count): survives a reset, not a power loss */
+#define OC_MOD_UNCLEAN_MAX 3u                                  /* (0.10.1) sessions in a row that died with the module's engine in use: banned */
 
 /* the XIP address a start runs at; the header there (device) or in the test's copy of the flash */
 static uint32_t oc_mod_flash(uint32_t i) { return ST_MODULE_LO + OC_MOD_START_SECTOR(i) * 0x1000u; }
@@ -98,6 +103,9 @@ static void oc_mod_guard_init(void)
         oc_modguard.magic = OC_MODGUARD_MAGIC;
         oc_modguard.inuse = 0;
         oc_modguard.banned = 0;
+        oc_modguard.run = 0;
+        oc_modguard.unclean[0] = oc_modguard.unclean[1] = 0;
+        oc_modguard.notice = 0;
     }
 }
 /* an install or a removal of start i: the ban and the use mark for it are gone */
@@ -106,6 +114,8 @@ static void oc_mod_unban(uint32_t i)
     oc_mod_guard_init();
     oc_modguard.banned &= ~(1u << i);
     oc_modguard.inuse &= ~(1u << i);
+    oc_modguard.unclean[i] = 0;
+    oc_modguard.notice &= (uint8_t)~(1u << i);
 }
 /* (0.10.1) the update loader's rule on the sectors a module of `len` bytes at start i covers: 0 ok; else the sector, counted from 1, whose last
  * 256 bytes would be taken for an update record; -1 when the flash would not read */
@@ -174,8 +184,10 @@ static void oc_mod_boot(uint32_t crashed)
             eng_unregister(e);
     memset(&oc_mod, 0, sizeof oc_mod);
     fm1_guard_code_end = 0;
-    if (crashed)
+    if (crashed) {
+        oc_modguard.notice |= (uint8_t)(oc_modguard.inuse & ~oc_modguard.banned);
         oc_modguard.banned |= oc_modguard.inuse;                /* the module(s) in use when it died */
+    }
     oc_modguard.inuse = 0;
     for (i = 0; i < OC_MOD_STARTS; i++) {
         fw_mod_hdr_t h;
@@ -203,7 +215,47 @@ static void oc_mod_boot(uint32_t crashed)
         }
     }
 }
-/* main loop, in the boot guard's first 30 s: set the use bit of every registered module a track is playing */
+/* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
+ * `run` says whether the last session ended in an orderly reset (reset_intended clears it). If it did not, the session died (the watchdog, a CPU
+ * exception, a hang: nothing else writes through this path), and every start whose module's engine was in use in it (the `inuse` bits, kept
+ * in .noinit) has one more unclean session in a row; one that was not in use, or a clean end, starts its count again. OC_MOD_UNCLEAN_MAX in a
+ * row bans the module as the 30 second rule does (until power is lost, or the start is installed or removed) and the screen says so once. The
+ * 30 second rule (bootguard.failed, `crashed`) is unchanged and bans at the first death. */
+static void oc_mod_power_on(uint32_t crashed)
+{
+    uint32_t i, dead;
+    oc_mod_guard_init();
+    dead = oc_modguard.run;
+    oc_modguard.run = 1;
+    for (i = 0; i < OC_MOD_STARTS; i++) {
+        if (dead && (oc_modguard.inuse & (1u << i))) {
+            if (oc_modguard.unclean[i] < 255u)
+                oc_modguard.unclean[i]++;
+        } else {
+            oc_modguard.unclean[i] = 0;
+        }
+        if (oc_modguard.unclean[i] >= OC_MOD_UNCLEAN_MAX) {
+            if (!(oc_modguard.banned & (1u << i)))
+                oc_modguard.notice |= (uint8_t)(1u << i);
+            oc_modguard.banned |= 1u << i;
+            oc_modguard.unclean[i] = 0;
+        }
+    }
+    oc_mod_boot(crashed);
+}
+/* "MODULE BANNED SHAPES", once, for a module banned at this boot (main.c after the project is loaded) */
+static void oc_mod_ban_notice(void)
+{
+    uint32_t i;
+    for (i = 0; i < OC_MOD_STARTS; i++) {
+        if (!(oc_modguard.notice & (1u << i)))
+            continue;
+        oc_modguard.notice &= (uint8_t)~(1u << i);
+        ui_say("MODULE BANNED ", oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : "ENGINE");
+        return;
+    }
+}
+/* main loop, all session (0.10.1; the first 30 s before): set the use bit of every registered module a track is playing */
 static void oc_mod_note_use(void)
 {
     uint32_t i, t;

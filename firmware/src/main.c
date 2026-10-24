@@ -245,6 +245,9 @@ static void fm1_main(void)
     glo_restore();                            /* CLK TUNE MIDI ROUT as last used, */
     project_boot();                           /* then the BOOT project or the template (theirs win) */
     pack_boot_notice(bootguard.failed);       /* (Orange Cat 0.8.1) PACK MISSING once, if a track needs the asset pack */
+#if OC_MODULES && MELODEE_FLASH
+    oc_mod_ban_notice();                      /* (Orange Cat 0.10.1) MODULE BANNED <engine> once, for a module the crash count banned at this boot */
+#endif
     frz_table_load();                         /* (Orange Cat 0.5.6) the frozen phrases (after persist_boot's pool) */
     fm1_delay_ms(400);
     if (boot_work.state != 2u)
@@ -266,8 +269,7 @@ static void fm1_main(void)
         }
 #endif
 #if OC_MODULES && MELODEE_FLASH
-        if (bootguard.pending)                          /* (0.10.0) in the first 30 s: which registered module a track plays (oc_module.c, the crash mark) */
-            oc_mod_note_use();
+        oc_mod_note_use();                              /* (0.10.0 the first 30 s, 0.10.1 all session) which registered module a track holds (oc_module.c, the crash mark) */
 #endif
         if (fm1_ms > 30000u && bootguard.pending) {     /* a crash or hang in the first 30 s counts */
             bootguard.pending = 0;

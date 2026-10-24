@@ -11,7 +11,8 @@
  * erased), code with no header page (an install cut off before its last step); two good modules for one engine (the lower start wins);
  * the crash mark (a crash in the first 30 s with the module in use bans it; one with it registered but unused does not; the ban holds across
  * resets, goes with a power loss, and goes when the start is installed or removed); a module removed is out of the table at the next boot;
- * a flash that will not read; (0.10.1) a record the update loader would take on a sector tail: refused at boot (MD_BAD_TAIL) and by the installer (rc 8, no header
+ * a flash that will not read; (0.10.1) three sessions in a row that die with the module's engine in use ban it whenever they die (a clean reset, a death with the
+ * engine not in use, a power loss or an install or removal breaks the count), MODULE BANNED once; (0.10.1) a record the update loader would take on a sector tail: refused at boot (MD_BAD_TAIL) and by the installer (rc 8, no header
  * page). The wiring of the loader into persist_boot and the main loop, the guard's register writes and the
  * installer are checked on the device (CI build) and by the installer's tests (step 6).
  */
@@ -324,6 +325,75 @@ int main(void)
     oc_mod_boot(1);
     chk("... a crash bans that one; the other (valid, not registered before) takes the engine number",
         oc_mod.state[0] == MD_CRASHED && oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+
+    /* the crash count beyond the first 30 s (0.10.1): sessions that die with the module's engine in use */
+    {
+        #define SESSION_USE() do { trk[2].engine = ENGI_SHAPES; oc_mod_note_use(); } while (0)
+        clean(); good(0, LEN);
+        oc_mod_power_on(0);
+        chk("first power-on: no earlier session, nothing counted, the module is registered, the session is marked running",
+            oc_mod.state[0] == MD_OK && oc_modguard.run == 1u && oc_modguard.unclean[0] == 0 && oc_modguard.banned == 0);
+        SESSION_USE(); oc_mod_power_on(0);                  /* the session died (no orderly reset), 40 s in */
+        chk("a session that died with the engine in use: one unclean, still registered", oc_modguard.unclean[0] == 1u && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES]);
+        SESSION_USE(); oc_mod_power_on(0);
+        chk("... two in a row: still registered", oc_modguard.unclean[0] == 2u && oc_mod.state[0] == MD_OK && !oc_modguard.banned);
+        SESSION_USE(); oc_mod_power_on(0);
+        chk("... three in a row: banned (MD_CRASHED), out of the table, the guard window back to _etext, the count restarts",
+            oc_mod.state[0] == MD_CRASHED && (oc_modguard.banned & 1u) && !eng_mod[ENGI_SHAPES] && !fm1_guard_code_end && oc_modguard.unclean[0] == 0);
+        ui.msg[0] = 0;
+        oc_mod_ban_notice();
+        chk("... the screen says MODULE BANNED SHAPES", !strcmp(ui.msg, "MODULE BANNED SHAPES"));
+        ui.msg[0] = 0;
+        oc_mod_ban_notice();
+        chk("... once: the second call says nothing", ui.msg[0] == 0 && oc_modguard.notice == 0);
+        oc_mod_power_on(0);
+        chk("the ban holds at the next boots", oc_mod.state[0] == MD_CRASHED && !eng_mod[ENGI_SHAPES]);
+        oc_mod_unban(0); oc_mod_boot(0);
+        chk("installing or removing the start lifts the ban: registered again, the count at 0", oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] && oc_modguard.unclean[0] == 0);
+
+        clean(); good(0, LEN);
+        oc_mod_power_on(0);
+        SESSION_USE(); oc_mod_power_on(0);
+        SESSION_USE(); oc_mod_power_on(0);
+        chk("(setup) two unclean sessions", oc_modguard.unclean[0] == 2u);
+        reset_intended();
+        chk("an orderly reset (reset_intended: UBOOT, an update) clears the running mark and the count", oc_modguard.run == 0 && oc_modguard.unclean[0] == 0);
+        SESSION_USE(); oc_mod_power_on(0);
+        chk("the next boot after an orderly end counts nothing", oc_modguard.unclean[0] == 0 && oc_mod.state[0] == MD_OK && oc_modguard.run == 1u);
+        SESSION_USE(); oc_mod_power_on(0); SESSION_USE(); oc_mod_power_on(0);
+        chk("... a clean reset between breaks the streak: two deaths after it are not three", oc_modguard.unclean[0] == 2u && oc_mod.state[0] == MD_OK);
+
+        clean(); good(0, LEN);
+        oc_mod_power_on(0);
+        SESSION_USE(); oc_mod_power_on(0); SESSION_USE(); oc_mod_power_on(0);
+        trk[2].engine = 0; oc_mod_note_use();               /* a session in which no track holds the module's engine dies */
+        oc_mod_power_on(0);
+        chk("a death with the module's engine not in use breaks the streak (count 0), the module stays", oc_modguard.unclean[0] == 0 && oc_mod.state[0] == MD_OK && !oc_modguard.banned);
+
+        clean(); good(0, LEN);
+        oc_mod_power_on(0); SESSION_USE(); oc_mod_power_on(0); SESSION_USE(); oc_mod_power_on(0);
+        memset(&oc_modguard, 0, sizeof oc_modguard);        /* power lost: the noinit RAM is gone */
+        oc_mod_power_on(0);
+        chk("a power loss forgets the count: nothing counted at the next boot", oc_modguard.unclean[0] == 0 && oc_modguard.run == 1u && oc_mod.state[0] == MD_OK);
+
+        clean(); good(0, LEN);
+        oc_mod_power_on(0); SESSION_USE(); oc_mod_power_on(1);
+        chk("the 30 second rule still bans at the first death, and tells the screen too", oc_mod.state[0] == MD_CRASHED && (oc_modguard.notice & 1u));
+        ui.msg[0] = 0; oc_mod_ban_notice();
+        chk("... MODULE BANNED SHAPES", !strcmp(ui.msg, "MODULE BANNED SHAPES"));
+
+        clean(); good(0, LEN);
+        oc_mod_power_on(0);
+        for (i = 0; i < 3u; i++) { SESSION_USE(); oc_mod_power_on(0); if (i == 0) oc_mod_note_use(); }
+        chk("(sanity) a module is not counted before it is registered and in use: a start with a module nobody holds never reaches the count",
+            oc_mod.state[0] == MD_CRASHED);
+        clean(); good(0, LEN); good(1, LEN);
+        oc_mod_power_on(0);
+        for (i = 0; i < 3u; i++) { SESSION_USE(); oc_mod_power_on(0); }
+        chk("two modules for the engine: the registered one (start 0) is banned by three deaths and the other (valid, not registered before) takes the number",
+            oc_mod.state[0] == MD_CRASHED && oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_modguard.unclean[1] == 0);
+        #undef SESSION_USE
+    }
 
     /* ---------------------------------------------------------------- the installer (step 6) */
     {

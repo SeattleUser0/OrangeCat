@@ -538,7 +538,7 @@ number a track holds is never changed by an install or a removal; the table answ
 one, else silence).
 
 Crash mark: a module that is playing in the first 30 s of a boot that then dies is not loaded at the next boot (state 5) until the unit loses power or the
-start is installed or removed. A crash after the first 30 s is not seen, as the boot guard does not see it for the firmware.
+start is installed or removed. (0.10.1) A crash later than that is counted too. A flag in noinit RAM says a session is running; every orderly reset (UBOOT, an update, a test reboot) clears it and the count. A reset that finds the flag still set is a session that died (the chip's reset reason cannot tell: a fault ends in a soft reset too). If the module's engine was held by a track in that session, the start's count goes up; a death without it, a clean reset, a power loss, an install or a removal sets it to 0. Three in a row ban the start (state 5) until power loss, install or remove, and the home screen says MODULE BANNED with the engine name, once.
 
 ## Pattern banks (commands 73–74)
 
