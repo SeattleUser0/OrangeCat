@@ -6,7 +6,8 @@
  * with the module's own: its 15 pages (the STORE page is the firmware's and not a module page), the page lists, the shown and put hooks, HOME's four knobs, ENV and LFO,
  * a native parameter recorded as motion and played back (and the voice assignment, which motion leaves alone), and the module going away again.
  *   build/host/mod_pages_prophet_test
- * Revisions: 0.12.1: first version. */
+ * Revisions: 0.12.1: first version.
+ *            0.12.2: the engine is offered while the module is there (eng_ok), admission with the module's voice units and state. */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 #include "fw_pages_wire.h"
@@ -50,6 +51,9 @@ int main(void)
     register_module();
     bad += check("the module registered: the Prophet engine is there (201 presets) and its descriptor is the engine's pages", eng_mod[ENGI_PROPHET] && eng_ok(ENGI_PROPHET) &&
                  ENGINES[ENGI_PROPHET]->npresets == 201u && pages_of_engine(ENGI_PROPHET) == d);
+    { uint32_t u = ENGINES[ENGI_PROPHET]->units(TSEL);
+      bad += check("admission: the module's own voice units (2 or 3: P5_POLY 5) and state count, and the unit takes it (eng_admit 0)",
+                   (u == 2u || u == 3u) && eng_admit(TSEL, ENGI_PROPHET) == 0 && eng_state_size(ENGI_PROPHET) == eng_mod[ENGI_PROPHET]->state_size && eng_state_size(ENGI_PROPHET) > 0); }
     bad += check("..a track on another engine shows none of the pages", TSEL->eng_req != ENGI_PROPHET && shown_mod_pages() == 0);
     set_engine_of(TSEL, ENGI_PROPHET);
     bad += check("..a track on the Prophet shows all 15", TSEL->eng_req == ENGI_PROPHET && shown_mod_pages() == d->npages && d->npages == 15u);
