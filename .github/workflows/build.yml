@@ -31,6 +31,10 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 16 (Orange Cat 0.13.5): the gate needs a positive marker. tests/run_tests.sh writes build/orangecat-tests-passed.txt ("PASSED <n> jobs ...") as its last act; tools/ci_gate.sh (job
+#     tests-gate, now with a checkout) is red when the failed marker is there OR when neither marker is. Before, a test step that died before the tests started (the engine switch
+#     file, the fwsc copy, a cancelled step) left no file and the gate passed a run in which no test ran. The test step also writes the failed marker from an EXIT trap when it
+#     ends non-zero without one, and a .ci_quick run writes build/orangecat-tests-skipped.txt (the gate passes it with a warning).
 #   Rev 15 (Orange Cat 0.13.3): build/orangecat-*.set.json, the set manifests for the card (tools/oc_manifest.py --set), join the packages artifact.
 #   Rev 14 (Orange Cat 0.13.2): failing host tests fail the run (job tests-gate; build/orangecat-tests-failed.txt in the artifact); tests-block is true on a tag; pages waits for the gate; the artifact stays on a branch run.
 #   Rev 13 (Orange Cat 0.12.1): the Prophet module (tools/build.py --module prophet, 8 sectors, starts 0 and 4) is built beside SHAPES; its .ocm joins the packages and the site.
@@ -147,8 +151,12 @@ jobs:
         done
       test: |
         set -euo pipefail
+        # (rev 16, Orange Cat 0.13.5) the step ends non-zero without having reported (a source that fails, a copy that fails): say so in the failed marker. The gate
+        # (tools/ci_gate.sh) is red with no marker at all as well, for the cases a trap cannot catch (the step killed or cancelled).
+        mkdir -p build
+        trap 'rc=$?; if [ "$rc" -ne 0 ] && [ ! -f build/orangecat-tests-failed.txt ]; then echo "the test step ended with status $rc before the host tests reported (see the run log)" > build/orangecat-tests-failed.txt; fi' EXIT
         # (gui-slim, temporary) an experiment branch with .ci_quick: the build and its sizes only, no host tests
-        if [ -f .ci_quick ]; then echo "quick: no host tests"; exit 0; fi
+        if [ -f .ci_quick ]; then echo "quick: no host tests"; echo "quick: .ci_quick is in the repository, so no host test ran (sizes only)" > build/orangecat-tests-skipped.txt; exit 0; fi
         export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
         export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
         export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
@@ -173,27 +181,23 @@ jobs:
         fi
       packages: build/orangecat-*
 
-  tests-gate:                                    # (rev 14) the run is red when the host tests failed; the packages artifact is still there
+  tests-gate:                                    # (rev 14) the run is red when the host tests failed; the packages artifact is still there. (rev 16) And when no test ran.
     needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/ci_gate.sh
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           name: packages
           path: pkg
       - name: Host tests
         shell: bash
-        run: |
-          set -euo pipefail
-          f=pkg/build/orangecat-tests-failed.txt
-          if [ -f "$f" ]; then
-            msg=$(head -c 60000 "$f" | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' || true)
-            echo "::error title=host tests failed (the packages artifact of this run is still available)::$msg"
-            exit 1
-          fi
-          echo "host tests: no failure recorded in the packages artifact"
+        run: sh tools/ci_gate.sh pkg
 
   pages:                                         # (rev 2) the installer with this build, and the editor, on GitHub Pages
     needs: [build, tests-gate]                   # (rev 14) not published when the host tests failed

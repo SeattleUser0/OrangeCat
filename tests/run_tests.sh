@@ -134,6 +134,8 @@ TABLES=0; [ -f build/gen/melodee_tables.h ] && TABLES=1
 PIL=0; python3 -c "import PIL" 2>/dev/null && PIL=1
 mkdir -p "$OUT" "$LOG"
 rm -f "$LOG"/*
+# (Orange Cat 0.13.5) the CI gate's positive marker (tools/ci_gate.sh): written below only when every job passed, so a stale one cannot be taken for this run's
+rm -f build/orangecat-tests-passed.txt build/orangecat-tests-failed.txt
 start=$(date +%s)
 
 # ------------------------------------------------------------------- jobs ---
@@ -408,6 +410,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
+    run "CI gate (tools/ci_gate.sh): no marker is red, the pass marker with a test count is green, the failed marker wins" sh tests/ci_gate_test.sh
     t "Recorded step properties: a chord's accent, nudge (no wrap), ratchet, flam, chance and condition as a group" recording_props_test -O1 $FW
     run "Recording storage codec probe: lossless roundtrip and malformed data" python3 tools/recording_storage_probe.py
     t "Recording ownership: independent scanner, edits, duplicates, sparse/dense queries and rebuild cost" recording_index_test -O2 $FW
@@ -570,3 +573,5 @@ if [ -s "$LOG/failed" ]; then
     exit 1
 fi
 echo "$what PASSED in $secs s"
+# (Orange Cat 0.13.5) the last act of a good run: the marker the CI gate requires, with the number of jobs (tests and steps) that ran
+[ "$n" -gt 0 ] && echo "PASSED $n jobs in $secs s ($what)" > build/orangecat-tests-passed.txt
