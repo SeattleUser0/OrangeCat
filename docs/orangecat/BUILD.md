@@ -1926,6 +1926,10 @@ clang `--analyze` (the host test translation units, the module TUs; outputs kept
 8. Golden hashes and `tests/target_budget.txt` carry new lines only. Nothing was flashed: the unit checklist in "Left to test (on the unit)" is open.
 9. Tests in `tests/` not run by `run_tests.sh`, on purpose: `audio_job_bench.c`, `pitch_prepare_bench.c`, `recording_bench.c` (benchmarks), `slice_test.c` and `slice_loop.py` (SLICE is retired from the build), `make_fat_fixture.py` (makes the committed card image used by usb_host_test).
 
+### Sizes and CI (Parts 2 to 4)
+
+Run 40089465406 (quick, on ab4a024, the device build passed every check): image 503,856 B (73,392 B free of 577,248 B; +4,604 B since Part 1's run, from Parts 3 and 4 and the hardening), RAM .data+.bss 93,992 B of 98,304 B (+464 B for the recorded-step repeat queues, the rest from the hardening and DRUM-X mutes), pool 176,768 B, audio working arena 93,024 B available (94,144 B before; minimum 49,152). Prophet module 31,872 B of 32,768 B at starts 0 and 4 (unchanged, crc 5f630420 and 0472aa28), SHAPES module 23,784 B of 24,576 B, interface 12f6be4f unchanged. The per-Prophet-track admission and arena figures are not printed by the build; they stay as the budget's p5 lines give them (no new numbers measured).
+
 ### Tests added or changed (Seventh run)
 
 - `tests/mod_pages_prophet_test.c` (new, in run_tests.sh; the Orange Cat engine set, sanitizers): the module's real descriptor in the UI: the 15 pages, a column edit through the put hook, the keyed tuning's shown hook, HOME, ENV, LFO, motion recorded and played back, the module going away and returning.
