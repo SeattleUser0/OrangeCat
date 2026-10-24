@@ -1,4 +1,4 @@
-# Orange Cat: the set manifest (0.13.3)
+# Orange Cat: the set manifest (0.13.3, checks 0.13.4)
 
 A set is the files of one build on the card: the asset pack, the engine module, and for the record the firmware package. A manifest named `*.set.json` in the same folder says which build they are for and which files belong to it. The unit's card browser lists it with the value "Set". OCT+ on it is "Install set".
 
@@ -6,7 +6,7 @@ A set is the files of one build on the card: the asset pack, the engine module, 
 
 1. Reads the manifest. Refuses it ("Not a set") if it is not the format below.
 2. Compares the version, then the build's identifiers. "Update firmware first" (set is newer), "Set is for older build", "Set: another build" (same version, other interface id, table address, pack hash or pack length).
-3. Looks for every named file and checks it with nothing written ("Missing NAME" if one is gone). Two modules must be able to stand together in the module area ("Modules don't fit").
+3. Looks for every named file and checks it with nothing written ("Missing NAME" if one is gone). (0.13.4) "Checks" means the whole file is read from the card and run through the checks the installer applies at the end: for the pack its header, the payload CRC-32 and the update loader's sector tail rule ("Pack file damaged", "Update would erase it"); for each module the header page against the start and the firmware, the code CRC-32, the page descriptor and the tail rule ("Module header bad", "Module file damaged", "Module pages bad", "Update would erase it"; "Unreadable" for a card error). One bad file refuses the whole set before the first stage, so nothing is erased. Two modules must be able to stand together in the module area ("Modules don't fit").
 4. Installs the pack, unless this build's pack is already there.
 5. Installs the modules in the manifest's order. When a module must erase the one in the way, the unit asks once per module (OCT+ again on the same row).
 6. Says "SET INSTALLED".

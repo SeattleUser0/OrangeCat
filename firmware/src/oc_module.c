@@ -73,6 +73,9 @@
  * Host tests: tests/oc_module_test.c (a simulated NOR: every refusal, the crash mark, a good module, two modules).
  *
  * Revisions:
+ * (Orange Cat 0.13.4) oc_mod_image_check / oc_mod_hdr_matches / oc_mod_pages_check_rd: the checks of an image take a reader, so the card checks the file it is about to write
+ * with the code oc_mod_end and the boot check use; oc_mod_tails is oc_pack.c's oc_rule_tails over the flash.
+ * (Orange Cat 0.13.4, Hardening 1) oc_mod_end runs the page descriptor check before the commit (it was only in the boot check after it).
  * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
  * (Orange Cat 0.11.0) ED_ENGINES (125) and the Engines table in the web page; module header gains version; lint fix for the host window constant
  * (Orange Cat 0.11.1) every path that takes a module out of the table writes the PC window
@@ -177,38 +180,39 @@ static void oc_mod_unban(uint32_t i)
  * 256 bytes would be taken for an update record; -1 when the flash would not read */
 static int oc_mod_tails(uint32_t i, uint32_t len)
 {
-    uint8_t r[80];
-    uint32_t s, n = (len + 0xFFFu) / 0x1000u;
-    for (s = 0; s < n; s++) {
-        if (st_read(oc_mod_flash(i) + s * 0x1000u + 0x1000u - 0x100u, r, sizeof r))
-            return -1;
-        if (pk_record_like(r))
-            return (int)(s + 1u);
-    }
-    return 0;
+    uint32_t base = oc_mod_flash(i);                            /* (0.13.4) the rule is oc_pack.c's oc_rule_tails: one copy for the flash and for the card's file */
+    return oc_rule_tails(oc_rd_flash, &base, (len + 0xFFFu) / 0x1000u * 0x1000u, (len + 0xFFFu) / 0x1000u);
 }
 /* (0.12.0) the module's page descriptor, if its engine_t has one (engine_t.pages), checked on the flash bytes (fw_pages_check): the UI follows pointers
  * in it, so one that leaves the image refuses the module. The engine_t is read at the device layout (4 byte pointers); the host builds (8 byte pointers,
  * fake link addresses) skip this and test fw_pages_check on hand-built bytes (tests/mod_pages_test.c). 0 = fine or none. */
+/* (0.13.4) ctx: {a reader, its context, the module's link address}: an address of the module's own space is read from the image at the offset from its link address */
+typedef struct { oc_rd_t rd; void *ctx; uint32_t link; } oc_mod_rdctx_t;
 static int oc_mod_rd(void *ctx, uint32_t addr, void *buf, uint32_t n)
 {
-    const uint32_t *b = ctx;                                    /* {flash offset of the start, its link address} */
-    return st_read(b[0] + (addr - b[1]), buf, n);
+    const oc_mod_rdctx_t *b = ctx;
+    return b->rd(b->ctx, addr - b->link, buf, n);
 }
-static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
+static int oc_mod_pages_check_rd(oc_rd_t rd, void *rctx, uint32_t link, const fw_mod_hdr_t *h)
 {
-    uint32_t ctx[2], p;
+    oc_mod_rdctx_t c;
+    uint32_t p;
     uint8_t w[4];
     if (sizeof(void *) != 4u)
         return 0;
-    ctx[0] = oc_mod_flash(i); ctx[1] = oc_mod_link(i);
-    if (h->engine_ptr + offsetof(engine_t, pages) + 4u > ctx[1] + h->length ||
-        oc_mod_rd(ctx, h->engine_ptr + (uint32_t)offsetof(engine_t, pages), w, 4u))
+    c.rd = rd; c.ctx = rctx; c.link = link;
+    if (h->engine_ptr + offsetof(engine_t, pages) + 4u > link + h->length ||
+        oc_mod_rd(&c, h->engine_ptr + (uint32_t)offsetof(engine_t, pages), w, 4u))
         return FWP_ADDR;
     p = fwp_u32(w);
     if (!p)
         return 0;
-    return fw_pages_check(oc_mod_rd, ctx, p, ctx[1] + FW_MOD_CODE_OFF, ctx[1] + h->length);
+    return fw_pages_check(oc_mod_rd, &c, p, link + FW_MOD_CODE_OFF, link + h->length);
+}
+static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
+{
+    uint32_t base = oc_mod_flash(i);
+    return oc_mod_pages_check_rd(oc_rd_flash, &base, oc_mod_link(i), h);
 }
 /* the header at start i read from the flash (st_read), its checks, then the code's CRC and the sector tails: the state */
 static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
@@ -676,6 +680,46 @@ static int oc_mod_write(uint32_t off, const void *src, uint32_t n)
     }
     return MI_OK;
 }
+/* (0.13.4) the header page of an image (the 256 bytes that are programmed last) against what was written: the engine, the start it is for, its length (the CRC-32
+ * of the code is compared by the callers). One copy for oc_mod_end (the code as it was programmed) and for the card's check of a file before anything is erased. 1 ok. */
+static int oc_mod_hdr_matches(const uint8_t *pg, uint32_t engine, uint32_t start, uint32_t len)
+{
+    const fw_mod_hdr_t *h = (const fw_mod_hdr_t *)pg;
+    return h->magic == FW_MOD_MAGIC && ocs_crc32(pg, FW_MOD_HDR_BYTES - 4u) == h->hcrc && fw_module_check(h) == FW_MOD_OK &&
+           h->length == len && h->engine == engine && h->link_addr == oc_mod_link(start) &&
+           h->engine_ptr >= h->link_addr + FW_MOD_CODE_OFF && h->engine_ptr < h->link_addr + h->length && !(h->engine_ptr & 3u) &&
+           h->state_size != 0 && h->state_size <= OC_MOD_STATE_MAX && h->pack_hash == OC_PACK_HASH;
+}
+enum { MC_OK = 0, MC_HDR = -1, MC_CRC = -2, MC_PAGES = -3, MC_TAIL = -8, MC_READ = -9 };   /* oc_mod_image_check (MI_TAIL's -8 is the same verdict) */
+/* (0.13.4) a whole module image (the header page, then the code to `len`) as rd gives it, for `engine` at `start`, checked as oc_mod_end and the boot check will:
+ * the placement and length, the header page against the image (link address of the start, length, engine, state size, the pack hash, hcrc, fw_module_check),
+ * the code's CRC-32, the page descriptor (device builds), the sector tails. 0 ok, else MC_*. Writes nothing. */
+static int oc_mod_image_check(oc_rd_t rd, void *ctx, uint32_t engine, uint32_t start, uint32_t len)
+{
+    _Alignas(4) uint8_t pg[256];
+    uint8_t buf[256];
+    uint32_t crc = 0xFFFFFFFFu, off;
+    int t;
+    if (!eng_module_slot(engine) || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || !oc_mod_fits(engine, start, len))
+        return MC_HDR;
+    if (rd(ctx, 0, pg, sizeof pg))
+        return MC_READ;
+    for (off = FW_MOD_CODE_OFF; off < len; off += sizeof buf) {
+        uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
+        if (rd(ctx, off, buf, n))
+            return MC_READ;
+        crc = ocs_crc_add(crc, buf, n);
+        SMP_FEED();
+    }
+    if (!oc_mod_hdr_matches(pg, engine, start, len))
+        return MC_HDR;
+    if (((const fw_mod_hdr_t *)pg)->crc != ~crc)
+        return MC_CRC;
+    if (oc_mod_pages_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg))
+        return MC_PAGES;
+    t = oc_rule_tails(rd, ctx, len, (len + 0xFFFu) / 0x1000u);
+    return t < 0 ? MC_READ : t > 0 ? MC_TAIL : 0;
+}
 /* the header page (256 bytes) when all the code is in: 0 ok; -1 refused (the header does not match what was written, the start or the firmware);
  * -7 programmed but the area does not read as a module; -8 a sector tail would be taken for an update record (0.10.1; no header is programmed); else flash */
 static int oc_mod_end(const void *page256)
@@ -687,13 +731,12 @@ static int oc_mod_end(const void *page256)
     if (!mw.writing || mw.done != mw.len)
         { mw.writing = 0; return MI_REFUSED; }
     mw.writing = 0;
-    if (h->magic != FW_MOD_MAGIC || ocs_crc32(pg, FW_MOD_HDR_BYTES - 4u) != h->hcrc || fw_module_check(h) != FW_MOD_OK ||
-        h->length != mw.len || h->engine != mw.engine || h->link_addr != oc_mod_link(mw.start) || h->crc != ~mw.crc ||
-        h->engine_ptr < h->link_addr + FW_MOD_CODE_OFF || h->engine_ptr >= h->link_addr + h->length || (h->engine_ptr & 3u) ||
-        h->state_size == 0 || h->state_size > OC_MOD_STATE_MAX || h->pack_hash != OC_PACK_HASH)
+    if (!oc_mod_hdr_matches(pg, mw.engine, mw.start, mw.len) || h->crc != ~mw.crc)
         return MI_REFUSED;
     if (oc_mod_tails(mw.start, mw.len) != 0)                               /* (0.10.1) the code as the flash has it: no sector tail like an update record */
         return MI_TAIL;
+    if (oc_mod_pages_check(mw.start, h))                                   /* (0.13.4) the page descriptor (device builds) on the code as written, BEFORE the commit: a module the boot check would refuse gets no header, so it is never half-registered and a beside install has nothing to erase afterwards */
+        return MI_REFUSED;
     if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
         return rc;
     if (!mw.inplace) {                                                     /* beside (0.10.1): the old module goes only after the new one reads back good */

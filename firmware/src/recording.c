@@ -1,10 +1,17 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Revisions:
+ * (Orange Cat 0.13.4) the repeats of a ratchet or a flam are never dropped. Design (a), no queue: every event has a record of its own (recording_rep_at: the time,
+ * on the track's repeat clock, of its next repeat; two bits of recording_flags: how many are left), so there is nothing to run out of. The 0.13.0 queue held six
+ * repeats a track and a ratcheted chord late in one step, followed by another in the next, gave the second chord's last notes one hit each. A track's pending events
+ * are a bit each in recording_rep_bits, and recording_rep_tick visits only those (one compare when none are pending: cheaper than the six entries it replaces; with
+ * some, a scan of 32 words and the pending events, flat in the number of events that exist). The parameters of a repeat (velocity, gate, spacing) are worked out again
+ * from the event and its step when it plays (recording_shape, the same function the first hit uses), so only the time and the count are kept. RAM: 4,096 B for the
+ * times, 512 B for the bits, 8 B of counts, 16 B of clocks, in the pool; the six-entry queue (384 B) is gone.
  * (Orange Cat 0.13.0) the step's properties apply to the notes recorded on it, as a group (docs/orangecat/TRACKER_REVIEW.md): CHANCE and the trig
  * condition are rolled once for the step on each pass of its loop (recording_roll_ok), the accent plays every onset at velocity 127, RATCH x2..x4 plays each
- * onset again in equal parts of the step (gate of a part, at most the note's own), FLAM a grace at 9/16 of its velocity and the full hit FLAM_SAMPLES later
- * (recording_rep: a few repeats waiting, per track), NUDGE moves every onset by the step's nudge (64ths of the step), clamped inside the loop: no wrap.
+ * onset again in equal parts of the step (gate of a part, at most the note's own), FLAM a grace at 9/16 of its velocity and the full hit FLAM_SAMPLES later,
+ * NUDGE moves every onset by the step's nudge (64ths of the step), clamped inside the loop: no wrap.
  * Nothing in a stored format changed: the properties were in the step all along. */
 /* A bounded performance store shared by the project's 32 banks. Step notes
  * are its editable overview; the original onsets, velocities and independent
@@ -35,12 +42,19 @@ static uint32_t recording_due[RECORD_MAX];
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
 static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t cursor; } recording_schedule[NTRK];
 /* (Orange Cat 0.13.0) step properties on recorded steps. recording_roll: the steps of the track whose chance and condition were rolled this pass of the loop
- * (seen) and the ones that failed (skip). recording_rep: the repeats of a ratchet or a flam waiting to play (left: samples to the next one, from the start of the
- * block being processed; part: the spacing of the ones after it; hits: how many are left). recording_nudge_sum: the track's nudges as the schedule was last
- * ordered with them. Runtime state only: not stored. */
-#define RECORDING_REP 6u
+ * (seen) and the ones that failed (skip). recording_nudge_sum: the track's nudges as the schedule was last ordered with them.
+ * (0.13.4) the repeats of a ratchet or a flam: recording_rep_at[i] is the time of event i's next repeat on its track's repeat clock (recording_rep_clock: the
+ * samples recording_rep_tick has gone through, compared by difference so its wrap does not matter); recording_flags bit 16 says repeats are pending and bits 5 and 6
+ * how many (0..3: x4 is three, a flam one); recording_rep_bits[track] has a bit for each pending event and recording_rep_n[track] counts them. Runtime state only:
+ * not stored. */
+#define RECORDING_RF_REP 16u
+#define RECORDING_RF_LEFT_SHIFT 5u
+#define RECORDING_RF_LEFT_MASK (3u << RECORDING_RF_LEFT_SHIFT)
 static struct { uint64_t seen, skip; } recording_roll[NTRK] __attribute__((section(".pool")));   /* (0.13.2) runtime-only, zeroed at boot with the pool */
-static struct { int32_t left; uint32_t part, gate; uint16_t ev; uint8_t vel, hits; } recording_rep[NTRK][RECORDING_REP] __attribute__((section(".pool")));
+static uint32_t recording_rep_at[RECORD_MAX] __attribute__((section(".pool")));
+static uint32_t recording_rep_bits[NTRK][RECORD_MAX / 32u] __attribute__((section(".pool")));
+static uint16_t recording_rep_n[NTRK] __attribute__((section(".pool")));
+static uint32_t recording_rep_clock[NTRK] __attribute__((section(".pool")));
 static uint32_t recording_nudge_sum[NTRK] __attribute__((section(".pool")));
 /* the track's nudges folded into one number, to see an edit that changed one (checked once a loop, and by the editors that know) */
 static uint32_t recording_nudge_fold(const track_t *t)
@@ -408,6 +422,7 @@ static void recording_queue_refresh(track_t *t)
     }
 }
 #endif
+static void recording_rep_clear_all(void);                    /* (0.13.4, below) */
 static void recording_reindex(void)
 {
     recording_pitch_invalidate();
@@ -452,7 +467,7 @@ static void recording_reindex(void)
     }
     memset(recording_schedule, 0, sizeof recording_schedule);
     memset(recording_roll, 0, sizeof recording_roll);   /* (0.13.0) */
-    memset(recording_rep, 0, sizeof recording_rep);
+    recording_rep_clear_all();
     for (uint32_t tr = 0; tr < NTRK; tr++) recording_nudge_sum[tr] = recording_nudge_fold(&trk[tr]);
 }
 static void recording_unlink(uint32_t i)
@@ -879,6 +894,41 @@ static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, u
     }
     if (remaining) recording_live_add(i);
 }
+/* (0.13.4) the shape of an event's hits, from the event and its step alone: the velocity of the full hit, the gate it holds, how many hits in all, the spacing of
+ * a ratchet's parts (0 when there is none) and whether the step is a flam. recording_fire plays the first hit from it and recording_rep_tick the rest. */
+static void recording_shape(const track_t *t, uint32_t i, uint32_t period, uint32_t *vel, uint32_t *gate, uint32_t *hits, uint32_t *part, uint32_t *grace)
+{
+    const recorded_note_t *r = &recording[i];
+    const step_t *s = &t->step[recording_view(t, r) % NSTEP];
+    uint32_t g = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
+    if (!g) g = 1;
+    *vel = (s->flags & SF_ACCENT) ? 127u : r->vel;
+    *hits = step_ratchet(s); *grace = (s->flags & SF_FLAM) != 0u; *part = 0;
+    if (*hits > 1u) {                                 /* RATCH: the gate of a part, as a manual step's, at most the note's own */
+        *part = step_samples(t, period, r->step & 63u) / *hits;
+        uint32_t pg = *part * (uint32_t)t->p[P_SGATE] / 128u;
+        if (!pg) pg = 1;
+        if (pg < g) g = pg;
+    }
+    *gate = g;
+}
+/* the repeats of the track: none waiting */
+static void recording_rep_clear(uint32_t tr)
+{
+    if (recording_rep_n[tr])
+        for (uint32_t w = 0; w < RECORD_MAX / 32u; w++) {
+            uint32_t bits = recording_rep_bits[tr][w];
+            while (bits) { recording_flags[w * 32u + (uint32_t)__builtin_ctz(bits)] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK); bits &= bits - 1u; }
+            recording_rep_bits[tr][w] = 0;
+        }
+    recording_rep_n[tr] = 0;
+}
+static void recording_rep_clear_all(void)
+{
+    memset(recording_rep_bits, 0, sizeof recording_rep_bits);
+    memset(recording_rep_n, 0, sizeof recording_rep_n);
+    for (uint32_t i = 0; i < RECORD_MAX; i++) recording_flags[i] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
+}
 static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t late)
 {
     recorded_note_t *r = &recording[i];
@@ -887,53 +937,54 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     if ((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> trk_index(t)) & 1u)) return;   /* (an edit waiting:
                                                          * seq.c; Orange Cat 0.5.6: a frozen phrase's take plays) */
     uint32_t view = recording_view(t, r) % NSTEP, tr = trk_index(t);
-    const step_t *s = &t->step[view];
     if (!recording_roll_ok(t, view)) return;
-    uint32_t gate = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
-    if (!gate) gate = 1;
-    uint32_t vel = (s->flags & SF_ACCENT) ? 127u : r->vel;
-    uint32_t hits = step_ratchet(s), grace = (s->flags & SF_FLAM) != 0u, part = 0;
-    if (hits > 1u) {                                  /* RATCH: the gate of a part, as a manual step's, at most the note's own */
-        part = step_samples(t, period, r->step & 63u) / hits;
-        uint32_t g = part * (uint32_t)t->p[P_SGATE] / 128u;
-        if (!g) g = 1;
-        if (g < gate) gate = g;
-    }
+    uint32_t vel, gate, hits, part, grace;
+    recording_shape(t, i, period, &vel, &gate, &hits, &part, &grace);
     uint32_t first = gate;
     if (grace) {                                      /* FLAM: this the grace, short, 9/16 of the velocity */
         first = flam_at(t, period);
         vel = vel * 9u / 16u + 1u;
     }
     recording_hit(t, i, vel, first, late);
-    if (hits > 1u || grace) {                         /* the rest waits: left counts from the end of the block being played */
-        for (uint32_t k = 0; k < RECORDING_REP; k++) {
-            if (recording_rep[tr][k].hits) continue;
-            recording_rep[tr][k].ev = (uint16_t)i;
-            recording_rep[tr][k].hits = (uint8_t)(grace ? 1u : hits - 1u);
-            recording_rep[tr][k].part = grace ? 0u : part;
-            recording_rep[tr][k].gate = gate;
-            recording_rep[tr][k].vel = (uint8_t)((s->flags & SF_ACCENT) ? 127u : r->vel);
-            recording_rep[tr][k].left = (int32_t)(grace ? first : part) - (int32_t)late;
-            break;
-        }
+    if (hits > 1u || grace) {                         /* the rest waits: its time is counted on the track's repeat clock, from the start of the next block */
+        uint32_t w = i >> 5, bit = 1u << (i & 31u);
+        if (!(recording_rep_bits[tr][w] & bit)) { recording_rep_bits[tr][w] |= bit; recording_rep_n[tr]++; }
+        recording_flags[i] = (uint8_t)((recording_flags[i] & ~RECORDING_RF_LEFT_MASK) | RECORDING_RF_REP |
+                                       ((grace ? 1u : hits - 1u) << RECORDING_RF_LEFT_SHIFT));
+        recording_rep_at[i] = recording_rep_clock[tr] + (grace ? first : part) - late;
     }
 }
 /* the repeats due in the n samples about to be played: each plays again with the event's own state checked (a note edited away, a step no longer
  * recorded, ends its repeats) */
 static void recording_rep_tick(track_t *t, uint32_t n)
 {
-    uint32_t tr = trk_index(t);
-    for (uint32_t k = 0; k < RECORDING_REP; k++) {
-        if (!recording_rep[tr][k].hits) continue;
-        uint32_t i = recording_rep[tr][k].ev;
-        if (i >= RECORD_MAX || !recording[i].vel || !recording_active(t, i)) { recording_rep[tr][k].hits = 0; continue; }
-        while (recording_rep[tr][k].hits && recording_rep[tr][k].left <= (int32_t)n) {
-            uint32_t late = (uint32_t)((int32_t)n - recording_rep[tr][k].left);
-            if (!((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> tr) & 1u)))
-                recording_hit(t, i, recording_rep[tr][k].vel, recording_rep[tr][k].gate, late);
-            if (--recording_rep[tr][k].hits) recording_rep[tr][k].left += (int32_t)recording_rep[tr][k].part; else break;
+    uint32_t tr = trk_index(t), clk = recording_rep_clock[tr];
+    recording_rep_clock[tr] = clk + n;
+    if (!recording_rep_n[tr]) return;
+    uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]);
+    for (uint32_t w = 0; w < RECORD_MAX / 32u; w++) {
+        uint32_t bits = recording_rep_bits[tr][w];
+        while (bits) {
+            uint32_t i = w * 32u + (uint32_t)__builtin_ctz(bits), left = (recording_flags[i] & RECORDING_RF_LEFT_MASK) >> RECORDING_RF_LEFT_SHIFT;
+            bits &= bits - 1u;
+            if (!(recording_flags[i] & RECORDING_RF_REP) || !left || !recording[i].vel || !recording_active(t, i)) left = 0;
+            else {
+                uint32_t vel, gate, hits, part, grace;
+                recording_shape(t, i, period, &vel, &gate, &hits, &part, &grace);
+                while (left && (int32_t)(recording_rep_at[i] - clk) <= (int32_t)n) {
+                    uint32_t late = (uint32_t)((int32_t)n - (int32_t)(recording_rep_at[i] - clk));
+                    if (!((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> tr) & 1u))) recording_hit(t, i, vel, gate, late);
+                    left--;
+                    recording_rep_at[i] += part;
+                }
+            }
+            if (left) recording_flags[i] = (uint8_t)((recording_flags[i] & ~RECORDING_RF_LEFT_MASK) | (left << RECORDING_RF_LEFT_SHIFT));
+            else {
+                recording_flags[i] &= (uint8_t)~(RECORDING_RF_REP | RECORDING_RF_LEFT_MASK);
+                recording_rep_bits[tr][w] &= ~(1u << (i & 31u));
+                recording_rep_n[tr]--;
+            }
         }
-        if (recording_rep[tr][k].hits) recording_rep[tr][k].left -= (int32_t)n;
     }
 }
 static void recording_zero(track_t *t)

@@ -2,6 +2,7 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Revisions:
+ * (Orange Cat 0.13.4) st_cow: st_save cut at every erase and program point keeps the old record or the new
  * (Orange Cat 0.8.1) why five preset tests failed locally. They fail only when built with tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off): the...
  * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
  * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
@@ -130,6 +131,43 @@ static int cz_bank_persistence(void)
     fail_after=-1;cz_bank_boot();
     bad+=check("torn CZ bank write keeps previous committed tone",!cz_bank_get(1,0,raw)&&raw[128]=='B');
     bad+=check("CZ bank writes leave neighbouring project objects untouched",st_sector(OBJ_BANK0+3,1)+5u*ST_SECTOR==st_sector(OBJ_CZBANK0,0));
+    return bad;
+}
+/* (Orange Cat 0.13.4, Hardening 1) st_save is copy-on-write: the new record goes to the other copy (or a spare sector of the library group) and is committed by its last
+ * program, so a save cut at ANY program or ANY erase (or failing there) leaves the record that was there readable, whole and unchanged, or the new one whole, never
+ * neither; and the next save works. Run for an ordinary object (settings), a banked one (five sector copies and an extension) and a library bank (the group). */
+static int st_cow(void)
+{
+    int bad = 0;
+    const uint32_t objs[3] = { OBJ_SETTINGS, OBJ_BANK0 + 1u, up_obj(9u) };
+    const char *const names[3] = { "settings", "a banked project object", "a library bank" };
+    for (uint32_t o = 0; o < 3u; o++) {
+        uint32_t points = 0, lost = 0, again = 0;
+        for (int kind = 0; kind < 2; kind++)
+            for (int k = 0; k < 60; k++) {
+                static uint8_t A[300], B[300], got[300];
+                int rc, n, a_ok, b_ok;
+                reset();
+                for (uint32_t i = 0; i < sizeof A; i++) { A[i] = (uint8_t)(i * 3u + 1u); B[i] = (uint8_t)(i * 5u + 7u); }
+                if (st_save(objs[o], A, sizeof A)) { bad += check("st_cow: the first save works", 0); return bad; }
+                if (kind == 0) fail_after = k; else erase_fail_after = k;
+                rc = st_save(objs[o], B, sizeof B);
+                fail_after = -1; erase_fail_after = -1;
+                n = st_load(objs[o], got, sizeof got);
+                a_ok = n == (int)sizeof A && !memcmp(got, A, sizeof A);
+                b_ok = n == (int)sizeof B && !memcmp(got, B, sizeof B);
+                points += rc != 0;
+                if (!(a_ok || b_ok) || (rc == 0 && !b_ok)) lost++;
+                if (rc != 0 && (st_save(objs[o], B, sizeof B) != 0 || st_load(objs[o], got, sizeof got) != (int)sizeof B || memcmp(got, B, sizeof B))) again++;
+            }
+        {
+            char w[120];
+            snprintf(w, sizeof w, "st_save of %s cut at %u erase/program points: the old record or the new, whole (0 lost)", names[o], points);
+            bad += check(w, points > 0 && lost == 0);
+            snprintf(w, sizeof w, "... and the next save of %s after each cut works", names[o]);
+            bad += check(w, again == 0);
+        }
+    }
     return bad;
 }
 #ifndef PERSISTENCE_TEST_NO_MAIN
@@ -363,6 +401,7 @@ int main(void)
     bad += check("PLAY consumed before the settings snapshot defers the write",
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
     bad += cz_bank_persistence();
+    bad += st_cow();
     bad += staged_import_persistence();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;

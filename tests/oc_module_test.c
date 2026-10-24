@@ -17,6 +17,7 @@
  * installer are checked on the device (CI build) and by the installer's tests (step 6).
  */
 /* Revisions:
+ * (Orange Cat 0.13.4) oc_mod_image_check over a buffer and over the flash: one verdict
  * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
  * (Orange Cat 0.11.1) every path that takes a module out of the table writes the PC window
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
@@ -292,6 +293,37 @@ int main(void)
         }
         #undef LEN5
         #undef LEN9
+    }
+    /* (0.13.4) one copy of the checks: oc_mod_image_check over a buffer (the card's file) and over the flash (the installed image) gives the same verdict, per start */
+    {
+        enum { K = 5 };
+        static const char *const W[K] = { "good", "one code byte flipped", "a wrong link address", "a record on sector 0's tail", "a state size of 0" };
+        static const int WANT[K] = { MC_OK, MC_CRC, MC_HDR, MC_TAIL, MC_HDR };
+        uint8_t rec[80];
+        uint32_t k, c;
+        for (uint32_t j = 0; j < 80u; j++) rec[j] = (uint8_t)((j * 11u + 5u) | 1u);
+        rec[6] = 0x41; rec[7] = 0x54;
+        c = pk_crc16(rec + 2, 78u); rec[0] = (uint8_t)c; rec[1] = (uint8_t)(c >> 8);
+        for (i = 0; i < NSH; i++)
+            for (k = 0; k < K; k++) {
+                fw_mod_hdr_t h = mk(i, 5000u);
+                uint32_t base = oc_mod_flash(i);
+                int vb, vf;
+                char w[160];
+                clean();
+                code(70u + k);
+                if (k == 3) memcpy(IMG + 0xF00u, rec, 80);
+                if (k == 2) h.link_addr += 0x1000u;
+                if (k == 4) h.state_size = 0;
+                seal(&h);
+                memcpy(IMG, &h, sizeof h);
+                if (k == 1) IMG[0x400] ^= 1u;
+                memcpy(nor + oc_mod_flash(i), IMG, 5000u);
+                vb = oc_mod_image_check(oc_rd_buf, IMG, ENGI_SHAPES, i, 5000u);
+                vf = oc_mod_image_check(oc_rd_flash, &base, ENGI_SHAPES, i, 5000u);
+                snprintf(w, sizeof w, "oc_mod_image_check at start %u, %s: the file's bytes and the flash's give the same verdict (%d)", i * 6u, W[k], WANT[k]);
+                chk(w, vb == WANT[k] && vf == vb);
+            }
     }
 
     /* removal and rebuild */

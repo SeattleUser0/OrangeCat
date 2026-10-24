@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.70  
+**Version:** 0.71  
 **Date:** October 24, 2026  
 **Tracks:** Orange Cat Specification v0.25
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.71 (October 24, 2026):** Ninth run on sonnet-work (still not on main, released or flashed): ratchet and flam repeats are never dropped (a record for each event instead of a six-entry queue); a damaged pack or module file is refused before anything is erased, on the card and on the page, with one shared check; the erase table of every data-area site; the scheduler benchmark under load (loaded costs 12% more per hit than plain, not optimized). See "Ninth run".
 - **0.70 (October 24, 2026):** Eighth run on sonnet-work (still not on main, released or flashed): CI fails when host tests fail (workflow Rev 14, job tests-gate); the 11,164 B / 880 B growth accounted by symbol and 464 + 288 B of RAM and 2,920 B of flash recovered (0.13.2); two analyzer items shown false with tests; dead code removed; Install set from the card (0.13.3, SET_FORMAT.md); the unit checklist carries exact screens, page elements and file names. See "Eighth run".
 - **0.69 (October 24, 2026):** Parts 2 to 4 of the Seventh run on sonnet-work (still not on main, released or flashed): sanitizer fixes and the SAN=1 suite, the project-record fuzzer, step properties on recorded steps (0.13.0), DRUM-X lane mutes (0.13.1). See "Seventh run".
 - **0.68 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on main, not released, not on the unit): the Prophet as the second module (8 sectors, starts 0 and 4 of the module area, 31,872 B of 32,768), the installer refusing a module that overlaps another engine's, stored Prophet sounds playing again while a module supplies engine 19, and the first hardening work (sanitizers, fuzzers, watchdog feeds). See "Seventh run".
@@ -2103,6 +2104,79 @@ The "Left to test (on the unit)" list of the Fourth run now carries, under each 
 ### Before merging: changes in this run
 
 - Item 1 now reads: full-suite CI on the head is green **and** `tests-gate` is green (a failing host test now fails the run; the packages are kept). The older remark that host-test failures are not gated is out of date.
+
+## Ninth run (0.13.4, branch sonnet-work, October 24, 2026)
+
+Still not on main, released or flashed. Branch `sonnet-work` only. No tags, no force-push, no format change, no golden or budget line changed (new lines only).
+
+### Part 1: ratchet and flam repeats were dropped (Bug 1)
+
+Cause: `recording_rep[NTRK][6]` held the later hits of a ratchet or flam. When all six entries were in use, `recording_fire` played the first hit and left the rest unscheduled. A ratcheted chord late in a step carried its repeats into the next step, so the second of two adjacent four-note x4 chords played 4, 4, 1, 1 hits.
+
+Fix, design (a), no queue: each event has a record of its own (`recording_rep_at[i]`, the time of its next repeat on the track's repeat clock, and two bits of `recording_flags`, the repeats left). Pending events are a bit each in `recording_rep_bits`; `recording_rep_tick` visits only those. There is nothing to run out of. With none pending it is one compare, cheaper than the six entries it replaced. RAM: 4,096 B for the times, 512 B for the bits, 8 B counts, 16 B clocks, all in the pool; the 384 B queue is gone. The parameters of a repeat are worked out again from the event when it plays (`recording_shape`, the same function the first hit uses).
+
+Tests, each fails on 6d8c3cf and passes now: `tests/recording_props_test.c` `repeats()` (the reviewer's two chords, 4, 4, 4, 4 at the right sample times; the worst case of three adjacent steps of four late notes with nudge, x4, x3 and FLAM mixed; x4 with nudges, 48 hits; a full loop of eight passes with equal counts each pass; the 0.13.0 recorded-step tests unchanged); `tests/ui_test.c` (the same chords set on the tracker).
+
+### Part 2: a damaged file erased a working pack or module (Bug 2)
+
+Cause: `fb_pak_file(dry=1)` and `fb_mod_file(dry=1)` returned after the header reads. The payload CRC, the inner header, the link address and the sector-tail rule were checked only after `oc_pack_begin` or `oc_mod_begin` had erased. A good outer header with a damaged payload passed preflight; an in-place install then erased the module and failed at end.
+
+Fix: the checks are functions that take a reader callback (`oc_rd_t`): `pk_image_check`, `oc_mod_image_check`, `oc_rule_tails`, `oc_mod_hdr_matches`. The installers, the loader and the card share one copy, over flash, a buffer, or the card's file. The card moved its installers to `card_install.c`. The dry pass reads and checks the whole file for the chosen start before anything is erased; the in-place question is asked only after it passes; the set install dry-runs every file and refuses the whole set before its first stage. `oc_mod_end` also checks the page descriptor before its commit. The web page (`fm1oc.js`, `ocmImage`, `packProblem`) checks the payload CRC, the inner header and the tail rule from the file's bytes before it sends BEGIN.
+
+Messages: "Not this build's pack", "Pack file damaged", "Module file damaged", "Module header bad", "Module pages bad", "Update would erase it", "Unreadable".
+
+Tests: `tests/card_install_test.c` (new): a pack with one payload byte flipped, a module with one code byte flipped, a wrong link address, a tail that matches the loader's record rule, a set with one bad file: in every case zero sector erases in the simulated NOR, the old pack or module still registered and usable, and the message. It has a mutation switch (`CIT_NOCHECK`): with the checks off 17 checks fail. `tests/usb_host_test.c` (stubs and the flow), `tests/oc_pack_test.c` and `tests/oc_module_test.c` (the verdict over a buffer equals the verdict over simulated flash), `web/test_web.mjs` and `web/test_installer_set.mjs` (the same cases refused before BEGIN).
+
+### Part 3 (Hardening 1): every place the firmware erases a data-area sector
+
+"Before" is what is verified before the first erase. "After" is what can still fail once erasing has begun. "Less than before" means a working thing is gone and its replacement is refused.
+
+| Site | Before the first erase | Can fail after | Less than before? | Proof |
+|---|---|---|---|---|
+| Asset pack, `oc_pack_begin` .. `oc_pack_end` (`oc_pack.c`) | Length, free state. Card and web check the whole file (magic, version, hash, length, payload CRC, tail rule) first | Power cut or USB loss during the 10 sector copy; end check on a stream that differs from what was checked (the web page cannot see a flipped byte in transit) | Yes in that case: the pack is a single copy, the old pack is gone after BEGIN. The unit shows PACK MISSING | `card_install_test.c`, `oc_pack_test.c`, `test_web.mjs` |
+| Module install, `oc_mod_begin` .. `oc_mod_end` (`oc_module.c`) beside the old one | Header, placement, start, free sectors | End check fails | No: the new module is written beside the old one and only registered at end | `oc_module_test.c`, `card_install_test.c` |
+| Module install in place (the same engine, the only start that fits) | The card checks the whole file, then asks the user (flag 8). The web checks what it can; it cannot read the page descriptor | The end check (page descriptor, tail rule, CRC) fails after the stream | Yes if the web sends a file whose page descriptor is bad: the old module is erased and the new one refused. The unit now checks the pages before its commit but cannot bring the old module back | `oc_module_test.c`, `card_install_test.c` (in place, damaged file refused with no erase) |
+| Set install (`fb_install_set`) | Dry pass over every file of the set; the whole set is refused before its first stage | Each stage is the pack or a module as above | As the stage | `usb_host_test.c`, `card_install_test.c` (set with one bad file: zero erases) |
+| Preset library, `lib_group.c` (23 sectors, one shared spare) | Sector inventory, the record being written | Power cut in a save | No: copy-on-write, the old record stays until the new one is committed with a higher sequence number | `lib_group_test.c` (cut at every flash operation) |
+| Fixed objects, `st_save` (`storage.c`, A/B copies) | Object, length, capacity | Power cut or erase fail while writing the other copy | No: the other copy is written and committed last; the current copy is untouched | `persistence_test.c` `st_cow()` (new: every cut point of a save leaves the old object loadable) |
+| Record store, `ocs_write_copy` (`oc_store.c`: project, pool, freeze) | Type, id, length, source | Power cut, erase fail | No: a new copy is written and committed before the old is released | `oc_store_test.c` (cuts), `oc_pool_test.c`, `oc_project_test.c` |
+| Sample slot, `smp_slot_begin` (`smp_slot.c`) | State and length (`SMP_SLOT_MAX`) | The stream stops, the CRC does not match the header at `smp_slot_end` | Yes: one slot, no spare room, the first sector (the header's) is erased at begin; the old sample is gone. Cannot be pre-checked, since the data comes after. The editor asks first | `smp_slot_test.c` |
+| Backup restore (`editor_backup.c`) | The whole stream is validated first | Power cut between objects | Per object: each object is copy-on-write (`st_save`, the store). Not atomic across objects: a cut leaves some objects restored and some not, none damaged | `backup_test.c` |
+| Wipe (`shared_wipe`, `lg_drop_pairs`, `lg_scrub`) | The user asked; a WIPE-PENDING marker is written first | Power cut | The point is to lose the presets; the marker makes the wipe resume at boot | `lib_group_test.c` (LIBRARY NEEDS WIPE and the wipe's way out) |
+
+What changed because of the table: nothing new in the code beyond Part 2 (the pack and module checks before the erase, the page check before the module commit). Two cases remain by design and are flagged to the user: the sample slot, and the in-place module whose page descriptor only the unit can read.
+
+### Part 4 (Hardening 2): the scheduler under load
+
+`tests/recording_bench.c props [idle|plain|loaded]` runs the real sequencer, without synthesis, block by block (32 samples). The fixture: every track (NTRK is 4 here, not eight) has all 64 steps recorded with four notes (1,024 events, `RECORD_MAX`). PLAIN is the recorded notes alone. LOADED has every property on every step: accent, slide, chance 90, condition NOT FILL, a nudge of -24 to +24, RATCH x2, x3, x4 or FLAM in turn.
+
+Instruction counts (valgrind callgrind over 12,289 blocks; the loaded run plays 3,037 hits, plain 1,024, reproducible):
+
+| Case | Instructions | Per block | Hits |
+|---|---|---|---|
+| idle (no recorded notes) | 14,897,642 | 1,212 | 0 |
+| plain | 36,157,854 | 2,942 | 1,024 |
+| loaded | 85,487,037 | 6,957 | 3,037 |
+
+Above idle, per hit: plain 20.8 k instructions, loaded 23.2 k, so the loaded hit costs 12% more. Host times per block: idle about 150 ns, plain about 350 ns, loaded about 810 ns (the host is not the FM-1 core; the ratio carries over, not the number). Where the loaded case spends it: `recording_shape` 9%, `groove_part` (the nudge) 9%, `recording_active` 5%, `seq_advance` 6% plus the inlined scheduler 34%.
+
+Decision: not optimized. The loaded case plays three times the hits; the cost per block is 2.4 times plain, less than the 3.0 times the hits would give. The 12% per hit is the property work itself (the shape of each hit, the nudge, the chance and condition roll), which plain does not do at all, not a loop that grew. The per-block scan is the same in both cases. The functions `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are in `tests/target_budget.py`; their lines in `tests/target_budget.txt` are from CI (below).
+
+### Part 5: the unit checklist, two new cases (after step 22)
+
+23. **A damaged file is refused and nothing is erased.** Copy a module file (`.ocm`) to the card and change one byte in the middle with a hex editor. In the card browser press OCT+ on it. *See:* "Module file damaged". Open Engines: the module that was there is still listed and plays. Do the same with the asset pack file: "Pack file damaged", and no PACK MISSING at the next power-on.
+24. **Adjacent ratcheted chords.** Record a four-note chord late in a step (hold the keys, release after the step is half over), the same chord on the next step, set RATCH x4 on both steps and play the loop. *See:* all four notes of both chords play four hits each. Leave it running for eight passes; the count does not change.
+
+### Status (Ninth run)
+
+| Item | Status |
+|---|---|
+| Ratchet and flam repeats never dropped (Bug 1) | Done, host tested |
+| Whole-file check before any erase, card and page (Bug 2) | Done, host tested; not tried on the unit (steps 23 and 24) |
+| Erase table (Hardening 1) | Done: two cases remain by design (sample slot, in-place module page descriptor) |
+| Scheduler under load (Hardening 2) | Done: measured, not optimized, budget lines from CI |
+
+SIZES_PLACEHOLDER
 
 ## Phases 8 to 11
 

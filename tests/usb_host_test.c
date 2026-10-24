@@ -235,6 +235,29 @@ static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
     t_pk_at += n;
     return 0;
 }
+/* (0.13.4) the whole-image check the installer runs before it erases (pk_image_check in oc_pack.c; the real one is run against a simulated NOR by card_install_test.c): the
+ * stub reads every byte through the reader it is given (so the test can see the whole file was read), then answers what t_pk_ck says */
+typedef int (*oc_rd_t)(void *ctx, uint32_t off, void *dst, uint32_t n);
+static int t_pk_ck, t_pk_checks;
+static uint32_t t_rd_bytes;
+static int t_rd_all(oc_rd_t rd, void *ctx, uint32_t len)
+{
+    uint8_t b[256];
+    for (uint32_t o = 0; o < len; o += sizeof b) {
+        uint32_t n = len - o > sizeof b ? (uint32_t)sizeof b : len - o;
+        if (rd(ctx, o, b, n)) return -1;
+        t_rd_bytes += n;
+    }
+    return 0;
+}
+static int pk_image_check(oc_rd_t rd, void *ctx, uint32_t size)
+{
+    uint8_t m[4];
+    t_pk_checks++;
+    if (rd(ctx, 0, m, 4)) return 4;
+    if (memcmp(m, "OCPK", 4)) return 1;                  /* not a pack of this build (the real check also compares the hash and the length) */
+    return t_rd_all(rd, ctx, size) ? 4 : t_pk_ck;
+}
 static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; memcpy(t_pk_hdr, h, sizeof t_pk_hdr); t_pk_ended++; t_pk_state = PK_OK; return 0; }
 /* (Orange Cat 0.10.0) an engine module, as card_browse.c's installer sees it (oc_module.c itself is tested by oc_module_test.c): the identifiers it
  * checks the package against, and the calls recording what they were given */
@@ -262,6 +285,17 @@ static const t_engine_t *const ENGINES[NENGINES] = { &t_other, &t_other, &t_othe
     &t_shapes, &t_other, &t_other, &t_other, &t_other, &t_prophet };
 static int oc_mod_inplace(uint32_t engine, uint32_t start) { (void)engine; (void)start; return t_inplace; }   /* (0.10.1) */
 static int oc_mod_pair_fits(uint32_t a, uint32_t b) { return !((a == 14u && b == 19u) || (a == 19u && b == 14u)); }   /* (0.13.3) SHAPES and the Prophet never fit together */
+/* (0.13.4) the module twin: oc_mod_image_check reads the variant's bytes, then answers t_md_ck (an MC_* verdict; t_md_ck_start >= 0: only for that start) */
+#define OC_MOD_STARTS 3u
+enum { MC_OK = 0, MC_HDR = -1, MC_CRC = -2, MC_PAGES = -3, MC_TAIL = -8, MC_READ = -9 };
+static int t_md_ck, t_md_ck_start = -1, t_md_checks;
+static int oc_mod_allowed(uint32_t engine, uint32_t i) { return engine == 19u ? i != 1u : i < 2u; }   /* the Prophet: starts 0 and 2; SHAPES: 0 and 1 */
+static int oc_mod_image_check(oc_rd_t rd, void *ctx, uint32_t engine, uint32_t start, uint32_t len)
+{
+    (void)engine; t_md_checks++;
+    if (t_rd_all(rd, ctx, len)) return MC_READ;
+    return t_md_ck_start < 0 || (uint32_t)t_md_ck_start == start ? t_md_ck : MC_OK;
+}
 static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
 {
     t_md_begun++; t_md_seq = ++t_seq; t_md_engine = engine; t_md_start = start; t_md_len = len; t_md_at = FW_MOD_CODE_OFF; t_md_sum = 0;
@@ -1793,6 +1827,32 @@ static int t_folders(void)
         assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Erases old first. Again") && !t_md_begun);
         fb_close();
         printf("  browser: the in-place question is asked once per module and answered by OCT+ on the same row; the pack is not written twice\n");
+        /* (0.13.4) a damaged file is refused after a whole-file check and before anything is begun (begun = the first erase): a single pack, a single module (even where the
+         * answer would have been the in-place question), and a set with one bad file refuses the whole set before its first stage. The checks themselves are run against the
+         * real loader and a simulated NOR in card_install_test.c (zero sector erases, the old pack and module still registered). */
+        RESET();
+        t_pk_ck = 2; t_rd_bytes = 0; OPENSET("S.PAK");
+        REFUSED("Pack file damaged"); assert(t_rd_bytes >= OC_PACK_LEN); fb_close();
+        t_pk_ck = 3; OPENSET("S.PAK"); REFUSED("Update would erase it"); fb_close();
+        t_pk_ck = 0;
+        t_plan = 1; t_inplace = 1;                              /* a module that would be asked about in place first */
+        t_md_ck = MC_CRC; t_rd_bytes = 0; OPENSET("SHAPES.OCM");
+        REFUSED("Module file damaged"); assert(t_rd_bytes >= 1000u); fb_close();
+        t_md_ck = MC_HDR; OPENSET("SHAPES.OCM"); REFUSED("Module header bad"); fb_close();
+        t_md_ck = MC_TAIL; OPENSET("SHAPES.OCM"); REFUSED("Update would erase it"); fb_close();
+        t_md_ck = MC_PAGES; OPENSET("SHAPES.OCM"); REFUSED("Module pages bad"); fb_close();
+        t_md_ck = MC_READ; OPENSET("SHAPES.OCM"); REFUSED("Unreadable"); fb_close();
+        t_md_ck = 0;
+        RESET();
+        t_pk_ck = 0; t_md_ck = MC_CRC; t_pk_checks = 0;          /* a good pack, a damaged module: the set is refused before the pack is begun */
+        OPENSET("GOOD.SET.JSON"); REFUSED("Module file damaged"); assert(!t_pk_ended && !t_md_ended); fb_close();
+        t_md_ck = 0; t_pk_ck = 2;                                /* a damaged pack, good modules */
+        OPENSET("BOTH.SET.JSON"); REFUSED("Pack file damaged"); fb_close();
+        t_pk_ck = 0; RESET();
+        OPENSET("GOOD.SET.JSON");                                /* and with every file good, the same set installs */
+        assert(fb_ok() && t_pk_ended == 1u);
+        fb_open(0); fb_close(); RESET();
+        printf("  browser: a damaged pack or module (payload, header, tail, pages, unreadable) is refused whole before anything is begun; a set with one bad file starts no stage\n");
         /* the transport running: "Stop first", nothing written */
         RESET();
         OPENSET("GOOD.SET.JSON");

@@ -47,3 +47,5 @@ The project format and the pool format did not change in any version below.
 **0.13.2.** No visible change. The recorded-step state and the Prophet test job moved to the pool, and the flash image is 2,920 bytes smaller. Two analyzer notes were checked and are not faults.
 
 **0.13.3.** Install set: the card browser lists `*.set.json` files with the value "Set" and OCT+ installs the pack and the module(s) they name, after checking the build and every file first. "SET INSTALLED" says it is done. The card cannot update the firmware; the unit says "Update firmware first" when the set is newer. See SET_FORMAT.md.
+
+**0.13.4.** A ratcheted or flammed chord now plays every repeat, also when the chord before it is still repeating (before, the last notes of the second of two adjacent x4 chords could play once). The card refuses a damaged pack or module file, or a set with one damaged file, before it erases anything, with "Pack file damaged", "Module file damaged", "Module header bad" or "Module pages bad"; the installer page checks the same before it sends the file. Nothing is stored in a new format.

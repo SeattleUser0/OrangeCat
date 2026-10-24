@@ -2,6 +2,7 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Revisions:
+ * (Orange Cat 0.13.4) a start clears the track's pending ratchet and flam repeats with recording_rep_clear (recording.c: per-event repeat records, none dropped)
  * (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
  */
 /* Keyboard, scale, arpeggiator, sequencer and transport.
@@ -1440,7 +1441,7 @@ static void seq_tick(track_t *t, uint32_t n)
     if (!song.playing) { seq_grid_tick(t, n); return; }
     if (t->seq_pos >= 0x7FFFFFFFu) {
         seq_grid_tick(t, n);
-        memset(recording_rep[trk_index(t)], 0, sizeof recording_rep[0]);   /* (0.13.0) a start: no ratchet of the last run goes on */
+        recording_rep_clear(trk_index(t));   /* (0.13.0) a start: no ratchet of the last run goes on */
         recording_zero(t);
         return;
     }

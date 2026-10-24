@@ -311,6 +311,7 @@ core && t "engine table in RAM (0.10.0, step 4): SHAPES built out, the slot is r
 core && t "module loader (Orange Cat 0.10.0, step 5): every refusal, the crash mark, a good module, two modules; the module wins the slot" oc_module_test:oc_module_test -O1 $FW -DOC_MODULE_WINS=1
 core && t "module loader (0.10.0, step 5): the built-in SHAPES wins the slot (OC_MODULE_WINS 0): a valid module is NOSLOT" oc_module_shadow:oc_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies the engine" oc_module_out:oc_module_test -O1 $FW -DMELODEE_SHAPES=0
+core && t "the card installers against the real loaders on a simulated NOR (0.13.4): a damaged pack or module, a bad link address, a record on a sector tail, a set with one bad file: refused with zero erases, the old pack and module still working" card_install_test -O1 $FW -DOC_MODULE_WINS=1
 # (Orange Cat 0.12.2, Part 2b) the fuzzers: fixed seeds, FUZZ_SECONDS each (default 3); a long run is FUZZ_SECONDS=1800 tests/run_tests.sh (30 minutes each; the
 # mutation counts are printed). Each stops at its first finding with the seed, the round and the mutations that made it.
 FUZZ_SECONDS=${FUZZ_SECONDS:-3}
