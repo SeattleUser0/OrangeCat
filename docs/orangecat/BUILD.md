@@ -1940,6 +1940,12 @@ clang `--analyze` (the host test translation units, the module TUs; outputs kept
 
 Run 40089465406 (quick, on ab4a024, the device build passed every check): image 503,856 B (73,392 B free of 577,248 B; +4,604 B since Part 1's run, from Parts 3 and 4 and the hardening), RAM .data+.bss 93,992 B of 98,304 B (+464 B for the recorded-step repeat queues, the rest from the hardening and DRUM-X mutes), pool 176,768 B, audio working arena 93,024 B available (94,144 B before; minimum 49,152). Prophet module 31,872 B of 32,768 B at starts 0 and 4 (unchanged, crc 5f630420 and 0472aa28), SHAPES module 23,784 B of 24,576 B, interface 12f6be4f unchanged. The per-Prophet-track admission and arena figures are not printed by the build; they stay as the budget's p5 lines give them (no new numbers measured).
 
+### Part 6 and the final state
+
+**Part 6 (card as a second transport for the whole set): not started.** It is optional; it needs a new multi-file flow in the card browser (pack, module and firmware from one folder) that cannot be tried without the unit, so it was left rather than built blind. `tests/usb_host_test.c` has no new cases for it.
+
+**Final state.** Full-suite CI on sonnet-work (run 40096354540, no `.ci_quick`): the device build passed every check and the host tests reported no failure (the run's conclusion does not show host-test failures, because the workflow does not gate on them: read the annotations; the first full run, 40095267933, did fail two web tests, from a bad Revisions line in `web/fm1oc.js`, fixed in the next commit). Sizes: image 503,856 B (73,392 B free), RAM 93,992 B of 98,304 B, pool 176,768 B, audio arena 93,024 B. `exp/sonnet-noshapes` merged with the head (merge, no force), run 40097533814: host tests clean, image 480,644 B (96,604 B free), RAM 93,992 B, pool 176,768 B, arena 93,024 B. Documentation commits after those runs change no source.
+
 ### Tests added or changed (Seventh run)
 
 - `tests/mod_pages_prophet_test.c` (new, in run_tests.sh; the Orange Cat engine set, sanitizers): the module's real descriptor in the UI: the 15 pages, a column edit through the put hook, the keyed tuning's shown hook, HOME, ENV, LFO, motion recorded and played back, the module going away and returning.
