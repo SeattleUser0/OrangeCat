@@ -35,7 +35,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, packProblem, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
@@ -77,9 +77,20 @@ const E = vm.runInNewContext(proto + `
   /* a package as build.py writes it: header, a table of variants, a CRC-32 of both, then the images */
   const crc = (b) => { let c = 0xFFFFFFFF; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xEDB88320 : c >>> 1; } return (c ^ 0xFFFFFFFF) >>> 0; };
   const image = (len, seed) => { const b = new Uint8Array(len); for (let i = 0; i < len; i++) b[i] = (i * 7 + seed) & 255; new DataView(b.buffer).setUint32(0, 0x444F4D4F, true); return b; };
+  /* (0.13.4) the inner header (fw_mod_hdr_t) of a variant as build.py writes it: sealed over the code after a test's change to it (hcrc over the first 56 bytes, crc over the code) */
+  const seal = (im, start, o = {}) => {
+    const dv = new DataView(im.buffer, im.byteOffset, im.byteLength), link = (0x020C4000 + start * 4096) >>> 0;
+    dv.setUint32(0, 0x444F4D4F, true); dv.setUint32(4, o.iface ?? iface, true); dv.setUint32(8, o.apiSize ?? 60, true); dv.setUint32(12, o.apiVersion ?? 3, true);
+    dv.setUint32(16, o.apiAddr ?? 0x02001100, true); dv.setUint32(20, o.engine ?? 14, true); dv.setUint32(24, o.stateSize ?? 11136, true); dv.setUint32(28, link + 0x180, true);
+    dv.setUint32(32, link + (o.linkOff ?? 0), true); dv.setUint32(36, o.packHash ?? hash, true); dv.setUint32(40, 0, true); dv.setUint32(44, 0, true); dv.setUint32(48, im.length, true);
+    im.fill(0, 60, 0x100);
+    dv.setUint32(52, crc(im.subarray(0x100)), true);
+    dv.setUint32(56, crc(im.subarray(0, 56)), true);
+  };
   const pkg = (o = {}) => {
     const L = o.len ?? 3000, imgs = [image(L, 1), image(L, 2)], starts = o.starts ?? ((o.engine ?? 14) === 19 ? [0, 4] : [0, 6]), tab = 56, hc = tab + 32, base = hc + 4;
     if (o.plant) imgs.forEach(o.plant);                  /* (0.10.1) a change to each image before its CRC is taken */
+    imgs.forEach((im, i) => { seal(im, starts[i], o); if (o.flipCode) im[0x400] ^= 1; });   /* (0.13.4) flipCode: a code byte damaged after the header was sealed (the table's CRC is taken over the damaged image, so the package parses) */
     const b = new Uint8Array(base + 2 * L), dv = new DataView(b.buffer);
     dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, 2, true);
     dv.setUint32(8, o.iface ?? iface, true); dv.setUint32(12, o.apiAddr ?? 0x02001100, true); dv.setUint32(16, o.engine ?? 14, true); dv.setUint32(20, 11136, true); dv.setUint32(24, o.packHash ?? hash, true);
@@ -251,6 +262,25 @@ const E = vm.runInNewContext(proto + `
   { const bad1 = E.ocmCheck(E.ocmParse(pkg({ len: 5000, plant: (b) => rec(b, 0xF00) })), unit());
     ok(!bad1.ok && bad1.key === "modTail" && E.ocmCheck(E.ocmParse(pkg({ len: 5000, plant: (b) => rec(b, 0xF00) })), unit({ plan: 1 })).key === "modTail",
        "module: an image with a record on a sector tail is refused by the page (modTail) for either start, before anything is erased"); }
+  /* (0.13.4) the page checks what the unit checks at the end, so the unit is never asked to erase for a file it would refuse: a code byte damaged after the header was sealed,
+   * an inner header with a wrong link address, an inner hash or engine that disagrees with the package, a header whose own CRC is wrong, a state size of 0; and the pack's
+   * payload CRC and sector tails. The same cases are run against the firmware's loader in tests/card_install_test.c and oc_module_test.c (one verdict for the file and the flash). */
+  { const chkKey = (o, key, what) => [0, 1].forEach((plan) => { const r = E.ocmCheck(E.ocmParse(pkg({ len: 5000, ...o })), unit({ plan })); ok(!r.ok && r.key === key, `module: ${what} is refused by the page (${key}), start ${plan ? 6 : 0}`); });
+    ok(E.ocmCheck(E.ocmParse(pkg({ len: 5000 })), unit()).ok && E.ocmCheck(E.ocmParse(pkg({ len: 5000 })), unit({ plan: 1 })).ok, "module: a sealed image passes the inner checks for either start");
+    chkKey({ flipCode: 1 }, "modDamaged", "one code byte flipped after the header was sealed");
+    chkKey({ linkOff: 0x1000 }, "modHdrBad", "an inner header with a wrong link address");
+    chkKey({ stateSize: 0 }, "modHdrBad", "a state size of 0");
+    chkKey({ plant: (b) => { b[0x20] ^= 1; b[0] = 0x4F; } , packHash: hash ^ 1 }, "modWrongFw", "another build's pack hash in the package header");
+    { const b = pkg({ len: 5000 }); const i0 = E.ocmParse(b).variants[0], im = i0.image; im[56] ^= 1;                  /* the header's own CRC wrong; the table CRC is over the damaged image: refix it */
+      const dvb = new DataView(b.buffer); dvb.setUint32(56 + 8, crc(im), true); dvb.setUint32(88, crc(b.subarray(0, 88)), true);
+      const r = E.ocmCheck(E.ocmParse(b), unit()); ok(!r.ok && r.key === "modHdrBad", "module: a header whose own CRC is wrong is refused by the page (modHdrBad)"); } }
+  { const PL = 8192, mkp = (hashv = hash) => { const p = new Uint8Array(PL), dvp = new DataView(p.buffer); p.fill(0xFF, 0, 512); for (let i = 512; i < PL; i++) p[i] = (i * 31 + (i >> 8) * 7) & 255;
+        dvp.setUint32(0, 0x4B50434F, true); dvp.setUint32(8, hashv, true); dvp.setUint32(12, PL, true); dvp.setUint32(16, crc(p.subarray(512)), true); dvp.setUint32(508, crc(p.subarray(0, 508)), true); return p; },
+      pinfo = { buildLen: PL, buildHash: hash }, fixp = (p) => { const dvp = new DataView(p.buffer); dvp.setUint32(16, crc(p.subarray(512)), true); dvp.setUint32(508, crc(p.subarray(0, 508)), true); };
+    ok(E.packProblem(mkp(), pinfo) === "", "pack: a good file passes the page's check (header, payload CRC, tails)");
+    { const p = mkp(); p[4000] ^= 0x10; ok(E.packProblem(p, pinfo) === "packDamaged", "pack: one payload byte flipped, a good header: refused by the page (packDamaged)"); }
+    { const p = mkp(); rec(p, 0xF00); fixp(p); ok(E.packProblem(p, pinfo) === "packTail", "pack: a record on a sector tail (header and CRC made right): refused by the page (packTail)"); }
+    ok(E.packProblem(mkp(hash ^ 1), pinfo) === "packWrongBuild" && E.packProblem(mkp().subarray(0, 4096), pinfo) === "packWrongBuild", "pack: another build's hash or a file of another length: packWrongBuild"); }
   ok(sum([8, 1, 14, ...n3(23780)], [0, 0, 0, 0, 0, 0]) === "modStateTail" && sum([8, 1, 14, 0, 0, 0], [7, 0, 14, 0, 0, 0]) === "modStateOk" && E.OCM_STATE[8] === "badtail", "module: the state line for a module whose sector tail the update would erase");
   { const one = pkg(); /* a package with only the start 6 image: the unit names start 0 */
     const dv = new DataView(one.buffer); dv.setUint32(56, 3, true); dv.setUint32(hcrcFix(one), crc(one.subarray(0, 88)), true);

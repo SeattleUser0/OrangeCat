@@ -17,6 +17,7 @@
 //   0.11.2: first version.
 //   0.12.1: three module starts (sectors 0, 6 and 4: OCM_SECTOR); MOD_INFO's last byte names the blocker, a module of another engine in the way (modBlocked, detail "engine:start"),
 //           which an install never erases.
+//   0.13.4: the pack's payload CRC and sector tails (packProblem) and a module variant's inner header and code CRC (ocmImage) are checked on the page before the unit is asked to erase.
 
 import { bkPack, bkCrc } from "./fm1backup.js";
 
@@ -26,7 +27,7 @@ const crc32 = bkCrc;
 const ocSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // errors carry a code the page translates (TEXT[code]): ocLost, ocBusy, packWrongBuild, packStop, packOldFw, packRestart, packFail,
-// modWrongFile, modWrongFw, modNoVariant, modNoFree, modBlocked, modTail, modStop, modRestart, modUnreadable, modFail
+// modWrongFile, modWrongFw, modNoVariant, modNoFree, modBlocked, modTail, modStop, modRestart, modUnreadable, modFail; (0.13.4) packDamaged, packTail, modHdrBad, modDamaged
 export class OcError extends Error { constructor(code, detail = "") { super(code + (detail ? ": " + detail : "")); this.code = code; this.detail = detail; } }
 
 // one MIDI in/out pair speaking F0 7D 46 4C cmd args F7 (the editor's framing); one request at a time
@@ -145,6 +146,32 @@ function ocmParse(bytes) {
   }
   return o;
 }
+/* (0.13.4) The inner header and the code of one variant, checked the way the unit checks them at the end (oc_module.c oc_mod_image_check), so the unit is never asked to erase
+ * for an image it would refuse: the magic, hcrc (CRC-32 of the first 56 bytes), the header against the package's own header and the start (interface, table address,
+ * engine, state size, pack hash, API numbers, the length, the link address of the start, an aligned engine_t inside the code), then the CRC-32 of the code. The page
+ * descriptor check is the unit's (device builds only) and stays there. Returns "" or the key. */
+const OCM_LINK0 = 0x020C4000, OCM_STATE_MAX = 16384;       /* the XIP address of the module area (oc_module.c oc_mod_link: sector s is at +s*4096); the state size limit (OC_MOD_STATE_MAX) */
+function ocmImage(ocm, v) {
+  const img = v.image;
+  if (img.length < 0x200 || img.length & 3 || v.length !== img.length) return "modHdrBad";
+  const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), w = (o) => dv.getUint32(o, true), link = (OCM_LINK0 + v.start * 4096) >>> 0;
+  if (w(0) !== 0x444F4D4F || crc32(img.subarray(0, 56)) !== w(56)) return "modHdrBad";
+  if (w(4) !== ocm.iface || w(8) !== ocm.apiSize || w(12) !== ocm.apiVersion || w(16) !== ocm.apiAddr || w(20) !== ocm.engine || w(24) !== ocm.stateSize ||
+      w(24) === 0 || w(24) > OCM_STATE_MAX || w(36) !== ocm.packHash || w(48) !== img.length || w(32) !== link ||
+      w(28) < link + 0x100 || w(28) >= link + img.length || (w(28) & 3)) return "modHdrBad";
+  if (crc32(img.subarray(0x100)) !== w(52)) return "modDamaged";
+  return "";
+}
+/* (0.13.4) The pack file against what the unit reports (info.buildLen, info.buildHash), checked the way the unit checks it at the end (oc_pack.c pk_image_check): this build's header
+ * (magic, header CRC, hash, length), the payload CRC-32, the update loader's record rule on every sector tail. "" or the key: packWrongBuild, packDamaged, packTail. */
+function packProblem(bytes, info) {
+  if (!bytes || bytes.length < 512) return "packWrongBuild";
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.getUint32(0, true) !== 0x4B50434F || bytes.length !== info.buildLen || dv.getUint32(12, true) !== info.buildLen || dv.getUint32(8, true) !== info.buildHash ||
+      crc32(bytes.subarray(0, 508)) !== dv.getUint32(508, true)) return "packWrongBuild";
+  if (crc32(bytes.subarray(512)) !== dv.getUint32(16, true)) return "packDamaged";
+  return ocmTails(bytes) ? "packTail" : "";
+}
 /* the file against the unit's ED_MOD_INFO answer for the file's engine: {ok, variant} or {ok: false, key} */
 function ocmCheck(ocm, info) {
   if (!ocm.ok) return ocm;
@@ -156,11 +183,13 @@ function ocmCheck(ocm, info) {
   }
   const v = ocm.variants.find((x) => x.start === OCM_SECTOR[info.plan]);
   if (!v) return { ok: false, key: "modNoVariant" };
+  const bad = ocmImage(ocm, v);                                        /* (0.13.4) the inner header and the code's CRC: refused here, before anything is erased */
+  if (bad) return { ok: false, key: bad };
   if (ocmTails(v.image)) return { ok: false, key: "modTail" };          /* (0.10.1) refused here before anything is erased; the unit refuses it too (rc 8) */
   return { ok: true, variant: v };
 }
 
-export const OCM = { parse: ocmParse, check: ocmCheck, tails: ocmTails };   // (the editor's functions, for the tests)
+export const OCM = { parse: ocmParse, check: ocmCheck, tails: ocmTails, image: ocmImage, packProblem };   // (the editor's functions, for the tests)
 
 // the module's version word (fw_mod_hdr_t.version, 0x00MMmmpp) of an .ocm's first image; 0 when the file has none
 export function ocmVersion(ocm) {
@@ -186,13 +215,8 @@ export async function probeUnit(link) {
 const packCode = (rc) => (rc === 2 ? "packStop" : rc === 3 ? "packOldFw" : rc === 4 ? "packRestart" : "packFail");
 const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : "modFail");
 
-// the pack file against PACK_INFO: this build's length and hash in its header (oc_pack.c accepts nothing else)
-export function packFits(bytes, info) {
-  if (!bytes || bytes.length < 512) return false;
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return dv.getUint32(0, true) === 0x4B50434F && bytes.length === info.buildLen && dv.getUint32(12, true) === info.buildLen && dv.getUint32(8, true) === info.buildHash &&
-    crc32(bytes.subarray(0, 508)) === dv.getUint32(508, true) && crc32(bytes.subarray(512)) === dv.getUint32(16, true);
-}
+// the pack file against PACK_INFO: this build's length and hash in its header (oc_pack.c accepts nothing else), the payload CRC and the sector tails (0.13.4: packProblem)
+export function packFits(bytes, info) { return packProblem(bytes, info) === ""; }
 
 // BEGIN is refused with rc 4 while the first boot of a new firmware is still moving the old preset pairs (a minute or so): ask again, up to waitMs
 async function begin(link, request, parse, code, waitMs, sleep) {
@@ -209,7 +233,8 @@ async function begin(link, request, parse, code, waitMs, sleep) {
 
 // install the pack bytes; progress(0..1)
 export async function installPack(link, bytes, info, progress = () => {}, { waitMs = 90000, sleep = ocSleep } = {}) {
-  if (!packFits(bytes, info)) throw new OcError("packWrongBuild");
+  const bad = packProblem(bytes, info);                                          // (0.13.4) damaged or tail-ruled files are refused here, before the unit is asked to erase
+  if (bad) throw new OcError(bad);
   await begin(link, ocReq.packBegin(bytes.length), parseWrite, packCode, waitMs, sleep);
   for (let off = 512; off < bytes.length; off += 256) {
     const a = await link.ask(ocReq.packWrite(off, bytes.subarray(off, Math.min(off + 256, bytes.length))), { timeout: 1000 });

@@ -499,8 +499,15 @@ that image.
 The package (little endian): magic "OCMF" (0x464D434F), version u16 = 1, variant count u16 (1..8), interface identifier u32 (at 8), table address u32
 (at 12), engine u32 (at 16), state size u32 (at 20), pack hash u32 (at 24), name 16 bytes (at 28, zero filled), table version u32 (at 44), table size u32
 (at 48), sectors u32 (at 52); then per variant 16 bytes {start sector index, image length, CRC-32 of the image, file offset}; then a CRC-32 of everything
-before it; then the images. An image's first 256 bytes are the header page (`fw_mod_hdr_t`, 52 bytes, the rest zero), its code starts at byte 256; its CRC
-(zlib) covers bytes 256..length and the header's own CRC covers bytes 0..47.
+before it; then the images. An image's first 256 bytes are the header page (`fw_mod_hdr_t`, 60 bytes since 0.11.0, the rest zero), its code starts at byte 256; its CRC
+(zlib) covers bytes 256..length (at 52 of the header) and the header's own CRC (at 56) covers bytes 0..55.
+
+(0.13.4) Nothing the unit would refuse at 123 or 118 is sent: before 116 or 121 the page runs the unit's own checks on the file's bytes (web/fm1oc.js packProblem and
+ocmImage, the same text as web/editor.html): for a pack its header (length, hash, header CRC), the payload CRC-32 and the update loader's record rule on every sector tail
+(oc_pack.c pk_image_check); for a module variant the header page against the package and the start (interface, table address, engine, state size 1..16384, pack hash,
+length, link address 0x020C4000 + sector x 4096, an aligned engine_t inside the code, the header CRC), the CRC-32 of the code and the record rule (oc_module.c
+oc_mod_image_check). The page descriptor check of a device build stays the unit's. The unit still checks everything at the end, as before; the commands and replies
+are unchanged. The card's installer (OCT+ on a .PAK, .OCM or .set.json) reads the whole selected file through the same two functions before its first erase.
 
 A command a firmware does not know gets no reply, so an editor offers modules only after a reply to 120. Every write is refused while the transport
 runs (rc 2). The pack's commands 115-119 are unchanged (their BEGIN already carries an optional byte older pages send, so an area selector there would be
