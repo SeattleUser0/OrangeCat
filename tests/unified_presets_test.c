@@ -175,6 +175,12 @@ static int wipe_recovery(void)
     fail_after=0;up_boot();
     bad+=check("fixture fails migration before recovery",up_migration_error && boot_work.state==2u);
     bad+=check("failed wipe intent cannot erase a source bank",shared_wipe()==2 && !shared_wipe_pending() && st_load(up_obj(16u),&old,sizeof old)==sizeof old);
+    {   /* (0.12.2, Part 2e) the library wipe is refused while the transport runs: nothing erased or programmed */
+        static uint8_t snap[sizeof nor];uint32_t e0=erases;memcpy(snap,nor,sizeof nor);
+        song.playing=1;
+        bad+=check("library wipe while the transport runs is refused (2): no erase, flash unchanged",shared_wipe()==2 && erases==e0 && !memcmp(snap,nor,sizeof nor));
+        song.playing=0;
+    }
     fail_after=18;check_maintenance=1;
     bad+=check("interrupted wipe leaves durable reset intent and blocks writes",shared_wipe()==2 && shared_wipe_pending() && up_migration_error && up_store(383,"BLOCKED")==2);
     fail_after=0;up_boot();

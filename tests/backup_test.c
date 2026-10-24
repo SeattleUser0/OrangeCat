@@ -516,6 +516,16 @@ int main(void)
         audio_lab_guard=0;
     }
 #endif
+    /* (0.12.2, Part 2e) a restore is refused while the transport runs: begin, chunk and commit all say 3 (busy), nothing is written, and it works once stopped */
+    {
+        uint32_t before = erases;
+        song.playing = 1;
+        bad += check("a restore while the transport runs is refused (begin, chunk, commit: 3), nothing erased",
+                     put_begin(1, sizeof ps, st_crc32(&ps, sizeof ps)) == 3u && put_chunk(1, 0, (const uint8_t *)&ps, 16) == 3u && put_end(1, 2) == 3u && erases == before);
+        song.playing = 0;
+        bad += check("..and stopped, the same restore goes through", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0u);
+    }
+
     printf("backup test %s\n", bad ? "FAILED" : "passed");
     return (bad + expanded_bad) != 0;
 }

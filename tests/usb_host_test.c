@@ -1451,6 +1451,21 @@ static int t_folders(void)
         assert(!fb_pack_done());
         fb_close();
         printf("  browser: .PAK listed; another size or build refused; no question about banks (0.9.1); the pack written in order, header last\n");
+        /* (0.12.2, Part 2e) with the transport running (a count-in, or the song playing) the pack is refused whole: "Stop first", nothing begun, the row stays; stopped it goes on */
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/PACKS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2; t_pk_begun = t_pk_ended = 0; t_busy = 1;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_pk_begun);
+        assert(!fb_ok()); fz_block();                    /* (the message is acknowledged) */
+        t_busy = 0; song.playing = 1; fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_pk_begun);
+        assert(!fb_ok()); fz_block();
+        song.playing = 0; fb.sel = 2;
+        assert(fb_ok() && fb.st == FB_OFF && t_pk_begun == 1u && t_pk_ended == 1u);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        printf("  browser: the pack is refused while the transport runs (a count-in or the song), installed once stopped\n");
+
     }
     /* 8. (0.10.0) a .OCM in the browser: listed ("Module"); a file that is not a package, a package for another firmware or with no image for the named place
      * refused with nothing erased; installed: the image for the place oc_mod_plan names, the code in order from byte 256, the header page last */
@@ -1555,6 +1570,22 @@ static int t_folders(void)
         fb_open(0);
         assert(!fb_pack_done());
         fb_close();
+        /* (0.12.2, Part 2e) the module is refused while the transport runs (a count-in, or the song): "Stop first", nothing begun */
+        t_md_begun = t_md_ended = 0;
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/MODS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2; t_busy = 1;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        t_busy = 0; song.playing = 1; fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Stop first") && !t_md_begun);
+        assert(!fb_ok()); fz_block();
+        song.playing = 0; fb.sel = 2;
+        assert(fb_ok() && !t_md_begun == 0 && t_md_ended == 1u);
+        fb_open(0); assert(!fb_pack_done()); fb_close();
+        t_md_begun = t_md_ended = 0;
+        printf("  browser: the module is refused while the transport runs, installed once stopped\n");
         /* (0.12.1) the Prophet's package: engine 19, two variants for the sectors 0 and 4 (starts 0 and 2); the start the unit names picks the variant by its sector */
         {   uint32_t sumP[2] = { 0, 0 };
             MKOCM(FW_API_IFACE);
