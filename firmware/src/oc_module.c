@@ -40,8 +40,11 @@
  *   oc_mod_check (every sector the module covers, MD_BAD_TAIL). The sectors a module covers are those that start inside its length; the
  *   bytes after its end are erased flash.
  *
- * Two valid modules for one engine number: the one at the lower start is registered, the other is MD_NOSLOT. (The installer never leaves
- * two; a crash between "write the new" and "erase the old" does, and either is a good SHAPES.)
+ * Two valid modules for one engine number: (0.11.1) the one with the higher header version is registered; on equal versions the one at the higher
+ * start (a replacement is written to the free start). The other is erased at that boot (not while lg_incomplete, and an erase error leaves it for the
+ * next boot), and until then it is MD_NOSLOT. (The installer never leaves two; a crash between "write the new" and "erase the old" does.)
+ * Equal versions are the weak case: a replacement of the SAME version written to start 0 over an old module at start 1, cut before the old erase,
+ * leaves the old one in charge at the next boot.
  *
  * The crash mark
  *   A module that crashes the firmware must not keep it from starting. main.c's boot guard (bootguard.failed) counts a boot that died in its first
@@ -64,7 +67,8 @@
  *   window is what it was. The window then also holds the flash between (the pack, the library); the hardware has one such window (two PC limit
  *   pairs exist, LIMIT1 is the SRAM code window), so that is the cost of a module: a wild jump into the pack or the library is not caught while one is
  *   registered. (0.10.1) oc_mod_boot rewrites LIMIT0_H at its end (fm1_guard_pc_window), so an install or remove in a running session moves the window at
- *   once; 0.10.0 left the old one until the next reset.
+ *   once; 0.10.0 left the old one until the next reset. (0.11.1) ONE helper (oc_mod_window) writes it from what is registered, on every path that
+ *   registers or unregisters a module: oc_mod_boot, oc_mod_park, and the erase-error path of an in-place begin.
  *
  * Host tests: tests/oc_module_test.c (a simulated NOR: every refusal, the crash mark, a good module, two modules).
  *
@@ -72,6 +76,12 @@
  *   0.10.0: first version.
  *   0.10.1: the crash count beyond the first 30 s (oc_mod_power_on, oc_mod_ban_notice); the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
  *           module when another start is free (oc_mod_plan, oc_mod_inplace, mw.inplace); the header comment now says what the code does.
+ *   0.11.1: two valid modules of one engine at boot (a cut between the commit of a replacement and the erase of the old one): the higher header version
+ *           wins, on equal versions the higher start; the loser is erased at that boot (oc_mod_boot). Before it the lower start won and the next install went in place.
+ *           oc_mod_window, the one helper for the PC guard's window (an in-place begin that failed to erase, and an install abandoned without its end, left it wide).
+ *           oc_mod_note_engine: the project load marks the module's use as it gives a track the engine (a death before the main loop's first pass is attributed).
+ *           oc_mod_reload: every oc_mod_boot from a running session (end of an install, remove) first takes the engine out of the table and parks its voices
+ *           (oc_mod_park_voices); the table's two stores are one critical section there (oc_mod_reg, oc_mod_unreg).
  */
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
 static uint32_t fm1_guard_code_end;
@@ -181,23 +191,60 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     return MD_OK;
 }
 
+/* (0.11.1) The two stores of the engine table (ENGINES[e], eng_mod[e]) are ONE critical section in a running session (oc_mod_live, set by oc_mod_reload and
+ * oc_mod_park's callers: the installer), so that CPU1 and the audio ISR never see the table and the header disagree. At power-on (persist_boot, before audio)
+ * the interrupt state is left alone. */
+static uint8_t oc_mod_live;
+static int oc_mod_reg(const fw_mod_hdr_t *h, const engine_t *engine)
+{
+    int rc;
+    if (oc_mod_live) fm1_irq_off();
+    rc = eng_register(h, engine);
+    if (oc_mod_live) fm1_irq_on();
+    return rc;
+}
+static void oc_mod_unreg(uint32_t e)
+{
+    if (oc_mod_live) fm1_irq_off();
+    eng_unregister(e);
+    if (oc_mod_live) fm1_irq_on();
+}
+/* (0.11.1) The PC guard's window follows what is REGISTERED: the last byte of the highest registered module, 0 with none (then the window is _etext).
+ * ONE helper for every path that registers or unregisters a module (oc_mod_boot, oc_mod_park, the error paths of oc_mod_begin), so that no path leaves
+ * a window wider than the table. A start counts when its state is MD_OK and the engine it names is registered (a parked module keeps its state until
+ * its start is erased). */
+static void oc_mod_window(void)
+{
+    uint32_t i, end = 0;
+    for (i = 0; i < OC_MOD_STARTS; i++) {
+        uint32_t e = oc_mod.engine[i], last;
+        if (oc_mod.state[i] != MD_OK || e >= NENGINES || !eng_mod[e])
+            continue;
+        last = oc_mod_link(i) + oc_mod.length[i] - 1u;
+        if (end < last)
+            end = last;
+    }
+    fm1_guard_code_end = end;
+    fm1_guard_pc_window();
+}
+
 /* persist_boot, after oc_pack_boot: look at every start, register what is good. `crashed`: the last boot died in its first 30 s
  * (bootguard.failed). Safe to call again (the installer does, after an install or a removal): the registry is rebuilt. */
+static int oc_mod_erase_start(uint32_t i);
 static void oc_mod_boot(uint32_t crashed)
 {
-    uint32_t i, e;
+    uint32_t i, e, loser = 0;
     oc_mod_guard_init();
     for (e = 0; e < NENGINES; e++)
         if (eng_mod[e])
-            eng_unregister(e);
+            oc_mod_unreg(e);
     memset(&oc_mod, 0, sizeof oc_mod);
-    fm1_guard_code_end = 0;
     if (crashed) {
         oc_modguard.notice |= (uint8_t)(oc_modguard.inuse & ~oc_modguard.banned);
         oc_modguard.banned |= oc_modguard.inuse;                /* the module(s) in use when it died */
     }
     oc_modguard.inuse = 0;
-    for (i = 0; i < OC_MOD_STARTS; i++) {
+    for (i = 0; i < OC_MOD_STARTS; i++) {                       /* what every start holds */
         fw_mod_hdr_t h;
         uint32_t st = oc_mod_check(i, &h);
         oc_mod.state[i] = (uint8_t)st;
@@ -206,24 +253,43 @@ static void oc_mod_boot(uint32_t crashed)
         oc_mod.engine[i] = h.engine;
         oc_mod.length[i] = h.length;
         oc_mod.version[i] = h.version;
-        if (st != MD_OK)
-            continue;
-        if (oc_modguard.banned & (1u << i)) {
+        if (st == MD_OK && (oc_modguard.banned & (1u << i)))
             oc_mod.state[i] = MD_CRASHED;
+    }
+    for (i = 0; i < OC_MOD_STARTS; i++) {
+        uint32_t j;
+        fw_mod_hdr_t h;
+        if (oc_mod.state[i] != MD_OK)
+            continue;
+        /* (0.11.1) two valid modules of one engine (a cut between the commit of a replacement and the erase of the old one): the higher header
+         * version wins; on equal versions the higher start (a replacement is written to the free start). The loser is not registered and is erased below. */
+        for (j = 0; j < OC_MOD_STARTS; j++)
+            if (j != i && oc_mod.state[j] == MD_OK && oc_mod.engine[j] == oc_mod.engine[i] &&
+                (oc_mod.version[j] > oc_mod.version[i] || (oc_mod.version[j] == oc_mod.version[i] && j > i)))
+                break;
+        if (j < OC_MOD_STARTS) {
+            oc_mod.state[i] = MD_NOSLOT;
+            oc_mod.why[i] = (uint8_t)-EM_SLOT;
+            loser |= 1u << i;
             continue;
         }
-        {   int rc = eng_mod[h.engine] ? EM_SLOT : eng_register(oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);   /* (one already there: the lower start won) */
-            uint32_t end = oc_mod_link(i) + h.length - 1u;
+        (void)oc_mod_check(i, &h);
+        {   int rc = eng_mod[h.engine] ? EM_SLOT : oc_mod_reg(oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);
             if (rc != EM_OK) {
                 oc_mod.state[i] = MD_NOSLOT;
                 oc_mod.why[i] = (uint8_t)-rc;
                 continue;
             }
-            if (fm1_guard_code_end < end)
-                fm1_guard_code_end = end;
         }
     }
-    fm1_guard_pc_window();                                      /* (0.10.1) a running session too: the window follows the registered modules */
+    oc_mod_window();                                            /* (0.10.1) a running session too: the window follows the registered modules (0.11.1: the one helper) */
+    /* (0.11.1) the loser of two valid modules is erased now, lazily: only when its rival is the registered one and no old preset pair may still lie in
+     * the area (lg_incomplete); an erase that fails leaves it for the next boot (it stays NOSLOT, so the next install still finds one usable module here) */
+    if (loser && !lg_incomplete) {
+        for (i = 0; i < OC_MOD_STARTS; i++)
+            if ((loser & (1u << i)) && eng_mod[oc_mod.engine[i]])
+                (void)oc_mod_erase_start(i);
+    }
 }
 /* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
  * `run` says whether the last session ended in an orderly reset (reset_intended clears it). If it did not, the session died (the watchdog, a CPU
@@ -264,6 +330,15 @@ static void oc_mod_ban_notice(void)
         ui_say("MODULE BANNED ", oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : "ENGINE");
         return;
     }
+}
+/* (0.11.1) set the use bit of the registered module that supplies `engine`. The project load calls it for every track as it gives the track its engine
+ * (project_restore_runtime), so a death before the main loop's first pass (oc_mod_note_use) is still attributed to the module. */
+static void oc_mod_note_engine(uint32_t engine)
+{
+    uint32_t i;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod.state[i] == MD_OK && oc_mod.engine[i] == engine && engine < NENGINES && eng_mod[engine] == oc_mod_hdr_ptr(i))
+            oc_modguard.inuse |= 1u << i;
 }
 /* main loop, all session (0.10.1; the first 30 s before): set the use bit of every registered module a track is playing */
 static void oc_mod_note_use(void)
@@ -336,11 +411,9 @@ static int oc_mod_inplace(uint32_t engine, uint32_t start)
     return start < OC_MOD_STARTS && oc_mod_has(start, engine);
 }
 /* the engine out of the table; the voices and the arena state of the tracks that play it cleared: nothing calls into the module after this */
-static void oc_mod_park(uint32_t engine)
+static void oc_mod_park_voices(uint32_t engine)
 {
     uint32_t t, i;
-    if (engine < NENGINES && eng_mod[engine])
-        eng_unregister(engine);
     for (t = 0; t < NTRK; t++) {
         if (trk[t].engine != engine) continue;
         for (i = 0; i < NVOICE; i++) {
@@ -351,6 +424,31 @@ static void oc_mod_park(uint32_t engine)
         }
         eng_state_clear(t);
     }
+}
+static void oc_mod_park(uint32_t engine)
+{
+    oc_mod_live = 1;                                             /* (only the installer parks: a running session) */
+    if (engine < NENGINES && eng_mod[engine])
+        oc_mod_unreg(engine);
+    oc_mod_live = 0;
+    oc_mod_park_voices(engine);
+    oc_mod_window();                                             /* (0.11.1) the engine is out of the table: the window follows at once, not at the next boot */
+}
+/* (0.11.1) oc_mod_boot from a running session (an install, a remove): every engine a module may supply is taken out of the table and its voices and arena
+ * state cleared FIRST, then the area is read again (milliseconds of SPI). Without it a track on the engine renders the built-in slot meanwhile and
+ * then the module, under live voices. The window is written last (oc_mod_boot's end), so it is never narrower than the code that may still run. */
+static void oc_mod_reload(void)
+{
+    uint32_t e;
+    oc_mod_live = 1;
+    for (e = 0; e < NENGINES; e++) {
+        if (!eng_module_slot(e)) continue;
+        if (eng_mod[e])
+            oc_mod_unreg(e);
+        oc_mod_park_voices(e);
+    }
+    oc_mod_boot(0);
+    oc_mod_live = 0;
 }
 static int oc_mod_erase_start(uint32_t i)
 {
@@ -385,7 +483,7 @@ static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
         oc_mod_park(engine);
         for (i = 0; i < OC_MOD_STARTS; i++)
             if (i == start || oc_mod_has(i, engine))
-                if ((rc = oc_mod_erase_start(i)) != 0) { fm1_guard_code_end = 0; return rc; }
+                if ((rc = oc_mod_erase_start(i)) != 0) { oc_mod_window(); return rc; }   /* (0.11.1: this set the end to 0 and never wrote the window) */
     } else if ((rc = oc_mod_erase_start(start)) != 0) {  /* beside: only the free start; the old module stays registered and playable */
         return rc;
     }
@@ -435,7 +533,7 @@ static int oc_mod_end(const void *page256)
         uint32_t i, st = oc_mod_check(mw.start, &nh), old = 0;
         if (st != MD_OK && st != MD_NOSLOT) {
             oc_mod_erase_start(mw.start);                                  /* the new one is junk: out of the way, the old module untouched */
-            oc_mod_boot(0);
+            oc_mod_reload();
             return MI_BAD;
         }
         for (i = 0; i < OC_MOD_STARTS; i++)
@@ -445,11 +543,11 @@ static int oc_mod_end(const void *page256)
             for (i = 0; i < OC_MOD_STARTS && !rc; i++)
                 if (old & (1u << i)) rc = oc_mod_erase_start(i);           /* its header sector first: from the first erase the new module is the only valid one */
         }
-        oc_mod_boot(0);                                                    /* registered as at boot: the new one */
-        if (rc) return rc;                                                 /* the new module is in; the old one could not be erased (both valid: the lower start is used) */
+        oc_mod_reload();                                                    /* registered as at boot: the new one */
+        if (rc) return rc;                                                 /* the new module is in; the old one could not be erased (both valid: the next boot keeps the newer and erases the other) */
         return oc_mod.state[mw.start] == MD_OK ? MI_OK : MI_BAD;
     }
-    oc_mod_boot(0);                                                        /* read as at boot: the module is registered when it is good */
+    oc_mod_reload();                                                        /* read as at boot: the module is registered when it is good */
     return oc_mod.state[mw.start] == MD_OK || oc_mod.state[mw.start] == MD_NOSLOT ? MI_OK : MI_BAD;
 }
 /* the module(s) of this engine out and their sectors erased (engine 127: both starts whatever they hold). 0 ok; -4; else flash */
@@ -467,6 +565,6 @@ static int oc_mod_remove(uint32_t engine)
     for (i = 0; i < OC_MOD_STARTS && !rc; i++)
         if (engine == 127u || oc_mod_has(i, engine))
             rc = oc_mod_erase_start(i);
-    oc_mod_boot(0);
+    oc_mod_reload();
     return rc;
 }

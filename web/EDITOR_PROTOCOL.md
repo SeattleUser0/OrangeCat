@@ -533,8 +533,8 @@ loader tests it at every boot (state 8).
 Checks at boot, in this order: magic, header CRC, `fw_module_check` (interface identifier, table address, table size and version), the link address (it is
 linked for one start and refused at any other), the length (a multiple of 4, at most 6 sectors), the engine_t inside the code, the engine number (SHAPES only),
 the state size, the pack hash, then the CRC of the code, then the sector tails. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
-lower start is used. Power cuts of a replacement beside (tested at every program and every erase): before the new header page is programmed the old module is the one that loads; once
-the old start's first erase has run it is the new one; between the two (the commit done, no erase yet) both are valid and the lower start is used. The engine
+higher header version is used (equal versions: the higher start) and the other is erased at that boot (0.11.1). Power cuts of a replacement beside (tested at every program and every erase): before the new header page is programmed the old module is the one that loads; once
+the old start's first erase has run it is the new one; between the two (the commit done, no erase yet) both are valid and the newer is used (0.11.1). The engine
 number a track holds is never changed by an install or a removal; the table answers for the number (the built-in engine if there is
 one, else silence).
 

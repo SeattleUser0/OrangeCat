@@ -2,6 +2,7 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Firmware save flows against NOR flash: deferred settings, retries, and failed-save rollback. */
+#define LG_TEST_HOOKS 1                          /* (0.11.1) lg_test_reserve, lib_group.c: the LIBRARY NEEDS WIPE state cannot be made from flash contents */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -217,9 +218,59 @@ static int wipe_recovery(void)
     bad+=check("power cuts during copy replacement/marker removal never resurrect presets",safe);
     return bad;
 }
+/* (0.11.1) LIBRARY NEEDS WIPE: the move of the old pairs finds no free sector; the screen offers the wipe and the wipe finishes from there */
+static int needwipe_recovery(void)
+{
+    int bad=0;reset();
+    p5_bank_t old;p5_bank_defaults(&old,0);old.used=p5_bank_mask(0);
+    for(uint32_t j=0;j<26u;j++)p5_patch_init(&old.patch[j]);
+    st_save(OBJ_P5BANK0,&old,sizeof old);
+    uint8_t keep[16]="KEEP THIS DATA";
+    st_save(OBJ_SETTINGS,keep,sizeof keep);st_save(OBJ_BANK0,keep,sizeof keep);
+    static uint8_t before[sizeof nor];memcpy(before,nor,sizeof nor);
+    lg_test_reserve=0x7FFFFFu;                    /* every sector of the group unusable: what the count says cannot happen */
+    up_boot();
+    bad+=check("no free sector: the boot says LIBRARY NEEDS WIPE and locks the presets",lg_needwipe && lg_incomplete && up_migration_error && boot_work.state==2u && boot_work.presets==4u && !strcmp(boot_work.title,"LIBRARY NEEDS WIPE"));
+    set_engine_of(TSEL,ENGI_CZ);
+    bad+=check("... writes are refused in that state",up_store(383,"NO WRITE")==2);
+    {   uint32_t dn=1u<<panel.btn[B_OCTDN],up=1u<<panel.btn[B_OCTUP];
+        boot_work_input(up);                      /* KEEP: carry on with the presets locked */
+        bad+=check("... KEEP carries on, the presets stay locked",boot_work.state==0 && lg_incomplete && up_store(383,"NO WRITE")==2);
+        up_boot();                                /* the next boot reports it again */
+        bad+=check("... and the next boot shows the screen again",boot_work.state==2u && boot_work.presets==4u);
+        boot_work_input(dn);
+        bad+=check("... WIPE asks Wipe all user presets?",boot_work.state==3u);
+        boot_work_input(dn);
+        bad+=check("... BACK returns to the screen",boot_work.state==2u);
+        boot_work_input(dn);
+        bad+=check("... WIPE again",boot_work.state==3u);
+        check_maintenance=1;
+        boot_work_input(up);                      /* the confirmation: shared_wipe */
+        check_maintenance=0;
+    }
+    bad+=check("the wipe finishes from that state (no error, the move is no longer incomplete)",!boot_work.state && !up_migration_error && !lg_incomplete && !lg_needwipe && boot_work.done==45u);
+    bad+=check("... every erase followed a visible keep-power screen",maintenance_erases && !hidden_maintenance);
+    bad+=check("... no old record of the Prophet bank is left (nothing can come back)",st_load(OBJ_P5BANK0,&old,sizeof old)<0);
+    bad+=check("... no preset is left",!up_count());
+    int tails=1;
+    for(uint32_t i=0;i<LG_SECTORS;i++){uint32_t base=lg_addr[i];for(uint32_t k=3840u;k<ST_SECTOR;k++)tails &= nor[base+k]==255u;}
+    bad+=check("... the group's sector tails stay erased",tails);
+    {   int same=1;                                /* projects and settings are not the wipe's to change (the group's sectors and the old pair are) */
+        for(uint32_t a=0;a<sizeof nor;a+=ST_SECTOR){
+            int mine=lg_index_of(a)!=LG_NONE || a==st_sector(OBJ_P5BANK0,0) || a==st_sector(OBJ_P5BANK0,1);
+            if(!mine)same &= !memcmp(before+a,nor+a,ST_SECTOR);
+        }
+        bad+=check("... every other sector of the flash (projects, settings, the pack area's rest) is as it was",same);
+    }
+    set_engine_of(TSEL,ENGI_CZ);
+    bad+=check("... new sounds can be stored again",!up_store(383,"NEW START"));
+    up_boot();
+    bad+=check("... and they survive a boot, which neither migrates nor wipes",up_used(383) && !up_migration_error && !lg_incomplete && !shared_wipe_pending());
+    return bad;
+}
 int main(void)
 {
-    int bad=fill(ENGI_CZ)+fill(ENGI_PROPHET)+fill(ENGI_FM6)+legacy_conversion()+wipe_recovery();
+    int bad=fill(ENGI_CZ)+fill(ENGI_PROPHET)+fill(ENGI_FM6)+legacy_conversion()+wipe_recovery()+needwipe_recovery();
     reset();up_boot();p5_patch_t p;p5_patch_init(&p);uint8_t cz[CZ_BYTES];cz_patch_init(cz);
     bad+=check("Prophet occupies a shared slot",!native_put(ENGI_PROPHET,383,(uint8_t *)&p));
     bad+=check("CZ replaces Prophet in the identical slot",!native_put(ENGI_CZ,383,cz)&&native_used(ENGI_CZ,383)&&!native_used(ENGI_PROPHET,383));

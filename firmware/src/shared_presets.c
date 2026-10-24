@@ -176,6 +176,7 @@ static int shared_wipe(void)
     uint32_t done=0;
     BOOT_WIPE_BEGIN("WIPING PRESETS",1u+UP_BANKS*2u);
     if(!flash_ok || transport_busy())goto failed;
+    if(lg_incomplete)lg_drop_pairs();          /* (0.11.1) a move that could not finish (LIBRARY NEEDS WIPE): the old records that hold it up go first, so the saves below have room */
     up_converting=1;up_migration_error=1;
     if(!shared_wipe_pending() && shared_wipe_bank(UP_BANKS-1u,1))goto failed;
     BOOT_WORK_PROGRESS(++done);

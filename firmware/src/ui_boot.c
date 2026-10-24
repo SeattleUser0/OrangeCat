@@ -7,7 +7,7 @@ static struct {
     const char *title;
     uint16_t done, total;
     uint8_t state;                             /* 0 idle, 1 working, 2 failed, 3 wipe confirmation */
-    uint8_t presets;                           /* 0 other maintenance, 1 migration, 2 wiping */
+    uint8_t presets;                           /* 0 other maintenance, 1 migration, 2 wiping, 4 (0.11.1) the library cannot be moved: LIBRARY NEEDS WIPE */
 } boot_work;
 
 /* (large type) a text centred, wrapped onto the lines it needs (nothing cut); returns the y under it */
@@ -38,6 +38,10 @@ static void boot_work_draw(void)
         y = boot_lines(y + 8, TY_LB, "Every engine's. No undo.", T_TEXT, 20);
         boot_lines(y + 2, TY_LB, "Projects and settings stay.", T_MID, 20);
         boot_keys("BACK", "WIPE");
+    } else if (boot_work.state == 2u && boot_work.presets == 4u) {      /* (0.11.1) the move of the old presets has no sector to work in */
+        y = boot_lines(y + 12, TY_TX, "No room to move presets", T_THEME, 26);
+        boot_lines(y + 8, TY_LB, "Wipe to recover", T_TEXT, 20);
+        boot_keys("WIPE", "KEEP");
     } else if (boot_work.state == 2u) {
         y = boot_lines(y + 12, TY_TX, "Could not finish", T_THEME, 26);
         boot_lines(y + 8, TY_LB, "Restart to retry", T_TEXT, 20);
@@ -70,6 +74,18 @@ static void boot_work_begin(const char *title, uint32_t total, uint32_t presets)
     boot_work.presets = (uint8_t)presets;
     boot_work_draw();
 }
+/* (0.11.1) LIBRARY NEEDS WIPE: the failure screen of a move that found no free sector, with the wipe offered (WIPE, then the confirmation
+ * of the other preset failures; KEEP carries on with the presets locked). Replaces the progress screen of "MOVING PRESETS". */
+static void boot_work_end(int failed);
+static void boot_work_needwipe(void)
+{
+    scr_wake_now();
+    boot_work.title = "LIBRARY NEEDS WIPE";
+    boot_work.done = 0;
+    boot_work.total = 0;
+    boot_work.presets = 4;
+    boot_work_end(1);
+}
 static void boot_work_progress(uint32_t done)
 {
     boot_work.done = (uint16_t)(done > boot_work.total ? boot_work.total : done);
@@ -99,5 +115,6 @@ static void boot_work_input(uint32_t pressed)
 #define BOOT_WORK_BEGIN(title, total) boot_work_begin(title, total, 0)
 #define BOOT_PRESET_BEGIN(title, total) boot_work_begin(title, total, 1)
 #define BOOT_WIPE_BEGIN(title, total) boot_work_begin(title, total, 2)
+#define BOOT_NEEDWIPE() boot_work_needwipe()
 #define BOOT_WORK_PROGRESS(done) boot_work_progress(done)
 #define BOOT_WORK_END(failed) boot_work_end(failed)

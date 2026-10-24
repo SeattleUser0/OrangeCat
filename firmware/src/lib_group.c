@@ -43,8 +43,32 @@
  * Downgrade: firmware without groups does not know these sectors. The banks migrated are not found by it (it sees empty
  * banks); take a full backup (the editor backup) before installing 0.9.1.
  *
+ * Downgrade below 0.9.1 and upgrade again (0.11.1): a downgrade DESTROYS the library. The old firmware's st_save sees the group's
+ * sectors as empty, so it erases some of them (the copy of a pair it writes) and writes fresh pair records there, with a sequence
+ * that restarts at 1. What it did not overwrite is still in the group, what it did is gone. Take a full backup (the editor backup)
+ * BEFORE going below 0.9.1 and restore it AFTER coming back. What the migration does with what is left (0.11.1):
+ *   - A sector is busy (protected from lg_pick) only if it holds the CURRENT old record of a bank still waiting to move. Before
+ *     0.11.1 both sectors of every waiting pair were busy whatever they held; after a downgrade that was 22 sectors, and a group
+ *     copy surviving in the 23rd left no free sector at all.
+ *   - A bank that needs moving (its pair record is newer than its group copy by the sequence rule) and still owns a group copy has
+ *     a STALE copy. When lg_pick finds no free sector, those stale copies are given up (the bank being moved first, then the
+ *     others waiting): the pair's record wins because it is the newer save, and the sector is erased by the pick that takes it.
+ *   - The count: a waiting bank has no group copy (it was given up) and at most one protected sector; a bank that is not waiting
+ *     has at most one copy; so at most 22 of the 23 sectors can be taken and one is always free. From flash contents alone the
+ *     picker cannot fail. If it ever does (a layout change, a flash that behaves differently) lg_needwipe is set: LIBRARY NEEDS WIPE
+ *     (ui_boot.c), and the wipe has a way through (lg_drop_pairs, called by shared_wipe when the move is incomplete).
+ *   - The sequence rule cannot tell a pair written by the old firmware (sequence from 1) from a leftover of the first migration. A
+ *     bank whose group copy survived with a sequence at or above the pair's keeps the group copy, and the pair is erased as a leftover.
+ *
  * Revisions:
  *   0.9.1: first version.
+ *   0.11.1: a save whose read-back fails after the header was programmed erases the sector (or, if that fails too, moves lg_seq past it):
+ *           the failed save no longer appears after a reset and no later save shares its sequence; lg_seq is 0 for a bank with no copy and
+ *           every save takes lg_seq + 1.
+ *   0.11.1: after a downgrade below 0.9.1 and an upgrade the migration could never finish (22 busy sectors, no free one: -8 on every
+ *           boot, writes locked for good). A sector is busy only for the current record of a waiting bank; stale group copies of
+ *           waiting banks are given up when there is no free sector (lg_pick_move); the state that remains impossible by count is
+ *           reported as LIBRARY NEEDS WIPE (lg_needwipe) and shared_wipe clears the old records first (lg_drop_pairs).
  */
 #define LG_BANKS 22u
 #define LG_SECTORS 23u
@@ -59,6 +83,10 @@ static uint8_t lg_map[LG_BANKS];               /* bank -> sector index, LG_NONE 
 static uint32_t lg_seq[LG_BANKS];              /* bank -> the sequence of that copy */
 static uint8_t lg_ready, lg_cursor;
 static uint8_t lg_incomplete;                  /* the last lg_boot could not finish the move of the old pairs (retried at the next boot) */
+static uint8_t lg_needwipe;                    /* (0.11.1) ... and it found no free sector even after giving up the stale copies: LIBRARY NEEDS WIPE */
+#ifdef LG_TEST_HOOKS
+static uint32_t lg_test_reserve;               /* host tests only: sectors lg_pick must not return (a stand-in for a state the data cannot make) */
+#endif
 static uint32_t lg_busy;                       /* sectors (bit per index) holding an old pair that is not migrated yet */
 static uint32_t lg_erases, lg_progs;           /* flash operations done by this layer (migration cost, tests) */
 static void (*lg_progress)(uint32_t done, uint32_t total);
@@ -103,7 +131,7 @@ static int lg_rd_body(uint32_t s, const st_hdr_t *h)   /* the payload's CRC-32 m
     return ~crc == h->crc ? 0 : -1;
 }
 
-/* Build the RAM table from the 23 sectors: the newest valid copy of each bank. */
+/* Build the RAM table from the 23 sectors: the newest valid copy of each bank. (A bank with no copy has lg_seq 0.) */
 static void lg_scan(void)
 {
     for (uint32_t b = 0; b < LG_BANKS; b++) { lg_map[b] = LG_NONE; lg_seq[b] = 0; }
@@ -123,11 +151,31 @@ static void lg_ensure(void) { if (!lg_ready) lg_scan(); }
 static uint32_t lg_pick(void)
 {
     uint32_t avoid = lg_owned() | lg_busy;
+#ifdef LG_TEST_HOOKS
+    avoid |= lg_test_reserve;
+#endif
     for (uint32_t i = 0; i < LG_SECTORS; i++) {
         uint32_t s = (lg_cursor + i) % LG_SECTORS;
         if (!((avoid >> s) & 1u)) return s;
     }
     return LG_NONE;
+}
+
+/* (0.11.1) A free sector for the move of bank b. With none, the group copies of the banks still waiting to move are STALE (their
+ * pair is newer: that is why they wait) and are given up one by one, b's own first; the sector is erased by whoever takes it. */
+static uint32_t lg_pick_move(uint32_t need, uint32_t b)
+{
+    uint32_t s = lg_pick();
+    for (uint32_t k = 0; s == LG_NONE && k <= LG_BANKS; k++) {
+        uint32_t x = k == 0 ? b : k - 1u;
+        if (k && x == b) continue;
+        if (((need >> x) & 1u) && lg_map[x] != LG_NONE) {
+            lg_map[x] = LG_NONE;
+            lg_seq[x] = 0;
+            s = lg_pick();
+        }
+    }
+    return s;
 }
 
 static uint32_t lg_sector(uint32_t bank)
@@ -175,14 +223,20 @@ static int lg_save(uint32_t bank, const void *src, uint32_t len)
     h.magic = ST_MAGIC;
     h.type = LG_TYPE;
     h.slot = (uint16_t)bank;
-    h.seq = old == LG_NONE ? 1u : lg_seq[bank] + 1u;
+    h.seq = lg_seq[bank] + 1u;                                           /* (0.11.1: lg_seq is 0 for a bank with no copy, so one rule; it also moves past a failed save, below) */
     h.len = len;
     h.crc = st_crc32(src, len);
     h.rsv[0] = compact ? ST_COMPACT_TAG : 0xFFFFFFFFu;
     h.rsv[1] = 0xFFFFFFFFu;
     h.hcrc = st_crc32(&h, sizeof h - 4u);
     if ((rc = lg_prog(lg_addr[s], &h, sizeof h)) != 0) return rc;       /* the commit record, last */
-    if (lg_rd_hdr(s, &chk) || memcmp(&chk, &h, sizeof h) || lg_rd_body(s, &chk)) return -7;   /* read back */
+    if (lg_rd_hdr(s, &chk) || memcmp(&chk, &h, sizeof h) || lg_rd_body(s, &chk)) {   /* read back */
+        /* (0.11.1) The header is programmed, so the sector may hold a complete record with the next sequence: it would win at the next
+         * boot over the copy this save reported as still in charge, and a later save would share its sequence. Erase it (the previous
+         * copy stays in charge for good). If the erase fails too, move lg_seq past it, so that no later save of this bank can share the sequence. */
+        if (lg_erase(s) != 0) lg_seq[bank] = h.seq;
+        return -7;
+    }
     lg_map[bank] = (uint8_t)s;
     lg_seq[bank] = h.seq;
     lg_cursor = (uint8_t)((s + 1u) % LG_SECTORS);
@@ -254,8 +308,9 @@ static int lg_migrate(void)
         if (lg_map[b] != LG_NONE && !lg_newer(lh[b].seq, lg_seq[b])) continue;   /* the group's copy is the newer or the same */
         need |= 1u << b;
         total++;
-        for (uint32_t c = 0; c < 2u; c++) {
-            uint32_t i = lg_index_of(st_sector(lg_legacy_obj(b), c));
+        {   /* (0.11.1) busy: the sector of the CURRENT old record only. The other sector of the pair holds nothing the move needs
+             * (an older record, a group copy of another bank which is owned anyway, or nothing) and may be taken */
+            uint32_t i = lg_index_of(st_sector(lg_legacy_obj(b), (uint32_t)cur));
             if (i != LG_NONE) lg_busy |= 1u << i;
         }
     }
@@ -270,7 +325,7 @@ static int lg_migrate(void)
         cur = (uint32_t)c0;
         po = st_payload_off_header(obj, &h);                            /* where the old copy's payload is */
         uint32_t pd = h.len <= ST_SECTOR - 256u - sizeof(st_hdr_t) ? (uint32_t)sizeof(st_hdr_t) : po;   /* and where the group's goes */
-        if ((s = lg_pick()) == LG_NONE) return -8;
+        if ((s = lg_pick_move(need, b)) == LG_NONE) return -8;
         if ((rc = lg_erase(s)) != 0) return rc;
         for (off = 0; off < h.len && !rc; off += sizeof st_buf) {
             uint32_t n = h.len - off > sizeof st_buf ? (uint32_t)sizeof st_buf : h.len - off;
@@ -303,6 +358,31 @@ static int lg_migrate(void)
     return copied;
 }
 
+/* (0.11.1) The way out when the move cannot finish (lg_needwipe, shared_wipe): erase every old pair record that still waits, in
+ * the group's sectors and outside them (only sectors that carry that object's own record, as lg_leftovers). The records are what
+ * hold sectors busy and what would bring the old presets back at the next boot; with them gone the wipe saves its empty banks like
+ * any save, and the migration has nothing left to do. A power loss here leaves some records: the next boot moves those in (or
+ * reports again), and the wipe can be run again. */
+static void lg_drop_pairs(void)
+{
+    for (uint32_t b = 0; b < LG_BANKS; b++) {
+        uint32_t obj = lg_legacy_obj(b);
+        for (uint32_t c = 0; c < 2u; c++) {
+            uint32_t a = st_sector(obj, c);
+            st_hdr_t h;
+            if (st_read(a, &h, sizeof h) || h.magic != ST_MAGIC || h.type != obj) continue;
+            if (st_erase(a) == 0) lg_erases++;
+        }
+    }
+    lg_busy = 0;
+    lg_incomplete = 0;
+    lg_needwipe = 0;
+#ifdef LG_TEST_HOOKS
+    lg_test_reserve = 0;                           /* (the stand-in goes with the records it stands for) */
+#endif
+    lg_ready = 0;
+}
+
 /* Boot: scan the group, then migrate. Call once before the pack check; safe to call again (it rescans). */
 static int lg_boot(void)
 {
@@ -310,5 +390,6 @@ static int lg_boot(void)
     lg_scan();
     rc = lg_migrate();
     lg_incomplete = rc < 0;
+    lg_needwipe = rc == -8;
     return rc;
 }

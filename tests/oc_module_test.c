@@ -32,11 +32,13 @@ static void chk(const char *what, int ok)
 }
 #define LEN 3000u                                     /* a made module: header page + 2,744 bytes of "code" */
 static uint8_t IMG[OC_MOD_MAXLEN];
+static uint32_t modver;                               /* (0.11.1) the header version word mk gives (0 unless a test sets it) */
 static fw_mod_hdr_t mk(uint32_t i, uint32_t len)      /* the fields a good SHAPES module of this start has */
 {
     fw_mod_hdr_t h;
     memset(&h, 0, sizeof h);
     h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
+    h.version = modver;
     h.engine = ENGI_SHAPES; h.state_size = 1234u; h.engine_ptr = oc_mod_link(i) + 0x180u; h.link_addr = oc_mod_link(i);
     h.pack_hash = OC_PACK_HASH; h.length = len;
     return h;
@@ -204,11 +206,15 @@ int main(void)
         oc_mod.state[0] == MD_OK && fm1_guard_code_end == oc_mod_link(0) + OC_MOD_MAXLEN - 1u);
 
     /* two modules */
+    /* (0.11.1) the loser of two valid modules is erased at the boot; lg_incomplete (an old preset pair may lie in the area) holds that erase back, so these
+     * cases keep both modules to look at the choice and at the later bans. The erase itself is tested in the 0.11.1 block below. */
     clean(); good(0, LEN); good(1, LEN + 400u);
+    lg_incomplete = 1;
     oc_mod_boot(0);
-    chk("two good modules for one engine number: the lower start is registered, the other is NOSLOT",
-        oc_mod.state[0] == MD_OK && oc_mod.state[1] == MD_NOSLOT && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0));
-    chk("... the guard's window follows the registered one only", fm1_guard_code_end == oc_mod_link(0) + LEN - 1u);
+    chk("two good modules for one engine number, equal versions: the higher start is registered, the other is NOSLOT (0.11.1: it was the lower start)",
+        oc_mod.state[1] == MD_OK && oc_mod.state[0] == MD_NOSLOT && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+    chk("... the guard's window follows the registered one only", fm1_guard_code_end == oc_mod_link(1) + LEN + 400u - 1u);
+    lg_incomplete = 0;
     clean(); good(1, LEN);
     { fw_mod_hdr_t h = mk(0, LEN); code(9); seal(&h); h.crc ^= 1u; h.hcrc = ocs_crc32((const uint8_t *)&h, FW_MOD_HDR_BYTES - 4u); put(0, &h, 1); }
     oc_mod_boot(0);
@@ -319,12 +325,14 @@ int main(void)
     chk("a power loss forgets the ban: registered again", oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES]);
     clean(); good(0, LEN); good(1, LEN);
     trk[2].engine = ENGI_SHAPES;
+    lg_incomplete = 1;                                 /* (0.11.1) keeps the loser, see above */
     oc_mod_boot(0);
     oc_mod_note_use();
-    chk("two modules, one registered: only the registered start's bit is set", oc_modguard.inuse == 1u);
+    chk("two modules, one registered: only the registered start's bit is set", oc_modguard.inuse == 2u);
     oc_mod_boot(1);
     chk("... a crash bans that one; the other (valid, not registered before) takes the engine number",
-        oc_mod.state[0] == MD_CRASHED && oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+        oc_mod.state[1] == MD_CRASHED && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0));
+    lg_incomplete = 0;
 
     /* the PC guard window (0.10.1): LIMIT0_H follows the registered modules, in a running session too */
     {
@@ -334,8 +342,8 @@ int main(void)
         good(0, LEN); oc_mod_boot(0);
         chk("... a module registered: the end of its last byte (the flash between is inside, the cost written in fm1_guard_pc.h)",
             host_pc_hi == oc_mod_link(0) + LEN - 1u && host_pc_hi > OC_HOST_ETEXT);
-        good(1, LEN); oc_mod_boot(0);
-        chk("... a second for the same engine is not registered (the lower start wins): the window is still the first one's", host_pc_hi == oc_mod_link(0) + LEN - 1u);
+        good(1, LEN); lg_incomplete = 1; oc_mod_boot(0); lg_incomplete = 0;
+        chk("... a second for the same engine is not registered (equal versions: the higher start wins): the window is the winner's", host_pc_hi == oc_mod_link(1) + LEN - 1u);
         chk("... oc_mod_remove in a running session writes the window again, and with no module left it is _etext",
             oc_mod_remove(ENGI_SHAPES) == 0 && host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
         chk("... the window is written at every boot call (the install and the remove paths end in one)", host_pc_sets >= 4u);
@@ -405,10 +413,12 @@ int main(void)
         chk("(sanity) a module is not counted before it is registered and in use: a start with a module nobody holds never reaches the count",
             oc_mod.state[0] == MD_CRASHED);
         clean(); good(0, LEN); good(1, LEN);
+        lg_incomplete = 1;                             /* (0.11.1) keeps the loser */
         oc_mod_power_on(0);
         for (i = 0; i < 3u; i++) { SESSION_USE(); oc_mod_power_on(0); }
-        chk("two modules for the engine: the registered one (start 0) is banned by three deaths and the other (valid, not registered before) takes the number",
-            oc_mod.state[0] == MD_CRASHED && oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_modguard.unclean[1] == 0);
+        lg_incomplete = 0;
+        chk("two modules for the engine: the registered one (start 1) is banned by three deaths and the other (valid, not registered before) takes the number",
+            oc_mod.state[1] == MD_CRASHED && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && oc_modguard.unclean[0] == 0);
         #undef SESSION_USE
     }
 
@@ -479,8 +489,11 @@ int main(void)
         chk("in place: begin takes the old module out of the table first, its voices off, and erases its 6 sectors",
             oc_mod_begin(ENGI_SHAPES, 0, LEN + 512u) == 0 && mw.inplace && !eng_mod[ENGI_SHAPES] && ENGINES[ENGI_SHAPES] == eng_default(ENGI_SHAPES) &&
             !trk[1].v[0].active && erases - before == 6u && nor[oc_mod_flash(0)] == 0xFF && oc_mod.state[0] == MD_EMPTY);
+        chk("... the PC window narrows at once to _etext (the module is gone; 0.11.1: it stayed at the old module's end until the next boot)",
+            host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
         for (n = FW_MOD_CODE_OFF; n < LEN + 512u; n += 256u) oc_mod_write(n, IMG + n, LEN + 512u - n > 256u ? 256u : LEN + 512u - n);
         chk("... the new one is committed and registered", oc_mod_end(IMG) == 0 && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0));
+        chk("... and the window ends at the new module's last byte", host_pc_hi == oc_mod_link(0) + LEN + 512u - 1u && fm1_guard_code_end == host_pc_hi);
 
         /* refusals at end: nothing committed */
         {   struct { const char *what; mut_t f; } E[] = {
@@ -567,12 +580,12 @@ int main(void)
                 if (r == 0) { end_erases = k2; break; }
                 if (k2 < 6u)                                 /* the new start was being erased: the old module is intact and registered */
                     bad_old += !(oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0));
-                else if (k2 == 6u) {                         /* the commit is done, no old sector erased yet: both are good, one of them is used */
-                    both += oc_mod.state[0] == MD_OK && (oc_mod.state[1] == MD_OK || oc_mod.state[1] == MD_NOSLOT) && eng_mod[ENGI_SHAPES];
+                else if (k2 == 6u) {                         /* the commit is done, no old sector erased yet: both are good; 0.11.1: the newer is used, the old erased at that boot */
+                    both += oc_mod.state[1] == MD_OK && oc_mod.state[0] == MD_EMPTY && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1);
                 } else                                       /* the old header sector is gone: the new module */
                     bad_new += !(oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_mod.state[0] == MD_EMPTY);
             }
-            chk("... cut at every erase: before the commit the old module; after it the new one (and for the instant between the commit and the first erase of the old start, both are valid and the lower start is used)",
+            chk("... cut at every erase: before the commit the old module; after it the new one (and for the instant between the commit and the first erase of the old start, both are valid: 0.11.1 the newer is used and the old start erased)",
                 end_erases == 12u && bad_old == 0 && bad_new == 0 && both == 1u);
             /* after a cut at the first old erase the area still takes the next replacement: the stale old start is the one written over */
             chk("... and a power loss in that instant is cleared by the next replacement (the plan names a start that is free)", oc_mod_plan(ENGI_SHAPES) >= 0);
@@ -587,6 +600,7 @@ int main(void)
         erase_error = 1;
         chk("... in place (no other start free): begin returns the flash error, nothing is writing, the module is out of the table",
             oc_mod_begin(ENGI_SHAPES, 0, LEN) < 0 && !mw.writing && !eng_mod[ENGI_SHAPES]);
+        chk("... and the PC window is _etext (0.11.1: the error path set the end to 0 and never wrote the window)", host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
         erase_error = 0;
         /* the plan with junk */
         clean(); BUILD(0, LEN, 41);
@@ -619,6 +633,182 @@ int main(void)
         chk("(setup) a damaged module remains", oc_mod.state[1] == MD_BAD_CRC);
         chk("remove of the engine leaves what is not a module of it; remove 127 wipes the whole area",
             oc_mod_remove(ENGI_SHAPES) == 0 && oc_mod.state[1] == MD_BAD_CRC && oc_mod_remove(127) == 0 && oc_mod.state[1] == MD_EMPTY && nor[oc_mod_flash(1)] == 0xFF);
+        /* (0.11.1, fix 3) the PC window after every path that takes a module out of the table */
+        {
+            uint32_t sets;
+            fw_mod_hdr_t hh;
+            /* an in-place install begun and never ended: the engine stays out of the table, so the window must not stay at the old module's end */
+            clean(); oc_mod_boot(0); BUILD(0, LEN + 512u, 80); INSTALL(0, LEN + 512u, &rc);
+            oc_mod.state[1] = MD_OK; oc_mod.engine[1] = 99;                    /* start 1 is not free: the install is in place */
+            chk("(setup) a module at start 0, the window at its end", eng_mod[ENGI_SHAPES] && host_pc_hi == oc_mod_link(0) + LEN + 512u - 1u);
+            BUILD(0, LEN, 81);
+            sets = host_pc_sets;
+            chk("an in-place install begun: the window is written (once) and is _etext", oc_mod_begin(ENGI_SHAPES, 0, LEN) == 0 && mw.inplace && host_pc_sets > sets && host_pc_hi == OC_HOST_ETEXT);
+            for (n = FW_MOD_CODE_OFF; n < LEN / 2u; n += 256u) oc_mod_write(n, IMG + n, 256u);
+            chk("... a part of the code written, then the install is abandoned (no end): engine out of the table, window still _etext",
+                mw.writing && !eng_mod[ENGI_SHAPES] && host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
+            oc_mod_boot(0);                                                    /* a re-read of the area (a reset would do it): nothing registered, the same window */
+            chk("... a boot after it: nothing registered (no header was written), the window _etext", !eng_mod[ENGI_SHAPES] && oc_mod.state[0] == MD_EMPTY && host_pc_hi == OC_HOST_ETEXT);
+            /* ... and the next begin: start 0 is empty now, so this one goes beside (into the free start), the window stays until the new module is registered */
+            sets = host_pc_sets;
+            chk("the next begin after an abandoned install (the start is empty: not in place): the window stays _etext", oc_mod_begin(ENGI_SHAPES, 0, LEN) == 0 && !mw.inplace && host_pc_hi == OC_HOST_ETEXT);
+            for (n = FW_MOD_CODE_OFF; n < LEN; n += 256u) oc_mod_write(n, IMG + n, LEN - n > 256u ? 256u : LEN - n);
+            chk("... its end registers the module and the window ends at its last byte", oc_mod_end(IMG) == 0 && eng_mod[ENGI_SHAPES] && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            /* an install abandoned in place, begun again in place: the window is _etext both times */
+            clean(); oc_mod_boot(0); BUILD(0, LEN, 82); INSTALL(0, LEN, &rc);
+            oc_mod.state[1] = MD_OK; oc_mod.engine[1] = 99;
+            oc_mod_begin(ENGI_SHAPES, 0, LEN);
+            chk("in place, begun twice (the first abandoned): the second begin also ends with the window at _etext",
+                (oc_mod.state[0] = MD_OK, oc_mod.engine[0] = ENGI_SHAPES, oc_mod_begin(ENGI_SHAPES, 0, LEN)) == 0 && host_pc_hi == OC_HOST_ETEXT);
+            /* beside: begin erases the free start only, the old module stays registered and the window stays at its end */
+            clean(); oc_mod_boot(0); BUILD(0, LEN, 83); INSTALL(0, LEN, &rc);
+            sets = host_pc_sets;
+            chk("a beside begin: the old module stays registered, the window stays at its end", oc_mod_begin(ENGI_SHAPES, 1, LEN) == 0 && eng_mod[ENGI_SHAPES] && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            /* beside, refused at end: nothing taken out, the window as it was */
+            for (n = FW_MOD_CODE_OFF; n < LEN; n += 256u) oc_mod_write(n, IMG + n, LEN - n > 256u ? 256u : LEN - n);
+            hh = mk(1, LEN); hh.state_size = 0; code(83); seal(&hh); memcpy(IMG, &hh, sizeof hh);
+            chk("... its end refused (a header that does not fit): the old module and the window are as they were", oc_mod_end(IMG) == -1 && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            /* beside with a SHORTER new module at a LOWER end: the old, longer one goes, the window follows the new one */
+            clean(); oc_mod_boot(0); BUILD(1, LEN + 1024u, 84);
+            oc_mod.state[1] = MD_EMPTY;
+            { fw_mod_hdr_t h1 = mk(1, LEN + 1024u); code(84); seal(&h1); put(1, &h1, 1); oc_mod_boot(0); }
+            chk("(setup) a long module at start 1", eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && host_pc_hi == oc_mod_link(1) + LEN + 1024u - 1u);
+            BUILD(0, LEN, 85);
+            chk("a shorter module beside it, at the lower start: after the swap the window ends at the new module (below the old end)",
+                INSTALL(0, LEN, &rc) == 0 && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && host_pc_hi == oc_mod_link(0) + LEN - 1u && oc_mod.state[1] == MD_EMPTY);
+            /* the helper on its own */
+            sets = host_pc_sets;
+            oc_mod_window();
+            chk("oc_mod_window: writes the window from what is registered (the module at start 0)", host_pc_sets == sets + 1u && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+            oc_mod_park(ENGI_SHAPES);
+            chk("... oc_mod_park writes it too: with the module out of the table the window is _etext (the state still says MD_OK, the registry decides)",
+                oc_mod.state[0] == MD_OK && !eng_mod[ENGI_SHAPES] && host_pc_hi == OC_HOST_ETEXT && !fm1_guard_code_end);
+        }
+
+        /* (0.11.1) a running session: every oc_mod_boot from the installer parks the engine's voices first (a track on the engine would render the
+         * built-in slot, then the module, under live voices, while the module is re-read) */
+        {
+            #define LIVE() do { trk[2].engine = ENGI_SHAPES; trk[2].v[0].active = 1; trk[2].v[0].gate = 1; trk[2].v[0].stage = 3; trk[2].v[0].env = 1000; } while (0)
+            #define QUIET() (!trk[2].v[0].active && !trk[2].v[0].gate && !trk[2].v[0].stage && !trk[2].v[0].env)
+            clean(); oc_mod_boot(0); BUILD(0, LEN, 90);
+            LIVE();
+            chk("fresh install (nothing registered before): the voices on the engine are parked", INSTALL(0, LEN, &rc) == 0 && QUIET());
+            BUILD(1, LEN + 4u, 92);
+            LIVE();
+            chk("install beside: the voices are parked", INSTALL(1, LEN + 4u, &rc) == 0 && QUIET());
+            clean(); good(0, LEN); good(1, LEN); lg_incomplete = 1; oc_mod_boot(0); lg_incomplete = 0;
+            chk("(setup) both starts hold a module: the plan is in place", oc_mod_inplace(ENGI_SHAPES, (uint32_t)oc_mod_plan(ENGI_SHAPES)));
+            { uint32_t st = (uint32_t)oc_mod_plan(ENGI_SHAPES); BUILD(st, LEN, 91); LIVE();
+              chk("in-place install: the voices are parked", INSTALL(st, LEN, &rc) == 0 && QUIET()); }
+            LIVE();
+            LIVE();
+            chk("remove: the voices are parked", oc_mod_remove(ENGI_SHAPES) == 0 && QUIET());
+            { uint32_t o0, n0; clean(); good(0, LEN); oc_mod_boot(0); LIVE(); o0 = irq_offs; n0 = irq_ons;
+              oc_mod_remove(ENGI_SHAPES);
+              chk("the table's two stores in a running session are a critical section: interrupts off and on in pairs (unregister)", irq_offs > o0 && irq_offs - o0 == irq_ons - n0);
+              BUILD(0, LEN, 93); o0 = irq_offs; n0 = irq_ons; INSTALL(0, LEN, &rc);
+              chk("... and the register of the new module", irq_offs > o0 && irq_offs - o0 == irq_ons - n0);
+              o0 = irq_offs; clean(); good(0, LEN); oc_mod_boot(0);
+              chk("at power-on (oc_mod_boot alone) the interrupt state is not touched", irq_offs == o0); }
+            LIVE();
+            oc_mod_boot(0);
+            chk("(the boot itself, before audio runs, is not a running session: it parks nothing)", !QUIET());
+            memset(&trk[2], 0, sizeof trk[2]);
+            #undef LIVE
+            #undef QUIET
+        }
+
+        /* (0.11.1) two valid modules of one engine at boot: the higher header version wins, equal versions the higher start, the loser is erased at that boot */
+        {
+            uint32_t k5, s5, cuts = 0, bad5 = 0, both5 = 0;
+            #define ERASED(i_) ({ uint32_t z_ = 1; for (s5 = 0; s5 < 6u * 0x1000u; s5++) if (nor[oc_mod_flash(i_) + s5] != 0xFF) { z_ = 0; break; } z_; })
+            #define TWO(v0_, v1_) do { clean(); modver = (v0_); good(0, LEN); modver = (v1_); good(1, LEN + 4u); modver = 0; } while (0)
+            TWO(1, 2); oc_mod_boot(0);
+            chk("two valid, the one at start 1 has the higher version: it is registered, start 0 is erased at that boot",
+                eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_mod.state[1] == MD_OK && oc_mod.state[0] == MD_EMPTY && ERASED(0));
+            chk("... the window ends at the winner", host_pc_hi == oc_mod_link(1) + LEN + 4u - 1u);
+            TWO(3, 2); oc_mod_boot(0);
+            chk("two valid, the one at start 0 has the higher version: it wins (not the higher start), start 1 is erased",
+                eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && oc_mod.state[0] == MD_OK && oc_mod.state[1] == MD_EMPTY && ERASED(1));
+            TWO(2, 2); oc_mod_boot(0);
+            chk("two valid, equal versions: the module at start 1 wins (a replacement goes to the free start), start 0 is erased",
+                eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_mod.state[1] == MD_OK && oc_mod.state[0] == MD_EMPTY && ERASED(0));
+            TWO(1, 2); lg_incomplete = 1; oc_mod_boot(0);
+            chk("an old preset pair may lie in the area (lg_incomplete): the winner is registered, the loser is kept as NOSLOT and not erased",
+                eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_mod.state[0] == MD_NOSLOT && !ERASED(0));
+            lg_incomplete = 0; oc_mod_boot(0);
+            chk("... the next boot without it erases the loser", oc_mod.state[0] == MD_EMPTY && ERASED(0) && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+            TWO(1, 2); erase_error = 1; oc_mod_boot(0); erase_error = 0;
+            chk("a flash that will not erase at that boot: the winner is registered, the loser stays NOSLOT (the next install finds one usable module there)",
+                eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_mod.state[0] == MD_NOSLOT && !ERASED(0));
+            oc_mod_boot(0);
+            chk("... and the next boot, the flash fine again, erases it", oc_mod.state[0] == MD_EMPTY && ERASED(0));
+            TWO(1, 2); lg_incomplete = 1; oc_mod_boot(0);      /* (guard initialised; the loser kept for now) */
+            oc_modguard.banned = 2u; oc_mod_boot(0); lg_incomplete = 0;
+            chk("the winner is banned (MD_CRASHED): it takes no part, the other registers and nothing is erased",
+                oc_mod.state[1] == MD_CRASHED && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && !ERASED(1));
+            oc_modguard.banned = 0;
+
+            /* the cut itself: a replacement beside (version 2 over version 1), every erase in turn fails */
+            for (k5 = 0; k5 < 30u; k5++) {
+                int r;
+                clean(); oc_mod_boot(0);
+                modver = 1; BUILD(0, LEN, 80); INSTALL(0, LEN, &rc);
+                modver = 2; BUILD(1, LEN + 700u, 81);
+                erase_fail_after = (int)k5;
+                r = INSTALL(1, LEN + 700u, &rc);
+                erase_fail_after = -1;
+                oc_mod_boot(0);                                  /* the next power-on */
+                modver = 0;
+                if (r == 0) break;
+                cuts++;
+                if (k5 < 6u) bad5 += !(eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && oc_mod.state[1] == MD_EMPTY);
+                else {
+                    bad5 += !(eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_mod.state[0] == MD_EMPTY && oc_mod.state[1] == MD_OK && ERASED(0));
+                    both5++;
+                }
+            }
+            chk("a replacement beside cut at every erase: before the commit the old module; from the commit on, after the next boot, only the newer is left",
+                cuts == 12u && bad5 == 0 && both5 == 6u);
+            /* ... and the install that follows goes beside, not in place */
+            {   uint32_t before5;
+                clean(); oc_mod_boot(0);
+                modver = 1; BUILD(0, LEN, 80); INSTALL(0, LEN, &rc);
+                modver = 2; BUILD(1, LEN + 700u, 81);
+                erase_fail_after = 6; INSTALL(1, LEN + 700u, &rc); erase_fail_after = -1;
+                oc_mod_boot(0);
+                chk("(setup) the cut between the commit and the first erase of the old start, then the boot: version 2 at start 1 is the only module", eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1) && oc_mod.state[0] == MD_EMPTY);
+                chk("... the plan names the free start (0) and the install there is beside (the registered module stays playable until it ends)",
+                    oc_mod_plan(ENGI_SHAPES) == 0 && !oc_mod_inplace(ENGI_SHAPES, 0));
+                modver = 3; BUILD(0, LEN, 82); before5 = erases;
+                chk("... the install: begin erases only the free start (6 sectors) and the new module wins, the version 2 module goes",
+                    INSTALL(0, LEN, &rc) == 0 && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && oc_mod.state[1] == MD_EMPTY && erases - before5 == 12u);
+                modver = 0;
+            }
+            #undef ERASED
+            #undef TWO
+        }
+
+        /* (0.11.1) a crash before the first pass of the main loop: the project load marks the module's use at once (oc_mod_note_use runs only in the loop) */
+        {
+            clean(); reset(); good(0, LEN); oc_mod_boot(0);
+            ENGINES[ENGI_SHAPES] = eng_default(ENGI_SHAPES);   /* (the host cannot run the made module's engine_t: the registry, eng_mod and the state, say it is there; the table's entry is the built-in's) */
+            trk[2].eng_req = ENGI_SHAPES;
+            project_save(0);
+            chk("(setup) a project with a track on the module's engine is saved", !strcmp(ui.msg, "SAVED"));
+            oc_modguard.inuse = 0; trk[2].eng_req = 0; trk[2].engine = 0;
+            project_load(0);
+            chk("project load: the module's use bit is set as soon as the track is given the engine (no main loop pass yet)", trk[2].eng_req == ENGI_SHAPES && oc_modguard.inuse == 1u);
+            oc_mod_boot(1);
+            chk("... the death before the loop's first pass bans the module (it was attributed)", oc_mod.state[0] == MD_CRASHED && (oc_modguard.notice & 1u));
+            clean(); reset(); good(0, LEN); oc_mod_boot(0);
+            ENGINES[ENGI_SHAPES] = eng_default(ENGI_SHAPES);
+            trk[2].eng_req = 6; project_save(0); oc_modguard.inuse = 0; project_load(0);
+            chk("a project with no track on the module's engine marks nothing", oc_modguard.inuse == 0);
+            oc_mod_boot(1);
+            chk("... and a death then bans nothing", oc_mod.state[0] == MD_OK && oc_modguard.banned == 0);
+        }
+
         /* the ban is cleared by an install */
         clean(); oc_mod_boot(0); BUILD(0, LEN, 70); INSTALL(0, LEN, &rc);
         trk[2].engine = ENGI_SHAPES; oc_mod_note_use(); oc_mod_boot(1);
