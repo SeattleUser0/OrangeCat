@@ -2,7 +2,7 @@
 
 **Version:** 0.74  
 **Date:** October 24, 2026  
-**Tracks:** Orange Cat Specification v0.25
+**Tracks:** Orange Cat Specification v0.28
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 

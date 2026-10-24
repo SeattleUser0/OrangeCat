@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.27  
+**Version:** 0.28  
 **Date:** October 24, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.28 (October 24, 2026):** 0.13.6 on branch sonnet-work (not on the unit yet; 4.6). The web editor shall show the audio load of the unit (an Audio readout): the worst render time since a reset, the block budget, the late renders and the load, refreshed once a second, with a reset. It is how a player and a developer see that four tracks fit the budget. See the Build Document, Eleventh run.
 - **0.27 (October 24, 2026):** 0.13.0 on branch sonnet-work (not on the unit yet; 5.2, 6.1). A step's ratchet, flam, condition, chance, nudge and accent apply to the notes recorded on it as a group; the message "NOT ON RECORDED NOTES" is gone. No stored format changed.
 - **0.26 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on the unit yet; 8.4). The Prophet is a second loadable module: 31,872 bytes in 8 of the module area's 12 sectors, at sectors 0 and 4 of the area, with the same placement rules as SHAPES' (6 sectors, at sectors 0 and 6). An install that would share a sector with another engine's usable module is refused with the engine and start named, in the web editor, the installer page and the card browser. A registered Prophet module makes engine 19 selectable and plays the stored Prophet sounds and library presets; with none registered engine 19 is silent as before. The installer page offers the Prophet module beside SHAPES; they do not fit together.
 - **0.25 (October 24, 2026):** 0.11.2 and 0.12.0 on branch sonnet-work (not on the unit yet; 8.4). The installer page installs the whole set in one go: firmware, then the pack, then the SHAPES module, each stage skippable and skipped when the unit already has it. A module's pages are data in the module's flash (a page descriptor the engine_t points at); the Prophet's number is an engine a module may supply. The Prophet measured as a module does not fit a start (7.60 sectors against 6), so it stays out of the build; the numbers and what it would need are in the plan. The Engines table assigns an engine to a track and Replace takes a file of another engine.
@@ -239,6 +240,8 @@ Unmuting shall perform a new resource check.
 Release behavior and any difference between ordinary audio mute and resource-saving suspension shall be clearly identified.
 
 Unexpected overload shall not corrupt projects or cause uncontrolled audio failure. Any protective voice reduction shall be reported. The normal admission system should prevent routine reliance on emergency voice shedding.
+
+The web editor shall show an Audio readout in its Settings tab: the worst render time since the last reset, the block budget, the number of late renders (each one is an audible fault) and the load, refreshed once a second, with a reset. With four tracks playing, the worst render time shall stay under the budget and the late count shall stay 0.
 
 ## 5. Common Musical Data Model
 
