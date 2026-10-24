@@ -1898,7 +1898,17 @@ ACC held + a lane key on a DRUM-X track mutes or unmutes that lane (`dxe_mute[]`
 
 ### Fuzzer results
 
-(Filled in when the long runs finish.)
+Long runs, 1,800 s each (30 min), fixed seeds, built with ASan and UBSan (alignment checks off), `FUZZ_SECONDS=1800`, October 24, 2026. **No finding in any of the five** (no crash, no out-of-bounds access, no registration or bank pick that failed its CRC; a save and a power-on worked after every mutated state):
+
+| Fuzzer | Seed | Rounds | Mutations |
+| --- | --- | --- | --- |
+| fuzz_lib_group (scan, migration, leftovers) | 20260612 | 242,662 | 848,657 (727,986 boots, 2,051,178 banks loaded after mutation) |
+| fuzz_oc_pack (boot check, install) | 20260613 | 2,907,339 | 10,172,291 (338,950 packs still good, 2,568,389 refused) |
+| fuzz_oc_module (every start, planner, install) | 20260614 | 4,414,216 | 15,453,085 (2,228,809 modules registered, 1,041,835 starts refused, 3,506,764 installs) |
+| fuzz_fw_pages (page descriptor check) | 20260615 | 192,164,194 | 864,701,987 (26,012,980 mutated images accepted) |
+| fuzz_oc_project (project record loader) | 20260616 | 31,228 | 109,785 (59,611 slots loaded, 2,845 refused, 31,228 saves after) |
+
+The default run in `run_tests.sh` is 3 s each.
 
 ### Static analysis
 
