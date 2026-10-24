@@ -306,7 +306,8 @@ if core; then
     t "stock V15 supply startup, timeouts and read-back faults" power_test -O1
     job step "nightly and synth-only site preserve release and editor" python3 tests/nightly_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
-    run "module build (Orange Cat 0.10.0, PoC step 2): the starts, the link scripts, the header checks, the .ocm package, against a stand-in toolchain" python3 tests/module_build_test.py
+    run "module build (Orange Cat 0.10.0, PoC step 2; 0.10.1: the update loader's record rule, the code moved on until no sector tail matches): the starts, the link scripts, the header checks, the .ocm package, against a stand-in toolchain" python3 tests/module_build_test.py
+    run "flash facts shared by the pack generator and the module build (Orange Cat 0.10.1): XIP address = fm1_xip.h, the update loader's record rule = ldr_core.c, oc_pack.c and ota.c" python3 tests/ocflash_test.py
     t "audio profiling: histogram bounds and timer wrap" audio_profile_test
     t "batch profiling: per-core accounting and failed-worker drops" audio_batch_profile_test
     run "CPU baseline tool: bounded RAM restore and diagnostic decoding" python3 tests/audio_cpu_device_test.py

@@ -32,6 +32,7 @@ matches (it never does in practice: 2^-32 a sector). --check lays out the pack a
 
 Revisions:
   0.8.0: first version.
+  0.10.1: the loader's record rule and the flash-offset-to-XIP function moved to tools/ocflash.py (build.py --module uses them too).
 """
 import argparse
 import re
@@ -43,13 +44,14 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ocflash  # noqa: E402  (0.10.1: the XIP address and the loader's record rule, one copy shared with build.py --module)
 SRC = ROOT / "firmware" / "src"
 HEADERS = ["braids/pb_tables.h", "plaits/pl_tables.h"]
 PACK_LO = 0x93000
 PACK_SECTORS = 10
 PACK_AREA = PACK_SECTORS * 0x1000
 HDR = 512
-XIP_BASE = 0x02000000 - 0x4000                           # fm1_xip.h FM1_XIP(off)
 MAX_ENTRIES = (508 - 24) // 4
 MAGIC = 0x4B50434F
 
@@ -91,24 +93,10 @@ def dump(tbl, cc):
     return out
 
 
-def crc16(data, c=0):
-    """loader/ldr_core.c ota_crc16: poly 0x1021, init 0."""
-    for b in data:
-        c ^= b << 8
-        for _ in range(8):
-            c = ((c << 1) ^ 0x1021) & 0xFFFF if c & 0x8000 else (c << 1) & 0xFFFF
-    return c
-
-
 def tail_hit(image):
-    """The loader's record test on each sector's last 256 bytes of a pack laid out in PACK_AREA: the sector index, or -1."""
-    img = image + b"\xff" * (PACK_AREA - len(image))
-    for s in range(PACK_SECTORS):
-        r = img[s * 0x1000 + 0x1000 - 0x100:][:80]
-        w0, w6 = r[0] | r[1] << 8, r[6] | r[7] << 8
-        if w6 == 0x5441 and w0 and w0 == crc16(r[2:80]):
-            return s
-    return -1
+    """The loader's record test (ocflash.tail_hit) on each sector's last 256 bytes of a pack laid out in PACK_AREA: the sector
+    index, or -1. (0.10.1: the rule itself is tools/ocflash.py's, shared with build.py --module.)"""
+    return ocflash.tail_hit(image, PACK_SECTORS)
 
 
 def layout(tbl, data):
@@ -160,7 +148,7 @@ def build(cc):
     ]
     for k, n in enumerate(names):
         ctype = tbl[order[k]][0]
-        lines.append(f"#define {n} ((const {ctype} *)0x{XIP_BASE + PACK_LO + offs[n]:08X}u)")
+        lines.append(f"#define {n} ((const {ctype} *)0x{ocflash.xip(PACK_LO) + offs[n]:08X}u)")
     return pak, "\n".join(lines) + "\n", tbl, order, offs, thash
 
 

@@ -921,6 +921,31 @@ static int module_protocol(void)
     bad += check("MOD_REMOVE of an engine a module may not supply is refused (1)", host_wire[5] == 1);
     request(ED_MOD_REMOVE, 0, 0);
     bad += check("MOD_REMOVE without an engine is refused (1)", host_wire[5] == 1);
+    /* (0.10.1) a sector tail the update loader would erase: END answers 8 and commits nothing */
+    {   static uint8_t big[5000];
+        uint32_t c;
+        for (i = FW_MOD_CODE_OFF; i < sizeof big; i++) big[i] = (uint8_t)(i * 5u + 1u);
+        memset(big, 0, FW_MOD_CODE_OFF);
+        for (i = 0; i < 80u; i++) big[0xF00u + i] = (uint8_t)((i * 11u + 5u) | 1u);
+        big[0xF06] = 0x41; big[0xF07] = 0x54;
+        c = pk_crc16(big + 0xF02, 78u); big[0xF00] = (uint8_t)c; big[0xF01] = (uint8_t)(c >> 8);
+        h.length = sizeof big; h.crc = ocs_crc32(big + FW_MOD_CODE_OFF, sizeof big - FW_MOD_CODE_OFF);
+        h.hcrc = 0; memcpy(big, &h, sizeof h); ((fw_mod_hdr_t *)big)->hcrc = ocs_crc32(big, FW_MOD_HDR_BYTES - 4u);
+        a[0] = ENGI_SHAPES; a[1] = 0; a[2] = (uint8_t)(sizeof big & 127u); a[3] = (uint8_t)(sizeof big >> 7 & 127u); a[4] = (uint8_t)(sizeof big >> 14);
+        request(ED_MOD_BEGIN, a, 5);
+        ok = host_wire[5] == 0;
+        for (off = FW_MOD_CODE_OFF; off < sizeof big; off += 256u) {
+            uint32_t k = sizeof big - off < 256u ? (uint32_t)sizeof big - off : 256u;
+            a[0] = (uint8_t)(off & 127u); a[1] = (uint8_t)(off >> 7 & 127u); a[2] = (uint8_t)(off >> 14);
+            n = pack7(big + off, k, a + 3);
+            request(ED_MOD_WRITE, a, 3u + n);
+            ok &= host_wire[5] == 0;
+        }
+        n = pack7(big, 256u, a);
+        request(ED_MOD_END, a, n);
+        bad += check("MOD_END of a module with a record on a sector tail: rc 8, no header page programmed, nothing registered",
+                     ok && host_wire[5] == 8 && host_mod[0] == 0xFF && !eng_mod[ENGI_SHAPES] && !mw.writing);
+    }
     return bad;
 }
 int main(void)

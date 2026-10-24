@@ -515,15 +515,22 @@ ambiguous); the module has ids of its own.
 
 State: 0 empty, 1 torn header, 2 refused (another interface, another table address, a table the firmware does not have; `why` is the check's code: 3 identifier,
 4 table too new, 5 address), 3 a header field out of range (link address, length, engine_ptr, engine number, state size, pack hash), 4 bad code CRC, 5 stopped
-after a crash (below), 6 valid but the built-in engine keeps the slot (flag 2 clear), 7 registered.
+after a crash (below), 6 valid but the built-in engine keeps the slot (flag 2 clear), 7 registered, 8 (0.10.1) the code is good but a sector of it ends in 80 bytes
+the update loader would take for one of its update records (`why` is the sector, counted from 1); not registered.
 
 rc: 0 done, 1 refused (not the start named by MOD_INFO, a bad length, an engine a module may not supply, out of order, a header that does not match), 2 the flash
 failed or the transport is running, 4 the move of the old preset pairs into the library group has not finished (restart the unit), 5 no start free, 7 written but
-not readable as a module (install it again).
+not readable as a module (install it again), 8 (0.10.1) a sector of the module would be erased by a firmware update (below); nothing was committed.
+
+The update loader's record rule (0.10.1): after an update the loader erases any data sector between 0x93000 and 0xFC000 whose last 256 bytes, read as 80, have
+0x5441 at bytes 6..7 and a first word that is not zero and equals the CRC-16 (poly 0x1021, init 0) of bytes 2..79. A module must have no such sector tail
+(sectors counted from the start of its image, tails at 0xF00, 0x1F00, ...; flash after its end is erased and reads 0xFF). `tools/build.py --module` moves the code
+on 4 bytes at a time until none does, the page tests the image it is about to send, MOD_END tests the flash before it programs the header page (rc 8), and the
+loader tests it at every boot (state 8).
 
 Checks at boot, in this order: magic, header CRC, `fw_module_check` (interface identifier, table address, table size and version), the link address (it is
 linked for one start and refused at any other), the length (a multiple of 4, at most 6 sectors), the engine_t inside the code, the engine number (SHAPES only),
-the state size, the pack hash, then the CRC of the code. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
+the state size, the pack hash, then the CRC of the code, then the sector tails. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
 lower start is used. The engine number a track holds is never changed by an install or a removal; the table answers for the number (the built-in engine if there is
 one, else silence).
 

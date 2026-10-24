@@ -783,6 +783,32 @@ A module is therefore a move of about 23 KB from the image to a place that is ot
    module leaves SHAPES silent with the project's engine number intact.
 5. Time and wear: how long an install takes on the unit (6 sector erases and 94 page programs), and that nothing else in the flash (the library, the pack, projects) changed.
 
+## The fixes after the proof of concept (0.10.1)
+
+Found by reading the 0.10.0 code before the unit is flashed. Each one is built and tested on the host; none changes a format.
+
+### Fix 1. A module's sector tails against the update loader's record rule
+
+The update loader (firmware/loader/ldr_core.c, the last step of ldr_apply) walks the sectors from 0x93000 up to 0xFC000 after an update and erases any
+sector whose last 256 bytes, read as 80 bytes, look like one of its update records: bytes 6..7 equal 0x5441, and the first two bytes are not zero and equal
+the CRC-16 (poly 0x1021, init 0) of bytes 2..79. The pack, the library group and the module area all lie in that range. The pack has been protected
+since 0.8.0 (gen_pack.py lays the tables out so no tail matches; oc_pack.c refuses a pack that fails). A module had no such protection, so an update could
+erase one of its sectors. The rule is now applied to a module in four places, from one definition (tools/ocflash.py; the device's copy is oc_pack.c's
+pk_record_like):
+
+1. `tools/build.py --module` tests every sector tail of each variant. If one matches it moves the code on 4 bytes (the link script starts the code at
+   0x100 plus the pad; the linker aligns every input section for itself and resolves every address, so the code does the same thing) and links again, up to
+   64 times. If none passes, no package is written (and a stale one is removed). The report says how far the code was moved. In practice a tail matches with
+   probability 2^-32 a sector; the path is for completeness and is tested with a stand-in toolchain.
+2. The web page tests the image it is about to send (`ocmTails`) and refuses it before anything is erased.
+3. `oc_mod_end` reads the tails of the code it was given back from the flash, before it programs the header page, and refuses (rc 8, `MI_TAIL`). Nothing is
+   committed, so the area reads as empty. The card browser says "Update would erase it".
+4. `oc_mod_check` tests every sector the module covers at each boot. A module that fails is not registered (state 8, `MD_BAD_TAIL`, `why` the sector counted
+   from 1). The sectors a module covers are those that start inside its length; the bytes after its end are erased flash.
+
+The XIP address of a flash offset is one function too (`ocflash.xip`, the text of fm1_xip.h); gen_pack.py and build.py both call it, and
+tests/ocflash_test.py compares it with the header, so the 0.10.0 step 4 mistake cannot come back.
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

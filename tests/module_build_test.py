@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import build  # noqa: E402
+import ocflash  # noqa: E402
 
 bad = 0
 
@@ -35,15 +36,33 @@ PACK_HASH = build.gen_define("OC_PACK_HASH", "oc_pack_tables.h")
 IFACE = 0x1234ABCD
 
 
-def fake_image(base, size=6000, **over):
-    """the linked image the real toolchain would give: header fields as shapes_mod.c sets them, zeros to 0x100, then code"""
+def record_at(seed=1):
+    """80 bytes that read as one of the update loader's records (ocflash.record_like): tag 0x5441 at 6, the CRC-16 of 2..79 at 0"""
+    r = bytearray(((i * 11 + seed) & 0xFF) | 1 for i in range(80))
+    r[6], r[7] = 0x41, 0x54
+    r[0:2] = ocflash.crc16(bytes(r[2:80])).to_bytes(2, "little")
+    assert ocflash.record_like(bytes(r))
+    return bytes(r)
+
+
+def fake_image(base, size=6000, pad=0, tail=None, **over):
+    """the linked image the real toolchain would give: header fields as shapes_mod.c sets them, zeros to 0x100, then code.
+    pad: bytes the link script moved the code on (0.10.1). tail: None, or where a record like the update loader's is planted:
+    "moves" (in the code, on sector 0's tail when pad is 0, so moving the code on clears it), "sector1" (the same on sector 1's
+    tail), "always" (on sector 0's tail whatever pad is: no placement clears it)."""
     f = dict(magic=build.FW_MOD_MAGIC, iface=IFACE, api_size=60, api_version=3, api_addr=API_ADDR, engine=14, state_size=2000,
              engine_ptr=base + 0x300, link_addr=base, pack_hash=PACK_HASH, length=0, crc=0, hcrc=0)
     f.update(over)
     names = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash length crc hcrc".split()
     head = build.MOD_HDR.pack(*[f[k] for k in names])
-    code = bytes((i * 7 + 3) & 0xFF for i in range(size))
-    return head + bytes(build.FW_MOD_CODE_OFF - len(head)) + code
+    code = bytearray((i * 7 + 3) & 0xFF for i in range(size))
+    if tail in ("moves", "sector1"):
+        at = (0xF00 if tail == "moves" else 0x1F00) - build.FW_MOD_CODE_OFF              # the image offset 0xF00 / 0x1F00 when pad is 0
+        code[at:at + 80] = record_at()
+    img = head + bytes(build.FW_MOD_CODE_OFF - len(head)) + bytes(pad) + bytes(code)
+    if tail == "always":
+        img = img[:0xF00] + record_at(2) + img[0xF00 + 80:]
+    return img
 
 
 class Fake:
@@ -52,6 +71,7 @@ class Fake:
         self.calls = []
         self.sections = {".text": 6000, ".data": 0, ".bss": 0}
         self.undef = ""
+        self.pads = []                                    # the pad each link was asked for (0.10.1)
 
     def __call__(self, tool, *args):
         self.calls.append((tool, args))
@@ -60,9 +80,11 @@ class Fake:
         if tool == "pi32v2/bin/ld":
             ld = Path(args[args.index("-T") + 1]).read_text()
             self.base = int(ld.split("ORIGIN = ")[1].split(",")[0], 16)
+            self.pad = int(ld.split("_modstart + ")[1].split(";")[0], 16) - build.FW_MOD_CODE_OFF
+            self.pads.append(self.pad)
             return ""
         if tool == "common/bin/objcopy":
-            Path(args[-1]).write_bytes(fake_image(self.base, **self.over))
+            Path(args[-1]).write_bytes(fake_image(self.base, pad=self.pad, **self.over))
             return ""
         if tool == "common/bin/objdump":
             return "Sections:\nIdx Name Size VMA LMA\n" + "".join(f"  {i} {n} {s:08x} 00000000\n" for i, (n, s) in enumerate(self.sections.items()))
@@ -113,12 +135,40 @@ for start, length, crc, off in rows:
                  build.MOD_HDR.unpack_from(img, 0)))
     ok &= h["length"] == length and h["crc"] == zlib.crc32(img[0x100:]) & 0xFFFFFFFF
     ok &= h["hcrc"] == zlib.crc32(img[:build.MOD_HDR.size - 4]) & 0xFFFFFFFF
-    ok &= h["link_addr"] == 0x02000000 - 0x4000 + 0xC8000 + start * 0x1000
+    ok &= h["link_addr"] == ocflash.xip(0xC8000 + start * 0x1000) == 0x02000000 - 0x4000 + 0xC8000 + start * 0x1000
 check("every variant: its length, its CRC-32 in the table, the header's length / crc / hcrc, its link address", ok)
 check("the images are the last thing in the file and fill it", rows[-1][3] + rows[-1][1] == len(ocm))
 check("the variants differ only where the link address does (same length, different bytes)",
       rows[0][1] == rows[1][1] and ocm[rows[0][3]:rows[0][3] + rows[0][1]] != ocm[rows[1][3]:rows[1][3] + rows[1][1]])
 check("the report says the size of each variant and the package", any("start 0" in x for x in notes) and any(x.startswith("package shapes-") for x in notes))
+
+# the update loader's record rule on the module's sector tails (0.10.1)
+check("a good image has no sector tail like an update record, and the first link was not padded", fk.pads == [0, 0])
+imgs = [ocm[r[3]:r[3] + r[1]] for r in rows]
+check("every image in the package passes ocflash.tail_hit (the loader's record rule)", all(ocflash.tail_hit(i) < 0 for i in imgs))
+check("ocflash.tail_hit finds a record on sector 0's tail, on sector 1's, and none on the same bytes moved by 4",
+      ocflash.tail_hit(b"\0" * 0xF00 + record_at()) == 0 and ocflash.tail_hit(b"\0" * 0x1F00 + record_at()) == 1 and
+      ocflash.tail_hit(b"\0" * 0xF04 + record_at()) < 0)
+fk = Fake(tail="moves")
+errors, notes = run(fk)
+ocm2 = (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").read_bytes()
+rows2 = [struct.unpack_from("<IIII", ocm2, tab + 16 * i) for i in range(2)]
+imgs2 = [ocm2[r[3]:r[3] + r[1]] for r in rows2]
+check("a record on sector 0's tail is cleared by moving the code on 4 bytes: two links a start, no error", errors == [] and fk.pads == [0, 4, 0, 4])
+check("the moved image: 4 bytes longer, its code starts at 0x104, header length / crc / hcrc agree, no tail like a record",
+      all(len(b) == r[1] and r[1] == len(i) + 4 and not any(b[0x100:0x104]) and ocflash.tail_hit(b) < 0 and
+          build.MOD_HDR.unpack_from(b, 0)[10] == len(b) and build.MOD_HDR.unpack_from(b, 0)[11] == zlib.crc32(b[0x100:]) & 0xFFFFFFFF
+          for b, r, i in zip(imgs2, rows2, imgs)))
+check("the link scripts of the moved build start the code at +0x104", "_modstart + 0x104;" in Path(build.OUT / "module" / "shapes.0.ld").read_text())
+check("the report says the code was moved", sum("code moved 4 B" in x for x in notes) == 2)
+fk = Fake(tail="sector1", size=9000)
+errors, notes = run(fk)
+check("a record on sector 1's tail is cleared the same way", errors == [] and fk.pads == [0, 4, 0, 4])
+fk = Fake(tail="always")
+errors, notes = run(fk)
+check("no placement clears a record that follows the code: refused after 64 links a start, naming the loader's test",
+      any("update loader's record test" in e for e in errors) and fk.pads.count(0) == 2 and len(fk.pads) == 2 * build.TAIL_PAD_TRIES)
+check("... and no package is written (an old one is removed)", not (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").exists())
 
 # each refusal
 def refused(what, fake, text):

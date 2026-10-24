@@ -18,10 +18,23 @@
  *               engine_ptr is outside the code, the engine number is not one a module may supply, state_size is 0 or too big, or the
  *               asset pack the tables come from is not this build's (pack_hash)
  *   MD_BAD_CRC  the CRC-32 of the code (bytes 0x100..length) differs from the header's: a damaged or partly written module
+ *   MD_BAD_TAIL (0.10.1) the CRC is right but a sector of the module ends in 80 bytes the update loader would take for one of its update
+ *               records (below): an OTA update would erase that sector and with it the module. `why` is the sector, counted from 1. Not
+ *               registered. tools/build.py --module moves the code on until no sector does, so this is a module built by something else,
+ *               or damage that happened to land there
  *   MD_CRASHED  the last boot died in its first 30 s with this module in use (below): skipped until a power cycle or until it is
  *               installed or removed again
  *   MD_NOSLOT   the engine number is a built-in one and OC_MODULE_WINS is 0 (eng_register: EM_SHADOWED), or two valid modules claim the same number
  *   MD_OK       registered
+ * The update loader's record rule (0.10.1)
+ *   loader/ldr_core.c erases any data sector between 0x93000 and 0xFC000 whose last 256 bytes, read as 80 bytes, look like one of its update
+ *   records: bytes 6..7 are 0x5441 and the first word is not 0 and is the CRC-16 of bytes 2..79. The pack has had the check since 0.8.0
+ *   (pk_tail); a module has it now, in three places that apply one rule (oc_pack.c's pk_record_like): tools/build.py --module (moves the
+ *   code on 4 bytes at a time until no sector tail of the image matches; no package otherwise), oc_mod_end (reads the tails of the code it
+ *   was given, from the flash, before it programs the header: a module that fails is refused, rc 8, MI_TAIL, and never registered) and
+ *   oc_mod_check (every sector the module covers, MD_BAD_TAIL). The sectors a module covers are those that start inside its length; the
+ *   bytes after its end are erased flash.
+ *
  * Two valid modules for one engine number: the one at the lower start is registered, the other is MD_NOSLOT. (The installer never leaves
  * two; a crash between "write the new" and "erase the old" does, and either is a good SHAPES.)
  *
@@ -43,6 +56,7 @@
  *
  * Revisions:
  *   0.10.0: first version.
+ *   0.10.1: the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails).
  */
 #ifndef FM1_GUARD_CODE_END_DEFINED                             /* hal/fm1_guard.h declares it; a host build has no guard header */
 static uint32_t fm1_guard_code_end;
@@ -52,7 +66,8 @@ static uint32_t fm1_guard_code_end;
 #define OC_MOD_START_SECTOR(i) ((i) * 6u)
 #define OC_MOD_MAXLEN (6u * 0x1000u)                           /* the most a module may be: the sectors up to the next start (6) or the end of the area */
 #define OC_MOD_STATE_MAX 16384u                                /* a sanity limit on state_size (bytes of arena per part) */
-enum { MD_EMPTY, MD_TORN, MD_REFUSED, MD_BAD_HDR, MD_BAD_CRC, MD_CRASHED, MD_NOSLOT, MD_OK };   /* oc_mod.state[i] */
+enum { MD_EMPTY, MD_TORN, MD_REFUSED, MD_BAD_HDR, MD_BAD_CRC, MD_CRASHED, MD_NOSLOT, MD_OK,
+       MD_BAD_TAIL };                                          /* oc_mod.state[i]; MD_BAD_TAIL (0.10.1) is last so the numbers the web page knows stay */
 
 static struct {
     uint8_t state[OC_MOD_STARTS];                              /* MD_* */
@@ -86,7 +101,21 @@ static void oc_mod_unban(uint32_t i)
     oc_modguard.banned &= ~(1u << i);
     oc_modguard.inuse &= ~(1u << i);
 }
-/* the header at start i read from the flash (st_read), its checks, then the code's CRC: the state */
+/* (0.10.1) the update loader's rule on the sectors a module of `len` bytes at start i covers: 0 ok; else the sector, counted from 1, whose last
+ * 256 bytes would be taken for an update record; -1 when the flash would not read */
+static int oc_mod_tails(uint32_t i, uint32_t len)
+{
+    uint8_t r[80];
+    uint32_t s, n = (len + 0xFFFu) / 0x1000u;
+    for (s = 0; s < n; s++) {
+        if (st_read(oc_mod_flash(i) + s * 0x1000u + 0x1000u - 0x100u, r, sizeof r))
+            return -1;
+        if (pk_record_like(r))
+            return (int)(s + 1u);
+    }
+    return 0;
+}
+/* the header at start i read from the flash (st_read), its checks, then the code's CRC and the sector tails: the state */
 static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
 {
     uint8_t buf[256];
@@ -116,7 +145,16 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
         crc = ocs_crc_add(crc, buf, n);
         SMP_FEED();
     }
-    return ~crc == h->crc ? MD_OK : MD_BAD_CRC;
+    if (~crc != h->crc)
+        return MD_BAD_CRC;
+    rc = oc_mod_tails(i, len);
+    if (rc < 0)
+        return MD_BAD_CRC;
+    if (rc > 0) {
+        oc_mod.why[i] = (uint8_t)rc;
+        return MD_BAD_TAIL;
+    }
+    return MD_OK;
 }
 
 /* persist_boot, after oc_pack_boot: look at every start, register what is good. `crashed`: the last boot died in its first 30 s
@@ -193,7 +231,7 @@ static struct {
     uint8_t start;
     uint32_t engine, len, done, crc;
 } mw;
-enum { MI_OK = 0, MI_REFUSED = -1, MI_FLASH = -2, MI_PAIRS = -4, MI_NOFREE = -5, MI_BAD = -7 };
+enum { MI_OK = 0, MI_REFUSED = -1, MI_FLASH = -2, MI_PAIRS = -4, MI_NOFREE = -5, MI_BAD = -7, MI_TAIL = -8 };   /* MI_TAIL (0.10.1): a sector tail the update loader would erase */
 
 static int oc_mod_has(uint32_t i, uint32_t engine)      /* start i holds a usable module of this engine, registered or not */
 {
@@ -284,7 +322,7 @@ static int oc_mod_write(uint32_t off, const void *src, uint32_t n)
     return MI_OK;
 }
 /* the header page (256 bytes) when all the code is in: 0 ok; -1 refused (the header does not match what was written, the start or the firmware);
- * -7 programmed but the area does not read as a module; else flash */
+ * -7 programmed but the area does not read as a module; -8 a sector tail would be taken for an update record (0.10.1; no header is programmed); else flash */
 static int oc_mod_end(const void *page256)
 {
     uint8_t pg[256];
@@ -299,6 +337,8 @@ static int oc_mod_end(const void *page256)
         h->engine_ptr < h->link_addr + FW_MOD_CODE_OFF || h->engine_ptr >= h->link_addr + h->length || (h->engine_ptr & 3u) ||
         h->state_size == 0 || h->state_size > OC_MOD_STATE_MAX || h->pack_hash != OC_PACK_HASH)
         return MI_REFUSED;
+    if (oc_mod_tails(mw.start, mw.len) != 0)                               /* (0.10.1) the code as the flash has it: no sector tail like an update record */
+        return MI_TAIL;
     if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
         return rc;
     oc_mod_boot(0);                                                        /* read as at boot: the module is registered when it is good */

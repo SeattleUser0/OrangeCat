@@ -500,7 +500,10 @@ static int fb_install_mod(const fb_ent_t *e)
         SMP_FEED();
     }
     f_close(f);
-    if (rc || oc_mod_end(pg) != 0) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    rc = oc_mod_end(pg);
+    if (rc == -8) { str_cpy(fb.msg, "Update would erase it", sizeof fb.msg); return 1; }   /* (0.10.1) -8 is oc_module.c MI_TAIL: a sector tail like an update record, nothing committed */
+    if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
     fb.packed = 2;
     return 0;
 }

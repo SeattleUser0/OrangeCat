@@ -933,7 +933,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         /* BEGIN engine, start, length (3 x 7 bits); WRITE offset (3 x 7 bits) then up to 256 bytes packed 7-bit, in order from byte 256; END the 256-byte header page
          * packed 7-bit (programmed last); REMOVE engine (127: the whole area). -> rc: 0 done, 1 refused (not the planned start, a bad length, out of order, a header
          * that does not match the code or this firmware), 2 the flash failed or the transport is running (stop it first), 4 the move of the old preset pairs has not
-         * finished (restart the unit), 5 no start free, 7 written but not readable as a module; then the bytes written so far (3 x 7 bits). */
+         * finished (restart the unit), 5 no start free, 7 written but not readable as a module, 8 (0.10.1) a sector of the module ends like an update loader record and
+         * would be erased by an update (nothing is committed); then the bytes written so far (3 x 7 bits). */
         uint32_t rc = 1, v = na >= 3u ? a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 : 0u, got;
         int r = 0;
         if (transport_busy()) rc = 2;
@@ -943,7 +944,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             else if (cmd == ED_MOD_END && ed_unpack7(a, na, ed_smp_buf, 256u) == 256u) r = oc_mod_end(ed_smp_buf);
             else if (cmd == ED_MOD_REMOVE && na == 1u) r = oc_mod_remove(a[0]);
             else r = -1;
-            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : r == -7 ? 7u : 2u;
+            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : r == -7 ? 7u : r == -8 ? 8u : 2u;
         }
         ed_b(rc); ed_b(mw.done); ed_b(mw.done >> 7); ed_b(mw.done >> 14);
         break;

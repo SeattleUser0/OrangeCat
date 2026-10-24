@@ -11,7 +11,8 @@
  * erased), code with no header page (an install cut off before its last step); two good modules for one engine (the lower start wins);
  * the crash mark (a crash in the first 30 s with the module in use bans it; one with it registered but unused does not; the ban holds across
  * resets, goes with a power loss, and goes when the start is installed or removed); a module removed is out of the table at the next boot;
- * a flash that will not read. The wiring of the loader into persist_boot and the main loop, the guard's register writes and the
+ * a flash that will not read; (0.10.1) a record the update loader would take on a sector tail: refused at boot (MD_BAD_TAIL) and by the installer (rc 8, no header
+ * page). The wiring of the loader into persist_boot and the main loop, the guard's register writes and the
  * installer are checked on the device (CI build) and by the installer's tests (step 6).
  */
 #include <stdint.h>
@@ -212,6 +213,70 @@ int main(void)
     oc_mod_boot(0);
     chk("a bad module at start 0 and a good one at start 6: the good one is registered (a replace cut after the new was written)",
         oc_mod.state[0] == MD_BAD_CRC && oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+
+    /* the update loader's record rule on the sector tails (0.10.1) */
+    {
+        #define LEN5 5000u                                 /* covers sector 0 and part of 1: one tail (0xF00) is inside it, sector 1's (0x1F00) is not */
+        #define LEN9 9000u                                 /* covers sectors 0, 1 and part of 2: tails at 0xF00 and 0x1F00 are inside it */
+        uint32_t r;
+        uint8_t rec[80];
+        for (uint32_t k = 0; k < 80u; k++) rec[k] = (uint8_t)((k * 11u + 5u) | 1u);
+        rec[6] = 0x41; rec[7] = 0x54;
+        { uint32_t c = pk_crc16(rec + 2, 78u); rec[0] = (uint8_t)c; rec[1] = (uint8_t)(c >> 8); }
+        chk("(setup) the record is one the firmware's own rule takes (pk_record_like), and flipping its CRC clears it",
+            pk_record_like(rec) && (rec[0] ^= 1u, !pk_record_like(rec)) && (rec[0] ^= 1u, pk_record_like(rec)));
+        for (i = 0; i < OC_MOD_STARTS; i++) {
+            fw_mod_hdr_t h;
+            /* a record on sector 0's tail */
+            clean(); h = mk(i, LEN5); code(11); memcpy(IMG + 0xF00u, rec, 80); seal(&h); put(i, &h, 1);
+            oc_mod_boot(0);
+            chk(i ? "a module whose sector 0 ends in an update record, at start 6: MD_BAD_TAIL, why = sector 1, not registered"
+                  : "a module whose sector 0 ends in an update record, at start 0: MD_BAD_TAIL, why = sector 1, not registered",
+                oc_mod.state[i] == MD_BAD_TAIL && oc_mod.why[i] == 1 && !eng_mod[ENGI_SHAPES] && !fm1_guard_code_end);
+            chk("... the table is untouched, and the plan treats the start as one that can be written over", ENGINES[ENGI_SHAPES] == eng_default(ENGI_SHAPES) && oc_mod_plan(ENGI_SHAPES) == (int)(1u - i));
+            /* a record on sector 1's tail */
+            clean(); h = mk(i, LEN9); code(12); memcpy(IMG + 0x1F00u, rec, 80); seal(&h); put(i, &h, 1);
+            oc_mod_boot(0);
+            chk("... on sector 1's tail: the same, why = sector 2", oc_mod.state[i] == MD_BAD_TAIL && oc_mod.why[i] == 2 && !eng_mod[ENGI_SHAPES]);
+            /* the same bytes in a sector the module does not cover are not its business */
+            clean(); good(i, LEN5);
+            memcpy(nor + oc_mod_flash(i) + 2u * 0x1000u + 0xF00u, rec, 80);
+            oc_mod_boot(0);
+            chk("a record on the tail of a sector past the module's length: the module is fine (the update erases only that empty sector)",
+                oc_mod.state[i] == MD_OK && eng_mod[ENGI_SHAPES]);
+            /* a record whose first bytes are in the module but whose end is past its length reads as erased flash there: not a record */
+            clean(); h = mk(i, 0xF30u); code(13); memcpy(IMG + 0xF00u, rec, 0x30u); seal(&h); put(i, &h, 1);
+            oc_mod_boot(0);
+            chk("a record cut off by the module's end (the rest of the tail is erased flash) is not a record: MD_OK", oc_mod.state[i] == MD_OK);
+            /* the CRC is checked first: a damaged module is BAD_CRC whatever its tails say */
+            clean(); h = mk(i, LEN5); code(14); memcpy(IMG + 0xF00u, rec, 80); seal(&h); put(i, &h, 1);
+            nor[oc_mod_flash(i) + 0x400u] ^= 1u;
+            oc_mod_boot(0);
+            chk("... a bad CRC is reported before the tails", oc_mod.state[i] == MD_BAD_CRC);
+        }
+        /* the installer */
+        {   int rc;
+            clean(); oc_mod_boot(0);
+            { fw_mod_hdr_t hh = mk(0, LEN5); code(15); memcpy(IMG + 0xF00u, rec, 80); seal(&hh); memcpy(IMG, &hh, sizeof hh); }
+            r = (uint32_t)oc_mod_begin(ENGI_SHAPES, 0, LEN5);
+            for (uint32_t o = FW_MOD_CODE_OFF; !r && o < LEN5; o += 256u) r = (uint32_t)oc_mod_write(o, IMG + o, LEN5 - o > 256u ? 256u : LEN5 - o);
+            rc = oc_mod_end(IMG);
+            chk("install of a module with a record on a sector tail: end refused with MI_TAIL (rc 8), no header page programmed, nothing registered, no write left open",
+                r == 0 && rc == MI_TAIL && nor[oc_mod_flash(0)] == 0xFF && !eng_mod[ENGI_SHAPES] && !mw.writing && oc_mod.state[0] == MD_EMPTY);
+            oc_mod_boot(0);
+            chk("... the area reads as empty at the next boot and takes a good install", oc_mod.state[0] == MD_EMPTY && oc_mod_plan(ENGI_SHAPES) == 0);
+            { fw_mod_hdr_t hh = mk(0, LEN9); code(16); memcpy(IMG + 0x1F00u, rec, 80); seal(&hh); memcpy(IMG, &hh, sizeof hh); }
+            r = (uint32_t)oc_mod_begin(ENGI_SHAPES, 0, LEN9);
+            for (uint32_t o = FW_MOD_CODE_OFF; !r && o < LEN9; o += 256u) r = (uint32_t)oc_mod_write(o, IMG + o, LEN9 - o > 256u ? 256u : LEN9 - o);
+            chk("... a record on sector 1's tail is refused the same way", r == 0 && oc_mod_end(IMG) == MI_TAIL && nor[oc_mod_flash(0)] == 0xFF && !eng_mod[ENGI_SHAPES]);
+            { fw_mod_hdr_t hh = mk(0, LEN9); code(17); seal(&hh); memcpy(IMG, &hh, sizeof hh); }
+            r = (uint32_t)oc_mod_begin(ENGI_SHAPES, 0, LEN9);
+            for (uint32_t o = FW_MOD_CODE_OFF; !r && o < LEN9; o += 256u) r = (uint32_t)oc_mod_write(o, IMG + o, LEN9 - o > 256u ? 256u : LEN9 - o);
+            chk("... the same size with no record installs (the refusal is the tail, not the size)", r == 0 && oc_mod_end(IMG) == 0 && oc_mod.state[0] == MD_OK && eng_mod[ENGI_SHAPES]);
+        }
+        #undef LEN5
+        #undef LEN9
+    }
 
     /* removal and rebuild */
     clean(); good(0, LEN);

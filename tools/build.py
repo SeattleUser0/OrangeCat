@@ -29,6 +29,9 @@ import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ocflash  # noqa: E402  (0.10.1: the XIP address and the update loader's record rule, shared with gen_pack.py)
+
 SRC = Path(__file__).resolve().parents[1]
 FW = SRC / "firmware"
 OUT = SRC / "build"
@@ -490,8 +493,11 @@ def check(img, syms, dis, rt):
 #
 # Each image is fw_api.h's fw_mod_hdr_t in its first 256 byte page, the code from FW_MOD_CODE_OFF; length, crc and hcrc are filled
 # here after the link. The checks: no undefined symbol, no .data or .bss, the header fields are what the source says (magic, the
-# firmware's address of the table, the link address, the pack's hash), the engine_t lies inside the image, the image fits its sectors.
+# firmware's address of the table, the link address, the pack's hash), the engine_t lies inside the image, the image fits its sectors,
+# and (0.10.1) no sector tail of the image reads as one of the update loader's records (tools/ocflash.py; the code is moved on 4 bytes at a
+# time until none does, and the package is not written if no placement passes).
 
+TAIL_PAD_TRIES = 64                      # (0.10.1) code placements tried per start before the build gives up
 MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": "SHAPES"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
@@ -541,20 +547,35 @@ def build_module(name):
     sectors = spec["sectors"]
     variants, ifaces = [], set()
     for start in module_starts(sectors):
-        base = 0x02000000 - 0x4000 + lo + start * 0x1000  # flash offset to XIP: FM1_XIP(off) = 0x02000000 + off - 0x4000 (fm1_xip.h; gen_pack.py's XIP_BASE). 0.10.0 step 4 fix: step 2 had left the 0x4000 out
+        base = ocflash.xip(lo + start * 0x1000)           # flash offset to the address it runs at (tools/ocflash.py; 0.10.1: one function for this and gen_pack.py)
         ld = mdir / f"{name}.{start}.ld"
-        ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {sectors * 0x1000:#x} }}
+        elf, binf = mdir / f"{name}.{start}.elf", mdir / f"{name}.{start}.bin"
+        # (0.10.1) The update loader erases a data sector whose last 256 bytes read as one of its update records (ocflash.tail_hit).
+        # The code is address fixed, so the way to change a sector's tail without changing what the code does is to move the code
+        # on: the link script starts the code `pad` bytes after FW_MOD_CODE_OFF (zero bytes; the linker aligns every input section
+        # for itself, and every address is resolved by the link). pad 0 is the normal case (a hit is 2^-32 a sector); 4, 8, ... are tried
+        # until no sector tail of the image is like a record. If none of TAIL_PAD_TRIES layouts passes the module is not written.
+        pad, hit = 0, 0
+        for pad in range(0, 4 * TAIL_PAD_TRIES, 4):
+            ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {sectors * 0x1000:#x} }}
 SECTIONS {{
-    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF:#x}; *(.text*) *(.rodata*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
+    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF + pad:#x}; *(.text*) *(.rodata*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
     .data : {{ *(.data*) *(.sdata*) . = ALIGN(4); }} > MOD
     .bss (NOLOAD) : {{ *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); }} > MOD
     /DISCARD/ : {{ *(.comment) *(.note*) }}
 }}
 """)
-        elf, binf = mdir / f"{name}.{start}.elf", mdir / f"{name}.{start}.bin"
-        tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
-        binf.unlink(missing_ok=True)
-        tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+            tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+            binf.unlink(missing_ok=True)
+            tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+            raw = binf.read_bytes()
+            raw += b"\0" * (-len(raw) % 4)
+            hit = ocflash.tail_hit(raw)
+            if hit < 0:
+                break
+        if hit >= 0:
+            errors.append(f"{name}@{start}: no layout of {TAIL_PAD_TRIES} avoids the update loader's record test (sector {hit} tail); not written")
+            continue
         sizes = {}
         for ln in tc("common/bin/objdump", "-h", elf).splitlines():
             p = ln.split()
@@ -592,9 +613,11 @@ SECTIONS {{
         struct.pack_into("<I", img, MOD_HDR.size - 4, d["hcrc"])
         variants.append((start, bytes(img)))
         notes.append(f"module {name} start {start} (flash {lo + start * 0x1000:#x}): {len(img)} B of {sectors * 0x1000}, "
-                     f".data 0 B, .bss 0 B, crc {d['crc']:08x}")
-    if len(ifaces) != 1:
+                     f".data 0 B, .bss 0 B, crc {d['crc']:08x}" + (f", code moved {pad} B to clear the update loader's record test" if pad else ""))
+    if len(ifaces) > 1:
         errors.append(f"{name}: the variants disagree on the header: {sorted(ifaces)}")
+    if len(ifaces) != 1 or errors:                      # (0.10.1) no package from a build with an error: a stale one from an earlier build is removed too
+        (OUT / f"{name}-{(SRC / 'VERSION').read_text().strip() if (SRC / 'VERSION').exists() else '0'}.ocm").unlink(missing_ok=True)
         return errors, notes
     iface, api_size, api_version, engine, state_size = next(iter(ifaces))
     # the package

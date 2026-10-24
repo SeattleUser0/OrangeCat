@@ -32,7 +32,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, modSummary, OCM_STATE })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, modSummary, OCM_STATE })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
@@ -73,12 +73,13 @@ const E = vm.runInNewContext(proto + `
   const crc = (b) => { let c = 0xFFFFFFFF; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xEDB88320 : c >>> 1; } return (c ^ 0xFFFFFFFF) >>> 0; };
   const image = (len, seed) => { const b = new Uint8Array(len); for (let i = 0; i < len; i++) b[i] = (i * 7 + seed) & 255; new DataView(b.buffer).setUint32(0, 0x444F4D4F, true); return b; };
   const pkg = (o = {}) => {
-    const imgs = [image(3000, 1), image(3000, 2)], starts = [0, 6], tab = 56, hc = tab + 32, base = hc + 4;
-    const b = new Uint8Array(base + 6000), dv = new DataView(b.buffer);
+    const L = o.len ?? 3000, imgs = [image(L, 1), image(L, 2)], starts = [0, 6], tab = 56, hc = tab + 32, base = hc + 4;
+    if (o.plant) imgs.forEach(o.plant);                  /* (0.10.1) a change to each image before its CRC is taken */
+    const b = new Uint8Array(base + 2 * L), dv = new DataView(b.buffer);
     dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, 2, true);
     dv.setUint32(8, o.iface ?? iface, true); dv.setUint32(12, o.apiAddr ?? 0x02001100, true); dv.setUint32(16, 14, true); dv.setUint32(20, 11136, true); dv.setUint32(24, o.packHash ?? hash, true);
     b.set([...new TextEncoder().encode("SHAPES")], 28); dv.setUint32(44, o.apiVersion ?? 3, true); dv.setUint32(48, o.apiSize ?? 60, true); dv.setUint32(52, 6, true);
-    imgs.forEach((im, i) => { dv.setUint32(tab + 16 * i, starts[i], true); dv.setUint32(tab + 16 * i + 4, im.length, true); dv.setUint32(tab + 16 * i + 8, crc(im) ^ (o.badImageCrc ? 1 : 0), true); dv.setUint32(tab + 16 * i + 12, base + 3000 * i, true); b.set(im, base + 3000 * i); });
+    imgs.forEach((im, i) => { dv.setUint32(tab + 16 * i, starts[i], true); dv.setUint32(tab + 16 * i + 4, im.length, true); dv.setUint32(tab + 16 * i + 8, crc(im) ^ (o.badImageCrc ? 1 : 0), true); dv.setUint32(tab + 16 * i + 12, base + L * i, true); b.set(im, base + L * i); });
     dv.setUint32(hc, crc(b.subarray(0, hc)) ^ (o.badHeaderCrc ? 1 : 0), true);
     return b;
   };
@@ -93,6 +94,23 @@ const E = vm.runInNewContext(proto + `
      E.ocmCheck(E.ocmParse(pkg({ apiVersion: 4 })), unit()).key === "modWrongFw" && E.ocmCheck(E.ocmParse(pkg({ apiSize: 64 })), unit()).key === "modWrongFw", "module: another interface identifier, table address, pack, a later table version or a longer table: 'not for this firmware'");
   ok(E.ocmCheck(E.ocmParse(pkg({ apiVersion: 2, apiSize: 56 })), unit()).ok, "module: a module built for an earlier, shorter table still works");
   ok(E.ocmCheck(good, unit({ plan: 127 })).key === "modNoFree" && E.ocmCheck(good, unit({ plan: 1 })).ok, "module: no free place is reported before anything is sent");
+  /* (0.10.1) the update loader's record rule on the image's sector tails: refused by the page before anything is erased */
+  const rec = (b, at, seed = 5) => {
+    for (let k = 0; k < 80; k++) b[at + k] = ((k * 11 + seed) | 1) & 255;
+    b[at + 6] = 0x41; b[at + 7] = 0x54;
+    let c = 0; for (let i = 2; i < 80; i++) { c ^= b[at + i] << 8; for (let k = 0; k < 8; k++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF; }
+    b[at] = c & 255; b[at + 1] = c >> 8;
+  };
+  { const a = image(5000, 3), b2 = image(9000, 4), c2 = image(0xF30, 5), z = image(5000, 6);
+    rec(a, 0xF00); rec(b2, 0x1F00); rec(c2, 0xF00); z.set(Array(80).fill(0xFF), 0xF00); rec(z, 0xF00); z[0xF00] = 0; z[0xF01] = 0;
+    ok(E.ocmTails(image(5000, 3)) === 0 && E.ocmTails(a) === 1 && E.ocmTails(b2) === 2, "module: the sector tail rule finds a record on sector 1's tail (1) and on sector 2's (2), and none in an image without one");
+    ok(E.ocmTails(c2) === 0 && E.ocmTails(z) === 0, "module: a record cut off by the end of the image reads as erased flash after it (no record); a zero CRC word is not a record");
+    ok(E.ocmTails(new Uint8Array(0)) === 0 && E.ocmTails(image(0xF00, 7)) === 0, "module: an image that ends before the first tail has nothing to test"); }
+  ok(E.ocmCheck(E.ocmParse(pkg({ len: 5000 })), unit()).ok, "module: 5,000 byte images with no record pass the check");
+  { const bad1 = E.ocmCheck(E.ocmParse(pkg({ len: 5000, plant: (b) => rec(b, 0xF00) })), unit());
+    ok(!bad1.ok && bad1.key === "modTail" && E.ocmCheck(E.ocmParse(pkg({ len: 5000, plant: (b) => rec(b, 0xF00) })), unit({ plan: 1 })).key === "modTail",
+       "module: an image with a record on a sector tail is refused by the page (modTail) for either start, before anything is erased"); }
+  ok(sum([8, 1, 14, ...n3(23780)], [0, 0, 0, 0, 0, 0]) === "modStateTail" && sum([8, 1, 14, 0, 0, 0], [7, 0, 14, 0, 0, 0]) === "modStateOk" && E.OCM_STATE[8] === "badtail", "module: the state line for a module whose sector tail the update would erase");
   { const one = pkg(); /* a package with only the start 6 image: the unit names start 0 */
     const dv = new DataView(one.buffer); dv.setUint32(56, 3, true); dv.setUint32(hcrcFix(one), crc(one.subarray(0, 88)), true);
     function hcrcFix(b) { return 88; }

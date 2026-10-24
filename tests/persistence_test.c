@@ -33,6 +33,7 @@ static void panel_setup(void) {}
 
 static uint8_t nor[0x100000], flash_ok = 1;
 static int erase_error, fail_after = -1;
+static int erase_fail_after = -1;           /* (0.10.1) like fail_after, for erases: the nth erase from now and every later one fails (a power cut between erases) */
 static uint32_t erases, preset_reads;
 static int st_read(uint32_t off, void *dst, uint32_t n) { preset_reads++; memcpy(dst, nor + off, n); return 0; }
 static int st_erase(uint32_t off)
@@ -40,6 +41,8 @@ static int st_erase(uint32_t off)
     erases++;
     if (boot_trace && (!boot_syncs || boot_work.state != 1u || boot_work.done >= boot_work.total)) boot_trace_bad++;
     if (erase_error) return -8;
+    if (erase_fail_after == 0) return -8;
+    if (erase_fail_after > 0) erase_fail_after--;
     memset(nor + off, 0xFF, 4096);
     return 0;
 }
