@@ -1,12 +1,14 @@
 # Orange Cat tracker architecture review
 
-**Version:** 0.3
+**Version:** 0.4
 **Date:** October 23, 2026
 **Branch:** `tracker-events` (on `size-audit`; also on `size-audit-gui` with the GUI work). Not merged.
 **Reviewed at:** main 19271b0 (0.6.2) and the combined branch; GPT's notes on fx-jiant at the same commit were checked
 against the code and hold.
 
 Revisions:
+- 0.4 (0.13.4, branch sonnet-work): the repeats of a ratchet or a flam are a record for each event (design (a)), not a six-entry queue that dropped them when full; the section "What was changed, third step"
+  says how it plays now. Measured under load in BUILD.md, "Ninth run".
 - 0.3 (0.13.0, branch sonnet-work): the step's ratchet, flam, condition, nudge and accent apply to a recorded step's events as a group (section
   "What was changed, third step"); the table "Where views still differ" has no row left in it for them; "Left to do" shortened.
 - 0.2 (0.7.2, branch sonnet-work): step 1 of the overnight list done: one event edit primitive and one delete path for
@@ -203,8 +205,11 @@ the stored step or event changes, and a step that has none of them plays exactly
 | Ratchet x2..x4 | the step plays again in equal parts of its length, the gate of a part | each onset plays again at its own time plus one part, two parts, ... (a part is the step's length over the hits); the gate of a hit is the part's gate or the note's own, the shorter |
 | Flam | a grace at 9/16 of the velocity, the full hit FLAM_SAMPLES later | the same for each onset |
 
-How it plays: a ratchet's or a flam's later hits wait in a small per-track queue (`recording_rep`, six entries, runtime only; a seventh simultaneous chord's repeats are
-dropped, not queued). The queue is read each block before the new onsets are scheduled (`recording_rep_tick`); a note edited away, or a step that is no longer recorded,
+How it plays (0.13.4, design (a), no queue): a ratchet's or a flam's later hits are a record of the event itself, not a slot in a pool. Each event keeps the time of its next repeat
+(`recording_rep_at`, on the track's repeat clock) and, in two bits of `recording_flags`, how many are left; the pending events are a bit each in `recording_rep_bits`. The
+0.13.0 queue (`recording_rep`, six entries a track) dropped the repeats of a chord when it was full: two adjacent four-note chords with RATCH x4 played 4, 4, 1, 1 hits for
+the second. With a record for every event there is nothing to run out of. `recording_rep_tick` runs each block before the new onsets are scheduled and visits only the pending
+events (one compare when none are); a repeat's velocity, gate and spacing are worked out again from the event (`recording_shape`, as for the first hit). A note edited away, or a step that is no longer recorded,
 ends its repeats. A start of the transport clears it. A nudge is part of the onset's scheduled time (`recording_due`), so the cursor's sort sees it:
 an edit of a nudge from the tracker re-sorts at once (`recording_resched`), one from anywhere else (undo, a load) is seen at the next loop start by a fold of the track's 64 nudges.
 
@@ -220,7 +225,7 @@ project save and load. The scheduler oracle tests (recording_scheduler_test, the
 | | |
 |---|---|
 | Format | none: the step's bytes and the event's are what they were; no migration |
-| Runtime | the audio interrupt's loop is untouched; the recording path (an optional, bounded one in tests/target_budget.py) gained the roll, the repeats queue and a nudge in the onset's time |
+| Runtime | the audio interrupt's loop is untouched; the recording path (an optional, bounded one in tests/target_budget.py) gained the roll, the per-event repeat record and a nudge in the onset's time |
 | RAM | 4 x (16 + 6 x 16 + 4) B = 464 B of runtime state, not stored |
 
 ## Where views still differ
