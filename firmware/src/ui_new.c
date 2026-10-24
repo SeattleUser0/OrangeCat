@@ -81,6 +81,8 @@ static void new_create(void)
         else if (src == USER_GENERAL)
             up_load(kk);
         else {
+            if (src != t->eng_req && eng_admit(t, src))
+                continue;                           /* (0.11.0) a module's engine this unit cannot carry: the place keeps its sound */
             if (src != t->eng_req) set_engine_of(t, src);
             apply_preset_to(t, kk);
         }

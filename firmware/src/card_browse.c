@@ -467,7 +467,9 @@ static int fb_install_mod(const fb_ent_t *e)
     FIL *f = &uf_pf;
     UINT got;
     uint32_t n, tab = 56u, hc, engine, start, off = 0, len = 0, o;
-    int plan, rc = 0;
+    int plan, rc = 0, armed;
+    armed = fb.ask == (uint8_t)(fb.sel + 1u);      /* (0.10.1) the in-place question was asked on this row; any other press drops it */
+    fb.ask = 0;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
     uh_cat(uh_cat(uh_cat(p, fb.path), str_eq(fb.path, "/") ? "" : "/"), e->name);
     if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
@@ -493,6 +495,13 @@ static int fb_install_mod(const fb_ent_t *e)
         if (pk_rd32(buf + tab + 16u * o) == start * 6u) { len = pk_rd32(buf + tab + 16u * o + 4u); off = pk_rd32(buf + tab + 16u * o + 12u); }
     if (!len || off + len > e->size || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
     if (f_lseek(f, off) != FR_OK || f_read(f, pg, sizeof pg, &got) != FR_OK || got != sizeof pg) { f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    if (oc_mod_inplace(engine, start) && !armed) {      /* (0.10.1) no other place is free: the old module is erased first and a power cut leaves none.
+                                                                                  * Said once; OCT+ on the same row again goes on (fb.ask is the row, as for a pack's question) */
+        f_close(f);
+        fb.ask = (uint8_t)(fb.sel + 1u);
+        str_cpy(fb.msg, "Erases old first. Again", sizeof fb.msg);
+        return 1;
+    }
     if (oc_mod_begin(engine, start, len) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
     for (o = FW_MOD_CODE_OFF; o < len && !rc; o += got) {
         uint32_t k = len - o > sizeof buf ? (uint32_t)sizeof buf : len - o;
@@ -500,7 +509,10 @@ static int fb_install_mod(const fb_ent_t *e)
         SMP_FEED();
     }
     f_close(f);
-    if (rc || oc_mod_end(pg) != 0) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+    rc = oc_mod_end(pg);
+    if (rc == -8) { str_cpy(fb.msg, "Update would erase it", sizeof fb.msg); return 1; }   /* (0.10.1) -8 is oc_module.c MI_TAIL: a sector tail like an update record, nothing committed */
+    if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
     fb.packed = 2;
     return 0;
 }

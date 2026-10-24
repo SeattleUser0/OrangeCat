@@ -602,9 +602,27 @@ static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIME
 /* boot-loop guard (main.c): two boots in a row that die in the first 30 s -> UBOOT */
 #define BOOTGUARD_MAGIC 0x42475244u
 struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".noinit")));
+#if OC_MODULES
+/* (Orange Cat 0.10.0, 0.10.1) the loadable modules' crash mark (oc_module.c has the rules). It lives here so that reset_intended can clear its part.
+ *   inuse    a bit per module start: a track held that module's engine at some time in this session (set by oc_mod_note_use)
+ *   banned   a bit per start: not registered until power is lost, or the start is installed or removed
+ *   run      0.10.1: 1 from the first boot until an orderly reset (reset_intended). At the next boot a 1 means the last session died: the
+ *            watchdog, a CPU exception, a hang. A power loss clears the RAM and with it this word.
+ *   unclean  0.10.1: per start, how many sessions in a row died with that module's engine in use (three bans it)
+ *   notice   0.10.1: per start, banned at this boot and not yet told on the screen (oc_mod_ban_notice)
+ * The magic is new in 0.10.1 (the layout grew): RAM that kept the old layout across an update reads as fresh. */
+#define OC_MODGUARD_MAGIC 0x4D4F4432u                          /* "MOD2" */
+#ifndef OC_MODULE                                               /* (a module's own translation unit, tools/module/shapes_mod.c, has no RAM of its own) */
+struct { uint32_t magic, inuse, banned, run; uint8_t unclean[2], notice, pad; } oc_modguard __attribute__((section(".noinit")));
+#endif
+#endif
 static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
 {
     bootguard.pending = 0;
+#if OC_MODULES && !defined(OC_MODULE)
+    oc_modguard.run = 0;                        /* (0.10.1) an orderly end: the module crash count starts again */
+    oc_modguard.unclean[0] = oc_modguard.unclean[1] = 0;
+#endif
 }
 
 /* GLO solo belongs to the mixer, independently of quick-layer effects. */

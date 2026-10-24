@@ -140,7 +140,7 @@ global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an e
 | 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 24; firmware before the matrix: at most 16) |
 | 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100 |
 | 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7)]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance it keeps its own. The chance can only follow the hits |
-| 8 PRESET | engine, preset [, preset >> 7] | engine, preset, preset >> 7 (applies the preset's sound; the steps and the track's own parameters stay, see "Sound loads and undo") |
+| 8 PRESET | engine, preset [, preset >> 7] | engine, preset, preset >> 7 (applies the preset's sound; the steps and the track's own parameters stay, see "Sound loads and undo"); (0.11.0) a fourth byte only when a module's engine was refused: 1 ENGINE TOO HEAVY, 2 NO ROOM, the track keeps its engine and its sound, the first three bytes are what it holds) |
 | 9 PROJECT | op (0 load, 1 save, 2 query), slot 0..3 | op, slot, used (1/0). Save writes flash: allow ~2 s; it stops the transport first (see "Saves while playing") |
 | 10 NAMES | engine [, first preset, 2 × 7 bit] | engine, count (≤ 127), count preset-name strings (≤ 20 characters) from the first, then the two edit-page titles, then all presets and the first (2 × 7 bit each). Ask again from first + count until all are read |
 | 11 SMP_BEGIN | slot 0..2 | slot, rc (0 ok). Erases the slot's header sector: the slot is empty from now on |
@@ -493,7 +493,8 @@ image. A module is a built piece of code (`tools/build.py --module`, source `too
 the services table `fw_api_t` (`firmware/src/fw_api.h`), which sits in the image at a fixed address. It has no RAM of its own. Its package is
 `orangecat-shapes-VERSION-COMMIT.ocm`, with one image for each place the module can be linked for: SHAPES' module is 6 sectors, so it has an image for
 start 0 (flash 0xC8000, runs at XIP 0x020C4000) and one for start 6 (flash 0xCE000, XIP 0x020CA000). The unit names the start to use, so a replacement
-can go where the old module is (in place) or into a free place, and the page sends that image.
+goes into a free place beside the old module when there is one, and in place only when there is not (0.10.1; before that it was always in place), and the page sends
+that image.
 
 The package (little endian): magic "OCMF" (0x464D434F), version u16 = 1, variant count u16 (1..8), interface identifier u32 (at 8), table address u32
 (at 12), engine u32 (at 16), state size u32 (at 20), pack hash u32 (at 24), name 16 bytes (at 28, zero filled), table version u32 (at 44), table size u32
@@ -507,28 +508,38 @@ ambiguous); the module has ids of its own.
 
 | Command | Request | Reply |
 |---|---|---|
-| 120 MOD_INFO | optionally an engine | starts (2), sectors of the area (12), flags (1 SHAPES is built in, 2 a module takes the slot of a built-in engine, 4 an install is under way), table version, table size, interface identifier (5 x 7 bits), table address (5 x 7), pack hash (5 x 7), the start an install of the engine goes to (0, 1, or 127 none; 127 too without an engine), then per start: state, why, engine, length (3 x 7 bits) |
-| 121 MOD_BEGIN | engine, start, length (3 x 7 bits) | rc, bytes written (3 x 7 bits). The engine is taken out of the table, the voices and arena state of the tracks that play it are cleared, the 6 sectors of the start (and of any other module of that engine) are erased |
+| 120 MOD_INFO | optionally an engine | starts (2), sectors of the area (12), flags (1 SHAPES is built in, 2 a module takes the slot of a built-in engine, 4 an install is under way, 8 (0.10.1) the install the plan names is in place), table version, table size, interface identifier (5 x 7 bits), table address (5 x 7), pack hash (5 x 7), the start an install of the engine goes to (0, 1, or 127 none; 127 too without an engine: a free start first, else the start that holds the engine's module), then per start: state, why, engine, length (3 x 7 bits) |
+| 121 MOD_BEGIN | engine, start, length (3 x 7 bits) | rc, bytes written (3 x 7 bits). Beside (flag 8 clear): only the 6 sectors of the free start are erased; the old module stays registered and playing. In place (flag 8 set): the engine is taken out of the table, the voices and arena state of the tracks that play it are cleared, the 6 sectors of the start (and of any other module of that engine) are erased, and a power cut leaves no module |
 | 122 MOD_WRITE | offset (3 x 7 bits), pack7 data (up to 256 bytes) | rc, bytes written. The first offset is 256; each is where the last write ended |
-| 123 MOD_END | pack7 header page (256 bytes) | rc, bytes written. The header must agree with the code just sent (its CRC), the start, and this firmware; it is programmed last (the commit); the area is then read as at boot and the module registered |
+| 123 MOD_END | pack7 header page (256 bytes) | rc, bytes written. The header must agree with the code just sent (its CRC), the start, and this firmware; it is programmed last (the commit); the area is then read as at boot and the module registered. Beside, the new start is read back and checked as the loader checks it before the old module is taken out of the table and its start erased (header sector first); if it fails the new start is erased, the old module stays and the reply is 7 |
 | 124 MOD_REMOVE | engine (127: the whole area) | rc, bytes written. The engine's module out of the table and its sectors erased |
+| 125 ENGINES | none (any byte is refused: no reply) | (0.11.0) the engine list: the number of engine numbers N (20), then for each number 0..N-1 eleven bytes: source (0 not available: retired, or a number only a module can supply with none registered; 1 built in; 2 a module), module state (the MOD_INFO states; 0 when no module was found for the number), why, start (0, 1, or 127 none), version (major, minor, patch, 3 bytes of 7 bits: the module header's `version` word 0x00MMmmpp; 0 for a built-in engine), length of the module (3 x 7 bits), tracks that hold the number (a count); then the number of starts and for each: state, why, engine (a torn start names no engine, so the page shows it from this part). A module that was found but not registered (banned, refused, a wrong tail) gives its state and start on its number with source 0 or 1; where two modules claim one number the registered one is told. The page builds the Engines table from this and the names of INFO, and offers Install on a number a module may supply (14) with none found, Replace and Remove on one with a module; a firmware without 125 never answers and the page keeps the two buttons of 0.10.x |
 
 State: 0 empty, 1 torn header, 2 refused (another interface, another table address, a table the firmware does not have; `why` is the check's code: 3 identifier,
 4 table too new, 5 address), 3 a header field out of range (link address, length, engine_ptr, engine number, state size, pack hash), 4 bad code CRC, 5 stopped
-after a crash (below), 6 valid but the built-in engine keeps the slot (flag 2 clear), 7 registered.
+after a crash (below), 6 valid but the built-in engine keeps the slot (flag 2 clear), 7 registered, 8 (0.10.1) the code is good but a sector of it ends in 80 bytes
+the update loader would take for one of its update records (`why` is the sector, counted from 1); not registered.
 
 rc: 0 done, 1 refused (not the start named by MOD_INFO, a bad length, an engine a module may not supply, out of order, a header that does not match), 2 the flash
 failed or the transport is running, 4 the move of the old preset pairs into the library group has not finished (restart the unit), 5 no start free, 7 written but
-not readable as a module (install it again).
+not readable as a module (install it again), 8 (0.10.1) a sector of the module would be erased by a firmware update (below); nothing was committed.
+
+The update loader's record rule (0.10.1): after an update the loader erases any data sector between 0x93000 and 0xFC000 whose last 256 bytes, read as 80, have
+0x5441 at bytes 6..7 and a first word that is not zero and equals the CRC-16 (poly 0x1021, init 0) of bytes 2..79. A module must have no such sector tail
+(sectors counted from the start of its image, tails at 0xF00, 0x1F00, ...; flash after its end is erased and reads 0xFF). `tools/build.py --module` moves the code
+on 4 bytes at a time until none does, the page tests the image it is about to send, MOD_END tests the flash before it programs the header page (rc 8), and the
+loader tests it at every boot (state 8).
 
 Checks at boot, in this order: magic, header CRC, `fw_module_check` (interface identifier, table address, table size and version), the link address (it is
 linked for one start and refused at any other), the length (a multiple of 4, at most 6 sectors), the engine_t inside the code, the engine number (SHAPES only),
-the state size, the pack hash, then the CRC of the code. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
-lower start is used. The engine number a track holds is never changed by an install or a removal; the table answers for the number (the built-in engine if there is
+the state size, the pack hash, then the CRC of the code, then the sector tails. A write torn anywhere leaves no header, so the area reads as empty. Two valid modules for one number: the
+lower start is used. Power cuts of a replacement beside (tested at every program and every erase): before the new header page is programmed the old module is the one that loads; once
+the old start's first erase has run it is the new one; between the two (the commit done, no erase yet) both are valid and the lower start is used. The engine
+number a track holds is never changed by an install or a removal; the table answers for the number (the built-in engine if there is
 one, else silence).
 
 Crash mark: a module that is playing in the first 30 s of a boot that then dies is not loaded at the next boot (state 5) until the unit loses power or the
-start is installed or removed. A crash after the first 30 s is not seen, as the boot guard does not see it for the firmware.
+start is installed or removed. (0.10.1) A crash later than that is counted too. A flag in noinit RAM says a session is running; every orderly reset (UBOOT, an update, a test reboot) clears it and the count. A reset that finds the flag still set is a session that died (the chip's reset reason cannot tell: a fault ends in a soft reset too). If the module's engine was held by a track in that session, the start's count goes up; a death without it, a clean reset, a power loss, an install or a removal sets it to 0. Three in a row ban the start (state 5) until power loss, install or remove, and the home screen says MODULE BANNED with the engine name, once.
 
 ## Pattern banks (commands 73–74)
 

@@ -1,0 +1,4 @@
+# Orange Cat 0.11.0: the functions of tests/target_budget.txt whose lines make up this module's `cost` word (tools/build.py module_cost).
+# SHAPES (eng_shapes.c, the Braids port) has no line in the budget today: the CI budget measures the image, where SHAPES is a module and
+# is not linked in, and tests/target_budget.py has no entry for its render. So the cost is 0, "not measured". When a module measurement
+# exists, name its functions here, one a line, and the sum goes into the header.

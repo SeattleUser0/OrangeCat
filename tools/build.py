@@ -29,6 +29,9 @@ import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ocflash  # noqa: E402  (0.10.1: the XIP address and the update loader's record rule, shared with gen_pack.py)
+
 SRC = Path(__file__).resolve().parents[1]
 FW = SRC / "firmware"
 OUT = SRC / "build"
@@ -490,13 +493,17 @@ def check(img, syms, dis, rt):
 #
 # Each image is fw_api.h's fw_mod_hdr_t in its first 256 byte page, the code from FW_MOD_CODE_OFF; length, crc and hcrc are filled
 # here after the link. The checks: no undefined symbol, no .data or .bss, the header fields are what the source says (magic, the
-# firmware's address of the table, the link address, the pack's hash), the engine_t lies inside the image, the image fits its sectors.
+# firmware's address of the table, the link address, the pack's hash), the engine_t lies inside the image, the image fits its sectors,
+# and (0.10.1) no sector tail of the image reads as one of the update loader's records (tools/ocflash.py; the code is moved on 4 bytes at a
+# time until none does, and the package is not written if no placement passes).
 
+TAIL_PAD_TRIES = 64                      # (0.10.1) code placements tried per start before the build gives up
 MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": "SHAPES"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
-MOD_HDR = struct.Struct("<13I")          # fw_mod_hdr_t (firmware/src/fw_api.h): 13 words, FW_MOD_HDR_BYTES 52
+MOD_HDR = struct.Struct("<15I")          # fw_mod_hdr_t (firmware/src/fw_api.h): 15 words, FW_MOD_HDR_BYTES 60 (0.11.0: the cost and version words; 13 and 52 before)
+MOD_NAMES = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash cost version length crc hcrc".split()
 MOD_AREA_LO, MOD_AREA_HI = None, None
 
 
@@ -506,6 +513,23 @@ def module_area():
     lo = int(re.search(r"#define FL_MODULE_LO\s+(0x[0-9A-Fa-f]+)u", t).group(1), 16)
     hi = int(re.search(r"#define FL_MODULE_HI\s+(0x[0-9A-Fa-f]+)u", t).group(1), 16)
     return lo, hi
+
+
+def module_cost(name):
+    """(0.11.0) the engine's measured render cost for the header: the sum of the lines of tests/target_budget.txt for the functions named in
+    tools/module/<name>.cost (one name per line, # comments). No file or no names: 0, 'not measured'. A name the budget does not have is an error."""
+    cf = SRC / "tools" / "module" / f"{name}.cost"
+    if not cf.exists():
+        return 0, []
+    want = [ln.split("#")[0].strip() for ln in cf.read_text().splitlines()]
+    want = [w for w in want if w]
+    budget = {}
+    for ln in (SRC / "tests" / "target_budget.txt").read_text().splitlines():
+        parts = ln.split()
+        if len(parts) == 2 and not ln.startswith("#") and parts[1].isdigit():
+            budget[parts[0]] = int(parts[1])
+    missing = [w for w in want if w not in budget]
+    return sum(budget[w] for w in want if w in budget), missing
 
 
 def module_starts(sectors):
@@ -539,22 +563,40 @@ def build_module(name):
     pack_hash = gen_define("OC_PACK_HASH", "oc_pack_tables.h")
     lo, hi = module_area()
     sectors = spec["sectors"]
+    cost, missing = module_cost(name)
+    if missing:
+        errors.append(f"{name}: tools/module/{name}.cost names {missing}, which tests/target_budget.txt does not have")
     variants, ifaces = [], set()
     for start in module_starts(sectors):
-        base = 0x02000000 - 0x4000 + lo + start * 0x1000  # flash offset to XIP: FM1_XIP(off) = 0x02000000 + off - 0x4000 (fm1_xip.h; gen_pack.py's XIP_BASE). 0.10.0 step 4 fix: step 2 had left the 0x4000 out
+        base = ocflash.xip(lo + start * 0x1000)           # flash offset to the address it runs at (tools/ocflash.py; 0.10.1: one function for this and gen_pack.py)
         ld = mdir / f"{name}.{start}.ld"
-        ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {sectors * 0x1000:#x} }}
+        elf, binf = mdir / f"{name}.{start}.elf", mdir / f"{name}.{start}.bin"
+        # (0.10.1) The update loader erases a data sector whose last 256 bytes read as one of its update records (ocflash.tail_hit).
+        # The code is address fixed, so the way to change a sector's tail without changing what the code does is to move the code
+        # on: the link script starts the code `pad` bytes after FW_MOD_CODE_OFF (zero bytes; the linker aligns every input section
+        # for itself, and every address is resolved by the link). pad 0 is the normal case (a hit is 2^-32 a sector); 4, 8, ... are tried
+        # until no sector tail of the image is like a record. If none of TAIL_PAD_TRIES layouts passes the module is not written.
+        pad, hit = 0, 0
+        for pad in range(0, 4 * TAIL_PAD_TRIES, 4):
+            ld.write_text(f"""MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {sectors * 0x1000:#x} }}
 SECTIONS {{
-    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF:#x}; *(.text*) *(.rodata*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
+    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF + pad:#x}; *(.text*) *(.rodata*) *(.data.rel.ro*) . = ALIGN(4); }} > MOD
     .data : {{ *(.data*) *(.sdata*) . = ALIGN(4); }} > MOD
     .bss (NOLOAD) : {{ *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); }} > MOD
     /DISCARD/ : {{ *(.comment) *(.note*) }}
 }}
 """)
-        elf, binf = mdir / f"{name}.{start}.elf", mdir / f"{name}.{start}.bin"
-        tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
-        binf.unlink(missing_ok=True)
-        tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+            tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, obj, "-o", elf)
+            binf.unlink(missing_ok=True)
+            tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+            raw = binf.read_bytes()
+            raw += b"\0" * (-len(raw) % 4)
+            hit = ocflash.tail_hit(raw)
+            if hit < 0:
+                break
+        if hit >= 0:
+            errors.append(f"{name}@{start}: no layout of {TAIL_PAD_TRIES} avoids the update loader's record test (sector {hit} tail); not written")
+            continue
         sizes = {}
         for ln in tc("common/bin/objdump", "-h", elf).splitlines():
             p = ln.split()
@@ -568,7 +610,7 @@ SECTIONS {{
         if len(img) > sectors * 0x1000:
             errors.append(f"{name}@{start}: {len(img)} B do not fit {sectors} sectors")
         h = list(MOD_HDR.unpack_from(img, 0))
-        names = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash length crc hcrc".split()
+        names = MOD_NAMES
         d = dict(zip(names, h))
         if d["magic"] != FW_MOD_MAGIC:
             errors.append(f"{name}@{start}: header magic {d['magic']:#x}")
@@ -580,11 +622,12 @@ SECTIONS {{
             errors.append(f"{name}@{start}: header pack_hash {d['pack_hash']:#x} is not OC_PACK_HASH {pack_hash:#x}")
         if not base + FW_MOD_CODE_OFF <= d["engine_ptr"] < base + len(img):
             errors.append(f"{name}@{start}: engine_ptr {d['engine_ptr']:#x} is outside the image")
-        if any(d[k] for k in ("length", "crc", "hcrc")):
-            errors.append(f"{name}@{start}: length/crc/hcrc must be zero in the linked image")
+        if any(d[k] for k in ("cost", "length", "crc", "hcrc")):
+            errors.append(f"{name}@{start}: cost/length/crc/hcrc must be zero in the linked image")
         if any(img[MOD_HDR.size:FW_MOD_CODE_OFF]):
             errors.append(f"{name}@{start}: the header page is not zero after the header")
         ifaces.add((d["iface"], d["api_size"], d["api_version"], d["engine"], d["state_size"]))
+        d["cost"] = cost
         d["length"] = len(img)
         d["crc"] = zlib.crc32(bytes(img[FW_MOD_CODE_OFF:])) & 0xFFFFFFFF
         MOD_HDR.pack_into(img, 0, *[d[k] for k in names])
@@ -592,9 +635,11 @@ SECTIONS {{
         struct.pack_into("<I", img, MOD_HDR.size - 4, d["hcrc"])
         variants.append((start, bytes(img)))
         notes.append(f"module {name} start {start} (flash {lo + start * 0x1000:#x}): {len(img)} B of {sectors * 0x1000}, "
-                     f".data 0 B, .bss 0 B, crc {d['crc']:08x}")
-    if len(ifaces) != 1:
+                     f".data 0 B, .bss 0 B, crc {d['crc']:08x}" + (f", code moved {pad} B to clear the update loader's record test" if pad else ""))
+    if len(ifaces) > 1:
         errors.append(f"{name}: the variants disagree on the header: {sorted(ifaces)}")
+    if len(ifaces) != 1 or errors:                      # (0.10.1) no package from a build with an error: a stale one from an earlier build is removed too
+        (OUT / f"{name}-{(SRC / 'VERSION').read_text().strip() if (SRC / 'VERSION').exists() else '0'}.ocm").unlink(missing_ok=True)
         return errors, notes
     iface, api_size, api_version, engine, state_size = next(iter(ifaces))
     # the package

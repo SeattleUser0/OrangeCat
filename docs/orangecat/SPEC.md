@@ -1,12 +1,15 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.21  
+**Version:** 0.23  
 **Date:** October 23, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.23 (October 23, 2026):** The module proof of concept after review (0.10.1 and 0.11.0, branch sonnet-work, not on the unit yet; 8.4). A module's sector tails are tested against the update loader's record rule (build, installer, loader); a replacement is written beside the old module when a start is free; a module that crashes at any time in a session is banned after three sessions in a row that died with its engine in use; the PC guard follows the registered modules in a running session and its one-window cost is written down; a module's engine is admitted to a track only when one voice fits the voice budget and the state fits the arena (the cost word is carried, there is no render budget yet); the module header is 60 bytes (cost, version); the web page has an Engines table fed by one device command.
+
+- **0.22 (October 23, 2026):** The library's banks moved and the first module built (0.9.1 and 0.10.0, branch sonnet-work, not on the unit yet; 8.4). The user preset library is a group of 22 banks in 23 sectors with one shared spare (lib_group.c), migrated once at boot from the A/B pairs; the pack area is the pack's alone (no question about banks, no preset erased) and the module area is 12 sectors (0xC8000..0xD3FFF). SHAPES builds as a loadable module (23,780 bytes a start, two starts, no RAM of its own), found, checked and registered at boot by a loader, installed from the web page or the card, with a crash mark and a widened PC guard. The flash map and bank placement text of 8.4 brought up to date.
 - **0.21 (October 23, 2026):** DRUM-X built (0.9.0, branch sonnet-work, not on the unit yet; 8.1.1): Jiant FM's drum engine in engine slot 9, nine kits, eight lanes, Jiant's voice sample for sample; 10,188 bytes of flash (4,500 of them the drum grid code that DRUM-X makes live), 640 bytes of arena a track, the voice in flash. The interface identifier built (8.4): a hash of the layouts, a registration check; the toolchain question answered by an experiment (8.4): a module is linked for its start address, one link each. The library's bank placement (8.4) written from the sector inventory: no bank can move without a placement format change; keep it for the pack, move to a shared spare sector before the first module.
 - **0.20 (October 23, 2026):** The asset pack built (0.8.0, branch sonnet-work, not on the unit yet; 8.4): 57 tables, 40,232 bytes, in the Prophet bank area; installed from the web editor or from a .PAK file on the card; checked at boot; without it SHAPES and MACRO are silent and the screen says PACK MISSING. The flash map corrected: the retired engines' areas are the shared user preset library's banks 4, 5 and 8 to 20, not free; the pack takes banks 16 to 20 and asks first. Runtime engine retirement (storage.c). DRUM-X measured as a lower bound: about 4.4 KB of flash for the voice and 608 B of state a track.
 - **0.19 (October 23, 2026):** Loadable engines (8.4) rewritten from the plan (docs/orangecat/ENGINE_LOADING_PLAN.md 0.4): the web configurator is the primary way to install, replace, remove and assign engines; the card is a second transport; the module format, placement, the interface identifier, install against activate, the flash map, asset packs; not every engine need be a module. The tracker edits recorded notes (6.1, 0.7.1); where the views still differ by input origin (5.2). The flash figures of 2.1.1 brought up to date.
@@ -66,7 +69,7 @@ Taken from the Melodee and Skiff source and Melodee's storage notes:
 | Processor | JieLi AC791N (WL82), two pi32v2 cores, single-precision FPU (float only, no libm) |
 | Flash | 1 MiB SPI NOR (Puya, JEDEC 0x856014). No larger part exists for this board. |
 | App code area | 573,440 bytes for the application body (the boot stub and the commit marker are outside it), executed in place from flash. 512,164 bytes used with the GUI work, the size audit and the tracker change (October 23, 2026): 65,084 free. |
-| User data area | 436 KB above 0x93000: the record store (projects, phrases, timed notes, the frozen table), the sample slot, user presets, settings, the update staging; 120 KB of it is the retired engines' bank objects (Prophet 40 KB, CZ-1 64 KB, native FM6 16 KB); the shared user preset library keeps its banks 4, 5 and 8 to 20 there, so the asset pack (40 KB, built) takes banks 16 to 20 and engine modules (80 KB) would take 4, 5 and 8 to 15, each after asking; see 8.4 |
+| User data area | 436 KB above 0x93000: the pack area (10 sectors at 0x93000, the asset pack's alone since 0.9.1), the module area (12 sectors at 0xC8000, engine modules), the user preset library (a group of 23 sectors outside both, 22 banks and one spare, lib_group.c), the record store (projects, phrases, timed notes, the frozen table), the sample slot, settings, the update staging; the retired engines' old bank objects (Prophet, CZ-1, native FM6) are retired by the build and read as empty; see 8.4 |
 | SRAM | 96 KB for data and variables, about 336 KB pool for audio buffers and engine state, plus a small RAM code region |
 
 Flash is the binding limit on the engine catalogue, factory sounds, samples, and bounces. Melodee 1.2 had to remove engines, legacy formats, and user samples to fit. Every addition shall report its flash and RAM cost.
@@ -425,53 +428,65 @@ Requirements:
 
 Design:
 
-- **One flash map.** The asset pack takes the retired Prophet banks (0x93000, 40 KB); engine modules take the
-  retired CZ-1 and FM6 banks (0xC8000, 80 KB, twenty sectors of 4 KB). The application boundary does not move;
-  the stub and the update loader are unchanged. Those banks are the user preset library's (banks 16 to 20, 8 to 15,
-  4 and 5): taking an area means the library gives those banks up, so an install asks first, and while the area is
-  taken the library reads them empty and cannot save into them (storage.c `st_retire_engines`, run time; the build
-  does not retire them by itself). The map is in storage.c's top comment and hal/fm1_flash.h (FL_PACK_*, FL_MODULE_*).
-  **Bank placement (0.21).** The sector inventory of 0x93000..0xFFFFF shows the pack and module areas hold exactly banks 4, 5
-  and 8 to 20 (30 sectors) and that one sector outside them is free and not a pair: no bank can move without a placement
-  format change. Today's rule stands: the pack's install asks first and costs the banks that hold records (up to 90 slots of
-  384). Before the first module is installed the library moves to a shared spare sector (22 banks in 23 sectors, a save
-  writes the spare, header last, and the sector it leaves becomes the spare), which frees 21 sectors; that needs a migration
-  and the user's say. The options and numbers are in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6.
+- **One flash map (as built, 0.9.1).** The asset pack has 10 sectors at 0x93000 (40 KB); engine modules have 12 sectors at 0xC8000 (48 KB, two
+  places for a 6 sector module). The user preset library lives in 23 other sectors as a group (22 banks and one shared spare, lib_group.c): a save writes
+  the spare, header last, and the sector it leaves becomes the spare; a boot scan takes the newest valid copy of each bank. The first boot of 0.9.1
+  moves the old A/B pairs into the group once (before the pack check; the old pair is erased only after the group copy reads back; a cut anywhere is
+  safe; a failure retries at the next boot while the installers refuse). So neither area costs the library anything, and no install asks about
+  banks. The application boundary does not move; the stub and the update loader are unchanged. The Prophet, CZ-1 and native FM6 bank objects are
+  retired by the build (storage.c `ST_RETIRE_BY_BUILD`). The map is in storage.c's top comment and hal/fm1_flash.h (FL_PACK_*, FL_MODULE_*). Firmware
+  before 0.9.1 cannot read the group and sees empty banks, so a unit is backed up before 0.9.1 goes on it. The module area is 12 and not 20 sectors
+  because only 15 usable sectors lie outside both areas once the library takes its 23 (the plan, 0.7).
 - **Asset pack first (built, 0.8.0).** The SHAPES and MACRO tables (57 tables, 40,232 bytes) leave the image and
   are read in place from the pack through the plaintext flash window the sample slot already uses. The pack is a
   512-byte header (magic, version, table hash, length, CRCs) and the tables; the firmware accepts only a pack with
   its own hash. Installed from the web editor (commands 115 to 119) or from a .PAK file in the card browser, only
   while the transport is stopped, header last. Without the pack those engines play silent and the screen says PACK
   MISSING; everything else works. The image fell by 35,084 bytes.
-- **Modules.** (The experiment, 0.9.0: SHAPES builds as a separate object of 23,780 bytes with 188 relocations; the JieLi
-  clang 4.0.1 has no ROPI or RWPI and its PIC does not link, so a module is linked once for each start address.) A module
-  is an engine's code and metadata linked for a fixed address, with a header: magic, the
-  interface identifier, the engine's number, version, length, state size, voice units, CRC. One package file holds
-  the variants an engine needs (one image per permitted start: a 6-sector engine has three, a 10-sector one two);
-  the installer picks the variant that fits a free span. No compaction on the device: when nothing fits, the page
-  says which engine to move. Module code runs from flash through the cache, as MACRO's models do today; the PC
-  guard is widened to the module area.
+- **Modules (built as a proof of concept, 0.10.0).** (The experiment, 0.9.0: SHAPES builds as a separate object of 23,780 bytes with 188 relocations;
+  the JieLi clang 4.0.1 has no ROPI or RWPI and its PIC does not link, so a module is linked once for each start address.) A module is an engine's code
+  and metadata linked for a fixed address, with a 60 byte header (52 before 0.11.0) alone in its first 256 byte page (magic, the interface identifier, the table address and
+  version, the engine's number, state size, engine_t address, link address, pack hash, measured render cost, the module's version, length, CRC of the code, CRC of the header) and the code from byte 256.
+  It has no RAM of its own: no .data or .bss (the build refuses one); the firmware's services (the services table `fw_api_t`, at a fixed address in the image,
+  `tools/gen_fw_api_id.py`) and its one word of state (Braids' random generator) are the firmware's. One package file (.ocm) holds the variants an engine needs, one image for
+  each permitted start (SHAPES: starts 0 and 6 of the 12 sector area); the installer picks the start that fits (0.10.1: a free start first, the first empty, else the first that holds something unusable, and the start that holds the engine's
+  module only when no other is free; a replacement is written beside the old module, header last, and the old one is erased only after the new one passes the loader's checks read back from flash, so a power cut leaves the old or the new module and never none; in place, the web page and the card say first that a cut leaves none). No compaction on the device. Module code runs from flash through the cache, as MACRO's models do; the PC guard
+  is widened to the end of the highest registered module, set before the guard is armed and moved again after an install or a remove (0.10.1). The loader (oc_module.c) looks at both starts at boot, after the
+  pack check, and refuses, each with its own state: not a module, a torn header, another interface, another table address or a longer table, a field out of range
+  (link address, length, engine_t address, an engine number a module may not supply, state size, another build's pack), a bad CRC; a valid module is put in
+  the engine table (80 bytes of RAM, `ENGINES[]` is no longer in flash). Whether a module takes the slot of an engine that is also built in is a build switch
+  (`OC_MODULE_WINS`; the Orange Cat set turns it on and keeps the built-in SHAPES as the fallback). Built out (MELODEE_SHAPES=0) the slot is empty until a
+  module supplies it; the image is 23,236 bytes smaller and the module area holds the 23,780.
 - **Interface identifier (built, 0.9.0).** A 32-bit hash of the text of fw_api_t, param_desc_t, voice_t, vmod_t, preset_t,
   engine_t and track_t with the four sizes the text cannot show (tools/gen_fw_api_id.py, FW_API_IFACE), computed at build
   time for the firmware and each module; the module's header carries it and fw_module_check refuses any other, a longer
   table or a later version. In the plan it was "parameter ids and the function table" as well; the table is fw_api_t and the
-  parameter ids are in track_t's layout. Nothing in the image calls the check yet. A mismatch is refused before
+  parameter ids are in track_t's layout. The loader calls the check at boot (0.10.0). A mismatch is refused before
   registration; a firmware update that changes it disables the modules until matching packages are installed.
   A frozen interface with a version number comes once modules exist.
 - **Install and activate are two checks.** Installing needs a matching identifier, a free span and a good CRC and
-  reserves no RAM. Assigning the engine to a track needs its state in the audio arena, voice units within the
-  budget and render cost within the budget file; a refusal keeps the track's engine and says why.
+  reserves no RAM. Assigning the engine to a track needs (built, 0.11.0) its state in the audio arena and one voice within the voice budget; a refusal keeps the track's engine and its sound
+  and says ENGINE TOO HEAVY or NO ROOM on the screen, and in a fourth byte of the editor's PRESET reply. The firmware has no run-time render budget (MELODEE_ADMISSION is off, the audio loop is not timed
+  per engine), so the render cost in the plan's wording is not checked yet: the module header carries it (`cost`, from the lines of tests/target_budget.txt that the module names; SHAPES names none, so 0, not measured) for the day a budget exists.
+- **The update loader's record rule (0.10.1).** After an update the loader erases any data sector from 0x93000 to 0xFC000 whose last 256 bytes, read as 80, have 0x5441 at bytes 6 to 7
+  and a non-zero first word equal to the CRC-16 of bytes 2 to 79. The pack has been laid out to avoid it since 0.8.0. A module is too: tools/build.py moves the code on 4 bytes at a time until
+  no sector tail of the image matches (and writes no package if none passes), the installer refuses a module whose tails match before it commits (rc 8), and the loader does not register one (state "badtail").
+- **Safety: the PC guard and a module (0.10.1).** The chip has two PC limit register pairs; one is the SRAM code window, so instruction fetch from flash has one window. With no module registered it is
+  [0x02000120, _etext]. With one registered it reaches to the module's last byte, and the pack and the library between are inside it. The cost: **while a module is registered, a wild jump into the pack or
+  the library is not caught by the guard** (the data would run as code). Writes there are still refused and the bus guard still catches unmapped space. The window returns to _etext when the last module goes, in a running session
+  too (a bug of 0.10.0 left the old window until the next reset).
 - **Identity.** An engine keeps its number; a project whose engine is not installed plays that track silent and
-  flagged, with every byte kept (3.3). Frozen phrases play regardless. A crash after loading a module disables
-  it on the next start.
+  flagged, with every byte kept (3.3). Frozen phrases play regardless. A crash in the first 30 s of a boot in which a track played a registered module bans it
+  at the next start (state "stopped") until the unit loses power or the module is installed or removed (built, 0.10.0). From 0.10.1 a crash later in a session counts too: a flag that only an orderly
+  reset clears marks a session that died, and three such sessions in a row, each with the module's engine on a track, ban it; the home screen says MODULE BANNED with the engine's name once.
 - **Not every engine need be a module.** Moving code to the area frees the body and fills the area; the flash is
   the same. Which engines stay built in is decided on measured sizes (MACRO 38.2 KB of code and metadata, SHAPES
   21.7 KB (23.8 KB as built), the Prophet 30.2 KB plus its tables, DRUM 51.4 KB and 33.5 KB of RAM; DRUM-X, built in, 10.2 KB
   of flash with the drum grid code it makes live and 640 B of state a track in the arena; see the plan).
 
-Order: the shared-editor cleanup and the stack fix, DRUM-X, the flash map adopted, the asset pack, the interface identifier (these
-done in 0.7.2 to 0.9.0, off the unit), then SHAPES as a module installed from the page and running after the computer is unplugged and the FM-1 restarted,
-then the engines tab, the admission check and the card.
+Order: the shared-editor cleanup and the stack fix, DRUM-X, the flash map adopted, the asset pack, the interface identifier, the library group, SHAPES as a
+module installed from the page or the card (these done in 0.7.2 to 0.10.0, off the unit), then the proof on the unit (install, unplug, restart, play SHAPES from the
+module, then with SHAPES built out), then the engines tab, the admission check and the rest of the card.
 
 ## 9. Modulation, Mixing, and Effects
 

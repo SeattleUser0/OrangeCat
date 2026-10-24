@@ -28,7 +28,7 @@ enum { ED_SLOT_INFO = 110, ED_SLOT_BEGIN, ED_SLOT_WRITE, ED_SLOT_END, ED_SLOT_ER
 enum { ED_PACK_INFO = 115, ED_PACK_BEGIN, ED_PACK_WRITE, ED_PACK_END, ED_PACK_ERASE };
 /* (Orange Cat 0.10.0) loadable engine modules (oc_module.c): 120..124. The pack's ids and payloads are unchanged; the module has its own ids because the pack's
  * BEGIN already carries an optional byte (older pages sent one), so an area selector in it would be ambiguous. */
-enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE };
+enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE, ED_ENGINES };   /* (0.11.0) 125 ED_ENGINES: the engine list */
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
 enum { ED_CORE1_TEST = 79 };                         /* test builds only: CPU1 failure injection */
 static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
@@ -314,6 +314,8 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
         return !n;
     case ED_MOD_INFO:
         return n <= 1u;
+    case ED_ENGINES:
+        return !n;
     case ED_GET: case ED_DESC: case ED_PRESET: case ED_PROJECT: case ED_UP_LIST:
     case ED_TRACK_PARAM:
         return n == 2u || (cmd == ED_TRACK_PARAM && n == 4u) || (cmd == ED_PRESET && n == 3u);
@@ -349,6 +351,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     uint32_t na = n - 4u;
     int16_t *vp;
     const param_desc_t *d;
+    int adm = 0;                                          /* (0.11.0) the admission result of an engine change (eng_admit) */
     if (!ed_args_ok(cmd, a, na))
         return;
     if(cmd==ED_SET || (cmd==ED_TRACK_PARAM && na==4u) || cmd==ED_FM6_PUT || cmd==ED_CZ_PUT || (cmd==95u && na && a[0]>=1u && a[0]<=3u))momentary_restore();
@@ -728,7 +731,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         if (cmd == ED_SET && na >= 4u && !(a[0] ? global_reserved(a[1]) : param_reserved(a[1])) && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
             if (a[0] == 1 && a[1] == G_ENGSEL) {          /* engine change: the safe path */
-                set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
+                {   uint32_t ne = (uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1);
+                    int adm = eng_admit(TSEL, ne);                       /* (0.11.0) a module's engine only when the unit can carry it */
+                    if (adm) ui_message(eng_admit_text(adm)); else set_engine(ne);
+                }
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
                 if (a[0] == 1 && (a[1] == G_A4 || a[1] == G_BUDGET))
@@ -790,15 +796,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_PRESET:                                        /* engine, preset */
         if (na < 2u || a[0] >= NENGINES)
             return;
+        adm = 0;
         {
-            if (a[0] != TSEL->eng_req)
-                set_engine(a[0]);
-            apply_preset(a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* [, high bits]: PROPHET has 201 */
+            if (a[0] != TSEL->eng_req) {
+                adm = eng_admit(TSEL, a[0]);                      /* (0.11.0) refused: the track keeps its engine and its sound */
+                if (adm) ui_message(eng_admit_text(adm));
+                else set_engine(a[0]);
+            }
+            if (!adm)
+                apply_preset(a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* [, high bits]: PROPHET has 201 */
         }
         ui.force = 1;
         ed_b(ed_eng(TSEL));
         ed_b(TSEL->preset);
         ed_b(TSEL->preset >> 7);
+        if (adm)
+            ed_b((uint8_t)adm);                                   /* (0.11.0) a fourth byte only on a refusal: 1 ENGINE TOO HEAVY, 2 NO ROOM */
         break;
     case ED_PROJECT:                                       /* 0 = load, 1 = save, 2 = query; slot 0..3 */
         if (na < 2u || a[0] > 2u || a[1] >= 4u)
@@ -912,12 +925,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     }
 #endif
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
-    case ED_MOD_INFO: {                                    /* [engine] -> nstarts, sectors of the area, flags (1 SHAPES built in, 2 a module wins a built-in slot, 4 an install is under way),
+    case ED_MOD_INFO: {                                    /* [engine] -> nstarts, sectors of the area, flags (1 SHAPES built in, 2 a module wins a built-in slot, 4 an install is under way,
+                                                            * 8 (0.10.1) the install the plan names is in place: no other start is free, so the old module is erased first and a power cut leaves none),
                                                             * api_version, api_size, iface (5 x 7 bits), api_addr (5 x 7), pack_hash (5 x 7), the start an install of `engine` goes to
                                                             * (0, 1, or 127 none; 127 too without the argument), then per start: state (MD_*), why, engine, length (3 x 7) */
         int plan = na ? oc_mod_plan(a[0]) : -1;
         ed_b(OC_MOD_STARTS); ed_b(12);
-        ed_b((MELODEE_SHAPES ? 1u : 0u) | (OC_MODULE_WINS ? 2u : 0u) | (mw.writing ? 4u : 0u));
+        ed_b((MELODEE_SHAPES ? 1u : 0u) | (OC_MODULE_WINS ? 2u : 0u) | (mw.writing ? 4u : 0u) | (plan >= 0 && oc_mod_inplace(a[0], (uint32_t)plan) ? 8u : 0u));
         ed_b(FW_API_VERSION); ed_b(sizeof(fw_api_t));
         for (i = 0; i < 5u; i++) ed_b(FW_API_IFACE >> (7u * i));
         for (i = 0; i < 5u; i++) ed_b(FW_API_ADDR >> (7u * i));
@@ -929,11 +943,43 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
         break;
     }
+    case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;
+                                                            * 2 a module), module state (MD_*; 0 none), why, start (0, 1 or 127 none), version (3 x 7 bits: major, minor, patch), length (3 x 7 bits),
+                                                            * tracks that hold it (count); then nstarts and per start: state, why, engine (so a torn start, which names no engine, is seen).
+                                                            * A number with a module that was found but is not registered (refused, banned, wrong tail ..) says its state and start with source 0 or 1. */
+        uint32_t e, s, k, src, st, why, at, ver, len, use;
+        ed_b(NENGINES);
+        for (e = 0; e < NENGINES; e++) {
+            src = eng_mod[e] ? 2u : eng_ok(e) ? 1u : 0u;
+            st = why = ver = len = 0; at = 127u;
+            for (s = 0; s < OC_MOD_STARTS; s++) {
+                if (oc_mod.state[s] == MD_EMPTY || oc_mod.state[s] == MD_TORN || oc_mod.engine[s] != e)
+                    continue;
+                if (at != 127u && eng_mod[e] != oc_mod_hdr_ptr(s))
+                    continue;                                       /* (two for one number: the registered one is shown) */
+                st = oc_mod.state[s]; why = oc_mod.why[s]; at = s; ver = oc_mod.version[s]; len = oc_mod.length[s];
+                if (eng_mod[e] == oc_mod_hdr_ptr(s))
+                    break;
+            }
+            for (k = use = 0; k < NTRK; k++)
+                use += trk[k].eng_req == e;
+            ed_b(src); ed_b(st); ed_b(why); ed_b(at);
+            ed_b(ver >> 16); ed_b(ver >> 8); ed_b(ver);
+            ed_b(len); ed_b(len >> 7); ed_b(len >> 14);
+            ed_b(use);
+        }
+        ed_b(OC_MOD_STARTS);
+        for (s = 0; s < OC_MOD_STARTS; s++) {
+            ed_b(oc_mod.state[s]); ed_b(oc_mod.why[s]); ed_b(oc_mod.engine[s]);
+        }
+        break;
+    }
     case ED_MOD_BEGIN: case ED_MOD_WRITE: case ED_MOD_END: case ED_MOD_REMOVE: {
         /* BEGIN engine, start, length (3 x 7 bits); WRITE offset (3 x 7 bits) then up to 256 bytes packed 7-bit, in order from byte 256; END the 256-byte header page
          * packed 7-bit (programmed last); REMOVE engine (127: the whole area). -> rc: 0 done, 1 refused (not the planned start, a bad length, out of order, a header
          * that does not match the code or this firmware), 2 the flash failed or the transport is running (stop it first), 4 the move of the old preset pairs has not
-         * finished (restart the unit), 5 no start free, 7 written but not readable as a module; then the bytes written so far (3 x 7 bits). */
+         * finished (restart the unit), 5 no start free, 7 written but not readable as a module, 8 (0.10.1) a sector of the module ends like an update loader record and
+         * would be erased by an update (nothing is committed); then the bytes written so far (3 x 7 bits). */
         uint32_t rc = 1, v = na >= 3u ? a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 : 0u, got;
         int r = 0;
         if (transport_busy()) rc = 2;
@@ -943,7 +989,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             else if (cmd == ED_MOD_END && ed_unpack7(a, na, ed_smp_buf, 256u) == 256u) r = oc_mod_end(ed_smp_buf);
             else if (cmd == ED_MOD_REMOVE && na == 1u) r = oc_mod_remove(a[0]);
             else r = -1;
-            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : r == -7 ? 7u : 2u;
+            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : r == -7 ? 7u : r == -8 ? 8u : 2u;
         }
         ed_b(rc); ed_b(mw.done); ed_b(mw.done >> 7); ed_b(mw.done >> 14);
         break;

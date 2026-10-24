@@ -1359,7 +1359,7 @@ static void persist_boot(void)                    /* before settings_init / pane
                                                    /* areas the pack and the module take (an error is retried at the next boot) */
     oc_pack_boot();                                /* (Orange Cat 0.8.0) the asset pack there? SHAPES and MACRO play only with it */
 #if OC_MODULES
-    oc_mod_boot(bootguard.failed);                 /* (0.10.0) a module in the module area, checked, in the engine table; before the PC guard is armed */
+    oc_mod_power_on(bootguard.failed);                 /* (0.10.0) a module in the module area, checked, in the engine table; before the PC guard is armed */
 #endif
 #if MELODEE_SLICE
     slc_store_boot();                              /* (the scans read each slot's stored slices) */

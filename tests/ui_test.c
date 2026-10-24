@@ -6083,6 +6083,59 @@ static int test_pack_boot_notice(void)
     return bad;
 }
 #endif
+/* (Orange Cat 0.11.0) Admission at assignment: a fake module header and engine_t in the table, the engine given to the selected track by the
+ * browser's ENGINE knob path (select_engine) and by a preset load (preset_go's path). The cost word is carried, not used: no render budget exists. */
+static uint32_t adm_big_units(const struct track *tt) { (void)tt; return 1000u; }
+static int test_admission(void)
+{
+    int bad = 0;
+    static fw_mod_hdr_t fh;
+    static engine_t fe;
+    uint32_t k, others = 0, cap = RESOURCE_CAPACITY, sel = song.sel;
+    const engine_t *save_e = ENGINES[ENGI_SHAPES];
+    const fw_mod_hdr_t *save_h = eng_mod[ENGI_SHAPES];
+    track_t *t = &trk[sel];
+    uint32_t was = t->eng_req;
+    fe = *ENGINES[ENGI_SHAPES];
+    fe.name = "FAKE";
+    fh.magic = FW_MOD_MAGIC; fh.engine = ENGI_SHAPES; fh.state_size = 1234u; fh.cost = 99999u;     /* a cost far over anything: it must not matter */
+    ENGINES[ENGI_SHAPES] = &fe; eng_mod[ENGI_SHAPES] = &fh;
+    for (k = 0; k < NPART; k++)
+        if (k != sel)
+            others += (eng_state_size(trk[k].eng_req) + 3u) & ~3u;
+
+    bad += check("admission: a built-in engine is always admitted (no module in its slot)", eng_admit(t, ENGI_FM6) == 0 && eng_admit(t, ENGI_CZ) == 0);
+    fe.units = 0;
+    bad += check("admission: a module whose voice takes the default 2 units fits the budget: admitted", eng_admit(t, ENGI_SHAPES) == 0);
+    select_engine(ENGI_SHAPES);
+    bad += check("admission: select_engine gives the module's engine to the track", t->eng_req == ENGI_SHAPES);
+    t->eng_req = (uint8_t)was;
+
+    {   /* units above the whole voice budget: refused whatever the track's own values are */
+        fe.units = adm_big_units;
+        bad += check("admission: one voice heavier than the whole voice budget: ENGINE TOO HEAVY (1)", eng_admit(t, ENGI_SHAPES) == 1);
+        ui.msg_t = 0;
+        select_engine(ENGI_SHAPES);
+        bad += check("admission: select_engine refuses, says ENGINE TOO HEAVY, the track keeps its engine", t->eng_req == was && msg_is("ENGINE TOO HEAVY"));
+    }
+    fe.units = 0;
+    fh.state_size = cap + 4u;
+    bad += check("admission: a state larger than the arena: NO ROOM (2)", eng_admit(t, ENGI_SHAPES) == 2);
+    fh.state_size = cap - others + 4u;
+    bad += check("admission: the other tracks' engine states count: one word over what is left: NO ROOM", others == 0 || eng_admit(t, ENGI_SHAPES) == 2);
+    ui.msg_t = 0;
+    select_engine(ENGI_SHAPES);
+    bad += check("admission: select_engine says NO ROOM and the track keeps its engine", t->eng_req == was && (others == 0 || msg_is("NO ROOM")));
+    fh.state_size = (cap - others) & ~3u;
+    bad += check("admission: exactly what is left (to the word): admitted", eng_admit(t, ENGI_SHAPES) == 0);
+    fh.state_size = 1234u; fh.cost = 0;
+    bad += check("admission: the cost word does not decide (99999 admitted above, 0 here)", eng_admit(t, ENGI_SHAPES) == 0);
+
+    ENGINES[ENGI_SHAPES] = save_e; eng_mod[ENGI_SHAPES] = save_h;
+    t->eng_req = (uint8_t)was;
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -6169,6 +6222,7 @@ int main(void)
     bad += test_piano_roll();
     bad += test_fm6_charts();
     bad += test_stage_knobs_after_drum();
+    bad += test_admission();
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));
     printf(bad ? "ui: %d FAILED\n" : "ui: all passed\n", bad);

@@ -228,10 +228,11 @@ static int oc_pack_end(const void *h) { if (t_pk_at != OC_PACK_LEN) return -1; m
 #define FW_MOD_CODE_OFF 0x100u
 #define OC_PACK_HASH 0x5EEDu
 typedef struct { uint8_t z[60]; } fw_api_t;
-static int t_plan = 0, t_md_fail;
+static int t_plan = 0, t_md_fail, t_inplace;
 static uint32_t t_md_begun, t_md_engine, t_md_start, t_md_len, t_md_at, t_md_sum, t_md_ended;
 static uint8_t t_md_page[256];
 static int oc_mod_plan(uint32_t engine) { (void)engine; return t_plan; }
+static int oc_mod_inplace(uint32_t engine, uint32_t start) { (void)engine; (void)start; return t_inplace; }   /* (0.10.1) */
 static int oc_mod_begin(uint32_t engine, uint32_t start, uint32_t len)
 {
     t_md_begun++; t_md_engine = engine; t_md_start = start; t_md_len = len; t_md_at = FW_MOD_CODE_OFF; t_md_sum = 0;
@@ -1505,8 +1506,23 @@ static int t_folders(void)
         assert(!fb_ok()); fz_block();
         t_md_fail = 0; t_md_begun = 0;
         t_plan = 1;
+        t_inplace = 1;                                    /* (0.10.1) no other place free: the first OCT+ only says the old module is erased first */
         fb.sel = 2;
-        assert(fb_ok() && fb.st == FB_OFF && !uf_browse && fb_pack_done() == 2);
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Erases old first. Again") && !t_md_begun && fb.relist == 2u);
+        assert(!fb_ok() && fb.st == FB_READY && fb.sel == 2);        /* the word gone, the rows and the row kept */
+        fb.sel = 1;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Not a module"));   /* another row pressed: the question is dropped */
+        assert(!fb_ok()); fz_block();
+        fb.sel = 2;
+        assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, "Erases old first. Again") && !t_md_begun);   /* asked again for this row */
+        assert(!fb_ok() && fb.st == FB_READY);
+        assert(fb_ok() && fb.st == FB_OFF && !uf_browse && fb_pack_done() == 2 && t_md_begun == 1u);          /* the second OCT+ on the row goes on */
+        t_inplace = 0; t_md_begun = t_md_ended = 0;
+        fb_open(0);
+        for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block();
+        strcpy(fb.path, "/MODS"); fb.st = FB_LIST; fz_block();
+        fb.sel = 2;
+        assert(fb_ok() && fb.st == FB_OFF && !uf_browse && fb_pack_done() == 2);   /* beside: no question */
         assert(t_md_begun == 1u && t_md_ended == 1u && t_md_engine == 14u && t_md_start == 1u && t_md_len == 1000u && t_md_at == 1000u && t_md_sum == sum1 &&
                !memcmp(t_md_page, ocm + base + 1000u, 256));
         t_md_begun = t_md_ended = 0; t_plan = 0;
