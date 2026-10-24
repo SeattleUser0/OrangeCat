@@ -1,6 +1,6 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.10.0 (branch sonnet-work, not released, not yet tried on the unit)
+**Firmware:** 0.11.0 (branch sonnet-work, not released, not yet tried on the unit)
 **Date:** October 23, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
@@ -334,28 +334,36 @@ Erase pack in the web editor takes it out again. Do not unplug during an install
 missing and you install it again. Nothing is ever half installed. If the unit says to restart (the move of the old sounds has
 not finished), restart it and try again.
 
-## Engine modules (0.10.0, a proof of concept)
+## Engine modules (0.11.0, a proof of concept)
 
 SHAPES can play from a module kept in the unit's flash instead of from the firmware. The module comes with each release as
 orangecat-shapes-VERSION-COMMIT.ocm. It has to match the firmware. It takes none of your sounds. The firmware build in the repository
 keeps its own SHAPES as well, so if the module is missing, damaged, or switched off after a crash, SHAPES still plays.
 
+The Engines table (web editor, Settings tab) lists every engine number the unit knows: its name, whether it is built in or a module, the module's
+version and size, where it sits, its state (OK, refused with the reason, torn, banned) and how many tracks use it. Each row has its buttons: Install
+(a module number with no module), Replace, Remove.
+
 Install it from the computer:
 
 1. Stop the sequencer.
-2. Open the web editor, Settings tab. The Engine module box is there when the firmware has it.
-3. Press Install module and pick the .ocm file. The page checks that it is for this firmware before it sends anything.
-   The box then says the module is installed, checked and in use.
-4. Turn the unit off and on. SHAPES now plays from the module.
+2. Open the web editor, Settings tab, Engines. Press Install on the SHAPES row and pick the .ocm file. The page checks that it is for this firmware before it sends anything.
+   The row then says OK, Module.
+3. Turn the unit off and on. SHAPES now plays from the module.
 
 Install it from the card: put the .ocm on the card, open the clip browser, pick it (value Module) and press OCT+. The screen says MODULE INSTALLED.
 
-Remove module in the web editor takes it out. SHAPES plays from the firmware if it has its own, otherwise it goes silent. Your projects keep
-their engine choice either way. Installing a new module over an old one replaces it in place.
+Replace puts the new module in the other place and erases the old one only after the new one reads back good, so a power cut leaves the old module or the new one. If no
+other place is free, the page (or the card, with a second OCT+) says first that the old module is erased first and a power cut leaves none.
 
-If the unit stops within 30 seconds of power-on while a track was playing SHAPES from the module, the next power-on leaves the module
-out (the box says it stopped the unit) until you install it again, remove it, or turn the unit off and on once more.
-Do not unplug during an install; a cut install leaves no module, never half of one.
+Remove takes it out. SHAPES plays from the firmware if it has its own, otherwise it goes silent. Your projects keep their engine choice either way.
+
+If the unit stops while a track is playing SHAPES from the module, three times in a row, the next power-on leaves the module out and the home screen says MODULE BANNED SHAPES
+(a stop within 30 seconds of power-on bans it at once). It stays out until you install it again, remove it, or turn the unit off and on once more.
+Do not unplug during an install.
+
+A module whose engine is too heavy for the voice budget, or whose state does not fit the audio memory, is refused when you give it to a track: the screen says ENGINE TOO HEAVY or
+NO ROOM and the track keeps its engine and its sound.
 
 ## Saving and loading
 
