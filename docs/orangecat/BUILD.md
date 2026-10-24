@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.62  
+**Version:** 0.63  
 **Date:** October 23, 2026  
-**Tracks:** Orange Cat Specification v0.10
+**Tracks:** Orange Cat Specification v0.23
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -11,6 +11,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 ## Revision history
 
 - **0.60 (October 23, 2026):** docs for 0.9.0 final: the module experiment's finding (SHAPES builds as a separate 23,780 B object with 188 relocations; the toolchain links it at a fixed address only; no ROPI, RWPI or linkable PIC), the proof of concept's next steps in docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, SPEC 0.21, GUIDE (DRUM-X), web/EDITOR_PROTOCOL.md. See "Second run".
+- **0.63 (October 23, 2026):** 0.10.1 and 0.11.0 on branch sonnet-work (not on main, not released, not on the unit): the module's sector tails against the update loader's record rule, replace beside the old module, the crash ban at any time in a session, the PC guard window (one fetch window; the cost written down; a window bug fixed), small things (12 sectors everywhere, one XIP function, the migration wall time); admission at assignment on voice units and the arena (no render budget exists); the Engines table and the engine list command 125; the unit procedure as one ordered checklist. See "Fourth run".
 - **0.62 (October 23, 2026):** 0.10.0 on branch sonnet-work (not on main, not released, not on the unit): SHAPES as a loadable module, the proof of concept's steps 1 to 6. The services table at a fixed address; `tools/build.py --module` and the .ocm package (23,780 B a start, no RAM of its own); the engine table in RAM; a loader that checks and registers modules at boot with a crash mark and a widened PC guard; an installer (commands 120 to 124), a Settings box on the web page and .OCM files in the card browser. A bug in step 2 found and fixed: the module was linked for XIP 0x020C8000 where flash 0xC8000 reads at 0x020C4000. Image 489,916 B (87,332 B free), .data+.bss 93,128 B, arena 95,104 B; built without SHAPES the image is 466,680 B. Step 7 (the unit) is the user's. See "Third run", Part 2.
 - **0.61 (October 23, 2026):** 0.9.1 on branch sonnet-work (not on main, not released, not on the unit): the user preset library moves from A/B pairs to a group of 23 sectors with one shared spare (lib_group.c). One-time migration at boot. The pack area is the pack's alone: no question about banks, no preset erased. Module area 12 sectors. Image 487,840 B (+296), 89,408 B free, .data+.bss 92,920 B (+144). Back up the unit before installing it. See "Third run".
 - **0.59 (October 23, 2026):** 0.9.0 on branch sonnet-work (not on main, not released, not on the unit): DRUM-X, Jiant FM's drum engine, in engine slot 9 behind MELODEE_DRUMX (on in the Orange Cat set): Jiant's voice sample for sample (288 of 288 renders equal), nine kits as presets, the grid, the LANES pages, 640 B of arena a track, voice code in flash. Image 487,544 B (+10,188), .data+.bss +32 B, arena -736 B, pool 0. The loadable-engine interface identifier (tools/gen_fw_api_id.py, FW_API_IFACE, fw_module_check). See "Second run".
@@ -83,7 +84,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 3 | Strip Melodee's engines | Done |
 | 4 | Port Skiff's sequencer and arranger | In progress |
 | 5 | Track views: tracker, step, pads | In progress |
-| 6 | Loadable engine study | Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); the library group built (0.9.1); SHAPES as a module built, installed from the page and the card, host tested and built in CI (0.10.0, steps 1 to 6). Next: step 7, the unit (docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "Left to test" below), then the engines tab and the admission check |
+| 6 | Loadable engine study | Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); the library group built (0.9.1); SHAPES as a module built, installed from the page and the card, host tested and built in CI (0.10.0, steps 1 to 6); the module's fixes, admission and the Engines table built (0.10.1 and 0.11.0, Fourth run). Next: the unit checklist (Fourth run), step 7 (docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "Left to test" below), then the engines tab and the admission check |
 | 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
 | 8 | Dynamic resources | Not started |
 | 9 | Sampling and bouncing | Not started |
@@ -1476,11 +1477,11 @@ Budgets and golden hashes unchanged. Total over the base commit 23fda9c (image 4
 
 **Decisions made without asking (you may disagree).**
 - Commands 120 to 124 for modules, not a selector on 115 to 119: the pack's BEGIN already carries an optional byte older pages send.
-- A replace is in place and a cut leaves no module (the built-in engine plays if it is there). The other way could leave the old module in use while the page says the new one went in.
+- (Superseded in 0.10.1: a replace is written beside the old module when a start is free; see the Fourth run.) A replace is in place and a cut leaves no module (the built-in engine plays if it is there). The other way could leave the old module in use while the page says the new one went in.
 - A remove or a replace does not rewrite any project: the track keeps engine number 14; the table answers for it. Voices and arena state of the tracks that play it are cleared first.
 - `OC_MODULE_WINS` is 1 in the Orange Cat set, with the built-in SHAPES kept in the image as the fallback. The module therefore adds to the flash; it does not save any until a build leaves SHAPES out (a 23,236 B smaller image against 23,780 B of module).
-- The crash mark sees only crashes in the boot guard's first 30 s, and bans until power loss, install or removal. It is not written to flash.
-- A module image's sector tails are not tested against the update loader's record rule (the pack's are; the generator lays the pack out to pass it). The chance is about 2^-32 a sector; a hit
+- (Extended in 0.10.1, Fix 3: a crash later in a session counts too.) The crash mark sees only crashes in the boot guard's first 30 s, and bans until power loss, install or removal. It is not written to flash.
+- (Fixed in 0.10.1, Fix 1.) A module image's sector tails are not tested against the update loader's record rule (the pack's are; the generator lays the pack out to pass it). The chance is about 2^-32 a sector; a hit
   would make the update loader erase that sector at the next update, and the module would then read as damaged and fall back.
 - The throwaway branch `exp/sonnet-noshapes` exists on the remote for the measurement only. Delete it when you like.
 
@@ -1516,6 +1517,134 @@ Budgets and golden hashes unchanged. Total over the base commit 23fda9c (image 4
 - New: `tests/module_build_test.py` (build.py's work against a stand-in toolchain: starts, link scripts, every header refusal, the package), `tests/module_host_test.c` (step 3), `tests/engine_table_test.c` (step 4, in three builds), `tests/oc_module_test.c` (steps 5 and 6: every refusal at both starts, torn header and code, an install cut off before its header page, two modules, removal, the crash mark, install, a cut at every program, every refusal at end, replace while a track plays it, remove, no free start, pairs unfinished; in three builds).
 - Extended: `tests/fw_api_test.c` (version 3, the new fields, single-bit refusals of the table address), `tests/editor_test.c` (commands 120 to 124 over a simulated flash with the module window), `tests/usb_host_test.c` (the card path: damaged table, stranger, another firmware, no place, no image, a flash error, the whole install), `web/test_web.mjs` (requests, replies, the package, every check the page makes), `tests/regress.c` (a guard only).
 - No golden hash or budget changed.
+
+## Fourth run (0.10.1 and 0.11.0, branch sonnet-work, October 23, 2026)
+
+**Status: the five fixes, admission, the Engines table and the documents are built, host tested and green in CI. Not tried on the unit. Not merged, not released.**
+Everything is on branch `sonnet-work`, from 9dbca48 (CI run 40037140192; image 489,916 B, 87,332 B free, .data+.bss 93,128 B, arena 95,104 B, pool 176,768 B).
+The last commit and the final numbers are at the end of this section.
+
+**Back up the unit before installing this firmware** (the first boot of 0.9.1 moves the presets; firmware before 0.9.1 cannot read the new group). Step 1 of the checklist below does it.
+
+### What was done
+
+| Item | Version | Status | Result |
+|---|---|---|---|
+| Fix 1. Sector tails against the update loader's record rule | 0.10.1 | Done | `tools/ocflash.py` (the rule, one copy for the pack and the module); `build.py --module` moves the code on 4 bytes at a time until no tail matches and writes no package if none passes; the installer refuses a bad module before the commit (rc 8); the loader gives it its own state (8, "badtail") and does not register it |
+| Fix 2. Replace beside, not in place | 0.10.1 | Done | a free start first; the old module is erased only after the new one passes the loader's checks read back from flash; in place only when no start is free, and the page and the card say so first; the header comment of oc_module.c now says what the code does |
+| Fix 3. Crash ban at any time | 0.10.1 | Done | a flag in noinit RAM, cleared only by an orderly reset (reset_intended); three sessions in a row that died with the module's engine on a track ban it; MODULE BANNED SHAPES once on the home screen; the 30 second rule stays |
+| Fix 4. PC guard window | 0.10.1 | Done | the chip has one flash fetch window (two limit pairs, one is the SRAM code window): the widening stays and its cost is written down. Found and fixed: install and remove did not move the window in a running session |
+| Fix 5. Small things | 0.10.1 | Done | module area 12 sectors in every comment; one XIP function (`ocflash.xip`) with a test against fm1_xip.h's text; the migration wall time (below) |
+| Part 2. Admission at assignment | 0.11.0 | Done on voice units and the arena | there is no render budget in the firmware; the cost word is in the header and is not used yet |
+| Part 3. Engines table and `ED_ENGINES` (125) | 0.11.0 | Done | the page lists every engine number with source, version, size, start, state, tracks; Install, Replace, Remove per row |
+| Part 4. Documents | | Done | this file, SPEC 0.23, GUIDE, ENGINE_LOADING_PLAN 0.8, web/EDITOR_PROTOCOL.md |
+
+**Fix 1 in short.** The update loader erases any data sector between 0x93000 and 0xFC000 whose last 256 bytes, read as 80, have 0x5441 at bytes 6 to 7 and a non-zero first
+word equal to the CRC-16 (poly 0x1021, init 0) of bytes 2 to 79. The chance for a given sector is about 2^-32, so this was a latent fault, not a likely one. The build, the page (before it
+erases anything), the installer (before it programs the header page) and the loader (at every boot) apply the one rule. Tests: `ocflash_test.py` runs the firmware's own C
+(ota_crc16, pk_crc16, pk_record_like) on 300 records beside the Python; `module_build_test.py` plants a record on sector 0's and sector 1's tail with a stand-in toolchain
+(the code moves 4 bytes and the link is run again; a record that moves with the code is refused with no package); `oc_module_test.c` plants records in the flash image.
+
+**Fix 2 in short.** Cut at every program (15) and every erase (12) of a replacement: the old module is the one that loads until the header page is committed, the new one after the old
+start's first erase, and in the one instant between both are valid and the lower start is used. Replacement with no free start; erase errors at begin; the card's question ("Erases old first. Again").
+
+**Fix 3 in short.** How an unclean reset is told from a clean one: the reset reason register cannot (a fault ends in a soft reset, as an orderly one does), so the firmware's own mark is used,
+`oc_modguard.run`, set at power-on and cleared by `reset_intended()` (UBOOT, an update, a test reboot). A boot that finds it set follows a session that died. A power loss clears the RAM,
+so a ban never survives power loss (as before). The count is per start and counts only sessions in which a track held the module's engine.
+
+**Fix 4 in short.** With a module registered, a wild jump into the pack or the library is no longer caught by the guard (the window reaches the module's last byte). The window is back at
+_etext with no module registered, now also after a remove in a running session. The register write is two lines in `fm1_guard.h` and is checked on the unit; the arithmetic
+(`fm1_guard_pc_hi`) is tested on the host.
+
+**Part 2 in short.** Where eng_ok is asked there was nothing to extend: `eng_ok` says only whether a number can be picked. The check is `eng_admit` (ui.c), called at every place a user
+gives an engine to a track: the browser's ENGINE knob, a preset load that changes engine, the page's PRESET and engine select, the new-song roles, the sound designer. It refuses
+a module engine when one voice (asked of its `units`, edit values at their defaults) is more than `voice_budget()` (ENGINE TOO HEAVY), or when the state of every part's engine
+does not fit the arena (NO ROOM). A built-in engine is never refused and a project that holds the engine is not refused at load. The editor's PRESET reply gets a fourth byte (1 or 2) only
+on a refusal. The module header has a `cost` word (instructions a sample) which `build.py` sums from `tests/target_budget.txt` for the functions named in `tools/module/<name>.cost`; SHAPES
+has no line in the budget (it is not in the image the budget measures), so its cost is 0, not measured. The header also has a `version` word (SHAPES 1.0.0) that the engine list shows.
+The header is 60 bytes now (52 in 0.10.x); no 0.10.x module is on a unit.
+
+**Part 3 in short.** `ED_ENGINES` (125): per engine number source, module state, why, start, version, length and the tracks that hold it, then the starts (a torn start names no engine). The page's
+Engines table is built from that and the names of INFO. A firmware without 125 keeps the two buttons of 0.10.x.
+
+### Migration time (Fix 5)
+
+The flash is a Puya P25Q80H class NOR (JEDEC 0x856014). The Puya P25Q family's data sheets give a 4 KB sector erase of about 10 to 30 ms and a page program of about 0.5 to 2 ms, typical (I read the
+P25Q32H sheet: erase 10 ms typical, 15 ms maximum; page program 2 ms typical, 3 ms maximum; the P25Q80H sheet itself I could not read). The driver (hal/fm1_flash.h) waits up to 500 ms for an erase
+and 10 ms for a program. The 0.9.1 migration is 66 erases and 352 programs: about 1 to 3 s, once, at the first boot. The worst case the driver allows is about 36 s. More than 5 s is a finding.
+
+### Decisions made without asking (you may disagree)
+
+- Admission uses voice units and the arena only. There is no render budget in the firmware (`MELODEE_ADMISSION` is 0, "enable only with a calibrated performance contract"), so the cost word is carried, not used. A single voice
+  heavier than the whole voice budget is the only "too heavy" case, which SHAPES (2 to 4 units against 8 to 32) never meets; the refusal paths are tested on the host with a fake module only.
+- The module header grew to 60 bytes (cost, version). A 0.10.0 module no longer loads. None was ever on a unit.
+- The crash count needs the module's engine on a track in the session that died. A session in which nothing held the engine does not count against the module, and sets the count back to 0.
+- A power loss forgets the count and the ban (noinit RAM), as the 30 second ban always did. Nothing is written to flash.
+- The single PC window stays widened over the pack and the library while a module is registered. The only other way is to lose the module's guard altogether.
+- `fm1_guard_pc_window()` rewrites only LIMIT0_H, and only after the guard has been armed.
+- The Engines table hides retired engine numbers (name "-") unless a module was found for them or a module may supply them (14).
+- The Engines table shows the module's own version from its header, not the package file's name.
+- The throwaway branch `exp/sonnet-noshapes` is kept: this file and the unit procedure name it. It is brought to the current head (a merge, no force) so its build takes the current module. `exp/sonnet-sdkgrep` was deleted.
+- The wall time of the migration comes from the P25Q32H sheet of the same family, not the P25Q80H sheet.
+
+### Left to build
+
+- Step 7 of the proof of concept and what the unit shows (the checklist).
+- A render-time budget (the instruction counts per engine are a CI check, not a number the firmware reads), then the admission adds the sum over the tracks of cost times voice units.
+- A measured `cost` for SHAPES (a module measurement in `tests/target_budget.py`), then name its functions in `tools/module/shapes.cost`.
+- MACRO as a module (10 sectors: start 0 only, so SHAPES and MACRO do not both fit the 12 sector area), the Prophet as a module with its pages as data.
+- Time of a migration and of an install on the unit (estimated, not measured).
+
+### Left to test (on the unit): one ordered checklist
+
+Files, from the final CI run's `packages` artifact: the `.fwsc`, the `.pak` and `orangecat-shapes-....ocm`. For step 13, also the `.fwsc` of the run named at the end of this section
+(branch `exp/sonnet-noshapes`, the same code with SHAPES left out of the image). Do the steps in order. Each says what you should see. Send back whether each did, and the times asked for.
+
+1. **Backup.** Web editor, Backup, Save backup (the complete one). *See:* a file saved on the computer. Keep the old firmware file too.
+2. **Install the firmware.** Your usual installer path, with the `.fwsc`. *See:* the unit restarts and "MOVING PRESETS" shows once with a bar. Write down how long it ran (expected 1 to 3 s; over 5 s is a finding).
+   Afterwards every preset is in its bank. Power off and on again: no bar the second time.
+3. **Restore (optional, once).** Restore the backup of step 1 from the web page. *See:* the presets come back after the next boot. If you power off during the bar once, it finishes at the next power-on.
+4. **Pack.** Settings, Asset pack, Install pack, pick the `.pak`. *See:* "Pack installed", then "Pack installed and checked." No question about banks. Also once from the card (.PAK in the clip browser, OCT+).
+   Before this step a SHAPES or MACRO track is silent and the screen said PACK MISSING once at power-on; after it they play.
+5. **DRUM-X.** Give a track DRUM-X (the browser's ENGINE knob). *See:* it plays; the lanes strike; no restart. Play it for a few minutes with everything else running.
+6. **SHAPES built in.** Make a project with a SHAPES track and play it. Write down what it sounds like. *See:* the Engines table (Settings) lists SHAPES as Built in with an Install button and no module.
+7. **Install the module.** Stop the sequencer. Engines table, SHAPES row, Install, pick the `.ocm`. *See:* a count up, then "Module installed". The row says Module, OK, version 1.0.0, 23,780 bytes, start 0, and the number
+   of tracks that use it. Write down how long it took. The page did not ask any question (a free start was there).
+8. **Power cycle.** Unplug USB. Turn the unit off and on. Load the project and play SHAPES. *See:* it sounds as in step 6, all 24 presets. Plug the computer in: the row still says Module, OK. (The built-in SHAPES is still in
+   this firmware, so the ear cannot tell the two apart; step 13 does.)
+9. **Replace beside.** Stop the sequencer. Press Replace on the row, pick the same `.ocm`. *See:* no question about erasing first. When it is done the row says start 1 (the other place) and OK; the project still plays SHAPES.
+10. **Cut mid-install.** Stop the sequencer. Press Replace again. When the page shows about half, pull the power (and the cable). Power on. *See:* SHAPES still plays, from the old module or the new one. The Engines table shows one OK
+    module. If it shows a row "Torn", press Remove on that row. (Either result is right; a unit with no working SHAPES module at all is a finding.)
+11. **Card path.** Put the `.ocm` on the card. Clip browser, pick it (value Module), OCT+. *See:* MODULE INSTALLED on the screen. The Engines row moves to the free start. No "Erases old first" question appears (a start is free).
+12. **Update with the module installed.** Install the same `.fwsc` again over itself (the update loader runs). *See:* the module is still OK afterwards (the loader left its sectors alone) and SHAPES plays.
+13. **The module alone.** Install the `.fwsc` of the noshapes build over the first. The pack and the module stay. *See:* the Engines row for SHAPES says Module (not Built in) and OK; SHAPES plays, 24 presets, from the module only.
+14. **Remove and install again.** Press Remove on the row, confirm. *See:* SHAPES goes silent on the track; the project still shows SHAPES; the row says no module and offers Install. Install it again from the page: SHAPES plays again (after the next power-on if not at once).
+15. **Admission.** Give a track SHAPES with the ENGINE knob, with GLO > GLOBAL BUDGET at its lowest (8). *See:* it is taken (the module's voices are 2 to 4 units; the lowest budget is 8). ENGINE TOO HEAVY or NO ROOM would show only for an engine this unit cannot carry; SHAPES is not one.
+16. **The ban.** Do not try to provoke it. If the unit restarts three times in a row while SHAPES plays from the module (once, within 30 s of power-on), the next boot shows MODULE BANNED SHAPES once on the home screen and the Engines row says Banned with its reason.
+    It is lifted by installing, removing, or turning the unit off and on. Report any restart you did not cause: what was playing and how long after power-on.
+17. **The guard.** Nothing to do. With a module registered a wild jump into the pack or the library is not caught (see Fix 4). If the screen ever shows a fault report, send the text.
+
+What to send back: for each step, whether it did what it says, the times asked for (steps 2 and 7), and anything that restarted.
+
+### Sizes and CI
+
+Run 40051607092 (the code of Parts 1 to 3, no `.ci_quick`, full suite): image 491,620 B, 85,628 B free, .data+.bss 93,128 B of 98,304, arena 95,072 B, pool 176,768 B. Over the base
+9dbca48 (image 489,916 B, 87,332 B free, arena 95,104 B): image +1,704 B, free -1,704 B, RAM +0, arena -32 B, pool 0. No golden hash or budget changed. The run before it (40050939555) failed one lint, an
+8 digit address constant in oc_module.c outside hal/; fixed.
+
+@@FINAL@@
+
+### Tests added or changed
+
+- Fix 1: `tests/ocflash_test.py` (new, in run_tests.sh): xip against fm1_xip.h's text, crc16 and the record rule against the firmware's own C on 300 records, the loader's text. `module_build_test.py`: the padding path with a stand-in toolchain
+  (moves, sector 1, never passes, no package). `oc_module_test.c`: tail tests (installer rc 8 before the commit, loader state 8). `editor_test.c`, `test_web.mjs`: rc 8, the page's own tail test.
+- Fix 2: `oc_module_test.c`: replace beside, a cut at every program (15) and every erase (12), no free start, erase errors; `usb_host_test.c`: the card's question; `editor_test.c`, `test_web.mjs`: flag 8. `persistence_test.c`: `erase_fail_after`.
+- Fix 3: `oc_module_test.c`: three deaths ban, a clean reset between breaks the streak, a death without the engine in use breaks it, a power loss forgets it, unban lifts it, the notice shows once, the 30 second rule also tells the screen.
+- Fix 4: `oc_module_test.c`: the window with none, one, a second for the same engine, and after a remove in a running session; `fm1_guard_pc_hi`.
+- Part 2: `ui_test.c` `test_admission` (built-in always admitted, a module admitted, too heavy, a state over the arena, the other tracks' states counted, exact fit, the cost word not deciding); `editor_test.c` `admission_protocol` (the fourth byte, the track keeps its engine);
+  `test_web.mjs` (the parse); `module_build_test.py` (the cost sum, the 60 byte header). Existing tests adapted to the 60 byte header: `module_build_test.py`, `oc_module_test.c`.
+- Part 3: `editor_test.c` (the reply byte for byte, a banned module, an argument refused); `test_web.mjs` (the parse and the rows: OK, built in, absent, banned, refused, torn, wrong tail).
+- Found on the way: a module's translation unit (tools/module/shapes_mod.c) must not define `oc_modguard` (core.h now leaves it out under `OC_MODULE`); `module_host_test` caught it.
 
 ## Phases 8 to 11
 

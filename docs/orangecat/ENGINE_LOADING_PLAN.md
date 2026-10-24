@@ -1,6 +1,6 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.7
+**Version:** 0.8
 **Date:** October 23, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) has its proof of concept built in 0.10.0 on the same branch ("The SHAPES module, as built"):
@@ -10,6 +10,11 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.8: the proof of concept after review (0.10.1 and 0.11.0). 0.10.1: the sector tails against the update loader's record rule (Fix 1), a replacement written beside the old module (Fix 2), the crash ban at any
+  time in a session (Fix 3), the PC guard window (Fix 4: one fetch window only, so the widening stays and its cost is written down; the window follows install and remove in a running session), small
+  things (Fix 5: 12 sectors everywhere, one XIP function, the migration wall time). 0.11.0: admission at assignment (voice units and the arena; no render budget exists, the cost word is carried),
+  the Engines table and the engine list command 125, the 60 byte module header (cost, version). Sections "The fixes after the proof of concept (0.10.1)", "Admission at assignment (0.11.0)" and
+  "The Engines table and the engine list command (0.11.0)" below; the unit procedure is the checklist in BUILD.md, "Fourth run".
 - 0.7: option (d) built (0.9.1): the library lives in one group of 23 sectors with a shared spare (storage.c, lib_group.c); the
   old pairs move in at boot, once, before the pack check; the PACK area is the pack's alone (the installer asks nothing,
   erases no preset); the MODULE area is 12 sectors (0xC8000..0xD3FFF) because 23 sectors do not exist outside the two areas
@@ -749,15 +754,15 @@ Nothing here has run on the unit. Source: firmware/src/oc_module.c (loader and i
 **Decisions made while building.**
 - The module commands are 120 to 124, not the pack's 115 to 119 with an area selector. The pack's BEGIN already carries an optional byte that older pages send and the
   firmware ignores, so a selector in that place would be ambiguous. The pack's commands and payloads are unchanged.
-- A replace is in place. `oc_mod_plan` names the start that holds a module of the engine; begin takes the engine out of the table, clears the voices and the arena state of the
+- (Superseded in 0.10.1, Fix 2: beside when a start is free.) A replace is in place. `oc_mod_plan` names the start that holds a module of the engine; begin takes the engine out of the table, clears the voices and the arena state of the
   tracks that play it (the project's engine numbers are not changed), and erases the old module before the new one is written. A cut leaves no module: the built-in engine
   plays when it is built in, otherwise the track is silent. The other way (write beside, erase after) leaves two valid modules for a moment, and with the lower start winning,
   a cut could leave the old one in use while the page says the new one went in.
-- Free start rule: the start that holds the engine; else the first empty; else the first that holds something this firmware cannot use (another firmware's module, damage, a
+- (0.10.1: a free start first, the start that holds the engine only when none is free.) Free start rule: the start that holds the engine; else the first empty; else the first that holds something this firmware cannot use (another firmware's module, damage, a
   cut-off install); else none (rc 5). With one engine a module may supply, "none" cannot happen outside a test.
 - `OC_MODULE_WINS` is 1 in the Orange Cat set (tools/orangecat_engines.sh) and the built-in SHAPES stays in the image, so a skipped module costs nothing but its place.
   With 0 the built-in engine keeps the slot and a valid module is "installed, not used".
-- The crash mark sees what the boot guard sees: a boot that dies in 30 s. A module that crashes later is not noticed.
+- (Extended in 0.10.1, Fix 3.) The crash mark sees what the boot guard sees: a boot that dies in 30 s. A module that crashes later is not noticed.
 - The PC guard has one window for flash. With a module registered it ends at the module's last byte, so the flash between the image and the module (the pack, the library) is
   inside it. With none the window is what it was.
 
@@ -770,12 +775,13 @@ Nothing here has run on the unit. Source: firmware/src/oc_module.c (loader and i
 | step 4 | 40033456492 | 488,192 | 89,056 | 92,936 | 95,232 | 176,768 |
 | step 6 (loader, installer, page, card) | 40035050715 | 489,916 | 87,332 | 93,128 | 95,104 | 176,768 |
 | the same with SHAPES built out | 40035076669 | 466,680 | 110,568 | 93,128 | 95,104 | 176,768 |
+| 0.10.1 fixes, 0.11.0 admission and Engines table (full suite) | 40051607092 | 491,620 | 85,628 | 93,128 | 95,072 | 176,768 |
 
 The loader, installer, commands and card path cost 1,724 B of image and 192 B of RAM over step 4 (including the engine tables' 160 B of RAM). The arena is back at the base commit's
 95,104 B (Part 1 had made it 128 B larger). The module is 23,780 B a start in the module area (48 KB). The module area holds the module; the image without SHAPES is 23,236 B smaller than with it.
 A module is therefore a move of about 23 KB from the image to a place that is otherwise empty, not a saving of flash overall. The target budgets and the golden hashes did not change.
 
-**Step 7, what the unit must show** (the procedure is in BUILD.md, "Left to test"):
+**Step 7, what the unit must show** (the ordered procedure is the checklist in BUILD.md, "Fourth run"):
 1. The web page installs the module (Settings, Engine module) with the transport stopped, and its state line says installed and checked.
 2. After unplugging the computer and a power cycle, SHAPES plays from the module: it sounds as the built-in did (24 presets), and Engine module still says installed.
 3. With the built-in SHAPES left in, a damaged module (not tested on the unit by design: the host covers it) falls back to the built-in engine.
