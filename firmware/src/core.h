@@ -613,10 +613,11 @@ struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".n
  *            watchdog, a CPU exception, a hang. A power loss clears the RAM and with it this word.
  *   unclean  0.10.1: per start, how many sessions in a row died with that module's engine in use (three bans it)
  *   notice   0.10.1: per start, banned at this boot and not yet told on the screen (oc_mod_ban_notice)
- * The magic is new in 0.10.1 (the layout grew): RAM that kept the old layout across an update reads as fresh. */
-#define OC_MODGUARD_MAGIC 0x4D4F4432u                          /* "MOD2" */
+ * The magic is new in 0.10.1 (the layout grew): RAM that kept the old layout across an update reads as fresh. 0.12.1: three starts (unclean[3]; the
+ * word is the same size), so the magic changed again. */
+#define OC_MODGUARD_MAGIC 0x4D4F4433u                          /* "MOD3" (0.12.1: three starts) */
 #ifndef OC_MODULE                                               /* (a module's own translation unit, tools/module/shapes_mod.c, has no RAM of its own) */
-struct { uint32_t magic, inuse, banned, run; uint8_t unclean[2], notice, pad; } oc_modguard __attribute__((section(".noinit")));
+struct { uint32_t magic, inuse, banned, run; uint8_t unclean[3], notice; } oc_modguard __attribute__((section(".noinit")));
 #endif
 #endif
 static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
@@ -624,7 +625,7 @@ static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an
     bootguard.pending = 0;
 #if OC_MODULES && !defined(OC_MODULE)
     oc_modguard.run = 0;                        /* (0.10.1) an orderly end: the module crash count starts again */
-    oc_modguard.unclean[0] = oc_modguard.unclean[1] = 0;
+    oc_modguard.unclean[0] = oc_modguard.unclean[1] = oc_modguard.unclean[2] = 0;
 #endif
 }
 

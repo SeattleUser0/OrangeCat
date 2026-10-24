@@ -870,11 +870,11 @@ static int admission_protocol(void)
     return bad;
 }
 
-/* (0.12.0, Part 3) a module image for `engine` at `start` made and installed through the commands (BEGIN, WRITE, END); returns END's rc, or 100 + the first refusal */
-static uint32_t install_image(uint32_t engine, uint32_t start, uint32_t len)
+/* (0.12.1) a module image for `engine` linked for `start`, as the installer would send it */
+static uint8_t im[3000];
+static void make_image(uint32_t engine, uint32_t start, uint32_t len)
 {
-    static uint8_t im[3000], q[600];
-    uint32_t off, n, link = oc_mod_link(start);
+    uint32_t off, link = oc_mod_link(start);
     fw_mod_hdr_t g;
     for (off = FW_MOD_CODE_OFF; off < len; off++) im[off] = (uint8_t)(off * 3u + engine);
     memset(im, 0, FW_MOD_CODE_OFF);
@@ -884,6 +884,13 @@ static uint32_t install_image(uint32_t engine, uint32_t start, uint32_t len)
     g.crc = ocs_crc32(im + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
     memcpy(im, &g, sizeof g);
     ((fw_mod_hdr_t *)im)->hcrc = ocs_crc32(im, FW_MOD_HDR_BYTES - 4u);
+}
+/* (0.12.0, Part 3) a module image for `engine` at `start` made and installed through the commands (BEGIN, WRITE, END); returns END's rc, or 100 + the first refusal */
+static uint32_t install_image(uint32_t engine, uint32_t start, uint32_t len)
+{
+    static uint8_t q[600];
+    uint32_t off, n;
+    make_image(engine, start, len);
     q[0] = (uint8_t)engine; q[1] = (uint8_t)start; q[2] = (uint8_t)(len & 127u); q[3] = (uint8_t)(len >> 7 & 127u); q[4] = (uint8_t)(len >> 14);
     request(ED_MOD_BEGIN, q, 5);
     if (host_wire[5]) return 100u + host_wire[5];
@@ -922,12 +929,12 @@ static int module_protocol(void)
 
     a[0] = ENGI_SHAPES;
     request(ED_MOD_INFO, a, 1);
-    bad += check("MOD_INFO: two starts, 12 sectors, this firmware's table version, size, identifier, address and pack hash; the plan is start 0; both empty",
-                 host_wire[5] == 2 && host_wire[6] == 12 && host_wire[8] == FW_API_VERSION && host_wire[9] == sizeof(fw_api_t) &&
+    bad += check("MOD_INFO: three starts (0.12.1), 12 sectors, this firmware's table version, size, identifier, address and pack hash; the plan is start 0; all empty; no blocker (127)",
+                 host_wire[5] == 3 && host_wire[6] == 12 && host_wire[8] == FW_API_VERSION && host_wire[9] == (sizeof(fw_api_t) & 127u) &&
                  (host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14 | (uint32_t)host_wire[13] << 21 | (uint32_t)host_wire[14] << 28) == FW_API_IFACE &&
                  (host_wire[15] | host_wire[16] << 7 | host_wire[17] << 14 | (uint32_t)host_wire[18] << 21 | (uint32_t)host_wire[19] << 28) == FW_API_ADDR &&
                  (host_wire[20] | host_wire[21] << 7 | host_wire[22] << 14 | (uint32_t)host_wire[23] << 21 | (uint32_t)host_wire[24] << 28) == OC_PACK_HASH &&
-                 host_wire[25] == 0 && host_wire[26] == MD_EMPTY && host_wire[32] == MD_EMPTY);
+                 host_wire[25] == 0 && host_wire[26] == MD_EMPTY && host_wire[32] == MD_EMPTY && host_wire[38] == MD_EMPTY && host_wire[44] == 127);
     request(ED_MOD_INFO, 0, 0);
     bad += check("MOD_INFO without an engine: no plan (127)", host_wire[25] == 127);
     a[0] = ENGI_SHAPES; a[1] = 0; a[2] = (uint8_t)(len & 127u); a[3] = (uint8_t)(len >> 7 & 127u); a[4] = (uint8_t)(len >> 14);
@@ -986,8 +993,8 @@ static int module_protocol(void)
                      (host_wire[base + 7] | host_wire[base + 8] << 7 | host_wire[base + 9] << 14) == len && host_wire[base + 10] == use && use == 2u);
         bad += check("ENGINES: a built-in engine is source 1 with no module state and start 127; a retired number is 0",
                      host_wire[5 + 1 + ENGI_FM6 * 11] == (eng_ok(ENGI_FM6) ? 1 : 0) && host_wire[5 + 1 + ENGI_FM6 * 11 + 3] == 127 && host_wire[5 + 1 + 4 * 11] == 0 && builtin >= 3u);
-        bad += check("ENGINES: the starts follow: two, start 0 OK for SHAPES, start 1 empty",
-                     host_wire[5 + 1 + NENGINES * 11] == 2 && host_wire[5 + 2 + NENGINES * 11] == MD_OK && host_wire[5 + 4 + NENGINES * 11] == ENGI_SHAPES && host_wire[5 + 5 + NENGINES * 11] == MD_EMPTY);
+        bad += check("ENGINES: the starts follow: three, start 0 OK for SHAPES, start 1 empty",
+                     host_wire[5 + 1 + NENGINES * 11] == 3 && host_wire[5 + 2 + NENGINES * 11] == MD_OK && host_wire[5 + 4 + NENGINES * 11] == ENGI_SHAPES && host_wire[5 + 5 + NENGINES * 11] == MD_EMPTY);
         oc_mod.state[0] = MD_CRASHED; ENGINES[ENGI_SHAPES] = eng_default(ENGI_SHAPES); eng_mod[ENGI_SHAPES] = 0;
         request(ED_ENGINES, 0, 0);
         bad += check("ENGINES: a module found but not registered (banned): the number is not source 2, the state (5) and the start are told",
@@ -1091,7 +1098,8 @@ static int module_protocol(void)
         uint8_t q[8];
         bad += check("swap: SHAPES' module installs at start 0", install_image(ENGI_SHAPES, 0, 3000u) == 0 && eng_mod[ENGI_SHAPES] && oc_mod.engine[0] == ENGI_SHAPES);
         q[0] = ENGI_PROPHET; request(ED_MOD_INFO, q, 1);
-        bad += check("swap: the plan for the Prophet's module is the other start (1) while SHAPES' module holds start 0", host_wire[25] == 1);
+        bad += check("swap: no start takes the Prophet's module while SHAPES' module holds start 0 (its 8 sectors reach the 6 of SHAPES': plan 127), and the blocker is start 0",
+                     host_wire[25] == 127 && host_wire[44] == 0);
         q[0] = ENGI_SHAPES; request(ED_MOD_REMOVE, q, 1);
         bad += check("swap: SHAPES' module removed, start 0 blank", host_wire[5] == 0 && oc_mod.state[0] == MD_EMPTY && !eng_mod[ENGI_SHAPES]);
         q[0] = ENGI_PROPHET; request(ED_MOD_INFO, q, 1);
@@ -1107,9 +1115,101 @@ static int module_protocol(void)
     }
     return bad;
 }
+/* (0.12.1, Part 1c) a module whose span shares a sector with an installed module of ANOTHER engine is refused (rc 5: no start free), the blocker is named
+ * (MOD_INFO's last byte: the start of the module in the way) and nothing of it is erased or unregistered. SHAPES spans 6 sectors from start 0 (sector 0) or
+ * start 1 (sector 6); the Prophet 8 sectors from start 0 (sector 0) or start 2 (sector 4); in the 12 sector area every pair overlaps. */
+static void overlap_reset(void)
+{
+    reset();
+    memset(host_mod, 0xFF, sizeof host_mod); host_mod_erases = 0;
+    memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+    oc_mod_boot(0);
+    song.playing = 0; host_progress = 1;
+}
+/* a module already in the flash at `start` (a unit that was flashed that way, or a replacement that landed there), registered by a boot: the commands only ever
+ * write the planned start, which in an empty area is the first one */
+static void place_image(uint32_t engine, uint32_t start, uint32_t len)
+{
+    make_image(engine, start, len);
+    memcpy(host_mod + (oc_mod_flash(start) - 0xC8000u), im, len);
+    memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+    oc_mod_boot(0);
+}
+static int module_overlaps(void)
+{
+    static const struct { uint8_t first, start, second; } cases[] = {
+        { ENGI_SHAPES, 0, ENGI_PROPHET }, { ENGI_SHAPES, 1, ENGI_PROPHET },
+        { ENGI_PROPHET, 0, ENGI_SHAPES }, { ENGI_PROPHET, 2, ENGI_SHAPES },
+    };
+    uint8_t q[8];
+    int bad = 0;
+    uint32_t k, s, ok;
+    for (k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+        char what[160];
+        static uint8_t keep[12 * 4096];
+        uint32_t first = cases[k].first, second = cases[k].second;
+        overlap_reset();
+        place_image(first, cases[k].start, 3000u);
+        ok = eng_mod[first] && oc_mod.state[cases[k].start] == MD_OK;
+        snprintf(what, sizeof what, "overlap: engine %u's module stands at start %u", first, cases[k].start);
+        bad += check(what, ok);
+        memcpy(keep, host_mod, sizeof keep);
+        q[0] = (uint8_t)second; request(ED_MOD_INFO, q, 1);
+        snprintf(what, sizeof what, "overlap: with engine %u at start %u no start takes engine %u (plan 127), and MOD_INFO names start %u as the blocker", first, cases[k].start, second, cases[k].start);
+        bad += check(what, host_wire[25] == 127 && host_wire[44] == cases[k].start);
+        for (s = 0; s < 3u; s++) {                          /* every start, allowed or not: refused, never an erase of the other engine's module */
+            uint32_t erases = host_mod_erases;
+            uint32_t rc = install_image(second, s, 3000u);
+            snprintf(what, sizeof what, "overlap: engine %u asked for start %u beside engine %u at start %u: refused (%u), no erase, the other module still registered and byte for byte",
+                     second, s, first, cases[k].start, (unsigned)rc);
+            bad += check(what, rc >= 101u && host_mod_erases == erases && !memcmp(keep, host_mod, sizeof keep) && eng_mod[first] && !eng_mod[second] && oc_mod.state[cases[k].start] == MD_OK);
+        }
+        q[0] = (uint8_t)second; request(ED_MOD_REMOVE, q, 1);
+        snprintf(what, sizeof what, "overlap: REMOVE of engine %u (not installed) does not touch engine %u's module", second, first);
+        bad += check(what, eng_mod[first] && oc_mod.state[cases[k].start] == MD_OK && !memcmp(keep, host_mod, sizeof keep));
+        /* after the user removes it, the other engine installs */
+        q[0] = (uint8_t)first; request(ED_MOD_REMOVE, q, 1);
+        snprintf(what, sizeof what, "overlap: after engine %u's module is removed, engine %u installs (plan, then the module registered)", first, second);
+        q[0] = (uint8_t)second; request(ED_MOD_INFO, q, 1);
+        ok = host_wire[25] != 127 && host_wire[44] == 127;
+        ok &= install_image(second, host_wire[25], 3000u) == 0 && eng_mod[second];
+        bad += check(what, ok);
+    }
+    {   /* a module that is not usable (damaged) does not block: the install goes over it */
+        uint32_t i;
+        overlap_reset();
+        install_image(ENGI_SHAPES, 0, 3000u);
+        host_mod[0x300u] ^= 0x55u;                /* a code byte: the CRC fails at the next boot */
+        memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+        oc_mod_boot(0);
+        q[0] = ENGI_PROPHET; request(ED_MOD_INFO, q, 1);
+        bad += check("overlap: a damaged SHAPES module (state BAD CRC) is not a blocker: the plan for the Prophet is the free start 2 and no blocker",
+                     oc_mod.state[0] == MD_BAD_CRC && host_wire[25] == 2 && host_wire[44] == 127);
+        i = install_image(ENGI_PROPHET, 2, 3000u);
+        bad += check("overlap: the Prophet installs at start 2 beside the damaged module, which is left as it was", i == 0 && eng_mod[ENGI_PROPHET] && oc_mod.engine[2] == ENGI_PROPHET && oc_mod.state[0] == MD_BAD_CRC);
+    }
+    {   /* a replacement of the same engine is not an overlap with another engine: it goes beside (SHAPES) or in place (the Prophet) */
+        overlap_reset();
+        install_image(ENGI_SHAPES, 0, 3000u);
+        q[0] = ENGI_SHAPES; request(ED_MOD_INFO, q, 1);
+        bad += check("overlap: SHAPES again: the plan is the other start (1), beside the old module, no blocker", host_wire[25] == 1 && !(host_wire[7] & 8u) && host_wire[44] == 127);
+        bad += check("overlap: SHAPES replaced at start 1; the old module at start 0 is gone after the commit", install_image(ENGI_SHAPES, 1, 3000u) == 0 && oc_mod.state[1] == MD_OK && oc_mod.state[0] == MD_EMPTY);
+        overlap_reset();
+        install_image(ENGI_PROPHET, 0, 3000u);
+        q[0] = ENGI_PROPHET; request(ED_MOD_INFO, q, 1);
+        bad += check("overlap: the Prophet again: the plan is start 0, in place (flag 8), no blocker", host_wire[25] == 0 && (host_wire[7] & 8u) && host_wire[44] == 127);
+        bad += check("overlap: the Prophet replaced in place at start 0", install_image(ENGI_PROPHET, 0, 3000u) == 0 && oc_mod.state[0] == MD_OK && eng_mod[ENGI_PROPHET]);
+        overlap_reset();
+        place_image(ENGI_PROPHET, 2, 3000u);
+        q[0] = ENGI_PROPHET; request(ED_MOD_INFO, q, 1);
+        bad += check("overlap: the Prophet at start 2 (sector 4): a replacement is the same start, in place", host_wire[25] == 2 && (host_wire[7] & 8u));
+        q[0] = ENGI_PROPHET; request(ED_MOD_REMOVE, q, 1);
+    }
+    return bad;
+}
 int main(void)
 {
-    int bad = module_protocol() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

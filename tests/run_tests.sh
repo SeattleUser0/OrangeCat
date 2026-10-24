@@ -257,6 +257,14 @@ module_host() {                                   # (Orange Cat 0.10.0, PoC step
     step "SHAPES as a module on the host (Orange Cat 0.10.0, step 3): registration check, 24 presets through the table, hashes equal the built-in engine's and the golden file" \
         "$OUT/module_host_test" tests/golden.txt
 }
+module_host_prophet() {                           # (Orange Cat 0.12.1, Part 1b) the Prophet's module source as its own unit: 201 presets equal the built-in engine's and the golden file, then its descriptor
+    # the firmware's host unit does not include build_options.h (MELODEE_DUAL_CORE reads as 0 there: P5_POLY 5), so the module's unit is built the same way
+    $CC -c -O2 -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/module_host_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c"; return 1; }
+    $CC -O2 $FW -o "$OUT/module_host_prophet_test" tests/module_host_prophet_test.c "$OUT/module_host_prophet_tu.o" -lm ||
+        { fail "compile tests/module_host_prophet_test.c"; return 1; }
+    step "the Prophet as a module on the host (Orange Cat 0.12.1): header check, 201 presets through the table equal the built-in engine's and the golden file, descriptor rows, panel, hooks" \
+        "$OUT/module_host_prophet_test" tests/golden.txt
+}
 phys_ref() {
     D=${DAISYSP:-vendor/DaisySP}/Source
     if [ ! -d "$D/PhysicalModeling" ] || ! command -v c++ >/dev/null 2>&1; then
@@ -451,6 +459,7 @@ if sound && [ $TABLES = 1 ]; then
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     job module_host
+    job module_host_prophet
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \
         macro_test -O2 $FW -- "$OUT/macro_test" build/macro_demo

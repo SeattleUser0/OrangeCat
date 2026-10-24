@@ -21,6 +21,7 @@
 # single-core fallback in shipped builds, audio code in RAM, cache RAM used, admission and profiling off.
 #
 # Revisions:
+#   Rev 13 (Orange Cat 0.12.1): the Prophet module (tools/build.py --module prophet, 8 sectors, starts 0 and 4) is built beside SHAPES; its .ocm joins the packages and the site.
 #   Rev 12 (Orange Cat 0.11.2): build/orangecat-*.manifest.json (tools/oc_manifest.py); the pages job gives the site the pack and the modules with the firmware.
 #   Rev 11 (Orange Cat 0.10.0): the module build and its checks (tools/build.py --module) after the build; the .ocm joins the packages.
 #   Rev 10 (Orange Cat 0.8.0): the asset pack (build/orangecat-<name>.pak, tools/gen_pack.py) joins the packages artifact.
@@ -84,9 +85,14 @@ jobs:
         fi
         # (rev 11, Orange Cat 0.10.0) SHAPES as a loadable module (tools/build.py --module shapes): one image for each start of the
         # module area, no .data / .bss, no undefined symbol; build/shapes-<version>.ocm. The report as a notice.
-        modok=0; python3 tools/build.py --module shapes > build/module-report.txt 2>&1 || modok=1
-        echo "::notice title=module shapes::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report.txt)"
-        if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module shapes notice"; exit 1; fi
+        # (rev 13, Orange Cat 0.12.1) and the Prophet (--module prophet): 8 sectors, starts 0 and 4; build/prophet-<version>.ocm
+        modfail=0
+        for m in shapes prophet; do
+          modok=0; python3 tools/build.py --module $m > build/module-report-$m.txt 2>&1 || modok=1
+          echo "::notice title=module $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report-$m.txt)"
+          if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module $m notice"; modfail=1; fi
+        done
+        if [ "$modfail" != 0 ]; then exit 1; fi
         # (rev 3) what the image is made of, by engine and area (tools/size_report.py): the run page, and
         # build/orangecat-size-report.txt in the packages artifact
         rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \
@@ -110,10 +116,12 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then cp build/melodee.pak "build/orangecat-${GITHUB_REF_NAME#v}.pak"
           else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
-        # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm
-        if [ -f build/shapes-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
-          cp build/shapes-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-shapes-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
-        fi
+        # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm; (rev 13) and the Prophet's
+        for m in shapes prophet; do
+          if [ -f build/$m-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
+            cp build/$m-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-$m-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
+          fi
+        done
         # (rev 12, Orange Cat 0.11.2) what the firmware was compiled with (pack hash and length, interface identifier): the pages job checks the pack and the
         # modules against it before the installer offers them with the firmware (tools/oc_manifest.py)
         python3 tools/oc_manifest.py "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.manifest.json"

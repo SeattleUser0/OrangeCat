@@ -62,11 +62,11 @@ const E = vm.runInNewContext(proto + `
   ok(E.req.modEnd(new Uint8Array(256))[1].length === 37 * 8 - 3 + 0 || E.req.modEnd(new Uint8Array(256))[1].length === 293, "module: END is the 256-byte header page packed 7-bit (293 bytes)");
   const n5 = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) & 127), n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127];
   const iface = 0xE3CB357E >>> 0, hash = 0xD0657ED9 >>> 0;
-  const reply = (plan, a, b) => [2, 12, 1 | 2, 3, 60, ...n5(iface), ...n5(0x02001100), ...n5(hash), plan, ...a, ...b];
+  const reply = (plan, a, b, c = [0, 0, 0, 0, 0, 0], blk = 127) => [3, 12, 1 | 2, 3, 60, ...n5(iface), ...n5(0x02001100), ...n5(hash), plan, ...a, ...b, ...c, blk];   /* (0.12.1) three starts, then the blocker */
   const info = E.parse[C.MOD_INFO](reply(0, [7, 0, 14, ...n3(23780)], [0, 0, 0, 0, 0, 0]));
-  ok(info.nstarts === 2 && info.sectors === 12 && info.apiVersion === 3 && info.apiSize === 60 && info.iface === iface && info.apiAddr === 0x02001100 && info.packHash === hash &&
+  ok(info.nstarts === 3 && info.starts.length === 3 && info.blocker === null && info.sectors === 12 && info.apiVersion === 3 && info.apiSize === 60 && info.iface === iface && info.apiAddr === 0x02001100 && info.packHash === hash &&
      info.plan === 0 && info.starts[0].state === 7 && info.starts[0].engine === 14 && info.starts[0].length === 23780 && info.starts[1].state === 0 && info.shapesBuiltIn && info.moduleWins && !info.writing, "module: the reply of INFO");
-  ok(E.parse[C.MOD_INFO]([2, 12, 1 | 2 | 8, 3, 60, ...n5(iface), ...n5(0x02001100), ...n5(hash), 0, 7, 0, 14, ...n3(23780), 7, 0, 99, ...n3(100)]).inPlace === true && info.inPlace === false,
+  ok(E.parse[C.MOD_INFO]([3, 12, 1 | 2 | 8, 3, 60, ...n5(iface), ...n5(0x02001100), ...n5(hash), 0, 7, 0, 14, ...n3(23780), 7, 0, 99, ...n3(100), 0, 0, 0, 0, 0, 0, 127]).inPlace === true && info.inPlace === false,
      "module: flag 8 of INFO says the install the unit names is in place (the old module erased first); clear when it goes beside");
   const sum = (a, b) => E.modSummary(E.parse[C.MOD_INFO](reply(0, a, b)));
   ok(sum([7, 0, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateOk" && sum([0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modState0" && sum([5, 0, 14, 0, 0, 0], [0, 0, 0, 0, 0, 0]) === "modStateCrash" &&
@@ -76,12 +76,12 @@ const E = vm.runInNewContext(proto + `
   const crc = (b) => { let c = 0xFFFFFFFF; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xEDB88320 : c >>> 1; } return (c ^ 0xFFFFFFFF) >>> 0; };
   const image = (len, seed) => { const b = new Uint8Array(len); for (let i = 0; i < len; i++) b[i] = (i * 7 + seed) & 255; new DataView(b.buffer).setUint32(0, 0x444F4D4F, true); return b; };
   const pkg = (o = {}) => {
-    const L = o.len ?? 3000, imgs = [image(L, 1), image(L, 2)], starts = [0, 6], tab = 56, hc = tab + 32, base = hc + 4;
+    const L = o.len ?? 3000, imgs = [image(L, 1), image(L, 2)], starts = o.starts ?? ((o.engine ?? 14) === 19 ? [0, 4] : [0, 6]), tab = 56, hc = tab + 32, base = hc + 4;
     if (o.plant) imgs.forEach(o.plant);                  /* (0.10.1) a change to each image before its CRC is taken */
     const b = new Uint8Array(base + 2 * L), dv = new DataView(b.buffer);
     dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, 2, true);
     dv.setUint32(8, o.iface ?? iface, true); dv.setUint32(12, o.apiAddr ?? 0x02001100, true); dv.setUint32(16, o.engine ?? 14, true); dv.setUint32(20, 11136, true); dv.setUint32(24, o.packHash ?? hash, true);
-    b.set([...new TextEncoder().encode("SHAPES")], 28); dv.setUint32(44, o.apiVersion ?? 3, true); dv.setUint32(48, o.apiSize ?? 60, true); dv.setUint32(52, 6, true);
+    b.set([...new TextEncoder().encode((o.engine ?? 14) === 19 ? "PROPHET" : "SHAPES")], 28); dv.setUint32(44, o.apiVersion ?? 3, true); dv.setUint32(48, o.apiSize ?? 60, true); dv.setUint32(52, 6, true);
     imgs.forEach((im, i) => { dv.setUint32(tab + 16 * i, starts[i], true); dv.setUint32(tab + 16 * i + 4, im.length, true); dv.setUint32(tab + 16 * i + 8, crc(im) ^ (o.badImageCrc ? 1 : 0), true); dv.setUint32(tab + 16 * i + 12, base + L * i, true); b.set(im, base + L * i); });
     dv.setUint32(hc, crc(b.subarray(0, hc)) ^ (o.badHeaderCrc ? 1 : 0), true);
     return b;
@@ -93,10 +93,17 @@ const E = vm.runInNewContext(proto + `
   { const cut = pkg().slice(0, 100); ok(!E.ocmParse(cut).ok, "module: a package cut short is refused"); }
   const unit = (over = {}) => ({ iface, apiAddr: 0x02001100, apiVersion: 3, apiSize: 60, packHash: hash, plan: 0, ...over });
   await (async () => { /* (0.12.0, Part 3) Replace with another engine's file (a swap) and "use on track N", against a mock unit */
+    const GEO = { 14: { n: 6, ok: [0, 1] }, 19: { n: 8, ok: [0, 2] } }, SECT = [0, 6, 4];   /* the firmware's geometry, written again here (oc_module.c oc_mod_geo) */
     const fresh = (starts) => {
       const U = { starts, log: [], rc: {} };
-      const plan = (e) => { const f = U.starts.findIndex((s) => !s); if (f >= 0) return f; return U.starts.findIndex((s) => s === e) >= 0 ? U.starts.findIndex((s) => s === e) : 127; };
-      U.probe = async (e) => (e === undefined ? { ...unit() } : { ...unit({ plan: plan(e) }), inPlace: plan(e) < 2 && U.starts.every((s) => s) });
+      const over = (a, na, b, nb) => SECT[a] < SECT[b] + nb && SECT[b] < SECT[a] + na;
+      const plan = (e) => {                                  /* oc_mod_plan: a candidate is blocked by a module of another engine, an own-overlap goes in place */
+        const g = GEO[e], blocked = (c) => U.starts.some((x, j) => x && x !== e && over(c, g.n, j, GEO[x].n));
+        const own = (c) => U.starts.some((x, j) => x === e && over(c, g.n, j, g.n));
+        const okc = g.ok.filter((c) => !blocked(c));
+        return okc.find((c) => !own(c) && !U.starts[c]) ?? okc.find((c) => U.starts[c] === e) ?? okc[0] ?? 127;
+      };
+      U.probe = async (e) => (e === undefined ? { ...unit() } : { ...unit({ plan: plan(e), starts: U.starts.map((x) => ({ state: x ? 7 : 0, why: 0, engine: x, length: 3000 })) }), inPlace: (() => { const p = plan(e); return p < 3 && GEO[e].ok.includes(p) && U.starts.some((x, j) => x === e && over(p, GEO[e].n, j, GEO[e].n)); })() });
       U.send = async (r) => {
         const c = r[0], a = r[1];
         if (c === C.MOD_REMOVE) { U.log.push("REMOVE " + a[0]); if (!U.rc.remove) U.starts = U.starts.map((s) => (s === a[0] ? 0 : s)); return [U.rc.remove || 0, 0, 0, 0]; }
@@ -112,29 +119,31 @@ const E = vm.runInNewContext(proto + `
     const C2 = E.CMD, asked = [];
     const yes = (key, n) => { asked.push([key, n]); return true; }, no = (key) => { asked.push([key]); return false; };
     const shapes = E.ocmParse(pkg({ engine: 14 })), prophet = E.ocmParse(pkg({ engine: 19 })), row14 = { num: 14, replace: true, start: 0, tracks: 2 };
-    let U = fresh([14, 0]);
+    let U = fresh([14, 0, 0]);
     ok(await E.replaceOcm(U.send, U.probe, row14, shapes, yes) === "installed" && U.log[0] === "BEGIN 14 1" && U.log.at(-1) === "END" && !U.log.some((x) => x.startsWith("REMOVE")),
        "replace: a file of the row's own engine installs beside the old module, as before (no remove)");
-    U = fresh([14, 0]); asked.length = 0;
+    U = fresh([14, 0, 0]); asked.length = 0;
     ok(await E.replaceOcm(U.send, U.probe, row14, prophet, yes) === "swapped" && U.log[0] === "REMOVE 14" && U.log[1] === "BEGIN 19 0" && U.log.at(-1) === "END" && U.starts[0] === 19 && U.starts[1] === 0 &&
        asked.length === 1 && asked[0][0] === "modSwapConfirm" && asked[0][1] === 2,
        "replace: a file of another engine is a swap: asked (with the tracks that hold the old engine), the old module removed first, the new one written at the freed start");
-    U = fresh([14, 14 + 5]); const row2 = { num: 14, replace: true, start: 0, tracks: 0 };
-    ok(await E.replaceOcm(U.send, U.probe, row2, prophet, yes) === "swapped" && U.log[0] === "REMOVE 14" && U.log[1] === "BEGIN 19 0", "replace: a swap with both starts full: the freed start takes the new module");
-    U = fresh([14, 0]);
+    U = fresh([0, 14, 0]); const row2 = { num: 14, replace: true, start: 1, tracks: 0 };
+    ok(await E.replaceOcm(U.send, U.probe, row2, prophet, yes) === "swapped" && U.log[0] === "REMOVE 14" && U.log[1] === "BEGIN 19 0", "replace: a swap of SHAPES at start 1 for the Prophet: the Prophet cannot start at 1, the planner (mirrored) gives it start 0 once SHAPES is out");
+    U = fresh([0, 0, 19]); const row19 = { num: 19, replace: true, start: 2, tracks: 1 };
+    ok(await E.replaceOcm(U.send, U.probe, row19, shapes, yes) === "swapped" && U.log[0] === "REMOVE 19" && U.log[1] === "BEGIN 14 0" && U.starts[0] === 14 && U.starts[2] === 0, "replace: the Prophet at start 2 swapped for SHAPES: removed, SHAPES at start 0");
+    U = fresh([14, 0, 0]);
     ok(await E.replaceOcm(U.send, U.probe, row14, prophet, no) === "cancelled" && U.log.length === 0 && U.starts[0] === 14, "replace: a swap the user declines touches nothing");
-    U = fresh([14, 0]);
+    U = fresh([14, 0, 0]);
     for (const [row, file, key] of [[{ num: 14, replace: false, start: null, tracks: 0 }, prophet, "modWrongEngine"], [row14, E.ocmParse(pkg({ engine: 3 })), "modWrongEngine"], [row14, E.ocmParse(pkg({ iface: iface ^ 1, engine: 19 })), "modWrongFw"],
                                     [row14, E.ocmParse(pkg({ engine: 19, badImageCrc: 1 })), "modWrongFile"]]) {
       let got = ""; try { await E.replaceOcm(U.send, U.probe, row, file, yes); } catch (e) { got = e.message; }
       ok(got === key && U.log.length === 0 && U.starts[0] === 14, `replace: refused before anything is touched (${key})`);
     }
-    U = fresh([14, 0]); U.rc.remove = 4; let got = ""; try { await E.replaceOcm(U.send, U.probe, row14, prophet, yes); } catch (e) { got = e.message; }
+    U = fresh([14, 0, 0]); U.rc.remove = 4; let got = ""; try { await E.replaceOcm(U.send, U.probe, row14, prophet, yes); } catch (e) { got = e.message; }
     ok(got === "modRestart" && U.log.join() === "REMOVE 14" && U.starts[0] === 14, "replace: a remove the unit refuses (4) stops the swap with its text, nothing written");
     U = fresh([14, 0]);
     const a1 = await E.assignEngine(U.send, 19, 2, 4, 0);
     ok(a1.ok && !a1.refused && U.log.join() === "TRACK 2,PRESET 19 0,TRACK 0", "assign: select the track, the engine's preset 0 through the track engine command, select the track that was selected");
-    U = fresh([14, 0]); U.refuse = 1; const a2 = await E.assignEngine(U.send, 19, 1, 4, 3);
+    U = fresh([14, 0, 0]); U.refuse = 1; const a2 = await E.assignEngine(U.send, 19, 1, 4, 3);
     ok(!a2.ok && a2.refused === 1 && a2.key === "engineHeavy" && U.log.at(-1) === "TRACK 3", "assign: the unit's admission refuses (too heavy): the reason key, and the selection is put back");
     U.refuse = 2; ok((await E.assignEngine(U.send, 19, 1, 4, 1)).key === "engineNoRoom" && U.log.at(-1) === "PRESET 19 0", "assign: no room is its own reason; the selected track needs no select back");
     let bad = false; try { await E.assignEngine(U.send, 19, 4, 4, 0); } catch (e) { bad = true; }

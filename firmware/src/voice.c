@@ -130,7 +130,7 @@ static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     /* GLO > WEIGHTS: the player's points per voice replace the built-in rule; AUTO (0) keeps it. */
-    int k = (MELODEE_P5 && e == &ENG_P5_TEST) ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : ((MELODEE_DRUM && e == &ENG_DRUM) || (MELODEE_DRUMX && e == &ENG_DRUMX)) ? 4 : -1;   /* (0.9.0: DRUM-X has the DRUM weight) */
+    int k = ((MELODEE_P5 && e == &ENG_P5_TEST) || (t->engine == ENGI_PROPHET && eng_mod[ENGI_PROPHET])) ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : ((MELODEE_DRUM && e == &ENG_DRUM) || (MELODEE_DRUMX && e == &ENG_DRUMX)) ? 4 : -1;   /* (0.9.0: DRUM-X has the DRUM weight) */
     if (k >= 0 && settings_vpoints[k] > 0)
         return (uint32_t)settings_vpoints[k];
 #if MELODEE_ADMISSION
@@ -861,6 +861,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         if ((MELODEE_LEGACY_EXTRAS && e == ENGINES[2]) || (MELODEE_CZ && e == &ENG_CZ))   /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
         if(MELODEE_P5 && e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);   /* (Orange Cat: MELODEE_P5) */
+        else if(e->pages && e->pages->env_source)m.envq15=e->pages->env_source(t,v);   /* (0.12.1) a module's engine with envelopes of its own (the Prophet) */
         if (mod.on){
             AP_START(mod_start);mod_voice(t,v,&m,m.fine);AP_END(AP_MODULATION,mod_start);
         }

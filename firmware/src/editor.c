@@ -8,7 +8,9 @@
  * Values are 14 bit, two 7-bit bytes LSB first, offset by 8192 (so -8192..8191).
  * Every request gets a reply with the same cmd; 23/24/26 are also pushed
  * while watched. Frames arrive through sx_frame (usb.c), replies leave
- * through ota_wire_send(). */
+ * through ota_wire_send().
+ * Revisions:
+ *   0.12.1: MOD_INFO (120) reports three starts and ends with the blocker's start (127: none), a module of another engine that stands in the way of the engine asked about. */
 #define ED_HDR0 0x7D
 #define ED_HDR1 0x46
 #define ED_HDR2 0x4C
@@ -933,7 +935,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_MOD_INFO: {                                    /* [engine] -> nstarts, sectors of the area, flags (1 SHAPES built in, 2 a module wins a built-in slot, 4 an install is under way,
                                                             * 8 (0.10.1) the install the plan names is in place: no other start is free, so the old module is erased first and a power cut leaves none),
                                                             * api_version, api_size, iface (5 x 7 bits), api_addr (5 x 7), pack_hash (5 x 7), the start an install of `engine` goes to
-                                                            * (0, 1, or 127 none; 127 too without the argument), then per start: state (MD_*), why, engine, length (3 x 7) */
+                                                            * (a start number, or 127 none; 127 too without the argument), then per start: state (MD_*), why, engine, length (3 x 7), then (0.12.1)
+                                                            * the blocker: when no start can take `engine`, the start whose usable module of another engine is in the way (the install is refused with
+                                                            * "ENGINE X INSTALLED AT START N: REMOVE IT FIRST"; that module is never erased by an install), else 127. nstarts is 3 (0.12.1): the starts are the
+                                                            * module area's sector 0, sector 6 and sector 4 (SHAPES: 0 and 1; the Prophet: 0 and 2). */
         int plan = na ? oc_mod_plan(a[0]) : -1;
         ed_b(OC_MOD_STARTS); ed_b(12);
         ed_b((MELODEE_SHAPES ? 1u : 0u) | (OC_MODULE_WINS ? 2u : 0u) | (mw.writing ? 4u : 0u) | (plan >= 0 && oc_mod_inplace(a[0], (uint32_t)plan) ? 8u : 0u));
@@ -946,6 +951,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(oc_mod.state[i]); ed_b(oc_mod.why[i]); ed_b(oc_mod.engine[i]);
             ed_b(oc_mod.length[i]); ed_b(oc_mod.length[i] >> 7); ed_b(oc_mod.length[i] >> 14);
         }
+        { int blk = na && plan < 0 ? oc_mod_blocked_by(a[0]) : -1; ed_b(blk < 0 ? 127u : (uint32_t)blk); }
         break;
     }
     case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;

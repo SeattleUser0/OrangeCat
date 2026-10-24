@@ -1021,6 +1021,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_ED_FLT] = pr->fenv;
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
     if((MELODEE_P5 && t->eng_req == ENGI_PROPHET))p5_preset_loaded(t,pi);
+    { const fw_pages_t *mp = pages_of_engine(t->eng_req); if (mp && mp->loaded) mp->loaded(t, pi); }   /* (0.12.1) a module's engine takes its patch from the preset */
     if (MELODEE_CZ) { cz_factory_loaded(t); cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
     if (MELODEE_FM6) fm6_track_loaded(t);             /* FM6: the preset's patch (Orange Cat: MELODEE_FM6) */
     load_end(t);

@@ -64,10 +64,34 @@ uint32_t fw_rng_cell = 0x21u;                /* (0.10.0) the module SHAPES' pb_r
 #else
 #define FW_API_SECTION __attribute__((section(".fwapi")))
 #endif
+/* (0.12.1) what the Prophet module calls outside itself: the patches (project.c, the presets and motion share them), the one CPU1 job, the bend target, the audio
+ * worker and the batch queue. midi_bend_target is voice.c's, declared here so the table can point at it (a second tentative definition of the same static). */
+static int32_t midi_bend_target[NTRK];
+#if MELODEE_DUAL_CORE
+#define FW_P5_JOB (&p5_job)
+#else
+#define FW_P5_JOB ((void *)0)
+#endif
+#if MELODEE_DUAL_CORE
+#define FW_WORKER_ONLINE (&audio_worker_online)
+static FW_UNUSED int fw_worker_submit(void (*fn)(void *), void *context) { return audio_worker_submit(fn, context); }
+static FW_UNUSED int fw_worker_join(void) { return audio_worker_join(); }
+#else                                           /* (a single core build: no worker, the module never submits) */
+static int fw_no_worker;
+#define FW_WORKER_ONLINE (&fw_no_worker)
+static FW_UNUSED int fw_worker_submit(void (*fn)(void *), void *context) { (void)fn; (void)context; return 0; }
+static FW_UNUSED int fw_worker_join(void) { return 0; }
+#endif
+static FW_UNUSED void fw_batch_push(void (*run)(const void *, int32_t *), const void *data, uint32_t bytes, int32_t *out, uint32_t n, uint32_t id)
+{
+    audio_batch_push(run, data, bytes, out, n, id);
+}
 FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
     FW_API_MAGIC, sizeof(fw_api_t), FW_API_VERSION, FW_API_IFACE,
     fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
     RES_ENGINE0, NENGINES, &fw_rng_cell,
+    p5_patch, p5_ready, FW_P5_JOB, midi_bend_target, FW_WORKER_ONLINE, &audio_batch_active,
+    fw_worker_submit, fw_worker_join, fw_batch_push, AP_PROPHET, &voice_was,
 };
 /* (0.10.0) the module registered under an engine number, or 0 (the loader, eng_register): its header says the state size */
 static const fw_mod_hdr_t *eng_mod[NENGINES];

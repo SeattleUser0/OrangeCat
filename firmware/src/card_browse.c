@@ -37,6 +37,8 @@
  *   0.6.1: first version.
  *   0.8.0: .PAK files listed and installed.
  *   0.10.0: .OCM files listed and installed.
+ *   0.12.1: three module starts (sector 0, 6 and 4): the package variant is picked by its sector index (OC_MOD_START_SECTOR); an install no start can take because a module of
+ *           another engine stands in its sectors says "PROPHET at 2: remove it" (oc_mod_blocked_by), never erasing that module.
  */
 
 /* ---------------------------------------------------------------- naming --- */
@@ -457,6 +459,12 @@ static int fb_install(const fb_ent_t *e)
 }
 #endif
 #if FB_OCM
+static uint32_t fb_put(char *d, uint32_t at, const char *s, uint32_t max)        /* (0.12.1) up to max characters of s at d[at]; the new end (fb.msg holds 24 with its NUL: the callers' sum is 23 at most) */
+{
+    uint32_t k;
+    for (k = 0; s[k] && k < max && at + 1u < sizeof fb.msg; k++) d[at++] = s[k];
+    return at;
+}
 /* (0.10.0) the module package at (fb.path, e) installed: 0 done, else fb.msg says why. The package: a 56 byte header, a table of 16 byte variants, a CRC-32 of
  * both, then the images (web/EDITOR_PROTOCOL.md). The image for the place oc_mod_plan names goes to oc_mod_begin / write in 256 byte pieces; its first
  * 256 bytes (the header page) go to oc_mod_end, which programs them last. */
@@ -489,10 +497,23 @@ static int fb_install_mod(const fb_ent_t *e)
         return 1;
     }
     plan = oc_mod_plan(engine);
-    if (plan < 0) { f_close(f); str_cpy(fb.msg, "No place free", sizeof fb.msg); return 1; }
+    if (plan < 0) {
+        int b = oc_mod_blocked_by(engine);             /* (0.12.1) a usable module of another engine stands in the way: never erased by an install; the user removes it first */
+        f_close(f);
+        if (b >= 0) {                                   /* "ENGINE X INSTALLED AT START N: REMOVE IT FIRST" in the 23 characters a row has: "PROPHET at 2: remove it" */
+            const char *nm = ENGINES[oc_mod.engine[b] < NENGINES ? oc_mod.engine[b] : 0]->name;
+            uint32_t at = 0;
+            at = fb_put(fb.msg, at, nm, 9u);
+            at = fb_put(fb.msg, at, " at ", 4u);
+            fb.msg[at++] = (char)('0' + b);
+            at = fb_put(fb.msg, at, ": remove it", 11u);
+            fb.msg[at] = 0;
+        } else str_cpy(fb.msg, "No place free", sizeof fb.msg);
+        return 1;
+    }
     start = (uint32_t)plan;
     for (o = 0; o < n; o++)
-        if (pk_rd32(buf + tab + 16u * o) == start * 6u) { len = pk_rd32(buf + tab + 16u * o + 4u); off = pk_rd32(buf + tab + 16u * o + 12u); }
+        if (pk_rd32(buf + tab + 16u * o) == OC_MOD_START_SECTOR(start)) { len = pk_rd32(buf + tab + 16u * o + 4u); off = pk_rd32(buf + tab + 16u * o + 12u); }
     if (!len || off + len > e->size || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
     if (f_lseek(f, off) != FR_OK || f_read(f, pg, sizeof pg, &got) != FR_OK || got != sizeof pg) { f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
     if (oc_mod_inplace(engine, start) && !armed) {      /* (0.10.1) no other place is free: the old module is erased first and a power cut leaves none.

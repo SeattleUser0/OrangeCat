@@ -32,6 +32,8 @@
  * Revisions:
  *   0.8.0: first version.
  *   0.11.0: fw_mod_hdr_t gains `cost` and `version` (before length): FW_MOD_HDR_BYTES 60.
+ *   0.12.1: eleven members for the Prophet module (p5_patch .. voice_was): the patches and ready flags the project, presets and motion share, the one CPU1 job,
+ *           the bend target, the audio worker and batch queue, and voice_was (a module's own copy of the firmware's static is never written). FW_API_VERSION stays 3 (the identifier changes with the struct).
  *   0.9.0: the `reserved` word is `iface`, the identifier (the table keeps its size); fw_mod_hdr_t and fw_module_check;
  *          FW_API_VERSION 2.
  */
@@ -57,6 +59,18 @@ typedef struct fw_api {
     uint32_t res_engine0;                                /* the arena id of the first engine state (RES_ENGINE0): a module's part p is res_engine0 + p */
     uint32_t nengines;                                   /* NENGINES: the length of the engine table */
     uint32_t *rng_cell;                                  /* SHAPES' random generator word (pb_rng_state, 0x21 at power-on): a module has no RAM, so the firmware keeps it */
+    /* (0.12.1, the Prophet as a module: what its source calls outside itself) */
+    void *p5_patch;                                      /* p5_patch_t[NPART] (the patches the editor, the presets and motion also use; the pool) */
+    uint8_t *p5_ready;                                   /* NPART flags for them */
+    void *p5_job;                                        /* the firmware's p5_job_t block: the one outstanding CPU1 job (the module's p5_job_t is the same type) */
+    int32_t *midi_bend_target;                           /* NTRK: the bend target p5_update_bend writes */
+    const int *worker_online;                            /* audio_worker_online */
+    const uint8_t *batch_active;                         /* audio_batch_active */
+    int (*worker_submit)(void (*fn)(void *), void *context);
+    int (*worker_join)(void);
+    void (*batch_push)(void (*run)(const void *, int32_t *), const void *data, uint32_t bytes, int32_t *out, uint32_t n, uint32_t profile_id);
+    uint32_t ap_prophet;                                 /* AP_PROPHET: the batch profile id */
+    const uint8_t *voice_was;                            /* core.h voice_was: what the voice a note starts did just before (an engine's note_on reads it; found by the host render test) */
 } fw_api_t;
 
 /* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything.
