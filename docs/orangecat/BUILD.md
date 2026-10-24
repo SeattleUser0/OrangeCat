@@ -2300,3 +2300,20 @@ Proof added: `recording_props_test` counts folds (the hook `RECORDING_FOLD_HOOK`
 ### Unit checklist, standing step (added)
 
 Every time a build is on the unit: **read the Audio numbers with four tracks playing** (Settings tab, Audio group, press Reset, play four tracks for a minute). Worst under the budget, Late 0. Write the numbers down.
+
+### The A/B build, as published
+
+- Branch `exp/sonnet-ab-builtin` (throwaway, never merged): sonnet-work at 4db8131 plus `OC_PACK_BUILTIN=1` and `OC_MODULE_WINS=0` in `tools/orangecat_engines.sh`. Commit 0e7bc40.
+- Run 40137277924 (build, tests-gate green; pages deployed). Run 40137276150 is sonnet-work at 4db8131, switch off, green.
+- Image: 484,633 B on sonnet-work, 522,052 B with the tables in the image, 37,419 B more (the pack is 40,232 B; the index tables and padding make up the rest). RAM (.data, .bss, arena) 383,864 B and 383,856 B: unchanged. Every line of the target budget is the same in both runs (`fm1_alnk0_irq` 2,597 against 18,778 and the others).
+- Nightly label on the installer page: `exp/sonnet-ab-builtin · 0e7bc40 · v0.6.2-0e7bc4 · 2026-10-24T22:22:09Z`. The firmware version string on the unit is `v0.6.2-0e7bc4`.
+- The workflow's live check ran for 10 minutes and still saw the old site (the same as the runs for 80b85fb before it). The files were deployed; the site's cache lags. The installer page shows the label above when it has caught up.
+- Install it with the Pack and Module stages off: this firmware needs neither.
+
+### Unit procedure for the A/B build
+
+1. Back up the unit (Settings tab, Complete backup, Save backup).
+2. Open the installer page. Choose the Nightly entry labeled above. Untick the Pack and Module stages. Press Install.
+3. Open `webapp/nightly-editor/` on the same site, connect the unit, open Settings, find the Audio group. Press Reset.
+4. Play four tracks for a minute (any engine). Read Worst, Budget and Late.
+5. Outcomes: see "The A/B plan" above.
