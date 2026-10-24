@@ -145,7 +145,11 @@ static void oc_pack_scan(void)
 static void oc_pack_boot(void)                               /* persist_boot: after the flash is known and the library group is in place (lib_group.c) */
 {
     memset(&pk, 0, sizeof pk);
+#if OC_PACK_BUILTIN
+    oc_pack_good = 1;                                        /* (0.13.6) the tables are in the image: no pack, no check */
+#else
     oc_pack_scan();
+#endif
 }
 /* ------------------------------------------------------------------ the interface --- */
 /* state (PK_*), length, hash of the pack there (0 when none) */

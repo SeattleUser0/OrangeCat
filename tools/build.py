@@ -270,7 +270,10 @@ def app_flags():
             flags.append(f"-D{flag}={v}")
     if os.environ.get("P5_OVERSAMPLE") in ("1", "2"):
         flags.append("-DP5_OVERSAMPLE=" + os.environ["P5_OVERSAMPLE"])
-    if os.environ.get("OC_PACK") != "0":            # (Orange Cat 0.8.0) the tables read from the asset pack (oc_pack.h); OC_PACK=0: in the image
+    builtin = os.environ.get("OC_PACK_BUILTIN", "0") == "1"      # (Orange Cat 0.13.6) the A/B build: the tables in the image, no pack (oc_pack.h)
+    if builtin:
+        flags.append("-DOC_PACK_BUILTIN=1")
+    elif os.environ.get("OC_PACK") != "0":            # (Orange Cat 0.8.0) the tables read from the asset pack (oc_pack.h); OC_PACK=0: in the image
         flags.append("-DOC_PACK_XIP=1")
     flags.append(f'-DMELODEE_ID="{PRODUCT}"')
     if VERSION:
@@ -564,7 +567,7 @@ def build_module(name):
     if not (GEN / "fw_api_id.h").exists() or not (GEN / "oc_pack_tables.h").exists() or not (GEN / "melodee_tables.h").exists():
         generate()
     notes, errors = [], []
-    flags = [f for f in app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES="))]
+    flags = [f for f in app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES=", "-DOC_PACK_BUILTIN"))]   # (0.13.6) a module always reads the pack
     flags += ["-DOC_PACK_XIP=1"] if "-DOC_PACK_XIP=1" not in flags else []
     obj = mdir / f"{name}.o"
     tc("cc", *flags, "-w", "-c", SRC / spec["src"], "-o", obj)

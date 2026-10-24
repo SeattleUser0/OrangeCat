@@ -32,6 +32,18 @@
 #pragma once
 #include <stdint.h>
 
+/* (Orange Cat 0.13.6) OC_PACK_BUILTIN 1 (tools/build.py, env OC_PACK_BUILTIN=1; default 0): the A/B build for the four-track distortion. The tables are compiled into the
+ * image as before 0.8.0 (ordinary arrays, the pointer macros of oc_pack_tables.h are left out, its hash and length stay), the boot pack check is skipped, the engines
+ * register and play without a pack (oc_pack_good is 1 from the start). The image grows by the tables, about 40 KB. Not for release: an experiment's switch. */
+#ifndef OC_PACK_BUILTIN
+#define OC_PACK_BUILTIN 0
+#endif
+#if OC_PACK_BUILTIN
+#undef OC_PACK_XIP
+#define OC_PACK_XIP 0
+#undef OC_PACK_GATE
+#define OC_PACK_GATE 0
+#endif
 #ifndef OC_PACK_XIP
 #define OC_PACK_XIP 0
 #endif
@@ -50,6 +62,9 @@
 #define OC_TBL(type, name) static const type __attribute__((unused)) OC_UNUSED_##name
 #else
 #define OC_TBL(type, name) static const type name
+#if OC_PACK_BUILTIN
+#include "oc_pack_tables.h"            /* the real hash and length only (the table macros are left out under OC_PACK_BUILTIN) */
+#endif
 #ifndef OC_PACK_HASH
 #define OC_PACK_HASH 0x0C0FFEE1u       /* (the host tests' stand-in: a pack for the in-memory tables is a made one) */
 #endif
