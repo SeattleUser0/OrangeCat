@@ -1818,7 +1818,13 @@ Not done: momentary take (LFO held) for a module's native values; the real Proph
 
 ### Sizes and CI (Parts 2 and 3)
 
-SIZES_PLACEHOLDER
+CI run 40074255845 on e3db920 (the full suite, green; the device build passed every check). Numbers from its size notices:
+
+- Image 496,020 B (81,228 B free of the 577,248 B app area). Up 6,104 B from 0.11.2 (489,916 B): the page descriptor code, the SC_MOD paths and the new editor commands 126 and 127.
+- RAM .data+.bss 93,192 B of 98,304 B. Pool 176,768 B of 344,064 B. Audio arena 94,752 B available (minimum 49,152).
+- SHAPES module: 23,784 B of 24,576 B at starts 0 and 6, .data 0, .bss 0; the .ocm is 47,660 B (two variants). Interface id 8ff50f37.
+- Loop budgets: no line moved; the size notices show only the usual "note: -N %" lines for loops that are under budget.
+- The module-alone build (exp/sonnet-noshapes) is recorded in "Seventh run", Part 0.
 
 ### Tests added or changed (Parts 2 and 3)
 
