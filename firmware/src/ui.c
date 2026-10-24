@@ -1068,9 +1068,54 @@ static void track_defaults(track_t *t)
     track_defaults_steps(t);
 }
 
+/* (Orange Cat 0.11.0) Admission at assignment: a module's engine is given to a track only when the unit can carry it. Built-in engines are
+ * unchanged (0 always). What the firmware can judge:
+ *   - there is NO run-time render budget today: the audio loop is not timed per engine (MELODEE_ADMISSION is 0, "enable only with a calibrated
+ *     performance contract"), the only limit is the voice budget (voice.c, settings_budget points, stealing the oldest voices). So the header's
+ *     `cost` is carried for a later render budget and not used here.
+ *   - voice units: one voice of the engine, as it starts (its edit values at their defaults), must fit the budget. A 4 unit voice in a budget of
+ *     16 is fine; an engine whose single voice is heavier than the whole budget could never sound. 1 = ENGINE TOO HEAVY.
+ *   - the arena: the state of every track's engine (the module's state_size here, each other track's own) must fit the arena (RESOURCE_CAPACITY),
+ *     which the engines get first (the effects hand theirs back). 2 = NO ROOM.
+ * The units are asked of the module's engine_t with the track's edit values set to the engine's defaults for the call and put back (the audio
+ * interrupt is off meanwhile, as in engine_load_of). Returns 0 admitted, 1 too heavy, 2 no room. */
+static int eng_admit(track_t *t, uint32_t e)
+{
+    const engine_t *en;
+    uint32_t k, sum, units, own;
+    int16_t keep[8];
+    if (e >= NENGINES || !eng_mod[e])
+        return 0;
+    en = ENGINES[e];
+    own = (eng_mod[e]->state_size + 3u) & ~3u;
+    sum = own;
+    for (k = 0; k < NPART; k++)
+        if (&trk[k] != t)
+            sum += (eng_state_size(trk[k].eng_req) + 3u) & ~3u;
+    if (own > RESOURCE_CAPACITY || sum > RESOURCE_CAPACITY)
+        return 2;
+    if (en->units) {
+        fm1_irq_off();
+        for (k = 0; k < 8u; k++) { keep[k] = (int16_t)t->p[P_E0 + k]; t->p[P_E0 + k] = en->edit[k].def; }
+        units = en->units(t);
+        for (k = 0; k < 8u; k++) t->p[P_E0 + k] = keep[k];
+        fm1_irq_on();
+        if (units > voice_budget())
+            return 1;
+    }
+    return 0;
+}
+static const char *eng_admit_text(int rc) { return rc == 1 ? "ENGINE TOO HEAVY" : "NO ROOM"; }
+
 /* switch engine (its INIT sound: one starts a sound from there, the browser's next turn its presets) and say so */
 static void select_engine(uint32_t e)
 {
+    int rc = eng_admit(TSEL, e);
+    if (rc) {                                           /* (0.11.0) refused: the track keeps its engine */
+        ui_message(eng_admit_text(rc));
+        ui.force = 1;
+        return;
+    }
     sound_init_of(TSEL, e);
     ui_say("ENGINE ", ENGINES[TSEL->eng_req]->name);
     ui.force = 1;
@@ -1104,6 +1149,8 @@ static void preset_go(uint32_t n)                    /* load list index n into t
         up_load(k);
     } else {
         if (e != TSEL->eng_req) {
+            int rc = eng_admit(TSEL, e);
+            if (rc) { ui_message(eng_admit_text(rc)); ui.force = 1; return; }   /* (0.11.0) the load is refused whole */
             set_engine(e);
             ui_say("ENGINE ", ENGINES[TSEL->eng_req]->name);
         }

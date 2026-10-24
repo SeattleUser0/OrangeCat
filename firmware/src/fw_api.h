@@ -31,6 +31,7 @@
  *
  * Revisions:
  *   0.8.0: first version.
+ *   0.11.0: fw_mod_hdr_t gains `cost` (before length): FW_MOD_HDR_BYTES 56.
  *   0.9.0: the `reserved` word is `iface`, the identifier (the table keeps its size); fw_mod_hdr_t and fw_module_check;
  *          FW_API_VERSION 2.
  */
@@ -68,7 +69,10 @@ typedef struct fw_api {
  *   engine   the engine number it is (ENGI_*): the table slot the loader puts it in
  *   engine_ptr  the address of its engine_t, inside the module (the code is linked for the address it sits at)
  *   link_addr  the XIP address it was linked for; the loader refuses it anywhere else
- *   pack_hash  OC_PACK_HASH the module's tables were taken from (the asset pack it reads); must be the firmware's */
+ *   pack_hash  OC_PACK_HASH the module's tables were taken from (the asset pack it reads); must be the firmware's
+ *   cost     (0.11.0) the engine's measured render cost, instructions a sample from tests/target_budget.txt (tools/build.py sums the lines the module
+ *            names in tools/module/<name>.cost); 0 = not measured. Carried for a render-time admission later: the firmware has no such budget today
+ *            (MELODEE_ADMISSION is 0), so the admission at assignment (ui.c eng_admit) uses the voice units and the arena only */
 #define FW_MOD_MAGIC 0x444F4D4Fu                         /* "OMOD" little endian */
 #define FW_MOD_CODE_OFF 0x100u
 typedef struct fw_mod_hdr {
@@ -82,11 +86,12 @@ typedef struct fw_mod_hdr {
     uint32_t engine_ptr;                                 /* address of its engine_t */
     uint32_t link_addr;                                  /* the address it was linked for */
     uint32_t pack_hash;                                  /* OC_PACK_HASH of the pack it reads */
+    uint32_t cost;                                       /* (0.11.0) measured render cost, see above; 0 not measured */
     uint32_t length;                                     /* see above: filled after the link */
     uint32_t crc;
     uint32_t hcrc;
 } fw_mod_hdr_t;
-#define FW_MOD_HDR_BYTES 52u                             /* sizeof(fw_mod_hdr_t) */
+#define FW_MOD_HDR_BYTES 56u                             /* sizeof(fw_mod_hdr_t) (0.11.0: 52 before the cost word; no module of 0.10.x is on a unit) */
 enum { FW_MOD_OK = 0, FW_MOD_NONE, FW_MOD_BAD_MAGIC, FW_MOD_BAD_IFACE, FW_MOD_API_TOO_NEW, FW_MOD_BAD_ADDR };
 
 /* The registration check: 0 when the module may be given FW_API, else why not. A module that needs a longer table or a

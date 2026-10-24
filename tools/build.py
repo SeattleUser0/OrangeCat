@@ -502,7 +502,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "name": 
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
-MOD_HDR = struct.Struct("<13I")          # fw_mod_hdr_t (firmware/src/fw_api.h): 13 words, FW_MOD_HDR_BYTES 52
+MOD_HDR = struct.Struct("<14I")          # fw_mod_hdr_t (firmware/src/fw_api.h): 14 words, FW_MOD_HDR_BYTES 56 (0.11.0: the cost word; 13 and 52 before)
+MOD_NAMES = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash cost length crc hcrc".split()
 MOD_AREA_LO, MOD_AREA_HI = None, None
 
 
@@ -512,6 +513,23 @@ def module_area():
     lo = int(re.search(r"#define FL_MODULE_LO\s+(0x[0-9A-Fa-f]+)u", t).group(1), 16)
     hi = int(re.search(r"#define FL_MODULE_HI\s+(0x[0-9A-Fa-f]+)u", t).group(1), 16)
     return lo, hi
+
+
+def module_cost(name):
+    """(0.11.0) the engine's measured render cost for the header: the sum of the lines of tests/target_budget.txt for the functions named in
+    tools/module/<name>.cost (one name per line, # comments). No file or no names: 0, 'not measured'. A name the budget does not have is an error."""
+    cf = SRC / "tools" / "module" / f"{name}.cost"
+    if not cf.exists():
+        return 0, []
+    want = [ln.split("#")[0].strip() for ln in cf.read_text().splitlines()]
+    want = [w for w in want if w]
+    budget = {}
+    for ln in (SRC / "tests" / "target_budget.txt").read_text().splitlines():
+        parts = ln.split()
+        if len(parts) == 2 and not ln.startswith("#") and parts[1].isdigit():
+            budget[parts[0]] = int(parts[1])
+    missing = [w for w in want if w not in budget]
+    return sum(budget[w] for w in want if w in budget), missing
 
 
 def module_starts(sectors):
@@ -545,6 +563,9 @@ def build_module(name):
     pack_hash = gen_define("OC_PACK_HASH", "oc_pack_tables.h")
     lo, hi = module_area()
     sectors = spec["sectors"]
+    cost, missing = module_cost(name)
+    if missing:
+        errors.append(f"{name}: tools/module/{name}.cost names {missing}, which tests/target_budget.txt does not have")
     variants, ifaces = [], set()
     for start in module_starts(sectors):
         base = ocflash.xip(lo + start * 0x1000)           # flash offset to the address it runs at (tools/ocflash.py; 0.10.1: one function for this and gen_pack.py)
@@ -589,7 +610,7 @@ SECTIONS {{
         if len(img) > sectors * 0x1000:
             errors.append(f"{name}@{start}: {len(img)} B do not fit {sectors} sectors")
         h = list(MOD_HDR.unpack_from(img, 0))
-        names = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash length crc hcrc".split()
+        names = MOD_NAMES
         d = dict(zip(names, h))
         if d["magic"] != FW_MOD_MAGIC:
             errors.append(f"{name}@{start}: header magic {d['magic']:#x}")
@@ -601,11 +622,12 @@ SECTIONS {{
             errors.append(f"{name}@{start}: header pack_hash {d['pack_hash']:#x} is not OC_PACK_HASH {pack_hash:#x}")
         if not base + FW_MOD_CODE_OFF <= d["engine_ptr"] < base + len(img):
             errors.append(f"{name}@{start}: engine_ptr {d['engine_ptr']:#x} is outside the image")
-        if any(d[k] for k in ("length", "crc", "hcrc")):
-            errors.append(f"{name}@{start}: length/crc/hcrc must be zero in the linked image")
+        if any(d[k] for k in ("cost", "length", "crc", "hcrc")):
+            errors.append(f"{name}@{start}: cost/length/crc/hcrc must be zero in the linked image")
         if any(img[MOD_HDR.size:FW_MOD_CODE_OFF]):
             errors.append(f"{name}@{start}: the header page is not zero after the header")
         ifaces.add((d["iface"], d["api_size"], d["api_version"], d["engine"], d["state_size"]))
+        d["cost"] = cost
         d["length"] = len(img)
         d["crc"] = zlib.crc32(bytes(img[FW_MOD_CODE_OFF:])) & 0xFFFFFFFF
         MOD_HDR.pack_into(img, 0, *[d[k] for k in names])

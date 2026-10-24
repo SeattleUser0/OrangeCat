@@ -108,6 +108,9 @@ const E = vm.runInNewContext(proto + `
     ok(E.ocmTails(image(5000, 3)) === 0 && E.ocmTails(a) === 1 && E.ocmTails(b2) === 2, "module: the sector tail rule finds a record on sector 1's tail (1) and on sector 2's (2), and none in an image without one");
     ok(E.ocmTails(c2) === 0 && E.ocmTails(z) === 0, "module: a record cut off by the end of the image reads as erased flash after it (no record); a zero CRC word is not a record");
     ok(E.ocmTails(new Uint8Array(0)) === 0 && E.ocmTails(image(0xF00, 7)) === 0, "module: an image that ends before the first tail has nothing to test"); }
+  { const P = E.parse[E.CMD.PRESET];
+    ok(P([14, 5, 0]).refused === 0 && P([14, 5, 0]).engine === 14 && P([14, 5, 0]).preset === 5, "admission: the ordinary PRESET reply (three bytes) is not a refusal");
+    ok(P([3, 7, 0, 1]).refused === 1 && P([3, 7, 0, 2]).refused === 2 && P([3, 7, 0, 1]).engine === 3, "admission: a fourth byte is the refusal (1 ENGINE TOO HEAVY, 2 NO ROOM) and the engine is the one the track kept"); }
   ok(E.ocmCheck(E.ocmParse(pkg({ len: 5000 })), unit()).ok, "module: 5,000 byte images with no record pass the check");
   { const bad1 = E.ocmCheck(E.ocmParse(pkg({ len: 5000, plant: (b) => rec(b, 0xF00) })), unit());
     ok(!bad1.ok && bad1.key === "modTail" && E.ocmCheck(E.ocmParse(pkg({ len: 5000, plant: (b) => rec(b, 0xF00) })), unit({ plan: 1 })).key === "modTail",

@@ -349,6 +349,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     uint32_t na = n - 4u;
     int16_t *vp;
     const param_desc_t *d;
+    int adm = 0;                                          /* (0.11.0) the admission result of an engine change (eng_admit) */
     if (!ed_args_ok(cmd, a, na))
         return;
     if(cmd==ED_SET || (cmd==ED_TRACK_PARAM && na==4u) || cmd==ED_FM6_PUT || cmd==ED_CZ_PUT || (cmd==95u && na && a[0]>=1u && a[0]<=3u))momentary_restore();
@@ -728,7 +729,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         if (cmd == ED_SET && na >= 4u && !(a[0] ? global_reserved(a[1]) : param_reserved(a[1])) && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
             if (a[0] == 1 && a[1] == G_ENGSEL) {          /* engine change: the safe path */
-                set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
+                {   uint32_t ne = (uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1);
+                    int adm = eng_admit(TSEL, ne);                       /* (0.11.0) a module's engine only when the unit can carry it */
+                    if (adm) ui_message(eng_admit_text(adm)); else set_engine(ne);
+                }
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
                 if (a[0] == 1 && (a[1] == G_A4 || a[1] == G_BUDGET))
@@ -790,15 +794,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_PRESET:                                        /* engine, preset */
         if (na < 2u || a[0] >= NENGINES)
             return;
+        adm = 0;
         {
-            if (a[0] != TSEL->eng_req)
-                set_engine(a[0]);
-            apply_preset(a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* [, high bits]: PROPHET has 201 */
+            if (a[0] != TSEL->eng_req) {
+                adm = eng_admit(TSEL, a[0]);                      /* (0.11.0) refused: the track keeps its engine and its sound */
+                if (adm) ui_message(eng_admit_text(adm));
+                else set_engine(a[0]);
+            }
+            if (!adm)
+                apply_preset(a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* [, high bits]: PROPHET has 201 */
         }
         ui.force = 1;
         ed_b(ed_eng(TSEL));
         ed_b(TSEL->preset);
         ed_b(TSEL->preset >> 7);
+        if (adm)
+            ed_b((uint8_t)adm);                                   /* (0.11.0) a fourth byte only on a refusal: 1 ENGINE TOO HEAVY, 2 NO ROOM */
         break;
     case ED_PROJECT:                                       /* 0 = load, 1 = save, 2 = query; slot 0..3 */
         if (na < 2u || a[0] > 2u || a[1] >= 4u)

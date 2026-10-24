@@ -846,6 +846,25 @@ holds the SRAM code window (POOL code), so instruction fetch from flash has one 
 - Test (oc_module_test.c): no module, _etext; one, its last byte; a second for the same engine, still the first; remove in a running session, _etext again. The register write
   itself is two lines in fm1_guard.h and is checked on the unit (BUILD.md checklist).
 
+## Admission at assignment (0.11.0)
+
+The requirement: assigning a module's engine to a track is refused when the unit cannot carry it. What exists to judge with, and what does not:
+
+- A render-time budget does not exist. The audio loop is not timed per engine; `MELODEE_ADMISSION` is 0 in core.h ("enable only with a calibrated performance contract").
+  The only run-time limit is the voice budget (voice.c: `settings_budget` points, 8 to 32, default 16; older voices are stolen). `tests/target_budget.txt` is a CI
+  check of the compiled loops (instruction counts, +10 %), not a number the firmware can read. SHAPES has no line in it (it is a module, not linked into the image the
+  budget measures).
+- So the check is built on **voice units and the arena** (ui.c `eng_admit`): (1) one voice of the module's engine, asked of its `engine_t.units` with the track's edit values at
+  their defaults, must not exceed `voice_budget()` (1: ENGINE TOO HEAVY); (2) the arena must hold the state: the module's `state_size` plus the state size of every other
+  part's engine must not exceed `RESOURCE_CAPACITY` (2: NO ROOM). Built-in engines are never refused. A project that already holds the engine is not refused at load.
+- The header carries the cost: `fw_mod_hdr_t.cost` (before `length`; the header is 56 bytes since 0.11.0). `tools/build.py` writes it, the sum of the lines of
+  `tests/target_budget.txt` for the functions named in `tools/module/<name>.cost`. SHAPES names none (no line exists), so its cost is 0, "not measured". The firmware does not use
+  the word yet. When a render budget exists, the admission adds: the sum over the tracks of cost times voice units stays under it.
+- Where it is asked: the browser's ENGINE knob (`select_engine`), a preset load that changes engine (`preset_go`), the page's ED_PRESET and the engine select of ED_SET, the new-song roles,
+  the sound designer. The screen says ENGINE TOO HEAVY or NO ROOM and the track keeps its engine and its sound. The ED_PRESET reply gets a fourth byte (1 or 2) only on a refusal; the page says it in the status line.
+- Tests: ui_test.c `test_admission` (a fake header and engine_t: admitted, too heavy, state over the arena, the other tracks' states counted, exact fit, the cost word not deciding);
+  editor_test.c `admission_protocol` (the fourth byte, the track keeps its engine); test_web.mjs (the parse); module_build_test.py (the cost sum, the 56 byte header).
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

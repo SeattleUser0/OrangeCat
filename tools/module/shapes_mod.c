@@ -54,7 +54,7 @@ static sh_part_t *sh_part(uint32_t part) { return resource_get(OC_FW()->res_engi
 const fw_mod_hdr_t OC_MODULE_HDR = {
     FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR,
     ENGI_SHAPES, sizeof(sh_part_t), 0, 0, OC_PACK_HASH,
-    0, 0, 0,
+    0, 0, 0, 0,           /* cost (build.py fills it), length, crc, hcrc */
 };
 const fw_api_t *oc_host_fw;
 const engine_t *oc_host_module_engine(void) { return &ENG_SHAPES; }
@@ -63,6 +63,6 @@ extern char _modstart[];
 __attribute__((section(".modhdr"), used)) const fw_mod_hdr_t OC_MODULE_HDR = {
     FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR,
     ENGI_SHAPES, sizeof(sh_part_t), (uint32_t)(uintptr_t)&ENG_SHAPES, (uint32_t)(uintptr_t)_modstart, OC_PACK_HASH,
-    0, 0, 0,
+    0, 0, 0, 0,           /* cost (build.py fills it), length, crc, hcrc */
 };
 #endif

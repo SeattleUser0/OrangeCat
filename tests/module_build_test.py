@@ -51,9 +51,9 @@ def fake_image(base, size=6000, pad=0, tail=None, **over):
     "moves" (in the code, on sector 0's tail when pad is 0, so moving the code on clears it), "sector1" (the same on sector 1's
     tail), "always" (on sector 0's tail whatever pad is: no placement clears it)."""
     f = dict(magic=build.FW_MOD_MAGIC, iface=IFACE, api_size=60, api_version=3, api_addr=API_ADDR, engine=14, state_size=2000,
-             engine_ptr=base + 0x300, link_addr=base, pack_hash=PACK_HASH, length=0, crc=0, hcrc=0)
+             engine_ptr=base + 0x300, link_addr=base, pack_hash=PACK_HASH, cost=0, length=0, crc=0, hcrc=0)
     f.update(over)
-    names = "magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash length crc hcrc".split()
+    names = build.MOD_NAMES
     head = build.MOD_HDR.pack(*[f[k] for k in names])
     code = bytearray((i * 7 + 3) & 0xFF for i in range(size))
     if tail in ("moves", "sector1"):
@@ -131,8 +131,7 @@ ok = True
 for start, length, crc, off in rows:
     img = ocm[off:off + length]
     ok &= len(img) == length and zlib.crc32(img) & 0xFFFFFFFF == crc and length % 4 == 0 and off % 4 == 0
-    h = dict(zip("magic iface api_size api_version api_addr engine state_size engine_ptr link_addr pack_hash length crc hcrc".split(),
-                 build.MOD_HDR.unpack_from(img, 0)))
+    h = dict(zip(build.MOD_NAMES, build.MOD_HDR.unpack_from(img, 0)))
     ok &= h["length"] == length and h["crc"] == zlib.crc32(img[0x100:]) & 0xFFFFFFFF
     ok &= h["hcrc"] == zlib.crc32(img[:build.MOD_HDR.size - 4]) & 0xFFFFFFFF
     ok &= h["link_addr"] == ocflash.xip(0xC8000 + start * 0x1000) == 0x02000000 - 0x4000 + 0xC8000 + start * 0x1000
@@ -157,7 +156,7 @@ imgs2 = [ocm2[r[3]:r[3] + r[1]] for r in rows2]
 check("a record on sector 0's tail is cleared by moving the code on 4 bytes: two links a start, no error", errors == [] and fk.pads == [0, 4, 0, 4])
 check("the moved image: 4 bytes longer, its code starts at 0x104, header length / crc / hcrc agree, no tail like a record",
       all(len(b) == r[1] and r[1] == len(i) + 4 and not any(b[0x100:0x104]) and ocflash.tail_hit(b) < 0 and
-          build.MOD_HDR.unpack_from(b, 0)[10] == len(b) and build.MOD_HDR.unpack_from(b, 0)[11] == zlib.crc32(b[0x100:]) & 0xFFFFFFFF
+          build.MOD_HDR.unpack_from(b, 0)[11] == len(b) and build.MOD_HDR.unpack_from(b, 0)[12] == zlib.crc32(b[0x100:]) & 0xFFFFFFFF
           for b, r, i in zip(imgs2, rows2, imgs)))
 check("the link scripts of the moved build start the code at +0x104", "_modstart + 0x104;" in Path(build.OUT / "module" / "shapes.0.ld").read_text())
 check("the report says the code was moved", sum("code moved 4 B" in x for x in notes) == 2)
@@ -193,5 +192,28 @@ refused("a module that does not fit its sectors", Fake(size=6 * 4096), "do not f
 import importlib  # noqa: E402
 importlib.reload(build)
 check("the real tc is back after the test", build.tc.__name__ == "tc")
+
+# (0.11.0) the cost word of the header: the sum of the budget lines a module names, 0 when it names none
+import tempfile
+with tempfile.TemporaryDirectory() as td:
+    td = Path(td)
+    (td / "tools" / "module").mkdir(parents=True)
+    (td / "tests").mkdir()
+    (td / "tests" / "target_budget.txt").write_text("# comment\nsh_render 300\nsh_pass 45\nother 7\n")
+    (td / "tools" / "module" / "a.cost").write_text("# the functions\nsh_render   # the loop\nsh_pass\n")
+    (td / "tools" / "module" / "b.cost").write_text("# nothing measured\n")
+    (td / "tools" / "module" / "c.cost").write_text("sh_render\nnot_there\n")
+    keep = build.SRC
+    build.SRC = td
+    try:
+        got = (build.module_cost("a"), build.module_cost("b"), build.module_cost("c"), build.module_cost("none"))
+    finally:
+        build.SRC = keep
+check("module cost: the named budget lines are summed (300 + 45), a file with no names is 0, no file is 0",
+      got[0] == (345, []) and got[1] == (0, []) and got[3] == (0, []))
+check("module cost: a name the budget lacks is reported (and the sum is of the rest)", got[2] == (300, ["not_there"]))
+check("the real SHAPES module names no function: its cost is 0, not measured (tools/module/shapes.cost)", build.module_cost("shapes") == (0, []))
+check("the header is 14 words (56 B) with cost before length, as fw_api.h", build.MOD_HDR.size == 56 and build.MOD_NAMES.index("cost") == build.MOD_NAMES.index("length") - 1)
+
 print("module build: FAILED" if bad else "module build: all passed")
 sys.exit(1 if bad else 0)

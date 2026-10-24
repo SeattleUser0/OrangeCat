@@ -612,12 +612,14 @@ struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".n
  *   notice   0.10.1: per start, banned at this boot and not yet told on the screen (oc_mod_ban_notice)
  * The magic is new in 0.10.1 (the layout grew): RAM that kept the old layout across an update reads as fresh. */
 #define OC_MODGUARD_MAGIC 0x4D4F4432u                          /* "MOD2" */
+#ifndef OC_MODULE                                               /* (a module's own translation unit, tools/module/shapes_mod.c, has no RAM of its own) */
 struct { uint32_t magic, inuse, banned, run; uint8_t unclean[2], notice, pad; } oc_modguard __attribute__((section(".noinit")));
+#endif
 #endif
 static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
 {
     bootguard.pending = 0;
-#if OC_MODULES
+#if OC_MODULES && !defined(OC_MODULE)
     oc_modguard.run = 0;                        /* (0.10.1) an orderly end: the module crash count starts again */
     oc_modguard.unclean[0] = oc_modguard.unclean[1] = 0;
 #endif

@@ -835,6 +835,40 @@ static int pack_protocol(void)
     bad += check("PACK_ERASE with take 2 is refused (1)", host_wire[5] == 1);
     return bad;
 }
+/* (Orange Cat 0.11.0) admission through the page: ED_PRESET and the engine select of ED_SET refuse a module engine the unit cannot carry;
+ * the ED_PRESET reply carries a fourth byte then (1 ENGINE TOO HEAVY, 2 NO ROOM) and the track keeps its engine */
+static uint32_t adm_big(const struct track *tt) { (void)tt; return 1000u; }
+static int admission_protocol(void)
+{
+    static fw_mod_hdr_t fh;
+    static engine_t fe;
+    static uint8_t a[8];
+    int bad = 0;
+    uint32_t n_ok, n_ref, was;
+    const engine_t *save_e = ENGINES[ENGI_SHAPES];
+    const fw_mod_hdr_t *save_h = eng_mod[ENGI_SHAPES];
+    reset();
+    was = TSEL->eng_req;
+    a[0] = (uint8_t)was; a[1] = 0;
+    n_ok = request(ED_PRESET, a, 2);
+    fe = *ENGINES[ENGI_SHAPES];
+    fh.magic = FW_MOD_MAGIC; fh.engine = ENGI_SHAPES; fh.state_size = 1234u;
+    ENGINES[ENGI_SHAPES] = &fe; eng_mod[ENGI_SHAPES] = &fh;
+    fe.units = adm_big;
+    a[0] = ENGI_SHAPES; a[1] = 0;
+    n_ref = request(ED_PRESET, a, 2);
+    bad += check("admission: ED_PRESET for a module engine one voice of which is heavier than the voice budget: the reply has a fourth byte, 1",
+                 n_ref == n_ok + 1u && host_wire[host_wire_n - 2u] == 1u && TSEL->eng_req == was);
+    fe.units = 0; fh.state_size = RESOURCE_CAPACITY + 4u;
+    n_ref = request(ED_PRESET, a, 2);
+    bad += check("admission: a state larger than the arena: the fourth byte is 2, the track keeps its engine", n_ref == n_ok + 1u && host_wire[host_wire_n - 2u] == 2u && TSEL->eng_req == was);
+    fh.state_size = 1234u;
+    n_ref = request(ED_PRESET, a, 2);
+    bad += check("admission: a module engine that fits: the ordinary reply (no fourth byte), the track has the engine", n_ref == n_ok && TSEL->eng_req == ENGI_SHAPES);
+    ENGINES[ENGI_SHAPES] = save_e; eng_mod[ENGI_SHAPES] = save_h;
+    return bad;
+}
+
 /* (Orange Cat 0.10.0) the module commands 120..124 (oc_module.c) */
 static int module_protocol(void)
 {
@@ -957,7 +991,7 @@ static int module_protocol(void)
 }
 int main(void)
 {
-    int bad = module_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = module_protocol() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

@@ -440,7 +440,7 @@ static void designer_begin(void)
 {
     undo_seal();fm1_irq_off();motion_restore(TSEL);motion_design_pause|=(uint8_t)(1u<<ds.track);designer_snapshot(&ds.other);fm1_irq_on();
     load_begin(TSEL,UNDO_SOUND);
-    if(!ds.current || ds.eng!=TSEL->eng_req){sound_init_of(TSEL,ds.eng);fm1_irq_off();designer_recipe();fm1_irq_on();}
+    if(!ds.current || ds.eng!=TSEL->eng_req){if(ds.eng==TSEL->eng_req || !eng_admit(TSEL,ds.eng))sound_init_of(TSEL,ds.eng);fm1_irq_off();designer_recipe();fm1_irq_on();}
     load_end(TSEL);undo_seal();
     ds.eng=TSEL->eng_req;ds.compare=0;ds.at=0;designer_route();ui.designer_mode=DS_SHAPE;designer_page();
 }
