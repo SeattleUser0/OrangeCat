@@ -39,6 +39,7 @@ extern const fw_api_t *oc_host_fw;
 #define OC_FW() ((const fw_api_t *)FW_API_ADDR)          /* the firmware's services: at a fixed address, so no pointer of our own */
 #endif
 #include "oc_pack.h"
+static inline const void *const *oc_base_hot(void) { return OC_FW()->base_hot; }   /* (0.14.0) dsp.c: SINE and TANH_Q15, the firmware's (its hot set) */
 
 /* the services, by the table */
 #define trk (OC_FW()->trk)

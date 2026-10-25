@@ -85,6 +85,7 @@
  * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
  * (Orange Cat 0.12.2) fuzzers for the library group, the pack and the module loader; the loser of two modules no longer erases the winner's sectors; module link overflow...
+ * (Orange Cat 0.14.0) WHEEL (engine 7) as a module: 4 sectors (2,920 B built), starts 0 and 1 (sectors 0 and 6): beside SHAPES at 0, beside the Prophet at 4
  *   0.10.0: first version.
  *   0.10.1: the crash count beyond the first 30 s (oc_mod_power_on, oc_mod_ban_notice); the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
  *           module when another start is free (oc_mod_plan, oc_mod_inplace, mw.inplace); the header comment now says what the code does.
@@ -117,7 +118,12 @@ typedef struct { uint8_t engine, sectors, starts; } oc_mod_geo_t;
 #ifndef OC_MOD_GEO_QUAL
 #define OC_MOD_GEO_QUAL const                           /* (0.13.5) a host test defines it empty to change the geometries for one case (tests/card_install_test.c) */
 #endif
-static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u }, { ENGI_PROPHET, 8u, 0x05u } };
+static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u }, { ENGI_PROPHET, 8u, 0x05u },
+                                                     { ENGI_WHEEL, 4u, 0x03u },     /* (0.14.0) WHEEL: 4 sectors at sector 0 or 6: beside SHAPES (0) or the Prophet (4) */
+#if OC_CANDIDATES
+                                                     { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
+#endif
+                                                   };
 static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
 {
     uint32_t k;

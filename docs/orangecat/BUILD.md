@@ -11,6 +11,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 ## Revision history
 
 - **0.76 (October 25, 2026):** Thirteenth run: **the four-track fix is shipped as the Nightly** (`sonnet-work · ceccc1c · v0.6.2-ceccc1`; linux-hw merged into sonnet-work, CI run 40212043712, publish run 40212959451) and on the unit; 0.13.8 gave back 3,284 B of image the hot sets had cost by accident; MACRO measured model by model; the capture harness; the installer paths and the library on the unit; the hardware test surface (OC_HW_TEST). See "Thirteenth run".
+- **Engine candidates (October 25, 2026, branch engine-candidates; not on main, not released, not on the unit):** the feasibility gate (ENGINE_CANDIDATES.md, tools/engine_gate.py), the firmware's own hot set, WHEEL as a module (0.14.0), and Frodhes' Rhodes, Caravel's SEM and HADES through the gate. Section "Engine candidates" at the end.
 - **0.75 (October 25, 2026):** Twelfth run, branch linux-hw (on the unit; not on main, not released): the first session with the real toolchain on a Linux PC (byte-identical to CI) and the real FM-1 on USB. The four-track fault measured: MACRO is as heavy as on 0.6.2 (not a regression), SHAPES took 1.9 times 0.6.2's render time; the cause, a one-way 4 KiB data cache on which two of Braids' tables in the pack collide (the plaintext window is not slower, a module's code is not slower); the fix, hot sets (0.13.7): an engine's per-sample tables in RAM, SHAPES back at or under 0.6.2 built in and as a module. docs/orangecat/ADDING_AN_ENGINE.md. See "Twelfth run".
 - **0.74 (October 24, 2026):** Eleventh run on sonnet-work (still not on main, released or flashed): the first hardware result (two tracks play, the third and fourth screech, whatever the engine); the Audio readout in the web editor's Settings tab (0.13.6, editor command 72 schema 8); the OC_PACK_BUILTIN switch and the A/B build that tells whether the pack's data window is the cause; the audio interrupt's recorded-step work checked (not per block). See "Eleventh run".
 - **0.73 (October 24, 2026):** 0.13.6 on sonnet-work (still not on main, released or flashed): the installer page's Nightly channel can serve a branch build with its pack, modules and set manifests (workflow Rev 17, input `publish_nightly`; `web/mirror_site.py`, `web/site_check.py`, `tools/orangecat_site.py nightly`); Standard, the editor and the manual stay main's. No firmware change. See "Tenth run" and the Before merging item 10.
@@ -2571,3 +2572,20 @@ taken from the TRS MIDI input (that command alone), for tests while USB is busy.
 hw_say_test (the plan and the interrupt's tone code, rendered). Image of a test build +4.9 KB (511,848 B), RAM +144 B. tools/hw/hw_test.py drives it.
 web/EDITOR_PROTOCOL.md documents it as test-build only. Used on the unit for Part 3; the card tests (say state over TRS while the card is in) are the user's.
 
+## Engine candidates (0.14.0, branch engine-candidates, October 25, 2026)
+
+From sonnet-work ceccc1c (linux-hw merged). Not on main, not released, not flashed: the unit's rows are the Linux session's. The gate, its table and the
+four candidates' verdicts: docs/orangecat/ENGINE_CANDIDATES.md.
+
+| What | Status |
+|---|---|
+| The gate: ENGINE_CANDIDATES.md (the procedure, the table), tools/engine_gate.py (the CI rows from a module build; run by the build step on every module, notice "engine gate", orangecat-engine-gate-*.txt in the packages), tests/engine_gate_test.py (the placement rule; SHAPES' and the Prophet's rows against the plan) | **Done** |
+| The firmware's own hot set: SINE copied into the arena at boot (2,052 B), TANH_Q15 SRAM already; modules read both through fw_api_t base_hot (FW_API_VERSION 5: every module rebuilt once). Image +268 B, host output unchanged | **Done**; the unit's measurement **Not started** |
+| WHEEL as a module (0.14.0): engine 7, 2,920 B, 4 sectors at sector 0 or 6 (beside SHAPES or the Prophet), equal byte for byte to the built-in WHEEL of the reference build; stored WHEEL sounds play again when it registers. Proposed verdict: go | **Done** (CI); unit **Not started** |
+| Frodhes' Rhodes: the voice ported (tools/module/rhodes_mod.c), equal sample for sample to Frodhes' own rhodes.c (tests/rhodes_parity_test.c); 138,888 B against the 49,152 B area, 109,560 B of per-sample tables. Proposed verdict: no (as ported) | **Done** (feasibility) |
+| Caravel's SEM and HADES: modules (3,632 B and 3,308 B, beside either module), equal sample for sample to Caravel's own build of them (tests/caravel_parity, a checkout needed); proposed numbers 21 and 22, registrable only by an OC_CANDIDATES build. Proposed verdicts: go with limits (SEM's TYPE; the numbers) | **Done** (CI); unit **Not started** |
+| Finding: the Prophet module reads P5_TANH, P5_EXP2, P5_TPT_G per sample from its own flash with no hot set (6,668 B if declared) | **Open** (a decision) |
+| The engine numbers past 20 for the shipping build (NENGINES, the editor's list, user presets and favorites past 15) | **Open** (a decision) |
+
+CI: run 40218949650 (.ci_quick, sizes and the gate: green; its gate rows equal the PC's build of 689792e, the .ocm sizes as above); the full run after
+removing .ci_quick is the record (the final report names it). Host tests on the PC (tools/hw/ci_step.py test --parallel 2): all passed on 689792e.

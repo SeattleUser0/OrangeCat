@@ -83,11 +83,13 @@ def loop_bodies(body):
     return out
 
 
-def hot_names(tables):
-    """tables: the pack's table names -> the hot ones, with a reason each"""
+def hot_names(tables, files=None, depth=1):
+    """tables: the pack's table names -> the hot ones, with a reason each. (0.14.0) files: the sources to read (default FILES, SHAPES' and MACRO's;
+    tools/engine_gate.py gives a module's own); depth: helpers of helpers followed this deep (1, the default: a leaf helper only; the gate uses 3)"""
     tables = set(tables)
+    files = FILES if files is None else list(files)
     funcs = {}
-    for f in FILES:
+    for f in files:
         text = strip(f.read_text())
         for m in FUNC.finditer(text):
             if m.group(1) in KEYWORDS:
@@ -98,7 +100,7 @@ def hot_names(tables):
             funcs.setdefault(m.group(1), "")
             funcs[m.group(1)] += "{" + m.group(3).replace("\\\n", " ") + "}"
     ptrs = {}                                           # pointer tables: name -> the pack tables they list
-    for f in FILES + [SRC / "braids" / "pb_tables.h", SRC / "plaits" / "pl_tables.h"]:
+    for f in files + [SRC / "braids" / "pb_tables.h", SRC / "plaits" / "pl_tables.h"]:
         for m in PTRS.finditer(strip(f.read_text())):
             listed = [x for x in IDENT.findall(m.group(2)) if x in tables]
             if listed:
@@ -126,6 +128,12 @@ def hot_names(tables):
     # a leaf helper called directly in a sample loop runs per sample (pl_sine, an interpolator macro); a function with sample loops
     # of its own (a shape's render, the dispatcher pb_dig_render) is a block's work: its own loops are looked at above
     helpers = {n: per_loop[n] for n in per_loop if n in funcs and not has_sample_loop(n)}
+    for _ in range(depth - 1):                          # (0.14.0) a helper a helper calls (soft_knee -> softclip): the gate's reading, not the pack's
+        more = {c: f"{helpers[h]}, through {h}" for h in helpers for c in set(IDENT.findall(funcs[h]))
+                if c in funcs and c not in helpers and not has_sample_loop(c)}
+        if not more:
+            break
+        helpers.update(more)
     hot = {}
     for t in sorted(tables):
         if t in per_loop:

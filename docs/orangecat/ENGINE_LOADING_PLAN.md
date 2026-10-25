@@ -1134,6 +1134,24 @@ Per voice (worst less 460 us idle and 120 us a track, over the voices sounding):
 180 to 320. The admission is per model already (`mc_units`, MC_UNITS); its 0.5.3 values are the host's, and MODAL (6 units: three voices on one track) and
 ADDTV (7) are under-priced on the unit. The table measured units would give (92 us a unit) is in BUILD.md, Part 2; it changes four golden renders (their chords
 lose voices) and waits for that approval. Arena: the hot set 15,316 B; states unchanged.
+## The module area with the candidates (0.14.0, branch engine-candidates)
+
+The 12-sector area (0xC8000..0xD3FFF, 49,152 B) and every module CI builds today, as `tools/engine_gate.py` measures them (docs/orangecat/
+ENGINE_CANDIDATES.md has each one's full table). Starts are the firmware's (oc_module.c `oc_mod_sect`: sectors 0, 6 and 4) and each engine's geometry
+(`oc_mod_geo`); SEM's and HADES's geometry exists only in an `OC_CANDIDATES` build.
+
+| Module | image | needs | geometry (sectors, at sector) | beside SHAPES | beside the Prophet | hot set (arena) |
+|---|---|---|---|---|---|---|
+| SHAPES (14) | 23,944 B | 6 | 6, at 0 or 6 | | no | 2,580 B |
+| PROPHET (19) | 31,884 B | 8 | 8, at 0 or 4 | no | | 0 B declared (reads P5_TANH, P5_EXP2, P5_TPT_G per sample: ENGINE_CANDIDATES.md, "Findings") |
+| WHEEL (7) | 2,920 B | 1 | 4, at 0 or 6 | yes (WHEEL at 6) | yes (WHEEL at 0) | 0 B (SINE, TANH_Q15: the base set) |
+| SEM (21, proposed) | 3,632 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
+| HADES (22, proposed) | 3,308 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
+| RHODES (23, proposed) | 138,888 B | 34 | none fits | | | 109,560 B read per sample: no |
+
+Three modules at once: SHAPES at 0 and one 4-sector module at 6 fill sectors 0 to 9 (two sectors free, no start there); the Prophet at 4 and one at 0
+fill 0 to 11. Two of the small ones (WHEEL, SEM, HADES) take 0 and 6. The firmware's own hot set (SINE, 2,052 B of arena at boot) is the base every
+module reads through `fw_api_t base_hot` (ENGINE_CANDIDATES.md, "The base hot set").
 
 ## Order of work
 

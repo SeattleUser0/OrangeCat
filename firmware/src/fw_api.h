@@ -35,6 +35,7 @@
  * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
  * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
+ * (Orange Cat 0.14.0) base_hot: the firmware's own hot set (SINE, TANH_Q15) for the modules; FW_API_VERSION 5 (the interface identifier changes: every module rebuilt)
  *   0.8.0: first version.
  *   0.11.0: fw_mod_hdr_t gains `cost` and `version` (before length): FW_MOD_HDR_BYTES 60.
  *   0.12.2: two more members, pitch_oct and env_lin (the module shares the firmware's tables). FW_API_VERSION stays 3.
@@ -46,7 +47,7 @@
 #pragma once
 #include "fw_api_id.h"                                   /* generated: FW_API_ID (tools/gen_fw_api_id.py) */
 #define FW_API_MAGIC 0x50414657u                         /* "WFAP" little endian: FW API */
-#define FW_API_VERSION 4u                                /* (0.13.7) 4: hot, the hot sets' pointers */
+#define FW_API_VERSION 5u                                /* (0.13.7) 4: hot, the hot sets' pointers; (0.14.0) 5: base_hot, the firmware's own */
 /* the identifier a module is built with and the firmware compares: the hash of the text, and the sizes of what it hashes */
 #define FW_API_IFACE (FW_API_ID ^ ((uint32_t)sizeof(track_t) * 0x9E3779B1u) ^ ((uint32_t)sizeof(voice_t) * 0x85EBCA6Bu) ^ \
                       ((uint32_t)sizeof(engine_t) * 0xC2B2AE35u) ^ ((uint32_t)sizeof(vmod_t) * 0x27D4EB2Fu))
@@ -82,6 +83,9 @@ typedef struct fw_api {
     /* (0.13.7) the pointers of each engine number's hot set (core.h engine_t hot, engines.c eng_hot): a module reads its per-sample tables through
      * hot[engine][i] (ENG_HOT), the RAM copy the loader made when it registered it */
     const void *const *const *hot;
+    /* (0.14.0) the firmware's own hot set (dsp.c DSP_HOT_*): [0] SINE (the arena copy after boot, engines.c eng_hot_base), [1] TANH_Q15 (SRAM). The shared
+     * helpers a module compiles in (sine_i, osc_sine, softclip, soft_knee) read them here, never the module's own copies in the module area's flash */
+    const void *const *base_hot;
 } fw_api_t;
 
 /* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything.

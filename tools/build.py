@@ -264,7 +264,7 @@ def app_flags():
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
-                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST"):    # (Orange Cat 0.10.0) loadable engine modules (core.h)
+                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES"):    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
@@ -511,7 +511,14 @@ TAIL_PAD_TRIES = 64                      # (0.10.1) code placements tried per st
 MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts": [0, 6], "name": "SHAPES"},
            # (0.12.1) the Prophet: 8 sectors (32,768 B; the code and its factory tables measured 31,148 B), sector 0 and sector 4 of the 12 sector area. It does not
            # fit beside the SHAPES module (the loader's planner refuses the pair, firmware/src/oc_module.c).
-           "prophet": {"src": "tools/module/prophet_mod.c", "sectors": 8, "starts": [0, 4], "name": "PROPHET"}}
+           "prophet": {"src": "tools/module/prophet_mod.c", "sectors": 8, "starts": [0, 4], "name": "PROPHET"},
+           # (0.14.0) WHEEL, Melodee's organ, engine 7: 4 sectors (2,920 B built), sector 0 or sector 6: beside SHAPES (at 0) or beside the Prophet (at 4)
+           "wheel": {"src": "tools/module/wheel_mod.c", "sectors": 4, "starts": [0, 6], "name": "WHEEL"},
+           # (0.14.0) the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md; tools/engine_gate.py): built and measured, registrable only by an
+           # OC_CANDIDATES build. SEM and HADES take WHEEL's geometry; the Rhodes port is linked for the whole area, which it does not fit (the gate's row)
+           "sem": {"src": "tools/module/sem_mod.c", "sectors": 4, "starts": [0, 6], "name": "SEM"},
+           "hades": {"src": "tools/module/hades_mod.c", "sectors": 4, "starts": [0, 6], "name": "HADES"},
+           "rhodes": {"src": "tools/module/rhodes_mod.c", "sectors": 12, "starts": [0], "name": "RHODES"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100

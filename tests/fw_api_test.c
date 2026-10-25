@@ -24,7 +24,7 @@ int main(void)
     uint8_t x[16], y[16];
     uint32_t i;
     void *p1, *p2;
-    check("the table starts with the magic, its own size, version 4 and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 4u && a->iface == FW_API_IFACE);
+    check("the table starts with the magic, its own size, version 5 (0.14.0: base_hot) and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 5u && a->iface == FW_API_IFACE);
     check("every service is there", a->mem_copy && a->mem_set && a->resource_get && a->tuning_log && a->trk && a->pack_ready);
     /* 0.10.0 (step 1) the arena id a module's part state starts at, and the engine count, come from the table */
     check("res_engine0 is the arena id of the first engine state and nengines the table's length", a->res_engine0 == RES_ENGINE0 && a->nengines == NENGINES && NENGINES == 20u);
@@ -48,6 +48,20 @@ int main(void)
     check("voice_was, pitch_oct and env_lin are the firmware's own (the Prophet module reads them through the table)", a->voice_was == &voice_was && a->pitch_oct == PITCH_OCT && a->env_lin == ENV_LIN &&
           a->pitch_oct[0] == PITCH_OCT[0] && a->pitch_oct[191] == PITCH_OCT[191] && a->env_lin[127] == ENV_LIN[127]);
     check("(0.13.7) hot is the firmware's per-engine table of hot-set pointers (engines.c eng_hs.ptr)", a->hot == (const void *const *const *)eng_hs.ptr);
+    /* (0.14.0) the firmware's own hot set (dsp.c dsp_hot_at): SINE (the image's flash until boot copies it into the arena) and TANH_Q15 (SRAM) */
+    check("(0.14.0) base_hot is the firmware's own hot set: SINE and TANH_Q15, the tables sine_i and softclip read", a->base_hot == (const void *const *)dsp_hot_at &&
+          a->base_hot[DSP_HOT_SINE] == (const void *)SINE && a->base_hot[DSP_HOT_TANH] == (const void *)TANH_Q15);
+    {   int32_t before = sine_i(0x12345678u), clip = softclip(20000);
+        memset(resource, 0, sizeof resource);
+        eng_hot_base();
+        check("(0.14.0) at boot SINE is copied into the arena (RES_HOT_BASE, 2,052 B) and sine_i reads the copy: the same value",
+              resource[RES_HOT_BASE].ptr && resource[RES_HOT_BASE].size == 2052u && a->base_hot[DSP_HOT_SINE] == resource[RES_HOT_BASE].ptr &&
+              !memcmp(a->base_hot[DSP_HOT_SINE], SINE, sizeof SINE) && sine_i(0x12345678u) == before && softclip(20000) == clip);
+        eng_hot_base();
+        check("(0.14.0) a second call copies nothing again (the pointer is the copy already)", a->base_hot[DSP_HOT_SINE] == resource[RES_HOT_BASE].ptr);
+        resource_release(RES_HOT_BASE);
+        dsp_hot_at[DSP_HOT_SINE] = SINE;
+    }
     oc_pack_good = 0;
     check("pack_ready follows the pack's flag (0)", *a->pack_ready == 0);
     oc_pack_good = 1;

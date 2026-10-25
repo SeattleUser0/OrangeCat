@@ -26,6 +26,7 @@ taken as the difference over the run.
 
 Revisions:
   (Orange Cat 0.13.7) first version (branch linux-hw).
+  (Orange Cat 0.14.0, branch engine-candidates) table --set candidates: WHEEL, SEM, HADES (the engine candidates gate).
   (Orange Cat 0.13.8) table --set macro: MACRO's 15 models, one preset each, N = 1..4; library (65 and 80: read, and one store to a free slot).
 """
 import argparse
@@ -41,9 +42,9 @@ import mido
 
 HDR = [0x7D, 0x46, 0x4C]
 PORT_RE = re.compile(r"orange cat|melodee|felucca|fm-1", re.I)
-ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14, "PROPHET": 19}
+ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14, "PROPHET": 19, "WHEEL": 7, "SEM": 21, "HADES": 22}   # (0.14.0) WHEEL, a module; SEM, HADES: an OC_CANDIDATES build's
 MIX = ("MACRO", "SHAPES", "DRUM-X", "MACRO")       # track k of a MIX run plays MIX[k]
-CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46), "PROPHET": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
+CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46), "PROPHET": (48, 52, 55, 59), "WHEEL": (48, 52, 55, 59), "SEM": (48, 52, 55, 59), "HADES": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
 FS = 44100
 TOOLS = Path(__file__).resolve().parents[1]
 
@@ -420,6 +421,10 @@ MACRO_MODELS = [("VA", "VA BASS"), ("WAVSHP", "FOLD PLUCK"), ("FM", "FM BELL"), 
 SETS["macro"] = {m: [("MACRO", p)] * 4 for m, p in MACRO_MODELS}
 # (0.13.8) "prophet": the Prophet module (engine 19), its INIT and two factory programs, N = 1..4
 SETS["prophet"] = {"INIT": [("PROPHET", 0)] * 4, "P5": [("PROPHET", 1)] * 4, "SERAPHIM": [("PROPHET", 5)] * 4}
+# (0.14.0) "candidates": the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md): each candidate's heaviest preset by its source (WHEEL FULL ORGAN: nine
+# bars, the drive and the rotor; SEM NOTCH PAD: saw and PWM, the STATE blend; HADES PULSE BAS: the pulse and both subs), N = 1..4; an engine the firmware
+# does not offer (no module registered, or SEM and HADES without an OC_CANDIDATES build) is skipped and said so
+SETS["candidates"] = {"WHEEL": [("WHEEL", "FULL ORGAN")] * 4, "SEM": [("SEM", "NOTCH PAD")] * 4, "HADES": [("HADES", "PULSE BAS")] * 4}
 PROBES = {"heavy": [("MALLET", [("MACRO", "MALLET")])]}     # (a preset by name: the numbers may differ between firmware versions)
 
 

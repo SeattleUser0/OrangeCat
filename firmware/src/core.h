@@ -120,19 +120,30 @@
 #define ENGI_DRUMX 9u
 #define ENGI_FM6 12u
 #define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
+#define ENGI_WHEEL 7u              /* (Orange Cat 0.14.0) Melodee's WHEEL: retired in the image (MELODEE_LEGACY_EXTRAS builds it in), supplied by a module (tools/module/wheel_mod.c) */
 /* (Orange Cat) the engine a retired, reserved or unknown sound falls back to, and new sounds start on: FM6 as in
  * Melodee, else Prophet, else (0.5.0) MACRO, else TRIO (the test voice) */
 #define ENGI_FALLBACK (MELODEE_FM6 ? ENGI_FM6 : MELODEE_P5 ? ENGI_PROPHET : MELODEE_MACRO ? ENGI_MACRO : 6u)
 #define USER_GENERAL 16u
 #define USER_NATIVE_P5 20u
-#define NENGINES 20               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
+#ifndef OC_CANDIDATES
+#define OC_CANDIDATES 0           /* (Orange Cat 0.14.0) 1: a measurement build for the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md):
+                                   * the engine table grows to 23 and the candidates' proposed numbers below take modules (SEM 21, HADES 22), so the unit
+                                   * can register their .ocm and measure them (tools/hw/ci_step.py build --switch OC_CANDIDATES=1). 20 stays a preset namespace
+                                   * (USER_NATIVE_P5). Never in a release: the numbers are proposals until the gate's verdict, and a project or preset stored
+                                   * with one is refused by any firmware without the switch (an engine number past its table) */
+#endif
+#define ENGI_SEM 21u              /* (0.14.0) proposed: Caravel's SEM (tools/module/sem_mod.c) */
+#define ENGI_HADES 22u            /* (0.14.0) proposed: Caravel's HADES (tools/module/hades_mod.c) */
+#define ENGI_RHODES 23u           /* (0.14.0) proposed: Frodhes' Rhodes (tools/module/rhodes_mod.c; it fits no module start: never registered) */
+#define NENGINES (OC_CANDIDATES ? 23 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX)   /* (Orange Cat: - SID - CZ-1 - FM6 -
-                                                 * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone) */   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + 2u * OC_CANDIDATES)   /* (Orange Cat: - SID - CZ-1 - FM6 -
+                                                 * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone; 0.14.0: + WHEEL, a module's) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

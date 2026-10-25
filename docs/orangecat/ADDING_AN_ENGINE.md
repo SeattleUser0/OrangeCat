@@ -9,8 +9,16 @@ the unit's, measured in the first session on a real FM-1 (hw/LOG.md; docs/orange
 measured"); where a number is the host's or the build's, it says so. A checklist closes the document.
 
 Revisions:
+- 0.3 (branch engine-candidates): Stage 0, the feasibility gate (ENGINE_CANDIDATES.md); the firmware's own hot set (SINE, TANH_Q15) for every engine.
 - 0.2: one struct for new RAM state (the 0.13.7 image growth); MACRO's per-model costs (BUILD.md, Thirteenth run).
 - 0.1: first version, after the four-track hunt of BUILD.md's Twelfth run (the SHAPES regression and the hot sets).
+
+## Stage 0: feasibility
+
+Before the rules below, before pages, presets and a manual: **docs/orangecat/ENGINE_CANDIDATES.md**. The render core is ported as a module
+translation unit and put through the gate (`tools/engine_gate.py`, run by CI on every module): its size and where it fits the module area, its state,
+the tables it reads per sample and what they would cost as a hot set, its loop cost, a sample-for-sample comparison with the original, then the unit's
+render times. A candidate whose verdict is "no" stops there.
 
 ## 1. What an engine is here
 
@@ -91,6 +99,12 @@ budget admission yet (BUILD.md, Fourth run: admission is voice units and the are
   what the engine's heavy presets read, and measure. Cost today: SHAPES 2,580 B, MACRO 15,316 B (0.13.8: 12 tables; FM 22 to 29 % faster, WAVSHP 20 to
   24 %, ADDTV 11 %; at most 16 tables a set now), the Prophet 0 (its sample loop reads three small tables, but as a module a hot set made it 3 to 9 % slower:
   a module reaches its copies through the firmware's pointers, a chain of loads; declare a module's set only if the measured numbers move), DRUM-X none. Tables read once a block stay in flash.
+  what the engine's heavy presets read, and measure. Cost today: SHAPES 2,580 B, the Prophet 0 (its sample loop reads no table), MACRO and
+  DRUM-X none declared. Tables read once a block stay in flash.
+- **The firmware's own hot set (0.14.0).** dsp.c's helpers read SINE (sine_i, osc_sine) and TANH_Q15 (softclip, soft_knee) every sample, for whichever
+  engine calls them. SINE is copied into the arena at boot (2,052 B, `RES_HOT_BASE`); TANH_Q15 is SRAM already. A module reads both through `fw_api_t
+  base_hot` and carries neither: an engine never declares them in its own set. (The gate found that the Prophet *module* reads P5_TANH, P5_EXP2 and
+  P5_TPT_G per sample from its own flash: ENGINE_CANDIDATES.md, "Findings".)
 - **RAM state of the firmware's own: one struct a feature (0.13.8).** The firmware is one translation unit; the compiler merges its small
   statics into blocks and addresses each block from one register. New separate statics reshuffle the blocks and the UI's code grows where
   nothing changed: 0.13.7's seven hot-set statics cost draw_page, ui_input, ed_handle and fm1_main 2,560 B of image; one struct (`eng_hs`)

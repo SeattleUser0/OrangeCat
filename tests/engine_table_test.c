@@ -42,8 +42,8 @@ int main(void)
           sizeof ENGINES == NENGINES * sizeof(void *) && sizeof eng_mod == NENGINES * sizeof(void *) && NENGINES == 20u);
     ENGINES[0] = ENGINES[0];                         /* (writable: this compiles and runs) */
     check("nothing is registered at the start", ({ int z = 1; for (k = 0; k < NENGINES; k++) z &= eng_mod[k] == 0; z; }));
-    check("NENG_SHOWN counts SHAPES' slot (a module may supply it) and ENGINE_ORDER ends with it",
-          eng_vis(NENG_SHOWN - 1u) == ENGI_SHAPES);
+    check("NENG_SHOWN counts SHAPES' slot (a module may supply it) and ENGINE_ORDER ends with it, then WHEEL's (0.14.0: only a module supplies it)",
+          eng_vis(NENG_SHOWN - 2u) == ENGI_SHAPES && eng_vis(NENG_SHOWN - 1u) == ENGI_WHEEL && eng_module_slot(ENGI_WHEEL) && !eng_ok(ENGI_WHEEL));
 
     /* refusals that hold in every build */
     check("no header or no engine is refused", eng_register(0, &fake_engine) == EM_BAD && eng_register(&h, 0) == EM_BAD);
@@ -79,7 +79,8 @@ int main(void)
     check("then it is selectable, with the module's state size", eng_ok(ENGI_SHAPES) && eng_state_size(ENGI_SHAPES) == 1234u);
     for (seen = 0, n = eng_vis(0), k = 0; k < NENG_SHOWN + 2u; k++) { n = eng_step(n, 1); seen += n == ENGI_SHAPES; }
     check("and the ENG knob reaches it, forwards and back", seen >= 1u && eng_step(eng_vis(0), -1) == ENGI_SHAPES);
-    check("the browser lists only engines that are there (the list is the same length)", ({ int z = 1; for (k = 0; k < NENG_SHOWN; k++) z &= eng_ok(eng_vis(k)); z; }));
+    check("the browser lists only engines that are there, or a module's slot with no module yet (0.14.0: WHEEL; the knob skips it)",
+          ({ int z = 1; for (k = 0; k < NENG_SHOWN; k++) z &= eng_ok(eng_vis(k)) || (eng_module_slot(eng_vis(k)) && !eng_mod[eng_vis(k)]); z; }));
     eng_unregister(ENGI_SHAPES);
     check("unregistering retires the slot again", ENGINES[ENGI_SHAPES] == &ENG_RETIRED && !eng_ok(ENGI_SHAPES) && eng_state_size(ENGI_SHAPES) == 0u && !eng_mod[ENGI_SHAPES]);
     seen = 0;

@@ -1,0 +1,24 @@
+# Orange Cat 0.14.0: the expected renders of the modules whose engines are not in the default host engine set (tests/regress.c's phrase through the whole
+# voice path, FNV-1a 64 of the samples). WHEEL: tests/module_host_wheel_test.c (the module, and the reference build's built-in WHEEL, render these).
+module/WHEEL/00_FULL_ORGAN c0e3b92c19e02634
+module/WHEEL/01_JAZZ_PERC d8fa4a517134b114
+module/WHEEL/02_GOSPEL 5ff42e8a4b906cbc
+module/WHEEL/03_SOFT_FLUTE 2fdc869f24ee6ed8
+module/WHEEL/04_ROCK_DRIVE c2c21b1c3560b500
+# (engine candidates) SEM and HADES, Caravel's (tests/module_host_cand_test.c, an OC_CANDIDATES build: the proposed numbers 21 and 22)
+module/SEM/00_SEM_BRASS 6caac9a1a7cc7b4c
+module/SEM/01_WARM_PAD 1aa5f9994e0abdc8
+module/SEM/02_OB_STRING 0dbe06489fe849c0
+module/SEM/03_ROUND_BAS 21dbde8261fe4c70
+module/SEM/04_NOTCH_PAD 1ffa8618f93f9b90
+module/SEM/05_SEM_LEAD 2a86342ce764c50c
+module/SEM/06_HIGH_AIR 47a11d65aba66058
+module/SEM/07_SOFT_KEY c5e7c699e93fa3ac
+module/HADES/00_DEEP_SUB 88988c6bfc1ac544
+module/HADES/01_DARK_SAW 952ac3a5b8ddaf18
+module/HADES/02_PULSE_BAS 86fa8ae2decb39d4
+module/HADES/03_SUB_ONLY 8004bec5bd1512c4
+module/HADES/04_DRIVEN 3314df27092174e4
+module/HADES/05_RESO_BASS eb79ff9f4e7bcb58
+module/HADES/06_DARK_PLK 4cfebfbf756d75d4
+module/HADES/07_RAW_LEAD a30e78cfbba899a0
