@@ -57,7 +57,7 @@ int main(void)
 
     eng_hot_boot();
     check("boot: SHAPES' set is in the arena, byte for byte its sources, and the names read the copies", copies_ok(shapes, sh_hot) &&
-          (const void *)pb_wav_sine == sh_hot[0] && (const void *)pb_ws_tri_fold == sh_hot[4] && eng_hot_slot[ENGI_SHAPES] == 1u);
+          (const void *)pb_wav_sine == sh_hot[0] && (const void *)pb_ws_tri_fold == sh_hot[4] && eng_hs.slot[ENGI_SHAPES] == 1u);
     check("boot: the pack hook is set (an install or erase of the pack copies the sets again)", oc_pack_changed == eng_hot_refresh);
     {   const void *before = sh_hot[0];
         int16_t *p = (int16_t *)(uintptr_t)sh_hot[0];
@@ -67,18 +67,18 @@ int main(void)
 
     mod_engine = ENG_DRUMX; mod_engine.name = "SHAPES"; mod_engine.hot = MOD_HOT; mod_engine.nhot = 2; mod_engine.hot_at = 0;
     check("a module's set: registered, the firmware's pointers (fw_api_t hot, what ENG_HOT reads in a module) are its copies",
-          eng_register(&h, &mod_engine) == EM_OK && ENGINES[ENGI_SHAPES] == &mod_engine && eng_hot[ENGI_SHAPES] &&
-          copies_ok(&mod_engine, eng_hot[ENGI_SHAPES]) && FW_API.hot[ENGI_SHAPES] == eng_hot[ENGI_SHAPES] &&
-          FW_API.hot[ENGI_SHAPES][1] == eng_hot[ENGI_SHAPES][1]);
+          eng_register(&h, &mod_engine) == EM_OK && ENGINES[ENGI_SHAPES] == &mod_engine && eng_hs.ptr[ENGI_SHAPES] &&
+          copies_ok(&mod_engine, eng_hs.ptr[ENGI_SHAPES]) && FW_API.hot[ENGI_SHAPES] == eng_hs.ptr[ENGI_SHAPES] &&
+          FW_API.hot[ENGI_SHAPES][1] == eng_hs.ptr[ENGI_SHAPES][1]);
     check("the built-in engine's set left with it: its pointers are back at the sources (nothing reads a released block)", at_sources(shapes, sh_hot));
 
     huge_engine = mod_engine; huge_engine.hot = HUGE_HOT; huge_engine.nhot = 1;
     eng_unregister(ENGI_SHAPES);
     check("unregistered: the module's pointers are gone and the built-in engine's set is in the arena again",
-          eng_hot[ENGI_SHAPES] == 0 && ENGINES[ENGI_SHAPES] == shapes && copies_ok(shapes, sh_hot));
+          eng_hs.ptr[ENGI_SHAPES] == 0 && ENGINES[ENGI_SHAPES] == shapes && copies_ok(shapes, sh_hot));
     check("NO ROOM: a module whose set does not fit the arena is refused, and the built-in engine keeps its slot and its set",
           eng_register(&h, &huge_engine) == EM_NOROOM && ENGINES[ENGI_SHAPES] == shapes && !eng_mod[ENGI_SHAPES] &&
-          copies_ok(shapes, sh_hot) && !(eng_hot_refused >> ENGI_SHAPES & 1u));
+          copies_ok(shapes, sh_hot) && !(eng_hs.refused >> ENGI_SHAPES & 1u));
     {   engine_t many = mod_engine; eng_hot_t list[ENG_HOT_MAX + 1u];
         for (uint32_t i = 0; i <= ENG_HOT_MAX; i++) list[i] = MOD_HOT[0];
         many.hot = list; many.nhot = ENG_HOT_MAX + 1u;

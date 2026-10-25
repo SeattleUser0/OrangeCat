@@ -2411,3 +2411,33 @@ Left for the user: the PACK MISSING screen at power-on; 2 (the migration time: t
 the rules); 9 and 10 (replace beside, a cut
 mid-install); 11, 18, 19 (the card); 14 (remove: not run, by the rules); 15 (admission at the lowest budget, on the panel); 16, 17 (watch); DRUM-X lane
 mutes (ACC + a lane key, panel only).
+
+## Thirteenth run (0.13.8, branches linux-hw and sonnet-work, October 25, 2026): the fix shipped as the Nightly, MACRO's own cost, the unit's paths
+
+On the unit. Not on main, not released, no tag. Every flash and every table: hw/LOG.md.
+
+### Part 1: the 4,460 B of 0.13.7, by symbol, and what was recovered
+
+0.13.7 (48f63de) against the sonnet-work head 4e5da16, both symbol tables from the PC's builds (`nm -S`, flash symbols only). The image grew 4,460 B;
+2,560 B of it was not the hot sets at all: **draw_page +918, ui_input +426, ed_handle +284, fm1_main +282** and some 60 smaller UI functions. None of
+their source changed. The disassembly shows why: their loads of globals through a base register (`b[r12+#]`) became absolute addresses (`r0 = #addr`,
+6 bytes each, 318 B of them in draw_page alone). The compiler merges the small statics of the one translation unit into blocks (`.L_MergedGlobals.N`)
+and addresses each block from one register; the seven new statics of engines.c (`eng_hot_slot`, `_list`, `_n`, `_at`, `_set`, `eng_hot`,
+`eng_hot_refused`) reshuffled the blocks, so the UI's globals no longer shared theirs. An accident of layout, not code.
+
+**Recovered (0.13.8):** the seven statics are one object, `eng_hs` (engines.c). The blocks are as before and the UI functions are back within a few
+bytes. Image **506,972 B** (was 510,256; the head 505,796): **+1,176 B** over the head, 3,284 B recovered. RAM .data+.bss 93,528 B (-32). Host output
+byte-identical (golden unchanged).
+
+What the +1,176 B is now (named symbols +1,244 B; alignment and literals -68):
+
+| Part | Symbols | Bytes | Verdict |
+|---|---|---|---|
+| The mechanism | eng_hot_take 178, eng_hot_drop 158, eng_hot_copy 118, eng_hot_refresh 36, eng_hot_take_own 28; eng_hot_boot inlined in fm1_main +202; registration (oc_mod_boot +170, oc_mod_unreg +28, ed_handle +40, oc_pack_scan +16, FW_API +4) | +978 | accepted |
+| The loader's check of a module's set | oc_mod_hot_check 342 (a call from both places, not inlined), oc_mod_check +10, oc_mod_end +10 | +362 | accepted |
+| engine_t's three new fields | ENG_MACRO, ENG_SHAPES, ENG_DRUMX, ENG_RETIRED +12 each | +48 | accepted |
+| SHAPES | SH_HOT +40; pb_dig_render -128, pb_analog_render -12, pb_macro_render -4 (the tables' pointers now in a register) | -104 | gain |
+| The rest | ui_input -46, ui_draw_frame +10, draw_page +6, about 30 others within +-8 | -40 | noise |
+
+No hot-set hook is left in a UI path, and no check is inlined where a call would do. The rule that follows, for whoever adds RAM state to the one
+translation unit: put a feature's statics in one struct (ADDING_AN_ENGINE.md says so now).

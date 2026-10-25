@@ -47,7 +47,7 @@ int main(void)
     /* 0.12.1 / 0.12.2: what the Prophet module reads through the table instead of carrying: the track voices' last state, the firmware's pitch and envelope tables */
     check("voice_was, pitch_oct and env_lin are the firmware's own (the Prophet module reads them through the table)", a->voice_was == &voice_was && a->pitch_oct == PITCH_OCT && a->env_lin == ENV_LIN &&
           a->pitch_oct[0] == PITCH_OCT[0] && a->pitch_oct[191] == PITCH_OCT[191] && a->env_lin[127] == ENV_LIN[127]);
-    check("(0.13.7) hot is the firmware's per-engine table of hot-set pointers (engines.c eng_hot)", a->hot == (const void *const *const *)eng_hot);
+    check("(0.13.7) hot is the firmware's per-engine table of hot-set pointers (engines.c eng_hs.ptr)", a->hot == (const void *const *const *)eng_hs.ptr);
     oc_pack_good = 0;
     check("pack_ready follows the pack's flag (0)", *a->pack_ready == 0);
     oc_pack_good = 1;

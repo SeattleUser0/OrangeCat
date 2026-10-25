@@ -1,14 +1,15 @@
 # Orange Cat: adding an engine
 
-**Version:** 0.1
+**Version:** 0.2
 **Date:** October 25, 2026
-**Applies to:** firmware 0.13.7 and later (branch linux-hw), built in or as a loadable module.
+**Applies to:** firmware 0.13.7 and later (branches linux-hw and sonnet-work), built in or as a loadable module.
 
 The rules a new sound engine must follow to enter this repository. Each rule says why, with the number it comes from. The numbers are
 the unit's, measured in the first session on a real FM-1 (hw/LOG.md; docs/orangecat/ENGINE_LOADING_PLAN.md, "What runs from where,
 measured"); where a number is the host's or the build's, it says so. A checklist closes the document.
 
 Revisions:
+- 0.2: one struct for new RAM state (the 0.13.7 image growth); MACRO's per-model costs (BUILD.md, Thirteenth run).
 - 0.1: first version, after the four-track hunt of BUILD.md's Twelfth run (the SHAPES regression and the hot sets).
 
 ## 1. What an engine is here
@@ -88,7 +89,11 @@ budget admission yet (BUILD.md, Fourth run: admission is voice units and the are
   unregistered; MD_NOSLOT, why 4). Find the candidates with `tools/pack_hot.py` (the tables read in a sample loop, from the source); declare
   what the engine's heavy presets read, and measure. Cost today: SHAPES 2,580 B, the Prophet 0 (its sample loop reads no table), MACRO and
   DRUM-X none declared. Tables read once a block stay in flash.
-- **Code size.** The image's app slot is 581,564 B; the head uses 510,256 B. A module must fit its start: 6 sectors (24,576 B) for SHAPES'
+- **RAM state of the firmware's own: one struct a feature (0.13.8).** The firmware is one translation unit; the compiler merges its small
+  statics into blocks and addresses each block from one register. New separate statics reshuffle the blocks and the UI's code grows where
+  nothing changed: 0.13.7's seven hot-set statics cost draw_page, ui_input, ed_handle and fm1_main 2,560 B of image; one struct (`eng_hs`)
+  gave it back (BUILD.md, Thirteenth run, Part 1). Compare the symbol table against the branch's head (`nm -S`) after adding RAM state.
+- **Code size.** The image's app slot is 581,564 B; the head uses 506,972 B (0.13.8). A module must fit its start: 6 sectors (24,576 B) for SHAPES'
   starts, 8 (32,768 B) for the Prophet's; the build says by how much it misses. A module is linked at a fixed address, one image a start
   (no position-independent code links with the JieLi clang 4.0.1).
 - **The asset pack.** Large constant tables can leave the image for the pack (`OC_TBL`, tools/gen_pack.py; 40,232 B of 40,960 used: 728 B

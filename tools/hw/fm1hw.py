@@ -7,14 +7,16 @@
   fm1hw.py stats [--reset]                       the Audio numbers (schema 8, else schema 2)
   fm1hw.py flash PACKAGE.fwsc --expect VERSION   tools/fm1_install.py (the page's flow), then the version string checked
   fm1hw.py measure --tracks N --engine E [--seconds T] [--bpm B]
-  fm1hw.py table [--set heavy|light] [--seconds T] [--out FILE.json] [--label TEXT]
+  fm1hw.py table [--set heavy|light|macro] [--seconds T] [--out FILE.json] [--label TEXT]
                                                  N = 1..4 x MACRO, SHAPES, DRUM-X, MIX: worst, budget, late, load (SETS)
+  fm1hw.py library [--backup FILE] [--store-slot N]  BACKUP_LIST against a backup file, the shared library's list; a store to a free slot
   fm1hw.py snapshot FILE.json / putback FILE.json  the tracks' engine, preset, mix and steps, saved and written back
 
 What it sends: TRACK (27), PRESET (8), TRACK_MIX (28), TRACK_STEP (30), GET / SET of the global CLK (2, 3), DESC (5),
 AUDIO_STATS (72), INFO (1), PACK_INFO (115) and MOD_INFO (120) (read only), and MIDI Start / Clock / Stop.
 The transport runs on the PC's MIDI clock: CLK is set to USB for a run and put back after it (a normal build has no
-editor command for PLAY). It never sends a library, backup, pack or module command; a flash goes through
+editor command for PLAY). It never sends a pack or module command or a backup restore; `library` reads BACKUP_LIST (65) and the
+shared library (80, list and get) and stores to a library slot only when given --store-slot (a free one). A flash goes through
 tools/fm1_install.py only. Run one measurement at a time; the editor page must not be connected.
 
 The numbers: Worst is the slowest render of a half buffer (us) since the reset, Budget the time a half buffer lasts, Late
@@ -24,6 +26,7 @@ taken as the difference over the run.
 
 Revisions:
   (Orange Cat 0.13.7) first version (branch linux-hw).
+  (Orange Cat 0.13.8) table --set macro: MACRO's 15 models, one preset each, N = 1..4; library (65 and 80: read, and one store to a free slot).
 """
 import argparse
 import json
@@ -156,6 +159,15 @@ class Unit:
         d = self.req(72, [1] if reset else [])
         return self._parse(d)
 
+    def voices(self):
+        """(0.13.8) schema 3 (flag 2): voices sounding (not fading), gated, overload sheds and voices given up since boot"""
+        try:
+            d = self.req(72, [2], timeout=1.0)
+        except TimeoutError:
+            return {"sounding": 0, "gated": 0, "sheds": 0, "kills": 0}
+        f = [sum(d[1 + i * 5 + j] << (7 * j) for j in range(5)) for i in range((len(d) - 1) // 5)]
+        return {"sounding": f[20], "gated": f[21], "sheds": f[24], "kills": f[25]}
+
     @staticmethod
     def _parse(d):
         n = (len(d) - 1) // 5
@@ -272,10 +284,14 @@ class Unit:
         def during(el):
             if not res.get("reset") and el >= settle:
                 res["reset"] = self.stats(reset=True)
+                res["v0"] = self.voices()
                 res["t0"] = el
             elif res.get("reset"):
                 s = self.stats()
                 res["load_max"] = max(res.get("load_max", 0), s["load_pct"])
+                v = self.voices()
+                res["voices_max"] = max(res.get("voices_max", 0), v["sounding"])
+                res["v1"] = v
 
         self.play(seconds + settle + 0.5, bpm, during)
         # (the transport has stopped: the numbers below are the run's, Stop adds no render)
@@ -284,7 +300,9 @@ class Unit:
         late = end["late"] - (a["late"] if end["schema"] == 2 else 0)
         return {"engines": list(engines), "presets": list(presets or [0] * len(engines)), "tracks": len(engines), "seconds": seconds, "bpm": bpm, "worst_us": end["worst_us"],
                 "budget_us": end["budget_us"], "late": late, "load_max_pct": res.get("load_max"), "schema": end["schema"],
-                "blocks": end["blocks"]}
+                "blocks": end["blocks"], "voices_max": res.get("voices_max"),
+                "sheds": res["v1"]["sheds"] - res["v0"]["sheds"] if "v1" in res else None,
+                "kills": res["v1"]["kills"] - res["v0"]["kills"] if "v1" in res else None}
 
     # ---- the tracks as they were
     def snapshot(self):
@@ -301,6 +319,50 @@ class Unit:
             for i, s in enumerate(tr["steps"]):
                 self.req(30, [t, i, *s])
         self.select(snap["selected"])
+
+
+def library(u, backup=None, store_slot=None, store_name="HW TEST"):
+    """(0.13.8) read only unless store_slot: BACKUP_LIST (65) against a backup file's objects (size, CRC-32), the shared library's list (80, op 0),
+    then with store_slot the selected track stored there (80, op 3, a free slot only) and read back (op 1)"""
+    r = u.req(65, timeout=5.0)
+    if r[1]:
+        raise SystemExit(f"fm1hw: BACKUP_LIST rc {r[1]}")
+    n, objs = r[2], {}
+    for k in range(n):
+        b = r[3 + 11 * k:14 + 11 * k]
+        objs[b[0]] = {"size": sum(b[1 + j] << (7 * j) for j in range(5)) & 0xFFFFFFFF, "crc": sum(b[6 + j] << (7 * j) for j in range(5)) & 0xFFFFFFFF}
+    out = {"objects": objs}
+    if backup:
+        f = json.loads(Path(backup).read_text())
+        out["against"] = {o["id"]: ("same" if o["id"] in objs and objs[o["id"]]["size"] == o["size"] and objs[o["id"]]["crc"] == o["crc"]
+                                    else f"differs (file {o['size']} B {o['crc']:08x}, unit {objs.get(o['id'])})")
+                          for o in f["objects"] if o["id"] in objs and (o["size"] or objs[o["id"]]["size"])}
+    used, slot, total = [], 0, None
+    while total is None or slot < total:
+        a = u.req(80, [0, slot & 127, slot >> 7, 16])
+        if a[3]:
+            raise SystemExit(f"fm1hw: library list rc {a[3]} at {slot}")
+        cnt, total, i = a[4], a[5] | a[6] << 7, 7
+        for j in range(cnt):
+            us, eng, old = a[i], a[i + 1], a[i + 2]
+            e = a.index(0, i + 3)
+            if us:
+                used.append({"slot": slot + j, "engine": eng, "name": bytes(a[i + 3:e]).decode("latin-1")})
+            i = e + 1
+        slot += cnt
+        if not cnt:
+            break
+    out["library"] = {"slots": total, "used": len(used), "list": used}
+    if store_slot is not None:
+        if any(x["slot"] == store_slot for x in used):
+            raise SystemExit(f"fm1hw: library slot {store_slot} is used: a store goes to a free slot only")
+        sel, trs = u.tracks()
+        a = u.req(80, [3, store_slot & 127, store_slot >> 7, sel, *store_name.encode()], timeout=5.0)
+        g = u.req(80, [1, store_slot & 127, store_slot >> 7], timeout=3.0)
+        e = g.index(0, 6)
+        out["stored"] = {"rc": a[3], "slot": store_slot, "track": sel + 1, "engine": trs[sel]["engine"], "preset": trs[sel]["preset"],
+                         "read_back": {"rc": g[3], "used": g[4], "engine": g[5], "name": bytes(g[6:e]).decode("latin-1")}}
+    return out
 
 
 def describe(u):
@@ -351,6 +413,11 @@ SETS = {
     "heavy": {"MACRO": [("MACRO", "ADDITIVE PAD")] * 4, "SHAPES": [("SHAPES", "RING BELL")] * 4, "DRUM-X": [("DRUM-X", "TECHNO RAW")] * 4,
               "MIX": [("MACRO", "ADDITIVE PAD"), ("DRUM-X", "BREAKS"), ("SHAPES", "BELL"), ("MACRO", "GLASS BELL")]},
 }
+# (0.13.8) "macro": each of MACRO's 15 models through one preset of it (eng_macro.c MC_PRESETS), N = 1..4 tracks of it, the four-note chord
+MACRO_MODELS = [("VA", "VA BASS"), ("WAVSHP", "FOLD PLUCK"), ("FM", "FM BELL"), ("GRAIN", "FORMANT VOX"), ("ADDTV", "ADDITIVE PAD"),
+                ("CHORD", "CHORD MINOR"), ("SWARM", "SWARM PAD"), ("NOISE", "NOISE WIND"), ("PARTCL", "DUST RAIN"), ("STRING", "PLUCKED STRING"),
+                ("MODAL", "MALLET"), ("KICK", "KICK DEEP"), ("SNARE", "SNARE"), ("HI-HAT", "HI-HAT"), ("HARP", "HARP")]
+SETS["macro"] = {m: [("MACRO", p)] * 4 for m, p in MACRO_MODELS}
 PROBES = {"heavy": [("MALLET", [("MACRO", "MALLET")])]}     # (a preset by name: the numbers may differ between firmware versions)
 
 
@@ -367,7 +434,7 @@ def table(u, seconds, label, out, which="heavy"):
         r.update(case=case, label=label, set=which)
         rows.append(r)
         print(f"{label:<14} N={len(tracks)} {case:<7} worst {r['worst_us']:5d} us / budget {r['budget_us']} us  late {r['late']:5d}  "
-              f"load max {r['load_max_pct']}%", flush=True)
+              f"load max {r['load_max_pct']}%  voices {r['voices_max']}  sheds {r['sheds']}  kills {r['kills']}", flush=True)
         if out:
             Path(out).write_text(json.dumps({"label": label, "set": which, "unit": describe(u), "rows": rows}, indent=1) + "\n")
 
@@ -391,6 +458,7 @@ def main():
     s.add_argument("--presets", help="comma-separated preset numbers, one a track (default 0 each)")
     s = sub.add_parser("table"); s.add_argument("--seconds", type=float, default=20); s.add_argument("--out"); s.add_argument("--label", default="")
     s.add_argument("--set", choices=sorted(SETS), default="heavy")
+    s = sub.add_parser("library"); s.add_argument("--backup"); s.add_argument("--store-slot", type=int); s.add_argument("--name", default="HW TEST")
     s = sub.add_parser("snapshot"); s.add_argument("file")
     s = sub.add_parser("putback"); s.add_argument("file")
     a = ap.parse_args()
@@ -408,6 +476,8 @@ def main():
             print(json.dumps(u.measure(engines, a.seconds, a.bpm, presets=[int(x) for x in a.presets.split(',')] if a.presets else None)))
         elif a.cmd == "table":
             table(u, a.seconds, a.label, a.out, a.set)
+        elif a.cmd == "library":
+            print(json.dumps(library(u, a.backup, a.store_slot, a.name), indent=1))
         elif a.cmd == "snapshot":
             Path(a.file).write_text(json.dumps(u.snapshot()) + "\n")
         elif a.cmd == "putback":
