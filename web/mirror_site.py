@@ -3,9 +3,14 @@
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Revisions:
 # (Orange Cat 0.13.6) first version: copies the published stable site into a directory, so a branch run can publish a Nightly beside it
+# (Orange Cat 0.13.8) --nightly: the live Nightly as well (firmware/nightly.json and its files), for the check after a deploy only. Without it the
+#   check could never find the commit it had just deployed (every Nightly publish ended red at "Check the live site": runs 40132493524, 40212959451)
 """Copy the published stable site (GitHub Pages) into a directory.
 
-  web/mirror_site.py URL OUT_DIR
+  web/mirror_site.py [--nightly] URL OUT_DIR
+
+--nightly also copies the live Nightly (firmware/nightly.json, its package, pack, modules and set manifests): what the pages job's check after the deploy
+reads to see that the site serves this run's commit. The copy a run publishes beside (before the deploy) never takes it.
 
 The pages job of .github/workflows/build.yml deploys a whole site: what the new site does not hold is gone from Pages. A branch run that publishes a
 Nightly channel (workflow input publish_nightly) must therefore start from the stable files as they are served now, not from a rebuild. This script
@@ -45,7 +50,7 @@ def fetch(url, tries=3):
     raise SystemExit(f"{url}: {last}")
 
 
-def mirror(base, out):
+def mirror(base, out, nightly=False):
     base, out = base.rstrip("/") + "/", Path(out)
     got = {}
 
@@ -86,13 +91,24 @@ def mirror(base, out):
                 take("webapp/manual/" + fig, required=True)
     take("webapp/installer/index.html")
     take("index.html")
+    if nightly:                                              # (0.13.8) the live Nightly, for the check after a deploy
+        data = take("firmware/nightly.json")
+        if data:
+            entry = json.loads(data)
+            for ref in list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + list(entry.get("ocm", [])):
+                take("firmware/" + Path(ref).name, required=True)
+            for name in entry.get("sets", []):
+                take("firmware/" + Path(name).name)
     return got
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    with_nightly = "--nightly" in args
+    args = [a for a in args if a != "--nightly"]
+    if len(args) != 2:
         sys.exit(__doc__)
-    files = mirror(*sys.argv[1:])
-    print(f"mirrored {len(files)} files, {sum(files.values())} B, from {sys.argv[1]}")
+    files = mirror(*args, nightly=with_nightly)
+    print(f"mirrored {len(files)} files, {sum(files.values())} B, from {args[0]}")
     for rel, size in sorted(files.items()):
         print(f"  {size:>9} B  {rel}")

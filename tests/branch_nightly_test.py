@@ -185,6 +185,48 @@ class BranchNightly(unittest.TestCase):
         self.assertFalse((fw / "orangecat-nightly.prophet.set.json").exists())
         self.assertEqual(site_check.compare(self.site, json.loads((self.r / "base.json").read_text())), [])
 
+    def serve(self, directory):
+        """(0.13.8) another live site, served as the job reads it"""
+        class Quiet(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(directory)))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.shutdown)
+        return f"http://127.0.0.1:{httpd.server_address[1]}/"
+
+    def test_the_new_nightly_wins_over_the_one_the_live_site_serves(self):
+        # (0.13.8) the live site already serves a Nightly (an older commit, with a Prophet module the new one lacks): the copy the run publishes beside
+        # does not take it, the run's Nightly is the only one in the deployed site, and the check after the deploy (mirror --nightly) sees this commit
+        old_live = self.r / "live-old-nightly"
+        shutil.rmtree(old_live, ignore_errors=True)
+        shutil.copytree(self.live, old_live)
+        old_sha = "8" * 40
+        orangecat_site.nightly(old_live, self.bfw, "sonnet-work", old_sha, BUILT, "v0.6.2-888888", self.bpak, [self.bsh, self.bpr], self.bmf)
+        url = self.serve(old_live)
+        before = self.r / "before-deploy"
+        shutil.rmtree(before, ignore_errors=True)
+        mirror_site.mirror(url, before)                       # the pages job's copy, before the deploy
+        self.assertFalse((before / "firmware/nightly.json").exists())
+        self.assertFalse(any(p.name.startswith("orangecat-") and "nightly" in p.name for p in (before / "firmware").iterdir()))
+        orangecat_site.nightly(before, self.bfw, BRANCH, SHA, BUILT, FWV, self.bpak, [self.bsh], self.bmf)
+        n = json.loads((before / "firmware/nightly.json").read_text())
+        self.assertEqual(n["commit"], SHA)
+        self.assertNotIn(old_sha, (before / "webapp/installer/index.html").read_text())
+        self.assertFalse((before / "firmware/orangecat-prophet-nightly.ocm").exists())
+        # deployed: the live site is the run's site; the check's mirror takes the live Nightly and finds the commit
+        after = self.r / "after-deploy"
+        shutil.rmtree(after, ignore_errors=True)
+        mirror_site.mirror(self.serve(before), after, nightly=True)
+        self.assertIn(SHA, (after / "firmware/nightly.json").read_text())
+        for name in ("melodee-nightly.fwsc", "orangecat-nightly.pak", "orangecat-shapes-nightly.ocm"):
+            self.assertEqual((after / "firmware" / name).read_bytes(), (before / "firmware" / name).read_bytes())
+        # without --nightly (the check before rev 18) the copy has no nightly.json: the grep for the commit could never match
+        plain = self.r / "after-plain"
+        shutil.rmtree(plain, ignore_errors=True)
+        mirror_site.mirror(self.serve(before), plain)
+        self.assertFalse((plain / "firmware/nightly.json").exists())
+
     def test_a_later_stable_publish_over_the_site_keeps_the_nightly_set(self):
         self.publish()
         from make_site import main

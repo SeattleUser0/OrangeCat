@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.75  
+**Version:** 0.76  
 **Date:** October 25, 2026  
 **Tracks:** Orange Cat Specification v0.29
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.76 (October 25, 2026):** Thirteenth run: **the four-track fix is shipped as the Nightly** (`sonnet-work · ceccc1c · v0.6.2-ceccc1`; linux-hw merged into sonnet-work, CI run 40212043712, publish run 40212959451) and on the unit; 0.13.8 gave back 3,284 B of image the hot sets had cost by accident; MACRO measured model by model; the capture harness; the installer paths and the library on the unit; the hardware test surface (OC_HW_TEST). See "Thirteenth run".
 - **0.75 (October 25, 2026):** Twelfth run, branch linux-hw (on the unit; not on main, not released): the first session with the real toolchain on a Linux PC (byte-identical to CI) and the real FM-1 on USB. The four-track fault measured: MACRO is as heavy as on 0.6.2 (not a regression), SHAPES took 1.9 times 0.6.2's render time; the cause, a one-way 4 KiB data cache on which two of Braids' tables in the pack collide (the plaintext window is not slower, a module's code is not slower); the fix, hot sets (0.13.7): an engine's per-sample tables in RAM, SHAPES back at or under 0.6.2 built in and as a module. docs/orangecat/ADDING_AN_ENGINE.md. See "Twelfth run".
 - **0.74 (October 24, 2026):** Eleventh run on sonnet-work (still not on main, released or flashed): the first hardware result (two tracks play, the third and fourth screech, whatever the engine); the Audio readout in the web editor's Settings tab (0.13.6, editor command 72 schema 8); the OC_PACK_BUILTIN switch and the A/B build that tells whether the pack's data window is the cause; the audio interrupt's recorded-step work checked (not per block). See "Eleventh run".
 - **0.73 (October 24, 2026):** 0.13.6 on sonnet-work (still not on main, released or flashed): the installer page's Nightly channel can serve a branch build with its pack, modules and set manifests (workflow Rev 17, input `publish_nightly`; `web/mirror_site.py`, `web/site_check.py`, `tools/orangecat_site.py nightly`); Standard, the editor and the manual stay main's. No firmware change. See "Tenth run" and the Before merging item 10.
@@ -2254,6 +2255,10 @@ Still not on main, released or flashed. No tag, nothing to main.
 
 ### Hardware
 
+**Fixed and shipped (October 25, 2026):** the fix (0.13.7, hot sets; 0.13.8) is on sonnet-work and is the Nightly `sonnet-work · ceccc1c · v0.6.2-ceccc1 ·
+2026-10-25T16:58:44Z`; SHAPES plays four tracks again at or under 0.6.2's cost, measured on that build on the unit (Thirteenth run, Part 1; hw/LOG.md, Flash 13).
+MACRO's heavy models were as heavy on 0.6.2: Thirteenth run, Part 2.
+
 First result from the unit, on the Nightly `sonnet-work 80b85fb v0.6.2-80b85f`:
 
 - The unit boots and plays.
@@ -2441,3 +2446,13 @@ What the +1,176 B is now (named symbols +1,244 B; alignment and literals -68):
 
 No hot-set hook is left in a UI path, and no check is inlined where a call would do. The rule that follows, for whoever adds RAM state to the one
 translation unit: put a feature's statics in one struct (ADDING_AN_ENGINE.md says so now).
+
+### Part 1: shipped
+
+- **Merged**: linux-hw (97184ee) into sonnet-work, a merge commit (ceccc1c), no force. **CI run 40212043712**: build and tests-gate green (185 host-test jobs).
+  **Publish run 40212959451** (`publish_nightly=true`): build, tests-gate green, deployed; its last step (the live check) ran out its 10 minutes on the Pages cache,
+  as the earlier Nightly runs did, and the live site had the new nightly.json a few minutes later. The site's firmware, pack and SHAPES module are byte-identical to
+  the run's artifact.
+- **Nightly label**: `sonnet-work · ceccc1c · v0.6.2-ceccc1 · 2026-10-25T16:58:44Z`.
+- **On the unit** (hw/LOG.md, Flash 13): the site's firmware flashed, its pack and SHAPES module installed with tools/hw/oc_install.mjs (the page's code), the four-track
+  table read on it: SHAPES RING BELL 1,168 us at one track and 2,686 us / 164 late at four, at or under 0.6.2; MACRO and MIX as on 0.6.2 (Part 2).
