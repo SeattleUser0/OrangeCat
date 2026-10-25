@@ -11,6 +11,7 @@
  *   build/host/module_host_<name>_test [tests/golden_modules.txt]
  */
 #define REGRESS_MODULE_HOST 1
+#define JOB_PRESET_HOOK(t, j) do { if ((j)->arg) (t)->p[P_E6] = (int16_t)(j)->arg; } while (0)   /* (0.14.0) arg: EDIT 2's third control, SEM's STAT */
 #include "regress.c"
 
 extern const fw_api_t *oc_host_fw;
@@ -68,6 +69,21 @@ int main(int argc, char **argv)
         else if (!want || strcmp(want, hs)) printf("module host:   %s %s golden %s\n", names[i], hs, want ? want : "-");
     }
     check("every preset renders through the voices with the line of tests/golden_modules.txt", crashed == 0 && same == np);
+    if (CAND_ENGINE == ENGI_SEM) {             /* (0.14.0) TYPE on SEM's STAT control: 64 the notch blend, 127 exact HP (Caravel's TYPE HP), 128 TYPE BP */
+        uint32_t k0 = nj;
+        static const uint8_t A[3] = {64, 127, 128};
+        for (uint32_t q = 0; q < 3u; q++) {
+            uint32_t a = A[q];
+            char nm[64]; snprintf(nm, sizeof nm, "sem-type-%u", a);
+            job_t *j = add(J_PRESET, nm); j->e = (uint8_t)CAND_ENGINE; j->pi = 0; j->arg = (uint8_t)a;
+        }
+        run_jobs(J + k0, 3, 3);
+        int ok = 1;
+        for (uint32_t k = 0; k < 3u; k++) ok &= !J[k0 + k].crashed && !J[k0 + k].r.over && J[k0 + k].r.peak >= LIM_PEAK_MIN;
+        ok &= J[k0].r.hash != J[k0 + 1].r.hash && J[k0 + 1].r.hash != J[k0 + 2].r.hash && J[k0].r.hash != J[k0 + 2].r.hash;
+        if (!ok) for (uint32_t k = 0; k < 3u; k++) printf("  sem STAT %u: hash %016llx peak %d over %u crashed %d\n", A[k], (unsigned long long)J[k0 + k].r.hash, (int)J[k0 + k].r.peak, (unsigned)J[k0 + k].r.over, (int)J[k0 + k].crashed);
+        check("SEM's STAT control: 64 (the notch blend), 127 (exact HP: TYPE HP) and 128 (TYPE BP) are three different sounds, each healthy", ok);
+    }
     eng_unregister(CAND_ENGINE);
     check("unregistered, the slot is retired again", ENGINES[CAND_ENGINE] == &ENG_RETIRED && !eng_ok(CAND_ENGINE));
     printf(bad ? "module host (candidate): FAILED\n" : "module host (candidate): all passed\n");

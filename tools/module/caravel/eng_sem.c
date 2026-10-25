@@ -1,4 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
+/* (Orange Cat 0.14.0, this copy) TYPE rides on the STATE control: 0..127 the blend (TYPE STATE; at 127 exact HP, which is TYPE HP), 128 TYPE BP; the
+ * changed lines say "(Orange Cat)".
+ * Everything else as Caravel 4a1770c (bonszaimusic). */
 /* SEM-inspired virtual analogue; original DSP, not a circuit-identical model.
  * Two independently selected BLEP oscillators and a two-pole TPT state-variable
  * filter. STATE blends LP -> notch -> HP; TYPE also selects BP or fixed HP.
@@ -22,7 +25,7 @@ static void sem_note_on(track_t *t, voice_t *v)
     if (!v->s[2]) v->s[2] = 1;
     v->s[3] = 0;
     v->s[5] = (int32_t)(noise32(&v->s[2]) >> 16) - 32768;
-    v->s[6] = sem_state(t->p[P_E6]);
+    v->s[6] = sem_state(t->p[P_E6] > 127 ? 127 : t->p[P_E6]);   /* (Orange Cat) STATE's 128 is TYPE BP: the blend stays at its end */
     v->s[7] = (int32_t)(seed >> 24) - 128;  /* fixed calibration of this physical voice slot */
 }
 
@@ -48,7 +51,7 @@ static void sem_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
     int32_t vint = p[P_E7], drift, fixed, cut, k;
     int32_t state0 = v->s[6], state1, delta;
     int32_t ic1 = v->s[0], ic2 = v->s[1];
-    uint32_t ph0 = v->ph[0], ph1 = v->ph[1], i, ft = (uint32_t)p[P_FTYPE];
+    uint32_t ph0 = v->ph[0], ph1 = v->ph[1], i, ft = p[P_E6] > 127 ? 1u : 0u;   /* (Orange Cat) TYPE on STATE: 0..127 the STATE blend (127: exact HP, Caravel's TYPE HP), 128 BP (Caravel: P_FTYPE, a page of its own) */
     uint32_t w0 = (uint32_t)p[P_E0], w1 = (uint32_t)p[P_E1];
     uint32_t pw = (uint32_t)clamp(m->shape, 8 * 256, 120 * 256) << 17;
     int32_t mix = p[P_E3] * 258, gain0 = 32767 - mix;
@@ -66,7 +69,7 @@ static void sem_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
     k = 8192 - p[P_E5] * 6500 / 127;  /* finite resonance: no self oscillation */
     tsvf_coef_k(&f, cut, k);
     /* Bound a live STATE jump to three knob steps per block and ramp each sample. */
-    state1 = state0 + clamp(sem_state(p[P_E6]) - state0, -768, 768);
+    state1 = state0 + clamp(sem_state(p[P_E6] > 127 ? 127 : p[P_E6]) - state0, -768, 768);
     v->s[6] = state1;
     delta = (state1 - state0) / (int32_t)(n ? n : 1u);
     for (i = 0; i < n; i++) {
@@ -113,7 +116,7 @@ static const engine_t ENG_SEM = {
         {"MIX", F_PCT, 0, 127, 64, 0, 0},
         {"CUT", F_CUTOFF, 0, 127, 80, 0, 0},
         {"RES", F_PCT, 0, 127, 24, 0, 0},
-        {"STATE", F_PCT, 0, 127, 0, 0, 0},
+        {"STAT", F_INT, 0, 128, 0, 0, 0},     /* (Orange Cat) 0..127 the STATE blend (127 exact HP: TYPE HP), 128 TYPE BP */
         {"VINT", F_PCT, 0, 127, 24, 0, 0},
     },
     .presets = SEM_PRESETS, .npresets = NELEM(SEM_PRESETS),

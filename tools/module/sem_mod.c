@@ -16,8 +16,10 @@
  *   - the presets' FX(..) and PAT(..): Felucca's effect sends and suggested pattern, fields Orange Cat's preset_t does not have (its effects are the
  *     track's). They expand to 0 here: two excess initializers a preset, which C drops;
  *   - P_FTYPE: Caravel's per-part filter TYPE (ANALOG's, which SEM borrows for STATE / BP / HP on its SEM MODE page). Orange Cat's track has no such
- *     parameter and its pages have no place for a ninth control, so at this stage TYPE is STATE (Caravel's default and every SEM preset's): sem_render's
- *     `p[P_FTYPE]` reads as `p[0] * 0 + 0 * p[0]`, 0. BP and HP wait for SEM's own pages (a descriptor with a native byte, if it passes the gate).
+ *     parameter and the pages no place for a ninth control, so (0.14.0) TYPE rides on the STATE control (EDIT 2, the third column): 0..127 is the STATE
+ *     blend with TYPE STATE, as in Caravel; at 127 the blend is exact HP, which is what Caravel's TYPE HP selects (its render: the same hp), so HP needs
+ *     no value of its own; 128 is TYPE BP. Every preset's STATE is 127 or less, so the
+ *     presets sound as Caravel's, sample for sample (caravel/eng_sem.c, the lines marked Orange Cat).
  * Pages: EDIT 1 (OSC: OSC1 OSC2 DTN MIX) and EDIT 2 (SEM FLT: CUT RES STATE VINT), the engine_t's own eight controls; SEM MODE's PWM and SPREAD are the
  * track's own (P_LD_SHP, P_SPRD) on Orange Cat's pages already.
  * The engine keeps its whole state in voice_t (s[8], ph[]): no arena block of its own;
@@ -55,9 +57,7 @@ void *memset(void *d, int c, __SIZE_TYPE__ n) { return OC_FW()->mem_set(d, c, (u
 #define OC_STATE_TOKEN 4u                  /* the header's state_size: the loader refuses 0; the engine keeps its state in voice_t */
 #define FX(d, c, dl, r) 0                  /* Felucca's effect sends: not in Orange Cat's preset_t (see above) */
 #define PAT(n) 0                           /* Felucca's suggested pattern: the same */
-#define P_FTYPE 0] * 0 + 0 * p[0           /* SEM's TYPE: STATE at this stage (see above) */
 #include "caravel/eng_sem.c"
-#undef P_FTYPE
 #undef FX
 #undef PAT
 
