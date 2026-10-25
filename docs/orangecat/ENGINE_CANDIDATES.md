@@ -96,7 +96,7 @@ shows as the voices sounding against the chord's four, and as sheds).
 | Module size and placement | 2,920 B at sector 0 and at sector 6 (needs 1 sector; geometry 4 sectors, starts 0 and 1 in oc_mod_geo): fits alone, **beside SHAPES** (WHEEL at 6) and **beside the Prophet** (WHEEL at 0, the Prophet at 4) |
 | Target loop cost | wheel_render 266 (179 loop instructions, no divide, no call), wheel_block 103 |
 | Correctness | The module against the built-in WHEEL of the reference build (MELODEE_LEGACY_EXTRAS=1), all five presets through the whole voice path: **equal byte for byte** (tests/module_host_wheel_test.c). The archived lines of tests/golden_retired_extras.txt (October 8) are **not** reproduced, by the module or by today's built-in WHEEL: they were taken with the presets' effect sends and the voice path of that day (the effects' removal, 1e47387, and later voice work changed both). Today's renders are new lines, module/WHEEL/..., in tests/golden_modules.txt. Stored WHEEL sounds: engine 7 keeps its number while no module is there (silent, as before) and plays WHEEL again once the module registers (tested) |
-| Unit | render time per voice: ___; late renders at 1 / 2 / 3 / 4 tracks of FULL ORGAN: ___ / ___ / ___ / ___; admission granted: ___. Commands above (`table --set candidates`, the WHEEL row) |
+| Unit | (linux-hw bb0d281 build, Flash 22; `table --set candidates`, FULL ORGAN, a four-note chord) worst us / late in 20 s: 1 track 1,110 / 0, 2: 1,787 / 0, 3: 2,181 / 0, 4: **2,488 / 0**; render time per voice about 130 us (1,110 less the 460 us idle and a track's 120, over 4 voices); admission granted: all four voices on one and two tracks, then the budget: 9 voices sounding at three and four tracks (606 and 1,255 clean steals in 20 s), no shed, no late render. The built-in WHEEL (a MELODEE_LEGACY_EXTRAS build) for the 0.14.0 rule: hw/LOG.md |
 | Verdict (proposed) | **Go**, version 0.14.0: it fits beside either module, carries no table it reads per sample, and renders as the built-in engine did. Limits until the unit says otherwise: none from CI. Its pages are the firmware's EDIT 1 (BARS) and EDIT 2 (TONE) for its eight controls; a fw_pages_t descriptor (the brief's word) is not built, because that format is for native parameters beyond the eight (the Prophet's patch) and the eight are already the firmware's pages for any engine (see "Decisions") |
 
 ## Frodhes (proposed engine 23): the physically modelled Rhodes
@@ -115,6 +115,46 @@ shows as the voices sounding against the chord's four, and as sheds).
 | Correctness | Frodhes' own engine renders on the host (its tests/host.c and the emulator build rhodes.c with DINGHY_HOST): tests/rhodes_parity_test.c builds that rhodes.c unchanged beside the port and renders both. **Every sample equal**: each of the four types at A1, C4 and C7 (held 1.5 s, released, 3 s in all), and a chord with every knob away from its default, a re-strike and the releases. One difference by construction, kept out of the test and written here: when two voices' felt noise sounds at once, the draws from the part's one noise generator come in another order (Frodhes renders a voice's whole 256-frame block before the next voice's, Orange Cat 32 frames of each voice in turn): the same noise, other samples |
 | Unit | not measurable: it cannot be installed |
 | Verdict (proposed) | **No**, as ported: its tables are 2.7 times the module area and its per-sample tables 6.7 times the largest table a hot set may hold. What would change it: tables computed at note-on into the voice's state instead of stored per key (the pulse shapes and the pickup flux come from closed forms in Frodhes' generator), or a much smaller key table (per band, with the per-key differences as parameters); either is a redesign of Frodhes' tables, not a port. The voice itself is cheap enough to try once it fits (rhm_render's loop cost is the Prophet's half) |
+
+### Frodhes, a second look: how its tables are indexed (October 25, 2026; no port yet)
+
+The gate said no because 109,560 B of generated tables are read per sample and cannot all live in RAM. That rule exists because of cache
+collisions between tables read alternately at scattered addresses; whether Frodhes hits it depends on how each table is indexed in rhodes.c's sample
+loop (rh_voice_sub and rhodes_render, Frodhes a8320e8; sizes from firmware/gen/rhodes_tables.h as tools/gen_rhodes.py writes it). Table by table:
+
+| Table | What it holds | Bytes | Indexed by | Read per sample? | The slice one voice needs for one note |
+|---|---|---|---|---|---|
+| RH_PULSE [88][8][66] int16 | the hammer's force pulse for each key and velocity layer (from the hammer and felt model at generation) | 92,928 | **the note** (the key) and the velocity, chosen at note-on (`ptab`, `ptab2`: two adjacent layers, `pmix` between them) | yes, but only while the hammer touches the tine: 64 points at `prate`, a few milliseconds, then never again for that note | **264 B** (two layers x 66 x 2 B) |
+| RH_PHI_0 [2049] int32 | the pickup's flux, Phi(s), s = u^2 (u: the tine's displacement plus the pickup offset), one row shared by every key (the families' rows are identical today) | 8,196 | **the running signal**: i = s >> 44 from the voice's displacement every sample, interpolated (cubic Hermite with the slope) | yes, every sample of every voice, at scattered addresses | (shared, not per note) |
+| RH_SLOPE_0 [2049] int32 | its slope per cell, for the Hermite | 8,196 | the running signal, as RH_PHI_0 | yes | (shared) |
+| RH_RLC [4][5], RH_BODY [4][2][5] int32 | the pickup load's biquad and the instrument's body biquads, per TYPE | 80 + 160 | the part's TYPE, fixed for the part | yes, the same 15 words every sample | 60 B a TYPE: one track's copy in its state |
+| RH_KEYS [88] | each key's modes, gains, damping, family, offsets | 14,784 | the note | no: read at note-on (rh_init) | (copied into the voice's state already) |
+| RH_PRATE, RH_PAMP [88][10] | the pulse's rate and amplitude by velocity anchor | 3,520 + 1,760 | the note and velocity | no: note-on | - |
+| RH_VPOS_*, RH_VLAY_* [128] | velocity to anchor and layer | 768 | the velocity | no: note-on | - |
+
+**The pickup is the one signal-indexed shaper, and arithmetic replaces it.** tools/pickup.py gives its closed form: Phi(u) = (u + R) / ((u + R)^2 + 1) -
+(u - R) / ((u - R)^2 + 1), R = 1.0 today (R03 eq. 24-27 in Frodhes' notes). rhodes.c evaluates it at u (the vertical displacement plus the offset; the 2-D
+form in s is not used by the voice), so over a common denominator it is one division a sample a voice, which the FPU does: as the Prophet's soft clip is
+arithmetic where a table would be. Not bit-identical to Frodhes' Hermite table (its error is under 3e-3 of full scale by its own review): our own golden
+then, said so. The 16,392 B of PHI and SLOPE then leave the module.
+
+**Everything else read per sample is note-indexed or part-indexed, and small per voice.** The pulse is chosen at note-on and read for the few
+milliseconds of the hammer's contact: copy the voice's 264 B slice into its state at note-on (a 264-byte copy from flash once a note), read it from RAM.
+The pickup load's 60 B go into the track's state when the TYPE is set. RH_KEYS and the velocity tables are note-on reads already.
+
+**The estimate, without any table duplicated in RAM beyond the slices:**
+- state per voice: 376 B (rh_voice_t) + 264 B (the pulse slice) = **640 B**; per track: eight voices 5,120 B + the mix, the filters and the TYPE's
+  60 B, about **5.6 KB** (MACRO and SHAPES take about 11 KB a track): four tracks fit the arena;
+- no hot set (nothing large read per sample stays in flash); the arena cost is the state alone;
+- the module: code about 4.6 KB + the arithmetic pickup (under 0.5 KB) + RH_PULSE 92,928 + RH_KEYS 14,784 + the note-on tables 6,048 + the knob tables
+  2,560 + the TYPE tables 240 + metadata: **about 121.6 KB**: still 30 sectors of flash against the module area's 12 (49,152 B).
+
+**Verdict: port possible, CPU unknown, for RAM and the cache: but it does not fit the module area as stored.** The per-sample rule is met (one
+signal-indexed shaper, replaced by arithmetic; the rest note- or part-indexed slices of a few hundred bytes), so nothing argues against the voice on
+the unit's cache. What stops it is flash: the pulses are 93 KB, every key's own, and the area holds 48 KB. A port needs one of: the pulses at fewer
+keys (every fourth key, interpolated, 23 KB: a sound change to listen to and to measure against Frodhes), or the pulse computed at note-on from the
+hammer model (gen_rhodes.py's contact cases: heavy for a note-on, probably too heavy), or a larger home for data than the module area (a second pack:
+the flash map has none). The port is worth scheduling only with the first option, and its first test is a listening one.
 
 ## SEM (proposed engine 21): Caravel's SEM-inspired virtual analogue
 
