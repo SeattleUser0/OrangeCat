@@ -2457,6 +2457,22 @@ translation unit: put a feature's statics in one struct (ADDING_AN_ENGINE.md say
 - **On the unit** (hw/LOG.md, Flash 13): the site's firmware flashed, its pack and SHAPES module installed with tools/hw/oc_install.mjs (the page's code), the four-track
   table read on it: SHAPES RING BELL 1,168 us at one track and 2,686 us / 164 late at four, at or under 0.6.2; MACRO and MIX as on 0.6.2 (Part 2).
 
+### Side task: the Nightly check that could never pass (workflow rev 18)
+
+Publish run 40212959451 (ceccc1c) ended red at "Check the live site" although it had deployed ceccc1c: its own pre-deploy check listed `NIGHTLY sonnet-work ·
+ceccc1c`, and the live `firmware/nightly.json` served ceccc1c from 16:59:26 GMT (Last-Modified of the deploy; checked from the PC with and without cache-busting,
+and the installer page named ceccc1c too). No step put old files back: the copy of the live site taken before the deploy (web/mirror_site.py) takes Standard,
+the editor and the manual and, by design, never the Nightly (the run replaces it). The check after the deploy ran the same script and then read
+`live/firmware/nightly.json`, a file that copy never has, so it could not match on any run (80b85fb's run 40132493524 failed the same way, "the site's cache
+lags" in the Eleventh run was this). Where 80b85fb was seen live after 16:59 (if it was) is not explained by the site: a browser or CDN copy older than the deploy.
+
+Fixed (linux-hw ca31c93, merged into sonnet-work 89b4e79): `web/mirror_site.py --nightly` also takes `firmware/nightly.json` and the files it names, and the
+workflow's check after the deploy uses it (rev 18); the copy before the deploy is unchanged. Host test (tests/branch_nightly_test.py, 12 cases): a live site
+serving an older Nightly is published over: the copy leaves it out, the run's Nightly is the only one in the deployed site (no file of the old one left), the
+check's mirror finds the new commit, and without `--nightly` it finds no nightly.json (why every run failed). **Run 40222235763** (sonnet-work 89b4e79,
+publish_nightly=true): build, tests-gate and pages green, the check after the deploy green: `NIGHTLY sonnet-work · 89b4e79 · v0.6.2-89b4e7 ·
+2026-10-25T18:56:47Z`, Standard unchanged. The live nightly.json names 89b4e79. The firmware is ceccc1c's but for the version string.
+
 ### Part 2: MACRO's own cost
 
 **Measured, model by model** (hw/LOG.md, "MACRO by model", Flash 12 and Flash 14): one preset a model, the four-note chord, one to four tracks. Ten of the 15
