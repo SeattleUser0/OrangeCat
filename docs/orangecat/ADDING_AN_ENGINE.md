@@ -89,7 +89,8 @@ budget admission yet (BUILD.md, Fourth run: admission is voice units and the are
   table) and the copies are made again whenever the pack is checked again. **A set that does not fit is refused: NO ROOM** (a module stays
   unregistered; MD_NOSLOT, why 4). Find the candidates with `tools/pack_hot.py` (the tables read in a sample loop, from the source); declare
   what the engine's heavy presets read, and measure. Cost today: SHAPES 2,580 B, MACRO 15,316 B (0.13.8: 12 tables; FM 22 to 29 % faster, WAVSHP 20 to
-  24 %, ADDTV 11 %; at most 16 tables a set now), the Prophet 0 (its sample loop reads no table), DRUM-X none. Tables read once a block stay in flash.
+  24 %, ADDTV 11 %; at most 16 tables a set now), the Prophet 0 (its sample loop reads three small tables, but as a module a hot set made it 3 to 9 % slower:
+  a module reaches its copies through the firmware's pointers, a chain of loads; declare a module's set only if the measured numbers move), DRUM-X none. Tables read once a block stay in flash.
 - **RAM state of the firmware's own: one struct a feature (0.13.8).** The firmware is one translation unit; the compiler merges its small
   statics into blocks and addresses each block from one register. New separate statics reshuffle the blocks and the UI's code grows where
   nothing changed: 0.13.7's seven hot-set statics cost draw_page, ui_input, ed_handle and fm1_main 2,560 B of image; one struct (`eng_hs`)

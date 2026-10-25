@@ -1077,7 +1077,7 @@ block, code, presets and pages may stay in flash. Built in 0.13.7 as the **hot s
 | Engine | Declared hot set | Arena | Left in flash, also read per sample by some shapes or models (candidates) |
 |---|---|---|---|
 | SHAPES (built in and module) | pb_wav_sine, pb_ws_moderate_overdrive, pb_ws_violent_overdrive, pb_ws_sine_fold, pb_ws_tri_fold | 2,580 B (5 x 514, each rounded to 4) | the 15 comb wavetables (7,710 B, BUZZ), the formant waves (1,024 B, VOWEL), the granular, bowed and blown envelopes, the resonator tables, pb_lut_bell: about 13 KB more if every shape is to be safe |
-| Prophet (module) | none: p5_samples reads no table (oscillators, filter and soft clip are arithmetic; PITCH_OCT and ENV_LIN once a block, from the firmware's image) | 0 | none |
+| Prophet (module) | none, measured (0.13.8): p5_samples DOES read P5_TANH, P5_EXP2 and P5_TPT_G every sample (6,668 B; 0.13.7's "reads no table" was wrong, found by the engine gate). Declared as its hot set the module was 3 to 9 % slower on the unit (no cache collision on its presets; the pointer chain through fw_api_t costs more): not declared | 0 | P5_TANH, P5_EXP2, P5_TPT_G, in the module's own image |
 | MACRO (built in; 0.13.8) | pl_lut_pitch_ratio_high, _low, pl_lut_sine, pl_lut_fold, _fold_2, pl_lut_4x_downsampler_fir, pl_chord_waves, the five pl_lut_ws_* curves (12 tables, all of pack_hot.py's MACRO candidates) | 15,316 B | none |
 | DRUM-X (built in) | none: its voices read no pack table | 0 | none |
 

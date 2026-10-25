@@ -537,3 +537,24 @@ with a backup and the user's go.
 - **Found: an EDIT tap on TRACKER can also open the EDIT pages.** EDIT is a step modifier there: its release deletes the picked effect (ui_input.c, the step-mods
   release, step_delete_edit) and a tap with no step modifier held opens the EDIT family (page_tap). The two read the buttons at different moments of the UI
   frame; when the debounced release lands between them, both happen ("CHANCE OFF" and the page EDIT 1, the second of two taps 0.5 s apart). Not fixed today.
+
+### The Prophet module's hot set (post-list item 1; on the Nightly firmware, Flash 21)
+
+- 2026-10-25T20:33:19Z: the Nightly flashed again (Flash 21); `remove 14`; the Nightly's Prophet module (no hot set, 31,884 B) at start 0; `fm1hw.py table --set prophet`
+  (INIT, It's a Prophet 5, Formant Seraphim; four-note chords; N = 1..4). Then the module of linux-hw 5273d8e (P5_TANH, P5_EXP2, P5_TPT_G declared as its hot set,
+  6,668 B; 32,104 B; its host test: the set registered, all 201 presets equal the built-in's) installed in place, the same table. The interface is unchanged.
+
+Worst us / late in 20 s, before (no hot set) -> after (the hot set):
+
+| Preset | N=1 | N=2 | N=3 | N=4 |
+|---|---|---|---|---|
+| INIT | 1,258 / 0 -> 1,334 / 0 | 1,774 / 0 -> 1,884 / 0 | 2,364 / 0 -> 2,498 / 0 | 2,604 / 8 -> 2,679 / 111 (*) |
+| P5 | 1,534 / 0 -> 1,658 / 0 | 2,176 / 0 -> 2,364 / 0 | 2,793 / 157 -> 3,093 / 3592 | 3,032 / 293 -> 3,318 / 3585 (*) |
+| SERAPHIM | 1,514 / 0 -> 1,566 / 0 | 2,154 / 0 -> 2,222 / 0 | 2,804 / 157 -> 2,853 / -3594 (*) | 3,053 / 255 -> 3,120 / 937 (*) |
+
+(*) the main loop starved under the overload: a stats request went unanswered for over a second, fm1hw fell back to the old readout
+(schema 2: budget 2,902, late as a difference), so these late counts are not comparable; CPU1 stayed online with no fault (354,767 jobs).
+**Slower with the hot set: +3 to +9 % at one and two tracks** (where every run is clean): the module's three tables do not collide in the D-cache on these
+presets, and a module reaches a hot table through the firmware's pointers (OC_FW()->hot[e][i], loads in a chain) where the soft clip, inlined seven
+times a sample, had one address. **Taken back** (linux-hw, after 5273d8e): the Prophet module declares no hot set; its engine_t says what it reads and why.
+The module on the unit afterwards: the 5273d8e module (with the set) until the next install; see the end state.
