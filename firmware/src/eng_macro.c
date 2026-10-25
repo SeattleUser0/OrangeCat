@@ -41,6 +41,36 @@
  *          0.5.2's flat 3 let a four note ORGAN DRAWBAR chord overload the unit.
  *   0.8.0: mc_render is silent while the asset pack (Plaits' tables, oc_pack.h) is not there (OC_PACK_READY).
  */
+#include "plaits/pl_tables.h"
+/* (Orange Cat 0.13.8) MACRO's hot set (core.h engine_t hot): the tables its models read every sample (tools/pack_hot.py), copied into the arena at boot
+ * (engines.c eng_hot_take). The names below are then the copies (ENG_HOT); the waveshaper's curves through PL_WS_CURVE (pl_waveshaping.h) */
+#define MC_HOT_LIST(X) X(pl_lut_pitch_ratio_high, PL_LUT_PITCH_RATIO_HIGH_SIZE * 4u, float) X(pl_lut_pitch_ratio_low, PL_LUT_PITCH_RATIO_LOW_SIZE * 4u, float) \
+    X(pl_lut_sine, PL_LUT_SINE_SIZE * 4u, float) X(pl_lut_fold, PL_LUT_FOLD_SIZE * 4u, float) X(pl_lut_fold_2, PL_LUT_FOLD_2_SIZE * 4u, float) \
+    X(pl_lut_4x_downsampler_fir, PL_LUT_4X_DOWNSAMPLER_FIR_SIZE * 4u, float) X(pl_chord_waves, 15u * 132u * 2u, int16_t) \
+    X(pl_lut_ws_inverse_tan, PL_LUT_WS_INVERSE_TAN_SIZE * 2u, int16_t) X(pl_lut_ws_inverse_sin, PL_LUT_WS_INVERSE_SIN_SIZE * 2u, int16_t) \
+    X(pl_lut_ws_linear, PL_LUT_WS_LINEAR_SIZE * 2u, int16_t) X(pl_lut_ws_bump, PL_LUT_WS_BUMP_SIZE * 2u, int16_t) \
+    X(pl_lut_ws_double_bump, PL_LUT_WS_DOUBLE_BUMP_SIZE * 2u, int16_t)
+#define MC_HOT_ENTRY(t, b, ty) {t, b},
+#define MC_HOT_SRC(t, b, ty) t,
+#define MC_HOT_IDX(t, b, ty) MCH_##t,
+enum { MC_HOT_LIST(MC_HOT_IDX) MC_HOT_N };
+static const eng_hot_t MC_HOT[MC_HOT_N] = { MC_HOT_LIST(MC_HOT_ENTRY) };
+static const void *mc_hot[MC_HOT_N] = { MC_HOT_LIST(MC_HOT_SRC) };
+#undef pl_lut_pitch_ratio_high
+#undef pl_lut_pitch_ratio_low
+#undef pl_lut_sine
+#undef pl_lut_fold
+#undef pl_lut_fold_2
+#undef pl_lut_4x_downsampler_fir
+#undef pl_chord_waves
+#define pl_lut_pitch_ratio_high ((const float *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_pitch_ratio_high))
+#define pl_lut_pitch_ratio_low ((const float *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_pitch_ratio_low))
+#define pl_lut_sine ((const float *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_sine))
+#define pl_lut_fold ((const float *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_fold))
+#define pl_lut_fold_2 ((const float *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_fold_2))
+#define pl_lut_4x_downsampler_fir ((const float *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_4x_downsampler_fir))
+#define pl_chord_waves ((const int16_t *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_chord_waves))
+#define PL_WS_CURVE(k) ((const int16_t *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_ws_inverse_tan + ((k) > 4 ? 4 : (k))))
 #include "plaits/pl_dsp.h"
 #include "plaits/pl_osc.h"
 #include "plaits/pl_va.h"
@@ -332,4 +362,5 @@ static const engine_t ENG_MACRO = {
     .render = mc_render,
     .units = mc_units,
     .knob = {P_E0, P_E1, P_E2, P_E3},
+    .hot = MC_HOT, .nhot = MC_HOT_N, .hot_at = mc_hot,   /* (0.13.8) the hot set, above */
 };

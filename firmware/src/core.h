@@ -315,7 +315,7 @@ typedef struct {
 struct track;
 /* (Orange Cat 0.13.7) one table of an engine's hot set (engine_t.hot): where it is read from, and its bytes */
 typedef struct { const void *src; uint32_t bytes; } eng_hot_t;
-#define ENG_HOT_MAX 8u                 /* tables a hot set may name */
+#define ENG_HOT_MAX 16u                /* tables a hot set may name */
 #define ENG_HOT_SLOTS 3u               /* engines with a hot set registered at once (the arena's RES_HOT0 ..) */
 typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c files) */
     const char *name;            /* "ANALOG" (PRESETS, the editor) */

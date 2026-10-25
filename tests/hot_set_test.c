@@ -57,7 +57,7 @@ int main(void)
 
     eng_hot_boot();
     check("boot: SHAPES' set is in the arena, byte for byte its sources, and the names read the copies", copies_ok(shapes, sh_hot) &&
-          (const void *)pb_wav_sine == sh_hot[0] && (const void *)pb_ws_tri_fold == sh_hot[4] && eng_hs.slot[ENGI_SHAPES] == 1u);
+          (const void *)pb_wav_sine == sh_hot[0] && (const void *)pb_ws_tri_fold == sh_hot[4] && eng_hs.slot[ENGI_SHAPES] != 0u);
     check("boot: the pack hook is set (an install or erase of the pack copies the sets again)", oc_pack_changed == eng_hot_refresh);
     {   const void *before = sh_hot[0];
         int16_t *p = (int16_t *)(uintptr_t)sh_hot[0];

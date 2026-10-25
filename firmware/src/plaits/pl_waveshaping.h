@@ -29,11 +29,16 @@ static void pl_ws_init(pl_ws_t *e)
 }
 static void pl_ws_reset(pl_ws_t *e) { (void)e; }
 
-/* lookup_table_i16_table[] in resources.cc (its last curve is there twice: shape_integral + 1 can reach 4) */
+/* lookup_table_i16_table[] in resources.cc (its last curve is there twice: shape_integral + 1 can reach 4). (Orange Cat 0.13.8) An engine may read
+ * the curves from its hot set instead: it defines PL_WS_CURVE(k) first (eng_macro.c) */
+#ifndef PL_WS_CURVE
 static const int16_t *const pl_ws_curves[6] = {
     pl_lut_ws_inverse_tan, pl_lut_ws_inverse_sin, pl_lut_ws_linear, pl_lut_ws_bump, pl_lut_ws_double_bump,
     pl_lut_ws_double_bump
 };
+
+#define PL_WS_CURVE(k) pl_ws_curves[k]
+#endif
 
 /* Tame(): how much of a control's range to keep before the spectrum aliases */
 static inline float pl_ws_tame(float f0, float harmonics, float order)
@@ -76,8 +81,8 @@ static void pl_ws_render(pl_ws_t *e, const pl_params_t *p, float *out, float *au
     for (size_t i = 0; i < size; ++i) {
         float shape = pl_interp_next(&shape_modulation) * 3.9999f;
         PL_MAKE_INTEGRAL_FRACTIONAL(shape)
-        const int16_t *shape_1 = pl_ws_curves[shape_integral];
-        const int16_t *shape_2 = pl_ws_curves[shape_integral + 1];
+        const int16_t *shape_1 = PL_WS_CURVE(shape_integral);
+        const int16_t *shape_2 = PL_WS_CURVE(shape_integral + 1);
 
         float ws_index = 127.0f * out[i] + 128.0f;
         PL_MAKE_INTEGRAL_FRACTIONAL(ws_index)
