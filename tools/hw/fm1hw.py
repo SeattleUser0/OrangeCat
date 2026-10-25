@@ -41,9 +41,9 @@ import mido
 
 HDR = [0x7D, 0x46, 0x4C]
 PORT_RE = re.compile(r"orange cat|melodee|felucca|fm-1", re.I)
-ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14}
+ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14, "PROPHET": 19}
 MIX = ("MACRO", "SHAPES", "DRUM-X", "MACRO")       # track k of a MIX run plays MIX[k]
-CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46)}  # Cmaj7; kick, snare, closed and open hat
+CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46), "PROPHET": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
 FS = 44100
 TOOLS = Path(__file__).resolve().parents[1]
 
@@ -418,6 +418,8 @@ MACRO_MODELS = [("VA", "VA BASS"), ("WAVSHP", "FOLD PLUCK"), ("FM", "FM BELL"), 
                 ("CHORD", "CHORD MINOR"), ("SWARM", "SWARM PAD"), ("NOISE", "NOISE WIND"), ("PARTCL", "DUST RAIN"), ("STRING", "PLUCKED STRING"),
                 ("MODAL", "MALLET"), ("KICK", "KICK DEEP"), ("SNARE", "SNARE"), ("HI-HAT", "HI-HAT"), ("HARP", "HARP")]
 SETS["macro"] = {m: [("MACRO", p)] * 4 for m, p in MACRO_MODELS}
+# (0.13.8) "prophet": the Prophet module (engine 19), its INIT and two factory programs, N = 1..4
+SETS["prophet"] = {"INIT": [("PROPHET", 0)] * 4, "P5": [("PROPHET", 1)] * 4, "SERAPHIM": [("PROPHET", 5)] * 4}
 PROBES = {"heavy": [("MALLET", [("MACRO", "MALLET")])]}     # (a preset by name: the numbers may differ between firmware versions)
 
 

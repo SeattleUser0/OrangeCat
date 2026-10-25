@@ -100,6 +100,11 @@ int main(int argc, char **argv)
     for (i = 0; i < np; i++) snprintf(names[i], sizeof names[i], "%s", J[i].name);
 
     ENGINES[ENGI_PROPHET] = em;                        /* the loader's registration, by hand (the built-in engine is in the slot here, so eng_register would call it shadowed) */
+    /* (0.13.8) and its hot set, as registration takes it (engines.c eng_hot_take): the module reads its three tables through the firmware's pointers */
+    check("the module declares its hot set (P5_TANH, P5_EXP2, P5_TPT_G: 6,668 B) and it is copied into the arena as registration would",
+          em->nhot == 3u && !em->hot_at && em->hot[0].bytes + em->hot[1].bytes + em->hot[2].bytes == 6668u &&
+          eng_hot_take(ENGI_PROPHET, 0, em->hot, em->nhot) == EM_OK && eng_hs.ptr[ENGI_PROPHET] &&
+          !memcmp(eng_hs.ptr[ENGI_PROPHET][0], em->hot[0].src, em->hot[0].bytes) && !memcmp(eng_hs.ptr[ENGI_PROPHET][2], em->hot[2].src, em->hot[2].bytes));
     render(module, &crashed, np);
     check("the module renders all presets", crashed == 0);
     for (i = 0; i < np; i++) {

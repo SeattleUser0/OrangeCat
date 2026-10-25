@@ -79,6 +79,16 @@ static inline __attribute__((always_inline)) float p5_fast_osc_saw(uint32_t ph, 
 {
     return (float)ph * (1.0f / 2147483648.0f) - 1.0f - p5_fast_blep(ph, inc);
 }
+#ifdef OC_MODULE
+/* (Orange Cat 0.13.8) the module's hot set (core.h engine_t hot): the three tables p5_samples reads per sample (the soft clip's P5_TANH, the pitch's
+ * P5_EXP2, the filter's P5_TPT_G), 6,668 B. Built in, they are in SRAM already (.dsp_tables); in a module they are its own image's, read through the
+ * flash's plaintext window and the one-way D-cache (ENGINE_LOADING_PLAN.md, "What runs from where, measured"): the loader copies them into the arena at
+ * registration and the module reads the copies through the firmware's pointers (ENG_HOT). The names below are the copies from here on. */
+static const eng_hot_t P5_HOT[3] = {{P5_TANH, sizeof P5_TANH}, {P5_EXP2, sizeof P5_EXP2}, {P5_TPT_G, sizeof P5_TPT_G}};
+#define P5_TANH ((const float *)ENG_HOT(0, ENGI_PROPHET, 0))
+#define P5_EXP2 ((const float *)ENG_HOT(0, ENGI_PROPHET, 1))
+#define P5_TPT_G ((const float *)ENG_HOT(0, ENGI_PROPHET, 2))
+#endif
 /* A float table keeps the seven SSI saturation evaluations inexpensive.
  * Linear interpolation has <6e-6 error and no integer amplitude steps. */
 static inline __attribute__((always_inline)) float p5_fast_softclip(float x)
@@ -633,8 +643,12 @@ static const engine_t ENG_P5_TEST = {
 #ifdef OC_MODULE
     ,.pages=&P5_PAGES
 #endif
-    /* (0.13.7) the hot set (core.h engine_t hot): none. p5_samples, the per-sample loop, reads no table: the oscillators (p5_wave, p5_inc,
-     * p5_wheel_inc), the filter and the soft clip are arithmetic (x0x/fastmath.h polynomials); PITCH_OCT and ENV_LIN are read once a block,
-     * and as a module through fw_api_t from the firmware's image, not the window. Arena cost 0 */
+    /* (0.13.8) the hot set: built in, none (its tables are SRAM, .dsp_tables); as a module, P5_HOT above (6,668 B of arena). 0.13.7 said p5_samples reads
+     * no table: wrong, it reads P5_TANH, P5_EXP2 and P5_TPT_G every sample (found by the engine gate, ENGINE_CANDIDATES.md). PITCH_OCT and ENV_LIN are
+     * read once a block, through fw_api_t from the firmware's image */
+#ifdef OC_MODULE
+    ,.hot=P5_HOT,.nhot=3
+#else
     ,.hot=0,.nhot=0
+#endif
 };
