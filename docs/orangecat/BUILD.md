@@ -2403,11 +2403,11 @@ where, measured", and docs/orangecat/ADDING_AN_ENGINE.md.
 Ran (on 48f63de unless said): 1, the backup (the user's file of October 24, checked: format, objects 0, 1, 2, 6, CRCs); 4, the pack from the
 computer (the page's code: installed and checked; PACK MISSING state by erasing it: MACRO and SHAPES silent, DRUM-X plays; reinstalled, both play);
 5, DRUM-X (every lane strikes, four tracks fit the budget); 6, SHAPES built in (measured, Flash 9); 7, the module from the computer (beside, start 1,
-registered live); 12, the update with the module installed (it stays OK, registers at boot through the new hot-set check); 13, the module alone (see
-hw/LOG.md); the presets after the 0.6.2 and 0.7.1 round trip (settings, project slot and shared preset bank byte-identical to the backup).
+registered live); 8, the power cycle (the user switched it off and on: the module registers at the cold boot, SHAPES plays, on the module-alone build); 12, the update with the module installed (it stays OK, registers at boot through the new hot-set check); 13, the module alone (see
+hw/LOG.md, Flash 10: SHAPES out of the image, the module alone at (B)'s numbers); the presets after the 0.6.2 and 0.7.1 round trip (settings, project slot and shared preset bank byte-identical to the backup).
 Standing step: the Audio numbers with four tracks, every build (the tables above).
 
 Left for the user: the PACK MISSING screen at power-on; 2 (the migration time: the unit had migrated before this session); 3 (restore: not run, by
-the rules); 8 (a power cycle with the module; asked for at the end of the session if the user is there); 9 and 10 (replace beside, a cut
+the rules); 9 and 10 (replace beside, a cut
 mid-install); 11, 18, 19 (the card); 14 (remove: not run, by the rules); 15 (admission at the lowest budget, on the panel); 16, 17 (watch); DRUM-X lane
 mutes (ACC + a lane key, panel only).

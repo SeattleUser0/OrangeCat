@@ -275,3 +275,21 @@ MALLET alone: 2,880 / 3,588 / 93.
 - **The presets after the round trip through 0.6.2 and 0.7.1**: BACKUP_LIST (read only) against the backup file of 2026-10-24: settings (object 1),
   the saved project slot (object 2) and the shared preset bank (object 6) are byte-identical (same size and CRC). Object 0, the running music,
   differs: the driver's unsaved track edits. No library damage from the downgrades.
+
+### Flash 10: the module alone (2168f4e = linux-hw 48f63de + `export MELODEE_SHAPES=0`, local commit; checklist step 13)
+
+- 2026-10-25T07:55:38Z, package `orangecat-0.6.2-2168f4e.fwsc`, SHA-256 f0e2ebad...6e0675df, image 487,084 B (SHAPES out of the image). Host tests: all
+  passed (1,222 s). MOD_INFO flags 2 (SHAPES not built in); engine 14 from the module (start 1, state 7). SHAPES RING BELL: one track 1,203 / 0, four
+  tracks 2,719 / 164: the module alone, as (B).
+- **Power cycle** (checklist step 8; the user unplugged USB, switched off and on): the module registers at the cold boot (start 1, state 7), SHAPES RING
+  BELL one track 1,195 us, 0 late; its USB audio peak 17,147, RMS 3,256, no clipped sample, no jump.
+
+### Flash 11: back to the sonnet-work head (4e5da16), as asked for the end of the session
+
+- 2026-10-25T15:04:56Z, CI's own package `orangecat-0.6.2-4e5da16.fwsc` (run 40139536138; SHA-256 cd854bd4...eb13c139, byte-identical to the PC's build,
+  whose host tests passed: 184 jobs). Unit on `ORANGE CAT v0.6.2-4e5da1`, Audio readout schema 8. Pack: this build's (hash 657ED950, unchanged by
+  0.13.7). Module area: start 0, the sonnet-work SHAPES module (23,784 B, interface 12f6be4f): state 7, registered, engine 14 from it; start 1, the
+  0.13.7 module (23,944 B): refused (state 2, why 3, another interface), harmless; the next install of a SHAPES module of either build goes where the
+  planner says. This firmware has the SHAPES regression (1.9 times 0.6.2 for RING BELL); 0.13.7 (linux-hw 48f63de) is the fix.
+- The unit's music: the project as saved (the driver's track edits are not saved by the unit); `~/fm1-hw/music-before-2026-10-24.json` on the PC holds
+  the tracks as found, `tools/hw/fm1hw.py putback` writes them back.
