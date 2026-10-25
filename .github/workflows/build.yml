@@ -35,6 +35,8 @@
 #     web/site_check.py proves them unchanged before and after the deploy). A push to main replaces the whole site and so ends the Nightly.
 #
 # Revisions:
+#   Rev 18 (Orange Cat 0.13.8): the check after a deploy mirrors the live Nightly too (web/mirror_site.py --nightly). It read firmware/nightly.json from a
+#     copy that never takes it, so every Nightly publish ended red at "Check the live site" whatever had been deployed (runs 40132493524, 40212959451).
 #   Rev 17 (Orange Cat 0.13.6): input publish_nightly; the pages job also runs for a branch dispatch with it set, mirrors the live site, adds the branch build as Nightly
 #     (tools/orangecat_site.py nightly), prints the file list of both channels as a notice (web/site_check.py --list) before the deploy, and checks the live site after it.
 #   Rev 16 (Orange Cat 0.13.5): the gate needs a positive marker. tests/run_tests.sh writes build/orangecat-tests-passed.txt ("PASSED <n> jobs ...") as its last act; tools/ci_gate.sh (job
@@ -287,7 +289,7 @@ jobs:
           set -uo pipefail
           for i in $(seq 1 40); do
             rm -rf live
-            python3 web/mirror_site.py "$PAGES_URL" live > /dev/null 2>&1 || true
+            python3 web/mirror_site.py --nightly "$PAGES_URL" live > /dev/null 2>&1 || true   # (rev 18) with the live Nightly: without it this never matched
             if grep -q "$GITHUB_SHA" live/firmware/nightly.json 2>/dev/null; then break; fi
             sleep 15
           done
