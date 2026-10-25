@@ -357,7 +357,12 @@ PROBES = {"heavy": [("MALLET", [("MACRO", "MALLET")])]}     # (a preset by name:
 def table(u, seconds, label, out, which="heavy"):
     rows = []
 
+    have = set(u.info()["engines"].values())
+
     def run(case, tracks):
+        if any(e not in have for e, _ in tracks):          # (an older firmware: DRUM-X came in 0.9.0)
+            print(f"{label:<14} N={len(tracks)} {case:<7} skipped: this firmware has no {', '.join(sorted({e for e, _ in tracks} - have))}", flush=True)
+            return
         r = u.measure([e for e, _ in tracks], seconds, presets=[p if isinstance(p, int) else u.preset_number(e, p) for e, p in tracks])
         r.update(case=case, label=label, set=which)
         rows.append(r)
