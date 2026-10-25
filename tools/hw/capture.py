@@ -9,6 +9,7 @@
   capture.py host --engine E --preset P [--note 60] OUT.wav        the same note rendered by the host build (build/host/hostsim)
   capture.py compare DEVICE.wav HOST.wav                            magnitude spectra over the sustain, within TOL_DB
   capture.py calibrate --engine SHAPES --preset P                   one clean note: the dropout threshold and the spectral tolerance
+  capture.py say FILE.wav                                           decode an OC_HW_TEST build's "say state" tones: page, engine, notice
 
 Sources. **audio4c**: the iConnectivity AUDIO4c's inputs 1 and 2 (the FM-1's analog output), 48 kHz, 32-bit frames of 8 channels,
 channels 1 and 2 kept. **usb**: the FM-1's own USB audio (card FM1, 44.1 kHz, 16 bits), the digital mix before the DAC; it costs the
@@ -226,6 +227,47 @@ def compare(dev, dev_rate, host, host_rate, held_s, lo=60.0, hi=12000.0, rel=-50
             "worst_bins": [(round(float(f[sel][i]), 1), round(float(diff[i]), 1)) for i in np.argsort(-np.abs(diff))[:5]]}
 
 
+# ------------------------------------------------------------------------------------------------------------- say state ---
+def notice_code(text):
+    """firmware/src/oc_hw_test.c hwt_code: FNV-1a of the text, folded to 12 bits"""
+    h = 2166136261
+    for b in text.encode("latin-1"):
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return (h ^ (h >> 12) ^ (h >> 24)) & 0xFFF
+
+
+def notice_names():
+    """the firmware's notice texts (the first literal of each ui_message / ui_say), by code"""
+    import re
+    out = {}
+    for f in (ROOT / "firmware/src").glob("*.c"):
+        for m in re.finditer(r'ui_(?:message|say)\(\s*"((?:[^"\\]|\\.)*)"', f.read_text(errors="replace")):
+            out.setdefault(notice_code(m.group(1)), set()).add(m.group(1))
+    return out
+
+
+def say(x, rate):
+    """decode a say-state recording (oc_hw_test.c hwt_plan): the marker (1,760 Hz, 120 ms), then five digits of 400 + 50 d Hz"""
+    m = x.mean(axis=1) if x.ndim > 1 else x
+    env, hop = envelope(m, rate, 1.0, 5.0)
+    on = env > env.max() - 20
+    segs = [(s * hop, (s + n) * hop) for s, n in runs(on) if n * hop >= rate * 0.03]
+    def freq(a, b):
+        w = m[a + (b - a) // 4:b - (b - a) // 4]
+        w = w * np.hanning(len(w))
+        spec = np.abs(np.fft.rfft(w, 16 * len(w)))
+        k = int(np.argmax(spec[1:])) + 1
+        return k * rate / (16 * len(w))
+    fs = [freq(a, b) for a, b in segs]
+    start = next((i for i, f in enumerate(fs) if abs(f - 1760) < 60 and (segs[i][1] - segs[i][0]) > rate * 0.09), None)
+    if start is None or len(fs) < start + 6:
+        return {"ok": False, "segments": [round(f) for f in fs]}
+    d = [int(round((f - 400) / 50)) for f in fs[start + 1:start + 6]]
+    page, engine, code = d[0] << 6 | d[1], d[2], d[3] << 6 | d[4]
+    return {"ok": all(0 <= v < 64 for v in d), "digits": d, "page": None if page == 127 else page, "home": page == 127, "engine": engine,
+            "notice_code": code, "notice": sorted(notice_names().get(code, [])), "at_s": round(segs[start][0] / rate, 3)}
+
+
 # ------------------------------------------------------------------------------------------------------------ unit, host ---
 def unit():
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -278,6 +320,7 @@ def main():
             s.add_argument("out")
         else:
             s.add_argument("--dir", default=tempfile.gettempdir())
+    s = sub.add_parser("say"); s.add_argument("file")
     s = sub.add_parser("compare"); s.add_argument("device"); s.add_argument("host"); s.add_argument("--held", type=float, default=2.0)
     s.add_argument("--tol", type=float, default=TOL_DB)
     a = ap.parse_args()
@@ -295,6 +338,11 @@ def main():
     elif a.cmd == "host":
         x, rate = host_render(a.out, a.engine, a.preset, a.note, a.held)
         print(json.dumps(analyse(x, rate, with_onsets=True)))
+    elif a.cmd == "say":
+        x, rate = read_wav(a.file)
+        r = say(x, rate)
+        print(json.dumps(r))
+        return 0 if r["ok"] else 1
     elif a.cmd == "compare":
         d, dr = read_wav(a.device); h, hr = read_wav(a.host)
         r = compare(d, dr, h, hr, a.held)

@@ -35,6 +35,7 @@ enum { ED_SLOT_INFO = 110, ED_SLOT_BEGIN, ED_SLOT_WRITE, ED_SLOT_END, ED_SLOT_ER
 enum { ED_PACK_INFO = 115, ED_PACK_BEGIN, ED_PACK_WRITE, ED_PACK_END, ED_PACK_ERASE };
 /* (Orange Cat 0.10.0) loadable engine modules (oc_module.c): 120..124. The pack's ids and payloads are unchanged; the module has its own ids because the pack's
  * BEGIN already carries an optional byte (older pages sent one), so an area selector in it would be ambiguous. */
+enum { ED_HW_TEST = 108 };                          /* (Orange Cat 0.13.8) the hardware test surface (oc_hw_test.c), OC_HW_TEST builds only */
 enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE, ED_ENGINES,   /* (0.11.0) 125 ED_ENGINES: the engine list */
        ED_PAGES, ED_PANEL };      /* (0.12.0) 126 ED_PAGES, 127 ED_PANEL: a module engine's pages and native parameters (fw_pages.h) */
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
@@ -303,6 +304,9 @@ static int ed_flash_stop(void)
 #include "editor_library.c"
 #include "editor_prophet.c"
 #include "editor_cpu_lab.h"
+#if OC_HW_TEST
+#include "oc_hw_test.c"                                   /* (Orange Cat 0.13.8) command 108, test builds only */
+#endif
 
 static void ed_motion_reply(uint32_t k, uint32_t rc)
 {
@@ -375,6 +379,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (MELODEE_FM6 && ed_fm6_handle(cmd, a, na)) { ed_send(); return; }   /* (Orange Cat: MELODEE_FM6) */
     if (MELODEE_CZ && ed_cz_handle(cmd, a, na)) { ed_send(); return; }   /* (Orange Cat: MELODEE_CZ) */
     if (ed_library_handle(cmd,a,na)) { ed_send(); return; }
+#if OC_HW_TEST
+    if (cmd == ED_HW_TEST && ed_hwt_handle(cmd, a, na)) { ed_send(); return; }   /* (0.13.8) test builds only */
+#endif
     if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
 #if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
@@ -1380,6 +1387,9 @@ static void ed_service(void)
     const uint8_t *p;
     uint32_t n;
     ed_sync();                                             /* v2 pushes (while watched) */
+#if OC_HW_TEST
+    hwt_uart_poll();                                       /* (0.13.8) command 108 from the TRS input */
+#endif
     if(!ota_frame_get(&p,&n))return;
     if(general_sysex_frame(p,n)){ota_frame_done();return;}
     if(MELODEE_P5 && p5_native_frame(p,n)){ota_frame_done();return;}   /* (Orange Cat: MELODEE_P5) */

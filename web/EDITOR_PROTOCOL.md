@@ -884,6 +884,34 @@ probe; the window is put back as `fl_plain_window_init` sets it and LENC is clea
 The PC compares the XOR of the two reads with the keystream of `tools/fm1pkg_make.py sfc()` (key 0x980F, the offset from flash 0x4000):
 equal means the hardware decrypts that address the way the package build encrypts the app.
 
+## Orange Cat: the hardware test surface (command 108, OC_HW_TEST builds only, 0.13.8)
+
+**Test builds only.** `OC_HW_TEST` is 0 in every published build: there command 108 has no handler and gets no reply. A test build
+(`tools/hw/ci_step.py build --switch OC_HW_TEST=1`) answers it on USB and also takes it from the TRS MIDI input (only this command;
+every other SysEx there is ignored as always), so a test can drive the unit while its USB port is busy with something else (the card
+tests). Source: `firmware/src/oc_hw_test.c`.
+
+The keys go through the real input path: a pressed id counts as a closed contact in the panel scan (`hal/fm1_input.h`, `FM1_INPUT_FORCED`),
+so the debounce, the hold times and the UI see what a finger makes. Knob steps are added where the encoder decoder leaves its detents.
+
+| Request (after 108) | Action |
+| --- | --- |
+| `0` | query |
+| `1, id` | press key id and keep it pressed (0..13 buttons, 14..40 note keys: `FM1_KEYMAP`) |
+| `2, id` | release key id (127: every key) |
+| `3, knob, s lo, s hi` | turn knob 0..6 by s detents (14 bits, offset 8192; + = clockwise) |
+| `4, page` | select page (an index of `PAGES` the UI shows now; 127: HOME) |
+| `5` | say state (below) |
+| `6, track, step` | the state, then the step's recorded notes in NOTES' order: count, and for each: note, velocity, onset (3 x 7 bits, 65,536 a step), duration (3 x 7 bits), its exponent (length in steps = duration << exponent / 65,536) |
+
+| 108 HW_TEST | (as above) | op, rc (0 ok, 1 a bad request or a page not shown), held keys (6 x 7 bits, ids 0..40), page (127: HOME), engine of the selected track, selected track, notice code (2 x 7 bits), the last notice's text (0 ended), then the panel's map: the button id of each printed label (14 bytes, FX SCL ENV LFO EDIT GLO HOME SAVE ARP SEQ PLAY REC OCT- OCT+) and for each knob role (SELECT ALGORITHM PRESETS KNOB 1..4) its encoder and 1 if clockwise is + (14 bytes), the page's title (0 ended; HOME), the step cursor, the tracker's column (0 N1 .. 5 FX) and its picked effect (0 RATCHET, 1 CHANCE, 2 CONDITION, 3 NUDGE, 4 SLIDE, 5 ACCENT), the picked effect's value on the step a tracker edit at the cursor writes, as the tracker shows it (0 ended: "x4", "FLAM", "+16", "50%", "ON", "OFF"), and that step's row (a recorded step's notes: the row they are shown on) |
+
+**Say state.** The output becomes a tone sequence (the music is replaced while it plays, about 0.6 s): a marker of 1,760 Hz for 120 ms,
+then five digits, each 20 ms of silence and 60 ms of tone, digit d at 400 + 50 d Hz: page >> 6, page & 63, engine, code >> 6, code & 63.
+The code is FNV-1a of the last notice's text folded to 12 bits (`hwt_code`). `tools/hw/capture.py say FILE.wav` decodes a recording and
+names the notice by hashing the firmware's notice texts the same way. Host tests: tests/input_test.c (a held key through the debounce, every
+id) and tests/hw_say_test.c (the plan and the interrupt's tone code, rendered).
+
 ## OBXF (engine 14)
 
 OBXF is the hardware-float OB-Xf port. `NAMES` exposes 75 curated CC0 factory patches.

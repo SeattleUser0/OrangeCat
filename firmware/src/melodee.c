@@ -61,6 +61,10 @@
 #include "audio_profile.h"
 #define FM1_INPUT_PROFILE_START(name) AP_START(name)
 #define FM1_INPUT_PROFILE_END(id,name) AP_END(id,name)
+#if defined(OC_HW_TEST) && OC_HW_TEST                /* (Orange Cat 0.13.8) the test surface's held keys (oc_hw_test.c) */
+static volatile uint32_t oc_hwt_forced[2];
+#define FM1_INPUT_FORCED(id) ((oc_hwt_forced[(id) >> 5] >> ((id) & 31u)) & 1u)
+#endif
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"

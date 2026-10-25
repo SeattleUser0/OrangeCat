@@ -34,10 +34,16 @@ static uint32_t audio_cpu_rem;                         /* keep the fractional II
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
 
+#if OC_HW_TEST
+static void hwt_tone(int32_t *out, uint32_t n);        /* (Orange Cat 0.13.8) say state's tones (oc_hw_test.c), test builds only */
+#endif
 static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15 -> 24 bit */
 {
     uint32_t i;
     mix_block(out, n);
+#if OC_HW_TEST
+    hwt_tone(out, n);
+#endif
     AP_START(output_start);
 #if MELODEE_USB_AUDIO
     /* USB capture copies the finished master or optional stems; computer playback follows capture.

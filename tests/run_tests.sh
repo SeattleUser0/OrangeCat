@@ -365,7 +365,8 @@ if core; then
     t "capture gating, derived caches and silent-track clocks" performance_test -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
     t "one canvas: each transfer done before it is drawn over; bands" lcd_overlap_test -O1 -w -Ibuild/gen
     t "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records)" upreset_test
-    t "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders, fast spins" input_test
+    t "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders, fast spins, the test surface's held keys" input_test
+    t "OC_HW_TEST say state: the plan and the ISR's tones (marker, five digits, gaps), notice codes" hw_say_test
     t "LED hardware PWM: pin ownership, duty per scan, overlapping planes, blanking" led_pwm_test
     t "Panel fixed column words: full scan and GPIO/PWM fallback" led_pwm_fast:led_pwm_test -DMELODEE_PANEL_FAST=1
     t "Rejected panel brightness cache: exact masks/edits/fallback and sparse/changing costs" panel_prepare_bench -O2
