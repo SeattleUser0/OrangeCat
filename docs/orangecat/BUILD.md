@@ -2457,3 +2457,6 @@ four candidates' verdicts: docs/orangecat/ENGINE_CANDIDATES.md.
 | Caravel's SEM and HADES: modules (3,632 B and 3,308 B, beside either module), equal sample for sample to Caravel's own build of them (tests/caravel_parity, a checkout needed); proposed numbers 21 and 22, registrable only by an OC_CANDIDATES build. Proposed verdicts: go with limits (SEM's TYPE; the numbers) | **Done** (CI); unit **Not started** |
 | Finding: the Prophet module reads P5_TANH, P5_EXP2, P5_TPT_G per sample from its own flash with no hot set (6,668 B if declared) | **Open** (a decision) |
 | The engine numbers past 20 for the shipping build (NENGINES, the editor's list, user presets and favorites past 15) | **Open** (a decision) |
+
+CI: run 40218949650 (.ci_quick, sizes and the gate: green; its gate rows equal the PC's build of 689792e, the .ocm sizes as above); the full run after
+removing .ci_quick is the record (the final report names it). Host tests on the PC (tools/hw/ci_step.py test --parallel 2): all passed on 689792e.
