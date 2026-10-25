@@ -577,3 +577,40 @@ WHEEL (module) FULL ORGAN, the four-note chord, worst us / late in 20 s / load %
 | 4 | 2,488 / 0 / 61, 9 voices, 1,255 steals |
 
 About 130 us a voice; four tracks with no late render; the admission keeps 9 voices sounding past two tracks (clean steals).
+
+### Flash 23: the candidates' measurement build (linux-hw de216f3 + `OC_CANDIDATES=1`), SEM and HADES
+
+- 2026-10-25T22:17:18Z, `orangecat-0.6.2-de216f3.fwsc` (wt-cand; image 507,864 B; host tests with the switch: all passed but two, re-run: the engine gate's
+  test quoted SEM's old size from ENGINE_CANDIDATES.md (3,632 B; 3,684 B since TYPE on STAT: the document corrected, the test then passed) and "CPU live
+  takes" under two suites at once (passed alone)). `v0.6.2-de216f`. WHEEL removed; SEM (engine 21) at start 1, HADES (22) at start 0, both state 7.
+
+| N | SEM NOTCH PAD | HADES PULSE BAS (MONO) |
+|---|---|---|
+| 1 | 1,002 / 0 / 32, 4 voices | 739 / 0 / 21, 1 voice |
+| 2 | 1,551 / 0 / 50, 8 voices | 1,034 / 0 / 27 |
+| 3 | 2,044 / 0 / 56, 9 voices, 1,688 steals | 1,328 / 0 / 34 |
+| 4 | 2,306 / 0 / 57, 9 voices, 2,373 steals | 1,618 / 0 / 41 |
+
+### Flash 24: the built-in WHEEL (8c0f675 = linux-hw de216f3 + MELODEE_LEGACY_EXTRAS as a switch, throwaway branch hw-wheel-builtin; DRUM-X off in it)
+
+- 22:22:38Z, `orangecat-0.6.2-8c0f675.fwsc` (image 522,068 B; host tests: as Flash 23's, the same two, the same outcome). Engine 7 built in (125: source 1).
+
+| N | WHEEL built in | WHEEL module (Flash 22) |
+|---|---|---|
+| 1 | 1,209 / 0 / 34 | 1,110 / 0 / 34 |
+| 2 | 2,053 / 0 / 59 | 1,787 / 0 / 54 |
+| 3 | 2,525 / 0 / 66 | 2,181 / 0 / 59 |
+| 4 | 2,859 / 40 / 68 | 2,488 / 0 / 61 |
+
+**The module is at or under the built-in engine at every N: WHEEL ships as 0.14.0** (the user's rule). The module reads SINE through the firmware's base
+hot set (RAM); the built-in engine reads it from the image.
+
+### Flashes 25 and 26: the area cleared, the end state
+
+- 22:25:47Z, Flash 25: de216f3's candidates build again, only to remove SEM (21) and HADES (22) by their numbers (a firmware without OC_CANDIDATES cannot
+  name them, and a remove of the whole area is not done over USB): `remove 21`, `remove 22`: every start empty.
+- 22:26:49Z, **Flash 26: the Nightly as published** (`melodee-nightly.fwsc` of sonnet-work 89b4e79, `v0.6.2-89b4e7`), its pack (`orangecat-nightly.pak`: state 1,
+  657ED950) and its SHAPES module (`orangecat-shapes-nightly.ocm`: start 0, state 7, engine 14 from it); starts 1 and 2 empty: no test module. The tracks as found
+  (`putback music-before-2026-10-24.json`: MACRO 10, 0, 1, 20) and track 1's CHRD MAJ and VOIC OPEN as found this morning; transport stopped; CLK put back to
+  INT (a timed-out table had left it on USB). Project slot 4 holds the Part 5 test project and library slot 383 "HW TEST"; power-on loads project slot 1
+  (PROJ_LAST 0xC0 since Part 6). **The unit stays here.**

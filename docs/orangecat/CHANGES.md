@@ -65,3 +65,6 @@ The project format and the pool format did not change in any version below.
 the module it stays silent, as before). Its five presets sound as the retired engine did. The module is 2,920 bytes and stands beside SHAPES or beside the
 Prophet. The sine table every engine reads is copied into RAM at power-on (2,052 bytes of the audio working memory). **The interface identifier changed
 again** (the module services table, version 5): every module is rebuilt and installed once. Nothing is stored in a new format.
+
+**0.14.0 (branch linux-hw; not on a Nightly yet): WHEEL comes back, as a module.** Melodee's tonewheel organ (engine 7: nine drawbars, percussion, key click, drive, the rotary, its five presets) installs from the installer page or the editor's Engines table like the SHAPES module; it takes 4 of the module area's 12 sectors and fits beside SHAPES or beside the Prophet. A project or a sound saved with WHEEL before it was retired plays WHEEL again once the module is installed (silent, with its number kept, until then). Measured on the unit: four tracks of FULL ORGAN with no late render, lighter than the old built-in engine. The firmware also keeps its own sine and soft-clip tables in RAM for every engine (the base hot set); the module interface changed with it (version 5), so the SHAPES and Prophet modules of this build must be installed with it.
+
