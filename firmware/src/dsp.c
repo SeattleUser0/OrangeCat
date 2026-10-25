@@ -45,11 +45,29 @@ static inline uint32_t tuned_pitch_inc(uint32_t p)
 }
 static inline int32_t tuning_log(void) { return A4_LOG[tuning_a4 - A4_MIN]; }
 
+/* (Orange Cat 0.14.0) the firmware's own hot set: the tables these helpers read per sample, for every engine that calls them (docs/orangecat/
+ * ENGINE_CANDIDATES.md, "The base hot set"). SINE (sine_i, osc_sine) is in the image's flash: engines.c eng_hot_base copies it into the audio arena at
+ * boot (RES_HOT_BASE, 2,052 B) and points dsp_hot_at[0] at the copy; until then (a host test, a build that never boots the flash) it points at the
+ * table itself, so the host output is the same byte for byte. TANH_Q15 (softclip, soft_knee) is in .dsp_tables, SRAM, since the size audit: it is in
+ * RAM already and is not copied. A module reads both through the services table (fw_api_t base_hot, FW_API_VERSION 5): its own copies of the two
+ * tables would be read from the module area's flash, through the 4 KiB D-cache way the hot sets keep the per-sample tables out of. */
+enum { DSP_HOT_SINE, DSP_HOT_TANH, DSP_HOT_N };
+#ifdef OC_MODULE
+static inline const void *const *oc_base_hot(void);   /* the module's unit defines it: OC_FW()->base_hot */
+#define DSP_SINE ((const int16_t *)oc_base_hot()[DSP_HOT_SINE])
+#define DSP_TANH ((const int16_t *)oc_base_hot()[DSP_HOT_TANH])
+#else
+static const void *dsp_hot_at[DSP_HOT_N] = {SINE, TANH_Q15};   /* the firmware's pointers (fw_api_t base_hot): the arena copy after boot */
+#define DSP_SINE ((const int16_t *)dsp_hot_at[DSP_HOT_SINE])
+#define DSP_TANH TANH_Q15                                         /* (SRAM: .dsp_tables) */
+#endif
+
 /* sine, linearly interpolated between the 1024 table points (plain lookup: THD -55 dB) */
 static inline int32_t sine_i(uint32_t ph)
 {
     uint32_t i = ph >> 22;
-    int32_t a = SINE[i], b = SINE[(i + 1u) & 1023u];
+    const int16_t *sine = DSP_SINE;
+    int32_t a = sine[i], b = sine[(i + 1u) & 1023u];
     return a + (((b - a) * (int32_t)((ph >> 7) & 0x7FFFu)) >> 15);
 }
 static inline int32_t osc_sine(uint32_t ph) { return sine_i(ph); }
@@ -82,11 +100,12 @@ static inline int32_t osc_tri(uint32_t ph)
  * 256-unit steps, audible on quiet signals) */
 static inline __attribute__((always_inline)) int32_t softclip(int32_t x)
 {
+    const int16_t *th = DSP_TANH;                    /* (0.14.0) the base hot set's (the firmware's own in SRAM; a module's through the table) */
     int32_t a = x < 0 ? -x : x, i = a >> 8, y;
     if (i >= 256)
-        y = TANH_Q15[256];                           /* continuous with the table */
+        y = th[256];                                 /* continuous with the table */
     else
-        y = TANH_Q15[i] + (((TANH_Q15[i + 1] - TANH_Q15[i]) * (a & 255)) >> 8);
+        y = th[i] + (((th[i + 1] - th[i]) * (a & 255)) >> 8);
     return x < 0 ? -y : y;
 }
 

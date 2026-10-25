@@ -108,7 +108,7 @@ FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
     RES_ENGINE0, NENGINES, &fw_rng_cell,
     p5_patch, p5_ready, FW_P5_JOB, midi_bend_target, FW_WORKER_ONLINE, &audio_batch_active,
     fw_worker_submit, fw_worker_join, fw_batch_push, AP_PROPHET, &voice_was, PITCH_OCT, ENV_LIN,
-    (const void *const *const *)eng_hs.ptr,
+    (const void *const *const *)eng_hs.ptr, (const void *const *)dsp_hot_at,
 };
 /* (0.10.0) the module registered under an engine number, or 0 (the loader, eng_register): its header says the state size */
 static const fw_mod_hdr_t *eng_mod[NENGINES];
@@ -446,9 +446,17 @@ static void eng_hot_refresh(void)                          /* the asset pack was
     for (uint32_t e = 0; e < NENGINES; e++)
         if (eng_hs.slot[e]) eng_hot_copy(e);
 }
+/* (0.14.0) the firmware's own hot set (dsp.c dsp_hot_at): SINE into the arena, once, at boot (its own block, RES_HOT_BASE: no engine's slot). TANH_Q15 is SRAM
+ * already (.dsp_tables). The table is the image's, so a pack change never needs a new copy. A block that does not fit leaves the pointer at the table */
+static void eng_hot_base(void)
+{
+    uint8_t *b = dsp_hot_at[DSP_HOT_SINE] == (const void *)SINE ? resource_get(RES_HOT_BASE, (sizeof SINE + 3u) & ~3u) : 0;
+    if (b) { memcpy(b, SINE, sizeof SINE); dsp_hot_at[DSP_HOT_SINE] = b; }
+}
 /* persist_boot, after the pack check and the module loader: the built-in engines' sets (a registered module took its own already) */
 static void eng_hot_boot(void)
 {
+    eng_hot_base();
     for (uint32_t e = 0; e < NENGINES; e++) {
         const engine_t *g = ENGINES[e];
         if (eng_mod[e] || !g || !g->nhot) continue;
