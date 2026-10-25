@@ -1145,7 +1145,7 @@ ENGINE_CANDIDATES.md has each one's full table). Starts are the firmware's (oc_m
 | SHAPES (14) | 23,944 B | 6 | 6, at 0 or 6 | | no | 2,580 B |
 | PROPHET (19) | 31,884 B | 8 | 8, at 0 or 4 | no | | 0 B declared (reads P5_TANH, P5_EXP2, P5_TPT_G per sample: ENGINE_CANDIDATES.md, "Findings") |
 | WHEEL (7) | 2,920 B | 1 | 4, at 0 or 6 | yes (WHEEL at 6) | yes (WHEEL at 0) | 0 B (SINE, TANH_Q15: the base set) |
-| SEM (21, proposed) | 3,632 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
+| SEM (21, proposed) | 3,684 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
 | HADES (22, proposed) | 3,308 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
 | RHODES (23, proposed) | 138,888 B | 34 | none fits | | | 109,560 B read per sample: no |
 
