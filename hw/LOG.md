@@ -498,3 +498,42 @@ with a backup and the user's go.
   (schema 3) while each note was held: **8 onsets, 0.403 to 0.406 s apart; one voice sounding for each note; the intervals exact** (the strongest partial is the
   octave of each note in this chord preset: 522.2, 586.1, 658.1, 697.1, 782.6, 878.2, 985.8, 1,044.4 Hz, 2.00 times C4 .. C5); peak -7.2 dBFS, no dropout, no
   clipped run. **Pass**: MIDI input on the new firmware.
+
+### Part 7, the test surface on the unit (OC_HW_TEST builds: Flashes 18 to 20)
+
+- Flash 18 (19:16:13Z): wt-hwt 47aa740's image built with `--switch OC_HW_TEST=1` (511,304 B; host tests with the switch: all passed), `v0.6.2-47aa74`. Flash 19
+  (19:44:51Z): + op 6 (a step's recorded notes) and the page's title, the cursor, the tracker's column and effect in the state, `v0.6.2-4094c6` (host tests passed).
+  Flash 20 (20:19:38Z): + the picked effect's value on the step a tracker edit writes and that row, `v0.6.2-ea238a` (511,848 B; host tests passed, eef870d).
+- Command 108 answers over USB; **say state** decodes the same from a request on USB and one sent on the AUDIO4c's DIN port into the TRS input (page HOME,
+  engine 8, notice code 2262: "SAVED A", a composed notice the decoder names by code only). The panel's map comes back with the state: REC is button 13,
+  PLAY 12, KNOB 4 encoder 5.
+- Every surface action in the checks below was followed by 200 ms and a state read, and the driver stopped on any state that did not follow
+  (`~/fm1-hw/p3panel.py`; logs `~/fm1-hw/p3-panel*.log`, results `p3-panel-*.json`).
+
+### Part 3, recording on the unit, with MIDI in and the test surface
+
+- **REC armed by the REC key** (the surface's press of button 13): track 1 armed (TRACK 27), a second tap disarms. Passed.
+- **The 0.7.1 acceptance case**: a chord (C3, D#4, D5) from the AUDIO4c's MIDI out during the loop, released after 1.0, 0.55 and 0.25 s (MACRO ORGAN DRAWBAR, CHRD
+  off for the test: the project had CHRD MAJ, VOIC OPEN on track 1, which turns one key into a chord). Read back with op 6: three notes on the step, lengths
+  **8.006, 4.396 and 1.979 steps (1.001, 0.550, 0.247 s)**, onsets within 2 ms of each other. **Pass**: three distinct durations, each as played.
+- **Step properties on a recorded step**, set from the TRACKER page with the keys and knobs (KNOB 1 the row, KNOB 2 the FX column, KNOB 3 the effect, KNOB 4 one
+  detent at a time until the tracker's own value reads the target), a FOLD PLUCK chord (three notes), captured on the USB audio; two placements:
+
+| Property | Chord inside its own step (row 1, onset 0.16) | Chord rounded forward (played at 0.68 of step 0, shown and edited on row 1) |
+|---|---|---|
+| RATCH x4 | **pass**: 4 hits a pass in 3 passes, 31 to 33 ms apart | **pass**: 4, 4, 4, 30 to 34 ms apart |
+| FLAM | **pass**: a grace and the full hit 15 to 16 ms apart, every pass | **pass**: 15 to 17 ms apart |
+| NUDGE +16 (31.25 ms) | **pass**: 30.9 to 31.9 ms later | **pass**: 32.9 to 35.0 ms later |
+| CHANCE 50 %, 20 passes | **pass**: 8 played, each whole | **pass**: 10 played |
+| ACCENT | **pass**: the hits +1.8 dB RMS, centroid 2,545 -> 2,716 Hz (MACRO's velocity is its models' accent) | **pass**: +2.5 dB, 2,279 -> 2,394 Hz |
+| two adjacent four-note chords, x4 on both rows (the reviewer's case) | **pass**: 8 onsets every pass in 4 passes (4 + 4), 29 to 34 ms apart; both steps hold their four notes (op 6) | |
+| undo by EDIT held (1.2 s) | **pass**: one 10-detent CHANCE change (91 % -> 81 %) undone to 91 %, "UNDO"; ten single detents are ten history entries, one undone a hold | |
+
+- **Retracted**: an earlier run (by hand) heard one hit for RATCH x4 on the rounded chord and was taken for a firmware fault. It was the driver: the value was
+  set by a KNOB 4 turn right after an EDIT tap, never confirmed. With every action confirmed both placements pass, and the host agrees (tests/recording_props_test.c,
+  rounded() and rounded_live(): a chord rounded forward and one wrapped from the loop's last step, every property set on the row they are shown on, and a chord
+  recorded live late in its step: all pass). recording.c already reads every property of a recorded step from the row the overview shows, and the tracker writes
+  that row: nothing to fix.
+- **Found: an EDIT tap on TRACKER can also open the EDIT pages.** EDIT is a step modifier there: its release deletes the picked effect (ui_input.c, the step-mods
+  release, step_delete_edit) and a tap with no step modifier held opens the EDIT family (page_tap). The two read the buttons at different moments of the UI
+  frame; when the debounced release lands between them, both happen ("CHANCE OFF" and the page EDIT 1, the second of two taps 0.5 s apart). Not fixed today.
