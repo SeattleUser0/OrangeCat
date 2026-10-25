@@ -1107,6 +1107,25 @@ as on 0.6.2 (the "MIX" row, the user's session, passes the budget at four tracks
 | N=4 | 2,849 / 164 / 73 | 5,701 / 3,392 / 109 | 2,730 / 164 / 68 | 2,714 / 164 / 68 |
 
 
+## The module area with the candidates (0.14.0, branch engine-candidates)
+
+The 12-sector area (0xC8000..0xD3FFF, 49,152 B) and every module CI builds today, as `tools/engine_gate.py` measures them (docs/orangecat/
+ENGINE_CANDIDATES.md has each one's full table). Starts are the firmware's (oc_module.c `oc_mod_sect`: sectors 0, 6 and 4) and each engine's geometry
+(`oc_mod_geo`); SEM's and HADES's geometry exists only in an `OC_CANDIDATES` build.
+
+| Module | image | needs | geometry (sectors, at sector) | beside SHAPES | beside the Prophet | hot set (arena) |
+|---|---|---|---|---|---|---|
+| SHAPES (14) | 23,944 B | 6 | 6, at 0 or 6 | | no | 2,580 B |
+| PROPHET (19) | 31,884 B | 8 | 8, at 0 or 4 | no | | 0 B declared (reads P5_TANH, P5_EXP2, P5_TPT_G per sample: ENGINE_CANDIDATES.md, "Findings") |
+| WHEEL (7) | 2,920 B | 1 | 4, at 0 or 6 | yes (WHEEL at 6) | yes (WHEEL at 0) | 0 B (SINE, TANH_Q15: the base set) |
+| SEM (21, proposed) | 3,632 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
+| HADES (22, proposed) | 3,308 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
+| RHODES (23, proposed) | 138,888 B | 34 | none fits | | | 109,560 B read per sample: no |
+
+Three modules at once: SHAPES at 0 and one 4-sector module at 6 fill sectors 0 to 9 (two sectors free, no start there); the Prophet at 4 and one at 0
+fill 0 to 11. Two of the small ones (WHEEL, SEM, HADES) take 0 and 6. The firmware's own hot set (SINE, 2,052 B of arena at boot) is the base every
+module reads through `fw_api_t base_hot` (ENGINE_CANDIDATES.md, "The base hot set").
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

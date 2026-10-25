@@ -283,6 +283,32 @@ mod_pages_prophet() {                             # (Orange Cat 0.12.1, Part 1b)
     step "the Prophet module's real pages (0.12.1, Part 1b): 15 pages, hooks, HOME, ENV, LFO, motion recorded and played back, the module out and in; Orange Cat set, sanitizers" \
         "$OUT/mod_pages_prophet_test"
 }
+module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's module source as its own unit: the reference build's built-in WHEEL, the registration in slot 7, tests/golden_modules.txt
+    $CC -c -O2 $FW -o "$OUT/module_host_wheel_tu.o" tests/module_host_wheel_tu.c || { fail "compile tests/module_host_wheel_tu.c"; return 1; }
+    $CC -O2 $FW -DMELODEE_LEGACY_EXTRAS=1 -o "$OUT/module_host_wheel_ref" tests/module_host_wheel_test.c "$OUT/module_host_wheel_tu.o" -lm ||
+        { fail "compile tests/module_host_wheel_test.c (reference build)"; return 1; }
+    $CC -O2 $FW -o "$OUT/module_host_wheel_test" tests/module_host_wheel_test.c "$OUT/module_host_wheel_tu.o" -lm ||
+        { fail "compile tests/module_host_wheel_test.c"; return 1; }
+    step "WHEEL as a module on the host (Orange Cat 0.14.0): the reference build's built-in WHEEL and the module render the same five presets, tests/golden_modules.txt" \
+        "$OUT/module_host_wheel_ref" tests/golden_modules.txt
+    step "WHEEL as a module (0.14.0): slot 7 retired and silent, the registration offers it, a stored engine 7 plays it, unregistering retires it again" \
+        "$OUT/module_host_wheel_test" tests/golden_modules.txt
+}
+module_host_candidates() {                        # (Orange Cat 0.14.0) the engine candidates gate: SEM and HADES in an OC_CANDIDATES build, the Rhodes port against Frodhes' own engine
+    for e in sem hades; do
+        E=$(echo $e | tr a-z A-Z)
+        $CC -c -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/module_host_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c"; return 1; }
+        $CC -O2 $FW -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_$E -o "$OUT/module_host_${e}_test" tests/module_host_cand_test.c "$OUT/module_host_${e}_tu.o" -lm ||
+            { fail "compile tests/module_host_cand_test.c ($e)"; return 1; }
+        step "$E (Caravel's) as a candidate module (engine candidates gate, OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
+            "$OUT/module_host_${e}_test" tests/golden_modules.txt
+    done
+    $CC -c -O2 $FW -o "$OUT/rhodes_ref_tu.o" tests/rhodes_ref_tu.c || { fail "compile tests/rhodes_ref_tu.c"; return 1; }
+    $CC -c -O2 $FW -o "$OUT/module_host_rhodes_tu.o" tests/module_host_rhodes_tu.c || { fail "compile tests/module_host_rhodes_tu.c"; return 1; }
+    $CC -O2 $FW -o "$OUT/rhodes_parity_test" tests/rhodes_parity_test.c "$OUT/module_host_rhodes_tu.o" "$OUT/rhodes_ref_tu.o" -lm ||
+        { fail "compile tests/rhodes_parity_test.c"; return 1; }
+    step "the Rhodes port (engine candidates gate) against Frodhes' own rhodes.c: four types at three notes and a chord, every sample" "$OUT/rhodes_parity_test"
+}
 phys_ref() {
     D=${DAISYSP:-vendor/DaisySP}/Source
     if [ ! -d "$D/PhysicalModeling" ] || ! command -v c++ >/dev/null 2>&1; then
@@ -351,6 +377,7 @@ if core; then
     job step "branch nightly: the Nightly channel beside an unchanged Standard" python3 tests/branch_nightly_test.py
     job step "Orange Cat 0.11.2: the pages site serves pack and modules of one build and refuses a set that does not belong together" python3 tests/orangecat_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
+    run "engine candidates gate (Orange Cat 0.14.0): placement against the firmware's geometry; the rows of SHAPES and the Prophet against the plan, the candidates' rows the verdicts rest on" python3 tests/engine_gate_test.py
     run "module build (Orange Cat 0.10.0, PoC step 2; 0.10.1: the update loader's record rule, the code moved on until no sector tail matches): the starts, the link scripts, the header checks, the .ocm package, against a stand-in toolchain" python3 tests/module_build_test.py
     run "flash facts shared by the pack generator and the module build (Orange Cat 0.10.1): XIP address = fm1_xip.h, the update loader's record rule = ldr_core.c, oc_pack.c and ota.c" python3 tests/ocflash_test.py
     t "audio profiling: histogram bounds and timer wrap" audio_profile_test
@@ -498,6 +525,8 @@ if sound && [ $TABLES = 1 ]; then
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     job module_host
     job module_host_prophet
+    job module_host_wheel
+    job module_host_candidates
     job mod_pages_prophet
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \

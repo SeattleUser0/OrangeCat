@@ -27,6 +27,6 @@ int main(void)
         bad+=check("retired user patch retains all native edit values",!memcmp(values+P_E0,TSEL->p+P_E0,16));
         bad+=check("retirement does not clear existing favorite identifiers",favorite_has(e,3));
     }
-    for(uint32_t k=0;k<NENG_SHOWN;k++)bad+=check("browser lists only available engines",eng_ok(eng_vis(k)));
+    for(uint32_t k=0;k<NENG_SHOWN;k++)bad+=check("browser lists only available engines (or a module's slot no module fills: 0.14.0, WHEEL)",eng_ok(eng_vis(k))||(eng_module_slot(eng_vis(k))&&!eng_mod[eng_vis(k)]));
     printf("Engine retirement test %s\n",bad?"FAILED":"passed");return !!bad;
 }
