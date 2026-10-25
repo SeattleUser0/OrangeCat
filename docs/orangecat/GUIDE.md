@@ -1,7 +1,7 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.11.0 (branch sonnet-work, not released, not yet tried on the unit)
-**Date:** October 23, 2026
+**Firmware:** 0.13.7 (branch linux-hw, not released; measured on the unit)
+**Date:** October 25, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
 
@@ -402,6 +402,15 @@ Do not unplug during an install.
 
 A module whose engine is too heavy for the voice budget, or whose state does not fit the audio memory, is refused when you give it to a track: the screen says ENGINE TOO HEAVY or
 NO ROOM and the track keeps its engine and its sound.
+
+(0.13.7) A module of an earlier build is refused after this firmware (the module interface changed once): the Engines row says refused, and SHAPES
+plays from the firmware's own until you install the module of this build. A module whose RAM tables do not fit the audio memory is not used at all
+and its row says NO ROOM.
+
+**How many tracks of what (measured on the unit, 0.13.7).** The unit renders a block of 128 samples in under 2.9 ms or the sound breaks up. With
+four-note chords on every step: SHAPES fits four tracks with any preset (RING BELL, the heaviest, 2.7 ms on four tracks); DRUM-X fits four tracks
+(2.4 ms); MACRO's light presets fit four tracks, but ADDITIVE PAD fits one (two are already over), and MALLET and GLASS BELL (the modal model)
+take nearly the whole budget on one track alone. This is the same on 0.6.2. Mix heavy MACRO presets with lighter tracks, or use fewer notes.
 
 ## The Engines table: Use and Replace (0.12.0)
 

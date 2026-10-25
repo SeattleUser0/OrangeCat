@@ -59,6 +59,10 @@ int main(int argc, char **argv)
     oc_host_fw = &FW_API;                              /* the firmware's own table: what the device gives its module */
     em = oc_host_module_engine();
     h = OC_MODULE_HDR;
+    /* (0.13.7) the module's hot set, as registration takes it (engines.c eng_hot_take): the module reads its tables through the firmware's pointers */
+    check("the module declares its hot set (5 tables, 2,570 B) and it is copied into the arena as registration would",
+          em->nhot == 5u && !em->hot_at && eng_hot_take(ENGI_SHAPES, 0, em->hot, em->nhot) == EM_OK && eng_hs.ptr[ENGI_SHAPES] &&
+          !memcmp(eng_hs.ptr[ENGI_SHAPES][0], em->hot[0].src, em->hot[0].bytes));
     check("the module's header is accepted by the registration check (identifier, table address, versions)", fw_module_check(&h) == FW_MOD_OK);
     check("the header names SHAPES, the state size of sh_part_t and the pack the tables came from",
           h.engine == ENGI_SHAPES && h.state_size == sizeof(sh_part_t) && h.pack_hash == OC_PACK_HASH);

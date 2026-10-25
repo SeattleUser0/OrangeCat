@@ -239,6 +239,52 @@ static void fl_plain_window_init(void)
     __asm__ volatile("csync\n\tsti" ::: "memory");
 }
 
+#if OC_SFC_PROBE
+/* (Orange Cat 0.13.7, branch linux-hw; OC_SFC_PROBE builds only: editor command 109) the two read paths of flash above the app, read only. For
+ * k = 0 the plaintext window as fl_plain_window_init sets it; for k = 1 the other path: mode 0, the window's low end moved past [off, off + 4 KB)
+ * (the decrypting XIP path the app is read through); mode 1, LENC_L / LENC_H set over the range with the window as it is; mode 2, as 1 with
+ * SFCENC_CON bit 2. Each: the D-cache lines dropped, a cold and a warm pass of 1,024 16-bit reads timed in TIMER4 ticks (ticks[2k], [2k + 1]),
+ * then 32 bytes at off (got[32k ..]). Afterwards the window is put back and LENC cleared. -> the KEY register. Interrupts off (the caller). */
+static volatile uint32_t fl_probe_sink;
+static uint32_t fl_probe_paths(uint32_t off, uint32_t mode, uint8_t *got, uint32_t *ticks)
+{
+    uint32_t key = REG32(0x40304u) & 0xFFFFu;
+    for (uint32_t k = 0; k < 2u; k++) {
+        if (k) {
+            if (mode == 0u) {
+                SFCENC_CON &= (uint8_t)~2u;
+                SFCENC_UNENC_L = FL_XIP((off + 0x1FFFu) & ~0xFFFu);
+                SFCENC_UNENC_H = 0x07FFFFFFu;
+                SFCENC_CON |= 2u;
+            } else {
+                REG32(0x40314u) = FL_XIP(off);
+                REG32(0x40310u) = FL_XIP(off + 0x1000u) - 1u;
+                if (mode == 2u) SFCENC_CON |= 4u;
+            }
+            fl_csync();
+        }
+        fl_inval(off, 2048u);
+        for (uint32_t pass = 0; pass < 2u; pass++) {
+            const volatile uint16_t *p = (const volatile uint16_t *)FL_XIP(off);
+            uint32_t sum = 0, t0 = T4_CNT;
+            for (uint32_t i = 0; i < 1024u; i++) sum += p[i];
+            ticks[k * 2u + pass] = T4_CNT - t0;
+            fl_probe_sink = sum;
+        }
+        for (uint32_t i = 0; i < 32u; i++) got[k * 32u + i] = ((const volatile uint8_t *)FL_XIP(off))[i];
+    }
+    SFCENC_CON &= (uint8_t)~6u;
+    REG32(0x40314u) = 0;
+    REG32(0x40310u) = 0;
+    SFCENC_UNENC_L = FL_XIP(0x93000u);
+    SFCENC_UNENC_H = 0x07FFFFFFu;
+    SFCENC_CON |= 2u;
+    fl_csync();
+    fl_inval(off, 2048u);
+    return key;
+}
+#endif
+
 static inline uint32_t irq_save(void) { __asm__ volatile("cli" ::: "memory"); return 0; }
 static inline void irq_restore(uint32_t f) { (void)f; __asm__ volatile("csync\n\tsti" ::: "memory"); }
 

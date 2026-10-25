@@ -91,12 +91,24 @@ static FW_UNUSED void fw_batch_push(void (*run)(const void *, int32_t *), const 
 {
     audio_batch_push(run, data, bytes, out, n, id);
 }
+/* (0.13.7) the hot sets' state (below, "hot sets"), one object: as separate statics they reshuffled the compiler's merged globals and cost the UI
+ * functions about 2.5 KB of image (BUILD.md, Thirteenth run, Part 1) */
+static struct {
+    const void *set[ENG_HOT_SLOTS][ENG_HOT_MAX];           /* a module's pointers, one array a slot: the copies */
+    const void **ptr[NENGINES];                            /* engine number e's (fw_api_t hot): its slot's array while a module holds one, else 0 */
+    uint32_t refused;                                      /* bit e: built-in engine e's set did not fit: its slot holds ENG_RETIRED (silent) */
+    uint8_t slot[NENGINES];                                /* 1 + the slot of engine number e's set, 0 none */
+    const eng_hot_t *list[ENG_HOT_SLOTS];                  /* a slot's set: its list, its length, where its pointers are (a built-in engine's own */
+    uint8_t n[ENG_HOT_SLOTS];                              /* hot_at, else the slot's set: a module's). Kept here, so a copy, a refresh or */
+    const void **at[ENG_HOT_SLOTS];                        /* a drop never reads an engine_t again (a module's is in flash, checked once by the loader) */
+} eng_hs;
 FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
     FW_API_MAGIC, sizeof(fw_api_t), FW_API_VERSION, FW_API_IFACE,
     fw_mem_copy, fw_mem_set, fw_resource_get, fw_tuning_log, trk, &oc_pack_good,
     RES_ENGINE0, NENGINES, &fw_rng_cell,
     p5_patch, p5_ready, FW_P5_JOB, midi_bend_target, FW_WORKER_ONLINE, &audio_batch_active,
     fw_worker_submit, fw_worker_join, fw_batch_push, AP_PROPHET, &voice_was, PITCH_OCT, ENV_LIN,
+    (const void *const *const *)eng_hs.ptr,
 };
 /* (0.10.0) the module registered under an engine number, or 0 (the loader, eng_register): its header says the state size */
 static const fw_mod_hdr_t *eng_mod[NENGINES];
@@ -372,7 +384,78 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
  * in its header takes the slot of the table, eng_state_size and eng_ok then answer from its header. Only the engines a module
  * may supply are accepted (eng_module_slot: SHAPES). A built-in engine of the same number stays unless OC_MODULE_WINS (core.h)
  * says the module takes over; eng_unregister puts the original back. Nothing here reads flash. */
-enum { EM_OK = 0, EM_SLOT = -1, EM_SHADOWED = -2, EM_BAD = -3 };
+enum { EM_OK = 0, EM_SLOT = -1, EM_SHADOWED = -2, EM_BAD = -3, EM_NOROOM = -4 };   /* (0.13.7) EM_NOROOM: its hot set does not fit the arena */
+
+/* ------------------------------------------------------------------------------ hot sets (Orange Cat 0.13.7) ---
+ * An engine's per-sample tables (engine_t hot, nhot) are copied into the audio arena when it is registered, and it reads the copies (ENG_HOT):
+ * a read through the flash's plaintext window (the asset pack, a module's image) costs about 250 ns more than a read from the image or RAM
+ * (hw/LOG.md, docs/orangecat/ENGINE_LOADING_PLAN.md "What runs from where, measured"). A built-in engine's set is taken at boot (eng_hot_boot);
+ * a module's when the loader registers it (eng_register), and dropped when it leaves (eng_unregister, which takes the built-in engine's again).
+ * One arena block a set (RES_HOT0 + slot, ENG_HOT_SLOTS at once). A set that does not fit refuses the registration: EM_NOROOM for a module;
+ * a built-in engine's slot then holds ENG_RETIRED (silent, as an unhooked engine) and eng_hs.refused says so. (At boot the arena is still
+ * empty, so a built-in set of a few KB always fits; eng_ok is left alone: it is inlined in the UI, and a test there cost 1.7 KB of image.) When the asset pack is checked again (an install, an erase), the
+ * copies are made again (oc_pack_changed). A dropped set's pointers go back to its sources, so nothing ever reads a released block. */
+static uint32_t eng_hot_bytes(const eng_hot_t *hot, uint32_t n)   /* the arena a set takes (each table rounded to 4 bytes) */
+{
+    uint32_t b = 0;
+    for (uint32_t i = 0; i < n; i++) b += (hot[i].bytes + 3u) & ~3u;
+    return b;
+}
+static void eng_hot_copy(uint32_t e)                       /* the slot's block <- the sources; the pointers to the copies */
+{
+    uint32_t s = eng_hs.slot[e] - 1u, off = 0;
+    uint8_t *block = resource[RES_HOT0 + s].ptr;
+    for (uint32_t i = 0; i < eng_hs.n[s]; i++) {
+        memcpy(block + off, eng_hs.list[s][i].src, eng_hs.list[s][i].bytes);
+        eng_hs.at[s][i] = block + off;
+        off += (eng_hs.list[s][i].bytes + 3u) & ~3u;
+    }
+}
+static void eng_hot_drop(uint32_t e)
+{
+    if (e >= NENGINES || !eng_hs.slot[e]) return;
+    uint32_t s = eng_hs.slot[e] - 1u;
+    for (uint32_t i = 0; i < eng_hs.n[s]; i++) eng_hs.at[s][i] = eng_hs.list[s][i].src;
+    if (eng_hs.at[s] == eng_hs.set[s]) eng_hs.ptr[e] = 0;
+    resource_release(RES_HOT0 + s);
+    eng_hs.list[s] = 0; eng_hs.n[s] = 0; eng_hs.at[s] = 0;
+    eng_hs.slot[e] = 0;
+}
+/* the set hot[0 .. n) for engine number e, its pointers at `at` (a built-in engine's hot_at), or 0 for a module's (the firmware's, fw_api_t hot); the
+ * set there before is dropped first: EM_OK, EM_BAD (more than ENG_HOT_MAX tables), EM_NOROOM */
+static int eng_hot_take(uint32_t e, const void **at, const eng_hot_t *hot, uint32_t n)
+{
+    uint32_t s;
+    eng_hot_drop(e);
+    if (!hot || !n) return EM_OK;
+    if (n > ENG_HOT_MAX || e >= NENGINES) return EM_BAD;
+    for (s = 0; s < ENG_HOT_SLOTS && eng_hs.list[s]; s++) ;
+    if (s == ENG_HOT_SLOTS || !resource_get(RES_HOT0 + s, eng_hot_bytes(hot, n))) return EM_NOROOM;
+    eng_hs.list[s] = hot; eng_hs.n[s] = (uint8_t)n; eng_hs.at[s] = at ? at : eng_hs.set[s];
+    eng_hs.slot[e] = (uint8_t)(s + 1u);
+    if (!at) eng_hs.ptr[e] = eng_hs.set[s];
+    eng_hot_copy(e);
+    return EM_OK;
+}
+static int eng_hot_take_own(uint32_t e, const engine_t *g)   /* a built-in engine's own set (its engine_t is in the image) */
+{
+    return g ? eng_hot_take(e, g->hot_at, g->hot, g->nhot) : (eng_hot_drop(e), EM_OK);
+}
+static void eng_hot_refresh(void)                          /* the asset pack was checked again: copy every set again */
+{
+    for (uint32_t e = 0; e < NENGINES; e++)
+        if (eng_hs.slot[e]) eng_hot_copy(e);
+}
+/* persist_boot, after the pack check and the module loader: the built-in engines' sets (a registered module took its own already) */
+static void eng_hot_boot(void)
+{
+    for (uint32_t e = 0; e < NENGINES; e++) {
+        const engine_t *g = ENGINES[e];
+        if (eng_mod[e] || !g || !g->nhot) continue;
+        if (eng_hot_take_own(e, g)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
+    }
+    oc_pack_changed = eng_hot_refresh;
+}
 static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET; }
 static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
 {
@@ -389,7 +472,14 @@ static const engine_t *eng_default(uint32_t e)     /* what the slot holds withou
 }
 /* the module with header h and engine_t engine takes its slot: 0, EM_SLOT (not a number a module may supply), EM_SHADOWED
  * (built in, and OC_MODULE_WINS is 0), EM_BAD (nothing given) */
-static int eng_register(const fw_mod_hdr_t *h, const engine_t *engine)
+/* (0.13.7) the loader's way in: the module's hot set as the loader read and checked it in flash (oc_module.c oc_mod_hot_check), never through the engine_t
+ * here (on a host build a module's engine_ptr is a flash address) */
+static int eng_register_hot(const fw_mod_hdr_t *h, const engine_t *engine, const eng_hot_t *hot, uint32_t nhot);
+static int eng_register(const fw_mod_hdr_t *h, const engine_t *engine)   /* an engine_t in RAM or the image (the tests', a host module's) */
+{
+    return eng_register_hot(h, engine, engine ? engine->hot : 0, engine ? engine->nhot : 0u);
+}
+static int eng_register_hot(const fw_mod_hdr_t *h, const engine_t *engine, const eng_hot_t *hot, uint32_t nhot)
 {
     uint32_t e;
     if (!h || !engine)
@@ -399,6 +489,18 @@ static int eng_register(const fw_mod_hdr_t *h, const engine_t *engine)
         return EM_SLOT;
     if (eng_default(e) != &ENG_RETIRED && !OC_MODULE_WINS)
         return EM_SHADOWED;
+    {   /* (0.13.7) its hot set first: one that does not fit is NO ROOM, and what holds the slot keeps its own */
+        uint32_t s = eng_hs.slot[e] ? eng_hs.slot[e] - 1u : ENG_HOT_SLOTS;
+        const eng_hot_t *was = s < ENG_HOT_SLOTS ? eng_hs.list[s] : 0;
+        uint32_t wasn = s < ENG_HOT_SLOTS ? eng_hs.n[s] : 0u;
+        const void **wasat = s < ENG_HOT_SLOTS && eng_hs.at[s] != eng_hs.set[s] ? eng_hs.at[s] : 0;
+        int rc = eng_hot_take(e, 0, hot, nhot);
+        if (rc) {
+            if (eng_hot_take(e, wasat, was, wasn)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
+            return rc;
+        }
+    }
+    eng_hs.refused &= ~(1u << e);
     ENGINES[e] = engine;                            /* (0.11.1) the two stores are one step in a running session: oc_module.c's oc_mod_reg / oc_mod_unreg */
     eng_mod[e] = h;
     return EM_OK;
@@ -409,6 +511,7 @@ static void eng_unregister(uint32_t e)
         return;
     eng_mod[e] = 0;                                 /* (0.11.1) one step in a running session, as in eng_register */
     ENGINES[e] = eng_default(e);
+    if (eng_hot_take_own(e, ENGINES[e])) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }   /* (0.13.7) the module's set out, the built-in engine's in */
 }
 
 /* the parts at power-on and in a new song (engine, preset; the steps empty): poly, bass, lead, drums. IT'S A

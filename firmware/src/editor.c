@@ -510,6 +510,27 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         break;
     }
 #endif
+#if OC_SFC_PROBE && MELODEE_FLASH && defined(FM1_IRQ_TARGET)
+    case 109: {
+        /* (Orange Cat 0.13.7, branch linux-hw; OC_SFC_PROBE builds only) the flash's two read paths, read only (hal/fm1_flash.h fl_probe_paths):
+         * mode (0..2), flash offset (3 x 7 bits) -> mode, the SFCENC KEY register (3 x 7 bits), then for the plaintext path and for the other
+         * path: 32 bytes at the offset (each as two bytes, low 7 bits then the top bit) and the TIMER4 ticks of a cold and of a warm pass over
+         * 2 KB (5 x 7 bits each). 127: bad request, 126: an offset outside 0x93000..0xFF000. Stop the transport first. */
+        uint8_t got[64];
+        uint32_t ticks[4], key, off = na == 4u ? (a[1] | (uint32_t)a[2] << 7 | (uint32_t)a[3] << 14) & ~31u : 0u;
+        if (na != 4u || a[0] > 2u) { ed_b(127); break; }
+        if (off < 0x93000u || off + 0x1000u > 0x100000u) { ed_b(126); break; }
+        fm1_irq_off();
+        key = fl_probe_paths(off, a[0], got, ticks);
+        fm1_irq_on();
+        ed_b(a[0]); ed_b(key & 127u); ed_b((key >> 7) & 127u); ed_b(key >> 14);
+        for (uint32_t k = 0; k < 2u; k++) {
+            for (uint32_t i = 0; i < 32u; i++) { ed_b(got[k * 32u + i] & 127u); ed_b(got[k * 32u + i] >> 7); }
+            ed_bk_u32(ticks[k * 2u]); ed_bk_u32(ticks[k * 2u + 1u]);
+        }
+        break;
+    }
+#endif
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims, 32 full profile,
                                                         * 64 the Audio readout (0.13.6, schema 8: 23 fields, alone) */

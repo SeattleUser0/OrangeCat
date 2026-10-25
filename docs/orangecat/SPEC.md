@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.28  
-**Date:** October 24, 2026  
+**Version:** 0.29  
+**Date:** October 25, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.29 (October 25, 2026):** 0.13.7 on branch linux-hw (on the unit: measured; 8.4). An engine's tables read every sample shall be read from RAM, not flash, whatever area they come from (the asset pack, a module, the image): the engine declares them, they are copied into the audio working memory when the engine is registered, and a module whose set does not fit is refused (NO ROOM). Four tracks of SHAPES shall cost no more than in 0.6.2. See the Build Document, Twelfth run, and docs/orangecat/ADDING_AN_ENGINE.md.
 - **0.28 (October 24, 2026):** 0.13.6 on branch sonnet-work (not on the unit yet; 4.6). The web editor shall show the audio load of the unit (an Audio readout): the worst render time since a reset, the block budget, the late renders and the load, refreshed once a second, with a reset. It is how a player and a developer see that four tracks fit the budget. See the Build Document, Eleventh run.
 - **0.27 (October 24, 2026):** 0.13.0 on branch sonnet-work (not on the unit yet; 5.2, 6.1). A step's ratchet, flam, condition, chance, nudge and accent apply to the notes recorded on it as a group; the message "NOT ON RECORDED NOTES" is gone. No stored format changed.
 - **0.26 (October 24, 2026):** 0.12.1 and 0.12.2 on branch sonnet-work (not on the unit yet; 8.4). The Prophet is a second loadable module: 31,872 bytes in 8 of the module area's 12 sectors, at sectors 0 and 4 of the area, with the same placement rules as SHAPES' (6 sectors, at sectors 0 and 6). An install that would share a sector with another engine's usable module is refused with the engine and start named, in the web editor, the installer page and the card browser. A registered Prophet module makes engine 19 selectable and plays the stored Prophet sounds and library presets; with none registered engine 19 is silent as before. The installer page offers the Prophet module beside SHAPES; they do not fit together.
@@ -432,6 +433,12 @@ Requirements:
 6. **Persist.** An installed engine stays installed through power off and the computer's absence. Nothing is loaded
    at boot from outside the FM-1.
 7. **The card.** The same module file, validation and installer, through the file browser.
+8. **(0.29) Tables read every sample come from RAM.** An engine, built in or a module, declares the tables its render reads
+   every sample (its hot set: at most 8 tables, each inside its own code or the asset pack's tables); they are copied into
+   the audio working memory when the engine is registered and read from there. A module whose set does not fit is not
+   registered and the page says NO ROOM. Measured reason: a data read from flash goes through one 4 KiB direct-mapped
+   data-cache way, so two tables that share its lines cost a miss on every read (SHAPES took 1.9 times 0.6.2's render
+   time). The rules for adding an engine are docs/orangecat/ADDING_AN_ENGINE.md.
 
 Design:
 

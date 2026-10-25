@@ -1,7 +1,7 @@
 # Orange Cat: what changed for the user, 0.7.1 to the head of sonnet-work
 
-**Version:** 1  
-**Date:** October 24, 2026
+**Version:** 2  
+**Date:** October 25, 2026
 
 This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to the head of branch `sonnet-work`. None of it is on main, released, or flashed; the unit has not been touched. The build and test details are in BUILD.md.
 
@@ -53,4 +53,6 @@ The project format and the pool format did not change in any version below.
 **0.13.5.** A ratcheted chord keeps all its repeats when a note on another track is un-recorded in the same moment (a stale repeat could cut them). The repeats of ratchets and flams use 4.2 KB less memory, so the audio working memory is back to 92,128 bytes. A repeat that falls past the end of the loop plays in the next pass. Install set with two modules goes on from the module that asked the question, not from the first. The installer page and the editor wait up to 10 seconds for the unit to answer the start of a pack or module install, since the unit erases first. Nothing is stored in a new format.
 
 **0.13.6.** The web editor's Settings tab has an "Audio" group: the worst render time in microseconds since the last Reset, the block budget (2,901 us), the late renders, the load, the block size and the blocks counted. It refreshes every second and has a Reset button. Read it with four tracks playing: the worst should be under the budget and Late should be 0. The Nightly build is served with its own editor at `webapp/nightly-editor/` (main's editor does not have the group). The installer's Nightly channel carries a branch build with its pack and modules. A build switch, OC_PACK_BUILTIN (off), puts the SHAPES and MACRO tables back in the image for a test build only.
+
+**0.13.7 (branch linux-hw).** SHAPES costs what it cost in 0.6.2 again: its sine and wave-shaper tables are read from RAM (2,580 bytes of the audio working memory), not from the asset pack, where two of them landed on the same cache lines and took 1.9 times the render time (RING BELL on four tracks went from late on every other block to clean). This holds for the built-in SHAPES and the SHAPES module alike. An engine module now says which of its tables it reads every sample; a module whose tables do not fit the audio memory is refused with NO ROOM. **The interface identifier changed** (the module services table, version 4): a SHAPES or Prophet module of an earlier build is refused until the module of this build is installed (the built-in SHAPES plays meanwhile). MACRO is unchanged and as heavy as in 0.6.2: its MALLET and GLASS BELL presets (the modal model) take nearly the whole budget on one track, and two ADDITIVE PAD tracks are already too much; use them on one or two tracks.
 

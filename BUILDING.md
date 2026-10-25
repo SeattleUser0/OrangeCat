@@ -689,6 +689,85 @@ Standard, the stable editor and the manual are copied from the live site (`web/m
 
 One setting is needed once: Settings, Environments, github-pages, Deployment branches and tags must allow the branch (by default only main may deploy; the run fails at the `pages` job with \"Branch ... is not allowed to deploy to github-pages due to environment protection rules\" before any step runs). A push to main builds the whole site from scratch and so ends the Nightly. Dispatching again, from the same or another branch, replaces it. A dry run on a built site: `python3 web/site_check.py SITE --list`.
 
+## Building on a Linux PC (0.13.7, branch linux-hw)
+
+Tried on Ubuntu 26.04 (x86-64, 4 cores) on October 24, 2026. The PC builds exactly what CI builds: the same toolchain, the same
+SDK commit, the same Python packages, the workflow's own build and test steps. Everything is installed outside the repository,
+under `~/fm1-toolchain` (any directory: `FM1_TOOLS` names it).
+
+**1. The toolchain and the SDK, as zvenson/fm1-build@v1 installs them** (the same URLs):
+
+```
+mkdir -p ~/fm1-toolchain/jieli && cd ~/fm1-toolchain
+curl -fL --retry 3 https://pkgman.jieliapp.com/s/linux-toolchain -o linux-toolchain.tar.xz
+tar -xJf linux-toolchain.tar.xz -C jieli
+ln -sfn "$(basename "$(ls -d jieli/jieli-linux-toolchains-* | sort | tail -1)")" jieli/toolchain
+git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git fw-AC79_AIoT_SDK
+git -C fw-AC79_AIoT_SDK rev-parse HEAD     # must print d179b4484759423312073f5fbb232501aa491047
+```
+
+On that day the server gave `jieli-linux-toolchains-20260730.1` (clang 4.0.1; archive SHA-256
+a1545cddbc451a06bac43eb5cd96d831470c42a97c5c0b1f98879a20fc7647bd), the name CI's runs print (`toolchain: ...` in the log).
+
+**2. Python as CI has it** (CI: Python 3.12 from actions/setup-python, then the latest Pillow, fonttools and mido; on October 24,
+2026 Pillow 13.0.0, fonttools 4.67.0, mido 1.3.3: read the versions from the run's log, "Successfully installed"). With uv:
+
+```
+cd ~/fm1-toolchain && uv venv --python 3.12 venv
+uv pip install --python venv/bin/python Pillow==13.0.0 fonttools==4.67.0 mido==1.3.3 python-rtmidi pyusb
+venv/bin/python -c 'from PIL import features; assert features.check("raqm")'   # needs libfribidi (apt: libfribidi0)
+```
+
+python-rtmidi is for the unit (fm1_install.py, tools/hw/fm1hw.py), pyusb for fm1_recover.py; the build needs neither.
+Node.js (for the web tests) and libfaketime (`brew install libfaketime` or `apt install faketime`, only to rebuild an old CI build,
+below) complete the set.
+
+**3. Build and test with the workflow's own steps.** `tools/hw/ci_step.py` reads the `build:` or `test:` block of the checkout's
+`.github/workflows/build.yml`, drops the package-install lines, and runs the rest with `JIELI_TOOLCHAIN`, `AC79_SDK`, the venv on
+the PATH, `GITHUB_SHA` (the checkout's HEAD), `GITHUB_REF_TYPE=branch` and `TZ=UTC`. So it is `tools/orangecat_engines.sh`
+sourced, `./build.sh --nightly`, the module builds, the manifests and the set manifests, then `tests/run_tests.sh`, as in CI:
+
+```
+tools/hw/ci_step.py build                          # the checkout this file is in; or --checkout DIR (a git worktree)
+tools/hw/ci_step.py test --parallel 4              # (CI runs 2 jobs at once; the result is the same)
+tools/hw/ci_step.py build --switch OC_PACK_BUILTIN=1   # a switch exported after orangecat_engines.sh (A/B builds)
+```
+
+The files land in `build/` under CI's names (`orangecat-<VERSION>-<commit>.fwsc`, `.pak`, `.ocm`, the manifests).
+
+**Byte identity.** The image carries the compiler's `__DATE__` (Settings > ABOUT; `firmware/src/ui_menu.c`). That is the only
+difference between a PC build and CI's: on the same UTC date the `.fwsc` is byte-identical. To rebuild an older CI build exactly,
+give the run's build time (the "Build (the repository's own command)" step's start on its run page, UTC):
+
+```
+tools/hw/ci_step.py build --checkout ~/fm1-hw/wt-0.6.2 --date "2026-10-23 02:38:10"
+```
+
+Checked: sonnet-work 4e5da16 (run 40139536138) and 80b85fb (run 40132493524): the .fwsc, .pak, both .ocm, the manifest and
+the set manifests byte-identical (no --date: same day); main 19271b0 (0.6.2, run 39890561098) and size-audit-gui 4063a29 (0.7.1,
+run 39909046086): byte-identical with --date, 11 bytes different without it (one byte of the date and the package checksum).
+The checkout's path does not matter (80b85fb was built in another directory). The "build sizes and checks" lines match CI's
+word for word.
+
+**Times** (4 cores, PARALLEL=2 for the build as in CI): the build step 69 s (CI's step: 69 s, with its apt and pip); the host
+tests 1,118 s with `--parallel 4` (184 jobs; CI: 848 s on its runner with 2).
+
+**The unit over USB** (the FM-1 connected by USB; nothing in the browser):
+
+- `python3 tools/fm1_install.py PACKAGE.fwsc --yes`: the update loader's flow, as `web/fm1ota.js` (the running firmware reads
+  the package and starts the loader, the loader writes it, the unit restarts, the identity is compared). About 45 s.
+- `tools/hw/fm1hw.py`: `info`; `stats [--reset]` (the Audio numbers, schema 8 or 2); `flash PACKAGE --expect VERSION` (the
+  above, then the version string checked: `v` + VERSION + `-` + 6 digits of the commit); `measure --tracks N --engine E
+  [--presets ...]`; `table [--set heavy|light]` (N = 1..4 x MACRO, SHAPES, DRUM-X, MIX, 20 s each: worst, budget, late, load);
+  `snapshot FILE` / `putback FILE` (the tracks' engine, preset, mix and steps). It sends music and settings only (TRACK, PRESET,
+  TRACK_MIX, TRACK_STEP, the global CLK, MIDI Start, Clock and Stop); never a library, backup, pack or module command. Close the
+  web editor first: one program at a time on the port.
+- `tools/hw/audio_check.py --record 8 out.wav`: the unit's USB audio, then peak, RMS, clipped samples and jumps (a render that
+  is late shows in the late count, not here: the USB copy is the fresh render).
+- Linux needs nothing else: the user is in the `audio` group for the MIDI port (ALSA `hw:FM1`).
+
+The hardware history (every flash and every measured table) is `hw/LOG.md`.
+
 ## EQ accelerator experiment
 
 `MELODEE_HW_EQ=1` enables the AC79 hardware EQ backend. It is **off by default**

@@ -95,6 +95,10 @@
                                    * module may take SHAPES' slot (14), so the slot is in ENGINE_ORDER and NENG_SHOWN even when MELODEE_SHAPES is 0 (the
                                    * engine is then offered only while a module is registered: eng_ok). 0: as before */
 #endif
+#ifndef OC_SFC_PROBE
+#define OC_SFC_PROBE 0            /* (Orange Cat 0.13.7, branch linux-hw) 1: editor command 109, a read-only probe of the flash's plaintext window and its
+                                   * decrypting path (editor.c); a hardware experiment's switch, never in a release */
+#endif
 #ifndef OC_MODULE_WINS
 #define OC_MODULE_WINS 0          /* (Orange Cat 0.10.0) 1: a valid module takes the slot of an engine that is also built in (the built-in one stays in the
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".
@@ -309,6 +313,10 @@ typedef struct {
 } preset_t;
 
 struct track;
+/* (Orange Cat 0.13.7) one table of an engine's hot set (engine_t.hot): where it is read from, and its bytes */
+typedef struct { const void *src; uint32_t bytes; } eng_hot_t;
+#define ENG_HOT_MAX 8u                 /* tables a hot set may name */
+#define ENG_HOT_SLOTS 3u               /* engines with a hot set registered at once (the arena's RES_HOT0 ..) */
 typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c files) */
     const char *name;            /* "ANALOG" (PRESETS, the editor) */
     const char *page_title[2];   /* EDIT 1 and EDIT 2 */
@@ -356,7 +364,23 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     /* (0.12.0) optional: the engine's pages and native parameters as data (fw_pages.h), for an engine whose rows are not in the firmware's PAGES
      * (a module's). 0 = none: the engine's pages are the firmware's. Read in place. */
     const struct fw_pages *pages;
+    /* (Orange Cat 0.13.7) optional: the tables the engine reads per sample (its hot set), each (source address, bytes). A read through the flash's
+     * plaintext window (the asset pack at 0x93000, a module's own image at 0xC8000) costs about 250 ns more than one from the image or RAM (hw/LOG.md),
+     * so these are copied into the audio arena when the engine is registered (engines.c eng_hot_take: built-in engines at boot, a module when the
+     * loader registers it) and the engine reads them through ENG_HOT. A set that does not fit refuses the registration (NO ROOM). Tables read once
+     * a block stay where they are. hot_at: the engine's own pointer array (a built-in engine: initialized to the sources, so a build or a host
+     * test that never registers reads the sources); 0 for a module, which reads the firmware's (fw_api_t hot). */
+    const eng_hot_t *hot;
+    uint8_t nhot;
+    const void **hot_at;
 } engine_t;
+/* (Orange Cat 0.13.7) table i of engine e's hot set: in a built-in engine, its own pointer array (hot_at); in a module (OC_MODULE), the firmware's,
+ * through the services table. The pointer is RAM, so the compiler keeps it in a register across a loop */
+#ifdef OC_MODULE
+#define ENG_HOT(at, e, i) (OC_FW()->hot[(e)][(i)])
+#else
+#define ENG_HOT(at, e, i) ((at)[(i)])
+#endif
 /* voice_start: what the voice it starts did just before (0 free, 1 released, 2 its key down: a steal or a move);
  * engine_t.note_on may read it  */
 static uint8_t voice_was;

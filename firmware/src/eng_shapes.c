@@ -32,7 +32,35 @@
  *          (sh_part_t.lines, voice 0's); the pad, keys, bell and choir presets play POLY.
  *   0.5.3: voice units by shape from measured costs (sh_units: 2 to 4; was 2 for all).
  *   0.8.0: sh_render is silent while the asset pack (Braids' tables, oc_pack.h) is not there (OC_PACK_READY).
+ *   0.13.7: the hot set (SH_HOT): the sine and the wave shapers read from the arena, not the pack.
  */
+#include "braids/pb_tables.h"
+/* (Orange Cat 0.13.7) SHAPES' hot set (core.h engine_t hot): the tables its oscillators read every sample, copied into the arena at registration
+ * (engines.c eng_hot_take) because a read from the asset pack's plaintext window costs about 250 ns more (RING BELL took 1.9 times 0.6.2's
+ * render time; hw/LOG.md). The sine and the four wave shapers, 5 x 514 B = 2,570 B of arena. Captured here, before the render code: the names
+ * are then the copies (ENG_HOT). The built-in engine's pointers start at the sources (a host test that registers nothing reads those); a module's
+ * are the firmware's (fw_api_t hot). The other Braids tables (the comb wavetables, the resonator, the bowed and blown shapes' envelopes, ..)
+ * stay in the pack: tools/pack_hot.py lists which of them are also read per sample, and their cost. */
+#define SH_HOT_LIST(X) X(pb_wav_sine, 0) X(pb_ws_moderate_overdrive, 1) X(pb_ws_violent_overdrive, 2) X(pb_ws_sine_fold, 3) X(pb_ws_tri_fold, 4)
+#define SH_HOT_N 5u
+#define SH_HOT_ENTRY(t, i) {t, 2u * 257u},
+static const eng_hot_t SH_HOT[SH_HOT_N] = { SH_HOT_LIST(SH_HOT_ENTRY) };
+#ifndef OC_MODULE
+#define SH_HOT_SRC(t, i) t,
+static const void *sh_hot[SH_HOT_N] = { SH_HOT_LIST(SH_HOT_SRC) };
+#endif
+_Static_assert(PB_WAV_SINE_SIZE == 257u && PB_WS_MODERATE_OVERDRIVE_SIZE == 257u && PB_WS_VIOLENT_OVERDRIVE_SIZE == 257u &&
+               PB_WS_SINE_FOLD_SIZE == 257u && PB_WS_TRI_FOLD_SIZE == 257u, "SHAPES' hot set: the tables' sizes");
+#undef pb_wav_sine
+#undef pb_ws_moderate_overdrive
+#undef pb_ws_violent_overdrive
+#undef pb_ws_sine_fold
+#undef pb_ws_tri_fold
+#define pb_wav_sine ((const int16_t *)ENG_HOT(sh_hot, ENGI_SHAPES, 0))
+#define pb_ws_moderate_overdrive ((const int16_t *)ENG_HOT(sh_hot, ENGI_SHAPES, 1))
+#define pb_ws_violent_overdrive ((const int16_t *)ENG_HOT(sh_hot, ENGI_SHAPES, 2))
+#define pb_ws_sine_fold ((const int16_t *)ENG_HOT(sh_hot, ENGI_SHAPES, 3))
+#define pb_ws_tri_fold ((const int16_t *)ENG_HOT(sh_hot, ENGI_SHAPES, 4))
 #include "braids/pb_macro.h"
 #include "plaits/pl_dsp.h"                                /* (its float filter and soft clip) */
 
@@ -251,4 +279,8 @@ static const engine_t ENG_SHAPES = {
     .render = sh_render,
     .units = sh_units,
     .knob = {P_E0, P_E1, P_E2, P_E3},
+    .hot = SH_HOT, .nhot = SH_HOT_N,                  /* (0.13.7) the hot set, above */
+#ifndef OC_MODULE
+    .hot_at = sh_hot,
+#endif
 };
