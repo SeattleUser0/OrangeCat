@@ -178,6 +178,28 @@ class Unit:
             raise SystemExit(f"fm1hw: track {t + 1} refused engine {engine} preset {preset}: reply {r}")
         return r
 
+    def preset_names(self, engine):
+        """the preset names of an engine (NAMES, paged)"""
+        cache = self.__dict__.setdefault("_names", {})
+        if engine not in cache:
+            names, first = [], 0
+            while True:
+                r = self.req(10, [ENGINES[engine], first & 127, first >> 7])
+                got = [x.decode("latin-1") for x in bytes(r[2:]).split(b"\0")[:r[1]]]
+                names += got
+                first += len(got)
+                total = r[-2] | r[-1] << 7 if len(r) > 2 + sum(len(x) + 1 for x in got) + 2 else len(names)
+                if not got or len(names) >= total:
+                    break
+            cache[engine] = names
+        return cache[engine]
+
+    def preset_number(self, engine, name):
+        names = self.preset_names(engine)
+        if name not in names:
+            raise SystemExit(f"fm1hw: {engine} has no preset {name!r} on this firmware")
+        return names.index(name)
+
     def mix(self, t, mute, level=None):
         if level is None:
             r = self.req(28, [t])
@@ -326,17 +348,17 @@ def flash(package, expect, port=None):
 SETS = {
     "light": {"MACRO": [("MACRO", 0)] * 4, "SHAPES": [("SHAPES", 0)] * 4, "DRUM-X": [("DRUM-X", 0)] * 4,
               "MIX": [("MACRO", 0), ("SHAPES", 0), ("DRUM-X", 0), ("MACRO", 0)]},
-    "heavy": {"MACRO": [("MACRO", 9)] * 4, "SHAPES": [("SHAPES", 5)] * 4, "DRUM-X": [("DRUM-X", 7)] * 4,
-              "MIX": [("MACRO", 9), ("DRUM-X", 8), ("SHAPES", 19), ("MACRO", 19)]},
+    "heavy": {"MACRO": [("MACRO", "ADDITIVE PAD")] * 4, "SHAPES": [("SHAPES", "RING BELL")] * 4, "DRUM-X": [("DRUM-X", "TECHNO RAW")] * 4,
+              "MIX": [("MACRO", "ADDITIVE PAD"), ("DRUM-X", "BREAKS"), ("SHAPES", "BELL"), ("MACRO", "GLASS BELL")]},
 }
-PROBES = {"heavy": [("MALLET", [("MACRO", 18)])]}
+PROBES = {"heavy": [("MALLET", [("MACRO", "MALLET")])]}     # (a preset by name: the numbers may differ between firmware versions)
 
 
 def table(u, seconds, label, out, which="heavy"):
     rows = []
 
     def run(case, tracks):
-        r = u.measure([e for e, _ in tracks], seconds, presets=[p for _, p in tracks])
+        r = u.measure([e for e, _ in tracks], seconds, presets=[p if isinstance(p, int) else u.preset_number(e, p) for e, p in tracks])
         r.update(case=case, label=label, set=which)
         rows.append(r)
         print(f"{label:<14} N={len(tracks)} {case:<7} worst {r['worst_us']:5d} us / budget {r['budget_us']} us  late {r['late']:5d}  "
