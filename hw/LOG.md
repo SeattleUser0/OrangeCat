@@ -490,3 +490,11 @@ not cover**: no preset was saved on 0.6.2 or 0.7.1, so the case the warning is a
 then keeping the newer pair) did not happen; the round trip exercised the read side (the group survives a visit by old firmware that only reads, and the
 migration at the next boot finds nothing to move). The write side needs a save on the old firmware, which destroys what it overwrites: a test for a unit
 with a backup and the user's go.
+
+### Part 3, MIDI note in (on the Nightly)
+
+- The AUDIO4c's MIDI out (`AUDIO4c DIN`, ALSA client 24 port 0) is wired to the FM-1's TRS MIDI in. ROUT 0: channels 1 to 4 play tracks 1 to 4.
+- A C major scale (C4 to C5, 150 ms held, 0.4 s apart, channel 1) into track 1 (MACRO CHORD MINOR), captured on the FM-1's USB audio, voices read over the editor
+  (schema 3) while each note was held: **8 onsets, 0.403 to 0.406 s apart; one voice sounding for each note; the intervals exact** (the strongest partial is the
+  octave of each note in this chord preset: 522.2, 586.1, 658.1, 697.1, 782.6, 878.2, 985.8, 1,044.4 Hz, 2.00 times C4 .. C5); peak -7.2 dBFS, no dropout, no
+  clipped run. **Pass**: MIDI input on the new firmware.
