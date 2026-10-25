@@ -870,6 +870,20 @@ tab shows them as "Audio" and asks once a second while the tab is open; `tools/u
 | 72 AUDIO_STATS | — or 1 (start new maxima after this reply) | schema (2), then 20 counters, each 5 × 7 bits, LSB first: play alt, capture alt, play rate, capture rate (Hz), play fill, capture fill (frames), play underruns, play overruns, capture underruns, capture overruns, bad packets, packets received, packets sent, missed USB frames, longest gap between services (µs), longest service (µs), late renders, the feedback (10.14), longest render (µs), CPU (Q8) |
 
 
+## Orange Cat: the flash read-path probe (command 109, OC_SFC_PROBE builds only, 0.13.7)
+
+A hardware experiment's command, compiled only with `OC_SFC_PROBE=1` (core.h; default 0: no reply). Read only: nothing is written to flash.
+It reads 2 KB at a flash offset first through the plaintext XIP window (as the firmware reads the pack and the modules) and then through
+another path, timing a cold and a warm pass of each (TIMER4, 24 MHz), and returns the first 32 bytes of each. Interrupts are off for the
+probe; the window is put back as `fl_plain_window_init` sets it and LENC is cleared (hal/fm1_flash.h `fl_probe_paths`). Stop the transport first.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 109 SFC_PROBE | mode (0: the window's low end moved past the range, so the normal decrypting XIP path; 1: LENC_L / LENC_H set over the range, the window as it is; 2: as 1 with SFCENC_CON bit 2), flash offset (3 x 7 bits, 0x93000 .. 0xFF000, rounded down to 32) | mode, the SFCENC KEY register (3 x 7 bits), then for the plaintext path and for the other path: 32 bytes (each two bytes, the low 7 bits then the top bit) and the cold and warm ticks (5 x 7 bits each). 127 alone: a bad request; 126 alone: an offset out of range |
+
+The PC compares the XOR of the two reads with the keystream of `tools/fm1pkg_make.py sfc()` (key 0x980F, the offset from flash 0x4000):
+equal means the hardware decrypts that address the way the package build encrypts the app.
+
 ## OBXF (engine 14)
 
 OBXF is the hardware-float OB-Xf port. `NAMES` exposes 75 curated CC0 factory patches.
