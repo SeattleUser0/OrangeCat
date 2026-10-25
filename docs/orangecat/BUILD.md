@@ -2456,3 +2456,35 @@ translation unit: put a feature's statics in one struct (ADDING_AN_ENGINE.md say
 - **Nightly label**: `sonnet-work · ceccc1c · v0.6.2-ceccc1 · 2026-10-25T16:58:44Z`.
 - **On the unit** (hw/LOG.md, Flash 13): the site's firmware flashed, its pack and SHAPES module installed with tools/hw/oc_install.mjs (the page's code), the four-track
   table read on it: SHAPES RING BELL 1,168 us at one track and 2,686 us / 164 late at four, at or under 0.6.2; MACRO and MIX as on 0.6.2 (Part 2).
+
+### Part 2: MACRO's own cost
+
+**Measured, model by model** (hw/LOG.md, "MACRO by model", Flash 12 and Flash 14): one preset a model, the four-note chord, one to four tracks. Ten of the 15
+models fit four tracks; SWARM and HARP touch the budget at four; WAVSHP, FM and ADDTV pass it from two or three; **MODAL (MALLET, GLASS BELL) is late on one track**
+with the three voices its 6 units admit.
+
+**The hot set: kept.** MACRO's 12 per-sample tables (tools/pack_hot.py's candidates: the pitch ratios, the sine, the two fold tables, the FM downsampler, the
+chord waves, the five waveshaper curves) are copied into the arena at boot: **15,316 B of arena** (ENG_HOT_MAX 8 -> 16, eng_hs +96 B; image +500 B). FM 22 to
+29 % faster (four FM BELL tracks: 3,202 late -> 164), WAVSHP 20 to 24 % (clean at two and three tracks), GRAIN 12 %, ADDTV 11 % (two ADDITIVE PAD tracks:
+1,083 late -> 164), SWARM and KICK 7 %; MODAL, HARP, CHORD and STRING unchanged (their cost is arithmetic). Linux-hw df3d4f5.
+
+**The voice budget per model.** engine_t allows it and MACRO already has it: `units` is `mc_units`, a table by model (MC_UNITS), and `cap` (`mc_cap`) holds PARTCL
+and STRING to one voice. The table was set in 0.5.3 from host ratios; the unit says MODAL is under-priced (6 units, three voices, late on one track) and ADDTV
+(7) and FM (8) too at two or more tracks. Per voice on the unit (the N=4 runs: worst less 460 us idle and 120 us a track, over the voices sounding): MODAL about
+950 us, ADDTV 860, FM 650, WAVSHP 440, SWARM 410, STRING 370, the rest 180 to 320. Units from that (92 us a unit: 1,660 us for voices at four tracks over the
+budget of 18): **proposed MC_UNITS = {VA 4, WAVSHP 5, FM 8, GRAIN 4, ADDTV 9, CHORD 3, SWARM 5, NOISE 2, PARTCL 4, STRING 4, MODAL 9, KICK 3, SNARE 4,
+HI-HAT 3, HARP 4}** (was {3, 3, 8, 4, 7, 5, 5, 4, 6, 6, 6, 4, 4, 5, 3}): MODAL and ADDTV two voices on one track, cheap models a little more polyphony. **Not
+committed**: on the host it changes four golden renders (FOLD PLUCK, ADDITIVE PAD, MALLET, GLASS BELL: their chords lose voices), and today's rules allow no
+golden change, nor a flash of a build whose host tests fail, so it was not measured on the unit either. It needs the user's approval of the golden update;
+the measurement plan is then one `fm1hw.py table --set macro` on it. Branch hw-macro-units (local) holds the one-line change. The table's numbers would move
+again with the hot set (FM and WAVSHP above are now cheaper: FM 7, WAVSHP 4 would do).
+
+**What the user hears at the overload** (hw/LOG.md, "What the overload sounds like"): a budget steal is clean (the voice fades; no dropout, no clipped sample);
+an overload is a stutter of 20 to 24 ms holes about 25 times a second on the USB stream, the stale half buffer at the DAC. SAFETY (GLO > WEIGHTS 2) is off by
+default (upstream's choice): with it off, nothing but admission stands between a heavy chord and the screech. No synthesis quality was lowered.
+
+**Budget lines.** MACRO's loops were not in tests/target_budget.txt at all (tests/target_budget.py listed no MACRO function). Added, new lines only: a MACRO list
+in target_budget.py (24 functions of .text.xip_macro: mc_render, mc_model_render and the models' renders, as DRUM-X's: measured when the compiler keeps them
+apart) and their costs from the local disassembly of linux-hw df3d4f5 (CI's toolchain): mc_render 278, the heaviest pl_chord_render 1,261, pl_particle_render
+867, pl_hh_render 807, pl_sd_render 648, pl_vshape_render_sync 574, pl_bd_render 576, pl_fm_render 503. No existing line changed.
+

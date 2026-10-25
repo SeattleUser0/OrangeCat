@@ -367,3 +367,51 @@ Heavy table, the shipped build (worst us / late in 20 s / load max %):
 | 4 | 5,169 / 3,620 / 140 | 2,686 / 164 / 68 | 2,369 / 0 / 53 | 4,692 / 3,592 / 118 |
 
 MALLET alone: 2,856 / 3,605 / 93. SHAPES as 0.13.7's and at or under 0.6.2 (1,254 / 0 at one track, 2,849 / 164 at four). The unit stays on this build.
+
+### Flash 14: MACRO's hot set (wt-mhot e53455f, linux-hw df3d4f5's firmware), Part 2
+
+- 2026-10-25T17:41:52Z, package `orangecat-0.6.2-e53455f.fwsc` SHA-256 6d17182c...; image 507,472 B (+500), RAM .data+.bss 93,672 B (+144), arena 92,096 B, of which
+  15,316 B is MACRO's hot set (12 tables: pl_lut_pitch_ratio_high and _low, pl_lut_sine, pl_lut_fold and _fold_2, pl_lut_4x_downsampler_fir, pl_chord_waves, the
+  five waveshaper curves) beside SHAPES' 2,580. Host tests: 184 of 185, the one failure hot_set_test's assumption that SHAPES takes the first hot slot (MACRO,
+  engine 8, takes it here): the test fixed (any slot), run again alone: passed. Golden hashes unchanged. Unit on `ORANGE CAT v0.6.2-e53455`, the 0.13.8 SHAPES
+  module registered (the interface is unchanged).
+
+MACRO by model, Flash 12 (no MACRO hot set) -> Flash 14 (the hot set): worst us / late in 20 s:
+
+| Model | N=1 | N=2 | N=3 | N=4 |
+|---|---|---|---|---|
+| VA | 912 / 0 -> 893 / 0 (-2 %) | 1,323 / 0 -> 1,296 / 0 (-2 %) | 1,736 / 0 -> 1,696 / 0 (-2 %) | 2,143 / 0 -> 2,104 / 0 (-2 %) |
+| WAVSHP | 1,903 / 0 -> 1,464 / 0 (-23 %) | 2,759 / 32 -> 2,107 / 0 (-24 %) | 3,201 / 81 -> 2,455 / 0 (-23 %) | 3,570 / 81 -> 2,844 / 39 (-20 %) |
+| FM | 1,583 / 0 -> 1,241 / 0 (-22 %) | 2,476 / 0 -> 1,862 / 0 (-25 %) | 3,303 / 214 -> 2,417 / 0 (-27 %) | 4,171 / 3,202 -> 2,972 / 164 (-29 %) |
+| GRAIN | 950 / 0 -> 838 / 0 (-12 %) | 1,348 / 0 -> 1,186 / 0 (-12 %) | 1,719 / 0 -> 1,517 / 0 (-12 %) | 2,137 / 0 -> 1,857 / 0 (-13 %) |
+| ADDTV | 1,989 / 0 -> 1,775 / 0 (-11 %) | 3,129 / 1,083 -> 2,796 / 164 (-11 %) | 4,177 / 3,596 -> 3,725 / 3,591 (-11 %) | 5,218 / 3,594 -> 4,639 / 3,595 (-11 %) |
+| CHORD | 827 / 0 -> 830 / 0 (+0 %) | 1,154 / 0 -> 1,150 / 0 (-0 %) | 1,491 / 0 -> 1,495 / 0 (+0 %) | 1,833 / 0 -> 1,832 / 0 (-0 %) |
+| SWARM | 1,601 / 0 -> 1,469 / 0 (-8 %) | 1,951 / 0 -> 1,817 / 0 (-7 %) | 2,512 / 0 -> 2,342 / 0 (-7 %) | 3,006 / 164 -> 2,833 / 165 (-6 %) |
+| NOISE | 794 / 0 -> 764 / 0 (-4 %) | 1,069 / 0 -> 1,053 / 0 (-1 %) | 1,367 / 0 -> 1,351 / 0 (-1 %) | 1,655 / 0 -> 1,636 / 0 (-1 %) |
+| PARTCL | 931 / 0 -> 907 / 0 (-3 %) | 1,353 / 0 -> 1,308 / 0 (-3 %) | 1,776 / 0 -> 1,715 / 0 (-3 %) | 2,198 / 0 -> 2,116 / 0 (-4 %) |
+| STRING | 976 / 0 -> 988 / 0 (+1 %) | 1,467 / 0 -> 1,459 / 0 (-1 %) | 1,949 / 0 -> 1,939 / 0 (-1 %) | 2,406 / 0 -> 2,398 / 0 (-0 %) |
+| MODAL | 2,833 / 3,596 -> 2,837 / 3,584 (+0 %) | 3,513 / 3,595 -> 3,522 / 3,592 (+0 %) | 4,604 / 3,592 -> 4,595 / 3,587 (-0 %) | 5,670 / 3,352 -> 5,643 / 3,342 (-0 %) |
+| KICK | 876 / 0 -> 822 / 0 (-6 %) | 1,253 / 0 -> 1,153 / 0 (-8 %) | 1,616 / 0 -> 1,498 / 0 (-7 %) | 1,974 / 0 -> 1,835 / 0 (-7 %) |
+| SNARE | 932 / 0 -> 918 / 0 (-2 %) | 1,374 / 0 -> 1,333 / 0 (-3 %) | 1,806 / 0 -> 1,739 / 0 (-4 %) | 2,213 / 0 -> 2,151 / 0 (-3 %) |
+| HI-HAT | 860 / 0 -> 841 / 0 (-2 %) | 1,251 / 0 -> 1,213 / 0 (-3 %) | 1,615 / 0 -> 1,569 / 0 (-3 %) | 1,989 / 0 -> 1,929 / 0 (-3 %) |
+| HARP | 1,344 / 0 -> 1,338 / 0 (-0 %) | 2,001 / 0 -> 1,991 / 0 (-0 %) | 2,349 / 0 -> 2,324 / 0 (-1 %) | 2,689 / 164 -> 2,680 / 164 (-0 %) |
+
+**The numbers move, so the declaration stays** (linux-hw df3d4f5): FM 22 to 29 % faster (four FM BELL tracks: 3,202 late -> 164), WAVSHP 20 to 24 % (two and
+three tracks now clean), GRAIN 12 %, ADDTV 11 % (two ADDITIVE PAD tracks: 1,083 late -> 164), SWARM and KICK 7 %. MODAL, HARP, CHORD and STRING do not move: their
+cost is arithmetic, not table reads. MODAL is still late on one track, and ADDTV from three: the voice budget (MC_UNITS) is the remaining lever (BUILD.md,
+Thirteenth run, Part 2). Raw: `~/fm1-hw/table-e53455f-macro.json`.
+
+### What the overload sounds like (Part 2; capture.py on the FM-1's USB audio, Flash 14)
+
+8 s each, the four-note chord on every step, SAFETY off (the unit's setting, the default):
+
+| Case | Late | Worst | Budget steals | Peak / RMS dBFS | Clipped runs | Dropouts |
+|---|---|---|---|---|---|---|
+| overload: MACRO MALLET, one track (3 voices admitted) | 1,455 | 2,844 | 0 | -4.0 / -17.7 | 0 | **200 holes** of 880 to 1,057 samples (20 to 24 ms), about 25 a second |
+| the budget steals: FOLD PLUCK, two tracks | 0 | 2,125 | 130 | -3.1 / -21.9 | 0 | 0 |
+| clean: VA BASS, one track | 0 | 899 | 0 | -7.0 / -17.0 | 0 | 0 |
+
+A steal is clean (the stolen voice fades; nothing in the stream). An overload is not a clip: on the USB stream it is a hole of about a USB service period each time
+the render misses, and at the DAC (not recordable until the AUDIO4c is routed) the half buffer plays again, which is the screech the user heard. With SAFETY on
+the shedder would cut a voice after two overloaded halves; it is off by default (upstream's choice, docs/AUDIO_PERFORMANCE.md), so admission (MC_UNITS) has to
+keep the render inside the budget. Files: `~/fm1-hw/overload-*.wav`.

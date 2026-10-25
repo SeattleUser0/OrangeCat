@@ -44,6 +44,14 @@ FUNCS += JFX
 # skipped); checked once tests/target_budget.txt has their line, taken from a CI build, at the same +10 %.
 SCHED = ["recording_fire", "recording_shape", "recording_rep_tick", "groove_part"]
 FUNCS += SCHED
+# (Orange Cat 0.13.8) MACRO (eng_macro.c, plaits/; section .text.xip_macro): its render and each model's sample loops. Measured when the compiler keeps
+# them apart (absent, inlined: skipped); checked once tests/target_budget.txt has their line, taken from the local build of linux-hw df3d4f5 (the PC's
+# toolchain is CI's, byte for byte), at the same +10 %.
+MACRO = ["mc_render", "mc_model_render", "pl_va_render", "pl_vshape_render_sync", "pl_osc_render", "pl_ws_render", "pl_fm_render", "pl_grain_render",
+         "pl_grain_grainlet_render", "pl_add_render", "pl_chord_render", "pl_swarm_render", "pl_noise_render", "pl_noise_clocked_render",
+         "pl_particle_render", "pl_string_render", "pl_string_voice_render", "pl_string_str_process_internal", "pl_modal_render",
+         "pl_modal_svf_process", "pl_bd_render", "pl_sd_render", "pl_hh_render", "pl_harp_render"]
+FUNCS += MACRO
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
 EXTRACTED = {
@@ -224,7 +232,7 @@ def main():
         if os.environ.get(flag) == "0":
             disabled |= names
             print(f"target: {flag}=0, its render loops are excluded: {', '.join(sorted(names))}")
-    missing = [n for n in FUNCS if n not in res and n not in JFX and n not in DRUMX and n not in SCHED and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
+    missing = [n for n in FUNCS if n not in res and n not in JFX and n not in DRUMX and n not in MACRO and n not in SCHED and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
     # (Orange Cat) the only disabled loops now are unhooked engines, reported above
     base = {}
     if os.path.exists(budget):
