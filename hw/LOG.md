@@ -558,3 +558,22 @@ Worst us / late in 20 s, before (no hot set) -> after (the hot set):
 presets, and a module reaches a hot table through the firmware's pointers (OC_FW()->hot[e][i], loads in a chain) where the soft clip, inlined seven
 times a sample, had one address. **Taken back** (linux-hw, after 5273d8e): the Prophet module declares no hot set; its engine_t says what it reads and why.
 The module on the unit afterwards: the 5273d8e module (with the set) until the next install; see the end state.
+
+### Post-list item 2: engine-candidates merged into linux-hw (bb0d281), the modules at FW_API_VERSION 5
+
+- linux-hw bb0d281 (the merge; conflicts in the workflow notes, build.py's switches, fm1hw.py's sets, three documents: both sides kept). Its build: image
+  507,676 B, RAM .data+.bss 93,720 B; every module rebuilt at the new interface: SHAPES 23,944 B, the Prophet 31,884 B, WHEEL 2,920 B, SEM 3,632 B, HADES
+  3,308 B (each at two starts). Host tests: all passed (1,061 s).
+- **Flash 22** (21:37:51Z): `orangecat-0.6.2-bb0d281.fwsc` (SHA-256 7eeb212c...), `ORANGE CAT v0.6.2-bb0d28`. Its pack installed (hash 657ED950); the old Prophet
+  module (5273d8e, the old interface) refused, as it must (state 2), and removed; WHEEL's module: start 1, state 7, engine 7 from it.
+
+WHEEL (module) FULL ORGAN, the four-note chord, worst us / late in 20 s / load %, voices sounding, budget steals:
+
+| N | WHEEL module |
+|---|---|
+| 1 | 1,110 / 0 / 34, 4 voices |
+| 2 | 1,787 / 0 / 54, 8 voices |
+| 3 | 2,181 / 0 / 59, 9 voices, 606 steals |
+| 4 | 2,488 / 0 / 61, 9 voices, 1,255 steals |
+
+About 130 us a voice; four tracks with no late render; the admission keeps 9 voices sounding past two tracks (clean steals).
