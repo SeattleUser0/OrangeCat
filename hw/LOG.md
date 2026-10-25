@@ -463,3 +463,30 @@ rule), SHAPES on track 1, one note: the unit stopped answering at once, rebooted
 (source 1). Pass: the unclean-session mark saw the software resets; no power switch needed. (The screen's "MODULE BANNED SHAPES" notice is not readable over
 USB on this build.) Then `remove 14` (rc 0, the ban cleared with the start) and the Nightly's SHAPES module installed: start 0, state 7, registered; pack this
 build's; SHAPES and MACRO sound (-5.5 and -6.3 dBFS peak). The unit is clean.
+
+### Part 6, the library (on the Nightly, after Part 5; `fm1hw.py library`)
+
+- **BACKUP_LIST (read only) against the backup file of 2026-10-24** (`Orange Cat-backup-2026-10-24.json`): **object 6, the shared preset bank (bank 0, slots 1 to
+  16): same size and CRC (3,716 B, 41B5F2D7)**; object 2 (project slot 1): same (27,904 B, D9545913). Object 0 (the running music) differs, as it must. Object 5
+  (project slot 4) is today's test project (Part 5). **Object 1 (the settings) differed by one byte**: offset 562, `favorites.factory[15][30]`, 0 -> 0xC3. That byte is
+  **two settings at once** (a bug, below): project.c's PROJ_LAST (0xC0 + the project last loaded or saved; Part 5 saved and loaded slot 4: 0xC3) and ui.c's
+  PREF_BITS (bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF). Then project slot 1 (the user's) loaded once, to clear bit 1 again (0xC0: knob acceleration on, picker on;
+  power-on now loads slot 1; before today the byte was 0, "none", which only a restore could write back), and the tracks as found put back (`putback
+  music-before-2026-10-24.json`: MACRO 10, 0, 1, 20).
+- **The shared library** (command 80, list): 384 slots, 1 used before (slot 0 "TRIO 001", engine 6). **Store and read back**: the selected track's sound (MACRO preset
+  10) stored to slot 383 as "HW TEST" (op 3: rc 0); read back (op 1): used, engine 8, "HW TEST". The list then has 2. Slot 383 is the user's to delete.
+- **The bug** (not fixed today: the fix moves one of them to another byte, a settings layout change): saving or loading project slot 3 or 4 writes 0xC2 / 0xC3 and so
+  turns KNOB ACCEL OFF on; slot 2 writes 0xC1 (bit 0, retired: harmless); and turning PICKER OFF (bit 5) makes the byte 0xE0 + the slot, which project_boot reads as
+  "none", so the last project is no longer loaded at power-on. Both from Melodee's PREF_BITS (1.3.x) and Orange Cat 0.3.6's PROJ_LAST taking the same byte.
+
+### Fix 1 of 0.11.1 (the library migration after a downgrade and an upgrade): its first real test was yesterday's round trip
+
+Yesterday (Flashes 4, 5, 6) the unit went from the head (library in the 0.9.1 group, migrated long before) down to 0.7.1 and 0.6.2 (both below 0.9.1: the old pair
+format, which cannot read the group) and back up to the head (Flash 6, 5b6a6c9 = 4e5da16 + a switch). What Fix 1 is for: an upgrade after such a round trip must
+finish the migration (a stale group copy is released; a bank whose pair is newer wins), or say LIBRARY NEEDS WIPE, never stop half way. **What happened**: the boot
+after the round trip did not stop at LIBRARY NEEDS WIPE; the library answered (UP_LIST slot 0 "TRIO 001"); BACKUP_LIST then (Flash 9) and today: the shared preset
+bank (object 6), the settings and the project slot byte-identical to the backup of October 24 (the settings until today's Part 5, above). **Pass, with what it did
+not cover**: no preset was saved on 0.6.2 or 0.7.1, so the case the warning is about (the old firmware's first save writing over group sectors, and the migration
+then keeping the newer pair) did not happen; the round trip exercised the read side (the group survives a visit by old firmware that only reads, and the
+migration at the next boot finds nothing to move). The write side needs a save on the old firmware, which destroys what it overwrites: a test for a unit
+with a backup and the user's go.

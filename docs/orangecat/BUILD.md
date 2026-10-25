@@ -2504,3 +2504,31 @@ in target_budget.py (24 functions of .text.xip_macro: mc_render, mc_model_render
 apart) and their costs from the local disassembly of linux-hw df3d4f5 (CI's toolchain): mc_render 278, the heaviest pl_chord_render 1,261, pl_particle_render
 867, pl_hh_render 807, pl_sd_render 648, pl_vshape_render_sync 574, pl_bd_render 576, pl_fm_render 503. No existing line changed.
 
+### Part 5: the installer paths on the unit
+
+All on the Nightly (Flashes 15 to 17), with tools/hw/oc_install.mjs (the page's own code) and command 125 / PACK_INFO read back after each step; the table is in
+hw/LOG.md. **Pass**: the pack erased (MACRO and SHAPES silent, digital zero) and installed again (both back, to 0.1 dB); a pack of another build refused by the page
+(packWrongBuild) with nothing erased; a pack with one flipped byte refused by the page (packDamaged) before any command; the module beside (new start, old erased
+after); registered after a software reset (the flash tool's restart) and rendering within 0.34 dB of the built-in engine's host render; a cut install (killed at
+60 %): the old module in charge after the reset; remove; the Prophet installed, three of its presets playing, a project with engine 19 saved and loaded; SHAPES
+refused while the Prophet is there ("ENGINE PROPHET INSTALLED AT START 0: REMOVE IT FIRST"); the Prophet again, in place, with the page's prompt; the module-alone
+build (SHAPES only from the module, its table as 0.13.7's (B)); the crash ban (three crashes of a throwaway module's render, each a software reset back in 15 s,
+then MODULE BANNED, state 5, the built-in SHAPES in its slot; removed, the unit clean).
+
+**Not as the list expected** (the firmware is right, the expectation is noted):
+- The flipped pack with the page's check bypassed: the firmware refuses it at PACK_END (the data CRC) and never commits it, but **the old pack is gone**: PACK_BEGIN
+  erases first, and the USB protocol has no way to check the data before the erase. What keeps a pack intact is the page's check (and the card's, which reads
+  the file first). Changing that needs a staged write (a second area) the flash map does not have.
+- A cut install leaves its start EMPTY, not TORN: the header page is written last, so there is no magic to see (oc_module.c; TORN is a half-written header).
+- A SHAPES module is never installed in place (its other start is always free or holds its own module); the in-place case is the Prophet's (8 sectors of 12).
+- Project slot 4 now holds the test project and library slot 383 "HW TEST": the user's to keep or delete.
+
+### Part 6: the library
+
+hw/LOG.md, "Part 6": the shared preset bank (bank 0, backup object 6) and project slot 1 equal the October 24 backup in size and CRC; the library lists 384 slots,
+1 used; a preset stored to a free slot (383) reads back. **Found: favorites.factory[15][30] is two settings** (PROJ_LAST and PREF_BITS): a project save or load to
+slot 3 or 4 turns knob acceleration off, and PICKER OFF stops the last project loading at power-on. Not fixed (a settings layout change, for the user to decide);
+the unit's byte set back to 0xC0 (acceleration on) by loading project slot 1. **Fix 1 of 0.11.1** (the migration after a downgrade and an upgrade) had its first
+real test in yesterday's round trip through 0.7.1 and 0.6.2: pass for the read side (no wipe asked, the library intact); the write side (a save on the old
+firmware) not done: it destroys what it overwrites.
+
