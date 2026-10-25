@@ -467,7 +467,7 @@ build's; SHAPES and MACRO sound (-5.5 and -6.3 dBFS peak). The unit is clean.
 ### Part 6, the library (on the Nightly, after Part 5; `fm1hw.py library`)
 
 - **BACKUP_LIST (read only) against the backup file of 2026-10-24** (`Orange Cat-backup-2026-10-24.json`): **object 6, the shared preset bank (bank 0, slots 1 to
-  16): same size and CRC (3,716 B, 41B5F2D7)**; object 2 (project slot 1): same (27,904 B, D9545913). Object 0 (the running music) differs, as it must. Object 5
+  16): same size and CRC (3,716 B, 41B5DCD7)**; object 2 (project slot 1): same (27,904 B, D954DF93). Object 0 (the running music) differs, as it must. Object 5
   (project slot 4) is today's test project (Part 5). **Object 1 (the settings) differed by one byte**: offset 562, `favorites.factory[15][30]`, 0 -> 0xC3. That byte is
   **two settings at once** (a bug, below): project.c's PROJ_LAST (0xC0 + the project last loaded or saved; Part 5 saved and loaded slot 4: 0xC3) and ui.c's
   PREF_BITS (bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF). Then project slot 1 (the user's) loaded once, to clear bit 1 again (0xC0: knob acceleration on, picker on;
