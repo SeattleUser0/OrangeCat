@@ -48,7 +48,7 @@ async function main() {
     } else if (what === "module") {
       const ocm = OCM.parse(new Uint8Array(readFileSync(file)));
       let last = -1;
-      await installModule(link, ocm, (f) => { const p = Math.floor(f * 10); if (p !== last) { last = p; process.stdout.write(`module ${p * 10}%\r`); } }, { confirmInPlace: () => true });
+      await installModule(link, ocm, (f) => { const p = Math.floor(f * 10); if (p !== last) { last = p; process.stdout.write(`module ${p * 10}%\r`); } }, { confirmInPlace: () => { console.log("in place: no other start is free, the old module is erased first (the page asks the user here; this tool says yes)"); return true; } });
       console.log(`\nmodule installed: engine ${ocm.engine}`);
       console.log(JSON.stringify((await probeUnit(link)).engines?.engines?.[ocm.engine] ?? null));
     } else if (what === "pack") {

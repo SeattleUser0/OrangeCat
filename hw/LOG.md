@@ -415,3 +415,51 @@ A steal is clean (the stolen voice fades; nothing in the stream). An overload is
 the render misses, and at the DAC (not recordable until the AUDIO4c is routed) the half buffer plays again, which is the screech the user heard. With SAFETY on
 the shedder would cut a voice after two overloaded halves; it is off by default (upstream's choice, docs/AUDIO_PERFORMANCE.md), so admission (MC_UNITS) has to
 keep the render inside the budget. Files: `~/fm1-hw/overload-*.wav`.
+
+### Side task: the Nightly republished, Flash 15
+
+- Workflow rev 18 (the live check reads the live Nightly; BUILD.md, Thirteenth run, "Side task"). **Run 40222235763**, sonnet-work 89b4e79, publish_nightly=true:
+  build, tests-gate, pages all green, the check after the deploy too. Nightly label `sonnet-work · 89b4e79 · v0.6.2-89b4e7 · 2026-10-25T18:56:47Z`. Its pack and
+  SHAPES module are byte-identical to ceccc1c's (the firmware differs by the version string only).
+- 2026-10-25T18:57:50Z, the site's `melodee-nightly.fwsc` (SHA-256 ea558a69...): unit on `ORANGE CAT v0.6.2-89b4e7`; pack this build's, the SHAPES module at start 0
+  registered.
+
+### Part 5, the pack (on Flash 15; `~/fm1-hw/p5/st.py`: PACK_INFO, MOD_INFO, command 125, and one SHAPES and one MACRO note through capture.py)
+
+| Step | Pack after (PACK_INFO) | SHAPES note | MACRO note | Result |
+|---|---|---|---|---|
+| before | 1, this build's, 657ED950 | -5.4 / -19.1 dBFS | -6.3 / -18.9 | |
+| `oc_install.mjs erase-pack` | 0, none | silent (digital 0) | silent | pass |
+| `oc_install.mjs pack orangecat-nightly.pak` | 1, 657ED950 | -5.5 / -19.1 | -6.3 / -18.9 | pass: sound back |
+| a pack of another build (`orangecat-OTHER-build.pak`: a throwaway build with one pl_chord_waves sample + 1; its own hash, good CRCs) | 1, 657ED950, untouched | sounds | sounds | pass: the page refused it, **packWrongBuild**, before any command; nothing erased |
+| the Nightly's pack with one payload byte flipped (offset 20,000) | 1, untouched | | | pass: the page refused it, **packDamaged**, before any command |
+| the same file with the page's check bypassed (`oc_install.mjs pack-unchecked`: installPack's steps without packProblem) | **0, none** | silent | silent | the firmware refused it at PACK_END (rc 1, after 158 requests: the data CRC), never committed the header: no damaged pack, nothing plays wrong. **But the old pack is gone**: PACK_BEGIN erases the 10 sectors before the data comes (the protocol has no other order on USB), so the firmware's own check cannot keep it. The page's check is what keeps a pack intact; then reinstalled (state 1, sound back) |
+
+### Part 5, the modules (Flashes 15 to 17; `oc_install.mjs`, state from MOD_INFO and command 125)
+
+| Step | State after (start: state, engine) | Result |
+|---|---|---|
+| SHAPES module installed again (it was at start 0) | start 1: 7, engine 14 registered; start 0 erased after | pass: **replace beside** |
+| software reset (Flash 16: the same Nightly installed again, the flash tool's restart; 19:00:25Z) | start 1: 7, engine 14 from the module (125: source 2) | pass: registered at boot; its SHAPES CSAW BASS note against the host render of the built-in engine: 0.34 dB (tolerance 1.2), 263.8 Hz on both |
+| install cut at 60 % (`kill -9` of oc_install.mjs and its bridge) | start 0 (old) still 7 and playing; MOD_INFO flags 7 (an install under way) | pass: the old module in charge |
+| software reset (19:01:49Z) | start 0: 7, registered, plays; start 1: 0 (empty) | pass, as designed: the header page is written last, so a cut install leaves no magic and reads EMPTY (oc_module.c: MD_TORN is a half-written header); the cut sectors are erased by the next install there |
+| `remove 14` | every start 0; engine 14 the built-in SHAPES (source 1) | pass |
+| the Prophet module installed | start 0: 7, engine 19, 31,884 B | pass; INIT PROPHET, It's a Prophet 5 and Formant Seraphim play (a four-note chord: peaks -5.3 to -9.1 dBFS, no dropout, no clipped run); 75 presets offered |
+| SHAPES module with the Prophet there | refused before anything is erased: **modBlocked 19:0**, the page's text "ENGINE PROPHET INSTALLED AT START 0: REMOVE IT FIRST" | pass |
+| a project with engine 19 on track 1 saved (PROJECT save, slot 4, empty before), track 1 changed to MACRO, slot 4 loaded | track 1 engine 19 preset 5 again | pass. **Slot 4 now holds this test project** (the user's to delete) |
+| the Prophet installed again | in place, with the page's prompt ("no other start is free, the old module is erased first"; MOD_INFO flags 11) | pass: start 0: 7. A SHAPES module can never be in place (its two starts are never both its own); a Prophet replacement always is |
+| `remove 19`, the SHAPES module installed | engine 19 not available (the track keeps the number, silent); SHAPES at start 0: 7 | pass |
+
+**Module alone** (Flash 16b: linux-hw 06d67c6's firmware with `MELODEE_SHAPES=0`, wt-ns2 1622aed, image 483,788 B, host tests passed; 19:04:45Z, `ORANGE CAT
+v0.6.2-1622ae`): MOD_INFO flags 2 (SHAPES not built in), engine 14 from the module (the Nightly's SHAPES module installed again: beside, start 1). Its note: 0.34 dB
+from the host render. RING BELL, worst us / late in 20 s / load %: 1 track 1,184 / 0 / 37; 2: 1,891 / 0 / 61; 3: 2,425 / 0 / 68; 4: 2,724 / 164 / 69 (as (B) of
+Flash 9). **Flash 17**: the Nightly back (19:07:59Z, `v0.6.2-89b4e7`).
+
+**The crash ban** (last, everything before it passed). A throwaway module (branch hw-crash, never pushed: SHAPES whose render calls a null function pointer, a
+fetch at address 0, outside the PC guard's window), `~/fm1-hw/orangecat-shapes-CRASH-test.ocm`, installed beside (start 0, registered, the good module erased
+after). Three rounds (`~/fm1-hw/p5/crash.py`): 35 s after the boot (past the boot guard's 30 s, so the three-session rule is what is tested, not the first-death
+rule), SHAPES on track 1, one note: the unit stopped answering at once, rebooted by itself (the firmware's fault path, a software reset) and was back on USB in
+15 s, the module registered again. Before the fourth round command 125 said: start 0 **state 5, MD_CRASHED (MODULE BANNED)**, engine 14 the built-in SHAPES
+(source 1). Pass: the unclean-session mark saw the software resets; no power switch needed. (The screen's "MODULE BANNED SHAPES" notice is not readable over
+USB on this build.) Then `remove 14` (rc 0, the ban cleared with the start) and the Nightly's SHAPES module installed: start 0, state 7, registered; pack this
+build's; SHAPES and MACRO sound (-5.5 and -6.3 dBFS peak). The unit is clean.
