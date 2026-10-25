@@ -6,7 +6,9 @@
  * way), played by the real sequencer one sample at a time; recording.c's RECORDING_HIT_HOOK logs every hit (note, velocity, gate, and when).
  * Revisions: 0.13.0: first version. 0.13.4: hl is 8,192 hits; the repeat tests (repeats() below): chords on adjacent steps with late onsets, ratchets and flams mixed,
  * nudge, a full run of eight passes: every hit present, at its time, in every pass (the per-track repeat queue of 0.13.0 dropped repeats when its six entries were full).
- *   0.13.5: loop_end() (a repeat past the loop end plays in the next pass), overflow() and the slots peak; unlink_reuse(): a slot freed while its event has repeats pending and reused by another track's event, fired in the same block, keeps all four hits. */
+ *   0.13.5: loop_end() (a repeat past the loop end plays in the next pass), overflow() and the slots peak; unlink_reuse(): a slot freed while its event has repeats pending and reused by another track's event, fired in the same block, keeps all four hits.
+ *   0.13.8: rounded(): a chord rounded forward into the next row (bit 6) and one wrapped from the loop's last step to row 0 (bit 7), every property set on the row
+ *          the chord is shown on (found on the unit: RATCH x4 on a rounded chord played one hit). */
 #include <stdint.h>
 #define RECORDING_NO_MAIN 1
 #include <assert.h>
@@ -383,9 +385,137 @@ static int fold_rate(void)
     if (!ok) fprintf(stderr, "fold_rate: folds %u passes %u blocks >= %u\n", fold_n, passes, blocks);
     return check("the nudge fold runs once a loop pass, not once a block", ok);
 }
+/* ---- (0.13.8) a chord ROUNDED FORWARD: recorded late in step VIEW - 1 (the event's own step), shown on row VIEW (bit 6 of the event's step: the overview cell
+ * rounded forward), every property set on row VIEW, the row the user edits. Found on the unit (hw/LOG.md, Part 3): RATCH x4 on such a chord played one hit. Each
+ * property must act as it does on a chord inside its own step. And WRAPPED (bit 7): recorded late in the loop's last step, shown on row 0. */
+static uint32_t RVIEW = 2, RWRAP;                        /* the overview row; RWRAP: the chord is in the loop's last step, shown on row 0 */
+static const uint16_t RON[3] = {40960, 45056, 49152};   /* five eighths .. three quarters of the way into the event's own step: past its middle, rounded */
+static uint32_t rown(void) { return RWRAP ? SLEN - 1u : RVIEW - 1u; }
+static uint32_t rbase(uint32_t k) { return recording_prefix(&trk[0], PERIOD, rown()) + (uint32_t)((uint64_t)RON[k] * PERIOD / RECORD_UNIT); }
+static void rbegin(uint32_t flags, int nudge, uint32_t chance, uint32_t rflam)
+{
+    raw_begin();
+    track_t *t = &trk[0];
+    seq_stop(); song.rec = 0;
+    recording_reset();
+    t->p[P_SLEN] = SLEN;
+    for (uint32_t i = 0; i < NSTEP; i++) { memset(&t->step[i], 0, sizeof t->step[i]); t->step[i].time = ST_REST; }
+    uint32_t view = RWRAP ? 0u : RVIEW;
+    step_t *st = &t->step[view];
+    st->time = ST_NOTE; st->flags = (uint8_t)(SF_RECORDED | flags); st->nudge = (int8_t)nudge; st->probability = (uint8_t)(chance == 100u ? 0u : chance);
+    if (rflam) step_set_rflam(st, rflam);
+    for (uint32_t k = 0; k < 3; k++) {
+        recorded_note_t r = {0};
+        r.on = RON[k]; r.duration = 4096; r.note = NOTE[k]; r.vel = 100;
+        r.step = (uint8_t)(rown() | (RWRAP ? 128u : 64u));
+        recording_restore_note(t, k, r);
+    }
+    PERIOD = seq_div_samples((uint32_t)t->p[P_SDIV]);
+    LOOP = recording_prefix(t, PERIOD, SLEN);
+    recording_resched(t);
+    hn = 0; T = 0;
+    seq_start(); seq_advance(0);
+}
+static uint32_t count_near(uint32_t note, uint32_t at, uint32_t *vel)
+{
+    uint32_t c = 0;
+    for (uint32_t h = 0; h < hn; h++) if (hl[h].note == note && near(hl[h].at % LOOP, at % LOOP)) { c++; if (vel) *vel = hl[h].vel; }
+    return c;
+}
+static int rounded_case(const char *where)
+{
+    char what[160];
+    int bad = 0, ok;
+    uint32_t vel;
+    PERIOD = seq_div_samples((uint32_t)trk[0].p[P_SDIV]);
+    rbegin(0, 0, 100, 0); run(LOOP);                        /* nothing set: three hits, at their own times */
+    ok = hn == 3u;
+    for (uint32_t k = 0; k < 3u && ok; k++) ok &= count_near(NOTE[k], rbase(k), 0) == 1u;
+    snprintf(what, sizeof what, "%s: with no effect, three hits at their recorded times", where); bad += check(what, ok);
+    rbegin(0, 0, 100, 4); run(3u * LOOP + PERIOD);                 /* RATCH x4 on the row: four hits each, a quarter of the event's own step apart (three passes:
+                                                             * a wrapped chord's later hits fall past the loop's end and play in the next pass) */
+    ok = hn == 36u;
+    for (uint32_t k = 0; k < 3u && ok; k++)
+        for (uint32_t j = 0; j < 4u && ok; j++) ok &= count_near(NOTE[k], rbase(k) + j * (step_samples(&trk[0], PERIOD, rown()) / 4u), 0) == 3u;
+    snprintf(what, sizeof what, "%s: RATCH x4 on the row the chord is shown on: four hits of each note a pass (%u in 3 passes)", where, hn); bad += check(what, ok);
+    rbegin(0, 0, 100, 5); run(LOOP);                        /* FLAM: a grace and the full hit FLAM_SAMPLES later */
+    ok = hn == 6u;
+    for (uint32_t k = 0; k < 3u && ok; k++) ok &= count_near(NOTE[k], rbase(k), &vel) == 1u && vel == 100u * 9u / 16u + 1u &&
+                                                 count_near(NOTE[k], rbase(k) + flam_at(&trk[0], PERIOD), &vel) == 1u && vel == 100u;
+    snprintf(what, sizeof what, "%s: FLAM on the row: a grace and the full hit of each note (%u logged)", where, hn); bad += check(what, ok);
+    {   /* NUDGE: a quarter step later; the wrapped chord (at the loop's very end, where a later onset stops at the end: no wrap) a quarter step earlier */
+        int nd = RWRAP ? -16 : 16;
+        rbegin(0, nd, 100, 0); run(LOOP);
+        ok = hn == 3u;
+        for (uint32_t k = 0; k < 3u && ok; k++) ok &= count_near(NOTE[k], (uint32_t)((int32_t)rbase(k) + nd * (int32_t)(PERIOD / 64u)), 0) == 1u;
+        snprintf(what, sizeof what, "%s: NUDGE %+d on the row moves every onset by a quarter step", where, nd); bad += check(what, ok);
+    }
+    rbegin(SF_ACCENT, 0, 100, 0); run(LOOP);                /* ACCENT: velocity 127 */
+    ok = hn == 3u;
+    for (uint32_t k = 0; k < 3u && ok; k++) ok &= count_near(NOTE[k], rbase(k), &vel) == 1u && vel == 127u;
+    snprintf(what, sizeof what, "%s: ACCENT on the row plays every onset at 127", where); bad += check(what, ok);
+    rbegin(0, 0, 50, 0); run(24u * LOOP);                   /* CHANCE 50 %: whole or nothing each pass, both seen */
+    {
+        uint32_t zero = 0, three = 0; ok = 1;
+        for (uint32_t p = 0; p < 24u; p++) {
+            uint32_t c = 0;
+            for (uint32_t h = 0; h < hn; h++) c += hl[h].at / LOOP == p;
+            ok &= c == 0u || c == 3u; zero += c == 0u; three += c == 3u;
+        }
+        ok &= zero > 0u && three > 0u;
+        snprintf(what, sizeof what, "%s: CHANCE 50 %% on the row: the chord whole or not at all, both seen over 24 passes (%u played)", where, three);
+        bad += check(what, ok);
+    }
+    return bad;
+}
+/* the same, but recorded LIVE as on the unit (armed, the keys pressed late in step 1, let go, the take sealed by a stop), the ratchet then set on the row
+ * recording_view says, as the tracker's edit does */
+static int rounded_live(void)
+{
+    raw_begin();
+    track_t *t = &trk[0];
+    seq_stop(); song.rec = 0;
+    recording_reset();
+    t->p[P_SLEN] = SLEN;
+    for (uint32_t i = 0; i < NSTEP; i++) { memset(&t->step[i], 0, sizeof t->step[i]); t->step[i].time = ST_REST; }
+    PERIOD = seq_div_samples((uint32_t)t->p[P_SDIV]);
+    LOOP = recording_prefix(t, PERIOD, SLEN);
+    song.rec = 1; seq_start(); seq_advance(0);
+    seq_advance(PERIOD + PERIOD * 11u / 16u);              /* 0.69 into step 1, as on the unit */
+    for (uint32_t k = 0; k < 3u; k++) input_on(t, NOTE[k], 90);
+    seq_advance(PERIOD / 2u);
+    for (uint32_t k = 0; k < 3u; k++) input_off(t, NOTE[k]);
+    seq_advance(LOOP);
+    seq_stop(); song.rec = 0;
+    uint32_t n = 0, view = NSTEP, own = NSTEP, bits = 0;
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (recording_active(t, i)) { n++; view = recording_view(t, &recording[i]); own = recording[i].step & 63u; bits = recording[i].step & 192u; }
+    int ok = n == 3u && own == 1u && view == 2u && bits == 64u;
+    char what[160];
+    snprintf(what, sizeof what, "recorded live late in step 1: 3 events, own step 1, shown on row 2 (bit 6) (%u events, own %u, row %u, bits %u)", n, own, view, bits);
+    int bad = check(what, ok);
+    step_set_rflam(&t->step[view % NSTEP], 4);
+    hn = 0; T = 0;
+    seq_start(); seq_advance(0);
+    run(2u * LOOP);
+    uint32_t pass1 = 0;
+    for (uint32_t h = 0; h < hn; h++) pass1 += hl[h].at >= LOOP && hl[h].at < 2u * LOOP;
+    snprintf(what, sizeof what, "recorded live, rounded forward, RATCH x4 on its row: 12 hits a pass (%u in the second pass, %u in two)", pass1, hn);
+    return bad + check(what, pass1 == 12u);
+}
+static int rounded(void)
+{
+    RWRAP = 0; RVIEW = 2;
+    int bad = rounded_case("a chord rounded forward (recorded late in step 1, shown on row 2)");
+    RWRAP = 1;
+    bad += rounded_case("a chord wrapped (recorded late in the loop's last step, shown on row 0)");
+    RWRAP = 0;
+    return bad + rounded_live();
+}
+
 int main(void)
 {
-    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats() + loop_end() + overflow() + unlink_reuse() + fold_rate();
+    int bad = baseline() + accent() + nudge() + nudge_edges() + ratchet() + flam() + chance_and_condition() + groups_with_mute_free_nothing_else_changes() + repeats() + loop_end() + overflow() + unlink_reuse() + fold_rate() + rounded();
     printf("%s\n", bad ? "RECORDED STEP PROPERTIES TEST FAILED" : "Recorded step properties: all passed");
     return !!bad;
 }
