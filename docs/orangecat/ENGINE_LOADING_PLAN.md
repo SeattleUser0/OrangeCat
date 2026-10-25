@@ -1,7 +1,7 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.10
-**Date:** October 23, 2026
+**Version:** 0.11
+**Date:** October 25, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) has its proof of concept built in 0.10.0 on the same branch ("The SHAPES module, as built"):
 SHAPES builds as a module, the firmware finds, checks and registers it at boot, and it installs from the web page or the card. Steps 1 to 6
@@ -10,6 +10,10 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.11: "What runs from where, measured" (0.13.7, branch linux-hw, the unit): a module's code runs as fast as the image's; data from flash goes
+  through one 4 KiB direct-mapped D-cache way (CACHE_RAM), where tables that share lines miss on every read; hot sets (per-sample tables in RAM,
+  declared in engine_t, NO ROOM when they do not fit) built and measured: SHAPES at or under 0.6.2 built in and as a module. The module area cannot
+  leave the plaintext window (and would gain nothing). The rules for a new engine: docs/orangecat/ADDING_AN_ENGINE.md.
 - 0.10: the Prophet as the second module, built (0.12.1, 0.12.2): 8 sectors (32,768 B), 31,872 B built at starts 0 and 4 of the 12-sector area; SHAPES stays 6 sectors at starts 0 and 6;
   the planner refuses a candidate that shares a sector with a usable module of another engine (MI_NOFREE, ED_MOD_INFO's blocker byte), the loser of a double install is erased only
   outside any registered module's span, a registered Prophet module makes engine 19 selectable (eng_ok, ENGINE_ORDER, NENG_SHOWN), the interface id changed once (pitch_oct, env_lin
@@ -1027,7 +1031,7 @@ Prophet does not fit; a descriptor for the real engine is the next piece when it
 
 ## What runs from where, measured (0.13.7, branch linux-hw, October 25, 2026)
 
-**The number the module milestone hangs on.** Measured on the unit, first session with the real toolchain and the real FM-1 (hw/LOG.md has every
+**The number the module milestone hangs on.** The rules that follow from it, for any new engine, are docs/orangecat/ADDING_AN_ENGINE.md. Measured on the unit, first session with the real toolchain and the real FM-1 (hw/LOG.md has every
 flash and every table). The render budget is the time a half buffer lasts: 128 frames at 44.1 kHz, 2,901 us. A render that passes it is late (an
 audible fault); in practice the late count starts a little below it (the interrupt's entry and the nested TIMER5 are outside the measured span).
 
@@ -1090,14 +1094,17 @@ window (modes 1 and 2 of the probe: the reads stay plaintext). Only the pack, at
 would not help: the decrypting path reads at the same speed through the same 4 KiB D-cache. **Not built.** The hot set is the fix for code and tables of
 every engine; code was never the problem.
 
-**The four-track table with the fix** (heavy set, worst us / late in 20 s / load %; hw/LOG.md):
+**The four-track table with the fix** (heavy set, worst us / late in 20 s / load %; hw/LOG.md, Flash 9). Both are at or under 0.6.2 at every N:
+the regression is gone for the built-in engine and for the module alike, and the module costs what the built-in engine costs (its code from the
+module area: no difference). The other rows (MACRO, DRUM-X, MIX, MALLET) are the head's within a few percent: MACRO's heavy presets are as heavy
+as on 0.6.2 (the "MIX" row, the user's session, passes the budget at four tracks on every build because of MACRO GLASS BELL on track 4).
 
 | SHAPES RING BELL | 0.6.2 (built in, image tables) | head before (module, pack tables) | (A) built-in SHAPES with the hot set | (B) the SHAPES module with the hot set |
 |---|---|---|---|---|
-| N=1 | 1,254 / 0 / 38 | 2,286 / 0 / 54 | A1 | B1 |
-| N=2 | 1,992 / 0 / 63 | 4,277 / 2,936 / 96 | A2 | B2 |
-| N=3 | 2,533 / 0 / 71 | 4,729 / 3,438 / 107 | A3 | B3 |
-| N=4 | 2,849 / 164 / 73 | 5,701 / 3,392 / 109 | A4 | B4 |
+| N=1 | 1,254 / 0 / 38 | 2,286 / 0 / 54 | 1,187 / 0 / 36 | 1,209 / 0 / 37 |
+| N=2 | 1,992 / 0 / 63 | 4,277 / 2,936 / 96 | 1,884 / 0 / 60 | 1,883 / 0 / 60 |
+| N=3 | 2,533 / 0 / 71 | 4,729 / 3,438 / 107 | 2,438 / 0 / 67 | 2,431 / 0 / 67 |
+| N=4 | 2,849 / 164 / 73 | 5,701 / 3,392 / 109 | 2,730 / 164 / 68 | 2,714 / 164 / 68 |
 
 
 ## Order of work

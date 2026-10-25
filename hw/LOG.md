@@ -222,3 +222,56 @@ direct-mapped cache. In the pack pb_wav_sine (0x2094756) and pb_ws_moderate_over
 indices 0x3A-0x4A and 0x3B-0x4B, the same lines, and TRIPLE RING MOD reads them alternately every sample: every read a miss (about 280 ns
 a line fill, the extra 250 ns a read measured in the render). In the image (a+e, 0.6.2) they sit at 0x2066E74 and 0x20699E4: indices 0x73-0x83
 and 0x4F-0x5F, no overlap. A layout accident, both ways.
+
+
+### Flash 9: 0.13.7, the hot sets (linux-hw 48f63de)
+
+- 2026-10-25T07:09:58Z, package `orangecat-0.6.2-48f63de.fwsc` 610,529 B, SHA-256 6453d571...e056c7df, image 510,256 B, RAM .data+.bss 93,560 B
+  (+288 over the head), arena 91,936 B. Host tests on the PC: all 185 jobs passed (golden hashes unchanged: the host output is byte-identical),
+  among them tests/hot_set_test.c (11 checks).
+- Unit on `ORANGE CAT v0.6.2-48f63d`, services table version 4. The SHAPES module of the head (start 0, interface 12f6be4f) is refused, as it must be
+  (state 2, why 3: another interface): engine 14 is the built-in SHAPES, its hot set (5 tables, 2,580 B) copied into the arena at boot.
+
+**(A) built-in SHAPES with the hot set** (worst us / late in 20 s / load %):
+
+| N | MACRO | SHAPES | DRUM-X | MIX |
+|---|---|---|---|---|
+| 1 | 1,966 / 0 / 62 | 1,187 / 0 / 36 | 1,090 / 0 / 30 | 1,955 / 0 / 62 |
+| 2 | 3,044 / 162 / 87 | 1,884 / 0 / 60 | 1,683 / 0 / 46 | 2,422 / 0 / 65 |
+| 3 | 4,110 / 3,588 / 113 | 2,438 / 0 / 67 | 2,085 / 0 / 52 | 3,144 / 165 / 81 |
+| 4 | 5,050 / 3,591 / 138 | 2,730 / 164 / 68 | 2,377 / 0 / 53 | 4,693 / 3,607 / 119 |
+
+MALLET alone: 2,877 / 3,588 / 93.
+
+### Module install from the computer: the SHAPES module of 48f63de
+
+- 2026-10-25T07:19:54Z, `orangecat-shapes-0.6.2-48f63de.ocm` (2 variants of 23,944 B) with `tools/hw/oc_install.mjs module` (the installer page's
+  web/fm1oc.js installModule, through tools/hw/midi_bridge.py). It went beside the old one: start 1, state 7, version 1.0.0, 23,944 B, registered
+  without a restart (the hot set copied at registration). The old module stays at start 0, refused.
+
+**(B) the SHAPES module with the hot set**:
+
+| N | MACRO | SHAPES | DRUM-X | MIX |
+|---|---|---|---|---|
+| 1 | 2,022 / 0 / 63 | 1,209 / 0 / 37 | 1,128 / 0 / 30 | 2,018 / 0 / 63 |
+| 2 | 3,071 / 163 / 88 | 1,883 / 0 / 60 | 1,694 / 0 / 46 | 2,433 / 0 / 66 |
+| 3 | 4,133 / 3,592 / 113 | 2,431 / 0 / 67 | 2,083 / 0 / 52 | 3,142 / 164 / 81 |
+| 4 | 5,054 / 3,618 / 138 | 2,714 / 164 / 68 | 2,362 / 0 / 53 | 4,719 / 3,592 / 119 |
+
+MALLET alone: 2,880 / 3,588 / 93.
+
+- Restart through the boot (the same package installed again, 2026-10-25T07:29:08Z): the module registers at boot through the loader's check of its
+  hot set in flash (start 1, state 7); SHAPES RING BELL one track 1,182 us. (Checklist step 12, the update with the module installed: it stays OK.)
+
+### Unit checklist items without the card (on 48f63de)
+
+- **PACK MISSING** (2026-10-25T07:30:36Z): `oc_install.mjs erase-pack`: PACK_INFO state 0 (none). MACRO and SHAPES render nothing (worst 460 and
+  482 us: the idle cost), DRUM-X plays (990 us). The PACK MISSING screen shows once at power-on: not seen (no power-on in between); the user's.
+- **Pack install from the computer** (07:31:30Z, checklist step 4): `oc_install.mjs pack orangecat-0.6.2-48f63de.pak` (the page's installPack): state 1,
+  40,232 B, hash 657ED950, this build's. MACRO ADDITIVE PAD 1,947 us, SHAPES RING BELL 1,178 us; their USB audio: peak 18,991 / 16,852, RMS 4,790 / 3,073,
+  no clipped sample, no jump (the hot set's copies made again by the pack check: oc_pack_changed).
+- **DRUM-X** (checklist step 5): each of the eight lanes struck alone from MIDI (36 38 39 42 46 45 37 56, kit DRUM-X): every lane sounds (peak 3,974
+  to 9,134), no clipped sample, no jump. Lane mutes (0.13.1, ACC held + a lane key) are panel-only: the user's.
+- **The presets after the round trip through 0.6.2 and 0.7.1**: BACKUP_LIST (read only) against the backup file of 2026-10-24: settings (object 1),
+  the saved project slot (object 2) and the shared preset bank (object 6) are byte-identical (same size and CRC). Object 0, the running music,
+  differs: the driver's unsaved track edits. No library damage from the downgrades.

@@ -1,8 +1,8 @@
 # Orange Cat Build Document
 
-**Version:** 0.74  
-**Date:** October 24, 2026  
-**Tracks:** Orange Cat Specification v0.28
+**Version:** 0.75  
+**Date:** October 25, 2026  
+**Tracks:** Orange Cat Specification v0.29
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -10,6 +10,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.75 (October 25, 2026):** Twelfth run, branch linux-hw (on the unit; not on main, not released): the first session with the real toolchain on a Linux PC (byte-identical to CI) and the real FM-1 on USB. The four-track fault measured: MACRO is as heavy as on 0.6.2 (not a regression), SHAPES took 1.9 times 0.6.2's render time; the cause, a one-way 4 KiB data cache on which two of Braids' tables in the pack collide (the plaintext window is not slower, a module's code is not slower); the fix, hot sets (0.13.7): an engine's per-sample tables in RAM, SHAPES back at or under 0.6.2 built in and as a module. docs/orangecat/ADDING_AN_ENGINE.md. See "Twelfth run".
 - **0.74 (October 24, 2026):** Eleventh run on sonnet-work (still not on main, released or flashed): the first hardware result (two tracks play, the third and fourth screech, whatever the engine); the Audio readout in the web editor's Settings tab (0.13.6, editor command 72 schema 8); the OC_PACK_BUILTIN switch and the A/B build that tells whether the pack's data window is the cause; the audio interrupt's recorded-step work checked (not per block). See "Eleventh run".
 - **0.73 (October 24, 2026):** 0.13.6 on sonnet-work (still not on main, released or flashed): the installer page's Nightly channel can serve a branch build with its pack, modules and set manifests (workflow Rev 17, input `publish_nightly`; `web/mirror_site.py`, `web/site_check.py`, `tools/orangecat_site.py nightly`); Standard, the editor and the manual stay main's. No firmware change. See "Tenth run" and the Before merging item 10.
 - **0.72 (October 24, 2026):** 0.13.5 on sonnet-work (still not on main, released or flashed): the second independent review of everything since 549d580 (no blocking bug; seven items), all fixed in the Ninth run's Part 6: a stale repeat bit cleared where an event leaves its track, the repeat record cut from 4,608 B to 384 B (arena 88,000 B back to 92,128 B), the loop-end rule documented, page_scroll guarded, the CI gate needs a positive marker, the installer's BEGIN wait, Install set resumes from the module that asked. See "Ninth run", Part 6.
@@ -121,7 +122,8 @@ Three FM-1s are available. Keep one on a known-good release at all times. Use on
 
 ## Build environment
 
-Builds run on GitHub Actions. No build tools are needed on the Mac.
+Builds run on GitHub Actions. No build tools are needed on the Mac. (0.75) A Linux PC builds exactly what CI builds and drives the unit over USB:
+BUILDING.md, "Building on a Linux PC"; the hardware history is hw/LOG.md; the rules for a new engine are docs/orangecat/ADDING_AN_ENGINE.md.
 
 - The workflow calls the shared FM-1 builder, zvenson/fm1-build at tag v1. It installs JieLi's Linux toolchain and the AC79 SDK on GitHub's Linux x86-64 runner, then runs the repository's own ./build.sh and tests.
 - This is the same setup Melodee uses for its releases and the SeattleUser0/skiff fork uses for its builds.
@@ -2317,3 +2319,95 @@ Every time a build is on the unit: **read the Audio numbers with four tracks pla
 3. Open `webapp/nightly-editor/` on the same site, connect the unit, open Settings, find the Audio group. Press Reset.
 4. Play four tracks for a minute (any engine). Read Worst, Budget and Late.
 5. Outcomes: see "The A/B plan" above.
+
+## Twelfth run (0.13.7, branch linux-hw, October 24 and 25, 2026): the toolchain on a Linux PC, the unit on USB, the four-track fault
+
+On the unit (one FM-1 on USB to a Linux PC). Not on main, not released, no tag. Every flash, every table: hw/LOG.md.
+
+### Part 1: the toolchain, byte-identical
+
+The JieLi toolchain (`jieli-linux-toolchains-20260730.1`, clang 4.0.1) and the AC79 SDK (d179b4484759423312073f5fbb232501aa491047) installed as
+zvenson/fm1-build@v1 installs them, Python 3.12 with CI's Pillow 13.0.0, fonttools 4.67.0, mido 1.3.3 (BUILDING.md, "Building on a Linux PC").
+`tools/hw/ci_step.py` runs the workflow's own build and test blocks. **Byte-identical to CI**: sonnet-work 4e5da16 (run 40139536138) and 80b85fb
+(run 40132493524), every file of the packages artifact (.fwsc, .pak, both .ocm, the manifest, the set manifests). The image carries `__DATE__`
+(Settings > ABOUT): an older CI build is reproduced with `--date` (libfaketime) at the run's build time, which made main 19271b0 (0.6.2) and
+size-audit-gui 4063a29 (0.7.1) byte-identical as well. Build step 69 s (CI's: 69 s); host tests 1,118 s with 4 jobs (CI: 848 s with 2), 184 jobs green.
+
+### Part 2: the USB path
+
+`tools/fm1_install.py` was already the page's update flow (web/fm1ota.js, step for step); `tools/hw/fm1hw.py flash` wraps it and checks the version
+string. First flash: 80b85fb over itself, 43 s, the pack and the module untouched. `tools/hw/fm1hw.py` sets up N tracks (engine, preset, a four-note
+chord on all 64 steps), plays them on the PC's MIDI clock (CLK set to USB and put back: a normal build has no editor command for PLAY), reads the Audio
+numbers (schema 8, or 2 on older firmware). `tools/hw/oc_install.mjs` runs the page's own pack and module installs (web/fm1oc.js) from node.
+
+### Hardware: the baseline (80b85fb, then the head)
+
+| Set | 1 track | 4 tracks | Late |
+|---|---|---|---|
+| light (preset 0 of each engine) | 769 to 1,015 us | 1,588 to 2,429 us | 0 anywhere |
+| heavy: MACRO ADDITIVE PAD | 1,991 | 5,047 | from 2 tracks |
+| heavy: SHAPES RING BELL | 2,350 | 5,791 | from 2 tracks |
+| heavy: DRUM-X TECHNO RAW | 1,128 | 2,403 | 0 |
+| heavy: MIX (the user's session) | 1,997 | 4,751 | at 3 and 4 tracks |
+| MACRO MALLET, one track | 2,865 | - | half the blocks |
+
+The light set never failed and the user heard it clean; the user's own playing, watched, showed up to 3,943 us and 4,141 late renders, with MACRO
+ADDITIVE PAD or GLASS BELL on track 4. Measuring every preset alone found the heavy ones (MALLET and GLASS BELL 2,850 us on one track; RING BELL
+2,212 us). The light set was too light to show the fault.
+
+### The A/B hunt
+
+| Build | MACRO x4 | SHAPES x1 | SHAPES x4 | Verdict |
+|---|---|---|---|---|
+| 0.6.2 (main 19271b0) | 5,125 | 1,254 | 2,849 / 164 late | the reference |
+| 0.7.1 (size-audit-gui 4063a29) | 5,058 | 1,237 | 2,784 / 164 | as 0.6.2 |
+| head (5e9aad8 = 4e5da16), SHAPES from the module | 4,930 | 2,286 | 5,701 / 3,392 | SHAPES 1.9 x |
+| (a) OC_PACK_BUILTIN=1 (MACRO's tables in the image; SHAPES still the module, reading the pack) | 5,190 | 2,266 | 5,209 | not the cause for MACRO |
+| (e) OC_MODULE_WINS=0 (built-in SHAPES, tables in the pack) | 4,910 | 2,287 | 5,431 | not the module |
+| (a+e) both: built-in SHAPES, tables in the image | 5,196 | 1,188 | 2,721 / 164 | **as 0.6.2: the pack's tables** |
+
+(b) OC_PROPS_OFF was not built: the 0.13.0 work runs only for tracks with recorded events (recording_tracks, seq.c), and the table has none.
+(c) The DRUM-X, Prophet and effects code in SRAM was not needed: DRUM-X fits four tracks, and a module's code renders as fast as the image's
+(module and built-in SHAPES within +-6 %). (d) The SRAM residency diffed against 0.6.2 and 0.7.1: only `param_desc_of` left SRAM (motion only).
+MACRO is the same on all builds: its heavy presets were heavy in 0.6.2.
+
+### The cause
+
+The read-path probe (`OC_SFC_PROBE=1`, editor command 109, tools/hw/sfc_probe.py; read only): the pack and the module area read through the
+plaintext window and through the decrypting path at the same speed (27.8 ns warm, 45.4 ns cold a 16-bit read), and the hardware decrypts any address
+with the package builder's cipher and key (0x980F). So the window is not slow. The data cache is: with MELODEE_CACHE_RAM=1 one 4 KiB way is left,
+direct-mapped, and Braids' `pb_wav_sine` (0x2094756) and `pb_ws_moderate_overdrive` (0x2096776) take the same lines (0x3A-0x4A, 0x3B-0x4B); TRIPLE
+RING MOD reads both every sample, so every read misses (about 280 ns a fill). In 0.6.2's image they did not overlap. Moving the module area or the
+pack out of the window would not help (same speed) and the module area cannot leave it without moving data areas (LENC does not carve a range).
+
+### The fix (0.13.7): hot sets
+
+Tables read per sample live in RAM, for every engine: `engine_t` declares them (hot, nhot, hot_at), registration copies them into the audio arena
+(built in at boot, a module when registered, again after a pack check), a module's list is checked in flash, a set that does not fit is NO ROOM.
+SHAPES declares its sine and four wave shapers (2,580 B); the Prophet declares none (its sample loop reads no table). Image 510,256 B (+4,460 over the
+head: the mechanism about 1 KB, the rest code generation in UI functions, draw_page +974 B, not attributed), RAM +288 B, arena 91,936 B. Services table
+version 4: modules rebuilt and installed once. Host tests all green, golden hashes unchanged. Design and rules: ENGINE_LOADING_PLAN.md, "What runs from
+where, measured", and docs/orangecat/ADDING_AN_ENGINE.md.
+
+| SHAPES RING BELL | 0.6.2 | head before | 0.13.7 built in | 0.13.7 module |
+|---|---|---|---|---|
+| 1 track | 1,254 / 0 | 2,286 / 0 | 1,187 / 0 | 1,209 / 0 |
+| 2 tracks | 1,992 / 0 | 4,277 / 2,936 | 1,884 / 0 | 1,883 / 0 |
+| 3 tracks | 2,533 / 0 | 4,729 / 3,438 | 2,438 / 0 | 2,431 / 0 |
+| 4 tracks | 2,849 / 164 | 5,701 / 3,392 | 2,730 / 164 | 2,714 / 164 |
+
+(worst us / late in 20 s.) At or under 0.6.2 everywhere. MACRO's heavy presets stay as heavy as in 0.6.2 (GUIDE.md says how many tracks of what).
+
+### Unit checklist (the Fourth run's list): run in this session, left for the user
+
+Ran (on 48f63de unless said): 1, the backup (the user's file of October 24, checked: format, objects 0, 1, 2, 6, CRCs); 4, the pack from the
+computer (the page's code: installed and checked; PACK MISSING state by erasing it: MACRO and SHAPES silent, DRUM-X plays; reinstalled, both play);
+5, DRUM-X (every lane strikes, four tracks fit the budget); 6, SHAPES built in (measured, Flash 9); 7, the module from the computer (beside, start 1,
+registered live); 12, the update with the module installed (it stays OK, registers at boot through the new hot-set check); 13, the module alone (see
+hw/LOG.md); the presets after the 0.6.2 and 0.7.1 round trip (settings, project slot and shared preset bank byte-identical to the backup).
+Standing step: the Audio numbers with four tracks, every build (the tables above).
+
+Left for the user: the PACK MISSING screen at power-on; 2 (the migration time: the unit had migrated before this session); 3 (restore: not run, by
+the rules); 8 (a power cycle with the module; asked for at the end of the session if the user is there); 9 and 10 (replace beside, a cut
+mid-install); 11, 18, 19 (the card); 14 (remove: not run, by the rules); 15 (admission at the lowest budget, on the panel); 16, 17 (watch); DRUM-X lane
+mutes (ACC + a lane key, panel only).
