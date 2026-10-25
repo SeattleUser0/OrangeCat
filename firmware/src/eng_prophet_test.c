@@ -633,4 +633,8 @@ static const engine_t ENG_P5_TEST = {
 #ifdef OC_MODULE
     ,.pages=&P5_PAGES
 #endif
+    /* (0.13.7) the hot set (core.h engine_t hot): none. p5_samples, the per-sample loop, reads no table: the oscillators (p5_wave, p5_inc,
+     * p5_wheel_inc), the filter and the soft clip are arithmetic (x0x/fastmath.h polynomials); PITCH_OCT and ENV_LIN are read once a block,
+     * and as a module through fw_api_t from the firmware's image, not the window. Arena cost 0 */
+    ,.hot=0,.nhot=0
 };

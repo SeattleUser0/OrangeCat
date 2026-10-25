@@ -1025,6 +1025,81 @@ Prophet does not fit; a descriptor for the real engine is the next piece when it
 5. A measurement on the unit of the hot code running from flash.
 
 
+## What runs from where, measured (0.13.7, branch linux-hw, October 25, 2026)
+
+**The number the module milestone hangs on.** Measured on the unit, first session with the real toolchain and the real FM-1 (hw/LOG.md has every
+flash and every table). The render budget is the time a half buffer lasts: 128 frames at 44.1 kHz, 2,901 us. A render that passes it is late (an
+audible fault); in practice the late count starts a little below it (the interrupt's entry and the nested TIMER5 are outside the measured span).
+
+**Where each kind of thing runs from, and what a read of it costs** (`tools/hw/sfc_probe.py`, editor command 109 in an OC_SFC_PROBE build: 1,024
+16-bit reads, interrupts off):
+
+| What | Where | Path | Measured |
+|---|---|---|---|
+| The audio interrupt, the mixer, the voice code, every engine's callbacks reached from the ISR (251 functions) | SRAM (`MELODEE_RAM_AUDIO`, tools/audio_ram.py) | none | the fast case |
+| MACRO's, SHAPES' and DRUM-X's render code (`.text.xip_macro`, `_shapes`, `_drumx`), the effects' DSP (`.text.xip_jfx`) | the image, flash | XIP, decrypting, I-cache (8 ways) | as before 0.8.0 |
+| A module's code (SHAPES at 0xC8000) | the module area | XIP, plaintext window, I-cache | **the same as the image's**: SHAPES module and built-in SHAPES within +-6 % at 1 to 4 tracks (equal to the us at one track) |
+| A data read from the image (a table before 0.8.0) | flash | decrypting, D-cache | 27.8 ns warm, 45.4 ns cold |
+| A data read from the pack (0x93000) or a module's own data (0xC8000) | flash | plaintext window, D-cache | **27.8 ns warm, 45.4 ns cold: the same** |
+| A data read whose cache line another hot table keeps taking | flash, either path | the D-cache: **one 4 KiB way, direct-mapped**, with `MELODEE_CACHE_RAM=1` (CI's build: the other seven ways are RAM) | a miss each read, about 280 ns a line fill: SHAPES RING BELL 1.9 times 0.6.2's render time |
+| RAM: the arena, the pool, the stacks | SRAM | none | no cache involved |
+
+**What the slowness was.** Not the window: the probe reads the pack and the module area through the plaintext window and through the decrypting
+path at the same speed, and a module's code renders as fast as the image's. It is the data cache. With CACHE_RAM on, one 4 KiB data way is left
+(firmware/hal/fm1_cache.h), shared by both cores and DMA, so any two tables read alternately per sample whose addresses are equal modulo 4 KiB evict
+each other on every read. In the pack Braids' `pb_wav_sine` (0x2094756) and `pb_ws_moderate_overdrive` (0x2096776) are 0x2020 apart: cache lines 0x3A-0x4A
+and 0x3B-0x4B, the same lines; TRIPLE RING MOD reads both every sample. In 0.6.2's image they were at 0x2066E74 and 0x20699E4 (lines 0x73-0x83 and
+0x4F-0x5F): no overlap, by luck. MACRO's heavy models (ADDITIVE, MODAL) compute their oscillators and read tables once a block, so the pack changed
+nothing for them; they are as heavy on 0.6.2 (two ADDITIVE PAD tracks and one MALLET track pass the budget on 0.6.2, 0.7.1 and the head alike).
+
+**The rule that follows, for every engine, built in or a module.** A table read per sample must not be read from flash at all, whichever window and
+whichever area: its speed then depends on where every other hot table happens to land modulo 4 KiB. Per-sample tables live in RAM; tables read once a
+block, code, presets and pages may stay in flash. Built in 0.13.7 as the **hot set**:
+
+- An engine declares its per-sample tables in `engine_t` (`hot`, a list of {source address, bytes}, `nhot` of them, at most 8). A module's
+  declaration is in its own `engine_t`, which its header already points at (`engine_ptr`): the .ocm header format is unchanged.
+- At registration the tables are copied into the audio arena (one block a set, `RES_HOT0 + slot`, three sets at once; the arena's small banks first)
+  and the engine reads the copies: a built-in engine through its own pointer array (`hot_at`, which starts at the sources, so a host test or a build that
+  never registers reads exactly what it always read), a module through the firmware's (`fw_api_t.hot`, FW_API_VERSION 4; the interface identifier
+  changed, so modules are rebuilt and installed again once). Built-in engines register at boot after the pack check; the copies are made again
+  whenever the pack is checked again (an install, an erase: `oc_pack_changed`).
+- The loader checks a module's list in flash before registering it (`oc_mod_hot_check`: inside its code or the pack's tables, 1 B to 16 KB a table,
+  at most 8): anything else is MD_BAD_HDR, at boot and before an install is committed. A set that does not fit the arena refuses the registration:
+  EM_NOROOM, the module's state MD_NOSLOT with why 4, "NO ROOM"; the engine there before keeps its slot and its set. A built-in engine whose set did not
+  fit at boot would play silent (its slot ENG_RETIRED); at boot the arena is empty, so a set of a few KB always fits.
+
+**The arena cost of each engine's hot set** (tools/pack_hot.py lists the candidates from the source: tables read in a sample loop):
+
+| Engine | Declared hot set | Arena | Left in flash, also read per sample by some shapes or models (candidates) |
+|---|---|---|---|
+| SHAPES (built in and module) | pb_wav_sine, pb_ws_moderate_overdrive, pb_ws_violent_overdrive, pb_ws_sine_fold, pb_ws_tri_fold | 2,580 B (5 x 514, each rounded to 4) | the 15 comb wavetables (7,710 B, BUZZ), the formant waves (1,024 B, VOWEL), the granular, bowed and blown envelopes, the resonator tables, pb_lut_bell: about 13 KB more if every shape is to be safe |
+| Prophet (module) | none: p5_samples reads no table (oscillators, filter and soft clip are arithmetic; PITCH_OCT and ENV_LIN once a block, from the firmware's image) | 0 | none |
+| MACRO (built in) | none declared yet | 0 | pl_lut_sine (2,564 B), the fold tables (4,128 B), the wave shaper curves (2,570 B), pl_chord_waves (3,960 B), the pitch ratios (2,048 B): about 15 KB if every model is to be safe |
+| DRUM-X (built in) | none: its voices read no pack table | 0 | none |
+
+The arena on the head is 91,936 B, four engine states take about 45 KB (MACRO 11,320 B, SHAPES 11,424 B a track on the host), and the resident profile
+keeps 64 KiB contiguous for them and the note history. So a hot set is a few KB, not the pack: SHAPES' full candidate list (about 16 KB) and MACRO's
+(about 15 KB) together would leave the arena below that line. Declare what the measured presets read; measure before adding more.
+
+**Could the module area leave the plaintext window (the decrypting path, like the firmware)?** The method is reproducible: the probe proved that the
+hardware decrypts any address with the package builder's cipher (tools/fm1pkg_make.py `sfc`, key 0x980F, the offset from 0x4000: plain XOR decrypted
+equals that keystream at 0x93000, 0x94000, 0xC8000 and 0xD0000), so tools/build.py could encrypt a module image (or the pack) for its address. But the
+window is one range (SFCENC UNENC_L .. UNENC_H, from 0x93000 up), the module area sits between data areas that must stay plaintext (the main store
+0x97000..0xE0000, the bank extension and the globals above), and the second register pair (LENC_L / LENC_H) does not carve an encrypted range out of the
+window (modes 1 and 2 of the probe: the reads stay plaintext). Only the pack, at the window's lower edge, could leave it without moving an area. And it
+would not help: the decrypting path reads at the same speed through the same 4 KiB D-cache. **Not built.** The hot set is the fix for code and tables of
+every engine; code was never the problem.
+
+**The four-track table with the fix** (heavy set, worst us / late in 20 s / load %; hw/LOG.md):
+
+| SHAPES RING BELL | 0.6.2 (built in, image tables) | head before (module, pack tables) | (A) built-in SHAPES with the hot set | (B) the SHAPES module with the hot set |
+|---|---|---|---|---|
+| N=1 | 1,254 / 0 / 38 | 2,286 / 0 / 54 | A1 | B1 |
+| N=2 | 1,992 / 0 / 63 | 4,277 / 2,936 / 96 | A2 | B2 |
+| N=3 | 2,533 / 0 / 71 | 4,729 / 3,438 / 107 | A3 | B3 |
+| N=4 | 2,849 / 164 / 73 | 5,701 / 3,392 / 109 | A4 | B4 |
+
+
 ## Order of work
 
 Status after the third run (0.9.1 and 0.10.0, branch sonnet-work): the flash map (step 3) is adopted in full (the library group) and the SHAPES module (step 5) is built,

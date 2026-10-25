@@ -311,6 +311,7 @@ core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable en
 core && t "engine table in RAM (Orange Cat 0.10.0, step 4): register / unregister a module's engine, the refusals, SHAPES built in" engine_table_test:engine_table_test -O1 $FW
 core && t "engine table in RAM (0.10.0, step 4): the module wins the slot (OC_MODULE_WINS 1), unregistering gives the built-in engine back" engine_table_wins:engine_table_test -O1 $FW -DOC_MODULE_WINS=1
 core && t "engine table in RAM (0.10.0, step 4): SHAPES built out, the slot is retired until a module supplies it" engine_table_out:engine_table_test -O1 $FW -DMELODEE_SHAPES=0
+core && t "hot sets (0.13.7): an engine's per-sample tables copied into the arena at registration, the pack refresh, a module's through the table, NO ROOM" hot_set_test:hot_set_test -O1 $FW -DOC_MODULE_WINS=1
 core && t "module loader (Orange Cat 0.10.0, step 5): every refusal, the crash mark, a good module, two modules; the module wins the slot" oc_module_test:oc_module_test -O1 $FW -DOC_MODULE_WINS=1
 core && t "module loader (0.10.0, step 5): the built-in SHAPES wins the slot (OC_MODULE_WINS 0): a valid module is NOSLOT" oc_module_shadow:oc_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies the engine" oc_module_out:oc_module_test -O1 $FW -DMELODEE_SHAPES=0

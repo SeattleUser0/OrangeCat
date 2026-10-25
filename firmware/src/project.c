@@ -1371,6 +1371,7 @@ static void persist_boot(void)                    /* before settings_init / pane
 #if OC_MODULES
     oc_mod_power_on(bootguard.failed);                 /* (0.10.0) a module in the module area, checked, in the engine table; before the PC guard is armed */
 #endif
+    eng_hot_boot();                                /* (0.13.7) the built-in engines' hot sets into the arena (engines.c); a module took its own above */
 #if MELODEE_SLICE
     slc_store_boot();                              /* (the scans read each slot's stored slices) */
 #endif

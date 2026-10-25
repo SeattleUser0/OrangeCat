@@ -46,7 +46,7 @@
 #pragma once
 #include "fw_api_id.h"                                   /* generated: FW_API_ID (tools/gen_fw_api_id.py) */
 #define FW_API_MAGIC 0x50414657u                         /* "WFAP" little endian: FW API */
-#define FW_API_VERSION 3u
+#define FW_API_VERSION 4u                                /* (0.13.7) 4: hot, the hot sets' pointers */
 /* the identifier a module is built with and the firmware compares: the hash of the text, and the sizes of what it hashes */
 #define FW_API_IFACE (FW_API_ID ^ ((uint32_t)sizeof(track_t) * 0x9E3779B1u) ^ ((uint32_t)sizeof(voice_t) * 0x85EBCA6Bu) ^ \
                       ((uint32_t)sizeof(engine_t) * 0xC2B2AE35u) ^ ((uint32_t)sizeof(vmod_t) * 0x27D4EB2Fu))
@@ -79,6 +79,9 @@ typedef struct fw_api {
     const uint8_t *voice_was;                            /* core.h voice_was: what the voice a note starts did just before (an engine's note_on reads it; found by the host render test) */
     const uint32_t *pitch_oct;                           /* (0.12.2) melodee_tables.h PITCH_OCT[192] (pitch_inc) and ENV_LIN[128]: the firmware has both; the Prophet module reads them here instead of carrying 1,280 B of its own */
     const uint32_t *env_lin;
+    /* (0.13.7) the pointers of each engine number's hot set (core.h engine_t hot, engines.c eng_hot): a module reads its per-sample tables through
+     * hot[engine][i] (ENG_HOT), the RAM copy the loader made when it registered it */
+    const void *const *const *hot;
 } fw_api_t;
 
 /* The header a module starts with (its first bytes, before any code). The firmware reads it before it runs anything.

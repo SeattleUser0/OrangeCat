@@ -24,7 +24,7 @@ int main(void)
     uint8_t x[16], y[16];
     uint32_t i;
     void *p1, *p2;
-    check("the table starts with the magic, its own size, version 3 and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 3u && a->iface == FW_API_IFACE);
+    check("the table starts with the magic, its own size, version 4 and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 4u && a->iface == FW_API_IFACE);
     check("every service is there", a->mem_copy && a->mem_set && a->resource_get && a->tuning_log && a->trk && a->pack_ready);
     /* 0.10.0 (step 1) the arena id a module's part state starts at, and the engine count, come from the table */
     check("res_engine0 is the arena id of the first engine state and nengines the table's length", a->res_engine0 == RES_ENGINE0 && a->nengines == NENGINES && NENGINES == 20u);
@@ -47,6 +47,7 @@ int main(void)
     /* 0.12.1 / 0.12.2: what the Prophet module reads through the table instead of carrying: the track voices' last state, the firmware's pitch and envelope tables */
     check("voice_was, pitch_oct and env_lin are the firmware's own (the Prophet module reads them through the table)", a->voice_was == &voice_was && a->pitch_oct == PITCH_OCT && a->env_lin == ENV_LIN &&
           a->pitch_oct[0] == PITCH_OCT[0] && a->pitch_oct[191] == PITCH_OCT[191] && a->env_lin[127] == ENV_LIN[127]);
+    check("(0.13.7) hot is the firmware's per-engine table of hot-set pointers (engines.c eng_hot)", a->hot == (const void *const *const *)eng_hot);
     oc_pack_good = 0;
     check("pack_ready follows the pack's flag (0)", *a->pack_ready == 0);
     oc_pack_good = 1;

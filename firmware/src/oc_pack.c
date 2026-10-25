@@ -141,6 +141,7 @@ static void oc_pack_scan(void)
         if (pk.state == PK_OK && !pk_payload_ok(h)) pk.state = PK_DAMAGED;
     }
     oc_pack_good = pk.state == PK_OK;
+    if (oc_pack_changed) oc_pack_changed();                  /* (0.13.7) the engines' hot sets copy their tables again (engines.c eng_hot_refresh) */
 }
 static void oc_pack_boot(void)                               /* persist_boot: after the flash is known and the library group is in place (lib_group.c) */
 {

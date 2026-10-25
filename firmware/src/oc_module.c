@@ -73,6 +73,8 @@
  * Host tests: tests/oc_module_test.c (a simulated NOR: every refusal, the crash mark, a good module, two modules).
  *
  * Revisions:
+ * (Orange Cat 0.13.7) a module's hot set (engine_t hot) is checked in flash (oc_mod_hot_check: inside its code or the pack's tables, MD_BAD_HDR else) and handed to
+ *   eng_register_hot; a set that does not fit the arena is NO ROOM (MD_NOSLOT, why 4)
  * (Orange Cat 0.13.5) the geometry table can be made writable by a host test (OC_MOD_GEO_QUAL); nothing else changed.
  * (Orange Cat 0.13.4) oc_mod_image_check / oc_mod_hdr_matches / oc_mod_pages_check_rd: the checks of an image take a reader, so the card checks the file it is about to write
  * with the code oc_mod_end and the boot check use; oc_mod_tails is oc_pack.c's oc_rule_tails over the flash.
@@ -149,6 +151,8 @@ static struct {
     uint32_t engine[OC_MOD_STARTS];                            /* the engine number the header names (valid once the header is) */
     uint32_t length[OC_MOD_STARTS];
     uint32_t version[OC_MOD_STARTS];                           /* (0.11.0) the header's version word (valid with the engine) */
+    uint32_t hot[OC_MOD_STARTS];                               /* (0.13.7) the address of its engine_t's hot set, checked (oc_mod_hot_check), 0 none */
+    uint8_t nhot[OC_MOD_STARTS];                               /* (0.13.7) and its length */
 } oc_mod;
 /* the crash mark (core.h declares oc_modguard so that reset_intended can clear its count): survives a reset, not a power loss */
 #define OC_MOD_UNCLEAN_MAX 3u                                  /* (0.10.1) sessions in a row that died with the module's engine in use: banned */
@@ -213,6 +217,45 @@ static int oc_mod_pages_check_rd(oc_rd_t rd, void *rctx, uint32_t link, const fw
         return 0;
     return fw_pages_check(oc_mod_rd, &c, p, link + FW_MOD_CODE_OFF, link + h->length);
 }
+/* (0.13.7) the module's hot set (core.h engine_t hot, nhot), read from the flash through rd: none, or at most ENG_HOT_MAX entries inside the code, word
+ * aligned, each a table of 1 .. 16 KB inside the module's own code or the asset pack's tables. 0 good (*hot, *nhot set), else FWP_ADDR. Device builds only, as the
+ * page descriptor's check (a host build's engine_t has other offsets): there a module has no hot set */
+#define OC_MOD_HOT_MAX_BYTES 16384u
+static int oc_mod_hot_check_rd(oc_rd_t rd, void *rctx, uint32_t link, const fw_mod_hdr_t *h, uint32_t *hot, uint8_t *nhot)
+{
+    oc_mod_rdctx_t c;
+    uint8_t w[4], n;
+    uint32_t lo = link + FW_MOD_CODE_OFF, hi = link + h->length, plo = FL_XIP(OC_PACK_LO) + OC_PACK_HDR, phi = FL_XIP(OC_PACK_LO) + OC_PACK_LEN;
+    *hot = 0; *nhot = 0;
+    if (sizeof(void *) != 4u)
+        return 0;
+    c.rd = rd; c.ctx = rctx; c.link = link;
+    if (h->engine_ptr + sizeof(engine_t) > hi ||
+        oc_mod_rd(&c, h->engine_ptr + (uint32_t)offsetof(engine_t, nhot), &n, 1u) ||
+        oc_mod_rd(&c, h->engine_ptr + (uint32_t)offsetof(engine_t, hot), w, 4u))
+        return FWP_ADDR;
+    if (!n)
+        return 0;
+    uint32_t p = fwp_u32(w);
+    if (n > ENG_HOT_MAX || (p & 3u) || p < lo || p > hi || n * (uint32_t)sizeof(eng_hot_t) > hi - p)
+        return FWP_ADDR;
+    for (uint32_t k = 0; k < n; k++) {
+        uint8_t e[8];
+        if (oc_mod_rd(&c, p + k * (uint32_t)sizeof(eng_hot_t), e, 8u))
+            return FWP_ADDR;
+        uint32_t src = fwp_u32(e), bytes = fwp_u32(e + 4);
+        if (!bytes || bytes > OC_MOD_HOT_MAX_BYTES ||
+            !((src >= lo && src <= hi && bytes <= hi - src) || (src >= plo && src <= phi && bytes <= phi - src)))
+            return FWP_ADDR;
+    }
+    *hot = p; *nhot = n;
+    return 0;
+}
+static int oc_mod_hot_check(uint32_t i, const fw_mod_hdr_t *h)
+{
+    uint32_t base = oc_mod_flash(i);
+    return oc_mod_hot_check_rd(oc_rd_flash, &base, oc_mod_link(i), h, &oc_mod.hot[i], &oc_mod.nhot[i]);
+}
 static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
 {
     uint32_t base = oc_mod_flash(i);
@@ -252,6 +295,8 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
         return MD_BAD_CRC;
     if (oc_mod_pages_check(i, h))
         return MD_BAD_HDR;                                      /* (0.12.0) a page descriptor that leaves the image */
+    if (oc_mod_hot_check(i, h))
+        return MD_BAD_HDR;                                      /* (0.13.7) a hot set that leaves the image and the pack */
     rc = oc_mod_tails(i, len);
     if (rc < 0)
         return MD_BAD_CRC;
@@ -266,11 +311,11 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
  * oc_mod_park's callers: the installer), so that CPU1 and the audio ISR never see the table and the header disagree. At power-on (persist_boot, before audio)
  * the interrupt state is left alone. */
 static uint8_t oc_mod_live;
-static int oc_mod_reg(const fw_mod_hdr_t *h, const engine_t *engine)
+static int oc_mod_reg(uint32_t i, const fw_mod_hdr_t *h, const engine_t *engine)
 {
     int rc;
     if (oc_mod_live) fm1_irq_off();
-    rc = eng_register(h, engine);
+    rc = eng_register_hot(h, engine, (const eng_hot_t *)(uintptr_t)oc_mod.hot[i], oc_mod.nhot[i]);   /* (0.13.7) the hot set as oc_mod_check found it */
     if (oc_mod_live) fm1_irq_on();
     return rc;
 }
@@ -346,7 +391,7 @@ static void oc_mod_boot(uint32_t crashed)
             continue;
         }
         (void)oc_mod_check(i, &h);
-        {   int rc = eng_mod[h.engine] ? EM_SLOT : oc_mod_reg(oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);
+        {   int rc = eng_mod[h.engine] ? EM_SLOT : oc_mod_reg(i, oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);
             if (rc != EM_OK) {
                 oc_mod.state[i] = MD_NOSLOT;
                 oc_mod.why[i] = (uint8_t)-rc;
@@ -740,6 +785,8 @@ static int oc_mod_end(const void *page256)
     if (oc_mod_tails(mw.start, mw.len) != 0)                               /* (0.10.1) the code as the flash has it: no sector tail like an update record */
         return MI_TAIL;
     if (oc_mod_pages_check(mw.start, h))                                   /* (0.13.4) the page descriptor (device builds) on the code as written, BEFORE the commit: a module the boot check would refuse gets no header, so it is never half-registered and a beside install has nothing to erase afterwards */
+        return MI_REFUSED;
+    if (oc_mod_hot_check(mw.start, h))                                     /* (0.13.7) and its hot set, for the same reason */
         return MI_REFUSED;
     if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
         return rc;

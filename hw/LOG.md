@@ -197,3 +197,28 @@ MALLET alone: 2,905 / 3,580 / 94. **SHAPES is back at 0.6.2's cost** (N=1 1,188 
 N=4 2,721 / 164 against 2,849 / 164). With (a) alone SHAPES still came from the module and read the pack, so (a) never tested Braids'
 tables; with (e) alone the built-in SHAPES read the pack. **The cause of the SHAPES regression: Braids' tables read per sample from the
 pack's plaintext window.** MACRO is not changed by it: Plaits' ADDITIVE and MODAL compute their oscillators and read tables per block.
+
+### Flash 8: the read-path probe (fa41841 = linux-hw db62998 + `export OC_SFC_PROBE=1`, local commit)
+
+- 2026-10-25T06:25:06Z, package `orangecat-0.6.2-fa41841.fwsc`, SHA-256 7fbdf7c7...e9f81f50. The image is c606d0d's (the same firmware before a
+  documentation merge) but for the version string; c606d0d's host tests: 183 of 184, the one failure the protocol document missing command 109,
+  fixed in db62998 (tools/check_editor_protocol.py passes). Unit on `ORANGE CAT v0.6.2-fa4184`; pack and module as before.
+- `tools/hw/sfc_probe.py` (editor command 109, read only), 2 KB at each offset, interrupts off:
+
+| offset | path | xor = 0x980F keystream | cold ns/read | warm ns/read |
+|---|---|---|---|---|
+| 0x93000 (the pack) | decrypting (mode 0) | yes | 45.4 | 27.8 |
+| 0x94000 (the pack) | decrypting | yes | 45.4 | 27.8 |
+| 0xC8000 (the module area) | decrypting | yes | 45.4 | 27.8 |
+| 0xD0000 (store, erased) | decrypting | yes | 45.4 | 27.8 |
+| every offset | plaintext window | (the reference) | 45.4-45.5 | 27.8 |
+| 0x93000, 0xC8000 | LENC set (modes 1, 2) | reads stay plaintext | 45.4 | 27.8 |
+
+**Findings.** (1) The hardware decrypts any address with the package builder's cipher and key (tools/fm1pkg_make.py sfc, 0x980F, the
+offset from 0x4000): a blob can be encrypted for any flash address. The KEY register reads 0 (write only). (2) The plaintext window is cached
+exactly as the decrypting path: the same 27.8 ns a warm 16-bit read, 45.4 ns cold. (3) LENC_L/H do not carve an encrypted range out of the
+window. (4) So the slowness is not the window: it is the data cache. With MELODEE_CACHE_RAM=1 (CI's build) one 4 KiB data way is left, a
+direct-mapped cache. In the pack pb_wav_sine (0x2094756) and pb_ws_moderate_overdrive (0x2096776) are 0x2020 apart: their lines take cache
+indices 0x3A-0x4A and 0x3B-0x4B, the same lines, and TRIPLE RING MOD reads them alternately every sample: every read a miss (about 280 ns
+a line fill, the extra 250 ns a read measured in the render). In the image (a+e, 0.6.2) they sit at 0x2066E74 and 0x20699E4: indices 0x73-0x83
+and 0x4F-0x5F, no overlap. A layout accident, both ways.

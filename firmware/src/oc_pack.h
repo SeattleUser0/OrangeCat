@@ -78,5 +78,6 @@
 #else
 /* 1: the pack was checked and is there. Without the gate there is nothing to wait for. */
 static uint8_t oc_pack_good = OC_PACK_GATE ? 0u : 1u;
+static void (*oc_pack_changed)(void);  /* (0.13.7) called after every check of the pack (oc_pack.c); engines.c eng_hot_boot sets it: the hot sets copy again */
 #define OC_PACK_READY() (!OC_PACK_GATE || oc_pack_good)
 #endif
