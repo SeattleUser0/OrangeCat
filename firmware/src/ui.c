@@ -75,10 +75,9 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "oc_pack.h"               /* (Orange Cat 0.8.0) OC_PACK_READY, for the PACK MISSING notice */
 #include "favorites.c"
-/* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
- * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 retired
- * (STAGE EFFECTS OFF in 1.4.0-rc.4: left as saved, never read). */
-#define PREF_BITS (favorites.factory[15][30])
+/* MENU settings in favorites.factory[PREF_ROW][PREF_BYTE] (Orange Cat 0.13.8; before it [15][30], which project.c's PROJ_LAST shared: favorites.c):
+ * bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 the tag (settings_persist.c pref_migrate); bits 0, 2..4 retired, kept as moved */
+#define PREF_BITS (favorites.factory[PREF_ROW][PREF_BYTE])
 #define PREF_ACCEL_OFF 2u
 #define PREF_PICK_OFF 32u
 #define PREF_PIXEL 64u                         /* (to 0.6.2: Settings > FONT PIXEL, else RUBIK; 0.7.0 draws Melodee Pixel

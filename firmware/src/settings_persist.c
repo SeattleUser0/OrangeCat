@@ -55,6 +55,19 @@ static int settings_legacy_valid(const persist_t *p)
 }
 
 /* Normalize in place; 1 = read, 0 = invalid. */
+#ifdef MELODEE_FAVORITES
+/* (Orange Cat 0.13.8) the MENU settings (ui.c PREF_BITS) leave favorites.factory[15][30], the byte project.c's PROJ_LAST writes (0xC0 + the slot), for
+ * row 8 byte 2 with bit 7 as their tag. Once, on a record (the boot's or a restored backup's) whose new byte has no tag: an old byte of 0xC0 or more is
+ * PROJ_LAST (the two settings it overlaid read as clear: acceleration on, the picker on); below that it holds the old bits (0 none), which move, and
+ * PROJ_LAST is none. A tagged byte is the settings: nothing moves. */
+static void pref_migrate(void)
+{
+    uint8_t *nb = &favorites.factory[PREF_ROW][PREF_BYTE], *ob = &favorites.factory[15][30];
+    if (*nb & PREF_TAG) return;
+    if (*ob >= 0xC0u) *nb = PREF_TAG;
+    else { *nb = (uint8_t)(PREF_TAG | (*ob & 0x7Fu)); *ob = 0; }
+}
+#endif
 static int settings_import(persist_t *p, int n)
 {
     if (n != (int)sizeof *p || p->magic != PERSIST_MAGIC) return 0;
@@ -100,6 +113,7 @@ static int settings_import(persist_t *p, int n)
     memcpy(&favorites, &p->favorites, sizeof favorites);
     favorites_user_hi = p->ext.spare[0];
     favorites.filter = favorites.filter == 1u;
+    pref_migrate();
 #endif
     panel = p->panel.magic == PANEL_MAGIC ? p->panel : PANEL_DEFAULT;
     {
@@ -111,6 +125,7 @@ static int settings_import(persist_t *p, int n)
     }
     return 1;
 }
+
 
 /* Start with the last imported/saved object, including fields owned by a
  * feature absent from this build. Boot only writes for initialization or repair. */
@@ -129,6 +144,9 @@ static void settings_export(persist_t *p)
     p->ext.spare[0] = favorites_user_hi;
 #endif
     memcpy(p->favorites.factory[1] + 28, SETTINGS_OWNER, sizeof SETTINGS_OWNER);
+#ifdef MELODEE_FAVORITES
+    p->favorites.factory[PREF_ROW][PREF_BYTE] |= PREF_TAG;      /* (0.13.8) a record this firmware writes holds the MENU settings in their own byte */
+#endif
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;
     p->favorites.factory[15][26] = ua_tracks ? 0xA1u : 0u; /* tagged; old/unknown bytes default to stereo */

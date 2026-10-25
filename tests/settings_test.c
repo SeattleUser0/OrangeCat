@@ -166,6 +166,28 @@ int main(void)
         assert(p.bold == 0u && settings_import(&p, sizeof p) == 1 && settings_hold == HOLD_DEF);
         assert(!hold_stored_ok(2u) && !hold_stored_ok(HOLD_TAG + 4u) && hold_stored_ok(HOLD_TAG | 2u));
     }
+    {   /* (Orange Cat 0.13.8) the MENU settings (ui.c PREF_BITS) leave favorites.factory[15][30], project.c's PROJ_LAST byte, for row 8 byte 2 (bit 7
+         * the tag): once, on an untagged record. The old states: a project slot's mark (0xC0 + slot), the old bits, none; a tagged record; the export */
+        persist_t q = original, r;
+        uint8_t *nb = &favorites.factory[PREF_ROW][PREF_BYTE], *ob = &favorites.factory[15][30];
+        q.favorites.factory[PREF_ROW][PREF_BYTE] = 0;
+        q.favorites.factory[15][30] = 0xC2;             /* PROJ_LAST project slot 3 (it read as KNOB ACCEL OFF before) */
+        assert(settings_import(&q, sizeof q) == 1 && *nb == PREF_TAG && *ob == 0xC2);
+        q.favorites.factory[15][30] = 0x22;             /* the old bits: KNOB ACCEL OFF and PICKER OFF, no project */
+        assert(settings_import(&q, sizeof q) == 1 && *nb == (PREF_TAG | 0x22) && *ob == 0);
+        q.favorites.factory[15][30] = 0;                /* neither */
+        assert(settings_import(&q, sizeof q) == 1 && *nb == PREF_TAG && *ob == 0);
+        q.favorites.factory[PREF_ROW][PREF_BYTE] = PREF_TAG | 0x20; q.favorites.factory[15][30] = 0xC1;   /* already moved: nothing moves */
+        assert(settings_import(&q, sizeof q) == 1 && *nb == (PREF_TAG | 0x20) && *ob == 0xC1);
+        *ob = 0xC3;                                      /* a project saved to slot 4 now: the settings keep their bits */
+        assert(*nb == (PREF_TAG | 0x20));
+        *nb = 0x02;                                      /* an untagged byte in RAM (a fresh unit's menu): the export tags it, the next import keeps it */
+        settings_export(&r);
+        assert(r.favorites.factory[PREF_ROW][PREF_BYTE] == (PREF_TAG | 0x02) && r.favorites.factory[15][30] == 0xC3);
+        assert(settings_import(&r, sizeof r) == 1 && *nb == (PREF_TAG | 0x02) && *ob == 0xC3);
+        puts("Settings: the MENU settings out of PROJ_LAST's byte (an old slot mark, old bits, none, a tagged record, the export) passed.");
+        p = original; settings_import(&p, sizeof p);
+    }
     assert(settings_import(&p, 3) == 0 && settings_import(&p, -1) == 0);
     assert(settings_import(&p, sizeof p - 1) == 0);
     puts("Settings: PER5 only, palette ids, calibration, HOLD, AUTOSAVE, ext and independent feature preservation passed.");

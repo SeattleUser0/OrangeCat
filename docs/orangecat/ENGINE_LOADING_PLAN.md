@@ -1107,6 +1107,15 @@ as on 0.6.2 (the "MIX" row, the user's session, passes the budget at four tracks
 | N=4 | 2,849 / 164 / 73 | 5,701 / 3,392 / 109 | 2,730 / 164 / 68 | 2,714 / 164 / 68 |
 
 
+### A known property of the USB install path (0.13.8, the unit; BUILD.md Thirteenth run, Part 5)
+
+PACK_BEGIN (and MOD_BEGIN in place) erases the area before the data comes: the SysEx protocol streams the file after the erase and the firmware checks it at
+PACK_END / MOD_END (the data CRC, the header against the build). A damaged or foreign file sent past the page is refused there and never committed, so nothing
+damaged plays, but the old pack is gone (measured: a flipped byte sent with the page's check bypassed: refused at PACK_END, the pack state then none, MACRO
+and SHAPES silent until the pack was installed again). **The page's check (web/fm1oc.js packProblem, ocmCheck; the card's reads the file first) is the guard
+that keeps an installed pack or module intact.** A staged write would need a second area the flash map does not have. Kept as it is (the user's decision,
+October 25).
+
 ### MACRO's own cost (0.13.8, the unit; BUILD.md Thirteenth run, Part 2)
 
 MACRO, model by model (one preset each, the four-note chord, worst us / late in 20 s; hw/LOG.md Flashes 12 and 14), without and with its hot set:
