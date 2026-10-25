@@ -95,6 +95,10 @@
                                    * module may take SHAPES' slot (14), so the slot is in ENGINE_ORDER and NENG_SHOWN even when MELODEE_SHAPES is 0 (the
                                    * engine is then offered only while a module is registered: eng_ok). 0: as before */
 #endif
+#ifndef OC_SFC_PROBE
+#define OC_SFC_PROBE 0            /* (Orange Cat 0.13.7, branch linux-hw) 1: editor command 109, a read-only probe of the flash's plaintext window and its
+                                   * decrypting path (editor.c); a hardware experiment's switch, never in a release */
+#endif
 #ifndef OC_MODULE_WINS
 #define OC_MODULE_WINS 0          /* (Orange Cat 0.10.0) 1: a valid module takes the slot of an engine that is also built in (the built-in one stays in the
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".
