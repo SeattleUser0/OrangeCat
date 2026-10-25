@@ -2532,3 +2532,42 @@ the unit's byte set back to 0xC0 (acceleration on) by loading project slot 1. **
 real test in yesterday's round trip through 0.7.1 and 0.6.2: pass for the read side (no wipe asked, the library intact); the write side (a save on the old
 firmware) not done: it destroys what it overwrites.
 
+### Part 4: the audio capture harness
+
+`tools/hw/capture.py`: record (the AUDIO4c's inputs 1 and 2 at 48 kHz, or the FM-1's own USB audio at 44.1 kHz), then per recording the peak and RMS, clipping
+(runs of 3 or more samples at full scale), dropouts (a second difference past JUMP2, or 32 or more identical samples with sound on both sides), onsets (the
+envelope rising 9 dB within 10 ms), and the spectrum against a host render of the same preset (build/host/hostsim, resampled; the RMS dB difference of the
+normalized magnitude spectra over the sustain, 60 Hz .. 12 kHz). Calibrated on one SHAPES note (CSAW BASS, C4): JUMP2 = 0.70 (3 times the clean note's
+largest second difference, the saw's own edges), TOL_DB = 1.2 dB (2 times the clean pair's 0.34 dB, plus 0.5). **The AUDIO4c's inputs are digital zero to the
+PC** (all eight channels, with the unit playing): its analog inputs are not routed to its USB host channels, a routing set from the Mac: **for the user**.
+Every capture today is the FM-1's USB audio (the digital mix before the DAC); the analog path wants its own calibration pair once it is routed. `say`
+decodes the test surface's tones (Part 7).
+
+### Part 3: MIDI in, recording, step properties (hw/LOG.md, "Part 3")
+
+| Item | Result |
+|---|---|
+| MIDI note in (the AUDIO4c's DIN out to the TRS input; a C major scale) | pass: 8 onsets 0.40 s apart, one voice each, intervals exact |
+| REC armed by the REC key (test surface) | pass |
+| 0.7.1 acceptance: a chord with three release times recorded over MIDI, read back (test surface op 6) | pass: 1.001, 0.550, 0.247 s |
+| RATCH x4, FLAM, NUDGE +16, CHANCE 50 % (20 passes), ACCENT on a recorded chord inside its step | pass, each counted from the capture |
+| the same on a chord rounded forward into the next row | pass |
+| two adjacent four-note chords, x4 on both (the reviewer's case) | pass: 8 hits a pass, none dropped |
+| undo by EDIT held | pass (a change of several detents in one turn is one entry) |
+
+A single-hit ratchet seen in a first, unconfirmed run on the rounded chord was the driver's (a value set right after an EDIT tap, never read back), not the
+firmware's: with every action confirmed it passes, and new host tests (recording_props_test rounded(), rounded_live(): rounded forward, wrapped from the loop's
+last step, recorded live) pass on the code as it was. recording.c already reads every property of a recorded step from the row the overview shows, and the
+tracker writes that row: unchanged. **Found, not fixed**: on TRACKER (and NOTES) an EDIT tap can both delete the picked effect and open the EDIT pages, when the
+debounced release falls between the two places in the UI frame that read the buttons (ui_input.c: the step modifier's release and page_tap).
+
+### Part 7: the hardware test surface (0.13.8, OC_HW_TEST)
+
+Editor command 108, in a build with `OC_HW_TEST=1` only (default 0; the default build's symbol table is unchanged by it): press and release a key or button by
+its id (through the real debounce: hal/fm1_input.h FM1_INPUT_FORCED), turn a knob by detents, select a page, say state (a tone sequence: a 1,760 Hz marker and
+five digits for the page, the engine and the last notice's 12-bit code, decoded by capture.py say), a step's recorded notes (op 6); the state reply carries the
+panel's map, the page's title, the tracker's cursor, column and effect, and the picked effect's value on the step a tracker edit writes. The command is also
+taken from the TRS MIDI input (that command alone), for tests while USB is busy. Host tests: input_test (a held key through the debounce, every id),
+hw_say_test (the plan and the interrupt's tone code, rendered). Image of a test build +4.9 KB (511,848 B), RAM +144 B. tools/hw/hw_test.py drives it.
+web/EDITOR_PROTOCOL.md documents it as test-build only. Used on the unit for Part 3; the card tests (say state over TRS while the card is in) are the user's.
+
