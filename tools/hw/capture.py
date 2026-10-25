@@ -49,10 +49,13 @@ SOURCES = {"audio4c": {"device": "hw:AUDIO4c,0", "fmt": "S32_LE", "channels": 8,
 ENGINE_NO = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14}
 LSB = 1.0 / 32768
 CLIP_RUN = 3                      # consecutive samples at full scale: a flat top
-JUMP2 = 0.25                      # second difference beyond which a step is a dropout (calibrate: 3 x the clean maximum, rounded up)
+JUMP2 = 0.70                      # second difference beyond which a step is a dropout: 3 x the clean maximum, rounded up (calibrated
+                                  # 2026-10-25 on the FM-1's USB audio, SHAPES CSAW BASS C4: 0.230, the saw's own edges)
 GAP_RUN = 32                      # identical samples in a row (0.7 ms) inside a sounding passage: a gap
 ONSET_DB = 9.0                    # rise of the envelope that counts as an onset
-TOL_DB = 3.0                      # spectral score (RMS dB) a device recording may differ from its host render (calibrate: 2 x a known-good pair)
+TOL_DB = 1.2                      # spectral score (RMS dB) a recording may differ from its host render: 2 x a known-good pair + 0.5 (calibrated
+                                  # 2026-10-25, the same note: 0.34 dB over 142 bins, the fundamental 263.8 Hz on both). The AUDIO4c's analog path
+                                  # needs its own pair once its inputs are routed (hw/LOG.md)
 
 
 # ------------------------------------------------------------------------------------------------------------------ files ---

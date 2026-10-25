@@ -293,3 +293,77 @@ MALLET alone: 2,880 / 3,588 / 93.
   planner says. This firmware has the SHAPES regression (1.9 times 0.6.2 for RING BELL); 0.13.7 (linux-hw 48f63de) is the fix.
 - The unit's music: the project as saved (the driver's track edits are not saved by the unit); `~/fm1-hw/music-before-2026-10-24.json` on the PC holds
   the tracks as found, `tools/hw/fm1hw.py putback` writes them back.
+
+## 2026-10-25 (daytime)
+
+### Flash 12: the fix as built on the PC (linux-hw ecf2bed = 97184ee's firmware, 0.13.8)
+
+- 2026-10-25T16:57:09Z, package `orangecat-0.6.2-ecf2bed.fwsc` 610,529 B, SHA-256 2d53317a...; image 506,972 B (0.13.7's 510,256 less the 3,284 B of UI code the
+  merged globals had cost; BUILD.md, Thirteenth run, Part 1), RAM .data+.bss 93,528 B. Host tests: all 185 jobs (a first run failed fw_api_test, which still named
+  the old static: fixed in the test, and "CPU live takes", the wall-clock test, under four jobs; the second run of the whole suite passed).
+- Unit on `ORANGE CAT v0.6.2-ecf2be`. The SHAPES module of 0.13.7 at start 1 registered (state 7; the interface is unchanged by 0.13.8), the head's at start 0
+  refused (state 2). Pack: this build's. Tracks as found saved in `~/fm1-hw/music-before-2026-10-25.json`.
+
+### The audio capture (Part 4 of the daytime list)
+
+- **The AUDIO4c's inputs are silent to the PC**: all eight capture channels of `hw:AUDIO4c,0` (48 kHz, S32_LE) are exact digital zero, with a note playing (the FM-1's
+  own USB audio had it at peak 14,260 at the same time). Exact zero, not noise, means the analog inputs are not routed to the USB host channels: a routing
+  setting of the AUDIO4c (iConfig, from the Mac), not a gain. **For the user**: route analog inputs 1 and 2 to the USB host audio channels 1 and 2 (USB host port 1),
+  then gain so a SHAPES note at the FM-1's full volume peaks around -12 dBFS; `tools/hw/capture.py record 3 x.wav --source audio4c` then shows it.
+- Until then `tools/hw/capture.py` records the FM-1's own USB audio (`--source usb`, 44.1 kHz, the digital mix before the DAC): every capture today is from it.
+- **The AUDIO4c's MIDI out reaches the FM-1** (`AUDIO4c DIN` port, TRS MIDI in): ROUT 0, channels 1 to 4 play tracks 1 to 4 (notes on 5 to 16 do nothing).
+- **Calibration** (capture.py calibrate, SHAPES CSAW BASS, C4 held 2 s, on Flash 12): peak -5.5 dBFS, RMS -17.6 dBFS, no clipped run, no gap; the largest second
+  difference 0.230 (the saw's own edges): the dropout threshold JUMP2 = 0.70 (3 times, rounded up). Against the host render (build/host/hostsim 14 0, PRESET=1 NOTE=7):
+  the fundamental 263.8 Hz on both, spectral score 0.34 dB over 142 bins (60 Hz .. 12 kHz, the sustain 0.4 s after the onset, 1.4 s): the tolerance TOL_DB =
+  1.2 dB. The second difference cannot tell a dropout from a saw's edge in a heavier patch: on bright presets the late-render count is the dropout measure, and
+  capture.py's dropouts are read on smooth ones.
+
+### MACRO by model, Flash 12 (Part 2 of the daytime list; `fm1hw.py table --set macro`)
+
+One preset a model (fm1hw.py MACRO_MODELS), the four-note chord C3 E3 G3 B3 on every step, N tracks of it, 20 s at 120 BPM. Worst us / late in 20 s; voices: the most
+sounding at once (schema 3, sampled once a second); kills: voices the budget took (a clean steal, faded); sheds: the overload cut, **0 everywhere: SAFETY is off on this
+unit, as it is by default** (GLO > WEIGHTS 2, docs/AUDIO_PERFORMANCE.md; an untagged settings record reads as OFF), so an overload is heard as late renders.
+Units: MC_UNITS of eng_macro.c, of the budget of 18 (GLO BUDGET).
+
+| Model (preset) | units | N=1 | N=2 | N=3 | N=4 |
+|---|---|---|---|---|---|
+| VA (VA BASS, mono) | 3 | 912 / 0 | 1,323 / 0 | 1,736 / 0 | 2,143 / 0 |
+| WAVSHP (FOLD PLUCK) | 3 | 1,903 / 0, 4 v | 2,759 / 32, 6 v | 3,201 / 81 | 3,570 / 81 |
+| FM (FM BELL) | 8 | 1,583 / 0, 2 v | 2,476 / 0 | 3,303 / 214 | 4,171 / 3,202 |
+| GRAIN (FORMANT VOX, mono) | 4 | 950 / 0 | 1,348 / 0 | 1,719 / 0 | 2,137 / 0 |
+| ADDTV (ADDITIVE PAD) | 7 | 1,989 / 0, 2 v | 3,129 / 1,083 | 4,177 / 3,596 | 5,218 / 3,594 |
+| CHORD (CHORD MINOR, mono) | 5 | 827 / 0 | 1,154 / 0 | 1,491 / 0 | 1,833 / 0 |
+| SWARM (SWARM PAD) | 5 | 1,601 / 0, 3 v | 1,951 / 0 | 2,512 / 0 | 3,006 / 164 |
+| NOISE (NOISE WIND, mono) | 4 | 794 / 0 | 1,069 / 0 | 1,367 / 0 | 1,655 / 0 |
+| PARTCL (DUST RAIN, cap 1) | 6 | 931 / 0 | 1,353 / 0 | 1,776 / 0 | 2,198 / 0 |
+| STRING (PLUCKED STRING, cap 1) | 6 | 976 / 0 | 1,467 / 0 | 1,949 / 0 | 2,406 / 0 |
+| MODAL (MALLET) | 6 | **2,833 / 3,596, 3 v** | 3,513 / 3,595 | 4,604 / 3,592 | 5,670 / 3,352 |
+| KICK (KICK DEEP, mono) | 4 | 876 / 0 | 1,253 / 0 | 1,616 / 0 | 1,974 / 0 |
+| SNARE (mono) | 4 | 932 / 0 | 1,374 / 0 | 1,806 / 0 | 2,213 / 0 |
+| HI-HAT (mono) | 5 | 860 / 0 | 1,251 / 0 | 1,615 / 0 | 1,989 / 0 |
+| HARP (HARP) | 3 | 1,344 / 0, 4 v | 2,001 / 0 | 2,349 / 0 | 2,689 / 164, 6 v |
+
+Raw: `~/fm1-hw/table-ecf2bed-macro.json`. Ten models fit four tracks; SWARM and HARP touch the budget at four (164 late: one burst at a loop start); WAVSHP from two;
+FM from three; ADDTV from two; **MODAL is late on one track** with the three voices its 6 units admit. Per voice (the N=4 runs: worst - 460 us idle - 120 us a track,
+over the voices): MODAL about 950 us, ADDTV 860, FM 650, WAVSHP 440, SWARM 410, STRING 370, the others 180 to 320.
+
+### Flash 13: the Nightly as published (sonnet-work ceccc1c), Part 1
+
+- CI: run 40212043712 (sonnet-work ceccc1c, build and tests-gate green, 185 host-test jobs); the publish, run 40212959451 (publish_nightly=true: build, tests-gate
+  green, deployed; its last step, the live check, timed out at 10 minutes on the Pages cache with the old site, as on the earlier Nightly runs: the live site had the
+  new nightly.json minutes later). **Nightly label**: `sonnet-work · ceccc1c · v0.6.2-ceccc1 · 2026-10-25T16:58:44Z`. The site's `firmware/melodee-nightly.fwsc`,
+  `orangecat-nightly.pak` and `orangecat-shapes-nightly.ocm` are byte-identical to the run's artifact (fwsc SHA-256 f9c93ad6..., pak a4e45b19..., ocm b3fb9c91...).
+- 2026-10-25T17:30:50Z, the site's `melodee-nightly.fwsc` with `fm1hw.py flash`: unit on `ORANGE CAT v0.6.2-ceccc1`. Then `oc_install.mjs pack orangecat-nightly.pak`
+  (state 1, 40,232 B, hash 657ED950) and `oc_install.mjs module orangecat-shapes-nightly.ocm`: the planner put it at start 0 (over the head's refused module) and
+  erased the 0.13.7 module at start 1 after: one module in the area, start 0, state 7, version 1.0.0, 23,944 B, engine 14 from it.
+
+Heavy table, the shipped build (worst us / late in 20 s / load max %):
+
+| N | MACRO | SHAPES (module) | DRUM-X | MIX |
+|---|---|---|---|---|
+| 1 | 1,991 / 0 / 62 | 1,168 / 0 / 36 | 1,096 / 0 / 30 | 1,998 / 0 / 62 |
+| 2 | 3,110 / 1,099 / 88 | 1,864 / 0 / 60 | 1,648 / 0 / 46 | 2,304 / 0 / 63 |
+| 3 | 4,188 / 3,609 / 114 | 2,391 / 0 / 67 | 2,083 / 0 / 52 | 3,133 / 165 / 80 |
+| 4 | 5,169 / 3,620 / 140 | 2,686 / 164 / 68 | 2,369 / 0 / 53 | 4,692 / 3,592 / 118 |
+
+MALLET alone: 2,856 / 3,605 / 93. SHAPES as 0.13.7's and at or under 0.6.2 (1,254 / 0 at one track, 2,849 / 164 at four). The unit stays on this build.
