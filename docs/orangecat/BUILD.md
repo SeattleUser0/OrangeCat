@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.79  
+**Version:** 0.80  
 **Date:** October 26, 2026  
 **Tracks:** Orange Cat Specification v0.29
 
@@ -10,6 +10,9 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.80 (October 26, 2026, branch ui-design; no firmware change):** UI_DESIGN.md 0.2: every engine's picture drawn and DUB TAPE's
+  performance view (SPEC.md 9.3.2 on dub-tape); pictures live in their modules (or the asset pack), read in place, never in the image or
+  the arena (the owner's rule); the free parameter ids split between the knob macros and DUB TAPE. See "The new interface (design)".
 - **0.79 (October 26, 2026, branch ui-design from linux-hw a8df964; not on main, no firmware change):** the new interface designed (Session C):
   docs/orangecat/UI_DESIGN.md (the page model, the four knobs of every engine with an audit on every preset, the pictures and their budget, the
   scene format, notes and ties, drums, the web editor, the build plan), the screens in docs/orangecat/ui/, tests/ui_mockup.c, tests/ui_scene.h,
@@ -2789,6 +2792,9 @@ follows in later sessions. The document: docs/orangecat/UI_DESIGN.md.
 | The scene format and its interpreter (tests/ui_scene.h), four pictures (tests/ui_scenes.h): 171 to 244 B each, the interpreter about 3.3 KB (Thumb-2 -Os as a stand-in) | **Done** (section 3) |
 | The mockup renderer (tests/ui_mockup.c, tests/ui_mockup.py) on gfx.c: 28 screens and 3 sheets in docs/orangecat/ui/, lint 0 findings; pixels sent a frame measured through the screen diff | **Done** (Part 2) |
 | Per-note ties: not adopted (about 1.7 KB of RAM and a pool format change); per-note lengths through the recorded-note pool | **Recommended** (section 4) |
+| (0.80) The other eight engines' pictures and DUB TAPE's performance view (docs/orangecat/ui/engines.png, dub_tape.png), lint 0 | **Done** |
+| (0.80) Pictures in their modules, read in place; built-in engines' and DUB TAPE's in the asset pack until they are modules | **Proposed** (the owner's rule; the pack is the open part) |
+| (0.80) The free ids: DUB TAPE's recorded seven on P_JRES0..6, its setup in the project's effect tail, the macros on P_RESERVED33..36 | **Proposed** (to agree with DUB_TAPE_PLAN.md 7.2) |
 | The owner's picks: HOME A or B; the knob table | **Open** |
 | The build: Part 3's nine steps, step 1 (HOME's picture behind a switch) first | **Not started** |
 

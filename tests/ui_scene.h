@@ -4,9 +4,11 @@
  * "The pictures" and "The scene format"). Host only for now (tests/ui_mockup.c draws the mockups with it); written
  * against firmware/src/gfx.c's canvas and primitives so a later session can move it into firmware/src unchanged.
  *
- * A scene is DATA: a short byte stream an engine carries (a built-in engine in its engine_t, a loadable engine in its
- * pages descriptor, fw_pages.h version 3), interpreted by the firmware every frame. No engine code runs to draw it, and
- * it keeps no state: everything that moves is a BINDING from a SOURCE (a knob, the sound) to a field of a primitive.
+ * A scene is DATA: a short byte stream a module carries in its own image (its pages descriptor, fw_pages.h version 3; an
+ * engine or effect not yet a module: an entry in the asset pack), interpreted by the firmware every frame, read in place
+ * from flash. The firmware image holds no scene, and nothing is copied into RAM: the picture is there only while its module
+ * is (UI_DESIGN.md 0.2, the owner's rule). No engine code runs to draw it, and it keeps no state: everything that moves is
+ * a BINDING from a SOURCE (a knob, the sound) to a field of a primitive.
  *
  * The stream:
  *   byte 0  SC_VERSION (1)
@@ -61,6 +63,7 @@
  *
  * Revisions:
  *   (Orange Cat 0.15 design, branch ui-design) first version.
+ *   (second pass) scenes live in modules (or the asset pack), never in the image; an effect's sources (SCENE_DUB, ui_scenes.h).
  */
 #pragma once
 
