@@ -171,7 +171,9 @@ enum {
     F_INT, F_PCT, F_BIPCT, F_TIME, F_LFOHZ, F_CUTOFF, F_DB, F_SEMI, F_ENUM, F_BPM, F_NOTE,
     F_ONOFF, F_OCT, F_STEPS,
     F_OFS, F_FMNOTE, F_FMFRQ,   /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
-    F_TONE                      /* an FX slot's TONE: DARK (a high cut) .. FULL .. THIN (a low cut), fx_tone_hz */
+    F_TONE,                     /* an FX slot's TONE: DARK (a high cut) .. FULL .. THIN (a low cut), fx_tone_hz */
+    F_PANLR, F_ST16             /* (Orange Cat 0.14.2) a DRUM-X lane's PAN (C, L50, R100) and TUNE (3/16 semitone a step, +7.5 st);
+                                 * not a module panel's (fw_pages.h checks up to F_TONE) */
 };
 
 typedef struct {

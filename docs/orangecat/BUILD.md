@@ -1,14 +1,19 @@
 # Orange Cat Build Document
 
-**Version:** 0.78  
+**Version:** 0.79  
 **Date:** October 26, 2026  
-**Tracks:** Orange Cat Specification v0.29
+**Tracks:** Orange Cat Specification v0.30
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
 Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
+
+- **0.79 (October 26, 2026, branch drum-kits from linux-hw a8df964; not on main, not released, not on the unit):** DRUM-X drum kits after Skiff 2.0
+  (Session E): each lane's TUNE, DECAY, PAN and Jiant's lane sounds (LAYER, PUNCH, ATK+, BEND), the kit's TONE, FDBK, HANDS and DUCK; the kit saved
+  whole as a user preset of engine 9 (the record's extension, versioned; presets of before load as they played); the LANES pages; commands 128 and 129
+  through the extension (command 0); the library's kind 5. See "DRUM-X drum kits (0.14.2, Session E)".
 
 - **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
   through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
@@ -2838,3 +2843,113 @@ such as MACRO's MODEL) that would push the sum of every track in use's protected
 of 18, MALLET fits twice with nothing else). Withdrawn on the owner's word before any flash: voice admission and stealing stay as they are until the
 two cores' measured split is known (the renderer instrumentation, next). The design and its tests are in e104e4d (ui.c eng_admit_parts,
 tests/ui_test.c test_admission_parts) for when it is wanted.
+
+## DRUM-X drum kits (0.14.2, Session E, branch drum-kits, October 26, 2026)
+
+From linux-hw a8df964, in a worktree outside ~/OrangeCat; no hardware touched, nothing to main, no Nightly. The owner's words: "they did a big update
+on drums and being able to set them up and tune them with L/C/R as well as volume on each piece. We'll need to follow Skiff's lead on this one."
+Skiff 2.0 (illuminus5/skiff b03d98a) has per-lane TUNE, DECAY (P_LTUNE*, P_LDECAY*) and PAN (P_LPAN*, voice.c lpan_render) as track parameters;
+Orange Cat cannot (P_COUNT is 124 of the 127 the record and the protocol allow), so its kit is a structure of its own. Session A measures it on the
+unit, Session C draws its page, Session D takes the editor's table into the new app.
+
+### What was built
+
+| Part | What | Where |
+|---|---|---|
+| 1, values | per lane LEVEL (P_LN*, as before), TUNE (-64..63, 3/16 st: +-12 st), DECAY (-64..63), PAN (-64..63), LAYER 0..15 (+ its FDBK), PUNCH 0..15, ATK+ 0..15, BEND -12..12 st; per kit base (the factory kit's patches), TONE 0..15, FDBK 0..15, HANDS 0..15, DUCK 0..100 | eng_drumx.c `dxk[]`, dxk_rec.h `dxk_t` |
+| 1, record | 56 B: 'X', version 1, length 52, CRC-8, body; in `cz_extra` (46) and `packed` after np (10); the record's `ver` unchanged | dxk_rec.h, upreset.c `up_kit_put` / `up_kit_get` / `up_kit_load` |
+| 1, migration | a record with no kit (0.9.0 .. 0.14.1 stored none, loaded preset 0) or one that does not read: factory kit 0, on 0 (as it played); saved again: expanded | upreset.c `up_kit_load` |
+| 1, projects | format unchanged: a track on a user preset loads its kit (after the IRQ, the bank may be read from flash), else the factory kit | project.c |
+| 1, undo | the kit in the sound's undo level, a union with DRUM's patch (`undo_t` 1,804 B with both side by side: over the cache RAM's 1,792; the union keeps it at 1,744) | ui.c |
+| 2, voice | the hit carries the lane's LAYER, the kit's TONE (BP only on the metal lanes) and HANDS (dx_run's arguments as they were); TUNE, DECAY, BEND into dx_run's tune / decay; PUNCH (dxe_boost, Jiant's punch_gain by age), ATK+ (the amplitude ramp) | drumx_voice.c, eng_drumx.c |
+| 2, pan | a panned lane adds what the far side loses into the part's side buffers (arena, 256 B a DRUM-X part); dxe_post makes the kit's two sides, each through the bus; mix_lanes: DIST, the FX mute and solo on each side, the track's LEVEL and PAN (AUTO PAN too); SPREAD off on such a kit; the sends take the sides' mean | eng_drumx.c `dxe_pan_out`, `dxe_post_sides`; mix.c `mix_lanes` |
+| 2, DUCK | Jiant's duck_block as a kit's value: a kick (not muted) of a kit with DUCK sets the depth; the parts that are not drum tracks ramped down (mix_duck), Jiant's release (208 ms) | eng_drumx.c `dxe_duck_block`, mix.c |
+| 3, pages | DRUM-X's LANES (LEVEL TUNE DECAY PAN), LANES 2 (LAYER PUNCH ATK+ BEND), LANES 3 (TONE FDBK HANDS DUCK): scope SC_DXLANE (after SC_MOD), the lane ui.lane (a lane key, or a key struck on the page); PAN's centre detent; F_PANLR (C L50 R100), F_ST16 | params.c `dxl_desc`, `dxl_put`; ui_input.c |
+| 3, OCT+ | ACC + OCT+ on a DRUM-X grid: every lane on (ALL LANES ON) | ui_input.c, eng_drumx.c `dxe_mute_all_on` |
+| 3, lane copy | the grid's sheet: Copy lane, Paste lane (the lane's hits and accents over the phrase; one undo) | seq_tools.c, ui_popup.c `SHEET_GRID` |
+| 4, editor | command 0 the extension (128 + n); 128 KIT_GET, 129 KIT_PUT; LIBRARY kind 5; the Sound tab's kit table | editor.c, editor_library.c, web/editor.html |
+
+Of Jiant's list (eng_drumx.c's header): LAYER, PUNCH, ATK+, BEND are a lane's; TONE, HANDS, DUCK the kit's; IMAGE's place is taken by PAN; the
+SENDs per sound, group mutes, TOUCH and X-MOD are not built (X-MOD's four bytes fit the record's room to grow: 7 bytes left at np 127).
+
+**CI.** Run 40297727741 on ada31fd (no `.ci_quick`, the full suite): build green, tests-gate green, PASSED 190 jobs; its sizes equal the PC's below
+(image 518,816 B, RAM 93,864 B, pool 177,792 B, arena 90,528 B). Earlier `.ci_quick` runs for the sizes: 40294115918 (120e533). The PC ran the
+CI test step (tools/hw/ci_step.py test) green on 6e5f77f as well. Commits after the run change only this file.
+
+### The numbers (the PC's build of the head, CI's toolchain; linux-hw a8df964 in brackets)
+
+| | drum-kits | linux-hw |
+|---|---|---|
+| image | 518,816 B (+9,540) | 509,276 B |
+| RAM .data+.bss | 93,864 B (+144) | 93,720 B |
+| pool | 177,792 B (+244: the four kits) | 177,548 B |
+| audio arena available | 90,528 B (-1,440) | 91,968 B |
+| a DRUM-X part (arena) | 964 B (+324: side buffers 256, lane state 64) | 640 B |
+
+The image's growth by symbol (`nm -S` against linux-hw): ed_handle +1,014 (KIT_GET, KIT_PUT inlined), ui_input +652, draw_page +638, edit_param +450,
+page_desc +426 (the pages and their two formats), mix_lanes +484, dxe_render +462, the lane copy +554, dxk_unpack +238, dx_hands_step +222 (in the
+image now). The new statics are one struct a feature (`dxl`, `dxe_duck`, `lane_clip`; ADDING_AN_ENGINE.md section 4): separate ones cost 384 B more.
+
+**Golden renders.** The 288 renders against Jiant's drumx_voice.c equal; regress's 397 golden renders unchanged (every DRUM-X preset among them);
+drumx_test 12: the nine factory kits, every lane, expanded with every value at its default, render as the factory kit sample for sample.
+
+**Cost.** Host (drumx_test 17: a busy kit, all eight lanes every 16 steps and hats between, through mix_part; ns per sample, the fastest of seven,
+five alternating runs against linux-hw's build of the same test): factory kit 128.8 .. 132.1 on linux-hw, 130.3 .. 133.1 here (the same within the
+noise); every lane panned and tuned +8 to +9 %; every value in use (pans, tunes, decays, LAYER 7, PUNCH 9, ATK+ 3, BENDs, TONE, HANDS, DUCK) +24 to
++29 %. Target loops (tests/target_budget.py, the PC's build): dx_run 329 against its line of 324 (+1.5 %, inside the +10 %; the line kept: HANDS and
+TONE are no longer the constant 0, and the noise loops lost two registers to it; carrying them in the hit, and the BP lane chosen by the engine, took
+it from 338 to 329), dx_layer 61, dxe_render 13, dxe_post 31 unchanged; new lines dx_hands_step 35, dx_tone_bp 29, dxe_boost 8, dxe_pan_out 16,
+dxe_bus 31, dxe_post_sides 8, mix_lanes 85, mix_duck 20.
+
+### Tests added
+
+- tests/drumx_test.c 12 (defaults are the old fixed values, 72 hits), 13 (each lane value moves its lane only; TUNE, DECAY, ATK+, PUNCH, BEND do what
+  they say), 14 (PAN: hard left silent right and unchanged left, half right halves the left, other lanes at the centre, the track's PAN after the lane's,
+  DIST keeps the sides, SPREAD off, no pan: the old path), 15 (DUCK: 20 dB down or more, back, DUCK 30 shallower, a muted kick and a drum track not
+  ducked), 16 (the record: round trip byte for byte, refused mark / version / CRC / short body / out of range, a longer body read as far as known, the
+  vector the web test shares), 17 (the cost, printed).
+- tests/unified_presets_test.c drumx_kits: a factory kit saved is an editable copy; a kit saved, a power cycle, loaded value for value and re-saved byte
+  for byte; a record of before (909 CLUB's knobs, no kit) plays factory kit 0 sample for sample as 0.14.1's load did, saved again expanded; a damaged
+  kit loads as one of before; undo and redo of a kit's load; a project on a user kit, a project on a factory kit.
+- tests/backup_test.c drumx_kit_archive: a 0.14.1 bank backed up, wiped, restored: byte for byte, the preset plays as before; a kit of one's own
+  through a backup.
+- tests/ui_test.c test_drumx_kits: the lane pages on DRUM-X only, a key picks its lane, the cards (SD LV, TUNE), every knob of the three pages,
+  PAN's detent and its C L50 R100, SAVE > USER and its load, ACC + OCT+, Copy lane / Paste lane and its undo; test_drumx's LANES check moved to the
+  new pages.
+- tests/editor_test.c kit_protocol: KIT_GET of a factory kit and of another engine's track, KIT_PUT and its read back, out of range, a wrong length,
+  an unknown extension number, command 0 alone; LIBRARY kind 5 get, put, load.
+- web/test_web.mjs kit: the extension's framing, the body's layout against editor.c, the mock's factory LAYERs against drumx_voice.c, KIT_GET /
+  KIT_PUT round trip and refusals, the record's vector against drumx_test.c's, LIBRARY kind 5 through the mock.
+- The editor's Sound tab driven in headless Chrome against the mock (not a repository test): the table's eight rows and nine columns, DRUM LEVELS
+  hidden, a TUNE typed reaching the device.
+
+### Decided here
+
+1. **Projects unchanged**: a project names the preset, so a kit edited and not saved to SAVE > USER is lost at a project load (the GUIDE says so).
+   Keeping the kit in the project is a project format change (an OCJ3 record field; the model is 0.13.2's).
+2. **The patches are not in the kit's record**: the record holds which factory kit's sounds the lanes play (its base), not the 88 bytes of patches
+   (the record's spare room is 63 bytes). A sound editor needs a record of its own.
+3. **The migration keeps the old sound, not the old intent**: DRUM-X user presets before 0.14.2 never stored the kit (up_load_to set the preset to 0),
+   so they always played the DRUM-X kit; they still do. Guessing the kit from the E values would change their sound.
+4. **The record's version is not bumped**: the extension carries its own, so older firmware still plays such a preset (kit 0) and keeps its kit.
+5. **Kit-wide values on a third page** (LANES 3), not on LANES 2 (four knobs, seven sound values).
+6. **ACC + OCT+** is "every lane on" (Skiff: OCT+ in the EDIT layer); ACC is Orange Cat's mute modifier on the grid.
+7. **Lane copy and paste replace** the target lane's hits and accents from step 1 over the copied phrase (Skiff pastes at the cursor into what is
+   there); it is in the grid's sheet, no new button.
+8. **Commands past 127** go through command 0 + n (no byte above 127); this file allocates them: 128, 129 taken, 130 next.
+9. **The sends of a panned kit** take the mean of its two sides (a lane hard left sends at half its level); a kit at the centre sends as before.
+10. **SPREAD is off** on a kit with a lane panned.
+11. **PUNCH and ATK+ are 0..15** (nibbles in the record); PUNCH 15 is Jiant's 100, ATK+ 8 Jiant's 48 blocks.
+
+### For Session A (the unit)
+
+1. The DRUM-X four-track table (`fm1hw.py table`, the usual columns with late, USB holes and DAC silences) twice: the factory kits as before, then with
+   pan and tune in use on every lane (LANES: every PAN off the centre, every TUNE moved) on all four tracks; then one track with every value in use
+   (PUNCH, ATK+, LAYER, BEND, TONE, HANDS, DUCK). Against the last DRUM-X table of linux-hw: the factory row within the noise, the panned row about +9 %.
+2. A kit saved and reloaded on the unit: change every lane on the three pages, SAVE > USER, power off and on, load it, and compare the pages (and
+   KIT_GET through the editor) with what was set.
+3. An old backup restored: a backup made on linux-hw with a DRUM-X user preset in it (made from 909 CLUB), restored on this build: the preset plays
+   the DRUM-X kit with 909 CLUB's knobs, as on linux-hw; saved again it keeps its kit. And the reverse: a preset saved with a kit here, then the
+   firmware of linux-hw: it loads (kit 0) and a backup of it still holds the kit's bytes.
+4. By ear: a lane hard left and hard right on the speaker and headphones (L/C/R), the centre detent felt on KNOB 4, DUCK on a bass track.
+

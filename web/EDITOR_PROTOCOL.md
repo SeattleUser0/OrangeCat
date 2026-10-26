@@ -451,10 +451,48 @@ own table (web/editor.html does, and web/test_web.mjs compares it with the firmw
 | P_E7 | DRV | 0..127 | 0 | soft clip of the kit's sum |
 
 Presets 0..8: DRUM-X, 909 CLUB, 808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS, TECHNO RAW, BREAKS; the preset number is
-the kit. The eight lane levels are `P_LN0..P_LN7` as for DRUM (v5), and a DRUM-X track is a drum track for the step grid: the hits
+the kit (0.14.2: the kit a track plays and its lane values: commands 128 and 129, below). The eight lane levels are `P_LN0..P_LN7` as for DRUM (v5), and a DRUM-X track is a drum track for the step grid: the hits
 of a step (v5) play their General MIDI notes on it, and `UP_GET` / `UP_PUT` kind 1 (a drum grid) is allowed for it. The editor's
 drum pages (the grid and the levels) show for engines 9 and 10. A firmware without DRUM-X reports engine 9 as "-" and plays a
 track that holds it silent; an old sound of PHYS (engine 9, not a drum) now plays as a DRUM-X kit.
+
+## Orange Cat: commands past 127, and DRUM-X kits (commands 0, 128, 129, firmware 0.14.2)
+
+**Command 0 is the extension.** Every data byte is 7 bit, so `<cmd>` stops at 127 (`PANEL`). A request
+`F0 7D 46 4C 00 <n> <args...> F7` is command 128 + n; its reply is `F0 7D 46 4C 00 <n> <reply...> F7`, the same 0 and n. A
+firmware before 0.14.2 gives no reply to command 0 (it was never a command); a number this firmware does not know gets no reply
+either. Commands past 127 are allocated from 128 up in this file: the next free is 130.
+
+| Command | Request | Reply |
+|---|---|---|
+| 0 EXT | n (1 byte), then command 128 + n's arguments | 0, n, then command 128 + n's reply; no n, an unknown n, or a wrong length for it: no reply |
+| 128 KIT_GET | track (exactly one byte) | track, rc (0; 1 the track is not DRUM-X, or no such track: nothing more), on (0 the factory kit as it is, 1 an edited kit), then the kit's body (below, 77 bytes) |
+| 129 KIT_PUT | track, the kit's body (77 bytes; any other length: no reply) | track, rc (0 written; 1 the track is not DRUM-X; 2 a value out of range: nothing changed) |
+
+**A kit's body** (eng_drumx.c `dxk_t`, firmware/src/dxk_rec.h), each value one byte, the signed ones + 64:
+
+| Bytes | Values |
+|---|---|
+| 0 | base: the factory kit (0..8, the preset numbers) whose sounds the lanes play |
+| 1, 2 | TONE (its BP on the hats, the rim and the bell, 0..15), FDBK (every lane's oscillator fed back, 0..15) |
+| 3, 4 | HANDS (the clap's, 0..15), DUCK (0..100: the kick takes the parts that are not drum tracks down) |
+| 5 + 9 l .. | lane l (KICK SNARE CLAP HAT CL HAT OP TOM RIM BELL): LEVEL (0..127, the track's P_LN0 + l), TUNE + 64 (-64..63, 3/16 semitone a step: +-12 st), DECAY + 64 (-64..63), PAN + 64 (-64..63, 0 the centre, the track PAN's law), LAYER (0..15), its FDBK (0..15), PUNCH (0..15), ATK+ (0..15), BEND + 64 (-12..12 semitones over a step) |
+
+KIT_GET of a factory kit (on 0) gives it as a kit: base the preset, the factory LAYERs, every other value 0. KIT_PUT makes the kit an
+edited one (on 1) whatever its values, and writes the eight LEVELs into P_LN0..P_LN7 as SET would; it works while playing, as SET
+does. It is not stored: SAVE > USER (or `UP_STORE`) saves the kit into the library with the sound (below). The unit sends no push when a
+kit value changes on its pages; the editor reads the kit again (KIT_GET) whenever it reads the sound (`DUMP`).
+
+**In the library.** A user preset of engine 9 holds its kit since 0.14.2 (docs/orangecat/SPEC.md, "Drum kits"): the record stays the
+238-byte `up_rec_t` of the same version (4 or 5); its kit is 56 bytes in the bytes that engine 10 uses for DRUM's patch (`cz_extra`, 46)
+and after its values in `packed` (10): `'X'`, version 1, the body's length 52, a CRC-8, then the body (base, TONE | FDBK << 4, HANDS,
+DUCK, then eight bytes each of TUNE, DECAY, PAN, the LAYER byte, PUNCH | ATK+ << 4, BEND, signed as bytes). The preset files (`F0 7D 4D
+4C 01`) and the backup carry the record whole, so they carry the kit; `LIBRARY` (command 80) carries it as its native kind 5 (the 56
+bytes). `UP_GET` / `UP_PUT` carry the values and no kit: a preset put with `UP_PUT` plays factory kit 0, as every preset of engine 9 did
+before 0.14.2.
+
+The web editor's Sound tab shows a DRUM-X track's kit as a table (`kitGroup`, the lanes as rows) when the unit answers KIT_GET, and the
+DRUM LEVELS rows as before when it does not (a firmware before 0.14.2).
 
 ## Orange Cat: the asset pack (commands 115-119, firmware 0.8.0; no library banks taken since 0.9.1)
 
@@ -1086,7 +1124,8 @@ Request header: `operation slotLo slotHi`. Every reply begins
 | 6 Rename | printable name bytes without a terminator | none |
 
 Native kinds: 0 parameters only, 1 DX7 VMEM (128 bytes), 2 CZ-1 (144 bytes), 3 Prophet
-(138 bytes, including model/size/command/address metadata), 4 drum sound offsets (54 bytes).
+(138 bytes, including model/size/command/address metadata), 4 drum sound offsets (54 bytes), (Orange Cat 0.14.2) 5 a DRUM-X kit
+(engine 9: the kit's 56-byte record, firmware/src/dxk_rec.h; a preset of before 0.14.2 has no kit and gets kind 0: it plays factory kit 0).
 PUT kind bit 5 preserves native name bytes while assigning the short browser name.
 PUT kind bit 6 requests default Felucca controls for an imported native synth voice; otherwise
 its common sound controls come from the supplied parameters. Names accept up to 20 bytes for

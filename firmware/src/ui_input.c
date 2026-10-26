@@ -1368,6 +1368,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         motion_unguard(f);return;
     }
     if((MELODEE_P5 && pg->scope == SC_P5STORE)){p5_store_slot=(int16_t)v;return;}
+    if (pg->scope == SC_DXLANE && pg->id[slot] != DXL_LEVEL) {   /* (0.14.2) a copy of the kit's value: written back there (LEVEL: p[]'s, below) */
+        dxl_put(song.sel % NTRK, ui.lane, pg->id[slot], v);
+        return;
+    }
     if (MELODEE_CZ && pg->scope == SC_CZ1) {            /* (Orange Cat: MELODEE_CZ) (a copy of the tone's value: written back there) */
         uint8_t raw[CZ_BYTES], old[MO_NATIVE_N];
         uint32_t tr = song.sel % NTRK, f = motion_guard();
@@ -2601,6 +2605,14 @@ static void ui_input(void)
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]), bit = b == B_OCTUP ? 2u : 1u;
             if (edit_oct & (1u << id))
                 break;
+            if (b == B_OCTUP && MELODEE_DRUMX && grid_on() && TSEL->eng_req == ENGI_DRUMX && black_held(GK_ACC)) {   /* (0.14.2) ACC + OCT+ on
+                                                                 * the grid: every lane on at once (Skiff 2.0.1: a build-up's release; ACC and
+                                                                 * a lane key mute them one by one) */
+                ui_message(dxe_mute_all_on(song.sel) ? "ALL LANES ON" : "NO LANE MUTED");
+                oct_eat |= (uint8_t)bit;
+                ui.force = 1;
+                break;
+            }
             if (pop.on == POP_PICK) {                   /* a picker: either closes it (ui_popup.c) */
                 pop_close();
                 oct_eat |= (uint8_t)bit;
@@ -2701,6 +2713,11 @@ static void ui_input(void)
     if (notes && slice_page_on())                       /* SLICES: a key picks the slice it plays */
         slice_keys_pick(notes);
 #endif
+    if (notes && !ui.home && !ui.menu && cur_page()->scope == SC_DXLANE && TSEL->eng_req == ENGI_DRUMX) {   /* (0.14.2) DRUM-X's LANES: a key
+                                                         * struck picks its lane (the lowest of those struck), and plays it */
+        uint32_t k = (uint32_t)__builtin_ctz(notes);
+        drum_pick_lane(dxe_lane((uint32_t)ENG_DRUMX.keys(TSEL, k)));
+    }
     pattern_keys(bank_notes);
     if (pattern_keys_on() || ui.pat_key) {
         seq_midi_events(0);

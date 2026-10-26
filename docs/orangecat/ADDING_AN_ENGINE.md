@@ -1,6 +1,6 @@
 # Orange Cat: adding an engine
 
-**Version:** 0.4
+**Version:** 0.5
 **Date:** October 26, 2026
 **Applies to:** firmware 0.13.7 and later (branches linux-hw and sonnet-work), built in or as a loadable module.
 
@@ -9,6 +9,7 @@ the unit's, measured in the first session on a real FM-1 (hw/LOG.md; docs/orange
 measured"); where a number is the host's or the build's, it says so. A checklist closes the document.
 
 Revisions:
+- 0.5 (branch drum-kits): an engine may extend the user preset record (section 6a): where, the rule, the versioning; DRUM-X's kit the example.
 - 0.4 (branch linux-hw): a limit of the hot-set rule: what a module pays to reach its set (the Prophet's +3 to +9 %, explained from its disassembly).
 - 0.3 (branch engine-candidates): Stage 0, the feasibility gate (ENGINE_CANDIDATES.md); the firmware's own hot set (SINE, TANH_Q15) for every engine.
 - 0.2: one struct for new RAM state (the 0.13.7 image growth); MACRO's per-model costs (BUILD.md, Thirteenth run).
@@ -151,6 +152,35 @@ budget admission yet (BUILD.md, Fourth run: admission is voice units and the are
 - Every editor command is documented in web/EDITOR_PROTOCOL.md (tools/check_editor_protocol.py fails the tests otherwise).
 - The UI's screens are rendered on the host in every palette (tests/run_tests.sh, ui_renders): no clipped or overlapping text.
 
+## 6a. Storing more than the eight edit values: extending the user preset record (0.14.2)
+
+A user preset (upreset.c `up_rec_t`, 238 bytes; 206 of them on disk) holds the track's values (`packed`, one byte each, `np` of them) and the
+pattern. An engine whose sound needs more than its eight edit values and the common ones (a kit, a patch) may keep the rest in the record's
+spare bytes, as DRUM (engine 10, its patch) and DRUM-X (engine 9, its kit) do:
+
+- **Where.** `cz_extra` (46 bytes, on disk) and `packed` after the `np` values (144 - np bytes; at least 17 while `P_COUNT` < 128, the
+  record's limit). That is 63 bytes at the least, and the space belongs to the record's engine: the bytes mean what that engine says, so two
+  engines never share them. More than 63 bytes does not fit: it needs a record of its own (a new bank shape, a lib_group.c migration as 0.9.1's).
+- **The rule: self-describing, not a new record version.** Keep the record's own `ver` (UP_VER, UP_VER_GRID) unless the values themselves
+  change meaning. A firmware that does not know the extension then reads the preset as it always did (its values) and leaves the bytes as they
+  are; a backup, a preset file (`F0 7D 4D 4C 01`) and a restore carry them whole. A new `ver` makes the record OLD FORMAT on older firmware
+  (shown, protected, unplayable): choose that only when the old reading would be wrong, not merely incomplete.
+- **The versioning.** The extension starts with a mark byte (DRUM-X: 'X'), a version, the body's length and a check (DRUM-X: CRC-8,
+  polynomial 7). A reader takes the version it knows and refuses another; a later firmware adds fields at the end of the body under the same
+  version and raises the length (a reader takes the fields it knows: room to grow without a migration); a change of meaning takes a new
+  version. Validate every field's range on load: a record can come from a file.
+- **The migration** is at load, never a rewrite at boot: a record with no extension (or one that does not read) loads as that engine's
+  firmware of before played it, and holds the extension the next time it is saved. Write down what the old firmware actually stored and
+  loaded (DRUM-X's presets of before stored no kit at all and loaded preset 0) and test that the old record renders as before.
+- **Code.** The codec in a header the host harness can include without the engines (DRUM-X: firmware/src/dxk_rec.h, used by eng_drumx.c and
+  upreset.c); `up_store_to` writes it, `up_load_to` reads it with the audio IRQ off, the project load reads it after the IRQ is back (a bank
+  may come from flash); the editor's `LIBRARY` command (80) carries it as a native kind of its own (DRUM 4, DRUM-X 5).
+- **What a project keeps.** The project format is not extended by this: a project names the preset (t->preset, t->user). An engine that
+  needs an edited sound kept with the project needs a project format change (oc_project.c, as 0.13.2's).
+- **Tests.** The record round-trips byte for byte across a power cycle; a record of before loads to the same render; a backup from before
+  restores and plays the same; a damaged extension loads as one of before (unified_presets_test.c drumx_kits, backup_test.c
+  drumx_kit_archive, drumx_test.c 16).
+
 ## 7. Packaging
 
 - **Built in:** the switch in tools/orangecat_engines.sh; the image's sizes in the run's notices; nothing else ships.
@@ -188,5 +218,7 @@ An engine enters the repository when every line holds:
         every editor command documented.
 11. [ ] A module fits its start's sectors, has no `.data` or `.bss`, and its hot set lies in its code or the pack.
 12. [ ] Licence identifier, notices and attribution as AGENTS.md says; the original named with its commit.
-13. [ ] BUILD.md (what was done, the numbers), SPEC.md (what it does), GUIDE.md (how to play it, its limits), CHANGES.md, hw/LOG.md (every
+13. [ ] (An engine that stores more than its values in a user preset) the record's extension as section 6a says: self-describing, versioned,
+        validated, migrated at load, tested against records of before.
+14. [ ] BUILD.md (what was done, the numbers), SPEC.md (what it does), GUIDE.md (how to play it, its limits), CHANGES.md, hw/LOG.md (every
         flash and table) current.

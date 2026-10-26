@@ -78,6 +78,17 @@ dx_run 324
 dx_layer 61
 dxe_render 13
 dxe_post 31
+# (Orange Cat 0.14.2) the drum kits, measured on the PC's build of branch drum-kits (CI's toolchain, byte for byte): the loops a kit's values
+# bring, each a function of its own, so the lines above stay. dx_hands_step is in the image now (HANDS is the kit's). dx_run measures 329
+# against its 324: HANDS and TONE are no longer the constant 0 (the registers of its noise loops; +1.5 %, the line kept).
+dx_hands_step 35
+dx_tone_bp 29
+dxe_boost 8
+dxe_pan_out 16
+dxe_bus 31
+dxe_post_sides 8
+mix_lanes 85
+mix_duck 20
 # (Orange Cat 0.13.8) MACRO's render and its models' sample loops (tests/target_budget.py MACRO), from the local build of linux-hw df3d4f5
 mc_render 278
 mc_model_render 0

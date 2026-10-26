@@ -12,15 +12,18 @@
  *     one global kit (dx_kit) and found the lane by the pointer; the lane's LAYER byte comes from the same row
  *     (Jiant's dx_lay, global). The arithmetic of every lane is the same, sample for sample (tests/drumx_test.c checks
  *     it against a render of Jiant's file, tests/drumx_ref.txt).
- *   - dx_tone (TONE's BP and FEEDBK) and dx_hands (CLAP's HANDS) were the kit's own, edited on pages Orange Cat does
- *     not have; here they are constants 0 (off, the kit as it was before JIANT 0.6.36 and 0.7.9), so the compiler
- *     leaves those branches out. The code is still here for the day the kit editor is.
+ *   - dx_tone (TONE's BP and FEEDBK) and dx_hands (CLAP's HANDS) were the kit's own, edited on pages Orange Cat did
+ *     not have; until 0.14.2 they were constants 0 (off, the kit as it was before JIANT 0.6.36 and 0.7.9). (0.14.2) They
+ *     are the hit's now (dx_voice_t tone, hands), from the track's kit (eng_drumx.c dxk_t), and so is each lane's LAYER byte
+ *     (layer); 0 is still off, sample for sample.
  *   - the global kit, DX_KIT_INIT, DX_KIT_DEF and DX_LAY_DEF (the one editable kit) are not here; DX_KITS holds the nine
  *     factory kits, as Jiant's, with their SENDs (not used here: IMAGE and SEND buses are not ported).
  *   - the lane enum DV_* is eng_drum.c's (the same lanes, the same order).
  */
 /* Revisions:
  * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ * (Orange Cat 0.14.2) drum kits: the hit carries the lane's LAYER byte, the kit's TONE and HANDS (were the kit row's and constants 0); TONE's BP in a
+ *   function of its own (dx_tone_bp: dx_run's loops as they were). Every value at the kit's own: the renders of before, sample for sample (tests/drumx_ref.txt)
  */
 /* A DRUM-X sound (a lane of a kit) is dx_lane_t, 11 bytes: the mode and five values for each of its patches A and B:
  *   PITCH  the oscillator, MIDI 24..119 (33 Hz .. 7.9 kHz), 3/4 semitone a step
@@ -58,8 +61,12 @@ typedef struct {                                         /* a hit */
     int32_t b1, b2;                                      /* (0.6.36) TONE's band-pass state */
     uint32_t ph4;                                        /* (0.6.49) LAYER's oscillator phase */
     uint8_t live, trig, choke;
+    uint8_t layer;                                       /* (Orange Cat 0.14.2) the lane's LAYER byte (Jiant's dx_lay[ln]; was the
+                                                          * kit row's), set by the engine before each dx_run */
     uint16_t hpos, hsum, hseed;                          /* (0.7.9) CLAP's HANDS: half-rate samples since the hit, the
                                                           * hands come in so far (Q12, over the hit's own), this hit's dice */
+    uint8_t tone, hands;                                 /* (Orange Cat 0.14.2) the kit's TONE (its BP nibble on DX_TONE_METAL's lanes only:
+                                                          * 0 on the others) and HANDS (were constants 0), as layer */
 } dx_voice_t;
 
 /* the oscillator's modulator ratios (Q12), by wave */
@@ -145,12 +152,12 @@ static DX_XIP void dx_layer(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t *php
 /* (JIANT 0.6.36) EDIT > TONE, the kit's (project.c keeps it in the kit's reserved byte 7: 0 in older projects, off):
  * low nibble BP, a band-pass on the metal sounds (the hats, the rim, the cowbell), 1..15 its centre ~1.5 .. 9 kHz;
  * high nibble FEEDBK, every sound's oscillator fed back into its own phase (1..15: warm, growl, grit, noise) */
-static const uint8_t dx_tone = 0;   /* (Orange Cat: constant, no TONE page; Jiant: the kit's byte) */
+/* (Orange Cat 0.14.2: the hit's tone, the kit's TONE (eng_drumx.c dxk_t); was the constant 0) */
 /* (JIANT 0.7.9) KIT 3 > HANDS, the kit's (project.c keeps it in the high nibble of the kit's reserved byte 0, the
  * mute groups' low nibble: 0 in older projects, off): 1..15 more hands on the CLAP, each the hit's noise struck again
  * at a moment of its own (~3 .. 45 ms after it, the dice thrown again each hit: no tempo in it) and at a level of its
  * own, then dying as the hit does: a few people clapping, then a crowd. 0: the clap as it was */
-static const uint8_t dx_hands = 0;  /* (Orange Cat: constant, no HANDS page; Jiant: the kit's nibble) */
+/* (Orange Cat 0.14.2: the hit's hands, the kit's HANDS (eng_drumx.c dxk_t); was the constant 0) */
 /* (JIANT 0.6.49) EDIT > LAYER, each sound's (the kit's: project.c keeps it, FUNC's 'D' 'L' block; 0 before it): low
  * nibble LAYER, a second oscillator (a triangle) at sqrt 2 of the pitch (the most out of tune with it there is) frequency-modulated
  * by the first, more as it goes up (1..15: a metal edge .. a clang with no note: the sound melts into the rhythm and
@@ -158,15 +165,16 @@ static const uint8_t dx_hands = 0;  /* (Orange Cat: constant, no HANDS page; Jia
 #define DX_LAY_L(x) ((uint32_t)(x) & 15u)
 #define DX_LAY_FB(x) ((uint32_t)(x) >> 4)
 #define DX_TONE_BP(t) ((uint32_t)(t) & 15u)
+#define DX_TONE_METAL(ln) ((ln) == DV_HATC || (ln) == DV_HATO || (ln) == DV_RIM || (ln) == DV_BELL)   /* (the lanes TONE's BP is on) */
 #define DX_TONE_FB(t) ((uint32_t)(t) >> 4)
 /* (0.7.9) CLAP's HANDS, once a half-rate block (~0.7 ms: each hand's onset on its block, its rise the block's ramp):
  * the noise's gain at the block's start and end, gn and *g1 (Q23), times 1 + the hands in. Hand k strikes at its own
  * moment (this hit's dice, v->hseed, 3 .. 45 ms), at its own level, then decays as the hit: in the sum it is the hit's
  * envelope times its level over where that envelope was when it struck, so one sum carries them all (v->hsum, Q12) */
-static DX_XIP int32_t dx_hands_step(dx_voice_t *v, uint32_t n, int32_t gn, int32_t *g1, int32_t en1)
+static DX_XIP int32_t dx_hands_step(dx_voice_t *v, uint32_t n, int32_t gn, int32_t *g1, int32_t en1, uint32_t dx_hands)
 {
-    uint32_t k, nh = 1u + (uint32_t)dx_hands * 5u / 15u, span = 60u + (uint32_t)dx_hands * 60u, p0 = v->hpos;
-    int32_t s0 = v->hsum, s = s0, w = 8 + dx_hands;      /* (the hands louder as there are more of them) */
+    uint32_t k, nh = 1u + dx_hands * 5u / 15u, span = 60u + dx_hands * 60u, p0 = v->hpos;
+    int32_t s0 = v->hsum, s = s0, w = 8 + (int32_t)dx_hands;   /* (the hands louder as there are more of them) */
     for (k = 0; k < nh && p0 < 1200u; k++) {             /* (all in by ~54 ms: then the sum alone) */
         uint32_t h = ((uint32_t)v->hseed + k * 0x9E37u) * 2654435761u, on = 66u + (h >> 8) % span;
         if (on >= p0 && on < p0 + n) {
@@ -181,8 +189,27 @@ static DX_XIP int32_t dx_hands_step(dx_voice_t *v, uint32_t n, int32_t gn, int32
     *g1 = (int32_t)(((int64_t)*g1 * (4096 + s)) >> 12);
     return (int32_t)(((int64_t)gn * (4096 + s0)) >> 12);
 }
+/* (0.6.36) TONE's BP on the metal sounds, bp 1..15 (half rate: the table an octave up). (Orange Cat 0.14.2: a function of its own, was
+ * dx_run's loop, left out while TONE was the constant 0: dx_run's loops are as they were) */
+static DX_XIP void dx_tone_bp(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t bp)
+{
+    int32_t b1 = v->b1, b2 = v->b2;
+    uint32_t i;
+    tsvf_t cb;
+    tsvf_coef_k(&cb, (int32_t)(92u + bp * 2u) << 8, 1800);
+    for (i = 0; i < n; i++) {
+        int32_t v3 = y[i] - b2, v1 = (cb.a1 * b1 + cb.a2 * v3) >> 13, v2 = b2 + ((cb.a2 * b1 + cb.a3 * v3) >> 13);
+        b1 = clamp(2 * v1 - b1, -150000, 150000);
+        b2 = clamp(2 * v2 - b2, -150000, 150000);
+        y[i] = clamp(v1 + (v1 >> 1), -32767, 32767);   /* (its centre a little louder: the band sings) */
+    }
+    v->b1 = b1;
+    v->b2 = b2;
+}
 typedef struct { dx_lane_t lane[8]; uint8_t lay[8]; uint8_t snd[8]; } dx_kit_t;   /* (Jiant's, moved up from the kits) */
-/* (Orange Cat) kit: the track's row of DX_KITS; ln: the lane (DV_*), where Jiant's took L = &dx_kit[ln] */
+/* (Orange Cat) kit: the track's row of DX_KITS; ln: the lane (DV_*), where Jiant's took L = &dx_kit[ln]. (0.14.2) The lane's LAYER
+ * byte (Jiant's dx_lay[ln]; was kit->lay[ln]) and the kit's TONE and HANDS (were constants 0) are the hit's (v->layer, v->tone,
+ * v->hands: the engine sets them; dx_run's arguments as they were, so are its loops) */
 static DX_XIP void dx_run(const dx_kit_t *kit, uint32_t ln, dx_voice_t *v, int32_t morph, int32_t tune16,
                                              int32_t dofs, int32_t cofs, int32_t nofs, int32_t warp, int32_t fm, int32_t *y,
                                              uint32_t n)
@@ -192,7 +219,7 @@ static DX_XIP void dx_run(const dx_kit_t *kit, uint32_t ln, dx_voice_t *v, int32
     uint32_t i, k, wave = L->mode & 3u, flt = (L->mode >> 2) & 3u, ta, tn, tp, kb, inc1;
     tsvf_t c;
     uint32_t nf = n;
-    int32_t lay = (int32_t)DX_LAY_L(kit->lay[ln & 7u]), lfb = (int32_t)DX_TONE_FB(dx_tone) + (int32_t)DX_LAY_FB(kit->lay[ln & 7u]);
+    int32_t lay = (int32_t)DX_LAY_L(v->layer), lfb = (int32_t)DX_TONE_FB(v->tone) + (int32_t)DX_LAY_FB(v->layer);
     ln &= 7u;
     if (!v->live && !v->trig) {
         for (i = 0; i < n; i++)
@@ -254,8 +281,8 @@ static DX_XIP void dx_run(const dx_kit_t *kit, uint32_t ln, dx_voice_t *v, int32
     gn = mulq15(ng, v->en >> 15) << 8;                   /* the noise's */
     {
         int32_t g1 = mulq15(ng, en1 >> 15) << 8;
-        if (ln == DV_CLAP && dx_hands && (v->hpos < 1200u || v->hsum))   /* (0.7.9) HANDS: more hands in the noise */
-            gn = dx_hands_step(v, n, gn, &g1, en1);
+        if (ln == DV_CLAP && v->hands && (v->hpos < 1200u || v->hsum))   /* (0.7.9) HANDS: more hands in the noise */
+            gn = dx_hands_step(v, n, gn, &g1, en1, v->hands);
         dgn = (g1 - gn) / (int32_t)n;
     }
     inc = (int32_t)(v->inc >> 4) * 2;                    /* (>> 4: the step fits; x 2: half rate) */
@@ -350,19 +377,9 @@ static DX_XIP void dx_run(const dx_kit_t *kit, uint32_t ln, dx_voice_t *v, int32
         v->ic2 = ic2;
         v->rng = rng;
     }
-    if (DX_TONE_BP(dx_tone) && (ln == DV_HATC || ln == DV_HATO || ln == DV_RIM || ln == DV_BELL)) {   /* (0.6.36) TONE's BP on the metal sounds */
-        int32_t b1 = v->b1, b2 = v->b2;
-        tsvf_t cb;
-        tsvf_coef_k(&cb, (int32_t)(92u + DX_TONE_BP(dx_tone) * 2u) << 8, 1800);   /* (half rate: + an octave) */
-        for (i = 0; i < n; i++) {
-            int32_t v3 = y[i] - b2, v1 = (cb.a1 * b1 + cb.a2 * v3) >> 13, v2 = b2 + ((cb.a2 * b1 + cb.a3 * v3) >> 13);
-            b1 = clamp(2 * v1 - b1, -150000, 150000);
-            b2 = clamp(2 * v2 - b2, -150000, 150000);
-            y[i] = clamp(v1 + (v1 >> 1), -32767, 32767);   /* (its centre a little louder: the band sings) */
-        }
-        v->b1 = b1;
-        v->b2 = b2;
-    }
+    if (DX_TONE_BP(v->tone))                             /* (0.6.36) TONE's BP on the metal sounds ((Orange Cat 0.14.2) the hit's BP nibble:
+                                                          * the engine sets it on those lanes only, DX_TONE_METAL) */
+        dx_tone_bp(v, y, n, DX_TONE_BP(v->tone));
     {                                                    /* (JIANT 0.5) the edge taken off: a one-pole low-pass at
                                                           * ~8 kHz on the sound (FM, FOLD and bright noise at 16 kHz
                                                           * were knife-sharp, the dice's above all) */

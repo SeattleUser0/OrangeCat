@@ -37,8 +37,70 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, packProblem, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, packProblem, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode, kitBody, kitFromBody, KIT_LANE, KIT_RANGE, sharedBank, dxkitRecord, dxkitFromRecord, dxkitValid })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
+
+/* (Orange Cat 0.14.2) commands past 127 (command 0, then n = cmd - 128) and the DRUM-X kit, 128 KIT_GET and 129 KIT_PUT, against the mock and
+   against firmware/src (editor.c ed_kit_handle's layout, drumx_voice.c's factory LAYERs) */
+{
+  const C = E.CMD, f = E.frame(C.KIT_GET, [2]);
+  ok(C.KIT_GET === 128 && C.KIT_PUT === 129 && f[4] === 0 && f[5] === 0 && f[6] === 2 && f.every((b, i) => i === 0 || i === f.length - 1 || b < 128),
+     "kit: 128 goes out as command 0, n 0, every byte 7 bit");
+  const u = E.unframe(E.frame(C.KIT_PUT, [1, 2, 3]));
+  ok(u.cmd === 129 && u.a.length === 3 && u.a[0] === 1 && E.unframe(E.frame(C.PANEL, [9])).cmd === 127, "kit: unframe gives 129 back; 127 stays a plain command");
+  const src = readFileSync(join(HERE, "../firmware/src/editor.c"), "utf8"), voice = readFileSync(join(HERE, "../firmware/src/drumx_voice.c"), "utf8");
+  ok(/#define ED_KIT_LANE 9u/.test(src) && /#define ED_KIT_BODY \(5u \+ 8u \* ED_KIT_LANE\)/.test(src) && E.KIT_LANE.length === 9,
+     "kit: the body's layout is editor.c's (5 kit values, 8 lanes of 9)");
+  const lays = [...voice.matchAll(/\{([0-9, ]+)\}, \{[0-9, ]+\},\s+\/\* the layers;/g)].map((m) => m[1].split(",").map(Number));
+  const m = E.makeMockDevice({ auto: false }), inp = [...m.access.inputs.values()][0], out = [...m.access.outputs.values()][0];
+  const link = new E.Link((d) => out.send(d), { timeout: 500 });
+  inp.onmidimessage = (e) => link.receive(e.data);
+  const rq = (r) => link.request(r);
+  await rq(E.req.track(0));
+  await rq([E.CMD.PRESET, [9, 4]]);                     /* track 0: DRUM-X, INDUSTRIAL */
+  let r = E.parse[C.KIT_GET](await rq(E.req.kitGet(0)));
+  ok(lays.length === 9 && !r.rc && !r.on && r.kit.base === 4 && r.kit.lanes.every((l, i) => l.layer === (lays[4][i] & 15) && l.tune === 0 && l.pan === 0),
+     "kit: KIT_GET of a factory kit: base 4, the kit's LAYERs (as drumx_voice.c's), every other value 0");
+  const k = r.kit;
+  k.lanes[1].tune = 20; k.lanes[1].pan = -30; k.lanes[0].level = 90; k.lanes[5].bend = -7; k.duck = 80; k.tone = 5;
+  ok(E.kitBody(k).length === 77 && E.kitBody(k).every((b) => b >= 0 && b < 128), "kit: the body is 77 bytes of 7 bits");
+  r = E.parse[C.KIT_PUT](await rq(E.req.kitPut(0, k)));
+  const back = E.parse[C.KIT_GET](await rq(E.req.kitGet(0)));
+  ok(!r.rc && back.on && JSON.stringify(back.kit) === JSON.stringify(k), "kit: KIT_PUT then KIT_GET: the same kit, on 1, the LEVEL too");
+  const bad = JSON.parse(JSON.stringify(k)); bad.lanes[2].bend = 13;
+  ok(E.parse[C.KIT_PUT](await rq(E.req.kitPut(0, bad))).rc === 2 && JSON.stringify(E.parse[C.KIT_GET](await rq(E.req.kitGet(0))).kit) === JSON.stringify(k),
+     "kit: a BEND past 12: rc 2, nothing changed");
+  await rq(E.req.track(1));
+  ok(E.parse[C.KIT_GET](await rq(E.req.kitGet(1))).rc === 1, "kit: a track that is not DRUM-X: rc 1");
+  /* the library (command 80): a DRUM-X preset carries its kit's record (kind 5); stored from the track, loaded back */
+  const ms = E.makeMockDevice({ shared: true, auto: false }), si = [...ms.access.inputs.values()][0], so = [...ms.access.outputs.values()][0];
+  const ls = new E.Link((d) => so.send(d), { timeout: 500 });
+  si.onmidimessage = (e) => ls.receive(e.data);
+  const rs = (r) => ls.request(r), info = E.parse[E.CMD.INFO](await rs(E.req.info()));
+  await rs(E.req.track(0)); await rs([E.CMD.PRESET, [9, 6]]);
+  await rs(E.req.kitPut(0, k));
+  const rec = E.dxkitRecord(E.kitFromBody(E.kitBody(k)));
+  const crc = rec.slice(4).reduce((c, x) => { c ^= x; for (let j = 0; j < 8; j++) c = c & 128 ? ((c << 1) ^ 7) & 255 : (c << 1) & 255; return c; }, 0);
+  ok(rec.length === 56 && rec[0] === 0x58 && rec[1] === 1 && rec[2] === 52 && rec[3] === crc && E.dxkitValid(rec) &&
+     JSON.stringify(E.dxkitFromRecord(rec)) === JSON.stringify({ ...k, lanes: k.lanes.map(({ level, ...x }) => x) }), "kit: the record (dxk_rec.h): 56 bytes, 'X' 1 52 CRC-8, and back");
+  {   /* the same kit as tests/drumx_test.c's vector (firmware/src/dxk_rec.h dxk_pack): one layout */
+    const v = [88,1,52,42,3,37,4,50,252,253,254,255,0,1,2,3,0,2,4,6,8,10,12,14,0,248,240,232,224,216,208,200,0,17,34,51,68,85,102,119,240,225,210,195,180,165,150,135,250,251,252,253,254,255,0,1];
+    const kv = { base: 3, tone: 5, fdbk: 2, hands: 4, duck: 50, lanes: Array.from({ length: 8 }, (_, i) => ({ tune: i - 4, decay: 2 * i, pan: -i * 8,
+      layer: (i * 17) & 15, fdbk: (i * 17) >> 4, punch: i, atk: 15 - i, bend: i - 6 })) };
+    ok(JSON.stringify(E.dxkitRecord(kv)) === JSON.stringify(v), "kit: the editor's record of a known kit is the firmware's (drumx_test.c's vector)");
+  }
+  await rs([E.CMD.LIBRARY, [3, 40, 0, 0, ...[77, 89, 32, 75, 73, 84]]]);   /* store track 0 as MY KIT into slot 40 */
+  const g = await E.sharedBank.get(rs, info, 40);
+  ok(g.used && g.engine === 9 && E.dxkitValid(g.dxkit) && JSON.stringify(g.dxkit) === JSON.stringify(rec),
+     "kit: LIBRARY get of a DRUM-X preset carries its kit's record (kind 5), byte for byte");
+  await E.sharedBank.put(rs, info, 41, g);
+  ok(JSON.stringify((await E.sharedBank.get(rs, info, 41)).dxkit) === JSON.stringify(rec), "kit: .. and a put of it (a library file's) keeps it");
+  await rs([E.CMD.PRESET, [9, 0]]);
+  await rs([E.CMD.LIBRARY, [4, 40, 0, 0]]);
+  ok(JSON.stringify(E.parse[C.KIT_GET](await rs(E.req.kitGet(0))).kit.lanes.map((l) => l.tune)) === JSON.stringify(k.lanes.map((l) => l.tune)),
+     "kit: LIBRARY load puts the kit back on the track");
+  link.close?.();
+}
 
 /* (Orange Cat 0.8.0) the asset pack's commands 115..119: the requests as EDITOR_PROTOCOL.md gives them, the reply of 115 as firmware/src/editor.c writes it */
 {

@@ -32,7 +32,9 @@ OPTIONAL = {}                   # built only with an option, not in BUDGET: abse
 # (Orange Cat 0.9.0) DRUM-X (firmware/src/drumx_voice.c, eng_drumx.c; section .text.xip_drumx): the voice's loops and the part's
 # post stage. Measured when the compiler keeps them apart (absent, inlined: skipped); checked once tests/target_budget.txt has
 # their line, taken from the first CI build that measured them, at the same +10 % as the other engines.
-DRUMX = ["dx_run", "dx_layer", "dx_hands_step", "dxe_render", "dxe_post"]
+DRUMX = ["dx_run", "dx_layer", "dx_hands_step", "dxe_render", "dxe_post",
+         "dx_tone_bp", "dxe_boost", "dxe_pan_out", "dxe_bus", "dxe_post_sides",   # (0.14.2) the drum kits' loops (each a function of its own)
+         "mix_lanes", "mix_duck"]                                                 # (0.14.2) mix.c: a panned kit's two sides, a kit's DUCK
 FUNCS += DRUMX
 # (Orange Cat 0.6.0) the effects (firmware/src/jfx.c, Jiant FM's; the old fx.c's fx_time, fx_reverb .. are gone): measured
 # when the compiler keeps them apart (absent, inlined: skipped), checked once tests/target_budget.txt has their budget

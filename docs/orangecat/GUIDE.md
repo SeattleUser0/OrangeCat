@@ -1,7 +1,7 @@
 # Orange Cat Quick Guide
 
-**Firmware:** 0.13.7 (branch linux-hw, not released; measured on the unit)
-**Date:** October 25, 2026
+**Firmware:** 0.13.7 (branch linux-hw, not released; measured on the unit); the drum kits: 0.14.2 (branch drum-kits, not on the unit yet)
+**Date:** October 26, 2026
 
 This guide covers what Orange Cat adds on top of Melodee 1.4.5. Build.md has the full detail and the test lists.
 
@@ -179,7 +179,7 @@ It is made in the spirit of Sonic Charge's Microtonic.
 
 To play it, turn PRESETS to one of its nine kits (DRUM-X, 909 CLUB, 808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS,
 TECHNO RAW, BREAKS), or turn the browser's KNOB 4 (ENGINE) to DRUM-X. The kit is the preset: a saved sound, a saved
-project and the PRESETS list keep it. The keys play the General MIDI drum map with the kick on the first C. A closed hat
+project and the PRESETS list keep it (since 0.14.2 a saved sound keeps the whole kit you made of it: below). The keys play the General MIDI drum map with the kick on the first C. A closed hat
 cuts the open hat.
 
 | Page | KNOB 1 | KNOB 2 | KNOB 3 | KNOB 4 |
@@ -192,12 +192,50 @@ cuts the open hat.
 - **NOIS** is the noise in each sound. **FM** adds a short FM strike to each hit (a click, a beater, a metal edge). **FOLD**
   runs each sound through a wavefolder. 0 is off for these.
 - **DRV** is a soft clip on the whole kit. Its level is kept.
-- The LANES pages set the level of each of the eight sounds.
+- The LANES pages set each sound of the kit (0.14.2, below).
 - SEQ > STEP on a DRUM-X track is the eight lane grid, as for the DRUM engine. Accents, ratchets and flams of the sequencer
   work on it.
 
-Not in this version: editing a kit's own patches, the second oscillator controls of each sound, the sends of each sound,
-lane mutes, and Jiant FM's step components. Each is fixed at the kit's value or off. The engine takes the slot of the old
+### Tuning and panning the lanes (0.14.2)
+
+Each of the eight sounds has its own level, tuning, length and place left to right, and a few sound settings of Jiant FM's.
+
+1. Go to EDIT and step to **LANES**. Pick the sound: strike its key (the kick is the first C), or pick its lane with the black
+   keys on the step grid. The first card names it (BD LV is the kick's level, SD the snare, CP the clap, CH and OH the hats,
+   TM the tom, RS the rim, CB the bell).
+2. | Page | KNOB 1 | KNOB 2 | KNOB 3 | KNOB 4 |
+   |---|---|---|---|---|
+   | LANES | LEVEL | TUNE | DECAY | PAN |
+   | LANES 2 | LAYER | PUNCH | ATK+ | BEND |
+   | LANES 3 | TONE | FDBK | HANDS | DUCK |
+
+   - **TUNE** moves the sound up to 12 semitones either way, in steps of about a fifth of a semitone (the card shows
+     semitones: +1.5 st). **DECAY** lengthens or shortens it. **PAN** places it: C is the middle, L50 halfway left, R100 all the
+     way right. Turning PAN across the middle stops at C first, so the centre is easy to find. The track's own PAN (MIXER)
+     still moves the whole kit after that.
+   - **LAYER** adds the sound's second oscillator (a metallic edge up to a clang). **PUNCH** drives the hit for a fatter body.
+     **ATK+** fades the hit in (a softer start; 8 is about 35 ms). **BEND** makes each hit glide up or down by up to 12
+     semitones over one step.
+   - LANES 3 is the whole kit's: **TONE** a band-pass on the hats, the rim and the bell, **FDBK** a growl on every sound,
+     **HANDS** more hands on the clap, **DUCK** the kick pushing the other (non-drum) tracks down for a pumping mix.
+   - At 0 (LAYER: the kit's own) every setting leaves the kit as it was made.
+3. **ACC held + OCT+** on the step grid turns every muted lane back on at once (ACC + a lane key mutes one, as before).
+4. To copy a lane's pattern onto another lane: on the grid, pick the lane, hold OCT+ for the sheet and choose **Copy lane**;
+   pick the other lane, hold OCT+ and choose **Paste lane**. EDIT held undoes the paste.
+
+### Saving a kit (0.14.2)
+
+SAVE > USER saves the DRUM-X sound with its whole kit: every lane's settings and the kit's. Load it back from SAVE > USER
+or the PRESETS browser like any sound. A factory kit you change becomes your own copy when you save it; the factory kits
+stay as they are. A project remembers which preset a DRUM-X track plays (a factory kit or your saved one), so **save the kit
+to SAVE > USER before you save the project**: changes you did not save as a sound are gone when the project is loaded again.
+
+DRUM-X sounds saved before 0.14.2 kept no kit: they play the DRUM-X kit (the first) with their knobs, as they always did.
+Load one, make the kit you want, and save it again. The web editor's Sound tab shows the kit as a table (a row per sound)
+and changes it from the computer.
+
+Not in this version: editing a kit's own patches (each sound's A and B), the sends of each sound, Jiant FM's X-MOD and its
+step components. Each is fixed at the kit's value or off. The engine takes the slot of the old
 PHYS engine: an old PHYS sound that was not a drum now plays as a DRUM-X kit.
 
 ## Freezing a phrase

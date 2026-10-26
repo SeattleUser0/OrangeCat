@@ -193,6 +193,11 @@ static void nt_quantize(void){ui.note_copy=ui.note_move=0;note_quantize(RECORD_U
 static const sheet_row_t SHEET_PATTERN[] = {{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0}, {"Shift right", 0, 0, st_shift_r, 0},
     {"Shift left", 0, 0, st_shift_l, 0}, {"Reverse", 0, 0, st_reverse, 0},   /* (Orange Cat 0.4.6: seq_tools.c) */
     {"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
+/* (Orange Cat 0.14.2) the drum grid's: the lane shown copied, pasted onto the lane shown (seq_tools.c), then the pattern's */
+static const sheet_row_t SHEET_GRID[] = {{"Copy lane", 0, 0, st_lane_copy, 0}, {"Paste lane", 0, 0, st_lane_paste, 0},
+    {"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0}, {"Shift right", 0, 0, st_shift_r, 0},
+    {"Shift left", 0, 0, st_shift_l, 0}, {"Reverse", 0, 0, st_reverse, 0},
+    {"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
 /* the shared effects' pages (0.6.0: DELAY .. MASTER): their settings back to a new project's */
 static int jfx_globals_default(void)
 {
@@ -426,7 +431,10 @@ static void page_sheet_open(void)
     case 3:
         str_cpy(nm, "T1", sizeof nm);
         nm[1] = (char)('1' + song.sel % NTRK);
-        sheet_open("Pattern", nm, SHEET_PATTERN, NELEM(SHEET_PATTERN));
+        if (grid_on())                                  /* (0.14.2) the drum grid: its lanes copied and pasted too */
+            sheet_open("Pattern", nm, SHEET_GRID, NELEM(SHEET_GRID));
+        else
+            sheet_open("Pattern", nm, SHEET_PATTERN, NELEM(SHEET_PATTERN));
         break;
     case 4: {                                           /* "Chain 05", "T2 \xb7 step C" (Orange Cat 0.4) */
         char t[12] = "Chain 01";
