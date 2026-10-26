@@ -1,6 +1,6 @@
 # Orange Cat: engine candidates, the feasibility gate
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** October 26, 2026
 **Applies to:** branch engine-candidates (from sonnet-work ceccc1c, 0.13.8 with linux-hw merged); firmware 0.14.0 and later. 0.2: branch op1r-candidates
 (from linux-hw ce7b5c0).
@@ -12,6 +12,7 @@ the notice "engine gate", `orangecat-engine-gate-*.txt` in the packages artifact
 that has the FM-1, with the command that fills them. The verdicts below are proposals from the CI numbers alone.
 
 Revisions:
+- 0.3 (branch linux-hw): op1r's three on the unit (Flash 28): the unit rows filled, the verdicts from the numbers (section "op1r").
 - 0.2 (branch op1r-candidates): op1r's synth plugins through one glue (tools/module/op1r/op1_glue.h): the inventory of its fourteen synths and effects,
   fmbell, supersaw and dddd through the gate (proposed engines 24, 25, 26; 24..31 reserved for the eight synths behind OC_CANDIDATES), their
   correctness against op1r's own harness (tests/op1r_parity) and its tolerance. Section "op1r".
@@ -316,8 +317,8 @@ grids, oracle, peal), a drum and a sampler engine replacing the OP-1's own (drum
 | Module size and placement | 1,620 B at sector 0 and 6 (needs 1; WHEEL's geometry, 4 sectors at 0 or 6): fits alone, beside SHAPES, beside the Prophet |
 | Target loop cost | op1g_eng_render 241 (94 loop instructions: the glue's copy-out with voice_amp, and its per-block fills, one call: the plugin), fm_render 47 |
 | Correctness | tests/op1r_parity: with op1r's sine, every sample equal; with ours, the defaults at -79 dB (stable), FDBK 60 and 127 within op1r's own spread (chaotic: table above). Our golden lines module/FMBELL/00..03 |
-| Unit (the Linux session) | blank: the commands below |
-| Verdict (proposed) | **Go with limits**: its sound with feedback is the same sound, not op1r's samples (op1r's own render is that sensitive); the number (24) behind OC_CANDIDATES as SEM's |
+| Unit (the Linux session) | **Flash 28** (linux-hw 5c61037 + OC_CANDIDATES=1, its format-2 module; idle 424 us; budget 2,901 us a half buffer; 18 units). Render time per voice: FM BELL, E PIANO, GLASS 841 to 843 us with four voices on one track, FM BASS (mono) 542: **about 100 us a voice** (1.1 of MACRO's 92 us units). Late renders, worst / late in 20 s, 1 to 4 tracks: FM BASS (one voice a track) 539 / 0, 640 / 0, 749 / 0, 840 / 0; FM BELL (four) 846 / 0, 1,237 / 0, 1,762 / 0, **1,994 / 0**. Admission granted: 4 voices a track at 1 and 2 tracks, 9 in all from 3 (2 units a voice of 18; 1,683 and 2,373 voices given up in 20 s at 3 and 4 tracks) |
+| Verdict | **Go with limits** (the limit is the sound, not the cost): with feedback it is op1r's sound, not op1r's samples. The unit: the lightest of the three, never late; at four full tracks 31 % of the half buffer is left. Units: 2 holds; 1 would admit 18 voices (424 + 18 x 100 us plus the tracks: about 2,300 us, by arithmetic, not measured): measure before lowering it |
 
 | Row | SUPERSAW (proposed engine 25) |
 |---|---|
@@ -331,8 +332,8 @@ grids, oracle, peal), a drum and a sampler engine replacing the OP-1's own (drum
 | Module size and placement | 1,672 B at sector 0 and 6 (needs 1): fits alone, beside SHAPES, beside the Prophet |
 | Target loop cost | op1g_eng_render 241, ss_render 71 |
 | Correctness | with op1r's sine, every sample equal; with ours, max 4 LSB, -90.2 to -94.2 dB, spectra within 0.068 dB; SUB 0 every sample equal. Golden module/SUPERSAW/00..03 |
-| Unit (the Linux session) | blank: the commands below |
-| Verdict (proposed) | **Go** (from CI alone): small, light, stable against op1r to -90 dB |
+| Unit (the Linux session) | **Flash 28**. Render time per voice: presets 0 and 1 948 and 950 us with four voices on one track, presets 2 and 3 (one voice) 593 and 555: **about 125 us a voice** (1.4 units). Late renders, SAW PAD, worst / late in 20 s, 1 to 4 tracks: 946 / 0, 1,441 / 0, 2,004 / 0, **2,323 / 0** (load at most 38 %). Admission granted: 4 voices a track at 1 and 2 tracks, 9 in all from 3 (1,680 and 2,371 given up in 20 s) |
+| Verdict | **Go**: stable against op1r to -90 dB, never late on the unit at four tracks (20 % of the half buffer left); 2 units a voice is right for its 1.4 |
 
 | Row | DDDD (proposed engine 26) |
 |---|---|
@@ -346,8 +347,8 @@ grids, oracle, peal), a drum and a sampler engine replacing the OP-1's own (drum
 | Module size and placement | 4,288 B at sector 0 and 6 (needs 2): fits alone, beside SHAPES, beside the Prophet |
 | Target loop cost | op1g_eng_render 241, dd_render_voice 106, dd_render 380 (324 loop instructions, 1 divide: the stutter's `% 1800`, once a cut) |
 | Correctness | tests/op1r_parity: **every sample equal** to op1r's render, all six (it reads no sine). Golden module/DDDD/00..03 (chords: the paraphony and the leader) |
-| Unit (the Linux session) | blank: the commands below |
-| Verdict (proposed) | **Go with limits**: 10.8 KB a track (four tracks of it, 43 KB, fit the arena's 64 KiB with nothing else heavy); its cost is the part's, not the voices' |
+| Unit (the Linux session) | **Flash 28**. Render time: every preset 1,012 to 1,065 us on one track with four keys (**about 620 us over idle for the part**, whatever the voices: the leader renders the wall, the others copy zeros); each further track adds 300 to 365 us. Late renders, SCREAM, worst / late in 20 s, 1 to 4 tracks: 1,047 / 0, 1,348 / 0, 1,713 / 0, **2,063 / 0** (with FMBELL beside it) and 1,038 / 0, 1,357 / 0, 1,733 / 0, 2,080 / 0 (with SUPERSAW). Admission granted: 2 units a voice, so 4 voices a track at 1 and 2 tracks and 9 in all from 3 (609 to 612 and 1,248 to 1,252 voices given up in 20 s): the admission counts voices the part does not pay for |
+| Verdict | **Go with limits**: 10.8 KB of arena a track, and its cost is the part's (about 340 to 620 us a track), not the voices': the units hook proposed above (the leader about 4 units, the others 0) would stop it giving up voices at three tracks; never late at four |
 
 **The unit commands** (the Linux session; an OC_CANDIDATES build registers 24..26; hw/LOG.md's columns):
 

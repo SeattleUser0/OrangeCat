@@ -682,3 +682,50 @@ were put back from a snapshot after each script (equal).
     for when the FM-1's USB port is busy as a host.
   - Four RING BELL tracks are **not clean on the Nightly**: 65 late renders in 8 s and 14 USB holes (0.13.7's table had 164 late in 20 s at N = 4 as
     well: never clean at four).
+
+## October 26 (UTC): Flash 28, the measurement build (linux-hw 5c61037 + OC_CANDIDATES=1 OC_SFC_PROBE=1)
+
+Built twice with tools/hw/ci_step.py (worktrees `~/fm1-hw/wt-f2`, and `wt-f1` with OC_OCM_VARIANTS=1 too): the firmware (fwsc SHA-256 a75fd86c...) and the
+pack (a4e45b19...) byte-identical between the two, the SHAPES package 24,564 B (format 2) against 47,980 B (format 1); interface 8831E67C, the Nightly's. The
+local suite passed on 5c61037 first (ci_step.py test, PARALLEL 8, 1,214 s, "CPU live takes" included). 2026-10-26T05:23:47Z: `fm1hw.py flash`: unit on
+`ORANGE CAT v0.6.2-5c6103`; pack this build's, WHEEL (start 0) and SHAPES (start 1) registered as before. Scripts and files: `~/fm1-hw/f2/`.
+
+### Format 2 on the unit (`f2_compare.py`, `flashread.py`, `shapes_table.py`)
+
+- `remove 7` (WHEEL holds sector 0, in SHAPES' way), then SHAPES installed four times with oc_install.mjs, each beside the last (the old start erased after):
+  format 2 to start 0, format 1 to start 1, format 1 to start 0, format 2 to start 1. After each, the start's 6 sectors read back with editor command 109
+  (mode 1: the plaintext window's read, 32 bytes a request, 0.6 s a sector).
+- **Identical**: start 0 format 2 = format 1 (SHA-256 39a44038...), start 1 format 2 = format 1 (7bac82b6...): 0 differing bytes of 24,576 at each. Each read
+  is the build's variant image (`build/module/shapes.0.img`, `.6.img`, 23,944 B) followed by 632 B erased.
+- The four-track table (SHAPES RING BELL, 1 to 4 tracks, 20 s, worst / late / load): the relocated module at start 1: 1,173 / 0 / 36.3, 1,855 / 0 / 59.8,
+  2,400 / 0 / 66.8, 2,706 / 115 / 68.0; the variants package's at start 1 (installed twice to land there): 1,172 / 0 / 36.3, 1,854 / 0 / 59.8, 2,418 / 0 /
+  66.4, 2,710 / 119 / 68.0. **The same.** So format 1's writer was removed (5f5a4bc). The card's install of a relocated module was not run (no card in the unit).
+
+### op1r's synths (ENGINE_CANDIDATES.md, "op1r": the unit rows)
+
+- `remove 14`; fmbell (start 0, 1,620 B) and dddd (start 1, 4,288 B) installed from their format-2 packages; `table --set op1r --label op1r-a`
+  (`op1r-fmbell-dddd.json`); `remove 24`, supersaw (start 0, 1,672 B), `--label op1r-b` (`op1r-supersaw.json`); `measure` per preset (10 s, one track:
+  `op1r-measure-a.txt`, `-b.txt`); fmbell back for its presets and a four-track FM BELL table (`op1r-fmbell-poly.json`). Idle (rests only): 424 us.
+
+| Engine (preset) | 1 track | 2 | 3 | 4 | voices | per voice |
+|---|---|---|---|---|---|---|
+| FMBELL FM BASS (mono) | 539 / 0 | 640 / 0 | 749 / 0 | 840 / 0 | 1, 2, 3, 4 | |
+| FMBELL FM BELL | 846 / 0 | 1,237 / 0 | 1,762 / 0 | 1,994 / 0 | 4, 8, 9, 9 | about 100 us (presets 841 to 843 with four, FM BASS 542 with one) |
+| SUPERSAW SAW PAD | 946 / 0 | 1,441 / 0 | 2,004 / 0 | 2,323 / 0 | 4, 8, 9, 9 | about 125 us (948, 950 with four; 593, 555 with one) |
+| DDDD SCREAM (beside FMBELL) | 1,047 / 0 | 1,348 / 0 | 1,713 / 0 | 2,063 / 0 | 4, 8, 9, 9 | the part: about 620 us over idle on one track, 300 to 365 a further track; every preset 1,012 to 1,065 |
+| DDDD SCREAM (beside SUPERSAW) | 1,038 / 0 | 1,357 / 0 | 1,733 / 0 | 2,080 / 0 | 4, 8, 9, 9 | |
+
+  Worst us / late in 20 s. **None late.** Admission: 2 units a voice of 18, so nine voices from three tracks on (voices given up: 1,680 to 2,384 in 20 s).
+
+### MACRO's per-model units (approved; on this build: `macro_listen.py`, one track, the chord on every step, 8 s, both captures kept)
+
+| Preset | old units (the Nightly): worst / late / USB holes | new units: worst / late / USB holes | voices | steals in 8 s |
+|---|---|---|---|---|
+| FOLD PLUCK (WAVSHP 3 -> 5) | 1,457 / 0 / 0 | 1,265 / 0 / 0 | 4 -> 3 | 309 |
+| ADDITIVE PAD (ADDTV 7 -> 9) | 1,779 / 0 / 0 | 1,815 / 0 / 0 | 2 -> 2 | 464 |
+| MALLET (MODAL 6 -> 9) | 2,847 / 1,535 / 256 | **2,062 / 0 / 0** | 3 -> 2 | 456 |
+| GLASS BELL (MODAL 6 -> 9) | 2,848 / 1,561 / 257 | **2,096 / 0 / 0** | 3 -> 2 | 432 |
+
+  **No stutter at one track** in any of the four (late 0, no hole). **The steal is clean**: every step's chord takes the oldest voices (capacity steals,
+  AUDIO_STATS field 60), and nothing in the USB stream shows it: no clipped run, the largest second difference 0.06 to 0.32 (the dropout threshold 0.70;
+  FOLD PLUCK's 0.32 against its 0.30 on the old units). Not listened to by a person: the recordings are `~/fm1-hw/f2/new-units-*-usb.wav` and `-a4c.wav`.

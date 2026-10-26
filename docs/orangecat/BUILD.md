@@ -2730,3 +2730,14 @@ DAC replays a 2.9 ms half buffer per late render, which its filter smooths) and 
 from a bell's attack. So capture.py keeps **usb as the default** (dropouts) and offers audio4c, input 2 only, for level and spectrum and while the FM-1's
 USB port is busy as a host; its leading 0.5 s of zeros is waited out. Four SHAPES RING BELL tracks on the Nightly: 2,669 us, 65 late in 8 s, 14 USB holes
 (not clean; 0.13.7's table had 164 late at four as well).
+
+**Flash 28** (linux-hw 5c61037 + OC_CANDIDATES=1 OC_SFC_PROBE=1, after the local suite passed; hw/LOG.md):
+- **Format 2 measured**: SHAPES from the relocatable package and from the variants package of the same firmware, each installed at both starts and the 6
+  sectors read back (command 109): identical, and equal to the variant image; the four-track table the same (2,706 / 2,710 us at four). **Format 1's writer
+  removed** (5f5a4bc; the readers keep it; ENGINE_LOADING_PLAN.md 0.13). The card's install of a relocated module: not run on the unit (no card).
+- **op1r's synths** (ENGINE_CANDIDATES.md 0.3): fmbell about 100 us a voice, supersaw about 125, dddd about 620 us a part; none late at four tracks
+  (1,994, 2,323, 2,063 us). Verdicts: fmbell go with limits (the sound with feedback), supersaw go, dddd go with limits (10.8 KB a track; a units hook).
+- **MACRO's units** (5c61037, approved): MALLET and GLASS BELL from 1,535 / 1,561 late and 256 / 257 USB holes on one track to 0 and 0; FOLD PLUCK and
+  ADDITIVE PAD still clean; the steals (309 to 464 in 8 s) leave nothing in the stream.
+- Host: the CPU live-take test on a fake clock (3b66d9a; 5 of 5 under 2 x nproc busy loops, and in the full suite); the TRACKER EDIT race fixed with a host
+  test (e8d5fde).
