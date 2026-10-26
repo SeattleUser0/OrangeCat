@@ -729,3 +729,12 @@ local suite passed on 5c61037 first (ci_step.py test, PARALLEL 8, 1,214 s, "CPU 
   **No stutter at one track** in any of the four (late 0, no hole). **The steal is clean**: every step's chord takes the oldest voices (capacity steals,
   AUDIO_STATS field 60), and nothing in the USB stream shows it: no clipped run, the largest second difference 0.06 to 0.32 (the dropout threshold 0.70;
   FOLD PLUCK's 0.32 against its 0.30 on the old units). Not listened to by a person: the recordings are `~/fm1-hw/f2/new-units-*-usb.wav` and `-a4c.wav`.
+
+### Flash 29: back to the Nightly, the end state
+
+- `remove 24`, `remove 26` on the measurement build (an engine the Nightly cannot register), then 2026-10-26T05:51:35Z the Nightly's `melodee-nightly.fwsc`
+  (`~/fm1-hw/nightly-430cd4c`): unit on `ORANGE CAT v0.6.2-430cd4`. The pack reads this build's (the same pack bytes; not rewritten). WHEEL (start 0, state 7,
+  2,920 B) and SHAPES (start 1, state 7, 23,944 B) installed again from the Nightly's .ocm files: the area as before Flash 28.
+- The tracks equal the snapshot before Flash 28 (MACRO 10 / 0 / 1 / 20, steps, levels, track 1 selected). Track 1's CHRD MAJ and VOIC OPEN set again (command 31,
+  ids 81 and 82: the restart loaded project slot 1, which has them off); CLK 0 (it read 1 after the restart), ROUT 0, BUDGET 18; transport stopped.
+  **The unit stays here.** A Nightly with today's linux-hw work (MACRO's units, the EDIT fix, format 2 only) is not published.
