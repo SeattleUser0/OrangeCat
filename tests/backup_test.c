@@ -5,6 +5,7 @@
  * (Orange Cat 0.8.1) why five preset tests failed locally. They fail only when built with tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off): the...
  * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
  * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ * (Orange Cat 0.14.2) DRUM-X kits through a backup (drumx_kit_archive): a bank of before 0.14.2 restores and plays as it did; a kit restores byte for byte
  */
 /* The editor's full backup (editor_backup.c: LIST / GET / PUT) against simulated NOR flash:
  * CRC before any write, stale runtime copies, USB resets and timeouts, malformed objects, older
@@ -224,6 +225,77 @@ static int native_archive(void)
     }
     up_boot();for(uint32_t b=0;b<UP_BANKS;b++)ok &= native_used(ENGI_FM6,b*UP_PER_BANK)&&!memcmp(native_raw(ENGI_FM6,b*UP_PER_BANK),fm,sizeof fm);
     return check("all 22 shared bank objects archive and restore native voices exactly",ok);
+}
+/* (Orange Cat 0.14.2) the render of a short figure on track 0, its hash (0: silence) */
+static uint64_t dk_hash(void)
+{
+    uint64_t h = 1469598103934665603ull;
+    int32_t out[CTL], pk = 0;
+    for (uint32_t i = 0; i < NVOICE; i++) trk[0].v[i].active = 0;
+    trk[0].engine = trk[0].eng_req;
+    trk[0].xf_on = 0;
+    eng_state_clear(0);
+    for (uint32_t b = 0; b < 200u; b++) {
+        if (b % 25u == 0u) trk_note_on(&trk[0], DRUM_LANE_NOTE[b / 25u], 100);
+        track_render(&trk[0], out, CTL);
+        for (uint32_t i = 0; i < CTL; i++) { h ^= (uint32_t)out[i]; h *= 1099511628211ull; if (out[i] > pk) pk = out[i]; }
+    }
+    return pk > 1000 ? h : 0;
+}
+static int drumx_kit_archive(void)
+{
+    int bad = 0, ok;
+    static up_disk_bank_t old_bank, kit_bank;
+    uint32_t len;
+    uint64_t h_before, h_kit;
+    dxk_t kit;
+    up_rec_t r;
+    /* a bank as 0.14.1 wrote it: a DRUM-X preset (909 CLUB's knobs) with no kit in its record */
+    reset(); up_boot();
+    set_engine_of(TSEL, ENGI_DRUMX);
+    apply_preset(1);
+    up_store(0, "OLD 909");
+    r = *up_rec(0);
+    memset(r.cz_extra, 0, sizeof r.cz_extra);
+    memset(r.packed + r.np, 0, sizeof r.packed - r.np);
+    up_put(0, &r);
+    memcpy(&old_bank, ed_bk_object(6, &len), sizeof old_bank);
+    ok = len == sizeof old_bank;
+    up_load(0);
+    h_before = dk_hash();                                  /* (as 0.14.1 played it: factory kit 0 with 909 CLUB's knobs) */
+    bad += check("kits: a 0.14.1 DRUM-X preset plays factory kit 0 with its knobs", ok && h_before && !dxk[0].on && trk[0].preset == 0u);
+    reset(); up_boot();
+    ok = !put_all(6, 0, 0, 0) && !put_all(6, &old_bank, sizeof old_bank, st_crc32(&old_bank, sizeof old_bank));
+    up_boot();
+    set_engine_of(TSEL, ENGI_DRUMX);
+    apply_preset(5);
+    up_load(0);
+    bad += check("kits: a backup from before 0.14.2 restores and the preset plays as it did, sample for sample",
+                 ok && up_used(0) && !dxk[0].on && dk_hash() == h_before);
+    bad += check("kits: .. its bank object is byte for byte the one backed up",
+                 st_load(up_obj(0), &kit_bank, sizeof kit_bank) == sizeof kit_bank && !memcmp(&kit_bank, &old_bank, sizeof old_bank));
+    /* a kit of one's own through a backup */
+    reset(); up_boot();
+    set_engine_of(TSEL, ENGI_DRUMX);
+    apply_preset(7);
+    {
+        dxk_t *K = dxk_take(0);
+        K->tune[DV_KICK] = -30; K->pan[DV_HATC] = -40; K->pan[DV_HATO] = 40; K->punch[DV_SNARE] = 11; K->bend[DV_TOM] = -7;
+        K->decay[DV_CLAP] = 15; K->atk[DV_RIM] = 5; K->lay[DV_BELL] = 0x4C; K->tone = 0x24; K->hands = 9; K->duck = 70;
+        kit = *K;
+    }
+    h_kit = dk_hash();
+    up_store(1, "TECHNO MINE");
+    memcpy(&kit_bank, ed_bk_object(6, &len), sizeof kit_bank);
+    reset(); up_boot();
+    ok = len == sizeof kit_bank && !put_all(6, 0, 0, 0) && !put_all(6, &kit_bank, sizeof kit_bank, st_crc32(&kit_bank, sizeof kit_bank));
+    up_boot();
+    set_engine_of(TSEL, ENGI_DRUMX);
+    apply_preset(0);
+    up_load(1);
+    bad += check("kits: a kit of one's own restores from a backup value for value and plays as it did",
+                 ok && dxk[0].on && !memcmp(&dxk[0], &kit, sizeof kit) && dk_hash() == h_kit);
+    return bad;
 }
 static int prophet_archive(void)
 {
@@ -511,6 +583,7 @@ int main(void)
                      list(9, &len, &crc) == 0 && len == 0);
     }
     bad += native_archive();
+    bad += drumx_kit_archive();
     bad += prophet_archive();
     bad += full_pattern_archive();
 #if MELODEE_AUDIO_PROFILE

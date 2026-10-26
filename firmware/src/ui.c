@@ -698,7 +698,8 @@ typedef struct {
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
     p5_patch_t p5;
-    drum_patch_t drum;
+    union { drum_patch_t drum; dxk_t dxk; } k;   /* DRUM's patch, or (Orange Cat 0.14.2) DRUM-X's kit (eng_drumx.c): which, eng says (a
+                                  * track is one or the other; the union keeps eight levels in the cache RAM's UI part) */
     int16_t p[P_COUNT];
     step_snapshot_t step[NSTEP];
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
@@ -746,6 +747,7 @@ static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's pa
     h = fnv(h, cz_patch[k].raw, CZ_BYTES);
     h = fnv(h,p5_patch_of(&trk[k]),sizeof(p5_patch_t));
     h = fnv(h,&drum_patch[k],sizeof(drum_patch_t));
+    if (dxk[k].on) h = fnv(h, &dxk[k], sizeof dxk[k]);   /* (0.14.2) the kit, once it has its own values */
     for (uint32_t j = 0; j < motion.count; j++)
         if ((motion.event[j].place >> 6) == k) h = fnv(h, &motion.event[j], sizeof motion.event[j]);
     return h ^ ((motion.on >> k) & 1u);
@@ -831,7 +833,8 @@ static void load_begin(track_t *t, uint32_t what)
     memcpy(u->fm6, fm6_patch[i], FP_SIZE);
     u->cz = cz_patch[i];
     u->p5 = *p5_patch_of(&trk[i]);
-    u->drum=drum_patch[i];
+    if (MELODEE_DRUMX && t->eng_req == ENGI_DRUMX) u->k.dxk = dxk[i];   /* (0.14.2) */
+    else u->k.drum = drum_patch[i];
     u->pat = pat_sig[i];
     u->patn = pat_last[i];
     motion_snapshot_track(t, &u->motion_backup);
@@ -946,7 +949,13 @@ static void undo_step(int redo)
         memcpy(v, fm6_patch[tr], FP_SIZE);
         fm6_set_patch(tr, u->fm6);
         memcpy(u->fm6, v, FP_SIZE);
-        {drum_patch_t dp=drum_patch[tr];drum_patch[tr]=u->drum;u->drum=dp;}
+        {   /* DRUM's patch, (0.14.2) or DRUM-X's kit: the engine put back (t->eng_req) takes the copy's, the one undone (u->eng now) is kept */
+            __typeof__(u->k) cur;
+            if (MELODEE_DRUMX && u->eng == ENGI_DRUMX) cur.dxk = dxk[tr]; else cur.drum = drum_patch[tr];
+            if (MELODEE_DRUMX && t->eng_req == ENGI_DRUMX) { dxk_put(tr, &u->k.dxk); memset(&drum_patch[tr], 0, sizeof drum_patch[tr]); }
+            else { drum_patch[tr] = u->k.drum; dxk_off(tr); }
+            u->k = cur;
+        }
         { p5_patch_t pp=*p5_patch_of(t);p5_patch[tr]=u->p5;u->p5=pp;p5_ready[tr]=1; }
         { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = u->cz; u->cz = cp; if (MELODEE_CZ) cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
 
@@ -1017,6 +1026,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     pi %= e->npresets;
     t->preset = (uint8_t)pi;
     memset(&drum_patch[t-trk],0,sizeof(drum_patch_t));
+    dxk_off(trk_index(t));                            /* (0.14.2) DRUM-X: the factory kit pi as it is */
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;

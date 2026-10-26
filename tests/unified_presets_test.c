@@ -6,6 +6,8 @@
  * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
  * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
  * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ * (Orange Cat 0.14.2) DRUM-X kits in the library (drumx_kits): saved and reloaded byte for byte, across a power cycle; a factory kit saved is an editable
+ *   copy; a preset of before 0.14.2 plays as it did; the undo of a kit's load; a project naming a user kit
  */
 /* Firmware save flows against NOR flash: deferred settings, retries, and failed-save rollback. */
 #define LG_TEST_HOOKS 1                          /* (0.11.1) lg_test_reserve, lib_group.c: the LIBRARY NEEDS WIPE state cannot be made from flash contents */
@@ -280,9 +282,141 @@ static int needwipe_recovery(void)
     bad+=check("... and they survive a boot, which neither migrates nor wipes",up_used(383) && !up_migration_error && !lg_incomplete && !shared_wipe_pending());
     return bad;
 }
+/* (Orange Cat 0.14.2) a short figure on track 0 (kick, snare, hats, clap, tom), its render's hash */
+static uint64_t kit_hash(void)
+{
+    static const uint8_t L[] = {DV_KICK, DV_HATC, DV_SNARE, DV_HATO, DV_CLAP, DV_TOM, DV_RIM, DV_BELL};
+    uint64_t h = 1469598103934665603ull;
+    int32_t out[CTL], pk = 0;
+    for (uint32_t i = 0; i < NVOICE; i++) trk[0].v[i].active = 0;
+    trk[0].engine = trk[0].eng_req;                        /* (the audio side's switch, at once: hostsim host_preset) */
+    trk[0].xf_on = 0;
+    eng_state_clear(0);
+    for (uint32_t b = 0; b < 240u; b++) {
+        if (b % 30u == 0u) trk_note_on(&trk[0], DRUM_LANE_NOTE[L[b / 30u]], 100);
+        track_render(&trk[0], out, CTL);
+        for (uint32_t i = 0; i < CTL; i++) { h ^= (uint32_t)out[i]; h *= 1099511628211ull; if (out[i] > pk) pk = out[i]; }
+    }
+    return pk > 1000 ? h : 0;                              /* (0: silence, never a kit's) */
+}
+static int drumx_kits(void)
+{
+    int bad = 0;
+    uint8_t rec_a[sizeof(up_rec_t)], rec_b[sizeof(up_rec_t)];
+    dxk_t mine, got;
+    uint64_t h_factory, h_mine, h_old, h_old_ref;
+    reset(); up_boot();
+    set_engine_of(TSEL, ENGI_DRUMX);
+    apply_preset(4);                                       /* INDUSTRIAL, the factory kit as it is */
+    h_factory = kit_hash();
+    bad += check("kits: a factory kit plays with no kit of its own (on 0)", !dxk[0].on && trk[0].preset == 4u && h_factory);
+    bad += check("kits: a factory kit saved to the library", !up_store(10, "INDUST COPY"));
+    {
+        const up_rec_t *r = up_rec(10);
+        bad += check("kits: its record carries the kit ('X', version 1, base 4) as a user preset of engine 9 of the usual version",
+                     r->engine == ENGI_DRUMX && (r->ver == UP_VER || r->ver == UP_VER_GRID) && r->cz_extra[0] == DXK_MARK && r->cz_extra[1] == DXK_VER &&
+                     r->cz_extra[DXK_HEAD] == 4u);
+    }
+    up_load(10);
+    bad += check("kits: the copy loads as an editable kit (on 1, base 4, the kit's LAYERs) and plays as the factory kit",
+                 dxk[0].on && dxk[0].base == 4u && !memcmp(dxk[0].lay, DX_KITS[4].lay, 8) && kit_hash() == h_factory);
+    /* a kit of one's own */
+    {
+        dxk_t *K = dxk_take(0);
+        for (uint32_t l = 0; l < 8u; l++) {
+            K->tune[l] = (int8_t)((int)l * 7 - 24); K->decay[l] = (int8_t)(20 - (int)l * 5); K->pan[l] = (int8_t)((int)l * 15 - 50);
+            K->punch[l] = (uint8_t)(l + 3u); K->atk[l] = (uint8_t)(l & 3u); K->bend[l] = (int8_t)((int)l - 3);
+            K->lay[l] = (uint8_t)(K->lay[l] ^ (l << 4));
+        }
+        K->tone = 0x37; K->hands = 6; K->duck = 40;
+        trk[0].p[P_LN0 + 2] = 90;                          /* the CLAP's LEVEL: the track's, saved with the values */
+        mine = *K;
+    }
+    h_mine = kit_hash();
+    bad += check("kits: the kit's values change the sound", h_mine != h_factory);
+    bad += check("kits: saved as MY KIT", !up_store(11, "MY KIT"));
+    memcpy(rec_a, up_rec(11), sizeof rec_a);
+    apply_preset(0);
+    up_cache_reset(); up_boot();                            /* a power cycle: the library from flash */
+    up_load(11);
+    got = dxk[0];
+    bad += check("kits: after a power cycle MY KIT loads value for value (on, base, lanes, TONE HANDS DUCK)", !memcmp(&got, &mine, sizeof got));
+    bad += check("kits: .. its lane LEVEL too, and it plays as it did", trk[0].p[P_LN0 + 2] == 90 && kit_hash() == h_mine);
+    bad += check("kits: saved again, the record is byte for byte the one loaded", !up_store(11, "MY KIT") && !memcmp(up_rec(11), rec_a, sizeof rec_a));
+    /* a preset of before 0.14.2: the same record with no kit in it (as 0.9.0 .. 0.14.1 wrote one: those bytes 0) */
+    memcpy(rec_b, up_rec(10), sizeof rec_b);
+    {
+        up_rec_t old;
+        memcpy(&old, rec_b, sizeof old);
+        memset(old.cz_extra, 0, sizeof old.cz_extra);
+        memset(old.packed + old.np, 0, sizeof old.packed - old.np);
+        for (uint32_t i = 0; i < 8u; i++) up_set_value(&old, P_E0 + i, DXE_PRESETS[1].e[i]);   /* (saved from 909 CLUB's knobs) */
+        memcpy(old.name, "OLD 909", 8);
+        bad += check("kits: a preset of before 0.14.2 is accepted (the record of before)", !up_put(12, &old));
+    }
+    up_cache_reset(); up_boot();
+    up_load(12);
+    h_old = kit_hash();
+    apply_preset(0);                                         /* what such a preset played: factory kit 0 with its knobs (0.14.1's up_load_to) */
+    for (uint32_t i = 0; i < 8u; i++) trk[0].p[P_E0 + i] = DXE_PRESETS[1].e[i];
+    h_old_ref = kit_hash();
+    up_load(12);
+    bad += check("kits: the migration: the old preset plays factory kit 0 (no kit of its own, preset 0), as before, sample for sample",
+                 !dxk[0].on && trk[0].preset == 0u && h_old == h_old_ref);
+    bad += check("kits: saved again it holds that kit expanded (base 0)", !up_store(13, "OLD 909 NEW") && up_rec(13)->cz_extra[0] == DXK_MARK &&
+                 up_rec(13)->cz_extra[DXK_HEAD] == 0u);
+    up_load(13);
+    bad += check("kits: .. and plays the same", dxk[0].on && kit_hash() == h_old_ref);
+    /* a damaged kit in a record: the factory kit 0, as an old one */
+    {
+        up_rec_t bad_rec;
+        memcpy(&bad_rec, rec_a, sizeof bad_rec);
+        bad_rec.cz_extra[DXK_HEAD + 5] ^= 0x40u;             /* (its CRC no longer agrees) */
+        memcpy(bad_rec.name, "DAMAGED", 8);
+        up_put(14, &bad_rec);
+        up_load(14);
+        bad += check("kits: a record whose kit does not read (its CRC): factory kit 0, nothing else of it", !dxk[0].on && trk[0].preset == 0u);
+    }
+    /* undo: a kit's load is one undo with the sound */
+    reset(); up_boot();
+                                                             /* (the library above is gone with the reset: MY KIT stored again) */
+    set_engine_of(TSEL, ENGI_DRUMX);
+    apply_preset(6);
+    dxk_put(0, &mine);
+    up_store(20, "MY KIT");
+    apply_preset(6);
+    undo_clear();
+    up_load(20);
+    bad += check("kits: MY KIT loaded over DUB ROOTS", dxk[0].on && !memcmp(&dxk[0], &mine, sizeof mine));
+    undo_step(0);
+    bad += check("kits: EDIT held undoes it: DUB ROOTS, the factory kit, again", !dxk[0].on && trk[0].preset == 6u);
+    undo_step(1);
+    bad += check("kits: .. and redoes it: MY KIT", dxk[0].on && !memcmp(&dxk[0], &mine, sizeof mine));
+    /* a project names the user kit (t->user): its kit again on load; a factory kit's project: the factory kit */
+    {
+        static project_t project;
+        static project_store_t wire;
+        project_capture(&project);
+        proj_pack(&wire, &project);
+        apply_preset(2);
+        proj_import(&project, &wire, sizeof wire);
+        project_restore_runtime(&project);
+        bad += check("kits: a project with a track on U021 (MY KIT) loads that kit (the project's format as before)",
+                     trk[0].eng_req == ENGI_DRUMX && trk[0].user == 21u && dxk[0].on && !memcmp(&dxk[0], &mine, sizeof mine));
+        apply_preset(8);
+        project_capture(&project);
+        proj_pack(&wire, &project);
+        dxk_put(0, &mine);
+        proj_import(&project, &wire, sizeof wire);
+        project_restore_runtime(&project);
+        bad += check("kits: a project with a factory kit (BREAKS) loads the factory kit", !dxk[0].on && trk[0].preset == 8u && !trk[0].user);
+    }
+    return bad;
+}
+
 int main(void)
 {
-    int bad=fill(ENGI_CZ)+fill(ENGI_PROPHET)+fill(ENGI_FM6)+legacy_conversion()+wipe_recovery()+needwipe_recovery();
+    int bad=fill(ENGI_CZ)+fill(ENGI_PROPHET)+fill(ENGI_FM6)+legacy_conversion()+wipe_recovery()+needwipe_recovery()+drumx_kits();
     reset();up_boot();p5_patch_t p;p5_patch_init(&p);uint8_t cz[CZ_BYTES];cz_patch_init(cz);
     bad+=check("Prophet occupies a shared slot",!native_put(ENGI_PROPHET,383,(uint8_t *)&p));
     bad+=check("CZ replaces Prophet in the identical slot",!native_put(ENGI_CZ,383,cz)&&native_used(ENGI_CZ,383)&&!native_used(ENGI_PROPHET,383));

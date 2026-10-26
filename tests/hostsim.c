@@ -137,6 +137,7 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     cz_factory_loaded(t);
     if(e==ENGI_PROPHET){uint32_t k=(uint32_t)(t-trk)%NTRK;p5_ready[k]=1;p5_preset_loaded(t,pi);}   /* (its program, as ui.c) */
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
+    dxk_off((uint32_t)(t - trk) % NTRK);         /* (0.14.2) DRUM-X: the factory kit as it is (ui.c apply_preset_to) */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {

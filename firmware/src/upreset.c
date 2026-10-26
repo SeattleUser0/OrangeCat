@@ -4,6 +4,7 @@
 /* Revisions:
  * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
  * (Orange Cat 0.11.1) the migration after a downgrade and an upgrade can finish; LIBRARY NEEDS WIPE and a wipe that completes from it
+ * (Orange Cat 0.14.2) a user preset of engine 9 (DRUM-X) keeps its whole kit: the record's extension (up_kit_put, up_kit_get, dxk_rec.h)
  */
 /* One shared 384-slot library. Engine-native payloads and ordinary sound
  * parameters share the same slot identity. Flash uses 18 compact records per
@@ -45,6 +46,7 @@ static const uint8_t UP_NATIVE_PARAMS[] = {
 };
 _Static_assert(sizeof UP_NATIVE_PARAMS <= 46u,"native preset parameter storage");
 #include "cz_patch.h"
+#include "dxk_rec.h"                            /* (0.14.2) DRUM-X's kit and its record */
 #define UP_VER_CZ 8u                            /* native CZ-1 bytes in the 144-byte payload */
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
@@ -152,6 +154,34 @@ static int up_drum_raw(const up_rec_t *r,drum_patch_t *p)
     uint8_t b[DRUM_WIRE_BYTES];if(r->np>sizeof r->packed-8u)return 0;
     memcpy(b,r->cz_extra,sizeof r->cz_extra);memcpy(b+sizeof r->cz_extra,r->packed+r->np,8u);return drum_patch_unpack(p,b);
 }
+
+/* (Orange Cat 0.14.2) a DRUM-X kit's record (dxk_rec.h, DXK_BYTES) in a user preset of engine 9, as DRUM's patch is in one of engine 10
+ * (up_drum_raw): its first 46 bytes in cz_extra, the rest in packed after the record's np values. Records of every version keep these
+ * bytes (on disk too: up_save_bank's head and extra), and a firmware before 0.14.2 reads such a preset as it read any (the values) and
+ * leaves them as they are. The record's own version stays (UP_VER, UP_VER_GRID): the kit says its version itself. A record whose np
+ * leaves no room for the rest holds no kit. 0 ok */
+static int up_kit_put(up_rec_t *r, const uint8_t *b)
+{
+    uint32_t a = sizeof r->cz_extra, rest = DXK_BYTES - a;
+    if (r->np > sizeof r->packed || sizeof r->packed - r->np < rest)
+        return 1;
+    memcpy(r->cz_extra, b, a);
+    memcpy(r->packed + r->np, b + a, rest);
+    return 0;
+}
+/* .. the bytes where a kit's record would be, into b (DXK_ROOM): how many there are (0: not engine 9) */
+static uint32_t up_kit_get(const up_rec_t *r, uint8_t *b)
+{
+    uint32_t a = sizeof r->cz_extra, rest;
+    if (r->engine != ENGI_PHYS || r->np > sizeof r->packed)   /* (engine 9: DRUM-X's number, PHYS's before it) */
+        return 0;
+    rest = sizeof r->packed - r->np;
+    rest = rest > DXK_ROOM - a ? DXK_ROOM - a : rest;
+    memcpy(b, r->cz_extra, a);
+    memcpy(b + a, r->packed + r->np, rest);
+    return a + rest;
+}
+_Static_assert(DXK_ROOM - 46u <= UP_PMAX * 2u - 127u && DXK_BYTES <= DXK_ROOM && sizeof ((up_rec_t *)0)->cz_extra == 46u, "a kit fits a record of any np");
 
 static int up_valid(const up_rec_t *r)
 {
@@ -572,6 +602,13 @@ static int up_store_to(uint32_t k,uint32_t tr,const char *name)
         if(any){r.ver=UP_VER_GRID;for(uint32_t i=0;i<16u;i++){r.note[i]=(uint8_t)step_lanes(&t->step[i]);r.flags[i]=(uint8_t)step_accents(&t->step[i]);}}
     }
     if((MELODEE_DRUM && r.engine == ENGI_DRUM)){uint8_t b[DRUM_WIRE_BYTES];drum_patch_pack(b,&drum_patch[tr]);memcpy(r.cz_extra,b,sizeof r.cz_extra);memcpy(r.packed+r.np,b+sizeof r.cz_extra,8u);r.ver=r.ver==UP_VER_GRID?UP_VER_DRUM_GRID:UP_VER_DRUM;}
+    if (MELODEE_DRUMX && r.engine == ENGI_DRUMX) {      /* (0.14.2) the whole kit (a factory kit expanded: an editable copy) */
+        uint8_t b[DXK_BYTES];
+        dxk_t kit;
+        dxk_view(tr, &kit);
+        dxk_pack(&kit, b);
+        (void)up_kit_put(&r, b);
+    }
     return up_put(k,&r);
 }
 static int up_store(uint32_t k,const char *name){return up_store_to(k,song.sel,name);}
@@ -587,6 +624,22 @@ static int up_rename(uint32_t k, const char *name)
     up_set_name(&r, k, name);
     if(up_native(&r) || up_native_cz(&r)){char nm[13];memcpy(nm,r.name,12);nm[12]=0;up_native_name(&r,name && name[0]?name:nm);}
     return up_put(k, &r);
+}
+
+/* (0.14.2) record r's kit -> track tr (with t->preset 0, as every user preset load sets it). The migration of a preset of before 0.14.2
+ * (no kit in it, or one this firmware does not read): the factory kit t->preset, 0, as it is: the kit such a preset always played
+ * (0.9.0 to 0.14.1 stored no kit and loaded the preset number 0). Saved again, it holds that kit expanded. 1: the record's own kit */
+static int up_kit_load(const up_rec_t *r, uint32_t tr)
+{
+    uint8_t b[DXK_ROOM];
+    dxk_t kit;
+    uint32_t n = up_kit_get(r, b);
+    if (n && dxk_unpack(&kit, b, n)) {
+        dxk_put(tr, &kit);
+        return 1;
+    }
+    dxk_off(tr);
+    return 0;
 }
 
 /* slot k -> the selected part's sound: engine and every parameter except the track's own (param_kept:
@@ -615,6 +668,7 @@ static int up_load_to(uint32_t k,uint32_t tr)
         t->preset = 0;
         if (up_native_cz(r))up_cz_raw(r,cz_patch[tr].raw);
         if((MELODEE_DRUM && r->engine == ENGI_DRUM)){memset(&drum_patch[tr],0,sizeof(drum_patch_t));if(r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)up_drum_raw(r,&drum_patch[tr]);}
+        if (MELODEE_DRUMX && r->engine == ENGI_DRUMX) up_kit_load(r, tr);   /* (0.14.2) its kit (one of before: factory kit 0) */
         if((MELODEE_P5 && r->engine == ENGI_PROPHET) && r->ver==UP_VER_P5){memcpy(&p5_patch[tr],r->packed,sizeof(p5_patch_t));p5_ready[tr]=1;p5_track_accept(t);}
         if (MELODEE_CZ) cz_track_accept(t);   /* (Orange Cat: MELODEE_CZ) */
         fm1_irq_on();

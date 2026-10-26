@@ -24,7 +24,9 @@
 #define DXREF_LOAD(K) dx_kit_load(K)
 #else
 #define DXREF_RUN(K, L, V, MORPH, TUNE, DOFS, COFS, NOFS, WARP, FM, Y) \
-    dx_run(&DX_KITS[K], L, V, MORPH, TUNE, DOFS, COFS, NOFS, WARP, FM, Y, CTL)
+    ((V)->layer = DX_KITS[K].lay[L], (V)->tone = (V)->hands = 0,   /* ((0.14.2) the hit's LAYER as the kit has it, TONE and HANDS 0:   \
+                                                                   * Jiant's kit) */                                                 \
+     dx_run(&DX_KITS[K], L, V, MORPH, TUNE, DOFS, COFS, NOFS, WARP, FM, Y, CTL))
 #define DXREF_LOAD(K) ((void)(K))
 #endif
 

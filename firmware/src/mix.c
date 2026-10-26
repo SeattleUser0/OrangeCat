@@ -3,7 +3,10 @@
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Engine output -> DIST -> track level -> pan -> the dry mix (or the SLICER's bus) and the sends -> the buses -> the
  * master (jfx.c). (Orange Cat 0.6.0: the effects are Jiant FM's, jfx.c; Melodee's fx.c, its inserts and shared slots,
- * are gone. A track with no DIST, no AUTO PAN and no route keeps the dry path exactly as before.) */
+ * are gone. A track with no DIST, no AUTO PAN and no route keeps the dry path exactly as before.)
+ * (Orange Cat 0.14.2) A DRUM-X kit with lanes panned comes as two sides (eng_drumx.c dxe_right): DIST, the FX mute and solo take each,
+ * then mix_lanes the track's level and PAN; a kit's DUCK takes the parts that are not drum tracks down after a kick (mix_duck). A kit with
+ * every lane at the centre, and no DUCK, keeps the path as it was. */
 static int32_t part_storage[CTL],mix_l[CTL],mix_r[CTL];
 static int32_t *part_buf=part_storage;
 /* (0.6.0) where a track's dry sound goes this block (mix_l / mix_r, or the SLICER's bus), and its sends: mono, after its
@@ -209,7 +212,7 @@ static int32_t mix_ap_pan[NTRK];                        /* (0.6.0) AUTO PAN: the
 static uint8_t mix_ap_seen[NTRK];
 
 static int32_t solo_gain[NPART]={32768,32768,32768,32768};
-static void mix_solo(track_t *t,int32_t *b,uint32_t n)
+static void mix_solo(track_t *t,int32_t *b,int32_t *b2,uint32_t n)   /* b2: the second side (SPREAD's, (0.14.2) a panned kit's), or 0 */
 {
     uint32_t ti=(uint32_t)(t-trk);
     int32_t from=solo_gain[ti],to=!track_solo || ((track_solo>>ti)&1u)?32768:0;
@@ -217,9 +220,39 @@ static void mix_solo(track_t *t,int32_t *b,uint32_t n)
     for(uint32_t i=0;i<n;i++){
         from += clamp(to-from,-256,256); /* 128 samples, same GLO solo ramp as before */
         b[i]=mulq16(b[i],(uint32_t)from<<1);
-        if(spread_on)spread_buf[i]=mulq16(spread_buf[i],(uint32_t)from<<1);
+        if(b2)b2[i]=mulq16(b2[i],(uint32_t)from<<1);
     }
     solo_gain[ti]=from;
+}
+/* (Orange Cat 0.14.2) a kit's DUCK (eng_drumx.c dxe_duck_block) on a part that is not a drum track: the gain ramped over the block */
+static __attribute__((noinline)) void mix_duck(int32_t *b,int32_t *b2,uint32_t n)
+{
+    int32_t g=dxe_duck_g0,dg=(dxe_duck_g1-dxe_duck_g0)/(int32_t)n;
+    for(uint32_t i=0;i<n;i++,g+=dg){
+        b[i]=mulq16(b[i],(uint32_t)g<<1);
+        if(b2)b2[i]=mulq16(b2[i],(uint32_t)g<<1);
+    }
+}
+/* (Orange Cat 0.14.2) a DRUM-X kit with lanes panned, its two sides bl (left) and br (right), each already where its lanes' PAN puts it:
+ * the track's level, then its PAN (p0 to p1 over the block, << 8: AUTO PAN glides it) on each side, the track's PAN law (the far side down,
+ * the near one as it is); the sends and the meter take the two sides' mean */
+static __attribute__((noinline)) void mix_lanes(track_t *t,const int32_t *bl,const int32_t *br,uint32_t n,int32_t p0,int32_t p1)
+{
+    int32_t lvl=LEVEL_Q12[t->p[P_LEVEL]&127],pk=t->peak;
+    int32_t gl=4096-(p0>0?p0>>2:0),gr=4096+(p0<0?p0>>2:0);
+    int32_t dgl=((4096-(p1>0?p1>>2:0))-gl)/(int32_t)n,dgr=((4096+(p1<0?p1>>2:0))-gr)/(int32_t)n;
+    for(uint32_t i=0;i<n;i++,gl+=dgl,gr+=dgr){
+        int32_t xl=clamp(((clamp(bl[i],-884000,884000)>>2)*lvl)>>10,-524287,524287);
+        int32_t xr=clamp(((clamp(br[i],-884000,884000)>>2)*lvl)>>10,-524287,524287);
+        int32_t x=(xl+xr)>>1,a=x<0?-x:x;
+#if MELODEE_USB_AUDIO
+        if(track_capture_on)track_capture[i*NTRK+(uint32_t)(t-trk)]=x;
+#endif
+        if(a>pk)pk=a;
+        mix_add((xl*gl)>>12,(xr*gr)>>12,i);
+        mix_send(x,i);
+    }
+    t->peak=pk;
 }
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
 static int32_t batch_pcm[NPART][CTL],batch_spread[NPART][CTL];
@@ -246,7 +279,7 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
     for(uint32_t p=0;p<nt;p++){
         track_t *t=&trk[p];
         mod_begin(t);batch_mod[p]=mod;memcpy(batch_params[p],t->p,sizeof t->p);
-        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
+        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON) && !dxk_panned(t);   /* ((0.14.2) a kit panned: its sides) */
         batch_spread_on[p]=spread_on;spread_buf=batch_spread[p];
         batch_rendered[p]=track_render_audio(t,batch_pcm[p],n,0);
         if(mod.on)mod_end(t);
@@ -280,24 +313,26 @@ static void mix_part_engine(track_t *t,uint32_t n)
 #endif
     {
         part_buf=part_storage;spread_buf=spread_storage;mod_begin(t);
-        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
+        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON) && !dxk_panned(t);   /* ((0.14.2) as above) */
         rendered=(int)track_render_audio(t,part_buf,n,0);
     }
     AP_START(mix_start);
+    int32_t *rb=rendered?dxe_right(t):0;               /* (0.14.2) a panned kit's right side (part_buf its left), 0: one */
     if(rendered)mix_tail[ti]=16u;
     else if(mix_tail[ti] && jfx_dist_on(t))mix_tail[ti]--;
     else mix_tail[ti]=0;
     if(rendered || mix_tail[ti] || ((pf.mute>>ti)&1u)){
         if(!rendered){memset(part_buf,0,n*sizeof *part_buf);if(spread_on)memset(spread_buf,0,n*sizeof *spread_buf);}
-        if(jfx_dist_on(t)){                             /* DIST (SPREAD: each side its own) */
+        if(jfx_dist_on(t)){                             /* DIST (SPREAD: each side its own; (0.14.2) a panned kit's too) */
             AP_START(fx_start);
             if(spread_on){for(uint32_t i=0;i<n;i++)part_buf[i]-=spread_buf[i];}
-            jfx_dist(t,part_buf,spread_on?spread_buf:0,n);
+            jfx_dist(t,part_buf,spread_on?spread_buf:rb,n);
             if(spread_on){for(uint32_t i=0;i<n;i++)part_buf[i]+=spread_buf[i];}
             AP_END(AP_FX,fx_start);
         }
-        if((pf.mute>>ti)&1u)perf_mute(ti,part_buf,spread_on?spread_buf:0,n);   /* the FX layer's mute */
-        mix_solo(t,part_buf,n);
+        if((pf.mute>>ti)&1u)perf_mute(ti,part_buf,spread_on?spread_buf:rb,n);   /* the FX layer's mute */
+        mix_solo(t,part_buf,spread_on?spread_buf:rb,n);
+        if((dxe_duck_g0<32767 || dxe_duck_g1<32767) && !drum_track(t))mix_duck(part_buf,spread_on?spread_buf:rb,n);   /* (0.14.2) a kit's DUCK */
         mix_send_gains(t);
         if(t->p[P_APDEP]>0 || mix_ap_seen[ti]){         /* AUTO PAN: the pan gliding (until it is back at the knob's) */
             int32_t pan=t->p[P_PAN]<<8,p0;
@@ -307,8 +342,10 @@ static void mix_part_engine(track_t *t,uint32_t n)
             mix_ap_pan[ti]+=(pan-p0)>>2;
             if(mix_ap_pan[ti]-pan<64 && pan-mix_ap_pan[ti]<64)mix_ap_pan[ti]=pan;
             mix_ap_seen[ti]=(uint8_t)(t->p[P_APDEP]>0 || mix_ap_pan[ti]!=(t->p[P_PAN]<<8));
-            mix_pan_ramp(t,part_buf,spread_on?spread_buf:0,n,p0,mix_ap_pan[ti]);
-        }else if(spread_on)mix_spread(t,part_buf,n);
+            if(rb)mix_lanes(t,part_buf,rb,n,p0,mix_ap_pan[ti]);   /* ((0.14.2) a panned kit's sides) */
+            else mix_pan_ramp(t,part_buf,spread_on?spread_buf:0,n,p0,mix_ap_pan[ti]);
+        }else if(rb)mix_lanes(t,part_buf,rb,n,t->p[P_PAN]<<8,t->p[P_PAN]<<8);   /* (0.14.2) */
+        else if(spread_on)mix_spread(t,part_buf,n);
         else{
             mix_cache_t *mc=&mix_cache[ti];
             if(!mc->valid || mc->level!=t->p[P_LEVEL] || mc->pan!=t->p[P_PAN])mix_cache_update(t,mc);
@@ -341,6 +378,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     memset(sl_l,0,n*sizeof *sl_l);memset(sl_r,0,n*sizeof *sl_r);
     memset(send_c,0,n*sizeof *send_c);memset(send_d,0,n*sizeof *send_d);memset(send_r,0,n*sizeof *send_r);
     AP_START(events_start);events_block(n);AP_END(AP_EVENTS,events_start);
+    dxe_duck_block();                                   /* (Orange Cat 0.14.2) a kit's DUCK: after the events (their kicks) */
     jfx_clock_begin();                                  /* (0.6.0) the transport's grid, after the events */
     if(mix_frz_block)mix_frz_block(n);                  /* (Orange Cat 0.4.20) frozen tracks: after the sequencer's pass marks */
     if(thr_out)throw_on(n);                             /* (Orange Cat 0.4.3) the throws over the sends, this block: after
