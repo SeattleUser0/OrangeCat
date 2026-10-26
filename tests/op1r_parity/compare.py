@@ -10,7 +10,8 @@ For each plugin, phrase (a: the harness's C3 E3 G3 C4 G3 E3; b: C2 C4 C6 twice) 
 A plugin that reads no sine must give op1r's render in every sample with ours_ too. One that reads it passes within the tolerance:
   - where op1r's render is stable (trunc_ within -60 dB of it): ours_ within TOL_RMS_DB (the whole render's RMS difference against its signal) and
     the sustain spectra within TOL_SPEC_DB, bin for bin, over the bins within 60 dB of each note's strongest (sustain: blocks 20 to 100 of the note's
-    138, Hann window, 10,240 points);
+    138, Hann window, 10,240 points), or (0.3) within trunc_'s own worst bin where that is larger: a bin near the 60 dB floor that op1r's render
+    moves further under a 1-LSB change of its sine (brassophone's phase-warped spectrum at C6) cannot be asked to hold 0.5 dB of ours;
   - where op1r's render is not (FM feedback: a 1-LSB change of the sine grows into another waveform of the same sound within milliseconds, in op1r's
     arithmetic itself): ours_ within TOL_LVL_DB of op1r's sustain level, and its third-octave bands (those within 40 dB of the strongest) no further
     from op1r's than trunc_'s are, plus TOL_BAND_DB.
@@ -91,14 +92,15 @@ for p in sys.argv[2:]:
             continue
         rms, wbin, wdl, wband, wlvl = measure(a, b)
         t = np.fromfile(out / f"trunc_{tag}.raw", dtype="<i2").astype(np.float64)
-        trms, _, _, tband, _ = measure(a, t)
+        trms, tbin, _, tband, _ = measure(a, t)
         head = f"{eq} of {len(a)} equal, max |diff| {int(np.max(np.abs(b - a)))} LSB (peak {peak}), RMS {rms:.1f} dB"
         if not sine:
             print(f"{line} FAIL: {head}: this plugin reads no sine, every sample must be equal")
             bad += 1
         elif trms <= TOL_RMS_DB:
-            ok = rms <= TOL_RMS_DB and wbin <= TOL_SPEC_DB
-            print(f"{line} {'within tolerance' if ok else 'FAIL'} (stable): {head}, sustain spectra {wbin:.3f} dB (difference {wdl:.1f} dB)")
+            ok = rms <= TOL_RMS_DB and wbin <= max(TOL_SPEC_DB, tbin)
+            print(f"{line} {'within tolerance' if ok else 'FAIL'} (stable): {head}, sustain spectra {wbin:.3f} dB (difference {wdl:.1f} dB)"
+                  + (f"; op1r's own bins move {tbin:.3f} dB with its table truncated" if tbin > TOL_SPEC_DB else ""))
             bad += not ok
         else:
             ok = wlvl <= TOL_LVL_DB and wband <= tband + TOL_BAND_DB

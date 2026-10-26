@@ -1,3 +1,5 @@
+/* (Orange Cat, this copy) op1r bf808cfa's brass.c (its screen is horn.c, not copied). Changed, each marked Orange Cat: its two sine reads are
+ * OP1_SINE (tools/module/op1r/op1_glue.h) and its warp table reads BRASS_WARP (tools/module/brassophone_mod.c: every fourth column, its hot set). */
 /* Brass synth engine: pitch-bent sine with timbre envelope.
  *   blue : starting interpolation position (sine → spread waveform), anywhere from 0% up to
  *          (100% - sweep); knob up = 0%, knob down = the highest start that still leaves room for the sweep
@@ -79,8 +81,8 @@ static void brass_note_off(void *self)
  * 1/64 of the cycle instead of freezing on row 63 and then jumping back to row 0. */
 static inline int32_t warp_row(int32_t s, int32_t frac_q15, int32_t col)
 {
-    int32_t a = warp_table[s][col];
-    int32_t b = s < 63 ? warp_table[s + 1][col] : 32768;
+    int32_t a = BRASS_WARP(s, col);                         /* (Orange Cat) warp_table[s][col] */
+    int32_t b = s < 63 ? BRASS_WARP(s + 1, col) : 32768;    /* (Orange Cat) warp_table[s + 1][col] */
     return a + op1_mul16(b - a, frac_q15);
 }
 
@@ -156,7 +158,7 @@ static void brass_render(void *self, int16_t *out, const int16_t *params)
         int32_t bend_q15 = op1_mul16(BEND_AMOUNT, pitch_bend_phase);
 
         /* Vibrato: per-sample LFO, scaled by the gate/fade above. */
-        int32_t vibrato_q15 = (OP1_SINE_TABLE[vibrato_phase >> 19] * vibrato_amt_q15) >> 15;
+        int32_t vibrato_q15 = (OP1_SINE(vibrato_phase >> 19) * vibrato_amt_q15) >> 15;   /* (Orange Cat) OP1_SINE */
         vibrato_phase += (uint32_t)vibrato_phase_inc;
 
         /* inc * (1 + mod): 32-bit only. |mod| < 2^12 and inc < 2^31, so (inc >> 12) * mod stays below 2^31. */
@@ -178,7 +180,7 @@ static void brass_render(void *self, int16_t *out, const int16_t *params)
         sine_idx = sine_idx > 8191 ? 8191 : (sine_idx < 0 ? 0 : sine_idx);
 
         /* Lookup sine value. */
-        int32_t sample = OP1_SINE_TABLE[sine_idx];
+        int32_t sample = OP1_SINE(sine_idx);                  /* (Orange Cat) OP1_SINE */
 
         /* One-pole low-pass filter. */
         lp += ((sample - lp) * 16384) >> 15;

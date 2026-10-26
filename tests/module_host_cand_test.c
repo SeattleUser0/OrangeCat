@@ -45,7 +45,8 @@ int main(int argc, char **argv)
     if (CAND_ENGINE < ENGI_FMBELL)
         check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
     else                                       /* (0.14.1) op1r's: the glue's part state (the voices' 128-sample blocks, the plugin's own), six voices */
-        check("no hot set of its own, the glue's part state (op1g_part_t) under 16 KB, OP1_VOICES voices", em->nhot == 0u && h.state_size > 2048u &&
+        check("its hot set (brassophone: its warp table and op1r's sine; else none), the glue's part state (op1g_part_t) under 16 KB, OP1_VOICES voices",
+              em->nhot == (CAND_ENGINE == ENGI_BRASS ? 2u : 0u) && h.state_size > 2048u &&
               h.state_size <= 16384u && em->poly == 6u && em->keep == 0u && np >= 3u && np <= 64u);
     check("the slot is retired and not offered without the module", ENGINES[CAND_ENGINE] == &ENG_RETIRED && !eng_ok(CAND_ENGINE) &&
           eng_sound_idx(CAND_ENGINE) == CAND_ENGINE && !eng_ok(20u));

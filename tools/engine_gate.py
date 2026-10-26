@@ -125,6 +125,13 @@ GATE = {
                           "OP1_VOICE_ENV); velocity through op1_voice_vel_gain; its own strike envelope and sputter; no CUT or SHP; E1..E7 per block",
             "backend": "none: the Van der Pol lamps are its own; isqrt32 and the pitch mantissa are small helpers",
             "source": "op1r (ultralazr, Musica Obscura #1) synth_sdk/plugins/arc/arc.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "brassophone": {"engine": 28, "funcs": ["op1g_eng_render", "brass_render"], "voice_type": "brass_voice_t",
+                    "controls": "all four of op1r's knobs on EDIT 1 (STRT SWP VIBD VIBR); it has no second page; lost: none",
+                    "modulation": "ENV drives its timbre sweep, its pitch bend and its vibrato's fade-in (OP1_VOICE_ENV: the glue's amplitude per block); "
+                                  "velocity through op1_voice_vel_gain; pitch (m->inc); its own vibrato LFO; no CUT or SHP; E1..E4 per block",
+                    "backend": "the sine (OP1_SINE: SINE through the base hot set); its warp table is its own (a phase-distortion table: CZ-1's "
+                               "phase distortion is the same family, computed rather than tabled)",
+                    "source": "op1r (nick (nvmsocool)) synth_sdk/plugins/brassophone/brass.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")
@@ -369,7 +376,8 @@ def gate(name, build_mode=None):
         rows_hot.append({"name": t, "bytes": size_of.get(t), "status": status, "why": cand[t],
                          "where": BASE_HOT.get(t) or ("the module" if t in by_addr.values() else "the pack" if t in pack else "the firmware's image")})
     arena = sum((d["bytes"] + 3) & ~3 for d in declared)
-    per_block = sorted((n, s) for n, _, s, k in syms if k == "O" and n not in cand and not METADATA.search(n) and s >= 16)
+    per_block = sorted((n, s) for n, _, s, k in syms if k == "O" and n not in cand and n not in dnames and not METADATA.search(n) and s >= 16
+                       and not re.search(r"_HOT$", n))
     # code, tables, metadata
     code = sum(s for _, _, s, k in syms if k == "F")
     meta_b = sum(s for n, _, s, k in syms if k == "O" and METADATA.search(n))

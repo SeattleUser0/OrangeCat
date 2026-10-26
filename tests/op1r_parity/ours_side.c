@@ -59,9 +59,16 @@ int main(int argc, char **argv)
     api.trk = trk_h; api.base_hot = base; api.mem_copy = mcp; api.mem_set = mst; api.resource_get = rget; api.res_engine0 = 0;
     oc_host_fw = &api;
     e = oc_host_module_engine();
+    {                                         /* a module's hot set (brassophone's): read in place, as a host test that registers nothing does */
+        static const void *hot_e[ENG_HOT_MAX];
+        static const void *const *hot_all[NENGINES];
+        for (uint32_t i = 0; i < e->nhot; i++) hot_e[i] = e->hot[i].src;
+        hot_all[OC_MODULE_HDR.engine] = hot_e;
+        api.hot = hot_all;
+    }
     if (OC_MODULE_HDR.state_size > sizeof arena) { fprintf(stderr, "state %u B\n", (unsigned)OC_MODULE_HDR.state_size); return 2; }
     for (int i = 0; i < 4; i++) t->p[P_E0 + i] = (int16_t)(k[i] / 258);
-    if (getenv("OP1G_SEED"))                  /* "w=value": op1r's voice word w (1..8: voice_t's s[w - 1]) before the first note-on: a plugin that seeds
+    if (getenv("OP1G_SEED") && strchr(getenv("OP1G_SEED"), '='))                  /* "w=value": op1r's voice word w (1..8: voice_t's s[w - 1]) before the first note-on: a plugin that seeds
                                                * its noise from the voice object's address (arc) gets the seed op1r's harness gave it (run.sh) */
         v->s[atoi(getenv("OP1G_SEED")) - 1] = (int32_t)strtoul(strchr(getenv("OP1G_SEED"), '=') + 1, 0, 0);
     for (int n = 0; n < 6; n++) {
