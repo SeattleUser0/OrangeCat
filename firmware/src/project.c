@@ -695,6 +695,17 @@ static void (*frz_named_hook)(const char *old, const char *nw, uint32_t slot, in
 
 /* the music as it is now -> slot, named `name` (0: the current name; "" none); 0 saved, nonzero refused or failed.
  * The current name becomes the saved one */
+/* (Orange Cat 0.14.2) a track on a candidate engine of a measurement build (OC_CANDIDATES: numbers from NENGINES_SHIPPED on). A project
+ * or template holding one is never written: every other firmware refuses the record (the slot reads OLD FORMAT, a backup has it
+ * empty), so a measurement left on the unit would take the slot's project with it (the unit's slot 1, October 2026: the autosave) */
+static int proj_candidate_tracks(void)
+{
+#if OC_CANDIDATES
+    for (uint32_t k = 0; k < NTRK; k++)
+        if (trk[k].eng_req >= NENGINES_SHIPPED) return 1;
+#endif
+    return 0;
+}
 static int project_save_as(uint32_t slot, const char *name)
 {
     project_t *p = &proj_scratch;
@@ -703,6 +714,10 @@ static int project_save_as(uint32_t slot, const char *name)
     str_cpy(was, proj_name, sizeof was);
     if (transport_busy()) {                            /* a flash erase silences the audio and stalls the */
         ui_message("STOP TO SAVE");                     /* sequencer (storage_hw.c): only while stopped */
+        return 1;
+    }
+    if (proj_candidate_tracks()) {
+        ui_message("TEST ENGINE: NOT SAVED");
         return 1;
     }
     momentary_restore();
@@ -760,7 +775,7 @@ static void project_autosave(void)
     if(AUDIO_LAB_GUARDED())return;
     project_t *p = &proj_scratch;
     uint32_t slot = proj_cur;
-    if (slot >= 4u || transport_busy())
+    if (slot >= 4u || transport_busy() || proj_candidate_tracks())
         return;
     if (ocl_keep_all())                                 /* (Orange Cat 0.3, 4c) kept to the pool first */
         return;
@@ -1154,6 +1169,7 @@ static void template_save(void)
         return;
     }
     if (template_old()) { confirm_open(CF_OLD_TEMPLATE, 0); return; }
+    if (proj_candidate_tracks()) { ui_message("TEST ENGINE: NOT SAVED"); return; }
     memset(&tmpl, 0, sizeof tmpl);
     for (i = 0; i < PROJ_GLOBALS; i++)
         tmpl.g[i] = song.g[i];

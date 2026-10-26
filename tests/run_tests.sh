@@ -318,6 +318,14 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
             "$OUT/module_host_${e}_test" tests/golden_modules.txt
     done
 }
+cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
+    build cand_slot_norm cand_slot_test -O1 $FW || return
+    build cand_slot_cand cand_slot_test -O1 $FW -DOC_CANDIDATES=1 || return
+    step "a project saved in slot 1 (normal build)" "$OUT/cand_slot_norm" save "$OUT/cand_slot.nor"
+    step "an OC_CANDIDATES build boots it, loads it, the tracks go to a candidate engine: the autosave and SAVE never write it (TEST ENGINE: NOT SAVED)" \
+        "$OUT/cand_slot_cand" cand "$OUT/cand_slot.nor"
+    step "the normal build reads slot 1 afterwards (not OLD FORMAT, not empty in a backup)" "$OUT/cand_slot_norm" read "$OUT/cand_slot.nor"
+}
 phys_ref() {
     D=${DAISYSP:-vendor/DaisySP}/Source
     if [ ! -d "$D/PhysicalModeling" ] || ! command -v c++ >/dev/null 2>&1; then
@@ -528,6 +536,7 @@ if core && [ $TABLES = 1 ]; then
     t "TRACKER: an EDIT tap whose release lands mid-frame turns the effect off and opens no page" tracker_edit_race_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW                  # (Orange Cat 0.14.1)
     t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW
+    job cand_slot                                  # (Orange Cat 0.14.2)
 fi
 
 if sound && [ $TABLES = 1 ]; then

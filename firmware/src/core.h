@@ -148,6 +148,7 @@
 #define ENGI_ARC 30u
 #define ENGI_GRANULAR 31u         /* granular: reserved; its port waits for the sample question (ENGINE_CANDIDATES.md) */
 #define OP1R_NCAND 8u             /* the op1r numbers 24..31 */
+#define NENGINES_SHIPPED 20u        /* (0.14.2) the table every firmware without OC_CANDIDATES has: a stored engine past it is refused there */
 #define NENGINES (OC_CANDIDATES ? 32 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31 */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
