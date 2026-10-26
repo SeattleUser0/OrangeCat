@@ -27,6 +27,7 @@ knobs() {
     supersaw) echo "31,0,47,23 100,64,0,0 127,127,127,127" ;;
     dddd) echo "0,93,78,31 64,110,40,90 127,127,127,127" ;;
     mixtur) echo "8,13,18,28 8,48,63,98 127,127,127,127" ;;
+    arc) echo "47,23,19,35 80,10,0,0 127,127,127,127" ;;
     *) echo "run.sh: no knob settings for $1" >&2; exit 2 ;;
     esac
 }
@@ -39,8 +40,16 @@ for p in $PLUGINS; do
     SRCS=$(python3 -I -c "import json,sys,os; d=os.path.dirname(sys.argv[1]); print(' '.join(os.path.join(d, s) for s in json.load(open(sys.argv[1]))['sources']))" "$J")
     for h in a b; do
         H=$SDK/harness/audio_harness.c; [ $h = b ] && H=$OUT/audio_harness_b.c
-        cc -O1 -g -w $SAN -DOP1_HOST -DENGINE="$SYM" -I"$SDK" -I"$SDK/harness" -o "$OUT/ref_${p}_$h" "$H" $SRCS "$HERE/stubs.c" -lm
+        cc -O1 -g -w $SAN -no-pie -DOP1_HOST -DENGINE="$SYM" -I"$SDK" -I"$SDK/harness" -o "$OUT/ref_${p}_$h" "$H" $SRCS "$HERE/stubs.c" -lm
     done
+    # arc seeds its noise at a note-on from the voice object's address (0x9E3779B9 ^ self): op1r's harness links non-PIE (above), so its voice
+    # memory has one address, and ours_side starts our voice's rng word (arc_voice_t +0x14: s[4], word 5) with the seed op1r's render had
+    SEED=
+    if [ "$p" = arc ]; then
+        A=$(nm "$OUT/ref_${p}_a" | awk '$3 == "host_voice_mem" { print $1 }'); B=$(nm "$OUT/ref_${p}_b" | awk '$3 == "host_voice_mem" { print $1 }')
+        [ -n "$A" ] && [ "$A" = "$B" ] || { echo "run.sh: host_voice_mem's address: $A $B" >&2; exit 1; }
+        SEED=5=$(printf '0x%x' $(( (0x$A & 0xFFFFFFFF) ^ 0x9E3779B9 )))
+    fi
     cc -O1 -w $SAN -DOC_CANDIDATES=1 -DOC_MODULE_HOST=1 -Dbootguard=module_unit_bootguard -I"$ROOT/build/gen" -I"$ROOT/firmware/src" \
         -I"$ROOT/tools/module/op1r" -c -o "$OUT/$p.o" "$ROOT/tools/module/${p}_mod.c"
     cc -O1 -w $SAN -DOC_CANDIDATES=1 -I"$ROOT/build/gen" -I"$ROOT/firmware/src" -o "$OUT/ours_$p" "$HERE/ours_side.c" "$OUT/$p.o" -lm
@@ -52,12 +61,12 @@ for p in $PLUGINS; do
         K="$(($1 * 258)) $(($2 * 258)) $(($3 * 258)) $(($4 * 258))"
         "$OUT/ref_${p}_a" $K > "$OUT/ref_${p}_a_$k.raw" 2> "$OUT/ref_${p}_a_$k.log" || true    # (the harness exits 1 on a silent render: compare.py says so)
         "$OUT/ref_${p}_b" $K > "$OUT/ref_${p}_b_$k.raw" 2> "$OUT/ref_${p}_b_$k.log" || true
-        "$OUT/ours_$p" 48,52,55,60,55,52 $K > "$OUT/ours_${p}_a_$k.raw"
-        "$OUT/ours_$p" 36,60,84,36,60,84 $K > "$OUT/ours_${p}_b_$k.raw"
-        "$OUT/ours_${p}_x" 48,52,55,60,55,52 $K > "$OUT/oursx_${p}_a_$k.raw"
-        "$OUT/ours_${p}_x" 36,60,84,36,60,84 $K > "$OUT/oursx_${p}_b_$k.raw"
-        OP1G_TRUNC=1 "$OUT/ours_${p}_x" 48,52,55,60,55,52 $K > "$OUT/trunc_${p}_a_$k.raw"
-        OP1G_TRUNC=1 "$OUT/ours_${p}_x" 36,60,84,36,60,84 $K > "$OUT/trunc_${p}_b_$k.raw"
+        OP1G_SEED=$SEED "$OUT/ours_$p" 48,52,55,60,55,52 $K > "$OUT/ours_${p}_a_$k.raw"
+        OP1G_SEED=$SEED "$OUT/ours_$p" 36,60,84,36,60,84 $K > "$OUT/ours_${p}_b_$k.raw"
+        OP1G_SEED=$SEED "$OUT/ours_${p}_x" 48,52,55,60,55,52 $K > "$OUT/oursx_${p}_a_$k.raw"
+        OP1G_SEED=$SEED "$OUT/ours_${p}_x" 36,60,84,36,60,84 $K > "$OUT/oursx_${p}_b_$k.raw"
+        OP1G_SEED=$SEED OP1G_TRUNC=1 "$OUT/ours_${p}_x" 48,52,55,60,55,52 $K > "$OUT/trunc_${p}_a_$k.raw"
+        OP1G_SEED=$SEED OP1G_TRUNC=1 "$OUT/ours_${p}_x" 36,60,84,36,60,84 $K > "$OUT/trunc_${p}_b_$k.raw"
     done
 done
 ${PYTHON:-python3} "$HERE/compare.py" "$OUT" $PLUGINS   # (numpy)

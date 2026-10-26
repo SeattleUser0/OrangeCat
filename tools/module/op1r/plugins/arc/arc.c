@@ -1,3 +1,6 @@
+/* (Orange Cat, this copy) op1r bf808cfa's file up to its screen code (left out). Changed, each marked Orange Cat: the screen's shared state (the
+ * trace, its voice and position, the levels) is the part's (tools/module/arc_mod.c arc_part_t); the G table is decoded at build time
+ * (tools/module/op1r/arc_gp.h, gen_arc_gp.py) instead of into a RAM array, so gp_decode has nothing left to do. */
 /* arc: Duddell's singing arc (William Duddell, London 1899-1900). A carbon arc lamp shunted by an LC circuit
  * oscillates through the arc's negative resistance; Duddell played it from a keyboard. Each voice is a
  * Van der Pol oscillator  x'' - mu (1 - x^2) x' + w^2 x = 0  (a "lamp") plus a second, coupled lamp.
@@ -68,10 +71,7 @@ static inline int32_t SHL3(int32_t a) { return a > 0x0FFFFFFF ? 0x7fffffff : (a 
 
 /* ---- shared with the screen (written by render, read by the GUI thread) ---- */
 #define ARC_TN 256                                  /* phase portrait ring buffer (decimated) */
-int16_t arc_trace[ARC_TN][4];                       /* x1, v1, x2, v2: Q12, v scaled ~ 1 / (1 + 0.6 eps) */
-volatile uint16_t arc_tpos;                         /* next write index */
-volatile uint8_t arc_tvoice = 0xff;                 /* voice that writes the trace (most recent note) */
-volatile int16_t arc_level[OP1_VOICES];             /* output peak per voice (arc flicker) */
+/* (Orange Cat) arc_trace[ARC_TN][4], arc_tpos, arc_tvoice (0xff at boot) and arc_level[OP1_VOICES]: the part's (tools/module/arc_mod.c) */
 
 #ifdef ARC_CALIB                                    /* gen_tables.py: fixed G, record x1 per sample */
 uint16_t arc_cal_gp; int32_t *arc_cal_rec;
@@ -106,25 +106,9 @@ static pitch_t pitch_of(uint32_t inc, int32_t r14)
 /* ARC_GPZ (arc_tables.h, gen_tables.py: encode) -> arc_gp rows < n. Row k needs row k - 1 only, rows are decoded in
  * order and the decode is idempotent (same values written), so the GUI (screen init) and render (interrupt) may both
  * run it, even interleaved. Worst case in render: all 33 rows once (~3200 short steps), normally none. */
-static uint16_t arc_gp[ARC_KN][ARC_PN];
-static volatile uint8_t arc_gp_n;                   /* rows decoded */
-__attribute__((noinline)) static void gp_decode(int n)
-{
-    for (int k = arc_gp_n; k < n; k++) {
-        const int8_t *z = ARC_GPZ + ARC_GPROW[k];
-        const uint16_t *up = arc_gp[k > 0 ? k - 1 : 0];
-        int32_t g = 0, ul = 0, n = *z++;                /* n stored nodes, then the tail repeats node n - 1 */
-        for (int p = 0; p < ARC_PN; p++) {
-            if (p < n) {
-                int32_t d = *z++, u = k > 0 ? up[p] : 0;
-                if (d == -128) { d = (uint8_t)z[0] + z[1] * 256; z += 2; }   /* escape: int16, low byte first */
-                g += d + u - ul; ul = u;
-            }
-            arc_gp[k][p] = (uint16_t)g;
-        }
-        if (arc_gp_n < k + 1) arc_gp_n = (uint8_t)(k + 1);
-    }
-}
+#include "arc_gp.h"                                /* (Orange Cat) arc_gp[ARC_KN][ARC_PN] decoded at build time (gen_arc_gp.py: gp_decode's arithmetic) */
+#define arc_gp_n ARC_KN                             /* (Orange Cat) every row decoded */
+#define gp_decode(n) ((void)(n))                    /* (Orange Cat) nothing to decode */
 
 /* G * 2 pi (Q12) for knob row (ki, kf Q15) at pitch p: table nodes every 1/8 octave from inc 2^19 (5 Hz) */
 static uint32_t gp_of(int ki, int32_t kf, pitch_t p)

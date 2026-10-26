@@ -309,7 +309,7 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
     $CC -O2 $FW -o "$OUT/rhodes_parity_test" tests/rhodes_parity_test.c "$OUT/module_host_rhodes_tu.o" "$OUT/rhodes_ref_tu.o" -lm ||
         { fail "compile tests/rhodes_parity_test.c"; return 1; }
     step "the Rhodes port (engine candidates gate) against Frodhes' own rhodes.c: four types at three notes and a chord, every sample" "$OUT/rhodes_parity_test"
-    for e in fmbell supersaw dddd mixtur; do      # (Orange Cat 0.14.1) op1r's synths through tools/module/op1r/op1_glue.h (proposed numbers 24..)
+    for e in fmbell supersaw dddd mixtur arc; do  # (Orange Cat 0.14.1) op1r's synths through tools/module/op1r/op1_glue.h (proposed numbers 24..)
         E=$(echo $e | tr a-z A-Z)
         $CC -c -O2 $FW -DOC_CANDIDATES=1 -Itools/module/op1r -o "$OUT/module_host_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c"; return 1; }
         $CC -O2 $FW -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_$E -o "$OUT/module_host_${e}_test" tests/module_host_cand_test.c "$OUT/module_host_${e}_tu.o" -lm ||

@@ -118,6 +118,13 @@ GATE = {
                "backend": "none shared: its dividers and Chamberlin SVF pair are its own; the polyBLEP-at-the-master-wrap trick would serve any divide-down "
                           "engine (STRINGS)",
                "source": "op1r (ultralazr, Musica Obscura #1) synth_sdk/plugins/mixtur/mixtur.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "arc": {"engine": 30, "funcs": ["op1g_eng_render", "arc_render"], "voice_type": "arc_voice_t",
+            "controls": "all seven of op1r's: CURR CARB HISS STRK on EDIT 1, the second page's RATI COUP BRIT on EDIT 2 (0 = op1r's unset: 1:1, the second "
+                        "lamp off, neutral); fixed: none; lost: its screen's phase portrait (the trace is still written, into the part)",
+            "modulation": "pitch (m->inc, taken at the block's middle sample: op1r's own choice); ENV only through the glue's amplitude (arc reads no "
+                          "OP1_VOICE_ENV); velocity through op1_voice_vel_gain; its own strike envelope and sputter; no CUT or SHP; E1..E7 per block",
+            "backend": "none: the Van der Pol lamps are its own; isqrt32 and the pitch mantissa are small helpers",
+            "source": "op1r (ultralazr, Musica Obscura #1) synth_sdk/plugins/arc/arc.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

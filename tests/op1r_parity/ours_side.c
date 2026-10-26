@@ -61,6 +61,9 @@ int main(int argc, char **argv)
     e = oc_host_module_engine();
     if (OC_MODULE_HDR.state_size > sizeof arena) { fprintf(stderr, "state %u B\n", (unsigned)OC_MODULE_HDR.state_size); return 2; }
     for (int i = 0; i < 4; i++) t->p[P_E0 + i] = (int16_t)(k[i] / 258);
+    if (getenv("OP1G_SEED"))                  /* "w=value": op1r's voice word w (1..8: voice_t's s[w - 1]) before the first note-on: a plugin that seeds
+                                               * its noise from the voice object's address (arc) gets the seed op1r's harness gave it (run.sh) */
+        v->s[atoi(getenv("OP1G_SEED")) - 1] = (int32_t)strtoul(strchr(getenv("OP1G_SEED"), '=') + 1, 0, 0);
     for (int n = 0; n < 6; n++) {
         v->vel = (uint8_t)(n & 1 ? 64 : 127);
         v->note = (uint8_t)notes[n];
