@@ -1,0 +1,5 @@
+build/
+renders/*.wav
+__pycache__/
+# (in Orange Cat) the tables make all-results writes: the committed copies are docs/orangecat/dubtape/
+docs/
