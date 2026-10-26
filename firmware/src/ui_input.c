@@ -2780,6 +2780,11 @@ static void ui_input(void)
     if (step_modifier_context()) {
         seq_entry_finish();                             /* final SELECT detent precedes key release */
         uint32_t released = ui.step_mods & ~fm1_in.buttons;
+        /* (Orange Cat 0.14.1) EDIT's release counts here only once btn_hold has seen it (edit_t0 cleared): the scan interrupt can publish
+         * it between the two reads of this frame, and then the next frame's tap, with no modifier left, also opened the EDIT pages
+         * (tests/tracker_edit_race_test.c) */
+        if (ui.edit_t0)
+            released &= ~(1u << panel.btn[B_EDIT]);
         for (k = 0; k < 14u; k++) if ((released >> k) & 1u) {
             uint32_t bit = 1u << k;
             ui.step_mods &= (uint16_t)~bit;
