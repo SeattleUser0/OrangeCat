@@ -75,3 +75,9 @@ the result is exactly what the old file held for that place; what is written to 
 unchanged. **An older installer page, editor, or older firmware's card installer refuses the new files** ("Not a module"): install this build's
 firmware first (the installer page does firmware, pack and modules in one go). Nothing stored on the unit changes. Also measured here, not shipped:
 three of op1r's OP-1 synths (fmbell, supersaw, dddd) as engine modules of a measurement build (docs/orangecat/ENGINE_CANDIDATES.md, "op1r").
+
+**0.14.1 (branch linux-hw): MACRO's heavy models play fewer notes at once; the tracker's EDIT tap.** Each MACRO model now takes the share of the
+voice budget the unit measured it to cost: the bells (MODAL: MALLET, GLASS BELL) and ADDTV (ADDITIVE PAD, ORGAN DRAWBAR) play two notes of a chord on
+one track (MALLET played three and broke up even alone), the wave shaper (FOLD PLUCK) three; the cheap models a little more. A chord on those presets
+loses a voice by design: the oldest note's voice fades out cleanly. Four of the reference renders changed for this (FOLD PLUCK, ADDITIVE PAD, MALLET,
+GLASS BELL). On SEQ > TRACKER, an EDIT tap that turned the picked effect off could also open the EDIT pages; now it only turns the effect off.

@@ -141,30 +141,33 @@ int main(int argc, char **argv)
         check("model changed every 20 blocks under a held note; a second note: one voice, no fault", n == 1 && finite);
     }
 
-    {   /* (0.5.2) a step's chord: four voices on a POLY preset, one on STRING; each voice's own pitch */
+    {   /* (0.5.2) a step's chord: the voices on a POLY preset, one on STRING; each voice's own pitch. (0.14.1) FOLD PLUCK (WAVSHP) takes 5 units
+         * a voice from the unit's measured costs (eng_macro.c MC_UNITS): three of the four notes fit the budget of 16, by design */
         static const uint8_t chord[4] = {48, 52, 55, 59};
         int32_t out[2 * CTL];
         uint32_t i, b, n4 = 0, n1 = 0, pitches = 1;
         int finite = 1;
         fresh();
-        host_preset(&trk[0], ENGI_MACRO, 2);            /* (FOLD PLUCK: POLY, 3 units a voice) */
+        host_preset(&trk[0], ENGI_MACRO, 2);            /* (FOLD PLUCK: POLY, 5 units a voice) */
         for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
         for (b = 0; b < 100; b++) {
             mix_block(out, CTL);
             for (i = 0; i < 2 * CTL; i++) finite &= out[i] == out[i];
         }
         for (i = 0; i < NVOICE; i++) n4 += trk[0].v[i].active;
-        for (i = 1; i < 4u; i++) pitches &= trk[0].v[i].note != trk[0].v[0].note;
+        for (i = 0; i < NVOICE; i++)
+            for (b = i + 1u; b < NVOICE; b++)
+                pitches &= !(trk[0].v[i].active && trk[0].v[b].active && trk[0].v[i].note == trk[0].v[b].note);
         fresh();
         host_preset(&trk[0], ENGI_MACRO, 17);           /* (LOW STRING: one voice) */
         trk[0].p[P_VOICE] = V_POLY;
         for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
         for (b = 0; b < 50; b++) mix_block(out, CTL);
         for (i = 0; i < NVOICE; i++) n1 += trk[0].v[i].active && trk[0].v[i].gate;
-        snprintf(line, sizeof line, "POLY: a four note chord plays four voices (%u), STRING one (%u), no fault", n4, n1);
-        check(line, n4 == 4u && n1 == 1u && pitches && finite);
+        snprintf(line, sizeof line, "POLY: a four note chord plays three FOLD PLUCK voices (%u), STRING one (%u), no fault", n4, n1);
+        check(line, n4 == 3u && n1 == 1u && pitches && finite);
     }
-    {   /* (0.5.3) the voice budget (16 units) holds a heavy model's chord down: ORGAN DRAWBAR (ADDTV, 7 a voice) plays
+    {   /* (0.5.3) the voice budget (16 units) holds a heavy model's chord down: ORGAN DRAWBAR (ADDTV, 9 a voice since 0.14.1) plays
          * two of four held keys, the newest (0.5.2: four, which overloaded the unit) */
         static const uint8_t chord[4] = {48, 52, 55, 59};
         int32_t out[2 * CTL];
@@ -175,7 +178,7 @@ int main(int argc, char **argv)
         for (b = 0; b < 50; b++) mix_block(out, CTL);
         for (i = 0; i < NVOICE; i++)
             if (trk[0].v[i].active && trk[0].v[i].gate) { n++; newest |= trk[0].v[i].note == 59; }
-        snprintf(line, sizeof line, "budget: ORGAN DRAWBAR, four keys held: %u voices sound (7 units each of 16), the newest kept", n);
+        snprintf(line, sizeof line, "budget: ORGAN DRAWBAR, four keys held: %u voices sound (9 units each), the newest kept", n);
         check(line, n == 2u && newest);
     }
     {   /* (0.5.2) HARP: STRING's string, one a voice: a chord rings on four */
