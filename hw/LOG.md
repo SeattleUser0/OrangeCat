@@ -614,3 +614,25 @@ hot set (RAM); the built-in engine reads it from the image.
   (`putback music-before-2026-10-24.json`: MACRO 10, 0, 1, 20) and track 1's CHRD MAJ and VOIC OPEN as found this morning; transport stopped; CLK put back to
   INT (a timed-out table had left it on USB). Project slot 4 holds the Part 5 test project and library slot 383 "HW TEST"; power-on loads project slot 1
   (PROJ_LAST 0xC0 since Part 6). **The unit stays here.**
+
+## October 26 (UTC): the review's fixes on the Nightly, Flash 27
+
+- **Flash 27: the Nightly as published** (sonnet-work 430cd4c, `v0.6.2-430cd4`, built 02:48:47Z by run 40258557380): `fm1hw.py flash`, the version read back.
+  The SHAPES module of 89b4e79 at start 0 read state 2 (refused: interface 5), as CHANGES.md says. Then from the Nightly's own files: the pack
+  (`orangecat-nightly.pak`, state 1, 657ED950, the same hash as before), SHAPES (`orangecat-shapes-nightly.ocm`: start 1, state 7) and WHEEL
+  (`orangecat-wheel-nightly.ocm`: start 0, state 7). The Prophet's module (8 sectors) does not fit beside SHAPES (6) in the 12 sector area: not installed.
+- **MACRO's favorites: one star not set by the user: preset 23**, read with ED_FAV_GET (37). It was bit 7 of favorites.factory[8][2]: the tag the
+  unpublished 0.13.8 layout wrote while the day's test builds ran. The October 24 backup (object 1) has row 8 all zero (no MACRO star). Cleared with ED_FAV_SET
+  (38: engine 8, preset 23, off); read back: no MACRO star. SHAPES, WHEEL and DRUM-X: none.
+- **The effects' memory** (`~/fm1-hw/fxmem.py`, `fxmem2.py`, `fxmem_an.py`; recordings `fxmem*-*.wav`). The Nightly has no test surface and FX FULL is only
+  drawn, so by ear on the unit's USB audio: per row, every track plays once with the sends at 0 (the engines' states first), then the card idle, REVERB ROOM:
+  - delay: a hit on track 1, the tail 0.5 .. 1.6 s with sends 100/100/100 against DLY 0: MACRO x4 -43.0 / -51.5 dB, SHAPES x4 -43.0 / -50.7, DRUM-X MACRO
+    SHAPES MACRO -51.4 / -59.5 (two runs with everything on differ by 0.8 .. 1.5 dB): **holds** in all three;
+  - reverb (delay TIME 63, the window between the dry hit's end and the first echo: 17, 138 and 64 ms): everything on against REV 0: -40.9 / -84.6,
+    -37.4 / -81.5, -45.4 / -86.3 dB (repeats within 1.4 dB): **holds** in all three (the MACRO row's window is short; the gap is 44 dB);
+  - chorus: a held note from MIDI on track 2 (ORGAN DRAWBAR, SUB BASS, ORGAN DRAWBAR), the envelope's wobble (10 ms RMS, detrended, std): everything on
+    0.99 and 0.92 dB against CHO 0 0.50 (MACRO), 0.82 and 0.82 against 0.23 (SHAPES), 0.95 and 0.93 against 0.51 (mixed): **holds** in all three.
+  No bus played dry with four MACRO, four SHAPES (the largest state) or DRUM-X MACRO SHAPES MACRO: the guide's promise holds on the unit with the hot sets.
+- Put back: the tracks (`putback`, steps and levels equal to the snapshot before Flash 27), every track parameter read back equal, REVERB TYPE ROOM, delay
+  TIME 1; track 1's CHRD MAJ and VOIC OPEN set again (the power-on after the flash loaded project slot 1, which has them off, as after Flash 26's morning).
+  Transport stopped, CLK 0, ROUT 0, BUDGET 18. **The unit stays here.**

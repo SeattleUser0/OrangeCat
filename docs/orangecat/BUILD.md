@@ -2680,3 +2680,10 @@ recording and the step properties through the test surface, the standing four-tr
   STUT runs. **Amended, not trimmed**: with the base and SHAPES' sets, MACRO's set cut to one table fails as well, and the base and SHAPES' together fail
   without MACRO's (the base alone or SHAPES' alone fit); first fit at 4 KB blocks, not MACRO's size. GUIDE.md says it; the row is in the table, unchecked.
 - Workflow rev 20: the Nightly carries SHAPES, the Prophet and WHEEL (SEM and HADES, refused without OC_CANDIDATES, stay in the packages).
+- Local suite (ci_step.py test) on 3c9340d and 3fecd76: every test passes but one, "CPU live takes" (tests/audio_cpu_take_test.py, unchanged since 19e0f28):
+  a mocked, sleep-timed test that fails only under the suite's load (parallel 12 and 6) and passes alone (four runs of four). In CI it passed.
+- Merged into sonnet-work as 430cd4c; run 40258557380 (build, tests-gate, pages, publish_nightly) all green: the Nightly is `sonnet-work · 430cd4c ·
+  v0.6.2-430cd4 · 2026-10-26T02:48:47Z`, with the pack (657ED950) and the SHAPES, Prophet and WHEEL modules (interface 8831E67C).
+- On the unit (hw/LOG.md, Flash 27): the Nightly, its pack, SHAPES and WHEEL (the Prophet does not fit beside SHAPES). MACRO's favorites page: one star the
+  user never set (preset 23, the old layout's tag from the day's test builds; the October 24 backup has none), cleared; none left. The effects with the
+  hot sets, by ear: DELAY, REVERB ROOM and CHORUS all hold with four MACRO, four SHAPES and DRUM-X MACRO SHAPES MACRO, the card idle.
