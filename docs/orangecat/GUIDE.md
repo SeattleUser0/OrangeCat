@@ -267,7 +267,8 @@ effect that cannot get memory plays dry and says FX FULL. It comes in by itself 
 
 What fits: with the card idle (no frozen phrase playing, no freeze running), the delay, a reverb (not CLOUD) and the
 chorus fit beside any four sounds, even four MACRO or SHAPES tracks. While frozen phrases play from the card, the
-card needs its own memory back, and the delay may say FX FULL with heavy sounds. CLOUD and STUT need 32 KB more each.
+card needs its own memory back, and the delay may say FX FULL with heavy sounds. CLOUD and STUT need 32 KB more each: with
+four MACRO or SHAPES tracks, the delay says FX FULL while STUT runs, and comes back when it stops.
 
 **Punch-in effects (hold FX).** Hold FX for the map. Keys you press while FX is held play an effect on the whole mix
 while you hold them. They start on the next 1/16 when playing. Double-tap FX to lock the map open.
