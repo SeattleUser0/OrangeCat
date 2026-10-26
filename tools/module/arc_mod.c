@@ -21,8 +21,8 @@
  *     RAM, and the functions that read it have no voice object to reach the part through. The compressed form (ARC_GPZ, 2,859 B) is then unread;
  *   - the screen's shared state (the phase-portrait trace, 256 x 4 int16, its position and voice; each voice's level), written by render and read
  *     by nothing here, is the part's: arc_part_t below (2,064 B a track: kept so that render runs as op1r's does; five marked lines would drop it);
- *   - its noise generator is seeded at a note-on from the voice object's address when its word is 0 (op1r's arithmetic, kept: here the address in
- *     the arena);
+ *   - its noise generator is seeded at a note-on from the voice object's address when its word is 0 (op1r's arithmetic): the module seeds the
+ *     word first from the voice's index (arc_note_on_oc, below), so every run renders the same;
  *   - presets: 0 is the plugin.json's defaults (12000, 6000, 5000, 9000 -> 47, 23, 19, 35); 1 to 3 are Orange Cat's;
  *   - voices: OP1_VOICES 6 (poly 6); units the firmware's default (2 a voice).
  * Per sample it reads no table: no hot set (nhot 0). Its divisions are per block (the level, the portrait's scale, the ratio), as op1r's rules ask.
@@ -73,7 +73,19 @@ typedef struct {                           /* arc.c's screen state (op1r: file s
 _Static_assert(sizeof(arc_voice_t) == OP1_VOICE_SIZE, "arc's voice is op1r's 0x24 bytes");
 _Static_assert(sizeof(((arc_part_t *)0)->trace) == ARC_TN * 4 * sizeof(int16_t) && sizeof(((arc_part_t *)0)->level) == OP1_VOICES * sizeof(int16_t),
                "the part's copies of arc's arrays have op1r's lengths");
-OP1G_ENGINE_FUNCS(ENGINE_arc)
+/* arc seeds its noise at a note-on from the voice object's address when its rng word is 0 (op1r's arithmetic): an address in the arena, the same on
+ * the unit at every boot, but not on a host (a golden line would change from run to run). So the module seeds that word first, when it is 0, from the
+ * voice's index (0x9E3779B9 ^ "ARC" vi, as op1r's own form with the index for the address); op1r's arc_note_on then finds it set and keeps it. A
+ * render is the same at every run and boot; tests/op1r_parity sets the word to the seed op1r's harness had, so it compares sample for sample. */
+static void arc_note_on_oc(void *self, const int16_t *params)
+{
+    arc_voice_t *v = (arc_voice_t *)self;
+    if (!v->rng)
+        v->rng = 0x9E3779B9u ^ (0x41524300u | (uint32_t)op1_voice_index(self));
+    arc_note_on(self, params);
+}
+static const op1_engine_t ENGINE_arc_oc = { arc_note_on_oc, arc_render, arc_note_off, { 0, 0, 0, 0 } };
+OP1G_ENGINE_FUNCS(ENGINE_arc_oc)
 
 static const preset_t ARC_PRESETS[] = {
     {"ARC", {47, 23, 19, 35, 0, 0, 0, 0}, {0, 80, 110, 50}, 0, 0},        /* the plugin's defaults */
