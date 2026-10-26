@@ -1,3 +1,5 @@
+/* (Orange Cat, this copy) op1r bf808cfa's file up to its screen code (left out); its sub's sine reads are OP1_SINE (tools/module/op1r/op1_glue.h):
+ * the changed lines say Orange Cat. */
 /* Example custom engine "supersaw-ish": 2 detuned saws + sub sine, drive.
  *   knob 0 (blue)  : detune amount
  *   knob 1 (green) : saw <-> square morph (pulse width via 2nd saw phase offset)

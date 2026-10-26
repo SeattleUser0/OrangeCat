@@ -1,3 +1,5 @@
+/* (Orange Cat, this copy) op1r bf808cfa's file up to its screen code (left out); its sine read is OP1_SINE (tools/module/op1r/op1_glue.h): the
+ * changed line says Orange Cat. */
 /* Example engine 2: 2-operator FM bell/e-piano.
  *   knob 0: modulator ratio (0.5 .. 8, quantised to half steps)
  *   knob 1: modulation index
