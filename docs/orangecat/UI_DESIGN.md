@@ -24,7 +24,7 @@ button lives up to its name and we keep the main parameters up front."
 2. **The four knobs** of each engine (table in section 2). MACRO, SHAPES and WHEEL change from today's HOME knobs: no knob
    picks the model, shape or registration any more (those change what the sound is; they live in EDIT and in the presets).
 3. **Per-note ties: no.** Keep the step record as it is and give every note its own length through the recorded-note pool,
-   which already does it (section 4). Saves about 1.7 KB of RAM and a pattern format change.
+   which already does it (section 4). Saves about 1.7 KB of RAM (and an undo level) and a pattern format change.
 4. **The SHIFT map: yes**, under HOME held, as Skiff 2.0 has it; HOME let go alone opens the MENU (section 1).
 
 ## Part 1
@@ -325,9 +325,10 @@ What Skiff 2.0 does: a tie bit for each of a step's four notes (core.h `step_tie
 step has no drum hits, and a pattern record version 3. Orange Cat cannot take that encoding: its `acc` byte already holds a
 manual step's own gate (core.h `step_gate`, 1 to 255 of a step), and the step snapshot that the pool, the step history and
 the undo store use (step_snapshot.h) has one spare bit, not four. So per-note ties here would be a new byte a step:
-- **RAM:** the four tracks' steps (256 B), the staged patterns (256 B), the step history's live copy and nine snapshots
-  (64 + 576 B), the eight undo levels (512 B, in the cache RAM's UI part, already checked by a static assert): about
-  **1.7 KB** of the 5 KB free.
+- **RAM:** about **1.7 KB** in all. The four tracks' steps and the staged patterns, 512 B of main RAM (of the 5 KB free);
+  the step history's live copy and nine snapshots, 640 B of the pool; the eight undo levels, 512 B of the cache RAM's UI
+  part, which does not have it: the host build's eight `undo_t` take 13,920 of its 14,336 B (ui.c's static assert), 416
+  B spare, so the undo would drop to seven levels.
 - **Format:** the pool record goes to version 2 (OCP_VER), every phrase is migrated, firmware before it refuses the new
   records, the web editor's backups and restore change with it.
 - **Code:** Skiff's tie handling (the hold into the next step per note, the edits that unfold and fold ties, the tools
