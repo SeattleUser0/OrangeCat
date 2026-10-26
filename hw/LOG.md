@@ -636,3 +636,49 @@ hot set (RAM); the built-in engine reads it from the image.
 - Put back: the tracks (`putback`, steps and levels equal to the snapshot before Flash 27), every track parameter read back equal, REVERB TYPE ROOM, delay
   TIME 1; track 1's CHRD MAJ and VOIC OPEN set again (the power-on after the flash loaded project slot 1, which has them off, as after Flash 26's morning).
   Transport stopped, CLK 0, ROUT 0, BUDGET 18. **The unit stays here.**
+
+## October 26 (UTC), later: the AUDIO4c's analog path calibrated (on the Nightly, Flash 27; no flash)
+
+The user unmuted the AUDIO4c's inputs and set its DIN out to receive from every port. Scripts and recordings: `~/fm1-hw/a4c/` (`a4c_cal.py`,
+`a4c_repeat.py`, `synccap.py`, `clicks.py`). `synccap.py` captures both cards on one clock (libasound through ctypes, each read stamped on its return,
+sample 0 at the minimum of stamp - frames / rate); the AUDIO4c needs an explicit snd_pcm_start (a read in the prepared state fails with EIO). The tracks
+were put back from a snapshot after each script (equal).
+
+- **Silence, 5 s, inputs 1 and 2** (arecord, `hw:AUDIO4c,0`, 48 kHz, S32_LE x 8): input 1 -93.8 dBFS RMS (peak -80.3), input 2 **-77.7 dBFS RMS** (peak
+  -63.6): **not digital zero** (1,313 and 7,188 distinct values). Input 2's floor is broadband, 14 dB over input 1's in every band; a 9,984 Hz line on both
+  (-94 / -110 dB). The stream starts with about 0.5 s of digital zeros.
+- **One SHAPES RING BELL note** (C4, velocity 127, 2 s) sent on `AUDIO4c DIN` (TRS MIDI in, ROUT 0, channel 1: track 1), the FM-1's USB audio and inputs
+  1 and 2 captured at once, three notes:
+
+| | USB (FM1) | input 1 | input 2 |
+|---|---|---|---|
+| peak dBFS | -6.3, -7.1, -7.3 | -29.2, -30.6, -28.3 (an arecord take before: -46.3) | -18.2, -18.6, -19.1 |
+| RMS dBFS (the capture) | -31.4 | -56.0, -57.0, -54.2 | -43.2, -43.2, -43.3 |
+| clipping, dropouts | 0, 0 | 0, 0 | 0, 0 |
+| against USB (peak) | | -21.0 to -23.5 dB | **-11.5 to -11.9 dB** |
+| spectrum against USB (RMS dB, 20 to 400 ms after the onset, ~200 bins) | | 4.89 to 6.03 | **1.14 to 1.21** |
+
+  - **Inputs 1 and 2 do not match**: the same signal (correlation 0.992 to 0.993) but input 1 11 to 14 dB under input 2 in these three and 28 dB under in
+    the first take, its spectrum 5 to 6 dB off (bins +13 to +17 dB at 486 and 632 Hz). The FM-1's output is mono, mirrored: input 1's cable or gain (the
+    user's). capture.py uses **input 2 only**.
+  - **No clipping** at the unit's level: input 2 is 11.8 dB under the digital capture, so the unit's digital full scale reaches about -12 dBFS there (at
+    the FM-1's volume as it is set). No gain change needed.
+  - **Latency**: the analog capture is **5.2 ms ahead** of the USB capture (cross-correlation -5.20, -5.20, -5.22 ms; the onsets alone -4.4 to -5.1),
+    **polarity inverted**. From the DIN send: the analog onset 8.9 to 10.0 ms, the USB 14.0 to 14.7 ms.
+  - The spectra are compared over the bell's decay: RING BELL falls about 60 dB a second, so capture.py's held-note window (0.4 s after the onset on)
+    compares the two noise floors (15 dB apart; a first take scored that).
+- **Two earlier results again, both paths at once** (8 s, the chord on every step, 120 BPM):
+
+| Case | worst / late (the unit) | USB holes (capture.py) | analog (input 2) |
+|---|---|---|---|
+| four SHAPES RING BELL tracks | 2,669 us / 65 (before: 2,686 / 164 in 20 s) | **14** holes of 11 to 12 ms, about 0.62 s apart | 0 by capture.py; clicks at every step (the bell's attacks) |
+| MACRO MALLET, one track | 2,850 / 1,530 | **254** holes of 880 to 1,057 samples (20 to 24 ms), about 25 a second, as before (200 in 8 s) | 0 by capture.py; a click in 97 to 142 of the 254 holes |
+
+  - **The counts do not agree, and cannot on this path**: a late render is a hole in the USB stream (the USB service period) but at the DAC one half
+    buffer (128 frames, 2.9 ms) played again, a step the converter's filter smooths. capture.py's dropout tests (identical-sample runs, the second
+    difference) find none on the analog path. A click detector (the energy above 12 kHz in 1 ms frames, 15 dB over its 201 ms median, falling back within
+    3 to 6 ms) marks 97 to 142 of MALLET's 254 holes (by its settings) and 40 to 57 clicks outside them, and on RING BELL it fires on every step (the bell's attack is as sharp
+    as a replay). **The analog path is not the default**: capture.py keeps usb for dropouts and offers audio4c (input 2) for level and spectrum and
+    for when the FM-1's USB port is busy as a host.
+  - Four RING BELL tracks are **not clean on the Nightly**: 65 late renders in 8 s and 14 USB holes (0.13.7's table had 164 late in 20 s at N = 4 as
+    well: never clean at four).

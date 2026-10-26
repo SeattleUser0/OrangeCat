@@ -2717,3 +2717,16 @@ start 0 CRC 27d8a221 both); the full run after removing .ci_quick is the record 
 step, PARALLEL 8): usb_host_test failed to compile (its stubs lacked oc_mod_link and the list's RAM: fixed); the boot package, power cut, update loader
 and recovery tests failed for the SDK path the local run had not set, and the CPU live-take test (timed) under the load of eight jobs: all pass alone. The development checks (op1r checkout needed): tests/op1r_parity/run.sh, all passed for the three.
 
+
+## The Linux session after op1r-candidates (October 26, 2026): the analog capture, format 2 on the unit, op1r's synths, MACRO's units
+
+op1r-candidates (d0b0f01) merged into linux-hw (8120cc1; BUILD.md's two new sections kept side by side). hw/LOG.md has the unit's numbers.
+
+**The AUDIO4c's analog capture path, calibrated** (hw/LOG.md, "the AUDIO4c's analog path"). Input 2 is clean: noise floor -77.7 dBFS RMS (not digital
+zero), 11.8 dB under the USB capture (no clipping: digital full scale is about -12 dBFS there), polarity inverted, 5.2 ms ahead of the USB capture,
+spectra within 1.14 to 1.21 dB over RING BELL's decay. Input 1 does not match input 2 (11 to 31 dB under it, changing between takes, spectrum 5 to 6 dB
+off): the user's cable or gain. The repeat **failed as a proof**: MALLET's overload is 254 USB holes, as before, but the analog path shows no hole (the
+DAC replays a 2.9 ms half buffer per late render, which its filter smooths) and a click detector marks only 97 to 142 of them and cannot tell a replay
+from a bell's attack. So capture.py keeps **usb as the default** (dropouts) and offers audio4c, input 2 only, for level and spectrum and while the FM-1's
+USB port is busy as a host; its leading 0.5 s of zeros is waited out. Four SHAPES RING BELL tracks on the Nightly: 2,669 us, 65 late in 8 s, 14 USB holes
+(not clean; 0.13.7's table had 164 late at four as well).

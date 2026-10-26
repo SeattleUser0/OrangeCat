@@ -11,9 +11,19 @@
   capture.py calibrate --engine SHAPES --preset P                   one clean note: the dropout threshold and the spectral tolerance
   capture.py say FILE.wav                                           decode an OC_HW_TEST build's "say state" tones: page, engine, notice
 
-Sources. **audio4c**: the iConnectivity AUDIO4c's inputs 1 and 2 (the FM-1's analog output), 48 kHz, 32-bit frames of 8 channels,
-channels 1 and 2 kept. **usb**: the FM-1's own USB audio (card FM1, 44.1 kHz, 16 bits), the digital mix before the DAC; it costs the
-unit USB work (measure render times without it). The analysis is the same on both; the numbers say which source made them.
+Sources. **audio4c**: the iConnectivity AUDIO4c's input 2 (the FM-1's analog output, mono mirrored), 48 kHz, 32-bit frames of 8
+channels, channel 2 kept. **usb** (the default): the FM-1's own USB audio (card FM1, 44.1 kHz, 16 bits), the digital mix before the DAC;
+it costs the unit USB work (measure render times without it). The analysis is the same on both; the numbers say which source made them.
+
+The analog path, calibrated (2026-10-26, hw/LOG.md "The AUDIO4c's analog path"; one SHAPES RING BELL note sent on the AUDIO4c's DIN out,
+both paths captured on one clock): input 2's noise floor -77.7 dBFS RMS (input 1's -93.8), not digital zero; input 2 11.8 dB under the USB
+capture (RING BELL's -6.3 dBFS peak is -18.2 there; no clipping, 11.8 dB of headroom at digital full scale at the unit's volume as set),
+polarity inverted, 5.2 ms ahead of the USB capture; spectra within 1.14 to 1.21 dB of the USB's over the bell's decay. Input 1 is not
+used: 11 to 31 dB under input 2 and not the same from one recording to the next, its spectrum 5 to 6 dB off (a cable or its gain: the
+user's). The AUDIO4c delivers about 0.5 s of digital zeros when its stream starts (Recorder waits them out). **Dropouts are not counted
+on the analog path**: a late render is a 20 to 24 ms hole on USB but a 2.9 ms half buffer replayed at the DAC, smoothed by its filter;
+a click detector found a click in 142 of MALLET's 254 USB holes and cannot tell a replay from a struck preset's attack. Use usb for
+dropouts, audio4c for level and spectrum, and when the FM-1's USB port is busy as a host.
 
 What it measures (full scale = 1.0):
 - **peak / RMS** in dBFS, each channel.
@@ -31,6 +41,7 @@ What it measures (full scale = 1.0):
 
 Revisions:
   (Orange Cat 0.13.8) first version (branch linux-hw).
+  (Orange Cat 0.14.1) the AUDIO4c's analog path calibrated: input 2 only, its leading zeros waited out; usb stays the default.
 """
 import argparse
 import json
@@ -45,8 +56,8 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCES = {"audio4c": {"device": "hw:AUDIO4c,0", "fmt": "S32_LE", "channels": 8, "rate": 48000, "keep": (0, 1)},
-           "usb": {"device": "hw:FM1,0", "fmt": "S16_LE", "channels": 2, "rate": 44100, "keep": (0, 1)}}
+SOURCES = {"audio4c": {"device": "hw:AUDIO4c,0", "fmt": "S32_LE", "channels": 8, "rate": 48000, "keep": (1,), "lead_s": 0.6},
+           "usb": {"device": "hw:FM1,0", "fmt": "S16_LE", "channels": 2, "rate": 44100, "keep": (0, 1), "lead_s": 0.25}}
 ENGINE_NO = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14}
 LSB = 1.0 / 32768
 CLIP_RUN = 3                      # consecutive samples at full scale: a flat top
@@ -55,8 +66,8 @@ JUMP2 = 0.70                      # second difference beyond which a step is a d
 GAP_RUN = 32                      # identical samples in a row (0.7 ms) inside a sounding passage: a gap
 ONSET_DB = 9.0                    # rise of the envelope that counts as an onset
 TOL_DB = 1.2                      # spectral score (RMS dB) a recording may differ from its host render: 2 x a known-good pair + 0.5 (calibrated
-                                  # 2026-10-25, the same note: 0.34 dB over 142 bins, the fundamental 263.8 Hz on both). The AUDIO4c's analog path
-                                  # needs its own pair once its inputs are routed (hw/LOG.md)
+                                  # 2026-10-25, the same note: 0.34 dB over 142 bins, the fundamental 263.8 Hz on both). The AUDIO4c's input 2
+                                  # against the USB capture: 1.14 to 1.21 dB over RING BELL's decay (2026-10-26): at the edge of TOL_DB
 
 
 # ------------------------------------------------------------------------------------------------------------------ files ---
@@ -100,7 +111,7 @@ class Recorder:
         if self.seconds:
             cmd += ["-d", str(int(np.ceil(self.seconds)))]
         self.p = subprocess.Popen(cmd + [str(self.path)], stderr=subprocess.PIPE)
-        time.sleep(0.25)                                # the stream is running before anything is played
+        time.sleep(s["lead_s"])                         # the stream is running before anything is played (the AUDIO4c's leading zeros)
         if self.p.poll() is not None:
             raise SystemExit(f"capture: arecord on {s['device']} ended: {self.p.stderr.read().decode().strip()}")
         return self
