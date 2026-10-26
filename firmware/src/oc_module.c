@@ -124,6 +124,7 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
                                                      { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
                                                      { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_DDDD, 4u, 0x03u }, { ENGI_MIXTUR, 4u, 0x03u }, { ENGI_ARC, 4u, 0x03u }, { ENGI_BRASS, 4u, 0x03u }, { ENGI_AETHER, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */
                                                      { ENGI_CZ, 4u, 0x03u }, { 3u, 4u, 0x03u },   /* (op1r-candidates 0.3) the CZ-1 and SID (3) as modules: WHEEL's geometry */
+                                                     { ENGI_WSEQ, 4u, 0x03u },   /* (0.3) the hub's: WSEQ */
                                                      { ENGI_TERRAIN, 5u, 0x03u },   /* (0.3) the hub's: TERRAIN (its 16 KB of surfaces: 5 sectors at 0 or 6) */
                                                      { ENGI_VPS, 4u, 0x03u },   /* (0.3) the hub's: VPS */
                                                      { ENGI_VECTOR, 7u, 0x05u },   /* (0.3) the hub's: VECTOR (its 21.5 KB of waves: 7 sectors at 0 or 4) */

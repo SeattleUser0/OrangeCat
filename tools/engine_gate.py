@@ -189,6 +189,11 @@ GATE = {
         "modulation": "SHP widens the orbit (the track's LFO DEST SHP, MW / AT, the matrix); DRIFT's own slow circle per note; X and Y are E3 E4 (the matrix per block); CUT through m->cutoff, ~40 % keyboard; velocity and the ADSR through the amplitude",
         "backend": "the part's copy of the surface it plays (wt_shared.h's cache idea, one 2 KB frame); the sine (the orbit: SINE through the base hot set); Felucca's TPT SVF",
         "source": 'Clipper (3dSam) firmware/src/eng_terrain.c and terrain_tables.h at e690672, GPL-3.0-only'},
+    "wseq": {"engine": 38, "funcs": ["wseq_render"], "voice_type": None,
+        "controls": "Clipper's eight on EDIT 1 and 2 (SEQ RATE XFADE LOOP, START PITCH CUT RES); lost: the song's tempo (steps at 120 BPM: a module cannot read the tempo), Clipper's samples of the waves (re-band-limited into the shared bank)",
+        "modulation": "its own step sequence (pitch, level, crossfade per step, from the note's start); CUT through m->cutoff, ~40 % keyboard; pitch (m->pitch16, the steps' intervals on it); velocity and the ADSR through the amplitude; E1..E8 read every render",
+        "backend": "wt_shared.h: the bank format (FMX's eight waves re-band-limited: 10,752 B hot set against FMX's 26,624 B tables), the copy for an increment, the linear frame read; HYBRID's hy_inc; Felucca's TPT SVF",
+        "source": "Clipper (3dSam) firmware/src/eng_wseq.c at e690672, GPL-3.0-only; its waves FMX's (fmx_tables.h), re-band-limited by Orange Cat's gen_wseq_bank.py"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

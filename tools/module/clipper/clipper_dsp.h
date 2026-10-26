@@ -5,7 +5,9 @@
  * dsp.c and tools/module/caravel/felucca_osc.h). Each block is Clipper's text unchanged; only the selection and this note are Orange Cat's. Where a
  * name of Clipper's is also one of Orange Cat's dsp.c with other code, the module renames Clipper's (the module unit says which).
  *   - the four-pole TPT ladder (ladder_t, mul_sh, ladder_coef, ladder_tick): JUNO, ACID's filter, VECTOR's and WAVE's MOOG model
- *   - from Clipper's eng_hybrid.c (3dSam): hy_saw, HYBRID's band-limited saw, which ACID reads too
+ *   - from Clipper's eng_hybrid.c (3dSam): hy_saw, HYBRID's band-limited saw, which ACID and STRINGS read too, and hy_inc (WSEQ)
+ *   - from Clipper's core.h: the transport's units (BEAT_U, DIV_DEN, NDIV_SHORT, DIV_BEATS, div_units: WSEQ's step lengths), and from eng_fmx.c
+ *     the FXW_ wave numbers (WSEQ's sequences name FMX's waves)
  *   - Felucca's tsvf_coef (Orange Cat's dsp.c has its arithmetic as tsvf_coef_k): STRINGS
  *   - the filter models (fmod_t, fmod_coef, fmod_tick and their helpers; core.h's FM_ enum): VECTOR, WAVE (the model is Clipper's track
  *     parameter P_FMODEL, which Orange Cat's track has not got: the modules play FM_SVF, as Clipper's groovebox build does)
@@ -220,5 +222,34 @@ static inline int32_t hy_saw(uint32_t ph, uint32_t inc)
     if (ph + inc < (inc << 1))
         s -= blep(ph, inc);
     return s;
+}
+/* (Clipper's core.h: the transport's units) */
+#define BEAT_U ((uint32_t)FS * 60u)
+/* static volatile uint32_t clk_beat, clk_pos; (Orange Cat: the transport's clock is the firmware's; not in a module) */
+static const uint8_t DIV_DEN[6] = {1, 2, 4, 8, 3, 6};    /* N_DIV 0..5: beats = 1 / DEN */
+#define NDIV_SHORT 6u            /* the divisions inside a beat (N_DIV, the arp's RATE) */
+static const uint8_t DIV_BEATS[3] = {2, 4, 8};
+/* a step's length in clock units (N_SDIV order; the arp's RATE uses 0..5) */
+static uint32_t div_units(uint32_t div)
+{
+    return div < NDIV_SHORT ? BEAT_U / DIV_DEN[div] : BEAT_U * DIV_BEATS[(div - NDIV_SHORT) % 3u];
+}
+/* (Clipper's eng_fmx.c: FMX's wave numbers) */
+enum { FXW_SINE, FXW_TRI, FXW_SAW, FXW_SQR, FXW_HALF, FXW_ABS, FXW_QUART, FXW_PULSE, FXW_SIN8, FXW_NOISE,
+       FXW_SAW8, FXW_SQR8, FXW_PULS8 };
+/* (Clipper's eng_hybrid.c) */
+static uint32_t hy_inc(int32_t pitch16, int32_t fine, int32_t off)
+{
+    int32_t q = (pitch16 << 8) + off, f;
+    uint32_t inc;
+    if (q < 0)
+        q = 0;
+    if (q > (2047 << 8))
+        q = 2047 << 8;
+    inc = pitch_inc((uint32_t)(q >> 8));
+    f = fine + (((q & 255) * 3792) >> 16);
+    if (f)
+        inc += (uint32_t)((int32_t)(inc >> 12) * f);
+    return inc;
 }
 #endif
