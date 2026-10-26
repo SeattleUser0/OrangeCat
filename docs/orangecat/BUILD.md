@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.78  
+**Version:** 0.79  
 **Date:** October 26, 2026  
 **Tracks:** Orange Cat Specification v0.29
 
@@ -10,6 +10,10 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.79 (October 26, 2026, branch ui-design from linux-hw a8df964; not on main, no firmware change):** the new interface designed (Session C):
+  docs/orangecat/UI_DESIGN.md (the page model, the four knobs of every engine with an audit on every preset, the pictures and their budget, the
+  scene format, notes and ties, drums, the web editor, the build plan), the screens in docs/orangecat/ui/, tests/ui_mockup.c, tests/ui_scene.h,
+  tests/knob_audit.py. See "The new interface (design)" at the end.
 - **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
   through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
   24..31 reserved), against op1r's own harness (tests/op1r_parity); the relocatable module package (.ocm format 2: one image and its relocation list,
@@ -110,6 +114,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 9 | Sampling and bouncing | Not started |
 | 10 | Other engines and effects | In progress: Jiant FM's effects built on branch fx-jiant (0.6.0); DRUM-X built on branch sonnet-work (0.9.0); neither tested on the unit |
 | 11 | Later extensions | Not started |
+| UI | The new interface: HOME's picture and four knobs, EDIT's sheets, the SHIFT map, FEEL (docs/orangecat/UI_DESIGN.md) | Design done (0.79, branch ui-design): the owner picks HOME A or B; build not started (UI_DESIGN.md Part 3, step 1 first) |
 
 ## Reference versions
 
@@ -2769,3 +2774,21 @@ four SHAPES RING BELL tracks 2,753 us, 165 late, 33 USB holes, **0 DAC silences*
 byte-identical module; a layout shift suspected, not measured); four MALLET tracks overload (four MODAL voices, one a part, at about 950 us each: past the
 budget whatever the units; one track is clean); FOLD PLUCK and ADDITIVE PAD chords recorded for the user (`~/fm1-hw/listen/`). **Found**: project slot 1
 empty in the backup (it was in the October 24 backup and Part 6's check); not restored, not yet explained.
+
+
+## The new interface (design) (0.79, branch ui-design, October 26, 2026)
+
+From linux-hw a8df964. A design, not firmware: nothing in firmware/src changed, CI not needed. The owner picks from the screens; the build
+follows in later sessions. The document: docs/orangecat/UI_DESIGN.md.
+
+| What | Status |
+|---|---|
+| The page model: HOME the track's sound (picture, four knobs), EDIT's sheets, the controls table, the SHIFT map, notices, every page today and where it lands | **Done** (UI_DESIGN.md section 1) |
+| The four knobs of every engine, macros as data (put on and taken off a block, as the throws) or in the engine for native panels, P_MAC0..3 on the free ids P_RESERVED33..36 | **Done** (section 2) |
+| The four-knob audit (tests/knob_audit.py, tests/knob_audit_dump.c, over tests/hostsim.c): MACRO, SHAPES, DRUM-X, WHEEL, every preset, no weak knob; the modules not audited | **Done** (docs/orangecat/ui/knob_audit.md) |
+| The scene format and its interpreter (tests/ui_scene.h), four pictures (tests/ui_scenes.h): 171 to 244 B each, the interpreter about 3.3 KB (Thumb-2 -Os as a stand-in) | **Done** (section 3) |
+| The mockup renderer (tests/ui_mockup.c, tests/ui_mockup.py) on gfx.c: 28 screens and 3 sheets in docs/orangecat/ui/, lint 0 findings; pixels sent a frame measured through the screen diff | **Done** (Part 2) |
+| Per-note ties: not adopted (about 1.7 KB of RAM and a pool format change); per-note lengths through the recorded-note pool | **Recommended** (section 4) |
+| The owner's picks: HOME A or B; the knob table | **Open** |
+| The build: Part 3's nine steps, step 1 (HOME's picture behind a switch) first | **Not started** |
+
