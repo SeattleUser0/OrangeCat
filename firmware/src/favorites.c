@@ -7,22 +7,25 @@
 #define MELODEE_FAVORITES 1
 /* Stable engine/preset references; fixed capacity independent of optional engines.
  * Bytes no engine's presets reach hold other settings, kept with the favorites (settings_persist.c):
- *   row 8  (GRAIN, retired; Felucca 1.0's stars in bits 0..11) 2 the MENU settings (ui.c PREF_BITS, Orange Cat 0.13.8: bit 7 its tag,
- *          bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF, bit 6 FONT PIXEL), 8..15 GLO > WEIGHTS (settings_persist.c),
- *          16..25 the FX key map, 28..31 its tag (below)
+ *   row 4  (SAMPLE, retired in every build; Felucca 1.0's 4 presets in bits 0..3) 2 the MENU settings (ui.c PREF_BITS, Orange Cat 0.14.0:
+ *          bit 7 its tag, bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF, bit 6 FONT PIXEL). No module may take engine 4 (engines.c eng_module_slot).
+ *   row 8  (MACRO: its stars in bytes 0..7, 64 presets at most, eng_macro.c; Felucca 1.0's GRAIN stars were bits 0..11)
+ *          8..15 GLO > WEIGHTS (settings_persist.c), 16..25 the FX key map, 28..31 its tag (below)
  *   row 14 (OBXF, retired; its old stars in 0..15)             16..27 the scale favorites, 28..31 their tag
  *   row 15 (CZ-1: factory tones bits 0..64, native slots 65..192) 26 tagged USB INPUT (settings_persist.c), 27 SCREEN OFF,
  *          28 tagged AUTOSAVE OFF, 29 the PRESETS LIST (browse.c),
  *          30 the project last loaded or saved (project.c PROJ_LAST: 0xC0 + the slot, else none). Until Orange Cat 0.13.8 this byte was also
  *          ui.c's PREF_BITS (bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF, bit 6 FONT PIXEL): a save to project slot 3 or 4 turned acceleration off and
- *          PICKER OFF hid the last project from power-on. settings_import moves the bits to row 8 byte 2 once (settings_persist.c pref_migrate),
+ *          PICKER OFF hid the last project from power-on. settings_import moves the bits to row 4 byte 2 once (settings_persist.c pref_migrate),
  *          31 the quick layers seen (ui_layer.c), 25 HOME SELECT (ui.c HOME_SELECT), 24 bits 1..4 GLO SELECT (ui.c
  *          GLO_SELECT), 24 bit 5 UNUSED TRACKS HIDE (ui.c TRACKS_HIDE); free: 24 bits 6..7
  *   row 0 bytes 2..27 hold all 201 Prophet factory stars, tagged in bytes 28..31;
  *         bytes 0..1 held retired ANALOG's stars.
  *   row 1 bytes 28..31 mark validated Melodee settings (MDS + version 1).
- * Rows 1 (DIGITAL, retired), 4 (SAMPLE) and 13 (SLICE, built with MELODEE_SLICE) may hold Felucca 1.0's stars; 6, 7, 9 are LEGACY_EXTRAS' engines. Native FM6 slots: row 12 bits 24..87. */
-#define PREF_ROW 8u                /* (Orange Cat 0.13.8) where ui.c's PREF_BITS live: row 8 byte 2, bit 7 the tag (above) */
+ * Rows 1 (DIGITAL, retired), 4 (SAMPLE, bits 0..3) and 13 (SLICE, built with MELODEE_SLICE) may hold Felucca 1.0's stars; 6 and 9 are LEGACY_EXTRAS'
+ * engines, 7 is WHEEL's (a module, tools/module/wheel_mod.c, or LEGACY_EXTRAS' built-in). Native FM6 slots: row 12 bits 24..87. */
+#define PREF_ROW 4u                /* (Orange Cat 0.14.0) where ui.c's PREF_BITS live: row 4 byte 2, bit 7 the tag (above). 0.13.8's row 8 byte 2 was
+                                      * MACRO presets 16..23's stars (never published) */
 #define PREF_BYTE 2u
 #define PREF_TAG 0x80u
 typedef struct {

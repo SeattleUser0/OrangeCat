@@ -166,26 +166,68 @@ int main(void)
         assert(p.bold == 0u && settings_import(&p, sizeof p) == 1 && settings_hold == HOLD_DEF);
         assert(!hold_stored_ok(2u) && !hold_stored_ok(HOLD_TAG + 4u) && hold_stored_ok(HOLD_TAG | 2u));
     }
-    {   /* (Orange Cat 0.13.8) the MENU settings (ui.c PREF_BITS) leave favorites.factory[15][30], project.c's PROJ_LAST byte, for row 8 byte 2 (bit 7
-         * the tag): once, on an untagged record. The old states: a project slot's mark (0xC0 + slot), the old bits, none; a tagged record; the export */
+    {   /* (Orange Cat 0.13.8) the MENU settings (ui.c PREF_BITS) leave favorites.factory[15][30], project.c's PROJ_LAST byte, for row 4 byte 2 (0.14.0;
+         * bit 7 the record's tag, not kept in RAM): once, on an untagged record. The old states: a project slot's mark (0xC0 + slot), a mark with PICKER
+         * OFF set over it (0xE0..0xFF), the old bits, none; a tagged record; the export */
         persist_t q = original, r;
         uint8_t *nb = &favorites.factory[PREF_ROW][PREF_BYTE], *ob = &favorites.factory[15][30];
+        assert(PREF_ROW == 4u && PREF_BYTE == 2u);
         q.favorites.factory[PREF_ROW][PREF_BYTE] = 0;
         q.favorites.factory[15][30] = 0xC2;             /* PROJ_LAST project slot 3 (it read as KNOB ACCEL OFF before) */
-        assert(settings_import(&q, sizeof q) == 1 && *nb == PREF_TAG && *ob == 0xC2);
+        assert(settings_import(&q, sizeof q) == 1 && *nb == 0 && *ob == 0xC2);
+        q.favorites.factory[15][30] = 0xE3;             /* PROJ_LAST slot 4, PICKER OFF turned on after it: both salvaged (bit 1 is the slot's too) */
+        assert(settings_import(&q, sizeof q) == 1 && *nb == 0x22 && *ob == 0xC3);
+        q.favorites.factory[15][30] = 0xE0;             /* slot 1, PICKER OFF */
+        assert(settings_import(&q, sizeof q) == 1 && *nb == 0x20 && *ob == 0xC0);
         q.favorites.factory[15][30] = 0x22;             /* the old bits: KNOB ACCEL OFF and PICKER OFF, no project */
-        assert(settings_import(&q, sizeof q) == 1 && *nb == (PREF_TAG | 0x22) && *ob == 0);
+        assert(settings_import(&q, sizeof q) == 1 && *nb == 0x22 && *ob == 0);
         q.favorites.factory[15][30] = 0;                /* neither */
-        assert(settings_import(&q, sizeof q) == 1 && *nb == PREF_TAG && *ob == 0);
+        assert(settings_import(&q, sizeof q) == 1 && *nb == 0 && *ob == 0);
         q.favorites.factory[PREF_ROW][PREF_BYTE] = PREF_TAG | 0x20; q.favorites.factory[15][30] = 0xC1;   /* already moved: nothing moves */
-        assert(settings_import(&q, sizeof q) == 1 && *nb == (PREF_TAG | 0x20) && *ob == 0xC1);
+        assert(settings_import(&q, sizeof q) == 1 && *nb == 0x20 && *ob == 0xC1);
+        q.favorites.factory[PREF_ROW][PREF_BYTE] = PREF_TAG; q.favorites.factory[15][30] = 0xE1;            /* tagged: an 0xE1 is left alone */
+        assert(settings_import(&q, sizeof q) == 1 && *nb == 0 && *ob == 0xE1);
+        q.favorites.factory[PREF_ROW][PREF_BYTE] = PREF_TAG | 0x20; q.favorites.factory[15][30] = 0xC1;
+        assert(settings_import(&q, sizeof q) == 1);
         *ob = 0xC3;                                      /* a project saved to slot 4 now: the settings keep their bits */
-        assert(*nb == (PREF_TAG | 0x20));
-        *nb = 0x02;                                      /* an untagged byte in RAM (a fresh unit's menu): the export tags it, the next import keeps it */
+        assert(*nb == 0x20);
+        *nb = 0x02;                                      /* the menu turns acceleration off: the export tags the record, the next import keeps the bits */
         settings_export(&r);
         assert(r.favorites.factory[PREF_ROW][PREF_BYTE] == (PREF_TAG | 0x02) && r.favorites.factory[15][30] == 0xC3);
-        assert(settings_import(&r, sizeof r) == 1 && *nb == (PREF_TAG | 0x02) && *ob == 0xC3);
-        puts("Settings: the MENU settings out of PROJ_LAST's byte (an old slot mark, old bits, none, a tagged record, the export) passed.");
+        assert(settings_import(&r, sizeof r) == 1 && *nb == 0x02 && *ob == 0xC3);
+        puts("Settings: the MENU settings out of PROJ_LAST's byte (an old slot mark, a mark with PICKER OFF, old bits, none, a tagged record, the export) passed.");
+    }
+    {   /* (0.14.0) MACRO's stars (row 8 bytes 0..7: every k eng_macro.c's _Static_assert allows) are not the MENU settings: unchanged by import and
+         * export, and by the KNOB ACCEL and PICKER toggles (ui.c PREF_BITS, PREF_ACCEL_OFF, PREF_PICK_OFF) */
+#define ENGI_MACRO 8u
+#define MC_STARS 64u
+#define PREF_BITS (favorites.factory[PREF_ROW][PREF_BYTE])
+#define PREF_ACCEL_OFF 2u
+#define PREF_PICK_OFF 32u
+        persist_t q = original, r;
+        uint8_t want[MC_STARS];
+        int ok = 1;
+        assert(settings_import(&q, sizeof q) == 1);
+        for (uint32_t k = 0; k < MC_STARS; k++) favorite_set(ENGI_MACRO, k, (k * 7u + 3u) % 3u != 0u);
+        for (uint32_t k = 0; k < MC_STARS; k++) want[k] = (uint8_t)favorite_has(ENGI_MACRO, k);
+        for (uint32_t pass = 0; pass < 4u; pass++) {
+            if (pass == 1u) PREF_BITS |= PREF_ACCEL_OFF;
+            if (pass == 2u) PREF_BITS |= PREF_PICK_OFF;
+            if (pass == 3u) PREF_BITS &= (uint8_t)~(PREF_ACCEL_OFF | PREF_PICK_OFF);
+            for (uint32_t k = 0; k < MC_STARS; k++) ok &= favorite_has(ENGI_MACRO, k) == want[k];
+            settings_export(&r);
+            for (uint32_t k = 0; k < MC_STARS; k++) ok &= favorite_has(ENGI_MACRO, k) == want[k];
+            assert(settings_import(&r, sizeof r) == 1);
+            for (uint32_t k = 0; k < MC_STARS; k++) ok &= favorite_has(ENGI_MACRO, k) == want[k];
+        }
+        for (uint32_t k = 0; k < MC_STARS; k++) favorite_set(ENGI_MACRO, k, 0);
+        PREF_BITS |= PREF_ACCEL_OFF | PREF_PICK_OFF;
+        for (uint32_t k = 0; k < MC_STARS; k++) ok &= !favorite_has(ENGI_MACRO, k);
+        settings_export(&r); assert(settings_import(&r, sizeof r) == 1);
+        for (uint32_t k = 0; k < MC_STARS; k++) ok &= !favorite_has(ENGI_MACRO, k);
+        PREF_BITS &= (uint8_t)~(PREF_ACCEL_OFF | PREF_PICK_OFF);
+        assert(ok);
+        puts("Settings: MACRO's stars unchanged by settings import and export and by the KNOB ACCEL and PICKER toggles passed.");
         p = original; settings_import(&p, sizeof p);
     }
     assert(settings_import(&p, 3) == 0 && settings_import(&p, -1) == 0);

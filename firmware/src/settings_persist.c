@@ -57,15 +57,18 @@ static int settings_legacy_valid(const persist_t *p)
 /* Normalize in place; 1 = read, 0 = invalid. */
 #ifdef MELODEE_FAVORITES
 /* (Orange Cat 0.13.8) the MENU settings (ui.c PREF_BITS) leave favorites.factory[15][30], the byte project.c's PROJ_LAST writes (0xC0 + the slot), for
- * row 8 byte 2 with bit 7 as their tag. Once, on a record (the boot's or a restored backup's) whose new byte has no tag: an old byte of 0xC0 or more is
- * PROJ_LAST (the two settings it overlaid read as clear: acceleration on, the picker on); below that it holds the old bits (0 none), which move, and
- * PROJ_LAST is none. A tagged byte is the settings: nothing moves. */
+ * row 4 byte 2 (0.14.0; favorites.c) with bit 7 as their tag. Once, on a record (the boot's or a restored backup's) whose new byte has no tag: an old
+ * byte of 0xE0 or more is PROJ_LAST with PICKER OFF set over it, both kept (the slot ob & 3, the settings ob & 0x22: bit 1 is the slot's too); 0xC0..0xDF
+ * is PROJ_LAST (the two settings it overlaid read as clear: acceleration on, the picker on); below that it holds the old bits (0 none), which move,
+ * and PROJ_LAST is none. A tagged byte is the settings: nothing moves. The tag lives in the record only (settings_export sets it): in RAM the byte
+ * holds the settings' bits alone, so a fresh unit's favorites are all zero. */
 static void pref_migrate(void)
 {
     uint8_t *nb = &favorites.factory[PREF_ROW][PREF_BYTE], *ob = &favorites.factory[15][30];
-    if (*nb & PREF_TAG) return;
-    if (*ob >= 0xC0u) *nb = PREF_TAG;
-    else { *nb = (uint8_t)(PREF_TAG | (*ob & 0x7Fu)); *ob = 0; }
+    if (*nb & PREF_TAG) *nb &= (uint8_t)~PREF_TAG;
+    else if (*ob >= 0xE0u) { *nb = (uint8_t)(*ob & 0x22u); *ob = (uint8_t)(0xC0u | (*ob & 3u)); }
+    else if (*ob >= 0xC0u) *nb = 0;
+    else { *nb = (uint8_t)(*ob & 0x7Fu); *ob = 0; }
 }
 #endif
 static int settings_import(persist_t *p, int n)
@@ -145,7 +148,7 @@ static void settings_export(persist_t *p)
 #endif
     memcpy(p->favorites.factory[1] + 28, SETTINGS_OWNER, sizeof SETTINGS_OWNER);
 #ifdef MELODEE_FAVORITES
-    p->favorites.factory[PREF_ROW][PREF_BYTE] |= PREF_TAG;      /* (0.13.8) a record this firmware writes holds the MENU settings in their own byte */
+    p->favorites.factory[PREF_ROW][PREF_BYTE] |= PREF_TAG;      /* (0.13.8) a record this firmware writes holds the MENU settings in their own byte (the tag: record only) */
 #endif
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;

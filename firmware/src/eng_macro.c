@@ -341,6 +341,9 @@ static const preset_t MC_PRESETS[] = {
     {"STRING CHORDS", {MC_HARP, 32, 50, 110, 0, 0, 80, 0}, {0, 127, 127, 104}, 0, 0},
 };
 
+/* MACRO's stars are favorites.c row 8 bytes 0..7: bytes 8..15 hold GLO > WEIGHTS and 16..31 the FX key map (settings_persist.c, favorites.c) */
+_Static_assert(NELEM(MC_PRESETS) <= 64u, "MACRO's favorites stay in row 8 bytes 0..7, below the WEIGHTS and FX bytes");
+
 static const engine_t ENG_MACRO = {
     .name = "MACRO",
     .page_title = {"MODEL", "SHAPE"},

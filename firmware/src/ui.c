@@ -75,8 +75,9 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "oc_pack.h"               /* (Orange Cat 0.8.0) OC_PACK_READY, for the PACK MISSING notice */
 #include "favorites.c"
-/* MENU settings in favorites.factory[PREF_ROW][PREF_BYTE] (Orange Cat 0.13.8; before it [15][30], which project.c's PROJ_LAST shared: favorites.c):
- * bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 the tag (settings_persist.c pref_migrate); bits 0, 2..4 retired, kept as moved */
+/* MENU settings in favorites.factory[PREF_ROW][PREF_BYTE] (Orange Cat 0.13.8, row 4 byte 2 since 0.14.0; before it [15][30], which project.c's PROJ_LAST
+ * shared: favorites.c): bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF, bit 6 FONT PIXEL; bit 7 the stored record's tag, clear in RAM (settings_persist.c
+ * pref_migrate); bits 0, 2..4 retired, kept as moved */
 #define PREF_BITS (favorites.factory[PREF_ROW][PREF_BYTE])
 #define PREF_ACCEL_OFF 2u
 #define PREF_PICK_OFF 32u

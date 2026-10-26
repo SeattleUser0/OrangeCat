@@ -31,8 +31,7 @@ static int defaults(void)
         !memcmp(&panel, &PANEL_DEFAULT, sizeof panel) && !template_used() && !template_old();
     for (uint32_t k = 0; k < 4u; k++) ok &= settings_glo[k] == GP[GLO_KEPT[k]].def;
     for (uint32_t i = 0; i < sizeof favorites; i++)
-        if (i == PREF_ROW * 32u + PREF_BYTE) ok &= !(((const uint8_t *)&favorites)[i] & (uint8_t)~PREF_TAG);   /* (0.13.8) the MENU settings' tag isn't one */
-        else if (i < 60u || i >= 64u) ok &= !((const uint8_t *)&favorites)[i]; /* owner tag isn't a preference */
+        if (i < 60u || i >= 64u) ok &= !((const uint8_t *)&favorites)[i]; /* owner tag isn't a preference */
     return ok && !favorites_user_hi;
 }
 static void stale_ram(void)
