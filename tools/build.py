@@ -520,7 +520,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "hades": {"src": "tools/module/hades_mod.c", "sectors": 4, "starts": [0, 6], "name": "HADES"},
            "rhodes": {"src": "tools/module/rhodes_mod.c", "sectors": 12, "starts": [0], "name": "RHODES"},
            # (0.14.1, op1r-candidates) op1r's synth plugins through tools/module/op1r/op1_glue.h, proposed numbers 24.. (OC_CANDIDATES): WHEEL's geometry
-           "fmbell": {"src": "tools/module/fmbell_mod.c", "sectors": 4, "starts": [0, 6], "name": "FMBELL", "inc": ["tools/module/op1r"]}}
+           "fmbell": {"src": "tools/module/fmbell_mod.c", "sectors": 4, "starts": [0, 6], "name": "FMBELL", "inc": ["tools/module/op1r"]},
+           "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"]}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100

@@ -76,6 +76,8 @@ GATE = {
     # (inlined into op1g_eng_render with the glue's copy-out loop, or its own function when the compiler keeps it apart: both named)
     "fmbell": {"engine": 24, "funcs": ["op1g_eng_render", "fm_render"], "voice_type": "fm_voice_t",
                "source": "op1r (pcppcp) synth_sdk/plugins/fmbell/fmbell.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "supersaw": {"engine": 25, "funcs": ["op1g_eng_render", "ss_render"], "voice_type": "ss_voice_t",
+                 "source": "op1r (pcppcp) synth_sdk/plugins/supersaw/supersaw.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

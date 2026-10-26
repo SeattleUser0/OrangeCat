@@ -9,6 +9,7 @@ author, named below.
 | File here | op1r's file | Author (licence) | What differs |
 |---|---|---|---|
 | `plugins/fmbell/fmbell.c` | `synth_sdk/plugins/fmbell/fmbell.c` | pcppcp (plugin.json; no line in the file) | its screen code (the OP-1's display) left out; its sine (one line) reads `OP1_SINE` |
+| `plugins/supersaw/supersaw.c` | `synth_sdk/plugins/supersaw/supersaw.c` | pcppcp (plugin.json; no line in the file) | its screen code left out; its sub's sine (two lines) reads `OP1_SINE` |
 
 What differs is kept to two kinds of change, checked by `tests/op1r_parity/check_vendor.py` against an op1r checkout: a plugin's C file ends where
 op1r's screen code begins (the line `/* ===... screen (GUI thread)`), and every other change is a line (or hunk) marked `Orange Cat`: the reads of
