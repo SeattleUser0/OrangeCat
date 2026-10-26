@@ -1,6 +1,6 @@
 # Orange Cat: what changed for the user, 0.7.1 to the head of sonnet-work
 
-**Version:** 4  
+**Version:** 5  
 **Date:** October 26, 2026
 
 This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to the head of branch `sonnet-work`. None of it is on main, released, or flashed; the unit has not been touched. The build and test details are in BUILD.md.
@@ -81,3 +81,15 @@ voice budget the unit measured it to cost: the bells (MODAL: MALLET, GLASS BELL)
 one track (MALLET played three and broke up even alone), the wave shaper (FOLD PLUCK) three; the cheap models a little more. A chord on those presets
 loses a voice by design: the oldest note's voice fades out cleanly. Four of the reference renders changed for this (FOLD PLUCK, ADDITIVE PAD, MALLET,
 GLASS BELL). On SEQ > TRACKER, an EDIT tap that turned the picked effect off could also open the EDIT pages; now it only turns the effect off.
+
+**0.14.2 (branch web-app): the web app, and the arrangement from a computer.** A new page, `webapp/app/` beside the installer and the
+editor, manages the unit: the asset pack and the engine modules (the Engines table, the set), each track's sound (the engine's picture,
+its four knobs in the knob cozies' colours, the eight values, presets and favorites, the library), the steps, the arrangement (the
+phrases, chains, the song, scenes; drag to reorder; a list of what will change before it is written), projects (read, save to a slot,
+load, export and import files) and the complete backup. The firmware gains one command (102) that reads and writes the chains, the song
+and the scenes of the music loaded; it is refused while the sequencer plays, and a write keeps where each track is. **Worth knowing about
+backups (true before this version too):** a complete backup carries every project's sounds, steps, recorded notes and motion, but not
+their chains, songs or scenes, nor the phrase pool; restored, each project comes back with a new project's chains. The app's backup adds
+the chains of the music loaded and writes them back after a restore when the unit's phrases are still the same. Nothing is stored in a
+new format.
+

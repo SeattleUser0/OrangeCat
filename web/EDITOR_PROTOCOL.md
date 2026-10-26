@@ -612,7 +612,7 @@ FM6 or update transfer; a USB reset; 15 s without a request); 6 the banks' unkep
 changed. An op past 4 or no arguments: no reply.
 A firmware without the command never answers: the page then offers the arrangement read only, from nothing (it cannot read it either).
 
-**The lists' bytes** (all bytes, no padding; the web app's `web/app/lib/layout.json` is generated from the C, `tests/app_layout.c`):
+**The lists' bytes** (all bytes, no padding; the web app's `web/app/lib/layout.js` is generated from the C, `tests/app_layout.c`):
 `chain[64][16][2]` (each step: the phrase + 1, 0 none; then REPS - 1, 0..15), `song[64][NTRK]` (each row: a chain + 1 per track, 0 empty),
 `tchain[NTRK], cur[NTRK], row[NTRK]` (where each track is: its chain, its step, its song row, 255 none), `mode, launch, rsv[2]` (PLAY's mode: 0 PHRASE,
 1 CHAIN, 2 SONG; LAUNCH: 0 LOOP, 1 BAR, 2 BEAT, 3 NOW), `scene[8][NTRK][2]` (each track's chain + 1, 0 left as it is; its step | MUTE << 7),
