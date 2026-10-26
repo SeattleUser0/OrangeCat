@@ -902,3 +902,23 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   that changes the tracks would be autosaved into it 5 s after it rests. Before any script after a flash: `restore_obj2.py` with the same file
   (object 2 written back with its own bytes: a restore of the slot the music came from leaves the music from no slot, editor_backup.c), then
   the scripts. At the end the unit is left so; the next power-on loads slot 1 as the user has it.
+
+## October 26 (UTC): Flash 36 (linux-hw 46aa3bc), the two-hour stability run on the internal clock
+
+- **Flash 36**, 2026-10-26T19:41:42Z: linux-hw 46aa3bc (`~/fm1-hw/wt-merge/build/orangecat-0.6.2-46aa3bc.fwsc`; its host suite passed): unit on
+  `ORANGE CAT v0.6.2-46aa3b`. PipeWire profiles set again; slot 1 detached with `restore_obj2.py` (D954DF93) before any script.
+- **The load** (`~/fm1-hw/soak/stab.py`): MACRO VA BASS, DRUM-X TECHNO RAW, VA BASS, TECHNO RAW, the chord on every step; the internal clock
+  through a one-row chain (editor command 74) started again whenever it ends (about every 33 s). Trial: 2,356 us worst, 0 late, 53 % load.
+- **Run 1 (aborted at 71 min, the script's fault)**: it reset the counters at each 10-minute sample and read them 20 s later, so late renders were
+  counted only inside the samples; and it did not restart the chain during a sample. The chain's 33 s locked to the 10-minute period (18 to
+  one), so every sample caught a chain's end: 2 to 4 s of music and 16 s of silence (the "3.6 dB RMS drop" between the first samples was that).
+  Stopped with SIGINT so its put-back ran (true, CLK 0). Kept in `~/fm1-hw/soak/stab-run-1-aborted/`.
+- **Run 2** (fixed: the counters read for the whole interval before each reset, the chain polled every 0.5 s during the samples too, the share
+  of each sample playing logged), 2026-10-26T21:10Z to 23:08Z, 7,200 s: **0 late renders over the whole run; worst 2,480 us** (85 % of the
+  2,902 us deadline; the 10-minute intervals 2,408 to 2,480); every sample playing throughout (RMS -17.4 dBFS, peaks -7.7 to -9.6 dBFS);
+  **DAC silences 0**; USB holes 0 to 3 a sample with none at the analog out (the USB capture, as on Flash 33); 222 chain restarts (each a stop and
+  start of the internal transport, under 0.5 s). **Two chain queries unanswered** (12.35 and 23.91 min; run 1 had one at 22.8 min): the
+  next query answered, the transport ran on. Open: which side drops the reply (the editor's request while the chain restarts, or the PC's
+  MIDI), not chased yet. Tracks and parameters put back (true), CLK 0; backup before and after: **objects 1 and up identical**.
+- Next: the external-sync run (`~/fm1-hw/clock/extsync.py`, the same load on the PC's clock through the AUDIO4c's DIN, CLK 2; its counters fixed
+  the same way), started 23:10Z.
