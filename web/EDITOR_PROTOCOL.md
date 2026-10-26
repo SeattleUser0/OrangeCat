@@ -726,7 +726,14 @@ when the track's engine is not the saved one).
 - **MIDI clock** has no SysEx. `G_CLOCK` selects the source: 0 INT, 1 USB, 2 TRS. With 1 or 2 the sequencer
   steps on that port's Clock pulses (the other port's are ignored), Start (0xFA) restarts from step 0,
   Continue (0xFB) resumes and Stop (0xFC) stops; BPM follows the incoming tempo (40..240), and 500 ms
-  without a pulse stops the transport. Changing `G_CLOCK` stops it.
+  without a pulse stops the transport. Changing `G_CLOCK` stops it. (Orange Cat 0.14.2) The clock coming back after
+  such a stop resumes the transport in time with the beat: on the pulse 1 + 24 k after the last one before the loss
+  (the pulses missed reckoned from the time and the tempo), from the place that next pulse would have had, nothing
+  missed played. A Start, Continue or Stop, a local PLAY or STOP, a change of `G_CLOCK` or an outage over 60 s ends
+  the wait (`firmware/src/midi_clock.c` midi_clock_resync; `tests/midi_control_test.c` resync_test).
+  `103 CLOCK_STATS` reads the clock's counters: request `[flags]` (1: reset after reading); reply pulses taken from the
+  selected source (5 x 7 bits), stops on a lost clock, resyncs, the longest gap between two pulses in ms, and the
+  pulses the last resync found missed (3 x 7 bits each). A firmware without it does not answer.
 - Pitch bend, sustain (CC64), RPN 0 (bend range, ±0..24 semitones), CC120 / 121 / 123 are MIDI only and
   have no parameters, protocol or saved state.
 

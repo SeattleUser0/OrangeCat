@@ -6214,7 +6214,7 @@ static int test_admission(void)
         if (k != sel)
             others += (eng_state_size(trk[k].eng_req) + 3u) & ~3u;
 
-    bad += check("admission: a built-in engine is always admitted (no module in its slot)", eng_admit(t, ENGI_FM6) == 0 && eng_admit(t, ENGI_CZ) == 0);
+    bad += check("admission: a built-in engine with room beside the other tracks is admitted (no module in its slot)", eng_admit(t, ENGI_FM6) == 0 && eng_admit(t, ENGI_CZ) == 0);
     fe.units = 0;
     bad += check("admission: a module whose voice takes the default 2 units fits the budget: admitted", eng_admit(t, ENGI_SHAPES) == 0);
     select_engine(ENGI_SHAPES);
@@ -6248,6 +6248,57 @@ static int test_admission(void)
 
     ENGINES[ENGI_SHAPES] = save_e; eng_mod[ENGI_SHAPES] = save_h;
     t->eng_req = (uint8_t)was;
+    return bad;
+}
+
+/* (Orange Cat 0.14.2) admission by the parts' protected voices, built-in engines too: each part keeps one voice whatever the budget, so a
+ * pick that would push the sum of the tracks' protected voices past it is refused (four MALLET tracks were 36 units in 18: an overload). */
+static uint32_t adm_preset(const char *name)
+{
+    const engine_t *en = ENGINES[ENGI_MACRO];
+    for (uint32_t i = 0; i < en->npresets; i++) if (!strcmp(eng_preset(en, i)->name, name)) return i;
+    return 0;
+}
+static int test_admission_parts(void)
+{
+    int bad = 0;
+    uint32_t va = adm_preset("VA BASS"), wind = adm_preset("NOISE WIND"), mallet = adm_preset("MALLET"), ntrk = song.ntrk, k;
+    int16_t budget = settings_budget;
+    track_t keep[NTRK];
+    memcpy(keep, trk, sizeof keep);
+    settings_budget = 18; song.ntrk = 4;
+    for (k = 0; k < NTRK; k++) { set_engine_of(&trk[k], ENGI_MACRO); apply_preset_to(&trk[k], va); }
+    bad += check("parts admission: VA BASS is 4 units, MALLET 9 (MC_UNITS), the budget 18",
+                 eng_held_units(&trk[0]) == 4u && eng_admit_preset(&trk[0], ENGI_MACRO, va) == 0 && voice_budget() == 18u);
+    bad += check("parts admission: MALLET beside three VA tracks (9 + 12 = 21 > 18): ENGINE TOO HEAVY", eng_admit_preset(&trk[0], ENGI_MACRO, mallet) == 1);
+    for (k = 1; k < NTRK; k++) apply_preset_to(&trk[k], wind);
+    bad += check("parts admission: beside three NOISE WIND (2 units): MALLET admitted (9 + 6 = 15)", eng_admit_preset(&trk[0], ENGI_MACRO, mallet) == 0);
+    apply_preset_to(&trk[0], mallet);
+    bad += check("parts admission: a second MALLET (9 + 9 + 4 = 22): refused", eng_admit_preset(&trk[1], ENGI_MACRO, mallet) == 1);
+    song.ntrk = 2;
+    bad += check("parts admission: two tracks in use: the second MALLET fits (18), a track not in use does not count", eng_admit_preset(&trk[1], ENGI_MACRO, mallet) == 0);
+    apply_preset_to(&trk[1], mallet);
+    song.ntrk = 4;
+    for (k = 2; k < NTRK; k++) apply_preset_to(&trk[k], mallet);     /* (a project loaded so: four MALLET, 36 units, nothing picked) */
+    bad += check("parts admission: over the budget already: a pick no heavier than the track's sound goes through (MALLET again, WIND)",
+                 eng_admit_preset(&trk[3], ENGI_MACRO, mallet) == 0 && eng_admit_preset(&trk[3], ENGI_MACRO, wind) == 0);
+    apply_preset_to(&trk[2], wind); apply_preset_to(&trk[3], wind);
+    bad += check("parts admission: ..and a heavier one is refused (WIND to VA on track 4: 9 + 9 + 2 + 4 = 24)", eng_admit_preset(&trk[3], ENGI_MACRO, va) == 1);
+    bad += check("parts admission: the MODEL knob (EDIT value 0) to MODAL on track 3: refused; to NOISE: admitted",
+                 eng_admit_edit(&trk[2], 0, MC_MODAL) == 1 && eng_admit_edit(&trk[2], 0, MC_NOISE) == 0);
+    {   /* the knob itself: the value is kept and the message shown */
+        int16_t was;
+        song.sel = 2;
+        trk[2].eng_req = ENGI_MACRO;
+        was = trk[2].p[P_E0];
+        ui.msg_t = 0;
+        if (eng_admit_edit(TSEL, 0, MC_MODAL)) ui_message("ENGINE TOO HEAVY");
+        bad += check("parts admission: refused, the value kept and ENGINE TOO HEAVY said", trk[2].p[P_E0] == was && msg_is("ENGINE TOO HEAVY"));
+    }
+    bad += check("parts admission: an engine pick weighs its INIT sound: MACRO (VA, 4) on the MALLET track admitted, on the WIND track refused",
+                 eng_admit(&trk[0], ENGI_MACRO) == 0 && eng_admit(&trk[2], ENGI_MACRO) == 1);
+    memcpy(trk, keep, sizeof keep);
+    song.ntrk = (uint8_t)ntrk; settings_budget = budget;
     return bad;
 }
 
@@ -6338,6 +6389,7 @@ int main(void)
     bad += test_fm6_charts();
     bad += test_stage_knobs_after_drum();
     bad += test_admission();
+    bad += test_admission_parts();
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));
     printf(bad ? "ui: %d FAILED\n" : "ui: all passed\n", bad);

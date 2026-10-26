@@ -2817,3 +2817,18 @@ written each measurement's tracks into the slot the music came from (on normal b
 None of the eleven copies is the October 24 project: the restore comes from the October 24 backup (the user's go). Fixed for measurement builds (linux-hw
 d49f558, tests/cand_slot_test.c: a candidates build never writes a project or the template with a candidate engine); open: hardware sessions on a normal
 build still autosave measurement tracks (AUTOSAVE OFF for them). Details, dumps and tools: hw/LOG.md, "Flash 31 and project slot 1, the cause".
+
+### The acceptance line (standing, from October 26, 2026)
+
+A build passes the hardware acceptance when, for every acceptance case (four SHAPES RING BELL tracks; the MACRO tables' cases that are clean on the
+reference), it has **no DAC silences** and **late renders at or under 0.6.2's count**. 0.6.2's count is the published Nightly **v0.6.2-430cd4c**
+(Flash 27) measured in the same session, the same 20 s fm1hw `measure` with both captures running (A/B on one unit, one afternoon: the late rate moves
+with the session's USB load). Worst (us) stays in every table **as a record**, no longer a line: the 2,710 us figure was Flash 28's format-2 result,
+never a threshold. On that line 3ca2b5's four RING BELL tracks read 68 late in 8 s against 430cd4c's 65 (no DAC silence): within the run-to-run spread,
+to be settled by the 20 s A/B.
+
+**Open: the +3 % layout shift.** 3ca2b5 renders four RING BELL tracks about 80 us (+3 %) slower than 430cd4c with a byte-identical SHAPES module; the
+image grew in front of the DSP (the card installer and more). Suspected: cache-line or cache-set aliasing of the audio ISR and the hot render functions.
+**First experiment**: align the audio ISR (fm1_alnk0_irq) and the hot render functions (track_render_audio, mod_begin / mod_voice / mod_end, the effects
+buses) to cache lines (a linker-script `ALIGN(32)` per input section, or `__attribute__((aligned(32)))`), build both images, compare their addresses
+(nm) and measure the A/B; then the same with the functions placed at a fixed offset from the image start, so a change in front no longer moves them.

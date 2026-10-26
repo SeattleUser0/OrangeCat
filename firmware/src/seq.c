@@ -1564,6 +1564,7 @@ static void events_block(uint32_t n)
         transport_req = 0;
     } else if (transport_req == 2u) {
         seq_stop();
+        midi_clock.lost = 0;                          /* (0.14.2) a local STOP: no resync */
         transport_req = 0;
     } else if (transport_req == 3u) {                 /* GLO + PLAY: from the top without stopping (INT clock) */
         if (!clock_mode) {
@@ -1659,6 +1660,7 @@ static void events_block(uint32_t n)
             if (fm1_ms - last > 500u) {
                 seq_stop();                         /* cable loss must not leave a running held note */
                 midi_clock.tempo_valid = 0;
+                midi_clock_lost();                  /* (0.14.2) the clock coming back resumes in time with the beat */
             } else
                 seq_advance(midi_clock_advance(midi_render_timed ? midi_render_time : MIDI_TIME_NOW()));
         }

@@ -171,6 +171,54 @@ static int clock_arp_and_boundaries(void)
     bad+=check("a followed master clock that stops still times out",!song.playing);
     return bad;
 }
+/* (Orange Cat 0.14.2) the resync: the clock back after a loss resumes the sequencer in time with the beat (midi_clock.c midi_clock_resync).
+ * 120 BPM (a pulse every 125/6 ms); the master's pulses go on on their grid after the outage, with a little jitter. */
+static double rs_at(uint32_t j) { return 2.0 + j * 125.0 / 6.0; }   /* the master's pulse j, ms */
+static int resync_test(uint32_t source)
+{
+    int bad = 0, jit[5] = {0, 2, -2, 1, -1};
+    uint32_t j, L = 47, stop_idx, resumed = 0, n0 = midi_clock_resyncs;
+    clock_setup(source);
+    clock_packet(source, 0xFA, 2);
+    for (j = 0; j <= L; j++) clock_packet(source, 0xF8, (uint32_t)rs_at(j));
+    fm1_ms = (uint32_t)rs_at(L) + 15u; events_block(CTL);
+    fm1_ms = (uint32_t)rs_at(L) + 600u; events_block(CTL);   /* no pulse for 600 ms */
+    stop_idx = trk[0].seq_idx;
+    bad += check("resync: a lost clock still stops the sequencer (no held note)", !song.playing && !trk[0].seq_n && midi_clock.lost == 1u);
+    for (j = L + 40u; j < L + 200u && !song.playing; j++) {   /* the clock back after 40 pulses missed, on the master's grid */
+        clock_packet(source, 0xF8, (uint32_t)((int32_t)rs_at(j) + jit[j % 5u]));
+        if (song.playing) resumed = j;
+    }
+    bad += check("resync: the clock back resumes it on a pulse 1 + 24 k after the last (in time with the beat)",
+                 song.playing && resumed && (resumed - L) % 24u == 1u && midi_clock_resyncs == n0 + 1u);
+    bad += check("resync: CLOCK_STATS counts it: one stop, 39 pulses missed, the gap", midi_clock_missed == 39u && midi_clock_losses >= 1u &&
+                 midi_clock_gap_ms >= 830u);
+    /* (it goes on from the place of the pulse after the last, L + 1 = 48: step 8, a 16th every 6 pulses; nothing missed is played) */
+    bad += check("resync: ..from the place the next pulse would have had (step 8, the one after it stopped on 7)",
+                 stop_idx == 7u && trk[0].seq_idx == (uint16_t)(((L + 1u) / 6u) % 16u));
+    for (uint32_t k = 1; k <= 6u; k++) clock_packet(source, 0xF8, (uint32_t)rs_at(resumed + k));
+    bad += check("resync: six pulses on, one 16th further", song.playing && trk[0].seq_idx == (uint16_t)(((L + 7u) / 6u) % 16u));
+
+    clock_setup(source); clock_packet(source, 0xFA, 2);
+    for (j = 0; j <= L; j++) clock_packet(source, 0xF8, (uint32_t)rs_at(j));
+    fm1_ms = (uint32_t)rs_at(L) + 600u; events_block(CTL);
+    transport_req = 2; events_block(CTL);
+    for (j = L + 40u; j < L + 120u; j++) clock_packet(source, 0xF8, (uint32_t)rs_at(j));
+    bad += check("resync: a local STOP during the outage: the clock back does not start it", !song.playing);
+
+    clock_setup(source); clock_packet(source, 0xFA, 2);
+    for (j = 0; j <= L; j++) clock_packet(source, 0xF8, (uint32_t)rs_at(j));
+    fm1_ms = (uint32_t)rs_at(L) + 600u; events_block(CTL);
+    for (j = 0; j < 80u; j++) clock_packet(source, 0xF8, (uint32_t)(rs_at(L) + 61000.0 + j * 125.0 / 6.0));
+    bad += check("resync: an outage over 60 s: it waits for Start", !song.playing && !midi_clock.lost);
+
+    clock_setup(source); clock_packet(source, 0xFA, 2);
+    for (j = 0; j <= L; j++) clock_packet(source, 0xF8, (uint32_t)rs_at(j));
+    fm1_ms = (uint32_t)rs_at(L) + 600u; events_block(CTL);
+    clock_packet(source, 0xFA, (uint32_t)rs_at(L + 40u)); clock_to(source, (uint32_t)rs_at(L + 40u), 7);
+    bad += check("resync: a Start during the outage starts from step zero as always", song.playing && trk[0].seq_idx == 1u && !midi_clock.lost);
+    return bad;
+}
 /* ARP HOLD latched on an external clock: a Stop, a lost clock or a tap while stopped must not leave the arp note
  * sounding; Continue plays the latched chord again; the internal clock's free-running arp is unchanged by STOP */
 static void arp_latch(uint32_t mode)
@@ -437,7 +485,7 @@ static int drum_retrigger_accounting(void)
 #ifndef MIDI_CONTROL_NO_MAIN
 int main(void)
 {
-    int bad = controls_test() + sustain_test() + ownership_test() + clock_test(1) + clock_test(2) + clock_arp_and_boundaries() +
+    int bad = controls_test() + sustain_test() + ownership_test() + clock_test(1) + clock_test(2) + resync_test(1) + resync_test(2) + clock_arp_and_boundaries() +
               arp_ext_stop_test() + arp_idle_live_test() + usb_burst_test() + routing_range_test() + drum_channel_test() + drum_retrigger_accounting();
     printf("%s\n", bad ? "MIDI CONTROL/CLOCK TEST FAILED" : "MIDI control/clock integration tests passed"); return bad != 0;
 }

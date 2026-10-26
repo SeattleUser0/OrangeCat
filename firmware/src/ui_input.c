@@ -1346,6 +1346,10 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (!d || !vp || d->max == d->min)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
+    if (vp >= TSEL->p + P_E0 && vp < TSEL->p + P_E0 + 8 && v != *vp && eng_admit_edit(TSEL, (uint32_t)(vp - TSEL->p - P_E0), v)) {
+        ui_message("ENGINE TOO HEAVY");                   /* (0.14.2) a MODEL (or other EDIT value) past the parts' budget: kept */
+        return;
+    }
     *vp = (int16_t)v;
     if (pg->scope == SC_MOD) {                            /* (0.12.0) a module's value: its hook (or the clamped byte), recorded as motion */
         const fw_pages_t *mp = track_pages(TSEL);

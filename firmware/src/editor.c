@@ -35,6 +35,7 @@ enum { ED_SLOT_INFO = 110, ED_SLOT_BEGIN, ED_SLOT_WRITE, ED_SLOT_END, ED_SLOT_ER
 enum { ED_PACK_INFO = 115, ED_PACK_BEGIN, ED_PACK_WRITE, ED_PACK_END, ED_PACK_ERASE };
 /* (Orange Cat 0.10.0) loadable engine modules (oc_module.c): 120..124. The pack's ids and payloads are unchanged; the module has its own ids because the pack's
  * BEGIN already carries an optional byte (older pages sent one), so an area selector in it would be ambiguous. */
+enum { ED_CLOCK_STATS = 103 };                      /* (Orange Cat 0.14.2) the external clock's counters (midi_clock.c) */
 enum { ED_HW_TEST = 108 };                          /* (Orange Cat 0.13.8) the hardware test surface (oc_hw_test.c), OC_HW_TEST builds only */
 enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE, ED_ENGINES,   /* (0.11.0) 125 ED_ENGINES: the engine list */
        ED_PAGES, ED_PANEL };      /* (0.12.0) 126 ED_PAGES, 127 ED_PANEL: a module engine's pages and native parameters (fw_pages.h) */
@@ -785,6 +786,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                     int adm = eng_admit(TSEL, ne);                       /* (0.11.0) a module's engine only when the unit can carry it */
                     if (adm) ui_message(eng_admit_text(adm)); else set_engine(ne);
                 }
+            } else if (!a[0] && a[1] >= P_E0 && a[1] < P_E0 + 8u && d->max > d->min &&
+                       eng_admit_edit(TSEL, a[1] - P_E0, enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max)))) {
+                ui_message("ENGINE TOO HEAVY");                  /* (0.14.2) an EDIT value that would push the parts past the budget */
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
                 if (a[0] == 1 && (a[1] == G_A4 || a[1] == G_BUDGET))
@@ -843,16 +847,28 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_step_reply(&seq_steps(TSEL)[a[0]]);
         break;
     }
+    case ED_CLOCK_STATS: {                                 /* (0.14.2) [flags: 1 reset after reading] -> pulses (5 x 7 bits), stops on a lost
+                                                            * clock, resyncs (3 x 7 each), the longest gap between two pulses in ms (3 x 7),
+                                                            * the pulses the last resync found missed (3 x 7) */
+        uint32_t v[5];
+        fm1_irq_off();
+        v[0] = midi_clock_pulses; v[1] = midi_clock_losses; v[2] = midi_clock_resyncs; v[3] = midi_clock_gap_ms; v[4] = midi_clock_missed;
+        if (na && (a[0] & 1u)) midi_clock_pulses = midi_clock_losses = midi_clock_resyncs = midi_clock_gap_ms = midi_clock_missed = 0;
+        fm1_irq_on();
+        for (uint32_t i = 0; i < 5u; i++) ed_b((v[0] >> (7u * i)) & 127u);
+        for (uint32_t k = 1; k < 5u; k++)
+            for (uint32_t i = 0; i < 3u; i++) ed_b((v[k] >> (7u * i)) & 127u);
+        break;
+    }
     case ED_PRESET:                                        /* engine, preset */
         if (na < 2u || a[0] >= NENGINES)
             return;
         adm = 0;
         {
-            if (a[0] != TSEL->eng_req) {
-                adm = eng_admit(TSEL, a[0]);                      /* (0.11.0) refused: the track keeps its engine and its sound */
-                if (adm) ui_message(eng_admit_text(adm));
-                else set_engine(a[0]);
-            }
+            adm = eng_admit_preset(TSEL, a[0], a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* (0.11.0) refused: the track keeps its
+                                                                  * engine and its sound; (0.14.2) the preset's own weight too */
+            if (adm) ui_message(eng_admit_text(adm));
+            else if (a[0] != TSEL->eng_req) set_engine(a[0]);
             if (!adm)
                 apply_preset(a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* [, high bits]: PROPHET has 201 */
         }

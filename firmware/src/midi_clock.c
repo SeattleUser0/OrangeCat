@@ -6,12 +6,18 @@
  * the measured tempo cannot move steps, gates, ties or the arpeggiator. */
 static struct {
     uint32_t pos, rendered, last_ms, start_ms, last_time, interval_time, tempo_time, tempo_dt;
+    uint32_t lost_pos, lost_time, lost_n;      /* (0.14.2) the resync after a lost clock: the last pulse's place and time, pulses since */
     uint8_t mode, selected, have_pulse, tempo_valid, tempo_n, tempo_count;
+    uint8_t lost;                              /* 0 none; 1 stopped by a lost clock, no pulse back yet; 2 counting the pulses back */
 } midi_clock;
 
 /* Preserve fractional sequencer/ARP phase when external transport takes over. */
+/* (0.14.2) the clock's counters (editor command 103 CLOCK_STATS; the tests): pulses taken from the selected source, the lost-clock stops,
+ * the resyncs, the longest gap between two pulses (ms) and the pulses the last resync found missed */
+static uint32_t midi_clock_pulses, midi_clock_losses, midi_clock_resyncs, midi_clock_gap_ms, midi_clock_missed;
 static void midi_clock_mode(uint32_t mode)
 {
+    midi_clock.lost = 0;
     uint32_t old = seq_beat_samples();
     midi_sync_active = (uint8_t)mode;
     uint32_t next = seq_beat_samples();
@@ -30,6 +36,7 @@ static void midi_clock_mode(uint32_t mode)
  * Continue or Stop, so PLAY never dies on the lost-clock timeout. 1 = sync kept. */
 static uint32_t midi_clock_local_start(uint32_t ms)
 {
+    midi_clock.lost = 0;                       /* (0.14.2) a local PLAY: no resync */
     if (!midi_clock.mode)
         return 0;
     if (midi_clock.tempo_valid && ms - midi_clock.last_ms <= 500u)
@@ -38,8 +45,54 @@ static uint32_t midi_clock_local_start(uint32_t ms)
     return 0;
 }
 
+/* (Orange Cat 0.14.2) The resync. 500 ms without a pulse stops the sequencer (seq.c: a lost cable must not leave a held note), and before
+ * this nothing but a Start, Continue or local PLAY ran it again: a master whose clock came back played on alone (the soak's stop, hw/LOG.md,
+ * October 26, 2026). Now the clock coming back resumes it in time with the beat. At the stop the last pulse's place (pos) and time are
+ * kept; the first pulse back gives the pulses missed from the time since and the tempo known (interval_time, rounded), the following
+ * ones count on exactly. The sequencer had rendered on to where the next pulse would have been (midi_clock_advance stops a unit short
+ * of it), so it resumes, as a Continue does, on the pulse 1 + 24 k after the last one: there the master is where it stopped within the
+ * beat, a whole number of beats later, and nothing missed is played in a burst. Called for a pulse while stopped. A Start, Continue or
+ * Stop, a local PLAY or STOP, a change of CLK, or an outage over 60 s (or with no tempo known) ends it: the unit waits for Start, as
+ * before. (Skiff 2.0.1, ~/ref/skiff b03d98a, stops the same way and has no resync: this one is Orange Cat's.) */
+static void midi_clock_lost(void)
+{
+    midi_clock_losses++;
+    midi_clock.lost = midi_clock.have_pulse && midi_clock.interval_time ? 1u : 0u;
+    midi_clock.lost_pos = midi_clock.pos;
+    midi_clock.lost_time = midi_clock.last_time;
+    midi_clock.lost_n = 0;
+}
+static void midi_clock_resync(uint32_t ms, uint32_t time)
+{
+    uint32_t iv = midi_clock.interval_time;
+    if (midi_clock.lost == 1u) {
+        uint32_t el = time - midi_clock.lost_time;
+        if (!iv || el > 60000u * MIDI_TICKS_PER_MS) { midi_clock.lost = 0; return; }
+        /* (six pulses' smoothed length at an eighth of a tick, tempo_dt, when known: millisecond host clocks round iv) */
+        midi_clock.lost_n = midi_clock.tempo_dt ? (uint32_t)(((uint64_t)el * 48u + midi_clock.tempo_dt / 2u) / midi_clock.tempo_dt)
+                                                : (el + iv / 2u) / iv;
+        midi_clock_missed = midi_clock.lost_n ? midi_clock.lost_n - 1u : 0u;   /* (the pulses that never came) */
+        midi_clock.lost = 2u;
+    } else
+        midi_clock.lost_n++;
+    if (midi_clock.lost_n % 24u != 1u)
+        return;
+    midi_clock.lost = 0;
+    cin_left = 0;
+    midi_clock.pos = midi_clock.lost_pos + MIDI_BEAT_UNITS / 24u;
+    if ((int32_t)(midi_clock.rendered - midi_clock.pos) > 0) midi_clock.pos = midi_clock.rendered;
+    midi_clock.have_pulse = 0;                 /* (this pulse marks the place, as after a Continue: the next one moves on) */
+    midi_clock.start_ms = ms;
+    motion_begin();
+    song.rec_wait = song.rec;
+    song.rec_pass = 0;
+    song.playing = 1;
+    midi_clock_resyncs++;
+}
+
 static __attribute__((noinline)) void midi_clock_transport(uint32_t status, uint32_t ms)
 {
+    midi_clock.lost = 0;                       /* (0.14.2) the master's own transport: no resync */
     if (status == 0xFAu) {
         midi_clock.pos = midi_clock.rendered = 0;
         midi_clock.have_pulse = midi_clock.tempo_valid = 0;
@@ -65,6 +118,10 @@ static __attribute__((noinline)) void midi_clock_transport(uint32_t status, uint
 
 static __attribute__((noinline)) void midi_clock_pulse(uint32_t ms, uint32_t time)
 {
+    midi_clock_pulses++;
+    if (midi_clock.last_ms && ms - midi_clock.last_ms > midi_clock_gap_ms) midi_clock_gap_ms = ms - midi_clock.last_ms;
+    if (midi_clock.lost && !song.playing)
+        midi_clock_resync(ms, time);           /* (0.14.2) the clock back after a loss */
     if (!midi_clock.tempo_valid || ms - midi_clock.last_ms > 500u) {
         midi_clock.tempo_valid = 1;
         midi_clock.tempo_time = time;

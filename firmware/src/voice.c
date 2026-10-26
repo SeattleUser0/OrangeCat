@@ -136,11 +136,14 @@ static uint32_t part_units(const track_t *t)
 {
     return t->engine < NENGINES && eng_mod[t->engine] ? FW_MOD_PART_UNITS(eng_mod[t->engine]->cost) : 0u;
 }
-static uint32_t voice_units(const track_t *t)
+static uint32_t voice_units_of(const track_t *t, uint32_t engine);
+static uint32_t voice_units(const track_t *t) { return voice_units_of(t, t->engine); }
+/* (0.14.2) one voice of track t's sound as engine `engine` would play it (eng_admit prices a pick before it is made) */
+static uint32_t voice_units_of(const track_t *t, uint32_t engine)
 {
-    const engine_t *e = ENGINES[t->engine];
+    const engine_t *e = ENGINES[engine % NENGINES];
     /* GLO > WEIGHTS: the player's points per voice replace the built-in rule; AUTO (0) keeps it. */
-    int k = ((MELODEE_P5 && e == &ENG_P5_TEST) || (t->engine == ENGI_PROPHET && eng_mod[ENGI_PROPHET])) ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : ((MELODEE_DRUM && e == &ENG_DRUM) || (MELODEE_DRUMX && e == &ENG_DRUMX)) ? 4 : -1;   /* (0.9.0: DRUM-X has the DRUM weight) */
+    int k = ((MELODEE_P5 && e == &ENG_P5_TEST) || (engine == ENGI_PROPHET && eng_mod[ENGI_PROPHET])) ? 0 : (MELODEE_CZ && e == &ENG_CZ) ? 1 : (MELODEE_FM6 && e == &ENG_FM6) ? 2 : (MELODEE_SID && e == &ENG_SID) ? 3 : ((MELODEE_DRUM && e == &ENG_DRUM) || (MELODEE_DRUMX && e == &ENG_DRUMX)) ? 4 : -1;   /* (0.9.0: DRUM-X has the DRUM weight) */
     if (k >= 0 && settings_vpoints[k] > 0)
         return (uint32_t)settings_vpoints[k];
 #if MELODEE_ADMISSION
