@@ -892,3 +892,13 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   output only, for the captures (set again after each flash's re-enumeration).
 - Not yet published or flashed on linux-hw: the web-app merge (ca258e9, local; its suite passed in 1,276 s; to be merged again over linux-hw's two
   documentation commits since).
+
+## October 26 (UTC): project slot 1 restored (the user's word)
+
+- 2026-10-26T19:40:15Z, on the Nightly (v0.6.2-3ca2b5): object 2 alone from `Orange Cat-backup-2026-10-24.json` (`~/fm1-hw/slot1/restore_obj2.py`:
+  BACKUP_PUT begin, data, commit; then BACKUP_LIST): **27,904 B, D954DF93, read back equal**. The October 24 backup has no arrangement objects (it
+  predates them), so the slot's chains, song and scenes are a new project's; its sounds, steps, timed notes and motion are the October 24 ones.
+- **The rule from now on**: power-on loads slot 1 (PROJ_LAST), so after every flash or restart the music on the unit is slot 1's and any script
+  that changes the tracks would be autosaved into it 5 s after it rests. Before any script after a flash: `restore_obj2.py` with the same file
+  (object 2 written back with its own bytes: a restore of the slot the music came from leaves the music from no slot, editor_backup.c), then
+  the scripts. At the end the unit is left so; the next power-on loads slot 1 as the user has it.

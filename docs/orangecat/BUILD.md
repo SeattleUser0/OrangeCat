@@ -2823,8 +2823,9 @@ written each measurement's tracks into the slot the music came from (on normal b
 None of the eleven copies is the October 24 project: the restore comes from the October 24 backup (the user's go). Fixed for measurement builds (linux-hw
 d49f558, tests/cand_slot_test.c: a candidates build never writes a project or the template with a candidate engine); open: hardware sessions on a normal
 build still autosave measurement tracks (AUTOSAVE OFF for them). Why slot 1: power-on loads it since Part 6, so it was the slot the music came from.
-**Status: closed**; slot 1 **not restored**: the October 24 backup's object 2 (27,904 B, D954DF93) holds it, the one-object restore waits for the
-user's word. Details, dumps and tools: hw/LOG.md, "Flash 31 and project slot 1, the cause".
+**Status: closed**; slot 1 **restored** on the user's word (2026-10-26T19:40:15Z, object 2 of the October 24 backup, 27,904 B, D954DF93 read
+back; its chains a new project's: that backup predates the arrangement objects). After every flash the music is detached from slot 1 before
+any script runs (hw/LOG.md, "project slot 1 restored"). Details, dumps and tools: hw/LOG.md, "Flash 31 and project slot 1, the cause".
 
 ### The acceptance line (standing, from October 26, 2026)
 
