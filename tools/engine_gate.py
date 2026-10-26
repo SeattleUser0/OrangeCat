@@ -194,6 +194,11 @@ GATE = {
         "modulation": "its own step sequence (pitch, level, crossfade per step, from the note's start); CUT through m->cutoff, ~40 % keyboard; pitch (m->pitch16, the steps' intervals on it); velocity and the ADSR through the amplitude; E1..E8 read every render",
         "backend": "wt_shared.h: the bank format (FMX's eight waves re-band-limited: 10,752 B hot set against FMX's 26,624 B tables), the copy for an increment, the linear frame read; HYBRID's hy_inc; Felucca's TPT SVF",
         "source": "Clipper (3dSam) firmware/src/eng_wseq.c at e690672, GPL-3.0-only; its waves FMX's (fmx_tables.h), re-band-limited by Orange Cat's gen_wseq_bank.py"},
+    "ravel_mono": {"engine": 42, "funcs": ["rmono_render"], "voice_type": None,
+        "controls": "eight of Ravel's sixteen on EDIT 1 and 2 (SAW PULS SUB PW, CUT RES VIB VDLY); fixed at Ravel's defaults: SUB OCT, NOISE, PWM, SCOOP, SCOOP T, VIB RATE, VEL>CUT, DRIFT, RETRIG, DRIVE; lost: Ravel's articulation (its onset / continuant / termination stages, Give, its own filter envelope: Orange Cat's ADSR and ENV -> FILTER instead), its other filter types",
+        "modulation": "Orange Cat's ADSR and glide; legato through the engine's legato hook (Ravel's mono_note: no scoop, the vibrato's delay not restarted); ENV DEST FLT and the LFO on the cutoff (m->cutoff); full keyboard tracking and VEL>CUT; its own delayed vibrato, scoop and drift; the matrix's PITCH, CUT, AMP, E1..E8",
+        "backend": "Ravel's float DSP (rv_math.h, rv_dsp.h): the SH-101 filter (sh101_tick, a four-pole ZDF-style ladder) and its siblings (LADDER, MS-20, SEM) would serve every float engine; none shared with Orange Cat's fixed-point dsp.c",
+        "source": 'Ravel (De-Pattern) firmware/app/rv_synth.c (MONO), rv_dsp.h, rv_math.h at e9b6398, GPL-3.0-only; not yet run on an FM-1 by its author'},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

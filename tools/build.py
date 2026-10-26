@@ -537,7 +537,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "vector": {"src": "tools/module/vector_mod.c", "sectors": 7, "starts": [0, 4], "name": "VECTOR"},
            "vps": {"src": "tools/module/vps_mod.c", "sectors": 4, "starts": [0, 6], "name": "VPS"},
            "terrain": {"src": "tools/module/terrain_mod.c", "sectors": 5, "starts": [0, 6], "name": "TERRAIN"},
-           "wseq": {"src": "tools/module/wseq_mod.c", "sectors": 4, "starts": [0, 6], "name": "WSEQ"}}
+           "wseq": {"src": "tools/module/wseq_mod.c", "sectors": 4, "starts": [0, 6], "name": "WSEQ"},
+           "ravel_mono": {"src": "tools/module/ravel_mono_mod.c", "sectors": 4, "starts": [0, 6], "name": "MONO"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
