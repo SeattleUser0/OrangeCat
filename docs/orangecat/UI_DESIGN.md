@@ -1,12 +1,15 @@
 # Orange Cat: the new interface (design)
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** October 26, 2026
 **Branch:** ui-design, from linux-hw a8df964. Not on main, not built into the firmware, not on the unit.
 **Status:** a design to choose from. Nothing in firmware/src changed. The screens are drawn by the firmware's own drawing code
 on the host (tests/ui_mockup.c), so what they show is what the unit can draw.
 
 Revisions:
+- 0.3: every effect gets a picture page instead of a table of values (the track's sends, DIST, AUTO PAN, DELAY, REVERB,
+  CHORUS, SLICER, MASTER; section 8); every picture runs at 10 frames a second (the owner's call); the budget measured
+  again at that rate.
 - 0.2: every engine's picture drawn (the Prophet, SEM, HADES, FMBELL, SUPERSAW, DDDD, CZ-1, SID beside the first four) and
   DUB TAPE's performance view (SPEC.md 9.3.2 on branch dub-tape); the owner's rule: **a picture is part of its module**,
   read in place from the module's flash only while the module is loaded, never built into the firmware or copied into the
@@ -22,7 +25,7 @@ button lives up to its name and we keep the main parameters up front."
 
 ## The choices for the morning
 
-1. **HOME A or HOME B.** A is the picture and four coloured dials, no numbers (the OP-1's way): a knob's name and value show
+1. **HOME A or HOME B.** A is the picture and four colored dials, no numbers (the OP-1's way): a knob's name and value show
    in the sound line while it turns. B is the same with one row of small values under the dials. Both are in
    `docs/orangecat/ui/home_A_vs_B.png`, each engine at two knob positions. The rest of the design does not depend on the pick.
 2. **The four knobs** of each engine (table in section 2). MACRO, SHAPES and WHEEL change from today's HOME knobs: no knob
@@ -31,8 +34,8 @@ button lives up to its name and we keep the main parameters up front."
    which already does it (section 4). Saves about 1.7 KB of RAM (and an undo level) and a pattern format change.
 4. **The SHIFT map: yes**, under HOME held, as Skiff 2.0 has it; HOME let go alone opens the MENU (section 1).
 5. **Pictures in the modules (the owner's rule, 0.2).** Two cases it leaves open: the engines still built into the
-   firmware (MACRO, DRUM-X; SHAPES has a built-in copy) and DUB TAPE, which its plan builds resident because no effect
-   modules exist yet. Proposed: until they are modules, their pictures ride in the asset pack (flash 0x93000, installed
+   firmware (MACRO, DRUM-X; SHAPES has a built-in copy), and the effects (Jiant's, and DUB TAPE, which its plan builds
+   resident), because no effect modules exist yet. Proposed: until they are modules, their pictures ride in the asset pack (flash 0x93000, installed
    with the firmware's set, read in place like a module's), so the firmware image holds none (section 3).
 6. **The free parameter ids.** The knob macros (four ids) and DUB TAPE's plan (all fifteen) both claimed P_RESERVED33..36.
    Proposed: DUB TAPE's performance view needs only seven recorded ids (its four knobs, CUT, HOLD, KICK), which fit
@@ -44,24 +47,24 @@ button lives up to its name and we keep the main parameters up front."
 
 ### 1. The page model
 
-**HOME is the track's sound.** The header (transport, BPM, REC, the engine's name in the track's colour), the sound line (the
-track's numeral on its colour, the preset's name, its place in the list), four dials in the knobs' colours, and the engine's
+**HOME is the track's sound.** The header (transport, BPM, REC, the engine's name in the track's color), the sound line (the
+track's numeral on its color, the preset's name, its place in the list), four dials in the knobs' colors, and the engine's
 picture. Nothing else. The four physical knobs are the four dials, on every preset of that engine, in the same order, in the
-same colours. The dials sit at the top, under the header, because the knobs sit top right of the screen on the unit (Skiff's
+same colors. The dials sit at the top, under the header, because the knobs sit top right of the screen on the unit (Skiff's
 rule 1, from what FM-1 owners asked for).
 
-**The knob colours are fixed:** KNOB 1 blue, KNOB 2 green, KNOB 3 white, KNOB 4 orange, on every track, page and palette.
-They are the colours of the plastic on the knobs (the cozies), so they cannot follow the track. Today a knob's colour is a
-shade of the track's colour (gfx.c `T_KNOB`, 16 colours a palette); that goes. A track still has its own colour: the
+**The knob colors are fixed:** KNOB 1 blue, KNOB 2 green, KNOB 3 white, KNOB 4 orange, on every track, page and palette.
+They are the colors of the plastic on the knobs (the cozies), so they cannot follow the track. Today a knob's color is a
+shade of the track's color (gfx.c `T_KNOB`, 16 colors a palette); that goes. A track still has its own color: the
 numeral, the engine's name, the header's chip, the mixer strip.
 
 **EDIT lives up to its name.** EDIT opens the track's sheets: SOUND (the engine's eight controls, two rows of four), ENV (the
-amplitude and filter envelopes), MOD (the LFO, its destinations, the matrix), FX (the track's own effects: DIST, AUTO PAN,
-the three sends), VOICE (voice mode, glide, chord keys, priority). EDIT again goes to the next sheet. An engine with a native
+amplitude and filter envelopes), MOD (the LFO, its destinations, the matrix), FX (opens the track's own effects, the
+sends, DIST and AUTO PAN, on the FX button's picture pages: section 8), VOICE (voice mode, glide, chord keys, priority). EDIT again goes to the next sheet. An engine with a native
 panel (the Prophet, FM6, CZ-1) has its own sections as sheets (OSC, MIXER, FILTER, AMP, MOD, LFO, WHEEL, VOICE: the R7
 sections of today), then ENV, MOD, FX, VOICE where they apply. DRUM-X has KIT, LANES, ENV, FX.
 
-On a sheet the four knobs edit the row the frame is on; its labels take the knobs' colours (`ui/edit_sound.png`). SELECT
+On a sheet the four knobs edit the row the frame is on; its labels take the knobs' colors (`ui/edit_sound.png`). SELECT
 moves the frame down the rows, and past the last row on to the next sheet (Skiff's sheets).
 
 **The controls:**
@@ -77,7 +80,7 @@ moves the frame down the rows, and past the last row on to the next sheet (Skiff
 | ENV, LFO | the ENV, MOD sheet (shortcuts into EDIT) | the same | as today |
 | SEQ | the step pages: NOTES, FEEL, TRACKER, PHRASE, GROOVE | the same | CHAIN (as today) |
 | GLO | MIXER, then the global pages | the same | GLO layer (as today) |
-| FX | the shared effects: DELAY, REVERB, CHORUS, SLICER, MASTER | the same | the punch-in layer (as today) |
+| FX | the effects' picture pages: the track's sends, DIST, AUTO PAN, then the shared DELAY, REVERB, CHORUS, SLICER, MASTER (section 8) | the same | the punch-in layer (as today) |
 | SCL | SCALE, CHORD, MPC | the same | SCL layer (as today) |
 | ARP | ARP | the same | PERFORM (as today) |
 | SAVE | PRESETS, USER, PROJECT | the same | save the project (as today) |
@@ -96,7 +99,7 @@ before it is in the code (Skiff's rule).
 **Notices**, as docs/design/README.md "Status indicators" already says, with one place added on HOME:
 - ongoing state (transport, REC, WAIT LOOP, ERASING, the octave pill, low battery): the header, as today;
 - a brief result (SAVED, a knob's name and value while it turns, PACK MISSING once): on HOME the sound line, in the knob's
-  colour or REC's (`ui/notice_line.png`); elsewhere the header's message area, as today;
+  color or REC's (`ui/notice_line.png`); elsewhere the header's message area, as today;
 - a reason that needs words (ENGINE TOO HEAVY, NO ROOM, FX FULL): a card over the foot of the picture for two seconds
   (`ui/notice.png`), the toast of today moved there;
 - a decision: a dialog, as today.
@@ -105,7 +108,7 @@ before it is in the code (Skiff's rule).
 properties), TRACKER, PHRASE, GROOVE; SEQ held is CHAIN; SONG and PHRASES follow CHAIN. PRESETS moves the step cursor on
 NOTES and FEEL (so no knob is the step any more), as in Skiff 2.0 (section 4).
 
-**The mixer** is GLO's first page and REC held, as today; KNOB k is track k's LEVEL, the faders drawn in the knobs' colours
+**The mixer** is GLO's first page and REC held, as today; KNOB k is track k's LEVEL, the faders drawn in the knobs' colors
 (`ui/mixer.png`). **The song** stays where it is: SEQ held (CHAIN), then SONG.
 
 **What today's UI does well, kept:** the header and its status rules; the track overview of Stage (now HOME's TRACKS page);
@@ -116,7 +119,7 @@ both); the lint over every screen.
 
 **What goes:** EDIT 1 and EDIT 2 as the engine's front door (their eight controls become the SOUND sheet); a model, shape or
 registration on a HOME knob; ENV and LFO as families of their own (they become sheets, the buttons stay as shortcuts); the
-track-shaded knob colours; HOME held opening the MENU at once; DRUM SOUND and DRUM MIX (DRUM is off in the shipping build;
+track-shaded knob colors; HOME held opening the MENU at once; DRUM SOUND and DRUM MIX (DRUM is off in the shipping build;
 DRUM-X's LANES takes their place).
 
 **Every page today and where it lands:**
@@ -136,15 +139,16 @@ DRUM-X's LANES takes their place).
 | VOICE, VOICE 2, VOICE 3 | EDIT | EDIT > VOICE |
 | ENV, ENV DEST | ENV | EDIT > ENV (ENV the shortcut) |
 | LFO, LFO 2, LFO DEST, MOD | LFO | EDIT > MOD (LFO the shortcut) |
-| FX (the track's sends), DIST, AUTO PAN | FX | EDIT > FX |
-| DELAY .. MASTER (13 shared pages) | FX | FX, as today |
+| FX (the track's sends), DIST, AUTO PAN | FX | FX, each a picture page (EDIT > FX opens them) |
+| DELAY, REVERB, CHORUS, SLICER, MASTER | FX | FX, each a picture page |
+| DELAY 2, DELAY 3, REVERB 2, SLICER 2, SL PITCH 1..4 | FX | rows of their effect's picture page (SELECT) |
 | SCALES, SCL, CHORD, MPC | SCL | SCL, as today |
 | ARP, ARP 2 | ARP | ARP, as today |
 | NOTES | SEQ | SEQ > NOTES (each note its own length, section 4) |
 | (none) | | SEQ > FEEL: chance, ratchet, nudge, type of the selected steps (new) |
 | TRACKER, PHRASE, GROOVE, TEMPO | SEQ | SEQ, as today |
 | CHAIN, SONG, PHRASES, MOTION | SEQ | SEQ, as today |
-| MIXER | GLO / REC held | GLO > MIXER, as today, faders in the knobs' colours |
+| MIXER | GLO / REC held | GLO > MIXER, as today, faders in the knobs' colors |
 | GLOBAL, SYSTEM, WEIGHTS, WEIGHTS 2 | GLO | GLO, as today |
 | PRESETS, USER, PROJECT | SAVE | SAVE, as today; PRESETS also from the PRESETS knob anywhere |
 | MENU | HOME held | HOME held and let go alone |
@@ -253,7 +257,7 @@ shape, wave or registration. A preset added later must pass the same audit; CI r
 ### 3. The pictures
 
 **Style** (from op1r's screens, `synth_sdk/plugins/*/*.svg`, and the OP-1 manual): line art on the dark ground, one scene,
-two to four parts that move, each part in its knob's colour and moving with its knob; the rest in a light neutral ink, a
+two to four parts that move, each part in its knob's color and moving with its knob; the rest in a light neutral ink, a
 few quiet lines (a horizon, stars) dimmer. Something moves with the sound: the envelope, a note-on, the track's own waveform.
 Nothing a known brand or character. Lighthearted.
 
@@ -279,32 +283,40 @@ scene bytes in `tests/ui_scenes.h`):
 | CZ-1 | a windmill on a hill | the sails' length (BRIGHT) | the arms, turning at WARP's rate | a second windmill, further off with more detune (DETUNE) | the wind lines (SHAPE) | the sails catch a gust on a note |
 | SID | a rocket on its pad | the flame (CUT) | the countdown lights (RES) | the stripes (COLOR) | the smoke (DRIVE) | it lifts a little on each note |
 
-**The budget.** Measured with tests/ui_mockup.c (the firmware's gfx.c, its band drawing and its screen diff; the full report
-in `docs/orangecat/ui/report.txt`):
+**The budget.** Every picture runs at **10 frames a second** (the owner's call, 0.3) while something in it moves, and
+sends nothing when nothing does. Measured with tests/ui_mockup.c (the firmware's gfx.c, its band drawing and its screen
+diff; the full report in `docs/orangecat/ui/report.txt`): two seconds played at 10 frames a second, a note every 500 ms,
+KNOB 2 turned every frame in the second second (DUB TAPE: FEEDBACK 1.15, a throw key every 300 ms, KICK every 500 ms,
+its picture and its keys). The SPI time is the pixels sent at 12 MHz (a full screen, 57,600 px, about 77 ms).
 
-| | MACRO | SHAPES | DRUM-X | WHEEL |
-|---|---|---|---|---|
-| The scene, bytes | 204 | 204 | 171 | 244 |
-| Draw of the whole picture region on the host, us (-O1, one run; HOME's full redraw today: 431 us, tests/ui_render.c) | 117 | 208 | 300 | 138 |
-| Pixels sent, a frame with nothing changed | 0 | 0 | 0 | 0 |
-| Two seconds played at 20 frames a second (a note every 500 ms, KNOB 2 turned in the second second): mean pixels a frame | 6,348 | 1,209 | 3,667 | 4,683 |
-| the same, worst frame | 18,752 | 4,368 | 13,184 | 8,800 |
-| SPI time, mean and worst (12 MHz: a full screen 57,600 px, about 77 ms) | 8.5, 25.1 ms | 1.6, 5.8 ms | 4.9, 17.6 ms | 6.3, 11.8 ms |
+| Picture | Bytes | Mean px a frame | Worst frame px | SPI, mean a frame | SPI, worst |
+|---|---|---|---|---|---|
+| MACRO | 204 | 9,115 | 18,752 | 12.2 ms | 25.1 ms |
+| SHAPES | 204 | 1,753 | 4,704 | 2.3 ms | 6.3 ms |
+| DRUM-X | 171 | 5,713 | 13,728 | 7.6 ms | 18.4 ms |
+| WHEEL | 244 | 5,770 | 9,344 | 7.7 ms | 12.5 ms |
+| Prophet | 172 | 1,057 | 3,648 | 1.4 ms | 4.9 ms |
+| SEM | 135 | 1,080 | 3,936 | 1.4 ms | 5.3 ms |
+| HADES | 183 | 1,413 | 5,504 | 1.9 ms | 7.4 ms |
+| FMBELL | 187 | 1,288 | 3,872 | 1.7 ms | 5.2 ms |
+| SUPERSAW | 174 | 2,108 | 6,784 | 2.8 ms | 9.1 ms |
+| DDDD | 177 | 4,812 | 8,048 | 6.4 ms | 10.8 ms |
+| CZ-1 | 229 | 9,158 | 11,568 | 12.2 ms | 15.5 ms |
+| SID | 171 | 2,686 | 7,952 | 3.6 ms | 10.6 ms |
+| FX (sends) | 157 | 644 | 2,464 | 0.9 ms | 3.3 ms |
+| DIST | 149 | 3,774 | 10,816 | 5.0 ms | 14.5 ms |
+| AUTO PAN | 169 | 6,384 | 9,808 | 8.5 ms | 13.1 ms |
+| DELAY | 132 | 2,951 | 5,696 | 3.9 ms | 7.6 ms |
+| REVERB | 96 | 2,870 | 13,216 | 3.8 ms | 17.7 ms |
+| CHORUS | 144 | 3,460 | 7,440 | 4.6 ms | 9.9 ms |
+| SLICER | 107 | 4,217 | 9,696 | 5.6 ms | 13.0 ms |
+| MASTER | 150 | 1,234 | 4,688 | 1.7 ms | 6.3 ms |
+| DUB TAPE (picture and keys) | 229 | 12,253 | 20,560 | 16.4 ms | 27.5 ms |
 
-The other eight and DUB TAPE (the same measure; DUB TAPE: FEEDBACK 1.15, a throw key every 250 ms and KICK every 500 ms,
-its picture and its keys):
-
-| | Prophet | SEM | HADES | FMBELL | SUPERSAW | DDDD | CZ-1 | SID | DUB TAPE |
-|---|---|---|---|---|---|---|---|---|---|
-| Bytes | 172 | 135 | 183 | 187 | 174 | 177 | 229 | 171 | 229 |
-| Mean pixels a frame | 804 | 561 | 1,141 | 839 | 1,921 | 3,734 | 8,666 | 2,472 | 9,540 |
-| Worst frame | 3,776 | 3,936 | 5,504 | 3,872 | 7,552 | 8,048 | 11,568 | 8,176 | 20,528 |
-
-Two are over the mean of 6,500 set below. CZ-1's sails turn all the time at WARP's rate (a moving part across the middle
-of the picture); DUB TAPE's rollers and marks turn fast at FEEDBACK 1.15 and the keys change four times a second. Both are
-the point of the picture, so the fix is the frame rate, not the drawing: a scene may say it runs at 10 frames a second
-(a flag in its header byte 3), which about halves the SPI time they take each second (CZ-1 from about 230 ms a second to
-about 115, DUB TAPE from about 255 to 130). Measured again when the interpreter is built.
+At 10 frames a second a frame has 100 ms. The budget for a scene: **a mean under 15 ms of SPI a frame** (15 % of the time,
+about 11,000 px) and **a worst frame under 30 ms** (a note-on, about 22,000 px). Every picture is inside it; DUB TAPE is
+the heaviest (16 % of the time while it is played hard), MACRO and CZ-1 next (12 %). Each animated frame moves twice as far
+as at 20 frames a second, so a frame sends a little more than before, but a second sends about half.
 
 - **Flash: vectors, not bitmaps, and not in the firmware.** A scene is 135 to 244 bytes and lives in its module (below), so
   the firmware image pays only for the interpreter: about 3.3 KB of code (built for size for a Thumb-2 core with clang, as a
@@ -312,24 +324,20 @@ about 115, DUB TAPE from about 255 to 130). Measured again when the interpreter 
   quarter-wave sine table; the HOME page's own drawing (the sound line, the dials, the value row, the plain picture) about
   1.5 KB more. A module grows by its scene and its knob table, under 0.4 KB: SHAPES' module has 792 B spare in its 6
   sectors, the Prophet's 896 B in 8, WHEEL's room in 4 sectors is ample (ENGINE_LOADING_PLAN.md). A bitmap of the same
-  picture, 1 bit a pixel at 240 x 132, is 3,960 bytes and cannot move its parts or take the knobs' colours.
-- **Draw time and rate.** The SPI is the cost, not the drawing (0.1 to 0.3 ms on the host, the same order as today's HOME).
+  picture, 1 bit a pixel at 240 x 132, is 3,960 bytes and cannot move its parts or take the knobs' colors.
+- **Draw time and rate.** The SPI is the cost, not the drawing (0.1 to 0.5 ms on the host, the same order as today's HOME).
   The picture is drawn in bands of the one 240 x 62 canvas (0.7.0) and only what changed is sent (the screen diff): a still
-  picture sends nothing. Animation runs at **20 frames a second** while something moves and stops when nothing does. Budget a
-  scene to a **mean under 6,500 pixels a frame** while playing (under 9 ms of SPI, under a fifth of the frame) and a **worst
-  frame under 20,000** (a note-on, 27 ms). A frame that sends more than 15,000 pixels makes the next one wait three times its
-  SPI time, so a heavy moment drops the rate instead of the main loop's other work. MACRO's first draft swung its beam and
-  rocked its boat all the time and sent 14,451 pixels a frame on average; the drawn version keeps its motion near the sea and
-  measures 6,348. The rule for a scene author: what moves all the time stays in one area; what moves across the picture
+  picture sends nothing. MACRO's first draft swung its beam and rocked its boat all the time and sent twice what the drawn
+  version does. The rule for a scene author: what moves all the time stays in one area; what moves across the picture
   moves only with a note or a knob.
 - **RAM.** A scene is never copied: the interpreter reads it in place, through the module's flash window, one byte stream
-  of about 200 bytes a frame (the plaintext window's extra 250 ns a read is about 50 us a frame, at 20 frames a second
+  of about 200 bytes a frame (the plaintext window's extra 250 ns a read is about 50 us a frame, at 10 frames a second
   nothing next to the SPI). A scene keeps no state. The UI keeps, a track: four 16-bit phases (the knob-rate sawtooths), the time of the last
   note-on and its pitch: about 16 bytes, 64 for four tracks. The interpreter's working state (three group transforms, the
   sources) is about 90 bytes, static or on the stack. The scope samples are the HOME scope's buffer of today (`scope_buf`).
 
 **The scene format** (the full definition and the interpreter: `tests/ui_scene.h`; the four scenes: `tests/ui_scenes.h`). A
-scene is a byte stream: a version, the design box (240 x 132), then ops. Each op is one byte (5 bits the op, 3 bits a colour
+scene is a byte stream: a version, the design box (240 x 132), then ops. Each op is one byte (5 bits the op, 3 bits a color
 slot) and its fields:
 
 | Op | Fields | Draws |
@@ -345,7 +353,7 @@ slot) and its fields:
 | STYLE | t | the line weight |
 | BIND | source field depth | moves one field of the next op (or group, or REP) |
 
-Colour slots: INK, K1..K4, the track's colour, DIM, the ground. Sources: the four knobs (0 to 1 of their travel; a macro's
+Color slots: INK, K1..K4, the track's color, DIM, the ground. Sources: the four knobs (0 to 1 of their travel; a macro's
 middle is the preset), the envelope, a note-on hit (falling over 160 ms), the gate, the LFO, the note's pitch class, a 1 s
 clock, a 0.5 Hz bob, and four phases whose rate is set by each knob (a rotor at the SPIN rate). Any source may be taken
 about its middle. A bound field moves by depth x source. A BIND on HIDE hides the op below a threshold (the beam while the
@@ -363,12 +371,13 @@ and the engine's name, as for a version 2 module). A picture is updated by insta
 firmware update.
 
 What the rule leaves open (the morning's choice 5): MACRO and DRUM-X are built into the firmware, SHAPES has a built-in copy
-beside its module, and DUB TAPE goes in resident (its plan: no kind of module for an effect exists yet). Proposed: their
-scenes ride in the **asset pack** (flash 0x93000, already installed with the set and checked against the firmware, read in
-place as a module is), a small table of (engine or effect number, offset, length) after the pack's tables, checked at boot
-as a module's are. The pack has 728 B spare today (gen_pack.py's own report); MACRO's, DRUM-X's, SHAPES' and DUB TAPE's
-scenes and knob tables are about 1.1 KB, so the pack's area grows by one sector, or the four wait until they are modules.
-When each becomes a module its picture moves into it, and the pack's entry goes.
+beside its module, and every effect is resident (Jiant's effects in jfx.c; DUB TAPE's plan builds it resident too, because
+no kind of module for an effect exists yet). Proposed: their scenes ride in the **asset pack** (flash 0x93000, already
+installed with the set and checked against the firmware, read in place as a module is), a small table of (engine or effect
+number, offset, length) after the pack's tables, checked at boot as a module's are. The pack has 728 B spare today
+(gen_pack.py's own report); the three engines' scenes and knob tables are about 0.9 KB, the nine effects' (the eight below
+and DUB TAPE) about 1.6 KB: about 2.5 KB, so the pack's area grows by one 4 KB sector. When an engine or effect becomes a
+module its picture moves into it and the pack's entry goes.
 
 ### 4. Notes and steps
 
@@ -418,8 +427,8 @@ Had per-note ties been adopted, the pages would look the same: the bars would en
 (`ui/home_A_drumx_1.png`).
 
 **EDIT > LANES** (`ui/drum_lanes.png`, Session E builds its parameters): the eight sounds, a row each (BD SD CP CH OH TM RS
-CB), four columns LEVEL TUNE DECAY PAN, their headings in the knobs' colours. PRESETS picks the lane, or a key struck on the
-track does (as Skiff's sound sheet); the picked lane shows its four numbers in the knobs' colours, the others their bars
+CB), four columns LEVEL TUNE DECAY PAN, their headings in the knobs' colors. PRESETS picks the lane, or a key struck on the
+track does (as Skiff's sound sheet); the picked lane shows its four numbers in the knobs' colors, the others their bars
 (TUNE and PAN from the middle). KNOB 1..4 edit the picked lane's four. A lane's level of today (P_LN0 .. P_LN7) is its
 LEVEL; TUNE, DECAY and PAN are Session E's per-lane offsets over the kit. EDIT > KIT holds DRUM-X's eight kit controls (today's
 KIT and KIT 2). SEQ > STEP stays the eight-lane grid.
@@ -428,13 +437,13 @@ KIT and KIT 2). SEQ > STEP stays the eight-lane grid.
 
 The editor shows the same model with the same names:
 - **The Sound tab** shows the engine's picture, drawn from the same scene bytes by a port of the interpreter (about 150
-  lines of JavaScript), with the four knobs as dials in the same colours, the same labels, the same macros: turning a macro
+  lines of JavaScript), with the four knobs as dials in the same colors, the same labels, the same macros: turning a macro
   dial writes `P_MACk`, as the unit's knob does, and the picture moves as on the unit. The scene and the knob table come
   from the unit (a new editor command returns an engine's `kdef` and scene bytes), so a module's picture shows without the
   editor knowing the module.
 - **The sheets** are the tab's sections, in the unit's order and names: SOUND (two rows of four), ENV, MOD, FX, VOICE; the
   native engines' sections; DRUM-X's KIT and LANES.
-- The knob colours are the cozies' (blue, green, white, orange) in every theme; the track keeps its own colour.
+- The knob colors are the cozies' (blue, green, white, orange) in every theme; the track keeps its own color.
 - FEEL and the per-note lengths appear on the Song and pattern views when Session D gets to them, as the unit's.
 
 ### 7. DUB TAPE's performance view
@@ -444,10 +453,10 @@ selected, HOME's picture is the effect's performance surface (`ui/dub_tape.png`)
 TAPE's switch and its setup rows; while it is on, SELECT on HOME steps PICTURE, DUB, TRACKS, CHORD, and DUB is where HOME
 lands for that track. Leaving DUB (SELECT, HOME) gives the octave back to the keyboard.
 
-- **The header** names DUB TAPE in the track's colour; **the sound line** keeps the track's sound and the head pattern
+- **The header** names DUB TAPE in the track's color; **the sound line** keeps the track's sound and the head pattern
   (SKANK); a knob turned shows its name and value there, FEEDBACK as 0.00 to 1.30, SEND in percent, SPACE as a time on
   its first half and the spring's share on its second.
-- **The dials** are the four knobs in the cozies' colours: FEEDBACK blue, SEND green, TONE white, SPACE orange.
+- **The dials** are the four knobs in the cozies' colors: FEEDBACK blue, SEND green, TONE white, SPACE orange.
 - **The picture** (240 x 80, `SCENE_DUB`): a tape loop round two rollers, the record head and the play head under it, and
   the spring tank beside it. FEEDBACK: the rollers' spokes and the tape's marks turn at the loop's rate, slow up to 1.0 and
   fast past it; past 1.0 a second loop lights round the tape (it builds). HOLD holds the turn at 1.0's. SEND: a level bar
@@ -455,15 +464,45 @@ lands for that track. Leaving DUB (SELECT, HOME) gives the octave back to the ke
   the machine's face, low-pass at the left to high-pass at the right. SPACE: the play head slides away from the record head
   over the first half (the time); past the middle the spring's coils light (the spring mix). KICK and CRASH shake the tank
   and bulge the coils.
-- **The keys** (drawn by the page in real text, under the picture): seven white keys labelled 10, 30, 50, 70, 85, 100 and
-  CUT, five black keys with KICK, HOLD and CRASH named above them and two spare. Each key is in the colour of the knob it
+- **The keys** (drawn by the page in real text, under the picture): seven white keys labeled 10, 30, 50, 70, 85, 100 and
+  CUT, five black keys with KICK, HOLD and CRASH named above them and two spare. Each key is in the color of the knob it
   acts on: the throws SEND's green, HOLD FEEDBACK's blue, KICK and CRASH SPACE's orange, CUT REC's red. A key held fills
-  with its colour (`ui/dub_2.png`: the 100 throw; `ui/dub_3.png`: KICK, HOLD and CUT together). The octave drawn is the
+  with its color (`ui/dub_2.png`: the 100 throw; `ui/dub_3.png`: KICK, HOLD and CUT together). The octave drawn is the
   one EDIT says carries the keys; the other octaves play the track.
 - **Automation**: the knobs and the keys record into the track's lanes as the spec says; MOTION shows them as lanes named
   FDBK, SEND, TONE, SPACE, CUT, HOLD, KICK. The ids: section 2, "The ids are shared with DUB TAPE's plan".
-- **Cost**: section 3's table (229 bytes; 9,540 pixels a frame on average while played hard, so 10 frames a second).
+- **Cost**: section 3's table (229 bytes; 16.4 ms of SPI a frame on average while played hard, at 10 frames a second).
 - **Where the picture lives**: section 3; until effects can be modules, in the asset pack.
+
+### 8. The effects' pictures
+
+Every effect gets a picture page instead of a table of values (the owner's ask, 0.3): the FX button steps through them as it
+steps the effect pages today, the track's three first (the sends, DIST, AUTO PAN), then the five shared ones. A page is
+HOME's layout (`ui/effects.png`): the header names the effect (its place among the eight as "3/8" where the dots do not
+fit), the sound line names the track's sound for a track's effect or ALL TRACKS for a shared one, the four dials are the
+effect's first page in the cozies' colors, and the picture fills the rest. An effect's further pages (DELAY 2 and 3,
+REVERB 2, SLICER 2, SL PITCH 1..4) become rows: SELECT moves the dials to the next row and its name and values show in the
+sound line, as on an EDIT sheet; the picture stays and keeps following the first row. CHORUS has three knobs: its fourth
+dial is an empty place. The punch-in layer (FX held) keeps its map.
+
+For an effect the UI fills the sources so: the four knobs are the first page's values; the envelope is the effect's
+output (a shared effect's return, a track effect's level after it); a note-on is a note on the track (any track for a
+shared effect); the LFO is the effect's own modulator where it has one (AUTO PAN's pan, CHORUS's sweep), already scaled
+by its depth.
+
+| Effect | Scene | K1 blue | K2 green | K3 white | K4 orange | With the sound |
+|---|---|---|---|---|---|---|
+| FX (the track's sends) | a teapot and three cups | DIST: the steam off the pot | CHO: the first cup filling | DLY: the second | REV: the third | the pot pours while the track sounds |
+| DIST | a toaster plugged into the wall | DIST: the coils glowing, one to five | TYPE: the lever, a notch a type | TONE: the dial | SLC: the plug in the wall (the track into the SLICER) | the toast pops on a note |
+| AUTO PAN | a swing between two trees, a speaker under each | DEPTH: the swing, as far as the sound pans | RATE: birds flying across | SYNC: a metronome under it in BEAT | WAVE: the sun's rays | the speaker on the swing's side is louder |
+| DELAY | a yodeler on a cliff, a canyon | TIME: how far apart the echoes are | FDBK: how many echoes | TONE: the sun, high and bright or low and dark | MIX: how big they are | the echoes travel out and the far wall answers while it sounds; the yodeler sings on a note |
+| REVERB | a cave with a bat | TYPE: the bat's wings | SIZE: the cave's mouth and its rings | DAMP: the moss from the roof | PRE: how high the drip falls from | the drip falls and the rings spread while it sounds |
+| CHORUS | three birds on a wire | RATE: the notes rising off them | DEPTH: the middle bird's sway | WIDE: how far apart the outer two sit | (none) | they sway with the sweep and sing while it sounds |
+| SLICER | a loaf on a board, a knife | MODE: the lamp (off, GATE, STUT) | PAT: the cuts in the loaf | RATE: the knife chopping | DEPTH: the crumbs | |
+| MASTER | a boombox | DJF: the slider in the middle | CLIP: sparks off the handle | LEVEL: the meter's needle | SPK: the rings round the woofers (LOWCUT one, BASS+ two) | the cones pump with the output |
+
+Their cost is in section 3's table (96 to 169 bytes each; at most 8.5 ms of SPI a frame on average). Where they live: the
+asset pack, as section 3 proposes, until effects can be modules.
 
 ## Part 2: the screens
 
@@ -478,12 +517,13 @@ findings). To make them again: `cc -O1 -w -Ibuild/gen -Ifirmware/src -Itests -o 
 | `home_A_<engine>_1.png`, `home_A_<engine>_2.png` | HOME A, MACRO, SHAPES, DRUM-X, WHEEL, at two knob positions (the second: KNOB 2 just turned, named in the sound line) |
 | `home_B_<engine>_1.png`, `home_B_<engine>_2.png` | HOME B, the same |
 | `engines.png`, `home_A_<engine>_1.png`, `home_A_<engine>_2.png` | the Prophet, SEM, HADES, FMBELL, SUPERSAW, DDDD, CZ-1 and SID at two knob positions (HOME A) |
+| `effects.png`, `home_A_fx_<effect>_1.png`, `home_A_fx_<effect>_2.png` | the effects' picture pages (sends, DIST, AUTO PAN, DELAY, REVERB, CHORUS, SLICER, MASTER) as set and with the knobs turned while playing |
 | `dub_tape.png`, `dub_1..3.png`, `film_dub_0..3.png` | DUB TAPE's performance view: resting, building with a throw held, KICK HOLD and CUT held; a throw walked down 100, 70, 10 and let go |
 | `film_wheel.png`, `film_wheel_0..3.png` | four frames of WHEEL's picture, 100 ms apart: the horn and drum turning, the key lit, the sound fading |
-| `edit_sound.png` | EDIT's first sheet on MACRO: the eight controls, the framed row in the knobs' colours, what PLUCK is made of |
+| `edit_sound.png` | EDIT's first sheet on MACRO: the eight controls, the framed row in the knobs' colors, what PLUCK is made of |
 | `notes.png`, `feel.png` | SEQ > NOTES (notes of their own lengths) and SEQ > FEEL |
 | `drum_lanes.png` | EDIT > LANES on DRUM-X |
-| `mixer.png` | GLO > MIXER, the faders in the knobs' colours |
+| `mixer.png` | GLO > MIXER, the faders in the knobs' colors |
 | `notice.png`, `notice_line.png` | a notice card over the picture; a notice in the sound line |
 | `shift_map.png` | HOME held over HOME: the SHIFT map |
 | `pages.png` | the pages above on one sheet |
@@ -498,13 +538,13 @@ file, tools/size_by_file.py).
 
 | Step | What | Flash | RAM | Guarded by | What is left of today's UI |
 |---|---|---|---|---|---|
-| 1 | **HOME's picture and the four knobs**, behind MENU > DISPLAY > HOME: PICTURE or TRACKS (TRACKS until the owner switches it). The fixed knob colours. `P_MAC0..3` and the data macros, put on and taken off a block as the throws. `kdef[4]` for MACRO, SHAPES and DRUM-X; their scenes in the asset pack (no scene in the image). The scene interpreter, the sound line, the dials (A or B, as picked). The project magic bumped (old inert automation on those ids dropped). | about +6.4 KB (interpreter 3.3, HOME and the plain picture 1.5, macros and their table 1.0, the pack's scene table and its check 0.5, knob tables 0.3; the palettes' 16 knob shades a palette, -0.2); the pack +0.8 KB | +64 B (the phases and the note-on times); the macros need none (track parameters) | ui_render.c's lint over HOME on every engine with each knob at both ends; the golden renders unchanged with every macro at 0 (tests/golden.txt); a macro test (on and off over a block leaves the stored values exact; an offset gives the table's value); knob_audit.py in CI (a weak knob fails); ui_test: the knobs write the declared ids, SELECT reaches TRACKS and CHORD, a module without a scene gets the plain picture | everything; HOME can be today's Stage |
+| 1 | **HOME's picture and the four knobs**, behind MENU > DISPLAY > HOME: PICTURE or TRACKS (TRACKS until the owner switches it). The fixed knob colors. `P_MAC0..3` and the data macros, put on and taken off a block as the throws. `kdef[4]` for MACRO, SHAPES and DRUM-X; their scenes in the asset pack (no scene in the image). The scene interpreter, the sound line, the dials (A or B, as picked). The project magic bumped (old inert automation on those ids dropped). | about +6.4 KB (interpreter 3.3, HOME and the plain picture 1.5, macros and their table 1.0, the pack's scene table and its check 0.5, knob tables 0.3; the palettes' 16 knob shades a palette, -0.2); the pack +0.8 KB | +64 B (the phases and the note-on times); the macros need none (track parameters) | ui_render.c's lint over HOME on every engine with each knob at both ends; the golden renders unchanged with every macro at 0 (tests/golden.txt); a macro test (on and off over a block leaves the stored values exact; an offset gives the table's value); knob_audit.py in CI (a weak knob fails); ui_test: the knobs write the declared ids, SELECT reaches TRACKS and CHORD, a module without a scene gets the plain picture | everything; HOME can be today's Stage |
 | 2 | **EDIT's sheets**: SOUND, ENV, MOD, FX, VOICE; the native engines' sections as sheets; ENV and LFO as shortcuts; SELECT down the rows. EDIT 1 and EDIT 2 retired as pages. | +1 to 2 KB (a sheet layer over the PAGES table; most rows exist) | +16 B (the row a sheet is on) | a page-coverage test: every parameter reachable today is on some sheet; ui_render.c over every sheet of every engine; ui_test: EDIT, SELECT and the shortcuts | the FX, SCL, ARP, SEQ, GLO and SAVE families as today |
 | 3 | **The SHIFT map**, HOME held; MENU on release; the combos | +1 KB | 0 | ui_test: every combo, the release opening the MENU only alone; layer_screen_test; the lint over the map of every page | as step 2 |
 | 4 | **The step pages**: PRESETS as the cursor on NOTES; FEEL (new); TRACKER's KNOB 4 a note's own length on any step (converting to events); the one-authority cleanup | +2 to 3 KB | 0 (the pool exists) | recording_props_test and the scheduler tests unchanged; ui_test: per-note length from TRACKER and NOTES, one undo; a test that a manual step converts only when its notes stop sharing a length | CHAIN, SONG, PHRASES, GROOVE as today |
 | 5 | **EDIT > LANES** on DRUM-X (Session E's parameters) | +1 KB | 0 (track parameters) | drumx_test for the lanes' parameters; ui_render.c over LANES | |
-| 6 | **The mixer** in the knobs' colours | +0.3 KB | 0 | ui_render.c's mixer screens | |
-| 7 | **Modules' pictures**: fw_pages.h version 3 (`scene`, `kdef`), the loader's check, the scenes of WHEEL, the Prophet, SEM, HADES, op1r's three, CZ-1 and SID in their modules, read in place; the audit extended to module builds; DUB TAPE's view with its scene in the pack (after DUB TAPE's own build) | firmware +0.5 KB (the check); each module +0.2 to 0.4 KB | 0 | fuzz_fw_pages over the new fields (a scene running past the image, unbalanced groups, a bad source); fw_pages_check's tests; the engine gate's rows | |
+| 6 | **The mixer** in the knobs' colors | +0.3 KB | 0 | ui_render.c's mixer screens | |
+| 7 | **Modules' pictures**: fw_pages.h version 3 (`scene`, `kdef`), the loader's check, the scenes of WHEEL, the Prophet, SEM, HADES, op1r's three, CZ-1 and SID in their modules, read in place; the audit extended to module builds; the effects' picture pages (section 8) with their scenes in the pack; DUB TAPE's view the same way (after DUB TAPE's own build) | firmware +0.5 KB (the check); each module +0.2 to 0.4 KB | 0 | fuzz_fw_pages over the new fields (a scene running past the image, unbalanced groups, a bad source); fw_pages_check's tests; the engine gate's rows | |
 | 8 | **The web editor** (Session D): the picture, the dials, the sheets | (web only) | | the web tests | |
 | 9 | **Retire the old**: the HOME switch's TRACKS default goes to PICTURE; the dead EDIT 1 / EDIT 2 paths and the knob shades out | about -2 KB | | the full suite | TRACKS stays as HOME's second page |
 

@@ -141,8 +141,8 @@ static void fmt_int(char *b, int32_t v)                 /* (ui.c's, as the pages
 }
 
 /* ---- the knobs ---- */
-/* the knob cozies' colours (OP-1): blue, green, white, orange. Fixed for every track and every palette: they are the
- * colours of the plastic on the knobs */
+/* the knob cozies' colors (OP-1): blue, green, white, orange. Fixed for every track and every palette: they are the
+ * colors of the plastic on the knobs */
 static uint16_t KCOL[4];
 typedef struct {
     const char *name;
@@ -150,7 +150,8 @@ typedef struct {
     uint8_t macro;
     int16_t v;                   /* its value now */
     uint8_t fmt;                 /* how its value reads: 0 a number, 1 hundredths ("1.05"), 2 percent, 3 SPACE (a time
-                                  * on the first half, the spring's share on the second) */
+                                  * on the first half, the spring's share on the second), 4 a name from names */
+    const char *const *names;    /* fmt 4: the value's names, lo first */
 } knob_t;
 typedef struct {
     const char *engine, *preset, *pos;
@@ -158,6 +159,8 @@ typedef struct {
     const uint8_t *scene;
     knob_t k[4];
     uint8_t dub;                 /* 1: DUB TAPE's performance view (an effect's picture, its own sources) */
+    uint8_t lfo;                 /* 1: the effect has a modulator: SS_LFO = K1's depth x a sine at K2's rate (AUTO PAN,
+                                  * CHORUS take theirs from the knobs so: CHORUS's RATE is K1, its DEPTH K2) */
 } sound_t;
 static int32_t knob_q8(const knob_t *k) { return (int32_t)((k->v - k->lo) * 256 / (k->hi - k->lo)); }
 static void knob_text(const knob_t *k, char *b)
@@ -165,6 +168,7 @@ static void knob_text(const knob_t *k, char *b)
     static const char *const DT[6] = {"1/16", "1/8", "8D", "1/4", "4D", "1/2"};   /* SPACE's first half: the time */
     if (k->fmt == 1) { fmt_int(b, k->v / 100); b[1] = '.'; b[2] = (char)('0' + k->v / 10 % 10); b[3] = (char)('0' + k->v % 10); b[4] = 0; return; }
     if (k->fmt == 2) { fmt_int(b, k->v); strcat(b, "%"); return; }
+    if (k->fmt == 4) { strcpy(b, k->names[k->v - k->lo]); return; }
     if (k->fmt == 3) {
         if (k->v < 64) { strcpy(b, DT[k->v * 6 / 64]); return; }
         strcpy(b, "SP"); fmt_int(b + 2, (k->v - 64) * 100 / 63); return;
@@ -183,7 +187,11 @@ static void head(const char *chip, uint16_t chip_c, int playing, int rec, int do
     cv_text(26, ty_y(15, TY_TX), TY_TX, "124", T_TEXT);
     int32_t x = 68;
     if (rec) { cv_icon_mid(x, 15, 16, ICON_X_REC, T_REC, T_BG); x += 18; }
-    for (int i = 0; i < dots; i++) {
+    if (dots && x + 6 + dots * 12 + 10 > 236 - text_w(TY_TX, chip) - 8) {   /* (no room for the dots: "3/8", as head_pages) */
+        char nb[8];
+        fmt_int(nb, dot + 1); strcat(nb, "/"); fmt_int(nb + strlen(nb), dots);
+        cv_text(x + 6, ty_y(15, TY_LB), TY_LB, nb, T_MID);
+    } else for (int i = 0; i < dots; i++) {
         int32_t w = i == dot ? 16 : 6;
         cv_rrect(x + 6, 12, w, 6, 3, i == dot ? T_THEME : T_LINE, T_BG);
         x += w + 6;
@@ -197,8 +205,8 @@ static void head(const char *chip, uint16_t chip_c, int playing, int rec, int do
 #define H_SOUND 24
 #define Y_DIALS 54
 #define H_DIALS 32
-/* the sound line: the track's numeral on its colour, the preset's name, its place in the list; a notice in its place
- * (the knob just turned: its name and value in its colour) */
+/* the sound line: the track's numeral on its color, the preset's name, its place in the list; a notice in its place
+ * (the knob just turned: its name and value in its color) */
 static void sound_line(const sound_t *s, int hot, const char *notice, uint16_t notice_c)
 {
     char b[24];
@@ -219,9 +227,13 @@ static void sound_line(const sound_t *s, int hot, const char *notice, uint16_t n
     }
     cv_blit(0, Y_SOUND);
 }
-/* a dial: a ring in the knob's colour, the value's arc on it (a macro's from the top, the preset), a pointer */
+/* a dial: a ring in the knob's color, the value's arc on it (a macro's from the top, the preset), a pointer */
 static void dial(int32_t cx, int32_t cy, int32_t d, uint32_t k, const knob_t *kn, int hot)
 {
+    if (!kn->name[0]) {                                 /* (no knob: an empty place, as today's empty card) */
+        cv_disc(cx, cy, 3, T_LINE, 0);
+        return;
+    }
     uint16_t c = KCOL[k], quiet = ux_mix(T_BG, c, 30);
     int32_t r = d / 2, a, q = knob_q8(kn);
     sc_depth = 0; sc_xf[0] = (sc_xf_t){0, 0, 0, 0, 4096, 0, 0};
@@ -244,12 +256,13 @@ static void dial_strip(const sound_t *s, int hot)
         dial(CARD_X0 + 60 * (int32_t)k + 28, 16, 26, k, &s->k[k], hot == (int)k);
     cv_blit(0, Y_DIALS);
 }
-/* HOME B's row of values: each under its dial, in the knob's colour */
+/* HOME B's row of values: each under its dial, in the knob's color */
 static void value_row(const sound_t *s, int32_t y, int hot)
 {
     char b[12];
     cv_begin(240, 22, T_BG);
     for (uint32_t k = 0; k < 4u; k++) {
+        if (!s->k[k].name[0]) continue;
         knob_text(&s->k[k], b);
         cv_text_c(CARD_X0 + 60 * (int32_t)k + 28, ty_y(10, TY_LB), TY_LB, b, hot == (int)k ? T_TEXT : KCOL[k], T_BG);
     }
@@ -274,6 +287,11 @@ static void scene_inputs(const sound_t *s, const frame_t *f, scene_in_t *in)
     in->s[SS_ENV] = (int16_t)f->env;
     in->s[SS_HIT] = (int16_t)f->hit;
     in->s[SS_GATE] = (int16_t)f->gate;
+    if (s->lfo) {                                       /* the effect's own modulator, already scaled by its depth */
+        uint32_t rk = s->lfo == 2u ? 0u : 1u, dk = s->lfo == 2u ? 1u : 0u;   /* (2: CHORUS, rate on K1, depth on K2) */
+        double hz = 0.1 + 2.9 * knob_q8(&s->k[rk]) / 256.0;
+        in->s[SS_LFO] = (int16_t)lround(sin(f->t_ms / 1000.0 * hz * 2.0 * M_PI) * knob_q8(&s->k[dk]));
+    }
     if (s->dub) {                                       /* SEND in force: the throw held, else the knob; CUT closes the input */
         if (f->thr) in->s[SS_K2] = (int16_t)(f->thr * 256 / 100);
         in->s[SS_GATE] = (int16_t)((f->keys >> 6) & 1 ? 0 : 256);
@@ -308,10 +326,12 @@ static void picture(const sound_t *s, int32_t y, int32_t h, const frame_t *f)
     scene_us = (t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3;
 }
 enum { HOME_A, HOME_B };
+static int fx_page = -1;                                /* an effect's picture: its place among the FX pages (the header's dots) */
 static void home(const sound_t *s, int variant, int hot, const frame_t *f, const char *notice, uint16_t nc)
 {
     palette_track(s->track);
-    head(s->engine, T_THEME, 1, 0, 2, 0);
+    if (fx_page >= 0) head(s->engine, T_THEME, 1, 0, 8, fx_page);
+    else head(s->engine, T_THEME, 1, 0, 2, 0);
     sound_line(s, hot, notice, nc);
     dial_strip(s, hot);
     if (variant == HOME_A)
@@ -352,11 +372,37 @@ static sound_t S_SID = {"SID", "BREADBOX", "", 3, SCENE_SID,
 static sound_t S_DUB = {"DUB TAPE", "VA SYNC LEAD", "SKANK", 0, SCENE_DUB,
     {{"FDBK", 0, 130, 0, 55, 1}, {"SEND", 0, 100, 0, 30, 2}, {"TONE", 0, 127, 0, 64}, {"SPACE", 0, 127, 0, 40, 3}}, 1};
 
+/* the effects (params.c's FX pages: the first page's four knobs; the shared effects show ALL TRACKS) */
+static const char *const N_DTYPE_[] = {"SOFT", "HARD", "FOLD", "CRUSH", "RECT", "AMP"};
+static const char *const N_ONOFF_[] = {"OFF", "ON"};
+static const char *const N_SYNC_[] = {"FREE", "BEAT"};
+static const char *const N_WAVE_[] = {"SIN", "TRI", "SQR", "SAW", "RND"};
+static const char *const N_DTIME_[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
+static const char *const N_RTYPE_[] = {"ROOM", "SPRING", "SHIMR", "RESO", "CLOUD"};
+static const char *const N_SLMODE_[] = {"OFF", "GATE", "STUT"};
+static const char *const N_SPK_[] = {"OFF", "LOWCUT", "BASS+"};
+static sound_t S_FX_SENDS = {"FX", "VA SYNC LEAD", "", 0, SCENE_FX_SENDS,
+    {{"DIST", 0, 127, 0, 40}, {"CHO", 0, 127, 0, 30}, {"DLY", 0, 127, 0, 80}, {"REV", 0, 127, 0, 64}}};
+static sound_t S_FX_DIST = {"DIST", "VA SYNC LEAD", "", 0, SCENE_FX_DIST,
+    {{"DIST", 0, 127, 0, 50}, {"TYPE", 0, 5, 0, 1, 4, N_DTYPE_}, {"TONE", -64, 63, 0, 0}, {"SLC", 0, 1, 0, 0, 4, N_ONOFF_}}};
+static sound_t S_FX_AUTOPAN = {"AUTO PAN", "VA SYNC LEAD", "", 0, SCENE_FX_AUTOPAN,
+    {{"DEPTH", 0, 127, 0, 90}, {"RATE", 0, 127, 0, 40}, {"SYNC", 0, 1, 0, 1, 4, N_SYNC_}, {"WAVE", 0, 4, 0, 0, 4, N_WAVE_}}, 0, 1};
+static sound_t S_FX_DELAY = {"DELAY", "ALL TRACKS", "", 0, SCENE_FX_DELAY,
+    {{"TIME", 0, 9, 0, 1, 4, N_DTIME_}, {"FDBK", 0, 127, 0, 70}, {"TONE", -64, 63, 0, 0}, {"MIX", 0, 127, 0, 90}}};
+static sound_t S_FX_REVERB = {"REVERB", "ALL TRACKS", "", 0, SCENE_FX_REVERB,
+    {{"TYPE", 0, 4, 0, 0, 4, N_RTYPE_}, {"SIZE", 0, 127, 0, 70}, {"DAMP", 0, 127, 0, 50}, {"PRE", 0, 127, 0, 30}}};
+static sound_t S_FX_CHORUS = {"CHORUS", "ALL TRACKS", "", 0, SCENE_FX_CHORUS,
+    {{"RATE", 0, 127, 0, 40}, {"DEPTH", 0, 127, 0, 80}, {"WIDE", 0, 127, 0, 64}, {"", 0, 1, 0, 0}}, 0, 2};
+static sound_t S_FX_SLICER = {"SLICER", "ALL TRACKS", "", 0, SCENE_FX_SLICER,
+    {{"MODE", 0, 2, 0, 1, 4, N_SLMODE_}, {"PAT", 1, 16, 0, 5}, {"RATE", 0, 127, 0, 60}, {"DEPTH", 0, 127, 0, 90}}};
+static sound_t S_FX_MASTER = {"MASTER", "ALL TRACKS", "", 0, SCENE_FX_MASTER,
+    {{"DJF", -64, 63, 0, 0}, {"CLIP", 0, 127, 0, 30}, {"LEVEL", 0, 127, 0, 100}, {"SPK", 0, 2, 0, 0, 4, N_SPK_}}};
+
 /* ---- DUB TAPE's performance view (SPEC.md 9.3.2, branch dub-tape) ----
  * HOME's layout with the effect's picture (240 x 80) and, under it, the octave of performance keys: seven white keys
- * (throws at the six levels, CUT), five black (KICK, HOLD, CRASH, two spare). Each key in the colour of the knob it
+ * (throws at the six levels, CUT), five black (KICK, HOLD, CRASH, two spare). Each key in the color of the knob it
  * acts on: the throws SEND's green, HOLD FEEDBACK's blue, KICK and CRASH SPACE's orange (the spring), CUT REC's red.
- * A key held is filled in its colour. The black keys' names sit in a row above the keys (a name is wider than a key). */
+ * A key held is filled in its color. The black keys' names sit in a row above the keys (a name is wider than a key). */
 #define Y_DUBPIC (Y_DIALS + H_DIALS)
 #define H_DUBPIC 80
 #define Y_KEYS (Y_DUBPIC + H_DUBPIC)
@@ -381,7 +427,7 @@ static void dub_keys(uint32_t keys)
             cv_rrect(bx[b] - 11, 18, 22, 30, 3, T_BG, T_QUIET);
             cv_rrect(bx[b] - 10, 18, 20, 29, 3, on ? bc[b] : ux_mix(T_BG, bc[b], 28), T_BG);
         }
-        /* their names: KICK flush left, HOLD centred, CRASH from just past HOLD; a tick down to each key */
+        /* their names: KICK flush left, HOLD centered, CRASH from just past HOLD; a tick down to each key */
         lx[0] = 2; lx[1] = bx[1] - text_w(TY_LB, BL[1]) / 2; lx[2] = lx[1] + text_w(TY_LB, BL[1]) + 6;
         for (int b = 0; b < 3; b++) {
             int32_t on = (keys >> (8 + b)) & 1;
@@ -401,7 +447,7 @@ static void dub_view(const sound_t *s, int hot, const frame_t *f)
 }
 
 /* ---- the other pages ---- */
-/* a card as the pages draw it today (ui_draw.c draw_column): the label in its knob's colour, the value, the gauge */
+/* a card as the pages draw it today (ui_draw.c draw_column): the label in its knob's color, the value, the gauge */
 static void card(int32_t x, int32_t y, const char *label, const char *val, uint16_t lc, int32_t ratio, int on, int hot)
 {
     cv_begin(57, 48, T_BG);
@@ -513,7 +559,7 @@ static void notes_page(int feel)
         foot_keys(F, 2);
     }
 }
-/* EDIT > LANES on a DRUM-X track: the eight sounds, a row each: LEVEL TUNE DECAY PAN, the columns in the knobs' colours
+/* EDIT > LANES on a DRUM-X track: the eight sounds, a row each: LEVEL TUNE DECAY PAN, the columns in the knobs' colors
  * (KNOB 1..4 edit the picked lane's four); the picked lane shows its numbers, the others their bars */
 static void drum_lanes(void)
 {
@@ -525,7 +571,7 @@ static void drum_lanes(void)
     palette_track(3);
     head("DRUM-X", T_THEME, 1, 0, 4, 1);
     tabs(T, 4, 1, 30);
-    cv_begin(240, 20, T_BG);                            /* the columns: the knobs' names in their colours */
+    cv_begin(240, 20, T_BG);                            /* the columns: the knobs' names in their colors */
     for (int k = 0; k < 4; k++) cv_text_c(58 + k * 50, ty_y(10, TY_LB), TY_LB, COL[k], KCOL[k], T_BG);
     cv_blit(0, 54);
     CV_BANDS(0, 76, 240, 136, T_BG) {
@@ -574,7 +620,7 @@ static void mixer(void)
         cv_rrect(19, 4, 20, 20, 5, tc, bg);
         cv_text_c(29, ty_y(14, TY_TX), TY_TX, nb, T_INK, tc);
         cv_text_c(28, ty_y(36, TY_LB), TY_LB, NM[k][0] == '9' ? "909" : k == 2u ? "JAZZ" : k == 1u ? "MORPH" : "VA", T_SEC, bg);
-        /* the fader, in the knob's colour (KNOB k is track k's LEVEL) */
+        /* the fader, in the knob's color (KNOB k is track k's LEVEL) */
         cv_rect(27, 52, 3, 92, T_LINE);
         int32_t fy = 52 + 92 - 92 * LV[k] / 127;
         cv_rect(27, fy, 3, 52 + 92 - fy, KCOL[k]);
@@ -636,19 +682,24 @@ int main(int argc, char **argv)
     if (!rep) { fprintf(stderr, "ui_mockup: cannot write %s\n", path); return 1; }
     palette_set(0);                                     /* NIGHT */
     KCOL[0] = RGB(77, 158, 255); KCOL[1] = RGB(0, 226, 140); KCOL[2] = RGB(236, 236, 236); KCOL[3] = RGB(255, 128, 32);
-    sound_t *S[12] = {&S_MACRO, &S_SHAPES, &S_DRUMX, &S_WHEEL, &S_PROPHET, &S_SEM, &S_HADES, &S_FMBELL, &S_SUPERSAW,
-                      &S_DDDD, &S_CZ1, &S_SID};
-    static const char *const N[12] = {"macro", "shapes", "drumx", "wheel", "prophet", "sem", "hades", "fmbell", "supersaw",
-                                      "dddd", "cz1", "sid"};
+    sound_t *S[20] = {&S_MACRO, &S_SHAPES, &S_DRUMX, &S_WHEEL, &S_PROPHET, &S_SEM, &S_HADES, &S_FMBELL, &S_SUPERSAW,
+                      &S_DDDD, &S_CZ1, &S_SID, &S_FX_SENDS, &S_FX_DIST, &S_FX_AUTOPAN, &S_FX_DELAY, &S_FX_REVERB,
+                      &S_FX_CHORUS, &S_FX_SLICER, &S_FX_MASTER};
+    static const char *const N[20] = {"macro", "shapes", "drumx", "wheel", "prophet", "sem", "hades", "fmbell", "supersaw",
+                                      "dddd", "cz1", "sid", "fx_sends", "fx_dist", "fx_autopan", "fx_delay", "fx_reverb",
+                                      "fx_chorus", "fx_slicer", "fx_master"};
     /* two knob positions each: as the preset stands, then the knobs turned (the second, hot, named in the sound line) */
-    static const int16_t TURN[12][4] = {{30, 20, 120, 50}, {50, 110, -50, 48}, {127, 30, 120, 127}, {8, -6, 7, 60},
+    static const int16_t TURN[20][4] = {{30, 20, 120, 50}, {50, 110, -50, 48}, {127, 30, 120, 127}, {8, -6, 7, 60},
                                         {120, 110, 127, 50}, {110, 120, 128, 60}, {127, 127, 127, 60}, {110, 127, 127, 60},
-                                        {127, 127, 127, 127}, {90, 40, 127, 127}, {60, 60, 60, 60}, {127, 15, 60, 127}};
+                                        {127, 127, 127, 127}, {90, 40, 127, 127}, {60, 60, 60, 60}, {127, 15, 60, 127},
+                                        {110, 100, 30, 120}, {120, 3, 50, 1}, {127, 100, 0, 3}, {6, 120, 60, 127},
+                                        {4, 127, 110, 110}, {100, 127, 127, 0}, {2, 14, 100, 30}, {40, 110, 60, 2}};
     fprintf(rep, "UI design mockups (tests/ui_mockup.c), palette NIGHT\n\n");
     fprintf(rep, "%-8s %6s %10s %12s %12s %12s %12s   %7s %7s %7s %7s\n", "scene", "bytes", "draw us", "still px", "anim px",
             "turn px", "note px", "2s mean", "2s max", "mean ms", "max ms");
-    for (int e = 0; e < 12; e++) {
+    for (int e = 0; e < 20; e++) {
         sound_t *s = S[e];
+        fx_page = e >= 12 ? e - 12 : -1;
         knob_t keep[4];
         memcpy(keep, s->k, sizeof keep);
         char name[64];
@@ -681,8 +732,8 @@ int main(int argc, char **argv)
         for (int i = 0; i < 20; i++) { picture(s, Y_DIALS + H_DIALS, 154, &f); us += scene_us; }
         us /= 20;
         host_sent = 0; picture(s, Y_DIALS + H_DIALS, 154, &f); still = host_sent;
-        f.t_ms += 50; host_sent = 0; picture(s, Y_DIALS + H_DIALS, 154, &f); anim = host_sent;
-        s->k[1].v = (int16_t)(s->k[1].v + (s->k[1].macro ? 2 : 1));
+        f.t_ms += 100; host_sent = 0; picture(s, Y_DIALS + H_DIALS, 154, &f); anim = host_sent;
+        s->k[1].v = (int16_t)(s->k[1].v < s->k[1].hi ? s->k[1].v + 1 : s->k[1].v - 1);
         host_sent = 0; dial_strip(s, 1); sound_line(s, 1, 0, 0); picture(s, Y_DIALS + H_DIALS, 154, &f); turn = host_sent;
         frame_t g = f; g.env = 200; g.hit = 256; g.gate = 256; g.note = 7;
         host_sent = 0; picture(s, Y_DIALS + H_DIALS, 154, &g); note = host_sent;
@@ -693,13 +744,13 @@ int main(int argc, char **argv)
         double dsum = 0, dworst = 0;
         begin_screen();
         home(s, HOME_A, -1, &F_REST, 0, 0);
-        for (int i = 0; i < 40; i++) {
-            int32_t t = 3000 + i * 50, since = (i * 50) % 500;
+        for (int i = 0; i < 20; i++) {                  /* (10 frames a second: 100 ms a frame) */
+            int32_t t = 3000 + i * 100, since = (i * 100) % 500;
             frame_t g = {since < 300 ? 220 : 220 - (since - 300) * 220 / 200, since < 160 ? 256 - since * 256 / 160 : 0,
                          since < 300 ? 256 : 0, (i / 10) * 3 % 12, t};
             host_sent = 0;
-            if (i >= 20 && i % 2 == 0) {
-                s->k[1].v = (int16_t)(s->k[1].v + (s->k[1].v + 2 < s->k[1].hi ? 2 : -20));
+            if (i >= 10) {
+                s->k[1].v = (int16_t)(s->k[1].v + 2 <= s->k[1].hi ? s->k[1].v + 2 : s->k[1].lo);   /* (up, wrapping) */
                 dial_strip(s, 1);
                 sound_line(s, 1, 0, 0);
             }
@@ -712,9 +763,10 @@ int main(int argc, char **argv)
         memcpy(s->k, keep, sizeof keep);
         fprintf(rep, "%-8s %6u %10.1f %12llu %12llu %12llu %12llu   %7llu %7llu %7.1f %7.1f\n", N[e], scene_bytes, us,
                 (unsigned long long)still, (unsigned long long)anim, (unsigned long long)turn, (unsigned long long)note,
-                (unsigned long long)(sum / 40u), (unsigned long long)worst, sum / 40.0 * 77.0 / 57600.0, worst * 77.0 / 57600.0);
+                (unsigned long long)(sum / 20u), (unsigned long long)worst, sum / 20.0 * 77.0 / 57600.0, worst * 77.0 / 57600.0);
         (void)dsum; (void)dworst;
     }
+    fx_page = -1;
     /* the filmstrip: four frames of WHEEL's picture, a chord held, SPIN turned up, 100 ms apart */
     for (int i = 0; i < 4; i++) {
         frame_t f = {200 - i * 30, i == 0 ? 256 : 0, 256, (i * 4) % 12, 2000 + i * 100};
@@ -749,9 +801,9 @@ int main(int argc, char **argv)
         frame_t g = {200, 0, 256, 0, 3000, 0, 0};
         begin_screen(); dub_view(&S_DUB, -1, &g);
         host_sent = 0; picture(&S_DUB, Y_DUBPIC, H_DUBPIC, &g); dub_keys(0); still = host_sent;
-        for (int i = 0; i < 40; i++) {
-            int32_t since = (i * 50) % 500, k = (i / 5) % 2 ? 1 << ((i / 5) % 6) : 0;
-            frame_t h = {200, since < 160 ? 256 - since * 256 / 160 : 0, 256, 0, 3000 + i * 50,
+        for (int i = 0; i < 20; i++) {
+            int32_t since = (i * 100) % 500, k = (i / 3) % 2 ? 1 << ((i / 3) % 6) : 0;
+            frame_t h = {200, since < 160 ? 256 - since * 256 / 160 : 0, 256, 0, 3000 + i * 100,
                          k | (since < 100 ? 1 << 8 : 0), k ? LV[(i / 5) % 6] : 0};
             host_sent = 0;
             picture(&S_DUB, Y_DUBPIC, H_DUBPIC, &h);
@@ -760,8 +812,8 @@ int main(int argc, char **argv)
             if (host_sent > worst) worst = host_sent;
         }
         fprintf(rep, "%-8s %6u %10.1f %12llu %12s %12s %12s   %7llu %7llu %7.1f %7.1f\n", "dubtape", scene_bytes, scene_us,
-                (unsigned long long)still, "-", "-", "-", (unsigned long long)(sum / 40u), (unsigned long long)worst,
-                sum / 40.0 * 77.0 / 57600.0, worst * 77.0 / 57600.0);
+                (unsigned long long)still, "-", "-", "-", (unsigned long long)(sum / 20u), (unsigned long long)worst,
+                sum / 20.0 * 77.0 / 57600.0, worst * 77.0 / 57600.0);
         S_DUB.k[0].v = 55; S_DUB.k[3].v = 40;
     }
     begin_screen(); edit_sheet(); shot(dir, "edit_sound");
@@ -772,11 +824,11 @@ int main(int argc, char **argv)
     begin_screen(); home(&S_SHAPES, HOME_A, -1, &F_REST, 0, 0); notice_card("ENGINE TOO HEAVY", "T2 KEEPS SHAPES"); shot(dir, "notice");
     begin_screen(); home(&S_MACRO, HOME_A, -1, &F_REST, "PACK MISSING", T_REC); shot(dir, "notice_line");
     begin_screen(); shift_map(); shot(dir, "shift_map");
-    fprintf(rep, "\nstill: px sent for a frame with nothing changed; anim: the clock 50 ms on; turn: KNOB 2 one detent (its "
+    fprintf(rep, "\nstill: px sent for a frame with nothing changed; anim: the clock 100 ms on (10 frames a second); turn: KNOB 2 one detent (its "
                  "dial, the sound line and the picture); note: a note-on (envelope, hit, gate).\n"
-                 "2s: two seconds at 20 frames a second, a note every 500 ms, KNOB 2 turned every 100 ms in the second "
+                 "2s: two seconds at 10 frames a second, a note every 500 ms, KNOB 2 turned every frame in the second "
                  "second: px sent per frame, mean and worst, and their SPI time (ms).\n"
-                 "dubtape: FEEDBACK 1.15, a throw key every 250 ms and KICK every 500 ms, the picture and the keys; its draw "
+                 "dubtape: FEEDBACK 1.15, a throw key every 300 ms and KICK every 500 ms, the picture and the keys; its draw "
                  "us is one frame's.\n"
                  "A full screen is 57,600 px, about 77 ms on the 12 MHz SPI (1,000 px about 1.3 ms).\n");
     fprintf(rep, "\nlint: %u findings\n", nfind);

@@ -1,23 +1,31 @@
 UI design mockups (tests/ui_mockup.c), palette NIGHT
 
 scene     bytes    draw us     still px      anim px      turn px      note px   2s mean  2s max mean ms  max ms
-macro       204      176.2            0            0         3200        15168      6348   18752     8.5    25.1
-shapes      204      301.7            0          576         2848          832      1209    4368     1.6     5.8
-drumx       171      313.3            0            0         2336         8928      3667   13184     4.9    17.6
-wheel       244      109.2            0         3872         2656          672      4683    8800     6.3    11.8
-prophet     172       79.9            0            0         2368          896       804    3776     1.1     5.0
-sem         135       87.8            0            0         2496          352       561    3936     0.8     5.3
-hades       183       77.0            0            0         2464         2368      1141    5504     1.5     7.4
-fmbell      187       78.7            0            0         2080         1792       839    3872     1.1     5.2
-supersaw    174       95.7            0            0         2560         5376      1921    7552     2.6    10.1
-dddd        177      101.6            0          960         2880         5808      3174    8048     4.2    10.8
-cz1         229       91.3            0         6976         8624         3936      8666   11568    11.6    15.5
-sid         171       85.9            0            0         1856         5024      2472    8176     3.3    10.9
-dubtape     229      126.0            0            -            -            -      9540   20528    12.8    27.4
+macro       204      223.9            0         1296         3200        15168      9115   18752    12.2    25.1
+shapes      204      161.5            0          768         2848          832      1753    4704     2.3     6.3
+drumx       171      265.3            0            0         2336         8928      5713   13728     7.6    18.4
+wheel       244      119.2            0         4320         2656          672      5770    9344     7.7    12.5
+prophet     172       96.0            0            0         2368          896      1057    3648     1.4     4.9
+sem         135       97.9            0            0         2496          352      1080    3936     1.4     5.3
+hades       183       93.0            0            0         2464         2368      1413    5504     1.9     7.4
+fmbell      187       92.7            0            0         2080         1792      1288    3872     1.7     5.2
+supersaw    174      104.3            0            0         2560         5376      2108    6784     2.8     9.1
+dddd        177      110.5            0          640         2560         5808      4812    8048     6.4    10.8
+cz1         229       85.9            0         9200         8608         4080      9158   11568    12.2    15.5
+sid         171      110.2            0            0         1856         5024      2686    7952     3.6    10.6
+fx_sends    157       99.7            0            0         2464          480       644    2464     0.9     3.3
+fx_dist     149      109.6            0            0         2880         4000      3774   10816     5.0    14.5
+fx_autopan    169      151.3            0         6336         7648            0      6384    9808     8.5    13.1
+fx_delay    132       74.7            0            0         2080         3024      2951    5696     3.9     7.6
+fx_reverb     96       69.7            0          128         2080         1088      2870   13216     3.8    17.7
+fx_chorus    144       90.9            0         2112         2176          560      3460    7440     4.6     9.9
+fx_slicer    107      223.1            0         1920         2608            0      4217    9696     5.6    13.0
+fx_master    150      192.7            0            0         2208         2480      1234    4688     1.7     6.3
+dubtape     229      130.1            0            -            -            -     12253   20560    16.4    27.5
 
-still: px sent for a frame with nothing changed; anim: the clock 50 ms on; turn: KNOB 2 one detent (its dial, the sound line and the picture); note: a note-on (envelope, hit, gate).
-2s: two seconds at 20 frames a second, a note every 500 ms, KNOB 2 turned every 100 ms in the second second: px sent per frame, mean and worst, and their SPI time (ms).
-dubtape: FEEDBACK 1.15, a throw key every 250 ms and KICK every 500 ms, the picture and the keys; its draw us is one frame's.
+still: px sent for a frame with nothing changed; anim: the clock 100 ms on (10 frames a second); turn: KNOB 2 one detent (its dial, the sound line and the picture); note: a note-on (envelope, hit, gate).
+2s: two seconds at 10 frames a second, a note every 500 ms, KNOB 2 turned every frame in the second second: px sent per frame, mean and worst, and their SPI time (ms).
+dubtape: FEEDBACK 1.15, a throw key every 300 ms and KICK every 500 ms, the picture and the keys; its draw us is one frame's.
 A full screen is 57,600 px, about 77 ms on the 12 MHz SPI (1,000 px about 1.3 ms).
 
 lint: 0 findings

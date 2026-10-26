@@ -15,7 +15,7 @@
  *   byte 1  w, byte 2 h   the design box (240 x 132: the picture of HOME B; HOME A's taller box gets the extra rows as
  *                         sky above it: the scene is anchored to the bottom of the region)
  *   byte 3  flags (0)
- *   then ops, ended by SO_END. An op's first byte: bits 0..4 the op, bits 5..7 its colour slot (SC_*).
+ *   then ops, ended by SO_END. An op's first byte: bits 0..4 the op, bits 5..7 its color slot (SC_*).
  *
  *   op        bytes after the op byte                           draws
  *   LINE      x0 y0 x1 y1                                       a line
@@ -31,7 +31,7 @@
  *   SCOPE     x y w h                                           the track's live waveform in the box
  *   PUSH      px py                                             a group: a pivot; the group's binds rotate it about the
  *                                                               pivot (ANG) and move it (X, Y); up to 2 deep. Lines,
- *                                                               polylines, arcs, RRECT and circles' centres turn
+ *                                                               polylines, arcs, RRECT and circles' centers turn
  *                                                               with it; RECT and FILL only move (they stay upright)
  *   POP                                                         the group ends
  *   REP       n dx dy                                           the next op drawn n times, dx dy (signed) apart
@@ -39,8 +39,8 @@
  *   BIND      src field depth                                   binds the NEXT drawing op (or PUSH, or REP) (up to 4)
  * Coordinates are unsigned bytes in the design box; dx, dy and depth are signed bytes.
  *
- * Colour slots: SC_INK the line art (a light neutral), SC_K1..SC_K4 the four knobs' colours (blue, green, white,
- * orange: the knob cozies'), SC_TRK the track's colour, SC_DIM a quiet line (a horizon, stars), SC_BG the ground
+ * Color slots: SC_INK the line art (a light neutral), SC_K1..SC_K4 the four knobs' colors (blue, green, white,
+ * orange: the knob cozies'), SC_TRK the track's color, SC_DIM a quiet line (a horizon, stars), SC_BG the ground
  * (draws as erase).
  *
  * Sources (Q8: 0 .. 256 unless said; the UI fills them each frame from the track):
@@ -54,7 +54,7 @@
  *   SS_WOB         a 0.5 Hz sine of the clock, -256 .. 256 (bobbing)
  *   SS_PH1..SS_PH4 a sawtooth whose RATE is knob 1..4 (0.1 Hz at 0 to 3 Hz at full): a spinning rotor, a rolling ball
  *                  (the only state: four 16-bit phases a track, kept by the UI)
- *   | SS_CENTRED   the source minus 128 (a knob as -128 .. 128 about its middle: a macro's two halves)
+ *   | SS_CENTERED   the source minus 128 (a knob as -128 .. 128 about its middle: a macro's two halves)
  * Fields: SF_X SF_Y (position; a polyline or group: all of it), SF_X2 SF_Y2 (the second point, or w h), SF_R (diameter,
  * radius, corner), SF_A0 SF_A1 (an arc's ends), SF_ANG (a group's rotation, 1/256 turn per 128 of depth x source),
  * SF_CNT (REP's count), SF_DX SF_DY (REP's step), SF_HIDE (hidden while source < 2 x depth; depth < 0: while
@@ -72,7 +72,7 @@ enum { SO_END, SO_LINE, SO_PLINE, SO_PGON, SO_RECT, SO_RRECT, SO_CIRC, SO_DISC, 
        SO_POP, SO_REP, SO_STYLE, SO_BIND = 31 };
 enum { SC_INK, SC_K1, SC_K2, SC_K3, SC_K4, SC_TRK, SC_DIM, SC_BG };
 enum { SS_K1, SS_K2, SS_K3, SS_K4, SS_ENV, SS_HIT, SS_GATE, SS_LFO, SS_NOTE, SS_TIME, SS_WOB, SS_PH1, SS_PH2, SS_PH3,
-       SS_PH4, SS_N, SS_CENTRED = 0x80 };
+       SS_PH4, SS_N, SS_CENTERED = 0x80 };
 enum { SF_X, SF_Y, SF_X2, SF_Y2, SF_R, SF_A0, SF_A1, SF_ANG, SF_CNT, SF_DX, SF_DY, SF_HIDE, SF_P0X = 16, SF_P0Y = 32 };
 
 /* authoring macros: a scene is a const uint8_t array of these */
@@ -96,7 +96,7 @@ enum { SF_X, SF_Y, SF_X2, SF_Y2, SF_R, SF_A0, SF_A1, SF_ANG, SF_CNT, SF_DX, SF_D
 
 typedef struct {
     int16_t s[SS_N];             /* the sources, Q8 */
-    uint16_t col[8];             /* the colour slots, RGB565 */
+    uint16_t col[8];             /* the color slots, RGB565 */
     int16_t scope[64];           /* SCOPE: the last 64 samples of the track's output, -256 .. 256 */
 } scene_in_t;
 
@@ -176,7 +176,7 @@ typedef struct { uint8_t src, field; int8_t depth; } sc_bind_t;
 static int32_t sc_val(const scene_in_t *in, const sc_bind_t *b)
 {
     int32_t v = in->s[b->src & 0x7Fu];
-    return (b->src & SS_CENTRED) ? v - 128 : v;
+    return (b->src & SS_CENTERED) ? v - 128 : v;
 }
 /* the bound offset of field f (0 when unbound) */
 static int32_t sc_mod(const scene_in_t *in, const sc_bind_t *b, uint32_t nb, uint32_t f, int32_t *hide)
@@ -196,7 +196,7 @@ static void sc_arc16(int32_t cx, int32_t cy, int32_t r, int32_t a0, int32_t a1, 
 {
     int32_t a, x0, y0, x1, y1, step = 8, rot = sc_ang();
     if (a1 <= a0) a1 += 256;                            /* (an arc across 3 o'clock: a1 below a0) */
-    sc_map(cx, cy, &cx, &cy);                           /* (the centre mapped; the arc turns with the group) */
+    sc_map(cx, cy, &cx, &cy);                           /* (the center mapped; the arc turns with the group) */
     a0 += rot; a1 += rot;
     x0 = cx + r * 16 * sc_cos(a0) / 4096; y0 = cy + r * 16 * sc_sin(a0) / 4096;
     for (a = a0 + step;; a += step) {

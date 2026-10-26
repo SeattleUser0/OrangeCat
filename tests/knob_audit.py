@@ -5,8 +5,8 @@
 
 The new HOME page gives every engine four knobs, and the owner's rule is that each of them must change the sound in a
 way you hear on EVERY preset of that engine. This script checks that rule with the host render (tests/hostsim.c):
-for each preset and each knob, it renders the preset as stored (the centre), then with the knob at its left end and at
-its right end, and measures how far each end moved the sound from the centre.
+for each preset and each knob, it renders the preset as stored (the center), then with the knob at its left end and at
+its right end, and measures how far each end moved the sound from the center.
 
 A knob is a plain parameter (its left end is the parameter's minimum, its right end its maximum) or a MACRO (a stored
 offset m from -64 to 63, 0 = the preset as stored, that moves up to four targets; UI_DESIGN.md defines the shapes):
@@ -164,7 +164,7 @@ def main():
         for pi, p in enumerate(eng["presets"]):
             base = stored(p)
             mono = 1 if p["mono"] else 0
-            centre = render(sim_e, eng_id, pi, mono, {}, os.path.join(tmp, "c.wav"))
+            center = render(sim_e, eng_id, pi, mono, {}, os.path.join(tmp, "c.wav"))
             cells = []
             for ki, k in enumerate(knobs):
                 ds = []
@@ -174,7 +174,7 @@ def main():
                         ds.append(None)
                         continue
                     x = render(sim_e, eng_id, pi, mono, vals, os.path.join(tmp, "k.wav"))
-                    ds.append(distance(centre, x))
+                    ds.append(distance(center, x))
                 best = max(d for d in ds if d is not None) if any(d is not None for d in ds) else 0.0
                 if best < worst[ki][0]:
                     worst[ki] = (best, p["name"])
