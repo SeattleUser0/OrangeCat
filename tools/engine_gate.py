@@ -174,6 +174,11 @@ GATE = {
         "modulation": 'its own ensemble (two LFOs a part, three taps); CUT through m->cutoff (ENV DEST FLT, LFO, the matrix), ~40 % keyboard tracking; velocity and the ADSR through the amplitude; E1..E8 read every render',
         "backend": "divide-down registers on HYBRID's hy_saw; Felucca's TPT SVF (tsvf_coef, Orange Cat's tsvf_coef_k arithmetic); the ensemble's sine LFOs (SINE, the base hot set)",
         "source": 'Clipper (3dSam) firmware/src/eng_strings.c at e690672, GPL-3.0-only; hy_saw and tsvf_coef extracts'},
+    "vector": {"engine": 35, "funcs": ["vector_render"], "voice_type": None,
+        "controls": "Clipper's eight on EDIT 1 and 2 (A B C D, X Y MOVE CUT); lost: the filter MODEL (Clipper's FX > FILTER > MODL, P_FMODEL, a track parameter Orange Cat has not got: SVF always, as Clipper's groovebox build)",
+        "modulation": "SHP moves X (the track's LFO DEST SHP, MW / AT, the matrix's SHP); the matrix's E5 E6 are X and Y themselves (per block); MOVE's own paths from the note's start; CUT through m->cutoff, half keyboard; velocity and the ADSR through the amplitude",
+        "backend": "wt_shared.h: the bank format (16 frames x three band-limited copies, 672 int16), the per-part frame cache, the linear frame read (shared with WSEQ and WAVE by re-band-limiting: the plan's answer); Felucca's TPT SVF",
+        "source": "Clipper (3dSam) firmware/src/eng_vector.c and vector_tables.h at e690672, GPL-3.0-only; the filter models from Clipper's dsp.c"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")
