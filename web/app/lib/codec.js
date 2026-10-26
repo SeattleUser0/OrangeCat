@@ -9,7 +9,7 @@
 // Every offset, size, count and bit field comes from LAYOUT (web/app/lib/layout.js), which tests/app_layout.c writes from the
 // firmware's own macros and structs; nothing here is a number of its own. A decoded record keeps its bytes (raw) and encode starts
 // from them, writing back only what the app models: so bytes the app does not model (the FM6, CZ, Prophet and drum patches, the
-// effect settings ...) go back exactly as they came, and web/app/test/test_codec.mjs proves the modelled fields byte for byte on
+// effect settings ...) go back exactly as they came, and web/app/test/test_codec.mjs proves the modeled fields byte for byte on
 // records the firmware itself wrote (tests/fixtures/app) and on the older project files of tests/fixtures.
 //
 // The checksums are recomputed on encode as the firmware computes them: FNV-1a over the record but its last 4 bytes, for the

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Orange Cat web app: one visual language, the unit's. The colours are the device palette's tokens (docs/design/README.md "Tokens";
- * lib/palette.js sets --track-N and --knob-N-M from tools/gen_ui_palettes.py at run time, so a palette chosen in Settings re-colours
+ * Orange Cat web app: one visual language, the unit's. The colors are the device palette's tokens (docs/design/README.md "Tokens";
+ * lib/palette.js sets --track-N and --knob-N-M from tools/gen_ui_palettes.py at run time, so a palette chosen in Settings re-colors
  * the page as it does the unit). One typeface (the system's rounded face where there is one), a few sizes, rounded panels.
  * Revisions:
  *   0.14.2: first version (Session D). */

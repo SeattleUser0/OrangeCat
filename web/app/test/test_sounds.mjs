@@ -19,7 +19,7 @@ export async function run() {
   ok(editIds(s.info).length === 8 && editIds(s.info)[7] === s.info.pe0 + 7, "sounds: the eight EDIT values are P_E0..P_E0+7");
   const pal = palette("NIGHT");
   ok(KNOB_COLORS.join() === "#4D9EFF,#00E28C,#ECECEC,#FF8020" && [0, 1, 2, 3].every((t) => knobColor(pal, t, 0) === "#4D9EFF"),
-     "sounds: the knob colours are the cozies' (blue, green, white, orange), the same on every track (UI_DESIGN.md section 1)");
+     "sounds: the knob colors are the cozies' (blue, green, white, orange), the same on every track (UI_DESIGN.md section 1)");
   /* (an engine's EDIT descriptors are the selected track's: each engine put on it first, as the page does) */
   const at = async (e) => { await s.loadPreset({ engine: e, preset: 0, user: false }); return designKnobs(e, s.info, s.pdesc); };
   const mac = await at(8), sh = await at(14), dx0 = await at(9), dx = { knobs: dx0.knobs.map((k) => ({ ...k })) }, sd = await at(3);

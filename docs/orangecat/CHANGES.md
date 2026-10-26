@@ -84,7 +84,7 @@ GLASS BELL). On SEQ > TRACKER, an EDIT tap that turned the picked effect off cou
 
 **0.14.2 (branch web-app): the web app, and the arrangement from a computer.** A new page, `webapp/app/` beside the installer and the
 editor, manages the unit: the asset pack and the engine modules (the Engines table, the set), each track's sound (the engine's picture,
-its four knobs in the knob cozies' colours, the eight values, presets and favorites, the library), the steps, the arrangement (the
+its four knobs in the knob cozies' colors, the eight values, presets and favorites, the library), the steps, the arrangement (the
 phrases, chains, the song, scenes; drag to reorder; a list of what will change before it is written), projects (read, save to a slot,
 load, export and import files) and the complete backup. The firmware gains one command (102) that reads and writes the chains, the song
 and the scenes of the music loaded; it is refused while the sequencer plays, and a write keeps where each track is. **Worth knowing about

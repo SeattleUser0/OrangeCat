@@ -5,9 +5,9 @@
   python3 web/app/tools/gen_palette.py            write web/app/lib/palette.js
   python3 web/app/tools/gen_palette.py --check    exit 1 when it differs (web/app/test/run.mjs runs this)
 
-The page takes the unit's colours, not colours of its own: each palette's background, surface, text and four track colours, and
-each track's four knob shades exactly as the firmware's screen gets them (gen_ui_palettes.shades: the track's colour turned
-round the OKLCH hue circle, knob 1 the track's own). So the knobs on the page are the colours of the knobs on the unit, and a
+The page takes the unit's colors, not colors of its own: each palette's background, surface, text and four track colors, and
+each track's four knob shades exactly as the firmware's screen gets them (gen_ui_palettes.shades: the track's color turned
+round the OKLCH hue circle, knob 1 the track's own). So the knobs on the page are the colors of the knobs on the unit, and a
 change to the device's palettes (Session C's new interface) reaches the page by running this again.
 
 Revisions:

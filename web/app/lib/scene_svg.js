@@ -5,7 +5,7 @@
 // this draws SVG lines and circles with the same coordinates, so the page shows the unit's picture, moving with the same sources.
 //
 //   sceneSvg(bytes, input) -> SVG markup. input: {s: {K1..K4, ENV, HIT, GATE, LFO, NOTE, TIME, WOB, PH1..PH4} (Q8 as the unit's),
-//                                                 col: [INK, K1, K2, K3, K4, TRK, DIM, BG] (CSS colours), scope: 64 values -256..256}
+//                                                 col: [INK, K1, K2, K3, K4, TRK, DIM, BG] (CSS colors), scope: 64 values -256..256}
 // Revisions:
 //   0.14.2: first version (Session D), from ui_scene.h of ui-design 776adb5.
 

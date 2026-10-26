@@ -3,11 +3,11 @@
 //
 // Session C designs that interface in parallel: docs/orangecat/UI_DESIGN.md on branch ui-design (version 0.1, read at 776adb5; a
 // design to choose from, nothing built into the firmware yet). What the page takes from it, and what is still a guess:
-//   - the knob colours are FIXED, the cozies': KNOB 1 blue, 2 green, 3 white, 4 orange, on every track and palette (UI_DESIGN.md
-//     section 1; the RGB values of tests/ui_mockup.c KCOL). A track keeps its own colour for its numeral and name.
+//   - the knob colors are FIXED, the cozies': KNOB 1 blue, 2 green, 3 white, 4 orange, on every track and palette (UI_DESIGN.md
+//     section 1; the RGB values of tests/ui_mockup.c KCOL). A track keeps its own color for its numeral and name.
 //   - the four knobs of each engine are UI_DESIGN.md's table (section 2), names and order. A plain knob is the engine's parameter
 //     of that name (found by label among its EDIT values). A macro (a star in the table) needs P_MAC0..3 in the firmware, which
-//     does not exist yet: the page shows it, greyed, and does not write it. An engine the table does not name (SID, CZ-1,
+//     does not exist yet: the page shows it, grayed, and does not write it. An engine the table does not name (SID, CZ-1,
 //     the Prophet before Session B) keeps the unit's HOME knobs of today (engines.c knob[], through tests/app_layout.c).
 //   - the pictures: MACRO, SHAPES, DRUM-X and WHEEL are Session C's scenes (lib/scenes.js, drawn by lib/scene_svg.js, a port of
 //     the interpreter); the other engines get a placeholder until their scenes are drawn.
@@ -15,7 +15,8 @@
 //     tab names Unit, Sounds, Steps, Arrange, Project, Settings are the prompt's; UI_DESIGN.md names none.
 //
 // Revisions:
-//   0.14.2: first version (Session D); then UI_DESIGN.md 0.1 read: the fixed knob colours, its knob table, its scenes.
+//   0.14.2: first version (Session D); then UI_DESIGN.md 0.1 read: the fixed knob colors, its knob table, its scenes.
+//   0.14.2 (later): American spelling throughout (color, grayed).
 
 import { LAYOUT } from "./layout.js";
 import { PALETTES } from "./palette.js";
@@ -27,7 +28,7 @@ export const TABS = [
   { id: "arrange", label: "Arrange" }, { id: "project", label: "Project" }, { id: "settings", label: "Settings" },
 ];
 export const SESSION_C_DOC = "docs/orangecat/UI_DESIGN.md 0.1 (branch ui-design, 776adb5)";
-/* the cozies' colours, tests/ui_mockup.c KCOL: RGB(77, 158, 255), RGB(0, 226, 140), RGB(236, 236, 236), RGB(255, 128, 32) */
+/* the cozies' colors, tests/ui_mockup.c KCOL: RGB(77, 158, 255), RGB(0, 226, 140), RGB(236, 236, 236), RGB(255, 128, 32) */
 export const KNOB_COLORS = ["#4D9EFF", "#00E28C", "#ECECEC", "#FF8020"];
 /* UI_DESIGN.md section 2: each engine's four knobs; "*" a macro (P_MACk, not in the firmware yet) */
 export const KNOB_TABLE = {
@@ -73,12 +74,12 @@ export function palette(name = "NIGHT") { return PALETTES.find((p) => p.name ===
 export const knobColor = (pal, track, k) => KNOB_COLORS[k % 4];   /* (fixed: UI_DESIGN.md section 1; pal.knobs were today's track shades) */
 export const trackColor = (pal, track) => pal.tracks[track % 4];
 
-/* engine e's picture: Session C's scene where there is one, drawn with sources (input.s) and the track's colour */
+/* engine e's picture: Session C's scene where there is one, drawn with sources (input.s) and the track's color */
 export function enginePicture(name, input) {
   const sc = SCENES[name];
   return sc ? sceneSvg(sc, input, { title: name + " (picture)" }) : null;
 }
-/* a placeholder scene for engine e (SVG text): a small animated line drawing, one shape a family, the knobs' colours as four
+/* a placeholder scene for engine e (SVG text): a small animated line drawing, one shape a family, the knobs' colors as four
  * lamps. Deterministic for the number, so a test can hold it */
 export function engineScene(engine, name, colors, w = 240, h = 120) {
   const fam = /DRUM|909|808/.test(name) ? "drum" : /FM|DX/.test(name) ? "fm" : /CZ|PHASE/.test(name) ? "phase" :

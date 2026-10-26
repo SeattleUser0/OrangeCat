@@ -28,7 +28,7 @@ Version 1 (October 26, 2026). The app and the firmware are on branch `web-app` (
 
 ## 2. A parameter change, heard
 
-1. Sounds tab. Track 1 (MACRO) is selected; the lighthouse picture shows; the knobs read HARM, TIMB, MRPH, PLUCK* (PLUCK greyed).
+1. Sounds tab. Track 1 (MACRO) is selected; the lighthouse picture shows; the knobs read HARM, TIMB, MRPH, PLUCK* (PLUCK grayed).
 2. Play notes on the unit's keys. Drag **TIMB** (the green dial) from bottom to top while playing.
 3. Expect: the sound brightens as you drag; the unit's screen shows TIMB changing; the lamp in the picture grows.
 4. Turn KNOB 2 on the unit: within about half a second the page's TIMB dial follows (the live sync).

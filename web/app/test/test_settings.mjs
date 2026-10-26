@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Orange Cat web app, Part 2 step 6: Settings (the unit's preferences, the audio readout, the page's colours from the unit's palettes).
+// Orange Cat web app, Part 2 step 6: Settings (the unit's preferences, the audio readout, the page's colors from the unit's palettes).
 import { ok } from "./t.mjs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";

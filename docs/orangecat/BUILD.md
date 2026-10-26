@@ -14,7 +14,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
   (web/app: Unit, Sounds, Steps, Arrange, Project, Settings), served at webapp/app/ beside the installer and the editor; one firmware addition,
   0.14.2, command 102 ARRANGE (the chains, the song and the scenes read and written whole: the backup's project record has no room for them),
   host tested and independently reviewed (nothing blocking; its one should-fix done). Session C's UI_DESIGN.md 0.1 followed where it is decided
-  (fixed knob colours, the knob table, the scenes). See "The web app (Session D)" at the end.
+  (fixed knob colors, the knob table, the scenes). See "The web app (Session D)" at the end.
 - **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
   through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
   24..31 reserved), against op1r's own harness (tests/op1r_parity); the relocatable module package (.ocm format 2: one image and its relocation list,

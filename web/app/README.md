@@ -16,7 +16,7 @@ Version 0.14.2 (October 26, 2026, Session D, branch `web-app`). Not on main, not
 | Steps | The phrase's steps as a tracker (notes, time, velocity, the step's flags, chance, drum hits), edited in place; the recorded notes' own onset, length, velocity and bend | TRACK_STEP; backup object 0 |
 | Arrange | The 64 phrases of the pool, the chains (drag a step to reorder), the song (drag a row), the scenes, each track's groove, LAUNCH; a list of what will change, then Write | ARRANGE (102, new in 0.14.2) |
 | Project | Read the music now or a saved slot; save the music now to a slot and load a slot (the unit's own SAVE / LOAD); export and import project files; the complete backup and restore, and what a backup holds | backup objects (65..67), PROJECT (9) |
-| Settings | The page's colours (the unit's palettes); the unit's preferences (screen palette, preset filter, click, count-in, preview, chord entry); the audio readout | UI_STATE, UI_SET, AUDIO_STATS (72) |
+| Settings | The page's colors (the unit's palettes); the unit's preferences (screen palette, preset filter, click, count-in, preview, chord entry); the audio readout | UI_STATE, UI_SET, AUDIO_STATS (72) |
 
 Open it with `?mock` to talk to a mocked unit (`lib/mock.js`); nothing then reaches a real FM-1.
 
@@ -30,7 +30,7 @@ No build step: an HTML page, a style sheet and ES modules.
 | `lib/session.js` | one connection and everything the tabs ask of it, in the order the old editor does it |
 | `lib/codec.js` | the project record (FBKK, the FUN23 part) and the arrangement (the lists), read and written byte for byte |
 | `lib/arrange.js` | command 102: read and write the arrangement |
-| `lib/model.js` | Session C's names, knobs, colours and pictures (`docs/orangecat/UI_DESIGN.md`), and what the page guesses where it is not settled |
+| `lib/model.js` | Session C's names, knobs, colors and pictures (`docs/orangecat/UI_DESIGN.md`), and what the page guesses where it is not settled |
 | `lib/scene_svg.js` | the engine pictures drawn from their scene bytes: a port of Session C's interpreter (`tests/ui_scene.h`, branch ui-design) |
 | `lib/mock.js` | the mocked unit: the old editor's mock plus the Orange Cat commands it lacks |
 | `lib/editor_proto.js`, `lib/editor_text.js` | GENERATED: the old editor's protocol section and texts, unchanged (`tools/gen_proto.mjs`) |
@@ -42,7 +42,7 @@ No build step: an HTML page, a style sheet and ES modules.
 **Nothing is copied by hand.** The protocol code is the old editor's text (checked equal on every test run); the project record's
 offsets, sizes and bit fields come from the firmware's macros and structs, with probes of the firmware's own packing and fixture
 records the firmware wrote, which the codec must read and write back byte for byte (as must the older FUN19..21 project files in
-`tests/fixtures`); the colours are the unit's generator's. A change in the firmware or the editor fails `test/run.mjs` until the
+`tests/fixtures`); the colors are the unit's generator's. A change in the firmware or the editor fails `test/run.mjs` until the
 generated file is made again. `tests/run_tests.sh` builds `tests/app_layout.c`, writes `build/host/app/`, and runs `test/run.mjs`.
 
 Regenerate:
@@ -68,7 +68,7 @@ SysEx on localhost).
 - **Per-note editing** of recorded notes: the unit's NOTES event editor has no command (command 108 reads them in test builds only).
   The page shows each note's values from the project record.
 - **RATCH, FLAM, condition and NUDGE** of a step: not in STEP_GET / TRACK_STEP, and the project record keeps them only inside the unit.
-- **Macro knobs** (UI_DESIGN.md's stars): need `P_MAC0..3` in the firmware. Shown greyed, not written.
+- **Macro knobs** (UI_DESIGN.md's stars): need `P_MAC0..3` in the firmware. Shown grayed, not written.
 - **ENV, MOD, FX, VOICE sheets**: the unit's; the page has SOUND.
 - **A project file's arrangement** is not written to another unit (phrase numbers name that unit's pool). A complete backup carries
   the arrangement of the music now and restores it only to a unit whose phrases are unchanged (the pool's CRCs); the saved slots'

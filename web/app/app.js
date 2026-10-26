@@ -2,7 +2,7 @@
 // Orange Cat web app: the page. Six tabs over one connection (lib/session.js): Unit, Sounds, Steps, Arrange, Project, Settings.
 // The protocol, the checks and the texts are the old editor's (lib/editor_proto.js, lib/editor_text.js, generated from
 // web/editor.html), the project codec the firmware's layout (lib/codec.js), the arrangement command 102 (lib/arrange.js), the
-// colours the unit's palettes (lib/palette.js). This file only draws and wires them. ?mock talks to the mocked unit (lib/mock.js).
+// colors the unit's palettes (lib/palette.js). This file only draws and wires them. ?mock talks to the mocked unit (lib/mock.js).
 //
 // Revisions:
 //   0.14.2: first version (Session D).
@@ -68,7 +68,7 @@ async function op(fn) {
 }
 const progress = (f) => { S.progress = f; const p = document.querySelector(".progress i"); if (p) p.style.width = Math.round(f * 100) + "%"; };
 
-/* ----------------------------------------------------------- the colours --- */
+/* ----------------------------------------------------------- the colors --- */
 function applyPalette() {
   const r = document.documentElement.style, p = S.pal;
   r.setProperty("--bg", p.bg); r.setProperty("--surface", p.surface); r.setProperty("--text", p.text);
@@ -321,7 +321,7 @@ function viewSounds() {
         el("div", { class: "caption" }, el("b", { style: { color: trackColor(S.pal, k) } }, name), el("span", { class: "dim" }, presetName))),
       el("div", {}, el("div", { class: "knobs" }, ...design.knobs.map((x, i) => (x.macro ? macroView(x, colors[i]) : knobView(x.id, colors[i])))),
         el("p", { class: "dim small", style: { marginTop: "10px" } }, design.source === "design"
-          ? `The four knobs of ${name} in the new interface's order and colours (${SESSION_C_DOC}, section 2). A knob marked * is a macro the firmware does not have yet; it is shown, not written.`
+          ? `The four knobs of ${name} in the new interface's order and colors (${SESSION_C_DOC}, section 2). A knob marked * is a macro the firmware does not have yet; it is shown, not written.`
           : `${name} is not in the new interface's knob table yet: these are the unit's HOME knobs of today.`,
           " Drag up or down, scroll, or use the arrow keys."))));
   drawScene(box, eng, name, design);
@@ -736,11 +736,11 @@ function inIds(v, spec) { return spec.split(",").some((p) => { const [a, z] = p.
 /* ============================================================== Settings === */
 function viewSettings() {
   const s = S.session, g = el("div", { class: "grid" });
-  const pal = el("select", { "aria-label": "Page colours" }, ...PALETTES.map((p) => el("option", { value: p.name }, p.name)));
+  const pal = el("select", { "aria-label": "Page colors" }, ...PALETTES.map((p) => el("option", { value: p.name }, p.name)));
   pal.value = S.pal.name;
   pal.addEventListener("change", () => { S.pal = palette(pal.value); localStorageSet("oc-app-palette", pal.value); applyPalette(); render(); });
   g.append(card("This page",
-    el("label", { class: "bar" }, "Colours", pal, el("span", { class: "dim small" }, "the unit's own palettes and knob colours")),
+    el("label", { class: "bar" }, "Colors", pal, el("span", { class: "dim small" }, "the unit's own palettes and knob colors")),
     el("p", { class: "dim small" }, "The names, knobs and pictures follow the unit's new interface; where its design (" + SESSION_C_DOC + ") was not settled yet the page uses the unit as it is now."),
     el("p", { class: "small" }, el("a", { href: "../installer/" }, "Installer"), " · ", el("a", { href: "../editor/" }, "The old editor"), " · ", el("a", { href: "?mock" }, "Mocked unit"))));
   if (!s) { g.append(needUnit("change its settings")); return g; }
