@@ -1095,74 +1095,13 @@ static void track_defaults(track_t *t)
  *     which the engines get first (the effects hand theirs back). 2 = NO ROOM.
  * The units are asked of the module's engine_t with the track's edit values set to the engine's defaults for the call and put back (the audio
  * interrupt is off meanwhile, as in engine_load_of). Returns 0 admitted, 1 too heavy, 2 no room. */
-/* (Orange Cat 0.14.2) Admission by the parts' protected voices, built-in engines too. Each part keeps one voice whatever the budget (voice.c:
- * the newest), so the tracks' protected voices must fit the budget together: four MALLET tracks (MODAL, 9 units a voice) were 36 units in a
- * budget of 18, an overload no stealing could undo (BUILD.md, the Nightly's acceptance). A pick (an engine, a preset, a MODEL or other EDIT
- * value) that would push the sum of every track in use's protected voice past the budget is refused, ENGINE TOO HEAVY, the track keeping
- * its sound; one that weighs no more than the track's sound now always goes through. A track's protected voice: its part's units (a module that costs by the part), else one voice's (voice_units_of). ev: the
- * eight EDIT values the new sound would have (0: the track's own); t's are swapped in for the call and put back, the audio interrupt off
- * (as below). 1 refused, 0 admitted. Not judged: a project load, the template, motion and MIDI CC (they set values, not picks) */
-/* track t's protected voice as it is (its engine as asked: eng_req, which the audio takes up at its next block) */
-static uint32_t eng_held_units(const track_t *t)
-{
-    uint32_t e = t->eng_req % NENGINES;
-    return eng_mod[e] && FW_MOD_PART_UNITS(eng_mod[e]->cost) ? FW_MOD_PART_UNITS(eng_mod[e]->cost) : voice_units_of(t, e);
-}
-static int eng_admit_parts(track_t *t, uint32_t e, const int16_t *ev)
-{
-    uint32_t k, sum = 0, mine;
-    int16_t keep[8];
-    e %= NENGINES;
-    if (eng_mod[e] && FW_MOD_PART_UNITS(eng_mod[e]->cost)) mine = FW_MOD_PART_UNITS(eng_mod[e]->cost);
-    else {
-        fm1_irq_off();
-        for (k = 0; k < 8u; k++) { keep[k] = (int16_t)t->p[P_E0 + k]; if (ev) t->p[P_E0 + k] = ev[k]; }
-        mine = voice_units_of(t, e);
-        for (k = 0; k < 8u; k++) t->p[P_E0 + k] = keep[k];
-        fm1_irq_on();
-    }
-    for (k = 0; k < trk_n(); k++)
-        if (&trk[k] != t)
-            sum += eng_held_units(&trk[k]);
-    /* (a pick that weighs no more than the track's sound now is never refused: the parts may be over already, a project loaded) */
-    return sum + mine > voice_budget() && mine > eng_held_units(t) ? 1 : 0;
-}
-/* engine e's INIT sound (its EDIT defaults, as set_engine gives it) on track t */
-static int eng_admit_init(track_t *t, uint32_t e)
-{
-    int16_t ev[8];
-    for (uint32_t k = 0; k < 8u; k++) ev[k] = ENGINES[e % NENGINES]->edit[k].def;
-    return eng_admit_parts(t, e, ev);
-}
-/* a preset pi of engine e for track t: the engine's admission (a change of engine) and the parts' with the preset's EDIT values */
-static int eng_admit(track_t *t, uint32_t e);
-static int eng_admit_preset(track_t *t, uint32_t e, uint32_t pi)
-{
-    const engine_t *en = ENGINES[e % NENGINES];
-    int16_t ev[8];
-    int rc = e != t->eng_req ? eng_admit(t, e) : 0;
-    if (rc || !en->npresets) return rc;
-    const preset_t *pr = eng_preset(en, pi % en->npresets);
-    for (uint32_t i = 0; i < 8u; i++) ev[i] = (int16_t)pr->e[i];
-    return eng_admit_parts(t, e, ev);
-}
-/* EDIT value i (0..7) of track t to v: 1 refused (the parts' protected voices past the budget) */
-static int eng_admit_edit(track_t *t, uint32_t i, int32_t v)
-{
-    int16_t ev[8];
-    for (uint32_t k = 0; k < 8u; k++) ev[k] = (int16_t)t->p[P_E0 + k];
-    ev[i & 7u] = (int16_t)v;
-    return eng_admit_parts(t, t->eng_req, ev);
-}
 static int eng_admit(track_t *t, uint32_t e)
 {
     const engine_t *en;
     uint32_t k, sum, units, own;
     int16_t keep[8];
-    if (e >= NENGINES)
+    if (e >= NENGINES || !eng_mod[e])
         return 0;
-    if (!eng_mod[e])
-        return eng_admit_init(t, e);
     en = ENGINES[e];
     own = (eng_mod[e]->state_size + 3u) & ~3u;
     sum = own;
@@ -1183,7 +1122,7 @@ static int eng_admit(track_t *t, uint32_t e)
         if (units > voice_budget())
             return 1;
     }
-    return eng_admit_init(t, e);                         /* (0.14.2) and with the other tracks' protected voices */
+    return 0;
 }
 static const char *eng_admit_text(int rc) { return rc == 1 ? "ENGINE TOO HEAVY" : "NO ROOM"; }
 
@@ -1228,10 +1167,9 @@ static void preset_go(uint32_t n)                    /* load list index n into t
     else if (e == USER_GENERAL) {
         up_load(k);
     } else {
-        {   int rc = eng_admit_preset(TSEL, e, k);       /* (0.11.0) the load is refused whole; (0.14.2) the preset itself too */
-            if (rc) { ui_message(eng_admit_text(rc)); ui.force = 1; return; }
-        }
         if (e != TSEL->eng_req) {
+            int rc = eng_admit(TSEL, e);
+            if (rc) { ui_message(eng_admit_text(rc)); ui.force = 1; return; }   /* (0.11.0) the load is refused whole */
             set_engine(e);
             ui_say("ENGINE ", ENGINES[TSEL->eng_req]->name);
         }

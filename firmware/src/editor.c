@@ -786,9 +786,6 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                     int adm = eng_admit(TSEL, ne);                       /* (0.11.0) a module's engine only when the unit can carry it */
                     if (adm) ui_message(eng_admit_text(adm)); else set_engine(ne);
                 }
-            } else if (!a[0] && a[1] >= P_E0 && a[1] < P_E0 + 8u && d->max > d->min &&
-                       eng_admit_edit(TSEL, a[1] - P_E0, enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max)))) {
-                ui_message("ENGINE TOO HEAVY");                  /* (0.14.2) an EDIT value that would push the parts past the budget */
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
                 if (a[0] == 1 && (a[1] == G_A4 || a[1] == G_BUDGET))
@@ -865,10 +862,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         adm = 0;
         {
-            adm = eng_admit_preset(TSEL, a[0], a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* (0.11.0) refused: the track keeps its
-                                                                  * engine and its sound; (0.14.2) the preset's own weight too */
-            if (adm) ui_message(eng_admit_text(adm));
-            else if (a[0] != TSEL->eng_req) set_engine(a[0]);
+            if (a[0] != TSEL->eng_req) {
+                adm = eng_admit(TSEL, a[0]);                      /* (0.11.0) refused: the track keeps its engine and its sound */
+                if (adm) ui_message(eng_admit_text(adm));
+                else set_engine(a[0]);
+            }
             if (!adm)
                 apply_preset(a[1] | (na >= 3u ? (uint32_t)a[2] << 7 : 0u));   /* [, high bits]: PROPHET has 201 */
         }

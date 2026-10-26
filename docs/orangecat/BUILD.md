@@ -2832,3 +2832,9 @@ image grew in front of the DSP (the card installer and more). Suspected: cache-l
 **First experiment**: align the audio ISR (fm1_alnk0_irq) and the hot render functions (track_render_audio, mod_begin / mod_voice / mod_end, the effects
 buses) to cache lines (a linker-script `ALIGN(32)` per input section, or `__attribute__((aligned(32)))`), build both images, compare their addresses
 (nm) and measure the A/B; then the same with the functions placed at a fixed offset from the image start, so a change in front no longer moves them.
+
+**Admission by the parts' protected voices: written and withdrawn** (October 26, 2026). e104e4d refused a pick (an engine, a preset, an EDIT value
+such as MACRO's MODEL) that would push the sum of every track in use's protected voice past the budget (ENGINE TOO HEAVY; with MC_UNITS and a budget
+of 18, MALLET fits twice with nothing else). Withdrawn on the owner's word before any flash: voice admission and stealing stay as they are until the
+two cores' measured split is known (the renderer instrumentation, next). The design and its tests are in e104e4d (ui.c eng_admit_parts,
+tests/ui_test.c test_admission_parts) for when it is wanted.
