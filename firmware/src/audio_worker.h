@@ -17,6 +17,7 @@
 #pragma once
 #include <stdint.h>
 #include "build_options.h"
+#include "core_stats.h"                    /* (Orange Cat 0.14.2) what the two cores do (OC_CORE_STATS builds) */
 #ifndef AW_IDLE
 #define AW_IDLE() ((void)0)
 #endif
@@ -53,12 +54,19 @@ static struct {
     uint32_t job_ticks;
 #endif
     uint32_t jobs, max_job_ticks, misread;          /* misread: the last request refused, as CPU1 read it */
+#if OC_CORE_STATS
+    uint32_t last_ticks;                            /* (0.14.2) the last job's ticks, stored before complete */
+#endif
 } audio_worker __attribute__((aligned(32)));
 static int audio_worker_online;
 
 static int audio_worker_submit(audio_worker_fn fn, void *context)
 {
     uint32_t request;
+#if OC_CORE_STATS
+    if (cs_single) return 0;                        /* (0.14.2: single-core forced: CPU0 renders everything) */
+    if (audio_worker_online && AW_LOAD(&audio_worker.request) != AW_LOAD(&audio_worker.complete)) { cs_refused++; return 0; }
+#endif
     if (!audio_worker_online || (request = AW_LOAD(&audio_worker.request)) != AW_LOAD(&audio_worker.complete))
         return 0;
     request++;
@@ -79,6 +87,9 @@ static void audio_worker_retire(void)
 #else
     AW_HOLD();
     AW_RETIRED();
+#if OC_CORE_STATS
+    cs_retired++;
+#endif
     audio_worker_online = 0;
     AW_STORE(&audio_worker.complete, AW_LOAD(&audio_worker.request));
 #endif
@@ -106,6 +117,7 @@ static int audio_worker_join(void)
             if (!AW_FAULTS())
                 audio_worker.timeouts++;
             audio_worker_retire();
+            cs_join(AW_TICKS() - start, 0u);
             return 0;
         }
     }
@@ -114,6 +126,9 @@ static int audio_worker_join(void)
     audio_worker.wait_ticks+=elapsed;audio_worker.waits++;
 #endif
     if (elapsed > audio_worker.max_wait_ticks) audio_worker.max_wait_ticks = elapsed;
+#if OC_CORE_STATS
+    cs_join(elapsed, audio_worker.last_ticks);
+#endif
     return 1;
 }
 
@@ -136,6 +151,9 @@ static inline __attribute__((always_inline)) void audio_worker_poll(uint32_t *do
             audio_worker.job_ticks+=elapsed;
 #endif
             if (elapsed > audio_worker.max_job_ticks) audio_worker.max_job_ticks = elapsed;
+#if OC_CORE_STATS
+            audio_worker.last_ticks = elapsed;
+#endif
             *done = request;
             AW_STORE(&audio_worker.complete, request);
             return;

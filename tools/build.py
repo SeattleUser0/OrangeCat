@@ -264,7 +264,7 @@ def app_flags():
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
-                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES"):    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
+                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS"):    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

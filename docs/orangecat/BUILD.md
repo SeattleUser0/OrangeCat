@@ -2957,3 +2957,42 @@ dxe_bus 31, dxe_post_sides 8, mix_lanes 85, mix_duck 20.
    firmware of linux-hw: it loads (kit 0) and a backup of it still holds the kit's bytes.
 4. By ear: a lane hard left and hard right on the speaker and headphones (L/C/R), the centre detent felt on KNOB 4, DUCK on a bass track.
 
+
+## What the two cores do (October 26, 2026): the scheduler as it is, then the instrumentation
+
+### Part 2: how the work is split today (read from the source, before any run)
+
+- **Granularity: voices, for some engines only; everything else is CPU0.** CPU1 gets work two ways. (1) The voice batch (audio_batch.h): up to 12
+  voice descriptors a group, each a whole voice's 32-sample block with its own PCM scratch. Only the Prophet, FM6, CZ-1, SID and DRUM 808 / 909
+  kernels push into it (voice.c:772, eng_fm6.c:924, eng_prophet_test.c:548, engines.c:92 for a module that asks). **MACRO, SHAPES, DRUM-X, WHEEL and
+  the op1r candidates never do: their voices render on CPU0, inside track_render_audio.** So four MALLET tracks are CPU0's alone. (2) Whole jobs:
+  the effects' buses (jfx_bus_kernel: CHORUS, DELAY, REVERB), FM6's and the Prophet's own direct jobs, and the DUB TAPE bench.
+- **Balance: per group, by fixed costs, not a fixed set of tracks.** A batch group is split as its descriptors are pushed: each goes to CPU1 while
+  CPU1's summed cost is at or under CPU0's, from a table of fixed per-kernel costs (audio_batch_cost: Prophet 3,100, CZ 2,100, SID 2,000, 909 1,900,
+  FM6 1,250, 808 1,150) and a CPU0 allowance of 2,000 (6,000 with FM6 controls). Not measured per block; no feedback.
+- **One job at a time.** The mailbox (audio_worker.h) holds one outstanding request. A second submit while one is out fails, and the caller renders
+  that work on CPU0. The effects' bus job is submitted only after the last track has rendered.
+- **Where the effects run.** Per-track effects (DIST, the FX layer's mute, SOLO, LEVEL, PAN, the sends) run on **CPU0, right after each track's
+  engine** (mix.c mix_part_engine, mix_part), whichever core rendered the voices. The send buses, **REVERB CLOUD included** (fx_buses, jfx.c), run
+  as **one CPU1 job in the serial tail**: started after the last track (jfx_bus_start), CPU0 spinning at its join (jfx_bus_join) before the master.
+  The master chain (SLICER, DJ FILTER, CLIP, the FX layer's buffer effects, the output stage) runs on **CPU0 in the tail, after the join**. So
+  today the buses take CPU1's time but sit on the critical path exactly as if CPU0 ran them, minus nothing. With CPU1 retired, all of it is CPU0's.
+- **Handoff and completion.** The mailbox is a static struct in shared internal SRAM, CPU0's words and CPU1's on separate 32-byte lines; request,
+  fn, context and a check word (a misread fails the check). Publication with `csync` barriers (hal/fm1_multicore.h). CPU1 spins in a RAM loop
+  polling the request word (AW_IDLE is empty); CPU0 spins on complete == request at the join. No interrupt either way. The batch's descriptors and
+  their PCM are in .audio_scratch (shared SRAM).
+- **Faults.** Yes, explicit: CPU1's exception handler counts faults (fm1_core1_fault.count); a fault, a 10 ms stall at a join or a misread past what
+  the platform accepts retires the worker for the session (audio_worker_retire: CPU1 held, CPU0 renders everything; MELODEE_CORE1_FALLBACK=0 would
+  stop instead). A retired worker is not restarted until power-off.
+- **What that predicts.** For four MALLET tracks (5,488 us worst on the Nightly) CPU1 is close to idle: no voice of MACRO goes to it, and with the
+  sends off there is no bus job either. The split the user asked about does not exist for these engines; a perfect one would give about 2,744 us.
+  The instrumentation below measures it.
+
+### Part 1: the instrumentation (OC_CORE_STATS=1 builds; firmware/src/core_stats.h)
+
+Per half (four 32-sample blocks), TIMER4: wall (the whole render: what Worst is), cpu0 (each block's start to its last track, waits removed), cpu1
+(each CPU1 job as CPU1 timed it, by kind: voices, buses, dub), wait (CPU0 in joins) and tail_wait (the part after the tracks), tail (CPU0's work from
+the last track to the block's end, waits removed: the serial tail), idle1 (wall - cpu1). Each kept as min, mean, a 32 us histogram to 4,096 us (p99)
+and max; counters for jobs by kind, submits refused while CPU1 was busy, worker retirements, single-core forced. Read with AUDIO_STATS `[flags, 1]`
+(schema 9); `[flags, 2, 1]` forces single-core (no job given to CPU1) for the A/B. Its cost: a few TIMER4 reads a block, one histogram update a
+metric a half, one stored word a CPU1 job; the overhead is measured on the unit with the switch off and on (Part 3).

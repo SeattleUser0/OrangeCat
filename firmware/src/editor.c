@@ -601,6 +601,34 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims, 32 full profile,
                                                         * 64 the Audio readout (0.13.6, schema 8: 23 fields, alone) */
+#if OC_CORE_STATS
+        if (na >= 2u && (a[1] == 1u || (a[1] == 2u && na == 3u && a[2] <= 1u))) {
+            /* (0.14.2, OC_CORE_STATS builds) [flags, 1]: the cores' readout, schema 9 (core_stats.h): 9, then 5 x 7 bits each: halves, jobs
+             * (voices, buses, dub), submits refused, worker retirements, single-core forced, CPU1 online; then for each metric (wall, cpu0,
+             * cpu1, voice, bus, dub, wait, tail_wait, tail, idle1) its min, mean, p99 and max in us (32 us bins). Flag 1 starts them over.
+             * [flags, 2, s]: single-core forced (s 1) or not (0), then the same reply */
+            static cs_metric_t m[CS_N] __attribute__((section(".pool")));
+            uint32_t c[8], k, b;
+            if (a[1] == 2u) cs_single = a[2];
+            fm1_irq_off();
+            for (k = 0; k < CS_N; k++) m[k] = cs_m[k];
+            c[0] = cs_halves; c[1] = cs_jobs[0]; c[2] = cs_jobs[1]; c[3] = cs_jobs[2]; c[4] = cs_refused; c[5] = cs_retired;
+            c[6] = cs_single; c[7] = (uint32_t)audio_worker_online;
+            if (a[0] & 1u) cs_reset();
+            fm1_irq_on();
+            ed_b(9);
+            for (k = 0; k < 8u; k++) ed_bk_u32(c[k]);
+            for (k = 0; k < CS_N; k++) {
+                uint32_t acc = 0, p99 = 0;
+                for (b = 0; b < CS_BINS; b++) { acc += m[k].hist[b]; if (m[k].n && (uint64_t)acc * 100u >= (uint64_t)m[k].n * 99u) { p99 = (b + 1u) * 32u; break; } }
+                ed_bk_u32(m[k].min / FM1_TICKS_PER_US);
+                ed_bk_u32(m[k].n ? (uint32_t)(m[k].sum / m[k].n / FM1_TICKS_PER_US) : 0u);
+                ed_bk_u32(p99);
+                ed_bk_u32(m[k].max / FM1_TICKS_PER_US);
+            }
+            break;
+        }
+#endif
         uint32_t snapshot[68] = {0}, k, count = na && (a[0] & 64u) ? 23u : na && (a[0] & 32u) ? 64u : na && (a[0] & 16u) ? 55u : na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
         fm1_irq_off();
         snapshot[0] = ua.play_alt;

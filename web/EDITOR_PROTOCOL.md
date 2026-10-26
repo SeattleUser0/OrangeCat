@@ -957,7 +957,7 @@ tab shows them as "Audio" and asks once a second while the tab is open; `tools/u
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 72 AUDIO_STATS | — or 1 (start new maxima after this reply) | schema (2), then 20 counters, each 5 × 7 bits, LSB first: play alt, capture alt, play rate, capture rate (Hz), play fill, capture fill (frames), play underruns, play overruns, capture underruns, capture overruns, bad packets, packets received, packets sent, missed USB frames, longest gap between services (µs), longest service (µs), late renders, the feedback (10.14), longest render (µs), CPU (Q8) |
+| 72 AUDIO_STATS | — or 1 (start new maxima after this reply) | schema (2), then 20 counters, each 5 × 7 bits, LSB first: play alt, capture alt, play rate, capture rate (Hz), play fill, capture fill (frames), play underruns, play overruns, capture underruns, capture overruns, bad packets, packets received, packets sent, missed USB frames, longest gap between services (µs), longest service (µs), late renders, the feedback (10.14), longest render (µs), CPU (Q8). (Orange Cat 0.14.2, OC_CORE_STATS builds only) `flags, 1`: the cores' readout, schema 9: then 5 × 7 bits each: halves, jobs (voices, buses, dub), submits refused while CPU1 was busy, worker retirements, single-core forced, CPU1 online; then for each of wall, cpu0, cpu1, voice, bus, dub, wait, tail_wait, tail, idle1 (firmware/src/core_stats.h) its min, mean, p99 and max in µs a half (32 µs bins); flag 1 starts them over. `flags, 2, s`: single-core forced (s 1: no job is given to CPU1) or not (0), then the same reply |
 
 
 ## Orange Cat: the flash read-path probe (command 109, OC_SFC_PROBE builds only, 0.13.7)

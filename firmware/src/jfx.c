@@ -2020,10 +2020,16 @@ static void jfx_bus_start(uint32_t n)
         return;
     }
 #if MELODEE_DUAL_CORE
+#if OC_CORE_STATS
+    cs_kind = CS_K_BUS;                                 /* (0.14.2) the join counts this job as the buses' */
+#endif
     if (audio_worker_submit(jfx_bus_kernel, 0)) {
         jfx_bus_pending = 1;
         return;
     }
+#if OC_CORE_STATS
+    cs_kind = CS_K_VOICE;
+#endif
 #endif
     jfx_bus_kernel(0);
 }

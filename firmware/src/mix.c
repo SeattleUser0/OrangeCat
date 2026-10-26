@@ -51,6 +51,7 @@ static uint32_t seq_div_samples(uint32_t div)
     return division_samples(seq_beat_samples(), div);
 }
 
+#include "core_stats.h"                                 /* (0.14.2) the cores' counters (OC_CORE_STATS builds; stubs otherwise) */
 #include "jfx.c"                                        /* (Orange Cat 0.6.0) the effects (Jiant FM's) */
 #include "oc_throw.c"                                   /* (Orange Cat 0.4.3) PERFORM's throws */
 /* a track's dry sample (l, r) into its destination this block; its mono x (after level, before pan) into the sends */
@@ -401,6 +402,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     batch_ready=0;part_buf=part_storage;spread_buf=spread_storage;
 #endif
+    cs_tracks_done();                                   /* (0.14.2, OC_CORE_STATS builds: the tracks done, the serial tail from here) */
     if(perf)perf_pre(mix_l,mix_r,sl_l,sl_r,send_d,send_r,n);   /* (THROW: the dry mix into the delay and reverb sends) */
     AP_START(output_start);
     jfx_bus_start(n);                                   /* the buses (CPU1 when there is one) */
