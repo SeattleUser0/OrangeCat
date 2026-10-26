@@ -184,6 +184,11 @@ GATE = {
         "modulation": "SHP moves D (the track's LFO DEST SHP, MW / AT, the matrix); VENV puts the amplitude envelope (m->envq15) on V; CUT through m->cutoff, ~40 % keyboard; velocity and the ADSR through the amplitude; E1..E8 read every render",
         "backend": "the sine (SINE through the base hot set: two reads a sample); Felucca's TPT SVF; no table of its own",
         "source": 'Clipper (3dSam) firmware/src/eng_vps.c at e690672, GPL-3.0-only'},
+    "terrain": {"engine": 37, "funcs": ["terrain_render"], "voice_type": None,
+        "controls": "Clipper's eight on EDIT 1 and 2 (TERR RAD X Y, ORB DRIFT CUT RES); lost: none of the render's (the presets' sends)",
+        "modulation": "SHP widens the orbit (the track's LFO DEST SHP, MW / AT, the matrix); DRIFT's own slow circle per note; X and Y are E3 E4 (the matrix per block); CUT through m->cutoff, ~40 % keyboard; velocity and the ADSR through the amplitude",
+        "backend": "the part's copy of the surface it plays (wt_shared.h's cache idea, one 2 KB frame); the sine (the orbit: SINE through the base hot set); Felucca's TPT SVF",
+        "source": 'Clipper (3dSam) firmware/src/eng_terrain.c and terrain_tables.h at e690672, GPL-3.0-only'},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

@@ -46,7 +46,7 @@ ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14, "PROPHET": 19, "WHEEL": 7, "SE
            "FMBELL": 24, "SUPERSAW": 25, "DDDD": 26, "MIXTUR": 29, "ARC": 30, "BRASS": 28, "AETHER": 27, "CZ-1": 15, "SID": 3, "JUNO": 32}                                                                        # (0.14.1) op1r's synths: an OC_CANDIDATES build's
 MIX = ("MACRO", "SHAPES", "DRUM-X", "MACRO")       # track k of a MIX run plays MIX[k]
 CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46), "PROPHET": (48, 52, 55, 59), "WHEEL": (48, 52, 55, 59), "SEM": (48, 52, 55, 59), "HADES": (48, 52, 55, 59),
-         "FMBELL": (48, 52, 55, 59), "SUPERSAW": (48, 52, 55, 59), "DDDD": (48, 52, 55, 59), "MIXTUR": (48, 52, 55, 59), "ARC": (48, 52, 55, 59), "BRASS": (48, 52, 55, 59), "AETHER": (48, 52, 55, 59), "CZ-1": (48, 52, 55, 59), "SID": (48, 52, 55, 59), "JUNO": (48, 52, 55, 59), "ACID": (48, 52, 55, 59), "STRINGS": (48, 52, 55, 59), "VECTOR": (48, 52, 55, 59), "VPS": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
+         "FMBELL": (48, 52, 55, 59), "SUPERSAW": (48, 52, 55, 59), "DDDD": (48, 52, 55, 59), "MIXTUR": (48, 52, 55, 59), "ARC": (48, 52, 55, 59), "BRASS": (48, 52, 55, 59), "AETHER": (48, 52, 55, 59), "CZ-1": (48, 52, 55, 59), "SID": (48, 52, 55, 59), "JUNO": (48, 52, 55, 59), "ACID": (48, 52, 55, 59), "STRINGS": (48, 52, 55, 59), "VECTOR": (48, 52, 55, 59), "VPS": (48, 52, 55, 59), "TERRAIN": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
 FS = 44100
 TOOLS = Path(__file__).resolve().parents[1]
 
@@ -435,7 +435,8 @@ SETS["hub"] = {"JUNO": [("JUNO", "DREAM PAD")] * 4,
                "ACID": [("ACID", "SQUELCH")] * 4,
                "STRINGS": [("STRINGS", "ENSEMBLE")] * 4,
                "VECTOR": [("VECTOR", "VS PAD")] * 4,
-               "VPS": [("VPS", "FORMANT PAD")] * 4}
+               "VPS": [("VPS", "FORMANT PAD")] * 4,
+               "TERRAIN": [("TERRAIN", "FOLD DRONE")] * 4}
 SETS["op1r"] = {"FMBELL": [("FMBELL", "FM BASS")] * 4, "SUPERSAW": [("SUPERSAW", "SAW PAD")] * 4,
                 "DDDD": [("DDDD", "SCREAM")] * 4,
                 "MIXTUR": [("MIXTUR", "BIRDS")] * 4,
