@@ -847,3 +847,27 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   (ocs_stream_drop: it already ends a staged restore); the web app's backup side channel (`file.arrangement`, the music's lists written back over
   102 when the pool's CRCs match) is redundant on a firmware with ids 64..84 (object 84 is exact) and never covered the saved slots or the pool:
   used only when the archive lacks the arrangement objects.
+
+## October 26 (UTC): Flash 33, drum-kits merged, its DRUM-X table
+
+- linux-hw ec49816 withdrew the parts' admission (e104e4d) on the owner's word; ffe34ab the CLOCK_STATS protocol row. drum-kits (c3ef697, CI run
+  40297727741 green on ada31fd) merged: **46aa3bc** (BUILD.md's two appended sections kept, nothing else in conflict; drum-kits' commands are 0, 128,
+  129, no clash with 103 or the backup ids 64..84). The local suite passed on 46aa3bc (ci_step test, 1,448 s); linux-hw fast-forwarded to it.
+- **Flash 33**, 2026-10-26T18:01:32Z: unit on `ORANGE CAT v0.6.2-46aa3b`, the pack this build's (a4e45b19..., unchanged), WHEEL and SHAPES as before.
+- PipeWire had taken the FM-1's new card after the flash (and the AUDIO4c's inputs): the FM-1 card profile set to off and the AUDIO4c's to
+  output:analog-surround-71 (its outputs kept for playback); the captures then open again.
+- **DRUM-X TECHNO RAW, 20 s** (`~/fm1-hw/drumkits/kit_table.py`, worst us / late / DAC silences; KIT_PUT for the kits):
+
+| Tracks | factory kit | PAN off the centre and TUNE moved on every lane | linux-hw's last (2026-10-25) |
+|---|---|---|---|
+| 1 | 1,037 / 0 / 0 | 1,222 / 0 / 0 | 1,096 / 0 |
+| 2 | 1,569 / 0 / 0 | 1,765 / 0 / 0 | 1,648 / 0 |
+| 3 | 2,040 / 0 / 0 | 2,317 / 0 / 0 | 2,083 / 0 |
+| 4 | 2,271 / 0 / 0 | **2,662 / 36 / 0** | 2,369 / 0 |
+
+  One track with every value in use (PUNCH, ATK+, LAYER, BEND, TONE, HANDS, DUCK, DECAY too): 1,216 / 0 / 0. The factory row is within the noise of
+  linux-hw's. **The pan and tune cost +12 to +18 %** (drum-kits' estimate: about +9 %), and four such tracks run late (36 in 20 s): over the acceptance
+  line (0.6.2: none late). **USB holes are not usable in this session** (129 with no late render at one factory track, 46,109 once: the USB capture,
+  since the profile change), so late and DAC silences are the columns here. Tracks and parameters put back.
+- Left for the user from drum-kits' list: a kit saved, power off and on, reloaded; an old backup restored on this build (a restore); by ear: L/C/R
+  on the speaker and headphones, the centre detent on KNOB 4, DUCK on a bass track.
