@@ -725,53 +725,43 @@ SECTIONS {{
     # generated header does not hold; the module header carries it, built with the firmware's compiler and flags. tools/oc_manifest.py reads it from here, so the
     # manifest and the set manifests name what the unit compares (before, they named FW_API_ID alone and the site and "Install set" refused every module).
     (GEN / "fw_api_iface.h").write_text(f"/* written by tools/build.py --module: FW_API_IFACE as the module headers carry it */\n#define FW_API_IFACE_BUILT 0x{iface:08X}u\n")
-    # the package
+    # the package: (0.14.1) one image linked at 0 and its relocation list (OCM format 2). The variants are still linked: each is the proof that the
+    # list makes it. (0.14.1, linux-hw) Format 1's writer (the variants package, OC_OCM_VARIANTS=1) is gone: SHAPES installed on the unit from a
+    # relocatable package equals the variants package's install byte for byte at both starts and renders in the same time (hw/LOG.md, Flash 28).
+    # The readers keep format 1 for the files already made (tools/ocflash.py, the page, the card).
     n = len(variants)
-    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 1, n, iface, api_addr, engine, state_size, pack_hash,
-                                 spec["name"].encode(), api_version, api_size, sectors))
-    off = (len(head) + 16 * n + 4 + 3) & ~3
-    table = bytearray()
-    for start, img in variants:
-        table += struct.pack("<IIII", start, len(img), zlib.crc32(img) & 0xFFFFFFFF, off)
-        off += len(img)
-    head += table
-    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
-    ocm = bytes(head) + b"".join(img for _, img in variants)
-    # (0.14.1) one image linked at 0 and its relocation list (OCM format 2), unless OC_OCM_VARIANTS=1 asks for the variants package above (format 1, kept
-    # until a relocated module has been installed on the unit and measured). The variants are still linked: each is the proof that the list makes it.
-    if os.environ.get("OC_OCM_VARIANTS") == "1":
-        notes.append(f"package {name}: the variants package (format 1): OC_OCM_VARIANTS=1")
-    elif len(set(pads.values())) != 1:
-        notes.append(f"package {name}: the variants package (format 1): the starts need different layouts for the update loader's record test {pads}")
-    else:
-        rel, why = module_reloc(name, obj, mdir, ldtext[variants[0][0]], variants, lo, cost)
-        if not rel:
-            errors.append(f"{name}: no relocatable package: {why}")
-            (OUT / f"{name}-{(SRC / 'VERSION').read_text().strip() if (SRC / 'VERSION').exists() else '0'}.ocm").unlink(missing_ok=True)
-            return errors, notes
-        img0, words, count, skipped = rel
-        lst = struct.pack(f"<{len(words)}I", *words)
-        head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 2, 1, iface, api_addr, engine, state_size, pack_hash,
-                                     spec["name"].encode(), api_version, api_size, sectors))
-        off = (len(head) + 32 + 8 * n + 4 + 3) & ~3
-        head += struct.pack("<IIII", ocflash.OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
-        head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
-        for start, img in variants:
-            head += struct.pack("<II", start, zlib.crc32(img) & 0xFFFFFFFF)
-        head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
-        head += b"\0" * (off - len(head))
-        v1 = len(ocm)
-        ocm = bytes(head) + img0 + lst
-        if ocflash.ocm_images(ocm) != dict(variants):
-            errors.append(f"{name}: the relocatable package does not read back as its variants")
-            return errors, notes
-        notes.append(f"package {name}: relocatable (format 2): one image of {len(img0)} B linked at 0 and {len(words)} relocations "
-                     f"({sum(w >> 24 == ocflash.RELOC_ABS32 for w in words)} ABS32, {sum(w >> 24 == ocflash.RELOC_MOV32 for w in words)} MOV32; "
-                     f"{dict(sorted(count.items()))}), the image of start {' and '.join(str(s) for s, _ in variants)} made from them byte for byte; "
-                     f"{len(ocm)} B (the variants package: {v1} B)")
     vf = SRC / "VERSION"
-    ver = vf.read_text().strip() if vf.exists() else "0"
-    out = OUT / f"{name}-{ver}.ocm"
+    stale = OUT / f"{name}-{vf.read_text().strip() if vf.exists() else '0'}.ocm"     # (the package's name: removed on an error)
+    if len(set(pads.values())) != 1:
+        errors.append(f"{name}: no package: the starts need different layouts for the update loader's record test {pads} (one relocated image cannot "
+                      f"make them; format 1, which could, is no longer written)")
+        stale.unlink(missing_ok=True)
+        return errors, notes
+    rel, why = module_reloc(name, obj, mdir, ldtext[variants[0][0]], variants, lo, cost)
+    if not rel:
+        errors.append(f"{name}: no relocatable package: {why}")
+        stale.unlink(missing_ok=True)
+        return errors, notes
+    img0, words, count, skipped = rel
+    lst = struct.pack(f"<{len(words)}I", *words)
+    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 2, 1, iface, api_addr, engine, state_size, pack_hash,
+                                 spec["name"].encode(), api_version, api_size, sectors))
+    off = (len(head) + 32 + 8 * n + 4 + 3) & ~3
+    head += struct.pack("<IIII", ocflash.OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
+    head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
+    for start, img in variants:
+        head += struct.pack("<II", start, zlib.crc32(img) & 0xFFFFFFFF)
+    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
+    head += b"\0" * (off - len(head))
+    ocm = bytes(head) + img0 + lst
+    if ocflash.ocm_images(ocm) != dict(variants):
+        errors.append(f"{name}: the relocatable package does not read back as its variants")
+        return errors, notes
+    notes.append(f"package {name}: relocatable (format 2): one image of {len(img0)} B linked at 0 and {len(words)} relocations "
+                 f"({sum(w >> 24 == ocflash.RELOC_ABS32 for w in words)} ABS32, {sum(w >> 24 == ocflash.RELOC_MOV32 for w in words)} MOV32; "
+                 f"{dict(sorted(count.items()))}), the image of start {' and '.join(str(s) for s, _ in variants)} made from them byte for byte; "
+                 f"{len(ocm)} B (the variants, {sum(len(i) for _, i in variants)} B)")
+    out = stale
     out.write_bytes(ocm)
     notes.append(f"package {out.name}: {len(ocm)} B, {'relocatable, ' if ocm[4] == 2 else ''}{n} variants, engine {engine} {spec['name']}, state {state_size} B, "
                  f"interface {iface:08x}, table at {api_addr:#x}")

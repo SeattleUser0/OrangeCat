@@ -11,9 +11,9 @@ The JieLi toolchain is not on the host, so `tc` is replaced: compile, nm, ld, ob
 shape the real link gives (header page, code from 0x100). What is checked is build.py's own work: the starts a module of N
 sectors may have (0 and 6 for a 6 sector module in the 12 sector area; 12 is outside), the link script for each, the header checks
 (each refusal), the fields filled after the link (length, crc, hcrc), and the package (.ocm): its header, its table, every
-variant's CRC-32 and offset, and that the image in the package is the image that would be programmed. The variants package (format 1) is
-checked with OC_OCM_VARIANTS=1; then (0.14.1) the relocatable package (format 2) with the relocations of the base-0 link stood in for
-(tools/module_relocs.py's reader of a real ELF: the made images differ between starts in the header's engine_ptr and link_addr words only).
+start's CRC-32, and that the image the package gives each start is the image that would be programmed. (0.14.1) The package is the
+relocatable one (format 2), with the relocations of the base-0 link stood in for (tools/module_relocs.py's reader of a real ELF: the made
+images differ between starts in the header's engine_ptr and link_addr words only); format 1's writer is gone (its readers stay).
 
   python3 tests/module_build_test.py
 """
@@ -56,13 +56,16 @@ def fake_image(base, size=6000, pad=0, tail=None, **over):
     """the linked image the real toolchain would give: header fields as shapes_mod.c sets them, zeros to 0x100, then code.
     pad: bytes the link script moved the code on (0.10.1). tail: None, or where a record like the update loader's is planted:
     "moves" (in the code, on sector 0's tail when pad is 0, so moving the code on clears it), "sector1" (the same on sector 1's
-    tail), "always" (on sector 0's tail whatever pad is: no placement clears it)."""
+    tail), "always" (on sector 0's tail whatever pad is: no placement clears it), "start6" ("moves" at start 6 only: the starts
+    then need different layouts)."""
     f = dict(magic=build.FW_MOD_MAGIC, iface=IFACE, api_size=60, api_version=3, api_addr=API_ADDR, engine=14, state_size=2000,
              engine_ptr=base + 0x300, link_addr=base, pack_hash=PACK_HASH, cost=0, version=0x00010000, length=0, crc=0, hcrc=0)
     f.update(over)
     names = build.MOD_NAMES
     head = build.MOD_HDR.pack(*[f[k] for k in names])
     code = bytearray((i * 7 + 3) & 0xFF for i in range(size))
+    if tail == "start6":
+        tail = "moves" if base == ocflash.xip(0xCE000) else None
     if tail in ("moves", "sector1"):
         at = (0xF00 if tail == "moves" else 0x1F00) - build.FW_MOD_CODE_OFF              # the image offset 0xF00 / 0x1F00 when pad is 0
         code[at:at + 80] = record_at()
@@ -103,7 +106,10 @@ def run(fake, mods=None):
     return build.build_module("shapes")
 
 
-os.environ["OC_OCM_VARIANTS"] = "1"                       # (0.14.1) the variants package first (format 1); the relocatable one below
+import module_relocs  # noqa: E402
+real_relocs = module_relocs.relocs
+STAND_IN = [(28, 8, 1), (32, 8, 1), (0x200, 2, 1)]       # (0.14.1) ABS32 engine_ptr, ABS32 link_addr, a PC-relative jump (left out)
+module_relocs.relocs = lambda p: STAND_IN
 
 
 # the starts
@@ -125,35 +131,36 @@ check("the link scripts place the module at XIP 0x020C4000 and 0x020CA000 (flash
 check("the link scripts put the header first and the code at +0x100, and discard nothing else",
       all("KEEP(*(.modhdr)) . = _modstart + 0x100;" in l for l in lds))
 
-# the package
+# the package (format 2: one image, its list, each start's CRC-32)
 magic, ver, n, iface, api_addr, engine, state, phash = struct.unpack_from("<IHHIIIII", ocm, 0)
 name = ocm[28:44].rstrip(b"\0")
 api_version, api_size, sectors = struct.unpack_from("<III", ocm, 44)
-check("package header: magic, version 1, 2 variants, the interface, table address, engine 14, state size, pack hash",
-      (magic, ver, n, iface, api_addr, engine, state, phash) == (build.OCM_MAGIC, 1, 2, IFACE, API_ADDR, 14, 2000, PACK_HASH))
+check("package header: magic, version 2, one image, the interface, table address, engine 14, state size, pack hash",
+      (magic, ver, n, iface, api_addr, engine, state, phash) == (build.OCM_MAGIC, 2, 1, IFACE, API_ADDR, 14, 2000, PACK_HASH))
 check("package header: name SHAPES, api version 3, api size 60, 6 sectors", (name, api_version, api_size, sectors) == (b"SHAPES", 3, 60, 6))
-tab = 56
-rows = [struct.unpack_from("<IIII", ocm, tab + 16 * i) for i in range(n)]
-hcrc_at = tab + 16 * n
-check("the table's last word is the CRC-32 of everything before it", struct.unpack_from("<I", ocm, hcrc_at)[0] == zlib.crc32(ocm[:hcrc_at]) & 0xFFFFFFFF)
-check("variants start at sectors 0 and 6", [r[0] for r in rows] == [0, 6])
-ok = True
-for start, length, crc, off in rows:
-    img = ocm[off:off + length]
-    ok &= len(img) == length and zlib.crc32(img) & 0xFFFFFFFF == crc and length % 4 == 0 and off % 4 == 0
+m = struct.unpack_from("<I", ocm, 84)[0]
+starts = [struct.unpack_from("<II", ocm, 88 + 8 * k) for k in range(m)]
+hcrc_at = 88 + 8 * m
+check("the header's last word is the CRC-32 of everything before it", struct.unpack_from("<I", ocm, hcrc_at)[0] == zlib.crc32(ocm[:hcrc_at]) & 0xFFFFFFFF)
+check("the package names starts 0 and 6", [s for s, _ in starts] == [0, 6])
+imgs = ocflash.ocm_images(ocm)
+ok = sorted(imgs) == [0, 6]
+for start, crc in starts:
+    img = imgs[start]
+    length = len(img)
+    ok &= zlib.crc32(img) & 0xFFFFFFFF == crc and length % 4 == 0
     h = dict(zip(build.MOD_NAMES, build.MOD_HDR.unpack_from(img, 0)))
     ok &= h["length"] == length and h["crc"] == zlib.crc32(img[0x100:]) & 0xFFFFFFFF
     ok &= h["hcrc"] == zlib.crc32(img[:build.MOD_HDR.size - 4]) & 0xFFFFFFFF
     ok &= h["link_addr"] == ocflash.xip(0xC8000 + start * 0x1000) == 0x02000000 - 0x4000 + 0xC8000 + start * 0x1000
-check("every variant: its length, its CRC-32 in the table, the header's length / crc / hcrc, its link address", ok)
-check("the images are the last thing in the file and fill it", rows[-1][3] + rows[-1][1] == len(ocm))
-check("the variants differ only where the link address does (same length, different bytes)",
-      rows[0][1] == rows[1][1] and ocm[rows[0][3]:rows[0][3] + rows[0][1]] != ocm[rows[1][3]:rows[1][3] + rows[1][1]])
+    ok &= img == (build.OUT / "module" / f"shapes.{start}.img").read_bytes()
+check("every start: its image's CRC-32 as the package names it, the header's length / crc / hcrc, its link address, the variant's bytes", ok)
+check("the images differ only where the link address does (same length, different bytes)", len(imgs[0]) == len(imgs[6]) and imgs[0] != imgs[6])
 check("the report says the size of each variant and the package", any("start 0" in x for x in notes) and any(x.startswith("package shapes-") for x in notes))
 
 # the update loader's record rule on the module's sector tails (0.10.1)
-check("a good image has no sector tail like an update record, and the first link was not padded", fk.pads == [0, 0])
-imgs = [ocm[r[3]:r[3] + r[1]] for r in rows]
+check("a good image has no sector tail like an update record, and no link was padded (the two starts and the base-0 link)", fk.pads == [0, 0, 0])
+imgs = [imgs[0], imgs[6]]
 check("every image in the package passes ocflash.tail_hit (the loader's record rule)", all(ocflash.tail_hit(i) < 0 for i in imgs))
 check("ocflash.tail_hit finds a record on sector 0's tail, on sector 1's, and none on the same bytes moved by 4",
       ocflash.tail_hit(b"\0" * 0xF00 + record_at()) == 0 and ocflash.tail_hit(b"\0" * 0x1F00 + record_at()) == 1 and
@@ -161,18 +168,23 @@ check("ocflash.tail_hit finds a record on sector 0's tail, on sector 1's, and no
 fk = Fake(tail="moves")
 errors, notes = run(fk)
 ocm2 = (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").read_bytes()
-rows2 = [struct.unpack_from("<IIII", ocm2, tab + 16 * i) for i in range(2)]
-imgs2 = [ocm2[r[3]:r[3] + r[1]] for r in rows2]
-check("a record on sector 0's tail is cleared by moving the code on 4 bytes: two links a start, no error", errors == [] and fk.pads == [0, 4, 0, 4])
+imgs2 = [ocflash.ocm_images(ocm2)[s] for s in (0, 6)]
+check("a record on sector 0's tail is cleared by moving the code on 4 bytes: two links a start (and the base-0 link moved too), no error",
+      errors == [] and fk.pads == [0, 4, 0, 4, 4])
 check("the moved image: 4 bytes longer, its code starts at 0x104, header length / crc / hcrc agree, no tail like a record",
-      all(len(b) == r[1] and r[1] == len(i) + 4 and not any(b[0x100:0x104]) and ocflash.tail_hit(b) < 0 and
+      all(len(b) == len(i) + 4 and not any(b[0x100:0x104]) and ocflash.tail_hit(b) < 0 and
           build.MOD_HDR.unpack_from(b, 0)[12] == len(b) and build.MOD_HDR.unpack_from(b, 0)[13] == zlib.crc32(b[0x100:]) & 0xFFFFFFFF
-          for b, r, i in zip(imgs2, rows2, imgs)))
+          for b, i in zip(imgs2, imgs)))
 check("the link scripts of the moved build start the code at +0x104", "_modstart + 0x104;" in Path(build.OUT / "module" / "shapes.0.ld").read_text())
 check("the report says the code was moved", sum("code moved 4 B" in x for x in notes) == 2)
 fk = Fake(tail="sector1", size=9000)
 errors, notes = run(fk)
-check("a record on sector 1's tail is cleared the same way", errors == [] and fk.pads == [0, 4, 0, 4])
+check("a record on sector 1's tail is cleared the same way", errors == [] and fk.pads == [0, 4, 0, 4, 4])
+fk = Fake(tail="start6")
+errors, notes = run(fk)
+check("(0.14.1) starts that need different layouts: no package (one relocated image cannot make both; format 1 is no longer written)",
+      any("different layouts" in e for e in errors) and fk.pads == [0, 0, 4] and
+      not (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").exists())
 fk = Fake(tail="always")
 errors, notes = run(fk)
 check("no placement clears a record that follows the code: refused after 64 links a start, naming the loader's test",
@@ -199,9 +211,6 @@ refused("filled length / crc / hcrc already (the link must leave them zero)", Fa
 refused("a module that does not fit its sectors", Fake(size=6 * 4096), "do not fit")
 
 # (0.14.1) the relocatable package (format 2): the base-0 link's relocations stood in for (ABS32 at the header's engine_ptr and link_addr words)
-import module_relocs  # noqa: E402
-del os.environ["OC_OCM_VARIANTS"]
-real_relocs = module_relocs.relocs
 ocm_path = ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm"
 try:
     module_relocs.relocs = lambda p: [(28, 8, 1), (32, 8, 1), (0x200, 2, 1)]       # ABS32 engine_ptr, ABS32 link_addr, a PC-relative jump (left out)
@@ -224,7 +233,7 @@ try:
     vimg = {s: (build.OUT / "module" / f"shapes.{s}.img").read_bytes() for s in (0, 6)}
     check("relocatable: ocflash.ocm_images gives each start the variant's image byte for byte (and the start's CRC-32 the package names)",
           imgs == vimg and all(zlib.crc32(vimg[s]) & 0xFFFFFFFF == c for s, c in starts))
-    check("relocatable: the report names the list and both sizes", any("relocatable (format 2)" in x and "the variants package:" in x for x in notes))
+    check("relocatable: the report names the list and both sizes", any("relocatable (format 2)" in x and "the variants," in x for x in notes))
     module_relocs.relocs = lambda p: [(32, 8, 1)]                               # engine_ptr's relocation missing: the proof fails
     errors, _ = run(Fake())
     check("relocatable: a list that does not make a start's variant stops the build (no package)",
@@ -232,14 +241,8 @@ try:
     module_relocs.relocs = lambda p: [(28, 8, 1), (32, 8, 1), (0x300, 15, 1)]  # GOT16: a type the list cannot express
     errors, _ = run(Fake())
     check("relocatable: a relocation type the list cannot express stops the build", any("GOT16" in e for e in errors))
-    os.environ["OC_OCM_VARIANTS"] = "1"
-    module_relocs.relocs = lambda p: [(32, 8, 1)]
-    errors, notes = run(Fake())
-    check("OC_OCM_VARIANTS=1: the variants package (format 1), no base-0 link, whatever the relocations",
-          errors == [] and struct.unpack_from("<H", ocm_path.read_bytes(), 4)[0] == 1 and any("OC_OCM_VARIANTS=1" in x for x in notes))
 finally:
     module_relocs.relocs = real_relocs
-    os.environ.pop("OC_OCM_VARIANTS", None)
 
 # no mock left behind for the real tool
 import importlib  # noqa: E402

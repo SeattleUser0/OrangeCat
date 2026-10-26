@@ -502,8 +502,8 @@ The package (little endian): magic "OCMF" (0x464D434F), version u16 = 1, variant
 before it; then the images. An image's first 256 bytes are the header page (`fw_mod_hdr_t`, 60 bytes since 0.11.0, the rest zero), its code starts at byte 256; its CRC
 (zlib) covers bytes 256..length (at 52 of the header) and the header's own CRC (at 56) covers bytes 0..55.
 
-(0.14.1) **Format 2, the relocatable package** (what `tools/build.py --module` writes; `OC_OCM_VARIANTS=1` still builds format 1, kept until a relocated
-module has been installed on the unit and measured). The same 56 bytes with version u16 = 2 and the variant count 1; then one 16-byte row {0xFFFFFFFF
+(0.14.1) **Format 2, the relocatable package** (what `tools/build.py --module` writes; since a relocated SHAPES was installed on the unit and measured equal to
+the variants package's, the only format it writes: format 1 is still read, by the page, the card and tools/ocflash.py). The same 56 bytes with version u16 = 2 and the variant count 1; then one 16-byte row {0xFFFFFFFF
 (relocatable: the image is linked at address 0), image length, CRC-32 of the image, file offset}; then 16 bytes {relocation count n (at most 2048), file
 offset of the list, CRC-32 of the list's 4 x n bytes, start count m (1..8)}; then m rows of 8 bytes {start sector index, CRC-32 of the image that start
 gets}; then a CRC-32 of everything before it; then the image, then the list. A list word is a site: bits 0..23 its byte offset in the image (the header

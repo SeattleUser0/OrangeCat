@@ -1,6 +1,6 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.12
+**Version:** 0.13
 **Date:** October 26, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) has its proof of concept built in 0.10.0 on the same branch ("The SHAPES module, as built"):
@@ -10,6 +10,9 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.13 (branch linux-hw): format 2 measured on the unit ("One image and a relocation list", the end): SHAPES installed from the relocatable package
+  equals the variants package's install byte for byte at both starts, and renders in the same time; **format 1's writer is gone** (build.py
+  writes format 2 only; the readers keep format 1 for old files).
 - 0.12 (branch op1r-candidates): "One image and a relocation list" (under "The module experiment"): the experiment (exp/relocs) reproduced every
   variant of SHAPES, the Prophet and WHEEL byte for byte from one image linked at 0 and a list of ABS32 words and MOV_ABS32 constants; the module
   package's format 2 built on it (one image, its list, each start's CRC-32), applied by the page and the card at install time, the loader unchanged;
@@ -819,10 +822,16 @@ order, at most 2,048. Where the list is applied:
 | SUPERSAW | 3,436 B | 1,860 B | 20 (20, 0) |
 | DDDD | 8,668 B | 4,480 B | 21 (20, 1) |
 
-**The variants path is kept**: `OC_OCM_VARIANTS=1` (the build's environment) writes format 1 as before, and the page and the card read both. It stays
-until the Linux session has installed a relocated module on the unit (from the page with tools/hw/oc_install.mjs, and from the card) and measured it
-against the same module installed from a variants package (the flash read back should be identical; the render times the same); then format 1's writer
-can go (the readers keep it for old files).
+**Measured on the unit, and format 1's writer gone** (0.14.1, branch linux-hw, Flash 28: linux-hw 5c61037 built twice, with and without
+`OC_OCM_VARIANTS=1`, the firmware and pack byte-identical between the two; hw/LOG.md). SHAPES installed from the page's code (tools/hw/oc_install.mjs)
+four times, beside itself each time, so that the relocatable package and the variants package each went to both starts; after each install the
+start's 6 sectors were read back over USB (editor command 109's plaintext read, an OC_SFC_PROBE build): **identical, 24,576 bytes at each start**,
+and equal to the build's variant image followed by the erased tail. The four-track table (SHAPES RING BELL, 1 to 4 tracks, 20 s, at start 1):
+relocated 1,173 / 1,855 / 2,400 / 2,706 us worst, 0 / 0 / 0 / 115 late; variants 1,172 / 1,854 / 2,418 / 2,710, 0 / 0 / 0 / 119: the same.
+So tools/build.py writes format 2 only (`OC_OCM_VARIANTS` is gone); a module whose starts need different layouts for the update loader's record
+rule, which one relocated image cannot make, gets no package (none so far: `pad` is 0 in every build). The readers keep format 1 for files already
+made: tools/ocflash.py, the page (web/fm1oc.js, web/editor.html) and the card (card_install.c). **Not measured on the unit**: the card's install of a
+relocated module (it needs a card in the unit: the user's); tests/card_install_test.c covers it on the host.
 
 ## The proof of concept, the next steps (5c)
 
