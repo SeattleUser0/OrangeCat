@@ -1,33 +1,64 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Orange Cat web app: the names, the four knobs and the pictures the page shares with the unit's new interface.
 //
-// Session C designs that interface in parallel (docs/orangecat/UI_DESIGN.md on branch ui-design). When this was written the
-// document did not exist, so what is here is the unit's interface as it stands, marked GUESS where Session C may decide otherwise:
-//   - the four knobs of a sound are the unit's HOME (STAGE) knobs: the engine's knob[4] (engines.c, through tests/app_layout.c into
-//     LAYOUT.engines). PROPHET and CZ-1 put native patch values on STAGE, which the page cannot set by parameter number; for them,
-//     and for an engine the layout does not know (a module), the page shows E1..E4. GUESS: Session C's "four knobs, macros where
-//     needed" may name other parameters; the page reads the four from here only.
-//   - the knob colours are the unit's (lib/palette.js, from tools/gen_ui_palettes.py): knob k of track t is shade k of track t.
-//   - the tab names are the prompt's (Unit, Sounds, Steps, Arrange, Project, Settings). GUESS.
-//   - the engine pictures: a placeholder scene each (an animated line drawing, the engine's name, the four knob colours), drawn
-//     here, until Session C's scene descriptions exist as data.
+// Session C designs that interface in parallel: docs/orangecat/UI_DESIGN.md on branch ui-design (version 0.1, read at 776adb5; a
+// design to choose from, nothing built into the firmware yet). What the page takes from it, and what is still a guess:
+//   - the knob colours are FIXED, the cozies': KNOB 1 blue, 2 green, 3 white, 4 orange, on every track and palette (UI_DESIGN.md
+//     section 1; the RGB values of tests/ui_mockup.c KCOL). A track keeps its own colour for its numeral and name.
+//   - the four knobs of each engine are UI_DESIGN.md's table (section 2), names and order. A plain knob is the engine's parameter
+//     of that name (found by label among its EDIT values). A macro (a star in the table) needs P_MAC0..3 in the firmware, which
+//     does not exist yet: the page shows it, greyed, and does not write it. An engine the table does not name (SID, CZ-1,
+//     the Prophet before Session B) keeps the unit's HOME knobs of today (engines.c knob[], through tests/app_layout.c).
+//   - the pictures: MACRO, SHAPES, DRUM-X and WHEEL are Session C's scenes (lib/scenes.js, drawn by lib/scene_svg.js, a port of
+//     the interpreter); the other engines get a placeholder until their scenes are drawn.
+//   - the sheets' names (SOUND, ENV, MOD, FX, VOICE): the page has SOUND (the eight EDIT values, two rows of four). GUESS: the
+//     tab names Unit, Sounds, Steps, Arrange, Project, Settings are the prompt's; UI_DESIGN.md names none.
 //
 // Revisions:
-//   0.14.2: first version (Session D).
+//   0.14.2: first version (Session D); then UI_DESIGN.md 0.1 read: the fixed knob colours, its knob table, its scenes.
 
 import { LAYOUT } from "./layout.js";
 import { PALETTES } from "./palette.js";
+import { SCENES } from "./scenes.js";
+import { sceneSvg } from "./scene_svg.js";
 
 export const TABS = [
   { id: "unit", label: "Unit" }, { id: "sounds", label: "Sounds" }, { id: "steps", label: "Steps" },
   { id: "arrange", label: "Arrange" }, { id: "project", label: "Project" }, { id: "settings", label: "Settings" },
 ];
-export const SESSION_C_DOC = "docs/orangecat/UI_DESIGN.md (branch ui-design)";
+export const SESSION_C_DOC = "docs/orangecat/UI_DESIGN.md 0.1 (branch ui-design, 776adb5)";
+/* the cozies' colours, tests/ui_mockup.c KCOL: RGB(77, 158, 255), RGB(0, 226, 140), RGB(236, 236, 236), RGB(255, 128, 32) */
+export const KNOB_COLORS = ["#4D9EFF", "#00E28C", "#ECECEC", "#FF8020"];
+/* UI_DESIGN.md section 2: each engine's four knobs; "*" a macro (P_MACk, not in the firmware yet) */
+export const KNOB_TABLE = {
+  MACRO: ["HARM", "TIMB", "MRPH", "PLUCK*"], SHAPES: ["TIMB*", "COLR", "TONE*", "PLUCK*"], "DRUM-X": ["MRPH", "TUNE", "TONE", "DECY"],
+  WHEEL: ["SUB", "BODY", "TOP", "SPIN*"], PROPHET: ["CUTOFF", "RES", "ENV AMT", "SHAPE*"], SEM: ["CUT", "RES", "STAT", "DRIFT*"],
+  HADES: ["CUT", "RES", "DRV", "SUBS*"], FMBELL: ["RAT", "INDX", "DCAY", "FDBK"], SUPERSAW: ["DTUN", "MRPH", "SUB", "DRIV"], DDDD: ["SRC", "FDBK", "DSTR", "HAND"],
+};
 
 const P_E0 = LAYOUT.consts.P_E0;
 const NATIVE_STAGE = new Set([15, 19]);              /* CZ-1, PROPHET: STAGE's knobs are native patch values (ui.c stage_page) */
 
-/* the four knobs of engine e: track parameter ids, and where they came from */
+/* the four knobs of engine e: [{label, id (a track parameter, or null), macro}], and where they came from ("design" or "stage") */
+export function designKnobs(engine, info, pdesc) {
+  const name = info?.engines?.[engine] ?? LAYOUT.engines[engine]?.name ?? "";
+  const row = KNOB_TABLE[name];
+  const pe0 = info?.pe0 ?? P_E0;
+  if (row) {
+    const knobs = row.map((x) => {
+      const macro = x.endsWith("*"), label = x.replace("*", "");
+      let id = null;
+      if (!macro) for (let i = 0; i < 8; i++) if (pdesc?.[pe0 + i]?.label === label) { id = pe0 + i; break; }
+      return { label, id, macro };
+    });
+    /* (a plain knob the unit does not show under that name today, a native panel value: today's HOME knob in its place) */
+    const today = stageKnobs(engine, info).ids;
+    knobs.forEach((k, i) => { if (!k.macro && k.id === null) { k.id = today[i]; k.label = pdesc?.[today[i]]?.label || k.label; k.today = true; } });
+    return { knobs, source: "design" };
+  }
+  return { knobs: stageKnobs(engine, info).ids.map((id) => ({ label: pdesc?.[id]?.label || "", id, macro: false })), source: "stage" };
+}
+/* today's HOME (STAGE) knobs: track parameter ids */
 export function stageKnobs(engine, info) {
   const pe0 = info?.pe0 ?? P_E0;
   const g = LAYOUT.engines[engine];
@@ -39,9 +70,14 @@ export function stageKnobs(engine, info) {
 export const editIds = (info) => Array.from({ length: 8 }, (_, i) => (info?.pe0 ?? P_E0) + i);
 
 export function palette(name = "NIGHT") { return PALETTES.find((p) => p.name === name) || PALETTES[0]; }
-export const knobColor = (pal, track, k) => pal.knobs[track % 4][k % 4];
+export const knobColor = (pal, track, k) => KNOB_COLORS[k % 4];   /* (fixed: UI_DESIGN.md section 1; pal.knobs were today's track shades) */
 export const trackColor = (pal, track) => pal.tracks[track % 4];
 
+/* engine e's picture: Session C's scene where there is one, drawn with sources (input.s) and the track's colour */
+export function enginePicture(name, input) {
+  const sc = SCENES[name];
+  return sc ? sceneSvg(sc, input, { title: name + " (picture)" }) : null;
+}
 /* a placeholder scene for engine e (SVG text): a small animated line drawing, one shape a family, the knobs' colours as four
  * lamps. Deterministic for the number, so a test can hold it */
 export function engineScene(engine, name, colors, w = 240, h = 120) {

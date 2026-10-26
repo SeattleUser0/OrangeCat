@@ -11,7 +11,7 @@ import * as E from "./lib/editor_proto.js";
 import { TEXT } from "./lib/editor_text.js";
 import { Session } from "./lib/session.js";
 import * as K from "./lib/codec.js";
-import { TABS, stageKnobs, editIds, palette, knobColor, trackColor, engineScene, SESSION_C_DOC } from "./lib/model.js";
+import { TABS, designKnobs, editIds, palette, trackColor, engineScene, enginePicture, KNOB_COLORS, SESSION_C_DOC } from "./lib/model.js";
 import { PALETTES } from "./lib/palette.js";
 
 const L = K.LAYOUT, C = L.consts;
@@ -306,25 +306,50 @@ async function runSetHere(set) {
 
 /* ================================================================ Sounds === */
 let dragging = false;
+let sceneTimer = null, sceneHit = 0;
 function viewSounds() {
   const s = S.session;
   if (!s) return needUnit("tune its sounds");
   const d = s.dump, eng = d.engine, name = s.info.engines[eng] || "?", k = s.sel;
   const presetName = (s.names[eng] || [])[d.preset] ?? `#${d.preset}`;
-  const colors = [0, 1, 2, 3].map((i) => knobColor(S.pal, k, i));
-  const knobs = stageKnobs(eng, s.info);
+  const colors = KNOB_COLORS;
+  const design = designKnobs(eng, s.info, s.pdesc);
+  const box = el("div", { id: "scene" });
   const top = el("section", { class: "card wide" }, trackBar(),
     el("div", { class: "stage" },
-      el("div", { class: "scenebox", style: { "--tc": trackColor(S.pal, k) } }, el("div", { html: engineScene(eng, name, colors) }),
+      el("div", { class: "scenebox", style: { "--tc": trackColor(S.pal, k) } }, box,
         el("div", { class: "caption" }, el("b", { style: { color: trackColor(S.pal, k) } }, name), el("span", { class: "dim" }, presetName))),
-      el("div", {}, el("div", { class: "knobs" }, ...knobs.ids.map((id, i) => knobView(id, colors[i]))),
-        el("p", { class: "dim small", style: { marginTop: "10px" } }, knobs.source === "stage"
-          ? "The four knobs are the unit's HOME knobs for this engine. Drag up or down, scroll, or use the arrow keys."
-          : "The four knobs show E1 to E4 here (this engine's HOME knobs are not parameters the page can set)."))));
-  const edits = el("section", { class: "card" }, el("h2", {}, "Edit"),
-    el("p", { class: "dim small" }, `The eight EDIT values of ${name}${s.titles[eng] ? " (" + s.titles[eng].filter(Boolean).join(", ") + ")" : ""}.`),
+      el("div", {}, el("div", { class: "knobs" }, ...design.knobs.map((x, i) => (x.macro ? macroView(x, colors[i]) : knobView(x.id, colors[i])))),
+        el("p", { class: "dim small", style: { marginTop: "10px" } }, design.source === "design"
+          ? `The four knobs of ${name} in the new interface's order and colours (${SESSION_C_DOC}, section 2). A knob marked * is a macro the firmware does not have yet; it is shown, not written.`
+          : `${name} is not in the new interface's knob table yet: these are the unit's HOME knobs of today.`,
+          " Drag up or down, scroll, or use the arrow keys."))));
+  drawScene(box, eng, name, design);
+  clearInterval(sceneTimer);
+  sceneTimer = setInterval(() => { const b = document.getElementById("scene"); if (!b || S.tab !== "sounds") { clearInterval(sceneTimer); return; } drawScene(b, eng, name, design); }, 100);
+  const edits = el("section", { class: "card" }, el("h2", {}, "Sound"),
+    el("p", { class: "dim small" }, `The SOUND sheet: the eight values of ${name}${s.titles[eng] ? " (" + s.titles[eng].filter(Boolean).join(", ") + ")" : ""}, two rows of four. ENV, MOD, FX and VOICE stay on the unit for now.`),
     el("div", { class: "edits" }, ...editIds(s.info).map((id) => editView(id)).filter(Boolean)));
   return el("div", { class: "grid" }, top, edits, presetsView(), libraryView());
+}
+/* the picture: Session C's scene where the engine has one (its sources: the knobs' positions, a clock, a bob, phases at the knobs'
+ * rates, an envelope and a hit after a knob is turned; the page hears no sound, so the scope is a sine), else a placeholder */
+const sceneT0 = Date.now(), scenePh = [0, 0, 0, 0];
+function drawScene(box, eng, name, design) {
+  const s = S.session, now = Date.now(), t = (now - sceneT0) / 1000;
+  const q8 = (x) => { if (x.macro || x.id === null) return 128; const d = s.pdesc[x.id]; return d ? Math.round((s.dump.p[x.id] - d.min) * 256 / Math.max(1, d.max - d.min)) : 128; };
+  const k = design.knobs.map(q8);
+  k.forEach((v, i) => { scenePh[i] = (scenePh[i] + (0.1 + 2.9 * v / 256) * 0.1 * 256) % 256; });
+  sceneHit = Math.max(0, sceneHit - 40);
+  const input = { s: { K1: k[0], K2: k[1], K3: k[2], K4: k[3], ENV: 150 + Math.round(60 * Math.sin(t * 2)), HIT: sceneHit, GATE: 0, LFO: Math.round(256 * Math.sin(t * 1.3)),
+      NOTE: 0, TIME: Math.round((t % 1) * 256), WOB: Math.round(256 * Math.sin(t * Math.PI)), PH1: scenePh[0] | 0, PH2: scenePh[1] | 0, PH3: scenePh[2] | 0, PH4: scenePh[3] | 0 },
+    col: ["var(--text)", ...KNOB_COLORS, trackColor(S.pal, s.sel), "var(--dim)", "var(--bg)"],
+    scope: Array.from({ length: 64 }, (_, i) => Math.round(200 * Math.sin(i / 64 * Math.PI * 4 + t * 6))) };
+  box.innerHTML = enginePicture(name, input) ?? engineScene(eng, name, KNOB_COLORS);
+}
+function macroView(x, color) {
+  return el("div", { class: "knob macro", style: { "--kc": color }, title: "A macro (UI_DESIGN.md section 2): it needs P_MAC" + "0..3 in the firmware, which is not built yet" },
+    svgEl(`<svg viewBox="0 0 100 100" style="opacity:.45">${dial(0.5, color)}</svg>`), el("span", { class: "lab" }, x.label + "*"), el("span", { class: "val" }, "macro"));
 }
 const visible = (d) => d && d.max > d.min && !!d.label && d.label !== "-";
 function fmt(d, v) { if (!d) return String(v); const [a, u] = E.fmtValue(d, v); return u ? `${a} ${u}` : a; }
@@ -341,6 +366,7 @@ function knobView(id, color) {
     if (nv === v && !final) return;
     v = nv; s.dump.p[id] = v;
     svg.innerHTML = dial(frac(), color); svg.setAttribute("aria-valuenow", v); val.textContent = fmt(d, v);
+    sceneHit = 256;
     s.setParam(s.sel, id, v).catch((e) => say(e.message, true));
   };
   let y0 = 0, v0 = 0;
