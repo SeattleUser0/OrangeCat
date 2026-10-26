@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* (branch measure/core-split: a measurement build, never merged) DUB TAPE in the two-core runs: the research kernel (tools/dubtape/src,
- * from dub-tape de78843, with the spring) run as the plan's alternative A schedules it: a 32-sample block at a time (DD_BLOCK 32), as a
+ * from dub-tape 905436b, revision 0.5: the spring, the loop's allpass, the cut, the limiter; the cut and limiter left off) run as the plan's alternative A schedules it: a 32-sample block at a time (DD_BLOCK 32), as a
  * CPU1 job submitted before each block's tracks on the previous block's input and joined after them, before the effects' bus job. Its job
  * is counted as its own kind in core_stats.h (cs_kind CS_K_DUB). OC_DUB_BENCH=1 builds only; included by mix.c.
  *
@@ -12,7 +12,8 @@
  * states in .pool. Editor command 104 (web/EDITOR_PROTOCOL.md) configures and reads it; the cores' numbers are AUDIO_STATS schema 9. */
 #if OC_DUB_BENCH
 #define DD_BLOCK 32
-#define DD_SP_TANK 1024u                               /* (37 ms at the half rate is 816 samples) */
+#define DD_SP_TANK 1024u                               /* (37 ms at the half rate is 816 samples; in the loop 512 floats, 23 ms: the work a
+                                                          sample does not depend on its length) */
 #define DD_SP_D1 128u
 #define DD_SP_D2 256u
 #pragma push_macro("Q16")
