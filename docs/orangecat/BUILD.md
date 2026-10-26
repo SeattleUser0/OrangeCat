@@ -2791,14 +2791,14 @@ insert on each track; investigate the codebase and plan it, build nothing yet.
 
 ### Step 1: the prototype committed and run from the repository (Session A, October 26, 2026)
 
-- `tools/dubtape/` (commit b5973eb): the prototype's `src/` (dubdelay.c, dubdelay.h, dd_math.h, dd_scenes.h), `tools/` (measure.c, bench.c, render.c,
+- `tools/dubtape/` (commit 4bc9bc4): the prototype's `src/` (dubdelay.c, dubdelay.h, dd_math.h, dd_scenes.h), `tools/` (measure.c, bench.c, render.c,
   envelope.py, loops.py), its Makefile, README and .gitignore, copied unchanged from `/home/userzero/dubtape-research` (branch research/dub-tape, no
   commits there). Not the 45 WAVs (92 MB, `renders/*.wav` ignored). One line added to its .gitignore: `docs/`, where `make all-results` writes its tables
   (the committed copies are docs/orangecat/dubtape/).
-- **`make all-results`**, run from a clean `git archive` of b5973eb (host cc, 1 min 26 s): `RENDERS.csv` and `MEASUREMENTS.md` are **byte-identical** to
+- **`make all-results`**, run from a clean `git archive` of the committed tree (host cc, 1 min 26 s): `RENDERS.csv` and `MEASUREMENTS.md` are **byte-identical** to
   docs/orangecat/dubtape/; all **45 renders byte-identical** to the research copies; `BENCH_HOST.md` differs in its timings only, as it must (an x86 proxy,
-  and this run shared the PC with a firmware test suite: LITE 22k half-band, 2 heads, 11.9 / 41.8 us a block for one / four instances against the
-  committed 11.0-ish figures; not the unit's numbers either way).
+  and this run shared the PC with a firmware test suite: LITE 22k half-band, 2 heads, 11.89 / 41.81 us a block (median) for one / four instances against the
+  committed 11.78 / 42.02; not the unit's numbers either way).
 - **`make fm1`** (pi32v2 clang -O2, `-mcpu=r3 -mfprev1`, Orange Cat's flags; compile only): builds; the object's only external symbols are `memcpy` and
   `memset` (no soft-float calls: hardware float throughout). tools/loops.py on the noinline disassembly: run_lite's loops 52 and 181 instructions (129 a
   line sample + 52 a head), run_tape's 124 (a head) and 176 (a line) and 73 / 356, control_tick 93 and 141: the counts EVALUATION.md section 8 quotes.
