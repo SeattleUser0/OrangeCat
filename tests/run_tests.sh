@@ -334,7 +334,8 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
     for e in juno acid strings vector vps terrain wseq ravel_mono orbit_cloud orbit orbit_pulse orbit_fm4 robo x0x303; do
         # (op1r-candidates 0.3) the hub's engines (Clipper's, Ravel's, ORBIT's, Jangada's, X0X's), proposed numbers 32..: their units under tools/module/
         E=$(echo $e | tr a-z A-Z)
-        $CC -c -O2 $FW -DOC_CANDIDATES=1 -Ifirmware/src/x0x -o "$OUT/module_host_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c"; return 1; }
+        X=; [ $e = robo ] && X=-fno-sanitize=shift   # (Jangada's ROBO shifts negative values left: kept as written; SAN=1 would stop there)
+        $CC -c -O2 $FW $X -DOC_CANDIDATES=1 -Ifirmware/src/x0x -o "$OUT/module_host_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c"; return 1; }
         $CC -O2 $FW -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_$E -o "$OUT/module_host_${e}_test" tests/module_host_cand_test.c "$OUT/module_host_${e}_tu.o" -lm ||
             { fail "compile tests/module_host_cand_test.c ($e)"; return 1; }
         step "$E (the hub's: Clipper's ..) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \

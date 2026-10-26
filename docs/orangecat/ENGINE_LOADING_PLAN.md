@@ -1,6 +1,6 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.12
+**Version:** 0.13
 **Date:** October 26, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) has its proof of concept built in 0.10.0 on the same branch ("The SHAPES module, as built"):
@@ -10,6 +10,8 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.13 (branch op1r-candidates, the overnight list): "Shared backends" (WAVE, VECTOR and WSEQ on one wavetable format, the answer and its numbers; the
+  other shared pieces the candidates showed); the module area's table with the candidates of 0.3.
 - 0.12 (branch op1r-candidates): "One image and a relocation list" (under "The module experiment"): the experiment (exp/relocs) reproduced every
   variant of SHAPES, the Prophet and WHEEL byte for byte from one image linked at 0 and a list of ABS32 words and MOV_ABS32 constants; the module
   package's format 2 built on it (one image, its list, each start's CRC-32), applied by the page and the card at install time, the loader unchanged;
@@ -1231,10 +1233,73 @@ ENGINE_CANDIDATES.md has each one's full table). Starts are the firmware's (oc_m
 | FMBELL (24, proposed; op1r) | 1,620 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (SINE: the base set) |
 | SUPERSAW (25, proposed; op1r) | 1,672 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (SINE: the base set) |
 | DDDD (26, proposed; op1r) | 4,288 B | 2 | 4, at 0 or 6 | yes | yes | 0 B (its loop is the part's state, 10,772 B a track) |
+| MIXTUR (29, op1r) | 3,668 B | 1 | 4, at 0 or 6 | yes | yes | 0 B |
+| ARC (30, op1r) | 11,212 B | 3 | 4, at 0 or 6 | yes | yes | 0 B |
+| BRASS (28, op1r) | 14,648 B | 4 | 4, at 0 or 6 | yes | yes | 12,548 B (its warp table's quarter, op1r's sine) |
+| AETHER (27, op1r) | 2,696 B | 1 | 4, at 0 or 6 | yes | yes | 0 B |
+| CZ-1 (15, retired) | 15,476 B | 4 | 4, at 0 or 6 | yes | yes | 4,100 B (FM6_SIN) |
+| SID (3, retired) | 13,540 B | 4 | 4, at 0 or 6 | yes | yes | 640 B (the DACs) |
+| JUNO, ACID, STRINGS, VPS (32, 33, 34, 36, Clipper) | 3,904, 3,476, 3,352, 2,688 B | 1 | 4, at 0 or 6 | yes | yes | 0 B |
+| VECTOR (35, Clipper) | 25,456 B | 7 | 7, at 0 or 4 | no | no | 0 B (a part's frame cache, 5,380 B a track) |
+| TERRAIN (37, Clipper) | 18,964 B | 5 | 5, at 0 or 6 | yes | no | 0 B (a part's surface, 2,050 B a track) |
+| WSEQ (38, Clipper) | 16,252 B | 4 | 4, at 0 or 6 | yes | yes | 10,752 B (its bank) |
+| MONO (42, Ravel), CLOUD (43), SWARM (44), PULSE (50), FM4 (51) | 4,172, 4,024, 1,332, 1,508, 1,712 B | 1 to 2 | 4, at 0 or 6 | yes | yes | 0 B |
+| ROBO (46, Jangada), X0X303 (47) | 7,800, 11,920 B | 2, 3 | 4, at 0 or 6 | yes | yes | 0 B |
 
 Three modules at once: SHAPES at 0 and one 4-sector module at 6 fill sectors 0 to 9 (two sectors free, no start there); the Prophet at 4 and one at 0
 fill 0 to 11. Two of the small ones (WHEEL, SEM, HADES) take 0 and 6. The firmware's own hot set (SINE, 2,052 B of arena at boot) is the base every
 module reads through `fw_api_t base_hot` (ENGINE_CANDIDATES.md, "The base hot set").
+
+## Shared backends (0.13: branch op1r-candidates, the overnight list)
+
+**The question** (the brief, for Clipper's WAVE, VECTOR and WSEQ together): can they share one wavetable reader and one cached table format (one hot
+set of frames, one interpolating read, three engines on top) and stay three selectable engines?
+
+**What each reads, as Clipper writes them:**
+
+| | VECTOR | WSEQ | WAVE |
+|---|---|---|---|
+| Its waves | 16 single cycles (vector_tables.h, committed), each in three band-limited copies (512 / 128 / 32 points to harmonics 96 / 24 / 6): 21,504 B | FMX's: 13 tables of 1,024 points (10 waves, three with an 8-harmonic copy for high notes): 26,624 B; SINE and NOISE computed | 16 tables of 16 frames, each frame 128 harmonics as a spectrum (131,072 B, generated at build time), built by the main loop into 7 copies of 1,024 .. 16 points in RAM (65,024 B) for the one table playing |
+| A sample reads | 4 frames (the corners), linear between two points of the copy for its increment | 2 frames (the step and the next one fading in), linear between two points | 2 frames (POS's two neighbours), a cubic between four points of the copy for its increment |
+| Weights | bilinear from the joystick, ramped over a block | the crossfade's share of the step | POS's fraction |
+
+**The answer: yes, for the read and the format; no, for one hot set shared by three engines, without a firmware change.** All three are a weighted sum
+of up to four single-cycle frames at one phase, each frame read at the band-limited copy its increment allows: one format (a "bank": frames in three
+copies, 512 / 128 / 32 points to harmonics 96 / 24 / 6, 672 int16 a frame, VECTOR's own) and one read (a copy for the increment, linear between two
+points) serve all three, each engine keeping its own weights, and they stay three engines with their own numbers, controls and presets. Built:
+tools/module/clipper/wt_shared.h (the format, wts_level for the copy, wts_lerp for the read, and a per-part frame cache: wts_frame copies a frame into
+the part's arena block when the part's choice changes). VECTOR runs on it unchanged in sound (its format and read are the bank's: a build reading
+its table directly renders the same samples); WSEQ runs on it with FMX's eight table waves re-band-limited into a bank (tools/module/clipper/
+gen_wseq_bank.py: not Clipper's samples, a cleaner top octave); WAVE is not ported (below).
+
+**Why not one hot set for the three:** a module carries one engine (its header names one number), and each registered engine's hot set is copied on its
+own (engines.c eng_hot_take). VECTOR's, WSEQ's and WAVE's frames in one arena copy would need either a table set shared between modules (the loader and
+fw_api_t: a format and interface change) or one module registering three numbers (the header's format). Neither tonight.
+
+**The numbers** (bytes):
+
+| | Clipper's own (three separate formats) | On the shared format (as built or as it would be) | Saved |
+|---|---|---|---|
+| VECTOR, read per sample | 21,504 (flash; as a hot set, 21,504 of arena) | the bank in the module's flash and 5,376 a part (its four frames, copied on a change) | at one part 16,128 of arena (75 %); at four parts nothing (4 x 5,376 = 21,504) |
+| WSEQ, read per sample | 26,624 (FMX's tables) | 10,752 (eight frames, the module's hot set: all parts) | 15,872 (60 %) |
+| WAVE, RAM | 65,024 (one table's 7 copies) + 8,192 FFT scratch | 21,504 a table (16 frames), or 2,688 a part caching POS's two frames | 51,520 to 70,528 of RAM |
+| WAVE, flash | 131,072 (16 tables' spectra) | 21,504 a table as a bank: only one or two tables fit the module area beside the code | none: more flash a table (7 copies' worth of data is now stored, not built) |
+| The three, if one hot set held them | 21,504 + 26,624 + 65,024 = 113,152 | VECTOR's 16 + WSEQ's 8 + one WAVE table's 16 frames = 40 frames, 53,760 (fewer where WSEQ's waves are among VECTOR's: a bank built for both) | about 60 % (needs the firmware change above) |
+
+**Other shared backends the candidates showed** (each module carries its own copy today; one copy in the firmware would be an interface change, the base
+hot set's path, as SINE and TANH_Q15 became in 0.14.0):
+
+| Piece | Who reads it | Today |
+|---|---|---|
+| SINE through the base hot set | every op1r plugin (OP1_SINE), aether, VPS, TERRAIN, CLOUD, SWARM, FM4, ROBO, the ensemble LFOs | shared already (fw_api_t base_hot) |
+| op1r's own sine, a quarter wave (4,098 B) | brassophone (OP1G_EXACT_SINE); fmbell's feedback would be sample-exact with it | in the module's hot set |
+| FM6_SIN (1,025 floats) | the CZ-1 module; FM6 built in | the module's own constants (its hot set) beside the firmware's RAM table: a fw_api_t pointer would share it |
+| Clipper's TPT ladder | JUNO, ACID, VECTOR's and WAVE's MOOG model | clipper_dsp.h, compiled into each |
+| Felucca's polyBLEP oscillators | SEM, HADES, JUNO; Clipper's hy_saw (ACID, STRINGS) | felucca_osc.h, clipper_dsp.h |
+| A per-part copy of the frames playing | VECTOR (4 frames), TERRAIN (one surface) | wt_shared.h's cache, TERRAIN's own of the same shape |
+| Ravel's float filters (SH-101, ladder, MS-20, SEM) | Ravel's MONO | tools/module/ravel/rv_dsp.h |
+| X0X's fastmath.h | DRUM-X's 909 (built in), the CZ-1, X0X's 303 | the firmware's header, compiled into each |
+| A BBD chorus (FM-106's MN3009: 4 KB of int16 a stereo instance) | JUNO's CHOR, Shine On's ensemble, string machines | none yet: a part or bus effect, not an engine's |
 
 ## Order of work
 

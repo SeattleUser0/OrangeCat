@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.78  
+**Version:** 0.79  
 **Date:** October 26, 2026  
 **Tracks:** Orange Cat Specification v0.29
 
@@ -10,6 +10,12 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.79 (October 26, 2026, branch op1r-candidates, the overnight list; not on main, not released, not on the unit):** the gate's tables gain three
+  rows for every candidate (controls that survive, modulation preserved, shared backend); op1r's other four (mixtur, arc, brassophone, aether) through
+  the glue; the CZ-1 and SID back as modules in their own numbers, byte for byte against the built-in engines; Clipper's JUNO ACID STRINGS VECTOR VPS
+  TERRAIN WSEQ, Ravel's MONO, ORBIT's CLOUD SWARM PULSE FM4, Jangada's ROBO and X0X's 303 as modules (proposed engines 32..51); the shared wavetable
+  backend (tools/module/clipper/wt_shared.h); inventories (Clipper's WAVE FMX HYBRID, PHYS, granular, OP1_CLUSTER refused, the kalimba, FoMni, and
+  Part 5's eleven). See "The candidates, overnight (0.79)" at the end.
 - **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
   through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
   24..31 reserved), against op1r's own harness (tests/op1r_parity); the relocatable module package (.ocm format 2: one image and its relocation list,
@@ -2710,3 +2716,16 @@ start 0 CRC 27d8a221 both); the full run after removing .ci_quick is the record 
 step, PARALLEL 8): usb_host_test failed to compile (its stubs lacked oc_mod_link and the list's RAM: fixed); the boot package, power cut, update loader
 and recovery tests failed for the SDK path the local run had not set, and the CPU live-take test (timed) under the load of eight jobs: all pass alone. The development checks (op1r checkout needed): tests/op1r_parity/run.sh, all passed for the three.
 
+## The candidates, overnight (0.79, branch op1r-candidates)
+
+Status of every engine candidate (docs/orangecat/ENGINE_CANDIDATES.md has each one's table, its correctness and its proposed verdict; the summary
+table at its top). **Built and through the gate** (each a module in an OC_CANDIDATES build, host-tested with its golden lines; none on the unit yet):
+
+- **Done** (exact against the source): MIXTUR (29) and ARC (30) every sample op1r's; the CZ-1 (15) and SID (3) byte for byte the built-in engines'.
+- **Done** (within the stated tolerance against the source): BRASS (28) at -68 dB, AETHER (27) at -89 dB of op1r's renders.
+- **Done** (our own golden; the source's host build not run here): JUNO (32), ACID (33), STRINGS (34), VECTOR (35), VPS (36), TERRAIN (37), WSEQ (38),
+  MONO (42, Ravel), CLOUD (43), SWARM (44), PULSE (50), FM4 (51), ROBO (46), X0X303 (47).
+- **Not started, by verdict**: WAVE (39), FMX (40), HYBRID (41) (native patches past a module descriptor; WAVE's tables and RAM), GRANULAR (31: no RAM
+  sample), the kalimba (48) and FoMni (49) (whole instruments: a rewrite of their voice), PHYS (inventory: 12.9 KB a track).
+- **Blocked**: OP1_CLUSTER (45): Teenage Engineering's code and data, refused.
+- **Not tested on the unit**: all of the above; the commands in ENGINE_CANDIDATES.md, "The unit commands for 0.3's engines", and what to measure first.

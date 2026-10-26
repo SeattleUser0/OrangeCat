@@ -1,7 +1,7 @@
 # Orange Cat: adding an engine
 
-**Version:** 0.2
-**Date:** October 25, 2026
+**Version:** 0.5
+**Date:** October 26, 2026
 **Applies to:** firmware 0.13.7 and later (branches linux-hw and sonnet-work), built in or as a loadable module.
 
 The rules a new sound engine must follow to enter this repository. Each rule says why, with the number it comes from. The numbers are
@@ -9,6 +9,8 @@ the unit's, measured in the first session on a real FM-1 (hw/LOG.md; docs/orange
 measured"); where a number is the host's or the build's, it says so. A checklist closes the document.
 
 Revisions:
+- 0.5 (branch op1r-candidates): Stage 0's table has three more rows for every candidate: the controls that survive the port, the
+  modulation preserved, the shared backend.
 - 0.3 (branch engine-candidates): Stage 0, the feasibility gate (ENGINE_CANDIDATES.md); the firmware's own hot set (SINE, TANH_Q15) for every engine.
 - 0.2: one struct for new RAM state (the 0.13.7 image growth); MACRO's per-model costs (BUILD.md, Thirteenth run).
 - 0.1: first version, after the four-track hunt of BUILD.md's Twelfth run (the SHAPES regression and the hot sets).
@@ -19,6 +21,18 @@ Before the rules below, before pages, presets and a manual: **docs/orangecat/ENG
 translation unit and put through the gate (`tools/engine_gate.py`, run by CI on every module): its size and where it fits the module area, its state,
 the tables it reads per sample and what they would cost as a hot set, its loop cost, a sample-for-sample comparison with the original, then the unit's
 render times. A candidate whose verdict is "no" stops there.
+
+(0.5) Three more rows, written for every candidate in tools/engine_gate.py's GATE (the gate prints them; tests/engine_gate_test.py checks every
+candidate has them), because a port that keeps the sound can still lose the instrument:
+
+- **Controls that survive the port**: which of the source's parameters are on the eight EDIT controls, which are fixed at a value, which are lost
+  (a source with more than eight, a native patch past a module descriptor's 24 rows and 128 parameters, a control that is another firmware's part
+  effect, a sensor the FM-1 has not got);
+- **Modulation preserved**: what still moves the sound: the engine's own envelopes and LFOs, velocity, voice.c's pitch (glide, bend, the LFO, scales)
+  and amplitude, and which of the modulation matrix's destinations the engine reads (PITCH through m->inc or pitch16, CUT through m->cutoff, SHP
+  through m->shape, AMP, E1..E8 once a block);
+- **Shared backend**: a DSP piece the candidate has in common with others (a wavetable format and reader, a filter, an oscillator, the sine), and
+  whether it is shared already (the base hot set) or each module carries a copy (docs/orangecat/ENGINE_LOADING_PLAN.md, "Shared backends").
 
 ## 1. What an engine is here
 
