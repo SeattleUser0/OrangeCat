@@ -805,3 +805,26 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   `clock_gap_max_ms`). No USB event in the kernel log. Open: the source of the gap (the PC or the unit), see the user's clock item.
 - **Effects' cost** (`~/fm1-hw/fxcost/fxcost.py`; four MACRO VA BASS tracks, the chord on every step, 20 s a case; sends 100 / DIST 100 from every track):
   table in BUILD.md. All put back (tracks, parameters, the globals 35, 36, 37, 49, 72 equal).
+
+## October 26 (UTC): Flash 31 and project slot 1, the cause
+
+- **Flash 31**, 2026-10-26T16:14:15Z: sonnet-work 3ca2b56 (the Nightly's commit) + `OC_SFC_PROBE=1` only, no candidates (worktree `~/fm1-hw/wt-probe`; ci_step
+  build and test, the test passed in 1,415 s; fwsc 107d37cf...). Unit on `ORANGE CAT v0.6.2-3ca2b5`, the pack, WHEEL (start 0), SHAPES (start 1) as before.
+- **The record store read raw** (`~/fm1-hw/slot1/storedump.py`: command 109, mode 1, all 56 sectors; projects are records there, oc_store.c, not the old
+  bank sectors 0xA0000 + slot x 40 KB the first note named). Kept beside the backups: `Orange Cat-store-dump-2026-10-26.bin` (SHA-256 4dada835...) and
+  `.txt` (every sector's header). Sectors 22..39 hold the sample slot's data (no header, as designed), 18..21 erased; every record header and payload CRC
+  checks: **nothing erased under a record, no header that fails, nothing written over one**.
+- Read as the firmware reads it (`~/fm1-hw/slot1/inspect.c`: the dump on tests/cand_slot_test.c's harness; slot 4's CRC 7D3C03D7 equals the backup's
+  object 5): slot 1's record (PROJECT id 0, name "GPITLA") has eleven copies, seq 40..61. Current, seq 61: **every track on engine 24** (FMBELL, op1r's
+  proposed number); seq 60..57: engines 24 and 26 (DDDD); seq 56: SHAPES preset 5 on all four; seq 43..40: MACRO presets 2 / 0 / 1 / 20. A normal build
+  (20 engines) refuses seq 61 (proj_ok: an engine past its table): the slot shows OLD FORMAT, a backup has it empty. **None of the copies is the October
+  24 project** (D954DF93): every one is an autosave of what a measurement left on the tracks.
+- **The cause**: the autosave (ui_input.c autosave_poll: stopped, 5 s with no key and no USB packet) writes the music back to the slot it came from.
+  Between hardware scripts the unit rests, so a measurement's tracks went into slot 1, on normal builds too (seq 56: SHAPES); on the OC_CANDIDATES builds
+  (Flash 23: HADES 22 preset 2, which Flash 28's first boot showed; Flash 28: op1r's 24 and 26) that made the record unreadable to every other firmware.
+  Reproduced on the host, normal and OC_CANDIDATES=1 (32 and op1r-candidates' 52 entries) on one NOR: tests/cand_slot_test.c.
+- **Fix** (linux-hw d49f558): an OC_CANDIDATES build never writes a project or the template with a track on an engine from 20 on (the autosave skips,
+  SAVE says TEST ENGINE: NOT SAVED). Shipped builds unchanged. **Open**: the autosave still writes measurement tracks into the user's slot on a normal
+  build; until the scripts can hold it off (the lab guard, editor.c, is in lab builds only), AUTOSAVE OFF in Settings for hardware sessions, or the music
+  not loaded from a slot. Also seen on the host: loading a slot and resting rewrites it once (49 bytes: name padding 0 to space and one byte), wear only.
+- Slot 1 not restored (the user's go).

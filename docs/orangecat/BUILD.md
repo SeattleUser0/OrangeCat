@@ -2808,3 +2808,12 @@ Worst is one maximum (noisy, tens of us); load is AUDIO_STATS' peak load.
   the slicer about 100 us. With a ~2,130 us load, REVERB alone takes the unit over the late line.
 - USB holes with no late render (DJ filter HP 19, DIST CRUSH 14) are the USB capture's own, not the unit's; this is why the table keeps late and DAC silences
   beside them. DIST HARD's voices readout read 0 once (a missed reply field), its sound was normal.
+
+### Project slot 1: the cause (October 26, 2026)
+
+The slot's record was intact (every CRC checks, eleven copies in the record store, dumped over command 109 on Flash 31); its newest copy holds the op1r
+measurement's tracks (engine 24 on all four), which every normal build refuses, so the slot reads OLD FORMAT and a backup has it empty. The autosave had
+written each measurement's tracks into the slot the music came from (on normal builds too); the candidates' engine numbers made the last of them unreadable.
+None of the eleven copies is the October 24 project: the restore comes from the October 24 backup (the user's go). Fixed for measurement builds (linux-hw
+d49f558, tests/cand_slot_test.c: a candidates build never writes a project or the template with a candidate engine); open: hardware sessions on a normal
+build still autosave measurement tracks (AUTOSAVE OFF for them). Details, dumps and tools: hw/LOG.md, "Flash 31 and project slot 1, the cause".
