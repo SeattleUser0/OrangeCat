@@ -1,7 +1,7 @@
 # Orange Cat Build Document
 
-**Version:** 0.77  
-**Date:** October 25, 2026  
+**Version:** 0.78  
+**Date:** October 26, 2026  
 **Tracks:** Orange Cat Specification v0.29
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
@@ -10,6 +10,11 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
+  through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
+  24..31 reserved), against op1r's own harness (tests/op1r_parity); the relocatable module package (.ocm format 2: one image and its relocation list,
+  applied by the page and the card at install, the loader unchanged; the experiment on exp/relocs). See "op1r candidates and the relocatable package"
+  at the end.
 - **0.77 (October 25, 2026, evening):** Thirteenth run, the rest: Parts 2 to 7 on the unit, the post-list items (the Prophet module's hot set measured and not kept, engine-candidates merged, WHEEL shipped as 0.14.0 on linux-hw, SEM and HADES measured, Frodhes' tables read), the Nightly check fixed (workflow rev 18, republished: 89b4e79), the MENU settings out of PROJ_LAST's byte. See "Thirteenth run", "After the list" and "Status of the Thirteenth run".
 - **0.76 (October 25, 2026):** Thirteenth run: **the four-track fix is shipped as the Nightly** (`sonnet-work · ceccc1c · v0.6.2-ceccc1`; linux-hw merged into sonnet-work, CI run 40212043712, publish run 40212959451) and on the unit; 0.13.8 gave back 3,284 B of image the hot sets had cost by accident; MACRO measured model by model; the capture harness; the installer paths and the library on the unit; the hardware test surface (OC_HW_TEST). See "Thirteenth run".
 - **Engine candidates (October 25, 2026, branch engine-candidates; not on main, not released, not on the unit):** the feasibility gate (ENGINE_CANDIDATES.md, tools/engine_gate.py), the firmware's own hot set, WHEEL as a module (0.14.0), and Frodhes' Rhodes, Caravel's SEM and HADES through the gate. Section "Engine candidates" at the end.
@@ -2680,3 +2685,28 @@ recording and the step properties through the test surface, the standing four-tr
   STUT runs. **Amended, not trimmed**: with the base and SHAPES' sets, MACRO's set cut to one table fails as well, and the base and SHAPES' together fail
   without MACRO's (the base alone or SHAPES' alone fit); first fit at 4 KB blocks, not MACRO's size. GUIDE.md says it; the row is in the table, unchecked.
 - Workflow rev 20: the Nightly carries SHAPES, the Prophet and WHEEL (SEM and HADES, refused without OC_CANDIDATES, stay in the packages).
+
+## op1r candidates and the relocatable package (0.14.1, branch op1r-candidates, October 26, 2026)
+
+From linux-hw ce7b5c0. Not on main, not released, not flashed: the unit's rows are the Linux session's (ENGINE_CANDIDATES.md, "op1r", has its
+commands). The candidates' tables, the inventory and the tolerance: docs/orangecat/ENGINE_CANDIDATES.md, "op1r". The package: ENGINE_LOADING_PLAN.md,
+"One image and a relocation list".
+
+| What | Status |
+|---|---|
+| The glue (tools/module/op1r/op1_glue.h, op1_plugin.h): op1r's voice object over voice_t ph[2] and s[8], its 128-frame blocks kept per voice, OP1_PITCH_INC, OP1_VOICE_ENV, velocity, params from EDIT 1 and EDIT 2, note_off at the key up, voice_amp, OP1_SINE over SINE[1025]; the part's state for file-scope statics; its own __udivdi3 | **Done** |
+| fmbell (engine 24): 1,620 B, state 2,332 B a track; op1r's own sine: every sample equal; ours: -79 dB at the defaults, the feedback settings within op1r's own spread (chaotic in op1r itself). Proposed: go with limits | **Done** (CI); unit **Not started** |
+| supersaw (engine 25): 1,672 B, 2,332 B; ours within 4 LSB, -90 to -94 dB (SUB 0: equal). Proposed: go | **Done** (CI); unit **Not started** |
+| dddd (engine 26): 4,288 B, 10,772 B a track (its 8 KB loop); every sample equal to op1r's render. Proposed: go with limits (its cost is a part's, not a voice's) | **Done** (CI); unit **Not started** |
+| aether (27), brassophone (28), mixtur (29), arc (30): the inventory says what each needs (aether: the OP-1's accelerometer, which the FM-1 has not got; mixtur and arc: their portable C path, mixtur's clamp renamed) | **Not started** (the next session) |
+| granular (31): the slot's sampler recording, read per sample | **Blocked** (whether Orange Cat's sample slot can stand in: a question for the user) |
+| op1r's six effects: 176 KB of FX scratch each | not candidates |
+| The relocation experiment (exp/relocs 2517ec7, CI run 40261502427): SHAPES, the Prophet and WHEEL, every variant from one image linked at 0 and a list of ABS32 words and MOV_ABS32 constants, byte for byte; LONG_JUMP_23M2 PC-relative | **Done** |
+| The package format 2 (tools/build.py, tools/module_relocs.py, tools/ocflash.py apply_relocs; the page, web/fm1oc.js and web/editor.html; the card, card_install.c): packages at about half the size; the card +1,388 B of image, no RAM; format 1 behind OC_OCM_VARIANTS=1 | **Done** (host and CI); the unit's install of a relocated module and its measurement **Not started** |
+| The measurement build's engine table 32 long (OC_CANDIDATES): 23 a retired slot, 24..31 op1r's | **Done** |
+
+CI: .ci_quick runs 40262933000 (fmbell, supersaw) and 40263443298 (dddd), sizes and the gate green, their images byte-identical to the PC's build (fmbell
+start 0 CRC 27d8a221 both); the full run after removing .ci_quick is the record (the final report names it). Host tests on the PC (the workflow's test
+step, PARALLEL 8): usb_host_test failed to compile (its stubs lacked oc_mod_link and the list's RAM: fixed); the boot package, power cut, update loader
+and recovery tests failed for the SDK path the local run had not set, and the CPU live-take test (timed) under the load of eight jobs: all pass alone. The development checks (op1r checkout needed): tests/op1r_parity/run.sh, all passed for the three.
+
