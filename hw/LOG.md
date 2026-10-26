@@ -738,3 +738,23 @@ local suite passed on 5c61037 first (ci_step.py test, PARALLEL 8, 1,214 s, "CPU 
 - The tracks equal the snapshot before Flash 28 (MACRO 10 / 0 / 1 / 20, steps, levels, track 1 selected). Track 1's CHRD MAJ and VOIC OPEN set again (command 31,
   ids 81 and 82: the restart loaded project slot 1, which has them off); CLK 0 (it read 1 after the restart), ROUT 0, BUDGET 18; transport stopped.
   **The unit stays here.** A Nightly with today's linux-hw work (MACRO's units, the EDIT fix, format 2 only) is not published.
+
+### The AUDIO4c again, after the user's new Y cable and gain staging (on the Nightly, after Flash 29)
+
+`~/fm1-hw/a4c/`: `silence2.wav`, `cal2.json` (`a4c_cal.py`), `repeat2.json` (`a4c_repeat.py`, both inputs kept), `gaps.py`, `repeats.py`. Tracks put back (equal);
+track 1's CHRD MAJ / VOIC OPEN and CLK 0 read back unchanged.
+
+- Silence, 5 s: input 1 **-73.7**, input 2 **-73.6 dBFS RMS** (peaks -60.3, -59.9), not digital zero, the two alike.
+- RING BELL, three notes, both paths on one clock: USB peak -4.7 to -5.0 dBFS; inputs 1 and 2 -10.6 to -10.8, **equal** (0.0 to 0.1 dB, correlation 1.000,
+  residual -62.1 to -62.7 dB); **5.7 to 6.0 dB under the USB capture**: digital full scale at about -5.8 dBFS, **no clipping**; spectra against USB
+  **1.03 to 1.11 dB** (each input); **latency: the analog 4.96, 5.58, 5.49 ms ahead** (onsets: 4.75 to 5.46), inverted.
+- The two results again: four RING BELL tracks 2,677 us / **65 late**, USB **14 holes**; MALLET 2,848 / **1,529 late**, USB **254 holes**: as before. Both inputs:
+  0 by capture.py's hole tests. What the DAC does with a late half buffer, now readable: in MALLET's overload the analog falls 25 to 55 dB for about 2 ms
+  every 5 to 6 ms: a half buffer (2.9 ms) played as silence, or as a dip when the render finished part-way. Not a replay of the old half (a 128-frame window
+  equal to the one 256 frames before: 9 in the whole capture at -20 dB, none at -30).
+  - `dac_silences` (capture.py now; runs at the noise floor, under -62 dBFS, 1.5 to 4 ms, sound on both sides): MALLET **371 / 375** (inputs 1 / 2), four
+    RING BELL tracks **0**, the clean notes **0**. `dac_dips` (20 dB under the neighbours 2.5 ms away): MALLET 1,748, RING BELL 623 (its ring-modulated chords
+    dip by themselves), a clean note 1.
+  - **The counts do not agree with the USB's, and are not the same event**: 1,529 late renders are 254 USB holes (the USB service period) and 371 full
+    silences plus partial dips at the DAC. RING BELL's 65 late renders leave no silence at the DAC at all. capture.py keeps **usb as the default** for the
+    dropout counts the earlier results used; audio4c (both inputs again) for level, spectrum and the DAC's own gaps, and while USB is busy as a host.

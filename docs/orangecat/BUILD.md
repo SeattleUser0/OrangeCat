@@ -2741,3 +2741,7 @@ USB port is busy as a host; its leading 0.5 s of zeros is waited out. Four SHAPE
   ADDITIVE PAD still clean; the steals (309 to 464 in 8 s) leave nothing in the stream.
 - Host: the CPU live-take test on a fake clock (3b66d9a; 5 of 5 under 2 x nproc busy loops, and in the full suite); the TRACKER EDIT race fixed with a host
   test (e8d5fde).
+- **The AUDIO4c, second calibration** (the user's new Y cable and gain staging): inputs 1 and 2 equal (0.1 dB, residual -62 dB), floor -73.7 dBFS, 5.8 dB under
+  USB (no clipping), spectra within 1.1 dB, 5.0 to 5.6 ms ahead. The two results again on both paths: the USB counts as before (14 and 254 holes); at the DAC a
+  late half buffer plays as a 2 to 3 ms silence or dip, not a hole: capture.py's `dac_silences` finds 371 in MALLET's overload and none in four RING BELL
+  tracks or a clean note. The counts measure different events, so usb stays the default for dropouts.
