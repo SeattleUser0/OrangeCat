@@ -201,6 +201,7 @@ web_tests() {                                     # the editor mock's tables mus
         step "TransitFM1: verified package, backup, loader isolation and resume" node web/test_transit.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
         step "stock restore: the unmodified official V15 file is the image, CHECK HEAD range" node web/test_stock_restore.mjs
+        step "relocatable modules (Orange Cat 0.14.1): the page's relocation = ocflash.py's, the build's packages = their variants, damaged lists refused" node web/test_ocm.mjs
         if [ -f FM-1_v15.fwsc ]; then
             build v15_ldr ldr_test &&
                 step "original V15 back to Melodee" "$OUT/v15_ldr" FM-1_v15.fwsc build/melodee.fwsc

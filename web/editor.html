@@ -3083,16 +3083,56 @@ function ocmTails(img) {
   }
   return 0;
 }
+const OCM_RELOCATABLE = 0xFFFFFFFF, OCM_RELOC_MAX = 2048;
+/* (0.14.1) An .ocm of format 2 holds one image linked at 0 and its relocation list (tools/build.py, tools/ocflash.py apply_relocs: the same rules). A list
+ * word is a site: bits 0..23 its offset in the image, bits 24..31 its kind, 1 a 32-bit word holding an address, 2 a MOV_ABS32 instruction pair whose
+ * constant's halves sit at offset + 2 and + 4; the sites in increasing order, each inside the image, at most OCM_RELOC_MAX. ocmRelocate: the image for
+ * the address base, with the header's two CRCs filled as the build fills them (the code's from 0x100, the header's of bytes 0..55); null for a list the
+ * unit's card installer would refuse too. ocmParse relocates the image for every start the package names and keeps it only if its CRC-32 is the one
+ * the build proved for that start: what the page sends is byte for byte the image the variants package would have held. */
+function ocmRelocate(img0, words, base) {
+  if (words.length > OCM_RELOC_MAX) return null;
+  const img = img0.slice(), dv = new DataView(img.buffer, img.byteOffset, img.byteLength);
+  let prev = -1;
+  for (const w of words) {
+    const off = w & 0xFFFFFF, kind = w >>> 24;
+    if (off <= prev) return null;
+    prev = off;
+    if (kind === 1 && off + 4 <= img.length) dv.setUint32(off, (dv.getUint32(off, true) + base) >>> 0, true);
+    else if (kind === 2 && off + 8 <= img.length) {
+      const v = ((dv.getUint16(off + 2, true) | dv.getUint16(off + 4, true) << 16) + base) >>> 0;
+      dv.setUint16(off + 2, v & 0xFFFF, true); dv.setUint16(off + 4, v >>> 16, true);
+    } else return null;
+  }
+  dv.setUint32(52, crc32(img.subarray(0x100)), true);
+  dv.setUint32(56, crc32(img.subarray(0, 56)), true);
+  return img;
+}
 function ocmParse(bytes) {
   const fail = (key) => ({ ok: false, key });
   if (!bytes || !bytes.buffer || bytes.length < 60) return fail("modWrongFile");
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (dv.getUint32(0, true) !== OCM_MAGIC || dv.getUint16(4, true) !== 1) return fail("modWrongFile");
-  const n = dv.getUint16(6, true), tab = 56, hcrcAt = tab + 16 * n;
-  if (n < 1 || n > 8 || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), ver = dv.getUint16(4, true);
+  if (dv.getUint32(0, true) !== OCM_MAGIC || (ver !== 1 && ver !== 2)) return fail("modWrongFile");
+  const n = dv.getUint16(6, true), tab = 56, m = ver === 2 && bytes.length >= tab + 32 ? dv.getUint32(tab + 28, true) : 0, hcrcAt = ver === 2 ? tab + 32 + 8 * m : tab + 16 * n;
+  if (n < 1 || n > 8 || (ver === 2 && (n !== 1 || m < 1 || m > 8)) || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
   let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
   const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
-              name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [] };
+              name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [], format: ver };
+  if (ver === 2) {
+    const length = dv.getUint32(tab + 4, true), off = dv.getUint32(tab + 12, true), nrel = dv.getUint32(tab + 16, true), roff = dv.getUint32(tab + 20, true);
+    if (dv.getUint32(tab, true) !== OCM_RELOCATABLE || nrel > OCM_RELOC_MAX || off + length > bytes.length || roff + 4 * nrel > bytes.length || length < 0x200 || (length & 3))
+      return fail("modWrongFile");
+    const img0 = bytes.subarray(off, off + length), lst = bytes.subarray(roff, roff + 4 * nrel), lv = new DataView(lst.buffer, lst.byteOffset, lst.byteLength), words = [];
+    if (crc32(img0) !== dv.getUint32(tab + 8, true) || crc32(lst) !== dv.getUint32(tab + 24, true)) return fail("modDamaged");
+    for (let i = 0; i < nrel; i++) words.push(lv.getUint32(4 * i, true));
+    for (let k = 0; k < m; k++) {
+      const start = dv.getUint32(tab + 32 + 8 * k, true), img = ocmRelocate(img0, words, (OCM_LINK0 + start * 4096) >>> 0);
+      if (!img) return fail("modWrongFile");
+      if (crc32(img) !== dv.getUint32(tab + 36 + 8 * k, true)) return fail("modDamaged");
+      o.variants.push({ start, length, image: img });
+    }
+    return o;
+  }
   for (let i = 0; i < n; i++) {
     const start = dv.getUint32(tab + 16 * i, true), length = dv.getUint32(tab + 16 * i + 4, true), crc = dv.getUint32(tab + 16 * i + 8, true), off = dv.getUint32(tab + 16 * i + 12, true);
     if (off + length > bytes.length || length < 0x200 || (length & 3)) return fail("modWrongFile");

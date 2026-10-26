@@ -571,6 +571,34 @@ def gen_define(name, file="fw_api_id.h"):
     return int(m.group(1), 0) if m else None
 
 
+def module_reloc(name, obj, mdir, ldtext, variants, lo, cost):
+    """(0.14.1) the module linked at 0 with its relocations kept, the header filled as a variant's (cost, length, CRCs), its relocation list
+    (tools/module_relocs.py), and the proof: the list applied for each start, the header filled, is that start's variant byte for byte.
+    ((image, list words, count by type, left out), None) or (None, why)."""
+    import module_relocs
+    text, base = ldtext
+    ld0, elf0, bin0 = mdir / f"{name}.r0.ld", mdir / f"{name}.r0.elf", mdir / f"{name}.r0.bin"
+    ld0.write_text(text.replace(f"ORIGIN = {base:#x}", "ORIGIN = 0x0"))
+    tc("pi32v2/bin/ld", "-q", "--gc-sections", "-e", "_modstart", "-T", ld0, obj, "-o", elf0)
+    bin0.unlink(missing_ok=True)
+    tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf0, bin0)
+    img0 = bytearray(bin0.read_bytes())
+    img0 += b"\0" * (-len(img0) % 4)
+    try:
+        words, count, skipped = module_relocs.make_list(module_relocs.relocs(elf0))
+    except ValueError as e:
+        return None, str(e)
+    d = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(img0, 0)))
+    d["cost"], d["length"] = cost, len(img0)
+    MOD_HDR.pack_into(img0, 0, *[d[k] for k in MOD_NAMES])
+    ocflash.module_fill(img0)
+    for start, img in variants:
+        got = ocflash.module_fill(ocflash.apply_relocs(img0, words, ocflash.xip(lo + start * 0x1000)))
+        if bytes(got) != img:
+            return None, f"start {start}: the list applied is not the variant ({sum(a != b for a, b in zip(got, img))} bytes differ)"
+    return (bytes(img0), words, count, skipped), None
+
+
 def build_module(name):
     spec = MODULES[name]
     mdir = OUT / "module"
@@ -594,7 +622,7 @@ def build_module(name):
     cost, missing = module_cost(name)
     if missing:
         errors.append(f"{name}: tools/module/{name}.cost names {missing}, which tests/target_budget.txt does not have")
-    variants, ifaces = [], set()
+    variants, ifaces, pads, ldtext = [], set(), {}, {}
     for start in module_starts(sectors, spec):
         base = ocflash.xip(lo + start * 0x1000)           # flash offset to the address it runs at (tools/ocflash.py; 0.10.1: one function for this and gen_pack.py)
         ld = mdir / f"{name}.{start}.ld"
@@ -646,6 +674,7 @@ SECTIONS {{
         if hit >= 0:
             errors.append(f"{name}@{start}: no layout of {TAIL_PAD_TRIES} avoids the update loader's record test (sector {hit} tail); not written")
             continue
+        pads[start], ldtext[start] = pad, (ld.read_text(), base)
         sizes = {}
         for ln in tc("common/bin/objdump", "-h", elf).splitlines():
             p = ln.split()
@@ -683,6 +712,7 @@ SECTIONS {{
         d["hcrc"] = zlib.crc32(bytes(img[:MOD_HDR.size - 4])) & 0xFFFFFFFF
         struct.pack_into("<I", img, MOD_HDR.size - 4, d["hcrc"])
         variants.append((start, bytes(img)))
+        (mdir / f"{name}.{start}.img").write_bytes(img)  # (0.14.1) the image as a start gets it (header filled): what a relocated install must equal (tests)
         notes.append(f"module {name} start {start} (flash {lo + start * 0x1000:#x}): {len(img)} B of {sectors * 0x1000}, "
                      f".data 0 B, .bss 0 B, crc {d['crc']:08x}" + (f", code moved {pad} B to clear the update loader's record test" if pad else ""))
     if len(ifaces) > 1:
@@ -707,11 +737,43 @@ SECTIONS {{
     head += table
     head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
     ocm = bytes(head) + b"".join(img for _, img in variants)
+    # (0.14.1) one image linked at 0 and its relocation list (OCM format 2), unless OC_OCM_VARIANTS=1 asks for the variants package above (format 1, kept
+    # until a relocated module has been installed on the unit and measured). The variants are still linked: each is the proof that the list makes it.
+    if os.environ.get("OC_OCM_VARIANTS") == "1":
+        notes.append(f"package {name}: the variants package (format 1): OC_OCM_VARIANTS=1")
+    elif len(set(pads.values())) != 1:
+        notes.append(f"package {name}: the variants package (format 1): the starts need different layouts for the update loader's record test {pads}")
+    else:
+        rel, why = module_reloc(name, obj, mdir, ldtext[variants[0][0]], variants, lo, cost)
+        if not rel:
+            errors.append(f"{name}: no relocatable package: {why}")
+            (OUT / f"{name}-{(SRC / 'VERSION').read_text().strip() if (SRC / 'VERSION').exists() else '0'}.ocm").unlink(missing_ok=True)
+            return errors, notes
+        img0, words, count, skipped = rel
+        lst = struct.pack(f"<{len(words)}I", *words)
+        head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 2, 1, iface, api_addr, engine, state_size, pack_hash,
+                                     spec["name"].encode(), api_version, api_size, sectors))
+        off = (len(head) + 32 + 8 * n + 4 + 3) & ~3
+        head += struct.pack("<IIII", ocflash.OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
+        head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
+        for start, img in variants:
+            head += struct.pack("<II", start, zlib.crc32(img) & 0xFFFFFFFF)
+        head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
+        head += b"\0" * (off - len(head))
+        v1 = len(ocm)
+        ocm = bytes(head) + img0 + lst
+        if ocflash.ocm_images(ocm) != dict(variants):
+            errors.append(f"{name}: the relocatable package does not read back as its variants")
+            return errors, notes
+        notes.append(f"package {name}: relocatable (format 2): one image of {len(img0)} B linked at 0 and {len(words)} relocations "
+                     f"({sum(w >> 24 == ocflash.RELOC_ABS32 for w in words)} ABS32, {sum(w >> 24 == ocflash.RELOC_MOV32 for w in words)} MOV32; "
+                     f"{dict(sorted(count.items()))}), the image of start {' and '.join(str(s) for s, _ in variants)} made from them byte for byte; "
+                     f"{len(ocm)} B (the variants package: {v1} B)")
     vf = SRC / "VERSION"
     ver = vf.read_text().strip() if vf.exists() else "0"
     out = OUT / f"{name}-{ver}.ocm"
     out.write_bytes(ocm)
-    notes.append(f"package {out.name}: {len(ocm)} B, {n} variants, engine {engine} {spec['name']}, state {state_size} B, "
+    notes.append(f"package {out.name}: {len(ocm)} B, {'relocatable, ' if ocm[4] == 2 else ''}{n} variants, engine {engine} {spec['name']}, state {state_size} B, "
                  f"interface {iface:08x}, table at {api_addr:#x}")
     return errors, notes
 
