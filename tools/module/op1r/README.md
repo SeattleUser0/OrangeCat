@@ -10,6 +10,8 @@ author, named below.
 |---|---|---|---|
 | `plugins/fmbell/fmbell.c` | `synth_sdk/plugins/fmbell/fmbell.c` | pcppcp (plugin.json; no line in the file) | its screen code (the OP-1's display) left out; its sine (one line) reads `OP1_SINE` |
 | `plugins/supersaw/supersaw.c` | `synth_sdk/plugins/supersaw/supersaw.c` | pcppcp (plugin.json; no line in the file) | its screen code left out; its sub's sine (two lines) reads `OP1_SINE` |
+| `plugins/dddd/dddd.c` | `synth_sdk/plugins/dddd/dddd.c` | Copyright (C) 2026 pcppcp (its own line) | its screen code left out; its file-scope state (seven lines) taken out to the part's state (`tools/module/dddd_mod.c` dddd_part_t), its helper alive() a macro |
+| `dddd/dd_core.c`, `dddd/dd_core.h` | `synth_sdk/dddd/dd_core.c`, `dd_core.h` | pcppcp (dddd's) | unchanged |
 
 What differs is kept to two kinds of change, checked by `tests/op1r_parity/check_vendor.py` against an op1r checkout: a plugin's C file ends where
 op1r's screen code begins (the line `/* ===... screen (GUI thread)`), and every other change is a line (or hunk) marked `Orange Cat`: the reads of

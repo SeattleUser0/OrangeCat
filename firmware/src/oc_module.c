@@ -122,7 +122,7 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
                                                      { ENGI_WHEEL, 4u, 0x03u },     /* (0.14.0) WHEEL: 4 sectors at sector 0 or 6: beside SHAPES (0) or the Prophet (4) */
 #if OC_CANDIDATES
                                                      { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
-                                                     { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */
+                                                     { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_DDDD, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */
 #endif
                                                    };
 static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)

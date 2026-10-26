@@ -78,6 +78,8 @@ GATE = {
                "source": "op1r (pcppcp) synth_sdk/plugins/fmbell/fmbell.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
     "supersaw": {"engine": 25, "funcs": ["op1g_eng_render", "ss_render"], "voice_type": "ss_voice_t",
                  "source": "op1r (pcppcp) synth_sdk/plugins/supersaw/supersaw.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "dddd": {"engine": 26, "funcs": ["op1g_eng_render", "dd_render_voice", "dd_render"], "voice_type": None,
+             "source": "op1r (pcppcp) synth_sdk/plugins/dddd/dddd.c and synth_sdk/dddd/dd_core.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

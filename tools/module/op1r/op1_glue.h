@@ -110,6 +110,29 @@ static inline int32_t op1g_sine(int32_t k) { return sine_i((uint32_t)k << 19); }
 #define OP1_SINE(k) op1g_sine((int32_t)(k))
 #endif
 
+/* 64-bit division: the JieLi clang calls libgcc's __udivdi3 for some (dd_core.c's dd_set_notes: 2^40 / a period). tools/build.py refuses a module
+ * object with an undefined symbol (a module imports nothing but the services table), so the glue carries its own, a shift and subtract: the target
+ * only (a host build divides natively). The link keeps it only where a kept function calls it: today none does (dddd uses dd_set_incs, whose
+ * divisions the compiler makes without the call, and the link drops dd_set_notes and this with it). */
+#ifndef OC_MODULE_HOST
+uint64_t __udivdi3(uint64_t n, uint64_t d);
+uint64_t __udivdi3(uint64_t n, uint64_t d)
+{
+    uint64_t q = 0, r = 0;
+    int i;
+    if (!d)
+        return ~(uint64_t)0;                 /* (no plugin divides by 0: dd_set_incs and the limiter test first) */
+    for (i = 63; i >= 0; i--) {
+        r = (r << 1) | ((n >> i) & 1u);
+        if (r >= d) {
+            r -= d;
+            q |= (uint64_t)1 << i;
+        }
+    }
+    return q;
+}
+#endif
+
 /* the engine_t callbacks */
 static inline op1g_part_t *op1g_part_of(const track_t *t)
 {

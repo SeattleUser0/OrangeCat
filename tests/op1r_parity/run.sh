@@ -59,4 +59,4 @@ for p in $PLUGINS; do
         OP1G_TRUNC=1 "$OUT/ours_${p}_x" 36,60,84,36,60,84 $K > "$OUT/trunc_${p}_b_$k.raw"
     done
 done
-python3 "$HERE/compare.py" "$OUT" $PLUGINS
+${PYTHON:-python3} "$HERE/compare.py" "$OUT" $PLUGINS   # (numpy)
