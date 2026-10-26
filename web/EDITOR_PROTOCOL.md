@@ -775,6 +775,34 @@ earlier objects restored; the file is still the source.
 `BACKUP_LIST` answers `1, rc, 0` when rc is not 0. `GET` and `PUT` answer id 127 when they got no arguments.
 A `LIST` replaces the snapshot, and a `PUT` begin ends it: a `GET` after a begin gets rc 5.
 
+### Orange Cat: the arrangement objects (ids 64..84, firmware 0.14.2 on linux-hw)
+
+A project as ids 0 and 2..5 carry it (Melodee's FBKK) has no room for Orange Cat's lists (the 64 chains, the 64-row song, the 8 scenes,
+each track's groove: `pattern.c` `ocl_lists_t`) nor for which pool phrase each bank is, and the phrase pool was no object, so a restore
+brought every project back with a new project's chains, song and scenes (shown on the unit, October 26, 2026: hw/LOG.md). These objects
+are the record store's own records (`firmware/src/oc_store.c`), read and written as they are:
+
+| id | object | size |
+| --- | --- | --- |
+| 64..67 | slot 1..4's project record (`OCS_PROJECT` 0..3, "OCJ3": its banks' phrases, its lists, its project part; `oc_project.c`) | its length, or 0: no record |
+| 68..83 | the pool's chunk 0..15 (`OCS_POOL`: four phrases, a table of four 16-bit lengths then the phrases; `oc_pool.c`) | its length (up to 45,696), or 0 |
+| 84 | the music loaded: its lists (`ocl_lists_t`, 2,396 B) then each bank's phrase + 1 (`bank_pid`, NTRK x 32) | 2,524 |
+
+`BACKUP_LIST` with the argument `1` (after a plain `LIST`, in its session: else rc 5) answers `1, rc, 21`, then per object
+`id, size u32, crc u32` as above. A plain `LIST` is unchanged (29 objects), so a page that knows ids 0..28 sees what it always did; a
+firmware without these objects answers `LIST 1` with `1, 1, 0`. `GET` reads them as the others. `PUT` takes them: a record (64..83) is
+written as its pieces arrive, straight into free sectors of the store (no RAM image: a chunk can be 45 KB); the commit checks the length,
+the whole CRC and the record's form (a project record's head, a chunk's table) and only then writes the commit headers, so an abort, a
+stale session (USB reset, 15 s, a project save between) or a bad CRC leaves the record as it was. Size 0 deletes the record (as an empty
+slot, id 2..5, does). Id 84 is staged and taken whole (its values in range: a phrase past 64 refuses it, rc 2). After a record, the pool
+and the slots are read again.
+
+**Order.** Restore them after ids 2..5 (which write the slots through the pool) and id 84 after id 0 (the music restored takes a new
+project's lists): the web editor sends 2..28, 64..83, the samples, 1, 0, then 84. The slots, the pool and the music's arrangement are
+then the backup's byte for byte (`tests/backup_test.c` `arrangement_archive`; `web/test_backup.mjs`). An archive holding them (50
+objects: ids 0..28, then 64..84) is refused by a firmware without them before any write. Phrase numbers are the unit's: the pool comes
+with them, so a backup restored onto another unit brings its own phrases.
+
 ## FM6 patches (68-71)
 
 The FM6 engine (12) plays one 6-operator voice per track. Its EDIT values are macros

@@ -267,9 +267,161 @@ static int expanded_recording_archive(void)
     bad+=check("expanded runtime archive restores every original timed note",ok);
     return bad;
 }
+/* ------------------------------------------- (Orange Cat 0.14.2) the arrangement objects ---
+ * The gap shown on the unit (hw/LOG.md, October 26, 2026): a backup restored brought every project back with a new project's
+ * chains, song and scenes. Two saved slots with their own phrases, chains, song rows, scenes and grooves (one phrase with 600
+ * timed notes: its chunk spans several sectors), and a third arrangement on the music loaded; every object captured as the page
+ * does (LIST, LIST 1, GET); the flash and RAM wiped (a fresh unit); every object restored in the page's order (2..28, 64..83,
+ * 1, 0, 84); then every arrangement object reads back byte for byte, and each slot loads with its lists as it had them. */
+#define ARR_N (29u + ED_BK_ARR_N)
+static uint8_t arr_buf[ARR_N][ED_BK_REC_MAX];
+static uint32_t arr_id[ARR_N], arr_len[ARR_N], arr_crc[ARR_N];
+static uint32_t list_arr(void) { uint8_t a[1] = {1}; call(ED_BACKUP_LIST, a, 1); return rep[1]; }
+/* every object (ids 0..28 and 64..84) into arr_*: 1 done */
+static int arr_capture(void)
+{
+    uint32_t n = 0, l, c;
+    if (list(0, &l, &c) || rep[2] != 29u) return 0;
+    for (uint32_t i = 0; i < 29u; i++, n++) { const uint8_t *o = rep + 3 + i * 11u; arr_id[n] = o[0]; arr_len[n] = ed_bk_r32(o + 1); arr_crc[n] = ed_bk_r32(o + 6); }
+    if (list_arr() || rep[2] != ED_BK_ARR_N) return 0;
+    for (uint32_t i = 0; i < ED_BK_ARR_N; i++, n++) { const uint8_t *o = rep + 3 + i * 11u; arr_id[n] = o[0]; arr_len[n] = ed_bk_r32(o + 1); arr_crc[n] = ed_bk_r32(o + 6); }
+    for (uint32_t i = 0; i < ARR_N; i++) {
+        for (uint32_t off = 0; off < arr_len[i]; off += 256u) {
+            uint32_t k = arr_len[i] - off > 256u ? 256u : arr_len[i] - off;
+            if (get(arr_id[i], off, k) || ed_unpack7(rep + 9u, rep_n - 9u, arr_buf[i] + off, k) != k) return 0;
+        }
+        if (arr_len[i] ? st_crc32(arr_buf[i], arr_len[i]) != arr_crc[i] : arr_crc[i] != 0u) return 0;
+    }
+    return 1;
+}
+static uint32_t arr_at(uint32_t id) { for (uint32_t i = 0; i < ARR_N; i++) if (arr_id[i] == id) return i; return 0; }
+/* steps, timing and (bank 0 of track 1) timed notes for seed, in banks 0..2 of each track; then kept to the pool */
+static void arr_music(uint32_t seed, uint32_t notes)
+{
+    recording_reset();
+    memset(bank_pid, 0, sizeof bank_pid); memset(bank_sig, 0, sizeof bank_sig);   /* (new phrases: the pool is shared, a bank kept again
+                                                                                    * would rewrite the phrase a saved slot names) */
+    for (uint32_t k = 0; k < NTRK; k++) {
+        for (uint32_t b = 0; b < 3u; b++) {
+            track_t *t = &trk[k];
+            pattern_request(t, b);
+            for (uint32_t i = 0; i < NSTEP; i++) step_clear(&t->step[i]);
+            for (uint32_t i = (seed + b) % 4u; i < 16u; i += 4u)
+                t->step[i] = (step_t){{(uint8_t)(36u + k * 7u + b * 3u + seed), 0, 0, 0}, 1, ST_NOTE, 0, (uint8_t)(70u + seed * 9u + i), 0, 0, 100};
+            t->p[P_SLEN] = (int16_t)(16u + b * 8u);
+        }
+        pattern_request(&trk[k], 0);
+    }
+    for (uint32_t i = 0; i < notes; i++)
+        recording[i] = (recorded_note_t){(uint16_t)(i * 97u + seed), (uint16_t)(400u + i), (uint8_t)(40u + i % 40u), (uint8_t)(60u + i % 60u),
+                                         0u, (uint8_t)(i % 64u), 0, 0};
+    recording_reindex();
+    ocl_keep_all();
+}
+/* the lists for seed: chains of the phrases the banks now are, song rows, two scenes, grooves */
+static void arr_lists(uint32_t seed)
+{
+    for (uint32_t k = 0; k < NTRK; k++)
+        for (uint32_t b = 0; b < 3u; b++) {
+            lists.chain[8u + seed * 4u + k][b][0] = bank_pid[k][b];
+            lists.chain[8u + seed * 4u + k][b][1] = (uint8_t)((b + seed) & 15u);
+        }
+    for (uint32_t r = 0; r < 3u; r++)
+        for (uint32_t k = 0; k < NTRK; k++) lists.song[seed * 5u + r][k] = (uint8_t)(9u + seed * 4u + (k + r) % NTRK);
+    lists.scene[seed][0][0] = (uint8_t)(9u + seed * 4u); lists.scene[seed][0][1] = (uint8_t)(1u | 0x80u);
+    lists.scene[seed + 3u][2][0] = (uint8_t)(10u + seed * 4u);
+    lists.scene_used = (uint8_t)(1u << seed | 1u << (seed + 3u));
+    for (uint32_t k = 0; k < NTRK; k++) { lists.groove[k] = (uint8_t)((k + seed) % GROOVE_N); lists.gamt[k] = (uint8_t)(20u * k + seed); }
+    lists.launch = (uint8_t)(seed % OCL_NLAUNCH);
+}
+static int arrangement_archive(void)
+{
+    int bad = 0, ok;
+    static ocl_lists_t saved[2], live;
+    static uint8_t live_pid[NTRK][NPAT];
+    static uint8_t truth[ED_BK_ARR_N][ED_BK_REC_MAX];
+    static uint32_t truth_len[ED_BK_ARR_N];
+    uint32_t big = 0, len, crc;
+    reset();
+    arr_music(1, 600); arr_lists(1); project_save_as(0, "ARR ONE");
+    arr_music(2, 40); arr_lists(2); project_save_as(1, "ARR TWO");
+    arr_music(3, 0); arr_lists(3); ocl_keep_all();                    /* the music loaded: lists of its own, not saved */
+    live = lists; memcpy(live_pid, bank_pid, sizeof live_pid);
+    call(ED_BACKUP_LIST, (const uint8_t[]){1}, 1);
+    bad += check("LIST 1 before a plain LIST: no session (5)", rep[1] == 5u);
+    bad += check("a plain LIST keeps its 29 objects (pages that know ids 0..28)", list(0, &len, &crc) == 0 && rep[2] == 29u);
+    bad += check("LIST 1 lists the 21 arrangement objects, ids 64..84", list_arr() == 0 && rep[2] == ED_BK_ARR_N && rep[3] == 64u && rep[3 + 20u * 11u] == 84u);
+    bad += check("every object captured, each CRC as listed", arr_capture());
+    for (uint32_t i = 0; i < ED_BK_ARR_N; i++) {
+        uint32_t j = arr_at(ED_BK_ARR0 + i);
+        truth_len[i] = arr_len[j]; memcpy(truth[i], arr_buf[j], arr_len[j]);
+        if (i >= 4u && i < 4u + OCP_CHUNKS && arr_len[j] > big) big = arr_len[j];
+    }
+    bad += check("the slots' records and the music's arrangement are there (64, 65, 84 not empty)", truth_len[0] && truth_len[1] && truth_len[20] == ED_BK_LIVE_LEN);
+    bad += check("a chunk with 600 timed notes spans several sectors (> 3,808 B)", big > OCS_PAYLOAD_MAX);
+    project_load(0); saved[0] = lists;
+    project_load(1); saved[1] = lists;
+    ok = !saved[0].chain[16][0][0] && saved[1].chain[16][0][0] && saved[0].song[5][0] == 13u && saved[1].song[10][0] == 17u && !saved[0].song[10][0];
+    bad += check("each slot loads with its own chains and song before the wipe", ok);
+
+    /* a fresh unit, then the page's restore order */
+    reset();
+    bad += check("wiped: no slot, no phrase", !proj_read_slot(0) && !proj_read_slot(1) && !ocp.len[0]);
+    ok = 1;
+    for (uint32_t i = 0; i < ARR_N; i++) if (arr_id[i] >= 2u && arr_id[i] <= 83u) ok &= put_all(arr_id[i], arr_buf[i], arr_len[i], arr_crc[i]) == 0;
+    ok &= put_all(1, arr_buf[arr_at(1)], arr_len[arr_at(1)], arr_crc[arr_at(1)]) == 0;
+    ok &= put_all(0, arr_buf[arr_at(0)], arr_len[arr_at(0)], arr_crc[arr_at(0)]) == 0;
+    ok &= put_all(ED_BK_ARR_LIVE, arr_buf[arr_at(ED_BK_ARR_LIVE)], arr_len[arr_at(ED_BK_ARR_LIVE)], arr_crc[arr_at(ED_BK_ARR_LIVE)]) == 0;
+    bad += check("every object restored (2..28, 64..83, 1, 0, 84)", ok && !ocs_held);
+    bad += check("the music loaded: its lists and its banks' phrases byte for byte", !memcmp(&lists, &live, sizeof live) && !memcmp(bank_pid, live_pid, sizeof live_pid));
+    ok = arr_capture();
+    for (uint32_t i = 0; ok && i < ED_BK_ARR_N; i++) {
+        uint32_t j = arr_at(ED_BK_ARR0 + i);
+        ok &= arr_len[j] == truth_len[i] && !memcmp(arr_buf[j], truth[i], truth_len[i]);
+    }
+    bad += check("all 21 arrangement objects read back byte for byte (records, pool, the music's lists)", ok);
+    project_load(0);
+    ok = !memcmp(&lists, &saved[0], sizeof lists);
+    project_load(1);
+    ok &= !memcmp(&lists, &saved[1], sizeof lists);
+    bad += check("each slot loads with its chains, song, scenes and grooves byte for byte", ok);
+    {   /* the 600 timed notes came back with their phrase */
+        uint32_t n = 0;
+        project_load(0);
+        for (uint32_t i = 0; i < RECORD_MAX; i++) n += recording[i].vel != 0;
+        bad += check("slot 1's 600 timed notes are back", n == 600u);
+    }
+
+    /* a record PUT that does not finish changes nothing */
+    {
+        uint32_t j = arr_at(ED_BK_ARR0), l0 = arr_len[j], c0;
+        static uint8_t rec[ED_BK_REC_MAX];
+        memcpy(rec, arr_buf[j], l0);
+        list(0, &len, &crc);
+        bad += check("a record with a bad CRC: refused (2), the slot as it was, no sector held",
+                     put_all(ED_BK_ARR0, rec, l0, arr_crc[j] ^ 1u) == 2u && !ocs_held && list(0, &len, &crc) == 0 &&
+                     (ed_bk_arr_info(ED_BK_ARR0, &len, &c0), len == l0 && c0 == arr_crc[j]));
+        rec[l0 / 2u] ^= 0x55u;
+        c0 = st_crc32(rec, l0);
+        ok = put_begin(ED_BK_ARR0, l0, c0) == 0 && put_chunk(ED_BK_ARR0, 0, rec, 256u) == 0 && ocs_held && put_end(ED_BK_ARR0, 3) == 0;
+        bad += check("aborted part way: no sector held, the record as it was", ok && !ocs_held && (ed_bk_arr_info(ED_BK_ARR0, &len, &c0), c0 == arr_crc[j]));
+        ok = put_begin(ED_BK_ARR0, l0, st_crc32(rec, l0)) == 0 && put_chunk(ED_BK_ARR0, 0, rec, 256u) == 0;
+        usb.resets++;
+        ok &= put_chunk(ED_BK_ARR0, 256u, rec + 256u, 256u) == 5u;
+        bad += check("a USB reset part way: stale (5), no sector held, the record as it was", ok && !ocs_held && (ed_bk_arr_info(ED_BK_ARR0, &len, &c0), c0 == arr_crc[j]));
+        list(0, &len, &crc);
+        song.playing = 1;
+        bad += check("a record restore while the transport runs: refused (3)", put_begin(ED_BK_ARR0, l0, arr_crc[j]) == 3u);
+        song.playing = 0;
+        bad += check("an empty object deletes the record (slot 2 empty after)", list(0, &len, &crc) == 0 && put_all(ED_BK_ARR0 + 1u, 0, 0, 0) == 0 && !proj_read_slot(1));
+    }
+    return bad;
+}
+
 int main(void)
 {
     int expanded_bad = expanded_recording_archive();
+    int arrangement_bad = arrangement_archive();
 
     int bad = 0;
     uint32_t len = 0, crc = 0, before;
@@ -544,5 +696,5 @@ int main(void)
     }
 
     printf("backup test %s\n", bad ? "FAILED" : "passed");
-    return (bad + expanded_bad) != 0;
+    return (bad + expanded_bad + arrangement_bad) != 0;
 }

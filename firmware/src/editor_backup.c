@@ -3,6 +3,8 @@
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Revisions:
  * (Orange Cat 0.12.2) a backup restore is refused while the transport runs; refusal tests for pack, module, library wipe and restore (editor, card browser)
+ * (Orange Cat 0.14.2) the arrangement objects (ids 64..84, LIST 1): the slots' project records and the pool as the record store keeps them, the
+ *                     music loaded's lists and phrases; a restore writes them back byte for byte (the backup's arrangement gap, hw/LOG.md)
  */
 /* Complete musical archive: no raw addresses are accepted. Objects are staged
  * in main-loop RAM and fully validated before the existing A/B commit path writes.
@@ -16,6 +18,97 @@
 #endif
 static const uint8_t ED_BK_IDS[29] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
+/* (Orange Cat 0.14.2) The arrangement objects. A project as ids 0 and 2..5 carry it (FBKK) has no room for Orange Cat's lists (the
+ * chains, the song, the scenes, each track's groove: pattern.c ocl_lists_t) nor for which pool phrase each bank is, and the pool itself
+ * was no object: a restore brought every project back with a new project's lists (shown on the unit, October 26, 2026). These objects
+ * are the record store's own records, read and written as they are (oc_store.c):
+ *   64..67  each slot's project record (OCS_PROJECT 0..3: its banks' phrases, its lists, its project part; oc_project.c)
+ *   68..83  the pool's sixteen chunks (OCS_POOL 0..15: four phrases each; oc_pool.c)
+ *   84      the music loaded: its lists (ocl_lists_t) then each bank's phrase + 1 (bank_pid, NTRK x NPAT)
+ * Size 0: no record (a restore of one deletes it). They are listed apart (LIST with the argument 1, after a plain LIST: the same
+ * session), so a page that knows only ids 0..28 sees the inventory it always did. A restore writes a record as its pieces arrive,
+ * straight into free sectors of the store (ocs_stream_t: a record can be 45 KB, past the staging), its CRC checked whole before
+ * the commit headers: an abort, a stale session or a bad CRC leaves the record as it was. A page restores them after ids 2..5 (which
+ * write the slots through the pool) and 84 after id 0 (the music loaded, which takes a new project's lists): then the slots, the pool
+ * and the music's arrangement are the backup's byte for byte. Restoring them puts any slot the unit had and the backup did not hold
+ * away, as ids 2..5 do. */
+#define ED_BK_ARR0 64u
+#define ED_BK_ARR_POOL (ED_BK_ARR0 + 4u)
+#define ED_BK_ARR_LIVE (ED_BK_ARR_POOL + OCP_CHUNKS)
+#define ED_BK_ARR_N (ED_BK_ARR_LIVE + 1u - ED_BK_ARR0)
+#define ED_BK_LIVE_LEN ((uint32_t)sizeof(ocl_lists_t) + NTRK * NPAT)
+#define ED_BK_REC_MAX (OCS_PARTS_MAX * OCS_PAYLOAD_MAX)
+_Static_assert(ED_BK_LIVE_LEN <= sizeof proj_wire_u, "the music's arrangement is staged as the other objects are");
+static ocs_stream_t ed_bk_stream __attribute__((section(".pool")));
+static uint32_t ed_bk_scrc;                    /* the stream's bytes' CRC so far */
+static int ed_bk_arr(uint32_t id) { return id >= ED_BK_ARR0 && id <= ED_BK_ARR_LIVE; }
+static uint32_t ed_bk_rec_type(uint32_t id) { return id < ED_BK_ARR_POOL ? OCS_PROJECT : OCS_POOL; }
+static uint32_t ed_bk_rec_id(uint32_t id) { return id < ED_BK_ARR_POOL ? id - ED_BK_ARR0 : id - ED_BK_ARR_POOL; }
+/* n bytes of arrangement object id from off into dst. 0 done */
+static int ed_bk_arr_read(uint32_t id, uint32_t off, uint8_t *dst, uint32_t n)
+{
+    if (id == ED_BK_ARR_LIVE) {
+        if (off > ED_BK_LIVE_LEN || n > ED_BK_LIVE_LEN - off) return -1;
+        for (uint32_t i = 0; i < n; i++, off++)
+            dst[i] = off < sizeof lists ? ((const uint8_t *)&lists)[off] : ((const uint8_t *)bank_pid)[off - sizeof lists];
+        return 0;
+    }
+    ocs_rec_t r;
+    if (ocs_open(ed_bk_rec_type(id), ed_bk_rec_id(id), &r)) return n || off ? -1 : 0;
+    return ocs_at(&r, off, dst, n);
+}
+/* object id's size and CRC */
+static void ed_bk_arr_info(uint32_t id, uint32_t *len, uint32_t *crc)
+{
+    ocs_rec_t r;
+    uint32_t c = 0xFFFFFFFFu;
+    *len = id == ED_BK_ARR_LIVE ? ED_BK_LIVE_LEN : ocs_open(ed_bk_rec_type(id), ed_bk_rec_id(id), &r) ? 0u : r.total;
+    for (uint32_t off = 0; off < *len; off += 256u) {
+        uint32_t k = *len - off > 256u ? 256u : *len - off;
+        if (ed_bk_arr_read(id, off, ed_smp_buf, k)) { *len = 0; c = 0xFFFFFFFFu; break; }
+        c = ocs_crc_add(c, ed_smp_buf, k);
+    }
+    *crc = *len ? ~c : 0u;
+}
+/* the record a stream wrote, before its commit: it reads as its type must (a project record's head, a chunk's table) */
+static int ed_bk_arr_valid(const ocs_stream_t *w)
+{
+    ocs_rec_t r;
+    uint32_t hsz;
+    r.parts = (uint8_t)w->parts; r.total = w->len;
+    memcpy(r.sect, w->use, sizeof r.sect);
+    if (w->type == OCS_PROJECT) return ocj_head_load(&r, &hsz) == 0;
+    {
+        uint8_t t[OCP_TABLE];
+        uint32_t sum = OCP_TABLE;
+        if (r.total < OCP_TABLE || ocs_at(&r, 0, t, OCP_TABLE)) return 0;
+        for (uint32_t j = 0; j < OCP_PER; j++) sum += ocp_get16(t + 2u * j);
+        return sum == r.total;
+    }
+}
+/* after a record restored or deleted: the pool and the slots read again */
+static void ed_bk_arr_rescan(void)
+{
+    ocp_scan();
+    ocj_scan();
+    for (uint32_t i = 0; i < 4u; i++) proj_fetch(i);
+    sync_reload = 1; ui.force = 1;
+}
+/* the music's arrangement staged in raw: in range, then taken (the lists whole, each bank's phrase; their signatures unknown, found
+ * when next kept, as a project load leaves them). 0 done, 2 refused */
+static uint32_t ed_bk_live_apply(const uint8_t *raw)
+{
+    ocl_lists_t l;
+    const uint8_t *pid = raw + sizeof l;
+    memcpy(&l, raw, sizeof l);
+    for (uint32_t i = 0; i < NTRK * NPAT; i++) if (pid[i] > OCP_N) return 2;
+    ocl_lists_fix(&l);
+    lists = l;
+    memcpy(bank_pid, pid, sizeof bank_pid);
+    memset(bank_sig, 0, sizeof bank_sig);
+    sync_reload = 1; ui.force = 1;
+    return 0;
+}
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
 #define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
 #define ed_bk_set set_rec    /* id 1: the settings record (+ the template), in the settings save's staging (project.c):
@@ -175,7 +268,21 @@ static uint32_t ed_bk_commit_inner(void)
 {
     uint8_t *raw = ED_BK_RAW;
     uint32_t obj;
+    if (ed_bk_arr(ed_bk_id) && ed_bk_id != ED_BK_ARR_LIVE) {   /* (0.14.2) a record: streamed into the store already */
+        int rc;
+        if (!ed_bk_len) {
+            if (ocs_delete(ed_bk_rec_type(ed_bk_id), ed_bk_rec_id(ed_bk_id))) { ed_bk_arr_rescan(); return 4; }
+            ed_bk_arr_rescan();
+            return 0;
+        }
+        if (ed_bk_pos != ed_bk_len || ~ed_bk_scrc != ed_bk_crc || !ed_bk_arr_valid(&ed_bk_stream)) { ocs_stream_drop(&ed_bk_stream); return 2; }
+        rc = ocs_stream_commit(&ed_bk_stream);
+        if (rc < -1) { uint8_t cursor = ocs_cursor; ocs_boot(); ocs_cursor = cursor; }   /* (as ocs_write_src: what is on the flash, read again) */
+        ed_bk_arr_rescan();
+        return rc ? 4u : 0u;
+    }
     if (ed_bk_pos != ed_bk_len || st_crc32(raw, ed_bk_len) != ed_bk_crc) return 2;
+    if (ed_bk_id == ED_BK_ARR_LIVE) return ed_bk_live_apply(raw);
     if (ed_bk_id == 0u || (ed_bk_id >= 2u && ed_bk_id <= 5u)) {
         int full = bank_full(ed_bk_len);
         if (ed_bk_len && !(full ? bank_valid(raw, ed_bk_len) : proj_import(&proj_scratch, raw, (int)ed_bk_len))) return 2;
@@ -263,7 +370,7 @@ static uint32_t ed_bk_commit_inner(void)
 static uint32_t ed_bk_commit(void) { return ed_bk_commit_inner(); }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
-    if (n < 2u || a[0] > 3u || a[1] > 28u) return 1;
+    if (n < 2u || a[0] > 3u || (a[1] > 28u && !ed_bk_arr(a[1]))) return 1;
     if (transport_busy()) return 3;                 /* (0.12.2) a restore is REFUSED while the transport runs (it used to stop it): rc 3, as the other installs */
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
@@ -272,7 +379,12 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
             (a[1] == 1u && len != sizeof(persist_t) && !tmpl_param_count(len - sizeof(persist_t))) ||
             (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != sizeof(project_store_t)) ||
             (ed_bk_preset_bank(a[1])<UP_BANKS && len>3840u) ||
-            (a[1]==8u && len)) return 1;
+            (a[1]==8u && len) ||
+            (a[1] == ED_BK_ARR_LIVE && len != ED_BK_LIVE_LEN) || (ed_bk_arr(a[1]) && len > ED_BK_REC_MAX)) return 1;
+        ocs_stream_drop(&ed_bk_stream);           /* (0.14.2) a record begun before and never committed */
+        if (ed_bk_arr(a[1]) && a[1] != ED_BK_ARR_LIVE && len &&
+            ocs_stream_begin(&ed_bk_stream, ed_bk_rec_type(a[1]), ed_bk_rec_id(a[1]), len)) return 4;   /* (no room in the store) */
+        ed_bk_scrc = 0xFFFFFFFFu;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
         ed_bk_usb = usb.resets; ed_bk_ms = fm1_ms;
@@ -280,10 +392,10 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
     }
     if (!ed_bk_put || ed_bk_id != a[1] || ed_bk_usb != usb.resets || fm1_ms - ed_bk_ms > 15000u ||
         ed_bk_gen != proj_wire_gen) {                 /* (a project save / load reused the staging RAM) */
-        ed_bk_put = 0; return 5;
+        ed_bk_put = 0; ocs_stream_drop(&ed_bk_stream); return 5;
     }
     ed_bk_ms = fm1_ms;
-    if (a[0] == 3u) { ed_bk_put = 0; return n == 2u ? 0u : 1u; }
+    if (a[0] == 3u) { ed_bk_put = 0; ocs_stream_drop(&ed_bk_stream); return n == 2u ? 0u : 1u; }
     if (a[0] == 2u) {
         if (n != 2u) return 1;
         uint32_t rc = ed_bk_commit(); ed_bk_put = 0; return rc;
@@ -291,11 +403,26 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
     if (n < 9u || a[6] > 15u || ed_bk_r32(a + 2) != ed_bk_pos) return 1;
     uint32_t count = ed_unpack7(a + 7, n - 7u, ed_smp_buf, 256u);
     if (!count || count > ed_bk_len - ed_bk_pos) return 1;
-    memcpy(ED_BK_RAW + ed_bk_pos, ed_smp_buf, count); ed_bk_pos += count;
+    if (ed_bk_arr(ed_bk_id) && ed_bk_id != ED_BK_ARR_LIVE) {  /* (0.14.2) a record: into its sectors as it comes */
+        ed_bk_scrc = ocs_crc_add(ed_bk_scrc, ed_smp_buf, count);
+        if (ocs_stream_put(&ed_bk_stream, ed_smp_buf, count)) { ed_bk_put = 0; return 4; }
+    } else memcpy(ED_BK_RAW + ed_bk_pos, ed_smp_buf, count);
+    ed_bk_pos += count;
     return 0;
 }
 static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
+    if (cmd == ED_BACKUP_LIST && n == 1u && a[0] == 1u) {   /* (0.14.2) the arrangement objects, in the session a plain LIST began */
+        uint32_t rc = !ed_bk_valid || ed_bk_usb != usb.resets ? 5u : transport_busy() ? 3u : 0u;
+        ed_b(1); ed_b(rc); ed_b(rc ? 0u : ED_BK_ARR_N);
+        if (!rc) for (uint32_t id = ED_BK_ARR0; id <= ED_BK_ARR_LIVE; id++) {
+            uint32_t len, crc;
+            ed_bk_arr_info(id, &len, &crc);
+            ed_b(id); ed_bk_u32(len); ed_bk_u32(crc);
+            fm1_wdt_feed();
+        }
+        return 1;
+    }
     if (cmd == ED_BACKUP_LIST) {
         uint32_t rc = n ? 1u : ed_bk_capture();
         ed_b(1); ed_b(rc); ed_b(rc ? 0u : ED_BK_N);
@@ -318,6 +445,20 @@ static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             ed_b(ED_BK_IDS[i]); ed_bk_u32(len); ed_bk_u32(crc);
             fm1_wdt_feed();
         }
+        return 1;
+    }
+    if (cmd == ED_BACKUP_GET && n && ed_bk_arr(a[0])) {     /* (0.14.2) an arrangement object, read where it is */
+        uint32_t len, off = n >= 6u ? ed_bk_r32(a + 1) : 0u;
+        uint32_t count = n == 8u ? (uint32_t)a[6] | (uint32_t)a[7] << 7 : 0u, rc;
+        rc = !ed_bk_valid || ed_bk_usb != usb.resets ? 5u : transport_busy() ? 3u : n != 8u || a[5] > 15u || !count || count > 256u ? 1u : 0u;
+        if (!rc) {
+            len = a[0] == ED_BK_ARR_LIVE ? ED_BK_LIVE_LEN : 0u;
+            if (a[0] != ED_BK_ARR_LIVE) { ocs_rec_t r; if (!ocs_open(ed_bk_rec_type(a[0]), ed_bk_rec_id(a[0]), &r)) len = r.total; }
+            if (off > len || count > len - off) rc = 1;
+            else if (ed_bk_arr_read(a[0], off, ed_smp_buf, count)) rc = 4;
+        }
+        ed_b(a[0]); ed_b(rc); ed_bk_u32(off); ed_b(rc ? 0u : count & 127u); ed_b(rc ? 0u : count >> 7);
+        if (!rc) ed_bk_pack(ed_smp_buf, count);
         return 1;
     }
     if (cmd == ED_BACKUP_GET) {

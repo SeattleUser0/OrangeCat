@@ -3,7 +3,7 @@
 // Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // fm1backup.js against a simulated device: 7-bit packing, CRC, manifest checks, a full capture,
 // validation before the first write, restore order (live music last) and abort on a failed chunk.
-import { BACKUP_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup } from "./fm1backup.js";
+import { BACKUP_IDS, ARR_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup } from "./fm1backup.js";
 
 let fails = 0;
 const ok = (c, what) => { console.log(`${what.padEnd(72)} ${c ? "ok" : "FAIL"}`); if (!c) fails++; };
@@ -23,8 +23,10 @@ function device(objs, opt = {}) {
   if (!d.objs.has(0)) d.objs.set(0, rnd(opt.runtimeSize || 20224, 9));
   d.request = async ([cmd, a]) => {
     if (cmd === BACKUP_CMD.LIST) {
-      const out = [1, 0, ids.length];
-      for (const id of ids) { const v = d.objs.get(id) || new Uint8Array(0); out.push(id, ...bkU32(v.length), ...bkU32(v.length ? bkCrc(v) : 0)); }
+      if (a.length && !opt.arr) return [1, 1, 0];               /* (a firmware without the arrangement objects: LIST 1 refused) */
+      const list = a.length ? ARR_IDS : ids;
+      const out = [1, 0, list.length];
+      for (const id of list) { const v = d.objs.get(id) || new Uint8Array(0); out.push(id, ...bkU32(v.length), ...bkU32(v.length ? bkCrc(v) : 0)); }
       return out;
     }
     if (cmd === BACKUP_CMD.GET) {
@@ -160,5 +162,30 @@ const sharedFile=await captureBackup(device([...bankObjects,[28,sharedData]],{id
 ok(sharedFile.objects.length===29&&sharedFile.objects[28].size===3716,"backup: 29-object archive includes the final shared slots");
 const sharedTarget=device([],{ids:sharedIds});await restoreBackup(sharedTarget.request,sharedFile);
 ok(sharedTarget.objs.get(28).every((v,i)=>v===sharedData[i]),"backup: final compact shared bank restores byte for byte");
+{   /* (0.14.2) the arrangement objects: 64..67 project records, 68..83 the pool's chunks, 84 the music's lists */
+  const rec = (n, seed) => { const v = rnd(n, seed); new DataView(v.buffer).setUint32(0, 0x334a434f, true); return v; };
+  const chunk = (lens, seed) => { const v = rnd(8 + lens.reduce((a, b) => a + b, 0), seed), d = new DataView(v.buffer); lens.forEach((l, j) => d.setUint16(2 * j, l, true)); return v; };
+  const arrObjs = [...bankObjects, [28, sharedData], [64, rec(3200, 21)], [66, rec(900, 22)], [68, chunk([1249, 0, 30000, 7], 23)], [84, rnd(2524, 24)]];
+  const src = device(arrObjs, { ids: sharedIds, arr: true });
+  const arrFile = await captureBackup(src.request, "ARRANGEMENT");
+  ok(arrFile.objects.length === 50 && arrFile.objects[29].id === 64 && arrFile.objects[49].id === 84 && arrFile.objects[33].size === 31264,
+     "backup: a firmware with LIST 1: 50 objects, the arrangement's (64..84) after ids 0..28");
+  ok(readBackup(JSON.stringify(arrFile)).objects.length === 50, "backup: a 50-object archive reads");
+  const plain = await captureBackup(device([...bankObjects, [28, sharedData]], { ids: sharedIds }).request, "PLAIN");
+  ok(plain.objects.length === 29, "backup: a firmware without them (LIST 1 refused): the 29 objects as before");
+  const badRec = JSON.parse(JSON.stringify(arrFile)); { const v = rec(3200, 21); v[0] = 0; badRec.objects[29] = { ...badRec.objects[29], crc: bkCrc(v), data: Buffer.from(v).toString("base64") }; }
+  ok(throws(() => readBackup(badRec)), "backup: a project record without its magic is refused");
+  const badChunk = JSON.parse(JSON.stringify(arrFile)); { const v = chunk([1249, 0, 30000, 7], 23); v[0] ^= 1; badChunk.objects[33] = { ...badChunk.objects[33], crc: bkCrc(v), data: Buffer.from(v).toString("base64") }; }
+  ok(throws(() => readBackup(badChunk)), "backup: a phrase chunk whose table does not add up is refused");
+  const dst = device([], { ids: sharedIds, arr: true });
+  await restoreBackup(dst.request, arrFile);
+  const order = dst.log.filter((x) => typeof x === "number");
+  ok(order.indexOf(5) < order.indexOf(64) && order.indexOf(83) < order.indexOf(1) && order.at(-2) === 0 && order.at(-1) === 84,
+     "backup: restore order: slots 2..5, then 64..83, settings, the live music, its arrangement (84) last");
+  ok([64, 66, 68, 84].every((id) => dst.objs.get(id).every((v, i) => v === arrObjs.find((o) => o[0] === id)[1][i])) && dst.objs.get(65).length === 0,
+     "backup: the arrangement objects restore byte for byte, an empty one as empty");
+  const old = device([], { ids: sharedIds });
+  ok(await athrows(() => restoreBackup(old.request, arrFile)) && !old.log.length, "backup: a firmware without them refuses the archive before any write");
+}
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

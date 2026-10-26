@@ -10,8 +10,15 @@ const BACKUP_IDS_OWN = Array.from({length:21},(_,i)=>i);
 const BACKUP_IDS_NATIVE = Array.from({length:23},(_,i)=>i);
 const BACKUP_IDS_SHARED = Array.from({length:29},(_,i)=>i);
 const BACKUP_IDS_P5 = Array.from({length:28},(_,i)=>i);
-const maxSize = id => id >= 32 ? 81920 : (id === 0 || (id >= 2 && id <= 5)) ? 27904 : 3840;
-const idsOf = (n) => (n === BACKUP_IDS.length ? BACKUP_IDS : n === BACKUP_IDS_V1.length ? BACKUP_IDS_V1 : n === 9 ? BACKUP_IDS_BANKS : n === 17 ? BACKUP_IDS_CZ : n === 21 ? BACKUP_IDS_OWN : n === 23 ? BACKUP_IDS_NATIVE : n === 28 ? BACKUP_IDS_P5 : n===29?BACKUP_IDS_SHARED:null);
+// (Orange Cat 0.14.2) the arrangement objects (firmware: editor_backup.c, LIST with the argument 1): 64..67 the slots' project records,
+// 68..83 the pool's sixteen chunks, 84 the music loaded's lists and phrases. Without them a restore brought every project back with a new
+// project's chains, song and scenes. An archive with them has 50 objects (ids 0..28, then these)
+export const ARR_IDS = Array.from({length:21},(_,i)=>64+i);
+const BACKUP_IDS_ARR = [...BACKUP_IDS_SHARED, ...ARR_IDS];
+const ARR_LIVE = 84, ARR_REC_MAX = 12 * 3808;
+const isSample = (id) => id >= 32 && id <= 34;
+const maxSize = id => id >= 64 ? (id === ARR_LIVE ? 16384 : ARR_REC_MAX) : id >= 32 ? 81920 : (id === 0 || (id >= 2 && id <= 5)) ? 27904 : 3840;
+const idsOf = (n) => (n === BACKUP_IDS.length ? BACKUP_IDS : n === BACKUP_IDS_V1.length ? BACKUP_IDS_V1 : n === 9 ? BACKUP_IDS_BANKS : n === 17 ? BACKUP_IDS_CZ : n === 21 ? BACKUP_IDS_OWN : n === 23 ? BACKUP_IDS_NATIVE : n === 28 ? BACKUP_IDS_P5 : n===29?BACKUP_IDS_SHARED : n === BACKUP_IDS_ARR.length ? BACKUP_IDS_ARR : null);
 export const BACKUP_CMD = { LIST: 65, GET: 66, PUT: 67 };
 const BACKUP_CHUNK = 256;
 export const bkU32 = (n) => Array.from({ length: 5 }, (_, i) => (n >>> (i * 7)) & (i === 4 ? 15 : 127));
@@ -51,10 +58,10 @@ export function bkCrc(bytes) {
 function bkCheck(rc) {
   if (rc) throw new Error(({ 1: "Invalid archive object", 2: "Archive data failed validation", 3: "Stop playback first", 4: "Flash write failed", 5: "Start a fresh backup" })[rc] || `Archive error ${rc}`);
 }
-export function bkManifest(a) {
+export function bkManifest(a, arr = false) {
   if (a[0] !== 1) throw new Error("Unsupported archive protocol");
   bkCheck(a[1]);
-  const ids = idsOf(a[2]);
+  const ids = arr ? (a[2] === ARR_IDS.length ? ARR_IDS : null) : idsOf(a[2]);
   if (!ids || a.length !== 3 + a[2] * 11) throw new Error("Incomplete archive manifest");
   return ids.map((id, i) => {
     const p = 3 + i * 11;
@@ -95,7 +102,13 @@ export function readBackup(file) {
       if(v.getUint32(0,true)!==0x42435a43 || ![1,2].includes(v.getUint16(4,true)) || v.getUint16(6,true)!==16 || used>>>16 || !bytes[12] || Array.from(bytes.slice(12,28)).some(x=>x>126 || x>0&&x<32))throw new Error("Invalid CZ bank");
       for(let i=0;i<16;i++)if(used>>i&1){const b=bytes.subarray(28+i*144,28+(i+1)*144);if((b[0]&240)||(b[0]>>2)>2||b[1]>1||(b[2]&3)||b[3]>47||[0,57].some(j=>(b[16+j]&15)>9||(b[16+j]>>4)>14||b[18+j]>9||[20,37,54].some(k=>b[k+j]&8)))throw new Error("Invalid CZ bank tone");}
     }
-    if (o.id >= 32 && o.size) {
+    if (o.id >= 64 && o.id < 68 && o.size && ![0x334a434f, 0x324a434f].includes(new DataView(bytes.buffer).getUint32(0, true)))
+      throw new Error("Invalid project record");
+    if (o.id >= 68 && o.id < ARR_LIVE && o.size) {
+      const v = new DataView(bytes.buffer);
+      if (o.size < 8 || 8 + [0, 1, 2, 3].reduce((n, j) => n + v.getUint16(2 * j, true), 0) !== o.size) throw new Error("Invalid phrase chunk");
+    }
+    if (isSample(o.id) && o.size) {
       if (o.size < 512) throw new Error("Short sample backup");
       const view = new DataView(bytes.buffer), length = view.getUint32(16, true), count = bytes[6];
       if (view.getUint32(0, true) !== 0x504d5346 || view.getUint16(4, true) !== 1 || !count || count > 16 ||
@@ -112,8 +125,14 @@ export function readBackup(file) {
   if (!objects[0].size || !objects[1].size) throw new Error("Backup is missing the current music or settings");
   return { ...file, objects };
 }
+// (0.14.2) the arrangement objects' inventory, in the session a plain LIST began; [] when the firmware has none (it answers LIST 1 with rc 1)
+async function arrManifest(request) {
+  const a = await request([BACKUP_CMD.LIST, [1]], { timeout: 6000, retries: 0 });
+  return a[0] === 1 && a[1] === 1 ? [] : bkManifest(a, true);
+}
 export async function captureBackup(request, firmware, onProgress = () => {}) {
   const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
+  if (manifest.length === BACKUP_IDS_SHARED.length) manifest.push(...await arrManifest(request));
   const objects = [], total = manifest.reduce((n, o) => n + o.size, 0); let done = 0;
   for (const o of manifest) {
     const bytes = new Uint8Array(o.size);
@@ -136,6 +155,7 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0;
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const supported = bkManifest(await ask([BACKUP_CMD.LIST, []]));
+  if (archive.objects.some((o) => o.id >= 64) && supported.length === BACKUP_IDS_SHARED.length) supported.push(...await arrManifest(ask));
   const liveSize = supported.find(o => o.id === 0)?.size || 0;
   for (const o of archive.objects) if ((o.id === 0 || o.id >= 2 && o.id <= 5) && o.size > liveSize && !(liveSize >= 19008 && [19084,19092,20224].includes(o.size)))
     throw new Error("This backup needs firmware with larger recording storage");
@@ -143,7 +163,7 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
   // The firmware accepts or refuses each object's size before the first write (2.0 reads only the formats of
   // 1.0 and later: an older archive restores on 1.2 first), so a refused archive writes nothing.
-  for (const o of archive.objects) if (o.id < 32 && o.size && supported.some(x => x.id === o.id)) {
+  for (const o of archive.objects) if (!isSample(o.id) && o.size && supported.some(x => x.id === o.id)) {
     const a = await ask([BACKUP_CMD.PUT, [0, o.id, ...bkU32(o.size), ...bkU32(o.crc)]]);
     await ask([BACKUP_CMD.PUT, [3, o.id]]);
     if (a[2] === 1) throw new Error("This backup holds an older format. Restore it with Melodee 1.2 first.");
@@ -152,10 +172,13 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   if(archive.objects.length===28 && supported.some(o=>o.id===28)){
     await put([0,28,...bkU32(0),...bkU32(0)]);await put([2,28]);
   }
-  // Restore live music last. Other objects commit individually; a disconnect can leave a partial restore.
-  for (const o of [...archive.objects.slice(2), archive.objects[1], archive.objects[0]]) {
+  // Restore live music last (and its arrangement, 84, after it: the music restored takes a new project's lists). The slots' records
+  // and the pool (64..83) come after the slots (2..5), which write the pool too. Other objects commit individually; a disconnect can
+  // leave a partial restore.
+  const live = archive.objects.filter((o) => o.id === ARR_LIVE);
+  for (const o of [...archive.objects.slice(2).filter((o) => o.id !== ARR_LIVE), archive.objects[1], archive.objects[0], ...live]) {
     if (!supported.some(x => x.id === o.id)) continue;
-    if (o.id >= 32) {
+    if (isSample(o.id)) {
       const slot = o.id - 32;
       const check = (a) => { if (a[0] !== slot) throw new Error("Unexpected sample reply"); bkCheck(a.at(-1)); };
       if (!o.size) check(await ask([14, [slot]]));

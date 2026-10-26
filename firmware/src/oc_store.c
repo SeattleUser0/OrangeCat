@@ -66,6 +66,8 @@ _Static_assert(sizeof(ocs_hdr_t) == OCS_HDR, "record store commit header");
 
 static ocs_hdr_t ocs_hdr[OCS_NSECT] __attribute__((section(".pool")));
 static uint8_t ocs_cursor;                     /* where the next save starts looking for free sectors */
+static uint64_t ocs_held;                      /* (0.14.2) sectors an open stream (ocs_stream_t) is writing: not free to
+                                                * another save until it commits or is dropped */
 static uint64_t ocs_resv;                      /* (0.6.0) sectors that are not the store's: the sample slot's
                                                 * (smp_slot.c), once claimed. Never read, handed out or erased here */
 
@@ -215,8 +217,8 @@ static int ocs_free(uint32_t s)
     const ocs_hdr_t *h = &ocs_hdr[s];
     uint8_t sect[OCS_PARTS_MAX];
     uint32_t seq, parts;
-    if ((ocs_resv >> s) & 1u)
-        return 0;                              /* (0.6.0) the sample slot's */
+    if (((ocs_resv | ocs_held) >> s) & 1u)
+        return 0;                              /* (0.6.0) the sample slot's; (0.14.2) an open stream's */
     if (h->magic != OCS_MAGIC)
         return 1;
     parts = ocs_current(h->type, h->id, sect, &seq, 0);
@@ -270,62 +272,130 @@ static int ocs_mem_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
     return 0;
 }
 
-/* save record (type, id): len bytes from src, as a new copy. 0 done; -1 too big or no room (the store keeps what it
- * had); another negative: a flash error, or src's (the copy before is still in charge) */
-static int ocs_write_copy(uint32_t type, uint32_t id, ocs_src_t *src, uint32_t len)
-{
-    uint8_t cur[OCS_PARTS_MAX], use[OCS_PARTS_MAX], buf[256];
-    uint32_t seq = 0, parts = (len + OCS_PAYLOAD_MAX - 1u) / OCS_PAYLOAD_MAX, n = 0, s, p, ncur, have = 0;
+/* (0.14.2) a record written as its bytes arrive, in order, across calls (a backup restore's pieces over USB: editor_backup.c),
+ * with no RAM image of it; ocs_write_copy is the same writer with all its bytes at hand. begin takes the free sectors (held
+ * from other saves meanwhile: ocs_held); put erases each part's sector as its first byte comes and programs the bytes a
+ * page at a time; commit writes every part's commit header, last, with a seq past every copy's then (another save of the
+ * record may have come between), and reads them back. Until the commit nothing counts: dropped (ocs_stream_drop, or
+ * never committed), the sectors are blank or hold payload without a header, which is free ground, and the copy before
+ * stays in charge */
+typedef struct {
+    uint8_t use[OCS_PARTS_MAX], open;
+    uint32_t type, id, len, pos, parts, crc;   /* crc: the part being written's, as far as it goes */
     ocs_hdr_t h[OCS_PARTS_MAX];
-    int rc;
+    uint64_t mask;                             /* use[] as a mask (ocs_held) */
+} ocs_stream_t;
+static void ocs_stream_drop(ocs_stream_t *w)
+{
+    if (w->open) ocs_held &= ~w->mask;
+    w->open = 0;
+}
+/* 0 begun; -1 too big or no room (nothing written) */
+static int ocs_stream_begin(ocs_stream_t *w, uint32_t type, uint32_t id, uint32_t len)
+{
+    uint8_t cur[OCS_PARTS_MAX];
+    uint32_t parts = (len + OCS_PAYLOAD_MAX - 1u) / OCS_PAYLOAD_MAX, n = 0, s, p, ncur, seq;
+    ocs_stream_drop(w);
     if (!parts) parts = 1u;                     /* (an empty record still has one part: its header) */
     if (type <= OCS_NONE || type >= OCS_TYPES || parts > OCS_PARTS_MAX) return -1;
-    /* the new seq is past every copy's, torn ones too: a torn copy sharing the new seq would spoil it */
-    for (s = 0; s < OCS_NSECT; s++) {
-        const ocs_hdr_t *o = &ocs_hdr[s];
-        if (o->magic != OCS_MAGIC || o->type != type || o->id != id) continue;
-        if (!have || ocs_newer(o->seq, seq)) seq = o->seq;
-        have = 1;
-    }
     /* the copy a read gives now (payloads checked) is kept until the new one is in: a newer copy whose payload has
      * rotted counts as current by its headers alone, and would otherwise leave this one free to reuse */
-    ncur = ocs_current(type, id, cur, &s, 1);
+    ncur = ocs_current(type, id, cur, &seq, 1);
     for (uint32_t k = 0; k < OCS_NSECT && n < parts; k++) {   /* free sectors, round from the cursor */
         uint32_t keep = 0;
         s = (ocs_cursor + k) % OCS_NSECT;
         for (p = 0; p < ncur; p++) keep |= cur[p] == s;
-        if (!keep && ocs_free(s)) use[n++] = (uint8_t)s;
+        if (!keep && ocs_free(s)) w->use[n++] = (uint8_t)s;
     }
     if (n < parts) return -1;
-    ocs_cursor = (uint8_t)((use[parts - 1u] + 1u) % OCS_NSECT);
-    for (p = 0; p < parts; p++) {              /* erase, then every part's payload, a page at a time */
-        uint32_t off = p * OCS_PAYLOAD_MAX, k = len - off < OCS_PAYLOAD_MAX ? len - off : OCS_PAYLOAD_MAX;
-        uint32_t addr = ocs_addr(use[p]) + OCS_HDR, crc = 0xFFFFFFFFu;
-        if (len == 0) k = 0;
-        memset(&ocs_hdr[use[p]], 0, OCS_HDR);  /* (erased: no longer what the scan saw) */
-        if ((rc = OCS_ER(ocs_addr(use[p]))) != 0) return rc;
-        for (uint32_t done = 0; done < k;) {
-            uint32_t m = 256u - (addr & 255u);
-            if (m > k - done) m = k - done;
-            if ((rc = src->get(src, buf, m)) != 0) return rc < -1 ? rc : -10;
-            crc = ocs_crc_add(crc, buf, m);
-            if ((rc = OCS_PG(addr, buf, m)) != 0) return rc;
-            addr += m; done += m;
+    ocs_cursor = (uint8_t)((w->use[parts - 1u] + 1u) % OCS_NSECT);
+    w->type = type; w->id = id; w->len = len; w->pos = 0; w->parts = parts; w->crc = 0xFFFFFFFFu;
+    w->mask = 0;
+    for (p = 0; p < parts; p++) w->mask |= (uint64_t)1u << w->use[p];
+    ocs_held |= w->mask;
+    w->open = 1;
+    return 0;
+}
+/* part p's header, its payload all written (k bytes, CRC crc) */
+static void ocs_stream_head(ocs_stream_t *w, uint32_t p, uint32_t k, uint32_t crc)
+{
+    ocs_hdr_t *h = &w->h[p];
+    h->magic = OCS_MAGIC; h->type = (uint8_t)w->type; h->part = (uint8_t)p; h->parts = (uint8_t)w->parts;
+    h->rsv = 0xFF; h->id = (uint16_t)w->id; h->rsv2 = 0xFFFFu; h->len = k; h->crc = ~crc; h->total = w->len;
+}
+/* the next n bytes. 0 done; a negative: a flash error (the stream dropped) or bytes past its length */
+static int ocs_stream_put(ocs_stream_t *w, const uint8_t *src, uint32_t n)
+{
+    int rc;
+    if (!w->open || n > w->len - w->pos) return -1;
+    while (n) {
+        uint32_t p = w->pos / OCS_PAYLOAD_MAX, o = w->pos % OCS_PAYLOAD_MAX, addr = ocs_addr(w->use[p]) + OCS_HDR + o;
+        uint32_t k = OCS_PAYLOAD_MAX - o, m = 256u - (addr & 255u);
+        if (o == 0u) {                         /* a part's first byte: its sector erased */
+            memset(&ocs_hdr[w->use[p]], 0, OCS_HDR);   /* (erased: no longer what the scan saw) */
+            if ((rc = OCS_ER(ocs_addr(w->use[p]))) != 0) { ocs_stream_drop(w); return rc; }
+            w->crc = 0xFFFFFFFFu;
         }
-        h[p].magic = OCS_MAGIC; h[p].type = (uint8_t)type; h[p].part = (uint8_t)p; h[p].parts = (uint8_t)parts;
-        h[p].rsv = 0xFF; h[p].id = (uint16_t)id; h[p].rsv2 = 0xFFFFu; h[p].seq = seq + 1u;
-        h[p].len = k; h[p].crc = ~crc; h[p].total = len;
-        h[p].hcrc = ocs_crc32(&h[p], OCS_HDR - 4u);
-    }
-    for (p = 0; p < parts; p++)                /* the commit headers, last */
-        if ((rc = ocs_prog(ocs_addr(use[p]), (const uint8_t *)&h[p], OCS_HDR)) != 0) return rc;
-    for (p = 0; p < parts; p++) {              /* read back: a failing part must not report saved */
-        ocs_hdr_t chk;
-        if (OCS_RD(ocs_addr(use[p]), &chk, OCS_HDR) || memcmp(&chk, &h[p], OCS_HDR)) return -7;
-        ocs_hdr[use[p]] = h[p];
-        if (!ocs_body_ok(use[p])) { memset(&ocs_hdr[use[p]], 0, OCS_HDR); return -7; }
+        if (m > k) m = k;
+        if (m > n) m = n;
+        w->crc = ocs_crc_add(w->crc, src, m);
+        if ((rc = OCS_PG(addr, src, m)) != 0) { ocs_stream_drop(w); return rc; }
+        src += m; n -= m; w->pos += m;
+        if (w->pos % OCS_PAYLOAD_MAX == 0u || w->pos == w->len)
+            ocs_stream_head(w, p, (w->pos - 1u) % OCS_PAYLOAD_MAX + 1u, w->crc);
     }
     return 0;
+}
+/* the commit (every byte put). 0 done; -1 not every byte there (nothing committed); another negative: a flash error */
+static int ocs_stream_commit(ocs_stream_t *w)
+{
+    uint32_t seq = 0, have = 0, s, p;
+    int rc;
+    if (!w->open || w->pos != w->len) { ocs_stream_drop(w); return -1; }
+    if (!w->len) {                             /* (an empty record: its one part erased now, a header and no payload) */
+        memset(&ocs_hdr[w->use[0]], 0, OCS_HDR);
+        if ((rc = OCS_ER(ocs_addr(w->use[0]))) != 0) { ocs_stream_drop(w); return rc; }
+        ocs_stream_head(w, 0, 0, 0xFFFFFFFFu);
+    }
+    /* the new seq is past every copy's, torn ones too: a torn copy sharing the new seq would spoil it */
+    for (s = 0; s < OCS_NSECT; s++) {
+        const ocs_hdr_t *o = &ocs_hdr[s];
+        if (o->magic != OCS_MAGIC || o->type != w->type || o->id != w->id) continue;
+        if (!have || ocs_newer(o->seq, seq)) seq = o->seq;
+        have = 1;
+    }
+    for (p = 0; p < w->parts; p++) {
+        w->h[p].seq = seq + 1u;
+        w->h[p].hcrc = ocs_crc32(&w->h[p], OCS_HDR - 4u);
+    }
+    ocs_stream_drop(w);                        /* (from here the sectors are the copy's, by their headers) */
+    for (p = 0; p < w->parts; p++)             /* the commit headers, last */
+        if ((rc = ocs_prog(ocs_addr(w->use[p]), (const uint8_t *)&w->h[p], OCS_HDR)) != 0) return rc;
+    for (p = 0; p < w->parts; p++) {           /* read back: a failing part must not report saved */
+        ocs_hdr_t chk;
+        if (OCS_RD(ocs_addr(w->use[p]), &chk, OCS_HDR) || memcmp(&chk, &w->h[p], OCS_HDR)) return -7;
+        ocs_hdr[w->use[p]] = w->h[p];
+        if (!ocs_body_ok(w->use[p])) { memset(&ocs_hdr[w->use[p]], 0, OCS_HDR); return -7; }
+    }
+    return 0;
+}
+
+/* save record (type, id): len bytes from src, as a new copy. 0 done; -1 too big or no room (the store keeps what it
+ * had); another negative: a flash error, or src's (the copy before is still in charge) */
+static int ocs_write_copy(uint32_t type, uint32_t id, ocs_src_t *src, uint32_t len)
+{
+    static ocs_stream_t w __attribute__((section(".pool")));
+    uint8_t buf[256];
+    int rc;
+    if ((rc = ocs_stream_begin(&w, type, id, len)) != 0) return rc;
+    while (w.pos < len) {                      /* (a page at a time: put splits nothing further) */
+        uint32_t o = w.pos % OCS_PAYLOAD_MAX, m = 256u - ((ocs_addr(w.use[w.pos / OCS_PAYLOAD_MAX]) + OCS_HDR + o) & 255u);
+        if (m > OCS_PAYLOAD_MAX - o) m = OCS_PAYLOAD_MAX - o;
+        if (m > len - w.pos) m = len - w.pos;
+        if ((rc = src->get(src, buf, m)) != 0) { ocs_stream_drop(&w); return rc < -1 ? rc : -10; }
+        if ((rc = ocs_stream_put(&w, buf, m)) != 0) return rc;
+    }
+    return ocs_stream_commit(&w);
 }
 
 static int ocs_write_src(uint32_t type, uint32_t id, ocs_src_t *src, uint32_t len)
