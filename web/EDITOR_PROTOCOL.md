@@ -421,6 +421,7 @@ first (100 ms, else rc 2), as user-preset writes do.
 
 | Command | Request | Reply |
 |---|---|---|
+| 103 CLOCK_STATS | flags (optional; 1: reset after reading) | (Orange Cat 0.14.2) pulses taken from the selected clock source (5 x 7 bits), stops on a lost clock, resyncs, the longest gap between two pulses in ms, the pulses the last resync found missed (3 x 7 bits each). See "MIDI clock" |
 | 110 SLOT_INFO | — | state (0 no slot yet, 1 empty, 2 a sample), data length (3 × 7 bits, low first), zones, capacity (3 × 7 bits: 81,408), name (string) |
 | 111 SLOT_BEGIN | data length (3 × 7 bits), 1..81,408 | rc, bytes written (3 × 7 bits). The sample there is gone from now on |
 | 112 SLOT_WRITE | offset (3 × 7 bits), pack7 data (≤ 256 bytes) | rc, bytes written. The offset must be where the last write ended; nothing past the length |
