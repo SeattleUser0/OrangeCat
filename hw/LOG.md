@@ -792,3 +792,16 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - **For the user to listen to** (AUDIO4c inputs 1 and 2, 48 kHz, the four-note chord held 3 s, CHRD off for the take): `~/fm1-hw/listen/FOLD_PLUCK-chord-nightly-3ca2b5.wav`
   (peak -10.4 dBFS) and `~/fm1-hw/listen/ADDITIVE_PAD-chord-nightly-3ca2b5.wav` (-10.1 dBFS); no clipping, no DAC silence. Track 1's CHRD MAJ / VOIC OPEN set
   again afterwards (the restart had cleared them), CLK 0.
+
+## October 26 (UTC): the soak, the effects' cost
+
+- **Soak** (`~/fm1-hw/soak/soak.py`, 2 h from 07:21Z, Nightly 3ca2b5; MACRO VA BASS, SHAPES RING BELL, DRUM-X 0, WHEEL 0, the chord on every step, REV / DLY /
+  CHO 100 on every track, reverb ROOM; the PC's USB clock at 120 BPM; a 20 s sample every 10 min, both captures). Minutes 1 to 51: worst 3,428 to 3,487 us,
+  late 1,895 to 1,935, USB holes 307 to 319, DAC silences 0, analog peak -8.4 to -9.1 dBFS, RMS -20.0 to -20.3 (within 0.3 dB): a steady overload (the
+  effects ~730 us over the bare load), no growth. **From minute 61 to the end the unit was silent**: worst 403 to 412 us (idle), USB digital zero, the analog
+  at the floor; the unit answered (`ORANGE CAT v0.6.2-3ca2b5`), the tracks and parameters went back equal, **objects 1.. of the backup byte-identical
+  before and after**. The stop falls between 08:13Z and 08:22Z. The firmware stops the sequencer when no clock pulse is dispatched for 500 ms (seq.c,
+  "cable loss") and clocks alone do not restart it; the PC's clock gaps were not recorded (fm1hw.play records the longest from now on:
+  `clock_gap_max_ms`). No USB event in the kernel log. Open: the source of the gap (the PC or the unit), see the user's clock item.
+- **Effects' cost** (`~/fm1-hw/fxcost/fxcost.py`; four MACRO VA BASS tracks, the chord on every step, 20 s a case; sends 100 / DIST 100 from every track):
+  table in BUILD.md. All put back (tracks, parameters, the globals 35, 36, 37, 49, 72 equal).

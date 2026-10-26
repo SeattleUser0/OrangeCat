@@ -2769,3 +2769,42 @@ four SHAPES RING BELL tracks 2,753 us, 165 late, 33 USB holes, **0 DAC silences*
 byte-identical module; a layout shift suspected, not measured); four MALLET tracks overload (four MODAL voices, one a part, at about 950 us each: past the
 budget whatever the units; one track is clean); FOLD PLUCK and ADDITIVE PAD chords recorded for the user (`~/fm1-hw/listen/`). **Found**: project slot 1
 empty in the backup (it was in the October 24 backup and Part 6's check); not restored, not yet explained.
+
+### The soak and the effects' cost (Nightly v0.6.2-3ca2b5, October 26, 2026)
+
+**Soak, 2 h** (hw/LOG.md): mixed engines with every send at 100 run as a steady overload (worst ~3,460 us, ~1,910 late in 20 s, levels within 0.3 dB) for
+51 minutes with no growth, then the unit stopped playing (answering, idle) for the rest of the run; the library and settings came through byte-identical. The
+stop matches the firmware's 500 ms lost-clock stop; whether the gap came from the PC's clock or the unit is open. From now on the soak is two runs: stability
+(a load under budget, internal clock) and external sync (the PC's clock gaps and the unit's missed ticks recorded).
+
+**The effects' cost**, four MACRO VA BASS tracks (the four-note chord every step), one effect at a time at full send or amount from every track, 20 s each.
+Worst is one maximum (noisy, tens of us); load is AUDIO_STATS' peak load.
+
+| Case | Worst us | Over all off | Load % | Late | USB holes | DAC silences |
+|---|---|---|---|---|---|---|
+| all off | 2,131 | | 50.4 | 0 | 0 | 0 |
+| DELAY ANALOG | 2,551 | +420 | 52.3 | 10 | 0 | 0 |
+| DELAY DIGITAL | 2,535 | +404 | 52.0 | 2 | 0 | 0 |
+| DELAY DIGITAL PING | 2,537 | +406 | 53.1 | 22 | 0 | 0 |
+| REVERB ROOM | 2,642 | +511 | 53.5 | 54 | 7 | 0 |
+| REVERB SPRING | 2,647 | +516 | 56.2 | 70 | 12 | 0 |
+| REVERB SHIMR | 2,725 | +594 | 59.4 | 118 | 22 | 0 |
+| REVERB RESO | 2,686 | +555 | 57.8 | 71 | 13 | 0 |
+| REVERB CLOUD | 2,848 | +717 | 53.1 | 24 | 3 | 1 |
+| CHORUS | 3,064 | +933 | 54.7 | 63 | 9 | 0 |
+| DJ filter LP -40 | 2,254 | +123 | 52.7 | 0 | 0 | 0 |
+| DJ filter HP +40 | 2,243 | +112 | 52.7 | 0 | 19 | 0 |
+| DIST SOFT | 2,361 | +230 | 52.3 | 0 | 0 | 0 |
+| DIST HARD | 2,420 | +289 | 52.3 | 0 | 0 | 0 |
+| DIST FOLD | 2,512 | +381 | 52.0 | 2 | 1 | 0 |
+| DIST CRUSH | 2,473 | +342 | 50.8 | 0 | 14 | 0 |
+| DIST RECT | 2,469 | +338 | 51.2 | 0 | 0 | 0 |
+| DIST AMP | 2,646 | +515 | 54.3 | 38 | 2 | 0 |
+| SLICER GATE | 2,219 | +88 | 51.6 | 0 | 0 | 0 |
+| SLICER STUT | 2,237 | +106 | 52.0 | 0 | 0 | 0 |
+| all off (again) | 2,130 | -1 | 50.0 | 0 | 0 | 0 |
+
+- CHORUS is the dearest single effect (+930 us, with four-track sends), then REVERB CLOUD (+720), SHIMR and RESO; a delay costs ~400 us; the DJ filter and
+  the slicer about 100 us. With a ~2,130 us load, REVERB alone takes the unit over the late line.
+- USB holes with no late render (DJ filter HP 19, DIST CRUSH 14) are the USB capture's own, not the unit's; this is why the table keeps late and DAC silences
+  beside them. DIST HARD's voices readout read 0 once (a missed reply field), its sound was normal.

@@ -255,11 +255,18 @@ class Unit:
         self.set_global(clk, 1)
         stop = threading.Event()
 
+        self.clock_gap_max_ms, self.clock_gap_at = 0.0, None       # the longest gap between two clocks sent (the unit stops after 500 ms)
+
         def clock():
             dt = 60.0 / (bpm * 24)
             nxt = time.perf_counter()
+            last = None
             while not stop.is_set():
                 self.send(mido.Message("clock"))
+                now = time.perf_counter()
+                if last is not None and (now - last) * 1e3 > self.clock_gap_max_ms:
+                    self.clock_gap_max_ms, self.clock_gap_at = (now - last) * 1e3, time.monotonic()
+                last = now
                 nxt += dt
                 while (w := nxt - time.perf_counter()) > 0:
                     time.sleep(min(w, 0.002))
