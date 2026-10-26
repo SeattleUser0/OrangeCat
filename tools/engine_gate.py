@@ -204,6 +204,21 @@ GATE = {
         "modulation": "SHP moves the grains' WAVE (the track's LFO DEST SHP, the matrix), CUT the TONE (m->cutoff); its own grain clock and jitter; velocity and the ADSR through the amplitude; E1..E8 read every render and grain",
         "backend": "the sine (SINE through the base hot set: up to three reads a grain a sample); Felucca's grain helpers (orbit_dsp.h: the Hann window, GR_NORM: GRAIN's in Felucca, ORBIT's CLOUD)",
         "source": "ORBIT (dspaudio, ORBIT contributors) firmware/src/eng_cloud.c at c07bd1d, GPL-3.0-only; Felucca's grain helpers"},
+    "orbit": {"engine": 44, "funcs": ["swarm_render"], "voice_type": None,
+        "controls": "ORBIT's five (COUNT SPREAD PARTIAL ENV on EDIT 1, TONE on EDIT 2); three unused; lost: none of the render's",
+        "modulation": "SHP moves the second harmonic (PARTIAL: the track's LFO DEST SHP, the matrix); ENV (m->envq15) contracts the spread; CUT the TONE (m->cutoff); velocity and the ADSR through the amplitude",
+        "backend": 'the sine (sine_i: SINE through the base hot set, up to twelve reads a sample)',
+        "source": 'ORBIT (ORBIT contributors) firmware/src/eng_orbit.c (SWARM) at c07bd1d, GPL-3.0-only'},
+    "orbit_pulse": {"engine": 50, "funcs": ["orbit_pulse_render"], "voice_type": None,
+        "controls": "ORBIT's six (WIDTH DETUNE PWM RATE on EDIT 1, TONE MIX on EDIT 2); two unused; lost: none of the render's",
+        "modulation": "SHP moves the WIDTH (the track's LFO DEST SHP, the matrix); its own PWM LFO; CUT the TONE (m->cutoff); velocity and the ADSR through the amplitude",
+        "backend": "a polynomial step correction (orbit_step: polyBLEP's idea, its own code); the sine for its LFO",
+        "source": 'ORBIT (ORBIT contributors) firmware/src/eng_orbit.c (PULSE) at c07bd1d, GPL-3.0-only'},
+    "orbit_fm4": {"engine": 51, "funcs": ["orbit_fm4_render"], "voice_type": None,
+        "controls": "ORBIT's eight on EDIT 1 and 2 (DEPTH RATIO2 RATIO3 RATIO4, TONE ROUTE ENV FEEDBACK); lost: none of the render's",
+        "modulation": "SHP moves the DEPTH (the track's LFO DEST SHP, the matrix); ENV (m->envq15) contracts it; CUT the TONE (m->cutoff); velocity and the ADSR through the amplitude",
+        "backend": "the sine (sine_i: four operators, five reads a sample: the base hot set); FM6's operators are another family (Dexed's), not shared",
+        "source": 'ORBIT (ORBIT contributors) firmware/src/eng_orbit.c (FM4) at c07bd1d, GPL-3.0-only'},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

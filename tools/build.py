@@ -539,7 +539,10 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "terrain": {"src": "tools/module/terrain_mod.c", "sectors": 5, "starts": [0, 6], "name": "TERRAIN"},
            "wseq": {"src": "tools/module/wseq_mod.c", "sectors": 4, "starts": [0, 6], "name": "WSEQ"},
            "ravel_mono": {"src": "tools/module/ravel_mono_mod.c", "sectors": 4, "starts": [0, 6], "name": "MONO"},
-           "orbit_cloud": {"src": "tools/module/orbit_cloud_mod.c", "sectors": 4, "starts": [0, 6], "name": "CLOUD"}}
+           "orbit_cloud": {"src": "tools/module/orbit_cloud_mod.c", "sectors": 4, "starts": [0, 6], "name": "CLOUD"},
+           "orbit": {"src": "tools/module/orbit_mod.c", "sectors": 4, "starts": [0, 6], "name": "SWARM"},
+           "orbit_pulse": {"src": "tools/module/orbit_pulse_mod.c", "sectors": 4, "starts": [0, 6], "name": "PULSE"},
+           "orbit_fm4": {"src": "tools/module/orbit_fm4_mod.c", "sectors": 4, "starts": [0, 6], "name": "FM4"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
