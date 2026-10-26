@@ -8,24 +8,31 @@
 #include <stdlib.h>
 #include <time.h>
 
-typedef struct { const char *name; int algo, R, aa, lines, pat, spring; } bcfg_t;   /* spring: (0.4) 1 in the loop, 2 on the wet, 3 the tank alone */
+typedef struct { const char *name; int algo, R, aa, lines, pat, spring, fx; } bcfg_t;   /* spring: (0.4) 1 in the loop, 2 on the wet, 3 the tank alone;
+ * fx: (0.5) 1 the limiter at -9 dBFS, 2 the input cut held, 3 the cut (input and wet) toggled every 64 blocks (the ramps running), 4 1 and 3 */
 static const bcfg_t B[] = {
-    {"DIGITAL 44k, 1 head", DD_ALGO_DIGITAL, 1, DD_AA_HB, 1, 0, 0},
-    {"LITE 44k, 2 heads (SKANK)", DD_ALGO_LITE, 1, DD_AA_HB, 1, 1, 0},
-    {"LITE 44k, 4 heads (SPREAD)", DD_ALGO_LITE, 1, DD_AA_HB, 1, 5, 0},
-    {"LITE 22k HB, 2 heads", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 0},
-    {"LITE 22k HB, 4 heads", DD_ALGO_LITE, 2, DD_AA_HB, 1, 5, 0},
-    {"LITE 22k box/lin, 2 heads", DD_ALGO_LITE, 2, DD_AA_CHEAP, 1, 1, 0},
-    {"LITE 11k HB, 2 heads", DD_ALGO_LITE, 4, DD_AA_HB, 1, 1, 0},
-    {"TAPE 44k, 3 heads (TRIPLE)", DD_ALGO_TAPE, 1, DD_AA_HB, 1, 3, 0},
-    {"TAPE 22k HB, 3 heads", DD_ALGO_TAPE, 2, DD_AA_HB, 1, 3, 0},
-    {"TAPE 11k HB, 3 heads", DD_ALGO_TAPE, 4, DD_AA_HB, 1, 3, 0},
-    {"TAPE 22k HB stereo (2 lines), 3 heads", DD_ALGO_TAPE, 2, DD_AA_HB, 2, 3, 0},
-    {"(0.4) the spring alone, 22.05 kHz line", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 3},
-    {"(0.4) LITE 22k HB, 2 heads + the spring in the loop", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 1},
-    {"(0.4) LITE 22k HB, 2 heads + the spring on the wet", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 2},
-    {"(0.4) TAPE 22k HB, 3 heads + the spring in the loop", DD_ALGO_TAPE, 2, DD_AA_HB, 1, 3, 1},
-    {"(0.4) TAPE 22k HB, 3 heads + the spring on the wet", DD_ALGO_TAPE, 2, DD_AA_HB, 1, 3, 2},
+    {"DIGITAL 44k, 1 head", DD_ALGO_DIGITAL, 1, DD_AA_HB, 1, 0, 0, 0},
+    {"LITE 44k, 2 heads (SKANK)", DD_ALGO_LITE, 1, DD_AA_HB, 1, 1, 0, 0},
+    {"LITE 44k, 4 heads (SPREAD)", DD_ALGO_LITE, 1, DD_AA_HB, 1, 5, 0, 0},
+    {"LITE 22k HB, 2 heads", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 0, 0},
+    {"LITE 22k HB, 4 heads", DD_ALGO_LITE, 2, DD_AA_HB, 1, 5, 0, 0},
+    {"LITE 22k box/lin, 2 heads", DD_ALGO_LITE, 2, DD_AA_CHEAP, 1, 1, 0, 0},
+    {"LITE 11k HB, 2 heads", DD_ALGO_LITE, 4, DD_AA_HB, 1, 1, 0, 0},
+    {"TAPE 44k, 3 heads (TRIPLE)", DD_ALGO_TAPE, 1, DD_AA_HB, 1, 3, 0, 0},
+    {"TAPE 22k HB, 3 heads", DD_ALGO_TAPE, 2, DD_AA_HB, 1, 3, 0, 0},
+    {"TAPE 11k HB, 3 heads", DD_ALGO_TAPE, 4, DD_AA_HB, 1, 3, 0, 0},
+    {"TAPE 22k HB stereo (2 lines), 3 heads", DD_ALGO_TAPE, 2, DD_AA_HB, 2, 3, 0, 0},
+    {"(0.4) the spring alone, 22.05 kHz line", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 3, 0},
+    {"(0.4) LITE 22k HB, 2 heads + the spring in the loop", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 1, 0},
+    {"(0.4) LITE 22k HB, 2 heads + the spring on the wet", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 2, 0},
+    {"(0.4) TAPE 22k HB, 3 heads + the spring in the loop", DD_ALGO_TAPE, 2, DD_AA_HB, 1, 3, 1, 0},
+    {"(0.4) TAPE 22k HB, 3 heads + the spring on the wet", DD_ALGO_TAPE, 2, DD_AA_HB, 1, 3, 2, 0},
+    {"(0.5) LITE 22k HB, 2 heads + the limiter", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 0, 1},
+    {"(0.5) LITE 22k HB, 2 heads, the input cut held", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 0, 2},
+    {"(0.5) LITE 22k HB, 2 heads, the cut toggled (ramps)", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 0, 3},
+    {"(0.5) LITE 22k HB, 2 heads + the limiter + the cut toggled", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 0, 4},
+    {"(0.5) TAPE 22k HB, 3 heads + the limiter + the cut toggled", DD_ALGO_TAPE, 2, DD_AA_HB, 1, 3, 0, 4},
+    {"(0.5) LITE 22k HB, 2 heads + the spring in the loop + the limiter + the cut toggled", DD_ALGO_LITE, 2, DD_AA_HB, 1, 1, 1, 4},
 };
 #define NB (int)(sizeof B / sizeof B[0])
 #define NBLK 10336                           /* 30 s */
@@ -59,6 +66,9 @@ int main(void)
                 p.time = 0.1f; p.send = 1.0f; p.wow = 0.4f; p.flutter = 0.4f; p.xfeed = 0.4f;
                 if (b % 512 == 0) p.time = 0.11f;                 /* heads gliding now and then */
                 if (B[c].spring) { p.spring = B[c].spring == 3 ? 2 : B[c].spring; p.sp_mix = 0.7f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f; p.sp_in = 0.3f; }
+                if (B[c].fx == 1 || B[c].fx == 4) p.lim_ceil = 0.355f;
+                if (B[c].fx == 2) p.cut = 1;
+                if (B[c].fx >= 3) { p.cut = (b >> 6) & 1; p.cut_wet = 1; }
                 t0 = now();
                 if (B[c].spring == 3)                           /* the tank alone: a block's worth at the line's rate (64 samples) */
                     for (k = 0; k < inst; k++) { dd_spring_block(&s[k], &p, x + b * DD_BLOCK, ol, DD_CTL); dd_spring_block(&s[k], &p, x + b * DD_BLOCK + DD_CTL, ol + DD_CTL, DD_CTL); }

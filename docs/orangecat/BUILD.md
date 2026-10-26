@@ -2896,9 +2896,9 @@ regenerate byte-identical.
 
 **Measured** (MEASUREMENTS.md section 9; the tank alone at the 22.05 kHz line):
 - T60 set 1 / 2 / 3 s: measured **1.01 / 1.89 / 2.81 s**; the energy above 3 kHz -16 to -18 dB of the whole (dark).
-- **The largest FEEDBACK whose tail still decays** (one head 150 ms, ROUTE RECORD; a burst, 20 s; decays = more than 3 dB down from 3..6 s
-  to 15..20 s): without the tank **1.00**; the tank in the loop at mix 0.5 **1.12**, at mix 1 **1.26**. Above those the loop sustains,
-  bounded at full scale by the delay's saturator (the self-oscillation FEEDBACK over 1 is meant to give); it never runs away.
+- ~~The largest FEEDBACK whose tail still decays: without the tank 1.00; the tank in the loop at mix 0.5 1.12, at mix 1 1.26.~~ **Wrong;
+  corrected in revision 0.5 below** (a harness bug, and a tank whose gain in the loop was below 1): with the tank in the loop it is
+  **1.00** at every mix, the same as without it.
 - The kick: **-6.0 dBFS** peak (drive 0.7, decay 2 s, the tank alone), T60 1.72 s.
 
 **Renders** (RENDERS.csv rows s1..s8; the WAVs in `tools/dubtape/renders/` on the PC, not committed): skank with the tank on the wet and
@@ -2913,7 +2913,7 @@ this PC quiet), microseconds a 128-frame block, one / four instances:
 |---|---|---|
 | LITE, 2 heads (the delay alone) | 7.06 | 23.63 |
 | the spring alone (dd_spring_block) | 6.95 | 21.34 |
-| LITE, 2 heads + the spring in the loop | 11.27 (+60 %) | 41.76 |
+| LITE, 2 heads + the spring in the loop | 11.27 (+60 %); 0.5's allpass 9.88 (+35 %) | 41.76; 0.5: 34.05 |
 | LITE, 2 heads + the spring on the wet | 13.00 (+84 %) | 46.26 |
 | TAPE, 3 heads (the delay alone) | 11.65 | 42.41 |
 | TAPE, 3 heads + the spring in the loop | 16.12 | 56.79 |
@@ -2929,3 +2929,59 @@ tail, the tube, the kick), with the echoes available on the same knob set by bri
 dub. Three limits: (1) the tank is mono (its width comes only from the taps, so with the taps cut it sits in the centre); (2) a spring is
 not a room: the shared REVERB bus (ROOM, CLOUD) stays the mix's space; (3) a spring-only instance still runs the delay's line, converters and
 loop: a mode that skips them when the taps are cut (about half the instance's cost by the host bench) is the obvious saving, not built.
+
+### The spring revisited: the loop's gain, the cut, the limiter (revision 0.5, host only, October 26, 2026)
+
+**Section 9's stability numbers were wrong.** Two faults. (1) The harness: it ran 20 s, which is not a whole number of 128-frame blocks,
+and read the last 80 samples of the output buffer past the last block it had written (stale values); the windows over the tail came out
+louder than they were, so a decaying loop could look held. Now the run is
+whole blocks, and the slope is fitted through 0.5 s RMS windows (the windows above -85 dBFS for a decay; to -20 dBFS for a build).
+(2) The model: the tank in the loop was scaled by 1 - g (its peak gain), so its gain at most frequencies was below 1 and a loop through it
+needed a FEEDBACK of about 1.12 to 1.26 just to hold: the "stable to 1.26" was the tank eating gain, not a property worth having (FEEDBACK
+would mean something different with the spring on). **The fix**: in the loop the tank is a Schroeder allpass with its 37 ms delay and the
+dispersion chain nested inside it (w = x + gd D(w), y = D(w) - gd w; gd = 0.40 + 0.35 sp_mix; the dispersion scaled by sp_mix), in float
+(1,024 floats in the caller's buffer, 4-byte aligned), clamped at +-4. Its gain is 1 at every frequency, so the loop's gain is FEEDBACK.
+No low-pass inside (the delay's LP darkens the repeats); sp_decay and sp_tone shape only the wet placement. The buffer is cleared when the
+placement changes. An AGC on the loop was tried and removed. The wet placement is unchanged (its renders byte-identical).
+
+**Measured** (MEASUREMENTS.md section 9, regenerated; one head 150 ms, ROUTE RECORD, a -40 dBFS burst; dB/s):
+
+| FEEDBACK | no tank | tank in the loop, mix 0.5 | mix 1 |
+|---|---|---|---|
+| 0.80 | under -85 dBFS within 1.5 s | the same | the same |
+| 0.90 | -8.8 | -7.2 | -6.8 |
+| 0.95 | -4.5 | -3.9 | -4.0 |
+| 0.98 | -2.3 | -2.0 | -2.0 |
+| 1.00 | -1.0 | -0.9 | -0.9 |
+| 1.20 (builds) | +5.4, -20 dBFS at 10.2 s | +7.0, 8.8 s | +7.9, 7.8 s |
+| 1.30 (builds) | +8.4 | +9.9 | +11.7 |
+| **largest that decays** | **1.00** | **1.00** | **1.00** |
+
+The tank no longer changes where the loop holds; with it a build above 1 is a little faster.
+
+**Riding a build** (new, PARAMETERS.md "Riding a build"): `cut` takes the loop's input to 0 over 3 ms and back over 3 ms (a fader
+grabbed); `cut_wet` takes the wet with it; `lim_ceil` is a limiter on the wet after the loop (and the spring's wet), at the line's rate,
+instant attack, 150 ms release. Measured: the cut with the wet falls 90 to 10 % in **2.0 ms**, the band above 6 kHz +1.1 dB at the cut
+(no click); the input-only cut leaves the wet to fall at the loop's own rate (452 ms at FEEDBACK 0.5; +3.0 / +3.8 dB above 6 kHz at the
+edges). A FEEDBACK 1.2 build with the limiter at -12 dBFS: the wet's peak -11.36 dBFS without the tank, -11.42 with it (without the
+limiter -6.87 and -9.74: the saturator's ceiling). At FEEDBACK 1 or more the input cut does not stop a build: the loop sustains itself
+(render s9); to stop one, FEEDBACK comes down or the wet is cut.
+
+**Cost** (BENCH_HOST.md, regenerated, us a 128-frame block, one / four instances): LITE 2 heads 7.30 / 25.64; + the limiter 7.41 / 25.53;
+the cut toggling (its ramps running) 7.29 / 25.09; both 7.45 / 25.38; TAPE 3 heads with both 12.07 / 44.33 (alone 11.75 / 43.08); LITE +
+the spring in the loop + both 9.95 / 35.23. **The cut and the limiter cost nothing measurable on the host** (inside its noise, about 2 %).
+**The spring in the loop is cheaper than in 0.4** (9.88 against 11.27: no low-pass in it). One row is a host artefact: **the input cut held
+costs 25.16 / 97.26**, because with nothing in the loop the denormal guard (+-1e-20) is cubed in the saturator and underflows, and x86
+takes microcode assists on every underflow; with flush-to-zero and denormals-are-zero set the same row is 6.56 / 22.44. Any silent input
+does the same, not just the cut. Whether the FM-1's FPU (pi32v2) is slow on underflow is not known: an open item for the unit bench
+(a held cut or a silent track, against a playing one). The kernel was not changed for it: a guard in sat3 would change no output bytes
+but adds a compare a sample on the unit.
+
+**Renders** (RENDERS.csv rows s9..s11, on the PC; skank, FEEDBACK 1.2, the limiter at -9 dBFS, the cut from 5.0 to 6.5 s):
+s9 the input cut (the wet holds at about -11 dBFS through it), s10 the cut with the wet (the wet silent for the cut, back at the ceiling
+after it: the loop kept building), s11 the spring in the loop with the input cut. The loop renders s2, s4, s5 and s7 changed (the
+allpass); the other 49 WAVs, s1, s3, s6, s8 and every earlier row regenerate byte-identical. Not listened to yet. WAVs, in
+`/home/userzero/fm1-hw/wt-dubtape/tools/dubtape/renders/`: skank_s1-lite22k-spring-wet.wav, skank_s2-lite22k-spring-loop.wav,
+slap_s3-lite22k-spring-alone.wav, throw_s4-lite22k-spring-loop.wav, oscillate_s5-lite22k-spring-loop.wav,
+slap_s6-lite22k-spring-crash-wet.wav, slap_s7-lite22k-spring-crash-loop.wav, skank_s8-tape22k-spring-wet.wav,
+skank_s9-lite22k-build-limit-cut.wav, skank_s10-lite22k-build-limit-cut-wet.wav, skank_s11-lite22k-build-spring-loop-limit-cut.wav.

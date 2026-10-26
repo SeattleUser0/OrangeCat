@@ -241,7 +241,7 @@ Input: 220 Hz sine -12 dBFS. *WET 0 exact* = max |out - in| with WET 0, DRY 1 (b
 | TAPE 22k | 0.0e+00 | -73.5 | -97.0 |
 | TAPE 11k | 0.0e+00 | -79.5 | -99.5 |
 
-## 9. The spring (revision 0.4)
+## 9. The spring (revision 0.4; 0.5: the loop, the cut, the limiter)
 
 A small Fisher K-10 model (dubdelay.c, "the spring"): a tube stage, a 37 ms tank with 12 first-order allpasses and a low-pass in its loop, two density allpasses, an output low-pass; mono, at the line's rate. The tank alone (`dd_spring_block`, the 22.05 kHz line): an impulse of 0.5, drive 0 (linear), tone 0.3.
 
@@ -255,28 +255,36 @@ The dispersion chain's group delay a trip round the tank (12 allpasses, a 0.62 a
 
 The kick (crash, drive 0.7, decay 2 s, the tank alone): peak -6.0 dBFS, T60 1.72 s.
 
-In the delay's loop (LITE 22k, one head 150 ms, ROUTE RECORD, HP 30, LP 110, RES 0.2, DRIVE 0.3; the tank decay 3 s, drive 0.5): a 5 ms burst, then 20 s of silence; the wet's level 15..20 s against 3..6 s. "decays" when it falls by more than 3 dB; above that the loop sustains, bounded by the saturator at full scale (the self-oscillation FEEDBACK over 1 is meant to give).
+In the delay's loop (LITE 22k, one head 150 ms, ROUTE RECORD, HP 30, LP 110, RES 0.2, DRIVE 0.3; the tank decay 3 s, drive 0.5): a 5 ms burst at -40 dBFS at 0.1 s, then silence, 20 s in whole blocks. The slope (dB/s, a line through 0.5 s RMS windows; a plain 150 ms loop gives 20 log10(FEEDBACK) / 0.15 s): below 1.0 over 0.75..8 s, the windows above -85 dBFS (the int16 floor every loop has); above 1.0 from 0.5 s until the RMS reaches -20 dBFS (well before the loop's saturator), with the time it takes. Revision 0.5: in the loop the tank is an allpass round its delay and dispersion (gain 1 at every frequency), so the loop's gain is FEEDBACK.
 
-| tank | FEEDBACK | 15..20 s against 3..6 s |
+| FEEDBACK | ideal slope | no tank | tank in the loop, mix 0.5 | tank in the loop, mix 1 |
+|---|---|---|---|---|
+| 0.80 | -12.9 dB/s | under -85 dBFS within 1.5 s | under -85 dBFS within 1.5 s | under -85 dBFS within 1.5 s |
+| 0.90 | -6.1 dB/s | -8.8 dB/s | -7.2 dB/s | -6.8 dB/s |
+| 0.95 | -3.0 dB/s | -4.5 dB/s | -3.9 dB/s | -4.0 dB/s |
+| 0.98 | -1.2 dB/s | -2.3 dB/s | -2.0 dB/s | -2.0 dB/s |
+| 1.00 | +0.0 dB/s | -1.0 dB/s | -0.9 dB/s | -0.9 dB/s |
+| 1.02 | +1.1 dB/s | +0.6 dB/s, -20 dBFS not reached in 20 s | +0.4 dB/s, -20 dBFS not reached in 20 s | +0.4 dB/s, -20 dBFS not reached in 20 s |
+| 1.05 | +2.8 dB/s | +2.1 dB/s, -20 dBFS not reached in 20 s | +1.9 dB/s, -20 dBFS not reached in 20 s | +2.0 dB/s, -20 dBFS not reached in 20 s |
+| 1.10 | +5.5 dB/s | +2.6 dB/s, -20 dBFS not reached in 20 s | +3.0 dB/s, -20 dBFS not reached in 20 s | +3.0 dB/s, -20 dBFS not reached in 20 s |
+| 1.20 | +10.6 dB/s | +5.4 dB/s, -20 dBFS at 10.2 s | +7.0 dB/s, -20 dBFS at 8.8 s | +7.9 dB/s, -20 dBFS at 7.8 s |
+| 1.30 | +15.2 dB/s | +8.4 dB/s, -20 dBFS at 6.8 s | +9.9 dB/s, -20 dBFS at 6.2 s | +11.7 dB/s, -20 dBFS at 5.2 s |
+| **largest that decays** (slope under -0.3 dB/s) | | 1.00 | 1.00 | 1.00 |
+
+The wet's limiter (revision 0.5, after the loop; the loop keeps its saturator): the same loop, a -20 dBFS burst, FEEDBACK 1.2, 20 s; the wet's peak (after the converters and the output stage) with the limiter at -12 dBFS against without it (this build settles near -7 dBFS on its own: the saturator's ceiling at DRIVE 0.3 times the head's level).
+
+| tank | limiter | wet peak, 10..20 s |
 |---|---|---|
-| none | 0.90 | -1.7 dB (sustains) |
-| none | 1.00 | -7.4 dB (decays) |
-| none | 1.02 | 3.6 dB (sustains) |
-| none | 1.10 | 7.8 dB (sustains) |
-| none | 1.20 | 8.2 dB (sustains) |
-| none | 1.30 | 8.1 dB (sustains) |
-| none | **largest that decays: 1.00** | |
-| in the loop, mix 0.5 | 0.90 | 27.9 dB (sustains) |
-| in the loop, mix 0.5 | 1.00 | 20.0 dB (sustains) |
-| in the loop, mix 0.5 | 1.10 | 11.1 dB (sustains) |
-| in the loop, mix 0.5 | 1.20 | 18.8 dB (sustains) |
-| in the loop, mix 0.5 | 1.30 | 26.7 dB (sustains) |
-| in the loop, mix 0.5 | **largest that decays: -1.00** | |
-| in the loop, mix 1 | 0.90 | 28.9 dB (sustains) |
-| in the loop, mix 1 | 1.00 | 24.6 dB (sustains) |
-| in the loop, mix 1 | 1.10 | 20.2 dB (sustains) |
-| in the loop, mix 1 | 1.20 | 15.6 dB (sustains) |
-| in the loop, mix 1 | 1.30 | 11.6 dB (sustains) |
-| in the loop, mix 1 | **largest that decays: -1.00** | |
+| none | off | -6.87 dBFS |
+| none | -12 dBFS | -11.36 dBFS |
+| in the loop, mix 1 | off | -9.74 dBFS |
+| in the loop, mix 1 | -12 dBFS | -11.42 dBFS |
 
-Memory: the tank and its allpasses 2816 int16 samples (5632 bytes, the caller's), its state 160 bytes inside dd_t.
+The cut (revision 0.5): a 1033.6 Hz sine at -12 dBFS into the loop (FEEDBACK 0.5), the cut at 2.0 s, released at 3.0 s; with CUT WET the wet's envelope falls with it. Measured on the wet: the 90 % to 10 % fall time of the envelope (2 ms windows), and the energy above 6 kHz in the 23 ms round each edge against the steady tone's (a click shows as a rise). Input only: the loop goes on, so the wet falls at the loop's own rate.
+
+| cut | fall 90..10 % | above 6 kHz at the cut | at the release |
+|---|---|---|---|
+| input only | 452.0 ms | +3.0 dB | +3.8 dB |
+| input and wet | 2.0 ms | +1.1 dB | -24.0 dB |
+
+Memory: the tank and its allpasses 2816 int16 samples (5632 bytes, the caller's), its state 168 bytes inside dd_t.

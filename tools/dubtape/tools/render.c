@@ -84,15 +84,19 @@ int main(int argc, char **argv)
     /* (0.4) the spring (a Fisher K-10 model), at the 22.05 kHz line unless said: on the wet, in the loop, the tank alone (the taps cut: "the
      * delay's mix at zero"), the kick. Its rows follow the ones above, which do not change */
     {
-        static const struct { int sc, v; const char *tag; int place; float mix, decay, drive, tone, in, cut, k1, k2; } SPR[] = {
-            {SC_SKANK, 3, "s1-lite22k-spring-wet", 2, 0.6f, 2.0f, 0.35f, 0.3f, 0.3f, 0.0f, -1.0f, -1.0f},
-            {SC_SKANK, 3, "s2-lite22k-spring-loop", 1, 0.7f, 2.0f, 0.35f, 0.3f, 0.0f, 0.0f, -1.0f, -1.0f},
-            {SC_SLAP, 3, "s3-lite22k-spring-alone", 2, 1.0f, 1.6f, 0.4f, 0.2f, 1.0f, 1.0f, -1.0f, -1.0f},
-            {SC_THROW, 3, "s4-lite22k-spring-loop", 1, 0.8f, 2.5f, 0.5f, 0.3f, 0.0f, 0.0f, -1.0f, -1.0f},
-            {SC_OSC, 3, "s5-lite22k-spring-loop", 1, 1.0f, 3.0f, 0.6f, 0.4f, 0.0f, 0.0f, -1.0f, -1.0f},
-            {SC_SLAP, 3, "s6-lite22k-spring-crash-wet", 2, 0.9f, 2.0f, 0.7f, 0.3f, 0.6f, 0.0f, 1.2f, 5.2f},
-            {SC_SLAP, 3, "s7-lite22k-spring-crash-loop", 1, 0.8f, 2.0f, 0.7f, 0.3f, 0.0f, 0.0f, 1.2f, 5.2f},
-            {SC_SKANK, 6, "s8-tape22k-spring-wet", 2, 0.6f, 2.0f, 0.35f, 0.3f, 0.3f, 0.0f, -1.0f, -1.0f},
+        static const struct { int sc, v; const char *tag; int place; float mix, decay, drive, tone, in, cut, k1, k2, fb, lim, c1, c2; int cw; } SPR[] = {
+            {SC_SKANK, 3, "s1-lite22k-spring-wet", 2, 0.6f, 2.0f, 0.35f, 0.3f, 0.3f, 0.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            {SC_SKANK, 3, "s2-lite22k-spring-loop", 1, 0.7f, 2.0f, 0.35f, 0.3f, 0.0f, 0.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            {SC_SLAP, 3, "s3-lite22k-spring-alone", 2, 1.0f, 1.6f, 0.4f, 0.2f, 1.0f, 1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            {SC_THROW, 3, "s4-lite22k-spring-loop", 1, 0.8f, 2.5f, 0.5f, 0.3f, 0.0f, 0.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            {SC_OSC, 3, "s5-lite22k-spring-loop", 1, 1.0f, 3.0f, 0.6f, 0.4f, 0.0f, 0.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            {SC_SLAP, 3, "s6-lite22k-spring-crash-wet", 2, 0.9f, 2.0f, 0.7f, 0.3f, 0.6f, 0.0f, 1.2f, 5.2f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            {SC_SLAP, 3, "s7-lite22k-spring-crash-loop", 1, 0.8f, 2.0f, 0.7f, 0.3f, 0.0f, 0.0f, 1.2f, 5.2f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            {SC_SKANK, 6, "s8-tape22k-spring-wet", 2, 0.6f, 2.0f, 0.35f, 0.3f, 0.3f, 0.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f, 0},
+            /* (0.5) a build at FEEDBACK 1.2, the wet's limiter at -9 dBFS, the input cut once mid-build (5.0 .. 6.5 s); then with the wet cut too; then the tank in the loop */
+            {SC_SKANK, 3, "s9-lite22k-build-limit-cut", 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, -1.0f, 1.2f, 0.355f, 5.0f, 6.5f, 0},
+            {SC_SKANK, 3, "s10-lite22k-build-limit-cut-wet", 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, -1.0f, 1.2f, 0.355f, 5.0f, 6.5f, 1},
+            {SC_SKANK, 3, "s11-lite22k-build-spring-loop-limit-cut", 1, 1.0f, 2.5f, 0.4f, 0.3f, 0.0f, 0.0f, -1.0f, -1.0f, 1.2f, 0.355f, 5.0f, 6.5f, 0},
         };
         static int16_t spbuf[DD_SP_BUF];
         int k;
@@ -113,6 +117,10 @@ int main(int argc, char **argv)
                 kicks += (SPR[k].k1 >= 0.0f && t >= SPR[k].k1 && t < SPR[k].k1 + (float)DD_BLOCK / DD_FS) ? 1u : 0u;
                 kicks += (SPR[k].k2 >= 0.0f && t >= SPR[k].k2 && t < SPR[k].k2 + (float)DD_BLOCK / DD_FS) ? 1u : 0u;
                 p.crash = kicks;
+                if (SPR[k].fb > 0.0f) p.feedback = SPR[k].fb;                 /* (0.5) the build, the limiter, the cut */
+                p.lim_ceil = SPR[k].lim;
+                p.cut = SPR[k].c1 >= 0.0f && t >= SPR[k].c1 && t < SPR[k].c2;
+                p.cut_wet = SPR[k].cw;
                 dd_process(&s, &p, x + b, l + b, r + b);
             }
             for (i = 0; i < n; i++) { float a = fabsf(l[i]) > fabsf(r[i]) ? fabsf(l[i]) : fabsf(r[i]); if (a > pk) pk = a; }

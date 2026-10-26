@@ -80,6 +80,7 @@ void dd_reset(dd_t *s)
     s->lin_l[0] = s->lin_l[1] = s->lin_r[0] = s->lin_r[1] = 0.0f;
     s->denorm = 0;
     s->primed = 0;
+    s->cut_g = s->cutw_g = 1.0f; s->lim_env = 0.0f; s->lim_g = 1.0f;   /* (0.5) the cut open, the limiter idle */
 }
 
 void dd_init(dd_t *s, int algo, int R, int aa, int lines, int16_t *line0, int16_t *line1, uint32_t len)
@@ -240,7 +241,13 @@ static void sp_tick(dd_t *s, const dd_params_t *p)
     dd_spring_t *q = &s->sp;
     float T = p->sp_decay > 0.05f ? p->sp_decay : 2.0f, tone = p->sp_tone < 0.0f ? 0.0f : p->sp_tone > 1.0f ? 1.0f : p->sp_tone;
     float dr = p->sp_drive < 0.0f ? 0.0f : p->sp_drive > 1.0f ? 1.0f : p->sp_drive;
-    q->place = q->buf ? p->spring : 0;
+    {   int pl = q->buf ? p->spring : 0;
+        if (pl != q->place && q->buf) {              /* (0.5) a new placement: the tank read another way, cleared */
+            memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
+            memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+        }
+        q->place = pl;
+    }
     if (!q->place) return;
     q->g = ddm_exp(-6.90775528f * ((float)q->dt / s->fsl) / T);
     q->glp = 1.0f - ddm_exp(-2.0f * PI_F * (1600.0f + 3000.0f * tone) / s->fsl);
@@ -257,6 +264,8 @@ static void sp_tick(dd_t *s, const dd_params_t *p)
         q->env = 3.0f; q->crash_amp = 1.0f;
     }
     q->kd = ddm_exp(-3.5f / (0.040f * s->fsl));      /* (30 dB over the 40 ms; three times full scale at first: the tank's clip holds it) */
+    q->gd = 0.40f + 0.35f * q->m;                    /* (0.5) in the loop: the allpass tank's diffusion and dispersion, from the mix */
+    q->al = q->a * q->m;
 }
 DD_NOINL static float sp_run(dd_spring_t *q, float x)
 {
@@ -284,6 +293,38 @@ DD_NOINL static float sp_run(dd_spring_t *q, float x)
     q->olp += q->gout * (z - q->olp);
     return q->olp * q->norm;
 }
+/* (0.5) the spring in the loop: the tank as a Schroeder allpass with its delay and the dispersion chain nested inside it,
+ *   w = x + gd D(w),  y = D(w) - gd w,  D = the 37 ms tank then the 12 allpasses (an allpass itself),
+ * so its gain is exactly 1 at every frequency whatever gd and the dispersion are: the loop's gain is FEEDBACK, the tail decays below 1
+ * and builds above it at the rate it does without the tank. What it does is time: the chirp and the dense repeats every 37 ms (gd, the
+ * mix, sets how much goes round). No low-pass inside it (that would not be an allpass): the delay's HCUT, already in the loop, darkens
+ * the repeats. The tube in front (unity for small signals) and the tank's bound only take gain away. The tank in float (DD_SP_TANK / 2 values in the caller's memory, 4-byte aligned):
+ * an int16 tank at a loop's low levels gave its tail to rounding */
+static float sp_loop(dd_spring_t *q, float x)
+{
+    int16_t *b = q->buf;
+    float d, z, w;
+    int k;
+    q->dc += 0.001f * (x - q->dc); x -= q->dc;
+    x = sat3(q->gin * x) * q->igin;
+    if (q->crash_n) {                                                   /* the kick */
+        q->rng = q->rng * 1664525u + 1013904223u;
+        x += q->crash_amp > 0.0f ? q->crash_amp : q->env * (float)(int32_t)q->rng * (1.0f / 2147483648.0f);
+        q->crash_amp = 0.0f; q->env *= q->kd; q->crash_n--;
+    }
+    {   float *tf = (float *)(void *)b;             /* (the tank in float here: DD_SP_TANK / 2 values in the same memory; an int16 tank at
+                                                      * the loop's levels loses the tail to its rounding) */
+        const uint32_t fm = DD_SP_TANK / 2u - 1u, dt = q->dt < fm - 1u ? q->dt : fm - 1u;
+        d = tf[(q->w - dt) & fm];
+        z = d;
+        for (k = 0; k < DD_SP_AP; k++) { float o = q->ap[k] - q->al * z; q->ap[k] = z + q->al * o; z = o; }
+        w = x + q->gd * z;
+        w = w > 4.0f ? 4.0f : w < -4.0f ? -4.0f : w;  /* (bounded: the allpass's inner gain is at most 1 / (1 - gd)) */
+        tf[q->w & fm] = w;
+        q->w = (q->w + 1u) & fm;
+    }
+    return z - q->gd * w;
+}
 
 void dd_spring_block(dd_t *s, const dd_params_t *p, const float *in, float *out, int n)
 {
@@ -303,6 +344,7 @@ typedef struct {
     float dfb, dsend;              /* per loop sample ramps */
     float fb_end, send_end;        /* .. their values at the tick's end */
     int route;
+    float ct, wt, cstep, lceil, lrel;   /* (0.5) the cut's targets (input, wet) and its step a line sample; the limiter's ceiling, release */
 } tick_t;
 
 DD_NOINL static void control_tick(dd_t *s, const dd_params_t *p, tick_t *t, int nloop)
@@ -366,7 +408,21 @@ DD_NOINL static void control_tick(dd_t *s, const dd_params_t *p, tick_t *t, int 
             s->m_next[i] = -(iw + ifl) - D * 20.0f * aw * s->drift_lp;
         }
     }
+    t->ct = p->cut ? 0.0f : 1.0f; t->wt = p->cut && p->cut_wet ? 0.0f : 1.0f;   /* (0.5) the cut: 3 ms to 0 and back */
+    t->cstep = 1.0f / (0.003f * s->fsl);
+    t->lceil = p->lim_ceil; t->lrel = ddm_exp(-1.0f / (0.150f * s->fsl));        /* the limiter: 150 ms release */
     sp_tick(s, p);                                     /* (0.4) the spring's gains, a kick */
+}
+
+/* (0.5) the wet's limiter (after the loop; the loop keeps its saturator): a peak envelope with an instant attack and a 150 ms release, the
+ * gain ceiling / envelope above the ceiling. The wet never passes the ceiling, so a build over FEEDBACK 1 climbs to it and holds there */
+static inline void dd_limit(dd_t *s, const tick_t *t, float *l, float *r)
+{
+    float a = *l < 0.0f ? -*l : *l, b = *r < 0.0f ? -*r : *r, pk = a > b ? a : b, g;
+    s->lim_env = pk > s->lim_env ? pk : s->lim_env * t->lrel + (1.0f - t->lrel) * pk;
+    g = s->lim_env > t->lceil ? t->lceil / s->lim_env : 1.0f;
+    s->lim_g = g;
+    *l *= g; *r *= g;
 }
 
 /* ------------------------------------------------------------------ the loop at the line's rate --- */
@@ -380,11 +436,14 @@ DD_NOINL static void run_lite(dd_t *s, const tick_t *t, const float *x, float *w
     const int rec = t->route;
     dd_spring_t *q = &s->sp;
     const int spl = q->place == 1, spo = q->place == 2;   /* (0.4) the spring in the loop, or on the wet */
-    float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f;
+    float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
     int i, j;
     for (i = 0; i < n; i++) {
-        float af = 0.0f, l = 0.0f, r = 0.0f, u, v, y;
+        float af = 0.0f, l = 0.0f, r = 0.0f, u, v, y, xi;
         fb += t->dfb; sd += t->dsend;
+        if (cg != t->ct) { cg += cg < t->ct ? t->cstep : -t->cstep; if (cg < 0.0f) cg = 0.0f; if (cg > 1.0f) cg = 1.0f; }   /* (0.5) the cut */
+        if (wg != t->wt) { wg += wg < t->wt ? t->cstep : -t->cstep; if (wg < 0.0f) wg = 0.0f; if (wg > 1.0f) wg = 1.0f; }
+        xi = cg * x[i];
         for (j = 0; j < DD_TAPS; j++) {
             if (!t->on[j]) continue;
             if (s->d[j] != t->dt[j]) {
@@ -395,25 +454,27 @@ DD_NOINL static void run_lite(dd_t *s, const tick_t *t, const float *x, float *w
             af += s->fw[j] * y; l += s->gl[j] * y; r += s->gr[j] * y;
         }
         if (!dig) {
-            if (rec) af = sd * x[i] + fb * af;                                   /* (record path: filter the sum) */
+            if (rec) af = sd * xi + fb * af;                                   /* (record path: filter the sum) */
             v = (af - hp_s) * t->G; u = v + hp_s; hp_s = u + v; af -= u;           /* HP (TPT one-pole) */
             {   float v3 = af - ic2, v1 = t->a1 * ic1 + t->a2 * v3, v2 = ic2 + t->a2 * ic1 + t->a3 * v3;   /* LP SVF */
                 ic1 = 2.0f * v1 - ic1; ic2 = 2.0f * v2 - ic2; af = v2 * t->mk; }
-            if (spl) af += q->m * (sp_run(q, af) - af);                          /* (0.4) every regeneration through the tank */
-            u = rec ? af + dn : sd * x[i] + fb * af + dn;
+            if (spl) af = sp_loop(q, af);                                        /* (0.4) every regeneration through the tank (0.5: an allpass) */
+            u = rec ? af + dn : sd * xi + fb * af + dn;
             b[w] = to_q15(sat3(t->gd * u));
         } else {
-            b[w] = to_q15(sd * x[i] + fb * af);                                  /* the plain delay: a hard clamp */
+            b[w] = to_q15(sd * xi + fb * af);                                  /* the plain delay: a hard clamp */
         }
         dn = -dn;
         w = (w + 1u) & mask;
         if (spo) {                                                               /* (0.4) the tank on the wet, after the taps */
-            float sp = q->m * sp_run(q, 0.5f * (l + r) + q->in * x[i]);
+            float sp = q->m * sp_run(q, 0.5f * (l + r) + q->in * xi);
             l = q->tg * l + sp; r = q->tg * r + sp;
         }
-        wl[i] = l; wr[i] = r;
+        if (t->lceil > 0.0f) dd_limit(s, t, &l, &r);                            /* (0.5) the wet's limiter, after the loop */
+        wl[i] = wg * l; wr[i] = wg * r;
     }
     s->w = w; s->hp_s[0] = hp_s; s->lp1[0] = ic1; s->lp2[0] = ic2; s->fb_cur = fb; s->send_cur = sd;
+    s->cut_g = cg; s->cutw_g = wg;
     s->denorm++;
 }
 
@@ -427,11 +488,14 @@ DD_NOINL static void run_tape(dd_t *s, const tick_t *t, const float *x, float *w
     const float dm = 1.0f / (float)n;
     dd_spring_t *q = &s->sp;
     const int spl = q->place == 1, spo = q->place == 2;   /* (0.4) the spring: in the loop of the first line (a mono tank), or on the wet */
-    float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f;
+    float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
     int i, j, c;
     for (i = 0; i < n; i++) {
-        float af[2] = {0.0f, 0.0f}, l = 0.0f, r = 0.0f, fi = (float)(i + 1) * dm;
+        float af[2] = {0.0f, 0.0f}, l = 0.0f, r = 0.0f, fi = (float)(i + 1) * dm, xi;
         fb += t->dfb; sd += t->dsend;
+        if (cg != t->ct) { cg += cg < t->ct ? t->cstep : -t->cstep; if (cg < 0.0f) cg = 0.0f; if (cg > 1.0f) cg = 1.0f; }   /* (0.5) the cut */
+        if (wg != t->wt) { wg += wg < t->wt ? t->cstep : -t->cstep; if (wg < 0.0f) wg = 0.0f; if (wg > 1.0f) wg = 1.0f; }
+        xi = cg * x[i];
         for (j = 0; j < DD_TAPS; j++) {
             float m;
             if (!t->on[j]) continue;
@@ -449,13 +513,13 @@ DD_NOINL static void run_tape(dd_t *s, const tick_t *t, const float *x, float *w
         }
         for (c = 0; c < nl; c++) {
             float a = nl == 2 ? (1.0f - xf) * af[c] + xf * af[c ^ 1] : af[c];
-            float in = c ? (1.0f - xf) * sd * x[i] : sd * x[i], u, z, y, F;
+            float in = c ? (1.0f - xf) * sd * xi : sd * xi, u, z, y, F;
             if (t->route) a = in + fb * a;
             {   float v3 = a - s->hp2[c], v1 = t->ha1 * s->hp1[c] + t->ha2 * v3, v2 = s->hp2[c] + t->ha2 * s->hp1[c] + t->ha3 * v3;
                 s->hp1[c] = 2.0f * v1 - s->hp1[c]; s->hp2[c] = 2.0f * v2 - s->hp2[c]; a = a - 1.2f * v1 - v2; }   /* HP */
             {   float v3 = a - s->lp2[c], v1 = t->a1 * s->lp1[c] + t->a2 * v3, v2 = s->lp2[c] + t->a2 * s->lp1[c] + t->a3 * v3;
                 s->lp1[c] = 2.0f * v1 - s->lp1[c]; s->lp2[c] = 2.0f * v2 - s->lp2[c]; a = v2 * t->mk; }           /* LP */
-            if (spl && !c) a += q->m * (sp_run(q, a) - a);
+            if (spl && !c) a = sp_loop(q, a);
             u = t->route ? a + dn : in + fb * a + dn;
             z = (u - ae * s->pre_x1[c]) * ipre; s->pre_x1[c] = u;             /* pre-emphasis: HF saturates first */
             z *= t->gd;
@@ -469,12 +533,14 @@ DD_NOINL static void run_tape(dd_t *s, const tick_t *t, const float *x, float *w
         dn = -dn;
         w = (w + 1u) & mask;
         if (spo) {
-            float sp = q->m * sp_run(q, 0.5f * (l + r) + q->in * x[i]);
+            float sp = q->m * sp_run(q, 0.5f * (l + r) + q->in * xi);
             l = q->tg * l + sp; r = q->tg * r + sp;
         }
-        wl[i] = l; wr[i] = r;
+        if (t->lceil > 0.0f) dd_limit(s, t, &l, &r);
+        wl[i] = wg * l; wr[i] = wg * r;
     }
     s->w = w; s->fb_cur = fb; s->send_cur = sd;
+    s->cut_g = cg; s->cutw_g = wg;
     s->denorm++;
 }
 

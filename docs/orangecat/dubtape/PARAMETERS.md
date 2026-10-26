@@ -66,20 +66,35 @@ These are starting points chosen while building the scenes and checked against t
 not tuned by listening on the instrument.
 
 
-## The spring (revision 0.4, dubdelay.c "the spring")
+## The spring (revision 0.4; the loop placement redone in 0.5; dubdelay.c "the spring")
 
 A Fisher K-10 Space Expander model (tube stage, a 37 ms tank with a 12-allpass dispersion chain and a dark low-pass in its loop, two
 density allpasses, an output low-pass), mono, at the line's rate, in the same call as the delay. Every field 0 is off.
 
+In the loop (0.5) the tank is a Schroeder allpass with its 37 ms delay and the dispersion chain nested inside it (w = x + gd D(w),
+y = D(w) - gd w; gd = 0.40 + 0.35 sp_mix; the dispersion coefficient scaled by sp_mix), in float, clamped at +-4: its gain is 1 at
+every frequency, so the loop's gain is FEEDBACK whatever the tank does, and nothing in it low-passes (the delay's LP darkens the
+repeats). sp_decay and sp_tone shape only the wet placement. Changing the placement clears the tank.
+
 | Field | Range | Meaning |
 |---|---|---|
-| spring | 0, 1, 2 | off; in the feedback loop (every regeneration through the tank, scaled so the loop's gain stays FEEDBACK); on the wet after the taps |
-| sp_mix | 0..1 | the loop's share through the tank; on the wet, the tank's level |
-| sp_decay | seconds | T60 (0: 2 s); measured 1.01 / 1.89 / 2.81 s at 1 / 2 / 3 |
+| spring | 0, 1, 2 | off; in the feedback loop (every regeneration through the tank, an allpass: the loop's gain stays FEEDBACK); on the wet after the taps |
+| sp_mix | 0..1 | in the loop, the tank's diffusion and dispersion (0: a plain extra delay); on the wet, the tank's level |
+| sp_decay | seconds | on the wet: T60 (0: 2 s); measured 1.01 / 1.89 / 2.81 s at 1 / 2 / 3 |
 | sp_drive | 0..1 | the tube stage (soft clip, gain up to 7) |
-| sp_tone | 0..1 | darker .. less dark (loop low-pass 1.6 .. 4.6 kHz, output 3 .. 6 kHz) |
+| sp_tone | 0..1 | on the wet: darker .. less dark (the tank's low-pass 1.6 .. 4.6 kHz, output 3 .. 6 kHz) |
 | sp_in | 0..1 | on the wet: the input straight into the tank (a reverb send beside the taps) |
 | tap_cut | 0..1 | on the wet: the taps taken out (1: the tank alone, "the delay's mix at zero") |
 | crash | count | each new value kicks the tank (a 40 ms burst straight into it, held to full scale by the tank's clip) |
 
-The caller gives the tank its memory: `dd_spring_attach(s, buf)`, DD_SP_BUF (2,816) int16 samples, 5,632 bytes.
+The caller gives the tank its memory: `dd_spring_attach(s, buf)`, DD_SP_BUF (2,816) int16 samples, 5,632 bytes, 4-byte aligned (in the
+loop the tank uses the first 4,096 bytes as 1,024 floats: 37 ms at the 22.05 kHz line, clamped to 23 ms at 44.1 kHz).
+
+## Riding a build: the cut and the wet's limiter (revision 0.5)
+
+| Field | Range | Meaning |
+|---|---|---|
+| cut | 0, 1 | 1: the loop's input (SEND x the input) to 0 over 3 ms, back over 3 ms at 0: a fader grabbed. The loop goes on (at FEEDBACK 1 or more it holds or builds) |
+| cut_wet | 0, 1 | 1: the cut takes the wet as well (falls 90 to 10 % in 2.0 ms; no click: above 6 kHz +1.1 dB at the cut) |
+| lim_ceil | linear, 0 off | the wet's limiter after the loop and the spring's wet, at the line's rate: instant attack, 150 ms release; the wet never passes it, so a build over FEEDBACK 1 climbs to it and holds. The loop keeps its own saturator |
+
