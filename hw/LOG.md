@@ -828,3 +828,22 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   build; until the scripts can hold it off (the lab guard, editor.c, is in lab builds only), AUTOSAVE OFF in Settings for hardware sessions, or the music
   not loaded from a slot. Also seen on the host: loading a slot and resting rewrites it once (49 bytes: name padding 0 to space and one byte), wear only.
 - Slot 1 not restored (the user's go).
+
+## October 26 (UTC): Flash 32 and the backup's arrangement gap
+
+- **Flash 32**, 2026-10-26T16:27:34Z: web-app 10aebc9 (command 102; CI run 40343148928 green on it, built here with ci_step, the pack byte-identical
+  to the Nightly's, a4e45b19...). Unit on `ORANGE CAT v0.6.2-10aebc`; WHEEL (start 0), SHAPES (start 1), the pack as before.
+- **The gap, proven** (`~/fm1-hw/arrange/arrange_gap.py`, run2; only slot 3 written, emptied before and after): the music's lists read (102 GET);
+  chain 06 set to phrase 01 x3 then phrase 01, song row 10 track 1 to chain 06 (102 COMMIT); PROJECT save to slot 3; loaded back: the chain and the
+  row there. Backup object 4 read (27,904 B, 9DA160FB); the slot emptied (PUT, size 0); the music and its lists put back and a new LIST (a later
+  restore's state); object 4 restored (rc 0); slot 3 loaded: **chain 06 empty, song row 10 empty** (the 4 bytes written, all gone). Run1, restored
+  at once after the read, kept them: the unit's RAM copy of the lists is tagged with the record's hash (pattern_store.c proj_x_tag), so a restore of
+  the bytes just read reattaches them; a real restore later does not. Cleanup: slot 3 empty, the music, its lists and tracks equal to before.
+- **Fix** (linux-hw df2516a, host only so far): the arrangement objects, ids 64..84 (LIST 1): the slots' project records, the pool's chunks, the
+  music's lists; restored straight into the record store as they arrive. tests/backup_test.c `arrangement_archive`: a wiped store restored from
+  them gives all 21 objects and every slot's lists byte for byte. On the unit after the web-app merge (it needs 102 to set a chain).
+- **Review of D's command 102 with this**: the firmware side holds (COMMIT keeps the banks first without touching the staged lists, ocl_keep_all
+  does not use proj_wire_u; the checks and staleness are right). Two changes at the merge: 102 BEGIN must also drop an open backup stream
+  (ocs_stream_drop: it already ends a staged restore); the web app's backup side channel (`file.arrangement`, the music's lists written back over
+  102 when the pool's CRCs match) is redundant on a firmware with ids 64..84 (object 84 is exact) and never covered the saved slots or the pool:
+  used only when the archive lacks the arrangement objects.
