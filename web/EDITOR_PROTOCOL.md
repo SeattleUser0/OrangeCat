@@ -603,10 +603,13 @@ below). Command 102 reads the lists of the music loaded now and writes them back
 | `3, offset (2 x 7, where the last DATA ended), pack7 data (up to 256 bytes)` DATA | `3, rc` |
 | `4` COMMIT | `4, rc, track` (the first track that did not go to its new step; 127 none) |
 
-rc: 0 done; 1 refused (the arguments, an offset out of order or out of range, a size other than the lists'); 2 the length, the CRC or a value out of
-range (nothing changed); 3 the transport runs (play, a count-in, a Melodee song or chain: BEGIN and COMMIT; a COMMIT refused so keeps what was staged,
-send it again once stopped); 4 written, but a track could not go to its new step (a flash error or no free bank: it stays where it was); 5 stale (no
-BEGIN, the project scratch reused since by a project save, load or backup, a USB reset, 15 s without a request). An op past 4 or no arguments: no reply.
+rc: 0 done; 1 refused (the arguments, an offset out of order or out of range, a size other than the lists'; INFO with arguments answers `0, 1`); 2 the
+length, the CRC or a value out of range (nothing changed); 3 the transport runs (play, a count-in, a Melodee song or chain: BEGIN and COMMIT; a COMMIT
+refused so keeps what was staged, send it again once stopped); 4 written, but a track could not go to its new step (a flash error, no free bank, a
+phrase that does not read, no room for its motion or timed notes: it stays where it was); 5 stale (no BEGIN, or the project scratch reused since: a
+project save, the autosave, a load or rename, a backup, the card browser's list (so a write fails while the card browser is open), a track removed, an
+FM6 or update transfer; a USB reset; 15 s without a request); 6 the banks' unkept steps could not be kept first (a flash error, PHRASES FULL): nothing
+changed. An op past 4 or no arguments: no reply.
 A firmware without the command never answers: the page then offers the arrangement read only, from nothing (it cannot read it either).
 
 **The lists' bytes** (all bytes, no padding; the web app's `web/app/lib/layout.json` is generated from the C, `tests/app_layout.c`):
@@ -618,10 +621,13 @@ A firmware without the command never answers: the page then offers the arrangeme
 **What a write changes and keeps.** It takes the chains, the song, the scenes and `scene_used`, each track's groove and amount, and LAUNCH. It keeps
 where each track is (`tchain`, `cur`, `row`) and `mode`: those bytes of the write are ignored (the page sends them back as it read them). It is checked
 whole before anything changes: a phrase past 64, a REPS past 15, a chain past 64 in the song or a scene, a scene step past P, a groove past 6, an
-amount past 100, LAUNCH past 3, or a scene bit past 8 refuses it (rc 2). After it, a track whose step now names a phrase other than the one its
+amount past 100, or LAUNCH past 3 refuses it (rc 2). Before the lists change, every bank's unkept steps are kept, as a SAVE does (a keep can name a
+new phrase in a chain step, which would otherwise land in the lists just written): read the lists again after a write. After it, a track whose step now names a phrase other than the one its
 playing bank holds goes to it, as a step gone to on the CHAIN page does (what the track had is kept first: a flash write, stopped only). So PLAY on
-the CHAIN or SONG page plays the new order. Nothing else is written to flash; SAVE on the unit (or `PROJECT` save, command 9) keeps the lists with
-the project, and the autosave sees them (they are in the project's hash).
+the CHAIN or SONG page plays the new order. The lists themselves go to flash with the project: SAVE on the unit, `PROJECT` save (command 9), or the
+autosave a few seconds after the write when it is on (they are in the project's hash). Tracks past the ones in use are not moved; a track added later
+plays what its bank holds until its step is gone to. An external MIDI Start during the commit (handled in the audio interrupt) can start the transport
+between tracks: the tracks after it answer rc 4, as on the CHAIN page.
 
 **Phrases are the unit's.** A phrase number names a pattern of this unit's pool, shared by every project on it. Lists written to another unit name
 that unit's phrases, whatever they hold. The page writes lists only to the unit it read them from.

@@ -30,13 +30,18 @@
  *   2 BEGIN    size (2 x 7, = the size INFO gives), CRC-32 (5 x 7) -> 2, rc
  *   3 DATA     offset (2 x 7, where the last ended), pack7 data (up to 256 bytes) -> 3, rc
  *   4 COMMIT   (nothing)                    -> 4, rc, the first track that could not go to its step (127 none)
- * rc: 0 done; 1 refused (arguments, an offset out of order, a size that is not the lists'); 2 the CRC, the length or a
- * value out of range (nothing is changed); 3 the transport runs; 4 written, but a track did not go to its new step (a
- * flash error or no free bank: the track stays where it was; the reply names it); 5 stale (no begin, a project saved,
- * loaded or backed up since, a USB reset, 15 s with no request). A firmware without the command never answers.
+ * rc: 0 done; 1 refused (arguments, an offset out of order, a size that is not the lists'; INFO with arguments answers
+ * 0, 1); 2 the CRC, the length or a value out of range (nothing is changed); 3 the transport runs; 4 written, but a track
+ * did not go to its new step (ocl_go: a flash error, no free bank, a phrase that does not read, no room for its motion or
+ * timed notes: the track stays where it was; the reply names it); 5 stale (no begin, or the project scratch reused since:
+ * a project save, the autosave, a load or rename, a backup, the card browser's list, a track removed, an FM6 or update
+ * transfer; a USB reset; 15 s with no request); 6 (review) the banks' unkept steps could not be kept first (a flash error,
+ * PHRASES FULL): nothing is changed. A firmware without the command never answers.
+ * Before the lists change, every bank's unkept steps are kept (ocl_keep_all, as a SAVE does), so a phrase that keep names
+ * goes into the unit's lists first and is then replaced by the page's: read the lists again after a write (INFO's CRC).
  *
  * Revisions:
- *   0.14.2: first version (branch web-app, Session D).
+ *   0.14.2: first version (branch web-app, Session D). Review: banks kept before the lists change (rc 6), INFO's flags in one pass.
  */
 enum { ED_ARRANGE = 102 };
 #define ED_AR_VERSION 1u
@@ -87,17 +92,17 @@ static uint32_t ed_ar_apply(const ocl_lists_t *in)
     return bad;
 }
 
-static uint32_t ed_ar_flags(uint32_t id)       /* pool phrase id's INFO flags */
+/* each pool phrase's INFO flags, in one pass over the banks and the chains (review: not 64 passes) */
+static void ed_ar_flags(uint8_t f[OCL_NPOOL])
 {
-    uint32_t f = (ocp.len[id] || ocp.hash[id]) ? 1u : 0u, k, b, c, e;
+    uint32_t k, b, c, e, v;
+    for (v = 0; v < OCL_NPOOL; v++) f[v] = (uint8_t)(((ocp.len[v] || ocp.hash[v]) ? 1u : 0u) | (ocj_refs(v, 4u) ? 4u : 0u));
     for (k = 0; k < NTRK; k++)
         for (b = 0; b < NPAT; b++)
-            if (bank_pid[k][b] == id + 1u) f |= 2u;
-    if (ocj_refs(id, 4u)) f |= 4u;
+            if ((v = bank_pid[k][b]) != 0u && v <= OCL_NPOOL) f[v - 1u] |= 2u;
     for (c = 0; c < OCL_NCHAIN; c++)
         for (e = 0; e < OCL_NENT; e++)
-            if (lists.chain[c][e][0] == id + 1u) f |= 8u;
-    return f;
+            if ((v = lists.chain[c][e][0]) != 0u && v <= OCL_NPOOL) f[v - 1u] |= 8u;
 }
 
 static int ed_arrange_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
@@ -112,8 +117,10 @@ static int ed_arrange_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         ed_b(OCL_NPOOL); ed_b(OCL_NCHAIN); ed_b(OCL_NENT); ed_b(OCL_NROW); ed_b(OCL_NSCENE); ed_b(NTRK); ed_b(trk_n());
         ed_b(transport_busy() ? 1u : 0u);
         ed_bk_u32(st_crc32(&lists, ED_AR_SIZE));
+        uint8_t fl[OCL_NPOOL];
+        ed_ar_flags(fl);
         for (uint32_t id = 0; id < OCL_NPOOL; id++) {
-            ed_b(ed_ar_flags(id)); ed_b(ocp.len[id] > 127u ? 127u : ocp.len[id]); ed_bk_u32(ocp.hash[id]);
+            ed_b(fl[id]); ed_b(ocp.len[id] > 127u ? 127u : ocp.len[id]); ed_bk_u32(ocp.hash[id]);
         }
         return 1;
     }
@@ -156,6 +163,8 @@ static int ed_arrange_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         if (n != 1u) rc = 1;
         else if (transport_busy()) rc = 3;
         else if (ed_ar_pos != ed_ar_len || st_crc32(proj_wire_u.raw, ed_ar_len) != ed_ar_crc || !ed_ar_valid(in)) rc = 2;
+        else if (ocl_keep_all()) rc = 6;       /* (review: what the banks hold unkept is kept first, before the lists change: a keep names a new
+                                                * phrase in a chain step (ocl_name), which must land in the unit's lists, not in the page's) */
         else { bad = ed_ar_apply(in); rc = bad < NTRK ? 4u : 0u; }
         if (rc != 3u) ed_ar_put = 0;           /* (refused while playing: the staging stays, COMMIT again once stopped) */
         ed_b(rc); ed_b(bad < NTRK ? bad : 127u);

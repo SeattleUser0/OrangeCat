@@ -1301,6 +1301,14 @@ static int arrange_protocol(void)
         a[0] = 0; request(ED_ARRANGE, a, 1);
         bad += check("arrange: INFO's CRC follows the write", ed_bk_r32(host_wire + 18) == st_crc32(&lists, size));
     }
+    {   /* (review) unkept steps on a track are kept before the lists change: the keep's new phrase name lands in the unit's lists first, and
+         * the page's lists are what the unit has after the write */
+        memcpy(l, &lists, size);
+        ar_put_note(1, 72);
+        bank_pid[1][trk[1].pattern] = 0;
+        bad += check("arrange: COMMIT keeps unkept steps first; the lists after it are the page's, byte for byte (but the places)",
+                     ar_write(l, 0, &track) == 0u && bank_pid[1][trk[1].pattern] != 0u && !memcmp(lists.chain, ((ocl_lists_t *)(void *)l)->chain, sizeof lists.chain));
+    }
     {   /* a COMMIT refused while playing keeps what was staged: COMMIT again once stopped */
         ocl_lists_t *w = (ocl_lists_t *)(void *)l;
         memcpy(l, &lists, size); w->song[7][3] = 9;
