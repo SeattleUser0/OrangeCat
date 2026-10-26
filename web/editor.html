@@ -89,6 +89,14 @@
   footer { margin-top: 24px; font-size: 11px; color: var(--dim); }
   .row.pushed .v { font-weight: 600; }
   .row.modrow { grid-template-columns: 16px 1fr 1fr 1fr 52px; }
+  /* (Orange Cat 0.14.2) the DRUM-X kit: a lane a row */
+  .group.kit { column-span: all; break-inside: avoid; }   /* (ten columns: the whole width) */
+  table.kit { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.kit th { text-align: left; font-weight: 500; padding: 2px 4px; }
+  table.kit td { padding: 1px 2px; }
+  table.kit input { width: 4.2em; }
+  .row.kitrow { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .row.kitrow input { width: 4.2em; margin-left: 4px; }
   /* librarian: local library and the device's user bank side by side, stacked on a phone */
   .libcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 8px 24px; margin-top: 6px; }
   .libcols > div { min-width: 0; }
@@ -454,7 +462,8 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   AUDIO_STATS: 72,   /* (Orange Cat 0.13.6) the Audio readout */
   PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,   /* (Orange Cat 0.8.0) the asset pack */
   MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124, ENGINES: 125, PAGES: 126, PANEL: 127,   /* (0.12.0) 126 and 127 a module engine's pages and native parameters; (Orange Cat 0.10.0) loadable engine modules; (0.11.0) 125 the engine list */
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, LIBRARY:80, PROPHET:95 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, LIBRARY:80, PROPHET:95,
+  KIT_GET: 128, KIT_PUT: 129 };   /* (Orange Cat 0.14.2) past 127: sent as command 0 and n = cmd - 128 (frame, unframe) */
 /* frames the device sends on its own (while WATCH is on); never replies */
 
 /*P5-FACTORY-BEGIN*/
@@ -567,12 +576,14 @@ function strEnc(s) { const a = []; for (const c of String(s)) a.push(c.charCodeA
 /* only ever builds F0 7D 46 4C ... F7 */
 function frame(cmd, args = []) {
   for (const b of args) if (!(Number.isInteger(b) && b >= 0 && b <= 0x7F)) throw new Error("bad data byte " + b);
+  if (cmd > 0x7F) return [0xF0, ...HDR, 0, (cmd - 128) & 0x7F, ...args, 0xF7];   /* (0.14.2) the extension: command 0, n */
   return [0xF0, ...HDR, cmd & 0x7F, ...args, 0xF7];
 }
 /* -> {cmd, a} or null when it is not an editor frame */
 function unframe(d) {
   if (!d || d.length < 6 || d[0] !== 0xF0 || d[d.length - 1] !== 0xF7) return null;
   if (d[1] !== HDR[0] || d[2] !== HDR[1] || d[3] !== HDR[2]) return null;
+  if (d[4] === 0 && d.length > 6) return { cmd: 128 + d[5], a: Array.from(d.slice(6, d.length - 1)) };   /* (0.14.2) the extension */
   return { cmd: d[4], a: Array.from(d.slice(5, d.length - 1)) };
 }
 
@@ -616,7 +627,19 @@ class Reader {
   s() { let s = ""; for (;;) { const c = this.b(); if (!c) return s; s += String.fromCharCode(c); } }
 }
 
+/* (Orange Cat 0.14.2) a DRUM-X kit (eng_drumx.c dxk_t) on the wire, after KIT_GET's on byte and as KIT_PUT's body: base, TONE (BP), FDBK,
+   HANDS, DUCK, then per lane (KICK .. BELL) LEVEL, TUNE, DECAY, PAN, LAYER, its FDBK, PUNCH, ATK+, BEND; the signed ones + 64 */
+const KIT_LANE = ["level", "tune", "decay", "pan", "layer", "fdbk", "punch", "atk", "bend"];
+const KIT_SIGNED = { tune: 1, decay: 1, pan: 1, bend: 1 };
+const KIT_RANGE = { base: [0, 8], tone: [0, 15], fdbk: [0, 15], hands: [0, 15], duck: [0, 100],
+  level: [0, 127], tune: [-64, 63], decay: [-64, 63], pan: [-64, 63], layer: [0, 15], punch: [0, 15], atk: [0, 15], bend: [-12, 12] };
+const kitBody = (k) => [k.base, k.tone, k.fdbk, k.hands, k.duck,
+  ...k.lanes.flatMap((l) => KIT_LANE.map((f) => l[f] + (KIT_SIGNED[f] ? 64 : 0)))];
+const kitFromBody = (a) => ({ base: a[0], tone: a[1], fdbk: a[2], hands: a[3], duck: a[4],
+  lanes: Array.from({ length: 8 }, (_, i) => Object.fromEntries(KIT_LANE.map((f, j) => [f, a[5 + 9 * i + j] - (KIT_SIGNED[f] ? 64 : 0)]))) });
 const parse = {
+  [CMD.KIT_GET](a) { const o = { track: a[0], rc: a[1] }; if (!o.rc) { if (a.length !== 3 + 77) throw Error("Short kit reply"); o.on = !!a[2]; o.kit = kitFromBody(a.slice(3)); } return o; },
+  [CMD.KIT_PUT](a) { return { track: a[0], rc: a[1] }; },
   [CMD.PROPHET](a) { if(a.length<3)throw Error("Short Prophet reply");const o={op:a[0],rc:a[1],track:a[2]};if(!o.rc&&a.length>3)o.raw=P5.decode([240,...a.slice(3),247]);return o; },
   [CMD.NATIVE](a) {
     const r=new Reader(a),o={engine:r.b(),op:r.b(),index:r.b(),rc:r.b()};
@@ -881,6 +904,8 @@ const parse = {
 function upName(s) { return String(s ?? "").replace(/[^\x20-\x7E]/g, "").trim().slice(0, UP.NAME_MAX) || "PATCH"; }
 
 const req = {
+  kitGet: (track) => [CMD.KIT_GET, [track]],                  /* (0.14.2) */
+  kitPut: (track, kit) => [CMD.KIT_PUT, [track, ...kitBody(kit)]],
   prophetGet: track => [CMD.PROPHET,[0,track]],
   prophetPut: (track,raw) => [CMD.PROPHET,[1,track,...P5.sysex(raw).slice(1,-1)]],
   prophetEdit: (track,id,value) => [CMD.PROPHET,[2,track,id,value]],
@@ -1449,6 +1474,26 @@ function czLegacyTone(old) {
   d.splice(128,16,...p.slice(149));if(!CZ.valid(d))throw Error("Invalid migrated CZ tone");return d;
 }
 
+/* (Orange Cat 0.14.2) a DRUM-X kit's record as the unit keeps it in a user preset (firmware/src/dxk_rec.h): 'X', version 1, the body's length 52,
+   its CRC-8 (polynomial 7), then base, TONE | FDBK << 4, HANDS, DUCK, eight bytes each of TUNE DECAY PAN LAYER-byte PUNCH|ATK+<<4 BEND (signed as bytes).
+   The library's kind 5 (command 80) carries it */
+const dxkCrc = (b) => b.reduce((c, x) => { c ^= x; for (let k = 0; k < 8; k++) c = c & 128 ? ((c << 1) ^ 7) & 255 : (c << 1) & 255; return c; }, 0);
+function dxkitRecord(k) {
+  const L = (f, g) => k.lanes.map(g || ((l) => l[f] & 255));
+  const body = [k.base, k.tone | k.fdbk << 4, k.hands, k.duck, ...L("tune"), ...L("decay"), ...L("pan"), ...L(0, (l) => l.layer | l.fdbk << 4),
+    ...L(0, (l) => l.punch | l.atk << 4), ...L("bend")];
+  return [0x58, 1, 52, dxkCrc(body), ...body];
+}
+function dxkitFromRecord(r) {                     /* .. and back to a kit (dxkitValid first) */
+  const b = r.slice(4), sb = (x) => (x > 127 ? x - 256 : x);
+  return { base: b[0], tone: b[1] & 15, fdbk: b[1] >> 4, hands: b[2], duck: b[3],
+    lanes: Array.from({ length: 8 }, (_, i) => ({ tune: sb(b[4 + i]), decay: sb(b[12 + i]), pan: sb(b[20 + i]), layer: b[28 + i] & 15, fdbk: b[28 + i] >> 4,
+      punch: b[36 + i] & 15, atk: b[36 + i] >> 4, bend: sb(b[44 + i]) })) };
+}
+function dxkitValid(raw) {
+  return Array.isArray(raw) && raw.length === 56 && raw.every((v) => Number.isInteger(v) && v >= 0 && v <= 255) && raw[0] === 0x58 && raw[1] === 1 &&
+    raw[2] === 52 && dxkCrc(raw.slice(4)) === raw[3] && raw[4] < 9 && raw[6] <= 15 && raw[7] <= 100;
+}
 function drumWireValid(raw){
   if(!Array.isArray(raw)||raw.length!==54||raw.some(v=>!Number.isInteger(v)||v<0||v>255))return false;
   for(let voice=0;voice<16;voice++){let tune=0;for(let bit=0;bit<6;bit++){const at=voice*27+bit;tune|=((raw[at>>3]>>(at&7))&1)<<bit;}if(tune>48)return false;}
@@ -1474,6 +1519,7 @@ function cleanPatch(pt) {
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
   if(pt.cz1!=null){o.cz=czLegacyTone(pt.cz1);o.engine=15;o.engineName="CZ-1";const pe=o.p.length-8;for(let k=0;k<8;k++)o.p[pe+k]=null;o.p[pe+7]=2;}
   if(pt.drum!=null){if(pt.engine!==10||!drumWireValid(pt.drum))throw Error("Invalid drum patch");o.drum=pt.drum.slice();}
+  if(pt.dxkit!=null){if(pt.engine!==9||!dxkitValid(pt.dxkit))throw Error("Invalid DRUM-X kit");o.dxkit=pt.dxkit.slice();}   /* (0.14.2) */
   if(pt.p5!=null){if(pt.engine!==19||!P5.valid(pt.p5))throw Error("Invalid native Prophet patch");o.p5=pt.p5.slice();}
   if (pt.cz != null) { if(!CZ.valid(pt.cz))throw new Error("Invalid native CZ patch");o.cz=pt.cz.slice(); }
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
@@ -1631,17 +1677,17 @@ const sharedBank = {
     for(let i=0;i<16;i++)p.pattern.push([r.b(),r.b()]);
     const kind=r.b();
     if(kind){const size=r.b()|r.b()<<7,raw=czBkUnpack(r.a.slice(r.i));
-      const key={1:"fm6",2:"cz",3:"p5",4:"drum"}[kind],engine={1:12,2:15,3:19,4:10}[kind];
-      if(!key||p.engine!==engine||raw.length!==size||size!==({1:128,2:144,3:138,4:54}[kind]))throw Error("Invalid shared native voice");
+      const key={1:"fm6",2:"cz",3:"p5",4:"drum",5:"dxkit"}[kind],engine={1:12,2:15,3:19,4:10,5:9}[kind];   /* ((0.14.2) 5: a DRUM-X kit) */
+      if(!key||p.engine!==engine||raw.length!==size||size!==({1:128,2:144,3:138,4:54,5:56}[kind]))throw Error("Invalid shared native voice");
       p[key]=raw;const fullName=kind===1?FM6.name(FM6.unpack(raw)):kind===2?CZ.name(raw):kind===3?P5.name(raw):p.name;
       if(p.name.trim()===fullName.slice(0,12).trim())p.name=fullName;
     }
     return p;
   },
   async put(rq,info,slot,pt) {
-    const kind=pt.fm6?1:pt.cz?2:pt.p5?3:pt.drum?4:0,raw=kind?(pt.fm6||pt.cz||pt.p5||pt.drum):null;
-    if(kind && pt.engine!==({1:12,2:15,3:19,4:10}[kind]))throw Error("Native voice does not match its engine");
-    if(kind===1 && (raw.length!==128||raw.some(x=>!Number.isInteger(x)||x<0||x>127)) || kind===2&&!CZ.valid(raw) || kind===3&&!P5.valid(raw) || kind===4&&!drumWireValid(raw))throw Error("Invalid native voice");
+    const kind=pt.fm6?1:pt.cz?2:pt.p5?3:pt.drum?4:pt.dxkit?5:0,raw=kind?(pt.fm6||pt.cz||pt.p5||pt.drum||pt.dxkit):null;
+    if(kind && pt.engine!==({1:12,2:15,3:19,4:10,5:9}[kind]))throw Error("Native voice does not match its engine");
+    if(kind===1 && (raw.length!==128||raw.some(x=>!Number.isInteger(x)||x<0||x>127)) || kind===2&&!CZ.valid(raw) || kind===3&&!P5.valid(raw) || kind===4&&!drumWireValid(raw) || kind===5&&!dxkitValid(raw))throw Error("Invalid native voice");
     const name=String(pt.name||"PATCH").replace(/[^ -~]/g," ").trim().slice(0,kind?20:12)||"PATCH";
     const values=Array.from({length:info.pcount},(_,i)=>pt.p?.[i]??0),defaults=!pt.p;
     const nativeName=kind===1?FM6.name(FM6.unpack(raw)):kind===2?CZ.name(raw):kind===3?P5.name(raw):"";
@@ -2420,8 +2466,14 @@ function makeMockDevice(opt = {}) {
     st.p[29] = 16;
   }
   const loadDemo = (k) => loadPat16(DEMO[k][0].map((n, i) => [n, DEMO[k][1][i]]));
+  /* (0.14.2) DRUM-X's factory kits' LAYERs (drumx_voice.c DX_KITS lay; test_web.mjs compares them) and a track's kit: null the factory kit */
+  const DX_LAY = [[0,6,0,9,9,0,0,11],[0,6,0,9,9,0,0,11],[0,4,0,6,6,0,0,8],[0,9,0,9,9,0,5,11],[0,12,0,9,9,0,6,13],[0,5,0,7,7,0,0,9],
+    [0,6,0,9,9,0,0,11],[0,7,0,9,9,0,0,11],[0,6,0,9,9,0,0,11]];
+  const kitOf = (t) => t.kit || { base: t.preset % 9, tone: 0, fdbk: 0, hands: 0, duck: 0,
+    lanes: DX_LAY[t.preset % 9].map((lay) => ({ tune: 0, decay: 0, pan: 0, layer: lay & 15, fdbk: lay >> 4, punch: 0, atk: 0, bend: 0 })) };
   function applyPreset(pi) {
     st.tracks[st.sel].user=0;
+    st.tracks[st.sel].kit = null;
     const e = ENG[st.engine];
     if(!e.presets.length){st.preset=0;return;}
     pi = aliasOf(e.presets.map((x) => x.name), pi % e.presets.length);
@@ -2450,8 +2502,9 @@ function makeMockDevice(opt = {}) {
     const grid = isDrum() ? gridFromSteps(st.step) : null;
     const cz=st.engine===15 && st.p[P_E0+7]===2 ? st.tracks[st.sel].cz.slice() : null;
     const fm6 = st.engine === FM6_E ? st.tracks[st.sel].fm6.slice() : null;
-    return patternUsed(grid) ? { cz, fm6, engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
-      : { cz, fm6, engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
+    const dxkit = st.engine === 9 ? dxkitRecord(kitOf(st.tracks[st.sel])) : null;   /* (0.14.2) upreset.c up_store_to: the whole kit */
+    return patternUsed(grid) ? { cz, fm6, dxkit, engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
+      : { cz, fm6, dxkit, engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
   };
   const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); };
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3)] */
@@ -2492,20 +2545,44 @@ function makeMockDevice(opt = {}) {
     };
     const NB = st.bank.length;
     switch (cmd) {
+      case CMD.KIT_GET: {                          /* (0.14.2) editor.c ed_kit_handle */
+        if (a.length !== 1) return null;
+        const t = st.tracks[a[0]];
+        b(a[0]);
+        if (!t || t.engine !== 9) { b(1); break; }
+        const k = kitOf(t);
+        b(0); b(t.kit ? 1 : 0);
+        kitBody({ ...k, lanes: k.lanes.map((l, i) => ({ ...l, level: t.p[84 + i] })) }).forEach(b);
+        break;
+      }
+      case CMD.KIT_PUT: {
+        if (a.length !== 1 + 77) return null;
+        const t = st.tracks[a[0]];
+        b(a[0]);
+        if (!t || t.engine !== 9) { b(1); break; }
+        const k = kitFromBody(a.slice(1));
+        const inRange = (f, v) => v >= KIT_RANGE[f][0] && v <= KIT_RANGE[f][1];
+        if (!["base", "tone", "fdbk", "hands", "duck"].every((f) => inRange(f, k[f])) ||
+            !k.lanes.every((l) => KIT_LANE.every((f) => f === "fdbk" ? inRange("fdbk", l.fdbk) : inRange(f, l[f])))) { b(2); break; }
+        k.lanes.forEach((l, i) => { t.p[84 + i] = l.level; });
+        t.kit = { ...k, lanes: k.lanes.map(({ level, ...rest }) => rest) };
+        b(0);
+        break;
+      }
       case CMD.LIBRARY: {
         if(!opt.shared)return null;
         const op=a[0],slot=a[1]|a[2]<<7;let rc=slot>=NB||op>6?1:0;
         if(!rc&&op===2){let pos=4;while(a[pos])pos++;const name=String.fromCharCode(...a.slice(4,pos++)),values=[];for(let i=0;i<P_COUNT;i++){values.push(v14dec(a[pos++],a[pos++]));}pos+=32;const kind=a[pos++]&31;
           const pt={engine:a[3],name,p:values,pattern:Array.from({length:16},()=>[0,0]),grid:null};
-          if(kind){const size=a[pos++]|a[pos++]<<7,raw=czBkUnpack(a.slice(pos));if(raw.length!==size)rc=1;else pt[({1:"fm6",2:"cz",3:"p5",4:"drum"})[kind]]=raw;}
+          if(kind){const size=a[pos++]|a[pos++]<<7,raw=czBkUnpack(a.slice(pos));if(raw.length!==size)rc=1;else pt[({1:"fm6",2:"cz",3:"p5",4:"drum",5:"dxkit"})[kind]]=raw;}
           if(!rc){st.bank[slot]=pt;st.bankSig++;}
-        }else if(!rc&&op===3){const tr=st.tracks[a[3]],name=String.fromCharCode(...a.slice(4));if(!tr)rc=1;else {st.bank[slot]={engine:tr.engine,name:name||"PATCH",p:tr.p.slice(),pattern:Array.from({length:16},()=>[0,0]),grid:null,...(tr.engine===19?{p5:tr.p5.slice()}:tr.engine===15?{cz:tr.cz.slice()}:tr.engine===12?{fm6:tr.fm6.slice()}:{} )};st.bankSig++;}}
-        else if(!rc&&op===4){const pt=st.bank[slot],tr=st.tracks[a[3]];if(!pt||!tr)rc=1;else {tr.engine=pt.engine;tr.user=slot+1;tr.preset=0;pt.p.forEach((value,i)=>{if(!trackOwn(i,P_E0))tr.p[i]=value;});for(const kind of ["p5","cz","fm6"])if(pt[kind])tr[kind]=pt[kind].slice();}}
+        }else if(!rc&&op===3){const tr=st.tracks[a[3]],name=String.fromCharCode(...a.slice(4));if(!tr)rc=1;else {st.bank[slot]={engine:tr.engine,name:name||"PATCH",p:tr.p.slice(),pattern:Array.from({length:16},()=>[0,0]),grid:null,...(tr.engine===19?{p5:tr.p5.slice()}:tr.engine===15?{cz:tr.cz.slice()}:tr.engine===12?{fm6:tr.fm6.slice()}:tr.engine===9?{dxkit:dxkitRecord(kitOf(tr))}:{} )};st.bankSig++;}}
+        else if(!rc&&op===4){const pt=st.bank[slot],tr=st.tracks[a[3]];if(!pt||!tr)rc=1;else {tr.engine=pt.engine;tr.user=slot+1;tr.preset=0;pt.p.forEach((value,i)=>{if(!trackOwn(i,P_E0))tr.p[i]=value;});for(const kind of ["p5","cz","fm6"])if(pt[kind])tr[kind]=pt[kind].slice();tr.kit=pt.engine===9&&pt.dxkit&&dxkitValid(pt.dxkit)?dxkitFromRecord(pt.dxkit):null;}}
         else if(!rc&&op===5){st.bank[slot]=null;st.bankSig++;}
         else if(!rc&&op===6){if(!st.bank[slot])rc=1;else {st.bank[slot].name=String.fromCharCode(...a.slice(3));st.bankSig++;}}
         [op,slot&127,slot>>7,rc].forEach(b);if(rc)break;
         if(op===0){const count=Math.min(a[3],NB-slot);[count,NB&127,NB>>7].forEach(b);for(let k=slot;k<slot+count;k++){const p=st.bank[k];[!!p,p?.engine||0,0].forEach(b);s(p?.name||"");}}
-        else if(op===1){const p=st.bank[slot];[!!p,p?.engine||0].forEach(b);s(p?.name||"");for(let i=0;i<P_COUNT;i++)v(p?.p[i]??0);Array(32).fill(0).forEach(b);const kind=p?.fm6?1:p?.cz?2:p?.p5?3:p?.drum?4:0;b(kind);if(kind){const raw=p.fm6||p.cz||p.p5||p.drum;[raw.length&127,raw.length>>7,...czBkPack(new Uint8Array(raw))].forEach(b);}}
+        else if(op===1){const p=st.bank[slot];[!!p,p?.engine||0].forEach(b);s(p?.name||"");for(let i=0;i<P_COUNT;i++)v(p?.p[i]??0);Array(32).fill(0).forEach(b);const kind=p?.fm6?1:p?.cz?2:p?.p5?3:p?.drum?4:p?.dxkit?5:0;b(kind);if(kind){const raw=p.fm6||p.cz||p.p5||p.drum||p.dxkit;[raw.length&127,raw.length>>7,...czBkPack(new Uint8Array(raw))].forEach(b);}}
         break;
       }
       case CMD.UP_LIST: {
@@ -3711,7 +3788,8 @@ const LAYOUT = (pe0) => [
                                                     MELODEE_FM4=1 firmware only: DIGITAL retired, its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
-  ...(pe0>=92 && (engName()==="DRUM" || engName()==="DRUM-X")?[{t:"DRUM LEVELS",pages:[["LANES",0,[84,85,86,87]],["LANES 2",0,[88,89,90,91]]]}]:[]),
+  ...(pe0>=92 && (engName()==="DRUM" || (engName()==="DRUM-X" && !dev.kitOk))?[{t:"DRUM LEVELS",pages:[["LANES",0,[84,85,86,87]],["LANES 2",0,[88,89,90,91]]]}]:[]),
+  ...(engName()==="DRUM-X" && dev.kitOk ? [{ t: "DRUM-X KIT", kit: true }] : []),   /* (Orange Cat 0.14.2) the kit, commands 128 and 129 (its LEVELs too) */
   /* (Orange Cat 0.6.0, 76 globals) the effects: the track's (FX, DIST, AUTO PAN), the shared ones (the device's FX pages) */
   ...(dev && dev.info && dev.info.gcount>=76 ? [{t:"FX",pages:[["FX",0,[96,110,109,108]],["DIST",0,[96,97,98,103]],["AUTO PAN",0,[99,100,102,101]]]},
     {t:"SHARED FX",pages:[["DELAY",1,[27,28,29,30]],["DELAY 2",1,[31,32,33,34]],["DELAY 3",1,[35,36]],["REVERB",1,[37,38,39,40]],
@@ -4007,8 +4085,52 @@ function modDst(d, txt) {
   return e && visible(e) ? e.label : txt;
 }
 
+/* (Orange Cat 0.14.2) DRUM-X's kit in the Sound tab: the lanes as rows (LEVEL TUNE DECAY PAN LAYER FDBK PUNCH ATK+ BEND), then the kit's TONE FDBK HANDS DUCK.
+   Read with KIT_GET (128) when the tab is built, written whole with KIT_PUT (129) on a change (the latest coalesced). A firmware without the
+   commands never answers KIT_GET: dev.kitOk stays false and the DRUM LEVELS rows show as before */
+const KIT_HEAD = { level: "LEVEL", tune: "TUNE", decay: "DECAY", pan: "PAN", layer: "LAYER", fdbk: "FDBK", punch: "PUNCH", atk: "ATK+", bend: "BEND" };
+const KIT_LANES = ["KICK", "SNARE", "CLAP", "HAT CL", "HAT OP", "TOM", "RIM", "BELL"];
+function kitGroup() {
+  const div = el("div", { class: "group kit" }, el("h2", { ic: HEAD_IC.EDIT, text: "DRUM-X KIT" }));
+  const table = el("table", { class: "kit" });
+  table.append(el("tr", {}, el("th", { text: "" }), ...KIT_LANE.map((f) => el("th", { text: KIT_HEAD[f] }))));
+  const field = (get, set, f) => {
+    const [lo, hi] = KIT_RANGE[f];
+    const input = el("input", { type: "number", min: lo, max: hi, step: 1, value: get() });
+    input.addEventListener("change", () => { const v = Math.max(lo, Math.min(hi, Math.round(+input.value || 0))); input.value = v; set(v); kitSend(); });
+    return input;
+  };
+  const k = dev.kit;
+  k.lanes.forEach((l, i) => table.append(el("tr", {}, el("th", { text: KIT_LANES[i] }),
+    ...KIT_LANE.map((f) => el("td", {}, field(() => l[f], (v) => { l[f] = v; }, f))))));
+  const kitRow = el("div", { class: "row kitrow" }, ...[["tone", "TONE"], ["fdbk", "FDBK"], ["hands", "HANDS"], ["duck", "DUCK"]].map(([f, label]) =>
+    el("label", {}, el("span", { text: label }), field(() => k[f], (v) => { k[f] = v; }, f))));
+  div.append(table, kitRow);
+  return div;
+}
+async function kitSend() {
+  if (!dev?.kit) return;
+  try { checkRc(parse[CMD.KIT_PUT](await rq(req.kitPut(dev.sel || 0, dev.kit), { key: "kit" })).rc); }
+  catch (e) { say(e.message); }
+}
+async function kitRefresh() {                       /* the selected track's kit (a DRUM-X track): dev.kit, dev.kitOk; the tab rebuilt when it changed */
+  if (!dev || engName() !== "DRUM-X" || kitRefresh.busy) return;
+  kitRefresh.busy = true;
+  try {
+    const r = parse[CMD.KIT_GET](await rq(req.kitGet(dev.sel || 0), { quiet: true, retries: 0 }));
+    if (r.rc) return;
+    const changed = !dev.kitOk || JSON.stringify(r.kit) !== JSON.stringify(dev.kit);
+    dev.kitOk = true;
+    dev.kit = r.kit;
+    if (changed) buildGroups();
+  } catch (e) { if (!dev.kit) { dev.kitOk = false; dev.kitNever = true; } }   /* (no answer: a firmware before 0.14.2, not asked again) */
+  finally { kitRefresh.busy = false; }
+}
 function buildGroups() {
   ctl.clear();
+  if (engName() === "DRUM-X" && dev.kitNever !== true && !kitRefresh.busy)   /* (0.14.2) the kit read again each build (another track, a load) */
+    kitRefresh();
+  if (engName() === "DRUM-X" && dev.kitOk && !dev.kit) dev.kitOk = false;
   dev.built = dev.dump.engine;
   dev.builtMode = dev.dump.p[dev.info.pe0+7];
   /* Sound: the selected track's parameters; Sequencer: its pattern settings; Settings: globals */
@@ -4018,6 +4140,7 @@ function buildGroups() {
     for (const g of LAYOUT(info.pe0)) {
       if (dev.dump.engine===15 && ["ENV","EDIT"].includes(g.t)) continue;
       const div = el("div", { class: "group" }, el("h2", { ic: HEAD_IC[g.t], text: g.engine ? `EDIT ${info.engines[dev.dump.engine] || ""}` : g.t }));
+      if (g.kit) { groups.groups.push(kitGroup()); continue; }   /* (0.14.2) DRUM-X: the eight lanes as rows, the kit's own values */
       if (g.mod != null) {                          /* MOD: slot number, SRC, DST, AMT in one row */
         for (let k = 0; k < 4; k++) {
           const r = [0, 1, 2].map((j) => paramRow(0, g.mod + 3 * k + j));
@@ -5688,7 +5811,7 @@ function bankGet(slot) {
   libOp(async (d, rqf) => {
     const u=engine?await nativeBank.get(rqf,d.info,engine,slot):await bank.get(rqf,d.info,slot);
     if (!u.used) { sayK("emptySlot", slotName(slot)); return; }
-    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, drum:u.drum, pattern: u.pattern, grid: u.grid, tags: ["device"] };
+    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, drum:u.drum, dxkit:u.dxkit, pattern: u.pattern, grid: u.grid, tags: ["device"] };
     await libAdd([reservedFm4(dev.info.engines, u.engine) ? fromDigital(pt, dev.info.engines, dev.info.pe0) : pt]);
     sayK("copiedLib", u.name);
   });
@@ -5716,7 +5839,7 @@ $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
     if (!x.used) continue;
     sayK("readingBank", ` ${slotName(x.slot)}`);
     const u=engine?await nativeBank.get(rqf,d.info,engine,x.slot):await bank.get(rqf,d.info,x.slot);
-    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, drum:u.drum, pattern: u.pattern, grid: u.grid, slot: x.slot,
+    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, drum:u.drum, dxkit:u.dxkit, pattern: u.pattern, grid: u.grid, slot: x.slot,
       engineName: reservedFm4(dev.info.engines, u.engine) ? "DIGITAL" : dev.info.engines[u.engine] });   /* (DIGITAL's values) */
   }
   if(engine===19)downloadBytes(`prophet-presets-${today()}.syx`,new Uint8Array(out.flatMap(x=>Array.from(P5.sysex(x.p5)))));

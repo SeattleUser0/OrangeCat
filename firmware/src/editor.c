@@ -38,6 +38,11 @@ enum { ED_PACK_INFO = 115, ED_PACK_BEGIN, ED_PACK_WRITE, ED_PACK_END, ED_PACK_ER
 enum { ED_HW_TEST = 108 };                          /* (Orange Cat 0.13.8) the hardware test surface (oc_hw_test.c), OC_HW_TEST builds only */
 enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE, ED_ENGINES,   /* (0.11.0) 125 ED_ENGINES: the engine list */
        ED_PAGES, ED_PANEL };      /* (0.12.0) 126 ED_PAGES, 127 ED_PANEL: a module engine's pages and native parameters (fw_pages.h) */
+/* (Orange Cat 0.14.2) commands past 127: command 0 is the extension, its first byte n names command 128 + n (every byte stays 7 bit); the reply
+ * has the same 0 and n. 128 KIT_GET, 129 KIT_PUT: a DRUM-X track's kit (web/EDITOR_PROTOCOL.md "DRUM-X kits") */
+enum { ED_EXT = 0, ED_KIT_GET = 128, ED_KIT_PUT = 129 };
+#define ED_KIT_LANE 9u                                  /* a lane's values on the wire: LEVEL TUNE DECAY PAN LAYER FDBK PUNCH ATK+ BEND */
+#define ED_KIT_BODY (5u + 8u * ED_KIT_LANE)             /* base, TONE, FDBK, HANDS, DUCK, then the lanes */
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
 enum { ED_CORE1_TEST = 79 };                         /* test builds only: CPU1 failure injection */
 static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
@@ -358,6 +363,53 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
     }
 }
 
+/* (Orange Cat 0.14.2) KIT_GET track -> track, rc (0; 1 not a DRUM-X track), on, then the body: base, TONE (BP), FDBK, HANDS, DUCK, and per lane
+ * (KICK .. BELL) LEVEL, TUNE + 64, DECAY + 64, PAN + 64, LAYER, its FDBK, PUNCH, ATK+, BEND + 64. KIT_PUT track, the body -> track, rc (0; 1 not a
+ * DRUM-X track; 2 a value out of range: nothing changed): the kit as an edited one (on 1), the LEVELs into P_LN0..7. Any other length: no reply */
+static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
+{
+    uint32_t tr, l;
+    dxk_t k;
+    if (cmd == ED_KIT_GET) {
+        if (na != 1u) return 0;
+        tr = a[0];
+        ed_b(tr);
+        if (tr >= NTRK || !(MELODEE_DRUMX && trk[tr].eng_req == ENGI_DRUMX)) { ed_b(1); return 1; }
+        dxk_view(tr, &k);
+        ed_b(0); ed_b(dxk[tr].on); ed_b(k.base); ed_b(k.tone & 15u); ed_b(k.tone >> 4); ed_b(k.hands); ed_b(k.duck);
+        for (l = 0; l < 8u; l++) {
+            ed_b((uint32_t)clamp(trk[tr].p[P_LN0 + l], 0, 127)); ed_b((uint32_t)(k.tune[l] + 64)); ed_b((uint32_t)(k.decay[l] + 64));
+            ed_b((uint32_t)(k.pan[l] + 64)); ed_b(k.lay[l] & 15u); ed_b(k.lay[l] >> 4); ed_b(k.punch[l]); ed_b(k.atk[l]); ed_b((uint32_t)(k.bend[l] + 64));
+        }
+        return 1;
+    }
+    if (cmd == ED_KIT_PUT) {
+        const uint8_t *d = a + 1, *L;
+        int bad = 0;
+        if (na != 1u + ED_KIT_BODY) return 0;
+        tr = a[0];
+        ed_b(tr);
+        if (tr >= NTRK || !(MELODEE_DRUMX && trk[tr].eng_req == ENGI_DRUMX)) { ed_b(1); return 1; }
+        bad |= d[0] >= DXK_NKIT || d[1] > 15u || d[2] > 15u || d[3] > 15u || d[4] > DXK_DUCK_MAX;
+        for (l = 0, L = d + 5; l < 8u; l++, L += ED_KIT_LANE)
+            bad |= L[4] > 15u || L[5] > 15u || L[6] > 15u || L[7] > 15u || L[8] < 64u - DXK_BEND_MAX || L[8] > 64u + DXK_BEND_MAX;
+        if (bad) { ed_b(2); return 1; }
+        memset(&k, 0, sizeof k);
+        k.on = 1; k.base = d[0]; k.tone = (uint8_t)(d[1] | d[2] << 4); k.hands = d[3]; k.duck = d[4];
+        for (l = 0, L = d + 5; l < 8u; l++, L += ED_KIT_LANE) {
+            k.tune[l] = (int8_t)((int)L[1] - 64); k.decay[l] = (int8_t)((int)L[2] - 64); k.pan[l] = (int8_t)((int)L[3] - 64);
+            k.lay[l] = (uint8_t)(L[4] | L[5] << 4); k.punch[l] = L[6]; k.atk[l] = L[7]; k.bend[l] = (int8_t)((int)L[8] - 64);
+        }
+        dxk_put(tr, &k);
+        for (l = 0, L = d + 5; l < 8u; l++, L += ED_KIT_LANE)
+            trk[tr].p[P_LN0 + l] = (int16_t)L[0];
+        ui.force = 1;
+        ed_b(0);
+        return 1;
+    }
+    return 0;
+}
+
 static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0 and F7 */
 {
     if (n < 4u)
@@ -368,6 +420,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     int16_t *vp;
     const param_desc_t *d;
     int adm = 0;                                          /* (0.11.0) the admission result of an engine change (eng_admit) */
+    if (cmd == ED_EXT) {                                 /* (0.14.2) the extension: command 128 + a[0]; unknown, or a bad length: no reply */
+        if (!na) return;
+        ed_begin(ED_EXT);
+        ed_b(a[0]);
+        if (ed_kit_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+        return;
+    }
     if (!ed_args_ok(cmd, a, na))
         return;
     if(cmd==ED_SET || (cmd==ED_TRACK_PARAM && na==4u) || cmd==ED_FM6_PUT || cmd==ED_CZ_PUT || (cmd==95u && na && a[0]>=1u && a[0]<=3u))momentary_restore();
@@ -1396,7 +1455,7 @@ static void ed_service(void)
     if (n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */
-    if (p[3] >= ED_SMP_BEGIN) {                            /* large frames: handled in place, then freed */
+    if (p[3] >= ED_SMP_BEGIN || p[3] == ED_EXT) {         /* large frames: handled in place, then freed ((0.14.2) the extension's too: KIT_PUT is 79 bytes) */
         ed_handle(p, n);
         ota_frame_done();
         return;

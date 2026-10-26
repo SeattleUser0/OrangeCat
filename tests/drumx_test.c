@@ -742,6 +742,17 @@ static void test_kit_record(void)
     memset(&b, 0, sizeof b);
     check("a longer body (a later firmware's, 59 bytes): the fields this one knows, the rest left", dxk_unpack(&b, r2, sizeof r2) && !memcmp(&a, &b, sizeof a));
     check("a record cut short of its body (the room): no kit", !dxk_unpack(&b, r, DXK_BYTES - 1u));
+    {   /* the vector web/test_web.mjs checks the editor's dxkitRecord against (one layout on both sides) */
+        static const uint8_t V[DXK_BYTES] = {88,1,52,42,3,37,4,50,252,253,254,255,0,1,2,3,0,2,4,6,8,10,12,14,0,248,240,232,224,216,208,200,0,17,34,51,68,85,102,119,240,225,210,195,180,165,150,135,250,251,252,253,254,255,0,1};
+        memset(&a, 0, sizeof a);
+        a.on = 1; a.base = 3; a.tone = 0x25; a.hands = 4; a.duck = 50;
+        for (i = 0; i < 8u; i++) {
+            a.tune[i] = (int8_t)((int)i - 4); a.decay[i] = (int8_t)(2 * (int)i); a.pan[i] = (int8_t)(-(int)i * 8); a.lay[i] = (uint8_t)(i * 17u);
+            a.punch[i] = (uint8_t)i; a.atk[i] = (uint8_t)(15u - i); a.bend[i] = (int8_t)((int)i - 6);
+        }
+        dxk_pack(&a, r);
+        check("the record of a known kit is the vector the web editor's test holds", !memcmp(r, V, DXK_BYTES));
+    }
 }
 
 /* -------------------------------------------------- 17. the cost (0.14.2) */

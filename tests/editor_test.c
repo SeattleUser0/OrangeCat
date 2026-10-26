@@ -1213,9 +1213,83 @@ static int module_overlaps(void)
     }
     return bad;
 }
+/* (Orange Cat 0.14.2) the extension (command 0 + n = 128 + n) and the DRUM-X kit: KIT_GET, KIT_PUT */
+static int kit_protocol(void)
+{
+    int bad = 0, ok;
+    uint8_t a[2 + 77], body[77];
+    uint32_t n, l;
+    reset();
+    set_engine_of(&trk[0], ENGI_DRUMX);
+    apply_preset_to(&trk[0], 2);
+    set_engine_of(&trk[1], ENGI_MACRO);
+    a[0] = 0; a[1] = 0;                                /* 128 KIT_GET, track 0 */
+    n = request(0, a, 2);
+    ok = n == 5u + 1u + 2u + 1u + 77u + 1u && host_wire[4] == 0u && host_wire[5] == 0u && host_wire[6] == 0u && host_wire[7] == 0u &&
+         host_wire[8] == 0u && host_wire[9] == 2u;      /* (0, n, track, rc, on 0, base 2) */
+    for (l = 0; l < 8u; l++)
+        ok &= host_wire[14u + l * 9u] == (uint32_t)trk[0].p[P_LN0 + l] && host_wire[15u + l * 9u] == 64u && host_wire[17u + l * 9u] == 64u &&
+              host_wire[18u + l * 9u] == (DX_KITS[2].lay[l] & 15u);
+    bad += check("kit: KIT_GET (0, 0: 128) a factory kit: on 0, base 2, LEVELs, TUNE and PAN at the centre, its LAYERs", ok);
+    memcpy(body, host_wire + 9, sizeof body);
+    a[1] = 1;
+    bad += check("kit: KIT_GET of a track that is not DRUM-X: rc 1", request(0, a, 2) == 9u && host_wire[6] == 1u && host_wire[7] == 1u);
+    a[0] = 1; a[1] = 0;                                /* 129 KIT_PUT */
+    memcpy(a + 2, body, sizeof body);
+    a[2 + 1] = 5; a[2 + 4] = 80;                       /* TONE 5, DUCK 80 */
+    a[2 + 5 + 9 * DV_SNARE + 1] = 64 + 20;             /* the snare: TUNE +20, PAN -30, BEND +7, LEVEL 90 */
+    a[2 + 5 + 9 * DV_SNARE + 3] = 64 - 30;
+    a[2 + 5 + 9 * DV_SNARE + 8] = 64 + 7;
+    a[2 + 5 + 9 * DV_SNARE + 0] = 90;
+    n = request(0, a, 2 + 77);
+    ok = n == 9u && host_wire[5] == 1u && host_wire[7] == 0u && dxk[0].on && dxk[0].base == 2u && dxk[0].tone == 5u && dxk[0].duck == 80u &&
+         dxk[0].tune[DV_SNARE] == 20 && dxk[0].pan[DV_SNARE] == -30 && dxk[0].bend[DV_SNARE] == 7 && trk[0].p[P_LN0 + DV_SNARE] == 90 &&
+         !memcmp(dxk[0].lay, DX_KITS[2].lay, 8);
+    bad += check("kit: KIT_PUT (0, 1: 129) writes the kit (an edited one) and the LEVELs", ok);
+    a[0] = 0; a[1] = 0;
+    request(0, a, 2);
+    ok = host_wire[8] == 1u && host_wire[10] == 5u && host_wire[13] == 80u && host_wire[15u + 9u * DV_SNARE] == 84u;
+    bad += check("kit: .. KIT_GET reads it back (on 1)", ok);
+    a[0] = 1; a[1] = 0;
+    memcpy(a + 2, body, sizeof body);
+    a[2 + 5 + 8] = 64 + 13;                            /* a BEND past 12 */
+    bad += check("kit: KIT_PUT with a value out of range: rc 2, nothing changed", request(0, a, 2 + 77) == 9u && host_wire[7] == 2u && dxk[0].duck == 80u);
+    bad += check("kit: KIT_PUT of another length: no reply", request(0, a, 2 + 76) == 0u);
+    a[0] = 9;
+    bad += check("kit: an extension number no firmware knows (137): no reply", request(0, a, 2) == 0u);
+    bad += check("kit: command 0 with no number: no reply", request(0, a, 0) == 0u);
+    {   /* the library (command 80): a DRUM-X preset carries its kit's record as kind 5; a put of it keeps it */
+        static uint8_t q[700];
+        uint8_t rec[DXK_BYTES], got[DXK_BYTES];
+        dxk_t before = dxk[0];
+        uint32_t m, i, at;
+        q[0] = 3; q[1] = 50; q[2] = 0; q[3] = 0; memcpy(q + 4, "MY KIT", 6);
+        request(ED_LIBRARY, q, 10);
+        ok = host_wire[8] == 0u;
+        q[0] = 1; q[1] = 50; q[2] = 0;
+        m = request(ED_LIBRARY, q, 3);
+        for (at = 11; at < m && host_wire[at]; at++)
+            ;
+        at += 1u + 2u * P_COUNT + 32u;                  /* (the name's 0, the values, the old pattern) */
+        dxk_pack(&before, rec);
+        ok &= host_wire[9] == 1u && host_wire[10] == ENGI_DRUMX && host_wire[at] == 5u && host_wire[at + 1u] == DXK_BYTES && host_wire[at + 2u] == 0u &&
+              ed_unpack7(host_wire + at + 3u, m - at - 4u, got, sizeof got) == DXK_BYTES && !memcmp(got, rec, DXK_BYTES);
+        bad += check("kit: LIBRARY GET of a DRUM-X preset: kind 5, its kit's 56-byte record", ok);
+        q[0] = 2; q[1] = 51; q[2] = 0;
+        for (i = 10; i + 1u < m; i++) q[3u + i - 10u] = host_wire[i];   /* (a put is a get's reply from the engine on) */
+        request(ED_LIBRARY, q, 3u + m - 11u);
+        ok = host_wire[8] == 0u;
+        apply_preset_to(&trk[0], 7);
+        q[0] = 4; q[1] = 51; q[2] = 0; q[3] = 0;
+        request(ED_LIBRARY, q, 4);
+        bad += check("kit: LIBRARY PUT of it, then LOAD: the same kit on the track", ok && host_wire[8] == 0u && !memcmp(&dxk[0], &before, sizeof before));
+    }
+    return bad;
+}
+
 int main(void)
 {
-    int bad = module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = kit_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
