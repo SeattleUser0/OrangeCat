@@ -2773,7 +2773,8 @@ WHEEL and SHAPES from the published files, after a full backup through the page'
 four SHAPES RING BELL tracks 2,753 us, 165 late, 33 USB holes, **0 DAC silences**: over the 2,710 us line by 43 us (+3 % against the previous Nightly with a
 byte-identical module; a layout shift suspected, not measured); four MALLET tracks overload (four MODAL voices, one a part, at about 950 us each: past the
 budget whatever the units; one track is clean); FOLD PLUCK and ADDITIVE PAD chords recorded for the user (`~/fm1-hw/listen/`). **Found**: project slot 1
-empty in the backup (it was in the October 24 backup and Part 6's check); not restored, not yet explained.
+empty in the backup (it was in the October 24 backup and Part 6's check). **Explained and fixed** (below, "Project slot 1: the cause"); not restored,
+the restore waits for the user's word.
 
 ### The soak and the effects' cost (Nightly v0.6.2-3ca2b5, October 26, 2026)
 
@@ -2821,7 +2822,9 @@ measurement's tracks (engine 24 on all four), which every normal build refuses, 
 written each measurement's tracks into the slot the music came from (on normal builds too); the candidates' engine numbers made the last of them unreadable.
 None of the eleven copies is the October 24 project: the restore comes from the October 24 backup (the user's go). Fixed for measurement builds (linux-hw
 d49f558, tests/cand_slot_test.c: a candidates build never writes a project or the template with a candidate engine); open: hardware sessions on a normal
-build still autosave measurement tracks (AUTOSAVE OFF for them). Details, dumps and tools: hw/LOG.md, "Flash 31 and project slot 1, the cause".
+build still autosave measurement tracks (AUTOSAVE OFF for them). Why slot 1: power-on loads it since Part 6, so it was the slot the music came from.
+**Status: closed**; slot 1 **not restored**: the October 24 backup's object 2 (27,904 B, D954DF93) holds it, the one-object restore waits for the
+user's word. Details, dumps and tools: hw/LOG.md, "Flash 31 and project slot 1, the cause".
 
 ### The acceptance line (standing, from October 26, 2026)
 

@@ -770,7 +770,9 @@ track 1's CHRD MAJ / VOIC OPEN and CLK 0 read back unchanged.
   63,844 B, read back). **Found: project slot 1 (object 2) is empty** (October 24 and Part 6: 27,904 B, D954DF93); object 5 (slot 4, the Part 5 test project)
   and the library bank 28 (slot 383 "HW TEST") as expected. Not restored (no restore without the user); the October 24 backup holds the project byte for byte.
   The window: after Part 6, two OC_CANDIDATES measurement builds ran (Flash 23 and Flash 28; Flash 28's first power-on showed every track as engine 22 preset 2,
-  not slot 1's music). Not explained yet; no OC_CANDIDATES build goes on the unit until it is.
+  not slot 1's music). [Closed October 26: explained and fixed, see "Flash 31 and project slot 1, the cause": the autosave of measurement tracks into
+  slot 1, the slot power-on loads since Part 6; the last write on op1r's engine 24, which normal builds refuse. Fixed for measurement builds in d49f558.
+  Slot 1 not restored: the October 24 backup holds it, the restore waits for the user's word.]
 - **Flash 30**, 2026-10-26T07:03:02Z: the site's `melodee-nightly.fwsc`: unit on `ORANGE CAT v0.6.2-3ca2b5`. The pack, WHEEL (start 0) and SHAPES (start 1)
   installed again from the published files (state 1, 7, 7).
 
@@ -827,7 +829,12 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   SAVE says TEST ENGINE: NOT SAVED). Shipped builds unchanged. **Open**: the autosave still writes measurement tracks into the user's slot on a normal
   build; until the scripts can hold it off (the lab guard, editor.c, is in lab builds only), AUTOSAVE OFF in Settings for hardware sessions, or the music
   not loaded from a slot. Also seen on the host: loading a slot and resting rewrites it once (49 bytes: name padding 0 to space and one byte), wear only.
-- Slot 1 not restored (the user's go).
+- Why slot 1: since Part 6 power-on loads project slot 1 (PROJ_LAST, set by loading it to clear the PREF_BITS byte), so the music on the unit came
+  from slot 1 after every flash and restart, and every autosave went there.
+- **Status: closed** (cause found, reproduced on the host, fixed for measurement builds: d49f558, tests/cand_slot_test.c). **Not restored**: the
+  October 24 backup (`Orange Cat-backup-2026-10-24.json`, object 2, 27,904 B, D954DF93) holds the project; the restore (one object, PUT 2) waits
+  for the user's word. Open beside it: a normal build still autosaves measurement tracks into the slot the music came from (AUTOSAVE OFF for
+  hardware sessions, or the music not from a slot).
 
 ## October 26 (UTC): Flash 32 and the backup's arrangement gap
 
