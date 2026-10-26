@@ -518,7 +518,11 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            # OC_CANDIDATES build. SEM and HADES take WHEEL's geometry; the Rhodes port is linked for the whole area, which it does not fit (the gate's row)
            "sem": {"src": "tools/module/sem_mod.c", "sectors": 4, "starts": [0, 6], "name": "SEM"},
            "hades": {"src": "tools/module/hades_mod.c", "sectors": 4, "starts": [0, 6], "name": "HADES"},
-           "rhodes": {"src": "tools/module/rhodes_mod.c", "sectors": 12, "starts": [0], "name": "RHODES"}}
+           "rhodes": {"src": "tools/module/rhodes_mod.c", "sectors": 12, "starts": [0], "name": "RHODES"},
+           # (0.14.1, op1r-candidates) op1r's synth plugins through tools/module/op1r/op1_glue.h, proposed numbers 24.. (OC_CANDIDATES): WHEEL's geometry
+           "fmbell": {"src": "tools/module/fmbell_mod.c", "sectors": 4, "starts": [0, 6], "name": "FMBELL", "inc": ["tools/module/op1r"]},
+           "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"]},
+           "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
@@ -567,6 +571,34 @@ def gen_define(name, file="fw_api_id.h"):
     return int(m.group(1), 0) if m else None
 
 
+def module_reloc(name, obj, mdir, ldtext, variants, lo, cost):
+    """(0.14.1) the module linked at 0 with its relocations kept, the header filled as a variant's (cost, length, CRCs), its relocation list
+    (tools/module_relocs.py), and the proof: the list applied for each start, the header filled, is that start's variant byte for byte.
+    ((image, list words, count by type, left out), None) or (None, why)."""
+    import module_relocs
+    text, base = ldtext
+    ld0, elf0, bin0 = mdir / f"{name}.r0.ld", mdir / f"{name}.r0.elf", mdir / f"{name}.r0.bin"
+    ld0.write_text(text.replace(f"ORIGIN = {base:#x}", "ORIGIN = 0x0"))
+    tc("pi32v2/bin/ld", "-q", "--gc-sections", "-e", "_modstart", "-T", ld0, obj, "-o", elf0)
+    bin0.unlink(missing_ok=True)
+    tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf0, bin0)
+    img0 = bytearray(bin0.read_bytes())
+    img0 += b"\0" * (-len(img0) % 4)
+    try:
+        words, count, skipped = module_relocs.make_list(module_relocs.relocs(elf0))
+    except ValueError as e:
+        return None, str(e)
+    d = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(img0, 0)))
+    d["cost"], d["length"] = cost, len(img0)
+    MOD_HDR.pack_into(img0, 0, *[d[k] for k in MOD_NAMES])
+    ocflash.module_fill(img0)
+    for start, img in variants:
+        got = ocflash.module_fill(ocflash.apply_relocs(img0, words, ocflash.xip(lo + start * 0x1000)))
+        if bytes(got) != img:
+            return None, f"start {start}: the list applied is not the variant ({sum(a != b for a, b in zip(got, img))} bytes differ)"
+    return (bytes(img0), words, count, skipped), None
+
+
 def build_module(name):
     spec = MODULES[name]
     mdir = OUT / "module"
@@ -577,7 +609,8 @@ def build_module(name):
     flags = [f for f in app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES=", "-DOC_PACK_BUILTIN"))]   # (0.13.6) a module always reads the pack
     flags += ["-DOC_PACK_XIP=1"] if "-DOC_PACK_XIP=1" not in flags else []
     obj = mdir / f"{name}.o"
-    tc("cc", *flags, "-w", "-c", SRC / spec["src"], "-o", obj)
+    inc = [f"-I{d}" for d in spec.get("inc", [])]              # (0.14.1) the op1r modules: their plugins' #include "op1_plugin.h" is tools/module/op1r's
+    tc("cc", *flags, *inc, "-w", "-c", SRC / spec["src"], "-o", obj)
     undef = [ln.split()[-1] for ln in tc("pi32v2/bin/nm", "-u", obj).splitlines() if ln.strip()]
     undef = [u for u in undef if u != "_modstart"]            # (the link script defines it: the address the variant is linked for)
     if undef:
@@ -589,7 +622,7 @@ def build_module(name):
     cost, missing = module_cost(name)
     if missing:
         errors.append(f"{name}: tools/module/{name}.cost names {missing}, which tests/target_budget.txt does not have")
-    variants, ifaces = [], set()
+    variants, ifaces, pads, ldtext = [], set(), {}, {}
     for start in module_starts(sectors, spec):
         base = ocflash.xip(lo + start * 0x1000)           # flash offset to the address it runs at (tools/ocflash.py; 0.10.1: one function for this and gen_pack.py)
         ld = mdir / f"{name}.{start}.ld"
@@ -641,6 +674,7 @@ SECTIONS {{
         if hit >= 0:
             errors.append(f"{name}@{start}: no layout of {TAIL_PAD_TRIES} avoids the update loader's record test (sector {hit} tail); not written")
             continue
+        pads[start], ldtext[start] = pad, (ld.read_text(), base)
         sizes = {}
         for ln in tc("common/bin/objdump", "-h", elf).splitlines():
             p = ln.split()
@@ -678,6 +712,7 @@ SECTIONS {{
         d["hcrc"] = zlib.crc32(bytes(img[:MOD_HDR.size - 4])) & 0xFFFFFFFF
         struct.pack_into("<I", img, MOD_HDR.size - 4, d["hcrc"])
         variants.append((start, bytes(img)))
+        (mdir / f"{name}.{start}.img").write_bytes(img)  # (0.14.1) the image as a start gets it (header filled): what a relocated install must equal (tests)
         notes.append(f"module {name} start {start} (flash {lo + start * 0x1000:#x}): {len(img)} B of {sectors * 0x1000}, "
                      f".data 0 B, .bss 0 B, crc {d['crc']:08x}" + (f", code moved {pad} B to clear the update loader's record test" if pad else ""))
     if len(ifaces) > 1:
@@ -690,23 +725,45 @@ SECTIONS {{
     # generated header does not hold; the module header carries it, built with the firmware's compiler and flags. tools/oc_manifest.py reads it from here, so the
     # manifest and the set manifests name what the unit compares (before, they named FW_API_ID alone and the site and "Install set" refused every module).
     (GEN / "fw_api_iface.h").write_text(f"/* written by tools/build.py --module: FW_API_IFACE as the module headers carry it */\n#define FW_API_IFACE_BUILT 0x{iface:08X}u\n")
-    # the package
+    # the package: (0.14.1) one image linked at 0 and its relocation list (OCM format 2). The variants are still linked: each is the proof that the
+    # list makes it. (0.14.1, linux-hw) Format 1's writer (the variants package, OC_OCM_VARIANTS=1) is gone: SHAPES installed on the unit from a
+    # relocatable package equals the variants package's install byte for byte at both starts and renders in the same time (hw/LOG.md, Flash 28).
+    # The readers keep format 1 for the files already made (tools/ocflash.py, the page, the card).
     n = len(variants)
-    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 1, n, iface, api_addr, engine, state_size, pack_hash,
-                                 spec["name"].encode(), api_version, api_size, sectors))
-    off = (len(head) + 16 * n + 4 + 3) & ~3
-    table = bytearray()
-    for start, img in variants:
-        table += struct.pack("<IIII", start, len(img), zlib.crc32(img) & 0xFFFFFFFF, off)
-        off += len(img)
-    head += table
-    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
-    ocm = bytes(head) + b"".join(img for _, img in variants)
     vf = SRC / "VERSION"
-    ver = vf.read_text().strip() if vf.exists() else "0"
-    out = OUT / f"{name}-{ver}.ocm"
+    stale = OUT / f"{name}-{vf.read_text().strip() if vf.exists() else '0'}.ocm"     # (the package's name: removed on an error)
+    if len(set(pads.values())) != 1:
+        errors.append(f"{name}: no package: the starts need different layouts for the update loader's record test {pads} (one relocated image cannot "
+                      f"make them; format 1, which could, is no longer written)")
+        stale.unlink(missing_ok=True)
+        return errors, notes
+    rel, why = module_reloc(name, obj, mdir, ldtext[variants[0][0]], variants, lo, cost)
+    if not rel:
+        errors.append(f"{name}: no relocatable package: {why}")
+        stale.unlink(missing_ok=True)
+        return errors, notes
+    img0, words, count, skipped = rel
+    lst = struct.pack(f"<{len(words)}I", *words)
+    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 2, 1, iface, api_addr, engine, state_size, pack_hash,
+                                 spec["name"].encode(), api_version, api_size, sectors))
+    off = (len(head) + 32 + 8 * n + 4 + 3) & ~3
+    head += struct.pack("<IIII", ocflash.OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
+    head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
+    for start, img in variants:
+        head += struct.pack("<II", start, zlib.crc32(img) & 0xFFFFFFFF)
+    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
+    head += b"\0" * (off - len(head))
+    ocm = bytes(head) + img0 + lst
+    if ocflash.ocm_images(ocm) != dict(variants):
+        errors.append(f"{name}: the relocatable package does not read back as its variants")
+        return errors, notes
+    notes.append(f"package {name}: relocatable (format 2): one image of {len(img0)} B linked at 0 and {len(words)} relocations "
+                 f"({sum(w >> 24 == ocflash.RELOC_ABS32 for w in words)} ABS32, {sum(w >> 24 == ocflash.RELOC_MOV32 for w in words)} MOV32; "
+                 f"{dict(sorted(count.items()))}), the image of start {' and '.join(str(s) for s, _ in variants)} made from them byte for byte; "
+                 f"{len(ocm)} B (the variants, {sum(len(i) for _, i in variants)} B)")
+    out = stale
     out.write_bytes(ocm)
-    notes.append(f"package {out.name}: {len(ocm)} B, {n} variants, engine {engine} {spec['name']}, state {state_size} B, "
+    notes.append(f"package {out.name}: {len(ocm)} B, {'relocatable, ' if ocm[4] == 2 else ''}{n} variants, engine {engine} {spec['name']}, state {state_size} B, "
                  f"interface {iface:08x}, table at {api_addr:#x}")
     return errors, notes
 

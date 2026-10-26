@@ -1,7 +1,7 @@
 # Orange Cat Build Document
 
-**Version:** 0.77  
-**Date:** October 25, 2026  
+**Version:** 0.78  
+**Date:** October 26, 2026  
 **Tracks:** Orange Cat Specification v0.29
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
@@ -10,6 +10,11 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
+  through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
+  24..31 reserved), against op1r's own harness (tests/op1r_parity); the relocatable module package (.ocm format 2: one image and its relocation list,
+  applied by the page and the card at install, the loader unchanged; the experiment on exp/relocs). See "op1r candidates and the relocatable package"
+  at the end.
 - **0.77 (October 25, 2026, evening):** Thirteenth run, the rest: Parts 2 to 7 on the unit, the post-list items (the Prophet module's hot set measured and not kept, engine-candidates merged, WHEEL shipped as 0.14.0 on linux-hw, SEM and HADES measured, Frodhes' tables read), the Nightly check fixed (workflow rev 18, republished: 89b4e79), the MENU settings out of PROJ_LAST's byte. See "Thirteenth run", "After the list" and "Status of the Thirteenth run".
 - **0.76 (October 25, 2026):** Thirteenth run: **the four-track fix is shipped as the Nightly** (`sonnet-work · ceccc1c · v0.6.2-ceccc1`; linux-hw merged into sonnet-work, CI run 40212043712, publish run 40212959451) and on the unit; 0.13.8 gave back 3,284 B of image the hot sets had cost by accident; MACRO measured model by model; the capture harness; the installer paths and the library on the unit; the hardware test surface (OC_HW_TEST). See "Thirteenth run".
 - **Engine candidates (October 25, 2026, branch engine-candidates; not on main, not released, not on the unit):** the feasibility gate (ENGINE_CANDIDATES.md, tools/engine_gate.py), the firmware's own hot set, WHEEL as a module (0.14.0), and Frodhes' Rhodes, Caravel's SEM and HADES through the gate. Section "Engine candidates" at the end.
@@ -2680,3 +2685,78 @@ recording and the step properties through the test surface, the standing four-tr
   STUT runs. **Amended, not trimmed**: with the base and SHAPES' sets, MACRO's set cut to one table fails as well, and the base and SHAPES' together fail
   without MACRO's (the base alone or SHAPES' alone fit); first fit at 4 KB blocks, not MACRO's size. GUIDE.md says it; the row is in the table, unchecked.
 - Workflow rev 20: the Nightly carries SHAPES, the Prophet and WHEEL (SEM and HADES, refused without OC_CANDIDATES, stay in the packages).
+- Local suite (ci_step.py test) on 3c9340d and 3fecd76: every test passes but one, "CPU live takes" (tests/audio_cpu_take_test.py, unchanged since 19e0f28):
+  a mocked, sleep-timed test that fails only under the suite's load (parallel 12 and 6) and passes alone (four runs of four). In CI it passed.
+- Merged into sonnet-work as 430cd4c; run 40258557380 (build, tests-gate, pages, publish_nightly) all green: the Nightly is `sonnet-work · 430cd4c ·
+  v0.6.2-430cd4 · 2026-10-26T02:48:47Z`, with the pack (657ED950) and the SHAPES, Prophet and WHEEL modules (interface 8831E67C).
+- On the unit (hw/LOG.md, Flash 27): the Nightly, its pack, SHAPES and WHEEL (the Prophet does not fit beside SHAPES). MACRO's favorites page: one star the
+  user never set (preset 23, the old layout's tag from the day's test builds; the October 24 backup has none), cleared; none left. The effects with the
+  hot sets, by ear: DELAY, REVERB ROOM and CHORUS all hold with four MACRO, four SHAPES and DRUM-X MACRO SHAPES MACRO, the card idle.
+
+## op1r candidates and the relocatable package (0.14.1, branch op1r-candidates, October 26, 2026)
+
+From linux-hw ce7b5c0. Not on main, not released, not flashed: the unit's rows are the Linux session's (ENGINE_CANDIDATES.md, "op1r", has its
+commands). The candidates' tables, the inventory and the tolerance: docs/orangecat/ENGINE_CANDIDATES.md, "op1r". The package: ENGINE_LOADING_PLAN.md,
+"One image and a relocation list".
+
+| What | Status |
+|---|---|
+| The glue (tools/module/op1r/op1_glue.h, op1_plugin.h): op1r's voice object over voice_t ph[2] and s[8], its 128-frame blocks kept per voice, OP1_PITCH_INC, OP1_VOICE_ENV, velocity, params from EDIT 1 and EDIT 2, note_off at the key up, voice_amp, OP1_SINE over SINE[1025]; the part's state for file-scope statics; its own __udivdi3 | **Done** |
+| fmbell (engine 24): 1,620 B, state 2,332 B a track; op1r's own sine: every sample equal; ours: -79 dB at the defaults, the feedback settings within op1r's own spread (chaotic in op1r itself). Proposed: go with limits | **Done** (CI); unit **Not started** |
+| supersaw (engine 25): 1,672 B, 2,332 B; ours within 4 LSB, -90 to -94 dB (SUB 0: equal). Proposed: go | **Done** (CI); unit **Not started** |
+| dddd (engine 26): 4,288 B, 10,772 B a track (its 8 KB loop); every sample equal to op1r's render. Proposed: go with limits (its cost is a part's, not a voice's) | **Done** (CI); unit **Not started** |
+| aether (27), brassophone (28), mixtur (29), arc (30): the inventory says what each needs (aether: the OP-1's accelerometer, which the FM-1 has not got; mixtur and arc: their portable C path, mixtur's clamp renamed) | **Not started** (the next session) |
+| granular (31): the slot's sampler recording, read per sample | **Blocked** (whether Orange Cat's sample slot can stand in: a question for the user) |
+| op1r's six effects: 176 KB of FX scratch each | not candidates |
+| The relocation experiment (exp/relocs 2517ec7, CI run 40261502427): SHAPES, the Prophet and WHEEL, every variant from one image linked at 0 and a list of ABS32 words and MOV_ABS32 constants, byte for byte; LONG_JUMP_23M2 PC-relative | **Done** |
+| The package format 2 (tools/build.py, tools/module_relocs.py, tools/ocflash.py apply_relocs; the page, web/fm1oc.js and web/editor.html; the card, card_install.c): packages at about half the size; the card +1,388 B of image, no RAM; format 1 behind OC_OCM_VARIANTS=1 | **Done** (host and CI); the unit's install of a relocated module and its measurement **Not started** |
+| The measurement build's engine table 32 long (OC_CANDIDATES): 23 a retired slot, 24..31 op1r's | **Done** |
+
+CI: .ci_quick runs 40262933000 (fmbell, supersaw) and 40263443298 (dddd), sizes and the gate green, their images byte-identical to the PC's build (fmbell
+start 0 CRC 27d8a221 both); the full run after removing .ci_quick is the record (the final report names it). Host tests on the PC (the workflow's test
+step, PARALLEL 8): usb_host_test failed to compile (its stubs lacked oc_mod_link and the list's RAM: fixed); the boot package, power cut, update loader
+and recovery tests failed for the SDK path the local run had not set, and the CPU live-take test (timed) under the load of eight jobs: all pass alone. The development checks (op1r checkout needed): tests/op1r_parity/run.sh, all passed for the three.
+
+
+## The Linux session after op1r-candidates (October 26, 2026): the analog capture, format 2 on the unit, op1r's synths, MACRO's units
+
+op1r-candidates (d0b0f01) merged into linux-hw (8120cc1; BUILD.md's two new sections kept side by side). hw/LOG.md has the unit's numbers.
+
+**The AUDIO4c's analog capture path, calibrated** (hw/LOG.md, "the AUDIO4c's analog path"). Input 2 is clean: noise floor -77.7 dBFS RMS (not digital
+zero), 11.8 dB under the USB capture (no clipping: digital full scale is about -12 dBFS there), polarity inverted, 5.2 ms ahead of the USB capture,
+spectra within 1.14 to 1.21 dB over RING BELL's decay. Input 1 does not match input 2 (11 to 31 dB under it, changing between takes, spectrum 5 to 6 dB
+off): the user's cable or gain. The repeat **failed as a proof**: MALLET's overload is 254 USB holes, as before, but the analog path shows no hole (the
+DAC replays a 2.9 ms half buffer per late render, which its filter smooths) and a click detector marks only 97 to 142 of them and cannot tell a replay
+from a bell's attack. So capture.py keeps **usb as the default** (dropouts) and offers audio4c, input 2 only, for level and spectrum and while the FM-1's
+USB port is busy as a host; its leading 0.5 s of zeros is waited out. Four SHAPES RING BELL tracks on the Nightly: 2,669 us, 65 late in 8 s, 14 USB holes
+(not clean; 0.13.7's table had 164 late at four as well).
+
+**Flash 28** (linux-hw 5c61037 + OC_CANDIDATES=1 OC_SFC_PROBE=1, after the local suite passed; hw/LOG.md):
+- **Format 2 measured**: SHAPES from the relocatable package and from the variants package of the same firmware, each installed at both starts and the 6
+  sectors read back (command 109): identical, and equal to the variant image; the four-track table the same (2,706 / 2,710 us at four). **Format 1's writer
+  removed** (5f5a4bc; the readers keep it; ENGINE_LOADING_PLAN.md 0.13). The card's install of a relocated module: not run on the unit (no card).
+- **op1r's synths** (ENGINE_CANDIDATES.md 0.3): fmbell about 100 us a voice, supersaw about 125, dddd about 620 us a part; none late at four tracks
+  (1,994, 2,323, 2,063 us). Verdicts: fmbell go with limits (the sound with feedback), supersaw go, dddd go with limits (10.8 KB a track; a units hook).
+- **MACRO's units** (5c61037, approved): MALLET and GLASS BELL from 1,535 / 1,561 late and 256 / 257 USB holes on one track to 0 and 0; FOLD PLUCK and
+  ADDITIVE PAD still clean; the steals (309 to 464 in 8 s) leave nothing in the stream.
+- Host: the CPU live-take test on a fake clock (3b66d9a; 5 of 5 under 2 x nproc busy loops, and in the full suite); the TRACKER EDIT race fixed with a host
+  test (e8d5fde).
+- **The AUDIO4c, second calibration** (the user's new Y cable and gain staging): inputs 1 and 2 equal (0.1 dB, residual -62 dB), floor -73.7 dBFS, 5.8 dB under
+  USB (no clipping), spectra within 1.1 dB, 5.0 to 5.6 ms ahead. The two results again on both paths: the USB counts as before (14 and 254 holes); at the DAC a
+  late half buffer plays as a 2 to 3 ms silence or dip, not a hole: capture.py's `dac_silences` finds 371 in MALLET's overload and none in four RING BELL
+  tracks or a clean note. The counts measure different events, so usb stays the default for dropouts.
+
+### What the three measures answer (a standing part of every hardware table from 0.14.1)
+
+`tools/hw/fm1hw.py measure` and `table` record the FM-1's USB audio and the AUDIO4c's analog capture through every run (when both cards are present) and
+print, beside worst and late:
+
+| Measure | Where it is read | The question it answers |
+|---|---|---|
+| **Late** (and worst) | the unit's own counters (AUDIO_STATS): renders the DMA overtook since the reset; the slowest half buffer | **Did the processor keep up?** Every late render is a missed deadline, whether or not anyone hears it; worst says how close the rest came (budget 2,901 us) |
+| **USB holes** | capture.py `dropouts` on the FM-1's USB audio | **Is the USB recording intact?** A late render costs the USB stream its service period: a 20 to 24 ms gap of zeros in what a computer records from the FM-1 (and what the earlier tables' audio results counted) |
+| **DAC silences** | capture.py `dac_silences` on the AUDIO4c's analog capture | **Does a listener hear it?** A late half buffer plays at the converter as up to 2.9 ms of silence; this counts the ones that reach the noise floor (a render that finished part-way is a dip, `dac_dips`, not counted here) |
+
+They do not count the same event and need not agree: MALLET's overload was 1,529 late renders, 254 USB holes and 371 DAC silences; four RING BELL tracks
+65 late renders, 14 USB holes and no DAC silence (late by a little: heard as nothing). The capture costs the unit some USB work: four RING BELL tracks
+measured 2,669 to 2,677 us with both captures running against 2,706 to 2,710 without.

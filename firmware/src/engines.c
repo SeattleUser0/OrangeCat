@@ -276,6 +276,9 @@ static const engine_t *ENGINES[NENGINES] = {
 #if OC_CANDIDATES
     &ENG_RETIRED,                /* 20: (0.14.0) never an engine: the Prophet's native preset namespace (USER_NATIVE_P5) */
     &ENG_RETIRED, &ENG_RETIRED,  /* 21 SEM, 22 HADES: (0.14.0, OC_CANDIDATES) candidates a module supplies (eng_module_slot) */
+    &ENG_RETIRED,                /* 23: (0.14.0) the Rhodes port's proposed number: it fits no module start, never a module */
+    &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* 24..31: (0.14.1) op1r's synths (core.h ENGI_FMBELL ..), candidates a module */
+    &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* supplies (eng_module_slot) */
 #endif
 };
 
@@ -345,8 +348,12 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #endif
 #if OC_CANDIDATES
     ENGI_SEM, ENGI_HADES,        /* (0.14.0) the candidates of a measurement build: offered only while registered */
+    ENGI_FMBELL, ENGI_SUPERSAW, ENGI_DDDD, ENGI_AETHER, ENGI_BRASS, ENGI_MIXTUR, ENGI_ARC, ENGI_GRANULAR,   /* (0.14.1) op1r's, the same */
 #endif
 };
+
+/* (0.14.1) one of op1r's proposed numbers (core.h ENGI_FMBELL .. ENGI_GRANULAR), a measurement build's */
+static inline int eng_op1r(uint32_t e) { return OC_CANDIDATES && e >= ENGI_FMBELL && e < ENGI_FMBELL + OP1R_NCAND; }
 
 /* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
  * Never relabel retired records FM6. */
@@ -357,7 +364,7 @@ static int eng_extra_retired(uint32_t e)
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || (e == ENGI_WHEEL && !eng_mod[ENGI_WHEEL]) || (e == 9u && !MELODEE_DRUMX) || e == 11u))
         || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM)              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
-        || (OC_CANDIDATES && (e == 20u || ((e == ENGI_SEM || e == ENGI_HADES) && !eng_mod[e])));   /* (0.14.0) a candidate's slot without its module */
+        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e)) && !eng_mod[e])));   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -475,7 +482,7 @@ static void eng_hot_boot(void)
     }
     oc_pack_changed = eng_hot_refresh;
 }
-static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES)); }   /* (0.14.0) WHEEL; the candidates */
+static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e))); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's */
 static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
 {
 #if MELODEE_SHAPES

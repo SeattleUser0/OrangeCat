@@ -8,6 +8,7 @@ import io
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,6 +34,82 @@ class Outgoing:
             self.fail_at = None
             raise OSError('MIDI port lost')
         self.sent.append(message)
+
+
+class FakeClock:
+    """(Orange Cat 0.14.1) take.time and take.threading for a test: time moves only by sleep (and a join's timeout), and the sender's thread
+    runs in lockstep with it: after start, a sleep or a stop, the caller goes on only once the sender waits for a later time or has ended. Its
+    sends happen at their scheduled times exactly, and run_take polls at the same points on every machine, whatever the load."""
+    def __init__(self):
+        self.now, self.cv, self.idle, self.threads = 0.0, threading.Condition(), {}, []
+
+    def monotonic(self):
+        return self.now
+
+    def _settled(self):
+        return all(t.done or (t in self.idle and self.idle[t][0] > self.now and not self.idle[t][1].flag) for t in self.threads)
+
+    def _advance(self, to):
+        with self.cv:                                  # through every deadline the sender waits for on the way: each send exactly on time
+            while True:
+                due = [d for d, _ in self.idle.values() if self.now < d <= to]
+                self.now = min(due) if due else max(self.now, to);self.cv.notify_all()
+                self.cv.wait_for(self._settled)
+                if not due:
+                    return
+
+    def sleep(self, dt):
+        self._advance(self.now+dt)
+
+    def Event(self):
+        clock = self
+        class Event:
+            flag = False
+            def set(self):
+                with clock.cv:
+                    self.flag = True;clock.cv.notify_all()
+                    clock.cv.wait_for(clock._settled)
+            def is_set(self):
+                return self.flag
+            def wait(self, timeout):
+                me = threading.current_thread()
+                with clock.cv:
+                    clock.idle[me] = (clock.now+timeout, self);clock.cv.notify_all()
+                    clock.cv.wait_for(lambda: self.flag or clock.now >= clock.idle[me][0])
+                    del clock.idle[me]
+                    return self.flag
+        return Event()
+
+    def Thread(self, target, name=None, daemon=None):
+        clock = self
+        class Thread(threading.Thread):
+            done = False
+            def run(self):
+                try:
+                    target()
+                finally:
+                    with clock.cv:
+                        self.done = True;clock.cv.notify_all()
+            def start(self):
+                clock.threads.append(self);super().start()
+                with clock.cv:
+                    clock.cv.wait_for(clock._settled)
+            def is_alive(self):
+                return not self.done
+            def join(self, timeout=None):
+                end = clock.now+(timeout or 0)
+                while not self.done and clock.idle.get(self, (end + 1,))[0] <= end:
+                    clock._advance(clock.idle[self][0])
+                if not self.done:
+                    clock._advance(end)
+                if self.done:
+                    super().join()
+        return Thread(name=name, daemon=daemon)
+
+    @contextlib.contextmanager
+    def patched(self):
+        with patch.object(take, 'time', self), patch.object(take, 'threading', self):
+            yield self
 
 
 def quick_plan(latch=1, mask=1, notes=((0, 30, 0, 60, 100, 0), (10, 40, 0, 65, 90, 1))):
@@ -111,14 +188,14 @@ class TakeTest(unittest.TestCase):
     def test_sender_order_lateness_and_release_on_failure(self):
         plan = quick_plan(notes=((0, 30, 0, 60, 100, 0), (30, 50, 1, 62, 90, 0), (30, 60, 0, 64, 80, 1)))
         out = Outgoing()
-        with take.LiveInput(out, plan, 3) as sender:
+        with FakeClock().patched(), take.LiveInput(out, plan, 3) as sender:
             sender.thread.join(1)
         self.assertTrue(sender.result['passed'])
         self.assertEqual([(m.type, m.channel, m.note) for m in out.sent],
             [('note_on', 0, 60), ('note_off', 0, 60), ('note_on', 1, 62), ('note_on', 0, 64), ('note_off', 1, 62), ('note_off', 0, 64)])
         out = Outgoing(fail_at=2)
         with self.assertRaisesRegex(RuntimeError, 'MIDI port lost'):
-            with take.LiveInput(out, quick_plan(), 3) as sender:
+            with FakeClock().patched(), take.LiveInput(out, quick_plan(), 3) as sender:
                 sender.thread.join(1)
         self.assertFalse(sender.result['passed'])
         # Both held notes are released after the failed send.
@@ -159,7 +236,7 @@ class TakeTest(unittest.TestCase):
         with patch.object(take, 'lab_control', control), patch.object(take, 'require_disarmed'), \
              patch.object(take, 'setup', return_value=[]), patch.object(take, 'profile', return_value={}), \
              patch.object(take, 'stats', return_value=row), patch.object(take, 'metadata', return_value=normal.metadata()), \
-             patch.object(take, 'inspect', return_value=''), patch.object(take, 'compare', return_value=compare):
+             patch.object(take, 'inspect', return_value=''), patch.object(take, 'compare', return_value=compare), FakeClock().patched():
             return take.run_take(device, plan, [0, 1, 2, 4], 0, lambda d: b'FBKK take')
 
     def test_latched_and_one_pass_takes_disarm_stop_and_validate(self):

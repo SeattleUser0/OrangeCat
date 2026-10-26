@@ -1,8 +1,9 @@
 # Orange Cat: engine candidates, the feasibility gate
 
-**Version:** 0.1
-**Date:** October 25, 2026
-**Applies to:** branch engine-candidates (from sonnet-work ceccc1c, 0.13.8 with linux-hw merged); firmware 0.14.0 and later.
+**Version:** 0.3
+**Date:** October 26, 2026
+**Applies to:** branch engine-candidates (from sonnet-work ceccc1c, 0.13.8 with linux-hw merged); firmware 0.14.0 and later. 0.2: branch op1r-candidates
+(from linux-hw ce7b5c0).
 
 Stage 0 of docs/orangecat/ADDING_AN_ENGINE.md: before anyone writes an engine's pages, presets and manual, the render core is ported as a module
 translation unit and put through this gate, so a candidate that cannot work is known at 10 %, not at 90 %. One section a candidate, each with the
@@ -11,6 +12,10 @@ the notice "engine gate", `orangecat-engine-gate-*.txt` in the packages artifact
 that has the FM-1, with the command that fills them. The verdicts below are proposals from the CI numbers alone.
 
 Revisions:
+- 0.3 (branch linux-hw): op1r's three on the unit (Flash 28): the unit rows filled, the verdicts from the numbers (section "op1r").
+- 0.2 (branch op1r-candidates): op1r's synth plugins through one glue (tools/module/op1r/op1_glue.h): the inventory of its fourteen synths and effects,
+  fmbell, supersaw and dddd through the gate (proposed engines 24, 25, 26; 24..31 reserved for the eight synths behind OC_CANDIDATES), their
+  correctness against op1r's own harness (tests/op1r_parity) and its tolerance. Section "op1r".
 - 0.1: first version: the gate (this table, `tools/engine_gate.py`, `tests/engine_gate_test.py`), the base hot set, and the first four candidates:
   WHEEL, Frodhes' Rhodes, Caravel's SEM and HADES.
 
@@ -212,6 +217,158 @@ Copied from the brief, then corrected where reading Caravel at 4a1770c said othe
 - DRONE (549, experimental), LOFI (**622 in Caravel's firmware/src; Felucca-Engines has a 237-line LOFI of its own**): small tables, later.
 - FM6, DRUM, WHEEL, TRIO, PHYS: ours exist (retired or built in); not Caravel's. SAMPLE, GRAIN, SLICE: Caravel's sample sets; not now.
 
+## op1r: the OP-1 custom firmware's synth plugins (proposed engines 24 to 31; 0.2)
+
+**Source.** op1r, custom firmware for the Teenage Engineering OP-1, <https://github.com/Hundekraft/op1r-src> (a fork of pcppcp/op1r-src), commit
+`bf808cfa` ("op1r 44"). GPL-3.0-or-later with an additional permission to combine with the OP-1 firmware (op1r's NOTICE); taken here under GPL-3.0
+(the OP-1 permission is not needed). A plugin is a `plugin.json` and one C file (dddd: two) written to op1r's rules (synth_sdk/PLUGINS.md,
+synth_sdk/op1_plugin.h): integer Q15 only, no per-sample division, no libc, 32 bytes of state a voice, `render(self, out[128], params)`,
+`note_on(self, params)`, `note_off(self)`, the ADSR and gain applied by op1r's firmware after render, six voices, 44.1 kHz. The copies here
+(tools/module/op1r/, its README) are op1r's files up to their screen code (the OP-1's display, left out) with a few lines marked Orange Cat;
+tests/op1r_parity/check_vendor.py proves exactly that against an op1r checkout.
+
+**The glue, once** (tools/module/op1r/op1_glue.h; its header is the full mapping). What op1r's firmware gives a plugin and what Orange Cat puts there:
+
+| op1r | Orange Cat |
+|---|---|
+| the voice object `self` (0x24 bytes: the firmware's word, then 32 bytes of the plugin's) | `&v->ph[2]`: the word is ph[2] (the glue writes the voice's index there, op1_voice_index reads it), the 32 bytes are voice_t's s[8], exactly (checked at compile time). The part's pointer sits in the word(s) before (ph[1], or ph[0..1] on a 64-bit host); the glue writes both at every call. `keep = 0`: voice.c restores no s[] word after a retrigger, so the plugin's note_on owns its 32 bytes as on the OP-1 |
+| `render` of 128 frames (OP1_BLOCK), with block-rate work inside (fmbell's index decay, dddd's limiter and note order) | Orange Cat renders 32 frames (CTL) a call: the glue keeps each voice's 128 samples in the part's arena block and calls the plugin when the voice has played them, so the plugin runs at its own block size. Pitch, envelope and parameters are taken at that call, every 2.9 ms (op1r's are per block too) |
+| `OP1_PITCH_INC` (per-sample int32, 2^32 a cycle a sample) | m->inc, the same convention, for all 128 |
+| `OP1_VOICE_ENV` (the stock envelope, 128 int16, velocity and level included; the plugins read its last value as a timbre source) | m->amp1, the voice's amplitude at that tick (the ADSR and the velocity), for all 128 |
+| `op1_voice_vel_gain` | v->vel x 258 (op1r's arithmetic) |
+| params[0..3] (knobs, 0..32767); [4] the engine selector; [5..7] the second page's words, saved with the patch | EDIT 1's P_E0..P_E3 x 258 (0..32766: 127 x 258, op1r's own velocity scale; the track stores 0..127); [4] 0 (no plugin reads it); EDIT 2's P_E4..P_E6 x 258. P_E7 unused. The plugin.json defaults are preset 0 (each knob / 258, rounded) |
+| `note_off` (may be 0) | Orange Cat's engine_t has none: the glue calls the plugin's at the first render after v->gate falls (the release's first block) |
+| the ADSR and gain after render | voice_amp: the Q15 sample by the voice's amplitude ramp and VOICE_FS, added to the part's block |
+| `OP1_SINE_TABLE` (8192 int16, read per sample) | not given: 16 KB read per sample from flash breaks the cache rule (ADDING_AN_ENGINE.md, section 4) and is too large for a hot set. Each line that reads it is changed to `OP1_SINE(k)` with op1r's own index k (0..8191), which the glue maps to dsp.c's sine_i at the same phase (k << 19): SINE[1025] interpolated, through the firmware's base hot set (RAM) |
+| file-scope state (dddd's wall, aether's and granular's per-voice arrays) | the part's arena block (`OP1G_PART_STATE`, reached through self): a module has no RAM of its own, and each track gets its own |
+| `op1_dbg`, the screen API, `OP1_VOICE(i)`, `op1_eng_page` | nothing (the screens are not ported) |
+| libgcc's `__udivdi3` (64-bit division, per block or key) | the glue's own shift and subtract (a module imports nothing); today no kept function calls it (dd_core.c's dd_set_notes did; the link drops it) |
+
+**The sine's difference, measured.** op1r's table holds round(32767 sin(2 pi k / 8192)) at 8192 points. The plugins index it at those 8192 points
+(their arithmetic, kept), so ours is the same staircase: at the 1,024 points both tables share (k a multiple of 8) the values are equal; between them
+ours is the linear interpolation of the 1,024-interval table, which differs from op1r's value by at most 1 LSB (at 2,970 of the 8,192 indices; equal
+at the other 5,222). It is not a smoother sine at these indices, only one with a different rounding: the brief's "ours is the smoother sine" holds for
+an index with more bits than op1r's (sine_i takes 15 bits more), which these plugins never form.
+
+**Correctness: tests/op1r_parity** (a development check: CI has no op1r checkout). op1r's own host harness (synth_sdk/harness/audio_harness.c, its
+op1_host.h mocks, the plugins' unchanged files, op1r's flags with AddressSanitizer and UndefinedBehaviorSanitizer; three no-op screen-text mocks it does
+not define, without which op1r's own audio.py does not link dddd at bf808cfa) renders each plugin at three knob settings (the defaults as the presets
+store them, one of ours, every knob at its top; each a multiple of 258) and two phrases: the harness's own (C3 E3 G3 C4 G3 E3, velocities 127 / 64, the
+key up at block 110 of 138) and a copy with only its note list changed to C2 C4 C6 (twice): low, middle, high. ours_side.c drives the module's unit
+through the glue the same way (voice 0, the same increments and stand-in envelope, the second page at 0 as the harness has it) and writes the plugin's
+own output (the glue's 128-sample block, before the ADSR, as the harness writes it), under the same sanitizers. Three renders each:
+
+- **with op1r's own sine table** in the glue (a test-only build, `OP1G_PARITY_SINE`): **every sample equal**, every plugin, setting and phrase: the
+  glue (voice object, blocks, increments, envelope, velocity, params, note_off, the part's state) is op1r's firmware to the sample;
+- **with the module's sine** (OP1_SINE): the tolerance, stated: where op1r's own render is stable under a 1-LSB change of its sine (its table truncated
+  instead of rounded, also at most 1 LSB off, moves its render less than -60 dB), ours must be within **-60 dB RMS** of op1r's (the difference against
+  the signal, the whole render) and its **sustain spectra within 0.5 dB** bin for bin (blocks 20 to 100 of each note, Hann, the bins within 60 dB of
+  the strongest). Where it is not (FM feedback: op1r's arithmetic turns a 1-LSB difference into another waveform of the same sound within milliseconds),
+  ours must keep op1r's **sustain level within 0.5 dB** and its **third-octave bands no further from op1r's than op1r's own truncated-table render is,
+  plus 3 dB**;
+- a plugin that reads no sine (dddd) must be **equal in every sample** with the module's sine too.
+
+| Plugin | stable settings (RMS, max difference, spectra) | feedback settings (op1r against itself, ours) | without any sine |
+|---|---|---|---|
+| fmbell | defaults: -79.4 and -79.2 dB, max 13 LSB of 16,383, spectra within 0.033 dB | FDBK 60 and 127: chaotic in op1r itself (its truncated-table render at -2.0 to -6.8 dB RMS, bands within 0.70 to 12.04 dB); ours at -2.1 to -8.0 dB, level within 0.05 dB, bands within 2.06 to 12.43 dB: within | - |
+| supersaw | all three: -90.2 to -94.2 dB, max 4 LSB, spectra within 0.068 dB | - | SUB 0: every sample equal |
+| dddd | - | - | **every sample equal**, all six renders |
+
+Then our own golden lines (tests/golden_modules.txt, module/FMBELL/.., module/SUPERSAW/.., module/DDDD/..: every preset through the whole voice path
+in an OC_CANDIDATES build, tests/module_host_cand_test.c), clean under ASan and UBSan. Engines: `ENGI_FMBELL` 24, `ENGI_SUPERSAW` 25, `ENGI_DDDD` 26.
+
+**Effects are not candidates.** clouds, palme, reverb, sitting ("in a room"), steve and tape assume op1r's FX scratch: 176,460 B per FX position
+(`op1_fx_scratch`, shared with the OP-1's own effects), plus up to 2 MB of heap per plugin. Orange Cat's effects are the track's and the master's, with the
+arena's few KB each; none of them fits. Inventory only.
+
+### The inventory (op1r bf808cfa: its fourteen synth and effect plugins)
+
+Lines: the plugin.json's sources, and in parentheses without the screen code. The other nine plugins of the tree are sequencers (chord, dots, euclid,
+grids, oracle, peal), a drum and a sampler engine replacing the OP-1's own (drumplus, samplerplus) and a tool (randomiser): not engines here.
+
+| Plugin | Kind | Lines | Author (its file's line; else plugin.json) | What it needs | Here |
+|---|---|---|---|---|---|
+| fmbell | synth | 130 (53) | pcppcp (plugin.json; the file has no line) | the sine (two reads), velocity | **ported: engine 24** |
+| supersaw | synth | 217 (63) | pcppcp (plugin.json) | the sine for its sub | **ported: engine 25** |
+| dddd | synth | 402: dddd.c 230 + dd_core.c 172 (239) | Copyright (C) 2026 pcppcp | a paraphonic wall shared by the part (an 8 KB loop buffer: file-scope state), the second page, OP1_VOICE_ENV[127], a coarse knob (eight steps on the OP-1's encoder; 0..127 here) | **ported: engine 26** |
+| aether | synth | 313 (137) | pcppcp (plugin.json) | **the OP-1's accelerometer** (tilt bends the pitch and fades the gain, shaking adds vibrato), read at the OP-1's address 0xFF801054 unless OP1_HOST: the FM-1 has none, so its line needs a stand-in (a fixed home: a plain voice; or a mapping to a control); per-voice state in a file-scope array (ae_t st[6], past the 32 bytes) to the part; the sine (five reads); OP1_VOICE_ENV; the second page | next: engine 27 |
+| brassophone | synth | 310: brass.c 196 + horn.c 114 (horn.c is its screen) | Copyright (C) 2026 nick (nvmsocool) | the sine (three reads, an interpolated waveform sweep), OP1_VOICE_ENV[127], note_off | next: engine 28 |
+| mixtur | synth | 382 (247) | Copyright (C) 2026 ultralazr (Musica Obscura #1) | Blackfin 16 x 16 MACs in inline assembly, with op1r's portable C beside them (`#ifndef __bfin__`: the JieLi build takes it); a `clamp` of its own whose name dsp.c's has (renamed while its file is included); per-voice words in a file-scope array (own[6]) to the part; the second page; one division per block | next: engine 29 |
+| arc | synth | 556 (366) | Copyright (C) 2026 ultralazr (Musica Obscura #1) | Blackfin MACs with the portable C beside them; a gain table decoded at run time into a file-scope array (arc_gp, uint16) and a trace for its screen (arc_trace): the part's state; the second page; the sine (once) | next: engine 30 |
+| granular | synth | 296 (149) | pcppcp (plugin.json) | **the slot's sampler recording** (uses_sample: up to 264,600 samples, 6 s at 44.1 kHz, and a peak table of 2,067 entries) read per sample by its grains; a file-scope grain array (gv[6]); the sine for its windows | reserved: engine 31. Its port waits for the question whether Orange Cat's sample slot can stand in for the OP-1's (the sample in RAM or read per sample from flash: the cache rule) |
+| clouds | effect | 139 (59) | Original code (c) 2014 Emilie Gillet, MIT (Clouds); the port pcppcp | 176 KB of FX scratch (a granular buffer), the second page | not a candidate |
+| palme | effect | 631 (469) | Copyright (C) 2026 ultralazr (Musica Obscura #1) | the scratch (twelve Karplus-Strong strings), the second page | not a candidate |
+| reverb | effect | 193 (133) | Original code (c) 2014 Emilie Gillet, MIT (Elements' reverb); the port pcppcp | the scratch | not a candidate |
+| sitting ("in a room") | effect | 875 (662) | Copyright (C) 2026 ultralazr (Musica Obscura #1) | the scratch, op1r's beat clock, the second page | not a candidate |
+| steve | effect | 404: steve.c 263 + st_core.c 141 (244) | pcppcp (plugin.json) | the scratch, the beat clock, the master's stereo pair | not a candidate |
+| tape | effect | 287 (117) | pcppcp (plugin.json) | the scratch (a tape delay) | not a candidate |
+
+### The gate's tables (CI rows from tools/engine_gate.py; the unit rows for the Linux session)
+
+| Row | FMBELL (proposed engine 24) |
+|---|---|
+| Source and licence | op1r (pcppcp: plugin.json; the file has no line), synth_sdk/plugins/fmbell/fmbell.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0. Unit: tools/module/fmbell_mod.c; copy: tools/module/op1r/plugins/fmbell/ |
+| Ported / left out | the whole engine: a two-operator FM voice (a modulator at 0.5 to 8 in half steps, its index decaying per block, feedback on the modulator); left out: its screen (the bell drawing). One line changed: its sine reads OP1_SINE |
+| Code / tables / metadata | 956 / 0 / 404 B (+ 4 B, + the 256 B header page): **1,620 B** |
+| .data / .bss | 0 / 0 |
+| State per voice / per track | 20 B (fm_voice_t, in voice_t's ph[2] and s[8]) / 2,332 B (op1g_part_t: six voices' 128-sample blocks, the increments and envelope arrays, params) |
+| Voice units and cap proposed | as built: poly 6 (OP1_VOICES), 2 units a voice (the default). Host time a voice (tests/op1r_parity's driver; the same driver puts WHEEL, SEM and HADES at 60, 24..51 and 65..89 ns a sample, whose unit numbers are about 130, 105 and 160 us a voice per block: 14 to 17 times): 16 to 37 ns by preset, so **about 35 to 80 us a voice**: 1 unit by MACRO's measured 92 us a unit; keep 2 until the unit says |
+| Hot set | none of its own: per sample it reads SINE (the base hot set, through fw_api_t base_hot); pack_hot.py's analysis of its sources does not follow the glue's OP1_SINE into dsp.c and reports none. No per-block table |
+| Module size and placement | 1,620 B at sector 0 and 6 (needs 1; WHEEL's geometry, 4 sectors at 0 or 6): fits alone, beside SHAPES, beside the Prophet |
+| Target loop cost | op1g_eng_render 241 (94 loop instructions: the glue's copy-out with voice_amp, and its per-block fills, one call: the plugin), fm_render 47 |
+| Correctness | tests/op1r_parity: with op1r's sine, every sample equal; with ours, the defaults at -79 dB (stable), FDBK 60 and 127 within op1r's own spread (chaotic: table above). Our golden lines module/FMBELL/00..03 |
+| Unit (the Linux session) | **Flash 28** (linux-hw 5c61037 + OC_CANDIDATES=1, its format-2 module; idle 424 us; budget 2,901 us a half buffer; 18 units). Render time per voice: FM BELL, E PIANO, GLASS 841 to 843 us with four voices on one track, FM BASS (mono) 542: **about 100 us a voice** (1.1 of MACRO's 92 us units). Late renders, worst / late in 20 s, 1 to 4 tracks: FM BASS (one voice a track) 539 / 0, 640 / 0, 749 / 0, 840 / 0; FM BELL (four) 846 / 0, 1,237 / 0, 1,762 / 0, **1,994 / 0**. Admission granted: 4 voices a track at 1 and 2 tracks, 9 in all from 3 (2 units a voice of 18; 1,683 and 2,373 voices given up in 20 s at 3 and 4 tracks) |
+| Verdict | **Go with limits** (the limit is the sound, not the cost): with feedback it is op1r's sound, not op1r's samples. The unit: the lightest of the three, never late; at four full tracks 31 % of the half buffer is left. Units: 2 holds; 1 would admit 18 voices (424 + 18 x 100 us plus the tracks: about 2,300 us, by arithmetic, not measured): measure before lowering it |
+
+| Row | SUPERSAW (proposed engine 25) |
+|---|---|
+| Source and licence | op1r (pcppcp: plugin.json), synth_sdk/plugins/supersaw/supersaw.c at bf808cfa, GPL-3.0-or-later with the OP-1 permission, under GPL-3.0. Unit: tools/module/supersaw_mod.c |
+| Ported / left out | the whole engine: two detuned saws morphing to a pulse, a sine sub an octave down, a drive into a cubic soft clip, a one-pole low-pass; left out: its screen (the chainsaw). Two lines changed (its sub's sine); its voice type `voice_t` is renamed while its file is included (Orange Cat's own name) |
+| Code / tables / metadata | 1,012 / 0 / 404 B (+ the 256 B header page): **1,672 B** |
+| .data / .bss | 0 / 0 |
+| State per voice / per track | 24 B (its voice_t, renamed ss_voice_t) / 2,332 B (op1g_part_t) |
+| Voice units and cap proposed | poly 6, 2 units (default). Host 30 to 45 ns a sample a voice: **about 65 to 100 us a voice** on the unit: 1 to 2 units; keep 2 |
+| Hot set | none of its own: SINE per sample (its sub; the base hot set) |
+| Module size and placement | 1,672 B at sector 0 and 6 (needs 1): fits alone, beside SHAPES, beside the Prophet |
+| Target loop cost | op1g_eng_render 241, ss_render 71 |
+| Correctness | with op1r's sine, every sample equal; with ours, max 4 LSB, -90.2 to -94.2 dB, spectra within 0.068 dB; SUB 0 every sample equal. Golden module/SUPERSAW/00..03 |
+| Unit (the Linux session) | **Flash 28**. Render time per voice: presets 0 and 1 948 and 950 us with four voices on one track, presets 2 and 3 (one voice) 593 and 555: **about 125 us a voice** (1.4 units). Late renders, SAW PAD, worst / late in 20 s, 1 to 4 tracks: 946 / 0, 1,441 / 0, 2,004 / 0, **2,323 / 0** (load at most 38 %). Admission granted: 4 voices a track at 1 and 2 tracks, 9 in all from 3 (1,680 and 2,371 given up in 20 s) |
+| Verdict | **Go**: stable against op1r to -90 dB, never late on the unit at four tracks (20 % of the half buffer left); 2 units a voice is right for its 1.4 |
+
+| Row | DDDD (proposed engine 26) |
+|---|---|
+| Source and licence | op1r, Copyright (C) 2026 pcppcp: synth_sdk/plugins/dddd/dddd.c and synth_sdk/dddd/dd_core.c, dd_core.h at bf808cfa, GPL-3.0-or-later with the OP-1 permission, under GPL-3.0. Unit: tools/module/dddd_mod.c |
+| Ported / left out | the whole engine: one paraphonic wall a part (noise, crackle, a logistic map, three ring-modulated squares; a feedback loop with a tap per held key, the newest four; a state-variable filter; fold, clip, crush; random "hands" and a stutter; DC blockers and a limiter); the lowest sounding voice renders it, the others silence (op1r's rule). Left out: its screen (the wasp). Changed: its seven lines of file-scope state (to the part: dddd_part_t) and alive() (a macro), marked; dd_core.c and dd_core.h unchanged |
+| Code / tables / metadata | 3,602 / 10 / 404 B (+ 16 B, + the 256 B header page): **4,288 B**. The tables: inv_n (10 B) and per_c (48 B: dd_set_notes's, dropped by the link) |
+| .data / .bss | 0 / 0 |
+| State per voice / per track | none of its own in the voice object (its voices only count and order) / **10,772 B**: op1g_part_t 2,332 + dddd_part_t 8,440 (the wall's 4,096-sample loop, 8 KB, and its state) |
+| Voice units and cap proposed | poly 6, 2 units a voice (default). Host: 89 to 130 ns a sample for the wall (the leader), the other voices the glue's copy of zeros: **about 280 us a part** on the unit whatever the voices: 3 units for the part. 2 units a voice over-counts from the second voice on; a units hook (3 for the leader, 0 for the others) would be the exact one: proposed after the unit's numbers |
+| Hot set | none: the loop is RAM (the part's state); inv_n is read once a block (`inv = inv_n[d->ntaps]` before the loop: pack_hot.py's source analysis lists it as per sample), per_c at a key change |
+| Module size and placement | 4,288 B at sector 0 and 6 (needs 2): fits alone, beside SHAPES, beside the Prophet |
+| Target loop cost | op1g_eng_render 241, dd_render_voice 106, dd_render 380 (324 loop instructions, 1 divide: the stutter's `% 1800`, once a cut) |
+| Correctness | tests/op1r_parity: **every sample equal** to op1r's render, all six (it reads no sine). Golden module/DDDD/00..03 (chords: the paraphony and the leader) |
+| Unit (the Linux session) | **Flash 28**. Render time: every preset 1,012 to 1,065 us on one track with four keys (**about 620 us over idle for the part**, whatever the voices: the leader renders the wall, the others copy zeros); each further track adds 300 to 365 us. Late renders, SCREAM, worst / late in 20 s, 1 to 4 tracks: 1,047 / 0, 1,348 / 0, 1,713 / 0, **2,063 / 0** (with FMBELL beside it) and 1,038 / 0, 1,357 / 0, 1,733 / 0, 2,080 / 0 (with SUPERSAW). Admission granted: 2 units a voice, so 4 voices a track at 1 and 2 tracks and 9 in all from 3 (609 to 612 and 1,248 to 1,252 voices given up in 20 s): the admission counts voices the part does not pay for |
+| Verdict | **Go with limits**: 10.8 KB of arena a track, and its cost is the part's (about 340 to 620 us a track), not the voices': the units hook proposed above (the leader about 4 units, the others 0) would stop it giving up voices at three tracks; never late at four |
+
+**The unit commands** (the Linux session; an OC_CANDIDATES build registers 24..26; hw/LOG.md's columns):
+
+```
+python3 tools/hw/ci_step.py build --switch OC_CANDIDATES=1
+python3 tools/hw/fm1hw.py flash build/orangecat-0.6.2-<commit>.fwsc --expect <version string>
+node tools/hw/oc_install.mjs pack build/orangecat-0.6.2-<commit>.pak
+node tools/hw/oc_install.mjs module build/orangecat-fmbell-0.6.2-<commit>.ocm      # 4 sectors: start 0 (sector 0) or 1 (sector 6)
+node tools/hw/oc_install.mjs module build/orangecat-dddd-0.6.2-<commit>.ocm        # the second start
+python3 tools/hw/fm1hw.py table --set op1r --out ~/fm1-hw/op1r-fmbell-dddd.json --label op1r-a
+node tools/hw/oc_install.mjs remove 24                                             # then supersaw where fmbell was
+node tools/hw/oc_install.mjs module build/orangecat-supersaw-0.6.2-<commit>.ocm
+python3 tools/hw/fm1hw.py table --set op1r --out ~/fm1-hw/op1r-supersaw.json --label op1r-b
+python3 tools/hw/fm1hw.py measure --tracks 1 --engine FMBELL --presets 0,1,2,3     # per preset, one track: the cost of a voice (and SUPERSAW, DDDD)
+```
+
+`table --set op1r` plays FMBELL FM BASS, SUPERSAW SAW PAD and DDDD SCREAM (each one's heaviest by the host times) on 1 to 4 tracks and skips an
+engine the unit does not offer. These .ocm files are format 2 (one image and its relocation list: ENGINE_LOADING_PLAN.md, "One image and a relocation
+list"): tools/hw/oc_install.mjs sends them through the page's own code, which relocates them for the start the unit names.
+
 ## Engine numbers
 
 Engine numbers are stored in projects and presets: append, never reuse (ADDING_AN_ENGINE.md, section 1). **No number below NENGINES (20) is free**:
@@ -226,6 +383,9 @@ too** (USER_NATIVE_P5: browse.c and editor_preferences.c take source 20 as the P
   21 and 22 take modules, so the unit can measure SEM and HADES now. Committing them later means NENGINES 23 (or 24 for the Rhodes) in the shipping
   build, the editor page's engine list, and accepting that engines past 15 hold no user preset and no favorite (upreset.c, favorites.c) unless that
   store changes.
+- (0.2) **op1r's eight synths: 24 to 31**, in the brief's order (fmbell 24, supersaw 25, dddd 26, aether 27, brassophone 28, mixtur 29, arc 30, granular
+  31), `ENGI_FMBELL` .. `ENGI_GRANULAR` in core.h. The measurement build's table is 32 long: 23 (the Rhodes's proposed number) is now a slot and
+  stays retired, and 31 is the last number a 32-bit engine mask holds (engines.c `eng_hs.refused`); a number past 31 would need that mask widened.
 
 ## Decisions here that one might decide otherwise
 
@@ -238,6 +398,18 @@ too** (USER_NATIVE_P5: browse.c and editor_preferences.c take source 20 as the P
   size is a 4-byte token because the loader refuses 0.
 - The proposed numbers live behind OC_CANDIDATES instead of growing NENGINES now.
 - The Rhodes port keeps rhodes.c's code but cannot include the file as it is (its state is file-scope RAM); it is tested against the unchanged file.
+- (0.2) op1r: the plugins' copies leave out their screens and change marked lines (the sine reads, dddd's file-scope state) instead of including the
+  files unchanged: op1r's sine is read by subscripting a table pointer, which C cannot redirect into a function, and a file-scope static cannot be moved
+  into the part by a macro. check_vendor.py proves the copies are op1r's but for those lines.
+- (0.2) op1r: the glue keeps op1r's 128-frame block (each voice's block in the part's state, 1,536 B for six voices) rather than calling the plugin
+  for 32 frames: the plugins' block-rate work (fmbell's index decay, dddd's limiter and its count of render calls) would run four times as fast.
+  The cost: pitch, envelope and parameter changes reach the plugin every 2.9 ms instead of every 0.7 ms (op1r's own rate).
+- (0.2) op1r: the velocity is applied twice, as on the OP-1: the plugins multiply by op1_voice_vel_gain, and Orange Cat's amplitude (like op1r's stock
+  envelope, which includes the velocity) multiplies again. Kept: it is the sound the plugins were tuned to.
+- (0.2) op1r: OP1_SINE keeps op1r's 8192-point index (the brief's "keeping their index arithmetic"). An exact copy of op1r's sine is possible at 4 KB
+  (a quarter-wave table of 2,049 points as a hot set) and would make fmbell's feedback settings equal sample for sample; not done, because the brief
+  asked for SINE[1025] and op1r's own render moves as far under a 1-LSB change of its table.
+- (0.2) op1r: knobs are 0..127 x 258 (0..32766, the track's resolution), dddd's coarse SRC and FILT included (eight steps on the OP-1).
 
 ## Findings beyond the four candidates
 

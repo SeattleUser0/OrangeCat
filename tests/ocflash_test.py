@@ -11,7 +11,11 @@ What is checked:
   - gen_pack.py puts the pack's table pointers at xip(0x93000) + offset, and build.py --module links start 0 and start 6 at
     xip(0xC8000) and xip(0xCE000) (the second is also in tests/module_build_test.py against the stand-in toolchain);
   - the CRC-16 and the record rule of ocflash are the device's: the firmware's own functions (ota.c ota_crc16, oc_pack.c pk_crc16 and
-    pk_record_like, the text taken from the sources) are compiled and run on the same bytes, planted records and noise.
+    pk_record_like, the text taken from the sources) are compiled and run on the same bytes, planted records and noise;
+  - (0.14.1) apply_relocs: an ABS32 word and a MOV_ABS32 constant (its carry into the high half), the refusals (a site past the end, out of
+    order, another kind, a list too long), and the pairs the build proved: each relocatable package the module build left (build/<name>-<version>.ocm,
+    SHAPES aside: tests/module_build_test.py writes a made one there) gives each start build/module/<name>.<start>.img, the variant's image, byte for
+    byte (skipped, and said, when no module was built; CI builds them before the tests).
 """
 import random
 import re
@@ -112,6 +116,38 @@ check("ocflash.record_like equals oc_pack.c's pk_record_like on the same 300 (a 
       all(g[2] == int(ocflash.record_like(r)) for g, r in zip(got, rows)))
 check("the 300 hold both answers (the test is not all one way)", {g[2] for g in got} == {0, 1})
 check("crc16 of '123456789' is the CRC-16/XMODEM check value 0x31C3", ocflash.crc16(b"123456789") == 0x31C3)
+
+# (0.14.1) the relocation list
+import struct  # noqa: E402
+img = bytearray(64)
+struct.pack_into("<I", img, 8, 0x00000100)
+struct.pack_into("<HHHH", img, 16, 0xAAAA, 0xFFF0, 0x0001, 0xBBBB)        # a MOV_ABS32 pair at 16: opcode, low half 0xFFF0, high half 0x0001, opcode
+got = ocflash.apply_relocs(img, [ocflash.reloc_word(8, ocflash.RELOC_ABS32), ocflash.reloc_word(16, ocflash.RELOC_MOV32)], 0x020C4020)
+check("apply_relocs: an ABS32 word gets the base; a MOV_ABS32 constant gets it with the carry into its high half; the opcodes stay",
+      struct.unpack_from("<I", got, 8)[0] == 0x020C4120 and struct.unpack_from("<HHHH", got, 16) == (0xAAAA, 0x4010, 0x020E, 0xBBBB))
+for what, words in (("a site past the image's end", [ocflash.reloc_word(60, ocflash.RELOC_MOV32)]),
+                    ("a list out of order", [ocflash.reloc_word(16, 1), ocflash.reloc_word(8, 1)]),
+                    ("a kind the list does not have", [ocflash.reloc_word(8, 3)]),
+                    ("a list longer than RELOC_MAX", [ocflash.reloc_word(0, 1)] * (ocflash.RELOC_MAX + 1))):
+    try:
+        ocflash.apply_relocs(img, words, 0x1000)
+        ok = False
+    except ValueError:
+        ok = True
+    check(f"apply_relocs refuses {what}", ok)
+ver = (ROOT / "VERSION").read_text().strip()
+pairs = 0
+for name in ("wheel", "prophet", "sem", "hades", "fmbell", "supersaw", "dddd"):
+    f = ROOT / "build" / f"{name}-{ver}.ocm"
+    if not f.exists() or f.read_bytes()[4] != 2:
+        continue
+    imgs = ocflash.ocm_images(f.read_bytes())
+    for start, im in imgs.items():
+        check(f"the build's relocatable {name} package gives start {start} the variant's image byte for byte (the pair the build proved)",
+              im == (ROOT / "build" / "module" / f"{name}.{start}.img").read_bytes())
+        pairs += 1
+if not pairs:
+    print("ocflash: (no relocatable package in build/: the build's pairs not checked)")
 
 print("ocflash: FAILED" if bad else "ocflash: all passed")
 sys.exit(1 if bad else 0)

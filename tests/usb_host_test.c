@@ -202,6 +202,8 @@ static uint8_t t_fb_gen;
 static char t_fb_text[2048 + 512];                       /* (0.13.3) a set's manifest and the parsed set */
 #define FB_TEXT() t_fb_text
 #define FB_SETS() ((oc_set_t *)(t_fb_text + 2048))
+static uint32_t t_fb_rel[2048];                         /* (0.14.1) a relocatable package's list (card_install.c FB_RELOCS) */
+#define FB_RELOCS() t_fb_rel
 #define FB_BORROW() ((void)0)
 #define FB_GEN() t_fb_gen
 static int ocl_keep_any(uint32_t k, uint32_t b) { return ocl_keep(k, b); }   /* (0.6.1: the stub numbers empty ones too) */
@@ -289,6 +291,7 @@ static int oc_mod_pair_fits(uint32_t a, uint32_t b) { return !((a == 14u && b ==
 #define OC_MOD_STARTS 3u
 enum { MC_OK = 0, MC_HDR = -1, MC_CRC = -2, MC_PAGES = -3, MC_TAIL = -8, MC_READ = -9 };
 static int t_md_ck, t_md_ck_start = -1, t_md_checks;
+static uint32_t oc_mod_link(uint32_t i) { static const uint8_t sect[3] = {0, 6, 4}; return 0x020C4000u + 0x1000u * sect[i % 3u]; }   /* (0.14.1) the relocation base */
 static int oc_mod_allowed(uint32_t engine, uint32_t i) { return engine == 19u ? i != 1u : i < 2u; }   /* the Prophet: starts 0 and 2; SHAPES: 0 and 1 */
 static int oc_mod_image_check(oc_rd_t rd, void *ctx, uint32_t engine, uint32_t start, uint32_t len)
 {

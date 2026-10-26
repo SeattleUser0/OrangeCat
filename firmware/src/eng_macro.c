@@ -297,8 +297,12 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
  * 2.4 to 3.5, SWARM 2.8 to 3.7, NOISE 2.6, PARTCL 3.9, STRING 3.6, MODAL 3.6 to 4.2, KICK 2.5, SNARE 2.4, HI-HAT 2.9,
  * HARP 1.9), units 1.5 x that, rounded (the host's ratios are not the unit's: halfway between them and 0.5.2's flat
  * 3, until the unit's CPU meter says better). 0.5.2's 3 for every model let four ADDTV voices (ORGAN DRAWBAR, a four
- * note chord) run past the processor on the unit: the sound broke up. Now ADDTV takes 7: two notes at once. */
-static const uint8_t MC_UNITS[MC_N] = {3, 3, 8, 4, 7, 5, 5, 4, 6, 6, 6, 4, 4, 5, 3};
+ * note chord) run past the processor on the unit: the sound broke up. Now ADDTV takes 7: two notes at once.
+ * (Orange Cat 0.14.1) From the unit's own costs (hw/LOG.md, "MACRO by model": the N = 4 runs, worst less the idle and the tracks, over
+ * the voices sounding; 92 us a unit, the budget of 18): MODAL about 950 us a voice, ADDTV 860, FM 650, WAVSHP 440, SWARM 410, STRING 370,
+ * the rest 180 to 320. MODAL and ADDTV take 9 (two voices on one track: MALLET was late on one track with three), the cheap models a
+ * little more polyphony. Four presets' chords lose a voice by design (FOLD PLUCK, ADDITIVE PAD, MALLET, GLASS BELL: tests/golden.txt). */
+static const uint8_t MC_UNITS[MC_N] = {4, 5, 8, 4, 9, 3, 5, 2, 4, 4, 9, 3, 4, 3, 4};
 static MC_XIP uint32_t mc_units(const track_t *t)
 {
     return MC_UNITS[clamp(t->p[P_E0], 0, MC_N - 1)];

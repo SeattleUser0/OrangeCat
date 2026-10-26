@@ -502,6 +502,22 @@ The package (little endian): magic "OCMF" (0x464D434F), version u16 = 1, variant
 before it; then the images. An image's first 256 bytes are the header page (`fw_mod_hdr_t`, 60 bytes since 0.11.0, the rest zero), its code starts at byte 256; its CRC
 (zlib) covers bytes 256..length (at 52 of the header) and the header's own CRC (at 56) covers bytes 0..55.
 
+(0.14.1) **Format 2, the relocatable package** (what `tools/build.py --module` writes; since a relocated SHAPES was installed on the unit and measured equal to
+the variants package's, the only format it writes: format 1 is still read, by the page, the card and tools/ocflash.py). The same 56 bytes with version u16 = 2 and the variant count 1; then one 16-byte row {0xFFFFFFFF
+(relocatable: the image is linked at address 0), image length, CRC-32 of the image, file offset}; then 16 bytes {relocation count n (at most 2048), file
+offset of the list, CRC-32 of the list's 4 x n bytes, start count m (1..8)}; then m rows of 8 bytes {start sector index, CRC-32 of the image that start
+gets}; then a CRC-32 of everything before it; then the image, then the list. A list word is a site: bits 0..23 its byte offset in the image (the header
+page is byte 0), bits 24..31 its kind, 1 a 32-bit little-endian word holding an address (ABS32), 2 a MOV_ABS32 instruction pair of 8 bytes whose 32-bit
+constant sits in two little-endian halfwords at offset + 2 (low) and + 4 (high) (MOV32); the sites in strictly increasing order, each inside the image.
+The image a start gets: every site's 32-bit value plus the start's XIP address (0x020C4000 + sector x 4096, carries included), then the header's two CRCs
+as the build fills them (the code's, bytes 256..length, at 52; the header's, bytes 0..55, at 56). Its CRC-32 must be the row's for that start: the bytes
+are then exactly the image the variants package holds for that start, and the commands, the unit's checks and what it programs are unchanged. The page
+(web/fm1oc.js ocmParse and ocmRelocate, the same text as web/editor.html) relocates the image for every start the package names when it reads the file;
+the card's installer relocates it as it reads the file for the start the unit names (card_install.c fb_rel_rd: the list in RAM, refused when longer than
+2048, out of order, of another kind, a site outside the image, or when the relocated image's CRC-32 is not the package's). An older firmware's card
+installer and an older page refuse format 2 ("Not a module"): it is the file's format that changed, not the unit's. tools/ocflash.py apply_relocs is the
+reference; web/test_ocm.mjs, tests/ocflash_test.py and tests/card_install_test.c hold the three to it.
+
 (0.13.4) Nothing the unit would refuse at 123 or 118 is sent: before 116 or 121 the page runs the unit's own checks on the file's bytes (web/fm1oc.js packProblem and
 ocmImage, the same text as web/editor.html): for a pack its header (length, hash, header CRC), the payload CRC-32 and the update loader's record rule on every sector tail
 (oc_pack.c pk_image_check); for a module variant the header page against the package and the start (interface, table address, engine, state size 1..16384, pack hash,

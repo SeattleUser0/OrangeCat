@@ -183,18 +183,20 @@ def check_set(pak, ocms, manifest):
         b = Path(ocm).read_bytes()
         magic, ver, n, iface, api_addr, engine = struct.unpack_from("<IHHIII", b, 0)
         mhash = struct.unpack_from("<I", b, 24)[0]
-        if magic != 0x464D434F or ver != 1 or not 1 <= n <= 8:
+        if magic != 0x464D434F or ver not in (1, 2) or not 1 <= n <= 8 or (ver == 2 and n != 1):
             raise SystemExit(f"{ocm}: not a module package")
-        head = 56 + 16 * n
-        if zlib.crc32(b[:head]) != struct.unpack_from("<I", b, head)[0]:
+        m = struct.unpack_from("<I", b, 84)[0] if ver == 2 else 0     # (0.14.1) format 2: one relocatable image and the starts it was proved for
+        head = 56 + 32 + 8 * m if ver == 2 else 56 + 16 * n
+        if not m <= 8 or zlib.crc32(b[:head]) != struct.unpack_from("<I", b, head)[0]:
             raise SystemExit(f"{ocm}: damaged (header CRC)")
         if iface != info["iface"] or api_addr != info["api_addr"]:
             raise SystemExit(f"{ocm}: interface {iface:08x} at {api_addr:#x} is not the firmware's ({info['iface']:08x} at {info['api_addr']:#x})")
         if mhash != phash:
             raise SystemExit(f"{ocm}: reads pack {mhash:08x}, the pack file is {phash:08x}")
         sectors = struct.unpack_from("<I", b, 52)[0]            # (0.12.2) the module's size in sectors of the 12 sector area (SHAPES 6, the Prophet 8): every image fits it,
-        for k in range(n):                                       # and starts, in sectors from the area's first, leave room for it
-            start, length, _, off = struct.unpack_from("<IIII", b, 56 + 16 * k)
+        rows = [struct.unpack_from("<IIII", b, 56 + 16 * k) for k in range(n)] if ver == 1 else \
+            [(struct.unpack_from("<I", b, 88 + 8 * k)[0],) + struct.unpack_from("<III", b, 60) for k in range(m)]
+        for k, (start, length, _, off) in enumerate(rows):      # and starts, in sectors from the area's first, leave room for it
             if not 1 <= sectors <= 12 or length > sectors * 4096 or start + sectors > 12 or off + length > len(b):
                 raise SystemExit(f"{ocm}: image {k + 1} (start {start}, {length} B) does not fit the module's {sectors} sectors of the 12 sector area")
     return info

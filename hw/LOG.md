@@ -614,3 +614,147 @@ hot set (RAM); the built-in engine reads it from the image.
   (`putback music-before-2026-10-24.json`: MACRO 10, 0, 1, 20) and track 1's CHRD MAJ and VOIC OPEN as found this morning; transport stopped; CLK put back to
   INT (a timed-out table had left it on USB). Project slot 4 holds the Part 5 test project and library slot 383 "HW TEST"; power-on loads project slot 1
   (PROJ_LAST 0xC0 since Part 6). **The unit stays here.**
+
+## October 26 (UTC): the review's fixes on the Nightly, Flash 27
+
+- **Flash 27: the Nightly as published** (sonnet-work 430cd4c, `v0.6.2-430cd4`, built 02:48:47Z by run 40258557380): `fm1hw.py flash`, the version read back.
+  The SHAPES module of 89b4e79 at start 0 read state 2 (refused: interface 5), as CHANGES.md says. Then from the Nightly's own files: the pack
+  (`orangecat-nightly.pak`, state 1, 657ED950, the same hash as before), SHAPES (`orangecat-shapes-nightly.ocm`: start 1, state 7) and WHEEL
+  (`orangecat-wheel-nightly.ocm`: start 0, state 7). The Prophet's module (8 sectors) does not fit beside SHAPES (6) in the 12 sector area: not installed.
+- **MACRO's favorites: one star not set by the user: preset 23**, read with ED_FAV_GET (37). It was bit 7 of favorites.factory[8][2]: the tag the
+  unpublished 0.13.8 layout wrote while the day's test builds ran. The October 24 backup (object 1) has row 8 all zero (no MACRO star). Cleared with ED_FAV_SET
+  (38: engine 8, preset 23, off); read back: no MACRO star. SHAPES, WHEEL and DRUM-X: none.
+- **The effects' memory** (`~/fm1-hw/fxmem.py`, `fxmem2.py`, `fxmem_an.py`; recordings `fxmem*-*.wav`). The Nightly has no test surface and FX FULL is only
+  drawn, so by ear on the unit's USB audio: per row, every track plays once with the sends at 0 (the engines' states first), then the card idle, REVERB ROOM:
+  - delay: a hit on track 1, the tail 0.5 .. 1.6 s with sends 100/100/100 against DLY 0: MACRO x4 -43.0 / -51.5 dB, SHAPES x4 -43.0 / -50.7, DRUM-X MACRO
+    SHAPES MACRO -51.4 / -59.5 (two runs with everything on differ by 0.8 .. 1.5 dB): **holds** in all three;
+  - reverb (delay TIME 63, the window between the dry hit's end and the first echo: 17, 138 and 64 ms): everything on against REV 0: -40.9 / -84.6,
+    -37.4 / -81.5, -45.4 / -86.3 dB (repeats within 1.4 dB): **holds** in all three (the MACRO row's window is short; the gap is 44 dB);
+  - chorus: a held note from MIDI on track 2 (ORGAN DRAWBAR, SUB BASS, ORGAN DRAWBAR), the envelope's wobble (10 ms RMS, detrended, std): everything on
+    0.99 and 0.92 dB against CHO 0 0.50 (MACRO), 0.82 and 0.82 against 0.23 (SHAPES), 0.95 and 0.93 against 0.51 (mixed): **holds** in all three.
+  No bus played dry with four MACRO, four SHAPES (the largest state) or DRUM-X MACRO SHAPES MACRO: the guide's promise holds on the unit with the hot sets.
+- Put back: the tracks (`putback`, steps and levels equal to the snapshot before Flash 27), every track parameter read back equal, REVERB TYPE ROOM, delay
+  TIME 1; track 1's CHRD MAJ and VOIC OPEN set again (the power-on after the flash loaded project slot 1, which has them off, as after Flash 26's morning).
+  Transport stopped, CLK 0, ROUT 0, BUDGET 18. **The unit stays here.**
+
+## October 26 (UTC), later: the AUDIO4c's analog path calibrated (on the Nightly, Flash 27; no flash)
+
+The user unmuted the AUDIO4c's inputs and set its DIN out to receive from every port. Scripts and recordings: `~/fm1-hw/a4c/` (`a4c_cal.py`,
+`a4c_repeat.py`, `synccap.py`, `clicks.py`). `synccap.py` captures both cards on one clock (libasound through ctypes, each read stamped on its return,
+sample 0 at the minimum of stamp - frames / rate); the AUDIO4c needs an explicit snd_pcm_start (a read in the prepared state fails with EIO). The tracks
+were put back from a snapshot after each script (equal).
+
+- **Silence, 5 s, inputs 1 and 2** (arecord, `hw:AUDIO4c,0`, 48 kHz, S32_LE x 8): input 1 -93.8 dBFS RMS (peak -80.3), input 2 **-77.7 dBFS RMS** (peak
+  -63.6): **not digital zero** (1,313 and 7,188 distinct values). Input 2's floor is broadband, 14 dB over input 1's in every band; a 9,984 Hz line on both
+  (-94 / -110 dB). The stream starts with about 0.5 s of digital zeros.
+- **One SHAPES RING BELL note** (C4, velocity 127, 2 s) sent on `AUDIO4c DIN` (TRS MIDI in, ROUT 0, channel 1: track 1), the FM-1's USB audio and inputs
+  1 and 2 captured at once, three notes:
+
+| | USB (FM1) | input 1 | input 2 |
+|---|---|---|---|
+| peak dBFS | -6.3, -7.1, -7.3 | -29.2, -30.6, -28.3 (an arecord take before: -46.3) | -18.2, -18.6, -19.1 |
+| RMS dBFS (the capture) | -31.4 | -56.0, -57.0, -54.2 | -43.2, -43.2, -43.3 |
+| clipping, dropouts | 0, 0 | 0, 0 | 0, 0 |
+| against USB (peak) | | -21.0 to -23.5 dB | **-11.5 to -11.9 dB** |
+| spectrum against USB (RMS dB, 20 to 400 ms after the onset, ~200 bins) | | 4.89 to 6.03 | **1.14 to 1.21** |
+
+  - **Inputs 1 and 2 do not match**: the same signal (correlation 0.992 to 0.993) but input 1 11 to 14 dB under input 2 in these three and 28 dB under in
+    the first take, its spectrum 5 to 6 dB off (bins +13 to +17 dB at 486 and 632 Hz). The FM-1's output is mono, mirrored: input 1's cable or gain (the
+    user's). capture.py uses **input 2 only**.
+  - **No clipping** at the unit's level: input 2 is 11.8 dB under the digital capture, so the unit's digital full scale reaches about -12 dBFS there (at
+    the FM-1's volume as it is set). No gain change needed.
+  - **Latency**: the analog capture is **5.2 ms ahead** of the USB capture (cross-correlation -5.20, -5.20, -5.22 ms; the onsets alone -4.4 to -5.1),
+    **polarity inverted**. From the DIN send: the analog onset 8.9 to 10.0 ms, the USB 14.0 to 14.7 ms.
+  - The spectra are compared over the bell's decay: RING BELL falls about 60 dB a second, so capture.py's held-note window (0.4 s after the onset on)
+    compares the two noise floors (15 dB apart; a first take scored that).
+- **Two earlier results again, both paths at once** (8 s, the chord on every step, 120 BPM):
+
+| Case | worst / late (the unit) | USB holes (capture.py) | analog (input 2) |
+|---|---|---|---|
+| four SHAPES RING BELL tracks | 2,669 us / 65 (before: 2,686 / 164 in 20 s) | **14** holes of 11 to 12 ms, about 0.62 s apart | 0 by capture.py; clicks at every step (the bell's attacks) |
+| MACRO MALLET, one track | 2,850 / 1,530 | **254** holes of 880 to 1,057 samples (20 to 24 ms), about 25 a second, as before (200 in 8 s) | 0 by capture.py; a click in 97 to 142 of the 254 holes |
+
+  - **The counts do not agree, and cannot on this path**: a late render is a hole in the USB stream (the USB service period) but at the DAC one half
+    buffer (128 frames, 2.9 ms) played again, a step the converter's filter smooths. capture.py's dropout tests (identical-sample runs, the second
+    difference) find none on the analog path. A click detector (the energy above 12 kHz in 1 ms frames, 15 dB over its 201 ms median, falling back within
+    3 to 6 ms) marks 97 to 142 of MALLET's 254 holes (by its settings) and 40 to 57 clicks outside them, and on RING BELL it fires on every step (the bell's attack is as sharp
+    as a replay). **The analog path is not the default**: capture.py keeps usb for dropouts and offers audio4c (input 2) for level and spectrum and
+    for when the FM-1's USB port is busy as a host.
+  - Four RING BELL tracks are **not clean on the Nightly**: 65 late renders in 8 s and 14 USB holes (0.13.7's table had 164 late in 20 s at N = 4 as
+    well: never clean at four).
+
+## October 26 (UTC): Flash 28, the measurement build (linux-hw 5c61037 + OC_CANDIDATES=1 OC_SFC_PROBE=1)
+
+Built twice with tools/hw/ci_step.py (worktrees `~/fm1-hw/wt-f2`, and `wt-f1` with OC_OCM_VARIANTS=1 too): the firmware (fwsc SHA-256 a75fd86c...) and the
+pack (a4e45b19...) byte-identical between the two, the SHAPES package 24,564 B (format 2) against 47,980 B (format 1); interface 8831E67C, the Nightly's. The
+local suite passed on 5c61037 first (ci_step.py test, PARALLEL 8, 1,214 s, "CPU live takes" included). 2026-10-26T05:23:47Z: `fm1hw.py flash`: unit on
+`ORANGE CAT v0.6.2-5c6103`; pack this build's, WHEEL (start 0) and SHAPES (start 1) registered as before. Scripts and files: `~/fm1-hw/f2/`.
+
+### Format 2 on the unit (`f2_compare.py`, `flashread.py`, `shapes_table.py`)
+
+- `remove 7` (WHEEL holds sector 0, in SHAPES' way), then SHAPES installed four times with oc_install.mjs, each beside the last (the old start erased after):
+  format 2 to start 0, format 1 to start 1, format 1 to start 0, format 2 to start 1. After each, the start's 6 sectors read back with editor command 109
+  (mode 1: the plaintext window's read, 32 bytes a request, 0.6 s a sector).
+- **Identical**: start 0 format 2 = format 1 (SHA-256 39a44038...), start 1 format 2 = format 1 (7bac82b6...): 0 differing bytes of 24,576 at each. Each read
+  is the build's variant image (`build/module/shapes.0.img`, `.6.img`, 23,944 B) followed by 632 B erased.
+- The four-track table (SHAPES RING BELL, 1 to 4 tracks, 20 s, worst / late / load): the relocated module at start 1: 1,173 / 0 / 36.3, 1,855 / 0 / 59.8,
+  2,400 / 0 / 66.8, 2,706 / 115 / 68.0; the variants package's at start 1 (installed twice to land there): 1,172 / 0 / 36.3, 1,854 / 0 / 59.8, 2,418 / 0 /
+  66.4, 2,710 / 119 / 68.0. **The same.** So format 1's writer was removed (5f5a4bc). The card's install of a relocated module was not run (no card in the unit).
+
+### op1r's synths (ENGINE_CANDIDATES.md, "op1r": the unit rows)
+
+- `remove 14`; fmbell (start 0, 1,620 B) and dddd (start 1, 4,288 B) installed from their format-2 packages; `table --set op1r --label op1r-a`
+  (`op1r-fmbell-dddd.json`); `remove 24`, supersaw (start 0, 1,672 B), `--label op1r-b` (`op1r-supersaw.json`); `measure` per preset (10 s, one track:
+  `op1r-measure-a.txt`, `-b.txt`); fmbell back for its presets and a four-track FM BELL table (`op1r-fmbell-poly.json`). Idle (rests only): 424 us.
+
+| Engine (preset) | 1 track | 2 | 3 | 4 | voices | per voice |
+|---|---|---|---|---|---|---|
+| FMBELL FM BASS (mono) | 539 / 0 | 640 / 0 | 749 / 0 | 840 / 0 | 1, 2, 3, 4 | |
+| FMBELL FM BELL | 846 / 0 | 1,237 / 0 | 1,762 / 0 | 1,994 / 0 | 4, 8, 9, 9 | about 100 us (presets 841 to 843 with four, FM BASS 542 with one) |
+| SUPERSAW SAW PAD | 946 / 0 | 1,441 / 0 | 2,004 / 0 | 2,323 / 0 | 4, 8, 9, 9 | about 125 us (948, 950 with four; 593, 555 with one) |
+| DDDD SCREAM (beside FMBELL) | 1,047 / 0 | 1,348 / 0 | 1,713 / 0 | 2,063 / 0 | 4, 8, 9, 9 | the part: about 620 us over idle on one track, 300 to 365 a further track; every preset 1,012 to 1,065 |
+| DDDD SCREAM (beside SUPERSAW) | 1,038 / 0 | 1,357 / 0 | 1,733 / 0 | 2,080 / 0 | 4, 8, 9, 9 | |
+
+  Worst us / late in 20 s. **None late.** Admission: 2 units a voice of 18, so nine voices from three tracks on (voices given up: 1,680 to 2,384 in 20 s).
+
+### MACRO's per-model units (approved; on this build: `macro_listen.py`, one track, the chord on every step, 8 s, both captures kept)
+
+| Preset | old units (the Nightly): worst / late / USB holes | new units: worst / late / USB holes | voices | steals in 8 s |
+|---|---|---|---|---|
+| FOLD PLUCK (WAVSHP 3 -> 5) | 1,457 / 0 / 0 | 1,265 / 0 / 0 | 4 -> 3 | 309 |
+| ADDITIVE PAD (ADDTV 7 -> 9) | 1,779 / 0 / 0 | 1,815 / 0 / 0 | 2 -> 2 | 464 |
+| MALLET (MODAL 6 -> 9) | 2,847 / 1,535 / 256 | **2,062 / 0 / 0** | 3 -> 2 | 456 |
+| GLASS BELL (MODAL 6 -> 9) | 2,848 / 1,561 / 257 | **2,096 / 0 / 0** | 3 -> 2 | 432 |
+
+  **No stutter at one track** in any of the four (late 0, no hole). **The steal is clean**: every step's chord takes the oldest voices (capacity steals,
+  AUDIO_STATS field 60), and nothing in the USB stream shows it: no clipped run, the largest second difference 0.06 to 0.32 (the dropout threshold 0.70;
+  FOLD PLUCK's 0.32 against its 0.30 on the old units). Not listened to by a person: the recordings are `~/fm1-hw/f2/new-units-*-usb.wav` and `-a4c.wav`.
+
+### Flash 29: back to the Nightly, the end state
+
+- `remove 24`, `remove 26` on the measurement build (an engine the Nightly cannot register), then 2026-10-26T05:51:35Z the Nightly's `melodee-nightly.fwsc`
+  (`~/fm1-hw/nightly-430cd4c`): unit on `ORANGE CAT v0.6.2-430cd4`. The pack reads this build's (the same pack bytes; not rewritten). WHEEL (start 0, state 7,
+  2,920 B) and SHAPES (start 1, state 7, 23,944 B) installed again from the Nightly's .ocm files: the area as before Flash 28.
+- The tracks equal the snapshot before Flash 28 (MACRO 10 / 0 / 1 / 20, steps, levels, track 1 selected). Track 1's CHRD MAJ and VOIC OPEN set again (command 31,
+  ids 81 and 82: the restart loaded project slot 1, which has them off); CLK 0 (it read 1 after the restart), ROUT 0, BUDGET 18; transport stopped.
+  **The unit stays here.** A Nightly with today's linux-hw work (MACRO's units, the EDIT fix, format 2 only) is not published.
+
+### The AUDIO4c again, after the user's new Y cable and gain staging (on the Nightly, after Flash 29)
+
+`~/fm1-hw/a4c/`: `silence2.wav`, `cal2.json` (`a4c_cal.py`), `repeat2.json` (`a4c_repeat.py`, both inputs kept), `gaps.py`, `repeats.py`. Tracks put back (equal);
+track 1's CHRD MAJ / VOIC OPEN and CLK 0 read back unchanged.
+
+- Silence, 5 s: input 1 **-73.7**, input 2 **-73.6 dBFS RMS** (peaks -60.3, -59.9), not digital zero, the two alike.
+- RING BELL, three notes, both paths on one clock: USB peak -4.7 to -5.0 dBFS; inputs 1 and 2 -10.6 to -10.8, **equal** (0.0 to 0.1 dB, correlation 1.000,
+  residual -62.1 to -62.7 dB); **5.7 to 6.0 dB under the USB capture**: digital full scale at about -5.8 dBFS, **no clipping**; spectra against USB
+  **1.03 to 1.11 dB** (each input); **latency: the analog 4.96, 5.58, 5.49 ms ahead** (onsets: 4.75 to 5.46), inverted.
+- The two results again: four RING BELL tracks 2,677 us / **65 late**, USB **14 holes**; MALLET 2,848 / **1,529 late**, USB **254 holes**: as before. Both inputs:
+  0 by capture.py's hole tests. What the DAC does with a late half buffer, now readable: in MALLET's overload the analog falls 25 to 55 dB for about 2 ms
+  every 5 to 6 ms: a half buffer (2.9 ms) played as silence, or as a dip when the render finished part-way. Not a replay of the old half (a 128-frame window
+  equal to the one 256 frames before: 9 in the whole capture at -20 dB, none at -30).
+  - `dac_silences` (capture.py now; runs at the noise floor, under -62 dBFS, 1.5 to 4 ms, sound on both sides): MALLET **371 / 375** (inputs 1 / 2), four
+    RING BELL tracks **0**, the clean notes **0**. `dac_dips` (20 dB under the neighbours 2.5 ms away): MALLET 1,748, RING BELL 623 (its ring-modulated chords
+    dip by themselves), a clean note 1.
+  - **The counts do not agree with the USB's, and are not the same event**: 1,529 late renders are 254 USB holes (the USB service period) and 371 full
+    silences plus partial dips at the DAC. RING BELL's 65 late renders leave no silence at the DAC at all. capture.py keeps **usb as the default** for the
+    dropout counts the earlier results used; audio4c (both inputs again) for level, spectrum and the DAC's own gaps, and while USB is busy as a host.

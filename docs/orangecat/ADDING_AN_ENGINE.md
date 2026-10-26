@@ -1,7 +1,7 @@
 # Orange Cat: adding an engine
 
-**Version:** 0.2
-**Date:** October 25, 2026
+**Version:** 0.4
+**Date:** October 26, 2026
 **Applies to:** firmware 0.13.7 and later (branches linux-hw and sonnet-work), built in or as a loadable module.
 
 The rules a new sound engine must follow to enter this repository. Each rule says why, with the number it comes from. The numbers are
@@ -9,6 +9,7 @@ the unit's, measured in the first session on a real FM-1 (hw/LOG.md; docs/orange
 measured"); where a number is the host's or the build's, it says so. A checklist closes the document.
 
 Revisions:
+- 0.4 (branch linux-hw): a limit of the hot-set rule: what a module pays to reach its set (the Prophet's +3 to +9 %, explained from its disassembly).
 - 0.3 (branch engine-candidates): Stage 0, the feasibility gate (ENGINE_CANDIDATES.md); the firmware's own hot set (SINE, TANH_Q15) for every engine.
 - 0.2: one struct for new RAM state (the 0.13.7 image growth); MACRO's per-model costs (BUILD.md, Thirteenth run).
 - 0.1: first version, after the four-track hunt of BUILD.md's Twelfth run (the SHAPES regression and the hot sets).
@@ -99,8 +100,18 @@ budget admission yet (BUILD.md, Fourth run: admission is voice units and the are
   what the engine's heavy presets read, and measure. Cost today: SHAPES 2,580 B, MACRO 15,316 B (0.13.8: 12 tables; FM 22 to 29 % faster, WAVSHP 20 to
   24 %, ADDTV 11 %; at most 16 tables a set now), the Prophet 0 (its sample loop reads three small tables, but as a module a hot set made it 3 to 9 % slower:
   a module reaches its copies through the firmware's pointers, a chain of loads; declare a module's set only if the measured numbers move), DRUM-X none. Tables read once a block stay in flash.
-  what the engine's heavy presets read, and measure. Cost today: SHAPES 2,580 B, the Prophet 0 (its sample loop reads no table), MACRO and
-  DRUM-X none declared. Tables read once a block stay in flash.
+- **A limit of the rule: what a module pays to reach its set (0.14.1, the Prophet).** The rule predicts a gain where per-sample table reads miss the
+  D-cache; it does not count the price of the address. A built-in engine reads a hot table through its own `hot_at` array (one load, or an
+  immediate address the compiler keeps in a register). A module has no RAM of its own, so it reaches a copy through the firmware's table:
+  `OC_FW()->hot[e][i]`, three dependent loads (fw_api_t's `hot` word at 0x02001168, in the image's flash; the engine's pointer array; the table's
+  pointer) before the table itself. In the Prophet module (linux-hw 5273d8e, P5_TANH, P5_EXP2, P5_TPT_G) that chain sits at 10 sites of
+  `p5_samples`, the soft clip inlined at seven of them, and **the compiler does not hoist it out of the sample loop**: the loop stores to the voice's
+  float buffers, which might alias the pointers, so every sample reloads them. Without the set the same reads take each table's address as an
+  immediate (MOV_ABS32, no load). Measured: the loop's static cost (tests/target_budget.py on the two modules' disassembly) 1,074 -> 1,126
+  (+52 loop instructions, +4.8 %); on the unit +3 to +9 % worst render at one and two tracks (hw/LOG.md, Flash 21). The tables themselves gained
+  nothing: three small tables read with locality were hitting the cache in flash already. So: **a module declares a hot set only where its
+  per-sample tables miss in flash (a large table, or tables that collide modulo 4 KiB), and reads a hot table's address once a block into a local**
+  (the chain then costs once a block, not once a sample) when it does. Not built for the Prophet: it gains nothing from the set either way.
 - **The firmware's own hot set (0.14.0).** dsp.c's helpers read SINE (sine_i, osc_sine) and TANH_Q15 (softclip, soft_knee) every sample, for whichever
   engine calls them. SINE is copied into the arena at boot (2,052 B, `RES_HOT_BASE`); TANH_Q15 is SRAM already. A module reads both through `fw_api_t
   base_hot` and carries neither: an engine never declares them in its own set. (The gate found that the Prophet *module* reads P5_TANH, P5_EXP2 and
