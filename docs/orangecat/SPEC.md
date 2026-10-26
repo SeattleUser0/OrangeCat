@@ -558,6 +558,36 @@ ECHO, ROOM, REVERB and CHORUS (three inserts and three shared slots) are removed
   FX FULL; nothing is shortened or simplified.
 - Control: device pages, MIDI CC 91/93/94/104, motion for DIST, TONE, AUTO PAN depth and the sends, the web editor.
 
+#### 9.3.2 DUB TAPE performance view
+
+DUB TAPE is played, not set. When a track's DUB TAPE is selected, the main view is a performance surface. The FM-1's keyboard keys become the performance buttons, and every knob and key is recorded as automation and played back from the pattern.
+
+The four knobs:
+1. FEEDBACK. Range 0 to about 1.3. Below 1.0 decays, above 1.0 builds. The main performance knob.
+2. SEND. The resting send level, how much of the track goes into the delay when no throw key is held. At zero the effect is silent but the loop keeps circulating, so bringing it back catches what's still in there.
+3. TONE. One sweep of the loop filter, low-pass down to high-pass, with the spring tone tracking it.
+4. SPACE. Delay time on the first half of the travel, spring mix on the second half. Past center brings the spring in.
+
+The keys. One octave of the keyboard while the view is open. Throws are the most-used move, so they get the white keys.
+
+White keys, low to high: throw at 10, 30, 50, 70, 85 and 100 percent. The seventh white key is CUT. Pressing a throw key jumps SEND to that level and holds it while the key is down. Pressing another throw key while one is held moves to the new level, so 100 then 70 then 10 is three keys walked down the octave. Releasing the last key returns SEND to the knob. Each jump ramps over a few ms, no click. The levels are presets and editable in EDIT.
+
+Black keys, low to high: KICK, HOLD, CRASH, and two spare for later.
+- CUT (white). Loop input to zero while held, short ramp both ways. The fader grab.
+- KICK. Strikes the spring.
+- HOLD. Freezes FEEDBACK at 1.0 while held so the loop repeats without building or decaying.
+- CRASH. KICK with a 100 percent throw at the same time, the one-drop explosion in one press.
+
+All keys are momentary and all are also MIDI-triggered, so a foot switch or the SMK-37 pads work the same way. Other octaves keep playing the track normally so you can play a part and dub it with one hand each.
+
+EDIT holds the rest: route, head pattern, tape mode, spring placement and decay, drive, limiter ceiling, cut ramp time, throw level presets, which octave carries the keys.
+
+Automation. Every knob and every key records into the track's automation lanes and plays back with the pattern. Keys record as gate lanes, throw keys as the send level they set. A recorded build, throw and cut is a part of the song and repeats every time the pattern plays.
+
+Picture. An animated line-art tape loop with the spring tank beside it, color-coded to the knobs. Below it, a drawing of the octave with the white keys labeled 10, 30, 50, 70, 85, 100 and CUT, and the black keys labeled KICK, HOLD and CRASH, so the mapping is on screen while you play. The loop spins faster as FEEDBACK goes above 1.0, the tank shakes on KICK, and the pressed key lights up.
+
+On the SMK-37, SEND and FEEDBACK map to the track's faders, the throw levels to fader positions, and the action keys to pads. The DSP and the automation format are the same on both devices.
+
 ## 10. Sampling and Instrument Bouncing
 
 ### 10.1 Sample management

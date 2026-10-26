@@ -2985,3 +2985,8 @@ allpass); the other 49 WAVs, s1, s3, s6, s8 and every earlier row regenerate byt
 slap_s3-lite22k-spring-alone.wav, throw_s4-lite22k-spring-loop.wav, oscillate_s5-lite22k-spring-loop.wav,
 slap_s6-lite22k-spring-crash-wet.wav, slap_s7-lite22k-spring-crash-loop.wav, skank_s8-tape22k-spring-wet.wav,
 skank_s9-lite22k-build-limit-cut.wav, skank_s10-lite22k-build-limit-cut-wet.wav, skank_s11-lite22k-build-spring-loop-limit-cut.wav.
+
+### DUB TAPE: left to build
+
+Left to build:
+- DUB TAPE performance view (Spec.md section of that name): FM-1 key mapping, throw levels, automation lanes, picture. Blocked on the two-core scheduling audit and the DUB TAPE stability fix. Firmware integration, not host work.

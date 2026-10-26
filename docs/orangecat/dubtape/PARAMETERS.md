@@ -98,3 +98,15 @@ loop the tank uses the first 4,096 bytes as 1,024 floats: 37 ms at the 22.05 kHz
 | cut_wet | 0, 1 | 1: the cut takes the wet as well (falls 90 to 10 % in 2.0 ms; no click: above 6 kHz +1.1 dB at the cut) |
 | lim_ceil | linear, 0 off | the wet's limiter after the loop and the spring's wet, at the line's rate: instant attack, 150 ms release; the wet never passes it, so a build over FEEDBACK 1 climbs to it and holds. The loop keeps its own saturator |
 
+## Open parameters (coming with the performance view, SPEC.md 9.3.2; not in the kernel yet)
+
+The DUB TAPE performance view (SPEC.md "DUB TAPE performance view") needs these. Their ranges and defaults are open; the DSP side should expect them.
+
+| Parameter | What it is | Where it lands |
+|---|---|---|
+| throw level presets | the six white-key throw levels, default 10, 30, 50, 70, 85, 100 % of SEND; editable in EDIT | SEND, held while a key is down, ramped over a few ms (no click) |
+| cut ramp time | the CUT key's ramp both ways (now fixed at 3 ms in `cut`); editable in EDIT | the cut's ramp |
+| hold | HOLD key: FEEDBACK frozen at 1.0 while held, the loop repeating without building or decaying | FEEDBACK |
+| crash | CRASH key: KICK (the spring struck) with a 100 % throw at the same time (KICK alone is today's `crash` count) | the spring's kick and SEND together |
+| key octave | which octave of the FM-1's keyboard carries the performance keys while the view is open | the UI and MIDI mapping, not the DSP |
+
