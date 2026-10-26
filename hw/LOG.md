@@ -758,3 +758,37 @@ track 1's CHRD MAJ / VOIC OPEN and CLK 0 read back unchanged.
   - **The counts do not agree with the USB's, and are not the same event**: 1,529 late renders are 254 USB holes (the USB service period) and 371 full
     silences plus partial dips at the DAC. RING BELL's 65 late renders leave no silence at the DAC at all. capture.py keeps **usb as the default** for the
     dropout counts the earlier results used; audio4c (both inputs again) for level, spectrum and the DAC's own gaps, and while USB is busy as a host.
+
+## October 26 (UTC): the publish, Flash 30, the acceptance on the Nightly
+
+- linux-hw 9c91266 + workflow rev 22 (227da22: the Nightly and the site leave op1r's .ocm out) merged into sonnet-work: **3ca2b56** (no force; the local suite
+  passed on a9abaca first). **Run 40281512555** (publish_nightly=true): build, tests-gate, pages all green. The live
+  https://seattleuser0.github.io/OrangeCat/firmware/nightly.json, read with curl: version `v0.6.2-3ca2b5`, commit 3ca2b565..., builtAt 2026-10-26T07:01:26Z,
+  branchName sonnet-work; ocm prophet, shapes, wheel (no op1r). Files in `~/fm1-hw/nightly-3ca2b56/` (fwsc 88b2caee..., pak a4e45b19..., SHAPES 4c85f12e...: the
+  format-2 package, byte-identical to Flash 28's).
+- **The backup before the update**: `oc_install.mjs backup` (the page's captureBackup), `Orange Cat-backup-2026-10-26.json` beside the October 24 one (29 objects,
+  63,844 B, read back). **Found: project slot 1 (object 2) is empty** (October 24 and Part 6: 27,904 B, D954DF93); object 5 (slot 4, the Part 5 test project)
+  and the library bank 28 (slot 383 "HW TEST") as expected. Not restored (no restore without the user); the October 24 backup holds the project byte for byte.
+  The window: after Part 6, two OC_CANDIDATES measurement builds ran (Flash 23 and Flash 28; Flash 28's first power-on showed every track as engine 22 preset 2,
+  not slot 1's music). Not explained yet; no OC_CANDIDATES build goes on the unit until it is.
+- **Flash 30**, 2026-10-26T07:03:02Z: the site's `melodee-nightly.fwsc`: unit on `ORANGE CAT v0.6.2-3ca2b5`. The pack, WHEEL (start 0) and SHAPES (start 1)
+  installed again from the published files (state 1, 7, 7).
+
+The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC silences, 20 s; the captures running):
+
+| Case | 1 track | 2 | 3 | 4 |
+|---|---|---|---|---|
+| SHAPES RING BELL | 1,193 / 0 / 0 / 0 | 1,885 / 0 / 0 / 0 | 2,436 / 0 / 0 / 0 | **2,753 / 165 / 33 / 0** |
+| MACRO MALLET (MODAL 9 units) | 2,080 / 0 / 0 / 0 (722 steals) | 3,392 / 3,603 / 497 / 0 | 4,477 / 3,592 / 479 / 489 | 5,488 / 3,375 / 481 / 0 |
+
+- **RING BELL x4 fails the line (2,710 us)** by 43 us: 2,724 and 2,739 without the captures, 2,750 and 2,754 with them; 8 s runs 2,747 to 2,764 against the
+  previous Nightly's (430cd4c) 2,669 to 2,677 on the same 8 s: **+80 us (+3 %) with a byte-identical SHAPES module**. The late rate (68 in 8 s against 65) and
+  the USB holes (14 in 8 s) are as before, **no DAC silence**. Nothing between the two firmwares touches SHAPES' render; the image grew (the card
+  installer +1,388 B and more, linked before the DSP), so a layout or cache-aliasing shift is the suspect, not measured.
+- **Four MALLET tracks fail**: from two tracks the unit is overloaded. Each part keeps one voice whatever the budget (voice.c: a part protects its newest), so
+  four MODAL voices at about 950 us each are past the half buffer before anything else; no unit count can prevent it. One track is clean (2 voices, the
+  steals clean). Under an overload this deep every half buffer is late and the converter plays continuous sound, so **DAC silences can read 0 (x2, x4)
+  while the sound is broken**: read it with late and USB holes.
+- **For the user to listen to** (AUDIO4c inputs 1 and 2, 48 kHz, the four-note chord held 3 s, CHRD off for the take): `~/fm1-hw/listen/FOLD_PLUCK-chord-nightly-3ca2b5.wav`
+  (peak -10.4 dBFS) and `~/fm1-hw/listen/ADDITIVE_PAD-chord-nightly-3ca2b5.wav` (-10.1 dBFS); no clipping, no DAC silence. Track 1's CHRD MAJ / VOIC OPEN set
+  again afterwards (the restart had cleared them), CLK 0.

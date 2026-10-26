@@ -2757,6 +2757,15 @@ print, beside worst and late:
 | **USB holes** | capture.py `dropouts` on the FM-1's USB audio | **Is the USB recording intact?** A late render costs the USB stream its service period: a 20 to 24 ms gap of zeros in what a computer records from the FM-1 (and what the earlier tables' audio results counted) |
 | **DAC silences** | capture.py `dac_silences` on the AUDIO4c's analog capture | **Does a listener hear it?** A late half buffer plays at the converter as up to 2.9 ms of silence; this counts the ones that reach the noise floor (a render that finished part-way is a dip, `dac_dips`, not counted here) |
 
-They do not count the same event and need not agree: MALLET's overload was 1,529 late renders, 254 USB holes and 371 DAC silences; four RING BELL tracks
+**Under a sustained overload DAC silences undercount**: when every half buffer is late the converter plays continuous broken sound, not silences
+(four MALLET tracks: 3,375 late renders, 481 USB holes, 0 DAC silences); read it together with late and USB holes. They do not count the same event and need not agree: MALLET's overload was 1,529 late renders, 254 USB holes and 371 DAC silences; four RING BELL tracks
 65 late renders, 14 USB holes and no DAC silence (late by a little: heard as nothing). The capture costs the unit some USB work: four RING BELL tracks
 measured 2,669 to 2,677 us with both captures running against 2,706 to 2,710 without.
+
+**The publish (October 26)**: sonnet-work **3ca2b56** (linux-hw 227da22, workflow rev 22: op1r's .ocm left off the Nightly), **run 40281512555** all green,
+the Nightly **`sonnet-work · 3ca2b56 · v0.6.2-3ca2b5 · 2026-10-26T07:01:26Z`** (the live nightly.json read directly). Flash 30 put it on the unit with its pack,
+WHEEL and SHAPES from the published files, after a full backup through the page's code (`Orange Cat-backup-2026-10-26.json`). **Acceptance** (hw/LOG.md):
+four SHAPES RING BELL tracks 2,753 us, 165 late, 33 USB holes, **0 DAC silences**: over the 2,710 us line by 43 us (+3 % against the previous Nightly with a
+byte-identical module; a layout shift suspected, not measured); four MALLET tracks overload (four MODAL voices, one a part, at about 950 us each: past the
+budget whatever the units; one track is clean); FOLD PLUCK and ADDITIVE PAD chords recorded for the user (`~/fm1-hw/listen/`). **Found**: project slot 1
+empty in the backup (it was in the October 24 backup and Part 6's check); not restored, not yet explained.
