@@ -173,6 +173,9 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 #ifdef FM1_INPUT_LAT
             kb_out_tick = t0 + (HALF_FRAMES + b) * DAC_TICKS;   /* when this block plays (seq.c kb_lat) */
 #endif
+#if OC_DUB_BENCH
+            db_b = (uint8_t)(b / CTL);                  /* (dub-tape bench: which block of the half) */
+#endif
             audio_block(o + 2u * b, CTL);
         }
         midi_render_timed = 0;
