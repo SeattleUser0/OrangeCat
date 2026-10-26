@@ -528,7 +528,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "brassophone": {"src": "tools/module/brassophone_mod.c", "sectors": 4, "starts": [0, 6], "name": "BRASS", "inc": ["tools/module/op1r"]},
            "aether": {"src": "tools/module/aether_mod.c", "sectors": 4, "starts": [0, 6], "name": "AETHER", "inc": ["tools/module/op1r"]},
            # (op1r-candidates 0.3) Orange Cat's retired engines back as modules, in their own slots (an OC_CANDIDATES build's): the CZ-1 (15)
-           "cz": {"src": "tools/module/cz_mod.c", "sectors": 4, "starts": [0, 6], "name": "CZ-1"}}
+           "cz": {"src": "tools/module/cz_mod.c", "sectors": 4, "starts": [0, 6], "name": "CZ-1"},
+           "sid": {"src": "tools/module/sid_mod.c", "sectors": 4, "starts": [0, 6], "name": "SID"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100

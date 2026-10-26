@@ -834,6 +834,10 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
             m.envq15 = e->ownenv ? 0 : env;
             if (MELODEE_SID && e == &ENG_SID)           /* (Orange Cat: MELODEE_SID) the chip's envelope counter (ENV3): ENV DEST, the matrix */
                 m.envq15 = sid_env_q15(t, v);
+#if OC_CANDIDATES                                 /* (the built-in ENG_SID has no descriptor) */
+            else if (t->engine == 3u && e->pages && e->pages->env_source)   /* (op1r-candidates 0.3) SID as a module (tools/module/sid_mod.c): its ENV3 here too */
+                m.envq15 = e->pages->env_source(t, v);
+#endif
             m.amp1 = e->ownenv ? env : mulq15(env, v->vel * 258);
             if (p[P_LD_AMP])
                 m.amp1 = mulq15(m.amp1, 32767 - mulq15(p[P_LPOL] ? lfo : (lfo + 32768) >> 1, p[P_LD_AMP] * 258));

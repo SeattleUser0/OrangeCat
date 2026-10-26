@@ -23,9 +23,10 @@
  *     at a key or tone change or once a block; FM6_SIN (1,025 floats), read every sample by the oscillator, is RAM in the firmware (dsp_tables_init
  *     fills it at boot): the module carries it as constants (tools/module/cz/cz_fm6_sin.h, gen_cz_fm6_sin.py, checked against the firmware's by
  *     tests/module_host_cz_test.c) and declares it its hot set (4,100 B of arena);
- *   - the tuning: cz_native_inc reads tuning_a4 (Hz) and the firmware's is not reachable; the table gives tuning_log() (A4_LOG[tuning_a4 - A4_MIN]),
- *     so the module finds tuning_a4 as the index of that value in A4_LOG (81 entries, one a Hz);
- *   - voice_was through the table (as the Prophet module); memcpy, memset, memcmp, the arena the table's.
+ *   - the tuning: cz_native_inc reads tuning_a4 (Hz), the firmware's, not reachable: tools/module/fw_tuning.h finds it from tuning_log();
+ *   - voice_was through the table (as the Prophet module); memcpy, memset, memcmp, the arena the table's;
+ *   - the matrix's ENV: voice.c reads the built-in CZ-1's DCA1 (phase_env_source) for &ENG_CZ; the module brings it as a descriptor's env_source
+ *     (CZ_M_PAGES: one hidden row, the hook voice.c reads at the same point for any module).
  * Not in the module (the gate's "controls that survive" row): its pages. The CZ-1's pages are 39 rows over 137 parameters (cz_edit.h, params.c
  * SC_CZ1); a module's page descriptor (fw_pages.h) holds 24 rows and 128 parameters, so they do not fit it without a change of that format; and an
  * edit would last only while the track stays on the CZ-1 (the part's state is the arena's). Without pages: the 64 tones and INIT, BANK and PTCH on
@@ -75,17 +76,8 @@ static void str_cpy(char *d, const char *s, unsigned max)   /* libc.c's (the pre
     while (s[i] && i + 1u < max) { d[i] = s[i]; i++; }
     d[i] = 0;
 }
-/* tuning_a4 (Hz, A4_MIN .. A4_MIN + 80): the index of the firmware's tuning_log() in A4_LOG */
-static int16_t cz_mod_a4(void)
-{
-    int32_t l = OC_FW()->tuning_log();
-    uint32_t i;
-    for (i = 0; i < NELEM(A4_LOG); i++)
-        if (A4_LOG[i] == l)
-            return (int16_t)(A4_MIN + i);
-    return A4_DEFAULT;
-}
-#define tuning_a4 (cz_mod_a4())
+#include "fw_tuning.h"
+#define tuning_a4 (oc_mod_a4())
 #include "cz/cz_fm6_sin.h"
 static const eng_hot_t CZ_HOT[1] = { { CZ_FM6_SIN, sizeof CZ_FM6_SIN } };
 #define FM6_SIN ((const float *)ENG_HOT(0, ENGI_CZ, 0))
@@ -126,7 +118,17 @@ static void cz_mod_block(track_t *t)
     }
     cz_native_block(t);
 }
-static const engine_t ENG_CZ_MOD = {       /* eng_cz.c's ENG_CZ, with the module's block and hot set */
+#include "fw_pages.h"
+/* a descriptor for one hook, env_source (voice.c: the matrix's ENV source), as the built-in engine has it: the loader needs a row and a
+ * panel entry (fw_pages_check); engine CZ-1 is not one of params.c's MODPAGE_ENG, so they are never shown */
+static const page_t CZ_M_ROWS[1] = { {"CZ-1", FAM_EDIT, SC_MOD, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}} };
+static const param_desc_t CZ_M_PANEL[1] = { {"-", F_INT, 0, 0, 0, 0, 0} };
+static int32_t cz_m_env_source(track_t *t, const voice_t *v) { return phase_env_source(t, (voice_t *)v); }
+static const fw_pages_t CZ_M_PAGES = {
+    .magic = FW_PAGES_MAGIC, .size = sizeof(fw_pages_t), .version = FW_PAGES_VERSION, .npages = 1, .npanel = 1, .rows = CZ_M_ROWS, .panel = CZ_M_PANEL,
+    .knob = {0xFF, 0xFF, 0xFF, 0xFF}, .env_source = cz_m_env_source, .cc = {0xFF, 0xFF, 0xFF, 0xFF},
+};
+static const engine_t ENG_CZ_MOD = {       /* eng_cz.c's ENG_CZ, with the module's block, hot set and the descriptor of its matrix ENV */
     .name = "CZ-1", .page_title = {"CZ-1", "TONE"},
     .edit = {
         {"BANK", F_INT, 0, 7, 0, 0, 0}, {"PTCH", F_INT, 0, 16, 0, 0, 0},
@@ -139,6 +141,7 @@ static const engine_t ENG_CZ_MOD = {       /* eng_cz.c's ENG_CZ, with the module
     .note_on = cz_native_note_on, .render = cz_native_render, .block = cz_mod_block,
     .knob = {P_E0, P_E1, P_E7, P_E7},
     .hot = CZ_HOT, .nhot = 1,
+    .pages = &CZ_M_PAGES,
 };
 
 #ifdef OC_MODULE_HOST

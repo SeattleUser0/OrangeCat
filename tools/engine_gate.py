@@ -151,6 +151,14 @@ GATE = {
                          "DCW depth (m->cutoff + m->shape), AMP; E1 E2 pick the tone",
            "backend": "FM6_SIN (FM6's float sine, here its hot set): FM6 and the CZ-1 read one table; a module FM6 would share it",
            "source": "Orange Cat's CZ-1 (firmware/src/eng_cz.c, cz_native.c, eng_phase.c: Kerem Kilic (Ellic Studio), GPL-3.0-only; cz_native.c's uPD933 laws BSD-3-Clause, Devin Acker), Casio's 64 tones"},
+    "sid": {"engine": 3, "funcs": ["sid_render_into", "sid_render"], "voice_type": "sid_voice_t",
+            "controls": "all eight (MODEL WAVE STACK PW CUT RES MODE DRIVE) on EDIT 1 and 2, as built in; fixed: none; lost: the C64 POLY chord's arpeggio "
+                        "ignores a microtonal scale (voice.c's micro_pitch is not reachable: 12-TET there)",
+            "modulation": "the chip's own envelope generator (ownenv) and its ENV3 as voice.c's ENV for ENV DEST and the matrix (a descriptor's "
+                          "env_source, read for engine 3 at the built-in's point); velocity; the matrix: PITCH, CUT (m->cutoff into FC), SHP (pulse "
+                          "width, or the SYNC / RING interval), AMP; E1..E8 per block",
+            "backend": "dsp.c's TPT SVF coefficients (tsvf_coef_gk) and soft_knee (TANH_Q15, the base hot set); its DACs and combined waveforms are its own",
+            "source": "Orange Cat's SID (firmware/src/eng_sid.c: Kerem Kilic (Ellic Studio), GPL-3.0-only), the reSID model (Dag Lem, GPL-2.0-or-later) as tables"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

@@ -324,6 +324,8 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #endif
 #if MELODEE_SID
     3,                            /* SID */
+#elif OC_CANDIDATES
+    3,                            /* (op1r-candidates 0.3) SID as a module (core.h OC_RETIRED_MODS): offered only while registered */
 #endif
 #endif
 #if MELODEE_SLICE
@@ -365,7 +367,7 @@ static int eng_extra_retired(uint32_t e)
     if (e == ENGI_ANALOG) return 1;
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || (e == ENGI_WHEEL && !eng_mod[ENGI_WHEEL]) || (e == 9u && !MELODEE_DRUMX) || e == 11u))
-        || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ && !(OC_CANDIDATES && eng_mod[ENGI_CZ])) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM)              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
+        || (!MELODEE_SID && e == 3u && !(OC_CANDIDATES && eng_mod[3])) || (!MELODEE_CZ && e == ENGI_CZ && !(OC_CANDIDATES && eng_mod[ENGI_CZ])) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM)              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
         || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e)) && !eng_mod[e])));   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
@@ -484,7 +486,7 @@ static void eng_hot_boot(void)
     }
     oc_pack_changed = eng_hot_refresh;
 }
-static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || (!MELODEE_CZ && e == ENGI_CZ))); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's; (0.3) the CZ-1 */
+static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_SID && e == 3u))); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's; (0.3) the CZ-1, SID */
 static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
 {
 #if MELODEE_SHAPES
