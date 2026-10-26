@@ -165,6 +165,10 @@ static inline void op1g_params(op1g_part_t *P, const track_t *t)
     P->params[4] = 0;
     for (k = 0; k < 3u; k++)
         P->params[5 + k] = (int16_t)(clamp(t->p[P_E4 + k], 0, 127) * 258);
+#ifdef OP1G_PARAMS_HOOK                      /* (0.3) the module unit's: more of the part's state from the track, at each note-on and each block (aether's
+                                             * accelerometer stand-in) */
+    OP1G_PARAMS_HOOK(P, t);
+#endif
 }
 static inline __attribute__((always_inline)) void op1g_note_on(track_t *t, voice_t *v, const op1_engine_t *E)
 {

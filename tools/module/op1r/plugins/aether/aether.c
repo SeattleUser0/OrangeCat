@@ -1,3 +1,6 @@
+/* (Orange Cat, this copy) op1r bf808cfa's file up to its screen code (left out). Changed, each marked Orange Cat: the accelerometer is the part's
+ * stand-in (tools/module/aether_mod.c: the TILT control; the FM-1 has no accelerometer), the voices' state and the last voice are the part's, and
+ * its three sine reads are OP1_SINE (tools/module/op1r/op1_glue.h). */
 /* "aether" - a tilt theremin (docs/36). The key sets the note; tilting the OP-1 plays it like the theremin's
  * antennas: forward / back bends the pitch, raising the right side fades the volume out, shaking adds vibrato.
  * The angle at note-on is "home" (play at any angle). Mono / legato / portamento: the stock play modes.
@@ -16,7 +19,7 @@
 #include "op1_plugin.h"
 
 #ifndef OP1_HOST
-#define AE_ACCEL ((const volatile int16_t *)0xFF801054)
+#define AE_ACCEL ((const volatile int16_t *)OP1G_OWN(self)->accel)   /* (Orange Cat) the OP-1's at 0xFF801054; here the part's stand-in */
 #else
 extern int16_t host_accel[3];
 #define AE_ACCEL host_accel
@@ -31,8 +34,7 @@ typedef struct {
     int32_t envl;                     /* stock envelope (T2) at the block's end, Q15 (screen) */
     int16_t hx, hy;                   /* home (raw) */
 } ae_t;
-static ae_t st[OP1_VOICES];
-static volatile int ae_cur;           /* voice of the last note-on (screen) */
+/* static ae_t st[OP1_VOICES]; static volatile int ae_cur; (Orange Cat: the part's, tools/module/aether_mod.c aether_part_t) */
 
 #define A_SM    3016                  /* 1 - exp(-128 / 44100 / 0.03)  Q15 */
 #define A_SLOW  629                   /* 1 - exp(-128 / 44100 / 0.15)  Q15 */
@@ -44,7 +46,7 @@ static volatile int ae_cur;           /* voice of the last note-on (screen) */
 static inline int32_t page_word(const int16_t *p, int i) { return p[i] > 0 ? p[i] : 8192; }
 static inline int32_t sin_deg_q10(int32_t deg_q10)  /* sin of an angle in degrees (Q10) -> raw units (1 g = 16384) */
 {
-    return OP1_SINE_TABLE[(deg_q10 * 8192 / 360 >> 10) & 8191] >> 1;
+    return OP1_SINE((deg_q10 * 8192 / 360 >> 10) & 8191) >> 1;   /* (Orange Cat) OP1_SINE */
 }
 static inline int32_t iabs(int32_t a) { return a < 0 ? -a : a; }
 
@@ -101,7 +103,7 @@ static void ae_render(void *self, int16_t *out, const int16_t *params)
     int32_t rate_mhz = 3000 + page_word(params, 7) * 5000 / 32767;
     s->vph += (uint32_t)rate_mhz * 12466u;                     /* 2^32 * Hz * 128 / 44100 / 1000 */
     int32_t depth = (int32_t)((int64_t)params[2] * s->env >> 15);              /* Q15 of 0.5 semitone */
-    semis += (int32_t)((int64_t)depth * OP1_SINE_TABLE[s->vph >> 19] >> 15);  /* +-32768 Q16 = 0.5 semitone */
+    semis += (int32_t)((int64_t)depth * OP1_SINE(s->vph >> 19) >> 15);  /* +-32768 Q16 = 0.5 semitone (Orange Cat: OP1_SINE) */
     s->semis = semis;
     int32_t m1 = exp2_q14(semis / 12);                         /* constant divisor: compiled as a multiply */
     if (m1 > 65535) m1 = 65535;
@@ -111,7 +113,7 @@ static void ae_render(void *self, int16_t *out, const int16_t *params)
 
     /* ---- per sample ---- */
     const int32_t *inc = OP1_PITCH_INC;
-    const int16_t *sine = OP1_SINE_TABLE;
+    /* const int16_t *sine = OP1_SINE_TABLE; (Orange Cat: read through OP1_SINE below) */
     int32_t tim = params[1];
     int32_t even = tim >> 2, drive = 8192 + (tim * 3 >> 2);    /* even harmonics up to 0.25, drive 1x .. 4x (Q13) */
     int32_t vg = op1_voice_vel_gain(self);
@@ -121,7 +123,7 @@ static void ae_render(void *self, int16_t *out, const int16_t *params)
         uint32_t mm = (uint32_t)(m0 + ((m1 - m0) * n >> 7));
         uint32_t i = (uint32_t)inc[n];
         ph += ((i >> 16) * mm << 2) + ((i & 0xFFFF) * mm >> 14);   /* i * mm / 16384, no 64-bit */
-        int32_t x = sine[ph >> 19];
+        int32_t x = OP1_SINE(ph >> 19);                             /* (Orange Cat) sine[ph >> 19] */
         x += (even * ((x * x) >> 15) >> 15) - (even >> 1);        /* x^2 = 2nd harmonic (minus its DC) */
         x = x * drive >> 13;                                       /* |x| < 41000, drive < 32768: 32-bit */
         if (x > 32767) x = 32767; else if (x < -32767) x = -32767;

@@ -525,7 +525,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]},
            "mixtur": {"src": "tools/module/mixtur_mod.c", "sectors": 4, "starts": [0, 6], "name": "MIXTUR", "inc": ["tools/module/op1r"]},
            "arc": {"src": "tools/module/arc_mod.c", "sectors": 4, "starts": [0, 6], "name": "ARC", "inc": ["tools/module/op1r"]},
-           "brassophone": {"src": "tools/module/brassophone_mod.c", "sectors": 4, "starts": [0, 6], "name": "BRASS", "inc": ["tools/module/op1r"]}}
+           "brassophone": {"src": "tools/module/brassophone_mod.c", "sectors": 4, "starts": [0, 6], "name": "BRASS", "inc": ["tools/module/op1r"]},
+           "aether": {"src": "tools/module/aether_mod.c", "sectors": 4, "starts": [0, 6], "name": "AETHER", "inc": ["tools/module/op1r"]}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100

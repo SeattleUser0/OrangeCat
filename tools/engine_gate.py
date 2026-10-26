@@ -132,6 +132,15 @@ GATE = {
                     "backend": "the sine (OP1_SINE: SINE through the base hot set); its warp table is its own (a phase-distortion table: CZ-1's "
                                "phase distortion is the same family, computed rather than tabled)",
                     "source": "op1r (nick (nvmsocool)) synth_sdk/plugins/brassophone/brass.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "aether": {"engine": 27, "funcs": ["op1g_eng_render", "ae_render"], "voice_type": None,
+               "controls": "op1r's four knobs on EDIT 1 (RNG TIMB VIB VOL) and the second page's DEAD FULL RATE on EDIT 2; the OP-1's accelerometer is a "
+                           "stand-in: TILT (P_E7, -64..63) is its forward tilt (Y), X and Z fixed level; lost: the volume tilt (VOL has no X axis to act on) "
+                           "and playing by moving the instrument",
+               "modulation": "pitch (m->inc) and aether's own tilt bend; the matrix's E8 on TILT is the tilt (an LFO or the mod wheel bends the note, "
+                             "per block, and moving it fast is a shake: the vibrato); velocity through op1_voice_vel_gain; ENV only through the "
+                             "glue's amplitude; no CUT or SHP",
+               "backend": "the sine (OP1_SINE: SINE through the base hot set)",
+               "source": "op1r (pcppcp) synth_sdk/plugins/aether/aether.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")
