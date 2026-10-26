@@ -240,3 +240,43 @@ Input: 220 Hz sine -12 dBFS. *WET 0 exact* = max |out - in| with WET 0, DRY 1 (b
 | TAPE 44k | 0.0e+00 | -75.8 | -97.3 |
 | TAPE 22k | 0.0e+00 | -73.5 | -97.0 |
 | TAPE 11k | 0.0e+00 | -79.5 | -99.5 |
+
+## 9. The spring (revision 0.4)
+
+A small Fisher K-10 model (dubdelay.c, "the spring"): a tube stage, a 37 ms tank with 12 first-order allpasses and a low-pass in its loop, two density allpasses, an output low-pass; mono, at the line's rate. The tank alone (`dd_spring_block`, the 22.05 kHz line): an impulse of 0.5, drive 0 (linear), tone 0.3.
+
+| T60 set | T60 measured | energy above 3 kHz | first-trip arrival 250 Hz / 1 kHz / 4 kHz (ms) |
+|---|---|---|---|
+| 1.0 s | 1.01 s | -16.3 dB | 54.6 / 44.6 / 50.0 |
+| 2.0 s | 1.89 s | -17.3 dB | 54.6 / 44.6 / 50.0 |
+| 3.0 s | 2.81 s | -17.6 dB | 54.6 / 44.6 / 50.0 |
+
+The dispersion chain's group delay a trip round the tank (12 allpasses, a 0.62 at 22.05 kHz): 100 Hz 2.31 ms, 1000 Hz 1.72 ms, 5000 Hz 0.28 ms. The low end arrives later on every trip: the chirp.
+
+The kick (crash, drive 0.7, decay 2 s, the tank alone): peak -6.0 dBFS, T60 1.72 s.
+
+In the delay's loop (LITE 22k, one head 150 ms, ROUTE RECORD, HP 30, LP 110, RES 0.2, DRIVE 0.3; the tank decay 3 s, drive 0.5): a 5 ms burst, then 20 s of silence; the wet's level 15..20 s against 3..6 s. "decays" when it falls by more than 3 dB; above that the loop sustains, bounded by the saturator at full scale (the self-oscillation FEEDBACK over 1 is meant to give).
+
+| tank | FEEDBACK | 15..20 s against 3..6 s |
+|---|---|---|
+| none | 0.90 | -1.7 dB (sustains) |
+| none | 1.00 | -7.4 dB (decays) |
+| none | 1.02 | 3.6 dB (sustains) |
+| none | 1.10 | 7.8 dB (sustains) |
+| none | 1.20 | 8.2 dB (sustains) |
+| none | 1.30 | 8.1 dB (sustains) |
+| none | **largest that decays: 1.00** | |
+| in the loop, mix 0.5 | 0.90 | 27.9 dB (sustains) |
+| in the loop, mix 0.5 | 1.00 | 20.0 dB (sustains) |
+| in the loop, mix 0.5 | 1.10 | 11.1 dB (sustains) |
+| in the loop, mix 0.5 | 1.20 | 18.8 dB (sustains) |
+| in the loop, mix 0.5 | 1.30 | 26.7 dB (sustains) |
+| in the loop, mix 0.5 | **largest that decays: -1.00** | |
+| in the loop, mix 1 | 0.90 | 28.9 dB (sustains) |
+| in the loop, mix 1 | 1.00 | 24.6 dB (sustains) |
+| in the loop, mix 1 | 1.10 | 20.2 dB (sustains) |
+| in the loop, mix 1 | 1.20 | 15.6 dB (sustains) |
+| in the loop, mix 1 | 1.30 | 11.6 dB (sustains) |
+| in the loop, mix 1 | **largest that decays: -1.00** | |
+
+Memory: the tank and its allpasses 2816 int16 samples (5632 bytes, the caller's), its state 160 bytes inside dd_t.

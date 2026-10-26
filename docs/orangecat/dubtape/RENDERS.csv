@@ -44,3 +44,11 @@ atmos,5-tape44k,65536,131072,1.485,-6.48
 atmos,6-tape22k,32768,65536,1.484,-6.48
 atmos,7-tape11k,16384,32768,1.482,-6.52
 atmos,8-tape22k-stereo,32768,131072,1.484,-6.53
+skank,s1-lite22k-spring-wet,16384,38400,0.741,-7.28
+skank,s2-lite22k-spring-loop,16384,38400,0.741,-7.27
+slap,s3-lite22k-spring-alone,16384,38400,0.741,-1.42
+throw,s4-lite22k-spring-loop,16384,38400,0.741,-4.35
+oscillate,s5-lite22k-spring-loop,16384,38400,0.741,-3.41
+slap,s6-lite22k-spring-crash-wet,16384,38400,0.741,-1.47
+slap,s7-lite22k-spring-crash-loop,16384,38400,0.741,-1.42
+skank,s8-tape22k-spring-wet,16384,38400,0.741,-7.25

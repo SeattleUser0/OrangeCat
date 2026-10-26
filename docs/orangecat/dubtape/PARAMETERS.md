@@ -64,3 +64,22 @@ cross-feedback (×2 RAM), emphasis and ADAA (B only), and the line-rate override
 
 These are starting points chosen while building the scenes and checked against the measurements (decay, stability),
 not tuned by listening on the instrument.
+
+
+## The spring (revision 0.4, dubdelay.c "the spring")
+
+A Fisher K-10 Space Expander model (tube stage, a 37 ms tank with a 12-allpass dispersion chain and a dark low-pass in its loop, two
+density allpasses, an output low-pass), mono, at the line's rate, in the same call as the delay. Every field 0 is off.
+
+| Field | Range | Meaning |
+|---|---|---|
+| spring | 0, 1, 2 | off; in the feedback loop (every regeneration through the tank, scaled so the loop's gain stays FEEDBACK); on the wet after the taps |
+| sp_mix | 0..1 | the loop's share through the tank; on the wet, the tank's level |
+| sp_decay | seconds | T60 (0: 2 s); measured 1.01 / 1.89 / 2.81 s at 1 / 2 / 3 |
+| sp_drive | 0..1 | the tube stage (soft clip, gain up to 7) |
+| sp_tone | 0..1 | darker .. less dark (loop low-pass 1.6 .. 4.6 kHz, output 3 .. 6 kHz) |
+| sp_in | 0..1 | on the wet: the input straight into the tank (a reverb send beside the taps) |
+| tap_cut | 0..1 | on the wet: the taps taken out (1: the tank alone, "the delay's mix at zero") |
+| crash | count | each new value kicks the tank (a 40 ms burst straight into it, held to full scale by the tank's clip) |
+
+The caller gives the tank its memory: `dd_spring_attach(s, buf)`, DD_SP_BUF (2,816) int16 samples, 5,632 bytes.

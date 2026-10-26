@@ -473,6 +473,122 @@ static void m_drywet(void)
     }
 }
 
+/* ---------------------------------------------------------------- 9. the spring (revision 0.4) --- */
+static int16_t SPB[DD_SP_BUF];
+static float spo[NMAX];
+/* T60 by Schroeder's backward integration, the -5 .. -25 dB line extrapolated to -60 */
+static double t60_of(const float *y, int n, double fs)
+{
+    double *e = malloc(sizeof(double) * (size_t)n), tot = 0, t5 = -1, t25 = -1;
+    int i;
+    for (i = n - 1; i >= 0; i--) { tot += (double)y[i] * y[i]; e[i] = tot; }
+    for (i = 0; i < n; i++) {
+        double d = db(e[i] / (e[0] + 1e-30));
+        if (t5 < 0 && d <= -5.0) t5 = i / fs;
+        if (t25 < 0 && d <= -25.0) { t25 = i / fs; break; }
+    }
+    free(e);
+    return t5 >= 0 && t25 > t5 ? 3.0 * (t25 - t5) : -1.0;
+}
+/* the tank alone (dd_spring_block at the 22.05 kHz line), n line samples from xin, 32 at a time (a control tick each) */
+static void tank_run(dd_params_t *p, int n)
+{
+    int i;
+    for (i = 0; i + 32 <= n; i += 32) dd_spring_block(&S, p, xin + i, spo + i, 32);
+}
+/* the band's energy envelope peak time (a 2-pole resonator at f, Q 4), in the first ms milliseconds */
+static double band_arrival(const float *y, int n, double fs, double f, double ms)
+{
+    double w = 2.0 * M_PI * f / fs, r = 1.0 - w / 8.0, a1 = 2.0 * r * cos(w), a2 = -r * r, y1 = 0, y2 = 0, best = 0, at = 0;
+    int i, m = (int)(ms * fs / 1000.0);
+    for (i = 0; i < n && i < m; i++) {
+        double v = y[i] + a1 * y1 + a2 * y2, env;
+        y2 = y1; y1 = v; env = v * v;
+        if (env > best) { best = env; at = i; }
+    }
+    return 1000.0 * at / fs;
+}
+static void m_spring(void)
+{
+    const double fs = DD_FS / 2.0;
+    dd_params_t p;
+    int n = (int)(6.0 * fs), i, k;
+    static const float DEC[3] = {1.0f, 2.0f, 3.0f};
+    printf("\n## 9. The spring (revision 0.4)\n\nA small Fisher K-10 model (dubdelay.c, \"the spring\"): a tube stage, a 37 ms tank with %d first-order "
+           "allpasses and a low-pass in its loop, two density allpasses, an output low-pass; mono, at the line's rate. The tank alone "
+           "(`dd_spring_block`, the 22.05 kHz line): an impulse of 0.5, drive 0 (linear), tone 0.3.\n\n", DD_SP_AP);
+    printf("| T60 set | T60 measured | energy above 3 kHz | first-trip arrival 250 Hz / 1 kHz / 4 kHz (ms) |\n|---|---|---|---|\n");
+    for (k = 0; k < 3; k++) {
+        double ps[4097], hi = 0, all = 0;
+        dd_init(&S, DD_ALGO_LITE, 2, DD_AA_HB, 1, L0, L1, 1u << 12);
+        dd_spring_attach(&S, SPB);
+        memset(&p, 0, sizeof p); p.spring = 2; p.sp_mix = 1.0f; p.sp_decay = DEC[k]; p.sp_drive = 0.0f; p.sp_tone = 0.3f;
+        memset(xin, 0, sizeof(float) * (size_t)n); xin[0] = 0.5f;
+        tank_run(&p, n);
+        power(spo, 8192, ps);
+        for (i = 1; i < 4096; i++) { all += ps[i]; if (i * fs / 8192.0 > 3000.0) hi += ps[i]; }
+        printf("| %.1f s | %.2f s | %.1f dB | %.1f / %.1f / %.1f |\n", (double)DEC[k], t60_of(spo, n, fs), db(hi / (all + 1e-30)),
+               band_arrival(spo, n, fs, 250.0, 70.0), band_arrival(spo, n, fs, 1000.0, 70.0), band_arrival(spo, n, fs, 4000.0, 70.0));
+    }
+    {   /* the dispersion chain per trip, analytic: N first-order allpasses, coefficient a: group delay N (1 - a^2) / (1 - 2a cos w + a^2) */
+        double a = 0.62, f[3] = {100.0, 1000.0, 5000.0};
+        printf("\nThe dispersion chain's group delay a trip round the tank (%d allpasses, a 0.62 at 22.05 kHz):", DD_SP_AP);
+        for (k = 0; k < 3; k++) {
+            double w = 2.0 * M_PI * f[k] / fs, gd = DD_SP_AP * (1.0 - a * a) / (1.0 - 2.0 * a * cos(w) + a * a);
+            printf(" %.0f Hz %.2f ms%s", f[k], 1000.0 * gd / fs, k < 2 ? "," : ".");
+        }
+        printf(" The low end arrives later on every trip: the chirp.\n");
+    }
+    /* the kick: the tank alone, drive 0.7, decay 2 s */
+    dd_init(&S, DD_ALGO_LITE, 2, DD_AA_HB, 1, L0, L1, 1u << 12);
+    dd_spring_attach(&S, SPB);
+    memset(&p, 0, sizeof p); p.spring = 2; p.sp_mix = 1.0f; p.sp_decay = 2.0f; p.sp_drive = 0.7f; p.sp_tone = 0.3f; p.crash = 1;
+    memset(xin, 0, sizeof(float) * (size_t)n);
+    tank_run(&p, n);
+    {   float pk = 0.0f;
+        for (i = 0; i < n; i++) if (fabsf(spo[i]) > pk) pk = fabsf(spo[i]);
+        printf("\nThe kick (crash, drive 0.7, decay 2 s, the tank alone): peak %.1f dBFS, T60 %.2f s.\n", db((double)pk * pk), t60_of(spo, n, fs)); }
+    /* in the loop: the largest FEEDBACK whose tail still decays */
+    printf("\nIn the delay's loop (LITE 22k, one head 150 ms, ROUTE RECORD, HP 30, LP 110, RES 0.2, DRIVE 0.3; the tank decay 3 s, "
+           "drive 0.5): a 5 ms burst, then 20 s of silence; the wet's level 15..20 s against 3..6 s. \"decays\" when it falls by more "
+           "than 3 dB; above that the loop sustains, bounded by the saturator at full scale (the self-oscillation FEEDBACK over 1 is "
+           "meant to give).\n\n| tank | FEEDBACK | 15..20 s against 3..6 s |\n|---|---|---|\n");
+    {
+        static const float MIX[3] = {0.0f, 0.5f, 1.0f};
+        int nn = (int)(20.0 * DD_FS), m;
+        for (m = 0; m < 3; m++) {
+            double safe = -1.0;
+            for (k = 0; k <= 20; k++) {
+                float fbv = 0.90f + 0.02f * (float)k;
+                double e1 = 0, e2 = 0;
+                int b;
+                dd_init(&S, DD_ALGO_LITE, 2, DD_AA_HB, 1, L0, L1, dd_line_len(0.2f, 2));
+                dd_spring_attach(&S, SPB);
+                memset(xin, 0, sizeof(float) * (size_t)nn);
+                sc_rng = 9u;
+                for (i = (int)(0.1 * DD_FS); i < (int)(0.105 * DD_FS); i++) xin[i] = 0.5f * sc_noise();
+                for (b = 0; b + DD_BLOCK <= nn; b += DD_BLOCK) {
+                    memset(&p, 0, sizeof p);
+                    dd_apply_pattern(&p, 0); p.time = 0.15f; p.feedback = fbv; p.send = 1.0f; p.wet = 1.0f; p.dry = 0.0f;
+                    p.hp = 30.0f; p.lp = 110.0f; p.res = 0.2f; p.drive = 0.3f; p.route = 1;
+                    p.spring = MIX[m] > 0.0f ? 1 : 0; p.sp_mix = MIX[m]; p.sp_decay = 3.0f; p.sp_drive = 0.5f; p.sp_tone = 0.3f;
+                    dd_process(&S, &p, xin + b, ol + b, orr + b);
+                }
+                for (i = 3 * DD_FS; i < 6 * DD_FS; i++) e1 += (double)ol[i] * ol[i];
+                for (i = 15 * DD_FS; i < 20 * DD_FS; i++) e2 += (double)ol[i] * ol[i];
+                {   double g = db((e2 / 5.0) / (e1 / 3.0 + 1e-30));
+                    if (g < -3.0) safe = fbv;
+                    if (k % 5 == 0 || (g >= -3.0 && safe >= 0 && fbv - safe < 0.03))
+                        printf("| %s | %.2f | %.1f dB%s |\n", MIX[m] > 0.0f ? (MIX[m] < 1.0f ? "in the loop, mix 0.5" : "in the loop, mix 1") : "none",
+                               (double)fbv, g, g < -3.0 ? " (decays)" : " (sustains)"); }
+            }
+            printf("| %s | **largest that decays: %.2f** | |\n", MIX[m] > 0.0f ? (MIX[m] < 1.0f ? "in the loop, mix 0.5" : "in the loop, mix 1") : "none", safe);
+        }
+    }
+    printf("\nMemory: the tank and its allpasses %u int16 samples (%u bytes, the caller's), its state %zu bytes inside dd_t.\n",
+           (unsigned)DD_SP_BUF, (unsigned)(2u * DD_SP_BUF), sizeof(dd_spring_t));
+}
+
 int main(int argc, char **argv)
 {
     const char *only = argc > 1 ? argv[1] : "";
@@ -485,5 +601,6 @@ int main(int argc, char **argv)
     if (!*only || strchr(only, '6')) m_noise();
     if (!*only || strchr(only, '7')) m_params();
     if (!*only || strchr(only, '8')) m_drywet();
+    if (!*only || strchr(only, '9')) m_spring();
     return 0;
 }

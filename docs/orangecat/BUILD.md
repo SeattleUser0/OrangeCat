@@ -2875,3 +2875,57 @@ What it says:
     object 2 into slot 1 waits for your word.
 
 Mine, not yours (item 12, the arena's handle scan; items 2 to 4, the heavy-set row, the arena rows, flash after drum-kits): measured before stage 1.
+
+### The spring inside DUB TAPE (host only, October 26, 2026)
+
+Asked for: a spring after the Fisher K-10 Space Expander as King Tubby used it (tube-driven tank, dark, a short dense tail, the chirp on
+transients), a small model and not an impulse response, mono, at the 22.05 kHz line inside the same job as the delay; two placements
+(in the feedback loop, with gain control; on the wet after the taps); a crash control (the tank kicked). Host only; nothing flashed.
+
+**The model** (tools/dubtape/src/dubdelay.c, "the spring"; `dd_spring_attach`, `dd_spring_block`; PARAMETERS.md "The spring"): DC block ->
+the tube (cubic soft clip at a gain of 1 to 7) -> a 37 ms tank whose loop carries 12 first-order allpasses (a 0.62 at the half rate: the
+chirp, the low end later on every trip: group delay a trip 2.31 ms at 100 Hz, 1.72 at 1 kHz, 0.28 at 5 kHz) and a one-pole low-pass
+(1.6 to 4.6 kHz) -> x g (from the T60) back; its output through two Schroeder allpasses (5.3 and 7.1 ms, 0.6, density) and an output
+low-pass (3 to 6 kHz). The tank's write is soft-clipped. **Gain control in the loop**: the tank's output is scaled by 1 - g, which takes
+its gain at its peaks (1 / (1 - g); the allpasses and low-passes are at most 1) to at most 1, and the tube is made up whole (unity for
+small signals), so the loop's gain stays FEEDBACK whatever the tank does. On the wet it is scaled by sqrt(1 - g^2) and the tube made up
+by half. The crash: a full-scale impulse and 40 ms of noise from three times full scale falling 30 dB, straight into the tank (the
+springs struck, past the tube), held to full scale by the tank's clip. Memory: 2,816 int16 samples (5,632 B, the caller's), 160 B of
+state in dd_t. With every new field 0 nothing changes: the 45 earlier renders, RENDERS.csv's rows and MEASUREMENTS.md sections 1 to 8
+regenerate byte-identical.
+
+**Measured** (MEASUREMENTS.md section 9; the tank alone at the 22.05 kHz line):
+- T60 set 1 / 2 / 3 s: measured **1.01 / 1.89 / 2.81 s**; the energy above 3 kHz -16 to -18 dB of the whole (dark).
+- **The largest FEEDBACK whose tail still decays** (one head 150 ms, ROUTE RECORD; a burst, 20 s; decays = more than 3 dB down from 3..6 s
+  to 15..20 s): without the tank **1.00**; the tank in the loop at mix 0.5 **1.12**, at mix 1 **1.26**. Above those the loop sustains,
+  bounded at full scale by the delay's saturator (the self-oscillation FEEDBACK over 1 is meant to give); it never runs away.
+- The kick: **-6.0 dBFS** peak (drive 0.7, decay 2 s, the tank alone), T60 1.72 s.
+
+**Renders** (RENDERS.csv rows s1..s8; the WAVs in `tools/dubtape/renders/` on the PC, not committed): skank with the tank on the wet and
+in the loop; the slap through the tank alone (taps cut); the throw regenerating through the tank; the oscillate scene (FEEDBACK to 1.2)
+with the tank in the loop; two kicks on the wet and in the loop (slap); TAPE with the tank on the wet. Not listened to yet.
+
+**Cost.** FM-1 (make fm1, pi32v2 -O2): `sp_run` is 236 instructions straight-line (the 12 allpasses unrolled), about 215 a line sample
+when not kicking: about the same as the LITE loop's own work with two heads (233). Host bench (BENCH_HOST.md, regenerated; an x86 proxy,
+this PC quiet), microseconds a 128-frame block, one / four instances:
+
+| Configuration (22.05 kHz line) | 1 | 4 |
+|---|---|---|
+| LITE, 2 heads (the delay alone) | 7.06 | 23.63 |
+| the spring alone (dd_spring_block) | 6.95 | 21.34 |
+| LITE, 2 heads + the spring in the loop | 11.27 (+60 %) | 41.76 |
+| LITE, 2 heads + the spring on the wet | 13.00 (+84 %) | 46.26 |
+| TAPE, 3 heads (the delay alone) | 11.65 | 42.41 |
+| TAPE, 3 heads + the spring in the loop | 16.12 | 56.79 |
+| TAPE, 3 heads + the spring on the wet | 17.72 | 64.02 |
+
+On the unit (estimates, to be measured in the two-core runs): LITE alone measured 308 us a half on CPU1 (Step 2). By the host's ratios the
+spring would add about 60 to 85 % (about 190 to 260 us a half, one instance); by the instruction counts and Step 2's 3.2 cycles an
+instruction it would add about 120 us. The two disagree: the unit decides.
+
+**Does a dub-style track still need a separate reverb insert, or does DUB TAPE with the delay mix at zero cover it?** For the dub reverb,
+it covers it: with the spring on the wet, tap_cut 1 and sp_in 1, an instance is a per-track spring reverb (the K-10's dark, short, chirping
+tail, the tube, the kick), with the echoes available on the same knob set by bringing tap_cut down. No per-track reverb insert is needed for
+dub. Three limits: (1) the tank is mono (its width comes only from the taps, so with the taps cut it sits in the centre); (2) a spring is
+not a room: the shared REVERB bus (ROOM, CLOUD) stays the mix's space; (3) a spring-only instance still runs the delay's line, converters and
+loop: a mode that skips them when the taps are cut (about half the instance's cost by the host bench) is the obvious saving, not built.

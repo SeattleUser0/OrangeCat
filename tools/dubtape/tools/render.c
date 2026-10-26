@@ -81,5 +81,47 @@ int main(int argc, char **argv)
         }
         free(x); free(l); free(r);
     }
+    /* (0.4) the spring (a Fisher K-10 model), at the 22.05 kHz line unless said: on the wet, in the loop, the tank alone (the taps cut: "the
+     * delay's mix at zero"), the kick. Its rows follow the ones above, which do not change */
+    {
+        static const struct { int sc, v; const char *tag; int place; float mix, decay, drive, tone, in, cut, k1, k2; } SPR[] = {
+            {SC_SKANK, 3, "s1-lite22k-spring-wet", 2, 0.6f, 2.0f, 0.35f, 0.3f, 0.3f, 0.0f, -1.0f, -1.0f},
+            {SC_SKANK, 3, "s2-lite22k-spring-loop", 1, 0.7f, 2.0f, 0.35f, 0.3f, 0.0f, 0.0f, -1.0f, -1.0f},
+            {SC_SLAP, 3, "s3-lite22k-spring-alone", 2, 1.0f, 1.6f, 0.4f, 0.2f, 1.0f, 1.0f, -1.0f, -1.0f},
+            {SC_THROW, 3, "s4-lite22k-spring-loop", 1, 0.8f, 2.5f, 0.5f, 0.3f, 0.0f, 0.0f, -1.0f, -1.0f},
+            {SC_OSC, 3, "s5-lite22k-spring-loop", 1, 1.0f, 3.0f, 0.6f, 0.4f, 0.0f, 0.0f, -1.0f, -1.0f},
+            {SC_SLAP, 3, "s6-lite22k-spring-crash-wet", 2, 0.9f, 2.0f, 0.7f, 0.3f, 0.6f, 0.0f, 1.2f, 5.2f},
+            {SC_SLAP, 3, "s7-lite22k-spring-crash-loop", 1, 0.8f, 2.0f, 0.7f, 0.3f, 0.0f, 0.0f, 1.2f, 5.2f},
+            {SC_SKANK, 6, "s8-tape22k-spring-wet", 2, 0.6f, 2.0f, 0.35f, 0.3f, 0.3f, 0.0f, -1.0f, -1.0f},
+        };
+        static int16_t spbuf[DD_SP_BUF];
+        int k;
+        for (k = 0; k < (int)(sizeof SPR / sizeof SPR[0]); k++) {
+            int sc2 = SPR[k].sc, v2 = SPR[k].v, n = (int)(SC_DUR[sc2] * DD_FS) / DD_BLOCK * DD_BLOCK, b, i;
+            float *x = malloc(sizeof(float) * (size_t)n), *l = malloc(sizeof(float) * (size_t)n), *r = malloc(sizeof(float) * (size_t)n), pk = 0.0f;
+            uint32_t len = dd_line_len(SC_MAXHEAD[sc2] + 0.02f, V[v2].R), kicks = 0;
+            dd_t s;
+            dd_params_t p;
+            scene_source(sc2, x, n);
+            dd_init(&s, V[v2].algo, V[v2].R, V[v2].aa, V[v2].lines, lines[0], lines[1], len);
+            dd_spring_attach(&s, spbuf);
+            for (b = 0; b < n; b += DD_BLOCK) {
+                float t = (float)b / DD_FS;
+                scene_params(sc2, t, &p);
+                p.spring = SPR[k].place; p.sp_mix = SPR[k].mix; p.sp_decay = SPR[k].decay; p.sp_drive = SPR[k].drive;
+                p.sp_tone = SPR[k].tone; p.sp_in = SPR[k].in; p.tap_cut = SPR[k].cut;
+                kicks += (SPR[k].k1 >= 0.0f && t >= SPR[k].k1 && t < SPR[k].k1 + (float)DD_BLOCK / DD_FS) ? 1u : 0u;
+                kicks += (SPR[k].k2 >= 0.0f && t >= SPR[k].k2 && t < SPR[k].k2 + (float)DD_BLOCK / DD_FS) ? 1u : 0u;
+                p.crash = kicks;
+                dd_process(&s, &p, x + b, l + b, r + b);
+            }
+            for (i = 0; i < n; i++) { float a = fabsf(l[i]) > fabsf(r[i]) ? fabsf(l[i]) : fabsf(r[i]); if (a > pk) pk = a; }
+            snprintf(path, sizeof path, "%s/%s_%s.wav", out, SC_NAME[sc2], SPR[k].tag);
+            if (write_wav(path, l, r, n)) { perror(path); return 1; }
+            printf("%s,%s,%u,%u,%.3f,%.2f\n", SC_NAME[sc2], SPR[k].tag, len, len * 2u * (unsigned)V[v2].lines + (unsigned)(DD_SP_BUF * 2u),
+                   (double)dd_max_seconds(&s), (double)(20.0f * log10f(pk + 1e-9f)));
+            free(x); free(l); free(r);
+        }
+    }
     return 0;
 }

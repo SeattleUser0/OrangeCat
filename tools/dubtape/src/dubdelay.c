@@ -205,6 +205,93 @@ static inline void hb_int(dd_hb_t *h, float x, float *y0, float *y1)
     *y1 = h->st[(h->p - HB_M + 1u) & 15u];
 }
 
+/* ------------------------------------------------------------------ the spring (revision 0.4) --- */
+/* A Fisher K-10 Space Expander as King Tubby used it: a tube stage into a spring tank; dark, a short dense tail, the chirp on every
+ * transient. Not an impulse response: a small model, mono, at the line's rate.
+ *   in -> DC block -> the tube (sat3 at a gain up to 7, half of it made up) -> (+) -> the tank's ring (37 ms) -> the dispersion chain (DD_SP_AP
+ *   first-order allpasses: the chirp, low frequencies arriving later, once more on every trip round) -> the loop's low-pass (dark)
+ *   -> x g back to (+). The loop's output -> two density allpasses (5.3 and 7.1 ms, 0.6) -> the output's low-pass -> x norm.
+ * g from the T60 (sp_decay): 10^(-3 dt / T60). The tank's own write is soft-clipped (it never holds more than full scale).
+ * norm: in the delay's loop 1 - g, which takes the tank's gain at its peaks (1 / (1 - g); the allpasses and the low-passes are at most 1)
+ * to at most 1, so the delay's FEEDBACK stays the loop's gain whatever the spring does: the loop cannot run away through it. On the wet,
+ * sqrt(1 - g^2) (the tail's energy: a reverb's level).
+ * The kick (crash): one full-scale impulse, then 40 ms of noise from three times full scale falling 30 dB, straight into the tank (the
+ * springs struck, past the tube); the tank's own clip at its write holds it to full scale: the explosion. */
+static uint32_t sp_len(float sec, float fsl, uint32_t cap)
+{
+    uint32_t n = (uint32_t)(sec * fsl + 0.5f);
+    return n < 2u ? 2u : n > cap - 2u ? cap - 2u : n;
+}
+void dd_spring_attach(dd_t *s, int16_t *buf)
+{
+    dd_spring_t *q = &s->sp;
+    memset(q, 0, sizeof *q);
+    q->buf = buf;
+    if (!buf) return;
+    memset(buf, 0, DD_SP_BUF * sizeof(int16_t));
+    q->dt = sp_len(0.037f, s->fsl, DD_SP_TANK);
+    q->d1 = sp_len(0.0053f, s->fsl, DD_SP_D1);
+    q->d2 = sp_len(0.0071f, s->fsl, DD_SP_D2);
+    q->a = s->R == 1 ? 0.78f : s->R == 2 ? 0.62f : 0.40f;   /* the chirp's band about the same in hertz at each line rate */
+    q->rng = 777u;
+}
+static void sp_tick(dd_t *s, const dd_params_t *p)
+{
+    dd_spring_t *q = &s->sp;
+    float T = p->sp_decay > 0.05f ? p->sp_decay : 2.0f, tone = p->sp_tone < 0.0f ? 0.0f : p->sp_tone > 1.0f ? 1.0f : p->sp_tone;
+    float dr = p->sp_drive < 0.0f ? 0.0f : p->sp_drive > 1.0f ? 1.0f : p->sp_drive;
+    q->place = q->buf ? p->spring : 0;
+    if (!q->place) return;
+    q->g = ddm_exp(-6.90775528f * ((float)q->dt / s->fsl) / T);
+    q->glp = 1.0f - ddm_exp(-2.0f * PI_F * (1600.0f + 3000.0f * tone) / s->fsl);
+    q->gout = 1.0f - ddm_exp(-2.0f * PI_F * (3000.0f + 3000.0f * tone) / s->fsl);
+    q->norm = q->place == 1 ? 1.0f - q->g : ddm_sqrt(1.0f - q->g * q->g);
+    q->gin = 1.0f + 6.0f * dr * dr;                  /* the tube: in the loop made up whole (unity for small signals: the loop's gain stays
+                                                      * FEEDBACK), on the wet half (a driven tube is louder) */
+    q->igin = q->place == 1 ? 1.0f / q->gin : 1.0f / ddm_sqrt(q->gin);
+    q->m = p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
+    q->in = p->sp_in; q->tg = 1.0f - p->tap_cut;
+    if (p->crash != q->crash_seen) {                  /* a kick: the burst from the next sample */
+        q->crash_seen = p->crash;
+        q->crash_n = (uint32_t)(0.040f * s->fsl);
+        q->env = 3.0f; q->crash_amp = 1.0f;
+    }
+    q->kd = ddm_exp(-3.5f / (0.040f * s->fsl));      /* (30 dB over the 40 ms; three times full scale at first: the tank's clip holds it) */
+}
+DD_NOINL static float sp_run(dd_spring_t *q, float x)
+{
+    int16_t *b = q->buf, *b1 = b + DD_SP_TANK, *b2 = b1 + DD_SP_D1;
+    float y, z, d, u;
+    int k;
+    q->dc += 0.001f * (x - q->dc); x -= q->dc;
+    x = sat3(q->gin * x) * q->igin;                                     /* the tube */
+    if (q->crash_n) {                                                   /* the kick: the springs hit, not the tube driven */
+        q->rng = q->rng * 1664525u + 1013904223u;
+        x += q->crash_amp > 0.0f ? q->crash_amp : q->env * (float)(int32_t)q->rng * (1.0f / 2147483648.0f);
+        q->crash_amp = 0.0f; q->env *= q->kd; q->crash_n--;
+    }
+    y = (float)b[(q->w - q->dt) & (DD_SP_TANK - 1u)] * IQ16;            /* the tank: its far end */
+    z = y;
+    for (k = 0; k < DD_SP_AP; k++) { float o = q->ap[k] - q->a * z; q->ap[k] = z + q->a * o; z = o; }   /* the chirp */
+    q->lp += q->glp * (z - q->lp);
+    b[q->w] = to_q15(sat3(x + q->g * q->lp));
+    q->w = (q->w + 1u) & (DD_SP_TANK - 1u);
+    z = q->lp;                                                          /* density: two Schroeder allpasses (stored at half) */
+    d = 2.0f * (float)b1[(q->w1 - q->d1) & (DD_SP_D1 - 1u)] * IQ16; u = z + 0.6f * d;
+    b1[q->w1] = to_q15(0.5f * u); q->w1 = (q->w1 + 1u) & (DD_SP_D1 - 1u); z = d - 0.6f * u;
+    d = 2.0f * (float)b2[(q->w2 - q->d2) & (DD_SP_D2 - 1u)] * IQ16; u = z + 0.6f * d;
+    b2[q->w2] = to_q15(0.5f * u); q->w2 = (q->w2 + 1u) & (DD_SP_D2 - 1u); z = d - 0.6f * u;
+    q->olp += q->gout * (z - q->olp);
+    return q->olp * q->norm;
+}
+
+void dd_spring_block(dd_t *s, const dd_params_t *p, const float *in, float *out, int n)
+{
+    int i;
+    sp_tick(s, p);
+    for (i = 0; i < n; i++) out[i] = s->sp.place ? sp_run(&s->sp, in[i]) : 0.0f;
+}
+
 /* ------------------------------------------------------------------ control tick --- */
 typedef struct {
     float a;                       /* head glide coefficient a loop sample */
@@ -279,6 +366,7 @@ DD_NOINL static void control_tick(dd_t *s, const dd_params_t *p, tick_t *t, int 
             s->m_next[i] = -(iw + ifl) - D * 20.0f * aw * s->drift_lp;
         }
     }
+    sp_tick(s, p);                                     /* (0.4) the spring's gains, a kick */
 }
 
 /* ------------------------------------------------------------------ the loop at the line's rate --- */
@@ -290,6 +378,8 @@ DD_NOINL static void run_lite(dd_t *s, const tick_t *t, const float *x, float *w
     float hp_s = s->hp_s[0], ic1 = s->lp1[0], ic2 = s->lp2[0], fb = s->fb_cur, sd = s->send_cur;
     const float sc = IQ16 * t->igd, dig = s->algo == DD_ALGO_DIGITAL;
     const int rec = t->route;
+    dd_spring_t *q = &s->sp;
+    const int spl = q->place == 1, spo = q->place == 2;   /* (0.4) the spring in the loop, or on the wet */
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f;
     int i, j;
     for (i = 0; i < n; i++) {
@@ -309,6 +399,7 @@ DD_NOINL static void run_lite(dd_t *s, const tick_t *t, const float *x, float *w
             v = (af - hp_s) * t->G; u = v + hp_s; hp_s = u + v; af -= u;           /* HP (TPT one-pole) */
             {   float v3 = af - ic2, v1 = t->a1 * ic1 + t->a2 * v3, v2 = ic2 + t->a2 * ic1 + t->a3 * v3;   /* LP SVF */
                 ic1 = 2.0f * v1 - ic1; ic2 = 2.0f * v2 - ic2; af = v2 * t->mk; }
+            if (spl) af += q->m * (sp_run(q, af) - af);                          /* (0.4) every regeneration through the tank */
             u = rec ? af + dn : sd * x[i] + fb * af + dn;
             b[w] = to_q15(sat3(t->gd * u));
         } else {
@@ -316,6 +407,10 @@ DD_NOINL static void run_lite(dd_t *s, const tick_t *t, const float *x, float *w
         }
         dn = -dn;
         w = (w + 1u) & mask;
+        if (spo) {                                                               /* (0.4) the tank on the wet, after the taps */
+            float sp = q->m * sp_run(q, 0.5f * (l + r) + q->in * x[i]);
+            l = q->tg * l + sp; r = q->tg * r + sp;
+        }
         wl[i] = l; wr[i] = r;
     }
     s->w = w; s->hp_s[0] = hp_s; s->lp1[0] = ic1; s->lp2[0] = ic2; s->fb_cur = fb; s->send_cur = sd;
@@ -330,6 +425,8 @@ DD_NOINL static void run_tape(dd_t *s, const tick_t *t, const float *x, float *w
     float fb = s->fb_cur, sd = s->send_cur;
     const float sc = IQ16 * t->igd, ae = 0.5f, ipre = 1.0f / (1.0f - ae), xf = nl == 2 ? p->xfeed : 0.0f;
     const float dm = 1.0f / (float)n;
+    dd_spring_t *q = &s->sp;
+    const int spl = q->place == 1, spo = q->place == 2;   /* (0.4) the spring: in the loop of the first line (a mono tank), or on the wet */
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f;
     int i, j, c;
     for (i = 0; i < n; i++) {
@@ -358,6 +455,7 @@ DD_NOINL static void run_tape(dd_t *s, const tick_t *t, const float *x, float *w
                 s->hp1[c] = 2.0f * v1 - s->hp1[c]; s->hp2[c] = 2.0f * v2 - s->hp2[c]; a = a - 1.2f * v1 - v2; }   /* HP */
             {   float v3 = a - s->lp2[c], v1 = t->a1 * s->lp1[c] + t->a2 * v3, v2 = s->lp2[c] + t->a2 * s->lp1[c] + t->a3 * v3;
                 s->lp1[c] = 2.0f * v1 - s->lp1[c]; s->lp2[c] = 2.0f * v2 - s->lp2[c]; a = v2 * t->mk; }           /* LP */
+            if (spl && !c) a += q->m * (sp_run(q, a) - a);
             u = t->route ? a + dn : in + fb * a + dn;
             z = (u - ae * s->pre_x1[c]) * ipre; s->pre_x1[c] = u;             /* pre-emphasis: HF saturates first */
             z *= t->gd;
@@ -370,6 +468,10 @@ DD_NOINL static void run_tape(dd_t *s, const tick_t *t, const float *x, float *w
         }
         dn = -dn;
         w = (w + 1u) & mask;
+        if (spo) {
+            float sp = q->m * sp_run(q, 0.5f * (l + r) + q->in * x[i]);
+            l = q->tg * l + sp; r = q->tg * r + sp;
+        }
         wl[i] = l; wr[i] = r;
     }
     s->w = w; s->fb_cur = fb; s->send_cur = sd;

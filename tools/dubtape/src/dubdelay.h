@@ -48,7 +48,33 @@ typedef struct {
     int route;                          /* 0: HP/LP in the feedback only (first echo full-band);
                                          * 1: record path, input + feedback -> HP/LP -> saturation (tape-like: the
                                          *    first echo filtered too; less aliasing at reduced rates) */
+    /* (revision 0.4, the spring: a Fisher K-10 Space Expander as King Tubby used it, a small model at the line's rate; every field 0:
+     * off, so a block of parameters from before it plays as it did. Needs dd_spring_attach) */
+    int spring;                         /* 0 off; 1 in the feedback loop (every regeneration through the tank); 2 on the wet after the taps */
+    float sp_mix;                       /* 0..1: in the loop, the share of the regeneration through the tank; on the wet, the tank's level */
+    float sp_decay;                     /* the tank's T60, seconds (0: 2 s) */
+    float sp_drive;                     /* 0..1: the tube stage before the tank (soft clip) */
+    float sp_tone;                      /* 0..1: darker .. less dark (the loop's and the output's low-passes) */
+    float sp_in;                        /* 0..1 (on the wet): the input straight into the tank, a reverb send beside the taps */
+    float tap_cut;                      /* 0..1: the taps taken out of the wet (1 with the spring on the wet: the tank alone) */
+    uint32_t crash;                     /* a count: each new value kicks the tank once (a burst into it, the drive clipping it) */
 } dd_params_t;
+
+#define DD_SP_AP 12                     /* the dispersion chain: first-order allpasses in the tank's loop (the chirp) */
+#define DD_SP_TANK 2048u                /* the caller's buffer: the tank's ring (37 ms at any line rate to 44.1 kHz) .. */
+#define DD_SP_D1 256u                   /* .. then the two density allpasses' rings */
+#define DD_SP_D2 512u
+#define DD_SP_BUF (DD_SP_TANK + DD_SP_D1 + DD_SP_D2)   /* int16 samples dd_spring_attach wants */
+typedef struct {
+    int16_t *buf;                       /* caller-owned, DD_SP_BUF samples (0: no spring) */
+    uint32_t w, w1, w2, dt, d1, d2;     /* write indices; the tank's and the density allpasses' delays (line samples) */
+    float ap[DD_SP_AP];                 /* the dispersion chain's states */
+    float lp, olp, dc;                  /* the loop's low-pass, the output's, a DC block on the input */
+    float a, g, glp, gout, norm, gin, igin, m, in, tg;   /* set a control tick: dispersion coefficient, loop gain, low-passes, scale, drive */
+    float env, crash_amp, kd;           /* the kick's burst: its envelope, its first impulse, its fall a sample */
+    uint32_t crash_seen, crash_n, rng;
+    int place;
+} dd_spring_t;
 
 typedef struct { float st[32]; uint32_t p; uint8_t ph; } dd_hb_t;   /* half-band stage state (masked ring) */
 
@@ -79,6 +105,7 @@ typedef struct {
     float box_acc; int box_n; float lin_l[2], lin_r[2];   /* the cheap converter */
     uint32_t denorm;
     int primed;                         /* the ramped gains have been set once */
+    dd_spring_t sp;                     /* (0.4) the spring */
 } dd_t;
 
 /* bytes of line storage needed: seconds of longest head at loop rate R, per line */
@@ -90,5 +117,9 @@ void dd_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
 /* the longest head (seconds) the line holds at this configuration */
 float dd_max_seconds(const dd_t *s);
 float dd_knob_hz(float knob);           /* (host side, for reports) */
+/* (0.4) the spring's memory: buf, DD_SP_BUF int16 samples, owned by the caller (after dd_init; 0 takes it away) */
+void dd_spring_attach(dd_t *s, int16_t *buf);
+/* (0.4) the tank alone, n samples at the line's rate, its settings from p (p->spring not 0): for the bench and the measurements */
+void dd_spring_block(dd_t *s, const dd_params_t *p, const float *in, float *out, int n);
 
 #endif
