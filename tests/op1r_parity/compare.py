@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-SINE = {"fmbell": True, "supersaw": True, "dddd": False, "aether": True, "brassophone": True, "mixtur": False, "arc": True, "granular": True}
+SINE = {"fmbell": True, "supersaw": True, "dddd": False, "aether": True, "brassophone": True, "mixtur": False, "arc": False, "granular": True}
 TOL_RMS_DB, TOL_SPEC_DB, TOL_LVL_DB, TOL_BAND_DB = -60.0, 0.5, 0.5, 3.0
 NOTE, BLK = 138 * 128, 128
 out, bad = Path(sys.argv[1]), 0

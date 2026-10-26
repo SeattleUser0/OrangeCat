@@ -30,6 +30,9 @@ The unit's rows (render time per voice, late renders at one to four tracks, the 
 (hw/LOG.md's tables). tests/engine_gate_test.py checks the rows of SHAPES and the Prophet against docs/orangecat/ENGINE_LOADING_PLAN.md.
 
 Revisions:
+  (0.14.1, op1r-candidates 0.3) three rows written by hand in GATE for every candidate: the controls that survive the port (on the eight, fixed,
+  lost), the modulation preserved (envelopes, LFO, velocity, the matrix's destinations the engine reads), and the shared backend (a DSP piece
+  several engines could share).
   (Orange Cat 0.14.0) first version.
 """
 import argparse
@@ -59,27 +62,62 @@ PROBE_FIELDS = ("hot", "nhot", "poly", "units", "cap", "ownenv", "done", "post",
 # What the gate knows of each module that the build cannot say: the render loops to cost, the voice's own state type, the hot tables the source
 # analysis cannot follow (read through a voice's pointer field), and the static rows of its table (docs/orangecat/ENGINE_CANDIDATES.md).
 GATE = {
-    "shapes": {"engine": 14, "funcs": ["sh_render"], "voice_type": None,
+    "shapes": {"controls": "Braids' shape, TIMBRE, COLOR, the filter's CUT RES DRIVE, BITS and RATE on the eight; fixed: Braids' own trig and META mode; lost: none of the render's",
+              "modulation": 'ENV and LFO through m->shape (TIMBRE) and m->cutoff; velocity through the amplitude; the matrix: PITCH, CUT, SHP, AMP per voice, E1..E8 per block',
+              "backend": "Braids' own oscillator tables (the pack); the SVF of dsp.c",
+              "engine": 14, "funcs": ["sh_render"], "voice_type": None,
                "source": "Braids (Emilie Gillet), MIT; Orange Cat's port (firmware/src/braids/, eng_shapes.c)", "reference": True},
-    "prophet": {"engine": 19, "funcs": ["p5_samples", "p5_mod_samples"], "voice_type": "p5_voice_t",
+    "prophet": {"controls": 'its patch is native (the Prophet pages, fw_pages_t); the eight carry the main ones',
+              "modulation": 'its own two envelopes and LFO (poly mod, wheel mod) plus m->cutoff, m->shape, m->amp; the matrix: PITCH, CUT, SHP, AMP, E1..E8',
+              "backend": 'P5_TANH and P5_EXP2 (its own); none shared today',
+              "engine": 19, "funcs": ["p5_samples", "p5_mod_samples"], "voice_type": "p5_voice_t",
                 "source": "Orange Cat's Prophet (eng_prophet_test.c), GPL-3.0-only", "reference": True},
-    "wheel": {"engine": 7, "funcs": ["wheel_render", "wheel_block"], "voice_type": "drw_vc_t",
+    "wheel": {"controls": 'all of its controls are the eight (registration, SUB BODY TOP, PERC, CLICK, DRIVE, ROTARY); none fixed or lost',
+              "modulation": "pitch only (m->inc: vibrato, bend, the matrix's PITCH); no CUT or SHP; E1..E8 per block reach the drawbars, percussion, drive and rotary (wheel_block reads t->p)",
+              "backend": 'SINE (the base hot set), the drawbar sum; an additive-partials reader several organ engines could share',
+              "engine": 7, "funcs": ["wheel_render", "wheel_block"], "voice_type": "drw_vc_t",
               "source": "Melodee's WHEEL (firmware/src/eng_wheel.c), GPL-3.0-only: Kerem Kilic (Ellic Studio), portions Leo Kuroshita, Hügelton Instruments"},
-    "rhodes": {"engine": 23, "funcs": ["rhm_render", "rhm_post", "rh_voice_sub"], "voice_type": "rh_voice_t",
+    "rhodes": {"controls": "TYPE TONE BARK BELL HAMR DCAY REL NOIS on the eight; fixed: TUNE; lost: Frodhes' own pedal and effects",
+              "modulation": 'its own envelopes (ownenv); pitch (m->inc); no CUT or SHP; E1..E8 per block for TYPE and NOIS (rhm_post), the rest at note-on',
+              "backend": 'none: its tables are its own',
+              "engine": 23, "funcs": ["rhm_render", "rhm_post", "rh_voice_sub"], "voice_type": "rh_voice_t",
                "extra_hot": {"RH_PULSE": "the hammer's force pulse, read each sample of the contact through the voice's ptab and ptab2 (rh_voice_sub)"},
                "source": "Frodhes (Leonardo Mirabal) firmware/src/rhodes.c at a8320e8, GPL-3.0-only"},
-    "sem": {"engine": 21, "funcs": ["sem_render"], "voice_type": None,
+    "sem": {"controls": "WAVE 1 and 2, DETUNE, MIX, CUTOFF, RES, STATE (TYPE BP on its top value), VIB on the eight; lost: Caravel's FX and PAT",
+              "modulation": 'ENV and LFO through m->cutoff and m->shape; velocity through the amplitude; the matrix: PITCH, CUT, SHP, AMP, E1..E8 (read every render)',
+              "backend": "Felucca's polyBLEP oscillators (felucca_osc.h, also HADES's); dsp.c's TPT SVF",
+              "engine": 21, "funcs": ["sem_render"], "voice_type": None,
             "source": "Caravel (bonszaimusic) firmware/src/eng_sem.c at 4a1770c, GPL-3.0-only; Felucca-Engines dsp.c oscillators, MIT"},
-    "hades": {"engine": 22, "funcs": ["hades_render"], "voice_type": None,
+    "hades": {"controls": "all eight of Caravel's (wave, subs, cutoff, res, shelf, drive, slews); lost: FX and PAT",
+              "modulation": 'm->cutoff and m->shape; the matrix: PITCH, CUT, SHP, AMP, E1..E8 (read every render)',
+              "backend": "Felucca's polyBLEP oscillators (with SEM); va_blocks.c's three-pole ladder",
+              "engine": 22, "funcs": ["hades_render"], "voice_type": None,
               "source": "Caravel (bonszaimusic) firmware/src/eng_hades.c and va_blocks.c at 4a1770c, GPL-3.0-only; Felucca-Engines oscillators, MIT"},
     # (0.14.1) op1r's synths (https://github.com/Hundekraft/op1r-src at bf808cfa) through tools/module/op1r/op1_glue.h: the cost is the plugin's render
     # (inlined into op1g_eng_render with the glue's copy-out loop, or its own function when the compiler keeps it apart: both named)
-    "fmbell": {"engine": 24, "funcs": ["op1g_eng_render", "fm_render"], "voice_type": "fm_voice_t",
+    "fmbell": {"controls": "all four of op1r's knobs on EDIT 1 (RAT INDX DCAY FDBK); EDIT 2 unused; lost: none",
+              "modulation": "ENV (op1r's OP1_VOICE_ENV: m->amp1) and velocity reach the timbre; pitch (m->inc); no CUT or SHP (op1r has none); E1..E4 per 128-sample block",
+              "backend": 'the sine (OP1_SINE: SINE through the base hot set)',
+              "engine": 24, "funcs": ["op1g_eng_render", "fm_render"], "voice_type": "fm_voice_t",
                "source": "op1r (pcppcp) synth_sdk/plugins/fmbell/fmbell.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
-    "supersaw": {"engine": 25, "funcs": ["op1g_eng_render", "ss_render"], "voice_type": "ss_voice_t",
+    "supersaw": {"controls": "all four of op1r's knobs on EDIT 1 (DTUN MRPH SUB DRIV); lost: none",
+              "modulation": 'as fmbell: ENV, velocity and pitch; E1..E4 per block; no CUT or SHP',
+              "backend": 'the sine (its sub)',
+              "engine": 25, "funcs": ["op1g_eng_render", "ss_render"], "voice_type": "ss_voice_t",
                  "source": "op1r (pcppcp) synth_sdk/plugins/supersaw/supersaw.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
-    "dddd": {"engine": 26, "funcs": ["op1g_eng_render", "dd_render_voice", "dd_render"], "voice_type": None,
+    "dddd": {"controls": "all seven: SRC FDBK DSTR HAND on EDIT 1, the second page's FILT SPRD CRSH on EDIT 2; SRC and FILT coarse (eight steps on the OP-1) are 0..127 here",
+              "modulation": 'ENV (OP1_VOICE_ENV[127]) and velocity; pitch for the taps; E1..E7 per block; no CUT or SHP',
+              "backend": "none (the wall is its own; its SVF is dd_core.c's)",
+              "engine": 26, "funcs": ["op1g_eng_render", "dd_render_voice", "dd_render"], "voice_type": None,
              "source": "op1r (pcppcp) synth_sdk/plugins/dddd/dddd.c and synth_sdk/dddd/dd_core.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "mixtur": {"engine": 29, "funcs": ["op1g_eng_render", "mx_render"], "voice_type": "mx_voice_t",
+               "controls": "all seven of op1r's: the four dividers (DIVA..DIVD: off, 1..24 in 25 steps of the knob) on EDIT 1, the second page's F1 F2 RES on "
+                           "EDIT 2 (0 = op1r's unset: 392 Hz, 917 Hz, Q 3.2); fixed: none; lost: none",
+               "modulation": "pitch (m->inc: the master phase, so bends and vibrato move every undertone together); ENV and velocity through the glue's "
+                             "amplitude and op1_voice_vel_gain; no CUT or SHP (the formants are E5 and E6: the matrix reaches them per 128-sample block)",
+               "backend": "none shared: its dividers and Chamberlin SVF pair are its own; the polyBLEP-at-the-master-wrap trick would serve any divide-down "
+                          "engine (STRINGS)",
+               "source": "op1r (ultralazr, Musica Obscura #1) synth_sdk/plugins/mixtur/mixtur.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")
@@ -337,7 +375,9 @@ def gate(name, build_mode=None):
         if b.exists():
             lengths[s] = (b.stat().st_size + 3) & ~3
     out = {
-        "name": name, "engine": hdr["engine"], "source": meta["source"], "image": len(img), "variants": lengths,
+        "name": name, "engine": hdr["engine"], "source": meta["source"],
+        "controls": meta.get("controls", "(not written: GATE's controls)"), "modulation": meta.get("modulation", "(not written: GATE's modulation)"),
+        "backend": meta.get("backend", "(not written: GATE's backend)"), "image": len(img), "variants": lengths,
         "errors": [e for e in errors if not e.startswith("    ")],
         "code": code, "tables": tables, "metadata": meta_b, "strings_and_padding": rest, "header_page": HDR_PAGE,
         "data": secs.get(".data", 0), "bss": secs.get(".bss", 0),
@@ -387,6 +427,9 @@ def markdown(g):
         ("Module size per variant", vs),
         ("Placement in the 12-sector area", where),
         ("Target loop cost (tests/target_budget.py's measure)", cost),
+        ("Controls that survive the port", g["controls"]),
+        ("Modulation preserved", g["modulation"]),
+        ("Shared backend", g["backend"]),
         ("Unit: render time per voice; late renders at 1..4 tracks; admission granted", "(the Linux session) " + UNIT_CMD.format(name=g["name"], upper=g["name"].upper())),
     ]
     out = [f"| {g['name'].upper()} (engine {g['engine']}) | |", "|---|---|"]

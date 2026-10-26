@@ -50,6 +50,10 @@ check("an image past its geometry's sectors fits nothing (and so stands beside n
 p = g.placement("rhodes", 138888)
 check("an image past the whole area (the Rhodes port's size) fits no start", not p["fits"] and not p["fits_area"] and p["needs_sectors"] == 34)
 
+missing = [f"{n}.{k}" for n, m in g.GATE.items() for k in ("controls", "modulation", "backend") if not m.get(k)]
+check("every candidate writes the three rows: controls that survive, modulation preserved, shared backend" + (f" (not: {missing})" if missing else ""),
+      not missing)
+
 # 2. the build's rows
 gd = ROOT / "build" / "gate"
 if not (gd / "shapes.json").exists():
