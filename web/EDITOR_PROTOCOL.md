@@ -895,6 +895,7 @@ probe; the window is put back as `fl_plain_window_init` sets it and LENC is clea
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
+| 104 DUB_BENCH | (branch dub-tape; OC_DUB_BENCH builds only) op 0 [, flags: 1 reset after reading]; or op 1, n (0..4), R (1, 2, 4), algo (1 LITE, 2 TAPE), pattern (0 SLAP, 1 TRIPLE), feedback % (0..120), cpu0 (1: the job on CPU0) | op 0: 0, n, R, algo, pattern, feedback, cpu0 (a byte each), then 5 x 7 bits each: jobs on CPU1, jobs on CPU0, submits refused, the job's min, mean and max in ticks of 24 a microsecond, its 99th percentile in us (16 us bins), the jobs past 3,056 us, CPU0's waits at the join, their mean and max in ticks. Op 1: 1, rc (0 set up, 1 refused). Else 127. DUB TAPE's CPU1 bench: firmware/src/oc_dub_bench.c, docs/orangecat/DUB_TAPE_PLAN.md section 8 |
 | 109 SFC_PROBE | mode (0: the window's low end moved past the range, so the normal decrypting XIP path; 1: LENC_L / LENC_H set over the range, the window as it is; 2: as 1 with SFCENC_CON bit 2), flash offset (3 x 7 bits, 0x93000 .. 0xFF000, rounded down to 32) | mode, the SFCENC KEY register (3 x 7 bits), then for the plaintext path and for the other path: 32 bytes (each two bytes, the low 7 bits then the top bit) and the cold and warm ticks (5 x 7 bits each). 127 alone: a bad request; 126 alone: an offset out of range |
 
 The PC compares the XOR of the two reads with the keystream of `tools/fm1pkg_make.py sfc()` (key 0x980F, the offset from flash 0x4000):

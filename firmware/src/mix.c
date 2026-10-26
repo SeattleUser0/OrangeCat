@@ -49,6 +49,7 @@ static uint32_t seq_div_samples(uint32_t div)
 }
 
 #include "jfx.c"                                        /* (Orange Cat 0.6.0) the effects (Jiant FM's) */
+#include "oc_dub_bench.c"                               /* (dub-tape) DUB TAPE's CPU1 bench: OC_DUB_BENCH builds only */
 #include "oc_throw.c"                                   /* (Orange Cat 0.4.3) PERFORM's throws */
 /* a track's dry sample (l, r) into its destination this block; its mono x (after level, before pan) into the sends */
 static inline __attribute__((always_inline)) void mix_add(int32_t l,int32_t r,uint32_t i)
@@ -283,6 +284,7 @@ static void mix_part_engine(track_t *t,uint32_t n)
         spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
         rendered=(int)track_render_audio(t,part_buf,n,0);
     }
+    db_take(ti,part_buf,rendered?n:0u);                 /* (dub-tape bench: OC_DUB_BENCH builds only) */
     AP_START(mix_start);
     if(rendered)mix_tail[ti]=16u;
     else if(mix_tail[ti] && jfx_dist_on(t))mix_tail[ti]--;
@@ -348,6 +350,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     master_begin();
     perf=perf_begin(n);                                 /* (0.6.0) the FX layer at work (jfx_perform.c) */
     uint32_t nt=trk_n();                                /* (the tracks not in use: none of their CPU) */
+    db_start();                                         /* (dub-tape bench: the job before the tracks) */
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     mix_prepare_batch(n,nt);
 #endif
@@ -363,6 +366,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     batch_ready=0;part_buf=part_storage;spread_buf=spread_storage;
 #endif
+    db_end(mix_l,mix_r,n);                              /* (dub-tape bench: joined after the tracks, before the buses' job) */
     if(perf)perf_pre(mix_l,mix_r,sl_l,sl_r,send_d,send_r,n);   /* (THROW: the dry mix into the delay and reverb sends) */
     AP_START(output_start);
     jfx_bus_start(n);                                   /* the buses (CPU1 when there is one) */

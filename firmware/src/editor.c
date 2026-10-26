@@ -517,6 +517,36 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         break;
     }
 #endif
+#if OC_DUB_BENCH
+    case 104: {
+        /* (branch dub-tape; OC_DUB_BENCH builds only) DUB TAPE's CPU1 bench (oc_dub_bench.c). Op 0 [flags: 1 reset after reading]: the setting
+         * (n, R, algo, pattern, feedback, cpu0: a byte each), then 5 x 7 bits each: jobs on CPU1, jobs on CPU0, submits refused, the job's min,
+         * mean and max in ticks (24 a microsecond), its 99th percentile in us (16 us bins), the jobs past 3,056 us, CPU0's waits at the join,
+         * their mean and max in ticks. Op 1 n R algo pattern feedback cpu0: set up (0 done, 1 refused). Anything else: 127 */
+        if (na >= 1u && a[0] == 0u) {
+            static db_st_t s __attribute__((section(".pool")));
+            uint32_t jobs, mean = 0, p99 = 0, acc = 0, b;
+            fm1_irq_off();
+            s = db_st;                                    /* (one consistent copy: the interrupt updates them) */
+            if (na >= 2u && (a[1] & 1u)) memset(&db_st, 0, sizeof db_st);
+            fm1_irq_on();
+            jobs = s.jobs0 + s.jobs1;
+            if (jobs) mean = (uint32_t)(s.tsum / jobs);
+            for (b = 0; b < DB_BINS; b++) { acc += s.hist[b]; if (jobs && (uint64_t)acc * 100u >= (uint64_t)jobs * 99u) { p99 = b * 16u + 16u; break; } }
+            ed_b(0);
+            for (b = 0; b < 4u; b++) ed_b(db_cfg[b] & 127u);
+            ed_b(db_cfg[4] & 127u); ed_b(db_cpu0);
+            ed_bk_u32(s.jobs1); ed_bk_u32(s.jobs0); ed_bk_u32(s.refused);
+            ed_bk_u32(s.tmin); ed_bk_u32(mean); ed_bk_u32(s.tmax);
+            ed_bk_u32(p99); ed_bk_u32(s.hist[DB_BINS - 1u]);
+            ed_bk_u32(s.waits); ed_bk_u32(s.waits ? (uint32_t)(s.wsum / s.waits) : 0u); ed_bk_u32(s.wmax);
+        } else if (na == 7u && a[0] == 1u) {
+            ed_b(1); ed_b((uint32_t)db_config(a[1], a[2], a[3], a[4], a[5], a[6]));
+        } else
+            ed_b(127);
+        break;
+    }
+#endif
 #if OC_SFC_PROBE && MELODEE_FLASH && defined(FM1_IRQ_TARGET)
     case 109: {
         /* (Orange Cat 0.13.7, branch linux-hw; OC_SFC_PROBE builds only) the flash's two read paths, read only (hal/fm1_flash.h fl_probe_paths):

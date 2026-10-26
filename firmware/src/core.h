@@ -99,6 +99,10 @@
 #define OC_HW_TEST 0              /* (Orange Cat 0.13.8) 1: editor command 108, the hardware test surface (oc_hw_test.c): keys, knobs, pages, say state.
                                    * Off in every published build */
 #endif
+#ifndef OC_DUB_BENCH
+#define OC_DUB_BENCH 0            /* (branch dub-tape) 1: DUB TAPE's CPU1 bench (oc_dub_bench.c, editor command 104): the research kernel as a job beside the
+                                   * track render, for the plan's first hardware row; a measurement build's switch, never published */
+#endif
 #ifndef OC_SFC_PROBE
 #define OC_SFC_PROBE 0            /* (Orange Cat 0.13.7, branch linux-hw) 1: editor command 109, a read-only probe of the flash's plaintext window and its
                                    * decrypting path (editor.c); a hardware experiment's switch, never in a release */
