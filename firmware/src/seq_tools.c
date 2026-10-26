@@ -7,6 +7,7 @@
  *
  * Revisions:
  *   0.4.6: first version.
+ *   0.14.2: a drum lane's figure copied onto another lane (Skiff 2.0's grid copy): the grid's sheet's Copy lane, Paste lane.
  */
 enum { ST_SHIFT_R, ST_SHIFT_L, ST_REVERSE };
 /* tool `kind` on track t's phrase playing: 0 done; 1 it holds recorded notes; 2 a Melodee song runs; 3 nothing in it */
@@ -53,6 +54,63 @@ static void seq_tool_ui(uint32_t kind)
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     rc = seq_tool(TSEL, kind);
     ui_message(!rc ? DONE[kind % 3u] : rc == 1 ? "RECORDED NOTES: USE NOTES" : rc == 2 ? "STOP TO EDIT" : "NOTHING THERE");
+    ui.force = 1;
+}
+/* (Orange Cat 0.14.2) a drum lane's figure, copied and pasted onto another (Skiff 2.0's grid copy, its LANE's): the lane shown, its hits
+ * and accents over the phrase's steps (a note on the lane counts as its hit, as the grid shows it). The paste puts them on the lane shown
+ * then, from step 1 over the copied length, in place of what that lane had there; the other lanes, notes and step values stay. One undo
+ * (EDIT held), as the tools. A phrase with recorded notes is left alone (NOTES moves those). From the grid's sheet (OCT+ held) */
+static struct { uint8_t on, len; uint64_t hit, acc; } lane_clip;
+static void st_lane_name(char *m, const char *verb, uint32_t lane, uint32_t n)
+{
+    str_cpy(m, verb, 24);
+    str_cpy(m + str_len(m), drum_lane_name(TSEL, lane), 24 - str_len(m));
+    if (n) {
+        str_cpy(m + str_len(m), " ", 24 - str_len(m));
+        fmt_int(m + str_len(m), (int32_t)n);
+        str_cpy(m + str_len(m), n == 1u ? " HIT" : " HITS", 24 - str_len(m));
+    }
+}
+static void st_lane_copy(void)
+{
+    track_t *t = TSEL;
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), i, n = 0, l = ui.lane % NLANE;
+    char m[24];
+    lane_clip.hit = lane_clip.acc = 0;
+    for (i = 0; i < len; i++) {
+        lane_clip.hit |= (uint64_t)((step_lanes(&t->step[i]) >> l) & 1u) << i;
+        lane_clip.acc |= (uint64_t)((step_accents(&t->step[i]) >> l) & 1u) << i;
+    }
+    for (uint64_t h = lane_clip.hit; h; h &= h - 1u) n++;
+    lane_clip.on = (uint8_t)(n != 0u);
+    lane_clip.len = (uint8_t)len;
+    if (!n) {
+        st_lane_name(m, "NO HITS ON ", l, 0);
+        ui_message(m);
+        return;
+    }
+    st_lane_name(m, "COPIED ", l, n);
+    ui_message(m);
+}
+static void st_lane_paste(void)
+{
+    track_t *t = TSEL;
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), i, l = ui.lane % NLANE;
+    char m[24];
+    if (!lane_clip.on) { ui_message("COPY A LANE FIRST"); return; }
+    if (frz_locked()) return;
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    if (recording_head[recording_owner(t)] < RECORD_MAX) { ui_message("RECORDED NOTES: USE NOTES"); return; }
+    load_begin(t, UNDO_PAT);
+    for (i = 0; i < len && i < lane_clip.len; i++) {
+        uint32_t h = (uint32_t)(lane_clip.hit >> i) & 1u;
+        grid_hit(t, i, l, h);
+        if (h)
+            grid_acc(t, i, l, (uint32_t)(lane_clip.acc >> i) & 1u);
+    }
+    load_end(t);
+    st_lane_name(m, "PASTED ON ", l, 0);
+    ui_message(m);
     ui.force = 1;
 }
 static void st_shift_r(void) { seq_tool_ui(ST_SHIFT_R); }

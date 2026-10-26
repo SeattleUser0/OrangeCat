@@ -459,6 +459,25 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
             *unit = "dB";
         }
         break;
+    case F_PANLR:                                     /* (0.14.2) C, then the side and how far (the track PAN's %) */
+        if (!v) {
+            str_cpy(val, "C", 6);
+        } else {
+            val[0] = v < 0 ? 'L' : 'R';
+            fmt_int(val + 1, (v < 0 ? -v : v) * 100 / 64);
+        }
+        break;
+    case F_ST16: {                                    /* (0.14.2) 3/16 semitone a step: tenths of a semitone, signed */
+        int32_t x = v * 30 / 16;
+        if (x > 0) {
+            val[0] = '+';
+            fmt_fix(val + 1, x, 1);
+        } else {
+            fmt_fix(val, x, 1);
+        }
+        *unit = "st";
+        break;
+    }
     case F_SEMI:
         fmt_int(val, v);
         if (v > 0) {
@@ -641,8 +660,13 @@ static const page_t PAGES[] = {
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
     {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
     {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
-    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN0, P_LN1, P_LN2, P_LN3}},
+    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN0, P_LN1, P_LN2, P_LN3}},   /* (DRUM; (0.14.2) DRUM-X has the three below) */
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
+    /* (Orange Cat 0.14.2) DRUM-X: the lane the keys picked (a key struck picks its lane, as the grid's lane keys do), its four values; then its
+     * sound values; then the kit's own (dxl_desc, eng_drumx.c dxk_t). A placeholder for Session C's page */
+    {"LANES", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN}},
+    {"LANES 2", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_LAYER, DXL_PUNCH, DXL_ATK, DXL_BEND}},
+    {"LANES 3", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_TONE, DXL_FDBK, DXL_HANDS, DXL_DUCK}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
     {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, {P_SPRD, 0xFF, 0xFF, 0xFF}},
@@ -812,6 +836,90 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
     fm6_put_patch(tr, v, 0);
 }
 
+/* (Orange Cat 0.14.2) DRUM-X's lane pages (SC_DXLANE): what each column shows, of the lane ui.lane or of the kit. LEVEL is the track's
+ * P_LN0 + lane (a value of p[]: automation and locks as before); the others are copies of the kit's (dxk_view), written back by dxl_put */
+static const struct { const char *label; uint8_t fmt, lane; int16_t min, max; } DXL[DXL_N] = {
+    [DXL_LEVEL] = {"LEVEL", F_PCT, 1, 0, 127}, [DXL_TUNE] = {"TUNE", F_ST16, 1, -64, 63}, [DXL_DECAY] = {"DECAY", F_BIPCT, 1, -64, 63},
+    [DXL_PAN] = {"PAN", F_PANLR, 1, -64, 63}, [DXL_LAYER] = {"LAYER", F_INT, 1, 0, 15}, [DXL_PUNCH] = {"PUNCH", F_INT, 1, 0, 15},
+    [DXL_ATK] = {"ATK+", F_INT, 1, 0, 15}, [DXL_BEND] = {"BEND", F_SEMI, 1, -DXK_BEND_MAX, DXK_BEND_MAX},
+    [DXL_TONE] = {"TONE", F_INT, 0, 0, 15}, [DXL_FDBK] = {"FDBK", F_INT, 0, 0, 15}, [DXL_HANDS] = {"HANDS", F_INT, 0, 0, 15},
+    [DXL_DUCK] = {"DUCK", F_PCT, 0, 0, DXK_DUCK_MAX},
+};
+static int16_t dxl_cell[4];
+static char dxl_label[4][10];
+static const uint8_t *dxl_lane_src;                     /* the lane the pages show: ui.c sets it to &ui.lane (a build without the UI: lane 0) */
+static param_desc_t dxl_d[4];
+/* value id of lane l of track tr's kit (dxl_put's id) */
+static int32_t dxl_value(uint32_t tr, uint32_t l, uint32_t id)
+{
+    dxk_t k;
+    dxk_view(tr, &k);
+    l &= 7u;
+    switch (id) {
+    case DXL_LEVEL: return trk[tr % NTRK].p[P_LN0 + l];
+    case DXL_TUNE: return k.tune[l];
+    case DXL_DECAY: return k.decay[l];
+    case DXL_PAN: return k.pan[l];
+    case DXL_LAYER: return k.lay[l] & 15u;
+    case DXL_PUNCH: return k.punch[l];
+    case DXL_ATK: return k.atk[l];
+    case DXL_BEND: return k.bend[l];
+    case DXL_TONE: return k.tone & 15u;
+    case DXL_FDBK: return k.tone >> 4;
+    case DXL_HANDS: return k.hands;
+    case DXL_DUCK: return k.duck;
+    default: return 0;
+    }
+}
+static const param_desc_t *dxl_desc(uint32_t tr, uint32_t l, uint32_t id, uint32_t slot, int16_t **valp)
+{
+    param_desc_t *d = &dxl_d[slot & 3u];
+    char *lb = dxl_label[slot & 3u];
+    if (id >= DXL_N)
+        return 0;
+    *d = (param_desc_t){DXL[id].label, DXL[id].fmt, DXL[id].min, DXL[id].max, (int16_t)(id == DXL_LEVEL ? 127 : 0), 0, 0};
+    if (DXL[id].lane && slot == 0u) {                  /* the lane on its page's first card: "SD LV", "SD LY" (a card fits five letters) */
+        str_cpy(lb, drum_lane_abbr(&trk[tr % NTRK], l & 7u), 4);
+        str_cpy(lb + str_len(lb), id == DXL_LEVEL ? " LV" : " LY", 4);
+        d->label = lb;
+    }
+    if (id == DXL_LEVEL) {
+        *valp = &trk[tr % NTRK].p[P_LN0 + (l & 7u)];
+        return d;
+    }
+    dxl_cell[slot & 3u] = (int16_t)dxl_value(tr, l, id);
+    *valp = &dxl_cell[slot & 3u];
+    return d;
+}
+/* .. v written into the kit (expanded first: dxk_take); PAN stops at the centre on its way across (the detent). LEVEL is p[]'s (edit_param) */
+static void dxl_put(uint32_t tr, uint32_t l, uint32_t id, int32_t v)
+{
+    dxk_t *K;
+    l &= 7u;
+    if (id == DXL_LEVEL || id >= DXL_N)
+        return;
+    v = clamp(v, DXL[id].min, DXL[id].max);
+    K = dxk_take(tr);
+    switch (id) {
+    case DXL_TUNE: K->tune[l] = (int8_t)v; break;
+    case DXL_DECAY: K->decay[l] = (int8_t)v; break;
+    case DXL_PAN:
+        if ((K->pan[l] < 0 && v > 0) || (K->pan[l] > 0 && v < 0))
+            v = 0;                                     /* (the centre's detent: a turn across it stops there) */
+        K->pan[l] = (int8_t)v;
+        break;
+    case DXL_LAYER: K->lay[l] = (uint8_t)((K->lay[l] & 0xF0u) | (uint32_t)v); break;
+    case DXL_PUNCH: K->punch[l] = (uint8_t)v; break;
+    case DXL_ATK: K->atk[l] = (uint8_t)v; break;
+    case DXL_BEND: K->bend[l] = (int8_t)v; break;
+    case DXL_TONE: K->tone = (uint8_t)((K->tone & 0xF0u) | (uint32_t)v); break;
+    case DXL_FDBK: K->tone = (uint8_t)((K->tone & 15u) | (uint32_t)v << 4); break;
+    case DXL_HANDS: K->hands = (uint8_t)v; break;
+    case DXL_DUCK: K->duck = (uint8_t)v; break;
+    default: break;
+    }
+}
+
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
@@ -853,6 +961,12 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if ((MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP))
         return fm6_page_desc(pg, slot, valp);
     if((MELODEE_DRUM && pg->scope == SC_DRUM) || (MELODEE_DRUM && pg->scope == SC_DRUMHIT)){*valp=0;return 0;}
+    if (pg->scope == SC_DXLANE) {                       /* (0.14.2) DRUM-X's lanes and kit */
+        *valp = 0;
+        if (!(MELODEE_DRUMX && TSEL->eng_req == ENGI_DRUMX) || id == 0xFFu)
+            return 0;
+        return dxl_desc(song.sel % NTRK, dxl_lane_src ? *dxl_lane_src : 0u, id, slot, valp);
+    }
     if (id == 0xFFu) {
         *valp = 0;
         return 0;

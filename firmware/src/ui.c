@@ -208,6 +208,7 @@ static struct {
     } roll[5];
     int16_t roll_bpm;            /* the BPM last drawn */
 } ui;
+static const uint8_t *dxl_lane_src = &ui.lane;          /* (Orange Cat 0.14.2) params.c's DRUM-X lane pages show ui.lane */
 
 static int designer_on(void) { return ui.designer_mode != 0; }
 static void designer_open(void);
@@ -296,7 +297,9 @@ static int page_visible(uint32_t i)
      * turned back from EDIT 1 reached the Prophet's pages and read past the parameters (a crash on the unit) */
     if (page_at(i)->scope == SC_DRUM || page_at(i)->scope == SC_DRUMHIT) return MELODEE_DRUM && drum_track(TSEL);
     if (page_at(i)->scope == SC_TRACK && page_at(i)->id[0] >= P_LN0 && page_at(i)->id[0] <= P_LN7)
-        return drum_track(TSEL);
+        return drum_track(TSEL) && !(MELODEE_DRUMX && TSEL->eng_req == ENGI_DRUMX);   /* ((0.14.2) DRUM-X: its own, SC_DXLANE) */
+    if (page_at(i)->scope == SC_DXLANE)
+        return MELODEE_DRUMX && TSEL->eng_req == ENGI_DRUMX;
     if(MELODEE_CZ && TSEL->eng_req==ENGI_CZ && page_at(i)->scope==SC_ENGINE && page_at(i)->fam==FAM_EDIT && (page_at(i)->id[0]==P_E0 || page_at(i)->id[0]==P_E4))return 0;
     if (page_at(i)->scope == SC_CZ)                       /* (PHASE's CZ mode; PHASE retired without MELODEE_LEGACY_EXTRAS) */
         return TSEL->eng_req == 2u && eng_ok(2u) && TSEL->p[P_E7] == 1;

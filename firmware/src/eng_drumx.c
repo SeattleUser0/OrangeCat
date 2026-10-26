@@ -144,6 +144,8 @@ static dxk_t *dxk_take(uint32_t tr)
     return &dxk[tr % NTRK];
 }
 static void dxk_off(uint32_t tr) { dxk[tr % NTRK].on = 0; }   /* the factory kit t->preset (a preset's load) */
+/* (0.14.2) the kit's values as the pages and the editor name them (params.c DXL, dxl_desc; editor.c KIT_GET / KIT_PUT): a lane's, then the kit's */
+enum { DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN, DXL_LAYER, DXL_PUNCH, DXL_ATK, DXL_BEND, DXL_TONE, DXL_FDBK, DXL_HANDS, DXL_DUCK, DXL_N };
 static int dxk_panned(const track_t *t)                   /* a lane off the centre: the kit has two sides (mix.c) */
 {
     const dxk_t *K = dxk_of(t);
@@ -200,6 +202,13 @@ static uint32_t dxe_mute_toggle(uint32_t part, uint32_t lane)    /* the lane's n
     return dxe_muted(part, lane);
 }
 static void dxe_mute_clear(void) { for (uint32_t k = 0; k < NTRK; k++) dxe_mute[k] = 0; }
+static uint32_t dxe_mute_all_on(uint32_t part)             /* (0.14.2) every lane of the part on (ACC + OCT+): how many were muted */
+{
+    uint32_t m = dxe_mute[part % NTRK], n = 0;
+    for (; m; m &= m - 1u) n++;
+    dxe_mute[part % NTRK] = 0;
+    return n;
+}
 
 /* General MIDI notes 35..81 -> the lane (DV_*) and semitones from its pitch (Jiant's DRUM_GM) */
 static const int8_t DXE_GM[47][2] = {

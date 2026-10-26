@@ -849,10 +849,21 @@ static int test_save(void)
     return bad;
 }
 
+static void go_title_visible(const char *title);
 static void go_title(const char *title)
 {
     uint32_t i;
     for (i = 0; i < NPAGES && !str_eq(PAGES[i].title, title); i++)
+        ;
+    ui.home = 0;
+    ui.page = (uint8_t)i;
+    page_entered();
+}
+/* (0.14.2) the page so titled that the selected track shows (two LANES pages: DRUM's, DRUM-X's) */
+static void go_title_visible(const char *title)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES && !(str_eq(PAGES[i].title, title) && page_visible(i)); i++)
         ;
     ui.home = 0;
     ui.page = (uint8_t)i;
@@ -1369,10 +1380,10 @@ static int test_drumx(void)
         dxe_mute_clear();
     }
     /* the LANES pages show on a DRUM-X track and not on a MACRO track */
-    go_title("LANES");
-    ok = page_visible(ui.page) && cur_page()->id[0] == P_LN0;
+    go_title_visible("LANES");
+    ok = page_visible(ui.page) && cur_page()->scope == SC_DXLANE && cur_page()->id[0] == DXL_LEVEL;   /* ((0.14.2) DRUM-X's own) */
     set_engine_of(&trk[1], ENGI_MACRO);
-    bad += check("the LANES pages are visible on the DRUM-X track", ok);
+    bad += check("the LANES pages are visible on the DRUM-X track (0.14.2: its lane pages, SC_DXLANE)", ok);
     /* a step played through the sequencer, the voices and the mixer */
     t->p[P_SLEN] = 4;
     t->p[P_SSWING] = 0;
@@ -1424,6 +1435,99 @@ static int test_drumx(void)
     dxe_mute_toggle(0, DV_KICK);
     project_load(0);
     bad += check("lane mutes are performance state: a project load puts every lane back on (they are not in the project)", dxe_muted(0, DV_SNARE) == 0u && dxe_muted(0, DV_KICK) == 0u);
+    return bad;
+}
+
+/* (Orange Cat 0.14.2) DRUM-X's kits on the unit's pages: the lane pages, a key picks the lane, the knobs reach the lane's values (PAN's
+ * detent at the centre), the kit's page, SAVE > USER and its load, ACC + OCT+ on the grid, a lane copied onto another */
+static int test_drumx_kits(void)
+{
+    int bad = 0, ok;
+    track_t *t = &trk[0];
+    dxk_t saved;
+    uint32_t i;
+    ui_power_on();
+    select_engine(ENGI_DRUMX);
+    t->engine = t->eng_req;
+    apply_preset_to(t, 1);
+    go_title_visible("LANES");
+    bad += check("kits: DRUM-X's LANES: LEVEL TUNE DECAY PAN of a lane; DRUM's level pages not shown",
+                 cur_page()->scope == SC_DXLANE && cur_page()->id[1] == DXL_TUNE && cur_page()->id[3] == DXL_PAN && !page_visible(ui.page - 2u));
+    tap_key(9);                                         /* key 9: GM 38 at OCT 0, the snare */
+    bad += check("kits: a key struck picks its lane (key 9, GM 38: the SNARE)", ui.lane == DV_SNARE);
+    {
+        int16_t *vp;
+        const param_desc_t *d = page_desc(cur_page(), 0, &vp), *d2 = page_desc(cur_page(), 1, &vp);
+        bad += check("kits: the first card names the lane (SD LV), the others the value (TUNE)", d && str_eq(d->label, "SD LV") && d2 && str_eq(d2->label, "TUNE"));
+    }
+    bad += check("kits: a factory kit until a value is changed (on 0)", !dxk[0].on);
+    turn(EN_K2, 4);
+    ok = dxk[0].on && dxk[0].tune[DV_SNARE] == 4 && dxk[0].tune[DV_KICK] == 0 && dxk[0].base == 1u && !memcmp(dxk[0].lay, DX_KITS[1].lay, 8);
+    bad += check("kits: KNOB 2 tunes the snare (the kit expanded: 909 CLUB's, its LAYERs), no other lane", ok);
+    turn(EN_K3, -6);
+    bad += check("kits: KNOB 3 its DECAY", dxk[0].decay[DV_SNARE] == -6);
+    i = (uint32_t)t->p[P_LN0 + DV_SNARE];
+    turn(EN_K1, -5);
+    bad += check("kits: KNOB 1 its LEVEL (the track's P_LN, as before)", (uint32_t)t->p[P_LN0 + DV_SNARE] < i);
+    turn(EN_K4, -3);
+    ok = dxk[0].pan[DV_SNARE] == -3;
+    turn(EN_K4, 5);
+    ok &= dxk[0].pan[DV_SNARE] == 0;
+    turn(EN_K4, 2);
+    ok &= dxk[0].pan[DV_SNARE] == 2;
+    {
+        char v[12]; const char *u;
+        param_format(&(param_desc_t){"PAN", F_PANLR, -64, 63, 0, 0, 0}, 0, v, &u); ok &= str_eq(v, "C");
+        param_format(&(param_desc_t){"PAN", F_PANLR, -64, 63, 0, 0, 0}, -32, v, &u); ok &= str_eq(v, "L50");
+        param_format(&(param_desc_t){"PAN", F_PANLR, -64, 63, 0, 0, 0}, 64, v, &u); ok &= str_eq(v, "R100");
+    }
+    bad += check("kits: KNOB 4 its PAN, stopping at the centre on its way across (L, C, R; shown C, L50, R100)", ok);
+    tap_key(7);                                         /* the kick */
+    turn(EN_K2, -10);
+    bad += check("kits: another key, another lane: the kick tuned, the snare kept", ui.lane == DV_KICK && dxk[0].tune[DV_KICK] == -10 && dxk[0].tune[DV_SNARE] == 4);
+    go_title_visible("LANES 2");
+    turn(EN_K1, 3); turn(EN_K2, 7); turn(EN_K3, 2); turn(EN_K4, -5);
+    bad += check("kits: LANES 2: LAYER PUNCH ATK+ BEND of the lane", cur_page()->scope == SC_DXLANE &&
+                 (dxk[0].lay[DV_KICK] & 15u) == (uint32_t)((DX_KITS[1].lay[DV_KICK] & 15u) + 3u) && dxk[0].punch[DV_KICK] == 7u &&
+                 dxk[0].atk[DV_KICK] == 2u && dxk[0].bend[DV_KICK] == -5);
+    go_title_visible("LANES 3");
+    turn(EN_K1, 4); turn(EN_K2, 2); turn(EN_K3, 6); turn(EN_K4, 9);
+    bad += check("kits: LANES 3: the kit's TONE FDBK HANDS DUCK", dxk[0].tone == (2u << 4 | 4u) && dxk[0].hands == 6u && dxk[0].duck == 9u);
+    saved = dxk[0];
+    up_ui_named(2, 30, "MY KIT");
+    bad += check("kits: SAVE > USER saves the kit (SAVED U031)", msg_has("SAVED") && up_used(30));
+    apply_preset_to(t, 3);
+    bad += check("kits: a factory kit loaded over it (LOFI DUST, on 0)", !dxk[0].on && t->preset == 3u);
+    up_ui(0, 30);
+    bad += check("kits: SAVE > USER loads it back, value for value", msg_has("LOADED") && !memcmp(&dxk[0], &saved, sizeof saved));
+    bad += check("kits: the page shows the loaded kit's (LANES 3's DUCK)", (go_title_visible("LANES 3"), page_desc(cur_page(), 3, &(int16_t *){0}) != 0) &&
+                 dxl_value(0, 0, DXL_DUCK) == 9);
+    /* ACC + OCT+ on the grid: every lane on */
+    open_family(FAM_SEQ);
+    frame();
+    dxe_mute_toggle(0, DV_KICK);
+    dxe_mute_toggle(0, DV_HATO);
+    fm1_in.notes |= 1u << key_at(1, GK_ACC);
+    frame();
+    press(B_OCTUP);
+    fm1_in.notes &= ~(1u << key_at(1, GK_ACC));
+    frame();
+    bad += check("kits: ACC + OCT+ on the grid turns every lane back on (ALL LANES ON)", !dxe_muted(0, DV_KICK) && !dxe_muted(0, DV_HATO) && msg_has("ALL LANES ON"));
+    /* a lane's figure copied onto another (the grid's sheet's Copy lane, Paste lane) */
+    for (i = 0; i < NSTEP; i++) { memset(&t->step[i], 0, sizeof t->step[i]); t->step[i].time = ST_REST; }
+    t->p[P_SLEN] = 16;
+    grid_hit(t, 0, DV_KICK, 1); grid_hit(t, 6, DV_KICK, 1); grid_acc(t, 6, DV_KICK, 1); grid_hit(t, 6, DV_SNARE, 1);
+    tap_key(key_at(1, DV_KICK));
+    st_lane_copy();
+    ok = msg_has("COPIED") && msg_has("2 HITS");
+    tap_key(key_at(1, DV_CLAP));
+    undo_clear();
+    st_lane_paste();
+    ok &= (step_lanes(&t->step[0]) >> DV_CLAP & 1u) && (step_lanes(&t->step[6]) >> DV_CLAP & 1u) && (step_accents(&t->step[6]) >> DV_CLAP & 1u) &&
+          !(step_lanes(&t->step[3]) >> DV_CLAP & 1u) && (step_lanes(&t->step[6]) >> DV_KICK & 1u) && (step_lanes(&t->step[6]) >> DV_SNARE & 1u) && msg_has("PASTED ON");
+    bad += check("kits: Copy lane on the kick, Paste lane on the clap: the clap has its hits and accent, the kick and snare stay", ok);
+    undo_step(0);
+    bad += check("kits: EDIT held undoes the paste", !(step_lanes(&t->step[0]) >> DV_CLAP & 1u) && (step_lanes(&t->step[0]) >> DV_KICK & 1u));
     return bad;
 }
 
@@ -6284,6 +6388,7 @@ int main(void)
     bad += test_loop_end_edits();
     bad += test_grid();
     bad += test_drumx();
+    bad += test_drumx_kits();
     bad += test_screen();
     bad += test_favorites();
     bad += test_browser();
