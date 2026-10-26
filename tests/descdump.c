@@ -104,8 +104,10 @@ int main(void)
         printf("]}");
     }
     printf("],\n\"ORDER\":[");                      /* the engines as shown (engines.c ENGINE_ORDER), by name */
-    for (k = 0; k < NENG_SHOWN; k++) {
-        if (k)
+    for (k = 0, i = 0; k < NENG_SHOWN; k++) {        /* (0.14.0) as shown: a module's slot no module fills (WHEEL) is skipped, as the browser skips it */
+        if (!eng_ok(eng_vis(k)))
+            continue;
+        if (i++)
             putchar(',');
         js_str(ENGINES[eng_vis(k)]->name);
     }

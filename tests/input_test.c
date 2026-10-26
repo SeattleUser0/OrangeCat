@@ -20,6 +20,8 @@
 static uint32_t host_now;                          /* TIMER4 ticks (24 MHz) */
 #define FM1_INPUT_NOW() host_now
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
+static uint32_t forced[2];                         /* (Orange Cat 0.13.8) an OC_HW_TEST build's held keys (melodee.c, oc_hw_test.c) */
+#define FM1_INPUT_FORCED(id) ((forced[(id) >> 5] >> ((id) & 31u)) & 1u)
 #include "../firmware/hal/fm1_input.h"
 
 #define TICK_US 100u
@@ -341,6 +343,39 @@ int main(void)
         for (f = 0; f < 8u; f++)
             enc_frame(m, 0);
         check("a one-frame glitch at rest: no step", fm1_in.enc_steps[0] == 0);
+    }
+
+    {   /* (Orange Cat 0.13.8) the test surface's keys (OC_HW_TEST, command 108): a held id is a closed contact to the same debounce, every key */
+        uint32_t ok = 1, ms;
+        for (id = 0; id < FM1_NKEY; id++) {
+            uint32_t press_ms = 0, rel_ms = 0, pe = 0, re = 0;
+            reset();
+            memset(forced, 0, sizeof forced);
+            ct.n = 0;                                  /* the real contact stays open throughout */
+            key_col = -1;
+            sim_us = 0;
+            sim_col = 0;
+            forced[id >> 5] |= 1u << (id & 31u);
+            for (ms = 0; ms < 200u; ms++) {
+                uint32_t t;
+                if (ms == 100u)
+                    forced[id >> 5] &= ~(1u << (id & 31u));
+                for (t = 0; t < 10u; t++)
+                    tick();
+                if (state_of(id) && !press_ms) press_ms = ms + 1u;
+                if (!state_of(id) && press_ms && !rel_ms) rel_ms = ms + 1u;
+                pe += id < 14u ? (fm1_in.pressed >> id) & 1u : (fm1_in.notes_pressed >> (id - 14u)) & 1u;   /* (the edges as */
+                re += id < 14u ? (fm1_in.released >> id) & 1u : 0u;                                       /* fm1_input_edges takes them) */
+                fm1_in.pressed = fm1_in.released = fm1_in.notes_pressed = 0;
+            }
+            ok &= press_ms >= 1u && press_ms <= 4u && rel_ms > 100u && rel_ms <= 112u && pe == 1u && (id >= 14u || re == 1u);
+            if (!ok) {
+                printf("  key %u: pressed at %u ms, released at %u ms, %u press edges, %u release edges\n", (unsigned)id, (unsigned)press_ms,
+                       (unsigned)rel_ms, (unsigned)pe, (unsigned)re);
+                break;
+            }
+        }
+        check("a held key of the test surface: one press within 4 ms, one release within 12 ms", ok);
     }
 
     if (fails) {

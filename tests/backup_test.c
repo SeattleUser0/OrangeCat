@@ -322,6 +322,18 @@ int main(void)
     settings_click = settings_countin = 0;
     bad += check("settings with a click and a count-in restore",
                  put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings_click == 1u && settings_countin == 2u);
+    {   /* (Orange Cat 0.13.8) a settings object from before the MENU settings left PROJ_LAST's byte (favorites.factory[15][30]), restored */
+        persist_t old = ps;
+        old.favorites.factory[PREF_ROW][PREF_BYTE] = 0;                 /* untagged: written before 0.13.8 */
+        old.favorites.factory[15][30] = 0x20;                          /* PICKER OFF, no project to load */
+        bad += check("a settings object from before 0.13.8 (old bits: PICKER OFF) restores into the new byte, no project marked",
+                     put_all(1, &old, sizeof old, st_crc32(&old, sizeof old)) == 0 && (PREF_BITS & PREF_PICK_OFF) && !(PREF_BITS & PREF_ACCEL_OFF) &&
+                     !(PREF_BITS & PREF_TAG) && favorites.factory[15][30] == 0);
+        old.favorites.factory[15][30] = 0xC3;                          /* project slot 4 marked (it read as KNOB ACCEL OFF before) */
+        bad += check("a settings object from before 0.13.8 with project slot 4 marked restores: the mark kept, acceleration and the picker on",
+                     put_all(1, &old, sizeof old, st_crc32(&old, sizeof old)) == 0 && !(PREF_BITS & (PREF_ACCEL_OFF | PREF_PICK_OFF)) &&
+                     !(PREF_BITS & PREF_TAG) && favorites.factory[15][30] == 0xC3);
+    }
     ps.zoom = 0x12340100u;
     bad += check("settings with an untagged zoom word are refused", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 2u);
     ps.zoom = 0;

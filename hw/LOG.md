@@ -367,3 +367,250 @@ Heavy table, the shipped build (worst us / late in 20 s / load max %):
 | 4 | 5,169 / 3,620 / 140 | 2,686 / 164 / 68 | 2,369 / 0 / 53 | 4,692 / 3,592 / 118 |
 
 MALLET alone: 2,856 / 3,605 / 93. SHAPES as 0.13.7's and at or under 0.6.2 (1,254 / 0 at one track, 2,849 / 164 at four). The unit stays on this build.
+
+### Flash 14: MACRO's hot set (wt-mhot e53455f, linux-hw df3d4f5's firmware), Part 2
+
+- 2026-10-25T17:41:52Z, package `orangecat-0.6.2-e53455f.fwsc` SHA-256 6d17182c...; image 507,472 B (+500), RAM .data+.bss 93,672 B (+144), arena 92,096 B, of which
+  15,316 B is MACRO's hot set (12 tables: pl_lut_pitch_ratio_high and _low, pl_lut_sine, pl_lut_fold and _fold_2, pl_lut_4x_downsampler_fir, pl_chord_waves, the
+  five waveshaper curves) beside SHAPES' 2,580. Host tests: 184 of 185, the one failure hot_set_test's assumption that SHAPES takes the first hot slot (MACRO,
+  engine 8, takes it here): the test fixed (any slot), run again alone: passed. Golden hashes unchanged. Unit on `ORANGE CAT v0.6.2-e53455`, the 0.13.8 SHAPES
+  module registered (the interface is unchanged).
+
+MACRO by model, Flash 12 (no MACRO hot set) -> Flash 14 (the hot set): worst us / late in 20 s:
+
+| Model | N=1 | N=2 | N=3 | N=4 |
+|---|---|---|---|---|
+| VA | 912 / 0 -> 893 / 0 (-2 %) | 1,323 / 0 -> 1,296 / 0 (-2 %) | 1,736 / 0 -> 1,696 / 0 (-2 %) | 2,143 / 0 -> 2,104 / 0 (-2 %) |
+| WAVSHP | 1,903 / 0 -> 1,464 / 0 (-23 %) | 2,759 / 32 -> 2,107 / 0 (-24 %) | 3,201 / 81 -> 2,455 / 0 (-23 %) | 3,570 / 81 -> 2,844 / 39 (-20 %) |
+| FM | 1,583 / 0 -> 1,241 / 0 (-22 %) | 2,476 / 0 -> 1,862 / 0 (-25 %) | 3,303 / 214 -> 2,417 / 0 (-27 %) | 4,171 / 3,202 -> 2,972 / 164 (-29 %) |
+| GRAIN | 950 / 0 -> 838 / 0 (-12 %) | 1,348 / 0 -> 1,186 / 0 (-12 %) | 1,719 / 0 -> 1,517 / 0 (-12 %) | 2,137 / 0 -> 1,857 / 0 (-13 %) |
+| ADDTV | 1,989 / 0 -> 1,775 / 0 (-11 %) | 3,129 / 1,083 -> 2,796 / 164 (-11 %) | 4,177 / 3,596 -> 3,725 / 3,591 (-11 %) | 5,218 / 3,594 -> 4,639 / 3,595 (-11 %) |
+| CHORD | 827 / 0 -> 830 / 0 (+0 %) | 1,154 / 0 -> 1,150 / 0 (-0 %) | 1,491 / 0 -> 1,495 / 0 (+0 %) | 1,833 / 0 -> 1,832 / 0 (-0 %) |
+| SWARM | 1,601 / 0 -> 1,469 / 0 (-8 %) | 1,951 / 0 -> 1,817 / 0 (-7 %) | 2,512 / 0 -> 2,342 / 0 (-7 %) | 3,006 / 164 -> 2,833 / 165 (-6 %) |
+| NOISE | 794 / 0 -> 764 / 0 (-4 %) | 1,069 / 0 -> 1,053 / 0 (-1 %) | 1,367 / 0 -> 1,351 / 0 (-1 %) | 1,655 / 0 -> 1,636 / 0 (-1 %) |
+| PARTCL | 931 / 0 -> 907 / 0 (-3 %) | 1,353 / 0 -> 1,308 / 0 (-3 %) | 1,776 / 0 -> 1,715 / 0 (-3 %) | 2,198 / 0 -> 2,116 / 0 (-4 %) |
+| STRING | 976 / 0 -> 988 / 0 (+1 %) | 1,467 / 0 -> 1,459 / 0 (-1 %) | 1,949 / 0 -> 1,939 / 0 (-1 %) | 2,406 / 0 -> 2,398 / 0 (-0 %) |
+| MODAL | 2,833 / 3,596 -> 2,837 / 3,584 (+0 %) | 3,513 / 3,595 -> 3,522 / 3,592 (+0 %) | 4,604 / 3,592 -> 4,595 / 3,587 (-0 %) | 5,670 / 3,352 -> 5,643 / 3,342 (-0 %) |
+| KICK | 876 / 0 -> 822 / 0 (-6 %) | 1,253 / 0 -> 1,153 / 0 (-8 %) | 1,616 / 0 -> 1,498 / 0 (-7 %) | 1,974 / 0 -> 1,835 / 0 (-7 %) |
+| SNARE | 932 / 0 -> 918 / 0 (-2 %) | 1,374 / 0 -> 1,333 / 0 (-3 %) | 1,806 / 0 -> 1,739 / 0 (-4 %) | 2,213 / 0 -> 2,151 / 0 (-3 %) |
+| HI-HAT | 860 / 0 -> 841 / 0 (-2 %) | 1,251 / 0 -> 1,213 / 0 (-3 %) | 1,615 / 0 -> 1,569 / 0 (-3 %) | 1,989 / 0 -> 1,929 / 0 (-3 %) |
+| HARP | 1,344 / 0 -> 1,338 / 0 (-0 %) | 2,001 / 0 -> 1,991 / 0 (-0 %) | 2,349 / 0 -> 2,324 / 0 (-1 %) | 2,689 / 164 -> 2,680 / 164 (-0 %) |
+
+**The numbers move, so the declaration stays** (linux-hw df3d4f5): FM 22 to 29 % faster (four FM BELL tracks: 3,202 late -> 164), WAVSHP 20 to 24 % (two and
+three tracks now clean), GRAIN 12 %, ADDTV 11 % (two ADDITIVE PAD tracks: 1,083 late -> 164), SWARM and KICK 7 %. MODAL, HARP, CHORD and STRING do not move: their
+cost is arithmetic, not table reads. MODAL is still late on one track, and ADDTV from three: the voice budget (MC_UNITS) is the remaining lever (BUILD.md,
+Thirteenth run, Part 2). Raw: `~/fm1-hw/table-e53455f-macro.json`.
+
+### What the overload sounds like (Part 2; capture.py on the FM-1's USB audio, Flash 14)
+
+8 s each, the four-note chord on every step, SAFETY off (the unit's setting, the default):
+
+| Case | Late | Worst | Budget steals | Peak / RMS dBFS | Clipped runs | Dropouts |
+|---|---|---|---|---|---|---|
+| overload: MACRO MALLET, one track (3 voices admitted) | 1,455 | 2,844 | 0 | -4.0 / -17.7 | 0 | **200 holes** of 880 to 1,057 samples (20 to 24 ms), about 25 a second |
+| the budget steals: FOLD PLUCK, two tracks | 0 | 2,125 | 130 | -3.1 / -21.9 | 0 | 0 |
+| clean: VA BASS, one track | 0 | 899 | 0 | -7.0 / -17.0 | 0 | 0 |
+
+A steal is clean (the stolen voice fades; nothing in the stream). An overload is not a clip: on the USB stream it is a hole of about a USB service period each time
+the render misses, and at the DAC (not recordable until the AUDIO4c is routed) the half buffer plays again, which is the screech the user heard. With SAFETY on
+the shedder would cut a voice after two overloaded halves; it is off by default (upstream's choice, docs/AUDIO_PERFORMANCE.md), so admission (MC_UNITS) has to
+keep the render inside the budget. Files: `~/fm1-hw/overload-*.wav`.
+
+### Side task: the Nightly republished, Flash 15
+
+- Workflow rev 18 (the live check reads the live Nightly; BUILD.md, Thirteenth run, "Side task"). **Run 40222235763**, sonnet-work 89b4e79, publish_nightly=true:
+  build, tests-gate, pages all green, the check after the deploy too. Nightly label `sonnet-work · 89b4e79 · v0.6.2-89b4e7 · 2026-10-25T18:56:47Z`. Its pack and
+  SHAPES module are byte-identical to ceccc1c's (the firmware differs by the version string only).
+- 2026-10-25T18:57:50Z, the site's `melodee-nightly.fwsc` (SHA-256 ea558a69...): unit on `ORANGE CAT v0.6.2-89b4e7`; pack this build's, the SHAPES module at start 0
+  registered.
+
+### Part 5, the pack (on Flash 15; `~/fm1-hw/p5/st.py`: PACK_INFO, MOD_INFO, command 125, and one SHAPES and one MACRO note through capture.py)
+
+| Step | Pack after (PACK_INFO) | SHAPES note | MACRO note | Result |
+|---|---|---|---|---|
+| before | 1, this build's, 657ED950 | -5.4 / -19.1 dBFS | -6.3 / -18.9 | |
+| `oc_install.mjs erase-pack` | 0, none | silent (digital 0) | silent | pass |
+| `oc_install.mjs pack orangecat-nightly.pak` | 1, 657ED950 | -5.5 / -19.1 | -6.3 / -18.9 | pass: sound back |
+| a pack of another build (`orangecat-OTHER-build.pak`: a throwaway build with one pl_chord_waves sample + 1; its own hash, good CRCs) | 1, 657ED950, untouched | sounds | sounds | pass: the page refused it, **packWrongBuild**, before any command; nothing erased |
+| the Nightly's pack with one payload byte flipped (offset 20,000) | 1, untouched | | | pass: the page refused it, **packDamaged**, before any command |
+| the same file with the page's check bypassed (`oc_install.mjs pack-unchecked`: installPack's steps without packProblem) | **0, none** | silent | silent | the firmware refused it at PACK_END (rc 1, after 158 requests: the data CRC), never committed the header: no damaged pack, nothing plays wrong. **But the old pack is gone**: PACK_BEGIN erases the 10 sectors before the data comes (the protocol has no other order on USB), so the firmware's own check cannot keep it. The page's check is what keeps a pack intact; then reinstalled (state 1, sound back) |
+
+### Part 5, the modules (Flashes 15 to 17; `oc_install.mjs`, state from MOD_INFO and command 125)
+
+| Step | State after (start: state, engine) | Result |
+|---|---|---|
+| SHAPES module installed again (it was at start 0) | start 1: 7, engine 14 registered; start 0 erased after | pass: **replace beside** |
+| software reset (Flash 16: the same Nightly installed again, the flash tool's restart; 19:00:25Z) | start 1: 7, engine 14 from the module (125: source 2) | pass: registered at boot; its SHAPES CSAW BASS note against the host render of the built-in engine: 0.34 dB (tolerance 1.2), 263.8 Hz on both |
+| install cut at 60 % (`kill -9` of oc_install.mjs and its bridge) | start 0 (old) still 7 and playing; MOD_INFO flags 7 (an install under way) | pass: the old module in charge |
+| software reset (19:01:49Z) | start 0: 7, registered, plays; start 1: 0 (empty) | pass, as designed: the header page is written last, so a cut install leaves no magic and reads EMPTY (oc_module.c: MD_TORN is a half-written header); the cut sectors are erased by the next install there |
+| `remove 14` | every start 0; engine 14 the built-in SHAPES (source 1) | pass |
+| the Prophet module installed | start 0: 7, engine 19, 31,884 B | pass; INIT PROPHET, It's a Prophet 5 and Formant Seraphim play (a four-note chord: peaks -5.3 to -9.1 dBFS, no dropout, no clipped run); 75 presets offered |
+| SHAPES module with the Prophet there | refused before anything is erased: **modBlocked 19:0**, the page's text "ENGINE PROPHET INSTALLED AT START 0: REMOVE IT FIRST" | pass |
+| a project with engine 19 on track 1 saved (PROJECT save, slot 4, empty before), track 1 changed to MACRO, slot 4 loaded | track 1 engine 19 preset 5 again | pass. **Slot 4 now holds this test project** (the user's to delete) |
+| the Prophet installed again | in place, with the page's prompt ("no other start is free, the old module is erased first"; MOD_INFO flags 11) | pass: start 0: 7. A SHAPES module can never be in place (its two starts are never both its own); a Prophet replacement always is |
+| `remove 19`, the SHAPES module installed | engine 19 not available (the track keeps the number, silent); SHAPES at start 0: 7 | pass |
+
+**Module alone** (Flash 16b: linux-hw 06d67c6's firmware with `MELODEE_SHAPES=0`, wt-ns2 1622aed, image 483,788 B, host tests passed; 19:04:45Z, `ORANGE CAT
+v0.6.2-1622ae`): MOD_INFO flags 2 (SHAPES not built in), engine 14 from the module (the Nightly's SHAPES module installed again: beside, start 1). Its note: 0.34 dB
+from the host render. RING BELL, worst us / late in 20 s / load %: 1 track 1,184 / 0 / 37; 2: 1,891 / 0 / 61; 3: 2,425 / 0 / 68; 4: 2,724 / 164 / 69 (as (B) of
+Flash 9). **Flash 17**: the Nightly back (19:07:59Z, `v0.6.2-89b4e7`).
+
+**The crash ban** (last, everything before it passed). A throwaway module (branch hw-crash, never pushed: SHAPES whose render calls a null function pointer, a
+fetch at address 0, outside the PC guard's window), `~/fm1-hw/orangecat-shapes-CRASH-test.ocm`, installed beside (start 0, registered, the good module erased
+after). Three rounds (`~/fm1-hw/p5/crash.py`): 35 s after the boot (past the boot guard's 30 s, so the three-session rule is what is tested, not the first-death
+rule), SHAPES on track 1, one note: the unit stopped answering at once, rebooted by itself (the firmware's fault path, a software reset) and was back on USB in
+15 s, the module registered again. Before the fourth round command 125 said: start 0 **state 5, MD_CRASHED (MODULE BANNED)**, engine 14 the built-in SHAPES
+(source 1). Pass: the unclean-session mark saw the software resets; no power switch needed. (The screen's "MODULE BANNED SHAPES" notice is not readable over
+USB on this build.) Then `remove 14` (rc 0, the ban cleared with the start) and the Nightly's SHAPES module installed: start 0, state 7, registered; pack this
+build's; SHAPES and MACRO sound (-5.5 and -6.3 dBFS peak). The unit is clean.
+
+### Part 6, the library (on the Nightly, after Part 5; `fm1hw.py library`)
+
+- **BACKUP_LIST (read only) against the backup file of 2026-10-24** (`Orange Cat-backup-2026-10-24.json`): **object 6, the shared preset bank (bank 0, slots 1 to
+  16): same size and CRC (3,716 B, 41B5DCD7)**; object 2 (project slot 1): same (27,904 B, D954DF93). Object 0 (the running music) differs, as it must. Object 5
+  (project slot 4) is today's test project (Part 5). **Object 1 (the settings) differed by one byte**: offset 562, `favorites.factory[15][30]`, 0 -> 0xC3. That byte is
+  **two settings at once** (a bug, below): project.c's PROJ_LAST (0xC0 + the project last loaded or saved; Part 5 saved and loaded slot 4: 0xC3) and ui.c's
+  PREF_BITS (bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF). Then project slot 1 (the user's) loaded once, to clear bit 1 again (0xC0: knob acceleration on, picker on;
+  power-on now loads slot 1; before today the byte was 0, "none", which only a restore could write back), and the tracks as found put back (`putback
+  music-before-2026-10-24.json`: MACRO 10, 0, 1, 20).
+- **The shared library** (command 80, list): 384 slots, 1 used before (slot 0 "TRIO 001", engine 6). **Store and read back**: the selected track's sound (MACRO preset
+  10) stored to slot 383 as "HW TEST" (op 3: rc 0); read back (op 1): used, engine 8, "HW TEST". The list then has 2. Slot 383 is the user's to delete.
+- **The bug** (not fixed today: the fix moves one of them to another byte, a settings layout change): saving or loading project slot 3 or 4 writes 0xC2 / 0xC3 and so
+  turns KNOB ACCEL OFF on; slot 2 writes 0xC1 (bit 0, retired: harmless); and turning PICKER OFF (bit 5) makes the byte 0xE0 + the slot, which project_boot reads as
+  "none", so the last project is no longer loaded at power-on. Both from Melodee's PREF_BITS (1.3.x) and Orange Cat 0.3.6's PROJ_LAST taking the same byte.
+
+### Fix 1 of 0.11.1 (the library migration after a downgrade and an upgrade): its first real test was yesterday's round trip
+
+Yesterday (Flashes 4, 5, 6) the unit went from the head (library in the 0.9.1 group, migrated long before) down to 0.7.1 and 0.6.2 (both below 0.9.1: the old pair
+format, which cannot read the group) and back up to the head (Flash 6, 5b6a6c9 = 4e5da16 + a switch). What Fix 1 is for: an upgrade after such a round trip must
+finish the migration (a stale group copy is released; a bank whose pair is newer wins), or say LIBRARY NEEDS WIPE, never stop half way. **What happened**: the boot
+after the round trip did not stop at LIBRARY NEEDS WIPE; the library answered (UP_LIST slot 0 "TRIO 001"); BACKUP_LIST then (Flash 9) and today: the shared preset
+bank (object 6), the settings and the project slot byte-identical to the backup of October 24 (the settings until today's Part 5, above). **Pass, with what it did
+not cover**: no preset was saved on 0.6.2 or 0.7.1, so the case the warning is about (the old firmware's first save writing over group sectors, and the migration
+then keeping the newer pair) did not happen; the round trip exercised the read side (the group survives a visit by old firmware that only reads, and the
+migration at the next boot finds nothing to move). The write side needs a save on the old firmware, which destroys what it overwrites: a test for a unit
+with a backup and the user's go.
+
+### Part 3, MIDI note in (on the Nightly)
+
+- The AUDIO4c's MIDI out (`AUDIO4c DIN`, ALSA client 24 port 0) is wired to the FM-1's TRS MIDI in. ROUT 0: channels 1 to 4 play tracks 1 to 4.
+- A C major scale (C4 to C5, 150 ms held, 0.4 s apart, channel 1) into track 1 (MACRO CHORD MINOR), captured on the FM-1's USB audio, voices read over the editor
+  (schema 3) while each note was held: **8 onsets, 0.403 to 0.406 s apart; one voice sounding for each note; the intervals exact** (the strongest partial is the
+  octave of each note in this chord preset: 522.2, 586.1, 658.1, 697.1, 782.6, 878.2, 985.8, 1,044.4 Hz, 2.00 times C4 .. C5); peak -7.2 dBFS, no dropout, no
+  clipped run. **Pass**: MIDI input on the new firmware.
+
+### Part 7, the test surface on the unit (OC_HW_TEST builds: Flashes 18 to 20)
+
+- Flash 18 (19:16:13Z): wt-hwt 47aa740's image built with `--switch OC_HW_TEST=1` (511,304 B; host tests with the switch: all passed), `v0.6.2-47aa74`. Flash 19
+  (19:44:51Z): + op 6 (a step's recorded notes) and the page's title, the cursor, the tracker's column and effect in the state, `v0.6.2-4094c6` (host tests passed).
+  Flash 20 (20:19:38Z): + the picked effect's value on the step a tracker edit writes and that row, `v0.6.2-ea238a` (511,848 B; host tests passed, eef870d).
+- Command 108 answers over USB; **say state** decodes the same from a request on USB and one sent on the AUDIO4c's DIN port into the TRS input (page HOME,
+  engine 8, notice code 2262: "SAVED A", a composed notice the decoder names by code only). The panel's map comes back with the state: REC is button 13,
+  PLAY 12, KNOB 4 encoder 5.
+- Every surface action in the checks below was followed by 200 ms and a state read, and the driver stopped on any state that did not follow
+  (`~/fm1-hw/p3panel.py`; logs `~/fm1-hw/p3-panel*.log`, results `p3-panel-*.json`).
+
+### Part 3, recording on the unit, with MIDI in and the test surface
+
+- **REC armed by the REC key** (the surface's press of button 13): track 1 armed (TRACK 27), a second tap disarms. Passed.
+- **The 0.7.1 acceptance case**: a chord (C3, D#4, D5) from the AUDIO4c's MIDI out during the loop, released after 1.0, 0.55 and 0.25 s (MACRO ORGAN DRAWBAR, CHRD
+  off for the test: the project had CHRD MAJ, VOIC OPEN on track 1, which turns one key into a chord). Read back with op 6: three notes on the step, lengths
+  **8.006, 4.396 and 1.979 steps (1.001, 0.550, 0.247 s)**, onsets within 2 ms of each other. **Pass**: three distinct durations, each as played.
+- **Step properties on a recorded step**, set from the TRACKER page with the keys and knobs (KNOB 1 the row, KNOB 2 the FX column, KNOB 3 the effect, KNOB 4 one
+  detent at a time until the tracker's own value reads the target), a FOLD PLUCK chord (three notes), captured on the USB audio; two placements:
+
+| Property | Chord inside its own step (row 1, onset 0.16) | Chord rounded forward (played at 0.68 of step 0, shown and edited on row 1) |
+|---|---|---|
+| RATCH x4 | **pass**: 4 hits a pass in 3 passes, 31 to 33 ms apart | **pass**: 4, 4, 4, 30 to 34 ms apart |
+| FLAM | **pass**: a grace and the full hit 15 to 16 ms apart, every pass | **pass**: 15 to 17 ms apart |
+| NUDGE +16 (31.25 ms) | **pass**: 30.9 to 31.9 ms later | **pass**: 32.9 to 35.0 ms later |
+| CHANCE 50 %, 20 passes | **pass**: 8 played, each whole | **pass**: 10 played |
+| ACCENT | **pass**: the hits +1.8 dB RMS, centroid 2,545 -> 2,716 Hz (MACRO's velocity is its models' accent) | **pass**: +2.5 dB, 2,279 -> 2,394 Hz |
+| two adjacent four-note chords, x4 on both rows (the reviewer's case) | **pass**: 8 onsets every pass in 4 passes (4 + 4), 29 to 34 ms apart; both steps hold their four notes (op 6) | |
+| undo by EDIT held (1.2 s) | **pass**: one 10-detent CHANCE change (91 % -> 81 %) undone to 91 %, "UNDO"; ten single detents are ten history entries, one undone a hold | |
+
+- **Retracted**: an earlier run (by hand) heard one hit for RATCH x4 on the rounded chord and was taken for a firmware fault. It was the driver: the value was
+  set by a KNOB 4 turn right after an EDIT tap, never confirmed. With every action confirmed both placements pass, and the host agrees (tests/recording_props_test.c,
+  rounded() and rounded_live(): a chord rounded forward and one wrapped from the loop's last step, every property set on the row they are shown on, and a chord
+  recorded live late in its step: all pass). recording.c already reads every property of a recorded step from the row the overview shows, and the tracker writes
+  that row: nothing to fix.
+- **Found: an EDIT tap on TRACKER can also open the EDIT pages.** EDIT is a step modifier there: its release deletes the picked effect (ui_input.c, the step-mods
+  release, step_delete_edit) and a tap with no step modifier held opens the EDIT family (page_tap). The two read the buttons at different moments of the UI
+  frame; when the debounced release lands between them, both happen ("CHANCE OFF" and the page EDIT 1, the second of two taps 0.5 s apart). Not fixed today.
+
+### The Prophet module's hot set (post-list item 1; on the Nightly firmware, Flash 21)
+
+- 2026-10-25T20:33:19Z: the Nightly flashed again (Flash 21); `remove 14`; the Nightly's Prophet module (no hot set, 31,884 B) at start 0; `fm1hw.py table --set prophet`
+  (INIT, It's a Prophet 5, Formant Seraphim; four-note chords; N = 1..4). Then the module of linux-hw 5273d8e (P5_TANH, P5_EXP2, P5_TPT_G declared as its hot set,
+  6,668 B; 32,104 B; its host test: the set registered, all 201 presets equal the built-in's) installed in place, the same table. The interface is unchanged.
+
+Worst us / late in 20 s, before (no hot set) -> after (the hot set):
+
+| Preset | N=1 | N=2 | N=3 | N=4 |
+|---|---|---|---|---|
+| INIT | 1,258 / 0 -> 1,334 / 0 | 1,774 / 0 -> 1,884 / 0 | 2,364 / 0 -> 2,498 / 0 | 2,604 / 8 -> 2,679 / 111 (*) |
+| P5 | 1,534 / 0 -> 1,658 / 0 | 2,176 / 0 -> 2,364 / 0 | 2,793 / 157 -> 3,093 / 3592 | 3,032 / 293 -> 3,318 / 3585 (*) |
+| SERAPHIM | 1,514 / 0 -> 1,566 / 0 | 2,154 / 0 -> 2,222 / 0 | 2,804 / 157 -> 2,853 / -3594 (*) | 3,053 / 255 -> 3,120 / 937 (*) |
+
+(*) the main loop starved under the overload: a stats request went unanswered for over a second, fm1hw fell back to the old readout
+(schema 2: budget 2,902, late as a difference), so these late counts are not comparable; CPU1 stayed online with no fault (354,767 jobs).
+**Slower with the hot set: +3 to +9 % at one and two tracks** (where every run is clean): the module's three tables do not collide in the D-cache on these
+presets, and a module reaches a hot table through the firmware's pointers (OC_FW()->hot[e][i], loads in a chain) where the soft clip, inlined seven
+times a sample, had one address. **Taken back** (linux-hw, after 5273d8e): the Prophet module declares no hot set; its engine_t says what it reads and why.
+The module on the unit afterwards: the 5273d8e module (with the set) until the next install; see the end state.
+
+### Post-list item 2: engine-candidates merged into linux-hw (bb0d281), the modules at FW_API_VERSION 5
+
+- linux-hw bb0d281 (the merge; conflicts in the workflow notes, build.py's switches, fm1hw.py's sets, three documents: both sides kept). Its build: image
+  507,676 B, RAM .data+.bss 93,720 B; every module rebuilt at the new interface: SHAPES 23,944 B, the Prophet 31,884 B, WHEEL 2,920 B, SEM 3,632 B, HADES
+  3,308 B (each at two starts). Host tests: all passed (1,061 s).
+- **Flash 22** (21:37:51Z): `orangecat-0.6.2-bb0d281.fwsc` (SHA-256 7eeb212c...), `ORANGE CAT v0.6.2-bb0d28`. Its pack installed (hash 657ED950); the old Prophet
+  module (5273d8e, the old interface) refused, as it must (state 2), and removed; WHEEL's module: start 1, state 7, engine 7 from it.
+
+WHEEL (module) FULL ORGAN, the four-note chord, worst us / late in 20 s / load %, voices sounding, budget steals:
+
+| N | WHEEL module |
+|---|---|
+| 1 | 1,110 / 0 / 34, 4 voices |
+| 2 | 1,787 / 0 / 54, 8 voices |
+| 3 | 2,181 / 0 / 59, 9 voices, 606 steals |
+| 4 | 2,488 / 0 / 61, 9 voices, 1,255 steals |
+
+About 130 us a voice; four tracks with no late render; the admission keeps 9 voices sounding past two tracks (clean steals).
+
+### Flash 23: the candidates' measurement build (linux-hw de216f3 + `OC_CANDIDATES=1`), SEM and HADES
+
+- 2026-10-25T22:17:18Z, `orangecat-0.6.2-de216f3.fwsc` (wt-cand; image 507,864 B; host tests with the switch: all passed but two, re-run: the engine gate's
+  test quoted SEM's old size from ENGINE_CANDIDATES.md (3,632 B; 3,684 B since TYPE on STAT: the document corrected, the test then passed) and "CPU live
+  takes" under two suites at once (passed alone)). `v0.6.2-de216f`. WHEEL removed; SEM (engine 21) at start 1, HADES (22) at start 0, both state 7.
+
+| N | SEM NOTCH PAD | HADES PULSE BAS (MONO) |
+|---|---|---|
+| 1 | 1,002 / 0 / 32, 4 voices | 739 / 0 / 21, 1 voice |
+| 2 | 1,551 / 0 / 50, 8 voices | 1,034 / 0 / 27 |
+| 3 | 2,044 / 0 / 56, 9 voices, 1,688 steals | 1,328 / 0 / 34 |
+| 4 | 2,306 / 0 / 57, 9 voices, 2,373 steals | 1,618 / 0 / 41 |
+
+### Flash 24: the built-in WHEEL (8c0f675 = linux-hw de216f3 + MELODEE_LEGACY_EXTRAS as a switch, throwaway branch hw-wheel-builtin; DRUM-X off in it)
+
+- 22:22:38Z, `orangecat-0.6.2-8c0f675.fwsc` (image 522,068 B; host tests: as Flash 23's, the same two, the same outcome). Engine 7 built in (125: source 1).
+
+| N | WHEEL built in | WHEEL module (Flash 22) |
+|---|---|---|
+| 1 | 1,209 / 0 / 34 | 1,110 / 0 / 34 |
+| 2 | 2,053 / 0 / 59 | 1,787 / 0 / 54 |
+| 3 | 2,525 / 0 / 66 | 2,181 / 0 / 59 |
+| 4 | 2,859 / 40 / 68 | 2,488 / 0 / 61 |
+
+**The module is at or under the built-in engine at every N: WHEEL ships as 0.14.0** (the user's rule). The module reads SINE through the firmware's base
+hot set (RAM); the built-in engine reads it from the image.
+
+### Flashes 25 and 26: the area cleared, the end state
+
+- 22:25:47Z, Flash 25: de216f3's candidates build again, only to remove SEM (21) and HADES (22) by their numbers (a firmware without OC_CANDIDATES cannot
+  name them, and a remove of the whole area is not done over USB): `remove 21`, `remove 22`: every start empty.
+- 22:26:49Z, **Flash 26: the Nightly as published** (`melodee-nightly.fwsc` of sonnet-work 89b4e79, `v0.6.2-89b4e7`), its pack (`orangecat-nightly.pak`: state 1,
+  657ED950) and its SHAPES module (`orangecat-shapes-nightly.ocm`: start 0, state 7, engine 14 from it); starts 1 and 2 empty: no test module. The tracks as found
+  (`putback music-before-2026-10-24.json`: MACRO 10, 0, 1, 20) and track 1's CHRD MAJ and VOIC OPEN as found this morning; transport stopped; CLK put back to
+  INT (a timed-out table had left it on USB). Project slot 4 holds the Part 5 test project and library slot 383 "HW TEST"; power-on loads project slot 1
+  (PROJ_LAST 0xC0 since Part 6). **The unit stays here.**

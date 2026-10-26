@@ -43,8 +43,15 @@ static uint32_t um_len(uint32_t s)                 /* data bytes of a channel st
     return (s & 0xE0u) == 0xC0u ? 1u : 2u;         /* Cx Dx: 1, else 2 */
 }
 
+#if OC_HW_TEST
+static void hwt_uart_byte(uint32_t b);                  /* (Orange Cat 0.13.8) a SysEx's bytes, for command 108 (oc_hw_test.c) */
+#endif
 static void um_byte(uint32_t b)
 {
+#if OC_HW_TEST
+    if (b == 0xF0u || (um.sysex && b < 0xF8u))
+        hwt_uart_byte(b);
+#endif
     if (b >= 0xF8u) {
         if (b == 0xF8u || b == 0xFAu || b == 0xFBu || b == 0xFCu) {
             if (midi_enqueue(0xFu | b << 8, 2u))

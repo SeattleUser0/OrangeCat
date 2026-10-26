@@ -267,7 +267,8 @@ effect that cannot get memory plays dry and says FX FULL. It comes in by itself 
 
 What fits: with the card idle (no frozen phrase playing, no freeze running), the delay, a reverb (not CLOUD) and the
 chorus fit beside any four sounds, even four MACRO or SHAPES tracks. While frozen phrases play from the card, the
-card needs its own memory back, and the delay may say FX FULL with heavy sounds. CLOUD and STUT need 32 KB more each.
+card needs its own memory back, and the delay may say FX FULL with heavy sounds. CLOUD and STUT need 32 KB more each: with
+four MACRO or SHAPES tracks, the delay says FX FULL while STUT runs, and comes back when it stops.
 
 **Punch-in effects (hold FX).** Hold FX for the map. Keys you press while FX is held play an effect on the whole mix
 while you hold them. They start on the next 1/16 when playing. Double-tap FX to lock the map open.
@@ -411,6 +412,8 @@ and its row says NO ROOM.
 four-note chords on every step: SHAPES fits four tracks with any preset (RING BELL, the heaviest, 2.7 ms on four tracks); DRUM-X fits four tracks
 (2.4 ms); MACRO's light presets fit four tracks, but ADDITIVE PAD fits one (two are already over), and MALLET and GLASS BELL (the modal model)
 take nearly the whole budget on one track alone. This is the same on 0.6.2. Mix heavy MACRO presets with lighter tracks, or use fewer notes.
+Since 0.13.8 MACRO's FM and wave-folder sounds (FM BELL, FM BASS, FOLD PLUCK, FOLD LEAD) cost about a quarter less, so three of them fit where two did; ADDITIVE PAD
+two tracks, MALLET and GLASS BELL still one. When a track runs out of voices the oldest note fades out (a clean steal); what breaks up is the render running late.
 
 ## The Engines table: Use and Replace (0.12.0)
 

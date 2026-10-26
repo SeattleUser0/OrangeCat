@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.76  
+**Version:** 0.77  
 **Date:** October 25, 2026  
 **Tracks:** Orange Cat Specification v0.29
 
@@ -10,7 +10,9 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.77 (October 25, 2026, evening):** Thirteenth run, the rest: Parts 2 to 7 on the unit, the post-list items (the Prophet module's hot set measured and not kept, engine-candidates merged, WHEEL shipped as 0.14.0 on linux-hw, SEM and HADES measured, Frodhes' tables read), the Nightly check fixed (workflow rev 18, republished: 89b4e79), the MENU settings out of PROJ_LAST's byte. See "Thirteenth run", "After the list" and "Status of the Thirteenth run".
 - **0.76 (October 25, 2026):** Thirteenth run: **the four-track fix is shipped as the Nightly** (`sonnet-work · ceccc1c · v0.6.2-ceccc1`; linux-hw merged into sonnet-work, CI run 40212043712, publish run 40212959451) and on the unit; 0.13.8 gave back 3,284 B of image the hot sets had cost by accident; MACRO measured model by model; the capture harness; the installer paths and the library on the unit; the hardware test surface (OC_HW_TEST). See "Thirteenth run".
+- **Engine candidates (October 25, 2026, branch engine-candidates; not on main, not released, not on the unit):** the feasibility gate (ENGINE_CANDIDATES.md, tools/engine_gate.py), the firmware's own hot set, WHEEL as a module (0.14.0), and Frodhes' Rhodes, Caravel's SEM and HADES through the gate. Section "Engine candidates" at the end.
 - **0.75 (October 25, 2026):** Twelfth run, branch linux-hw (on the unit; not on main, not released): the first session with the real toolchain on a Linux PC (byte-identical to CI) and the real FM-1 on USB. The four-track fault measured: MACRO is as heavy as on 0.6.2 (not a regression), SHAPES took 1.9 times 0.6.2's render time; the cause, a one-way 4 KiB data cache on which two of Braids' tables in the pack collide (the plaintext window is not slower, a module's code is not slower); the fix, hot sets (0.13.7): an engine's per-sample tables in RAM, SHAPES back at or under 0.6.2 built in and as a module. docs/orangecat/ADDING_AN_ENGINE.md. See "Twelfth run".
 - **0.74 (October 24, 2026):** Eleventh run on sonnet-work (still not on main, released or flashed): the first hardware result (two tracks play, the third and fourth screech, whatever the engine); the Audio readout in the web editor's Settings tab (0.13.6, editor command 72 schema 8); the OC_PACK_BUILTIN switch and the A/B build that tells whether the pack's data window is the cause; the audio interrupt's recorded-step work checked (not per block). See "Eleventh run".
 - **0.73 (October 24, 2026):** 0.13.6 on sonnet-work (still not on main, released or flashed): the installer page's Nightly channel can serve a branch build with its pack, modules and set manifests (workflow Rev 17, input `publish_nightly`; `web/mirror_site.py`, `web/site_check.py`, `tools/orangecat_site.py nightly`); Standard, the editor and the manual stay main's. No firmware change. See "Tenth run" and the Before merging item 10.
@@ -2456,3 +2458,225 @@ translation unit: put a feature's statics in one struct (ADDING_AN_ENGINE.md say
 - **Nightly label**: `sonnet-work · ceccc1c · v0.6.2-ceccc1 · 2026-10-25T16:58:44Z`.
 - **On the unit** (hw/LOG.md, Flash 13): the site's firmware flashed, its pack and SHAPES module installed with tools/hw/oc_install.mjs (the page's code), the four-track
   table read on it: SHAPES RING BELL 1,168 us at one track and 2,686 us / 164 late at four, at or under 0.6.2; MACRO and MIX as on 0.6.2 (Part 2).
+
+### Side task: the Nightly check that could never pass (workflow rev 18)
+
+Publish run 40212959451 (ceccc1c) ended red at "Check the live site" although it had deployed ceccc1c: its own pre-deploy check listed `NIGHTLY sonnet-work ·
+ceccc1c`, and the live `firmware/nightly.json` served ceccc1c from 16:59:26 GMT (Last-Modified of the deploy; checked from the PC with and without cache-busting,
+and the installer page named ceccc1c too). No step put old files back: the copy of the live site taken before the deploy (web/mirror_site.py) takes Standard,
+the editor and the manual and, by design, never the Nightly (the run replaces it). The check after the deploy ran the same script and then read
+`live/firmware/nightly.json`, a file that copy never has, so it could not match on any run (80b85fb's run 40132493524 failed the same way, "the site's cache
+lags" in the Eleventh run was this). Where 80b85fb was seen live after 16:59 (if it was) is not explained by the site: a browser or CDN copy older than the deploy.
+
+Fixed (linux-hw ca31c93, merged into sonnet-work 89b4e79): `web/mirror_site.py --nightly` also takes `firmware/nightly.json` and the files it names, and the
+workflow's check after the deploy uses it (rev 18); the copy before the deploy is unchanged. Host test (tests/branch_nightly_test.py, 12 cases): a live site
+serving an older Nightly is published over: the copy leaves it out, the run's Nightly is the only one in the deployed site (no file of the old one left), the
+check's mirror finds the new commit, and without `--nightly` it finds no nightly.json (why every run failed). **Run 40222235763** (sonnet-work 89b4e79,
+publish_nightly=true): build, tests-gate and pages green, the check after the deploy green: `NIGHTLY sonnet-work · 89b4e79 · v0.6.2-89b4e7 ·
+2026-10-25T18:56:47Z`, Standard unchanged. The live nightly.json names 89b4e79. The firmware is ceccc1c's but for the version string.
+
+### Part 2: MACRO's own cost
+
+**Measured, model by model** (hw/LOG.md, "MACRO by model", Flash 12 and Flash 14): one preset a model, the four-note chord, one to four tracks. Ten of the 15
+models fit four tracks; SWARM and HARP touch the budget at four; WAVSHP, FM and ADDTV pass it from two or three; **MODAL (MALLET, GLASS BELL) is late on one track**
+with the three voices its 6 units admit.
+
+**The hot set: kept.** MACRO's 12 per-sample tables (tools/pack_hot.py's candidates: the pitch ratios, the sine, the two fold tables, the FM downsampler, the
+chord waves, the five waveshaper curves) are copied into the arena at boot: **15,316 B of arena** (ENG_HOT_MAX 8 -> 16, eng_hs +96 B; image +500 B). FM 22 to
+29 % faster (four FM BELL tracks: 3,202 late -> 164), WAVSHP 20 to 24 % (clean at two and three tracks), GRAIN 12 %, ADDTV 11 % (two ADDITIVE PAD tracks:
+1,083 late -> 164), SWARM and KICK 7 %; MODAL, HARP, CHORD and STRING unchanged (their cost is arithmetic). Linux-hw df3d4f5.
+
+**The voice budget per model.** engine_t allows it and MACRO already has it: `units` is `mc_units`, a table by model (MC_UNITS), and `cap` (`mc_cap`) holds PARTCL
+and STRING to one voice. The table was set in 0.5.3 from host ratios; the unit says MODAL is under-priced (6 units, three voices, late on one track) and ADDTV
+(7) and FM (8) too at two or more tracks. Per voice on the unit (the N=4 runs: worst less 460 us idle and 120 us a track, over the voices sounding): MODAL about
+950 us, ADDTV 860, FM 650, WAVSHP 440, SWARM 410, STRING 370, the rest 180 to 320. Units from that (92 us a unit: 1,660 us for voices at four tracks over the
+budget of 18): **proposed MC_UNITS = {VA 4, WAVSHP 5, FM 8, GRAIN 4, ADDTV 9, CHORD 3, SWARM 5, NOISE 2, PARTCL 4, STRING 4, MODAL 9, KICK 3, SNARE 4,
+HI-HAT 3, HARP 4}** (was {3, 3, 8, 4, 7, 5, 5, 4, 6, 6, 6, 4, 4, 5, 3}): MODAL and ADDTV two voices on one track, cheap models a little more polyphony. **Not
+committed**: on the host it changes four golden renders (FOLD PLUCK, ADDITIVE PAD, MALLET, GLASS BELL: their chords lose voices), and today's rules allow no
+golden change, nor a flash of a build whose host tests fail, so it was not measured on the unit either. It needs the user's approval of the golden update;
+the measurement plan is then one `fm1hw.py table --set macro` on it. Branch hw-macro-units (local) holds the one-line change. The table's numbers would move
+again with the hot set (FM and WAVSHP above are now cheaper: FM 7, WAVSHP 4 would do).
+
+**What the user hears at the overload** (hw/LOG.md, "What the overload sounds like"): a budget steal is clean (the voice fades; no dropout, no clipped sample);
+an overload is a stutter of 20 to 24 ms holes about 25 times a second on the USB stream, the stale half buffer at the DAC. SAFETY (GLO > WEIGHTS 2) is off by
+default (upstream's choice): with it off, nothing but admission stands between a heavy chord and the screech. No synthesis quality was lowered.
+
+**Budget lines.** MACRO's loops were not in tests/target_budget.txt at all (tests/target_budget.py listed no MACRO function). Added, new lines only: a MACRO list
+in target_budget.py (24 functions of .text.xip_macro: mc_render, mc_model_render and the models' renders, as DRUM-X's: measured when the compiler keeps them
+apart) and their costs from the local disassembly of linux-hw df3d4f5 (CI's toolchain): mc_render 278, the heaviest pl_chord_render 1,261, pl_particle_render
+867, pl_hh_render 807, pl_sd_render 648, pl_vshape_render_sync 574, pl_bd_render 576, pl_fm_render 503. No existing line changed.
+
+### Part 5: the installer paths on the unit
+
+All on the Nightly (Flashes 15 to 17), with tools/hw/oc_install.mjs (the page's own code) and command 125 / PACK_INFO read back after each step; the table is in
+hw/LOG.md. **Pass**: the pack erased (MACRO and SHAPES silent, digital zero) and installed again (both back, to 0.1 dB); a pack of another build refused by the page
+(packWrongBuild) with nothing erased; a pack with one flipped byte refused by the page (packDamaged) before any command; the module beside (new start, old erased
+after); registered after a software reset (the flash tool's restart) and rendering within 0.34 dB of the built-in engine's host render; a cut install (killed at
+60 %): the old module in charge after the reset; remove; the Prophet installed, three of its presets playing, a project with engine 19 saved and loaded; SHAPES
+refused while the Prophet is there ("ENGINE PROPHET INSTALLED AT START 0: REMOVE IT FIRST"); the Prophet again, in place, with the page's prompt; the module-alone
+build (SHAPES only from the module, its table as 0.13.7's (B)); the crash ban (three crashes of a throwaway module's render, each a software reset back in 15 s,
+then MODULE BANNED, state 5, the built-in SHAPES in its slot; removed, the unit clean).
+
+**Not as the list expected** (the firmware is right, the expectation is noted):
+- The flipped pack with the page's check bypassed: the firmware refuses it at PACK_END (the data CRC) and never commits it, but **the old pack is gone**: PACK_BEGIN
+  erases first, and the USB protocol has no way to check the data before the erase. What keeps a pack intact is the page's check (and the card's, which reads
+  the file first). Changing that needs a staged write (a second area) the flash map does not have.
+- A cut install leaves its start EMPTY, not TORN: the header page is written last, so there is no magic to see (oc_module.c; TORN is a half-written header).
+- A SHAPES module is never installed in place (its other start is always free or holds its own module); the in-place case is the Prophet's (8 sectors of 12).
+- Project slot 4 now holds the test project and library slot 383 "HW TEST": the user's to keep or delete.
+
+### Part 6: the library
+
+hw/LOG.md, "Part 6": the shared preset bank (bank 0, backup object 6) and project slot 1 equal the October 24 backup in size and CRC; the library lists 384 slots,
+1 used; a preset stored to a free slot (383) reads back. **Found: favorites.factory[15][30] is two settings** (PROJ_LAST and PREF_BITS): a project save or load to
+slot 3 or 4 turns knob acceleration off, and PICKER OFF stops the last project loading at power-on. Not fixed (a settings layout change, for the user to decide);
+the unit's byte set back to 0xC0 (acceleration on) by loading project slot 1. **Fix 1 of 0.11.1** (the migration after a downgrade and an upgrade) had its first
+real test in yesterday's round trip through 0.7.1 and 0.6.2: pass for the read side (no wipe asked, the library intact); the write side (a save on the old
+firmware) not done: it destroys what it overwrites.
+
+### Part 4: the audio capture harness
+
+`tools/hw/capture.py`: record (the AUDIO4c's inputs 1 and 2 at 48 kHz, or the FM-1's own USB audio at 44.1 kHz), then per recording the peak and RMS, clipping
+(runs of 3 or more samples at full scale), dropouts (a second difference past JUMP2, or 32 or more identical samples with sound on both sides), onsets (the
+envelope rising 9 dB within 10 ms), and the spectrum against a host render of the same preset (build/host/hostsim, resampled; the RMS dB difference of the
+normalized magnitude spectra over the sustain, 60 Hz .. 12 kHz). Calibrated on one SHAPES note (CSAW BASS, C4): JUMP2 = 0.70 (3 times the clean note's
+largest second difference, the saw's own edges), TOL_DB = 1.2 dB (2 times the clean pair's 0.34 dB, plus 0.5). **The AUDIO4c's inputs are digital zero to the
+PC** (all eight channels, with the unit playing): its analog inputs are not routed to its USB host channels, a routing set from the Mac: **for the user**.
+Every capture today is the FM-1's USB audio (the digital mix before the DAC); the analog path wants its own calibration pair once it is routed. `say`
+decodes the test surface's tones (Part 7).
+
+### Part 3: MIDI in, recording, step properties (hw/LOG.md, "Part 3")
+
+| Item | Result |
+|---|---|
+| MIDI note in (the AUDIO4c's DIN out to the TRS input; a C major scale) | pass: 8 onsets 0.40 s apart, one voice each, intervals exact |
+| REC armed by the REC key (test surface) | pass |
+| 0.7.1 acceptance: a chord with three release times recorded over MIDI, read back (test surface op 6) | pass: 1.001, 0.550, 0.247 s |
+| RATCH x4, FLAM, NUDGE +16, CHANCE 50 % (20 passes), ACCENT on a recorded chord inside its step | pass, each counted from the capture |
+| the same on a chord rounded forward into the next row | pass |
+| two adjacent four-note chords, x4 on both (the reviewer's case) | pass: 8 hits a pass, none dropped |
+| undo by EDIT held | pass (a change of several detents in one turn is one entry) |
+
+A single-hit ratchet seen in a first, unconfirmed run on the rounded chord was the driver's (a value set right after an EDIT tap, never read back), not the
+firmware's: with every action confirmed it passes, and new host tests (recording_props_test rounded(), rounded_live(): rounded forward, wrapped from the loop's
+last step, recorded live) pass on the code as it was. recording.c already reads every property of a recorded step from the row the overview shows, and the
+tracker writes that row: unchanged. **Found, not fixed**: on TRACKER (and NOTES) an EDIT tap can both delete the picked effect and open the EDIT pages, when the
+debounced release falls between the two places in the UI frame that read the buttons (ui_input.c: the step modifier's release and page_tap).
+
+### Part 7: the hardware test surface (0.13.8, OC_HW_TEST)
+
+Editor command 108, in a build with `OC_HW_TEST=1` only (default 0; the default build's symbol table is unchanged by it): press and release a key or button by
+its id (through the real debounce: hal/fm1_input.h FM1_INPUT_FORCED), turn a knob by detents, select a page, say state (a tone sequence: a 1,760 Hz marker and
+five digits for the page, the engine and the last notice's 12-bit code, decoded by capture.py say), a step's recorded notes (op 6); the state reply carries the
+panel's map, the page's title, the tracker's cursor, column and effect, and the picked effect's value on the step a tracker edit writes. The command is also
+taken from the TRS MIDI input (that command alone), for tests while USB is busy. Host tests: input_test (a held key through the debounce, every id),
+hw_say_test (the plan and the interrupt's tone code, rendered). Image of a test build +4.9 KB (511,848 B), RAM +144 B. tools/hw/hw_test.py drives it.
+web/EDITOR_PROTOCOL.md documents it as test-build only. Used on the unit for Part 3; the card tests (say state over TRS while the card is in) are the user's.
+
+## Engine candidates (0.14.0, branch engine-candidates, October 25, 2026)
+
+From sonnet-work ceccc1c (linux-hw merged). Not on main, not released, not flashed: the unit's rows are the Linux session's. The gate, its table and the
+four candidates' verdicts: docs/orangecat/ENGINE_CANDIDATES.md.
+
+| What | Status |
+|---|---|
+| The gate: ENGINE_CANDIDATES.md (the procedure, the table), tools/engine_gate.py (the CI rows from a module build; run by the build step on every module, notice "engine gate", orangecat-engine-gate-*.txt in the packages), tests/engine_gate_test.py (the placement rule; SHAPES' and the Prophet's rows against the plan) | **Done** |
+| The firmware's own hot set: SINE copied into the arena at boot (2,052 B), TANH_Q15 SRAM already; modules read both through fw_api_t base_hot (FW_API_VERSION 5: every module rebuilt once). Image +268 B, host output unchanged | **Done**; the unit's measurement **Not started** |
+| WHEEL as a module (0.14.0): engine 7, 2,920 B, 4 sectors at sector 0 or 6 (beside SHAPES or the Prophet), equal byte for byte to the built-in WHEEL of the reference build; stored WHEEL sounds play again when it registers. Proposed verdict: go | **Done** (CI); unit **Not started** |
+| Frodhes' Rhodes: the voice ported (tools/module/rhodes_mod.c), equal sample for sample to Frodhes' own rhodes.c (tests/rhodes_parity_test.c); 138,888 B against the 49,152 B area, 109,560 B of per-sample tables. Proposed verdict: no (as ported) | **Done** (feasibility) |
+| Caravel's SEM and HADES: modules (3,684 B and 3,308 B, beside either module), equal sample for sample to Caravel's own build of them (tests/caravel_parity, a checkout needed); proposed numbers 21 and 22, registrable only by an OC_CANDIDATES build. Proposed verdicts: go with limits (SEM's TYPE; the numbers) | **Done** (CI); unit **Not started** |
+| Finding: the Prophet module reads P5_TANH, P5_EXP2, P5_TPT_G per sample from its own flash with no hot set (6,668 B if declared) | **Open** (a decision) |
+| The engine numbers past 20 for the shipping build (NENGINES, the editor's list, user presets and favorites past 15) | **Open** (a decision) |
+
+CI: run 40218949650 (.ci_quick, sizes and the gate: green; its gate rows equal the PC's build of 689792e, the .ocm sizes as above); the full run after
+removing .ci_quick is the record (the final report names it). Host tests on the PC (tools/hw/ci_step.py test --parallel 2): all passed on 689792e.
+
+### After the list (the user's four items, in order)
+
+1. **The Prophet module's hot set**: declared (P5_TANH, P5_EXP2, P5_TPT_G, 6,668 B), measured on the unit before and after: **3 to 9 % slower** at one
+   and two tracks (no cache collision on its presets; a module reaches its copies through the firmware's pointer chain). Not kept. The plan's line
+   ("reads no table") corrected: it reads three tables per sample, measured with and without a hot set (hw/LOG.md, "The Prophet module's hot set").
+2. **engine-candidates merged into linux-hw** (bb0d281; the conflicts kept both sides, fm1hw.py's `--set candidates` beside `--set prophet`); every module
+   rebuilt at FW_API_VERSION 5; host tests all passed. **SEM's TYPE** rides on its STAT control (0..127 the STATE blend, 127 exact HP, which is Caravel's
+   TYPE HP, 128 TYPE BP), presets unchanged, a host check that the settings are three sounds. The gate's unit commands run: **WHEEL** (module) 1,110 to
+   2,488 us at 1 to 4 tracks, no late render; the built-in WHEEL 1,209 to 2,859 us, late at four: the module is lighter, so **WHEEL ships as 0.14.0**
+   (linux-hw; CHANGES.md). **SEM** 1,002 to 2,306 us, **HADES** 739 to 1,618 us, no late render anywhere; the admission keeps 9 voices sounding. Unit rows
+   in ENGINE_CANDIDATES.md.
+3. **Frodhes, a second look** (ENGINE_CANDIDATES.md): the pulse tables are note-indexed (a 264-byte slice a voice, read only during the hammer's contact),
+   the pickup is the one signal-indexed shaper and has a closed form (one division a sample), the TYPE's filters are 60 B a part. **Possible for RAM
+   and the cache, CPU unknown; it does not fit the module area as stored** (about 122 KB of flash without the pickup tables, against 48 KB). The port is
+   worth scheduling with fewer stored pulses (every fourth key, about 23 KB): a sound change to listen to first.
+4. **Pushed, recorded, and the end state**: the unit on the Nightly with its pack and SHAPES module (hw/LOG.md, Flash 26).
+
+### Status of the Thirteenth run
+
+| Part | Item | Result |
+|---|---|---|
+| 1 | the 4,460 B attributed, 3,284 B recovered (one struct) | done |
+| 1 | linux-hw merged into sonnet-work, CI, the Nightly published (runs 40212043712, 40212959451), on the unit, the four-track table | done |
+| side | the Nightly's live check (workflow rev 18), republished (run 40222235763, `sonnet-work · 89b4e79`) | done |
+| 2 | MACRO by model at 1 to 4 tracks | done |
+| 2 | MACRO's hot set (15,316 B): FM -22 to -29 %, WAVSHP -20 to -24 %, GRAIN, ADDTV -11 to -12 % | done, kept |
+| 2 | per-model units from the unit's costs | proposed, not committed (four golden renders change: the user's approval) |
+| 2 | what the overload sounds like | done: 20 to 24 ms holes on USB; a steal is clean; SAFETY is off by default |
+| 2 | MACRO's budget lines | added (24 new lines) |
+| 3 | MIDI note in | pass |
+| 3 | REC armed by the key, the 0.7.1 acceptance case | pass (test surface) |
+| 3 | RATCH, FLAM, NUDGE, CHANCE, ACCENT on a recorded step, inside and rounded forward; two adjacent chords x4; EDIT-held undo | pass |
+| 3 | an EDIT tap on TRACKER can also open the EDIT pages (a race) | found, not fixed |
+| 4 | the capture harness, calibrated | done on the FM-1's USB audio; **the AUDIO4c's inputs are not routed (the user's)** |
+| 5 | pack, module, module alone, crash ban | pass; the bypassed pack erases first (written in the plan, kept) |
+| 6 | library against the backup, a store and read back, Fix 1's first real test | pass; found PROJ_LAST and PREF_BITS on one byte: **fixed** (approved; migration, tests) |
+| 7 | OC_HW_TEST, command 108 | built, host-tested, used on the unit |
+| after | the Prophet's hot set | measured, not kept |
+| after | engine-candidates merged, WHEEL 0.14.0, SEM and HADES measured, SEM's TYPE | done |
+| after | Frodhes' tables | read: possible for RAM, not for flash as stored |
+
+### Unit checklist: what ran today, what is left for the user
+
+Ran today (hw/LOG.md has each): the flash path (Flashes 12 to 26), the pack from the computer (erase, reinstall, another build's, a damaged file both
+ways), the module from the computer (beside, after a software reset, a cut install, in place, remove, the Prophet and its refusal, a project with engine 19
+saved and loaded), the module alone, the crash ban by software resets (three unclean sessions), the library's bank 0 against the backup, MIDI in, live
+recording and the step properties through the test surface, the standing four-track step on every build that was measured.
+
+**Left for the user:**
+- **the AUDIO4c's inputs**: route analog inputs 1 and 2 to the USB host channels 1 and 2 (iConfig, from the Mac), then a calibration pair on the analog path
+  (`capture.py calibrate --source audio4c`);
+- the card items (11, 18, 19 of the Fourth run's list: Install set from the card, the card's pack and module installs), with the test surface's say state over
+  TRS if USB is busy;
+- the PACK MISSING screen at power-on and anything needing the power switch (a crash ban by real power loss is not needed: the software resets counted);
+- the screen's own words (MODULE BANNED SHAPES; the EDIT-tap race is visible as the page changing);
+- project slot 4 (the Part 5 test project) and library slot 383 ("HW TEST"): keep or delete;
+- the per-model MACRO units (approve the golden change, or not);
+- whether to publish a Nightly with today's linux-hw work (MACRO's hot set, the MENU settings fix, WHEEL 0.14.0): not done (the permission was for the fix).
+
+
+## Review of ceccc1c..linux-hw (October 25, 2026, evening): three fixes before the merge
+
+- **The MENU settings' byte (a7909aa).** 0.13.8 had put PREF_BITS in favorites.factory[8][2]; row 8 is MACRO (ENGI_MACRO 8), and byte 2 holds the stars
+  of MACRO presets 16 to 23: a star there toggled KNOB ACCEL and PICKER, and the export's tag set preset 23's star. Now row 4 byte 2: SAMPLE, retired in
+  every build, no module may take engine 4 (eng_module_slot), Felucca 1.0's SAMPLE had 4 presets (bits 0..3). The tag is the stored record's only (import
+  strips it, export sets it), so a fresh unit's favorites are all zero again (settings_origin_test's exception reverted). pref_migrate also keeps
+  0xE0..0xFF (PROJ_LAST with PICKER OFF set over it: slot ob & 3, settings ob & 0x22). No second migration: the row 8 layout was never published.
+  eng_macro.c: `_Static_assert` MACRO's presets <= 64 (row 8 bytes 0..7, below GLO > WEIGHTS 8..15 and the FX key map 16..31). settings_test: MACRO's
+  stars unchanged by import, export and the KNOB ACCEL and PICKER toggles, every k < 64.
+- **The pack gate (7998769).** oc_pack_scan set oc_pack_good before oc_pack_changed copied the hot sets: a MACRO note sequenced during a pack install
+  could render from a half-copied block. The copies are made first; a pack gone bad closes the gate before its copies change. oc_pack_test: a probe.
+- **The effects' memory with the hot sets (8db22a9).** tests/jfx_arena_test.c had 0.6.1's banks and took no hot set. Now 7998769's banks (main 92,064,
+  low 27,740, data 4,584, retained 816 B) and, in each case, the boot's sets first: base SINE 2,052, MACRO 15,296, SHAPES 2,580 = 19,928 B.
+
+| engines (card idle, cache ready) | DELAY | REV (ROOM) | CHORUS | STUT |
+|---|---|---|---|---|
+| 4 x largest (SHAPES 11,424 B) | yes | yes | yes | - |
+| 4 x largest, STUT | FULL | yes | yes | yes |
+| 4 x MACRO (11,320 B) | yes | yes | yes | - |
+| 4 x MACRO, STUT | FULL | yes | yes | yes |
+| DRUM FM6 MACRO SHAPES | yes | yes | yes | - |
+| DRUM-X MACRO SHAPES MACRO | yes | yes | yes | - |
+| DRUM-X MACRO SHAPES MACRO, STUT | FULL | yes | yes | yes |
+| DRUM-X MACRO SHAPES MACRO, CLOUD | yes | yes | yes | - |
+
+  Every case the guide promises holds. The test header's own extra (four MACRO tracks "and the SLICER's 32 KB too") does not: the delay goes FULL while
+  STUT runs. **Amended, not trimmed**: with the base and SHAPES' sets, MACRO's set cut to one table fails as well, and the base and SHAPES' together fail
+  without MACRO's (the base alone or SHAPES' alone fit); first fit at 4 KB blocks, not MACRO's size. GUIDE.md says it; the row is in the table, unchecked.
+- Workflow rev 20: the Nightly carries SHAPES, the Prophet and WHEEL (SEM and HADES, refused without OC_CANDIDATES, stay in the packages).

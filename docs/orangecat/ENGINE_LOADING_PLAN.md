@@ -1077,11 +1077,11 @@ block, code, presets and pages may stay in flash. Built in 0.13.7 as the **hot s
 | Engine | Declared hot set | Arena | Left in flash, also read per sample by some shapes or models (candidates) |
 |---|---|---|---|
 | SHAPES (built in and module) | pb_wav_sine, pb_ws_moderate_overdrive, pb_ws_violent_overdrive, pb_ws_sine_fold, pb_ws_tri_fold | 2,580 B (5 x 514, each rounded to 4) | the 15 comb wavetables (7,710 B, BUZZ), the formant waves (1,024 B, VOWEL), the granular, bowed and blown envelopes, the resonator tables, pb_lut_bell: about 13 KB more if every shape is to be safe |
-| Prophet (module) | none: p5_samples reads no table (oscillators, filter and soft clip are arithmetic; PITCH_OCT and ENV_LIN once a block, from the firmware's image) | 0 | none |
-| MACRO (built in) | none declared yet | 0 | pl_lut_sine (2,564 B), the fold tables (4,128 B), the wave shaper curves (2,570 B), pl_chord_waves (3,960 B), the pitch ratios (2,048 B): about 15 KB if every model is to be safe |
+| Prophet (module) | none, measured (0.13.8): p5_samples DOES read P5_TANH, P5_EXP2 and P5_TPT_G every sample (6,668 B; 0.13.7's "reads no table" was wrong, found by the engine gate). Declared as its hot set the module was 3 to 9 % slower on the unit (no cache collision on its presets; the pointer chain through fw_api_t costs more): not declared | 0 | P5_TANH, P5_EXP2, P5_TPT_G, in the module's own image |
+| MACRO (built in; 0.13.8) | pl_lut_pitch_ratio_high, _low, pl_lut_sine, pl_lut_fold, _fold_2, pl_lut_4x_downsampler_fir, pl_chord_waves, the five pl_lut_ws_* curves (12 tables, all of pack_hot.py's MACRO candidates) | 15,316 B | none |
 | DRUM-X (built in) | none: its voices read no pack table | 0 | none |
 
-The arena on the head is 91,936 B, four engine states take about 45 KB (MACRO 11,320 B, SHAPES 11,424 B a track on the host), and the resident profile
+(0.13.8) With MACRO's set the hot sets take 17,896 B of the arena (92,096 B on linux-hw df3d4f5); ENG_HOT_MAX is 16. The arena on the head is 91,936 B, four engine states take about 45 KB (MACRO 11,320 B, SHAPES 11,424 B a track on the host), and the resident profile
 keeps 64 KiB contiguous for them and the note history. So a hot set is a few KB, not the pack: SHAPES' full candidate list (about 16 KB) and MACRO's
 (about 15 KB) together would leave the arena below that line. Declare what the measured presets read; measure before adding more.
 
@@ -1106,6 +1106,52 @@ as on 0.6.2 (the "MIX" row, the user's session, passes the budget at four tracks
 | N=3 | 2,533 / 0 / 71 | 4,729 / 3,438 / 107 | 2,438 / 0 / 67 | 2,431 / 0 / 67 |
 | N=4 | 2,849 / 164 / 73 | 5,701 / 3,392 / 109 | 2,730 / 164 / 68 | 2,714 / 164 / 68 |
 
+
+### A known property of the USB install path (0.13.8, the unit; BUILD.md Thirteenth run, Part 5)
+
+PACK_BEGIN (and MOD_BEGIN in place) erases the area before the data comes: the SysEx protocol streams the file after the erase and the firmware checks it at
+PACK_END / MOD_END (the data CRC, the header against the build). A damaged or foreign file sent past the page is refused there and never committed, so nothing
+damaged plays, but the old pack is gone (measured: a flipped byte sent with the page's check bypassed: refused at PACK_END, the pack state then none, MACRO
+and SHAPES silent until the pack was installed again). **The page's check (web/fm1oc.js packProblem, ocmCheck; the card's reads the file first) is the guard
+that keeps an installed pack or module intact.** A staged write would need a second area the flash map does not have. Kept as it is (the user's decision,
+October 25).
+
+### MACRO's own cost (0.13.8, the unit; BUILD.md Thirteenth run, Part 2)
+
+MACRO, model by model (one preset each, the four-note chord, worst us / late in 20 s; hw/LOG.md Flashes 12 and 14), without and with its hot set:
+
+| Model | 1 track | 4 tracks | the hot set's gain |
+|---|---|---|---|
+| VA, GRAIN, CHORD, NOISE, PARTCL, STRING, KICK, SNARE, HI-HAT (mono or capped presets) | 760 to 990 | 1,640 to 2,400 / 0 | 0 to 13 % |
+| HARP | 1,338 | 2,680 / 164 | 0 |
+| SWARM | 1,469 | 2,833 / 165 | 7 % |
+| WAVSHP | 1,903 -> 1,464 | 3,570 / 81 -> 2,844 / 39 | 20 to 24 % |
+| FM | 1,583 -> 1,241 | 4,171 / 3,202 -> 2,972 / 164 | 22 to 29 % |
+| ADDTV | 1,989 -> 1,775 | 5,218 -> 4,639, late from 2 tracks -> from 3 | 11 % |
+| MODAL | 2,833: **late on one track** | 5,643 | 0 |
+
+Per voice (worst less 460 us idle and 120 us a track, over the voices sounding): MODAL about 950 us, ADDTV 860, FM 650, WAVSHP 440, SWARM 410, STRING 370, the rest
+180 to 320. The admission is per model already (`mc_units`, MC_UNITS); its 0.5.3 values are the host's, and MODAL (6 units: three voices on one track) and
+ADDTV (7) are under-priced on the unit. The table measured units would give (92 us a unit) is in BUILD.md, Part 2; it changes four golden renders (their chords
+lose voices) and waits for that approval. Arena: the hot set 15,316 B; states unchanged.
+## The module area with the candidates (0.14.0, branch engine-candidates)
+
+The 12-sector area (0xC8000..0xD3FFF, 49,152 B) and every module CI builds today, as `tools/engine_gate.py` measures them (docs/orangecat/
+ENGINE_CANDIDATES.md has each one's full table). Starts are the firmware's (oc_module.c `oc_mod_sect`: sectors 0, 6 and 4) and each engine's geometry
+(`oc_mod_geo`); SEM's and HADES's geometry exists only in an `OC_CANDIDATES` build.
+
+| Module | image | needs | geometry (sectors, at sector) | beside SHAPES | beside the Prophet | hot set (arena) |
+|---|---|---|---|---|---|---|
+| SHAPES (14) | 23,944 B | 6 | 6, at 0 or 6 | | no | 2,580 B |
+| PROPHET (19) | 31,884 B | 8 | 8, at 0 or 4 | no | | 0 B declared (reads P5_TANH, P5_EXP2, P5_TPT_G per sample: ENGINE_CANDIDATES.md, "Findings") |
+| WHEEL (7) | 2,920 B | 1 | 4, at 0 or 6 | yes (WHEEL at 6) | yes (WHEEL at 0) | 0 B (SINE, TANH_Q15: the base set) |
+| SEM (21, proposed) | 3,684 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
+| HADES (22, proposed) | 3,308 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
+| RHODES (23, proposed) | 138,888 B | 34 | none fits | | | 109,560 B read per sample: no |
+
+Three modules at once: SHAPES at 0 and one 4-sector module at 6 fill sectors 0 to 9 (two sectors free, no start there); the Prophet at 4 and one at 0
+fill 0 to 11. Two of the small ones (WHEEL, SEM, HADES) take 0 and 6. The firmware's own hot set (SINE, 2,052 B of arena at boot) is the base every
+module reads through `fw_api_t base_hot` (ENGINE_CANDIDATES.md, "The base hot set").
 
 ## Order of work
 

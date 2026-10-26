@@ -70,6 +70,12 @@
 #define FM1_NKEY 41u              /* ids: 0..13 buttons, 14..40 note keys */
 #define FM1_NENC 7u
 
+/* (Orange Cat 0.13.8) a test build's held keys (OC_HW_TEST, firmware/src/oc_hw_test.c): key id counts as closed while this is 1, through the
+ * same debounce as a contact. 0 in every other build */
+#ifndef FM1_INPUT_FORCED
+#define FM1_INPUT_FORCED(id) 0u
+#endif
+
 #ifndef MELODEE_PANEL_FAST
 #define MELODEE_PANEL_FAST 1
 #endif
@@ -277,7 +283,7 @@ static void fm1__keys(uint32_t p)                  /* the keys of column p, just
     uint32_t r, raw = fm1_in.raw[p];
     for (r = 1; r < 5u; r++)
         if (FM1_KEYMAP[r][p] >= 0)
-            fm1__key((uint32_t)FM1_KEYMAP[r][p], (raw >> r) & 1u);
+            fm1__key((uint32_t)FM1_KEYMAP[r][p], ((raw >> r) & 1u) | FM1_INPUT_FORCED((uint32_t)FM1_KEYMAP[r][p]));
 }
 
 static void fm1__frame(void);

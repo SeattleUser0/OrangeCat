@@ -57,6 +57,7 @@ extern const fw_api_t *oc_host_fw;
 #define OC_FW() ((const fw_api_t *)FW_API_ADDR)
 #endif
 #include "oc_pack.h"
+static inline const void *const *oc_base_hot(void) { return OC_FW()->base_hot; }   /* (0.14.0) dsp.c: SINE and TANH_Q15, the firmware's (its hot set) */
 
 #define PITCH_OCT (OC_FW()->pitch_oct)
 #define ENV_LIN (OC_FW()->env_lin)

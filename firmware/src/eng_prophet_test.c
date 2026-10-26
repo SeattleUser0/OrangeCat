@@ -633,8 +633,11 @@ static const engine_t ENG_P5_TEST = {
 #ifdef OC_MODULE
     ,.pages=&P5_PAGES
 #endif
-    /* (0.13.7) the hot set (core.h engine_t hot): none. p5_samples, the per-sample loop, reads no table: the oscillators (p5_wave, p5_inc,
-     * p5_wheel_inc), the filter and the soft clip are arithmetic (x0x/fastmath.h polynomials); PITCH_OCT and ENV_LIN are read once a block,
-     * and as a module through fw_api_t from the firmware's image, not the window. Arena cost 0 */
+    /* (0.13.8) the hot set (core.h engine_t hot): none, measured. p5_samples does read three tables every sample: P5_TANH (the soft clip, 4,100 B),
+     * P5_EXP2 (the pitch, 2,056 B) and P5_TPT_G (the filter, 512 B), 6,668 B (0.13.7 said it read none: wrong; found by the engine gate). Built in
+     * they are SRAM (.dsp_tables); in the module they are its own image's, in flash. Declared as the module's hot set and measured on the unit
+     * (hw/LOG.md, "The Prophet module's hot set"), the module was 3 to 9 % SLOWER at one and two tracks: its tables do not collide in the D-cache, and
+     * a module reaches a hot table through the firmware's pointers (OC_FW()->hot[e][i]), a chain of loads where the soft clip, inlined seven
+     * times a sample, had one PC-relative address. Not declared; PITCH_OCT and ENV_LIN are read once a block. Arena cost 0 */
     ,.hot=0,.nhot=0
 };

@@ -140,8 +140,11 @@ static void oc_pack_scan(void)
         pk.state = (uint8_t)pk_header_state(h);
         if (pk.state == PK_OK && !pk_payload_ok(h)) pk.state = PK_DAMAGED;
     }
-    oc_pack_good = pk.state == PK_OK;
+    /* (0.14.0) the copies first, then the flag: a MACRO note sequenced during a pack install renders only once its hot set is whole. A pack that is no
+     * longer good is silent before its copies change (an unchanged good pack's copy rewrites equal bytes) */
+    if (pk.state != PK_OK) oc_pack_good = 0;
     if (oc_pack_changed) oc_pack_changed();                  /* (0.13.7) the engines' hot sets copy their tables again (engines.c eng_hot_refresh) */
+    oc_pack_good = pk.state == PK_OK;
 }
 static void oc_pack_boot(void)                               /* persist_boot: after the flash is known and the library group is in place (lib_group.c) */
 {

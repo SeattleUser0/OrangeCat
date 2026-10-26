@@ -48,6 +48,8 @@ static void fix_header(uint8_t *pak, uint32_t len)      /* after the test change
     wr32(pak + 508, crc32_of(pak, 508));
 }
 static uint8_t PAK[OC_PACK_AREA];
+static uint32_t probe_n, probe_open;
+static void gate_probe(void) { probe_n++; probe_open |= oc_pack_good; }   /* oc_pack_changed: the gate as the copies are made */
 /* the install of PAK: 0 the whole of it; else the call that failed (1 begin, 2 write, 3 end) */
 static int install(int *rc_out)
 {
@@ -130,6 +132,23 @@ int main(void)
     }
     reboot();
     chk("reboot: the pack is checked and found, the Prophet objects retired from the first read", pk.state == PK_OK && oc_pack_good && st_retired(OBJ_P5BANK0));
+    {   /* (0.14.0) the hot sets are copied before the gate opens, and a pack gone bad closes the gate before its copies change: a MACRO note
+         * sequenced during an install never renders from a half-copied block */
+        void (*was)(void) = oc_pack_changed;
+        int ok;
+        oc_pack_changed = gate_probe;
+        probe_n = 0; probe_open = 0;
+        ok = install(&rc) == 0 && probe_n >= 1u && !probe_open && oc_pack_good;
+        nor[OC_PACK_LO + 5000] ^= 0x10;
+        oc_pack_good = 1; probe_n = 0;
+        oc_pack_scan();
+        ok &= probe_n == 1u && !probe_open && !oc_pack_good;
+        nor[OC_PACK_LO + 5000] ^= 0x10;
+        oc_pack_scan();
+        ok &= oc_pack_good;
+        oc_pack_changed = was;
+        chk("the hot sets are copied with the gate closed: an install opens it after the copy, a damaged pack closes it before (0.14.0)", ok);
+    }
 
     /* ---- damaged bytes, another build's pack */
     nor[OC_PACK_LO + 5000] ^= 0x10;

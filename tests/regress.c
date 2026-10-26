@@ -201,6 +201,9 @@ static void job_preset(const job_t *j)
     track_t *t = &trk[0];
     host_tracks_init();
     host_preset(t, j->e, j->pi);
+#ifdef JOB_PRESET_HOOK
+    JOB_PRESET_HOOK(t, j);                     /* (Orange Cat 0.14.0) a test's change to the preset before it plays (module_host_cand_test: SEM's TYPE) */
+#endif
     phrase(t, 60);
 }
 

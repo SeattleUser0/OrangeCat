@@ -35,6 +35,10 @@
 #     web/site_check.py proves them unchanged before and after the deploy). A push to main replaces the whole site and so ends the Nightly.
 #
 # Revisions:
+#   Rev 20 (Orange Cat 0.14.0, branch linux-hw): the Nightly and the site carry the modules this firmware registers (SHAPES, the Prophet, WHEEL); the engine
+#     candidates' .ocm (SEM, HADES: refused without OC_CANDIDATES) stay in the packages artifact for the unit's measurements.
+#   Rev 19 (Orange Cat 0.14.0, branch engine-candidates): WHEEL's module (engine 7) and the engine candidates SEM and HADES built beside SHAPES and the Prophet;
+#     the engine candidates gate (tools/engine_gate.py) after them: its tables as a notice and orangecat-engine-gate-*.txt in the packages.
 #   Rev 18 (Orange Cat 0.13.8): the check after a deploy mirrors the live Nightly too (web/mirror_site.py --nightly). It read firmware/nightly.json from a
 #     copy that never takes it, so every Nightly publish ended red at "Check the live site" whatever had been deployed (runs 40132493524, 40212959451).
 #   Rev 17 (Orange Cat 0.13.6): input publish_nightly; the pages job also runs for a branch dispatch with it set, mirrors the live site, adds the branch build as Nightly
@@ -115,13 +119,21 @@ jobs:
         # (rev 11, Orange Cat 0.10.0) SHAPES as a loadable module (tools/build.py --module shapes): one image for each start of the
         # module area, no .data / .bss, no undefined symbol; build/shapes-<version>.ocm. The report as a notice.
         # (rev 13, Orange Cat 0.12.1) and the Prophet (--module prophet): 8 sectors, starts 0 and 4; build/prophet-<version>.ocm
+        # (rev 18, Orange Cat 0.14.0) and WHEEL (--module wheel): 4 sectors, starts 0 and 6; build/wheel-<version>.ocm. The engine candidates SEM and HADES
+        # (Caravel's; registrable only by an OC_CANDIDATES firmware) are built the same way, so the unit can measure them from this run's packages
         modfail=0
-        for m in shapes prophet; do
+        for m in shapes prophet wheel sem hades; do
           modok=0; python3 tools/build.py --module $m > build/module-report-$m.txt 2>&1 || modok=1
           echo "::notice title=module $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report-$m.txt)"
           if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module $m notice"; modfail=1; fi
         done
         if [ "$modfail" != 0 ]; then exit 1; fi
+        # (rev 18, Orange Cat 0.14.0) the engine candidates gate (tools/engine_gate.py, docs/orangecat/ENGINE_CANDIDATES.md): the CI rows of every module's table
+        # (sizes, .data/.bss, state, voices, hot set and per-sample tables, placement, loop cost), the Rhodes port linked and measured though it fits no start
+        # (no .ocm). build/gate/*.json for tests/engine_gate_test.py; the tables as a notice and in the packages artifact
+        python3 tools/engine_gate.py --all --build-missing --json build/gate > build/engine-gate.txt 2>&1 || { echo "::error title=engine gate::$(tail -20 build/engine-gate.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"; exit 1; }
+        echo "::notice title=engine gate::$(grep -E '^gate ' build/engine-gate.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
+        cp build/engine-gate.txt "build/orangecat-engine-gate-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.txt"
         # (rev 3) what the image is made of, by engine and area (tools/size_report.py): the run page, and
         # build/orangecat-size-report.txt in the packages artifact
         rep=$(python3 tools/size_report.py "$JIELI_TOOLCHAIN/common/bin/objdump" build/melodee.elf build/orangecat-size-report.txt \
@@ -146,7 +158,7 @@ jobs:
           else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
         # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm; (rev 13) and the Prophet's
-        for m in shapes prophet; do
+        for m in shapes prophet wheel sem hades; do
           if [ -f build/$m-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
             cp build/$m-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-$m-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
           fi
@@ -158,7 +170,7 @@ jobs:
         # the packages artifact beside the files, and the unit's file browser lists them as "Set" (Install set: the pack, then the module)
         pk=$(ls build/orangecat-*.pak | head -1); base=$(basename "$pk" .pak); fw=$(ls build/orangecat-*.fwsc | head -1)
         python3 tools/oc_manifest.py --set "build/$base.pack.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")"
-        for m in shapes prophet; do
+        for m in shapes prophet wheel sem hades; do
           ocm=$(ls build/orangecat-$m-*.ocm 2>/dev/null | head -1)
           if [ -n "$ocm" ]; then python3 tools/oc_manifest.py --set "build/$base.$m.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")" --ocm "$(basename "$ocm")"; fi
         done
@@ -234,7 +246,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
-            $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done)   # (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
+            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
       # (rev 17, Orange Cat 0.13.6) A branch run: the site is the live one (Standard, the editor, the manual) plus this build as Nightly. Pages deploys a whole
       # site, so the live files are copied first (web/mirror_site.py), never rebuilt; their checksums are kept to prove, before the deploy and after it, that
       # Standard did not change (web/site_check.py). (A failing step puts its output on the run page as an error annotation.)
@@ -258,7 +270,7 @@ jobs:
           python3 tools/orangecat_site.py nightly site --package "$(ls pkg/build/orangecat-*.fwsc | head -1)" \
             --branch "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --built-at "$built" --fw-version "$fwv" \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
-            $(for f in pkg/build/orangecat-*.ocm; do echo "--ocm $f"; done) > nightly-out.txt 2>&1 || rc=$?
+            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-*) ;; *) echo "--ocm $f" ;; esac; done) > nightly-out.txt 2>&1 || rc=$?
           cat nightly-out.txt
           if [ "$rc" != 0 ]; then
             txt=$( { ls pkg/build; echo ----; tail -30 nightly-out.txt; } | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
