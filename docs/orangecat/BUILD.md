@@ -10,6 +10,11 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
 ## Revision history
 
+- **0.80 (October 26, 2026, branch dub-tape from sonnet-work 3ca2b56; documents only, no firmware change, not on the unit):** DUB TAPE, a per-track
+  dub echo processor: the design plan (docs/orangecat/DUB_TAPE_PLAN.md, revision 0.3: the routing today, the signal flow, four alternatives, the
+  recommended one, fifteen parameters in the fifteen free track ids, the memory budget, the file plan, the hardware plan, the open items) and the
+  research prototype's documents and measurements (docs/orangecat/dubtape/, with a README that says what Session A does next). The listening test
+  picked the half-rate line. See "DUB TAPE" at the end.
 - **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
   through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
   24..31 reserved), against op1r's own harness (tests/op1r_parity); the relocatable module package (.ocm format 2: one image and its relocation list,
@@ -2760,3 +2765,26 @@ print, beside worst and late:
 They do not count the same event and need not agree: MALLET's overload was 1,529 late renders, 254 USB holes and 371 DAC silences; four RING BELL tracks
 65 late renders, 14 USB holes and no DAC silence (late by a little: heard as nothing). The capture costs the unit some USB work: four RING BELL tracks
 measured 2,669 to 2,677 us with both captures running against 2,706 to 2,710 without.
+
+---
+
+## DUB TAPE (branch dub-tape, October 26, 2026)
+
+**Status: designed and reviewed, nothing built. Documents only on this branch.**
+
+Asked for October 26, 2026: a per-track dub echo processor (DUB TAPE) with regenerating, progressively filtered multitap echoes, usable as an
+insert on each track; investigate the codebase and plan it, build nothing yet.
+
+- Plan: docs/orangecat/DUB_TAPE_PLAN.md (revision 0.3). Every claim is marked verified, estimate or assumption; a second agent checked the verified
+  ones against the source.
+- Prototype: a research session built the kernel on the host (float C99, compiles for the FM-1 with hardware float), with renders, measurements and
+  a host bench; its documents are in docs/orangecat/dubtape/, its source and renders on the Linux PC (`/home/userzero/dubtape-research`, not
+  committed). The README there lists the steps for the integration session.
+- Decided by listening (October 26): the half-rate line (22.05 kHz) over the quarter rate.
+- Recommended: a resident effect (the module system loads engines only); the insert where the sends are taken (mix.c mix_send); the four
+  instances in one CPU1 job one block behind the tracks; the half-rate line in 4 KB arena blocks; fifteen parameters in the fifteen free track
+  ids with the JFX wire at version 2 (no new project magic, no P_COUNT change, no module rebuild). Staged: the kernel as a DUB model of the
+  shared DELAY first, measured on the unit, then the per-track instances.
+- Open: the plan's section 9 (the CPU1 cost on the unit first; the user's decisions on tails, frozen takes, the DRUM-X lane mask, the Prophet's
+  two knob ids; and the project-data-loss item, which stays closed to the unit until the docs say it is explained).
+
