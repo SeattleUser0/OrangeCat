@@ -2803,6 +2803,10 @@ unit, Session C draws its page, Session D takes the editor's table into the new 
 Of Jiant's list (eng_drumx.c's header): LAYER, PUNCH, ATK+, BEND are a lane's; TONE, HANDS, DUCK the kit's; IMAGE's place is taken by PAN; the
 SENDs per sound, group mutes, TOUCH and X-MOD are not built (X-MOD's four bytes fit the record's room to grow: 7 bytes left at np 127).
 
+**CI.** Run 40297727741 on ada31fd (no `.ci_quick`, the full suite): build green, tests-gate green, PASSED 190 jobs; its sizes equal the PC's below
+(image 518,816 B, RAM 93,864 B, pool 177,792 B, arena 90,528 B). Earlier `.ci_quick` runs for the sizes: 40294115918 (120e533). The PC ran the
+CI test step (tools/hw/ci_step.py test) green on 6e5f77f as well. Commits after the run change only this file.
+
 ### The numbers (the PC's build of the head, CI's toolchain; linux-hw a8df964 in brackets)
 
 | | drum-kits | linux-hw |
