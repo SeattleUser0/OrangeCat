@@ -579,29 +579,16 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #endif
 #if OC_DUB_BENCH
     case 104: {
-        /* (branch dub-tape; OC_DUB_BENCH builds only) DUB TAPE's CPU1 bench (oc_dub_bench.c). Op 0 [flags: 1 reset after reading]: the setting
-         * (n, R, algo, pattern, feedback, cpu0: a byte each), then 5 x 7 bits each: jobs on CPU1, jobs on CPU0, submits refused, the job's min,
-         * mean and max in ticks (24 a microsecond), its 99th percentile in us (16 us bins), the jobs past 3,056 us, CPU0's waits at the join,
-         * their mean and max in ticks. Op 1 n R algo pattern feedback cpu0: set up (0 done, 1 refused). Anything else: 127 */
+        /* (measure/core-split; OC_DUB_BENCH builds only) DUB TAPE in the two-core runs (oc_dub_bench.c). Op 0: 0, then the setting (ten bytes:
+         * n R algo pattern feedback cpu0 route spring sp_mix tap_cut); the timing is the cores' readout (AUDIO_STATS schema 9, kind dub).
+         * Op 1 n R algo pattern feedback cpu0 [route spring sp_mix tap_cut]: set up (1, rc: 0 done, 1 refused). Anything else: 127 */
         if (na >= 1u && a[0] == 0u) {
-            static db_st_t s __attribute__((section(".pool")));
-            uint32_t jobs, mean = 0, p99 = 0, acc = 0, b;
-            fm1_irq_off();
-            s = db_st;                                    /* (one consistent copy: the interrupt updates them) */
-            if (na >= 2u && (a[1] & 1u)) memset(&db_st, 0, sizeof db_st);
-            fm1_irq_on();
-            jobs = s.jobs0 + s.jobs1;
-            if (jobs) mean = (uint32_t)(s.tsum / jobs);
-            for (b = 0; b < DB_BINS; b++) { acc += s.hist[b]; if (jobs && (uint64_t)acc * 100u >= (uint64_t)jobs * 99u) { p99 = b * 16u + 16u; break; } }
             ed_b(0);
-            for (b = 0; b < 4u; b++) ed_b(db_cfg[b] & 127u);
-            ed_b(db_cfg[4] & 127u); ed_b(db_cpu0);
-            ed_bk_u32(s.jobs1); ed_bk_u32(s.jobs0); ed_bk_u32(s.refused);
-            ed_bk_u32(s.tmin); ed_bk_u32(mean); ed_bk_u32(s.tmax);
-            ed_bk_u32(p99); ed_bk_u32(s.hist[DB_BINS - 1u]);
-            ed_bk_u32(s.waits); ed_bk_u32(s.waits ? (uint32_t)(s.wsum / s.waits) : 0u); ed_bk_u32(s.wmax);
-        } else if (na == 7u && a[0] == 1u) {
-            ed_b(1); ed_b((uint32_t)db_config(a[1], a[2], a[3], a[4], a[5], a[6]));
+            for (uint32_t k = 0; k < 10u; k++) ed_b(db_cfg[k] & 127u);
+        } else if ((na == 7u || na == 11u) && a[0] == 1u) {
+            uint32_t c[10];
+            for (uint32_t k = 0; k + 1u < na; k++) c[k] = a[1 + k];
+            ed_b(1); ed_b((uint32_t)db_config(c, na - 1u));
         } else
             ed_b(127);
         break;
@@ -637,25 +624,24 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
              * (voices, buses, dub), submits refused, worker retirements, single-core forced, CPU1 online; then for each metric (wall, cpu0,
              * cpu1, voice, bus, dub, wait, tail_wait, tail, idle1) its min, mean, p99 and max in us (32 us bins). Flag 1 starts them over.
              * [flags, 2, s]: single-core forced (s 1) or not (0), then the same reply */
-            static cs_metric_t m[CS_N] __attribute__((section(".pool")));
-            uint32_t c[8], k, b;
+            uint32_t c[8], v[CS_N][4], k, b;              /* (measure/core-split: computed with interrupts off, no copy: the arena's room) */
             if (a[1] == 2u) cs_single = a[2];
             fm1_irq_off();
-            for (k = 0; k < CS_N; k++) m[k] = cs_m[k];
             c[0] = cs_halves; c[1] = cs_jobs[0]; c[2] = cs_jobs[1]; c[3] = cs_jobs[2]; c[4] = cs_refused; c[5] = cs_retired;
             c[6] = cs_single; c[7] = (uint32_t)audio_worker_online;
+            for (k = 0; k < CS_N; k++) {
+                const cs_metric_t *m = &cs_m[k];
+                uint32_t acc = 0, p99 = 0;
+                for (b = 0; b < CS_BINS; b++) { acc += m->hist[b]; if (m->n && (uint64_t)acc * 100u >= (uint64_t)m->n * 99u) { p99 = (b + 1u) * 32u; break; } }
+                v[k][0] = m->min / FM1_TICKS_PER_US; v[k][1] = m->n ? (uint32_t)(m->sum / m->n / FM1_TICKS_PER_US) : 0u;
+                v[k][2] = p99; v[k][3] = m->max / FM1_TICKS_PER_US;
+            }
             if (a[0] & 1u) cs_reset();
             fm1_irq_on();
             ed_b(9);
             for (k = 0; k < 8u; k++) ed_bk_u32(c[k]);
-            for (k = 0; k < CS_N; k++) {
-                uint32_t acc = 0, p99 = 0;
-                for (b = 0; b < CS_BINS; b++) { acc += m[k].hist[b]; if (m[k].n && (uint64_t)acc * 100u >= (uint64_t)m[k].n * 99u) { p99 = (b + 1u) * 32u; break; } }
-                ed_bk_u32(m[k].min / FM1_TICKS_PER_US);
-                ed_bk_u32(m[k].n ? (uint32_t)(m[k].sum / m[k].n / FM1_TICKS_PER_US) : 0u);
-                ed_bk_u32(p99);
-                ed_bk_u32(m[k].max / FM1_TICKS_PER_US);
-            }
+            for (k = 0; k < CS_N; k++)
+                for (b = 0; b < 4u; b++) ed_bk_u32(v[k][b]);
             break;
         }
 #endif
