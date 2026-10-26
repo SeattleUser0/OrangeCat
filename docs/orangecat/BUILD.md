@@ -15,6 +15,11 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
   whole as a user preset of engine 9 (the record's extension, versioned; presets of before load as they played); the LANES pages; commands 128 and 129
   through the extension (command 0); the library's kind 5. See "DRUM-X drum kits (0.14.2, Session E)".
 
+- **0.79 (October 26, 2026, branch web-app from linux-hw a8df964; not on main, not released, not on the unit):** Session D, the web app
+  (web/app: Unit, Sounds, Steps, Arrange, Project, Settings), served at webapp/app/ beside the installer and the editor; one firmware addition,
+  0.14.2, command 102 ARRANGE (the chains, the song and the scenes read and written whole: the backup's project record has no room for them),
+  host tested and independently reviewed (nothing blocking; its one should-fix done). Session C's UI_DESIGN.md 0.1 followed where it is decided
+  (fixed knob colors, the knob table, the scenes). See "The web app (Session D)" at the end.
 - **0.78 (October 26, 2026, branch op1r-candidates from linux-hw ce7b5c0; not on main, not released, not on the unit):** op1r's OP-1 synth plugins
   through the engine candidates gate with one glue (tools/module/op1r/op1_glue.h): fmbell, supersaw and dddd as modules (proposed engines 24, 25, 26;
   24..31 reserved), against op1r's own harness (tests/op1r_parity); the relocatable module package (.ocm format 2: one image and its relocation list,
@@ -115,6 +120,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 9 | Sampling and bouncing | Not started |
 | 10 | Other engines and effects | In progress: Jiant FM's effects built on branch fx-jiant (0.6.0); DRUM-X built on branch sonnet-work (0.9.0); neither tested on the unit |
 | 11 | Later extensions | Not started |
+| App | The web app (web/app, 0.14.2, branch web-app): one page for modules, sounds, steps, arrangement, projects and backups | Built and tested against the mock (web/app/test, 90 checks); firmware 0.14.2 (command 102) host tested; not tried on the unit (web/app/HARDWARE_TEST.md) |
 
 ## Reference versions
 
@@ -2952,4 +2958,28 @@ dxe_bus 31, dxe_post_sides 8, mix_lanes 85, mix_duck 20.
    the DRUM-X kit with 909 CLUB's knobs, as on linux-hw; saved again it keeps its kit. And the reverse: a preset saved with a kit here, then the
    firmware of linux-hw: it loads (kit 0) and a backup of it still holds the kit's bytes.
 4. By ear: a lane hard left and hard right on the speaker and headphones (L/C/R), the centre detent felt on KNOB 4, DUCK on a bass track.
+## The web app (Session D, branch web-app, October 26, 2026)
+
+What it is: web/app/README.md. How to prove it on the unit: web/app/HARDWARE_TEST.md (Session A).
+
+| Item | Status | Result |
+|---|---|---|
+| Firmware 0.14.2: command 102 ARRANGE (firmware/src/editor_arrange.c) | Done, host tested | editor_test.c arrange_protocol (and SAN=1): INFO, GET, the write refused while playing, a bad CRC and every out-of-range value change nothing, the unit's places kept, a track goes to the phrase its step now names, unkept steps kept first (the review's should-fix), stale staging. Independent review: nothing blocking |
+| The project codec from the firmware's layout (tests/app_layout.c, web/app/lib/codec.js) | Done | every fixture byte for byte: three FBKK records bank_pack wrote, the lists, FUN19..21; the step and note packing against the firmware's probes |
+| Step 1: Connect, Unit, the Engines table, the set install | Done (mock) | the editor's code unchanged (generated, checked); runSet for the set |
+| Step 2: Sounds | Done (mock) | the four knobs of UI_DESIGN.md (macros shown, not written: no P_MACk yet), Session C's four scenes drawn from their bytes, SOUND, presets and favorites, the library |
+| Step 3: Project | Done (mock) | backup objects 0 and 2..5, PROJECT save and load, export and import |
+| Step 4: Arrange | Done (mock) | the pool, chains (drag), the song (drag rows), scenes, grooves, LAUNCH; the diff; written with 102 |
+| Step 5: Steps | Done (mock) | the tracker view (TRACK_STEP), each recorded note's values from the project record; per-note editing and RATCH/FLAM/condition/NUDGE missing (no command) |
+| Step 6: Settings and the backup | Done (mock) | preferences, the audio readout, the complete backup with the arrangement guarded by the pool's CRCs |
+| The site | Done | webapp/app/ (tools/orangecat_site.py), the dry-run list and Standard (web/site_check.py), the mirror (web/mirror_site.py), the Nightly's webapp/nightly-app/ |
+| On the unit | Not started | web/app/HARDWARE_TEST.md, Session A |
+
+**Left to build:** the ENV, MOD, FX and VOICE sheets; the macros once P_MACk exists; a command for the knob table and scene bytes from the
+unit (UI_DESIGN.md section 6) so a module's picture shows; per-note editing (a NOTES write command); the saved slots' lists in the backup
+objects (a project-record change); effects and step generators in the Engines table once they are modules.
+
+**Found:** a complete backup does not carry any project's chains, song or scenes, nor the phrase pool: the project record (FBKK) has no room
+and the lists travel beside it only inside the unit. A backup restored therefore brings every project back with a new project's lists. The
+app's backup adds the music now's lists; the slots' are a firmware change for a later session.
 

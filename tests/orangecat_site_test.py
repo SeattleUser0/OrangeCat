@@ -107,6 +107,28 @@ class SetSite(unittest.TestCase):
         self.assertEqual((m["pak"], m["ocm"]), (rel["pak"], rel["ocm"]))
         self.assertEqual(m["releases"][0]["pak"], rel["pak"])
 
+    def test_the_site_serves_the_app(self):
+        """(0.14.2) tools/orangecat_site.py puts the web app at webapp/app/: its files, the shared modules beside the page, the import map
+        pointed at them, files.json for the mirror; web/site_check.py lists it and counts it as Standard"""
+        import orangecat_site
+        import site_check
+        orangecat_site.main(self.fw, "0.6.2", self.site, self.pak, [self.ocm], self.man)
+        app = self.site / "webapp/app"
+        listed = json.loads((app / "files.json").read_text())
+        for f in listed:
+            self.assertTrue((app / f).is_file(), f)
+        for f in ("index.html", "app.js", "app.css", "lib/codec.js", "lib/editor_proto.js", "lib/layout.js", "fm1backup.js", "fm1oc.js"):
+            self.assertIn(f, listed)
+        page = (app / "index.html").read_text()
+        self.assertIn('"#fm1backup": "./fm1backup.js"', page)
+        self.assertNotIn("../fm1backup.js", page)
+        self.assertEqual((app / "fm1oc.js").read_bytes(), (ROOT / "web/fm1oc.js").read_bytes())
+        self.assertFalse(any(p.name.startswith("test_") or p.suffix == ".py" for p in app.rglob("*")))
+        self.assertIn("webapp/app/index.html", site_check.listing(self.site))
+        self.assertNotIn("MISSING      webapp/app/index.html", site_check.listing(self.site))
+        self.assertIn("webapp/app/lib/codec.js", site_check.stable_files(self.site))
+        self.assertIn('href="webapp/app/"', (self.site / "index.html").read_text())
+
     def test_no_set_is_what_it_was(self):
         self.build()
         m = self.meta()

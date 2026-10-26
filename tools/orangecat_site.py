@@ -7,6 +7,8 @@
   webapp/installer/index.html Melodee's web installer (web/index_pkg.html, made by web/make_site.py), offering this
                               build as its one release
   webapp/editor/index.html    the web editor (web/editor.html, its font and backup module)
+  webapp/app/                 (0.14.2) the web app (web/app: index.html, app.css, app.js, lib/*.js, with web/fm1backup.js and
+                              web/fm1oc.js beside it and files.json, the list web/mirror_site.py copies); see web/app/README.md
   firmware/                   the package and the licence files (web/make_site.py)
 
   tools/orangecat_site.py PACKAGE VERSION OUT_DIR [--pak FILE --manifest FILE [--ocm FILE ...]]
@@ -30,6 +32,8 @@ Revisions:
   0.13.6: "nightly": a branch build as the Nightly channel of the published site (workflow input publish_nightly).
   0.1.0: first version. Uses web/make_site.py in installer-only mode, then adds the editor and the redirect itself.
   0.11.2: --pak, --ocm and --manifest: the pack and the modules of the build beside the firmware; the installer page offers them.
+  0.14.2: the web app (web/app) at webapp/app/ beside the installer and the editor; a Nightly publish puts the branch's app at
+          webapp/nightly-app/ (Standard's app is left as it is, as the editor is).
 """
 import shutil
 import sys
@@ -41,6 +45,35 @@ sys.path.insert(0, str(WEB))
 import make_site  # noqa: E402  (web/make_site.py)
 
 
+APP = WEB / "app"
+APP_SHARED = ("fm1backup.js", "fm1oc.js")       # web/'s modules the app imports (#fm1backup, #fm1oc): served beside its page
+
+
+def app_files():
+    """(0.14.2) the web app's published files, relative to web/app (the page, its style and script, lib/*.js); not tools/ or test/"""
+    return ["index.html", "app.css", "app.js"] + sorted("lib/" + p.name for p in (APP / "lib").glob("*.js"))
+
+
+def copy_app(dest):
+    """(0.14.2) the web app into dest: its files, web/fm1backup.js and web/fm1oc.js beside the page (the import map pointed at them), and
+    files.json, the list of what is there (web/mirror_site.py copies the published app by it)"""
+    import json
+    dest = Path(dest)
+    for rel in app_files():
+        (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(APP / rel, dest / rel)
+    for f in APP_SHARED:
+        shutil.copy(WEB / f, dest / f)
+    page = (dest / "index.html").read_text(encoding="utf-8")
+    old = '{"imports": {"#fm1backup": "../fm1backup.js", "#fm1oc": "../fm1oc.js"}}'
+    if old not in page:
+        raise SystemExit("web/app/index.html: the import map is not the one the site build rewrites")
+    (dest / "index.html").write_text(page.replace(old, '{"imports": {"#fm1backup": "./fm1backup.js", "#fm1oc": "./fm1oc.js"}}'), encoding="utf-8")
+    files = app_files() + list(APP_SHARED)
+    (dest / "files.json").write_text(json.dumps(files, indent=1) + "\n", encoding="utf-8")
+    return files
+
+
 def main(pkg, version, out, pak=None, ocms=(), manifest=None):
     out = Path(out)
     make_site.main(pkg, version, out, installer_only=True, pak=pak, ocms=ocms, manifest=manifest)   # installer, package, set, licences (checks them)
@@ -50,18 +83,20 @@ def main(pkg, version, out, pak=None, ocms=(), manifest=None):
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
         if (WEB / f).exists():
             shutil.copy(WEB / f, ed / f)
+    copy_app(out / "webapp" / "app")                     # (0.14.2) the web app beside them
     (out / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>Orange Cat</title>'
         '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
-        '<a href="webapp/installer/">Orange Cat installer</a> · <a href="webapp/editor/">Orange Cat editor</a>\n',
+        '<a href="webapp/installer/">Orange Cat installer</a> · <a href="webapp/app/">Orange Cat app</a> · <a href="webapp/editor/">Orange Cat editor</a>\n',
         encoding="utf-8")
-    print(f"site: {out}: installer, editor, {version}")
+    print(f"site: {out}: installer, app, editor, {version}")
 
 
 def nightly(out, package, branch, commit, built_at, fw_version, pak=None, ocms=(), manifest=None):
     """(0.13.6) publish_nightly.publish on a mirror of the stable site: the editor and the manual are not written (installer_only)"""
     import publish_nightly
     publish_nightly.publish(Path(out), package, fw_version, commit, built_at, pak=pak, ocms=ocms, manifest=manifest, branch=branch)
+    copy_app(Path(out) / "webapp" / "nightly-app")       # (0.14.2) the branch's app beside Standard's (webapp/app/ is mirrored, not rebuilt)
     print(f"site: {out}: Nightly {branch} {commit[:7]} {fw_version}")
 
 
