@@ -64,7 +64,7 @@ async function op(fn) {
     if (b) say(t("modBlocked").replace("{name}", S.session?.info?.engines?.[+b[1]] || "#" + b[1]).replace("{n}", b[2]), true);
     else say(TEXT.en[m] || m, true);
     console.warn(e);
-  } finally { S.busy--; render(); }
+  } finally { S.busy--; S.progress = 0; render(); }
 }
 const progress = (f) => { S.progress = f; const p = document.querySelector(".progress i"); if (p) p.style.width = Math.round(f * 100) + "%"; };
 
@@ -139,6 +139,7 @@ function renderHeader() {
   $("unitline").textContent = s ? `${s.info.version}${MOCK ? " (mocked unit)" : ""}` : MOCK ? "Mocked unit: press Connect" : "Not connected";
 }
 function render() {
+  document.body.dataset.busy = String(S.busy);
   renderHeader(); renderTabs();
   const main = $("main");
   const keep = document.activeElement && main.contains(document.activeElement) && document.activeElement.matches("input[type=text],input[type=search]") ? document.activeElement.id : null;
@@ -329,10 +330,11 @@ const visible = (d) => d && d.max > d.min && !!d.label && d.label !== "-";
 function fmt(d, v) { if (!d) return String(v); const [a, u] = E.fmtValue(d, v); return u ? `${a} ${u}` : a; }
 function knobView(id, color) {
   const s = S.session, d = s.pdesc[id];
-  if (!visible(d)) return el("div", { class: "knob", style: { "--kc": "var(--dim)" } }, el("svg", { viewBox: "0 0 100 100", html: dial(0, "var(--line)") }), el("span", { class: "lab" }, "-"), el("span", { class: "val" }, ""));
+  if (!visible(d)) return el("div", { class: "knob", style: { "--kc": "var(--dim)" } }, svgEl(`<svg viewBox="0 0 100 100">${dial(0, "var(--line)")}</svg>`), el("span", { class: "lab" }, "-"), el("span", { class: "val" }, ""));
   let v = s.dump.p[id];
   const frac = () => (v - d.min) / Math.max(1, d.max - d.min);
-  const svg = el("svg", { viewBox: "0 0 100 100", tabindex: "0", role: "slider", "aria-label": d.label, "aria-valuemin": d.min, "aria-valuemax": d.max, "aria-valuenow": v, html: dial(frac(), color) });
+  const svg = svgEl(`<svg viewBox="0 0 100 100" tabindex="0" role="slider">${dial(frac(), color)}</svg>`);
+  for (const [a, x] of Object.entries({ "aria-label": d.label, "aria-valuemin": d.min, "aria-valuemax": d.max, "aria-valuenow": v })) svg.setAttribute(a, x);
   const val = el("span", { class: "val" }, fmt(d, v));
   const set = (nv, final) => {
     nv = Math.max(d.min, Math.min(d.max, Math.round(nv)));
@@ -353,6 +355,8 @@ function knobView(id, color) {
   });
   return el("div", { class: "knob", style: { "--kc": color } }, svg, el("span", { class: "lab" }, d.label), val);
 }
+/* an SVG element from its markup (an HTML element named svg would not draw) */
+function svgEl(markup) { const t = document.createElement("div"); t.innerHTML = markup; return t.firstElementChild; }
 function dial(f, color) {
   const a0 = -225, a1 = 45, a = a0 + (a1 - a0) * Math.max(0, Math.min(1, f)), rad = (x) => x * Math.PI / 180;
   const pt = (ang, r) => [50 + r * Math.cos(rad(ang)), 50 + r * Math.sin(rad(ang))];
@@ -484,7 +488,7 @@ function viewArrange() {
     el("div", { class: "bar" }, el("button", { class: "primary", onclick: () => op(readArr) }, "Read the arrangement"))));
   const A = S.arr, l = A.edit, diff = K.diffLists(A.orig, l), problem = K.listsProblem(l);
   return el("div", { class: "grid" },
-    poolView(), chainView(), songView(), scenesView(),
+    chainView(), poolView(), songView(), scenesView(),
     wide("What will change", diff.length ? el("ul", { class: "diff" }, ...diff.map((x) => el("li", {}, el("span", { class: "k" }, x.kind), x.text))) : el("p", { class: "dim" }, "Nothing yet."),
       problem ? el("p", { class: "note" }, "Out of range: " + problem) : null,
       el("div", { class: "bar" },

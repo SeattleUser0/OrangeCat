@@ -120,7 +120,7 @@ tr.bad td { color: #FFB3A8; }
 .slot.over { border-color: var(--accent); }
 .slot.empty .let { color: var(--dim); }
 .song td { padding: 2px 4px; }
-.song select { padding: 2px 4px; font-size: 13px; width: 100%; }
+.song select { padding: 2px 4px; font-size: 13px; width: 100%; min-width: 3.6em; }
 .song tr.drag { opacity: .4; }
 .song tr.over td { border-top: 2px solid var(--accent); }
 .song .handle { cursor: grab; color: var(--dim); }

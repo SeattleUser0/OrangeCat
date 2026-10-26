@@ -12,7 +12,7 @@ const puppeteer = require(process.env.PUPPETEER || "puppeteer");
 const base = process.argv[2] || "http://localhost:8765/app/", out = process.argv[3] || ".";
 const width = +(process.env.W || 1200);
 
-const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
+const browser = await puppeteer.launch({ args: ["--no-sandbox"], executablePath: process.env.CHROME || undefined });
 const page = await browser.newPage();
 await page.setViewport({ width, height: 900, deviceScaleFactor: 1 });
 const errors = [];
@@ -23,14 +23,14 @@ const click = async (text) => {
   if (!ok) errors.push("no button " + text);
   return ok;
 };
-const idle = async () => { for (let i = 0; i < 400; i++) { const busy = await page.evaluate(() => /Busy|Reading|Connecting|%/.test(document.getElementById("status").textContent) && !/ready|Ready/.test(document.getElementById("status").textContent)); if (!busy) break; await new Promise((r) => setTimeout(r, 100)); } await new Promise((r) => setTimeout(r, 400)); };
+const idle = async () => { await new Promise((r) => setTimeout(r, 150)); for (let i = 0; i < 600; i++) { if (await page.evaluate(() => document.body.dataset.busy === "0")) break; await new Promise((r) => setTimeout(r, 100)); } await new Promise((r) => setTimeout(r, 300)); };
 const tab = async (name) => { await page.evaluate((n) => { [...document.querySelectorAll("#tabs button")].find((b) => b.textContent === n).click(); }, name); await new Promise((r) => setTimeout(r, 200)); };
 const shot = async (name) => { await page.screenshot({ path: `${out}/${name}.png`, fullPage: true }); };
 
 await page.goto(base + "?mock", { waitUntil: "networkidle0" });
 await shot("0-start");
 await click("Connect");
-for (let i = 0; i < 300; i++) { const t = await page.evaluate(() => document.getElementById("status").textContent); if (/Ready|ready/i.test(t)) break; await new Promise((r) => setTimeout(r, 100)); }
+await idle();
 await shot("1-unit");
 await tab("Sounds"); await shot("2-sounds");
 await click("Read the library"); await idle(); await shot("2b-sounds-library");

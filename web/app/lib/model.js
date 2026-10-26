@@ -61,5 +61,5 @@ export function engineScene(engine, name, colors, w = 240, h = 120) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="${name} (placeholder picture)" class="scene" data-engine="${engine}" data-family="${fam}">` +
     `<path d="${wave}" fill="none" stroke="${c[0]}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="420" stroke-dashoffset="0">` +
     `<animate attributeName="stroke-dashoffset" values="420;0;0" dur="3s" repeatCount="indefinite"/></path>` +
-    `<text x="${w - 8}" y="18" text-anchor="end" font-size="13" font-weight="600" fill="${c[1]}">${name}</text>${lamps}</svg>`;
+    `${lamps}</svg>`;
 }
