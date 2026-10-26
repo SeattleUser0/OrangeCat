@@ -1,0 +1,13 @@
+UI design mockups (tests/ui_mockup.c), palette NIGHT
+
+scene     bytes    draw us     still px      anim px      turn px      note px   2s mean  2s max mean ms  max ms
+macro       204      117.3            0            0         3200        15168      6348   18752     8.5    25.1
+shapes      204      207.9            0          576         2848          832      1209    4368     1.6     5.8
+drumx       171      300.1            0            0         2336         8928      3667   13184     4.9    17.6
+wheel       244      138.2            0         3872         2656          672      4683    8800     6.3    11.8
+
+still: px sent for a frame with nothing changed; anim: the clock 50 ms on; turn: KNOB 2 one detent (its dial, the sound line and the picture); note: a note-on (envelope, hit, gate).
+2s: two seconds at 20 frames a second, a note every 500 ms, KNOB 2 turned every 100 ms in the second second: px sent per frame, mean and worst, and their SPI time (ms).
+A full screen is 57,600 px, about 77 ms on the 12 MHz SPI (1,000 px about 1.3 ms).
+
+lint: 0 findings
