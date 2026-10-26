@@ -2803,3 +2803,75 @@ insert on each track; investigate the codebase and plan it, build nothing yet.
   `memset` (no soft-float calls: hardware float throughout). tools/loops.py on the noinline disassembly: run_lite's loops 52 and 181 instructions (129 a
   line sample + 52 a head), run_tape's 124 (a head) and 176 (a line) and 73 / 356, control_tick 93 and 141: the counts EVALUATION.md section 8 quotes.
   Nothing is flashed in this step.
+
+### Step 2: the CPU1 cost on the unit (plan section 8, rows 1 and 2; Session A, October 26, 2026)
+
+**The build.** dub-tape eaa1dd7 with `OC_DUB_BENCH=1` (firmware/src/oc_dub_bench.c, editor command 104; every other build unchanged): the research kernel
+(tools/dubtape/src/dubdelay.c, included unchanged, its code in flash as the plan places it) run once a half (128 frames, the kernel's block) as a
+CPU1 job: submitted at the half's first 32-sample block before the tracks render, on the previous half's input (each instance's track's mono engine
+output), joined after them, before the effects' bus job; its wet added into the dry mix. A 16 KB line pool (the arena's floor allows no more beside
+the bench's states): one instance 8,192 samples (0.37 s at the half rate, the plan's LEN 16K), four 2,048 each; the work a sample does not depend on
+the line's length. Reviewed by an independent pass before the flash (no defect that made the flash unsafe; its five measurement fixes are in). Host
+suite passed on eaa1dd7 (ci_step test, 1,183 s). Built with tools/hw/ci_step.py (the workflow's own build step on the PC; the workflow takes no
+build switch, so a CI package of a bench build would need a workflow change): **not the CI package the plan names**. Full backup first (the page's
+code, 50 objects, `Orange Cat-backup-2026-10-26-before-dubbench.json`). **Flash 34**, 2026-10-26T19:24:31Z, `fm1hw.py flash` (the page's install
+flow, tools/fm1_install.py): unit on `ORANGE CAT v0.6.2-eaa1dd`, the pack and modules as before.
+
+**The rows** (`~/fm1-hw/dubtape/dub_rows.py`): four MACRO VA BASS tracks, the four-note chord every step, 20 s a case, both captures; the instances on
+tracks 1..n, LITE SLAP (heads 1 and 3 x TIME, the longest at the line's end), FDBK 55, HCUT 80, LCUT 20, route RECORD. The job's time in microseconds
+a half (128 frames), measured on the core that ran it (TIMER4); CPU0's wait at the join.
+
+| Case | Worst us | Late | USB holes | DAC silences | Job mean / p99 / max us | CPU0 wait mean / max us |
+|---|---|---|---|---|---|---|
+| baseline, no instance | 2,132 | 0 | 0 | 0 | | |
+| **row 1: 1 x LITE, half rate (22.05 kHz)** | 2,216 | 0 | 0 | 0 | **308 / 384 / 410** (CPU1) | 129 / 342 |
+| row 1: 1 x LITE, full rate (RATE HI) | 2,276 | 0 | 0 | 0 | 254 / 336 / 373 (CPU1) | 104 / 284 |
+| row 1: 1 x LITE, quarter rate (the long-head fallback) | 2,248 | 0 | 0 | 1 | 340 / 400 / 482 (CPU1) | 146 / 378 |
+| **row 2: 4 x LITE, half rate** | 2,785 | 2,232 | 330 | 0 | **1,190 / 1,296 / 1,315** (CPU1) | 952 / 1,234 |
+| 1 x LITE, half rate, on CPU0 | 2,502 | 0 | 0 | 0 | 350 / 416 / 427 (CPU0) | |
+| 4 x LITE, half rate, on CPU0 (alternative B) | 3,385 | 2,266 | 330 | 0 | 1,368 / 1,440 / 1,451 (CPU0) | |
+| 1 x TAPE, three heads, half rate | 2,253 | 0 | 0 | 1 | 435 / 528 / 577 (CPU1) | 189 / 471 |
+| 4 x TAPE, three heads, half rate | 3,203 | 2,266 | 333 | 0 | 1,693 / 1,824 / 1,858 (CPU1) | 1,452 / 1,728 |
+| baseline again | 2,130 | 0 | 0 | 0 | | |
+
+What it says:
+- **One LITE instance costs about 308 us a half on CPU1 (10.6 % of the 2,902 us half), about three times the plan's estimate** (section 2.3: 12 M
+  instructions a second, about 100 us; measured: about 870 cycles a host sample at 360 MHz against about 270 instructions counted, so about 3.2
+  cycles an instruction with the code in flash and float latencies). Four cost 1,190 us (3.9 x one). TAPE with three heads: 435 us one, 1,693 four.
+- **CPU1's float unit is fine**: the same job is about 12 % faster on CPU1 (308 us) than on CPU0 (350 us), which takes the interrupts.
+- **The reduced rate does not save CPU**, as the prototype said, it costs: full rate 254 us, half 308, quarter 340 (the half-band converters).
+- **The rows' worst and late figures are this bench's, not alternative A's.** The bench runs a whole half's kernel work at the half's first block and
+  joins it there, so CPU0 waits for it (129 us one instance, 952 us four): one instance stays under the line (+84 us worst, 0 late), four do not.
+  Alternative A runs each 32-sample block's share (about 77 us one, 297 us four) beside that block's track render (about 530 us with four VA BASS):
+  hidden, by these numbers, with CPU1 busy about 41 % for four LITE instances and 58 % for four TAPE ones. Alternative B (the same work serial on
+  CPU0) is measured: four LITE instances take the unit over the line (3,385 us worst, 2,266 late).
+- Caveats: while the bench's job is out, no other CPU1 job can start (FM6, the Prophet, the batch fall back to CPU0; none runs with this load); the
+  two single DAC silences with 0 late are the capture's (no late render to cause them).
+- Next measurement before building (not built): the kernel per 32-sample block as alternative A schedules it, which needs DD_BLOCK 32 or a
+  block-split dd_process; and the kernel's loops in RAM against flash (the about 3x is the thing to attack: the plan's 15-tap output interpolator,
+  RAM placement of run_lite and the converters at a cost in arena).
+
+### For the user: the plan's section 9, the questions that are yours
+
+1. **Tails** (item 5): keep ringing after STOP, after a track MUTE, after the phrase ends? Proposed yes to all three, a hard clear on project load only;
+   the FX layer's mutes mute the input, not the tail.
+2. **A frozen take** (item 6): the take carries the echoes; when it plays back on a track with DUB ON, should it bypass DUB TAPE (proposed), or be
+   echoed again?
+3. **DRUM-X lane mask** (item 7): one byte in the kit record, the lanes that feed DUB (the snare alone at full send, the kick dry), done on drum-kits'
+   side with Session E?
+4. **LEN** (item 8): the user sets the memory an instance may take and the rate follows (proposed), or the instance takes what is free and caps TIME?
+5. **Float, the prototype's code as the kernel** (item 8b): port dubdelay.c as is with its tools as the host tests (proposed), or an int32 rewrite in
+   jfx.c's style? (The measured 3x above is mostly flash and float latency; an int32 rewrite is not obviously faster: no measurement yet.)
+6. **The chain order** (item 9): DUB after DIST, AUTO PAN on the dry only (proposed)?
+7. **The shared DELAY and DUB TAPE at once** (item 10): first come first served with FX FULL / DUB FULL (proposed), or DUB wins on its track?
+8. **MIDI CCs and motion** (item 11): CC 12..16 for TIME FDBK HCUT LCUT WET; TIME FDBK HCUT LCUT WET SAT lockable; DUB not in a sound preset
+   (proposed)?
+9. **The Prophet's two knob ids** (item 13): move the Prophet test engine's HOME knobs off P_RESERVED34 / 36 (its module rebuilt and republished),
+   or DUB TAPE drops to thirteen parameters?
+10. **Listening** (item 0): the five presets and the patterns' levels, pans and feedback weights tuned by ear on the instrument.
+11. **New from these rows**: four instances at the half rate need about 1.2 ms of CPU1 a half (four TAPE about 1.7 ms). Is per-track DUB on all four
+    tracks still the requirement at that cost, or one or two instances (about 0.3 to 0.6 ms) with the rest of CPU1 kept for the Prophet's voices?
+12. **Project slot 1** (item 14): closed in hw/LOG.md and BUILD.md on linux-hw (the cause, the fix d49f558); the restore of the October 24 backup's
+    object 2 into slot 1 waits for your word.
+
+Mine, not yours (item 12, the arena's handle scan; items 2 to 4, the heavy-set row, the arena rows, flash after drum-kits): measured before stage 1.
