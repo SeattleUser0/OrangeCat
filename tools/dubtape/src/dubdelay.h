@@ -60,11 +60,15 @@ typedef struct {
     float sp_in;                        /* 0..1 (on the wet): the input straight into the tank, a reverb send beside the taps */
     float tap_cut;                      /* 0..1: the taps taken out of the wet (1 with the spring on the wet: the tank alone) */
     uint32_t crash;                     /* a count: each new value kicks the tank once (a burst into it, the drive clipping it) */
+    /* (revision 0.5) riding a build: the cut and the wet's limiter. Every field 0: off */
+    int cut;                            /* 1: the loop's input (SEND x the input) taken to 0 over 3 ms, back over 3 ms at 0 (a fader grabbed) */
+    int cut_wet;                        /* 1: the cut takes the wet (the return) as well */
+    float lim_ceil;                     /* the wet's limiter after the loop: its ceiling, linear (0.5 is -6 dBFS); 0 off */
 } dd_params_t;
 
 #define DD_SP_AP 12                     /* the dispersion chain: first-order allpasses in the tank's loop (the chirp) */
 #ifndef DD_SP_TANK                      /* (measure/core-split: smaller rings for the firmware bench at the half rate) */
-#define DD_SP_TANK 2048u                /* the caller's buffer: the tank's ring (37 ms at any line rate to 44.1 kHz) .. */
+#define DD_SP_TANK 2048u                /* the caller's buffer: the tank's ring (37 ms at any line rate to 44.1 kHz; in the loop, 0.5, 1,024 floats: 37 ms to 22.05 kHz) .. */
 #define DD_SP_D1 256u                   /* .. then the two density allpasses' rings */
 #define DD_SP_D2 512u
 #endif
@@ -76,6 +80,7 @@ typedef struct {
     float lp, olp, dc;                  /* the loop's low-pass, the output's, a DC block on the input */
     float a, g, glp, gout, norm, gin, igin, m, in, tg;   /* set a control tick: dispersion coefficient, loop gain, low-passes, scale, drive */
     float env, crash_amp, kd;           /* the kick's burst: its envelope, its first impulse, its fall a sample */
+    float gd, al;                       /* (0.5) in the loop the tank is an allpass: its diffusion and its dispersion's coefficient */
     uint32_t crash_seen, crash_n, rng;
     int place;
 } dd_spring_t;
@@ -110,6 +115,7 @@ typedef struct {
     uint32_t denorm;
     int primed;                         /* the ramped gains have been set once */
     dd_spring_t sp;                     /* (0.4) the spring */
+    float cut_g, cutw_g, lim_env, lim_g; /* (0.5) the cut's gains (input, wet), the limiter's peak envelope and gain */
 } dd_t;
 
 /* bytes of line storage needed: seconds of longest head at loop rate R, per line */
