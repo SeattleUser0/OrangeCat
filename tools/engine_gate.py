@@ -199,6 +199,11 @@ GATE = {
         "modulation": "Orange Cat's ADSR and glide; legato through the engine's legato hook (Ravel's mono_note: no scoop, the vibrato's delay not restarted); ENV DEST FLT and the LFO on the cutoff (m->cutoff); full keyboard tracking and VEL>CUT; its own delayed vibrato, scoop and drift; the matrix's PITCH, CUT, AMP, E1..E8",
         "backend": "Ravel's float DSP (rv_math.h, rv_dsp.h): the SH-101 filter (sh101_tick, a four-pole ZDF-style ladder) and its siblings (LADDER, MS-20, SEM) would serve every float engine; none shared with Orange Cat's fixed-point dsp.c",
         "source": 'Ravel (De-Pattern) firmware/app/rv_synth.c (MONO), rv_dsp.h, rv_math.h at e9b6398, GPL-3.0-only; not yet run on an FM-1 by its author'},
+    "orbit_cloud": {"engine": 43, "funcs": ["cloud_render"], "voice_type": None,
+        "controls": "ORBIT's eight on EDIT 1 and 2 (WAVE SIZE DENS SPRD, DTUN CHRP STCK TONE); lost: none of the render's (the presets' sends)",
+        "modulation": "SHP moves the grains' WAVE (the track's LFO DEST SHP, the matrix), CUT the TONE (m->cutoff); its own grain clock and jitter; velocity and the ADSR through the amplitude; E1..E8 read every render and grain",
+        "backend": "the sine (SINE through the base hot set: up to three reads a grain a sample); Felucca's grain helpers (orbit_dsp.h: the Hann window, GR_NORM: GRAIN's in Felucca, ORBIT's CLOUD)",
+        "source": "ORBIT (dspaudio, ORBIT contributors) firmware/src/eng_cloud.c at c07bd1d, GPL-3.0-only; Felucca's grain helpers"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

@@ -41,7 +41,7 @@ int main(int argc, char **argv)
     np = em->npresets;
     ng = load_kv(gpath, gold, MAXJ);
     check("the header passes the registration check and names the proposed number", fw_module_check(&h) == FW_MOD_OK && h.engine == CAND_ENGINE &&
-          h.engine >= 21u && h.engine < NENGINES && NENGINES == 50);
+          h.engine >= 21u && h.engine < NENGINES && NENGINES == 52);
     if (CAND_ENGINE < ENGI_FMBELL)
         check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
     else if (CAND_ENGINE >= ENGI_JUNO)         /* (0.3) the hub's (Clipper's ...): presets made on demand or a list, the state a token or the engine's own block */

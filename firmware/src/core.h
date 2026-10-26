@@ -150,7 +150,7 @@
 #define OP1R_NCAND 8u             /* the op1r numbers 24..31 */
 /* (op1r-candidates 0.3) proposed: the FM-1 hub's other engines (docs/orangecat/ENGINE_CANDIDATES.md, "Clipper", "Ravel", "The hub's other voices"),
  * 32..49, in the brief's order: Clipper's ten (3dSam), Ravel's MONO, then ORBIT CLOUD, ORBIT, OP1_CLUSTER, Jangada's ROBO, X0X's 303, FiMba-1's
- * kalimba and FoMni. Past 31 only modules (a built-in engine's numbers are all below 20; engines.c eng_hs.refused, the one engine mask, is 64 bits) */
+ * kalimba and FoMni; ORBIT's PULSE and FM4 50, 51. Past 31 only modules (a built-in engine's numbers are all below 20; engines.c eng_hs.refused, the one engine mask, is 64 bits) */
 #define ENGI_JUNO 32u
 #define ENGI_ACID 33u
 #define ENGI_STRINGS 34u
@@ -169,8 +169,10 @@
 #define ENGI_X0X303 47u
 #define ENGI_KALIMBA 48u
 #define ENGI_FOMNI 49u
-#define HUB_NCAND 18u             /* the numbers 32..49 */
-#define NENGINES (OC_CANDIDATES ? 50 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31; (0.3) 32..49 */
+#define ENGI_ORBIT_PULSE 50u      /* ORBIT's eng_orbit.c holds three engines: SWARM is ENGI_ORBIT (44), PULSE and FM4 these two */
+#define ENGI_ORBIT_FM4 51u
+#define HUB_NCAND 20u             /* the numbers 32..51 */
+#define NENGINES (OC_CANDIDATES ? 52 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31; (0.3) 32..51 */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 65535u
