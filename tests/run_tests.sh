@@ -295,6 +295,17 @@ module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's 
     step "WHEEL as a module (0.14.0): slot 7 retired and silent, the registration offers it, a stored engine 7 plays it, unregistering retires it again" \
         "$OUT/module_host_wheel_test" tests/golden_modules.txt
 }
+module_host_retired() {                           # (op1r-candidates 0.3) Orange Cat's retired engines as modules in their own slots (OC_CANDIDATES): the CZ-1 (15)
+    $CC -c -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/module_host_cz_tu.o" tests/module_host_cz_tu.c || { fail "compile tests/module_host_cz_tu.c"; return 1; }
+    $CC -O2 $FW -DOC_CANDIDATES=1 -DMELODEE_CZ=1 -o "$OUT/module_host_cz_ref" tests/module_host_cz_test.c "$OUT/module_host_cz_tu.o" -lm ||
+        { fail "compile tests/module_host_cz_test.c (reference build)"; return 1; }
+    $CC -O2 $FW -DOC_CANDIDATES=1 -DMELODEE_CZ=0 -o "$OUT/module_host_cz_test" tests/module_host_cz_test.c "$OUT/module_host_cz_tu.o" -lm ||
+        { fail "compile tests/module_host_cz_test.c"; return 1; }
+    step "the CZ-1 as a module (candidates gate): the reference build's built-in CZ-1 and the module render the same 65 presets byte for byte, tests/golden_modules.txt" \
+        "$OUT/module_host_cz_ref" tests/golden_modules.txt
+    step "the CZ-1 as a module: slot 15 retired, the registration offers it, its presets render the golden lines, unregistering retires it again" \
+        "$OUT/module_host_cz_test" tests/golden_modules.txt
+}
 module_host_candidates() {                        # (Orange Cat 0.14.0) the engine candidates gate: SEM and HADES in an OC_CANDIDATES build, the Rhodes port against Frodhes' own engine
     for e in sem hades; do
         E=$(echo $e | tr a-z A-Z)
@@ -537,6 +548,7 @@ if sound && [ $TABLES = 1 ]; then
     job module_host_prophet
     job module_host_wheel
     job module_host_candidates
+    job module_host_retired
     job mod_pages_prophet
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \

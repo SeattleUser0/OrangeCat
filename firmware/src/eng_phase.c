@@ -16,6 +16,10 @@ static const char *const N_PD_LINE[] = {"MIX", "RING"};
 #include "cz_patch.h"
 static const char *const N_PD_ENV[] = {"LINK", "SPLIT"};
 static cz_patch_t cz_patch[NTRK] __attribute__((section(".pool")));
+#ifndef CZ_TONE
+#define CZ_TONE(t) (cz_patch[(uint32_t)((t) - trk) % NTRK])   /* (Orange Cat 0.14.1) the tone a track's CZ-1 plays: here the firmware's; the CZ-1 module
+                                                               * (tools/module/cz_mod.c) keeps each part's in its own state */
+#endif
 static void cz_init(void) { for (uint32_t k = 0; k < NTRK; k++) cz_patch_init(cz_patch[k].raw); }
 
 /* Eight rate/target points, with explicit sustain/end. Rates are Q24 per

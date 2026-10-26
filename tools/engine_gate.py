@@ -141,6 +141,16 @@ GATE = {
                              "glue's amplitude; no CUT or SHP",
                "backend": "the sine (OP1_SINE: SINE through the base hot set)",
                "source": "op1r (pcppcp) synth_sdk/plugins/aether/aether.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    # (op1r-candidates 0.3) Orange Cat's retired engines as modules, in their own slots
+    "cz": {"engine": 15, "funcs": ["cz_native_render", "cz_native_wave", "cz_native_wave_window4"], "voice_type": "cz_voice_t",
+           "controls": "the tone: Casio's 64 preset tones and INIT on BANK and PTCH (EDIT 1), TONE fixed (native); every parameter of the tone (two lines, "
+                       "eight waves and a window each, DCO DCW DCA envelopes of eight points, key follow, velocity, vibrato, detune, line and modulation "
+                       "modes) plays as on the built-in CZ-1 but has no page: its 39 rows and 137 parameters do not fit a module's descriptor (24 rows, "
+                       "128); lost: editing, the user banks, the tone in projects, the CZ SysEx and the editor's CZ commands (the firmware's, MELODEE_CZ)",
+           "modulation": "its own DCO DCW DCA envelopes and vibrato (ownenv); velocity per line; the matrix: PITCH (m->pitch16), CUT and SHP both bend the "
+                         "DCW depth (m->cutoff + m->shape), AMP; E1 E2 pick the tone",
+           "backend": "FM6_SIN (FM6's float sine, here its hot set): FM6 and the CZ-1 read one table; a module FM6 would share it",
+           "source": "Orange Cat's CZ-1 (firmware/src/eng_cz.c, cz_native.c, eng_phase.c: Kerem Kilic (Ellic Studio), GPL-3.0-only; cz_native.c's uPD933 laws BSD-3-Clause, Devin Acker), Casio's 64 tones"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")
@@ -171,7 +181,7 @@ def firmware_geometry():
     """oc_module.c: the starts (sector index of each start number) and each engine's (sectors, start bits)"""
     t = (ROOT / "firmware/src/oc_module.c").read_text()
     sect = [int(x.rstrip("u")) for x in re.search(r"oc_mod_sect\[OC_MOD_STARTS\] = \{([^}]*)\}", t).group(1).replace(" ", "").split(",")]
-    core = (ROOT / "firmware/src/core.h").read_text()
+    core = (ROOT / "firmware/src/core.h").read_text() + (ROOT / "firmware/src/cz_patch.h").read_text()   # (0.3) ENGI_CZ is cz_patch.h's
     num = {m.group(1): int(m.group(2)) for m in re.finditer(r"#define (ENGI_\w+) (\d+)u", core)}
     geo = {}
     body = re.search(r"oc_mod_geo\[\] = \{(.*?)\};", t, re.S).group(1)
