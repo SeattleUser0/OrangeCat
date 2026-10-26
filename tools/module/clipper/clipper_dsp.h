@@ -5,6 +5,7 @@
  * dsp.c and tools/module/caravel/felucca_osc.h). Each block is Clipper's text unchanged; only the selection and this note are Orange Cat's. Where a
  * name of Clipper's is also one of Orange Cat's dsp.c with other code, the module renames Clipper's (the module unit says which).
  *   - the four-pole TPT ladder (ladder_t, mul_sh, ladder_coef, ladder_tick): JUNO, ACID's filter, VECTOR's and WAVE's MOOG model
+ *   - from Clipper's eng_hybrid.c (3dSam): hy_saw, HYBRID's band-limited saw, which ACID reads too
  */
 #ifndef CLIPPER_DSP_H
 #define CLIPPER_DSP_H 1
@@ -62,5 +63,15 @@ static inline int32_t ladder_tick(const ladder_t *c, int32_t x, int32_t *s)
         s[j] = uq + v;
     }
     return (uq + 2048) >> 12;
+}
+/* (from Clipper's firmware/src/eng_hybrid.c) */
+/* a band-limited saw (osc_saw's polyBLEP): one test a sample for "near the wrap" (ph within inc of it, either
+ * side: ph + inc wraps below 2 inc), the residual only there */
+static inline int32_t hy_saw(uint32_t ph, uint32_t inc)
+{
+    int32_t s = (int32_t)(ph >> 16) - 32768;
+    if (ph + inc < (inc << 1))
+        s -= blep(ph, inc);
+    return s;
 }
 #endif

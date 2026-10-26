@@ -164,6 +164,11 @@ GATE = {
         "modulation": "PW through SHP (the track's LFO DEST SHP, the matrix: PWM), CUT through m->cutoff (ENV DEST FLT, LFO, the matrix), half keyboard tracking; velocity and the ADSR through the amplitude; E1..E8 read every render",
         "backend": "Clipper's TPT ladder (clipper_dsp.h: JUNO, ACID's filter, WAVE's and VECTOR's MOOG); Felucca's polyBLEP oscillators (felucca_osc.h, with SEM and HADES); a BBD chorus would be a shared part effect (FM-106's MN3009, Part 5), not an engine's",
         "source": "Clipper (3dSam) firmware/src/eng_juno.c at e690672, GPL-3.0-only; its ladder from Clipper's dsp.c"},
+    "acid": {"engine": 33, "funcs": ["acid_render"], "voice_type": None,
+        "controls": "Clipper's eight on EDIT 1 and 2 (WAVE CUT RES ENV, DEC ACC DIST SWP), the accent from velocity >= 120 (the sequencer's ACCENT steps are 127); lost: the presets' transpose (-12, -24) and glide mode TIME (Clipper's extras: ours play at the key's octave with the track's own glide)",
+        "modulation": 'its own filter and accent envelopes (per block), the accent sweep; CUT also through m->cutoff (ENV DEST FLT, LFO, the matrix); slide: a legato note keeps the envelopes (voice.c calls no note_on); velocity: the accent; E1..E8 read every render',
+        "backend": "Clipper's TPT ladder (clipper_dsp.h, with JUNO); HYBRID's hy_saw",
+        "source": "Clipper (3dSam) firmware/src/eng_acid.c at e690672, GPL-3.0-only; the ladder and hy_saw from Clipper's dsp.c and eng_hybrid.c"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

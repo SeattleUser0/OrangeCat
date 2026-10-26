@@ -331,7 +331,7 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
         step "$E (op1r's, through the glue) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
             "$OUT/module_host_${e}_test" tests/golden_modules.txt
     done
-    for e in juno; do                             # (op1r-candidates 0.3) the hub's engines (Clipper's: 3dSam), proposed numbers 32.. (tools/module/clipper/)
+    for e in juno acid; do                             # (op1r-candidates 0.3) the hub's engines (Clipper's: 3dSam), proposed numbers 32.. (tools/module/clipper/)
         E=$(echo $e | tr a-z A-Z)
         $CC -c -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/module_host_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c"; return 1; }
         $CC -O2 $FW -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_$E -o "$OUT/module_host_${e}_test" tests/module_host_cand_test.c "$OUT/module_host_${e}_tu.o" -lm ||
