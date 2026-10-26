@@ -845,10 +845,12 @@ static const struct { const char *label; uint8_t fmt, lane; int16_t min, max; } 
     [DXL_TONE] = {"TONE", F_INT, 0, 0, 15}, [DXL_FDBK] = {"FDBK", F_INT, 0, 0, 15}, [DXL_HANDS] = {"HANDS", F_INT, 0, 0, 15},
     [DXL_DUCK] = {"DUCK", F_PCT, 0, 0, DXK_DUCK_MAX},
 };
-static int16_t dxl_cell[4];
-static char dxl_label[4][10];
+static struct {                                         /* (one struct: ADDING_AN_ENGINE.md, "RAM state ... one struct a feature") */
+    int16_t cell[4];
+    char label[4][10];
+    param_desc_t d[4];
+} dxl;
 static const uint8_t *dxl_lane_src;                     /* the lane the pages show: ui.c sets it to &ui.lane (a build without the UI: lane 0) */
-static param_desc_t dxl_d[4];
 /* value id of lane l of track tr's kit (dxl_put's id) */
 static int32_t dxl_value(uint32_t tr, uint32_t l, uint32_t id)
 {
@@ -873,8 +875,8 @@ static int32_t dxl_value(uint32_t tr, uint32_t l, uint32_t id)
 }
 static const param_desc_t *dxl_desc(uint32_t tr, uint32_t l, uint32_t id, uint32_t slot, int16_t **valp)
 {
-    param_desc_t *d = &dxl_d[slot & 3u];
-    char *lb = dxl_label[slot & 3u];
+    param_desc_t *d = &dxl.d[slot & 3u];
+    char *lb = dxl.label[slot & 3u];
     if (id >= DXL_N)
         return 0;
     *d = (param_desc_t){DXL[id].label, DXL[id].fmt, DXL[id].min, DXL[id].max, (int16_t)(id == DXL_LEVEL ? 127 : 0), 0, 0};
@@ -887,8 +889,8 @@ static const param_desc_t *dxl_desc(uint32_t tr, uint32_t l, uint32_t id, uint32
         *valp = &trk[tr % NTRK].p[P_LN0 + (l & 7u)];
         return d;
     }
-    dxl_cell[slot & 3u] = (int16_t)dxl_value(tr, l, id);
-    *valp = &dxl_cell[slot & 3u];
+    dxl.cell[slot & 3u] = (int16_t)dxl_value(tr, l, id);
+    *valp = &dxl.cell[slot & 3u];
     return d;
 }
 /* .. v written into the kit (expanded first: dxk_take); PAN stops at the centre on its way across (the detent). LEVEL is p[]'s (edit_param) */

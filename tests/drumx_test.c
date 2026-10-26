@@ -662,7 +662,7 @@ static void duck_run(uint32_t duck, int mute_kick, uint32_t other_engine)   /* t
     trk[1].p[P_ATK] = 0; trk[1].p[P_SUS] = 127;         /* (a held note at its level) */
     dxk_take(0)->duck = (uint8_t)duck;
     trk_note_on(&trk[1], 60, 100);
-    dxe_duck_env = 0; dxe_duck_att = dxe_duck_hold = 0; dxe_duck_g0 = dxe_duck_g1 = 32767; dxe_duck_req = 0;
+    dxe_duck.env = 0; dxe_duck.att = dxe_duck.hold = 0; dxe_duck.g0 = dxe_duck.g1 = 32767; dxe_duck.req = 0;
     if (mute_kick) dxe_mute_toggle(0, DV_KICK);
     for (b = 0; b < DUCK_N; b++) {
         double e = 0;

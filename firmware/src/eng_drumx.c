@@ -159,36 +159,38 @@ static int dxk_panned(const track_t *t)                   /* a lane off the cent
 
 /* (0.14.2) DUCK, Jiant's (fx.c duck_block) as a kit's value: a kick of a kit with DUCK takes the parts that are not drum tracks down
  * by up to 30 dB in ~2 ms, holds them ~25 ms and lets them back with Jiant's release (its default, ~210 ms), as a sidechain pump: the
- * gain follows 1 - (1 - env)^2. dxe_duck_block once a block after the events (mix.c mix_block); dxe_duck_g0 / g1 the gain at the
+ * gain follows 1 - (1 - env)^2. dxe_duck_block once a block after the events (mix.c mix_block); dxe_duck.g0 / g1 the gain at the
  * block's start and end (Q15), ramped over the part by mix.c mix_duck. A muted kick does not duck */
-static volatile uint8_t dxe_duck_req;                  /* the depth (1..100) a kick asked for since the last block, 0 none */
-static int32_t dxe_duck_env, dxe_duck_dep, dxe_duck_g0 = 32767, dxe_duck_g1 = 32767;
-static uint8_t dxe_duck_att, dxe_duck_hold;
+static struct {                                         /* (one struct a feature: ADDING_AN_ENGINE.md) */
+    int32_t env, dep, g0, g1;                           /* the envelope, the depth (Q15), the gain at the block's start and end */
+    uint8_t att, hold;
+    volatile uint8_t req;                               /* the depth (1..100) a kick asked for since the last block, 0 none */
+} dxe_duck = {0, 0, 32767, 32767, 0, 0, 0};
 static void dxe_duck_block(void)
 {
     int32_t e;
-    if (dxe_duck_req) {
-        dxe_duck_dep = (int32_t)dxe_duck_req * 31731 / 100;   /* (1 - 0.032: -30 dB at 100) */
-        dxe_duck_req = 0;
-        dxe_duck_att = 1;
-        dxe_duck_hold = (uint8_t)(1103u / CTL);          /* (25 ms in blocks) */
+    if (dxe_duck.req) {
+        dxe_duck.dep = (int32_t)dxe_duck.req * 31731 / 100;   /* (1 - 0.032: -30 dB at 100) */
+        dxe_duck.req = 0;
+        dxe_duck.att = 1;
+        dxe_duck.hold = (uint8_t)(1103u / CTL);          /* (25 ms in blocks) */
     }
-    dxe_duck_g0 = dxe_duck_g1;
-    if (!dxe_duck_env && !dxe_duck_att) {
-        dxe_duck_g1 = 32767;
+    dxe_duck.g0 = dxe_duck.g1;
+    if (!dxe_duck.env && !dxe_duck.att) {
+        dxe_duck.g1 = 32767;
         return;
     }
-    if (dxe_duck_att) {
-        dxe_duck_env += (32767 - dxe_duck_env) >> 1;
-        if (dxe_duck_env > 31000)
-            dxe_duck_att = 0;
-    } else if (dxe_duck_hold) {
-        dxe_duck_hold--;
+    if (dxe_duck.att) {
+        dxe_duck.env += (32767 - dxe_duck.env) >> 1;
+        if (dxe_duck.env > 31000)
+            dxe_duck.att = 0;
+    } else if (dxe_duck.hold) {
+        dxe_duck.hold--;
     } else {
-        dxe_duck_env = (int32_t)(((uint32_t)dxe_duck_env * dv_kb(208000u)) >> 16);   /* (Jiant's REL 30: 40 + 30 x 5.6 ms) */
+        dxe_duck.env = (int32_t)(((uint32_t)dxe_duck.env * dv_kb(208000u)) >> 16);   /* (Jiant's REL 30: 40 + 30 x 5.6 ms) */
     }
-    e = (dxe_duck_env * (65536 - dxe_duck_env)) >> 15;  /* 1 - (1 - env)^2 */
-    dxe_duck_g1 = 32767 - mulq15(dxe_duck_dep, e > 32767 ? 32767 : e);
+    e = (dxe_duck.env * (65536 - dxe_duck.env)) >> 15;  /* 1 - (1 - env)^2 */
+    dxe_duck.g1 = 32767 - mulq15(dxe_duck.dep, e > 32767 ? 32767 : e);
 }
 
 /* (Orange Cat 0.13.1) lane mutes, PERFORMANCE STATE: bit l of dxe_mute[part] mutes lane l of the part. A muted lane's hits are not started (dxe_note_on), a
@@ -283,8 +285,8 @@ static DX_XIP void dxe_note_on(track_t *t, voice_t *v)
         } else {
             L->bs = 0;
         }
-        if (lane == DV_KICK && K->on && K->duck && K->duck > dxe_duck_req)   /* DUCK: the kick, the deepest of a block's */
-            dxe_duck_req = K->duck;
+        if (lane == DV_KICK && K->on && K->duck && K->duck > dxe_duck.req)   /* DUCK: the kick, the deepest of a block's */
+            dxe_duck.req = K->duck;
     }
     v->s[0] = (int32_t)lane;
     v->env_out = v->vel * 258;                           /* the hit starts at its level (no ramp from 0) */

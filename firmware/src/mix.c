@@ -227,7 +227,7 @@ static void mix_solo(track_t *t,int32_t *b,int32_t *b2,uint32_t n)   /* b2: the 
 /* (Orange Cat 0.14.2) a kit's DUCK (eng_drumx.c dxe_duck_block) on a part that is not a drum track: the gain ramped over the block */
 static __attribute__((noinline)) void mix_duck(int32_t *b,int32_t *b2,uint32_t n)
 {
-    int32_t g=dxe_duck_g0,dg=(dxe_duck_g1-dxe_duck_g0)/(int32_t)n;
+    int32_t g=dxe_duck.g0,dg=(dxe_duck.g1-dxe_duck.g0)/(int32_t)n;
     for(uint32_t i=0;i<n;i++,g+=dg){
         b[i]=mulq16(b[i],(uint32_t)g<<1);
         if(b2)b2[i]=mulq16(b2[i],(uint32_t)g<<1);
@@ -332,7 +332,7 @@ static void mix_part_engine(track_t *t,uint32_t n)
         }
         if((pf.mute>>ti)&1u)perf_mute(ti,part_buf,spread_on?spread_buf:rb,n);   /* the FX layer's mute */
         mix_solo(t,part_buf,spread_on?spread_buf:rb,n);
-        if((dxe_duck_g0<32767 || dxe_duck_g1<32767) && !drum_track(t))mix_duck(part_buf,spread_on?spread_buf:rb,n);   /* (0.14.2) a kit's DUCK */
+        if((dxe_duck.g0<32767 || dxe_duck.g1<32767) && !drum_track(t))mix_duck(part_buf,spread_on?spread_buf:rb,n);   /* (0.14.2) a kit's DUCK */
         mix_send_gains(t);
         if(t->p[P_APDEP]>0 || mix_ap_seen[ti]){         /* AUTO PAN: the pan gliding (until it is back at the knob's) */
             int32_t pan=t->p[P_PAN]<<8,p0;

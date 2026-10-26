@@ -1,6 +1,6 @@
 # Orange Cat: what changed for the user, 0.7.1 to the head of sonnet-work
 
-**Version:** 4  
+**Version:** 5  
 **Date:** October 26, 2026
 
 This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to the head of branch `sonnet-work`. None of it is on main, released, or flashed; the unit has not been touched. The build and test details are in BUILD.md.
@@ -81,3 +81,16 @@ voice budget the unit measured it to cost: the bells (MODAL: MALLET, GLASS BELL)
 one track (MALLET played three and broke up even alone), the wave shaper (FOLD PLUCK) three; the cheap models a little more. A chord on those presets
 loses a voice by design: the oldest note's voice fades out cleanly. Four of the reference renders changed for this (FOLD PLUCK, ADDITIVE PAD, MALLET,
 GLASS BELL). On SEQ > TRACKER, an EDIT tap that turned the picked effect off could also open the EDIT pages; now it only turns the effect off.
+
+**0.14.2 (branch drum-kits): DRUM-X drum kits, after Skiff 2.0.** Each of the eight sounds of a DRUM-X kit has its own LEVEL,
+TUNE (12 semitones either way), DECAY and PAN (C, L, R, with a stop at the centre), and four sound settings of Jiant FM's: LAYER,
+PUNCH, ATK+ and BEND; the kit has TONE, FDBK, HANDS (the clap) and DUCK (the kick pumps the other tracks). EDIT > LANES, LANES 2
+and LANES 3 set them for the sound you pick by striking its key or with the grid's lane keys. ACC + OCT+ on the grid turns every
+muted lane back on; the grid's sheet (OCT+ held) copies a lane's pattern onto another lane. **SAVE > USER keeps the whole kit**:
+the factory kits become your editable copies when you save them. **What changes for your data:** a DRUM-X sound saved before
+0.14.2 kept no kit and always played the first kit (DRUM-X) with its knobs, whatever kit it was saved from; it still does (load it,
+pick the kit again, save). A project still names the sound, not the kit: save a kit you changed to SAVE > USER before saving the
+project, or the project loads the kit as it was. A sound saved with a kit plays on an older firmware as an old one did (the first
+kit with its knobs) and keeps its kit there. The web editor's Sound tab shows the kit as a table and edits it. Every factory kit
+sounds exactly as before.
+
