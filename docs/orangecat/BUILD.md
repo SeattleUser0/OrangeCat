@@ -2650,3 +2650,33 @@ recording and the step properties through the test surface, the standing four-tr
 - the per-model MACRO units (approve the golden change, or not);
 - whether to publish a Nightly with today's linux-hw work (MACRO's hot set, the MENU settings fix, WHEEL 0.14.0): not done (the permission was for the fix).
 
+
+## Review of ceccc1c..linux-hw (October 25, 2026, evening): three fixes before the merge
+
+- **The MENU settings' byte (a7909aa).** 0.13.8 had put PREF_BITS in favorites.factory[8][2]; row 8 is MACRO (ENGI_MACRO 8), and byte 2 holds the stars
+  of MACRO presets 16 to 23: a star there toggled KNOB ACCEL and PICKER, and the export's tag set preset 23's star. Now row 4 byte 2: SAMPLE, retired in
+  every build, no module may take engine 4 (eng_module_slot), Felucca 1.0's SAMPLE had 4 presets (bits 0..3). The tag is the stored record's only (import
+  strips it, export sets it), so a fresh unit's favorites are all zero again (settings_origin_test's exception reverted). pref_migrate also keeps
+  0xE0..0xFF (PROJ_LAST with PICKER OFF set over it: slot ob & 3, settings ob & 0x22). No second migration: the row 8 layout was never published.
+  eng_macro.c: `_Static_assert` MACRO's presets <= 64 (row 8 bytes 0..7, below GLO > WEIGHTS 8..15 and the FX key map 16..31). settings_test: MACRO's
+  stars unchanged by import, export and the KNOB ACCEL and PICKER toggles, every k < 64.
+- **The pack gate (7998769).** oc_pack_scan set oc_pack_good before oc_pack_changed copied the hot sets: a MACRO note sequenced during a pack install
+  could render from a half-copied block. The copies are made first; a pack gone bad closes the gate before its copies change. oc_pack_test: a probe.
+- **The effects' memory with the hot sets (8db22a9).** tests/jfx_arena_test.c had 0.6.1's banks and took no hot set. Now 7998769's banks (main 92,064,
+  low 27,740, data 4,584, retained 816 B) and, in each case, the boot's sets first: base SINE 2,052, MACRO 15,296, SHAPES 2,580 = 19,928 B.
+
+| engines (card idle, cache ready) | DELAY | REV (ROOM) | CHORUS | STUT |
+|---|---|---|---|---|
+| 4 x largest (SHAPES 11,424 B) | yes | yes | yes | - |
+| 4 x largest, STUT | FULL | yes | yes | yes |
+| 4 x MACRO (11,320 B) | yes | yes | yes | - |
+| 4 x MACRO, STUT | FULL | yes | yes | yes |
+| DRUM FM6 MACRO SHAPES | yes | yes | yes | - |
+| DRUM-X MACRO SHAPES MACRO | yes | yes | yes | - |
+| DRUM-X MACRO SHAPES MACRO, STUT | FULL | yes | yes | yes |
+| DRUM-X MACRO SHAPES MACRO, CLOUD | yes | yes | yes | - |
+
+  Every case the guide promises holds. The test header's own extra (four MACRO tracks "and the SLICER's 32 KB too") does not: the delay goes FULL while
+  STUT runs. **Amended, not trimmed**: with the base and SHAPES' sets, MACRO's set cut to one table fails as well, and the base and SHAPES' together fail
+  without MACRO's (the base alone or SHAPES' alone fit); first fit at 4 KB blocks, not MACRO's size. GUIDE.md says it; the row is in the table, unchecked.
+- Workflow rev 20: the Nightly carries SHAPES, the Prophet and WHEEL (SEM and HADES, refused without OC_CANDIDATES, stay in the packages).
