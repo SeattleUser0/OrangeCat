@@ -6,6 +6,7 @@
  * name of Clipper's is also one of Orange Cat's dsp.c with other code, the module renames Clipper's (the module unit says which).
  *   - the four-pole TPT ladder (ladder_t, mul_sh, ladder_coef, ladder_tick): JUNO, ACID's filter, VECTOR's and WAVE's MOOG model
  *   - from Clipper's eng_hybrid.c (3dSam): hy_saw, HYBRID's band-limited saw, which ACID reads too
+ *   - Felucca's tsvf_coef (Orange Cat's dsp.c has its arithmetic as tsvf_coef_k): STRINGS
  */
 #ifndef CLIPPER_DSP_H
 #define CLIPPER_DSP_H 1
@@ -63,6 +64,20 @@ static inline int32_t ladder_tick(const ladder_t *c, int32_t x, int32_t *s)
         s[j] = uq + v;
     }
     return (uq + 2048) >> 12;
+}
+/* (Felucca's, in Clipper's dsp.c) */
+static inline void tsvf_coef(tsvf_t *c, int32_t cut, int32_t reso)   /* cut: 0..127 << 8 */
+{
+    int32_t i, g, den, k = 8192 - reso * 7600 / 127;   /* damping 2.0 .. ~0.15 (Q12) */
+    cut = clamp(cut, 0, 127 << 8);
+    i = cut >> 8;
+    g = SVF_G[i];
+    if (i < 127)                                       /* between table points: sweeps without 128 steps */
+        g += ((SVF_G[i + 1] - g) * (cut & 255)) >> 8;
+    den = 4096 + ((g * (g + k)) >> 12);
+    c->a1 = (int32_t)((4096u << 13) / (uint32_t)den);
+    c->a2 = (c->a1 * g) >> 12;
+    c->a3 = (c->a2 * g) >> 12;
 }
 /* (from Clipper's firmware/src/eng_hybrid.c) */
 /* a band-limited saw (osc_saw's polyBLEP): one test a sample for "near the wrap" (ph within inc of it, either

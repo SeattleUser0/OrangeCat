@@ -532,7 +532,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "sid": {"src": "tools/module/sid_mod.c", "sectors": 4, "starts": [0, 6], "name": "SID"},
            # (0.3) Clipper's engines (3dSam), proposed numbers 32.. (OC_CANDIDATES): WHEEL's geometry
            "juno": {"src": "tools/module/juno_mod.c", "sectors": 4, "starts": [0, 6], "name": "JUNO"},
-           "acid": {"src": "tools/module/acid_mod.c", "sectors": 4, "starts": [0, 6], "name": "ACID"}}
+           "acid": {"src": "tools/module/acid_mod.c", "sectors": 4, "starts": [0, 6], "name": "ACID"},
+           "strings": {"src": "tools/module/strings_mod.c", "sectors": 4, "starts": [0, 6], "name": "STRINGS"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100

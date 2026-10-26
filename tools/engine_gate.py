@@ -169,6 +169,11 @@ GATE = {
         "modulation": 'its own filter and accent envelopes (per block), the accent sweep; CUT also through m->cutoff (ENV DEST FLT, LFO, the matrix); slide: a legato note keeps the envelopes (voice.c calls no note_on); velocity: the accent; E1..E8 read every render',
         "backend": "Clipper's TPT ladder (clipper_dsp.h, with JUNO); HYBRID's hy_saw",
         "source": "Clipper (3dSam) firmware/src/eng_acid.c at e690672, GPL-3.0-only; the ladder and hy_saw from Clipper's dsp.c and eng_hybrid.c"},
+    "strings": {"engine": 34, "funcs": ["strings_render"], "voice_type": None,
+        "controls": "Clipper's eight on EDIT 1 and 2 (16' 8' 4' ENS, CUT RATE SHP RES); fixed: none; lost: two presets' extras (LOW STR's transpose, TAPE STR's LFO on the pitch)",
+        "modulation": 'its own ensemble (two LFOs a part, three taps); CUT through m->cutoff (ENV DEST FLT, LFO, the matrix), ~40 % keyboard tracking; velocity and the ADSR through the amplitude; E1..E8 read every render',
+        "backend": "divide-down registers on HYBRID's hy_saw; Felucca's TPT SVF (tsvf_coef, Orange Cat's tsvf_coef_k arithmetic); the ensemble's sine LFOs (SINE, the base hot set)",
+        "source": 'Clipper (3dSam) firmware/src/eng_strings.c at e690672, GPL-3.0-only; hy_saw and tsvf_coef extracts'},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")
