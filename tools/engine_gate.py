@@ -219,6 +219,16 @@ GATE = {
         "modulation": "SHP moves the DEPTH (the track's LFO DEST SHP, the matrix); ENV (m->envq15) contracts it; CUT the TONE (m->cutoff); velocity and the ADSR through the amplitude",
         "backend": "the sine (sine_i: four operators, five reads a sample: the base hot set); FM6's operators are another family (Dexed's), not shared",
         "source": 'ORBIT (ORBIT contributors) firmware/src/eng_orbit.c (FM4) at c07bd1d, GPL-3.0-only'},
+    "robo": {"engine": 46, "funcs": ["robo_render"], "voice_type": None,
+        "controls": "Jangada's eight on EDIT 1 and 2 (MODE FORM PULS DCAY, TRK DRFT CRSH TONE), the first four named per MODE by its desc hook (VOSIM GENDY WALSH SCAN); lost: the presets' categories, sends, arp and SET extras",
+        "modulation": "CUT moves VOSIM's formant and the TONE (m->cutoff: ENV DEST FLT, the LFO, the matrix); its own drift; velocity and the ADSR through the amplitude; E1..E8 read every render",
+        "backend": "the sine (VOSIM's pulses: SINE through the base hot set); its own Walsh table, GENDY walk and scanned ring",
+        "source": 'Jangada (zednaked) firmware/src/eng_robo.c at 249eb43, GPL-3.0-only'},
+    "x0x303": {"engine": 47, "funcs": ["bass303_render"], "voice_type": None,
+        "controls": "eight of X0X's twelve pots on EDIT 1 and 2 (CUT RES ENV DEC, ACC WAVE DRIV SLID); fixed: TUNE (A4 440), VOLUME, DRVTYP SOFT, ACCDEC; lost: none of the render's",
+        "modulation": "its own envelopes (ownenv: the filter's decay, the accent, the amp), the accent from velocity >= 120, slides from legato notes (the legato hook); voice.c's LFO on AMP and the fades; not voice.c's pitch (glide, bend, LFO pitch, microtonal scale: the 303 figures its pitch from the key) nor CUT or SHP; E1..E8 per block",
+        "backend": "none in Orange Cat's fixed-point dsp.c: X0X's float fastmath.h (Orange Cat's already, for DRUM-X's 909) and Open303's TeeBeeFilter",
+        "source": 'X0X (charlesvestal) firmware/src/dsp/bass303.c at 54194c5, GPL-3.0-only; Open303 (Robin Schmidt) MIT; schwung-303 and dm-Rat GPL-3.0'},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

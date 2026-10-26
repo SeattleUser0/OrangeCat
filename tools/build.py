@@ -542,7 +542,9 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "orbit_cloud": {"src": "tools/module/orbit_cloud_mod.c", "sectors": 4, "starts": [0, 6], "name": "CLOUD"},
            "orbit": {"src": "tools/module/orbit_mod.c", "sectors": 4, "starts": [0, 6], "name": "SWARM"},
            "orbit_pulse": {"src": "tools/module/orbit_pulse_mod.c", "sectors": 4, "starts": [0, 6], "name": "PULSE"},
-           "orbit_fm4": {"src": "tools/module/orbit_fm4_mod.c", "sectors": 4, "starts": [0, 6], "name": "FM4"}}
+           "orbit_fm4": {"src": "tools/module/orbit_fm4_mod.c", "sectors": 4, "starts": [0, 6], "name": "FM4"},
+           "robo": {"src": "tools/module/robo_mod.c", "sectors": 4, "starts": [0, 6], "name": "ROBO"},
+           "x0x303": {"src": "tools/module/x0x303_mod.c", "sectors": 4, "starts": [0, 6], "name": "X0X303", "inc": ["firmware/src/x0x"]}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
