@@ -20,13 +20,17 @@ shared library (80, list and get) and stores to a library slot only when given -
 tools/fm1_install.py only. Run one measurement at a time; the editor page must not be connected.
 
 The numbers: Worst is the slowest render of a half buffer (us) since the reset, Budget the time a half buffer lasts, Late
-the renders the DMA overtook (each one an audible glitch), Load the averaged render share (cpu_q8 / 256). Firmware
+the renders the DMA overtook (each one an audible glitch), Load the averaged render share (cpu_q8 / 256). (0.14.1) Two standing columns from
+the audio, recorded through every measure when the cards are there (capture.py): USB holes, the gaps in the FM-1's own USB audio stream (a late
+render costs the stream its service period, 20 to 24 ms), and DAC silences, the half buffers the converter played as silence (the AUDIO4c's
+analog capture: what a listener hears). BUILD.md, "What the three measures answer". Captures go to $FM1HW_WAV_DIR (default the temp folder). Firmware
 with schema 8 (0.13.6 and later) resets all three with flag 65; older firmware (schema 2) resets only Worst, so Late is
 taken as the difference over the run.
 
 Revisions:
   (Orange Cat 0.13.7) first version (branch linux-hw).
   (Orange Cat 0.14.0, branch engine-candidates) table --set candidates: WHEEL, SEM, HADES (the engine candidates gate).
+  (Orange Cat 0.14.1) USB holes and DAC silences in every measure and table row (the captures when the cards are present).
   (Orange Cat 0.13.8) table --set macro: MACRO's 15 models, one preset each, N = 1..4; library (65 and 80: read, and one store to a free slot).
 """
 import argparse
@@ -280,12 +284,22 @@ class Unit:
             time.sleep(0.3)
             self.set_global(clk, old)
 
-    def measure(self, engines, seconds=20.0, bpm=120, settle=2.0, presets=None):
+    def measure(self, engines, seconds=20.0, bpm=120, settle=2.0, presets=None, audio=None):
+        """(0.14.1) audio: the capture sources recorded through the run (default: every one present, audio_sources()); from the reset on, the USB
+        capture's holes (capture.py dropouts) and the analog capture's DAC silences (capture.py dac_silences) are the rows' usb_holes and dac_silences"""
         self.setup(engines, presets)
         res = {}
+        audio = audio_sources() if audio is None else audio
+        recs = {}
+        if audio:
+            import capture
+            for src in audio:
+                t = time.monotonic()
+                recs[src] = (capture.Recorder(Path(WAV_DIR) / f"fm1hw-{'-'.join(engines) or 'idle'}-{src}.wav", src).start(), t)
 
         def during(el):
             if not res.get("reset") and el >= settle:
+                res["reset_at"] = time.monotonic()
                 res["reset"] = self.stats(reset=True)
                 res["v0"] = self.voices()
                 res["t0"] = el
@@ -300,12 +314,19 @@ class Unit:
         # (the transport has stopped: the numbers below are the run's, Stop adds no render)
         end = self.stats()
         a = res["reset"]
+        heard = {}
+        for src, (rec, t) in recs.items():
+            x, rate = rec.stop()
+            an = capture.analyse(x[int(max(0.0, res["reset_at"] - t) * rate):], rate)
+            chans = [an[k] for k in an if k.startswith("ch")]
+            heard[src] = max(c["dropouts"] if src == "usb" else c["dac_silences"] for c in chans)
         late = end["late"] - (a["late"] if end["schema"] == 2 else 0)
         return {"engines": list(engines), "presets": list(presets or [0] * len(engines)), "tracks": len(engines), "seconds": seconds, "bpm": bpm, "worst_us": end["worst_us"],
                 "budget_us": end["budget_us"], "late": late, "load_max_pct": res.get("load_max"), "schema": end["schema"],
                 "blocks": end["blocks"], "voices_max": res.get("voices_max"),
                 "sheds": res["v1"]["sheds"] - res["v0"]["sheds"] if "v1" in res else None,
-                "kills": res["v1"]["kills"] - res["v0"]["kills"] if "v1" in res else None}
+                "kills": res["v1"]["kills"] - res["v0"]["kills"] if "v1" in res else None,
+                "usb_holes": heard.get("usb"), "dac_silences": heard.get("audio4c")}
 
     # ---- the tracks as they were
     def snapshot(self):
@@ -322,6 +343,19 @@ class Unit:
             for i, s in enumerate(tr["steps"]):
                 self.req(30, [t, i, *s])
         self.select(snap["selected"])
+
+
+WAV_DIR = __import__("os").environ.get("FM1HW_WAV_DIR", __import__("tempfile").gettempdir())   # (0.14.1) a run's captures (overwritten by the next)
+
+
+def audio_sources():
+    """(0.14.1) the capture sources present: usb (card FM1), audio4c (card AUDIO4c); `arecord -l`"""
+    try:
+        cards = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    ids = set(re.findall(r"^card \d+: (\S+) ", cards, re.M))
+    return [src for src, card in (("usb", "FM1"), ("audio4c", "AUDIO4c")) if card in ids]
 
 
 def library(u, backup=None, store_slot=None, store_name="HW TEST"):
@@ -446,6 +480,7 @@ def table(u, seconds, label, out, which="heavy"):
         r.update(case=case, label=label, set=which)
         rows.append(r)
         print(f"{label:<14} N={len(tracks)} {case:<7} worst {r['worst_us']:5d} us / budget {r['budget_us']} us  late {r['late']:5d}  "
+              f"USB holes {r['usb_holes'] if r['usb_holes'] is not None else '-':>4}  DAC silences {r['dac_silences'] if r['dac_silences'] is not None else '-':>4}  "
               f"load max {r['load_max_pct']}%  voices {r['voices_max']}  sheds {r['sheds']}  kills {r['kills']}", flush=True)
         if out:
             Path(out).write_text(json.dumps({"label": label, "set": which, "unit": describe(u), "rows": rows}, indent=1) + "\n")

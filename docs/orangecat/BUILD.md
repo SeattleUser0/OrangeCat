@@ -2745,3 +2745,18 @@ USB port is busy as a host; its leading 0.5 s of zeros is waited out. Four SHAPE
   USB (no clipping), spectra within 1.1 dB, 5.0 to 5.6 ms ahead. The two results again on both paths: the USB counts as before (14 and 254 holes); at the DAC a
   late half buffer plays as a 2 to 3 ms silence or dip, not a hole: capture.py's `dac_silences` finds 371 in MALLET's overload and none in four RING BELL
   tracks or a clean note. The counts measure different events, so usb stays the default for dropouts.
+
+### What the three measures answer (a standing part of every hardware table from 0.14.1)
+
+`tools/hw/fm1hw.py measure` and `table` record the FM-1's USB audio and the AUDIO4c's analog capture through every run (when both cards are present) and
+print, beside worst and late:
+
+| Measure | Where it is read | The question it answers |
+|---|---|---|
+| **Late** (and worst) | the unit's own counters (AUDIO_STATS): renders the DMA overtook since the reset; the slowest half buffer | **Did the processor keep up?** Every late render is a missed deadline, whether or not anyone hears it; worst says how close the rest came (budget 2,901 us) |
+| **USB holes** | capture.py `dropouts` on the FM-1's USB audio | **Is the USB recording intact?** A late render costs the USB stream its service period: a 20 to 24 ms gap of zeros in what a computer records from the FM-1 (and what the earlier tables' audio results counted) |
+| **DAC silences** | capture.py `dac_silences` on the AUDIO4c's analog capture | **Does a listener hear it?** A late half buffer plays at the converter as up to 2.9 ms of silence; this counts the ones that reach the noise floor (a render that finished part-way is a dip, `dac_dips`, not counted here) |
+
+They do not count the same event and need not agree: MALLET's overload was 1,529 late renders, 254 USB holes and 371 DAC silences; four RING BELL tracks
+65 late renders, 14 USB holes and no DAC silence (late by a little: heard as nothing). The capture costs the unit some USB work: four RING BELL tracks
+measured 2,669 to 2,677 us with both captures running against 2,706 to 2,710 without.
