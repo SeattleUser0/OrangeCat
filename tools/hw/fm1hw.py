@@ -42,9 +42,11 @@ import mido
 
 HDR = [0x7D, 0x46, 0x4C]
 PORT_RE = re.compile(r"orange cat|melodee|felucca|fm-1", re.I)
-ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14, "PROPHET": 19, "WHEEL": 7, "SEM": 21, "HADES": 22}   # (0.14.0) WHEEL, a module; SEM, HADES: an OC_CANDIDATES build's
+ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14, "PROPHET": 19, "WHEEL": 7, "SEM": 21, "HADES": 22,   # (0.14.0) WHEEL, a module; SEM, HADES: an OC_CANDIDATES build's
+           "FMBELL": 24}                                                                        # (0.14.1) op1r's synths: an OC_CANDIDATES build's
 MIX = ("MACRO", "SHAPES", "DRUM-X", "MACRO")       # track k of a MIX run plays MIX[k]
-CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46), "PROPHET": (48, 52, 55, 59), "WHEEL": (48, 52, 55, 59), "SEM": (48, 52, 55, 59), "HADES": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
+CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46), "PROPHET": (48, 52, 55, 59), "WHEEL": (48, 52, 55, 59), "SEM": (48, 52, 55, 59), "HADES": (48, 52, 55, 59),
+         "FMBELL": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
 FS = 44100
 TOOLS = Path(__file__).resolve().parents[1]
 
@@ -425,6 +427,8 @@ SETS["prophet"] = {"INIT": [("PROPHET", 0)] * 4, "P5": [("PROPHET", 1)] * 4, "SE
 # bars, the drive and the rotor; SEM NOTCH PAD: saw and PWM, the STATE blend; HADES PULSE BAS: the pulse and both subs), N = 1..4; an engine the firmware
 # does not offer (no module registered, or SEM and HADES without an OC_CANDIDATES build) is skipped and said so
 SETS["candidates"] = {"WHEEL": [("WHEEL", "FULL ORGAN")] * 4, "SEM": [("SEM", "NOTCH PAD")] * 4, "HADES": [("HADES", "PULSE BAS")] * 4}
+# (0.14.1) "op1r": op1r's synths through the glue (ENGINE_CANDIDATES.md, "op1r"), each one's heaviest preset by its loop cost: FMBELL FM BASS (full feedback)
+SETS["op1r"] = {"FMBELL": [("FMBELL", "FM BASS")] * 4}
 PROBES = {"heavy": [("MALLET", [("MACRO", "MALLET")])]}     # (a preset by name: the numbers may differ between firmware versions)
 
 

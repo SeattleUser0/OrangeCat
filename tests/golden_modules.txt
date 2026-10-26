@@ -22,3 +22,9 @@ module/HADES/04_DRIVEN 3314df27092174e4
 module/HADES/05_RESO_BASS eb79ff9f4e7bcb58
 module/HADES/06_DARK_PLK 4cfebfbf756d75d4
 module/HADES/07_RAW_LEAD a30e78cfbba899a0
+# (0.14.1, op1r-candidates) op1r's synths through tools/module/op1r/op1_glue.h (tests/module_host_cand_test.c, an OC_CANDIDATES build: the proposed numbers 24..). Our own
+# lines: against op1r's own harness the renders are compared by tests/op1r_parity (a development check), within the tolerance ENGINE_CANDIDATES.md gives
+module/FMBELL/00_FM_BELL cec865ee19e567c8
+module/FMBELL/01_E_PIANO 47569f5dcfb699fc
+module/FMBELL/02_GLASS 3680d039c02d4408
+module/FMBELL/03_FM_BASS 77f3640ee6bd01d4

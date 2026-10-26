@@ -72,6 +72,10 @@ GATE = {
             "source": "Caravel (bonszaimusic) firmware/src/eng_sem.c at 4a1770c, GPL-3.0-only; Felucca-Engines dsp.c oscillators, MIT"},
     "hades": {"engine": 22, "funcs": ["hades_render"], "voice_type": None,
               "source": "Caravel (bonszaimusic) firmware/src/eng_hades.c and va_blocks.c at 4a1770c, GPL-3.0-only; Felucca-Engines oscillators, MIT"},
+    # (0.14.1) op1r's synths (https://github.com/Hundekraft/op1r-src at bf808cfa) through tools/module/op1r/op1_glue.h: the cost is the plugin's render
+    # (inlined into op1g_eng_render with the glue's copy-out loop, or its own function when the compiler keeps it apart: both named)
+    "fmbell": {"engine": 24, "funcs": ["op1g_eng_render", "fm_render"], "voice_type": "fm_voice_t",
+               "source": "op1r (pcppcp) synth_sdk/plugins/fmbell/fmbell.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")
@@ -183,6 +187,7 @@ def probe(name, voice_type):
     p.write_text("\n".join(lines) + "\n")
     flags = [f for f in build.app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES=", "-DOC_PACK_BUILTIN"))]
     flags += ["-DOC_PACK_XIP=1"] if "-DOC_PACK_XIP=1" not in flags else []
+    flags += [f"-I{d}" for d in build.MODULES[name].get("inc", [])]   # (0.14.1) the op1r modules' "op1_plugin.h" (tools/build.py MODULES "inc")
     obj = MOD / f"gate_probe_{name}.o"
     tc("cc", *flags, "-w", "-c", p, "-o", obj)
     sizes = {}

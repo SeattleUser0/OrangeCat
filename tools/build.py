@@ -518,7 +518,9 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            # OC_CANDIDATES build. SEM and HADES take WHEEL's geometry; the Rhodes port is linked for the whole area, which it does not fit (the gate's row)
            "sem": {"src": "tools/module/sem_mod.c", "sectors": 4, "starts": [0, 6], "name": "SEM"},
            "hades": {"src": "tools/module/hades_mod.c", "sectors": 4, "starts": [0, 6], "name": "HADES"},
-           "rhodes": {"src": "tools/module/rhodes_mod.c", "sectors": 12, "starts": [0], "name": "RHODES"}}
+           "rhodes": {"src": "tools/module/rhodes_mod.c", "sectors": 12, "starts": [0], "name": "RHODES"},
+           # (0.14.1, op1r-candidates) op1r's synth plugins through tools/module/op1r/op1_glue.h, proposed numbers 24.. (OC_CANDIDATES): WHEEL's geometry
+           "fmbell": {"src": "tools/module/fmbell_mod.c", "sectors": 4, "starts": [0, 6], "name": "FMBELL", "inc": ["tools/module/op1r"]}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
@@ -577,7 +579,8 @@ def build_module(name):
     flags = [f for f in app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES=", "-DOC_PACK_BUILTIN"))]   # (0.13.6) a module always reads the pack
     flags += ["-DOC_PACK_XIP=1"] if "-DOC_PACK_XIP=1" not in flags else []
     obj = mdir / f"{name}.o"
-    tc("cc", *flags, "-w", "-c", SRC / spec["src"], "-o", obj)
+    inc = [f"-I{d}" for d in spec.get("inc", [])]              # (0.14.1) the op1r modules: their plugins' #include "op1_plugin.h" is tools/module/op1r's
+    tc("cc", *flags, *inc, "-w", "-c", SRC / spec["src"], "-o", obj)
     undef = [ln.split()[-1] for ln in tc("pi32v2/bin/nm", "-u", obj).splitlines() if ln.strip()]
     undef = [u for u in undef if u != "_modstart"]            # (the link script defines it: the address the variant is linked for)
     if undef:
