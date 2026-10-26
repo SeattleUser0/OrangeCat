@@ -154,14 +154,20 @@ static void package(uint32_t seed, mut_t f, int flip_code, int rec)
  * words, two ABS32 words and a MOV_ABS32 pair in the code), each start's image made from it by a reference here (rel_ref: the rule of
  * tools/ocflash.py apply_relocs) and the package naming their CRC-32. mode: 0 good; 1 a list byte flipped (its CRC); 2 the last site past the
  * image's end (CRCs made good); 3 a list of FB_REL_MAX + 1 words (CRCs good); 4 both starts' CRC-32 wrong (the header's CRC made good); 5 the list
- * out of order (CRCs good). FIN[k]: the image start k gets; package_v1() puts the two into a variants package (format 1). */
-static const uint32_t RW[] = { (1u << 24) | 28u, (1u << 24) | 32u, (1u << 24) | 0x200u, (2u << 24) | 0x302u, (1u << 24) | 0x404u };
+ * out of order (CRCs good); 6 (review) the image's offset 0xFFFFFF00 (off + len wraps in 32 bits; CRCs good). FIN[k]: the image start k gets;
+ * package_v1() puts the two into a variants package (format 1). RW: the sites (RW_STD, or RW_STRADDLE). */
+static const uint32_t RW_STD[] = { (1u << 24) | 28u, (1u << 24) | 32u, (1u << 24) | 0x200u, (2u << 24) | 0x302u, (1u << 24) | 0x404u };
+/* (0.14.1, review) sites across the reader's 256-byte chunks (the install reads the image from 0x100 in 256-byte pieces): a MOV_ABS32 pair at 0x3FC
+ * (its constant at 0x3FE..0x401, across 0x400), an ABS32 word at 0x4FE (across 0x500), a MOV_ABS32 pair at 0x5FA (the pair across 0x600) */
+static const uint32_t RW_STRADDLE[] = { (1u << 24) | 28u, (1u << 24) | 32u, (2u << 24) | 0x3FCu, (1u << 24) | 0x4FEu, (2u << 24) | 0x5FAu };
+static const uint32_t *RW = RW_STD;
+#define RW_N 5u
 static uint8_t FIN[2][LEN], OCM2[256 + LEN + 4u * 2049u];
 static uint32_t ocm2_size, RWX[2049];
 static uint32_t rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static void rel_ref(uint8_t *img, uint32_t base)
 {
-    for (uint32_t k = 0; k < sizeof RW / 4u; k++) {
+    for (uint32_t k = 0; k < RW_N; k++) {
         uint32_t a = (RW[k] & 0xFFFFFFu) + (RW[k] >> 24 == 2u ? 2u : 0u);
         wr32(img + a, rd32(img + a) + base);
     }
@@ -171,12 +177,12 @@ static void rel_ref(uint8_t *img, uint32_t base)
 static void package2(uint32_t seed, int mode)
 {
     fw_mod_hdr_t h = mk(0, LEN);
-    uint32_t nw = sizeof RW / 4u, at = 256u, k;
+    uint32_t nw = RW_N, at = 256u, k;
     h.link_addr = 0; h.engine_ptr = 0x180u;
     code(seed);
     seal(&h); memcpy(IMG, &h, sizeof h);
     for (k = 0; k < 2u; k++) { memcpy(FIN[k], IMG, LEN); rel_ref(FIN[k], oc_mod_link(k)); }
-    memcpy(RWX, RW, sizeof RW);
+    memcpy(RWX, RW, RW_N * 4u);
     if (mode == 2) RWX[nw - 1u] = (1u << 24) | (LEN - 2u);
     if (mode == 3) { for (k = 0; k < 2049u; k++) RWX[k] = (1u << 24) | (0x200u + 4u * k); nw = 2049u; }
     if (mode == 5) { RWX[2] = RW[4]; RWX[4] = RW[2]; }
@@ -190,6 +196,7 @@ static void package2(uint32_t seed, int mode)
     wr32(OCM2 + 72, nw); wr32(OCM2 + 76, at + LEN); wr32(OCM2 + 80, ocs_crc32(OCM2 + at + LEN, 4u * nw)); wr32(OCM2 + 84, 2u);
     for (k = 0; k < 2u; k++) { wr32(OCM2 + 88 + 8u * k, 6u * k); wr32(OCM2 + 92 + 8u * k, ocs_crc32(FIN[k], LEN)); }
     if (mode == 4) { OCM2[92] ^= 1u; OCM2[92 + 8] ^= 1u; }
+    if (mode == 6) wr32(OCM2 + 68, 0xFFFFFF00u);
     wr32(OCM2 + 104, ocs_crc32(OCM2, 104));
     if (mode == 1) OCM2[at + LEN + 9] ^= 0x40u;
     ocm2_size = at + LEN + 4u * nw;
@@ -361,19 +368,29 @@ int main(void)
     {
         static uint8_t after_v1[0x100000];
         static const char *const what[] = { "", "a list byte flipped (its CRC)", "a site past the image's end", "a list longer than FB_REL_MAX",
-                                            "each start's CRC-32 not its relocated image's", "the list out of order" };
+                                            "each start's CRC-32 not its relocated image's", "the list out of order",
+                                            "the image's offset 0xFFFFFF00 (off + len wraps in 32 bits)" };
         unit(); package2(70, 0); package_v1(); cf_put("/C/X.OCM", OCM, ocm_size);
         chk("(setup) the variants package of the reference images installs", do_mod() == 0 && working());
         memcpy(after_v1, nor, sizeof nor);
         unit(); package2(70, 0); cf_put("/C/X.OCM", OCM2, ocm2_size);
         chk("the relocatable package installs: the unit works", do_mod() == 0 && erases > 0 && working());
         chk("... and the flash is byte for byte the flash the variants package left (the installed image is the variant's)", !memcmp(after_v1, nor, sizeof nor));
-        for (int mode = 1; mode <= 5; mode++) {
+        for (int mode = 1; mode <= 6; mode++) {
             char t[160];
             unit(); package2(71, mode); cf_put("/C/X.OCM", OCM2, ocm2_size); keep();
             snprintf(t, sizeof t, "a relocatable package with %s: refused 'Module file damaged', zero erases, the old module working", what[mode]);
             chk(t, do_mod() == 1 && !strcmp(fb.msg, "Module file damaged") && erases == 0 && same() && working() && !fb.ask);
         }
+        /* (review) the sites across the 256-byte chunks: the same flash as the variants package of the same images */
+        RW = RW_STRADDLE;
+        unit(); package2(72, 0); package_v1(); cf_put("/C/X.OCM", OCM, ocm_size);
+        chk("(setup) the variants package of images with sites across the 256-byte chunks installs", do_mod() == 0 && working());
+        memcpy(after_v1, nor, sizeof nor);
+        unit(); package2(72, 0); cf_put("/C/X.OCM", OCM2, ocm2_size);
+        chk("sites across the reader's 256-byte chunks (MOV32 at 0x3FC, ABS32 at 0x4FE, MOV32 at 0x5FA): installs, the unit works", do_mod() == 0 && erases > 0 && working());
+        chk("... and the flash is byte for byte the variants package's", !memcmp(after_v1, nor, sizeof nor));
+        RW = RW_STD;
     }
 
     /* ---- a set with one bad file: refused whole, before its first stage (the pack in the set is not installed even though it is good) */

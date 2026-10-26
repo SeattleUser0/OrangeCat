@@ -218,16 +218,18 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
     rel.f.f = f; rel.w = FB_RELOCS();
     for (o = 0; o < (ver == 2u ? m : n); o++)          /* po: the planned start's row (a variant, or a start's CRC-32 in format 2) */
         if (pk_rd32(buf + tab + (ver == 2u ? 32u + 8u * o : 16u * o)) == OC_MOD_START_SECTOR(start)) { po = o; len = 1u; }
+    /* (0.14.1, review) an offset and a length from the file are compared as off > size || len > size - off: off + len wraps in 32 bits for a
+     * hostile header (off 0xFFFFFF00, len 0x200 passed as 0x100) */
     if (ver == 2u) {                                   /* (0.14.1) the one image and the list (checked into FB_RELOCS) */
         off = pk_rd32(buf + tab + 12u);
         len = len ? pk_rd32(buf + tab + 4u) : 0u;
-        if (len && (off + len > size || fb_rel_load(f, pk_rd32(buf + tab + 16u), pk_rd32(buf + tab + 20u), pk_rd32(buf + tab + 24u), len))) {
+        if (len && (off > size || len > size - off || fb_rel_load(f, pk_rd32(buf + tab + 16u), pk_rd32(buf + tab + 20u), pk_rd32(buf + tab + 24u), len))) {
             f_close(f); str_cpy(fb.msg, "Module file damaged", sizeof fb.msg); return 1;
         }
     } else if (len) {
         len = pk_rd32(buf + tab + 16u * po + 4u); off = pk_rd32(buf + tab + 16u * po + 12u);
     }
-    if (!len || off + len > size || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
+    if (!len || off > size || len > size - off || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
     /* (0.13.4) the whole image for the start the unit names is read and checked here, with the checks oc_mod_end and the boot check apply (oc_mod_image_check:
      * the inner header against the start and the firmware, the code's CRC-32, the page descriptor, the sector tails), before the in-place question and before
      * anything is erased. A dry pass (the set's preflight) checks the file's image for every start its engine may be put at, since an earlier module of the set
@@ -238,7 +240,7 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
         int ck;
         for (vs = 0; vs < OC_MOD_STARTS && OC_MOD_START_SECTOR(vs) != sec; vs++) ;
         if (vs >= OC_MOD_STARTS || (vs != start && (!dry || !oc_mod_allowed(engine, vs)))) continue;
-        if (!vlen || voff + vlen > size) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
+        if (!vlen || voff > size || vlen > size - voff) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
         ck = fb_mod_src(&rel, buf, ver, o, vs, voff, vlen, sc);
         if (!ck) ck = oc_mod_image_check(fb_rel_rd, &rel, engine, vs, vlen);
         if (ck) {
