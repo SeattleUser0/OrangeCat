@@ -96,7 +96,7 @@ static FW_UNUSED void fw_batch_push(void (*run)(const void *, int32_t *), const 
 static struct {
     const void *set[ENG_HOT_SLOTS][ENG_HOT_MAX];           /* a module's pointers, one array a slot: the copies */
     const void **ptr[NENGINES];                            /* engine number e's (fw_api_t hot): its slot's array while a module holds one, else 0 */
-    uint32_t refused;                                      /* bit e: built-in engine e's set did not fit: its slot holds ENG_RETIRED (silent) */
+    uint64_t refused;                                      /* bit e: built-in engine e's set did not fit: its slot holds ENG_RETIRED (silent); (0.3) 64 bits */
     uint8_t slot[NENGINES];                                /* 1 + the slot of engine number e's set, 0 none */
     const eng_hot_t *list[ENG_HOT_SLOTS];                  /* a slot's set: its list, its length, where its pointers are (a built-in engine's own */
     uint8_t n[ENG_HOT_SLOTS];                              /* hot_at, else the slot's set: a module's). Kept here, so a copy, a refresh or */
@@ -279,6 +279,9 @@ static const engine_t *ENGINES[NENGINES] = {
     &ENG_RETIRED,                /* 23: (0.14.0) the Rhodes port's proposed number: it fits no module start, never a module */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* 24..31: (0.14.1) op1r's synths (core.h ENGI_FMBELL ..), candidates a module */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* supplies (eng_module_slot) */
+    &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* 32..49: (0.3) the hub's other engines (core.h ENGI_JUNO ..), */
+    &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* candidates a module supplies */
+    &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,
 #endif
 };
 
@@ -353,11 +356,13 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if OC_CANDIDATES
     ENGI_SEM, ENGI_HADES,        /* (0.14.0) the candidates of a measurement build: offered only while registered */
     ENGI_FMBELL, ENGI_SUPERSAW, ENGI_DDDD, ENGI_AETHER, ENGI_BRASS, ENGI_MIXTUR, ENGI_ARC, ENGI_GRANULAR,   /* (0.14.1) op1r's, the same */
+    ENGI_JUNO, ENGI_ACID, ENGI_STRINGS, ENGI_VECTOR, ENGI_VPS, ENGI_TERRAIN, ENGI_WSEQ, ENGI_WAVE, ENGI_FMX, ENGI_HYBRID,   /* (0.3) the hub's, the same */
+    ENGI_RAVEL_MONO, ENGI_ORBIT_CLOUD, ENGI_ORBIT, ENGI_OP1_CLUSTER, ENGI_ROBO, ENGI_X0X303, ENGI_KALIMBA, ENGI_FOMNI,
 #endif
 };
 
 /* (0.14.1) one of op1r's proposed numbers (core.h ENGI_FMBELL .. ENGI_GRANULAR), a measurement build's */
-static inline int eng_op1r(uint32_t e) { return OC_CANDIDATES && e >= ENGI_FMBELL && e < ENGI_FMBELL + OP1R_NCAND; }
+static inline int eng_op1r(uint32_t e) { return OC_CANDIDATES && e >= ENGI_FMBELL && e < ENGI_FMBELL + OP1R_NCAND + HUB_NCAND; }   /* (0.3) and the hub's 32..49 */
 
 /* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
  * Never relabel retired records FM6. */
@@ -482,7 +487,7 @@ static void eng_hot_boot(void)
     for (uint32_t e = 0; e < NENGINES; e++) {
         const engine_t *g = ENGINES[e];
         if (eng_mod[e] || !g || !g->nhot) continue;
-        if (eng_hot_take_own(e, g)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
+        if (eng_hot_take_own(e, g)) { eng_hs.refused |= (uint64_t)1 << e; ENGINES[e] = &ENG_RETIRED; }
     }
     oc_pack_changed = eng_hot_refresh;
 }
@@ -530,11 +535,11 @@ static int eng_register_hot(const fw_mod_hdr_t *h, const engine_t *engine, const
         const void **wasat = s < ENG_HOT_SLOTS && eng_hs.at[s] != eng_hs.set[s] ? eng_hs.at[s] : 0;
         int rc = eng_hot_take(e, 0, hot, nhot);
         if (rc) {
-            if (eng_hot_take(e, wasat, was, wasn)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
+            if (eng_hot_take(e, wasat, was, wasn)) { eng_hs.refused |= (uint64_t)1 << e; ENGINES[e] = &ENG_RETIRED; }
             return rc;
         }
     }
-    eng_hs.refused &= ~(1u << e);
+    eng_hs.refused &= ~((uint64_t)1 << e);
     ENGINES[e] = engine;                            /* (0.11.1) the two stores are one step in a running session: oc_module.c's oc_mod_reg / oc_mod_unreg */
     eng_mod[e] = h;
     return EM_OK;
@@ -545,7 +550,7 @@ static void eng_unregister(uint32_t e)
         return;
     eng_mod[e] = 0;                                 /* (0.11.1) one step in a running session, as in eng_register */
     ENGINES[e] = eng_default(e);
-    if (eng_hot_take_own(e, ENGINES[e])) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }   /* (0.13.7) the module's set out, the built-in engine's in */
+    if (eng_hot_take_own(e, ENGINES[e])) { eng_hs.refused |= (uint64_t)1 << e; ENGINES[e] = &ENG_RETIRED; }   /* (0.13.7) the module's set out, the built-in engine's in */
 }
 
 /* the parts at power-on and in a new song (engine, preset; the steps empty): poly, bass, lead, drums. IT'S A

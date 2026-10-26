@@ -159,6 +159,11 @@ GATE = {
                           "width, or the SYNC / RING interval), AMP; E1..E8 per block",
             "backend": "dsp.c's TPT SVF coefficients (tsvf_coef_gk) and soft_knee (TANH_Q15, the base hot set); its DACs and combined waveforms are its own",
             "source": "Orange Cat's SID (firmware/src/eng_sid.c: Kerem Kilic (Ellic Studio), GPL-3.0-only), the reSID model (Dag Lem, GPL-2.0-or-later) as tables"},
+    "juno": {"engine": 32, "funcs": ["juno_render"], "voice_type": None,
+        "controls": "Clipper's eight on EDIT 1 and 2 (WAVE PW SUB NOIS, HPF CUT RES CHOR); lost: CHOR (Clipper's BBD chorus is its part effect, fx.c juno_chorus: Orange Cat's track has none, so CHOR does nothing), the presets' LFO-on-PW, glide and vibrato extras",
+        "modulation": "PW through SHP (the track's LFO DEST SHP, the matrix: PWM), CUT through m->cutoff (ENV DEST FLT, LFO, the matrix), half keyboard tracking; velocity and the ADSR through the amplitude; E1..E8 read every render",
+        "backend": "Clipper's TPT ladder (clipper_dsp.h: JUNO, ACID's filter, WAVE's and VECTOR's MOOG); Felucca's polyBLEP oscillators (felucca_osc.h, with SEM and HADES); a BBD chorus would be a shared part effect (FM-106's MN3009, Part 5), not an engine's",
+        "source": "Clipper (3dSam) firmware/src/eng_juno.c at e690672, GPL-3.0-only; its ladder from Clipper's dsp.c"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

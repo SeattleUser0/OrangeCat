@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner.
  *
  * Orange Cat, the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md): a candidate module (SEM or HADES, Caravel's; 0.14.1: op1r's synths, through
- * tools/module/op1r/op1_glue.h) on the host, in a measurement build (OC_CANDIDATES=1: the engine table of 32, the proposed numbers registrable). Built once per candidate with its unit (tests/module_host_<name>_tu.c)
+ * tools/module/op1r/op1_glue.h) on the host, in a measurement build (OC_CANDIDATES=1: the engine table of 50, the proposed numbers registrable). Built once per candidate with its unit (tests/module_host_<name>_tu.c)
  * and -DCAND_ENGINE=ENGI_<NAME>: the header passes the registration check, the loader's registration takes the proposed slot (and only in this build),
  * the engine is offered while registered, its presets render through the whole voice path (tests/regress.c) with the lines of tests/golden_modules.txt
  * (module/<NAME>/..., new lines), and unregistering retires the slot. Sample for sample against Caravel's own build of the engine: tests/caravel_parity
@@ -41,9 +41,12 @@ int main(int argc, char **argv)
     np = em->npresets;
     ng = load_kv(gpath, gold, MAXJ);
     check("the header passes the registration check and names the proposed number", fw_module_check(&h) == FW_MOD_OK && h.engine == CAND_ENGINE &&
-          h.engine >= 21u && h.engine < NENGINES && NENGINES == 32);
+          h.engine >= 21u && h.engine < NENGINES && NENGINES == 50);
     if (CAND_ENGINE < ENGI_FMBELL)
         check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
+    else if (CAND_ENGINE >= ENGI_JUNO)         /* (0.3) the hub's (Clipper's ...): presets made on demand or a list, the state a token or the engine's own block */
+        check("its hot set within the firmware's limit, a state the loader takes, 3 to 64 presets", em->nhot <= ENG_HOT_MAX && h.state_size >= 4u &&
+              h.state_size <= 16384u && np >= 3u && np <= 64u);
     else                                       /* (0.14.1) op1r's: the glue's part state (the voices' 128-sample blocks, the plugin's own), six voices */
         check("its hot set (brassophone: its warp table and op1r's sine; else none), the glue's part state (op1g_part_t) under 16 KB, OP1_VOICES voices",
               em->nhot == (CAND_ENGINE == ENGI_BRASS ? 2u : 0u) && h.state_size > 2048u &&

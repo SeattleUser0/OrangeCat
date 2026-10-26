@@ -43,10 +43,10 @@ import mido
 HDR = [0x7D, 0x46, 0x4C]
 PORT_RE = re.compile(r"orange cat|melodee|felucca|fm-1", re.I)
 ENGINES = {"MACRO": 8, "DRUM-X": 9, "SHAPES": 14, "PROPHET": 19, "WHEEL": 7, "SEM": 21, "HADES": 22,   # (0.14.0) WHEEL, a module; SEM, HADES: an OC_CANDIDATES build's
-           "FMBELL": 24, "SUPERSAW": 25, "DDDD": 26, "MIXTUR": 29, "ARC": 30, "BRASS": 28, "AETHER": 27, "CZ-1": 15, "SID": 3}                                                                        # (0.14.1) op1r's synths: an OC_CANDIDATES build's
+           "FMBELL": 24, "SUPERSAW": 25, "DDDD": 26, "MIXTUR": 29, "ARC": 30, "BRASS": 28, "AETHER": 27, "CZ-1": 15, "SID": 3, "JUNO": 32}                                                                        # (0.14.1) op1r's synths: an OC_CANDIDATES build's
 MIX = ("MACRO", "SHAPES", "DRUM-X", "MACRO")       # track k of a MIX run plays MIX[k]
 CHORD = {"MACRO": (48, 52, 55, 59), "SHAPES": (48, 52, 55, 59), "DRUM-X": (36, 38, 42, 46), "PROPHET": (48, 52, 55, 59), "WHEEL": (48, 52, 55, 59), "SEM": (48, 52, 55, 59), "HADES": (48, 52, 55, 59),
-         "FMBELL": (48, 52, 55, 59), "SUPERSAW": (48, 52, 55, 59), "DDDD": (48, 52, 55, 59), "MIXTUR": (48, 52, 55, 59), "ARC": (48, 52, 55, 59), "BRASS": (48, 52, 55, 59), "AETHER": (48, 52, 55, 59), "CZ-1": (48, 52, 55, 59), "SID": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
+         "FMBELL": (48, 52, 55, 59), "SUPERSAW": (48, 52, 55, 59), "DDDD": (48, 52, 55, 59), "MIXTUR": (48, 52, 55, 59), "ARC": (48, 52, 55, 59), "BRASS": (48, 52, 55, 59), "AETHER": (48, 52, 55, 59), "CZ-1": (48, 52, 55, 59), "SID": (48, 52, 55, 59), "JUNO": (48, 52, 55, 59)}  # Cmaj7; kick, snare, closed and open hat
 FS = 44100
 TOOLS = Path(__file__).resolve().parents[1]
 
@@ -430,6 +430,8 @@ SETS["candidates"] = {"WHEEL": [("WHEEL", "FULL ORGAN")] * 4, "SEM": [("SEM", "N
 # (0.14.1) "op1r": op1r's synths through the glue (ENGINE_CANDIDATES.md, "op1r"), each one's heaviest preset by its loop cost: FMBELL FM BASS (full feedback)
 # (op1r-candidates 0.3) "retired": Orange Cat's retired engines as modules (ENGINE_CANDIDATES.md, "Retired engines"): CZ-1 FAT ENSEMBLE (two lines), SID STRINGS (a pad: four chips, the filter)
 SETS["retired"] = {"CZ-1": [("CZ-1", "FAT ENSEMBLE")] * 4, "SID": [("SID", "SID STRINGS")] * 4}
+# (op1r-candidates 0.3) "hub": the hub's other engines (ENGINE_CANDIDATES.md): each one's heaviest preset
+SETS["hub"] = {"JUNO": [("JUNO", "DREAM PAD")] * 4}
 SETS["op1r"] = {"FMBELL": [("FMBELL", "FM BASS")] * 4, "SUPERSAW": [("SUPERSAW", "SAW PAD")] * 4,
                 "DDDD": [("DDDD", "SCREAM")] * 4,
                 "MIXTUR": [("MIXTUR", "BIRDS")] * 4,
