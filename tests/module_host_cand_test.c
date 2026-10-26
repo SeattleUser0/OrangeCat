@@ -88,6 +88,39 @@ int main(int argc, char **argv)
         if (!ok) for (uint32_t k = 0; k < 3u; k++) printf("  sem STAT %u: hash %016llx peak %d over %u crashed %d\n", A[k], (unsigned long long)J[k0 + k].r.hash, (int)J[k0 + k].r.peak, (unsigned)J[k0 + k].r.over, (int)J[k0 + k].crashed);
         check("SEM's STAT control: 64 (the notch blend), 127 (exact HP: TYPE HP) and 128 (TYPE BP) are three different sounds, each healthy", ok);
     }
+    if (CAND_ENGINE == ENGI_DDDD) {            /* (0.14.1) the part's cost (fw_api.h FW_MOD_COST_PART): 4 units a track, its voices none */
+        uint32_t snd[2][5], kill[2][5], busy[2][5];
+        for (uint32_t mode = 0; mode < 2u; mode++)
+            for (uint32_t nt = 1; nt <= 4u; nt++) {
+                int32_t out[2 * CTL];
+                uint32_t k0;
+                h.cost = mode ? FW_MOD_COST_PART | 4u << 24 : 0u;
+                memset(trk, 0, sizeof trk);
+                memset(&song, 0, sizeof song);
+                host_tracks_init();
+                for (uint32_t p = 0; p < NPART; p++) {
+                    host_preset(&trk[p], p < nt ? CAND_ENGINE : 0u, p < nt ? 2u : 0u);          /* SCREAM */
+                    trk[p].p[P_VOICE] = V_POLY;
+                }
+                k0 = voice_kills;
+                for (uint32_t p = 0; p < nt; p++)
+                    for (uint32_t k = 0; k < 4u; k++)
+                        input_on(&trk[p], 48u + 4u * k, 100);
+                for (uint32_t b = 0; b < 50u; b++) mix_block(out, CTL);
+                snd[mode][nt] = 0;
+                for (uint32_t p = 0; p < NPART; p++)
+                    for (uint32_t i = 0; i < NVOICE; i++) snd[mode][nt] += trk[p].v[i].active && trk[p].v[i].gate;
+                kill[mode][nt] = voice_kills - k0;
+                busy[mode][nt] = voices_busy();
+                printf("module host:   dddd SCREAM x%u, four keys a track, %s: %u voices sound, %u given up, %u units busy of %u\n", nt,
+                       mode ? "the part's cost" : "voices counted", snd[mode][nt], kill[mode][nt], busy[mode][nt], voice_budget());
+            }
+        check("voices counted (2 units each): from three tracks dddd gives up voices it does not pay for", kill[0][3] > 0u && kill[0][4] > 0u);
+        check("the part's cost (4 units a track): every key of 1 to 4 tracks sounds, none given up, 4 units a sounding track",
+              snd[1][1] == 4u && snd[1][2] == 8u && snd[1][3] == 12u && snd[1][4] == 16u && kill[1][4] == 0u &&
+              busy[1][1] == 4u && busy[1][2] == 8u && busy[1][3] == 12u && busy[1][4] == 16u);
+        h.cost = 0;
+    }
     eng_unregister(CAND_ENGINE);
     check("unregistered, the slot is retired again", ENGINES[CAND_ENGINE] == &ENG_RETIRED && !eng_ok(CAND_ENGINE));
     printf(bad ? "module host (candidate): FAILED\n" : "module host (candidate): all passed\n");

@@ -102,7 +102,13 @@ typedef struct fw_api {
  *   version  (0.11.0) the module's own version 0x00MMmmpp, the module source's constant (SHAPES 1.0.0 = 0x00010000); the engine list shows it
  *   cost     (0.11.0) the engine's measured render cost, instructions a sample from tests/target_budget.txt (tools/build.py sums the lines the module
  *            names in tools/module/<name>.cost); 0 = not measured. Carried for a render-time admission later: the firmware has no such budget today
- *            (MELODEE_ADMISSION is 0), so the admission at assignment (ui.c eng_admit) uses the voice units and the arena only */
+ *            (MELODEE_ADMISSION is 0), so the admission at assignment (ui.c eng_admit) uses the voice units and the arena only.
+ *            (0.14.1) Bit 31 (FW_MOD_COST_PART) set: the engine's cost is its part's, not its voices' (op1r's dddd: one wall a track, whatever the
+ *            keys): bits 24..30 are the voice budget units it takes once for each track that sounds it, its voices take none (voice.c), and the
+ *            measured cost is in bits 0..23. A firmware before 0.14.1 ignores the word (carried), so no layout or interface change.
+ *            tools/module/<name>.cost says it with a line "part N". */
+#define FW_MOD_COST_PART 0x80000000u
+#define FW_MOD_PART_UNITS(cost) (((cost) & FW_MOD_COST_PART) ? ((cost) >> 24) & 127u : 0u)
 #define FW_MOD_MAGIC 0x444F4D4Fu                         /* "OMOD" little endian */
 #define FW_MOD_CODE_OFF 0x100u
 typedef struct fw_mod_hdr {

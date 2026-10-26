@@ -547,13 +547,22 @@ def module_cost(name):
         return 0, []
     want = [ln.split("#")[0].strip() for ln in cf.read_text().splitlines()]
     want = [w for w in want if w]
+    # (0.14.1) "part N": the engine's cost is its part's, N voice budget units once a track (fw_api.h FW_MOD_COST_PART): bit 31 and N in 24..30
+    part = [w for w in want if w.split()[0] == "part"]
+    want = [w for w in want if w.split()[0] != "part"]
+    pu = int(part[-1].split()[1]) if part and len(part[-1].split()) == 2 and part[-1].split()[1].isdigit() else (-1 if part else 0)
     budget = {}
     for ln in (SRC / "tests" / "target_budget.txt").read_text().splitlines():
         parts = ln.split()
         if len(parts) == 2 and not ln.startswith("#") and parts[1].isdigit():
             budget[parts[0]] = int(parts[1])
     missing = [w for w in want if w not in budget]
-    return sum(budget[w] for w in want if w in budget), missing
+    cost = sum(budget[w] for w in want if w in budget)
+    if pu:
+        if not 1 <= pu <= 127 or cost >= 1 << 24:
+            return 0, missing + [f"part {pu if pu > 0 else '?'} (1..127 units; the measured cost under 2^24)"]
+        cost = 0x80000000 | pu << 24 | cost
+    return cost, missing
 
 
 def module_starts(sectors, spec=None):

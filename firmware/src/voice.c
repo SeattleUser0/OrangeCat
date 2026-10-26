@@ -130,6 +130,12 @@ static uint32_t voice_p5_parts(void)
     return parts;
 }
 #endif
+/* (Orange Cat 0.14.1) a module whose header says its cost is the part's (fw_api.h FW_MOD_COST_PART): the units the track takes while it sounds at
+ * all, whatever its voices; 0 = the engine's voices are counted (voice_units) */
+static uint32_t part_units(const track_t *t)
+{
+    return t->engine < NENGINES && eng_mod[t->engine] ? FW_MOD_PART_UNITS(eng_mod[t->engine]->cost) : 0u;
+}
 static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
@@ -175,9 +181,19 @@ static uint32_t voices_busy(void)                       /* budget units of all p
     for (p = 0; p < NPART; p++) {
         for (i = n = 0; i < NVOICE; i++)
             n += trk[p].v[i].active && trk[p].v[i].stage != 4u;
-        u += n * voice_units(&trk[p]);
+        u += part_units(&trk[p]) ? (n ? part_units(&trk[p]) : 0u) : n * voice_units(&trk[p]);
     }
     return u;
+}
+static uint32_t voice_new_units(const track_t *t)      /* (0.14.1) what one more voice of part t adds to voices_busy */
+{
+    uint32_t i, pu = part_units(t);
+    if (!pu)
+        return voice_units(t);
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].stage != 4u)
+            return 0u;                                  /* the part already pays */
+    return pu;
 }
 
 static uint32_t lowest_held(const track_t *t)           /* index of the lowest held note (the bass), NVOICE = none */
@@ -244,7 +260,7 @@ static void voice_capacity_kill(voice_t *v)
 /* the budget is full: free room for a voice of part t. 0 = nothing to take (soft) */
 static int voice_room(track_t *t, int soft)
 {
-    while (voices_busy() + voice_units(t) > voice_budget()) {
+    while (voices_busy() + voice_new_units(t) > voice_budget()) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, soft, &vp);
         if (k == NVOICE)
@@ -296,7 +312,7 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
             return voice_reuse(t, &t->v[i]);
         nfree += !t->v[i].active;
     }
-    while (nfree && voices_busy() + voice_units(t) > voice_budget()) {
+    while (nfree && voices_busy() + voice_new_units(t) > voice_budget()) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, 0, &vp);
         if (k < np && vp == t)

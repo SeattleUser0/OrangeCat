@@ -6227,6 +6227,11 @@ static int test_admission(void)
         ui.msg_t = 0;
         select_engine(ENGI_SHAPES);
         bad += check("admission: select_engine refuses, says ENGINE TOO HEAVY, the track keeps its engine", t->eng_req == was && msg_is("ENGINE TOO HEAVY"));
+        fh.cost = FW_MOD_COST_PART | 4u << 24;            /* (0.14.1) a part's cost (fw_api.h): its units once, the voices' hook not asked */
+        bad += check("admission: a module whose cost is its part's (4 units, its voice hook too heavy): admitted on the part's units", eng_admit(t, ENGI_SHAPES) == 0);
+        fh.cost = FW_MOD_COST_PART | 100u << 24;
+        bad += check("admission: a part's units over the whole voice budget: ENGINE TOO HEAVY (1)", eng_admit(t, ENGI_SHAPES) == 1);
+        fh.cost = 99999u;
     }
     fe.units = 0;
     fh.state_size = cap + 4u;

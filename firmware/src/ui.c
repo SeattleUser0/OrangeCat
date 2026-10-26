@@ -1110,7 +1110,10 @@ static int eng_admit(track_t *t, uint32_t e)
             sum += (eng_state_size(trk[k].eng_req) + 3u) & ~3u;
     if (own > RESOURCE_CAPACITY || sum > RESOURCE_CAPACITY)
         return 2;
-    if (en->units) {
+    if (FW_MOD_PART_UNITS(eng_mod[e]->cost)) {           /* (0.14.1) a part's cost: its units once, whatever the voices */
+        if (FW_MOD_PART_UNITS(eng_mod[e]->cost) > voice_budget())
+            return 1;
+    } else if (en->units) {
         fm1_irq_off();
         for (k = 0; k < 8u; k++) { keep[k] = (int16_t)t->p[P_E0 + k]; t->p[P_E0 + k] = en->edit[k].def; }
         units = en->units(t);
