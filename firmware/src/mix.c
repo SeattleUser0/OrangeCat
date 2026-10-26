@@ -406,7 +406,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     batch_ready=0;part_buf=part_storage;spread_buf=spread_storage;
 #endif
     cs_tracks_done();                                   /* (0.14.2, OC_CORE_STATS builds: the tracks done, the serial tail from here) */
-    db_end(mix_l,mix_r,n);                              /* (dub-tape bench: joined after the tracks, before the buses' job) */
+    db_end(mix_l,mix_r,send_r,n);                              /* (dub-tape bench: joined after the tracks, before the buses' job) */
     if(perf)perf_pre(mix_l,mix_r,sl_l,sl_r,send_d,send_r,n);   /* (THROW: the dry mix into the delay and reverb sends) */
     AP_START(output_start);
     jfx_bus_start(n);                                   /* the buses (CPU1 when there is one) */
