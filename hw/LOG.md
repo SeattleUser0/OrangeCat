@@ -878,3 +878,17 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   since the profile change), so late and DAC silences are the columns here. Tracks and parameters put back.
 - Left for the user from drum-kits' list: a kit saved, power off and on, reloaded; an old backup restored on this build (a restore); by ear: L/C/R
   on the speaker and headphones, the centre detent on KNOB 4, DUCK on a bass track.
+
+## October 26 (UTC): Flash 34 (DUB TAPE's CPU1 bench), Flash 35 (back on the Nightly)
+
+- Before: a full backup through the page's code, `Orange Cat-backup-2026-10-26-before-dubbench.json` (50 objects with the arrangement objects, 84,063
+  B, read back; object 84 is 2,428 B: EDITOR_PROTOCOL.md corrected in 399de14).
+- **Flash 34**, 2026-10-26T19:24:31Z: dub-tape eaa1dd7 with OC_DUB_BENCH=1 (ci_step build; host suite passed on eaa1dd7; reviewed): unit on
+  `ORANGE CAT v0.6.2-eaa1dd`. The rows (`~/fm1-hw/dubtape/dub_rows.py`, dub-tape BUILD.md "Step 2"): one LITE instance about 308 us a half on CPU1,
+  four 1,190 us; tracks and parameters put back.
+- **Flash 35**, 2026-10-26T19:31:12Z: the published Nightly (`~/fm1-hw/nightly-3ca2b56/melodee-nightly.fwsc`): unit on `ORANGE CAT v0.6.2-3ca2b5`,
+  the pack this build's, WHEEL (start 0, state 7), SHAPES (start 1, state 7); tracks MACRO 10 / 0 / 1 / 20 as found, track 1's CHRD MAJ and VOIC
+  OPEN set again (the restart cleared them), CLK 0, ROUT 0, BUDGET 18, track 1 selected. PipeWire: the FM-1 card profile off and the AUDIO4c's
+  output only, for the captures (set again after each flash's re-enumeration).
+- Not yet published or flashed on linux-hw: the web-app merge (ca258e9, local; its suite passed in 1,276 s; to be merged again over linux-hw's two
+  documentation commits since).
