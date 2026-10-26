@@ -58,6 +58,23 @@ def ocm(name, engine, sectors, starts, length=3000, iface=IFACE, phash=PHASH, ba
     return bytes(b)
 
 
+def ocm2(name, engine, sectors, starts, length=3000, bad_crc=False):
+    """(0.14.1) a relocatable package (format 2): one image, an empty list, the starts it was proved for (check_set reads the header and the starts)"""
+    m, tab = len(starts), 56
+    head = tab + 32 + 8 * m
+    off = (head + 4 + 3) & ~3
+    b = bytearray(off + length)
+    struct.pack_into("<IHHIII", b, 0, 0x464D434F, 2, 1, IFACE, ADDR, engine)
+    struct.pack_into("<II", b, 20, 11136, PHASH)
+    b[28:28 + len(name)] = name.encode()
+    struct.pack_into("<III", b, 44, 3, 60, sectors)
+    struct.pack_into("<IIIIIIII", b, tab, 0xFFFFFFFF, length, 0, off, 0, off + length, 0, m)
+    for k, s in enumerate(starts):
+        struct.pack_into("<II", b, tab + 32 + 8 * k, s, 0)
+    struct.pack_into("<I", b, head, zlib.crc32(bytes(b[:head])) ^ (1 if bad_crc else 0))
+    return bytes(b)
+
+
 def run(pk, mods, manifest=None):
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
@@ -85,5 +102,8 @@ check("a Prophet image longer than its 8 sectors is refused", "does not fit" in 
 check("a Prophet image at sector 5 (5 + 8 sectors leave the 12 sector area) is refused", "does not fit" in run(P, [ocm("PROPHET", 19, 8, [0, 5], length=31872)]))
 check("a SHAPES image at sector 7 is refused", "does not fit" in run(P, [ocm("SHAPES", 14, 6, [0, 7])]))
 check("a pack of another hash than the firmware's is refused", "is not the firmware's" in run(P, [shapes], {"pack_hash": PHASH ^ 1, "pack_len": len(P), "iface": IFACE, "api_addr": ADDR}))
+check("(0.14.1) a relocatable package (format 2) of the Prophet, proved for sectors 0 and 4, is accepted", run(P, [ocm2("PROPHET", 19, 8, [0, 4], length=31872)]) == "")
+check("(0.14.1) a relocatable package proved for a start that leaves the area is refused", "does not fit" in run(P, [ocm2("SHAPES", 14, 6, [0, 7])]))
+check("(0.14.1) a damaged relocatable package header is refused", "damaged" in run(P, [ocm2("SHAPES", 14, 6, [0, 6], bad_crc=True)]))
 print("check_set: all passed" if not failed else f"check_set: {failed} FAILED")
 sys.exit(1 if failed else 0)

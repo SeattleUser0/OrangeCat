@@ -136,13 +136,25 @@
 #define ENGI_SEM 21u              /* (0.14.0) proposed: Caravel's SEM (tools/module/sem_mod.c) */
 #define ENGI_HADES 22u            /* (0.14.0) proposed: Caravel's HADES (tools/module/hades_mod.c) */
 #define ENGI_RHODES 23u           /* (0.14.0) proposed: Frodhes' Rhodes (tools/module/rhodes_mod.c; it fits no module start: never registered) */
-#define NENGINES (OC_CANDIDATES ? 23 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES */
+/* (0.14.1, branch op1r-candidates) proposed: op1r's synth plugins (https://github.com/Hundekraft/op1r-src, docs/orangecat/ENGINE_CANDIDATES.md,
+ * "op1r"), in the order they go through the gate; each a module through tools/module/op1r/op1_glue.h. Numbers past 23 make the measurement build's
+ * table 32 long (the last a 32-bit engine mask holds: engines.c eng_hs.refused); a number without its module is retired (silent) */
+#define ENGI_FMBELL 24u           /* fmbell (tools/module/fmbell_mod.c) */
+#define ENGI_SUPERSAW 25u         /* supersaw (tools/module/supersaw_mod.c) */
+#define ENGI_DDDD 26u             /* dddd (tools/module/dddd_mod.c) */
+#define ENGI_AETHER 27u           /* aether, brassophone, mixtur, arc: the next session's */
+#define ENGI_BRASS 28u
+#define ENGI_MIXTUR 29u
+#define ENGI_ARC 30u
+#define ENGI_GRANULAR 31u         /* granular: reserved; its port waits for the sample question (ENGINE_CANDIDATES.md) */
+#define OP1R_NCAND 8u             /* the op1r numbers 24..31 */
+#define NENGINES (OC_CANDIDATES ? 32 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31 */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + 2u * OC_CANDIDATES)   /* (Orange Cat: - SID - CZ-1 - FM6 -
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + (2u + OP1R_NCAND) * OC_CANDIDATES)   /* (Orange Cat: - SID - CZ-1 - FM6 -
                                                  * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone; 0.14.0: + WHEEL, a module's) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */

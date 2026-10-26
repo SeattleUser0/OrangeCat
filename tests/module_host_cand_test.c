@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
  *
- * Orange Cat, the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md): a candidate module (SEM or HADES, Caravel's) on the host, in a measurement
- * build (OC_CANDIDATES=1: the engine table of 23, the proposed numbers registrable). Built once per candidate with its unit (tests/module_host_<name>_tu.c)
+ * Orange Cat, the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md): a candidate module (SEM or HADES, Caravel's; 0.14.1: op1r's synths, through
+ * tools/module/op1r/op1_glue.h) on the host, in a measurement build (OC_CANDIDATES=1: the engine table of 32, the proposed numbers registrable). Built once per candidate with its unit (tests/module_host_<name>_tu.c)
  * and -DCAND_ENGINE=ENGI_<NAME>: the header passes the registration check, the loader's registration takes the proposed slot (and only in this build),
  * the engine is offered while registered, its presets render through the whole voice path (tests/regress.c) with the lines of tests/golden_modules.txt
  * (module/<NAME>/..., new lines), and unregistering retires the slot. Sample for sample against Caravel's own build of the engine: tests/caravel_parity
@@ -41,8 +41,12 @@ int main(int argc, char **argv)
     np = em->npresets;
     ng = load_kv(gpath, gold, MAXJ);
     check("the header passes the registration check and names the proposed number", fw_module_check(&h) == FW_MOD_OK && h.engine == CAND_ENGINE &&
-          h.engine >= 21u && h.engine < NENGINES && NENGINES == 23);
-    check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
+          h.engine >= 21u && h.engine < NENGINES && NENGINES == 32);
+    if (CAND_ENGINE < ENGI_FMBELL)
+        check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
+    else                                       /* (0.14.1) op1r's: the glue's part state (the voices' 128-sample blocks, the plugin's own), six voices */
+        check("no hot set of its own, the glue's part state (op1g_part_t) under 16 KB, OP1_VOICES voices", em->nhot == 0u && h.state_size > 2048u &&
+              h.state_size <= 16384u && em->poly == 6u && em->keep == 0u && np >= 3u && np <= 64u);
     check("the slot is retired and not offered without the module", ENGINES[CAND_ENGINE] == &ENG_RETIRED && !eng_ok(CAND_ENGINE) &&
           eng_sound_idx(CAND_ENGINE) == CAND_ENGINE && !eng_ok(20u));
     check("the registration takes it (a candidate's slot in this build)", eng_register(&h, em) == EM_OK && ENGINES[CAND_ENGINE] == em);

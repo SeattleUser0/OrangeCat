@@ -74,6 +74,8 @@ static char *uh_cat(char *b, const char *s) { while (*s) *b++ = *s++; *b = 0; re
 #define pk_image_check(a, b, c) (0)
 #define oc_mod_image_check(a, b, c, d, e) (0)
 #endif
+static uint32_t t_fb_rel[2048];                         /* (0.14.1) the relocation list's RAM (card_install.c FB_RELOCS) */
+#define FB_RELOCS() t_fb_rel
 #define FB_PAK 1
 #define FB_OCM 1
 #define FB_SET 1
@@ -144,6 +146,64 @@ static void package(uint32_t seed, mut_t f, int flip_code, int rec)
     for (uint32_t k = 0; k < 2u; k++) {
         wr32(OCM + 56 + 16 * k, 6u * k); wr32(OCM + 56 + 16 * k + 4, LEN); wr32(OCM + 56 + 16 * k + 12, base + LEN * k);
         variant(OCM + base + LEN * k, k, seed, f, flip_code, rec);
+    }
+    wr32(OCM + 88, ocs_crc32(OCM, 88));
+    ocm_size = base + 2u * LEN;
+}
+/* (0.14.1) a relocatable package (format 2): one image linked at 0 (its link address and engine_t pointer 0-based), five sites (the header's two
+ * words, two ABS32 words and a MOV_ABS32 pair in the code), each start's image made from it by a reference here (rel_ref: the rule of
+ * tools/ocflash.py apply_relocs) and the package naming their CRC-32. mode: 0 good; 1 a list byte flipped (its CRC); 2 the last site past the
+ * image's end (CRCs made good); 3 a list of FB_REL_MAX + 1 words (CRCs good); 4 both starts' CRC-32 wrong (the header's CRC made good); 5 the list
+ * out of order (CRCs good). FIN[k]: the image start k gets; package_v1() puts the two into a variants package (format 1). */
+static const uint32_t RW[] = { (1u << 24) | 28u, (1u << 24) | 32u, (1u << 24) | 0x200u, (2u << 24) | 0x302u, (1u << 24) | 0x404u };
+static uint8_t FIN[2][LEN], OCM2[256 + LEN + 4u * 2049u];
+static uint32_t ocm2_size, RWX[2049];
+static uint32_t rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static void rel_ref(uint8_t *img, uint32_t base)
+{
+    for (uint32_t k = 0; k < sizeof RW / 4u; k++) {
+        uint32_t a = (RW[k] & 0xFFFFFFu) + (RW[k] >> 24 == 2u ? 2u : 0u);
+        wr32(img + a, rd32(img + a) + base);
+    }
+    wr32(img + 52, ocs_crc32(img + FW_MOD_CODE_OFF, LEN - FW_MOD_CODE_OFF));
+    wr32(img + 56, ocs_crc32(img, 56));
+}
+static void package2(uint32_t seed, int mode)
+{
+    fw_mod_hdr_t h = mk(0, LEN);
+    uint32_t nw = sizeof RW / 4u, at = 256u, k;
+    h.link_addr = 0; h.engine_ptr = 0x180u;
+    code(seed);
+    seal(&h); memcpy(IMG, &h, sizeof h);
+    for (k = 0; k < 2u; k++) { memcpy(FIN[k], IMG, LEN); rel_ref(FIN[k], oc_mod_link(k)); }
+    memcpy(RWX, RW, sizeof RW);
+    if (mode == 2) RWX[nw - 1u] = (1u << 24) | (LEN - 2u);
+    if (mode == 3) { for (k = 0; k < 2049u; k++) RWX[k] = (1u << 24) | (0x200u + 4u * k); nw = 2049u; }
+    if (mode == 5) { RWX[2] = RW[4]; RWX[4] = RW[2]; }
+    memset(OCM2, 0, sizeof OCM2);
+    wr32(OCM2, 0x464D434Fu); OCM2[4] = 2; OCM2[6] = 1;
+    wr32(OCM2 + 8, FW_API_IFACE); wr32(OCM2 + 12, FW_API_ADDR); wr32(OCM2 + 16, ENGI_SHAPES);
+    wr32(OCM2 + 20, 11136u); wr32(OCM2 + 24, OC_PACK_HASH); wr32(OCM2 + 44, FW_API_VERSION); wr32(OCM2 + 48, sizeof(fw_api_t)); wr32(OCM2 + 52, 6u);
+    wr32(OCM2 + 56, 0xFFFFFFFFu); wr32(OCM2 + 60, LEN); wr32(OCM2 + 64, ocs_crc32(IMG, LEN)); wr32(OCM2 + 68, at);
+    memcpy(OCM2 + at, IMG, LEN);
+    for (k = 0; k < nw; k++) wr32(OCM2 + at + LEN + 4u * k, RWX[k]);
+    wr32(OCM2 + 72, nw); wr32(OCM2 + 76, at + LEN); wr32(OCM2 + 80, ocs_crc32(OCM2 + at + LEN, 4u * nw)); wr32(OCM2 + 84, 2u);
+    for (k = 0; k < 2u; k++) { wr32(OCM2 + 88 + 8u * k, 6u * k); wr32(OCM2 + 92 + 8u * k, ocs_crc32(FIN[k], LEN)); }
+    if (mode == 4) { OCM2[92] ^= 1u; OCM2[92 + 8] ^= 1u; }
+    wr32(OCM2 + 104, ocs_crc32(OCM2, 104));
+    if (mode == 1) OCM2[at + LEN + 9] ^= 0x40u;
+    ocm2_size = at + LEN + 4u * nw;
+}
+static void package_v1(void)                             /* FIN[0], FIN[1] as the variants package of format 1 (sectors 0 and 6) */
+{
+    uint32_t base = 512u;
+    memset(OCM, 0, sizeof OCM);
+    wr32(OCM, 0x464D434Fu); OCM[4] = 1; OCM[6] = 2;
+    wr32(OCM + 8, FW_API_IFACE); wr32(OCM + 12, FW_API_ADDR); wr32(OCM + 16, ENGI_SHAPES);
+    wr32(OCM + 20, 11136u); wr32(OCM + 24, OC_PACK_HASH); wr32(OCM + 44, FW_API_VERSION); wr32(OCM + 48, sizeof(fw_api_t)); wr32(OCM + 52, 6u);
+    for (uint32_t k = 0; k < 2u; k++) {
+        wr32(OCM + 56 + 16 * k, 6u * k); wr32(OCM + 56 + 16 * k + 4, LEN); wr32(OCM + 56 + 16 * k + 8, ocs_crc32(FIN[k], LEN)); wr32(OCM + 56 + 16 * k + 12, base + LEN * k);
+        memcpy(OCM + base + LEN * k, FIN[k], LEN);
     }
     wr32(OCM + 88, ocs_crc32(OCM, 88));
     ocm_size = base + 2u * LEN;
@@ -296,6 +356,25 @@ int main(void)
     package(63, 0, 0, 0); cf_put("/C/X.OCM", OCM, ocm_size);
     chk("the good package installs (the in-place question is covered by usb_host_test): erases happen, the unit works",
         do_mod() == 0 && erases > 0 && working());
+
+    /* ---- (0.14.1) a relocatable package (format 2): the flash after its install is the flash after the variants package's of the same images */
+    {
+        static uint8_t after_v1[0x100000];
+        static const char *const what[] = { "", "a list byte flipped (its CRC)", "a site past the image's end", "a list longer than FB_REL_MAX",
+                                            "each start's CRC-32 not its relocated image's", "the list out of order" };
+        unit(); package2(70, 0); package_v1(); cf_put("/C/X.OCM", OCM, ocm_size);
+        chk("(setup) the variants package of the reference images installs", do_mod() == 0 && working());
+        memcpy(after_v1, nor, sizeof nor);
+        unit(); package2(70, 0); cf_put("/C/X.OCM", OCM2, ocm2_size);
+        chk("the relocatable package installs: the unit works", do_mod() == 0 && erases > 0 && working());
+        chk("... and the flash is byte for byte the flash the variants package left (the installed image is the variant's)", !memcmp(after_v1, nor, sizeof nor));
+        for (int mode = 1; mode <= 5; mode++) {
+            char t[160];
+            unit(); package2(71, mode); cf_put("/C/X.OCM", OCM2, ocm2_size); keep();
+            snprintf(t, sizeof t, "a relocatable package with %s: refused 'Module file damaged', zero erases, the old module working", what[mode]);
+            chk(t, do_mod() == 1 && !strcmp(fb.msg, "Module file damaged") && erases == 0 && same() && working() && !fb.ask);
+        }
+    }
 
     /* ---- a set with one bad file: refused whole, before its first stage (the pack in the set is not installed even though it is good) */
     {

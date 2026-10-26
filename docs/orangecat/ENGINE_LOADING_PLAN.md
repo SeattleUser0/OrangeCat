@@ -1,7 +1,7 @@
 # Orange Cat: asset packs and loadable engines, a plan
 
-**Version:** 0.11
-**Date:** October 25, 2026
+**Version:** 0.12
+**Date:** October 26, 2026
 **Status:** milestone 1 (the asset pack) is built and measured in 0.8.0 (branch sonnet-work, not on the unit yet).
 Milestone 2 (loadable engines) has its proof of concept built in 0.10.0 on the same branch ("The SHAPES module, as built"):
 SHAPES builds as a module, the firmware finds, checks and registers it at boot, and it installs from the web page or the card. Steps 1 to 6
@@ -10,6 +10,10 @@ DRUM-X is built (0.9.0) and measured. Measurements are from docs/orangecat/SIZE_
 named below.
 
 Revisions:
+- 0.12 (branch op1r-candidates): "One image and a relocation list" (under "The module experiment"): the experiment (exp/relocs) reproduced every
+  variant of SHAPES, the Prophet and WHEEL byte for byte from one image linked at 0 and a list of ABS32 words and MOV_ABS32 constants; the module
+  package's format 2 built on it (one image, its list, each start's CRC-32), applied by the page and the card at install time, the loader unchanged;
+  format 1 behind OC_OCM_VARIANTS=1 until the unit has installed and measured a relocated module. The module area's table: op1r's three candidates.
 - 0.11: "What runs from where, measured" (0.13.7, branch linux-hw, the unit): a module's code runs as fast as the image's; data from flash goes
   through one 4 KiB direct-mapped D-cache way (CACHE_RAM), where tables that share lines miss on every read; hot sets (per-sample tables in RAM,
   declared in engine_t, NO ROOM when they do not fit) built and measured: SHAPES at or under 0.6.2 built in and as a module. The module area cannot
@@ -744,6 +748,82 @@ What the numbers say:
 - **Two things are not clean yet.** The module holds 4 B of `.data` (the copy of oc_pack.h's `oc_pack_good`) and 4 B
   of `.bss` (the `fw` pointer). A module with no RAM of its own needs neither; see the steps below.
 
+### One image and a relocation list (0.14.1: the experiment on exp/relocs, the package on op1r-candidates)
+
+The experiment above (0.9.0) left one question open: the alternative to a link per start, "one image with a table of the sites for the installer
+to patch", needed the encodings of MOV_ABS32 and LONG_JUMP_23M2, which the toolchain does not document. op1r (the OP-1 custom firmware) does exactly
+this for its plugin files (synth_sdk/make_plugin.py, plugload/op1p.h: the plugin linked alone at 0, its relocations kept as a list, the list proven by
+a second link at another base). Orange Cat's case is simpler: the firmware is reached through fw_api_t at a fixed address (no imports), and the module
+area is executed in place, so the relocation is applied at install time by the installer for the start the unit names, and the firmware's loader is
+unchanged (the header's link address says where the bytes were relocated to, as it does for a variant).
+
+**2a, the experiment** (branch exp/relocs, throwaway, `.ci_quick`; commit 2517ec7, CI run 40261502427). tools/build.py with `OC_RELOC_EXP=1`
+linked each variant again at base 0 with `ld -q` (the relocations kept in the ELF); tools/module_relocs.py read them (the toolchain has no readelf and
+its objdump does not print `.rela.text`: the ELF is parsed in Python), made the list, applied it to the base-0 image for each start, filled the header
+as build.py does, and compared byte for byte with the variants. The relocation types (the toolchain's 17 pi32v2 names, numbered in the order its
+binaries carry them, and confirmed by decoding every site in two variants and the base-0 link):
+
+| Module | ABS32 (8) | MOV_ABS32 (5) | LONG_JUMP_23M2 (2) | list entries |
+|---|---|---|---|---|
+| SHAPES | 103 | 25 | 40 | 128 |
+| PROPHET | 154 | 34 | 37 | 188 |
+| WHEEL | 51 | 5 | 0 | 56 |
+
+- **ABS32**: a little-endian 32-bit word holding an address (the engine_t, presets, names, pages; the header's link_addr and engine_ptr). Relocating
+  adds the base.
+- **MOV_ABS32**: an instruction pair (8 bytes) loading a 32-bit constant: the low half at site + 2, the high half at site + 4, little-endian halfwords;
+  the halfwords at site and site + 6 are opcodes and never change. Sites are halfword aligned (11 of SHAPES' are not word aligned). The two halves are
+  one plain 32-bit value: relocating adds the base with the carry into the high half (no sign adjustment). The real starts never carry (their low
+  halves are 0x4000 + n x 0x1000), so the experiment also linked at 0x020CF000 and 0x0200FFFC, bases at which many constants carry: reproduced byte for
+  byte too.
+- **LONG_JUMP_23M2**: PC-relative (calls and jumps inside the image): the same bytes at every base. Not in the list.
+- No relocation against an absolute symbol, and **no type the list cannot express** in any module.
+- **Every differing word explained**: comparing the two variants of each module, every byte that differs is a site of the list or the header's crc /
+  hcrc (130 words for SHAPES, 190 for the Prophet, 58 for WHEEL).
+- **Both variants reproduced exactly** for SHAPES (starts 0 and 6), the Prophet (0 and 4) and WHEEL (0 and 6), locally and in CI.
+
+**2b, the package (format 2)** (branch op1r-candidates). tools/build.py --module still links every start (each is the proof) and then, when every start
+used the same layout for the update loader's record rule (`pad`, which is 0 in every build so far), links once more at 0 with `-q`, makes the list
+(tools/module_relocs.py), requires that the list applied for each start, the header's two CRCs filled, is that start's variant byte for byte (else the
+build stops: no package), and writes **format 2**: one image linked at 0, its list, and for each start the CRC-32 of the image that start gets
+(web/EDITOR_PROTOCOL.md has the layout). A list word is (kind << 24) | offset, kind 1 ABS32 or 2 MOV32 (the 32-bit value at offset + 2), in increasing
+order, at most 2,048. Where the list is applied:
+
+- **tools/ocflash.py** `apply_relocs(image, words, base)`, `module_fill`, `ocm_images`: the reference. tests/ocflash_test.py checks an ABS32 word and a
+  MOV_ABS32 carry, the refusals, and that every relocatable package the build left gives each start build/module/<name>.<start>.img (the variant's
+  image, which build.py now keeps) byte for byte.
+- **The page** (web/fm1oc.js `ocmRelocate`, `ocmParse`; the same text in web/editor.html): reading the file, it relocates the image for every start
+  the package names and keeps it only if its CRC-32 is the package's for that start; the rest (ocmCheck: the inner header against the unit's planned
+  start, the code's CRC, the sector tails; then the send) is unchanged, so the unit receives exactly what a variant would have been. web/test_ocm.mjs:
+  the page's relocation equals Python's on random images and lists (carries included), the build's packages give the variants byte for byte, and a
+  flipped list byte, a site past the end, a list out of order, one too long, a site of another kind and a wrong start CRC are refused.
+- **The card** (firmware/src/card_install.c `fb_rel_rd`, `fb_mod_src`): the list is read into the file browser's borrowed RAM (proj_wire_u, from
+  8 KB: at most 2,048 words; longer, out of order, another kind, a site outside the image or across the header page's end: "Module file damaged"),
+  and the image a start gets is read through a reader that relocates the bytes it hands out, its header page rebuilt in RAM with the relocated code's
+  CRC; its CRC-32 against the package's for the start before anything is erased; then oc_mod_image_check and the write read the same reader. A format
+  1 variant goes through the same reader with no sites. tests/card_install_test.c: a relocatable install leaves the flash byte for byte as the
+  variants package of the same images does; each damaged case is refused with zero erases and the old module working. Cost: **+1,388 B of image**
+  (fb_rel_rd 274, fb_mod_src 410, fb_mod_file +704), **no RAM**.
+- **The firmware's loader**: unchanged. An older firmware's card installer and an older page refuse format 2 by its version ("Not a module").
+
+**Package sizes** (the variants package of format 1 against format 2, same commit):
+
+| Module | format 1 | format 2 | relocations |
+|---|---|---|---|
+| SHAPES | 47,980 B | 24,564 B | 128 (103 ABS32, 25 MOV32) |
+| PROPHET | 63,860 B | 32,744 B | 188 (154, 34) |
+| WHEEL | 5,932 B | 3,252 B | 56 (51, 5) |
+| SEM | 7,460 B | 3,924 B | 33 (31, 2) |
+| HADES | 6,708 B | 3,532 B | 29 (28, 1) |
+| FMBELL | 3,332 B | 1,808 B | 20 (20, 0) |
+| SUPERSAW | 3,436 B | 1,860 B | 20 (20, 0) |
+| DDDD | 8,668 B | 4,480 B | 21 (20, 1) |
+
+**The variants path is kept**: `OC_OCM_VARIANTS=1` (the build's environment) writes format 1 as before, and the page and the card read both. It stays
+until the Linux session has installed a relocated module on the unit (from the page with tools/hw/oc_install.mjs, and from the card) and measured it
+against the same module installed from a variants package (the flash read back should be identical; the render times the same); then format 1's writer
+can go (the readers keep it for old files).
+
 ## The proof of concept, the next steps (5c)
 
 In order, each one buildable and testable alone. Nothing here writes flash on the unit until step 7.
@@ -1134,7 +1214,7 @@ Per voice (worst less 460 us idle and 120 us a track, over the voices sounding):
 180 to 320. The admission is per model already (`mc_units`, MC_UNITS); its 0.5.3 values are the host's, and MODAL (6 units: three voices on one track) and
 ADDTV (7) are under-priced on the unit. The table measured units would give (92 us a unit) is in BUILD.md, Part 2; it changes four golden renders (their chords
 lose voices) and waits for that approval. Arena: the hot set 15,316 B; states unchanged.
-## The module area with the candidates (0.14.0, branch engine-candidates)
+## The module area with the candidates (0.14.0, branch engine-candidates; 0.14.1, op1r-candidates)
 
 The 12-sector area (0xC8000..0xD3FFF, 49,152 B) and every module CI builds today, as `tools/engine_gate.py` measures them (docs/orangecat/
 ENGINE_CANDIDATES.md has each one's full table). Starts are the firmware's (oc_module.c `oc_mod_sect`: sectors 0, 6 and 4) and each engine's geometry
@@ -1148,6 +1228,9 @@ ENGINE_CANDIDATES.md has each one's full table). Starts are the firmware's (oc_m
 | SEM (21, proposed) | 3,684 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
 | HADES (22, proposed) | 3,308 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (TANH_Q15: the base set) |
 | RHODES (23, proposed) | 138,888 B | 34 | none fits | | | 109,560 B read per sample: no |
+| FMBELL (24, proposed; op1r) | 1,620 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (SINE: the base set) |
+| SUPERSAW (25, proposed; op1r) | 1,672 B | 1 | 4, at 0 or 6 | yes | yes | 0 B (SINE: the base set) |
+| DDDD (26, proposed; op1r) | 4,288 B | 2 | 4, at 0 or 6 | yes | yes | 0 B (its loop is the part's state, 10,772 B a track) |
 
 Three modules at once: SHAPES at 0 and one 4-sector module at 6 fill sectors 0 to 9 (two sectors free, no start there); the Prophet at 4 and one at 0
 fill 0 to 11. Two of the small ones (WHEEL, SEM, HADES) take 0 and 6. The firmware's own hot set (SINE, 2,052 B of arena at boot) is the base every

@@ -7,6 +7,7 @@
  *
  * Revisions: 0.13.4 split from card_browse.c.
  *   0.13.5 fb_install_set: the press that answers an in-place question goes on from the module that asked (a set of two modules asking by turns for ever).
+ *   0.14.1 fb_mod_file: the relocatable package (format 2: one image linked at 0 and its relocation list), relocated here for the start (fb_rel_rd).
  */
 #if FB_PAK
 /* (0.8.0) the pack file at (fb.path, e) installed: 0 done, else fb.msg says why. Reads it in 512-byte pieces: the header, the
@@ -75,26 +76,121 @@ static uint32_t fb_put(char *d, uint32_t at, const char *s, uint32_t max)       
     for (k = 0; s[k] && k < max && at + 1u < sizeof fb.msg; k++) d[at++] = s[k];
     return at;
 }
+/* (0.14.1) A relocatable package (format 2, web/EDITOR_PROTOCOL.md): one image linked at 0, its relocation list and, for each start it was proved for, the
+ * CRC-32 of the image that start gets. A list word is a site (tools/ocflash.py apply_relocs, web/fm1oc.js ocmRelocate: the same rules): bits 0..23 its
+ * offset, bits 24..31 its kind, 1 a 32-bit word holding an address, 2 a MOV_ABS32 instruction pair (8 bytes) whose constant's two halves sit at offset + 2
+ * and + 4, which is the little-endian 32-bit value at offset + 2: either way base is added to the 32-bit value at fb_rel_at. The list is read into the
+ * borrowed RAM (FB_RELOCS) and refused when it is longer than FB_REL_MAX, out of order, has another kind, a site outside the image or one that straddles
+ * the header page's end. The image a start gets is read through fb_rel_rd: the header page from RAM (its sites applied, the two CRCs filled as the build
+ * fills them: fb_rel_seal), the rest the file's bytes with the sites in the range relocated. Its CRC-32 must be the package's for that start, so the flash
+ * gets byte for byte the image the variants package would have held; then oc_mod_image_check and the write read the same reader. */
+#define FB_REL_MAX 2048u
+#ifndef FB_RELOCS
+#define FB_RELOCS() ((uint32_t *)(void *)(proj_wire_u.raw + 8192u))   /* the list: after the rows (4 KB), a set's manifest (2 KB) and the parsed set (below) */
+_Static_assert(sizeof proj_wire_u >= 8192u + 4u * FB_REL_MAX, "the relocation list fits the borrowed RAM");
+#define FB_RELOCS_AT_8K 1
+#endif
+#define FB_RELOCATABLE 0xFFFFFFFFu
+typedef struct { fb_rd_t f; const uint32_t *w; uint32_t n, base; uint8_t pg[256]; } fb_rel_t;
+static uint32_t fb_rel_at(uint32_t w) { return (w & 0xFFFFFFu) + ((w >> 24) == 2u ? 2u : 0u); }
+static void fb_wr32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
+static int fb_rel_rd(void *ctx, uint32_t off, void *dst, uint32_t n)
+{
+    fb_rel_t *r = ctx;
+    uint8_t *d = dst;
+    uint32_t k;
+    for (; n && off < 256u; n--) *d++ = r->pg[off++];
+    if (!n) return 0;
+    if (fb_rd(&r->f, off, d, n)) return 1;
+    for (k = 0; k < r->n; k++) {
+        uint32_t a = fb_rel_at(r->w[k]), j, v;
+        uint8_t o[4];
+        if (a < 256u || a + 4u <= off || a >= off + n) continue;
+        if (a >= off && a + 4u <= off + n) memcpy(o, d + (a - off), 4);
+        else if (fb_rd(&r->f, a, o, 4)) return 1;
+        v = pk_rd32(o) + r->base;
+        for (j = 0; j < 4u; j++)
+            if (a + j >= off && a + j < off + n) d[a + j - off] = (uint8_t)(v >> (8u * j));
+    }
+    return 0;
+}
+/* the header page of the image for r->base and that image's CRC-32 against want (the package's for the start): 0, MC_READ or MC_CRC. b: 256 bytes */
+static int fb_rel_seal(fb_rel_t *r, uint32_t len, uint32_t want, uint8_t *b)
+{
+    uint32_t crc = 0xFFFFFFFFu, off, k, pass;
+    if (fb_rd(&r->f, 0, r->pg, 256u)) return MC_READ;
+    for (k = 0; k < r->n; k++) {
+        uint32_t a = fb_rel_at(r->w[k]);
+        if (a < 256u) fb_wr32(r->pg + a, pk_rd32(r->pg + a) + r->base);
+    }
+    for (pass = 0; pass < 2u; pass++) {               /* the code's CRC-32 into the header, then the whole image's */
+        if (pass) {
+            fb_wr32(r->pg + 52, ~crc);
+            fb_wr32(r->pg + 56, ocs_crc32(r->pg, 56u));
+            crc = ocs_crc_add(0xFFFFFFFFu, r->pg, 256u);
+        }
+        for (off = 256u; off < len; off += 256u) {
+            uint32_t n = len - off > 256u ? 256u : len - off;
+            if (fb_rel_rd(r, off, b, n)) return MC_READ;
+            crc = ocs_crc_add(crc, b, n);
+            SMP_FEED();
+        }
+    }
+    return ~crc == want ? 0 : MC_CRC;
+}
+/* the list of a format 2 package (nrel words at roff, CRC-32 rcrc) into FB_RELOCS, checked against an image of len bytes: 0, or 1 refused */
+static int fb_rel_load(FIL *f, uint32_t nrel, uint32_t roff, uint32_t rcrc, uint32_t len)
+{
+    uint32_t *w = FB_RELOCS(), k, prev = 0;
+    UINT got;
+    if (nrel > FB_REL_MAX || f_lseek(f, roff) != FR_OK || f_read(f, w, 4u * nrel, &got) != FR_OK || got != 4u * nrel ||
+        ocs_crc32(w, 4u * nrel) != rcrc)
+        return 1;
+    for (k = 0; k < nrel; k++) {
+        uint32_t x = pk_rd32((const uint8_t *)&w[k]), o = x & 0xFFFFFFu, t = x >> 24, a;
+        w[k] = x;                                       /* (the file's little-endian word, whatever the CPU) */
+        a = fb_rel_at(x);
+        if ((k && o <= prev) || (t != 1u && t != 2u) || o + (t == 2u ? 8u : 4u) > len || (a < 256u && a + 4u > 256u))
+            return 1;
+        prev = o;
+    }
+    return 0;
+}
+/* the image start vs gets from the package's row o, ready for fb_rel_rd with its header page in r->pg: format 1, variant o's bytes (no sites); format 2,
+ * the one image relocated for vs, its CRC-32 the package's (hdr: the package's first 256 bytes; b: 256 bytes of scratch). 0 or MC_READ, MC_CRC */
+static int fb_mod_src(fb_rel_t *r, const uint8_t *hdr, uint32_t ver, uint32_t o, uint32_t vs, uint32_t voff, uint32_t len, uint8_t *b)
+{
+    r->f.base = voff;
+    if (ver != 2u) {
+        r->n = 0; r->base = 0;
+        return fb_rd(&r->f, 0, r->pg, 256u) ? MC_READ : 0;
+    }
+    r->n = pk_rd32(hdr + 72u); r->base = oc_mod_link(vs);
+    return fb_rel_seal(r, len, pk_rd32(hdr + 92u + 8u * o), b);
+}
 /* (0.10.0) the module package at (fb.path, e) installed: 0 done, else fb.msg says why. The package: a 56 byte header, a table of 16 byte variants, a CRC-32 of
- * both, then the images (web/EDITOR_PROTOCOL.md). The image for the place oc_mod_plan names goes to oc_mod_begin / write in 256 byte pieces; its first
- * 256 bytes (the header page) go to oc_mod_end, which programs them last. */
+ * both, then the images (web/EDITOR_PROTOCOL.md); (0.14.1) or format 2, above. The image for the place oc_mod_plan names goes to oc_mod_begin / write in 256
+ * byte pieces; its first 256 bytes (the header page) go to oc_mod_end, which programs them last. */
 static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int dry, uint32_t *engine_out)
 {
-    uint8_t buf[256], pg[256];
+    uint8_t buf[256], sc[256];                        /* (0.14.1) sc: fb_rel_seal's scratch (buf keeps the package's header) */
     FIL *f = &uf_pf;
     UINT got;
-    uint32_t n, tab = 56u, hc, engine, start, off = 0, len = 0, o;
+    uint32_t n, tab = 56u, hc, engine, start, off = 0, len = 0, o, ver, m = 0, po = 0;
+    fb_rel_t rel;
     int plan, rc = 0;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
     if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
-    if (f_read(f, buf, sizeof buf, &got) != FR_OK || got < 64u || pk_rd32(buf) != 0x464D434Fu || pk_rd16(buf + 4) != 1u) {
+    if (f_read(f, buf, sizeof buf, &got) != FR_OK || got < 64u || pk_rd32(buf) != 0x464D434Fu || ((ver = pk_rd16(buf + 4)) != 1u && ver != 2u)) {
         f_close(f);
         str_cpy(fb.msg, "Not a module", sizeof fb.msg);
         return 1;
     }
     n = pk_rd16(buf + 6);
-    hc = tab + 16u * n;
-    if (n < 1u || n > 8u || hc + 4u > got || ocs_crc32(buf, hc) != pk_rd32(buf + hc)) { f_close(f); str_cpy(fb.msg, "Not a module", sizeof fb.msg); return 1; }
+    if (ver == 2u && got >= tab + 32u) m = pk_rd32(buf + tab + 28u);  /* (0.14.1) format 2: one image, then the list's place and each start's CRC-32 */
+    hc = ver == 2u ? tab + 32u + 8u * m : tab + 16u * n;
+    if (n < 1u || n > 8u || (ver == 2u && (n != 1u || m < 1u || m > 8u || pk_rd32(buf + tab) != FB_RELOCATABLE)) || hc + 4u > got ||
+        ocs_crc32(buf, hc) != pk_rd32(buf + hc)) { f_close(f); str_cpy(fb.msg, "Not a module", sizeof fb.msg); return 1; }
     engine = pk_rd32(buf + 16);
     if (engine_out) *engine_out = engine;
     if (pk_rd32(buf + 8) != FW_API_IFACE || pk_rd32(buf + 12) != FW_API_ADDR || pk_rd32(buf + 44) > FW_API_VERSION ||
@@ -119,29 +215,41 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
         return 1;
     }
     start = (uint32_t)plan;
-    for (o = 0; o < n; o++)
-        if (pk_rd32(buf + tab + 16u * o) == OC_MOD_START_SECTOR(start)) { len = pk_rd32(buf + tab + 16u * o + 4u); off = pk_rd32(buf + tab + 16u * o + 12u); }
+    rel.f.f = f; rel.w = FB_RELOCS();
+    for (o = 0; o < (ver == 2u ? m : n); o++)          /* po: the planned start's row (a variant, or a start's CRC-32 in format 2) */
+        if (pk_rd32(buf + tab + (ver == 2u ? 32u + 8u * o : 16u * o)) == OC_MOD_START_SECTOR(start)) { po = o; len = 1u; }
+    if (ver == 2u) {                                   /* (0.14.1) the one image and the list (checked into FB_RELOCS) */
+        off = pk_rd32(buf + tab + 12u);
+        len = len ? pk_rd32(buf + tab + 4u) : 0u;
+        if (len && (off + len > size || fb_rel_load(f, pk_rd32(buf + tab + 16u), pk_rd32(buf + tab + 20u), pk_rd32(buf + tab + 24u), len))) {
+            f_close(f); str_cpy(fb.msg, "Module file damaged", sizeof fb.msg); return 1;
+        }
+    } else if (len) {
+        len = pk_rd32(buf + tab + 16u * po + 4u); off = pk_rd32(buf + tab + 16u * po + 12u);
+    }
     if (!len || off + len > size || len <= FW_MOD_CODE_OFF || (len & 3u)) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
     /* (0.13.4) the whole image for the start the unit names is read and checked here, with the checks oc_mod_end and the boot check apply (oc_mod_image_check:
      * the inner header against the start and the firmware, the code's CRC-32, the page descriptor, the sector tails), before the in-place question and before
      * anything is erased. A dry pass (the set's preflight) checks the file's image for every start its engine may be put at, since an earlier module of the set
-     * can change which start the real install uses. */
-    for (o = 0; o < n; o++) {
-        uint32_t sec = pk_rd32(buf + tab + 16u * o), vs, vlen = pk_rd32(buf + tab + 16u * o + 4u), voff = pk_rd32(buf + tab + 16u * o + 12u);
-        fb_rd_t rd;
+     * can change which start the real install uses. (0.14.1) Every image is read through fb_rel_rd: a format 1 variant is an image with no sites. */
+    for (o = 0; o < (ver == 2u ? m : n); o++) {
+        uint32_t sec = pk_rd32(buf + tab + (ver == 2u ? 32u + 8u * o : 16u * o)), vs, vlen = ver == 2u ? len : pk_rd32(buf + tab + 16u * o + 4u),
+                 voff = ver == 2u ? off : pk_rd32(buf + tab + 16u * o + 12u);
         int ck;
         for (vs = 0; vs < OC_MOD_STARTS && OC_MOD_START_SECTOR(vs) != sec; vs++) ;
         if (vs >= OC_MOD_STARTS || (vs != start && (!dry || !oc_mod_allowed(engine, vs)))) continue;
         if (!vlen || voff + vlen > size) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
-        rd.f = f; rd.base = voff;
-        ck = oc_mod_image_check(fb_rd, &rd, engine, vs, vlen);
+        ck = fb_mod_src(&rel, buf, ver, o, vs, voff, vlen, sc);
+        if (!ck) ck = oc_mod_image_check(fb_rel_rd, &rel, engine, vs, vlen);
         if (ck) {
             f_close(f);
             str_cpy(fb.msg, ck == MC_TAIL ? "Update would erase it" : ck == MC_READ ? "Unreadable" : ck == MC_PAGES ? "Module pages bad" : ck == MC_CRC ? "Module file damaged" : "Module header bad", sizeof fb.msg);
             return 1;
         }
     }
-    if (f_lseek(f, off) != FR_OK || f_read(f, pg, sizeof pg, &got) != FR_OK || got != sizeof pg) { f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
+    if (fb_mod_src(&rel, buf, ver, po, start, off, len, sc)) {    /* the planned start's image again (a dry pass may have read another start's last) */
+        f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1;
+    }
     if (dry) { f_close(f); return 0; }
     if (oc_mod_inplace(engine, start) && !armed) {      /* (0.10.1) no other place is free: the old module is erased first and a power cut leaves none.
                                                                                   * Said once; OCT+ on the same row again goes on (fb.ask is the row, as for a pack's question).
@@ -152,16 +260,15 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
         str_cpy(fb.msg, "Erases old first. Again", sizeof fb.msg);
         return 1;
     }
-    if (f_lseek(f, off + FW_MOD_CODE_OFF) != FR_OK) { f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
     if (oc_mod_begin(engine, start, len) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
-    for (o = FW_MOD_CODE_OFF; o < len && !rc; o += got) {
+    for (o = FW_MOD_CODE_OFF; o < len && !rc; o += sizeof buf) {
         uint32_t k = len - o > sizeof buf ? (uint32_t)sizeof buf : len - o;
-        if (f_read(f, buf, k, &got) != FR_OK || got != k || oc_mod_write(o, buf, k) != 0) rc = 1;
+        if (fb_rel_rd(&rel, o, buf, k) || oc_mod_write(o, buf, k) != 0) rc = 1;
         SMP_FEED();
     }
     f_close(f);
     if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
-    rc = oc_mod_end(pg);
+    rc = oc_mod_end(rel.pg);
     if (rc == -8) { str_cpy(fb.msg, "Update would erase it", sizeof fb.msg); return 1; }   /* (0.10.1) -8 is oc_module.c MI_TAIL: a sector tail like an update record, nothing committed */
     if (rc) { str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
     return 0;
@@ -179,6 +286,9 @@ static int fb_install_mod(const fb_ent_t *e)
 }
 #if FB_SET
 #include "oc_set.h"
+#ifdef FB_RELOCS_AT_8K
+_Static_assert(4096u + 2048u + sizeof(oc_set_t) <= 8192u, "(0.14.1) the parsed set ends before the relocation list (FB_RELOCS)");
+#endif
 #ifndef FB_TEXT
 #define FB_TEXT() ((char *)proj_wire_u.raw + 4096u)      /* (0.13.3) a set's manifest, and the parsed set after it, in the borrowed RAM behind the rows */
 #define FB_SETS() ((oc_set_t *)(proj_wire_u.raw + 4096u + 2048u))

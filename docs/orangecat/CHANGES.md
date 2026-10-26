@@ -1,7 +1,7 @@
 # Orange Cat: what changed for the user, 0.7.1 to the head of sonnet-work
 
-**Version:** 3  
-**Date:** October 25, 2026
+**Version:** 4  
+**Date:** October 26, 2026
 
 This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to the head of branch `sonnet-work`. None of it is on main, released, or flashed; the unit has not been touched. The build and test details are in BUILD.md.
 
@@ -68,3 +68,10 @@ again** (the module services table, version 5): every module is rebuilt and inst
 
 **0.14.0 (branch linux-hw, on sonnet-work and the Nightly of October 25 evening): WHEEL comes back, as a module.** Melodee's tonewheel organ (engine 7: nine drawbars, percussion, key click, drive, the rotary, its five presets) installs from the installer page or the editor's Engines table like the SHAPES module; it takes 4 of the module area's 12 sectors and fits beside SHAPES or beside the Prophet. A project or a sound saved with WHEEL before it was retired plays WHEEL again once the module is installed (silent, with its number kept, until then). Measured on the unit: four tracks of FULL ORGAN with no late render, lighter than the old built-in engine. The firmware also keeps its own sine and soft-clip tables in RAM for every engine (the base hot set); the module interface changed with it (version 5), so the SHAPES and Prophet modules of this build must be installed with it. **Installed modules are refused on this firmware** (interface 5): after installing it, the SHAPES or Prophet module already on the unit reads as refused and the built-in SHAPES plays (the Prophet and WHEEL are silent) until you install the modules of this build again from the installer page (it installs firmware, pack and modules in one go). Also in this build: a project saved to slot 3 or 4 no longer turns KNOB ACCEL off (see 0.13.8, the MENU settings); with four MACRO or SHAPES tracks the delay says FX FULL while the SLICER's STUT runs and comes back when it stops (the tables these engines keep in RAM since 0.13.7 take that room).
 
+**0.14.1 (branch op1r-candidates): module files at half the size.** A module file (.ocm) now holds the engine once, with the list of the places its
+addresses sit, instead of one copy for each place in the module area: SHAPES' file goes from 47,980 to 24,564 bytes, the Prophet's from 63,860 to
+32,744. The installer page, the editor and the card's installer put the addresses in for the place the unit chooses as they install it, and check that
+the result is exactly what the old file held for that place; what is written to the unit is the same bytes as before, and the unit's own checks are
+unchanged. **An older installer page, editor, or older firmware's card installer refuses the new files** ("Not a module"): install this build's
+firmware first (the installer page does firmware, pack and modules in one go). Nothing stored on the unit changes. Also measured here, not shipped:
+three of op1r's OP-1 synths (fmbell, supersaw, dddd) as engine modules of a measurement build (docs/orangecat/ENGINE_CANDIDATES.md, "op1r").

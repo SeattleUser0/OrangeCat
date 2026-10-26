@@ -4,16 +4,20 @@
 # Revisions:
 # (Orange Cat 0.10.1) module sector tails against the update loader's record rule
 # (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
+# (Orange Cat 0.14.1) the relocatable package (format 2): one image linked at 0, its relocation list, the proof against every start's variant
 """Orange Cat 0.10.0 (module PoC step 2): tools/build.py --module, against a stand-in toolchain.
 
 The JieLi toolchain is not on the host, so `tc` is replaced: compile, nm, ld, objcopy and objdump answer from a made image of the
 shape the real link gives (header page, code from 0x100). What is checked is build.py's own work: the starts a module of N
 sectors may have (0 and 6 for a 6 sector module in the 12 sector area; 12 is outside), the link script for each, the header checks
 (each refusal), the fields filled after the link (length, crc, hcrc), and the package (.ocm): its header, its table, every
-variant's CRC-32 and offset, and that the image in the package is the image that would be programmed.
+variant's CRC-32 and offset, and that the image in the package is the image that would be programmed. The variants package (format 1) is
+checked with OC_OCM_VARIANTS=1; then (0.14.1) the relocatable package (format 2) with the relocations of the base-0 link stood in for
+(tools/module_relocs.py's reader of a real ELF: the made images differ between starts in the header's engine_ptr and link_addr words only).
 
   python3 tests/module_build_test.py
 """
+import os
 import struct
 import sys
 import tempfile
@@ -97,6 +101,9 @@ class Fake:
 def run(fake, mods=None):
     build.tc = fake
     return build.build_module("shapes")
+
+
+os.environ["OC_OCM_VARIANTS"] = "1"                       # (0.14.1) the variants package first (format 1); the relocatable one below
 
 
 # the starts
@@ -190,6 +197,49 @@ refused("a wrong pack hash", Fake(pack_hash=PACK_HASH ^ 1), "pack_hash")
 refused("an engine_t outside the image", Fake(engine_ptr=0x01C00000), "engine_ptr")
 refused("filled length / crc / hcrc already (the link must leave them zero)", Fake(length=5), "must be zero")
 refused("a module that does not fit its sectors", Fake(size=6 * 4096), "do not fit")
+
+# (0.14.1) the relocatable package (format 2): the base-0 link's relocations stood in for (ABS32 at the header's engine_ptr and link_addr words)
+import module_relocs  # noqa: E402
+del os.environ["OC_OCM_VARIANTS"]
+real_relocs = module_relocs.relocs
+ocm_path = ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm"
+try:
+    module_relocs.relocs = lambda p: [(28, 8, 1), (32, 8, 1), (0x200, 2, 1)]       # ABS32 engine_ptr, ABS32 link_addr, a PC-relative jump (left out)
+    fk = Fake()
+    errors, notes = run(fk)
+    ocm = ocm_path.read_bytes()
+    magic, ver, n = struct.unpack_from("<IHH", ocm, 0)
+    start, length, crc, off = struct.unpack_from("<IIII", ocm, 56)
+    nrel, roff, rcrc, m = struct.unpack_from("<IIII", ocm, 72)
+    starts = [struct.unpack_from("<II", ocm, 88 + 8 * k) for k in range(m)]
+    check("relocatable: no error, format 2, one image marked relocatable, two relocations (the jump left out), two starts proved",
+          errors == [] and (magic, ver, n, start, nrel, m) == (build.OCM_MAGIC, 2, 1, 0xFFFFFFFF, 2, 2) and [s for s, _ in starts] == [0, 6])
+    check("relocatable: the base-0 link (one more ld, with -q) gives the image; its link address is 0",
+          fk.pads == [0, 0, 0] and any("-q" in c[1] for c in fk.calls if c[0] == "pi32v2/bin/ld") and
+          build.MOD_HDR.unpack_from(ocm, off)[8] == 0 and zlib.crc32(ocm[off:off + length]) & 0xFFFFFFFF == crc)
+    check("relocatable: the header CRC, the list's CRC; the list is the image's last neighbour and ends the file",
+          struct.unpack_from("<I", ocm, 88 + 8 * m)[0] == zlib.crc32(ocm[:88 + 8 * m]) & 0xFFFFFFFF and
+          zlib.crc32(ocm[roff:roff + 4 * nrel]) & 0xFFFFFFFF == rcrc and roff == off + length and roff + 4 * nrel == len(ocm))
+    imgs = ocflash.ocm_images(ocm)
+    vimg = {s: (build.OUT / "module" / f"shapes.{s}.img").read_bytes() for s in (0, 6)}
+    check("relocatable: ocflash.ocm_images gives each start the variant's image byte for byte (and the start's CRC-32 the package names)",
+          imgs == vimg and all(zlib.crc32(vimg[s]) & 0xFFFFFFFF == c for s, c in starts))
+    check("relocatable: the report names the list and both sizes", any("relocatable (format 2)" in x and "the variants package:" in x for x in notes))
+    module_relocs.relocs = lambda p: [(32, 8, 1)]                               # engine_ptr's relocation missing: the proof fails
+    errors, _ = run(Fake())
+    check("relocatable: a list that does not make a start's variant stops the build (no package)",
+          any("no relocatable package" in e and "start 0" in e for e in errors) and not ocm_path.exists())
+    module_relocs.relocs = lambda p: [(28, 8, 1), (32, 8, 1), (0x300, 15, 1)]  # GOT16: a type the list cannot express
+    errors, _ = run(Fake())
+    check("relocatable: a relocation type the list cannot express stops the build", any("GOT16" in e for e in errors))
+    os.environ["OC_OCM_VARIANTS"] = "1"
+    module_relocs.relocs = lambda p: [(32, 8, 1)]
+    errors, notes = run(Fake())
+    check("OC_OCM_VARIANTS=1: the variants package (format 1), no base-0 link, whatever the relocations",
+          errors == [] and struct.unpack_from("<H", ocm_path.read_bytes(), 4)[0] == 1 and any("OC_OCM_VARIANTS=1" in x for x in notes))
+finally:
+    module_relocs.relocs = real_relocs
+    os.environ.pop("OC_OCM_VARIANTS", None)
 
 # no mock left behind for the real tool
 import importlib  # noqa: E402
