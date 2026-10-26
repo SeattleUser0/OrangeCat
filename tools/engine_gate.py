@@ -179,6 +179,11 @@ GATE = {
         "modulation": "SHP moves X (the track's LFO DEST SHP, MW / AT, the matrix's SHP); the matrix's E5 E6 are X and Y themselves (per block); MOVE's own paths from the note's start; CUT through m->cutoff, half keyboard; velocity and the ADSR through the amplitude",
         "backend": "wt_shared.h: the bank format (16 frames x three band-limited copies, 672 int16), the per-part frame cache, the linear frame read (shared with WSEQ and WAVE by re-band-limiting: the plan's answer); Felucca's TPT SVF",
         "source": "Clipper (3dSam) firmware/src/eng_vector.c and vector_tables.h at e690672, GPL-3.0-only; the filter models from Clipper's dsp.c"},
+    "vps": {"engine": 36, "funcs": ["vps_render"], "voice_type": None,
+        "controls": "Clipper's eight on EDIT 1 and 2 (D V VENV OSC2, CUT RES DTN SUB); lost: none of the render's (the presets' sends)",
+        "modulation": "SHP moves D (the track's LFO DEST SHP, MW / AT, the matrix); VENV puts the amplitude envelope (m->envq15) on V; CUT through m->cutoff, ~40 % keyboard; velocity and the ADSR through the amplitude; E1..E8 read every render",
+        "backend": "the sine (SINE through the base hot set: two reads a sample); Felucca's TPT SVF; no table of its own",
+        "source": 'Clipper (3dSam) firmware/src/eng_vps.c at e690672, GPL-3.0-only'},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

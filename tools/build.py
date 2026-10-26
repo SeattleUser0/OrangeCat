@@ -534,7 +534,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "juno": {"src": "tools/module/juno_mod.c", "sectors": 4, "starts": [0, 6], "name": "JUNO"},
            "acid": {"src": "tools/module/acid_mod.c", "sectors": 4, "starts": [0, 6], "name": "ACID"},
            "strings": {"src": "tools/module/strings_mod.c", "sectors": 4, "starts": [0, 6], "name": "STRINGS"},
-           "vector": {"src": "tools/module/vector_mod.c", "sectors": 7, "starts": [0, 4], "name": "VECTOR"}}
+           "vector": {"src": "tools/module/vector_mod.c", "sectors": 7, "starts": [0, 4], "name": "VECTOR"},
+           "vps": {"src": "tools/module/vps_mod.c", "sectors": 4, "starts": [0, 6], "name": "VPS"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
