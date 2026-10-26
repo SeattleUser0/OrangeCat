@@ -165,7 +165,7 @@ ok(sharedTarget.objs.get(28).every((v,i)=>v===sharedData[i]),"backup: final comp
 {   /* (0.14.2) the arrangement objects: 64..67 project records, 68..83 the pool's chunks, 84 the music's lists */
   const rec = (n, seed) => { const v = rnd(n, seed); new DataView(v.buffer).setUint32(0, 0x334a434f, true); return v; };
   const chunk = (lens, seed) => { const v = rnd(8 + lens.reduce((a, b) => a + b, 0), seed), d = new DataView(v.buffer); lens.forEach((l, j) => d.setUint16(2 * j, l, true)); return v; };
-  const arrObjs = [...bankObjects, [28, sharedData], [64, rec(3200, 21)], [66, rec(900, 22)], [68, chunk([1249, 0, 30000, 7], 23)], [84, rnd(2524, 24)]];
+  const arrObjs = [...bankObjects, [28, sharedData], [64, rec(3200, 21)], [66, rec(900, 22)], [68, chunk([1249, 0, 30000, 7], 23)], [84, rnd(2428, 24)]];
   const src = device(arrObjs, { ids: sharedIds, arr: true });
   const arrFile = await captureBackup(src.request, "ARRANGEMENT");
   ok(arrFile.objects.length === 50 && arrFile.objects[29].id === 64 && arrFile.objects[49].id === 84 && arrFile.objects[33].size === 31264,

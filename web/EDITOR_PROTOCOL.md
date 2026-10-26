@@ -832,7 +832,7 @@ are the record store's own records (`firmware/src/oc_store.c`), read and written
 | --- | --- | --- |
 | 64..67 | slot 1..4's project record (`OCS_PROJECT` 0..3, "OCJ3": its banks' phrases, its lists, its project part; `oc_project.c`) | its length, or 0: no record |
 | 68..83 | the pool's chunk 0..15 (`OCS_POOL`: four phrases, a table of four 16-bit lengths then the phrases; `oc_pool.c`) | its length (up to 45,696), or 0 |
-| 84 | the music loaded: its lists (`ocl_lists_t`, 2,396 B) then each bank's phrase + 1 (`bank_pid`, NTRK x 32) | 2,524 |
+| 84 | the music loaded: its lists (`ocl_lists_t`, 2,396 B) then each bank's phrase + 1 (`bank_pid`, NTRK x NPAT: 4 x 8) | 2,428 |
 
 `BACKUP_LIST` with the argument `1` (after a plain `LIST`, in its session: else rc 5) answers `1, rc, 21`, then per object
 `id, size u32, crc u32` as above. A plain `LIST` is unchanged (29 objects), so a page that knows ids 0..28 sees what it always did; a
