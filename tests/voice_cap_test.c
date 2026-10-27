@@ -132,7 +132,7 @@ int main(void)
 
 
     /* (0.15.0) the fades standing take their eighths off the cap: 8 MODAL fades (a voice), a cap of 3 allows 2; fewer take nothing. A note
-     * steals once (not twice), and the hard path never refuses, whatever the fades (a MONO lead still plays; a cap of 1 never goes below 1) */
+     * steals down to what the fades leave (one voice for 7 fades, two for 8: the fades' cost is made up by sounding voices), and the hard path never refuses, whatever the fades (a MONO lead still plays; a cap of 1 never goes below 1) */
     fresh(ENGI_MACRO,mallet);
     vc_cap[VC_MODAL][0]=3;
     voice_cost_half(1,1);voice_cost_half(1,1);
@@ -148,7 +148,7 @@ int main(void)
     assert(fading(VC_MODAL)==8u);
     st=vc_steals[VC_MODAL];
     trk_note_on(&trk[2],70u,100);                                      /* 8 fades: a voice off the cap, 2 may sound */
-    assert(sounding(VC_MODAL)==2u && vc_steals[VC_MODAL]>st && !vc_refused);
+    assert(sounding(VC_MODAL)==2u && vc_steals[VC_MODAL]==st+2u && !vc_refused);   /* (a kill, then the new note restarts its own track's voice) */
     fresh(ENGI_MACRO,mallet);
     voice_cost_half(1,1);voice_cost_half(1,1);
     vc_cap[VC_MODAL][0]=1;                                            /* a cap of 1 with many fades: a MONO lead still sounds, never refused */
@@ -158,6 +158,22 @@ int main(void)
     trk_note_on(&trk[3],72u,100);
     assert(!vc_refused && trk[3].v[0].active && trk[3].v[0].gate && sounding(VC_MODAL)==1u);
     vc_cap[VC_MODAL][0]=0;
+
+    /* the Prophet's fades weigh a block (2 eighths): 4 standing take a voice off its cap of 6 (effects off), 3 stand free */
+    fresh(ENGI_PROPHET,0);
+    vc_cap[VC_PROPHET][0]=6;
+    voice_cost_half(1,1);voice_cost_half(1,1);
+    for(unsigned p=0;p<NPART;p++)for(unsigned n=0;n<2u;n++){trk_note_on(&trk[p],48u+4u*n+p,100);fade();}   /* 6 sound */
+    assert(sounding(VC_PROPHET)==6u);
+    for(unsigned i=NVOICE-1;i>=NVOICE-3u;i--){trk[3].v[i].active=1;trk[3].v[i].stage=4u;}
+    assert(fading(VC_PROPHET)==3u);
+    trk_note_on(&trk[0],80u,100);
+    assert(sounding(VC_PROPHET)==6u);                               /* 3 x 2 eighths: under a voice */
+    fade();
+    for(unsigned i=NVOICE-1;i>=NVOICE-4u;i--){trk[3].v[i].active=1;trk[3].v[i].stage=4u;}
+    trk_note_on(&trk[1],81u,100);
+    assert(sounding(VC_PROPHET)==5u);                               /* 4 x 2 eighths: a voice off the cap */
+    vc_cap[VC_PROPHET][0]=0;
 
     /* (0.15.0) a stolen MODAL voice while the caps are on fades in VC_FADE_N samples, to 0 (no click: its level runs down); off, over the block */
     for(int on=0;on<2;on++){

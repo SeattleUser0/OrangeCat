@@ -364,7 +364,7 @@ static __attribute__((noinline)) int voice_cap_room(track_t *t, int soft, voice_
             }
         }
         if (fq == 0xFFFFFFFFu)
-            fq = fades;                                 /* the fades standing as this voice asks (the ones this loop makes are not counted again) */
+            fq = fades;                                 /* the fades standing as this call finds them (the ones its own steals make are not counted again); an own voice taken here is restarted in place, the count stays */
         allowed = vc_limit(c) - fq / VC_ONE;            /* the fades' eighths of a voice come off the cap, never below one voice */
         if (allowed < 1u || allowed > vc_limit(c))
             allowed = 1u;
