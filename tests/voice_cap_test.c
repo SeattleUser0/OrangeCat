@@ -175,6 +175,21 @@ int main(void)
     assert(sounding(VC_PROPHET)==5u);                               /* 4 x 2 eighths: a voice off the cap */
     vc_cap[VC_PROPHET][0]=0;
 
+    /* a step's burst (four tracks, a chord of four each): the notes that have not been rendered are dropped without a fade when a later note
+     * takes their room, so the fades are the old sounding voices at most (the cap), not one per note */
+    for(int cls=0;cls<2;cls++){
+        uint32_t c=cls?VC_PROPHET:VC_MODAL, cap=cls?4u:3u;
+        fresh(cls?ENGI_PROPHET:ENGI_MACRO,cls?0:mallet);
+        vc_cap[c][0]=(uint8_t)cap;
+        voice_cost_half(1,1);voice_cost_half(1,1);
+        for(unsigned p=0;p<NPART;p++)for(unsigned n=0;n<2u;n++){trk_note_on(&trk[p],40u+4u*n+p,100);fade();}   /* the old step sounds */
+        for(unsigned p=0;p<NPART;p++)for(unsigned i=0;i<NVOICE;i++)if(trk[p].v[i].active){trk[p].v[i].env=1<<20;trk[p].v[i].env_out=1000;trk[p].v[i].stage=2;}   /* (rendered) */
+        uint32_t kills=voice_kills;
+        for(unsigned p=0;p<NPART;p++)for(unsigned n=0;n<4u;n++)trk_note_on(&trk[p],60u+4u*n+p,100);          /* the next step: 16 notes, no render between */
+        assert(sounding(c)<=cap && sounding(c)+1u>=cap && fading(c)<=cap && voice_kills-kills<=cap);   /* (the fades take a voice off the Prophet's) */
+        vc_cap[c][0]=0;
+    }
+
     /* (0.15.0) a stolen MODAL voice while the caps are on fades in VC_FADE_N samples, to 0 (no click: its level runs down); off, over the block */
     for(int on=0;on<2;on++){
         int32_t b[CTL];

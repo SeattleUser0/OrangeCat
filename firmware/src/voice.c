@@ -319,6 +319,12 @@ static void voice_cost_half(int on, int keep)
         vc_on = 0;
     vc_engaged_halves += vc_on;
 }
+/* a voice started in this half has not been rendered: nothing of it has sounded, so giving it up costs no fade. Its state is the voice's own
+ * (MODAL's, the Prophet's: re-made by the next note_on); not FM6's, whose core keeps the note */
+static int voice_unheard(const voice_t *v, uint32_t c)
+{
+    return v->stage == 1u && !v->env && !v->env_out && c != VC_FM6;
+}
 static uint32_t voice_fade_eighths(uint32_t c)
 {
     return (c == VC_MODAL ? VC_FADE_N : CTL) * VC_ONE / 128u;
@@ -379,7 +385,10 @@ static __attribute__((noinline)) int voice_cap_room(track_t *t, int soft, voice_
             *own = best;                                /* our own: restarted in place (no click) */
             return 1;
         }
-        voice_kill(best);
+        if (voice_unheard(best, c))
+            best->active = best->gate = best->stage = 0;  /* (a step's own earlier notes: dropped, no fade to render) */
+        else
+            voice_kill(best);
     }
 }
 
