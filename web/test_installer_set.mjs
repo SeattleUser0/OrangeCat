@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {bkCrc, bkPack} from "./fm1backup.js";
-import {OcLink, OCM, runSet, probeUnit, installPack, installModule, moduleCurrent, ocmVersion, packFits, OC_BEGIN_MS} from "./fm1oc.js";
+import {OcLink, OCM, runSet, probeUnit, installPack, installModule, moduleCurrent, OC_WRITE_TRIES, ocmVersion, packFits, OC_BEGIN_MS} from "./fm1oc.js";
 
 const n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127];
 const n5 = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) & 127);
@@ -58,7 +58,7 @@ function makeOcm({iface = IFACE, packHash = PHASH, engine = ENGINE, version = VE
 // the mocked unit: opts {noPack, noMod, noEngines, pack: 'none'|'current', module: false|true, beginRc: [..], modRc: n, plan}
 function makeUnit(opts = {}) {
   const u = {sent: [], packState: opts.pack === "current" ? 1 : 0, packHash: opts.pack === "current" ? PHASH : 0, module: !!opts.module, beginRc: [...(opts.beginRc || [])],
-             writes: {117: 0, 122: 0}, plan: opts.plan ?? 0, packLen: 0};
+             writes: {117: 0, 122: 0}, tries: [], modDone: 0, plan: opts.plan ?? 0, packLen: 0};
   const reply = (cmd, data) => setImmediate(() => input.onmidimessage({data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247])}));
   const later = (f) => (opts.beginDelay ? setTimeout(f, opts.beginDelay) : f());   // (0.13.5) a unit that erases before it answers BEGIN
   const input = {state: "connected", onmidimessage: null};
@@ -74,7 +74,16 @@ function makeUnit(opts = {}) {
     } else if (cmd === 116) { const rc = u.beginRc.length ? u.beginRc.shift() : 0; if (!rc) u.packLen = PLEN; later(() => reply(116, [rc, ...n3(0)])); }
     else if (cmd === 117) { u.writes[117]++; reply(117, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]); }
     else if (cmd === 118) { u.packState = 1; u.packHash = PHASH; reply(118, [0, ...n3(PLEN)]); }
-    else if (cmd === 121) later(() => reply(121, [u.beginRc.length ? u.beginRc.shift() : 0, ...n3(0)]));
+    else if (cmd === 121) { u.modDone = 256; later(() => reply(121, [u.beginRc.length ? u.beginRc.shift() : 0, ...n3(0)])); }
+    else if (cmd === 122 && opts.strict) {                      // (Release 1) a unit as oc_mod_write is: a write only where the last one ended; the reply carries the bytes written
+      const k = u.writes[122]++, off = args[0] | args[1] << 7 | args[2] << 14, n = Math.floor((args.length - 3) * 7 / 8);
+      u.tries.push(off);
+      if ((opts.dropIn || []).includes(k)) return;               //   the request never arrives
+      let rc = 0;
+      if (off === u.modDone) u.modDone += n; else rc = 1;
+      if ((opts.dropReply || []).includes(k)) return;            //   taken, the reply is lost
+      reply(122, [rc, ...n3(u.modDone)]);
+    }
     else if (cmd === 122) { u.writes[122]++; reply(122, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]); }
     else if (cmd === 123) { u.module = true; reply(123, [opts.modRc || 0, ...n3(0x400)]); }
   }};
@@ -219,6 +228,29 @@ const mono = (m) => m.every((v, i) => i === 0 || v >= m[i - 1]) && m.at(-1) === 
   assert.ok(u.sent.includes(123), "the module went to its end");
   u = makeUnit({beginDelay: OC_BEGIN_MS + 1500});                       // and a unit that never answers in time is still "lost", not a hang
   await assert.rejects(installPack(u.link(), makePack(), {buildLen: PLEN, buildHash: PHASH}), (e) => e.code === "ocLost");
+}
+// 12d. (Release 1) a module write that gets no reply is sent again with the same offset (the unit takes a write only where its last one ended)
+{
+  // the request is lost on the way in (the 30 minute run's loss): the same offset again, the install goes on and ends
+  let u = makeUnit({pack: "current", strict: true, dropIn: [1]});
+  await installModule(u.link(), OCM.parse(makeOcm()), () => {}, {});
+  assert.ok(u.sent.includes(123), "the module went to its end");
+  assert.deepEqual(u.tries, [256, 512, 512, 768], "the lost write was sent again at its own offset");
+  // the unit took a write and its reply was lost: the repeat is refused with done == the chunk's end, which says it landed
+  u = makeUnit({pack: "current", strict: true, dropReply: [0]});
+  await installModule(u.link(), OCM.parse(makeOcm()), () => {}, {});
+  assert.ok(u.sent.includes(123) && u.modDone === 0x400, "the module went to its end, every byte once");
+  // nothing answers: OC_WRITE_TRIES sends at that offset, then the connection is called lost
+  u = makeUnit({pack: "current", strict: true, dropIn: [0, 1, 2, 3, 4, 5]});
+  await assert.rejects(installModule(u.link(), OCM.parse(makeOcm()), () => {}, {}), (e) => e.code === "ocLost");
+  assert.equal(u.tries.length, OC_WRITE_TRIES, "three sends at the same offset");
+  assert.ok(u.tries.every((o) => o === 256) && !u.sent.includes(123), "all at offset 256; no END");
+  // a refusal the unit means (out of order, with another count) is not taken for a landed write
+  u = makeUnit({pack: "current", strict: true, dropIn: [0]});
+  const real = u.link();
+  const out = real.output, send = out.send;                   // (the unit's count is moved: its reply to the repeat is not this chunk's end)
+  out.send = (m) => { if (m[4] === 122 && u.tries.length === 1) u.modDone = 0x300; send(m); };
+  await assert.rejects(installModule(real, OCM.parse(makeOcm()), () => {}, {}), (e) => e.code === "modFail");
 }
 // 12c. (0.13.5) every code the page can raise has its text in both languages of the installer page (the summary showed the raw key for one)
 {
