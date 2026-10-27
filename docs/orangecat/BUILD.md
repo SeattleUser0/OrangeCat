@@ -3642,7 +3642,7 @@ blocks rendered. Dual-core, stage 1:
   average, 2 off a peak: the oldest releasing tails first, which is what the overload shed (audio.c shed_voice) already picks.
 - **Its margin is thin.** p99 lands about 50 us under the deadline; max stays over (3,313 at 2.9 voices); about 45 late renders in 20 s
   remain at x2's 2.9.
-- **Not covered:** four tracks add a little fixed work over two (their prep and mix: about 60 us at effects off, the x2 and x4 rows).
+- **Not covered:** four tracks add some fixed work over two (their prep and mix), which these runs do not separate from the voices'.
   So 3 is the cut to try first, not a proven bound. If four tracks at 3 voices still miss, 2 voices is the fallback (p99 2,688).
 - **Effects off:** 4 voices (x3: p99 3,360) is too many and 3 is the cap there too (x2: 2,464). The voice count, not the effects, is
   what binds.
