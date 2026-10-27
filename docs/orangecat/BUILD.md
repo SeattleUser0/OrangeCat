@@ -26,7 +26,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 11 | Later extensions | Not started |
 | App | The web app (web/app, 0.14.2): one page for modules, sounds, steps, arrangement, projects and backups | In Release 1 (merged into linux-hw, af9f91a); tested against the mock (web/app/test) and, for HARDWARE_TEST.md's protocol parts, on the unit (tools/hw/app_protocol.mjs; see Release 1) |
 | Cores | The second core (CPU1) renders voices | Stage 1 in Release 1: the ports on CPU1's batch with the measured cost table; the cost caps (0.15.0). Stage 2 (the buses beside the next block) designed, not built. History: "What the two cores do" and on |
-| Release 1 | 0.15.0 from linux-hw | Built in CI and published as the Nightly; main's fast-forward and the v0.15.0 tag wait for the user's word. See "Release 1" below |
+| Release 1 | 0.15.0 from linux-hw | Built in CI, checked on the unit (protocol 6 / 6, the four-track step, 30 minutes on the internal clock) and published as the Nightly; main's fast-forward and the v0.15.0 tag wait for the user's word. See "Release 1" below |
 
 ## Release 1 (0.15.0, branch linux-hw, October 27, 2026)
 
@@ -132,6 +132,46 @@ then the commands seen, each with its requests and replies); flag 1 resets them.
 included). Read on the unit at Flash 51: 12 commands, each with as many replies as requests, nothing dropped, long or cut. A lost
 reply now shows as a command with fewer replies than requests (sent but not answered) or as a dropped frame (not received).
 
+### Release 1's checks on the unit (Flash 53, linux-hw 8860915)
+
+**Build.** linux-hw 8860915 (VERSION 0.15.0, the caps as set): host suite passed on the PC (tools/hw/ci_step.py, 1,484 s); CI run
+40555229666 green; the PC's build flashed at 2026-10-27T18:23Z: `ORANGE CAT v0.15.0-88609`, the pack this build's (state 1), this build's
+WHEEL at start 0 (2,928 B) and SHAPES at start 1 (24,160 B), state 7 each. (The Nightly published from the next commit, docs only,
+differs from it only in the commit in its version string.)
+
+**HARDWARE_TEST's protocol parts** (tools/hw/app_protocol.mjs, the web app's Session over USB; `~/fm1-hw/r1/protocol.out`): **6 of 6
+passed**, no reply missed, none lost. 1 Connect (0.46 s: version, pack, 20 engines, 3 starts, the arrangement, WATCH 3); 2 a parameter
+set and read back (1 ms); 3 a sound stored to the empty library slot 1, VA BASS loaded, the slot loaded back the same, starred and
+unstarred, renamed, erased (1.6 s); 4 the music (27,904 B, 0.70 s) and slot 4 (0.76 s) read, step 3 changed and put back; 5 the
+arrangement (2,396 B) read, written back, read again the same; 6 a complete backup to a file (50 objects, 2.9 s). The tracks' snapshot
+before and after: equal. The reply counters over the run: every command answered as often as asked.
+
+**The standing four-track step** (`fm1hw.py table`, `~/fm1-hw/r1/table-light.json`, `table-heavy.json`; worst us / late in 20 s):
+
+| set | N | MACRO | SHAPES | DRUM-X | MIX |
+|---|---|---|---|---|---|
+| light | 3 | 1,239 / 0 | 1,011 / 0 | 1,535 / 0 | 1,415 / 0 |
+| light | 4 | 1,592 / 0 | 1,249 / 0 | 1,795 / 0 | 1,795 / 0 |
+| heavy | 3 | late 5 | 2,586 / 164 | 1,573 / 0 | 1,984 / 0 |
+| heavy | 4 | 2,838 / 164 | 2,898 / 164 | 1,839 / 0 | 2,620 / 37 |
+| heavy MALLET x1 | 1 | 1,909 / 0 | | | |
+
+Light: worst under the budget and Late 0 on every row (N = 1 and 2 as well). Heavy: the 164 is the one burst at a loop start seen since
+0.13.7 (SHAPES RING BELL x4 had it on the Nightly ceccc1c; MACRO ADDITIVE PAD x4 had 3,620 there, MIX x4 3,592, MALLET x1 3,605). DAC
+silences 0 on every row; DRUM-X rows show 64 to 130 USB holes with 0 late (the USB audio stream only, not the analog output).
+
+**The 30-minute run on the internal clock** (`~/fm1-hw/soak/stab_cap.py`, the stability run's load: VA BASS, TECHNO RAW, VA BASS,
+TECHNO RAW, the chord on every step, a chain restarted by command 74; `~/fm1-hw/soak/midicap.py` beside it; `~/fm1-hw/r1/soak30/`):
+0 late and 0 DAC silences in every interval (interval worst 1,754 to 1,802 us), 0 USB holes, playing throughout (peak -9.2 to -9.6
+dBFS, RMS -17.3), 55 chain restarts; the unit answering at the end; put back true, CLK 0; objects 1 up identical.
+**Two chain queries timed out** (at 4.2 and 8.5 minutes). The reply counters (reset before the run) show what the capture alone could
+not: the unit counted 3,602 requests of command 74 and sent 3,602 replies, nothing dropped, too long or cut, and the capture holds
+3,602 replies of 74. Neither timed-out request has a reply in the 3.5 s after it (the next frame is the reply to the next poll). **So
+the two requests never reached the editor: they were lost on the way in, between the PC's ALSA output and the unit's SysEx parser**
+(not a lost reply, and not a frame the unit's usb.c saw and dropped). The October 27 morning run's "reply 3.5 s late" was most likely
+the next poll's reply too. The web app's retry is the right remedy; where on the way in they go (the PC's USB stack or the unit's USB
+receive below usb.c's frame handling) is not separable without usbmon (root).
+
 ### Branches (October 27)
 
 Before the release, the branches whose work is in linux-hw or that were experiments were deleted on GitHub; their heads are in
@@ -146,8 +186,8 @@ the Nightly as it is), measure/batch-s1, measure/batch-s1-ram, main, linux-hw. F
 - Four MALLET (or GLASS BELL) tracks steal voices: with the caps engaged one bell note sounds at a time across them.
 - Four DRUM-X tracks with PAN and TUNE set on every lane can run late.
 - CLOUD (the reverb) on a full mix is tight.
-- An occasional editor reply is lost (6 in the two-hour stability run of October 27, all the chain query); the web app shows ocLost,
-  and a retry works.
+- An occasional editor request is lost on its way to the unit (6 in the two-hour stability run of October 27, 2 in Release 1's 30
+  minutes, all the chain query, polled twice a second); the web app shows ocLost, and a retry works.
 - Also measured (stage 1's table, under History): four VA BASS tracks each with a DUB LITE delay and the shared effects on run later
   dual-core than before stage 1 (2,096 late in 20 s, against 103).
 

@@ -1055,3 +1055,15 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - **Flash 52**: b3ba0e2 (`~/fm1-hw/wt-c15fm6/build/orangecat-0.6.2-b3ba0e2.fwsc`): `ORANGE CAT v0.6.2-b3ba0e`; the Prophet module stayed
   at start 0. PipeWire set; slot 1 detached (D954DF93, equal). The FM6 ladders (`fm6.json`, `fm6b.json` with caps 8, 4, 2, 1): none holds.
   Put back true. The caps set in voice.c from these runs: MODAL 1/1, the Prophet 6/3, FM6 left at 16/15.
+- Suite on 8860915 (linux-hw: the caps set, VERSION 0.15.0, the docs): build 79 s, tests passed, 1,484 s. CI run 40555229666: green.
+- **Flash 53**, 2026-10-27T18:23:25Z: 8860915 (`build/orangecat-0.15.0-8860915.fwsc`, the PC's build): `ORANGE CAT v0.15.0-88609` (the
+  identity's 24 bytes take 5 digits of the commit), the pack this build's. PipeWire set; slot 1 detached (D954DF93, equal). `remove 19`;
+  this build's WHEEL (start 0, 2,928 B) and SHAPES (start 1, 24,160 B), state 7 each.
+  - `tools/hw/app_protocol.mjs ~/fm1-hw/r1` between `fm1hw.py snapshot` and `putback`: 6 of 6 passed, noreply 0, lost 0; the snapshot
+    after equals the one before. The reply counters: requests = replies for every command.
+  - `fm1hw.py table --set light` and `--set heavy` (`~/fm1-hw/r1/table-*.json`): light 0 late everywhere (worst 1,795 at most); heavy:
+    the loop-start burst of 164 on SHAPES x3 and x4 and MACRO x4, MACRO x3 5, MIX x4 37, DRUM-X 0 late; DAC silences 0 everywhere.
+  - The 30-minute internal-clock run (`stab_cap.py ~/fm1-hw/r1/soak30 1800 600 20` with `midicap.py` beside it; `replies.py reset` before):
+    0 late, 0 DAC silences, 0 USB holes in every interval, interval worst 1,754 to 1,802 us; put back true, CLK 0, objects 1 up
+    identical. 2 chain queries (74) timed out; the unit counted 3,602 requests and 3,602 replies of 74, the capture 3,602: the two requests
+    never reached the editor (lost on the way in). BUILD.md, "Release 1's checks on the unit".
