@@ -131,16 +131,32 @@ int main(void)
     vc_cap[VC_MODAL][0]=0;
 
 
-    /* (0.15.0) the fading voices count toward the cap, an eighth of a voice each (they render VC_FADE_N of the half's 128 samples): a cap of 3
-     * holds with the fades of the step standing, and a step's steals take the old notes, never one of the step's */
+    /* (0.15.0) the fades standing take their eighths off the cap: 8 MODAL fades (a voice), a cap of 3 allows 2; fewer take nothing. A note
+     * steals once (not twice), and the hard path never refuses, whatever the fades (a MONO lead still plays; a cap of 1 never goes below 1) */
     fresh(ENGI_MACRO,mallet);
     vc_cap[VC_MODAL][0]=3;
     voice_cost_half(1,1);voice_cost_half(1,1);
-    for(unsigned p=0;p<NPART;p++)trk_note_on(&trk[p],48u+p,100);      /* four notes: three sound, one stole */
-    assert(sounding(VC_MODAL)==3u && fading(VC_MODAL)==1u);
+    for(unsigned p=0;p<3u;p++)trk_note_on(&trk[p],48u+p,100);         /* three sound */
+    for(unsigned p=0;p<NPART && fading(VC_MODAL)<7u;p++)             /* seven fades standing: still no cost to the cap (7 eighths) */
+        for(unsigned i=1;i<NVOICE && fading(VC_MODAL)<7u;i++){trk[3].v[i].active=1;trk[3].v[i].stage=4u;}
+    assert(fading(VC_MODAL)==7u && sounding(VC_MODAL)==3u);
+    uint32_t st=vc_steals[VC_MODAL];
+    trk_note_on(&trk[3],60u,100);
+    assert(vc_steals[VC_MODAL]==st+1u && sounding(VC_MODAL)==3u);     /* one steal, 7 fades: the cap of 3 stands */
     fade();
-    for(unsigned p=0;p<NPART;p++)trk_note_on(&trk[p],60u+p,100);      /* the next step: each steals one of the old */
-    assert(sounding(VC_MODAL)==3u && fading(VC_MODAL)==4u);
+    for(unsigned i=1;i<NVOICE && fading(VC_MODAL)<8u;i++){trk[3].v[i].active=1;trk[3].v[i].stage=4u;}
+    assert(fading(VC_MODAL)==8u);
+    st=vc_steals[VC_MODAL];
+    trk_note_on(&trk[2],70u,100);                                      /* 8 fades: a voice off the cap, 2 may sound */
+    assert(sounding(VC_MODAL)==2u && vc_steals[VC_MODAL]>st && !vc_refused);
+    fresh(ENGI_MACRO,mallet);
+    voice_cost_half(1,1);voice_cost_half(1,1);
+    vc_cap[VC_MODAL][0]=1;                                            /* a cap of 1 with many fades: a MONO lead still sounds, never refused */
+    for(unsigned p=0;p<NPART;p++)for(unsigned i=1;i<NVOICE;i++){trk[p].v[i].active=1;trk[p].v[i].stage=4u;}
+    for(unsigned p=0;p<3u;p++)trk_note_on(&trk[p],48u+p,100);
+    trk[3].p[P_VOICE]=V_MONO;
+    trk_note_on(&trk[3],72u,100);
+    assert(!vc_refused && trk[3].v[0].active && trk[3].v[0].gate && sounding(VC_MODAL)==1u);
     vc_cap[VC_MODAL][0]=0;
 
     /* (0.15.0) a stolen MODAL voice while the caps are on fades in VC_FADE_N samples, to 0 (no click: its level runs down); off, over the block */

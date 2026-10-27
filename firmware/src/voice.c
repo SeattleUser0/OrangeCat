@@ -267,8 +267,8 @@ static void voice_capacity_kill(voice_t *v)
  * The voice given up: the oldest released one of the engine, else the oldest held one that is not its part's lowest note, else the oldest
  * held one (the cap holds: a track's held note can go). Proposed from Part 3 after stage 1 (Flash 45 and 46: 3, 16 / 15, 7 / 5); set from
  * the four-track runs with the caps (Flash 51 and 52): a stolen voice fades beside the new one in the step's half, so the caps that hold were lower
- * (MODAL 1). Then the fades are counted (an eighth of a voice each, VC_FADE) and a stolen MODAL voice renders only VC_FADE_N samples of its
- * fade while the caps are on (track_render_audio); the caps were set again (Flash 55 and after).
+ * (MODAL 1). Then the fades standing take their share off the cap (an eighth of a voice for a stolen MODAL voice, a quarter for the others; never
+ * below one voice) and a stolen MODAL voice renders only VC_FADE_N samples of its fade while the caps are on (track_render_audio).
  * Engaged by the halves' cost (audio.c voice_cost_half), not always: two halves in a row over VC_ON (80 % of the half, under the
  * overload shed's 85 %) engage them; they stay while the halves pass VC_KEEP (70 %), and let go after VC_HOLD halves under it (about a second). Only
  * with CPU1 online (the caps were measured on two cores; one core keeps its own budget). Not the SAFETY shed: it stays as it was. */
@@ -278,9 +278,8 @@ static const uint8_t VC_CAP[VC_N][2] = {        /* voices at once: the shared ef
     {16, 15},                                   /* FM6: none holds four tracks (1 voice: p99 3,008, the note-ons); not in Orange Cat's set */
     {6, 3},                                     /* the Prophet: p99 2,720 at 6 off (7: 3,136), 2,624 at 3 on (4: 2,976) */
 };
-#define VC_ONE 8u                               /* the cap counts in eighths of a voice's half: a sounding voice 8 ... */
-#define VC_FADE_N 16u                           /* ... a stolen voice renders VC_FADE_N of the half's 128 samples (see track_render_audio): 1 */
-#define VC_FADE (VC_ONE * VC_FADE_N / 128u)
+#define VC_ONE 8u                               /* the cap counts the fades in eighths of a voice's half: a sounding voice 8 ... */
+#define VC_FADE_N 16u                           /* ... a stolen MODAL voice renders VC_FADE_N of the half's 128 samples (track_render_audio): 1; the others' fade is a block (32): 2 */
 #define VC_HOLD 344u                            /* halves (2.9 ms each): about a second */
 #if MELODEE_DUAL_CORE
 #define VC_CPU1 (audio_worker_online != 0)
@@ -320,6 +319,10 @@ static void voice_cost_half(int on, int keep)
         vc_on = 0;
     vc_engaged_halves += vc_on;
 }
+static uint32_t voice_fade_eighths(uint32_t c)
+{
+    return (c == VC_MODAL ? VC_FADE_N : CTL) * VC_ONE / 128u;
+}
 static uint32_t vc_limit(uint32_t c)
 {
     uint32_t k = voice_fx_on ? 1u : 0u;
@@ -329,16 +332,16 @@ static uint32_t vc_limit(uint32_t c)
  * t's own voices below np to restart in place), 0: none (soft) */
 static __attribute__((noinline)) int voice_cap_room(track_t *t, int soft, voice_t **own, uint32_t np)   /* (out of line: the ISR's loops as they were) */
 {
-    uint32_t c = voice_class(t), p, i, n;
+    uint32_t c = voice_class(t), p, i, n, fq;
     if (c >= VC_N || !vc_on)
         return 1;
 #if MELODEE_AUDIO_BENCH
     if (audio_bench_active())
         return 1;
 #endif
-    for (;;) {
+    for (fq = 0xFFFFFFFFu;;) {
         voice_t *best = 0;
-        uint32_t cat = 4;
+        uint32_t cat = 4, fades = 0, allowed;
         for (p = n = 0; p < NPART; p++) {
             track_t *q = &trk[p];
             uint32_t low;
@@ -351,16 +354,21 @@ static __attribute__((noinline)) int voice_cap_room(track_t *t, int soft, voice_
                 if (!v->active)
                     continue;
                 if (v->stage == 4u) {
-                    n += VC_FADE;                       /* fading: renders its short fade this half (counted, not taken again) */
+                    fades += voice_fade_eighths(c);
                     continue;
                 }
-                n += VC_ONE;
+                n++;
                 k = !v->gate ? 1u : i != low ? 2u : 3u;   /* released; held, not the part's lowest (POLY) or lead; held */
                 if (k < cat || (k == cat && v->age < best->age))
                     cat = k, best = v;
             }
         }
-        if (n < vc_limit(c) * VC_ONE)
+        if (fq == 0xFFFFFFFFu)
+            fq = fades;                                 /* the fades standing as this voice asks (the ones this loop makes are not counted again) */
+        allowed = vc_limit(c) - fq / VC_ONE;            /* the fades' eighths of a voice come off the cap, never below one voice */
+        if (allowed < 1u || allowed > vc_limit(c))
+            allowed = 1u;
+        if (n < allowed)
             return 1;
         if (soft || !best) {
             vc_refused++;
