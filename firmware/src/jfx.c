@@ -1339,9 +1339,13 @@ static int fx_rest(int32_t any, int32_t *wet, uint32_t n)
  * this block (jfx_mem) does nothing */
 static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
 {
+    FS_T(fs0);                                          /* (measure/fx-spike) */
     uint32_t i, dl = delay_samples();
     int32_t dcd, dcw, ddm;
     int have_d = dly_have == DLY_NSEG, have_r = jrev != 0, have_c = cho_buf != 0;
+#if OC_FX_SPIKE
+    fs_c1[0] = fs_c1[1] = fs_c1[2] = fs_c1[3] = 0;
+#endif
     for (i = 0; i < n; i++)
         fx_sl[i] = fx_sr[i] = 0;
     {   /* (0.6.14) anything sent to the buses this block: their gate open */
@@ -1422,12 +1426,16 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
         }
         rev_in = rpre_out;
     }
+    FS_C1(0, fs0);
+    FS_T(fs1);
     if (dly_lo_on) {                                    /* (0.8.4) the delay at half / a quarter rate, or changing */
         dlyk_t k;
         k.fb = fb; k.fb2 = fb2; k.hk = hk << fx.dr_sh; k.dig = dig; k.dton = dton; k.png = png; k.wd = wd;
         k.tn = dtn;
         dly_lo(dly_in, dlo_x, dlo_xr, n, &k, wm, dwm);
     }
+    FS_C1(1, fs1);
+    FS_T(fs2);
     for (i = 0; i < n; i++) {
         int32_t y = 0, x = 0, side = 0, xr = 0, wr = 0;
         /* chorus (0.5.1: an ensemble): three taps of the line, ~7, 9.5 and 12 ms, each swept by the LFO a third of a
@@ -1504,6 +1512,11 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
             fx_sr[i] -= side;
         }
     }
+    FS_C1(2, fs2);
+    FS_T(fs3);
+#if OC_FX_SPIKE
+    fs_c1[3] = fs3;                                     /* (its start: fx_buses_timed takes the end) */
+#endif
     rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4);
     if (!have_r) {                                      /* (0.6.0 rev 2) no reverb held: the model taken as it is
                                                          * (nothing playing to fade) */
@@ -1988,9 +2001,13 @@ static void jfx_bus_kernel(void *unused)
 {
     (void)unused;
     fx_buses(send_c, send_d, send_r, fx_wet, jfx_bus_n);
+#if OC_FX_SPIKE
+    fs_c1[3] = fs_c1[3] ? fm1_ticks() - fs_c1[3] : 0u;  /* (measure/fx-spike: the reverb and the gate; 0 when fx_buses returned early) */
+#endif
 }
 static void jfx_bus_start(uint32_t n)
 {
+    FS_T(fs4);
     uint32_t i, s = 0;
     for (i = 0; i < n; i++) {                           /* which sends are not silent (jfx_mem) */
         s |= send_c[i] ? 1u : 0u;
@@ -2013,6 +2030,7 @@ static void jfx_bus_start(uint32_t n)
     jfx_bus_n = n;
     jfx_bus_pending = 0;
     jfx_bus_ran = dly_have || jrev || cho_buf;
+    FS_ADD(4, fs4);
     if (!jfx_bus_ran) {                                 /* nothing held, nothing sent: no buses at all */
         memset(fx_wet, 0, n * sizeof *fx_wet);
         memset(fx_sl, 0, n * sizeof *fx_sl);
@@ -2107,7 +2125,13 @@ static void jfx_master(int32_t *out, uint32_t n, int perf)
     int slfx = slicer_fx();
     if (!slfx)
         slicer_bus(sl_l, sl_r, n);                      /* (CPU0, while the buses run: its clock always) */
+    FS_T(fs5);
     jfx_bus_join(n);
+    FS_ADD(5, fs5);
+    FS_T(fs6);
+#if OC_FX_SPIKE
+    if (jfx_bus_ran) for (uint32_t k = 0; k < 4u; k++) fs_add(k, fs_c1[k]);
+#endif
     if (jfx_bus_ran)
         jfx_trip_check(n);
     for (i = 0; i < n; i++) {                           /* the buses' return and sides */
@@ -2146,4 +2170,5 @@ static void jfx_master(int32_t *out, uint32_t n, int perf)
         out[2u * i + 1u] = r;
     }
     jfx_clock_end(n);
+    FS_ADD(6, fs6);
 }

@@ -48,6 +48,7 @@ static inline void cs_kernel(uint32_t id, uint32_t cpu1, uint32_t ticks)
     if (ticks > cs_k[id][cpu1 & 1u].max) cs_k[id][cpu1 & 1u].max = ticks;
 }
 /* CPU1's stack high-water mark: cs_stack_paint, cs_stack_used (hal/fm1_multicore.h, after the mailbox) */
+
 #define CS_TICKS() fm1_ticks()
 static inline void cs_blk_begin(void) { cs_t_blk = CS_TICKS(); cs_w_blk = 0; cs_in_tail = 0; }
 static inline void cs_tracks_done(void)
@@ -76,6 +77,46 @@ static void cs_metric(cs_metric_t *m, uint32_t v)
     m->n++; m->sum += v;
     m->hist[b < CS_BINS ? b : CS_BINS - 1u]++;
 }
+/* (measure/fx-spike, OC_FX_SPIKE builds only) the effects-on late spike: the tail's stages a half, each timed with TIMER4 by the core that
+ * ran it: 0 the buses' setup (fx_buses to the delay: the sends' gate, the tones, the reverb's pre-delay), 1 the delay at half rate (dly_lo),
+ * 2 the per-sample loop (chorus, delay), 3 the reverb (rev_run) and the gate, 4 jfx_bus_start (CPU0: the sends' scan, jfx_mem), 5 CPU0 at the
+ * bus join, 6 the master (CPU0: the returns, SLICER, DJ FILTER, CLIP, the level, the FX layer, the output stage), 7 the events
+ * (events_block), 8 the output tail (audio.c: USB capture, the freeze, the click). A half whose wall passes fs_thr (us) is a spike: its
+ * stages summed apart from the others', its index kept (the first 48). AUDIO_STATS [flags, 4] reads them, [flags, 4, lo, hi] sets fs_thr */
+#ifndef OC_FX_SPIKE
+#define OC_FX_SPIKE 0
+#endif
+#if OC_FX_SPIKE
+#define FS_N 9u
+static cs_metric_t fs_m[FS_N] __attribute__((section(".pool")));
+static uint32_t fs_half[FS_N], fs_c1[4], fs_thr = 2500u;
+static uint64_t fs_spk[FS_N], fs_nrm[FS_N];
+static uint32_t fs_nspk, fs_nnrm, fs_idx[48];
+static inline void fs_add(uint32_t k, uint32_t t) { fs_half[k % FS_N] += t; }
+static void fs_half_end(uint32_t wall)
+{
+    int spike = wall > fs_thr * 24u;
+    for (uint32_t k = 0; k < FS_N; k++) {
+        cs_metric(&fs_m[k], fs_half[k]);
+        if (spike) fs_spk[k] += fs_half[k]; else fs_nrm[k] += fs_half[k];
+        fs_half[k] = 0;
+    }
+    if (spike) { if (fs_nspk < 48u) fs_idx[fs_nspk] = cs_halves; fs_nspk++; } else fs_nnrm++;
+}
+static void fs_reset(void)
+{
+    for (uint32_t k = 0; k < FS_N; k++) { fs_m[k].min = fs_m[k].max = fs_m[k].n = 0; fs_m[k].sum = 0; for (uint32_t b = 0; b < CS_BINS; b++) fs_m[k].hist[b] = 0;
+                                          fs_spk[k] = fs_nrm[k] = 0; }
+    fs_nspk = fs_nnrm = 0;
+}
+#define FS_T(name) uint32_t name = fm1_ticks()
+#define FS_ADD(k, from) fs_add((k), fm1_ticks() - (from))
+#define FS_C1(k, from) (fs_c1[(k)] = fm1_ticks() - (from))
+#else
+#define FS_T(name) ((void)0)
+#define FS_ADD(k, from) ((void)0)
+#define FS_C1(k, from) ((void)0)
+#endif
 /* audio.c, at the end of a half: wall ticks */
 static void cs_half_end(uint32_t wall)
 {
@@ -86,6 +127,9 @@ static void cs_half_end(uint32_t wall)
 }
 static void cs_reset(void)
 {
+#if OC_FX_SPIKE
+    fs_reset();
+#endif
     for (uint32_t k = 0; k < CS_N; k++) { cs_m[k].min = cs_m[k].max = cs_m[k].n = 0; cs_m[k].sum = 0; for (uint32_t b = 0; b < CS_BINS; b++) cs_m[k].hist[b] = 0; }
     for (uint32_t k = 0; k < AP_COUNT; k++) cs_k[k][0].n = cs_k[k][0].max = cs_k[k][1].n = cs_k[k][1].max = 0, cs_k[k][0].sum = cs_k[k][1].sum = 0;
     cs_halves = cs_refused = cs_retired = 0;
@@ -97,4 +141,12 @@ static inline void cs_blk_begin(void) {}
 static inline void cs_tracks_done(void) {}
 static inline void cs_blk_end(void) {}
 static inline void cs_join(uint32_t w, uint32_t job) { (void)w; (void)job; }
+#endif
+#ifndef FS_T                                           /* (measure/fx-spike: a build without the core stats) */
+#define FS_T(name) ((void)0)
+#define FS_ADD(k, from) ((void)0)
+#define FS_C1(k, from) ((void)0)
+#endif
+#ifndef OC_FX_SPIKE
+#define OC_FX_SPIKE 0
 #endif

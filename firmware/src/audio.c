@@ -42,6 +42,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
     uint32_t i;
     cs_blk_begin();                                     /* (0.14.2, OC_CORE_STATS builds) */
     mix_block(out, n);
+    FS_T(fs8);                                          /* (measure/fx-spike: the output tail) */
 #if OC_HW_TEST
     hwt_tone(out, n);
 #endif
@@ -71,6 +72,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
 #endif
     }
     AP_END(AP_OUTPUT,output_start);
+    FS_ADD(8, fs8);
     cs_blk_end();                                       /* (0.14.2, OC_CORE_STATS builds: the block's serial tail ends here) */
 }
 
@@ -182,6 +184,9 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
         fm1_audio_ack_half();
         audio_halves++;
 #if OC_CORE_STATS
+#if OC_FX_SPIKE
+        fs_half_end(fm1_ticks() - t0);                  /* (measure/fx-spike; before cs_half_end: the index is this half's) */
+#endif
         cs_half_end(fm1_ticks() - t0);                  /* (0.14.2) the cores' half (core_stats.h) */
 #endif
         us = shed_check(fm1_ticks() - t0);

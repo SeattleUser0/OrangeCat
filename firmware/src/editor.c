@@ -619,6 +619,34 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims, 32 full profile,
                                                         * 64 the Audio readout (0.13.6, schema 8: 23 fields, alone) */
 #if OC_CORE_STATS
+#if OC_FX_SPIKE
+        if ((na == 2u || na == 4u) && a[1] == 4u) {
+            /* (measure/fx-spike) [flags, 4 (, lo, hi)]: schema 11: 11, then 5 x 7 bits each: the threshold (us), spike halves, other halves,
+             * then for each of the 9 stages (core_stats.h) its min, mean, p99, max (us a half), its mean in a spike half and in another (us,
+             * x 10); then the first 48 spike halves' indices. lo, hi: a new threshold (us, 7 bits each). Flag 1: started over */
+            uint32_t k, b, v[FS_N][6], hdr[3], idx[48];
+            if (na == 4u) fs_thr = a[2] | a[3] << 7;
+            fm1_irq_off();
+            hdr[0] = fs_thr; hdr[1] = fs_nspk; hdr[2] = fs_nnrm;
+            for (k = 0; k < 48u; k++) idx[k] = fs_idx[k];
+            for (k = 0; k < FS_N; k++) {
+                const cs_metric_t *m = &fs_m[k];
+                uint32_t acc = 0, p99 = 0;
+                for (b = 0; b < CS_BINS; b++) { acc += m->hist[b]; if (m->n && (uint64_t)acc * 100u >= (uint64_t)m->n * 99u) { p99 = (b + 1u) * 32u; break; } }
+                v[k][0] = m->min / FM1_TICKS_PER_US; v[k][1] = m->n ? (uint32_t)(m->sum / m->n / FM1_TICKS_PER_US) : 0u; v[k][2] = p99;
+                v[k][3] = m->max / FM1_TICKS_PER_US;
+                v[k][4] = fs_nspk ? (uint32_t)(fs_spk[k] * 10u / fs_nspk / FM1_TICKS_PER_US) : 0u;
+                v[k][5] = fs_nnrm ? (uint32_t)(fs_nrm[k] * 10u / fs_nnrm / FM1_TICKS_PER_US) : 0u;
+            }
+            if (a[0] & 1u) fs_reset();
+            fm1_irq_on();
+            ed_b(11);
+            for (k = 0; k < 3u; k++) ed_bk_u32(hdr[k]);
+            for (k = 0; k < FS_N; k++) for (b = 0; b < 6u; b++) ed_bk_u32(v[k][b]);
+            for (k = 0; k < 48u; k++) ed_bk_u32(idx[k]);
+            break;
+        }
+#endif
         if (na == 2u && a[1] == 3u) {
             /* (0.14.3, OC_CORE_STATS builds) [flags, 3]: the batch's voice kernels, schema 10 (core_stats.h): 10, then 5 x 7 bits each: CPU1's
              * stack high-water mark in bytes (0: not painted), the number of ids N, then for each of the N profile ids the batch carries

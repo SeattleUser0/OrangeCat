@@ -381,7 +381,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
     memset(sl_l,0,n*sizeof *sl_l);memset(sl_r,0,n*sizeof *sl_r);
     memset(send_c,0,n*sizeof *send_c);memset(send_d,0,n*sizeof *send_d);memset(send_r,0,n*sizeof *send_r);
-    AP_START(events_start);events_block(n);AP_END(AP_EVENTS,events_start);
+    FS_T(fs7);AP_START(events_start);events_block(n);AP_END(AP_EVENTS,events_start);FS_ADD(7,fs7);   /* (measure/fx-spike) */
     dxe_duck_block();                                   /* (Orange Cat 0.14.2) a kit's DUCK: after the events (their kicks) */
     jfx_clock_begin();                                  /* (0.6.0) the transport's grid, after the events */
     if(mix_frz_block)mix_frz_block(n);                  /* (Orange Cat 0.4.20) frozen tracks: after the sequencer's pass marks */
