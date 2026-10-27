@@ -266,7 +266,9 @@ static void voice_capacity_kill(voice_t *v)
  * voices as the budget counts its units (a MODAL voice is 9 of MACRO's units, an FM6 voice one; the cap in units would be 9 x 1 and 1 x 15).
  * The voice given up: the oldest released one of the engine, else the oldest held one that is not its part's lowest note, else the oldest
  * held one (the cap holds: a track's held note can go). Proposed from Part 3 after stage 1 (Flash 45 and 46: 3, 16 / 15, 7 / 5); set from
- * the four-track runs with the caps (Flash 51 and 52): a stolen voice fades beside the new one in the step's half, so the caps that hold are lower.
+ * the four-track runs with the caps (Flash 51 and 52): a stolen voice fades beside the new one in the step's half, so the caps that hold were lower
+ * (MODAL 1). Then the fades are counted (an eighth of a voice each, VC_FADE) and a stolen MODAL voice renders only VC_FADE_N samples of its
+ * fade while the caps are on (track_render_audio); the caps were set again (Flash 55 and after).
  * Engaged by the halves' cost (audio.c voice_cost_half), not always: two halves in a row over VC_ON (80 % of the half, under the
  * overload shed's 85 %) engage them; they stay while the halves pass VC_KEEP (70 %), and let go after VC_HOLD halves under it (about a second). Only
  * with CPU1 online (the caps were measured on two cores; one core keeps its own budget). Not the SAFETY shed: it stays as it was. */
@@ -276,6 +278,9 @@ static const uint8_t VC_CAP[VC_N][2] = {        /* voices at once: the shared ef
     {16, 15},                                   /* FM6: none holds four tracks (1 voice: p99 3,008, the note-ons); not in Orange Cat's set */
     {6, 3},                                     /* the Prophet: p99 2,720 at 6 off (7: 3,136), 2,624 at 3 on (4: 2,976) */
 };
+#define VC_ONE 8u                               /* the cap counts in eighths of a voice's half: a sounding voice 8 ... */
+#define VC_FADE_N 16u                           /* ... a stolen voice renders VC_FADE_N of the half's 128 samples (see track_render_audio): 1 */
+#define VC_FADE (VC_ONE * VC_FADE_N / 128u)
 #define VC_HOLD 344u                            /* halves (2.9 ms each): about a second */
 #if MELODEE_DUAL_CORE
 #define VC_CPU1 (audio_worker_online != 0)
@@ -343,15 +348,19 @@ static __attribute__((noinline)) int voice_cap_room(track_t *t, int soft, voice_
             for (i = 0; i < NVOICE; i++) {
                 voice_t *v = &q->v[i];
                 uint32_t k;
-                if (!v->active || v->stage == 4u)
+                if (!v->active)
                     continue;
-                n++;
+                if (v->stage == 4u) {
+                    n += VC_FADE;                       /* fading: renders its short fade this half (counted, not taken again) */
+                    continue;
+                }
+                n += VC_ONE;
                 k = !v->gate ? 1u : i != low ? 2u : 3u;   /* released; held, not the part's lowest (POLY) or lead; held */
                 if (k < cat || (k == cat && v->age < best->age))
                     cat = k, best = v;
             }
         }
-        if (n < vc_limit(c))
+        if (n < vc_limit(c) * VC_ONE)
             return 1;
         if (soft || !best) {
             vc_refused++;
@@ -946,8 +955,11 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         voice_t *v = &t->v[i];
         vmod_t m;
         int32_t env, pitch;
+        uint32_t nv;
+        uint32_t fading;
         if (!v->active)
             continue;
+        fading = v->stage == 4u;                        /* (0.15.0) given up this block */
         {
             AP_START(env_start);
             env = env_tick(t, v);
@@ -1004,7 +1016,12 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         }
         /* 1/16 st and 1/4096 -> Q24 octaves: the voice's own offset (the matrix's pitch too), without TUNE and bend */
         m.plog = (m.pitch16 - tune - bend16 - (int32_t)v->note * 16) * 87381 + (m.fine - tune_fine - bend_fine) * 5909;
-        engine_render(t,v,e,spread_on>v->side?spread_buf:out,n,&m);
+        nv = n;
+        if (fading && vc_on && voice_class(t) == VC_MODAL) {   /* (0.15.0) a stolen MODAL voice while the caps are on: its fade in VC_FADE_N samples */
+            nv = VC_FADE_N;                             /* (amp_at runs over CTL samples: from its level to 0 at sample VC_FADE_N, no click) */
+            m.amp1 = -m.amp0 * (int32_t)(CTL / VC_FADE_N - 1u);
+        }
+        engine_render(t,v,e,spread_on>v->side?spread_buf:out,nv,&m);
         nr++;
     }
     engine_join();

@@ -42,6 +42,13 @@ static uint32_t sounding(uint32_t c)              /* the engine's voices at once
         for(unsigned i=0;i<NVOICE;i++)n+=trk[p].v[i].active && trk[p].v[i].stage!=4u;
     return n;
 }
+static uint32_t fading(uint32_t c)                /* the engine's voices fading out (stolen this block) */
+{
+    uint32_t n=0;
+    for(unsigned p=0;p<NPART;p++)if(voice_class(&trk[p])==c)
+        for(unsigned i=0;i<NVOICE;i++)n+=trk[p].v[i].active && trk[p].v[i].stage==4u;
+    return n;
+}
 static void fade(void)                            /* the fading voices end (as their block does) */
 {
     for(unsigned p=0;p<NPART;p++)for(unsigned i=0;i<NVOICE;i++)
@@ -122,6 +129,36 @@ int main(void)
     trk_note_on(&trk[3],60u,100);
     assert(sounding(VC_MODAL)<=3u && trk[3].v[0].active && trk[3].v[0].gate && vc_refused);
     vc_cap[VC_MODAL][0]=0;
+
+
+    /* (0.15.0) the fading voices count toward the cap, an eighth of a voice each (they render VC_FADE_N of the half's 128 samples): a cap of 3
+     * holds with the fades of the step standing, and a step's steals take the old notes, never one of the step's */
+    fresh(ENGI_MACRO,mallet);
+    vc_cap[VC_MODAL][0]=3;
+    voice_cost_half(1,1);voice_cost_half(1,1);
+    for(unsigned p=0;p<NPART;p++)trk_note_on(&trk[p],48u+p,100);      /* four notes: three sound, one stole */
+    assert(sounding(VC_MODAL)==3u && fading(VC_MODAL)==1u);
+    fade();
+    for(unsigned p=0;p<NPART;p++)trk_note_on(&trk[p],60u+p,100);      /* the next step: each steals one of the old */
+    assert(sounding(VC_MODAL)==3u && fading(VC_MODAL)==4u);
+    vc_cap[VC_MODAL][0]=0;
+
+    /* (0.15.0) a stolen MODAL voice while the caps are on fades in VC_FADE_N samples, to 0 (no click: its level runs down); off, over the block */
+    for(int on=0;on<2;on++){
+        int32_t b[CTL];
+        uint32_t i,last=0;
+        fresh(ENGI_MACRO,mallet);
+        trk_note_on(&trk[0],60u,127);
+        for(int k=0;k<8;k++)track_render_audio(&trk[0],b,CTL,0);
+        assert(trk[0].v[0].active && trk[0].v[0].stage!=4u);
+        vc_on=(uint8_t)on;
+        voice_kill(&trk[0].v[0]);
+        track_render_audio(&trk[0],b,CTL,0);
+        for(i=0;i<CTL;i++)if(b[i])last=i;
+        if(on)assert(last<VC_FADE_N);
+        else assert(last>=VC_FADE_N);
+        assert(!trk[0].v[0].active);
+    }
 
     /* the caps' own numbers (OC_CORE_STATS builds set them for the unit's runs): 2 MODAL voices */
     fresh(ENGI_MACRO,mallet);
