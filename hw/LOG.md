@@ -1067,3 +1067,11 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
     0 late, 0 DAC silences, 0 USB holes in every interval, interval worst 1,754 to 1,802 us; put back true, CLK 0, objects 1 up
     identical. 2 chain queries (74) timed out; the unit counted 3,602 requests and 3,602 replies of 74, the capture 3,602: the two requests
     never reached the editor (lost on the way in). BUILD.md, "Release 1's checks on the unit".
+- **The Nightly published from linux-hw** (01720b1): run 40567266907 (publish_nightly=true), build, tests-gate and pages green. The live
+  `firmware/nightly.json`: version `v0.15.0-01720b`, commit 01720b12..., builtAt 2026-10-27T19:33:31Z, branchName linux-hw; ocm prophet,
+  shapes, wheel. Files in `~/fm1-hw/nightly-01720b1/` (fwsc 948fcf86..., pak a4e45b19... (the same pack as before), WHEEL 02d21f1c...,
+  SHAPES f6c4746b...).
+- **Flash 54**, 2026-10-27T19:35:26Z: the published Nightly (`~/fm1-hw/nightly-01720b1/melodee-nightly.fwsc`): `ORANGE CAT v0.15.0-01720`,
+  the pack state 1. PipeWire set; slot 1 detached (D954DF93, equal). `remove 7`, the Nightly's WHEEL (start 0, 2,928 B); `remove 14`, the
+  Nightly's SHAPES (start 1, 24,160 B); state 7 each. Tracks MACRO 10/0/1/20, track 1 selected; CHRD MAJ and VOIC OPEN set and read back
+  (81 -> 3, 82 -> 1); CLK 0. **The unit is left here.** main and the v0.15.0 tag wait for the user's word.
