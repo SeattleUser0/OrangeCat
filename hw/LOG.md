@@ -950,3 +950,14 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - The unit after cycling: `ORANGE CAT v0.6.2-3ca2b5`, the pack installed, WHEEL start 0, SHAPES start 1, tracks MACRO 10 / 0 / 1 / 20. To set
   again at the very end (after the core runs' flash): the selected track, and track 1's CHRD MAJ and VOIC OPEN (cleared by a restart, as after
   Flash 35).
+
+## October 27 (UTC): Flash 38 and 39, the two-core controlled runs
+
+- **Flash 38**, 2026-10-27T01:18:52Z: measure/core-split 0b45e5f with OC_CORE_STATS=1 OC_DUB_BENCH=1 (host suite passed on 0b45e5f, 1,175 s):
+  `ORANGE CAT v0.6.2-0b45e5`; the pack, WHEEL and SHAPES kept through the flash. PipeWire set; slot 1 detached (D954DF93). The controlled runs
+  (`~/fm1-hw/cores/core_runs.py`, 44 runs, then the CLOUD and spring groups again after the stats fault below): BUILD.md "What the two cores do",
+  Parts 3 and 4. Tracks, parameters, CLK and G_RTYPE put back (true) after each pass.
+- **The stats fault**: one dropped reply to AUDIO_STATS made fm1hw.py fall back to schema 2 for the session, on which a reset no longer starts Late
+  over; the late counts of the last rows accumulated. Fixed in fm1hw.py (6ed5675); the affected groups run again.
+- **Flash 39**, 2026-10-27T01:53:22Z: the same commit with OC_DUB_BENCH=1 only (no core stats; AUDIO_STATS [0, 1] answers schema 2): the
+  overhead rows, two passes; then the same rows had run twice on Flash 38. The stats cost 30 to 40 us on the worst.
