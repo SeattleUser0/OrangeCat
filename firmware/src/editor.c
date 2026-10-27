@@ -602,6 +602,40 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims, 32 full profile,
                                                         * 64 the Audio readout (0.13.6, schema 8: 23 fields, alone) */
 #if OC_CORE_STATS
+        if (na == 2u && a[1] == 3u) {
+            /* (0.14.3, OC_CORE_STATS builds) [flags, 3]: the batch's voice kernels, schema 10 (core_stats.h): 10, then 5 x 7 bits each: CPU1's
+             * stack high-water mark in bytes (0: not painted), the number of ids N, then for each of the N profile ids the batch carries
+             * (Prophet, FM6, CZ, SID, 808, 909, MACRO, DRUM-X, SHAPES, WHEEL): the id, then on CPU0 and on CPU1 the kernels run, their mean and
+             * max in TIMER4 ticks (24 a microsecond). Flag 1 starts them over (the cores' readout too) and paints CPU1's stack again (when it is
+             * idle). (At most 5 + 5 x 2 + 10 x 7 x 5 = 365 bytes: the reply buffer is 1,024) */
+            static const uint8_t ids[] = {AP_PROPHET, AP_FM6, AP_CZ, AP_SID, AP_808, AP_909, AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL};
+            cs_kn_t k2[sizeof ids][2];
+            uint32_t k, used = 0;
+            fm1_irq_off();
+            for (k = 0; k < sizeof ids; k++) { k2[k][0] = cs_k[ids[k]][0]; k2[k][1] = cs_k[ids[k]][1]; }
+#if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
+            used = cs_stack_used();
+#endif
+            if (a[0] & 1u) {
+                cs_reset();
+#if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
+                cs_stack_paint();
+#endif
+            }
+            fm1_irq_on();
+            ed_b(10);
+            ed_bk_u32(used);
+            ed_bk_u32(sizeof ids);
+            for (k = 0; k < sizeof ids; k++) {
+                ed_bk_u32(ids[k]);
+                for (uint32_t c = 0; c < 2u; c++) {
+                    ed_bk_u32(k2[k][c].n);
+                    ed_bk_u32(k2[k][c].n ? (uint32_t)(k2[k][c].sum / k2[k][c].n) : 0u);
+                    ed_bk_u32(k2[k][c].max);
+                }
+            }
+            break;
+        }
         if (na >= 2u && (a[1] == 1u || (a[1] == 2u && na == 3u && a[2] <= 1u))) {
             /* (0.14.2, OC_CORE_STATS builds) [flags, 1]: the cores' readout, schema 9 (core_stats.h): 9, then 5 x 7 bits each: halves, jobs
              * (voices, buses, dub), submits refused, worker retirements, single-core forced, CPU1 online; then for each metric (wall, cpu0,

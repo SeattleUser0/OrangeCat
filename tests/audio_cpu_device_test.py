@@ -126,7 +126,8 @@ class CpuBaselineTest(unittest.TestCase):
         self.assertEqual(h['overflow_samples'], 2)
 
     def test_old_and_extended_span_decoding(self):
-        for count in (len(legacy.SPANS), len(legacy.SPANS+legacy.PANEL_SPANS), len(legacy.SPANS+legacy.PANEL_SPANS+legacy.BATCH_SPANS)):
+        for count in (len(legacy.SPANS), len(legacy.SPANS+legacy.PANEL_SPANS), len(legacy.SPANS+legacy.PANEL_SPANS+legacy.BATCH_SPANS),
+                      len(legacy.SPANS+legacy.PANEL_SPANS+legacy.BATCH_SPANS+legacy.KERNEL_SPANS)):
             class Profile:
                 def request(self, *args):
                     return [0, 1, count]+[x for v in range(count*3+5) for x in cpu.u32(v)]

@@ -51,6 +51,13 @@ void *memcpy(void *d, const void *s, __SIZE_TYPE__ n) { return OC_FW()->mem_copy
 void *memset(void *d, int c, __SIZE_TYPE__ n) { return OC_FW()->mem_set(d, c, (uint32_t)n); }
 
 #define SINE DSP_SINE                   /* the partials' sine: the firmware's hot copy, not a table in the module area */
+/* (0.14.3) the batch queue: the firmware's, by the table (prophet_mod.c's); its voice kernels run on CPU1 or CPU0 as the firmware's batch
+ * splits a block's voices. Its profile id from the firmware's header (FW_API_VERSION 6 knows it) */
+#include "audio_profile.h"
+typedef void (*audio_batch_fn)(const void *data, int32_t *pcm);
+#define AUDIO_BATCH_BYTES 168u
+#define audio_batch_active (*OC_FW()->batch_active)
+#define audio_batch_push(run, data, bytes, out, n, id) (OC_FW()->batch_push((run), (data), (bytes), (out), (n), (id)))
 #include "eng_wheel.c"
 #undef SINE
 static drw_part_t *drw_of(const track_t *t) { return resource_get(OC_FW()->res_engine0 + (uint32_t)(t - trk) % NPART, sizeof(drw_part_t)); }

@@ -2,8 +2,14 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Revisions:
  * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
+ * (Orange Cat 0.14.3) the ports on the batch (docs/orangecat/BUILD.md, "The scheduler, stage 1: the ports on the batch"): MACRO, DRUM-X,
+ *   SHAPES and WHEEL push a voice kernel each from their render, as FM6 and the Prophet do. Their costs in audio_batch_cost (AP_MACRO: a
+ *   voice unit's, MACRO's push gives its model's units times it: audio_batch_push_cost); an optional merge (CPU0, at the join, in voice
+ *   order) after the PCM's sum: DRUM-X's panned lanes add their share to the kit's side there; OC_CORE_STATS builds time each kernel
+ *   by its profile id and core.
  */
 #pragma once
+#include "core_stats.h"                        /* (0.14.3) cs_kernel: the kernels' costs (OC_CORE_STATS builds) */
 #ifndef MELODEE_BATCH_AUDIO
 #define MELODEE_BATCH_AUDIO 1
 #endif
@@ -11,6 +17,7 @@
  * runs on CPU1; events and control preparation remain on CPU0. Each job owns
  * PCM scratch, so two voices never concurrently add to the same destination. */
 typedef void (*audio_batch_fn)(const void *,int32_t *);
+typedef void (*audio_batch_merge_fn)(const void *,const int32_t *,uint32_t);   /* (0.14.3) CPU0, after pcm is added to out: data, pcm, n */
 /* The largest current descriptor is Prophet (168 bytes on the 64-bit host);
  * assertions at each producer bound the slots on both platforms. Twelve slots
  * keep an eight-voice part and its drums in one parallel group. */
@@ -18,7 +25,8 @@ typedef void (*audio_batch_fn)(const void *,int32_t *);
 #define AUDIO_BATCH_JOBS 12u
 typedef struct {
     audio_batch_fn run;int32_t *out;uint32_t n, profile_id,guard;
-#if MELODEE_AUDIO_PROFILE
+    audio_batch_merge_fn merge;                     /* (0.14.3) 0: none. Read by CPU0 only */
+#if MELODEE_AUDIO_PROFILE || OC_CORE_STATS
     uint32_t elapsed;
 #endif
     _Alignas(8) uint32_t data[AUDIO_BATCH_BYTES/4u];int32_t pcm[CTL];   /* (0.12.2: _Alignas, not the attribute: the host tests define __attribute__ away, and the kernels read int64/double members of the descriptor; UBSan found the host's copy at 4 bytes) */
@@ -30,7 +38,10 @@ static uint8_t audio_batch_active;
  * costs and a CPU0 service allowance. Profiling does not change scheduling. */
 static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_tables.audio_batch_cost"),aligned(32)))={
     [AP_PROPHET]=3100,[AP_FM6]=1250,[AP_CZ]=2100,
-    [AP_SID]=2000,[AP_808]=1150,[AP_909]=1900
+    [AP_SID]=2000,[AP_808]=1150,[AP_909]=1900,
+    /* (0.14.3) the ports, TIMER4 ticks a voice's 32-sample block. Placeholders from the unit's earlier per-voice figures (BUILD.md,
+     * Thirteenth run, Part 2: MACRO 92 us a voice unit a half), until the stats build measures them (Part 5). AP_MACRO: one voice unit */
+    [AP_MACRO]=550,[AP_DRUMX]=900,[AP_SHAPES]=1500,[AP_WHEEL]=1200
 };
 #if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
 #define AB_LOAD(p) fm1_aw_load(p)
@@ -57,25 +68,34 @@ static volatile uint32_t audio_batch_service_allowance=AUDIO_BATCH_SERVICE_AUTO;
 static void audio_batch_worker(void *context)
 {
     audio_batch_job_t *j=context;uint32_t n=j->n,id=j->profile_id;audio_batch_fn run=j->run;
-#if MELODEE_AUDIO_PROFILE
+#if MELODEE_AUDIO_PROFILE || OC_CORE_STATS
     j->elapsed=0;
 #endif
     if(!n || n>CTL || id>=AP_COUNT || j->guard!=((uint32_t)(uintptr_t)run^n^id^0x913ab267u)){
         AB_STORE(&audio_batch_invalid,1u);return;
     }
     for(uint32_t i=0;i<n;i++)j->pcm[i]=0;
+#if OC_CORE_STATS && !MELODEE_AUDIO_PROFILE
+    uint32_t cs_start=CS_TICKS();run(j->data,j->pcm);j->elapsed=CS_TICKS()-cs_start;
+#else
     AP_START(start);run(j->data,j->pcm);
 #if MELODEE_AUDIO_PROFILE
     j->elapsed=AUDIO_PROFILE_TICKS()-start;
 #endif
+#endif
 }
-static void audio_batch_merge(audio_batch_job_t *j)
+static void audio_batch_merge(audio_batch_job_t *j,uint32_t cpu1)
 {
 #if MELODEE_AUDIO_PROFILE
     audio_profile_add(j->profile_id,j->elapsed);
 #endif
+#if OC_CORE_STATS
+    cs_kernel(j->profile_id,cpu1,j->elapsed);           /* (0.14.3) the kernels' costs */
+#endif
+    (void)cpu1;
     AP_START(merge_start);
     for(uint32_t i=0;i<j->n;i++)j->out[i]+=j->pcm[i];
+    if(j->merge)j->merge(j->data,j->pcm,j->n);
     AP_END(AP_BATCH_MERGE,merge_start);
 }
 static void audio_batch_parallel(void *context)
@@ -127,7 +147,7 @@ static __attribute__((noinline)) void audio_batch_flush(void)
                      * A failed worker can leave elapsed partially written. */
                     if(mask&(1u<<k))audio_profile_add(AP_BATCH_CPU1,audio_batch_jobs[k].elapsed);
 #endif
-                    audio_batch_merge(&audio_batch_jobs[k]);
+                    audio_batch_merge(&audio_batch_jobs[k],(mask>>k)&1u);
                 }
             audio_batch_count=0;audio_batch_started=0;return;
     }
@@ -137,19 +157,26 @@ static __attribute__((noinline)) void audio_batch_flush(void)
 #if MELODEE_AUDIO_PROFILE
         audio_profile_add(AP_BATCH_CPU0,audio_batch_jobs[k].elapsed);
 #endif
-        audio_batch_merge(&audio_batch_jobs[k]);
+        audio_batch_merge(&audio_batch_jobs[k],0u);
     }
     audio_batch_count=0;
 }
+/* (0.14.3) a voice whose cost is its own (MACRO: its model's units), and an optional merge (CPU0, at the join) */
+static void audio_batch_push_cost(audio_batch_fn run,const void *data,uint32_t bytes,int32_t *out,uint32_t n,uint32_t profile_id,uint32_t cost,
+                                  audio_batch_merge_fn merge);
 static void audio_batch_push(audio_batch_fn run,const void *data,uint32_t bytes,int32_t *out,uint32_t n,uint32_t profile_id)
+{
+    audio_batch_push_cost(run,data,bytes,out,n,profile_id,profile_id<AP_COUNT?audio_batch_cost[profile_id]:0u,0);
+}
+static void audio_batch_push_cost(audio_batch_fn run,const void *data,uint32_t bytes,int32_t *out,uint32_t n,uint32_t profile_id,uint32_t cost,
+                                  audio_batch_merge_fn merge)
 {
     if(audio_batch_count==AUDIO_BATCH_JOBS)audio_batch_flush();
     AP_START(prepare_start);
     uint32_t k=audio_batch_count++;audio_batch_job_t *j=&audio_batch_jobs[k];
-    j->run=run;j->out=out;j->n=n;j->profile_id=profile_id;memcpy(j->data,data,bytes);
+    j->run=run;j->out=out;j->n=n;j->profile_id=profile_id;j->merge=merge;memcpy(j->data,data,bytes);
     j->guard=(uint32_t)(uintptr_t)run^n^profile_id^0x913ab267u;
 #if MELODEE_DUAL_CORE
-    uint32_t cost=audio_batch_cost[profile_id];
     if(!k){
         AB_STORE(&audio_batch_published,0u);AB_STORE(&audio_batch_worker_mask,0u);AB_STORE(&audio_batch_closed,0u);AB_STORE(&audio_batch_invalid,0u);
         uint32_t service=profile_id==AP_PROPHET && audio_batch_fm6_controls?6000u:2000u;

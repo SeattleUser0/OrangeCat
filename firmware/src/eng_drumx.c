@@ -30,7 +30,7 @@
  * engine 9 (upreset.c, the record's extension) and loaded back whole; the nine factory kits stay as they are (DX_KITS) and become
  * editable copies there. A project keeps naming the preset (t->preset, t->user), as before: SPEC.md "Drum kits".
  * Lanes panned: the voices still add into the part's mono block, and a panned one adds what the side away from it loses into side[]
- * (dxe_pan_out); dxe_post makes the kit's two sides of them, each through the bus, and the mixer (mix.c mix_lanes) takes the left from
+ * (dxe_voice, dxe_side; (0.14.3) were dxe_pan_out); dxe_post makes the kit's two sides of them, each through the bus, and the mixer (mix.c mix_lanes) takes the left from
  * the block and the right from side[1] (dxe_right) through DIST, the FX mute, solo, the track's level and PAN. SPREAD is off on such a
  * kit (its voices are lanes, each where its PAN puts it).
  *
@@ -94,7 +94,7 @@ typedef struct {
 typedef struct {                 /* the part's eight lanes: engines.c eng_state_size, the arena */
     dxe_lane_t l[DV_NLANE];
     uint8_t sides;               /* (0.14.2) this block: 1 a panned lane added to side[], 2 dxe_post made them the kit's two sides */
-    int32_t side[2][CTL];        /* (0.14.2) what the left (0) and the right (1) lose of the panned lanes (dxe_pan_out); after
+    int32_t side[2][CTL];        /* (0.14.2) what the left (0) and the right (1) lose of the panned lanes ((0.14.3) dxe_side); after
                                   * dxe_post: the kit's right side in side[1] (its left in the part's block) */
 } dxe_part_t;
 static dxe_part_t *dxe_part(uint32_t part);              /* engines.c */
@@ -334,22 +334,45 @@ static DX_XIP void dxe_boost(int32_t *y, uint32_t n, int32_t g0, int32_t g1)
 }
 /* (0.14.2) a panned lane's hit into the kit (out, as every lane's) and what the side away from it loses into sd: the track's PAN law
  * (mix.c) lane by lane, the far side down by |pan| / 64, the near side as it is. dxe_post turns them into the kit's two sides */
-static DX_XIP void dxe_pan_out(const int32_t *y, int32_t *out, int32_t *sd, uint32_t n, const vmod_t *m, int32_t w)
+/* (Orange Cat 0.14.3) a hit's block in two parts (audio_batch.h): dxe_render, on CPU0 at the voice's turn, the lane's control (its BEND,
+ * LAYER, TONE and HANDS, PUNCH and ATK+ from its age, then the age) into a descriptor; dxe_voice, the synthesis (dx_run), the boost and the
+ * amplitude into out, from the descriptor alone: on CPU1 or CPU0 as the batch splits the block's voices, or at once (no batch). It
+ * touches the lane's hit state (L->x: its own generator too) and the kit's tables (flash) only. A lane off the centre adds its share
+ * to the kit's side after (dxe_side: CPU0, at the join, in voice order) */
+typedef struct {
+    const dx_kit_t *kit;
+    dx_voice_t *x;
+    vmod_t m;
+    int32_t morph, tune16, dofs, cofs, nofs, warp, fm, pb0, pb1, w;
+    int32_t *sd;                                         /* the kit's side this lane's share goes to (0: centred) */
+    uint32_t ln, n;
+} dxe_job_t;
+_Static_assert(sizeof(dxe_job_t) <= AUDIO_BATCH_BYTES, "DRUM-X's batch descriptor");
+static DX_XIP void dxe_voice(const void *data, int32_t *out)
 {
-    uint32_t i;
-    for (i = 0; i < n; i++) {                            /* x1.25, as dxe_render */
-        int32_t s = voice_amp(y[i] + (y[i] >> 2), m, i) * 2;
-        out[i] += s;
-        sd[i] += (s * w) >> 6;                           /* (|s| < 2^18, w <= 64) */
-    }
+    const dxe_job_t *j = data;
+    int32_t y[CTL];
+    uint32_t i, n = j->n;
+    dx_run(j->kit, j->ln, j->x, j->morph, j->tune16, j->dofs, j->cofs, j->nofs, j->warp, j->fm, y, n);
+    if (j->pb0 != 4096 || j->pb1 != 4096)
+        dxe_boost(y, n, j->pb0, j->pb1);
+    for (i = 0; i < n; i++)                              /* x1.25 */
+        out[i] += voice_amp(y[i] + (y[i] >> 2), &j->m, i) * 2;
 }
-
+/* (0.14.3: was dxe_pan_out's second half) a lane off the centre: its share of the side (pcm: the hit alone) */
+static void dxe_side(const void *data, const int32_t *pcm, uint32_t n)
+{
+    const dxe_job_t *j = data;
+    for (uint32_t i = 0; i < n; i++)
+        j->sd[i] += (pcm[i] * j->w) >> 6;               /* (|s| < 2^18, w <= 64) */
+}
 static DX_XIP void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     const int16_t *p = t->p;
     dxe_lane_t *L = dxe_lane_of(t, v);
     uint32_t ln = (uint32_t)v->s[0] & (DV_NLANE - 1u), i;
-    int32_t y[CTL], lv = clamp(p[P_LN0 + ln], 0, 127), lfo, lfo_pit, lfo_shp;
+    int32_t lv = clamp(p[P_LN0 + ln], 0, 127), lfo, lfo_pit, lfo_shp;
+    dxe_job_t j;
     vmod_t ml;                                           /* (only its amplitude ramp is read: voice_amp) */
     const dxk_t *K = dxk_of(t);
     uint32_t lay = K->on ? K->lay[ln] : dxe_kit(t)->lay[ln], tone = K->on ? K->tone : 0u, hands = K->on ? K->hands : 0u;
@@ -383,8 +406,10 @@ static DX_XIP void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, 
     L->x.layer = (uint8_t)lay;                           /* (0.14.2) the lane's LAYER, the kit's TONE and HANDS: the hit's */
     L->x.tone = (uint8_t)(DX_TONE_METAL(ln) ? tone : tone & 0xF0u);   /* (BP on the metal lanes, FDBK on all) */
     L->x.hands = (uint8_t)hands;
-    dx_run(dxe_kit(t), ln, &L->x, p[P_E0] + lfo_shp, L->st * 16 + (p[P_E1] - 64) * 3 + lfo_pit + ltune + L->bc,
-           p[P_E3] - 64 + ldec, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
+    j.kit = dxe_kit(t); j.x = &L->x; j.ln = ln; j.n = n;
+    j.morph = p[P_E0] + lfo_shp;
+    j.tune16 = L->st * 16 + (p[P_E1] - 64) * 3 + lfo_pit + ltune + L->bc;
+    j.dofs = p[P_E3] - 64 + ldec; j.cofs = p[P_E2] - 64; j.nofs = p[P_E4] - 64; j.warp = p[P_E6]; j.fm = p[P_E5];
     if (K->on && (K->punch[ln] || K->atk[ln])) {         /* (0.14.2) PUNCH and ATK+, the lane's (Jiant's, eng_drum.c drum_render) */
         if (K->punch[ln]) {
             int32_t pu = K->punch[ln] * 20 / 3;          /* (15: Jiant's 100) */
@@ -400,8 +425,7 @@ static DX_XIP void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, 
     }
     if (L->age < 255u)
         L->age++;
-    if (pb0 != 4096 || pb1 != 4096)
-        dxe_boost(y, n, pb0, pb1);
+    j.pb0 = pb0; j.pb1 = pb1; j.m = *m; j.sd = 0; j.w = 0;
     if (pan) {                                           /* (0.14.2) a lane off the centre: its share of the sides */
         dxe_part_t *s = dxe_part((uint32_t)(t - trk));
         if (s) {
@@ -409,12 +433,23 @@ static DX_XIP void dxe_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, 
                 memset(s->side, 0, sizeof s->side);
                 s->sides = 1;
             }
-            dxe_pan_out(y, out, s->side[pan < 0], n, m, pan < 0 ? -pan : pan);
-            return;
+            j.sd = s->side[pan < 0];
+            j.w = pan < 0 ? -pan : pan;
         }
     }
-    for (i = 0; i < n; i++)                              /* x1.25 */
-        out[i] += voice_amp(y[i] + (y[i] >> 2), m, i) * 2;
+    if (audio_batch_active) {
+        audio_batch_push_cost(dxe_voice, &j, sizeof j, out, n, AP_DRUMX, audio_batch_cost[AP_DRUMX], j.sd ? dxe_side : 0);
+        return;
+    }
+    if (j.sd) {                                          /* (no batch: the hit alone first, for its share) */
+        int32_t h[CTL];
+        for (i = 0; i < n; i++) h[i] = 0;
+        dxe_voice(&j, h);
+        for (i = 0; i < n; i++) out[i] += h[i];
+        dxe_side(&j, h, n);
+        return;
+    }
+    dxe_voice(&j, out);
 }
 
 /* (Jiant 0.6.16, drum_bus) the kit's sum, once a block (voice.c track_render, after the part's voices): DRV x1..x4 into the

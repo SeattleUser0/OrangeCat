@@ -295,6 +295,14 @@ module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's 
     step "WHEEL as a module (0.14.0): slot 7 retired and silent, the registration offers it, a stored engine 7 plays it, unregistering retires it again" \
         "$OUT/module_host_wheel_test" tests/golden_modules.txt
 }
+port_batch() {                                    # (Orange Cat 0.14.3) the ports on the batch: the reference without it, then the batch serial and concurrent
+    $CC -O2 $FW -DPB_REF -o "$OUT/port_batch_ref" tests/port_batch_test.c -pthread -lm || { fail "compile tests/port_batch_test.c (reference)"; return 1; }
+    $CC -O2 $FW -o "$OUT/port_batch_test" tests/port_batch_test.c -pthread -lm || { fail "compile tests/port_batch_test.c"; return 1; }
+    step "the ports on the batch (0.14.3): reference renders without the batch (MACRO, DRUM-X with panned lanes, SHAPES, WHEEL)" \
+        "$OUT/port_batch_ref" "$OUT/port_batch_ref.bin"
+    step "the ports on the batch (0.14.3): CPU1 refused and a concurrent CPU1 equal it sample for sample; every port's kernels on CPU1" \
+        "$OUT/port_batch_test" "$OUT/port_batch_ref.bin"
+}
 module_host_candidates() {                        # (Orange Cat 0.14.0) the engine candidates gate: SEM and HADES in an OC_CANDIDATES build, the Rhodes port against Frodhes' own engine
     for e in sem hades; do
         E=$(echo $e | tr a-z A-Z)
@@ -547,6 +555,7 @@ if sound && [ $TABLES = 1 ]; then
     job module_host
     job module_host_prophet
     job module_host_wheel
+    job port_batch
     job module_host_candidates
     job mod_pages_prophet
     mkdir -p build/macro_demo

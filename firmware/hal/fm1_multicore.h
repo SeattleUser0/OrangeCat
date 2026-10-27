@@ -66,6 +66,29 @@ void __attribute__((section(".dsp_text"), noreturn, used)) fm1_core1_main(void)
     audio_worker_loop();
 }
 
+#if OC_CORE_STATS
+/* (Orange Cat 0.14.3, OC_CORE_STATS builds) CPU1's stack high-water mark (core_stats.h, AUDIO_STATS [flags, 3]). CPU1's 8 KB (_cpu1_stacks_lo..hi):
+ * its jobs run on the stack from the top, one range checked by the hardware (fm1_core1_main) */
+#define CS_PAINT 0xC1C1C1C1u
+static uint8_t cs_painted;
+/* (with interrupts off, or before the audio starts) only while CPU1 polls with nothing outstanding: a retired CPU1 may be held inside a
+ * job (a stall), the core1 test's stall job runs on it: then not painted, and the mark is 0 */
+static void cs_stack_paint(void)
+{
+    cs_painted = 0;
+    if (!audio_worker_online || fm1_aw_load(&audio_worker.request) != fm1_aw_load(&audio_worker.complete))
+        return;
+    for (volatile uint32_t *w = (volatile uint32_t *)(_cpu1_stacks_lo + 256); w < (volatile uint32_t *)(_cpu1_stacks_hi - 512); w++) *w = CS_PAINT;
+    cs_painted = 1;
+}
+static uint32_t cs_stack_used(void)
+{
+    const volatile uint32_t *w = (const volatile uint32_t *)(_cpu1_stacks_lo + 256);
+    if (!cs_painted) return 0;
+    while (w < (const volatile uint32_t *)(_cpu1_stacks_hi - 512) && *w == CS_PAINT) w++;
+    return (uint32_t)(_cpu1_stacks_hi - (const uint8_t *)w);
+}
+#endif
 static int fm1_multicore_start(void)
 {
     uint32_t start, div;
@@ -89,6 +112,9 @@ static int fm1_multicore_start(void)
         ;
     audio_worker_online = fm1_aw_load(&audio_worker.ready) != 0;
     if (!audio_worker_online) fm1_core1_stop();
+#if OC_CORE_STATS
+    cs_stack_paint();                                     /* (0.14.3) the high-water mark from the start */
+#endif
     *(volatile uint32_t *)0x10008u = div;
 #if !MELODEE_CORE1_FALLBACK
     if (!audio_worker_online) fm1_core1_failure();

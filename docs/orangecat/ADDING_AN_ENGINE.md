@@ -143,6 +143,46 @@ budget admission yet (BUILD.md, Fourth run: admission is voice units and the are
 - **Projects and presets.** The engine's parameters are the track's `P_E0..P_E7`; presets are data (or `preset_make`). A project saved with
   the engine and loaded without it plays silent and keeps the number.
 
+## 5a. The second core: every voice a batch kernel (0.14.3)
+
+The FM-1 has two cores. CPU1 renders voices only through the voice batch (firmware/src/audio_batch.h): up to twelve descriptors a group,
+split between the cores by their cost (`audio_batch_cost`), CPU1's share as one job while CPU0 renders the rest, joined and merged in voice
+order. An engine that does not push into it renders on CPU0 only, whatever CPU1 is doing: before 0.14.3 MACRO, DRUM-X, SHAPES and WHEEL
+did not (BUILD.md, "What the two cores do", Part 4: CPU1 did close to nothing for them). **A new engine, built in or a module, submits its
+voices to the batch from the start.** How (MACRO's `mc_render` / `mc_voice`, DRUM-X's `dxe_render` / `dxe_voice`, SHAPES' `sh_render` /
+`sh_voice` and WHEEL's `wheel_render` / `wheel_voice` are the examples; FM6 and the Prophet the native ones):
+
+- **Split the render.** `render(t, v, out, n, m)` runs on CPU0 at the voice's turn and does the voice's control: everything that reads
+  `t->p` (the matrix modulates it only until the track's `mod_end`, before the batch is flushed), the tuning, the track's other voices or
+  the engine's per-track state, and any restart of state (a model switch, an oscillator's start, a strike). It fills a descriptor with what
+  the sample loop needs (the voice's state pointers, the computed controls, a copy of `*m`) and, while `audio_batch_active`, pushes it:
+  `audio_batch_push(kernel, &j, sizeof j, out, n, AP_<NAME>)` (or `audio_batch_push_cost` with a cost of its own, MACRO's by model).
+  Otherwise (no batch: the host's single renders, `track_render`) it calls the kernel itself, so both paths are the same code.
+- **The kernel** `kernel(const void *data, int32_t *pcm)` renders the voice's block into `pcm` (cleared, the voice's own) from the
+  descriptor alone. It may write its own voice's state and nothing else; it may read tables that nobody writes while audio runs. A
+  descriptor is at most `AUDIO_BATCH_BYTES` (168 B; a `_Static_assert` beside it says so).
+- **No shared scratch.** A buffer in the track's state shared by its voices (MACRO's out / aux, SHAPES' 88.2 kHz block, before 0.14.3)
+  would be written by both cores at once: the kernel's own goes on its stack (CPU1's jobs run on its 8 KB stack, from the top, one
+  hardware-checked range; an OC_CORE_STATS build's AUDIO_STATS `[1, 3]` reports its high-water mark).
+- **No shared generator.** A random generator shared by the engine's voices or tracks (plaits' `pl_rng_state`, Braids' `pb_rng_state`)
+  is drawn in an order that depends on which core renders what. Give each voice its own (in its state, seeded as the shared one was), or
+  render the voices that draw it at once on CPU0 (MACRO's noise models, SHAPES' digital shapes in 0.14.3) until they have one.
+- **Writes outside the voice's PCM** (DRUM-X's panned lanes add to the kit's side buffer): a merge function in the push
+  (`audio_batch_push_cost(..., merge)`): CPU0 calls it at the join, in voice order, after adding the PCM; never for a voice a failed CPU1
+  dropped.
+- **Per-track work** stays in `block` (before the voices) and `post` (after the flush, in the mix: the batch defers it), both on CPU0.
+- **Its cost.** A profile id appended to audio_profile.h (`AP_<NAME>`, before `AP_COUNT`) and its entry in `audio_batch_cost`: TIMER4
+  ticks a voice's 32-sample block, **measured on the unit** with an `OC_CORE_STATS=1` build (AUDIO_STATS `[flags, 3]`: every kernel's count,
+  mean and max by id and core; web/EDITOR_PROTOCOL.md), not guessed.
+- **A module** pushes through the services table: in its `<name>_mod.c`, before the engine's source, `audio_batch_active` and
+  `audio_batch_push` mapped to `OC_FW()->batch_active` and `OC_FW()->batch_push`, `AUDIO_BATCH_BYTES` 168 and `#include "audio_profile.h"`
+  for its id (tools/module/shapes_mod.c, wheel_mod.c, prophet_mod.c). A module that pushes an id the firmware's batch does not have would
+  retire CPU1: an id added to audio_profile.h raises `FW_API_VERSION` (6 for AP_SHAPES and AP_WHEEL), so such a module is refused by an
+  older firmware.
+- **Tested.** A case in tests/port_batch_test.c: the engine's presets in the complete mixer, without the batch (the reference), with CPU1
+  refused and with a concurrent CPU1, sample for sample equal, and its kernels seen on CPU1. Its golden hashes do not move.
+- **Where its kernel runs from:** see the placement rule in section 2 (BUILD.md, "The scheduler, stage 1", the flash-or-SRAM A/B).
+
 ## 6. Pages and the editor
 
 - A built-in engine's pages are rows of `PAGES` in params.c; a module's are data (`engine_t.pages`, firmware/src/fw_pages.h), checked by the
@@ -212,6 +252,9 @@ An engine enters the repository when every line holds:
 6. [ ] State per track named and under 16 KB; the arena still keeps 64 KiB contiguous with four tracks of it.
 7. [ ] Its per-sample tables found (`tools/pack_hot.py`, and by reading the render loop) and declared as its hot set; the set's arena cost
        written in ENGINE_LOADING_PLAN.md ("What runs from where, measured"); no per-sample table left in flash on a measured preset.
+7a. [ ] (0.14.3) Its voices pushed to the batch (section 5a): control on CPU0, a kernel from a descriptor, no shared scratch or generator,
+        its profile id and a measured `audio_batch_cost` entry, a case in tests/port_batch_test.c equal without the batch, with CPU1 refused
+        and with CPU1 concurrent.
 8. [ ] Sample for sample against its original where one exists; every preset in tests/golden.txt; a module's hashes equal the built-in's.
 9. [ ] Clean under SAN=1; no signed overflow; no division in a per-sample loop that could be avoided.
 10. [ ] Pages: rows in params.c (built in) or a descriptor the loader accepts (module); the editor's table, if any, tested against the dump;

@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* Deterministic scheduling accounting, including dropped partial workers. */
+/* Deterministic scheduling accounting, including dropped partial workers.
+ * (Orange Cat 0.14.3) MACRO's voices through audio_batch_push_cost (a model's units times audio_batch_cost[AP_MACRO]), and the merge
+ * hook DRUM-X's panned lanes use: once a merged voice, in voice order, never for a failed worker's dropped voice. */
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
@@ -50,11 +52,35 @@ static void engine_split(uint32_t id)
     assert(AB_LOAD(&audio_batch_worker_mask)==0xabu);
     audio_batch_flush();for(uint32_t i=0;i<CTL;i++)assert(out[i]==8);
 }
+static uint32_t merged[8],nmerged;
+static void merge(const void *data,const int32_t *pcm,uint32_t n)
+{
+    assert(n==CTL);merged[nmerged++%8u]=*(const uint32_t *)data;(void)pcm;
+}
+/* MACRO: 8 voices of one model, its units times the per-unit cost (eng_macro.c MC_UNITS: MODAL 9, VA 4); with either the group splits as
+ * a native engine's does (five to CPU1, three to CPU0); the hook runs in voice order */
+static void macro_split(uint32_t units,int success)
+{
+    int32_t out[CTL]={0};online=1;join_ok=success;nmerged=0;
+    for(uint32_t j=0;j<8u;j++){uint32_t value=j+1u;audio_batch_push_cost(render,&value,sizeof value,out,CTL,AP_MACRO,units*audio_batch_cost[AP_MACRO],merge);}
+    assert(AB_LOAD(&audio_batch_worker_mask)==0xabu);
+    audio_batch_flush();
+    if(success){
+        assert(nmerged==8u);
+        for(uint32_t j=0;j<8u;j++)assert(merged[j]==j+1u);
+        for(uint32_t i=0;i<CTL;i++)assert(out[i]==36);
+    }else{                                              /* CPU1's five (bits 0, 1, 3, 5, 7) dropped, merges too: CPU0's 3, 5, 7 */
+        assert(nmerged==3u && merged[0]==3u && merged[1]==5u && merged[2]==7u);
+        for(uint32_t i=0;i<CTL;i++)assert(out[i]==15);
+    }
+}
 int main(void)
 {
     scenario(1,1);scenario(0,1);scenario(1,0);
     const uint32_t ids[]={AP_PROPHET,AP_FM6,AP_CZ,AP_SID,AP_808,AP_909};
     for(uint32_t k=0;k<sizeof ids/sizeof ids[0];k++)engine_split(ids[k]);
+    macro_split(9u,1);macro_split(4u,1);macro_split(9u,0);
+    assert(audio_profile[AP_MACRO].calls>0);
     int32_t out[CTL]={0};uint32_t value=1;online=join_ok=1;advances=0;
     for(uint32_t k=0;k<AUDIO_BATCH_JOBS+3u;k++)audio_batch_push(render,&value,sizeof value,out,CTL,AP_PROPHET);
     assert(advances==AUDIO_BATCH_JOBS && audio_batch_count==3u);
@@ -62,5 +88,5 @@ int main(void)
     for(uint32_t i=0;i<CTL;i++)assert(out[i]==(int32_t)(AUDIO_BATCH_JOBS+3u));
     audio_batch_jobs[0].n=0;audio_batch_jobs[0].elapsed=12345;
     audio_batch_worker(&audio_batch_jobs[0]);assert(!audio_batch_jobs[0].elapsed);
-    puts("batch profile: producer/worker/merge counts, serial fallback and failed-worker drop exact");
+    puts("batch profile: producer/worker/merge counts, serial fallback and failed-worker drop exact; MACRO by its units, the merge hook in order");
 }

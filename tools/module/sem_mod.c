@@ -63,7 +63,7 @@ void *memset(void *d, int c, __SIZE_TYPE__ n) { return OC_FW()->mem_set(d, c, (u
 
 #ifdef OC_MODULE_HOST
 const fw_mod_hdr_t OC_MODULE_HDR = {
-    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR,
+    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION_BASE, FW_API_ADDR,
     ENGI_SEM, OC_STATE_TOKEN, 0, 0, OC_PACK_HASH,
     0, OC_MODULE_VERSION, 0, 0, 0,
 };
@@ -72,7 +72,7 @@ const engine_t *oc_host_module_engine(void) { return &ENG_SEM; }
 #else
 extern char _modstart[];
 __attribute__((section(".modhdr"), used)) const fw_mod_hdr_t OC_MODULE_HDR = {
-    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR,
+    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION_BASE, FW_API_ADDR,
     ENGI_SEM, OC_STATE_TOKEN, (uint32_t)(uintptr_t)&ENG_SEM, (uint32_t)(uintptr_t)_modstart, OC_PACK_HASH,
     0, OC_MODULE_VERSION, 0, 0, 0,
 };

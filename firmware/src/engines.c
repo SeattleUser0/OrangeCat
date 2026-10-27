@@ -58,6 +58,7 @@ static const engine_t ENG_RETIRED = {         /* 13 without MELODEE_SLICE: reser
  * which the build checks. tests/fw_api_test.c reads it on the host. */
 #include "oc_pack.h"
 #include "fw_api.h"
+_Static_assert(AUDIO_BATCH_BYTES == 168u, "the modules' AUDIO_BATCH_BYTES (tools/module/*_mod.c) is 168");
 #define FW_UNUSED __attribute__((unused))
 static FW_UNUSED void *fw_mem_copy(void *d, const void *s, uint32_t n) { return memcpy(d, s, n); }
 static FW_UNUSED void *fw_mem_set(void *d, int c, uint32_t n) { return memset(d, c, n); }

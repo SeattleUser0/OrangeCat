@@ -24,7 +24,8 @@ int main(void)
     uint8_t x[16], y[16];
     uint32_t i;
     void *p1, *p2;
-    check("the table starts with the magic, its own size, version 5 (0.14.0: base_hot) and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 5u && a->iface == FW_API_IFACE);
+    check("the table starts with the magic, its own size, version 6 (0.14.3: batch_push takes AP_SHAPES, AP_WHEEL) and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 6u && a->iface == FW_API_IFACE);
+    check("(0.14.3) a module that needs nothing 6 added declares FW_API_VERSION_BASE, 5: a 0.14.2 firmware still loads it", FW_API_VERSION_BASE == 5u && FW_API_VERSION_BASE < FW_API_VERSION);
     check("every service is there", a->mem_copy && a->mem_set && a->resource_get && a->tuning_log && a->trk && a->pack_ready);
     /* 0.10.0 (step 1) the arena id a module's part state starts at, and the engine count, come from the table */
     check("res_engine0 is the arena id of the first engine state and nengines the table's length", a->res_engine0 == RES_ENGINE0 && a->nengines == NENGINES && NENGINES == 20u);

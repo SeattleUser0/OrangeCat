@@ -193,14 +193,26 @@ static void wheel_note_on(track_t *t, voice_t *v)
     V->gate = 1;
 }
 
-static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+/* (Orange Cat 0.14.3) a voice's block as a batch kernel (audio_batch.h; in the module through FW_API's batch_push): wheel_render, on CPU0 at
+ * the voice's turn, only fills the descriptor (the bars, the percussion and the rotors are the track's, wheel_block's, before the voices);
+ * wheel_voice, the partials, the click and the drive, from it alone: on CPU1 or CPU0 as the batch splits the block's voices. It touches its
+ * voice's state (V: its own click noise too) and reads the track's (T) and the sine table only */
+typedef struct {
+    const drw_trk_t *T;
+    drw_vc_t *V;
+    vmod_t m;
+    uint32_t n;
+    uint8_t gate;
+} wheel_job_t;
+_Static_assert(sizeof(wheel_job_t) <= AUDIO_BATCH_BYTES, "WHEEL's batch descriptor");
+static void wheel_voice(const void *data, int32_t *out)
 {
-    const drw_trk_t *T = &drw_of(t)->t;
-    drw_vc_t *V = &drw_of(t)->v[(uint32_t)(v - t->v) % NPOLY];
+    const wheel_job_t *j = data;
+    const drw_trk_t *T = j->T;
+    drw_vc_t *V = j->V;
+    const vmod_t *m = &j->m;
     int32_t acc[CTL], perc1, clk0, clk1;
-    uint32_t i, k;
-    if (n > CTL)
-        n = CTL;
+    uint32_t i, k, n = j->n;
     for (i = 0; i < n; i++)
         acc[i] = 0;
     perc1 = (int32_t)(((uint32_t)V->perc * T->pdec) >> 16);
@@ -237,7 +249,7 @@ static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     }
     V->perc = perc1;
     /* key click: high-passed noise, at the key contact and (half) at the release */
-    if (V->gate && !v->gate) {
+    if (V->gate && !j->gate) {
         V->gate = 0;
         V->clk = 16384;
     }
@@ -264,6 +276,21 @@ static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     }
     for (i = 0; i < n; i++)                             /* acc: Q15 with headroom to 4.0 */
         out[i] += voice_amp(acc[i] >> 1, m, i) << 1;
+}
+
+static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+{
+    wheel_job_t j;
+    j.T = &drw_of(t)->t;
+    j.V = &drw_of(t)->v[(uint32_t)(v - t->v) % NPOLY];
+    j.m = *m;
+    j.n = n > CTL ? CTL : n;
+    j.gate = (uint8_t)(v->gate != 0);
+    if (audio_batch_active) {
+        audio_batch_push(wheel_voice, &j, sizeof j, out, j.n, AP_WHEEL);
+        return;
+    }
+    wheel_voice(&j, out);
 }
 
 static const preset_t WHEEL_PRESETS[] = {

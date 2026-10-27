@@ -47,7 +47,11 @@
 #pragma once
 #include "fw_api_id.h"                                   /* generated: FW_API_ID (tools/gen_fw_api_id.py) */
 #define FW_API_MAGIC 0x50414657u                         /* "WFAP" little endian: FW API */
-#define FW_API_VERSION 5u                                /* (0.13.7) 4: hot, the hot sets' pointers; (0.14.0) 5: base_hot, the firmware's own */
+#define FW_API_VERSION 6u                                /* (0.13.7) 4: hot, the hot sets' pointers; (0.14.0) 5: base_hot, the firmware's own;
+                                                          * (0.14.3) 6: batch_push takes AP_SHAPES and AP_WHEEL (audio_profile.h): a module that
+                                                          * pushes them is refused by a firmware before 6 (its batch has no such id: CPU1 retired) */
+#define FW_API_VERSION_BASE 5u                           /* (0.14.3) what a module needs that uses nothing 6 added: its header's api_version, so
+                                                          * it still loads on a 0.14.2 firmware (SHAPES and WHEEL carry FW_API_VERSION) */
 /* the identifier a module is built with and the firmware compares: the hash of the text, and the sizes of what it hashes */
 #define FW_API_IFACE (FW_API_ID ^ ((uint32_t)sizeof(track_t) * 0x9E3779B1u) ^ ((uint32_t)sizeof(voice_t) * 0x85EBCA6Bu) ^ \
                       ((uint32_t)sizeof(engine_t) * 0xC2B2AE35u) ^ ((uint32_t)sizeof(vmod_t) * 0x27D4EB2Fu))

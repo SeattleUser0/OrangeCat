@@ -48,6 +48,13 @@ static inline const void *const *oc_base_hot(void) { return OC_FW()->base_hot; }
 void *memcpy(void *d, const void *s, __SIZE_TYPE__ n) { return OC_FW()->mem_copy(d, s, (uint32_t)n); }
 void *memset(void *d, int c, __SIZE_TYPE__ n) { return OC_FW()->mem_set(d, c, (uint32_t)n); }
 
+/* (0.14.3) the batch queue: the firmware's, by the table (prophet_mod.c's); its voice kernels run on CPU1 or CPU0 as the firmware's batch
+ * splits a block's voices. Its profile id from the firmware's header (FW_API_VERSION 6 knows it) */
+#include "audio_profile.h"
+typedef void (*audio_batch_fn)(const void *data, int32_t *pcm);
+#define AUDIO_BATCH_BYTES 168u
+#define audio_batch_active (*OC_FW()->batch_active)
+#define audio_batch_push(run, data, bytes, out, n, id) (OC_FW()->batch_push((run), (data), (bytes), (out), (n), (id)))
 #include "eng_shapes.c"
 static sh_part_t *sh_part(uint32_t part) { return resource_get(OC_FW()->res_engine0 + part % NPART, sizeof(sh_part_t)); }
 

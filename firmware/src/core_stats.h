@@ -16,9 +16,14 @@
  *   idle1      wall - cpu1: CPU1 not working during the render
  * Each: min, mean, max and a histogram of 32 us bins to 4,096 us (p99). Counters: halves, jobs by kind, submits refused while CPU1 was
  * busy, the worker retired (fault, stall or misread), single-core forced. A few TIMER4 reads a block and one histogram update a metric a
- * half; CPU1 stores one word a job. Read with AUDIO_STATS (command 72) [flags, 1]: schema 9 (web/EDITOR_PROTOCOL.md). */
+ * half; CPU1 stores one word a job. Read with AUDIO_STATS (command 72) [flags, 1]: schema 9 (web/EDITOR_PROTOCOL.md).
+ * (0.14.3) The batch's voice kernels (audio_batch.h), each timed by the core that ran it, by profile id and core: count, sum, max (the
+ * per-voice costs audio_batch_cost is set from); CPU1's stack high-water mark (its 8 KB, from the top, where its jobs run: painted when
+ * CPU1 starts and at each reset while it is idle, the top 512 B, the polling loop's, not painted; 0 until painted). AUDIO_STATS
+ * [flags, 3]: schema 10. */
 #pragma once
 #include <stdint.h>
+#include "audio_profile.h"
 #ifndef OC_CORE_STATS
 #define OC_CORE_STATS 0
 #endif
@@ -34,6 +39,15 @@ static uint32_t cs_half[CS_N];                         /* this half's sums, tick
 static uint32_t cs_t_blk, cs_t_trk, cs_w_blk, cs_in_tail;
 static uint32_t cs_halves, cs_jobs[3], cs_refused, cs_retired;
 static uint8_t cs_kind, cs_single;                     /* the kind of the job about to be submitted; 1: CPU1 never asked (single-core forced) */
+typedef struct { uint32_t n, max; uint64_t sum; } cs_kn_t;
+static cs_kn_t cs_k[AP_COUNT][2] __attribute__((section(".pool")));   /* (0.14.3) the batch's kernels: [profile id][CPU1] */
+static inline void cs_kernel(uint32_t id, uint32_t cpu1, uint32_t ticks)
+{
+    if (id >= AP_COUNT) return;
+    cs_k[id][cpu1 & 1u].n++; cs_k[id][cpu1 & 1u].sum += ticks;
+    if (ticks > cs_k[id][cpu1 & 1u].max) cs_k[id][cpu1 & 1u].max = ticks;
+}
+/* CPU1's stack high-water mark: cs_stack_paint, cs_stack_used (hal/fm1_multicore.h, after the mailbox) */
 #define CS_TICKS() fm1_ticks()
 static inline void cs_blk_begin(void) { cs_t_blk = CS_TICKS(); cs_w_blk = 0; cs_in_tail = 0; }
 static inline void cs_tracks_done(void)
@@ -73,10 +87,12 @@ static void cs_half_end(uint32_t wall)
 static void cs_reset(void)
 {
     for (uint32_t k = 0; k < CS_N; k++) { cs_m[k].min = cs_m[k].max = cs_m[k].n = 0; cs_m[k].sum = 0; for (uint32_t b = 0; b < CS_BINS; b++) cs_m[k].hist[b] = 0; }
+    for (uint32_t k = 0; k < AP_COUNT; k++) cs_k[k][0].n = cs_k[k][0].max = cs_k[k][1].n = cs_k[k][1].max = 0, cs_k[k][0].sum = cs_k[k][1].sum = 0;
     cs_halves = cs_refused = cs_retired = 0;
     cs_jobs[0] = cs_jobs[1] = cs_jobs[2] = 0;
 }
 #else
+static inline void cs_kernel(uint32_t id, uint32_t cpu1, uint32_t ticks) { (void)id; (void)cpu1; (void)ticks; }
 static inline void cs_blk_begin(void) {}
 static inline void cs_tracks_done(void) {}
 static inline void cs_blk_end(void) {}

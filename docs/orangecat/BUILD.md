@@ -3135,7 +3135,14 @@ engine (rev_cloud, jfx.c): up to 12 grains every other sample, each with two rea
 integer divide for its triangle window (`w = ... * 512 / L`, a divide a grain a sample pair). By reading the code the divide and the segmented reads
 are the likely largest parts; they were not timed separately. The window from a precomputed step (an add instead of the divide) is the obvious cut.
 
-## The scheduler, stage 1: whole tracks on CPU1 (design, October 27, 2026; before any code)
+## The scheduler, stage 1: whole tracks on CPU1 (design, October 27, 2026; before any code) — DROPPED
+
+**Dropped the same day (the user's decision).** The firmware already has a voice-level two-core scheduler, the voice batch (audio_batch.h),
+which FM6, the Prophet, CZ-1, SID and the 808/909 use; the ports were simply not on it. This design also disabled its split in any block
+with one of those engines, which the batch does not. Stage 1 is "the ports on the batch", below. The track-level code is parked on branch
+sched/track-split (never merged). The independent review's findings on it (the prepare order, the misread and fallback cases) are kept
+in mind for the batch where they apply (below). The section stays as written, for the record.
+
 
 Part 4's finding: CPU1 renders no voice of MACRO, DRUM-X, SHAPES or WHEEL. Stage 1 gives it whole tracks. Each block, CPU0 and CPU1 each take
 whole tracks, balanced by every track's measured cost in the last block. The bus job stays where it is: one CPU1 job after the last track,
@@ -3356,6 +3363,65 @@ does.
   track work. The corrected gains are 1,700 to 2,000 for MALLET x4 (mean) and 300 to 450 for VA BASS x4.
 - **One risk is unmeasured:** dual-core was 7 to 8 % slower on CPU0 with CPU1 only polling. With both cores in flash it may be more. M1
   and M2 measure it.
+
+## The scheduler, stage 1: the ports on the batch (October 27, 2026)
+
+**What is there (read from the source).** audio_batch.h is a per-voice scheduler over the one CPU1 worker:
+- **The queue:** twelve descriptor slots a group, each a voice's 32-sample block with its own PCM.
+- **The split:** CPU1 or CPU0 by a per-engine cost table (`audio_batch_cost`), with a service allowance kept for CPU0.
+- **The run:** CPU1 renders its share as one job, `audio_batch_parallel`, starting at the group's first push while CPU0 prepares the rest
+  and renders its own.
+- **The join:** joined and merged in voice order at the flush, after the last track's control.
+
+**Who pushes.**
+- FM6 and the Prophet push from their own render (eng_fm6.c, eng_prophet_test.c; the Prophet module through FW_API `batch_push`).
+- CZ-1, SID and the 808/909 are routed in by voice.c's engine_render.
+- **MACRO, DRUM-X, SHAPES and WHEEL were in neither and had no kernel:** they always rendered on CPU0.
+
+On the unit's image (tools/orangecat_engines.sh) FM6, the built-in Prophet, CZ-1, SID and DRUM are compiled out. So the batch carried
+nothing but the Prophet module's voices: Part 3's "voice jobs 0".
+
+**What was done (linux-hw, 0.14.3).** Each port's render is split in two:
+- **Control prep,** on CPU0 at the voice's turn: everything that reads `t->p`, which `mod_end` restores before the flush, or the track's
+  other voices; and any restart of state.
+- **A voice kernel** from a descriptor, the sample loop, pushed while `audio_batch_active`. With no batch the render calls the kernel
+  itself, so it is one code path.
+
+| port | kernel | descriptor | shared state found and fixed | stays at once on CPU0 |
+|---|---|---|---|---|
+| MACRO | `mc_voice`: the model's 16-frame renders, limiters, LPG, output | `mc_job_t` (the computed knobs, `*m`, the gate) | the track's `out[16]` / `aux[16]` (one buffer for its voices): now the kernel's, on its stack; `mc_start` (a model switch, every voice's state) in the prep, before any push | the models that draw plaits' `pl_rng_state`: SWARM, NOISE, PARTCL, STRING, KICK, SNARE, HI-HAT, HARP. MODAL (MALLET; its trigger is never unpatched), VA, WAVSHP, FM, GRAIN, ADDTV and CHORD never draw it, and are batched |
+| DRUM-X | `dxe_voice`: `dx_run`, PUNCH's boost, the amplitude | `dxe_job_t` (the lane's args, gains, `*m`) | a panned lane's share of the kit's side buffer: a merge hook (`dxe_side`, CPU0, at the join, in voice order); the lane's BEND, LAYER, age in the prep | none (a lane's generator is its own) |
+| SHAPES | `sh_voice`: the oscillator at 88.2 kHz, the half-band, the tone section | `sh_job_t` | the track's 88.2 kHz block buffer: now the kernel's, on its stack; start, shape, parameters, pitch and strike in the prep | Braids' digital shapes (from TRIPLE RING MOD on), which draw `pb_rng_state` |
+| WHEEL | `wheel_voice`: the partials, the click, the drive | `wheel_job_t` | none: the bars, percussion and rotors are the track's, `wheel_block`, before the voices | none (the click's noise is the voice's) |
+
+**The batch's changes:**
+- **Profile ids:** `AP_MACRO`, `AP_DRUMX`, `AP_SHAPES`, `AP_WHEEL`, appended.
+- **Costs** in `audio_batch_cost`. MACRO's is per voice unit; its push gives the model's units times it (`audio_batch_push_cost`). The
+  entries are placeholders until the unit measures them (below).
+- **An optional merge hook,** read by CPU0 only.
+- **The stats** (OC_CORE_STATS): every kernel timed by the core that ran it, by profile id and core (AUDIO_STATS `[flags, 3]`, schema 10),
+  and CPU1's stack high-water mark.
+
+**The module path** (SD-card and installed engines) gets the same treatment:
+- The SHAPES and WHEEL modules push through FW_API `batch_push`, as the Prophet module does.
+- `FW_API_VERSION` is 6, so a module pushing the new ids is refused by an older firmware, whose batch would reject the id and retire CPU1.
+- Older modules keep loading and render at once, as before.
+
+**Tests:**
+- tests/port_batch_test.c: seven four-track cases of the four ports (DRUM-X with panned lanes, PUNCH and ATK+; SHAPES analog and digital;
+  WHEEL in slot 7 as its module registers; the LFO's S&H, SPREAD, chords that come and go). The complete mixer's output is compared
+  between a build without the batch (the path before), the batch with CPU1 refused, and the batch on a concurrent host CPU1: sample for
+  sample equal. Every port's kernels ran on CPU1 (MACRO 424, DRUM-X 528, SHAPES 120, WHEEL 244). After MODAL and VA, plaits' generator
+  is untouched.
+- tests/audio_batch_profile_test.c (the batch's accounting) has a MACRO case: eight MODAL or VA voices by their units split five to CPU1
+  and three to CPU0, as the native engines do; the merge hook runs in voice order, and not for a failed CPU1's dropped voices.
+
+**To come in this stage:**
+- **A generator per voice for MACRO's drawing models,** so they batch too. It changes the renders where more than one voice or track
+  draws, so the golden hashes move. That is the user's call before it lands.
+- **The unit:** per-voice costs measured and the cost table set from them; the placement A/B (MACRO's kernel in the native kernels'
+  section, and the DUB kernel, in one pass); an independent review of the diff; the full Part 3 set, plus FM6 x4 and the Prophet x4; then
+  the voice stealing proposal.
 
 ## The scheduler, stage 2: the buses beside the next block (design, shorter)
 

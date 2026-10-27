@@ -112,7 +112,7 @@ typedef struct {                                          /* (0.5.2) a voice's *
 } sh_voice_t;
 typedef struct {
     sh_voice_t v[SH_POLY];
-    int16_t buf[2 * CTL];                             /* one block at 88.2 kHz (the voices one after another) */
+                                                      /* ((0.14.3) its 88.2 kHz block buffer is the voice kernel's own: sh_voice) */
     uint8_t sync[SH_CHUNK];                           /* (no sync input: zeros) */
     pb_delay_lines_t lines;                           /* (0.5.2) voice 0's delay lines (braids/pb_digital.h) */
 } sh_part_t;
@@ -133,12 +133,74 @@ static SH_XIP void sh_note_on(track_t *t, voice_t *v)
     if (s) s->v[(uint32_t)(v - t->v) % SH_POLY].strike = 1;
 }
 
+/* (Orange Cat 0.14.3) a voice's block in two parts (audio_batch.h; in the module through FW_API's batch_push): sh_render, on CPU0 at the
+ * voice's turn, the control (the oscillator's start, shape, parameters, pitch and strike, the tone section's settings) into a descriptor;
+ * sh_voice, the oscillator at 88.2 kHz into its own buffer (on its stack: the track's one, shared by its voices, would be written by both
+ * cores) and the tone section, from the descriptor alone: on CPU1 or CPU0 as the batch splits the block's voices, or at once (no batch;
+ * Braids' digital shapes, which draw its shared generator pb_rng_state: their draws stay in voice order on CPU0, bit for bit). It
+ * touches its voice's state (P->v[vi], voice 0's delay lines) and read-only tables only (P->sync: zeros) */
+typedef struct {
+    sh_voice_t *s;
+    const uint8_t *sync;
+    vmod_t m;
+    uint32_t n, dec;
+    uint16_t mask;
+    uint8_t filtering;
+    float drive, pre, post;
+} sh_job_t;
+_Static_assert(sizeof(sh_job_t) <= AUDIO_BATCH_BYTES, "SHAPES' batch descriptor");
+static SH_XIP void sh_voice(const void *data, int32_t *out)
+{
+    const sh_job_t *j = data;
+    sh_voice_t *s = j->s;
+    const vmod_t *m = &j->m;
+    int16_t buf[2 * CTL];
+    uint32_t i, done, n = j->n, dec = j->dec;
+    uint16_t mask = j->mask;
+    float drive = j->drive, pre = j->pre, post = j->post;
+    for (done = 0; done < 2u * n;) {                  /* 2 n samples at 88.2 kHz, in Braids' blocks of 24 */
+        uint32_t k = 2u * n - done < SH_CHUNK ? 2u * n - done : SH_CHUNK;
+        pb_macro_render(&s->osc, j->sync, buf + done, k);
+        done += k;
+    }
+    for (i = 0; i < n; i++) {
+        float *h = s->hb, y;
+        h[0] = h[2]; h[1] = h[3]; h[2] = h[4]; h[3] = h[5]; h[4] = h[6];
+        h[5] = (float)buf[2 * i];
+        h[6] = (float)buf[2 * i + 1];
+        /* the 7-tap half-band (-1 0 9 16 9 0 -1) / 32: flat to 10 kHz, -40 dB past 30 kHz; a new output every two
+         * inputs */
+        y = 0.5f * h[3] + 0.28125f * (h[2] + h[4]) - 0.03125f * (h[0] + h[6]);
+        y = y > 32767.0f ? 32767.0f : y < -32768.0f ? -32768.0f : y;
+        if (dec > 1u) {                               /* hold every dec-th sample */
+            if (s->rate_count == 0) s->held = (int16_t)y;
+            s->rate_count = (uint8_t)((s->rate_count + 1u) % dec);
+            y = s->held;
+        }
+        y = (float)(int16_t)((int32_t)y & (int16_t)mask);
+        y *= 0.7f / 32768.0f;                         /* (-3 dB: Braids plays near full scale; MACRO's level) */
+        {                                             /* DC blocker, about 7 Hz */
+            float x = y;
+            y = x - s->dc_x + 0.999f * s->dc_y;
+            s->dc_x = x;
+            s->dc_y = y;
+        }
+        if (j->filtering) y = pl_svf_process(&s->filter, PL_LP, y);
+        if (drive > 0.0f) y = pl_soft_clip(y * pre) * post * (1.0f + drive);
+        y = y > 1.0f ? 1.0f : y < -1.0f ? -1.0f : y;
+        out[i] += voice_amp((int32_t)(y * 32767.0f) * 2, m, i) * 2;
+    }
+    pl_flush_svf(&s->filter);
+    pl_flush(&s->dc_y);
+}
+
 static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     sh_part_t *P = sh_part((uint32_t)(t - trk));
     const int16_t *p = t->p;
-    uint32_t i, done, vi = (uint32_t)(v - t->v) % SH_POLY;
+    uint32_t vi = (uint32_t)(v - t->v) % SH_POLY;
     sh_voice_t *s;
+    sh_job_t j;
     if (!P || !OC_PACK_READY()) return;               /* (Orange Cat 0.8.0: the asset pack, with Braids' tables, is not there: silent) */
     s = &P->v[vi];
     int32_t shape_ix = clamp(p[P_E0], 0, SH_N - 1);
@@ -164,52 +226,25 @@ static SH_XIP void sh_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
         pb_macro_strike(&s->osc);
         s->strike = 0;
     }
-    for (done = 0; done < 2u * n;) {                  /* 2 n samples at 88.2 kHz, in Braids' blocks of 24 */
-        uint32_t k = 2u * n - done < SH_CHUNK ? 2u * n - done : SH_CHUNK;
-        pb_macro_render(&s->osc, P->sync, P->buf + done, k);
-        done += k;
-    }
     /* the tone section, at 44.1 kHz: half-band down (coefficients for a 7-tap half-band, 0.5 at the centre),
      * sample-rate and bit reduction, the filter, drive */
-    uint32_t dec = SH_DECIMATE[clamp(p[P_E7], 0, 6)];
-    uint16_t mask = SH_BITS_MASK[clamp(p[P_E6], 0, 6)];
+    j.dec = SH_DECIMATE[clamp(p[P_E7], 0, 6)];
+    j.mask = SH_BITS_MASK[clamp(p[P_E6], 0, 6)];
     float cut = (float)clamp(p[P_E3] * 256 + m->cutoff, 0, 127 * 256) * (1.0f / 256.0f);
     float f = 20.0f * pl_semitones_to_ratio(cut * (120.0f / 127.0f)) / 44100.0f;   /* 20 Hz .. 20 kHz */
     float res = 0.5f + (float)clamp(p[P_E4], 0, 127) * (20.0f / 127.0f);
-    float drive = (float)clamp(p[P_E5], 0, 127) * (1.0f / 127.0f);
-    float pre = 1.0f + drive * drive * 15.0f, post = 1.0f / (1.0f + drive * 2.0f);
-    int filtering = p[P_E3] < 127 || m->cutoff < 0;
+    j.drive = (float)clamp(p[P_E5], 0, 127) * (1.0f / 127.0f);
+    j.pre = 1.0f + j.drive * j.drive * 15.0f;
+    j.post = 1.0f / (1.0f + j.drive * 2.0f);
+    j.filtering = (uint8_t)(p[P_E3] < 127 || m->cutoff < 0);
     if (f > 0.45f) f = 0.45f;
-    pl_svf_set_f_q(&s->filter, PL_FREQ_ACCURATE, f, res);
-    for (i = 0; i < n; i++) {
-        float *h = s->hb, y;
-        h[0] = h[2]; h[1] = h[3]; h[2] = h[4]; h[3] = h[5]; h[4] = h[6];
-        h[5] = (float)P->buf[2 * i];
-        h[6] = (float)P->buf[2 * i + 1];
-        /* the 7-tap half-band (-1 0 9 16 9 0 -1) / 32: flat to 10 kHz, -40 dB past 30 kHz; a new output every two
-         * inputs */
-        y = 0.5f * h[3] + 0.28125f * (h[2] + h[4]) - 0.03125f * (h[0] + h[6]);
-        y = y > 32767.0f ? 32767.0f : y < -32768.0f ? -32768.0f : y;
-        if (dec > 1u) {                               /* hold every dec-th sample */
-            if (s->rate_count == 0) s->held = (int16_t)y;
-            s->rate_count = (uint8_t)((s->rate_count + 1u) % dec);
-            y = s->held;
-        }
-        y = (float)(int16_t)((int32_t)y & (int16_t)mask);
-        y *= 0.7f / 32768.0f;                         /* (-3 dB: Braids plays near full scale; MACRO's level) */
-        {                                             /* DC blocker, about 7 Hz */
-            float x = y;
-            y = x - s->dc_x + 0.999f * s->dc_y;
-            s->dc_x = x;
-            s->dc_y = y;
-        }
-        if (filtering) y = pl_svf_process(&s->filter, PL_LP, y);
-        if (drive > 0.0f) y = pl_soft_clip(y * pre) * post * (1.0f + drive);
-        y = y > 1.0f ? 1.0f : y < -1.0f ? -1.0f : y;
-        out[i] += voice_amp((int32_t)(y * 32767.0f) * 2, m, i) * 2;
+    pl_svf_set_f_q(&s->filter, PL_FREQ_ACCURATE, f, res);   /* ((0.14.3) before the oscillator's block: neither reads the other) */
+    j.s = s; j.sync = P->sync; j.m = *m; j.n = n;
+    if (audio_batch_active && SH_SHAPES[shape_ix] < PB_SHAPE_TRIPLE_RING_MOD) {
+        audio_batch_push(sh_voice, &j, sizeof j, out, n, AP_SHAPES);
+        return;
     }
-    pl_flush_svf(&s->filter);
-    pl_flush(&s->dc_y);
+    sh_voice(&j, out);
 }
 
 /* the voice budget's units a voice takes (voice.c; a CZ-1 voice 2, 16 in all). (0.5.3) Measured on the host against

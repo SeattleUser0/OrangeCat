@@ -119,8 +119,8 @@ typedef union {                                       /* a voice's model (all bu
 } mc_small_t;
 typedef struct {
     uint8_t model;                                    /* the model whose states are in m (MC_N: none yet) */
-    float out[MC_SUB], aux[MC_SUB];                   /* (the voices render one after another: one buffer) */
-    mc_vhead_t h[MC_POLY];
+    mc_vhead_t h[MC_POLY];                            /* ((0.14.3) the 16-frame out and aux buffers are the voice kernel's own, on its stack:
+                                                       * one shared by the track's voices would be written by both cores) */
     union {
         mc_small_t small[MC_POLY];
         pl_harp_t harp[MC_POLY];                      /* (0.5.2) HARP: a string a voice */
@@ -175,10 +175,9 @@ static MC_XIP void mc_start(mc_part_t *s, uint32_t model)
     }
 }
 
-static MC_XIP void mc_model_render(mc_part_t *s, uint32_t vi, const pl_params_t *q, uint32_t n)
+static MC_XIP void mc_model_render(mc_part_t *s, uint32_t vi, const pl_params_t *q, uint32_t n, float *o, float *a)
 {
     int env = 0;
-    float *o = s->out, *a = s->aux;
     void *m = mc_state(s, vi);
     switch (s->model) {
     case MC_VA: pl_va_render(m, q, o, a, n, &env); pl_va_flush(m); break;
@@ -218,54 +217,56 @@ static inline float mc_amount(int32_t v)
     return a * pl_maxf(pl_fabsf(a) - 0.05f, 0.05f) * 1.05f;
 }
 
-static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+/* (Orange Cat 0.14.3) a voice's block in two parts (audio_batch.h): mc_render, on CPU0 at the voice's turn, the control (the model's
+ * switch, which starts every voice's state; the knobs and the modulation read from t->p, which is only modulated until the track's mod_end)
+ * into a descriptor; mc_voice, the sample loop, from the descriptor alone: on CPU1 or CPU0 as the batch splits the block's voices, or at
+ * once (no batch; the models that draw plaits' shared generator, pl_rng_state: their draws stay in voice order on CPU0, bit for bit). It
+ * touches its voice's state (h[vi], the model's) and read-only tables only */
+typedef struct {
+    mc_part_t *s;
+    vmod_t m;
+    uint32_t vi, n;
+    uint8_t gate, lpg;
+    float note, timbre, morph, harm, mixf, colour, tmod, decay, g_out, g_aux;
+} mc_job_t;
+_Static_assert(sizeof(mc_job_t) <= AUDIO_BATCH_BYTES, "MACRO's batch descriptor");
+static const uint8_t MC_UNITS[MC_N];
+static inline int mc_draws(uint32_t model)            /* plaits' shared generator, drawn in the render (pl_dsp.h pl_rng_word) */
 {
-    mc_part_t *s = mc_part((uint32_t)(t - trk));
-    const int16_t *p = t->p;
-    uint32_t model = (uint32_t)clamp(p[P_E0], 0, MC_N - 1), done = 0, i, vi = (uint32_t)(v - t->v) % MC_POLY;
-    mc_vhead_t *h;
-    if (!s || !OC_PACK_READY()) return;               /* (Orange Cat 0.8.0: the asset pack, with Plaits' tables, is not there: silent) */
-    if (s->model != model)
-        mc_start(s, model);
-    if (mc_big(model) && vi)                          /* (voices left from a model of four: silent to their end) */
-        return;
-    h = &s->h[vi];
-    /* the voice's pitch as a MIDI note: 1/16 semitones, the residual (1/4096 of the frequency: 12 / (4096 ln 2)
-     * semitones each), the A4 tuning (Q24 octaves) */
-    float note = (float)m->pitch16 * (1.0f / 16.0f) + (float)m->fine * 0.00422689f
-                 + (float)tuning_log() * (12.0f / 16777216.0f);
-    float timbre = (float)p[P_E2] * (1.0f / 127.0f) + (float)(m->shape - (64 << 8)) * (1.0f / 32768.0f);
-    float morph = (float)p[P_E3] * (1.0f / 127.0f) + (float)m->cutoff * (1.0f / 32512.0f);
-    float harm = (float)p[P_E1] * (1.0f / 127.0f), mixf = (float)p[P_E4] * (1.0f / 127.0f);
-    float colour = (float)p[P_E5] * (1.0f / 127.0f), tmod = mc_amount(p[P_E7]);
-    /* DECAY: 0 about 10 ms .. 127 about 6 s, as the module's (voice.cc short_decay, per 16 frames) */
-    float decay = (200.0f * (float)MC_SUB) / PL_SAMPLE_RATE * pl_semitones_to_ratio(-96.0f * (float)p[P_E6] * (1.0f / 127.0f));
-    float g_out = MC_POST[model].out, g_aux = MC_POST[model].aux;
-    int lpg = p[P_E5] > 0 && !MC_POST[model].enveloped;
+    return model == MC_SWARM || model == MC_NOISE || model == MC_PARTCL || model == MC_STRING || model == MC_KICK ||
+           model == MC_SNARE || model == MC_HIHAT || model == MC_HARP;
+}
+static MC_XIP void mc_voice(const void *data, int32_t *out)
+{
+    const mc_job_t *j = data;
+    mc_part_t *s = j->s;
+    mc_vhead_t *h = &s->h[j->vi % MC_POLY];
+    const vmod_t *m = &j->m;
+    float o[MC_SUB], a[MC_SUB], note = j->note, decay = j->decay, mixf = j->mixf, colour = j->colour;
+    float g_out = j->g_out, g_aux = j->g_aux;
+    uint32_t done = 0, i, n = j->n;
     pl_params_t q;
-    PL_CONSTRAIN(harm, 0.0f, 1.0f);
-    q.harmonics = harm;
+    q.harmonics = j->harm;
     q.accent = h->accent;
-    if (h->note == 0.0f) h->note = note;
     while (done < n) {
         uint32_t k = n - done < MC_SUB ? n - done : MC_SUB;
-        q.trigger = (h->rise ? PL_TRIGGER_RISING_EDGE : 0) | (v->gate ? PL_TRIGGER_HIGH : 0);
+        q.trigger = (h->rise ? PL_TRIGGER_RISING_EDGE : 0) | (j->gate ? PL_TRIGGER_HIGH : 0);
         h->rise = 0;
         q.note = (note + h->note) * 0.5f;             /* (voice.cc: the module averages the last two) */
         h->note = note;
         h->decay_env *= 1.0f - decay * 2.0f;
-        q.timbre = timbre + tmod * h->decay_env;
+        q.timbre = j->timbre + j->tmod * h->decay_env;
         PL_CONSTRAIN(q.timbre, 0.0f, 1.0f);
-        q.morph = morph;
+        q.morph = j->morph;
         PL_CONSTRAIN(q.morph, 0.0f, 1.0f);
-        mc_model_render(s, vi, &q, k);
-        if (g_out < 0.0f) pl_limiter_process(&h->limit_out, -g_out, s->out, k);
-        if (g_aux < 0.0f) pl_limiter_process(&h->limit_aux, -g_aux, s->aux, k);
+        mc_model_render(s, j->vi, &q, k, o, a);
+        if (g_out < 0.0f) pl_limiter_process(&h->limit_out, -g_out, o, k);
+        if (g_aux < 0.0f) pl_limiter_process(&h->limit_aux, -g_aux, a, k);
         {
             float go = g_out < 0.0f ? 1.0f : g_out, ga = g_aux < 0.0f ? 1.0f : g_aux;
-            for (i = 0; i < k; i++) s->out[i] = s->out[i] * go + (s->aux[i] * ga - s->out[i] * go) * mixf;
+            for (i = 0; i < k; i++) o[i] = o[i] * go + (a[i] * ga - o[i] * go) * mixf;
         }
-        if (lpg) {                                    /* (envelope.h LPGEnvelope: the ADSR as the vactrol's level) */
+        if (j->lpg) {                                 /* (envelope.h LPGEnvelope: the ADSR as the vactrol's level) */
             float e = (float)m->envq15 * (1.0f / 32767.0f), e2, e4, tail, tail2, f, bleed;
             PL_CONSTRAIN(e, 0.0f, 1.0f);
             e2 = e * e;
@@ -276,12 +277,12 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
             bleed = (tail2 + (1.0f - tail2) * (1.0f - colour)) * (1.0f - colour) * (1.0f - colour);
             pl_svf_set_f_q(&h->lpg, PL_FREQ_DIRTY, f, 0.4f);
             for (i = 0; i < k; i++) {
-                float lp = pl_svf_process(&h->lpg, PL_LP, s->out[i]);
-                s->out[i] = lp + (s->out[i] - lp) * bleed;
+                float lp = pl_svf_process(&h->lpg, PL_LP, o[i]);
+                o[i] = lp + (o[i] - lp) * bleed;
             }
         }
         for (i = 0; i < k; i++) {
-            float x = s->out[i];
+            float x = o[i];
             int32_t y;
             x = x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x;
             y = (int32_t)(x * 32767.0f);
@@ -289,6 +290,42 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
         }
         done += k;
     }
+}
+
+static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+{
+    mc_part_t *s = mc_part((uint32_t)(t - trk));
+    const int16_t *p = t->p;
+    uint32_t model = (uint32_t)clamp(p[P_E0], 0, MC_N - 1), vi = (uint32_t)(v - t->v) % MC_POLY;
+    mc_job_t j;
+    if (!s || !OC_PACK_READY()) return;               /* (Orange Cat 0.8.0: the asset pack, with Plaits' tables, is not there: silent) */
+    if (s->model != model)
+        mc_start(s, model);
+    if (mc_big(model) && vi)                          /* (voices left from a model of four: silent to their end) */
+        return;
+    /* the voice's pitch as a MIDI note: 1/16 semitones, the residual (1/4096 of the frequency: 12 / (4096 ln 2)
+     * semitones each), the A4 tuning (Q24 octaves) */
+    j.note = (float)m->pitch16 * (1.0f / 16.0f) + (float)m->fine * 0.00422689f
+             + (float)tuning_log() * (12.0f / 16777216.0f);
+    j.timbre = (float)p[P_E2] * (1.0f / 127.0f) + (float)(m->shape - (64 << 8)) * (1.0f / 32768.0f);
+    j.morph = (float)p[P_E3] * (1.0f / 127.0f) + (float)m->cutoff * (1.0f / 32512.0f);
+    j.harm = (float)p[P_E1] * (1.0f / 127.0f);
+    j.mixf = (float)p[P_E4] * (1.0f / 127.0f);
+    j.colour = (float)p[P_E5] * (1.0f / 127.0f);
+    j.tmod = mc_amount(p[P_E7]);
+    /* DECAY: 0 about 10 ms .. 127 about 6 s, as the module's (voice.cc short_decay, per 16 frames) */
+    j.decay = (200.0f * (float)MC_SUB) / PL_SAMPLE_RATE * pl_semitones_to_ratio(-96.0f * (float)p[P_E6] * (1.0f / 127.0f));
+    j.g_out = MC_POST[model].out;
+    j.g_aux = MC_POST[model].aux;
+    j.lpg = (uint8_t)(p[P_E5] > 0 && !MC_POST[model].enveloped);
+    PL_CONSTRAIN(j.harm, 0.0f, 1.0f);
+    if (s->h[vi].note == 0.0f) s->h[vi].note = j.note;
+    j.s = s; j.m = *m; j.vi = vi; j.n = n; j.gate = (uint8_t)(v->gate != 0);
+    if (audio_batch_active && !mc_draws(model)) {
+        audio_batch_push_cost(mc_voice, &j, sizeof j, out, n, AP_MACRO, MC_UNITS[model] * audio_batch_cost[AP_MACRO], 0);
+        return;
+    }
+    mc_voice(&j, out);
 }
 
 /* the voice budget's units a voice takes (voice.c): by its model's cost, now that a track may sound four. The budget is
