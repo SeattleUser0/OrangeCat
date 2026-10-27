@@ -3134,3 +3134,256 @@ the build check); CLOUD (JFX_XIP) and MACRO were not A/B'd either.
 engine (rev_cloud, jfx.c): up to 12 grains every other sample, each with two reads of the 0.74 s line (segmented: cl_get), an interpolation and an
 integer divide for its triangle window (`w = ... * 512 / L`, a divide a grain a sample pair). By reading the code the divide and the segmented reads
 are the likely largest parts; they were not timed separately. The window from a precomputed step (an add instead of the divide) is the obvious cut.
+
+## The scheduler, stage 1: whole tracks on CPU1 (design, October 27, 2026; before any code)
+
+Part 4's finding: CPU1 renders no voice of MACRO, DRUM-X, SHAPES or WHEEL. Stage 1 gives it whole tracks. Each block, CPU0 and CPU1 each take
+whole tracks, balanced by every track's measured cost in the last block. The bus job stays where it is: one CPU1 job after the last track,
+CPU0 waiting at its join. Voice stealing waits until the ladder is measured again on this. Read from linux-hw 8b3c532 (mix.c, voice.c, mod.c,
+audio_worker.h, audio_batch.h, engines.c, resources.c, eng_macro.c, plaits/, braids/, eng_drumx.c, drumx_voice.c, tools/module/wheel_mod.c and
+shapes_mod.c).
+
+### 1. The block, before and after
+
+Today (MELODEE_BATCH_AUDIO, the unit's build), mix_block does the following on CPU0:
+1. The events.
+2. mix_prepare_batch: for each track in order, mod_begin, track_render_audio into batch_pcm[p], then mod_end.
+3. mix_part for each track in order: DIST, mute, SOLO, DUCK, level, pan and sends from batch_pcm.
+4. The bus job.
+5. The master.
+
+Stage 1 splits step 2 into three:
+- **2a, prepare (CPU0, track order, every track in use).** This is the per-track control work that the render does today before the first voice:
+  - mod_begin, its result copied to batch_mod[p] and the modulated t->p left in place;
+  - the LFO value the render will use, taken before the tick;
+  - track_lfo_tick;
+  - eng_state_prepare;
+  - the tune cache refreshed.
+  Each track's results go into a small render context rc[p]. Doing all of this in track order keeps every shared draw in today's order (section 3).
+- **2b, the plan, then the job.** The plan (section 4) picks CPU1's set from the eligible tracks. CPU0 submits one job, track_job(&plan), and CPU1
+  renders that set in track order: track_render_audio(t, &rc[p], batch_pcm[p], n). CPU0 then renders its own set in track order, the same way.
+- **2c, join.** CPU0 joins the job, then runs mod_end for every track in order (mod from batch_mod[p], as mix_part_engine does today).
+
+Steps 3 to 5 are unchanged. The mix runs on CPU0 in track order from batch_pcm, so every sum into the dry mix and the sends happens in today's
+order. With the plan forced empty, the output is today's, sample for sample. The host test asserts that, and that a concurrent CPU1 render
+gives the same samples.
+
+### 2. A track's state: shared, handed off, never copied
+
+A track's state stays where it is: track_t (its voices included), its engine block resource[RES_ENGINE0 + p], batch_pcm[p], batch_spread[p],
+batch_mod[p], rc[p] and cost[p]. All of it is in internal SRAM, which the cores already share for the voice batch.
+- **Ownership** is CPU0's, except between a block's submit and its join, when the plan gives CPU1 its set. The handoff is the mailbox's
+  release store at submit and the acquire at join (`csync` on the unit). There are no copies and no locks: the same protocol the batch's
+  descriptors use today.
+- **During the job CPU0 touches none of CPU1's tracks.**
+  - The events ran before the job, and the mix runs after the join.
+  - TIMER5, nested in the render, only fills the MIDI rings.
+  - The main loop (UI, editor, projects, the hot-set copies, dxk_put) is CPU0 code below the audio interrupt, so it cannot run while the
+    job is out.
+  - CPU1 runs only inside that window. Everything the main loop wrote before the interrupt is published by the submit's barrier.
+- **The render reads three kinds of shared state only, and only reads them:**
+  - the tables (flash, the hot sets in the arena);
+  - ENGINES[];
+  - song.g, the tuning and oc_pack_good.
+
+### 3. What the four engines need to run on CPU1
+
+The audit found per-track state everywhere except in five shared things, plus one profile-build counter.
+
+| shared, written during the render | today | stage 1 |
+|---|---|---|
+| `mod` (mod.c), read by track_render_audio and mod_voice | one global, set per track by mod_begin | track_render_audio and mod_voice take the track's `const` copy (rc[p].mod -> batch_mod[p]); CPU0's path passes it too |
+| `spread_on`, `spread_buf` (voice.c) | globals, set per track by the mixer | in rc[p] (the buffer is batch_spread[p]) |
+| `tune_cache` (voice.c) | written lazily in the render | refreshed in 2a; the render only reads it |
+| `rng()` (libc.c): the LFO S&H of tracks 1 to 3, also the sequencer's | drawn in track_lfo_tick, inside the render | the tick moves to 2a, still in track order: the same draws in the same order |
+| `pl_rng_state` (plaits, every MACRO track) and SHAPES' `pb_rng_state` / `fw_rng_cell` | one generator per engine, drawn per sample by MACRO's NOISE, PARTCL, KICK, SNARE, STRING, HARP, HIHAT and SWARM models, and by SHAPES' digital models | **the generator rule** below |
+| the arena (resource_get's allocation path) | the render can allocate when the block is missing or resized | eng_state_prepare runs in 2a on CPU0. A track whose prepare failed, or whose engine is switching (fade, or eng_req differs), stays on CPU0 that block. On CPU1 resource_get only reads. |
+| `audio_profile[]` (MELODEE_AUDIO_PROFILE builds) | AP_START/AP_END in the render | the split is off in profile builds (they measure today's path) |
+
+**The generator rule (bit-exact, no golden change).**
+- A generator drawn by **one** track in a block may be drawn on either core. Its sequence does not depend on where.
+- A generator drawn by **two or more** tracks in a block keeps all of them on CPU0, where they render in track order as today.
+- Who draws what:
+  - MACRO by its model, read in 2a from the same modulated t->p the render uses. MALLET (MODAL, its trigger always patched) and VA BASS
+    never draw.
+  - SHAPES: every track counts as drawing, because the firmware cannot see the module's model.
+  - DRUM-X and WHEEL: never. They use per-voice generators: dx_voice_t.rng and WHEEL's V->nz.
+- The full fix is a generator per track in mc_part_t and SHAPES' state. That changes the multi-track noise renders, so it is the user's call
+  (golden). It is not stage 1.
+
+**Eligibility.** A track goes to CPU1 only if all of these hold:
+- Its engine is MACRO (8), DRUM-X (9), SHAPES (14) or WHEEL (7). The last two are the modules the loader checked, which call neither
+  fw_batch_push nor fw_worker_submit (by reading tools/module/shapes_mod.c and wheel_mod.c).
+- No engine switch or fade is pending, and 2a's eng_state_prepare succeeded.
+- It is not held on CPU0 by the generator rule.
+
+Two block-level conditions:
+- **A block with any track in use on another engine renders entirely as today.** That covers FM6, the Prophet, CZ, SID, 808/909 and the
+  op1r candidates. Those engines use the batch or direct jobs, and the mailbox holds one job. Mixed projects are stage 1's known gap; the
+  batch and the track job sharing one CPU1 job is a later stage.
+- **The DUB TAPE insert (after its merge) rides in the same job:** CPU1's list is DUB first, then its tracks, and the plan counts DUB's cost on
+  CPU1. It is not a second submit, so its job stays on CPU1 as benched.
+
+**Placement.** All four engines' render code is in flash. MACRO's .text.xip_macro and the pl_* renders are in .text; DRUM-X is DX_XIP;
+SHAPES is SH_XIP and its module; WHEEL is in the module area. The only RAM pieces are MACRO's hot tables and the shared pieces: the arena SINE,
+TANH_Q15 and dxk[] in .pool. CPU1 already executes from flash: the bus job (.text.xip_jfx) and the DUB bench both run there. Two things follow:
+- CPU0 must not write the flash while the job is out. The rule exists already (audio_worker.h), and the job is always joined inside the
+  block.
+- Both cores fetching XIP code at once is new: CPU0 has always rendered the tracks alone. Whether the XIP cache is shared and how much
+  it costs is one of the measurements (section 7, M1 and M3).
+
+Floats on CPU1: its FPU already runs jfx and the DUB kernel. MACRO keeps no FPU mode state; its denormal flushing is in software
+(pl_flush).
+
+**The stack.** CPU1 has 8 KB (4 KB user + 4 KB supervisor, hardware-checked limits: an overflow traps and retires the worker). Its jobs
+today are small. The render of one MACRO voice under track_render_audio has not been measured. The stats build fills CPU1's stack with a
+pattern at start and reports the high-water mark (section 6). If it comes within 1 KB of the limit, the job keeps to the engines that fit.
+
+### 4. The balance
+
+Each block, every track's render (2b) is timed with TIMER4: on CPU0 by CPU0, and on CPU1 by CPU1 into cost[p]. The counter is the same on both
+cores. CPU0 reads cost[p] after the join.
+
+The plan for the next block takes the eligible tracks with last block's costs, plus CPU1's fixed items (DUB, after the merge), and tries every
+subset S. There are at most 2^4 = 16 subsets, a few microseconds. It picks the subset that minimises
+
+    max(CPU0's tracks, CPU1's items + its tracks + h)
+
+where h is the handoff, measured at about 5 us a block (the DUB job's 20 us a half). Ties go to the smaller S. A track with no voices costs
+almost nothing and is never worth the move.
+
+**Known limitation.** The cost is last block's. A note-on in this block's events raises this block's cost before the plan sees it, so the
+first block of a chord is balanced on the block before it. That is what the user specified. Using the events' knowledge, for example a
+track with a new note costed at its last sounding block, is a refinement for after the measurements.
+
+### 5. Fallback
+
+- **No worker** (never started, or retired): the plan is empty and the block renders as today. Admission still follows audio_worker_online
+  as today. Voice admission and stealing are not changed.
+- **Submit refused** (CPU1 still busy, which should never happen with one job a block): CPU0 renders CPU1's set itself, in track order,
+  after its own. The output is the same, only slower.
+- **The join fails** (a CPU1 fault, a 10 ms stall, or invalid output) and the worker retires as today (CPU1 held for the session):
+  - CPU1's tracks lose this block: batch_pcm zeroed and nothing rendered.
+  - Their sounding voices are ended. A voice CPU1 was stopped inside may hold half-updated filter state, and ending it is the one safe
+    reset; the next note-on starts it fresh.
+  - Their mod_end still runs.
+  - The block after is CPU0's alone.
+  A 10 ms stall is already a dropout (the deadline is 2.9 ms), so the cut is audible once, and only after a CPU1 failure.
+- **A misread** (keremimo/melodee#17) of a CPU1 track's state is a wrong sample, or a fault that retires the worker. That is the risk the
+  voice batch already carries; it is not new.
+
+### 6. Memory
+
+- **Normal build:**
+  - rc[NPART] is 4 x 16 B; cost[NPART] and the plan are 24 B. All in .bss, about 100 B.
+  - batch_pcm, batch_spread and batch_mod exist already (1 KB of PCM).
+  - Code is about 1 KB of flash for 2a, the plan and the job; measured at the build.
+  - The render's signature takes rc. Nothing else moves.
+- **The stats build (OC_CORE_STATS) adds, in .pool:**
+  - Per track: the render cost a half (min / mean / p99 / max: four cs_metric_t, about 2.1 KB), the blocks rendered on each core, and the
+    blocks it was held on CPU0 by the generator rule or by eligibility.
+  - Per block: how many tracks CPU1 took (a 0 to 4 histogram), the blocks not split by reason (no worker, another engine, refused), and the
+    plan's predicted |CPU0 - CPU1| against the measured one.
+  - CPU1's stack high-water mark.
+  It is read with AUDIO_STATS `[flags, 3]`, a new reply (schema 10). Schema 9 is unchanged. core_runs.py keeps its loads and adds that
+  reading to each row.
+- **The generator fix, if the user takes it later:** 4 B a track.
+
+### 7. The plan, with the flash-or-RAM measurement in it
+
+- **M1, before the code: the DUB kernel in flash against SRAM.** measure/core-split 0b45e5f as built (Flash 38), against the same commit
+  with dubdelay.c in SRAM (the low SRAM tail has 27,740 B). The rows: DUB LITE x1 and x4 on CPU1 and forced onto CPU0, and VA BASS x4 beside
+  them.
+  - This decides the placement rule. If SRAM is not at least about 15 % faster on CPU1, the engines and the insert stay in flash.
+  - If it is, the rule is: a kernel that runs on CPU1 every block goes to SRAM while the arena's minimum (139 KB, app.ld) holds. Its
+    first candidates are DUB's loop and MACRO's hottest models; DRUM-X's are measured next.
+  - M1 is also the first look at the cache. The DUB job beside MALLET x4 (both cores in flash) against beside VA BASS (Part 3) shows
+    what one core's fetches cost the other.
+- **S1, the code on linux-hw:** sections 1 to 6, and the host test:
+  - an empty plan, every plan, and a concurrent CPU1 thread all give the same samples, for MACRO (VA, MALLET, one noise model),
+    DRUM-X, SHAPES and WHEEL in the four tracks;
+  - the generator rule holds two noise tracks on CPU0;
+  - a fault and a stall at the join end CPU1's tracks' voices and leave CPU0 alone from then on.
+  Then the host suite and a second, independent review of the code.
+- **M2: the measurement build** is linux-hw at S1, plus the DUB bench's three commits rebased so DUB rides in the track job, plus
+  OC_CORE_STATS=1. Flash it, then run the full Part 3 set: same scripts, same loads, the single-core rows forced as before. The rows compare
+  one to one, and each row also shows which core took which track.
+- **M3: the report** (Part 5 below this design), then the voice stealing proposal against the new numbers.
+
+### 8. What voice-level splitting would add, and why it is not stage 1
+
+Track granularity cannot split one heavy track. MALLET x1 costs 1,974 us on CPU0, and that would stay. It also leaves one track of
+imbalance when the tracks are uneven: three tracks go 2 + 1, and one MALLET beside three VA BASS lands whole on one core. Voices would even
+both out. Not stage 1, because:
+- **The engines' per-track state is shared by a track's voices.**
+  - MACRO's out[16] / aux[16] scratch in mc_part_t is used by each voice in turn.
+  - DRUM-X's side buffers sum the lanes.
+  - WHEEL's bars and rotor are per track, and SHAPES' sh_part_t buffers too.
+  - SPREAD routes voices into one shared side buffer.
+  Each engine would need its per-voice code audited and some scratch duplicated per core.
+- **It goes through descriptors:** a copy of the voice's controls, a PCM block per voice and a merge on CPU0. That is the voice batch's
+  machinery, about 300 B and a copy a voice.
+- **The measured loads are four tracks.** For those the track split already finds the balance.
+- **The generator rule would have to hold per voice.**
+
+It is the next step if Part 5 shows one track dominating.
+
+### 9. Estimates from Part 3 (us a half, deadline 2,902)
+
+Part 3 measured CPU0's whole render (cpu0), not the share that moves. A track's render moves. The events, 2a, the mix, the master and the
+bus wait do not. That share is not known until the stats above read it, so the estimates give a range:
+- **Model a (the ladder's slope):**
+  - Each sounding MALLET track adds about 840 to cpu0 (1,974, 2,782, 3,640, 4,484 for one to four).
+  - That puts the serial rest at about 1,130: the events, the silent tracks and the mix.
+- **Model b:**
+  - The serial rest is about 400, because four VA BASS tracks are 1,236 in all, so it cannot be 1,130.
+  - A MALLET track is then about 1,020, and the slope is lowered by the voice budget's steals as tracks are added.
+
+| load | Part 3 (dual, today): wall mean / max | stage 1, two tracks a core: wall mean | worst |
+|---|---|---|---|
+| MALLET x4, effects off | 5,035 / 6,428 | a: 1,130 + 2 x 840 + 183 = 2,990; b: 400 + 2 x 1,020 + 183 = 2,620 | 3,500 to 4,700 |
+| MALLET x4, effects on (ROOM, sends 64) | 5,470 / 7,492 | a: 3,290; b: 2,920 (plus the bus wait of about 300) | 4,000 to 5,300 |
+| VA BASS x4, effects off | 1,421 / 2,579 | about 1,000 to 1,100 | about 2,100 to 2,200 |
+| VA BASS x4, effects on | 1,784 / 3,455 | about 1,300 to 1,400 | the effects' spike stays (about 3,000) |
+
+The worst range comes from today's worst-over-mean (1,735 off, 2,437 on): at best half of it is in the tracks and moves, at worst none of it
+does.
+
+**What this says:**
+- **Four MALLET tracks do not fit on stage 1 alone.** The mean comes to about the deadline, and the worst stays 600 to 2,400 over. That is
+  the voice stealing proposal's question, answered against Part 5's measured numbers rather than these.
+- **Part 4's estimates were too high.** It gave about 2,200 for MALLET x4 and about 600 for VA BASS x4, because it counted all of cpu0 as
+  track work. The corrected gains are 1,700 to 2,000 for MALLET x4 (mean) and 300 to 450 for VA BASS x4.
+- **One risk is unmeasured:** dual-core was 7 to 8 % slower on CPU0 with CPU1 only polling. With both cores in flash it may be more. M1
+  and M2 measure it.
+
+## The scheduler, stage 2: the buses beside the next block (design, shorter)
+
+**Today, every block:** the tracks, the bus job on CPU1 with CPU0 waiting for it (about 290 us a half for ROOM, 500 for CLOUD), then the
+master.
+
+**Stage 2:**
+- Block b's buses run on CPU1 in the same job as block b + 1's CPU1 tracks: the bus first, then the tracks. The plan counts the bus's last
+  cost on CPU1, as it counts DUB's. CPU0 no longer waits for the buses. It takes more of the tracks instead.
+- The master of block b + 1 mixes block b's returns.
+- **The memory:** the sends and the returns are double-buffered. Block b + 1's mix writes new sends while CPU1 reads block b's.
+  send_c, send_d, send_r, fx_wet, fx_sl and fx_sr twice: 768 B more.
+- Block 3's buses cannot wait for the next half's block 0: a job may not be outstanding when the interrupt returns, because the main loop
+  may write the flash. They run beside block 3's master and output, and are joined before the interrupt returns. Their returns go into
+  the next half's block 0.
+
+**The latency cost: the returns are one block late, 32 samples, a quarter of a half (0.73 ms).**
+- **Unchanged:**
+  - The dry path, and MIDI to output (two halves).
+  - The USB capture, the stems (taken before the buses) and THROW, which puts the dry mix into the sends.
+- **Changed:** only the sends' returns, relative to the dry. The user hears:
+  - **REVERB (ROOM, HALL, CLOUD):** 0.73 ms more pre-delay. Not audible, and below every reverb's own pre-delay.
+  - **DELAY:** every echo 0.73 ms later. At 120 BPM an eighth is 250 ms, so this is 0.3 %, inaudible as timing. The line can be read 32
+    samples shorter, which makes the echoes land exactly where they do today.
+  - **CHORUS:** this is the one that could be heard. Its wet is a few milliseconds behind the dry, and 0.73 ms more moves its comb
+    notches, a small timbre change. The fix is the same: shorten its base delay by 32 samples where its minimum allows, and shift its LFO
+    phase by one block.
+
+With both corrections DELAY and CHORUS should land where they do today. Whether that is to the sample is the host test's to show: their
+modulation and feedback run inside the bus. REVERB keeps a pre-delay 0.73 ms longer. Without them the change is in
+CHORUS's colour only. Stage 2 is designed here and built after stage 1's numbers.
