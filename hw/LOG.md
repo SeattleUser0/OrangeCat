@@ -928,7 +928,7 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - **External sync** (`~/fm1-hw/clock/extsync.py`, on Flash 36, linux-hw 46aa3bc), 2026-10-26T23:10Z to 2026-10-27T01:09Z, 7,200 s: the stability
   run's load on the PC's clock through the AUDIO4c's DIN out into the TRS MIDI in (CLK 2), 120 BPM. **Clocks sent 345,602, taken 345,602:
   no missed tick**; the unit's lost-clock stops 0, resyncs 0, its longest gap 25 ms. The PC's gaps (nominal 20.83 ms): 99.85 % in the 20 ms
-  bin, 499 from 17 to 19 ms or 21 to 24 ms, the longest 24.62 ms (at 60.1 min); none near the 500 ms stop. **Late renders 0 over the whole run,
+  bin, 517 from 17 to 19 ms or 21 to 24 ms, the longest 24.62 ms (at 60.1 min); none near the 500 ms stop. **Late renders 0 over the whole run,
   worst 2,400 us**; DAC silences 0; RMS -17.4 dBFS throughout. (The mid-run "missed" of +-1 in some samples is the PC's count and the unit's read
   a pulse apart; the totals at the end are equal.) Put back (true), CLK 0; objects 1 and up identical before and after.
 - **The clock outage** (`resync.py trs 120 60 1.2`): the clock cut for 1.2 s mid-run and sent again on the master's grid. The unit stopped once
@@ -938,3 +938,15 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - **Flash 37**, 2026-10-27T01:13:56Z: the published Nightly (`~/fm1-hw/nightly-3ca2b56/melodee-nightly.fwsc`), for the install cycling on the
   build its files belong to: unit on `ORANGE CAT v0.6.2-3ca2b5`, the pack this build's, WHEEL (start 0, state 7), SHAPES (start 1, state 7),
   tracks MACRO 10 / 0 / 1 / 20. PipeWire profiles set; slot 1 detached (D954DF93, read back equal).
+- **Install cycling** (`~/fm1-hw/cycle/cycle.py`, the Nightly's own SHAPES .ocm and pack, through oc_install.mjs, the page's code; the state read
+  back after every step). **Run 1 stopped at SHAPES cycle 4** (3 clean): the install's write got no reply in its 1 s (`ocLost`: fm1oc.js
+  `ask` without a retry on module writes). The abandoned install left the start empty (state 0), **nothing torn**; the remove and the script's
+  closing install ran clean. **Run 2: 50 SHAPES install / remove cycles and 20 pack erase / install cycles, every state as expected, never a
+  torn start, 0 fails**; ended with SHAPES at start 1 (state 7) and the pack installed (state 1). Kept: `cycle-run1.*`, `cycle.out`.
+- **Dropped editor replies, five today, two builds** (linux-hw 46aa3bc and the Nightly): three chain queries in the stability runs, one step read
+  in resync.py's check, one module write in cycling. Each time the next request was answered. Not chased yet: whether the unit never sent the
+  reply or the PC's MIDI input lost it (a USB MIDI capture beside the request would tell). The page's installer would show `ocLost` to a user
+  when it hits one; a retry of a write (the same offset again) would need the firmware to accept a repeated offset.
+- The unit after cycling: `ORANGE CAT v0.6.2-3ca2b5`, the pack installed, WHEEL start 0, SHAPES start 1, tracks MACRO 10 / 0 / 1 / 20. To set
+  again at the very end (after the core runs' flash): the selected track, and track 1's CHRD MAJ and VOIC OPEN (cleared by a restart, as after
+  Flash 35).
