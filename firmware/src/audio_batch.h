@@ -39,10 +39,13 @@ static uint8_t audio_batch_active;
 static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_tables.audio_batch_cost"),aligned(32)))={
     [AP_PROPHET]=3100,[AP_FM6]=1250,[AP_CZ]=2100,
     [AP_SID]=2000,[AP_808]=1150,[AP_909]=1900,
-    /* (0.14.3) the ports, TIMER4 ticks a voice's 32-sample block. Placeholders from the unit's earlier per-voice figures (BUILD.md,
-     * Thirteenth run, Part 2: MACRO 92 us a voice unit a half), until the stats build measures them (Part 5). AP_MACRO: one voice unit */
-    [AP_MACRO]=550,[AP_DRUMX]=900,[AP_SHAPES]=1500,[AP_WHEEL]=1200,
-    [AP_DUB]=1900                                   /* (measure/batch-s1) one DUB LITE instance's block on CPU1: Part 3, 318 to 329 us a half */
+    /* (0.14.3) the ports, TIMER4 ticks a voice's 32-sample block on CPU1, measured on the unit (measure/batch-s1 f0ee004, Flash 43, the
+     * kernel readout AUDIO_STATS [flags, 3]; four tracks of each preset, dual-core; BUILD.md, "Stage 1: the per-voice costs"). AP_MACRO is
+     * a voice unit's (MC_UNITS): MALLET (MODAL, 9 units) 187.7 us = 500 a unit, VA BASS (4) 88.8 us = 533; DRUM-X TECHNO RAW 24.7 us;
+     * SHAPES CSAW BASS 56.4 us, MORPH LEAD 69.3 (1,354 and 1,663: their mean); WHEEL FULL ORGAN 30.6 us. On CPU0 they take 10 to 15 % more.
+     * (The Prophet measured 81.5 us, 1,956, against its 3,100 here; the native engines' entries are as they were) */
+    [AP_MACRO]=520,[AP_DRUMX]=590,[AP_SHAPES]=1500,[AP_WHEEL]=730,
+    [AP_DUB]=1980                                   /* (measure/batch-s1) one DUB LITE instance's block on CPU1: 82.6 us (Flash 43) */
 };
 #if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
 #define AB_LOAD(p) fm1_aw_load(p)
