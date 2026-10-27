@@ -922,3 +922,19 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   MIDI), not chased yet. Tracks and parameters put back (true), CLK 0; backup before and after: **objects 1 and up identical**.
 - Next: the external-sync run (`~/fm1-hw/clock/extsync.py`, the same load on the PC's clock through the AUDIO4c's DIN, CLK 2; its counters fixed
   the same way), started 23:10Z.
+
+## October 26 to 27 (UTC): the external-sync run, the clock outage, Flash 37 (the Nightly), install cycling
+
+- **External sync** (`~/fm1-hw/clock/extsync.py`, on Flash 36, linux-hw 46aa3bc), 2026-10-26T23:10Z to 2026-10-27T01:09Z, 7,200 s: the stability
+  run's load on the PC's clock through the AUDIO4c's DIN out into the TRS MIDI in (CLK 2), 120 BPM. **Clocks sent 345,602, taken 345,602:
+  no missed tick**; the unit's lost-clock stops 0, resyncs 0, its longest gap 25 ms. The PC's gaps (nominal 20.83 ms): 99.85 % in the 20 ms
+  bin, 499 from 17 to 19 ms or 21 to 24 ms, the longest 24.62 ms (at 60.1 min); none near the 500 ms stop. **Late renders 0 over the whole run,
+  worst 2,400 us**; DAC silences 0; RMS -17.4 dBFS throughout. (The mid-run "missed" of +-1 in some samples is the PC's count and the unit's read
+  a pulse apart; the totals at the end are equal.) Put back (true), CLK 0; objects 1 and up identical before and after.
+- **The clock outage** (`resync.py trs 120 60 1.2`): the clock cut for 1.2 s mid-run and sent again on the master's grid. The unit stopped once
+  (the 500 ms rule; no kick while cut), resynced once, its missed count 58 = the 58 pulses the PC held back, no sent pulse lost; **the first kick
+  back on quarter 63, pulse 1512 = the expected 1 + 24 k pulse**; latency median 8.63 ms before and after (spread 1.0 and 2.0 ms). The first try's
+  put-back check timed out on one editor reply (the put-back itself ran; the tracks read as found after); the check now retries.
+- **Flash 37**, 2026-10-27T01:13:56Z: the published Nightly (`~/fm1-hw/nightly-3ca2b56/melodee-nightly.fwsc`), for the install cycling on the
+  build its files belong to: unit on `ORANGE CAT v0.6.2-3ca2b5`, the pack this build's, WHEEL (start 0, state 7), SHAPES (start 1, state 7),
+  tracks MACRO 10 / 0 / 1 / 20. PipeWire profiles set; slot 1 detached (D954DF93, read back equal).
