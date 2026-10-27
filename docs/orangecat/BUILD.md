@@ -3100,7 +3100,7 @@ CPU1 job after the last track, CPU0 spinning until it is done (its wait equals t
 
 **Is CPU1 doing half the work, a fraction, or close to nothing?** **Close to nothing** for these engines. MACRO (MALLET, VA BASS), DRUM-X, SHAPES
 and WHEEL never give CPU1 a voice: voice jobs 0 in every run. Without effects CPU1 is idle (four MALLET tracks, 4,484 us on CPU0, 0 on CPU1).
-With effects it takes the bus job (about 290 us ROOM, about 500 CLOUD: 6 to 17 % of the wall), and CPU0 waits for exactly that long, so the
+With effects it takes the bus job (about 290 us ROOM, about 500 CLOUD: 12 to 24 % of the wall), and CPU0 waits for exactly that long, so the
 effects on CPU1 save about 40 us net (single tail 528 against dual tail + wait 488). Only the DUB job, which runs beside the tracks, puts real work
 on CPU1 (1,271 us at four instances, about two thirds of the wall) and takes it off the critical path.
 
@@ -3120,7 +3120,7 @@ on CPU1 (1,271 us at four instances, about two thirds of the wall) and takes it 
 with the spring on the wet, 1,802 on CPU1, max 2,606, 0 late. With the shared effects on, the late renders are the effects' own spikes (80 to 109 in
 20 s with or without DUB). **They do not fit with CLOUD as the reverb** (VA BASS x4, four DUB into CLOUD: 2,531 mean, 2,120 late, about 30 % of the
 halves lost) because DUB and the CLOUD bus queue on CPU1 one after the other while CPU0 waits (the serial tail, 1,368). Nor beside heavy CPU0 tracks
-(MALLET), which are over the deadline without them. CPU1 has about 1,100 us of room left beside four LITE instances; TAPE (435 a half each, Step 2)
+(MALLET), which are over the deadline without them. CPU1 has about 1,400 us of the half left beside four LITE instances (2,902 less their 1,271 less the tail); TAPE (435 a half each, Step 2)
 or the spring on the wet takes most of it. Fixes 2 and 3 are what four inserts with CLOUD need; fix 1 is what heavier tracks need.
 
 **Does placement (flash or RAM) explain the 308 us LITE cost?** **Not answered: open.** No RAM-placed build was measured. What is known: the kernel
