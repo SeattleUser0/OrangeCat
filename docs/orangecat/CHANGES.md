@@ -1,9 +1,9 @@
-# Orange Cat: what changed for the user, 0.7.1 to the head of sonnet-work
+# Orange Cat: what changed for the user, 0.7.1 to Release 1 (0.15.0)
 
-**Version:** 5  
-**Date:** October 26, 2026
+**Version:** 6  
+**Date:** October 27, 2026
 
-This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to the head of branch `sonnet-work`. None of it is on main, released, or flashed; the unit has not been touched. The build and test details are in BUILD.md.
+This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to Release 1, 0.15.0 (branch `linux-hw`, published as the Nightly; main and the release tag follow when it is approved). The build and test details are in BUILD.md; its "Release 1" section has the measurements behind the last two entries.
 
 ## The two one-way doors
 
@@ -110,3 +110,32 @@ their chains, songs or scenes, nor the phrase pool; restored, each project comes
 the chains of the music loaded and writes them back after a restore when the unit's phrases are still the same. Nothing is stored in a
 new format.
 
+**0.14.3 (branch linux-hw): the second core plays MACRO, DRUM-X, SHAPES and WHEEL.** The FM-1 has two processor cores. Until now
+only the engines nobody on Orange Cat uses (FM6, CZ-1, SID) and the Prophet module had their voices played by the second core;
+MACRO, DRUM-X, SHAPES and WHEEL always ran on the first, beside the effects, the sequencer and the screen. Now every engine's voices
+are shared between the two cores by what each costs (measured on the unit, voice by voice). What you hear is the same, sample for
+sample; what changes is how much fits. Measured with a chord on every step: two MALLET tracks, which broke up before, play cleanly
+(with the effects on, nearly so); three MALLET tracks with the effects off go from late on nearly every block to a few late blocks;
+four VA BASS tracks with the effects on, and four DRUM-X tracks with PAN and TUNE set, go from occasionally late to clean. One case got
+worse: four VA BASS tracks each with a DUB LITE delay and the effects on run late more often than before. The SHAPES and WHEEL modules of this build must be installed with it (the module interface
+is version 6; older modules still load and play on the first core).
+
+**0.15.0, Release 1: four heavy tracks hold, by giving up voices.** When the unit measures that it is close to running out of time
+(two blocks in a row over 80 % of the time a block has), it limits how many voices of the three costliest engines sound at once,
+across all tracks, until a second passes under 70 %. MALLET and GLASS BELL (MACRO's bells): one note at a time across the tracks.
+The Prophet: six at once, three while the shared effects (send delay, reverb) run. A new note takes the place of the oldest note
+of the same engine already let go, else the oldest held one, keeping each track's lowest held note as long as it can; the note
+given up fades out instead of stopping. With one, two or three of those tracks, or with lighter sounds, the unit seldom comes close
+and nothing changes. Measured on the unit with the chord on every step on four tracks: four MALLET tracks went from late on nearly
+every block to none, four Prophet tracks the same with the effects on (one late block in 20 seconds with them off). The Prophet's share of the two cores is now set from its measurement. The editor
+link counts the requests it gets and the replies it sends (for finding a lost reply); nothing you see changes. The version is 0.15.0:
+the unit shows `v0.15.0-` and the build's commit. Nothing is stored in a new format; your projects, sounds and backups are as they were.
+
+## Known limits of Release 1
+
+- **Four MALLET or GLASS BELL tracks with the effects on steal voices:** while the unit is near its limit, one bell note sounds at a
+  time across those tracks, the others fading out. Fewer bell tracks keep their chords.
+- **Four DRUM-X tracks with PAN and TUNE set on every lane can run late** (a short dropout) when every lane plays.
+- **CLOUD (the reverb mode) on a full mix is tight:** with four busy tracks it can run late; ROOM, SPRING and the others are lighter.
+- **An editor reply is occasionally lost** (a few in two hours of constant use). The web app then shows ocLost on the page; doing the
+  same thing again works.

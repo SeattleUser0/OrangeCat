@@ -1,15 +1,213 @@
 # Orange Cat Build Document
 
-**Version:** 0.79  
-**Date:** October 26, 2026  
+**Version:** 0.80  
+**Date:** October 27, 2026  
 **Tracks:** Orange Cat Specification v0.30
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
 Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 
+## Status summary
+
+| Phase | Work | Status |
+|---|---|---|
+| 0 | Specification and source review | Done |
+| 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
+| 2 | USB flash drive test, then files | Done: drive and files read through a hub on PD power |
+| 3 | Strip Melodee's engines | Done |
+| 4 | Port Skiff's sequencer and arranger | In progress |
+| 5 | Track views: tracker, step, pads | In progress |
+| 6 | Loadable engine study | Done for Release 1: SHAPES, WHEEL (engine 7) and the Prophet (engine 19) as modules, installed from the installer page, the web app, the editor and the card, on the unit; the relocatable package (.ocm format 2, 0.14.1); admission by cost; the Engines table. SHAPES and the Prophet do not fit the module area together. History: Phase 6, Fourth run, Thirteenth run, op1r candidates |
+| 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
+| 8 | Dynamic resources | Not started |
+| 9 | Sampling and bouncing | Not started |
+| 10 | Other engines and effects | In progress: Jiant FM's effects (0.6.0) and DRUM-X (0.9.0) with its kits (0.14.2) on the Nightly and played on the unit; the Prophet as a module; op1r's synths and other candidates measured behind OC_CANDIDATES (not shipped) |
+| 11 | Later extensions | Not started |
+| App | The web app (web/app, 0.14.2): one page for modules, sounds, steps, arrangement, projects and backups | In Release 1 (merged into linux-hw, af9f91a); tested against the mock (web/app/test) and, for HARDWARE_TEST.md's protocol parts, on the unit (tools/hw/app_protocol.mjs; see Release 1) |
+| Cores | The second core (CPU1) renders voices | Stage 1 in Release 1: the ports on CPU1's batch with the measured cost table; the cost caps (0.15.0). Stage 2 (the buses beside the next block) designed, not built. History: "What the two cores do" and on |
+| Release 1 | 0.15.0 from linux-hw | Built in CI and published as the Nightly; main's fast-forward and the v0.15.0 tag wait for the user's word. See "Release 1" below |
+
+## Release 1 (0.15.0, branch linux-hw, October 27, 2026)
+
+**Where it stands.** linux-hw is Release 1's candidate: VERSION 0.15.0, built in CI and published as the Nightly from linux-hw. The
+fast-forward of main and the v0.15.0 tag wait for the user's word. Since the Nightly of October 27 morning (`v0.6.2-3ca2b5`) it adds:
+the scheduler's stage 1 (the ports on CPU1's batch, the measured cost table), the web app (merge af9f91a), the Prophet's cost entry
+from its measurement, the cost caps, and the editor's reply counters. Nothing is stored in a new format; no reference render changed.
+
+**The editor identity.** The info reply carries "ORANGE CAT " and the version in 24 bytes (editor.c ED_INFO; tools/build.py's
+manifest cuts it the same way). With 0.15.0 the Nightly's version string is 14 characters, so the identity carries 5 digits of
+the commit (`ORANGE CAT v0.15.0-abcde`); the menu's ABOUT and the console show all 6. Nothing compares the full string (fm1hw.py
+checks the ending it is given; the installer checks the package's product).
+
+### The cost caps on the unit (Flash 51 and 52)
+
+**What they are** (voice.c voice_cap_room; the proposal is "Voice stealing: a proposal against stage 1's numbers" under History).
+While engaged, a new voice of MODAL (MACRO's MALLET, GLASS BELL), FM6 or the Prophet finds room among that engine's voices on every
+track: at most the cap of them sound at once, one cap with the shared effects off and one with them on. The voice given up is the
+engine's oldest released one, else its oldest held one that is not its track's lowest note, else its oldest held one. They engage on
+the halves' measured cost, not always: two halves in a row over 80 % of the half engage them, they stay while halves pass 70 %, and
+they let go after 344 quiet halves (about a second). Only with CPU1 online. The SAFETY shed is unchanged.
+
+**How they were set.** `~/fm1-hw/caps/caps_runs.py`, on the measurement images (linux-hw a51d1fc with OC_CORE_STATS=1, Flash 51;
+for FM6, a51d1fc + 30379f3's room with FM6 built in, Flash 52): four tracks of one preset, dual-core, the PC's clock at 120 BPM, the
+four-note chord on every step, 20 s a row; the shared effects on (sends 64, REVERB ROOM) or off. A row with the cap out of the way,
+then the built cap (the proposal's), then one less until p99 is under the deadline (2,902 us). The caps set by the editor's
+AUDIO_STATS [flags, 6, c, off, on] (OC_CORE_STATS builds only). Files: `~/fm1-hw/caps/st2.json`, `st3.json`, `fm6.json`, `fm6b.json`.
+
+| case | cap | voices a block | wall mean | p99 | max | late in 20 s | steals |
+|---|---|---|---|---|---|---|---|
+| MALLET x4, effects on | none | 4.59 | 3,216 | >4,096 | 5,047 | 3,425 | 0 |
+| | 3 | 3.10 | 2,606 | 3,776 | 4,362 | 312 | 1,784 |
+| | 2 | 2.08 | 2,521 | 3,648 | 3,698 | 160 | 2,606 |
+| | **1** | 1.05 | 1,808 | **2,624** | 2,781 | **0** | 2,575 |
+| MALLET x4, effects off | none | 4.90 | 2,731 | 3,904 | 4,155 | 163 | 0 |
+| | 3 | 3.06 | 2,064 | 3,232 | 3,289 | 159 | 1,770 |
+| | 2 | 2.07 | 2,035 | 3,104 | 3,130 | 159 | 2,574 |
+| | **1** | 1.07 | 1,304 | **2,080** | 3,205 | 1 | 2,563 |
+| the Prophet x4, effects on | none | 8.31 | 3,425 | >4,096 | 4,589 | 3,447 | 0 |
+| | 5 | 5.12 | 2,607 | 3,552 | 3,698 | 313 | 2,449 |
+| | 4 | 4.05 | 2,283 | 2,976 | 3,153 | 134 | 2,576 |
+| | **3** | 3.04 | 1,963 | **2,624** | 2,722 | **0** | 2,577 |
+| the Prophet x4, effects off | none | 8.29 | 2,823 | 3,776 | 3,805 | 3,447 | 0 |
+| | 7 | 7.11 | 2,509 | 3,136 | 3,176 | 198 | 2,432 |
+| | **6** | 6.04 | 2,085 | **2,720** | 3,074 | 1 | 2,416 |
+| FM6 x4, effects on | none | 16.77 | 3,980 | >4,096 | 6,893 | 3,253 | 0 |
+| | 15 to 11 | 15.3 to 11.2 | 4,018 to 3,613 | >4,096 | 7,020 to 6,147 | 3,550 to 3,597 | 2,579 |
+| | 8 | 8.60 | 3,197 | >4,096 | 5,821 | 3,598 | 2,586 |
+| | 4 | 4.27 | 2,391 | 3,968 | 4,959 | 241 | 2,580 |
+| | 2 | 2.18 | 1,700 | 3,168 | 4,045 | 177 | 2,578 |
+| | 1 | 1.13 | 1,445 | 3,008 | 4,189 | 98 | 2,577 |
+| FM6 x4, effects off | none to 12 | 16.7 to 12.2 | 3,542 to 3,208 | >4,096 | 5,744 to 5,265 | 3,428 to 3,598 | 0 to 2,577 |
+
+(A row's late count can rise as the mean falls: the run counts every half late, and with the caps engaged more halves are rendered in
+the 20 s. "voices a block" is the kernels run over four times the halves rendered.)
+
+**What each case lost.** The caps in voice.c are the largest that hold (p99 under the deadline), effects off / on:
+
+| engine | proposed | set | four tracks, voices a block before → after | lost |
+|---|---|---|---|---|
+| MODAL (MALLET, GLASS BELL) | 3 / 3 | **1 / 1** | effects on 4.59 → 1.05; off 4.90 → 1.07 | 3.5 to 3.8 voices: one bell note at a time across the tracks |
+| the Prophet | 7 / 5 | **6 / 3** | on 8.31 → 3.04; off 8.29 → 6.04 | 5.3 voices with the effects on, 2.3 off |
+| FM6 | 16 / 15 | 16 / 15 (unchanged) | none holds: 1 voice still p99 3,008 | not in Orange Cat's engine set (orangecat_engines.sh); left as proposed |
+
+**Why the caps that hold are lower than the proposal's.** The proposal read the caps off one, two and three tracks with no stealing
+(MALLET x2 at 2.9 voices: p99 2,848). With four tracks and the caps, every step steals: the stolen voice fades out over the block in
+which the new one starts, so the step's half renders about twice the cap (cap 2: 2.08 voices a block on average, p99 3,648, as three
+tracks without a cap). The cut that holds is set by those halves, not by the average. Two ways to give voices back, not done for
+Release 1 (no renderer change after the caps): count the fading voices in the cap, or end a stolen voice in a shorter fade.
+**FM6:** its cost on four tracks is in the step's note-ons (the voices' setup), not in the voices sounding; no voice cap reaches it.
+
+**One core.** The caps' guard is CPU1 online. The measurement images' single-core mode (OC_CORE_STATS) keeps CPU1 online and renders
+on CPU0, so the caps engaged in those rows (the caps out of the way there); the shipped firmware has no such mode.
+
+### The Prophet x4 with its cost entry at 1,956
+
+audio_batch_cost's AP_PROPHET is 1,956 (its measurement, Flash 45; it was 3,100). Four Prophet tracks, the caps out of the way
+(Flash 51, `~/fm1-hw/caps/st.json`), against the rows at 3,100 (Flash 45, under History in "The scheduler, stage 1: the ports on the
+batch"):
+
+| load | wall mean / p99 / max at 3,100 | late | at 1,956 | late | kernels CPU0 / CPU1 at 1,956 |
+|---|---|---|---|---|---|
+| single-core, effects off | 4,515 / >4,096 / 5,539 | 3,447 | 4,523 / >4,096 / 5,632 | 3,447 | 124,848 / 0 |
+| dual-core, effects off | 3,001 / 3,616 / 3,653 | 3,485 | 3,013 / 3,744 / 3,797 | 3,484 | 59,392 / 74,240 |
+| single-core, effects on | 5,139 / >4,096 / 6,243 | 3,219 | 5,128 / >4,096 / 6,354 | 3,222 | 123,741 / 0 |
+| dual-core, effects on | 3,653 / >4,096 / 4,417 | 3,599 | 3,669 / >4,096 / 4,579 | 3,598 | 57,584 / 71,980 |
+
+No change: CPU1 takes 55.6 % of the kernels at either entry. With four Prophet tracks every kernel has the same entry, so the partition
+does not move; the entry matters where the Prophet shares a group with other engines (it now reserves the 2,000 floor there). The
+caps, not the entry, bring four Prophet tracks under the deadline.
+
+### The effects-on late spike
+
+Left as it is. Its stage is the tracks (under History, "The effects-on late spike": +1,520 us a spike half single-core, +785
+dual-core), and **stage 1 makes it 0 late**: with CPU1 rendering the ports, the dual-core spike halves stay under the deadline
+(Flash 49, VA BASS x4, sends all: 0 late in the run). Only a single-core render shows it as late halves.
+
+### The editor's reply counters
+
+editor.c counts the requests and the replies by command (0 to 127, 14 bits each), the replies cut short (no USB room) and usb.c the
+SysEx frames dropped (one arrived while another waited) or too long. Read with AUDIO_STATS [flags, 5] (schema 12: dropped, long, cut,
+then the commands seen, each with its requests and replies); flag 1 resets them. In every MELODEE_USB_AUDIO build (the release's
+included). Read on the unit at Flash 51: 12 commands, each with as many replies as requests, nothing dropped, long or cut. A lost
+reply now shows as a command with fewer replies than requests (sent but not answered) or as a dropped frame (not received).
+
+### Branches (October 27)
+
+Before the release, the branches whose work is in linux-hw or that were experiments were deleted on GitHub; their heads are in
+`~/fm1-hw/branches-deleted-2026-10-27.txt` (54; restore one with `git push origin <sha>:refs/heads/<name>`) and kept on the PC as
+`refs/archive/2026-10-27/<name>`: tracker-events, size-audit (their CI audit probes were temporary; the firmware changes are in),
+gui-slim, fx-jiant, sched/track-split, engine-candidates, drum-kits, measure/dub-ram, measure/native-cores and the 45 exp/*.
+**Kept:** op1r-candidates (live work for the candidates' measurements; not merged again for Release 1, behind OC_CANDIDATES and off
+the Nightly as it is), measure/batch-s1, measure/batch-s1-ram, main, linux-hw. Four local branches stay while worktrees use them.
+
+### Known limits of Release 1
+
+- Four MALLET (or GLASS BELL) tracks steal voices: with the caps engaged one bell note sounds at a time across them.
+- Four DRUM-X tracks with PAN and TUNE set on every lane can run late.
+- CLOUD (the reverb) on a full mix is tight.
+- An occasional editor reply is lost (6 in the two-hour stability run of October 27, all the chain query); the web app shows ocLost,
+  and a retry works.
+- Also measured (stage 1's table, under History): four VA BASS tracks each with a DUB LITE delay and the shared effects on run later
+  dual-core than before stage 1 (2,096 late in 20 s, against 103).
+
+
+## Reference versions
+
+| Source | Version | Commit | Role |
+|---|---|---|---|
+| [Melodee](https://github.com/keremimo/melodee) | 1.4.5 | 398ada1e09d864c12f3b778a43e45c7c2a8031b8 | Code base |
+| [Skiff](https://github.com/illuminus5/skiff) | 1.3.3 | c7d53d9cbf2feb90dffbf7761dfeb88cf7816715 | Port reference |
+| [Felucca](https://github.com/hugelton/Felucca) | 1.6.1+ | 5738617968a22b5d4c0d3470cfcc95559052f446 | Common ancestor |
+| JieLi AC79 SDK | AC79NN_SDK_V1.2.1_2023-12-13 | (tag) | Three build files only |
+| [BEETLE](https://github.com/SikkenWorks/BEETLE) | 1.3.8 | fc43fda1e5fbdae36aa83df9e2baff1a484c157b | Tracker view reference |
+| [fm1-build](https://github.com/zvenson/fm1-build) | v1 | (tag) | GitHub Actions builder |
+| [Mutable Instruments eurorack](https://github.com/pichenettes/eurorack) | master (October 12, 2026) | f4cfa7697095a28d292bff758beb51deb49b5a86 | Engine source (MIT) |
+| [stmlib](https://github.com/pichenettes/stmlib) | master | d18def816c51d1da0c108236928b2bbd25c17481 | Its DSP helpers (MIT) |
+
+## Test units
+
+Three FM-1s are available. Keep one on a known-good release at all times. Use one for risky tests (USB host mode, flash layout changes).
+
+## Build environment
+
+Builds run on GitHub Actions. No build tools are needed on the Mac. (0.75) A Linux PC builds exactly what CI builds and drives the unit over USB:
+BUILDING.md, "Building on a Linux PC"; the hardware history is hw/LOG.md; the rules for a new engine are docs/orangecat/ADDING_AN_ENGINE.md.
+
+- The workflow calls the shared FM-1 builder, zvenson/fm1-build at tag v1. It installs JieLi's Linux toolchain and the AC79 SDK on GitHub's Linux x86-64 runner, then runs the repository's own ./build.sh and tests.
+- This is the same setup Melodee uses for its releases and the SeattleUser0/skiff fork uses for its builds.
+- A push to main builds a downloadable .fwsc package. A version tag builds a GitHub Release. (Tag pushes from a Claude session were refused on the Skiff fork, so day-to-day builds come from pushes to main.)
+- Install on the FM-1 with the web installer, as with Melodee.
+
+Not used:
+- Local Docker builds. Possible on macOS (linux/amd64 container, Rosetta on Apple silicon) but not needed.
+- The linked computer's shell is an ARM Linux VM with no Docker. The JieLi toolchain does not run there.
+- The cloud workspace cannot reach JieLi's package server or Gitee.
+
+## Phases 8 to 11
+
+**Status: Not started.** Detailed tasks will be added when phase 7 results are in.
+
+- **Phase 8, dynamic resources:** track count increase, admission checks, preset availability, suspension (specification 4).
+- **Phase 9, sampling and bouncing:** port Skiff's SAMPLE and SLICE engines, set the sample and bounce storage area (internal or USB drive, per phase 2), instrument bouncing (specification 10).
+- **Phase 10, other engines and effects:** Prophet-5, FuMi, Skiff engines, dub-oriented effects, as space permits.
+- **Phase 11, later extensions:** guitar modeling, fitting application, SMK-37 port.
+
+## Open decisions
+
+| Decision | Phase | Status |
+|---|---|---|
+| Pattern storage model | 4 | Decided: Skiff's shared pool of 64 |
+| Arrangement model | 4 | Decided: Skiff's per-track lists |
+| Loadable engine slots | 6 | Open |
+| Sample and bounce storage location | 2, 9 | Open |
+| Track count target | 8 | Open |
+
 ## Revision history
 
+- **0.80 (October 27, 2026, branch linux-hw):** Release 1 (0.15.0): the cost caps set from the four-track runs on the unit (MODAL
+  1, the Prophet 6 / 3, FM6 left), the Prophet's cost entry 1,956 and its rows, the editor's reply counters, the branches deleted; the
+  status table brought current; the run-by-run sections moved under "History" at the end. See "Release 1".
 - **0.79 (October 26, 2026, branch drum-kits from linux-hw a8df964; not on main, not released, not on the unit):** DRUM-X drum kits after Skiff 2.0
   (Session E): each lane's TUNE, DECAY, PAN and Jiant's lane sounds (LAYER, PUNCH, ATK+, BEND), the kit's TONE, FDBK, HANDS and DUCK; the kit saved
   whole as a user preset of engine 9 (the record's extension, versioned; presets of before load as they played); the LANES pages; commands 128 and 129
@@ -104,59 +302,13 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 - **0.2 (October 20, 2026):** Builds moved to GitHub Actions; Docker dropped from phase 1. Pattern storage and arrangement decided: Skiff's shared pool and per-track lists. BEETLE added as the tracker reference.
 - **0.1 (October 20, 2026):** First version. Phases set from specification section 14.
 
-## Status summary
-
-| Phase | Work | Status |
-|---|---|---|
-| 0 | Specification and source review | Done |
-| 1 | Foundation: fork, build setup, rename, baseline sizes | Done |
-| 2 | USB flash drive test, then files | Done: drive and files read through a hub on PD power |
-| 3 | Strip Melodee's engines | Done |
-| 4 | Port Skiff's sequencer and arranger | In progress |
-| 5 | Track views: tracker, step, pads | In progress |
-| 6 | Loadable engine study | (0.12.0: a module's pages as data built and tested with a fake module; the Prophet measured as a module, 7.60 sectors, does not fit a start; Use and Replace in the Engines table) Asset pack built (0.8.0); the interface identifier and registration check built (0.9.0); the library group built (0.9.1); SHAPES as a module built, installed from the page and the card, host tested and built in CI (0.10.0, steps 1 to 6); the module's fixes, admission and the Engines table built (0.10.1 and 0.11.0, Fourth run). Next: the unit checklist (Fourth run), step 7 (docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "Left to test" below), then the engines tab and the admission check |
-| 7 | Mutable Instruments engines | In progress: Plaits (MACRO, 0.5.0) and Braids (SHAPES, 0.5.1) ported; Clouds next |
-| 8 | Dynamic resources | Not started |
-| 9 | Sampling and bouncing | Not started |
-| 10 | Other engines and effects | In progress: Jiant FM's effects built on branch fx-jiant (0.6.0); DRUM-X built on branch sonnet-work (0.9.0); neither tested on the unit |
-| 11 | Later extensions | Not started |
-| App | The web app (web/app, 0.14.2, branch web-app): one page for modules, sounds, steps, arrangement, projects and backups | Built and tested against the mock (web/app/test, 90 checks); firmware 0.14.2 (command 102) host tested; not tried on the unit (web/app/HARDWARE_TEST.md) |
-
-## Reference versions
-
-| Source | Version | Commit | Role |
-|---|---|---|---|
-| [Melodee](https://github.com/keremimo/melodee) | 1.4.5 | 398ada1e09d864c12f3b778a43e45c7c2a8031b8 | Code base |
-| [Skiff](https://github.com/illuminus5/skiff) | 1.3.3 | c7d53d9cbf2feb90dffbf7761dfeb88cf7816715 | Port reference |
-| [Felucca](https://github.com/hugelton/Felucca) | 1.6.1+ | 5738617968a22b5d4c0d3470cfcc95559052f446 | Common ancestor |
-| JieLi AC79 SDK | AC79NN_SDK_V1.2.1_2023-12-13 | (tag) | Three build files only |
-| [BEETLE](https://github.com/SikkenWorks/BEETLE) | 1.3.8 | fc43fda1e5fbdae36aa83df9e2baff1a484c157b | Tracker view reference |
-| [fm1-build](https://github.com/zvenson/fm1-build) | v1 | (tag) | GitHub Actions builder |
-| [Mutable Instruments eurorack](https://github.com/pichenettes/eurorack) | master (October 12, 2026) | f4cfa7697095a28d292bff758beb51deb49b5a86 | Engine source (MIT) |
-| [stmlib](https://github.com/pichenettes/stmlib) | master | d18def816c51d1da0c108236928b2bbd25c17481 | Its DSP helpers (MIT) |
-
-## Test units
-
-Three FM-1s are available. Keep one on a known-good release at all times. Use one for risky tests (USB host mode, flash layout changes).
-
-## Build environment
-
-Builds run on GitHub Actions. No build tools are needed on the Mac. (0.75) A Linux PC builds exactly what CI builds and drives the unit over USB:
-BUILDING.md, "Building on a Linux PC"; the hardware history is hw/LOG.md; the rules for a new engine are docs/orangecat/ADDING_AN_ENGINE.md.
-
-- The workflow calls the shared FM-1 builder, zvenson/fm1-build at tag v1. It installs JieLi's Linux toolchain and the AC79 SDK on GitHub's Linux x86-64 runner, then runs the repository's own ./build.sh and tests.
-- This is the same setup Melodee uses for its releases and the SeattleUser0/skiff fork uses for its builds.
-- A push to main builds a downloadable .fwsc package. A version tag builds a GitHub Release. (Tag pushes from a Claude session were refused on the Skiff fork, so day-to-day builds come from pushes to main.)
-- Install on the FM-1 with the web installer, as with Melodee.
-
-Not used:
-- Local Docker builds. Possible on macOS (linux/amd64 container, Rosetta on Apple silicon) but not needed.
-- The linked computer's shell is an ARM Linux VM with no Docker. The JieLi toolchain does not run there.
-- The cloud workspace cannot reach JieLi's package server or Gitee.
-
 ---
 
-## Phase 0: Specification and source review
+## History
+
+The phases and the runs as they were written, oldest first: what was built, measured and decided in each, with the numbers of the day. Later sections correct earlier ones where they disagree; the sections above are the current state.
+
+### Phase 0: Specification and source review
 
 **Status: Done**
 
@@ -174,9 +326,7 @@ Findings that drive the build:
 - Both firmwares already have global and per-track swing.
 - Audio rate is about 44.1 kHz (Skiff's 15 ms flam is 661 samples).
 
----
-
-## Phase 1: Foundation
+### Phase 1: Foundation
 
 **Status: Done**
 
@@ -220,9 +370,7 @@ Baseline (fill in):
 
 Measured from the first GitHub build (Melodee 1.4.5 unchanged). RAM for variables is nearly full, so new code must keep its tables in flash or in the pool.
 
----
-
-## Phase 2: USB flash drive test
+### Phase 2: USB flash drive test
 
 **Status: Done.** The FM-1 reads a drive and its files as a USB host when a hub on PD power feeds its port (October 21). It does not power the port itself. Next: the steps in the plan below.
 
@@ -298,7 +446,7 @@ Left to test (Menu > USB DRIVE TEST, then plug in):
 
 Result: works only with external power (a hub on PD power). 914 KB/s read.
 
-### Plan: bounces on the card, and several FM-1s on one card
+#### Plan: bounces on the card, and several FM-1s on one card
 
 Jeremiah's goal (October 21): bounce or freeze tracks to WAV files on the card and play them back beside new tracks;
 in the end, several FM-1s and an SMK-37 on one hub with one card, each using it as storage.
@@ -467,9 +615,7 @@ Steps, each tested on the unit before the next:
 5. Writing: a bounce recorded to a WAV on the card (0.4.16, built).
 6. Two FM-1s: the device FM-1 lists the host's card over USB MIDI.
 
----
-
-## Phase 3: Strip Melodee's engines
+### Phase 3: Strip Melodee's engines
 
 **Status: Done (October 20, 2026)**
 
@@ -526,9 +672,7 @@ Data flash: the engines' bank sectors (Prophet, CZ-1, FM6 banks) stay reserved i
 
 Coupling: Prophet, CZ-1, FM6 and DRUM are each referenced in 34 to 56 source files (editors, storage, presets, UI, web editor, tests). SID is in 5. Removal order follows the list above, smallest coupling first after CZ-1 is reviewed.
 
----
-
-## Phase 4: Port Skiff's sequencer and arranger
+### Phase 4: Port Skiff's sequencer and arranger
 
 **Status: In progress (4a done, 4c mostly done)**
 
@@ -538,7 +682,7 @@ Rule: every Skiff feature is rebuilt on Melodee's timed-note store, not on Skiff
 
 Decided (October 20, 2026): Skiff's workflow. A shared pool of 64 patterns, a list of 16 entries per track, SONG plays each track down its list, PERFORM and scenes on top. Melodee's banks and song sections are replaced.
 
-### What the two codebases have
+#### What the two codebases have
 
 | Area | Melodee 1.4.5 | Skiff 1.3.3 |
 |---|---|---|
@@ -550,7 +694,7 @@ Decided (October 20, 2026): Skiff's workflow. A shared pool of 64 patterns, a li
 | Swing | Global and per-track | Global and per-track |
 | Flash for patterns | Inside the project objects | 16 chunk sectors plus 4 spare (about 80 KB) |
 
-### Plan, in order
+#### Plan, in order
 
 Each step builds, passes the host tests, and is measured before the next.
 
@@ -650,7 +794,7 @@ Each step builds, passes the host tests, and is measured before the next.
   - [ ] Part 2: user-made templates; quantize to other grids through the groove.
 - [ ] **4g. Web editor.** Skiff's editor pages for steps, lists, scenes and the pool, on Melodee's editor link.
 
-### Open questions for this phase
+#### Open questions for this phase
 
 - The drum grid needs a drum engine to be reachable. Until Skiff's DRUM or DRUM-X (or a Mutable drum model) is ported, lane hits can be entered and saved but not heard.
 - RAM: Melodee's .data + .bss has 15.9 KB free now. Skiff keeps no RAM image of the pool, which helps; the timed-note store (10 KB) stays in RAM.
@@ -663,9 +807,7 @@ Left to test (specification 13):
 - [ ] Timing under load with dual-core rendering.
 - [ ] A Melodee 1.4.5 project imports with its notes, banks and arrangement.
 
----
-
-## Bugs found on the unit
+### Bugs found on the unit
 
 - [x] **0.5.4: EDIT, then SELECT two clicks back, crashed (0.5.2, track 1 on CHORD MINOR).** From EDIT 1, SELECT back goes to VOICE, then to the page before it, which was one of the Prophet's (P5 BEND). The Prophet is unhooked in Orange Cat, and its pages should never show. They did: the page filter (ui.c page_visible) had the engine switch inside the test of the page's kind, "(MELODEE_P5 && page is a Prophet page)", so with the switch off the test was false and the page fell through to "shown". The page then read parameter 155 of 124 and the firmware stopped. FM6's and DRUM's pages had the same fault. Fixed: those pages are shown only when their engine is in the build and on the track. Why the tests missed it: every host test builds all engines in. New: tests/oc_pages_test.c builds Orange Cat's own engine set (tools/orangecat_engines.sh) under the address and undefined-behaviour sanitizers, and on MACRO and SHAPES (a spread of presets) presses each family button and turns SELECT 40 pages back and 40 forward, checking every page reached. With the old filter it stops on this crash.
 - [x] **0.5.4: a four note ORGAN DRAWBAR chord broke up (0.5.2).** MACRO's voices each claimed 3 of the 16 voice budget units (a CZ-1 voice is 2), whatever the model. Measured on the host, a voice costs 1.8x (VA) to 5.4x (FM) a CZ-1 voice; ADDTV (ORGAN DRAWBAR, ADDITIVE PAD) about 4 to 5x, so four of them were far past the processor. On the host the output stayed clean (the mixer's limiter held it), so this was the unit running out of time. Now each model claims 1.5x its measured cost (eng_macro.c MC_UNITS: VA 3, WAVSHP 3, FM 8, GRAIN 4, ADDTV 7, CHORD 5, SWARM 5, NOISE 4, PARTCL 6, STRING 6, MODAL 6, KICK 4, SNARE 4, HI-HAT 5, HARP 3), and SHAPES' shapes 2 to 4 (sh_units). ORGAN DRAWBAR now holds two notes; held keys past that take the oldest note's place. The CHORD presets play one voice again (LEG): the model already makes a four note chord from one key. Tested: macro_test holds four keys on ORGAN DRAWBAR and finds two voices, the newest kept. The 1.5x is a guess between the host's figures and 0.5.2's: the unit's CPU meter will tell (left to test below).
@@ -677,7 +819,7 @@ Left to test (specification 13):
 - [x] **0.5.5: HARP sounded like a xylophone (0.5.3 on the unit).** Its preset had HARM at 64, the same as PLUCKED STRING. In the string model HARM is the string's non-linearity, zero between 0.24 and 0.26 (31 to 33 of 127); above that the partials stretch (at 64: 1, 1.98, 2.92, 3.78, 5.46 times the note), which is a struck bar's sound. HARP, STRING CHORDS and PLUCKED STRING now have HARM 32 (partials 1, 2.01, 3.00: a string), and HARP rings longer (MRPH 100). Turn HARM up for the woody and metal sounds.
   - Left to test: HARP and STRING CHORDS sound like plucked strings.
 
-## Phase 5: Track views
+### Phase 5: Track views
 
 **Status: In progress (the tracker page: 0.4.2, its columns 0.5.2)**
 
@@ -710,9 +852,7 @@ Left to test:
 - [ ] Tracker to pads to step sequencer to tracker preserves all musical data.
 - [ ] Details a view cannot show stay intact and reachable.
 
----
-
-## Phase 6: Loadable engine study
+### Phase 6: Loadable engine study
 
 **Status: Not started**
 
@@ -731,9 +871,7 @@ Left to test:
 
 Decision (fill in): slots adopted / built-in engines only.
 
----
-
-## Phase 7: Mutable Instruments engines
+### Phase 7: Mutable Instruments engines
 
 **Status: In progress.** Plaits is in as the MACRO engine (0.5.0), Braids as SHAPES (0.5.1). Clouds is next.
 
@@ -743,7 +881,7 @@ Order: Plaits, Braids, Clouds, then Rings, Elements, Warps, Tides.
 
 Naming: Mutable Instruments asks that derivative works not use its name and not keep the module names. So the engines get names of their own on the FM-1 (Plaits is MACRO). The license file and the code name the source, as Melodee already does for its Rings port.
 
-### Plaits: the MACRO engine (0.5.0, built)
+#### Plaits: the MACRO engine (0.5.0, built)
 
 How it was ported:
 - The C++ was ported to C, not compiled as C++: the toolchain has no C++ runtime and the firmware has no libc. Each class became a struct, each template an argument. Every float operation is in the same order as the C++.
@@ -786,7 +924,7 @@ Left to test (0.5.0):
 - [ ] KICK DEEP, SNARE and HI-HAT on three tracks as a drum kit from the sequencer.
 - [ ] Saving and loading a project with MACRO sounds.
 
-### Braids: the SHAPES engine (0.5.1, built)
+#### Braids: the SHAPES engine (0.5.1, built)
 
 - All 47 of Braids' shapes ported to C (firmware/src/braids/), integer as the original. tests/braids_parity runs
   Braids' own MacroOscillator (g++) beside the port through five scenarios per shape (held; a TIMBRE / COLOR sweep with
@@ -848,22 +986,20 @@ Measurements (fill in):
 | Warps | | | | |
 | Tides | | | | |
 
-### Engines to bring back (asked for October 22, 2026)
+#### Engines to bring back (asked for October 22, 2026)
 
 - [ ] WHEEL (Melodee's legacy engine 7, out since phase 3 with the other legacy engines: core.h MELODEE_LEGACY_EXTRAS).
 - [ ] DRUM-X (Skiff's drum engine; also what the drum grid needs to be heard, see phase 4).
 - Not urgent. ORGAN DRAWBAR at two notes is fine for now (Jeremiah, October 22, 2026).
 
----
-
-## Effects from Jiant FM (0.6.0, branch fx-jiant)
+### Effects from Jiant FM (0.6.0, branch fx-jiant)
 
 **Status: Built and host tested. Not tried on the unit. Not on main, not released.**
 
 Asked for October 22, 2026: replace Orange Cat's effects with Jiant FM's, keep one internal user sample slot, keep
 everything else working. The full record of decisions is docs/orangecat/FX_MIGRATION.md (on the branch).
 
-### Done
+#### Done
 
 - [x] Per track: DIST (SOFT HARD FOLD CRUSH RECT AMP; DRIVE, TONE), AUTO PAN (free or on the beat, five waves), the
       sends REV, DLY, CHO, and SLC (the track into the SLICER).
@@ -888,20 +1024,20 @@ everything else working. The full record of decisions is docs/orangecat/FX_MIGRA
 - [x] Fixes from an independent review of the first checkpoint (FX_MIGRATION.md decision 17).
 - [x] Audition WAVs of every model (build/audition/ from tests/jfx_test.c).
 
-### Left to build
+#### Left to build
 
 - [ ] A sample engine that plays the internal slot (nothing plays it yet).
 - [ ] Jiant's punch-in note effects (octave, decay, stutter, arp, random, half tempo), DUCK and PUNCH (they need
       DRUM-X), the punch-in lane. Not ported (FX_MIGRATION.md decisions 8 and 11).
 - [ ] Web editor backups still do not hold Orange Cat's own data (an older gap, not this work's).
 
-### Left to test (on the unit)
+#### Left to test (on the unit)
 
 - [ ] Everything. No hardware here. The procedure is below.
 - [ ] CPU time of each effect on the device: not measured. Host times (x86, not the device) are below for comparison
       only.
 
-### Measurements
+#### Measurements
 
 Firmware (CI builds of the branch; baseline 0.5.6 at 10615fc):
 
@@ -960,7 +1096,7 @@ Host time for one 32-sample block (x86 at -O1, this machine; not the device, not
 
 (One run on a quiet machine; a busy machine reads 20 to 30 % higher. tests/jfx_test.c prints these each run.)
 
-### On-device test procedure
+#### On-device test procedure
 
 Install the CI package of the branch (Actions > build > the run for fx-jiant > packages) with the web installer's
 file option. Back up first (web editor > Backup). Then:
@@ -985,16 +1121,14 @@ file option. Back up first (web editor > Backup). Then:
 
 Report anything odd with what was on the screen.
 
----
-
-## Take folders and the clip browser (0.6.1, branch fx-jiant)
+### Take folders and the clip browser (0.6.1, branch fx-jiant)
 
 **Status: Built and host tested. Not tried on the unit.**
 
 Asked for October 22, 2026: a simple file browser to assign existing clips to phrases; WAVs on the card in folders named
 after the project; the folder renamed when an unnamed project is saved with a name.
 
-### Done
+#### Done
 
 - [x] New takes in /ORANGECAT/<project name>/ (/ORANGECAT/UNTITLED while unnamed).
 - [x] Saving unnamed music with a name moves its phrases' takes out of UNTITLED. Renaming a project (or saving it back to
@@ -1010,7 +1144,7 @@ after the project; the folder renamed when an unnamed project is saved with a na
       reads the card the test wrote with an independent FAT reader (pyfatfs): every take where it should be, sample
       for sample, no cluster in two files.
 
-### Decisions made without asking
+#### Decisions made without asking
 
 - The browser lives on the MIXER page's OCT+ sheet (where freezing already is), not a page of its own.
 - A clip must already be in the takes' format (16-bit stereo 44.1 kHz). No conversion on the FM-1.
@@ -1020,7 +1154,7 @@ after the project; the folder renamed when an unnamed project is saved with a na
 - A take shared by two projects stays in the folder of the project that made it when the other is renamed.
 - Files with no phrase using them move only with a whole-folder rename.
 
-### Build fix found on the way (tools/audio_ram.py)
+#### Build fix found on the way (tools/audio_ram.py)
 
 The first 0.6.1 build would not link: a struct copy in flash code (seq_tool_ui) became a call of memcpy, which lives in
 SRAM for the audio code, and from that far into the flash the call is out of the processor's branch range. Code
@@ -1028,7 +1162,7 @@ moving around had pushed it past the line; any new feature could do it again som
 code its own copies of memcpy and memset, and every flash function calls those. A first fix through function pointers
 worked but cost 8 KB of flash.
 
-### Measurements (CI)
+#### Measurements (CI)
 
 | | 0.6.0 (51a6557) | 0.6.1 |
 |---|---|---|
@@ -1044,12 +1178,12 @@ table in the boot-filled scratch RAM was tried: it took the arena's retained ban
 **Flash is nearly full.** About 2.7 KB is left. The next feature of any size needs flash freed first (a size review of
 what the image holds, tools/size_report.py, is the place to start).
 
-### Left to build
+#### Left to build
 
 - [ ] Deleting takes from the card (the browser only picks).
 - [ ] Converting other WAV formats (mono, 48 kHz, 24-bit).
 
-### Left to test (on the unit)
+#### Left to test (on the unit)
 
 - [ ] Freeze in a new project: the take is in /ORANGECAT/UNTITLED. Save it as a name: after a moment (stopped), the take is
       in /ORANGECAT/<name>, and the phrase still plays it.
@@ -1057,9 +1191,7 @@ what the image holds, tools/size_report.py, is the place to start).
 - [ ] Assign clip: a WAV from a computer (16-bit stereo 44.1 kHz) in a folder of the card, given to a phrase, plays.
 - [ ] USB MIDI comes back when the browser closes (with no frozen phrase in use).
 
----
-
-## Smaller screen code (0.7.0, branch gui-slim)
+### Smaller screen code (0.7.0, branch gui-slim)
 
 Asked for October 22, 2026: shrink the screen code to make room for more synth engines and more effect memory. Keep
 every musical feature. A plainer look is fine. The full record (research, every experiment, the numbers) is in
@@ -1099,7 +1231,7 @@ engines, no cache, four takes playing, CLOUD and the stutter (the delay and the 
 - [x] CI build with all host tests.
 - [ ] Unit: see the test list in GUI_SLIM.md ("On the unit").
 
-## Size audit (branch size-audit, October 23, 2026)
+### Size audit (branch size-audit, October 23, 2026)
 
 **Status: Done (measurements and five changes); not merged.** Full report: docs/orangecat/SIZE_AUDIT.md.
 
@@ -1138,7 +1270,7 @@ tables, 39,750 B, first); then the app area's end moved from 0x93000 to 0x9D000 
 Left to test (on the unit): a take recorded with FatFs built for size (write speed), the UI with the screen driver
 built for size.
 
-## Tracker review (branch tracker-events, October 23, 2026)
+### Tracker review (branch tracker-events, October 23, 2026)
 
 **Status: Done (the review and one change); not merged.** docs/orangecat/TRACKER_REVIEW.md.
 
@@ -1153,7 +1285,7 @@ recorded step's events (the overview a derived cache only).
 
 Left to test (on the unit): the tracker on a live recording; KNOB 4 at a step a detent.
 
-## Overnight run (0.7.2 to 0.8.0, branch sonnet-work, October 23, 2026)
+### Overnight run (0.7.2 to 0.8.0, branch sonnet-work, October 23, 2026)
 
 **Status: built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on
 branch `sonnet-work` (from `size-audit-gui`, f6394df: image 512,164 B, 65,084 B free, RAM .data+.bss 92,728 B, arena
@@ -1172,7 +1304,7 @@ branch `sonnet-work` (from `size-audit-gui`, f6394df: image 512,164 B, 65,084 B 
 
 (Free flash is the audit's limit, 577,248 B = 512,164 + 65,084, less the image.)
 
-### Done
+#### Done
 
 - [x] **Step 1 (docs/orangecat/TRACKER_REVIEW.md).** `event_open`, `event_replace`, `event_delete` in seq_undo.c carry the
   one sequence NOTES, the tracker and the pads each wrote out. A manual overwrite of a recorded step deletes its events
@@ -1193,7 +1325,7 @@ branch `sonnet-work` (from `size-audit-gui`, f6394df: image 512,164 B, 65,084 B 
 - [x] **Step 3.** DRUM-X: ENGINE_LOADING_PLAN.md "DRUM-X". A lower bound: Jiant's voice (528 lines, unchanged) with 69 lines
   of glue, not the 615-line engine wiring.
 
-### Decisions made without asking
+#### Decisions made without asking
 
 1. **The retired engines' areas are not free**, so the spec's build-time retirement of the Prophet, CZ-1 and FM6 bank objects
    would delete library banks 4, 5 and 8 to 20 (up_obj in upreset.c). It is off by default. The pack retires only the
@@ -1216,7 +1348,7 @@ branch `sonnet-work` (from `size-audit-gui`, f6394df: image 512,164 B, 65,084 B 
 10. The VERSION file was not touched (it holds the release number, 0.6.2); the feature versions 0.7.2 and 0.8.0 are in the
     code comments and Revisions lists.
 
-### Left to build
+#### Left to build
 
 - A real DRUM-X port (the wiring of Jiant's eng_drum.c to Orange Cat's track fields), then the question of keeping it resident.
 - Moving the user preset library out of the Prophet, CZ-1 and FM6 areas, which frees them without asking: the module area
@@ -1225,7 +1357,7 @@ branch `sonnet-work` (from `size-audit-gui`, f6394df: image 512,164 B, 65,084 B 
 - PACK MISSING at boot, not only when an engine is chosen.
 - Stopping the transport for a pack install instead of refusing.
 
-### Left to test (on the unit)
+#### Left to test (on the unit)
 
 Nothing here has run on hardware. In this order; stop at the first failure and keep the unit as it is.
 
@@ -1255,7 +1387,7 @@ Nothing here has run on hardware. In this order; stop at the first failure and k
 10. **Project save and load, the sample slot and the card's takes** once more with the pack installed (they share
     the flash map; none writes 0x93000..0x9CFFF).
 
-### Tests added or changed
+#### Tests added or changed
 
 - `tests/oc_pack_test.c` (new): boot states, install, a write torn at every program, bad CRC, hash, length and header
   CRC, the tail rule, the library's banks, take, the boot wipe, erase.
@@ -1267,7 +1399,7 @@ Nothing here has run on hardware. In this order; stop at the first failure and k
 - `tools/gen_pack.py --check` as a step of the suite; `web/test_web.mjs`: the pack's requests and replies.
 - The full suite in CI (tests/run_tests.sh, no .ci_quick): green on 874b320 (run 39924263772, tests step 8 min 24 s). Local runs without the built package stop at the package-dependent tests. Five `_oc` preset tests failed in a local run: explained in Fix 3 below (they need Prophet, CZ-1, FM6 and DRUM on).
 
-## Second run (0.8.1 and 0.9.0, branch sonnet-work, October 23, 2026)
+### Second run (0.8.1 and 0.9.0, branch sonnet-work, October 23, 2026)
 
 **Status: built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on branch
 `sonnet-work`, from 62346dc (image 477,356 B, 99,892 B free, RAM .data+.bss 92,744 B, arena 95,840 B, pool 176,768 B). The
@@ -1285,7 +1417,7 @@ reference branches (size-audit, tracker-events, gui-slim, exp/*) were not change
 | Step 5c. PoC steps | | Done (written) | docs/orangecat/ENGINE_LOADING_PLAN.md 0.6, "The proof of concept, the next steps" |
 | Step 6. Docs | | Done | this file (0.58 to 0.60), plan 0.6, SPEC 0.21, GUIDE, web/EDITOR_PROTOCOL.md, the Project and the Mac folder |
 
-### Fix 1 (docs/orangecat/ENGINE_LOADING_PLAN.md "Where the library's banks can go")
+#### Fix 1 (docs/orangecat/ENGINE_LOADING_PLAN.md "Where the library's banks can go")
 
 The inventory lists every sector from 0x93000 to 0xFFFFF: object, content, pair, free or not. 109 sectors. The library has 22
 banks of two sectors (44). The pack (0x93000, 10 sectors) and the module area (0xC8000, 20 sectors) sit exactly on banks 16 to
@@ -1297,14 +1429,14 @@ slots lost for each install, are in the plan. **Recommendation: (a) now, (d) bef
 not recommended (a power cut loses a whole bank). Not implemented: (c) or (d) without your say. 1d, the inventory for banks 4,
 5 and 8 to 15, is in the same table.
 
-### Fix 2
+#### Fix 2
 
 `pack_boot_notice` in ui.c runs in main.c right after `project_boot`, where BOOT PROJECT SKIPPED is said. When the pack is
 not there and a track of the loaded project uses MACRO or SHAPES, it says PACK MISSING in place of LOADED. A boot the guard
 skipped keeps its own word. The notice on choosing an engine and on playing a key is as it was. Test: a SHAPES track, a MACRO
 track, the pack there, no such track, a skipped boot, and no repeat after 1.5 s of frames.
 
-### Fix 3
+#### Fix 3
 
 The five `_oc` tests (persistence, preset_boot_reset, storage_safety, backup, unified_presets) fail only when built with
 tools/orangecat_engines.sh's engine set (Prophet, CZ-1, FM6 and DRUM off). Measured by turning one switch off at a time: FM6 off
@@ -1315,7 +1447,7 @@ default engine set, which run_tests.sh uses, all pass. No firmware bug is hidden
 (tests/need_all_engines.h), run_tests.sh refuses a CC that carries engine switches, BUILDING.md says so, and settings_origin_test
 and upreset_test, which pass with the Orange Cat set, also run in it.
 
-### Step 4: DRUM-X as built
+#### Step 4: DRUM-X as built
 
 Source: Jiant FM (juanjiant-bit/jiant, commit dc8d025, GPL-3.0-only). Files: `firmware/src/drumx_voice.c` (the voice, Jiant's
 with the kit passed as a parameter and TONE BP and HANDS fixed at 0), `firmware/src/eng_drumx.c` (the engine_t). Switch:
@@ -1380,7 +1512,7 @@ tests/target_budget.txt from the full CI run 39998191949: dx_run 324, dx_layer 6
 other engines have. The render loops are small because the voice does little per sample (it runs at half rate with integer
 products); the host cost in the regression suite's table is 49.9 ns a sample for the heaviest kit, the same as DRUM's.
 
-### Step 5a: the interface identifier
+#### Step 5a: the interface identifier
 
 `tools/gen_fw_api_id.py` hashes the text of `fw_api_t` and of `param_desc_t`, `voice_t`, `vmod_t`, `preset_t`, `engine_t` and
 `track_t` (comments and white space removed) into `build/gen/fw_api_id.h`, made by build.py and by run_tests.sh. `FW_API_IFACE`
@@ -1388,7 +1520,7 @@ adds four `sizeof` values the text cannot show. `fw_api_t.iface` holds it (the o
 `FW_API_VERSION` is 2, `fw_mod_hdr_t` and `fw_module_check` are in fw_api.h. Nothing in the image calls the check. Details and
 the tests: plan 0.6 "Built (0.9.0, step 5a)".
 
-### Step 5b: the module experiment (exp/sonnet-module, never merged)
+#### Step 5b: the module experiment (exp/sonnet-module, never merged)
 
 `tools/module_exp/shapes_mod.c` and `run.sh` build eng_shapes.c and braids/ as a separate object with the JieLi clang 4.0.1 under
 several options and link it at 0x020C8000 and 0x020D4000. Result: the object is 23,789 B (23,780 B linked), 188 relocations
@@ -1397,7 +1529,7 @@ not link (GOT16 truncated); -fropi, -frwpi, -mno-pic are not accepted; ld -q kee
 available. A module is therefore address fixed: one link a start address. The full table and the reasoning are in the plan.
 The experiment branch stays on origin for reference; `tools/module_exp/` is not on sonnet-work.
 
-### Decisions made without asking
+#### Decisions made without asking
 
 1. **No bank moves (Fix 1).** The inventory says it cannot be done without a placement format change; that needs your say.
 2. **Slot 9 is DRUM-X, not a new engine number.** The numbers are fixed and new engines are appended, but the slot was retired
@@ -1414,7 +1546,7 @@ The experiment branch stays on origin for reference; `tools/module_exp/` is not 
 9. **tests/cpu_baseline.txt was not given DRUM-X lines**: the host has no instruction counter in this environment (the check
    prints that the budget is not checked), so a measured line is not possible here.
 
-### Left to build
+#### Left to build
 
 - The kit editor and the other items in the table above (each is a project format change or a larger piece of wiring).
 - The library move, option (d) (a shared spare sector), before the first module is installed.
@@ -1422,7 +1554,7 @@ The experiment branch stays on origin for reference; `tools/module_exp/` is not 
 - `tests/cpu_baseline.txt` lines for DRUM-X, on a host with an instruction counter.
 - Stopping the transport for a pack install instead of refusing.
 
-### Left to test (on the unit)
+#### Left to test (on the unit)
 
 Everything from "Overnight run" above still stands (nothing there has run on hardware). Added by this run:
 
@@ -1438,7 +1570,7 @@ Everything from "Overnight run" above still stands (nothing there has run on har
 7. **The web editor.** Connect: the engine list has DRUM-X after DRUM; its eight values and nine presets show.
 8. **PACK MISSING at boot (Fix 2).** Erase the pack, save a project with a SHAPES track, power off and on: PACK MISSING once.
 
-### Tests added or changed
+#### Tests added or changed
 
 - `tests/drumx_test.c` (new), `tests/drumx_ref.h`, `tests/drumx_ref.txt`, `tools/drumx_ref_gen.sh`: 288 of 288 reference renders equal to
   Jiant's own file (9 kits x 8 lanes x 4 scenarios, FNV-1a 64 of every output sample); registration, the GM map against the grid's
@@ -1456,7 +1588,7 @@ Everything from "Overnight run" above still stands (nothing there has run on har
 - Full suite in CI (tests/run_tests.sh, no .ci_quick): green on aa267e1 (run 39996162974) and on the commit after the list
   reorder (run 39998191949, which gave the budget lines). The final commit's run is named in the report that ended the work.
 
-## Third run (0.9.1 and 0.10.0, branch sonnet-work, October 23, 2026)
+### Third run (0.9.1 and 0.10.0, branch sonnet-work, October 23, 2026)
 
 **Status: Parts 1 and 2 built, host tested, size measured in CI. Not tried on the unit. Not merged, not released.** Everything is on
 branch `sonnet-work`, from 23fda9c (image 487,544 B, 89,704 B free, .data+.bss 92,776 B, arena 95,104 B, pool 176,768 B).
@@ -1469,7 +1601,7 @@ firmware and the presets are migrated again at the next boot. A backup made afte
 sector of the group and writes an old pair record there. Back up before going below 0.9.1 and restore after coming back. See "Fifth run", Fix 1,
 for what the migration does with what is left.
 
-### Part 1: the library group (0.9.1)
+#### Part 1: the library group (0.9.1)
 
 | Item | Status | Result |
 |---|---|---|
@@ -1492,7 +1624,7 @@ about 36 s, which a healthy part never comes near. If the first boot takes more 
 CI run 40028869448 (`.ci_quick`): image 487,840 B (+296), 89,408 B free, .data+.bss 92,920 B of 98,304 (+144), arena 95,232 B (+128), pool 176,768 B (0).
 Budgets unchanged.
 
-### Part 2: SHAPES as a module (0.10.0)
+#### Part 2: SHAPES as a module (0.10.0)
 
 Each step is its own commit on `sonnet-work`, built in CI and tested on the host. The description, the decisions and the measurements are in
 docs/orangecat/ENGINE_LOADING_PLAN.md 0.7, "The SHAPES module, as built". The short form:
@@ -1521,13 +1653,13 @@ Budgets and golden hashes unchanged. Total over the base commit 23fda9c (image 4
   would make the update loader erase that sector at the next update, and the module would then read as damaged and fall back.
 - The throwaway branch `exp/sonnet-noshapes` exists on the remote for the measurement only. Delete it when you like.
 
-### Left to build
+#### Left to build
 
 - Step 7 and what it shows (below). Then the engines tab (discover, assign, replace, remove from one list), the admission check, MACRO as a module (10 sectors: start 0 only, so SHAPES and MACRO do not both fit the 12 sector area), the Prophet back as a module with its own pages carried as data.
 - The module's tail rule, if the unit shows it matters.
 - Time of a migration and of an install on the unit (both estimated, not measured).
 
-### Left to test (on the unit)
+#### Left to test (on the unit)
 
 1. **Migration.** (Part 1.) With 0.9.0 on the unit and presets in several banks, make a full web backup, install this firmware, power on. "MOVING PRESETS" shows once. Every preset is there afterwards. Power off during the bar once: it finishes at the next power-on.
 2. **Pack.** Install the pack from the web page and from the card: no question about banks, no preset lost.
@@ -1545,7 +1677,7 @@ Budgets and golden hashes unchanged. Total over the base commit 23fda9c (image 4
    g. Watch for: a restart within 30 s of power-on with the module playing (the next boot should leave it out and the box should say it stopped the unit), a slow install, anything in the library, pack or projects that changed.
    What to send back: whether each of a to g did what it says, and the time for b.
 
-### Tests added or changed
+#### Tests added or changed
 
 - Part 1: `tests/lib_group_test.c` (new): table, save and reload of all 22 banks, a cut at each program step and each header byte, two valid copies after a cut, a full group, 2,300 random saves, migration (all, some, none, a cut at each of 418 operations plus a second cut), old firmware refusing group sectors, backups made with pairs and with the group restored, a newer old pair re-migrating, the other areas untouched.
 - Part 1, adapted: `storage_test`, `fm6_preset_test`, `persistence_test`, `unified_presets_test`, `storage_safety_test`, `backup_test`, `oc_pack_test`, `editor_test`, `preset_boot_reset_test`, `usb_host_test`, `web/test_web.mjs`.
@@ -1554,7 +1686,7 @@ Budgets and golden hashes unchanged. Total over the base commit 23fda9c (image 4
 - Extended: `tests/fw_api_test.c` (version 3, the new fields, single-bit refusals of the table address), `tests/editor_test.c` (commands 120 to 124 over a simulated flash with the module window), `tests/usb_host_test.c` (the card path: damaged table, stranger, another firmware, no place, no image, a flash error, the whole install), `web/test_web.mjs` (requests, replies, the package, every check the page makes), `tests/regress.c` (a guard only).
 - No golden hash or budget changed.
 
-## Fourth run (0.10.1 and 0.11.0, branch sonnet-work, October 23, 2026)
+### Fourth run (0.10.1 and 0.11.0, branch sonnet-work, October 23, 2026)
 
 **Status: the five fixes, admission, the Engines table and the documents are built, host tested and green in CI. Not tried on the unit. Not merged, not released.**
 Everything is on branch `sonnet-work`, from 9dbca48 (CI run 40037140192; image 489,916 B, 87,332 B free, .data+.bss 93,128 B, arena 95,104 B, pool 176,768 B).
@@ -1562,7 +1694,7 @@ The last commit and the final numbers are at the end of this section.
 
 **Back up the unit before installing this firmware** (the first boot of 0.9.1 moves the presets; firmware before 0.9.1 cannot read the new group). Step 1 of the checklist below does it.
 
-### What was done
+#### What was done
 
 | Item | Version | Status | Result |
 |---|---|---|---|
@@ -1603,13 +1735,13 @@ The header is 60 bytes now (52 in 0.10.x); no 0.10.x module is on a unit.
 **Part 3 in short.** `ED_ENGINES` (125): per engine number source, module state, why, start, version, length and the tracks that hold it, then the starts (a torn start names no engine). The page's
 Engines table is built from that and the names of INFO. A firmware without 125 keeps the two buttons of 0.10.x.
 
-### Migration time (Fix 5)
+#### Migration time (Fix 5)
 
 The flash is a Puya P25Q80H class NOR (JEDEC 0x856014). The Puya P25Q family's data sheets give a 4 KB sector erase of about 10 to 30 ms and a page program of about 0.5 to 2 ms, typical (I read the
 P25Q32H sheet: erase 10 ms typical, 15 ms maximum; page program 2 ms typical, 3 ms maximum; the P25Q80H sheet itself I could not read). The driver (hal/fm1_flash.h) waits up to 500 ms for an erase
 and 10 ms for a program. The 0.9.1 migration is 66 erases and 352 programs: about 1 to 3 s, once, at the first boot. The worst case the driver allows is about 36 s. More than 5 s is a finding.
 
-### Decisions made without asking (you may disagree)
+#### Decisions made without asking (you may disagree)
 
 - Admission uses voice units and the arena only. There is no render budget in the firmware (`MELODEE_ADMISSION` is 0, "enable only with a calibrated performance contract"), so the cost word is carried, not used. A single voice
   heavier than the whole voice budget is the only "too heavy" case, which SHAPES (2 to 4 units against 8 to 32) never meets; the refusal paths are tested on the host with a fake module only.
@@ -1623,7 +1755,7 @@ and 10 ms for a program. The 0.9.1 migration is 66 erases and 352 programs: abou
 - The throwaway branch `exp/sonnet-noshapes` is kept: this file and the unit procedure name it. It is brought to the current head (a merge, no force) so its build takes the current module. `exp/sonnet-sdkgrep` (the SDK header search, run 40047398043) could not be deleted from the session (the git proxy refuses a branch delete); delete it when you like.
 - The wall time of the migration comes from the P25Q32H sheet of the same family, not the P25Q80H sheet.
 
-### Left to build
+#### Left to build
 
 - Step 7 of the proof of concept and what the unit shows (the checklist).
 - A render-time budget (the instruction counts per engine are a CI check, not a number the firmware reads), then the admission adds the sum over the tracks of cost times voice units.
@@ -1631,7 +1763,7 @@ and 10 ms for a program. The 0.9.1 migration is 66 erases and 352 programs: abou
 - MACRO as a module (10 sectors: start 0 only, so SHAPES and MACRO do not both fit the 12 sector area), the Prophet as a module with its pages as data.
 - Time of a migration and of an install on the unit (estimated, not measured).
 
-### Left to test (on the unit): one ordered checklist
+#### Left to test (on the unit): one ordered checklist
 
 Files, from the final CI run's `packages` artifact (names are `orangecat-0.6.2-<sha7>` with the commit the run built; the VERSION file reads 0.6.2): `.fwsc`, `.pak` (40,232 B), `orangecat-shapes-0.6.2-<sha7>.ocm` (47,660 B), `orangecat-prophet-0.6.2-<sha7>.ocm` (63,836 B) and the three set files `.pack.set.json`, `.shapes.set.json`, `.prophet.set.json`. For step 13, also the `.fwsc` of the run named at the end of this section
 (run 40052966701, branch `exp/sonnet-noshapes`, the same code with SHAPES left out of the image). Do the steps in order. Each says what you should see. Send back whether each did, and the times asked for.
@@ -1685,7 +1817,7 @@ Files, from the final CI run's `packages` artifact (names are `orangecat-0.6.2-<
 
 What to send back: for each step, whether it did what it says, the times asked for (steps 2 and 7), and anything that restarted.
 
-### Sizes and CI
+#### Sizes and CI
 
 Run 40051607092 (the code of Parts 1 to 3, no `.ci_quick`, full suite): image 491,620 B, 85,628 B free, .data+.bss 93,128 B of 98,304, arena 95,072 B, pool 176,768 B. Over the base
 9dbca48 (image 489,916 B, 87,332 B free, arena 95,104 B): image +1,704 B, free -1,704 B, RAM +0, arena -32 B, pool 0. No golden hash or budget changed. The run before it (40050939555) failed one lint, an
@@ -1694,7 +1826,7 @@ Run 40051607092 (the code of Parts 1 to 3, no `.ci_quick`, full suite): image 49
 Run 40052966701 (branch `exp/sonnet-noshapes`, throwaway: sonnet-work merged in, SHAPES built out of the image; its `.fwsc` is the one for checklist step 13): image 468,388 B, 108,860 B free, .data+.bss 93,128 B, arena 95,072 B, pool 176,768 B.
 The commits after run 40051607092 change documents only, so its numbers are the final code's. The final full-suite run on the last commit is named in the last message of the session.
 
-### Tests added or changed
+#### Tests added or changed
 
 - Fix 1: `tests/ocflash_test.py` (new, in run_tests.sh): xip against fm1_xip.h's text, crc16 and the record rule against the firmware's own C on 300 records, the loader's text. `module_build_test.py`: the padding path with a stand-in toolchain
   (moves, sector 1, never passes, no package). `oc_module_test.c`: tail tests (installer rc 8 before the commit, loader state 8). `editor_test.c`, `test_web.mjs`: rc 8, the page's own tail test.
@@ -1706,7 +1838,7 @@ The commits after run 40051607092 change documents only, so its numbers are the 
 - Part 3: `editor_test.c` (the reply byte for byte, a banned module, an argument refused); `test_web.mjs` (the parse and the rows: OK, built in, absent, banned, refused, torn, wrong tail).
 - Found on the way: a module's translation unit (tools/module/shapes_mod.c) must not define `oc_modguard` (core.h now leaves it out under `OC_MODULE`); `module_host_test` caught it.
 
-## Fifth run (0.11.1, branch sonnet-work, October 24, 2026)
+### Fifth run (0.11.1, branch sonnet-work, October 24, 2026)
 
 **Status: the six fixes are built and host tested. Green in CI. Not tried on the unit. Not merged, not released.**
 Everything is on branch `sonnet-work`, from fae1483 (CI run 40053801428; image 491,620 B). Each fix is its own commit with a test that failed before it and passes after.
@@ -1715,7 +1847,7 @@ Fixes 1 to 3 were tested in that way (the new tests were run against the old cod
 **A downgrade below 0.9.1 destroys the library.** Firmware before 0.9.1 cannot read the library group, and its first save writes over group sectors. Back the unit up before a downgrade and restore the backup after
 the upgrade. The 0.11.1 migration finishes after such a round trip, but the presets saved in the group before the downgrade are lost where the old firmware wrote over them.
 
-### What was done
+#### What was done
 
 | Fix | Result | Test |
 |---|---|---|
@@ -1726,7 +1858,7 @@ the upgrade. The 0.11.1 migration finishes after such a round trip, but the pres
 | 5. Two valid modules at boot (oc_module.c) | The higher header version wins; on equal versions the higher start. The loser is erased at that boot (not while lg_incomplete, and an erase error leaves it for the next boot). The next install then sees one module and a free start and goes beside. | `oc_module_test.c`: a replacement beside cut at every erase (12), the boot picks the newer, the loser is erased, the next install goes beside; the higher version at start 0; equal versions; lg_incomplete; an erase error; a banned winner. |
 | 6. Use marked at project load (oc_module.c, project.c) | `oc_mod_note_engine(e)` is called by `project_restore_runtime` as each track is given its engine. The main loop's `oc_mod_note_use` still runs. | `oc_module_test.c`: a project with a track on the module's engine is loaded and the use bit is set with no loop pass, a death then bans the module; a project without it marks and bans nothing. |
 
-### Decisions made without asking (you may disagree)
+#### Decisions made without asking (you may disagree)
 
 - From the flash contents alone, the picker cannot run out of sectors in the migration (a count shows at most 22 of the 23 sectors can be taken). LIBRARY NEEDS WIPE is a defensive state; it is tested through a host hook (`lg_test_reserve`), not through a real flash image.
 - The sequence rule cannot tell a pair written by the old firmware (it counts from 1) from a leftover. A bank whose group copy survives with a sequence at or above the pair's keeps the group copy, and the pair is erased as a leftover. After a downgrade, the presets saved with the old firmware can be lost for such a bank. The warning says to back up and restore.
@@ -1739,29 +1871,29 @@ the upgrade. The 0.11.1 migration finishes after such a round trip, but the pres
 - Fix 6: the use bit is set for the project the unit loads at boot and for every later load. The gap that remains is a death in the few milliseconds between persist_boot and the project load (nothing holds the engine yet).
 - The older two module tests (the lower start wins, a ban hands the number to the other) keep their intent with lg_incomplete set, which holds back the new erase. The erase itself has its own tests.
 
-### Left to build
+#### Left to build
 
 - Nothing new. The Fourth run's list stands (step 7, a render budget, a measured cost, MACRO and the Prophet as modules).
 
-### Left to test (on the unit)
+#### Left to test (on the unit)
 
 - The Fourth run's checklist stands. Add: after a downgrade below 0.9.1 and an upgrade, the unit must finish the move or say LIBRARY NEEDS WIPE (do this only with a backup).
 
-### Sizes and CI
+#### Sizes and CI
 
 Run 40068253460 (the code of Fixes 1 to 6, full suite, no `.ci_quick`, no "tests failed" annotation): image 492,692 B, 84,556 B free, .data+.bss 93,112 B of 98,304, arena 95,072 B, pool 176,768 B.
 Over fae1483 (run 40053801428, image 491,620 B, 85,628 B free, .data+.bss 93,128 B): image +1,072 B, free -1,072 B, RAM -16 B, arena 0, pool 0. No golden hash or budget changed.
 The commit after this run changes documents only. The final full-suite run is named in the last message of the session.
 
-### Tests added or changed
+#### Tests added or changed
 
 - `tests/lib_group_test.c` (`LG_TEST_HOOKS`, `fail_read_n`, `fail_erase_n`), `tests/unified_presets_test.c` (`needwipe_recovery`), `tests/oc_module_test.c` (the window, the parking, the irq pairs, two valid modules, project load), `tests/persistence_test.c` (the interrupt calls counted).
 
-## Sixth run (0.11.2 and on, branch sonnet-work, October 24, 2026)
+### Sixth run (0.11.2 and on, branch sonnet-work, October 24, 2026)
 
 **Status: Part 1 (0.11.2), Part 2a (measurements), Part 2b (pages as data) and Part 3 (Use and Replace) are built and host tested (0.12.0). Part 2c and 2d are not built: the Prophet does not fit a start. Part 4 is these documents. Not tried on the unit. Not merged, not released.**
 
-### Part 1: the installer page installs the whole set (0.11.2)
+#### Part 1: the installer page installs the whole set (0.11.2)
 
 The firmware is unchanged. No reply was missing anything the page needs.
 
@@ -1794,21 +1926,21 @@ In the packages artifact of a CI run the same files are named `orangecat-VER-SHA
 
 **Old firmware (1c).** No reply to 115 means a firmware without the commands (the stock unit, or Orange Cat before 0.8.0). The firmware stage runs, the pack and module lines say "old firmware", and the summary says to run the page again. A firmware with 115 but not 120 installs the pack and says the same for the modules. A firmware with 120 but not 125 never skips a module as current (it installs it again).
 
-### Left to build (Part 1)
+#### Left to build (Part 1)
 
 - Nothing.
 
-### Left to test (Part 1, on the unit)
+#### Left to test (Part 1, on the unit)
 
 - Add to the unit checklist, in order: on a unit with the previous Orange Cat, open the installer page, leave all stages on, press Install. Expected: one bar to the end; the unit restarts; the summary lists firmware installed, pack installed or current, module installed or current. Run the page again: pack and module say current. Then a unit with the stock firmware: the firmware installs, the pack and module say old firmware, and a second run finishes the set.
 
-### Tests added (Part 1)
+#### Tests added (Part 1)
 
 - `web/test_installer_set.mjs` (run by `web/test_installer.mjs`): a mocked unit speaking 115 to 125; all stages in order; pack and module current (nothing written); pack current and module missing; no reply to 115, 120 or 125; BEGIN refused with rc 4 then accepted; stages left out; the unit not coming back; no pack file; a pack of another build; a tail refusal (rc 8); a module of another interface; the unit lost during a write; `probeUnit` and `moduleCurrent`; the `.ocm` reader compared as text with the editor's.
 - `tests/orangecat_site_test.py`: the served names and `release.json`, a site without a set, each refusal (pack hash, pack length, module interface, module pack hash, damaged files, no manifest), an older release keeping its set, stale files removed, the manifest writer.
 - `web/test_web.mjs`: the older installer tests now give their fake page the new Firmware checkbox and the flow functions.
 
-### Part 2a: the Prophet and MACRO measured as modules (branch exp/sonnet-p5mod, not merged)
+#### Part 2a: the Prophet and MACRO measured as modules (branch exp/sonnet-p5mod, not merged)
 
 CI runs 40072070279 and 40072274702 (`.ci_quick`, the Pi32 compiler at -Os, `tools/build.py --module prophet|macro --measure`). The module sources and the new `fw_api_t` members live on the experiment branch only.
 
@@ -1829,7 +1961,7 @@ CI runs 40072070279 and 40072274702 (`.ci_quick`, the Pi32 compiler at -Os, `too
 
 Findings: the Prophet fits a start only with its tables elsewhere; a second pack has no room (the pack area is ten sectors and the pack is 40,232 B). MACRO has 4 bytes of .data; the build refuses a module with .data, so MACRO needs that seed moved into the engine state before it could be a module. The hot code of the Prophet runs from RAM on the firmware and from flash in a module (the source's own warning: XIP stalls dominated the first hardware run). The write-up is in docs/orangecat/ENGINE_LOADING_PLAN.md 0.9, "The Prophet as a module".
 
-### Part 2b: a module's pages as data (0.12.0)
+#### Part 2b: a module's pages as data (0.12.0)
 
 **Done.** The design and the byte layout are in the plan 0.9 ("The page descriptor, as built") and `firmware/src/fw_pages.h`. What was built:
 - `fw_pages.h` (new): FAM_, SC_ (with SC_MOD), GR_ and `page_t` moved there from params.c, `fw_pages_t` (52 B on the device) and `fw_pages_check`, the loader's check on the flash bytes.
@@ -1842,24 +1974,24 @@ Findings: the Prophet fits a start only with its tables elsewhere; a second pack
 Decision you may dispute: the descriptor is reached through `engine_t.pages`, not through a new header word, so the `.ocm` header does not change and an older module is refused by the identifier.
 Not done: momentary take (LFO held) for a module's native values; the real Prophet descriptor (it would be a table nothing reads while the Prophet does not fit).
 
-### Part 2c and 2d: not built
+#### Part 2c and 2d: not built
 
 2a says the Prophet does not fit 6 sectors, so it is not built as a second module on sonnet-work (no `tools/build.py --module prophet`, no `.ocm` in the packages artifact or the site), and no cost line or voice-unit entry is added to `tests/target_budget.txt` or `eng_admit`. `eng_admit` reads the units from the registered engine_t already (voice units of the Prophet: 2 or 3), so a module would be admitted with its own numbers. What the Prophet needs is the list at the end of the plan's section.
 
-### Part 3: the Engines table assigns and swaps (0.12.0)
+#### Part 3: the Engines table assigns and swaps (0.12.0)
 
 **Done.** In web/editor.html:
 - **Use on track N.** A row for an engine the unit plays now (built in or a module) has a track list and a Use button. `assignEngine` selects the track, sends PRESET (engine, preset 0), which is the track engine command, reads the reply, and selects the previous track again. The unit's admission can refuse (fourth reply byte 1 engine too heavy, 2 no room): the text shows and the track keeps its engine.
 - **Replace with another engine's file.** `replaceOcm` (the install sequence moved out of the page's handler into the protocol part, with `ocmWrite`): a file of the row's own engine installs as before; a file of another engine a module may supply is a swap: checked against the unit, asked ("the tracks that use the present engine (N) are silent"), MOD_REMOVE for the old engine, MOD_INFO for the new (the freed start is the plan), then BEGIN, WRITE, END. Install on an empty row still takes only its own engine's file. Nothing is touched when the file is wrong, the user says no, or the unit refuses the remove.
 - Only SHAPES has a `.ocm` today, so a swap to another engine cannot be tried on the unit; it is tested on the host.
 
-### Left to build
+#### Left to build
 
 - The Prophet as a module: the area at 12 sectors for one module, or a second place for 21.8 KB of tables; the descriptor for the real engine; the cost lines; a measurement on the unit of its hot code from flash.
 - MACRO as a module (4 bytes of .data to move; 10 sectors).
 - Momentary take for a module's native values.
 
-### Unit checklist, additions (after step 17 of the Fourth run's list)
+#### Unit checklist, additions (after step 17 of the Fourth run's list)
 
 18. **Install everything from the page.** Stop the sequencer. Open the installer page, leave Firmware, Pack and Module on, press Install Orange Cat with the three files of one release. *See:* one bar to the end; the unit restarts after the firmware and the page finds it again; the summary lists the firmware, the pack and the SHAPES module as installed. Write down the total time and anything that stopped.
 19. **Run it again.** Press Install Orange Cat again with the same files. *See:* the summary says the firmware is current, the pack is current, the module is current, and nothing was written.
@@ -1867,7 +1999,7 @@ Not done: momentary take (LFO held) for a module's native values; the real Proph
 21. **Use.** In the Engines table press Use on a row for a built-in engine with a track chosen. *See:* the track takes the engine and its first preset; the selected track is the one you had. With GLO > GLOBAL BUDGET at 8 try the heaviest engine: ENGINE TOO HEAVY in the page, the track unchanged.
 22. **Replace.** Only the same-engine Replace of step 9 can be tried (there is one `.ocm`). The swap to another engine is host tested only. The Prophet module is not built, so there is nothing of it to try.
 
-### Sizes and CI (Parts 2 and 3)
+#### Sizes and CI (Parts 2 and 3)
 
 CI run 40074255845 on e3db920 (the full suite, green; the device build passed every check). Numbers from its size notices:
 
@@ -1877,23 +2009,23 @@ CI run 40074255845 on e3db920 (the full suite, green; the device build passed ev
 - Loop budgets: no line moved; the size notices show only the usual "note: -N %" lines for loops that are under budget.
 - The module-alone build (exp/sonnet-noshapes) is recorded in "Seventh run", Part 0.
 
-### Tests added or changed (Parts 2 and 3)
+#### Tests added or changed (Parts 2 and 3)
 
 - `tests/mod_pages_test.c` (new, in tests/run_tests.sh; the Orange Cat engine set, sanitizers) with `tests/fake_pages.h`: sixteen defects of the wire check, the pages exist only with the module and only on its engine's track, EDIT and SELECT, a knob edit through the hook, clamping, a dim column, an enum, a shown value, ENV, LFO and HOME, a native parameter recorded as motion and played back and restored, the skip bit, the stored-event rule with and without the module, removal. 47 checks.
 - `tests/editor_test.c`: commands 126 and 127 byte for byte (none, a built-in engine, a module, parts of the panel, refusals, after removal); a swap through the commands (SHAPES' module out, the Prophet's number into the same start, the plan, ENGINES, the refusals).
 - `tests/engine_table_test.c`: engine 19 is no longer in the list of numbers a module is refused.
 - `web/test_web.mjs`: the PAGES and PANEL parse and the fetch in parts (a hole, no descriptor, a reply that does not continue); the Replace/swap flow against a mock unit (own engine, swap, both starts full, declined, wrong file, wrong firmware, wrong engine, a refused remove); Use (order of the requests, the selection put back, the two refusal reasons, a track that does not exist); the Engines table row for the Prophet's number and `canUse`.
 
-## Seventh run (0.12.1 and on, branch sonnet-work, October 24, 2026)
+### Seventh run (0.12.1 and on, branch sonnet-work, October 24, 2026)
 
 An unattended run: the parts were done in order, decisions were made and are written down here, nothing was flashed. Nothing in this run is on the unit.
 
-### Part 0: 0.12.0 finished
+#### Part 0: 0.12.0 finished
 
 - The module-alone build, `exp/sonnet-noshapes` (sonnet-work merged in, SHAPES built out of the image), CI result: image 472,804 B, 104,444 B free of the 577,248 B app area, RAM .data+.bss 93,192 B of 98,304 B, pool 176,768 B, audio arena 94,752 B. That is the "module alone" line for 0.12.0; the branch is brought to the head again at the end of this run (see "Final state").
 - The sizes of the Sixth run are in "Sizes and CI (Parts 2 and 3)" above.
 
-### Part 1: the Prophet as a module (0.12.1, 0.12.2)
+#### Part 1: the Prophet as a module (0.12.1, 0.12.2)
 
 What was done:
 
@@ -1912,11 +2044,11 @@ Decisions made without asking:
 
 Tests: see "Tests added or changed (Seventh run)".
 
-### Sizes and CI (Part 1)
+#### Sizes and CI (Part 1)
 
 Run 40082370575 (quick, on bd68aca, the device build passed every check): image 499,252 B (77,996 B free), RAM 93,528 B of 98,304 B, pool 176,768 B, audio arena 94,144 B available. SHAPES module 23,784 B of 24,576 B. Prophet module 31,872 B of 32,768 B at start 0 (0xC8000) and 4 (0xCC000), `.data` 0, `.bss` 0; `prophet-0.6.2.ocm` 63,836 B, two variants, state 1,456 B, interface 12f6be4f.
 
-### Part 2: hardening (0.12.2)
+#### Part 2: hardening (0.12.2)
 
 **2a. Sanitizers.** `SAN=1 tests/run_tests.sh` builds and runs every host test under AddressSanitizer and UBSan (first finding stops the test). Findings and what was done:
 
@@ -1933,7 +2065,7 @@ Run 40082370575 (quick, on bd68aca, the device build passed every check): image 
 
 **2d. Watchdog.** The long loops (module/pack erase and write, scans) feed the watchdog. **2e.** The three install paths (pack, module, project) are refused while the transport runs.
 
-### Part 3: step properties on recorded steps (0.13.0)
+#### Part 3: step properties on recorded steps (0.13.0)
 
 Recorded steps can carry RATCH, CHANCE, COND, NUDGE, SLIDE and ACCENT, edited in the tracker's FX column as on typed steps; "NOT ON RECORDED NOTES" is gone. `recording.c` rolls chance and condition once per step per pass, adds the step's nudge to each onset (clamped inside the loop), fires ratchets (part gate `min(gate, part*SGATE/128)`) and flams (grace at `vel*9/16+1`) from a small per-track repeat queue. `step_snapshot_t` already kept these fields, so undo (EDIT held) covers them; the project format is unchanged (the fields were in the step record already).
 
@@ -1941,11 +2073,11 @@ Recorded steps can carry RATCH, CHANCE, COND, NUDGE, SLIDE and ACCENT, edited in
 - Decision: a ratchet or flam on a recorded chord repeats every onset of the step together; accent plays at velocity 127.
 - Tests: `tests/recording_props_test.c` (new), `tests/ui_test.c` (FX edits on recorded steps, undo, save/load).
 
-### Part 4: DRUM-X lane mutes (0.13.1)
+#### Part 4: DRUM-X lane mutes (0.13.1)
 
 ACC held + a lane key on a DRUM-X track mutes or unmutes that lane (`dxe_mute[]` in `eng_drumx.c`); the LANE column shows MUTE. A muted lane is silent and starts no voice. Mutes are not saved (no format change) and are cleared on project load. Nothing else from the DRUM-X wish list was added: the rest needs a new parameter or a format change. Tests: `drumx_test.c` `test_mutes()`, `ui_test.c`.
 
-### Fuzzer results
+#### Fuzzer results
 
 Long runs, 1,800 s each (30 min), fixed seeds, built with ASan and UBSan (alignment checks off), `FUZZ_SECONDS=1800`, October 24, 2026. **No finding in any of the five** (no crash, no out-of-bounds access, no registration or bank pick that failed its CRC; a save and a power-on worked after every mutated state):
 
@@ -1959,7 +2091,7 @@ Long runs, 1,800 s each (30 min), fixed seeds, built with ASan and UBSan (alignm
 
 The default run in `run_tests.sh` is 3 s each.
 
-### Static analysis
+#### Static analysis
 
 clang `--analyze` (the host test translation units, the module TUs; outputs kept in /tmp/an during the run, not in the repo). cppcheck is not installed here. No finding was a defect that a test reaches; the sanitizer suite (2a) found the real ones. Reviewed, left as they are, one line each (the reasons come from reading the code around each report; none was reproduced, and `storage.c:124` and `oc_project.c:422` were read least closely and are worth a second look):
 
@@ -1973,7 +2105,7 @@ clang `--analyze` (the host test translation units, the module TUs; outputs kept
 - Dead stores (`g4`, `note`, `n`, `y0`, `y1`, `old`, `flags`, `rc`, `e`): values kept for readability or by the shape of a macro; none is a missing use. Tests only: `editor_test.c:697`, `lib_group_test.c:63,107`, `oc_pack_test.c:86`, `regress.c:975` (fixtures indexed one past the end on purpose or after a bound check).
 
 
-### Before merging (checklist)
+#### Before merging (checklist)
 
 1. Full-suite CI on the head is green (no `.ci_quick` at the root), including the host jobs that need the AC79 SDK and a real `.fwsc` (package, power-cut, loader, installer and recovery tests).
 2. `exp/sonnet-noshapes` is merged with the head (merge, no force) and green.
@@ -1986,17 +2118,17 @@ clang `--analyze` (the host test translation units, the module TUs; outputs kept
 10. (0.13.6) If a Nightly was published from a branch (workflow input `publish_nightly`), unpublish or replace it when main catches up: a push to main builds the whole site again and so removes the Nightly; if main is not ready to publish, dispatch the workflow on the next branch with `publish_nightly`, which replaces it. Until then the installer page's Nightly entry and the stable editor/manual are the only things that differ from main.
 9. Tests in `tests/` not run by `run_tests.sh`, on purpose: `audio_job_bench.c`, `pitch_prepare_bench.c`, `recording_bench.c` (benchmarks), `slice_test.c` and `slice_loop.py` (SLICE is retired from the build), `make_fat_fixture.py` (makes the committed card image used by usb_host_test).
 
-### Sizes and CI (Parts 2 to 4)
+#### Sizes and CI (Parts 2 to 4)
 
 Run 40089465406 (quick, on ab4a024, the device build passed every check): image 503,856 B (73,392 B free of 577,248 B; +4,604 B since Part 1's run, from Parts 3 and 4 and the hardening), RAM .data+.bss 93,992 B of 98,304 B (+464 B for the recorded-step repeat queues, the rest from the hardening and DRUM-X mutes), pool 176,768 B, audio working arena 93,024 B available (94,144 B before; minimum 49,152). Prophet module 31,872 B of 32,768 B at starts 0 and 4 (unchanged, crc 5f630420 and 0472aa28), SHAPES module 23,784 B of 24,576 B, interface 12f6be4f unchanged. The per-Prophet-track admission and arena figures are not printed by the build; they stay as the budget's p5 lines give them (no new numbers measured).
 
-### Part 6 and the final state
+#### Part 6 and the final state
 
 **Part 6 (card as a second transport for the whole set): not started.** It is optional; it needs a new multi-file flow in the card browser (pack, module and firmware from one folder) that cannot be tried without the unit, so it was left rather than built blind. `tests/usb_host_test.c` has no new cases for it.
 
 **Final state.** Full-suite CI on sonnet-work (run 40096354540, no `.ci_quick`): the device build passed every check and the host tests reported no failure (the run's conclusion does not show host-test failures, because the workflow did not gate on them then; since 0.13.2 it does (tests-gate): read the annotations; the first full run, 40095267933, did fail two web tests, from a bad Revisions line in `web/fm1oc.js`, fixed in the next commit). Sizes: image 503,856 B (73,392 B free), RAM 93,992 B of 98,304 B, pool 176,768 B, audio arena 93,024 B. `exp/sonnet-noshapes` merged with the head (merge, no force), run 40097533814: host tests clean, image 480,644 B (96,604 B free), RAM 93,992 B, pool 176,768 B, arena 93,024 B. Documentation commits after those runs change no source.
 
-### Tests added or changed (Seventh run)
+#### Tests added or changed (Seventh run)
 
 - `tests/mod_pages_prophet_test.c` (new, in run_tests.sh; the Orange Cat engine set, sanitizers): the module's real descriptor in the UI: the 15 pages, a column edit through the put hook, the keyed tuning's shown hook, HOME, ENV, LFO, motion recorded and played back, the module going away and returning.
 - `tests/module_host_prophet_test.c`, `tests/module_host_prophet_tu.c` (new): header and wire check; 201 presets through the table equal the built-in engine's renders and the golden file.
@@ -2004,11 +2136,11 @@ Run 40089465406 (quick, on ab4a024, the device build passed every check): image 
 - `tests/fuzz_lib_group.c`, `fuzz_oc_pack.c`, `fuzz_oc_module.c`, `fuzz_fw_pages.c` (new, Part 2 below).
 - `web/test_web.mjs`: three starts, the blocker byte, the Prophet stage.
 
-## Eighth run (0.13.2 and 0.13.3, branch sonnet-work, October 24, 2026)
+### Eighth run (0.13.2 and 0.13.3, branch sonnet-work, October 24, 2026)
 
 Still not on main, released or flashed. Branch `sonnet-work` only. No tags, no force-push, no format change, no golden or budget line changed.
 
-### Part 1: CI fails when the host tests fail (workflow Rev 14)
+#### Part 1: CI fails when the host tests fail (workflow Rev 14)
 
 The shared workflow `zvenson/fm1-build/.github/workflows/build.yml@v1` cannot be changed, so the gate is in our wrapper. The host-test step writes `build/orangecat-tests-failed.txt` when any test fails. The marker travels in the `packages` artifact, so the packages are kept. A new job, `tests-gate`, reads the marker and fails the run. `pages` needs both `build` and `tests-gate`. The input `tests-block` of the shared build stays `github.ref_type == 'tag'`, so a tag still stops before packaging. `build` stays green by design; the red job is `tests-gate`.
 
@@ -2018,7 +2150,7 @@ Proof:
 
 BUILDING.md has the section "Orange Cat CI runs (the run page)".
 
-### Part 2: where the 11,164 B of flash and the RAM growth came from (0.13.2)
+#### Part 2: where the 11,164 B of flash and the RAM growth came from (0.13.2)
 
 Compared: 549d580 (base, before 0.12.0) and eb101d4 (head of the Seventh run). Numbers are from CI runs (quick, device build), by symbol. The RAM growth is +880 B (the task said about 864).
 
@@ -2081,21 +2213,21 @@ The flash fell by 2,920 B as a side effect, not by design. Shrinking `.bss` by 4
 
 The rest (11,164 B of flash before the recovery, 128 B of RAM after it) is intended: features that shipped.
 
-### Part 3: the two analyzer items (0.13.2)
+#### Part 3: the two analyzer items (0.13.2)
 
 Both are false positives. No firmware change. Tests added.
 
 - **storage.c:124 (uninitialized byte read when the header CRC is computed).** Claim: a byte of a struct built from mixed-width field stores is read before it is set. The storage header has no padding and every field is set before the CRC runs. Reachable on the unit: no. The path the analyzer follows goes through the header CRC at the `st_save` call and `legacy_put`. Test: `tests/lib_group_test.c` saves under four stack patterns (settings twice, library banks 3 to 5, legacy pairs with the `lg_boot` migration) with simulated NOR. The commit records are equal byte for byte across the patterns and the CRC equals an independent bitwise CRC-32 ("st_crc32 of a commit record: 8 records ... ok").
 - **oc_project.c:422 (a stack address stored in a function-local static).** Claim: `rd` in `ocj_read` outlives the call. `rd` is cleared with memset and set again on every call, and `ocp_check` sets `rd->r` before it reads. Nothing is kept between calls. Reachable on the unit: no. Test: `tests/oc_project_test.c` `test_stack_escape()` poisons the stack between calls (ASan with `detect_stack_use_after_return=1`), runs 132 damaged-sector reads (3 refused) and a missing record. It passes plain and under ASan/UBSan.
 
-### Part 4: dead code the branch added (0.13.2)
+#### Part 4: dead code the branch added (0.13.2)
 
 Looked at `git diff 4063a29..HEAD`. Base firmware code was not touched.
 
 - Removed: `dx_kit_ok` (drumx_voice.c, set and never read); `lg_erases` and `lg_progs` (lib_group.c, counters nobody read).
 - Kept, with the reason: `dx_hands_step` (HANDS is 0 per the cost file, so it looks dead; it is part of the engine's step table); the `FW_UNUSED` wrappers in engines.c (they are reached through `fw_api_t`, which a module calls).
 
-### Part 5: Install set from the card (0.13.3)
+#### Part 5: Install set from the card (0.13.3)
 
 What a player does: copy the .pak, the .ocm and the `*.set.json` into a folder, open the card browser there, OCT+ on the row with the value "Set". The unit checks the set against its own build and all files before it writes anything, then installs the pack and the module(s). "SET INSTALLED". The format, the checks and every message are in `docs/orangecat/SET_FORMAT.md`.
 
@@ -2110,31 +2242,31 @@ Decisions you may disagree with:
 
 Files: `firmware/src/oc_set.h` (new), `card_browse.c`, `oc_module.c` (`oc_mod_pair_fits`), `ui_popup.c`; `tools/oc_manifest.py --set`, `tools/gen_fw_api_id.py`, `web/make_site.py`; workflow Rev 15 writes `<base>.pack.set.json`, `<base>.shapes.set.json`, `<base>.prophet.set.json` into the `packages` artifact.
 
-### Tests added (Eighth run)
+#### Tests added (Eighth run)
 
 - `tests/usb_host_test.c`: section 9. A good set (pack, then module, "SET INSTALLED"); the repeat press (pack skipped); pack only; other-build refusals (interface, table address, pack hash, pack length, newer, older, junk, a path, three modules); a missing pack file; a missing module file; SHAPES and the Prophet together refused; the same module twice refused; transport running ("Stop first"); no place; a cut between the stages (module write fails, the pack stays, the next press does the module only); the in-place question once per module; the manifest reader on every cut of a good manifest and 200,000 mutations (no read outside the buffer; 16,282 mutations still accepted, all plain names). Passes plain and under ASan/UBSan.
 - `tests/orangecat_site_test.py`: set manifest names; the site's set files. 13 tests.
 - `tests/lib_group_test.c`: the stack-pattern block (Part 3). `tests/oc_project_test.c`: `test_stack_escape()` and the ASan option (Part 3).
 - Workflow: the cifail branch and the green run (Part 1).
 
-### Part 6: the unit checklist
+#### Part 6: the unit checklist
 
 The "Left to test (on the unit)" list of the Fourth run now carries, under each step, the exact screen text (grepped from the source), the editor element or button and the page's reply, and the file names of the `packages` artifact, with the sizes known today (pack 40,232 B; SHAPES package 47,660 B; Prophet package 63,836 B). Steps 18 and 19 test Install set. The numbers the unit has to give (migration time, module install time) are still open: nothing was flashed.
 
-### Sizes and CI (Eighth run)
+#### Sizes and CI (Eighth run)
 
 - Run #213 (id 40106999229), full suite, head aca86f8 (0.13.3): `build` and `tests-gate` success, `pages` skipped (not main). Image 503,720 B, RAM .data+.bss 93,240 B of 98,304 B, pool 177,520 B, audio working arena 92,544 B. Part 5 added 2,784 B of flash and no RAM to the 500,936 B image of Part 2.
 - Part 2: before 503,856 B / 93,992 B; after 500,936 B / 93,240 B (runs 40104307460, 40104878622).
 
-### Before merging: changes in this run
+#### Before merging: changes in this run
 
 - Item 1 now reads: full-suite CI on the head is green **and** `tests-gate` is green (a failing host test now fails the run; the packages are kept). The older remark that host-test failures are not gated is out of date.
 
-## Ninth run (0.13.4, branch sonnet-work, October 24, 2026)
+### Ninth run (0.13.4, branch sonnet-work, October 24, 2026)
 
 Still not on main, released or flashed. Branch `sonnet-work` only. No tags, no force-push, no format change, no golden or budget line changed (new lines only).
 
-### Part 1: ratchet and flam repeats were dropped (Bug 1)
+#### Part 1: ratchet and flam repeats were dropped (Bug 1)
 
 Cause: `recording_rep[NTRK][6]` held the later hits of a ratchet or flam. When all six entries were in use, `recording_fire` played the first hit and left the rest unscheduled. A ratcheted chord late in a step carried its repeats into the next step, so the second of two adjacent four-note x4 chords played 4, 4, 1, 1 hits.
 
@@ -2142,7 +2274,7 @@ Fix, design (a), no queue: each event has a record of its own (`recording_rep_at
 
 Tests, each fails on 6d8c3cf and passes now: `tests/recording_props_test.c` `repeats()` (the reviewer's two chords, 4, 4, 4, 4 at the right sample times; the worst case of three adjacent steps of four late notes with nudge, x4, x3 and FLAM mixed; x4 with nudges, 48 hits; a full loop of eight passes with equal counts each pass; the 0.13.0 recorded-step tests unchanged); `tests/ui_test.c` (the same chords set on the tracker).
 
-### Part 2: a damaged file erased a working pack or module (Bug 2)
+#### Part 2: a damaged file erased a working pack or module (Bug 2)
 
 Cause: `fb_pak_file(dry=1)` and `fb_mod_file(dry=1)` returned after the header reads. The payload CRC, the inner header, the link address and the sector-tail rule were checked only after `oc_pack_begin` or `oc_mod_begin` had erased. A good outer header with a damaged payload passed preflight; an in-place install then erased the module and failed at end.
 
@@ -2152,7 +2284,7 @@ Messages: "Not this build's pack", "Pack file damaged", "Module file damaged", "
 
 Tests: `tests/card_install_test.c` (new): a pack with one payload byte flipped, a module with one code byte flipped, a wrong link address, a tail that matches the loader's record rule, a set with one bad file: in every case zero sector erases in the simulated NOR, the old pack or module still registered and usable, and the message. It has a mutation switch (`CIT_NOCHECK`): with the checks off 17 checks fail. `tests/usb_host_test.c` (stubs and the flow), `tests/oc_pack_test.c` and `tests/oc_module_test.c` (the verdict over a buffer equals the verdict over simulated flash), `web/test_web.mjs` and `web/test_installer_set.mjs` (the same cases refused before BEGIN).
 
-### Part 3 (Hardening 1): every place the firmware erases a data-area sector
+#### Part 3 (Hardening 1): every place the firmware erases a data-area sector
 
 "Before" is what is verified before the first erase. "After" is what can still fail once erasing has begun. "Less than before" means a working thing is gone and its replacement is refused.
 
@@ -2171,7 +2303,7 @@ Tests: `tests/card_install_test.c` (new): a pack with one payload byte flipped, 
 
 What changed because of the table: nothing new in the code beyond Part 2 (the pack and module checks before the erase, the page check before the module commit). Two cases remain by design and are flagged to the user: the sample slot, and the in-place module whose page descriptor only the unit can read.
 
-### Part 4 (Hardening 2): the scheduler under load
+#### Part 4 (Hardening 2): the scheduler under load
 
 `tests/recording_bench.c props [idle|plain|loaded]` runs the real sequencer, without synthesis, block by block (32 samples). The fixture: every track (NTRK is 4 here, not eight) has all 64 steps recorded with four notes (1,024 events, `RECORD_MAX`). PLAIN is the recorded notes alone. LOADED has every property on every step: accent, slide, chance 90, condition NOT FILL, a nudge of -24 to +24, RATCH x2, x3, x4 or FLAM in turn.
 
@@ -2187,12 +2319,12 @@ Above idle, per hit: plain 20.8 k instructions, loaded 23.2 k, so the loaded hit
 
 Decision: not optimized. The loaded case plays three times the hits; the cost per block is 2.4 times plain, less than the 3.0 times the hits would give. The 12% per hit is the property work itself (the shape of each hit, the nudge, the chance and condition roll), which plain does not do at all, not a loop that grew. The per-block scan is the same in both cases. The functions `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are in `tests/target_budget.py`; no line in `tests/target_budget.txt` yet: the compiler inlines them (see Sizes and CI).
 
-### Part 5: the unit checklist, two new cases (after step 22)
+#### Part 5: the unit checklist, two new cases (after step 22)
 
 23. **A damaged file is refused and nothing is erased.** Copy a module file (`.ocm`) to the card and change one byte in the middle with a hex editor. In the card browser press OCT+ on it. *See:* "Module file damaged". Open Engines: the module that was there is still listed and plays. Do the same with the asset pack file: "Pack file damaged", and no PACK MISSING at the next power-on.
 24. **Adjacent ratcheted chords.** Record a four-note chord late in a step (hold the keys, release after the step is half over), the same chord on the next step, set RATCH x4 on both steps and play the loop. *See:* all four notes of both chords play four hits each. Leave it running for eight passes; the count does not change.
 
-### Part 6 (0.13.5): the second review
+#### Part 6 (0.13.5): the second review
 
 An independent review of everything since 549d580 found no blocking bug and seven items. Each is fixed in its own commit, on sonnet-work, with a test; a note says where the host cannot test it.
 
@@ -2206,7 +2338,7 @@ An independent review of everything since 549d580 found no blocking bug and seve
 | 6 | `modDeclined` already had a text in both languages of the installer page, so the summary did not show a raw key; there was no test that every code has one. `begin()` waited 3,000 ms while the unit erases up to 16 sectors in place (500 ms each). | A test: every code the page can raise has a text in ja and en, and a declined confirm reaches the summary as `modDeclined` with no BEGIN sent. `OC_BEGIN_MS = 16 x 500 + 2,000 = 10,000 ms` for BEGIN in the installer page and the editor, with no retry in the editor (a repeated BEGIN would erase again). I chose the longer wait over answering before the erase: it changes neither the protocol nor what a write's reply code means. | `test_installer_set.mjs` 12b (a unit that answers BEGIN after 3.6 s: the pack and the module install; one that answers after 11.5 s is "lost") and 12c; `test_web.mjs` (the editor's wait and no retry). |
 | 7 | `fb_install_set` ran every module stage again on the press that answered an in-place question: with two modules that fit together the second press rewrote module 0 and asked again, by turns, for ever. | The press that answers goes on from the module that asked (`fb.setq`). | `card_install_test.c` `set_resume()`: SHAPES and the Prophet given 2 sectors each at one start each (a test-only writable geometry table): three presses, 4 sector erases, both images in flash. Before the fix the presses alternate for ever. |
 
-### Status (Ninth run)
+#### Status (Ninth run)
 
 | Item | Status |
 |---|---|
@@ -2216,7 +2348,7 @@ An independent review of everything since 549d580 found no blocking bug and seve
 | Scheduler under load (Hardening 2) | Done: measured, not optimized; no budget line (the functions are inlined) |
 | Second review, seven items (0.13.5) | Done, host tested; the CI gate proved on exp/sonnet-cigate |
 
-### Sizes and CI (Ninth run)
+#### Sizes and CI (Ninth run)
 
 - Run 40117440506 (id), full suite, head after 1f2bb92: `build` and `tests-gate` success, `pages` skipped (not main). Image 505,312 B (up 1,592 B from 503,720 B: the shared check functions, the card installers, the per-event repeat record code, the web checks are not in it), RAM .data+.bss 93,240 B of 98,304 B (unchanged), pool 181,768 B of 344,064 B (up 4,248 B: the repeat record, 4,096 B of times and 512 B of bits, less the 384 B queue, and the bench-free rest).
 - The first full run (40116507940) failed `tests-gate` on the target budget check: `recording_rep_tick` was in `FUNCS` but inlined, and the check treats a missing function as a failure. The scheduler names are now skipped when absent, like the JFX and DRUM-X ones.
@@ -2224,28 +2356,7 @@ An independent review of everything since 549d580 found no blocking bug and seve
 - Run 40120238887 (id), full suite, head after items 1 to 3 (f2cd25f..): `build` and `tests-gate` success. Image 505,552 B (up 240 B from the 505,312 B of run 40117440506), RAM .data+.bss 93,272 B of 98,304 B (up 32 B), pool 177,548 B of 344,064 B (was 181,768 B: down 4,220 B), audio working arena 92,128 B (was 88,000 B; the 0.13.3 head had 93,024 B; the target was within 1,000 B of that). Host instruction counts of `recording_bench props` (callgrind, 12,289 blocks): plain 36.45 M (was 36.16 M, +0.8%), loaded 77.16 M (was 85.49 M, -10%), the same 1,024 and 3,037 hits; per hit above idle plain 21.0 k, loaded 20.5 k. The 16 slots are cheaper to visit than the 32 words of bits they replaced.
 - Scheduler budget lines: none added. In the target disassembly of this run `recording_fire`, `recording_shape`, `recording_rep_tick` and `groove_part` are still not kept apart (inlined into `seq_advance`), so the target budget has nothing to measure and skips them (they are in `FUNCS`, skipped when absent). Past the 4 KB annotation cut there was nothing to move: the notice lists none of them.
 
-## Phases 8 to 11
-
-**Status: Not started.** Detailed tasks will be added when phase 7 results are in.
-
-- **Phase 8, dynamic resources:** track count increase, admission checks, preset availability, suspension (specification 4).
-- **Phase 9, sampling and bouncing:** port Skiff's SAMPLE and SLICE engines, set the sample and bounce storage area (internal or USB drive, per phase 2), instrument bouncing (specification 10).
-- **Phase 10, other engines and effects:** Prophet-5, FuMi, Skiff engines, dub-oriented effects, as space permits.
-- **Phase 11, later extensions:** guitar modeling, fitting application, SMK-37 port.
-
----
-
-## Open decisions
-
-| Decision | Phase | Status |
-|---|---|---|
-| Pattern storage model | 4 | Decided: Skiff's shared pool of 64 |
-| Arrangement model | 4 | Decided: Skiff's per-track lists |
-| Loadable engine slots | 6 | Open |
-| Sample and bounce storage location | 2, 9 | Open |
-| Track count target | 8 | Open |
-
-## Tenth run (0.13.6, branch sonnet-work, October 24, 2026): the Nightly channel from a branch
+### Tenth run (0.13.6, branch sonnet-work, October 24, 2026): the Nightly channel from a branch
 
 Still not on main, released or flashed. No firmware change, no tag, nothing to main.
 
@@ -2267,11 +2378,11 @@ Still not on main, released or flashed. No firmware change, no tag, nothing to m
 
 **Found by the first real run (run 232): the manifest named the wrong interface number.** `tools/oc_manifest.py` wrote FW_API_ID (the hash of the structure text, `a3a39b53`) as `iface`, but the modules carry, and the unit compares, FW_API_IFACE (that hash mixed with four `sizeof`, `fw_api.h`; `12f6be4f`). `check_set` in the pages job refused the Prophet module ("interface 12f6be4f ... is not the firmware's (a3a39b53)"), and the set manifests (`*.set.json`, 0.13.3) carried the same wrong number, so the card's Install set would have answered "other build" to every set. Fixed in the tools only (no firmware change): `tools/build.py --module` writes `build/gen/fw_api_iface.h` from the module header, `tools/oc_manifest.py` reads it (`tests/orangecat_site_test.py`, `test_the_manifest_names_the_interface_the_modules_carry`). The unit checklist item for Install set from the card stays open; it could not have passed with the old sets.
 
-## Eleventh run (0.13.6 and on, branch sonnet-work, October 24, 2026): four tracks screech on the unit
+### Eleventh run (0.13.6 and on, branch sonnet-work, October 24, 2026): four tracks screech on the unit
 
 Still not on main, released or flashed. No tag, nothing to main.
 
-### Hardware
+#### Hardware
 
 **Fixed and shipped (October 25, 2026):** the fix (0.13.7, hot sets; 0.13.8) is on sonnet-work and is the Nightly `sonnet-work · ceccc1c · v0.6.2-ceccc1 ·
 2026-10-25T16:58:44Z`; SHAPES plays four tracks again at or under 0.6.2's cost, measured on that build on the unit (Thirteenth run, Part 1; hw/LOG.md, Flash 13).
@@ -2286,7 +2397,7 @@ First result from the unit, on the Nightly `sonnet-work 80b85fb v0.6.2-80b85f`:
 
 DRUM-X reads no pack table, and it screeches too. So the pack's data window is a suspect, not a proven cause. Anything that costs render time with more tracks fits: the render is late, the DMA moves on, and the half buffer is played again or half old. The A/B below tells which.
 
-### The Audio readout (0.13.6)
+#### The Audio readout (0.13.6)
 
 Settings tab of the web editor, group "Audio". It shows the numbers `tools/usb_audio_stats.py` reads:
 
@@ -2302,7 +2413,7 @@ It refreshes every second while the Settings tab is open. Reset starts the worst
 
 The Nightly editor: the editor on the site is main's, and main's has no Audio group. A Nightly publish now also puts the branch's editor at `webapp/nightly-editor/` on the same site (Standard's `webapp/editor/` is not touched; `web/site_check.py` does not count the new folder as Standard). Use that one.
 
-### The A/B plan
+#### The A/B plan
 
 1. **Build A (the switch):** `OC_PACK_BUILTIN=1`. The SHAPES and MACRO tables are in the image as before 0.8.0. The boot pack check is skipped and the engines play without a pack. Default is 0 and changes nothing. Built on the throwaway branch `exp/sonnet-ab-builtin` (sonnet-work with the switch on and OC_MODULE_WINS=0, so the built-in SHAPES plays and no module is needed). Never merged.
 2. **What each outcome means** (read the Audio numbers with four tracks playing, a fresh Reset first):
@@ -2310,7 +2421,7 @@ The Nightly editor: the editor on the site is main's, and main's has no Audio gr
    - **It still screeches (late renders climb, worst over the budget):** the pack is not the cause. The next A/B is the scheduler: `OC_PROPS_OFF`, which skips the 0.13.0 recorded-step properties in the interrupt. Then the arena size, then the DRUM-X and effects flash code.
    - **Worst is under the budget and late is 0 but it still sounds wrong:** the render is not late. Look at the mix path (a clipping or a buffer fault), not the time.
 
-### Part 4: the audio interrupt's recorded-step work
+#### Part 4: the audio interrupt's recorded-step work
 
 Checked in code (`firmware/src/recording.c`, `seq.c`). The 0.13.0 and 0.13.4 work is not per block and not proportional to tracks times steps:
 
@@ -2322,11 +2433,11 @@ Checked in code (`firmware/src/recording.c`, `seq.c`). The 0.13.0 and 0.13.4 wor
 
 Proof added: `recording_props_test` counts folds (the hook `RECORDING_FOLD_HOOK`) over eight loop passes: the folds are at most passes + 2, far under the block count. Result: nothing to fix.
 
-### Unit checklist, standing step (added)
+#### Unit checklist, standing step (added)
 
 Every time a build is on the unit: **read the Audio numbers with four tracks playing** (Settings tab, Audio group, press Reset, play four tracks for a minute). Worst under the budget, Late 0. Write the numbers down.
 
-### The A/B build, as published
+#### The A/B build, as published
 
 - Branch `exp/sonnet-ab-builtin` (throwaway, never merged): sonnet-work at 4db8131 plus `OC_PACK_BUILTIN=1` and `OC_MODULE_WINS=0` in `tools/orangecat_engines.sh`. Commit 0e7bc40.
 - Run 40137277924 (build, tests-gate green; pages deployed). Run 40137276150 is sonnet-work at 4db8131, switch off, green.
@@ -2335,7 +2446,7 @@ Every time a build is on the unit: **read the Audio numbers with four tracks pla
 - The workflow's live check ran for 10 minutes and still saw the old site (the same as the runs for 80b85fb before it). The files were deployed; the site's cache lags. The installer page shows the label above when it has caught up.
 - Install it with the Pack and Module stages off: this firmware needs neither.
 
-### Unit procedure for the A/B build
+#### Unit procedure for the A/B build
 
 1. Back up the unit (Settings tab, Complete backup, Save backup).
 2. Open the installer page. Choose the Nightly entry labeled above. Untick the Pack and Module stages. Press Install.
@@ -2343,11 +2454,11 @@ Every time a build is on the unit: **read the Audio numbers with four tracks pla
 4. Play four tracks for a minute (any engine). Read Worst, Budget and Late.
 5. Outcomes: see "The A/B plan" above.
 
-## Twelfth run (0.13.7, branch linux-hw, October 24 and 25, 2026): the toolchain on a Linux PC, the unit on USB, the four-track fault
+### Twelfth run (0.13.7, branch linux-hw, October 24 and 25, 2026): the toolchain on a Linux PC, the unit on USB, the four-track fault
 
 On the unit (one FM-1 on USB to a Linux PC). Not on main, not released, no tag. Every flash, every table: hw/LOG.md.
 
-### Part 1: the toolchain, byte-identical
+#### Part 1: the toolchain, byte-identical
 
 The JieLi toolchain (`jieli-linux-toolchains-20260730.1`, clang 4.0.1) and the AC79 SDK (d179b4484759423312073f5fbb232501aa491047) installed as
 zvenson/fm1-build@v1 installs them, Python 3.12 with CI's Pillow 13.0.0, fonttools 4.67.0, mido 1.3.3 (BUILDING.md, "Building on a Linux PC").
@@ -2356,14 +2467,14 @@ zvenson/fm1-build@v1 installs them, Python 3.12 with CI's Pillow 13.0.0, fonttoo
 (Settings > ABOUT): an older CI build is reproduced with `--date` (libfaketime) at the run's build time, which made main 19271b0 (0.6.2) and
 size-audit-gui 4063a29 (0.7.1) byte-identical as well. Build step 69 s (CI's: 69 s); host tests 1,118 s with 4 jobs (CI: 848 s with 2), 184 jobs green.
 
-### Part 2: the USB path
+#### Part 2: the USB path
 
 `tools/fm1_install.py` was already the page's update flow (web/fm1ota.js, step for step); `tools/hw/fm1hw.py flash` wraps it and checks the version
 string. First flash: 80b85fb over itself, 43 s, the pack and the module untouched. `tools/hw/fm1hw.py` sets up N tracks (engine, preset, a four-note
 chord on all 64 steps), plays them on the PC's MIDI clock (CLK set to USB and put back: a normal build has no editor command for PLAY), reads the Audio
 numbers (schema 8, or 2 on older firmware). `tools/hw/oc_install.mjs` runs the page's own pack and module installs (web/fm1oc.js) from node.
 
-### Hardware: the baseline (80b85fb, then the head)
+#### Hardware: the baseline (80b85fb, then the head)
 
 | Set | 1 track | 4 tracks | Late |
 |---|---|---|---|
@@ -2378,7 +2489,7 @@ The light set never failed and the user heard it clean; the user's own playing, 
 ADDITIVE PAD or GLASS BELL on track 4. Measuring every preset alone found the heavy ones (MALLET and GLASS BELL 2,850 us on one track; RING BELL
 2,212 us). The light set was too light to show the fault.
 
-### The A/B hunt
+#### The A/B hunt
 
 | Build | MACRO x4 | SHAPES x1 | SHAPES x4 | Verdict |
 |---|---|---|---|---|
@@ -2394,7 +2505,7 @@ ADDITIVE PAD or GLASS BELL on track 4. Measuring every preset alone found the he
 (module and built-in SHAPES within +-6 %). (d) The SRAM residency diffed against 0.6.2 and 0.7.1: only `param_desc_of` left SRAM (motion only).
 MACRO is the same on all builds: its heavy presets were heavy in 0.6.2.
 
-### The cause
+#### The cause
 
 The read-path probe (`OC_SFC_PROBE=1`, editor command 109, tools/hw/sfc_probe.py; read only): the pack and the module area read through the
 plaintext window and through the decrypting path at the same speed (27.8 ns warm, 45.4 ns cold a 16-bit read), and the hardware decrypts any address
@@ -2403,7 +2514,7 @@ direct-mapped, and Braids' `pb_wav_sine` (0x2094756) and `pb_ws_moderate_overdri
 RING MOD reads both every sample, so every read misses (about 280 ns a fill). In 0.6.2's image they did not overlap. Moving the module area or the
 pack out of the window would not help (same speed) and the module area cannot leave it without moving data areas (LENC does not carve a range).
 
-### The fix (0.13.7): hot sets
+#### The fix (0.13.7): hot sets
 
 Tables read per sample live in RAM, for every engine: `engine_t` declares them (hot, nhot, hot_at), registration copies them into the audio arena
 (built in at boot, a module when registered, again after a pack check), a module's list is checked in flash, a set that does not fit is NO ROOM.
@@ -2421,7 +2532,7 @@ where, measured", and docs/orangecat/ADDING_AN_ENGINE.md.
 
 (worst us / late in 20 s.) At or under 0.6.2 everywhere. MACRO's heavy presets stay as heavy as in 0.6.2 (GUIDE.md says how many tracks of what).
 
-### Unit checklist (the Fourth run's list): run in this session, left for the user
+#### Unit checklist (the Fourth run's list): run in this session, left for the user
 
 Ran (on 48f63de unless said): 1, the backup (the user's file of October 24, checked: format, objects 0, 1, 2, 6, CRCs); 4, the pack from the
 computer (the page's code: installed and checked; PACK MISSING state by erasing it: MACRO and SHAPES silent, DRUM-X plays; reinstalled, both play);
@@ -2435,11 +2546,11 @@ the rules); 9 and 10 (replace beside, a cut
 mid-install); 11, 18, 19 (the card); 14 (remove: not run, by the rules); 15 (admission at the lowest budget, on the panel); 16, 17 (watch); DRUM-X lane
 mutes (ACC + a lane key, panel only).
 
-## Thirteenth run (0.13.8, branches linux-hw and sonnet-work, October 25, 2026): the fix shipped as the Nightly, MACRO's own cost, the unit's paths
+### Thirteenth run (0.13.8, branches linux-hw and sonnet-work, October 25, 2026): the fix shipped as the Nightly, MACRO's own cost, the unit's paths
 
 On the unit. Not on main, not released, no tag. Every flash and every table: hw/LOG.md.
 
-### Part 1: the 4,460 B of 0.13.7, by symbol, and what was recovered
+#### Part 1: the 4,460 B of 0.13.7, by symbol, and what was recovered
 
 0.13.7 (48f63de) against the sonnet-work head 4e5da16, both symbol tables from the PC's builds (`nm -S`, flash symbols only). The image grew 4,460 B;
 2,560 B of it was not the hot sets at all: **draw_page +918, ui_input +426, ed_handle +284, fm1_main +282** and some 60 smaller UI functions. None of
@@ -2465,7 +2576,7 @@ What the +1,176 B is now (named symbols +1,244 B; alignment and literals -68):
 No hot-set hook is left in a UI path, and no check is inlined where a call would do. The rule that follows, for whoever adds RAM state to the one
 translation unit: put a feature's statics in one struct (ADDING_AN_ENGINE.md says so now).
 
-### Part 1: shipped
+#### Part 1: shipped
 
 - **Merged**: linux-hw (97184ee) into sonnet-work, a merge commit (ceccc1c), no force. **CI run 40212043712**: build and tests-gate green (185 host-test jobs).
   **Publish run 40212959451** (`publish_nightly=true`): build, tests-gate green, deployed; its last step (the live check) ran out its 10 minutes on the Pages cache,
@@ -2475,7 +2586,7 @@ translation unit: put a feature's statics in one struct (ADDING_AN_ENGINE.md say
 - **On the unit** (hw/LOG.md, Flash 13): the site's firmware flashed, its pack and SHAPES module installed with tools/hw/oc_install.mjs (the page's code), the four-track
   table read on it: SHAPES RING BELL 1,168 us at one track and 2,686 us / 164 late at four, at or under 0.6.2; MACRO and MIX as on 0.6.2 (Part 2).
 
-### Side task: the Nightly check that could never pass (workflow rev 18)
+#### Side task: the Nightly check that could never pass (workflow rev 18)
 
 Publish run 40212959451 (ceccc1c) ended red at "Check the live site" although it had deployed ceccc1c: its own pre-deploy check listed `NIGHTLY sonnet-work ·
 ceccc1c`, and the live `firmware/nightly.json` served ceccc1c from 16:59:26 GMT (Last-Modified of the deploy; checked from the PC with and without cache-busting,
@@ -2491,7 +2602,7 @@ check's mirror finds the new commit, and without `--nightly` it finds no nightly
 publish_nightly=true): build, tests-gate and pages green, the check after the deploy green: `NIGHTLY sonnet-work · 89b4e79 · v0.6.2-89b4e7 ·
 2026-10-25T18:56:47Z`, Standard unchanged. The live nightly.json names 89b4e79. The firmware is ceccc1c's but for the version string.
 
-### Part 2: MACRO's own cost
+#### Part 2: MACRO's own cost
 
 **Measured, model by model** (hw/LOG.md, "MACRO by model", Flash 12 and Flash 14): one preset a model, the four-note chord, one to four tracks. Ten of the 15
 models fit four tracks; SWARM and HARP touch the budget at four; WAVSHP, FM and ADDTV pass it from two or three; **MODAL (MALLET, GLASS BELL) is late on one track**
@@ -2522,7 +2633,7 @@ in target_budget.py (24 functions of .text.xip_macro: mc_render, mc_model_render
 apart) and their costs from the local disassembly of linux-hw df3d4f5 (CI's toolchain): mc_render 278, the heaviest pl_chord_render 1,261, pl_particle_render
 867, pl_hh_render 807, pl_sd_render 648, pl_vshape_render_sync 574, pl_bd_render 576, pl_fm_render 503. No existing line changed.
 
-### Part 5: the installer paths on the unit
+#### Part 5: the installer paths on the unit
 
 All on the Nightly (Flashes 15 to 17), with tools/hw/oc_install.mjs (the page's own code) and command 125 / PACK_INFO read back after each step; the table is in
 hw/LOG.md. **Pass**: the pack erased (MACRO and SHAPES silent, digital zero) and installed again (both back, to 0.1 dB); a pack of another build refused by the page
@@ -2541,7 +2652,7 @@ then MODULE BANNED, state 5, the built-in SHAPES in its slot; removed, the unit 
 - A SHAPES module is never installed in place (its other start is always free or holds its own module); the in-place case is the Prophet's (8 sectors of 12).
 - Project slot 4 now holds the test project and library slot 383 "HW TEST": the user's to keep or delete.
 
-### Part 6: the library
+#### Part 6: the library
 
 hw/LOG.md, "Part 6": the shared preset bank (bank 0, backup object 6) and project slot 1 equal the October 24 backup in size and CRC; the library lists 384 slots,
 1 used; a preset stored to a free slot (383) reads back. **Found: favorites.factory[15][30] is two settings** (PROJ_LAST and PREF_BITS): a project save or load to
@@ -2550,7 +2661,7 @@ the unit's byte set back to 0xC0 (acceleration on) by loading project slot 1. **
 real test in yesterday's round trip through 0.7.1 and 0.6.2: pass for the read side (no wipe asked, the library intact); the write side (a save on the old
 firmware) not done: it destroys what it overwrites.
 
-### Part 4: the audio capture harness
+#### Part 4: the audio capture harness
 
 `tools/hw/capture.py`: record (the AUDIO4c's inputs 1 and 2 at 48 kHz, or the FM-1's own USB audio at 44.1 kHz), then per recording the peak and RMS, clipping
 (runs of 3 or more samples at full scale), dropouts (a second difference past JUMP2, or 32 or more identical samples with sound on both sides), onsets (the
@@ -2561,7 +2672,7 @@ PC** (all eight channels, with the unit playing): its analog inputs are not rout
 Every capture today is the FM-1's USB audio (the digital mix before the DAC); the analog path wants its own calibration pair once it is routed. `say`
 decodes the test surface's tones (Part 7).
 
-### Part 3: MIDI in, recording, step properties (hw/LOG.md, "Part 3")
+#### Part 3: MIDI in, recording, step properties (hw/LOG.md, "Part 3")
 
 | Item | Result |
 |---|---|
@@ -2579,7 +2690,7 @@ last step, recorded live) pass on the code as it was. recording.c already reads 
 tracker writes that row: unchanged. **Found, not fixed**: on TRACKER (and NOTES) an EDIT tap can both delete the picked effect and open the EDIT pages, when the
 debounced release falls between the two places in the UI frame that read the buttons (ui_input.c: the step modifier's release and page_tap).
 
-### Part 7: the hardware test surface (0.13.8, OC_HW_TEST)
+#### Part 7: the hardware test surface (0.13.8, OC_HW_TEST)
 
 Editor command 108, in a build with `OC_HW_TEST=1` only (default 0; the default build's symbol table is unchanged by it): press and release a key or button by
 its id (through the real debounce: hal/fm1_input.h FM1_INPUT_FORCED), turn a knob by detents, select a page, say state (a tone sequence: a 1,760 Hz marker and
@@ -2589,7 +2700,7 @@ taken from the TRS MIDI input (that command alone), for tests while USB is busy.
 hw_say_test (the plan and the interrupt's tone code, rendered). Image of a test build +4.9 KB (511,848 B), RAM +144 B. tools/hw/hw_test.py drives it.
 web/EDITOR_PROTOCOL.md documents it as test-build only. Used on the unit for Part 3; the card tests (say state over TRS while the card is in) are the user's.
 
-## Engine candidates (0.14.0, branch engine-candidates, October 25, 2026)
+### Engine candidates (0.14.0, branch engine-candidates, October 25, 2026)
 
 From sonnet-work ceccc1c (linux-hw merged). Not on main, not released, not flashed: the unit's rows are the Linux session's. The gate, its table and the
 four candidates' verdicts: docs/orangecat/ENGINE_CANDIDATES.md.
@@ -2607,7 +2718,7 @@ four candidates' verdicts: docs/orangecat/ENGINE_CANDIDATES.md.
 CI: run 40218949650 (.ci_quick, sizes and the gate: green; its gate rows equal the PC's build of 689792e, the .ocm sizes as above); the full run after
 removing .ci_quick is the record (the final report names it). Host tests on the PC (tools/hw/ci_step.py test --parallel 2): all passed on 689792e.
 
-### After the list (the user's four items, in order)
+#### After the list (the user's four items, in order)
 
 1. **The Prophet module's hot set**: declared (P5_TANH, P5_EXP2, P5_TPT_G, 6,668 B), measured on the unit before and after: **3 to 9 % slower** at one
    and two tracks (no cache collision on its presets; a module reaches its copies through the firmware's pointer chain). Not kept. The plan's line
@@ -2624,7 +2735,7 @@ removing .ci_quick is the record (the final report names it). Host tests on the 
    worth scheduling with fewer stored pulses (every fourth key, about 23 KB): a sound change to listen to first.
 4. **Pushed, recorded, and the end state**: the unit on the Nightly with its pack and SHAPES module (hw/LOG.md, Flash 26).
 
-### Status of the Thirteenth run
+#### Status of the Thirteenth run
 
 | Part | Item | Result |
 |---|---|---|
@@ -2648,7 +2759,7 @@ removing .ci_quick is the record (the final report names it). Host tests on the 
 | after | engine-candidates merged, WHEEL 0.14.0, SEM and HADES measured, SEM's TYPE | done |
 | after | Frodhes' tables | read: possible for RAM, not for flash as stored |
 
-### Unit checklist: what ran today, what is left for the user
+#### Unit checklist: what ran today, what is left for the user
 
 Ran today (hw/LOG.md has each): the flash path (Flashes 12 to 26), the pack from the computer (erase, reinstall, another build's, a damaged file both
 ways), the module from the computer (beside, after a software reset, a cut install, in place, remove, the Prophet and its refusal, a project with engine 19
@@ -2666,8 +2777,7 @@ recording and the step properties through the test surface, the standing four-tr
 - the per-model MACRO units (approve the golden change, or not);
 - whether to publish a Nightly with today's linux-hw work (MACRO's hot set, the MENU settings fix, WHEEL 0.14.0): not done (the permission was for the fix).
 
-
-## Review of ceccc1c..linux-hw (October 25, 2026, evening): three fixes before the merge
+### Review of ceccc1c..linux-hw (October 25, 2026, evening): three fixes before the merge
 
 - **The MENU settings' byte (a7909aa).** 0.13.8 had put PREF_BITS in favorites.factory[8][2]; row 8 is MACRO (ENGI_MACRO 8), and byte 2 holds the stars
   of MACRO presets 16 to 23: a star there toggled KNOB ACCEL and PICKER, and the export's tag set preset 23's star. Now row 4 byte 2: SAMPLE, retired in
@@ -2704,7 +2814,7 @@ recording and the step properties through the test surface, the standing four-tr
   user never set (preset 23, the old layout's tag from the day's test builds; the October 24 backup has none), cleared; none left. The effects with the
   hot sets, by ear: DELAY, REVERB ROOM and CHORUS all hold with four MACRO, four SHAPES and DRUM-X MACRO SHAPES MACRO, the card idle.
 
-## op1r candidates and the relocatable package (0.14.1, branch op1r-candidates, October 26, 2026)
+### op1r candidates and the relocatable package (0.14.1, branch op1r-candidates, October 26, 2026)
 
 From linux-hw ce7b5c0. Not on main, not released, not flashed: the unit's rows are the Linux session's (ENGINE_CANDIDATES.md, "op1r", has its
 commands). The candidates' tables, the inventory and the tolerance: docs/orangecat/ENGINE_CANDIDATES.md, "op1r". The package: ENGINE_LOADING_PLAN.md,
@@ -2728,8 +2838,7 @@ start 0 CRC 27d8a221 both); the full run after removing .ci_quick is the record 
 step, PARALLEL 8): usb_host_test failed to compile (its stubs lacked oc_mod_link and the list's RAM: fixed); the boot package, power cut, update loader
 and recovery tests failed for the SDK path the local run had not set, and the CPU live-take test (timed) under the load of eight jobs: all pass alone. The development checks (op1r checkout needed): tests/op1r_parity/run.sh, all passed for the three.
 
-
-## The Linux session after op1r-candidates (October 26, 2026): the analog capture, format 2 on the unit, op1r's synths, MACRO's units
+### The Linux session after op1r-candidates (October 26, 2026): the analog capture, format 2 on the unit, op1r's synths, MACRO's units
 
 op1r-candidates (d0b0f01) merged into linux-hw (8120cc1; BUILD.md's two new sections kept side by side). hw/LOG.md has the unit's numbers.
 
@@ -2757,7 +2866,7 @@ USB port is busy as a host; its leading 0.5 s of zeros is waited out. Four SHAPE
   late half buffer plays as a 2 to 3 ms silence or dip, not a hole: capture.py's `dac_silences` finds 371 in MALLET's overload and none in four RING BELL
   tracks or a clean note. The counts measure different events, so usb stays the default for dropouts.
 
-### What the three measures answer (a standing part of every hardware table from 0.14.1)
+#### What the three measures answer (a standing part of every hardware table from 0.14.1)
 
 `tools/hw/fm1hw.py measure` and `table` record the FM-1's USB audio and the AUDIO4c's analog capture through every run (when both cards are present) and
 print, beside worst and late:
@@ -2782,7 +2891,7 @@ budget whatever the units; one track is clean); FOLD PLUCK and ADDITIVE PAD chor
 empty in the backup (it was in the October 24 backup and Part 6's check). **Explained and fixed** (below, "Project slot 1: the cause"); not restored,
 the restore waits for the user's word.
 
-### The soak and the effects' cost (Nightly v0.6.2-3ca2b5, October 26, 2026)
+#### The soak and the effects' cost (Nightly v0.6.2-3ca2b5, October 26, 2026)
 
 **Soak, 2 h** (hw/LOG.md): mixed engines with every send at 100 run as a steady overload (worst ~3,460 us, ~1,910 late in 20 s, levels within 0.3 dB) for
 51 minutes with no growth, then the unit stopped playing (answering, idle) for the rest of the run; the library and settings came through byte-identical. The
@@ -2821,7 +2930,7 @@ Worst is one maximum (noisy, tens of us); load is AUDIO_STATS' peak load.
 - USB holes with no late render (DJ filter HP 19, DIST CRUSH 14) are the USB capture's own, not the unit's; this is why the table keeps late and DAC silences
   beside them. DIST HARD's voices readout read 0 once (a missed reply field), its sound was normal.
 
-### Project slot 1: the cause (October 26, 2026)
+#### Project slot 1: the cause (October 26, 2026)
 
 The slot's record was intact (every CRC checks, eleven copies in the record store, dumped over command 109 on Flash 31); its newest copy holds the op1r
 measurement's tracks (engine 24 on all four), which every normal build refuses, so the slot reads OLD FORMAT and a backup has it empty. The autosave had
@@ -2833,7 +2942,7 @@ build still autosave measurement tracks (AUTOSAVE OFF for them). Why slot 1: pow
 back; its chains a new project's: that backup predates the arrangement objects). After every flash the music is detached from slot 1 before
 any script runs (hw/LOG.md, "project slot 1 restored"). Details, dumps and tools: hw/LOG.md, "Flash 31 and project slot 1, the cause".
 
-### The acceptance line (standing, from October 26, 2026)
+#### The acceptance line (standing, from October 26, 2026)
 
 A build passes the hardware acceptance when, for every acceptance case (four SHAPES RING BELL tracks; the MACRO tables' cases that are clean on the
 reference), it has **no DAC silences** and **late renders at or under 0.6.2's count**. 0.6.2's count is the published Nightly **v0.6.2-430cd4c**
@@ -2854,7 +2963,7 @@ of 18, MALLET fits twice with nothing else). Withdrawn on the owner's word befor
 two cores' measured split is known (the renderer instrumentation, next). The design and its tests are in e104e4d (ui.c eng_admit_parts,
 tests/ui_test.c test_admission_parts) for when it is wanted.
 
-## DRUM-X drum kits (0.14.2, Session E, branch drum-kits, October 26, 2026)
+### DRUM-X drum kits (0.14.2, Session E, branch drum-kits, October 26, 2026)
 
 From linux-hw a8df964, in a worktree outside ~/OrangeCat; no hardware touched, nothing to main, no Nightly. The owner's words: "they did a big update
 on drums and being able to set them up and tune them with L/C/R as well as volume on each piece. We'll need to follow Skiff's lead on this one."
@@ -2862,7 +2971,7 @@ Skiff 2.0 (illuminus5/skiff b03d98a) has per-lane TUNE, DECAY (P_LTUNE*, P_LDECA
 Orange Cat cannot (P_COUNT is 124 of the 127 the record and the protocol allow), so its kit is a structure of its own. Session A measures it on the
 unit, Session C draws its page, Session D takes the editor's table into the new app.
 
-### What was built
+#### What was built
 
 | Part | What | Where |
 |---|---|---|
@@ -2886,7 +2995,7 @@ SENDs per sound, group mutes, TOUCH and X-MOD are not built (X-MOD's four bytes 
 (image 518,816 B, RAM 93,864 B, pool 177,792 B, arena 90,528 B). Earlier `.ci_quick` runs for the sizes: 40294115918 (120e533). The PC ran the
 CI test step (tools/hw/ci_step.py test) green on 6e5f77f as well. Commits after the run change only this file.
 
-### The numbers (the PC's build of the head, CI's toolchain; linux-hw a8df964 in brackets)
+#### The numbers (the PC's build of the head, CI's toolchain; linux-hw a8df964 in brackets)
 
 | | drum-kits | linux-hw |
 |---|---|---|
@@ -2911,7 +3020,7 @@ TONE are no longer the constant 0, and the noise loops lost two registers to it;
 it from 338 to 329), dx_layer 61, dxe_render 13, dxe_post 31 unchanged; new lines dx_hands_step 35, dx_tone_bp 29, dxe_boost 8, dxe_pan_out 16,
 dxe_bus 31, dxe_post_sides 8, mix_lanes 85, mix_duck 20.
 
-### Tests added
+#### Tests added
 
 - tests/drumx_test.c 12 (defaults are the old fixed values, 72 hits), 13 (each lane value moves its lane only; TUNE, DECAY, ATK+, PUNCH, BEND do what
   they say), 14 (PAN: hard left silent right and unchanged left, half right halves the left, other lanes at the centre, the track's PAN after the lane's,
@@ -2933,7 +3042,7 @@ dxe_bus 31, dxe_post_sides 8, mix_lanes 85, mix_duck 20.
 - The editor's Sound tab driven in headless Chrome against the mock (not a repository test): the table's eight rows and nine columns, DRUM LEVELS
   hidden, a TUNE typed reaching the device.
 
-### Decided here
+#### Decided here
 
 1. **Projects unchanged**: a project names the preset, so a kit edited and not saved to SAVE > USER is lost at a project load (the GUIDE says so).
    Keeping the kit in the project is a project format change (an OCJ3 record field; the model is 0.13.2's).
@@ -2951,7 +3060,7 @@ dxe_bus 31, dxe_post_sides 8, mix_lanes 85, mix_duck 20.
 10. **SPREAD is off** on a kit with a lane panned.
 11. **PUNCH and ATK+ are 0..15** (nibbles in the record); PUNCH 15 is Jiant's 100, ATK+ 8 Jiant's 48 blocks.
 
-### For Session A (the unit)
+#### For Session A (the unit)
 
 1. The DRUM-X four-track table (`fm1hw.py table`, the usual columns with late, USB holes and DAC silences) twice: the factory kits as before, then with
    pan and tune in use on every lane (LANES: every PAN off the centre, every TUNE moved) on all four tracks; then one track with every value in use
@@ -2962,7 +3071,8 @@ dxe_bus 31, dxe_post_sides 8, mix_lanes 85, mix_duck 20.
    the DRUM-X kit with 909 CLUB's knobs, as on linux-hw; saved again it keeps its kit. And the reverse: a preset saved with a kit here, then the
    firmware of linux-hw: it loads (kit 0) and a backup of it still holds the kit's bytes.
 4. By ear: a lane hard left and hard right on the speaker and headphones (L/C/R), the centre detent felt on KNOB 4, DUCK on a bass track.
-## The web app (Session D, branch web-app, October 26, 2026)
+
+### The web app (Session D, branch web-app, October 26, 2026)
 
 What it is: web/app/README.md. How to prove it on the unit: web/app/HARDWARE_TEST.md (Session A).
 
@@ -2987,10 +3097,9 @@ objects (a project-record change); effects and step generators in the Engines ta
 and the lists travel beside it only inside the unit. A backup restored therefore brings every project back with a new project's lists. The
 app's backup adds the music now's lists; the slots' are a firmware change for a later session.
 
+### What the two cores do (October 26, 2026): the scheduler as it is, then the instrumentation
 
-## What the two cores do (October 26, 2026): the scheduler as it is, then the instrumentation
-
-### Part 2: how the work is split today (read from the source, before any run)
+#### Part 2: how the work is split today (read from the source, before any run)
 
 - **Granularity: voices, for some engines only; everything else is CPU0.** CPU1 gets work two ways. (1) The voice batch (audio_batch.h): up to 12
   voice descriptors a group, each a whole voice's 32-sample block with its own PCM scratch. Only the Prophet, FM6, CZ-1, SID and DRUM 808 / 909
@@ -3018,7 +3127,7 @@ app's backup adds the music now's lists; the slots' are a firmware change for a 
   sends off there is no bus job either. The split the user asked about does not exist for these engines; a perfect one would give about 2,744 us.
   The instrumentation below measures it.
 
-### Part 1: the instrumentation (OC_CORE_STATS=1 builds; firmware/src/core_stats.h)
+#### Part 1: the instrumentation (OC_CORE_STATS=1 builds; firmware/src/core_stats.h)
 
 Per half (four 32-sample blocks), TIMER4: wall (the whole render: what Worst is), cpu0 (each block's start to its last track, waits removed), cpu1
 (each CPU1 job as CPU1 timed it, by kind: voices, buses, dub), wait (CPU0 in joins) and tail_wait (the part after the tracks), tail (CPU0's work from
@@ -3027,7 +3136,7 @@ and max; counters for jobs by kind, submits refused while CPU1 was busy, worker 
 (schema 9); `[flags, 2, 1]` forces single-core (no job given to CPU1) for the A/B. Its cost: a few TIMER4 reads a block, one histogram update a
 metric a half, one stored word a CPU1 job; the overhead is measured on the unit with the switch off and on (Part 3).
 
-### Part 3: the controlled runs on the unit (October 27, 2026; Flash 38 and 39)
+#### Part 3: the controlled runs on the unit (October 27, 2026; Flash 38 and 39)
 
 Build: measure/core-split 0b45e5f (linux-hw 2cd81dd + DUB TAPE 0.5 as a CPU1 bench job; host suite passed), OC_CORE_STATS=1 OC_DUB_BENCH=1
 (Flash 38), and the same commit without the stats (Flash 39) for the overhead. Every run: the PC's clock through the AUDIO4c's DIN (CLK 2), 120 BPM,
@@ -3122,7 +3231,7 @@ the host's ratios.
 
 **About 30 to 40 us on the worst (1.0 to 1.4 % of the deadline)**; the third row is within its own run-to-run spread. Late counts equal.
 
-### Part 4: the report
+#### Part 4: the report
 
 **Where things execute (measured, as Part 2 read it).** Per-track effects (DIST, mute, level, pan, sends): CPU0, after each track. Master effects
 (SLICER, DJ FILTER, CLIP, the FX layer's buffer effects, the output stage): CPU0, after the join. The send buses, **REVERB CLOUD included**: one
@@ -3165,7 +3274,7 @@ engine (rev_cloud, jfx.c): up to 12 grains every other sample, each with two rea
 integer divide for its triangle window (`w = ... * 512 / L`, a divide a grain a sample pair). By reading the code the divide and the segmented reads
 are the likely largest parts; they were not timed separately. The window from a precomputed step (an add instead of the divide) is the obvious cut.
 
-## The scheduler, stage 1: whole tracks on CPU1 (design, October 27, 2026; before any code) — DROPPED
+### The scheduler, stage 1: whole tracks on CPU1 (design, October 27, 2026; before any code) — DROPPED
 
 **Dropped the same day (the user's decision).** The firmware already has a voice-level two-core scheduler, the voice batch (audio_batch.h),
 which FM6, the Prophet, CZ-1, SID and the 808/909 use; the ports were simply not on it. This design also disabled its split in any block
@@ -3180,7 +3289,7 @@ CPU0 waiting at its join. Voice stealing waits until the ladder is measured agai
 audio_worker.h, audio_batch.h, engines.c, resources.c, eng_macro.c, plaits/, braids/, eng_drumx.c, drumx_voice.c, tools/module/wheel_mod.c and
 shapes_mod.c).
 
-### 1. The block, before and after
+#### 1. The block, before and after
 
 Today (MELODEE_BATCH_AUDIO, the unit's build), mix_block does the following on CPU0:
 1. The events.
@@ -3205,7 +3314,7 @@ Steps 3 to 5 are unchanged. The mix runs on CPU0 in track order from batch_pcm, 
 order. With the plan forced empty, the output is today's, sample for sample. The host test asserts that, and that a concurrent CPU1 render
 gives the same samples.
 
-### 2. A track's state: shared, handed off, never copied
+#### 2. A track's state: shared, handed off, never copied
 
 A track's state stays where it is: track_t (its voices included), its engine block resource[RES_ENGINE0 + p], batch_pcm[p], batch_spread[p],
 batch_mod[p], rc[p] and cost[p]. All of it is in internal SRAM, which the cores already share for the voice batch.
@@ -3223,7 +3332,7 @@ batch_mod[p], rc[p] and cost[p]. All of it is in internal SRAM, which the cores 
   - ENGINES[];
   - song.g, the tuning and oc_pack_good.
 
-### 3. What the four engines need to run on CPU1
+#### 3. What the four engines need to run on CPU1
 
 The audit found per-track state everywhere except in five shared things, plus one profile-build counter.
 
@@ -3276,7 +3385,7 @@ Floats on CPU1: its FPU already runs jfx and the DUB kernel. MACRO keeps no FPU 
 today are small. The render of one MACRO voice under track_render_audio has not been measured. The stats build fills CPU1's stack with a
 pattern at start and reports the high-water mark (section 6). If it comes within 1 KB of the limit, the job keeps to the engines that fit.
 
-### 4. The balance
+#### 4. The balance
 
 Each block, every track's render (2b) is timed with TIMER4: on CPU0 by CPU0, and on CPU1 by CPU1 into cost[p]. The counter is the same on both
 cores. CPU0 reads cost[p] after the join.
@@ -3293,7 +3402,7 @@ almost nothing and is never worth the move.
 first block of a chord is balanced on the block before it. That is what the user specified. Using the events' knowledge, for example a
 track with a new note costed at its last sounding block, is a refinement for after the measurements.
 
-### 5. Fallback
+#### 5. Fallback
 
 - **No worker** (never started, or retired): the plan is empty and the block renders as today. Admission still follows audio_worker_online
   as today. Voice admission and stealing are not changed.
@@ -3309,7 +3418,7 @@ track with a new note costed at its last sounding block, is a refinement for aft
 - **A misread** (keremimo/melodee#17) of a CPU1 track's state is a wrong sample, or a fault that retires the worker. That is the risk the
   voice batch already carries; it is not new.
 
-### 6. Memory
+#### 6. Memory
 
 - **Normal build:**
   - rc[NPART] is 4 x 16 B; cost[NPART] and the plan are 24 B. All in .bss, about 100 B.
@@ -3326,7 +3435,7 @@ track with a new note costed at its last sounding block, is a refinement for aft
   reading to each row.
 - **The generator fix, if the user takes it later:** 4 B a track.
 
-### 7. The plan, with the flash-or-RAM measurement in it
+#### 7. The plan, with the flash-or-RAM measurement in it
 
 - **M1, before the code: the DUB kernel in flash against SRAM.** measure/core-split 0b45e5f as built (Flash 38), against the same commit
   with dubdelay.c in SRAM (the low SRAM tail has 27,740 B). The rows: DUB LITE x1 and x4 on CPU1 and forced onto CPU0, and VA BASS x4 beside
@@ -3347,7 +3456,7 @@ track with a new note costed at its last sounding block, is a refinement for aft
   one to one, and each row also shows which core took which track.
 - **M3: the report** (Part 5 below this design), then the voice stealing proposal against the new numbers.
 
-### 8. What voice-level splitting would add, and why it is not stage 1
+#### 8. What voice-level splitting would add, and why it is not stage 1
 
 Track granularity cannot split one heavy track. MALLET x1 costs 1,974 us on CPU0, and that would stay. It also leaves one track of
 imbalance when the tracks are uneven: three tracks go 2 + 1, and one MALLET beside three VA BASS lands whole on one core. Voices would even
@@ -3365,7 +3474,7 @@ both out. Not stage 1, because:
 
 It is the next step if Part 5 shows one track dominating.
 
-### 9. Estimates from Part 3 (us a half, deadline 2,902)
+#### 9. Estimates from Part 3 (us a half, deadline 2,902)
 
 Part 3 measured CPU0's whole render (cpu0), not the share that moves. A track's render moves. The events, 2a, the mix, the master and the
 bus wait do not. That share is not known until the stats above read it, so the estimates give a range:
@@ -3394,7 +3503,7 @@ does.
 - **One risk is unmeasured:** dual-core was 7 to 8 % slower on CPU0 with CPU1 only polling. With both cores in flash it may be more. M1
   and M2 measure it.
 
-## The scheduler, stage 1: the ports on the batch (October 27, 2026)
+### The scheduler, stage 1: the ports on the batch (October 27, 2026)
 
 **What is there (read from the source).** audio_batch.h is a per-voice scheduler over the one CPU1 worker:
 - **The queue:** twelve descriptor slots a group, each a voice's 32-sample block with its own PCM.
@@ -3490,7 +3599,7 @@ reading, confirmed: 512 when idle, above 4,096 after one block.
   section, and the DUB kernel, in one pass); an independent review of the diff; the full Part 3 set, plus FM6 x4 and the Prophet x4; then
   the voice stealing proposal.
 
-## The scheduler, stage 2: the buses beside the next block (design, shorter)
+### The scheduler, stage 2: the buses beside the next block (design, shorter)
 
 **Today, every block:** the tracks, the bus job on CPU1 with CPU0 waiting for it (about 290 us a half for ROOM, 500 for CLOUD), then the
 master.
@@ -3521,7 +3630,7 @@ With both corrections DELAY and CHORUS should land where they do today. Whether 
 modulation and feedback run inside the bus. REVERB keeps a pre-delay 0.73 ms longer. Without them the change is in
 CHORUS's colour only. Stage 2 is designed here and built after stage 1's numbers.
 
-### Stage 1's result: the full Part 3 set again, one to one (October 27, Flash 45 and 46)
+#### Stage 1's result: the full Part 3 set again, one to one (October 27, Flash 45 and 46)
 
 **Build.** measure/batch-s1 ec1c460: linux-hw 6356588 (stage 1 with the measured cost table), plus the stats and the DUB bench riding in the
 batch; OC_CORE_STATS=1 OC_DUB_BENCH=1; host suite passed (3,672 s). This build's WHEEL and SHAPES modules were installed for `kcost`.
@@ -3648,7 +3757,7 @@ FM6's tables in .pool; suite passed). The Prophet is its module (ec1c460's).
 - **Lost replies:** one in the first pass of the set, which ended it after 4 rows (a step write, command 30; put back true). From then
   on core_runs.py tries each request three times and logs each loss: one more in the Prophet pass, recovered.
 
-## Voice stealing: a proposal against stage 1's numbers (no code)
+### Voice stealing: a proposal against stage 1's numbers (no code)
 
 **The measure.** What decides a load is the voices rendered at once, not the tracks. The kernel readout gives them: kernels run over
 blocks rendered. Dual-core, stage 1:
@@ -3699,7 +3808,7 @@ existing voice budget's units (MC_UNITS for MODAL, the native engines' units), e
 releasing voice of the same engine first. The SAFETY shed (two halves over 85 %, off by default) stays as it is. The caps apply only while
 CPU1 is online; on one core today's admission holds. Voice admission and stealing are not changed until the user decides.
 
-## The effects-on late spike: its stage named (October 27, Flash 47 and 49; measure/fx-spike, not merged)
+### The effects-on late spike: its stage named (October 27, Flash 47 and 49; measure/fx-spike, not merged)
 
 **The question.** With the shared effects on (REVERB ROOM, sends 64, no DUB), VA BASS x4 drew 80 to 100 late renders per 20 s on one
 core. Which stage of the half makes them? Measured, not fixed.
@@ -3736,7 +3845,7 @@ the buses run whenever their memory is held, whatever the sends.
 **The fix belongs to voice admission** (the voice stealing proposal above: a cap on voices sounding at once while the effects run), not
 to the effects. Not changed: voice admission and stealing wait for the user's call.
 
-## Dropped editor replies: the two-hour capture (October 27, Flash 48, the Nightly 3ca2b5)
+### Dropped editor replies: the two-hour capture (October 27, Flash 48, the Nightly 3ca2b5)
 
 **The question.** Long runs lose an editor reply now and then (five in a day, hw/LOG.md). Is it the unit or the PC?
 

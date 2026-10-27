@@ -1039,3 +1039,19 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   each, kept through both flashes. PipeWire set; slot 1 detached (D954DF93, equal). Tracks MACRO 10/0/1/20, track 1 selected. Track 1's
   CHRD MAJ and VOIC OPEN set and read back (81 -> 3, 82 -> 1). CLK 0. **The unit is left here.**
 
+- **Branches, October 27 (before Release 1):** 54 branches deleted on GitHub (tracker-events, size-audit, gui-slim, fx-jiant,
+  sched/track-split, engine-candidates, drum-kits, measure/dub-ram, measure/native-cores, the 45 exp/*); their heads in
+  `~/fm1-hw/branches-deleted-2026-10-27.txt` and as `refs/archive/2026-10-27/<name>` on the PC. op1r-candidates, measure/batch-s1 and
+  measure/batch-s1-ram kept. BUILD.md, "Release 1", "Branches".
+- Suites on a51d1fc (linux-hw: fe6e5b0's caps and counters + tools/hw/app_protocol.mjs): plain 3,492 s, OC_CORE_STATS=1 3,495 s, and
+  b3ba0e2 (a51d1fc + 30379f3's room, FM6 built in, OC_CORE_STATS=1 MELODEE_FM6=1 MELODEE_SHAPES=0 MELODEE_DRUMX=0) 3,347 s: all passed.
+  CI run 40540471248 on a51d1fc: green.
+- **Flash 51**, 2026-10-27: a51d1fc with OC_CORE_STATS=1 (`~/fm1-hw/wt-c15/build/orangecat-0.6.2-a51d1fc.fwsc`): `ORANGE CAT
+  v0.6.2-a51d1f`, the pack this build's. PipeWire set; slot 1 detached (D954DF93, equal). `remove 7`, `remove 14`, the Prophet module
+  (a51d1fc's) at start 0, 31,884 B. AUDIO_STATS [flags, 5] read: schema 12, 12 commands, requests = replies, 0 dropped / long / cut;
+  [flags, 6]: schema 13, the built caps 3/3, 16/15, 7/5. `~/fm1-hw/caps/caps_runs.py`: the Prophet x4 rows at the cost 1,956
+  (`st.json`; its first MALLET and Prophet ladders stepped from 99, a script fault, and are not used), the MALLET and Prophet ladders
+  with the effects on (`st2.json`) and off (`st3.json`). Put back true each time. BUILD.md, "Release 1", "The cost caps".
+- **Flash 52**: b3ba0e2 (`~/fm1-hw/wt-c15fm6/build/orangecat-0.6.2-b3ba0e2.fwsc`): `ORANGE CAT v0.6.2-b3ba0e`; the Prophet module stayed
+  at start 0. PipeWire set; slot 1 detached (D954DF93, equal). The FM6 ladders (`fm6.json`, `fm6b.json` with caps 8, 4, 2, 1): none holds.
+  Put back true. The caps set in voice.c from these runs: MODAL 1/1, the Prophet 6/3, FM6 left at 16/15.

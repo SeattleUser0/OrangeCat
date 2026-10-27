@@ -67,16 +67,17 @@ int main(void)
     fresh(ENGI_MACRO,mallet);
     voice_cost_half(1,1);assert(!vc_on);voice_cost_half(0,1);voice_cost_half(1,1);assert(!vc_on);
 
-    /* engaged: three at once, whatever the effects */
+    /* engaged: one at once, whatever the effects */
     fresh(ENGI_MACRO,mallet);
     voice_cost_half(1,1);voice_cost_half(1,1);assert(vc_on);
     chords(1);
-    assert(sounding(VC_MODAL)==3u && vc_steals[VC_MODAL]==1u);
+    assert(sounding(VC_MODAL)==1u && vc_steals[VC_MODAL]==3u);
     voice_fx_on=1;chords(2);
-    assert(sounding(VC_MODAL)<=3u);
+    assert(sounding(VC_MODAL)<=1u);
 
-    /* the released voice goes first: track 0's note let go, then track 3 plays */
+    /* the released voice goes first (a cap of 3 set): track 0's note let go, then track 3 plays */
     fresh(ENGI_MACRO,mallet);
+    vc_cap[VC_MODAL][0]=3;
     voice_cost_half(1,1);voice_cost_half(1,1);
     for(unsigned p=0;p<3u;p++)trk_note_on(&trk[p],48u+p,100);
     trk_note_off(&trk[0],48u);
@@ -84,6 +85,7 @@ int main(void)
     trk_note_on(&trk[3],60u,100);
     assert(trk[0].v[0].stage==4u);                            /* track 0's tail, not a held note */
     for(unsigned p=1;p<NPART;p++)assert(trk[p].v[0].gate && trk[p].v[0].stage!=4u);
+    vc_cap[VC_MODAL][0]=0;
 
     /* VA BASS is not capped */
     fresh(ENGI_MACRO,va);
@@ -102,22 +104,24 @@ int main(void)
     assert(sounding(VC_FM6)<=15u);
 #endif
 
-    /* the Prophet x4: 7 off, 5 on */
+    /* the Prophet x4: 6 off, 3 on */
     fresh(ENGI_PROPHET,0);
     assert(voice_class(&trk[0])==VC_PROPHET);
     voice_cost_half(1,1);voice_cost_half(1,1);
     chords(3);
-    assert(sounding(VC_PROPHET)<=7u && vc_steals[VC_PROPHET]);
+    assert(sounding(VC_PROPHET)<=6u && vc_steals[VC_PROPHET]);
     voice_fx_on=1;chords(3);
-    assert(sounding(VC_PROPHET)<=5u);
+    assert(sounding(VC_PROPHET)<=3u);
 
-    /* UNISON: the extra voices find no room past the cap (refused, nothing taken); the lead voice does */
+    /* UNISON (a cap of 3 set): the extra voices find no room past the cap (refused, nothing taken); the lead voice does */
     fresh(ENGI_MACRO,mallet);
+    vc_cap[VC_MODAL][0]=3;
     voice_cost_half(1,1);voice_cost_half(1,1);
     for(unsigned p=0;p<2u;p++)trk_note_on(&trk[p],48u+p,100);
     trk[3].p[P_VOICE]=V_UNISON;
     trk_note_on(&trk[3],60u,100);
     assert(sounding(VC_MODAL)<=3u && trk[3].v[0].active && trk[3].v[0].gate && vc_refused);
+    vc_cap[VC_MODAL][0]=0;
 
     /* the caps' own numbers (OC_CORE_STATS builds set them for the unit's runs): 2 MODAL voices */
     fresh(ENGI_MACRO,mallet);
@@ -148,6 +152,6 @@ int main(void)
     assert(!vc_on);
     audio_worker_online=1;
 
-    printf("Cost caps: MODAL 3, FM6 16 / 15, the Prophet 7 / 5 while engaged; released voices first; VA untouched; released after a second; never on one core: OK\n");
+    printf("Cost caps: MODAL 1, FM6 16 / 15, the Prophet 6 / 3 while engaged; released voices first; VA untouched; released after a second; never on one core: OK\n");
     return 0;
 }

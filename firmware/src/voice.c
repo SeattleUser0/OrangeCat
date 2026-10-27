@@ -263,17 +263,18 @@ static void voice_capacity_kill(voice_t *v)
  * most a voice, and four tracks of one of them pass the deadline with the shared budget's voices. While engaged, a new voice of such an
  * engine finds room among the voices of that engine on every track: at most VC_CAP of them sound at once (stage 4, fading out this block,
  * not counted), the shared effects on or off (they cost a voice or two). The cap is the same on every track, counted in the engine's
- * voices as the budget counts its units (a MODAL voice is 9 of MACRO's units, an FM6 voice one; the cap in units would be 9 x 3 and 1 x 15).
+ * voices as the budget counts its units (a MODAL voice is 9 of MACRO's units, an FM6 voice one; the cap in units would be 9 x 1 and 1 x 15).
  * The voice given up: the oldest released one of the engine, else the oldest held one that is not its part's lowest note, else the oldest
- * held one (the cap holds: a track's held note can go). Measured on the unit with four tracks (Part 3 after stage 1, Flash 45 and 46).
+ * held one (the cap holds: a track's held note can go). Proposed from Part 3 after stage 1 (Flash 45 and 46: 3, 16 / 15, 7 / 5); set from
+ * the four-track runs with the caps (Flash 51 and 52): a stolen voice fades beside the new one in the step's half, so the caps that hold are lower.
  * Engaged by the halves' cost (audio.c voice_cost_half), not always: two halves in a row over VC_ON (80 % of the half, under the
  * overload shed's 85 %) engage them; they stay while the halves pass VC_KEEP (70 %), and let go after VC_HOLD halves under it (about a second). Only
  * with CPU1 online (the caps were measured on two cores; one core keeps its own budget). Not the SAFETY shed: it stays as it was. */
 enum { VC_MODAL, VC_FM6, VC_PROPHET, VC_N };
-static const uint8_t VC_CAP[VC_N][2] = {        /* voices at once: the shared effects off, on */
-    {3, 3},                                     /* MODAL: four MALLET tracks' p99 2,848 at 2.9 voices, over the deadline at 4 */
-    {16, 15},                                   /* FM6: 16 hold with the effects off (p99 2,528), 15 with them on (16: 2,976) */
-    {7, 5},                                     /* the Prophet: 8 hold off (2,496), 3.8 on (2,304), 7.9 on fail (3,264) */
+static const uint8_t VC_CAP[VC_N][2] = {        /* voices at once: the shared effects off, on (the largest that holds on the unit, Flash 51 and 52) */
+    {1, 1},                                     /* MODAL: four MALLET tracks, p99 2,080 off / 2,624 on at 1; 2 is over (3,104 / 3,648) */
+    {16, 15},                                   /* FM6: none holds four tracks (1 voice: p99 3,008, the note-ons); not in Orange Cat's set */
+    {6, 3},                                     /* the Prophet: p99 2,720 at 6 off (7: 3,136), 2,624 at 3 on (4: 2,976) */
 };
 #define VC_HOLD 344u                            /* halves (2.9 ms each): about a second */
 #if MELODEE_DUAL_CORE
