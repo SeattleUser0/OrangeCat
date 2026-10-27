@@ -391,7 +391,7 @@ def fm6_tables():
         sin_t[i + 512] = -((v + 32) >> 6)
         u, v = (u * c - v * s + (1 << 29)) >> 30, (u * s + v * c + (1 << 29)) >> 30
     assert all(abs(x) <= 1 << 24 and f32(x / 2**24) == x / 2**24 for x in sin_t)   # (float)x * 2^-24 is exact
-    L += [f"#define FM6_SIN_C {c}", f"#define FM6_SIN_S {s}", "static float FM6_SIN[1025];"]
+    L += [f"#define FM6_SIN_C {c}", f"#define FM6_SIN_S {s}", "static float FM6_SIN[1025] __attribute__((section(\".pool\")));"]
     # Exact integer phase steps for Q24 log pitches (Freqlut). The continuous
     # signal path is float, but float cannot carry every bit of this pitch.
     y, inc, fl = float(1 << 44) / FS, math.pow(2, 1.0 / 1024), []
@@ -404,7 +404,7 @@ def fm6_tables():
           for i in range(1024)]
     ex = [int(round(f32((math.pow(2, f32(i / 1024.0)) - 1) * 4096))) for i in range(1024)]
     L += arr("FM6_MKI_LOG_H", "uint16_t", lg, 16)           # FM6_MKI_LOG: lg + reversed: half a cycle (the sign: the phase)
-    L += ["static uint16_t FM6_MKI_LOG[2048];"]
+    L += ["static uint16_t FM6_MKI_LOG[2048] __attribute__((section(\".pool\")));"]
     L += arr("FM6_MKI_EXP_D", "uint8_t", nibbles([ex[i] - ex[i - 1] - 2 for i in range(1, 1024)], ex[0]), 16)
     L += ["static uint16_t FM6_MKI_EXP[1024];             /* 4096 + exp, reversed */"]
     # OPL (EngineOpl.cpp): the OPL's quarter-wave log sine and exponent ROMs

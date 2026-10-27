@@ -47,7 +47,7 @@ _Static_assert(NTRK * NPAT == 32u, "recording head initializer covers every bank
 static uint16_t recording_next[RECORD_MAX];
 /* Keep the onset cache in ordinary RAM: the expanded event payload remains in
  * the pool, leaving the full audio reserve alongside CPU1's private stacks. */
-static uint32_t recording_due[RECORD_MAX];
+static uint32_t recording_due[RECORD_MAX] __attribute__((section(".pool")));   /* (measure/native-cores: room for FM6) */
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
 static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t cursor; } recording_schedule[NTRK];
 /* (Orange Cat 0.13.0) step properties on recorded steps. recording_roll: the steps of the track whose chance and condition were rolled this pass of the loop
