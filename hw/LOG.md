@@ -961,3 +961,10 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   over; the late counts of the last rows accumulated. Fixed in fm1hw.py (6ed5675); the affected groups run again.
 - **Flash 39**, 2026-10-27T01:53:22Z: the same commit with OC_DUB_BENCH=1 only (no core stats; AUDIO_STATS [0, 1] answers schema 2): the
   overhead rows, two passes; then the same rows had run twice on Flash 38. The stats cost 30 to 40 us on the worst.
+- **Flash 40**, 2026-10-27T02:04:41Z: back on the published Nightly (`~/fm1-hw/nightly-3ca2b56/melodee-nightly.fwsc`): `ORANGE CAT v0.6.2-3ca2b5`,
+  the pack this build's, WHEEL (start 0, state 7), SHAPES (start 1, state 7); tracks MACRO 10 / 0 / 1 / 20 as found, track 1 selected, CLK 0;
+  track 1's CHRD MAJ and VOIC OPEN set again (the restart cleared them) and read back. PipeWire set; slot 1 detached (D954DF93, read back equal):
+  the next power-on loads slot 1 as the user has it. **The unit's end state.**
+- Not done: the candidates' unit measurements "in B1 order": the order is not in any document or transcript this session can read (fmbell,
+  supersaw and dddd have their unit rows from Flash 28; aether, brassophone, mixtur and arc are not ported; granular waits on the user).
+
