@@ -155,13 +155,20 @@ class Unit:
     def stats(self, reset=False):
         """schema 8 when the firmware has it, else schema 2; reset: start Worst (and on schema 8 Late, Blocks) over"""
         if getattr(self, "_schema", None) != 2:
-            try:
-                d = self.req(72, [64 | (1 if reset else 0)], timeout=1.0)
+            # (a lost reply must not downgrade the session: on schema 2 a reset starts only Worst over, so Late would go on counting.
+            # Schema 2 only when a schema 8 build is ruled out: a reply that is not schema 8, or three tries unanswered on a first ask)
+            for k in range(3):
+                try:
+                    d = self.req(72, [64 | (1 if reset else 0)], timeout=1.0)
+                except TimeoutError:
+                    continue
                 if d[0] == 8:
                     self._schema = 8
                     return self._parse(d)
-            except TimeoutError:
-                pass
+                break
+            else:
+                if getattr(self, "_schema", None) == 8:
+                    raise TimeoutError("no reply to AUDIO_STATS (schema 8) in three tries")
             self._schema = 2
         d = self.req(72, [1] if reset else [])
         return self._parse(d)

@@ -2996,3 +2996,141 @@ the last track to the block's end, waits removed: the serial tail), idle1 (wall 
 and max; counters for jobs by kind, submits refused while CPU1 was busy, worker retirements, single-core forced. Read with AUDIO_STATS `[flags, 1]`
 (schema 9); `[flags, 2, 1]` forces single-core (no job given to CPU1) for the A/B. Its cost: a few TIMER4 reads a block, one histogram update a
 metric a half, one stored word a CPU1 job; the overhead is measured on the unit with the switch off and on (Part 3).
+
+### Part 3: the controlled runs on the unit (October 27, 2026; Flash 38 and 39)
+
+Build: measure/core-split 0b45e5f (linux-hw 2cd81dd + DUB TAPE 0.5 as a CPU1 bench job; host suite passed), OC_CORE_STATS=1 OC_DUB_BENCH=1
+(Flash 38), and the same commit without the stats (Flash 39) for the overhead. Every run: the PC's clock through the AUDIO4c's DIN (CLK 2), 120 BPM,
+20 s, the chord on every step, both captures (`~/fm1-hw/cores/core_runs.py`; results `runs-0b45e5f*.json`, WAVs beside them). Microseconds a half
+(the deadline 2,902), mean / p99 / max. Late is AUDIO_STATS' count in the 20 s; DAC is silences at the analog out. **USB holes are left out**: they
+appear with no late render (the factory DRUM-X row: 64), the USB capture as in earlier sessions. In a deep overload (the MALLET x4 rows) the late
+counter is not meaningful (the interrupt drops halves: about 7,190 is a full 20 s); there the halves rendered tell it.
+
+**A fault in the first pass, fixed and rerun.** fm1hw.py's `stats()` asked for schema 8 with a 1 s timeout and on a timeout fell back to schema 2
+for the rest of the session; on schema 2 a reset starts only Worst over. One dropped reply (hw/LOG.md, five that day) switched it mid-pass, so the
+late counts from the MALLET + CLOUD dual-core row on accumulated. Fixed in tools/hw/fm1hw.py (three tries; schema 2 only when a reply says so);
+core_runs.py now refuses a non-schema-8 reading. The CLOUD and spring groups were run again: their core timings repeat within a few us; their late
+counts below are the rerun's.
+
+**MALLET ladder** (four MACRO MALLET tracks, the chord on the first n, rests on the rest; effects on: REVERB ROOM, sends 64 on the sounding tracks):
+
+| n | effects | core | wall mean / max | cpu0 mean | cpu1 (bus) | CPU0 wait | tail | halves | late | DAC |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | off | single | 2,159 / 2,408 | 1,974 | 0 | 0 | 183 | 7,191 | 0 | 0 |
+| 1 | off | dual | 2,158 / 2,487 | 1,974 | 0 | 0 | 183 | 7,216 | 0 | 0 |
+| 2 | off | single | 2,966 / 3,915 | 2,782 | 0 | 0 | 182 | 3,745 | 3,446 | 0 |
+| 2 | off | dual | 3,183 / 3,911 | 2,999 | 0 | 0 | 183 | 3,596 | 3,596 | 0 |
+| 3 | off | single | 3,825 / 5,186 | 3,640 | 0 | 0 | 183 | 3,744 | 3,447 | 371 |
+| 3 | off | dual | 4,114 / 5,187 | 3,928 | 0 | 0 | 184 | 3,597 | 3,596 | 362 |
+| 4 | off | single | 4,668 / 6,403 | 4,484 | 0 | 0 | 182 | 3,669 | 3,210 | 2 |
+| 4 | off | dual | 5,035 / 6,428 | 4,850 | 0 | 0 | 183 | 3,522 | 3,362 | 0 |
+| 1 | on | single | 2,533 / 3,354 | 1,999 | 0 | 0 | 533 | 7,131 | 93 | 0 |
+| 1 | on | dual | 2,567 / 3,339 | 2,069 | 298 | 301 | 195 | 7,121 | 85 | 0 |
+| 2 | on | single | 3,377 / 5,109 | 2,843 | 0 | 0 | 533 | 3,744 | 3,447 | 603 |
+| 2 | on | dual | 3,584 / 4,760 | 3,062 | 312 | 313 | 206 | 3,597 | 3,597 | 579 |
+| 3 | on | single | 4,251 / 6,250 | 3,722 | 0 | 0 | 527 | 3,745 | 3,445 | 480 |
+| 3 | on | dual | 4,522 / 5,983 | 4,020 | 307 | 308 | 192 | 3,597 | 3,595 | 0 |
+| 4 | on | single | 5,117 / 7,554 | 4,598 | 0 | 0 | 518 | 3,694 | 3,160 | 6 |
+| 4 | on | dual | 5,470 / 7,492 | 4,973 | 299 | 302 | 193 | 3,524 | 3,326 | 0 |
+
+Voice jobs 0 in every row: MACRO never gives CPU1 a voice. Each sounding MALLET adds about 840 us to CPU0 (1,974, 2,782, 3,640, 4,484); two are over
+the deadline already. With CPU1 given nothing (effects off), dual-core is **7 to 8 % slower** on CPU0 than single-core forced once overloaded (equal
+at n = 1); not explained (memory contention with CPU1's polling loop is a candidate; not tested).
+
+**DUB LITE** (four VA BASS tracks; DUB LITE instances on tracks 1..n as one CPU1 job a block, submitted before the tracks and joined after them):
+
+| DUB | effects | core | wall mean / p99 / max | cpu0 | cpu1: bus + dub | CPU0 wait | tail | halves | late | DAC |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | off | single | 1,422 / 2,336 / 2,508 | 1,236 | 0 | 0 | 185 | 7,191 | 0 | 0 |
+| 0 | off | dual | 1,421 / 2,336 / 2,579 | 1,235 | 0 | 0 | 184 | 7,190 | 0 | 0 |
+| 1 | off | single | 1,826 / 2,752 / 2,933 | 1,626 | 0 | 0 | 198 | 7,159 | 31 | 0 |
+| 1 | off | dual | 1,547 / 2,432 / 2,663 | 1,256 | 0 + 329 | 92 | 197 | 7,190 | 0 | 0 |
+| 4 | off | single | 2,758 / 3,968 / 4,045 | 2,559 | 0 | 0 | 197 | 4,952 | 2,240 | 1 |
+| 4 | off | dual | 1,992 / 2,464 / 2,660 | 1,270 | 0 + 1,271 | 520 | 201 | 7,219 | 0 | 0 |
+| 0 | on | single | 1,826 / 2,976 / 3,471 | 1,296 | 0 | 0 | 528 | 7,110 | 80 | 0 |
+| 0 | on | dual | 1,784 / 2,944 / 3,455 | 1,293 | 288 + 0 | 290 | 198 | 7,109 | 82 | 0 |
+| 1 | on | single | 2,092 / 3,488 / 4,168 | 1,529 | 0 | 0 | 562 | 5,076 | 2,116 | 0 |
+| 1 | on | dual | 1,912 / 3,008 / 3,731 | 1,314 | 290 + 331 | 385 | 211 | 7,082 | 109 | 0 |
+| 4 | on | single | 3,155 / 4,096 / 4,747 | 2,606 | 0 | 0 | 547 | 4,926 | 2,266 | 0 |
+| 4 | on | dual | 2,352 / 3,040 / 3,581 | 1,322 | 286 + 1,270 | 817 | 210 | 7,090 | 103 | 0 |
+
+One LITE instance: 329 us on CPU1 (318 each at four), about 390 on CPU0 alone (331 each at four): CPU1 is faster at it, as in Step 2. **The late
+renders with effects on come from the effects, not from DUB**: 80 to 82 in 20 s with no DUB at all, at a mean load of 1,800. The tail's max (952 to
+1,299 against a mean of 528) shows a periodic expensive half in the effects (REVERB ROOM, sends 64); which stage, not found yet.
+
+**DRUM-X TECHNO RAW x4** (the drum-kits case): factory 1,475 cpu0 mean, wall max 2,712 to 2,732, 0 late; pan + tune 1,828 (+24 %), wall max 3,088
+to 3,103, 75 to 89 late. Single and dual identical: DRUM-X renders on CPU0.
+
+**DUB LITE into REVERB CLOUD in series** (route 1: the DUB wet into the REVERB send; G_RTYPE 4 CLOUD, sends 100 on the DUB tracks; the rerun):
+
+| load | DUB on | core | wall mean / p99 / max | cpu0 | cpu1: bus + dub | **serial tail: CPU0 tail + its waits** | halves | late | DAC |
+|---|---|---|---|---|---|---|---|---|---|
+| VA BASS x4 | 1 | single | 2,287 / 3,616 / 3,801 | 1,511 | 0 | 774 + 0 | 4,962 | 2,232 | 0 |
+| VA BASS x4 | 1 | dual | 2,070 / 3,136 / 3,353 | 1,254 | 495 + 333 | 216 + 598 = 814 | 6,807 | 398 | 0 |
+| VA BASS x4 | 4 | single | 3,390 / 4,096 / 4,987 | 2,602 | 0 | 786 + 0 | 4,948 | 2,246 | 0 |
+| VA BASS x4 | 4 | dual | 2,531 / 3,328 / 3,486 | 1,161 | 508 + 1,297 | 215 + 1,153 = 1,368 | 5,080 | 2,120 | 0 |
+| MALLET x4 | 1 | single | 5,575 / - / 7,644 | 4,822 | 0 | 751 + 0 | 2,596 | (overload) | 0 |
+| MALLET x4 | 1 | dual | 5,619 / - / 7,170 | 4,905 | 489 + 329 | 222 + 490 = 712 | 3,539 | (overload) | 0 |
+| MALLET x4 | 4 | single | 6,761 / - / 8,877 | 5,967 | 0 | 792 + 0 | 2,581 | (overload) | 1 |
+| MALLET x4 | 4 | dual | 5,725 / - / 7,224 | 5,010 | 490 + 1,280 | 217 + 495 = 712 | 3,497 | (overload) | 0 |
+
+(The DUB join is after the tracks, so its wait is in the serial tail with the bus's. For MALLET the tracks outlast the DUB job, so CPU0 waits only
+for the bus.) **CLOUD's bus job is 490 to 508 us on CPU1 against ROOM's 286 to 312: about 200 us more**; on CPU0 alone the CLOUD tail is 751 to 792.
+
+**The spring** (VA BASS x4, effects off, dual-core; the rerun): DUB LITE with the spring in the loop: 406 us one, 1,568 four (+23 % on LITE); on the
+wet 464 and 1,802 (+41 %). Wall max 2,585 to 2,715; **0 late in all four**; one DAC silence in the wet-x1 run with no late render (not explained;
+the other three none). The host predicted +35 % (loop, 0.5) and +84 % (wet); the instruction count about 120 us (loop). The unit costs less than
+the host's ratios.
+
+**The instrumentation's own cost** (the same commit with OC_CORE_STATS=0, Flash 39; two passes each; worst us):
+
+| load | stats on | stats off |
+|---|---|---|
+| VA BASS x4 | 2,173 / 2,175 | 2,135 / 2,147 |
+| MALLET x4 | 5,527 / 5,538 | 5,497 / 5,508 |
+| VA BASS x4 + DUB LITE x4, effects on | 3,153 / 2,976 | 3,070 / 3,209 |
+
+**About 30 to 40 us on the worst (1.0 to 1.4 % of the deadline)**; the third row is within its own run-to-run spread. Late counts equal.
+
+### Part 4: the report
+
+**Where things execute (measured, as Part 2 read it).** Per-track effects (DIST, mute, level, pan, sends): CPU0, after each track. Master effects
+(SLICER, DJ FILTER, CLIP, the FX layer's buffer effects, the output stage): CPU0, after the join. The send buses, **REVERB CLOUD included**: one
+CPU1 job after the last track, CPU0 spinning until it is done (its wait equals the job, row by row). The DUB bench: CPU1, in parallel with the tracks.
+
+**Is CPU1 doing half the work, a fraction, or close to nothing?** **Close to nothing** for these engines. MACRO (MALLET, VA BASS), DRUM-X, SHAPES
+and WHEEL never give CPU1 a voice: voice jobs 0 in every run. Without effects CPU1 is idle (four MALLET tracks, 4,484 us on CPU0, 0 on CPU1).
+With effects it takes the bus job (about 290 us ROOM, about 500 CLOUD: 6 to 17 % of the wall), and CPU0 waits for exactly that long, so the
+effects on CPU1 save about 40 us net (single tail 528 against dual tail + wait 488). Only the DUB job, which runs beside the tracks, puts real work
+on CPU1 (1,271 us at four instances, about two thirds of the wall) and takes it off the critical path.
+
+**The candidate fixes, each with an estimated gain (us a half, against the 2,902 deadline):**
+1. **A voice- or track-level split for MACRO and DRUM-X** (the engines that render on CPU0 today): about half of CPU0's track time. Four VA BASS:
+   about 600. Four MALLET: about 2,200, which brings the mean (4,484) near 2,400 but leaves the worst (6,403) over the deadline. The largest gain by
+   far; it needs those engines' render to be safe on CPU1 (their state, their tables in flash through CPU1's cache), not checked.
+2. **Moving the serial tail**: the buses run while CPU0 waits. Running block b's buses on CPU1 while CPU0 renders block b + 1's tracks (one
+   32-sample block, 0.73 ms, of latency on the sends) takes the wait off the critical path: about 290 (ROOM) to 500 (CLOUD). With DUB and CLOUD on
+   four tracks the serial tail is 1,368 of a 2,531 mean; overlapping it is what that load needs.
+3. **Rebalancing** what CPU1 already gets: with DUB x4 into CLOUD, CPU1 carries 1,806 against CPU0's 1,161. Moving one DUB instance back to CPU0
+   when CPU1's share is the longer (the batch already balances by cost) gains about 300.
+4. **Cutting the sync overhead** (one job at a time, spin-wait, csync): measured small. A DUB job costs CPU0 about 20 us to hand off and collect
+   (1,256 against 1,235); moving the buses saves 40 of their 330. At most 30 to 50 a half: the smallest.
+
+**Four DUB TAPE inserts on top of the load.** On a light CPU0 load they fit: VA BASS x4 + DUB LITE x4, effects off, p99 2,464, max 2,660, 0 late;
+with the spring on the wet, 1,802 on CPU1, max 2,606, 0 late. With the shared effects on, the late renders are the effects' own spikes (80 to 109 in
+20 s with or without DUB). **They do not fit with CLOUD as the reverb** (VA BASS x4, four DUB into CLOUD: 2,531 mean, 2,120 late, about 30 % of the
+halves lost) because DUB and the CLOUD bus queue on CPU1 one after the other while CPU0 waits (the serial tail, 1,368). Nor beside heavy CPU0 tracks
+(MALLET), which are over the deadline without them. CPU1 has about 1,100 us of room left beside four LITE instances; TAPE (435 a half each, Step 2)
+or the spring on the wet takes most of it. Fixes 2 and 3 are what four inserts with CLOUD need; fix 1 is what heavier tracks need.
+
+**Does placement (flash or RAM) explain the 308 us LITE cost?** **Not answered: open.** No RAM-placed build was measured. What is known: the kernel
+runs from flash (the bench's DD_NOINL is JFX_XIP); the unit costs 318 to 329 us an instance on CPU1, about 3.2 cycles an instruction by Step 2's count,
+which is what a cache-missing XIP loop would give, but also an FPU's latency could. The spring's small cost on the unit (+23 % in the loop against
++35 % on the host) shows the unit's ratios differ from the host's. To answer it: one A/B build with dubdelay.c in SRAM (the low SRAM tail has
+27,740 B), the same rows. **The same rule for the other effects and engines: also open.** The effects' DSP is in flash by design (.text.xip_jfx,
+the build check); CLOUD (JFX_XIP) and MACRO were not A/B'd either.
+
+**What in CLOUD costs most.** CLOUD is ROOM's network plus a granular stage: about 200 us a half more than ROOM on CPU1. That extra is the grain
+engine (rev_cloud, jfx.c): up to 12 grains every other sample, each with two reads of the 0.74 s line (segmented: cl_get), an interpolation and an
+integer divide for its triangle window (`w = ... * 512 / L`, a divide a grain a sample pair). By reading the code the divide and the segmented reads
+are the likely largest parts; they were not timed separately. The window from a precomputed step (an add instead of the divide) is the obvious cut.
