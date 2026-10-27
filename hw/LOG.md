@@ -991,3 +991,15 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - On linux-hw: **0a7b1b9**, stage 1 (MACRO, DRUM-X, SHAPES and WHEEL on the batch; host suite passed, 1,377 s). Measurement branches:
   measure/batch-s1 cbfa9c9 (0a7b1b9 + the DUB bench riding in the batch) and measure/batch-s1-ram 3e2819b (the same with MACRO's kernel, its VA
   and MODAL renders and the DUB kernel in .dsp_text).
+- **Flash 43**, 2026-10-27T07:38:17Z: measure/batch-s1 f0ee004 (linux-hw 0a7b1b9 + the DUB bench riding in the batch, OC_CORE_STATS=1
+  OC_DUB_BENCH=1; host suite passed, 2,506 s; reviewed twice before it went on: the draft and the committed 0a7b1b9, no bug in the audio
+  path): `ORANGE CAT v0.6.2-f0ee00`. PipeWire set; slot 1 detached. The Prophet module (7202333's) still at start 0. Rows
+  (`~/fm1-hw/s1/A-prophet-kcost-dub.json`): the Prophet ladder, the `dub` group, `kcost` (the ports' kernel costs). Then `remove 19` and this
+  build's WHEEL (start 0, 2,928 B) and SHAPES (start 1, 24,160 B), both FW_API 6, registered; `kcost` again through the modules
+  (`A-kcost-modules.json`). VA BASS x4 dual effects off: wall 1,058 mean, 1,850 max (Part 3: 1,421 / 2,579); MALLET x4 dual: 2,708 / 3,750
+  (5,035 / 6,428). Put back true each pass.
+- **Flash 44**, 2026-10-27T07:59:37Z: measure/batch-s1-ram 14f28c2 (the same with MACRO's kernel, VA and MODAL renders and the DUB kernel in
+  .dsp_text; host suite passed, 1,331 s, after its first suite failed tests/target_budget.py: the SRAM-placed VA render inlined into
+  mc_model_render, made noinline): `ORANGE CAT v0.6.2-14f28c`; WHEEL and SHAPES (f0ee004's) loaded. `kcost` and `dub` (`B-kcost-dub.json`):
+  VA in SRAM 161 us a voice's block against 89 in flash, MODAL the same, DUB 4.5 to 7 % faster. BUILD.md, "Stage 1: placement".
+- linux-hw 6356588: audio_batch_cost from these numbers, the placement rule in ADDING_AN_ENGINE.md.
