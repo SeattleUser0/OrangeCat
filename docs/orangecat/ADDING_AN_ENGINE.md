@@ -52,6 +52,15 @@ Engine numbers are stored in projects, presets and backups: **append a new numbe
 
 The last two rows are the rule of section 4.
 
+**Where a voice kernel runs from (0.14.3, measured: BUILD.md, "Stage 1: placement").** The native engines' kernels (FM6, the Prophet, the
+808) are in `.dsp_text`, the low SRAM bank; the ports' are in flash (`.text.xip_<name>`). Moved to `.dsp_text` with its VA and MODAL renders,
+MACRO's kernel was **81 % slower for VA** (161 against 89 us a voice's block on CPU1) and the same for MODAL (190 against 188); the DUB TAPE
+kernel 4.5 to 7 % faster. The likely reason for VA's loss: what the moved code still calls in flash is reached across the XIP/SRAM distance
+through a pointer (tools/audio_ram.py), and the I-cache served the flash copy well. **The rule: a kernel stays in flash (`.text.xip_<name>`)
+unless it is measured on the unit both ways (the kernel readout, AUDIO_STATS `[flags, 3]`, an `OC_CORE_STATS=1` build) at least 15 % faster in
+SRAM, with everything it calls per sample moved with it; the low SRAM bank (`.dsp_text`, about 27 KB) and the arena's 48 KB minimum
+(app.ld) bound what can move.** None of the four ports' kernels qualifies today.
+
 ## 3. The budget
 
 **The render budget is the half buffer: 128 frames at 44.1 kHz, 2,901 us**, for everything the audio interrupt does: four tracks, their

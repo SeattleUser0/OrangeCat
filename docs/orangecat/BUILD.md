@@ -3416,6 +3416,43 @@ nothing but the Prophet module's voices: Part 3's "voice jobs 0".
 - tests/audio_batch_profile_test.c (the batch's accounting) has a MACRO case: eight MODAL or VA voices by their units split five to CPU1
   and three to CPU0, as the native engines do; the merge hook runs in voice order, and not for a failed CPU1's dropped voices.
 
+**Stage 1: the per-voice costs (measured, October 27, Flash 43 and 44).** measure/batch-s1 f0ee004 (linux-hw 0a7b1b9 + the DUB bench
+riding in the batch, OC_CORE_STATS=1 OC_DUB_BENCH=1; host suite passed). Four tracks of each preset, the chord on every step, dual-core,
+20 s (core_runs.py `kcost`). The kernel readout times every voice kernel on the core that ran it. In microseconds a voice's 32-sample block,
+CPU1 / CPU0:
+- MACRO MALLET (MODAL) 187.7 / 216.8;
+- MACRO VA BASS 88.8 / 102.3;
+- DRUM-X TECHNO RAW 24.7 / 28.5;
+- SHAPES CSAW BASS 56.4 / 64.7 and MORPH LEAD 69.3 / 79.7 (the module; built in, 55.4 and 69.0);
+- WHEEL FULL ORGAN 30.6 / 34.9 (the module);
+- the Prophet (module) 81.5 / 92.5;
+- the DUB LITE job, one instance, 82.6.
+
+CPU0 is 10 to 15 % slower at the same kernel, as Part 3 found for DUB. `audio_batch_cost` is set from the CPU1 figures (TIMER4 ticks):
+- MACRO 520 a voice unit (MODAL 500, VA 533: the unit table MC_UNITS holds within 6 %);
+- DRUM-X 590;
+- SHAPES 1,500 (CSAW and MORPH's mean);
+- WHEEL 730.
+
+The native entries stay as they were. **The Prophet's measured 1,956 is two thirds of its 3,100 entry; FM6's was not measured on this build.**
+Changing them changes the native engines' split, which is outside stage 1: left for the user.
+
+**Stage 1: placement, the A/B (Flash 43 against 44).**
+- **The two builds:** measure/batch-s1-ram 14f28c2 is the same build with MACRO's kernel (mc_voice, mc_model_render, the VA and MODAL
+  renders) and the DUB kernel in `.dsp_text`, the native kernels' section.
+- **MACRO VA:** 161.2 us on CPU1 against 88.8 in flash: **81 % slower**.
+- **MACRO MODAL:** 190.3 against 187.7, the same.
+- **DUB LITE:** 77.1 against 82.6 for one instance, 302.7 against 316.9 for four: 4.5 to 7 % faster.
+- **The rows:** VA BASS x4 dual 1,524 mean against 1,058; the DUB rows worse with it.
+- **Why:** not proven. The likely cause is that what the moved code still calls in flash is reached through a pointer across the XIP/SRAM
+  distance, where the I-cache had served the flash copy well.
+- **The rule (ADDING_AN_ENGINE.md, section 2):** a kernel stays in flash unless measured at least 15 % faster in SRAM, with what it calls per
+  sample moved with it. None of the ports' kernels qualifies; DUB's 4.5 to 7 % does not either.
+
+**CPU1's stack.** The high-water readout says 4,336 to 5,412 B. CPU1's jobs run on the user stack, which tops at `_cpu1_stacks_lo + 4096`
+(crt0.S), so the readout counts from 4 KB above it: the jobs' real depth is 240 to 1,316 B of the user stack's 3,840. The second review's
+reading, confirmed: 512 when idle, above 4,096 after one block.
+
 **To come in this stage:**
 - **A generator per voice for MACRO's drawing models,** so they batch too. It changes the renders where more than one voice or track
   draws, so the golden hashes move. That is the user's call before it lands.
