@@ -968,3 +968,26 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - Not done: the candidates' unit measurements "in B1 order": the order is not in any document or transcript this session can read (fmbell,
   supersaw and dddd have their unit rows from Flash 28; aether, brassophone, mixtur and arc are not ported; granular waits on the user).
 
+
+## October 27 (UTC): the scheduler's stage 1 (the ports on the voice batch): Flash 41 onward
+
+- **Flash 41**, 2026-10-27T03:21:55Z: the Flash 38 image again (measure/core-split 0b45e5f, OC_CORE_STATS=1 OC_DUB_BENCH=1: the DUB kernel in
+  flash) for M1, the placement A/B's first half: `ORANGE CAT v0.6.2-0b45e5`; PipeWire set; slot 1 detached (D954DF93). The `dub` and `mallet_dub`
+  groups (`~/fm1-hw/m1/m1-flash.json`): DUB LITE on CPU1 330 us one, 1,281 four beside four MALLET tracks on CPU0 (329 / 1,271 beside VA BASS in
+  Part 3): no cost of both cores fetching from flash at once. Put back true. (The SRAM half, measure/dub-ram 685b3b3, passed its suite but was not
+  flashed: the track-level design it belonged to was dropped; the A/B is redone on the batch build, measure/batch-s1-ram.)
+- **Flash 42**, 2026-10-27T05:37:52Z: measure/native-cores 7202333 (0b45e5f with FM6 built in: MELODEE_FM6=1, MELODEE_SHAPES=0,
+  MELODEE_DRUMX=0, FM6's boot tables and recording_due in .pool; OC_CORE_STATS=1; host suite passed, 2,815 s): `ORANGE CAT v0.6.2-720233`.
+  PipeWire set; slot 1 detached. Tracks read MACRO/10, FM6/10, FM6/10, MACRO/20: the stored project has engine 12 on tracks 2 and 3, which the
+  Nightly shows as its fallback (MACRO/0, MACRO/1); the put-back restores them as they were.
+- **The module area for the Prophet**: its 8 sectors fit no start while WHEEL (start 0) and SHAPES (start 1) are installed. `remove 7`, then
+  `remove 14` (one engine each; never the area), then the Prophet module of this build (`orangecat-prophet-0.6.2-7202333.ocm`) at start 0: state 7,
+  engine 19. oc_install.mjs did not return after the write (a reply lost: the same as the dropped editor replies); `info` read the module
+  registered. **WHEEL and SHAPES are to be reinstalled at the end** (the Nightly's packages, `~/fm1-hw/nightly-3ca2b56/`).
+- **FM6 x4 and the Prophet x4**, the MALLET ladder's shape (one to four tracks, single-core forced and dual, effects off and on; core_runs.py
+  groups `fm6`, `prophet`; `~/fm1-hw/native/native-7202333.json`): CPU1 renders their voices (voice jobs 14,000 to 57,000 a run; cpu1 voice
+  1,400 to 2,250 us a half for FM6, about 1,650 for the Prophet). FM6 x1 3,601 -> 2,302 us (late to clean), the Prophet x2 3,932 -> 2,349 (late
+  to clean); four tracks of either still over the budget dual-core. BUILD.md, stage 1.
+- On linux-hw: **0a7b1b9**, stage 1 (MACRO, DRUM-X, SHAPES and WHEEL on the batch; host suite passed, 1,377 s). Measurement branches:
+  measure/batch-s1 cbfa9c9 (0a7b1b9 + the DUB bench riding in the batch) and measure/batch-s1-ram 3e2819b (the same with MACRO's kernel, its VA
+  and MODAL renders and the DUB kernel in .dsp_text).
