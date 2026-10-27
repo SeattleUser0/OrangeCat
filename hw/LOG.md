@@ -1003,3 +1003,22 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   mc_model_render, made noinline): `ORANGE CAT v0.6.2-14f28c`; WHEEL and SHAPES (f0ee004's) loaded. `kcost` and `dub` (`B-kcost-dub.json`):
   VA in SRAM 161 us a voice's block against 89 in flash, MODAL the same, DUB 4.5 to 7 % faster. BUILD.md, "Stage 1: placement".
 - linux-hw 6356588: audio_batch_cost from these numbers, the placement rule in ADDING_AN_ENGINE.md.
+- **Flash 45**, 2026-10-27T09:16:24Z: measure/batch-s1 ec1c460 (linux-hw 6356588, stage 1 with the measured cost table, + the stats and the
+  DUB bench; host suite passed, 3,672 s): `ORANGE CAT v0.6.2-ec1c46`; WHEEL and SHAPES (f0ee004's) loaded. **The full Part 3 set**
+  (`~/fm1-hw/s1/part3-ec1c460.json`) and `kcost`. The first pass stopped after 4 rows on a lost reply (editor command 30, a step; put
+  back true, kept as part3-ec1c460-aborted.json); core_runs.py now tries each request three times and logs each loss
+  (`*.drops.jsonl`); the second pass completed with none lost. Then `remove 7`, `remove 14`, the Prophet module (ec1c460's) at start 0:
+  the Prophet ladder (`prophet-ec1c460.json`; one reply lost, recovered on the retry). Put back true.
+- **Flash 46**, 2026-10-27T09:54:34Z: measure/batch-s1-fm6 f3ca1d6 (ec1c460 + FM6 built in; suite passed, 3,677 s): `ORANGE CAT
+  v0.6.2-f3ca1d`; the FM6 ladder (`fm6-f3ca1d6.json`). Put back true. BUILD.md, "Stage 1's result", and the voice stealing proposal.
+- **Flash 47**, 2026-10-27T10:07:44Z: measure/fx-spike 9151676 (ec1c460's stage 1 + the effects' stages timed, OC_FX_SPIKE=1; no DUB bench;
+  suite passed, 2,331 s): `ORANGE CAT v0.6.2-915167`. Two passes of `~/fm1-hw/fxspike/spike.py` (`spike-9151676.json`, `spike2-...`):
+  the spike halves come in bursts with the steps; the effects' stages explain about 155 us of their excess, the bus's per-sample loop
+  most of it (+110 us single-core). A second spike build with the tracks as a stage (a0ef99d) is in its suite. BUILD.md, "The
+  effects-on late spike".
+- **Flash 48**, 2026-10-27T10:15:07Z: the published Nightly (`~/fm1-hw/nightly-3ca2b56/melodee-nightly.fwsc`): `ORANGE CAT
+  v0.6.2-3ca2b5`, the pack (657ED950, state 1). `remove 19` (the Prophet), then the Nightly's WHEEL (`orangecat-wheel-nightly.ocm`, start 0,
+  2,920 B) and SHAPES (start 1, 23,944 B), state 7 each. PipeWire set; slot 1 detached (D954DF93, equal).
+- **The two-hour stability run with the USB MIDI capture** (October 27, from 10:16 UTC): `~/fm1-hw/soak/stab_cap.py` (stab.py with each
+  timed-out request logged: wall time, command) and `~/fm1-hw/soak/midicap.py` (its own ALSA client on the FM-1's port, every SysEx
+  logged), `~/fm1-hw/soak/stab-run-3/`. Results below when it ends.
