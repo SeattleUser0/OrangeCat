@@ -7,6 +7,7 @@
  *
  * Input: each instance's track's mono engine output (part_buf). Output: the instances' wet into the dry mix; route 1 also into the REVERB
  * send (DUB TAPE into the shared REVERB in series: CLOUD when G_RTYPE is 4). The spring: off, in the loop or on the wet (dd_params_t).
+ * (measure/batch-s1: the job rides in the voice batch, its first descriptor: db_start below.)
  * Memory (the arena's floor, app.ld, leaves about 35 KB beside the core counters): an 8 KB line pool (one instance 4,096 samples, 0.19 s at
  * the half rate; four 1,024, 46 ms; the work a sample does not depend on the length), four spring buffers of DD_SP_BUF samples, the four
  * states in .pool. Editor command 104 (web/EDITOR_PROTOCOL.md) configures and reads it; the cores' numbers are AUDIO_STATS schema 9. */
@@ -59,38 +60,38 @@ static inline void db_take(uint32_t ti, const int32_t *x, uint32_t n)
     if (ti < db_n && n)
         for (uint32_t i = 0; i < n && i < CTL; i++) db_in[db_cur][ti][i] = (float)x[i] * (1.0f / 32768.0f);
 }
+/* (measure/batch-s1) the job in the voice batch (audio_batch.h): its first descriptor, pushed at the start of the block's prepare pass, so
+ * CPU1 takes it (k 0 always goes to CPU1) and starts on it while CPU0 prepares the tracks; its cost n instances x audio_batch_cost[AP_DUB].
+ * The merge (CPU0, at the batch's join) marks its output taken: a CPU1 that failed drops it and the wet is silent that block. cpu0 1:
+ * at once on CPU0; single-core forced (AUDIO_STATS [0, 2, 1]): the batch's flush runs it on CPU0 */
+static uint8_t db_done;
+static int32_t db_sink[CTL];                            /* (the batch's PCM for this descriptor: zeros, never mixed) */
+static void db_kernel(const void *data, int32_t *pcm) { (void)data; (void)pcm; db_run(0); }
+static void db_merge(const void *data, const int32_t *pcm, uint32_t n) { (void)data; (void)pcm; (void)n; db_done = 1; }
 /* before the tracks, every block: the buffers swapped, the previous block's input to the job */
 static void db_start(void)
 {
+    uint32_t unused = 0;
     if (!db_n) return;
     db_job_buf = db_cur;
     db_cur ^= 1u;
     memset(db_in[db_cur], 0, sizeof db_in[db_cur]);
-#if MELODEE_DUAL_CORE
-    if (!db_cpu0) {
-#if OC_CORE_STATS
-        cs_kind = CS_K_DUB;
-#endif
-        if (audio_worker_submit(db_run, 0)) { db_pending = 1; return; }
-#if OC_CORE_STATS
-        cs_kind = CS_K_VOICE;
-#endif
+    db_done = 0;
+    if (!db_cpu0 && audio_batch_active) {
+        audio_batch_push_cost(db_kernel, &unused, sizeof unused, db_sink, CTL, AP_DUB, db_n * audio_batch_cost[AP_DUB], db_merge);
+        db_pending = 1;
+        return;
     }
-#endif
-    db_run(0);                                         /* (CPU0: forced, or CPU1 busy or retired) */
+    db_run(0);                                         /* (CPU0: forced, or no batch) */
+    db_done = 1;
 }
-/* after the tracks: joined (its wait the core counters'), the wet into the dry mix, and with route 1 into the REVERB send too */
+/* after the tracks (the batch joined): the wet into the dry mix, and with route 1 into the REVERB send too */
 static void db_end(int32_t *l, int32_t *r, int32_t *rev, uint32_t n)
 {
     uint32_t i;
     if (!db_n) return;
-#if MELODEE_DUAL_CORE
-    if (db_pending) {
-        int ok = audio_worker_join();
-        db_pending = 0;
-        if (!ok) { memset(db_out, 0, sizeof db_out); return; }
-    }
-#endif
+    db_pending = 0;
+    if (!db_done) { memset(db_out, 0, sizeof db_out); return; }
     for (i = 0; i < n && i < DD_BLOCK; i++) {
         int32_t a = (int32_t)(db_out[0][i] * 8192.0f), b = (int32_t)(db_out[1][i] * 8192.0f);
         l[i] += a; r[i] += b;

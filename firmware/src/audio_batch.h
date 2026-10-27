@@ -41,7 +41,8 @@ static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_ta
     [AP_SID]=2000,[AP_808]=1150,[AP_909]=1900,
     /* (0.14.3) the ports, TIMER4 ticks a voice's 32-sample block. Placeholders from the unit's earlier per-voice figures (BUILD.md,
      * Thirteenth run, Part 2: MACRO 92 us a voice unit a half), until the stats build measures them (Part 5). AP_MACRO: one voice unit */
-    [AP_MACRO]=550,[AP_DRUMX]=900,[AP_SHAPES]=1500,[AP_WHEEL]=1200
+    [AP_MACRO]=550,[AP_DRUMX]=900,[AP_SHAPES]=1500,[AP_WHEEL]=1200,
+    [AP_DUB]=1900                                   /* (measure/batch-s1) one DUB LITE instance's block on CPU1: Part 3, 318 to 329 us a half */
 };
 #if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
 #define AB_LOAD(p) fm1_aw_load(p)

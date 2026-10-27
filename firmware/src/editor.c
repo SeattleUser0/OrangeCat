@@ -625,7 +625,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
              * (Prophet, FM6, CZ, SID, 808, 909, MACRO, DRUM-X, SHAPES, WHEEL): the id, then on CPU0 and on CPU1 the kernels run, their mean and
              * max in TIMER4 ticks (24 a microsecond). Flag 1 starts them over (the cores' readout too) and paints CPU1's stack again (when it is
              * idle). (At most 5 + 5 x 2 + 10 x 7 x 5 = 365 bytes: the reply buffer is 1,024) */
-            static const uint8_t ids[] = {AP_PROPHET, AP_FM6, AP_CZ, AP_SID, AP_808, AP_909, AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL};
+            static const uint8_t ids[] = {AP_PROPHET, AP_FM6, AP_CZ, AP_SID, AP_808, AP_909, AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL,
+                                          AP_DUB};          /* (measure/batch-s1: the DUB bench's job) */
             cs_kn_t k2[sizeof ids][2];
             uint32_t k, used = 0;
             fm1_irq_off();

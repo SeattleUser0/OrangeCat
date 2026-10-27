@@ -267,6 +267,7 @@ static int16_t batch_params[NPART][P_COUNT];
 static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt)   /* nt: the tracks in use */
 {
     audio_batch_active=1;
+    db_start();                                         /* (measure/batch-s1: the DUB bench's job, the batch's first descriptor: CPU1's) */
 #if MELODEE_DUAL_CORE
     memset(batch_posted,0,sizeof batch_posted);
     /* Native FM6 preparation includes releasing/ghost envelopes on CPU0.
@@ -389,7 +390,6 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     master_begin();
     perf=perf_begin(n);                                 /* (0.6.0) the FX layer at work (jfx_perform.c) */
     uint32_t nt=trk_n();                                /* (the tracks not in use: none of their CPU) */
-    db_start();                                         /* (dub-tape bench: the job before the tracks) */
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     mix_prepare_batch(n,nt);
 #endif
