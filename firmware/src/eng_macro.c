@@ -175,7 +175,7 @@ static MC_XIP void mc_start(mc_part_t *s, uint32_t model)
     }
 }
 
-static MC_XIP void mc_model_render(mc_part_t *s, uint32_t vi, const pl_params_t *q, uint32_t n, float *o, float *a)
+static __attribute__((section(".dsp_text"), noinline)) void mc_model_render(mc_part_t *s, uint32_t vi, const pl_params_t *q, uint32_t n, float *o, float *a)
 {
     int env = 0;
     void *m = mc_state(s, vi);
@@ -236,7 +236,7 @@ static inline int mc_draws(uint32_t model)            /* plaits' shared generato
     return model == MC_SWARM || model == MC_NOISE || model == MC_PARTCL || model == MC_STRING || model == MC_KICK ||
            model == MC_SNARE || model == MC_HIHAT || model == MC_HARP;
 }
-static MC_XIP void mc_voice(const void *data, int32_t *out)
+static __attribute__((section(".dsp_text"), noinline)) void mc_voice(const void *data, int32_t *out)
 {
     const mc_job_t *j = data;
     mc_part_t *s = j->s;

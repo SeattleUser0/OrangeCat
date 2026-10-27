@@ -18,7 +18,10 @@ static inline float ddm_cos(float x) { return ddm_sin(x + 0.5f * DDM_PI); }
 static inline float ddm_tan(float x) { return ddm_sin(x) / ddm_cos(x); }
 /* (0.4) e^x for the control tick only (the spring's gains): 2^(x / ln 2), the integer part by halving / doubling, the fraction by a
  * polynomial (degree 6, under 1e-6 relative over [0, 1)) */
-static inline float ddm_exp(float x)
+#ifndef DD_RAM
+#define DD_RAM                                          /* (measure/batch-s1-ram: the section, oc_dub_bench.c) */
+#endif
+DD_RAM static inline float ddm_exp(float x)
 {
     float y = x * 1.44269504f, f, r = 1.0f;
     int n = (int)y;
@@ -29,7 +32,7 @@ static inline float ddm_exp(float x)
     for (; n < 0; n++) r *= 0.5f;
     return r;
 }
-static inline float ddm_sqrt(float x)
+DD_RAM static inline float ddm_sqrt(float x)
 {
     float y = x > 1.0f ? x : 1.0f;
     int i;

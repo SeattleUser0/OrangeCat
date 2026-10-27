@@ -162,7 +162,7 @@ static void pl_swarm_reset(pl_swarm_t *e)
     }
 }
 
-static void pl_swarm_render(pl_swarm_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
+static __attribute__((section(".text.xip_macro"))) void pl_swarm_render(pl_swarm_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
 {
     (void)already_enveloped;
     size_t j;

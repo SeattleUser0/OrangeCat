@@ -326,7 +326,7 @@ static void pl_string_reset(pl_string_t *e)
     for (i = 0; i < PL_STRING_NUM_STRINGS; ++i) pl_string_voice_reset(&e->voice[i]);
 }
 
-static void pl_string_render(pl_string_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
+static __attribute__((section(".text.xip_macro"))) void pl_string_render(pl_string_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
                              int *already_enveloped)
 {
     size_t i;
@@ -378,7 +378,7 @@ typedef struct {
 
 static void pl_harp_init(pl_harp_t *e) { pl_string_voice_init(&e->voice); }
 static void pl_harp_reset(pl_harp_t *e) { pl_string_voice_reset(&e->voice); }
-static void pl_harp_render(pl_harp_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
+static __attribute__((section(".text.xip_macro"))) void pl_harp_render(pl_harp_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
                            int *already_enveloped)
 {
     size_t i;

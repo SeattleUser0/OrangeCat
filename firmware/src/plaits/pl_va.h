@@ -32,7 +32,7 @@ static inline float pl_vsaw_naive(float phase, float pw, float slope_up, float s
     float triangle = phase < pw ? phase * slope_up : 1.0f - (phase - pw) * slope_down;
     return notch_saw * notch_amount + triangle * triangle_amount;
 }
-static void pl_vsaw_render(pl_vsaw_t *o, float frequency, float pw, float waveshape, float *out, size_t size)
+static __attribute__((section(".dsp_text"))) void pl_vsaw_render(pl_vsaw_t *o, float frequency, float pw, float waveshape, float *out, size_t size)
 {
     if (frequency >= PL_MAX_FREQUENCY) frequency = PL_MAX_FREQUENCY;
     if (frequency >= 0.25f) pw = 0.5f;
@@ -112,7 +112,7 @@ static inline float pl_vshape_naive(float phase, float pw, float slope_up, float
     return saw;
 }
 /* Render<enable_sync, output_phase> */
-static void pl_vshape_render_t(pl_vshape_t *o, int enable_sync, int output_phase, float master_frequency, float frequency,
+static __attribute__((section(".dsp_text"))) void pl_vshape_render_t(pl_vshape_t *o, int enable_sync, int output_phase, float master_frequency, float frequency,
                                float pw, float waveshape, float phase_modulation_amount, float *out, size_t size)
 {
     if (master_frequency >= PL_MAX_FREQUENCY) master_frequency = PL_MAX_FREQUENCY;
@@ -257,7 +257,7 @@ static float pl_va_detuning(float detune)
     return (a + (b - a) * pl_va_squash(pl_va_squash(detune_fractional))) * sign;
 }
 
-static void pl_va_render(pl_va_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
+static __attribute__((section(".dsp_text"))) void pl_va_render(pl_va_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
 {
     (void)already_enveloped;
     const float sync_amount = p->timbre * p->timbre;

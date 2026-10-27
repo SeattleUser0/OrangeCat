@@ -345,7 +345,7 @@ static inline void pl_chord_compute_registration(float registration, float *ampl
     }
 }
 
-static void pl_chord_render(pl_chord_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
+static __attribute__((section(".text.xip_macro"))) void pl_chord_render(pl_chord_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
 {
     (void)already_enveloped;
     size_t i;

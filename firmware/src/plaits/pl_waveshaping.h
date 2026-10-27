@@ -50,7 +50,7 @@ static inline float pl_ws_tame(float f0, float harmonics, float order)
     return max_amount * max_amount * max_amount;
 }
 
-static void pl_ws_render(pl_ws_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
+static __attribute__((section(".text.xip_macro"))) void pl_ws_render(pl_ws_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
 {
     (void)already_enveloped;
     const float root = p->note;

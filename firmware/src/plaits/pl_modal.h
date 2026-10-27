@@ -32,7 +32,7 @@ static inline void pl_modal_svf_init(pl_modal_svf_t *r, int batch_size)
 }
 
 /* Process<mode, add>(f, q, gain, in, out, size); mode PL_LP or PL_BP */
-static void pl_modal_svf_process(pl_modal_svf_t *r, int batch_size, int mode, int add, const float *f, const float *q,
+static __attribute__((section(".dsp_text"))) void pl_modal_svf_process(pl_modal_svf_t *r, int batch_size, int mode, int add, const float *f, const float *q,
                                  const float *gain, const float *in, float *out, size_t size)
 {
     float g[PL_MODAL_MODE_BATCH_SIZE];
@@ -165,7 +165,7 @@ static void pl_modal_voice_init(pl_modal_voice_t *v)
     pl_modal_res_init(&v->resonator, 0.015f, PL_MODAL_MAX_NUM_MODES);
 }
 
-static void pl_modal_voice_render(pl_modal_voice_t *v, int sustain, int trigger, float accent, float f0,
+static __attribute__((section(".dsp_text"))) void pl_modal_voice_render(pl_modal_voice_t *v, int sustain, int trigger, float accent, float f0,
                                   float structure, float brightness, float damping, float *temp, float *out,
                                   float *aux, size_t size)
 {
@@ -213,7 +213,7 @@ static void pl_modal_init(pl_modal_t *e)
     pl_modal_reset(e);
 }
 
-static void pl_modal_render(pl_modal_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
+static __attribute__((section(".dsp_text"))) void pl_modal_render(pl_modal_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
                             int *already_enveloped)
 {
     size_t i;

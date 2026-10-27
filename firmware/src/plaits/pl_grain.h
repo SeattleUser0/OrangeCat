@@ -235,7 +235,7 @@ static void pl_grain_init(pl_grain_t *e)
 }
 static void pl_grain_reset(pl_grain_t *e) { (void)e; }
 
-static void pl_grain_render(pl_grain_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
+static __attribute__((section(".text.xip_macro"))) void pl_grain_render(pl_grain_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
                             int *already_enveloped)
 {
     (void)already_enveloped;

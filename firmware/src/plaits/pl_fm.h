@@ -61,7 +61,7 @@ static void pl_fm_init(pl_fm_t *e)
 }
 static void pl_fm_reset(pl_fm_t *e) { (void)e; }
 
-static void pl_fm_render(pl_fm_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
+static __attribute__((section(".text.xip_macro"))) void pl_fm_render(pl_fm_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
 {
     (void)already_enveloped;
     /* 4x oversampling */

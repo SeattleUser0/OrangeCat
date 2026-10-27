@@ -205,7 +205,7 @@ static void pl_particle_init(pl_particle_t *e)
 }
 static void pl_particle_reset(pl_particle_t *e) { pl_particle_diffuser_reset(&e->diffuser); }
 
-static void pl_particle_render(pl_particle_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
+static __attribute__((section(".text.xip_macro"))) void pl_particle_render(pl_particle_t *e, const pl_params_t *p, float *out, float *aux, size_t size,
                                int *already_enveloped)
 {
     (void)already_enveloped;

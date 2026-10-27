@@ -123,7 +123,7 @@ void dd_init(dd_t *s, int algo, int R, int aa, int lines, int16_t *line0, int16_
 float dd_max_seconds(const dd_t *s) { return ((float)s->len - 8.0f - s->lat - 40.0f) / s->fsl; }
 
 /* ------------------------------------------------------------------ helpers --- */
-static inline float knob_g(const dd_t *s, float k)
+DD_RAM static inline float knob_g(const dd_t *s, float k)
 {
     int i;
     float f;
@@ -133,7 +133,7 @@ static inline float knob_g(const dd_t *s, float k)
     if (i >= DD_KNOB - 1) return s->gtab[DD_KNOB - 1];
     return s->gtab[i] + f * (s->gtab[i + 1] - s->gtab[i]);
 }
-static inline float sin_turn(float t)                     /* sin(2 pi t), table + linear */
+DD_RAM static inline float sin_turn(float t)                     /* sin(2 pi t), table + linear */
 {
     float x, f;
     int i;
@@ -142,14 +142,14 @@ static inline float sin_turn(float t)                     /* sin(2 pi t), table 
     return sintab[i] + f * (sintab[i + 1] - sintab[i]);
 }
 static inline float clip15(float x) { return x > 1.5f ? 1.5f : x < -1.5f ? -1.5f : x; }
-static inline float sat3(float x) { x = clip15(x); return x - 0.148148148f * x * x * x; }   /* +-1.5 -> +-1, C1 */
-static inline float sat3_F(float x)                       /* its antiderivative (ADAA) */
+DD_RAM static inline float sat3(float x) { x = clip15(x); return x - 0.148148148f * x * x * x; }   /* +-1.5 -> +-1, C1 */
+DD_RAM static inline float sat3_F(float x)                       /* its antiderivative (ADAA) */
 {
     float a = x < 0.0f ? -x : x;
     if (a >= 1.5f) return a - 0.5625f;
     return 0.5f * a * a - 0.037037037f * a * a * a * a;
 }
-static inline float lim_out(float x)                      /* exact to +-0.5 (-6 dBFS), a quadratic knee to +-1.0 */
+DD_RAM static inline float lim_out(float x)                      /* exact to +-0.5 (-6 dBFS), a quadratic knee to +-1.0 */
 {
     float a = x < 0.0f ? -x : x, t2;
     if (a <= 0.5f) return x;
@@ -157,13 +157,13 @@ static inline float lim_out(float x)                      /* exact to +-0.5 (-6 
     a = t2 >= 1.0f ? 1.0f : 0.5f + t2 - 0.5f * t2 * t2;
     return x < 0.0f ? -a : a;
 }
-static inline int16_t to_q15(float v)
+DD_RAM static inline int16_t to_q15(float v)
 {
     v = v > 1.0f ? 1.0f : v < -1.0f ? -1.0f : v;
     v *= Q16;
     return (int16_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
 }
-static inline float rd_lin(const int16_t *b, uint32_t w, uint32_t mask, float d)
+DD_RAM static inline float rd_lin(const int16_t *b, uint32_t w, uint32_t mask, float d)
 {
     int ip = (int)d;
     float fr = d - (float)ip;
@@ -171,7 +171,7 @@ static inline float rd_lin(const int16_t *b, uint32_t w, uint32_t mask, float d)
     float x0 = (float)b[i0], x1 = (float)b[(i0 - 1u) & mask];
     return x0 + fr * (x1 - x0);
 }
-static inline float rd_herm(const int16_t *b, uint32_t w, uint32_t mask, float d)
+DD_RAM static inline float rd_herm(const int16_t *b, uint32_t w, uint32_t mask, float d)
 {
     int ip = (int)d;
     float f = d - (float)ip;
@@ -184,7 +184,7 @@ static inline float rd_herm(const int16_t *b, uint32_t w, uint32_t mask, float d
 }
 
 /* half-band decimator: one input; returns 1 with *y when an output is due */
-static inline int hb_dec(dd_hb_t *h, float x, float *y)
+DD_RAM static inline int hb_dec(dd_hb_t *h, float x, float *y)
 {
     int j;
     float a;
@@ -198,7 +198,7 @@ static inline int hb_dec(dd_hb_t *h, float x, float *y)
     return 1;
 }
 /* half-band interpolator: one input, two outputs (gain 2 folded in) */
-static inline void hb_int(dd_hb_t *h, float x, float *y0, float *y1)
+DD_RAM static inline void hb_int(dd_hb_t *h, float x, float *y0, float *y1)
 {
     int j;
     float a = 0.0f;

@@ -264,7 +264,7 @@ static void pl_sd_init(pl_sd_t *e)
 }
 static void pl_sd_reset(pl_sd_t *e) { (void)e; }
 
-static void pl_sd_render(pl_sd_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
+static __attribute__((section(".text.xip_macro"))) void pl_sd_render(pl_sd_t *e, const pl_params_t *p, float *out, float *aux, size_t size, int *already_enveloped)
 {
     (void)already_enveloped;
     const float f0 = pl_note_to_frequency(p->note);
