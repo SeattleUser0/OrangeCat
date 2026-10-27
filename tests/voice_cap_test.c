@@ -186,7 +186,7 @@ int main(void)
         for(unsigned p=0;p<NPART;p++)for(unsigned i=0;i<NVOICE;i++)if(trk[p].v[i].active){trk[p].v[i].env=1<<20;trk[p].v[i].env_out=1000;trk[p].v[i].stage=2;}   /* (rendered) */
         uint32_t kills=voice_kills;
         for(unsigned p=0;p<NPART;p++)for(unsigned n=0;n<4u;n++)trk_note_on(&trk[p],60u+4u*n+p,100);          /* the next step: 16 notes, no render between */
-        assert(sounding(c)<=cap && sounding(c)+1u>=cap && fading(c)<=cap && voice_kills-kills<=cap);   /* (the fades take a voice off the Prophet's) */
+        assert(sounding(c)<=cap && sounding(c)+1u>=cap && fading(c)>=1u && fading(c)<=cap && voice_kills-kills<=cap);   /* (the fades take a voice off the Prophet's) */
         vc_cap[c][0]=0;
     }
 
