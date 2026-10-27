@@ -3725,8 +3725,8 @@ others'. AUDIO_STATS [flags, 4], schema 11. Script `~/fm1-hw/fxspike/spike.py`; 
 **The stage: the tracks, their voices at the step.** About 90 % of a spike half's excess is the tracks stage, and it comes with a
 step's note-ons: new voices start while the old ones ring out in release, so for a few halves the voice count and the work both double.
 The effects add about 170 us, mostly as the buses' per-sample loop wakes from rest. They push an already-full half over the deadline;
-they do not make the spike. That is why the spike looked like an effects problem: with the effects off the same burst stays under
-the deadline (VA BASS x4 single-core p99 2,579 at Part 3).
+they do not make the spike. That is why it looked like an effects problem: with the effects off there is more room under the
+deadline for the same burst (no effects-off spike pass was run here).
 
 **Not separated.** The tracks stage holds both the voices' control (CPU0) and the batch with its join. Per-send isolation did not work:
 the buses run whenever their memory is held, whatever the sends.
