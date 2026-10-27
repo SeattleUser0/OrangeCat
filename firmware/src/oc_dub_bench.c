@@ -21,9 +21,13 @@
 #undef Q16
 #define hb_dec dd_hb_dec                               /* (jfx.c has its own half-band stages by these names) */
 #define hb_int dd_hb_int
-#define DD_NOINL JFX_XIP                               /* (the kernel's loops in flash; the rest of it too: only db_run, in flash, calls it) */
+#define DD_NOINL __attribute__((section(".dsp_text"), noinline))
+#define DD_RAM __attribute__((section(".dsp_text")))  /* (measure/dub-ram, the placement A/B: the kernel and db_run in SRAM, .dsp_text, the
+                                                          low SRAM tail; the POOL arena has 1.8 KB of margin, not the kernel's 7.8 KB.
+                                                          The flash build is 0b45e5f) */
 #include "../../tools/dubtape/src/dubdelay.c"
 #undef DD_NOINL
+#undef DD_RAM
 #undef hb_dec
 #undef hb_int
 #undef Q16
@@ -43,7 +47,7 @@ static uint8_t db_b, db_cur, db_job_buf, db_pending, db_cpu0, db_route;
 static uint32_t db_cfg[10];
 static volatile uint32_t audio_halves;                 /* (audio.c's, defined after this file) */
 
-JFX_XIP static void db_run(void *unused)
+__attribute__((section(".dsp_text"), noinline)) static void db_run(void *unused)
 {
     uint32_t k, i, n = db_n;
     const float (*in)[DD_BLOCK] = db_in[db_job_buf & 1u];   /* (a misread on CPU1 must not index past the buffers) */

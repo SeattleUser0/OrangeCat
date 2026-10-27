@@ -10,6 +10,9 @@ void *memset(void *d, int c, size_t n);          /* (the firmware's own) */
 void *memcpy(void *d, const void *s, size_t n);
 #endif
 
+#ifndef DD_RAM
+#define DD_RAM
+#endif
 #ifndef DD_NOINL
 #define DD_NOINL
 #endif
@@ -236,7 +239,7 @@ void dd_spring_attach(dd_t *s, int16_t *buf)
     q->a = s->R == 1 ? 0.78f : s->R == 2 ? 0.62f : 0.40f;   /* the chirp's band about the same in hertz at each line rate */
     q->rng = 777u;
 }
-static void sp_tick(dd_t *s, const dd_params_t *p)
+DD_RAM static void sp_tick(dd_t *s, const dd_params_t *p)
 {
     dd_spring_t *q = &s->sp;
     float T = p->sp_decay > 0.05f ? p->sp_decay : 2.0f, tone = p->sp_tone < 0.0f ? 0.0f : p->sp_tone > 1.0f ? 1.0f : p->sp_tone;
@@ -300,7 +303,7 @@ DD_NOINL static float sp_run(dd_spring_t *q, float x)
  * mix, sets how much goes round). No low-pass inside it (that would not be an allpass): the delay's HCUT, already in the loop, darkens
  * the repeats. The tube in front (unity for small signals) and the tank's bound only take gain away. The tank in float (DD_SP_TANK / 2 values in the caller's memory, 4-byte aligned):
  * an int16 tank at a loop's low levels gave its tail to rounding */
-static float sp_loop(dd_spring_t *q, float x)
+DD_RAM static float sp_loop(dd_spring_t *q, float x)
 {
     int16_t *b = q->buf;
     float d, z, w;
@@ -416,7 +419,7 @@ DD_NOINL static void control_tick(dd_t *s, const dd_params_t *p, tick_t *t, int 
 
 /* (0.5) the wet's limiter (after the loop; the loop keeps its saturator): a peak envelope with an instant attack and a 150 ms release, the
  * gain ceiling / envelope above the ceiling. The wet never passes the ceiling, so a build over FEEDBACK 1 climbs to it and holds there */
-static inline void dd_limit(dd_t *s, const tick_t *t, float *l, float *r)
+DD_RAM static inline void dd_limit(dd_t *s, const tick_t *t, float *l, float *r)
 {
     float a = *l < 0.0f ? -*l : *l, b = *r < 0.0f ? -*r : *r, pk = a > b ? a : b, g;
     s->lim_env = pk > s->lim_env ? pk : s->lim_env * t->lrel + (1.0f - t->lrel) * pk;
@@ -545,7 +548,7 @@ DD_NOINL static void run_tape(dd_t *s, const tick_t *t, const float *x, float *w
 }
 
 /* ------------------------------------------------------------------ the block --- */
-void dd_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, float *outR)
+DD_RAM void dd_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, float *outR)
 {
     float xl[DD_BLOCK], wl[DD_BLOCK], wr[DD_BLOCK];
     const int R = s->R, nloop = DD_BLOCK / R, nt = DD_CTL / R;
