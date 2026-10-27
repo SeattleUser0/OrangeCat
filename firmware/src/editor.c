@@ -15,7 +15,8 @@
  * (Orange Cat 0.11.0) admission at assignment (voice units and arena; cost word in the module header, carried)
  * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
- *   0.12.1: MOD_INFO (120) reports three starts and ends with the blocker's start (127: none), a module of another engine that stands in the way of the engine asked about. */
+ *   0.12.1: MOD_INFO (120) reports three starts and ends with the blocker's start (127: none), a module of another engine that stands in the way of the engine asked about.
+ * (Orange Cat 0.14.2) command 102 ARRANGE (editor_arrange.c): the chains, the song and the scenes of the music loaded, read and written whole by the web app. */
 #define ED_HDR0 0x7D
 #define ED_HDR1 0x46
 #define ED_HDR2 0x4C
@@ -304,6 +305,7 @@ static int ed_flash_stop(void)
 
 #include "editor_preferences.c"
 #include "editor_backup.c"
+#include "editor_arrange.c"                            /* (Orange Cat 0.14.2) command 102 ARRANGE: the chains, the song, the scenes, whole (web/app) */
 #include "editor_fm6.c"
 #include "editor_cz.c"
 #include "editor_native.c"
@@ -436,6 +438,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 
     if (ed_ui_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
+    if (ed_arrange_handle(cmd, a, na)) { ed_send(); return; }   /* (Orange Cat 0.14.2) */
     if (MELODEE_FM6 && ed_fm6_handle(cmd, a, na)) { ed_send(); return; }   /* (Orange Cat: MELODEE_FM6) */
     if (MELODEE_CZ && ed_cz_handle(cmd, a, na)) { ed_send(); return; }   /* (Orange Cat: MELODEE_CZ) */
     if (ed_library_handle(cmd,a,na)) { ed_send(); return; }

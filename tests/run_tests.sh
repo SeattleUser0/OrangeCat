@@ -64,6 +64,7 @@
 #                   (usb_audio_test.c); the endpoint driver against a model SIE: SET_INTERFACE, feedback, capture
 #                   packets ready in time, Out / In left out and the replug (usb_audio_driver_test.c); the four
 #                   track stems through the real mixer (usb_audio_tracks_test.c).
+# web app (web/app/test/run.mjs, 0.14.2): the new page's codec against records the firmware wrote (tests/app_layout.c), its tabs against the mock.
 # web (web/test_web.mjs): the editor protocol against its mock device, whose tables must equal the
 #                   firmware's (tests/descdump.c -> build/host/desc.json), the package builder, the updater.
 # PHYS (tests/phys_test.c): stability over the whole parameter and pitch range, the worst-case cost against
@@ -202,6 +203,13 @@ web_tests() {                                     # the editor mock's tables mus
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
         step "stock restore: the unmodified official V15 file is the image, CHECK HEAD range" node web/test_stock_restore.mjs
         step "relocatable modules (Orange Cat 0.14.1): the page's relocation = ocflash.py's, the build's packages = their variants, damaged lists refused" node web/test_ocm.mjs
+        # (Orange Cat 0.14.2, Session D) the web app (web/app): its project codec's layout and fixtures from the firmware's C (tests/app_layout.c), then its tests
+        # against the mocked unit (web/app/test/run.mjs: the protocol code is the editor's, unchanged; the layout and the fixtures are the firmware's now)
+        if build app_layout app_layout $FW; then
+            mkdir -p "$OUT/app" && "$OUT/app_layout" json > "$OUT/app/layout.json" && "$OUT/app_layout" fixtures "$OUT/app" ||
+                fail "tests/app_layout.c: the layout or the fixtures"
+        fi
+        step "web app: the project codec (every fixture byte for byte), Unit, Sounds, Project, Arrange, Steps, Settings against the mock" node web/app/test/run.mjs
         if [ -f FM-1_v15.fwsc ]; then
             build v15_ldr ldr_test &&
                 step "original V15 back to Melodee" "$OUT/v15_ldr" FM-1_v15.fwsc build/melodee.fwsc

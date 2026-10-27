@@ -93,4 +93,20 @@ pick the kit again, save). A project still names the sound, not the kit: save a 
 project, or the project loads the kit as it was. A sound saved with a kit plays on an older firmware as an old one did (the first
 kit with its knobs) and keeps its kit there. The web editor's Sound tab shows the kit as a table and edits it. Every factory kit
 sounds exactly as before.
+**0.14.2 (branch linux-hw): backups keep your arrangements.** A complete backup now holds every project's chains, song and scenes, the
+phrase pool and the arrangement of the music playing, and a restore brings them back exactly as they were; before, each project came back
+with a new project's chains. A backup made this way needs this firmware (or later) to be restored; backups made before still restore as
+they did. **External clock:** when the clock cable or the computer's clock drops out for more than half a second the unit still stops
+(nothing left sounding), and now it starts again by itself when the clock comes back, on the beat.
+
+**0.14.2 (branch web-app): the web app, and the arrangement from a computer.** A new page, `webapp/app/` beside the installer and the
+editor, manages the unit: the asset pack and the engine modules (the Engines table, the set), each track's sound (the engine's picture,
+its four knobs in the knob cozies' colors, the eight values, presets and favorites, the library), the steps, the arrangement (the
+phrases, chains, the song, scenes; drag to reorder; a list of what will change before it is written), projects (read, save to a slot,
+load, export and import files) and the complete backup. The firmware gains one command (102) that reads and writes the chains, the song
+and the scenes of the music loaded; it is refused while the sequencer plays, and a write keeps where each track is. **Worth knowing about
+backups (true before this version too):** a complete backup carries every project's sounds, steps, recorded notes and motion, but not
+their chains, songs or scenes, nor the phrase pool; restored, each project comes back with a new project's chains. The app's backup adds
+the chains of the music loaded and writes them back after a restore when the unit's phrases are still the same. Nothing is stored in a
+new format.
 

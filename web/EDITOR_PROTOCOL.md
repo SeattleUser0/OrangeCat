@@ -626,6 +626,58 @@ track engine command, and selects the track that was selected; the unit's admiss
 its engine); and **Replace** with a file of another engine (a swap): the page checks the file against the unit, asks, sends MOD_REMOVE for the old engine, reads MOD_INFO for the new
 engine (the freed start is the plan) and sends MOD_BEGIN, MOD_WRITE, MOD_END as for an install. The tracks that held the old engine keep its number and are silent.
 
+## Orange Cat: the arrangement (command 102, firmware 0.14.2)
+
+**Why.** A project as the backup objects carry it (FBKK, ids 0 and 2..5) has no room for Orange Cat's lists: the 64 chains of 16 steps, the
+64-row song, the 8 scenes and each track's groove (`pattern.c` `ocl_lists_t`). Inside the unit they travel beside the record, tagged with its hash,
+so a record written back from a page arrives with a new project's lists (and a full backup restored onto a unit brings no chains or song; see
+below). Command 102 reads the lists of the music loaded now and writes them back whole, the way a backup object is written. Source:
+`firmware/src/editor_arrange.c`. Host test: `tests/editor_test.c` `arrange_protocol`. The web app (`web/app`, Arrange tab) uses it.
+
+| Request (after 102) | Reply |
+|---|---|
+| `0` INFO | `0, rc 0, version 1, size (2 x 7 bits), NPOOL 64, NCHAIN 64, NENT 16, NROW 64, NSCENE 8, NTRK, tracks in use, busy (1: the transport runs), CRC-32 of the lists (5 x 7 bits)`, then for each pool phrase 01..64 seven bytes: flags (1 it holds steps, 2 a bank of the music loaded holds it, 4 a saved project names it, 8 a chain of the music loaded names it), its LEN (0: empty) and the CRC-32 of its bytes in the pool (5 x 7 bits; 0 empty) |
+| `1, offset (2 x 7), count (2 x 7, 1..256)` GET | `1, rc, offset (2 x 7), count (2 x 7)`, then the bytes as pack7 |
+| `2, size (2 x 7, the size INFO gives), CRC-32 (5 x 7)` BEGIN | `2, rc` |
+| `3, offset (2 x 7, where the last DATA ended), pack7 data (up to 256 bytes)` DATA | `3, rc` |
+| `4` COMMIT | `4, rc, track` (the first track that did not go to its new step; 127 none) |
+
+rc: 0 done; 1 refused (the arguments, an offset out of order or out of range, a size other than the lists'; INFO with arguments answers `0, 1`); 2 the
+length, the CRC or a value out of range (nothing changed); 3 the transport runs (play, a count-in, a Melodee song or chain: BEGIN and COMMIT; a COMMIT
+refused so keeps what was staged, send it again once stopped); 4 written, but a track could not go to its new step (a flash error, no free bank, a
+phrase that does not read, no room for its motion or timed notes: it stays where it was); 5 stale (no BEGIN, or the project scratch reused since: a
+project save, the autosave, a load or rename, a backup, the card browser's list (so a write fails while the card browser is open), a track removed, an
+FM6 or update transfer; a USB reset; 15 s without a request); 6 the banks' unkept steps could not be kept first (a flash error, PHRASES FULL): nothing
+changed. An op past 4 or no arguments: no reply.
+A firmware without the command never answers: the page then offers the arrangement read only, from nothing (it cannot read it either).
+
+**The lists' bytes** (all bytes, no padding; the web app's `web/app/lib/layout.js` is generated from the C, `tests/app_layout.c`):
+`chain[64][16][2]` (each step: the phrase + 1, 0 none; then REPS - 1, 0..15), `song[64][NTRK]` (each row: a chain + 1 per track, 0 empty),
+`tchain[NTRK], cur[NTRK], row[NTRK]` (where each track is: its chain, its step, its song row, 255 none), `mode, launch, rsv[2]` (PLAY's mode: 0 PHRASE,
+1 CHAIN, 2 SONG; LAUNCH: 0 LOOP, 1 BAR, 2 BEAT, 3 NOW), `scene[8][NTRK][2]` (each track's chain + 1, 0 left as it is; its step | MUTE << 7),
+`scene_used, rsv2[3]` (a bit a kept scene), `groove[NTRK], gamt[NTRK]` (0..6: OFF LAID BACK PUSH DILLA 2-STEP DUB HUMAN; amount 0..100).
+
+**What a write changes and keeps.** It takes the chains, the song, the scenes and `scene_used`, each track's groove and amount, and LAUNCH. It keeps
+where each track is (`tchain`, `cur`, `row`) and `mode`: those bytes of the write are ignored (the page sends them back as it read them). It is checked
+whole before anything changes: a phrase past 64, a REPS past 15, a chain past 64 in the song or a scene, a scene step past P, a groove past 6, an
+amount past 100, or LAUNCH past 3 refuses it (rc 2). Before the lists change, every bank's unkept steps are kept, as a SAVE does (a keep can name a
+new phrase in a chain step, which would otherwise land in the lists just written): read the lists again after a write. After it, a track whose step now names a phrase other than the one its
+playing bank holds goes to it, as a step gone to on the CHAIN page does (what the track had is kept first: a flash write, stopped only). So PLAY on
+the CHAIN or SONG page plays the new order. The lists themselves go to flash with the project: SAVE on the unit, `PROJECT` save (command 9), or the
+autosave a few seconds after the write when it is on (they are in the project's hash). Tracks past the ones in use are not moved; a track added later
+plays what its bank holds until its step is gone to. An external MIDI Start during the commit (handled in the audio interrupt) can start the transport
+between tracks: the tracks after it answer rc 4, as on the CHAIN page.
+
+**Phrases are the unit's.** A phrase number names a pattern of this unit's pool, shared by every project on it. Lists written to another unit name
+that unit's phrases, whatever they hold. The page writes lists only to the unit it read them from.
+
+**Backups and the lists (not changed by this command).** `BACKUP_GET` of a project (ids 0, 2..5) gives the FBKK record without the lists, and
+`BACKUP_PUT` of one brings it in with a new project's lists. A complete backup taken and restored therefore keeps every project's sounds, steps,
+timed notes and motion, and loses their chains, songs, scenes and the phrase numbers their banks had (the pool itself is not a backup object). The
+web app's backup file adds the lists of the music loaded and the pool's CRCs (read with this command); after a restore it writes the lists back
+only when every phrase they name has the same CRC on the unit (the same unit, its pool unchanged), and says so when not. Saved slots' lists are not
+reachable this way.
+
 ## Orange Cat: set manifests (0.13.3)
 
 No SysEx command. The card browser's "Install set" reads a `*.set.json` from the card. The format, the checks and the messages are in docs/orangecat/SET_FORMAT.md.

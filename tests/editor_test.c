@@ -6,6 +6,7 @@
  * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
  * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.14.2) command 102 ARRANGE: the lists read and written whole (arrange_protocol)
  */
 /* The firmware editor handler, USB framing and UART recovery against RAM flash.
  * Build with the generated tables and the same flags as hostsim.c. */
@@ -1287,9 +1288,139 @@ static int kit_protocol(void)
     return bad;
 }
 
+/* (Orange Cat 0.14.2) command 102 ARRANGE (editor_arrange.c): the lists read whole, written whole (begin, data, commit), refused while
+ * playing, a bad CRC or a value out of range changes nothing, each track keeps its place and goes to the phrase its step now names */
+static uint32_t ar_note(uint32_t k) { return trk[k].step[0].time == ST_NOTE ? trk[k].step[0].note[0] : 0u; }
+static void ar_put_note(uint32_t k, uint32_t note)
+{
+    for (uint32_t i = 0; i < NSTEP; i++) step_clear(&trk[k].step[i]);
+    trk[k].step[0] = (step_t){{(uint8_t)note}, 1, ST_NOTE, 0, 100, 0, 0};
+}
+static uint32_t ar_u32(uint32_t v, uint8_t *a) { for (uint32_t i = 0; i < 5u; i++) a[i] = (uint8_t)((v >> (7u * i)) & 127u); return 5; }
+/* lists bytes l written through BEGIN, DATA, COMMIT; the commit's rc (crc_xor spoils the CRC) and its track byte in *track */
+static uint32_t ar_write(const uint8_t *l, uint32_t crc_xor, uint32_t *track)
+{
+    uint8_t a[400];
+    uint32_t n = 0, size = sizeof(ocl_lists_t);
+    a[n++] = 2; a[n++] = size & 127u; a[n++] = size >> 7; n += ar_u32(st_crc32(l, size) ^ crc_xor, a + n);
+    request(ED_ARRANGE, a, n);
+    if (host_wire[6]) return 100u + host_wire[6];
+    for (uint32_t off = 0; off < size; off += 256u) {
+        uint32_t c = size - off < 256u ? size - off : 256u;
+        a[0] = 3; a[1] = off & 127u; a[2] = off >> 7;
+        n = 3 + pack7(l + off, c, a + 3);
+        request(ED_ARRANGE, a, n);
+        if (host_wire[6]) return 200u + host_wire[6];
+    }
+    a[0] = 4; request(ED_ARRANGE, a, 1);
+    if (track) *track = host_wire[7];
+    return host_wire[6];
+}
+static int arrange_protocol(void)
+{
+    int bad = 0;
+    uint8_t a[16], got[sizeof(ocl_lists_t)], l[sizeof(ocl_lists_t)];
+    uint32_t n, size = sizeof(ocl_lists_t), track = 0;
+    reset();
+    /* phrase 01 on track 1's step A (note 60), phrase 02 on its step B (note 62); then back on A */
+    ar_put_note(0, 60);
+    bad += check("arrange: setup, phrase 01 kept on step A", ocl_keep_all() == 0 && OCL_ENT(0, 0)[0] == 1u);
+    bad += check("arrange: setup, an empty step B gone to", ocl_go_empty(0, 1) == 0 && lists.cur[0] == 1u);
+    ar_put_note(0, 62);
+    bad += check("arrange: setup, phrase 02 kept on step B, track 1 back on A", ocl_keep_all() == 0 && OCL_ENT(0, 1)[0] == 2u && ocl_go(0, 0) == 0 && ar_note(0) == 60u);
+    a[0] = 0; n = request(ED_ARRANGE, a, 1);
+    bad += check("arrange: INFO answers version 1, the lists' size, the counts, the CRC and the pool's flags",
+                 n == 23u + 64u * 7u + 1u && host_wire[5] == 0 && host_wire[6] == 0 && host_wire[7] == 1 && (host_wire[8] | host_wire[9] << 7) == size &&
+                 host_wire[10] == OCL_NPOOL && host_wire[11] == OCL_NCHAIN && host_wire[12] == OCL_NENT && host_wire[13] == OCL_NROW && host_wire[14] == OCL_NSCENE &&
+                 host_wire[15] == NTRK && host_wire[17] == 0 && ed_bk_r32(host_wire + 18) == st_crc32(&lists, size) &&
+                 host_wire[23] == (1 | 2 | 8) && host_wire[24] == ocp.len[0] && ed_bk_r32(host_wire + 25) == ocp.hash[0] && ocp.hash[0] &&
+                 host_wire[30] == (1 | 2 | 8) && ed_bk_r32(host_wire + 32) == ocp.hash[1] && host_wire[37] == 0 && host_wire[38] == 0 && ed_bk_r32(host_wire + 39) == 0);
+    {
+        int ok = 1;
+        for (uint32_t off = 0; off < size; off += 256u) {
+            uint32_t c = size - off < 256u ? size - off : 256u;
+            a[0] = 1; a[1] = off & 127u; a[2] = off >> 7; a[3] = c & 127u; a[4] = c >> 7;
+            n = request(ED_ARRANGE, a, 5);
+            ok &= host_wire[5] == 1 && host_wire[6] == 0 && (host_wire[7] | host_wire[8] << 7) == off && (host_wire[9] | host_wire[10] << 7) == c &&
+                  ed_unpack7(host_wire + 11, n - 12u, got + off, c) == c;
+        }
+        bad += check("arrange: GET reads the lists in pieces of 256, byte for byte", ok && !memcmp(got, &lists, size));
+        a[0] = 1; a[1] = size & 127u; a[2] = size >> 7; a[3] = 1; a[4] = 0; request(ED_ARRANGE, a, 5);
+        bad += check("arrange: GET past the end is refused (rc 1)", host_wire[6] == 1);
+    }
+    memcpy(l, &lists, size);
+    {
+        ocl_lists_t *w = (ocl_lists_t *)(void *)l;
+        uint8_t before[sizeof(ocl_lists_t)];
+        w->chain[0][0][0] = 2; w->chain[0][1][0] = 1;          /* chain 01: B's phrase first */
+        w->song[1][0] = 5; w->groove[2] = 3; w->gamt[2] = 40;   /* a song cell, a groove */
+        w->tchain[0] = 9; w->cur[0] = 7;                        /* (the unit's own place: never taken) */
+        memcpy(before, &lists, size);
+        song.playing = 1;
+        bad += check("arrange: BEGIN refused while playing (rc 3)", ar_write(l, 0, 0) == 103u && !memcmp(before, &lists, size));
+        song.playing = 0;
+        bad += check("arrange: a bad CRC changes nothing (rc 2)", ar_write(l, 1, &track) == 2u && track == 127u && !memcmp(before, &lists, size));
+        w->chain[3][4][0] = OCL_NPOOL + 1u;
+        bad += check("arrange: a phrase past the pool changes nothing (rc 2)", ar_write(l, 0, 0) == 2u && !memcmp(before, &lists, size));
+        w->chain[3][4][0] = 0; w->scene[2][1][1] = OCL_NENT;
+        bad += check("arrange: a scene step past P changes nothing (rc 2)", ar_write(l, 0, 0) == 2u && !memcmp(before, &lists, size));
+        w->scene[2][1][1] = 0x80u | 3u; w->scene_used = 1u << 2;
+        bad += check("arrange: the write commits (rc 0, no track left behind)", ar_write(l, 0, &track) == 0u && track == 127u);
+        bad += check("arrange: the chain, the song, the scene and the groove are the page's",
+                     lists.chain[0][0][0] == 2u && lists.chain[0][1][0] == 1u && lists.song[1][0] == 5u && lists.groove[2] == 3u && lists.gamt[2] == 40u &&
+                     lists.scene[2][1][1] == (0x80u | 3u) && lists.scene_used == 4u);
+        bad += check("arrange: the track keeps its place and plays the phrase its step names now (02)",
+                     lists.tchain[0] == 0u && lists.cur[0] == 0u && bank_pid[0][trk[0].pattern] == 2u && ar_note(0) == 62u);
+        a[0] = 0; request(ED_ARRANGE, a, 1);
+        bad += check("arrange: INFO's CRC follows the write", ed_bk_r32(host_wire + 18) == st_crc32(&lists, size));
+    }
+    {   /* (review) unkept steps on a track are kept before the lists change: the keep's new phrase name lands in the unit's lists first, and
+         * the page's lists are what the unit has after the write */
+        memcpy(l, &lists, size);
+        ar_put_note(1, 72);
+        bank_pid[1][trk[1].pattern] = 0;
+        bad += check("arrange: COMMIT keeps unkept steps first; the lists after it are the page's, byte for byte (but the places)",
+                     ar_write(l, 0, &track) == 0u && bank_pid[1][trk[1].pattern] != 0u && !memcmp(lists.chain, ((ocl_lists_t *)(void *)l)->chain, sizeof lists.chain));
+    }
+    {   /* a COMMIT refused while playing keeps what was staged: COMMIT again once stopped */
+        ocl_lists_t *w = (ocl_lists_t *)(void *)l;
+        memcpy(l, &lists, size); w->song[7][3] = 9;
+        n = 0; a[n++] = 2; a[n++] = size & 127u; a[n++] = size >> 7; n += ar_u32(st_crc32(l, size), a + n);
+        request(ED_ARRANGE, a, n);
+        uint8_t big[400];
+        int ok = host_wire[6] == 0;
+        for (uint32_t off = 0; off < size; off += 256u) {
+            uint32_t c = size - off < 256u ? size - off : 256u;
+            big[0] = 3; big[1] = off & 127u; big[2] = off >> 7;
+            request(ED_ARRANGE, big, 3 + pack7(l + off, c, big + 3));
+            ok &= host_wire[6] == 0;
+        }
+        song.playing = 1; a[0] = 4; request(ED_ARRANGE, a, 1); ok &= host_wire[6] == 3 && lists.song[7][3] == 0;
+        song.playing = 0; a[0] = 4; request(ED_ARRANGE, a, 1); ok &= host_wire[6] == 0 && lists.song[7][3] == 9;
+        bad += check("arrange: COMMIT while playing is refused (rc 3) and goes through once stopped", ok);
+    }
+    {   /* stale and out of order */
+        n = 0; a[n++] = 2; a[n++] = size & 127u; a[n++] = size >> 7; n += ar_u32(0, a + n);
+        request(ED_ARRANGE, a, n);
+        uint8_t d[8] = {3, 5, 0, 0, 1, 2, 3, 4};
+        request(ED_ARRANGE, d, 8);
+        bad += check("arrange: DATA out of order is refused (rc 1)", host_wire[6] == 1);
+        (void)proj_wire_borrow();
+        d[1] = 0; request(ED_ARRANGE, d, 8);
+        bad += check("arrange: the staging reused since BEGIN (a backup, a save): stale (rc 5)", host_wire[6] == 5);
+        a[0] = 4; request(ED_ARRANGE, a, 1);
+        bad += check("arrange: COMMIT with nothing begun: stale (rc 5, no track)", host_wire[6] == 5 && host_wire[7] == 127);
+        a[0] = 2; a[1] = (size + 1u) & 127u; a[2] = (size + 1u) >> 7; request(ED_ARRANGE, a, n);
+        bad += check("arrange: BEGIN of another size is refused (rc 1)", host_wire[6] == 1);
+        a[0] = 5; bad += check("arrange: an op past 4 gets no reply", request(ED_ARRANGE, a, 1) == 0);
+        bad += check("arrange: no arguments get no reply", request(ED_ARRANGE, a, 0) == 0);
+    }
+    return bad;
+}
+
 int main(void)
 {
-    int bad = kit_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

@@ -3,6 +3,7 @@
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Revisions:
 # (Orange Cat 0.13.6) first version: copies the published stable site into a directory, so a branch run can publish a Nightly beside it
+# (Orange Cat 0.14.2) the web app (webapp/app/) by its files.json
 # (Orange Cat 0.13.8) --nightly: the live Nightly as well (firmware/nightly.json and its files), for the check after a deploy only. Without it the
 #   check could never find the commit it had just deployed (every Nightly publish ended red at "Check the live site": runs 40132493524, 40212959451)
 """Copy the published stable site (GitHub Pages) into a directory.
@@ -19,6 +20,7 @@ downloads them, the way the page names them:
   firmware/release.json, releases.json, rc.json     what the site offers (nightly.json is not copied: the new run replaces the Nightly channel)
   firmware/ every package, pack, module and set manifest those name
   webapp/editor/                                    the stable editor and its font and backup module
+  webapp/app/                                       (0.14.2) the stable web app, by its files.json
   webapp/manual/                                    the stable manual and its figures (when the site has one)
   webapp/installer/index.html, index.html           the installer page and the redirect (the installer page is made again by the run)
 
@@ -84,6 +86,12 @@ def mirror(base, out, nightly=False):
         take("firmware/" + doc)
     for f in ("index.html", "fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
         take("webapp/editor/" + f)
+    listed = take("webapp/app/files.json")                   # (0.14.2) the web app, by its own list (tools/orangecat_site.py copy_app)
+    if listed:
+        for f in json.loads(listed):
+            if "/" in f.replace("lib/", "", 1) or f.startswith(("/", ".")):
+                raise SystemExit(f"webapp/app/files.json: {f}: not a file of the app")
+            take("webapp/app/" + f, required=True)
     page = take("webapp/manual/index.html")
     if page:
         for fig in sorted(set(re.findall(r'<img[^>]+src="([^"#?]+)"', page.decode("utf-8", "replace")))):

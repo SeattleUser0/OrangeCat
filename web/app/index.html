@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Orange Cat: the web app. One page to manage the unit: its modules, its sounds, its steps, its arrangement, its projects and backups.
+     Served beside the installer and the old editor (tools/orangecat_site.py: webapp/app/). Opened with ?mock, it talks to a mocked unit.
+     web/app/README.md says what it is; web/app/HARDWARE_TEST.md how it is proved on the unit.
+     Revisions:
+       0.14.2: first version (Session D, branch web-app). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orange Cat</title>
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="app.css">
+<!-- the shared modules: in the repository they sit in web/, on the site beside this page (orangecat_site.py rewrites the map) -->
+<script type="importmap">{"imports": {"#fm1backup": "../fm1backup.js", "#fm1oc": "../fm1oc.js"}}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 26V10l5 4h10l5-4v16z' fill='%23FF7A5C'/%3E%3Ccircle cx='12' cy='19' r='2' fill='%2317141F'/%3E%3Ccircle cx='20' cy='19' r='2' fill='%2317141F'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="cat" viewBox="0 0 64 48" aria-hidden="true"><path d="M8 44V12l10 9h28l10-9v32" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="31" r="3" fill="currentColor"/><circle cx="40" cy="31" r="3" fill="currentColor"/><path d="M29 38q3 2 6 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+    <div><h1>Orange Cat</h1><p class="sub" id="unitline">Not connected</p></div>
+  </div>
+  <div class="conn">
+    <span class="tracks" id="trackdots" aria-hidden="true"></span>
+    <button id="connect" class="primary">Connect</button>
+  </div>
+</header>
+<nav class="tabs" id="tabs" role="tablist"></nav>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+<main id="main"></main>
+<footer>
+  <a href="https://github.com/SeattleUser0/OrangeCat" target="_blank" rel="noopener">Orange Cat</a>, based on
+  <a href="https://github.com/keremimo/melodee" target="_blank" rel="noopener">Melodee</a> by Ellic Studio, based on
+  <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a> by Leo Kuroshita, Hügelton Instruments; arrangement after
+  <a href="https://github.com/illuminus5/skiff" target="_blank" rel="noopener">Skiff</a>. GPL-3.0. M-VAVE and FM-1 are trademarks of their owners.
+  <span id="links"></span>
+</footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>
