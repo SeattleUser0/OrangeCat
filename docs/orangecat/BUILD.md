@@ -3698,3 +3698,65 @@ blocks rendered. Dual-core, stage 1:
 existing voice budget's units (MC_UNITS for MODAL, the native engines' units), enforced at note-on by the existing stealing: the oldest
 releasing voice of the same engine first. The SAFETY shed (two halves over 85 %, off by default) stays as it is. The caps apply only while
 CPU1 is online; on one core today's admission holds. Voice admission and stealing are not changed until the user decides.
+
+## The effects-on late spike: its stage named (October 27, Flash 47 and 49; measure/fx-spike, not merged)
+
+**The question.** With the shared effects on (REVERB ROOM, sends 64, no DUB), VA BASS x4 drew 80 to 100 late renders per 20 s on one
+core. Which stage of the half makes them? Measured, not fixed.
+
+**How.** Branch measure/fx-spike (9151676, then a0ef99d with the tracks as a tenth stage), OC_FX_SPIKE=1. Each stage of the half is timed
+with TIMER4 by the core that runs it (core_stats.h, fs_*). A half over 3,000 us is a spike half: its stages are summed apart from the
+others'. AUDIO_STATS [flags, 4], schema 11. Script `~/fm1-hw/fxspike/spike.py`; data `spike-9151676.json`, `spike2-9151676.json`,
+`spike3-a0ef99d.json`.
+
+**When.** Spike halves come in bursts of 4 to 8 consecutive halves about every 31 halves (about 90 ms): they follow the steps.
+
+**What (spike3, VA BASS x4, sends all; mean us a half, spike halves against the others):**
+
+| stage | single-core: spike / other | dual-core: spike / other |
+|---|---|---|
+| the tracks (mix_prepare_batch: every voice's control and the batch, its join included) | **1,928 / 408 (+1,520)** | **1,174 / 389 (+785)** |
+| the buses' per-sample loop (chorus, delay) | 364 / 252 (+112) | 291 / 234 (+57) |
+| the reverb and gate | 179 / 150 (+30) | 148 / 139 (+10) |
+| the buses' setup, jfx_bus_start, events | +11, +8, +8 | +1, +5, +8 |
+| the master, the output tail | no change | no change |
+| CPU0 at the bus join | (none) | 475 / 406 (+70) |
+
+**The stage: the tracks, their voices at the step.** About 90 % of a spike half's excess is the tracks stage, and it comes with a
+step's note-ons: new voices start while the old ones ring out in release, so for a few halves the voice count and the work both double.
+The effects add about 170 us, mostly as the buses' per-sample loop wakes from rest. They push an already-full half over the deadline;
+they do not make the spike. That is why the spike looked like an effects problem: with the effects off the same burst stays under
+the deadline (VA BASS x4 single-core p99 2,579 at Part 3).
+
+**Not separated.** The tracks stage holds both the voices' control (CPU0) and the batch with its join. Per-send isolation did not work:
+the buses run whenever their memory is held, whatever the sends.
+
+**Dual-core (stage 1):** 0 late in this case (worst 2,213 us, p99 2,400). The spike is still there (+785 us) but fits under the deadline.
+
+**The fix belongs to voice admission** (the voice stealing proposal above: a cap on voices sounding at once while the effects run), not
+to the effects. Not changed: voice admission and stealing wait for the user's call.
+
+## Dropped editor replies: the two-hour capture (October 27, Flash 48, the Nightly 3ca2b5)
+
+**The question.** Long runs lose an editor reply now and then (five in a day, hw/LOG.md). Is it the unit or the PC?
+
+**How.** Two hours on the internal clock (`~/fm1-hw/soak/stab_cap.py`: stab.py with each timed-out request logged by wall time and
+command). Beside it, `midicap.py`: its own ALSA client on the FM-1's port, logging every SysEx the PC's ALSA layer delivers (17,956
+frames). `drops.py` matches each timeout against the capture.
+
+**Result:**
+- **Audio:** 0 late renders and 0 DAC silences in every 10-minute interval (interval worst 2,309 to 2,409 us); 9 USB holes in all.
+  Put back true; objects 1 up identical.
+- **6 timeouts in 2 h, all command 74 (the chain query, the most frequent request):**
+  - **1 PC side:** the reply reached ALSA 10 ms after the send; the tool's client did not get it.
+  - **5 never reached ALSA within the 3 s timeout.** One of them reached it 3.5 s late (two 74 replies 3 ms apart right after the
+    retry: the unit held the first until the next request). The other 4 never arrived.
+
+**Verdict: mostly the unit's side (5 of 6), with one PC-side loss.** "The unit's side" means the unit or the USB path below ALSA:
+usbmon needs root, so those cannot be told apart here. The capture also sees only the input side, so a request lost on the way out
+looks the same as a reply the unit never sent.
+- The one late delivery, released by the next request, points at the unit's USB MIDI transmit path (a reply left in its buffer until
+  the next transfer) rather than at the PC.
+- **Next step (not done):** a usbmon capture (root) or a reply counter in the unit's stats (requests seen, replies queued, replies
+  sent) would separate the three.
+- Meanwhile the hardware tools retry each request three times (core_runs.py), and every loss in the runs since has been recovered.

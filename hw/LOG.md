@@ -1021,4 +1021,21 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   2,920 B) and SHAPES (start 1, 23,944 B), state 7 each. PipeWire set; slot 1 detached (D954DF93, equal).
 - **The two-hour stability run with the USB MIDI capture** (October 27, from 10:16 UTC): `~/fm1-hw/soak/stab_cap.py` (stab.py with each
   timed-out request logged: wall time, command) and `~/fm1-hw/soak/midicap.py` (its own ALSA client on the FM-1's port, every SysEx
-  logged), `~/fm1-hw/soak/stab-run-3/`. Results below when it ends.
+  logged), `~/fm1-hw/soak/stab-run-3/`.
+  **Result (ended 12:17 UTC):** the Nightly answered throughout (`ORANGE CAT v0.6.2-3ca2b5` at the end); 0 late renders and 0 DAC
+  silences in every 10-minute interval (interval worst 2,309 to 2,409 us a half, deadline 2,902); USB holes 9 in all (at most 3 in an
+  interval); peak -7.3 to -9.6 dBFS, RMS -17.4; 222 chain restarts. Put back true, CLK 0; objects 1 up identical. **6 editor replies timed
+  out, all command 74 (the chain query)**; against the capture (`~/fm1-hw/soak/drops.py stab-run-3`): 1 reached ALSA 10 ms after the send
+  and the tool's client missed it (PC side); 5 never reached ALSA within the 3 s timeout. Of those 5, one reply arrived 3.5 s late
+  (two 74 replies 3 ms apart right after the retry); the other 4 never arrived. In those 3 s no SysEx of any kind arrived (the tool waits
+  on the one request), so the stream does not tell a lost request from a lost reply. midicap reads only the input side; usbmon needs root.
+  BUILD.md, "Dropped editor replies".
+- **Flash 49**, 2026-10-27T12:18Z: measure/fx-spike a0ef99d (9151676 + the tracks as a tenth stage; suite passed):
+  `ORANGE CAT v0.6.2-a0ef99`; WHEEL and SHAPES (the Nightly's) stayed. PipeWire set; slot 1 detached (D954DF93, equal).
+  `spike.py spike3-a0ef99d.json`: VA BASS x4, sends all. Single-core: the tracks stage 1,928 us a spike half against 408 in the
+  others (+1,520), the buses' loop +112; 2,028 late. Dual-core: tracks +785, 0 late. Put back true. BUILD.md, "The effects-on late spike".
+- **Flash 50**, 2026-10-27T12:21:34Z: the published Nightly again (`~/fm1-hw/nightly-3ca2b56/melodee-nightly.fwsc`): `ORANGE CAT
+  v0.6.2-3ca2b5`; the pack state 1, hash 657ED950. The Nightly's WHEEL at start 0 (2,920 B) and SHAPES at start 1 (23,944 B), state 7
+  each, kept through both flashes. PipeWire set; slot 1 detached (D954DF93, equal). Tracks MACRO 10/0/1/20, track 1 selected. Track 1's
+  CHRD MAJ and VOIC OPEN set and read back (81 -> 3, 82 -> 1). CLK 0. **The unit is left here.**
+
