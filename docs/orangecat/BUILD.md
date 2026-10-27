@@ -3490,3 +3490,181 @@ master.
 With both corrections DELAY and CHORUS should land where they do today. Whether that is to the sample is the host test's to show: their
 modulation and feedback run inside the bus. REVERB keeps a pre-delay 0.73 ms longer. Without them the change is in
 CHORUS's colour only. Stage 2 is designed here and built after stage 1's numbers.
+
+### Stage 1's result: the full Part 3 set again, one to one (October 27, Flash 45 and 46)
+
+**Build.** measure/batch-s1 ec1c460: linux-hw 6356588 (stage 1 with the measured cost table), plus the stats and the DUB bench riding in the
+batch; OC_CORE_STATS=1 OC_DUB_BENCH=1; host suite passed (3,672 s). This build's WHEEL and SHAPES modules were installed for `kcost`.
+FM6 needs its own image: measure/batch-s1-fm6 f3ca1d6, the same plus FM6 built in (MELODEE_FM6=1, SHAPES and DRUM-X built-ins off,
+FM6's tables in .pool; suite passed). The Prophet is its module (ec1c460's).
+
+**Method.** Same scripts and loads as Part 3 (`~/fm1-hw/cores/core_runs.py`, the PC's clock, 120 BPM, 20 s, the chord on every step).
+- **Before:** October 27's Part 3 rows (Flash 38, measure/core-split 0b45e5f; CLOUD and spring from their rerun). For FM6 and the
+  Prophet, Flash 42 (measure/native-cores 7202333, the scheduler before stage 1).
+- **After:** `~/fm1-hw/s1/part3-ec1c460.json`, `prophet-ec1c460.json`, `fm6-f3ca1d6.json`.
+- **Units:** the wall in us a half (deadline 2,902), mean / p99 / max; p99 ">4,096" is past the histogram. "Halves" counts the halves
+  rendered in 20 s (a full 20 s is about 7,200).
+- **Who rendered:** the last column counts the voice kernels each core ran (the batch's split, by cost).
+
+| row | before: wall mean / p99 / max | late | halves | stage 1: wall mean / p99 / max | late | halves | voice kernels CPU0 / CPU1 |
+|---|---|---|---|---|---|---|---|
+| MALLET x1, single-core, effects off | 2,159 / 2,368 / 2,408 | 0 | 7,191 | 2,216 / 2,432 / 2,569 | 0 | 7,193 | 55,400 / 0 |
+| MALLET x1, dual-core, effects off | 2,158 / 2,368 / 2,487 | 0 | 7,216 | 1,885 / 2,080 / 2,149 | 0 | 7,194 | 0 / 55,188 |
+| MALLET x2, single-core, effects off | 2,966 / 3,872 / 3,915 | 3,446 | 3,745 | 3,046 / 3,968 / 4,031 | 3,447 | 3,748 | 41,715 / 0 |
+| MALLET x2, dual-core, effects off | 3,183 / 3,872 / 3,911 | 3,596 | 3,596 | 1,987 / 2,464 / 2,531 | 0 | 7,197 | 28,827 / 57,495 |
+| MALLET x3, single-core, effects off | 3,825 / >4,096 / 5,186 | 3,447 | 3,744 | 3,925 / >4,096 / 5,339 | 3,447 | 3,749 | 55,818 / 0 |
+| MALLET x3, dual-core, effects off | 4,114 / >4,096 / 5,187 | 3,596 | 3,597 | 2,716 / 3,360 / 3,426 | 161 | 7,061 | 28,156 / 83,656 |
+| MALLET x4, single-core, effects off | 4,668 / >4,096 / 6,403 | 3,210 | 3,669 | 4,795 / >4,096 / 6,586 | 3,209 | 3,668 | 68,492 / 0 |
+| MALLET x4, dual-core, effects off | 5,035 / >4,096 / 6,428 | 3,362 | 3,522 | 2,775 / 3,744 / 3,779 | 163 | 7,110 | 57,041 / 85,398 |
+| MALLET x1, single-core, effects on | 2,533 / 3,104 / 3,354 | 93 | 7,131 | 2,590 / 3,104 / 3,432 | 89 | 7,174 | 55,632 / 0 |
+| MALLET x1, dual-core, effects on | 2,567 / 3,072 / 3,339 | 85 | 7,121 | 2,240 / 2,688 / 2,982 | 31 | 7,186 | 0 / 55,794 |
+| MALLET x2, single-core, effects on | 3,377 / >4,096 / 5,109 | 3,447 | 3,744 | 3,453 / >4,096 / 4,998 | 3,446 | 3,753 | 41,811 / 0 |
+| MALLET x2, dual-core, effects on | 3,584 / >4,096 / 4,760 | 3,597 | 3,597 | 2,300 / 2,848 / 3,313 | 45 | 7,153 | 27,718 / 55,277 |
+| MALLET x3, single-core, effects on | 4,251 / >4,096 / 6,250 | 3,445 | 3,745 | 4,353 / >4,096 / 6,146 | 3,399 | 3,738 | 55,698 / 0 |
+| MALLET x3, dual-core, effects on | 4,522 / >4,096 / 5,983 | 3,595 | 3,597 | 3,241 / 3,872 / 4,421 | 3,600 | 3,597 | 14,718 / 43,349 |
+| MALLET x4, single-core, effects on | 5,117 / >4,096 / 7,554 | 3,160 | 3,694 | 5,239 / >4,096 / 7,451 | 3,177 | 3,689 | 69,633 / 0 |
+| MALLET x4, dual-core, effects on | 5,470 / >4,096 / 7,492 | 3,326 | 3,524 | 3,106 / >4,096 / 4,842 | 3,447 | 3,746 | 27,921 / 41,722 |
+| VA BASS x4 + DUB LITE x0, single-core, effects off | 1,422 / 2,336 / 2,508 | 0 | 7,191 | 1,448 / 2,400 / 2,576 | 0 | 7,197 | 62,644 / 0 |
+| VA BASS x4 + DUB LITE x0, dual-core, effects off | 1,421 / 2,336 / 2,579 | 0 | 7,190 | 1,055 / 1,696 / 1,910 | 0 | 7,193 | 15,607 / 46,821 |
+| VA BASS x4 + DUB LITE x1, single-core, effects off | 1,826 / 2,752 / 2,933 | 31 | 7,159 | 1,867 / 2,848 / 3,001 | 42 | 7,151 | 90,372 / 0 |
+| VA BASS x4 + DUB LITE x1, dual-core, effects off | 1,547 / 2,432 / 2,663 | 0 | 7,190 | 1,178 / 1,728 / 1,856 | 0 | 7,196 | 31,214 / 60,070 |
+| VA BASS x4 + DUB LITE x4, single-core, effects off | 2,758 / 3,968 / 4,045 | 2,240 | 4,952 | 2,794 / 4,032 / 4,122 | 2,240 | 4,965 | 55,064 / 0 |
+| VA BASS x4 + DUB LITE x4, dual-core, effects off | 1,992 / 2,464 / 2,660 | 0 | 7,219 | 2,105 / 2,560 / 2,667 | 0 | 7,198 | 31,278 / 60,198 |
+| VA BASS x4 + DUB LITE x0, single-core, effects on | 1,826 / 2,976 / 3,471 | 80 | 7,110 | 1,850 / 3,040 / 3,527 | 112 | 7,086 | 60,808 / 0 |
+| VA BASS x4 + DUB LITE x0, dual-core, effects on | 1,784 / 2,944 / 3,455 | 82 | 7,109 | 1,427 / 2,272 / 2,719 | 0 | 7,197 | 15,561 / 46,683 |
+| VA BASS x4 + DUB LITE x1, single-core, effects on | 2,092 / 3,488 / 4,168 | 2,116 | 5,076 | 2,128 / 3,552 / 4,157 | 2,115 | 5,080 | 56,040 / 0 |
+| VA BASS x4 + DUB LITE x1, dual-core, effects on | 1,912 / 3,008 / 3,731 | 109 | 7,082 | 1,561 / 2,272 / 2,711 | 0 | 7,194 | 31,092 / 59,884 |
+| VA BASS x4 + DUB LITE x4, single-core, effects on | 3,155 / >4,096 / 4,747 | 2,266 | 4,926 | 3,183 / >4,096 / 5,237 | 2,251 | 4,945 | 54,532 / 0 |
+| VA BASS x4 + DUB LITE x4, dual-core, effects on | 2,352 / 3,040 / 3,581 | 103 | 7,090 | 2,410 / 3,168 / 3,705 | 2,096 | 5,112 | 18,048 / 38,504 |
+| DRUM-X TECHNO RAW x4 factory, single-core | 1,662 / 2,592 / 2,732 | 0 | 7,191 | 1,826 / 2,816 / 2,941 | 10 | 7,186 | 209,512 / 0 |
+| DRUM-X TECHNO RAW x4 factory, dual-core | 1,661 / 2,592 / 2,712 | 0 | 7,191 | 1,254 / 2,048 / 2,160 | 0 | 7,194 | 63,177 / 146,914 |
+| DRUM-X TECHNO RAW x4 pan+tune, single-core | 2,014 / 2,912 / 3,088 | 75 | 7,117 | 2,201 / 3,232 / 3,337 | 159 | 7,038 | 205,303 / 0 |
+| DRUM-X TECHNO RAW x4 pan+tune, dual-core | 2,015 / 2,976 / 3,103 | 89 | 7,103 | 1,606 / 2,432 / 2,525 | 0 | 7,213 | 63,207 / 146,989 |
+| VA BASS x4, DUB LITE into REVERB CLOUD on 1 track(s), single-core | 2,287 / 3,616 / 3,801 | 2,232 | 4,962 | 2,303 / 3,712 / 3,908 | 2,159 | 5,043 | 56,314 / 0 |
+| VA BASS x4, DUB LITE into REVERB CLOUD on 1 track(s), dual-core | 2,070 / 3,136 / 3,353 | 398 | 6,807 | 1,724 / 2,336 / 2,493 | 0 | 7,195 | 31,150 / 59,954 |
+| VA BASS x4, DUB LITE into REVERB CLOUD on 4 track(s), single-core | 3,390 / >4,096 / 4,987 | 2,246 | 4,948 | 3,435 / >4,096 / 5,020 | 2,273 | 4,938 | 54,632 / 0 |
+| VA BASS x4, DUB LITE into REVERB CLOUD on 4 track(s), dual-core | 2,531 / 3,328 / 3,486 | 2,120 | 5,080 | 2,638 / 3,392 / 3,638 | 2,225 | 4,980 | 17,862 / 37,790 |
+| MALLET x4, DUB LITE into REVERB CLOUD on 1 track(s), single-core | 5,575 / >4,096 / 7,644 | 1 | 2,596 | 5,707 / >4,096 / 8,012 | 1 | 2,601 | 57,248 / 0 |
+| MALLET x4, DUB LITE into REVERB CLOUD on 1 track(s), dual-core | 5,619 / >4,096 / 7,170 | 3,370 | 3,539 | 3,772 / >4,096 / 4,885 | 3,602 | 3,599 | 29,130 / 57,938 |
+| MALLET x4, DUB LITE into REVERB CLOUD on 4 track(s), single-core | 6,761 / >4,096 / 8,877 | 84 | 2,581 | 7,237 / >4,096 / 8,939 | 160 | 2,443 | 57,254 / 0 |
+| MALLET x4, DUB LITE into REVERB CLOUD on 4 track(s), dual-core | 5,725 / >4,096 / 7,224 | 3,282 | 3,497 | 4,782 / >4,096 / 5,904 | 3,602 | 3,601 | 29,266 / 58,210 |
+| VA BASS x4 + DUB LITE with the spring in the loop x1, dual-core | 1,585 / 2,464 / 2,715 | 0 | 7,191 | 1,241 / 1,792 / 1,902 | 0 | 7,211 | 31,208 / 60,064 |
+| VA BASS x4 + DUB LITE with the spring in the loop x4, dual-core | 2,123 / 2,464 / 2,585 | 0 | 7,192 | 2,389 / 2,880 / 3,052 | 41 | 7,161 | 31,016 / 59,808 |
+| VA BASS x4 + DUB LITE with the spring on the wet x1, dual-core | 1,613 / 2,432 / 2,695 | 0 | 7,192 | 1,305 / 1,856 / 2,001 | 0 | 7,211 | 31,274 / 60,130 |
+| VA BASS x4 + DUB LITE with the spring on the wet x4, dual-core | 2,229 / 2,528 / 2,606 | 0 | 7,196 | 2,555 / 3,200 / 3,266 | 2,104 | 5,094 | 17,722 / 38,106 |
+| PROPHET x1, single-core, effects off | 2,313 / 2,496 / 2,577 | 0 | 7,196 | 2,346 / 2,528 / 2,575 | 0 | 7,195 | 110,968 / 0 |
+| PROPHET x1, dual-core, effects off | 1,560 / 1,696 / 1,733 | 0 | 7,192 | 1,537 / 1,696 / 1,774 | 0 | 7,209 | 27,655 / 82,965 |
+| PROPHET x2, single-core, effects off | 3,932 / >4,096 / 4,639 | 3,447 | 3,746 | 3,980 / >4,096 / 4,448 | 3,447 | 3,750 | 110,480 / 0 |
+| PROPHET x2, dual-core, effects off | 2,349 / 2,496 / 2,543 | 0 | 7,198 | 2,411 / 2,496 / 2,560 | 0 | 7,203 | 86,892 / 144,820 |
+| PROPHET x3, single-core, effects off | 4,424 / >4,096 / 5,286 | 3,447 | 3,761 | 4,479 / >4,096 / 5,296 | 3,466 | 3,769 | 125,379 / 0 |
+| PROPHET x3, dual-core, effects off | 2,877 / 3,328 / 3,351 | 576 | 6,746 | 2,784 / 3,392 / 3,450 | 3,447 | 3,748 | 55,216 / 69,020 |
+| PROPHET x4, single-core, effects off | 4,515 / >4,096 / 5,539 | 3,447 | 3,767 | 4,574 / >4,096 / 5,565 | 3,447 | 3,773 | 125,568 / 0 |
+| PROPHET x4, dual-core, effects off | 3,001 / 3,616 / 3,653 | 3,485 | 3,718 | 2,944 / 3,648 / 3,699 | 3,495 | 3,706 | 56,084 / 70,118 |
+| PROPHET x1, single-core, effects on | 2,849 / 3,296 / 3,361 | 3,446 | 3,746 | 2,890 / 3,360 / 3,429 | 3,447 | 3,747 | 55,316 / 0 |
+| PROPHET x1, dual-core, effects on | 2,060 / 2,272 / 2,323 | 0 | 7,198 | 2,025 / 2,304 / 2,418 | 0 | 7,200 | 27,689 / 83,067 |
+| PROPHET x2, single-core, effects on | 4,504 / >4,096 / 5,180 | 3,447 | 3,766 | 4,548 / >4,096 / 5,127 | 3,449 | 3,771 | 111,784 / 0 |
+| PROPHET x2, dual-core, effects on | 2,893 / 3,168 / 3,198 | 1,556 | 5,689 | 2,986 / 3,264 / 3,333 | 3,439 | 3,786 | 44,882 / 74,812 |
+| PROPHET x3, single-core, effects on | 5,011 / >4,096 / 6,022 | 3,250 | 3,702 | 5,066 / >4,096 / 5,930 | 3,212 | 3,670 | 122,823 / 0 |
+| PROPHET x3, dual-core, effects on | 3,519 / 4,064 / 4,136 | 3,598 | 3,598 | 3,603 / >4,096 / 4,205 | 3,600 | 3,599 | 57,616 / 72,020 |
+| PROPHET x4, single-core, effects on | 5,139 / >4,096 / 6,243 | 3,219 | 3,725 | 5,190 / >4,096 / 6,215 | 3,080 | 3,624 | 119,826 / 0 |
+| PROPHET x4, dual-core, effects on | 3,653 / >4,096 / 4,417 | 3,599 | 3,607 | 2,829 / >4,096 / 5,653 | 4,732 | 6,906 | 76,345 / 95,450 |
+| FM6 x1, single-core, effects off | 3,601 / >4,096 / 4,154 | 3,404 | 3,798 | 3,629 / >4,096 / 4,190 | 3,404 | 3,791 | 219,740 / 0 |
+| FM6 x1, dual-core, effects off | 2,302 / 2,528 / 2,571 | 0 | 7,193 | 2,316 / 2,528 / 2,586 | 0 | 7,197 | 172,824 / 288,040 |
+| FM6 x2, single-core, effects off | 4,366 / >4,096 / 5,794 | 3,426 | 3,767 | 4,392 / >4,096 / 5,814 | 3,412 | 3,783 | 250,494 / 0 |
+| FM6 x2, dual-core, effects off | 2,894 / 3,648 / 3,824 | 2,353 | 5,182 | 2,920 / 3,712 / 3,839 | 3,399 | 3,896 | 109,627 / 172,317 |
+| FM6 x3, single-core, effects off | 4,754 / >4,096 / 6,786 | 3,223 | 3,680 | 4,775 / >4,096 / 6,813 | 3,210 | 3,695 | 247,218 / 0 |
+| FM6 x3, dual-core, effects off | 3,234 / >4,096 / 4,706 | 3,447 | 3,744 | 3,391 / >4,096 / 4,733 | 3,599 | 3,598 | 101,605 / 159,527 |
+| FM6 x4, single-core, effects off | 5,144 / >4,096 / 7,794 | 3,246 | 3,745 | 5,172 / >4,096 / 7,825 | 3,237 | 3,747 | 254,446 / 0 |
+| FM6 x4, dual-core, effects off | 3,796 / >4,096 / 5,647 | 3,596 | 3,596 | 3,805 / >4,096 / 5,686 | 3,599 | 3,599 | 101,955 / 159,893 |
+| FM6 x1, single-core, effects on | 4,064 / >4,096 / 4,756 | 3,404 | 3,791 | 4,089 / >4,096 / 4,799 | 3,404 | 3,918 | 228,088 / 0 |
+| FM6 x1, dual-core, effects on | 2,709 / 2,976 / 3,016 | 149 | 7,056 | 2,720 / 2,976 / 3,052 | 158 | 7,044 | 170,952 / 284,920 |
+| FM6 x2, single-core, effects on | 4,832 / >4,096 / 6,339 | 3,209 | 3,715 | 4,859 / >4,096 / 6,385 | 3,199 | 3,726 | 248,278 / 0 |
+| FM6 x2, dual-core, effects on | 3,393 / >4,096 / 4,349 | 3,598 | 3,606 | 3,415 / >4,096 / 4,363 | 3,598 | 3,597 | 101,255 / 159,161 |
+| FM6 x3, single-core, effects on | 5,251 / >4,096 / 7,366 | 3,241 | 3,710 | 5,279 / >4,096 / 7,381 | 3,237 | 3,703 | 252,450 / 0 |
+| FM6 x3, dual-core, effects on | 3,855 / >4,096 / 5,286 | 3,598 | 3,598 | 3,877 / >4,096 / 5,307 | 3,598 | 3,598 | 101,633 / 159,571 |
+| FM6 x4, single-core, effects on | 5,538 / >4,096 / 8,432 | 62 | 2,619 | 5,564 / >4,096 / 8,478 | 59 | 2,615 | 169,966 / 0 |
+| FM6 x4, dual-core, effects on | 4,319 / >4,096 / 6,249 | 3,553 | 3,584 | 4,344 / >4,096 / 6,253 | 3,555 | 3,594 | 101,843 / 159,717 |
+
+**What it says.**
+- **MACRO, DRUM-X and the rest now use CPU1.** Dual-core, CPU1 runs two thirds to three quarters of the ports' voice kernels. The gains:
+
+| load (dual-core) | before: wall mean / max | after | late, before → after |
+|---|---|---|---|
+| MALLET x4, effects off | 5,035 / 6,428 | 2,775 / 3,779 (p99 3,744) | 3,362 → 163 (halves 3,522 → 7,110) |
+| MALLET x2, effects off | | | 3,596 → 0 |
+| MALLET x2, effects on | | | 3,597 → 45 |
+| VA BASS x4 | 1,421 / 2,579 | 1,055 / 1,910 | |
+| VA BASS x4, effects on | | | 82 → 0 |
+| DRUM-X x4, factory kit | 1,661 | 1,254 | |
+| DRUM-X x4, pan + tune | | | 89 → 0 |
+| VA BASS + DUB into CLOUD on one track | | | 398 → 0 |
+
+- **Where stage 1 alone is not enough:**
+  - MALLET x3 and x4 with effects on: 3,106 mean, p99 past 4,096.
+  - FM6 from two tracks and the Prophet from three, as before: their path did not change. Within 1 % of before; the Prophet's x2 to
+    x4 rows sit at the deadline either way.
+- **Single-core forced is 1 to 10 % slower than before:** the descriptor's copy and the merge. DRUM-X's 25 us kernels pay the most
+  (factory 1,662 → 1,826, 10 late in 20 s); MACRO 2 to 3 %. With CPU1 it is far ahead.
+- **The DUB rows got worse with four instances,** for example VA BASS x4 + DUB x4 with effects on: 103 → 2,096 late; spring on the wet
+  x4: 0 → 2,104. **The cause is the bench's job joining the batch** (measure/batch-s1 cbfa9c9): as the batch's first descriptor its
+  7,920 ticks (4 x 1,980) become CPU0's reserve, so CPU1 takes DUB plus about half the voices. Before, DUB had CPU1 to itself beside
+  all the voices on CPU0, which balanced by chance (1,270 / 1,271). **linux-hw has no DUB, so this is not stage 1's regression. It is
+  the condition for DUB TAPE's merge:**
+  - the batch's split must count a whole job's cost as CPU1's, not as CPU0's reserve;
+  - or DUB keeps its own job, and the batch does not start until it is in.
+  - With one instance (1,980) the rows improved: VA BASS + DUB x1 with effects on, 109 → 0 late.
+- **CPU1's stack:** the jobs' deepest is 1,316 B of the user stack's 3,840 (readout 5,412; it counts from 4 KB up: the second review's
+  reading, confirmed).
+- **Lost replies:** one in the first pass of the set, which ended it after 4 rows (a step write, command 30; put back true). From then
+  on core_runs.py tries each request three times and logs each loss: one more in the Prophet pass, recovered.
+
+## Voice stealing: a proposal against stage 1's numbers (no code)
+
+**The measure.** What decides a load is the voices rendered at once, not the tracks. The kernel readout gives them: kernels run over
+blocks rendered. Dual-core, stage 1:
+
+| load | voices a block | wall mean | p99 | max | late in 20 s |
+|---|---|---|---|---|---|
+| MALLET x1, effects on | 1.94 | 2,240 | 2,688 | 2,982 | 31 |
+| MALLET x2, effects on | 2.90 | 2,300 | 2,848 | 3,313 | 45 |
+| MALLET x3, effects on | 4.04 | 3,241 | 3,872 | 4,421 | overload |
+| MALLET x4, effects on | 4.65 | 3,106 | >4,096 | 4,842 | overload |
+| FM6 x1, effects off / on | 16.0 / 16.2 | 2,316 / 2,720 | 2,528 / 2,976 | 2,586 / 3,052 | 0 / 158 |
+| FM6 x2 to x4 | 18.1 to 18.2 | 2,920 to 4,344 | 3,712 to >4,096 | | overload |
+| the Prophet x1, effects off / on | 3.8 | 1,537 / 2,025 | 1,696 / 2,304 | | 0 |
+| the Prophet x2, effects off / on | 8.0 / 7.9 | 2,411 / 2,986 | 2,496 / 3,264 | | 0 / overload |
+| the Prophet x3, x4 | 8.3 to 9.0 | 2,784 to 3,603 | 3,392 to >4,096 | | overload |
+
+**Four MALLET tracks with effects on, the smallest cut that keeps p99 under the deadline.**
+- **Today:** 4.65 MODAL voices a block on average, 5 or more in a block's peak.
+- **The p99 crosses 2,902 between 2.9 voices (2,848) and 4.0 (3,872);** a MODAL voice is worth about 900 us of p99 there.
+- **The cut: at most 3 MODAL voices sounding at once across the tracks, while the shared effects run.** That is about 1.7 voices off the
+  average, 2 off a peak: the oldest releasing tails first, which is what the overload shed (audio.c shed_voice) already picks.
+- **Its margin is thin.** p99 lands about 50 us under the deadline; max stays over (3,313 at 2.9 voices); about 45 late renders in 20 s
+  remain at x2's 2.9.
+- **Not covered:** four tracks add a little fixed work over two (their prep and mix: about 60 us at effects off, the x2 and x4 rows).
+  So 3 is the cut to try first, not a proven bound. If four tracks at 3 voices still miss, 2 voices is the fallback (p99 2,688).
+- **Effects off:** 4 voices (x3: p99 3,360) is too many and 3 is the cap there too (x2: 2,464). The voice count, not the effects, is
+  what binds.
+
+**Four FM6 tracks.**
+- One FM6 track already runs 16 voices a block (Dexed's 16 with release tails); from two tracks the shared budget holds about 18.
+- **Effects off:** the deadline holds at 16 (p99 2,528) and fails at 18 (3,712).
+- **Effects on:** 16 is already at the edge (p99 2,976, 158 late).
+- **So four FM6 tracks need at most about 15 voices at once with effects on (16 with them off):** a cut of 3 voices from 18, release
+  tails first. Each track then keeps about 4.
+
+**Four Prophet tracks.**
+- **Effects off:** the deadline holds at 8 voices on two tracks (p99 2,496) and fails at 8.3 on three (3,392). The Prophet's per-track
+  work (its control, its module's prep on CPU0) costs about as much as its fourth and fifth voice.
+- **Effects on:** 3.8 voices hold (2,304); 7.9 fail (3,264).
+- **So four Prophet tracks need at most about 5 voices at once with effects on, and about 7 with them off.** That is a cut of 3 to 4 from
+  today's 8 to 9.
+- **Prophet tracks are the costliest per track.** The batch's cost entry for the Prophet (3,100) is half again what it measures (1,956):
+  set from the measurement it would move about 10 % of its kernels to CPU1. That is worth doing before choosing its cap, and it is the
+  user's call (the native entries were left as they were).
+
+**How it would be applied** (no code): a cap by engine (MODAL, FM6, the Prophet) on the voices sounding at once, counted in the
+existing voice budget's units (MC_UNITS for MODAL, the native engines' units), enforced at note-on by the existing stealing: the oldest
+releasing voice of the same engine first. The SAFETY shed (two halves over 85 %, off by default) stays as it is. The caps apply only while
+CPU1 is online; on one core today's admission holds. Voice admission and stealing are not changed until the user decides.
