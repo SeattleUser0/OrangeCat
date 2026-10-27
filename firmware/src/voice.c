@@ -4,6 +4,8 @@
 /* Revisions:
  * (Orange Cat 0.9.0) DRUM-X, Jiant FM's drum engine, in engine slot 9; the loadable-engine interface identifier.
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.15.0) the cost caps (voice_cap_room): MODAL, FM6 and the Prophet voices at once across the tracks, while the halves' measured
+ *   cost says the processor is near its deadline (docs/orangecat/BUILD.md, "Voice stealing: the cost caps")
  */
 /* Voice allocation, envelopes, LFO and per-track rendering.
  * Runs in the audio ISR.
@@ -257,9 +259,117 @@ static void voice_capacity_kill(voice_t *v)
     voice_kill(v); /* preserve the legacy explicit-fade counter */
 }
 
+/* (0.15.0) The cost caps (BUILD.md, "Voice stealing: the cost caps"): MODAL (MACRO's MALLET, GLASS BELL), FM6 and the Prophet cost the
+ * most a voice, and four tracks of one of them pass the deadline with the shared budget's voices. While engaged, a new voice of such an
+ * engine finds room among the voices of that engine on every track: at most VC_CAP of them sound at once (stage 4, fading out this block,
+ * not counted), the shared effects on or off (they cost a voice or two). The cap is the same on every track, counted in the engine's
+ * voices as the budget counts its units (a MODAL voice is 9 of MACRO's units, an FM6 voice one; the cap in units would be 9 x 3 and 1 x 15).
+ * The voice given up: the oldest released one of the engine, else the oldest held one that is not its part's lowest note, else the oldest
+ * held one (the cap holds: a track's held note can go). Measured on the unit with four tracks (Part 3 after stage 1, Flash 45 and 46).
+ * Engaged by the halves' cost (audio.c voice_cost_half), not always: two halves in a row over VC_ON (80 % of the half, under the
+ * overload shed's 85 %) engage them; they stay while the halves pass VC_KEEP (70 %), and let go after VC_HOLD halves under it (about a second). Only
+ * with CPU1 online (the caps were measured on two cores; one core keeps its own budget). Not the SAFETY shed: it stays as it was. */
+enum { VC_MODAL, VC_FM6, VC_PROPHET, VC_N };
+static const uint8_t VC_CAP[VC_N][2] = {        /* voices at once: the shared effects off, on */
+    {3, 3},                                     /* MODAL: four MALLET tracks' p99 2,848 at 2.9 voices, over the deadline at 4 */
+    {16, 15},                                   /* FM6: 16 hold with the effects off (p99 2,528), 15 with them on (16: 2,976) */
+    {7, 5},                                     /* the Prophet: 8 hold off (2,496), 3.8 on (2,304), 7.9 on fail (3,264) */
+};
+#define VC_HOLD 344u                            /* halves (2.9 ms each): about a second */
+#if MELODEE_DUAL_CORE
+#define VC_CPU1 (audio_worker_online != 0)
+#else
+#define VC_CPU1 0
+#endif
+static uint8_t vc_cap[VC_N][2];                 /* 0: VC_CAP; OC_CORE_STATS builds set them for the unit's runs (editor AUDIO_STATS [flags, 6]) */
+static uint8_t vc_on, vc_over, voice_fx_on;     /* the caps engaged; the last half was over VC_ON; the shared effects ran this block (mix.c) */
+static uint16_t vc_hold;
+static uint32_t vc_steals[VC_N], vc_refused, vc_engaged_halves, vc_engages;
+static uint32_t voice_class(const track_t *t)   /* VC_N: none */
+{
+#if MELODEE_MACRO
+    if (t->engine == ENGI_MACRO && clamp(t->p[P_E0], 0, MC_N - 1) == MC_MODAL)
+        return VC_MODAL;
+#endif
+    if (MELODEE_FM6 && t->engine == ENGI_FM6)
+        return VC_FM6;
+    if (t->engine == ENGI_PROPHET)
+        return VC_PROPHET;
+    return VC_N;
+}
+/* audio.c, the end of a half: over 80 % of it (on: two in a row engage the caps), over 70 % (keep) */
+static void voice_cost_half(int on, int keep)
+{
+    if (!VC_CPU1) {
+        vc_on = 0;
+        return;
+    }
+    int two = on && vc_over;                    /* two halves in a row over 80 %, as the shed asks: one USB burst does not engage them */
+    vc_over = on ? 1u : 0u;
+    if (two && !vc_on)
+        vc_engages++;
+    if (two || (vc_on && keep))
+        vc_on = 1, vc_hold = VC_HOLD;
+    else if (vc_hold && !--vc_hold)
+        vc_on = 0;
+    vc_engaged_halves += vc_on;
+}
+static uint32_t vc_limit(uint32_t c)
+{
+    uint32_t k = voice_fx_on ? 1u : 0u;
+    return vc_cap[c][k] ? vc_cap[c][k] : VC_CAP[c][k];
+}
+/* room under the cap for one more voice of t (an extra UNISON voice: soft, nothing taken). 1: room (*own, when own is given: one of
+ * t's own voices below np to restart in place), 0: none (soft) */
+static __attribute__((noinline)) int voice_cap_room(track_t *t, int soft, voice_t **own, uint32_t np)   /* (out of line: the ISR's loops as they were) */
+{
+    uint32_t c = voice_class(t), p, i, n;
+    if (c >= VC_N || !vc_on)
+        return 1;
+#if MELODEE_AUDIO_BENCH
+    if (audio_bench_active())
+        return 1;
+#endif
+    for (;;) {
+        voice_t *best = 0;
+        uint32_t cat = 4;
+        for (p = n = 0; p < NPART; p++) {
+            track_t *q = &trk[p];
+            uint32_t low;
+            if (voice_class(q) != c)
+                continue;
+            low = trk_vmode(q) == V_POLY ? lowest_held(q) : 0u;
+            for (i = 0; i < NVOICE; i++) {
+                voice_t *v = &q->v[i];
+                uint32_t k;
+                if (!v->active || v->stage == 4u)
+                    continue;
+                n++;
+                k = !v->gate ? 1u : i != low ? 2u : 3u;   /* released; held, not the part's lowest (POLY) or lead; held */
+                if (k < cat || (k == cat && v->age < best->age))
+                    cat = k, best = v;
+            }
+        }
+        if (n < vc_limit(c))
+            return 1;
+        if (soft || !best) {
+            vc_refused++;
+            return 0;
+        }
+        vc_steals[c]++;
+        if (own && best >= t->v && best < t->v + np) {
+            *own = best;                                /* our own: restarted in place (no click) */
+            return 1;
+        }
+        voice_kill(best);
+    }
+}
+
 /* the budget is full: free room for a voice of part t. 0 = nothing to take (soft) */
 static int voice_room(track_t *t, int soft)
 {
+    if (!voice_cap_room(t, soft, 0, 0))                 /* (0.15.0) the cost caps first */
+        return 0;
     while (voices_busy() + voice_new_units(t) > voice_budget()) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, soft, &vp);
@@ -311,6 +421,12 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
         if (t->v[i].active && t->v[i].note == note)
             return voice_reuse(t, &t->v[i]);
         nfree += !t->v[i].active;
+    }
+    if (nfree) {                                        /* (0.15.0) the cost caps: room among the engine's voices first */
+        voice_t *own = 0;
+        voice_cap_room(t, 0, &own, np);
+        if (own)
+            return own;
     }
     while (nfree && voices_busy() + voice_new_units(t) > voice_budget()) {
         track_t *vp = 0;

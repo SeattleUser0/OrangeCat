@@ -204,6 +204,27 @@ static int preferences(void)
     return bad;
 }
 
+/* (0.15.0) the requests and replies counted by command (AUDIO_STATS [flags, 5] reads them on the unit): a reply counted as it leaves
+ * whole, a frame that came while one was pending counted as dropped (and never answered) */
+static int reply_counters(void)
+{
+    uint32_t i, bad = 0;
+    static const uint8_t ping[] = {0xF0, 0x7D, 0x46, 0x4C, ED_PING, 0xF7};
+    reset();
+    memset(ed_req_n, 0, sizeof ed_req_n); memset(ed_rep_n, 0, sizeof ed_rep_n); ed_rep_cut = 0; sx_rx_dropped = sx_rx_long = 0;
+    request(ED_PING, 0, 0); ota_frame_done();
+    request(ED_PING, 0, 0); ota_frame_done();
+    bad += check("two PINGs: two requests, two replies", ed_req_n[ED_PING] == 2u && ed_rep_n[ED_PING] == 2u && !sx_rx_dropped);
+    host_wire_n = 0;
+    for (i = 0; i < sizeof ping; i++) sysex_byte(ping[i]);
+    for (i = 0; i < sizeof ping; i++) sysex_byte(ping[i]);          /* the second while the first is pending */
+    ed_service(); host_drain(); ota_frame_done();
+    bad += check("a frame that comes while one is pending is counted as dropped, the first answered",
+                 sx_rx_dropped == 1u && ed_req_n[ED_PING] == 3u && ed_rep_n[ED_PING] == 3u && host_wire_n == 7u);
+    request(ED_SET, (const uint8_t[]){0, P_LEVEL}, 2); ota_frame_done();
+    bad += check("a request refused for its length is counted, no reply", ed_req_n[ED_SET] == 1u && !ed_rep_n[ED_SET] && !host_wire_n);
+    return bad;
+}
 static int framing(void)
 {
     uint32_t i, bad = 0;
@@ -1420,7 +1441,7 @@ static int arrange_protocol(void)
 
 int main(void)
 {
-    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

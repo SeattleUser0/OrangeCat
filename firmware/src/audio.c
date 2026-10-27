@@ -80,6 +80,8 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
 static volatile uint8_t shed_req;
 static uint8_t shed_over;                              /* bit k: the half k halves ago was over 85 % */
 #define SHED_TICKS ((HALF_FRAMES * 1000000u / FS) * 85u / 100u * FM1_TICKS_PER_US)   /* 85 % of a half */
+#define VC_ON_TICKS ((HALF_FRAMES * 1000000u / FS) * 80u / 100u * FM1_TICKS_PER_US)    /* (0.15.0) the cost caps on (voice.c voice_cost_half) */
+#define VC_KEEP_TICKS ((HALF_FRAMES * 1000000u / FS) * 70u / 100u * FM1_TICKS_PER_US)  /* .. and kept */
 static uint32_t shed_count;
 #if MELODEE_AUDIO_BENCH
 static uint32_t audio_bench_shed_requests;
@@ -181,7 +183,11 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 #if OC_CORE_STATS
         cs_half_end(fm1_ticks() - t0);                  /* (0.14.2) the cores' half (core_stats.h) */
 #endif
-        us = shed_check(fm1_ticks() - t0);
+        {
+            uint32_t all = fm1_ticks() - t0;
+            us = shed_check(all);
+            voice_cost_half(all > VC_ON_TICKS, all > VC_KEEP_TICKS);   /* (0.15.0) the cost caps */
+        }
         if (us > audio_max_us)
             audio_max_us = us;
         {

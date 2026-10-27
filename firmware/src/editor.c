@@ -16,7 +16,9 @@
  * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
  *   0.12.1: MOD_INFO (120) reports three starts and ends with the blocker's start (127: none), a module of another engine that stands in the way of the engine asked about.
- * (Orange Cat 0.14.2) command 102 ARRANGE (editor_arrange.c): the chains, the song and the scenes of the music loaded, read and written whole by the web app. */
+ * (Orange Cat 0.14.2) command 102 ARRANGE (editor_arrange.c): the chains, the song and the scenes of the music loaded, read and written whole by the web app.
+ * (Orange Cat 0.15.0) the requests and replies counted by command (AUDIO_STATS [flags, 5]): a long run can tell a reply the unit never sent
+ *   from one the path lost; the cost caps' readout (AUDIO_STATS [flags, 6], voice.c). */
 #define ED_HDR0 0x7D
 #define ED_HDR1 0x46
 #define ED_HDR2 0x4C
@@ -52,6 +54,10 @@ static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
 
 static uint8_t ed_out[1024];                        /* the longest: a NAMES page (PROPHET pages its 201) */
 static uint32_t ed_n;
+/* (0.15.0) by command byte: frames with the editor's header handled (ed_handle), replies and pushes put whole into USB's SysEx queue
+ * (ed_send); replies cut short (the queue full for 200 ms: usb.c ota_wire_send). Modulo 65,536: a run reads them before and after */
+static uint16_t ed_req_n[128], ed_rep_n[128];
+static uint32_t ed_rep_cut;
 
 static void ed_begin(uint32_t cmd)
 {
@@ -83,7 +89,10 @@ static void ed_str(const char *s, uint32_t max)   /* ASCII, 0-terminated */
 static void ed_send(void)
 {
     ed_out[ed_n++] = 0xF7;
-    ota_wire_send(ed_out, ed_n);
+    if (ota_wire_send(ed_out, ed_n) == 0)
+        ed_rep_n[ed_out[4] & 127u]++;
+    else
+        ed_rep_cut++;
 }
 static int32_t ed_rv(const uint8_t *p) { return (int32_t)(p[0] | p[1] << 7) - 8192; }
 
@@ -419,6 +428,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         return;
     uint32_t cmd = f[3], i;
     const uint8_t *a = f + 4;
+    ed_req_n[cmd & 127u]++;
     uint32_t na = n - 4u;
     int16_t *vp;
     const param_desc_t *d;
@@ -666,6 +676,58 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             break;
         }
 #endif
+        if (na == 2u && a[1] == 5u) {
+            /* (0.15.0) [flags, 5]: the editor's requests and replies, schema 12: 12, then 5 x 7 bits each: frames dropped as they came (one
+             * still pending: usb.c), frames too long, replies cut short (USB's queue full 200 ms), the number N of commands that follow;
+             * then for each command byte with a count: the byte, its requests handled and its replies sent, 3 x 7 bits each (modulo
+             * 65,536). Replies include the pushes (23, 24, 26, 32). The dropped and long counts are of any SysEx (a DX7 bank is "long"); a
+             * reply with USB not configured counts as cut. Flag 1 starts them over after this reply. (At most 21 + 128 x 7 = 917
+             * bytes) */
+            uint32_t k, nc = 0;
+            for (k = 0; k < 128u; k++) nc += ed_req_n[k] || ed_rep_n[k];
+            ed_b(12);
+#if MELODEE_OTA
+            ed_bk_u32(sx_rx_dropped); ed_bk_u32(sx_rx_long);
+#else
+            ed_bk_u32(0); ed_bk_u32(0);
+#endif
+            ed_bk_u32(ed_rep_cut); ed_bk_u32(nc);
+            for (k = 0; k < 128u; k++)
+                if (ed_req_n[k] || ed_rep_n[k]) {
+                    ed_b(k);
+                    ed_b(ed_req_n[k]); ed_b(ed_req_n[k] >> 7); ed_b(ed_req_n[k] >> 14);
+                    ed_b(ed_rep_n[k]); ed_b(ed_rep_n[k] >> 7); ed_b(ed_rep_n[k] >> 14);
+                }
+            if (a[0] & 1u) {
+                memset(ed_req_n, 0, sizeof ed_req_n); memset(ed_rep_n, 0, sizeof ed_rep_n); ed_rep_cut = 0;
+#if MELODEE_OTA
+                fm1_irq_off(); sx_rx_dropped = sx_rx_long = 0; fm1_irq_on();   /* (usb_poll, TIMER5, counts them) */
+#endif
+            }
+            break;
+        }
+        if ((na == 2u || na == 5u) && a[1] == 6u) {
+            /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 13: 13, then 5 x 7 bits each: engaged now, times
+             * engaged, halves engaged, extra UNISON voices refused, the shared effects ran last block, N (3: MODAL, FM6, the Prophet); then
+             * for each: voices given up for the cap, the cap with the effects off, with them on. Flag 1 starts the counts over.
+             * [flags, 6, c, off, on] (OC_CORE_STATS builds only, the unit's runs): engine c's caps (0: as built), then the same reply */
+            uint32_t k;
+#if OC_CORE_STATS
+            if (na == 5u && a[2] < VC_N) { vc_cap[a[2]][0] = a[3]; vc_cap[a[2]][1] = a[4]; }
+#endif
+            ed_b(13);
+            fm1_irq_off();
+            ed_bk_u32(vc_on); ed_bk_u32(vc_engages); ed_bk_u32(vc_engaged_halves); ed_bk_u32(vc_refused); ed_bk_u32(voice_fx_on);
+            ed_bk_u32(VC_N);
+            for (k = 0; k < VC_N; k++) {
+                ed_bk_u32(vc_steals[k]);
+                ed_bk_u32(vc_cap[k][0] ? vc_cap[k][0] : VC_CAP[k][0]);
+                ed_bk_u32(vc_cap[k][1] ? vc_cap[k][1] : VC_CAP[k][1]);
+            }
+            if (a[0] & 1u) { vc_engages = vc_engaged_halves = vc_refused = 0; for (k = 0; k < VC_N; k++) vc_steals[k] = 0; }
+            fm1_irq_on();
+            break;
+        }
         uint32_t snapshot[68] = {0}, k, count = na && (a[0] & 64u) ? 23u : na && (a[0] & 32u) ? 64u : na && (a[0] & 16u) ? 55u : na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
         fm1_irq_off();
         snapshot[0] = ua.play_alt;

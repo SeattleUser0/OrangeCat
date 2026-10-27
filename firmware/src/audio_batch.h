@@ -7,6 +7,7 @@
  *   voice unit's, MACRO's push gives its model's units times it: audio_batch_push_cost); an optional merge (CPU0, at the join, in voice
  *   order) after the PCM's sum: DRUM-X's panned lanes add their share to the kit's side there; OC_CORE_STATS builds time each kernel
  *   by its profile id and core.
+ * (Orange Cat 0.15.0) the Prophet's cost entry from its measurement (1,956; it was 3,100)
  */
 #pragma once
 #include "core_stats.h"                        /* (0.14.3) cs_kernel: the kernels' costs (OC_CORE_STATS builds) */
@@ -37,13 +38,14 @@ static uint8_t audio_batch_active;
 /* TIMER5 preempts CPU0 only. Partition a group around measured kernel
  * costs and a CPU0 service allowance. Profiling does not change scheduling. */
 static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_tables.audio_batch_cost"),aligned(32)))={
-    [AP_PROPHET]=3100,[AP_FM6]=1250,[AP_CZ]=2100,
+    [AP_PROPHET]=1956,[AP_FM6]=1250,[AP_CZ]=2100,       /* (0.15.0) the Prophet's from its measurement (below; it was 3,100) */
     [AP_SID]=2000,[AP_808]=1150,[AP_909]=1900,
     /* (0.14.3) the ports, TIMER4 ticks a voice's 32-sample block on CPU1, measured on the unit (measure/batch-s1 f0ee004, Flash 43, the
      * kernel readout AUDIO_STATS [flags, 3]; four tracks of each preset, dual-core; BUILD.md, "Stage 1: the per-voice costs"). AP_MACRO is
      * a voice unit's (MC_UNITS): MALLET (MODAL, 9 units) 187.7 us = 500 a unit, VA BASS (4) 88.8 us = 533; DRUM-X TECHNO RAW 24.7 us;
      * SHAPES CSAW BASS 56.4 us, MORPH LEAD 69.3 (1,354 and 1,663: their mean); WHEEL FULL ORGAN 30.6 us. On CPU0 they take 10 to 15 % more.
-     * (The Prophet measured 81.5 us, 1,956, against its 3,100 here; the native engines' entries are as they were) */
+     * (0.15.0) The Prophet measured 81.5 us, 1,956 (measure/batch-s1 ec1c460, Flash 45, its module at start 0), set from it; the other
+     * native engines' entries are as they were */
     [AP_MACRO]=520,[AP_DRUMX]=590,[AP_SHAPES]=1500,[AP_WHEEL]=730
 };
 #if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
@@ -63,7 +65,10 @@ static uint8_t audio_batch_started,audio_batch_fm6_controls;
 /* CPU0 prepares every descriptor and services TIMER5 while CPU1 renders.
  * Reserve at least one kernel's cost: a fixed 2000 under-reserved Prophet
  * and CZ work, leaving CPU0 late while CPU1 finished early. Cheaper kernels
- * retain the previous allowance. Lab builds can compare explicit splits. */
+ * retain the previous allowance. Lab builds can compare explicit splits.
+ * (0.15.0) With the Prophet's entry at its measured 1,956, a group the Prophet
+ * leads reserves the 2,000 floor (it was 3,100); four Prophet tracks still go
+ * three to CPU1, one to CPU0. */
 #define AUDIO_BATCH_SERVICE_AUTO UINT32_MAX
 #if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
 static volatile uint32_t audio_batch_service_allowance=AUDIO_BATCH_SERVICE_AUTO;

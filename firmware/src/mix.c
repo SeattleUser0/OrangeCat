@@ -406,6 +406,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     if(perf)perf_pre(mix_l,mix_r,sl_l,sl_r,send_d,send_r,n);   /* (THROW: the dry mix into the delay and reverb sends) */
     AP_START(output_start);
     jfx_bus_start(n);                                   /* the buses (CPU1 when there is one) */
+    voice_fx_on = jfx_bus_ran;                          /* (0.15.0) the cost caps' column (voice.c) */
     jfx_master(out,n,perf);                             /* .. joined; the SLICER, DJ FILTER, CLIP, MASTER, the FX layer */
     AP_END(AP_OUTPUT,output_start);
     if(thr_on)throw_off();                              /* (Orange Cat 0.4.3) */

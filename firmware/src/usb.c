@@ -82,6 +82,7 @@ static uint8_t sx_frame[640];
 static uint32_t sx_pos;
 static volatile uint32_t sx_frame_len;
 static volatile uint8_t sx_ready, sx_collect, sx_busy;
+static uint32_t sx_rx_dropped, sx_rx_long;              /* (Orange Cat 0.15.0) frames dropped: one still pending; too long (editor AUDIO_STATS [flags, 5]) */
 #define SXQ 64u
 static uint32_t sx_out_q[SXQ];
 static volatile uint32_t so_w, so_r;
@@ -571,6 +572,7 @@ static void sysex_byte(uint8_t b)
         usb.sx_len = 0;
 #if MELODEE_OTA
         sx_collect = !sx_ready;
+        sx_rx_dropped += sx_ready;
         sx_pos = 0;
 #endif
     }
@@ -581,7 +583,7 @@ static void sysex_byte(uint8_t b)
         if (sx_pos < sizeof sx_frame)
             sx_frame[sx_pos++] = b;
         else
-            sx_collect = 0;                             /* too long: not ours */
+            sx_collect = 0, sx_rx_long++;               /* too long: not ours */
     }
 #endif
     if (usb.sx_len < sizeof usb.sysex)
