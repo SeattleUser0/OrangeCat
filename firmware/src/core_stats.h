@@ -81,13 +81,14 @@ static void cs_metric(cs_metric_t *m, uint32_t v)
  * ran it: 0 the buses' setup (fx_buses to the delay: the sends' gate, the tones, the reverb's pre-delay), 1 the delay at half rate (dly_lo),
  * 2 the per-sample loop (chorus, delay), 3 the reverb (rev_run) and the gate, 4 jfx_bus_start (CPU0: the sends' scan, jfx_mem), 5 CPU0 at the
  * bus join, 6 the master (CPU0: the returns, SLICER, DJ FILTER, CLIP, the level, the FX layer, the output stage), 7 the events
- * (events_block), 8 the output tail (audio.c: USB capture, the freeze, the click). A half whose wall passes fs_thr (us) is a spike: its
+ * (events_block), 8 the output tail (audio.c: USB capture, the freeze, the click), 9 the tracks (mix_prepare_batch: every voice's control
+ * and the batch, its join included: the voices' render on both cores). A half whose wall passes fs_thr (us) is a spike: its
  * stages summed apart from the others', its index kept (the first 48). AUDIO_STATS [flags, 4] reads them, [flags, 4, lo, hi] sets fs_thr */
 #ifndef OC_FX_SPIKE
 #define OC_FX_SPIKE 0
 #endif
 #if OC_FX_SPIKE
-#define FS_N 9u
+#define FS_N 10u
 static cs_metric_t fs_m[FS_N] __attribute__((section(".pool")));
 static uint32_t fs_half[FS_N], fs_c1[4], fs_thr = 2500u;
 static uint64_t fs_spk[FS_N], fs_nrm[FS_N];

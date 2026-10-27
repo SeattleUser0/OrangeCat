@@ -391,7 +391,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     perf=perf_begin(n);                                 /* (0.6.0) the FX layer at work (jfx_perform.c) */
     uint32_t nt=trk_n();                                /* (the tracks not in use: none of their CPU) */
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
-    mix_prepare_batch(n,nt);
+    FS_T(fs9);mix_prepare_batch(n,nt);FS_ADD(9,fs9);   /* (measure/fx-spike: the tracks) */
 #endif
     mix_stem_n=0;
     for(uint32_t i=0;i<nt;i++){

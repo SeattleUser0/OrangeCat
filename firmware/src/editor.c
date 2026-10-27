@@ -623,7 +623,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if ((na == 2u || na == 4u) && a[1] == 4u) {
             /* (measure/fx-spike) [flags, 4 (, lo, hi)]: schema 11: 11, then 5 x 7 bits each: the threshold (us), spike halves, other halves,
              * then for each of the 9 stages (core_stats.h) its min, mean, p99, max (us a half), its mean in a spike half and in another (us,
-             * x 10); then the first 48 spike halves' indices. lo, hi: a new threshold (us, 7 bits each). Flag 1: started over */
+             * x 10); then the first 48 spike halves' indices. (FS_N stages: 10 from the second pass, the tracks last) lo, hi: a new threshold (us, 7 bits each). Flag 1: started over */
             uint32_t k, b, v[FS_N][6], hdr[3], idx[48];
             if (na == 4u) fs_thr = a[2] | a[3] << 7;
             fm1_irq_off();
