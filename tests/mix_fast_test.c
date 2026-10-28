@@ -40,7 +40,7 @@ static void mix_mono_general(track_t *,int32_t *,uint32_t,const mix_cache_t *) _
 static __attribute__((noinline)) void candidate(track_t *t,int32_t *b,uint32_t n,const mix_cache_t *mc)
 { mix_mono_samples(t,b,n,mc); }
 static int32_t source[CTL];
-static struct { int32_t left[CTL],right[CTL],send_l[CTL],send_r[CTL],capture[CTL*NTRK],peak; } expected;
+static struct { int32_t left[CTL],right[CTL],send_l[CTL],sndr[CTL],capture[CTL*NTRK],peak; } expected;
 static void reset(void)
 {
     mix_dl=mix_l;mix_dr=mix_r;
@@ -62,11 +62,11 @@ static void parity(void)
             mix_send_gains(t);mix_cache_t mc;mix_cache_update(t,&mc);
             reset();t->peak=123;reference(t,source,CTL,&mc);
             memcpy(expected.left,mix_l,sizeof mix_l);memcpy(expected.right,mix_r,sizeof mix_r);
-            memcpy(expected.send_l,send_d,sizeof send_d);memcpy(expected.send_r,send_r,sizeof send_r);
+            memcpy(expected.send_l,send_d,sizeof send_d);memcpy(expected.sndr,send_r,sizeof send_r);
             memcpy(expected.capture,track_capture,sizeof track_capture);expected.peak=t->peak;
             reset();t->peak=123;candidate(t,source,CTL,&mc);
             assert(!memcmp(expected.left,mix_l,sizeof mix_l) && !memcmp(expected.right,mix_r,sizeof mix_r));
-            assert(!memcmp(expected.send_l,send_d,sizeof send_d) && !memcmp(expected.send_r,send_r,sizeof send_r));
+            assert(!memcmp(expected.send_l,send_d,sizeof send_d) && !memcmp(expected.sndr,send_r,sizeof send_r));
             assert(!memcmp(expected.capture,track_capture,sizeof track_capture) && expected.peak==t->peak);
         }
     puts("mono mixer: every level/pan, send extremes, capture on/off, all tracks and input clipping exact");

@@ -186,7 +186,7 @@ static void phrase(track_t *t, uint32_t base)
 }
 
 /* ------------------------------------------------------------- jobs --- */
-enum { J_PRESET, J_MODE, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
+enum { J_PRESET, J_MODE, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER, J_FX };
 typedef struct {
     char name[64];
     uint8_t kind, e, pi, arg, cpu_notes;
@@ -220,6 +220,42 @@ static void job_mode(const job_t *j)            /* arg: the voice mode, ARP off,
 }
 
 
+
+/* (Release 2) the shared effects: the power-on bass phrase through one send at a time, the settings named. Their hashes are new lines: with the buses
+ * deferred (MELODEE_FX_DEFER=1) the returns come a block later (tests/golden_fxdefer.txt has those lines) */
+static const struct { const char *name; uint8_t sends; int16_t rtype, dtime, dfdbk, dping, wide, dtype; } FXJ[] = {
+    {"chorus", 1, 0, 1, 0, 0, 0, 0},
+    {"delay", 2, 0, 1, 55, 0, 0, 0},
+    {"delay_ping_wide", 2, 0, 1, 55, 1, 0, 0},
+    {"delay_wide_digital", 2, 0, 2, 60, 0, 90, 1},
+    {"delay_quarter_rate", 2, 0, 7, 40, 0, 0, 0},
+    {"reverb_room", 4, 0, 1, 0, 0, 0, 0},
+    {"reverb_spring", 4, 1, 1, 0, 0, 0, 0},
+    {"reverb_shimmer", 4, 2, 1, 0, 0, 0, 0},
+    {"reverb_reso", 4, 3, 1, 0, 0, 0, 0},
+    {"reverb_cloud", 4, 4, 1, 0, 0, 0, 0},
+    {"all_three", 7, 0, 1, 40, 0, 0, 0},
+};
+#define N_FXJ ((uint32_t)(sizeof FXJ / sizeof FXJ[0]))
+static void job_fx(const job_t *j)
+{
+    track_t *t = &trk[0];
+    const typeof(FXJ[0]) *f = &FXJ[j->arg];
+    host_tracks_init();
+    host_power_on_sound(t, 0);
+    song.g[G_RTYPE] = f->rtype;
+    song.g[G_DTIME] = f->dtime;
+    song.g[G_DFDBK] = f->dfdbk;
+    song.g[G_DPING] = f->dping;
+    song.g[G_WIDTH] = f->wide;
+    song.g[G_DTYPE] = f->dtype;
+    song.g[G_DMIX] = 100;
+    t->p[P_CHOR] = f->sends & 1u ? 90 : 0;
+    t->p[P_DLY] = f->sends & 2u ? 90 : 0;
+    t->p[P_REV] = f->sends & 4u ? 90 : 0;
+    tail_s = 14;
+    phrase(t, 48);
+}
 
 static void job_drums(const job_t *j)           /* every GM note through 808 DRUM on part 4, a roll */
 {
@@ -380,6 +416,9 @@ static int run_job_body(job_t *j)
         break;
     case J_SONG:
         job_song(j);
+        break;
+    case J_FX:
+        job_fx(j);
         break;
     case J_CPU:
         job_cpu(j);
@@ -1013,6 +1052,12 @@ int main(int argc, char **argv)
             j->arg = (uint8_t)k0;
         }
     add(J_SONG, "song/4track_mix");
+    for (i = 0; i < N_FXJ; i++) {
+        job_t *j;
+        snprintf(name, sizeof name, "fx/%s", FXJ[i].name);
+        j = add(J_FX, name);
+        j->arg = (uint8_t)i;
+    }
     g1 = nj;
     {   /* determinism: the first preset render once more */
         job_t *j = add(J_PRESET, "repeat");
@@ -1077,10 +1122,22 @@ int main(int argc, char **argv)
 
     /* ---- report: goldens and health ---- */
     ng = load_kv(gpath, gold, MAXJ);
+#if MELODEE_FX_DEFER
+    /* (Release 2) the buses deferred: a render whose sound changes by the block shift has its own line in tests/golden_fxdefer.txt (new lines only: golden.txt is
+     * untouched); every other render is held to golden.txt */
+    static kv_t gdef[MAXJ];
+    const char *dpath = getenv("GOLDEN_FXDEFER") ? getenv("GOLDEN_FXDEFER") : "tests/golden_fxdefer.txt";
+    uint32_t ngd = load_kv(dpath, gdef, MAXJ);
+#endif
     for (i = g0; i < g1; i++) {
         job_t *j = &J[i];
         const res_t *r = &j->r;
+#if MELODEE_FX_DEFER
+        const char *want = kv_get(gdef, ngd, j->name);
+        if (!want) want = kv_get(gold, ng, j->name);
+#else
         const char *want = kv_get(gold, ng, j->name);
+#endif
         char hs[24], why[256] = "";
         snprintf(hs, sizeof hs, "%016llx", (unsigned long long)r->hash);
         if (j->crashed) {
@@ -1136,6 +1193,29 @@ int main(int argc, char **argv)
                (unsigned long long)J[g0].r.hash, (unsigned long long)J[g1].r.hash);
         h_fail++;
     }
+#if MELODEE_FX_DEFER
+    if (gupd) {                                     /* (the deferred build's lines: those that differ from golden.txt) */
+        FILE *f = fopen(dpath, "w");
+        uint32_t n = 0;
+        if (!f) {
+            perror(dpath);
+            return 2;
+        }
+        fprintf(f, "# MELODEE golden renders with the buses deferred (MELODEE_FX_DEFER=1, Release 2): the renders whose sound the one-block shift of the effects' returns\n"
+                   "# changes, name and FNV-1a 64; every other render is held to golden.txt. Rewritten by GOLDEN_UPDATE=1 on the deferred build.\n");
+        for (i = g0; i < g1; i++) {
+            const char *old_h = kv_get(gold, ng, J[i].name);
+            char hs[24];
+            snprintf(hs, sizeof hs, "%016llx", (unsigned long long)J[i].r.hash);
+            if (!old_h || strcmp(old_h, hs)) {
+                fprintf(f, "%s %s\n", J[i].name, hs);
+                n++;
+            }
+        }
+        fclose(f);
+        printf("regress: %s rewritten (%u renders differ from golden.txt)\n", dpath, n);
+    } else
+#endif
     if (gupd) {
         FILE *f = fopen(gpath, "w");
         if (!f) {

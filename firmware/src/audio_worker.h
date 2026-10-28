@@ -59,10 +59,19 @@ static struct {
 #endif
 } audio_worker __attribute__((aligned(32)));
 static int audio_worker_online;
+/* (Release 2) A job CPU0 leaves out on purpose (jfx.c's buses, MELODEE_FX_DEFER): whoever needs the worker next joins it first. The function joins
+ * the job, adopts its results and clears this pointer. Many calls a block cost one test. */
+static void (*audio_worker_deferred)(void);
+static inline void audio_worker_drain(void)
+{
+    void (*f)(void) = audio_worker_deferred;
+    if (f) { audio_worker_deferred = 0; f(); }
+}
 
 static int audio_worker_submit(audio_worker_fn fn, void *context)
 {
     uint32_t request;
+    audio_worker_drain();                           /* (Release 2) at most one job out, and not a bus job for the sake of this one */
 #if OC_CORE_STATS
     if (cs_single) return 0;                        /* (0.14.2: single-core forced: CPU0 renders everything) */
     if (audio_worker_online && AW_LOAD(&audio_worker.request) != AW_LOAD(&audio_worker.complete)) { cs_refused++; return 0; }

@@ -303,6 +303,12 @@ module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's 
     step "WHEEL as a module (0.14.0): slot 7 retired and silent, the registration offers it, a stored engine 7 plays it, unregistering retires it again" \
         "$OUT/module_host_wheel_test" tests/golden_modules.txt
 }
+fx_defer() {                                      # (Release 2, stage 2) the buses' returns one block late: the reference without it, then the deferred build against it (tests/fx_defer_test.c)
+    $CC -O1 $FW -DMELODEE_FX_DEFER=0 -o "$OUT/fx_defer_ref" tests/fx_defer_test.c -lm || { fail "compile tests/fx_defer_test.c (reference)"; return 1; }
+    $CC -O1 $FW -DMELODEE_FX_DEFER=1 -o "$OUT/fx_defer_test" tests/fx_defer_test.c -lm || { fail "compile tests/fx_defer_test.c"; return 1; }
+    step "the buses deferred (Release 2): the reference's returns written, one scenario a bus mode" "$OUT/fx_defer_ref" "$OUT"
+    step "the buses deferred (Release 2): the reverbs and the GRAIN delay a pure block shift; the delays' and the chorus's compensated taps land where they did; a reset leaves no returns" "$OUT/fx_defer_test" "$OUT"
+}
 port_batch() {                                    # (Orange Cat 0.14.3) the ports on the batch: the reference without it, then the batch serial and concurrent
     $CC -O2 $FW -DPB_REF -o "$OUT/port_batch_ref" tests/port_batch_test.c -pthread -lm || { fail "compile tests/port_batch_test.c (reference)"; return 1; }
     $CC -O2 $FW -o "$OUT/port_batch_test" tests/port_batch_test.c -pthread -lm || { fail "compile tests/port_batch_test.c"; return 1; }
@@ -359,6 +365,11 @@ phys_ref() {
 # ------------------------------------------------------------------ tests ---
 # the longest first: they set the length of the run
 sound && t "effects (Orange Cat 0.6.0, Jiant FM's): DIST, AUTO PAN, DELAY, REVERB x5, CHORUS, SLICER, the FX layer, FX FULL, FUN23 / TPLM storage and the old records converted; audition WAVs" jfx_test -O1 $FW
+sound && job fx_defer
+sound && t "effects with the buses deferred (Release 2): the effects' tests again with MELODEE_FX_DEFER=1 (the returns one block late)" jfx_defer:jfx_test -O1 $FW -DMELODEE_FX_DEFER=1
+core && t "paired voices with the buses deferred (Release 2): serial/concurrent equality, the worker's joins and a fault" dual_core_defer:dual_core_test -O2 $FW -DMELODEE_FX_DEFER=1 -pthread
+core && t "audio matrix with the buses deferred (Release 2)" audio_matrix_defer:audio_matrix_test -O2 $FW -DMELODEE_FX_DEFER=1 -pthread
+core && t "audio with the buses deferred (Release 2): overload protection" audio_defer:audio_test $FW -DMELODEE_FX_DEFER=1
 core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which buses hold with which engines, the cache RAM and the card's slots" jfx_arena_test -O1 $FW
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
@@ -561,6 +572,8 @@ if sound && [ $TABLES = 1 ]; then
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    t "regression with the buses deferred (Release 2): the same renders, the effects' returns one block late; tests/golden_fxdefer.txt holds the lines that differ" regress_defer:regress -O2 $FW -DMELODEE_FX_DEFER=1 -- \
+        "$OUT/regress_defer" tests/golden.txt tests/cpu_baseline.txt
     job module_host
     job module_host_prophet
     job module_host_wheel
