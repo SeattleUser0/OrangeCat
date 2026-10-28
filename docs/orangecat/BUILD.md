@@ -280,16 +280,25 @@ p99 with the effects on is 3,040 us at cap 2 against 2,528 off: the same 500 us.
   row) plus the block's start up to the first submit (64 us a block: 256 us a half, measured on the window-counter image, Flash 59, `~/fm1-hw/r2/win_on.json`).
 - block 3 of a half cannot hide behind the next block (the bus must be joined before the interrupt returns: the main loop may write the flash while CPU1
   runs code from it, audio_worker.h): only the master tail overlaps, so about 109 - 53 = 56 us of the wait stays.
-**The window and the model.** The wait is hidden when CPU0 has other work to do between starting the bus and needing CPU1. Per block:
-- blocks 0 to 2: the master tail 54 us (the tail row over four) + the start of the next block up to its first submit 64 us (256 us a half, mean of three
-  rows at cap 2, effects on; the same 252 with the effects off) = **118 us against the bus's 109**: hidden, with a margin of 9 us (a bus slower than the
-  window shows the rest as wait; the readout's maximum is 750 us a half, so single halves will show some);
-- block 3: the tail alone, 54 against 109: **55 us stay**.
-- Per half: the 437 us of wait become about 55 (+ the jitter above), **about 380 us (87 % of the wait, 78 % of the 486 us the effects cost) leave the critical
-  path.** The effects cost on the half then is about 100 us, not 486. If the bus's code and tables lived in RAM, block 3 could hide behind the next half's
-  block 0 as well (question 3): another 55 us, 435 of the 437.
-- Predicted at cap 2, effects on: mean wall 2,450 to about 2,070, p99 3,040 to about 2,660 (the cap holds: the deadline is 2,902); cap 3: p99 3,296 to
-  about 2,920 (at the deadline: it holds only with block 3 hidden too, 2,860, and not reliably); cap 1: 2,240 to about 1,860 (it held already).
+**The window and the model.** The wait is hidden when CPU0 has other work to do between starting the bus and needing CPU1. Per block the capacity is the master
+tail (the tail row over four: 54 us) plus the block's start up to its first submit (the measured 256 us a half, 64 a block, the mean of three rows at cap 2, effects on; 252
+with the effects off). That is an **upper bound of 118 us, against the bus's 109**: the tail row includes `perf_pre` and `bus_start`'s own scan and `jfx_mem`, which run before the
+bus starts and hide nothing, and the 64 averages block 0's start, which follows the previous half's end and may be shorter than the starts of blocks 1 to 3 (the review's points).
+Blocks 0 to 2 leave `max(0, 109 - window)` each; block 3 (joined before the interrupt returns) leaves `109 - tail`, 55 us. Per half, by the capacity that is really there:
+
+| capacity of blocks 0 to 2 | wait left a half | taken off the 437 | effects cost then (486 now) |
+|---|---|---|---|
+| 118 us (the upper bound) | 55 | 382 | about 100 |
+| 100 us | 82 | 355 | about 130 |
+| 80 us | 142 | 295 | about 190 |
+| 54 us (the tail alone: the block's start hides nothing) | 220 | 217 | about 270 |
+
+**Between 217 and 382 us a half leave the critical path, 50 to 87 % of the wait.** The unit's block-by-block spikes do not hide in a mean: the bus's own
+(`DLY_CLR` clears 32 KB of the line in a block, `fx_rest` clears lines, jfx.c) exceed any 118 us window and stay as wait. The measurement after the code is the number; this is
+the range it should fall in.
+- **At cap 2, effects on:** p99 3,040 us now; 3,040 - 217 = 2,823 to 3,040 - 382 = 2,658. Both are under the 2,902 deadline (a percentile less a mean saving is an estimate, and the
+  low end is 79 us from the deadline): **cap 2 is the prediction.** Cap 3: 3,296 - 382 = 2,914 at best, over the deadline in every row of the table: not expected to hold, with block 3 hidden too
+  (question 3, 55 us more) 2,859 at best: marginal. Cap 1 held already (p99 2,240, mean wall 1,752: `bd_on.json`), so it gains headroom only.
 - The CPU1 side: the bus runs in CPU1's idle time (idle1 is 565 us a half at cap 2): the voices are not delayed because the drain precedes the first submit
   and the bus has been done for 9 us or more by then; a bus job longer than the window (a heavier reverb: CLOUD is 500 us a half, 125 a block; the
   window 118) delays the batch's first submit by the difference, so CLOUD keeps about 7 us a block of wait, and the model's saving holds for it.
@@ -305,8 +314,8 @@ p99 with the effects on is 3,040 us at cap 2 against 2,528 off: the same 500 us.
    differs by 0.73 ms between modes. **Recommended: every mode, with the host build keeping a switch (MELODEE_FX_DEFER) so the existing goldens are
    rendered with it off and new golden lines are added for it on.** Neither changes a stored format.
 2. **Compensate DELAY and CHORUS for the 0.73 ms, or not?** With compensation (an output tap 32 samples earlier, the feedback tap where it was; the
-   chorus taps 32 samples earlier) both land where they do today; it costs one more line read per echo (about 8 % of the delay's cost, to be
-   measured), and changes the delay and chorus code that has golden renders. Without it: every echo 0.73 ms later (0.3 % of an eighth at 120 BPM), the
+   chorus taps 32 samples earlier) both land where they do today; it costs one more line read per echo (about 8 % of the plain delay's cost, GRAIN and PING-PONG
+   with a fade more: to be measured per mode), and changes the delay and chorus code that has golden renders. Without it: every echo 0.73 ms later (0.3 % of an eighth at 120 BPM), the
    chorus's comb notches move (a small colour change, the one audible effect). **Recommended: compensate CHORUS, and DELAY's output tap; leave REVERB
    (a 0.73 ms later onset, not heard).** The host null test decides whether they land to the sample.
 3. **Block 3 of each half keeps most of its wait.** The bus must be joined before the interrupt returns (the main loop may write the flash while CPU1 runs
@@ -322,7 +331,7 @@ stage 2 findings stand:
 
 | # | finding (blocker unless noted) | resolution in v2 |
 |---|---|---|
-| 1 | **CPU0 changes bus state while CPU1 still runs block b's buses.** Between block b and the join of its bus, block b + 1 runs `jfx_reset_now` and `jfx_lend_check` (which free bus memory, release resources, clear reverb state), the events (they change `song.g` and the tempo, which `fx_buses` reads), and block 3's trip check calls `fx_bus_clear` while the next bus runs; `jfx_bus_ran` and `jfx_bus_n` are single copies. Double-buffering the six send and return buffers covers none of this. | **Ownership.** While a bus job is out, the bus owns its memory (the lines, `fx.*`, the reverb states, the three sets of buffers it reads and writes) and CPU0 does not touch them: `jfx_reset_now`, `jfx_lend_check`, `jfx_mem`, `fx_bus_clear` and the trip check run only after the join (each calls the drain first; the checks are a flag test when nothing is pending). **The parameters are a copy:** `jfx_bus_start` copies the globals the bus reads (17 `song.g` entries, below) and the tempo into a struct, and the bus code reads the copy; the events of the next block may change the originals. Each buffer set has its own ran / n flags. The trip check runs at the join, on the returns, before anything else uses them. |
+| 1 | **CPU0 changes bus state while CPU1 still runs block b's buses.** Between block b and the join of its bus, block b + 1 runs `jfx_reset_now` and `jfx_lend_check` (which free bus memory, release resources, clear reverb state), the events (they change `song.g` and the tempo, which `fx_buses` reads), and block 3's trip check calls `fx_bus_clear` while the next bus runs; `jfx_bus_ran` and `jfx_bus_n` are single copies. Double-buffering the six send and return buffers covers none of this. | **Ownership.** While a bus job is out, the bus owns its memory (the lines, `fx.*`, the reverb states, the three sets of buffers it reads and writes) and CPU0 does not touch them: `jfx_reset_now`, `jfx_lend_check`, `jfx_mem`, `fx_bus_clear` and the trip check run only after the join (each calls the drain first; the checks are a flag test when nothing is pending). **The parameters are a copy:** `jfx_bus_start` copies what the bus reads (21 `song.g` entries, below; the tempo; and RESO's inputs: the scale mask, the root, and the lowest held note of the followed track, which `rev_reso` reads from the live tracks today: jfx.c `jfx_scale_track`, `trk[fol-1].v[k]`) into a struct, computed on CPU0 at that moment, and the bus code reads the copy; the events and `mod_begin` of the next block may change the originals. Each buffer set has its own ran / n flags. The trip check runs at the join, on the returns, before anything else uses them. |
 | 2 | **One outstanding job, and who else submits.** The mailbox takes one job; the FM6, Prophet and module batches, the editor's test and the batch itself call `audio_worker_submit` (a refused submit means CPU0 renders that block alone, silently slower). The review asked how DUB (an insert, which needs its own track's block) shares the mailbox in the blocks that render as today. | **Drain before every submit.** `audio_worker_submit` first calls `audio_worker_drain()`, which joins a deferred bus job if one is pending (the bus registers itself as the worker's deferred job) and makes its returns current. Every submitter, the batch and the module paths included, is then unchanged and never refused for the bus's sake; at most one job is ever out. DUB is not in this release: its job rides in the batch as before (see "The DUB regression" under Release 2: a first descriptor's cost must not become CPU0's reserve), and stage 2 neither needs nor changes it. |
 | 3 | **What the user hears was partly wrong** (item 11): DELAY read 32 samples shorter moves every repeat after the first early (it needs an output tap at D - 32 and a feedback tap at D); the reverb's pre-delay is G_RPRE > 0 for types 0 and 1 only, so "below every reverb's own pre-delay" is false; THROW's sound comes back through the buses and is late too (it is not "unchanged"); the gain covers three of the four blocks of a half, not four. | Corrected in "What the user hears" below: DELAY's two taps, the pre-delay at 0, THROW listed, the gain computed per block (block 3 separately). |
 | 4 | **Numbers from single-core rows against a dual-core baseline** (item 7, for stage 1's gain; the same trap here). | The gain model below uses only dual-core rows, the means of the cores' readout, and the window measured on the unit (Flash 59), and says where it is an estimate. |
@@ -342,21 +351,24 @@ block b + 1: events(b+1) | first submit: DRAIN (join bus(b); R: r <- w; trip che
 block 3:     ... master(3) | END OF THE HALF: DRAIN (the worker is free before the interrupt returns; the main loop may write the flash)
 ```
 
-**The buffers** (all in .bss, not the arena): the sends `send_c`, `send_d`, `send_r` (3 x 32 x 4 = 384 B) and the returns `fx_wet`, `fx_sl`,
+**The buffers** (the second sets in `.pool`, not `.bss`): the sends `send_c`, `send_d`, `send_r` (3 x 32 x 4 = 384 B) and the returns `fx_wet`, `fx_sl`,
 `fx_sr` (384 B) twice: 768 B more. Sends: `S[c]` is the set the tracks of block b mix into (`mix_part`, `perf_pre`, THROW, a frozen take: they keep
 their names through macros that name `S[c]`); `bus_start` hands `S[c]` to the bus and flips `c`, so block b + 1's `memset` of the sends clears the other
-set. Returns: `R[w]` is written by the bus in flight, `R[r]` is the last joined set and what the master reads; the drain makes `r = w` and `w ^= 1`.
-The parameter copy is about 50 B (17 int16 and the tempo words). The arena keeps its slack: `_resource_end - _resource_start` is 76,320 B against a
-minimum of 49,152 B (the 0xC000 assert, app.ld) on this build, so about 1.1 KB is 4 % of 27 KB.
+set. Returns: `R[w]` is written by the bus in flight, `R[r]` is the last joined set and what the master reads; the drain makes `r = w` and `w ^= 1` **once per bus result**: a `fresh` flag set by `bus_start` and cleared by the drain, because the drain runs many times a block (every submit calls it) and an extra flip would point the master at the set CPU1 is writing.
+The parameter copy is about 100 B. **Where the memory comes from:** `.bss` shares the top RAM bank with the allocator's `_resource_data` bank, which the effects' 4 KB
+blocks (JFX_SEG) take first and which is about 4.4 KB after .data and .bss (96 KB less 93.9 KB, Stage 1's sizes); 820 B more in .bss would put it under one block. So the
+new sets and the copy go in `.pool` (as the other big buffers do; CPU1 reads `.pool` already), where the arena has slack: `_resource_end - _resource_start` is 76,320 B against
+a minimum of 49,152 B (the 0xC000 assert, app.ld) on this build: about 1.1 KB is 4 % of 27 KB. The build's size report is read before and after (step 2).
 
 **The shared state, first pass (to be finished and checked in step 1):**
 
 | what | who writes | who reads | in v2 |
 |---|---|---|---|
 | `send_c/d/r` | the tracks, THROW, frozen takes, `perf_pre` (CPU0) | the bus (CPU1) | two sets; the bus owns `S[c^1]` while out |
-| `fx_wet`, `fx_sl`, `fx_sr` | the bus (CPU1) | the master, the trip check, the capture (CPU0) | two sets; CPU0 reads `R[r]` only |
-| `song.g[G_DFDBK, G_DCOLOR, G_DMIX, G_DTIME, G_DTYPE, G_DPING, G_DPIT, G_DSPRY, G_CDEPTH, G_CRATE, G_CSTER, G_WIDTH, G_RTYPE, G_RSIZE, G_RDAMP, G_RPRE, G_RFILT, G_RMOD, G_RWIDE]` | events, the editor (main loop), motion | `fx_buses` and what it calls | read from the copy taken at `bus_start`; the main loop cannot run while a job is out (drained at the half's end) |
+| `fx_wet`, `fx_sl`, `fx_sr` | the bus (CPU1) | the master, the trip check (CPU0) | two sets; CPU0 reads `R[r]` only |
+| `song.g[G_DFDBK, G_DCOLOR, G_DMIX, G_DTIME, G_DTYPE, G_DPING, G_DPIT, G_DSPRY, G_DMOD, G_CDEPTH, G_CRATE, G_CSTER, G_WIDTH, G_RTYPE, G_RSIZE, G_RDAMP, G_RPRE, G_RFILT, G_RMOD, G_RRATE, G_RWIDE]` (21; the review found G_DMOD and G_RRATE missing from a first list of 19: step 1 builds the list by grep from every function `fx_buses` reaches) | events, the editor (main loop), motion | `fx_buses` and what it calls | read from the copy taken at `bus_start`; the main loop cannot run while a job is out (drained at the half's end) |
 | the tempo (`beat_samples`, `div_samples`) | the transport (events) | `delay_samples`, `dly_rate`, the right echo | the copy |
+| **RESO's inputs**: `jfx_scale_track()` (the first melodic track: `drum_track` -> `ENGINES[eng_req]`, `scale_mask` -> `micro_scale` / `P_SCALE`, `p[P_ROOT]`) and, with FOLW, `trk[fol-1].v[k].active / gate / note` | events, `mod_begin`, the sequencer (CPU0) | `rev_reso` (CPU1) | the copy: mask, root and the followed track's lowest held note, computed at `bus_start` (**a blocker of the first draft**: the bus read live track and voice state) |
 | the bus memory (`dly_buf`, `jrev`, `cho_buf`, `rpre_buf`, `sl_buf` and their `have` counts) | `jfx_mem`, `jfx_lend_check`, `jfx_free_buses`, `resource_*` (CPU0) | the bus | only while no bus job is out (after the drain) |
 | `fx.*` (the bus states), `dlo`, `fxg_*`, `fx_rest_ph` | the bus | `fx_bus_clear`, `jfx_reset_now`, trip, join failure (CPU0) | only after the drain |
 | `jfx_bus_ran`, `jfx_bus_n`, `jfx_bus_pending`, `voice_fx_on` | `bus_start` | the master, the cost caps | per set; `voice_fx_on` is read at the next half's end, unchanged |
@@ -366,8 +378,13 @@ minimum of 49,152 B (the 0xC000 assert, app.ld) on this build, so about 1.1 KB i
 **The join moves.** Today: `jfx_master` joins the bus of the same block, so CPU0 waits for it after the tracks and before the master chain. In v2:
 (1) `jfx_bus_start` no longer waits for anything but the previous bus (drained: the second job of a block would find the mailbox busy otherwise);
 (2) `jfx_master` of block b reads `R[r]`, the returns of block b - 1: it has nothing to wait for; (3) the join happens in the drain, at the first
-submit of block b + 1, or at `bus_start(b + 1)`, or the end of the half. In block 3 the drain is the end of the half: after the master, before the
-audio interrupt returns (a CPU0-side wait of what is left of 109 us after the master tail).
+submit of block b + 1, or at `bus_start(b + 1)`, or the end of the half. In block 3 the drain is the end of the half: after the master, **before the half's time is taken** (audio.c: before `cs_half_end`, `shed_check` and `voice_cost_half`, so
+the overload shed and the cost caps see the wait) and before `in_audio` is cleared (TIMER5 then runs `usb_poll`); a CPU0-side wait of what is left of 109 us after the master tail.
+In the cores' readout the drain's wait appears as `wait`, not `tail_wait` (core_stats.h counts a join after `cs_tracks_done` as the tail's).
+
+**Reset, project load, lend.** Each drains first, then zeroes both return sets (`R[r]` too: otherwise block b + 1's master plays the returns from before the reset) and runs the clear
+or the memory change; a lend drops only the bus memory it frees. The trip check moves with the join: it runs at the drain, on the returns just joined, and its `fx_bus_clear()` (about
+100 KB of memset) runs inside whichever submit drained, possibly in the middle of an engine's render: rare (a fault, never music), and the time is added to that block.
 
 **When CPU1 retires mid-block.** `audio_worker_join` (called by the drain) times out at 10 ms or sees a fault: the worker is retired and CPU0 runs
 alone from then on (audio_worker.h). The drain then drops the bus job's block exactly as `jfx_bus_join` does today: the returns it was writing (`R[w]`)
@@ -385,14 +402,18 @@ next block's first submit, or `bus_start`) still performs `r = w`. The master of
   solo and level of the dry; the DJ FILTER, CLIP and MASTER (after the mix).
 - **REVERB (ROOM, SPRING, SHIMMER, RESO, CLOUD):** the onset is 0.73 ms later; with PRE at 0 (types 0 and 1 apply it only above 0) there is no pre-delay to
   absorb it, and the first reflections of every type are already milliseconds behind the dry. Not audible as an echo or a change of colour (a delay under
-  about 1 ms between a signal and its reverb is fused). With PRE above 0 (types 0 and 1) the read can be 32 samples shorter where PRE allows (it does when
-  PRE >= 1 ms).
+  about 1 ms between a signal and its reverb is fused).
+  **No compensation, PRE included** (shortening PRE by 32 samples would make PRE 0 -> 1 a step, 0.73 ms late then 0.18 ms; the reverb is left a pure 32-sample shift of the wet).
 - **DELAY:** every echo 0.73 ms late without compensation; with it, an output tap at D - 32 (in the line's samples: 32 >> its rate) and the feedback tap
-  left at D, so the first echo and every later one land where they do now. ECHO times under 32 + 16 samples (the minimum delay is 16 samples) cannot be
-  compensated and are clamped. The ping-pong's right tap (2D) and the right echo (D + the stereo offset) are shifted the same way.
-- **CHORUS:** the one that could be heard without compensation: its three taps (about 7, 9.5 and 12 ms, swept by the LFO) are mixed with the dry, and
-  0.73 ms later moves its comb notches. The taps are read 32 samples shorter; the LFO phase is unchanged. Its shortest tap (7 ms less the sweep) is far over 32 samples.
-- **THROW** (the dry mix into the delay and reverb sends) comes back through the buses and is one block late, compensated the same way.
+  left at D, so the first echo and every later one land where they do now. The ping-pong's right tap (2D) and the right echo (D + the stereo offset) are shifted the same way.
+  **How far it reaches** (question 2): the sample-exact claim holds for a plain full-rate delay with MOD 0, no GRAIN and no TIME crossfade. The wow's drift is per sample,
+  GRAIN's phase and spray are per sample (jfx.c dly_grain), the TIME crossfade (`dl_xf`) and the half- and quarter-rate path (`dly_lo`) are their own reads: each of these needs
+  its own extra reads, GRAIN and PING-PONG with a fade several, so the cost is not 8 % there. The host null test has a criterion for each mode (exact where the path is a pure
+  tap; below -90 dBFS where a modulated read is interpolated), and GRAIN is costed separately.
+- **CHORUS:** the one that could be heard without compensation: its three taps (300, 420 and 540 samples of the half-rate line, 6.8, 9.5 and 12.2 ms, swept by the LFO by 0 to 762 more)
+  are mixed with the dry, and 0.73 ms later moves its comb notches. The taps are read 32 samples shorter (the sweep only adds); the LFO phase is unchanged.
+- **Whatever goes to the buses**, by whatever route (a track's send, the FX layer's THROW `perf_pre` that puts the dry mix into the delay and reverb sends, `oc_throw.c`'s send-level
+  offsets), comes back one block late, and the compensation is in the buses, so it applies to all of it alike.
 - **The SLICER with FX ON** (the returns through the SLICER): the returns are gated 0.73 ms later than the dry. Not compensated (not audible).
 - **A bounce or recording** of the master: the wet is 0.73 ms behind the dry in the file, as live.
 - **After a reset, a project load, a memory lend:** one block of silent returns as the buses restart; today the buses restart the same block.
@@ -407,6 +428,10 @@ next block's first submit, or `bus_start`) still performs `r = w`. The master of
   later than B, and sits ahead of the voices on CPU1 (CPU1's first voice waits for it, the join waits for both): its 109 us enter the critical path
   of the voice join unless the split moves voices to CPU0. With the rule above fixed it balances (the DUB test); it has no advantage over B on the tail
   and costs the split's cost table a bus entry. Not chosen.
+
+**Decisions the design makes that are not questions** (the review listed them): the trip check moves to the drain; the returns are zeroed on a reset; the worker's behaviour changes for
+modules too (they submit through `fw_worker_submit` -> `audio_worker_submit`, which now drains first: invisible to a module, no interface change); REVERB gets no compensation; the
+deferral applies the same way to the editor's CPU1 test and to `cs_stack_paint`, which are safe only because nothing is out when the main loop runs (kept true by the end-of-half drain).
 
 **What the reference renders do.** With the shift on, every effects-on render in tests/golden changes by 32 samples of wet, and the compensated
 DELAY and CHORUS are to be shown equal to today's by a null test (a host test rendering both orders and requiring the difference under the quantization of
