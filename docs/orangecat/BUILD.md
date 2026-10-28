@@ -1,8 +1,10 @@
 # Orange Cat Build Document
 
-**Version:** 0.80  
-**Date:** October 27, 2026  
-**Tracks:** Orange Cat Specification v0.30
+**Version:** 0.82  
+**Date:** October 28, 2026  
+**Tracks:** Orange Cat Specification v0.31
+
+**Where this document lives (standing rule, October 28, 2026).** The master copy is the repository on the Linux PC (~/OrangeCat, docs/orangecat/BUILD.md, SPEC.md, CHANGES.md), committed to GitHub. The claude.ai project copies (claude/Build.md, claude/Orange Cat Specification.md, claude/Orange Cat CHANGES.md) and the Mac folder "/Volumes/Samsung 990/My Apps/FM-1 Orange Cat" are refreshed from linux-hw at the end of every Session A run. Edit the repository, never a copy.
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
@@ -25,8 +27,10 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | 10 | Other engines and effects | In progress: Jiant FM's effects (0.6.0) and DRUM-X (0.9.0) with its kits (0.14.2) on the Nightly and played on the unit; the Prophet as a module; op1r's synths and other candidates measured behind OC_CANDIDATES (not shipped) |
 | 11 | Later extensions | Not started |
 | App | The web app (web/app, 0.14.2): one page for modules, sounds, steps, arrangement, projects and backups | In Release 1 (merged into linux-hw, af9f91a); tested against the mock (web/app/test) and, for HARDWARE_TEST.md's protocol parts, on the unit (tools/hw/app_protocol.mjs; see Release 1) |
-| Cores | The second core (CPU1) renders voices | Stage 1 in Release 1: the ports on CPU1's batch with the measured cost table; the cost caps (0.15.0). Stage 2 (the buses beside the next block): design v2 on release-2, no code (see "Release 2"). History: "What the two cores do" and on |
-| Release 1 | 0.15.0 from linux-hw | Built in CI, checked on the unit (protocol 6 / 6, the four-track step, 30 minutes on the internal clock) and published as the Nightly; main's fast-forward and the v0.15.0 tag wait for the user's word. See "Release 1" below |
+| Cores | The second core (CPU1) renders voices | Stage 1 in Release 1: the ports on CPU1's batch with the measured cost table; the cost caps (0.15.0). Stage 2 (the buses beside the next block): built and measured on release-2 (Release 2, not published); caps MALLET 3 / 2, the Prophet 6 / 4; the batch split rule fixed; the two-hour run clean. See "Release 2". History: "What the two cores do" and on |
+| Release 1 | 0.15.0 from linux-hw | Done: shipped. main is 532c849, tag v0.15.0, the Standard channel. See "Release 1" below |
+| Release 2 | 0.16.0 on release-2 (fe92194) | In progress: stage 1, stage 2, the caps and the split rule done; next, DUB TAPE as a per-track insert (Session A). See "Release 2" below |
+| UI | The new interface: HOME's picture and four knobs, EDIT's sheets, the SHIFT map, FEEL (docs/orangecat/UI_DESIGN.md) | Design done (0.79a to 0.79c, branch ui-design, not merged): the owner picks HOME A or B; build not started (UI_DESIGN.md Part 3, step 1 first) |
 
 ## Release 1 (0.15.0, branch linux-hw, October 27, 2026)
 
@@ -631,9 +635,20 @@ Not used:
 
 ## Revision history
 
+- **0.82 (October 28, 2026; docs only, no firmware change):** the histories merged. This file is release-2's (fe92194), which holds everything of linux-hw's 0.80 plus Release 2; ui-design's three entries (its 0.79, 0.80 and 0.81, which reused numbers linux-hw also used) folded in as 0.79a, 0.79b and 0.79c, with their section "The new interface (design)" under History; the UI row in the status table from ui-design; the Release 1 and Cores rows brought current (main 532c849, tag v0.15.0, Standard channel; stage 2 built on release-2). SPEC 0.31 adds dub-tape's 9.3.2. The standing rule on where this document lives, at the top.
 - **0.80 (October 27, 2026, branch linux-hw):** Release 1 (0.15.0): the cost caps set from the four-track runs on the unit (MODAL
   1, the Prophet 6 / 3, FM6 left), the Prophet's cost entry 1,956 and its rows, the editor's reply counters, the branches deleted; the
   status table brought current; the run-by-run sections moved under "History" at the end. See "Release 1".
+- **0.79c (October 26, 2026, branch ui-design; no firmware change; was ui-design's 0.81):** UI_DESIGN.md 0.3: a picture page for every effect (the track's
+  sends, DIST, AUTO PAN, DELAY, REVERB, CHORUS, SLICER, MASTER; docs/orangecat/ui/effects.png); every picture at 10 frames a second (the
+  owner's call), the budget measured again; American spelling in the new interface's files.
+- **0.79b (October 26, 2026, branch ui-design; no firmware change; was ui-design's 0.80):** UI_DESIGN.md 0.2: every engine's picture drawn and DUB TAPE's
+  performance view (SPEC.md 9.3.2 on dub-tape); pictures live in their modules (or the asset pack), read in place, never in the image or
+  the arena (the owner's rule); the free parameter ids split between the knob macros and DUB TAPE. See "The new interface (design)".
+- **0.79a (October 26, 2026, branch ui-design from linux-hw a8df964; not on main, no firmware change; was ui-design's 0.79):** the new interface designed (Session C):
+  docs/orangecat/UI_DESIGN.md (the page model, the four knobs of every engine with an audit on every preset, the pictures and their budget, the
+  scene format, notes and ties, drums, the web editor, the build plan), the screens in docs/orangecat/ui/, tests/ui_mockup.c, tests/ui_scene.h,
+  tests/knob_audit.py. See "The new interface (design)" at the end.
 - **0.79 (October 26, 2026, branch drum-kits from linux-hw a8df964; not on main, not released, not on the unit):** DRUM-X drum kits after Skiff 2.0
   (Session E): each lane's TUNE, DECAY, PAN and Jiant's lane sounds (LAYER, PUNCH, ATK+, BEND), the kit's TONE, FDBK, HANDS and DUCK; the kit saved
   whole as a user preset of engine 9 (the record's extension, versioned; presets of before load as they played); the LANES pages; commands 128 and 129
@@ -4295,3 +4310,23 @@ looks the same as a reply the unit never sent.
 - **Next step (not done):** a usbmon capture (root) or a reply counter in the unit's stats (requests seen, replies queued, replies
   sent) would separate the three.
 - Meanwhile the hardware tools retry each request three times (core_runs.py), and every loss in the runs since has been recovered.
+
+### The new interface (design) (0.79a, branch ui-design, October 26, 2026)
+
+From linux-hw a8df964. A design, not firmware: nothing in firmware/src changed, CI not needed. The owner picks from the screens; the build
+follows in later sessions. The document: docs/orangecat/UI_DESIGN.md.
+
+| What | Status |
+|---|---|
+| The page model: HOME the track's sound (picture, four knobs), EDIT's sheets, the controls table, the SHIFT map, notices, every page today and where it lands | **Done** (UI_DESIGN.md section 1) |
+| The four knobs of every engine, macros as data (put on and taken off a block, as the throws) or in the engine for native panels, P_MAC0..3 on the free ids P_RESERVED33..36 | **Done** (section 2) |
+| The four-knob audit (tests/knob_audit.py, tests/knob_audit_dump.c, over tests/hostsim.c): MACRO, SHAPES, DRUM-X, WHEEL, every preset, no weak knob; the modules not audited | **Done** (docs/orangecat/ui/knob_audit.md) |
+| The scene format and its interpreter (tests/ui_scene.h), four pictures (tests/ui_scenes.h): 171 to 244 B each, the interpreter about 3.3 KB (Thumb-2 -Os as a stand-in) | **Done** (section 3) |
+| The mockup renderer (tests/ui_mockup.c, tests/ui_mockup.py) on gfx.c: 28 screens and 3 sheets in docs/orangecat/ui/, lint 0 findings; pixels sent a frame measured through the screen diff | **Done** (Part 2) |
+| Per-note ties: not adopted (about 1.7 KB of RAM and a pool format change); per-note lengths through the recorded-note pool | **Recommended** (section 4) |
+| (0.79b) The other eight engines' pictures and DUB TAPE's performance view (docs/orangecat/ui/engines.png, dub_tape.png), lint 0 | **Done** |
+| (0.79c) The effects' picture pages, every picture at 10 frames a second, the budget at that rate (all inside 15 ms of SPI a frame on average) | **Done** (design) |
+| (0.79b) Pictures in their modules, read in place; built-in engines' and DUB TAPE's in the asset pack until they are modules | **Proposed** (the owner's rule; the pack is the open part) |
+| (0.79b) The free ids: DUB TAPE's recorded seven on P_JRES0..6, its setup in the project's effect tail, the macros on P_RESERVED33..36 | **Proposed** (to agree with DUB_TAPE_PLAN.md 7.2) |
+| The owner's picks: HOME A or B; the knob table | **Open** |
+| The build: Part 3's nine steps, step 1 (HOME's picture behind a switch) first | **Not started** |
