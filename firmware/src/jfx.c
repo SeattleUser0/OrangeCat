@@ -75,11 +75,28 @@ typedef struct {
 _Static_assert(RPRE_LEN == JFX_SEG && SH_LEN == JFX_SEG && (RX_NSEG & (RX_NSEG - 1u)) == 0u,
                "the model line: the pre-delay and SHIMMER in its first block");
 #define SL_FR 8192u                                     /* the SLICER's recording: stereo frames (32 KB) */
-enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_N = JB_RX0 + RX_NSEG };
+/* (Release 2) DUB TAPE's lines, in the same 4 KB blocks (design 3, BUILD.md): a state handle and a spring handle for each of the four tracks, and a pool of
+ * blocks the four share, an instance's line being the blocks it holds (any number from 1 to 16, in a ring of that many; nothing says they are side by side),
+ * so a line can sit in the main bank, the cache bank and the card's lent slots as the delay's does. */
+#define DUB_N 4u                                        /* instances: one a track */
+#define DUB_NSEG 32u                                    /* the pool: 128 KB of blocks, shared */
+#define DUB_MAXSEG 16u                                  /* one line: 64 KB */
+#define DUB_STATE_BYTES 2864u                           /* dd_t (2,856 B), rounded; the kernel asserts it when it lands */
+#define DUB_SPRING_BYTES 5632u                          /* the spring's rings (DD_SP_BUF int16) */
+enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_DUBS0 = JB_RX0 + RX_NSEG, JB_DUBP0 = JB_DUBS0 + DUB_N,
+       JB_DUBG0 = JB_DUBP0 + DUB_N, JB_N = JB_DUBG0 + DUB_NSEG };
 _Static_assert(JB_N == RES_JFX_N, "resources.c: an arena handle a block");
 /* the arena's blocks now (0: not held); CPU0 sets them before a job, the job reads them */
 static int16_t *dly_seg[DLY_NSEG], *rx_seg[RX_NSEG], *cho_buf;
 static uint8_t dly_have, rx_have;                       /* (0.6.0 rev 2) the blocks held, from the first */
+static uint8_t dub_want[DUB_N], dub_spring[DUB_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
+                                                         * them before jfx_mem, from the tracks */
+static uint8_t dub_have[DUB_N], dub_held[DUB_N], dub_idle[DUB_N], dub_fresh[DUB_N], dub_ready[DUB_N];   /* blocks held; the want they were taken for; blocks idle;
+                                                         * a line to set up; the memory complete */
+static uint8_t dub_nomem;                               /* the arena was short for an instance this block (jfx_wait follows) */
+static uint8_t dub_pool[DUB_N][DUB_MAXSEG], dub_owner[DUB_NSEG];   /* the pool block of each line block; the pool's owner (instance + 1, 0 free) */
+static int16_t *dub_line[DUB_N][DUB_MAXSEG], *dub_spbuf[DUB_N];
+static void *dub_state[DUB_N];
 #define jrev_x rx_seg[0]                                /* the model line's first block (the pre-delay, SHIMMER) */
 static uint32_t jfx_grow, jfx_wait;                     /* (0.6.0 rev 2) new blocks taken this block; blocks to wait
                                                          * before more (jfx_mem) */
@@ -92,6 +109,7 @@ static volatile uint8_t jfx_full;                       /* a bit a bus (1 chorus
 #define JFX_FULL_DLY 2u
 #define JFX_FULL_REV 4u
 #define JFX_FULL_SL 8u
+#define JFX_FULL_DUB0 0x10u                             /* (Release 2) 0x10 .. 0x80: DUB TAPE on track 1 .. 4 wanted memory and had none (DUB FULL) */
 
 /* (Melodee's fx.c, kept: mix.c and card_freeze.c scale with them) a * k / 65536 (k Q16) without 64 bits; x / 2^shift
  * as C's division rounds */
@@ -1902,8 +1920,27 @@ static void jfx_free_rx(uint32_t from)                  /* the model line's bloc
     }
     if (rx_have > from) rx_have = (uint8_t)from;
 }
+/* (Release 2) one DUB instance's memory back: its state, its spring and every block of its line (the pool slots free again) */
+static void jfx_free_dub(uint32_t i)
+{
+    for (uint32_t j = 0; j < dub_have[i]; j++) {
+        resource_release(RES_JFX0 + JB_DUBG0 + dub_pool[i][j]);
+        dub_owner[dub_pool[i][j]] = 0;
+        dub_line[i][j] = 0;
+    }
+    resource_release(RES_JFX0 + JB_DUBS0 + i);
+    resource_release(RES_JFX0 + JB_DUBP0 + i);
+    dub_have[i] = dub_held[i] = dub_idle[i] = dub_fresh[i] = dub_ready[i] = 0;
+    dub_state[i] = 0;
+    dub_spbuf[i] = 0;
+}
+static void jfx_free_dubs(void)
+{
+    for (uint32_t i = 0; i < DUB_N; i++) jfx_free_dub(i);
+}
 static void jfx_free_buses(void)
 {
+    jfx_free_dubs();
     jfx_free_dly();
     jfx_free_rx(0);
     resource_release(RES_JFX0 + JB_REV);
@@ -1944,6 +1981,55 @@ static void jfx_sl_lost(void)
     slicer_drop();
     perf_buf_lost();
     if (!jfx_wait) jfx_wait = 1;
+}
+/* (Release 2) DUB's instances, each block after the buses: an instance holds its state, its spring when it wants one, and `dub_want` blocks of its line, or
+ * nothing (all or none: one that cannot finish gives back what it holds, so the others can; the same JFX_GROW, JFX_RETRY and JFX_YIELD rules as the buses').
+ * A change of its want (LEN, the rate stage's blocks) gives the memory back and takes it again: the line starts from silence (dub_fresh). Returns the DUB FULL bits. */
+static uint8_t jfx_dub_mem(void)
+{
+    uint8_t full = 0;
+    dub_nomem = 0;
+    for (uint32_t i = 0; i < DUB_N; i++) {
+        uint32_t w = dub_want[i], g;
+        uint8_t nm = 0;
+        if (dub_state[i] && dub_held[i] != w) jfx_free_dub(i);
+        if (!w) {
+            if (dub_state[i] && ++dub_idle[i] >= 4u) jfx_free_dub(i);   /* LEN OFF: 4 blocks later (the kernel's cut ramp has run) */
+            continue;
+        }
+        dub_idle[i] = 0;
+        if (!dub_spring[i] && dub_spbuf[i]) {
+            resource_release(RES_JFX0 + JB_DUBP0 + i);
+            dub_spbuf[i] = 0;
+        }
+        if (!dub_state[i]) dub_state[i] = jfx_take(JB_DUBS0 + i, DUB_STATE_BYTES, &nm);
+        if (dub_state[i]) dub_held[i] = (uint8_t)w;
+        if (dub_state[i] && dub_spring[i] && !dub_spbuf[i]) dub_spbuf[i] = jfx_take(JB_DUBP0 + i, DUB_SPRING_BYTES, &nm);
+        while (dub_state[i] && !nm && dub_have[i] < w && (!dub_spring[i] || dub_spbuf[i])) {
+            for (g = 0; g < DUB_NSEG && dub_owner[g]; g++)
+                ;
+            if (g == DUB_NSEG) {                        /* (the pool's 32 blocks are all in use by the others) */
+                nm = 1;
+                break;
+            }
+            int16_t *p = jfx_take(JB_DUBG0 + g, JFX_SEG * sizeof(int16_t), &nm);
+            if (!p) break;
+            dub_owner[g] = (uint8_t)(i + 1u);
+            dub_pool[i][dub_have[i]] = (uint8_t)g;
+            dub_line[i][dub_have[i]++] = p;
+        }
+        if (nm) {
+            jfx_free_dub(i);                            /* (all or none: a part given back) */
+            dub_nomem = 1;
+        } else if (dub_state[i] && dub_have[i] == w && (!dub_spring[i] || dub_spbuf[i])) {
+            if (!dub_ready[i]) dub_fresh[i] = 1;        /* complete now: set up as new */
+            dub_ready[i] = 1;
+            continue;
+        }
+        dub_ready[i] = 0;
+        if (nm || jfx_wait) full |= (uint8_t)(JFX_FULL_DUB0 << i);
+    }
+    return full;
 }
 static void jfx_mem(void)
 {
@@ -1987,8 +2073,9 @@ static void jfx_mem(void)
         if (nm_d) jfx_free_dly();                       /* (all or none: a part given back) */
         if ((want & 2u) && dly_have < DLY_NSEG && (nm_d || jfx_wait)) full |= JFX_FULL_DLY;
     }
+    full |= jfx_dub_mem();
     if (jfx_wait) jfx_wait--;
-    if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;
+    if (nm_r || nm_c || nm_d || dub_nomem) jfx_wait = JFX_RETRY;
     if (full) {                                         /* (0.6.0 rev 2) FX FULL held on screen a second past the
                                                          * last block that wanted memory and got none: a send between
                                                          * notes is silent, and the words flickered */
@@ -2033,6 +2120,11 @@ static void jfx_lend_check(void)
             jrev = 0;
             jfx_free_rx(0);
             rev_state_clear();
+        }
+        for (uint32_t i = 0; i < DUB_N; i++) {          /* (Release 2) an instance with a block in a slot taken back: all of it, from silence later */
+            uint32_t m = resource_lent(RES_JFX0 + JB_DUBS0 + i) | resource_lent(RES_JFX0 + JB_DUBP0 + i);
+            for (uint32_t j = 0; j < dub_have[i]; j++) m |= resource_lent(RES_JFX0 + JB_DUBG0 + dub_pool[i][j]);
+            if (m & back) jfx_free_dub(i);
         }
         if (resource_lent(RES_JFX0 + JB_CHO) & back) {
             resource_release(RES_JFX0 + JB_CHO);

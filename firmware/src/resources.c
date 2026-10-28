@@ -6,9 +6,9 @@
  * Linker-derived SRAM tails are separate banks: an allocation never spans a
  * code/data/retained-state boundary. Small banks first preserve the large
  * contiguous POOL bank for engine state and note history. */
-#define RES_JFX_N 27u                    /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the reverb's, the chorus's,
+#define RES_JFX_N 67u                    /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the reverb's, the chorus's,
                                           * the SLICER's, then (rev 2) the delay's line in 16 blocks of 4 KB and the
-                                          * reverb's model line in 8) */
+                                          * reverb's model line in 8); (Release 2) DUB TAPE's: a state and a spring a track and a pool of 32 line blocks, 40 more */
 enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_JFX0,
        RES_RECORD_UNDO = RES_JFX0 + RES_JFX_N,
        RES_HOT0, RES_HOT_BASE = RES_HOT0 + ENG_HOT_SLOTS,   /* (Orange Cat 0.13.7) the engines' hot sets (engines.c eng_hot_take); (0.14.0) the firmware's own (eng_hot_base) */

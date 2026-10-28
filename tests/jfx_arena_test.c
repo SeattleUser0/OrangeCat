@@ -17,9 +17,12 @@
  *   - DRUM FM6 MACRO SHAPES, DRUM-X MACRO SHAPES MACRO, cache ready, the card idle: the same;
  *   - whatever does not fit says FX FULL, and nothing an engine or a hot set took is touched.
  * Run by tests/run_tests.sh. The four numbers change with the build: nm build/melodee.elf, _resource{,_low,_data,_retained}_{start,end}. */
-#define RES_HOST_MAIN_WORDS (92064u / 4u)
+#ifndef JA_MAIN_BYTES
+#define JA_MAIN_BYTES 86368u                            /* (Release 2) the stage 2 build's _resource_end - _resource_start (nm build/melodee.elf, 1f72487) */
+#endif
+#define RES_HOST_MAIN_WORDS (JA_MAIN_BYTES / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
-#define RES_HOST_DATA_WORDS (4584u / 4u)
+#define RES_HOST_DATA_WORDS (4520u / 4u)
 #define RES_HOST_RETAINED_WORDS (816u / 4u)
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -148,6 +151,97 @@ static void ja_row(const char *what, uint32_t n, uint32_t bytes, int cache, int 
     if (out) *out = r;
 }
 
+/* (Release 2, design 3) DUB TAPE's lines: n_eng MACRO-sized engines (VA BASS is MACRO's state), ROOM on or off, the card idle (lend 15) or busy (0), the cache
+ * ready; every instance wants `segs` blocks (4 KB each; 0 none) with or without the spring. After 600 blocks: how many instances hold all their memory. */
+static uint32_t ja_dub_case(uint32_t n_eng, uint32_t bytes, int room, int lend, uint32_t segs, int spring, uint32_t *peak)
+{
+    uint32_t k, ready = 0, best = 0;
+    ui_power_on();
+    song.playing = 0;
+    ja_hot_drop();
+    for (k = 0; k < RES_COUNT; k++) resource_release(k);
+    ja_hot_take();
+    resource_host_cache_enabled = 1;
+    res_lend_ok = 0;
+    res_lend_used = 0;
+    for (k = 0; k < n_eng; k++) {
+        uint8_t *p = resource_get(RES_ENGINE0 + k, bytes);
+        assert(p);
+        memset(p, 0xA5, bytes);
+    }
+    res_lend_ok = (uint8_t)lend;
+    song.g[G_RTYPE] = 0;
+    song.g[G_SLMODE] = 0;
+    trk[0].p[P_CHOR] = trk[0].p[P_DLY] = 0;
+    trk[0].p[P_REV] = room ? 100 : 0;
+    for (k = 0; k < DUB_N; k++) { dub_want[k] = (uint8_t)segs; dub_spring[k] = (uint8_t)spring; }
+    for (uint32_t b = 0; b < 600u; b++) {
+        ja_block();
+        ready = 0;
+        for (k = 0; k < DUB_N; k++) ready += dub_ready[k];
+        if (ready > best) best = ready;
+    }
+    if (peak) *peak = best;
+    trk[0].p[P_REV] = 0;
+    for (k = 0; k < DUB_N; k++) dub_want[k] = dub_spring[k] = 0;
+    jfx_power_on();
+    res_lend_ok = 0;
+    res_lend_used = 0;
+    resource_host_cache_enabled = 0;
+    ja_hot_drop();
+    for (k = 0; k < RES_COUNT; k++) resource_release(k);
+    return ready;
+}
+
+/* the line blocks (4 KB) that still fit once the four DUB states are in: the engines, ROOM on or off, the card idle or busy */
+static uint32_t ja_dub_blocks(uint32_t n_eng, uint32_t bytes, int room, int lend)
+{
+    uint32_t k, n = 0;
+    ui_power_on();
+    song.playing = 0;
+    ja_hot_drop();
+    for (k = 0; k < RES_COUNT; k++) resource_release(k);
+    ja_hot_take();
+    resource_host_cache_enabled = 1;
+    res_lend_ok = 0;
+    res_lend_used = 0;
+    for (k = 0; k < n_eng; k++) assert(resource_get(RES_ENGINE0 + k, bytes));
+    res_lend_ok = (uint8_t)lend;
+    song.g[G_RTYPE] = 0;
+    trk[0].p[P_CHOR] = trk[0].p[P_DLY] = 0;
+    trk[0].p[P_REV] = room ? 100 : 0;
+    for (k = 0; k < 16u; k++) ja_block();
+    for (k = 0; k < DUB_N; k++) assert(resource_allocate(RES_JFX0 + JB_DUBS0 + k, DUB_STATE_BYTES));
+    for (k = 0; k < DUB_NSEG; k++) n += resource_allocate(RES_JFX0 + JB_DUBG0 + k, JFX_SEG * sizeof(int16_t)) != 0;
+    trk[0].p[P_REV] = 0;
+    jfx_power_on();
+    res_lend_ok = 0;
+    res_lend_used = 0;
+    resource_host_cache_enabled = 0;
+    ja_hot_drop();
+    for (k = 0; k < RES_COUNT; k++) resource_release(k);
+    return n;
+}
+static void ja_dub_table(const char *what, uint32_t n_eng, uint32_t bytes, int room)
+{
+    static const uint32_t segs[] = { 2, 4, 5, 6, 7, 8, 12, 16 };
+    printf("\n%s%s: instances that hold their memory (of 4), with the best seen in brackets when they flap\n", what, room ? " + ROOM" : "");
+    printf("blocks of 4 KB left after the four states (of the pool's %u): card idle %u, card busy %u\n", DUB_NSEG, ja_dub_blocks(n_eng, bytes, room, 15), ja_dub_blocks(n_eng, bytes, room, 0));
+    printf("| LEN (blocks, bytes) | card idle | card busy | card idle + spring | card busy + spring |\n|---|---|---|---|---|\n");
+    for (uint32_t q = 0; q < sizeof segs / sizeof segs[0]; q++) {
+        uint32_t cell[4], pk[4], c = 0;
+        for (int sp = 0; sp < 2; sp++)
+            for (int busy = 0; busy < 2; busy++, c++)
+                cell[c] = ja_dub_case(n_eng, bytes, room, busy ? 0 : 15, segs[q], sp, &pk[c]);
+        printf("| %2u, %2uK |", segs[q], segs[q] * 4u);
+        for (c = 0; c < 4; c++) {
+            if (pk[c] != cell[c]) printf(" %u (%u) |", cell[c], pk[c]);
+            else printf(" %u |", cell[c]);
+        }
+        printf("\n");
+    }
+}
+
 int main(void)
 {
     uint32_t big = 0, big_e = 0, macro = eng_state_size(ENGI_MACRO), k;
@@ -209,6 +303,9 @@ int main(void)
     ja_row("DRUM-X MACRO SHAPES MACRO", 4, 0, 1, 15, 0, 1, &r6);
     ja_row("DRUM-X MACRO SHAPES MACRO", 4, 0, 1, 0, 0, 0, 0);
     ja_row("DRUM-X MACRO SHAPES MACRO", 4, 0, 1, 15, 1, 0, 0);
+    ja_dub_table("4 x MACRO (VA BASS)", 4, macro, 1);
+    ja_dub_table("4 x MACRO (VA BASS)", 4, macro, 0);
+    ja_dub_table("no engine", 0, 0, 1);
     bad += !(r0.dly && r0.rev && r0.cho);
     bad += !(r1.dly && r1.rev && r1.cho);
     bad += !(r2.dly && r2.rev && r2.cho);
