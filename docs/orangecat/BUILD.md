@@ -317,7 +317,7 @@ the range it should fall in.
    chorus taps 32 samples earlier) both land where they do today; it costs one more line read per echo (about 8 % of the plain delay's cost, GRAIN and PING-PONG
    with a fade more: to be measured per mode), and changes the delay and chorus code that has golden renders. Without it: every echo 0.73 ms later (0.3 % of an eighth at 120 BPM), the
    chorus's comb notches move (a small colour change, the one audible effect). **Recommended: compensate CHORUS, and DELAY's output tap; leave REVERB
-   (a 0.73 ms later onset, not heard).** The host null test decides whether they land to the sample.
+   (a 0.73 ms later onset, not heard).** The host null test decides whether they land to the sample. **How far for DELAY:** the plain delay only (MOD 0, no GRAIN, no TIME crossfade) is sample-exact; GRAIN, PING-PONG with a fade, the half- and quarter-rate path and the wow need more reads each (below). Say if GRAIN and MOD are left uncompensated.
 3. **Block 3 of each half keeps most of its wait.** The bus must be joined before the interrupt returns (the main loop may write the flash while CPU1 runs
    the bus's code from it), so block 3's bus hides only behind its own master tail. Hiding it too needs the bus kernels' code and read-only tables in
    RAM (the audio_text mechanism), a further 10 to 20 KB of the audio RAM. **Not proposed here; the numbers below say what it would add.**
