@@ -70,6 +70,16 @@ static uint8_t audio_batch_started,audio_batch_fm6_controls;
  * leads reserves the 2,000 floor (it was 3,100); four Prophet tracks still go
  * three to CPU1, one to CPU0. */
 #define AUDIO_BATCH_SERVICE_AUTO UINT32_MAX
+/* (Release 2) A first descriptor that is not a voice (the DUB TAPE bench's job) adds its cost to CPU1's load and leaves CPU0's reserve at the
+ * floor; a voice's cost still sets the reserve. Measured: DUB LITE x4 with VA BASS x4, the job first, reserved 7,920 and split the voices
+ * 50/50 (2,094 late halves in 20 s; 67 with the job after the first voice). No shipped build has such a job; the hook is 0 there. */
+#ifndef AUDIO_BATCH_NONVOICE
+#if defined(OC_DUB_BENCH) && OC_DUB_BENCH
+#define AUDIO_BATCH_NONVOICE(p) ((p)==AP_DUB)
+#else
+#define AUDIO_BATCH_NONVOICE(p) 0
+#endif
+#endif
 #if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
 static volatile uint32_t audio_batch_service_allowance=AUDIO_BATCH_SERVICE_AUTO;
 #endif
@@ -188,7 +198,7 @@ static void audio_batch_push_cost(audio_batch_fn run,const void *data,uint32_t b
     if(!k){
         AB_STORE(&audio_batch_published,0u);AB_STORE(&audio_batch_worker_mask,0u);AB_STORE(&audio_batch_closed,0u);AB_STORE(&audio_batch_invalid,0u);
         uint32_t service=profile_id==AP_PROPHET && audio_batch_fm6_controls?6000u:2000u;
-        audio_batch_worker_cost=0;audio_batch_producer_cost=cost>service?cost:service;
+        audio_batch_worker_cost=0;audio_batch_producer_cost=cost>service&&!AUDIO_BATCH_NONVOICE(profile_id)?cost:service;
 #if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
         if(audio_batch_service_allowance!=AUDIO_BATCH_SERVICE_AUTO)audio_batch_producer_cost=audio_batch_service_allowance;
 #endif

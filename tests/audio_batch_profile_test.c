@@ -14,6 +14,7 @@
 static uint32_t ticks;
 #define AUDIO_PROFILE_TICKS() (++ticks)
 #include "../firmware/src/audio_profile.h"
+#define AUDIO_BATCH_NONVOICE(p) ((p)==AP_808)      /* (the hook's test double: AP_808 stands for a job that is not a voice) */
 static int online=1, join_ok=1, audio_worker_online=1;
 static void (*pending)(void *);
 static int audio_worker_submit(void (*fn)(void *),void *context)
@@ -74,11 +75,26 @@ static void macro_split(uint32_t units,int success)
         for(uint32_t i=0;i<CTL;i++)assert(out[i]==15);
     }
 }
+/* (Release 2) a first descriptor that is not a voice (cost 7,920, the DUB LITE x4 job): CPU0's reserve stays at the 2,000 floor, so seven
+ * FM6 voices after it go five to CPU0 (the reserve fills to 8,250) then one to CPU1; as a voice's cost it would reserve 7,920 */
+static void nonvoice_first(void)
+{
+    int32_t out[CTL]={0};uint32_t value=1;online=join_ok=1;
+    audio_batch_push_cost(render,&value,sizeof value,out,CTL,AP_808,7920u,0);
+    for(uint32_t j=0;j<7u;j++)audio_batch_push(render,&value,sizeof value,out,CTL,AP_FM6);
+    assert(AB_LOAD(&audio_batch_worker_mask)==0x41u);
+    audio_batch_flush();
+    audio_batch_push_cost(render,&value,sizeof value,out,CTL,AP_FM6,7920u,0);
+    for(uint32_t j=0;j<7u;j++)audio_batch_push(render,&value,sizeof value,out,CTL,AP_FM6);
+    assert(AB_LOAD(&audio_batch_worker_mask)!=0x41u && audio_batch_producer_cost>=7920u);
+    audio_batch_flush();
+}
 int main(void)
 {
     scenario(1,1);scenario(0,1);scenario(1,0);
     const uint32_t ids[]={AP_PROPHET,AP_FM6,AP_CZ,AP_SID,AP_808,AP_909};
     for(uint32_t k=0;k<sizeof ids/sizeof ids[0];k++)engine_split(ids[k]);
+    nonvoice_first();
     macro_split(9u,1);macro_split(4u,1);macro_split(9u,0);
     assert(audio_profile[AP_MACRO].calls>0);
     int32_t out[CTL]={0};uint32_t value=1;online=join_ok=1;advances=0;
