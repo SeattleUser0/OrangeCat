@@ -76,7 +76,7 @@ static void macro_split(uint32_t units,int success)
     }
 }
 /* (Release 2) a first descriptor that is not a voice (cost 7,920, the DUB LITE x4 job): CPU0's reserve stays at the 2,000 floor, so seven
- * FM6 voices after it go five to CPU0 (the reserve fills to 8,250) then one to CPU1; as a voice's cost it would reserve 7,920 */
+ * FM6 voices after it go six to CPU0 (the reserve fills to 8,250, one voice to CPU1 at k6, then 9,500) and one to CPU1; as a voice's cost it would reserve 7,920 and the group split 0xab */
 static void nonvoice_first(void)
 {
     int32_t out[CTL]={0};uint32_t value=1;online=join_ok=1;
