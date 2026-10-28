@@ -4,7 +4,7 @@
 **Date:** October 28, 2026  
 **Tracks:** Orange Cat Specification v0.31
 
-**Where this document lives (standing rule, October 28, 2026).** The master copy is the repository on the Linux PC (~/OrangeCat, docs/orangecat/BUILD.md, SPEC.md, CHANGES.md), committed to GitHub. The claude.ai project copies (claude/Build.md, claude/Orange Cat Specification.md, claude/Orange Cat CHANGES.md) and the Mac folder "/Volumes/Samsung 990/My Apps/FM-1 Orange Cat" are refreshed from linux-hw at the end of every Session A run. Edit the repository, never a copy.
+**Where this document lives (standing rule, October 28, 2026).** The master copy is the repository on the Linux PC (~/OrangeCat, docs/orangecat/BUILD.md, SPEC.md, CHANGES.md), committed to GitHub. The claude.ai project copies (claude/Build.md, claude/Orange Cat Specification.md, claude/Orange Cat CHANGES.md) are refreshed from the repository at the end of every Session A run. The Mac folder copy is retired: the Mac is not used for this project. Edit the repository, never a copy.
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
