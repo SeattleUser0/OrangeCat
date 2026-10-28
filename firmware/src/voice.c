@@ -273,10 +273,10 @@ static void voice_capacity_kill(voice_t *v)
  * overload shed's 85 %) engage them; they stay while the halves pass VC_KEEP (70 %), and let go after VC_HOLD halves under it (about a second). Only
  * with CPU1 online (the caps were measured on two cores; one core keeps its own budget). Not the SAFETY shed: it stays as it was. */
 enum { VC_MODAL, VC_FM6, VC_PROPHET, VC_N };
-static const uint8_t VC_CAP[VC_N][2] = {        /* voices at once: the shared effects off, on (the largest that holds on the unit, Flash 56: cc163c6 + OC_CORE_STATS) */
-    {3, 1},                                     /* MODAL: four MALLET tracks, p99 2,752 off at 3 (4: 3,520), 2,240 on at 1 (2: 3,040) */
+static const uint8_t VC_CAP[VC_N][2] = {        /* voices at once: the shared effects off, on (the largest that holds on the unit; Release 2: the on column re-measured with the buses beside the next block, Flash 64: 3c5d103 + OC_CORE_STATS) */
+    {3, 2},                                     /* MODAL: four MALLET tracks, p99 2,720 off at 3 (4: 3,424), 2,816 on at 2 (3: 3,072; Release 1: 1 on) */
     {16, 15},                                   /* FM6: none holds four tracks (1 voice: p99 3,008, the note-ons); not in Orange Cat's set */
-    {6, 3},                                     /* the Prophet: p99 2,688 at 6 off (7: 3,104), 2,592 at 3 on (4: 2,944) */
+    {6, 4},                                     /* the Prophet: p99 2,752 at 6 off (7: 3,136), 2,720 on at 4 (5: 3,040; Release 1: 3 on) */
 };
 #define VC_ONE 8u                               /* the cap counts the fades in eighths of a voice's half: a sounding voice 8 ... */
 #define VC_FADE_N 16u                           /* ... a stolen MODAL voice renders VC_FADE_N of the half's 128 samples (track_render_audio): 1; the others' fade is a block (32): 2 */
