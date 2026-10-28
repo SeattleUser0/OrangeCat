@@ -1075,3 +1075,14 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
   the pack state 1. PipeWire set; slot 1 detached (D954DF93, equal). `remove 7`, the Nightly's WHEEL (start 0, 2,928 B); `remove 14`, the
   Nightly's SHAPES (start 1, 24,160 B); state 7 each. Tracks MACRO 10/0/1/20, track 1 selected; CHRD MAJ and VOIC OPEN set and read back
   (81 -> 3, 82 -> 1); CLK 0. **The unit is left here.** main and the v0.15.0 tag wait for the user's word.
+
+## 2026-10-28 (UTC; the evening of October 27 local): the cost caps again, Flashes 55 to 57
+
+- **Flash 55** (`orangecat-0.15.0-46be024.fwsc`, OC_CORE_STATS): counting of the fades + a 16-sample fade for a stolen bell. First ladders: Prophet module not installed
+  (voices a block 0.0: rows unused); SHAPES removed (`remove 14`), the Prophet module of 46be024 installed at start 2. MALLET on cap 1 3,360 / 152 late then
+  2,240 / 22; Prophet on cap 3 1.17 voices a block with the burst's fades counted against the cap: the unheard-voice drop (cc163c6) was made for it.
+- **Flash 56** (`cc163c6`, OC_CORE_STATS; host suites 2,394 s stats and 2,396 s plain passed first): ladders with a warm-up row; `~/fm1-hw/caps2/w_*.json`,
+  `rep_*.json`, `ladder2.json`. The caps set in voice.c: MODAL 3 / 1, Prophet 6 / 3 (81f9f20). Put back true, CLK 0.
+- **Nightly** `v0.15.0-81f9f2` published from linux-hw (run 40612024670: build, tests-gate, pages green); local plain suite on 81f9f20 1,492 s passed.
+  **Flash 57**: the published Nightly (pak a4e45b19 as before); the Prophet module removed (`remove 19`), SHAPES installed at start 1 from the Nightly, WHEEL at
+  start 0 as it was; pack state 1; PipeWire profiles set; slot 1 detached (D954DF93 equal); CLK 0; tracks MACRO 10/0/1/20, track 1 selected.
