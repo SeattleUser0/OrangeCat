@@ -348,6 +348,10 @@ The effects-on rows of the engines that are not capped (VA BASS, DRUM-X, SHAPES)
 
 With the caps as built (voice.c, 1f72487; the readout `AUDIO_STATS [flags, 6]` shows 3 / 2, 16 / 15, 6 / 4): MALLET x4 effects on, dual-core: late 30, p99 2,848; Prophet x4 effects on: late 22, p99 2,720.
 
+**The stability run** (`~/fm1-hw/soak/stab2.py`: stab.py with the shared effects on, sends 64 on all four tracks, ROOM; VA BASS, DRUM-X TECHNO RAW, VA BASS, DRUM-X TECHNO RAW, the chord on every step, the INTERNAL clock, 7,200 s, a 20 s sample every 600 s with both captures; image 1f72487, Flash 66): 12 samples, the counters read over every interval between them:
+**worst half 2,277 us, 0 late, 0 DAC silences, 0 USB holes, playing in every 0.5 s window of every sample**, the chain restarted 222 times (it ends by itself and the script starts it again), the unit answering at the end, tracks and CLK put back, the backup's objects 1 up identical before and after.
+19 polls of the chain query got no reply in the two hours (earlier stability runs logged the same, 2 and 6 in theirs; one of the 19 may be a call of mine on the port while it ran); the audio counters above do not show them.
+
 ### The effects-on tail, in numbers (Flash 58: linux-hw 81f9f20 with OC_CORE_STATS=1; `~/fm1-hw/r2/bd_on.json`, `bd_off.json`)
 
 Why MALLET's cap is 1 with the shared effects on (3 off): four MALLET tracks, dual-core, 20 s rows at the same cap, the last two of three rows at that cap
