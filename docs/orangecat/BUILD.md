@@ -250,7 +250,103 @@ the Nightly as it is), measure/batch-s1, measure/batch-s1-ram, main, linux-hw. F
 ## Release 2 (branch release-2, from linux-hw 532c849; October 28, 2026)
 
 Release 1 stays as published (the Nightly `v0.15.0-81f9f2`); linux-hw is frozen except for docs and logs until the word for main and the tag. This branch
-holds what follows. **No code of the stage 2 below is written: it waits for the user's reading.**
+holds what follows. **Stage 2 is built (commits 83de253, 3c5d103) and measured; the section "Stage 2 as built" below says what was done and what it gave. The design sections after it are the design as it was read and answered.**
+
+### Stage 2 as built and measured (Release 2; Flashes 63 to 66)
+
+The user's answers to the design's questions (October 28): the one-block shift in every mode with a host-build switch (`MELODEE_FX_DEFER`: the host default 0 keeps every existing golden, the unit's builds have 1, whatever the core state);
+compensate CHORUS and DELAY's output tap, leave REVERB alone (PRE included), GRAIN and MOD uncompensated; block 3 keeps its wait (the bus code stays in flash); MALLET's cap with the effects on is set from a measurement, 2 the target.
+
+**The batch split rule first** (5934b60, host test `nonvoice_first`; the hook `AUDIO_BATCH_NONVOICE` is 0 in every shipped build): a first descriptor that is not a voice adds its cost to CPU1's load and leaves CPU0's reserve at the floor. On the DUB measurement image (measure/dub-split 268872f: the rule on the DUB bench's base, host suite
+2,115 s) VA BASS x4 + DUB LITE x4, effects on, dual-core, three 20 s rows: **26, 27 and 36 late halves** (job first with the old rule 2,094 to 2,104; pushed after the first voice 67 to 76; 103 before stage 1), wall p99 2,784 to 2,816. The x0 and x1 rows and the MALLET x4 rows
+(no caps on that base) are those of the old image (x0 1,418 to 1,429 us mean, x1 1,562; MALLET x1 to x3 within 40 us; MALLET x4 effects on is overloaded in both).
+
+**What was built** (83de253, 3c5d103, 1f72487; `jfx.c`, `audio_worker.h`, `audio.c`, `voice.c`):
+- the sends and the returns in two sets each (`fx_snd`, `fx_ret`, in `.pool`: 768 B each; `.bss` shrinks by 768 B, `.pool` grows by 1,704 B with the 168 B copy); `send_c/d/r` keep their names through macros that name the set the tracks fill;
+- `fxp`: all of `song.g`, the tempo and RESO's inputs (scale mask, root, the followed track's lowest held note) copied on CPU0 at `bus_start`; the bus code reads `fxp` (every `song.g`, `div_samples` in the code `fx_buses` reaches);
+- `jfx_bus_drain()`: joins the deferred job, runs the trip check on the result, adopts it once (`fx_fresh`; a failed join zeroes the set and clears the buses). Called by `audio_worker_submit` first (through `audio_worker_deferred`, so every submitter is unchanged),
+  `jfx_bus_start`, a reset, a lend, `jfx_power_on`, and `fm1_alnk0_irq` before the half's time is taken (nothing is out when the main loop runs); the master of a block mixes the returns of the block before. In the cores' readout the drain's wait is `wait`, not `tail_wait`;
+- DELAY: the output taps read CTL (32) samples nearer, the feedback taps stay (the full-rate path and `dly_lo`, the TIME crossfade, the right echo, ping-pong; MOD with the wow extrapolated); GRAIN, and the right echo with it, uncompensated. CHORUS: the three taps 32 samples nearer and the LFO phase 32 samples ahead;
+- `MELODEE_FX_DEFER` is a `tools/build.py` switch (0: the join where it was; the A/B build).
+
+**Tests.** `tests/fx_defer_test.c`, built twice by `run_tests.sh` (the reference with the switch off, then the deferred build against it): every reverb model and PRE, and the GRAIN delay (with and without WIDE), are a pure one-block shift, bit for bit; CHORUS (with its sweep, the LFO leading) is bit-exact against today;
+DELAY at the full, half and quarter rate, DIGITAL, WIDE and PING-PONG are bit-exact except the gate's fade at the end of the tail (one block, under -85 dB: -90.8 to -103 dB); a TIME change on a ringing echo -66.8 dB (the crossfade follows the bus's clock); MOD 60 -42.0 dB; a reset leaves no returns in the next master.
+The deferred variants of `jfx_test`, `dual_core_test`, `audio_matrix_test`, `audio_test` and `regress` run in the suite; `golden.txt` gained 11 `fx/` lines (new lines only, the effects' own renders), `golden_fxdefer.txt` holds the 9 of them that differ with the switch on.
+Suites: the release-2 plain and stats builds on 3c5d103 (2,653 and 2,652 s) and on 1f72487 (2,501 s each) passed. A bus-only run under ThreadSanitizer (the reviewer's) with parameter, root, BPM and reset changes inside the job window is clean.
+
+**The independent review** (a fresh agent, read-only, ran its own experiments) found no ownership or drain bug on any CPU0 or main-loop path, and: GRAIN with a right echo left the channels 32 samples apart (fixed: the right echo follows GRAIN's choice), `fx_rr == fx_rw` until the first result (fixed: `fx_rw` starts at 1), a time-change
+test that did not test the crossfade, mislabelled reverb scenarios, no ROOM+PRE and no GRAIN+WIDE case (all fixed in 3c5d103). **Left as it is:** MOD is compensated by extrapolating the wow (-42 dB at MOD 60, -25.7 dB at 127 with a 5 ms TIME): the wow's slope is a staircase and a block's slope differs from the next; the exact fix is to compute the next block's wow ahead of time (the user's answer
+left MOD uncompensated; this is closer, not exact); the bus kernels now run from flash beside CPU0's block start (the bus job takes 500 us a half, was 436: the flash is shared).
+
+**The offsets, measured** (`~/fm1-hw/r2/offsets.py`, `analyse_offsets.py`: one DRUM-X TECHNO RAW rim hit alone on track 1, then through one bus; the lag at which the hit recurs, cross-correlated with the dry hit, sub-sample by parabola; the unit's USB audio at 44.1 kHz is the unit's own clock, the AUDIO4c at 48 kHz is shown converted):
+
+| bus | what | published (stage 2 off) | stage 2 on | change, USB (unit samples) | change, AUDIO4c (converted) |
+|---|---|---|---|---|---|
+| DELAY 1/8, FDBK 0 | the echo after the dry | 11,024.99 | 11,024.99 | 0.00 | +0.4 (noise) |
+| CHORUS, DEPTH 0 | taps at 300 / 540 (420 hidden) | 299.98 / 540.03 | 299.98 / 540.03 | 0.00 / 0.00 | +0.13 / +0.12 |
+| REVERB ROOM | the first reflections | 1,116.01, 1,187.93, 1,355.97, 2,554.06 | 1,148.00, 1,219.93, 1,387.97, 2,586.06 | **+31.99 each** | +32.04 |
+
+The compensation is proven on the unit: the delay and the chorus land where they did, the reverb arrives 32 samples (0.73 ms) later, as designed.
+
+**The ladder** (Part 3's rows: MALLET, VA BASS, DRUM-X TECHNO RAW, SHAPES CSAW BASS and the Prophet, one to four tracks, effects off and on (sends 64, ROOM), dual-core, 20 s, the chord on every step; Release 1 = the published stats image 81f9f20 (Flash 64), Release 2 = 3c5d103 for all but the MALLET and Prophet effects-on rows, which are 1f72487 with the new caps).
+A MALLET or Prophet effects-on row sounds more voices than before (cap 2 for 1, 4 for 3), so its wall time goes up with the work:
+
+| row (dual-core) | effects | Release 1: wall mean / p99 / max, late | Release 2: wall mean / p99 / max, late | mean change |
+|---|---|---|---|---|
+| MALLET x1 | off | 1,889 / 2,080 / 2,143, 0 | 1,887 / 2,080 / 2,133, 0 | -2 |
+| MALLET x1 | on | 2,347 / 2,592 / 2,715, 0 | 2,143 / 2,496 / 2,591, 0 | -204 |
+| MALLET x2 | off | 1,932 / 2,464 / 2,504, 0 | 1,931 / 2,464 / 2,522, 0 | -1 |
+| MALLET x2 | on | 1,722 / 2,560 / 3,071, 3 | 2,155 / 2,592 / 2,947, 1 | +433 |
+| MALLET x3 | off | 1,960 / 2,592 / 3,518, 1 | 1,958 / 2,592 / 3,559, 2 | -2 |
+| MALLET x3 | on | 1,706 / 2,112 / 3,506, 22 | 2,165 / 2,720 / 3,248, 22 | +459 |
+| MALLET x4 | off | 1,988 / 2,752 / 3,161, 1 | 1,984 / 2,752 / 3,273, 2 | -4 |
+| MALLET x4 | on | 1,734 / 2,240 / 4,463, 22 | 2,174 / 2,848 / 4,208, 30 | +440 |
+| VA BASS x1 | off | 629 / 896 / 988, 0 | 635 / 896 / 1,050, 0 | +6 |
+| VA BASS x1 | on | 1,099 / 1,536 / 1,641, 0 | 871 / 1,408 / 1,505, 0 | -228 |
+| VA BASS x2 | off | 836 / 1,312 / 1,437, 0 | 845 / 1,312 / 1,429, 0 | +9 |
+| VA BASS x2 | on | 1,318 / 1,920 / 2,034, 0 | 1,089 / 1,824 / 1,952, 0 | -229 |
+| VA BASS x3 | off | 853 / 1,344 / 1,451, 0 | 862 / 1,344 / 1,457, 0 | +9 |
+| VA BASS x3 | on | 1,355 / 1,984 / 2,106, 0 | 1,123 / 1,888 / 1,999, 0 | -232 |
+| VA BASS x4 | off | 1,061 / 1,696 / 1,855, 0 | 1,070 / 1,728 / 1,908, 0 | +9 |
+| VA BASS x4 | on | 1,574 / 2,368 / 2,531, 0 | 1,341 / 2,208 / 2,470, 0 | -233 |
+| DRUM-X x1 | off | 818 / 992 / 1,070, 0 | 830 / 1,024 / 1,088, 0 | +12 |
+| DRUM-X x1 | on | 1,322 / 1,664 / 1,805, 0 | 1,119 / 1,504 / 1,639, 0 | -203 |
+| DRUM-X x2 | off | 1,107 / 1,344 / 1,408, 0 | 1,120 / 1,344 / 1,451, 0 | +13 |
+| DRUM-X x2 | on | 1,631 / 1,984 / 2,123, 0 | 1,424 / 1,856 / 1,984, 0 | -207 |
+| DRUM-X x3 | off | 1,202 / 1,760 / 1,868, 0 | 1,216 / 1,760 / 1,888, 0 | +14 |
+| DRUM-X x3 | on | 1,751 / 2,368 / 2,521, 0 | 1,545 / 2,176 / 2,467, 0 | -206 |
+| DRUM-X x4 | off | 1,263 / 2,080 / 2,171, 0 | 1,276 / 2,080 / 2,165, 0 | +13 |
+| DRUM-X x4 | on | 1,841 / 2,720 / 2,894, 0 | 1,632 / 2,496 / 2,657, 0 | -209 |
+| SHAPES x1 | off | 557 / 736 / 836, 0 | 580 / 768 / 862, 0 | +23 |
+| SHAPES x1 | on | 1,031 / 1,376 / 1,458, 0 | 797 / 1,248 / 1,333, 0 | -234 |
+| SHAPES x2 | off | 698 / 992 / 1,089, 0 | 721 / 1,056 / 1,115, 0 | +23 |
+| SHAPES x2 | on | 1,182 / 1,664 / 1,738, 0 | 953 / 1,536 / 1,641, 0 | -229 |
+| SHAPES x3 | off | 720 / 1,056 / 1,145, 0 | 748 / 1,088 / 1,328, 0 | +28 |
+| SHAPES x3 | on | 1,224 / 1,760 / 1,866, 0 | 994 / 1,632 / 1,744, 0 | -230 |
+| SHAPES x4 | off | 853 / 1,312 / 1,460, 0 | 875 / 1,344 / 1,472, 0 | +22 |
+| SHAPES x4 | on | 1,370 / 1,984 / 2,204, 0 | 1,137 / 1,888 / 2,052, 0 | -233 |
+| PROPHET x1 | off | 1,531 / 1,696 / 1,777, 0 | 1,549 / 1,728 / 1,817, 0 | +18 |
+| PROPHET x1 | on | 2,019 / 2,304 / 2,361, 0 | 1,764 / 2,080 / 2,154, 0 | -255 |
+| PROPHET x2 | off | 2,284 / 2,464 / 2,542, 0 | 2,288 / 2,496 / 2,761, 0 | +4 |
+| PROPHET x2 | on | 2,776 / 3,168 / 3,238, 1562 | 2,494 / 2,784 / 2,899, 1 | -282 |
+| PROPHET x3 | off | 1,943 / 2,496 / 3,283, 7 | 1,962 / 2,528 / 2,985, 13 | +19 |
+| PROPHET x3 | on | 1,853 / 2,432 / 3,647, 22 | 1,894 / 2,528 / 3,697, 22 | +41 |
+| PROPHET x4 | off | 2,012 / 2,720 / 3,511, 22 | 2,039 / 2,752 / 3,613, 22 | +27 |
+| PROPHET x4 | on | 1,895 / 2,592 / 3,765, 22 | 1,925 / 2,720 / 3,980, 22 | +30 |
+
+The effects-on rows of the engines that are not capped (VA BASS, DRUM-X, SHAPES) lose 200 to 235 us a half in the mean and 40 to 220 us in p99; the effects-off rows are 0 to 28 us a half slower (the copy, the drains, the pool-resident sets) -- Prophet x4 +27, SHAPES +22 to +28, the others under 15.
+
+**MALLET x4, effects on, cap 2, the tail** (the cores' readout, means of a half, Release 1 `bd_on.json` against `s2_mallet_on.json`): wall 2,450 -> **2,178** (-272), `tail_wait` 437 -> 4, the buses on CPU1 436 -> 500, CPU0 waiting at all (`wait`) 1,844 -> 1,574 (-270), p99 3,040 -> 2,816 to 2,848 (the prediction was 2,658 to 2,823: the bus job is slower than the model took it; it lands just over the model's top, 54 us under the deadline).
+
+**The caps, set again the same way** (warm-up row first, rows of 20 s, the largest cap whose p99 is under 2,902 us; `~/fm1-hw/r2/s2_*.json`):
+
+| class | effects off | effects on |
+|---|---|---|
+| MALLET / GLASS BELL (MODAL) | 3 (p99 2,752 and 2,720; 4: 3,520 and 3,424) -- unchanged | **2** (was 1): p99 2,848 and 2,816, late 34 and 6; 3: 3,104 and 3,072, late 181 and 159 |
+| the Prophet | 6 (2,880 then 2,752; 7: 3,136) -- unchanged | **4** (was 3): p99 2,720 and 2,720, late 22 and 22; 5: 3,040 and 3,040, late 150 |
+| FM6 | 16 / 15, not re-measured (no FM6 build on the unit; not in Orange Cat's set) | |
+
+With the caps as built (voice.c, 1f72487; the readout `AUDIO_STATS [flags, 6]` shows 3 / 2, 16 / 15, 6 / 4): MALLET x4 effects on, dual-core: late 30, p99 2,848; Prophet x4 effects on: late 22, p99 2,720.
 
 ### The effects-on tail, in numbers (Flash 58: linux-hw 81f9f20 with OC_CORE_STATS=1; `~/fm1-hw/r2/bd_on.json`, `bd_off.json`)
 
@@ -307,6 +403,8 @@ the range it should fall in.
 ### The scheduler, stage 2: the buses beside the next block (design v2; replaces "the scheduler, stage 2 (design, shorter)" under History)
 
 #### Open questions for the user
+
+**Answered October 28 (the user's words, in "Stage 2 as built" above): 1 the shift in every mode, with the host switch; 2 compensate CHORUS and DELAY's output tap, not REVERB (PRE included), GRAIN and MOD uncompensated; 3 block 3 keeps its wait, the bus code stays in flash; 4 cap 2 with the effects on is the target, measured.**
 
 1. **One-block shift in every mode, or only with CPU1?** The returns (the three buses' output) come back one block (32 samples, 0.73 ms) after the dry
    path. If this holds in every mode, one sound on the unit, in single-core after a CPU1 retirement and on the host, and every reference render with the
@@ -451,6 +549,8 @@ tested as that. The goldens stay (question 1) and new lines are added.
 reads its own block's returns); 3 the parameter copy; 4 the deferral (the join moves); 5 the compensations; 6 the stats and the cap.
 
 ### The DUB regression: the batch's split rule, not the bench (Flash 60 and 61; measure/dub-order 19bab11, never merged)
+
+**Fixed in Release 2 (5934b60): see "Stage 2 as built" above -- the rule is in `audio_batch_push_cost` behind the hook `AUDIO_BATCH_NONVOICE`; with the job first VA BASS x4 + DUB LITE x4 now runs 26, 27 and 36 late halves.**
 
 Release 1's notes put VA BASS x4 + DUB LITE x4, effects on, dual-core at 103 late in 20 s before stage 1 and 2,096 after, and explained it by the bench's
 DUB job being the batch's first descriptor, so its cost became CPU0's reserve. The test: the same measurement branch (measure/batch-s1 ec1c460, OC_CORE_STATS

@@ -1,4 +1,4 @@
-# Orange Cat: what changed for the user, 0.7.1 to Release 1 (0.15.0)
+# Orange Cat: what changed for the user, 0.7.1 to Release 1 (0.15.0) and Release 2 (0.16.0, unpublished)
 
 **Version:** 6  
 **Date:** October 27, 2026
@@ -130,6 +130,13 @@ and nothing changes. Measured on the unit with the chord on every step on four t
 every block to none, four Prophet tracks the same with the effects on (one late block in 20 seconds with them off). The Prophet's share of the two cores is now set from its measurement. The editor
 link counts the requests it gets and the replies it sends (for finding a lost reply); nothing you see changes. The version is 0.15.0:
 the unit shows `v0.15.0-` and the build's commit. Nothing is stored in a new format; your projects, sounds and backups are as they were.
+
+**0.16.0, Release 2 (branch `release-2`, not published): the shared effects stop making the unit wait.** The send delay, reverb and chorus used to be computed on the second core while the first core stood still waiting for them, a block at a time, after the tracks.
+Now the first core goes on with the next block's work and collects the effects when it next needs the second core. What you hear changes in one way: **the three effects' return arrives 32 samples (0.73 ms) later than the dry sound**, in every mode.
+The delay's echoes and the chorus are shifted back by the same amount, so they land exactly where they did (measured on the unit: the echo at 11,025 samples after the hit before and after; the chorus taps at 300 and 540 samples before and after);
+the reverb arrives 0.73 ms later (measured: its first reflections 32.0 samples later), which cannot be heard as a delay. A delay with GRAIN set is 0.73 ms later; a delay with MOD set lands within a fraction of a sample of where it did. Nothing is stored in a new format.
+What it gives: with the effects on, the unit has 200 to 290 microseconds a half more room (a half has 2,902): VA BASS, DRUM-X, SHAPES and the Prophet with sends run 8 to 12 percent lighter; **four MALLET or GLASS BELL tracks with the shared effects on now sound two notes at once across the tracks (was one), the Prophet four (was three)**; with the effects off nothing changes (three and six).
+The effects-off rows are 0 to 28 microseconds a half slower. A case that was late and is no longer: four VA BASS tracks with a DUB LITE delay each (a measurement-branch feature, not in this build) went from 2,100 late halves in 20 seconds to 26 to 36 once the scheduler stopped counting the delay's job as the first core's own work. Tested for two hours on the internal clock with the effects on: see BUILD.md, "Stage 2 as built".
 
 ## Known limits of Release 1
 
