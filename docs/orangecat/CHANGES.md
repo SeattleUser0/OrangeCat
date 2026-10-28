@@ -116,8 +116,7 @@ MACRO, DRUM-X, SHAPES and WHEEL always ran on the first, beside the effects, the
 are shared between the two cores by what each costs (measured on the unit, voice by voice). What you hear is the same, sample for
 sample; what changes is how much fits. Measured with a chord on every step: two MALLET tracks, which broke up before, play cleanly
 (with the effects on, nearly so); three MALLET tracks with the effects off go from late on nearly every block to a few late blocks;
-four VA BASS tracks with the effects on, and four DRUM-X tracks with PAN and TUNE set, go from occasionally late to clean. One case got
-worse: four VA BASS tracks each with a DUB LITE delay and the effects on run late more often than before. The SHAPES and WHEEL modules of this build must be installed with it (the module interface
+four VA BASS tracks with the effects on, and four DRUM-X tracks with PAN and TUNE set, go from occasionally late to clean. The SHAPES and WHEEL modules of this build must be installed with it (the module interface
 is version 6; older modules still load and play on the first core).
 
 **0.15.0, Release 1: four heavy tracks hold, by giving up voices.** When the unit measures that it is close to running out of time
