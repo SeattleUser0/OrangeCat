@@ -10,7 +10,7 @@
  *           fade at the end of the tail (fx_gate runs on the bus's block clock: one block, below -85 dB of the reference)
  *   NEAR    where the compensation is not sample-exact: MOD (the wow's drift is on the bus's clock; extrapolated), a TIME change in flight (the
  *           crossfade runs on the bus's clock too): the error energy against the reference, in dB below it, printed and bounded
- *   RESET   after a reset (jfx_reset_now) the returns are silent in the very next master, and the sends set aside is cleared
+ *   RESET   after a reset (jfx_reset_now) the returns are silent in the very next master
  * Run with the build directory as argument 1 (the reference files). */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -145,11 +145,13 @@ static void s_delay_digital(void) { s_delay(); song.g[G_DTYPE] = 1; song.g[G_DCO
 static void s_chorus0(void) { song.g[G_CDEPTH] = 0; song.g[G_CRATE] = 30; }
 static void s_chorus(void) { song.g[G_CDEPTH] = 60; song.g[G_CRATE] = 40; }
 static void s_rev0(void) { song.g[G_RTYPE] = 0; }
+static void s_rev0pre(void) { song.g[G_RTYPE] = 0; song.g[G_RPRE] = 40; }
+static void s_delay_grain_wide(void) { s_delay_grain(); song.g[G_WIDTH] = 90; }
 static void s_rev1(void) { song.g[G_RTYPE] = 1; song.g[G_RPRE] = 40; }
 static void s_rev2(void) { song.g[G_RTYPE] = 2; }
 static void s_rev3(void) { song.g[G_RTYPE] = 3; }
 static void s_rev4(void) { song.g[G_RTYPE] = 4; }
-static void m_time(uint32_t b) { if (b == 1503u) song.g[G_DTIME] = 2; }                   /* TIME 1/8 -> 1/16 while the tail rings: a crossfade */
+static void m_time(uint32_t b) { if (b == 1725u) song.g[G_DTIME] = 2; }                   /* TIME 1/8 -> 1/16 while an echo rings (the burst at block 1500): a crossfade */
 static void s_delay_xf(void) { s_delay(); }
 
 int main(int argc, char **argv)
@@ -157,9 +159,10 @@ int main(int argc, char **argv)
     const char *dir = argc > 1 ? argv[1] : "build/host";
     printf("fx_defer: MELODEE_FX_DEFER=%d\n", MELODEE_FX_DEFER);
     fd_case(dir, "reverb_room", 3, SHIFT, 0, s_rev0, 0);
-    fd_case(dir, "reverb_room_pre", 3, SHIFT, 0, s_rev1, 0);
-    fd_case(dir, "reverb_spring", 3, SHIFT, 0, s_rev2, 0);
-    fd_case(dir, "reverb_shimmer", 3, SHIFT, 0, s_rev3, 0);
+    fd_case(dir, "reverb_room_pre", 3, SHIFT, 0, s_rev0pre, 0);
+    fd_case(dir, "reverb_spring", 3, SHIFT, 0, s_rev1, 0);
+    fd_case(dir, "reverb_shimmer", 3, SHIFT, 0, s_rev2, 0);
+    fd_case(dir, "reverb_reso", 3, SHIFT, 0, s_rev3, 0);
     fd_case(dir, "reverb_cloud", 3, SHIFT, 0, s_rev4, 0);
     fd_case(dir, "delay_plain", 2, TAIL, 0, s_delay, 0);
     fd_case(dir, "delay_digital", 2, TAIL, 0, s_delay_digital, 0);
@@ -170,6 +173,7 @@ int main(int argc, char **argv)
     fd_case(dir, "delay_quarter_rate_wide", 2, TAIL, 0, s_delay_long_wide, 0);
     fd_case(dir, "delay_mod", 2, NEAR, -38.0, s_delay_mod, 0);
     fd_case(dir, "delay_grain", 2, SHIFT, 0, s_delay_grain, 0);
+    fd_case(dir, "delay_grain_wide", 2, SHIFT, 0, s_delay_grain_wide, 0);
     fd_case(dir, "chorus_depth0", 1, EXACT, 0, s_chorus0, 0);
     fd_case(dir, "chorus_sweep", 1, EXACT, 0, s_chorus, 0);
     fd_case(dir, "delay_time_change", 2, NEAR, -20.0, s_delay_xf, m_time);

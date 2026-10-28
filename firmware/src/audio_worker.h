@@ -2,7 +2,9 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Single producer (CPU0 audio ISR), single consumer (CPU1). One outstanding
  * job. Completion publishes the result AND returns ownership of voice state.
- * CPU0 must join before events, engine changes, post processing or flash IO.
+ * CPU0 must join before events, engine changes, post processing or flash IO
+ * (Release 2: except the effects' buses, a job left out on purpose: audio_worker_deferred, drained by the next submit, bus_start, a reset or lend,
+ * and the end of the half, so nothing is out when the main loop runs).
  * Platform hooks provide acquire/release accesses, time, holding the worker,
  * the count of its faults and the answer to a misread.
  *

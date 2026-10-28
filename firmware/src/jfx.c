@@ -352,7 +352,7 @@ typedef struct { int32_t c[CTL], d[CTL], r[CTL]; } fx_sends_t;
 typedef struct { int32_t wet[CTL], sl[CTL], sr[CTL]; } fx_rets_t;
 static fx_sends_t fx_snd[2] __attribute__((section(".pool")));
 static fx_rets_t fx_ret[2] __attribute__((section(".pool")));
-static uint8_t fx_sc, fx_rw, fx_rr, fx_fresh;          /* the sends the tracks fill; the returns the job writes / the master reads; a result not yet adopted */
+static uint8_t fx_sc, fx_rw = MELODEE_FX_DEFER, fx_rr, fx_fresh;          /* the sends the tracks fill; the returns the job writes / the master reads; a result not yet adopted */
 static fx_sends_t *fx_bs = &fx_snd[0];                 /* the job's sets (CPU0 sets them before the submit) */
 static fx_rets_t *fx_bw = &fx_ret[0];
 #define send_c (fx_snd[fx_sc].c)
@@ -1248,9 +1248,9 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
                 }
             } else if (k->wd || fx.dr_xf || fx.dr_now != fx.dl_now) {
                 xr = dly_rd_sh(fx.dr_now, wm, sh);
-                oxr = dly_rdc_sh(fx.dr_now, wmo, sh);
+                oxr = fx.gr_on ? xr : dly_rdc_sh(fx.dr_now, wmo, sh);
                 if (fx.dr_xf) {
-                    int32_t xo = dly_rd_sh(fx.dr_old, wm, sh), oo = dly_rdc_sh(fx.dr_old, wmo, sh);
+                    int32_t xo = dly_rd_sh(fx.dr_old, wm, sh), oo = fx.gr_on ? xo : dly_rdc_sh(fx.dr_old, wmo, sh);
                     xr += ((xo - xr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
                     oxr += ((oo - oxr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
                     fx.dr_xf = (uint16_t)(fx.dr_xf - r);
@@ -1529,9 +1529,9 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
                 wr = 2;
             } else if (wd || fx.dr_xf || fx.dr_now != fx.dl_now) {   /* (JIANT) the right echo later */
                 xr = dly_rd(fx.dr_now, wm);
-                oxr = dly_rdc(fx.dr_now, wmo);
+                oxr = fx.gr_on ? xr : dly_rdc(fx.dr_now, wmo);
                 if (fx.dr_xf) {
-                    int32_t xo = dly_rd(fx.dr_old, wm), oo = dly_rdc(fx.dr_old, wmo);
+                    int32_t xo = dly_rd(fx.dr_old, wm), oo = fx.gr_on ? xo : dly_rdc(fx.dr_old, wmo);
                     xr += ((xo - xr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
                     oxr += ((oo - oxr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
                     fx.dr_xf--;
