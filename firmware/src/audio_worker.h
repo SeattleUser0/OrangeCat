@@ -2,7 +2,9 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Single producer (CPU0 audio ISR), single consumer (CPU1). One outstanding
  * job. Completion publishes the result AND returns ownership of voice state.
- * CPU0 must join before events, engine changes, post processing or flash IO.
+ * CPU0 must join before events, engine changes, post processing or flash IO
+ * (Release 2: except the effects' buses, a job left out on purpose: audio_worker_deferred, drained by the next submit, bus_start, a reset or lend,
+ * and the end of the half, so nothing is out when the main loop runs).
  * Platform hooks provide acquire/release accesses, time, holding the worker,
  * the count of its faults and the answer to a misread.
  *
@@ -59,10 +61,19 @@ static struct {
 #endif
 } audio_worker __attribute__((aligned(32)));
 static int audio_worker_online;
+/* (Release 2) A job CPU0 leaves out on purpose (jfx.c's buses, MELODEE_FX_DEFER): whoever needs the worker next joins it first. The function joins
+ * the job, adopts its results and clears this pointer. Many calls a block cost one test. */
+static void (*audio_worker_deferred)(void);
+static inline void audio_worker_drain(void)
+{
+    void (*f)(void) = audio_worker_deferred;
+    if (f) { audio_worker_deferred = 0; f(); }
+}
 
 static int audio_worker_submit(audio_worker_fn fn, void *context)
 {
     uint32_t request;
+    audio_worker_drain();                           /* (Release 2) at most one job out, and not a bus job for the sake of this one */
 #if OC_CORE_STATS
     if (cs_single) return 0;                        /* (0.14.2: single-core forced: CPU0 renders everything) */
     if (audio_worker_online && AW_LOAD(&audio_worker.request) != AW_LOAD(&audio_worker.complete)) { cs_refused++; return 0; }

@@ -58,7 +58,7 @@ function makeOcm({iface = IFACE, packHash = PHASH, engine = ENGINE, version = VE
 // the mocked unit: opts {noPack, noMod, noEngines, pack: 'none'|'current', module: false|true, beginRc: [..], modRc: n, plan}
 function makeUnit(opts = {}) {
   const u = {sent: [], packState: opts.pack === "current" ? 1 : 0, packHash: opts.pack === "current" ? PHASH : 0, module: !!opts.module, beginRc: [...(opts.beginRc || [])],
-             writes: {117: 0, 122: 0}, tries: [], modDone: 0, plan: opts.plan ?? 0, packLen: 0};
+             writes: {117: 0, 122: 0}, tries: [], modDone: 0, packTries: [], packDone: 512, plan: opts.plan ?? 0, packLen: 0};
   const reply = (cmd, data) => setImmediate(() => input.onmidimessage({data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247])}));
   const later = (f) => (opts.beginDelay ? setTimeout(f, opts.beginDelay) : f());   // (0.13.5) a unit that erases before it answers BEGIN
   const input = {state: "connected", onmidimessage: null};
@@ -71,7 +71,16 @@ function makeUnit(opts = {}) {
       const eng = [];
       for (let e = 0; e < 20; e++) eng.push(...(e === ENGINE && u.module ? [2, 7, 0, 0, 0, 11, 1, ...n3(0x400), 0] : [1, 7, 0, 127, 0, 0, 0, ...n3(0), 0]));
       reply(125, [20, ...eng, 2, 7, 0, 127, 0, 0, 0]);
-    } else if (cmd === 116) { const rc = u.beginRc.length ? u.beginRc.shift() : 0; if (!rc) u.packLen = PLEN; later(() => reply(116, [rc, ...n3(0)])); }
+    } else if (cmd === 116) { const rc = u.beginRc.length ? u.beginRc.shift() : 0; if (!rc) { u.packLen = PLEN; u.packDone = 512; } later(() => reply(116, [rc, ...n3(0)])); }
+    else if (cmd === 117 && opts.strict) {                      // (release-2) as oc_pack_write is: a write only where the last one ended; the reply carries the bytes written
+      const k = u.writes[117]++, off = args[0] | args[1] << 7 | args[2] << 14, n = Math.floor((args.length - 3) * 7 / 8);
+      u.packTries.push(off);
+      if ((opts.dropIn || []).includes(k)) return;
+      let rc = 0;
+      if (off === u.packDone) u.packDone += n; else rc = 1;
+      if ((opts.dropReply || []).includes(k)) return;
+      reply(117, [rc, ...n3(u.packDone)]);
+    }
     else if (cmd === 117) { u.writes[117]++; reply(117, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]); }
     else if (cmd === 118) { u.packState = 1; u.packHash = PHASH; reply(118, [0, ...n3(PLEN)]); }
     else if (cmd === 121) { u.modDone = 256; later(() => reply(121, [u.beginRc.length ? u.beginRc.shift() : 0, ...n3(0)])); }
@@ -251,6 +260,25 @@ const mono = (m) => m.every((v, i) => i === 0 || v >= m[i - 1]) && m.at(-1) === 
   const out = real.output, send = out.send;                   // (the unit's count is moved: its reply to the repeat is not this chunk's end)
   out.send = (m) => { if (m[4] === 122 && u.tries.length === 1) u.modDone = 0x300; send(m); };
   await assert.rejects(installModule(real, OCM.parse(makeOcm()), () => {}, {}), (e) => e.code === "modFail");
+}
+// 12e. (release-2) the pack write is sent again as the module write is
+{
+  const bytesOf = (u) => u.packDone;
+  let u = makeUnit({strict: true, dropIn: [3]});
+  await installPack(u.link(), makePack(), {buildLen: PLEN, buildHash: PHASH});
+  assert.ok(u.sent.includes(118) && u.packDone === PLEN, "the pack went to its end");
+  assert.equal(u.packTries.filter((o) => o === 512 + 3 * 256).length, 2, "the lost write was sent again at its own offset");
+  u = makeUnit({strict: true, dropReply: [5]});
+  await installPack(u.link(), makePack(), {buildLen: PLEN, buildHash: PHASH});
+  assert.ok(u.sent.includes(118) && bytesOf(u) === PLEN, "taken, the reply lost: every byte once, the repeat refused with its end as the count");
+  u = makeUnit({strict: true, dropIn: [0, 1, 2, 3, 4, 5]});
+  await assert.rejects(installPack(u.link(), makePack(), {buildLen: PLEN, buildHash: PHASH}), (e) => e.code === "ocLost");
+  assert.equal(u.packTries.length, OC_WRITE_TRIES, "three sends at the same offset");
+  assert.ok(!u.sent.includes(118), "no END");
+  u = makeUnit({strict: true, dropIn: [0]});
+  const real = u.link(), send = real.output.send;
+  real.output.send = (m) => { if (m[4] === 117 && u.packTries.length === 1) u.packDone = 512 + 0x300; send(m); };
+  await assert.rejects(installPack(real, makePack(), {buildLen: PLEN, buildHash: PHASH}), (e) => e.code === "packFail");
 }
 // 12c. (0.13.5) every code the page can raise has its text in both languages of the installer page (the summary showed the raw key for one)
 {

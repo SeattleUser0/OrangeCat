@@ -178,7 +178,7 @@ static void prophet_retire(void)
         int32_t out[2*CTL];
         audio_worker_check();
         if(pos==CTL*16u)injected_faults=1;
-        mix_block(out,CTL);
+        mix_block(out,CTL);jfx_bus_drain();
         assert(!p5_pending && AW_LOAD(&audio_worker.request)==AW_LOAD(&audio_worker.complete));
         if(pos==CTL*17u){assert(!audio_worker_online);jobs=audio_worker.jobs;}
         if(pos>CTL*16u)for(uint32_t i=0;i<2u*CTL;i++)if(abs(out[i])>peak)peak=abs(out[i]);
@@ -235,7 +235,7 @@ static void prophet_case(int parallel,uint32_t preset,uint32_t mode,uint32_t voi
         if(pos==CTL*128u){patch->raw[P5_FILTER_REV]^=1;patch->raw[P5_CUTOFF]=110;}
         if(pos==CTL*160u)trk[0].eng_req=ENGI_FM6;
         if(pos==CTL*192u){panic_req=1;events_block(CTL);}
-        mix_block(out,CTL);
+        mix_block(out,CTL);jfx_bus_drain();
         assert(!p5_pending && !fm6_pending);
         assert(AW_LOAD(&audio_worker.request)==AW_LOAD(&audio_worker.complete));
         if(!parallel)memcpy(reference+2u*pos,out,sizeof out);
@@ -269,13 +269,13 @@ static void shared_bus_retire(void)
     setup_case(7,0,4);jfx_power_on();for(uint32_t i=G_DTIME;i<G_COUNT;i++)song.g[i]=GP[i].def;
     for(uint32_t k=0;k<NPART;k++){trk[k].p[P_REV]=100;trk[k].p[P_DLY]=60;}
     audio_worker_online=1;serial_render=0;
-    for(uint32_t b=0;b<8;b++)mix_block(out,CTL);
+    for(uint32_t b=0;b<8;b++)mix_block(out,CTL);jfx_bus_drain();
     assert(resource[RES_JFX0+JB_REV].size && resource[RES_JFX0+JB_DLY0].size);void *ptr=resource[RES_JFX0+JB_REV].ptr;
     atomic_store(&held_job_entered,0);atomic_store(&held_job_release,0);assert(audio_worker_submit(held_job,&held_job_release));while(!atomic_load(&held_job_entered))sched_yield();
     jfx_bus_pending=1;injected_faults=1;pthread_t release;assert(!pthread_create(&release,0,release_stalled_job,0));jfx_bus_join(CTL);assert(!pthread_join(release,0));
-    int quiet=1;for(uint32_t i=0;i<CTL;i++)quiet&=!fx_wet[i] && !fx_sl[i] && !fx_sr[i];
+    int quiet=1;for(uint32_t i=0;i<CTL;i++)quiet&=!fx_bw->wet[i] && !fx_bw->sl[i] && !fx_bw->sr[i];
     assert(quiet && !jfx_bus_pending && !audio_worker_online && resource[RES_JFX0+JB_REV].ptr==ptr);
-    injected_faults=0;for(uint32_t b=0;b<8;b++){mix_block(out,CTL);for(uint32_t i=0;i<2*CTL;i++)assert(out[i]>=-32768 && out[i]<=32767);}
+    injected_faults=0;for(uint32_t b=0;b<8;b++){mix_block(out,CTL);jfx_bus_drain();for(uint32_t i=0;i<2*CTL;i++)assert(out[i]>=-32768 && out[i]<=32767);}
     jfx_power_on();for(uint32_t i=G_DTIME;i<G_COUNT;i++)song.g[i]=GP[i].def;
     puts("Effects buses: worker fault discards the block's return, keeps their memory, resets their states, continues on CPU0: OK");
 }
@@ -286,7 +286,7 @@ static void shared_bus_case(int parallel,uint32_t model)
     song.g[G_RTYPE]=(int16_t)model;
     for(uint32_t k=0;k<NPART;k++){trk[k].p[P_REV]=40+k*20;trk[k].p[P_DLY]=30+k*10;trk[k].p[P_CHOR]=20+k*15;}
     audio_worker_online=1;serial_render=!parallel;
-    for(uint32_t frame=0;frame<FRAMES;frame+=CTL){int32_t out[2*CTL];mix_block(out,CTL);assert(!jfx_bus_pending && AW_LOAD(&audio_worker.complete)==AW_LOAD(&audio_worker.request));
+    for(uint32_t frame=0;frame<FRAMES;frame+=CTL){int32_t out[2*CTL];mix_block(out,CTL);jfx_bus_drain();assert(!jfx_bus_pending && AW_LOAD(&audio_worker.complete)==AW_LOAD(&audio_worker.request));
         if(parallel)assert(!memcmp(out,reference+frame*2,sizeof out));else memcpy(reference+frame*2,out,sizeof out);
     }
     jfx_power_on();for(uint32_t i=G_DTIME;i<G_COUNT;i++)song.g[i]=GP[i].def;serial_render=0;

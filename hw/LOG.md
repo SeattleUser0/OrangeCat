@@ -1086,3 +1086,14 @@ The acceptance (fm1hw's standing columns: worst us / late / USB holes / DAC sile
 - **Nightly** `v0.15.0-81f9f2` published from linux-hw (run 40612024670: build, tests-gate, pages green); local plain suite on 81f9f20 1,492 s passed.
   **Flash 57**: the published Nightly (pak a4e45b19 as before); the Prophet module removed (`remove 19`), SHAPES installed at start 1 from the Nightly, WHEEL at
   start 0 as it was; pack state 1; PipeWire profiles set; slot 1 detached (D954DF93 equal); CLK 0; tracks MACRO 10/0/1/20, track 1 selected.
+
+## 2026-10-28 (UTC): Release 2 measurements (branch release-2), Flashes 58 to 62
+
+- **Flash 58**: linux-hw 81f9f20 + OC_CORE_STATS (host suite 2,282 s passed first). Track 1's CHRD and VOIC read 0 after the flash (the end state of Flash 57 had not been read back: it
+  was probably cleared then too); set to 3 and 1, read back. The effects-on tail: MALLET x4 at caps 1 to 3, effects on and off, the last two of three rows at a cap
+  (`~/fm1-hw/r2/bd_on.json`, `bd_off.json`): of the 486 us the effects cost at cap 2, CPU0's wait at the join after the tracks is 437 (the bus job on CPU1: 436).
+- **Flash 59**: measure/stage2-window 0cacf21 (stats; the block's start to the first submit in the DUB slot; suite 2,276 s): 256 us a half, 64 a block (`win_on.json`, `win_off.json`).
+- **Flash 60, 61**: measure/dub-order 19bab11 (OC_CORE_STATS, OC_DUB_BENCH; OC_DUB_LATE=0 then 1; suites 2,236 and 2,247 s): VA BASS x4 + DUB LITE x4, effects on, dual-core, three rows each:
+  2,094 / 2,100 / 2,104 late with the job first, 67 / 76 / 76 after the first voice (`~/fm1-hw/dubord/late0.json`, `late1.json`).
+- **Flash 62**: the published Nightly v0.15.0-81f9f2 again; PipeWire profiles set; slot 1 detached after each flash (D954DF93 equal); WHEEL (start 0) and SHAPES (start 1) in place,
+  state 7; CLK 0; tracks MACRO 10/0/1/20; track 1 selected; CHRD 3 and VOIC 1 set again and read back.

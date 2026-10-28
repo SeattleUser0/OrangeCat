@@ -337,8 +337,42 @@ static JFX_XIP int32_t autopan(const track_t *t, uint32_t ti, uint32_t n)   /* t
 /* the sends a block (mix.c: each track's mono signal after its level, by its send), the buses' return and side, the
  * reverb's input after FILT / the pre-delay, scratch. CPU0 writes the sends and reads the rest after the job; the job
  * reads the sends and writes the rest (never both at once: audio_worker.h) */
-static int32_t send_c[CTL], send_d[CTL], send_r[CTL];
-static int32_t fx_wet[CTL], fx_sl[CTL], fx_sr[CTL], fx_tmp[CTL], rpre_out[CTL];
+/* (Release 2, stage 2) MELODEE_FX_DEFER 1: the buses of block b are joined only when CPU0 next needs the worker, and the master of block b mixes the
+ * returns of block b - 1 (one block, 32 samples, later; BUILD.md, "Release 2"). The sends and the returns are two sets each: the tracks write
+ * fx_snd[fx_sc], the bus job reads fx_bs and writes fx_bw, the master reads fx_ret[fx_rr]. 0: one set, the master reads the returns of its own block
+ * (the host's default, and every golden render before Release 2); the unit's builds have 1. */
+#ifndef MELODEE_FX_DEFER
+#ifdef FM1_IRQ_TARGET
+#define MELODEE_FX_DEFER 1
+#else
+#define MELODEE_FX_DEFER 0
+#endif
+#endif
+typedef struct { int32_t c[CTL], d[CTL], r[CTL]; } fx_sends_t;
+typedef struct { int32_t wet[CTL], sl[CTL], sr[CTL]; } fx_rets_t;
+static fx_sends_t fx_snd[2] __attribute__((section(".pool")));
+static fx_rets_t fx_ret[2] __attribute__((section(".pool")));
+static uint8_t fx_sc, fx_rw = MELODEE_FX_DEFER, fx_rr, fx_fresh;          /* the sends the tracks fill; the returns the job writes / the master reads; a result not yet adopted */
+static fx_sends_t *fx_bs = &fx_snd[0];                 /* the job's sets (CPU0 sets them before the submit) */
+static fx_rets_t *fx_bw = &fx_ret[0];
+#define send_c (fx_snd[fx_sc].c)
+#define send_d (fx_snd[fx_sc].d)
+#define send_r (fx_snd[fx_sc].r)
+#define fx_wet (fx_ret[fx_rr].wet)                       /* (the master's: the bus code names fx_bw) */
+#define fx_sl (fx_bw->sl)
+#define fx_sr (fx_bw->sr)
+static int32_t fx_tmp[CTL], rpre_out[CTL];
+/* what the bus reads of the rest of the machine, copied on CPU0 at bus_start: the job reads the copy, the events of the next block may change the
+ * originals meanwhile. All of song.g (the bus code names fxp.g), the tempo, RESO's inputs. In .pool: .bss shares the top bank with the arena's
+ * first blocks */
+static struct {
+    int16_t g[G_COUNT];
+    uint32_t beat;                                       /* beat_samples() */
+    uint32_t reso_mask, reso_lo;                         /* the scale (12 bits) and the followed track's lowest held note (0xFF: none) */
+    int32_t reso_root;
+} fxp __attribute__((section(".pool")));
+#define fxp_div(d) division_samples(fxp.beat, (d))
+static void jfx_bus_drain(void);
 static struct {
     uint32_t dly_w, cho_w, cho_ph;
     int32_t dly_lp, dly_hp;              /* the delay's feedback: high cut (COLR), low cut (JIANT: HPF) */
@@ -421,8 +455,8 @@ static void dly_grain_adv(void)
     fx.gr_ph = (fx.gr_ph + 65536u / GR_LEN) & 0xFFFFu;
     for (j = 0; j < 2u; j++)
         if (((fx.gr_ph + j * 32768u) & 0xFFFFu) < 65536u / GR_LEN) {
-            fx.gr_sp[j] = song.g[G_DSPRY] ? gr_rand() % ((uint32_t)song.g[G_DSPRY] * 64u + 1u) : 0u;
-            fx.gr_s[j] = (int32_t)GR_RATIO[clamp(song.g[G_DPIT], -12, 12) + 12] - 65536;
+            fx.gr_sp[j] = fxp.g[G_DSPRY] ? gr_rand() % ((uint32_t)fxp.g[G_DSPRY] * 64u + 1u) : 0u;
+            fx.gr_s[j] = (int32_t)GR_RATIO[clamp(fxp.g[G_DPIT], -12, 12) + 12] - 65536;
         }
 }
 static JFX_XIP int32_t dly_grain(uint32_t dl, uint32_t sh)   /* (0.8.4) sh: the line at FS >> sh */
@@ -494,7 +528,7 @@ static inline int32_t tone_run(const tone_t *t, int32_t in, int32_t *ic1, int32_
 }
 static void dly_wow_adv(uint32_t n, int32_t *m0, int32_t *dm)   /* the block's drift: from *m0, *dm a sample */
 {
-    int32_t m, d = song.g[G_DMOD];                      /* (0.6.86) MOD: 0 none, 20 a tape's, 127 seasick */
+    int32_t m, d = fxp.g[G_DMOD];                      /* (0.6.86) MOD: 0 none, 20 a tape's, 127 seasick */
     fx.dw_ph += (uint32_t)(0.6 * 4294967296.0 / FS) * n;
     fx.df_ph += (uint32_t)(5.3 * 4294967296.0 / FS) * n;
     m = ((osc_sine(fx.dw_ph) * d) >> 12) + ((osc_sine(fx.df_ph) * d) >> 15);   /* (Q8: WOW +-d / 3.9, FLUTTER +-d / 16) */
@@ -520,6 +554,16 @@ static inline int32_t dly_rd_q(uint32_t w, int32_t q)
     return x0 + ((((((c3 * f) >> 8) + c2) * f >> 8) + c1) * f >> 8);
 }
 static inline int32_t dly_rd(uint32_t d, int32_t m) { return dly_rd_q(fx.dly_w, (int32_t)(d << 8) + m); }
+/* (Release 2) MELODEE_FX_DEFER: the returns reach the master a block (CTL samples) late, so the output taps read CTL samples nearer, where the dry-path
+ * echo is today; the feedback taps stay where they are (the loop is inside the bus). Not for GRAIN (its own phase and spray). Else DLY_C is 0 and
+ * the output read is the feedback read */
+#if MELODEE_FX_DEFER
+#define DLY_C CTL
+#else
+#define DLY_C 0u
+#endif
+static inline uint32_t dly_near(uint32_t d) { return d > DLY_C + 1u ? d - DLY_C : DLY_C ? 1u : d; }
+static inline int32_t dly_rdc(uint32_t d, int32_t m) { return dly_rd(dly_near(d), m); }
 /* (0.8.4) the farthest back a read may sit, in the line's own samples short of its length (MOD's drift, the Hermite's
  * two older taps, one to spare) */
 #define DLY_EDGE 8u
@@ -531,8 +575,8 @@ static const uint16_t DTIME_MS[54] = {5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19,
     1311, 1480, 1670, 1885, 2128, 2402, 2711, 2950};
 static uint32_t delay_samples(void)
 {
-    uint32_t g = (uint32_t)clamp(song.g[G_DTIME], 0, 63);
-    uint32_t s = g < DT_FREE ? div_samples(g) : (uint32_t)DTIME_MS[(g - DT_FREE) % NELEM(DTIME_MS)] * 441u / 10u;
+    uint32_t g = (uint32_t)clamp(fxp.g[G_DTIME], 0, 63);
+    uint32_t s = g < DT_FREE ? fxp_div(g) : (uint32_t)DTIME_MS[(g - DT_FREE) % NELEM(DTIME_MS)] * 441u / 10u;
     return s < 16u ? 16u : s > DLY_MAX ? DLY_MAX : s;
 }
 
@@ -548,14 +592,14 @@ static inline int32_t rv_knee(int32_t x)
 /* (JIANT 0.5) the combs' feedback from SIZE: 0.76 .. 0.99 */
 static int32_t rev_size(void)
 {
-    int32_t g = clamp(song.g[G_RSIZE], 0, 127);
+    int32_t g = clamp(fxp.g[G_RSIZE], 0, 127);
     return 25000 + g * 40 + g * g / 7;
 }
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out (WIDE: rev_room_mod) */
 static JFX_XIP void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     uint32_t i;
-    int32_t size = rev_size(), dk = clamp(song.g[G_RDAMP], 0, 127) * 200;   /* (32767 - damp) */
+    int32_t size = rev_size(), dk = clamp(fxp.g[G_RDAMP], 0, 127) * 200;   /* (32767 - damp) */
     uint32_t i0 = fx.comb_i[0], i1 = fx.comb_i[1], i2 = fx.comb_i[2], i3 = fx.comb_i[3], a0 = fx.ap_i[0], a1 = fx.ap_i[1];
     int32_t l0 = fx.comb_lp[0], l1 = fx.comb_lp[1], l2 = fx.comb_lp[2], l3 = fx.comb_lp[3];
     int16_t *c0 = rev_comb, *c1 = c0 + REV_COMB[0], *c2 = c1 + REV_COMB[1], *c3 = c2 + REV_COMB[2];
@@ -600,9 +644,9 @@ static JFX_XIP void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
 static JFX_XIP void rev_room_mod(const int32_t *rev_in, int32_t *out, uint32_t n, int32_t wd)
 {
     uint32_t i, k;
-    int32_t size = rev_size(), damp = 32767 - clamp(song.g[G_RDAMP], 0, 127) * 200, m1[4], dm[4];
-    int32_t rm = clamp(song.g[G_RMOD], 0, 127), depth = rm ? 64 + rm * rm * 4 : 0;   /* Q8 samples: 0.25 .. 252 */
-    fx.rm_ph += LFO_INC[song.g[G_RRATE] & 127];
+    int32_t size = rev_size(), damp = 32767 - clamp(fxp.g[G_RDAMP], 0, 127) * 200, m1[4], dm[4];
+    int32_t rm = clamp(fxp.g[G_RMOD], 0, 127), depth = rm ? 64 + rm * rm * 4 : 0;   /* Q8 samples: 0.25 .. 252 */
+    fx.rm_ph += LFO_INC[fxp.g[G_RRATE] & 127];
     for (k = 0; k < 4u; k++) {
         m1[k] = (int32_t)(((uint32_t)(osc_sine(fx.rm_ph + k * 0x40000000u) + 32768) * (uint32_t)depth) >> 16);
         if ((uint32_t)fx.rm_m[k] > 0xFFFFu)             /* (0.6.76) past any depth: a wrong word would read far outside */
@@ -665,10 +709,10 @@ static void sp_chain(int32_t *ap, uint32_t ns)
 /* SPRING (see above), added to out */
 static JFX_XIP void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
-    uint32_t i, k, s = (uint32_t)clamp(song.g[G_RSIZE], 0, 127);
+    uint32_t i, k, s = (uint32_t)clamp(fxp.g[G_RSIZE], 0, 127);
     int32_t g = 19661 + (int32_t)s * 85 + (int32_t)(s * s) / 16;   /* the loop's gain: 0.6 .. 0.96 */
-    int32_t kl = 26000 - clamp(song.g[G_RDAMP], 0, 127) * 160;     /* its low-pass: ~9 kHz .. ~1.3 kHz */
-    int32_t len = (int32_t)(1323u + ((s * 1323u) >> 7)) << 8, L, L2, L3, f, w, rm = clamp(song.g[G_RMOD], 0, 127);
+    int32_t kl = 26000 - clamp(fxp.g[G_RDAMP], 0, 127) * 160;     /* its low-pass: ~9 kHz .. ~1.3 kHz */
+    int32_t len = (int32_t)(1323u + ((s * 1323u) >> 7)) << 8, L, L2, L3, f, w, rm = clamp(fxp.g[G_RMOD], 0, 127);
     int16_t *ln = rev_comb;
     int32_t *ap = jrev->u.sp;
     uint32_t ns = SP_N;
@@ -676,7 +720,7 @@ static JFX_XIP void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n)
         fx.sp_size = len;
     fx.sp_size += clamp(len - fx.sp_size, -256, 256);   /* SIZE glides (a sample a block at most) */
     L = fx.sp_size >> 8;
-    fx.sp_ph += 2u * LFO_INC[rm ? song.g[G_RRATE] & 127 : 24];   /* the wobble: a slow sine, 1.5 samples */
+    fx.sp_ph += 2u * LFO_INC[rm ? fxp.g[G_RRATE] & 127 : 24];   /* the wobble: a slow sine, 1.5 samples */
     w = (fx.sp_size >> 1) + ((osc_sine(fx.sp_ph) * (3 + rm / 2)) >> 8);   /* deep (MOD: up to 66); the far end, Q8 */
     L2 = w >> 8;
     f = w & 255;
@@ -739,12 +783,12 @@ static uint32_t semi_q16(int32_t st)
 }
 static int32_t rev_air(void)
 {
-    return song.g[G_RTYPE] == 2 || song.g[G_RTYPE] == 4 ? clamp(song.g[G_RPRE], -24, 24) : 0;
+    return fxp.g[G_RTYPE] == 2 || fxp.g[G_RTYPE] == 4 ? clamp(fxp.g[G_RPRE], -24, 24) : 0;
 }
 static int32_t sh_tlp;                                  /* (0.6.12) SHIMMER's tone: AIR's low-pass / its shelf */
 static JFX_XIP void rev_shimmer(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
-    int32_t in[CTL], t[CTL], amt = clamp(song.g[G_RMOD], 0, 127) * 190;   /* Q15: up to ~0.74 */
+    int32_t in[CTL], t[CTL], amt = clamp(fxp.g[G_RMOD], 0, 127) * 190;   /* Q15: up to ~0.74 */
     int32_t air = rev_air(), st = clamp(12 + air, -12, 24), tk = air < 0 ? 32767 + air * 1150 : 9000;
     int32_t step = (int32_t)semi_q16(st) - 65536;       /* (the delay changes by 1 - speed a sample, Q16) */
     uint32_t i, j;
@@ -778,8 +822,8 @@ _Static_assert(REV_NCOMB >= 4u * RS_LEN, "RESO in ROOM's buffers");
 /* (JIANT 0.6.5) RESO's two knobs of its own, in the slots of PRE and DAMP: PITCH (G_RPRE 0..14) the chord that many
  * steps of the scale up; FOLW (G_RDAMP 0..4, Orange Cat's four tracks) OFF / T1..T4: the chord built on the lowest
  * note that track sounds (held after it stops), so it moves with the sequence. The strings glide there */
-static uint32_t reso_pitch(void) { return song.g[G_RTYPE] == 3 ? (uint32_t)clamp(song.g[G_RPRE], 0, 14) : 0u; }
-static uint32_t reso_folw(void) { return song.g[G_RDAMP] >= 1 && song.g[G_RDAMP] <= (int16_t)NTRK ? (uint32_t)song.g[G_RDAMP] : 0u; }
+static uint32_t reso_pitch(void) { return fxp.g[G_RTYPE] == 3 ? (uint32_t)clamp(fxp.g[G_RPRE], 0, 14) : 0u; }
+static uint32_t reso_folw(void) { return fxp.g[G_RDAMP] >= 1 && fxp.g[G_RDAMP] <= (int16_t)NTRK ? (uint32_t)fxp.g[G_RDAMP] : 0u; }
 /* the first melodic track (its scale, Jiant's "song scale"): Orange Cat's DRUM tracks are drum_track's */
 static const track_t *jfx_scale_track(void)
 {
@@ -790,39 +834,34 @@ static const track_t *jfx_scale_track(void)
 }
 static JFX_XIP void rev_reso(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
-    const track_t *t = jfx_scale_track();
     uint32_t i, k, per[4], mask, s, fol = reso_folw(), up = reso_pitch();
-    int32_t sz = clamp(song.g[G_RSIZE], 0, 127), dk = 32767 - 60 * 200, note[4], deg = 0, nn;
+    int32_t root = fxp.reso_root;
+    int32_t sz = clamp(fxp.g[G_RSIZE], 0, 127), dk = 32767 - 60 * 200, note[4], deg = 0, nn;
     int32_t fb = sz <= 100 ? 26000 + sz * 52 : clamp(31200 + (sz - 100) * 58, 0, 32740);   /* (0.5.1: the top of SIZE
                                                          * rings on for tens of seconds) */
-    mask = scale_mask(t) & 0xFFFu;
-    if (!mask) mask = 0xFFFu;
-    nn = 48 + t->p[P_ROOT];
+    mask = fxp.reso_mask;                                 /* (the copy: scale_mask of the first melodic track, 0 -> all) */
+    nn = 48 + root;
     if (fol) {                                           /* FOLW: the lowest note the track sounds */
-        const track_t *ft = &trk[fol - 1u];
-        uint32_t lo = 0xFFu;
-        for (k = 0; k < NVOICE; k++)
-            if (ft->v[k].active && ft->v[k].gate && ft->v[k].note < lo)
-                lo = ft->v[k].note;
+        uint32_t lo = fxp.reso_lo;
         if (lo != 0xFFu)
             fx.rs_root = (uint8_t)(lo + 1u);
         if (fx.rs_root) {
             nn = 48 + (int32_t)(fx.rs_root - 1u) % 12;          /* (its pitch class from C3, down onto the scale) */
-            for (k = 0; k < 12u && !((mask >> (uint32_t)((nn - t->p[P_ROOT] + 120) % 12)) & 1u); k++)
+            for (k = 0; k < 12u && !((mask >> (uint32_t)((nn - root + 120) % 12)) & 1u); k++)
                 nn--;
         }
     }
     for (k = 0; k < up; nn++)                            /* PITCH: that many steps of the scale up */
-        if ((mask >> (uint32_t)((nn + 1 - t->p[P_ROOT] + 120) % 12)) & 1u)
+        if ((mask >> (uint32_t)((nn + 1 - root + 120) % 12)) & 1u)
             k++;
     for (k = 0, s = 0; k < 4u && s < 48u; s++, nn++)     /* the I, III, V, VII from there up */
-        if ((mask >> (uint32_t)((nn - t->p[P_ROOT] + 120) % 12)) & 1u) {
+        if ((mask >> (uint32_t)((nn - root + 120) % 12)) & 1u) {
             if (deg % 2 == 0)
                 note[k++] = nn;
             deg++;
         }
     for (; k < 4u; k++) note[k] = note[k - 1] + 12;
-    if (song.g[G_RMOD] > 64) { note[2] += 12; note[3] += 12; }   /* MOD: the voicing open */
+    if (fxp.g[G_RMOD] > 64) { note[2] += 12; note[3] += 12; }   /* MOD: the voicing open */
     for (k = 0; k < 4u; k++) {
         uint32_t inc = pitch_inc((uint32_t)clamp(note[k] * 16, 0, 2047));
         per[k] = 0xFFFFFFFFu / ((inc >> 8) | 1u);          /* the period, Q8 */
@@ -852,7 +891,7 @@ static JFX_XIP void rev_reso(const int32_t *rev_in, int32_t *out, uint32_t n)
 #define CL_BACK (CL_LEN - 6000u - 1024u)                 /* .. the farthest back a grain may start */
 static struct { uint32_t pos, inc; uint16_t len, age; int16_t pl, pr; } cl_g[CL_N];
 static uint32_t cl_rand(void) { fx.cl_rng = fx.cl_rng * 1664525u + 1013904223u; return fx.cl_rng >> 8; }
-static int jfx_cloud_frozen(void) { return song.g[G_RTYPE] == 4 && song.g[G_RSIZE] >= 127; }
+static int jfx_cloud_frozen(void) { return fxp.g[G_RTYPE] == 4 && fxp.g[G_RSIZE] >= 127; }
 /* CLOUD (G_RTYPE 4, JIANT 0.5, made wet in 0.5.1): a granular wash. The input and the cloud's own tail fed back are
  * written at half rate into a 0.74 s line; up to 12 overlapping grains (RATE: their density; 45 .. 140 ms long, triangle
  * windows) read it from anywhere behind the write, MOD of them an octave up, down or a fifth up; each grain panned at
@@ -861,12 +900,12 @@ static int jfx_cloud_frozen(void) { return song.g[G_RTYPE] == 4 && song.g[G_RSIZ
 static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     static const uint32_t PITCH[4] = {65536u, 131072u, 32768u, 98184u};   /* x1, an octave up, down, a fifth up (Q16) */
-    uint32_t i, k, freeze = song.g[G_RSIZE] >= 127 && fx.cl_fill >= 32768u;   /* (0.9.16: a line's worth first) */
-    int32_t gap = 1700 - clamp(song.g[G_RRATE], 0, 127) * 11, dk = 32767 - clamp(song.g[G_RDAMP], 0, 127) * 220;
-    int32_t wd = clamp(song.g[G_RWIDE], 0, 127), air = rev_air();
+    uint32_t i, k, freeze = fxp.g[G_RSIZE] >= 127 && fx.cl_fill >= 32768u;   /* (0.9.16: a line's worth first) */
+    int32_t gap = 1700 - clamp(fxp.g[G_RRATE], 0, 127) * 11, dk = 32767 - clamp(fxp.g[G_RDAMP], 0, 127) * 220;
+    int32_t wd = clamp(fxp.g[G_RWIDE], 0, 127), air = rev_air();
     uint32_t ar = semi_q16(air);                         /* (0.6.12) AIR: the grains up / down, the tone with them */
     if (air < 0) dk = clamp(dk + air * 1100, 1500, 32767);
-    int32_t fb = 0, fg = clamp(song.g[G_RSIZE], 0, 127) * 110, g[CTL], t[CTL];   /* (the grains, ~0.43, back into the line) */
+    int32_t fb = 0, fg = clamp(fxp.g[G_RSIZE], 0, 127) * 110, g[CTL], t[CTL];   /* (the grains, ~0.43, back into the line) */
     for (i = 0; i < n; i++) {
         int32_t l = 0, r = 0, m;
         if (!freeze) {                                   /* the line: the input and the tail, two samples into one */
@@ -884,7 +923,7 @@ static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
             fx.cl_next = gap / 2 + (int32_t)(cl_rand() % (uint32_t)gap);
             for (k = 0; k < CL_N && cl_g[k].len; k++) {}
             if (k < CL_N) {
-                uint32_t pk = cl_rand() % 100u < (uint32_t)clamp(song.g[G_RMOD], 0, 127) * 3u / 4u ? 1u + cl_rand() % 3u : 0u;
+                uint32_t pk = cl_rand() % 100u < (uint32_t)clamp(fxp.g[G_RMOD], 0, 127) * 3u / 4u ? 1u + cl_rand() % 3u : 0u;
                 int32_t pan = (int32_t)(cl_rand() % 257u) - 128;   /* -128 .. 128, times WIDE */
                 pan = pan * wd >> 7;
                 uint32_t inc = (uint32_t)(((uint64_t)(PITCH[pk] >> 1) * ar) >> 16), back;
@@ -941,7 +980,7 @@ static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
             fx_sr[i] -= sd;
         }
     }
-    if (song.g[G_RMOD] || wd)
+    if (fxp.g[G_RMOD] || wd)
         rev_room_mod(g, t, n, wd * 2);                   /* (its side x2 as well: the network at half the level) */
     else
         rev_room(g, t, n);
@@ -960,14 +999,14 @@ static int rev_can_run(uint32_t ty)
 }
 static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n)
 {
-    int32_t wd = clamp(song.g[G_RWIDE], 0, 127);
+    int32_t wd = clamp(fxp.g[G_RWIDE], 0, 127);
     switch (ty) {
     case 1: rev_spring(rev_in, out, n); if (wd) rev_spring_side(n, wd); break;
     case 2: rev_shimmer(rev_in, out, n); break;
     case 3: rev_reso(rev_in, out, n); break;
     case 4: rev_cloud(rev_in, out, n); break;
     default:
-        if (song.g[G_RMOD] || wd) rev_room_mod(rev_in, out, n, wd);
+        if (fxp.g[G_RMOD] || wd) rev_room_mod(rev_in, out, n, wd);
         else rev_room(rev_in, out, n);
         break;
     }
@@ -1012,11 +1051,16 @@ static inline int32_t cho_tap(const int16_t *buf, uint32_t w, int32_t r)
     int32_t f = r & 255, c0 = buf[(w - ri) & (CHO_LEN - 1u)], c1 = buf[(w - ri - 1u) & (CHO_LEN - 1u)];
     return c0 + (((c1 - c0) * f) >> 8);
 }
+#if MELODEE_FX_DEFER
+#define CHO_C CTL                                       /* (Release 2) the returns come a block late: the taps read a block nearer (the sweep only adds) */
+#else
+#define CHO_C 0
+#endif
 static inline int32_t cho_ens(const int16_t *buf, uint32_t w, uint32_t ph, int32_t depth, int32_t *sd)
 {
-    int32_t a = cho_tap(buf, w, (300 << 8) + ((osc_sine(ph) + 32768) * depth >> 8));
-    int32_t b = cho_tap(buf, w, (420 << 8) + ((osc_sine(ph + 0x55555555u) + 32768) * depth >> 8));
-    int32_t c = cho_tap(buf, w, (540 << 8) + ((osc_sine(ph + 0xAAAAAAAAu) + 32768) * depth >> 8));
+    int32_t a = cho_tap(buf, w, ((300 - CHO_C) << 8) + ((osc_sine(ph) + 32768) * depth >> 8));
+    int32_t b = cho_tap(buf, w, ((420 - CHO_C) << 8) + ((osc_sine(ph + 0x55555555u) + 32768) * depth >> 8));
+    int32_t c = cho_tap(buf, w, ((540 - CHO_C) << 8) + ((osc_sine(ph + 0xAAAAAAAAu) + 32768) * depth >> 8));
     *sd = a - b;
     return ((a + b + c) * 21845) >> 15;                 /* (x2 / 3 each: the sum at x2, as the one tap was) */
 }
@@ -1120,6 +1164,7 @@ static inline int32_t dly_rd_sh(uint32_t d, int32_t m, uint32_t sh)   /* d (+ m,
 {
     return dly_rd_q(fx.dly_w, ((int32_t)(d << 8) + m) >> sh);
 }
+static inline int32_t dly_rdc_sh(uint32_t d, int32_t m, uint32_t sh) { return dly_rd_sh(dly_near(d), m, sh); }
 /* the rate a read need (FS samples) back takes: the lowest shift it fits; toward a higher rate only once it is 1/32 inside
  * that one's reach (a tempo from an external clock wavering at a boundary: not a restart each beat) */
 static uint32_t dly_stage(uint32_t need, uint32_t cur)
@@ -1160,13 +1205,14 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
         return;
     }
     for (i = 0; i < n; i++) {
-        int32_t u = clamp(dly_in[i] >> 1, -65535, 65535), x, xr;
+        int32_t u = clamp(dly_in[i] >> 1, -65535, 65535), x, xr, ox, oxr;   /* (ox, oxr: the output taps, Release 2) */
         int ok = 1;
         if (fx.dsw == 2u) {                              /* (faded out within this block) */
             dx[i] = dxr[i] = 0;
             continue;
         }
         wm += dwm;
+        int32_t wmo = wm + (int32_t)DLY_C * dwm;
         if (fx.din_g) {                                  /* (a new line: the input faded in) */
             u = (u * (int32_t)(DSW_FADE - fx.din_g)) >> DSW_LOG2;
             fx.din_g--;
@@ -1182,23 +1228,31 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
                 for (j = 0; j < r; j++)
                     dly_grain_adv();
             x = fx.gr_on ? dly_grain(fx.dl_now, sh) : dly_rd_sh(fx.dl_now, wm, sh);
+            ox = fx.gr_on ? x : dly_rdc_sh(fx.dl_now, wmo, sh);
             if (fx.dl_xf) {
                 int32_t xo = fx.gr_old ? dly_grain(fx.dl_old, sh) : dly_rd_sh(fx.dl_old, wm, sh);
+                int32_t oo = fx.gr_old ? xo : dly_rdc_sh(fx.dl_old, wmo, sh);
                 x += ((xo - x) * (int32_t)fx.dl_xf) >> DXF_LOG2;
+                ox += ((oo - ox) * (int32_t)fx.dl_xf) >> DXF_LOG2;
                 fx.dl_xf = (uint16_t)(fx.dl_xf - r);
             }
             xr = x;
+            oxr = ox;
             if (k->png) {
                 xr = dly_rd_sh(fx.dl_now * 2u, wm, sh);
+                oxr = dly_rdc_sh(fx.dl_now * 2u, wmo, sh);
                 if (fx.dl_xf) {
-                    int32_t xo = dly_rd_sh(fx.dl_old * 2u, wm, sh);
+                    int32_t xo = dly_rd_sh(fx.dl_old * 2u, wm, sh), oo = dly_rdc_sh(fx.dl_old * 2u, wmo, sh);
                     xr += ((xo - xr) * (int32_t)fx.dl_xf) >> DXF_LOG2;
+                    oxr += ((oo - oxr) * (int32_t)fx.dl_xf) >> DXF_LOG2;
                 }
             } else if (k->wd || fx.dr_xf || fx.dr_now != fx.dl_now) {
                 xr = dly_rd_sh(fx.dr_now, wm, sh);
+                oxr = fx.gr_on ? xr : dly_rdc_sh(fx.dr_now, wmo, sh);
                 if (fx.dr_xf) {
-                    int32_t xo = dly_rd_sh(fx.dr_old, wm, sh);
+                    int32_t xo = dly_rd_sh(fx.dr_old, wm, sh), oo = fx.gr_on ? xo : dly_rdc_sh(fx.dr_old, wmo, sh);
                     xr += ((xo - xr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
+                    oxr += ((oo - oxr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
                     fx.dr_xf = (uint16_t)(fx.dr_xf - r);
                 }
             }
@@ -1215,7 +1269,9 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
             dly_put(fx.dly_w, k->dig ? clamp(w, -32767, 32767) : dly_sat(w));
             fx.dly_w++;
             if (k->png)
-                xr = mulq15(clamp(xr, -65535, 65535), k->fb > 32767 ? 32767 : k->fb);
+                oxr = mulq15(clamp(oxr, -65535, 65535), k->fb > 32767 ? 32767 : k->fb);
+            x = ox;                                      /* (from here the output's taps) */
+            xr = oxr;
             if (!sh) {
                 dlo.ox[0] = x;
                 dlo.orr[0] = xr;
@@ -1312,8 +1368,8 @@ static int32_t fx_glide(int32_t cur, int32_t to, uint32_t n)
 static int fx_rest(int32_t any, int32_t *wet, uint32_t n)
 {
     uint32_t ph = fx_rest_ph;
-    if (any || fxg_g || fxg_dly || song.g[G_DFDBK] >= 100 || fx.dsw || jfx_cloud_frozen() ||
-        (jrev && (uint32_t)clamp(song.g[G_RTYPE], 0, 4) != fx.rtype)) {   /* (0.6.0 rev 2: a model change waits to
+    if (any || fxg_g || fxg_dly || fxp.g[G_DFDBK] >= 100 || fx.dsw || jfx_cloud_frozen() ||
+        (jrev && (uint32_t)clamp(fxp.g[G_RTYPE], 0, 4) != fx.rtype)) {   /* (0.6.0 rev 2: a model change waits to
                                                          * fade only while the reverb is held: with none, nothing to
                                                          * fade, and the buses could never rest) */
         fx_rest_ph = 0;
@@ -1352,23 +1408,23 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
         if (fx_rest(any, wet, n))                       /* (0.9.14) at rest: not run */
             return;
     }
-    int32_t fb = dly_fb(clamp(song.g[G_DFDBK], 0, 120)), tn = clamp(song.g[G_DCOLOR], 0, 127) - 64;
-    int32_t wm, dwm, dig = song.g[G_DTYPE] == 1;
+    int32_t fb = dly_fb(clamp(fxp.g[G_DFDBK], 0, 120)), tn = clamp(fxp.g[G_DCOLOR], 0, 127) - 64;
+    int32_t wm, dwm, dig = fxp.g[G_DTYPE] == 1;
     tone_t dtn, rtn;
     int dton;
-    int32_t dmix = clamp(song.g[G_DMIX], 0, 127) * 258;
-    int32_t cdepth = clamp(song.g[G_CDEPTH], 0, 127) * 6, rt;
-    uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
-    int32_t hk = 5, wd = clamp(song.g[G_WIDTH], 0, 127);   /* (the loop's DC block: ~1 Hz, 0.6.89); WIDTH */
-    int32_t gr = song.g[G_DPIT] || song.g[G_DSPRY];     /* (JIANT) the GRAIN delay */
+    int32_t dmix = clamp(fxp.g[G_DMIX], 0, 127) * 258;
+    int32_t cdepth = clamp(fxp.g[G_CDEPTH], 0, 127) * 6, rt;
+    uint32_t cinc = LFO_INC[fxp.g[G_CRATE] & 127] / CTL;
+    int32_t hk = 5, wd = clamp(fxp.g[G_WIDTH], 0, 127);   /* (the loop's DC block: ~1 Hz, 0.6.89); WIDTH */
+    int32_t gr = fxp.g[G_DPIT] || fxp.g[G_DSPRY];     /* (JIANT) the GRAIN delay */
     /* (0.6.90) PING-PONG (not with the GRAIN): the line read at TIME (left) and twice TIME (right, the loop's tap), the
      * loop's gain squared, the right x FEEDBK */
-    int32_t png = song.g[G_DPING] == 1 && !gr, fb2 = (int32_t)(((int64_t)fb * fb) >> 15);
+    int32_t png = fxp.g[G_DPING] == 1 && !gr, fb2 = (int32_t)(((int64_t)fb * fb) >> 15);
     if (dig && fb > 32767) fb = 32767;                  /* (0.6.90) DIGITAL: 100 % at most, a repeat held for ever */
     if (dig && fb2 > 32767) fb2 = 32767;
-    int32_t cs = clamp(song.g[G_CSTER], -64, 63), cw = 80 + wd / 2;   /* (0.6.9) the chorus's side */
+    int32_t cs = clamp(fxp.g[G_CSTER], -64, 63), cw = 80 + wd / 2;   /* (0.6.9) the chorus's side */
     cw = cs >= 0 ? cw + cs * 2 : (cw * (64 + cs)) >> 6;
-    uint32_t dro = wd && !png ? div_samples(3) * (uint32_t)wd / 127u : 0u, dr;   /* the right echo: up to 1/32 later */
+    uint32_t dro = wd && !png ? fxp_div(3) * (uint32_t)wd / 127u : 0u, dr;   /* the right echo: up to 1/32 later */
     int dly_lo_on = have_d ? dly_rate(&dl, &dr, dro, png, gr) : 0;
     fxg_fb = fb > 0;
     if (!have_d) dr = dl;
@@ -1402,14 +1458,14 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
     dcw = fx_glide(fx.cw_cur, cw, n);
     ddm = fx_glide(fx.dm_cur, dmix, n);
     dly_wow_adv(n, &wm, &dwm);
-    if (tone_set(&rtn, clamp(song.g[G_RFILT], -64, 63), 121, 50, 14, 79, 1600, 1)) {   /* (JIANT) the reverb's tone */
+    if (tone_set(&rtn, clamp(fxp.g[G_RFILT], -64, 63), 121, 50, 14, 79, 1600, 1)) {   /* (JIANT) the reverb's tone */
         for (i = 0; i < n; i++)
             rpre_out[i] = tone_run(&rtn, rev_in[i], &fx.rt1, &fx.rt2);
         rev_in = rpre_out;
     } else
         fx.rt1 = fx.rt2 = 0;
-    if (have_r && jrev_x && song.g[G_RPRE] > 0 && song.g[G_RTYPE] <= 1 && fx.rtype <= 1u) {   /* (JIANT) the pre-delay */
-        uint32_t pd = (uint32_t)clamp(song.g[G_RPRE], 0, 100) * 20u;   /* (ms -> half-rate samples: 2000 at 100) */
+    if (have_r && jrev_x && fxp.g[G_RPRE] > 0 && fxp.g[G_RTYPE] <= 1 && fx.rtype <= 1u) {   /* (JIANT) the pre-delay */
+        uint32_t pd = (uint32_t)clamp(fxp.g[G_RPRE], 0, 100) * 20u;   /* (ms -> half-rate samples: 2000 at 100) */
         for (i = 0; i < n; i++) {                       /* half rate: two samples averaged in, read back between */
             uint32_t h = fx.rpre_w >> 1;
             int32_t a = rpre_buf[(h - pd) & (RPRE_LEN - 1u)], b = rpre_buf[(h - pd + 1u) & (RPRE_LEN - 1u)];
@@ -1429,7 +1485,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
         dly_lo(dly_in, dlo_x, dlo_xr, n, &k, wm, dwm);
     }
     for (i = 0; i < n; i++) {
-        int32_t y = 0, x = 0, side = 0, xr = 0, wr = 0;
+        int32_t y = 0, x = 0, side = 0, xr = 0, wr = 0, ox = 0, oxr = 0;   /* (ox, oxr: the output taps, x, xr the feedback's) */
         /* chorus (0.5.1: an ensemble): three taps of the line, ~7, 9.5 and 12 ms, each swept by the LFO a third of a
          * turn apart; the first left, the second right, the third in the middle: always stereo (WIDTH wider) */
         fx.cho_ph += cinc;
@@ -1437,39 +1493,47 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
         if (have_c) {
             int32_t sd;
             cho_buf[fx.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
-            y += cho_ens(cho_buf, fx.cho_w, fx.cho_ph, fx.cd_cur, &sd);
+            y += cho_ens(cho_buf, fx.cho_w, fx.cho_ph + CHO_C * cinc, fx.cd_cur, &sd);   /* (the LFO at the sample that is heard: CHO_C on) */
             sd = (sd * fx.cw_cur) >> 7;
             side += sd;
             fx.cho_w++;
         }
         if (!have_d) {
         } else if (dly_lo_on) {                         /* (0.8.4: dly_lo's, the right echo always there) */
-            x = dlo_x[i];
-            xr = dlo_xr[i];
+            ox = dlo_x[i];
+            oxr = dlo_xr[i];
             wr = 1;
         } else {
             /* delay with a low-passed (COLR) and low-cut (HPF) feedback */
             if (fx.gr_on || (fx.dl_xf && fx.gr_old))
                 dly_grain_adv();
             wm += dwm;
+            int32_t wmo = wm + (int32_t)DLY_C * dwm;         /* (the wow at the sample that is heard: extrapolated) */
             x = fx.gr_on ? dly_grain(fx.dl_now, 0u) : dly_rd(fx.dl_now, wm);
+            ox = fx.gr_on ? x : dly_rdc(fx.dl_now, wmo);
             if (fx.dl_xf) {                                 /* (0.6.81) the old read point fading out */
                 int32_t xo = fx.gr_old ? dly_grain(fx.dl_old, 0u) : dly_rd(fx.dl_old, wm);
+                int32_t oo = fx.gr_old ? xo : dly_rdc(fx.dl_old, wmo);
                 x += ((xo - x) * (int32_t)fx.dl_xf) >> DXF_LOG2;
+                ox += ((oo - ox) * (int32_t)fx.dl_xf) >> DXF_LOG2;
                 fx.dl_xf--;
             }
             if (png) {                                      /* (0.6.90) PING-PONG: the right, twice as far back */
                 xr = dly_rd(fx.dl_now * 2u, wm);
+                oxr = dly_rdc(fx.dl_now * 2u, wmo);
                 if (fx.dl_xf) {
-                    int32_t xo = dly_rd(fx.dl_old * 2u, wm);
+                    int32_t xo = dly_rd(fx.dl_old * 2u, wm), oo = dly_rdc(fx.dl_old * 2u, wmo);
                     xr += ((xo - xr) * (int32_t)fx.dl_xf) >> DXF_LOG2;
+                    oxr += ((oo - oxr) * (int32_t)fx.dl_xf) >> DXF_LOG2;
                 }
                 wr = 2;
             } else if (wd || fx.dr_xf || fx.dr_now != fx.dl_now) {   /* (JIANT) the right echo later */
                 xr = dly_rd(fx.dr_now, wm);
+                oxr = fx.gr_on ? xr : dly_rdc(fx.dr_now, wmo);
                 if (fx.dr_xf) {
-                    int32_t xo = dly_rd(fx.dr_old, wm);
+                    int32_t xo = dly_rd(fx.dr_old, wm), oo = fx.gr_on ? xo : dly_rdc(fx.dr_old, wmo);
                     xr += ((xo - xr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
+                    oxr += ((oo - oxr) * (int32_t)fx.dr_xf) >> DXF_LOG2;
                     fx.dr_xf--;
                 }
                 wr = 1;
@@ -1488,14 +1552,14 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
                 dly_put(fx.dly_w, dig ? clamp(w, -32767, 32767) : dly_sat(w));   /* (DIGITAL: clean) */
             }
             if (wr == 2)
-                xr = mulq15(clamp(xr, -65535, 65535), fb > 32767 ? 32767 : fb);   /* (the right: one repeat later) */
+                oxr = mulq15(clamp(oxr, -65535, 65535), fb > 32767 ? 32767 : fb);   /* (the right: one repeat later) */
             fx.dly_w++;
         }
         if (wr) {                                       /* mid and side */
-            side += mulq15(x - xr, fx.dm_cur);
-            x = (x + xr) >> 1;
+            side += mulq15(ox - oxr, fx.dm_cur);
+            ox = (ox + oxr) >> 1;
         }
-        y += mulq15(x << 1, fx.dm_cur);
+        y += mulq15(ox << 1, fx.dm_cur);
         wet[i] = y;
         if (side) {                                     /* (the side: left +, right -) */
             if (fxg_g < 32767)                          /* (0.6.14: gated as the rest) */
@@ -1504,7 +1568,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
             fx_sr[i] -= side;
         }
     }
-    rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4);
+    rt = (uint32_t)clamp(fxp.g[G_RTYPE], 0, 4);
     if (!have_r) {                                      /* (0.6.0 rev 2) no reverb held: the model taken as it is
                                                          * (nothing playing to fade) */
         fx.rtype = (uint8_t)rt;
@@ -1942,6 +2006,7 @@ static void jfx_mem(void)
 static void jfx_lend_check(void)
 {
     if (res_jfx_yield) {
+        jfx_bus_drain();                                /* (the buses' memory: only with no job out) */
         res_jfx_yield = 0;
         jfx_free_buses();
         if (sl_buf) jfx_sl_lost();
@@ -1951,6 +2016,7 @@ static void jfx_lend_check(void)
     }
     if (!(res_lend_used & (uint8_t)~res_lend_ok))
         return;
+    jfx_bus_drain();
     {
         uint32_t k, back = res_lend_used & (uint8_t)~res_lend_ok, d = 0, r = 0, used = 0;
         for (k = 0; k < DLY_NSEG; k++) d |= resource_lent(RES_JFX0 + JB_DLY0 + k) & back;
@@ -1981,17 +2047,40 @@ static void jfx_lend_check(void)
     }
 }
 
-/* the buses' job (CPU1 when there is one): the sends of this block in, fx_wet / fx_sl / fx_sr out */
+/* the buses' job (CPU1 when there is one): the sends of this block in (fx_bs), the returns out (fx_bw) */
 static uint32_t jfx_bus_n;
 static uint8_t jfx_bus_pending, jfx_bus_ran;
 static void jfx_bus_kernel(void *unused)
 {
     (void)unused;
-    fx_buses(send_c, send_d, send_r, fx_wet, jfx_bus_n);
+    fx_buses(fx_bs->c, fx_bs->d, fx_bs->r, fx_bw->wet, jfx_bus_n);
+}
+/* the copy the job reads (CPU0, at bus_start, with no job out) */
+static void fxp_take(void)
+{
+    memcpy(fxp.g, song.g, sizeof fxp.g);
+    fxp.beat = beat_samples();
+    fxp.reso_mask = 0xFFFu;
+    fxp.reso_root = 0;
+    fxp.reso_lo = 0xFFu;
+    if (song.g[G_RTYPE] == 3 || fx.rtype == 3u) {       /* RESO (running, or fading out): its inputs, read from the tracks here and not on CPU1 */
+        const track_t *t = jfx_scale_track();
+        uint32_t fol = reso_folw(), k, m = scale_mask(t) & 0xFFFu;
+        fxp.reso_mask = m ? m : 0xFFFu;
+        fxp.reso_root = t->p[P_ROOT];
+        if (fol) {                                      /* FOLW: the lowest note the track sounds */
+            const track_t *ft = &trk[fol - 1u];
+            for (k = 0; k < NVOICE; k++)
+                if (ft->v[k].active && ft->v[k].gate && ft->v[k].note < fxp.reso_lo)
+                    fxp.reso_lo = ft->v[k].note;
+        }
+    }
 }
 static void jfx_bus_start(uint32_t n)
 {
     uint32_t i, s = 0;
+    jfx_bus_drain();                                    /* the last block's job, if still out; its returns the master's from here */
+    fxp_take();
     for (i = 0; i < n; i++) {                           /* which sends are not silent (jfx_mem) */
         s |= send_c[i] ? 1u : 0u;
         s |= send_d[i] ? 2u : 0u;
@@ -2013,23 +2102,24 @@ static void jfx_bus_start(uint32_t n)
     jfx_bus_n = n;
     jfx_bus_pending = 0;
     jfx_bus_ran = dly_have || jrev || cho_buf;
+    fx_bs = &fx_snd[fx_sc];
+    fx_bw = &fx_ret[fx_rw];
+    fx_fresh = 1;                                       /* a result to adopt (jfx_bus_drain) */
+    fx_sc ^= MELODEE_FX_DEFER;                          /* the next block's tracks fill the other set */
     if (!jfx_bus_ran) {                                 /* nothing held, nothing sent: no buses at all */
-        memset(fx_wet, 0, n * sizeof *fx_wet);
-        memset(fx_sl, 0, n * sizeof *fx_sl);
-        memset(fx_sr, 0, n * sizeof *fx_sr);
+        memset(fx_bw->wet, 0, n * sizeof fx_bw->wet[0]);
+        memset(fx_bw->sl, 0, n * sizeof fx_bw->sl[0]);
+        memset(fx_bw->sr, 0, n * sizeof fx_bw->sr[0]);
         return;
     }
 #if MELODEE_DUAL_CORE
-#if OC_CORE_STATS
-    cs_kind = CS_K_BUS;                                 /* (0.14.2) the join counts this job as the buses' */
-#endif
     if (audio_worker_submit(jfx_bus_kernel, 0)) {
         jfx_bus_pending = 1;
+#if MELODEE_FX_DEFER && MELODEE_DUAL_CORE
+        audio_worker_deferred = jfx_bus_drain;          /* joined by whoever needs the worker next */
+#endif
         return;
     }
-#if OC_CORE_STATS
-    cs_kind = CS_K_VOICE;
-#endif
 #endif
     jfx_bus_kernel(0);
 }
@@ -2038,9 +2128,9 @@ static void jfx_bus_join(uint32_t n)
 {
 #if MELODEE_DUAL_CORE
     if (jfx_bus_pending && !audio_worker_join()) {
-        memset(fx_wet, 0, n * sizeof *fx_wet);
-        memset(fx_sl, 0, n * sizeof *fx_sl);
-        memset(fx_sr, 0, n * sizeof *fx_sr);
+        memset(fx_bw->wet, 0, n * sizeof fx_bw->wet[0]);
+        memset(fx_bw->sl, 0, n * sizeof fx_bw->sl[0]);
+        memset(fx_bw->sr, 0, n * sizeof fx_bw->sr[0]);
         fx_bus_clear();
     }
 #endif
@@ -2054,16 +2144,43 @@ static void jfx_trip_check(uint32_t n)
     uint32_t i;
     int32_t m = 0;
     for (i = 0; i < n; i++) {
-        int32_t a = fx_wet[i] < 0 ? -fx_wet[i] : fx_wet[i], b = fx_sl[i] < 0 ? -fx_sl[i] : fx_sl[i];
+        int32_t a = fx_bw->wet[i] < 0 ? -fx_bw->wet[i] : fx_bw->wet[i], b = fx_bw->sl[i] < 0 ? -fx_bw->sl[i] : fx_bw->sl[i];
         if (a > m) m = a;
         if (b > m) m = b;
     }
     if (m > (1 << 20)) {
-        memset(fx_wet, 0, n * sizeof *fx_wet);
-        memset(fx_sl, 0, n * sizeof *fx_sl);
-        memset(fx_sr, 0, n * sizeof *fx_sr);
+        memset(fx_bw->wet, 0, n * sizeof fx_bw->wet[0]);
+        memset(fx_bw->sl, 0, n * sizeof fx_bw->sl[0]);
+        memset(fx_bw->sr, 0, n * sizeof fx_bw->sr[0]);
         fx_bus_clear();
     }
+}
+/* The buses' job joined and its returns adopted: the trip check on them, then (deferred) the master's set becomes the one just written. Safe to call
+ * at any time and many times (one result is adopted once): at the first submit of the next block (audio_worker_submit), bus_start, a reset, a lend,
+ * the end of a half (audio.c: nothing is out when the main loop runs, which may write the flash), and the master when the join is not deferred */
+static void jfx_bus_drain(void)
+{
+    if (!fx_fresh) return;
+    fx_fresh = 0;
+#if MELODEE_FX_DEFER && MELODEE_DUAL_CORE
+    audio_worker_deferred = 0;
+#endif
+#if OC_CORE_STATS
+    {   /* (0.14.2) the join counts this job as the buses', whoever joins it (a submit about to set another kind keeps its own) */
+        uint8_t kind = cs_kind;
+        cs_kind = CS_K_BUS;
+        jfx_bus_join(jfx_bus_n);
+        cs_kind = kind;
+    }
+#else
+    jfx_bus_join(jfx_bus_n);
+#endif
+    if (jfx_bus_ran)
+        jfx_trip_check(jfx_bus_n);
+#if MELODEE_FX_DEFER
+    fx_rr = fx_rw;
+    fx_rw ^= 1u;
+#endif
 }
 /* a new project, a reset: every effect from silence (the FX layer let go), the next block */
 static volatile uint8_t jfx_reset_req;
@@ -2071,6 +2188,8 @@ static void jfx_clear_all(void) { jfx_reset_req = 1; }
 static void jfx_reset_now(void)
 {
     jfx_reset_req = 0;
+    jfx_bus_drain();                                    /* (no job out) */
+    memset(fx_ret, 0, sizeof fx_ret);                   /* (both sets of returns: the next master plays none of the old) */
     fx_bus_clear();
     memset(dist_st, 0, sizeof dist_st);
     memset(dist_w, 0, sizeof dist_w);
@@ -2081,6 +2200,7 @@ static void jfx_reset_now(void)
 /* power-on, a host test's fresh start: every bus's memory back, every state from silence */
 static void jfx_power_on(void)
 {
+    jfx_bus_drain();
     jfx_free_buses();
     resource_release(RES_JFX0 + JB_SL);
     sl_buf = 0;
@@ -2107,13 +2227,16 @@ static void jfx_master(int32_t *out, uint32_t n, int perf)
     int slfx = slicer_fx();
     if (!slfx)
         slicer_bus(sl_l, sl_r, n);                      /* (CPU0, while the buses run: its clock always) */
-    jfx_bus_join(n);
-    if (jfx_bus_ran)
-        jfx_trip_check(n);
-    for (i = 0; i < n; i++) {                           /* the buses' return and sides */
-        wet[i] = fx_wet[i];
-        mix_l[i] += fx_sl[i];
-        mix_r[i] += fx_sr[i];
+#if !MELODEE_FX_DEFER
+    jfx_bus_drain();                                    /* (the buses of this block) */
+#endif
+    {
+        const fx_rets_t *rt = &fx_ret[fx_rr];           /* (deferred: the last block's) */
+        for (i = 0; i < n; i++) {                       /* the buses' return and sides */
+            wet[i] = rt->wet[i];
+            mix_l[i] += rt->sl[i];
+            mix_r[i] += rt->sr[i];
+        }
     }
     if (slfx) {                                         /* (JIANT 0.6.3) FX ON: the returns through the SLICER */
         for (i = 0; i < n; i++) {

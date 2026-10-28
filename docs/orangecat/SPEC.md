@@ -1,12 +1,13 @@
 # Orange Cat: FM-1 Custom Firmware Specification
 
-**Version:** 0.30  
-**Date:** October 26, 2026  
+**Version:** 0.31  
+**Date:** October 28, 2026  
 **Status:** Draft for review  
 **Firmware name:** Orange Cat
 
 ### Revision history
 
+- **0.31 (October 28, 2026):** 9.3.2, the DUB TAPE performance view (from branch dub-tape, where it was written October 26; a design, not built): the four knobs FEEDBACK, SEND, TONE and SPACE, one octave of keys as throws at six levels, CUT, KICK, HOLD and CRASH, everything recorded as automation, the picture with the key map, the SMK-37 mapping.
 - **0.30 (October 26, 2026):** 0.14.2 on branch drum-kits (not on the unit yet; 8.1.2, 11.2). DRUM-X drum kits, after Skiff 2.0: each lane of a DRUM-X kit shall have its LEVEL, TUNE, DECAY and PAN (the pan law of the track lane by lane, before the track's own), and the sound values of Jiant's that are a lane's (LAYER, PUNCH, ATK+, BEND); the kit its TONE, HANDS and DUCK. A user preset of engine 9 shall store the whole kit (an extension of the preset record, versioned); a preset of before plays as it did. Projects keep their format and name the preset.
 - **0.29 (October 25, 2026):** 0.13.7 on branch linux-hw (on the unit: measured; 8.4). An engine's tables read every sample shall be read from RAM, not flash, whatever area they come from (the asset pack, a module, the image): the engine declares them, they are copied into the audio working memory when the engine is registered, and a module whose set does not fit is refused (NO ROOM). Four tracks of SHAPES shall cost no more than in 0.6.2. See the Build Document, Twelfth run, and docs/orangecat/ADDING_AN_ENGINE.md.
 - **0.28 (October 24, 2026):** 0.13.6 on branch sonnet-work (not on the unit yet; 4.6). The web editor shall show the audio load of the unit (an Audio readout): the worst render time since a reset, the block budget, the late renders and the load, refreshed once a second, with a reset. It is how a player and a developer see that four tracks fit the budget. See the Build Document, Eleventh run.
@@ -570,6 +571,36 @@ ECHO, ROOM, REVERB and CHORUS (three inserts and three shared slots) are removed
   first: an engine short of memory makes the effects let go. When there is not enough, an effect plays dry and says
   FX FULL; nothing is shortened or simplified.
 - Control: device pages, MIDI CC 91/93/94/104, motion for DIST, TONE, AUTO PAN depth and the sends, the web editor.
+
+#### 9.3.2 DUB TAPE performance view
+
+DUB TAPE is played, not set. When a track's DUB TAPE is selected, the main view is a performance surface. The FM-1's keyboard keys become the performance buttons, and every knob and key is recorded as automation and played back from the pattern.
+
+The four knobs:
+1. FEEDBACK. Range 0 to about 1.3. Below 1.0 decays, above 1.0 builds. The main performance knob.
+2. SEND. The resting send level, how much of the track goes into the delay when no throw key is held. At zero the effect is silent but the loop keeps circulating, so bringing it back catches what's still in there.
+3. TONE. One sweep of the loop filter, low-pass down to high-pass, with the spring tone tracking it.
+4. SPACE. Delay time on the first half of the travel, spring mix on the second half. Past center brings the spring in.
+
+The keys. One octave of the keyboard while the view is open. Throws are the most-used move, so they get the white keys.
+
+White keys, low to high: throw at 10, 30, 50, 70, 85 and 100 percent. The seventh white key is CUT. Pressing a throw key jumps SEND to that level and holds it while the key is down. Pressing another throw key while one is held moves to the new level, so 100 then 70 then 10 is three keys walked down the octave. Releasing the last key returns SEND to the knob. Each jump ramps over a few ms, no click. The levels are presets and editable in EDIT.
+
+Black keys, low to high: KICK, HOLD, CRASH, and two spare for later.
+- CUT (white). Loop input to zero while held, short ramp both ways. The fader grab.
+- KICK. Strikes the spring.
+- HOLD. Freezes FEEDBACK at 1.0 while held so the loop repeats without building or decaying.
+- CRASH. KICK with a 100 percent throw at the same time, the one-drop explosion in one press.
+
+All keys are momentary and all are also MIDI-triggered, so a foot switch or the SMK-37 pads work the same way. Other octaves keep playing the track normally so you can play a part and dub it with one hand each.
+
+EDIT holds the rest: route, head pattern, tape mode, spring placement and decay, drive, limiter ceiling, cut ramp time, throw level presets, which octave carries the keys.
+
+Automation. Every knob and every key records into the track's automation lanes and plays back with the pattern. Keys record as gate lanes, throw keys as the send level they set. A recorded build, throw and cut is a part of the song and repeats every time the pattern plays.
+
+Picture. An animated line-art tape loop with the spring tank beside it, color-coded to the knobs. Below it, a drawing of the octave with the white keys labeled 10, 30, 50, 70, 85, 100 and CUT, and the black keys labeled KICK, HOLD and CRASH, so the mapping is on screen while you play. The loop spins faster as FEEDBACK goes above 1.0, the tank shakes on KICK, and the pressed key lights up.
+
+On the SMK-37, SEND and FEEDBACK map to the track's faders, the throw levels to fader positions, and the action keys to pads. The DSP and the automation format are the same on both devices.
 
 ## 10. Sampling and Instrument Bouncing
 

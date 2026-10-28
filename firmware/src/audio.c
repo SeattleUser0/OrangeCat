@@ -177,6 +177,8 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 #endif
             audio_block(o + 2u * b, CTL);
         }
+        jfx_bus_drain();                        /* (Release 2) the last block's buses joined: nothing is out when the main loop runs (it may write the flash),
+                                                 * and the half's time below includes the wait */
         midi_render_timed = 0;
         fm1_audio_ack_half();
         audio_halves++;

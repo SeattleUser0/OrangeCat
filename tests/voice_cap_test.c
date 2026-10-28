@@ -74,13 +74,13 @@ int main(void)
     fresh(ENGI_MACRO,mallet);
     voice_cost_half(1,1);assert(!vc_on);voice_cost_half(0,1);voice_cost_half(1,1);assert(!vc_on);
 
-    /* engaged: three at once with the effects off, one with them on */
+    /* engaged: three at once with the effects off, two with them on (Release 2; one in Release 1) */
     fresh(ENGI_MACRO,mallet);
     voice_cost_half(1,1);voice_cost_half(1,1);assert(vc_on);
     chords(1);
     assert(sounding(VC_MODAL)==3u && vc_steals[VC_MODAL]==1u);
     voice_fx_on=1;chords(2);
-    assert(sounding(VC_MODAL)<=1u);
+    assert(sounding(VC_MODAL)<=2u);
 
     /* the released voice goes first (a cap of 3 set): track 0's note let go, then track 3 plays */
     fresh(ENGI_MACRO,mallet);
@@ -111,14 +111,14 @@ int main(void)
     assert(sounding(VC_FM6)<=15u);
 #endif
 
-    /* the Prophet x4: 6 off, 3 on */
+    /* the Prophet x4: 6 off, 4 on (Release 2; 3 in Release 1) */
     fresh(ENGI_PROPHET,0);
     assert(voice_class(&trk[0])==VC_PROPHET);
     voice_cost_half(1,1);voice_cost_half(1,1);
     chords(3);
     assert(sounding(VC_PROPHET)<=6u && vc_steals[VC_PROPHET]);
     voice_fx_on=1;chords(3);
-    assert(sounding(VC_PROPHET)<=3u);
+    assert(sounding(VC_PROPHET)<=4u);
 
     /* UNISON (a cap of 3 set): the extra voices find no room past the cap (refused, nothing taken); the lead voice does */
     fresh(ENGI_MACRO,mallet);
@@ -236,6 +236,6 @@ int main(void)
     assert(!vc_on);
     audio_worker_online=1;
 
-    printf("Cost caps: MODAL 3 / 1, FM6 16 / 15, the Prophet 6 / 3 while engaged; released voices first; VA untouched; released after a second; never on one core: OK\n");
+    printf("Cost caps: MODAL 3 / 2, FM6 16 / 15, the Prophet 6 / 4 while engaged; released voices first; VA untouched; released after a second; never on one core: OK\n");
     return 0;
 }
