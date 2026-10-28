@@ -281,9 +281,7 @@ export async function installPack(link, bytes, info, progress = () => {}, { wait
   if (bad) throw new OcError(bad);
   await begin(link, ocReq.packBegin(bytes.length), parseWrite, packCode, waitMs, sleep);
   for (let off = 512; off < bytes.length; off += 256) {
-    const a = await link.ask(ocReq.packWrite(off, bytes.subarray(off, Math.min(off + 256, bytes.length))), { timeout: 1000 });
-    if (!a) throw new OcError("ocLost");
-    const r = parseWrite(a);
+    const r = await packWriteChunk(link, off, bytes.subarray(off, Math.min(off + 256, bytes.length)));
     if (r.rc) throw new OcError(packCode(r.rc));
     progress((off - 512) / (bytes.length - 512));
   }
@@ -294,22 +292,25 @@ export async function installPack(link, bytes, info, progress = () => {}, { wait
   progress(1);
 }
 
-// (Release 1) A module write that gets no reply in its timeout is sent again with the same offset, up to OC_WRITE_TRIES in all. On a unit on a PC's USB the
-// loss measured (a 30 minute run, 2 of 3,604 requests) was the request that never reached the unit, and the unit takes a write only at the offset where its last
-// one ended (oc_module.c oc_mod_write: off == mw.done), so the same offset is right again. The other loss, the unit took the write and its reply was lost, is
-// answered by the unit as refused (rc 1) with the bytes written so far (3 x 7 bits, editor.c ED_MOD_WRITE): done == off + n says the first send did land, and
-// the page goes on. Any other refusal is the unit's. Nothing needs changing in the firmware for either.
+// (Release 1; the pack write too from release-2) A module or pack write that gets no reply in its timeout is sent again with the same offset, up to OC_WRITE_TRIES
+// sends in all. On a unit on a PC's USB the loss measured (a 30 minute run, 2 of 3,604 requests) was the request that never reached the unit, and the unit
+// takes a write only at the offset where its last one ended (oc_module.c oc_mod_write and oc_pack.c pk_write: off == done), so the same offset is right again.
+// The other loss, the unit took the write and its reply was lost, is answered by the unit as refused (rc 1) with the bytes written so far (3 x 7 bits, editor.c
+// ED_MOD_WRITE / ED_PACK_WRITE): done == off + n says the first send did land, and the page goes on. Any other refusal is the unit's. Nothing needs changing in
+// the firmware for either.
 export const OC_WRITE_TRIES = 3;
-async function modWriteChunk(link, off, bytes) {
+async function writeChunk(link, request, off, n) {
   for (let t = 0; t < OC_WRITE_TRIES; t++) {
-    const a = await link.ask(ocReq.modWrite(off, bytes), { timeout: 1000 });
+    const a = await link.ask(request, { timeout: 1000 });
     if (!a) continue;
     const r = parseWrite(a);
-    if (t > 0 && r.rc === 1 && r.done === off + bytes.length) return { rc: 0, done: r.done };
+    if (t > 0 && r.rc === 1 && r.done === off + n) return { rc: 0, done: r.done };
     return r;
   }
   throw new OcError("ocLost");
 }
+const modWriteChunk = (link, off, bytes) => writeChunk(link, ocReq.modWrite(off, bytes), off, bytes.length);
+const packWriteChunk = (link, off, bytes) => writeChunk(link, ocReq.packWrite(off, bytes), off, bytes.length);
 
 // install an .ocm (parsed) for the start the unit names; confirmInPlace() is asked when no other start is free (the old module goes first)
 export async function installModule(link, ocm, progress = () => {}, { waitMs = 90000, sleep = ocSleep, confirmInPlace = () => true } = {}) {
