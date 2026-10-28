@@ -35,6 +35,7 @@
 #     web/site_check.py proves them unchanged before and after the deploy). A push to main builds Standard and carries the live Nightly forward (rev 24).
 #
 # Revisions:
+#   Rev 25: the checksum files of rev 24 are written beside the site (the redirect of a subshell is the outer shell's), run 40776093236 stopped on it.
 #   Rev 24 (Orange Cat 0.15.0, branch linux-hw): a Standard deploy (push to main) carries the live Nightly forward: web/mirror_site.py --only-nightly copies its files into the site
 #     before the Standard build, which keeps a channel it finds there. The 0.15.0 push had deployed Standard alone and the Nightly (nightly.json, its firmware, pack, modules, app, editor) was gone.
 #     The Nightly step already kept Standard (rev 17). A check after the Standard build proves the Nightly files are the ones the live site had.
@@ -259,7 +260,7 @@ jobs:
           set -euo pipefail
           owner=$(echo "${{ github.repository_owner }}" | tr 'A-Z' 'a-z')
           python3 web/mirror_site.py --only-nightly "https://$owner.github.io/${{ github.event.repository.name }}" site
-          (cd site && find firmware webapp -type f \( -name '*nightly*' -o -path 'webapp/nightly-*' -o -path 'webapp/manual/nightly/*' \) 2>/dev/null | sort | xargs -r sha256sum) > ../nightly-before.txt || true
+          (cd site && find firmware webapp -type f \( -name '*nightly*' -o -path 'webapp/nightly-*' -o -path 'webapp/manual/nightly/*' \) 2>/dev/null | sort | xargs -r sha256sum) > nightly-before.txt || true
           cat nightly-before.txt
       - name: The site (main, this build is Standard)
         if: github.ref == 'refs/heads/main'
@@ -271,7 +272,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          (cd site && find firmware webapp -type f \( -name '*nightly*' -o -path 'webapp/nightly-*' -o -path 'webapp/manual/nightly/*' \) 2>/dev/null | sort | xargs -r sha256sum) > ../nightly-after.txt || true
+          (cd site && find firmware webapp -type f \( -name '*nightly*' -o -path 'webapp/nightly-*' -o -path 'webapp/manual/nightly/*' \) 2>/dev/null | sort | xargs -r sha256sum) > nightly-after.txt || true
           diff nightly-before.txt nightly-after.txt && echo "the Nightly files are the ones the live site had ($(wc -l < nightly-after.txt) files)"
       # (rev 17, Orange Cat 0.13.6) A branch run: the site is the live one (Standard, the editor, the manual) plus this build as Nightly. Pages deploys a whole
       # site, so the live files are copied first (web/mirror_site.py), never rebuilt; their checksums are kept to prove, before the deploy and after it, that
