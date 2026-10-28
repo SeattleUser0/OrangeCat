@@ -87,19 +87,74 @@ the 20 s. "voices a block" is the kernels run over four times the halves rendere
 
 | engine | proposed | set | four tracks, voices a block before → after | lost |
 |---|---|---|---|---|
-| MODAL (MALLET, GLASS BELL) | 3 / 3 | **1 / 1** | effects on 4.59 → 1.05; off 4.90 → 1.07 | 3.5 to 3.8 voices: one bell note at a time across the tracks |
+| MODAL (MALLET, GLASS BELL) | 3 / 3 | **1 / 1** (round 1; round 2 below: **3 / 1**) | effects on 4.59 → 1.05; off 4.90 → 1.07 | 3.5 to 3.8 voices: one bell note at a time across the tracks |
 | the Prophet | 7 / 5 | **6 / 3** | on 8.31 → 3.04; off 8.29 → 6.04 | 5.3 voices with the effects on, 2.3 off |
 | FM6 | 16 / 15 | 16 / 15 (unchanged) | none holds: 1 voice still p99 3,008 | not in Orange Cat's engine set (orangecat_engines.sh); left as proposed |
 
 **Why the caps that hold are lower than the proposal's.** The proposal read the caps off one, two and three tracks with no stealing
 (MALLET x2 at 2.9 voices: p99 2,848). With four tracks and the caps, every step steals: the stolen voice fades out over the block in
 which the new one starts, so the step's half renders about twice the cap (cap 2: 2.08 voices a block on average, p99 3,648, as three
-tracks without a cap). The cut that holds is set by those halves, not by the average. Two ways to give voices back, not done for
-Release 1 (no renderer change after the caps): count the fading voices in the cap, or end a stolen voice in a shorter fade.
+tracks without a cap). The cut that holds is set by those halves, not by the average. Round 2 (below) did both ways to give voices back.
 **FM6:** its cost on four tracks is in the step's note-ons (the voices' setup), not in the voices sounding; no voice cap reaches it.
 
 **One core.** The caps' guard is CPU1 online. The measurement images' single-core mode (OC_CORE_STATS) keeps CPU1 online and renders
 on CPU0, so the caps engaged in those rows (the caps out of the way there); the shipped firmware has no such mode.
+
+### The cost caps, round 2: the stealing accounting (Flash 55 and 56; linux-hw 2efc2af to 5122fbd)
+
+**What changed** (voice.c voice_cap_room, track_render_audio; reviewed independently with 8860915, three times, the findings fixed):
+1. **The fading voices count.** A stolen voice still renders its fade in the half. The fades standing when a note asks for room take
+   their share off the cap (a stolen bell an eighth of a voice, a Prophet or FM6 voice a quarter), never below one voice; a note steals down to
+   what is left. (Counting a fade as a whole voice cannot work: a steal turns a sounding voice into a fading one and the count does not
+   move, so notes would be refused or would take the step's own notes.)
+2. **A short fade for a stolen bell.** A stolen MODAL voice, while the caps are on, renders 16 of the block's 32 samples with its level
+   running down to 0 at sample 16 (no click: the ramp ends at 0). Before, the fade was the whole block (0.7 ms, already short); the cost
+   of a fade is the samples rendered. Prophet and FM6 keep their block.
+3. **A note that has not sounded is dropped without a fade.** A four-track chord step makes 16 note-ons in one half; with a cap, each
+   took the step's own earlier note (nothing of it rendered yet) and left a fade for it. A voice started in the half and not rendered
+   (stage 1, env and env_out 0) is now switched off with nothing to render; FM6 excluded (its core keeps the note). The fades of a step are
+   now the old voices replaced, at most the cap. Without this the counting made Prophet x4 worse (cap 3, effects on: 1.17 voices a
+   block, p99 3,552 us, against 3.04 and 2,624 before): the burst's own fades counted against the cap.
+
+**How they were set again.** Same runs as round 1 (`caps_runs.py`, 20 s, OC_CORE_STATS image of cc163c6, the Prophet module of 46be024 in
+start 2 with SHAPES removed and WHEEL in place; SHAPES reinstalled after). The first cap row after the "cap out of the way" row carries
+about 150 late halves (p99 3,360 or 3,552 at a cap that holds on its repeat: MALLET on cap 1 3,360 / 152 late, then 2,240 / 22, 2,240 / 22;
+Prophet on cap 3 3,552 / 152, then 2,592 / 22 twice); the ladders here run a warm-up row first and read the later rows. The same
+artifact is in round 1's first rows (312, 313 late at the highest caps). Files: `~/fm1-hw/caps2/w_*.json`, `rep_*.json`, `ladder2.json`.
+
+| case | cap | voices a block | p99 | max | late in 20 s |
+|---|---|---|---|---|---|
+| MALLET x4, effects on | none | 4.59 | >4,096 | 4,631 | 3,425 |
+| | **1** | 1.01 | **2,240** | 3,601 | 22 |
+| | 2 | 1.97 | 3,040 | 3,591 | 182 |
+| | 3 | 2.95 | 3,264 | 3,402 | 159 |
+| MALLET x4, effects off | none | 4.90 | 3,712 | 3,839 | 166 |
+| | 2 | 2.0 | 2,528 | 3,069 | 1 |
+| | **3** | 2.96 | **2,752** | 3,781 | 1 |
+| | 4 | 4.02 | 3,520 | 3,553 | 162 |
+| the Prophet x4, effects on | none | 8.29 | >4,096 | 4,575 | 3,447 |
+| | **3** | 3.02 | **2,592** | 3,751 | 22 |
+| | 4 | 3.98 | 2,944 | 3,777 | 102 |
+| | 5 | 4.99 | 3,200 | 3,243 | 161 |
+| the Prophet x4, effects off | none | 8.29 | 3,776 | 3,806 | 3,446 |
+| | **6** | 6.02 | **2,688** | 2,747 | 0 |
+| | 7 | 7.00 | 3,104 | 3,127 | 182 |
+
+**The caps now** (effects off / on): MODAL **3 / 1** (was 1 / 1), the Prophet 6 / 3 (unchanged), FM6 16 / 15 (unchanged, not re-measured:
+not in Orange Cat's set). Voices a block before → after, and what is lost:
+
+| engine | four tracks, before → after | lost |
+|---|---|---|
+| MALLET, effects off | 4.90 → 2.96 | 1.9 voices (was 3.8) |
+| MALLET, effects on | 4.59 → 1.01 | 3.6 voices: one bell note at a time, as before |
+| the Prophet, effects on | 8.29 → 3.02 | 5.3 |
+| the Prophet, effects off | 8.29 → 6.02 | 2.3 |
+
+**Why MALLET lands at 3 with the effects off and not with them on.** Effects off, three bells hold (p99 2,752 us; four, 3,520). With the
+effects on, two already pass the deadline (cap 2: p99 3,040, 182 late; round 1: 3,648 / 160). Between them the shared effects add about 500
+us to the half (cap 2: 2,528 off, 3,040 on), more than the headroom a second bell leaves (a bell is about 800 us a half, dual-core). The
+shorter fade and the counting brought cap 2 from 3,104 / 159 late (effects off) to 2,528 / 1 and the cap with effects on from over the
+deadline at 2 (3,648) to 3,040: not enough. A third bell with the effects on needs a cheaper effects bus, or a cheaper bell.
 
 ### The Prophet x4 with its cost entry at 1,956
 
@@ -183,7 +238,7 @@ the Nightly as it is), measure/batch-s1, measure/batch-s1-ram, main, linux-hw. F
 
 ### Known limits of Release 1
 
-- Four MALLET (or GLASS BELL) tracks steal voices: with the caps engaged one bell note sounds at a time across them.
+- Four MALLET (or GLASS BELL) tracks steal voices: with the caps engaged three bell notes sound at once across them, one with the shared effects on.
 - Four DRUM-X tracks with PAN and TUNE set on every lane can run late.
 - CLOUD (the reverb) on a full mix is tight.
 - An occasional editor request is lost on its way to the unit (6 in the two-hour stability run of October 27, 2 in Release 1's 30

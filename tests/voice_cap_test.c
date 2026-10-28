@@ -74,11 +74,11 @@ int main(void)
     fresh(ENGI_MACRO,mallet);
     voice_cost_half(1,1);assert(!vc_on);voice_cost_half(0,1);voice_cost_half(1,1);assert(!vc_on);
 
-    /* engaged: one at once, whatever the effects */
+    /* engaged: three at once with the effects off, one with them on */
     fresh(ENGI_MACRO,mallet);
     voice_cost_half(1,1);voice_cost_half(1,1);assert(vc_on);
     chords(1);
-    assert(sounding(VC_MODAL)==1u && vc_steals[VC_MODAL]==3u);
+    assert(sounding(VC_MODAL)==3u && vc_steals[VC_MODAL]==1u);
     voice_fx_on=1;chords(2);
     assert(sounding(VC_MODAL)<=1u);
 
@@ -236,6 +236,6 @@ int main(void)
     assert(!vc_on);
     audio_worker_online=1;
 
-    printf("Cost caps: MODAL 1, FM6 16 / 15, the Prophet 6 / 3 while engaged; released voices first; VA untouched; released after a second; never on one core: OK\n");
+    printf("Cost caps: MODAL 3 / 1, FM6 16 / 15, the Prophet 6 / 3 while engaged; released voices first; VA untouched; released after a second; never on one core: OK\n");
     return 0;
 }

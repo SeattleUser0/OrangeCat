@@ -122,10 +122,11 @@ is version 6; older modules still load and play on the first core).
 
 **0.15.0, Release 1: four heavy tracks hold, by giving up voices.** When the unit measures that it is close to running out of time
 (two blocks in a row over 80 % of the time a block has), it limits how many voices of the three costliest engines sound at once,
-across all tracks, until a second passes under 70 %. MALLET and GLASS BELL (MACRO's bells): one note at a time across the tracks.
-The Prophet: six at once, three while the shared effects (send delay, reverb) run. A new note takes the place of the oldest note
+across all tracks, until a second passes under 70 %. MALLET and GLASS BELL (MACRO's bells): three notes at once across the tracks, one while the shared effects (send delay, reverb) run.
+The Prophet: six at once, three while the effects run. A new note takes the place of the oldest note
 of the same engine already let go, else the oldest held one, keeping each track's lowest held note as long as it can; the note
-given up fades out instead of stopping. With one, two or three of those tracks, or with lighter sounds, the unit seldom comes close
+given up fades out in a few milliseconds (a bell's in under half of one), and a note of the same step that has not sounded yet is dropped
+with no fade at all. With one, two or three of those tracks, or with lighter sounds, the unit seldom comes close
 and nothing changes. Measured on the unit with the chord on every step on four tracks: four MALLET tracks went from late on nearly
 every block to none, four Prophet tracks the same with the effects on (one late block in 20 seconds with them off). The Prophet's share of the two cores is now set from its measurement. The editor
 link counts the requests it gets and the replies it sends (for finding a lost reply); nothing you see changes. The version is 0.15.0:
@@ -133,8 +134,8 @@ the unit shows `v0.15.0-` and the build's commit. Nothing is stored in a new for
 
 ## Known limits of Release 1
 
-- **Four MALLET or GLASS BELL tracks with the effects on steal voices:** while the unit is near its limit, one bell note sounds at a
-  time across those tracks, the others fading out. Fewer bell tracks keep their chords.
+- **Four MALLET or GLASS BELL tracks steal voices:** while the unit is near its limit, three bell notes sound at once across those
+  tracks, and one with the shared effects (send delay, reverb) on; the others fade out. Fewer bell tracks keep their chords.
 - **Four DRUM-X tracks with PAN and TUNE set on every lane can run late** (a short dropout) when every lane plays.
 - **CLOUD (the reverb mode) on a full mix is tight:** with four busy tracks it can run late; ROOM, SPRING and the others are lighter.
 - **An editor reply is occasionally lost** (a few in two hours of constant use). The web app then shows ocLost on the page; doing the
