@@ -32,9 +32,14 @@
 #   - Actions > build > Run workflow, a branch other than main, with "publish_nightly" ticked (rev 17): after the build and the host tests, the pages job
 #     publishes the installer page with this run's firmware, pack and modules as its Nightly channel (labeled with the branch, the commit, the firmware's
 #     version string and the build date), and with Standard, the editor and the manual exactly as they are served now (web/mirror_site.py copies them,
-#     web/site_check.py proves them unchanged before and after the deploy). A push to main replaces the whole site and so ends the Nightly.
+#     web/site_check.py proves them unchanged before and after the deploy). A push to main builds Standard and carries the live Nightly forward (rev 24).
 #
 # Revisions:
+#   Rev 24 (Orange Cat 0.15.0, branch linux-hw): a Standard deploy (push to main) carries the live Nightly forward: web/mirror_site.py --only-nightly copies its files into the site
+#     before the Standard build, which keeps a channel it finds there. The 0.15.0 push had deployed Standard alone and the Nightly (nightly.json, its firmware, pack, modules, app, editor) was gone.
+#     The Nightly step already kept Standard (rev 17). A check after the Standard build proves the Nightly files are the ones the live site had.
+#     Also learned (runs 40764544736, 40769320112): Pages keys a deployment by the commit (pages_build_version). A Nightly dispatched from a commit that a push to main
+#     had already deployed reports "success" and changes nothing, and the live-site check then fails after ten minutes. Dispatch the Nightly from a commit main has not deployed.
 #   Rev 23 (Orange Cat 0.15.0, branch linux-hw): the Standard site step is a block scalar. As a plain multi-line scalar its "\" line ends became a literal " " argument and the first main
 #     build after rev 22 (run 40735577150, v0.15.0) stopped at "unrecognized arguments"; the Nightly step was a block already.
 #   Rev 22 (Orange Cat 0.14.1, branch linux-hw): the Nightly and the site leave op1r's .ocm out too (fmbell, supersaw, dddd: behind OC_CANDIDATES,
@@ -248,12 +253,26 @@ jobs:
         with:
           name: packages
           path: pkg
+      - name: The live Nightly, carried forward (main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          owner=$(echo "${{ github.repository_owner }}" | tr 'A-Z' 'a-z')
+          python3 web/mirror_site.py --only-nightly "https://$owner.github.io/${{ github.event.repository.name }}" site
+          (cd site && find firmware webapp -type f \( -name '*nightly*' -o -path 'webapp/nightly-*' -o -path 'webapp/manual/nightly/*' \) 2>/dev/null | sort | xargs -r sha256sum) > ../nightly-before.txt || true
+          cat nightly-before.txt
       - name: The site (main, this build is Standard)
         if: github.ref == 'refs/heads/main'
         run: |
           python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
             $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
+      - name: The Nightly came through the Standard build unchanged (main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          (cd site && find firmware webapp -type f \( -name '*nightly*' -o -path 'webapp/nightly-*' -o -path 'webapp/manual/nightly/*' \) 2>/dev/null | sort | xargs -r sha256sum) > ../nightly-after.txt || true
+          diff nightly-before.txt nightly-after.txt && echo "the Nightly files are the ones the live site had ($(wc -l < nightly-after.txt) files)"
       # (rev 17, Orange Cat 0.13.6) A branch run: the site is the live one (Standard, the editor, the manual) plus this build as Nightly. Pages deploys a whole
       # site, so the live files are copied first (web/mirror_site.py), never rebuilt; their checksums are kept to prove, before the deploy and after it, that
       # Standard did not change (web/site_check.py). (A failing step puts its output on the run page as an error annotation.)
