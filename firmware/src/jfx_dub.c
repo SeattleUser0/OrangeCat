@@ -33,6 +33,7 @@ static const dub_ptrn_t dub_ptrn[6] = {                 /* heads in steps of TIM
 enum { DUBS_OFF, DUBS_WAIT, DUBS_RUN, DUBS_RAMP, DUBS_CLEAR };
 typedef struct {
     uint8_t state, R, ramp, clr, run, kick_prev, was_on, pend_R, evict, held_off, gov;   /* evict: ramp out and let go (a bus needs the memory, the CPU is short); held_off: not asking again (see dub_held_off) */
+    uint16_t rdeb;                                      /* blocks the rate stage has wanted to change: it changes after 344 (a tempo still settling must not clear the line) */
     uint8_t pvalid;                                     /* the job's parameter copy (dub_p[k]) is current for psig */
     uint32_t psig, rsig;                                /* a hash of what the parameter copy / the rate stage were made from: unchanged, not made again */
     float rneed;                                        /* the farthest head's samples at the half rate, from rsig */
@@ -188,7 +189,8 @@ JFX_XIP static void dub_start(uint32_t nt)
                 d->rsig = rs;
             }
             need = d->rneed;
-            R = (d->R == 4u ? need <= 0.9f * lines : need <= lines) ? 2u : 4u;
+            R = (d->R == 4u ? need <= 0.95f * lines : need <= lines) ? 2u : 4u;
+            if (d->state == DUBS_RUN && R != d->R) { if (d->rdeb < 344u) { d->rdeb++; R = d->R; } } else d->rdeb = 0;
             {   float farsec = (need - 48.0f) / ((float)DD_FS / 2.0f), lim = (lines - 48.0f) / ((float)DD_FS / (float)R);   /* seconds to the farthest head (need is at the half rate), and the line's limit */
                 if (farsec > lim) farsec = lim;
                 d->hold_len = (uint16_t)(farsec * ((float)DD_FS / (float)CTL) + (float)DUB_HOLD); }
