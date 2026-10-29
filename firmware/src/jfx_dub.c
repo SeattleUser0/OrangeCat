@@ -15,7 +15,7 @@
 _Static_assert(DD_BLOCK == CTL, "a job a block");
 
 #define DUB_SCALE 524288.0f                             /* the mix domain: 1.0 = 524,288 (x is clamped to +-524,287; the master shifts by 4 to Q15) */
-#define DUB_HOLD 24u                                    /* blocks a track stays mixed past its last audible input or wet */
+#define DUB_HOLD 24u                                    /* blocks past the farthest head that an instance keeps running after the last audible input or wet */
 #define DUB_THR 132                                     /* -72 dB of the mix domain */
 #define DUB_RAMP 6u                                     /* blocks of cut before a change (the kernel's ramp is 3 ms = 4.1 blocks) */
 static const uint8_t dub_len_blocks[7] = {0, 2, 4, 6, 8, 12, 16};   /* P_DUBLEN: OFF 8K 16K 24K 32K 48K 64K, in blocks of 4 KB */
@@ -32,7 +32,8 @@ static const dub_ptrn_t dub_ptrn[6] = {                 /* heads in steps of TIM
 };
 enum { DUBS_OFF, DUBS_WAIT, DUBS_RUN, DUBS_RAMP, DUBS_CLEAR };
 typedef struct {
-    uint8_t state, R, ramp, clr, hold, run, kick_prev, was_on, pend_R;
+    uint8_t state, R, ramp, clr, run, kick_prev, was_on, pend_R;
+    uint16_t hold, hold_len;                            /* blocks the instance runs and its track stays mixed past the last audible input or wet; the refresh (the farthest head and 24) */
     uint32_t crash;
 } dub_i_t;
 static dub_i_t dub_i[DUB_N];
@@ -119,6 +120,9 @@ static void dub_start(uint32_t nt)
             float lines = (float)(blocks << DD_BLK_SH);
             dub_map(k, t, &tmp, 2u, blocks, &need);
             R = (d->R == 4u ? need <= 0.9f * lines : need <= lines) ? 2u : 4u;
+            {   float farsec = (need - 48.0f) / ((float)DD_FS / (float)R), lim = (lines - 48.0f) / ((float)DD_FS / (float)R);   /* seconds to the farthest head (the line's limit) */
+                if (farsec > lim) farsec = lim;
+                d->hold_len = (uint16_t)(farsec * ((float)DD_FS / (float)CTL) + (float)DUB_HOLD); }
         }
         {   int rise = clamp(t->p[P_DUB_KICK], 0, 127) >= 64;
             if (rise && !d->kick_prev) d->crash++;
@@ -170,7 +174,7 @@ static void dub_start(uint32_t nt)
             int32_t pk = 0;
             const int32_t *x = dub_x[dub_job_buf][k];
             for (i = 0; i < CTL; i++) { int32_t a = x[i] < 0 ? -x[i] : x[i]; if (a > pk) pk = a; }
-            if (pk > DUB_THR) d->hold = (uint8_t)DUB_HOLD;
+            if (pk > DUB_THR) d->hold = d->hold_len;
             if (d->hold) {
                 dd_params_t *p = &dub_p[k];
                 dub_map(k, t, p, d->R, dub_have[k], 0);

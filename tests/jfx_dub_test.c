@@ -1,0 +1,158 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Orange Cat Release 2: DUB TAPE's kernel (firmware/src/dubdelay.c), the host tests of its behaviour: the repeats at TIME, 2 TIME and 3 TIME, each darker; FEEDBACK
+ * above 1 bounded; the line through its block table the same as one buffer; TIME changes and the filter sweep continuous; the cut's ramps; the spring in both
+ * placements stable; the quarter rate. Run by tests/run_tests.sh. */
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "../firmware/src/dubdelay.c"
+
+static int bad;
+#define CHECK(c, ...) do { if (!(c)) { bad++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
+
+static dd_t dd;
+static int16_t *blk[DD_MAXBLK];
+static int16_t *pool;
+static void setup(int R, uint32_t nblk, int contiguous)
+{
+    uint32_t k;
+    dd_tables_init();
+    free(pool);
+    pool = calloc(nblk * (DD_BLK_N + 64u), sizeof(int16_t));     /* (padding between blocks when not contiguous: the table is what finds them) */
+    for (k = 0; k < nblk; k++) blk[k] = contiguous ? pool + k * DD_BLK_N : pool + k * (DD_BLK_N + 64u);
+    dd_init(&dd, R, blk, nblk);
+}
+static void params(dd_params_t *p, float time, float fb)
+{
+    memset(p, 0, sizeof *p);
+    p->time = time; p->head[0] = 1.0f; p->level[0] = 0.9f; p->fbw[0] = 1.0f;
+    p->feedback = fb; p->hp = 15.0f; p->lp = 119.0f; p->res = 0.3f; p->drive = 0.4f; p->send = 1.0f; p->wet = 1.0f; p->glide = 0.12f; p->route = 1;
+    p->lim_ceil = 0.891f;
+}
+/* n blocks, the input from in[] (or 0), the left output into out[] */
+static void run(const dd_params_t *p, const float *in, float *out, uint32_t nb)
+{
+    float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK];
+    for (uint32_t b = 0; b < nb; b++) {
+        for (uint32_t i = 0; i < DD_BLOCK; i++) x[i] = in ? in[b * DD_BLOCK + i] : 0.0f;
+        dd_process(&dd, p, x, l, r);
+        for (uint32_t i = 0; i < DD_BLOCK; i++) out[b * DD_BLOCK + i] = 0.5f * (l[i] + r[i]);
+    }
+}
+static float peak_in(const float *o, uint32_t a, uint32_t b, uint32_t *at)
+{
+    float m = 0.0f;
+    for (uint32_t i = a; i < b; i++) if (fabsf(o[i]) > m) { m = fabsf(o[i]); if (at) *at = i; }
+    return m;
+}
+
+int main(void)
+{
+    const uint32_t NB = 1500, N = NB * DD_BLOCK;
+    float *in = calloc(N, sizeof(float)), *out = calloc(N, sizeof(float)), *out2 = calloc(N, sizeof(float));
+    dd_params_t p;
+    uint32_t i, at1 = 0, at2 = 0, at3 = 0;
+    float a1, a2, a3;
+
+    /* 1. the repeats: an impulse, SINGLE head at TIME 0.25 s, half rate, feedback 0.6 */
+    setup(2, 8, 1);
+    params(&p, 0.25f, 0.6f);
+    in[0] = 0.5f;
+    run(&p, in, out, NB);
+    a1 = peak_in(out, 9000, 14000, &at1);
+    a2 = peak_in(out, 20000, 25000, &at2);
+    a3 = peak_in(out, 31000, 36000, &at3);
+    printf("dub: repeats at %u, %u, %u samples (TIME 11025), peaks %.4f %.4f %.4f\n", at1, at2, at3, a1, a2, a3);
+    CHECK(at1 > 11025 - 100 && at1 < 11025 + 160, "the first repeat at %u", at1);
+    CHECK(at2 > 2 * 11025 - 100 && at2 < 2 * 11025 + 260, "the second repeat at %u", at2);
+    CHECK(at3 > 3 * 11025 - 100 && at3 < 3 * 11025 + 360, "the third repeat at %u", at3);
+    CHECK(a1 > 0.02f && a2 < a1 && a3 < a2, "each repeat quieter: %f %f %f", a1, a2, a3);
+    CHECK(at2 - at1 > 11025 - 8 && at2 - at1 < 11025 + 8 + 20, "the repeats %u apart (the converters' offset is constant)", at2 - at1);
+
+    /* 2. the line through its block table equals one buffer */
+    for (i = 0; i < N; i++) in[i] = 0.3f * sinf(0.05f * (float)i) * ((i / 3000) & 1u ? 1.0f : 0.0f);
+    setup(2, 6, 1); params(&p, 0.1f, 0.8f); p.head[1] = 2.0f; p.level[1] = 0.5f; p.fbw[0] = 0.5f; p.fbw[1] = 0.5f; run(&p, in, out, NB);
+    setup(2, 6, 0); run(&p, in, out2, NB);
+    CHECK(!memcmp(out, out2, N * sizeof(float)), "blocks apart in memory are not the same as one buffer");
+    printf("dub: the same output on 6 blocks side by side and apart: %s\n", !memcmp(out, out2, N * sizeof(float)) ? "yes" : "NO");
+
+    /* 3. FEEDBACK 1.27 is bounded by the loop's saturator and the limiter */
+    setup(2, 4, 1); params(&p, 0.05f, 1.27f);
+    for (i = 0; i < N; i++) in[i] = i < 4000 ? 0.7f * sinf(0.02f * (float)i) : 0.0f;
+    run(&p, in, out, NB);
+    a1 = peak_in(out, 0, N, 0);
+    printf("dub: FEEDBACK 1.27, the loudest wet sample %.4f\n", a1);
+    CHECK(a1 <= 1.0001f, "unbounded: %f", a1);
+    CHECK(peak_in(out, N - 2000, N, 0) > 0.05f, "the build should be audible at the end");
+
+    /* 4. nothing in, nothing out; WET 0 */
+    setup(2, 4, 1); params(&p, 0.1f, 0.5f);
+    run(&p, 0, out, 100);
+    CHECK(peak_in(out, 0, 100 * DD_BLOCK, 0) == 0.0f, "silence in, sound out");
+    for (i = 0; i < N; i++) in[i] = 0.5f * sinf(0.1f * (float)i);
+    params(&p, 0.1f, 0.5f); p.wet = 0.0f;
+    setup(2, 4, 1); run(&p, in, out, 200);
+    CHECK(peak_in(out, 0, 200 * DD_BLOCK, 0) == 0.0f, "WET 0 is not silent");
+
+    /* 5. TIME changes are continuous (glide): no step beyond what the signal itself does */
+    setup(2, 8, 1); params(&p, 0.1f, 0.7f);
+    for (i = 0; i < N; i++) in[i] = 0.4f * sinf(0.03f * (float)i);
+    {   float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK], last = 0.0f, maxd = 0.0f;
+        for (uint32_t b = 0; b < 1000; b++) {
+            if (b == 300) p.time = 0.2f;
+            if (b == 600) p.time = 0.05f;
+            for (i = 0; i < DD_BLOCK; i++) x[i] = in[b * DD_BLOCK + i];
+            dd_process(&dd, &p, x, l, r);
+            for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b > 100 && d > maxd) maxd = d; last = l[i]; }
+        }
+        printf("dub: the largest sample step across two TIME jumps %.4f\n", maxd);
+        CHECK(maxd < 0.25f, "a TIME jump clicks: %f", maxd);
+    }
+
+    /* 6. the cut: the wet goes to 0 and comes back with no step */
+    setup(2, 4, 1); params(&p, 0.05f, 0.8f); p.cut_wet = 1;
+    for (i = 0; i < N; i++) in[i] = 0.4f * sinf(0.03f * (float)i);
+    {   float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK], last = 0.0f, maxd = 0.0f, tail = 1.0f;
+        for (uint32_t b = 0; b < 600; b++) {
+            p.cut = b >= 200 && b < 400;
+            for (i = 0; i < DD_BLOCK; i++) x[i] = in[b * DD_BLOCK + i];
+            dd_process(&dd, &p, x, l, r);
+            for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b > 100 && d > maxd) maxd = d; last = l[i]; }
+            if (b == 399) tail = peak_in(l, 0, DD_BLOCK, 0);
+        }
+        printf("dub: the cut: wet after 200 blocks cut %.6f, the largest step %.4f\n", tail, maxd);
+        CHECK(tail < 1e-4f, "the cut leaves %f", tail);
+        CHECK(maxd < 0.25f, "the cut clicks: %f", maxd);
+    }
+
+    /* 7. the spring in both placements: stable and decaying */
+    for (int place = 1; place <= 2; place++) {
+        int16_t *sb = calloc(DD_SP_BUF, sizeof(int16_t));
+        setup(2, 4, 1); dd_spring_attach(&dd, sb);
+        params(&p, 0.08f, 0.5f); p.spring = place; p.sp_mix = 0.7f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f; p.sp_in = place == 2 ? 0.3f : 0.0f;
+        for (i = 0; i < N; i++) in[i] = i < 3000 ? 0.6f * sinf(0.04f * (float)i) : 0.0f;
+        run(&p, in, out, NB);
+        a1 = peak_in(out, 0, N, 0);
+        a2 = peak_in(out, N - 4000, N, 0);
+        printf("dub: spring %s, peak %.4f, the last 4000 samples %.5f\n", place == 1 ? "in the loop" : "on the wet", a1, a2);
+        CHECK(a1 <= 1.0001f && a1 > 0.05f, "spring placement %d peak %f", place, a1);
+        CHECK(a2 < a1, "spring placement %d does not decay", place);
+        free(sb);
+    }
+
+    /* 8. the quarter rate: the repeat still at TIME */
+    setup(4, 4, 1); params(&p, 0.3f, 0.5f);
+    memset(in, 0, N * sizeof(float)); in[0] = 0.5f;
+    run(&p, in, out, NB);
+    a1 = peak_in(out, 0, 20000, &at1);
+    printf("dub: quarter rate: first repeat at %u samples (TIME 13230), peak %.4f\n", at1, a1);
+    CHECK(at1 > 13230 - 100 && at1 < 13230 + 400 && a1 > 0.02f, "the quarter rate's repeat at %u", at1);
+
+    /* 9. the line holds what dd_max_seconds says */
+    setup(2, 2, 1);
+    CHECK(fabsf(dd_max_seconds(&dd) - (4096.0f - 48.0f) / 22050.0f) < 1e-4f, "max seconds %f", dd_max_seconds(&dd));
+    printf(bad ? "jfx_dub: %d FAILED\n" : "jfx_dub: all passed\n", bad);
+    return bad ? 1 : 0;
+}

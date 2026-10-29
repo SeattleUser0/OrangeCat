@@ -103,7 +103,7 @@ static void dub_add_wet(const track_t *t,uint32_t ti,uint32_t n)
         mix_add(l,r,i);
         mix_send((l+r)>>1,i);
     }
-    if(pk>DUB_THR)d->hold=(uint8_t)DUB_HOLD;else if(d->hold)d->hold--;
+    if(pk>DUB_THR)d->hold=d->hold_len;else if(d->hold)d->hold--;
 }
 #endif
 
