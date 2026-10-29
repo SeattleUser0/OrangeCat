@@ -708,13 +708,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
 #if MELODEE_DUB
         if (na == 2u && a[1] == 7u) {
-            /* (Release 2) [flags, 7]: DUB TAPE, schema 14: 14, then 5 x 7 bits each: the DUB FULL bits (jfx_full >> 4), then for each of the four tracks: the
+            /* (Release 2) [flags, 7]: DUB TAPE, schema 14: 14, then 5 x 7 bits each: jfx_full (FX FULL 0x0F, DUB FULL 0xF0), then for each of the four tracks: the
              * instance's state (0 off, 1 waiting for its memory, 2 running, 3 ramping out, 4 clearing), its memory complete (0/1), the blocks it holds, the rate
              * divisor (2 or 4), the hold (blocks it will go on running), whether the job ran this block. Flag 1 is not used. */
             uint32_t k;
             ed_b(14);
             fm1_irq_off();
-            ed_bk_u32((uint32_t)jfx_full >> 4);
+            ed_bk_u32((uint32_t)jfx_full);                  /* (the whole byte: the buses' FX FULL in 0x0F, DUB FULL in 0xF0) */
             for (k = 0; k < DUB_N; k++) {
                 ed_bk_u32(dub_i[k].state); ed_bk_u32(dub_ready[k]); ed_bk_u32(dub_have[k]); ed_bk_u32(dub_i[k].R); ed_bk_u32(dub_i[k].hold); ed_bk_u32(dub_i[k].run);
             }

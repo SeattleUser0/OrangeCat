@@ -22,7 +22,10 @@
 #endif
 #define RES_HOST_MAIN_WORDS (JA_MAIN_BYTES / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
-#define RES_HOST_DATA_WORDS (3576u / 4u)
+#ifndef JA_DATA_BYTES
+#define JA_DATA_BYTES 3576u
+#endif
+#define RES_HOST_DATA_WORDS (JA_DATA_BYTES / 4u)
 #define RES_HOST_RETAINED_WORDS (816u / 4u)
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -243,6 +246,47 @@ static void ja_dub_table(const char *what, uint32_t n_eng, uint32_t bytes, int r
     }
 }
 
+/* (BUILD.md, the load experiment) the instances that hold in one of its 16 runs: four MACRO engines loaded, ROOM or CLOUD, the DELAY and CHORUS sends on or off, `n` DUB instances of `segs` blocks, the spring or not */
+static uint32_t ja_fx_full;
+static uint32_t ja_dub_run(int cloud, int dly, uint32_t n, uint32_t segs, int spring)
+{
+    uint32_t k, ready = 0, macro = eng_state_size(ENGI_MACRO);
+    ui_power_on();
+    song.playing = 0;
+    ja_hot_drop();
+    for (k = 0; k < RES_COUNT; k++) resource_release(k);
+    ja_hot_take();
+    resource_host_cache_enabled = 1;
+    res_lend_ok = 0;
+    res_lend_used = 0;
+    for (k = 0; k < 4; k++) { uint8_t *p = resource_get(RES_ENGINE0 + k, macro); assert(p); memset(p, 0xA5, macro); }
+    res_lend_ok = 15;
+    song.g[G_RTYPE] = cloud ? 4 : 0;
+    for (k = 0; k < DUB_N; k++) { dub_want[k] = (uint8_t)(k < n ? segs : 0); dub_spring[k] = (uint8_t)(k < n && spring); }
+    for (uint32_t b = 0; b < 400u; b++) ja_block();                       /* the instances first (the harness sets LEN before the sends: first come, first served) */
+    trk[0].p[P_REV] = 100; trk[0].p[P_DLY] = dly ? 100 : 0; trk[0].p[P_CHOR] = dly ? 100 : 0;
+    for (uint32_t b = 0; b < 800u; b++) ja_block();
+    for (k = 0; k < DUB_N; k++) ready += dub_ready[k];
+    ja_fx_full = (uint32_t)(jfx_full & 7u);
+    trk[0].p[P_REV] = trk[0].p[P_DLY] = trk[0].p[P_CHOR] = 0;
+    for (k = 0; k < DUB_N; k++) dub_want[k] = dub_spring[k] = 0;
+    jfx_power_on();
+    res_lend_ok = 0; res_lend_used = 0; resource_host_cache_enabled = 0;
+    ja_hot_drop();
+    for (k = 0; k < RES_COUNT; k++) resource_release(k);
+    return ready;
+}
+static void ja_dub_experiment(void)
+{
+    printf("\nthe load experiment's 16 runs (standard order A B C D E F G): instances that hold of those wanted (VA BASS and MALLET are MACRO's state: A does not change the memory)\n");
+    printf("| run | A B C D E F G | wanted | hold | buses short (CHO 1, DLY 2, REV 4) |\n|---|---|---|---|---|\n");
+    for (uint32_t r = 0; r < 16u; r++) {
+        int A = (r >> 3) & 1 ? 1 : -1, B = (r >> 2) & 1 ? 1 : -1, C = (r >> 1) & 1 ? 1 : -1, D = r & 1 ? 1 : -1, E = A * B * C, F = B * C * D, G = A * C * D;
+        uint32_t want = B > 0 ? 4u : 2u, hold = ja_dub_run(C > 0, D > 0, want, E > 0 ? 6u : 4u, F > 0);
+        printf("| %2u | %c %c %c %c %c %c %c | %u | %u | %u |\n", r + 1, A > 0 ? '+' : '-', B > 0 ? '+' : '-', C > 0 ? '+' : '-', D > 0 ? '+' : '-', E > 0 ? '+' : '-', F > 0 ? '+' : '-', G > 0 ? '+' : '-', want, hold, ja_fx_full);
+    }
+}
+
 int main(void)
 {
     uint32_t big = 0, big_e = 0, macro = eng_state_size(ENGI_MACRO), k;
@@ -304,6 +348,7 @@ int main(void)
     ja_row("DRUM-X MACRO SHAPES MACRO", 4, 0, 1, 15, 0, 1, &r6);
     ja_row("DRUM-X MACRO SHAPES MACRO", 4, 0, 1, 0, 0, 0, 0);
     ja_row("DRUM-X MACRO SHAPES MACRO", 4, 0, 1, 15, 1, 0, 0);
+    if (getenv("JA_EXPERIMENT")) ja_dub_experiment();
     ja_dub_table("4 x MACRO (VA BASS)", 4, macro, 1);
     ja_dub_table("4 x MACRO (VA BASS)", 4, macro, 0);
     ja_dub_table("no engine", 0, 0, 1);
