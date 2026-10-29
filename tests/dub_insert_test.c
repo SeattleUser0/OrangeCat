@@ -11,9 +11,9 @@
  *   STALE    a project of an older magic loses its motion events on the DUB TAPE lanes
  * Run by tests/run_tests.sh. */
 /* the device's banks (tests/jfx_arena_test.c): the arena is as small as the unit's */
-#define RES_HOST_MAIN_WORDS (76896u / 4u)
+#define RES_HOST_MAIN_WORDS (85760u / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
-#define RES_HOST_DATA_WORDS (3576u / 4u)
+#define RES_HOST_DATA_WORDS (4216u / 4u)
 #define RES_HOST_RETAINED_WORDS (816u / 4u)
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -262,7 +262,7 @@ int main(void)
     for (b = 0; b < 2900; b++) mix_block(rec[b % NBLK], CTL);
     CHECK(dub_ready[0] && !(jfx_full & 0xF0u), "back after CPU1 returned for 2 s: ready %u jfx_full %x", dub_ready[0], jfx_full);
     /* the governor: late halves while an instance runs: it gives way, stays out until its setting changes */
-    for (b = 0; b < 6; b++) { dub_late_half(1); mix_block(rec[b], CTL); }
+    for (b = 0; b < 6; b++) { dub_late_half(1); dub_late_half(1); mix_block(rec[b], CTL); }
     for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
     CHECK(!dub_state[0] && (jfx_full & 0x10u), "the governor should have released the instance with DUB FULL: jfx_full %x", jfx_full);
     for (b = 0; b < 3000; b++) mix_block(rec[b % NBLK], CTL);
@@ -270,6 +270,19 @@ int main(void)
     trk[0].p[P_DUBLEN] = 3;
     for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
     CHECK(dub_ready[0], "a new setting asks again: ready %u", dub_ready[0]);
+    /* the governor counts late halves only while an instance runs (the review): a configuration change's 150 late halves with LEN OFF do not evict the instance that comes next */
+    dt_fresh(0, 1, 24, 120, 0);
+    for (b = 0; b < 100; b++) { dub_late_half(1); mix_block(rec[b], CTL); }
+    for (b = 0; b < 4000; b++) mix_block(rec[b % NBLK], CTL);
+    trk[0].p[P_DUBLEN] = 2;
+    for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
+    CHECK(dub_ready[0] && dub_i[0].state == 2, "late halves before the instance existed must not evict it: state %u", dub_i[0].state);
+    /* a lone late half does not stay for good: one now, then 3 s clean, then one more: no eviction */
+    dub_late_half(1);
+    for (b = 0; b < 4000; b++) { dub_late_half(0); mix_block(rec[b % NBLK], CTL); }
+    dub_late_half(1);
+    for (b = 0; b < 50; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].state == 2, "two late halves seconds apart must not evict: state %u", dub_i[0].state);
     /* UNUSED: the lanes are inert and the memory is back with LEN OFF */
     {   uint32_t used0, used1;
         dt_fresh(0, 1, 24, 120, 0);

@@ -159,6 +159,15 @@ int main(void)
                 for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b > 100 && d > maxd) maxd = d; last = l[i]; }
             }
         }
+        {   float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK], dmax = 0.0f;       /* and the mix thrown from 0.7 to 0 in one block (a hard bypass would step by the tank's whole difference from the loop) */
+            for (uint32_t b = 0; b < 400; b++) {
+                p.sp_mix = b < 100 ? 0.7f : 0.0f;
+                for (i = 0; i < DD_BLOCK; i++) x[i] = in[(b * DD_BLOCK + i) % N];
+                dk_process(&dd, &p, x, l, r);
+                for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b >= 100 && b < 140 && d > dmax) dmax = d; last = l[i]; }
+            }
+            printf("dub: the loop spring's mix thrown from 0.7 to 0: the largest sample step in the 40 blocks after %.4f\n", dmax);
+            CHECK(dmax < 0.12f, "the spring's bypass steps: %f", dmax); }
         printf("dub: the loop spring's mix swept 0 to 0.7 and back: the largest sample step %.4f\n", maxd);
         CHECK(maxd < 0.25f, "the spring's crossfade clicks: %f", maxd);
         free(o1); free(sb);

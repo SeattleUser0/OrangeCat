@@ -708,13 +708,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
 #if MELODEE_DUB
         if (na == 2u && a[1] == 7u) {
-            /* (Release 2) [flags, 7]: DUB TAPE, schema 14: 14, then 5 x 7 bits each: jfx_full (FX FULL 0x0F, DUB FULL 0xF0), then for each of the four tracks: the
+            /* (Release 2) [flags, 7]: DUB TAPE, schema 14: 14, then 5 x 7 bits each: jfx_full (FX FULL 0x0F, DUB FULL 0xF0), the governor's evictions since power-on, then for each of the four tracks: the
              * instance's state (0 off, 1 waiting for its memory, 2 running, 3 ramping out, 4 clearing), its memory complete (0/1), the blocks it holds, the rate
              * divisor (2 or 4), the hold (blocks it will go on running), whether the job ran this block. Flag 1 is not used. */
             uint32_t k;
             ed_b(14);
             fm1_irq_off();
             ed_bk_u32((uint32_t)jfx_full);                  /* (the whole byte: the buses' FX FULL in 0x0F, DUB FULL in 0xF0) */
+            ed_bk_u32(dub_gov_fires);
             for (k = 0; k < DUB_N; k++) {
                 ed_bk_u32(dub_i[k].state); ed_bk_u32(dub_ready[k]); ed_bk_u32(dub_have[k]); ed_bk_u32(dub_i[k].R); ed_bk_u32(dub_i[k].hold); ed_bk_u32(dub_i[k].run);
             }
@@ -723,15 +724,15 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
 #endif
         if ((na == 2u || na == 5u || na == 6u) && a[1] == 6u) {
-            /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 13: 13, then 5 x 7 bits each: engaged now, times
+            /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 15 (Release 2; 13 before: three fields a class, no third cap column): 15, then 5 x 7 bits each: engaged now, times
              * engaged, halves engaged, extra UNISON voices refused, the shared effects ran last block, N (3: MODAL, FM6, the Prophet); then
-             * for each: voices given up for the cap, the cap with the effects off, with them on. Flag 1 starts the counts over.
+             * for each: voices given up for the cap, the cap with the effects off, with them on, with a DUB TAPE instance running. Flag 1 starts the counts over.
              * [flags, 6, c, off, on] (OC_CORE_STATS builds only, the unit's runs): engine c's caps (0: as built), then the same reply */
             uint32_t k;
 #if OC_CORE_STATS
             if ((na == 5u || na == 6u) && a[2] < VC_N) { vc_cap[a[2]][0] = a[3]; vc_cap[a[2]][1] = a[4]; vc_cap[a[2]][2] = na == 6u ? a[5] : 0; }
 #endif
-            ed_b(13);
+            ed_b(15);                                   /* (Release 2: schema 15: the third cap column, four fields a class) */
             fm1_irq_off();
             ed_bk_u32(vc_on); ed_bk_u32(vc_engages); ed_bk_u32(vc_engaged_halves); ed_bk_u32(vc_refused); ed_bk_u32(voice_fx_on);
             ed_bk_u32(VC_N);

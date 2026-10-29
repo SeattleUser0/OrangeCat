@@ -37,15 +37,15 @@ typedef struct {
     uint16_t hold, hold_len;                            /* blocks the instance runs and its track stays mixed past the last audible input or wet; the refresh (the farthest head and 24) */
     uint32_t crash;
 } dub_i_t;
-static dub_i_t dub_i[DUB_N];
+static __attribute__((section(".pool"))) dub_i_t dub_i[DUB_N];
 #define dub_p (dub_cm->p)                              /* the job's parameter copies, the capture pair, the wet and the batch's sink: the instances' common arena block (jfx.c dub_common_t) */
 #define dub_x (dub_cm->x)
 #define dub_wet (dub_cm->wet)
 #define dub_sink (dub_cm->sink)
-static uint8_t dub_cur, dub_job_buf, dub_mask, dub_done;
-static uint8_t dub_gov_req;                             /* audio.c: late halves while an instance ran: the governor asks for one to give way */
-static uint8_t dub_force_degrade;                       /* a host test's CPU1 retirement */
-static uint16_t dub_cpu_ok;                             /* blocks CPU1 has been online and not forced off: DUB is admitted again after DUB_CPU_OK_BLOCKS */
+static __attribute__((section(".pool"))) uint8_t dub_cur, dub_job_buf, dub_mask, dub_done;
+static __attribute__((section(".pool"))) uint8_t dub_gov_req;                             /* audio.c: late halves while an instance ran: the governor asks for one to give way */
+static __attribute__((section(".pool"))) uint8_t dub_force_degrade;                       /* a host test's CPU1 retirement */
+static __attribute__((section(".pool"))) uint16_t dub_cpu_wait;                             /* blocks still to wait before DUB is admitted (CPU1 retired or forced off sets it to DUB_CPU_OK_BLOCKS; it counts down while CPU1 is online; 0 at boot: .pool is zero) */
 #define DUB_CPU_OK_BLOCKS 2750u                         /* 2 s */
 
 static inline dd_t *dub_dd(uint32_t k) { return (dd_t *)dub_state[k]; }
@@ -110,20 +110,24 @@ JFX_XIP static void dub_map(uint32_t k, const track_t *t, dd_params_t *p, uint32
 #endif
 /* audio.c, the end of every half: a late half while an instance ran. Two late halves within about a second (the score falls by 1/344 a half) and the highest running instance
  * gives way: ramped out, DUB FULL, and it stays out until its track's setting changes (or a new project): the safety net under the voice caps' third column */
-static uint16_t dub_gov_score, dub_gov_cool;
+static __attribute__((section(".pool"))) uint16_t dub_gov_score, dub_gov_cool;
+static __attribute__((section(".pool"))) uint32_t dub_gov_fires;                          /* governor evictions since power-on (the readout) */
 JFX_XIP static void dub_late_half(int late)
 {
-    dub_gov_score = (uint16_t)(dub_gov_score - dub_gov_score / 344u);
+    uint32_t k, running = 0;
+    for (k = 0; k < DUB_N; k++) running |= dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP;
+    if (!running) {                                     /* a late half with no instance running is no business of DUB's: the score and the cool-down start over */
+        dub_gov_score = dub_gov_cool = 0;
+        return;
+    }
+    dub_gov_score = (uint16_t)(dub_gov_score - (dub_gov_score + 343u) / 344u);        /* (rounded up: a lone late half does not stay for good) */
     if (late && dub_gov_score < 60000u) dub_gov_score = (uint16_t)(dub_gov_score + 256u);
     if (dub_gov_cool) dub_gov_cool--;
     else if (dub_gov_score >= 480u) {
-        for (uint32_t k = 0; k < DUB_N; k++)
-            if (dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP) {
-                dub_gov_req = 1;
-                dub_gov_score = 0;
-                dub_gov_cool = 172u;                    /* half a second before it judges again */
-                break;
-            }
+        dub_gov_req = 1;
+        dub_gov_score = 0;
+        dub_gov_cool = 172u;                            /* half a second before it judges again */
+        dub_gov_fires++;
     }
 }
 /* an instance running: the voice caps' third column (voice.c vc_limit) */
@@ -140,9 +144,9 @@ JFX_XIP static void dub_start(uint32_t nt)
     dub_mask = 0;
     dub_done = 0;
     dub_ev_full = 0;
-    if (dub_force_degrade || !DUB_CPU1_OK()) dub_cpu_ok = 0;                 /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
-    else if (dub_cpu_ok < 0xFFFFu) dub_cpu_ok++;
-    degrade = dub_cpu_ok < DUB_CPU_OK_BLOCKS;
+    if (dub_force_degrade || !DUB_CPU1_OK()) dub_cpu_wait = DUB_CPU_OK_BLOCKS;      /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
+    else if (dub_cpu_wait) dub_cpu_wait--;
+    degrade = dub_cpu_wait != 0;
     if (dub_gov_req) {                                  /* the governor: the highest running instance gives way */
         dub_gov_req = 0;
         for (k = DUB_N; k-- > 0;)
@@ -171,6 +175,7 @@ JFX_XIP static void dub_start(uint32_t nt)
             else if (d->state == DUBS_WAIT || d->state == DUBS_CLEAR) { dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF; }
         }
         if (degrade && (d->state == DUBS_RUN || d->state == DUBS_RAMP)) { d->evict = 1; d->gov = 0; }
+        else if (degrade && (d->state == DUBS_WAIT || d->state == DUBS_CLEAR)) { dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF; d->held_off = 1; d->gov = 0; }
         if (blocks) {                                       /* the rate stage: the half rate while the farthest head fits, the quarter rate when it does not */
             dd_params_t tmp;
             float lines = (float)(blocks << DD_BLK_SH);
@@ -216,7 +221,7 @@ JFX_XIP static void dub_start(uint32_t nt)
             else if (R != d->R) { d->state = DUBS_RAMP; d->ramp = DUB_RAMP; d->pend_R = (uint8_t)R; }
             break;
         case DUBS_RAMP:
-            if (!dub_ready[k]) { d->state = DUBS_WAIT; d->evict = 0; break; }
+            if (!dub_ready[k]) { d->state = DUBS_WAIT; d->evict = 0; d->gov = 0; break; }
             if (d->ramp) d->ramp--;
             if (!d->ramp) {
                 if (d->evict) {                              /* let go: the memory is freed (jfx_dub_mem), the instance waits as asked */
@@ -281,7 +286,6 @@ JFX_XIP static void dub_reset(void)
     memset(dub_spring, 0, sizeof dub_spring);
     dub_evict = dub_ev_full = dub_gov_req = 0;
     dub_gov_score = dub_gov_cool = 0;
-    dub_cpu_ok = DUB_CPU1_OK() && !dub_force_degrade ? 0xFFFFu : 0u;
     for (uint32_t k = 0; k < DUB_N; k++) dub_i[k].was_on = trk[k].p[P_DUBLEN] != 0;   /* (a load is no OFF-to-length edge: the defaults are not written over a saved set) */
 }
 static void dub_tables(void) {}

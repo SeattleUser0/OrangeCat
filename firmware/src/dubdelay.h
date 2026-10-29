@@ -5,8 +5,7 @@
  * into the line with the new input), the spring (in the loop or on the wet), the cut, the wet's limiter. What changed from the prototype
  * (BUILD.md, "DUB TAPE as the per-track insert", design 3): no TAPE (wow) and no DIGITAL algorithm, no second line; the line is not one
  * buffer but a table of 4 KB blocks (the arena's, jfx.c) in a ring of any number of blocks; no tables (the filter coefficients are computed at the control tick); a block is 32 samples; the line rates are the half (R 2, 22.05 kHz) and the quarter (R 4).
- * Contract: 44.1 kHz host rate, blocks of DD_BLOCK frames, parameters read once a block, no allocation, no transcendental function and no
- * coefficient design in dk_process.
+ * Contract: 44.1 kHz host rate, blocks of DD_BLOCK frames, parameters read once a block, no allocation; the filter coefficients are computed once a block at the control tick (a few exp, tan and one sqrt a block, no per-sample transcendental).
  */
 #ifndef DUBDELAY_H
 #define DUBDELAY_H

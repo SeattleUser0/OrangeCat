@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * dubdelay: the few functions dd_init needs, freestanding (the FM-1 firmware has no libm). Init-time only; accuracy
+ * dubdelay: the few functions dd_init needs, freestanding (the FM-1 firmware has no libm). Control-tick use (the filter coefficients) and the spring; accuracy
  * ~1e-6 is ample for table design. Host and target use the same code, so renders match. */
 #ifndef DD_MATH_H
 #define DD_MATH_H
