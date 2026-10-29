@@ -782,7 +782,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         snapshot[15] = ua.service_max_ticks / FM1_TICKS_PER_US;
         snapshot[16] = melodee_dbg.late;
         snapshot[17] = ua_feedback();
-        snapshot[18] = melodee_dbg.max_us;            /* render time excludes TIMER5; shedding includes it */
+        snapshot[18] = melodee_dbg.max_us;            /* (round 4) the time the DMA sees: the render plus the TIMER5 nested in it */
         snapshot[19] = song.cpu_q8;
         if (count == 23u) {                           /* (0.13.6) the block, its budget and how many blocks since the reset */
             snapshot[20] = HALF_FRAMES;

@@ -27,6 +27,7 @@ static uint32_t audio_full_last_us,audio_full_max_us,audio_deadline_misses,audio
 volatile uint32_t fm1_audio_irq_start_ticks,fm1_audio_irq_elapsed_ticks;
 static uint32_t audio_irq_max_ticks,audio_timer5_max_ticks;
 #define AUDIO_DEADLINE_TICKS (HALF_FRAMES*544u)
+#define DUB_NEAR_US (AUDIO_DEADLINE_TICKS / 24u - 100u)   /* the time the DMA sees that counts as late for the governor: the deadline less 100 us (BUILD.md 7.8's gate) */
 #define AUDIO_TARGET_TICKS (AUDIO_DEADLINE_TICKS*80u/100u)
 static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
 #ifndef OC_LATE_DIAG
@@ -107,14 +108,15 @@ static uint32_t audio_bench_shed_requests;
 #endif
 static uint32_t shed_part[NPART];
 
-/* end of a half: all = its ticks, TIMER5 nested in it included -> the render alone in us. The deadline sees
- * both; shed after 2 overloaded halves in a row (out of line: keeps the ISR's render loops as they were) */
+/* end of a half: all = its ticks, TIMER5 nested in it included -> the time the DMA sees, in us (Release 2, round 4: it was the render
+ * alone, the nested TIMER5 taken out, and a half could be late with that under the deadline by up to 400 us). The deadline sees both;
+ * shed after 2 overloaded halves in a row (out of line: keeps the ISR's render loops as they were) */
 static __attribute__((noinline)) uint32_t shed_check(uint32_t all)
 {
     shed_over = (uint8_t)(shed_over << 1 | (all > SHED_TICKS));
     if ((shed_over & 3u) == 3u)
         shed_req = 1;
-    return (all - t5_nested_ticks) / FM1_TICKS_PER_US;
+    return all / FM1_TICKS_PER_US;
 }
 
 static void shed_voice(void)
@@ -242,7 +244,7 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
                 ld_head++; ld_pend = 1; ld_late++;
             }
 #endif
-            dub_late_half(late);                        /* (Release 2) the governor under the voice caps' third column */
+            dub_late_half(late || us > DUB_NEAR_US);    /* (Release 2) the governor under the voice caps' third column: a half is late, or within 100 us of the deadline (the gate's margin) */
         }
         melodee_dbg.halves++;
         melodee_dbg.last_us = us;

@@ -146,14 +146,20 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     dd_spring_t *q = &s->sp;
     float T = p->sp_decay > 0.05f ? p->sp_decay : 2.0f, tone = p->sp_tone < 0.0f ? 0.0f : p->sp_tone > 1.0f ? 1.0f : p->sp_tone;
     float dr = p->sp_drive < 0.0f ? 0.0f : p->sp_drive > 1.0f ? 1.0f : p->sp_drive;
+    int leaving = 0;
     {   int pl = q->buf ? p->spring : 0;
-        if (pl != q->place && q->buf) {              /* (0.5) a new placement: the tank read another way, cleared */
-            memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
-            memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+        if (pl != q->place && q->buf) {
+            if (q->place == 2 && q->wm > 0.001f) {   /* (Release 2, round 4) leaving the wet: its mix fades out first (the loop's 5 ms), then the tank is cleared; a step of the whole wet spring at the toggle was -31 dBFS */
+                pl = 2; leaving = 1;
+            } else {                                 /* (0.5) a new placement: the tank read another way, cleared; the wet's mix starts at 0 and fades in */
+                memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
+                memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+                q->wm = 0.0f;
+            }
         }
         q->place = pl;
     }
-    q->m = p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
+    q->m = leaving ? 0.0f : p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
     if (q->place == 1 && q->m < 0.0005f && q->wm < 0.001f) {                    /* (Release 2) the loop spring bypassed: after about 0.5 s the tank is cleared (once), so it comes back from silence */
         if (q->idle < 0xFFFFu && ++q->idle == 700u && q->buf) {
             memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
@@ -311,7 +317,7 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
     const float sc = DD_IQ16 * t->igd;
     const int rec = t->route;
     dd_spring_t *q = &s->sp;
-    const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2;   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
+    const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2 && (q->m > 0.0f || q->wm > 0.001f);   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
     const float wk = 1.0f / (0.005f * s->fsl);
     float wm = q->wm;
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
@@ -345,7 +351,9 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
         dn = -dn;
         if (++w == len) w = 0;
         if (spo) {
-            float sp = q->m * dd_sp_run(q, 0.5f * (l + r) + q->in * xi);
+            float sp;
+            wm += (q->m - wm) * wk;                                 /* (the wet spring's mix glides as the loop's does: 5 ms) */
+            sp = wm * dd_sp_run(q, 0.5f * (l + r) + q->in * xi);
             l = q->tg * l + sp; r = q->tg * r + sp;
         }
         if (t->lceil > 0.0f) dd_limit(s, t, &l, &r);
