@@ -164,6 +164,34 @@ static void fm1__led_col(uint32_t p)
                       fm1_led_pwm_level(8u, bright, dim, fm1_led_dim_mask),
                       fm1_led_pwm_level(16u, bright, dim, fm1_led_dim_mask));
 }
+/* (round 5) the PWM levels of column p, worked out before the column changes (the write comes after the latch) */
+static void fm1__led_levels(uint32_t p, uint32_t lv[4])
+{
+    uint8_t dim[3] = {fm1_led_dim[0][p], fm1_led_dim[1][p], fm1_led_dim[2][p]};
+    uint32_t bright = fm1_led[p];
+    lv[0] = fm1_led_pwm_level(2u, bright, dim, fm1_led_dim_mask);
+    lv[1] = fm1_led_pwm_level(4u, bright, dim, fm1_led_dim_mask);
+    lv[2] = fm1_led_pwm_level(8u, bright, dim, fm1_led_dim_mask);
+    lv[3] = fm1_led_pwm_level(16u, bright, dim, fm1_led_dim_mask);
+}
+/* (round 5) the rows off without waiting: the plain lines at once; the PWM compares to 0, which take effect at the next carrier boundary
+ * (fm1_led_pwm_blank spins 4 us for it; the tick does its other work first and waits only for what is left) */
+static uint32_t fm1__blank_begin(void)
+{
+    if (!fm1_led_pwm_active) {
+        fm1__led_lines(0);
+        return 0;
+    }
+    fm1_led_pwm_write(0, 0, 0, 0);
+    return FM1_LED_PWM_NOW();
+}
+static void fm1__blank_wait(uint32_t tb)
+{
+    if (!fm1_led_pwm_active)
+        return;
+    while ((uint32_t)(FM1_LED_PWM_NOW() - tb) < FM1_LED_PWM_BLANK_TICKS)
+        ;
+}
 
 static uint32_t fm1__column_word(uint32_t p)
 {
@@ -179,13 +207,23 @@ static uint32_t fm1__column_word(uint32_t p)
 #endif
 }
 
+/* (Release 2, round 5) The two 595s hold the last word latched (bit 15 sent first: after 16 clocks word bit k is at stage k). A column word is one
+ * zero moving up by one bit a column (with the two octave outputs' zero beside it for columns 0 and 1), so one more clock with a 1 in turns a word
+ * into the next: stage k to k + 1, the new bit at stage 0, bit 15 out. That is 9 of the 11 steps of a frame (0 to 1 and 2 to 10); the other two
+ * (1 to 2 and 10 to 0) and the first word after a start are loaded whole, so any wrong state is gone within a frame (1.1 ms). Only this file writes the chain. */
+static uint16_t fm1__sr_cur;
+static uint8_t fm1__sr_valid;
+static inline uint32_t fm1__sr_clocks(uint32_t cur, uint32_t w)    /* the clocks it takes to turn the latched word `cur` into `w` */
+{
+    return w == (((cur << 1) | 1u) & 0xFFFFu) ? 1u : 16u;
+}
 static void fm1__sr_word(uint32_t w)
 {
-    uint32_t i;
+    uint32_t i, n = fm1__sr_valid ? fm1__sr_clocks(fm1__sr_cur, w) : 16u;
     /* read-modify-write per edge on purpose: write-only edges were too short for the
      * 595 on the board and latched the neighbouring column (LEDs and keys copied one column over) */
-    for (i = 0; i < 16u; i++) {
-        if (w & (0x8000u >> i))
+    for (i = 0; i < n; i++) {
+        if (n == 1u || (w & (0x8000u >> i)))
             FM1_PR(FM1_PA, FM1_OUT) |= 1u << 4;
         else
             FM1_PR(FM1_PA, FM1_OUT) &= ~(1u << 4);
@@ -194,6 +232,8 @@ static void fm1__sr_word(uint32_t w)
     }
     FM1_PR(FM1_PA, FM1_OUT) |= 1u << 1;
     FM1_PR(FM1_PA, FM1_OUT) &= ~(1u << 1);
+    fm1__sr_cur = (uint16_t)w;
+    fm1__sr_valid = 1;
 }
 
 static uint32_t fm1__rows(void)
@@ -366,9 +406,9 @@ static uint8_t fm1__tick_col;
 static void fm1_input_tick(void)
 {
     uint32_t p = fm1__tick_col, n = p + 1u == FM1_NCOL ? 0u : p + 1u;
-    uint32_t t0 = fm1_ticks(), g = t0 - fm1_in_stat.last, b = 0;
+    uint32_t t0 = fm1_ticks(), g = t0 - fm1_in_stat.last, b = 0, tb, lv[4] = {0, 0, 0, 0};
     FM1_INPUT_PROFILE_START(blank_start);
-    fm1__led_lines(0);
+    tb = fm1__blank_begin();                       /* (round 5) the rows off, the 4 us for the carrier is spent on the work below */
     FM1_INPUT_PROFILE_END(AP_INPUT_BLANK,blank_start);
     FM1_INPUT_PROFILE_START(diag_start);
     fm1_in_stat.last = t0;
@@ -381,18 +421,28 @@ static void fm1_input_tick(void)
     if (g > fm1_in_stat.on_max[p])
         fm1_in_stat.on_max[p] = g;
     FM1_INPUT_PROFILE_END(AP_INPUT_DIAGNOSTICS,diag_start);
+    FM1_INPUT_PROFILE_START(led_start);
+    if (fm1_led_pwm_active)
+        fm1__led_levels(n, lv);                    /* (worked out here, written after the latch) */
+    FM1_INPUT_PROFILE_END(AP_INPUT_LED,led_start);
+    FM1_INPUT_PROFILE_START(wait_start);
+    fm1__blank_wait(tb);                           /* the rows are dark from here, as they always were when the keys were read */
+    FM1_INPUT_PROFILE_END(AP_INPUT_BLANK,wait_start);
     FM1_INPUT_PROFILE_START(rows_start);
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
     FM1_INPUT_PROFILE_END(AP_INPUT_ROWS,rows_start);
     FM1_INPUT_PROFILE_START(shift_start);
     fm1__sr_word(fm1__column_word(n));
     FM1_INPUT_PROFILE_END(AP_INPUT_SHIFT,shift_start);
-    FM1_INPUT_PROFILE_START(led_start);
-    fm1__led_col(n);
-    FM1_INPUT_PROFILE_END(AP_INPUT_LED,led_start);
+    FM1_INPUT_PROFILE_START(led2_start);
+    if (fm1_led_pwm_active)
+        fm1_led_pwm_write(lv[0], lv[1], lv[2], lv[3]);
+    else
+        fm1__led_col(n);
+    FM1_INPUT_PROFILE_END(AP_INPUT_LED,led2_start);
     fm1__tick_col = (uint8_t)n;
     FM1_INPUT_PROFILE_START(keys_start);
-    fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
+    fm1__keys(p);                                  /* its keys, the LEDs already lit again (as before this change) */
     FM1_INPUT_PROFILE_END(AP_INPUT_KEYS,keys_start);
     if (n == 0u) {
         FM1_INPUT_PROFILE_START(enc_start);

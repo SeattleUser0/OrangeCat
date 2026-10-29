@@ -235,7 +235,7 @@ static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3)
 #define P_DUB_THRW P_JRES4                      /* the throw level a held throw key sets (0: none) */
 #define P_DUB_CUT P_JRES5                       /* a gate on the loop's input and the wet (64 or more: closed) */
 #define P_DUB_KICK P_JRES6                      /* each rise through 64 strikes the spring once */
-#define P_DUBLEN P_RESERVED45                   /* the line's length: OFF 8K 16K 24K 32K 48K 64K (2 .. 16 blocks of 4 KB) */
+#define P_DUBLEN P_RESERVED45                   /* the line's length: OFF 32K 8K 16K 24K 48K 64K (2 .. 16 blocks of 4 KB; a turn up from OFF lands on 32K) */
 #define P_DUBPTRN P_RESERVED46                  /* the heads: SLAP SINGLE SKANK TRIPLE GALLOP SPREAD */
 #define P_DUBSPRP P_RESERVED47                  /* the spring: OFF LOOP WET */
 static int param_dub_lane(uint32_t id) { return param_jfx_free(id); }

@@ -15,7 +15,7 @@ static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", 
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
 /* (Orange Cat 0.6.0) the effects' names (jfx.c: Jiant FM's) */
-static const char *const N_DUBLEN[] = {"OFF", "8K", "16K", "24K", "32K", "48K", "64K"};   /* DUB TAPE: the line in 4 KB blocks, jfx_dub.c dub_len_blocks */
+static const char *const N_DUBLEN[] = {"OFF", "32K", "8K", "16K", "24K", "48K", "64K"};   /* (round 5) a turn up from OFF lands on 32K */   /* DUB TAPE: the line in 4 KB blocks, jfx_dub.c dub_len_blocks */
 static const char *const N_DUBPTRN[] = {"SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"};
 static const char *const N_DUBSPRP[] = {"OFF", "LOOP", "WET"};
 static const char *const N_DTYPE[] = {"SOFT", "HARD", "FOLD", "CRUSH", "RECT", "AMP"};   /* DIST TYPE: jfx.c DT_* */

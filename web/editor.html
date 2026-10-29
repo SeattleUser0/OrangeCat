@@ -2194,7 +2194,7 @@ function makeMockDevice(opt = {}) {
     ...Array.from({length:4},()=>D("",F.INT,0,127,0)),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
-    E("LEN", ["OFF", "8K", "16K", "24K", "32K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("",F.INT,0,127,0),   /* (Release 2) DUB TAPE's setup */
+    E("LEN", ["OFF", "32K", "8K", "16K", "24K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("",F.INT,0,127,0),   /* (Release 2) DUB TAPE's setup */
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];
   const GP = [
