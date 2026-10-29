@@ -17,6 +17,9 @@ void *memcpy(void *d, const void *s, size_t n);
 #ifndef DD_NOINL
 #define DD_NOINL
 #endif
+#ifndef DD_HOT
+#define DD_HOT DD_NOINL                                   /* the per-block kernel (jfx_dub.c: OC_DUB_KSRAM puts it in SRAM) */
+#endif
 #define DD_HB_M 8                                   /* half-band: 4M-1 = 31 taps */
 #define DD_HB_C (2 * DD_HB_M - 1)
 #define DD_SIN_N 256
@@ -184,7 +187,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     q->gd = 0.40f + 0.35f * q->m;                    /* (0.5) in the loop: the allpass tank's diffusion and dispersion, from the mix */
     q->al = q->a * q->m;
 }
-DD_NOINL static float dd_sp_run(dd_spring_t *q, float x)
+DD_HOT static float dd_sp_run(dd_spring_t *q, float x)
 {
     int16_t *b = q->buf, *b1 = b + DD_SP_TANK, *b2 = b1 + DD_SP_D1;
     float y, z, d, u;
@@ -309,7 +312,7 @@ static inline void dd_limit(dd_t *s, const dd_tick_t *t, float *l, float *r)
 }
 
 /* ------------------------------------------------------------------ the loop at the line's rate --- */
-DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, float *wl, float *wr, int n)
+DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, float *wl, float *wr, int n)
 {
     const uint32_t len = s->len;
     uint32_t w = s->w;

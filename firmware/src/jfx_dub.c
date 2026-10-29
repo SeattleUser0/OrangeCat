@@ -17,9 +17,19 @@
 #undef JFX_XIP
 #define JFX_XIP __attribute__((noinline))
 #endif
+#ifndef OC_DUB_KSRAM
+#define OC_DUB_KSRAM 0
+#endif
+#if OC_DUB_KSRAM                                        /* (round 4) only DUB's per-block kernel in SRAM (dub_run, dd_run_lite, dd_sp_run); the control path stays in flash */
+#define DUB_HOT __attribute__((noinline))
+#else
+#define DUB_HOT JFX_XIP
+#endif
 #define DD_NOINL JFX_XIP
+#define DD_HOT DUB_HOT
 #include "dubdelay.c"
 #undef DD_NOINL
+#undef DD_HOT
 _Static_assert(DD_BLOCK == CTL, "a job a block");
 
 #define DUB_SCALE 524288.0f                             /* the mix domain: 1.0 = 524,288 (x is clamped to +-524,287; the master shifts by 4 to Q15) */
@@ -72,7 +82,7 @@ static inline int32_t *dub_capture(uint32_t k)
 static inline int dub_alive(uint32_t k) { return k < DUB_N && dub_i[k].hold && (dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP); }
 
 /* the job: every instance flagged in dub_mask, on the previous block's capture */
-JFX_XIP static void dub_run(void)
+DUB_HOT static void dub_run(void)
 {
     uint32_t k, i;
     for (k = 0; k < DUB_N; k++) {
