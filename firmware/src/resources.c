@@ -115,7 +115,8 @@ static uint32_t resource_used(void)
     for (uint32_t k = 0; k < RES_COUNT; k++) n += resource[k].size;
     return n;
 }
-static void resource_release(uint32_t id) { resource[id].size = 0; }
+static uint32_t resource_gen;                           /* (Release 2) counts the releases: DUB's instances ask again for memory only when something was freed */
+static void resource_release(uint32_t id) { if (resource[id].size) resource_gen++; resource[id].size = 0; }
 static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t bytes)
 {
     if (bytes > RESOURCE_CAPACITY) { resource_failures++; return 0; }

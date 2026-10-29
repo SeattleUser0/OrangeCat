@@ -53,16 +53,23 @@ static uint32_t seq_div_samples(uint32_t div)
 
 #include "core_stats.h"                                 /* (0.14.2) the cores' counters (OC_CORE_STATS builds; stubs otherwise) */
 #include "jfx.c"                                        /* (Orange Cat 0.6.0) the effects (Jiant FM's) */
+#include "jfx_dub.c"                                    /* (Release 2) DUB TAPE, the per-track insert */
 #include "oc_throw.c"                                   /* (Orange Cat 0.4.3) PERFORM's throws */
 /* a track's dry sample (l, r) into its destination this block; its mono x (after level, before pan) into the sends */
 static inline __attribute__((always_inline)) void mix_add(int32_t l,int32_t r,uint32_t i)
 {
     mix_dl[i]+=l;mix_dr[i]+=r;
 }
+#if MELODEE_DUB
+static int32_t *mix_dub;                                /* (Release 2) the capture buffer of the track being mixed that holds a DUB TAPE instance (jfx_dub.c), or 0 */
+#else
+static int32_t *const mix_dub=0;
+#endif
 static inline __attribute__((always_inline)) void mix_send(int32_t x,uint32_t i)
 {
     if(mix_snd){
-        int32_t xs=clamp(x,-mix_xmax,mix_xmax);         /* (mulq15 would overflow: loud chords at a high LEVEL) */
+        int32_t xs=clamp(x,-mix_xmax,mix_xmax);
+        if(mix_dub)mix_dub[i]=x;                        /* (Release 2) DUB TAPE's tap: x after LEVEL, before PAN, whole (the sends' clamp is theirs) */         /* (mulq15 would overflow: loud chords at a high LEVEL) */
         if(mix_sc)send_c[i]+=mulq15(xs,mix_sc);
         if(mix_sd)send_d[i]+=mulq15(xs,mix_sd);
         if(mix_sr)send_r[i]+=mulq15(xs,mix_sr);
@@ -75,7 +82,30 @@ static void mix_send_gains(const track_t *t)
     mix_sc=c;mix_sd=d;mix_sr=r;mix_snd=(uint8_t)(c||d||r);
     m=c>d?c:d;m=m>r?m:r;
     mix_xmax=0x7FFFFFFF/(m|1);
+    if(mix_dub)mix_snd=1;                               /* (Release 2) a track with DUB takes the general loop, as a track with a send does */
 }
+
+#if MELODEE_DUB
+/* (Release 2) the instance's wet of this block (its job ran on the last block's capture, in the batch): into the track's dry destination and, mono, through the
+ * track's own sends. A job that did not complete (CPU1 failed) leaves this block's wet silent. The track stays mixed while the wet or the input is audible */
+static void dub_add_wet(const track_t *t,uint32_t ti,uint32_t n)
+{
+    dub_i_t *d;
+    int32_t pk=0;
+    if(ti>=DUB_N)return;
+    d=&dub_i[ti];
+    if(!d->run)return;
+    if(!dub_done){if(d->hold)d->hold--;return;}
+    mix_send_gains(t);
+    for(uint32_t i=0;i<n;i++){
+        int32_t l=(int32_t)(dub_wet[ti][0][i]*DUB_SCALE),r=(int32_t)(dub_wet[ti][1][i]*DUB_SCALE),a=l<0?-l:l;
+        if(a>pk)pk=a;
+        mix_add(l,r,i);
+        mix_send((l+r)>>1,i);
+    }
+    if(pk>DUB_THR)d->hold=(uint8_t)DUB_HOLD;else if(d->hold)d->hold--;
+}
+#endif
 
 
 static void events_block(uint32_t n);
@@ -277,6 +307,7 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
         for(uint32_t v=0;v<NVOICE;v++)if(f->v[v].played && !f->v[v].still && !f->v[v].frozen){audio_batch_fm6_controls=1;break;}
     }
 #endif
+    dub_start(nt);                                      /* (Release 2) DUB TAPE's job: the batch's first descriptor, on the last block's capture */
     for(uint32_t p=0;p<nt;p++){
         track_t *t=&trk[p];
         mod_begin(t);batch_mod[p]=mod;memcpy(batch_params[p],t->p,sizeof t->p);
@@ -318,11 +349,12 @@ static void mix_part_engine(track_t *t,uint32_t n)
         rendered=(int)track_render_audio(t,part_buf,n,0);
     }
     AP_START(mix_start);
+    mix_dub=dub_capture(ti);                            /* (Release 2) */
     int32_t *rb=rendered?dxe_right(t):0;               /* (0.14.2) a panned kit's right side (part_buf its left), 0: one */
     if(rendered)mix_tail[ti]=16u;
     else if(mix_tail[ti] && jfx_dist_on(t))mix_tail[ti]--;
     else mix_tail[ti]=0;
-    if(rendered || mix_tail[ti] || ((pf.mute>>ti)&1u)){
+    if(rendered || mix_tail[ti] || ((pf.mute>>ti)&1u) || dub_alive(ti)){
         if(!rendered){memset(part_buf,0,n*sizeof *part_buf);if(spread_on)memset(spread_buf,0,n*sizeof *spread_buf);}
         if(jfx_dist_on(t)){                             /* DIST (SPREAD: each side its own; (0.14.2) a panned kit's too) */
             AP_START(fx_start);
@@ -354,6 +386,10 @@ static void mix_part_engine(track_t *t,uint32_t n)
             mix(t,part_buf,n,mc);
         }
     }
+    mix_dub=0;
+#if MELODEE_DUB
+    dub_add_wet(t,ti,n);
+#endif
     AP_END(AP_MIX,mix_start);
     if(mod.on)mod_end(t);
 }
@@ -373,7 +409,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     track_capture_on=(uint8_t)ua_capture_active();
     if(track_capture_on)memset(track_capture,0,n*NTRK*sizeof *track_capture);
 #endif
-    if(jfx_reset_req)jfx_reset_now();                   /* (0.6.0) a project load: the effects from silence */
+    if(jfx_reset_req){jfx_reset_now();dub_reset();}     /* (0.6.0) a project load: the effects from silence */
     jfx_lend_check();                                   /* (0.6.0 rev 2) the card's pool back, an engine's memory first */
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
     memset(sl_l,0,n*sizeof *sl_l);memset(sl_r,0,n*sizeof *sl_r);
@@ -389,6 +425,8 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     uint32_t nt=trk_n();                                /* (the tracks not in use: none of their CPU) */
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     mix_prepare_batch(n,nt);
+#else
+    dub_start(nt);
 #endif
     mix_stem_n=0;
     for(uint32_t i=0;i<nt;i++){

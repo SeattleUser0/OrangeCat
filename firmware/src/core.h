@@ -226,6 +226,20 @@ enum {                          /* per-track parameters */
 static int param_jfx(uint32_t id) { return id >= P_DIST && id <= P_JRES6; }
 static int param_jfx_send(uint32_t id) { return id >= P_REV && id <= P_CHOR; }
 static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3) || (id >= P_JRES4 && id <= P_JRES6); }
+/* (Release 2) DUB TAPE (docs/orangecat/BUILD.md, "DUB TAPE as the per-track insert"): the recorded seven on the effects' free ids (the performance view's lanes,
+ * lockable, motion), and the three per-track setup values on the retired padding ids 45 .. 47 */
+#define P_DUB_FDBK P_JRES0                      /* the loop's gain, 0 .. 1.27 (100 = 1) */
+#define P_DUB_SEND P_JRES1                      /* the resting send into the loop */
+#define P_DUB_TONE P_JRES2                      /* one sweep of the loop filter: low-pass down to high-pass */
+#define P_DUB_SPACE P_JRES3                     /* the first half: the delay time (14 synced divisions); the second: the spring's mix */
+#define P_DUB_THRW P_JRES4                      /* the throw level a held throw key sets (0: none) */
+#define P_DUB_CUT P_JRES5                       /* a gate on the loop's input and the wet (64 or more: closed) */
+#define P_DUB_KICK P_JRES6                      /* each rise through 64 strikes the spring once */
+#define P_DUBLEN P_RESERVED45                   /* the line's length: OFF 8K 16K 24K 32K 48K 64K (2 .. 16 blocks of 4 KB) */
+#define P_DUBPTRN P_RESERVED46                  /* the heads: SLAP SINGLE SKANK TRIPLE GALLOP SPREAD */
+#define P_DUBSPRP P_RESERVED47                  /* the spring: OFF LOOP WET */
+static int param_dub_lane(uint32_t id) { return param_jfx_free(id); }
+static int param_dub_setup(uint32_t id) { return id >= P_RESERVED45 && id <= P_RESERVED47; }
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
@@ -266,7 +280,7 @@ static int param_master_jfx(uint32_t id) { return id >= G_DTIME && id < G_COUNT 
 #define G_DRREV G_RESERVED26
 
 static int param_reserved(uint32_t id)
-{ return (id>=P_RESERVED33 && id<=P_RESERVED36) || (id>=P_RESERVED45 && id<=P_RESERVED48) || param_jfx_free(id); }   /* (0.6.0: the effects' free ids) */
+{ return (id>=P_RESERVED33 && id<=P_RESERVED36) || id==P_RESERVED48; }   /* (Release 2: the effects' free ids are DUB TAPE's seven, and 45 .. 47 its setup) */
 static int global_reserved(uint32_t id)
 { return (id>=G_RESERVED4 && id<=G_RESERVED11) || (id>=G_RESERVED24 && id<=G_RESERVED26); }
 

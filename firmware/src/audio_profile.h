@@ -16,6 +16,7 @@ enum {
     AP_INPUT_KEYS, AP_INPUT_ENCODERS, AP_INPUT_DIAGNOSTICS,
     AP_BATCH_PREPARE, AP_BATCH_MERGE, AP_BATCH_CPU0, AP_BATCH_CPU1,
     AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL,        /* (Orange Cat 0.14.3) the ports' voice kernels in the batch (audio_batch.h); appended */
+    AP_DUB,                                         /* (Release 2) DUB TAPE's job: not a voice, the batch's first descriptor (audio_batch.h) */
     AP_COUNT
 };
 #if MELODEE_AUDIO_PROFILE

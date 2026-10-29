@@ -46,7 +46,8 @@ static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_ta
      * SHAPES CSAW BASS 56.4 us, MORPH LEAD 69.3 (1,354 and 1,663: their mean); WHEEL FULL ORGAN 30.6 us. On CPU0 they take 10 to 15 % more.
      * (0.15.0) The Prophet measured 81.5 us, 1,956 (measure/batch-s1 ec1c460, Flash 45, its module at start 0), set from it; the other
      * native engines' entries are as they were */
-    [AP_MACRO]=520,[AP_DRUMX]=590,[AP_SHAPES]=1500,[AP_WHEEL]=730
+    [AP_MACRO]=520,[AP_DRUMX]=590,[AP_SHAPES]=1500,[AP_WHEEL]=730,
+    [AP_DUB]=1980   /* (Release 2) DUB TAPE LITE, an instance's 32-sample block on CPU1: 82.6 us (Flash 43/44, measure/batch-s1); +450 with a spring (the job adds it) */
 };
 #if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
 #define AB_LOAD(p) fm1_aw_load(p)
@@ -61,7 +62,7 @@ static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_ta
 #endif
 static volatile uint32_t audio_batch_worker_mask,audio_batch_published,audio_batch_closed,audio_batch_invalid;
 static uint32_t audio_batch_producer_cost,audio_batch_worker_cost;
-static uint8_t audio_batch_started,audio_batch_fm6_controls;
+static uint8_t audio_batch_started,audio_batch_fm6_controls,audio_batch_lead_nv;
 /* CPU0 prepares every descriptor and services TIMER5 while CPU1 renders.
  * Reserve at least one kernel's cost: a fixed 2000 under-reserved Prophet
  * and CZ work, leaving CPU0 late while CPU1 finished early. Cheaper kernels
@@ -73,8 +74,11 @@ static uint8_t audio_batch_started,audio_batch_fm6_controls;
 /* (Release 2) A first descriptor that is not a voice (the DUB TAPE bench's job) adds its cost to CPU1's load and leaves CPU0's reserve at the
  * floor; a voice's cost still sets the reserve. Measured: DUB LITE x4 with VA BASS x4, the job first, reserved 7,920 and split the voices
  * 50/50 (2,094 late halves in 20 s; 67 with the job after the first voice). No shipped build has such a job; the hook is 0 there. */
+#ifndef MELODEE_DUB
+#define MELODEE_DUB 1                                   /* (Release 2) DUB TAPE, the per-track insert (jfx_dub.c); 0 builds without it */
+#endif
 #ifndef AUDIO_BATCH_NONVOICE
-#if defined(OC_DUB_BENCH) && OC_DUB_BENCH
+#if MELODEE_DUB
 #define AUDIO_BATCH_NONVOICE(p) ((p)==AP_DUB)
 #else
 #define AUDIO_BATCH_NONVOICE(p) 0
@@ -199,9 +203,15 @@ static void audio_batch_push_cost(audio_batch_fn run,const void *data,uint32_t b
         AB_STORE(&audio_batch_published,0u);AB_STORE(&audio_batch_worker_mask,0u);AB_STORE(&audio_batch_closed,0u);AB_STORE(&audio_batch_invalid,0u);
         uint32_t service=profile_id==AP_PROPHET && audio_batch_fm6_controls?6000u:2000u;
         audio_batch_worker_cost=0;audio_batch_producer_cost=cost>service&&!AUDIO_BATCH_NONVOICE(profile_id)?cost:service;
+        audio_batch_lead_nv=(uint8_t)AUDIO_BATCH_NONVOICE(profile_id);
 #if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
         if(audio_batch_service_allowance!=AUDIO_BATCH_SERVICE_AUTO)audio_batch_producer_cost=audio_batch_service_allowance;
 #endif
+    }
+    if(k==1u && audio_batch_lead_nv && !AUDIO_BATCH_NONVOICE(profile_id)){   /* (Release 2) the first voice behind a non-voice job sets the reserve and the service allowance as if it led */
+        uint32_t service=profile_id==AP_PROPHET && audio_batch_fm6_controls?6000u:2000u;
+        audio_batch_producer_cost=cost>service?cost:service;
+        audio_batch_lead_nv=0;
     }
     if(audio_batch_worker_cost<=audio_batch_producer_cost){
         AB_STORE(&audio_batch_worker_mask,AB_LOAD(&audio_batch_worker_mask)|(1u<<k));audio_batch_worker_cost+=cost;

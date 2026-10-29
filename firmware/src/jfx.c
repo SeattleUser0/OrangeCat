@@ -47,6 +47,7 @@
  * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.6.0: first version (Jiant 0.9.18's effects).
  */
+#include "dubdelay.h"                                  /* (Release 2) dd_t, for the size of an instance's state */
 #define JFX_XIP __attribute__((section(".text.xip_jfx"), noinline))
 
 /* ------------------------------------------------------------------ memory --- */
@@ -81,7 +82,7 @@ _Static_assert(RPRE_LEN == JFX_SEG && SH_LEN == JFX_SEG && (RX_NSEG & (RX_NSEG -
 #define DUB_N 4u                                        /* instances: one a track */
 #define DUB_NSEG 32u                                    /* the pool: 128 KB of blocks, shared */
 #define DUB_MAXSEG 16u                                  /* one line: 64 KB */
-#define DUB_STATE_BYTES 2864u                           /* dd_t (2,856 B), rounded; the kernel asserts it when it lands */
+#define DUB_STATE_BYTES ((uint32_t)((sizeof(dd_t) + 3u) & ~3u))   /* dd_t on the target (the review's 32-bit size, not the host's), rounded */
 #define DUB_SPRING_BYTES 5632u                          /* the spring's rings (DD_SP_BUF int16) */
 enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_DUBS0 = JB_RX0 + RX_NSEG, JB_DUBP0 = JB_DUBS0 + DUB_N,
        JB_DUBG0 = JB_DUBP0 + DUB_N, JB_N = JB_DUBG0 + DUB_NSEG };
@@ -91,6 +92,8 @@ static int16_t *dly_seg[DLY_NSEG], *rx_seg[RX_NSEG], *cho_buf;
 static uint8_t dly_have, rx_have;                       /* (0.6.0 rev 2) the blocks held, from the first */
 static uint8_t dub_want[DUB_N], dub_spring[DUB_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
                                                          * them before jfx_mem, from the tracks */
+static uint8_t dub_held_sp[DUB_N];                      /* the spring the held memory was taken for */
+static uint32_t dub_gen[DUB_N];                         /* resource_gen when an instance last found the arena short (it asks again when something was released) */
 static uint8_t dub_have[DUB_N], dub_held[DUB_N], dub_idle[DUB_N], dub_fresh[DUB_N], dub_ready[DUB_N];   /* blocks held; the want they were taken for; blocks idle;
                                                          * a line to set up; the memory complete */
 static uint8_t dub_nomem;                               /* the arena was short for an instance this block (jfx_wait follows) */
@@ -1934,13 +1937,14 @@ static void jfx_free_dub(uint32_t i)
     dub_state[i] = 0;
     dub_spbuf[i] = 0;
 }
+static void dub_reset(void);                            /* (Release 2) jfx_dub.c */
+static void dub_tables(void);
 static void jfx_free_dubs(void)
 {
     for (uint32_t i = 0; i < DUB_N; i++) jfx_free_dub(i);
 }
 static void jfx_free_buses(void)
 {
-    jfx_free_dubs();
     jfx_free_dly();
     jfx_free_rx(0);
     resource_release(RES_JFX0 + JB_REV);
@@ -1990,20 +1994,21 @@ static uint8_t jfx_dub_mem(void)
     uint8_t full = 0;
     dub_nomem = 0;
     for (uint32_t i = 0; i < DUB_N; i++) {
-        uint32_t w = dub_want[i], g;
+        uint32_t w = dub_want[i], g, gen0 = resource_gen;
         uint8_t nm = 0;
-        if (dub_state[i] && dub_held[i] != w) jfx_free_dub(i);
+        if (dub_state[i] && (dub_held[i] != w || dub_held_sp[i] != (dub_spring[i] != 0))) jfx_free_dub(i);   /* (jfx_dub.c changes a want only after its ramp) */
         if (!w) {
             if (dub_state[i] && ++dub_idle[i] >= 4u) jfx_free_dub(i);   /* LEN OFF: 4 blocks later (the kernel's cut ramp has run) */
             continue;
         }
         dub_idle[i] = 0;
+        if (!dub_state[i] && dub_gen[i] == resource_gen + 1u) { full |= (uint8_t)(JFX_FULL_DUB0 << i); continue; }   /* (short, and nothing released since: no retry, no spike) */
         if (!dub_spring[i] && dub_spbuf[i]) {
             resource_release(RES_JFX0 + JB_DUBP0 + i);
             dub_spbuf[i] = 0;
         }
         if (!dub_state[i]) dub_state[i] = jfx_take(JB_DUBS0 + i, DUB_STATE_BYTES, &nm);
-        if (dub_state[i]) dub_held[i] = (uint8_t)w;
+        if (dub_state[i]) { dub_held[i] = (uint8_t)w; dub_held_sp[i] = (uint8_t)(dub_spring[i] != 0); }
         if (dub_state[i] && dub_spring[i] && !dub_spbuf[i]) dub_spbuf[i] = jfx_take(JB_DUBP0 + i, DUB_SPRING_BYTES, &nm);
         while (dub_state[i] && !nm && dub_have[i] < w && (!dub_spring[i] || dub_spbuf[i])) {
             for (g = 0; g < DUB_NSEG && dub_owner[g]; g++)
@@ -2020,6 +2025,8 @@ static uint8_t jfx_dub_mem(void)
         }
         if (nm) {
             jfx_free_dub(i);                            /* (all or none: a part given back) */
+            resource_gen = gen0;                        /* (the attempt left the arena as it was: it is no release to the others) */
+            dub_gen[i] = gen0 + 1u;
             dub_nomem = 1;
         } else if (dub_state[i] && dub_have[i] == w && (!dub_spring[i] || dub_spbuf[i])) {
             if (!dub_ready[i]) dub_fresh[i] = 1;        /* complete now: set up as new */
@@ -2075,7 +2082,7 @@ static void jfx_mem(void)
     }
     full |= jfx_dub_mem();
     if (jfx_wait) jfx_wait--;
-    if (nm_r || nm_c || nm_d || dub_nomem) jfx_wait = JFX_RETRY;
+    if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;           /* (DUB TAPE does not: a short instance asks again only when something was released) */
     if (full) {                                         /* (0.6.0 rev 2) FX FULL held on screen a second past the
                                                          * last block that wanted memory and got none: a send between
                                                          * notes is silent, and the words flickered */
@@ -2096,6 +2103,7 @@ static void jfx_lend_check(void)
         jfx_bus_drain();                                /* (the buses' memory: only with no job out) */
         res_jfx_yield = 0;
         jfx_free_buses();
+        jfx_free_dubs();                                /* (Release 2) an engine first: DUB's lines too */
         if (sl_buf) jfx_sl_lost();
         jfx_wait = JFX_YIELD;
         jfx_full_acc |= jfx_sends & 7u;                 /* (what was playing: FX FULL a while) */
@@ -2281,6 +2289,7 @@ static void jfx_reset_now(void)
 {
     jfx_reset_req = 0;
     jfx_bus_drain();                                    /* (no job out) */
+    jfx_free_dubs();                                    /* (Release 2) a new project: DUB's lines from silence (the instances start again from their tracks' LEN) */
     memset(fx_ret, 0, sizeof fx_ret);                   /* (both sets of returns: the next master plays none of the old) */
     fx_bus_clear();
     memset(dist_st, 0, sizeof dist_st);
@@ -2294,6 +2303,9 @@ static void jfx_power_on(void)
 {
     jfx_bus_drain();
     jfx_free_buses();
+    jfx_free_dubs();
+    dub_reset();
+    dub_tables();
     resource_release(RES_JFX0 + JB_SL);
     sl_buf = 0;
     jfx_full = jfx_full_acc = 0;
