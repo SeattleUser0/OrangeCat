@@ -55,17 +55,18 @@ static void scene_params(int sc, float t, dd_params_t *p)
 
 static uint64_t sc_fnv(uint64_t h, const float *x, int n) { for (int i = 0; i < n; i++) { uint32_t u; memcpy(&u, &x[i], 4); for (int b = 0; b < 4; b++) { h ^= (uint64_t)((u >> (8 * b)) & 255u); h *= 1099511628211ull; } } return h; }
 /* scene sc (0 skank, 1 throw) through a fresh instance at R = 4: the stereo output in ol / or_ (n = 44100 x seconds samples), dry gain 1 */
-static void sc_render(int sc, float *ol, float *or_, int n)
+static void sc_render_r(int sc, float *ol, float *or_, int n, int R)
 {
     float *x = (float *)calloc((size_t)n, sizeof(float));
     static int16_t blk[16][2048]; int16_t *bp[16]; static dd_t d; static int16_t sb[DD_SP_BUF]; int b;
     sc_rng = 12345u;
     if (sc == 0) for (b = 0; b < 8; b += 2) add_stab(x, n, BEAT * (float)(b + 1), 0.7f); else add_vowel(x, n, 0.3f, 0.25f, 0.9f);
     memset(blk, 0, sizeof blk); memset(&d, 0, sizeof d); for (b = 0; b < 16; b++) bp[b] = blk[b];
-    dk_init(&d, 4, bp, 16); dk_spring_attach(&d, sb);
+    dk_init(&d, R, bp, 16); dk_spring_attach(&d, sb);
     for (int i = 0; i + DD_BLOCK <= n; i += DD_BLOCK) {
         dd_params_t p; scene_params(sc, (float)i / 44100.0f, &p);
         dk_process(&d, &p, x + i, ol + i, or_ + i);
     }
     free(x);
 }
+static void sc_render(int sc, float *ol, float *or_, int n) { sc_render_r(sc, ol, or_, n, 4); }

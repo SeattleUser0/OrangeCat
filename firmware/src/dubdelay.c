@@ -380,6 +380,7 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
 {
     float xl[DD_BLOCK], wl[DD_BLOCK], wr[DD_BLOCK];
     const int R = s->R, nloop = DD_BLOCK / R;
+    const dd_hbc_t *st0 = R == 4 ? &DD_ST0 : &DD_ST1;     /* converter B is the quarter rate's first stage; the half rate's one stage stays the 31-tap filter (it has no second stage behind it to catch what 11 taps let by) */
     int i, k;
     float wet0, dry0, dw, dd;
     dd_tick_t t;
@@ -393,7 +394,7 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
         dw = (we - wet0) / (float)DD_BLOCK; dd = (de - dry0) / (float)DD_BLOCK; }
     {   float y, y2;
         for (i = 0, k = 0; i < DD_BLOCK; i++)
-            if (dd_hb_dec(&s->dec[0], in[i], &y, &DD_ST0)) {
+            if (dd_hb_dec(&s->dec[0], in[i], &y, st0)) {
                 if (R == 2) xl[k++] = y;
                 else if (dd_hb_dec(&s->dec[1], y, &y2, &DD_ST1)) xl[k++] = y2;
             }
@@ -412,8 +413,8 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
             memcpy(tl, ul, sizeof ul); memcpy(tr, ur, sizeof ur);
         }
         for (i = 0; i < DD_BLOCK / 2; i++) {
-            dd_hb_int(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1], &DD_ST0);
-            dd_hb_int(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1], &DD_ST0);
+            dd_hb_int(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1], st0);
+            dd_hb_int(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1], st0);
         }
     }
     for (i = 0; i < DD_BLOCK; i++) {
