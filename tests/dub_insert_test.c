@@ -281,7 +281,14 @@ int main(void)
     for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
     CHECK(!dub_state[0] && (jfx_full & 0x10u), "the governor should have released the instance with DUB FULL: jfx_full %x", jfx_full);
     for (b = 0; b < 3000; b++) mix_block(rec[b % NBLK], CTL);
-    CHECK(!dub_state[0], "a governed instance must stay out until its setting changes");
+    CHECK(!dub_state[0], "a governed instance must stay out for 8 s");
+    for (b = 0; b < 4000; b++) { if (b % 400u == 0) dub_late_half(1); mix_block(rec[b % NBLK], CTL); }                 /* late halves go on: it stays out, past the 8 s */
+    CHECK(!dub_state[0], "a governed instance must stay out while late halves go on");
+    for (b = 0; b < 10000; b++) mix_block(rec[b % NBLK], CTL);                                                           /* quiet: after 8 s and 2 s of quiet it asks again */
+    CHECK(dub_ready[0], "a governed instance must come back after 8 s and 2 s without a late half: state %u", dub_i[0].state);
+    for (b = 0; b < 6; b++) { dub_late_half(1); dub_late_half(1); mix_block(rec[b], CTL); }                              /* and again, to test the setting-change release */
+    for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
+    CHECK(!dub_state[0], "the governor should have released it again");
     trk[0].p[P_DUBLEN] = 3;
     for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
     CHECK(dub_ready[0], "a new setting asks again: ready %u", dub_ready[0]);

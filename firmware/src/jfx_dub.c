@@ -33,6 +33,7 @@ static const dub_ptrn_t dub_ptrn[6] = {                 /* heads in steps of TIM
 enum { DUBS_OFF, DUBS_WAIT, DUBS_RUN, DUBS_RAMP, DUBS_CLEAR };
 typedef struct {
     uint8_t state, R, ramp, clr, run, kick_prev, was_on, pend_R, evict, held_off, gov;   /* evict: ramp out and let go (a bus needs the memory, the CPU is short); held_off: not asking again (see dub_held_off) */
+    uint16_t gov_wait;                                  /* blocks before a governor release may end (8 s), and then only after DUB_QUIET blocks without a late half */
     uint16_t rdeb;                                      /* blocks the rate stage has wanted to change: it changes after 344 (a tempo still settling must not clear the line) */
     uint8_t pvalid;                                     /* the job's parameter copy (dub_p[k]) is current for psig */
     uint32_t psig, rsig;                                /* a hash of what the parameter copy / the rate stage were made from: unchanged, not made again */
@@ -114,11 +115,14 @@ JFX_XIP static void dub_map(uint32_t k, const track_t *t, dd_params_t *p, uint32
 #endif
 /* audio.c, the end of every half: a late half while an instance ran. Two late halves within about a second (the score falls by 1/344 a half) and the highest running instance
  * gives way: ramped out, DUB FULL, and it stays out until its track's setting changes (or a new project): the safety net under the voice caps' third column */
-static __attribute__((section(".pool"))) uint16_t dub_gov_score, dub_gov_cool;
+static __attribute__((section(".pool"))) uint16_t dub_gov_score, dub_gov_cool, dub_late_recent;      /* dub_late_recent: blocks left of the quiet a governor release waits for, set by every late half */
+#define DUB_GOV_WAIT 11000u                             /* 8 s */
+#define DUB_QUIET 2750u                                 /* 2 s */
 static __attribute__((section(".pool"))) uint32_t dub_gov_fires;                          /* governor evictions since power-on (the readout) */
 JFX_XIP static void dub_late_half(int late)
 {
     uint32_t k, running = 0;
+    if (late) dub_late_recent = DUB_QUIET;
     for (k = 0; k < DUB_N; k++) running |= dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP;
     if (!running) {                                     /* a late half with no instance running is no business of DUB's: the score and the cool-down start over */
         dub_gov_score = dub_gov_cool = 0;
@@ -148,6 +152,7 @@ JFX_XIP static void dub_start(uint32_t nt)
     dub_mask = 0;
     dub_done = 0;
     dub_ev_full = 0;
+    if (dub_late_recent) dub_late_recent--;
     if (dub_force_degrade || !DUB_CPU1_OK()) dub_cpu_wait = DUB_CPU_OK_BLOCKS;      /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
     else if (dub_cpu_wait) dub_cpu_wait--;
     degrade = dub_cpu_wait != 0;
@@ -202,6 +207,10 @@ JFX_XIP static void dub_start(uint32_t nt)
         case DUBS_OFF:
             if (blocks) {
                 if (d->held_off && d->gov && (uint8_t)(blocks | sp << 5) != d->gov_sig) d->gov = 0;      /* the setting changed: it asks again */
+                if (d->held_off && d->gov) {                                                              /* a governor release is not for good: after 8 s, and 2 s without a late half, it asks again (a transient is forgiven, a lasting overload is not) */
+                    if (d->gov_wait) d->gov_wait--;
+                    if (!d->gov_wait && !dub_late_recent) d->gov = 0;
+                }
                 if (d->held_off && !d->gov && !degrade) d->held_off = 0;
                 else if (!d->held_off && degrade) d->held_off = 1;
                 if (d->held_off) { dub_ev_full |= (uint8_t)(JFX_FULL_DUB0 << k); break; }               /* CPU short: dry, DUB FULL */
@@ -240,6 +249,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                     dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF;
                     d->held_off = (uint8_t)(degrade || d->gov);
                     d->gov_sig = (uint8_t)(blocks | sp << 5);
+                    d->gov_wait = DUB_GOV_WAIT;
                 }
                 else if (d->pend_R && (uint8_t)R == d->pend_R && blocks == dub_want[k] && sp == dub_spring[k]) { d->state = DUBS_CLEAR; d->clr = 0; }   /* a new rate: the line cleared a block a block, then started again */
                 else if (blocks == dub_want[k] && sp == dub_spring[k] && (uint8_t)R == d->R) d->state = DUBS_RUN;   /* the setting came back during the ramp: nothing changed, the wet ramps in again */
