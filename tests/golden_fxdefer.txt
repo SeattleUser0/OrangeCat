@@ -1,11 +1,11 @@
 # MELODEE golden renders with the buses deferred (MELODEE_FX_DEFER=1, Release 2): the renders whose sound the one-block shift of the effects' returns
 # changes, name and FNV-1a 64; every other render is held to golden.txt. Rewritten by GOLDEN_UPDATE=1 on the deferred build.
-fx/delay fdb61525aa260378
-fx/delay_ping_wide c1bc6d6f3d220de6
-fx/delay_quarter_rate 1a128aedecb9e52c
+fx/delay 471e364aa0388720
+fx/delay_ping_wide f1a27b21a1ba7cec
+fx/delay_quarter_rate 3c8231932fdf6208
 fx/reverb_room 387c8d4d09036530
 fx/reverb_spring e636aeb33fc638d0
 fx/reverb_shimmer aeb2f37e2ae00c6c
 fx/reverb_reso a2545013fc866f80
 fx/reverb_cloud 8dcb149034ff13cc
-fx/all_three 052be4c78da904a1
+fx/all_three 56b64e3a5feddbda
