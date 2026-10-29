@@ -39,11 +39,11 @@ typedef struct { uint32_t gprev, gnext, pre, us, t5, total; } ld_ent_t;
 uint32_t ld_gmin = 0xFFFFFFFFu, ld_gmax, ld_n, ld_late, ld_hist[24];
 ld_ent_t ld_ring[8];
 static uint32_t ld_prev, ld_gap, ld_pend;
-uint32_t ld_head;
+uint32_t ld_head, ld_t5max, ld_t5big;      /* the nested TIMER5 ticks of one half: largest, and the halves above 200 us */
 void ld_reset(void)
 {
     uint32_t k;
-    ld_gmin = 0xFFFFFFFFu; ld_gmax = ld_n = ld_late = 0; ld_head = 0; ld_pend = 0; ld_prev = 0;
+    ld_gmin = 0xFFFFFFFFu; ld_gmax = ld_n = ld_late = 0; ld_head = 0; ld_pend = 0; ld_prev = 0; ld_t5max = ld_t5big = 0;
     for (k = 0; k < 24u; k++) ld_hist[k] = 0;
     for (k = 0; k < 8u; k++) ld_ring[k].gprev = ld_ring[k].gnext = ld_ring[k].pre = ld_ring[k].us = ld_ring[k].t5 = ld_ring[k].total = 0;
 }
@@ -234,6 +234,8 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             if (late)
                 melodee_dbg.late++;                     /* the DMA moved on while we rendered */
 #if OC_LATE_DIAG
+            if (t5_nested_ticks > ld_t5max) ld_t5max = t5_nested_ticks;
+            if (t5_nested_ticks > 200u * FM1_TICKS_PER_US) ld_t5big++;
             if (late) {
                 ld_ent_t *e = &ld_ring[ld_head & 7u];
                 e->gprev = ld_gap; e->gnext = 0; e->pre = t0 - fm1_audio_irq_start_ticks; e->us = us; e->t5 = t5_nested_ticks; e->total = fm1_ticks() - t0;

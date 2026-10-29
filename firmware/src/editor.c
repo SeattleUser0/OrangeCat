@@ -709,16 +709,16 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #if OC_LATE_DIAG
         if (na == 2u && a[1] == 9u) {
             /* (round 3, measurement builds) [flags, 9]: 20, then gap min, gap max (ticks), n, late, ring head, 24 gap bins (16 us from 2,800), then 8 late halves x
-             * (gap before, gap after, pre, us (microseconds), t5, total) in ticks. Flag 1 starts over. Copied with the interrupts off, formatted after. */
-            uint32_t k, v[5 + 24 + 48];
+             * (gap before, gap after, pre, us (microseconds), t5, total) in ticks. Then the largest nested TIMER5 of a half (ticks) and the halves above 200 us. Flag 1 starts over. Copied with the interrupts off, formatted after. */
+            uint32_t k, v[5 + 24 + 48 + 2];
             fm1_irq_off();
-            v[0] = ld_gmin; v[1] = ld_gmax; v[2] = ld_n; v[3] = ld_late; v[4] = ld_head;
+            v[0] = ld_gmin; v[1] = ld_gmax; v[2] = ld_n; v[3] = ld_late; v[4] = ld_head; v[77] = ld_t5max; v[78] = ld_t5big;
             for (k = 0; k < 24u; k++) v[5 + k] = ld_hist[k];
             for (k = 0; k < 8u; k++) { v[29 + 6 * k] = ld_ring[k].gprev; v[30 + 6 * k] = ld_ring[k].gnext; v[31 + 6 * k] = ld_ring[k].pre; v[32 + 6 * k] = ld_ring[k].us; v[33 + 6 * k] = ld_ring[k].t5; v[34 + 6 * k] = ld_ring[k].total; }
             if (a[0] & 1u) ld_reset();
             fm1_irq_on();
             ed_b(20);
-            for (k = 0; k < 5u + 24u + 48u; k++) ed_bk_u32(v[k]);
+            for (k = 0; k < 5u + 24u + 48u + 2u; k++) ed_bk_u32(v[k]);
             break;
         }
 #endif
