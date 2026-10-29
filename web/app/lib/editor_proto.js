@@ -1311,7 +1311,7 @@ async function capturePatch(rq, info, name) {
   if(dump.engine===15 && dump.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(0,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read CZ patch");cz=r.raw; }
   let fm6=null;
   if(info.engines[dump.engine]==="FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read FM6 voice");fm6=Array.from(r.packed); }
-  const JFX_DEF=[0,0,0,0,2,1,1,1,55,127,60,48,0,0,0,0,0,0];   /* (Orange Cat 0.6.0) the effects' defaults, ids 96..113: the track's; (Release 2) 104..107 and 111..113 are DUB TAPE's FDBK SEND TONE SPACE and THRW CUT KICK */
+  const JFX_DEF=[0,0,0,0,2,1,1,1,55,127,60,24,0,0,0,0,0,0];   /* (Orange Cat 0.6.0) the effects' defaults, ids 96..113: the track's; (Release 2) 104..107 and 111..113 are DUB TAPE's FDBK SEND TONE SPACE and THRW CUT KICK */
   const p=dump.p.map((v,i)=>info.pe0>=116&&i>=45&&i<=47?0:info.gcount>=76&&i>=96&&i<=113?JFX_DEF[i-96]:info.pe0>=100&&i>=96&&i<Math.min(info.pe0,108)?[0,0,60,64][(i-96)%4]:info.pe0>=114&&i>=111&&i<=113?0:v);
   return { patch: cleanPatch({ p5, cz, fm6, name, engine: dump.engine, engineName: info.engines[dump.engine], p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
@@ -1928,7 +1928,7 @@ function makeMockDevice(opt = {}) {
     D("FDBK",F.INT,0,127,55),
     D("SEND",F.INT,0,127,127),
     D("TONE",F.INT,0,127,60),
-    D("SPACE",F.INT,0,127,48),
+    D("SPACE",F.INT,0,127,24),
     D("REV",F.PCT,0,127,0),
     D("DLY",F.PCT,0,127,0),
     D("CHO",F.PCT,0,127,0),

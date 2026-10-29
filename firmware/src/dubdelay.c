@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * dubdelay: DUB TAPE's kernel for Orange Cat Release 2 (see dubdelay.h; from the research prototype 0.5, LITE only). Single precision throughout;
- * the tables are designed once by dk_tables_init, dk_process only reads them. Written for -ffp-contract=off -Werror=double-promotion. */
+ * no tables: the coefficients are computed at the control tick. Written for -ffp-contract=off -Werror=double-promotion. */
 #include "dubdelay.h"
 #include "dd_math.h"
 #if __STDC_HOSTED__
@@ -24,47 +24,20 @@ void *memcpy(void *d, const void *s, size_t n);
 #define DD_Q16 32767.0f
 #define DD_IQ16 (1.0f / 32767.0f)
 
-static float dd_hb_h[DD_HB_M] DD_POOL;
-static float dd_gtab[2][DD_KNOB] DD_POOL;                /* [0] R 2 (22.05 kHz), [1] R 4 (11.025 kHz) */
-static float dd_ktab[DD_KNOB] DD_POOL, dd_mktab[DD_KNOB] DD_POOL;
-static int dd_tables_ready;
-
-static float dd_bessel_i0(float x)
+/* the half-band's odd taps (offsets 1, 3, 5 ..; the centre is 0.5): the Kaiser design of the prototype (31 taps, beta 7), computed once on the host, so no table is built at run time */
+static const float dd_hb_h[DD_HB_M] = {0.314333438873291f, -0.09460322558879852f, 0.04605904966592789f, -0.023742549121379852f,
+                                       0.011624842882156372f, -0.005037464667111635f, 0.0017602996667847037f, -0.000394397386116907f};
+#define DD_KNOB_LN 0.0543918f                  /* ln(1000) / 127: 20 Hz .. 20 kHz over the knob's 0 .. 127 */
+/* (Release 2) the filter coefficients are computed at the control tick, not read from tables: the tables were 2 KB of the arena for every build. tan(pi f / fs) of the knob's
+ * frequency, with the cutoff held below 0.45 of the line's rate */
+static float dd_knob_g(const dd_t *s, float k)
 {
-    float s = 1.0f, t = 1.0f;
-    int k;
-    for (k = 1; k < 32; k++) { t *= (x * 0.5f / (float)k) * (x * 0.5f / (float)k); s += t; }
-    return s;
-}
-#define DD_KNOB_RATIO 1.0558981944f               /* 1000^(1/127): 20 Hz .. 20 kHz over 0..127 */
-static float dd_knob_hz_int(int k) { float f = 20.0f; while (k-- > 0) f *= DD_KNOB_RATIO; return f; }
-void dk_tables_init(void)
-{
-    const float beta = 7.0f, n2 = (float)(DD_HB_C + 1);
-    float sum = 0.0f;
-    int j, k, r;
-    if (dd_tables_ready) return;
-    for (j = 0; j < DD_HB_M; j++) {
-        float o = (float)(2 * j + 1), rr = o / n2;
-        dd_hb_h[j] = ((j & 1) ? -1.0f : 1.0f) / (DD_PI * o) * dd_bessel_i0(beta * ddm_sqrt(1.0f - rr * rr)) / dd_bessel_i0(beta);
-        sum += 2.0f * dd_hb_h[j];
-    }
-    for (j = 0; j < DD_HB_M; j++) dd_hb_h[j] *= 0.5f / sum;
-    for (r = 0; r < 2; r++) {
-        float fsl = (float)DD_FS / (float)(r ? 4 : 2);
-        for (k = 0; k < DD_KNOB; k++) {
-            float f = dd_knob_hz_int(k);
-            if (f > 0.45f * fsl) f = 0.45f * fsl;
-            dd_gtab[r][k] = ddm_tan(DD_PI * f / fsl);
-        }
-    }
-    for (k = 0; k < DD_KNOB; k++) {
-        float q;
-        dd_ktab[k] = 2.0f - 1.75f * (float)k / 127.0f;
-        q = 1.0f / dd_ktab[k];
-        dd_mktab[k] = q > 0.7072f ? ddm_sqrt(1.0f - 0.25f / (q * q)) / q : 1.0f;
-    }
-    dd_tables_ready = 1;
+    float f;
+    if (k < 0.0f) k = 0.0f;
+    if (k > (float)(DD_KNOB - 1)) k = (float)(DD_KNOB - 1);
+    f = 20.0f * ddm_exp(k * DD_KNOB_LN);
+    if (f > 0.45f * s->fsl) f = 0.45f * s->fsl;
+    return ddm_tan(DD_PI * f / s->fsl);
 }
 
 void dk_clear_block(dd_t *s, uint32_t k) { if (k < s->nblk) memset(s->blk[k], 0, DD_BLK_N * sizeof(int16_t)); }
@@ -92,23 +65,12 @@ void dk_init(dd_t *s, int R, int16_t *const *blk, uint32_t nblk)
     s->nblk = nblk; s->len = nblk << DD_BLK_SH;
     for (k = 0; k < nblk; k++) s->blk[k] = blk[k];
     s->fsl = (float)DD_FS / (float)s->R;
-    s->gtab = dd_gtab[s->R == 4];
-    dk_reset(s);
+        dk_reset(s);
 }
 
 /* the longest head the line holds: its length less the read guard, in seconds (the converters' latency is outside the loop) */
 float dk_max_seconds(const dd_t *s) { return ((float)s->len - 8.0f - 40.0f) / s->fsl; }
 
-static inline float dd_knob_g(const dd_t *s, float k)
-{
-    int i;
-    float f;
-    if (k < 0.0f) k = 0.0f;
-    if (k > (float)(DD_KNOB - 1)) k = (float)(DD_KNOB - 1);
-    i = (int)k; f = k - (float)i;
-    if (i >= DD_KNOB - 1) return s->gtab[DD_KNOB - 1];
-    return s->gtab[i] + f * (s->gtab[i + 1] - s->gtab[i]);
-}
 static inline float dd_clip15(float x) { return x > 1.5f ? 1.5f : x < -1.5f ? -1.5f : x; }
 static inline float dd_sat3(float x) { x = dd_clip15(x); return x - 0.148148148f * x * x * x; }
 static inline float dd_lim_out(float x)
@@ -191,6 +153,13 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
         }
         q->place = pl;
     }
+    q->m = p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
+    if (q->place == 1 && q->m < 0.0005f && q->wm < 0.001f) {                    /* (Release 2) the loop spring bypassed: after about 0.5 s the tank is cleared (once), so it comes back from silence */
+        if (q->idle < 0xFFFFu && ++q->idle == 700u && q->buf) {
+            memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
+            memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+        }
+    } else q->idle = 0;
     if (!q->place) return;
     q->g = ddm_exp(-6.90775528f * ((float)q->dt / s->fsl) / T);
     q->glp = 1.0f - ddm_exp(-2.0f * DD_PI * (1600.0f + 3000.0f * tone) / s->fsl);
@@ -199,7 +168,6 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     q->gin = 1.0f + 6.0f * dr * dr;                  /* the tube: in the loop made up whole (unity for small signals: the loop's gain stays
                                                       * FEEDBACK), on the wet half (a driven tube is louder) */
     q->igin = q->place == 1 ? 1.0f / q->gin : 1.0f / ddm_sqrt(q->gin);
-    q->m = p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
     q->in = p->sp_in; q->tg = 1.0f - p->tap_cut;
     if (p->crash != q->crash_seen) {                  /* a kick: the burst from the next sample */
         q->crash_seen = p->crash;
@@ -307,11 +275,9 @@ DD_NOINL static void dd_control_tick(dd_t *s, const dd_params_t *p, dd_tick_t *t
     t->ghp = dd_knob_g(s, p->hp);
     t->G = t->ghp / (1.0f + t->ghp);
     g = t->glp = dd_knob_g(s, p->lp);
-    {   float rk = p->res * 127.0f, rf;
-        int ri;
-        rk = rk < 0.0f ? 0.0f : rk > 126.999f ? 126.999f : rk; ri = (int)rk; rf = rk - (float)ri;
-        t->k = dd_ktab[ri] + rf * (dd_ktab[ri + 1] - dd_ktab[ri]);
-        t->mk = dd_mktab[ri] + rf * (dd_mktab[ri + 1] - dd_mktab[ri]); }
+    {   float kk = 2.0f - 1.75f * (p->res < 0.0f ? 0.0f : p->res > 1.0f ? 1.0f : p->res), q = 1.0f / kk;      /* LP damping 2 (Q 0.5) .. 0.25 (Q 4) and 1 / its resonant peak */
+        t->k = kk;
+        t->mk = q > 0.7072f ? ddm_sqrt(1.0f - 0.25f / (q * q)) / q : 1.0f; }
     t->a1 = 1.0f / (1.0f + g * (g + t->k)); t->a2 = g * t->a1; t->a3 = g * t->a2;
     t->gd = 1.0f + 3.0f * p->drive * p->drive;
     t->igd = 1.0f / t->gd;
@@ -345,7 +311,9 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
     const float sc = DD_IQ16 * t->igd;
     const int rec = t->route;
     dd_spring_t *q = &s->sp;
-    const int spl = q->place == 1 && q->m > 0.02f, spo = q->place == 2;   /* the spring in the loop (bypassed at a mix near 0: the tank is an allpass even then), or on the wet */
+    const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2;   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
+    const float wk = 1.0f / (0.005f * s->fsl);
+    float wm = q->wm;
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
     int i, j;
     for (i = 0; i < n; i++) {
@@ -367,7 +335,11 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
         v = (af - hp_s) * t->G; u = v + hp_s; hp_s = u + v; af -= u;
         {   float v3 = af - ic2, v1 = t->a1 * ic1 + t->a2 * v3, v2 = ic2 + t->a2 * ic1 + t->a3 * v3;
             ic1 = 2.0f * v1 - ic1; ic2 = 2.0f * v2 - ic2; af = v2 * t->mk; }
-        if (spl) af = dd_sp_loop(q, af);
+        if (spl) {
+            float y = dd_sp_loop(q, af);
+            wm += (q->m - wm) * wk;
+            af += wm * (y - af);
+        }
         u = rec ? af + dn : sd * xi + fb * af + dn;
         *dd_ln_at(s, w) = dd_to_q15(dd_sat3(t->gd * u));
         dn = -dn;
@@ -381,6 +353,7 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
     }
     s->w = w; s->hp_s = hp_s; s->lp1 = ic1; s->lp2 = ic2; s->fb_cur = fb; s->send_cur = sd;
     s->cut_g = cg; s->cutw_g = wg;
+    q->wm = wm;
     s->denorm++;
 }
 

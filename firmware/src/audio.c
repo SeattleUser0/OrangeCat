@@ -197,8 +197,11 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             song.cpu_q8 = load / CPU_AVG;
             audio_cpu_rem = load % CPU_AVG;
         }
-        if (fm1_audio_free_half() != half)
-            melodee_dbg.late++;                         /* the DMA moved on while we rendered */
+        {   int late = fm1_audio_free_half() != half;
+            if (late)
+                melodee_dbg.late++;                     /* the DMA moved on while we rendered */
+            dub_late_half(late);                        /* (Release 2) the governor under the voice caps' third column */
+        }
         melodee_dbg.halves++;
         melodee_dbg.last_us = us;
         if (us > melodee_dbg.max_us)

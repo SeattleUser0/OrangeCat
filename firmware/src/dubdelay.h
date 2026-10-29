@@ -4,10 +4,8 @@
  * one circulating tape-style line, up to four playback heads, one feedback path (heads -> high-pass -> resonant low-pass -> drive -> back
  * into the line with the new input), the spring (in the loop or on the wet), the cut, the wet's limiter. What changed from the prototype
  * (BUILD.md, "DUB TAPE as the per-track insert", design 3): no TAPE (wow) and no DIGITAL algorithm, no second line; the line is not one
- * buffer but a table of 4 KB blocks (the arena's, jfx.c) in a ring of any number of blocks; the filter and rate tables are global, built once at
- * power-on (dk_tables_init), not in each instance; a block is 32 samples; the line rates are the half (R 2, 22.05 kHz) and the quarter (R 4).
- * Contract: 44.1 kHz host rate, blocks of DD_BLOCK frames, parameters read once a block, no allocation, no transcendental function and no
- * coefficient design in dk_process.
+ * buffer but a table of 4 KB blocks (the arena's, jfx.c) in a ring of any number of blocks; no tables (the filter coefficients are computed at the control tick); a block is 32 samples; the line rates are the half (R 2, 22.05 kHz) and the quarter (R 4).
+ * Contract: 44.1 kHz host rate, blocks of DD_BLOCK frames, parameters read once a block, no allocation; the filter coefficients are computed once a block at the control tick (a few exp, tan and one sqrt a block, no per-sample transcendental).
  */
 #ifndef DUBDELAY_H
 #define DUBDELAY_H
@@ -58,6 +56,8 @@ typedef struct {
     float a, g, glp, gout, norm, gin, igin, m, in, tg;
     float env, crash_amp, kd;
     float gd, al;
+    float wm;                           /* (Release 2) the loop spring's crossfade gain, 0 (bypassed) .. 1, a one-pole toward sp_mix: no click when the mix comes near 0 */
+    uint32_t idle;                      /* blocks the loop spring has been bypassed and silent: past SP_IDLE its tank is cleared once */
     uint32_t crash_seen, crash_n, rng;
     int place;
 } dd_spring_t;
@@ -69,7 +69,6 @@ typedef struct {
     uint32_t nblk, len;                 /* blocks held, and the ring's length in samples (nblk x 2,048) */
     int16_t *blk[DD_MAXBLK];            /* the line's blocks, caller-owned */
     float fsl;                          /* loop sample rate */
-    const float *gtab;                  /* tan(pi f / fsl) for the knob's frequencies (the table of this R) */
     uint32_t w;                         /* write index */
     float d[DD_TAPS];                   /* current head delays (loop samples, smoothed) */
     float gl[DD_TAPS], gr[DD_TAPS], fw[DD_TAPS];
@@ -83,8 +82,6 @@ typedef struct {
     float cut_g, cutw_g, lim_env, lim_g;
 } dd_t;
 
-/* once, at power-on (not in the audio interrupt): the half-band, the sine and the filter tables */
-void dk_tables_init(void);
 /* an instance on `nblk` blocks (zeroed by the caller), at rate divisor R (2 or 4) */
 void dk_init(dd_t *s, int R, int16_t *const *blk, uint32_t nblk);
 void dk_reset(dd_t *s);                 /* the state from silence, the line NOT cleared (dk_clear_block) */

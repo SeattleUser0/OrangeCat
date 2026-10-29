@@ -18,12 +18,12 @@
  *   - whatever does not fit says FX FULL, and nothing an engine or a hot set took is touched.
  * Run by tests/run_tests.sh. The four numbers change with the build: nm build/melodee.elf, _resource{,_low,_data,_retained}_{start,end}. */
 #ifndef JA_MAIN_BYTES
-#define JA_MAIN_BYTES 76896u                            /* (Release 2, the DUB build d29d57d) nm build/melodee.elf: _resource_end - _resource_start (the stage 2 build before DUB: see BUILD.md) */
+#define JA_MAIN_BYTES 85760u                            /* (Release 2 round 2, the DUB build with the instances in the arena) nm build/melodee.elf: _resource_end - _resource_start (stage 2: 86,368) */
 #endif
 #define RES_HOST_MAIN_WORDS (JA_MAIN_BYTES / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
 #ifndef JA_DATA_BYTES
-#define JA_DATA_BYTES 3576u
+#define JA_DATA_BYTES 4216u
 #endif
 #define RES_HOST_DATA_WORDS (JA_DATA_BYTES / 4u)
 #define RES_HOST_RETAINED_WORDS (816u / 4u)

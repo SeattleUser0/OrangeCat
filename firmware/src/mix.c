@@ -88,7 +88,7 @@ static void mix_send_gains(const track_t *t)
 #if MELODEE_DUB
 /* (Release 2) the instance's wet of this block (its job ran on the last block's capture, in the batch): into the track's dry destination and, mono, through the
  * track's own sends. A job that did not complete (CPU1 failed) leaves this block's wet silent. The track stays mixed while the wet or the input is audible */
-static void dub_add_wet(const track_t *t,uint32_t ti,uint32_t n)
+JFX_XIP static void dub_add_wet(const track_t *t,uint32_t ti,uint32_t n)
 {
     dub_i_t *d;
     int32_t pk=0;
