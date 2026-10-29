@@ -722,14 +722,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             break;
         }
 #endif
-        if ((na == 2u || na == 5u) && a[1] == 6u) {
+        if ((na == 2u || na == 5u || na == 6u) && a[1] == 6u) {
             /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 13: 13, then 5 x 7 bits each: engaged now, times
              * engaged, halves engaged, extra UNISON voices refused, the shared effects ran last block, N (3: MODAL, FM6, the Prophet); then
              * for each: voices given up for the cap, the cap with the effects off, with them on. Flag 1 starts the counts over.
              * [flags, 6, c, off, on] (OC_CORE_STATS builds only, the unit's runs): engine c's caps (0: as built), then the same reply */
             uint32_t k;
 #if OC_CORE_STATS
-            if (na == 5u && a[2] < VC_N) { vc_cap[a[2]][0] = a[3]; vc_cap[a[2]][1] = a[4]; }
+            if ((na == 5u || na == 6u) && a[2] < VC_N) { vc_cap[a[2]][0] = a[3]; vc_cap[a[2]][1] = a[4]; vc_cap[a[2]][2] = na == 6u ? a[5] : 0; }
 #endif
             ed_b(13);
             fm1_irq_off();
@@ -739,6 +739,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 ed_bk_u32(vc_steals[k]);
                 ed_bk_u32(vc_cap[k][0] ? vc_cap[k][0] : VC_CAP[k][0]);
                 ed_bk_u32(vc_cap[k][1] ? vc_cap[k][1] : VC_CAP[k][1]);
+                ed_bk_u32(vc_cap[k][2] ? vc_cap[k][2] : VC_CAP[k][2]);
             }
             if (a[0] & 1u) { vc_engages = vc_engaged_halves = vc_refused = 0; for (k = 0; k < VC_N; k++) vc_steals[k] = 0; }
             fm1_irq_on();

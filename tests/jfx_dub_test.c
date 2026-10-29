@@ -18,7 +18,6 @@ static int16_t *pool;
 static void setup(int R, uint32_t nblk, int contiguous)
 {
     uint32_t k;
-    dk_tables_init();
     free(pool);
     pool = calloc(nblk * (DD_BLK_N + 64u), sizeof(int16_t));     /* (padding between blocks when not contiguous: the table is what finds them) */
     for (k = 0; k < nblk; k++) blk[k] = contiguous ? pool + k * DD_BLK_N : pool + k * (DD_BLK_N + 64u);
@@ -140,6 +139,29 @@ int main(void)
         CHECK(a1 <= 1.0001f && a1 > 0.05f, "spring placement %d peak %f", place, a1);
         CHECK(a2 < 0.5f * a1, "spring placement %d does not decay: %f then %f", place, a1, a2);
         free(sb);
+    }
+
+    /* 7b. the loop spring crossfades: at a mix of 0 the output is the spring-off output bit for bit; the mix swept 0 -> 0.7 -> 0 steps no more than the signal */
+    {   int16_t *sb = calloc(DD_SP_BUF, sizeof(int16_t));
+        float *o1 = calloc(N, sizeof(float)), maxd = 0.0f, last = 0.0f;
+        for (i = 0; i < N; i++) in[i] = 0.4f * sinf(0.03f * (float)i) * ((i / 4000) & 1u ? 1.0f : 0.5f);
+        setup(2, 4, 1); params(&p, 0.05f, 0.7f); run(&p, in, out, 600);          /* spring off */
+        setup(2, 4, 1); dk_spring_attach(&dd, sb); params(&p, 0.05f, 0.7f); p.spring = 1; p.sp_mix = 0.0f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f;
+        run(&p, in, o1, 600);
+        CHECK(!memcmp(out, o1, 600u * DD_BLOCK * sizeof(float)), "the loop spring at a mix of 0 is not the spring-off output");
+        printf("dub: the loop spring at a mix of 0 equals no spring: %s\n", !memcmp(out, o1, 600u * DD_BLOCK * sizeof(float)) ? "yes" : "NO");
+        setup(2, 4, 1); memset(sb, 0, DD_SP_BUF * sizeof(int16_t)); dk_spring_attach(&dd, sb); params(&p, 0.05f, 0.7f); p.spring = 1; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f;
+        {   float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK];
+            for (uint32_t b = 0; b < 1200; b++) {
+                p.sp_mix = b < 300 ? 0.0f : b < 600 ? 0.7f * (float)(b - 300) / 300.0f : b < 900 ? 0.7f : 0.7f * (float)(1200 - b) / 300.0f;
+                for (i = 0; i < DD_BLOCK; i++) x[i] = in[(b * DD_BLOCK + i) % N];
+                dk_process(&dd, &p, x, l, r);
+                for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b > 100 && d > maxd) maxd = d; last = l[i]; }
+            }
+        }
+        printf("dub: the loop spring's mix swept 0 to 0.7 and back: the largest sample step %.4f\n", maxd);
+        CHECK(maxd < 0.25f, "the spring's crossfade clicks: %f", maxd);
+        free(o1); free(sb);
     }
 
     /* 8. the quarter rate: the repeat still at TIME */

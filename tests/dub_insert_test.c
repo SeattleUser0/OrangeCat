@@ -58,7 +58,7 @@ int main(void)
     base = malloc(sizeof rec);
 
     /* OFF: no DUB memory; the reference render */
-    dt_fresh(0, 1, 48, 120, 0);
+    dt_fresh(0, 1, 24, 120, 0);
     dt_render(0, NBLK);
     memcpy(base, rec, sizeof rec);
     {   int32_t pk = 0; for (b = 0; b < NBLK; b++) for (uint32_t i = 0; i < CTL * 2; i++) { int32_t a = rec[b][i] < 0 ? -rec[b][i] : rec[b][i]; if (a > pk) pk = a; }
@@ -66,8 +66,8 @@ int main(void)
     CHECK(!dub_state[0] && !dub_have[0] && !dub_want[0], "LEN OFF holds DUB memory");
     CHECK(!(jfx_full & 0xF0u), "LEN OFF says DUB FULL");
 
-    /* ECHO: SPACE 48 = 1/8, at 120 BPM 0.25 s = 11025 samples = 345 blocks */
-    dt_fresh(2, 1, 48, 120, 0);
+    /* ECHO: SPACE 24 = 1/8, at 120 BPM 0.25 s = 11025 samples = 345 blocks */
+    dt_fresh(2, 1, 24, 120, 0);
     dt_render(0, NBLK);
     CHECK(dub_ready[0] && dub_have[0] == 4, "16K should hold 4 blocks: ready %u have %u", dub_ready[0], dub_have[0]);
     for (b = 0; b < NBLK && !memcmp(rec[b], base[b], sizeof rec[b]); b++) ;
@@ -78,7 +78,7 @@ int main(void)
     printf("dub insert: the echo's energy %lld\n", (long long)diff_energy(rec, (const int32_t (*)[CTL * 2])base, 4 + 345, NBLK));
 
     /* FULL: the arena held by something else: the track plays dry and says DUB FULL, then the memory comes when it is released */
-    dt_fresh(0, 1, 48, 120, 0);
+    dt_fresh(0, 1, 24, 120, 0);
     {   static const uint32_t hog[] = { RES_JFX0 + JB_DLY0, RES_JFX0 + JB_DLY0 + 1, RES_JFX0 + JB_DLY0 + 2, RES_JFX0 + JB_DLY0 + 3, RES_JFX0 + JB_DLY0 + 4, RES_JFX0 + JB_DLY0 + 5, RES_JFX0 + JB_DLY0 + 6, RES_JFX0 + JB_DLY0 + 7 };   /* (the DELAY's line blocks: no delay send, so nothing else wants them) */
         uint32_t k;
         for (k = 0; k < sizeof hog / sizeof hog[0]; k++) {
@@ -99,23 +99,34 @@ int main(void)
     }
 
     /* a short instance asks again when its own want comes down, with nothing released since (the review's second fault) */
-    dt_fresh(0, 1, 48, 120, 0);
+    dt_fresh(0, 1, 24, 120, 0);
     {   static const uint32_t hog[] = { RES_JFX0 + JB_DLY0, RES_JFX0 + JB_DLY0 + 1, RES_JFX0 + JB_DLY0 + 2, RES_JFX0 + JB_DLY0 + 3, RES_JFX0 + JB_DLY0 + 4, RES_JFX0 + JB_DLY0 + 5, RES_JFX0 + JB_DLY0 + 6, RES_JFX0 + JB_DLY0 + 7 };
         uint32_t k;
         for (k = 0; k < sizeof hog / sizeof hog[0]; k++) {
             uint32_t size = 80000u;
             while (size >= 700u && !resource_allocate(hog[k], size)) size -= 700u;
         }
-        resource_release(hog[1]);                        /* the low bank's piece (27 KB) comes back: room for a 16K line, not a 48K one */
-        trk[0].p[P_DUBLEN] = 5;
-        for (b = 0; b < 60; b++) mix_block(rec[b], CTL);
-        CHECK(!dub_ready[0] && (jfx_full & 0x10u), "48K should not fit: ready %u full %x", dub_ready[0], jfx_full);
-        trk[0].p[P_DUBLEN] = 2;
-        for (b = 60; b < 200; b++) mix_block(rec[b], CTL);
-        CHECK(dub_ready[0], "the lowered want should be taken with nothing released: state %u have %u full %x", dub_i[0].state, dub_have[0], jfx_full);
+        resource_release(hog[1]);                        /* a bank's piece comes back: room for a short line, not for 64K */
+        {   uint32_t n = 0, q, ok = 0;                   /* how many 4 KB blocks fit beside the common block and one state, probed on spare handles */
+            static const uint8_t table[7] = {0, 2, 4, 6, 8, 12, 16};
+            resource_allocate(RES_JFX0 + JB_DUBC, sizeof(dub_common_t));
+            resource_allocate(RES_JFX0 + JB_DUBS0 + 3, DUB_STATE_BYTES);
+            while (n < 16 && resource_allocate(RES_JFX0 + JB_DUBG0 + 16 + n, JFX_SEG * sizeof(int16_t))) n++;
+            for (q = 0; q < n; q++) resource_release(RES_JFX0 + JB_DUBG0 + 16 + q);
+            resource_release(RES_JFX0 + JB_DUBS0 + 3);
+            resource_release(RES_JFX0 + JB_DUBC);
+            for (q = 6; q > 0; q--) if (table[q] + 0u <= n && table[q] >= 2) { ok = q; break; }
+            printf("dub insert: %u blocks fit beside the common block and a state; the lowered LEN index %u\n", n, ok);
+            trk[0].p[P_DUBLEN] = 6;                          /* 64K: 16 blocks, more than fit */
+            for (b = 0; b < 60; b++) mix_block(rec[b], CTL);
+            CHECK(!dub_ready[0] && (jfx_full & 0x10u), "64K should not fit: ready %u full %x", dub_ready[0], jfx_full);
+            trk[0].p[P_DUBLEN] = (int16_t)ok;
+            for (b = 60; b < 200; b++) mix_block(rec[b], CTL);
+            CHECK(ok && dub_ready[0], "the lowered want should be taken with nothing released: state %u have %u full %x", dub_i[0].state, dub_have[0], jfx_full);
+        }
     }
     /* the setting back to what it was during the ramp (the review's first fault): the instance runs again */
-    dt_fresh(2, 1, 48, 120, 0);
+    dt_fresh(2, 1, 24, 120, 0);
     for (b = 0; b < 40; b++) mix_block(rec[b], CTL);
     trk[0].p[P_DUBLEN] = 3;
     for (b = 40; b < 43; b++) mix_block(rec[b], CTL);
@@ -124,10 +135,10 @@ int main(void)
     CHECK(dub_i[0].state == 2 && dub_ready[0], "LEN back during the ramp: state %u ready %u", dub_i[0].state, dub_ready[0]);
 
     /* CHANGE: LEN to OFF in the middle of the tail: no step bigger than the signal's own */
-    dt_fresh(0, 1, 48, 120, 0);                          /* the OFF render's own largest step over the same blocks, both channels */
+    dt_fresh(0, 1, 24, 120, 0);                          /* the OFF render's own largest step over the same blocks, both channels */
     dt_render(0, 900);
     {   int32_t d1 = 0; for (b = 800; b < 900; b++) for (uint32_t i = 1; i < CTL * 2; i++) { int32_t d = rec[b][i] - rec[b][i - 1]; if (i == CTL) continue; if (d < 0) d = -d; if (d > d1) d1 = d; } dry_step = d1; }
-    dt_fresh(2, 1, 48, 120, 0);
+    dt_fresh(2, 1, 24, 120, 0);
     dt_render(0, 800);
     maxstep = 0;
     {   int32_t last = rec[799][CTL * 2 - 1];
@@ -151,13 +162,13 @@ int main(void)
     CHECK(dub_ready[0] && dub_spbuf[0], "the spring's memory not taken");
 
     /* STAGE: SLAP 1/8 at 120 BPM: farthest head 0.75 s */
-    dt_fresh(3, 0, 48, 120, 0);                          /* 24K: 12,288 samples; the half rate needs 16,597: the quarter rate */
+    dt_fresh(3, 0, 24, 120, 0);                          /* 24K: 12,288 samples; the half rate needs 16,597: the quarter rate */
     dt_render(0, 300);
     CHECK(dub_i[0].R == 4, "SLAP 1/8 at 24K should run at the quarter rate, R %u", dub_i[0].R);
-    dt_fresh(5, 0, 48, 120, 0);                          /* 48K: 24,576: the half rate */
+    dt_fresh(5, 0, 24, 120, 0);                          /* 48K: 24,576: the half rate */
     dt_render(0, 300);
     CHECK(dub_i[0].R == 2, "SLAP 1/8 at 48K should run at the half rate, R %u", dub_i[0].R);
-    dt_fresh(1, 0, 48, 120, 0);                          /* 8K: 4,096 samples: not even the quarter rate (8,300): TIME clamps, no crash */
+    dt_fresh(1, 0, 24, 120, 0);                          /* 8K: 4,096 samples: not even the quarter rate (8,300): TIME clamps, no crash */
     dt_render(0, 400);
     CHECK(dub_i[0].R == 4, "SLAP 1/8 at 8K: R %u", dub_i[0].R);
     {   int32_t pk = 0;
@@ -172,7 +183,7 @@ int main(void)
     CHECK(dub_i[0].R == 2, "back at the half rate when the TIME comes down: R %u", dub_i[0].R);
 
     /* RESET and YIELD: the output after a project load equals the OFF render (no old echo plays; the instance restarts, its first new echo a TIME away) */
-    dt_fresh(0, 1, 48, 120, 0);
+    dt_fresh(0, 1, 24, 120, 0);
     dt_render(0, 400);
     jfx_clear_all();
     for (b = 400; b < 800; b++) {
@@ -181,7 +192,7 @@ int main(void)
         mix_block(rec[b], CTL);
     }
     memcpy(base, rec, sizeof rec);
-    dt_fresh(2, 1, 48, 120, 0);
+    dt_fresh(2, 1, 24, 120, 0);
     dt_render(0, 400);
     jfx_clear_all();
     for (b = 400; b < 800; b++) {
@@ -208,7 +219,7 @@ int main(void)
     for (uint32_t k = 0; k < NPART; k++) {
         set_engine_of(&trk[k], ENGI_MACRO);
         apply_preset_to(&trk[k], 8);
-        trk[k].p[P_DUBLEN] = 2; trk[k].p[P_DUBPTRN] = 1; trk[k].p[P_DUB_SPACE] = 48;
+        trk[k].p[P_DUBLEN] = 2; trk[k].p[P_DUBPTRN] = 1; trk[k].p[P_DUB_SPACE] = 24;
     }
     for (b = 0; b < 200; b++) {
         if (b == 4) for (uint32_t k = 0; k < NPART; k++) trk_note_on(&trk[k], 60 + (int)k, 100);
@@ -217,6 +228,68 @@ int main(void)
     CHECK(dub_ready[0] && dub_ready[1] && dub_ready[2] && dub_ready[3], "four instances at 16K: %u %u %u %u", dub_ready[0], dub_ready[1], dub_ready[2], dub_ready[3]);
     CHECK(!(jfx_full & 0xF0u), "DUB FULL with four 16K instances and no ROOM");
 
+    /* BUSES FIRST (the owner, October 29): DUB holds the memory, then the REVERB is asked for: it gets its memory, the instances give way (ramped), DUB FULL shows on them */
+    ui_power_on();
+    song.master_q12 = 4096; song.g[G_LEVEL] = 0; song.g[G_BPM] = 120; song.playing = 0;
+    resource_host_cache_enabled = 1;
+    res_lend_ok = 15;
+    for (uint32_t k = 0; k < NPART; k++) {
+        set_engine_of(&trk[k], ENGI_MACRO);
+        apply_preset_to(&trk[k], 8);
+        trk[k].p[P_DUBLEN] = 5; trk[k].p[P_DUBPTRN] = 1; trk[k].p[P_DUB_SPACE] = 24;       /* 24K x 4 */
+    }
+    for (b = 0; b < 400; b++) mix_block(rec[b], CTL);
+    {   uint32_t before = dub_ready[0] + dub_ready[1] + dub_ready[2] + dub_ready[3], after, h;
+        for (h = 0; h < 8; h++) { uint32_t size = 80000u; while (size >= 1000u && !resource_allocate(RES_JFX0 + JB_DLY0 + h, size)) size -= 500u; }   /* (what is left taken by something else: the reverb cannot fit without DUB giving way) */
+        trk[0].p[P_REV] = 100;
+        for (b = 0; b < 2500; b++) mix_block(rec[b], CTL);
+        after = dub_ready[0] + dub_ready[1] + dub_ready[2] + dub_ready[3];
+        printf("dub insert: buses first: %u instances held before the reverb, %u after; the reverb %s\n", before, after, jrev ? "has its memory" : "has none");
+        CHECK(jrev != 0 && !(jfx_full & 7u), "the reverb should keep its memory: jrev %p jfx_full %x", (void *)jrev, jfx_full);
+        CHECK(after < before && (jfx_full & 0xF0u), "an instance should give way with DUB FULL showing: %u -> %u, jfx_full %x", before, after, jfx_full);
+        trk[0].p[P_REV] = 0;
+        for (h = 0; h < 8; h++) resource_release(RES_JFX0 + JB_DLY0 + h);
+    }
+    /* CPU PROTECTION: CPU1 retired: the instances are released, DUB FULL shows; back after 2 s */
+    dt_fresh(2, 1, 24, 120, 0);
+    for (b = 0; b < 200; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+    CHECK(dub_ready[0], "the instance should be running before the degrade");
+    dub_force_degrade = 1;
+    for (b = 200; b < 400; b++) mix_block(rec[b], CTL);
+    CHECK(!dub_state[0] && (jfx_full & 0x10u), "CPU1 retired: the instance should be released with DUB FULL: state %p jfx_full %x", dub_state[0], jfx_full);
+    CHECK(!dub_cm, "the common block should go back with the last instance");
+    dub_force_degrade = 0;
+    for (b = 0; b < 2900; b++) mix_block(rec[b % NBLK], CTL);
+    CHECK(dub_ready[0] && !(jfx_full & 0xF0u), "back after CPU1 returned for 2 s: ready %u jfx_full %x", dub_ready[0], jfx_full);
+    /* the governor: late halves while an instance runs: it gives way, stays out until its setting changes */
+    for (b = 0; b < 6; b++) { dub_late_half(1); mix_block(rec[b], CTL); }
+    for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
+    CHECK(!dub_state[0] && (jfx_full & 0x10u), "the governor should have released the instance with DUB FULL: jfx_full %x", jfx_full);
+    for (b = 0; b < 3000; b++) mix_block(rec[b % NBLK], CTL);
+    CHECK(!dub_state[0], "a governed instance must stay out until its setting changes");
+    trk[0].p[P_DUBLEN] = 3;
+    for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
+    CHECK(dub_ready[0], "a new setting asks again: ready %u", dub_ready[0]);
+    /* UNUSED: the lanes are inert and the memory is back with LEN OFF */
+    {   uint32_t used0, used1;
+        dt_fresh(0, 1, 24, 120, 0);
+        dt_render(0, 400);
+        used0 = resource_used();
+        CHECK(!dub_cm && !dub_state[0], "LEN OFF: no DUB memory at all");
+        memcpy(base, rec, sizeof rec);
+        dt_fresh(0, 1, 24, 120, 0);
+        for (b = 0; b < 400; b++) {                      /* the seven driven to extremes as a motion lane would (FDBK 127, SEND 0, CUT and KICK at 127, THRW 127, SPACE 127) */
+            trk[0].p[P_DUB_FDBK] = (int16_t)(b & 1 ? 127 : 0); trk[0].p[P_DUB_SEND] = (int16_t)(b & 2 ? 127 : 0); trk[0].p[P_DUB_TONE] = (int16_t)(b & 4 ? 127 : 0);
+            trk[0].p[P_DUB_SPACE] = (int16_t)(b & 8 ? 127 : 0); trk[0].p[P_DUB_THRW] = (int16_t)(b & 16 ? 127 : 0); trk[0].p[P_DUB_CUT] = (int16_t)(b & 32 ? 127 : 0); trk[0].p[P_DUB_KICK] = (int16_t)(b & 64 ? 127 : 0);
+            if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100);
+            if (b % 120u == 64u) trk_note_off(&trk[0], 60);
+            mix_block(rec[b], CTL);
+        }
+        used1 = resource_used();
+        CHECK(!diff_energy(rec, (const int32_t (*)[CTL * 2])base, 0, 400), "motion on the seven changed the output with LEN OFF");
+        CHECK(used0 == used1 && !dub_cm, "LEN OFF with the lanes moving took memory: %u vs %u", used0, used1);
+        printf("dub insert: with LEN OFF the seven lanes at extremes change nothing (bit for bit) and take no memory\n");
+    }
     /* STALE: an older magic drops the lanes */
     {   motion_store_t m;
         memset(&m, 0, sizeof m);
