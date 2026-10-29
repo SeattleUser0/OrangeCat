@@ -321,7 +321,7 @@ DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, floa
     const float sc = DD_IQ16 * t->igd;
     const int rec = t->route;
     dd_spring_t *q = &s->sp;
-    const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2 && (q->m > 0.0f || q->wm > 0.001f);   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
+    const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2;   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
     const float wk = 1.0f / (0.005f * s->fsl);
     float wm = q->wm, tgs = q->tgs;
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;

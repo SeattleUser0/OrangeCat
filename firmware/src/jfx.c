@@ -96,12 +96,12 @@ enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_DUBS0 = J
 _Static_assert(JB_N == RES_JFX_N, "resources.c: an arena handle a block");
 /* the arena's blocks now (0: not held); CPU0 sets them before a job, the job reads them */
 static int16_t *dly_seg[DLY_NSEG], *rx_seg[RX_NSEG], *cho_buf;
-static uint8_t dly_have, rx_have;
+static uint8_t dly_have, rx_have;                       /* (0.6.0 rev 2) the blocks held, from the first */
 static uint8_t dly_n, dly_want;                        /* (round 4) the delay's line in use, in blocks (4, 8, 12 or 16; 0: none), and the blocks asked of jfx_mem; kept out of `fx` (fx_bus_clear clears that) */
 static uint16_t dly_shrink;                             /* .. the blocks the need has been under the line for: a shrink waits for DLY_SHRINK */
 static uint32_t dly_gen;                                /* .. resource_gen + 1 when a grow was refused: asked again only after something was released */
 #define DLY_STEP 4u
-#define DLY_SHRINK 4134u                                /* 3 s of blocks (44,100 / CTL) */                       /* (0.6.0 rev 2) the blocks held, from the first */
+#define DLY_SHRINK 4134u                                /* 3 s of blocks (44,100 / CTL) */
 static __attribute__((section(".pool"))) uint8_t dub_want[DUB_N], dub_spring[DUB_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
                                                          * them before jfx_mem, from the tracks */
 static __attribute__((section(".pool"))) uint8_t dub_held_sp[DUB_N];                      /* the spring the held memory was taken for */
@@ -135,6 +135,12 @@ static inline __attribute__((always_inline)) int32_t fx_div_pow2(int32_t x, uint
 
 /* the delay's line, sample i of a ring of dly_n blocks (round 4: the line is 4 to 16 blocks, not a power of two: an index within a line's length either
  * side of 0 is folded once; the write index is kept in [0, L)) */
+#ifdef JFX_DLY_CHECK                                   /* host tests: a read or a write outside the line held is counted */
+static uint32_t jfx_dly_bad;
+#define DLY_CHK(i) do { if ((i) >= (uint32_t)dly_have * JFX_SEG) jfx_dly_bad++; } while (0)
+#else
+#define DLY_CHK(i) ((void)0)
+#endif
 static inline __attribute__((always_inline)) uint32_t dly_fold(uint32_t i)
 {
     const uint32_t L = (uint32_t)dly_n * JFX_SEG;
@@ -145,11 +151,13 @@ static inline __attribute__((always_inline)) uint32_t dly_fold(uint32_t i)
 static inline __attribute__((always_inline)) int32_t dly_get(uint32_t i)
 {
     i = dly_fold(i);
+    DLY_CHK(i);
     return dly_seg[i >> JFX_SEG_SH][i & (JFX_SEG - 1u)];
 }
 static inline __attribute__((always_inline)) void dly_put(uint32_t i, int32_t v)
 {
     i = dly_fold(i);
+    DLY_CHK(i);
     dly_seg[i >> JFX_SEG_SH][i & (JFX_SEG - 1u)] = (int16_t)v;
 }
 
@@ -588,8 +596,10 @@ static void dly_wow_adv(uint32_t n, int32_t *m0, int32_t *dm)   /* the block's d
  * DaisySP's DelayLine ReadHermite, MIT) */
 static inline int32_t dly_rd_q(uint32_t w, int32_t q)
 {
-    int32_t f = q & 255, xm1, x0, x1, x2, c1, c2, c3;
-    uint32_t i = w - (uint32_t)(q >> 8);
+    int32_t f = q & 255, xm1, x0, x1, x2, c1, c2, c3, dist = q >> 8;
+    uint32_t i;
+    if (dist > (int32_t)((uint32_t)dly_n * JFX_SEG) - 4) dist = (int32_t)((uint32_t)dly_n * JFX_SEG) - 4;   /* (round 4: a read farther than the line holds, PING-PONG's twice TIME while TIME is above half the reach, a crossfade from a longer TIME: the oldest sample, never outside the ring) */
+    i = w - (uint32_t)dist;
     x0 = dly_get(i);
     if (!f)
         return x0;
@@ -1409,6 +1419,7 @@ static int dly_rate(uint32_t *dl, uint32_t *dr, uint32_t dro, int png, int gr)
             dly_shrink = 0;
         }
     }
+    if (!fx.dsw && nt <= dly_n && dly_want > dly_n) dly_want = dly_n;        /* (a grow no longer needed: the blocks taken for it are given back by jfx_mem) */
     if (nt < dly_n) { if (dly_shrink < 0xFFFFu) dly_shrink++; }   /* (the need under the line: a shrink after 3 s of it) */
     else dly_shrink = 0;
     span = DLY_SPAN_N(fx.dr_sh);

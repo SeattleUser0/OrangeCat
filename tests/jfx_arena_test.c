@@ -114,6 +114,7 @@ static ja_res_t ja_case(uint32_t n, uint32_t bytes, int cache, int lend, int clo
     res_lend_ok = (uint8_t)lend;                        /* (after the engines: the card's say comes from the main loop) */
     song.g[G_RTYPE] = cloud ? 4 : 0;
     song.g[G_SLMODE] = stut ? SL_STUT : 0;
+    song.g[G_DTIME] = 49;                               /* (round 4) the delay holds the blocks its TIME needs: 562 ms is 24,784 samples, the full 16 blocks, the case the rows promise */
     trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 100;
     for (k = 0; k < 16u; k++) ja_block();
     r.cho = cho_buf != 0;
