@@ -209,8 +209,8 @@ static uint32_t fm1__column_word(uint32_t p)
 
 /* (Release 2, round 5) The two 595s hold the last word latched (bit 15 sent first: after 16 clocks word bit k is at stage k). A column word is one
  * zero moving up by one bit a column (with the two octave outputs' zero beside it for columns 0 and 1), so one more clock with a 1 in turns a word
- * into the next: stage k to k + 1, the new bit at stage 0, bit 15 out. That is 8 of the 11 steps of a frame (0 to 1 and 2 to 10); the other three
- * (1 to 2, 10 to 0, and the first word) are loaded whole, so any wrong state is gone within a frame (1.1 ms). Only this file writes the chain. */
+ * into the next: stage k to k + 1, the new bit at stage 0, bit 15 out. That is 9 of the 11 steps of a frame (0 to 1 and 2 to 10); the other two
+ * (1 to 2 and 10 to 0) and the first word after a start are loaded whole, so any wrong state is gone within a frame (1.1 ms). Only this file writes the chain. */
 static uint16_t fm1__sr_cur;
 static uint8_t fm1__sr_valid;
 static inline uint32_t fm1__sr_clocks(uint32_t cur, uint32_t w)    /* the clocks it takes to turn the latched word `cur` into `w` */
@@ -421,19 +421,16 @@ static void fm1_input_tick(void)
     if (g > fm1_in_stat.on_max[p])
         fm1_in_stat.on_max[p] = g;
     FM1_INPUT_PROFILE_END(AP_INPUT_DIAGNOSTICS,diag_start);
-    FM1_INPUT_PROFILE_START(rows_start);
-    fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
-    FM1_INPUT_PROFILE_END(AP_INPUT_ROWS,rows_start);
-    FM1_INPUT_PROFILE_START(keys_start);
-    fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
-    FM1_INPUT_PROFILE_END(AP_INPUT_KEYS,keys_start);
     FM1_INPUT_PROFILE_START(led_start);
     if (fm1_led_pwm_active)
         fm1__led_levels(n, lv);                    /* (worked out here, written after the latch) */
     FM1_INPUT_PROFILE_END(AP_INPUT_LED,led_start);
     FM1_INPUT_PROFILE_START(wait_start);
-    fm1__blank_wait(tb);
+    fm1__blank_wait(tb);                           /* the rows are dark from here, as they always were when the keys were read */
     FM1_INPUT_PROFILE_END(AP_INPUT_BLANK,wait_start);
+    FM1_INPUT_PROFILE_START(rows_start);
+    fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
+    FM1_INPUT_PROFILE_END(AP_INPUT_ROWS,rows_start);
     FM1_INPUT_PROFILE_START(shift_start);
     fm1__sr_word(fm1__column_word(n));
     FM1_INPUT_PROFILE_END(AP_INPUT_SHIFT,shift_start);
@@ -444,6 +441,9 @@ static void fm1_input_tick(void)
         fm1__led_col(n);
     FM1_INPUT_PROFILE_END(AP_INPUT_LED,led2_start);
     fm1__tick_col = (uint8_t)n;
+    FM1_INPUT_PROFILE_START(keys_start);
+    fm1__keys(p);                                  /* its keys, the LEDs already lit again (as before this change) */
+    FM1_INPUT_PROFILE_END(AP_INPUT_KEYS,keys_start);
     if (n == 0u) {
         FM1_INPUT_PROFILE_START(enc_start);
         fm1__frame();

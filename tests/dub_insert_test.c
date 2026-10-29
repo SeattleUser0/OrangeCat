@@ -260,7 +260,7 @@ int main(void)
     for (uint32_t k = 0; k < NPART; k++) {
         set_engine_of(&trk[k], ENGI_MACRO);
         apply_preset_to(&trk[k], 8);
-        trk[k].p[P_DUBLEN] = 5; trk[k].p[P_DUBPTRN] = 1; trk[k].p[P_DUB_SPACE] = 24;       /* 24K x 4 */
+        trk[k].p[P_DUBLEN] = 5; trk[k].p[P_DUBPTRN] = 1; trk[k].p[P_DUB_SPACE] = 24;       /* 48K x 4 */
     }
     for (b = 0; b < 400; b++) mix_block(rec[b], CTL);
     {   uint32_t before = dub_ready[0] + dub_ready[1] + dub_ready[2] + dub_ready[3], after, h;
