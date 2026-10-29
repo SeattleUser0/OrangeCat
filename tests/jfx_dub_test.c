@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../firmware/src/dubdelay.c"
+#include "dub_scenes.h"
 
 static int bad;
 #define CHECK(c, ...) do { if (!(c)) { bad++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -199,6 +200,35 @@ int main(void)
         CHECK(step_off < 1.3f * step_ref + 0.01f, "the wet spring's off steps: %f against %f", step_off, step_ref);
         CHECK(step_on < 1.3f * step_ref + 0.01f, "the wet spring's on steps: %f against %f", step_on, step_ref);
         free(sb);
+    }
+
+    /* 9. (round 6) converter B: the skank and throw scenes of the research prototype at the quarter rate through this dubdelay.c hash to the same 64-bit value as the renders the owner listened to
+     * (~/dubtape-research/conv/conv_render.c with DD_CONV=1, the same tests/dub_scenes.h): the first converter stage at 11 taps (beta 6), the second as before. A change of either converter changes the hash on purpose. */
+    {   static const uint64_t want[2] = {0xc84c9679e9269898ull, 0x3e7b807035f73c50ull};
+        static const float dur[2] = {11.0f, 12.0f};
+        for (int sc = 0; sc < 2; sc++) {
+            int n = (int)(dur[sc] * 44100.0f);
+            float *ol = (float *)calloc((size_t)n, sizeof(float)), *orr = (float *)calloc((size_t)n, sizeof(float));
+            uint64_t h;
+            sc_render(sc, ol, orr, n);
+            h = sc_fnv(sc_fnv(1469598103934665603ull, ol, n), orr, n);
+            printf("dub: converter B, scene %s through dubdelay.c: hash %016llx (the renders: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want[sc]);
+            CHECK(h == want[sc], "converter B's %s render differs from conv_render's", sc ? "throw" : "skank");
+            free(ol); free(orr);
+        }
+        /* and the half rate (R = 2, one stage) is not touched: the same scenes hash to what release-2's dubdelay.c (the 31-tap stage) gave */
+        {   static const uint64_t want2[2] = {0x0eb7fa8d6891d8d6ull, 0x033bca32d0f4a498ull};
+            for (int sc = 0; sc < 2; sc++) {
+                int n = (int)(dur[sc] * 44100.0f);
+                float *ol = (float *)calloc((size_t)n, sizeof(float)), *orr = (float *)calloc((size_t)n, sizeof(float));
+                uint64_t h;
+                sc_render_r(sc, ol, orr, n, 2);
+                h = sc_fnv(sc_fnv(1469598103934665603ull, ol, n), orr, n);
+                printf("dub: half rate, scene %s: hash %016llx (release-2's: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want2[sc]);
+                CHECK(h == want2[sc], "the half rate's %s render changed", sc ? "throw" : "skank");
+                free(ol); free(orr);
+            }
+        }
     }
 
     /* 8. the quarter rate: the repeat still at TIME */

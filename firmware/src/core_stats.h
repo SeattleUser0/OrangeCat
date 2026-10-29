@@ -40,6 +40,13 @@ static uint32_t cs_t_blk, cs_t_trk, cs_w_blk, cs_in_tail;
 static uint32_t cs_halves, cs_jobs[3], cs_refused, cs_retired;
 static uint8_t cs_kind, cs_single;                     /* the kind of the job about to be submitted; 1: CPU1 never asked (single-core forced) */
 typedef struct { uint32_t n, max; uint64_t sum; } cs_kn_t;
+/* (round 6) the per-block trace, armed by AUDIO_STATS [flags, 10, 100]: the next CS_TR_JOBS worker jobs and CS_TR_BLKS blocks with their TIMER4 ticks (the same counter on both cores): a job's kind
+ * (0 voices and DUB, 1 bus, 2 dub), the submit on CPU0, the start and end on CPU1, CPU0's join (start, end); a block's begin, tracks done, end. One shot: it stops when the jobs are full. */
+#define CS_TR_JOBS 64u
+#define CS_TR_BLKS 40u
+static uint32_t cs_tr_job[CS_TR_JOBS][6] __attribute__((section(".pool")));
+static uint32_t cs_tr_blk[CS_TR_BLKS][3] __attribute__((section(".pool")));
+static volatile uint32_t cs_tr_arm, cs_tr_n, cs_tr_nb, cs_tr_cur = 0xFFFFu;
 static cs_kn_t cs_k[AP_COUNT][2] __attribute__((section(".pool")));   /* (0.14.3) the batch's kernels: [profile id][CPU1] */
 static inline void cs_kernel(uint32_t id, uint32_t cpu1, uint32_t ticks)
 {
@@ -49,14 +56,24 @@ static inline void cs_kernel(uint32_t id, uint32_t cpu1, uint32_t ticks)
 }
 /* CPU1's stack high-water mark: cs_stack_paint, cs_stack_used (hal/fm1_multicore.h, after the mailbox) */
 #define CS_TICKS() fm1_ticks()
-static inline void cs_blk_begin(void) { cs_t_blk = CS_TICKS(); cs_w_blk = 0; cs_in_tail = 0; }
+static inline void cs_blk_begin(void)
+{
+    cs_t_blk = CS_TICKS(); cs_w_blk = 0; cs_in_tail = 0;
+    if (cs_tr_arm && cs_tr_nb < CS_TR_BLKS) cs_tr_blk[cs_tr_nb][0] = cs_t_blk;
+}
 static inline void cs_tracks_done(void)
 {
     uint32_t t = CS_TICKS();
     cs_half[CS_CPU0] += t - cs_t_blk - cs_w_blk;
     cs_t_trk = t; cs_w_blk = 0; cs_in_tail = 1;
+    if (cs_tr_arm && cs_tr_nb < CS_TR_BLKS) cs_tr_blk[cs_tr_nb][1] = t;
 }
-static inline void cs_blk_end(void) { cs_half[CS_TAIL] += CS_TICKS() - cs_t_trk - cs_w_blk; cs_in_tail = 0; }
+static inline void cs_blk_end(void)
+{
+    uint32_t t = CS_TICKS();
+    cs_half[CS_TAIL] += t - cs_t_trk - cs_w_blk; cs_in_tail = 0;
+    if (cs_tr_arm && cs_tr_nb < CS_TR_BLKS) { cs_tr_blk[cs_tr_nb][2] = t; cs_tr_nb++; }
+}
 /* audio_worker_join: CPU0 waited w ticks; the job (CPU1's ticks: job, 0 when it failed) was of kind cs_kind */
 static inline void cs_join(uint32_t w, uint32_t job)
 {

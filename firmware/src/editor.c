@@ -722,6 +722,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             break;
         }
 #endif
+#if OC_CORE_STATS
+        if (na == 3u && a[1] == 10u) {
+            /* (round 6) the per-block trace, schema 21: [flags, 10, 100] arms it (the next CS_TR_JOBS worker jobs and the blocks they span); [flags, 10, page] reads it: the reply is 21, the jobs and blocks recorded, whether it is still
+             * armed, then pages 0 to 5: 11 jobs each (kind, submit, start, end, join start, join end: TIMER4 ticks), pages 6 and 7: 20 blocks each (begin, tracks done, end) */
+            uint32_t k, j, pg = a[2];
+            if (pg == 100u) {
+                fm1_irq_off(); cs_tr_n = cs_tr_nb = 0; cs_tr_cur = 0xFFFFu; cs_tr_arm = 1; fm1_irq_on();
+                ed_b(21); ed_bk_u32(0); ed_bk_u32(0); ed_bk_u32(1);
+                break;
+            }
+            ed_b(21); ed_bk_u32(cs_tr_n); ed_bk_u32(cs_tr_nb); ed_bk_u32(cs_tr_arm);
+            if (pg < 6u) { for (k = pg * 11u; k < pg * 11u + 11u && k < CS_TR_JOBS; k++) for (j = 0; j < 6u; j++) ed_bk_u32(cs_tr_job[k][j]); }
+            else if (pg < 8u) { for (k = (pg - 6u) * 20u; k < (pg - 6u) * 20u + 20u && k < CS_TR_BLKS; k++) for (j = 0; j < 3u; j++) ed_bk_u32(cs_tr_blk[k][j]); }
+            break;
+        }
+#endif
 #if MELODEE_DUB
         if (na == 2u && a[1] == 7u) {
             /* (Release 2) [flags, 7]: DUB TAPE, schema 14: 14, then 5 x 7 bits each: jfx_full (FX FULL 0x0F, DUB FULL 0xF0), the governor's evictions since power-on, then for each of the four tracks: the
