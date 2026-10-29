@@ -36,7 +36,7 @@ _Static_assert(DD_BLOCK == CTL, "a job a block");
 #define DUB_HOLD 24u                                    /* blocks past the farthest head that an instance keeps running after the last audible input or wet */
 #define DUB_THR 132                                     /* -72 dB of the mix domain */
 #define DUB_RAMP 6u                                     /* blocks of cut before a change (the kernel's ramp is 3 ms = 4.1 blocks) */
-static const uint8_t dub_len_blocks[7] = {0, 2, 4, 6, 8, 12, 16};   /* P_DUBLEN: OFF 8K 16K 24K 32K 48K 64K, in blocks of 4 KB */
+static const uint8_t dub_len_blocks[7] = {0, 8, 2, 4, 6, 12, 16};   /* P_DUBLEN: OFF 32K 8K 16K 24K 48K 64K, in blocks of 4 KB (round 5: a turn up from OFF lands on 32K) */
 /* the 14 synced divisions of SPACE's first half, in beats (1/32 .. 1/1) */
 static const float dub_div_beats[14] = {0.125f, 1.0f / 6.0f, 0.25f, 1.0f / 3.0f, 0.375f, 0.5f, 2.0f / 3.0f, 0.75f, 1.0f, 4.0f / 3.0f, 1.5f, 2.0f, 3.0f, 4.0f};
 typedef struct { uint8_t n; float h[DD_TAPS], lv[DD_TAPS], pan[DD_TAPS], fb[DD_TAPS], m; } dub_ptrn_t;
