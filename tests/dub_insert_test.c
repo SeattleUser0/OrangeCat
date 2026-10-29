@@ -290,11 +290,12 @@ int main(void)
         trk[0].p[P_DUB_SPACE] = 12; trk[0].p[P_DUB_TONE] = 20; trk[0].p[P_DUB_FDBK] = 90;
         for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
         CHECK(dub_cm->p[0].time < 0.6f * t0 && dub_cm->p[0].lp != lp0 && dub_cm->p[0].feedback > fb0, "the parameter copy did not follow: time %f -> %f, lp %f -> %f, fb %f -> %f", t0, dub_cm->p[0].time, lp0, dub_cm->p[0].lp, fb0, dub_cm->p[0].feedback);
-        song.g[G_BPM] = 60;
-        for (b = 0; b < 100; b++) mix_block(rec[b], CTL);
-        CHECK(dub_cm->p[0].time > 1.5f * dub_cm->p[0].time * 0.0f + 0.2f, "the tempo change did not reach TIME: %f", dub_cm->p[0].time);
+        {   float t1 = dub_cm->p[0].time;
+            song.g[G_BPM] = 60;
+            for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+            CHECK(dub_cm->p[0].time > 1.8f * t1 && dub_cm->p[0].time < 2.2f * t1, "the tempo change did not reach TIME: %f -> %f", t1, dub_cm->p[0].time); }
         trk[0].p[P_DUB_CUT] = 127;
-        for (b = 0; b < 50; b++) mix_block(rec[b], CTL);
+        for (b = 0; b < 150; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
         CHECK(dub_cm->p[0].cut == 1, "CUT did not reach the parameter copy");
         trk[0].p[P_DUB_CUT] = 0;
     }
