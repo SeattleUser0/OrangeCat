@@ -97,7 +97,7 @@ static uint32_t dub_gen[DUB_N], dub_sig[DUB_N];         /* .. and the want (bloc
 static uint32_t dub_gen_unused;                         /* resource_gen when an instance last found the arena short (it asks again when something was released) */
 static uint8_t dub_have[DUB_N], dub_held[DUB_N], dub_idle[DUB_N], dub_fresh[DUB_N], dub_ready[DUB_N];   /* blocks held; the want they were taken for; blocks idle;
                                                          * a line to set up; the memory complete */
-static uint8_t dub_nomem;                               /* the arena was short for an instance this block (jfx_wait follows) */
+static uint8_t dub_nomem, dub_full_now;                 /* the arena was short for an instance this block; the DUB FULL bits this block */
 static uint8_t dub_pool[DUB_N][DUB_MAXSEG], dub_owner[DUB_NSEG];   /* the pool block of each line block; the pool's owner (instance + 1, 0 free) */
 static int16_t *dub_line[DUB_N][DUB_MAXSEG], *dub_spbuf[DUB_N];
 static void *dub_state[DUB_N];
@@ -2083,7 +2083,7 @@ static void jfx_mem(void)
         if (nm_d) jfx_free_dly();                       /* (all or none: a part given back) */
         if ((want & 2u) && dly_have < DLY_NSEG && (nm_d || jfx_wait)) full |= JFX_FULL_DLY;
     }
-    full |= jfx_dub_mem();
+    dub_full_now = jfx_dub_mem();                       /* (the instances' own state each block: not held, not accumulated with the buses' FX FULL) */
     if (jfx_wait) jfx_wait--;
     if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;           /* (DUB TAPE does not: a short instance asks again only when something was released) */
     if (full) {                                         /* (0.6.0 rev 2) FX FULL held on screen a second past the
@@ -2094,7 +2094,7 @@ static void jfx_mem(void)
     } else if (jfx_full_hold && !--jfx_full_hold) {
         jfx_full_acc = 0;
     }
-    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | jfx_full_acc);
+    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | (jfx_full_acc & 0x0Fu) | dub_full_now);
 }
 /* (0.6.0 rev 2) mix.c, each block first (CPU0, no bus job outstanding): an engine short of memory while the effects
  * held some (resources.c res_jfx_yield): all of theirs given back, none taken for JFX_YIELD blocks. The card's pool
