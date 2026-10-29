@@ -136,6 +136,7 @@ void dk_spring_attach(dd_t *s, int16_t *buf)
     dd_spring_t *q = &s->sp;
     memset(q, 0, sizeof *q);
     q->buf = buf;
+    q->tgs = 1.0f;
     if (!buf) return;
     memset(buf, 0, DD_SP_BUF * sizeof(int16_t));
     q->dt = dd_sp_len(0.037f, s->fsl, DD_SP_TANK);
@@ -157,7 +158,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
             } else {                                 /* (0.5) a new placement: the tank read another way, cleared; the wet's mix starts at 0 and fades in */
                 memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
                 memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
-                q->wm = 0.0f;
+                q->wm = 0.0f; q->tgs = 1.0f;
             }
         }
         q->place = pl;
@@ -177,7 +178,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     q->gin = 1.0f + 6.0f * dr * dr;                  /* the tube: in the loop made up whole (unity for small signals: the loop's gain stays
                                                       * FEEDBACK), on the wet half (a driven tube is louder) */
     q->igin = q->place == 1 ? 1.0f / q->gin : 1.0f / ddm_sqrt(q->gin);
-    q->in = p->sp_in; q->tg = 1.0f - p->tap_cut;
+    q->in = p->sp_in; q->tg = leaving ? 1.0f : 1.0f - p->tap_cut;
     if (p->crash != q->crash_seen) {                  /* a kick: the burst from the next sample */
         q->crash_seen = p->crash;
         q->crash_n = (uint32_t)(0.040f * s->fsl);
@@ -322,7 +323,7 @@ DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, floa
     dd_spring_t *q = &s->sp;
     const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2 && (q->m > 0.0f || q->wm > 0.001f);   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
     const float wk = 1.0f / (0.005f * s->fsl);
-    float wm = q->wm;
+    float wm = q->wm, tgs = q->tgs;
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
     int i, j;
     for (i = 0; i < n; i++) {
@@ -356,15 +357,16 @@ DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, floa
         if (spo) {
             float sp;
             wm += (q->m - wm) * wk;                                 /* (the wet spring's mix glides as the loop's does: 5 ms) */
+            tgs += (q->tg - tgs) * wk;                              /* .. and its tap cut */
             sp = wm * dd_sp_run(q, 0.5f * (l + r) + q->in * xi);
-            l = q->tg * l + sp; r = q->tg * r + sp;
+            l = tgs * l + sp; r = tgs * r + sp;
         }
         if (t->lceil > 0.0f) dd_limit(s, t, &l, &r);
         wl[i] = wg * l; wr[i] = wg * r;
     }
     s->w = w; s->hp_s = hp_s; s->lp1 = ic1; s->lp2 = ic2; s->fb_cur = fb; s->send_cur = sd;
     s->cut_g = cg; s->cutw_g = wg;
-    q->wm = wm;
+    q->wm = wm; q->tgs = tgs;
     s->denorm++;
 }
 

@@ -177,10 +177,11 @@ int main(void)
     {   int16_t *sb = calloc(DD_SP_BUF, sizeof(int16_t));
         float step_ref = 0.0f, step_off = 0.0f, step_on = 0.0f;
         for (i = 0; i < N; i++) in[i] = 0.4f * sinf(0.03f * (float)i);
+        for (int cut = 0; cut < 2; cut++)
         for (int mode = 0; mode < 3; mode++) {                       /* 0: spring on throughout; 1: on, then off at block 200; 2: off, then on at block 200 */
             float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK], last = 0.0f, mx = 0.0f;
             setup(2, 4, 1); memset(sb, 0, DD_SP_BUF * sizeof(int16_t)); dk_spring_attach(&dd, sb); params(&p, 0.05f, 0.7f);
-            p.sp_mix = 0.7f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f; p.sp_in = 0.3f;
+            p.sp_mix = 0.7f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f; p.sp_in = 0.3f; p.tap_cut = cut ? 0.5f : 0.0f;
             for (uint32_t b = 0; b < 400; b++) {
                 p.spring = mode == 0 ? 2 : mode == 1 ? (b < 200 ? 2 : 0) : (b < 200 ? 0 : 2);
                 for (i = 0; i < DD_BLOCK; i++) x[i] = in[(b * DD_BLOCK + i) % N];
@@ -188,6 +189,11 @@ int main(void)
                 for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b >= 200 && b < 240 && d > mx) mx = d; last = l[i]; }
             }
             if (mode == 0) step_ref = mx; else if (mode == 1) step_off = mx; else step_on = mx;
+            if (mode == 2) {
+                printf("dub: the wet spring toggled (tap cut %.1f): the largest sample step in the 40 blocks after, off %.4f, on %.4f, never toggled %.4f\n", p.tap_cut, step_off, step_on, step_ref);
+                CHECK(step_off < 1.3f * step_ref + 0.01f, "the wet spring's off steps (cut %d): %f against %f", cut, step_off, step_ref);
+                CHECK(step_on < 1.3f * step_ref + 0.01f, "the wet spring's on steps (cut %d): %f against %f", cut, step_on, step_ref);
+            }
         }
         printf("dub: the wet spring toggled: the largest sample step in the 40 blocks after, off %.4f, on %.4f, never toggled %.4f\n", step_off, step_on, step_ref);
         CHECK(step_off < 1.3f * step_ref + 0.01f, "the wet spring's off steps: %f against %f", step_off, step_ref);
