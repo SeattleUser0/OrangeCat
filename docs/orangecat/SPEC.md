@@ -574,6 +574,8 @@ ECHO, ROOM, REVERB and CHORUS (three inserts and three shared slots) are removed
 
 #### 9.3.2 DUB TAPE performance view
 
+**Requirement (the owner's decision, October 29, 2026).** Any track can have DUB TAPE. It is built and tuned for one instance; up to four may run at once. When memory or CPU runs short, instances are released cleanly and the page shows DUB FULL. The default LEN when DUB is turned on is 32K. A DUB instance is accepted only when 0 halves are late and the longest half stays 100 us under the deadline in the last two of three 20 s rows after a warm-up row (BUILD.md 7.8).
+
 DUB TAPE is played, not set. When a track's DUB TAPE is selected, the main view is a performance surface. The FM-1's keyboard keys become the performance buttons, and every knob and key is recorded as automation and played back from the pattern.
 
 The four knobs:
