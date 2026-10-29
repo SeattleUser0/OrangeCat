@@ -6,6 +6,19 @@
 
 **Where this document lives (standing rule, October 28, 2026).** The master copy is the repository on the Linux PC (~/OrangeCat, docs/orangecat/BUILD.md, SPEC.md, CHANGES.md), committed to GitHub. The claude.ai project copies (claude/Build.md, claude/Orange Cat Specification.md, claude/Orange Cat CHANGES.md) are refreshed from the repository at the end of every Session A run. The Mac folder copy is retired: the Mac is not used for this project. Edit the repository, never a copy.
 
+## Test policy
+
+Standing from October 28, 2026 (the owner):
+- Host tests and build checks on every change.
+- A 1 to 2 minute smoke test after every flash.
+- 20 s rows, three per case after a warm-up row, for deadline questions.
+- A 5 to 10 minute targeted run for renderer, DSP, scheduler or memory changes, on the known worst-case loads.
+- 20 to 30 minutes before a major merge or a Nightly, when the change justifies it.
+- The two-hour soak only for release qualification, a significant stability change, or a named intermittent failure. Every proposed soak states the failure mechanism, why a shorter test cannot find it, the pass mark, and whether an existing result already covers it.
+- Do not repeat an unchanged test because another commit was made: reuse the existing result when the subsystem and the load are unchanged.
+- Prefer fault injection and varied stress (settings changing, project loads, transport) over long repetition.
+Stage 2's two-hour run stands as its stability result. DUB's two-hour soak waits for Release 2 qualification; its qualification before that is the 30-minute run on the gate row's load with its settings changing (section 5 of the DUB note).
+
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
 Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
