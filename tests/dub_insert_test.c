@@ -182,6 +182,21 @@ int main(void)
     for (b = 0; b < 600; b++) mix_block(rec[b], CTL);
     CHECK(dub_i[0].R == 2, "back at the half rate when the TIME comes down: R %u", dub_i[0].R);
 
+    /* a tempo still settling must not switch the rate stage (and clear the line): BPM 50 for 100 blocks and back; 1/8 SINGLE at 16K needs 7,398 of 8,192 samples at 90 BPM */
+    dt_fresh(2, 1, 24, 90, 0);
+    for (b = 0; b < 400; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].R == 2, "1/8 at 90 BPM on 16K should run at the half rate: R %u", dub_i[0].R);
+    song.g[G_BPM] = 50;
+    for (b = 0; b < 100; b++) mix_block(rec[b], CTL);
+    song.g[G_BPM] = 90;
+    for (b = 0; b < 500; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].R == 2 && dub_i[0].state == 2, "a tempo glitch moved the rate stage: R %u state %u", dub_i[0].R, dub_i[0].state);
+    song.g[G_BPM] = 50;
+    for (b = 0; b < 700; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].R == 4, "a lasting slow tempo should move the line to the quarter rate: R %u", dub_i[0].R);
+    song.g[G_BPM] = 90;
+    for (b = 0; b < 1200; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].R == 2, "and back when the tempo returns (the band 0.95 .. 1.0 of the line): R %u", dub_i[0].R);
     /* RESET and YIELD: the output after a project load equals the OFF render (no old echo plays; the instance restarts, its first new echo a TIME away) */
     dt_fresh(0, 1, 24, 120, 0);
     dt_render(0, 400);
