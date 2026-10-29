@@ -139,9 +139,16 @@ static __attribute__((section(".pool"))) uint16_t dub_gov_score, dub_gov_cool, d
 #define DUB_GOV_WAIT 11000u                             /* 8 s */
 #define DUB_QUIET 2750u                                 /* 2 s */
 static __attribute__((section(".pool"))) uint32_t dub_gov_fires;                          /* governor evictions since power-on (the readout) */
+#ifndef OC_DUB_NOGOV
+#define OC_DUB_NOGOV 0
+#endif
 JFX_XIP static void dub_late_half(int late)
 {
     uint32_t k, running = 0;
+#if OC_DUB_NOGOV                                        /* (round 5, a measurement build only: the governor never releases an instance, so a load over the budget can be timed with DUB running) */
+    (void)late; (void)k; (void)running;
+    return;
+#endif
     if (late) dub_late_recent = DUB_QUIET;
     for (k = 0; k < DUB_N; k++) running |= dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP;
     if (!running) {                                     /* a late half with no instance running is no business of DUB's: the score and the cool-down start over */
