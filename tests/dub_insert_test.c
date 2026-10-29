@@ -89,6 +89,10 @@ int main(void)
         for (b = 0; b < 40; b++) mix_block(rec[b], CTL);
         CHECK(!dub_ready[0], "DUB took memory the arena did not have");
         CHECK(jfx_full & 0x10u, "DUB FULL should show on track 1: jfx_full %x", jfx_full);
+        {   uint32_t f0 = resource_failures;                 /* a short instance asks again only when something is released: no allocator attempts in steady state (no periodic spike) */
+            for (b = 40; b < 2040; b++) mix_block(rec[b % NBLK], CTL);
+            CHECK(resource_failures == f0, "a short instance retries without a release: %u failed attempts in 2000 blocks", resource_failures - f0);
+            CHECK(jfx_full & 0x10u, "DUB FULL should stay on while the arena is short: jfx_full %x", jfx_full); }
         for (k = 0; k < sizeof hog / sizeof hog[0]; k++) resource_release(hog[k]);
         for (b = 40; b < 400; b++) mix_block(rec[b], CTL);
         CHECK(dub_ready[0], "the memory should have come once released: state %u have %u", dub_i[0].state, dub_have[0]);
