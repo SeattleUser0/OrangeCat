@@ -9,7 +9,10 @@
  * A change of LEN, SPRP or the rate stage never cuts: the wet is ramped out (the kernel's cut, 3 ms), the memory changes (or the line is cleared a block a
  * block), and the instance starts again from silence with its input ramped in. */
 #if MELODEE_DUB
-#ifdef OC_DUB_SRAM                                      /* (round 3, a measurement build only: DUB's code in SRAM instead of flash, for the cost of one against the other) */
+#ifndef OC_DUB_SRAM
+#define OC_DUB_SRAM 0
+#endif
+#if OC_DUB_SRAM                                         /* (round 3, a measurement build only: DUB's code in SRAM instead of flash, for the cost of one against the other) */
 #pragma push_macro("JFX_XIP")
 #undef JFX_XIP
 #define JFX_XIP __attribute__((noinline))
@@ -329,7 +332,7 @@ JFX_XIP static void dub_reset(void)
     for (uint32_t k = 0; k < DUB_N; k++) dub_i[k].was_on = trk[k].p[P_DUBLEN] != 0;   /* (a load is no OFF-to-length edge: the defaults are not written over a saved set) */
 }
 static void dub_tables(void) {}
-#ifdef OC_DUB_SRAM
+#if OC_DUB_SRAM
 #pragma pop_macro("JFX_XIP")
 #endif
 #else
