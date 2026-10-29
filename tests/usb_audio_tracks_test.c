@@ -27,8 +27,8 @@ static struct result render(uint32_t channel, int sliced, int variant)
         host_tracks_init();
         for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], HOST_SYNTH, 0);
         t->p[P_RESERVED33] = 60;
-        t->p[P_RESERVED45] = sliced ? 2 : 0;
-        t->p[P_RESERVED46] = 1;
+        t->p[P_RESERVED35] = sliced ? 2 : 0;
+        t->p[P_RESERVED36] = 1;
         t->p[P_RESERVED48] = 127;
         t->p[P_PAN] = variant == 1 ? -64 : variant == 2 ? 64 : 0;
         t->p[P_RESERVED34] = t->p[P_RESERVED35] = t->p[P_RESERVED36] = variant == 1 ? 127 : 0;

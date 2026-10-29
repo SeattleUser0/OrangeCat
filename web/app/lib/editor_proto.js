@@ -974,7 +974,8 @@ function paramKeys(pdesc, pe0, pcount) {
   for (let i = 0; i < pcount; i++) {
     if (i >= pe0) { out.push("E" + (i - pe0)); continue; }
     if (pe0 >= 116 && pdesc[96]?.label === "DIST" && i >= 96 && i < 114) {   /* (Orange Cat 0.6.0) the effects: their own keys */
-      out.push(`JFX.${(pdesc[i] && pdesc[i].label) || "P" + i}`);continue;
+      { const k = `JFX.${(pdesc[i] && pdesc[i].label) || "P" + i}`; seen[k] = (seen[k] || 0) + 1; out.push(seen[k] > 1 ? `${k}#${seen[k]}` : k); }   /* (Release 2: DUB TAPE's TONE beside DIST's) */
+      continue;
     }
     if (pe0 >= 100 && pdesc[96]?.label === "FX" && i >= 96 && i < Math.min(pe0,109)) {
       const slot=Math.floor((i-96)/4),field=["TYPE","MIX","RATE","CHAR"][(i-96)%4];
@@ -1310,8 +1311,8 @@ async function capturePatch(rq, info, name) {
   if(dump.engine===15 && dump.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(0,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read CZ patch");cz=r.raw; }
   let fm6=null;
   if(info.engines[dump.engine]==="FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read FM6 voice");fm6=Array.from(r.packed); }
-  const JFX_DEF=[0,0,0,0,2,1,1,1,0,0,0,0,0,0,0,0,0,0];   /* (Orange Cat 0.6.0) the effects' defaults, ids 96..113: the track's */
-  const p=dump.p.map((v,i)=>info.gcount>=76&&i>=96&&i<=113?JFX_DEF[i-96]:info.pe0>=100&&i>=96&&i<Math.min(info.pe0,108)?[0,0,60,64][(i-96)%4]:info.pe0>=114&&i>=111&&i<=113?0:v);
+  const JFX_DEF=[0,0,0,0,2,1,1,1,55,127,60,48,0,0,0,0,0,0];   /* (Orange Cat 0.6.0) the effects' defaults, ids 96..113: the track's; (Release 2) 104..107 and 111..113 are DUB TAPE's FDBK SEND TONE SPACE and THRW CUT KICK */
+  const p=dump.p.map((v,i)=>info.pe0>=116&&i>=45&&i<=47?0:info.gcount>=76&&i>=96&&i<=113?JFX_DEF[i-96]:info.pe0>=100&&i>=96&&i<Math.min(info.pe0,108)?[0,0,60,64][(i-96)%4]:info.pe0>=114&&i>=111&&i<=113?0:v);
   return { patch: cleanPatch({ p5, cz, fm6, name, engine: dump.engine, engineName: info.engines[dump.engine], p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
@@ -1349,7 +1350,7 @@ async function czBankRead(rq,index){const r=parse[CMD.CZ_BANK](await rq(req.czBa
 const TRACK_OWN = new Set([0, 8, 39, 40, ...Array.from({ length: 16 }, (_, i) => 17 + i)]);
 const P_CHORD = [81, 82];                          /* core.h P_CHRD, P_VOIC (since P_COUNT 91, P_E0 83) */
 const P_MPCDEG = 83;                               /* core.h P_MPCDEG (since P_COUNT 92, P_E0 84) */
-const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 84 && i === P_MPCDEG) || (pe0 >= 100 && i >= 96 && i < Math.min(pe0,114)) || (pe0 >= 116 && (i === 114 || i === 115));
+const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 84 && i === P_MPCDEG) || (pe0 >= 100 && i >= 96 && i < Math.min(pe0,114)) || (pe0 >= 116 && (i === 114 || i === 115 || (i >= 45 && i <= 47)));
 /* play a patch without writing flash, as UP_LOAD would load it: the sound only. SET the engine (G_ENGSEL:
    engine defaults and its first preset), then every instrument parameter that differs, except the track's
    own (TRACK_OWN). The steps are never touched. The device keeps a copy of the sound from before (EDIT held
@@ -1739,7 +1740,7 @@ const reservedFm4 = (engines, e) => e === 1 && (engines || [])[1] === "-";   /* 
 /* an engine's name to show: the reserved engine 1 holds DIGITAL sounds that play as FM6 */
 const engineLabel = (engines, e) => (e === 1 && (engines || [])[1] === "-" ? "FM6" : (engines || [])[e] ?? String(e));
 
-const paramReserved = id => (id>=33 && id<=36) || (id>=45 && id<=48);
+const paramReserved = id => (id>=33 && id<=36) || id===48;
 const globalReserved = id => (id>=4 && id<=11) || (id>=24 && id<=26);
 function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"], NGO = ["--", "GO"], NDASH = ["--"];
@@ -1760,7 +1761,7 @@ function makeMockDevice(opt = {}) {
     ...Array.from({length:4},()=>D("",F.INT,0,127,0)),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
-    ...Array.from({length:4},()=>D("",F.INT,0,127,0)),
+    E("LEN", ["OFF", "8K", "16K", "24K", "32K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("",F.INT,0,127,0),   /* (Release 2) DUB TAPE's setup */
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];
   const GP = [
@@ -1924,16 +1925,16 @@ function makeMockDevice(opt = {}) {
     E("WAVE",["SIN", "TRI", "SAW", "SQR", "S&H"],1),
     E("SYNC",["FREE", "BEAT"],1),
     E("SLC",["OFF", "ON"],1),
-    D("",F.INT,0,127,0),
-    D("",F.INT,0,127,0),
-    D("",F.INT,0,127,0),
-    D("",F.INT,0,127,0),
+    D("FDBK",F.INT,0,127,55),
+    D("SEND",F.INT,0,127,127),
+    D("TONE",F.INT,0,127,60),
+    D("SPACE",F.INT,0,127,48),
     D("REV",F.PCT,0,127,0),
     D("DLY",F.PCT,0,127,0),
     D("CHO",F.PCT,0,127,0),
-    D("",F.INT,0,127,0),
-    D("",F.INT,0,127,0),
-    D("",F.INT,0,127,0));
+    D("THRW",F.INT,0,127,0),
+    D("CUT",F.INT,0,127,0),
+    D("KICK",F.INT,0,127,0));
   TP.push(E("STRUM",["OFF","1/8","1/16","1/32","1/64","1/128","16T","32T"],0),E("STROKE",["DOWN","UP","ALT"],0));
   /* (Orange Cat 0.6.0) the shared effects' globals 27..75 (41: BUDGET, as before): DELAY, REVERB, CHORUS, SLICER, MASTER */
   GP.push(E("TIME",["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR", "5ms", "6ms", "7ms", "8ms", "9ms", "10ms", "11ms", "12ms", "13ms", "15ms", "17ms", "19ms", "21ms", "24ms", "27ms", "31ms", "35ms", "39ms", "44ms", "50ms", "56ms", "64ms", "72ms", "81ms", "91ms", "103ms", "116ms", "131ms", "148ms", "167ms", "189ms", "213ms", "241ms", "272ms", "307ms", "346ms", "391ms", "441ms", "498ms", "562ms", "634ms", "716ms", "808ms", "912ms", "1.03s", "1.16s", "1.31s", "1.48s", "1.67s", "1.89s", "2.13s", "2.40s", "2.71s", "2.95s"],1),

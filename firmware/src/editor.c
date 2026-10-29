@@ -621,7 +621,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
              * (Prophet, FM6, CZ, SID, 808, 909, MACRO, DRUM-X, SHAPES, WHEEL): the id, then on CPU0 and on CPU1 the kernels run, their mean and
              * max in TIMER4 ticks (24 a microsecond). Flag 1 starts them over (the cores' readout too) and paints CPU1's stack again (when it is
              * idle). (At most 5 + 5 x 2 + 10 x 7 x 5 = 365 bytes: the reply buffer is 1,024) */
-            static const uint8_t ids[] = {AP_PROPHET, AP_FM6, AP_CZ, AP_SID, AP_808, AP_909, AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL};
+            static const uint8_t ids[] = {AP_PROPHET, AP_FM6, AP_CZ, AP_SID, AP_808, AP_909, AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL, AP_DUB};   /* (Release 2: AP_DUB, DUB TAPE's job) */
             cs_kn_t k2[sizeof ids][2];
             uint32_t k, used = 0;
             fm1_irq_off();
@@ -706,6 +706,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             }
             break;
         }
+#if MELODEE_DUB
+        if (na == 2u && a[1] == 7u) {
+            /* (Release 2) [flags, 7]: DUB TAPE, schema 14: 14, then 5 x 7 bits each: the DUB FULL bits (jfx_full >> 4), then for each of the four tracks: the
+             * instance's state (0 off, 1 waiting for its memory, 2 running, 3 ramping out, 4 clearing), its memory complete (0/1), the blocks it holds, the rate
+             * divisor (2 or 4), the hold (blocks it will go on running), whether the job ran this block. Flag 1 is not used. */
+            uint32_t k;
+            ed_b(14);
+            fm1_irq_off();
+            ed_bk_u32((uint32_t)jfx_full >> 4);
+            for (k = 0; k < DUB_N; k++) {
+                ed_bk_u32(dub_i[k].state); ed_bk_u32(dub_ready[k]); ed_bk_u32(dub_have[k]); ed_bk_u32(dub_i[k].R); ed_bk_u32(dub_i[k].hold); ed_bk_u32(dub_i[k].run);
+            }
+            fm1_irq_on();
+            break;
+        }
+#endif
         if ((na == 2u || na == 5u) && a[1] == 6u) {
             /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 13: 13, then 5 x 7 bits each: engaged now, times
              * engaged, halves engaged, extra UNISON voices refused, the shared effects ran last block, N (3: MODAL, FM6, the Prophet); then

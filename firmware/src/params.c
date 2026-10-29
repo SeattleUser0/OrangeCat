@@ -15,6 +15,9 @@ static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", 
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
 /* (Orange Cat 0.6.0) the effects' names (jfx.c: Jiant FM's) */
+static const char *const N_DUBLEN[] = {"OFF", "8K", "16K", "24K", "32K", "48K", "64K"};   /* DUB TAPE: the line in 4 KB blocks, jfx_dub.c dub_len_blocks */
+static const char *const N_DUBPTRN[] = {"SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"};
+static const char *const N_DUBSPRP[] = {"OFF", "LOOP", "WET"};
 static const char *const N_DTYPE[] = {"SOFT", "HARD", "FOLD", "CRUSH", "RECT", "AMP"};   /* DIST TYPE: jfx.c DT_* */
 static const char *const N_APSYNC[] = {"FREE", "BEAT"};
 static const char *const N_APDIV[] = {"4BAR", "2BAR", "1BAR", "1/2", "1/4", "1/8", "1/16", "1/32"};   /* AUTO PAN on the tempo */
@@ -159,8 +162,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_APWAVE] = PE("WAVE", N_LWAVE, 1),
     [P_APSYNC] = PE("SYNC", N_APSYNC, 1),
     [P_SLROUTE] = PE("SLC", N_ONOFF, 1),
-    [P_JRES0] = PD("", F_INT, 0, 127, 0), [P_JRES1] = PD("", F_INT, 0, 127, 0),
-    [P_JRES2] = PD("", F_INT, 0, 127, 0), [P_JRES3] = PD("", F_INT, 0, 127, 0),
+    [P_JRES0] = PD("FDBK", F_INT, 0, 127, 55), [P_JRES1] = PD("SEND", F_INT, 0, 127, 127),      /* (Release 2) DUB TAPE's seven (core.h P_DUB_*) */
+    [P_JRES2] = PD("TONE", F_INT, 0, 127, 60), [P_JRES3] = PD("SPACE", F_INT, 0, 127, 48),
     [P_LN0] = PD("KICK", F_PCT, 0, 127, 127),
     [P_LN1] = PD("SNARE", F_PCT, 0, 127, 127),
     [P_LN2] = PD("CLAP", F_PCT, 0, 127, 127),
@@ -218,9 +221,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_DETUNE] = PD("DTUNE", F_INT, 0, 127, 40),
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
     [P_MUTE] = PE("MUTE", N_ONOFF, 0),
-    [P_RESERVED45] = PD("", F_INT, 0, 127, 0),
-    [P_RESERVED46] = PD("", F_INT, 0, 127, 0),
-    [P_RESERVED47] = PD("", F_INT, 0, 127, 0),
+    [P_RESERVED45] = PE("LEN", N_DUBLEN, 0),                      /* (Release 2) DUB TAPE's per-track setup */
+    [P_RESERVED46] = PE("PTRN", N_DUBPTRN, 0),
+    [P_RESERVED47] = PE("SPRP", N_DUBSPRP, 0),
     [P_RESERVED48] = PD("", F_INT, 0, 127, 0),
 #define MSLOT(k) [P_M##k##SRC] = PE("SRC" #k, N_MSRC, 0), [P_M##k##DST] = PE("DST" #k, N_MDST, 0), \
                  [P_M##k##AMT] = PD("AMT" #k, F_BIPCT, -64, 63, 0)
@@ -238,7 +241,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),          /* (0.6.0) the sends (were SEND, SEND 2, SEND 3) */
     [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
     [P_CHOR] = PD("CHO", F_PCT, 0, 127, 0),
-    [P_JRES4] = PD("", F_INT, 0, 127, 0), [P_JRES5] = PD("", F_INT, 0, 127, 0), [P_JRES6] = PD("", F_INT, 0, 127, 0),
+    [P_JRES4] = PD("THRW", F_INT, 0, 127, 0), [P_JRES5] = PD("CUT", F_INT, 0, 127, 0), [P_JRES6] = PD("KICK", F_INT, 0, 127, 0),
     [P_CHRD] = PE("CHRD", N_CHRD, 0),
     [P_VOIC] = PE("VOIC", N_VOIC, 0),
     [P_STRUM] = PE("STRUM", N_STRUM, 0),
@@ -565,6 +568,9 @@ static const page_t PAGES[] = {
     {"FX", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_CHOR, P_DLY, P_REV}},
     {"DIST", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_DTYPE, P_DTONE, P_SLROUTE}},
     {"AUTO PAN", FAM_FX, SC_TRACK, GR_NONE, {P_APDEP, P_APRATE, P_APSYNC, P_APWAVE}},
+    {"DUB", FAM_FX, SC_TRACK, GR_NONE, {P_JRES0, P_JRES1, P_JRES2, P_JRES3}},                  /* (Release 2) FDBK SEND TONE SPACE */
+    {"DUB 2", FAM_FX, SC_TRACK, GR_NONE, {P_JRES4, P_JRES5, P_JRES6, 0xFF}},                   /* THRW CUT KICK */
+    {"DUB SETUP", FAM_FX, SC_TRACK, GR_NONE, {P_RESERVED45, P_RESERVED46, P_RESERVED47, 0xFF}}, /* LEN PTRN SPRP */
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
     {"DELAY 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_WIDTH, G_DPIT, G_DSPRY, G_DMOD}},
     {"DELAY 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTYPE, G_DPING, 0xFF, 0xFF}},

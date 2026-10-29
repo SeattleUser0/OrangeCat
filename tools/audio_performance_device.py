@@ -21,7 +21,7 @@ SPANS=('half','timer5','input','midi_rx','usb','events','allocation','attack','e
        'track_control','prophet','fm6_control','fm6','cz','sid','808','909','mix','fx','output')
 PANEL_SPANS=('input_blank','input_rows','input_shift','input_led','input_keys','input_encoders','input_diagnostics')
 BATCH_SPANS=('batch_prepare','batch_merge','batch_cpu0','batch_cpu1')
-KERNEL_SPANS=('macro','drumx','shapes','wheel')   # (Orange Cat 0.14.3) the ports' voice kernels in the batch (audio_profile.h AP_MACRO..AP_WHEEL)
+KERNEL_SPANS=('macro','drumx','shapes','wheel','dub')   # (Orange Cat 0.14.3) the ports' voice kernels in the batch (audio_profile.h AP_MACRO..AP_WHEEL); (Release 2) AP_DUB
 DEADLINE_US=128*544/24
 COUNTERS=('audio_late','audio_deadline_misses','audio_target_exceeded','voices_shed','voices_given_up',
           'capacity_steals','core1_faults','core1_rejected','core1_timeouts','resource_failures','missed_frames',

@@ -381,6 +381,18 @@ static void proj_motion_ids(motion_store_t *m, uint32_t np)
         if (!motion_native_event(m->event[i].param,m->event[i].value) && np != P_COUNT && m->event[i].param >= np - 8u && m->event[i].param < np)
             m->event[i].param = (uint8_t)(m->event[i].param + P_COUNT - np);
 }
+/* (Release 2) A record before FUN23 holds events on ids 104 .. 107 and 111 .. 113, which were Melodee's FX 3 slot and its TONEs: inert then, DUB TAPE's FDBK .. KICK
+ * lanes now (a TONE lane would drive CUT, an FX 3 lane at 127 set FDBK to 1.27). The magic says which they are, so they are dropped here, with no marker and no format change */
+static void proj_motion_drop_dub(motion_store_t *m)
+{
+    uint32_t i, k = 0;
+    for (i = 0; i < m->count && i < MOTION_MAX; i++) {
+        if (!motion_native_event(m->event[i].param, m->event[i].value) && param_dub_lane(m->event[i].param)) continue;
+        m->event[k++] = m->event[i];
+    }
+    for (i = k; i < m->count && i < MOTION_MAX; i++) memset(&m->event[i], 0, sizeof m->event[i]);
+    m->count = (uint8_t)k;
+}
 /* FUN18 / FUN17 / FUN16 share fixed patches/timing offsets. FUN18 packs eight-byte steps.
  * FUN17 stores its original FX in
  * global wire padding and omits them from the sequential parameter bytes;
@@ -470,6 +482,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         for(t=0;t<NTRK;t++){uint32_t origin=b[pos+2u+t];if(origin && origin<=128u){uint32_t slot=origin-1u,bank=slot/26u,k=slot%26u,spill=bank*8u+k-18u;q->user[t]=(uint16_t)(1u+(k<18u?(16u+bank)*18u+k:spill<32u?spill/2u*18u+16u+spill%2u:378u+spill-32u));}}
     }
     proj_motion_ids(&q->motion, np);
+    if (magic != PROJ_MAGIC) proj_motion_drop_dub(&q->motion);   /* (Release 2) FUN22 and earlier: no DUB TAPE lanes */
     if (fun22 && np == P_COUNT) {
         int8_t oct[NTRK];
         if (!mpc_octaves_unpack(oct, b[PROJ_MPC_OCT_WIRE] | (uint32_t)b[PROJ_MPC_OCT_WIRE+1u] << 8)) return 0;
