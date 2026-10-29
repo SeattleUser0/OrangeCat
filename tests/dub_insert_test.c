@@ -283,6 +283,22 @@ int main(void)
     dub_late_half(1);
     for (b = 0; b < 50; b++) mix_block(rec[b], CTL);
     CHECK(dub_i[0].state == 2, "two late halves seconds apart must not evict: state %u", dub_i[0].state);
+    /* the parameter copy follows the track's values although it is made again only when they change (the cache): SPACE, TONE, FDBK, CUT, the tempo */
+    dt_fresh(2, 1, 24, 120, 0);
+    for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+    {   float t0 = dub_cm->p[0].time, lp0 = dub_cm->p[0].lp, fb0 = dub_cm->p[0].feedback;
+        trk[0].p[P_DUB_SPACE] = 12; trk[0].p[P_DUB_TONE] = 20; trk[0].p[P_DUB_FDBK] = 90;
+        for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+        CHECK(dub_cm->p[0].time < 0.6f * t0 && dub_cm->p[0].lp != lp0 && dub_cm->p[0].feedback > fb0, "the parameter copy did not follow: time %f -> %f, lp %f -> %f, fb %f -> %f", t0, dub_cm->p[0].time, lp0, dub_cm->p[0].lp, fb0, dub_cm->p[0].feedback);
+        {   float t1 = dub_cm->p[0].time;
+            song.g[G_BPM] = 60;
+            for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+            CHECK(dub_cm->p[0].time > 1.8f * t1 && dub_cm->p[0].time < 2.2f * t1, "the tempo change did not reach TIME: %f -> %f", t1, dub_cm->p[0].time); }
+        trk[0].p[P_DUB_CUT] = 127;
+        for (b = 0; b < 150; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+        CHECK(dub_cm->p[0].cut == 1, "CUT did not reach the parameter copy");
+        trk[0].p[P_DUB_CUT] = 0;
+    }
     /* UNUSED: the lanes are inert and the memory is back with LEN OFF */
     {   uint32_t used0, used1;
         dt_fresh(0, 1, 24, 120, 0);
