@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.83  
+**Version:** 0.84  
 **Date:** October 29, 2026  
 **Tracks:** Orange Cat Specification v0.31
 
@@ -811,6 +811,7 @@ Not used:
 
 ## Revision history
 
+- **0.84 (October 29, 2026, branch release-2):** DUB TAPE round 2: the instances' memory in the arena and the code in flash (DUB unused within 1 KB of stage 2 in the main and data banks), the buses before DUB, the CPU degrade rule, the late governor and the voice caps' third column, SPACE as SPEC 9.3.2, the loop spring crossfaded, the click detector rebuilt on the note's periodicity; two independent reviews, the host suite on efa63c0, the designed experiments of 7.6 run and reported in 7.7. Code on release-2 only; nothing of DUB is published.
 - **0.83 (October 29, 2026, branch release-2):** DUB TAPE, the per-track insert, coded (design 3, the owner's answers, the independent reviews of the design and of the diff), host-tested, run on the test unit as designed experiments (section 7 of its note); the Nightly of stage 2 published (v0.15.0-d31d58, linux-hw d31d586); the workflow carries the Nightly through a Standard deploy (revs 24, 25); the test policy and the test design rule; the chain-query timeouts closed (the unit sends every reply, the loss is on the USB path). Code on release-2 only; nothing of DUB is published.
 - **0.82 (October 28, 2026; docs only, no firmware change):** the histories merged. This file is release-2's (fe92194), which holds everything of linux-hw's 0.80 plus Release 2; ui-design's three entries (its 0.79, 0.80 and 0.81, which reused numbers linux-hw also used) folded in as 0.79a, 0.79b and 0.79c, with their section "The new interface (design)" under History; the UI row in the status table from ui-design; the Release 1 and Cores rows brought current (main 532c849, tag v0.15.0, Standard channel; stage 2 built on release-2). SPEC 0.31 adds dub-tape's 9.3.2. The standing rule on where this document lives, at the top.
 - **0.80 (October 27, 2026, branch linux-hw):** Release 1 (0.15.0): the cost caps set from the four-track runs on the unit (MODAL
