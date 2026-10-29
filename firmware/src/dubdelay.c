@@ -17,6 +17,9 @@ void *memcpy(void *d, const void *s, size_t n);
 #ifndef DD_NOINL
 #define DD_NOINL
 #endif
+#ifndef DD_HOT
+#define DD_HOT DD_NOINL                                   /* the per-block kernel (jfx_dub.c: OC_DUB_KSRAM puts it in SRAM) */
+#endif
 #define DD_HB_M 8                                   /* half-band: 4M-1 = 31 taps */
 #define DD_HB_C (2 * DD_HB_M - 1)
 #define DD_SIN_N 256
@@ -133,6 +136,7 @@ void dk_spring_attach(dd_t *s, int16_t *buf)
     dd_spring_t *q = &s->sp;
     memset(q, 0, sizeof *q);
     q->buf = buf;
+    q->tgs = 1.0f;
     if (!buf) return;
     memset(buf, 0, DD_SP_BUF * sizeof(int16_t));
     q->dt = dd_sp_len(0.037f, s->fsl, DD_SP_TANK);
@@ -146,14 +150,20 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     dd_spring_t *q = &s->sp;
     float T = p->sp_decay > 0.05f ? p->sp_decay : 2.0f, tone = p->sp_tone < 0.0f ? 0.0f : p->sp_tone > 1.0f ? 1.0f : p->sp_tone;
     float dr = p->sp_drive < 0.0f ? 0.0f : p->sp_drive > 1.0f ? 1.0f : p->sp_drive;
+    int leaving = 0;
     {   int pl = q->buf ? p->spring : 0;
-        if (pl != q->place && q->buf) {              /* (0.5) a new placement: the tank read another way, cleared */
-            memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
-            memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+        if (pl != q->place && q->buf) {
+            if (q->place == 2 && q->wm > 0.001f) {   /* (Release 2, round 4) leaving the wet: its mix fades out first (the loop's 5 ms), then the tank is cleared; a step of the whole wet spring at the toggle was -31 dBFS */
+                pl = 2; leaving = 1;
+            } else {                                 /* (0.5) a new placement: the tank read another way, cleared; the wet's mix starts at 0 and fades in */
+                memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
+                memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+                q->wm = 0.0f; q->tgs = 1.0f;
+            }
         }
         q->place = pl;
     }
-    q->m = p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
+    q->m = leaving ? 0.0f : p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
     if (q->place == 1 && q->m < 0.0005f && q->wm < 0.001f) {                    /* (Release 2) the loop spring bypassed: after about 0.5 s the tank is cleared (once), so it comes back from silence */
         if (q->idle < 0xFFFFu && ++q->idle == 700u && q->buf) {
             memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
@@ -168,7 +178,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     q->gin = 1.0f + 6.0f * dr * dr;                  /* the tube: in the loop made up whole (unity for small signals: the loop's gain stays
                                                       * FEEDBACK), on the wet half (a driven tube is louder) */
     q->igin = q->place == 1 ? 1.0f / q->gin : 1.0f / ddm_sqrt(q->gin);
-    q->in = p->sp_in; q->tg = 1.0f - p->tap_cut;
+    q->in = p->sp_in; q->tg = leaving ? 1.0f : 1.0f - p->tap_cut;
     if (p->crash != q->crash_seen) {                  /* a kick: the burst from the next sample */
         q->crash_seen = p->crash;
         q->crash_n = (uint32_t)(0.040f * s->fsl);
@@ -178,7 +188,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     q->gd = 0.40f + 0.35f * q->m;                    /* (0.5) in the loop: the allpass tank's diffusion and dispersion, from the mix */
     q->al = q->a * q->m;
 }
-DD_NOINL static float dd_sp_run(dd_spring_t *q, float x)
+DD_HOT static float dd_sp_run(dd_spring_t *q, float x)
 {
     int16_t *b = q->buf, *b1 = b + DD_SP_TANK, *b2 = b1 + DD_SP_D1;
     float y, z, d, u;
@@ -303,7 +313,7 @@ static inline void dd_limit(dd_t *s, const dd_tick_t *t, float *l, float *r)
 }
 
 /* ------------------------------------------------------------------ the loop at the line's rate --- */
-DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, float *wl, float *wr, int n)
+DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, float *wl, float *wr, int n)
 {
     const uint32_t len = s->len;
     uint32_t w = s->w;
@@ -313,7 +323,7 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
     dd_spring_t *q = &s->sp;
     const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2;   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
     const float wk = 1.0f / (0.005f * s->fsl);
-    float wm = q->wm;
+    float wm = q->wm, tgs = q->tgs;
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
     int i, j;
     for (i = 0; i < n; i++) {
@@ -345,15 +355,18 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
         dn = -dn;
         if (++w == len) w = 0;
         if (spo) {
-            float sp = q->m * dd_sp_run(q, 0.5f * (l + r) + q->in * xi);
-            l = q->tg * l + sp; r = q->tg * r + sp;
+            float sp;
+            wm += (q->m - wm) * wk;                                 /* (the wet spring's mix glides as the loop's does: 5 ms) */
+            tgs += (q->tg - tgs) * wk;                              /* .. and its tap cut */
+            sp = wm * dd_sp_run(q, 0.5f * (l + r) + q->in * xi);
+            l = tgs * l + sp; r = tgs * r + sp;
         }
         if (t->lceil > 0.0f) dd_limit(s, t, &l, &r);
         wl[i] = wg * l; wr[i] = wg * r;
     }
     s->w = w; s->hp_s = hp_s; s->lp1 = ic1; s->lp2 = ic2; s->fb_cur = fb; s->send_cur = sd;
     s->cut_g = cg; s->cutw_g = wg;
-    q->wm = wm;
+    q->wm = wm; q->tgs = tgs;
     s->denorm++;
 }
 

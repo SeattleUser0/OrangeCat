@@ -56,6 +56,7 @@ typedef struct {
     float a, g, glp, gout, norm, gin, igin, m, in, tg;
     float env, crash_amp, kd;
     float gd, al;
+    float tgs;                          /* (round 4) the wet spring's tap cut as it glides (1 = none), with the mix: no step at the toggle */
     float wm;                           /* (Release 2) the loop spring's crossfade gain, 0 (bypassed) .. 1, a one-pole toward sp_mix: no click when the mix comes near 0 */
     uint32_t idle;                      /* blocks the loop spring has been bypassed and silent: past SP_IDLE its tank is cleared once */
     uint32_t crash_seen, crash_n, rng;

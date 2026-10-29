@@ -114,10 +114,11 @@ static ja_res_t ja_case(uint32_t n, uint32_t bytes, int cache, int lend, int clo
     res_lend_ok = (uint8_t)lend;                        /* (after the engines: the card's say comes from the main loop) */
     song.g[G_RTYPE] = cloud ? 4 : 0;
     song.g[G_SLMODE] = stut ? SL_STUT : 0;
+    song.g[G_DTIME] = 49;                               /* (round 4) the delay holds the blocks its TIME needs: 562 ms is 24,784 samples, the full 16 blocks, the case the rows promise */
     trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 100;
     for (k = 0; k < 16u; k++) ja_block();
     r.cho = cho_buf != 0;
-    r.dly = dly_have == DLY_NSEG;
+    r.dly = (dly_n && dly_have >= dly_n);
     r.rev = jrev != 0 && rev_can_run((uint32_t)song.g[G_RTYPE]);
     r.sl = sl_buf != 0;
     r.full = jfx_full;
@@ -156,6 +157,8 @@ static void ja_row(const char *what, uint32_t n, uint32_t bytes, int cache, int 
 
 /* (Release 2, design 3) DUB TAPE's lines: n_eng MACRO-sized engines (VA BASS is MACRO's state), ROOM on or off, the card idle (lend 15) or busy (0), the cache
  * ready; every instance wants `segs` blocks (4 KB each; 0 none) with or without the spring. After 600 blocks: how many instances hold all their memory. */
+static uint32_t ja_dly_g;                                 /* (round 4) the DELAY send on at this G_DTIME (0: off) in ja_dub_case */
+static uint32_t ja_dly_blocks;                            /* .. the blocks the delay held when the run ended */
 static uint32_t ja_wants[4];                              /* (nonzero: instance k's own blocks, over `segs`) */
 static uint32_t ja_dub_case(uint32_t n_eng, uint32_t bytes, int room, int lend, uint32_t segs, int spring, uint32_t *peak)
 {
@@ -169,14 +172,18 @@ static uint32_t ja_dub_case(uint32_t n_eng, uint32_t bytes, int room, int lend, 
     res_lend_ok = 0;
     res_lend_used = 0;
     for (k = 0; k < n_eng; k++) {
-        uint8_t *p = resource_get(RES_ENGINE0 + k, bytes);
+        uint32_t b = bytes ? bytes : ja_sizes[k];
+        uint8_t *p = resource_get(RES_ENGINE0 + k, b);
         assert(p);
-        memset(p, 0xA5, bytes);
+        memset(p, 0xA5, b);
     }
     res_lend_ok = (uint8_t)lend;
     song.g[G_RTYPE] = 0;
     song.g[G_SLMODE] = 0;
-    trk[0].p[P_CHOR] = trk[0].p[P_DLY] = 0;
+    song.g[G_DTIME] = (int16_t)ja_dly_g;
+    song.g[G_DFDBK] = 0;
+    trk[0].p[P_CHOR] = 0;
+    trk[0].p[P_DLY] = ja_dly_g ? 100 : 0;
     trk[0].p[P_REV] = room ? 100 : 0;
     for (k = 0; k < DUB_N; k++) { dub_want[k] = (uint8_t)(ja_wants[k] ? ja_wants[k] : segs); dub_spring[k] = (uint8_t)spring; }
     for (uint32_t b = 0; b < 600u; b++) {
@@ -186,7 +193,9 @@ static uint32_t ja_dub_case(uint32_t n_eng, uint32_t bytes, int room, int lend, 
         if (ready > best) best = ready;
     }
     if (peak) *peak = best;
+    ja_dly_blocks = dly_have;
     trk[0].p[P_REV] = 0;
+    trk[0].p[P_DLY] = 0;
     for (k = 0; k < DUB_N; k++) dub_want[k] = dub_spring[k] = 0;
     jfx_power_on();
     res_lend_ok = 0;
@@ -362,6 +371,18 @@ int main(void)
         printf("%-60s %u of 4 (row b: 2 x 24K + 2 x 8K)\n", "jfx arena: DUB mixed", b);
         printf("%-60s %u of 4 (row c: 4 x 24K, the stress case)\n", "jfx arena: DUB 4 x 24K", c);
         printf("%-60s %u of 4 (card busy; printed, not checked)\n", "jfx arena: DUB 4 x 16K", d2);
+        /* (round 4) g1's load: VA BASS, VA BASS, DRUM-X, SHAPES; ROOM and a DELAY send (TIME 391 ms, about 1/8 at 75 BPM); DUB on track 1 only, the card idle. The delay holds the blocks its TIME needs (12 of 16), so the line fits */
+        ja_sizes[0] = ja_sizes[1] = ja_size_of("MACRO"); ja_sizes[2] = ja_size_of("DRUM-X"); ja_sizes[3] = ja_size_of("SHAPES");
+        ja_dly_g = 46;
+        for (uint32_t q = 0; q < 3; q++) {
+            static const uint32_t segs_g[3] = {0, 8, 16}; static const char *const nm[3] = {"no DUB", "DUB 32K", "DUB 64K"};
+            uint32_t r;
+            ja_wants[0] = segs_g[q];
+            r = ja_dub_case(4, 0, 1, 15, 0, 0, &pk);
+            printf("%-60s the delay holds %u blocks, DUB %s\n", nm[q], ja_dly_blocks, !segs_g[q] ? "-" : r ? "HOLDS" : "FULL");
+            if (q == 1) bad += !r || ja_dly_blocks != 12u, ja_dly_blocks != 12u ? printf("  the delay should hold 12 blocks at 391 ms\n") : 0;
+        }
+        ja_wants[0] = 0; ja_dly_g = 0;
         bad += !(a == 4 && b == 4 && c >= 1 && c < 4); }
     bad += !(r0.dly && r0.rev && r0.cho);
     bad += !(r1.dly && r1.rev && r1.cho);
