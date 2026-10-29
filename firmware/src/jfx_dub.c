@@ -33,6 +33,9 @@ static const dub_ptrn_t dub_ptrn[6] = {                 /* heads in steps of TIM
 enum { DUBS_OFF, DUBS_WAIT, DUBS_RUN, DUBS_RAMP, DUBS_CLEAR };
 typedef struct {
     uint8_t state, R, ramp, clr, run, kick_prev, was_on, pend_R, evict, held_off, gov;   /* evict: ramp out and let go (a bus needs the memory, the CPU is short); held_off: not asking again (see dub_held_off) */
+    uint8_t pvalid;                                     /* the job's parameter copy (dub_p[k]) is current for psig */
+    uint32_t psig, rsig;                                /* a hash of what the parameter copy / the rate stage were made from: unchanged, not made again */
+    float rneed;                                        /* the farthest head's samples at the half rate, from rsig */
     uint8_t gov_sig;                                    /* the (blocks, spring) a governor eviction was made for: a different setting asks again */
     uint16_t hold, hold_len;                            /* blocks the instance runs and its track stays mixed past the last audible input or wet; the refresh (the farthest head and 24) */
     uint32_t crash;
@@ -176,10 +179,15 @@ JFX_XIP static void dub_start(uint32_t nt)
         }
         if (degrade && (d->state == DUBS_RUN || d->state == DUBS_RAMP)) { d->evict = 1; d->gov = 0; }
         else if (degrade && (d->state == DUBS_WAIT || d->state == DUBS_CLEAR)) { dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF; d->held_off = 1; d->gov = 0; }
-        if (blocks) {                                       /* the rate stage: the half rate while the farthest head fits, the quarter rate when it does not */
-            dd_params_t tmp;
+        if (blocks && d->state != DUBS_OFF) {               /* the rate stage: the half rate while the farthest head fits, the quarter rate when it does not (an instance held off does not need it) */
             float lines = (float)(blocks << DD_BLK_SH);
-            dub_map(k, t, &tmp, 2u, blocks, &need);
+            uint32_t rs = (uint32_t)(t->p[P_DUBPTRN] & 7) * 0x9E3779B1u ^ (uint32_t)t->p[P_DUB_SPACE] * 0x85EBCA6Bu ^ blocks * 0xC2B2AE35u ^ beat_samples() * 0x27D4EB2Fu ^ 1u;
+            if (rs != d->rsig) {                            /* (made again only when the pattern, the time, the length or the tempo changed) */
+                dd_params_t tmp;
+                dub_map(k, t, &tmp, 2u, blocks, &d->rneed);
+                d->rsig = rs;
+            }
+            need = d->rneed;
             R = (d->R == 4u ? need <= 0.9f * lines : need <= lines) ? 2u : 4u;
             {   float farsec = (need - 48.0f) / ((float)DD_FS / 2.0f), lim = (lines - 48.0f) / ((float)DD_FS / (float)R);   /* seconds to the farthest head (need is at the half rate), and the line's limit */
                 if (farsec > lim) farsec = lim;
@@ -211,6 +219,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                 memset(dub_x[0][k], 0, sizeof dub_x[0][k]); memset(dub_x[1][k], 0, sizeof dub_x[1][k]);
                 dub_fresh[k] = 0;
                 d->hold = 0;
+                d->pvalid = 0;
                 d->state = DUBS_RUN;
             }
             break;
@@ -246,6 +255,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                 if (dub_spring[k]) dk_spring_attach(dd, dub_spbuf[k]);
                 dd->cut_g = dd->cutw_g = 0.0f;
                 memset(dub_wet[k], 0, sizeof dub_wet[k]);
+                d->pvalid = 0;
                 d->state = DUBS_RUN;
             }
             break;
@@ -257,9 +267,15 @@ JFX_XIP static void dub_start(uint32_t nt)
             if (pk > DUB_THR) d->hold = d->hold_len;
             if (d->hold) {
                 dd_params_t *p = &dub_p[k];
-                dub_map(k, t, p, d->R, dub_have[k], 0);
-                p->crash = d->crash;
-                if (d->state == DUBS_RAMP) p->cut = 1;
+                uint32_t ps = ((uint32_t)(t->p[P_DUBPTRN] & 7) | (uint32_t)(t->p[P_DUBSPRP] & 3) << 3 | (uint32_t)d->R << 5 | (uint32_t)dub_have[k] << 8 | (uint32_t)(d->state == DUBS_RAMP) << 13 | (uint32_t)(t->p[P_DUB_CUT] >= 64) << 14) * 0x9E3779B1u
+                              ^ ((uint32_t)t->p[P_DUB_SPACE] | (uint32_t)t->p[P_DUB_TONE] << 8 | (uint32_t)t->p[P_DUB_FDBK] << 16 | (uint32_t)t->p[P_DUB_SEND] << 24) * 0x85EBCA6Bu
+                              ^ ((uint32_t)t->p[P_DUB_THRW] | d->crash << 8) * 0xC2B2AE35u ^ beat_samples() * 0x27D4EB2Fu;
+                if (!d->pvalid || ps != d->psig) {          /* (the parameter copy is made again only when something it is made from changed) */
+                    dub_map(k, t, p, d->R, dub_have[k], 0);
+                    p->crash = d->crash;
+                    if (d->state == DUBS_RAMP) p->cut = 1;
+                    d->psig = ps; d->pvalid = 1;
+                }
                 d->run = 1;
                 dub_mask |= (uint8_t)(1u << k);
                 cost += audio_batch_cost[AP_DUB] + (dub_spring[k] ? 450u : 0u);
