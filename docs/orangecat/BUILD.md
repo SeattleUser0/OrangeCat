@@ -6,18 +6,16 @@
 
 **Where this document lives (standing rule, October 28, 2026).** The master copy is the repository on the Linux PC (~/OrangeCat, docs/orangecat/BUILD.md, SPEC.md, CHANGES.md), committed to GitHub. The claude.ai project copies (claude/Build.md, claude/Orange Cat Specification.md, claude/Orange Cat CHANGES.md) are refreshed from the repository at the end of every Session A run. The Mac folder copy is retired: the Mac is not used for this project. Edit the repository, never a copy.
 
-## Test policy
+## Test policy and test design
 
-Standing from October 28, 2026 (the owner):
+Standing from October 28, 2026 (the owner; this version replaces the earlier one the same day).
+**Policy.**
 - Host tests and build checks on every change.
 - A 1 to 2 minute smoke test after every flash.
-- 20 s rows, three per case after a warm-up row, for deadline questions.
-- A 5 to 10 minute targeted run for renderer, DSP, scheduler or memory changes, on the known worst-case loads.
-- 20 to 30 minutes before a major merge or a Nightly, when the change justifies it.
-- The two-hour soak only for release qualification, a significant stability change, or a named intermittent failure. Every proposed soak states the failure mechanism, why a shorter test cannot find it, the pass mark, and whether an existing result already covers it.
+- The two-hour soak only for release qualification, a significant stability change, or a named intermittent failure. Every proposed soak states the failure mechanism, why a shorter test cannot find it, the pass mark, and whether an existing result already covers it. Stage 2's two-hour run stands as its stability result; DUB's waits for Release 2 qualification.
 - Do not repeat an unchanged test because another commit was made: reuse the existing result when the subsystem and the load are unchanged.
-- Prefer fault injection and varied stress (settings changing, project loads, transport) over long repetition.
-Stage 2's two-hour run stands as its stability result. DUB's two-hour soak waits for Release 2 qualification; its qualification before that is the 30-minute run on the gate row's load with its settings changing (section 5 of the DUB note).
+
+**Design.** Every hardware test is a designed experiment, written in this document before it runs and checked by the independent reviewer. It states the question, the factors and their levels, the responses, the design (a two-level fractional factorial where factors can interact, resolution IV or better), the replicates, a randomized run order, the nuisance factors blocked (the warm-up after a configuration change is one: a warm-up window before every run), and the analysis (main effects, the worst corner, the interactions that matter). Transitions (setting changes, project loads, transport, fault injection) get their own scripted event sequence, not long playback. Gates are confirmation runs at the user-facing settings after the experiment. Factors the harness cannot drive are stated, not dropped silently.
 
 This document tracks what is done, what is left to build, and what is left to test. The specification says what Orange Cat must do. This document says where the work stands.
 
