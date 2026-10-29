@@ -18,11 +18,11 @@ static int16_t *pool;
 static void setup(int R, uint32_t nblk, int contiguous)
 {
     uint32_t k;
-    dd_tables_init();
+    dk_tables_init();
     free(pool);
     pool = calloc(nblk * (DD_BLK_N + 64u), sizeof(int16_t));     /* (padding between blocks when not contiguous: the table is what finds them) */
     for (k = 0; k < nblk; k++) blk[k] = contiguous ? pool + k * DD_BLK_N : pool + k * (DD_BLK_N + 64u);
-    dd_init(&dd, R, blk, nblk);
+    dk_init(&dd, R, blk, nblk);
 }
 static void params(dd_params_t *p, float time, float fb)
 {
@@ -37,7 +37,7 @@ static void run(const dd_params_t *p, const float *in, float *out, uint32_t nb)
     float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK];
     for (uint32_t b = 0; b < nb; b++) {
         for (uint32_t i = 0; i < DD_BLOCK; i++) x[i] = in ? in[b * DD_BLOCK + i] : 0.0f;
-        dd_process(&dd, p, x, l, r);
+        dk_process(&dd, p, x, l, r);
         for (uint32_t i = 0; i < DD_BLOCK; i++) out[b * DD_BLOCK + i] = 0.5f * (l[i] + r[i]);
     }
 }
@@ -104,7 +104,7 @@ int main(void)
             if (b == 300) p.time = 0.2f;
             if (b == 600) p.time = 0.05f;
             for (i = 0; i < DD_BLOCK; i++) x[i] = in[b * DD_BLOCK + i];
-            dd_process(&dd, &p, x, l, r);
+            dk_process(&dd, &p, x, l, r);
             for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b > 100 && d > maxd) maxd = d; last = l[i]; }
         }
         printf("dub: the largest sample step across two TIME jumps %.4f\n", maxd);
@@ -118,7 +118,7 @@ int main(void)
         for (uint32_t b = 0; b < 600; b++) {
             p.cut = b >= 200 && b < 400;
             for (i = 0; i < DD_BLOCK; i++) x[i] = in[b * DD_BLOCK + i];
-            dd_process(&dd, &p, x, l, r);
+            dk_process(&dd, &p, x, l, r);
             for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b > 100 && d > maxd) maxd = d; last = l[i]; }
             if (b == 399) tail = peak_in(l, 0, DD_BLOCK, 0);
         }
@@ -130,7 +130,7 @@ int main(void)
     /* 7. the spring in both placements: stable and decaying */
     for (int place = 1; place <= 2; place++) {
         int16_t *sb = calloc(DD_SP_BUF, sizeof(int16_t));
-        setup(2, 4, 1); dd_spring_attach(&dd, sb);
+        setup(2, 4, 1); dk_spring_attach(&dd, sb);
         params(&p, 0.08f, 0.5f); p.spring = place; p.sp_mix = 0.7f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f; p.sp_in = place == 2 ? 0.3f : 0.0f;
         for (i = 0; i < N; i++) in[i] = i < 3000 ? 0.6f * sinf(0.04f * (float)i) : 0.0f;
         run(&p, in, out, NB);
@@ -138,7 +138,7 @@ int main(void)
         a2 = peak_in(out, N - 4000, N, 0);
         printf("dub: spring %s, peak %.4f, the last 4000 samples %.5f\n", place == 1 ? "in the loop" : "on the wet", a1, a2);
         CHECK(a1 <= 1.0001f && a1 > 0.05f, "spring placement %d peak %f", place, a1);
-        CHECK(a2 < a1, "spring placement %d does not decay", place);
+        CHECK(a2 < 0.5f * a1, "spring placement %d does not decay: %f then %f", place, a1, a2);
         free(sb);
     }
 
@@ -150,9 +150,9 @@ int main(void)
     printf("dub: quarter rate: first repeat at %u samples (TIME 13230), peak %.4f\n", at1, a1);
     CHECK(at1 > 13230 - 100 && at1 < 13230 + 400 && a1 > 0.02f, "the quarter rate's repeat at %u", at1);
 
-    /* 9. the line holds what dd_max_seconds says */
+    /* 9. the line holds what dk_max_seconds says */
     setup(2, 2, 1);
-    CHECK(fabsf(dd_max_seconds(&dd) - (4096.0f - 48.0f) / 22050.0f) < 1e-4f, "max seconds %f", dd_max_seconds(&dd));
+    CHECK(fabsf(dk_max_seconds(&dd) - (4096.0f - 48.0f) / 22050.0f) < 1e-4f, "max seconds %f", dk_max_seconds(&dd));
     printf(bad ? "jfx_dub: %d FAILED\n" : "jfx_dub: all passed\n", bad);
     return bad ? 1 : 0;
 }

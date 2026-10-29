@@ -18,11 +18,11 @@
  *   - whatever does not fit says FX FULL, and nothing an engine or a hot set took is touched.
  * Run by tests/run_tests.sh. The four numbers change with the build: nm build/melodee.elf, _resource{,_low,_data,_retained}_{start,end}. */
 #ifndef JA_MAIN_BYTES
-#define JA_MAIN_BYTES 86368u                            /* (Release 2) the stage 2 build's _resource_end - _resource_start (nm build/melodee.elf, 1f72487) */
+#define JA_MAIN_BYTES 76896u                            /* (Release 2, the DUB build d29d57d) nm build/melodee.elf: _resource_end - _resource_start (the stage 2 build before DUB: see BUILD.md) */
 #endif
 #define RES_HOST_MAIN_WORDS (JA_MAIN_BYTES / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
-#define RES_HOST_DATA_WORDS (4520u / 4u)
+#define RES_HOST_DATA_WORDS (3576u / 4u)
 #define RES_HOST_RETAINED_WORDS (816u / 4u)
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -153,6 +153,7 @@ static void ja_row(const char *what, uint32_t n, uint32_t bytes, int cache, int 
 
 /* (Release 2, design 3) DUB TAPE's lines: n_eng MACRO-sized engines (VA BASS is MACRO's state), ROOM on or off, the card idle (lend 15) or busy (0), the cache
  * ready; every instance wants `segs` blocks (4 KB each; 0 none) with or without the spring. After 600 blocks: how many instances hold all their memory. */
+static uint32_t ja_wants[4];                              /* (nonzero: instance k's own blocks, over `segs`) */
 static uint32_t ja_dub_case(uint32_t n_eng, uint32_t bytes, int room, int lend, uint32_t segs, int spring, uint32_t *peak)
 {
     uint32_t k, ready = 0, best = 0;
@@ -174,7 +175,7 @@ static uint32_t ja_dub_case(uint32_t n_eng, uint32_t bytes, int room, int lend, 
     song.g[G_SLMODE] = 0;
     trk[0].p[P_CHOR] = trk[0].p[P_DLY] = 0;
     trk[0].p[P_REV] = room ? 100 : 0;
-    for (k = 0; k < DUB_N; k++) { dub_want[k] = (uint8_t)segs; dub_spring[k] = (uint8_t)spring; }
+    for (k = 0; k < DUB_N; k++) { dub_want[k] = (uint8_t)(ja_wants[k] ? ja_wants[k] : segs); dub_spring[k] = (uint8_t)spring; }
     for (uint32_t b = 0; b < 600u; b++) {
         ja_block();
         ready = 0;
@@ -306,6 +307,17 @@ int main(void)
     ja_dub_table("4 x MACRO (VA BASS)", 4, macro, 1);
     ja_dub_table("4 x MACRO (VA BASS)", 4, macro, 0);
     ja_dub_table("no engine", 0, 0, 1);
+    {   uint32_t pk, a = ja_dub_case(4, macro, 1, 15, 4, 0, &pk), b, c, d2;   /* the hardware gate rows (BUILD.md, DUB experiments): four VA BASS with ROOM, the card idle */
+        ja_wants[0] = ja_wants[1] = 6; ja_wants[2] = ja_wants[3] = 2;
+        b = ja_dub_case(4, macro, 1, 15, 0, 0, &pk);
+        ja_wants[0] = ja_wants[1] = ja_wants[2] = ja_wants[3] = 0;
+        c = ja_dub_case(4, macro, 1, 15, 6, 0, &pk);
+        d2 = ja_dub_case(4, macro, 1, 0, 4, 0, &pk);
+        printf("%-60s %u of 4 (row a: 4 x 16K)\n", "jfx arena: DUB, 4 x MACRO + ROOM, card idle", a);
+        printf("%-60s %u of 4 (row b: 2 x 24K + 2 x 8K)\n", "jfx arena: DUB mixed", b);
+        printf("%-60s %u of 4 (row c: 4 x 24K, the stress case)\n", "jfx arena: DUB 4 x 24K", c);
+        printf("%-60s %u of 4 (card busy; printed, not checked)\n", "jfx arena: DUB 4 x 16K", d2);
+        bad += !(a == 4 && b == 4 && c >= 1 && c < 4); }
     bad += !(r0.dly && r0.rev && r0.cho);
     bad += !(r1.dly && r1.rev && r1.cho);
     bad += !(r2.dly && r2.rev && r2.cho);

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * dubdelay: DUB TAPE's kernel for Orange Cat Release 2 (see dubdelay.h; from the research prototype 0.5, LITE only). Single precision throughout;
- * the tables are designed once by dd_tables_init, dd_process only reads them. Written for -ffp-contract=off -Werror=double-promotion. */
+ * the tables are designed once by dk_tables_init, dk_process only reads them. Written for -ffp-contract=off -Werror=double-promotion. */
 #include "dubdelay.h"
 #include "dd_math.h"
 #if __STDC_HOSTED__
@@ -38,7 +38,7 @@ static float dd_bessel_i0(float x)
 }
 #define DD_KNOB_RATIO 1.0558981944f               /* 1000^(1/127): 20 Hz .. 20 kHz over 0..127 */
 static float dd_knob_hz_int(int k) { float f = 20.0f; while (k-- > 0) f *= DD_KNOB_RATIO; return f; }
-void dd_tables_init(void)
+void dk_tables_init(void)
 {
     const float beta = 7.0f, n2 = (float)(DD_HB_C + 1);
     float sum = 0.0f;
@@ -67,9 +67,9 @@ void dd_tables_init(void)
     dd_tables_ready = 1;
 }
 
-void dd_clear_block(dd_t *s, uint32_t k) { if (k < s->nblk) memset(s->blk[k], 0, DD_BLK_N * sizeof(int16_t)); }
+void dk_clear_block(dd_t *s, uint32_t k) { if (k < s->nblk) memset(s->blk[k], 0, DD_BLK_N * sizeof(int16_t)); }
 
-void dd_reset(dd_t *s)
+void dk_reset(dd_t *s)
 {
     int i;
     s->w = 0;
@@ -83,7 +83,7 @@ void dd_reset(dd_t *s)
     s->cut_g = s->cutw_g = 1.0f; s->lim_env = 0.0f; s->lim_g = 1.0f;
 }
 
-void dd_init(dd_t *s, int R, int16_t *const *blk, uint32_t nblk)
+void dk_init(dd_t *s, int R, int16_t *const *blk, uint32_t nblk)
 {
     uint32_t k;
     memset(s, 0, sizeof *s);
@@ -93,11 +93,11 @@ void dd_init(dd_t *s, int R, int16_t *const *blk, uint32_t nblk)
     for (k = 0; k < nblk; k++) s->blk[k] = blk[k];
     s->fsl = (float)DD_FS / (float)s->R;
     s->gtab = dd_gtab[s->R == 4];
-    dd_reset(s);
+    dk_reset(s);
 }
 
 /* the longest head the line holds: its length less the read guard, in seconds (the converters' latency is outside the loop) */
-float dd_max_seconds(const dd_t *s) { return ((float)s->len - 8.0f - 40.0f) / s->fsl; }
+float dk_max_seconds(const dd_t *s) { return ((float)s->len - 8.0f - 40.0f) / s->fsl; }
 
 static inline float dd_knob_g(const dd_t *s, float k)
 {
@@ -166,7 +166,7 @@ static uint32_t dd_sp_len(float sec, float fsl, uint32_t cap)
     uint32_t n = (uint32_t)(sec * fsl + 0.5f);
     return n < 2u ? 2u : n > cap - 2u ? cap - 2u : n;
 }
-void dd_spring_attach(dd_t *s, int16_t *buf)
+void dk_spring_attach(dd_t *s, int16_t *buf)
 {
     dd_spring_t *q = &s->sp;
     memset(q, 0, sizeof *q);
@@ -385,7 +385,7 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
 }
 
 /* ------------------------------------------------------------------ the block --- */
-void dd_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, float *outR)
+void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, float *outR)
 {
     float xl[DD_BLOCK], wl[DD_BLOCK], wr[DD_BLOCK];
     const int R = s->R, nloop = DD_BLOCK / R;

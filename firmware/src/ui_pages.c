@@ -531,7 +531,10 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
 static uint32_t pv_fx_bus(const page_t *pg)              /* the jfx_full bit of the page's bus, 0 none */
 {
     uint32_t id = pg->id[0];
-    if (pg->scope != SC_GLOBAL) return pg->id[1] == P_CHOR ? 7u : 0u;   /* (FX: the sends, any of the three) */
+    if (pg->scope != SC_GLOBAL) {
+        if (id == P_JRES0 || id == P_JRES4 || id == P_RESERVED45) return (uint32_t)JFX_FULL_DUB0 << trk_index(TSEL);   /* (Release 2: DUB, DUB 2, DUB SETUP: this track's instance) */
+        return pg->id[1] == P_CHOR ? 7u : 0u;   /* (FX: the sends, any of the three) */
+    }
     if (id >= G_DTIME && id <= G_DPING) return 2u;
     if ((id >= G_RTYPE && id <= G_RPRE) || (id >= G_RMOD && id <= G_RWIDE)) return 4u;
     if (id >= G_CRATE && id <= G_CSTER) return 1u;
@@ -547,6 +550,7 @@ static const char *pv_fx_hint(const page_t *pg)
     uint32_t id = pg->id[0];
     if (pg->scope != SC_GLOBAL)
         return id == P_DIST ? dist[clamp(TSEL->p[P_DTYPE], 0, 5)] : id == P_APDEP ? "Pans the track" :
+               id == P_JRES0 || id == P_JRES4 || id == P_RESERVED45 ? "Dub tape: echoes in a loop" :
                "Sends to CHORUS, DELAY, REVERB";
     if (id >= G_DTIME && id <= G_DPING) return song.g[G_DTYPE] ? "Digital delay" : "Analog delay";
     if ((id >= G_RTYPE && id <= G_RPRE) || (id >= G_RMOD && id <= G_RWIDE)) return rev[clamp(song.g[G_RTYPE], 0, 4)];
@@ -564,7 +568,8 @@ static void pv_fx(int32_t h)
     int32_t amt = (g ? song.g : TSEL->p)[id], kind;
     int32_t low = (h - lf->h - 10) * 16, top = (lf->h + 10) * 16, cy = (top + low) / 32, py = cy * 16;
     kind = !g ? (id == P_DIST ? 1 : id == P_APDEP ? 2 : 3) : bus == 2u || bus == 4u ? 3 : bus == 1u || bus == 8u ? 2 : 1;
-    if (!g && id != P_DIST && id != P_APDEP)            /* (the sends: the loudest) */
+    if (!g && (id == P_JRES0 || id == P_JRES4 || id == P_RESERVED45)) amt = TSEL->p[P_JRES0];   /* (DUB: the loop's feedback) */
+    else if (!g && id != P_DIST && id != P_APDEP)       /* (the sends: the loudest) */
         amt = TSEL->p[P_REV] > TSEL->p[P_DLY] ? TSEL->p[P_REV] : TSEL->p[P_DLY];
     else if (bus == 2u) amt = song.g[G_DFDBK];          /* (the bus's own amount, whatever the page's first knob) */
     else if (bus == 4u) amt = song.g[G_RSIZE];
@@ -583,7 +588,7 @@ static void pv_fx(int32_t h)
         py = y;
     }
     if (full)
-        cv_free_text(12, h - lf->h - 6, lf, "FX FULL: no memory, dry", T_DIM, T_PANEL, PV_PANEL_W - 24);
+        cv_free_text(12, h - lf->h - 6, lf, bus >= 16u ? "DUB FULL: no memory, dry" : "FX FULL: no memory, dry", T_DIM, T_PANEL, PV_PANEL_W - 24);
 }
 static void pv_picture(void)
 {

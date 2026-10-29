@@ -93,7 +93,8 @@ static uint8_t dly_have, rx_have;                       /* (0.6.0 rev 2) the blo
 static uint8_t dub_want[DUB_N], dub_spring[DUB_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
                                                          * them before jfx_mem, from the tracks */
 static uint8_t dub_held_sp[DUB_N];                      /* the spring the held memory was taken for */
-static uint32_t dub_gen[DUB_N];                         /* resource_gen when an instance last found the arena short (it asks again when something was released) */
+static uint32_t dub_gen[DUB_N], dub_sig[DUB_N];         /* .. and the want (blocks, spring) it was short for: a new want asks again */
+static uint32_t dub_gen_unused;                         /* resource_gen when an instance last found the arena short (it asks again when something was released) */
 static uint8_t dub_have[DUB_N], dub_held[DUB_N], dub_idle[DUB_N], dub_fresh[DUB_N], dub_ready[DUB_N];   /* blocks held; the want they were taken for; blocks idle;
                                                          * a line to set up; the memory complete */
 static uint8_t dub_nomem;                               /* the arena was short for an instance this block (jfx_wait follows) */
@@ -1994,19 +1995,20 @@ static uint8_t jfx_dub_mem(void)
     uint8_t full = 0;
     dub_nomem = 0;
     for (uint32_t i = 0; i < DUB_N; i++) {
-        uint32_t w = dub_want[i], g, gen0 = resource_gen;
+        uint32_t w = dub_want[i], g, gen0, sig = (uint32_t)dub_want[i] | (uint32_t)(dub_spring[i] != 0) << 8;
         uint8_t nm = 0;
         if (dub_state[i] && (dub_held[i] != w || dub_held_sp[i] != (dub_spring[i] != 0))) jfx_free_dub(i);   /* (jfx_dub.c changes a want only after its ramp) */
         if (!w) {
-            if (dub_state[i] && ++dub_idle[i] >= 4u) jfx_free_dub(i);   /* LEN OFF: 4 blocks later (the kernel's cut ramp has run) */
+            if (dub_state[i]) jfx_free_dub(i);          /* LEN OFF: jfx_dub.c has ramped the wet out before it set the want to 0 */
             continue;
         }
         dub_idle[i] = 0;
-        if (!dub_state[i] && dub_gen[i] == resource_gen + 1u) { full |= (uint8_t)(JFX_FULL_DUB0 << i); continue; }   /* (short, and nothing released since: no retry, no spike) */
+        if (!dub_state[i] && dub_gen[i] == resource_gen + 1u && dub_sig[i] == sig) { full |= (uint8_t)(JFX_FULL_DUB0 << i); continue; }   /* (short, and nothing released since: no retry, no spike) */
         if (!dub_spring[i] && dub_spbuf[i]) {
             resource_release(RES_JFX0 + JB_DUBP0 + i);
             dub_spbuf[i] = 0;
         }
+        gen0 = resource_gen;                            /* (after this block's own releases: they are real ones) */
         if (!dub_state[i]) dub_state[i] = jfx_take(JB_DUBS0 + i, DUB_STATE_BYTES, &nm);
         if (dub_state[i]) { dub_held[i] = (uint8_t)w; dub_held_sp[i] = (uint8_t)(dub_spring[i] != 0); }
         if (dub_state[i] && dub_spring[i] && !dub_spbuf[i]) dub_spbuf[i] = jfx_take(JB_DUBP0 + i, DUB_SPRING_BYTES, &nm);
@@ -2027,6 +2029,7 @@ static uint8_t jfx_dub_mem(void)
             jfx_free_dub(i);                            /* (all or none: a part given back) */
             resource_gen = gen0;                        /* (the attempt left the arena as it was: it is no release to the others) */
             dub_gen[i] = gen0 + 1u;
+            dub_sig[i] = sig;
             dub_nomem = 1;
         } else if (dub_state[i] && dub_have[i] == w && (!dub_spring[i] || dub_spbuf[i])) {
             if (!dub_ready[i]) dub_fresh[i] = 1;        /* complete now: set up as new */

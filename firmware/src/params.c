@@ -163,7 +163,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_APSYNC] = PE("SYNC", N_APSYNC, 1),
     [P_SLROUTE] = PE("SLC", N_ONOFF, 1),
     [P_JRES0] = PD("FDBK", F_INT, 0, 127, 55), [P_JRES1] = PD("SEND", F_INT, 0, 127, 127),      /* (Release 2) DUB TAPE's seven (core.h P_DUB_*) */
-    [P_JRES2] = PD("TONE", F_INT, 0, 127, 60), [P_JRES3] = PD("SPACE", F_INT, 0, 127, 32),
+    [P_JRES2] = PD("TONE", F_INT, 0, 127, 60), [P_JRES3] = PD("SPACE", F_INT, 0, 127, 48),
     [P_LN0] = PD("KICK", F_PCT, 0, 127, 127),
     [P_LN1] = PD("SNARE", F_PCT, 0, 127, 127),
     [P_LN2] = PD("CLAP", F_PCT, 0, 127, 127),

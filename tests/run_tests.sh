@@ -371,6 +371,8 @@ core && t "paired voices with the buses deferred (Release 2): serial/concurrent 
 core && t "audio matrix with the buses deferred (Release 2)" audio_matrix_defer:audio_matrix_test -O2 $FW -DMELODEE_FX_DEFER=1 -pthread
 core && t "audio with the buses deferred (Release 2): overload protection" audio_defer:audio_test $FW -DMELODEE_FX_DEFER=1
 core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which buses hold with which engines, the cache RAM and the card's slots" jfx_arena_test -O1 $FW
+sound && t "DUB TAPE's kernel (Release 2): the repeats at TIME, each darker; FEEDBACK 1.27 bounded; the line through its block table; TIME and filter changes continuous; the cut; the spring in both placements; the quarter rate" jfx_dub_test -O1 -ffp-contract=off -Wno-unused-function
+sound && t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
 core && run "web/EDITOR_PROTOCOL.md against editor.c's switch, both directions (Orange Cat 0.12.2)" python3 tools/check_editor_protocol.py

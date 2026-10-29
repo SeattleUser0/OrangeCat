@@ -5,9 +5,9 @@
  * into the line with the new input), the spring (in the loop or on the wet), the cut, the wet's limiter. What changed from the prototype
  * (BUILD.md, "DUB TAPE as the per-track insert", design 3): no TAPE (wow) and no DIGITAL algorithm, no second line; the line is not one
  * buffer but a table of 4 KB blocks (the arena's, jfx.c) in a ring of any number of blocks; the filter and rate tables are global, built once at
- * power-on (dd_tables_init), not in each instance; a block is 32 samples; the line rates are the half (R 2, 22.05 kHz) and the quarter (R 4).
+ * power-on (dk_tables_init), not in each instance; a block is 32 samples; the line rates are the half (R 2, 22.05 kHz) and the quarter (R 4).
  * Contract: 44.1 kHz host rate, blocks of DD_BLOCK frames, parameters read once a block, no allocation, no transcendental function and no
- * coefficient design in dd_process.
+ * coefficient design in dk_process.
  */
 #ifndef DUBDELAY_H
 #define DUBDELAY_H
@@ -49,7 +49,7 @@ typedef struct {
 #define DD_SP_TANK 2048u
 #define DD_SP_D1 256u
 #define DD_SP_D2 512u
-#define DD_SP_BUF (DD_SP_TANK + DD_SP_D1 + DD_SP_D2)   /* int16 samples dd_spring_attach wants (4-byte aligned) */
+#define DD_SP_BUF (DD_SP_TANK + DD_SP_D1 + DD_SP_D2)   /* int16 samples dk_spring_attach wants (4-byte aligned) */
 typedef struct {
     int16_t *buf;
     uint32_t w, w1, w2, dt, d1, d2;
@@ -84,13 +84,13 @@ typedef struct {
 } dd_t;
 
 /* once, at power-on (not in the audio interrupt): the half-band, the sine and the filter tables */
-void dd_tables_init(void);
+void dk_tables_init(void);
 /* an instance on `nblk` blocks (zeroed by the caller), at rate divisor R (2 or 4) */
-void dd_init(dd_t *s, int R, int16_t *const *blk, uint32_t nblk);
-void dd_reset(dd_t *s);                 /* the state from silence, the line NOT cleared (dd_clear_block) */
-void dd_clear_block(dd_t *s, uint32_t k);   /* block k of the line to zero */
-void dd_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, float *outR);
+void dk_init(dd_t *s, int R, int16_t *const *blk, uint32_t nblk);
+void dk_reset(dd_t *s);                 /* the state from silence, the line NOT cleared (dk_clear_block) */
+void dk_clear_block(dd_t *s, uint32_t k);   /* block k of the line to zero */
+void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, float *outR);
 /* the longest head (seconds) the line holds at this configuration */
-float dd_max_seconds(const dd_t *s);
-void dd_spring_attach(dd_t *s, int16_t *buf);
+float dk_max_seconds(const dd_t *s);
+void dk_spring_attach(dd_t *s, int16_t *buf);
 #endif

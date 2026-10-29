@@ -59,7 +59,7 @@ JFX_XIP static void dub_run(void)
         float in[DD_BLOCK];
         if (!((dub_mask >> k) & 1u)) continue;
         for (i = 0; i < DD_BLOCK; i++) in[i] = (float)dub_x[dub_job_buf][k][i] * (1.0f / DUB_SCALE);
-        dd_process(dub_dd(k), &dub_p[k], in, dub_wet[k][0], dub_wet[k][1]);
+        dk_process(dub_dd(k), &dub_p[k], in, dub_wet[k][0], dub_wet[k][1]);
     }
 }
 static void dub_kernel(const void *data, int32_t *pcm) { (void)data; (void)pcm; dub_run(); }
@@ -70,7 +70,7 @@ static void dub_map(uint32_t k, const track_t *t, dd_params_t *p, uint32_t R, ui
 {
     const dub_ptrn_t *pt = &dub_ptrn[clamp(t->p[P_DUBPTRN], 0, 5)];
     int32_t space = clamp(t->p[P_DUB_SPACE], 0, 127), tone = clamp(t->p[P_DUB_TONE], 0, 127), thr = clamp(t->p[P_DUB_THRW], 0, 127);
-    int32_t sp = clamp(t->p[P_DUBSPRP], 0, 2), sm = space >= 64 ? space - 64 : 0, idx = space >= 64 ? 13 : space * 14 / 64;
+    int32_t sp = clamp(t->p[P_DUBSPRP], 0, 2), idx = space * 14 / 128;   /* SPACE: the 14 synced divisions over its whole travel (the spring's level is fixed in Release 2; Release 3 gives it an id) */
     float time = dub_div_beats[idx] * (float)beat_samples() * (1.0f / (float)FS), fsl = (float)DD_FS / (float)R, lines = (float)(nblk << DD_BLK_SH), maxt;
     uint32_t j;
     dub_i_t *d = &dub_i[k];
@@ -85,7 +85,7 @@ static void dub_map(uint32_t k, const track_t *t, dd_params_t *p, uint32_t R, ui
     if (tone < 64) { p->lp = 30.0f + 1.4f * (float)tone; p->hp = 15.0f; }                  /* one sweep: low-pass down .. */
     else { p->lp = 119.0f; p->hp = 15.0f + 1.6f * (float)(tone - 64); }                    /* .. high-pass up */
     p->res = 0.3f; p->drive = 0.4f; p->wet = 1.0f; p->dry = 0.0f; p->glide = 0.12f; p->route = 1;
-    p->spring = (int)sp; p->sp_mix = (float)sm * (1.0f / 63.0f); p->sp_decay = 2.0f; p->sp_drive = 0.4f; p->sp_tone = 0.3f; p->sp_in = sp == 2 ? 0.3f : 0.0f;
+    p->spring = (int)sp; p->sp_mix = 0.7f; p->sp_decay = 2.0f; p->sp_drive = 0.4f; p->sp_tone = 0.3f; p->sp_in = sp == 2 ? 0.3f : 0.0f;
     p->tap_cut = 0.0f;
     p->crash = d->crash;
     p->cut = clamp(t->p[P_DUB_CUT], 0, 127) >= 64;
@@ -120,7 +120,7 @@ static void dub_start(uint32_t nt)
             float lines = (float)(blocks << DD_BLK_SH);
             dub_map(k, t, &tmp, 2u, blocks, &need);
             R = (d->R == 4u ? need <= 0.9f * lines : need <= lines) ? 2u : 4u;
-            {   float farsec = (need - 48.0f) / ((float)DD_FS / (float)R), lim = (lines - 48.0f) / ((float)DD_FS / (float)R);   /* seconds to the farthest head (the line's limit) */
+            {   float farsec = (need - 48.0f) / ((float)DD_FS / 2.0f), lim = (lines - 48.0f) / ((float)DD_FS / (float)R);   /* seconds to the farthest head (need is at the half rate), and the line's limit */
                 if (farsec > lim) farsec = lim;
                 d->hold_len = (uint16_t)(farsec * ((float)DD_FS / (float)CTL) + (float)DUB_HOLD); }
         }
@@ -134,10 +134,11 @@ static void dub_start(uint32_t nt)
         case DUBS_WAIT:                                       /* the memory not all there: dry */
             if (!blocks) { dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF; break; }
             dub_want[k] = (uint8_t)blocks; dub_spring[k] = (uint8_t)sp; d->R = (uint8_t)R;
+            if (dub_ready[k] && !dub_fresh[k]) { d->pend_R = d->R; d->clr = 0; d->state = DUBS_CLEAR; break; }   /* the memory is there but was in use (it is not fresh): the line cleared, then started */
             if (dub_ready[k] && dub_fresh[k]) {
                 dd_t *dd = dub_dd(k);
-                dd_init(dd, (int)d->R, dub_line[k], dub_have[k]);
-                if (dub_spring[k]) dd_spring_attach(dd, dub_spbuf[k]);
+                dk_init(dd, (int)d->R, dub_line[k], dub_have[k]);
+                if (dub_spring[k]) dk_spring_attach(dd, dub_spbuf[k]);
                 dd->cut_g = dd->cutw_g = 0.0f;              /* the input ramped in */
                 dub_fresh[k] = 0;
                 d->hold = 0;
@@ -153,18 +154,20 @@ static void dub_start(uint32_t nt)
             if (!dub_ready[k]) { d->state = DUBS_WAIT; break; }
             if (d->ramp) d->ramp--;
             if (!d->ramp) {
-                if (d->pend_R) { d->state = DUBS_CLEAR; d->clr = 0; }          /* a new rate: the line cleared a block a block, then started again */
+                if (d->pend_R && (uint8_t)R == d->pend_R && blocks == dub_want[k] && sp == dub_spring[k]) { d->state = DUBS_CLEAR; d->clr = 0; }   /* a new rate: the line cleared a block a block, then started again */
+                else if (blocks == dub_want[k] && sp == dub_spring[k] && (uint8_t)R == d->R) d->state = DUBS_RUN;   /* the setting came back during the ramp: nothing changed, the wet ramps in again */
+                else if (blocks == dub_want[k] && sp == dub_spring[k]) { d->pend_R = (uint8_t)R; d->state = DUBS_CLEAR; d->clr = 0; }
                 else { dub_want[k] = (uint8_t)blocks; dub_spring[k] = (uint8_t)sp; d->state = blocks ? DUBS_WAIT : DUBS_OFF; d->R = (uint8_t)R; }
             }
             break;
         case DUBS_CLEAR:
             if (!dub_ready[k]) { d->state = DUBS_WAIT; break; }
-            if (d->clr < dub_have[k]) dd_clear_block(dub_dd(k), d->clr++);
+            if (d->clr < dub_have[k]) memset(dub_line[k][d->clr++], 0, DD_BLK_N * sizeof(int16_t));   /* a block a block (4 KB), bounded */
             else {
                 dd_t *dd = dub_dd(k);
                 d->R = d->pend_R;
-                dd_init(dd, (int)d->R, dub_line[k], dub_have[k]);
-                if (dub_spring[k]) dd_spring_attach(dd, dub_spbuf[k]);
+                dk_init(dd, (int)d->R, dub_line[k], dub_have[k]);
+                if (dub_spring[k]) dk_spring_attach(dd, dub_spbuf[k]);
                 dd->cut_g = dd->cutw_g = 0.0f;
                 d->state = DUBS_RUN;
             }
@@ -207,7 +210,7 @@ static void dub_reset(void)
     memset(dub_spring, 0, sizeof dub_spring);
     for (uint32_t k = 0; k < DUB_N; k++) dub_i[k].was_on = trk[k].p[P_DUBLEN] != 0;   /* (a load is no OFF-to-length edge: the defaults are not written over a saved set) */
 }
-static void dub_tables(void) { dd_tables_init(); }
+static void dub_tables(void) { dk_tables_init(); }
 #else
 static void dub_tables(void) {}
 static inline int32_t *dub_capture(uint32_t k) { (void)k; return 0; }
