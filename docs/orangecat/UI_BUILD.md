@@ -1039,6 +1039,35 @@ pixels off gray. **Mockups:** `step6_sheet.png`, `step6_mixer.png`, `step6_mixer
 **For the owner (decision left open):** `mixer.png`'s layout (vertical faders, knob k = track k's level) would take PAN, FREEZE and MUTE
 off the knobs; it is not built (see the note).
 
+## Step 10: copy and paste of a sound (OC_CLIP; October 30, 2026)
+
+**Switch** `OC_CLIP` (core.h, default 0, listed in tools/build.py; needs OC_MIXER). Off, the build is byte-identical to the one without it
+(cmp of melodee.bin against release-2 2b46f80 with every switch off: identical).
+
+**Design.** SHIFT + OCT- copies the selected track's sound into one clipboard; SHIFT + OCT+ pastes it on the selected track. Both act on
+HOME's pages and on the sheets (where the SHIFT combos act); on NOTES and FEEL they still say LATER (step 11 is the selection's).
+- **A sound is what EDIT held swaps for a sound load** (ui.c `undo_step`): engine, preset, user slot, every parameter `param_kept` does not
+  keep, the native FM6, CZ-1 and Prophet patches, the DRUM patch or DRUM-X's kit. About 0.75 KB of RAM (`snd_clip_t`).
+  The mix (LEVEL, PAN, MUTE), ARP, the pattern parameters, the effects and DUB's setup stay the track's own; the steps stay; **motion is not
+  copied** (a sound load resets a track's motion, and so does a paste); the macros' dials come across at 0, as a user preset load leaves them.
+- **A paste is a sound load** (`load_begin` / `load_end`): one undo level, EDIT held gives the old sound back whole.
+- **Refusals, whole, the track keeps its sound:** nothing copied ("NOTHING COPIED"); the engine is not there (`eng_ok`: a module not
+  installed, a retired slot: "ENGINE NOT HERE"); the unit cannot carry it (`eng_admit`: "ENGINE TOO HEAVY" / "NO ROOM").
+- **The clipboard survives** a paste, a change of track and a project load (it is data; a project that lacks the engine refuses by the
+  rule above). A power cycle clears it (RAM only; nothing is written to flash).
+- **The map:** the COPY and PASTE tiles are tinted and live where the combos act, dim elsewhere; on NOTES and FEEL they stay LATER.
+- Decisions: the clipboard is one sound, not a list; copy keeps the user slot and name (`user`), so a pasted user sound still shows its
+  name and a later save-as works as for a loaded one (the safer reading: the record the sound came from is what the user sees).
+
+**Tests** `tests/clip_test.c` (11 checks, ASan and UBSan): copy, paste on another track (engine, parameters, the mix and steps kept, the
+macro dial 0), one undo, paste twice, the clipboard across a change of track, the two refusals that need no module, DRUM-X's kit, the map.
+Run by `run_tests.sh` (job in step_pages_job); the renders gained `-DOC_CLIP=1`.
+
+**Mockups:** `step10_shift_map_home.png`, `step10_shift_map_sheet.png`, `day_step10_shift_map_home.png` (0 lint findings, 0 off-gray MONO).
+
+**Flash and RAM (CI build options).** Image 558,784 B (+912 B over steps 1 to 6, estimate 1,000); .data+.bss 95,256 B (+752); data SRAM tail
+3,048 B; the arena line reads 84,064 B. Free of 577,248 B: **18,464 B, 10,272 B above the 8,192 B reserve.**
+
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
 **The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
