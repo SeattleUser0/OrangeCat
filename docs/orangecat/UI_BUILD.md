@@ -949,6 +949,42 @@ empty), NOTES' strip and both maps in 8 palettes: 0 lint findings, 0 MONO pixels
 `step4_notes_rec.png`, `step4_notes_manual.png`, `step4_notes_none.png`, `step4_shift_map_feel.png`, `step4_shift_map_notes.png`,
 `day_step4_feel_set.png`, `day_step4_notes_rec.png`.
 
+## Step 5: EDIT > LANES
+
+**Status: In progress (code built, in review).** Behind `OC_LANES` (core.h, default 0; needs `OC_STEP_PAGES`). UI_DESIGN.md Part 1
+section 5, Part 2 `drum_lanes.png`.
+
+### 5. EDIT > LANES (design note)
+
+**What the code has today.** DRUM-X's lane pages (release-2, Session E, params.c: SC_DXLANE) are three pages of four values:
+LANES (LEVEL TUNE DECAY PAN of the lane `ui.lane`), LANES 2 (LAYER PUNCH ATK+ BEND), LANES 3 (the kit's TONE FDBK HANDS DUCK).
+`dxl_desc` and `dxl_value` give any lane's value; `dxl_put` writes the kit; a key struck on the track picks its lane
+(ui_input.c); EDIT's sheets (step 2) already list the three pages. The parameters are Session E's and exist on release-2.
+
+**What changes (the design's section 5):** LANES becomes the table. The four cards are the picked lane's LEVEL, TUNE, DECAY, PAN in
+the knobs' cozy colors with their plain names (release-2's first card says "SD LV"); under them the eight sounds (BD SD CP CH OH TM
+RS CB) as rows; the picked lane's row shows its four numbers in the knobs' colors, the other rows their bars (LEVEL from the left,
+TUNE, DECAY and PAN from the middle); **PRESETS picks the lane** (a key struck does too). Nothing of the editing changes: the
+knobs go through `page_desc` and `edit_param` as before; LANES 2 and 3 and the kit's save and load are untouched. Behind the
+switch the page's graph kind is `GR_LANES` (0x61, outside fw_pages.h's enum); off, `GR_NONE` as release-2's (the image is
+byte-identical).
+**Files:** ui_lanes.c (the table, its signature; included by ui_graph.c), hooks in ui_draw.c (the cards), ui_input.c (PRESETS),
+ui_graph.c, params.c, core.h, tools/build.py.
+**Safer readings:** the kit's values are not in `p[]`, so the page's signature hashes the 32 values (`lanes_sig`); DRUM (the
+Melodee drum engine's) LANES pages keep release-2's screens (only DRUM-X's page is the table).
+**Review:** for steps 5 and 6, which are small and read the existing pages unchanged, one independent agent reviews the note and the
+diff together (decision of this branch, to keep the cost in proportion).
+
+### 5. The design as built
+
+Built as above. **Flash and RAM (CI's options):** every switch through step 4: 554,688 B; with OC_LANES **557,808 B: +3,120 B**
+(estimate 1,500: the table and the cozy cards cost twice the guess); .data+.bss unchanged; the audio arena 84,064 B (it was 84,288 B:
+224 B, a block boundary of the data bank's neighbor; the minimum is 49,152 B). Switch off: 539,212 B, byte-identical to release-2.
+**Tests:** tests/lanes_test.c (ASan and UBSan, 9 checks): the page, PRESETS both ways and at the ends, the four knobs edit lane 3's
+values and no other lane's, the signature follows a kit value, every lane drawn, a key struck still picks its lane. ui_render.c
+(ui_renders_steps now with OC_LANES=1): the table with lane 1, 3 and 8 picked and the kit moved, in 8 palettes: 0 lint findings, 0 MONO
+pixels off gray. **Mockups:** `step5_sheet.png`, `step5_lanes_1.png`, `step5_lanes_3.png`, `step5_lanes_8.png`, `day_step5_lanes_3.png`.
+
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
 **The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
@@ -1048,12 +1084,12 @@ The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). 
 |---|---|---|---|---|---|
 | 1 to 3 | measured | 11,236 | | 26,800 | 18,608 |
 | 4 | the step pages | **4,240 measured** (est. 4,000) | 4,240 | 22,560 | 14,368 |
-| 5 | EDIT > LANES | 1,500 | 5,500 | 21,300 | 13,108 |
-| 6 | the mixer in the knobs' colors | 600 | 6,100 | 20,700 | 12,508 |
-| 7a | fw_pages version 3: the scene and kdef of a module, the loader's check | 800 | 6,900 | 19,900 | 11,708 |
+| 5 | EDIT > LANES | **3,120 measured** (est. 1,500) | 7,360 | 19,440 | 11,248 |
+| 6 | the mixer in the knobs' colors | 1,200 (raised after step 5) | 8,560 | 18,240 | 10,048 |
+| 7a | fw_pages version 3: the scene and kdef of a module, the loader's check | 1,500 (raised after step 5) | 10,060 | 16,740 | 8,548 |
 | 7b, 7c | the effects' pictures, DUB TAPE's view | removed (Release 3, modules) | | | |
-| 8 | the web editor | 0 | 6,900 | 19,900 | 11,708 |
-| 9 | retire the old | 0 (credit only once measured) | 6,900 | 19,900 | 11,708 |
+| 8 | the web editor | 0 | 10,060 | 16,740 | 8,548 |
+| 9 | retire the old | 0 (credit only once measured) | 10,060 | 16,740 | 8,548 |
 
 (The estimates are the design's upper figure times the 1.5 that steps 1 to 3 measured with CI's options: 11.2 against 8.4 to
 9.4 KB.) **The plan fits with 11.7 KB above the reserve.** The measured cost of each step is entered here as it is built.
