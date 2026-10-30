@@ -1,6 +1,6 @@
 # Orange Cat: the new interface (build log)
 
-**Version:** 0.7
+**Version:** 0.8
 **Date:** October 29, 2026
 **Branch:** ui-build (Session C), cut from release-2 e1c8ac3 with ui-design 8dc42a4 merged in. Not on release-2, not on
 main, not on the unit.
@@ -11,6 +11,9 @@ into BUILD.md when the interface merges (Session A owns BUILD.md; this branch do
 BUILD.md: **Done**, **In progress**, **Not started**, **Blocked**.
 
 Revisions:
+- 0.8: steps 4 (the step pages, OC_STEP_PAGES), 5 (DRUM-X's LANES table, OC_LANES) and 6 (the mixer's colors, OC_MIXER) built, reviewed
+  and merged: the designs as built, the reviews' findings, flash and RAM, the budget table with the measured costs; step 7a, 8 and 9
+  not built (see "Where the plan stops"); the hardware checks 13 to 18; the decisions.
 - 0.7: release-2 2b46f80 merged again; flash and RAM re-measured with CI's build options (the 0.6 figures used the
   defaults and were wrong for the target: see "Budget revision 0.7"); the effects' and DUB TAPE's picture pages taken out
   of the budget (Release 3: each effect a module with its own picture); step 4's design review and its fixes.
@@ -1145,12 +1148,30 @@ The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). 
 (The estimates are the design's upper figure times the 1.5 that steps 1 to 3 measured with CI's options: 11.2 against 8.4 to
 9.4 KB.) **The plan fits with 9.7 KB above the reserve (after step 6).** The measured cost of each step is entered here as it is built.
 
+## Where the plan stops (October 30, 2026)
+
+Steps 1 to 6 are built, reviewed and merged. The budget holds (see the table: 17,876 B free with every switch through step 6, 9.7 KB
+above the reserve). **Not built, and why:**
+- **7a, fw_pages version 3 (`scene`, `kdef` in a module's page descriptor).** It changes `fw_pages_t`, so the fw_api id moves and every
+  module built so far (WHEEL, op1r's three, SEM, HADES, the SHAPES proof of concept) is refused until rebuilt; it rewrites the same
+  struct and `oc_mod_pages_check` as Session A's FX_MODULES_PLAN.md section 9 item 3 (a scene pointer in `fx_desc_t`), which says
+  "to be agreed before either merges". It is Session A's module system and Release 3's format. **Waits for Session A** (below). Its
+  estimate is 1,500 B of flash; the budget has room.
+- **7b and 7c** (the effects' and DUB TAPE's pictures): Release 3, modules (the owner, October 30).
+- **8, the web editor:** Session D's; the firmware side it needs (an editor command returning an engine's `kdef` and scene bytes, the
+  PACK trailer's version) waits on 7a's format.
+- **9, retire the old:** it flips the HOME switch's default from TRACKS to PICTURE and removes the dead paths (EDIT 1 and 2, the old
+  knob shades, `smap`, the section map); the defaults of five switches become 1. That is the owner's call after trying the
+  interface on the unit, and the removal wants the hardware checks below first. Not done: no default was changed.
+- Also left (their own steps): copy and paste of a sound and of a selection; the one-authority cleanup; `mixer.png`'s layout.
+
 ## Waiting on Session A
 
 | Item | What Session A is asked | Status |
 |---|---|---|
 | The macros in the audio interrupt (1a: oc_macro.c, the hooks in oc_throw.c) | Review and time it on the unit before any merge into release-2 (host: 613 to 642 ns a block for 36 targets; `fm1_timer5_irq` +300 B); choose whether mix.c calls it directly instead of the `thr_out` bit 31 | **Waiting** (code on ui-build) |
 | The render loops' target cost on this machine's toolchain | release-2 e1c8ac3 itself fails it here: `dxe_post_sides` 9 (budget 8), `pl_osc_render` 280 (budget 133). Confirm on CI, or re-take the budgets | **For Session A** (not a ui-build change) |
+| fw_pages version 3 (7a) against FX_MODULES_PLAN.md section 9 item 3: which design carries `scene` and `kdef`; the api id moves, so every module is rebuilt | Agree the one field set, then Session C builds 7a (about 1,500 B) | **Waiting** |
 | The pack's room for the effects' and DUB TAPE's scenes | None: they move to Release 3's modules (the owner, October 30) | **Closed** |
 | The pack with the scene trailer (1b) | Nothing unless a build sets OC_HOME_PIC=1; see "The asset pack change" | **Waiting** (on ui-build only) |
 
@@ -1200,6 +1221,22 @@ On a build with every switch (`OC_SHIFT_MAP=1` too), step 3:
 12. **The panel's own scan** under SHIFT: HOME and EDIT (or OCT) pressed in the same scan, released in the same scan; a
     knob nudged while HOME is held (the MENU is cancelled and the value shows).
 
+On a build with every switch through step 4 (`OC_STEP_PAGES=1`), step 4:
+13. **NOTES by hand** on a recorded phrase and a manual one: KNOB 1 PITCH, 2 START (a sixteenth a detent, across a half step and across
+    the loop's end), 3 LEN, 4 VEL; PRESETS through a chord's notes and the steps; ENV + PRESETS the zoom; a range selected (KNOB 1 moves
+    it); EDIT held after each: one undo. Nothing unreachable that release-2 reached (KNOB 1 was the cursor).
+14. **FEEL by hand**: CHNC across 100 into the conditions and back, RATCH to FLAM, NUDGE, TYPE; a range of steps; the sound of a chance,
+    a condition, a ratchet and a nudge on a recorded chord (0.13.0's group rule); the tiles' redraw while a sequence plays (frame time
+    with 16 tiles, no late audio halves).
+15. **The tracker's chord length**: KNOB 4 in a note column of a manual chord stopped (one undo), and while playing (the whole chord, with
+    its message).
+16. **SHIFT on NOTES and FEEL**: + PRESETS stretches, + EDIT deletes or resets (and refuses while a chain runs), + a knob; the map's tiles.
+On `OC_LANES=1`, step 5:
+17. **DRUM-X's LANES table**: PRESETS and a struck key pick a lane; the four knobs edit it; the sheets' tabs; the screen on the panel in
+    every palette (the bars' contrast); the frame time while a pattern plays.
+On `OC_MIXER=1`, step 6:
+18. **The mixer's colors** on the panel in every palette (the blue bar on the track-tinted rows; the white and orange words).
+
 ## Decisions made in this branch (the safer reading, where the call was Session C's)
 
 - BUILD.md kept as release-2's in the merge of ui-design (Session A owns it); ui-design's BUILD notes (0.79 .. 0.81) are
@@ -1238,3 +1275,13 @@ On a build with every switch (`OC_SHIFT_MAP=1` too), step 3:
 - The fine turn is "no acceleration for that detent" (no per-knob residue in RAM for quarter steps).
 - SHIFT + EDIT opens today's init confirm rather than initing at once.
 - Copy and paste are not built in step 3 (no lossy clipboard); the map shows them as LATER.
+- Step 4: FEEL's value is set on every selected step from the cursor's step (not added); a step without notes is skipped; the strip's
+  label is CHNC and a tile's types AC, SL, AS (the lint); LEN keeps the quarter step; NOTES' foot hints unchanged; START does not carry a
+  step's feel; the zoom is ENV + PRESETS; copy and paste of a selection left for their own step; the one-authority cleanup left.
+- Step 5: the table is drawn in the RINGS path under the sheets' tabs, the headings standing for the cards; PRESETS picks the lane and
+  so no longer turns the sheets there; no units in the table.
+- Step 6: colors only (knob k = track k and the vertical faders are the owner's call: they would take PAN, FREEZE and MUTE off the knobs).
+- Steps 5 and 6: one independent review of the note and the diff together (they are small and read the existing pages unchanged).
+- Budget: estimates raised after each measured miss; the arena rule restated with CI's options (UI_BUILD "Budget revision 0.7").
+- Step 7a, 8 and 9 not built (see "Where the plan stops"); no default of any switch changed.
+- `git push` of a03cea8 (the release-2 merge, after its suite passed) to origin/ui-build before steps 4 to 6 were suite-tested.
