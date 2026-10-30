@@ -2343,6 +2343,9 @@ static void ui_confirm_accept(void)
 #if OC_STEP_PAGES
 #include "ui_feel_edit.c"                               /* (the new interface 0.4, UI_BUILD.md step 4) FEEL's edit, NOTES' knob map */
 #endif
+#if OC_CLIP
+#include "ui_clip.c"                                    /* (the new interface 0.10, UI_BUILD.md step 10) copy and paste of a sound */
+#endif
 #if OC_SHIFT_MAP
 #include "ui_shift.c"                                   /* (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT, its map */
 #endif

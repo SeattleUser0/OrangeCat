@@ -115,11 +115,18 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
         if (shift_here() && !cf_refused(CF_INIT_SOUND))
             confirm_open(CF_INIT_SOUND, song.sel);      /* (as the OCT+ sheet's row, ui_popup.c) */
     }
-    if (*pressed & (dn | up)) {                         /* SHIFT + OCT: copy, paste (not yet): no octave, no sheet */
+    if (*pressed & (dn | up)) {                         /* SHIFT + OCT: copy, paste (a sound with OC_CLIP): no octave, no sheet */
+        uint32_t oct_now = *pressed & (dn | up);
         oct_eat |= (uint8_t)(((*pressed & dn) ? 1u : 0u) | ((*pressed & up) ? 2u : 0u));
         ui.oct_t0 |= 2u;
         oct_deferred = 0;
         *pressed &= ~(dn | up);
+#if OC_CLIP
+        if (!shift_steppg() && shift_here()) {          /* (the new interface 0.10) a sound; a selection's waits for step 11 */
+            if (oct_now & dn) sound_copy();
+            if (oct_now & up) sound_paste();
+        } else
+#endif
         ui_message("COPY, PASTE: LATER");
     }
     return BT_NONE;
@@ -197,7 +204,8 @@ static void shift_draw(void)
 #else
             int sp = 0;
 #endif
-            int dim = (c == 1u && !here) || (c == 2u && !ui.home && !sp) || c == 3u;
+            int live = OC_CLIP && c == 3u && !sp;       /* (the new interface 0.10) a sound's copy and paste, live on a page or sheet */
+            int dim = (c == 1u && !here) || (c == 2u && !ui.home && !sp) || (c == 3u && !(live && here));
             uint16_t bg = c ? ux_mix(T_BG, T_THEME, dim ? 8 : 20) : T_QUIET;
             const char *job = t == 2u && row ? "ROWS" : SHIFT_TILE[t].job;
             if (sp && t == 7u) job = "STRETCH";         /* (NOTES and FEEL: PRESETS stretches the range, EDIT deletes it) */
@@ -208,7 +216,7 @@ static void shift_draw(void)
                 cv_rect(x + 7, 4, 1, 5, dim ? T_DIM : T_THEME);
             }
             cv_text_c(x + 38, ty_y(18, TY_LB), TY_LB, SHIFT_TILE[t].ctl, dim ? T_DIM : c ? T_THEME : T_SEC, bg);
-            cv_text_c(x + 38, ty_y(37, TY_LB), TY_LB, c == 3u ? "LATER" : job, dim && c != 3u ? T_DIM : T_TEXT, bg);
+            cv_text_c(x + 38, ty_y(37, TY_LB), TY_LB, c == 3u && !live ? "LATER" : job, dim && (c != 3u || live) ? T_DIM : T_TEXT, bg);
         }
         cv_blit(0, (uint32_t)(32 + 50 * (int32_t)r));
     }

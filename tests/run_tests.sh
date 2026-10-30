@@ -244,6 +244,8 @@ step_pages_job() {                                # (the new interface 0.4, UI_B
         lanes_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 6: the mixer's bars and values in the knobs' colors, the knobs' jobs unchanged" \
         mixer_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "new interface 10: copy and paste of a sound: the clipboard, the paste, one undo, the refusals" \
+        clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: EDIT's sheets with the step pages built in" \
         sheet_s4:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: HOME as SHIFT with the step pages built in" \
@@ -320,7 +322,7 @@ ui_renders_shift() {                              # (the new interface 0.3, UI_B
 }
 ui_renders_steps() {                              # (the new interface 0.4, UI_BUILD.md step 4) every screen again with every step's switch and
                                                   # the step pages: FEEL, NOTES' strip and the map on both in every palette: the lint, MONO gray; PNGs in build/ui_steps
-    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_steps/ppm build/ui_steps_slot
     step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, the maps, lint, MONO gray" \
         "$OUT/ui_render_steps" build/ui_steps build/ui_steps_slot

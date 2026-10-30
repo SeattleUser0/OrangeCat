@@ -145,6 +145,13 @@
 #if OC_MIXER && !OC_LANES
 #error "OC_MIXER needs OC_LANES (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
+#ifndef OC_CLIP
+#define OC_CLIP 0                 /* (the new interface 0.10, branch ui-build: docs/orangecat/UI_BUILD.md step 10) 1: SHIFT + OCT- / OCT+ copy and paste the selected
+                                   * track's sound (ui_clip.c); 0: the map says LATER, as release-2's */
+#endif
+#if OC_CLIP && !OC_MIXER
+#error "OC_CLIP needs OC_MIXER (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
 #if OC_LANES
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
 #else
