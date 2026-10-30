@@ -1239,6 +1239,19 @@ The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). 
 (The estimates are the design's upper figure times the 1.5 that steps 1 to 3 measured with CI's options: 11.2 against 8.4 to
 9.4 KB.) **The plan fits with 9.7 KB above the reserve (after step 6).** The measured cost of each step is entered here as it is built.
 
+## Budget revision 0.8 (October 30, 2026): steps 10 and 11 (CI's build options)
+
+| Build | Image (B) | Free of 577,248 B | Above the 8,192 B reserve | .data+.bss | Data SRAM tail | Arena (min 49,152) |
+|---|---|---|---|---|---|---|
+| release-2 2b46f80 | 539,212 | 38,036 | 29,844 | 94,088 | 4,216 | 84,832 |
+| six switches (steps 1 to 6) | 557,872 | 19,376 | 11,184 | 94,504 | 3,800 | 84,064 |
+| + step 10 (OC_CLIP), estimate 1,000 | 558,784 (+912) | 18,464 | 10,272 | 95,256 (+752) | 3,048 | 84,064 |
+| + step 11 (OC_CLIP_SEL), estimate 2,000 | 562,308 (+3,524) | 14,940 | **6,748** | 96,312 (+1,056) | 1,992 | 84,096 |
+
+Step 11 cost 3,524 B against an estimate of 2,000 (the two-pass copy, the paste and FEEL's setters). **6,748 B remain above the reserve**;
+the data SRAM tail is 1,992 B (the arena rule, minimum plus 16,384 B, holds with 35 KB). **No further step is built.** Left in the budget:
+7a (about 1,500 B) fits; a step of 5,000 B or more would not. Steps 10 and 11 are built but **off** in the build set.
+
 ## Where the plan stops (October 30, 2026)
 
 Steps 1 to 6 are built, reviewed and merged. The budget holds (see the table: 17,876 B free with every switch through step 6, 9.7 KB
