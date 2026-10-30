@@ -632,11 +632,35 @@ static inline int32_t dly_rdc(uint32_t d, int32_t m) { return dly_rd(dly_near(d)
 static const uint16_t DTIME_MS[54] = {5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19, 21, 24, 27, 31, 35, 39, 44, 50, 56, 64,
     72, 81, 91, 103, 116, 131, 148, 167, 189, 213, 241, 272, 307, 346, 391, 441, 498, 562, 634, 716, 808, 912, 1029, 1162,
     1311, 1480, 1670, 1885, 2128, 2402, 2711, 2950};
+/* (Release 2, round 8) On an external clock the tempo (beat_samples) is measured again every six pulses from stamps quantized to 0.5 ms and moves by a few
+ * samples nearly every time; a synced TIME (and the right echo's offset) that followed it a sample at a time started a 21 ms read crossfade (fx_buses,
+ * dl_xf / dr_xf) for about a sixth of the time and could step the line's size at a boundary (BUILD.md 7.19, ~200 us on the worst half). They now keep the
+ * value in use until the tempo has moved it by more than 1/512 (the offset: by more than 2 samples, so a BPM or WIDE step that moves it by 2 or less is not followed: at most 2 samples, not accumulating). A division change (25 percent or more), a BPM step
+ * (0.8 percent at 120) and every free TIME pass at once; the internal clock never moves, so nothing changes there. Held outside `fx`, cleared with it. */
+static uint32_t dly_hold_dl, dly_hold_dro;
+static inline uint32_t dly_hold(uint32_t x, uint32_t *held, uint32_t tol)
+{
+    if (*held && (x > *held ? x - *held : *held - x) <= tol)
+        return *held;
+    return *held = x;
+}
 static uint32_t delay_samples(void)
 {
     uint32_t g = (uint32_t)clamp(fxp.g[G_DTIME], 0, 63);
     uint32_t s = g < DT_FREE ? fxp_div(g) : (uint32_t)DTIME_MS[(g - DT_FREE) % NELEM(DTIME_MS)] * 441u / 10u;
-    return s < 16u ? 16u : s > DLY_MAX ? DLY_MAX : s;
+    s = s < 16u ? 16u : s > DLY_MAX ? DLY_MAX : s;
+    if (g < DT_FREE)
+        return dly_hold(s, &dly_hold_dl, s >> 9);
+    dly_hold_dl = 0;                                    /* (a free TIME: exact, and the next synced one starts from its own value) */
+    return s;
+}
+/* the right echo's offset (WIDE: up to 1/32 of a beat later; none with PING-PONG), held the same way; exact when it is 0 */
+static uint32_t dly_dro(int32_t wd, int png)
+{
+    uint32_t raw = wd && !png ? fxp_div(3) * (uint32_t)wd / 127u : 0u;
+    if (!raw)
+        return dly_hold_dro = 0u;
+    return dly_hold(raw, &dly_hold_dro, 2u);
 }
 
 /* (0.9.14) the reverbs' int16 lines written through a soft knee: linear to -2.5 dBFS, then tanh up to ~-0.1 dB */
@@ -1505,7 +1529,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
     if (dig && fb2 > 32767) fb2 = 32767;
     int32_t cs = clamp(fxp.g[G_CSTER], -64, 63), cw = 80 + wd / 2;   /* (0.6.9) the chorus's side */
     cw = cs >= 0 ? cw + cs * 2 : (cw * (64 + cs)) >> 6;
-    uint32_t dro = wd && !png ? fxp_div(3) * (uint32_t)wd / 127u : 0u, dr;   /* the right echo: up to 1/32 later */
+    uint32_t dro = dly_dro(wd, png), dr;   /* the right echo: up to 1/32 later */
     int dly_lo_on = have_d ? dly_rate(&dl, &dr, dro, png, gr) : 0;
     fxg_fb = fb > 0;
     if (!have_d) dr = dl;
@@ -1684,6 +1708,7 @@ static void fx_bus_clear(void)
     dly_line_clear(0, (uint32_t)dly_have * JFX_SEG);
     dly_lo_reset();
     memset(&fx, 0, sizeof fx);
+    dly_hold_dl = dly_hold_dro = 0;
     fxg_g = 32767; fxg_quiet = fxg_dact = fxg_hold = 0; fxg_dpk = 0; fxg_fb = fxg_dly = 0; fx_rest_ph = 0;
 }
 
@@ -2025,6 +2050,7 @@ static void jfx_free_buses(void)
     {   /* as from a new project: the states from silence (the lines come back zeroed) */
         uint32_t keep_rt = fx.rtype;
         memset(&fx, 0, sizeof fx);
+        dly_hold_dl = dly_hold_dro = 0;
         fx.rtype = (uint8_t)keep_rt;
         memset(&dlo, 0, sizeof dlo);
         rev_state_clear();
@@ -2145,7 +2171,7 @@ static uint32_t dly_estimate(void)
     int32_t wd = clamp(fxp.g[G_WIDTH], 0, 127), gr = fxp.g[G_DPIT] || fxp.g[G_DSPRY];
     int png = fxp.g[G_DPING] == 1 && !gr;
     if (gr) return DLY_NSEG;                            /* (the GRAIN delay sweeps the whole line) */
-    dro = wd && !png ? fxp_div(3) * (uint32_t)wd / 127u : 0u;
+    dro = dly_dro(wd, png);
     need = png ? dl * 2u : dl + dro;
     return dly_segs_for(need, dly_stage(need, 0u));
 }

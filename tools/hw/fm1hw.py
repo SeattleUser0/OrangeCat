@@ -85,16 +85,27 @@ class Unit:
         with self.lock:
             self.out.send(msg)
 
+    # (round 8) a lost inbound request (the unit never saw it; the installer page retries for the same reason) is sent again, up to 3 more times,
+    # for the commands that are reads or set an absolute value, so a second delivery changes nothing: INFO 1, GET/SET param and global 2 and 3,
+    # DESC 5, PRESET 8, TRACK select 27, TRACK_MIX 28 (an absolute level and mute), TRACK_STEP 30 (read or write of one step), AUDIO_STATS 72 (a
+    # reset flag again is the same reset), the chain 74 (set, start and query set a state), CLOCK_STATS 103. Everything else (the backup and library
+    # commands, the pack and module commands) is never resent blind. `retries` counts the resends over the session.
+    RESEND_SAFE = frozenset((1, 2, 3, 5, 8, 27, 28, 30, 72, 74, 103))
+    retries = 0
+
     def req(self, cmd, args=(), timeout=3.0):
-        for m in self.inp.iter_pending():
-            pass
-        self.send(mido.Message("sysex", data=HDR + [cmd] + list(args)))
-        end = time.monotonic() + timeout
-        while time.monotonic() < end:
+        for attempt in range(4 if cmd in self.RESEND_SAFE else 1):
             for m in self.inp.iter_pending():
-                if m.type == "sysex" and list(m.data[:4]) == HDR + [cmd]:
-                    return list(m.data[4:])
-            time.sleep(0.002)
+                pass
+            self.send(mido.Message("sysex", data=HDR + [cmd] + list(args)))
+            end = time.monotonic() + timeout
+            while time.monotonic() < end:
+                for m in self.inp.iter_pending():
+                    if m.type == "sysex" and list(m.data[:4]) == HDR + [cmd]:
+                        return list(m.data[4:])
+                time.sleep(0.002)
+            if attempt < 3 and cmd in self.RESEND_SAFE:
+                self.retries += 1
         raise TimeoutError(f"no reply to editor command {cmd} {list(args)}")
 
     # ---- what the unit is

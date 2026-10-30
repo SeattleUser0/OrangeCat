@@ -921,6 +921,41 @@ static void t_audition(void)
     }
     bad += check("jfx: audition WAVs (build/audition: dry and each delay / reverb model, chorus)", 1);
 }
+/* (round 8) the delay time and the right echo's offset hold against the external clock's few samples of wobble (jfx.c dly_hold): a synced TIME
+ * is the same value through 2,000 wobbles of 1 to 8 samples in the beat; a tempo step of 1 BPM, a division change and a free TIME pass at once;
+ * the right echo's offset (WIDE 127) follows a wobble of 2 samples not at all and is exactly 0 with WIDE at 0 or PING-PONG on; the free TIME and the return to a synced
+ * one are exact (no old held value comes back) */
+static void t_dly_hold(void)
+{
+    int ok = 1;
+    jt_fresh();
+    fx_bus_clear();
+    fxp.g[G_DTIME] = 1;
+    fxp.beat = 22050u;
+    uint32_t dl0 = delay_samples(), dro0 = dly_dro(127, 0), x, wob = 0;
+    ok &= dl0 == 11025u && dro0 == 22050u / 8u;
+    for (uint32_t i = 0; i < 2000u; i++) {
+        wob = (wob * 5u + 3u) % 33u;                              /* 0..32 -> -16..+16 samples in the beat: the TIME +-8, the offset (WIDE 127) +-2 */
+        fxp.beat = 22050u + wob - 16u;
+        ok &= delay_samples() == dl0;
+        ok &= dly_dro(127, 0) == dro0;
+    }
+    fxp.beat = (uint32_t)((uint64_t)22050u * 120u / 121u);       /* 1 BPM faster: passes at once */
+    x = delay_samples();
+    ok &= x != dl0 && x == fxp_div(1);
+    uint32_t dro1 = dly_dro(127, 0);
+    ok &= dro1 != dro0 && dro1 == fxp_div(3);
+    ok &= dly_dro(0, 0) == 0u && dly_dro(127, 1) == 0u;           /* WIDE 0 and PING-PONG: exactly none */
+    ok &= dly_dro(127, 0) == fxp_div(3);                         /* and back from none: the value itself */
+    fxp.g[G_DTIME] = 2;                                           /* a division change: at once */
+    ok &= delay_samples() == fxp_div(2);
+    fxp.g[G_DTIME] = DT_FREE + 35;                                /* a free TIME: the table's, exactly */
+    ok &= delay_samples() == 346u * 441u / 10u;
+    fxp.g[G_DTIME] = 1;                                           /* back to a synced one: its own value, not an old held one */
+    ok &= delay_samples() == fxp_div(1);
+    printf("  DELAY hold: a synced TIME and the right echo's offset hold through the external clock's wobble, pass a 1 BPM step, a division, a free TIME: %s\n", ok ? "ok" : "FAIL");
+    if (!ok) bad++;
+}
 static void t_cost(void)
 {
     static const struct { const char *name; uint8_t where; int16_t id, v; } C[] = {
@@ -956,6 +991,7 @@ int main(void)
     t_storage();
     t_legacy();
     t_audition();
+    t_dly_hold();
     t_cost();
     printf(bad ? "jfx: %d FAILED\n" : "jfx: all passed\n", bad);
     return bad ? 1 : 0;
