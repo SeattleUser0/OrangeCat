@@ -1015,7 +1015,7 @@ right. KNOB 1 LEVEL, 2 PAN, 3 FREEZE, 4 MUTE of the **selected** track (`tracks_
 **What the design shows and what is built.** `mixer.png` is four vertical faders with "K1-4 LEVELS": knob k is track k's level. That
 layout would take PAN, FREEZE and MUTE off the knobs, and the design says nowhere where they go; Part 3 step 6 itself costs
 only 0.3 KB and tests "the mixer screens", so it is the **colors**. **Decision (the safer reading):** the layout and the knobs stay
-release-2's (no control lost); the colors become the knobs': the level's bar and its dB value in KNOB 1's blue (`T_COZY(0)`), the
+release-2's (no control lost); the colors become the knobs': the level's bar in KNOB 1's blue (`T_COZY(0)`) and its dB value in blue while KNOB 1 turns (at rest the text's), the
 pan in KNOB 2's green, the freeze word in KNOB 3's white, a turning knob's value in its own cozy color instead of the text's; Mute
 stays REC's red (it is a state, not a knob's value) and takes KNOB 4's orange only while KNOB 4 turns; the numeral stays the
 track's color (the track's identity). Muted rows stay dim. The vertical faders and knob k = track k are for the owner to decide
@@ -1032,6 +1032,7 @@ estimate 300), RAM 0, arena unchanged (84,064 B). Switch off: 539,212 B, byte-id
 turned shows the pan in green and still changes the pan; KNOB 4 mutes and its word turns orange; a muted track's bar is dim; KNOB 1
 is still the level. ui_render.c (every mixer screen of the renderer, now with OC_MIXER=1 in ui_renders_steps): 0 lint findings, 0 MONO
 pixels off gray. **Mockups:** `step6_sheet.png`, `step6_mixer.png`, `step6_mixer_pan.png`, `step6_mixer_frozen.png`, `day_step6_mixer_pan.png`.
+**The review (an independent agent, October 30, 2026):** no bugs; the switch-off expressions are release-2's, the hot-column mapping and the signature are right. Minor, kept: the BAR check counts the blue over the lower screen (loose: a track color equal to the cozy blue would pass), and nothing checks that the freeze word turns white; the note's sentence on the dB value is corrected above.
 **For the owner (decision left open):** `mixer.png`'s layout (vertical faders, knob k = track k's level) would take PAN, FREEZE and MUTE
 off the knobs; it is not built (see the note).
 
