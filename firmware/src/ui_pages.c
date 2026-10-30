@@ -661,6 +661,16 @@ static void pv_meter(uint32_t k, uint16_t c)
     pv_meter_draw(k, 0, 0, c, bg);
     cv_blit((uint32_t)(BOX_X + PV_MIX_BAR_X), (uint32_t)(st_row_y(k) + pv_mix_y(h) + TY_TX->cap + 8 + 7));
 }
+/* (the new interface 0.6, UI_BUILD.md step 6) with OC_MIXER the level's bar and the turning knob's value take that knob's cozy color
+ * (KNOB 1 blue, 2 green, 3 white, 4 orange); the numeral and the meter stay the track's, Mute stays REC's red. MXC(i, old): knob i's
+ * color, or what release-2 drew */
+#if OC_MIXER
+#define MXC(i, old) T_COZY(i)
+#define MXBAR (mute ? T_DIM : T_COZY(0))
+#else
+#define MXC(i, old) (old)
+#define MXBAR (hot == 1u ? T_TEXT : tc)
+#endif
 static void pv_strip(uint32_t k)
 {
     track_t *t = &trk[k];
@@ -714,19 +724,19 @@ static void pv_strip(uint32_t k)
         if (lvl && text_w(lf, nm) <= 228 - text_w(lf, "dB") - 3 - text_w(tf, b) - 8 - PV_MIX_BAR_X)   /* (the unit goes
                                                          * before the name is cut) */
             x = cv_text_r(x, ty_y(T + tf->cap / 2, lf), lf, "dB", T_MID, bg) - 3;
-        x = cv_text_r(x, ty_y(T + tf->cap / 2, tf), tf, b, hot == 1u ? tc : mute ? T_DIM : T_TEXT, bg);
+        x = cv_text_r(x, ty_y(T + tf->cap / 2, tf), tf, b, hot == 1u ? MXC(0, tc) : mute ? T_DIM : T_TEXT, bg);
         cv_free_text(PV_MIX_BAR_X, ty_y(T + tf->cap / 2, ty_fit(tf, nm, x - 8 - PV_MIX_BAR_X)), ty_fit(tf, nm, x - 8 - PV_MIX_BAR_X),
                      nm, mute ? T_DIM : T_TEXT, bg, x - 8 - PV_MIX_BAR_X);
         /* the level's bar, the meter under it; the pan (or Mute) at the right */
         cv_rrect(PV_MIX_BAR_X, ly, PV_MIX_BAR_W, 5, 2, ux_mix(bg, T_LINE, 60), bg);
         if (lvl)
             cv_rrect(PV_MIX_BAR_X, ly, (int32_t)lvl * PV_MIX_BAR_W / 127 < 4 ? 4 : (int32_t)lvl * PV_MIX_BAR_W / 127, 5, 2,
-                     hot == 1u ? T_TEXT : tc, T_LINE);
+                     MXBAR, T_LINE);
         pv_meter_draw(k, PV_MIX_BAR_X, ly + 7, tc, bg);
         if (mute) {
-            cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? T_TEXT : T_REC, bg);
+            cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? MXC(3, T_TEXT) : T_REC, bg);
         } else if (fw[0]) {                             /* (Orange Cat 0.4.20) frozen or freezing */
-            cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? T_TEXT : fst == 2u ? T_THEME : fst ? T_TEXT : T_REC, bg);
+            cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? MXC(2, T_TEXT) : fst == 2u ? T_THEME : fst ? T_TEXT : T_REC, bg);
         } else {
             if (pan) {
                 b[0] = pan < 0 ? 'L' : 'R';
@@ -734,7 +744,7 @@ static void pv_strip(uint32_t k)
             } else {
                 str_cpy(b, "C", sizeof b);
             }
-            cv_text_r(228, ty_y(ly + 5, lf), lf, b, hot == 2u ? T_TEXT : T_MID, bg);
+            cv_text_r(228, ty_y(ly + 5, lf), lf, b, hot == 2u ? MXC(1, T_TEXT) : T_MID, bg);
         }
         cv_oy = 0;
         cv_blit(BOX_X, (uint32_t)(y + top));

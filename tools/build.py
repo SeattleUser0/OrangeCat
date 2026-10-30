@@ -272,7 +272,8 @@ def app_flags():
                  "OC_EDIT_SHEETS",  # (the new interface 0.2: UI_BUILD.md step 2) EDIT's sheets; needs OC_HOME_PIC=1; off by default
                  "OC_SHIFT_MAP",    # (the new interface 0.3: UI_BUILD.md step 3) HOME as SHIFT, its map; needs OC_EDIT_SHEETS=1; off by default
                  "OC_STEP_PAGES",   # (the new interface 0.4: UI_BUILD.md step 4) the step pages; needs OC_SHIFT_MAP=1; off by default
-                 "OC_LANES"):       # (the new interface 0.5: UI_BUILD.md step 5) DRUM-X's LANES table; needs OC_STEP_PAGES=1; off by default
+                 "OC_LANES",       # (the new interface 0.5: UI_BUILD.md step 5) DRUM-X's LANES table; needs OC_STEP_PAGES=1; off by default
+                 "OC_MIXER"):       # (the new interface 0.6: UI_BUILD.md step 6) the mixer in the knobs' colors; needs OC_LANES=1; off by default
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
