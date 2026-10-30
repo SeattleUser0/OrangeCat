@@ -254,6 +254,7 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
     uint32_t id=P_COUNT;
     switch(cc){case 5:id=P_GLIDE;break;case 7:id=P_LEVEL;break;case 10:id=P_PAN;break;
     case 72:id=P_REL;break;case 73:id=P_ATK;break;case 75:id=P_DEC;break;
+    case 12:id=P_DUB_FDBK;break;case 13:id=P_DUB_SEND;break;case 14:id=P_DUB_TONE;break;case 15:id=P_DUB_SPACE;break;case 16:id=P_DUB_THRW;break;case 17:id=P_DUB_CUT;break;case 18:id=P_DUB_KICK;break;   /* (Release 2: DUB TAPE's seven) */
     case 91:id=P_REV;break;case 93:id=P_CHOR;break;case 94:id=P_DLY;break;case 104:id=P_DIST;break;   /* (0.6.0: the
                                                 * effects, Jiant's map: REVERB, CHORUS, DELAY sends, DIST) */
     case 74:case 71:{

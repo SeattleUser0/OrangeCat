@@ -992,7 +992,7 @@ static void track_defaults_steps(track_t *t)
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           i == P_CHRD || i == P_VOIC || i == P_STRUM || i == P_STROKE || i == P_MPCDEG || i == P_RECQ || param_jfx(i);   /* (0.6.0: the effects) */
+           i == P_CHRD || i == P_VOIC || i == P_STRUM || i == P_STROKE || i == P_MPCDEG || i == P_RECQ || param_jfx(i) || param_dub_setup(i);   /* (0.6.0: the effects; Release 2: DUB TAPE's LEN, PTRN, SPRP) */
 }
 
 /* ROOT, SCL, QNT and the MPC degree are the project's: kept the same in each track's own slots

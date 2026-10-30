@@ -621,7 +621,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
              * (Prophet, FM6, CZ, SID, 808, 909, MACRO, DRUM-X, SHAPES, WHEEL): the id, then on CPU0 and on CPU1 the kernels run, their mean and
              * max in TIMER4 ticks (24 a microsecond). Flag 1 starts them over (the cores' readout too) and paints CPU1's stack again (when it is
              * idle). (At most 5 + 5 x 2 + 10 x 7 x 5 = 365 bytes: the reply buffer is 1,024) */
-            static const uint8_t ids[] = {AP_PROPHET, AP_FM6, AP_CZ, AP_SID, AP_808, AP_909, AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL};
+            static const uint8_t ids[] = {AP_PROPHET, AP_FM6, AP_CZ, AP_SID, AP_808, AP_909, AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL, AP_DUB};   /* (Release 2: AP_DUB, DUB TAPE's job) */
             cs_kn_t k2[sizeof ids][2];
             uint32_t k, used = 0;
             fm1_irq_off();
@@ -706,16 +706,65 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             }
             break;
         }
-        if ((na == 2u || na == 5u) && a[1] == 6u) {
-            /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 13: 13, then 5 x 7 bits each: engaged now, times
+#if OC_LATE_DIAG
+        if (na == 2u && a[1] == 9u) {
+            /* (round 3, measurement builds) [flags, 9]: 20, then gap min, gap max (ticks), n, late, ring head, 24 gap bins (16 us from 2,800), then 8 late halves x
+             * (gap before, gap after, pre, us (microseconds), t5, total) in ticks. Then the largest nested TIMER5 of a half (ticks) and the halves above 200 us. Flag 1 starts over. Copied with the interrupts off, formatted after. */
+            uint32_t k, v[5 + 24 + 48 + 2];
+            fm1_irq_off();
+            v[0] = ld_gmin; v[1] = ld_gmax; v[2] = ld_n; v[3] = ld_late; v[4] = ld_head; v[77] = ld_t5max; v[78] = ld_t5big;
+            for (k = 0; k < 24u; k++) v[5 + k] = ld_hist[k];
+            for (k = 0; k < 8u; k++) { v[29 + 6 * k] = ld_ring[k].gprev; v[30 + 6 * k] = ld_ring[k].gnext; v[31 + 6 * k] = ld_ring[k].pre; v[32 + 6 * k] = ld_ring[k].us; v[33 + 6 * k] = ld_ring[k].t5; v[34 + 6 * k] = ld_ring[k].total; }
+            if (a[0] & 1u) ld_reset();
+            fm1_irq_on();
+            ed_b(20);
+            for (k = 0; k < 5u + 24u + 48u + 2u; k++) ed_bk_u32(v[k]);
+            break;
+        }
+#endif
+#if OC_CORE_STATS
+        if (na == 3u && a[1] == 10u) {
+            /* (round 6) the per-block trace, schema 21: [flags, 10, 100] arms it (the next CS_TR_JOBS worker jobs and the blocks they span); [flags, 10, page] reads it: the reply is 21, the jobs and blocks recorded, whether it is still
+             * armed, then pages 0 to 5: 11 jobs each (kind, submit, start, end, join start, join end: TIMER4 ticks), pages 6 and 7: 20 blocks each (begin, tracks done, end) */
+            uint32_t k, j, pg = a[2];
+            if (pg == 100u) {
+                fm1_irq_off(); cs_tr_n = cs_tr_nb = 0; cs_tr_cur = 0xFFFFu; cs_tr_arm = 1; fm1_irq_on();
+                ed_b(21); ed_bk_u32(0); ed_bk_u32(0); ed_bk_u32(1);
+                break;
+            }
+            ed_b(21); ed_bk_u32(cs_tr_n); ed_bk_u32(cs_tr_nb); ed_bk_u32(cs_tr_arm);
+            if (pg < 6u) { for (k = pg * 11u; k < pg * 11u + 11u && k < CS_TR_JOBS; k++) for (j = 0; j < 6u; j++) ed_bk_u32(cs_tr_job[k][j]); }
+            else if (pg < 8u) { for (k = (pg - 6u) * 20u; k < (pg - 6u) * 20u + 20u && k < CS_TR_BLKS; k++) for (j = 0; j < 3u; j++) ed_bk_u32(cs_tr_blk[k][j]); }
+            break;
+        }
+#endif
+#if MELODEE_DUB
+        if (na == 2u && a[1] == 7u) {
+            /* (Release 2) [flags, 7]: DUB TAPE, schema 14: 14, then 5 x 7 bits each: jfx_full (FX FULL 0x0F, DUB FULL 0xF0), the governor's evictions since power-on, then for each of the four tracks: the
+             * instance's state (0 off, 1 waiting for its memory, 2 running, 3 ramping out, 4 clearing), its memory complete (0/1), the blocks it holds, the rate
+             * divisor (2 or 4), the hold (blocks it will go on running), whether the job ran this block. Flag 1 is not used. */
+            uint32_t k;
+            ed_b(14);
+            fm1_irq_off();
+            ed_bk_u32((uint32_t)jfx_full);                  /* (the whole byte: the buses' FX FULL in 0x0F, DUB FULL in 0xF0) */
+            ed_bk_u32(dub_gov_fires);
+            for (k = 0; k < DUB_N; k++) {
+                ed_bk_u32(dub_i[k].state); ed_bk_u32(dub_ready[k]); ed_bk_u32(dub_have[k]); ed_bk_u32(dub_i[k].R); ed_bk_u32(dub_i[k].hold); ed_bk_u32(dub_i[k].run);
+            }
+            fm1_irq_on();
+            break;
+        }
+#endif
+        if ((na == 2u || na == 5u || na == 6u) && a[1] == 6u) {
+            /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 15 (Release 2; 13 before: three fields a class, no third cap column): 15, then 5 x 7 bits each: engaged now, times
              * engaged, halves engaged, extra UNISON voices refused, the shared effects ran last block, N (3: MODAL, FM6, the Prophet); then
-             * for each: voices given up for the cap, the cap with the effects off, with them on. Flag 1 starts the counts over.
+             * for each: voices given up for the cap, the cap with the effects off, with them on, with a DUB TAPE instance running. Flag 1 starts the counts over.
              * [flags, 6, c, off, on] (OC_CORE_STATS builds only, the unit's runs): engine c's caps (0: as built), then the same reply */
             uint32_t k;
 #if OC_CORE_STATS
-            if (na == 5u && a[2] < VC_N) { vc_cap[a[2]][0] = a[3]; vc_cap[a[2]][1] = a[4]; }
+            if ((na == 5u || na == 6u) && a[2] < VC_N) { vc_cap[a[2]][0] = a[3]; vc_cap[a[2]][1] = a[4]; vc_cap[a[2]][2] = na == 6u ? a[5] : 0; }
 #endif
-            ed_b(13);
+            ed_b(15);                                   /* (Release 2: schema 15: the third cap column, four fields a class) */
             fm1_irq_off();
             ed_bk_u32(vc_on); ed_bk_u32(vc_engages); ed_bk_u32(vc_engaged_halves); ed_bk_u32(vc_refused); ed_bk_u32(voice_fx_on);
             ed_bk_u32(VC_N);
@@ -723,6 +772,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 ed_bk_u32(vc_steals[k]);
                 ed_bk_u32(vc_cap[k][0] ? vc_cap[k][0] : VC_CAP[k][0]);
                 ed_bk_u32(vc_cap[k][1] ? vc_cap[k][1] : VC_CAP[k][1]);
+                ed_bk_u32(vc_cap[k][2] ? vc_cap[k][2] : VC_CAP[k][2]);
             }
             if (a[0] & 1u) { vc_engages = vc_engaged_halves = vc_refused = 0; for (k = 0; k < VC_N; k++) vc_steals[k] = 0; }
             fm1_irq_on();
@@ -748,7 +798,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         snapshot[15] = ua.service_max_ticks / FM1_TICKS_PER_US;
         snapshot[16] = melodee_dbg.late;
         snapshot[17] = ua_feedback();
-        snapshot[18] = melodee_dbg.max_us;            /* render time excludes TIMER5; shedding includes it */
+        snapshot[18] = melodee_dbg.max_us;            /* (round 4) the time the DMA sees: the render plus the TIMER5 nested in it */
         snapshot[19] = song.cpu_q8;
         if (count == 23u) {                           /* (0.13.6) the block, its budget and how many blocks since the reset */
             snapshot[20] = HALF_FRAMES;

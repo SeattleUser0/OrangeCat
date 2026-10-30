@@ -47,6 +47,7 @@
  * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.6.0: first version (Jiant 0.9.18's effects).
  */
+#include "dubdelay.h"                                  /* (Release 2) dd_t, for the size of an instance's state */
 #define JFX_XIP __attribute__((section(".text.xip_jfx"), noinline))
 
 /* ------------------------------------------------------------------ memory --- */
@@ -75,11 +76,42 @@ typedef struct {
 _Static_assert(RPRE_LEN == JFX_SEG && SH_LEN == JFX_SEG && (RX_NSEG & (RX_NSEG - 1u)) == 0u,
                "the model line: the pre-delay and SHIMMER in its first block");
 #define SL_FR 8192u                                     /* the SLICER's recording: stereo frames (32 KB) */
-enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_N = JB_RX0 + RX_NSEG };
+/* (Release 2) DUB TAPE's lines, in the same 4 KB blocks (design 3, BUILD.md): a state handle and a spring handle for each of the four tracks, and a pool of
+ * blocks the four share, an instance's line being the blocks it holds (any number from 1 to 16, in a ring of that many; nothing says they are side by side),
+ * so a line can sit in the main bank, the cache bank and the card's lent slots as the delay's does. */
+#define DUB_N 4u                                        /* instances: one a track */
+#define DUB_NSEG 24u                                    /* the pool: 96 KB of blocks, shared (four lines of 24K, or one of 64K and two of 16K) */
+#define DUB_MAXSEG 16u                                  /* one line: 64 KB */
+#define DUB_STATE_BYTES ((uint32_t)((sizeof(dd_t) + 3u) & ~3u))   /* dd_t on the target (the review's 32-bit size, not the host's), rounded */
+#define DUB_SPRING_BYTES 5632u                          /* the spring's rings (DD_SP_BUF int16) */
+/* what only a running instance needs (the job's parameter copies, the capture pair, the wet, the batch's sink) is one arena block, taken with the first instance and given back with the
+ * last: DUB unused costs the build its code and a few hundred bytes, not these 3 KB */
+typedef struct { dd_params_t p[DUB_N]; int32_t x[2][DUB_N][32]; float wet[DUB_N][2][32]; int32_t sink[32];
+                 uint8_t pool[DUB_N][DUB_MAXSEG]; int16_t *line[DUB_N][DUB_MAXSEG]; } dub_common_t;   /* .. and each line block's pool slot and pointer */
+static dub_common_t *dub_cm;                            /* 0: no instance holds it */
+#define dub_pool (dub_cm->pool)
+#define dub_line (dub_cm->line)
+enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_DUBS0 = JB_RX0 + RX_NSEG, JB_DUBP0 = JB_DUBS0 + DUB_N,
+       JB_DUBG0 = JB_DUBP0 + DUB_N, JB_DUBC = JB_DUBG0 + DUB_NSEG, JB_N = JB_DUBC + 1 };
 _Static_assert(JB_N == RES_JFX_N, "resources.c: an arena handle a block");
 /* the arena's blocks now (0: not held); CPU0 sets them before a job, the job reads them */
 static int16_t *dly_seg[DLY_NSEG], *rx_seg[RX_NSEG], *cho_buf;
 static uint8_t dly_have, rx_have;                       /* (0.6.0 rev 2) the blocks held, from the first */
+static uint8_t dly_n, dly_want;                        /* (round 4) the delay's line in use, in blocks (4, 8, 12 or 16; 0: none), and the blocks asked of jfx_mem; kept out of `fx` (fx_bus_clear clears that) */
+static uint16_t dly_shrink;                             /* .. the blocks the need has been under the line for: a shrink waits for DLY_SHRINK */
+static uint32_t dly_gen;                                /* .. resource_gen + 1 when a grow was refused: asked again only after something was released */
+#define DLY_STEP 4u
+#define DLY_SHRINK 4134u                                /* 3 s of blocks (44,100 / CTL) */
+static __attribute__((section(".pool"))) uint8_t dub_want[DUB_N], dub_spring[DUB_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
+                                                         * them before jfx_mem, from the tracks */
+static __attribute__((section(".pool"))) uint8_t dub_held_sp[DUB_N];                      /* the spring the held memory was taken for */
+static __attribute__((section(".pool"))) uint16_t dub_sig[DUB_N];
+static __attribute__((section(".pool"))) uint32_t dub_gen[DUB_N];         /* .. and the want (blocks, spring) it was short for: a new want asks again */
+static __attribute__((section(".pool"))) uint8_t dub_have[DUB_N], dub_held[DUB_N], dub_idle[DUB_N], dub_fresh[DUB_N], dub_ready[DUB_N];   /* blocks held; the want they were taken for; blocks idle;
+                                                         * a line to set up; the memory complete */
+static __attribute__((section(".pool"))) uint8_t dub_nomem, dub_full_now;                 /* the arena was short for an instance this block; the DUB FULL bits this block */
+static __attribute__((section(".pool"))) int16_t *dub_spbuf[DUB_N];
+static void *dub_state[DUB_N] __attribute__((section(".pool")));
 #define jrev_x rx_seg[0]                                /* the model line's first block (the pre-delay, SHIMMER) */
 static uint32_t jfx_grow, jfx_wait;                     /* (0.6.0 rev 2) new blocks taken this block; blocks to wait
                                                          * before more (jfx_mem) */
@@ -92,6 +124,7 @@ static volatile uint8_t jfx_full;                       /* a bit a bus (1 chorus
 #define JFX_FULL_DLY 2u
 #define JFX_FULL_REV 4u
 #define JFX_FULL_SL 8u
+#define JFX_FULL_DUB0 0x10u                             /* (Release 2) 0x10 .. 0x80: DUB TAPE on track 1 .. 4 wanted memory and had none (DUB FULL) */
 
 /* (Melodee's fx.c, kept: mix.c and card_freeze.c scale with them) a * k / 65536 (k Q16) without 64 bits; x / 2^shift
  * as C's division rounds */
@@ -100,15 +133,34 @@ static inline __attribute__((always_inline)) int32_t fx_scale(int32_t a, uint32_
 static inline __attribute__((always_inline)) int32_t fx_div_pow2(int32_t x, uint32_t shift)
 { return (x + (int32_t)(((uint32_t)x >> 31) * ((1u << shift) - 1u))) >> shift; }
 
-/* the delay's line, sample i (the two halves as one ring) */
+/* the delay's line, sample i of a ring of dly_n blocks (round 4: the line is 4 to 16 blocks, not a power of two: an index within a line's length either
+ * side of 0 is folded once; the write index is kept in [0, L)) */
+#ifdef JFX_DLY_CHECK                                   /* host tests: a read or a write outside the line held is counted */
+static uint32_t jfx_dly_bad;
+#define DLY_CHK(i) do { if ((i) >= (uint32_t)dly_have * JFX_SEG) jfx_dly_bad++; } while (0)
+#else
+#define DLY_CHK(i) ((void)0)
+#endif
+static inline __attribute__((always_inline)) uint32_t dly_fold(uint32_t i)
+{
+    const uint32_t L = (uint32_t)dly_n * JFX_SEG;
+    if ((int32_t)i < 0) i += L;
+    else if (i >= L) i -= L;
+    return i;
+}
 static inline __attribute__((always_inline)) int32_t dly_get(uint32_t i)
 {
-    return dly_seg[(i >> JFX_SEG_SH) & (DLY_NSEG - 1u)][i & (JFX_SEG - 1u)];
+    i = dly_fold(i);
+    DLY_CHK(i);
+    return dly_seg[i >> JFX_SEG_SH][i & (JFX_SEG - 1u)];
 }
 static inline __attribute__((always_inline)) void dly_put(uint32_t i, int32_t v)
 {
-    dly_seg[(i >> JFX_SEG_SH) & (DLY_NSEG - 1u)][i & (JFX_SEG - 1u)] = (int16_t)v;
+    i = dly_fold(i);
+    DLY_CHK(i);
+    dly_seg[i >> JFX_SEG_SH][i & (JFX_SEG - 1u)] = (int16_t)v;
 }
+
 /* CLOUD's line, sample i (its blocks as one ring) */
 static inline __attribute__((always_inline)) int32_t cl_get(uint32_t i)
 {
@@ -388,7 +440,7 @@ static struct {
     uint8_t dfresh;                      /* (Orange Cat 0.6.0 rev 2) the delay's line just complete (jfx_mem): its rate
                                           * and read points set as on the first block (the other buses may have run
                                           * before it had its memory) */
-    uint8_t dr_sh, dsw, dsw_to;          /* .. (0.8.4) the line's rate, FS >> dr_sh (0 full, 1 half, 2 a quarter); a change of
+    uint8_t dr_sh, dsw, dsw_to, dn_to;          /* .. (0.8.4) the line's rate, FS >> dr_sh (0 full, 1 half, 2 a quarter); a change of
                                          * it: 1 the delay fading out, 2 the line being cleared; the rate it goes to */
     uint16_t dsw_n, din_g;               /* .. the fade's samples left / the chunk being cleared; the input's fade-in left */
     uint32_t dw_ph, df_ph;               /* .. (0.6.86) the tape's WOW and FLUTTER phases */
@@ -415,6 +467,10 @@ static struct {
     uint32_t gr_rng;                     /* (Orange Cat) the GRAIN's random numbers: its own (Jiant's beta found the shared
                                           * generator drawn from both cores) */
 } fx;
+static inline __attribute__((always_inline)) void dly_adv(void)           /* the write index on, wrapped at the line's end */
+{
+    if (++fx.dly_w >= (uint32_t)dly_n * JFX_SEG) fx.dly_w = 0;
+}
 #define rev_comb (jrev->comb)
 #define rev_ap (jrev->u.ap)
 #define rpre_buf jrev_x
@@ -462,7 +518,7 @@ static void dly_grain_adv(void)
 static JFX_XIP int32_t dly_grain(uint32_t dl, uint32_t sh)   /* (0.8.4) sh: the line at FS >> sh */
 {
     int32_t x = 0;
-    uint32_t j, top = (DLY_LEN << sh) - (2u << sh) - GR_LEN * 2u;   /* (the farthest a grain starts, FS samples) */
+    uint32_t j, Ln = (uint32_t)dly_n * JFX_SEG, top = (Ln << sh) - (2u << sh) - GR_LEN * 2u;   /* (the farthest a grain starts, FS samples) */
     for (j = 0; j < 2u; j++) {
         int32_t s = fx.gr_s[j];
         uint32_t e = (GR_LEN * (uint32_t)(s < 0 ? -s : s)) >> 8;   /* the read point's sweep over a grain, Q8 */
@@ -474,8 +530,8 @@ static JFX_XIP int32_t dly_grain(uint32_t dl, uint32_t sh)   /* (0.8.4) sh: the 
                                                          * shrinks over the grain; down, it grows */
         d >>= sh;                                       /* (FS samples -> the line's) */
         di = d >> 8;
-        if (di > DLY_LEN - 2u)
-            di = DLY_LEN - 2u;
+        if (di > Ln - 2u)
+            di = Ln - 2u;
         a = dly_get(fx.dly_w - di);
         b = dly_get(fx.dly_w - di - 1u);
         w = (int32_t)(ph < 32768u ? ph : 65535u - ph);  /* the triangle, 0 .. 32767 */
@@ -540,8 +596,10 @@ static void dly_wow_adv(uint32_t n, int32_t *m0, int32_t *dm)   /* the block's d
  * DaisySP's DelayLine ReadHermite, MIT) */
 static inline int32_t dly_rd_q(uint32_t w, int32_t q)
 {
-    int32_t f = q & 255, xm1, x0, x1, x2, c1, c2, c3;
-    uint32_t i = w - (uint32_t)(q >> 8);
+    int32_t f = q & 255, xm1, x0, x1, x2, c1, c2, c3, dist = q >> 8;
+    uint32_t i;
+    if (dist > (int32_t)((uint32_t)dly_n * JFX_SEG) - 4) dist = (int32_t)((uint32_t)dly_n * JFX_SEG) - 4;   /* (round 4: a read farther than the line holds, PING-PONG's twice TIME while TIME is above half the reach, a crossfade from a longer TIME: the oldest sample, never outside the ring) */
+    i = w - (uint32_t)dist;
     x0 = dly_get(i);
     if (!f)
         return x0;
@@ -568,6 +626,7 @@ static inline int32_t dly_rdc(uint32_t d, int32_t m) { return dly_rd(dly_near(d)
  * two older taps, one to spare) */
 #define DLY_EDGE 8u
 #define DLY_SPAN(sh) ((DLY_LEN - DLY_EDGE) << (sh))      /* the longest read at FS >> sh, FS samples */
+#define DLY_SPAN_N(sh) ((((uint32_t)dly_n * JFX_SEG) - DLY_EDGE) << (sh))   /* (round 4) .. of the line held now */
 #define DLY_MAX DLY_SPAN(2u)                             /* .. of all (a quarter rate) */
 #define DT_FREE 10                                       /* G_DTIME: the divisions, then free times (DTIME_MS) */
 static const uint16_t DTIME_MS[54] = {5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19, 21, 24, 27, 31, 35, 39, 44, 50, 56, 64,
@@ -1176,6 +1235,13 @@ static uint32_t dly_stage(uint32_t need, uint32_t cur)
         s = 2u;
     return s;
 }
+/* (round 4) the blocks of the line a read need (FS samples) at the rate FS >> sh takes: the samples, the 8-sample edge, in blocks, up to a multiple of 4 */
+static uint32_t dly_segs_for(uint32_t need, uint32_t sh)
+{
+    uint32_t n = (((need + (1u << sh) - 1u) >> sh) + DLY_EDGE + JFX_SEG - 1u) / JFX_SEG;
+    n = (n + DLY_STEP - 1u) / DLY_STEP * DLY_STEP;
+    return n < DLY_STEP ? DLY_STEP : n > DLY_NSEG ? DLY_NSEG : n;
+}
 static void dly_lo_reset(void)
 {
     memset(&dlo, 0, sizeof dlo);
@@ -1267,7 +1333,7 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
             if (k->dton) lf = tone_run(&k->tn, lf, &fx.dt1, &fx.dt2);
             w = u + mulq15(clamp(lf, -32767, 32767), k->png ? k->fb2 : k->fb);
             dly_put(fx.dly_w, k->dig ? clamp(w, -32767, 32767) : dly_sat(w));
-            fx.dly_w++;
+            dly_adv();
             if (k->png)
                 oxr = mulq15(clamp(oxr, -65535, 65535), k->fb > 32767 ? 32767 : k->fb);
             x = ox;                                      /* (from here the output's taps) */
@@ -1321,27 +1387,42 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
  * block is dly_lo's (not plain at the full rate) */
 static int dly_rate(uint32_t *dl, uint32_t *dr, uint32_t dro, int png, int gr)
 {
-    uint32_t need = png ? *dl * 2u : *dl + dro, s, span;
+    uint32_t need = png ? *dl * 2u : *dl + dro, s, span, nt;
     int fresh = 0;
     s = dly_stage(need, fx.primed ? fx.dr_sh : 0u);
+    nt = gr ? DLY_NSEG : dly_segs_for(need, s);          /* (round 4) the blocks it needs at that rate (the GRAIN delay sweeps the whole line) */
     if (!fx.primed || fx.dfresh) {
         fx.dr_sh = (uint8_t)s;
         fx.dsw = 0; fx.din_g = 0;
+        fx.dly_w = 0;
+        dly_shrink = 0;
         memset(&dlo, 0, sizeof dlo);
-    } else if (fx.dsw == 2u) {                          /* clearing: a chunk this block, the last one: the new rate */
-        dly_line_clear(fx.dsw_n * DLY_CLR, DLY_CLR);
-        if (++fx.dsw_n >= DLY_LEN / DLY_CLR) {
+    } else if (fx.dsw == 2u) {                          /* clearing: a chunk this block (the larger of the old and the new line), the last one: the new rate and size */
+        uint32_t Lc = (uint32_t)(dly_n > fx.dn_to ? dly_n : fx.dn_to) * JFX_SEG, from = (uint32_t)fx.dsw_n * DLY_CLR;
+        dly_line_clear(from, Lc - from < DLY_CLR ? Lc - from : DLY_CLR);
+        if ((uint32_t)++fx.dsw_n * DLY_CLR >= Lc) {
             fx.dr_sh = fx.dsw_to;
+            dly_n = dly_want = fx.dn_to;                /* (the blocks past it are given back by jfx_mem) */
+            fx.dly_w = 0;
             fx.dsw = 0; fx.din_g = DSW_FADE;
             dly_lo_reset();
             fresh = 1;
         }
-    } else if (!fx.dsw && s != fx.dr_sh) {
-        fx.dsw = 1;
-        fx.dsw_n = DSW_FADE;
-        fx.dsw_to = (uint8_t)s;
+    } else if (!fx.dsw && (s != fx.dr_sh || nt > dly_n || (nt < dly_n && dly_shrink >= DLY_SHRINK))) {
+        if (nt > dly_have) {                            /* more blocks than held: ask (jfx_mem), go on at this size with TIME held to its reach */
+            dly_want = (uint8_t)nt;
+        } else {
+            fx.dsw = 1;
+            fx.dsw_n = DSW_FADE;
+            fx.dsw_to = (uint8_t)s;
+            fx.dn_to = (uint8_t)nt;
+            dly_shrink = 0;
+        }
     }
-    span = DLY_SPAN(fx.dr_sh);
+    if (!fx.dsw && nt <= dly_n && dly_want > dly_n) dly_want = dly_n;        /* (a grow no longer needed: the blocks taken for it are given back by jfx_mem) */
+    if (nt < dly_n) { if (dly_shrink < 0xFFFFu) dly_shrink++; }   /* (the need under the line: a shrink after 3 s of it) */
+    else dly_shrink = 0;
+    span = DLY_SPAN_N(fx.dr_sh);
     if (png && *dl > span / 2u) *dl = span / 2u;
     if (*dl > span) *dl = span;
     *dr = *dl + dro;
@@ -1383,7 +1464,7 @@ static int fx_rest(int32_t any, int32_t *wet, uint32_t n)
         fx.dt1 = fx.dt2 = fx.rt1 = fx.rt2 = 0;
         fx.dly_lp = fx.dly_hp = fx.rf_lp = fx.rpre_s = fx.cl_lp = fx.cl_half = 0;
     } else if (ph <= 4u) {
-        dly_line_clear((ph - 1u) * (DLY_LEN / 4u), DLY_LEN / 4u);
+        dly_line_clear((ph - 1u) * ((uint32_t)dly_n * JFX_SEG / 4u), (uint32_t)dly_n * JFX_SEG / 4u);
     } else if (ph == 5u) {
         rev_line_clear(CL_LEN);
     }
@@ -1397,7 +1478,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
 {
     uint32_t i, dl = delay_samples();
     int32_t dcd, dcw, ddm;
-    int have_d = dly_have == DLY_NSEG, have_r = jrev != 0, have_c = cho_buf != 0;
+    int have_d = dly_n && dly_have >= dly_n, have_r = jrev != 0, have_c = cho_buf != 0;
     for (i = 0; i < n; i++)
         fx_sl[i] = fx_sr[i] = 0;
     {   /* (0.6.14) anything sent to the buses this block: their gate open */
@@ -1553,7 +1634,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
             }
             if (wr == 2)
                 oxr = mulq15(clamp(oxr, -65535, 65535), fb > 32767 ? 32767 : fb);   /* (the right: one repeat later) */
-            fx.dly_w++;
+            dly_adv();
         }
         if (wr) {                                       /* mid and side */
             side += mulq15(ox - oxr, fx.dm_cur);
@@ -1600,7 +1681,7 @@ static void fx_bus_clear(void)
     rev_state_clear();
     rev_line_clear(CL_LEN);
     if (cho_buf) memset(cho_buf, 0, CHO_LEN * sizeof *cho_buf);
-    dly_line_clear(0, DLY_LEN);
+    dly_line_clear(0, (uint32_t)dly_have * JFX_SEG);
     dly_lo_reset();
     memset(&fx, 0, sizeof fx);
     fxg_g = 32767; fxg_quiet = fxg_dact = fxg_hold = 0; fxg_dpk = 0; fxg_fb = fxg_dly = 0; fx_rest_ph = 0;
@@ -1892,7 +1973,9 @@ static void jfx_free_dly(void)
         resource_release(RES_JFX0 + JB_DLY0 + k);
         dly_seg[k] = 0;
     }
-    dly_have = 0;
+    dly_have = dly_n = dly_want = 0;
+    dly_shrink = 0;
+    dly_gen = 0;
 }
 static void jfx_free_rx(uint32_t from)                  /* the model line's blocks from `from` on */
 {
@@ -1901,6 +1984,35 @@ static void jfx_free_rx(uint32_t from)                  /* the model line's bloc
         rx_seg[k] = 0;
     }
     if (rx_have > from) rx_have = (uint8_t)from;
+}
+/* a pool slot held by an instance (the common block's tables say which) */
+JFX_XIP static int dub_slot_used(uint32_t g)
+{
+    for (uint32_t i = 0; i < DUB_N; i++)
+        for (uint32_t j = 0; j < dub_have[i]; j++)
+            if (dub_pool[i][j] == g) return 1;
+    return 0;
+}
+/* (Release 2) one DUB instance's memory back: its state, its spring and every block of its line (the pool slots free again) */
+JFX_XIP static void jfx_free_dub(uint32_t i)
+{
+    for (uint32_t j = 0; j < dub_have[i]; j++) {
+        resource_release(RES_JFX0 + JB_DUBG0 + dub_pool[i][j]);
+        dub_line[i][j] = 0;
+    }
+    resource_release(RES_JFX0 + JB_DUBS0 + i);
+    resource_release(RES_JFX0 + JB_DUBP0 + i);
+    dub_have[i] = dub_held[i] = dub_idle[i] = dub_fresh[i] = dub_ready[i] = 0;
+    dub_state[i] = 0;
+    dub_spbuf[i] = 0;
+}
+static void dub_reset(void);                            /* (Release 2) jfx_dub.c */
+static void dub_tables(void);
+JFX_XIP static void jfx_free_dubs(void)
+{
+    for (uint32_t i = 0; i < DUB_N; i++) jfx_free_dub(i);
+    resource_release(RES_JFX0 + JB_DUBC);
+    dub_cm = 0;
 }
 static void jfx_free_buses(void)
 {
@@ -1945,6 +2057,98 @@ static void jfx_sl_lost(void)
     perf_buf_lost();
     if (!jfx_wait) jfx_wait = 1;
 }
+/* (Release 2) DUB's instances, each block after the buses: an instance holds its state, its spring when it wants one, and `dub_want` blocks of its line, or nothing (all or none: one that
+ * cannot finish gives back what it holds, so the others can; the same JFX_GROW, JFX_RETRY and JFX_YIELD rules as the buses'). The instances share one common block (dub_cm).
+ * **The buses come first** (the owner, October 29): a bus that is on keeps its memory. When a bus wants memory and is short (bus_short) and an instance holds some, the highest
+ * holder is asked to give way (dub_evict: jfx_dub.c ramps it out, then frees it) and no instance takes memory (dub_blocked) until the buses are satisfied; if the bus is short with
+ * nothing of DUB's held, it would not fit anyway (CLOUD beside four MACRO tracks): dub_bus_bad lets DUB take what is left and nothing more is evicted for it. A change of an
+ * instance's want (LEN, the rate stage's blocks) gives the memory back and takes it again: the line starts from silence (dub_fresh). Returns the DUB FULL bits. */
+static uint32_t dub_cm_gen;                              /* resource_gen + 1 when the common block could not be had */
+static __attribute__((section(".pool"))) uint8_t dub_blocked, dub_bus_bad, dub_evict;      /* dub_evict: bit i, jfx_dub.c ramps instance i out and frees it; dub_ev_full: the instances held off by jfx_dub.c (DUB FULL bits) */
+static __attribute__((section(".pool"))) uint8_t dub_ev_full;
+JFX_XIP static uint8_t jfx_dub_mem(uint32_t bus_fail, uint32_t bus_short)
+{
+    uint8_t full = 0;
+    uint32_t any_want = 0, any_state = 0, i;
+    dub_nomem = 0;
+    if (bus_fail) {                                     /* a bus asked for memory this block and the arena had none (not the retry wait after it): one holder gives way */
+        uint32_t holder = DUB_N;
+        for (i = DUB_N; i-- > 0;) if (dub_state[i] && !(dub_evict & (1u << i))) { holder = i; break; }
+        if (holder < DUB_N && !dub_bus_bad) { dub_evict |= (uint8_t)(1u << holder); dub_blocked = 1; }
+        else if (holder == DUB_N && !dub_evict) { dub_bus_bad = 1; dub_blocked = 0; }       /* nothing of DUB's held (or being let go) and the bus is still short: it would not fit anyway */
+    }
+    if (!bus_short) dub_blocked = dub_bus_bad = 0;
+    for (i = 0; i < DUB_N; i++) any_want |= dub_want[i];
+    if (any_want && !dub_cm && !dub_blocked && dub_cm_gen != resource_gen + 1u) {
+        uint8_t nm_c = 0;
+        uint32_t gen0 = resource_gen;
+        dub_cm = jfx_take(JB_DUBC, sizeof *dub_cm, &nm_c);
+        if (!dub_cm && nm_c) dub_cm_gen = gen0 + 1u;     /* short: asks again only when something is released */
+    }
+    if (any_want && !dub_cm) { for (i = 0; i < DUB_N; i++) if (dub_want[i]) full |= (uint8_t)(JFX_FULL_DUB0 << i); }
+    for (i = 0; i < DUB_N; i++) {
+        uint32_t w = dub_want[i], g, gen0, sig = (uint32_t)dub_want[i] | (uint32_t)(dub_spring[i] != 0) << 8;
+        uint8_t nm = 0;
+        if (dub_state[i] && (dub_held[i] != w || dub_held_sp[i] != (dub_spring[i] != 0))) jfx_free_dub(i);   /* (jfx_dub.c changes a want only after its ramp) */
+        if (!w) {
+            if (dub_state[i]) jfx_free_dub(i);          /* LEN OFF: jfx_dub.c has ramped the wet out before it set the want to 0 */
+            continue;
+        }
+        dub_idle[i] = 0;
+        if (!dub_cm || (dub_blocked && !dub_state[i])) { full |= (uint8_t)(JFX_FULL_DUB0 << i); continue; }   /* (a bus needs the memory, or the common block is not there) */
+        if (!dub_state[i] && dub_gen[i] == resource_gen + 1u && dub_sig[i] == sig) { full |= (uint8_t)(JFX_FULL_DUB0 << i); continue; }   /* (short, and nothing released since: no retry, no spike) */
+        if (!dub_spring[i] && dub_spbuf[i]) {
+            resource_release(RES_JFX0 + JB_DUBP0 + i);
+            dub_spbuf[i] = 0;
+        }
+        gen0 = resource_gen;                            /* (after this block's own releases: they are real ones) */
+        if (!dub_state[i]) dub_state[i] = jfx_take(JB_DUBS0 + i, DUB_STATE_BYTES, &nm);
+        if (dub_state[i]) { dub_held[i] = (uint8_t)w; dub_held_sp[i] = (uint8_t)(dub_spring[i] != 0); }
+        if (dub_state[i] && dub_spring[i] && !dub_spbuf[i]) dub_spbuf[i] = jfx_take(JB_DUBP0 + i, DUB_SPRING_BYTES, &nm);
+        while (dub_state[i] && !nm && dub_have[i] < w && (!dub_spring[i] || dub_spbuf[i])) {
+            for (g = 0; g < DUB_NSEG && dub_slot_used(g); g++)
+                ;
+            if (g == DUB_NSEG) {                        /* (the pool's 32 blocks are all in use by the others) */
+                nm = 1;
+                break;
+            }
+            int16_t *p = jfx_take(JB_DUBG0 + g, JFX_SEG * sizeof(int16_t), &nm);
+            if (!p) break;
+            dub_pool[i][dub_have[i]] = (uint8_t)g;
+            dub_line[i][dub_have[i]++] = p;
+        }
+        if (nm) {
+            jfx_free_dub(i);                            /* (all or none: a part given back) */
+            resource_gen = gen0;                        /* (the attempt left the arena as it was: it is no release to the others) */
+            dub_gen[i] = gen0 + 1u;
+            dub_sig[i] = sig;
+            dub_nomem = 1;
+        } else if (dub_state[i] && dub_have[i] == w && (!dub_spring[i] || dub_spbuf[i])) {
+            if (!dub_ready[i]) dub_fresh[i] = 1;        /* complete now: set up as new */
+            dub_ready[i] = 1;
+            continue;
+        }
+        dub_ready[i] = 0;
+        if (nm || jfx_wait) full |= (uint8_t)(JFX_FULL_DUB0 << i);
+    }
+    for (i = 0; i < DUB_N; i++) any_state |= dub_state[i] != 0;
+    if (!any_want && !any_state && dub_cm) {            /* the last instance is off: the common block goes back */
+        resource_release(RES_JFX0 + JB_DUBC);
+        dub_cm = 0;
+    }
+    return full;
+}
+/* (round 4) the blocks the delay needs at first take, from the settings by the same rule as fx_buses / dly_rate (the farthest read, its rate stage, the blocks that rate takes) */
+static uint32_t dly_estimate(void)
+{
+    uint32_t dl = delay_samples(), need, dro;
+    int32_t wd = clamp(fxp.g[G_WIDTH], 0, 127), gr = fxp.g[G_DPIT] || fxp.g[G_DSPRY];
+    int png = fxp.g[G_DPING] == 1 && !gr;
+    if (gr) return DLY_NSEG;                            /* (the GRAIN delay sweeps the whole line) */
+    dro = wd && !png ? fxp_div(3) * (uint32_t)wd / 127u : 0u;
+    need = png ? dl * 2u : dl + dro;
+    return dly_segs_for(need, dly_stage(need, 0u));
+}
 static void jfx_mem(void)
 {
     uint32_t want = jfx_sends, rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4), k, need;
@@ -1979,16 +2183,42 @@ static void jfx_mem(void)
         if ((want & 1u) && !cho_buf && (nm_c || jfx_wait)) full |= JFX_FULL_CHO;
     }
     if ((want & 2u) || dly_have) {
-        for (k = 0; k < DLY_NSEG; k++)
-            if ((dly_seg[k] = jfx_take(JB_DLY0 + k, JFX_SEG * sizeof(int16_t), &nm_d)) == 0)
-                break;
-        if (k == DLY_NSEG && dly_have < DLY_NSEG) fx.dfresh = 1;   /* (complete now: set up as new, fx_buses) */
-        dly_have = (uint8_t)k;
-        if (nm_d) jfx_free_dly();                       /* (all or none: a part given back) */
-        if ((want & 2u) && dly_have < DLY_NSEG && (nm_d || jfx_wait)) full |= JFX_FULL_DLY;
+        if (!dly_n) {                                   /* (round 4) no line yet: taken whole, as many blocks as the settings need (partly over several blocks), all or none */
+            uint32_t tgt;
+            if (!dly_want) dly_want = (uint8_t)dly_estimate();
+            tgt = dly_want;
+            for (k = 0; k < tgt; k++)
+                if ((dly_seg[k] = jfx_take(JB_DLY0 + k, JFX_SEG * sizeof(int16_t), &nm_d)) == 0)
+                    break;
+            if (k == tgt) {                             /* (complete now: set up as new, fx_buses) */
+                dly_n = (uint8_t)tgt;
+                fx.dfresh = 1;
+            }
+            dly_have = (uint8_t)k;
+            if (nm_d) jfx_free_dly();                   /* (all or none: a part given back) */
+            if ((want & 2u) && !dly_n && (nm_d || jfx_wait)) full |= JFX_FULL_DLY;
+        } else if (dly_want > dly_have) {               /* a grow, asked by the delay (dly_rate): optional, so a refusal is no bus failure, no FX FULL, no wait; asked again only after a release */
+            if (dly_gen != resource_gen + 1u) {
+                uint8_t nm_g = 0;
+                for (k = dly_have; k < dly_want; k++)
+                    if ((dly_seg[k] = jfx_take(JB_DLY0 + k, JFX_SEG * sizeof(int16_t), &nm_g)) == 0)
+                        break;
+                if (nm_g) {                             /* refused: the blocks taken this time given back, the line goes on at its size */
+                    for (uint32_t j = dly_have; j < k; j++) { resource_release(RES_JFX0 + JB_DLY0 + j); dly_seg[j] = 0; }
+                    dly_want = dly_n;
+                    dly_gen = resource_gen + 1u;
+                } else {
+                    dly_have = (uint8_t)k;
+                }
+            }
+        } else if (dly_have > dly_want && dly_n <= dly_want && !fx.dsw) {   /* the line shrank (dly_rate): the blocks past it given back */
+            for (k = dly_want; k < dly_have; k++) { resource_release(RES_JFX0 + JB_DLY0 + k); dly_seg[k] = 0; }
+            dly_have = dly_want;
+        }
     }
+    dub_full_now = (uint8_t)(jfx_dub_mem((uint32_t)(nm_r || nm_c || nm_d), (uint32_t)(full & 7u)) | dub_ev_full);                       /* (the instances' own state each block: not held, not accumulated with the buses' FX FULL) */
     if (jfx_wait) jfx_wait--;
-    if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;
+    if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;           /* (DUB TAPE does not: a short instance asks again only when something was released) */
     if (full) {                                         /* (0.6.0 rev 2) FX FULL held on screen a second past the
                                                          * last block that wanted memory and got none: a send between
                                                          * notes is silent, and the words flickered */
@@ -1997,7 +2227,20 @@ static void jfx_mem(void)
     } else if (jfx_full_hold && !--jfx_full_hold) {
         jfx_full_acc = 0;
     }
-    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | jfx_full_acc);
+    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | (jfx_full_acc & 0x0Fu) | dub_full_now);
+}
+/* (Release 2) the lend check for DUB: the common block, or any block of an instance, in a slot the card takes back: that instance, from silence later (all of them for the common block) */
+JFX_XIP static void jfx_dub_lend(uint32_t back)
+{
+    if (dub_cm && (resource_lent(RES_JFX0 + JB_DUBC) & back)) {
+        jfx_free_dubs();
+        return;
+    }
+    for (uint32_t i = 0; i < DUB_N; i++) {
+        uint32_t m = resource_lent(RES_JFX0 + JB_DUBS0 + i) | resource_lent(RES_JFX0 + JB_DUBP0 + i);
+        for (uint32_t j = 0; j < dub_have[i]; j++) m |= resource_lent(RES_JFX0 + JB_DUBG0 + dub_pool[i][j]);
+        if (m & back) jfx_free_dub(i);
+    }
 }
 /* (0.6.0 rev 2) mix.c, each block first (CPU0, no bus job outstanding): an engine short of memory while the effects
  * held some (resources.c res_jfx_yield): all of theirs given back, none taken for JFX_YIELD blocks. The card's pool
@@ -2009,6 +2252,7 @@ static void jfx_lend_check(void)
         jfx_bus_drain();                                /* (the buses' memory: only with no job out) */
         res_jfx_yield = 0;
         jfx_free_buses();
+        jfx_free_dubs();                                /* (Release 2) an engine first: DUB's lines too */
         if (sl_buf) jfx_sl_lost();
         jfx_wait = JFX_YIELD;
         jfx_full_acc |= jfx_sends & 7u;                 /* (what was playing: FX FULL a while) */
@@ -2034,6 +2278,7 @@ static void jfx_lend_check(void)
             jfx_free_rx(0);
             rev_state_clear();
         }
+        jfx_dub_lend(back);                             /* (Release 2) DUB's instances with a block in a slot taken back */
         if (resource_lent(RES_JFX0 + JB_CHO) & back) {
             resource_release(RES_JFX0 + JB_CHO);
             cho_buf = 0;
@@ -2189,6 +2434,7 @@ static void jfx_reset_now(void)
 {
     jfx_reset_req = 0;
     jfx_bus_drain();                                    /* (no job out) */
+    jfx_free_dubs();                                    /* (Release 2) a new project: DUB's lines from silence (the instances start again from their tracks' LEN) */
     memset(fx_ret, 0, sizeof fx_ret);                   /* (both sets of returns: the next master plays none of the old) */
     fx_bus_clear();
     memset(dist_st, 0, sizeof dist_st);
@@ -2202,6 +2448,9 @@ static void jfx_power_on(void)
 {
     jfx_bus_drain();
     jfx_free_buses();
+    jfx_free_dubs();
+    dub_reset();
+    dub_tables();
     resource_release(RES_JFX0 + JB_SL);
     sl_buf = 0;
     jfx_full = jfx_full_acc = 0;

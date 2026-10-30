@@ -84,6 +84,14 @@ static int audio_worker_submit(audio_worker_fn fn, void *context)
     audio_worker.fn = fn;
     audio_worker.context = context;
     audio_worker.check = AW_CHECK(fn, context, request);
+#if OC_CORE_STATS
+    if (cs_tr_arm && cs_tr_n < CS_TR_JOBS) {          /* (round 6) the trace: this job's record, before CPU1 can see the request */
+        uint32_t i = cs_tr_n++;
+        cs_tr_job[i][0] = cs_kind; cs_tr_job[i][1] = AW_TICKS(); cs_tr_job[i][2] = cs_tr_job[i][3] = cs_tr_job[i][4] = cs_tr_job[i][5] = 0;
+        cs_tr_cur = i;
+        if (cs_tr_n >= CS_TR_JOBS) cs_tr_arm = 0;
+    } else cs_tr_cur = 0xFFFFu;
+#endif
     AW_STORE(&audio_worker.request, request);
     return 1;
 }
@@ -123,6 +131,9 @@ static void audio_worker_check(void)
 static int audio_worker_join(void)
 {
     uint32_t start = AW_TICKS();
+#if OC_CORE_STATS
+    uint32_t tri = cs_tr_cur;
+#endif
     while (AW_LOAD(&audio_worker.complete) != AW_LOAD(&audio_worker.request)) {
         if (AW_FAULTS() || (uint32_t)(AW_TICKS() - start) >= AW_TIMEOUT_TICKS) {
             if (!AW_FAULTS())
@@ -133,6 +144,9 @@ static int audio_worker_join(void)
         }
     }
     uint32_t elapsed = AW_TICKS() - start;
+#if OC_CORE_STATS
+    if (tri < CS_TR_JOBS) { cs_tr_job[tri][4] = start; cs_tr_job[tri][5] = start + elapsed; }
+#endif
 #if MELODEE_AUDIO_PROFILE
     audio_worker.wait_ticks+=elapsed;audio_worker.waits++;
 #endif
@@ -155,8 +169,15 @@ static inline __attribute__((always_inline)) void audio_worker_poll(uint32_t *do
         void *context = audio_worker.context;
         if (audio_worker.check == AW_CHECK(fn, context, request)) {
             uint32_t start = AW_TICKS();
+#if OC_CORE_STATS
+            uint32_t tri = cs_tr_cur;
+            if (tri < CS_TR_JOBS) cs_tr_job[tri][2] = start;     /* (round 6) the trace: CPU1's own record */
+#endif
             fn(context);
             uint32_t elapsed = AW_TICKS() - start;
+#if OC_CORE_STATS
+            if (tri < CS_TR_JOBS) cs_tr_job[tri][3] = start + elapsed;
+#endif
             audio_worker.jobs++;
 #if MELODEE_AUDIO_PROFILE
             audio_worker.job_ticks+=elapsed;

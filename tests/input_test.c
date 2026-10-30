@@ -378,6 +378,26 @@ int main(void)
         check("a held key of the test surface: one press within 4 ms, one release within 12 ms", ok);
     }
 
+    {   /* (round 5) the shift register's incremental load: a model of the two 595s (16 stages, bit 15 sent first), the columns walked in the scan's order for many frames, starting from
+         * every possible stale state: after each latch the model holds exactly the column word; the clocks a frame takes are counted (the full loads at 1 to 2 and 10 to 0 are the repair) */
+        uint32_t ok = 1, frames_clocks = 0, f, p, start;
+        for (start = 0; start < 0x10000u && ok; start += 257u) {          /* a stale word the register might hold (any 16-bit pattern) */
+            uint32_t model = start, cur = 0, valid = 0;
+            for (f = 0; f < 3u && ok; f++)
+                for (p = 0; p < FM1_NCOL && ok; p++) {
+                    uint32_t w = fm1__column_word(p), n = valid ? fm1__sr_clocks(cur, w) : 16u, i;
+                    for (i = 0; i < n; i++) {                              /* what fm1__sr_word clocks in */
+                        uint32_t bit = n == 1u ? 1u : (w >> (15u - i)) & 1u;
+                        model = ((model << 1) | bit) & 0xFFFFu;
+                    }
+                    if (model != w) ok = 0;
+                    cur = w; valid = 1;
+                    if (start == 0 && f == 2u) frames_clocks += n;
+                }
+        }
+        check("the shift register: every column word reached by the planned clocks from any stale state", ok);
+        check("the shift register: a frame of 11 columns takes 41 clocks, not 176", frames_clocks == 41u);
+    }
     if (fails) {
         printf("INPUT TEST FAILED (%d)\n", fails);
         return 1;

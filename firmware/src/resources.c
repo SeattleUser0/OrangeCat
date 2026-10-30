@@ -6,9 +6,9 @@
  * Linker-derived SRAM tails are separate banks: an allocation never spans a
  * code/data/retained-state boundary. Small banks first preserve the large
  * contiguous POOL bank for engine state and note history. */
-#define RES_JFX_N 27u                    /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the reverb's, the chorus's,
+#define RES_JFX_N 60u                    /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the reverb's, the chorus's,
                                           * the SLICER's, then (rev 2) the delay's line in 16 blocks of 4 KB and the
-                                          * reverb's model line in 8) */
+                                          * reverb's model line in 8); (Release 2) DUB TAPE's: a state and a spring a track and a pool of 32 line blocks, 33 more (the last one the instances' common block) */
 enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_JFX0,
        RES_RECORD_UNDO = RES_JFX0 + RES_JFX_N,
        RES_HOT0, RES_HOT_BASE = RES_HOT0 + ENG_HOT_SLOTS,   /* (Orange Cat 0.13.7) the engines' hot sets (engines.c eng_hot_take); (0.14.0) the firmware's own (eng_hot_base) */
@@ -115,7 +115,8 @@ static uint32_t resource_used(void)
     for (uint32_t k = 0; k < RES_COUNT; k++) n += resource[k].size;
     return n;
 }
-static void resource_release(uint32_t id) { resource[id].size = 0; }
+static uint32_t resource_gen;                           /* (Release 2) counts the releases: DUB's instances ask again for memory only when something was freed */
+static void resource_release(uint32_t id) { if (resource[id].size) resource_gen++; resource[id].size = 0; }
 static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t bytes)
 {
     if (bytes > RESOURCE_CAPACITY) { resource_failures++; return 0; }
