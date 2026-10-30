@@ -152,6 +152,13 @@
 #if OC_CLIP && !OC_MIXER
 #error "OC_CLIP needs OC_MIXER (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
+#ifndef OC_CLIP_SEL
+#define OC_CLIP_SEL 0             /* (the new interface 0.11, branch ui-build: docs/orangecat/UI_BUILD.md step 11) 1: SHIFT + OCT- / OCT+ copy and paste the selected
+                                   * notes (NOTES) and a step's feel (FEEL), ui_clip.c; 0: those pages say LATER */
+#endif
+#if OC_CLIP_SEL && !OC_CLIP
+#error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
 #if OC_LANES
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
 #else

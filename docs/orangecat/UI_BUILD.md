@@ -1087,6 +1087,49 @@ Run by `run_tests.sh` (job in step_pages_job); the renders gained `-DOC_CLIP=1`.
 **Flash and RAM (CI build options).** Image 558,784 B (+912 B over steps 1 to 6, estimate 1,000); .data+.bss 95,256 B (+752); data SRAM tail
 3,048 B; the arena line reads 84,064 B. Free of 577,248 B: **18,464 B, 10,272 B above the 8,192 B reserve.**
 
+## Step 11: copy and paste of notes and of a step's feel (OC_CLIP_SEL; October 30, 2026)
+
+**Switch** `OC_CLIP_SEL` (core.h, default 0, listed in tools/build.py; needs OC_CLIP). Off, NOTES and FEEL say LATER as before.
+
+**Design.** The same two keys, SHIFT + OCT- (copy) and SHIFT + OCT+ (paste), on the two step pages. Melodic NOTES only: on a drum track's NOTES (roll
+and grid) the combos say LATER and the tiles are dim; FEEL works on any track's steps.
+- **NOTES, copy:** the notes of the selection as `note_transform` reads one (`note_transform_has`: a range, an event selection or the picked
+  note), and, with no event selection, the manual notes of the range's steps or of the step under the cursor. At most 64 notes
+  (`CLIPN_MAX`, about 0.9 KB of RAM), else "TOO MANY NOTES" and nothing kept. Each note keeps its distance from the **start of the earliest
+  note's step** (so its onset inside a step comes across), its length, velocity and pitch, and its step's chance and slide. A manual step is
+  copied as the events `note_convert` makes of it (each note at the step's length, an accent as velocity 127); the source stays manual.
+- **NOTES, paste:** the notes are written at the cursor step, on this track and pattern or any other, as one note transaction (the
+  history `EDIT held` uses): one undo. A position past the loop's end wraps to its start, as a move does. Refused whole, nothing written:
+  nothing copied; the song playing, a chain running or a live recording ("STOP TO EDIT"); a frozen phrase; a landing step that holds a
+  manual note ("STEP OCCUPIED"); not enough free recording memory ("RECORDING FULL"). The cursor goes to the first pasted note; the
+  paste is not left selected (the safer reading: a following KNOB 1 is PITCH of the picked note, not a range move).
+- **FEEL, copy:** the cursor step's chance, condition, ratchet or flam, nudge, accent and slide ("NO NOTE THERE" on an empty step).
+- **FEEL, paste:** sets those values on every step of the range (or the cursor's) that is on, as `feel_reset` walks it, behind its guards
+  (frozen phrase, chain, live recording); off steps are untouched; a recorded step's notes take the nudge (`recording_resched`).
+- **The map:** the COPY and PASTE tiles are live on NOTES and FEEL too.
+- Decisions: manual notes of a range copy as events (the same result a move gives them), not as manual steps; a pasted chord's
+  step is therefore a recorded one; the clipboards are separate (a sound, notes, a feel), each kept until power off.
+
+**Tests** `tests/clip_sel_test.c` (19 checks, ASan and UBSan): a range of recorded notes (distances, velocities, lengths, onsets inside the
+step, one undo, twice, the wrap at the loop's end), a manual chord, the five refusals, FEEL's copy and paste with off steps and the empty
+and nothing-copied cases. Run by `run_tests.sh`; the renders gained `-DOC_CLIP_SEL=1`.
+
+**Review (an agent, note and diff together; one blocker):**
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | A paste's overview rebuild cleared the chance and slide of every other recorded step in the pattern | **blocker** | saved before the rebuild and restored after it, as `note_transform` does; tested |
+| 2 | Pasted notes landing on a recorded step overwrote its chance and slide | should-fix | a recorded landing step keeps its own; one that was not takes the copied notes' |
+| 3 | A failed copy emptied the old clipboard | should-fix | a counting pass first; a failed copy leaves the clipboard as it was; tested |
+| 4 | Drum track: the doc said the combos do not act; the tile looked live | should-fix | the doc says LATER on a drum NOTES; the tile is dim there (checked) |
+| 6 | The free-slot search could in theory run to RECORD_MAX | note | `if (i >= RECORD_MAX) break;` |
+| 12 | A stale comment about "longer than it fits" | note | removed |
+| 13 | Gaps: cross-track or cross-pattern paste, `bulk.on == 2` copy, FEEL on a recorded step, redo, drum track | note | **not covered**; written here |
+
+What the rebuild still clears (nudge, ratchet, condition of a rebuilt recorded step) is release-2's behavior for a move as well.
+
+**Mockups:** `step11_shift_map_notes.png`, `step11_shift_map_feel.png` (0 lint findings, 0 off-gray MONO).
+
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
 **The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
@@ -1313,6 +1356,24 @@ on the bench); "person" means a judgment a script cannot make.
 
 Pass means: S1, S2, S3, S5, S6 and S11 clean (a number, not a look); S4, S7 to S9 with no regression from release-2 that the harness can
 see; S10 left for the owner. A late half or an underrun in S6 that release-2 does not show stops the preview from going to the owner.
+
+## Step 12: the one-authority cleanup (not built; October 30, 2026)
+
+TRACKER_REVIEW.md "Left to do" ties the cleanup (a manual gesture on a recorded step deletes its events through the history, and
+`recording_prune` goes) to point 1, **the pads' event editor brought under the shared one**, which is a change to the pads' path with
+no user-visible gain and which sits in `recording.c`, `note_tools.c` and the pads' input, the code every recording, NOTES edit and undo
+runs through. The brief's test for this item was that it does not depend on 7a or on the owner's play test; it does depend on point 1,
+which nobody has done. **The safer reading: not built.** Written so it is not lost: the order is point 1 (share the pads' editor), then
+this, each behind its own switch with `tests/recording_props_test.c` as its gate and the unit's tracker checks (TRACKER_REVIEW.md) before
+`recording_prune` is removed. It needs a step of its own with a design note by someone who has the pads' path open.
+
+**Hardware checks added by steps 10 and 11** (the unit is Session A's; none run):
+19. **Copy and paste of a sound** (SHIFT + OCT- / OCT+ on HOME, a sheet): between tracks of the same engine and of different engines
+    (a built-in, a module, DRUM-X with an edited kit, FM6, CZ-1, the Prophet), the sound identical by ear and by the editor's dump;
+    EDIT held returns the old sound; a module engine that was removed refuses.
+20. **Copy and paste of notes on NOTES** (a range of recorded notes, a manual chord, between patterns and tracks): the phrase plays as
+    the host says; the other steps' chance and slide unchanged; EDIT held undoes it whole; no late audio halves while pasting 64 notes.
+21. **FEEL's copy and paste** on a recorded chord: the nudge and ratchet play as set.
 
 ## Decisions made in this branch (the safer reading, where the call was Session C's)
 

@@ -122,10 +122,16 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
         oct_deferred = 0;
         *pressed &= ~(dn | up);
 #if OC_CLIP
-        if (!shift_steppg() && shift_here()) {          /* (the new interface 0.10) a sound; a selection's waits for step 11 */
+        if (!shift_steppg() && shift_here()) {          /* (the new interface 0.10) a sound */
             if (oct_now & dn) sound_copy();
             else if (oct_now & up) sound_paste();
         } else
+#if OC_CLIP_SEL
+        if (shift_steppg()) {                           /* (the new interface 0.11) NOTES: the selected notes; FEEL: a step's feel */
+            if (oct_now & dn) { if (feel_page()) feel_copy(); else notes_copy(); }
+            else if (oct_now & up) { if (feel_page()) feel_paste(); else notes_paste(); }
+        } else
+#endif
 #endif
         ui_message("COPY, PASTE: LATER");
     }
@@ -204,7 +210,7 @@ static void shift_draw(void)
 #else
             int sp = 0;
 #endif
-            int live = OC_CLIP && c == 3u && !sp;       /* (the new interface 0.10) a sound's copy and paste, live on a page or sheet */
+            int live = OC_CLIP && c == 3u && (!sp || OC_CLIP_SEL);       /* (the new interface 0.10) a sound's copy and paste, live on a page or sheet */
             int dim = (c == 1u && !here) || (c == 2u && !ui.home && !sp) || (c == 3u && !(live && here));
             uint16_t bg = c ? ux_mix(T_BG, T_THEME, dim ? 8 : 20) : T_QUIET;
             const char *job = t == 2u && row ? "ROWS" : SHIFT_TILE[t].job;
