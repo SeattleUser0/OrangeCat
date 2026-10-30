@@ -770,7 +770,7 @@ ui_renders_shift pass; the one failure is release-2's own "target cost of the re
 
 ## Step 4: the step pages
 
-**Status: In progress.** Behind a fourth switch, `OC_STEP_PAGES` (core.h, default 0), which needs `OC_SHIFT_MAP=1` (each step
+**Status: In progress (design reviewed).** Behind a fourth switch, `OC_STEP_PAGES` (core.h, default 0), which needs `OC_SHIFT_MAP=1` (each step
 ships behind the one before). With it off, release-2's NOTES, TRACKER and the rest are unchanged (byte-identical image).
 UI_DESIGN.md Part 1 sections 1 and 4, Part 2 `notes.png` and `feel.png`.
 
@@ -860,6 +860,32 @@ steps skipped, a recorded step, the chance and condition scale at both ends and 
 order in the SEQ cycle; the tracker's conversion (a chord, a one-note step, VEL, the pool full, undo); the combos. With the
 switch off the screens and the hash of ui_test equal release-2's. ui_render.c: FEEL and NOTES with the new strip on every
 palette, linted.
+
+### The design review of step 4 (an independent agent, October 29, 2026)
+
+| # | Finding | Severity | Done in the design |
+|---|---|---|---|
+| B1 | 4c's one undo cannot work: `note_convert`'s transaction is invalid once the next event edit bumps `recording_generation` | blocker | conversion and the length in **one** `note_transaction`, looping the chord (as `note_manual_length`); it refuses while the song plays, a chain runs or a recording is armed ("STOP TO EDIT"); in those cases KNOB 4 keeps today's whole-step resize (no regression) |
+| B2 | FEEL has no editor route: `step_edit` would send its knobs to the cursor and to `notes_event_edit` | blocker | a GR_FEEL branch at the top of `step_edit`, before the recorded-note routing |
+| B3 | `edit_param` exempts slot 0 of SC_STEP pages from the frozen-phrase guard | blocker | FEEL's edit calls `frz_locked()`, `chain_busy()` and `live_rec_sel()` itself, on every knob |
+| S1 | EDIT held (undo) and EDIT tap do not exist on FEEL (`step_modifier_mask`, `step_delete_edit`) | should fix | GR_FEEL added to both; EDIT tap on FEEL resets the cursor step's feel (the range's with SHIFT); EDIT held undoes |
+| S2 | The selection does not survive NOTES to FEEL; OCT+ release would open "Selected notes" (and delete notes) on FEEL; `bulk.on == 2` has no step meaning | should fix | `bulk_context`, the clearing rule at 2451 and the OCT+ paths widened to FEEL; FEEL opens no sheet; entering FEEL with `bulk.on == 2` clears it |
+| S3 | ENV + PRESETS (zoom) must set `step_used`, or ENV's release opens the ENV family | should fix | done in the design: the zoom sets `ui.step_used` |
+| S4 | Recorded steps' properties are lost by existing event code (`notes_rebuild` recomputes ACC from velocity; a cross-cell move empties the old cell; `note_rebuild_all` and `note_transform` keep only chance and slide) | should fix | START carries the step's properties to the new cell when it empties the old one; the rest is **release-2's existing behavior, documented and tested, not changed** (the tracker's FX column has it today): an accent set by FEEL on a recorded step is lost at the next pitch, length or velocity edit of that cell |
+| S5 | Manual and empty steps unspecified after the remap | should fix | below: the knob to slot map with the manual paths; START on a manual step is refused ("START: RECORDED NOTES") |
+| S6 | LEN's grain (design: a sixteenth); the map's fixed tiles; SHIFT + EDIT is removed from `pressed` | should fix | LEN keeps the quarter step a detent as today, ENV held the sixteenth (a deviation, written); the map gets per-page tiles (STRETCH, DELETE, LATER for copy and paste); delete called explicitly |
+| S7 | FEEL's tile is the view cell (rounded forward); the NOTES cursor is the actual step | should fix | FEEL works on view cells, as the tracker's FX column; the strip names the cursor's cell |
+| S8 | Drums: PRESETS on the grid; NUDGE needs `ST_NOTE` and a non-recorded cell | should fix | the grid keeps today's controls (PRESETS falls through as today); FEEL on a drum track edits its cells, a knob that does nothing there is drawn dim (checked in the code when built) |
+| m | The foot is `ui_draw.c`'s; the OCT+ menu hint goes; the SEQ family reaches 11 pages (the dots); `page_scroll` is in ui.c; scripts that use a page index (tools/hw) | minor | decided: the foot as `notes.png` shows (PRESETS STEP, SEQ NEXT); the dots as the header's rule; no script is touched; page indices checked |
+
+Verified correct by the reviewer: the slot table of `notes_event_edit`, one undo an edit, `notes_step_jog`, the range and
+move gestures, the step setters, the step history holding cond, nudge, ratchet and flam, nothing persisting a page index,
+no test counting pages, and none of the owner's decisions violated.
+
+**The knob map after the review (4a).** On a melodic NOTES page, no range and no move armed: KNOB 1 slot 1 (PITCH: a recorded
+note's pitch; a manual note's pitch or, on an empty step, the last note, as KNOB 2's paths are today), KNOB 2 slot 6
+(START, recorded notes only), KNOB 3 slot 2 (LEN, quarter step, ENV fine), KNOB 4 slot 3 (VEL, as today). A range or a move armed:
+as today (KNOB 1 moves it, KNOB 2 the range's end).
 
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 

@@ -124,6 +124,14 @@
                                    * held alone its map, let go the MENU; SHIFT + a knob fine, + PRESETS the engine, + EDIT init;
                                    * 0: HOME held opens the MENU at 0.7 s as release-2's */
 #endif
+#ifndef OC_STEP_PAGES
+#define OC_STEP_PAGES 0           /* (the new interface 0.4, branch ui-build: docs/orangecat/UI_BUILD.md step 4) 1: the step pages: NOTES' knobs PITCH START
+                                   * LEN VEL with PRESETS the cursor, FEEL (ui_feel.c), the tracker's note length on a manual chord, the combos on NOTES and
+                                   * FEEL; 0: NOTES, TRACKER and the SEQ pages as release-2's */
+#endif
+#if OC_STEP_PAGES && !OC_SHIFT_MAP
+#error "OC_STEP_PAGES needs OC_SHIFT_MAP (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
 #if OC_SHIFT_MAP && !OC_EDIT_SHEETS
 #error "OC_SHIFT_MAP needs OC_EDIT_SHEETS (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
