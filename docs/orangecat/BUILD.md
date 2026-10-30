@@ -1,7 +1,7 @@
 # Orange Cat Build Document
 
-**Version:** 0.88  
-**Date:** October 29, 2026  
+**Version:** 0.89  
+**Date:** October 30, 2026  
 **Tracks:** Orange Cat Specification v0.31
 
 **Where this document lives (standing rule, October 28, 2026).** The master copy is the repository on the Linux PC (~/OrangeCat, docs/orangecat/BUILD.md, SPEC.md, CHANGES.md), committed to GitHub. The claude.ai project copies (claude/Build.md, claude/Orange Cat Specification.md, claude/Orange Cat CHANGES.md) are refreshed from the repository at the end of every Session A run. The Mac folder copy is retired: the Mac is not used for this project. Edit the repository, never a copy.
@@ -41,7 +41,7 @@ Status keys: **Done**, **In progress**, **Not started**, **Blocked**.
 | App | The web app (web/app, 0.14.2): one page for modules, sounds, steps, arrangement, projects and backups | In Release 1 (merged into linux-hw, af9f91a); tested against the mock (web/app/test) and, for HARDWARE_TEST.md's protocol parts, on the unit (tools/hw/app_protocol.mjs; see Release 1) |
 | Cores | The second core (CPU1) renders voices | Stage 1 in Release 1: the ports on CPU1's batch with the measured cost table; the cost caps (0.15.0). Stage 2 (the buses beside the next block): built and measured on release-2 (Release 2, not published); caps MALLET 3 / 2, the Prophet 6 / 4; the batch split rule fixed; the two-hour run clean. See "Release 2". History: "What the two cores do" and on |
 | Release 1 | 0.15.0 from linux-hw | Done: shipped. main is 532c849, tag v0.15.0, the Standard channel. See "Release 1" below |
-| Release 2 | 0.16.0 on release-2 (fe92194) | In progress: stage 1, stage 2, the caps and the split rule done; next, DUB TAPE as a per-track insert (Session A). See "Release 2" below |
+| Release 2 | 0.16.0 on release-2 (fe92194) | Built; qualification round 7 (October 30): internal-clock two-hour run passes, external-clock two-hour run fails (late halves, DUB held); not published. See 7.18 |
 | UI | The new interface: HOME's picture and four knobs, EDIT's sheets, the SHIFT map, FEEL (docs/orangecat/UI_DESIGN.md) | Design done (0.79a to 0.79c, branch ui-design, not merged): the owner picks HOME A or B; build not started (UI_DESIGN.md Part 3, step 1 first) |
 
 ## Release 1 (0.15.0, branch linux-hw, October 27, 2026)
@@ -826,6 +826,27 @@ g2 at 64K is 40 to 60 us above round 5's (2,635 to 2,647) with no converter invo
 1. **Preparing a note's start a block early** (round 6 item 2, "Design only, not built"). **Declined by the owner, October 29, 2026:** it adds one block (0.73 ms) of start latency to every note of every engine, and an allocator change in voice.c, to save the worst halves of one effect. The wrong trade for DUB. It can be asked again for a reason that is not DUB's.
 2. **The per-sample `qb` branch hoisted out of the converter loops** (round 6: g2 at 64K runs 40 to 60 us above round 5's, probably the run-time branch inside the loops; hoisting it is bit-identical and small). A follow-up, not now.
 
+
+**7.18 Round 7, qualification of Release 2 (October 30, 2026; Session A).** Result: **not qualified; the Nightly was not published.**
+
+*Target cost (item 1 follow-up).* Session C's `dxe_post_sides` 9 against 8 and `pl_osc_render` 280 against 133 are not a budget or code fault. They reproduce exactly with a bare `./build.sh` (only `orangecat_engines.sh` sourced). CI's build and test steps export `MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0 MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0 MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0`; `tools/hw/ci_step.py build` sets them and gives 8 and 133 on release-2 876955a (CI run 40791377783 on linux-hw d31d586 is green with the same toolchain). Budget and code are unchanged; 04bfb3c adds a hint line to `tests/target_budget.py` when it is over budget and `MELODEE_RAM_AUDIO` is not 1.
+
+*Candidate.* linux-hw a58ddb0 (release-2 plus VERSION 0.16.0), source-identical to release-2 180b852 in code. Suite on it: build 97 s, test (parallel 4) passed in 1,459 s, target budget ok. I read the earlier rounds' reviews and suites as covering it (VERSION is the only code difference) and said so; flashed as 0.16.0-a58dd, WHEEL and SHAPES from 0.15.0 stayed state 7.
+
+*Limit rows a, b, c* (plain image, CLK 2 via the AUDIO4c DIN, 90 BPM, warm-up then three rows; not a gate): a late 1/0/1/1, wall 2946/2893/2900/2944 us (budget 2901), one instance DUB FULL; b late 1/0/2/1, wall 2912/2875/2930/2910, all four hold; c late 0, wall 2656 to 2705, one instance DUB FULL; DAC silences 0 throughout. Files `~/fm1-hw/r7/limit/`.
+
+*Qualification load (my choices, written down).* Tracks VA BASS, DRUM-X TECHNO RAW, VA BASS, DRUM-X TECHNO RAW, a chord on every step, sends 64, REVERB ROOM, **120 BPM** (the unit was at 80; the faster reading is the safer one), DUB on track 1 only at LEN 32K, PTRN SLAP, SPACE 1/8, SPRP OFF. Twenty-second row, run twice: 0 late, 0 DAC silences, 0 USB holes, worst 2.25 to 2.5 ms, DUB held. Harness `~/fm1-hw/r7/qual.py`; the unit's state is snapshotted and put back (params identical, backup objects identical).
+
+*Two-hour run, internal clock (07:57 UTC end).* **Pass.** 0 late halves, 0 DAC silences, 0 USB holes, worst 2.45 ms, DUB running at the end, unit answering, put back, objects identical. (A few chain queries went unanswered; the command 72 reply count was one over request at start; the audio counters are unaffected.)
+
+*Two-hour run, external clock over USB (PC clock, CLK 1, 10:00 UTC end).* **Fail.** All 345,617 clocks arrived (losses 0, resyncs 0, missed 0). But 30 to 58 halves per ten-minute interval ran late (worst 3.0 to 3.2 ms against the 2.9 ms budget; the cumulative Late counter reads a few), 0 DAC silences, 0 USB holes, and DUB sat in DUB FULL (hold 1056) from the first minute to the end while the governor fired 8 to 226 times. The same load on the internal clock holds with 0 late. Cause not found. The difference is the clock path: the external clock adds the USB MIDI clock input work to every half. It was not isolated (no run without DUB, no run on the DIN clock) because the pass rule had already failed and the owner's rule is to stop and report.
+
+*Decision.* The pass rule (0 late, DUB running at the end, every clock received) is not met on the external clock, so linux-hw was not dispatched for the Nightly. The unit was returned to v0.15.0-d31d58 with its pack; WHEEL start 0, SHAPES start 1 (state 7), tracks MACRO 10/0/1/20, track 1 selected, CHRD MAJ, VOIC OPEN, CLK 0, slot 1 D954DF93.
+
+*Open, for the owner.* Is DUB at LEN 32K with an external USB clock a case Release 2 must hold, or does the limit statement widen to cover it? Either way, the next step is to run the same load on the external clock with DUB off to see whether the lateness is the clock path alone.
+
+*Slips.* The FX plan's first draft had twelve faults found by the independent review (all folded into 0.2). A fw_api cost estimate in it was removed as unsupported. The suite was not re-run on the release-2 commits after a58ddb0 (tests and docs only).
+
 **7.9 Round 4 (October 29, 2026; branch r2-final from dub-r3 98a810f; design notes first, written before the code, reviewed by an agent that had not seen the work).**
 
 *Hard rule (the owner, after round 3's slip).* Every image flashed to the unit, measurement images included, has its independent review and its host suite before the flash. A build that differs from a reviewed, suite-passed commit only by a build switch whose code is in that commit (MELODEE_AUDIO_PROFILE for 1a) is counted as that commit; this reading is mine and is stated in the report.
@@ -957,6 +978,7 @@ Not used:
 
 ## Revision history
 
+- **0.89 (October 30, 2026, branch release-2):** Round 7: DUB TAPE closed (7.17), the target-cost finding (CI environment), qualification of 0.16.0 (a58ddb0): limit rows, the two-hour runs (internal pass, external fail), not published (7.18); FX_MODULES_PLAN.md 0.2.
 - **0.88 (October 29, 2026, branch r2-place, merged into release-2; the placement reverted):** DUB TAPE round 6: the per-block trace (OC_CORE_STATS), converter B in the firmware for the quarter rate (the half rate unchanged; the kernel 9 % faster), DUB's job in CPU1's gap built, measured worse on the plain image and reverted (kept on r2-place), the note-start cost per engine, a design for preparing starts a block early (not built); g1 and g3 still fail, 0.2 to 0.4 ms short. Nothing published.
 - **0.87 (October 29, 2026, branch r2-cpu, merged into release-2 1b4b7d6):** DUB TAPE round 5: the per-core timeline of g1 (CPU0 is the critical path), the key and LED scan 11.4 to 7.3 us a tick, the converter study on the PC (renders for the owner), the wet-spring toggle read as the spring's sound, LEN in the order OFF/32K/..., OC_DUB_NOGOV; g1 and g3 still fail (about 0.5 ms short at the worst half); DUB's placement not built. Nothing published.
 - **0.86 (October 29, 2026, branch r2-final, merged into release-2 6e47eab):** DUB TAPE round 4: the interrupt time inside the render measured (7.9), the readouts and the late governor on the time the DMA sees, the DELAY sized to its need (4 to 16 blocks; five delay goldens changed, bit-exact at 16), the wet spring's mix and tap-cut glide (host test; the unit still shows the toggle step), DUB's kernel in SRAM measured (0 %, not moved), the experiment and the gate rows (7.10, 7.11: g2 passes, g1 and g3 fail on CPU), what g1 still needs (7.12). Nothing published.
