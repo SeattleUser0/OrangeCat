@@ -86,7 +86,7 @@ _Static_assert(RPRE_LEN == JFX_SEG && SH_LEN == JFX_SEG && (RX_NSEG & (RX_NSEG -
 #define DUB_SPRING_BYTES 5632u                          /* the spring's rings (DD_SP_BUF int16) */
 /* what only a running instance needs (the job's parameter copies, the capture pair, the wet, the batch's sink) is one arena block, taken with the first instance and given back with the
  * last: DUB unused costs the build its code and a few hundred bytes, not these 3 KB */
-typedef struct { dd_params_t p[DUB_N]; int32_t x[2][DUB_N][32]; float wet[DUB_N][2][32]; float wet_next[DUB_N][2][32]; int32_t sink[32];
+typedef struct { dd_params_t p[DUB_N]; int32_t x[2][DUB_N][32]; float wet[DUB_N][2][32]; float wet_next[DUB_N][2][32] __attribute__((aligned(32))); int32_t sink[32];
                  uint8_t pool[DUB_N][DUB_MAXSEG]; int16_t *line[DUB_N][DUB_MAXSEG]; } dub_common_t;   /* .. and each line block's pool slot and pointer */
 static dub_common_t *dub_cm;                            /* 0: no instance holds it */
 #define dub_pool (dub_cm->pool)
