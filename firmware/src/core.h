@@ -119,6 +119,14 @@
                                    * EDIT turns the sheets (SOUND, ENV, MOD, FX, VOICE; a native engine's sections), SELECT walks their
                                    * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
 #endif
+#ifndef OC_SHIFT_MAP
+#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3) 1: HOME is SHIFT (ui_shift.c):
+                                   * held alone its map, let go the MENU; SHIFT + a knob fine, + PRESETS the engine, + EDIT init;
+                                   * 0: HOME held opens the MENU at 0.7 s as release-2's */
+#endif
+#if OC_SHIFT_MAP && !OC_EDIT_SHEETS
+#error "OC_SHIFT_MAP needs OC_EDIT_SHEETS (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
 #if OC_EDIT_SHEETS && !OC_HOME_PIC
 #error "OC_EDIT_SHEETS needs OC_HOME_PIC (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif

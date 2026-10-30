@@ -544,6 +544,9 @@ static void ui_leds(void)
  * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 the reads of its turn */
 #define ACC_GAP 60u
 #define ACC_SPIN 4u
+#if OC_SHIFT_MAP
+static uint8_t sh_st;                                   /* (ui_shift.c: HOME as SHIFT; bit 3, SHF_FINE, read below) */
+#endif
 static int32_t accel_by(uint32_t role, int32_t s, uint32_t cap, uint32_t *fast)
 {
     uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role % NE], up = s > 0, run = st >> 25, a, dt, m = 1;
@@ -551,6 +554,11 @@ static int32_t accel_by(uint32_t role, int32_t s, uint32_t cap, uint32_t *fast)
         *fast = 0;
     if ((PREF_BITS & PREF_ACCEL_OFF) || !s)
         return s;
+#if OC_SHIFT_MAP
+    if (sh_st & 8u)                                     /* (the new interface 0.3) SHIFT + a knob: no acceleration
+                                                         * (ui_shift.c SHF_FINE; RAM only, the setting untouched) */
+        return s;
+#endif
     a = (uint32_t)(s < 0 ? -s : s);
     dt = ((now - st) & 0xFFFFFFu) / a;                  /* ms per detent of this read */
     if (!st || ((st >> 24) & 1u) != up || dt >= ACC_GAP) {
@@ -2294,6 +2302,9 @@ static void ui_confirm_accept(void)
 }
 
 #include "ui_designer_input.c"
+#if OC_SHIFT_MAP
+#include "ui_shift.c"                                   /* (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT, its map */
+#endif
 static void ui_input(void)
 {
     pattern_poll();
@@ -2333,6 +2344,10 @@ static void ui_input(void)
     if (seq_long) seq = BT_HOLD;
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);
     uint32_t edit = btn_hold(&ui.edit_t0, B_EDIT, now, !ui.menu && !ui.confirm && !name_on() && !new_on() && !ui.ly);
+#if OC_SHIFT_MAP
+    home = shift_input(home, &pressed, notes);          /* (the new interface 0.3) HOME as SHIFT: its combos, the map, the
+                                                         * MENU on the release (ui_shift.c) */
+#endif
     uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
     uint32_t oct;
     if (octup == BT_HOLD) {
@@ -2763,6 +2778,10 @@ static void ui_input(void)
 
     s = panel_enc(EN_PRESET);
     if (s) step_edit_combo();
+#if OC_SHIFT_MAP
+    if (shift_presets(s))                               /* (the new interface 0.3) SHIFT + PRESETS: the engine, or eaten */
+        s = 0;
+#endif
     if (s && !ui.home && cur_page()->graph == GR_SCALE_PICKER) {
         scale_picker_step(list_accel(EN_PRESET, s, scale_picker_count(), 0));
     } else if (s && (ui.home || cur_page()->graph == GR_BROWSE)) {
@@ -2789,10 +2808,16 @@ static void ui_input(void)
         ui.force = 1;
     }
     if ((s = panel_enc(EN_ALGO)) != 0) {           /* ALGORITHM: the selected track, on every page */
+#if OC_SHIFT_MAP
+        shift_turned(s);                                /* (with HOME held: a combo, no MENU) */
+#endif
         step_edit_combo();
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_n() - 1));
     }
     if (!glo_select_layer && (s = panel_enc(EN_SELECT)) != 0) { /* SELECT: pages; with SEQ / a step key / ENV / SCL: below */
+#if OC_SHIFT_MAP
+        shift_turned(s);                                /* (with HOME held: a combo, no MENU) */
+#endif
         step_edit_combo();
         if(bulk_jog(s)) {
         } else if (pattern_keys_on()) {
@@ -2816,6 +2841,10 @@ static void ui_input(void)
         if ((s = panel_enc(EN_K1 + k)) == 0)
             continue;
         step_edit_combo();
+#if OC_SHIFT_MAP
+        if (shift_knob(k, s))                           /* (the new interface 0.3) SHIFT + a knob: fine, or eaten */
+            continue;
+#endif
         if(k<2u && bulk_jog(s))continue;
         if (k == 0u && cur_page()->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key
                                                                          * held) */

@@ -1,6 +1,6 @@
 # Orange Cat: the new interface (build log)
 
-**Version:** 0.4
+**Version:** 0.5
 **Date:** October 29, 2026
 **Branch:** ui-build (Session C), cut from release-2 e1c8ac3 with ui-design 8dc42a4 merged in. Not on release-2, not on
 main, not on the unit.
@@ -11,6 +11,10 @@ into BUILD.md when the interface merges (Session A owns BUILD.md; this branch do
 BUILD.md: **Done**, **In progress**, **Not started**, **Blocked**.
 
 Revisions:
+- 0.5: step 3 (the new interface 0.3), HOME as SHIFT and its map behind OC_SHIFT_MAP: the design note, its independent
+  review and the design as built; the code (firmware/src/ui_shift.c and its hooks), its diff review and the fixes (the
+  edge-only tap, a button held before HOME, the toasts); flash and RAM measured after the fixes; the full host suite;
+  the mockups; what is left for later.
 - 0.4: step 2 (the new interface 0.2), EDIT's sheets behind OC_EDIT_SHEETS: the design note, its independent review and
   the design as built; the code (firmware/src/ui_sheets.c and its hooks), its diff review and the fixes (the frame cost,
   the FX link from a shared effect, the tests' oracle); flash and RAM measured; the mockups; the decisions and what is
@@ -618,7 +622,7 @@ MACRO, SHAPES and DRUM-X; the first row of every sheet on CZ-1, FM6 and the Prop
 
 ## Step 3: the SHIFT map
 
-**Status: In progress (design note).** Behind a third switch, `OC_SHIFT_MAP` (core.h, default 0), which needs
+**Status: Done (host).** Behind a third switch, `OC_SHIFT_MAP` (core.h, default 0), which needs
 `OC_EDIT_SHEETS` (and so `OC_HOME_PIC`). With it off, HOME held opens the MENU at 0.7 s as on release-2.
 
 ### 3. The SHIFT map (design note)
@@ -692,18 +696,63 @@ kind, every palette, linted. The full suite; the switch-off image byte-identical
 
 ### 3. The SHIFT map (the design as built, after the review)
 
-- **Arming:** HOME pressed with no MENU, confirm, NAME, NEW SONG, popup, layer or designer up arms SHIFT (`pg_down`
-  bit 14). Otherwise HOME is today's (a hold still closes the MENU at 700 ms; that press never opens it again).
-- **Alone:** let go before 700 ms: a tap, as today. Held to 700 ms: the map is drawn (`pg_down` bit 15); let go: the
-  map closes and the MENU opens.
+- **Arming:** HOME pressed with no MENU, confirm, NAME, NEW SONG, popup, layer or designer up, and no other button or key
+  already held, arms SHIFT (`sh_st`, one byte of its own). Otherwise HOME is release-2's (a hold still closes the MENU
+  at 700 ms; that press never opens it again).
+- **Alone:** let go before 700 ms: a tap, as today. Held to 700 ms: the map is drawn; let go: the map closes and the MENU
+  opens. Only a press that reached the map opens the MENU (a tap seen only as an edge between two passes is lost, as on
+  release-2).
 - **A combo** (bit 14 cleared, so the release does nothing): KNOB 1..4 on HOME's pages or a sheet: a fine turn (that
   detent with no acceleration); PRESETS on HOME's pages: the engine, one step a detent (`browse_commit` first, the
   refusal's message as `select_engine` gives it); EDIT on HOME's pages or a sheet: the init confirm (CF_INIT_SOUND).
   Anything else pressed or turned while HOME is down does its own job as today and only cancels the MENU. On any other
   page, SHIFT's knob, PRESETS and EDIT are eaten.
-- **The map** (`ui_shift.c`): the mockup's twelve tiles (PRESETS SOUND, ALGO TRACK, SELECT TRACKS / ROW, K1-4 KNOBS,
+- **The map** (`ui_shift.c`): the mockup's twelve tiles (PRESETS SOUND, ALGO TRACK, SELECT PAGES / ROWS, K1-4 KNOBS,
   EDIT SHEETS, SEQ STEPS, then the combos tinted: K1-4 FINE, PRESETS ENGINE, EDIT INIT, OCT- COPY and OCT+ PASTE shown
   dim with "LATER", LET GO MENU), the header "SHIFT". On a page where the combos are eaten they are drawn dim.
+
+### The diff review of step 3 (an independent agent, October 29, 2026)
+
+| # | Finding | Rating | What was done |
+|---|---|---|---|
+| 1 | A HOME tap pressed and let go between two input passes (likely on the unit: a redraw blocks input) opened the MENU | bug, confirmed | The MENU opens only for a press that reached the map; an edge-only tap is lost as on release-2. Tested; a mutation without the fix fails two checks |
+| 2 | A button or key already held when HOME goes down was not a combo (EDIT's hold undo ran under the map, then the MENU) | should-fix, confirmed | SHIFT does not arm then: HOME is release-2's. Tested |
+| 3 | Tests: the tap's page step unchecked; the fine turn vacuous (detents 200 ms apart never accelerate); SEQ's "no step deleted" unchecked | should-fix | TAP checks the page steps; FINE turns five detents 5 ms apart (13 steps without SHIFT, 5 with); the SEQ check's text says what it checks |
+| nit | A control pressed on HOME's release pass still opened the MENU | nit, confirmed | It counts as a combo |
+| nit | `PREF_BITS` toggled around the knob: a future sheet knob that saves settings would keep ACCEL OFF | nit | A RAM bit of `sh_st` (`SHF_FINE`) read in `accel_by`; the setting is never touched |
+| nit | SHIFT + PRESETS with a preview pending: two loads, two undo steps; one step a read, not a detent | nit | Accepted (as the design review's 13); the comment says a read |
+| nit | Toasts freeze under the map; the doc's `pg_down` and SELECT labels | nit | As the section map does; the doc corrected |
+| OK | OCT's hold and tap, EDIT removed from the edges, `sh_st` never stuck, the map's redraw, the switch-off image | | |
+
+### Step 3's flash, RAM and tests (measured, October 29, 2026)
+
+| Build | Image | .data+.bss | Data SRAM tail | Arena | Note |
+|---|---|---|---|---|---|
+| Every switch off | 537,248 B | 93,624 B | 4,680 B | 142,976 B | byte-identical to release-2 e1c8ac3 (`cmp`) |
+| OC_HOME_PIC=1, OC_EDIT_SHEETS=1 | 549,328 B | 94,008 B | 4,296 B | 142,976 B | step 2's image (the same disassembly as step 2's ELF) |
+| All three switches | 551,376 B | 94,024 B | 4,280 B | 142,976 B | **+2,048 B of flash, +16 B of RAM against step 2** (after the diff review's fixes; 551,520 B before them) |
+
+Free flash with every step: **25,872 B**. The one byte of state (`sh_st`) costs 16 B of .bss (the alignment of what follows
+it); the data bank's margin above its 4 KB block is now **184 B**. The map's table (`SHIFT_TILE`) is 144 B; the rest is
+inlined into `ui_input` and `draw_page`. No `.pool` change (the clipboard is not in step 3).
+
+**Host tests:** `tests/shift_test.c` (shift_job, ASan and UBSan): TAP (and a 480 ms press), HOLD (the map at 700 ms, the
+MENU on the release), CLOSE (the MENU closed by a hold is not reopened), KNOB (HOME's picture and a sheet), ENGINE (on
+HOME; eaten on a sheet), INIT (the confirm, held past 700 ms with no undo and no MENU; eaten on SEQ's page), OCT (no
+octave, no OCT+ sheet), OTHERS (HOME then GLO; ALGO), DRAW (the map on HOME, a sheet and SEQ; a combo takes it away): 0
+failed. With every switch: home_pic_test, sheet_test and layer_screen_test pass (layer_screen_test's EDIT-map race check
+is skipped with the sheets built in: that map is not opened there). `ui_test` itself is release-2's behavior and runs
+with the switches off; built with the sheets it reports 22 differences, every one a deliberate change of step 2 (the
+EDIT cycle, the sections' map, the DRUM map, the strip under the sheets' tabs) or a knock-on of one (the SONG sheet check
+after the DRUM map block passes from a clean start); step 3 adds none. `ui_render.c` with every switch: 0 lint findings,
+0 MONO pixels off gray, the map on HOME, a sheet and SEQ in 8 palettes.
+
+**Full host suite** (every switch as the suite builds them, after the fixes; 59 min, PARALLEL=1, niced): shift_job and
+ui_renders_shift pass; the one failure is release-2's own "target cost of the render loops" (`dxe_post_sides`,
+`pl_osc_render` over their budgets on this toolchain, failing identically on release-2 e1c8ac3: Session A's item).
+
+**Mockups:** `shift_sheet.png` (the map on HOME, a sheet, SEQ's page, and HOME on DAY), `shift_map_home.png`,
+`shift_map_sheet.png`, `shift_map_seq.png`, `day_shift_map_home.png`.
 
 ### Left for later from step 3
 
@@ -765,6 +814,12 @@ On a build with both switches (`OC_HOME_PIC=1 OC_EDIT_SHEETS=1`), step 2:
    and the tabs): no late audio halves while SELECT is turned fast and a sequence plays.
 10. **EDIT held (undo) and EDIT with OCT** on a sheet, and the layers (GLO, SCL held) over a sheet: as release-2.
 
+On a build with every switch (`OC_SHIFT_MAP=1` too), step 3:
+11. **HOME by hand**: taps step HOME's pages; held alone the map at 0.7 s and the MENU on the release; a hold closes the
+    MENU and the release leaves it closed; SHIFT + each knob, PRESETS, EDIT, OCT on HOME, a sheet and SEQ.
+12. **The panel's own scan** under SHIFT: HOME and EDIT (or OCT) pressed in the same scan, released in the same scan; a
+    knob nudged while HOME is held (the MENU is cancelled and the value shows).
+
 ## Decisions made in this branch (the safer reading, where the call was Session C's)
 
 - BUILD.md kept as release-2's in the merge of ui-design (Session A owns it); ui-design's BUILD notes (0.79 .. 0.81) are
@@ -794,3 +849,12 @@ On a build with both switches (`OC_HOME_PIC=1 OC_EDIT_SHEETS=1`), step 2:
 - The second row and the box replace the scope or the wave only; the filter's curve and FM6's chart stay.
 - List pages (VOICE, FM LFO, FM BEND), MOD's route page and the action pages (Store, Tools) keep release-2's screens with
   no tabs: written down for step 9.
+- Step 3 behind its own switch, `OC_SHIFT_MAP`, which needs `OC_EDIT_SHEETS`.
+- Decision 4 read as UI_DESIGN's text: HOME held and let go alone opens the MENU (on the release); a HOME tap keeps
+  stepping HOME's pages. For the owner to confirm.
+- SHIFT arms only on a HOME press begun with nothing modal up; one time, 700 ms, for the map, the MENU and its closing.
+- The combos act on HOME's pages and the sheets only; elsewhere SHIFT's knobs, PRESETS and EDIT are eaten.
+- Any other control used while HOME is down does its own job and cancels the MENU (no silent MENU after a touch).
+- The fine turn is "no acceleration for that detent" (no per-knob residue in RAM for quarter steps).
+- SHIFT + EDIT opens today's init confirm rather than initing at once.
+- Copy and paste are not built in step 3 (no lossy clipboard); the map shows them as LATER.

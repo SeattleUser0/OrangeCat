@@ -194,4 +194,12 @@ static void test_lfo(void)
 
 
 
-int main(void) { test_layers(); test_glo_select(); test_map_encoder_reads(); test_screen_sleep(); test_lfo(); return 0; }
+int main(void)
+{
+    test_layers(); test_glo_select();
+#if !OC_EDIT_SHEETS
+    test_map_encoder_reads();                           /* (the new interface 0.2: EDIT's map is not opened with the sheets
+                                                         * built in, UI_BUILD.md step 2; its race is release-2's) */
+#endif
+    test_screen_sleep(); test_lfo(); return 0;
+}

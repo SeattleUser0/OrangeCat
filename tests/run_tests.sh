@@ -227,6 +227,16 @@ sheet_job() {                                     # (the new interface 0.2, UI_B
     _h2=$("$OUT/home_pic_sheets" hash) && _h0=$("$OUT/home_pic_off2" hash) || { fail "new interface 2: the TRACKS hash did not run"; return; }
     [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
 }
+shift_job() {                                     # (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT
+    _t "new interface 3: HOME as SHIFT: a tap, the map, the MENU on the release, the combos, nothing modal raced" \
+        shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "new interface 3: the layers, SCREEN OFF and LFO 2 with every step's switch built in" \
+        layer_screen_s3:layer_screen_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "new interface 3: EDIT's sheets with SHIFT built in" \
+        sheet_s3:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "new interface 3: HOME's picture page with SHIFT built in" \
+        home_pic_s3:home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+}
 web_tests() {                                     # the editor mock's tables must equal the firmware's (desc.json)
     if [ $TABLES = 1 ]; then
         build descdump descdump $FW &&
@@ -284,6 +294,16 @@ ui_renders_sheets() {                             # (the new interface 0.2, UI_B
         "$OUT/ui_render_sheets" build/ui_sheets build/ui_sheets_slot
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_sheets build/ui_sheets_slot || fail "tests/ui_render.py (build/ui_sheets)"
+    fi
+}
+ui_renders_shift() {                              # (the new interface 0.3, UI_BUILD.md step 3) every screen again with every step's switch,
+                                                  # the sheets and the SHIFT map in every palette: the lint, MONO gray; PNGs in build/ui_shift
+    build ui_render_shift ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    mkdir -p build/ui_shift/ppm build/ui_shift_slot
+    step "UI renders with the SHIFT map built in (OC_SHIFT_MAP=1): every screen, every sheet, the map, lint, MONO gray" \
+        "$OUT/ui_render_shift" build/ui_shift build/ui_shift_slot
+    if [ $PIL = 1 ]; then
+        python3 tests/ui_render.py build/ui_shift build/ui_shift_slot || fail "tests/ui_render.py (build/ui_shift)"
     fi
 }
 ui_renders_pic() {                                # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) every screen again with
@@ -570,6 +590,7 @@ if core && [ $TABLES = 1 ]; then
     job oc_scene_job
     job home_pic_job
     job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
+    job shift_job                                 # (the new interface 0.3, UI_BUILD.md step 3)
     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1a) HOME's knob macros through the saves and loads, OC_HOME_PIC=1
     t "new interface 1a: macros committed by project, template and user-sound saves, loaded at 0, old records at 0, HOME's macro descriptor" \
         oc_macro_save_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
@@ -602,6 +623,7 @@ if core && [ $TABLES = 1 ]; then
     job ui_renders
     job ui_renders_pic                            # (the new interface, UI_BUILD.md 1c)
     job ui_renders_sheets                         # (the new interface 0.2, UI_BUILD.md step 2)
+    job ui_renders_shift                          # (the new interface 0.3, UI_BUILD.md step 3)
     t "boot audio: codec waits for settled silent DMA and shuts down before I2S" audio_boot_test -w
     t "audio: overload protection, bounded fades and DMA diagnostics" audio_test $FW
     t "GLO > WEIGHTS: per-engine budget points, SAFETY, device persistence and pages" voice_weights_test $FW

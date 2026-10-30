@@ -72,10 +72,20 @@ static void sound_name(const track_t *t, char *b);
 static int ptc_on(void);                                /* ui_patterns.c */
 static uint32_t ocl_pat_len(uint32_t id);               /* (Orange Cat 0.3) oc_lists.c */
 static uint32_t ocl_staged_ent(uint32_t k);
+#if OC_SHIFT_MAP
+static int shift_map_on(void);                          /* ui_shift.c (included by ui_input.c) */
+static void shift_draw(void);
+#endif
 static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
     uint32_t e = TSEL->eng_req % NENGINES;
+#if OC_SHIFT_MAP
+    if (shift_map_on()) {                               /* (the new interface 0.3) the SHIFT map */
+        str_cpy(b, "SHIFT", 16);
+        return;
+    }
+#endif
     if (designer_on() && !name_on() && designer_head_chip(b)) {   /* the designer's START, FEATURES, original */
     } else if (new_on()) {                                     /* NEW SONG */
         str_cpy(b, "NEW SONG", 16);
@@ -1156,6 +1166,13 @@ static void ui_draw_frame(void)
         draw_head();                                    /* recording remains visible over confirmations */
         return;
     }
+#if OC_SHIFT_MAP
+    if (shift_map_on()) {                               /* (the new interface 0.3) HOME held alone: the SHIFT map */
+        shift_draw();
+        ui.force = 0;
+        return;
+    }
+#endif
     if (smap.on && (ui.home || cur_page()->fam != FAM_EDIT || ui.layer))
         smap.on = 0;
     if (smap.on) {                                      /* an engine's map (ui_sections.c) */

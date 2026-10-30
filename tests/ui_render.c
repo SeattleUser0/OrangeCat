@@ -2340,6 +2340,43 @@ int main(int argc, char **argv)
         fprintf(rep, "(the new interface 0.2) EDIT's sheets: %u screens over every palette\n", (unsigned)ns);
     }
 #endif
+#if OC_SHIFT_MAP
+    {   /* (the new interface 0.3, UI_BUILD.md step 3) the SHIFT map over HOME, a sheet's row and SEQ's first page (where the combos
+         * are dim), in every palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (shift_map_<where>) */
+        static const char *const WN[3] = {"home", "sheet", "seq"};
+        uint32_t w, nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (w = 0; w < 3u; w++) {
+                char name[64], image[48];
+                uint32_t j;
+                state();
+                song.playing = 0;
+                eng(ENGI_MACRO);
+                TSEL->engine = TSEL->eng_req;
+                if (w == 0u) {
+                    ui.home = 1;
+                } else {
+                    ui.home = 0;
+                    ui.page = (uint8_t)(w == 1u ? page_titled("EDIT 1") : page_first(FAM_SEQ));
+                    page_entered();
+                }
+                sh_st = SHF_ON | SHF_MAP;
+                snprintf(image, sizeof image, "shift_map_%s", WN[w]);
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                sh_st = 0;
+                nm++;
+            }
+        fprintf(rep, "(the new interface 0.3) the SHIFT map: %u screens over every palette\n", (unsigned)nm);
+    }
+#endif
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */
