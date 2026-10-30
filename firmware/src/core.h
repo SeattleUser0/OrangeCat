@@ -114,6 +114,14 @@
                                    * HOME's picture page (1c); 0: none of it is compiled and the firmware is release-2's. Off until the whole HOME
                                    * path works (UI_BUILD.md, step 1) */
 #endif
+#ifndef OC_EDIT_SHEETS
+#define OC_EDIT_SHEETS 0          /* (the new interface 0.2, branch ui-build: docs/orangecat/UI_BUILD.md step 2) 1: EDIT's sheets (ui_sheets.c):
+                                   * EDIT turns the sheets (SOUND, ENV, MOD, FX, VOICE; a native engine's sections), SELECT walks their
+                                   * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
+#endif
+#if OC_EDIT_SHEETS && !OC_HOME_PIC
+#error "OC_EDIT_SHEETS needs OC_HOME_PIC (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
 #ifndef MELODEE_DRUMX
 #define MELODEE_DRUMX 1           /* (Orange Cat 0.9.0) DRUM-X (engine 9, the slot of the retired PHYS): Jiant FM's drum engine, a kit of
                                    * eight synthesized sounds with a MORPH between two patches (eng_drumx.c, drumx_voice.c, GPL-3.0-only).

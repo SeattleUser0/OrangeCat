@@ -101,6 +101,12 @@ static void head_chip_text(char *b)
         str_cpy(b, t, 16);
     }
 }
+#if OC_EDIT_SHEETS
+static int sh_dots(uint32_t *n, uint32_t *k);           /* ui_sheets.c (included below): a sheet's rows, the page's place */
+static int sh_row(uint32_t i);
+static int sh_tabs(void);
+static int sh_lower(void);
+#endif
 /* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
 static void head_pages(int32_t x, int32_t x1)          /* (x: after the transport's marks; x1: where the chip, or the
                                                          * battery, starts) */
@@ -109,6 +115,10 @@ static void head_pages(int32_t x, int32_t x1)          /* (x: after the transpor
     uint32_t i, n = 0, k = 0, sc = sec_on() ? sec_of(ui.page) + 1u : 0u;
     if (designer_on() && !name_on())                    /* the designer: its stage's pages */
         designer_pages(&n, &k);
+#if OC_EDIT_SHEETS
+    else if (!name_on() && sh_dots(&n, &k))             /* (the new interface 0.2) a sheet: its rows */
+        ;
+#endif
     else for (i = 0; i < page_n(); i++)                 /* (an engine in sections: the section's pages) */
         if (page_at(i)->fam == pg->fam && page_visible(i) &&
             (!sc || ((MELODEE_FM6 && page_at(i)->scope == SC_FMOP) ? (MELODEE_FM6 && page_at(ui.page)->scope == SC_FMOP) : sec_of(i) + 1u == sc))) {
@@ -981,6 +991,9 @@ static void draw_confirm(void)
 #include "ui_motion.c"                                  /* MOTION: its lanes */
 #include "ui_scales.c"                                  /* SCALES: a screen of its own */
 #include "ui_designer.c"                                /* guided native sound creation */
+#if OC_EDIT_SHEETS
+#include "ui_sheets.c"                                  /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets */
+#endif
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1079,7 +1092,17 @@ static void ui_draw_frame(void);
 static void ui_draw(void)                               /* (gfx.c: the fills wait for the frame's canvases) */
 {
     gfx_frame(1);
+#if OC_EDIT_SHEETS
+    {   /* (the new interface 0.2) the sheets made once this frame, when first asked for (ui_sheets.c sh_get) */
+        sh_ctx_t c;
+        c.made = 0;
+        sh_now = &c;
+        ui_draw_frame();
+        sh_now = 0;
+    }
+#else
     ui_draw_frame();
+#endif
     gfx_frame(0);
 }
 static void ui_draw_frame(void)

@@ -217,6 +217,16 @@ home_pic_job() {                                  # (the new interface, UI_BUILD
     case "$_h1" in [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;; *) fail "new interface 1c: no TRACKS hash ($_h1)"; return ;; esac
     [ "$_h1" = "$_h0" ] || fail "new interface 1c: HOME at TRACKS differs from release-2's ($_h1, $_h0)"
 }
+sheet_job() {                                     # (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets
+    _t "new interface 2: EDIT's sheets: every row reached, EDIT, SELECT, PRESETS, ENV, LFO, fam_last, EDIT's other jobs" \
+        sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # both switches built in, HOME at TRACKS: HOME's screens are still release-2's, pixel for pixel
+    build home_pic_sheets home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    build home_pic_off2 home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    echo "== new interface 2: HOME at TRACKS with the sheets built in draws release-2's screens"
+    _h2=$("$OUT/home_pic_sheets" hash) && _h0=$("$OUT/home_pic_off2" hash) || { fail "new interface 2: the TRACKS hash did not run"; return; }
+    [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
+}
 web_tests() {                                     # the editor mock's tables must equal the firmware's (desc.json)
     if [ $TABLES = 1 ]; then
         build descdump descdump $FW &&
@@ -264,6 +274,16 @@ ui_renders() {
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_new build/ui_slot || fail "tests/ui_render.py"
         python3 tools/ui_mockcmp.py build/ui_new build/ui_mock || fail "tools/ui_mockcmp.py" # redesign parity (docs/design): a report, no gate yet
+    fi
+}
+ui_renders_sheets() {                             # (the new interface 0.2, UI_BUILD.md step 2) every screen again with both switches, and
+                                                  # every row of every sheet in every palette: the lint, MONO gray; PNGs in build/ui_sheets
+    build ui_render_sheets ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    mkdir -p build/ui_sheets/ppm build/ui_sheets_slot
+    step "UI renders with EDIT's sheets built in (OC_EDIT_SHEETS=1): every screen, every sheet's rows, lint, MONO gray" \
+        "$OUT/ui_render_sheets" build/ui_sheets build/ui_sheets_slot
+    if [ $PIL = 1 ]; then
+        python3 tests/ui_render.py build/ui_sheets build/ui_sheets_slot || fail "tests/ui_render.py (build/ui_sheets)"
     fi
 }
 ui_renders_pic() {                                # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) every screen again with
@@ -549,6 +569,7 @@ if core && [ $TABLES = 1 ]; then
         ui_test -DMELODEE_USB_AUDIO=1 $FW
     job oc_scene_job
     job home_pic_job
+    job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1a) HOME's knob macros through the saves and loads, OC_HOME_PIC=1
     t "new interface 1a: macros committed by project, template and user-sound saves, loaded at 0, old records at 0, HOME's macro descriptor" \
         oc_macro_save_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
@@ -580,6 +601,7 @@ if core && [ $TABLES = 1 ]; then
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     job ui_renders
     job ui_renders_pic                            # (the new interface, UI_BUILD.md 1c)
+    job ui_renders_sheets                         # (the new interface 0.2, UI_BUILD.md step 2)
     t "boot audio: codec waits for settled silent DMA and shuts down before I2S" audio_boot_test -w
     t "audio: overload protection, bounded fades and DMA diagnostics" audio_test $FW
     t "GLO > WEIGHTS: per-engine budget points, SAFETY, device persistence and pages" voice_weights_test $FW

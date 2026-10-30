@@ -2283,6 +2283,63 @@ int main(int argc, char **argv)
         GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
 #endif
+#if OC_EDIT_SHEETS
+    {   /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets: every row of every sheet of each engine below, in every palette,
+         * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (sheet_<engine>_<sheet>_<row>) */
+        static const uint32_t SE[] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX, ENGI_CZ, ENGI_FM6, ENGI_PROPHET};
+        static const char *const SN[] = {"macro", "shapes", "drumx", "cz1", "fm6", "prophet"};
+        uint32_t ns = 0, ei;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (ei = 0; ei < NELEM(SE); ei++) {
+                static sh_ctx_t shc;
+                const sheet_t *sh = shc.s;
+                uint32_t n, k, r;
+                if (!eng_ok(SE[ei]))
+                    continue;
+                state();
+                song.playing = 0;
+                eng(SE[ei]);
+                TSEL->engine = TSEL->eng_req;
+                sh_make(&shc);
+                n = shc.n;
+                for (k = 0; k < n; k++) {
+                    uint8_t pg[48];
+                    uint32_t at, nr;
+                    if (sh[k].op == SH_LINK)
+                        continue;
+                    if (sh[k].op)
+                        fm6_opsel = (uint8_t)(sh[k].op - 1u);
+                    nr = sh_rows(&shc, k, pg, sizeof pg, &at);
+                    for (r = 0; r < nr; r++) {
+                        char name[96], image[64], t[12];
+                        uint32_t j, q;
+                        if (sh[k].op && r > 1u && sh[k].op > 1u)
+                            continue;                   /* (the operators past OP1: their first two rows, the rest as OP1's) */
+                        ui.home = 0;
+                        ui.page = pg[r];
+                        ui.fam_last[page_at(pg[r])->fam] = pg[r];
+                        page_entered();
+                        for (j = q = 0; sh[k].name[j] && q < sizeof t - 1u; j++)
+                            if (sh[k].name[j] != ' ')
+                                t[q++] = (char)(sh[k].name[j] | 0x20);
+                        t[q] = 0;
+                        snprintf(image, sizeof image, "sheet_%s_%02u_%s_%u", SN[ei], (unsigned)k, t, (unsigned)r + 1u);
+                        snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                        cur_name = name;
+                        pal(p);
+                        if (p == UI_GRAY_INDEX) aud = audf;
+                        draw(-1);
+                        lint();
+                        if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                        for (j = 0; j < UI_RENDER_SHOW; j++)
+                            if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                        ns++;
+                    }
+                }
+            }
+        fprintf(rep, "(the new interface 0.2) EDIT's sheets: %u screens over every palette\n", (unsigned)ns);
+    }
+#endif
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

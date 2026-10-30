@@ -1982,6 +1982,11 @@ static void page_tap(uint32_t b)
 {
     uint32_t f;
     if (b == B_EDIT && ui.erase_gesture) return;
+#if OC_EDIT_SHEETS
+    if (b != B_EDIT)
+        sh_fx = 0;                                      /* (the new interface 0.2) another button: the FX pages are no
+                                                         * longer the sheets' (EDIT from them: SOUND, ui_sheets.c) */
+#endif
     if (b == B_EDIT && smap.on) {                       /* the map open: EDIT closes it */
         smap_close();
         return;
@@ -2013,6 +2018,13 @@ static void page_tap(uint32_t b)
         name_rename();                                  /* SAVE > USER / PROJECT: EDIT renames the slot */
         return;
     }
+#if OC_EDIT_SHEETS
+    if (b == B_EDIT) {                                  /* (the new interface 0.2) EDIT's other jobs above kept first:
+                                                         * the next sheet (ui_sheets.c sh_edit) */
+        sh_edit();
+        return;
+    }
+#endif
     for (f = FAM_HOME + 1u; f < FAM_COUNT; f++)
         if (FAM_BTN[f] == b) {
             open_family(f);
@@ -2768,6 +2780,10 @@ static void ui_input(void)
     } else if (s && sec_on()) {                         /* an engine in sections: the next / previous one (FM6's
                                                          * operators are sections: ui_sections.c) */
         sec_turn(s);
+#if OC_EDIT_SHEETS
+    } else if (s && !ui.home && sh_turn(s)) {           /* (the new interface 0.2) a sheet's row: the next / previous
+                                                         * sheet */
+#endif
     } else if (s && !ui.home && (MELODEE_FM6 && cur_page()->scope == SC_FMOP)) {   /* FM6's operator pages: the operator */
         fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);
         ui.force = 1;
@@ -2787,6 +2803,10 @@ static void ui_input(void)
         } else if (step_gesture(s)) {                   /* ENV / SCL / a key held: the note's length, its place */
         } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the notes, the hits:
                                                          * KNOB 1) */
+#if OC_EDIT_SHEETS
+            if (!sh_select(s))                          /* (the new interface 0.2) a sheet's row: the next row, on into
+                                                         * the next sheet */
+#endif
             page_scroll(s);
         } else {                                        /* HOME: what the menu's HOME SELECT says */
             select_turn(home_select(), s);

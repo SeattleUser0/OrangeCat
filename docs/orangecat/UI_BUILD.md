@@ -1,6 +1,6 @@
 # Orange Cat: the new interface (build log)
 
-**Version:** 0.3
+**Version:** 0.4
 **Date:** October 29, 2026
 **Branch:** ui-build (Session C), cut from release-2 e1c8ac3 with ui-design 8dc42a4 merged in. Not on release-2, not on
 main, not on the unit.
@@ -11,6 +11,10 @@ into BUILD.md when the interface merges (Session A owns BUILD.md; this branch do
 BUILD.md: **Done**, **In progress**, **Not started**, **Blocked**.
 
 Revisions:
+- 0.4: step 2 (the new interface 0.2), EDIT's sheets behind OC_EDIT_SHEETS: the design note, its independent review and
+  the design as built; the code (firmware/src/ui_sheets.c and its hooks), its diff review and the fixes (the frame cost,
+  the FX link from a shared effect, the tests' oracle); flash and RAM measured; the mockups; the decisions and what is
+  left for later.
 - 0.3: step 1 complete (the new interface 0.1): 1a, 1b and 1c built behind OC_HOME_PIC, every diff reviewed and the
   findings fixed, the full host suite run (release-2's own target-cost failure only, see "Step 1's full host suite"),
   flash and RAM measured. The mockups moved to docs/orangecat/ui/new/ (the repo's .gitignore drops any `build/`).
@@ -252,7 +256,8 @@ TRACKS or CHORD page closes onto the picture (HOME lands there with PICTURE chos
 
 **Decision (safer reading):** SELECT keeps today's HOME SELECT setting (BPM by default) in step 1. The design's
 "SELECT steps HOME's pages" comes with step 3, when HOME alone opens the MENU (the owner's decision 4) and the pages
-need another way in.
+need another way in. (Superseded by step 3's design review: HOME's tap still steps the pages, so they need no other way in yet;
+SELECT on HOME is re-deferred to step 9.)
 
 **The four knobs.** With PICTURE chosen and an engine with a table, Stage's knob page (`stage_page`) gives the table's
 ids: a plain knob its parameter, a macro knob P_MACk. The whole edit path stays as it is (`edit_param`, the hot card,
@@ -418,6 +423,300 @@ image, which is byte-identical to release-2 e1c8ac3's, and the baseline run on r
 the same numbers. Most likely the local toolchain's code differs from CI's, where the budgets were taken. Step 1 does
 not touch those engines (the brief's no-touch files), so the item goes to Session A below.
 
+## Step 2: EDIT's sheets
+
+**Status: Done (host).** Behind a second switch, `OC_EDIT_SHEETS` (core.h, default 0), which needs `OC_HOME_PIC=1` (the
+plan: each step ships behind the step before; the sheets use step 1's knob colors). With it off, release-2's screens and
+step 1's are unchanged.
+
+### 2. The sheets (design note)
+
+**What the code has today (read for this note).** The EDIT pages already fall into *sections* (ui_sections.c, `sec`:
+up to 16, by title through `SEC_RULE`; FM6's operators a section each; Store and Tools last). PRESETS on an EDIT page
+turns the section (`sec_turn`, to the page last used in it); EDIT on a page of an engine with two or more sections opens
+the section map (`smap_open`); SELECT turns the pages of the whole family (`page_scroll`); the header's dots count the
+section's pages. The section tabs (`tabs_draw`, rows 30 .. 55) exist but only the sound designer draws them. ENV and
+LFO are families of their own (FAM_ENV: ENV, ENV DEST; FAM_LFO: LFO, LFO 2, LFO DEST, MOD); on the Prophet, FM6 and
+CZ-1 the buttons visit the engine's own pages first (`native_titles`). VOICE (with VOICE 2 and 3) and FM LFO are list
+pages (ui_list.c), already several rows on one screen.
+
+**The step in one line:** a sheet is a section, and the sections grow to cover ENV, MOD, FX and VOICE; EDIT turns the
+sheets, SELECT walks the rows into the next sheet, the tabs and the knobs' colors are drawn.
+
+1. **Which sheets, in which order** (`sec_build` under the switch, ranks instead of its two passes):
+   - rank 0: the engine's own sections as today (SOUND: EDIT 1 and EDIT 2, "Sound"; the Prophet's Osc .. Wheel; FM6's
+     Algo, OP1 .. OP6, Pitch, LFO, Ctrl; CZ-1's lines; DRUM-X's KIT and LANES; a module's pages);
+   - rank 1: **Env**: the FAM_ENV pages that are visible (ENV, ENV DEST; none on the engines with their own, as today);
+   - rank 2: **Mod**: the FAM_LFO pages (LFO, LFO 2, LFO DEST, MOD);
+     sections merge only within a rank, so the Prophet's own Mod section (ENV MOD, POLYMOD, MOD FLT) does not swallow
+     the track's LFO pages; on an engine with LFO pages of its own (`native_titles(FAM_LFO)`) this sheet is named
+     "Trk mod" so the tabs never show Mod twice;
+   - rank 3: **FX**: a link, not a sheet of rows (`sec.first` = the FX family's first page, the track's sends);
+   - rank 4: **Voice** (the "Voice" sections: VOICE's list; the Prophet's UNISON and BEND);
+   - rank 5: Store and Tools, as today last.
+   This is UI_DESIGN's SOUND, ENV, MOD, FX, VOICE, and for the native engines their sections, then ENV, MOD, FX, VOICE
+   where they apply. DRUM-X's first sheet is named Kit (its EDIT 1 and 2 are KIT and KIT 2). Up to 16 still holds: FM6
+   has the most, 13 (Store, Algo, OP1 .. OP6, Pitch, LFO, Ctrl, then Mod, FX, Voice).
+2. **EDIT** (a tap; held is undo, unchanged):
+   - on a sheet: the next sheet, after the last the first; reaching the FX link opens the FX family's first page;
+   - on the track's FX pages (FAM_FX, the track's scope: FX, DIST, AUTO PAN, DUB ..): the sheet after the FX link
+     (Voice), so EDIT keeps walking the sheets when it went through FX;
+   - anywhere else (HOME, the shared effects, SEQ ..): the first sheet (SOUND), as UI_DESIGN's table says;
+   - the section map is no longer opened by EDIT (its code stays until step 9; with the switch off it is as today).
+   A sheet is entered at the row last used in it (`sec.last`, as PRESETS does today).
+3. **SELECT** on a sheet: the next row of the sheet; past its last row, the first row of the next sheet (the FX link
+   skipped: SELECT stays in EDIT); turned back, the same backwards (into the previous sheet's last row). On FM6's
+   operator sheets the rows are the operator pages for the operator of the sheet (as the map does today).
+4. **PRESETS** on a sheet: the next or previous sheet (today's `sec_turn`, now over every sheet, the FX link skipped).
+   The design's "PRESETS: the sound" on a sheet is left for step 3 (the SHIFT map moves the engine change, and the
+   browser's place, together); the safer reading keeps one meaning per control within this step.
+5. **ENV and LFO** are unchanged: they visit the same pages, which are now rows of the Env and Mod sheets (on the
+   Prophet, FM6 and CZ-1, rows of their own sheets), so they are the shortcuts the design asks for with no code.
+6. **Drawing** (pv_draw, the RINGS and CURVE pages):
+   - the sheets' tabs at rows 30 .. 55 (`tabs_draw`, as the designer's: mixed case, as drawn there today; the mockup's
+     capitals were drawn by the mockup, not by the firmware), and the strip moved down under them (`pv_tab_h`, as the
+     designer and FM6's EG pages already do);
+   - the framed row's labels in the knobs' colors (`T_COZY`, step 1), its values in the text color;
+   - on a RINGS page (no curve) whose sheet has another row: that row drawn under it at rows 108 .. 159, dimmed, as
+     the mockup's second row (the next row; on the last row, the previous one), from the page's own descriptors through
+     the list's capture (`list_cap`'s way: `col_style = CS_CAPTURE`, `ui.page` swapped while drawing nothing);
+     under it (rows 160 .. 207) on the SOUND sheet of an engine with a knob table (MACRO, SHAPES, DRUM-X): what HOME's
+     four knobs are (their names in the knobs' colors, a macro's targets: `mac_desc`), as the mockup; elsewhere the
+     picture as today in what is left;
+   - a CURVE page (ENV's ADSR, the LFO's wave, FM6's EGs) keeps its curve (shortened under the tabs, as the designer's
+     pages are today) and shows no second row;
+   - the header's dots: the rows of the sheet (`head_pages` already counts the section's pages; it now also does on the
+     Env and Mod sheets).
+   The list pages (VOICE, FM LFO) and MOD's route page (`pv_mod_rows`, rows 32 .. 232) keep today's screens: they have
+   no room for the tabs. They are sheets for EDIT, SELECT and PRESETS. Their tabs wait for step 9 (written down below).
+7. **Nothing on the audio side, nothing saved.** Only navigation and drawing; no parameter, format or pack change.
+
+**RAM:** the `sec` table is today's (16 sections). New: the second row's and the box's signature (8 B). Within the
+plan's +16 B and the 200 B left in the data bank. **Flash:** the plan says +1 to 2 KB.
+
+**Tests:**
+- `tests/sheet_test.c`, with the switch on, every engine in the build (the host's): the coverage check (every page that
+  SELECT reached today in FAM_EDIT, FAM_ENV and FAM_LFO is a row of some sheet, and SELECT from SOUND's first row walks
+  every one of them and comes back); EDIT walks every sheet and the FX link; EDIT from the FX pages goes to Voice; EDIT
+  held still undoes; PRESETS turns the sheets; ENV and LFO land on rows of their sheets; the knobs edit the framed row's
+  ids; with the switch off, today's EDIT map and cycle (ui_test.c's own tests, unchanged, run as they are).
+- `ui_render.c` under both switches: every sheet of every engine (each row framed), linted on every palette.
+- The full host suite; the switch-off image byte-identical to release-2's; with both switches the HOME and TRACKS
+  hashes of home_pic_test unchanged.
+
+### The design review of step 2 (an independent agent, October 29, 2026)
+
+| # | Finding | Rating | What was done |
+|---|---|---|---|
+| b1 | `sec_of` finds a page's section by title: ENV, LFO and MOD rows fall to "Sound"; "Trk mod" never matches | blocker | Sheets no longer ride on `sec`: `ui_sheets.c` derives a page's sheet from the page itself (family, title rule, rank), key = (rank, name) |
+| b2 | `sec_on`, `sec_go`, `smap_pages`, `head_pages` hard-code FAM_EDIT; `sec_go` writes `fam_last[FAM_EDIT]` with other families' pages | blocker | Under the switch `sec_on` is 0 (the old map, section turn and section dots off); the sheet code handles EDIT, SELECT, PRESETS and the dots; `fam_last` is written for the landed page's own family only |
+| b6 | Sections past 16 are dropped silently; with SELECT walking sheets their pages would be lost | should-fix | No table: the sheets are computed on demand, so there is no cap; only the tabs' names are bounded (a stack array, the ones that fit are drawn anyway) |
+| b7 | The section cache misses a module coming or going | should-fix | No cache |
+| b3 | The FX link through `sec_go` lands by accident and pollutes `fam_last[FAM_EDIT]` | should-fix | The link calls `open_family(FAM_FX)` and is never a row |
+| b4 | EDIT from the FX pages: Voice even when the FX button opened them | should-fix | One byte, `sh_fx`: set only when EDIT went through the link, cleared on any other page change; EDIT on an FX page with it set goes to the sheet after FX, otherwise to SOUND |
+| b5 | EDIT's other jobs (DRUM HIT, the DRUM grid, rename, the NOTES step modifier) must keep priority | should-fix | The sheet code replaces only the `smap_open` branch and the final `open_family(FAM_EDIT)`; the order in `page_tap` is kept; tests below |
+| a1 | `mac_desc` gives no macro targets | should-fix | The box lists the knobs' names in their colors and, for a macro knob, its targets' labels walked from `kdef_of(e)[k].t[]`; measured in flash |
+| c1 | FM6's EG pages draw operator tabs at the same rows; the designer's tabs too | should-fix | The designer's tabs win while it is on; otherwise the sheet tabs replace FM6's operator tabs (the OP1 .. OP6 sheets are the same choice) |
+| c2 | A picture squeezed into 48 rows | should-fix | A RINGS page with a second row draws no picture; a one-row RINGS sheet keeps its picture under the tabs (`pv_tab_h`, as the designer's pages) |
+| c3 | The second row through `draw_column` thrashes the per-column caches; the cache key misses the label color | should-fix | The second row is captured (`CS_CAPTURE`, as `list_cap`) and drawn by its own small card code with its own signature; entering or leaving a sheet is a page change (`ui.force`) |
+| d1, d2 | RAM and flash understated | should-fix | RAM: `sh_fx` 1 B and the second row's and box's signatures 8 B, no per-sheet memory (a sheet opens on its first row); flash measured from the map |
+| a2 .. a4 | FM6's count (14, Store last), FM BEND also a list, the Prophet has Sound | nit | Corrected below |
+| b8 | DRUM-X gets Mod and Voice beyond the design's list | nit | Kept (every page stays reachable); written in the decisions |
+| b9 | The tab strip comes and goes (list, MOD route, Store/Tools pages) | nit | Accepted for step 2; written down for step 9 |
+| c4 | The capture reads `page_over` | nit | No second row while `page_over` is set (a layer) |
+| c5 | Row placement 58 vs the mockup's 56; the mockup's foot keys | nit | The strip's own `card_y` (58) is kept; the foot keys stay today's sound bar (step 3 owns the keys' hints) |
+| c6 | The header dots compute a sheet per page per frame | nit | One scan a frame (the current sheet's rows); measured in the frame budget |
+| d3 | Which image is compared | nit | Both: switch off against release-2, and OC_HOME_PIC=1 with OC_EDIT_SHEETS=0 against step 1 |
+| e | Test gaps (EDIT's other jobs, modules coming and going, the Prophet hiding ENV, `fam_last`, layers over a sheet, the lint on light and MONO) | should-fix | All in sheet_test.c and ui_render.c (below) |
+
+### 2. The sheets (the design as built, after the review)
+
+Replaces points 1 .. 6 of the note above where they differ.
+
+- **The sheets are computed, not stored** (`firmware/src/ui_sheets.c`, included by ui_draw.c under the switch). A page is
+  a row when it is visible and in FAM_EDIT, FAM_ENV or FAM_LFO. Its sheet's key is (rank, name): FAM_ENV rank 1 "Env";
+  FAM_LFO rank 2 "Mod" ("Trk mod" where the engine has LFO pages of its own); FAM_EDIT by today's title rule
+  (`sec_rule`): "Voice" rank 4, Store and Tools rank 5, the rest rank 0 (DRUM-X's "Sound" is shown as "Kit"); FM6's
+  operator pages a sheet per operator, rank 0, in the place of the first one. The FX link is rank 3. The list of sheets
+  is the distinct keys by rank, then by first page. It is made again on every use (one walk over the pages: once a
+  frame while drawing, once a button; the diff review's 1), so a module coming or going, an engine change or the Prophet hiding ENV can
+  never leave it stale, and there is no cap.
+- **FM6** (its EDIT 1 and 2 rows as the engine shows them today, a Sound sheet if visible): Algo, OP1 .. OP6, Pitch, LFO, Ctrl, Trk mod,
+  FX, Voice, Store: 14. **The Prophet:** Sound, Osc, Mixer, Filter, Amp, Mod, LFO, Wheel, Trk mod, FX, Voice, Store.
+- **A sheet opens on its first row** (no per-sheet memory: no RAM). PRESETS and EDIT both land there.
+- **EDIT**, in `page_tap` where `smap_open` and the final `open_family(FAM_EDIT)` were (every earlier job of EDIT kept
+  first): on a row, the next sheet (wrapping); the FX link opens the FX family and sets `sh_fx`; on a FAM_FX page with
+  `sh_fx` set, the sheet after the link; anywhere else, the first sheet.
+- **SELECT** on a row: the next row, past the last the next sheet's first row (the link skipped), backwards the previous
+  sheet's last row. **PRESETS** on a row: the next or previous sheet (the link skipped). FM6's operator sheets set
+  `fm6_opsel`.
+- **`fam_last`** is written for the landed page's own family; never FAM_EDIT with another family's page.
+- **Drawing:** tabs on RINGS and CURVE rows (the designer's own while it is on; FM6's operator tabs replaced); the
+  framed row's labels `T_COZY`; a RINGS row whose sheet has another row: the next row (the previous on the last)
+  captured and drawn dimmed at 108 .. 159 and the box at 160 .. 207 (on the first sheet of an engine with a knob table:
+  HOME's four knobs and a macro's targets; otherwise empty); a one-row RINGS sheet keeps its picture; CURVE rows keep
+  their curve. List pages, MOD's route page and the action pages keep today's screens.
+
+### Step 2's flash and RAM (measured, October 29, 2026)
+
+Firmware builds one at a time, niced, with tools/orangecat_engines.sh:
+
+| Build | Image | .data+.bss | Data SRAM tail | Arena | Note |
+|---|---|---|---|---|---|
+| Both switches off | 537,248 B | 93,624 B | 4,680 B | 142,976 B | byte-identical to release-2 e1c8ac3 (`cmp`) |
+| OC_HOME_PIC=1 only | 546,784 B | 94,008 B | 4,296 B | 142,976 B | step 1's image: the same disassembly as step 1's ELF |
+| OC_HOME_PIC=1, OC_EDIT_SHEETS=1 | 549,328 B | 94,008 B | 4,296 B | 142,976 B | **+2,544 B of flash, +0 B of RAM against step 1** (after the diff review's fixes) |
+
+Free flash with both switches: 577,248 - 549,328 = **27,920 B**. The sheets' code: `sh_make` 650 B, `sh_rows` 114, `sh_land`
+100, `sh_row` 50, `sh_get` 44, `sh_add` 38, `sh_show` 34, the rest inlined into `page_tap`, `ui_input` and `pv_draw`
+(pv_draw 8,598 B, now a function of its own: the compiler stopped inlining it into draw_page). Before the review's fix
+of its frame cost the image was 546,816 B (+32 B): that build worked the sheets out three times a frame with string
+compares and happened to inline differently; the numbers above are the shipped code's. The 13 B of state (`sh_fx`,
+`sh_now`, two signatures) land in existing padding: .data+.bss and the data SRAM tail are unchanged, so the 200 B margin
+under the data bank's block still holds. Stack: one `sh_ctx_t` (about 380 B) in `ui_draw` a frame, and one in a button's
+handler (the user stack is about 24 KB, app.ld).
+
+**Frame cost (host, i5-6260U, -O1, nothing changing on screen):** MACRO's SOUND row 36 us a frame with the sheets, 32
+without; FM6 60 (31); the Prophet 38 (32); CZ-1 52. Making the sheets: 32 to 44 us. Before the fix: 353 us on MACRO.
+
+**Host tests of step 2:** `tests/sheet_test.c` (sheet_job, under ASan and UBSan), 79 checks: COVER (against release-2's
+own walk; FM6's six operators), EDIT, FAMLAST, FXLINK, PRESETS (both ends; FM6's row kept), SHORT, DRAW on SID, MACRO, DRUM-X, DRUM, FM6, SHAPES, CZ-1 and the Prophet (the host's engines), KNOBS (and EDIT held undoes),
+OTHERS (SAVE > USER's EDIT, SEQ's EDIT), ENGINE (an engine with its own ENV under an Env row): 0 failed. The HOME and
+TRACKS hash with both switches equals release-2's. `ui_render.c` with both switches (ui_renders_sheets): 270 screens
+and 1,152 sheet screens over 8 palettes, 0 lint findings, 0 MONO pixels off gray, the FM6 charts check passing.
+
+**The full host suite with step 2** (56 minutes, niced, PARALLEL=1, the engines file sourced): every job passed but the
+render loops' target cost, release-2's own failure (the same two lines, the same numbers); sheet_job and
+ui_renders_sheets passed.
+
+**The mockups (docs/orangecat/ui/new/, NIGHT unless named, drawn by the firmware through tests/ui_render.c):**
+`sheets_sheet.png` (the contact sheet: MACRO's SOUND row 1 and 2, ENV, MOD; DRUM-X's KIT and LANES; SHAPES; CZ-1's
+Line 1; the Prophet's Osc and Filter; FM6's OP1 and Algo), `sheet_<engine>_<sheet>_<name>_<row>.png` (every row on
+MACRO, SHAPES and DRUM-X; the first row of every sheet on CZ-1, FM6 and the Prophet), `day_sheet_macro_00_sound_1.png`,
+`day_sheet_drumx_02_lanes_1.png`, `day_sheet_prophet_03_filter_1.png`.
+
+### The diff review of step 2 (an independent agent, October 29, 2026)
+
+| # | Finding | Rating | What was done |
+|---|---|---|---|
+| 1 | The sheets worked out three times a frame, each with every page's visibility and title rule: about 80,000 string compares, ui_draw 353 us against 32 on the host (an estimated 6 to 15 ms a frame on the unit) | should-fix | One walk over the pages makes a context (`sh_make`: each page's sheet index, no string work after it), made once a frame in `ui_draw` (`sh_now`) and once a button: 36 us a frame on the host |
+| 2 | EDIT on a shared effect (DELAY) after the link went to Voice | should-fix, confirmed | The link's rule is for the track's FX pages only (`scope != SC_GLOBAL`); FXLINK tests it, and a mutation without the fix fails it on every engine |
+| 3 | Tests that could pass broken: COVER checked the sheets against themselves; FM6's operators not checked; ENGINE passed on falling to HOME; PRESETS +1 only; the link's lifetime untested | should-fix | COVER's oracle is release-2's own walk (`page_scroll` round each family, the ENV and LFO buttons' lists); the six operators checked; ENGINE needs `!ui.home`; PRESETS back and both ends; FXLINK (after the link, from a shared effect, after another button) |
+| 4 | PRESETS on an FM6 operator row lost the row | nit, confirmed | From one operator sheet to the next only the operator changes (release-2's operator turn); tested |
+| 5 | The two drawing signatures reset only by `ui.force` | nit | Zeroed whenever the lower area is not the sheets' |
+| 6 | `pv_pic` called twice a frame | nit | Kept (no side effects, a handful of compares) |
+| 7, 8 | `tabs_draw`'s shared static; the stack | nit, OK | No change (different salts, a force between; a few hundred bytes of a 24 KB stack) |
+| Checked OK | Array bounds (most rows 6, most sheets 15, 137 pages); every edge case of the walk; the capture (no cache touched); list pages, MOD's route page and the designer; `page_tap`'s order | | |
+
+### Left for later from step 2
+
+- The tabs on the list pages, MOD's route page and the action pages (they have no room today): step 9, when EDIT 1 and
+  EDIT 2 retire and those screens are redrawn as sheets.
+- PRESETS on a sheet as "the sound" (the design's table): step 3, with the SHIFT map.
+- The foot of a sheet as the mockup's keys ("SELECT ROW 1/2", "EDIT NEXT"): step 3 (the keys' hints belong to the map).
+- The capitals of the mockup's tabs: the owner's call (today's tabs are mixed case).
+
+## Step 3: the SHIFT map
+
+**Status: In progress (design note).** Behind a third switch, `OC_SHIFT_MAP` (core.h, default 0), which needs
+`OC_EDIT_SHEETS` (and so `OC_HOME_PIC`). With it off, HOME held opens the MENU at 0.7 s as on release-2.
+
+### 3. The SHIFT map (design note)
+
+**What the code has today (read for this note).** HOME goes through `btn_hold` (ui_input.c, a fixed 700 ms): a tap acts
+on release (HOME's pages, `go_home`), a hold fires once at 700 ms with HOME still down and opens (or closes) the MENU;
+`menu_input` only runs after HOME is let go. HOME is combined with nothing today (a layer button held swallows HOME).
+The layers (GLO, SCL, FX punch-in, ARP's PERFORM) are one table (ui_layer.c `LAYERS`): held alone past the menu's HOLD
+time a map is drawn over the page (`ui.layer`, `draw_layer`), a combo opens it at once, a double tap locks it. The slot
+`LAYER_RESERVED` (1) is unused. Fine turning exists only for NOTES' lengths (ENV held). Engine change is
+`select_engine(eng_step(..))` (the browser's KNOB 4); init is `sound_init_of` (behind a confirm in the OCT+ sheet);
+there is no sound clipboard (the user presets pack a track into a 238 B `up_rec_t` and write it to flash).
+
+**The owner's decision 4 read safely.** "HOME pressed alone opens the MENU" is taken as UI_DESIGN's own text (section 1
+and its controls table: "let go alone, the MENU opens"): HOME held and let go with no combo opens the MENU, on the
+release; a HOME tap keeps stepping HOME's pages. Written in the decisions for the owner to confirm.
+
+1. **HOME held** (`OC_SHIFT_MAP`): from the press, HOME is SHIFT. Held alone past the menu's HOLD time (as the layers'
+   maps), the map is drawn over the page (`ui.layer` = the reserved slot, renamed `LAYER_SHIFT`, so the header, the toast
+   and the redraw are the layers'). Let go:
+   - after a combo (any knob, PRESETS, EDIT, OCT-, OCT+, SELECT, a key): nothing more (no MENU, no tap);
+   - alone, before the HOLD time: a tap, as today;
+   - alone, after it: the map closes and the MENU opens.
+   With the MENU open, HOME held closes it as today (the MENU's own keys are unchanged). No double-tap lock for SHIFT.
+2. **The combos** (step 3's set; each on the map before it is in the code):
+   - SHIFT + KNOB 1..4: a fine turn, one raw step a detent with no acceleration (a quarter step needs a residue per knob
+     in RAM; the parameters' own step is the finest without one: the safer reading, written down);
+   - SHIFT + PRESETS: the track's engine, the next or previous (`select_engine(eng_step(..))`, admission as the browser);
+   - SHIFT + EDIT: init the sound, through today's confirm (CF_INIT_SOUND); undoable as every load;
+   - SHIFT + OCT-: copy the selected track's sound into a clipboard; SHIFT + OCT+: paste it onto the selected track
+     (one undo step, `load_begin`/`load_end`, as a preset load). The clipboard is one `up_rec_t` (238 B) in `.pool`, not
+     .bss (the data bank's 200 B margin), packed and unpacked by the user presets' own code split from its flash write
+     (`up_pack`, `up_unpack` in upreset.c). Empty clipboard: "NOTHING COPIED".
+   - NOTES and FEEL's combos (stretch, copy, paste, delete a selection) wait for step 4, where FEEL is built.
+3. **The map** (`ui_shift.c`): four rows of three tiles under the header (the mockup's 76 x 46 tiles from y 34), each a
+   control's name and its job on this page, a combo's tile tinted with a plus. Pages: HOME (its page's own: PICTURE,
+   TRACKS, CHORD), a sheet's row, and every other page with the controls table's generic jobs (the page family's
+   button, SELECT, PRESETS, OCT). The texts are a small const table (no RAM); the lint runs over the map on every page
+   kind in ui_render.c.
+4. **Nothing on the audio side, nothing saved** (the clipboard is RAM only, lost at power off).
+
+**RAM:** .data and .bss: 0 B planned (the map's state rides in `ui.layer` and spare bits of `ui.home_t0`). `.pool`: 240
+B for the clipboard; the pool shares SRAM with the audio arena, so the build must show the arena's blocks unchanged
+(142,976 B, minimum 142,336) or this item stops. **Flash:** the plan's +1 KB, likely more with the clipboard.
+
+**Tests:** `tests/shift_test.c`: a tap, a hold alone (map, MENU on the release), each combo (no MENU after), the MENU
+closed by a hold as today, fine turns, the engine step, init behind its confirm, copy and paste (bit-exact sound, one
+undo), an empty clipboard; with the switch off, ui_test's HOME tests as they are. `ui_render.c`: the map on each page
+kind, every palette, linted. The full suite; the switch-off image byte-identical to release-2.
+
+### The design review of step 3 (an independent agent, October 29, 2026)
+
+| # | Finding | Rating | What was done |
+|---|---|---|---|
+| 6 | SHIFT+EDIT opens the init confirm while HOME is down; the next OCT+ could be "accept" or "paste" | blocker | SHIFT never arms while a confirm, NAME, NEW SONG, the designer, a popup, the MENU or a layer is up, and a combo is never read under one; paste is not in step 3 |
+| 7 | On NOTES and TRACKER EDIT is a step modifier (a released EDIT deletes) and PRESETS zooms | blocker | The combos act on HOME's pages and on the sheets only; elsewhere SHIFT + a control is eaten (no job, no MENU) |
+| 1 | `ui.home_t0`'s bits are its press time and it is zeroed on the release frame | should-fix | SHIFT's two flags live in `ui.pg_down` bits 14 and 15 (14 button ids use 0 .. 13), read on the release frame before they are cleared |
+| 2 | `ui.layer` drags the layers' LEDs, autosave pause, OCT block and `layer_show`'s per-frame rewrite with it | should-fix | The map is not a layer: its own draw branch (as the section map's), redrawn on `ui.force` |
+| 8 | OCT's taps and hold sheet, EDIT's hold undo, the momentary "KEPT" path still act under SHIFT | should-fix | A control used as SHIFT's combo is swallowed the way those paths already swallow (EDIT `edit_t0 |= 2`, OCT `oct_eat` and `oct_t0 |= 2`); combos act on the control's press |
+| 9 | Other controls unclassified; HOME then a layer button; HOME + REC's capture | should-fix | Any other button, a key or ALGO while HOME is down counts as a combo: it does its own job as today and the release opens nothing (no MENU) |
+| 10 | An accidental detent silently cancels the MENU; the 400 to 699 ms window | should-fix | The detent shows its value as every knob does (the message says it was used); the map and the MENU keep btn_hold's 700 ms, so a 400 to 699 ms press stays a tap |
+| 11, 12 | A press begun under the designer or the MENU; two times | should-fix | SHIFT arms only on a press begun with none of those up; one time (700 ms) for the map, the MENU's opening and its closing |
+| 13 | SHIFT+PRESETS: no `browse_commit`, a refusal is a dead end, a load a detent | should-fix | `browse_commit` first; one engine step per detent with the refusal's message (`select_engine`'s own); on HOME's pages only |
+| 14 | The user preset record is not a faithful clipboard (admission, the user name, 21 values of a native engine, motion, the macros, the steps) | should-fix | **Copy and paste deferred** (below, with what they need): step 3 does not ship a lossy copy |
+| 15, 22 | Step 1's promise of SELECT on HOME; PRESETS on a sheet; the sheet's foot; decision 4's reasoning | should-fix | Decision 4: UI_DESIGN's own section 1 and its table say "let go alone"; that settles it. SELECT on HOME's pages, PRESETS on a sheet and the foot hints are re-deferred (below) |
+| 16 | A raw step a detent equals a slow turn on short ranges | nit | Written down: the fine turn is "no acceleration" (it differs on long ranges, where a fast turn jumps) |
+| 17, 20 | 12 tiles, what is left off; the flash of the table | nit | The map is the mockup's twelve tiles; what it leaves off is the other buttons' everyday jobs (the controls table); measured |
+| 18 | The switch-off image | should-fix | Every change under `#if OC_SHIFT_MAP`; nothing shared is refactored (no `up_pack` split in step 3) |
+| 21 | Tests | should-fix | shift_test.c covers each case listed (below); ui_test, home_pic_test, sheet_test and layer_screen_test also built with the switch on |
+| 3, 4, 5, 19 | Fine turning exists elsewhere too; the HOME tap's cycle; the pool before the audio text | nit | Noted; the HOME tap keeps step 1's PICTURE, TRACKS, CHORD cycle |
+
+### 3. The SHIFT map (the design as built, after the review)
+
+- **Arming:** HOME pressed with no MENU, confirm, NAME, NEW SONG, popup, layer or designer up arms SHIFT (`pg_down`
+  bit 14). Otherwise HOME is today's (a hold still closes the MENU at 700 ms; that press never opens it again).
+- **Alone:** let go before 700 ms: a tap, as today. Held to 700 ms: the map is drawn (`pg_down` bit 15); let go: the
+  map closes and the MENU opens.
+- **A combo** (bit 14 cleared, so the release does nothing): KNOB 1..4 on HOME's pages or a sheet: a fine turn (that
+  detent with no acceleration); PRESETS on HOME's pages: the engine, one step a detent (`browse_commit` first, the
+  refusal's message as `select_engine` gives it); EDIT on HOME's pages or a sheet: the init confirm (CF_INIT_SOUND).
+  Anything else pressed or turned while HOME is down does its own job as today and only cancels the MENU. On any other
+  page, SHIFT's knob, PRESETS and EDIT are eaten.
+- **The map** (`ui_shift.c`): the mockup's twelve tiles (PRESETS SOUND, ALGO TRACK, SELECT TRACKS / ROW, K1-4 KNOBS,
+  EDIT SHEETS, SEQ STEPS, then the combos tinted: K1-4 FINE, PRESETS ENGINE, EDIT INIT, OCT- COPY and OCT+ PASTE shown
+  dim with "LATER", LET GO MENU), the header "SHIFT". On a page where the combos are eaten they are drawn dim.
+
+### Left for later from step 3
+
+- **Copy and paste a sound** (SHIFT + OCT- / OCT+). The user preset record is not a faithful clipboard. A copy needs:
+  the whole sound as `undo_t` holds it (engine, preset, user slot and name, every parameter, the native FM6, Prophet and
+  CZ-1 patches, the DRUM and DRUM-X kits) in `.pool` (about 1 KB with the native patches: measure against the arena's
+  blocks); a paste through `eng_admit` (a module engine that does not fit refused with its message), one undo step, the
+  macros' dials and motion as a preset load leaves them. Its own step after step 4.
+- **SELECT on HOME's pages** (step 1 promised it with step 3): HOME's tap keeps cycling them; SELECT on HOME keeps its
+  menu-chosen job. Step 9, with the HOME switch's default.
+- **PRESETS on a sheet as the sound, the sheet's foot hints**: step 9 (the map now says what the controls do).
+- **NOTES and FEEL's combos**: step 4.
+
 ## Waiting on Session A
 
 | Item | What Session A is asked | Status |
@@ -459,6 +758,13 @@ Every one on a switch-on build (`OC_HOME_PIC=1`), with the pack carrying its sce
 6. **The cozy colors** on the panel, every palette (the host checks 3:1 on the ground; the panel's gamma is not the host's).
 7. **MENU > HOME PAGE back to TRACKS** with macros turned: the sound does not change.
 
+On a build with both switches (`OC_HOME_PIC=1 OC_EDIT_SHEETS=1`), step 2:
+8. **The sheets by hand on every shipping engine**: EDIT from HOME, EDIT through every sheet (the FX link and back to
+   Voice), SELECT down every row and across, PRESETS, ENV and LFO; nothing unreachable that release-2 reached.
+9. **The frame time on a sheet** with the second row and the box (the sheets are worked out on every frame for the dots
+   and the tabs): no late audio halves while SELECT is turned fast and a sequence plays.
+10. **EDIT held (undo) and EDIT with OCT** on a sheet, and the layers (GLO, SCL held) over a sheet: as release-2.
+
 ## Decisions made in this branch (the safer reading, where the call was Session C's)
 
 - BUILD.md kept as release-2's in the merge of ui-design (Session A owns it); ui-design's BUILD notes (0.79 .. 0.81) are
@@ -476,3 +782,15 @@ Every one on a switch-on build (`OC_HOME_PIC=1`), with the pack carrying its sce
 - The picture's state (the scene cache, the note age) is kept for the selected track only (1c).
 - The mockups live in docs/orangecat/ui/new/, since the repo ignores every `build/` folder.
 - The render loops' target-cost failure is left to Session A: release-2 fails it the same way here (see the suite).
+- Step 2 behind its own switch, `OC_EDIT_SHEETS`, which needs `OC_HOME_PIC` (each step behind the one before).
+- The sheets are the sections made wider (no new table): computed from the pages on each use, so no cache and no cap.
+- A sheet opens on its first row (no per-sheet memory: no RAM).
+- PRESETS on a sheet turns the sheets (as it turned the sections); the design's "PRESETS: the sound" waits for step 3.
+- EDIT on the FX pages goes on to Voice only when EDIT went through the FX link; from FX's own button, SOUND.
+- SELECT and PRESETS skip the FX link; only EDIT goes through it.
+- The tabs as the firmware already draws them (mixed case, as the sound designer's), not the mockup's capitals.
+- On engines with LFO pages of their own the track LFO's sheet is "Trk mod".
+- DRUM-X keeps the Mod and Voice sheets (everything stays reachable), beyond the design's KIT, LANES, ENV, FX.
+- The second row and the box replace the scope or the wave only; the filter's curve and FM6's chart stay.
+- List pages (VOICE, FM LFO, FM BEND), MOD's route page and the action pages (Store, Tools) keep release-2's screens with
+  no tabs: written down for step 9.
