@@ -95,7 +95,7 @@ JFX_XIP static void dub_add_wet(const track_t *t,uint32_t ti,uint32_t n)
     if(ti>=DUB_N)return;
     d=&dub_i[ti];
     if(!d->run)return;
-    if(!dub_done){if(d->hold)d->hold--;return;}
+    if(!dub_done || !((dub_wmask>>ti)&1u)){if(d->hold)d->hold--;return;}      /* (round 6) the wet is the last block's job's: only an instance that ran then has one */
     mix_send_gains(t);
     for(uint32_t i=0;i<n;i++){
         int32_t l=(int32_t)(dub_wet[ti][0][i]*DUB_SCALE),r=(int32_t)(dub_wet[ti][1][i]*DUB_SCALE),a=l<0?-l:l;
@@ -317,6 +317,7 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
         if(mod.on)mod_end(t);
     }
     audio_batch_flush();audio_batch_active=0;batch_ready=1;
+    dub_launch();                                       /* (round 6) DUB's job, behind the voice batch, in CPU1's idle time while the tracks are mixed */
 }
 #endif
 static uint8_t mix_tail[NTRK];                          /* (0.6.0) blocks of DIST state to run out after the last voice */
@@ -426,7 +427,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     mix_prepare_batch(n,nt);
 #else
-    dub_start(nt);
+    dub_start(nt);dub_launch();
 #endif
     mix_stem_n=0;
     for(uint32_t i=0;i<nt;i++){
