@@ -91,8 +91,10 @@ static void sound_paste(void)
 /* ---- (the new interface 0.11, UI_BUILD.md step 11) copy and paste on NOTES and FEEL -------------------------------------------------
  * NOTES: SHIFT + OCT- copies the selected notes (a range, an event selection, the picked note, or the manual step under the cursor) into
  * a clipboard of at most CLIPN_MAX notes, each with its distance from the start of the earliest one's step; SHIFT + OCT+ writes them at the cursor, on this
- * track and pattern or any other, as one note transaction (EDIT held undoes it whole). A paste that would land on a manual note, would
- * not fit the recording memory, or is longer than it fits refuses whole and says so. Manual steps are copied as the notes
+ * track and pattern or any other, as one note transaction (EDIT held undoes it whole). A paste that would land on a manual note or would
+ * not fit the recording memory refuses whole and says so. The other recorded steps keep their chance and slide (the overview rebuild
+ * clears the rest of a rebuilt step's feel, as a move does); a landing step that was recorded keeps its own, one that was not takes the
+ * copied notes'. A copy that fails (too many notes, none selected) leaves the clipboard as it was. Manual steps are copied as the notes
  * note_convert would make of them (each note of the chord at the step's length, an accent as velocity 127); a step's chance and slide
  * ride with each note. FEEL: SHIFT + OCT- copies the cursor step's feel (chance or condition, ratchet or flam, nudge, accent, slide),
  * SHIFT + OCT+ sets it on every step of the range (or the cursor's) that is on, as feel_reset does. Melodic tracks only (a drum track's
@@ -104,8 +106,12 @@ static struct {
     int32_t rel[CLIPN_MAX];
     recorded_note_t r[CLIPN_MAX];
 } notes_clip;
+static uint32_t clip_seen;                               /* (the first pass of a copy only counts, so a failed copy keeps the old clipboard) */
+static uint8_t clip_dry;
 static int notes_clip_add(const recorded_note_t *r, uint32_t pos, uint8_t prob, uint8_t slide)
 {
+    clip_seen++;
+    if (clip_dry) return 1;
     if (notes_clip.n >= CLIPN_MAX) return 0;
     notes_clip.r[notes_clip.n] = *r;
     notes_clip.rel[notes_clip.n] = (int32_t)pos;         /* (made relative below) */
@@ -114,15 +120,11 @@ static int notes_clip_add(const recorded_note_t *r, uint32_t pos, uint8_t prob, 
     notes_clip.n++;
     return 1;
 }
-static void notes_copy(void)
+static int notes_gather(void)                            /* the selection's notes into the clipboard (or only counted, clip_dry) */
 {
     track_t *t = TSEL;
     uint32_t i, s, chosen = notes_selected(t), len = step_pattern_len(t), at = notes_manual_start(t);
     int ok = 1;
-    int32_t ref = 0x7fffffff;
-    if (!bulk.on && chosen >= RECORD_MAX && at >= NSTEP) { ui_message("SELECT A NOTE"); return; }
-    notes_clip.n = 0;
-    fm1_irq_off();
     for (i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
         if (note_transform_has(i, chosen)) {
             const step_t *v = &t->step[recording_view(t, &recording[i])];
@@ -140,9 +142,22 @@ static void notes_copy(void)
             ok &= notes_clip_add(&r, s * RECORD_UNIT, st->probability, (uint8_t)(st->flags & SF_SLIDE));
         }
     }
+    return ok;
+}
+static void notes_copy(void)
+{
+    track_t *t = TSEL;
+    uint32_t i;
+    int32_t ref = 0x7fffffff;
+    if (!bulk.on && notes_selected(t) >= RECORD_MAX && notes_manual_start(t) >= NSTEP) { ui_message("SELECT A NOTE"); return; }
+    fm1_irq_off();
+    clip_dry = 1; clip_seen = 0;
+    notes_gather();
+    clip_dry = 0;
+    if (clip_seen && clip_seen <= CLIPN_MAX) { notes_clip.n = 0; notes_gather(); }
     fm1_irq_on();
-    if (!ok) { notes_clip.n = 0; ui_message("TOO MANY NOTES"); return; }
-    if (!notes_clip.n) { ui_message("SELECT A NOTE"); return; }
+    if (!clip_seen) { ui_message("SELECT A NOTE"); return; }
+    if (clip_seen > CLIPN_MAX) { ui_message("TOO MANY NOTES"); return; }
     for (i = 0; i < notes_clip.n; i++) if (notes_clip.rel[i] < ref) ref = notes_clip.rel[i];
     ref -= ref % (int32_t)RECORD_UNIT;                   /* (from the start of the earliest note's step: its onset inside the step comes across) */
     for (i = 0; i < notes_clip.n; i++) notes_clip.rel[i] -= ref;
@@ -168,16 +183,23 @@ static void notes_paste(void)
     }
     fm1_irq_off();
     if (!note_transaction_begin()) { fm1_irq_on(); return; }
+    uint16_t meta[NSTEP];                                /* (only chance and slide survive an overview rebuild; as note_transform keeps them) */
+    uint8_t was[NSTEP];
     memset(dest, 0, sizeof dest);
+    for (k = 0; k < NSTEP; k++) { meta[k] = (uint16_t)(t->step[k].probability | ((uint16_t)t->step[k].flags << 8)); was[k] = (t->step[k].flags & SF_RECORDED) != 0; }
     for (k = 0; k < notes_clip.n; k++) {
         for (i = 0; i < RECORD_MAX && recording[i].vel; i++);
+        if (i >= RECORD_MAX) break;
         recording_restore_note(t, i, r[k]);
         if (first == NSTEP || (r[k].step & 63u) < first) first = r[k].step & 63u;
     }
     note_rebuild_all();
-    for (k = 0; k < notes_clip.n; k++) {                 /* a step's chance and slide ride with its notes */
-        step_t *v = &t->step[recording_view(t, &r[k])];
-        if (v->flags & SF_RECORDED) { v->probability = notes_clip.pr[k]; v->flags = (uint8_t)((v->flags & ~SF_SLIDE) | notes_clip.slide[k]); }
+    for (k = 0; k < NSTEP; k++)
+        if (t->step[k].flags & SF_RECORDED) { t->step[k].probability = (uint8_t)meta[k]; t->step[k].flags = (uint8_t)((t->step[k].flags & ~SF_SLIDE) | ((meta[k] >> 8) & SF_SLIDE)); }
+    for (k = 0; k < notes_clip.n; k++) {                 /* a step that was not recorded takes the copied notes' chance and slide */
+        uint32_t vi = recording_view(t, &r[k]);
+        step_t *v = &t->step[vi];
+        if ((v->flags & SF_RECORDED) && !was[vi]) { v->probability = notes_clip.pr[k]; v->flags = (uint8_t)((v->flags & ~SF_SLIDE) | notes_clip.slide[k]); }
     }
     cursor_set((int32_t)first);
     ui.note_pick = 0;

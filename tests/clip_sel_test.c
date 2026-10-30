@@ -110,6 +110,24 @@ int main(void)
         oct(B_OCTUP);
         chk("NOTES   a paste past the loop's end wraps to its start", at_step(15, 60, 0) && at_step(0, 64, 0));
     }
+    {   /* the other recorded steps keep their chance and slide; a failed copy keeps the old clipboard */
+        fresh("NOTES");
+        put_note(0, 2, 1000, 60, 70, RECORD_UNIT / 2u);
+        put_note(1, 6, 0, 62, 70, RECORD_UNIT / 2u);
+        note_rebuild_all();
+        step_set_chance(&TSEL->step[6], 50); TSEL->step[6].flags |= SF_SLIDE;
+        cursor_set(2); frame();
+        ui.note_pick = 0; notes_selected(TSEL);
+        oct(B_OCTDN);
+        cursor_set(10); frame();
+        oct(B_OCTUP);
+        chk("NOTES   a paste keeps the chance and slide of the other recorded steps", nrec() == 3u && step_chance(&TSEL->step[6]) == 50u && (TSEL->step[6].flags & SF_SLIDE) && (TSEL->step[10].flags & SF_RECORDED));
+        select_range(0, 0);
+        cursor_set(0); frame();
+        oct(B_OCTDN);
+        chk("NOTES   a copy that finds nothing keeps the old clipboard", msg_is("SELECT A NOTE") && notes_clip.n == 1u);
+        bulk.on = 0;
+    }
     {   /* NOTES: a manual chord */
         uint32_t on = 0;
         fresh("NOTES");
@@ -149,8 +167,9 @@ int main(void)
         note_rebuild_all();
         select_range(0, 15);
         cursor_set(0); frame();
+        { uint32_t n0 = notes_clip.n;
         oct(B_OCTDN);
-        chk("REFUSED more notes than the clipboard holds: TOO MANY NOTES", msg_is("TOO MANY NOTES") && notes_clip.n == 0u);
+        chk("REFUSED more notes than the clipboard holds: TOO MANY NOTES, the old clipboard stays", msg_is("TOO MANY NOTES") && notes_clip.n == n0); }
     }
     {   /* FEEL */
         step_t *s;

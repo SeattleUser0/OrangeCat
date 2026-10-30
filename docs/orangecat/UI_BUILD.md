@@ -1091,8 +1091,8 @@ Run by `run_tests.sh` (job in step_pages_job); the renders gained `-DOC_CLIP=1`.
 
 **Switch** `OC_CLIP_SEL` (core.h, default 0, listed in tools/build.py; needs OC_CLIP). Off, NOTES and FEEL say LATER as before.
 
-**Design.** The same two keys, SHIFT + OCT- (copy) and SHIFT + OCT+ (paste), on the two step pages. Melodic tracks only (a drum track's roll
-and grid keep release-2's tools; the combos do not act there, as in step 4).
+**Design.** The same two keys, SHIFT + OCT- (copy) and SHIFT + OCT+ (paste), on the two step pages. Melodic NOTES only: on a drum track's NOTES (roll
+and grid) the combos say LATER and the tiles are dim; FEEL works on any track's steps.
 - **NOTES, copy:** the notes of the selection as `note_transform` reads one (`note_transform_has`: a range, an event selection or the picked
   note), and, with no event selection, the manual notes of the range's steps or of the step under the cursor. At most 64 notes
   (`CLIPN_MAX`, about 0.9 KB of RAM), else "TOO MANY NOTES" and nothing kept. Each note keeps its distance from the **start of the earliest
@@ -1110,9 +1110,23 @@ and grid keep release-2's tools; the combos do not act there, as in step 4).
 - Decisions: manual notes of a range copy as events (the same result a move gives them), not as manual steps; a pasted chord's
   step is therefore a recorded one; the clipboards are separate (a sound, notes, a feel), each kept until power off.
 
-**Tests** `tests/clip_sel_test.c` (16 checks, ASan and UBSan): a range of recorded notes (distances, velocities, lengths, onsets inside the
+**Tests** `tests/clip_sel_test.c` (19 checks, ASan and UBSan): a range of recorded notes (distances, velocities, lengths, onsets inside the
 step, one undo, twice, the wrap at the loop's end), a manual chord, the five refusals, FEEL's copy and paste with off steps and the empty
 and nothing-copied cases. Run by `run_tests.sh`; the renders gained `-DOC_CLIP_SEL=1`.
+
+**Review (an agent, note and diff together; one blocker):**
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | A paste's overview rebuild cleared the chance and slide of every other recorded step in the pattern | **blocker** | saved before the rebuild and restored after it, as `note_transform` does; tested |
+| 2 | Pasted notes landing on a recorded step overwrote its chance and slide | should-fix | a recorded landing step keeps its own; one that was not takes the copied notes' |
+| 3 | A failed copy emptied the old clipboard | should-fix | a counting pass first; a failed copy leaves the clipboard as it was; tested |
+| 4 | Drum track: the doc said the combos do not act; the tile looked live | should-fix | the doc says LATER on a drum NOTES; the tile is dim there (checked) |
+| 6 | The free-slot search could in theory run to RECORD_MAX | note | `if (i >= RECORD_MAX) break;` |
+| 12 | A stale comment about "longer than it fits" | note | removed |
+| 13 | Gaps: cross-track or cross-pattern paste, `bulk.on == 2` copy, FEEL on a recorded step, redo, drum track | note | **not covered**; written here |
+
+What the rebuild still clears (nudge, ratchet, condition of a rebuilt recorded step) is release-2's behavior for a move as well.
 
 **Mockups:** `step11_shift_map_notes.png`, `step11_shift_map_feel.png` (0 lint findings, 0 off-gray MONO).
 
