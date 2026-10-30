@@ -1357,6 +1357,24 @@ on the bench); "person" means a judgment a script cannot make.
 Pass means: S1, S2, S3, S5, S6 and S11 clean (a number, not a look); S4, S7 to S9 with no regression from release-2 that the harness can
 see; S10 left for the owner. A late half or an underrun in S6 that release-2 does not show stops the preview from going to the owner.
 
+## Step 12: the one-authority cleanup (not built; October 30, 2026)
+
+TRACKER_REVIEW.md "Left to do" ties the cleanup (a manual gesture on a recorded step deletes its events through the history, and
+`recording_prune` goes) to point 1, **the pads' event editor brought under the shared one**, which is a change to the pads' path with
+no user-visible gain and which sits in `recording.c`, `note_tools.c` and the pads' input, the code every recording, NOTES edit and undo
+runs through. The brief's test for this item was that it does not depend on 7a or on the owner's play test; it does depend on point 1,
+which nobody has done. **The safer reading: not built.** Written so it is not lost: the order is point 1 (share the pads' editor), then
+this, each behind its own switch with `tests/recording_props_test.c` as its gate and the unit's tracker checks (TRACKER_REVIEW.md) before
+`recording_prune` is removed. It needs a step of its own with a design note by someone who has the pads' path open.
+
+**Hardware checks added by steps 10 and 11** (the unit is Session A's; none run):
+19. **Copy and paste of a sound** (SHIFT + OCT- / OCT+ on HOME, a sheet): between tracks of the same engine and of different engines
+    (a built-in, a module, DRUM-X with an edited kit, FM6, CZ-1, the Prophet), the sound identical by ear and by the editor's dump;
+    EDIT held returns the old sound; a module engine that was removed refuses.
+20. **Copy and paste of notes on NOTES** (a range of recorded notes, a manual chord, between patterns and tracks): the phrase plays as
+    the host says; the other steps' chance and slide unchanged; EDIT held undoes it whole; no late audio halves while pasting 64 notes.
+21. **FEEL's copy and paste** on a recorded chord: the nudge and ratchet play as set.
+
 ## Decisions made in this branch (the safer reading, where the call was Session C's)
 
 - BUILD.md kept as release-2's in the merge of ui-design (Session A owns it); ui-design's BUILD notes (0.79 .. 0.81) are
