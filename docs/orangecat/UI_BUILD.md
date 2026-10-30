@@ -937,7 +937,7 @@ FEEL edits, nothing in the firmware or tools keyed to SEQ's page numbers, the si
 (estimate 4,000), .data+.bss unchanged (94,504 B), arena 84,288 B (unchanged). Free flash 22,560 B, 14,368 B above the reserve.
 Switch off: 539,212 B, byte-identical to release-2.
 
-**Host tests:** tests/step_pages_test.c (step_pages_job, ASan and UBSan): 48 checks, 0 failed (the order of SEQ's pages; NOTES'
+**Host tests:** tests/step_pages_test.c (step_pages_job, ASan and UBSan): 46 checks, 0 failed (the order of SEQ's pages; NOTES'
 four knobs and one undo each; START's wrap, refusal, the manual note's refusal; PRESETS and the zoom; the range keeping KNOB 1;
 FEEL's every knob and its ends, the 100 % crossing, a range set and not added, the guards, undo; the tracker's chord, its undo, the
 one-note and playing cases, the non-ascending chord; SHIFT + PRESETS and + EDIT on both pages; the chain). sheet_test and
