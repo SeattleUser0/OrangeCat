@@ -131,6 +131,18 @@
 #endif
 #define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (no page has it
                                    * with OC_STEP_PAGES 0) */
+#ifndef OC_LANES
+#define OC_LANES 0                /* (the new interface 0.5, branch ui-build: docs/orangecat/UI_BUILD.md step 5) 1: DRUM-X's EDIT > LANES as the eight-lane table
+                                   * (ui_lanes.c), PRESETS picks the lane; 0: the page as release-2's */
+#endif
+#if OC_LANES && !OC_STEP_PAGES
+#error "OC_LANES needs OC_STEP_PAGES (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#if OC_LANES
+#define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
+#else
+#define GR_LANES GR_NONE
+#endif
 #if OC_STEP_PAGES && !OC_SHIFT_MAP
 #error "OC_STEP_PAGES needs OC_SHIFT_MAP (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif

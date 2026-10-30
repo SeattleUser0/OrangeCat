@@ -462,6 +462,9 @@ static void graph_chord(const track_t *t, uint16_t c)
 }
 
 
+#if OC_LANES
+#include "ui_lanes.c"                                   /* (the new interface 0.5, UI_BUILD.md step 5) DRUM-X's LANES table */
+#endif
 #if OC_STEP_PAGES
 #include "ui_feel.c"                                    /* (the new interface 0.4, UI_BUILD.md step 4) SEQ > FEEL's tiles and reading */
 #endif

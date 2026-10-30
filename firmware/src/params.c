@@ -681,7 +681,7 @@ static const page_t PAGES[] = {
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
     /* (Orange Cat 0.14.2) DRUM-X: the lane the keys picked (a key struck picks its lane, as the grid's lane keys do), its four values; then its
      * sound values; then the kit's own (dxl_desc, eng_drumx.c dxk_t). A placeholder for Session C's page */
-    {"LANES", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN}},
+    {"LANES", FAM_EDIT, SC_DXLANE, GR_LANES, {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN}},   /* (the new interface 0.5: with OC_LANES the table, ui_lanes.c) */
     {"LANES 2", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_LAYER, DXL_PUNCH, DXL_ATK, DXL_BEND}},
     {"LANES 3", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_TONE, DXL_FDBK, DXL_HANDS, DXL_DUCK}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
