@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../firmware/src/dubdelay.c"
+#include "dub_scenes.h"
 
 static int bad;
 #define CHECK(c, ...) do { if (!(c)) { bad++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -171,6 +172,63 @@ int main(void)
         printf("dub: the loop spring's mix swept 0 to 0.7 and back: the largest sample step %.4f\n", maxd);
         CHECK(maxd < 0.25f, "the spring's crossfade clicks: %f", maxd);
         free(o1); free(sb);
+    }
+
+    /* 7c. (round 4) the wet spring's toggle: placement 2 on and off while a tone plays steps no more than the same stretch without the toggle (the mix glides as the loop's does; the tank is cleared only after it has faded) */
+    {   int16_t *sb = calloc(DD_SP_BUF, sizeof(int16_t));
+        float step_ref = 0.0f, step_off = 0.0f, step_on = 0.0f;
+        for (i = 0; i < N; i++) in[i] = 0.4f * sinf(0.03f * (float)i);
+        for (int cut = 0; cut < 2; cut++)
+        for (int mode = 0; mode < 3; mode++) {                       /* 0: spring on throughout; 1: on, then off at block 200; 2: off, then on at block 200 */
+            float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK], last = 0.0f, mx = 0.0f;
+            setup(2, 4, 1); memset(sb, 0, DD_SP_BUF * sizeof(int16_t)); dk_spring_attach(&dd, sb); params(&p, 0.05f, 0.7f);
+            p.sp_mix = 0.7f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f; p.sp_in = 0.3f; p.tap_cut = cut ? 0.5f : 0.0f;
+            for (uint32_t b = 0; b < 400; b++) {
+                p.spring = mode == 0 ? 2 : mode == 1 ? (b < 200 ? 2 : 0) : (b < 200 ? 0 : 2);
+                for (i = 0; i < DD_BLOCK; i++) x[i] = in[(b * DD_BLOCK + i) % N];
+                dk_process(&dd, &p, x, l, r);
+                for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b >= 200 && b < 240 && d > mx) mx = d; last = l[i]; }
+            }
+            if (mode == 0) step_ref = mx; else if (mode == 1) step_off = mx; else step_on = mx;
+            if (mode == 2) {
+                printf("dub: the wet spring toggled (tap cut %.1f): the largest sample step in the 40 blocks after, off %.4f, on %.4f, never toggled %.4f\n", p.tap_cut, step_off, step_on, step_ref);
+                CHECK(step_off < 1.3f * step_ref + 0.01f, "the wet spring's off steps (cut %d): %f against %f", cut, step_off, step_ref);
+                CHECK(step_on < 1.3f * step_ref + 0.01f, "the wet spring's on steps (cut %d): %f against %f", cut, step_on, step_ref);
+            }
+        }
+        printf("dub: the wet spring toggled: the largest sample step in the 40 blocks after, off %.4f, on %.4f, never toggled %.4f\n", step_off, step_on, step_ref);
+        CHECK(step_off < 1.3f * step_ref + 0.01f, "the wet spring's off steps: %f against %f", step_off, step_ref);
+        CHECK(step_on < 1.3f * step_ref + 0.01f, "the wet spring's on steps: %f against %f", step_on, step_ref);
+        free(sb);
+    }
+
+    /* 9. (round 6) converter B: the skank and throw scenes of the research prototype at the quarter rate through this dubdelay.c hash to the same 64-bit value as the renders the owner listened to
+     * (~/dubtape-research/conv/conv_render.c with DD_CONV=1, the same tests/dub_scenes.h): the first converter stage at 11 taps (beta 6), the second as before. A change of either converter changes the hash on purpose. */
+    {   static const uint64_t want[2] = {0xc84c9679e9269898ull, 0x3e7b807035f73c50ull};
+        static const float dur[2] = {11.0f, 12.0f};
+        for (int sc = 0; sc < 2; sc++) {
+            int n = (int)(dur[sc] * 44100.0f);
+            float *ol = (float *)calloc((size_t)n, sizeof(float)), *orr = (float *)calloc((size_t)n, sizeof(float));
+            uint64_t h;
+            sc_render(sc, ol, orr, n);
+            h = sc_fnv(sc_fnv(1469598103934665603ull, ol, n), orr, n);
+            printf("dub: converter B, scene %s through dubdelay.c: hash %016llx (the renders: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want[sc]);
+            CHECK(h == want[sc], "converter B's %s render differs from conv_render's", sc ? "throw" : "skank");
+            free(ol); free(orr);
+        }
+        /* and the half rate (R = 2, one stage) is not touched: the same scenes hash to what release-2's dubdelay.c (the 31-tap stage) gave */
+        {   static const uint64_t want2[2] = {0x0eb7fa8d6891d8d6ull, 0x033bca32d0f4a498ull};
+            for (int sc = 0; sc < 2; sc++) {
+                int n = (int)(dur[sc] * 44100.0f);
+                float *ol = (float *)calloc((size_t)n, sizeof(float)), *orr = (float *)calloc((size_t)n, sizeof(float));
+                uint64_t h;
+                sc_render_r(sc, ol, orr, n, 2);
+                h = sc_fnv(sc_fnv(1469598103934665603ull, ol, n), orr, n);
+                printf("dub: half rate, scene %s: hash %016llx (release-2's: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want2[sc]);
+                CHECK(h == want2[sc], "the half rate's %s render changed", sc ? "throw" : "skank");
+                free(ol); free(orr);
+            }
+        }
     }
 
     /* 8. the quarter rate: the repeat still at TIME */

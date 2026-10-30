@@ -136,7 +136,7 @@ static void dma(void)
     expected = HALF_FRAMES * 1000000u / FS;            /* the half's deadline in us */
     host_us = expected * 90u / 100u; host_nest = expected * 30u / 100u;   /* the render 60 %, TIMER5 nested 30 % */
     fm1_alnk0_irq(); fm1_alnk0_irq();
-    check("TIMER5 nested in the render counts toward the deadline", shed_req && melodee_dbg.last_us == host_us - host_nest);
+    check("TIMER5 nested in the render counts toward the deadline and the readout (round 4: the time the DMA sees)", shed_req && melodee_dbg.last_us == host_us);
     fresh();
     host_us = 5000;
     fm1_alnk0_irq(); host_us = 100; fm1_alnk0_irq(); host_us = 5000; fm1_alnk0_irq();

@@ -9,16 +9,34 @@
  * A change of LEN, SPRP or the rate stage never cuts: the wet is ramped out (the kernel's cut, 3 ms), the memory changes (or the line is cleared a block a
  * block), and the instance starts again from silence with its input ramped in. */
 #if MELODEE_DUB
+#ifndef OC_DUB_SRAM
+#define OC_DUB_SRAM 0
+#endif
+#if OC_DUB_SRAM                                         /* (round 3, a measurement build only: DUB's code in SRAM instead of flash, for the cost of one against the other) */
+#pragma push_macro("JFX_XIP")
+#undef JFX_XIP
+#define JFX_XIP __attribute__((noinline))
+#endif
+#ifndef OC_DUB_KSRAM
+#define OC_DUB_KSRAM 0
+#endif
+#if OC_DUB_KSRAM                                        /* (round 4) only DUB's per-block kernel in SRAM (dub_run, dd_run_lite, dd_sp_run); the control path stays in flash */
+#define DUB_HOT __attribute__((noinline))
+#else
+#define DUB_HOT JFX_XIP
+#endif
 #define DD_NOINL JFX_XIP
+#define DD_HOT DUB_HOT
 #include "dubdelay.c"
 #undef DD_NOINL
+#undef DD_HOT
 _Static_assert(DD_BLOCK == CTL, "a job a block");
 
 #define DUB_SCALE 524288.0f                             /* the mix domain: 1.0 = 524,288 (x is clamped to +-524,287; the master shifts by 4 to Q15) */
 #define DUB_HOLD 24u                                    /* blocks past the farthest head that an instance keeps running after the last audible input or wet */
 #define DUB_THR 132                                     /* -72 dB of the mix domain */
 #define DUB_RAMP 6u                                     /* blocks of cut before a change (the kernel's ramp is 3 ms = 4.1 blocks) */
-static const uint8_t dub_len_blocks[7] = {0, 2, 4, 6, 8, 12, 16};   /* P_DUBLEN: OFF 8K 16K 24K 32K 48K 64K, in blocks of 4 KB */
+static const uint8_t dub_len_blocks[7] = {0, 8, 2, 4, 6, 12, 16};   /* P_DUBLEN: OFF 32K 8K 16K 24K 48K 64K, in blocks of 4 KB (round 5: a turn up from OFF lands on 32K) */
 /* the 14 synced divisions of SPACE's first half, in beats (1/32 .. 1/1) */
 static const float dub_div_beats[14] = {0.125f, 1.0f / 6.0f, 0.25f, 1.0f / 3.0f, 0.375f, 0.5f, 2.0f / 3.0f, 0.75f, 1.0f, 4.0f / 3.0f, 1.5f, 2.0f, 3.0f, 4.0f};
 typedef struct { uint8_t n; float h[DD_TAPS], lv[DD_TAPS], pan[DD_TAPS], fb[DD_TAPS], m; } dub_ptrn_t;
@@ -64,7 +82,7 @@ static inline int32_t *dub_capture(uint32_t k)
 static inline int dub_alive(uint32_t k) { return k < DUB_N && dub_i[k].hold && (dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP); }
 
 /* the job: every instance flagged in dub_mask, on the previous block's capture */
-JFX_XIP static void dub_run(void)
+DUB_HOT static void dub_run(void)
 {
     uint32_t k, i;
     for (k = 0; k < DUB_N; k++) {
@@ -121,9 +139,16 @@ static __attribute__((section(".pool"))) uint16_t dub_gov_score, dub_gov_cool, d
 #define DUB_GOV_WAIT 11000u                             /* 8 s */
 #define DUB_QUIET 2750u                                 /* 2 s */
 static __attribute__((section(".pool"))) uint32_t dub_gov_fires;                          /* governor evictions since power-on (the readout) */
+#ifndef OC_DUB_NOGOV
+#define OC_DUB_NOGOV 0
+#endif
 JFX_XIP static void dub_late_half(int late)
 {
     uint32_t k, running = 0;
+#if OC_DUB_NOGOV                                        /* (round 5, a measurement build only: the governor never releases an instance, so a load over the budget can be timed with DUB running) */
+    (void)late; (void)k; (void)running;
+    return;
+#endif
     if (late) dub_late_recent = DUB_QUIET;
     for (k = 0; k < DUB_N; k++) running |= dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP;
     if (!running) {                                     /* a late half with no instance running is no business of DUB's: the score and the cool-down start over */
@@ -324,6 +349,9 @@ JFX_XIP static void dub_reset(void)
     for (uint32_t k = 0; k < DUB_N; k++) dub_i[k].was_on = trk[k].p[P_DUBLEN] != 0;   /* (a load is no OFF-to-length edge: the defaults are not written over a saved set) */
 }
 static void dub_tables(void) {}
+#if OC_DUB_SRAM
+#pragma pop_macro("JFX_XIP")
+#endif
 #else
 static void dub_tables(void) {}
 static inline void dub_late_half(int late) { (void)late; }

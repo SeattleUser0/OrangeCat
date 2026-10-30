@@ -24,6 +24,7 @@
  *   cost        host time a block for each effect (x86, not the device: printed, not a gate)
  * Run by tests/run_tests.sh. */
 #define UI_TEST_NO_MAIN 1
+#define JFX_DLY_CHECK 1                                 /* (round 4) jfx.c counts a delay read or write outside the line held: jfx_dly_bad */
 #include "ui_test.c"
 #include <sys/stat.h>
 #include <assert.h>
@@ -95,7 +96,7 @@ static int32_t jt_in(uint32_t kind, uint32_t t, uint32_t len, int32_t a)
  * arena that has none stays so, FX FULL) */
 static int jt_bus_ready(uint32_t where)
 {
-    return where == 1 ? cho_buf != 0 : where == 2 ? dly_have == DLY_NSEG : where == 3 ? jrev != 0 && rx_have : 1;
+    return where == 1 ? cho_buf != 0 : where == 2 ? (dly_n && dly_have >= dly_n) : where == 3 ? jrev != 0 && rx_have : 1;
 }
 static void jt_warm(uint32_t where)
 {
@@ -236,7 +237,7 @@ static void t_delay(void)
     }
     {   /* memory: taken while a send is set (16 blocks of 4 KB, 4 a block), all of it given back 2 s after the sends
          * are 0 and the buses rest */
-        uint32_t taken = 0, first, back;
+        uint32_t taken = 0, first, back, nb;
         static int32_t z[CTL];
         jt_fresh();
         song.g[G_DTIME] = 2;
@@ -246,11 +247,96 @@ static void t_delay(void)
         first = dly_have;
         jt_render(2, 0, 0, 0, 16000, CTL * 4u);
         for (uint32_t k = 0; k < DLY_NSEG; k++) taken += resource[RES_JFX0 + JB_DLY0 + k].size;
+        nb = dly_n;
         trk[0].p[P_DLY] = 0;
         jt_render(0, 0, 0, 0, 0, JT_SECS(5));            /* (the echo, the rest, 2 s idle) */
         back = jt_held();
-        bad += check("jfx: DELAY's 64 KB taken while its send is set (4 KB blocks, 4 a block), given back 2 s after rest",
-                     first == JFX_GROW && taken == DLY_LEN * sizeof(int16_t) && back == 0u);
+                bad += check("jfx: DELAY's line (the blocks its TIME needs, 4 to 16 of 4 KB, 4 a block) taken while its send is set, given back 2 s after rest",
+                     first == JFX_GROW && nb >= 4 && nb <= DLY_NSEG && taken == nb * JFX_SEG * sizeof(int16_t) && back == 0u);
+    }
+    {   /* (round 4) TIME swept up through the line's block boundaries (4, 8, 12, 16 blocks) with the delay running on a 440 Hz tone: every grow is the rate change's fade, clear and restart,
+         * so the output steps no more than the tone's own slew (12,000 x 2 pi x 440 / 44,100 = about 750 a sample) plus the echo's, and the line ends at the blocks the last TIME needs, with an echo */
+        static int32_t x[CTL];
+        uint32_t t = 0, i, maxstep = 0, grown[5] = {0}, ng = 0, last_n = 0;
+        int32_t last = 0, pk = 0;
+        jt_fresh();
+        song.g[G_DFDBK] = 30;
+        trk[0].p[P_DLY] = 100;
+        for (uint32_t step = 0; step < 36u; step++) {
+            song.g[G_DTIME] = (int16_t)(26 + step);             /* DTIME_MS[16 + step]: 56 ms up to 1.7 s: 4 blocks to 16, and the half-rate stage past 742 ms */
+            for (uint32_t b = 0; b < JT_SECS(0.3) / CTL; b++) {
+                for (i = 0; i < CTL; i++) x[i] = jt_in(3, t + i, 0, 12000);
+                jt_block(0, 0, 0, 0, x, 0);
+                for (i = 0; i < CTL; i++) {
+                    int32_t v = jo[2u * i], d = v > last ? v - last : last - v;
+                    if (t > 16u * CTL && (uint32_t)d > maxstep) maxstep = (uint32_t)d;
+                    if (t > 16u * CTL && abs(v) > pk) pk = abs(v);
+                    last = v;
+                }
+                t += CTL;
+            }
+            if (dly_n != last_n && ng < 5u) { grown[ng++] = dly_n; last_n = dly_n; }
+        }
+        printf("  TIME swept: the line's blocks over the sweep %u %u %u %u %u, the largest sample step %u, peak %d\n", grown[0], grown[1], grown[2], grown[3], grown[4], maxstep, pk);
+        bad += check("jfx: DELAY: TIME swept up through the line's block boundaries: the line grows (fade, clear, restart), no step beyond the tone's slew, the echo is there",
+                     ng >= 2u && dly_n == DLY_NSEG && maxstep < 2400u && pk > 1000 && !jfx_dly_bad);
+        {   uint32_t at3 = 0, blocks_after;                   /* and TIME back to 35 ms: under the line for 3 s, then it shrinks to 4 blocks and the 12 are given back */
+            song.g[G_DTIME] = 26;
+            for (uint32_t b = 0; b < JT_SECS(2.0) / CTL; b++) { for (i = 0; i < CTL; i++) x[i] = jt_in(3, t + i, 0, 12000); jt_block(0, 0, 0, 0, x, 0); t += CTL; }
+            at3 = dly_n;
+            for (uint32_t b = 0; b < JT_SECS(3.0) / CTL; b++) { for (i = 0; i < CTL; i++) x[i] = jt_in(3, t + i, 0, 12000); jt_block(0, 0, 0, 0, x, 0); t += CTL; }
+            blocks_after = dly_have;
+            bad += check("jfx: DELAY: TIME back down: the line shrinks to 4 blocks (at once with the rate change, else after 3 s) and gives the rest back", at3 <= DLY_NSEG && dly_n == 4u && blocks_after == 4u);
+        }
+        trk[0].p[P_DLY] = 0;
+    }
+    {   /* (round 4) PING-PONG turned on at a TIME above half the line's reach, a TIME change under way, PING-PONG off, and the GRAIN delay on with a small line: no read or write outside the line held */
+        static int32_t x[CTL];
+        uint32_t t = 0, i, step;
+        int32_t pk = 0;
+        jt_fresh();
+        jfx_dly_bad = 0;
+        song.g[G_DFDBK] = 40;
+        trk[0].p[P_DLY] = 100;
+        song.g[G_DTIME] = 44;                           /* 307 ms: 8 blocks, a reach of 16,376 samples, half of it 8,188 */
+        for (step = 0; step < 6u; step++) {
+            if (step == 1u) {
+                (void)dly_rd_q(fx.dly_w, (int32_t)(40000u << 8));              /* a read farther back than the line holds (PING-PONG's twice TIME, a crossfade from a longer TIME): the oldest sample, not outside the ring */
+                (void)dly_rd_q(fx.dly_w, (int32_t)(40000u << 8) + 77);
+                (void)dly_rd_q(fx.dly_w, -(int32_t)(3u << 8));
+            }
+            if (step == 1u) song.g[G_DPING] = 1;        /* PING-PONG on: twice TIME is past the reach */
+            if (step == 2u) song.g[G_DTIME] = 46;       /* TIME moves while the crossfades run */
+            if (step == 3u) song.g[G_DPING] = 0;
+            if (step == 4u) { song.g[G_DTIME] = 36; song.g[G_DPIT] = 5; }   /* GRAIN with whatever line is held */
+            if (step == 5u) song.g[G_DPING] = 1;
+            for (uint32_t b = 0; b < JT_SECS(0.7) / CTL; b++) {
+                for (i = 0; i < CTL; i++) x[i] = jt_in(3, t + i, 0, 12000);
+                jt_block(0, 0, 0, 0, x, 0);
+                for (i = 0; i < CTL; i++) if (abs(jo[2u * i]) > pk) pk = abs(jo[2u * i]);
+                t += CTL;
+            }
+        }
+        printf("  PING-PONG / TIME / GRAIN toggles: reads outside the line %u, peak %d, line %u blocks\n", jfx_dly_bad, pk, dly_n);
+        bad += check("jfx: DELAY: PING-PONG at a TIME above half the reach, TIME moving, GRAIN on a small line: nothing read outside the line held", jfx_dly_bad == 0u && pk > 1000);
+        song.g[G_DPING] = 0; song.g[G_DPIT] = 0;
+        trk[0].p[P_DLY] = 0;
+    }
+    {   /* (round 4) a grow asked for and no longer needed (TIME back before the blocks were used): the blocks taken for it are given back, not held */
+        static int32_t x[CTL];
+        uint32_t t = 0, i;
+        jt_fresh();
+        song.g[G_DFDBK] = 20;
+        trk[0].p[P_DLY] = 100;
+        song.g[G_DTIME] = 26;                           /* 35 ms: 4 blocks */
+        for (uint32_t b = 0; b < JT_SECS(0.5) / CTL; b++) { for (i = 0; i < CTL; i++) x[i] = jt_in(3, t + i, 0, 12000); jt_block(0, 0, 0, 0, x, 0); t += CTL; }
+        song.g[G_DTIME] = 63;                           /* the whole line asked for ... */
+        for (uint32_t b = 0; b < 2u; b++) { for (i = 0; i < CTL; i++) x[i] = jt_in(3, t + i, 0, 12000); jt_block(0, 0, 0, 0, x, 0); t += CTL; }
+        song.g[G_DTIME] = 26;                           /* ... and TIME back at once */
+        for (uint32_t b = 0; b < JT_SECS(0.5) / CTL; b++) { for (i = 0; i < CTL; i++) x[i] = jt_in(3, t + i, 0, 12000); jt_block(0, 0, 0, 0, x, 0); t += CTL; }
+        printf("  abandoned grow: line %u blocks, held %u, wanted %u\n", dly_n, dly_have, dly_want);
+        bad += check("jfx: DELAY: a grow no longer needed gives its blocks back (nothing held past the line)", dly_n == 4u && dly_have == 4u && dly_want == 4u);
+        trk[0].p[P_DLY] = 0;
     }
     {   /* FEEDBK past 100 % (120): driven, it saturates; the output stays within the master's range */
         int32_t pk;
@@ -543,7 +629,7 @@ static void t_full(void)
     jt_render(2, 1, 1, 2000, 12000, JT_SECS(1.5));   /* (the retry after 0.25 s, FX FULL shown 1 s past the last) */
     if (!(same && full)) printf("  FX FULL: dry %d, full %d, after %d\n", same, full, jfx_full);
     bad += check("jfx: FX FULL: a bus with no memory plays dry and says so; it comes in once there is memory",
-                 same && full && !(jfx_full & JFX_FULL_DLY) && dly_have == DLY_NSEG);
+                 same && full && !(jfx_full & JFX_FULL_DLY) && (dly_n && dly_have >= dly_n));
 }
 
 /* (0.6.0 rev 2) the arena as the device has it: banks of a few KB and the lent card pool */
@@ -563,7 +649,7 @@ static void t_arena(void)
         resource_host_cache_enabled = 1;
         jt_fill_to(RES_ENGINE0, _resource_start, _resource_end, 30u * 1024u);
         jt_fill_to(RES_ENGINE0 + 1, _resource_data_start, _resource_data_end, 0);
-        song.g[G_DTIME] = 2;
+        song.g[G_DTIME] = 49;     /* (562 ms: 24,784 samples, 13 blocks of the full-rate line, so 16 held, in pieces, and the first echo inside the second) */
         song.g[G_DFDBK] = 0;
         jt_render(2, 0, 0, 0, 16000, JT_SECS(1));
         for (k = 0; k < DLY_NSEG; k++) {
@@ -573,7 +659,7 @@ static void t_arena(void)
         }
         jt_peak_at(CTL, JT_SECS(1) / CTL * CTL, &pk);
         bad += check("jfx: arena in pieces (no bank with 32 KB free): the delay's blocks in three banks, it echoes",
-                     dly_have == DLY_NSEG && (banks & 7u) == 7u && pk > 1000 && !(jfx_full & JFX_FULL_DLY));
+                     (dly_n && dly_have >= dly_n) && (banks & 7u) == 7u && pk > 1000 && !(jfx_full & JFX_FULL_DLY));
         resource_host_cache_enabled = 0;
         jfx_power_on();
         for (k = 0; k < RES_JFX0; k++) resource_release(k);
@@ -614,8 +700,9 @@ static void t_arena(void)
         jt_fill_to(RES_ENGINE0 + 2, _resource_data_start, _resource_data_end, 0);
         jt_fill_to(RES_ENGINE0 + 3, _resource_retained_start, _resource_retained_end, 0);
         trk[0].p[P_DLY] = 100;
+        song.g[G_DTIME] = 63;                           /* (the whole line: 16 blocks, so the engine must ask) */
         for (k = 0; k < 8u; k++) jt_block(z, z, 0, 0, 0, 0);
-        int had = dly_have == DLY_NSEG;
+        int had = (dly_n && dly_have >= dly_n);
         resource_release(RES_ENGINE0 + 3);
         eng = resource_get(RES_ENGINE0 + 3, 20000u);    /* (more than the retained bank: the main bank's, the delay's) */
         int asked = !eng && res_jfx_yield;

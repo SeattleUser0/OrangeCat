@@ -97,6 +97,11 @@ _Static_assert(JB_N == RES_JFX_N, "resources.c: an arena handle a block");
 /* the arena's blocks now (0: not held); CPU0 sets them before a job, the job reads them */
 static int16_t *dly_seg[DLY_NSEG], *rx_seg[RX_NSEG], *cho_buf;
 static uint8_t dly_have, rx_have;                       /* (0.6.0 rev 2) the blocks held, from the first */
+static uint8_t dly_n, dly_want;                        /* (round 4) the delay's line in use, in blocks (4, 8, 12 or 16; 0: none), and the blocks asked of jfx_mem; kept out of `fx` (fx_bus_clear clears that) */
+static uint16_t dly_shrink;                             /* .. the blocks the need has been under the line for: a shrink waits for DLY_SHRINK */
+static uint32_t dly_gen;                                /* .. resource_gen + 1 when a grow was refused: asked again only after something was released */
+#define DLY_STEP 4u
+#define DLY_SHRINK 4134u                                /* 3 s of blocks (44,100 / CTL) */
 static __attribute__((section(".pool"))) uint8_t dub_want[DUB_N], dub_spring[DUB_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
                                                          * them before jfx_mem, from the tracks */
 static __attribute__((section(".pool"))) uint8_t dub_held_sp[DUB_N];                      /* the spring the held memory was taken for */
@@ -128,15 +133,34 @@ static inline __attribute__((always_inline)) int32_t fx_scale(int32_t a, uint32_
 static inline __attribute__((always_inline)) int32_t fx_div_pow2(int32_t x, uint32_t shift)
 { return (x + (int32_t)(((uint32_t)x >> 31) * ((1u << shift) - 1u))) >> shift; }
 
-/* the delay's line, sample i (the two halves as one ring) */
+/* the delay's line, sample i of a ring of dly_n blocks (round 4: the line is 4 to 16 blocks, not a power of two: an index within a line's length either
+ * side of 0 is folded once; the write index is kept in [0, L)) */
+#ifdef JFX_DLY_CHECK                                   /* host tests: a read or a write outside the line held is counted */
+static uint32_t jfx_dly_bad;
+#define DLY_CHK(i) do { if ((i) >= (uint32_t)dly_have * JFX_SEG) jfx_dly_bad++; } while (0)
+#else
+#define DLY_CHK(i) ((void)0)
+#endif
+static inline __attribute__((always_inline)) uint32_t dly_fold(uint32_t i)
+{
+    const uint32_t L = (uint32_t)dly_n * JFX_SEG;
+    if ((int32_t)i < 0) i += L;
+    else if (i >= L) i -= L;
+    return i;
+}
 static inline __attribute__((always_inline)) int32_t dly_get(uint32_t i)
 {
-    return dly_seg[(i >> JFX_SEG_SH) & (DLY_NSEG - 1u)][i & (JFX_SEG - 1u)];
+    i = dly_fold(i);
+    DLY_CHK(i);
+    return dly_seg[i >> JFX_SEG_SH][i & (JFX_SEG - 1u)];
 }
 static inline __attribute__((always_inline)) void dly_put(uint32_t i, int32_t v)
 {
-    dly_seg[(i >> JFX_SEG_SH) & (DLY_NSEG - 1u)][i & (JFX_SEG - 1u)] = (int16_t)v;
+    i = dly_fold(i);
+    DLY_CHK(i);
+    dly_seg[i >> JFX_SEG_SH][i & (JFX_SEG - 1u)] = (int16_t)v;
 }
+
 /* CLOUD's line, sample i (its blocks as one ring) */
 static inline __attribute__((always_inline)) int32_t cl_get(uint32_t i)
 {
@@ -416,7 +440,7 @@ static struct {
     uint8_t dfresh;                      /* (Orange Cat 0.6.0 rev 2) the delay's line just complete (jfx_mem): its rate
                                           * and read points set as on the first block (the other buses may have run
                                           * before it had its memory) */
-    uint8_t dr_sh, dsw, dsw_to;          /* .. (0.8.4) the line's rate, FS >> dr_sh (0 full, 1 half, 2 a quarter); a change of
+    uint8_t dr_sh, dsw, dsw_to, dn_to;          /* .. (0.8.4) the line's rate, FS >> dr_sh (0 full, 1 half, 2 a quarter); a change of
                                          * it: 1 the delay fading out, 2 the line being cleared; the rate it goes to */
     uint16_t dsw_n, din_g;               /* .. the fade's samples left / the chunk being cleared; the input's fade-in left */
     uint32_t dw_ph, df_ph;               /* .. (0.6.86) the tape's WOW and FLUTTER phases */
@@ -443,6 +467,10 @@ static struct {
     uint32_t gr_rng;                     /* (Orange Cat) the GRAIN's random numbers: its own (Jiant's beta found the shared
                                           * generator drawn from both cores) */
 } fx;
+static inline __attribute__((always_inline)) void dly_adv(void)           /* the write index on, wrapped at the line's end */
+{
+    if (++fx.dly_w >= (uint32_t)dly_n * JFX_SEG) fx.dly_w = 0;
+}
 #define rev_comb (jrev->comb)
 #define rev_ap (jrev->u.ap)
 #define rpre_buf jrev_x
@@ -490,7 +518,7 @@ static void dly_grain_adv(void)
 static JFX_XIP int32_t dly_grain(uint32_t dl, uint32_t sh)   /* (0.8.4) sh: the line at FS >> sh */
 {
     int32_t x = 0;
-    uint32_t j, top = (DLY_LEN << sh) - (2u << sh) - GR_LEN * 2u;   /* (the farthest a grain starts, FS samples) */
+    uint32_t j, Ln = (uint32_t)dly_n * JFX_SEG, top = (Ln << sh) - (2u << sh) - GR_LEN * 2u;   /* (the farthest a grain starts, FS samples) */
     for (j = 0; j < 2u; j++) {
         int32_t s = fx.gr_s[j];
         uint32_t e = (GR_LEN * (uint32_t)(s < 0 ? -s : s)) >> 8;   /* the read point's sweep over a grain, Q8 */
@@ -502,8 +530,8 @@ static JFX_XIP int32_t dly_grain(uint32_t dl, uint32_t sh)   /* (0.8.4) sh: the 
                                                          * shrinks over the grain; down, it grows */
         d >>= sh;                                       /* (FS samples -> the line's) */
         di = d >> 8;
-        if (di > DLY_LEN - 2u)
-            di = DLY_LEN - 2u;
+        if (di > Ln - 2u)
+            di = Ln - 2u;
         a = dly_get(fx.dly_w - di);
         b = dly_get(fx.dly_w - di - 1u);
         w = (int32_t)(ph < 32768u ? ph : 65535u - ph);  /* the triangle, 0 .. 32767 */
@@ -568,8 +596,10 @@ static void dly_wow_adv(uint32_t n, int32_t *m0, int32_t *dm)   /* the block's d
  * DaisySP's DelayLine ReadHermite, MIT) */
 static inline int32_t dly_rd_q(uint32_t w, int32_t q)
 {
-    int32_t f = q & 255, xm1, x0, x1, x2, c1, c2, c3;
-    uint32_t i = w - (uint32_t)(q >> 8);
+    int32_t f = q & 255, xm1, x0, x1, x2, c1, c2, c3, dist = q >> 8;
+    uint32_t i;
+    if (dist > (int32_t)((uint32_t)dly_n * JFX_SEG) - 4) dist = (int32_t)((uint32_t)dly_n * JFX_SEG) - 4;   /* (round 4: a read farther than the line holds, PING-PONG's twice TIME while TIME is above half the reach, a crossfade from a longer TIME: the oldest sample, never outside the ring) */
+    i = w - (uint32_t)dist;
     x0 = dly_get(i);
     if (!f)
         return x0;
@@ -596,6 +626,7 @@ static inline int32_t dly_rdc(uint32_t d, int32_t m) { return dly_rd(dly_near(d)
  * two older taps, one to spare) */
 #define DLY_EDGE 8u
 #define DLY_SPAN(sh) ((DLY_LEN - DLY_EDGE) << (sh))      /* the longest read at FS >> sh, FS samples */
+#define DLY_SPAN_N(sh) ((((uint32_t)dly_n * JFX_SEG) - DLY_EDGE) << (sh))   /* (round 4) .. of the line held now */
 #define DLY_MAX DLY_SPAN(2u)                             /* .. of all (a quarter rate) */
 #define DT_FREE 10                                       /* G_DTIME: the divisions, then free times (DTIME_MS) */
 static const uint16_t DTIME_MS[54] = {5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19, 21, 24, 27, 31, 35, 39, 44, 50, 56, 64,
@@ -1204,6 +1235,13 @@ static uint32_t dly_stage(uint32_t need, uint32_t cur)
         s = 2u;
     return s;
 }
+/* (round 4) the blocks of the line a read need (FS samples) at the rate FS >> sh takes: the samples, the 8-sample edge, in blocks, up to a multiple of 4 */
+static uint32_t dly_segs_for(uint32_t need, uint32_t sh)
+{
+    uint32_t n = (((need + (1u << sh) - 1u) >> sh) + DLY_EDGE + JFX_SEG - 1u) / JFX_SEG;
+    n = (n + DLY_STEP - 1u) / DLY_STEP * DLY_STEP;
+    return n < DLY_STEP ? DLY_STEP : n > DLY_NSEG ? DLY_NSEG : n;
+}
 static void dly_lo_reset(void)
 {
     memset(&dlo, 0, sizeof dlo);
@@ -1295,7 +1333,7 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
             if (k->dton) lf = tone_run(&k->tn, lf, &fx.dt1, &fx.dt2);
             w = u + mulq15(clamp(lf, -32767, 32767), k->png ? k->fb2 : k->fb);
             dly_put(fx.dly_w, k->dig ? clamp(w, -32767, 32767) : dly_sat(w));
-            fx.dly_w++;
+            dly_adv();
             if (k->png)
                 oxr = mulq15(clamp(oxr, -65535, 65535), k->fb > 32767 ? 32767 : k->fb);
             x = ox;                                      /* (from here the output's taps) */
@@ -1349,27 +1387,42 @@ static JFX_XIP void dly_lo(const int32_t *dly_in, int32_t *dx, int32_t *dxr, uin
  * block is dly_lo's (not plain at the full rate) */
 static int dly_rate(uint32_t *dl, uint32_t *dr, uint32_t dro, int png, int gr)
 {
-    uint32_t need = png ? *dl * 2u : *dl + dro, s, span;
+    uint32_t need = png ? *dl * 2u : *dl + dro, s, span, nt;
     int fresh = 0;
     s = dly_stage(need, fx.primed ? fx.dr_sh : 0u);
+    nt = gr ? DLY_NSEG : dly_segs_for(need, s);          /* (round 4) the blocks it needs at that rate (the GRAIN delay sweeps the whole line) */
     if (!fx.primed || fx.dfresh) {
         fx.dr_sh = (uint8_t)s;
         fx.dsw = 0; fx.din_g = 0;
+        fx.dly_w = 0;
+        dly_shrink = 0;
         memset(&dlo, 0, sizeof dlo);
-    } else if (fx.dsw == 2u) {                          /* clearing: a chunk this block, the last one: the new rate */
-        dly_line_clear(fx.dsw_n * DLY_CLR, DLY_CLR);
-        if (++fx.dsw_n >= DLY_LEN / DLY_CLR) {
+    } else if (fx.dsw == 2u) {                          /* clearing: a chunk this block (the larger of the old and the new line), the last one: the new rate and size */
+        uint32_t Lc = (uint32_t)(dly_n > fx.dn_to ? dly_n : fx.dn_to) * JFX_SEG, from = (uint32_t)fx.dsw_n * DLY_CLR;
+        dly_line_clear(from, Lc - from < DLY_CLR ? Lc - from : DLY_CLR);
+        if ((uint32_t)++fx.dsw_n * DLY_CLR >= Lc) {
             fx.dr_sh = fx.dsw_to;
+            dly_n = dly_want = fx.dn_to;                /* (the blocks past it are given back by jfx_mem) */
+            fx.dly_w = 0;
             fx.dsw = 0; fx.din_g = DSW_FADE;
             dly_lo_reset();
             fresh = 1;
         }
-    } else if (!fx.dsw && s != fx.dr_sh) {
-        fx.dsw = 1;
-        fx.dsw_n = DSW_FADE;
-        fx.dsw_to = (uint8_t)s;
+    } else if (!fx.dsw && (s != fx.dr_sh || nt > dly_n || (nt < dly_n && dly_shrink >= DLY_SHRINK))) {
+        if (nt > dly_have) {                            /* more blocks than held: ask (jfx_mem), go on at this size with TIME held to its reach */
+            dly_want = (uint8_t)nt;
+        } else {
+            fx.dsw = 1;
+            fx.dsw_n = DSW_FADE;
+            fx.dsw_to = (uint8_t)s;
+            fx.dn_to = (uint8_t)nt;
+            dly_shrink = 0;
+        }
     }
-    span = DLY_SPAN(fx.dr_sh);
+    if (!fx.dsw && nt <= dly_n && dly_want > dly_n) dly_want = dly_n;        /* (a grow no longer needed: the blocks taken for it are given back by jfx_mem) */
+    if (nt < dly_n) { if (dly_shrink < 0xFFFFu) dly_shrink++; }   /* (the need under the line: a shrink after 3 s of it) */
+    else dly_shrink = 0;
+    span = DLY_SPAN_N(fx.dr_sh);
     if (png && *dl > span / 2u) *dl = span / 2u;
     if (*dl > span) *dl = span;
     *dr = *dl + dro;
@@ -1411,7 +1464,7 @@ static int fx_rest(int32_t any, int32_t *wet, uint32_t n)
         fx.dt1 = fx.dt2 = fx.rt1 = fx.rt2 = 0;
         fx.dly_lp = fx.dly_hp = fx.rf_lp = fx.rpre_s = fx.cl_lp = fx.cl_half = 0;
     } else if (ph <= 4u) {
-        dly_line_clear((ph - 1u) * (DLY_LEN / 4u), DLY_LEN / 4u);
+        dly_line_clear((ph - 1u) * ((uint32_t)dly_n * JFX_SEG / 4u), (uint32_t)dly_n * JFX_SEG / 4u);
     } else if (ph == 5u) {
         rev_line_clear(CL_LEN);
     }
@@ -1425,7 +1478,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
 {
     uint32_t i, dl = delay_samples();
     int32_t dcd, dcw, ddm;
-    int have_d = dly_have == DLY_NSEG, have_r = jrev != 0, have_c = cho_buf != 0;
+    int have_d = dly_n && dly_have >= dly_n, have_r = jrev != 0, have_c = cho_buf != 0;
     for (i = 0; i < n; i++)
         fx_sl[i] = fx_sr[i] = 0;
     {   /* (0.6.14) anything sent to the buses this block: their gate open */
@@ -1581,7 +1634,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
             }
             if (wr == 2)
                 oxr = mulq15(clamp(oxr, -65535, 65535), fb > 32767 ? 32767 : fb);   /* (the right: one repeat later) */
-            fx.dly_w++;
+            dly_adv();
         }
         if (wr) {                                       /* mid and side */
             side += mulq15(ox - oxr, fx.dm_cur);
@@ -1628,7 +1681,7 @@ static void fx_bus_clear(void)
     rev_state_clear();
     rev_line_clear(CL_LEN);
     if (cho_buf) memset(cho_buf, 0, CHO_LEN * sizeof *cho_buf);
-    dly_line_clear(0, DLY_LEN);
+    dly_line_clear(0, (uint32_t)dly_have * JFX_SEG);
     dly_lo_reset();
     memset(&fx, 0, sizeof fx);
     fxg_g = 32767; fxg_quiet = fxg_dact = fxg_hold = 0; fxg_dpk = 0; fxg_fb = fxg_dly = 0; fx_rest_ph = 0;
@@ -1920,7 +1973,9 @@ static void jfx_free_dly(void)
         resource_release(RES_JFX0 + JB_DLY0 + k);
         dly_seg[k] = 0;
     }
-    dly_have = 0;
+    dly_have = dly_n = dly_want = 0;
+    dly_shrink = 0;
+    dly_gen = 0;
 }
 static void jfx_free_rx(uint32_t from)                  /* the model line's blocks from `from` on */
 {
@@ -2083,6 +2138,17 @@ JFX_XIP static uint8_t jfx_dub_mem(uint32_t bus_fail, uint32_t bus_short)
     }
     return full;
 }
+/* (round 4) the blocks the delay needs at first take, from the settings by the same rule as fx_buses / dly_rate (the farthest read, its rate stage, the blocks that rate takes) */
+static uint32_t dly_estimate(void)
+{
+    uint32_t dl = delay_samples(), need, dro;
+    int32_t wd = clamp(fxp.g[G_WIDTH], 0, 127), gr = fxp.g[G_DPIT] || fxp.g[G_DSPRY];
+    int png = fxp.g[G_DPING] == 1 && !gr;
+    if (gr) return DLY_NSEG;                            /* (the GRAIN delay sweeps the whole line) */
+    dro = wd && !png ? fxp_div(3) * (uint32_t)wd / 127u : 0u;
+    need = png ? dl * 2u : dl + dro;
+    return dly_segs_for(need, dly_stage(need, 0u));
+}
 static void jfx_mem(void)
 {
     uint32_t want = jfx_sends, rt = (uint32_t)clamp(song.g[G_RTYPE], 0, 4), k, need;
@@ -2117,13 +2183,38 @@ static void jfx_mem(void)
         if ((want & 1u) && !cho_buf && (nm_c || jfx_wait)) full |= JFX_FULL_CHO;
     }
     if ((want & 2u) || dly_have) {
-        for (k = 0; k < DLY_NSEG; k++)
-            if ((dly_seg[k] = jfx_take(JB_DLY0 + k, JFX_SEG * sizeof(int16_t), &nm_d)) == 0)
-                break;
-        if (k == DLY_NSEG && dly_have < DLY_NSEG) fx.dfresh = 1;   /* (complete now: set up as new, fx_buses) */
-        dly_have = (uint8_t)k;
-        if (nm_d) jfx_free_dly();                       /* (all or none: a part given back) */
-        if ((want & 2u) && dly_have < DLY_NSEG && (nm_d || jfx_wait)) full |= JFX_FULL_DLY;
+        if (!dly_n) {                                   /* (round 4) no line yet: taken whole, as many blocks as the settings need (partly over several blocks), all or none */
+            uint32_t tgt;
+            if (!dly_want) dly_want = (uint8_t)dly_estimate();
+            tgt = dly_want;
+            for (k = 0; k < tgt; k++)
+                if ((dly_seg[k] = jfx_take(JB_DLY0 + k, JFX_SEG * sizeof(int16_t), &nm_d)) == 0)
+                    break;
+            if (k == tgt) {                             /* (complete now: set up as new, fx_buses) */
+                dly_n = (uint8_t)tgt;
+                fx.dfresh = 1;
+            }
+            dly_have = (uint8_t)k;
+            if (nm_d) jfx_free_dly();                   /* (all or none: a part given back) */
+            if ((want & 2u) && !dly_n && (nm_d || jfx_wait)) full |= JFX_FULL_DLY;
+        } else if (dly_want > dly_have) {               /* a grow, asked by the delay (dly_rate): optional, so a refusal is no bus failure, no FX FULL, no wait; asked again only after a release */
+            if (dly_gen != resource_gen + 1u) {
+                uint8_t nm_g = 0;
+                for (k = dly_have; k < dly_want; k++)
+                    if ((dly_seg[k] = jfx_take(JB_DLY0 + k, JFX_SEG * sizeof(int16_t), &nm_g)) == 0)
+                        break;
+                if (nm_g) {                             /* refused: the blocks taken this time given back, the line goes on at its size */
+                    for (uint32_t j = dly_have; j < k; j++) { resource_release(RES_JFX0 + JB_DLY0 + j); dly_seg[j] = 0; }
+                    dly_want = dly_n;
+                    dly_gen = resource_gen + 1u;
+                } else {
+                    dly_have = (uint8_t)k;
+                }
+            }
+        } else if (dly_have > dly_want && dly_n <= dly_want && !fx.dsw) {   /* the line shrank (dly_rate): the blocks past it given back */
+            for (k = dly_want; k < dly_have; k++) { resource_release(RES_JFX0 + JB_DLY0 + k); dly_seg[k] = 0; }
+            dly_have = dly_want;
+        }
     }
     dub_full_now = (uint8_t)(jfx_dub_mem((uint32_t)(nm_r || nm_c || nm_d), (uint32_t)(full & 7u)) | dub_ev_full);                       /* (the instances' own state each block: not held, not accumulated with the buses' FX FULL) */
     if (jfx_wait) jfx_wait--;

@@ -17,6 +17,9 @@ void *memcpy(void *d, const void *s, size_t n);
 #ifndef DD_NOINL
 #define DD_NOINL
 #endif
+#ifndef DD_HOT
+#define DD_HOT DD_NOINL                                   /* the per-block kernel (jfx_dub.c: OC_DUB_KSRAM puts it in SRAM) */
+#endif
 #define DD_HB_M 8                                   /* half-band: 4M-1 = 31 taps */
 #define DD_HB_C (2 * DD_HB_M - 1)
 #define DD_SIN_N 256
@@ -27,6 +30,9 @@ void *memcpy(void *d, const void *s, size_t n);
 /* the half-band's odd taps (offsets 1, 3, 5 ..; the centre is 0.5): the Kaiser design of the prototype (31 taps, beta 7), computed once on the host, so no table is built at run time */
 static const float dd_hb_h[DD_HB_M] = {0.314333438873291f, -0.09460322558879852f, 0.04605904966592789f, -0.023742549121379852f,
                                        0.011624842882156372f, -0.005037464667111635f, 0.0017602996667847037f, -0.000394397386116907f};
+/* (Release 2, round 6) converter B: the 44.1 to 22.05 kHz stage at 11 taps (3 odd taps: Kaiser beta 6 over N+2 points, the odd taps scaled so all sum to 1), the 22.05 to 11.025 kHz stage as it was (31 taps). The
+ * echoes land about 0.45 ms earlier (shorter filters, outside the loop). The renders of ~/dubtape-research/conv/conv_render.c (DD_CONV=1) are this code, sample for sample (tests/jfx_dub_test.c) */
+static const float dd_hb0_h[3] = {0.29532000796148306f, -0.051322375145705076f, 0.0060023671842220966f};
 #define DD_KNOB_LN 0.0543918f                  /* ln(1000) / 127: 20 Hz .. 20 kHz over the knob's 0 .. 127 */
 /* (Release 2) the filter coefficients are computed at the control tick, not read from tables: the tables were 2 KB of the arena for every build. tan(pi f / fs) of the knob's
  * frequency, with the cutoff held below 0.45 of the line's rate */
@@ -98,29 +104,35 @@ static inline float dd_rd_lin(const dd_t *s, uint32_t w, float d)
     return x0 + fr * (x1 - x0);
 }
 
-static inline int dd_hb_dec(dd_hb_t *h, float x, float *y)
-{
-    int j;
-    float a;
-    h->p = (h->p + 1u) & 31u; h->st[h->p] = x;
-    h->ph ^= 1u;
-    if (h->ph) return 0;
-    a = 0.5f * h->st[(h->p - DD_HB_C) & 31u];
-    for (j = 0; j < DD_HB_M; j++)
-        a += dd_hb_h[j] * (h->st[(h->p - DD_HB_C + 2u * j + 1u) & 31u] + h->st[(h->p - DD_HB_C - 2u * j - 1u) & 31u]);
-    *y = a;
-    return 1;
+/* the half-band stages, one function pair for each tap count: the count a constant, so the loops unroll (a count read at run time made the kernel slower by more than the shorter filter saved) */
+#define DD_HB_FNS(SUF, MM) \
+static inline int dd_hb_dec##SUF(dd_hb_t *h, float x, float *y, const float *c) \
+{ \
+    int j; \
+    const int C = 2 * (MM) - 1; \
+    float a; \
+    h->p = (h->p + 1u) & 31u; h->st[h->p] = x; \
+    h->ph ^= 1u; \
+    if (h->ph) return 0; \
+    a = 0.5f * h->st[(h->p - C) & 31u]; \
+    for (j = 0; j < (MM); j++) \
+        a += c[j] * (h->st[(h->p - C + 2u * j + 1u) & 31u] + h->st[(h->p - C - 2u * j - 1u) & 31u]); \
+    *y = a; \
+    return 1; \
+} \
+static inline void dd_hb_int##SUF(dd_hb_t *h, float x, float *y0, float *y1, const float *c) \
+{ \
+    int j; \
+    const int M = (MM); \
+    float a = 0.0f; \
+    h->p = (h->p + 1u) & 15u; h->st[h->p] = x; \
+    for (j = 0; j < M; j++) \
+        a += c[j] * (h->st[(h->p - M - j) & 15u] + h->st[(h->p - M + 1u + j) & 15u]); \
+    *y0 = 2.0f * a; \
+    *y1 = h->st[(h->p - M + 1u) & 15u]; \
 }
-static inline void dd_hb_int(dd_hb_t *h, float x, float *y0, float *y1)
-{
-    int j;
-    float a = 0.0f;
-    h->p = (h->p + 1u) & 15u; h->st[h->p] = x;
-    for (j = 0; j < DD_HB_M; j++)
-        a += dd_hb_h[j] * (h->st[(h->p - DD_HB_M - j) & 15u] + h->st[(h->p - DD_HB_M + 1u + j) & 15u]);
-    *y0 = 2.0f * a;
-    *y1 = h->st[(h->p - DD_HB_M + 1u) & 15u];
-}
+DD_HB_FNS(3, 3)                                       /* converter B's first stage (11 taps) */
+DD_HB_FNS(8, DD_HB_M)                                 /* the 31-tap stage: the second stage, and the half rate's only one */
 
 /* ------------------------------------------------------------------ the spring --- */
 static uint32_t dd_sp_len(float sec, float fsl, uint32_t cap)
@@ -133,6 +145,7 @@ void dk_spring_attach(dd_t *s, int16_t *buf)
     dd_spring_t *q = &s->sp;
     memset(q, 0, sizeof *q);
     q->buf = buf;
+    q->tgs = 1.0f;
     if (!buf) return;
     memset(buf, 0, DD_SP_BUF * sizeof(int16_t));
     q->dt = dd_sp_len(0.037f, s->fsl, DD_SP_TANK);
@@ -146,14 +159,20 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     dd_spring_t *q = &s->sp;
     float T = p->sp_decay > 0.05f ? p->sp_decay : 2.0f, tone = p->sp_tone < 0.0f ? 0.0f : p->sp_tone > 1.0f ? 1.0f : p->sp_tone;
     float dr = p->sp_drive < 0.0f ? 0.0f : p->sp_drive > 1.0f ? 1.0f : p->sp_drive;
+    int leaving = 0;
     {   int pl = q->buf ? p->spring : 0;
-        if (pl != q->place && q->buf) {              /* (0.5) a new placement: the tank read another way, cleared */
-            memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
-            memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+        if (pl != q->place && q->buf) {
+            if (q->place == 2 && q->wm > 0.001f) {   /* (Release 2, round 4) leaving the wet: its mix fades out first (the loop's 5 ms), then the tank is cleared; a step of the whole wet spring at the toggle was -31 dBFS */
+                pl = 2; leaving = 1;
+            } else {                                 /* (0.5) a new placement: the tank read another way, cleared; the wet's mix starts at 0 and fades in */
+                memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
+                memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
+                q->wm = 0.0f; q->tgs = 1.0f;
+            }
         }
         q->place = pl;
     }
-    q->m = p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
+    q->m = leaving ? 0.0f : p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
     if (q->place == 1 && q->m < 0.0005f && q->wm < 0.001f) {                    /* (Release 2) the loop spring bypassed: after about 0.5 s the tank is cleared (once), so it comes back from silence */
         if (q->idle < 0xFFFFu && ++q->idle == 700u && q->buf) {
             memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
@@ -168,7 +187,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     q->gin = 1.0f + 6.0f * dr * dr;                  /* the tube: in the loop made up whole (unity for small signals: the loop's gain stays
                                                       * FEEDBACK), on the wet half (a driven tube is louder) */
     q->igin = q->place == 1 ? 1.0f / q->gin : 1.0f / ddm_sqrt(q->gin);
-    q->in = p->sp_in; q->tg = 1.0f - p->tap_cut;
+    q->in = p->sp_in; q->tg = leaving ? 1.0f : 1.0f - p->tap_cut;
     if (p->crash != q->crash_seen) {                  /* a kick: the burst from the next sample */
         q->crash_seen = p->crash;
         q->crash_n = (uint32_t)(0.040f * s->fsl);
@@ -178,7 +197,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
     q->gd = 0.40f + 0.35f * q->m;                    /* (0.5) in the loop: the allpass tank's diffusion and dispersion, from the mix */
     q->al = q->a * q->m;
 }
-DD_NOINL static float dd_sp_run(dd_spring_t *q, float x)
+DD_HOT static float dd_sp_run(dd_spring_t *q, float x)
 {
     int16_t *b = q->buf, *b1 = b + DD_SP_TANK, *b2 = b1 + DD_SP_D1;
     float y, z, d, u;
@@ -303,7 +322,7 @@ static inline void dd_limit(dd_t *s, const dd_tick_t *t, float *l, float *r)
 }
 
 /* ------------------------------------------------------------------ the loop at the line's rate --- */
-DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, float *wl, float *wr, int n)
+DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, float *wl, float *wr, int n)
 {
     const uint32_t len = s->len;
     uint32_t w = s->w;
@@ -313,7 +332,7 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
     dd_spring_t *q = &s->sp;
     const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2;   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
     const float wk = 1.0f / (0.005f * s->fsl);
-    float wm = q->wm;
+    float wm = q->wm, tgs = q->tgs;
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
     int i, j;
     for (i = 0; i < n; i++) {
@@ -345,15 +364,18 @@ DD_NOINL static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, fl
         dn = -dn;
         if (++w == len) w = 0;
         if (spo) {
-            float sp = q->m * dd_sp_run(q, 0.5f * (l + r) + q->in * xi);
-            l = q->tg * l + sp; r = q->tg * r + sp;
+            float sp;
+            wm += (q->m - wm) * wk;                                 /* (the wet spring's mix glides as the loop's does: 5 ms) */
+            tgs += (q->tg - tgs) * wk;                              /* .. and its tap cut */
+            sp = wm * dd_sp_run(q, 0.5f * (l + r) + q->in * xi);
+            l = tgs * l + sp; r = tgs * r + sp;
         }
         if (t->lceil > 0.0f) dd_limit(s, t, &l, &r);
         wl[i] = wg * l; wr[i] = wg * r;
     }
     s->w = w; s->hp_s = hp_s; s->lp1 = ic1; s->lp2 = ic2; s->fb_cur = fb; s->send_cur = sd;
     s->cut_g = cg; s->cutw_g = wg;
-    q->wm = wm;
+    q->wm = wm; q->tgs = tgs;
     s->denorm++;
 }
 
@@ -362,6 +384,7 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
 {
     float xl[DD_BLOCK], wl[DD_BLOCK], wr[DD_BLOCK];
     const int R = s->R, nloop = DD_BLOCK / R;
+    const int qb = R == 4;                           /* converter B is the quarter rate's first stage only; the half rate's one stage stays the 31-tap filter (it has no second stage behind it to catch what 11 taps let by) */
     int i, k;
     float wet0, dry0, dw, dd;
     dd_tick_t t;
@@ -375,9 +398,9 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
         dw = (we - wet0) / (float)DD_BLOCK; dd = (de - dry0) / (float)DD_BLOCK; }
     {   float y, y2;
         for (i = 0, k = 0; i < DD_BLOCK; i++)
-            if (dd_hb_dec(&s->dec[0], in[i], &y)) {
+            if ((qb ? dd_hb_dec3(&s->dec[0], in[i], &y, dd_hb0_h) : dd_hb_dec8(&s->dec[0], in[i], &y, dd_hb_h))) {
                 if (R == 2) xl[k++] = y;
-                else if (dd_hb_dec(&s->dec[1], y, &y2)) xl[k++] = y2;
+                else if (dd_hb_dec8(&s->dec[1], y, &y2, dd_hb_h)) xl[k++] = y2;
             }
     }
     dd_control_tick(s, p, &t, nloop);
@@ -388,14 +411,14 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
         if (R == 4) {
             float ul[DD_BLOCK / 2], ur[DD_BLOCK / 2];
             for (i = 0; i < nloop; i++) {
-                dd_hb_int(&s->intl[1], tl[i], &ul[2 * i], &ul[2 * i + 1]);
-                dd_hb_int(&s->intr[1], tr[i], &ur[2 * i], &ur[2 * i + 1]);
+                dd_hb_int8(&s->intl[1], tl[i], &ul[2 * i], &ul[2 * i + 1], dd_hb_h);
+                dd_hb_int8(&s->intr[1], tr[i], &ur[2 * i], &ur[2 * i + 1], dd_hb_h);
             }
             memcpy(tl, ul, sizeof ul); memcpy(tr, ur, sizeof ur);
         }
         for (i = 0; i < DD_BLOCK / 2; i++) {
-            dd_hb_int(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1]);
-            dd_hb_int(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1]);
+            if (qb) dd_hb_int3(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1], dd_hb0_h); else dd_hb_int8(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1], dd_hb_h);
+            if (qb) dd_hb_int3(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1], dd_hb0_h); else dd_hb_int8(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1], dd_hb_h);
         }
     }
     for (i = 0; i < DD_BLOCK; i++) {
