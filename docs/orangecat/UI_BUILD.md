@@ -985,6 +985,28 @@ values and no other lane's, the signature follows a kit value, every lane drawn,
 (ui_renders_steps now with OC_LANES=1): the table with lane 1, 3 and 8 picked and the kit moved, in 8 palettes: 0 lint findings, 0 MONO
 pixels off gray. **Mockups:** `step5_sheet.png`, `step5_lanes_1.png`, `step5_lanes_3.png`, `step5_lanes_8.png`, `day_step5_lanes_3.png`.
 
+## Step 6: the mixer in the knobs' colors
+
+**Status: In progress.** Behind `OC_MIXER` (core.h, default 0; needs `OC_LANES`). UI_DESIGN.md Part 1 "The mixer", Part 2
+`mixer.png`, Part 3 step 6 ("+0.3 KB, ui_render.c's mixer screens").
+
+### 6. The mixer (design note)
+
+**What the code has today.** GLO's first page, MIXER (SC_TRK, GR_TRK), is one row a track (ui_pages.c `pv_strip`): the numeral on the
+track's color, the sound's name, the level in dB, the level's bar with the meter under it, the pan or Mute or the freeze word at the
+right. KNOB 1 LEVEL, 2 PAN, 3 FREEZE, 4 MUTE of the **selected** track (`tracks_edit`); the knob just turned is shown by the row's
+`hot` column in the text color.
+
+**What the design shows and what is built.** `mixer.png` is four vertical faders with "K1-4 LEVELS": knob k is track k's level. That
+layout would take PAN, FREEZE and MUTE off the knobs, and the design says nowhere where they go; Part 3 step 6 itself costs
+only 0.3 KB and tests "the mixer screens", so it is the **colors**. **Decision (the safer reading):** the layout and the knobs stay
+release-2's (no control lost); the colors become the knobs': the level's bar and its dB value in KNOB 1's blue (`T_COZY(0)`), the
+pan in KNOB 2's green, the freeze word in KNOB 3's white, a turning knob's value in its own cozy color instead of the text's; Mute
+stays REC's red (it is a state, not a knob's value) and takes KNOB 4's orange only while KNOB 4 turns; the numeral stays the
+track's color (the track's identity). Muted rows stay dim. The vertical faders and knob k = track k are for the owner to decide
+(written under "Waiting on the owner").
+**Cost:** a handful of color changes in `pv_strip`: estimate 300 B (the table says 1,200 after step 5's miss). RAM 0.
+
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
 **The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
