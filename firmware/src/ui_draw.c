@@ -759,6 +759,19 @@ static void draw_columns(void)
         }
         return;
     }
+#if OC_LANES
+    if (lanes_page()) {                                 /* (the new interface 0.5, ui_lanes.c) the picked lane's four, in the knobs' colors */
+        static const char *const LN[4] = {"LEVEL", "TUNE", "DECAY", "PAN"};
+        for (c = 0; c < 4u; c++) {
+            int16_t *vp;
+            const param_desc_t *d = page_desc(cur_page(), c, &vp);
+            if (!d) { draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO); continue; }
+            param_format(d, *vp, val, &unit);
+            draw_column(c, LN[c], val, unit, T_COZY(c), RATIO(d, *vp), param_icon(d, *vp));
+        }
+        return;
+    }
+#endif
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
         if (scale_settings_page(cur_page()) && c == 1u) {

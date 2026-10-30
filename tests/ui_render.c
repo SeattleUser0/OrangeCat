@@ -2437,6 +2437,44 @@ int main(int argc, char **argv)
         fprintf(rep, "(the new interface 0.4) the step pages: %u screens over every palette\n", (unsigned)nm);
     }
 #endif
+#if OC_LANES
+    {   /* (the new interface 0.5, UI_BUILD.md step 5) DRUM-X's LANES table with lane 0, 2 and 7 picked and the kit's values moved, in every
+         * palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (lanes_<n>) */
+        static const uint8_t PICK[3] = {0, 2, 7};
+        uint32_t w, nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (w = 0; w < 3u; w++) {
+                char name[64], image[32];
+                uint32_t j, l;
+                state();
+                song.playing = 0;
+                eng(ENGI_DRUMX);
+                TSEL->engine = TSEL->eng_req;
+                for (l = 0; l < 8u; l++) {
+                    TSEL->p[P_LN0 + l] = (int16_t)(40 + 11 * l);
+                    dxl_put(song.sel, l, DXL_TUNE, (int32_t)l * 9 - 30);
+                    dxl_put(song.sel, l, DXL_DECAY, 25 - (int32_t)l * 8);
+                    dxl_put(song.sel, l, DXL_PAN, (int32_t)l * 17 - 60);
+                }
+                for (j = 0; j < NPAGES && !(PAGES[j].scope == SC_DXLANE && !strcmp(PAGES[j].title, "LANES")); j++) ;
+                ui.home = 0; ui.page = (uint8_t)j; page_entered();
+                ui.lane = PICK[w];
+                snprintf(image, sizeof image, "lanes_%u", (unsigned)PICK[w] + 1u);
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                ui.force = 1;
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                nm++;
+            }
+        fprintf(rep, "(the new interface 0.5) DRUM-X's LANES: %u screens over every palette\n", (unsigned)nm);
+    }
+#endif
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

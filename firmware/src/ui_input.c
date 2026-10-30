@@ -2848,6 +2848,10 @@ static void ui_input(void)
         ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
 #endif
         ui.force = 1;
+#if OC_LANES
+    } else if (s && lanes_page()) {                     /* (the new interface 0.5) LANES: PRESETS the lane (a key struck does too) */
+        drum_pick_lane((uint32_t)clamp((int32_t)ui.lane + (s > 0 ? 1 : -1), 0, NLANE - 1));
+#endif
 #if OC_STEP_PAGES
     } else if (s && feel_page()) {                      /* (the new interface 0.4) FEEL: PRESETS the step */
         cursor_set((int32_t)ui.cursor + s);
