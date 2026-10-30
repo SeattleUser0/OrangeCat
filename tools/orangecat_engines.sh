@@ -4,6 +4,9 @@
 # The host tests themselves compile with the defaults (every engine), whatever is set here.
 #
 # Revisions:
+# (the new interface 0.7, branch ui-build) the six finished switches of docs/orangecat/UI_BUILD.md on, so a CI build of this branch is the interface build:
+#   OC_HOME_PIC (step 1, with the scene trailer in the pack), OC_EDIT_SHEETS (2), OC_SHIFT_MAP (3), OC_STEP_PAGES (4), OC_LANES (5), OC_MIXER (6).
+#   Steps 10 and 11 (OC_CLIP, OC_CLIP_SEL) stay off here until they are turned on on purpose. The old code paths stay in the image (step 9 is the owner's).
 # (Orange Cat 0.9.0) DRUM-X, Jiant FM's drum engine, in engine slot 9; the loadable-engine interface identifier.
 # (Orange Cat 0.10.0) the engine table in RAM, module registration
 #   0.10.0: OC_MODULE_WINS=1: a valid module takes the slot of an engine that is also built in (the proof of concept's SHAPES module); the
@@ -28,3 +31,4 @@ export MELODEE_FM6=0
 export MELODEE_P5=0
 export MELODEE_DRUM=0
 export OC_MODULE_WINS=1
+export OC_HOME_PIC=1 OC_EDIT_SHEETS=1 OC_SHIFT_MAP=1 OC_STEP_PAGES=1 OC_LANES=1 OC_MIXER=1
