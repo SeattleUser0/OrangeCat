@@ -267,6 +267,12 @@ def main():
                 state = f"note: {(r['cost'] / b - 1) * 100:.0f} % (BUDGET_UPDATE=1 to keep it)"
         print(f"target: {n:15s} {r['insns']:5d} instructions, {r['loop']:4d} in loops, {r['div']} divides, "
               f"{r['call']:2d} calls there: cost {r['cost']:5d} (budget {b if b is not None else '-'}) {state}")
+    if fail and os.environ.get("MELODEE_RAM_AUDIO") != "1":
+        # (Orange Cat 0.16.0) the budgets are CI's: its build step and its test step export MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
+        # MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0 MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0. A bare ./build.sh compiles
+        # other code (release-2 876955a: dxe_post_sides 9, pl_osc_render 280 against 8 and 133). tools/hw/ci_step.py sets them.
+        print("target: hint: MELODEE_RAM_AUDIO is not 1 here. The budgets are taken from a build made with CI's switches "
+              "(.github/workflows/build.yml, 'Build'); a bare ./build.sh compiles other code. Build with tools/hw/ci_step.py build.")
     return 1 if fail else 0
 
 
