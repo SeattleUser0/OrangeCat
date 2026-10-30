@@ -86,3 +86,140 @@ static void sound_paste(void)
     ui.force = 1;
     ui_message("SOUND PASTED");
 }
+
+#if OC_CLIP_SEL
+/* ---- (the new interface 0.11, UI_BUILD.md step 11) copy and paste on NOTES and FEEL -------------------------------------------------
+ * NOTES: SHIFT + OCT- copies the selected notes (a range, an event selection, the picked note, or the manual step under the cursor) into
+ * a clipboard of at most CLIPN_MAX notes, each with its distance from the start of the earliest one's step; SHIFT + OCT+ writes them at the cursor, on this
+ * track and pattern or any other, as one note transaction (EDIT held undoes it whole). A paste that would land on a manual note, would
+ * not fit the recording memory, or is longer than it fits refuses whole and says so. Manual steps are copied as the notes
+ * note_convert would make of them (each note of the chord at the step's length, an accent as velocity 127); a step's chance and slide
+ * ride with each note. FEEL: SHIFT + OCT- copies the cursor step's feel (chance or condition, ratchet or flam, nudge, accent, slide),
+ * SHIFT + OCT+ sets it on every step of the range (or the cursor's) that is on, as feel_reset does. Melodic tracks only (a drum track's
+ * roll and grid keep release-2's tools). */
+#define CLIPN_MAX 64u
+static struct {
+    uint8_t n, prob, slide[CLIPN_MAX];
+    uint8_t pr[CLIPN_MAX];
+    int32_t rel[CLIPN_MAX];
+    recorded_note_t r[CLIPN_MAX];
+} notes_clip;
+static int notes_clip_add(const recorded_note_t *r, uint32_t pos, uint8_t prob, uint8_t slide)
+{
+    if (notes_clip.n >= CLIPN_MAX) return 0;
+    notes_clip.r[notes_clip.n] = *r;
+    notes_clip.rel[notes_clip.n] = (int32_t)pos;         /* (made relative below) */
+    notes_clip.pr[notes_clip.n] = prob;
+    notes_clip.slide[notes_clip.n] = slide;
+    notes_clip.n++;
+    return 1;
+}
+static void notes_copy(void)
+{
+    track_t *t = TSEL;
+    uint32_t i, s, chosen = notes_selected(t), len = step_pattern_len(t), at = notes_manual_start(t);
+    int ok = 1;
+    int32_t ref = 0x7fffffff;
+    if (!bulk.on && chosen >= RECORD_MAX && at >= NSTEP) { ui_message("SELECT A NOTE"); return; }
+    notes_clip.n = 0;
+    fm1_irq_off();
+    for (i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (note_transform_has(i, chosen)) {
+            const step_t *v = &t->step[recording_view(t, &recording[i])];
+            ok &= notes_clip_add(&recording[i], (recording[i].step & 63u) * RECORD_UNIT + recording[i].on, v->probability, (uint8_t)(v->flags & SF_SLIDE));
+        }
+    for (s = 0; s < len; s++) {                          /* manual steps: as note_convert makes them */
+        const step_t *st = &t->step[s];
+        if ((st->flags & SF_RECORDED) || !step_on(st)) continue;
+        if (bulk.on ? !(bulk.on == 1u && bulk_has(s)) : s != at) continue;
+        for (uint32_t j = 0; j < st->n; j++) {
+            recorded_note_t r = {0};
+            r.note = st->note[j]; r.vel = (st->flags & SF_ACCENT) ? 127 : st->vel ? st->vel : 96;
+            r.owner = (uint8_t)recording_owner(t); r.step = (uint8_t)s; r.length = 0;
+            note_duration(&r, step_note_length(t, s) * RECORD_UNIT);
+            ok &= notes_clip_add(&r, s * RECORD_UNIT, st->probability, (uint8_t)(st->flags & SF_SLIDE));
+        }
+    }
+    fm1_irq_on();
+    if (!ok) { notes_clip.n = 0; ui_message("TOO MANY NOTES"); return; }
+    if (!notes_clip.n) { ui_message("SELECT A NOTE"); return; }
+    for (i = 0; i < notes_clip.n; i++) if (notes_clip.rel[i] < ref) ref = notes_clip.rel[i];
+    ref -= ref % (int32_t)RECORD_UNIT;                   /* (from the start of the earliest note's step: its onset inside the step comes across) */
+    for (i = 0; i < notes_clip.n; i++) notes_clip.rel[i] -= ref;
+    ui_message("NOTES COPIED");
+}
+static void notes_paste(void)
+{
+    track_t *t = TSEL;
+    uint32_t i, k, len = step_pattern_len(t), free = 0, first = NSTEP;
+    recorded_note_t r[CLIPN_MAX];
+    uint8_t dest[CLIPN_MAX / 8u + 1u];
+    if (!notes_clip.n) { ui_message("NOTHING COPIED"); return; }
+    if (song.playing || chain_busy() || live_rec_sel()) { ui_message("STOP TO EDIT"); return; }
+    if (frz_locked()) return;
+    for (i = 0; i < RECORD_MAX; i++) free += !recording[i].vel;
+    if (notes_clip.n > free) { ui_message("RECORDING FULL"); return; }
+    for (k = 0; k < notes_clip.n; k++) {                 /* where each lands: the cursor plus its distance (wrapping at the loop's end) */
+        r[k] = notes_clip.r[k];
+        r[k].owner = (uint8_t)((r[k].owner & 0xE0u) | recording_owner(t));
+        r[k].step = 0; r[k].on = 0;
+        note_onset(&r[k], (int32_t)((ui.cursor % NSTEP) * RECORD_UNIT) + notes_clip.rel[k], len, 0);
+        if (notes_manual_occupied(t, recording_view(t, &r[k]))) { ui_message("STEP OCCUPIED"); return; }
+    }
+    fm1_irq_off();
+    if (!note_transaction_begin()) { fm1_irq_on(); return; }
+    memset(dest, 0, sizeof dest);
+    for (k = 0; k < notes_clip.n; k++) {
+        for (i = 0; i < RECORD_MAX && recording[i].vel; i++);
+        recording_restore_note(t, i, r[k]);
+        if (first == NSTEP || (r[k].step & 63u) < first) first = r[k].step & 63u;
+    }
+    note_rebuild_all();
+    for (k = 0; k < notes_clip.n; k++) {                 /* a step's chance and slide ride with its notes */
+        step_t *v = &t->step[recording_view(t, &r[k])];
+        if (v->flags & SF_RECORDED) { v->probability = notes_clip.pr[k]; v->flags = (uint8_t)((v->flags & ~SF_SLIDE) | notes_clip.slide[k]); }
+    }
+    cursor_set((int32_t)first);
+    ui.note_pick = 0;
+    bulk.on = 0;
+    note_transaction_end();
+    fm1_irq_on();
+    ui_message("NOTES PASTED");
+}
+
+static struct { uint8_t valid, chance, cond, rflam, accent, slide; int8_t nudge; } feel_clip;
+static void feel_copy(void)
+{
+    const step_t *s = &TSEL->step[ui.cursor % NSTEP];
+    if (!step_on(s)) { ui_message("NO NOTE THERE"); return; }
+    feel_clip.chance = (uint8_t)step_chance(s); feel_clip.cond = s->cond; feel_clip.rflam = (uint8_t)step_rflam(s);
+    feel_clip.nudge = s->nudge; feel_clip.accent = (s->flags & SF_ACCENT) != 0; feel_clip.slide = (s->flags & SF_SLIDE) != 0;
+    feel_clip.valid = 1;
+    ui_message("FEEL COPIED");
+}
+static void feel_paste(void)
+{
+    track_t *t = TSEL;
+    uint32_t lo, hi, i, len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), n = 0, recorded = 0;
+    if (!feel_clip.valid) { ui_message("NOTHING COPIED"); return; }
+    if (!feel_guard()) return;
+    feel_range(&lo, &hi);
+    if (hi >= len) hi = len - 1u;
+    fm1_irq_off();
+    for (i = lo; i <= hi; i++) {
+        step_t *st = &t->step[i];
+        if (!step_on(st)) continue;
+        recorded |= st->flags & SF_RECORDED;
+        step_set_chance(st, feel_clip.chance);
+        step_set_cond(st, feel_clip.cond);
+        step_set_rflam(st, feel_clip.rflam);
+        step_set_nudge(st, feel_clip.nudge);
+        st->flags = (uint8_t)((st->flags & ~(SF_ACCENT | SF_SLIDE)) | (feel_clip.accent ? SF_ACCENT : 0u) | (feel_clip.slide ? SF_SLIDE : 0u));
+        n++;
+    }
+    if (recorded) recording_resched(t);
+    fm1_irq_on();
+    ui.force = 1;
+    ui_message(n ? "FEEL PASTED" : "NO NOTE THERE");
+}
+#endif

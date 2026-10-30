@@ -1087,6 +1087,35 @@ Run by `run_tests.sh` (job in step_pages_job); the renders gained `-DOC_CLIP=1`.
 **Flash and RAM (CI build options).** Image 558,784 B (+912 B over steps 1 to 6, estimate 1,000); .data+.bss 95,256 B (+752); data SRAM tail
 3,048 B; the arena line reads 84,064 B. Free of 577,248 B: **18,464 B, 10,272 B above the 8,192 B reserve.**
 
+## Step 11: copy and paste of notes and of a step's feel (OC_CLIP_SEL; October 30, 2026)
+
+**Switch** `OC_CLIP_SEL` (core.h, default 0, listed in tools/build.py; needs OC_CLIP). Off, NOTES and FEEL say LATER as before.
+
+**Design.** The same two keys, SHIFT + OCT- (copy) and SHIFT + OCT+ (paste), on the two step pages. Melodic tracks only (a drum track's roll
+and grid keep release-2's tools; the combos do not act there, as in step 4).
+- **NOTES, copy:** the notes of the selection as `note_transform` reads one (`note_transform_has`: a range, an event selection or the picked
+  note), and, with no event selection, the manual notes of the range's steps or of the step under the cursor. At most 64 notes
+  (`CLIPN_MAX`, about 0.9 KB of RAM), else "TOO MANY NOTES" and nothing kept. Each note keeps its distance from the **start of the earliest
+  note's step** (so its onset inside a step comes across), its length, velocity and pitch, and its step's chance and slide. A manual step is
+  copied as the events `note_convert` makes of it (each note at the step's length, an accent as velocity 127); the source stays manual.
+- **NOTES, paste:** the notes are written at the cursor step, on this track and pattern or any other, as one note transaction (the
+  history `EDIT held` uses): one undo. A position past the loop's end wraps to its start, as a move does. Refused whole, nothing written:
+  nothing copied; the song playing, a chain running or a live recording ("STOP TO EDIT"); a frozen phrase; a landing step that holds a
+  manual note ("STEP OCCUPIED"); not enough free recording memory ("RECORDING FULL"). The cursor goes to the first pasted note; the
+  paste is not left selected (the safer reading: a following KNOB 1 is PITCH of the picked note, not a range move).
+- **FEEL, copy:** the cursor step's chance, condition, ratchet or flam, nudge, accent and slide ("NO NOTE THERE" on an empty step).
+- **FEEL, paste:** sets those values on every step of the range (or the cursor's) that is on, as `feel_reset` walks it, behind its guards
+  (frozen phrase, chain, live recording); off steps are untouched; a recorded step's notes take the nudge (`recording_resched`).
+- **The map:** the COPY and PASTE tiles are live on NOTES and FEEL too.
+- Decisions: manual notes of a range copy as events (the same result a move gives them), not as manual steps; a pasted chord's
+  step is therefore a recorded one; the clipboards are separate (a sound, notes, a feel), each kept until power off.
+
+**Tests** `tests/clip_sel_test.c` (16 checks, ASan and UBSan): a range of recorded notes (distances, velocities, lengths, onsets inside the
+step, one undo, twice, the wrap at the loop's end), a manual chord, the five refusals, FEEL's copy and paste with off steps and the empty
+and nothing-copied cases. Run by `run_tests.sh`; the renders gained `-DOC_CLIP_SEL=1`.
+
+**Mockups:** `step11_shift_map_notes.png`, `step11_shift_map_feel.png` (0 lint findings, 0 off-gray MONO).
+
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
 **The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
