@@ -56,6 +56,14 @@
 #define OC_PACK_HDR 512u               /* the header: magic, version, flags, table hash, length, payload CRC-32, entries, header CRC-32 */
 #define OC_PACK_LO 0x93000u            /* where it is installed: storage.c's PACK area (ST_PACK_LO) ... */
 #define OC_PACK_AREA (10u * 0x1000u)   /* ... and its 10 sectors (ST_PACK_SECTORS) */
+/* (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) the longest pack an install takes: with OC_HOME_PIC, the tables
+ * (OC_PACK_LEN, the header's length, hash and CRC as without it) and HOME's scene trailer after them (oc_scene.c), up to the area;
+ * without it, exactly the tables, as before */
+#if defined(OC_HOME_PIC) && OC_HOME_PIC
+#define OC_PACK_MAXLEN OC_PACK_AREA
+#else
+#define OC_PACK_MAXLEN OC_PACK_LEN
+#endif
 
 #if OC_PACK_XIP
 #include "oc_pack_tables.h"            /* build/gen: OC_PACK_HASH, OC_PACK_LEN, one macro per table */
@@ -78,6 +86,10 @@
 #else
 /* 1: the pack was checked and is there. Without the gate there is nothing to wait for. */
 static uint8_t oc_pack_good = OC_PACK_GATE ? 0u : 1u;
+#if defined(OC_HOME_PIC) && OC_HOME_PIC
+static uint8_t oc_pack_gen;            /* (the new interface, UI_BUILD.md 1c) bumped at every check of the pack (oc_pack.c oc_pack_scan): HOME's
+                                        * picture page finds its scene again (ui_home_pic.c) */
+#endif
 static void (*oc_pack_changed)(void);  /* (0.13.7) called after every check of the pack (oc_pack.c); engines.c eng_hot_boot sets it: the hot sets copy again */
 #define OC_PACK_READY() (!OC_PACK_GATE || oc_pack_good)
 #endif

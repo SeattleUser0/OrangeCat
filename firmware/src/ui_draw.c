@@ -214,6 +214,16 @@ static void draw_head(void)
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
             head_pages(x + 6, 236 - cw - (low ? 22 : 0));
+#if OC_HOME_PIC
+        } else if (home_pic_on()) {                     /* (the new interface, UI_BUILD.md 1c) HOME's three pages, PICTURE TRACKS
+                                                         * CHORD (home_pg 2, 0, 1), where there is room (none: no dots) */
+            uint32_t i, at = ui.home_pg == 2u ? 0u : ui.home_pg + 1u;
+            for (i = x + 6 + 40 <= 236 - cw - (low ? 22 : 0) - 6 ? 0u : 3u, x += 6; i < 3u; i++) {
+                int32_t w = i == at ? 16 : 6;
+                cv_rrect(x, H_HEAD / 2 - 3, w, 6, 3, i == at ? T_THEME : T_LINE, T_BG);
+                x += w + 6;
+            }
+#endif
         } else if (x + 6 + 28 <= 236 - cw - (low ? 22 : 0) - 6) {   /* HOME: its two pages (Stage, the chord view),
                                                                    * where there is room */
             uint32_t i;
@@ -518,6 +528,10 @@ static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OF
 #include "ui_sections.c"                                /* the EDIT pages in sections, the map */
 #include "ui_stage.c"                                   /* Stage (HOME) */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
+#if OC_HOME_PIC
+#include "oc_scene.c"                                   /* (the new interface, UI_BUILD.md 1b) the pictures' interpreter */
+#include "ui_home_pic.c"                                /* (UI_BUILD.md 1c) HOME's picture page */
+#endif
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
 #include "ui_tracker.c"                                 /* (Orange Cat 0.4.2) SEQ > TRACKER */
@@ -1018,6 +1032,17 @@ static void draw_page(void)
         melodee_dbg.stage = 4;
         draw_columns();
         melodee_dbg.stage = 5;
+#if OC_HOME_PIC
+        if (ui.home && !hp.landed) {                    /* (the first HOME frame after power-on: its landing page) */
+            hp.landed = 1;
+            home_pic_land();
+        }
+        if (ui.home && ui.home_pg == 2u && !home_pic_on())   /* (never the picture with TRACKS chosen) */
+            ui.home_pg = 0;
+        if (ui.home && ui.home_pg == 2u)                /* (the new interface, UI_BUILD.md 1c) HOME's picture page */
+            home_pic_draw();
+        else
+#endif
         if (ui.home && ui.home_pg)                      /* HOME's second page (ui_view.c) */
             view_draw();
         else if (ui.home)                               /* Stage: its panel and the lanes (ui_stage.c), no footer */

@@ -2202,6 +2202,87 @@ int main(int argc, char **argv)
         }
     /* (0.7.0) the second pass in Melodee Pixel (Settings > FONT PIXEL) is gone with the setting: the text is Melodee
      * Pixel alone, so the pass above draws it */
+#if OC_HOME_PIC
+    {   /* (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) HOME's picture page in every palette, linted and MONO gray
+         * as every screen above: MACRO, SHAPES, DRUM-X as they load, each knob at either end, a knob turning (named in the sound line), a
+         * note on; CZ-1 (no table: the plain picture); the MENU row HOME PAGE; (OC_PACK_GATE=1) PACK MISSING. NIGHT, DAY and CONTRAST
+         * written as PPMs (home_pic_*), as the screens above */
+        static const uint32_t PE[3] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX};
+        static const char *const PN[3] = {"macro", "shapes", "drumx"};
+        uint32_t np = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (int v = 0; v < 3 * 12 + 3; v++) {
+                char name[64], image[48];
+                uint32_t e = v < 36 ? PE[v / 12] : 0u, k, j;
+                int sub = v % 12;
+                state();
+                song.playing = 0;
+                GLO_SELECT |= HOME_PIC_BIT;
+                stage.knob_ms = 0; ui.hot_col = 0;      /* (no knob turning unless the screen turns one: the clock stands still here) */
+                memset(&hp, 0, sizeof hp);              /* (the picture's state from nothing: a screen's note-on is its own, seen */
+                hp.trk = (uint8_t)song.sel;             /* as a frame after the last would see it) */
+                hp.ph_ms = fm1_ms;
+                hp.hit_ms = fm1_ms - HP_HIT_MS;
+                hp.ready = 1;
+                if (v < 36) {                           /* 0 as loaded; 1 .. 8 knob (sub - 1) / 2 at its left, right end; 9 KNOB 2 turning;
+                                                         * 10 a note on; 11 every knob turned, KNOB 4 turning */
+                    eng(e);
+                    {   /* the engine switched as the audio side does it (its state taken: a note sounds) */
+                        int32_t o[2 * CTL];
+                        for (j = 0; j < 400u && TSEL->engine != TSEL->eng_req; j++) mix_block(o, CTL);
+                    }
+                    for (k = 0; k < 4u; k++) {
+                        int16_t *vp;
+                        const param_desc_t *d = page_desc(stage_page(), k, &vp);
+                        if (!d || !vp) continue;
+                        if (sub >= 1 && sub <= 8 && k == (uint32_t)(sub - 1) / 2u) *vp = sub % 2 ? d->min : d->max;
+                        if (sub == 11) *vp = (int16_t)(d->min + (d->max - d->min) * (int32_t)(k + 1u) / 5);
+                    }
+                    if (sub == 9 || sub == 11) { ui.hot_col = sub == 9 ? 1u : 3u; stage.knob_ms = fm1_ms | 1u; }
+                    if (sub == 10) {
+                        int32_t o[2 * CTL];
+                        trk_note_on(TSEL, e == ENGI_DRUMX ? 36 : 52, 110);
+                        for (j = 0; j < 40u; j++) mix_block(o, CTL);
+                    }
+                    snprintf(image, sizeof image, "home_pic_%s_%s", PN[v / 12], sub == 0 ? "load" : sub == 9 ? "turn" : sub == 10 ? "note" :
+                             sub == 11 ? "turned" : "");
+                    if (sub >= 1 && sub <= 8) snprintf(image, sizeof image, "home_pic_%s_k%d_%s", PN[v / 12], (sub - 1) / 2 + 1, sub % 2 ? "min" : "max");
+                } else if (v == 36) {                   /* an engine with no table: its four EDIT knobs, the plain picture */
+                    eng(ENGI_CZ);
+                    TSEL->engine = TSEL->eng_req;
+                    str_cpy(image, "home_pic_cz1_plain", sizeof image);
+                } else if (v == 37) {                   /* the MENU's row */
+                    ui.menu = 1; ui.menu_sel = MI_HOME_PAGE;
+                    str_cpy(image, "home_pic_menu", sizeof image);
+                } else {                                /* the pack not there (a gated build only) */
+#if OC_PACK_GATE
+                    eng(ENGI_MACRO);
+                    TSEL->engine = TSEL->eng_req;
+                    oc_pack_good = 0;
+                    str_cpy(image, "home_pic_pack_missing", sizeof image);
+#else
+                    continue;
+#endif
+                }
+                if (!ui.menu) { ui.home = 1; ui.home_pg = 2; hp.landed = 1; }
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (k = 0; k < UI_RENDER_SHOW; k++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], image);
+#if OC_PACK_GATE
+                oc_pack_good = 1;
+#endif
+                np++;
+            }
+        fprintf(rep, "(the new interface 1c) HOME's picture page: %u screens in every palette\n", (unsigned)np);
+        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
+    }
+#endif
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

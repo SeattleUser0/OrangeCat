@@ -108,6 +108,12 @@
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".
                                    * tools/orangecat_engines.sh sets 1 for the proof of concept (docs/orangecat/ENGINE_LOADING_PLAN.md, step 4) */
 #endif
+#ifndef OC_HOME_PIC
+#define OC_HOME_PIC 0             /* (Orange Cat, the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) 1: step 1 as it lands: the four
+                                   * knobs' macros (1a: oc_knobs.c, oc_macro.c), the scene interpreter and the pack's scene trailer (1b: oc_scene.c),
+                                   * HOME's picture page (1c); 0: none of it is compiled and the firmware is release-2's. Off until the whole HOME
+                                   * path works (UI_BUILD.md, step 1) */
+#endif
 #ifndef MELODEE_DRUMX
 #define MELODEE_DRUMX 1           /* (Orange Cat 0.9.0) DRUM-X (engine 9, the slot of the retired PHYS): Jiant FM's drum engine, a kit of
                                    * eight synthesized sounds with a MORPH between two patches (eng_drumx.c, drumx_voice.c, GPL-3.0-only).
@@ -238,6 +244,13 @@ static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3)
 #define P_DUBLEN P_RESERVED45                   /* the line's length: OFF 8K 16K 24K 32K 48K 64K (2 .. 16 blocks of 4 KB) */
 #define P_DUBPTRN P_RESERVED46                  /* the heads: SLAP SINGLE SKANK TRIPLE GALLOP SPREAD */
 #define P_DUBSPRP P_RESERVED47                  /* the spring: OFF LOOP WET */
+/* (the new interface, OC_HOME_PIC: UI_BUILD.md 1a) the four knob macros of HOME, one a knob: a stored offset -64 .. 63 over the
+ * knob's targets, 0 the sound as stored (oc_knobs.c, oc_macro.c). The owner's decision 6 (October 29, 2026): P_RESERVED33 .. 36,
+ * never DUB TAPE's ids. Still reserved for the stores (param_reserved: zeroed on every load) until the Release 3 format revision */
+#define P_MAC0 P_RESERVED33
+#define P_MAC1 P_RESERVED34
+#define P_MAC2 P_RESERVED35
+#define P_MAC3 P_RESERVED36
 static int param_dub_lane(uint32_t id) { return param_jfx_free(id); }
 static int param_dub_setup(uint32_t id) { return id >= P_RESERVED45 && id <= P_RESERVED47; }
 

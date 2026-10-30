@@ -125,7 +125,10 @@ def generate():
             # (Orange Cat 0.9.0) the identifier of the loadable-engine interface (fw_api.h)
             [tools / "gen_fw_api_id.py", GEN / "fw_api_id.h"],
             # (Orange Cat 0.8.0) the asset pack of SHAPES' and MACRO's tables, and the header that points the firmware at it
-            [tools / "gen_pack.py", "--pak", OUT / "melodee.pak", "--header", GEN / "oc_pack_tables.h"]]
+            [tools / "gen_pack.py", "--pak", OUT / "melodee.pak", "--header", GEN / "oc_pack_tables.h",
+             # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) OC_HOME_PIC=1: HOME's pictures in the pack's scene
+             # trailer, after the tables and outside their hash (the tables and every module's pack hash as without it)
+             *(["--scenes", SRC / "firmware" / "src" / "oc_scenes.h"] if os.environ.get("OC_HOME_PIC") == "1" else [])]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
     failed = []
@@ -264,7 +267,8 @@ def app_flags():
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
-                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS"):    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
+                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS",    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
+                 "OC_HOME_PIC"):    # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) HOME's picture page, its knobs and macros; off by default
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

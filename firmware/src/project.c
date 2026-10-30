@@ -675,7 +675,13 @@ static void project_capture(project_t *p)
     p->phys = PROJ_PHYS;
     p->chain = chain_config;
     for (i = 0; i < NTRK; i++) {
+#if OC_HOME_PIC
+        for (uint32_t j = 0; j < P_COUNT; j++) p->t[i].p[j] = mac_saved_value(&trk[i], j);   /* (the new interface, UI_BUILD.md 1a:
+                                                         * the macros committed into their targets, saved as 0, until the
+                                                         * Release 3 format revision) */
+#else
         for (uint32_t j = 0; j < P_COUNT; j++) p->t[i].p[j] = motion_base_value(&trk[i], j);
+#endif
         p->t[i].engine = trk[i].eng_req;
         p->t[i].mpc_octave = trk[i].mpc_octave;
         p->t[i].preset = trk[i].preset;
@@ -1205,7 +1211,11 @@ static void template_save(void)
         tmpl.t[k].engine = trk[k].eng_req;
         tmpl.t[k].preset = trk[k].preset;
         for (i = 0; i < P_COUNT; i++)
+#if OC_HOME_PIC
+            tmpl.t[k].p[i] = mac_saved_value(&trk[k], i);   /* (the new interface: as a project's, UI_BUILD.md 1a) */
+#else
             tmpl.t[k].p[i] = motion_base_value(&trk[k], i);
+#endif
         tmpl.cz[k] = cz_patch[k];
         tmpl.p5[k] = *p5_patch_of(&trk[k]);
         tmpl.drum[k]=drum_patch[k];

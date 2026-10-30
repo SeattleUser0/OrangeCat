@@ -191,6 +191,32 @@ core() { [ "$SOUND" != only ]; }
 sound() { [ "$SOUND" != 0 ]; }
 
 # ----------------------------------------------------------- multi-step jobs ---
+oc_scene_job() {                                  # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) HOME's scenes
+    echo "== new interface 1b: the pack with and without its scene trailer (tools/gen_pack.py --scenes)"
+    python3 tools/gen_pack.py --pak "$OUT/oc_scene_without.pak" --header "$OUT/oc_scene_without.h" &&
+        python3 tools/gen_pack.py --scenes firmware/src/oc_scenes.h --pak "$OUT/oc_scene_with.pak" --header "$OUT/oc_scene_with.h" ||
+        { fail "tools/gen_pack.py --scenes"; return; }
+    # the build's own pack is the one its switch asks for (OC_HOME_PIC=1: with the trailer); the header is the same either way
+    if [ "${OC_HOME_PIC:-0}" = 1 ]; then _pk="$OUT/oc_scene_with.pak"; else _pk="$OUT/oc_scene_without.pak"; fi
+    cmp -s "$_pk" build/melodee.pak || fail "gen_pack.py: the pack is not the build's (OC_HOME_PIC=${OC_HOME_PIC:-0})"
+    cmp -s "$OUT/oc_scene_without.h" "$OUT/oc_scene_with.h" || fail "gen_pack.py --scenes changed the tables' header"
+    _t "new interface 1b: scene_ok on every scene and made faults, a fuzz drawn under the sanitizers, the pack's scene trailer" \
+        oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $FW -Itests -- \
+        "$OUT/oc_scene_test" "$OUT/oc_scene_with.pak" "$OUT/oc_scene_without.pak"
+    _t "new interface 1b: the same with the asset pack's gate on (no picture without the pack)" \
+        oc_scene_gate:oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_PACK_GATE=1 $FW -Itests -- \
+        "$OUT/oc_scene_gate" "$OUT/oc_scene_with.pak" "$OUT/oc_scene_without.pak"
+}
+home_pic_job() {                                  # (the new interface, UI_BUILD.md 1c) HOME's picture page
+    _t "new interface 1c: HOME PAGE, the three pages, the knobs' ids, commits, the scenes drawn, cozy colors, the pixel budget" \
+        home_pic_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # the switch built in and HOME PAGE at TRACKS: HOME's screens are release-2's, pixel for pixel
+    build home_pic_off home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    echo "== new interface 1c: HOME at TRACKS with the switch built in draws release-2's screens"
+    _h1=$("$OUT/home_pic_test" hash) && _h0=$("$OUT/home_pic_off" hash) || { fail "new interface 1c: the TRACKS hash did not run"; return; }
+    case "$_h1" in [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;; *) fail "new interface 1c: no TRACKS hash ($_h1)"; return ;; esac
+    [ "$_h1" = "$_h0" ] || fail "new interface 1c: HOME at TRACKS differs from release-2's ($_h1, $_h0)"
+}
 web_tests() {                                     # the editor mock's tables must equal the firmware's (desc.json)
     if [ $TABLES = 1 ]; then
         build descdump descdump $FW &&
@@ -238,6 +264,16 @@ ui_renders() {
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_new build/ui_slot || fail "tests/ui_render.py"
         python3 tools/ui_mockcmp.py build/ui_new build/ui_mock || fail "tools/ui_mockcmp.py" # redesign parity (docs/design): a report, no gate yet
+    fi
+}
+ui_renders_pic() {                                # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) every screen again with
+                                                  # OC_HOME_PIC=1, and HOME's picture page in every palette: the lint, MONO gray; PNGs in build/ui_pic
+    build ui_render_pic ui_render -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    mkdir -p build/ui_pic/ppm build/ui_pic_slot
+    step "UI renders with the new interface built in (OC_HOME_PIC=1): every screen, HOME's picture page, lint, MONO gray" \
+        "$OUT/ui_render_pic" build/ui_pic build/ui_pic_slot
+    if [ $PIL = 1 ]; then
+        python3 tests/ui_render.py build/ui_pic build/ui_pic_slot || fail "tests/ui_render.py (build/ui_pic)"
     fi
 }
 if [ "$UI" = renders ]; then
@@ -375,6 +411,9 @@ sound && t "DUB TAPE's kernel (Release 2): the repeats at TIME, each darker; FEE
 sound && t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
+# (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) OC_HOME_PIC=1: the install path takes the pack with HOME's scene trailer
+core && t "the asset pack with HOME's scene trailer (new interface 1b): installed whole; a table byte refused, a trailer byte not; tails; lengths; the image check" \
+    oc_pack_trailer_test -O1 -DOC_HOME_PIC=1 $FW
 core && run "web/EDITOR_PROTOCOL.md against editor.c's switch, both directions (Orange Cat 0.12.2)" python3 tools/check_editor_protocol.py
 core && run "the set checker (web/make_site.py check_set): sector bounds of the module area (Orange Cat 0.12.1)" python3 tests/check_set_test.py
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
@@ -508,6 +547,11 @@ if core && [ $TABLES = 1 ]; then
     t "settings: PER5 records, palette ids and preference preservation" settings_test -O1 -w -Ibuild/gen
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
+    job oc_scene_job
+    job home_pic_job
+    # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1a) HOME's knob macros through the saves and loads, OC_HOME_PIC=1
+    t "new interface 1a: macros committed by project, template and user-sound saves, loaded at 0, old records at 0, HOME's macro descriptor" \
+        oc_macro_save_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (Orange Cat 0.8.0) the same with the asset pack's gate on: the engines are silent until a pack is there, and the screen says so
     t "UI with the asset pack's gate on: PACK MISSING when MACRO or SHAPES is chosen without a pack" ui_pack_gate:ui_test -DMELODEE_USB_AUDIO=1 -DOC_PACK_GATE=1 $FW
     # (Orange Cat 0.5.3) the pages Orange Cat's own build reaches, built with its engine switches (tools/orangecat_engines.sh:
@@ -535,6 +579,7 @@ if core && [ $TABLES = 1 ]; then
     t "Note/library gestures: quarter snapping, range moves/copies, undo and bulk preset erase" note_tools_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     job ui_renders
+    job ui_renders_pic                            # (the new interface, UI_BUILD.md 1c)
     t "boot audio: codec waits for settled silent DMA and shuts down before I2S" audio_boot_test -w
     t "audio: overload protection, bounded fades and DMA diagnostics" audio_test $FW
     t "GLO > WEIGHTS: per-engine budget points, SAFETY, device persistence and pages" voice_weights_test $FW
@@ -585,6 +630,12 @@ if sound && [ $TABLES = 1 ]; then
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \
         macro_test -O2 $FW -- "$OUT/macro_test" build/macro_demo
+    # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1a) HOME's knob macros in the audio interrupt (OC_HOME_PIC=1), and the
+    # golden renders with the switch on: every macro at 0 leaves every render as it is
+    t "new interface 1a: macros at 0 bit-exact, stored values exact, a macro = its targets by hand, throws, fades, the table = the audit's" \
+        oc_macro_test -O2 -DOC_HOME_PIC=1 $FW -- "$OUT/oc_macro_test" tests/knob_audit.py
+    t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
+        "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt
     mkdir -p build/shapes_demo
     t "SHAPES (Orange Cat 0.5.1): every shape and preset through the voices, A4 at 440 Hz, the tone section; WAVs" \
         shapes_test -O2 $FW -- "$OUT/shapes_test" build/shapes_demo

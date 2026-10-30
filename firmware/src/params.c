@@ -339,8 +339,19 @@ static const param_desc_t *global_desc(uint32_t id)
     return &GP[id];
 }
 static uint32_t scale_count(const track_t *t);          /* seq.c */
+#if OC_HOME_PIC
+static const param_desc_t *mac_desc(const track_t *t, uint32_t id);   /* (oc_macro.c, the new interface: HOME's macro knobs) */
+#endif
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+#if OC_HOME_PIC
+    {
+        const param_desc_t *md;
+        if (id >= P_MAC0 && id <= P_MAC3 && (md = mac_desc(t, id)) != 0)   /* (UI_BUILD.md 1a) a macro knob: its name,
+                                                       * -64 .. 63 (TP[] keeps the stores' and the editor's reserved view) */
+            return md;
+    }
+#endif
     if (id == P_APRATE && t->p[P_APSYNC]) {           /* (Orange Cat 0.6.0, Jiant) AUTO PAN on the tempo: a division */
         static const param_desc_t AP_BEAT = {"RATE", F_ENUM, 0, 7, 2, N_APDIV, 0};
         return &AP_BEAT;

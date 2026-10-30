@@ -32,6 +32,9 @@
  * Revisions:
  * (Orange Cat 0.9.1) Library in groups with a shared spare sector (0.9.1)
  *   0.8.0: first version.
+ *   (the new interface 0.1, branch ui-build, OC_HOME_PIC only; UI_BUILD.md 1b) an install, an image check and the card take a pack longer than the
+ *          tables (up to OC_PACK_MAXLEN): HOME's scene trailer rides after them. The header, its length (still OC_PACK_LEN), hash and payload CRC
+ *          cover the tables alone, as before; the trailer is checked by its own CRC where it is read (oc_scene.c). The sector tails are tested over all of it.
  *   0.13.4: the checks of an image (header, payload CRC, sector tails) take a reader, so the card checks the file it is about to write with the same code the
  *          installer and the boot check use (oc_rule_tails, pk_payload_crc, pk_image_check): nothing is erased for a file that would be refused at the end.
  *   0.9.1: the library is no longer in this area (lib_group.c): no question about banks, no preset erased, the Prophet objects retired
@@ -124,9 +127,15 @@ static int pk_image_check(oc_rd_t rd, void *ctx, uint32_t size)
 {
     uint8_t h[OC_PACK_HDR];
     int t;
+#if OC_HOME_PIC
+    if (size < OC_PACK_LEN || size > OC_PACK_MAXLEN) return 1;
+    if (rd(ctx, 0, h, sizeof h)) return 4;
+    if (pk_header_state(h) != PK_OK || pk_rd32(h + 12) != OC_PACK_LEN) return 1;   /* (the tables' length; the trailer after) */
+#else
     if (size != OC_PACK_LEN) return 1;
     if (rd(ctx, 0, h, sizeof h)) return 4;
     if (pk_header_state(h) != PK_OK || pk_rd32(h + 12) != size) return 1;
+#endif
     if (!pk_payload_crc(rd, ctx, h)) return 2;
     t = oc_rule_tails(rd, ctx, size, PK_SECTORS);
     return t < 0 ? 4 : t > 0 ? 3 : 0;
@@ -135,6 +144,9 @@ static int pk_image_check(oc_rd_t rd, void *ctx, uint32_t size)
 static void oc_pack_scan(void)
 {
     uint8_t h[OC_PACK_HDR];
+#if OC_HOME_PIC
+    oc_pack_gen++;                                           /* (the new interface: HOME's picture finds its scene again) */
+#endif
     pk.state = PK_MISSING;
     if (!st_read(OC_PACK_LO, h, sizeof h)) {
         pk.state = (uint8_t)pk_header_state(h);
@@ -183,7 +195,11 @@ static int pk_erase_all(void)
 static int oc_pack_begin(uint32_t len)
 {
     int rc;
+#if OC_HOME_PIC
+    if (len < OC_PACK_LEN || len > OC_PACK_MAXLEN) return -1;   /* (the tables, and the scene trailer if it is there) */
+#else
     if (len != OC_PACK_LEN || len > OC_PACK_AREA) return -1;
+#endif
     if (lg_incomplete) return -4;
     pk.writing = 0;
     pk.state = PK_MISSING;
@@ -206,7 +222,12 @@ static int oc_pack_write(uint32_t off, const void *src, uint32_t n)
         int rc;
         if (k > n) k = n;
         if ((rc = st_prog(OC_PACK_LO + off, p, k)) != 0) { pk.writing = 0; return rc; }
+#if OC_HOME_PIC
+        if (off < OC_PACK_LEN)                           /* (the header's payload CRC covers the tables only, not the trailer) */
+            pk.crc = ocs_crc_add(pk.crc, p, off + k <= OC_PACK_LEN ? k : OC_PACK_LEN - off);
+#else
         pk.crc = ocs_crc_add(pk.crc, p, k);
+#endif
         p += k; off += k; n -= k;
         pk.done = off;
     }
@@ -218,7 +239,11 @@ static int oc_pack_end(const void *hdr512)
     uint8_t h[OC_PACK_HDR];
     int rc;
     memcpy(h, hdr512, sizeof h);
+#if OC_HOME_PIC
+    if (!pk.writing || pk.done != pk.len || pk_header_state(h) != PK_OK || pk_rd32(h + 12) != OC_PACK_LEN ||
+#else
     if (!pk.writing || pk.done != pk.len || pk_header_state(h) != PK_OK || pk_rd32(h + 12) != pk.len ||
+#endif
         pk_rd32(h + 16) != ~pk.crc || !pk_payload_ok(h) || pk_tails() != 0) {
         pk.writing = 0;
         return -1;
@@ -229,6 +254,29 @@ static int oc_pack_end(const void *hdr512)
     oc_pack_scan();
     return pk.state == PK_OK ? 0 : -7;
 }
+#if OC_HOME_PIC
+/* (the new interface, UI_BUILD.md 1b) byte off of the pack as the firmware reads it in place (oc_scene.c: the scene trailer) */
+static __attribute__((unused)) const uint8_t *pk_xip(uint32_t off) { return (const uint8_t *)FL_XIP(OC_PACK_LO + off); }
+/* 1: the pack area holds a whole scene trailer after the tables (its magic, version and CRC), as the flash has it. A set's install
+ * (card_install.c) puts the set's pack in again when its file carries a trailer and the area has none */
+static int pk_trailer_ok(void)
+{
+    uint8_t b[256];
+    uint32_t at = (OC_PACK_LEN + 3u) & ~3u, tl, crc = 0xFFFFFFFFu, off;
+    if (at + 16u > OC_PACK_AREA || st_read(OC_PACK_LO + at, b, 16u) || pk_rd32(b) != 0x4353434Fu || pk_rd16(b + 4) != 1u) return 0;
+    tl = pk_rd32(b + 8);
+    if (tl < 16u || tl > OC_PACK_AREA - at) return 0;
+    {
+        uint32_t want = pk_rd32(b + 12);
+        for (off = 16u; off < tl; off += sizeof b) {
+            uint32_t n = tl - off > sizeof b ? sizeof b : tl - off;
+            if (st_read(OC_PACK_LO + at + off, b, n)) return 0;
+            crc = ocs_crc_add(crc, b, n);
+        }
+        return ~crc == want;
+    }
+}
+#endif
 /* the area erased: no pack. 0 ok; -4 the move of the old preset pairs has not finished; else flash */
 static int oc_pack_erase(void)
 {

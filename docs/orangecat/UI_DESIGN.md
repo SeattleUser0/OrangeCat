@@ -1,12 +1,17 @@
 # Orange Cat: the new interface (design)
 
-**Version:** 0.3
-**Date:** October 26, 2026
-**Branch:** ui-design, from linux-hw a8df964. Not on main, not built into the firmware, not on the unit.
-**Status:** a design to choose from. Nothing in firmware/src changed. The screens are drawn by the firmware's own drawing code
-on the host (tests/ui_mockup.c), so what they show is what the unit can draw.
+**Version:** 0.4
+**Date:** October 29, 2026
+**Branch:** ui-design, from linux-hw a8df964; built on ui-build (Session C, docs/orangecat/UI_BUILD.md). Not on main, not on
+the unit.
+**Status:** decided (the owner, October 29, 2026: "The owner's decisions" below). The build follows Part 3 on branch
+ui-build, its log in docs/orangecat/UI_BUILD.md. The screens are drawn by the firmware's own drawing code on the host
+(tests/ui_mockup.c), so what they show is what the unit can draw.
 
 Revisions:
+- 0.4 (October 29, 2026): the owner's decisions written in as decided (the six choices below); the build moves to branch
+  ui-build. Where the build differs from this design for now, UI_BUILD.md says so (the macros bake into saves until the
+  Release 3 format revision; SELECT on HOME stays as today until step 3).
 - 0.3: every effect gets a picture page instead of a table of values (the track's sends, DIST, AUTO PAN, DELAY, REVERB,
   CHORUS, SLICER, MASTER; section 8); every picture runs at 10 frames a second (the owner's call); the budget measured
   again at that rate.
@@ -23,7 +28,20 @@ the sound across all presets for that engine. That may mean some need to be macr
 animated scenes is key; it makes it lighthearted and fun." And: "I prefer something like TE's OP-1 interface where the EDIT
 button lives up to its name and we keep the main parameters up front."
 
-## The choices for the morning
+## The owner's decisions (October 29, 2026)
+
+Decided; they replace "The choices for the morning" below, kept as it was written for the record.
+1. **HOME B**: the picture, four colored dials and one row of small values under them.
+2. **The four knobs per engine**: the table in section 2, approved for now. The owner judges them by playing; each
+   engine's knob table is kept in one place, easy to change (firmware/src/oc_knobs.c for the built-in engines).
+3. **Per-note ties: no.** Notes keep their own lengths through the recorded-note pool (section 4).
+4. **The SHIFT map under HOME held: yes.** HOME pressed alone opens the MENU (step 3).
+5. **Pictures of the engines built into the firmware** (MACRO, DRUM-X, SHAPES' built-in copy) **and of the effects ride
+   in the asset pack** until they are modules; the firmware image holds none.
+6. **Parameter ids:** the knob macros take P_RESERVED33..36. DUB TAPE (on release-2) uses P_JRES0..6 and
+   P_RESERVED45..47. None of those is reused for anything else.
+
+## The choices for the morning (October 26, as proposed)
 
 1. **HOME A or HOME B.** A is the picture and four colored dials, no numbers (the OP-1's way): a knob's name and value show
    in the sound line while it turns. B is the same with one row of small values under the dials. Both are in
@@ -190,6 +208,9 @@ so every old project and sound loads with its macros at 0, as it sounded. A macr
 records `P_MACk`); the old inert effect automation on those ids (motion.c skips it today) must stay skipped for projects of
 the formats before macros, so the first build bumps the project magic and drops such events at conversion. A preset turned
 by a macro and saved as a user sound keeps the offset; INIT SOUND sets the four to 0.
+(0.4: the project magic bump and the dropping of those events wait for the Release 3 format revision with project-owned
+phrases; until then saves commit the macros into their targets and load them at 0, and motion does not record them:
+UI_BUILD.md, step 1a.)
 
 **The ids are shared with DUB TAPE's plan** (branch dub-tape, DUB_TAPE_PLAN.md 7.2), which took all fifteen free ids,
 P_RESERVED33..36 among them, for fifteen setup parameters. Its performance view (SPEC.md 9.3.2) changed what it needs: what
@@ -538,7 +559,7 @@ file, tools/size_by_file.py).
 
 | Step | What | Flash | RAM | Guarded by | What is left of today's UI |
 |---|---|---|---|---|---|
-| 1 | **HOME's picture and the four knobs**, behind MENU > DISPLAY > HOME: PICTURE or TRACKS (TRACKS until the owner switches it). The fixed knob colors. `P_MAC0..3` and the data macros, put on and taken off a block as the throws. `kdef[4]` for MACRO, SHAPES and DRUM-X; their scenes in the asset pack (no scene in the image). The scene interpreter, the sound line, the dials (A or B, as picked). The project magic bumped (old inert automation on those ids dropped). | about +6.4 KB (interpreter 3.3, HOME and the plain picture 1.5, macros and their table 1.0, the pack's scene table and its check 0.5, knob tables 0.3; the palettes' 16 knob shades a palette, -0.2); the pack +0.8 KB | +64 B (the phases and the note-on times); the macros need none (track parameters) | ui_render.c's lint over HOME on every engine with each knob at both ends; the golden renders unchanged with every macro at 0 (tests/golden.txt); a macro test (on and off over a block leaves the stored values exact; an offset gives the table's value); knob_audit.py in CI (a weak knob fails); ui_test: the knobs write the declared ids, SELECT reaches TRACKS and CHORD, a module without a scene gets the plain picture | everything; HOME can be today's Stage |
+| 1 | **HOME's picture and the four knobs**, behind MENU > DISPLAY > HOME: PICTURE or TRACKS (TRACKS until the owner switches it). The fixed knob colors. `P_MAC0..3` and the data macros, put on and taken off a block as the throws. `kdef[4]` for MACRO, SHAPES and DRUM-X; their scenes in the asset pack (no scene in the image). The scene interpreter, the sound line, the dials (A or B, as picked). The project magic bumped (old inert automation on those ids dropped; 0.4: deferred to the Release 3 format revision, UI_BUILD.md 1a). | about +6.4 KB (interpreter 3.3, HOME and the plain picture 1.5, macros and their table 1.0, the pack's scene table and its check 0.5, knob tables 0.3; the palettes' 16 knob shades a palette, -0.2); the pack +0.8 KB | +64 B (the phases and the note-on times); the macros need none (track parameters) | ui_render.c's lint over HOME on every engine with each knob at both ends; the golden renders unchanged with every macro at 0 (tests/golden.txt); a macro test (on and off over a block leaves the stored values exact; an offset gives the table's value); knob_audit.py in CI (a weak knob fails); ui_test: the knobs write the declared ids, SELECT reaches TRACKS and CHORD, a module without a scene gets the plain picture | everything; HOME can be today's Stage |
 | 2 | **EDIT's sheets**: SOUND, ENV, MOD, FX, VOICE; the native engines' sections as sheets; ENV and LFO as shortcuts; SELECT down the rows. EDIT 1 and EDIT 2 retired as pages. | +1 to 2 KB (a sheet layer over the PAGES table; most rows exist) | +16 B (the row a sheet is on) | a page-coverage test: every parameter reachable today is on some sheet; ui_render.c over every sheet of every engine; ui_test: EDIT, SELECT and the shortcuts | the FX, SCL, ARP, SEQ, GLO and SAVE families as today |
 | 3 | **The SHIFT map**, HOME held; MENU on release; the combos | +1 KB | 0 | ui_test: every combo, the release opening the MENU only alone; layer_screen_test; the lint over the map of every page | as step 2 |
 | 4 | **The step pages**: PRESETS as the cursor on NOTES; FEEL (new); TRACKER's KNOB 4 a note's own length on any step (converting to events); the one-authority cleanup | +2 to 3 KB | 0 (the pool exists) | recording_props_test and the scheduler tests unchanged; ui_test: per-note length from TRACKER and NOTES, one undo; a test that a manual step converts only when its notes stop sharing a length | CHAIN, SONG, PHRASES, GROOVE as today |

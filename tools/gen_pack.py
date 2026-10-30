@@ -30,7 +30,15 @@ The update loader (loader/ldr_core.c) erases a flash sector whose last 256 bytes
 so the generator tests every sector tail of the laid-out pack against that rule and moves the tables on by 4 bytes until none
 matches (it never does in practice: 2^-32 a sector). --check lays out the pack and tests it without writing anything.
 
+The scene trailer (the new interface, branch ui-build, docs/orangecat/UI_BUILD.md 1b; --scenes firmware/src/oc_scenes.h, which
+tools/build.py passes when OC_HOME_PIC=1): HOME's pictures of the built-in engines, after the tables at the length rounded up
+to 4, OUTSIDE the header's length, table hash and payload CRC (so the tables, the header and every module's pack hash are the
+same with or without it). Its layout is firmware/src/oc_scene.c's: "OCSC", version 1 (u16), count (u16), length (u32), CRC-32 of
+bytes 16 .. length (u32), entries of engine (u8), 0 (u8), offset (u16), length (u16), then the scenes. The loader's sector-tail
+rule is tested over the whole image; the scenes move on by 4 bytes inside the trailer until no tail matches.
+
 Revisions:
+# (the new interface 0.1, branch ui-build) --scenes: the scene trailer (UI_BUILD.md 1b); without it every output is as before
 # (Orange Cat 0.10.1) module sector tails against the update loader's record rule
   0.8.0: first version.
   0.10.1: the loader's record rule and the flash-offset-to-XIP function moved to tools/ocflash.py (build.py --module uses them too).
@@ -122,6 +130,56 @@ def layout(tbl, data):
     raise SystemExit("no layout avoids the update loader's record test")
 
 
+def scenes_dump(header, cc):
+    """[(engine, bytes)] of the SCENES table in `header` (oc_scenes.h), the compiler's bytes."""
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        c = ['#include <stdio.h>', '#include <stdint.h>', f'#include "{Path(header).resolve()}"',
+             "int main(int argc, char **argv) {",
+             '    FILE *f = fopen(argv[1], "wb"); if (!f) return 1;',
+             "    for (unsigned i = 0; i < sizeof SCENES / sizeof SCENES[0]; i++) {",
+             '        fprintf(f, "%u %u\\n", (unsigned)SCENES[i].engine, (unsigned)SCENES[i].len);',
+             "        fwrite(SCENES[i].scene, 1, SCENES[i].len, f); }",
+             "    fclose(f); return 0; }"]
+        (d / "dump.c").write_text("\n".join(c) + "\n")
+        subprocess.run([cc, "-O1", "-std=gnu11", "-w", f"-I{SRC}", "-o", str(d / "dump"), str(d / "dump.c")], check=True)
+        subprocess.run([str(d / "dump"), str(d / "out.bin")], check=True)
+        raw = (d / "out.bin").read_bytes()
+    out, at = [], 0
+    while at < len(raw):
+        nl = raw.index(b"\n", at)
+        e, n = map(int, raw[at:nl].split())
+        out.append((e, raw[nl + 1:nl + 1 + n]))
+        at = nl + 1 + n
+    return out
+
+
+SCN_HEAD = 16
+
+
+def trailer(pak, scenes):
+    """pak with the scene trailer after it (at its length rounded up to 4), no sector tail like an update record."""
+    at = (len(pak) + 3) // 4 * 4
+    head_n = SCN_HEAD + 6 * len(scenes)
+    for pad in range(0, 64 * 4, 4):
+        body, entries, off = bytearray(), bytearray(), head_n + pad
+        for e, b in scenes:
+            if off + len(b) > 0xFFFF or len(b) > 0xFFFF:
+                raise SystemExit("a scene trailer over 64 KB")
+            entries += struct.pack("<BBHH", e, 0, off, len(b))
+            body += b
+            off += len(b)
+        tl = off
+        t = bytearray(struct.pack("<IHHII", 0x4353434F, 1, len(scenes), tl, 0)) + entries + b"\xff" * pad + body
+        struct.pack_into("<I", t, 12, zlib.crc32(bytes(t[SCN_HEAD:])) & 0xFFFFFFFF)
+        image = pak + b"\xff" * (at - len(pak)) + bytes(t)
+        if len(image) > PACK_AREA:
+            raise SystemExit(f"the pack with its scenes needs {len(image)} bytes: the pack area holds {PACK_AREA}")
+        if tail_hit(image) < 0:
+            return image
+    raise SystemExit("no scene trailer layout avoids the update loader's record test")
+
+
 def build(cc):
     tbl = tables()
     data = dump(tbl, cc)
@@ -163,11 +221,18 @@ def main():
     ap.add_argument("--header")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--cc", default="cc")
+    ap.add_argument("--scenes", help="(the new interface, OC_HOME_PIC) oc_scenes.h: HOME's pictures in a trailer after the tables")
     a = ap.parse_args()
     version = a.version or (ROOT / "VERSION").read_text().strip()
     pak, header, tbl, order, offs, thash = build(a.cc)
     print(f"pack: {len(tbl)} tables, {len(pak)} of {PACK_AREA} bytes, hash {thash:08X}, "
           f"{PACK_AREA - len(pak)} bytes spare", file=sys.stderr)
+    if a.scenes:
+        scenes = scenes_dump(a.scenes, a.cc)
+        base = len(pak)
+        pak = trailer(pak, scenes)
+        print(f"pack: + scene trailer {len(pak) - base} bytes ({len(scenes)} scenes, "
+              f"{sum(len(b) for _, b in scenes)} bytes of them), {PACK_AREA - len(pak)} bytes spare", file=sys.stderr)
     if a.check:
         return
     pak_path = Path(a.pak) if a.pak else ROOT / "build" / f"orangecat-{version}.pak"

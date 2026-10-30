@@ -32,11 +32,19 @@ static int fb_pak_file(const char *p, uint32_t size, int dry)
     uint8_t buf[512];
     FIL *f = &uf_pf;
     UINT got;
+#if OC_HOME_PIC
+    uint32_t len = size, off;                           /* (the new interface: the tables and HOME's scene trailer, UI_BUILD.md 1b) */
+#else
     uint32_t len = OC_PACK_LEN, off;
+#endif
     fb_rd_t rd;
     int rc;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
+#if OC_HOME_PIC
+    if (size < OC_PACK_LEN || size > OC_PACK_MAXLEN) { str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg); return 1; }
+#else
     if (size != len) { str_cpy(fb.msg, "Not this build's pack", sizeof fb.msg); return 1; }
+#endif
     if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
     rd.f = f; rd.base = 0;
     rc = pk_image_check(fb_rd, &rd, size);
@@ -351,7 +359,17 @@ static int fb_install_set(const fb_ent_t *e)
         for (j = 0; j < k; j++)
             if (eng[j] == eng[k] || !oc_mod_pair_fits(eng[j], eng[k])) { str_cpy(fb.msg, "Modules don't fit", sizeof fb.msg); return 1; }
     }
+#if OC_HOME_PIC
+    {   /* (the new interface, UI_BUILD.md 1b) the set's pack in again also when its file carries HOME's scene trailer and the area has
+         * none (a pack installed before, of the same tables) */
+        uint32_t ssize = 0;
+        if (!fb_set_file(p, o->pak, &ssize) && ssize > OC_PACK_LEN && !pk_trailer_ok()) plen = 0;
+        else plen = 1;
+    }
+    if (!plen || !(oc_pack_info(&plen, &phash) == PK_OK && plen == OC_PACK_LEN && phash == OC_PACK_HASH)) {
+#else
     if (!(oc_pack_info(&plen, &phash) == PK_OK && plen == OC_PACK_LEN && phash == OC_PACK_HASH)) {
+#endif
         if (fb_set_file(p, o->pak, &size) || fb_pak_file(p, size, 0)) return 1;
     }
     /* (0.13.5) the press that answers an in-place question goes on from the module that asked: the ones before it were installed by the presses before, and a

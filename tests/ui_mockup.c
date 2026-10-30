@@ -299,11 +299,11 @@ static void scene_inputs(const sound_t *s, const frame_t *f, scene_in_t *in)
     in->s[SS_NOTE] = (int16_t)(f->note * 256 / 12);
     in->s[SS_TIME] = (int16_t)((f->t_ms % 1000) * 256 / 1000);
     in->s[SS_WOB] = (int16_t)lround(256.0 * sin(f->t_ms * 2.0 * M_PI / 2000.0));
-    in->col[SC_INK] = T_SEC;
-    for (uint32_t k = 0; k < 4u; k++) in->col[SC_K1 + k] = KCOL[k];
-    in->col[SC_TRK] = T_TRK(s->track);
-    in->col[SC_DIM] = T_LINE;
-    in->col[SC_BG] = T_BG;
+    in->col[SCC_INK] = T_SEC;
+    for (uint32_t k = 0; k < 4u; k++) in->col[SCC_K1 + k] = KCOL[k];
+    in->col[SCC_TRK] = T_TRK(s->track);
+    in->col[SCC_DIM] = T_LINE;
+    in->col[SCC_BG] = T_BG;
     for (uint32_t i = 0; i < 64u; i++) {                /* a stand-in for the track's scope: a saw with some of knob 1 */
         double ph = fmod(i / 21.0 + f->t_ms / 700.0, 1.0);
         double v = (ph * 2.0 - 1.0) * 0.6 + 0.4 * sin(i * 0.9 + f->t_ms / 300.0) * in->s[SS_K1] / 256.0;
