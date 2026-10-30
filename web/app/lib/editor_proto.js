@@ -2808,9 +2808,12 @@ function ocmImage(ocm, v) {
 function packProblem(bytes, info) {
   if (!bytes || bytes.length < 512) return "packWrongBuild";
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (dv.getUint32(0, true) !== 0x4B50434F || bytes.length !== info.buildLen || dv.getUint32(12, true) !== info.buildLen || dv.getUint32(8, true) !== info.buildHash ||
-      crc32(bytes.subarray(0, 508)) !== dv.getUint32(508, true)) return "packWrongBuild";
-  if (crc32(bytes.subarray(512)) !== dv.getUint32(16, true)) return "packDamaged";
+  /* (the new interface 0.7, UI_BUILD.md "The asset pack change") the file may be longer than the build's tables: a scene trailer (OC_HOME_PIC) follows them, outside the header's
+   * length, hash and payload CRC, and is sent with them (the unit takes any length from buildLen up to its area). The header and the payload CRC cover the first buildLen bytes; the
+   * sector tails are tested over the whole file, as the unit tests what it wrote. */
+  if (dv.getUint32(0, true) !== 0x4B50434F || bytes.length < info.buildLen || bytes.length > Math.max(info.area || 0, info.buildLen) || dv.getUint32(12, true) !== info.buildLen ||
+      dv.getUint32(8, true) !== info.buildHash || crc32(bytes.subarray(0, 508)) !== dv.getUint32(508, true)) return "packWrongBuild";
+  if (crc32(bytes.subarray(512, info.buildLen)) !== dv.getUint32(16, true)) return "packDamaged";
   return ocmTails(bytes) ? "packTail" : "";
 }
 /* the file against the unit's ED_MOD_INFO answer for the file's engine: {ok, variant} or {ok: false, key} */

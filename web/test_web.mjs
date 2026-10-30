@@ -355,6 +355,9 @@ const E = vm.runInNewContext(proto + `
     ok(E.packProblem(mkp(), pinfo) === "", "pack: a good file passes the page's check (header, payload CRC, tails)");
     { const p = mkp(); p[4000] ^= 0x10; ok(E.packProblem(p, pinfo) === "packDamaged", "pack: one payload byte flipped, a good header: refused by the page (packDamaged)"); }
     { const p = mkp(); rec(p, 0xF00); fixp(p); ok(E.packProblem(p, pinfo) === "packTail", "pack: a record on a sector tail (header and CRC made right): refused by the page (packTail)"); }
+    { const t = new Uint8Array(PL + 613); t.set(mkp()); for (let i = PL; i < t.length; i++) t[i] = (i * 5) & 255;   /* (the new interface 0.7) a scene trailer after the tables */
+      ok(E.packProblem(t, { ...pinfo, area: 40960 }) === "" && E.packProblem(t, pinfo) === "packWrongBuild" && E.packProblem(new Uint8Array(40961), { ...pinfo, area: 40960 }) === "packWrongBuild",
+         "pack: a file with a scene trailer passes when the unit's area holds it (header and CRC over the tables only), and not otherwise"); }
     ok(E.packProblem(mkp(hash ^ 1), pinfo) === "packWrongBuild" && E.packProblem(mkp().subarray(0, 4096), pinfo) === "packWrongBuild", "pack: another build's hash or a file of another length: packWrongBuild"); }
   ok(sum([8, 1, 14, ...n3(23780)], [0, 0, 0, 0, 0, 0]) === "modStateTail" && sum([8, 1, 14, 0, 0, 0], [7, 0, 14, 0, 0, 0]) === "modStateOk" && E.OCM_STATE[8] === "badtail", "module: the state line for a module whose sector tail the update would erase");
   { const one = pkg(); /* a package with only the start 6 image: the unit names start 0 */

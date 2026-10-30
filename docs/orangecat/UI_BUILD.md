@@ -1328,34 +1328,57 @@ On `OC_LANES=1`, step 5:
 On `OC_MIXER=1`, step 6:
 18. **The mixer's colors** on the panel in every palette (the blue bar on the track-tinted rows; the white and orange words).
 
-## The preview build and its smoke test (October 30, 2026)
+## For Session A (October 30, 2026)
 
-**The build.** Branch `ui-preview` (this branch plus two commits that change nothing but the CI build: the six finished switches on in
-`.github/workflows/build.yml`, build and test steps both, and `OC_PREVIEW=1`, which makes `tools/build.py --nightly` write the version
-string `v0.16-PREVIEW-<commit6>`; the editor identity is `ORANGE CAT v0.16-PREVIEW`). `VERSION` stays `0.16.0` (the build requires
-X.Y.Z). It is built by CI as a manual run of the build workflow with `publish_nightly` off, so nothing reaches the installer page's
-channels. The files and the install order are in `~/oc-ui-preview/INSTALL.md`. No switch default on `ui-build` changed.
+**The commit to merge.** The head of `ui-build` once this section is pushed (its hash is in the final report and in `git log -1 origin/ui-build`;
+the host suite on it: ALL HOST TESTS PASSED with CI's settings, PARALLEL=1). It contains release-2 up to eb55c1d. What it changes outside
+the interface's own files, so the merge is read knowing it:
+- `tools/orangecat_engines.sh` sets `OC_HOME_PIC=1 OC_EDIT_SHEETS=1 OC_SHIFT_MAP=1 OC_STEP_PAGES=1 OC_LANES=1 OC_MIXER=1`, so a CI build is the
+  interface build (the build and test steps both source it). Steps 10 and 11 (`OC_CLIP`, `OC_CLIP_SEL`) are **off** in it. The old code
+  paths are all still in the image: with a switch unset the image is byte-identical to release-2 (cmp, checked for 10 and 11 too).
+- **Not for release-2 until Session A has done them:** the knob macros' interrupt code (`oc_macro.c`, the `oc_throw.c` hooks) is in this
+  build when `OC_HOME_PIC=1`. It is the code waiting for Session A's review and timing, so **a Nightly from this branch carries it**.
+  Session A decides whether to merge before the review (Nightly only) or after.
+- `web/fm1oc.js`, `web/editor.html`, `web/app/lib/editor_proto.js` (`packProblem`) and `web/make_site.py` (`check_set`) changed, with tests
+  (see the pack below). These are the installer page's, the editor's and the site builder's files; the change is the minimum.
+- Flash: 557,888 B with the six on (19,360 B free of 577,248; 11,168 B above the 8 KB reserve); .data+.bss 94,504 B; arena 84,064 B.
 
-**What the smoke test must cover**, in the order to run it. "Harness" means what Session A's unit scripts can drive and read (editor
-protocol, MIDI in, USB audio capture, the trace's per-job profile, late-half counters, a screen capture of the LCD if the unit has one
-on the bench); "person" means a judgment a script cannot make.
+**The pack with the scene trailer.** With `OC_HOME_PIC=1` the build's `.pak` is 40,845 B: the 40,232 B of tables, then a 613 B scene
+trailer ("OCSC", the pictures of MACRO, SHAPES and DRUM-X; 115 B of the 40,960 B area remain). The header's length, table hash and payload
+CRC cover the **tables only**, so every module's `pack_hash` and the manifest are unchanged. What each side has to do:
+- **The unit** (oc_pack.c, card_install.c) accepts any length from the tables' length up to the 40,960 B area; it checks the tables' CRC
+  and the update loader's sector-tail rule over everything written. A firmware built **without** the switch refuses anything longer than
+  the tables.
+- **The installer page and the web app must send the whole file** (ED_PACK_BEGIN with the file's length, then every chunk), not the first
+  40,232 B. Before this change their checks refused it (`packProblem` wanted the file's length to equal the tables'); now they check the
+  header, hash and payload CRC over the first `buildLen` bytes and the tails over the whole file, and refuse a file longer than the area.
+  `web/make_site.py check_set` does the same, or the Nightly's publish step would stop at "damaged (length or CRC)". Tests: `web/test_web.mjs`
+  (one case), `tests/check_set_test.py` (four).
+- **Open for Session A:** `ED_PACK_INFO` reports only the tables' length, so the page cannot tell a firmware that takes the trailer from
+  one that does not. A trailer pack sent to a firmware without the switch is refused by the unit ("packFail"); the page's channel
+  pairs the pack with its own firmware, so this only shows when a pack is installed alone on an older unit. A pack without the trailer on
+  this firmware is safe: the pictures are absent, HOME draws the plain picture, and the sounds do not change.
 
-| # | From checks | What | Harness | Person |
+**Smoke test, from the hardware checks 1 to 18** (the unit is Session A's; none run). "Harness" is what Session A's unit scripts can drive
+and read (editor protocol, MIDI in, USB audio capture, the trace's per-job profile, late-half counters, a screen capture if the bench has
+one); "person" goes to the owner's play test.
+
+| # | Checks | What | Harness | Person |
 |---|---|---|---|---|
-| S1 | (all) | Boots; ABOUT/MENU shows `v0.16-PREVIEW-<commit>`; the editor identity reads `ORANGE CAT v0.16-PREVIEW`; core 1 alive, no crash mark | yes: identity and crash counters over the editor | read the menu line fits the screen |
-| S2 | 5 | The pack with its scene trailer: install it and the firmware by the installer page's file option, in the order of INSTALL.md; pack hash and trailer accepted; pictures show; then the base pack (no trailer): the plain picture, MACRO and SHAPES still sound | yes: pack hash, trailer CRC, module list over the editor | the pictures |
-| S3 | 1 (Session A) | The macros in the interrupt: the block's time with four SHAPES tracks, every macro turned, against macros at 0; `fm1_timer5_irq` cost; late halves over a 10 minute sequence | yes (the trace) | no |
-| S4 | 2 | Macro sound: PLUCK on MACRO and SHAPES at both ends, TONE and TIMB on SHAPES, over a held note and a sequence; no click on a turn | the macro values and a capture's level and click detector; hand-turned knobs if the harness cannot turn them | whether it sounds right |
-| S5 | 3, 7 | Save and reload with macros turned: the sound the same, the dials at the center; MENU > HOME PAGE back to TRACKS with macros turned: the sound does not change | yes: render a note before and after and compare the capture | no |
-| S6 | 4, 9, 14, 17 | Late audio halves and underruns while the new screens animate: HOME's picture at 10 frames a second, a sheet with SELECT turned fast, FEEL's 16 tiles, the LANES table, each with a sequence playing and a chord held | yes: late-half counters and LCD frame time from the trace, with key and knob events injected | no |
-| S7 | 8, 10, 13, 15 | Reachability: every release-2 page and gesture still reached (EDIT sheets and the FX link, EDIT held undo, EDIT with OCT, NOTES knob moves, the tracker's chord length) | partly: scripted key sequences with the screen compared to the host mockups (`docs/orangecat/ui/new/`) | the feel of the knobs and the cursor |
-| S8 | 11, 12 | HOME as SHIFT: the 0.7 s map, the MENU on a release, SHIFT + each knob, PRESETS, EDIT, OCT; the panel's scan with two keys in one scan | partly: key timing can be injected; the map's 0.7 s is a timer the trace shows | the feel of the hold and tap |
-| S9 | 14, 16 | FEEL and the SHIFT combos on NOTES: chance, condition, ratchet and nudge on a recorded chord sound as the host says; + PRESETS stretches, + EDIT deletes or resets and refuses while a chain runs | the sound by capture against the host render of the same phrase; the refusal by the screen text | whether it plays as intended |
-| S10 | 6, 18 | The cozy colors and the mixer's bars in every palette on the panel (the host checks 3:1 on the ground; the panel's gamma is not the host's) | no (a photo can be stored) | **yes: only a person** |
-| S11 | (all) | Leave: reinstall the Nightly or Standard (INSTALL.md), the unit boots and an old project loads | yes | no |
+| S1 | all | Boots; the version line; core 1 alive, no crash mark | identity and crash counters over the editor | the menu line fits |
+| S2 | 5 | The pack with its trailer installed (the installer page, the Nightly channel): pack hash, trailer accepted; the base pack (no trailer): plain picture, MACRO and SHAPES still sound | pack hash and module list over the editor | the pictures |
+| S3 | 1 | The macros in the interrupt: block time with four SHAPES tracks, every macro turned, against macros at 0; `fm1_timer5_irq` cost; late halves over a 10 minute sequence | yes (the trace) | no |
+| S4 | 2 | PLUCK on MACRO and SHAPES at both ends, TONE and TIMB on SHAPES, over a held note and a sequence; no click on a turn | macro values, a capture's level and a click detector | how it sounds |
+| S5 | 3, 7 | Save and reload with macros turned: the same sound, dials at the center; MENU > HOME PAGE back to TRACKS with macros turned: the sound does not change | render before and after and compare the capture | no |
+| S6 | 4, 9, 14, 17 | Late audio halves and underruns with the screens animating: HOME's picture at 10 frames a second, a sheet with SELECT turned fast, FEEL's 16 tiles, the LANES table, each with a sequence and a chord held | late-half counters and LCD frame time from the trace, key and knob events injected | no |
+| S7 | 8, 10, 13, 15 | Reachability: every release-2 page and gesture still reached (the sheets and the FX link, EDIT held undo, EDIT with OCT, NOTES knobs, the tracker's chord length) | partly: scripted key sequences against the host mockups in `docs/orangecat/ui/new/` | the feel of knobs and cursor |
+| S8 | 11, 12 | HOME as SHIFT: the 0.7 s map, the MENU on a release, SHIFT with each knob, PRESETS, EDIT, OCT; two keys in one scan | key timing can be injected; the 0.7 s timer shows in the trace | the feel of the hold and tap |
+| S9 | 14, 16 | FEEL and the SHIFT combos on NOTES: chance, condition, ratchet and nudge on a recorded chord sound as the host says; + PRESETS stretches, + EDIT deletes or resets and refuses while a chain runs | the sound by capture against the host render; the refusal by the screen text | whether it plays as intended |
+| S10 | 6, 18 | The cozy colors and the mixer's bars in every palette on the panel | no (a photo can be kept) | **only a person** |
+| S11 | all | Back to Standard: reinstall it, the unit boots, an old project loads | yes | no |
 
-Pass means: S1, S2, S3, S5, S6 and S11 clean (a number, not a look); S4, S7 to S9 with no regression from release-2 that the harness can
-see; S10 left for the owner. A late half or an underrun in S6 that release-2 does not show stops the preview from going to the owner.
+Pass: S1, S2, S3, S5, S6, S11 clean (numbers, not looks); S4 and S7 to S9 with no regression from release-2 the harness can see; S10 is
+the owner's. A late half or underrun in S6 that release-2 does not show stops the Nightly from going to the owner.
 
 ## Step 12: the one-authority cleanup (not built; October 30, 2026)
 

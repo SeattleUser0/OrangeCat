@@ -105,5 +105,10 @@ check("a pack of another hash than the firmware's is refused", "is not the firmw
 check("(0.14.1) a relocatable package (format 2) of the Prophet, proved for sectors 0 and 4, is accepted", run(P, [ocm2("PROPHET", 19, 8, [0, 4], length=31872)]) == "")
 check("(0.14.1) a relocatable package proved for a start that leaves the area is refused", "does not fit" in run(P, [ocm2("SHAPES", 14, 6, [0, 7])]))
 check("(0.14.1) a damaged relocatable package header is refused", "damaged" in run(P, [ocm2("SHAPES", 14, 6, [0, 6], bad_crc=True)]))
+T = P + bytes(range(200))      # (the new interface 0.7) a scene trailer after the tables: outside the header's length, hash and CRC
+check("(0.7) a pack with a scene trailer after its tables is accepted (the manifest's length is the tables')", run(T, [shapes], {"pack_hash": PHASH, "pack_len": len(P), "iface": IFACE, "api_addr": ADDR}) == "")
+check("(0.7) a pack whose tables are damaged under a trailer is refused", "damaged" in run(bytearray(T[:600]) + bytes([T[600] ^ 1]) + T[601:] if False else T[:600] + bytes([T[600] ^ 1]) + T[601:], [shapes], {"pack_hash": PHASH, "pack_len": len(P), "iface": IFACE, "api_addr": ADDR}))
+check("(0.7) a pack file shorter than its header's length is refused", "damaged" in run(P[:-4], [shapes]))
+check("(0.7) a pack file longer than the 40,960 byte area is refused", "damaged" in run(P + bytes(41000), [shapes], {"pack_hash": PHASH, "pack_len": len(P), "iface": IFACE, "api_addr": ADDR}))
 print("check_set: all passed" if not failed else f"check_set: {failed} FAILED")
 sys.exit(1 if failed else 0)
