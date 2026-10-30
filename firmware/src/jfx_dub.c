@@ -329,7 +329,7 @@ JFX_XIP static void dub_start(uint32_t nt)
 /* (round 6) after the voice batch is joined (mix.c): the DUB job as a worker job of its own, in CPU1's idle time while CPU0 mixes the tracks (the trace: the gap between the batch's end and the bus job's
  * start is as long as the job). It reads the last block's capture and writes dub_wet_next; jfx_bus_start joins it and adopts the wet (dub_collect), so the wet is added one block later (0.73 ms) than when
  * the job was in the batch. With no worker (CPU1 retired, single-core forced, the host build) it runs here, and the adoption is the same. */
-JFX_XIP static void dub_launch(void)
+JFX_XIP static void dub_launch(uint32_t worker)          /* worker: 1 after the voice batch (mix_prepare_batch); 0 in a build without the batch, where the tracks' engines use the worker themselves and DUB runs inline as it did */
 {
     dub_pend = 0;
     dub_out = 0;
@@ -340,10 +340,12 @@ JFX_XIP static void dub_launch(void)
 #if OC_CORE_STATS
     cs_kind = CS_K_DUB;                                 /* (the stats attribute a job to the kind set at its join as well: dub_collect sets it again) */
 #endif
-    if (audio_worker_submit(dub_job, 0)) { dub_out = 1; return; }
+    if (worker && audio_worker_submit(dub_job, 0)) { dub_out = 1; return; }
 #if OC_CORE_STATS
-    cs_kind = CS_K_VOICE;                               /* (refused: the next join is not this job's) */
+    cs_kind = CS_K_VOICE;                               /* (not submitted: the next join is not this job's) */
 #endif
+#else
+    (void)worker;
 #endif
     dub_run();
 }
@@ -398,7 +400,7 @@ static inline int dub_running(void) { return 0; }
 static inline int32_t *dub_capture(uint32_t k) { (void)k; return 0; }
 static inline int dub_alive(uint32_t k) { (void)k; return 0; }
 static inline void dub_start(uint32_t nt) { (void)nt; }
-static inline void dub_launch(void) {}
+static inline void dub_launch(uint32_t worker) { (void)worker; }
 static inline void dub_collect(void) {}
 static void dub_reset(void) {}
 #endif

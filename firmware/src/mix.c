@@ -317,7 +317,7 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
         if(mod.on)mod_end(t);
     }
     audio_batch_flush();audio_batch_active=0;batch_ready=1;
-    dub_launch();                                       /* (round 6) DUB's job, behind the voice batch, in CPU1's idle time while the tracks are mixed */
+    dub_launch(1);                                      /* (round 6) DUB's job, behind the voice batch, in CPU1's idle time while the tracks are mixed */
 }
 #endif
 static uint8_t mix_tail[NTRK];                          /* (0.6.0) blocks of DIST state to run out after the last voice */
@@ -427,7 +427,7 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     mix_prepare_batch(n,nt);
 #else
-    dub_start(nt);dub_launch();
+    dub_start(nt);dub_launch(0);
 #endif
     mix_stem_n=0;
     for(uint32_t i=0;i<nt;i++){
