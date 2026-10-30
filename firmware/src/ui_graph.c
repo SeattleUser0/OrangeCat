@@ -778,10 +778,6 @@ static uint32_t graph_sig(int play)
         h ^= (uint32_t)song.g[G_SWING] * 65537u + pr_held() * 15331u;
         if (play) h ^= (uint32_t)(notes_play_x(t) + 1) * 31u;
     }
-#if OC_LANES
-    if (pg->graph == GR_LANES)                       /* (the new interface 0.5) LANES: the kit's values are not in p[] */
-        h = (h ^ lanes_sig()) * 16777619u;
-#endif
 #if OC_STEP_PAGES
     if (pg->graph == GR_FEEL)                        /* (the new interface 0.4) FEEL: the tiles' values, the cursor, the range */
         h = (h ^ feel_sig(t)) * 16777619u;
@@ -1034,12 +1030,6 @@ static void draw_graph(void)
                 if (grid_on()) graph_grid(t, c);
                 else { proll.play = notes_play_x(t); graph_recorded_notes(t, c); }
                 break;
-#if OC_LANES
-            case GR_LANES:                               /* (the new interface 0.5, ui_lanes.c) */
-                cv_oy = 0;
-                graph_lanes(t, c);
-                break;
-#endif
 #if OC_STEP_PAGES
             case GR_FEEL:                                /* (the new interface 0.4, ui_feel.c) */
                 cv_oy = 0;

@@ -52,7 +52,7 @@ static uint32_t pv_kind(void)
         pg->graph == GR_FMPEG)
         return PV_CURVE;
     if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS ||
-        pg->graph == GR_CHORD)
+        pg->graph == GR_CHORD || pg->graph == GR_LANES)   /* (GR_LANES: the new interface 0.5; GR_NONE with the switch off) */
         return PV_RINGS;
     if (pg->graph == GR_TRK)
         return PV_MIXER;
@@ -741,6 +741,9 @@ static void pv_strip(uint32_t k)
     }
 }
 
+#if OC_LANES
+static void pv_lanes(int32_t h) { graph_lanes(TSEL, h); }   /* (the new interface 0.5) pv_panel's drawing of DRUM-X's LANES table */
+#endif
 /* ----------------------------------------------------------- draw --- */
 static void pv_draw(void)
 {
@@ -841,6 +844,10 @@ static void pv_draw(void)
         sec_note();
     card_y = Y_LABEL + pv_tab_h;
     col_style = CS_CARD;
+#if OC_LANES
+    if (kind == PV_RINGS && cur_page()->graph == GR_LANES) {   /* (the new interface 0.5: the table's headings stand for the cards) */
+    } else
+#endif
 #if OC_EDIT_SHEETS
     {   /* (the new interface 0.2) a sheet's row: its labels in the knobs' colors (the cozies, step 1's T_COZY) */
         int row = !designer_on() && !page_over && !ui.home && sh_row(ui.page);
@@ -863,8 +870,17 @@ static void pv_draw(void)
         int32_t sh_c, sh_r;                             /* (the new interface 0.2) the sheet's other row and the box where
                                                          * the picture would be the scope or the wave; the filter's curve
                                                          * and FM6's chart are kept (they say what the knobs do) */
-        uint32_t sh_p = kind == PV_RINGS && !designer_on() ? pv_pic(&sh_c, &sh_r) : 3u;
+        uint32_t sh_p = kind == PV_RINGS && !designer_on() && cur_page()->graph != GR_LANES ? pv_pic(&sh_c, &sh_r) : 3u;   /* (LANES: its table) */
         if (sh_p != 3u && sh_p != 4u && sh_lower()) {
+        } else
+#endif
+#if OC_LANES
+        if (kind == PV_RINGS && cur_page()->graph == GR_LANES) {   /* (the new interface 0.5, ui_lanes.c) the eight lanes' table */
+            sig = lanes_sig() ^ (uint32_t)pv_tab_h * 40503u ^ ux.pal * 31u ^ ux.gen * 977u;
+            if (ui.force || sig != pv.panel) {
+                pv.panel = sig;
+                pv_panel(Y_LABEL + pv_tab_h, PV_SOUND_Y - (Y_LABEL + pv_tab_h), pv_lanes);
+            }
         } else
 #endif
         if (kind == PV_RINGS) {

@@ -26,7 +26,7 @@ int main(void)
     printf("lanes: built without OC_LANES\n");
     return 0;
 #else
-    uint32_t l, k, i;
+    uint32_t l, k, i, x, y;
     int32_t before[8][4];
     setvbuf(stdout, NULL, _IONBF, 0);
     ui_power_on();
@@ -60,8 +60,21 @@ int main(void)
         turn(EN_K2, 2);
         chk("DRAW    the page's signature follows a kit value", lanes_sig() != s0);
     }
-    for (l = 0; l < 8u; l++) { drum_pick_lane(l); ui.force = 1; frames(32); }
-    chk("DRAW    the table drawn with each lane picked", 1);
+    {
+        int ok = 1;
+        uint32_t prev = 0;
+        for (l = 0; l < 8u; l++) {
+            uint32_t h = 2166136261u;
+            drum_pick_lane(l); ui.force = 1; frames(32);
+            for (y = 100; y < 210u; y++) for (x = 0; x < 240u; x++) h = (h ^ host_screen[y * 240u + x]) * 16777619u;
+            ok &= h != prev;                            /* (the picked lane's row moves: the table is drawn and redrawn) */
+            prev = h;
+        }
+        chk("DRAW    the table under the sheet's tabs changes with each lane picked", ok);
+        ok = 0;
+        for (y = 30; y < 60u; y++) for (x = 0; x < 240u; x++) ok |= host_screen[y * 240u + x] != host_screen[40u * 240u + 1u] ;
+        chk("DRAW    the sheets' tab strip is still drawn above the table", ok);
+    }
     {   /* KEYS: the lane a key struck picks */
         uint32_t key = 5, want = dxe_lane((uint32_t)ENG_DRUMX.keys(TSEL, key));
         drum_pick_lane(want == 0u ? 1u : 0u);

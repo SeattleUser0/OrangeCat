@@ -41,29 +41,33 @@ static void lanes_bar(int32_t x, int32_t y, uint32_t c, int32_t v, uint16_t col,
     cv_rect(x + 21, y + 3, 2, 7, T_MID);
     (void)bg;
 }
-/* the table, on the panel draw_graph made (cv_oy 0, from x 3, graph_h 124 high): eight rows of 15 px */
-static void graph_lanes(const track_t *t, uint16_t c)
+/* the table, in the panel pv_draw makes under the sheets' tabs (ui_pages.c pv_lanes; h rows high, from x 2): the headings, then eight
+ * rows, the picked lane's with its four numbers (no units: the cards say them), the others' bars */
+static void graph_lanes(const track_t *t, int32_t h)
 {
+    static const char *const HEAD[4] = {"LEVEL", "TUNE", "DECAY", "PAN"};
     uint32_t l, k;
-    (void)c;
+    int32_t rh = (h - 22) / 8;
+    for (k = 0; k < 4u; k++)                            /* the headings, in the knobs' colors (they stand where release-2's cards were) */
+        cv_text_on(36 + (int32_t)k * 52, ty_y(9, TY_LB), TY_LB, HEAD[k], T_COZY(k), T_PANEL);
     for (l = 0; l < NLANE; l++) {
-        int32_t y = 2 + (int32_t)l * 15;
+        int32_t y = 18 + (int32_t)l * rh;
         int sel = l == (ui.lane & 7u);
-        uint16_t row = sel ? T_LIFT : T_SURF;
+        uint16_t row = sel ? T_LIFT : T_PANEL;
         if (sel)
-            cv_rrect(5, y, 230, 14, 4, T_LIFT, T_SURF);
-        cv_text_on(10, ty_y(y + 7, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_TEXT : T_MID, row);
+            cv_rrect(3, y, 230, rh - 1, 4, T_LIFT, T_PANEL);
+        cv_text_on(9, ty_y(y + rh / 2, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_TEXT : T_MID, row);
         for (k = 0; k < 4u; k++) {
-            int32_t x = 44 + (int32_t)k * 48, v = dxl_value(song.sel, l, LANES_ID[k]);
+            int32_t x = 36 + (int32_t)k * 52, v = dxl_value(song.sel, l, LANES_ID[k]);
             if (sel) {
                 char b[12];
                 const char *unit;
                 int16_t *vp;
-                const param_desc_t *d = dxl_desc(song.sel, l, LANES_ID[k], k, &vp);
+                const param_desc_t *d = dxl_desc(song.sel, l, LANES_ID[k], k, &vp);   /* (the card k's own descriptor: the same lane, the same id) */
                 param_format(d, v, b, &unit);
-                cv_text_on(x, ty_y(y + 7, TY_LB), TY_LB, b, T_COZY(k), row);
+                cv_text_on(x, ty_y(y + rh / 2, TY_LB), TY_LB, b, T_COZY(k), row);
             } else {
-                lanes_bar(x, y, k, v, ux_mix(T_SURF, T_COZY(k), 70), row);
+                lanes_bar(x, y + (rh - 11) / 2, k, v, ux_mix(T_PANEL, T_COZY(k), 70), row);
             }
         }
     }

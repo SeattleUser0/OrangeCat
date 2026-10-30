@@ -951,7 +951,7 @@ empty), NOTES' strip and both maps in 8 palettes: 0 lint findings, 0 MONO pixels
 
 ## Step 5: EDIT > LANES
 
-**Status: In progress (code built, in review).** Behind `OC_LANES` (core.h, default 0; needs `OC_STEP_PAGES`). UI_DESIGN.md Part 1
+**Status: Done (host).** Behind `OC_LANES` (core.h, default 0; needs `OC_STEP_PAGES`). UI_DESIGN.md Part 1
 section 5, Part 2 `drum_lanes.png`.
 
 ### 5. EDIT > LANES (design note)
@@ -977,13 +977,28 @@ diff together (decision of this branch, to keep the cost in proportion).
 
 ### 5. The design as built
 
-Built as above. **Flash and RAM (CI's options):** every switch through step 4: 554,688 B; with OC_LANES **557,808 B: +3,120 B**
-(estimate 1,500: the table and the cozy cards cost twice the guess); .data+.bss unchanged; the audio arena 84,064 B (it was 84,288 B:
-224 B, a block boundary of the data bank's neighbor; the minimum is 49,152 B). Switch off: 539,212 B, byte-identical to release-2.
-**Tests:** tests/lanes_test.c (ASan and UBSan, 9 checks): the page, PRESETS both ways and at the ends, the four knobs edit lane 3's
-values and no other lane's, the signature follows a kit value, every lane drawn, a key struck still picks its lane. ui_render.c
-(ui_renders_steps now with OC_LANES=1): the table with lane 1, 3 and 8 picked and the kit moved, in 8 palettes: 0 lint findings, 0 MONO
-pixels off gray. **Mockups:** `step5_sheet.png`, `step5_lanes_1.png`, `step5_lanes_3.png`, `step5_lanes_8.png`, `day_step5_lanes_3.png`.
+Built as the note says, with the review's fixes. **As built the page is the mockup's:** the sheets' tabs, the four headings in the
+knobs' cozy colors (they stand where release-2's cards were), then the eight rows, the picked lane's with its four numbers, and the
+foot (the sound's bar). The page is drawn by `pv_draw`'s RINGS path (`pv_kind`), which keeps the sheets' tab strip.
+**The diff review (an independent agent, October 30, 2026), found and fixed:** (1) the first build drew the table through
+`draw_graph` and the sheets' tab strip vanished on LANES (a step 2 regression: the screens in `step5_*` showed no tabs); the table now
+lives in the RINGS path under the tabs, and the cards give way to the headings (lanes_test checks the tab strip is drawn); (3) the
+tests that could not fail: the table's pixels change with each lane picked and the tab strip is checked. **Accepted and written
+down:** (2) PRESETS picks the lane on LANES (the design's text) so PRESETS no longer turns the sheets there: EDIT and SELECT
+still do; (4) the table shows the numbers without units (the mockup's: the headings say what they are; TUNE is in semitones,
+LEVEL in percent, DECAY and PAN as the cards formatted them); (5) the picked row reads `dxl_desc` and so rewrites the shared
+descriptor of card k with the same lane and id: harmless today (no cards are drawn on this page), noted. The reviewer found correct:
+the value formats, every index masked, the signature covering the kit's 32 values and `p[]`, GR_LANES leaking nowhere, the key pick and
+the edit path untouched, the Melodee DRUM engine's lane pages untouched, switch off identical.
+
+**Flash and RAM (CI's options):** every switch through step 4: 554,688 B; with OC_LANES **557,968 B: +3,280 B** (estimate 1,500; the
+table's two layouts and the headings cost twice the guess); .data+.bss unchanged (94,504 B); the audio arena 84,064 B (was 84,288 B;
+the minimum is 49,152 B). Switch off: 539,212 B, byte-identical to release-2.
+**Tests:** tests/lanes_test.c (ASan and UBSan, 10 checks, 0 failed): the page, PRESETS both ways and at the ends, the four knobs edit lane
+3's values and no other lane's, the signature follows a kit value, the table under the tabs changes with each lane picked, the tab strip is
+drawn, a key struck still picks its lane. ui_render.c (ui_renders_steps now with OC_LANES=1): the table with lane 1, 3 and 8 picked and the
+kit moved, in 8 palettes: 0 lint findings, 0 MONO pixels off gray. **Mockups:** `step5_sheet.png`, `step5_lanes_1.png`, `step5_lanes_3.png`,
+`step5_lanes_8.png`, `day_step5_lanes_3.png`.
 
 ## Step 6: the mixer in the knobs' colors
 
@@ -1106,7 +1121,7 @@ The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). 
 |---|---|---|---|---|---|
 | 1 to 3 | measured | 11,236 | | 26,800 | 18,608 |
 | 4 | the step pages | **4,240 measured** (est. 4,000) | 4,240 | 22,560 | 14,368 |
-| 5 | EDIT > LANES | **3,120 measured** (est. 1,500) | 7,360 | 19,440 | 11,248 |
+| 5 | EDIT > LANES | **3,280 measured** (est. 1,500) | 7,520 | 19,280 | 11,088 |
 | 6 | the mixer in the knobs' colors | 1,200 (raised after step 5) | 8,560 | 18,240 | 10,048 |
 | 7a | fw_pages version 3: the scene and kdef of a module, the loader's check | 1,500 (raised after step 5) | 10,060 | 16,740 | 8,548 |
 | 7b, 7c | the effects' pictures, DUB TAPE's view | removed (Release 3, modules) | | | |
