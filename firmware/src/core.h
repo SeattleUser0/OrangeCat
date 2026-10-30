@@ -138,6 +138,13 @@
 #if OC_LANES && !OC_STEP_PAGES
 #error "OC_LANES needs OC_STEP_PAGES (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
+#ifndef OC_MIXER
+#define OC_MIXER 0                /* (the new interface 0.6, branch ui-build: docs/orangecat/UI_BUILD.md step 6) 1: the mixer's bars and values in the knobs' colors
+                                   * (ui_pages.c pv_strip); 0: as release-2's */
+#endif
+#if OC_MIXER && !OC_LANES
+#error "OC_MIXER needs OC_LANES (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
 #if OC_LANES
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
 #else

@@ -50,11 +50,12 @@ int main(void)
         turn(EN_K2, 5);
         frames(50);
         chk("KNOBS   KNOB 2 turned: the pan in KNOB 2's green", TSEL->p[P_PAN] == pan0 + 5 && count(c1, 30, 240) > g0);
+        uint32_t b0 = count(T_COZY(0), 30, 240);
         lvl0 = TSEL->p[P_MUTE];
         turn(EN_K4, 1);
         frames(50);
         chk("KNOBS   KNOB 4 turned: still the track's mute, its word in KNOB 4's orange", TSEL->p[P_MUTE] != lvl0 && count(c3, 30, 240) > o0);
-        chk("MUTED   a muted track's bar is not blue", count(T_COZY(0), 30, 240) < 4u * 60u);
+        chk("MUTED   a muted track's bar is dim, not blue (one bar less blue)", count(T_COZY(0), 30, 240) + 100u < b0);
         turn(EN_K4, -1);
         frames(50);
     }

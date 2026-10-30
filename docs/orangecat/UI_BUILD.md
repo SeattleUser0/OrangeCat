@@ -1002,7 +1002,7 @@ kit moved, in 8 palettes: 0 lint findings, 0 MONO pixels off gray. **Mockups:** 
 
 ## Step 6: the mixer in the knobs' colors
 
-**Status: In progress.** Behind `OC_MIXER` (core.h, default 0; needs `OC_LANES`). UI_DESIGN.md Part 1 "The mixer", Part 2
+**Status: Done (host).** Behind `OC_MIXER` (core.h, default 0; needs `OC_LANES`). UI_DESIGN.md Part 1 "The mixer", Part 2
 `mixer.png`, Part 3 step 6 ("+0.3 KB, ui_render.c's mixer screens").
 
 ### 6. The mixer (design note)
@@ -1015,12 +1015,26 @@ right. KNOB 1 LEVEL, 2 PAN, 3 FREEZE, 4 MUTE of the **selected** track (`tracks_
 **What the design shows and what is built.** `mixer.png` is four vertical faders with "K1-4 LEVELS": knob k is track k's level. That
 layout would take PAN, FREEZE and MUTE off the knobs, and the design says nowhere where they go; Part 3 step 6 itself costs
 only 0.3 KB and tests "the mixer screens", so it is the **colors**. **Decision (the safer reading):** the layout and the knobs stay
-release-2's (no control lost); the colors become the knobs': the level's bar and its dB value in KNOB 1's blue (`T_COZY(0)`), the
+release-2's (no control lost); the colors become the knobs': the level's bar in KNOB 1's blue (`T_COZY(0)`) and its dB value in blue while KNOB 1 turns (at rest the text's), the
 pan in KNOB 2's green, the freeze word in KNOB 3's white, a turning knob's value in its own cozy color instead of the text's; Mute
 stays REC's red (it is a state, not a knob's value) and takes KNOB 4's orange only while KNOB 4 turns; the numeral stays the
 track's color (the track's identity). Muted rows stay dim. The vertical faders and knob k = track k are for the owner to decide
 (written under "Waiting on the owner").
 **Cost:** a handful of color changes in `pv_strip`: estimate 300 B (the table says 1,200 after step 5's miss). RAM 0.
+
+### 6. The design as built
+
+Built as the note says: `MXC(i, old)` and `MXBAR` in ui_pages.c `pv_strip` (the level's bar in KNOB 1's blue, a turning knob's value in
+its own cozy color; the numeral, the meter and Mute's red are release-2's); `OC_MIXER` in core.h and tools/build.py. **Flash and RAM (CI's
+options):** every switch through step 5: 557,968 B; with OC_MIXER **557,872 B: -96 B** (the one color call replaces two conditionals;
+estimate 300), RAM 0, arena unchanged (84,064 B). Switch off: 539,212 B, byte-identical to release-2.
+**Tests:** tests/mixer_test.c (ASan and UBSan, by the screen's pixels, 5 checks, 0 failed): the level bars are KNOB 1's blue; KNOB 2
+turned shows the pan in green and still changes the pan; KNOB 4 mutes and its word turns orange; a muted track's bar is dim; KNOB 1
+is still the level. ui_render.c (every mixer screen of the renderer, now with OC_MIXER=1 in ui_renders_steps): 0 lint findings, 0 MONO
+pixels off gray. **Mockups:** `step6_sheet.png`, `step6_mixer.png`, `step6_mixer_pan.png`, `step6_mixer_frozen.png`, `day_step6_mixer_pan.png`.
+**The review (an independent agent, October 30, 2026):** no bugs; the switch-off expressions are release-2's, the hot-column mapping and the signature are right. Minor, kept: the BAR check counts the blue over the lower screen (loose: a track color equal to the cozy blue would pass), and nothing checks that the freeze word turns white; the note's sentence on the dB value is corrected above.
+**For the owner (decision left open):** `mixer.png`'s layout (vertical faders, knob k = track k's level) would take PAN, FREEZE and MUTE
+off the knobs; it is not built (see the note).
 
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
@@ -1122,14 +1136,14 @@ The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). 
 | 1 to 3 | measured | 11,236 | | 26,800 | 18,608 |
 | 4 | the step pages | **4,240 measured** (est. 4,000) | 4,240 | 22,560 | 14,368 |
 | 5 | EDIT > LANES | **3,280 measured** (est. 1,500) | 7,520 | 19,280 | 11,088 |
-| 6 | the mixer in the knobs' colors | 1,200 (raised after step 5) | 8,560 | 18,240 | 10,048 |
-| 7a | fw_pages version 3: the scene and kdef of a module, the loader's check | 1,500 (raised after step 5) | 10,060 | 16,740 | 8,548 |
+| 6 | the mixer in the knobs' colors | **-96 measured** (est. 1,200) | 7,424 | 19,376 | 11,184 |
+| 7a | fw_pages version 3: the scene and kdef of a module, the loader's check | 1,500 (raised after step 5) | 8,924 | 17,876 | 9,684 |
 | 7b, 7c | the effects' pictures, DUB TAPE's view | removed (Release 3, modules) | | | |
-| 8 | the web editor | 0 | 10,060 | 16,740 | 8,548 |
-| 9 | retire the old | 0 (credit only once measured) | 10,060 | 16,740 | 8,548 |
+| 8 | the web editor | 0 | 8,924 | 17,876 | 9,684 |
+| 9 | retire the old | 0 (credit only once measured) | 8,924 | 17,876 | 9,684 |
 
 (The estimates are the design's upper figure times the 1.5 that steps 1 to 3 measured with CI's options: 11.2 against 8.4 to
-9.4 KB.) **The plan fits with 8.5 KB above the reserve (after step 5).** The measured cost of each step is entered here as it is built.
+9.4 KB.) **The plan fits with 9.7 KB above the reserve (after step 6).** The measured cost of each step is entered here as it is built.
 
 ## Waiting on Session A
 
