@@ -1056,12 +1056,31 @@ HOME's pages and on the sheets (where the SHIFT combos act); on NOTES and FEEL t
 - **The clipboard survives** a paste, a change of track and a project load (it is data; a project that lacks the engine refuses by the
   rule above). A power cycle clears it (RAM only; nothing is written to flash).
 - **The map:** the COPY and PASTE tiles are tinted and live where the combos act, dim elsewhere; on NOTES and FEEL they stay LATER.
+- **After the review (below):** a paste is refused during a chain or a live recording ("STOP TO EDIT", as INIT) and on a frozen
+  phrase ("FROZEN"); it seals the undo level first, so EDIT held returns to before the paste, not before an earlier browse; values
+  are clamped to the engine's ranges (a module replaced in its slot since the copy); a user slot erased since the copy is not
+  pasted as a stale name; copy refuses a retired engine; both OCT keys in one scan copy only. FM6's operator switches (`fm6_on`,
+  `fm6_fn`) are not copied, as undo and a user preset load do not copy them.
 - Decisions: the clipboard is one sound, not a list; copy keeps the user slot and name (`user`), so a pasted user sound still shows its
   name and a later save-as works as for a loaded one (the safer reading: the record the sound came from is what the user sees).
 
-**Tests** `tests/clip_test.c` (11 checks, ASan and UBSan): copy, paste on another track (engine, parameters, the mix and steps kept, the
+**Tests** `tests/clip_test.c` (16 checks, ASan and UBSan): copy, paste on another track (engine, parameters, the mix and steps kept, the
 macro dial 0), one undo, paste twice, the clipboard across a change of track, the two refusals that need no module, DRUM-X's kit, the map.
 Run by `run_tests.sh` (job in step_pages_job); the renders gained `-DOC_CLIP=1`.
+
+**Review (an agent, note and diff together, as for steps 5 and 6; no blocker):**
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | Pasted values unclamped (a module replaced in its slot) | should-fix | clamped to `param_desc_of(eng, id)` |
+| 2 | No chain or live-recording guard, though a load resets motion | should-fix | "STOP TO EDIT" as INIT |
+| 3 | Both OCT in one scan: copy then a no-op paste | should-fix | `else if` |
+| 4 | Frozen track allowed | note | refused ("FROZEN"), the safer reading |
+| 5 | A paste after a browse merges into the browse's undo level | note | `undo_seal()` first; tested |
+| 6, 7 | `fm6_fn`/`fm6_on` and `p5_track_accept` not handled | note | as undo; written above |
+| 8 | A stale user slot name | note | cleared if the slot is not used |
+| 9 | Copy on a retired engine says copied | note | refused at copy |
+| 12 | Test gaps (native patches, undo contents, merge case, guards) | should-fix | 5 checks added; not covered: the `eng_admit` refusal (needs a module in the test) and a clip of a removed module |
 
 **Mockups:** `step10_shift_map_home.png`, `step10_shift_map_sheet.png`, `day_step10_shift_map_home.png` (0 lint findings, 0 off-gray MONO).
 

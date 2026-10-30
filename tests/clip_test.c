@@ -6,6 +6,7 @@
  *   COPY    SHIFT + OCT- keeps the selected track's sound; says so; the track is unchanged
  *   PASTE   SHIFT + OCT+ on another track: engine, preset, every sound parameter equal; the mix (LEVEL, PAN) and the steps stay the track's
  *           own; the macro dials 0; one undo (EDIT held) gives the old sound back; DRUM-X's kit comes across
+ *   LEVEL   a paste after a browse is an undo level of its own; a chain running refuses; CZ-1 and FM6 patches byte for byte
  *   REFUSED nothing copied; an engine that is not there; an engine the unit cannot carry (eng_admit): the track keeps its sound
  *   KEPT    the clipboard survives a paste (paste twice) and a change of track
  *   MAP     the SHIFT map draws with the copy and paste tiles live (no crash; ui_render.c lints it)
@@ -70,6 +71,7 @@ int main(void)
         trk[0].p[P_LEVEL] = 90; trk[1].p[P_LEVEL] = 40; trk[1].p[P_PAN] = -20;
         trk[1].step[3].n = 1; trk[1].step[3].note[0] = 60; trk[1].step[3].time = ST_NOTE;
         trk[1].p[P_MAC0] = 50;
+        uint16_t e1_old = (uint16_t)trk[1].p[P_E1];
         song.sel = 0;
         on_home();
         combo(B_OCTDN);
@@ -81,13 +83,45 @@ int main(void)
         chk("PASTE   the mix and the steps stay the track's own", trk[1].p[P_LEVEL] == 40 && trk[1].p[P_PAN] == -20 && trk[1].step[3].n == 1u && trk[1].step[3].note[0] == 60);
         chk("PASTE   the macro dials come across at the center", trk[1].p[P_MAC0] == 0);
         hold(B_EDIT);
-        chk("UNDO    EDIT held gives the old sound back whole", trk[1].eng_req == ENGI_MACRO && trk[1].p[P_E1] != 77);
+        chk("UNDO    EDIT held gives the old sound back whole (engine, values, the dial, the mix)", trk[1].eng_req == ENGI_MACRO && trk[1].p[P_E1] == (int16_t)e1_old && trk[1].p[P_MAC0] == 50 && trk[1].p[P_LEVEL] == 40);
         combo(B_OCTUP);
         combo(B_OCTUP);
         chk("KEPT    the clipboard survives a paste (twice)", snd_clip.valid && trk[1].eng_req == ENGI_SHAPES && trk[1].p[P_E1] == 77);
         song.sel = 0;
         frames(10);
         chk("KEPT    and a change of track", snd_clip.valid && snd_clip.p[P_E1] == 77);
+    }
+    {   /* an undo level of its own after a browse; the guards; native patches */
+        ui_power_on();
+        set_engine_of(&trk[0], ENGI_SHAPES);
+        set_engine_of(&trk[1], ENGI_MACRO);
+        settle();
+        song.sel = 0; on_home(); combo(B_OCTDN);
+        song.sel = 1; frames(10);
+        apply_preset_to(&trk[1], 1);                    /* a browse on the track, then the paste */
+        combo(B_OCTUP);
+        hold(B_EDIT);
+        chk("UNDO    a paste after a browse has its own level: undo returns to the browsed sound", trk[1].eng_req == ENGI_MACRO && trk[1].preset == 1u);
+        chain.running = 1;
+        combo(B_OCTUP);
+        chain.running = 0;
+        chk("GUARD   a chain running: refused as INIT, the sound stays", msg_is("STOP TO EDIT") && trk[1].eng_req == ENGI_MACRO);
+#if MELODEE_CZ
+        set_engine_of(&trk[0], ENGI_CZ);
+        settle();
+        cz_patch[0].raw[5] ^= 0x5Au;
+        song.sel = 0; frames(10); combo(B_OCTDN);
+        song.sel = 1; frames(10); combo(B_OCTUP);
+        chk("PASTE   CZ-1's native patch comes across byte for byte", trk[1].eng_req == ENGI_CZ && !memcmp(cz_patch[0].raw, cz_patch[1].raw, CZ_BYTES));
+#endif
+#if MELODEE_FM6
+        set_engine_of(&trk[0], ENGI_FM6);
+        settle();
+        { uint8_t v[FP_SIZE + 1u]; memcpy(v, fm6_patch[0], FP_SIZE); v[3] ^= 0x15u; fm6_set_patch(0, v); }
+        song.sel = 0; frames(10); combo(B_OCTDN);
+        song.sel = 1; frames(10); combo(B_OCTUP);
+        chk("PASTE   FM6's native patch comes across byte for byte", trk[1].eng_req == ENGI_FM6 && !memcmp(fm6_patch[0], fm6_patch[1], FP_SIZE));
+#endif
     }
     {   /* refusals */
         ui_power_on();

@@ -124,7 +124,7 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
 #if OC_CLIP
         if (!shift_steppg() && shift_here()) {          /* (the new interface 0.10) a sound; a selection's waits for step 11 */
             if (oct_now & dn) sound_copy();
-            if (oct_now & up) sound_paste();
+            else if (oct_now & up) sound_paste();
         } else
 #endif
         ui_message("COPY, PASTE: LATER");

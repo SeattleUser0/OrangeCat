@@ -31,6 +31,7 @@ static void sound_copy(void)
 {
     track_t *t = TSEL;
     uint32_t i = trk_index(t);
+    if (!eng_ok(t->eng_req)) { ui_message("ENGINE NOT HERE"); return; }   /* (a retired slot: nothing to paste later) */
     fm1_irq_off();                                      /* the audio ISR must not see half a sound */
     snd_clip.eng = t->eng_req;
     snd_clip.preset = t->preset;
@@ -54,19 +55,25 @@ static void sound_paste(void)
     uint32_t i = trk_index(t), k;
     int rc;
     if (!snd_clip.valid) { ui_message("NOTHING COPIED"); return; }
+    if (chain_busy() || live_rec_sel()) { ui_message("STOP TO EDIT"); return; }   /* (as INIT: a load resets the track's motion) */
+    if (frz_locked()) { ui_message("FROZEN"); return; }                          /* (a frozen phrase keeps its sound) */
     if (!eng_ok(snd_clip.eng)) { ui_message("ENGINE NOT HERE"); return; }
     rc = eng_admit(t, snd_clip.eng);
     if (rc) { ui_message(eng_admit_text(rc)); return; }   /* refused whole: the track keeps its sound */
+    undo_seal();                                        /* (a level of its own: EDIT held returns to before the paste, not before a browse) */
     load_begin(t, UNDO_SOUND);                          /* (the copy for EDIT held = undo) */
     panic_req |= (uint8_t)(1u << i);
     fm1_irq_off();
     t->eng_req = snd_clip.eng;
     t->preset = snd_clip.preset;
-    t->user = snd_clip.user;
+    t->user = snd_clip.user && up_used(snd_clip.user - 1u) ? snd_clip.user : 0u;   /* (a user slot erased since: no stale name) */
     t->user_native = snd_clip.user_native;
     for (k = 0; k < P_COUNT; k++)
-        if (!param_kept(k))
-            t->p[k] = param_reserved(k) ? 0 : snd_clip.p[k];
+        if (!param_kept(k)) {
+            const param_desc_t *d = param_desc_of(snd_clip.eng, k);   /* (a module replaced in its slot since: the values clamp to its ranges) */
+            int32_t v = param_reserved(k) ? 0 : snd_clip.p[k];
+            t->p[k] = (int16_t)(d && d->max > d->min ? clamp(v, d->min, d->max) : v);
+        }
     if (MELODEE_DRUMX && snd_clip.eng == ENGI_DRUMX) { dxk_put(i, &snd_clip.k.dxk); memset(&drum_patch[i], 0, sizeof drum_patch[i]); }
     else { drum_patch[i] = snd_clip.k.drum; dxk_off(i); }
     p5_patch[i] = snd_clip.p5; p5_ready[i] = 1;
