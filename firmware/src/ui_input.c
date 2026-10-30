@@ -921,6 +921,11 @@ static void grid_keys(uint32_t pressed)
 
 static int live_rec_sel(void);
 static void notes_event_edit(uint32_t slot, int32_t delta);
+#if OC_STEP_PAGES
+static int tracker_chord_length(uint32_t at, uint32_t col, int32_t steps);   /* ui_feel_edit.c */
+static void feel_reset(int range);
+static int feel_page(void);
+#endif
 static void notes_delete_edit(void);
 static void step_move_edit(int32_t delta);
 /* The sound page edits a kit voice; HIT edits only one event, retaining its instrument. */
@@ -1108,6 +1113,13 @@ static void tracker_edit(uint32_t slot, int32_t steps)
     } else if (slot == 2u) {                            /* KNOB 3 in VEL */
         st->vel = (uint8_t)clamp((int32_t)(st->vel ? st->vel : 96) + list_accel(EN_K3, steps, 127, 0), 1, 127);
     } else if (col != TKC_FX) {                         /* KNOB 4: the length */
+#if OC_STEP_PAGES
+        if (col < TKC_VEL) {                            /* (the new interface 0.4) a chord's note: its own length */
+            fm1_irq_on();
+            if (tracker_chord_length(at, col, steps)) return;
+            fm1_irq_off();
+        }
+#endif
         step_note_resize(t, at, (int32_t)step_note_length(t, at) + steps);
     } else {                                            /* KNOB 4 in FX: the effect's amount */
         int32_t d = steps > 0 ? 1 : -1;
@@ -1205,6 +1217,12 @@ static void step_edit(uint32_t slot, int32_t steps)
         return;
     }
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
+#if OC_STEP_PAGES
+    if (slot == 6u && notes_selected(TSEL) >= RECORD_MAX) {   /* (the new interface 0.4) START moves a recorded note's onset */
+        ui_message("START: RECORDED NOTES");
+        return;
+    }
+#endif
     if (cur_page()->graph != GR_TRACKER && notes_selected(TSEL) < RECORD_MAX) {   /* (0.7.1: the tracker's columns map
                                                                                   * the knobs themselves, tracker_edit) */
         uint32_t fine = slot == 2u ? ui.step_mods & (1u << panel.btn[B_ENV]) : 0u;
@@ -1663,6 +1681,9 @@ static int step_modifier_context(void)
 static uint32_t step_modifier_mask(void)                /* (EDIT: NOTES only) */
 {
     if (grid_on() && live_rec_sel()) return 1u << panel.btn[B_EDIT];
+#if OC_STEP_PAGES
+    if (cur_page()->graph == GR_FEEL) return 1u << panel.btn[B_EDIT];   /* (FEEL: EDIT only: tapped resets, held undoes) */
+#endif
     return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
            (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_TRACKER ? 1u << panel.btn[B_EDIT] : 0u);
 }
@@ -1739,9 +1760,19 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
         uint32_t exp=0;while(duration>65535&&exp<7u){duration>>=1;exp++;}
         after.duration=(uint16_t)duration;after.owner=(uint8_t)((after.owner&31u)|(exp<<5));
         if(drum_track(TSEL))after.length=1;
+#if OC_STEP_PAGES
+    } else if (slot == 6u) {                            /* (the new interface 0.4) START: the onset a sixteenth of a step a
+                                                         * detent, wrapping at the phrase's end; into another cell only
+                                                         * where no separate manual note is */
+        note_onset(&after, delta * (int32_t)(RECORD_UNIT / 16u), step_pattern_len(TSEL), 0);
+        if (recording_view(TSEL, &after) != recording_view(TSEL, &before) &&
+            notes_manual_occupied(TSEL, recording_view(TSEL, &after))) {
+            fm1_irq_on(); ui_message("STEP OCCUPIED"); return;
+        }
+#endif
     } else after.vel = (uint8_t)clamp((int32_t)before.vel + delta, 1, 127);
     if (!memcmp(&before, &after, sizeof before)) { fm1_irq_on(); return; }
-    event_replace(TSEL, i, &after, EV_MARK | EV_REBUILD | (slot == 0u ? EV_FOLLOW : 0u));
+    event_replace(TSEL, i, &after, EV_MARK | EV_REBUILD | (slot == 0u || (OC_STEP_PAGES && slot == 6u) ? EV_FOLLOW : 0u));
     event_close();
 }
 
@@ -1769,6 +1800,9 @@ static void notes_delete_edit(void)
 static void step_delete_edit(void)
 {
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
+#if OC_STEP_PAGES
+    if (feel_page()) { feel_reset(0); return; }         /* (the new interface 0.4) FEEL: the cursor step's feel back to the defaults */
+#endif
     if (cur_page()->graph == GR_TRACKER && tracker_delete()) return;   /* (0.5.2) a note column's note, an effect */
     if(cur_page()->graph==GR_ROLL&&bulk.on){notes_bulk_delete();return;}
     if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_delete_edit(); return; }
@@ -2160,7 +2194,11 @@ static void page_knob(uint32_t k, int32_t s)
 static int bulk_context(void)
 {
     return !ui.home&&!ui.menu&&!ui.confirm&&!ui.layer&&!pop.on&&!name_on()&&!sx_import.count&&
-        ((slot_kind()&&slot_kind()!=SK_PROJECT)||(cur_page()->graph==GR_ROLL&&!grid_on()));
+        ((slot_kind()&&slot_kind()!=SK_PROJECT)||(cur_page()->graph==GR_ROLL&&!grid_on())
+#if OC_STEP_PAGES
+        ||cur_page()->graph==GR_FEEL                  /* (the new interface 0.4: FEEL selects steps as NOTES does) */
+#endif
+        );
 }
 static int bulk_jog(int32_t delta)
 {
@@ -2171,7 +2209,7 @@ static int bulk_jog(int32_t delta)
     bulk.on=1;uint32_t limit=slots?UP_SLOTS:step_pattern_len(TSEL);
     uint32_t to=(uint32_t)clamp((int32_t)cur+delta,0,(int32_t)limit-1);
     if(slots==SK_FM6)fm6_bslot=(uint16_t)to;else if(slots==SK_P5)p5_store_slot=(uint16_t)(to+1u);else if(slots)ui.uslot=(uint16_t)to;else cursor_set((int32_t)to);
-    bulk.end=(uint16_t)to;ui.bulk_hold=0;oct_eat|=2u;ui.oct_t0|=2u;ui.force=1;ui_message(slots?"PRESETS SELECTED":"Moving..");return 1;
+    bulk.end=(uint16_t)to;ui.bulk_hold=0;oct_eat|=2u;ui.oct_t0|=2u;ui.force=1;ui_message(slots?"PRESETS SELECTED":(OC_STEP_PAGES&&cur_page()->graph==GR_FEEL)?"STEPS SELECTED":"Moving..");return 1;
 }
 static void notes_bulk_copy(void){note_copy_arm();}
 static const sheet_row_t SHEET_NOTE_BULK[]={{"Move: KNOB 1",0,0,note_move_arm,0},{"Copy: KNOB 1",0,0,notes_bulk_copy,0},{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0},{"Delete selected",0,0,notes_bulk_delete,0},{"Clear selection",0,0,bulk_clear,0}};
@@ -2302,6 +2340,9 @@ static void ui_confirm_accept(void)
 }
 
 #include "ui_designer_input.c"
+#if OC_STEP_PAGES
+#include "ui_feel_edit.c"                               /* (the new interface 0.4, UI_BUILD.md step 4) FEEL's edit, NOTES' knob map */
+#endif
 #if OC_SHIFT_MAP
 #include "ui_shift.c"                                   /* (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT, its map */
 #endif
@@ -2360,7 +2401,7 @@ static void ui_input(void)
     if (octup != BT_NONE || !((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u))
         oct_deferred = 0;
     if(ui.bulk_hold && !(fm1_in.buttons&(1u<<panel.btn[B_OCTUP]))){
-        if(bulk_context()){if(bulk.on&&!slot_kind())notes_bulk_sheet_open();else if(!bulk.on)page_sheet_open();}ui.bulk_hold=0;
+        if(bulk_context()){if(bulk.on&&!slot_kind()){if(!(OC_STEP_PAGES&&cur_page()->graph==GR_FEEL))notes_bulk_sheet_open();}else if(!bulk.on)page_sheet_open();}ui.bulk_hold=0;   /* (FEEL: no sheet: the range stays) */
     }
     oct = oct_taps(pressed, oct_nav());
     uint32_t lay, knob_layer, glo_select_layer, combo = 0, lytap, lkeys;
@@ -2449,7 +2490,7 @@ static void ui_input(void)
         ui.seen_pattern_gen = TSEL->pattern_gen;
     }
     if(bulk.on && (ui.home || slot_kind()==SK_PROJECT || bulk.track!=song.sel || bulk.pattern!=TSEL->pattern || bulk.engine!=library_engine() ||
-       (!slot_kind() && (cur_page()->graph!=GR_ROLL || (bulk.on==1u?bulk.generation!=TSEL->pattern_gen:bulk.generation!=recording_generation)))))bulk_clear();
+       (!slot_kind() && ((cur_page()->graph!=GR_ROLL && !(OC_STEP_PAGES && cur_page()->graph==GR_FEEL && bulk.on==1u)) || (bulk.on==1u?bulk.generation!=TSEL->pattern_gen:bulk.generation!=recording_generation)))))bulk_clear();
     step_history_sync();                                /* (seq_undo.c: a change from elsewhere: a fresh history) */
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
         if (ui.menu) {
@@ -2794,8 +2835,23 @@ static void ui_input(void)
         ui.tk_all = (uint8_t)(s > 0);
         ui.force = 1;
     } else if (s && !ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
+#if OC_STEP_PAGES
+        if (!(ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (the new interface 0.4) PRESETS the cursor: each note of a
+                                                         * chord, then the steps; ENV held: the roll's zoom, as before */
+            if (!ui.entry_open) notes_step_jog(s);
+        } else {
+            ui.step_used |= (uint16_t)(1u << panel.btn[B_ENV]);   /* (ENV's release is no ENV family) */
+            ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
+        }
+#else
         ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
+#endif
         ui.force = 1;
+#if OC_STEP_PAGES
+    } else if (s && feel_page()) {                      /* (the new interface 0.4) FEEL: PRESETS the step */
+        cursor_set((int32_t)ui.cursor + s);
+        ui.force = 1;
+#endif
     } else if (s && sec_on()) {                         /* an engine in sections: the next / previous one (FM6's
                                                          * operators are sections: ui_sections.c) */
         sec_turn(s);
@@ -2849,6 +2905,10 @@ static void ui_input(void)
         if (k == 0u && cur_page()->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key
                                                                          * held) */
             continue;
+#if OC_STEP_PAGES
+        if (steppg_knob(k, s))                          /* (the new interface 0.4) NOTES' PITCH START LEN VEL, FEEL's four */
+            continue;
+#endif
         page_knob(k, s);
     }
     if (step_modifier_context()) {

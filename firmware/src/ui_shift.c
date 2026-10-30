@@ -27,8 +27,17 @@ static uint8_t sh_st;                                   /* SHF_*: HOME is SHIFT;
 static int shift_on(void) { return (sh_st & SHF_ON) != 0u; }
 static int shift_map_on(void) { return (sh_st & (SHF_ON | SHF_MAP)) == (SHF_ON | SHF_MAP); }
 /* where the combos act: HOME's pages and a sheet's row (elsewhere they are eaten) */
+#if OC_STEP_PAGES
+/* (the new interface 0.4, UI_BUILD.md step 4) NOTES (melodic) and FEEL: the combos act here too: + a knob a fine turn, + PRESETS
+ * stretches the selected range, + EDIT deletes it (FEEL: back to the defaults); copy and paste are LATER */
+static int shift_steppg(void) { return feel_page() || notes_page(); }
+#endif
 static int shift_here(void)
 {
+#if OC_STEP_PAGES
+    if (shift_steppg())
+        return 1;
+#endif
     return ui.home || (!page_over && sh_row(ui.page));
 }
 static void shift_combo(void)
@@ -95,6 +104,13 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
     if (*pressed & eb) {                                /* SHIFT + EDIT: init (the confirm), never EDIT's own jobs */
         *pressed &= ~eb;
         ui.edit_t0 |= 2u;
+#if OC_STEP_PAGES
+        if (shift_steppg()) {                           /* (the new interface 0.4) the selection, or the step, deleted */
+            if (feel_page()) feel_reset(1);
+            else if (bulk.on) notes_bulk_delete();
+            else step_delete_edit();
+        } else
+#endif
         if (shift_here() && !cf_refused(CF_INIT_SOUND))
             confirm_open(CF_INIT_SOUND, song.sel);      /* (as the OCT+ sheet's row, ui_popup.c) */
     }
@@ -116,6 +132,9 @@ static int shift_knob(uint32_t k, int32_t s)
     if (!shift_here())
         return 1;
     sh_st |= SHF_FINE;                                  /* (accel_by: no acceleration for this detent; RAM only) */
+#if OC_STEP_PAGES
+    if (!steppg_knob(k, s))                             /* (the new interface 0.4: NOTES' and FEEL's knobs) */
+#endif
     page_knob(k, s);
     sh_st &= (uint8_t)~SHF_FINE;
     return 1;
@@ -131,6 +150,10 @@ static int shift_presets(int32_t s)
         browse_commit();
         select_engine(eng_step(TSEL->eng_req, s > 0 ? 1 : -1));
     }
+#if OC_STEP_PAGES
+    else if (shift_steppg())
+        bulk_stretch(s > 0 ? 1 : -1);                   /* (the new interface 0.4) the range's end a step */
+#endif
     return 1;
 }
 /* ALGO, SELECT turned while HOME is SHIFT: their own jobs, but a combo (no MENU) */
@@ -153,6 +176,10 @@ static void shift_draw(void)
 {
     uint32_t i, r;
     int here = shift_here(), row = !ui.home && here;
+#if OC_STEP_PAGES
+    if (shift_steppg())
+        row = 0;                                        /* (SELECT turns the pages there, not a sheet's rows) */
+#endif
     if (ui.force)
         lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
     draw_head();
@@ -164,9 +191,16 @@ static void shift_draw(void)
             uint32_t t = r * 3u + i;
             int32_t x = 4 + 78 * (int32_t)i;
             uint32_t c = SHIFT_TILE[t].combo;
-            int dim = (c == 1u && !here) || (c == 2u && !ui.home) || c == 3u;
+#if OC_STEP_PAGES
+            int sp = shift_steppg();
+#else
+            int sp = 0;
+#endif
+            int dim = (c == 1u && !here) || (c == 2u && !ui.home && !sp) || c == 3u;
             uint16_t bg = c ? ux_mix(T_BG, T_THEME, dim ? 8 : 20) : T_QUIET;
             const char *job = t == 2u && row ? "ROWS" : SHIFT_TILE[t].job;
+            if (sp && t == 7u) job = "STRETCH";         /* (NOTES and FEEL: PRESETS stretches the range, EDIT deletes it) */
+            if (sp && t == 8u) job = "DELETE";
             cv_rrect(x, 2, 76, 46, 6, bg, T_BG);
             if (c) {                                    /* the plus, in the tile's corner above the words */
                 cv_rect(x + 5, 6, 5, 1, dim ? T_DIM : T_THEME);
