@@ -635,7 +635,7 @@ static const uint16_t DTIME_MS[54] = {5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19,
 /* (Release 2, round 8) On an external clock the tempo (beat_samples) is measured again every six pulses from stamps quantized to 0.5 ms and moves by a few
  * samples nearly every time; a synced TIME (and the right echo's offset) that followed it a sample at a time started a 21 ms read crossfade (fx_buses,
  * dl_xf / dr_xf) for about a sixth of the time and could step the line's size at a boundary (BUILD.md 7.19, ~200 us on the worst half). They now keep the
- * value in use until the tempo has moved it by more than 1/512 (the offset: by more than 2 samples). A division change (25 percent or more), a BPM step
+ * value in use until the tempo has moved it by more than 1/512 (the offset: by more than 2 samples, so a BPM or WIDE step that moves it by 2 or less is not followed: at most 2 samples, not accumulating). A division change (25 percent or more), a BPM step
  * (0.8 percent at 120) and every free TIME pass at once; the internal clock never moves, so nothing changes there. Held outside `fx`, cleared with it. */
 static uint32_t dly_hold_dl, dly_hold_dro;
 static inline uint32_t dly_hold(uint32_t x, uint32_t *held, uint32_t tol)
@@ -2050,6 +2050,7 @@ static void jfx_free_buses(void)
     {   /* as from a new project: the states from silence (the lines come back zeroed) */
         uint32_t keep_rt = fx.rtype;
         memset(&fx, 0, sizeof fx);
+        dly_hold_dl = dly_hold_dro = 0;
         fx.rtype = (uint8_t)keep_rt;
         memset(&dlo, 0, sizeof dlo);
         rev_state_clear();
