@@ -768,6 +768,99 @@ ui_renders_shift pass; the one failure is release-2's own "target cost of the re
 - **PRESETS on a sheet as the sound, the sheet's foot hints**: step 9 (the map now says what the controls do).
 - **NOTES and FEEL's combos**: step 4.
 
+## Step 4: the step pages
+
+**Status: In progress.** Behind a fourth switch, `OC_STEP_PAGES` (core.h, default 0), which needs `OC_SHIFT_MAP=1` (each step
+ships behind the one before). With it off, release-2's NOTES, TRACKER and the rest are unchanged (byte-identical image).
+UI_DESIGN.md Part 1 sections 1 and 4, Part 2 `notes.png` and `feel.png`.
+
+### 4. The step pages (design note, before its review)
+
+**What the code has today (read for this note).** NOTES (`PAGES`: SC_STEP, GR_ROLL) already edits one recorded note at
+a time through `notes_event_edit` (ui_input.c; one undo each through `event_replace`, seq_undo.c): KNOB 1 the cursor
+(`notes_step_jog`: onto each note of a chord, then the steps), KNOB 2 the pitch, KNOB 3 the length (a quarter step a
+detent, ENV held a sixteenth), KNOB 4 the velocity. PRESETS on NOTES is the roll's zoom (`ui.note_zoom`). OCT+ held with
+KNOB 1 or 2 or SELECT selects a range (`bulk`, `bulk_jog`); with a range or a move armed KNOB 1 moves it. A manual
+step's chord has one length; `note_convert` turns a manual step into events (all its notes at once, one undo through
+`note_transaction`). TRACKER's KNOB 4 sets a recorded note's own length (a whole step a detent, `tracker_event_edit`) but
+on a manual step it resizes the whole step (`step_note_resize`). The step properties (chance, condition, ratchet or flam,
+nudge, accent, slide) live in the step's `step_t` for manual and recorded steps alike and have shared setters
+(`step_set_chance`, `step_set_cond`, `step_set_rflam`, `step_set_nudge`, the flag bits); TRACKER's FX column is the one
+place they are edited today.
+
+**4a. NOTES (melodic tracks; the drum grid keeps its knobs).**
+- With the switch: KNOB 1 PITCH, KNOB 2 START, KNOB 3 LEN, KNOB 4 VEL (the design's `notes.png`). PITCH, LEN and VEL are
+  today's slots 1, 2, 3 of `notes_event_edit`, so every edit, its undo and its refusals are today's. **START** is a new
+  slot (6): the note's onset moves a sixteenth of a step a detent (`RECORD_UNIT / 16`, through `note_onset`, wrapping at
+  the phrase's length); if the move takes the note into another step cell the cell must not hold a separate manual note
+  (the same "STEP OCCUPIED" refusal as today's whole-step move) and the cursor follows.
+- **PRESETS** moves the cursor: `notes_step_jog`, today's KNOB 1 (each note of a chord in turn, then the steps). With a
+  range selected or a move armed, KNOB 1 keeps moving the selection (today's "Move: KNOB 1" in the selection's sheet): the
+  PITCH meaning applies only with no range and no move armed.
+- **The zoom moves to ENV held + PRESETS** (the safer reading: ENV is already NOTES' fine modifier; nothing else is lost).
+- The strip under the page names PITCH, START, LEN, VEL with the cursor note's values (START as steps and hundredths,
+  `5.00`; LEN `3.50`), in the knobs' cozy colors (`T_COZY`, step 1's palette rule: blue, green, white, orange).
+- The foot's hints: the tag "PRESETS STEP" and "SEQ NEXT" as `notes.png` has them (the foot is drawn by the page).
+
+**4b. FEEL (new).** A page after NOTES in the SEQ family (SC_STEP, a new graph kind GR_FEEL; melodic and drum tracks both,
+the properties are the step's). The page: the strip of four dials, then the 16 steps of the cursor's page (`cursor / 16 *
+16`) as tiles, 4 x 4, as `feel.png`. Each tile: the step's number small, its value of **the knob turned last** under it;
+a step that is off is drawn dim; the cursor tile is filled; the selection (a range) is framed in the accent.
+- KNOB 1 **CHANCE**, then the conditions: one scale of 112 positions, 0 .. 100 % and 101 .. 111 = FILL, NOT FILL, 1:2 ..
+  4:4 (`TC_FILL .. TC_4_4`). A step with a condition shows the condition (and keeps its chance); a step without shows its
+  chance. Turning to a condition sets the condition and leaves the chance alone; turning back below it sets the condition
+  to none and the chance to 100 (the position says 100). KNOB 2 **RATCH** x1 .. x4, FLAM (`step_rflam`, 1 .. 5). KNOB 3
+  **NUDGE** (`step_nudge`, its own range, shown as +6). KNOB 4 **TYPE**: -, ACC, SLD, A+S (the accent and slide flags).
+- **Every selected step**: the new value is worked out from the cursor's step (the dial shows it) and **set** on every
+  step of the range, not added (so the range ends equal and the turn is predictable). With no range, the cursor's step.
+  Steps that are off are skipped (a property of nothing); a recorded step's properties are written to its view cell as the
+  tracker's FX column does (`recording_view`; the notes play them as a group, 0.13.0), then `recording_resched` for the nudge.
+- The same acceleration as the tracker's FX (`list_accel` for the chance). Undo: through the step history as the tracker's
+  FX edits are (a manual step) and the same rule for a recorded step; one detent, one undo step.
+- **Selecting.** The same gesture as NOTES (OCT+ held with KNOB 1, KNOB 2 or SELECT: `bulk_jog`), its context widened to
+  FEEL; the range is steps (`bulk.on == 1`). OCT- clears it. PRESETS moves the cursor a step. With the switch off nothing
+  of this exists.
+- **The state**: `ui.feel_k` (1 B, the knob turned last), in `ui` padding if it fits (checked by the data bank's margin).
+- A drum track: FEEL edits the same step properties (the drum grid steps are `step_t`s too).
+
+**4c. TRACKER's KNOB 4, a note's own length.** In a note column on a **manual** step whose cell holds two or more notes,
+KNOB 4 no longer resizes the whole step: the step is converted to events (`note_convert`: the whole chord, equal lengths, one
+undo through `note_transaction`; refused with RECORDING FULL if the pool cannot hold them, nothing changed) and the column's
+note's own length is set (slot 5, a whole step a detent) so the notes now differ. A one-note step and the VEL column keep
+today's whole-step resize (the note's own length is the step's). On a step that is already recorded nothing changes
+(0.7.1). EDIT held undoes the conversion and the length together (one undo).
+
+**4d. The SHIFT combos on NOTES and FEEL** (the design's list; step 3 left them here). SHIFT is HOME held; each is on the
+map before it is in the code.
+- **SHIFT + PRESETS**: stretches the selection (the range's end a step a detent; the anchor is where the selection began;
+  with no selection one is begun at the cursor), as OCT+ held with KNOB 2 does.
+- **SHIFT + EDIT**: deletes the selection (NOTES: `notes_bulk_delete`, as the sheet's "Delete selected"; FEEL: resets the
+  chance, condition, ratchet, nudge and type of the selected steps to their defaults, one undo). With no selection NOTES'
+  EDIT's own delete (the picked note); on FEEL the cursor step.
+- **SHIFT + a knob**: the fine turn as on HOME, where the knob has one (CHANCE one percent, NUDGE one detent, no
+  acceleration).
+- **SHIFT + OCT- / OCT+: copy and paste of a selection are not built** (the sound's copy and paste of step 3 is the same
+  kind of clipboard: it needs the whole selection's events in `.pool` and a paste through the pool's checks, an undo, and
+  the same for FEEL's properties). Left for their own step after 4; the map shows them as LATER, as it does on HOME.
+
+**What is left to a later step.** The **one-authority cleanup** (TRACKER_REVIEW.md "Left to do", point 3: `recording_prune`
+goes) is not done here: it waits on the pads' event editor being brought under the shared one (point 1), which is a change
+to the pads' path with no user-visible gain in this step. The pads' editor and keys on a recorded step likewise. Written
+down for a step of their own; `recording_prune` stays.
+
+**Flash and RAM.** Estimated 5,000 B of flash (the budget table above: NOTES' remap 0.5 KB, FEEL's page and edit 2.5 KB,
+the tracker's conversion 0.3 KB, the combos and the map 0.7 KB, the strip and tabs 1 KB); RAM 1 B (`ui.feel_k`), no new
+.data and .bss otherwise.
+
+**Tests (host).** tests/step_pages_test.c (job `step_pages_job`, ASan and UBSan, over the host UI as ui_test does): NOTES'
+knobs write pitch, onset, length, velocity of the cursor note each through one undo; START wraps at the phrase's end and
+refuses an occupied cell; PRESETS walks the notes of a chord then the steps; the zoom on ENV + PRESETS; a range keeps KNOB
+1 as the move; FEEL: each knob writes its field on the cursor step and on every step of a range (set, not added), off
+steps skipped, a recorded step, the chance and condition scale at both ends and across 100; undo restores; the page's
+order in the SEQ cycle; the tracker's conversion (a chord, a one-note step, VEL, the pool full, undo); the combos. With the
+switch off the screens and the hash of ui_test equal release-2's. ui_render.c: FEEL and NOTES with the new strip on every
+palette, linted.
+
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
 **The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
