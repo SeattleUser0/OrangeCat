@@ -1,6 +1,6 @@
 # Orange Cat: the new interface (build log)
 
-**Version:** 0.5
+**Version:** 0.6
 **Date:** October 29, 2026
 **Branch:** ui-build (Session C), cut from release-2 e1c8ac3 with ui-design 8dc42a4 merged in. Not on release-2, not on
 main, not on the unit.
@@ -11,6 +11,8 @@ into BUILD.md when the interface merges (Session A owns BUILD.md; this branch do
 BUILD.md: **Done**, **In progress**, **Not started**, **Blocked**.
 
 Revisions:
+- 0.6: release-2 876955a merged into ui-build (DUB rounds 4 to 6, the key and LED scan change, converter B, the sized
+  shared DELAY); flash and RAM re-measured on today's release-2 and with every switch; the flash budget for steps 4 to 9.
 - 0.5: step 3 (the new interface 0.3), HOME as SHIFT and its map behind OC_SHIFT_MAP: the design note, its independent
   review and the design as built; the code (firmware/src/ui_shift.c and its hooks), its diff review and the fixes (the
   edge-only tap, a button held before HOME, the toasts); flash and RAM measured after the fixes; the full host suite;
@@ -766,12 +768,81 @@ ui_renders_shift pass; the one failure is release-2's own "target cost of the re
 - **PRESETS on a sheet as the sound, the sheet's foot hints**: step 9 (the map now says what the controls do).
 - **NOTES and FEEL's combos**: step 4.
 
+## Flash budget (October 29, 2026, after the merge of release-2 876955a)
+
+**The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
+ui-build in one commit. One conflict, tools/build.py's switch list (both lists kept). Three files changed on both sides
+(core.h, params.c, build.py); the rest merged clean. No file of Session A's was edited here.
+
+**Measured today** (tools/orangecat_engines.sh sourced, `build.sh`, niced, one build at a time; the area is 577,248 B):
+
+| Build | Image | Free | .data+.bss | Data SRAM tail | Arena |
+|---|---|---|---|---|---|
+| release-2 876955a | 538,528 B | **38,720 B** | 93,640 B | 4,664 B | 142,976 B |
+| ui-build, every switch off | 538,528 B | 38,720 B | 93,640 B | 4,664 B | 142,976 B |
+| OC_HOME_PIC=1 | 550,368 B | 26,880 B | 94,024 B | 4,280 B | 142,976 B |
+| + OC_EDIT_SHEETS=1 | 550,800 B | 26,448 B | 94,024 B | 4,280 B | 142,976 B |
+| + OC_SHIFT_MAP=1 (steps 1 to 3) | 552,832 B | **24,416 B** | 94,024 B | 4,280 B | 142,976 B |
+
+- **Switch off is byte-identical to release-2**: `cmp` of melodee.bin, melodee.pak and melodee.elf, all three equal.
+- release-2 itself grew 1,280 B of flash and 16 B of RAM since e1c8ac3 (the DUB rounds). The data bank above its 4 KB block is
+  now 568 B on release-2 and **184 B** with the switches (the same as before the merge).
+- Steps 1 to 3 cost **14,304 B** (11,840 + 432 + 2,032 by switch; 9,536 + 2,544 + 2,048 = 14,128 at e1c8ac3). The split
+  moved because the compiler inlines differently (draw_page and pv_draw trade 6 to 8 KB between them); the sum barely did.
+- The asset pack is 40,232 B of 40,960 B (728 B spare), 115 B spare with HOME's trailer. **The pack's area (10 sectors,
+  0x93000..0x9CFFF) cannot grow without a change of the flash map** (storage.c; the sectors above it are the library's and
+  the project copies'): that is Session A's file.
+
+**Estimates for steps 4 to 9.** The design's Part 3 figures for steps 1 to 3 added up to 8.4 to 9.4 KB and the builds came
+to 14.3 KB: 1.5 to 1.7 times. Each figure below is **twice the design's upper figure** (the safer reading), adjusted by
+reading the step. Unit: bytes of flash in the app image.
+
+| Step | What | Design said | Estimate | Running total of the steps | Free after | Above the 8,192 B reserve |
+|---|---|---|---|---|---|---|
+| 1 to 3 | measured | 8.4 to 9.4 KB | 14,304 | 14,304 | 24,416 | 16,224 |
+| 4 | the step pages: NOTES' bars and cursor, FEEL (new), TRACKER's per-note length, the one-authority cleanup | 2 to 3 KB | 5,000 | 19,304 | 19,416 | 11,224 |
+| 5 | EDIT > LANES (8 rows by 4 columns; the three existing LANES pages stay until step 9) | 1 KB | 2,000 | 21,304 | 17,416 | 9,224 |
+| 6 | the mixer in the knobs' colors | 0.3 KB | 700 | 22,004 | 16,716 | 8,524 |
+| 7a | fw_pages version 3 (`scene`, `kdef`), the loader's check, the audit | 0.5 KB | 1,000 | 23,004 | 15,716 | 7,524 |
+| 7b | the effects' picture pages (section 8): 8 pages, their sources, the FX stepping, the rows | not in the table | 3,500 | 26,504 | 12,216 | 4,024 |
+| 7c | DUB TAPE's performance view (section 7): the page, its keys drawn in text, the sources | not in the table | 1,500 | 28,004 | 10,716 | 2,524 |
+| 8 | the web editor (Session D) | web only | 0 | 28,004 | 10,716 | 2,524 |
+| 9 | retire the old (HOME's default, EDIT 1 and 2, the shades) | -2 KB | 0 (a credit of about 2,000 only once measured) | 28,004 | 10,716 | 2,524 |
+
+**Result: the plan fits on paper**, with 10,716 B free at the end and 2,524 B above the 8 KB kept for Release 2 and 3
+fixes. It is not a comfortable fit: 7b and 7c, the least known (no mockup has been built as code), take most of the slack.
+If the measures of steps 4 to 6 come in more than 2,500 B over the estimates in all, 7b and 7c will not fit and the
+options below apply.
+
+**Two things the table does not carry:**
+1. **The pack has no room for the effects' and DUB TAPE's scenes** (7b, 7c). The design's sizes are 96 to 169 B each for
+   eight effects and 229 B for DUB TAPE: about 1,300 B against 115 B spare. The options, in plain words:
+   - the flash map gives the pack an eleventh sector (+4,096 B of pack, taken from a neighbor; Session A's call; the app
+     image does not change);
+   - the pack's tables are trimmed by 1.2 KB (Session A's tables: gen_pack's content);
+   - the effects' scenes ride in a **module** of their own, read in place (step 7 already makes modules carry scenes), at no
+     cost to the pack and about +0.3 KB of lookup code;
+   - the track effects share fewer scenes (3 pictures instead of 8): about 700 B less scene, a weaker design.
+   Step 7 is last, so the call can wait; it is listed under "Waiting on Session A".
+2. **RAM.** The data bank is 184 B above its block. Steps 4 to 6 are planned with no new .data or .bss (the design says 0).
+   Anything that would put the bank under 4,096 B stops and is written down (the rule of step 1).
+
+**If the budget fails at a later step**, the options and what each saves, in bytes of the app image:
+- the pictures' code moves into a module (the interpreter and the page code are about 9 KB with the pages; the module ABI
+  would export the plot calls; 2 to 3 KB saved, a large change in Session A's module loader);
+- a step trimmed: FEEL's conditions (about 700 B) or the effects' pages cut to the three track effects (about 1,800 B);
+- release-2 made smaller by Session A (the size audit, BUILD.md "Free flash is the audit's limit"): every 1 KB there is 1 KB here.
+
+**Gate for each step:** the step's flash and RAM are measured against this table when it is built; the next step goes on
+only if the free flash left is at least 8,192 B plus the estimates of the steps after it. If not, stop and report.
+
 ## Waiting on Session A
 
 | Item | What Session A is asked | Status |
 |---|---|---|
 | The macros in the audio interrupt (1a: oc_macro.c, the hooks in oc_throw.c) | Review and time it on the unit before any merge into release-2 (host: 613 to 642 ns a block for 36 targets; `fm1_timer5_irq` +300 B); choose whether mix.c calls it directly instead of the `thr_out` bit 31 | **Waiting** (code on ui-build) |
 | The render loops' target cost on this machine's toolchain | release-2 e1c8ac3 itself fails it here: `dxe_post_sides` 9 (budget 8), `pl_osc_render` 280 (budget 133). Confirm on CI, or re-take the budgets | **For Session A** (not a ui-build change) |
+| The pack's room for the effects' and DUB TAPE's scenes (step 7b, 7c; the budget above) | Choose: an eleventh sector for the pack (flash map), trimmed tables, or a module for the scenes | **Open** (not before step 7) |
 | The pack with the scene trailer (1b) | Nothing unless a build sets OC_HOME_PIC=1; see "The asset pack change" | **Waiting** (on ui-build only) |
 
 ## The asset pack change (for the installer and Session A's builds, when it merges)
