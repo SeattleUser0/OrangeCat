@@ -1,6 +1,6 @@
 # Orange Cat: the new interface (build log)
 
-**Version:** 0.6
+**Version:** 0.7
 **Date:** October 29, 2026
 **Branch:** ui-build (Session C), cut from release-2 e1c8ac3 with ui-design 8dc42a4 merged in. Not on release-2, not on
 main, not on the unit.
@@ -11,6 +11,9 @@ into BUILD.md when the interface merges (Session A owns BUILD.md; this branch do
 BUILD.md: **Done**, **In progress**, **Not started**, **Blocked**.
 
 Revisions:
+- 0.7: release-2 2b46f80 merged again; flash and RAM re-measured with CI's build options (the 0.6 figures used the
+  defaults and were wrong for the target: see "Budget revision 0.7"); the effects' and DUB TAPE's picture pages taken out
+  of the budget (Release 3: each effect a module with its own picture); step 4's design review and its fixes.
 - 0.6: release-2 876955a merged into ui-build (DUB rounds 4 to 6, the key and LED scan change, converter B, the sized
   shared DELAY); flash and RAM re-measured on today's release-2 and with every switch; the flash budget for steps 4 to 9.
 - 0.5: step 3 (the new interface 0.3), HOME as SHIFT and its map behind OC_SHIFT_MAP: the design note, its independent
@@ -955,13 +958,54 @@ options below apply.
 **Gate for each step:** the step's flash and RAM are measured against this table when it is built; the next step goes on
 only if the free flash left is at least 8,192 B plus the estimates of the steps after it. If not, stop and report.
 
+## Budget revision 0.7 (October 30, 2026): CI's build options, and the effects' pictures out
+
+**Correction.** The 0.6 figures were built with the defaults. CI builds with `MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
+MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0 MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0` and
+tools/orangecat_engines.sh (build.yml, both steps). Every figure below is built that way (`build.sh`, niced, one at a time).
+The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). The 0.6 table is **superseded**.
+
+| Build | Image | Free of 577,248 B | .data+.bss | Data SRAM tail | Audio arena (minimum 49,152) |
+|---|---|---|---|---|---|
+| release-2 2b46f80 | 539,212 B | **38,036 B** | 94,088 B | 4,216 B | 84,832 B |
+| ui-build, every switch off | 539,212 B | 38,036 B | 94,088 B | 4,216 B | 84,832 B |
+| ui-build, OC_HOME_PIC + OC_EDIT_SHEETS + OC_SHIFT_MAP | 550,448 B | **26,800 B** | 94,504 B | 3,800 B | 84,288 B |
+
+- Switch off is byte-identical to release-2 (`cmp` of melodee.bin).
+- Steps 1 to 3 cost **11,236 B** of flash and **416 B** of RAM with CI's options (14,304 B with the defaults).
+- **RAM.** With CI's options the audio arena is 84,832 B against a minimum of 49,152 B: 35 KB of margin, not the 640 B of
+  the defaults' build. The data bank (SRAM tail) on release-2 is 4,216 B, **120 B** above one 4 KB block; the switches take it
+  to 3,800 B, under the block, and the arena gives up 544 B (84,288 B): the build's own check passes. The rule of step 1 ("stop
+  if the bank goes under 4,096 B") is replaced by: **stop if the arena's available bytes fall below 49,152 + 16,384 B** (the
+  minimum and a 16 KB margin). Each step reports both numbers.
+- **The effects' pictures and DUB TAPE's view leave the budget** (the owner's decision, October 30): no flash-map change; the
+  effects keep their current pages under the new interface; in Release 3 each effect becomes a module and carries its own
+  picture (the owner's rule: a picture lives in its module; Session A's docs/orangecat/FX_MODULES_PLAN.md on release-2 is the
+  plan). Where they go: UI_DESIGN.md section 8's scenes and DUB TAPE's `SCENE_DUB` (section 7) are **not** built in
+  step 7; step 7 keeps only the module-picture format (7a) for the engines. The asset pack's 115 B spare is no longer a
+  constraint on this branch.
+
+| Step | What | Estimate | Running total of steps 4 on | Free after | Above the 8,192 B reserve |
+|---|---|---|---|---|---|
+| 1 to 3 | measured | 11,236 | | 26,800 | 18,608 |
+| 4 | the step pages | 4,000 | 4,000 | 22,800 | 14,608 |
+| 5 | EDIT > LANES | 1,500 | 5,500 | 21,300 | 13,108 |
+| 6 | the mixer in the knobs' colors | 600 | 6,100 | 20,700 | 12,508 |
+| 7a | fw_pages version 3: the scene and kdef of a module, the loader's check | 800 | 6,900 | 19,900 | 11,708 |
+| 7b, 7c | the effects' pictures, DUB TAPE's view | removed (Release 3, modules) | | | |
+| 8 | the web editor | 0 | 6,900 | 19,900 | 11,708 |
+| 9 | retire the old | 0 (credit only once measured) | 6,900 | 19,900 | 11,708 |
+
+(The estimates are the design's upper figure times the 1.5 that steps 1 to 3 measured with CI's options: 11.2 against 8.4 to
+9.4 KB.) **The plan fits with 11.7 KB above the reserve.** The measured cost of each step is entered here as it is built.
+
 ## Waiting on Session A
 
 | Item | What Session A is asked | Status |
 |---|---|---|
 | The macros in the audio interrupt (1a: oc_macro.c, the hooks in oc_throw.c) | Review and time it on the unit before any merge into release-2 (host: 613 to 642 ns a block for 36 targets; `fm1_timer5_irq` +300 B); choose whether mix.c calls it directly instead of the `thr_out` bit 31 | **Waiting** (code on ui-build) |
 | The render loops' target cost on this machine's toolchain | release-2 e1c8ac3 itself fails it here: `dxe_post_sides` 9 (budget 8), `pl_osc_render` 280 (budget 133). Confirm on CI, or re-take the budgets | **For Session A** (not a ui-build change) |
-| The pack's room for the effects' and DUB TAPE's scenes (step 7b, 7c; the budget above) | Choose: an eleventh sector for the pack (flash map), trimmed tables, or a module for the scenes | **Open** (not before step 7) |
+| The pack's room for the effects' and DUB TAPE's scenes | None: they move to Release 3's modules (the owner, October 30) | **Closed** |
 | The pack with the scene trailer (1b) | Nothing unless a build sets OC_HOME_PIC=1; see "The asset pack change" | **Waiting** (on ui-build only) |
 
 ## The asset pack change (for the installer and Session A's builds, when it merges)
