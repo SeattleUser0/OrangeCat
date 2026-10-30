@@ -820,6 +820,12 @@ g2 at 64K is 40 to 60 us above round 5's (2,635 to 2,647) with no converter invo
 
 *Left open after round 3:* g1 and g3 (the memory order against a DELAY send); the wet spring toggle's step; the default LEN of 32K in the code; the SRAM decision; `OC_DUB_SRAM=0`.
 
+**7.17 DUB TAPE closed (October 29, 2026, round 7; the owner's rule: round 6 was the last performance round).** DUB ships in Release 2 as it stands on release-2 876955a. Nothing more is built for its speed. Its known limit, as CHANGES.md states it: one DUB track holds in a lighter mix; in a heavy mix (four tracks with the shared reverb and delay up) it backs off and shows DUB FULL, and the moment it backs off can cost one or two late halves (an audible glitch). It comes back by itself when the load drops.
+
+**Later, engine-wide** (follow-ups that belong to every engine, not to one effect; none is scheduled):
+1. **Preparing a note's start a block early** (round 6 item 2, "Design only, not built"). **Declined by the owner, October 29, 2026:** it adds one block (0.73 ms) of start latency to every note of every engine, and an allocator change in voice.c, to save the worst halves of one effect. The wrong trade for DUB. It can be asked again for a reason that is not DUB's.
+2. **The per-sample `qb` branch hoisted out of the converter loops** (round 6: g2 at 64K runs 40 to 60 us above round 5's, probably the run-time branch inside the loops; hoisting it is bit-identical and small). A follow-up, not now.
+
 **7.9 Round 4 (October 29, 2026; branch r2-final from dub-r3 98a810f; design notes first, written before the code, reviewed by an agent that had not seen the work).**
 
 *Hard rule (the owner, after round 3's slip).* Every image flashed to the unit, measurement images included, has its independent review and its host suite before the flash. A build that differs from a reviewed, suite-passed commit only by a build switch whose code is in that commit (MELODEE_AUDIO_PROFILE for 1a) is counted as that commit; this reading is mine and is stated in the report.
