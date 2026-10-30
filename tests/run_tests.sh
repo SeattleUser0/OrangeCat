@@ -237,6 +237,14 @@ shift_job() {                                     # (the new interface 0.3, UI_B
     _t "new interface 3: HOME's picture page with SHIFT built in" \
         home_pic_s3:home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
 }
+step_pages_job() {                                # (the new interface 0.4, UI_BUILD.md step 4) the step pages
+    _t "new interface 4: NOTES' knobs, FEEL, the tracker's chord length, the combos on NOTES and FEEL" \
+        step_pages_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "new interface 4: EDIT's sheets with the step pages built in" \
+        sheet_s4:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "new interface 4: HOME as SHIFT with the step pages built in" \
+        shift_s4:shift_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+}
 web_tests() {                                     # the editor mock's tables must equal the firmware's (desc.json)
     if [ $TABLES = 1 ]; then
         build descdump descdump $FW &&
@@ -304,6 +312,16 @@ ui_renders_shift() {                              # (the new interface 0.3, UI_B
         "$OUT/ui_render_shift" build/ui_shift build/ui_shift_slot
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_shift build/ui_shift_slot || fail "tests/ui_render.py (build/ui_shift)"
+    fi
+}
+ui_renders_steps() {                              # (the new interface 0.4, UI_BUILD.md step 4) every screen again with every step's switch and
+                                                  # the step pages: FEEL, NOTES' strip and the map on both in every palette: the lint, MONO gray; PNGs in build/ui_steps
+    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    mkdir -p build/ui_steps/ppm build/ui_steps_slot
+    step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, the maps, lint, MONO gray" \
+        "$OUT/ui_render_steps" build/ui_steps build/ui_steps_slot
+    if [ $PIL = 1 ]; then
+        python3 tests/ui_render.py build/ui_steps build/ui_steps_slot || fail "tests/ui_render.py (build/ui_steps)"
     fi
 }
 ui_renders_pic() {                                # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) every screen again with
@@ -591,6 +609,7 @@ if core && [ $TABLES = 1 ]; then
     job home_pic_job
     job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
     job shift_job                                 # (the new interface 0.3, UI_BUILD.md step 3)
+    job step_pages_job                            # (the new interface 0.4, UI_BUILD.md step 4)
     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1a) HOME's knob macros through the saves and loads, OC_HOME_PIC=1
     t "new interface 1a: macros committed by project, template and user-sound saves, loaded at 0, old records at 0, HOME's macro descriptor" \
         oc_macro_save_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
@@ -624,6 +643,7 @@ if core && [ $TABLES = 1 ]; then
     job ui_renders_pic                            # (the new interface, UI_BUILD.md 1c)
     job ui_renders_sheets                         # (the new interface 0.2, UI_BUILD.md step 2)
     job ui_renders_shift                          # (the new interface 0.3, UI_BUILD.md step 3)
+    job ui_renders_steps                          # (the new interface 0.4, UI_BUILD.md step 4)
     t "boot audio: codec waits for settled silent DMA and shuts down before I2S" audio_boot_test -w
     t "audio: overload protection, bounded fades and DMA diagnostics" audio_test $FW
     t "GLO > WEIGHTS: per-engine budget points, SAFETY, device persistence and pages" voice_weights_test $FW

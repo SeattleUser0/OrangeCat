@@ -129,6 +129,8 @@
                                    * LEN VEL with PRESETS the cursor, FEEL (ui_feel.c), the tracker's note length on a manual chord, the combos on NOTES and
                                    * FEEL; 0: NOTES, TRACKER and the SEQ pages as release-2's */
 #endif
+#define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (no page has it
+                                   * with OC_STEP_PAGES 0) */
 #if OC_STEP_PAGES && !OC_SHIFT_MAP
 #error "OC_STEP_PAGES needs OC_SHIFT_MAP (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif

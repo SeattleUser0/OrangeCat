@@ -2377,6 +2377,66 @@ int main(int argc, char **argv)
         fprintf(rep, "(the new interface 0.3) the SHIFT map: %u screens over every palette\n", (unsigned)nm);
     }
 #endif
+#if OC_STEP_PAGES
+    {   /* (the new interface 0.4, UI_BUILD.md step 4) FEEL (as set, each knob last turned, a range, the step playing, an empty page),
+         * NOTES with its new strip (a recorded note, a manual note, nothing) and the SHIFT map on both, in every palette, linted and
+         * MONO gray; NIGHT, DAY and CONTRAST written as PPMs (feel_<scene>, notes_<scene>, shift_map_feel, shift_map_notes) */
+        static const char *const SN[] = {"feel_set", "feel_k1", "feel_k2", "feel_k3", "feel_k4", "feel_range", "feel_play", "feel_empty",
+                                         "notes_rec", "notes_manual", "notes_none", "shift_map_feel", "shift_map_notes"};
+        uint32_t w, nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (w = 0; w < sizeof SN / sizeof SN[0]; w++) {
+                char name[64];
+                uint32_t j, i;
+                state();
+                song.playing = 0;
+                eng(ENGI_MACRO);
+                TSEL->engine = TSEL->eng_req;
+                track_defaults_steps(TSEL);
+                TSEL->p[P_SLEN] = 16;
+                bulk.on = 0;
+                ui.cursor = 4;
+                if (w != 7u) {
+                    for (i = 0; i < 12u; i += 2u) { TSEL->step[i].note[0] = (uint8_t)(48u + i); TSEL->step[i].n = 1; TSEL->step[i].time = ST_NOTE; TSEL->step[i].vel = 96; }
+                    step_set_chance(&TSEL->step[4], 75);
+                    TSEL->step[2].cond = TC_2_3;
+                    step_set_rflam(&TSEL->step[6], 2);
+                    step_set_nudge(&TSEL->step[8], 6);
+                    TSEL->step[10].flags |= SF_ACCENT | SF_SLIDE;
+                }
+                if (w < 8u || w == 11u) go_title("FEEL"); else go_title("NOTES");
+                feel_k = (uint8_t)(w >= 1u && w <= 4u ? w - 1u : 0u);
+                if (w == 5u) { bulk.on = 1; bulk.anchor = 4; bulk.end = 8; bulk.track = song.sel; bulk.pattern = TSEL->pattern; bulk.generation = TSEL->pattern_gen; bulk.engine = (uint8_t)library_engine(); }
+                if (w == 6u) { song.playing = 1; TSEL->seq_idx = 6; }
+                if (w == 8u) {
+                    recorded_note_t r = {.step = 4, .on = 20000, .note = 64, .vel = 90, .duration = RECORD_UNIT * 3u / 2u, .owner = (uint8_t)recording_owner(TSEL), .length = 1};
+                    track_defaults_steps(TSEL);
+                    recording_restore_note(TSEL, 0, r);
+                    note_rebuild_all();
+                    cursor_set(4);
+                    ui.note_pick = 0;
+                    notes_selected(TSEL);
+                }
+                if (w == 10u) track_defaults_steps(TSEL);
+                if (w >= 11u) sh_st = SHF_ON | SHF_MAP;
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, SN[w]);
+                cur_name = name;
+                pal(p);
+                ui.force = 1;
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(SN[w]); aud = 0; mono_check(); }
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], SN[w]);
+                sh_st = 0;
+                bulk.on = 0;
+                song.playing = 0;
+                nm++;
+            }
+        fprintf(rep, "(the new interface 0.4) the step pages: %u screens over every palette\n", (unsigned)nm);
+    }
+#endif
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

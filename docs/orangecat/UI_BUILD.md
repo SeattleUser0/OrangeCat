@@ -773,7 +773,7 @@ ui_renders_shift pass; the one failure is release-2's own "target cost of the re
 
 ## Step 4: the step pages
 
-**Status: In progress (design reviewed).** Behind a fourth switch, `OC_STEP_PAGES` (core.h, default 0), which needs `OC_SHIFT_MAP=1` (each step
+**Status: Done (host).** Behind a fourth switch, `OC_STEP_PAGES` (core.h, default 0), which needs `OC_SHIFT_MAP=1` (each step
 ships behind the one before). With it off, release-2's NOTES, TRACKER and the rest are unchanged (byte-identical image).
 UI_DESIGN.md Part 1 sections 1 and 4, Part 2 `notes.png` and `feel.png`.
 
@@ -890,6 +890,65 @@ note's pitch; a manual note's pitch or, on an empty step, the last note, as KNOB
 (START, recorded notes only), KNOB 3 slot 2 (LEN, quarter step, ENV fine), KNOB 4 slot 3 (VEL, as today). A range or a move armed:
 as today (KNOB 1 moves it, KNOB 2 the range's end).
 
+### 4. The step pages (the design as built)
+
+**Status: Done (host), merged into ui-build after the diff review.** Files: firmware/src/ui_feel.c (FEEL's reading, text,
+signature and tiles; included by ui_graph.c), ui_feel_edit.c (FEEL's edit, NOTES' knob map, `bulk_stretch`,
+`tracker_chord_length`; included by ui_input.c), hooks in ui_input.c, ui_shift.c, ui_draw.c, ui_graph.c, params.c (the FEEL page
+after NOTES), core.h (`OC_STEP_PAGES`, `GR_FEEL` 0x60 outside fw_pages.h's enum so the module interface's id does not move),
+tools/build.py (the switch). With the switch off the code is not compiled and the image is byte-identical to release-2 (`cmp`).
+
+**As the design said, built:** NOTES (melodic): KNOB 1 PITCH, 2 START (slot 6, a sixteenth of a step a detent, wraps at the
+phrase's end, refuses an occupied cell), 3 LEN, 4 VEL; PRESETS the cursor; ENV + PRESETS the zoom (and `step_used` set); a range
+or a move armed keeps KNOB 1 as the move. FEEL: CHNC (chance, then FILL .. 4:4 on one scale of 112), RATCH, NUDGE, TYPE on every
+selected step (set from the cursor's value); the guards (frozen, chain, live recording) of its own; EDIT tapped resets the
+step, held undoes; no sheet on FEEL. The tracker's KNOB 4 on a manual chord: one transaction, one undo. SHIFT on NOTES and FEEL:
++ PRESETS stretches the range, + EDIT deletes it (FEEL: resets it), + a knob a fine turn; the map names STRETCH and DELETE there;
+copy and paste still say LATER.
+
+**Deviations and decisions (the safer reading):**
+- The strip's label is **CHNC**, not CHANCE (the card holds four or five capitals: the lint). A tile's TYPE is AC, SL, AS (two
+  letters: a tile has 55 px); the dial says ACC, SLD, A+S.
+- LEN keeps the quarter step a detent (ENV held the sixteenth), as today; the design said a sixteenth.
+- The foot of NOTES keeps release-2's hints (ADD, NOTE MENU, DELETE, DONE), not the mockup's; the foot belongs to step 9 with the
+  sheets' (step 2's list). FEEL's foot is the generic one (the sound's numeral and name).
+- START does not carry a step's feel to the new cell, and **release-2's loss stands** (`notes_rebuild` recomputes ACC from the
+  velocity and drops a cell's feel when its last note leaves; a range move keeps only chance and slide): an accent set on FEEL
+  on a recorded step is lost at the next pitch, length or velocity edit of that cell. Not changed: the same flaw is in the
+  tracker's FX column today; the fix belongs with the one-authority cleanup.
+- **Not built, for their own step:** copy and paste of a selection (and of a sound, step 3's item); the one-authority cleanup
+  (`recording_prune`; it waits on the pads' editor being shared, TRACKER_REVIEW.md point 1).
+- While the song plays, a chain runs or a recording is armed, KNOB 4 in a chord's note column keeps release-2's whole-step resize
+  and says "STOP FOR NOTE LENGTH" (the conversion needs a stopped song, as NOTES' own length edit does).
+- On a drum track's roll PRESETS keeps release-2's zoom; the new knobs apply to melodic tracks.
+- FEEL's range follows the cursor: if PRESETS moves the cursor off the range the edit is the cursor's step alone.
+
+**The diff review (an independent agent, October 30, 2026).** Found and fixed: (1) the tracker's column did not follow the note
+after the conversion (a chord entered 67, 60, 64: two detents lengthened two different notes; now the column follows, tested);
+(2) SHIFT + EDIT on NOTES deleted a step while a chain ran (now "STOP TO EDIT" as EDIT tapped, tested); (3) PRESETS changed on a
+drum track's roll (now release-2's there); (4) KNOB 4's two meanings now say why; (5) the length clamp reached 128 steps, which
+does not fit `note_duration` (now 127); (6) the START message says RECORDED ONLY; (7) the range and the cursor (above); (9) tests
+that could not fail made exact (the zoom, START's wrap and its way down) and the chain and non-ascending chord tests added.
+Not changed: a fine turn of LEN, VEL and START is the same as a plain one (they do not accelerate: cosmetic). The reviewer found
+correct: the interrupt on and off on every path, the one transaction and its undo, every range, the history holding every field
+FEEL edits, nothing in the firmware or tools keyed to SEQ's page numbers, the signature covering every field the tiles read.
+
+**Flash and RAM (CI's build options, `build.sh`, niced):** every switch but this one: 550,448 B; with it **554,688 B: +4,240 B**
+(estimate 4,000), .data+.bss unchanged (94,504 B), arena 84,288 B (unchanged). Free flash 22,560 B, 14,368 B above the reserve.
+Switch off: 539,212 B, byte-identical to release-2.
+
+**Host tests:** tests/step_pages_test.c (step_pages_job, ASan and UBSan): 48 checks, 0 failed (the order of SEQ's pages; NOTES'
+four knobs and one undo each; START's wrap, refusal, the manual note's refusal; PRESETS and the zoom; the range keeping KNOB 1;
+FEEL's every knob and its ends, the 100 % crossing, a range set and not added, the guards, undo; the tracker's chord, its undo, the
+one-note and playing cases, the non-ascending chord; SHIFT + PRESETS and + EDIT on both pages; the chain). sheet_test and
+shift_test pass with the switch on. tests/ui_render.c (ui_renders_steps): FEEL (as set, each knob last turned, a range, playing,
+empty), NOTES' strip and both maps in 8 palettes: 0 lint findings, 0 MONO pixels off gray.
+
+**The mockups (docs/orangecat/ui/new/, NIGHT unless named):** `step4_sheet.png` (the contact sheet), `step4_feel_set.png`,
+`step4_feel_k1.png` .. `step4_feel_k4.png`, `step4_feel_range.png`, `step4_feel_play.png`, `step4_feel_empty.png`,
+`step4_notes_rec.png`, `step4_notes_manual.png`, `step4_notes_none.png`, `step4_shift_map_feel.png`, `step4_shift_map_notes.png`,
+`day_step4_feel_set.png`, `day_step4_notes_rec.png`.
+
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
 **The merge.** release-2's local head (Session A's ~/OrangeCat, 876955a; origin/release-2 still holds e1c8ac3) merged into
@@ -988,7 +1047,7 @@ The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). 
 | Step | What | Estimate | Running total of steps 4 on | Free after | Above the 8,192 B reserve |
 |---|---|---|---|---|---|
 | 1 to 3 | measured | 11,236 | | 26,800 | 18,608 |
-| 4 | the step pages | 4,000 | 4,000 | 22,800 | 14,608 |
+| 4 | the step pages | **4,240 measured** (est. 4,000) | 4,240 | 22,560 | 14,368 |
 | 5 | EDIT > LANES | 1,500 | 5,500 | 21,300 | 13,108 |
 | 6 | the mixer in the knobs' colors | 600 | 6,100 | 20,700 | 12,508 |
 | 7a | fw_pages version 3: the scene and kdef of a module, the loader's check | 800 | 6,900 | 19,900 | 11,708 |

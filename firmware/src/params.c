@@ -697,6 +697,9 @@ static const page_t PAGES[] = {
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
+#if OC_STEP_PAGES
+    {"FEEL", FAM_SEQ, SC_STEP, GR_FEEL, {0, 1, 2, 3}},   /* (the new interface 0.4, UI_BUILD.md step 4) the steps' chance, ratchet, nudge, type (ui_feel.c) */
+#endif
     {"TRACKER", FAM_SEQ, SC_STEP, GR_TRACKER, {0, 1, 2, 3}},   /* (Orange Cat 0.4.2) the phrase as rows (ui_tracker.c) */
     {"PHRASE", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},   /* (Orange Cat 0.4: was PATTERN) */
     {"GROOVE", FAM_SEQ, SC_GLOBAL, GR_GROOVE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* (Orange Cat 0.4.5) ui_groove.c */
