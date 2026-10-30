@@ -33,8 +33,6 @@ static const float dd_hb_h[DD_HB_M] = {0.314333438873291f, -0.09460322558879852f
 /* (Release 2, round 6) converter B: the 44.1 to 22.05 kHz stage at 11 taps (3 odd taps: Kaiser beta 6 over N+2 points, the odd taps scaled so all sum to 1), the 22.05 to 11.025 kHz stage as it was (31 taps). The
  * echoes land about 0.45 ms earlier (shorter filters, outside the loop). The renders of ~/dubtape-research/conv/conv_render.c (DD_CONV=1) are this code, sample for sample (tests/jfx_dub_test.c) */
 static const float dd_hb0_h[3] = {0.29532000796148306f, -0.051322375145705076f, 0.0060023671842220966f};
-typedef struct { int M; const float *h; } dd_hbc_t;
-static const dd_hbc_t DD_ST0 = {3, dd_hb0_h}, DD_ST1 = {DD_HB_M, dd_hb_h};
 #define DD_KNOB_LN 0.0543918f                  /* ln(1000) / 127: 20 Hz .. 20 kHz over the knob's 0 .. 127 */
 /* (Release 2) the filter coefficients are computed at the control tick, not read from tables: the tables were 2 KB of the arena for every build. tan(pi f / fs) of the knob's
  * frequency, with the cutoff held below 0.45 of the line's rate */
@@ -106,29 +104,35 @@ static inline float dd_rd_lin(const dd_t *s, uint32_t w, float d)
     return x0 + fr * (x1 - x0);
 }
 
-static inline int dd_hb_dec(dd_hb_t *h, float x, float *y, const dd_hbc_t *c)
-{
-    int j, C = 2 * c->M - 1;
-    float a;
-    h->p = (h->p + 1u) & 31u; h->st[h->p] = x;
-    h->ph ^= 1u;
-    if (h->ph) return 0;
-    a = 0.5f * h->st[(h->p - C) & 31u];
-    for (j = 0; j < c->M; j++)
-        a += c->h[j] * (h->st[(h->p - C + 2u * j + 1u) & 31u] + h->st[(h->p - C - 2u * j - 1u) & 31u]);
-    *y = a;
-    return 1;
+/* the half-band stages, one function pair for each tap count: the count a constant, so the loops unroll (a count read at run time made the kernel slower by more than the shorter filter saved) */
+#define DD_HB_FNS(SUF, MM) \
+static inline int dd_hb_dec##SUF(dd_hb_t *h, float x, float *y, const float *c) \
+{ \
+    int j; \
+    const int C = 2 * (MM) - 1; \
+    float a; \
+    h->p = (h->p + 1u) & 31u; h->st[h->p] = x; \
+    h->ph ^= 1u; \
+    if (h->ph) return 0; \
+    a = 0.5f * h->st[(h->p - C) & 31u]; \
+    for (j = 0; j < (MM); j++) \
+        a += c[j] * (h->st[(h->p - C + 2u * j + 1u) & 31u] + h->st[(h->p - C - 2u * j - 1u) & 31u]); \
+    *y = a; \
+    return 1; \
+} \
+static inline void dd_hb_int##SUF(dd_hb_t *h, float x, float *y0, float *y1, const float *c) \
+{ \
+    int j; \
+    const int M = (MM); \
+    float a = 0.0f; \
+    h->p = (h->p + 1u) & 15u; h->st[h->p] = x; \
+    for (j = 0; j < M; j++) \
+        a += c[j] * (h->st[(h->p - M - j) & 15u] + h->st[(h->p - M + 1u + j) & 15u]); \
+    *y0 = 2.0f * a; \
+    *y1 = h->st[(h->p - M + 1u) & 15u]; \
 }
-static inline void dd_hb_int(dd_hb_t *h, float x, float *y0, float *y1, const dd_hbc_t *c)
-{
-    int j, M = c->M;
-    float a = 0.0f;
-    h->p = (h->p + 1u) & 15u; h->st[h->p] = x;
-    for (j = 0; j < M; j++)
-        a += c->h[j] * (h->st[(h->p - M - j) & 15u] + h->st[(h->p - M + 1u + j) & 15u]);
-    *y0 = 2.0f * a;
-    *y1 = h->st[(h->p - M + 1u) & 15u];
-}
+DD_HB_FNS(3, 3)                                       /* converter B's first stage (11 taps) */
+DD_HB_FNS(8, DD_HB_M)                                 /* the 31-tap stage: the second stage, and the half rate's only one */
 
 /* ------------------------------------------------------------------ the spring --- */
 static uint32_t dd_sp_len(float sec, float fsl, uint32_t cap)
@@ -380,7 +384,7 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
 {
     float xl[DD_BLOCK], wl[DD_BLOCK], wr[DD_BLOCK];
     const int R = s->R, nloop = DD_BLOCK / R;
-    const dd_hbc_t *st0 = R == 4 ? &DD_ST0 : &DD_ST1;     /* converter B is the quarter rate's first stage; the half rate's one stage stays the 31-tap filter (it has no second stage behind it to catch what 11 taps let by) */
+    const int qb = R == 4;                           /* converter B is the quarter rate's first stage only; the half rate's one stage stays the 31-tap filter (it has no second stage behind it to catch what 11 taps let by) */
     int i, k;
     float wet0, dry0, dw, dd;
     dd_tick_t t;
@@ -394,9 +398,9 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
         dw = (we - wet0) / (float)DD_BLOCK; dd = (de - dry0) / (float)DD_BLOCK; }
     {   float y, y2;
         for (i = 0, k = 0; i < DD_BLOCK; i++)
-            if (dd_hb_dec(&s->dec[0], in[i], &y, st0)) {
+            if ((qb ? dd_hb_dec3(&s->dec[0], in[i], &y, dd_hb0_h) : dd_hb_dec8(&s->dec[0], in[i], &y, dd_hb_h))) {
                 if (R == 2) xl[k++] = y;
-                else if (dd_hb_dec(&s->dec[1], y, &y2, &DD_ST1)) xl[k++] = y2;
+                else if (dd_hb_dec8(&s->dec[1], y, &y2, dd_hb_h)) xl[k++] = y2;
             }
     }
     dd_control_tick(s, p, &t, nloop);
@@ -407,14 +411,14 @@ void dk_process(dd_t *s, const dd_params_t *p, const float *in, float *outL, flo
         if (R == 4) {
             float ul[DD_BLOCK / 2], ur[DD_BLOCK / 2];
             for (i = 0; i < nloop; i++) {
-                dd_hb_int(&s->intl[1], tl[i], &ul[2 * i], &ul[2 * i + 1], &DD_ST1);
-                dd_hb_int(&s->intr[1], tr[i], &ur[2 * i], &ur[2 * i + 1], &DD_ST1);
+                dd_hb_int8(&s->intl[1], tl[i], &ul[2 * i], &ul[2 * i + 1], dd_hb_h);
+                dd_hb_int8(&s->intr[1], tr[i], &ur[2 * i], &ur[2 * i + 1], dd_hb_h);
             }
             memcpy(tl, ul, sizeof ul); memcpy(tr, ur, sizeof ur);
         }
         for (i = 0; i < DD_BLOCK / 2; i++) {
-            dd_hb_int(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1], st0);
-            dd_hb_int(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1], st0);
+            if (qb) dd_hb_int3(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1], dd_hb0_h); else dd_hb_int8(&s->intl[0], tl[i], &wl[2 * i], &wl[2 * i + 1], dd_hb_h);
+            if (qb) dd_hb_int3(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1], dd_hb0_h); else dd_hb_int8(&s->intr[0], tr[i], &wr[2 * i], &wr[2 * i + 1], dd_hb_h);
         }
     }
     for (i = 0; i < DD_BLOCK; i++) {

@@ -66,8 +66,10 @@ static __attribute__((section(".pool"))) dub_i_t dub_i[DUB_N];
 #define dub_p (dub_cm->p)                              /* the job's parameter copies, the capture pair, the wet and the batch's sink: the instances' common arena block (jfx.c dub_common_t) */
 #define dub_x (dub_cm->x)
 #define dub_wet (dub_cm->wet)
+#define dub_wet_next (dub_cm->wet_next)
 #define dub_sink (dub_cm->sink)
 static __attribute__((section(".pool"))) uint8_t dub_cur, dub_job_buf, dub_mask, dub_done;
+static __attribute__((section(".pool"))) uint8_t dub_wmask, dub_pmask, dub_pend, dub_out;   /* (round 6) dub_wmask: the instances whose wet dub_wet holds (the last block's job); dub_pmask / dub_pend: the job launched this block; dub_out: it is on CPU1 */
 static __attribute__((section(".pool"))) uint8_t dub_gov_req;                             /* audio.c: late halves while an instance ran: the governor asks for one to give way */
 static __attribute__((section(".pool"))) uint8_t dub_force_degrade;                       /* a host test's CPU1 retirement */
 static __attribute__((section(".pool"))) uint16_t dub_cpu_wait;                             /* blocks still to wait before DUB is admitted (CPU1 retired or forced off sets it to DUB_CPU_OK_BLOCKS; it counts down while CPU1 is online; 0 at boot: .pool is zero) */
@@ -89,11 +91,10 @@ DUB_HOT static void dub_run(void)
         float in[DD_BLOCK];
         if (!((dub_mask >> k) & 1u)) continue;
         for (i = 0; i < DD_BLOCK; i++) in[i] = (float)dub_x[dub_job_buf][k][i] * (1.0f / DUB_SCALE);
-        dk_process(dub_dd(k), &dub_p[k], in, dub_wet[k][0], dub_wet[k][1]);
+        dk_process(dub_dd(k), &dub_p[k], in, dub_wet_next[k][0], dub_wet_next[k][1]);
     }
 }
-static void dub_kernel(const void *data, int32_t *pcm) { (void)data; (void)pcm; dub_run(); }
-static void dub_merge(const void *data, const int32_t *pcm, uint32_t n) { (void)data; (void)pcm; (void)n; dub_done = 1; }
+static void dub_job(void *context) { (void)context; dub_run(); }       /* (round 6) the job as a worker job of its own (it was a descriptor of the voice batch) */
 
 /* track t's parameters for its instance: FDBK SEND TONE SPACE THRW CUT KICK, and the setup */
 JFX_XIP static void dub_map(uint32_t k, const track_t *t, dd_params_t *p, uint32_t R, uint32_t nblk, float *need)
@@ -171,13 +172,12 @@ static int dub_running(void) { return dub_mask != 0; }
 /* before the tracks, every block (mix.c): the pair swapped, each instance's state advanced, the job pushed first */
 JFX_XIP static void dub_start(uint32_t nt)
 {
-    uint32_t k, i, cost = 0;
+    uint32_t k, i;
     int degrade;
     dub_job_buf = dub_cur;
     dub_cur ^= 1u;
     if (dub_cm) memset(dub_x[dub_cur], 0, sizeof dub_x[dub_cur]);
     dub_mask = 0;
-    dub_done = 0;
     dub_ev_full = 0;
     if (dub_late_recent) dub_late_recent--;
     if (dub_force_degrade || !DUB_CPU1_OK()) dub_cpu_wait = DUB_CPU_OK_BLOCKS;      /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
@@ -253,7 +253,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                 dk_init(dd, (int)d->R, dub_line[k], dub_have[k]);
                 if (dub_spring[k]) dk_spring_attach(dd, dub_spbuf[k]);
                 dd->cut_g = dd->cutw_g = 0.0f;              /* the input ramped in */
-                memset(dub_wet[k], 0, sizeof dub_wet[k]);
+                memset(dub_wet[k], 0, sizeof dub_wet[k]); memset(dub_wet_next[k], 0, sizeof dub_wet_next[k]); dub_wmask &= (uint8_t)~(1u << k);
                 memset(dub_x[0][k], 0, sizeof dub_x[0][k]); memset(dub_x[1][k], 0, sizeof dub_x[1][k]);
                 dub_fresh[k] = 0;
                 d->hold = 0;
@@ -297,7 +297,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                 dk_init(dd, (int)d->R, dub_line[k], dub_have[k]);
                 if (dub_spring[k]) dk_spring_attach(dd, dub_spbuf[k]);
                 dd->cut_g = dd->cutw_g = 0.0f;
-                memset(dub_wet[k], 0, sizeof dub_wet[k]);
+                memset(dub_wet[k], 0, sizeof dub_wet[k]); memset(dub_wet_next[k], 0, sizeof dub_wet_next[k]); dub_wmask &= (uint8_t)~(1u << k);
                 d->pvalid = 0;
                 d->state = DUBS_RUN;
             }
@@ -322,25 +322,66 @@ JFX_XIP static void dub_start(uint32_t nt)
                 }
                 d->run = 1;
                 dub_mask |= (uint8_t)(1u << k);
-                cost += audio_batch_cost[AP_DUB] + (dub_spring[k] ? 450u : 0u);
             }
         }
     }
-    if (!dub_mask) return;
-#if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
-    if (audio_batch_active) {
-        uint32_t unused = 0;
-        audio_batch_push_cost(dub_kernel, &unused, sizeof unused, dub_sink, CTL, AP_DUB, cost, dub_merge);
-        return;
-    }
+}
+/* (round 6) after the voice batch is joined (mix.c): the DUB job as a worker job of its own, in CPU1's idle time while CPU0 mixes the tracks (the trace: the gap between the batch's end and the bus job's
+ * start is as long as the job). It reads the last block's capture and writes dub_wet_next; jfx_bus_start joins it and adopts the wet (dub_collect), so the wet is added one block later (0.73 ms) than when
+ * the job was in the batch. With no worker (CPU1 retired, single-core forced, the host build) it runs here, and the adoption is the same. */
+JFX_XIP static void dub_launch(uint32_t worker)          /* worker: 1 after the voice batch (mix_prepare_batch); 0 in a build without the batch, where the tracks' engines use the worker themselves and DUB runs inline as it did */
+{
+    dub_pend = 0;
+    dub_out = 0;
+    if (!dub_mask || !dub_cm) return;
+    dub_pmask = dub_mask;
+    dub_pend = 1;
+#if MELODEE_DUAL_CORE
+#if OC_CORE_STATS
+    cs_kind = CS_K_DUB;                                 /* (the stats attribute a job to the kind set at its join as well: dub_collect sets it again) */
+#endif
+    if (worker && audio_worker_submit(dub_job, 0)) { dub_out = 1; return; }
+#if OC_CORE_STATS
+    cs_kind = CS_K_VOICE;                               /* (not submitted: the next join is not this job's) */
+#endif
+#else
+    (void)worker;
 #endif
     dub_run();
-    dub_done = 1;
+}
+/* the head of jfx_bus_start, every block: the DUB job joined if it is out (the bus job is submitted behind it: audio_worker_submit refuses while a job is out), its wet copied to dub_wet for the next block's
+ * mix. A job that failed (CPU1 retired) or none ran: no wet next block. Before jfx_mem, which can free an instance's memory. */
+JFX_XIP static void dub_collect(void)
+{
+    int ok = 1;
+#if MELODEE_DUAL_CORE
+    if (dub_out) {
+        dub_out = 0;
+#if OC_CORE_STATS
+        cs_kind = CS_K_DUB;
+#endif
+        ok = audio_worker_join();
+    }
+#endif
+    if (dub_pend && ok && dub_cm) {
+        for (uint32_t k = 0; k < DUB_N; k++)
+            if ((dub_pmask >> k) & 1u) memcpy(dub_wet[k], dub_wet_next[k], sizeof dub_wet[k]);
+        dub_wmask = dub_pmask;
+        dub_done = 1;
+    } else {
+        dub_wmask = 0;
+        dub_done = 0;
+    }
+    dub_pend = 0;
 }
 /* the instances from silence, their memory given back (a new project, power-on); the next block asks again for each track's LEN */
 JFX_XIP static void dub_reset(void)
 {
-    if (dub_cm) { memset(dub_x, 0, sizeof dub_x); memset(dub_wet, 0, sizeof dub_wet); }
+#if MELODEE_DUAL_CORE
+    if (dub_out) { dub_out = 0; (void)audio_worker_join(); }
+#endif
+    if (dub_cm) { memset(dub_x, 0, sizeof dub_x); memset(dub_wet, 0, sizeof dub_wet); memset(dub_wet_next, 0, sizeof dub_wet_next); }
+    dub_done = dub_wmask = dub_pmask = dub_pend = 0;
     memset(dub_i, 0, sizeof dub_i);
     memset(dub_want, 0, sizeof dub_want);
     memset(dub_spring, 0, sizeof dub_spring);
@@ -359,5 +400,7 @@ static inline int dub_running(void) { return 0; }
 static inline int32_t *dub_capture(uint32_t k) { (void)k; return 0; }
 static inline int dub_alive(uint32_t k) { (void)k; return 0; }
 static inline void dub_start(uint32_t nt) { (void)nt; }
+static inline void dub_launch(uint32_t worker) { (void)worker; }
+static inline void dub_collect(void) {}
 static void dub_reset(void) {}
 #endif

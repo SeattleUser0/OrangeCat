@@ -86,7 +86,7 @@ _Static_assert(RPRE_LEN == JFX_SEG && SH_LEN == JFX_SEG && (RX_NSEG & (RX_NSEG -
 #define DUB_SPRING_BYTES 5632u                          /* the spring's rings (DD_SP_BUF int16) */
 /* what only a running instance needs (the job's parameter copies, the capture pair, the wet, the batch's sink) is one arena block, taken with the first instance and given back with the
  * last: DUB unused costs the build its code and a few hundred bytes, not these 3 KB */
-typedef struct { dd_params_t p[DUB_N]; int32_t x[2][DUB_N][32]; float wet[DUB_N][2][32]; int32_t sink[32];
+typedef struct { dd_params_t p[DUB_N]; int32_t x[2][DUB_N][32]; float wet[DUB_N][2][32]; float wet_next[DUB_N][2][32]; int32_t sink[32];
                  uint8_t pool[DUB_N][DUB_MAXSEG]; int16_t *line[DUB_N][DUB_MAXSEG]; } dub_common_t;   /* .. and each line block's pool slot and pointer */
 static dub_common_t *dub_cm;                            /* 0: no instance holds it */
 #define dub_pool (dub_cm->pool)
@@ -2007,6 +2007,7 @@ JFX_XIP static void jfx_free_dub(uint32_t i)
     dub_spbuf[i] = 0;
 }
 static void dub_reset(void);                            /* (Release 2) jfx_dub.c */
+static void dub_collect(void);                          /* (round 6) jfx_dub.c: the DUB job joined and its wet adopted, first in jfx_bus_start */
 static void dub_tables(void);
 JFX_XIP static void jfx_free_dubs(void)
 {
@@ -2324,6 +2325,7 @@ static void fxp_take(void)
 static void jfx_bus_start(uint32_t n)
 {
     uint32_t i, s = 0;
+    dub_collect();                                      /* (round 6) DUB's job joined first (the bus job is submitted behind it) and its wet adopted, before jfx_mem can free an instance's memory */
     jfx_bus_drain();                                    /* the last block's job, if still out; its returns the master's from here */
     fxp_take();
     for (i = 0; i < n; i++) {                           /* which sends are not silent (jfx_mem) */

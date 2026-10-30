@@ -291,6 +291,20 @@ static void shared_bus_case(int parallel,uint32_t model)
     }
     jfx_power_on();for(uint32_t i=G_DTIME;i<G_COUNT;i++)song.g[i]=GP[i].def;serial_render=0;
 }
+static uint32_t dub_blocks_done;
+static void dub_case(int parallel)
+{
+    /* (round 6) DUB TAPE's job is a worker job of its own, run in CPU1's idle time while CPU0 mixes the tracks and joined at the head of jfx_bus_start: with the worker or without it the render is the same bit for bit,
+     * and no job is out when mix_block returns */
+    setup_case(7,0,4);jfx_power_on();dub_reset();
+    trk[0].p[P_DUBLEN]=3;trk[0].p[P_DUBPTRN]=1;trk[0].p[P_DUB_SPACE]=24;trk[0].p[P_DUB_FDBK]=60;trk[0].p[P_DUB_SEND]=127;trk[0].p[P_DUB_TONE]=60;
+    audio_worker_online=1;serial_render=!parallel;dub_blocks_done=0;
+    for(uint32_t frame=0;frame<FRAMES;frame+=CTL){int32_t out[2*CTL];mix_block(out,CTL);jfx_bus_drain();assert(!jfx_bus_pending && AW_LOAD(&audio_worker.complete)==AW_LOAD(&audio_worker.request));
+        if(dub_done)dub_blocks_done++;
+        if(parallel)assert(!memcmp(out,reference+frame*2,sizeof out));else memcpy(reference+frame*2,out,sizeof out);
+    }
+    jfx_power_on();dub_reset();for(uint32_t i=G_DTIME;i<G_COUNT;i++)song.g[i]=GP[i].def;serial_render=0;
+}
 static _Atomic uint32_t batch_advances;
 static void batch_count_kernel(const void *context,int32_t *pcm)
 {
@@ -336,6 +350,9 @@ static int dual_core_suite(void)
             }
     for(uint32_t model=0;model<5u;model++){shared_bus_case(0,model);shared_bus_case(1,model);}
     puts("Effects buses: the five reverb models with the delay and chorus, four live synth tracks, serial/concurrent bit equality and joins: OK");
+    dub_case(0);dub_case(1);
+    printf("DUB TAPE: the job as its own worker job, serial/concurrent bit equality, no job out after a block (the wet of %u blocks adopted): OK\n",dub_blocks_done);
+    assert(dub_blocks_done>10);
     shared_bus_retire();
     prophet_allocation();
     uint32_t prophet_cases=0;
