@@ -146,10 +146,14 @@ static int tracker_chord_length(uint32_t at, uint32_t col, int32_t steps)
 {
     track_t *t = TSEL;
     uint32_t n, want, pitch, i;
-    if (at >= NSTEP || song.playing || chain_busy() || live_rec_sel() || frz_locked()) return 0;
+    if (at >= NSTEP || frz_locked()) return 0;
     if (t->step[at].n < 2u || col >= t->step[at].n || (t->step[at].flags & SF_RECORDED)) return 0;
+    if (song.playing || chain_busy() || live_rec_sel()) {   /* (the whole chord resizes, as release-2: said, not silent) */
+        ui_message("STOP FOR NOTE LENGTH");
+        return 0;
+    }
     n = step_note_length(t, at);
-    want = (uint32_t)clamp((int32_t)n + steps, 1, 128);
+    want = (uint32_t)clamp((int32_t)n + steps, 1, 127);   /* (128 steps would not fit note_duration) */
     if (want == n) return 0;
     pitch = t->step[at].note[col];
     fm1_irq_off();
@@ -165,6 +169,8 @@ static int tracker_chord_length(uint32_t at, uint32_t col, int32_t steps)
     notes_selected(t);
     note_transaction_end();
     fm1_irq_on();
+    for (uint32_t c = 0; c < 4u; c++)                   /* (the columns are the recorded notes' order now: follow the note) */
+        if (i < RECORD_MAX && notes_nth(t, at, c) == i) ui.tk_col = (uint8_t)c;
     return 1;
 }
 #endif

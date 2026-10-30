@@ -108,6 +108,7 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
         if (shift_steppg()) {                           /* (the new interface 0.4) the selection, or the step, deleted */
             if (feel_page()) feel_reset(1);
             else if (bulk.on) notes_bulk_delete();
+            else if (chain_busy()) ui_message("STOP TO EDIT");   /* (as EDIT tapped) */
             else step_delete_edit();
         } else
 #endif

@@ -1219,7 +1219,7 @@ static void step_edit(uint32_t slot, int32_t steps)
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
 #if OC_STEP_PAGES
     if (slot == 6u && notes_selected(TSEL) >= RECORD_MAX) {   /* (the new interface 0.4) START moves a recorded note's onset */
-        ui_message("START: RECORDED NOTES");
+        ui_message("START: RECORDED ONLY");
         return;
     }
 #endif
@@ -2836,11 +2836,12 @@ static void ui_input(void)
         ui.force = 1;
     } else if (s && !ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
 #if OC_STEP_PAGES
-        if (!(ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (the new interface 0.4) PRESETS the cursor: each note of a
-                                                         * chord, then the steps; ENV held: the roll's zoom, as before */
+        if (!drum_track(TSEL) && !(ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (the new interface 0.4) PRESETS the cursor:
+                                                         * each note of a chord, then the steps; ENV held: the roll's zoom, as
+                                                         * before; a drum track's roll keeps release-2's PRESETS */
             if (!ui.entry_open) notes_step_jog(s);
         } else {
-            ui.step_used |= (uint16_t)(1u << panel.btn[B_ENV]);   /* (ENV's release is no ENV family) */
+            ui.step_used |= (uint16_t)(ui.step_mods & (1u << panel.btn[B_ENV]));   /* (ENV's release is no ENV family) */
             ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
         }
 #else

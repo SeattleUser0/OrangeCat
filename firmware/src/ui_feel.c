@@ -67,6 +67,8 @@ static void feel_range(uint32_t *lo, uint32_t *hi)
     if (bulk.on == 1u) { a = bulk.anchor % NSTEP; b = bulk.end % NSTEP; }
     *lo = a < b ? a : b;
     *hi = a < b ? b : a;
+    if (ui.cursor % NSTEP < *lo || ui.cursor % NSTEP > *hi)   /* (PRESETS moved the cursor off the range: the cursor's step alone) */
+        *lo = *hi = ui.cursor % NSTEP;
 }
 /* the page's picture changes: the signature of what the tiles show (steps_hash leaves out the chance, condition and nudge) */
 static uint32_t feel_sig(const track_t *t)

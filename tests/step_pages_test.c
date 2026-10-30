@@ -98,8 +98,8 @@ int main(void)
         chk("NOTES   KNOB 2 is START: a sixteenth of a step later, nothing else changed",
             recording[0].on == b0.on + RECORD_UNIT / 16u && recording[0].note == b0.note && recording[0].vel == b0.vel && dur(&recording[0]) == dur(&b0));
         turn(EN_K2, -2);
-        chk("NOTES   START the other way, below the step's start: the note moves into the step before",
-            ((recording[0].step & 63u) == 1u && recording[0].on > RECORD_UNIT * 3u / 4u) || ((recording[0].step & 63u) == 2u && recording[0].on < b0.on));
+        chk("NOTES   START the other way, below the step's start: the note moves into the step before, at the exact onset",
+            (recording[0].step & 63u) == 1u && recording[0].on == RECORD_UNIT - (2u * (RECORD_UNIT / 16u) - (b0.on + RECORD_UNIT / 16u)));
         hold(B_EDIT);
         chk("NOTES   EDIT held undoes the last edit alone", recording[0].on == b0.on + RECORD_UNIT / 16u);
     }
@@ -111,7 +111,7 @@ int main(void)
         ui.note_pick = 0; notes_selected(TSEL);
         turn(EN_K2, 4);
         chk("NOTES   START wraps at the phrase's end (step 15 + a quarter step: the next loop's step 0)",
-            (recording[0].step & 63u) == 0u || ((recording[0].step & 63u) == 15u && recording[0].on > 65000u));
+            (recording[0].step & 63u) == 0u && recording[0].on == 65000u + 4u * (RECORD_UNIT / 16u) - RECORD_UNIT);
         fresh("NOTES");
         put_note(0, 2, 40000, 60, 70, RECORD_UNIT);
         note_rebuild_all();
@@ -130,17 +130,18 @@ int main(void)
         manual(4, 64);
         cursor_set(4); frame();
         turn(EN_K2, 1);
-        chk("NOTES   a manual note's START is refused with its reason", msg_is("START: RECORDED NOTES") && TSEL->step[4].nudge == 0);
+        chk("NOTES   a manual note's START is refused with its reason", msg_is("START: RECORDED ONLY") && TSEL->step[4].nudge == 0);
         turn(EN_K1, 2);
         chk("NOTES   a manual note's PITCH (KNOB 1) as KNOB 2's was", TSEL->step[4].note[0] == 66u);
         c0 = ui.cursor;
         turn(EN_PRESET, 1);
         chk("NOTES   PRESETS moves the cursor", ui.cursor != c0);
+        c0 = ui.cursor;
         z = ui.note_zoom;
         hold_btn(B_ENV);
         turn(EN_PRESET, 1);
         rel_btn(B_ENV);
-        chk("NOTES   ENV + PRESETS is the roll's zoom, the cursor stays", ui.note_zoom == z + 1u || ui.note_zoom == z);
+        chk("NOTES   ENV + PRESETS is the roll's zoom, the cursor stays", ui.note_zoom == z + 1u && ui.cursor == c0 && ui.page == page_titled("NOTES"));
     }
     {   /* a range keeps KNOB 1 as the move */
         fresh("NOTES");
@@ -257,6 +258,41 @@ int main(void)
         turn(EN_K4, 1);
         song.playing = 0;
         chk("TRACKER while the song plays: the whole-step resize, no events", !(TSEL->step[2].flags & SF_RECORDED));
+    }
+    {   /* a chord that is not ascending: the column follows the note */
+        uint32_t n, l67 = 0, l60 = 0, l64 = 0;
+        fresh("TRACKER");
+        TSEL->step[2].n = 3; TSEL->step[2].note[0] = 67; TSEL->step[2].note[1] = 60; TSEL->step[2].note[2] = 64;
+        TSEL->step[2].time = ST_NOTE; TSEL->step[2].vel = 96;
+        cursor_set(2); ui.tk_col = TKC_N1; frame();
+        turn(EN_K4, 1);
+        turn(EN_K4, 1);
+        for (n = 0; n < RECORD_MAX; n++)
+            if (recording[n].vel && (recording[n].step & 63u) == 2u) {
+                if (recording[n].note == 67u) l67 = dur(&recording[n]);
+                if (recording[n].note == 60u) l60 = dur(&recording[n]);
+                if (recording[n].note == 64u) l64 = dur(&recording[n]);
+            }
+        chk("TRACKER a chord entered 67, 60, 64: two detents on N1 lengthen the 67 twice, the others stay", l67 == l60 + 2u * RECORD_UNIT && l60 == l64);
+    }
+    {   /* a chain running: the combos refuse */
+        fresh("NOTES");
+        manual(4, 60);
+        cursor_set(4); frame();
+        chain.running = 1;
+        shift_down();
+        hold_btn(B_EDIT);
+        rel_btn(B_EDIT);
+        shift_up();
+        chain.running = 0;
+        chk("SHIFT   + EDIT on NOTES while a chain runs: refused as EDIT tapped, the step stays", TSEL->step[4].n == 1u && msg_is("STOP TO EDIT"));
+        fresh("FEEL");
+        manual(4, 60);
+        cursor_set(4); frame();
+        chain.running = 1;
+        turn(EN_K2, 1);
+        chain.running = 0;
+        chk("FEEL    a chain running: a knob is refused", step_rflam(&TSEL->step[4]) == 1u);
     }
     {   /* SHIFT */
         fresh("FEEL");
