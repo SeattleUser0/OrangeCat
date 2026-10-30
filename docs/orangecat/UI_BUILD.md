@@ -1092,7 +1092,7 @@ The release-2 merged is 2b46f80 (local head of ~/OrangeCat, fetched read-only). 
 | 9 | retire the old | 0 (credit only once measured) | 10,060 | 16,740 | 8,548 |
 
 (The estimates are the design's upper figure times the 1.5 that steps 1 to 3 measured with CI's options: 11.2 against 8.4 to
-9.4 KB.) **The plan fits with 11.7 KB above the reserve.** The measured cost of each step is entered here as it is built.
+9.4 KB.) **The plan fits with 8.5 KB above the reserve (after step 5).** The measured cost of each step is entered here as it is built.
 
 ## Waiting on Session A
 
