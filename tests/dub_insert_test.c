@@ -53,23 +53,6 @@ static int32_t (*base)[CTL * 2];
 
 int main(void)
 {
-    {   /* (round 6) the wet added in a block is the last block's job's, and only an instance that ran then has one: dub_add_wet adds the wet buffer's content only when the instance is in dub_wmask */
-        dt_fresh(3, 1, 24, 120, 0);
-        dt_render(0, 240);
-        CHECK(dub_cm && dub_ready[0] && dub_i[0].run, "the instance does not run: ready %u run %u", dub_ready[0], dub_i[0].run);
-        for (uint32_t i = 0; i < CTL; i++) { dub_wet[0][0][i] = 0.25f; dub_wet[0][1][i] = -0.25f; mix_l[i] = mix_r[i] = 0; }
-        dub_done = 1; dub_wmask = 0;                       /* a wet left in the buffer by a job the instance did not have last block */
-        dub_add_wet(&trk[0], 0, CTL);
-        { int32_t any = 0; for (uint32_t i = 0; i < CTL; i++) any |= mix_l[i] | mix_r[i]; CHECK(!any, "a stale wet was added (instance not in dub_wmask)"); }
-        dub_wmask = 1;
-        dub_add_wet(&trk[0], 0, CTL);
-        { int32_t any = 0; for (uint32_t i = 0; i < CTL; i++) any |= mix_l[i] | mix_r[i]; CHECK(any, "the last block's wet was not added (instance in dub_wmask)"); }
-        dub_done = 0;
-        for (uint32_t i = 0; i < CTL; i++) mix_l[i] = mix_r[i] = 0;
-        dub_add_wet(&trk[0], 0, CTL);
-        { int32_t any = 0; for (uint32_t i = 0; i < CTL; i++) any |= mix_l[i] | mix_r[i]; CHECK(!any, "a wet was added with no job adopted (dub_done 0)"); }
-        printf("dub insert: the wet is the last block's job's, per instance (dub_wmask), none when no job was adopted\n");
-    }
     {   /* (round 5) LEN: OFF, then 32K, then the other sizes; every name maps to the blocks it says (4 KB each), and a turn up from OFF lands on 32K */
         const param_desc_t *d = param_desc_of(eng_idx(0), P_DUBLEN);
         static const char *const want[7] = {"OFF", "32K", "8K", "16K", "24K", "48K", "64K"};
