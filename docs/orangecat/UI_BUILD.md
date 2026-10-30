@@ -1237,6 +1237,35 @@ On `OC_LANES=1`, step 5:
 On `OC_MIXER=1`, step 6:
 18. **The mixer's colors** on the panel in every palette (the blue bar on the track-tinted rows; the white and orange words).
 
+## The preview build and its smoke test (October 30, 2026)
+
+**The build.** Branch `ui-preview` (this branch plus two commits that change nothing but the CI build: the six finished switches on in
+`.github/workflows/build.yml`, build and test steps both, and `OC_PREVIEW=1`, which makes `tools/build.py --nightly` write the version
+string `v0.16-PREVIEW-<commit6>`; the editor identity is `ORANGE CAT v0.16-PREVIEW`). `VERSION` stays `0.16.0` (the build requires
+X.Y.Z). It is built by CI as a manual run of the build workflow with `publish_nightly` off, so nothing reaches the installer page's
+channels. The files and the install order are in `~/oc-ui-preview/INSTALL.md`. No switch default on `ui-build` changed.
+
+**What the smoke test must cover**, in the order to run it. "Harness" means what Session A's unit scripts can drive and read (editor
+protocol, MIDI in, USB audio capture, the trace's per-job profile, late-half counters, a screen capture of the LCD if the unit has one
+on the bench); "person" means a judgment a script cannot make.
+
+| # | From checks | What | Harness | Person |
+|---|---|---|---|---|
+| S1 | (all) | Boots; ABOUT/MENU shows `v0.16-PREVIEW-<commit>`; the editor identity reads `ORANGE CAT v0.16-PREVIEW`; core 1 alive, no crash mark | yes: identity and crash counters over the editor | read the menu line fits the screen |
+| S2 | 5 | The pack with its scene trailer: install it and the firmware by the installer page's file option, in the order of INSTALL.md; pack hash and trailer accepted; pictures show; then the base pack (no trailer): the plain picture, MACRO and SHAPES still sound | yes: pack hash, trailer CRC, module list over the editor | the pictures |
+| S3 | 1 (Session A) | The macros in the interrupt: the block's time with four SHAPES tracks, every macro turned, against macros at 0; `fm1_timer5_irq` cost; late halves over a 10 minute sequence | yes (the trace) | no |
+| S4 | 2 | Macro sound: PLUCK on MACRO and SHAPES at both ends, TONE and TIMB on SHAPES, over a held note and a sequence; no click on a turn | the macro values and a capture's level and click detector; hand-turned knobs if the harness cannot turn them | whether it sounds right |
+| S5 | 3, 7 | Save and reload with macros turned: the sound the same, the dials at the center; MENU > HOME PAGE back to TRACKS with macros turned: the sound does not change | yes: render a note before and after and compare the capture | no |
+| S6 | 4, 9, 14, 17 | Late audio halves and underruns while the new screens animate: HOME's picture at 10 frames a second, a sheet with SELECT turned fast, FEEL's 16 tiles, the LANES table, each with a sequence playing and a chord held | yes: late-half counters and LCD frame time from the trace, with key and knob events injected | no |
+| S7 | 8, 10, 13, 15 | Reachability: every release-2 page and gesture still reached (EDIT sheets and the FX link, EDIT held undo, EDIT with OCT, NOTES knob moves, the tracker's chord length) | partly: scripted key sequences with the screen compared to the host mockups (`docs/orangecat/ui/new/`) | the feel of the knobs and the cursor |
+| S8 | 11, 12 | HOME as SHIFT: the 0.7 s map, the MENU on a release, SHIFT + each knob, PRESETS, EDIT, OCT; the panel's scan with two keys in one scan | partly: key timing can be injected; the map's 0.7 s is a timer the trace shows | the feel of the hold and tap |
+| S9 | 14, 16 | FEEL and the SHIFT combos on NOTES: chance, condition, ratchet and nudge on a recorded chord sound as the host says; + PRESETS stretches, + EDIT deletes or resets and refuses while a chain runs | the sound by capture against the host render of the same phrase; the refusal by the screen text | whether it plays as intended |
+| S10 | 6, 18 | The cozy colors and the mixer's bars in every palette on the panel (the host checks 3:1 on the ground; the panel's gamma is not the host's) | no (a photo can be stored) | **yes: only a person** |
+| S11 | (all) | Leave: reinstall the Nightly or Standard (INSTALL.md), the unit boots and an old project loads | yes | no |
+
+Pass means: S1, S2, S3, S5, S6 and S11 clean (a number, not a look); S4, S7 to S9 with no regression from release-2 that the harness can
+see; S10 left for the owner. A late half or an underrun in S6 that release-2 does not show stops the preview from going to the owner.
+
 ## Decisions made in this branch (the safer reading, where the call was Session C's)
 
 - BUILD.md kept as release-2's in the merge of ui-design (Session A owns it); ui-design's BUILD notes (0.79 .. 0.81) are
