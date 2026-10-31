@@ -2868,6 +2868,9 @@ static void ui_input(void)
     } else if (s && feel_page()) {                      /* (the new interface 0.4) FEEL: PRESETS the step */
         cursor_set((int32_t)ui.cursor + s);
         ui.force = 1;
+    } else if (s && !ui.home && cur_page()->graph == GR_PATGRID) {   /* (ui-fix 2) CHAIN: PRESETS the selected track's chain,
+                                                         * 01 .. 64 (ui_patterns.c pt_chain_turn) */
+        pt_chain_turn(s);
 #endif
     } else if (s && sec_on()) {                         /* an engine in sections: the next / previous one (FM6's
                                                          * operators are sections: ui_sections.c) */

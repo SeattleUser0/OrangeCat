@@ -2284,6 +2284,43 @@ int main(int argc, char **argv)
     }
 #endif
 #if OC_EDIT_SHEETS
+    {   /* (ui-fix 5, October 31, 2026) the effect pages in the FX button's order (the owner's: DUB TAPE, DIST, AUTO PAN, the sends, then
+         * the shared DELAY, REVERB, CHORUS, SLICER, MASTER), each reached as the FX button reaches it (open_family), in every palette,
+         * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (fxorder_<nn>_<title>) */
+        uint32_t nf = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++) {
+            uint8_t pg[NPAGES_ALL];
+            uint32_t n, k;
+            state();
+            song.playing = 0;
+            eng(ENGI_MACRO);
+            TSEL->engine = TSEL->eng_req;
+            TSEL->p[P_DUBLEN] = 2; TSEL->p[P_DUBPTRN] = 2; TSEL->p[P_DUB_FDBK] = 70; TSEL->p[P_DUB_SEND] = 40; TSEL->p[P_DUB_SPACE] = 30;
+            TSEL->p[P_DIST] = 40; TSEL->p[P_APDEP] = 50; TSEL->p[P_REV] = 30; TSEL->p[P_DLY] = 45;
+            n = fam_pages(FAM_FX, pg);
+            go_home();
+            for (k = 0; k < n; k++) {
+                char name[64], image[48];
+                uint32_t j, m;
+                open_family(FAM_FX);                    /* (the FX button: from HOME the first page, then the next each time) */
+                if (ui.page != pg[k]) { fprintf(stderr, "ui_render: FX order: tap %u lands on %s, not %s\n", (unsigned)k, cur_page()->title, page_at(pg[k])->title); return 1; }
+                m = (uint32_t)snprintf(image, sizeof image, "fxorder_%02u_", (unsigned)k + 1u);
+                for (j = 0; cur_page()->title[j] && m + 1u < sizeof image; j++, m++)
+                    image[m] = cur_page()->title[j] == ' ' ? '_' : (char)(cur_page()->title[j] | 0x20);
+                image[m] = 0;
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) mono_check();
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                nf++;
+            }
+        }
+        fprintf(rep, "(ui-fix 5) the effect pages in the FX button's order: %u screens in every palette\n", (unsigned)nf);
+    }
     {   /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets: every row of every sheet of each engine below, in every palette,
          * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (sheet_<engine>_<sheet>_<row>) */
         static const uint32_t SE[] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX, ENGI_CZ, ENGI_FM6, ENGI_PROPHET};

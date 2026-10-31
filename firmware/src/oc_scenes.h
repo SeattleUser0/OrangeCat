@@ -6,8 +6,9 @@
  *   MACRO   HARM  TIMB  MRPH  PLUCK     a lighthouse: the waves' crests (HARM), the lamp and its beam (TIMB), the cloud's
  *                                        shape (MRPH), the boat's sail (PLUCK); the lamp flashes on a note, the beam shines
  *                                        and the sea shows the waveform while it sounds, the boat rides the envelope
- *   SHAPES  TIMB  COLR  TONE  PLUCK     a cat and its yarn: the yarn's loops and its roll (TIMB), the tail's curl
- *                                        (COLR), the moon in the window (TONE), the paw (PLUCK) that swats on a note
+ *   SHAPES  TIMB  COLR  TONE  PLUCK     a cat and its yarn: the yarn's size, its loops and its roll (TIMB), the tail
+ *                                        raised and flicking at COLR's rate (COLR), the moon in the window (TONE), the
+ *                                        paw (PLUCK) raised with it, swatting on a note
  *   DRUM-X  MRPH  TUNE  TONE  DECY      the kit: the kick's head from square to round (MRPH), the snare's lugs (TUNE),
  *                                        the hi-hat's tilt (TONE), the rings off the kick (DECY); the kick pulses and the
  *                                        hat wobbles on a hit
@@ -18,6 +19,9 @@
  * Revisions:
  *   (Orange Cat 0.15 design, branch ui-design) first version, in tests/ui_scenes.h.
  *   (the new interface 0.1, branch ui-build, UI_BUILD.md 1b) the three built-in engines' scenes moved here, unchanged.
+ *   (ui-fix 3, October 31, 2026, the owner's finding "the cat's green hand barely moves") SHAPES: every part moves with its
+ *   knob's position, in size and in speed: the yarn grows with TIMB, the tail stands up with COLR and flicks at COLR's rate
+ *   (PH2), the moon fills more, the paw rises through 70 degrees each side of its middle with PLUCK and swats through 80 on a note.
  */
 #pragma once
 #include "oc_scene.h"
@@ -68,7 +72,7 @@ static const uint8_t SCENE_SHAPES[] = {
     S_LINE(SCC_DIM, 0, 125, 239, 125),
     /* the window and the moon (K3 TONE): the moon fuller as the tone opens */
     S_RECT(SCC_INK, 150, 8, 66, 54), S_LINE(SCC_INK, 183, 8, 183, 61), S_LINE(SCC_INK, 150, 35, 215, 35),
-    S_BIND(SS_K3, SF_R, 14), S_DISC(SCC_K3, 199, 21, 4),
+    S_BIND(SS_K3, SF_R, 20), S_DISC(SCC_K3, 199, 21, 4),
     S_DISC(SCC_DIM, 162, 16, 2), S_DISC(SCC_DIM, 172, 26, 2), S_DISC(SCC_DIM, 160, 48, 2),
     /* the cat */
     S_STYLE(2),
@@ -79,22 +83,25 @@ static const uint8_t SCENE_SHAPES[] = {
     S_PLINE(SCC_INK, 3), 89, 48, 98, 40, 99, 54,
     S_STYLE(1),
     /* its eyes follow the yarn */
-    S_BIND(SS_PH1 | SS_CENTERED, SF_X, -2), S_DISC(SCC_INK, 81, 61, 3),
-    S_BIND(SS_PH1 | SS_CENTERED, SF_X, -2), S_DISC(SCC_INK, 92, 61, 3),
+    S_BIND(SS_PH1 | SS_CENTERED, SF_X, -4), S_DISC(SCC_INK, 81, 61, 3),
+    S_BIND(SS_PH1 | SS_CENTERED, SF_X, -4), S_DISC(SCC_INK, 92, 61, 3),
     S_LINE(SCC_INK, 84, 70, 88, 70),
-    /* the tail (K2 COLR): curls with COLR, sways */
+    /* the tail (K2 COLR): lying along the floor at COLR's left end, standing up and curled over at its right (the tip rises
+     * 24 rows, the bend 18); its tip flicks at COLR's rate (PH2: slowly over, then back) */
     S_STYLE(2),
-    S_BIND(SS_K2 | SS_CENTERED, SF_P0X + 5, -26), S_BIND(SS_K2 | SS_CENTERED, SF_P0X + 4, -12), S_BIND(SS_WOB, SF_P0X + 5, 4),
+    S_BIND(SS_K2, SF_P0Y + 5, -24), S_BIND(SS_K2, SF_P0X + 5, -12), S_BIND(SS_K2, SF_P0Y + 4, -18),
+    S_BIND(SS_PH2 | SS_CENTERED, SF_P0X + 5, 20),
     S_PLINE(SCC_K2, 6), 107, 121, 118, 121, 128, 116, 134, 106, 135, 96, 131, 88,
-    /* the paw (K4 PLUCK): raised with PLUCK, swats on each note */
-    S_BIND(SS_K4 | SS_CENTERED, SF_ANG, 10), S_BIND(SS_HIT, SF_ANG, -18), S_PUSH(66, 98),
+    /* the paw (K4 PLUCK): raised through 70 degrees each side of its middle over PLUCK's travel (dropped at its left end,
+     * 140 end to end), a swat of 80 degrees on each note */
+    S_BIND(SS_K4 | SS_CENTERED, SF_ANG, 50), S_BIND(SS_HIT, SF_ANG, -28), S_PUSH(66, 98),
     S_PLINE(SCC_K4, 3), 66, 98, 52, 92, 46, 94,
     S_STYLE(1),
     S_CIRC(SCC_K4, 44, 95, 6),
     S_POP,
-    /* the yarn (K1 TIMB): more loops with TIMB, rolling at its rate */
+    /* the yarn (K1 TIMB): bigger and with more loops with TIMB, rolling at its rate */
     S_STYLE(2),
-    S_CIRC(SCC_K1, 28, 112, 24),
+    S_BIND(SS_K1 | SS_CENTERED, SF_R, 28), S_CIRC(SCC_K1, 28, 112, 24),
     S_STYLE(1),
     S_BIND(SS_PH1, SF_ANG, 127), S_PUSH(28, 112),
     S_BIND(SS_K1, SF_CNT, 4), S_REP(1, 3, 2), S_ARC(SCC_K1, 24, 108, 7, 180, 60),

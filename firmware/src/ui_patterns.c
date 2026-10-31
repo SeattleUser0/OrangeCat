@@ -280,6 +280,38 @@ static void patgrid_edit(uint32_t slot, int32_t steps)
 }
 static int ocl_launch(uint32_t k, uint32_t e);
 static int ocl_go_empty(uint32_t k, uint32_t e);
+#if OC_STEP_PAGES
+static int ocl_go_chain(uint32_t k, uint32_t c);        /* oc_lists.c (included after this file) */
+/* (ui-fix 2, the owner's finding of October 31, 2026) PRESETS on CHAIN: the selected track to the next or previous chain,
+ * 01 .. 64, so every chain is reached from this page (SONG's OCT+ was the only way onto another chain; KNOB 2 walks the
+ * tracks, whose chips read 01 .. 04 on a new project). Stopped: at once, through ocl_go_chain as SONG's OCT+ (an empty
+ * chain gets a new empty phrase, ready to record); the chains or the song playing: refused, said */
+static void pt_chain_turn(int32_t s)
+{
+    uint32_t k = song.sel % NTRK, from, c;
+    int rc;
+    char m[16];
+    if (k >= trk_n() || !s)
+        return;
+    from = lists.tchain[k] % OCL_NCHAIN;
+    c = (uint32_t)clamp((int32_t)from + (s > 0 ? 1 : -1), 0, (int32_t)OCL_NCHAIN - 1);
+    if (c == from)
+        return;
+    if (transport_busy()) { ui_message("STOP TO EDIT CHAIN"); return; }
+    if ((rc = ocl_go_chain(k, c)) != 0) {
+        ui_message(rc == 4 ? "PHRASES FULL" : rc == 5 ? "PATTERN DATA FULL" : rc == 1 ? "A PHRASE DOES NOT READ" :
+                   "SAVE ERROR");                       /* (2 after the busy guard: a flash error, as song_go says) */
+        return;
+    }
+    ui.chain_step = lists.cur[k] % OCL_NENT;
+    str_cpy(m, "T1 CHAIN 01", sizeof m);
+    m[1] = (char)('1' + k);
+    m[9] = (char)('0' + (c + 1u) / 10u);
+    m[10] = (char)('0' + (c + 1u) % 10u);
+    ui_message(m);
+    ui.force = 1;
+}
+#endif
 /* (0.4.1) CHAIN's KNOB 3 at rest 300 ms on the slot a track is on: the track to its new phrase (stopped: at once, what
  * it played kept first; playing: at the launch point); a slot emptied: nothing (the track plays on what it has) */
 static void pt_set_poll(void)
