@@ -1,7 +1,7 @@
 # Orange Cat: the new interface (design)
 
-**Version:** 0.4
-**Date:** October 29, 2026
+**Version:** 0.5
+**Date:** October 31, 2026
 **Branch:** ui-design, from linux-hw a8df964; built on ui-build (Session C, docs/orangecat/UI_BUILD.md). Not on main, not on
 the unit.
 **Status:** decided (the owner, October 29, 2026: "The owner's decisions" below). The build follows Part 3 on branch
@@ -9,6 +9,9 @@ ui-build, its log in docs/orangecat/UI_BUILD.md. The screens are drawn by the fi
 (tests/ui_mockup.c), so what they show is what the unit can draw.
 
 Revisions:
+- 0.5 (October 31, 2026, branch ui-fix): the owner withdrew the SHIFT map after playing the Nightly (decision 4 reversed): HOME held
+  opens the MENU, HOME as SHIFT keeps every combo (UI_BUILD.md "ui-fix 6"). The map's passages below (the controls table, section
+  1's "HOME held: the SHIFT map", the page table, Part 3 step 3 and `shift_map.png`) are the design as it was and are not amended.
 - 0.4 (October 29, 2026): the owner's decisions written in as decided (the six choices below); the build moves to branch
   ui-build. Where the build differs from this design for now, UI_BUILD.md says so (the macros bake into saves until the
   Release 3 format revision; SELECT on HOME stays as today until step 3).
@@ -35,7 +38,8 @@ Decided; they replace "The choices for the morning" below, kept as it was writte
 2. **The four knobs per engine**: the table in section 2, approved for now. The owner judges them by playing; each
    engine's knob table is kept in one place, easy to change (firmware/src/oc_knobs.c for the built-in engines).
 3. **Per-note ties: no.** Notes keep their own lengths through the recorded-note pool (section 4).
-4. **The SHIFT map under HOME held: yes.** HOME pressed alone opens the MENU (step 3).
+4. **The SHIFT map under HOME held: yes.** HOME pressed alone opens the MENU (step 3). **Reversed October 31, 2026 (0.5):** the map
+   is withdrawn; HOME held opens the MENU, HOME plus a knob or button keeps its combos.
 5. **Pictures of the engines built into the firmware** (MACRO, DRUM-X, SHAPES' built-in copy) **and of the effects ride
    in the asset pack** until they are modules; the firmware image holds none.
 6. **Parameter ids:** the knob macros take P_RESERVED33..36. DUB TAPE (on release-2) uses P_JRES0..6 and

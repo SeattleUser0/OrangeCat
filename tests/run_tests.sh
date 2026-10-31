@@ -228,7 +228,7 @@ sheet_job() {                                     # (the new interface 0.2, UI_B
     [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
 }
 shift_job() {                                     # (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT
-    _t "new interface 3: HOME as SHIFT: a tap, the map, the MENU on the release, the combos, nothing modal raced" \
+    _t "new interface 3: HOME as SHIFT: a tap, the MENU at 700 ms held (ui-fix 6), the combos, nothing modal raced" \
         shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 3: the layers, SCREEN OFF and LFO 2 with every step's switch built in" \
         layer_screen_s3:layer_screen_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
@@ -313,20 +313,20 @@ ui_renders_sheets() {                             # (the new interface 0.2, UI_B
     fi
 }
 ui_renders_shift() {                              # (the new interface 0.3, UI_BUILD.md step 3) every screen again with every step's switch,
-                                                  # the sheets and the SHIFT map in every palette: the lint, MONO gray; PNGs in build/ui_shift
+                                                  # the sheets with SHIFT built in, in every palette: the lint, MONO gray; PNGs in build/ui_shift
     build ui_render_shift ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_shift/ppm build/ui_shift_slot
-    step "UI renders with the SHIFT map built in (OC_SHIFT_MAP=1): every screen, every sheet, the map, lint, MONO gray" \
+    step "UI renders with SHIFT built in (OC_SHIFT_MAP=1): every screen, every sheet, lint, MONO gray" \
         "$OUT/ui_render_shift" build/ui_shift build/ui_shift_slot
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_shift build/ui_shift_slot || fail "tests/ui_render.py (build/ui_shift)"
     fi
 }
 ui_renders_steps() {                              # (the new interface 0.4, UI_BUILD.md step 4) every screen again with every step's switch and
-                                                  # the step pages: FEEL, NOTES' strip and the map on both in every palette: the lint, MONO gray; PNGs in build/ui_steps
+                                                  # the step pages: FEEL and NOTES' strip in every palette: the lint, MONO gray; PNGs in build/ui_steps
     build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_steps/ppm build/ui_steps_slot
-    step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, the maps, lint, MONO gray" \
+    step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, lint, MONO gray" \
         "$OUT/ui_render_steps" build/ui_steps build/ui_steps_slot
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_steps build/ui_steps_slot || fail "tests/ui_render.py (build/ui_steps)"

@@ -4,10 +4,10 @@
  * (firmware/src/ui_shift.c), through tests/ui_test.c's host UI (its own tests are not run here).
  *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o shift_test tests/shift_test.c -lm
  * Checked:
- *   TAP     a HOME tap (and a 480 ms press) is a tap (HOME's page steps): no map, no MENU; a tap seen only as an edge opens
+ *   TAP     a HOME tap (and a 480 ms press) is a tap (HOME's page steps): no MENU; a tap seen only as an edge opens
  *           nothing; with EDIT held first HOME is release-2's (no SHIFT)
  *   FINE    five fast detents: accelerated without SHIFT, exactly five steps with it
- *   HOLD    held alone: the map at 700 ms, no MENU while held; let go: the MENU
+ *   HOLD    held alone: no MENU at 480 ms, the MENU at 700 ms with HOME still down (ui-fix 6), the release leaves it
  *   CLOSE   with the MENU open, HOME held closes it at 700 ms as today, and the release does not open it again
  *   KNOB    SHIFT + a knob on HOME: the knob's own edit, no MENU; on a sheet the same; on NOTES eaten
  *   ENGINE  SHIFT + PRESETS on HOME: the next engine (eng_step), no MENU; off HOME eaten
@@ -15,7 +15,7 @@
  *           change
  *   OCT     SHIFT + OCT+ / OCT-: no octave change, no OCT+ sheet at 700 ms, no MENU
  *   OTHERS  HOME then a layer button: the layer's, no MENU after; ALGO turned under SHIFT: the track, no MENU
- *   DRAW    the map drawn on HOME, a sheet and another page (no crash; ui_render.c lints it)
+ *   LATE    a knob turned after the MENU opened is the MENU's, not the page's (ui-fix 6)
  * Revisions:
  *   (the new interface 0.3, branch ui-build) first version; after the diff review: the edge-only tap, a button held
  *   before HOME, the fine turn measured, the tap's page step.
@@ -70,15 +70,15 @@ int main(void)
         pg0 = ui.home_pg;
         down(B_HOME);
         wait_frames(2);
-        ok = !shift_map_on();
+        ok = !ui.menu;
         up(B_HOME);
         ok &= !ui.menu && !shift_on() && ui.home_pg != pg0;   /* (the tap stepped HOME's page) */
         down(B_HOME);
         wait_frames(30);                                /* 480 ms */
-        ok &= !shift_map_on();
+        ok &= !ui.menu;
         up(B_HOME);
         ok &= !ui.menu;
-        chk("TAP     a tap and a 480 ms press: taps (HOME's page steps; no map, no MENU)", ok);
+        chk("TAP     a tap and a 480 ms press: taps (HOME's page steps; no MENU)", ok);
         fm1_ms += 320u;                                 /* a tap between two passes: the edge latched, HOME already up */
         host_pressed |= 1u << panel.btn[B_HOME];
         frame();
@@ -88,26 +88,29 @@ int main(void)
         down(B_HOME);
         ok = !shift_on();
         wait_frames(52);
-        ok &= !shift_map_on();
+        ok &= !shift_on();
         up(B_HOME);
         up(B_EDIT);
         frames(20);
         if (ui.menu) { hold(B_HOME); frames(20); }
-        chk("TAP     EDIT held before HOME: no SHIFT, no map (release-2's HOME; the diff review's 2)", ok);
+        chk("TAP     EDIT held before HOME: no SHIFT (release-2's HOME; the diff review's 2)", ok);
     }
     {   /* HOLD, CLOSE */
         int ok;
         ui_power_on();
         frames(100);
         down(B_HOME);
-        wait_frames(52);
-        ok = shift_map_on() && !ui.menu;
+        wait_frames(30);                                /* 480 ms: nothing yet */
+        ok = !ui.menu && shift_on();
+        wait_frames(22);                                /* 832 ms: the MENU, HOME still down (ui-fix 6) */
+        ok &= ui.menu;
         frame();
         up(B_HOME);
-        chk("HOLD    held alone: the map at 700 ms, no MENU while held; let go: the MENU", ok && ui.menu && !shift_on());
+        frames(5);
+        chk("HOLD    held alone: no MENU at 480 ms, the MENU at 700 ms with HOME still down; the release leaves it open", ok && ui.menu && !shift_on());
         down(B_HOME);
         wait_frames(52);
-        ok = !ui.menu && !shift_map_on();
+        ok = !ui.menu;
         up(B_HOME);
         frames(50);
         chk("CLOSE   the MENU open: HOME held closes it at 700 ms; the release does not open it again", ok && !ui.menu);
@@ -257,30 +260,27 @@ int main(void)
         frames(20);
         chk("OTHERS  ALGO under SHIFT: its own job, no MENU", !ui.menu && (song.sel != sel || trk_n() < 2u));
     }
-    {   /* DRAW */
-        int ok = 1;
+    {   /* LATE (ui-fix 6): a knob turned after the MENU opened goes to the MENU on HOME's release, not to the page (the map of
+         * step 3 waited for a combo at any time; now the window is 700 ms from HOME's press) */
+        int16_t m0;
+        uint32_t id;
         ui_power_on();
+        set_engine_of(TSEL, ENGI_MACRO);
+        settle();
+        GLO_SELECT |= HOME_PIC_BIT;
+        go_home();
         frames(100);
-        for (int w = 0; w < 3; w++) {
-            if (w == 1) press(B_EDIT);
-            if (w == 2) press(B_SEQ);
-            down(B_HOME);
-            wait_frames(52);
-            ok &= shift_map_on();
-            ui.force = 1;
-            frame();
-            fm1_in.buttons |= 1u << panel.btn[B_EDIT];   /* (a combo while the map is up: it goes) */
-            host_pressed |= 1u << panel.btn[B_EDIT];
-            frame();
-            ok &= !shift_map_on();
-            fm1_in.buttons &= ~(1u << panel.btn[B_EDIT]);
-            if (ui.confirm) { press(B_OCTDN); }
-            up(B_HOME);
-            frames(20);
-            ok &= !ui.menu;
-            if (ui.confirm) press(B_OCTDN);
-        }
-        chk("DRAW    the map on HOME, a sheet, SEQ; a combo while it is up takes it away and cancels the MENU", ok);
+        id = kdef_of(ENGI_MACRO)[1].kind == KD_PLAIN ? kdef_of(ENGI_MACRO)[1].id : P_MAC0 + 1u;
+        m0 = TSEL->p[id];
+        down(B_HOME);
+        wait_frames(52);
+        turn(EN_K2, 1);
+        up(B_HOME);
+        frames(10);
+        chk("LATE    a knob after 700 ms: the MENU is open, the page's knob did not move", ui.menu && TSEL->p[id] == m0);
+        hold(B_HOME);
+        frames(20);
+        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
     printf("shift: %d failed\n", nbad);
     return nbad != 0;

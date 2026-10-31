@@ -120,9 +120,9 @@
                                    * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
 #endif
 #ifndef OC_SHIFT_MAP
-#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3) 1: HOME is SHIFT (ui_shift.c):
-                                   * held alone its map, let go the MENU; SHIFT + a knob fine, + PRESETS the engine, + EDIT init;
-                                   * 0: HOME held opens the MENU at 0.7 s as release-2's */
+#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3; ui-fix 6) 1: HOME is SHIFT
+                                   * (ui_shift.c): SHIFT + a knob fine, + PRESETS the engine, + EDIT init, + OCT copy and paste; held alone
+                                   * 0.7 s the MENU (the map of step 3 withdrawn by the owner, October 31, 2026); 0: HOME as release-2's */
 #endif
 #ifndef OC_STEP_PAGES
 #define OC_STEP_PAGES 0           /* (the new interface 0.4, branch ui-build: docs/orangecat/UI_BUILD.md step 4) 1: the step pages: NOTES' knobs PITCH START

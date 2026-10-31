@@ -152,12 +152,12 @@ int main(void)
         chk("PASTE   DRUM-X's kit comes across", trk[1].eng_req == ENGI_DRUMX && dxk[1].on && dxk[1].tune[2] == 7);
 #endif
     }
-    {   /* the map */
+    {   /* HOME held alone (ui-fix 6: no map; the MENU at 700 ms) */
         ui_power_on();
         on_home();
         down(B_HOME);
         for (uint32_t i = 0; i < 90u; i++) frame();
-        chk("MAP     the SHIFT map draws with copy and paste live", shift_on() && (sh_st & SHF_MAP));
+        chk("MENU    HOME held alone with copy and paste built in: the MENU, no combo", ui.menu);
         up(B_HOME);
     }
     printf("clip: %s\n", nbad ? "FAILED" : "all ok");

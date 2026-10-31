@@ -2356,7 +2356,7 @@ static void ui_confirm_accept(void)
 #include "ui_clip.c"                                    /* (the new interface 0.10, UI_BUILD.md step 10) copy and paste of a sound */
 #endif
 #if OC_SHIFT_MAP
-#include "ui_shift.c"                                   /* (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT, its map */
+#include "ui_shift.c"                                   /* (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT and its combos */
 #endif
 static void ui_input(void)
 {
@@ -2398,8 +2398,8 @@ static void ui_input(void)
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);
     uint32_t edit = btn_hold(&ui.edit_t0, B_EDIT, now, !ui.menu && !ui.confirm && !name_on() && !new_on() && !ui.ly);
 #if OC_SHIFT_MAP
-    home = shift_input(home, &pressed, notes);          /* (the new interface 0.3) HOME as SHIFT: its combos, the map, the
-                                                         * MENU on the release (ui_shift.c) */
+    home = shift_input(home, &pressed, notes);          /* (the new interface 0.3; ui-fix 6) HOME as SHIFT: its combos; held
+                                                         * alone 700 ms, BT_HOLD and the MENU as release-2 (ui_shift.c) */
 #endif
     uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
     uint32_t oct;

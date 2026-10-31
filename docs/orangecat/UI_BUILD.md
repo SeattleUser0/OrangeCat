@@ -764,7 +764,7 @@ after the DRUM map block passes from a clean start); step 3 adds none. `ui_rende
 ui_renders_shift pass; the one failure is release-2's own "target cost of the render loops" (`dxe_post_sides`,
 `pl_osc_render` over their budgets on this toolchain, failing identically on release-2 e1c8ac3: Session A's item).
 
-**Mockups:** `shift_sheet.png` (the map on HOME, a sheet, SEQ's page, and HOME on DAY), `shift_map_home.png`,
+**Mockups (removed by ui-fix 6 with the map):** `shift_sheet.png` (the map on HOME, a sheet, SEQ's page, and HOME on DAY), `shift_map_home.png`,
 `shift_map_sheet.png`, `shift_map_seq.png`, `day_shift_map_home.png`.
 
 ### Left for later from step 3
@@ -954,7 +954,7 @@ empty), NOTES' strip and both maps in 8 palettes: 0 lint findings, 0 MONO pixels
 
 **The mockups (docs/orangecat/ui/new/, NIGHT unless named):** `step4_sheet.png` (the contact sheet), `step4_feel_set.png`,
 `step4_feel_k1.png` .. `step4_feel_k4.png`, `step4_feel_range.png`, `step4_feel_play.png`, `step4_feel_empty.png`,
-`step4_notes_rec.png`, `step4_notes_manual.png`, `step4_notes_none.png`, `step4_shift_map_feel.png`, `step4_shift_map_notes.png`,
+`step4_notes_rec.png`, `step4_notes_manual.png`, `step4_notes_none.png`, `step4_shift_map_feel.png` and `step4_shift_map_notes.png` (the two map screens removed by ui-fix 6),
 `day_step4_feel_set.png`, `day_step4_notes_rec.png`.
 
 ## Step 5: EDIT > LANES
@@ -1087,7 +1087,7 @@ Run by `run_tests.sh` (job in step_pages_job); the renders gained `-DOC_CLIP=1`.
 | 9 | Copy on a retired engine says copied | note | refused at copy |
 | 12 | Test gaps (native patches, undo contents, merge case, guards) | should-fix | 5 checks added; not covered: the `eng_admit` refusal (needs a module in the test) and a clip of a removed module |
 
-**Mockups:** `step10_shift_map_home.png`, `step10_shift_map_sheet.png`, `day_step10_shift_map_home.png` (0 lint findings, 0 off-gray MONO).
+**Mockups (removed by ui-fix 6 with the map):** `step10_shift_map_home.png`, `step10_shift_map_sheet.png`, `day_step10_shift_map_home.png` (0 lint findings, 0 off-gray MONO).
 
 **Flash and RAM (CI build options).** Image 558,784 B (+912 B over steps 1 to 6, estimate 1,000); .data+.bss 95,256 B (+752); data SRAM tail
 3,048 B; the arena line reads 84,064 B. Free of 577,248 B: **18,464 B, 10,272 B above the 8,192 B reserve.**
@@ -1133,7 +1133,7 @@ and nothing-copied cases. Run by `run_tests.sh`; the renders gained `-DOC_CLIP_S
 
 What the rebuild still clears (nudge, ratchet, condition of a rebuilt recorded step) is release-2's behavior for a move as well.
 
-**Mockups:** `step11_shift_map_notes.png`, `step11_shift_map_feel.png` (0 lint findings, 0 off-gray MONO).
+**Mockups (removed by ui-fix 6 with the map):** `step11_shift_map_notes.png`, `step11_shift_map_feel.png` (0 lint findings, 0 off-gray MONO).
 
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
@@ -1325,8 +1325,9 @@ On a build with both switches (`OC_HOME_PIC=1 OC_EDIT_SHEETS=1`), step 2:
 10. **EDIT held (undo) and EDIT with OCT** on a sheet, and the layers (GLO, SCL held) over a sheet: as release-2.
 
 On a build with every switch (`OC_SHIFT_MAP=1` too), step 3:
-11. **HOME by hand**: taps step HOME's pages; held alone the map at 0.7 s and the MENU on the release; a hold closes the
-    MENU and the release leaves it closed; SHIFT + each knob, PRESETS, EDIT, OCT on HOME, a sheet and SEQ.
+11. **HOME by hand** (as ui-fix 6 has it: the map withdrawn): taps step HOME's pages; held alone the MENU at 0.7 s with HOME still down;
+    a hold closes the MENU and the release leaves it closed; SHIFT + each knob, PRESETS, EDIT, OCT on HOME, a sheet and SEQ, each begun
+    within 0.7 s of HOME's press.
 12. **The panel's own scan** under SHIFT: HOME and EDIT (or OCT) pressed in the same scan, released in the same scan; a
     knob nudged while HOME is held (the MENU is cancelled and the value shows).
 
@@ -1339,7 +1340,7 @@ On a build with every switch through step 4 (`OC_STEP_PAGES=1`), step 4:
     with 16 tiles, no late audio halves).
 15. **The tracker's chord length**: KNOB 4 in a note column of a manual chord stopped (one undo), and while playing (the whole chord, with
     its message).
-16. **SHIFT on NOTES and FEEL**: + PRESETS stretches, + EDIT deletes or resets (and refuses while a chain runs), + a knob; the map's tiles.
+16. **SHIFT on NOTES and FEEL**: + PRESETS stretches, + EDIT deletes or resets (and refuses while a chain runs), + a knob.
 On `OC_LANES=1`, step 5:
 17. **DRUM-X's LANES table**: PRESETS and a struck key pick a lane; the four knobs edit it; the sheets' tabs; the screen on the panel in
     every palette (the bars' contrast); the frame time while a pattern plays.
@@ -1654,7 +1655,7 @@ MENU for that press (as now); once the MENU is open the knobs are the MENU's (as
 touched: a tap, HOME's pages (as now). SHIFT + EDIT's confirm coming up while HOME is held: no more combos, no MENU, no
 tap (as now).
 
-**Saved:** the tile table (144 B) and the drawing, about 1 KB (measured when built). **RAM:** 0. **Tests:**
+**Saved:** the tile table (144 B) and the drawing: **880 B measured** (the review's 0.7 to 1 KB). **RAM:** 0. **Tests:**
 shift_test.c HOLD becomes "the MENU at 700 ms held, nothing on its release" and DRAW goes; the rest as they are
 (sheet_test, step_pages_test, clip tests unchanged). ui_render's three map screens go, and the map mockups (shift_map_*,
 step4_shift_map_*, step10_*, step11_*) are removed from docs/orangecat/ui/new. The switch keeps its name (OC_SHIFT_MAP:
@@ -1682,6 +1683,18 @@ race cannot recur (the MENU opens only from a press btn_hold saw held). Found, a
 now a combo must begin within 700 ms of HOME's press (the MENU is open after that, and a knob turned then moves the
 MENU when HOME is let go). "HOME plus a knob or button" read as pressed together or within 0.7 s. For the owner to
 feel (check 25).
+
+**The design as built (ui-fix 6).** ui_shift.c: the map, its state (SHF_MAP), shift_map_on, shift_menu_open, SHIFT_TILE
+and shift_draw are gone; shift_input handles the pass's combos first and returns btn_hold's BT_HOLD only when no combo
+was made, so page_tap opens the MENU at 700 ms with HOME still down (release-2's path); the next pass sees the MENU
+(shift_clean false), marks the press as used, and the release does nothing. SHF_FINE keeps the value 8 (a static assert:
+accel_by reads it as a literal). ui_draw.c's two hooks and the SHIFT chip are gone; the comments in core.h, build.py and
+ui_input.c say "HOME as SHIFT and its combos". Tests: shift_test's TAP and CLOSE no longer read the map, HOLD checks no
+MENU at 480 ms and the MENU at 700 ms held, the release leaving it open, and LATE (new) that a knob turned after the MENU
+opened moves nothing on the page; clip_test's MAP check became MENU; ui_render's five map screens are gone (the step-3
+block and the two of step 4); run_tests.sh's texts; the twelve map mockups removed from docs/orangecat/ui/new (the
+earlier mockup lines of this file say so); UI_DESIGN.md 0.5 records decision 4 reversed; hardware checks 11 and 16
+reworded, 25 added. PLAY_LIST.md (Session A's, BUILD 7.20) still describes the map: listed under "For Session A".
 
 ### ui-fix 7: one authority for every note (design note, before its review)
 
@@ -1829,12 +1842,15 @@ the one translation unit's, so the takeover from seq.c is sound. Found, and take
 | Build | Image (B) | Free of 577,248 | Above the 8,192 B reserve | .data+.bss | Data SRAM tail | Arena (min 49,152) | Pack |
 |---|---|---|---|---|---|---|---|
 | linux-hw c27dc5c (the baseline) | 558,596 | 18,652 | 10,460 | 94,536 | 3,768 | 84,032 | 40,845 |
-| + ui-fix 1, 2, 3 | 558,980 (+384) | 18,268 | 10,076 | 94,536 | 3,768 | 84,032 | 40,853 (+8: the scene's bindings; 107 B of the area left) |
+| + ui-fix 1, 2, 3, 5 | 558,980 (+384) | 18,268 | 10,076 | 94,536 | 3,768 | 84,032 | 40,853 (+8: the scene's bindings; 107 B of the area left) |
+| + ui-fix 6 (the map gone) | 558,100 (-880) | 19,148 | 10,956 | 94,536 | 3,768 | 84,032 | 40,853 |
 
 ### For Session A (ui-fix)
 
 The sequencer items (7 and 8) go to Session A's on-unit sequencer test before they merge: this section names the
-commits when they are pushed.
+commits when they are pushed. Also: docs/orangecat/PLAY_LIST.md (BUILD 7.20) still tells the owner to hold HOME for the
+map of shortcuts; with ui-fix 6 it is "hold HOME 0.7 s for the MENU; HOME plus a knob or button within 0.7 s is its
+combo" (Session A's file).
 
 ### Hardware checks (ui-fix; the unit is Session A's, none run)
 
@@ -1844,6 +1860,9 @@ commits when they are pushed.
     refused while the chains or the song play; the project saved and loaded keeps the chain.
 24. **SHAPES on the panel:** the yarn, tail, moon and paw at each knob's ends; the tail's flick speeds up with COLR, the
     yarn's roll with TIMB; no late audio halves while it moves (as check 4).
+25. **HOME held (ui-fix 6):** held alone 0.7 s opens the MENU with HOME still down, nothing on the release; a knob, PRESETS,
+    EDIT or OCT within 0.7 s of the press is its combo and no MENU follows; a knob turned after the MENU opened moves the
+    MENU when HOME is let go (the combo window is 0.7 s from the press: the owner to say whether that is right).
 
 ### Decisions (ui-fix, the safer reading)
 
