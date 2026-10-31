@@ -109,6 +109,8 @@ int main(void)
 
     /* a short instance asks again when its own want comes down, with nothing released since (the review's second fault) */
     dt_fresh(0, 1, 24, 120, 0);
+    song.ntrk = 1;                                       /* (round 10: a track in use holds its engine's state from the switch; the probe below counts the blocks beside one state) */
+    for (uint32_t k = 1; k < NPART; k++) eng_state_clear(k);
     {   static const uint32_t hog[] = { RES_JFX0 + JB_DLY0, RES_JFX0 + JB_DLY0 + 1, RES_JFX0 + JB_DLY0 + 2, RES_JFX0 + JB_DLY0 + 3, RES_JFX0 + JB_DLY0 + 4, RES_JFX0 + JB_DLY0 + 5, RES_JFX0 + JB_DLY0 + 6, RES_JFX0 + JB_DLY0 + 7 };
         uint32_t k;
         for (k = 0; k < sizeof hog / sizeof hog[0]; k++) {
@@ -134,6 +136,7 @@ int main(void)
             CHECK(ok && dub_ready[0], "the lowered want should be taken with nothing released: state %u have %u full %x", dub_i[0].state, dub_have[0], jfx_full);
         }
     }
+    song.ntrk = NTRK;
     /* the setting back to what it was during the ramp (the review's first fault): the instance runs again */
     dt_fresh(3, 1, 24, 120, 0);
     for (b = 0; b < 40; b++) mix_block(rec[b], CTL);
@@ -234,6 +237,56 @@ int main(void)
     CHECK(!dub_state[0], "a yield to an engine should give the memory back");
     for (b = 703; b < 1700; b++) mix_block(rec[b % NBLK], CTL);
     CHECK(dub_ready[0], "the instance did not come back after a yield");
+
+    /* STATE (round 10, BUILD.md 7.21 item 3): a track in use holds its engine's state from the switch (engine_block), not from its first note. With the
+     * arena full (DUB at 32K, the three buses, fillers), a MACRO track's engine change yields the effects at the switch; its first note, two blocks
+     * later, sounds. Before round 10 the take was at the first note, failed there, and the note was dropped: the second and third checks fail on that code. */
+    ui_power_on();
+    resource_host_cache_enabled = 0;
+    res_lend_ok = 0;
+    song.master_q12 = 4096; song.g[G_LEVEL] = 0; song.g[G_BPM] = 120; song.playing = 0; song.g[G_DTIME] = 1;
+    for (uint32_t k = 0; k < NPART; k++) { set_engine_of(&trk[k], ENGI_MACRO); apply_preset_to(&trk[k], 8); trk[k].p[P_DUBLEN] = 0; }
+    for (b = 0; b < 4; b++) mix_block(rec[b % NBLK], CTL);
+    for (uint32_t k = 0; k < NPART; k++) { eng_state_clear(k); trk[k].engine = 0; }   /* as a project load or power-on leaves the tracks: the engines named (eng_req), nothing held, no preset hook run */
+    for (b = 4; b < 8; b++) mix_block(rec[b % NBLK], CTL);
+    {   uint32_t held = 0;
+        for (uint32_t k = 0; k < NPART; k++) held += resource[RES_ENGINE0 + k].size != 0;
+        printf("dub insert: STATE: four MACRO tracks from a project load, %u of %u states held before any note\n", held, trk_n());
+        CHECK(held == trk_n(), "a track in use should hold its engine's state from the switch, not from its first note: %u of %u", held, trk_n());
+    }
+    trk[0].p[P_DUBLEN] = 1; trk[0].p[P_DUBPTRN] = 0; trk[0].p[P_DUB_SPACE] = 24; trk[0].p[P_DUB_FDBK] = 60; trk[0].p[P_DUB_SEND] = 127;
+    trk[0].p[P_REV] = trk[0].p[P_DLY] = trk[0].p[P_CHOR] = 64;
+    for (uint32_t k = 2; k < NPART; k++) { trk[k].engine = trk[k].eng_req = 0; eng_state_clear(k); }   /* tracks 3 and 4: no engine, their handles the fillers' */
+    for (b = 8; b < 300; b++) { if (b == 12) trk_note_on(&trk[0], 60, 100); mix_block(rec[b % NBLK], CTL); }
+    {   uint32_t fails0 = resource_failures, want = (eng_state_size(ENGI_MACRO) + 3u) & ~3u, sz;
+        int dub_ran = dub_ready[0] && dub_state[0] != 0;
+        CHECK(dub_ran, "the instance did not run beside the buses before the engine change");
+        eng_state_clear(1);                                             /* track 2's state given back: an engine change clears it (engine_block) */
+        for (sz = 60000u; sz >= 400u; sz -= 400u) if (resource_allocate(RES_ENGINE0 + 2, sz)) break;   /* the arena filled: the two largest free runs */
+        for (sz = 60000u; sz >= 400u; sz -= 400u) if (resource_allocate(RES_ENGINE0 + 3, sz)) break;
+        int full = resource_allocate(RES_ENGINE0 + 1, want) == 0;        /* (a probe: a MACRO state must not fit now) */
+        if (!full) resource_release(RES_ENGINE0 + 1);
+        resource_failures = fails0;
+        printf("dub insert: STATE: arena %u of %u used with DUB 32K, the buses and the fillers; a MACRO state (%u) %s\n", resource_used(), RESOURCE_CAPACITY, want, full ? "does not fit" : "fits (the cell is not the unit's)");
+        CHECK(full, "the cell did not fill the arena");
+        trk[1].engine = 0;                                              /* (an engine change as the switch sees it, no preset hook: eng_req MACRO, the switch at the next block) */
+        for (b = 300; b < 306; b++) {
+            if (b == 302) trk_note_on(&trk[1], 36, 100);                /* two blocks after the switch: the yield has run, the state is there */
+            mix_block(rec[b % NBLK], CTL);
+        }
+        int sounding = 0;
+        for (uint32_t i = 0; i < NVOICE; i++) sounding |= trk[1].v[i].active && trk[1].v[i].gate;
+        printf("dub insert: STATE: after the switch: state held %u, arena take failures %u, the note two blocks later sounding %d, DUB state %d ready %d\n", resource[RES_ENGINE0 + 1].size != 0, resource_failures - fails0, sounding, dub_i[0].state, dub_ready[0]);
+        CHECK(resource[RES_ENGINE0 + 1].size != 0, "track 2's state is not held after its engine switch");
+        CHECK(resource_failures > fails0, "the full arena refused no take: the yield was not exercised");
+        CHECK(sounding, "track 2's first note after the switch (two blocks later) was lost");
+        trk_note_off(&trk[1], 36);
+        for (b = 306; b < 1400; b++) mix_block(rec[b % NBLK], CTL);
+        printf("dub insert: STATE: 0.8 s later: DUB state %d ready %d have %u, FX FULL / DUB FULL bits %x, arena %u used\n", dub_i[0].state, dub_ready[0], dub_have[0], jfx_full, resource_used());
+        CHECK(dub_ready[0] || (jfx_full & JFX_FULL_DUB0), "after the yield DUB neither came back nor says DUB FULL");
+        resource_release(RES_ENGINE0 + 2); resource_release(RES_ENGINE0 + 3);
+    }
+    trk[0].p[P_REV] = trk[0].p[P_DLY] = trk[0].p[P_CHOR] = 0; trk[0].p[P_DUBLEN] = 0;
 
     /* FOUR: four tracks, 16K each, beside four MACRO tracks (the cache RAM ready and the card's slots lent, as the unit has them idle) */
     ui_power_on();
