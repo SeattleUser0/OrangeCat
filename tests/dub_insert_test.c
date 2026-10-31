@@ -269,19 +269,43 @@ int main(void)
         resource_failures = fails0;
         printf("dub insert: STATE: arena %u of %u used with DUB 32K, the buses and the fillers; a MACRO state (%u) %s\n", resource_used(), RESOURCE_CAPACITY, want, full ? "does not fit" : "fits (the cell is not the unit's)");
         CHECK(full, "the cell did not fill the arena");
+        memset(eng_take_gen, 0, sizeof eng_take_gen);
         trk[1].engine = 0;                                              /* (an engine change as the switch sees it, no preset hook: eng_req MACRO, the switch at the next block) */
-        for (b = 300; b < 306; b++) {
-            if (b == 302) trk_note_on(&trk[1], 36, 100);                /* two blocks after the switch: the yield has run, the state is there */
+        mix_block(rec[300 % NBLK], CTL);                                /* block 300: the switch, its take refused (the yield runs at block 301) */
+        int held_at_switch = resource[RES_ENGINE0 + 1].size != 0;
+        trk_note_on(&trk[1], 36, 100);                                  /* a note between the switch and the yield: its state is not there; it waits in xp_note */
+        int waiting = trk[1].xp_n == 1 && trk[1].xp_note[0] == 36, active_early = 0;
+        for (uint32_t i = 0; i < NVOICE; i++) active_early |= trk[1].v[i].active;
+        for (b = 301; b < 306; b++) {
+            if (b == 302) trk_note_on(&trk[1], 38, 100);                /* two blocks after the switch: the yield has run, the state is there */
             mix_block(rec[b % NBLK], CTL);
         }
-        int sounding = 0;
-        for (uint32_t i = 0; i < NVOICE; i++) sounding |= trk[1].v[i].active && trk[1].v[i].gate;
-        printf("dub insert: STATE: after the switch: state held %u, arena take failures %u, the note two blocks later sounding %d, DUB state %d ready %d\n", resource[RES_ENGINE0 + 1].size != 0, resource_failures - fails0, sounding, dub_i[0].state, dub_ready[0]);
+        int sounding = 0, sounding36 = 0;
+        for (uint32_t i = 0; i < NVOICE; i++) { sounding |= trk[1].v[i].active && trk[1].v[i].gate && trk[1].v[i].note == 38; sounding36 |= trk[1].v[i].active && trk[1].v[i].note == 36; }
+        printf("dub insert: STATE: after the switch: held at the switch %d, state held %u, arena take failures %u, the note in the wait block waiting %d (active %d) then sounding %d, the note two blocks later sounding %d, DUB state %d ready %d\n",
+               held_at_switch, resource[RES_ENGINE0 + 1].size != 0, resource_failures - fails0, waiting, active_early, sounding36, sounding, dub_i[0].state, dub_ready[0]);
+        CHECK(!held_at_switch, "the full arena gave the state at the switch: the cell did not fill it");
         CHECK(resource[RES_ENGINE0 + 1].size != 0, "track 2's state is not held after its engine switch");
         CHECK(resource_failures > fails0, "the full arena refused no take: the yield was not exercised");
+        CHECK(waiting && !active_early, "a note between the switch and the yield should wait in xp_note: xp_n %u active %d", trk[1].xp_n, active_early);
+        CHECK(sounding36, "the note that waited for the state was lost");
         CHECK(sounding, "track 2's first note after the switch (two blocks later) was lost");
-        trk_note_off(&trk[1], 36);
-        for (b = 306; b < 1400; b++) mix_block(rec[b % NBLK], CTL);
+        trk_note_off(&trk[1], 36); trk_note_off(&trk[1], 38);
+        {   /* UNISON: every voice of the note comes to voice_start; the note waits once, and a second note in the same wait block waits too (the review's finding 1) */
+            eng_state_clear(1); memset(eng_take_gen, 0, sizeof eng_take_gen); trk[1].engine = 0;
+            trk[1].p[P_VOICE] = V_UNISON;
+            mix_block(rec[306 % NBLK], CTL);
+            trk_note_on(&trk[1], 40, 100); trk_note_on(&trk[1], 43, 100);
+            int two = trk[1].xp_n == 2 && trk[1].xp_note[0] == 40 && trk[1].xp_note[1] == 43;
+            for (b = 307; b < 312; b++) mix_block(rec[b % NBLK], CTL);
+            int s43 = 0;
+            for (uint32_t i = 0; i < NVOICE; i++) s43 |= trk[1].v[i].active && trk[1].v[i].note == 43;
+            printf("dub insert: STATE: UNISON: two notes in the wait block: xp_n %u (%u %u), the last one sounding after the yield %d\n", trk[1].xp_n, trk[1].xp_note[0], trk[1].xp_note[1], s43);
+            CHECK(two, "UNISON pushed a note once a voice: xp_n %u", trk[1].xp_n);
+            CHECK(s43, "UNISON: the second note of the wait block was lost");
+            trk_note_off(&trk[1], 40); trk_note_off(&trk[1], 43); trk[1].p[P_VOICE] = V_POLY;
+        }
+        for (b = 312; b < 1400; b++) mix_block(rec[b % NBLK], CTL);
         printf("dub insert: STATE: 0.8 s later: DUB state %d ready %d have %u, FX FULL / DUB FULL bits %x, arena %u used\n", dub_i[0].state, dub_ready[0], dub_have[0], jfx_full, resource_used());
         CHECK(dub_ready[0] || (jfx_full & JFX_FULL_DUB0), "after the yield DUB neither came back nor says DUB FULL");
         resource_release(RES_ENGINE0 + 2); resource_release(RES_ENGINE0 + 3);

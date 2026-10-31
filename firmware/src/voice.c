@@ -532,6 +532,20 @@ static void voice_scale_pitch(const track_t *t, voice_t *v, uint32_t note)
     }
 }
 
+/* a note that cannot start yet (an engine switch under way, or its state's memory not there: round 10) waits in xp_note for engine_block:
+ * the same note once (replaced), a full list replaces its last */
+static void xp_push(track_t *t, uint32_t note, uint32_t vel)
+{
+    uint32_t i;
+    for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
+        ;
+    if (i == t->xp_n && t->xp_n < 4u)
+        t->xp_n++;
+    i = i < t->xp_n ? i : t->xp_n - 1u;
+    t->xp_note[i] = (uint8_t)note;
+    t->xp_vel[i] = (uint8_t)vel;
+}
+static int eng_state_take(track_t *t);                   /* (round 10, below: the state's memory, one scan a failure) */
 static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int glide)
 {
     AP_START(attack_start);
@@ -561,10 +575,10 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
         v->env_out = 0;
         v->side = t->sp_alt; t->sp_alt ^= 1u;
     }                                                   /* sounding: the attack starts from the current level */
-    if (!eng_state_prepare(t)) {                        /* (round 10) the state's memory not there (the arena full of effects: they give it back at the
+    if (!eng_state_take(t)) {                           /* (round 10) the state's memory not there (the arena full of effects: they give it back at the
                                                          * next block, jfx_lend_check): the note waits in xp_note and plays then (engine_block), not dropped */
         v->active = v->gate = 0;
-        if (t->xp_n < 4u) { t->xp_note[t->xp_n] = (uint8_t)note; t->xp_vel[t->xp_n] = (uint8_t)vel; t->xp_n++; }
+        xp_push(t, note, vel);                          /* (once a note: UNISON's voices each come here) */
         return;
     }
     e->note_on(t, v);
@@ -672,13 +686,7 @@ static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
                                                          * sound ramped to silence, its voices ended: perf_mute) */
         return;
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
-        for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
-            ;
-        if (i == t->xp_n && t->xp_n < 4u)
-            t->xp_n++;
-        i = i < t->xp_n ? i : t->xp_n - 1u;             /* (full: the last one is replaced) */
-        t->xp_note[i] = (uint8_t)note;
-        t->xp_vel[i] = (uint8_t)vel;
+        xp_push(t, note, vel);
         return;
     }
     mod_note(t, note, vel);                             /* the matrix's VEL / KEY / RAND */
@@ -788,12 +796,12 @@ static void trk_all_off(track_t *t)
  * buses) that take failed, the note was dropped, and the next block made every effect give back all its memory for 0.5 s (BUILD.md 7.21, item 3:
  * DUB and the buses cut out as VA BASS joined on track 2). Now the take happens at the switch, where no note is lost, and the effects yield
  * there, before they have anything of the new track's to play. A take that fails is asked again only after a release (resource_gen: one scan
- * a failure, not one a block). Returns whether the state is held (an engine without a state: yes). */
+ * a failure, not one a block; voice_start asks through here too). Returns whether the state is held (an engine without a state: yes). */
 static uint32_t eng_take_gen[NPART];
 static int eng_state_take(track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk);
-    if (k >= trk_n()) return 0;                         /* (a track not in use holds nothing) */
+    if (k >= trk_n()) { eng_state_clear(k); return 0; } /* (a track taken out of use gives its state back; it is not rendered, and takes it again when it is added) */
     if (eng_take_gen[k] == resource_gen + 1u) return 0; /* (short, and nothing released since) */
     if (eng_state_prepare(t)) return 1;
     eng_take_gen[k] = resource_gen + 1u;
