@@ -10,6 +10,9 @@
  * Revisions:
  *   0.4.3: first version.
  *   0.4.4: on after the block's events, not before (a review: a throw out at PLAY went into motion's base).
+ *   (the new interface 0.1, branch ui-build, OC_HOME_PIC only; UI_BUILD.md 1a) HOME's knob macros ride the throws' call: bit 31
+ *          of thr_out and thr_on (MAC_ARM, oc_macro.c) arms them, throw_on puts them on last and throw_off takes them off
+ *          first, throw_stop keeps them armed (a macro is a stored offset, not a moment). With OC_HOME_PIC 0 nothing changes.
  */
 #define THROW_REST 120u                                 /* ms the knob rests before its throw glides back */
 #define THR_ONE 65536                                   /* an offset of 1 (fine enough that a bar's glide is a bar) */
@@ -26,6 +29,11 @@ static void motion_unguard(uint32_t f);
 static volatile uint32_t thr_out;                       /* bit 3k + c: track k's throw c is out */
 static uint32_t thr_on;                                 /* .. put on this block (throw_off takes these off) */
 _Static_assert(NTRK * THR_N <= 32u, "a throw a bit");
+#if OC_HOME_PIC
+_Static_assert(NTRK * THR_N <= 31u, "bit 31 is the macros' (MAC_ARM)");
+#include "oc_knobs.c"                                   /* (the new interface) the four knobs' table */
+#include "oc_macro.c"                                   /* .. and their macros, applied here */
+#endif
 
 /* the start of a block (mix_block, before the events): each throw on over its value, gliding once its knob rests */
 static __attribute__((noinline)) void throw_on(uint32_t n)
@@ -53,12 +61,21 @@ static __attribute__((noinline)) void throw_on(uint32_t n)
         t->p[id] = thr[i].put;
         on |= 1u << i;
     }
+#if OC_HOME_PIC
+    if ((m & MAC_ARM) && mac_on())                      /* (the macros last: over the throws' values, none of them a send) */
+        on |= MAC_ARM;
+#endif
     thr_on = on;
 }
 /* the block mixed: the throws off again (a value written meanwhile kept) */
 static __attribute__((noinline)) void throw_off(void)
 {
     uint32_t i, m = thr_on;
+#if OC_HOME_PIC
+    if (m & MAC_ARM)                                    /* (the macros first: the last put on) */
+        mac_off();
+    m &= ~MAC_ARM;
+#endif
     for (i = 0; m; i++, m >>= 1)
         if ((m & 1u) && trk[i / THR_N].p[THR_ID[i % THR_N]] == thr[i].put)
             trk[i / THR_N].p[THR_ID[i % THR_N]] = thr[i].keep;
@@ -89,4 +106,9 @@ static int32_t throw_value(uint32_t k, uint32_t c)
     int32_t v = trk[k % NTRK].p[THR_ID[c % THR_N]];
     return (thr_out >> i) & 1u ? clamp(v + thr[i].off / THR_ONE, 0, 127) : v;
 }
+#if OC_HOME_PIC
+static void throw_stop(void) { thr_out &= MAC_ARM; }    /* (a stop, a project load: no throw out; the macros' arming stays
+                                                         * as mac_poll set it: a load's zeroed macros clear it at the next pass) */
+#else
 static void throw_stop(void) { thr_out = 0; }           /* (a stop, a project load: none out) */
+#endif

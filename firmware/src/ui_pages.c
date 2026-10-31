@@ -52,7 +52,7 @@ static uint32_t pv_kind(void)
         pg->graph == GR_FMPEG)
         return PV_CURVE;
     if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS ||
-        pg->graph == GR_CHORD)
+        pg->graph == GR_CHORD || pg->graph == GR_LANES)   /* (GR_LANES: the new interface 0.5; GR_NONE with the switch off) */
         return PV_RINGS;
     if (pg->graph == GR_TRK)
         return PV_MIXER;
@@ -661,6 +661,16 @@ static void pv_meter(uint32_t k, uint16_t c)
     pv_meter_draw(k, 0, 0, c, bg);
     cv_blit((uint32_t)(BOX_X + PV_MIX_BAR_X), (uint32_t)(st_row_y(k) + pv_mix_y(h) + TY_TX->cap + 8 + 7));
 }
+/* (the new interface 0.6, UI_BUILD.md step 6) with OC_MIXER the level's bar and the turning knob's value take that knob's cozy color
+ * (KNOB 1 blue, 2 green, 3 white, 4 orange); the numeral and the meter stay the track's, Mute stays REC's red. MXC(i, old): knob i's
+ * color, or what release-2 drew */
+#if OC_MIXER
+#define MXC(i, old) T_COZY(i)
+#define MXBAR (mute ? T_DIM : T_COZY(0))
+#else
+#define MXC(i, old) (old)
+#define MXBAR (hot == 1u ? T_TEXT : tc)
+#endif
 static void pv_strip(uint32_t k)
 {
     track_t *t = &trk[k];
@@ -714,19 +724,19 @@ static void pv_strip(uint32_t k)
         if (lvl && text_w(lf, nm) <= 228 - text_w(lf, "dB") - 3 - text_w(tf, b) - 8 - PV_MIX_BAR_X)   /* (the unit goes
                                                          * before the name is cut) */
             x = cv_text_r(x, ty_y(T + tf->cap / 2, lf), lf, "dB", T_MID, bg) - 3;
-        x = cv_text_r(x, ty_y(T + tf->cap / 2, tf), tf, b, hot == 1u ? tc : mute ? T_DIM : T_TEXT, bg);
+        x = cv_text_r(x, ty_y(T + tf->cap / 2, tf), tf, b, hot == 1u ? MXC(0, tc) : mute ? T_DIM : T_TEXT, bg);
         cv_free_text(PV_MIX_BAR_X, ty_y(T + tf->cap / 2, ty_fit(tf, nm, x - 8 - PV_MIX_BAR_X)), ty_fit(tf, nm, x - 8 - PV_MIX_BAR_X),
                      nm, mute ? T_DIM : T_TEXT, bg, x - 8 - PV_MIX_BAR_X);
         /* the level's bar, the meter under it; the pan (or Mute) at the right */
         cv_rrect(PV_MIX_BAR_X, ly, PV_MIX_BAR_W, 5, 2, ux_mix(bg, T_LINE, 60), bg);
         if (lvl)
             cv_rrect(PV_MIX_BAR_X, ly, (int32_t)lvl * PV_MIX_BAR_W / 127 < 4 ? 4 : (int32_t)lvl * PV_MIX_BAR_W / 127, 5, 2,
-                     hot == 1u ? T_TEXT : tc, T_LINE);
+                     MXBAR, T_LINE);
         pv_meter_draw(k, PV_MIX_BAR_X, ly + 7, tc, bg);
         if (mute) {
-            cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? T_TEXT : T_REC, bg);
+            cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? MXC(3, T_TEXT) : T_REC, bg);
         } else if (fw[0]) {                             /* (Orange Cat 0.4.20) frozen or freezing */
-            cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? T_TEXT : fst == 2u ? T_THEME : fst ? T_TEXT : T_REC, bg);
+            cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? MXC(2, T_TEXT) : fst == 2u ? T_THEME : fst ? T_TEXT : T_REC, bg);
         } else {
             if (pan) {
                 b[0] = pan < 0 ? 'L' : 'R';
@@ -734,13 +744,16 @@ static void pv_strip(uint32_t k)
             } else {
                 str_cpy(b, "C", sizeof b);
             }
-            cv_text_r(228, ty_y(ly + 5, lf), lf, b, hot == 2u ? T_TEXT : T_MID, bg);
+            cv_text_r(228, ty_y(ly + 5, lf), lf, b, hot == 2u ? MXC(1, T_TEXT) : T_MID, bg);
         }
         cv_oy = 0;
         cv_blit(BOX_X, (uint32_t)(y + top));
     }
 }
 
+#if OC_LANES
+static void pv_lanes(int32_t h) { graph_lanes(TSEL, h); }   /* (the new interface 0.5) pv_panel's drawing of DRUM-X's LANES table */
+#endif
 /* ----------------------------------------------------------- draw --- */
 static void pv_draw(void)
 {
@@ -816,6 +829,11 @@ static void pv_draw(void)
     pv_tab_h = (kind == PV_RINGS || kind == PV_CURVE) && designer_on() && designer_tabs_on() ? SEC_TAB_H : 0;
     if (kind == PV_CURVE && cur_page()->graph == GR_FMEG)   /* (EG RATE / LVL: the operators' tabs) */
         pv_tab_h = SEC_TAB_H;
+#if OC_EDIT_SHEETS
+    if ((kind == PV_RINGS || kind == PV_CURVE) && !designer_on() && !page_over && !ui.home && sh_row(ui.page))
+        pv_tab_h = SEC_TAB_H;                           /* (the new interface 0.2) a sheet's row: the sheets' tabs (the
+                                                         * designer's own while it is on) */
+#endif
     /* RINGS, CURVE: the header, the sections' tabs, the strip, the sound, then the picture (the busiest last) */
     if (ui.force) {                                     /* (the parts then cover what they draw) */
         lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
@@ -824,6 +842,10 @@ static void pv_draw(void)
     draw_head();
     if (pv_tab_h && designer_on()) {                    /* the sound designer: its stages */
         designer_tabs();
+#if OC_EDIT_SHEETS
+    } else if (pv_tab_h && !page_over && sh_tabs()) {   /* (the new interface 0.2) the sheets (FM6's operator tabs: the
+                                                         * OP1 .. OP6 sheets are the same choice, the review's c1) */
+#endif
     } else if (kind == PV_CURVE && cur_page()->graph == GR_FMEG) {
         pv_optabs(H_HEAD + 1);                          /* EG RATE / LVL: the operators */
     }
@@ -832,12 +854,45 @@ static void pv_draw(void)
         sec_note();
     card_y = Y_LABEL + pv_tab_h;
     col_style = CS_CARD;
+#if OC_LANES
+    if (kind == PV_RINGS && cur_page()->graph == GR_LANES) {   /* (the new interface 0.5: the table's headings stand for the cards) */
+    } else
+#endif
+#if OC_EDIT_SHEETS
+    {   /* (the new interface 0.2) a sheet's row: its labels in the knobs' colors (the cozies, step 1's T_COZY) */
+        int row = !designer_on() && !page_over && !ui.home && sh_row(ui.page);
+        uint32_t c;
+        for (c = 0; row && c < 4u; c++)
+            card_tc[c] = T_COZY(c);
+        draw_columns();
+        for (c = 0; row && c < 4u; c++)
+            card_tc[c] = 0;
+    }
+#else
     draw_columns();
+#endif
     card_y = Y_LABEL;
     pv_sound();
     {   /* the picture straight on the background (no panel: the screen calm) */
         uint16_t panel = ux.panel;
         ux.panel = ux.bg;
+#if OC_EDIT_SHEETS
+        int32_t sh_c, sh_r;                             /* (the new interface 0.2) the sheet's other row and the box where
+                                                         * the picture would be the scope or the wave; the filter's curve
+                                                         * and FM6's chart are kept (they say what the knobs do) */
+        uint32_t sh_p = kind == PV_RINGS && !designer_on() && cur_page()->graph != GR_LANES ? pv_pic(&sh_c, &sh_r) : 3u;   /* (LANES: its table) */
+        if (sh_p != 3u && sh_p != 4u && sh_lower()) {
+        } else
+#endif
+#if OC_LANES
+        if (kind == PV_RINGS && cur_page()->graph == GR_LANES) {   /* (the new interface 0.5, ui_lanes.c) the eight lanes' table */
+            sig = lanes_sig() ^ (uint32_t)pv_tab_h * 40503u ^ ux.pal * 31u ^ ux.gen * 977u;
+            if (ui.force || sig != pv.panel) {
+                pv.panel = sig;
+                pv_panel(Y_LABEL + pv_tab_h, PV_SOUND_Y - (Y_LABEL + pv_tab_h), pv_lanes);
+            }
+        } else
+#endif
         if (kind == PV_RINGS) {
             pv_picture();
         } else {

@@ -339,8 +339,19 @@ static const param_desc_t *global_desc(uint32_t id)
     return &GP[id];
 }
 static uint32_t scale_count(const track_t *t);          /* seq.c */
+#if OC_HOME_PIC
+static const param_desc_t *mac_desc(const track_t *t, uint32_t id);   /* (oc_macro.c, the new interface: HOME's macro knobs) */
+#endif
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+#if OC_HOME_PIC
+    {
+        const param_desc_t *md;
+        if (id >= P_MAC0 && id <= P_MAC3 && (md = mac_desc(t, id)) != 0)   /* (UI_BUILD.md 1a) a macro knob: its name,
+                                                       * -64 .. 63 (TP[] keeps the stores' and the editor's reserved view) */
+            return md;
+    }
+#endif
     if (id == P_APRATE && t->p[P_APSYNC]) {           /* (Orange Cat 0.6.0, Jiant) AUTO PAN on the tempo: a division */
         static const param_desc_t AP_BEAT = {"RATE", F_ENUM, 0, 7, 2, N_APDIV, 0};
         return &AP_BEAT;
@@ -670,7 +681,7 @@ static const page_t PAGES[] = {
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
     /* (Orange Cat 0.14.2) DRUM-X: the lane the keys picked (a key struck picks its lane, as the grid's lane keys do), its four values; then its
      * sound values; then the kit's own (dxl_desc, eng_drumx.c dxk_t). A placeholder for Session C's page */
-    {"LANES", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN}},
+    {"LANES", FAM_EDIT, SC_DXLANE, GR_LANES, {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN}},   /* (the new interface 0.5: with OC_LANES the table, ui_lanes.c) */
     {"LANES 2", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_LAYER, DXL_PUNCH, DXL_ATK, DXL_BEND}},
     {"LANES 3", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_TONE, DXL_FDBK, DXL_HANDS, DXL_DUCK}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
@@ -686,6 +697,9 @@ static const page_t PAGES[] = {
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
+#if OC_STEP_PAGES
+    {"FEEL", FAM_SEQ, SC_STEP, GR_FEEL, {0, 1, 2, 3}},   /* (the new interface 0.4, UI_BUILD.md step 4) the steps' chance, ratchet, nudge, type (ui_feel.c) */
+#endif
     {"TRACKER", FAM_SEQ, SC_STEP, GR_TRACKER, {0, 1, 2, 3}},   /* (Orange Cat 0.4.2) the phrase as rows (ui_tracker.c) */
     {"PHRASE", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},   /* (Orange Cat 0.4: was PATTERN) */
     {"GROOVE", FAM_SEQ, SC_GLOBAL, GR_GROOVE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* (Orange Cat 0.4.5) ui_groove.c */

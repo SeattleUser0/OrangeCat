@@ -175,7 +175,8 @@ def check_set(pak, ocms, manifest):
     if len(raw) < 512 or struct.unpack_from("<I", raw, 0)[0] != 0x4B50434F:
         raise SystemExit(f"{pak}: not an asset pack")
     phash, plen, pcrc = struct.unpack_from("<III", raw, 8)
-    if zlib.crc32(raw[:508]) != struct.unpack_from("<I", raw, 508)[0] or zlib.crc32(raw[512:]) != pcrc or plen != len(raw):
+    # (the new interface 0.7) (10 x 4096 B: the pack's flash area, OC_PACK_AREA) the header's length, hash and payload CRC cover the tables only; a scene trailer (OC_HOME_PIC, UI_BUILD.md "The asset pack change") may follow them
+    if plen < 512 or plen > len(raw) or len(raw) > 10 * 4096 or zlib.crc32(raw[:508]) != struct.unpack_from("<I", raw, 508)[0] or zlib.crc32(raw[512:plen]) != pcrc:
         raise SystemExit(f"{pak}: damaged (length or CRC)")
     if phash != info["pack_hash"] or plen != info["pack_len"]:
         raise SystemExit(f"{pak}: hash {phash:08x} / length {plen} is not the firmware's ({info['pack_hash']:08x} / {info['pack_len']})")

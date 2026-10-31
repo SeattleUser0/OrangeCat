@@ -595,7 +595,12 @@ static int up_store_to(uint32_t k,uint32_t tr,const char *name)
         if(name && name[0])up_native_name(&r,name);
         return up_put(k,&r);
     }
+#if OC_HOME_PIC
+    for(uint32_t i=0;i<P_COUNT;i++)up_set_value(&r,i,param_jfx(i)||param_dub_setup(i)?param_desc_of(r.engine,i)->def:mac_saved_value(t,i));   /* (the new
+                                                         * interface, UI_BUILD.md 1a: the macros committed into the sound, saved as 0) */
+#else
     for(uint32_t i=0;i<P_COUNT;i++)up_set_value(&r,i,param_jfx(i)||param_dub_setup(i)?param_desc_of(r.engine,i)->def:motion_base_value(t,i));
+#endif
     up_pat_from(&r,t->step);
     if(drum_track(t)){
         uint32_t any=0;for(uint32_t i=0;i<16u;i++)any|=step_lanes(&t->step[i]);

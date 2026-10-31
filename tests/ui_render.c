@@ -2202,6 +2202,279 @@ int main(int argc, char **argv)
         }
     /* (0.7.0) the second pass in Melodee Pixel (Settings > FONT PIXEL) is gone with the setting: the text is Melodee
      * Pixel alone, so the pass above draws it */
+#if OC_HOME_PIC
+    {   /* (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) HOME's picture page in every palette, linted and MONO gray
+         * as every screen above: MACRO, SHAPES, DRUM-X as they load, each knob at either end, a knob turning (named in the sound line), a
+         * note on; CZ-1 (no table: the plain picture); the MENU row HOME PAGE; (OC_PACK_GATE=1) PACK MISSING. NIGHT, DAY and CONTRAST
+         * written as PPMs (home_pic_*), as the screens above */
+        static const uint32_t PE[3] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX};
+        static const char *const PN[3] = {"macro", "shapes", "drumx"};
+        uint32_t np = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (int v = 0; v < 3 * 12 + 3; v++) {
+                char name[64], image[48];
+                uint32_t e = v < 36 ? PE[v / 12] : 0u, k, j;
+                int sub = v % 12;
+                state();
+                song.playing = 0;
+                GLO_SELECT |= HOME_PIC_BIT;
+                stage.knob_ms = 0; ui.hot_col = 0;      /* (no knob turning unless the screen turns one: the clock stands still here) */
+                memset(&hp, 0, sizeof hp);              /* (the picture's state from nothing: a screen's note-on is its own, seen */
+                hp.trk = (uint8_t)song.sel;             /* as a frame after the last would see it) */
+                hp.ph_ms = fm1_ms;
+                hp.hit_ms = fm1_ms - HP_HIT_MS;
+                hp.ready = 1;
+                if (v < 36) {                           /* 0 as loaded; 1 .. 8 knob (sub - 1) / 2 at its left, right end; 9 KNOB 2 turning;
+                                                         * 10 a note on; 11 every knob turned, KNOB 4 turning */
+                    eng(e);
+                    {   /* the engine switched as the audio side does it (its state taken: a note sounds) */
+                        int32_t o[2 * CTL];
+                        for (j = 0; j < 400u && TSEL->engine != TSEL->eng_req; j++) mix_block(o, CTL);
+                    }
+                    for (k = 0; k < 4u; k++) {
+                        int16_t *vp;
+                        const param_desc_t *d = page_desc(stage_page(), k, &vp);
+                        if (!d || !vp) continue;
+                        if (sub >= 1 && sub <= 8 && k == (uint32_t)(sub - 1) / 2u) *vp = sub % 2 ? d->min : d->max;
+                        if (sub == 11) *vp = (int16_t)(d->min + (d->max - d->min) * (int32_t)(k + 1u) / 5);
+                    }
+                    if (sub == 9 || sub == 11) { ui.hot_col = sub == 9 ? 1u : 3u; stage.knob_ms = fm1_ms | 1u; }
+                    if (sub == 10) {
+                        int32_t o[2 * CTL];
+                        trk_note_on(TSEL, e == ENGI_DRUMX ? 36 : 52, 110);
+                        for (j = 0; j < 40u; j++) mix_block(o, CTL);
+                    }
+                    snprintf(image, sizeof image, "home_pic_%s_%s", PN[v / 12], sub == 0 ? "load" : sub == 9 ? "turn" : sub == 10 ? "note" :
+                             sub == 11 ? "turned" : "");
+                    if (sub >= 1 && sub <= 8) snprintf(image, sizeof image, "home_pic_%s_k%d_%s", PN[v / 12], (sub - 1) / 2 + 1, sub % 2 ? "min" : "max");
+                } else if (v == 36) {                   /* an engine with no table: its four EDIT knobs, the plain picture */
+                    eng(ENGI_CZ);
+                    TSEL->engine = TSEL->eng_req;
+                    str_cpy(image, "home_pic_cz1_plain", sizeof image);
+                } else if (v == 37) {                   /* the MENU's row */
+                    ui.menu = 1; ui.menu_sel = MI_HOME_PAGE;
+                    str_cpy(image, "home_pic_menu", sizeof image);
+                } else {                                /* the pack not there (a gated build only) */
+#if OC_PACK_GATE
+                    eng(ENGI_MACRO);
+                    TSEL->engine = TSEL->eng_req;
+                    oc_pack_good = 0;
+                    str_cpy(image, "home_pic_pack_missing", sizeof image);
+#else
+                    continue;
+#endif
+                }
+                if (!ui.menu) { ui.home = 1; ui.home_pg = 2; hp.landed = 1; }
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (k = 0; k < UI_RENDER_SHOW; k++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], image);
+#if OC_PACK_GATE
+                oc_pack_good = 1;
+#endif
+                np++;
+            }
+        fprintf(rep, "(the new interface 1c) HOME's picture page: %u screens in every palette\n", (unsigned)np);
+        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
+    }
+#endif
+#if OC_EDIT_SHEETS
+    {   /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets: every row of every sheet of each engine below, in every palette,
+         * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (sheet_<engine>_<sheet>_<row>) */
+        static const uint32_t SE[] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX, ENGI_CZ, ENGI_FM6, ENGI_PROPHET};
+        static const char *const SN[] = {"macro", "shapes", "drumx", "cz1", "fm6", "prophet"};
+        uint32_t ns = 0, ei;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (ei = 0; ei < NELEM(SE); ei++) {
+                static sh_ctx_t shc;
+                const sheet_t *sh = shc.s;
+                uint32_t n, k, r;
+                if (!eng_ok(SE[ei]))
+                    continue;
+                state();
+                song.playing = 0;
+                eng(SE[ei]);
+                TSEL->engine = TSEL->eng_req;
+                sh_make(&shc);
+                n = shc.n;
+                for (k = 0; k < n; k++) {
+                    uint8_t pg[48];
+                    uint32_t at, nr;
+                    if (sh[k].op == SH_LINK)
+                        continue;
+                    if (sh[k].op)
+                        fm6_opsel = (uint8_t)(sh[k].op - 1u);
+                    nr = sh_rows(&shc, k, pg, sizeof pg, &at);
+                    for (r = 0; r < nr; r++) {
+                        char name[96], image[64], t[12];
+                        uint32_t j, q;
+                        if (sh[k].op && r > 1u && sh[k].op > 1u)
+                            continue;                   /* (the operators past OP1: their first two rows, the rest as OP1's) */
+                        ui.home = 0;
+                        ui.page = pg[r];
+                        ui.fam_last[page_at(pg[r])->fam] = pg[r];
+                        page_entered();
+                        for (j = q = 0; sh[k].name[j] && q < sizeof t - 1u; j++)
+                            if (sh[k].name[j] != ' ')
+                                t[q++] = (char)(sh[k].name[j] | 0x20);
+                        t[q] = 0;
+                        snprintf(image, sizeof image, "sheet_%s_%02u_%s_%u", SN[ei], (unsigned)k, t, (unsigned)r + 1u);
+                        snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                        cur_name = name;
+                        pal(p);
+                        if (p == UI_GRAY_INDEX) aud = audf;
+                        draw(-1);
+                        lint();
+                        if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                        for (j = 0; j < UI_RENDER_SHOW; j++)
+                            if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                        ns++;
+                    }
+                }
+            }
+        fprintf(rep, "(the new interface 0.2) EDIT's sheets: %u screens over every palette\n", (unsigned)ns);
+    }
+#endif
+#if OC_SHIFT_MAP
+    {   /* (the new interface 0.3, UI_BUILD.md step 3) the SHIFT map over HOME, a sheet's row and SEQ's first page (where the combos
+         * are dim), in every palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (shift_map_<where>) */
+        static const char *const WN[3] = {"home", "sheet", "seq"};
+        uint32_t w, nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (w = 0; w < 3u; w++) {
+                char name[64], image[48];
+                uint32_t j;
+                state();
+                song.playing = 0;
+                eng(ENGI_MACRO);
+                TSEL->engine = TSEL->eng_req;
+                if (w == 0u) {
+                    ui.home = 1;
+                } else {
+                    ui.home = 0;
+                    ui.page = (uint8_t)(w == 1u ? page_titled("EDIT 1") : page_first(FAM_SEQ));
+                    page_entered();
+                }
+                sh_st = SHF_ON | SHF_MAP;
+                snprintf(image, sizeof image, "shift_map_%s", WN[w]);
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                sh_st = 0;
+                nm++;
+            }
+        fprintf(rep, "(the new interface 0.3) the SHIFT map: %u screens over every palette\n", (unsigned)nm);
+    }
+#endif
+#if OC_STEP_PAGES
+    {   /* (the new interface 0.4, UI_BUILD.md step 4) FEEL (as set, each knob last turned, a range, the step playing, an empty page),
+         * NOTES with its new strip (a recorded note, a manual note, nothing) and the SHIFT map on both, in every palette, linted and
+         * MONO gray; NIGHT, DAY and CONTRAST written as PPMs (feel_<scene>, notes_<scene>, shift_map_feel, shift_map_notes) */
+        static const char *const SN[] = {"feel_set", "feel_k1", "feel_k2", "feel_k3", "feel_k4", "feel_range", "feel_play", "feel_empty",
+                                         "notes_rec", "notes_manual", "notes_none", "shift_map_feel", "shift_map_notes"};
+        uint32_t w, nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (w = 0; w < sizeof SN / sizeof SN[0]; w++) {
+                char name[64];
+                uint32_t j, i;
+                state();
+                song.playing = 0;
+                eng(ENGI_MACRO);
+                TSEL->engine = TSEL->eng_req;
+                track_defaults_steps(TSEL);
+                TSEL->p[P_SLEN] = 16;
+                bulk.on = 0;
+                ui.cursor = 4;
+                if (w != 7u) {
+                    for (i = 0; i < 12u; i += 2u) { TSEL->step[i].note[0] = (uint8_t)(48u + i); TSEL->step[i].n = 1; TSEL->step[i].time = ST_NOTE; TSEL->step[i].vel = 96; }
+                    step_set_chance(&TSEL->step[4], 75);
+                    TSEL->step[2].cond = TC_2_3;
+                    step_set_rflam(&TSEL->step[6], 2);
+                    step_set_nudge(&TSEL->step[8], 6);
+                    TSEL->step[10].flags |= SF_ACCENT | SF_SLIDE;
+                }
+                if (w < 8u || w == 11u) go_title("FEEL"); else go_title("NOTES");
+                feel_k = (uint8_t)(w >= 1u && w <= 4u ? w - 1u : 0u);
+                if (w == 5u) { bulk.on = 1; bulk.anchor = 4; bulk.end = 8; bulk.track = song.sel; bulk.pattern = TSEL->pattern; bulk.generation = TSEL->pattern_gen; bulk.engine = (uint8_t)library_engine(); }
+                if (w == 6u) { song.playing = 1; TSEL->seq_idx = 6; }
+                if (w == 8u) {
+                    recorded_note_t r = {.step = 4, .on = 20000, .note = 64, .vel = 90, .duration = RECORD_UNIT * 3u / 2u, .owner = (uint8_t)recording_owner(TSEL), .length = 1};
+                    track_defaults_steps(TSEL);
+                    recording_restore_note(TSEL, 0, r);
+                    note_rebuild_all();
+                    cursor_set(4);
+                    ui.note_pick = 0;
+                    notes_selected(TSEL);
+                }
+                if (w == 10u) track_defaults_steps(TSEL);
+                if (w >= 11u) sh_st = SHF_ON | SHF_MAP;
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, SN[w]);
+                cur_name = name;
+                pal(p);
+                ui.force = 1;
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(SN[w]); aud = 0; mono_check(); }
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], SN[w]);
+                sh_st = 0;
+                bulk.on = 0;
+                song.playing = 0;
+                nm++;
+            }
+        fprintf(rep, "(the new interface 0.4) the step pages: %u screens over every palette\n", (unsigned)nm);
+    }
+#endif
+#if OC_LANES
+    {   /* (the new interface 0.5, UI_BUILD.md step 5) DRUM-X's LANES table with lane 0, 2 and 7 picked and the kit's values moved, in every
+         * palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (lanes_<n>) */
+        static const uint8_t PICK[3] = {0, 2, 7};
+        uint32_t w, nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (w = 0; w < 3u; w++) {
+                char name[64], image[32];
+                uint32_t j, l;
+                state();
+                song.playing = 0;
+                eng(ENGI_DRUMX);
+                TSEL->engine = TSEL->eng_req;
+                for (l = 0; l < 8u; l++) {
+                    TSEL->p[P_LN0 + l] = (int16_t)(40 + 11 * l);
+                    dxl_put(song.sel, l, DXL_TUNE, (int32_t)l * 9 - 30);
+                    dxl_put(song.sel, l, DXL_DECAY, 25 - (int32_t)l * 8);
+                    dxl_put(song.sel, l, DXL_PAN, (int32_t)l * 17 - 60);
+                }
+                for (j = 0; j < NPAGES && !(PAGES[j].scope == SC_DXLANE && !strcmp(PAGES[j].title, "LANES")); j++) ;
+                ui.home = 0; ui.page = (uint8_t)j; page_entered();
+                ui.lane = PICK[w];
+                snprintf(image, sizeof image, "lanes_%u", (unsigned)PICK[w] + 1u);
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                ui.force = 1;
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                nm++;
+            }
+        fprintf(rep, "(the new interface 0.5) DRUM-X's LANES: %u screens over every palette\n", (unsigned)nm);
+    }
+#endif
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

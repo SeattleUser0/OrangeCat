@@ -98,6 +98,12 @@ static void glo_select_set(uint32_t v) { GLO_SELECT = (uint8_t)((GLO_SELECT & ~0
  * place not in use, saying "Add track"; HIDE: the tracks in use share the rows (one track: the wide card) */
 #define TRACKS_HIDE 32u
 static uint32_t stage_rows(void) { return GLO_SELECT & TRACKS_HIDE ? trk_n() : NTRK; }
+#if OC_HOME_PIC
+/* (the new interface, UI_BUILD.md 1c) MENU > HOME PAGE: PICTURE in bit 6 of the same byte (favorites.c: free until now), TRACKS (0,
+ * the default) HOME as release-2's. ui_home_pic.c draws the picture page and sets it (home_pic_set) */
+#define HOME_PIC_BIT 64u
+static int home_pic_on(void) { return (GLO_SELECT & HOME_PIC_BIT) != 0; }
+#endif
 
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
@@ -128,7 +134,8 @@ enum { TFX_RATCH, TFX_CHANCE, TFX_COND, TFX_NUDGE, TFX_SLIDE, TFX_ACCENT, TFX_N 
 static struct {
     uint8_t designer_mode;       /* the sound designer: START, the stages (ui_designer.c) */
     uint8_t home;
-    uint8_t home_pg;             /* HOME's page: 0 Stage, 1 the chord view (ui_view.c); HOME tapped on HOME turns it */
+    uint8_t home_pg;             /* HOME's page: 0 Stage, 1 the chord view (ui_view.c); HOME tapped on HOME turns it; (OC_HOME_PIC,
+                                  * MENU > HOME PAGE PICTURE) 2 the picture (ui_home_pic.c) */
     uint8_t drum_sound;
     uint8_t page;                /* index into PAGES */
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
@@ -662,9 +669,15 @@ static void open_global(void)
     page_entered();
 }
 
+#if OC_HOME_PIC
+static void home_pic_land(void);                        /* (ui_home_pic.c) */
+#endif
 static void go_home(void)
 {
     ui.home = 1;
+#if OC_HOME_PIC
+    home_pic_land();                                    /* (the new interface, UI_BUILD.md 1c) PICTURE chosen: HOME lands on the picture */
+#endif
     ui.entry_open = 0;
     ui.hot_t = 0;
     song.seq_mode = 0;
@@ -1214,6 +1227,15 @@ static const page_t *stage_page(void)
     stage_pg.scope = (MELODEE_P5 && e == ENGI_PROPHET) ? SC_P5 : mp ? SC_MOD : (MELODEE_CZ && e == ENGI_CZ) ? SC_CZ1 : SC_ENGINE;
     for (k = 0; k < 4u; k++)
         stage_pg.id[k] = (MELODEE_P5 && e == ENGI_PROPHET) ? P5_K[k] : mp ? mp->knob[k] : (MELODEE_CZ && e == ENGI_CZ) ? CZ_K[k] : ENGINES[e]->knob[k];
+#if OC_HOME_PIC
+    if (home_pic_on() && kdef_of(TSEL->eng_req)) {   /* (the new interface, UI_BUILD.md 1c) MENU > HOME PAGE PICTURE: the engine's
+                                                         * table (oc_knobs.c): a plain knob its parameter, a macro P_MACk, none 0xFF */
+        const knob_def_t *kd = kdef_of(TSEL->eng_req);
+        stage_pg.scope = SC_ENGINE;
+        for (k = 0; k < 4u; k++)
+            stage_pg.id[k] = kd[k].kind == KD_PLAIN ? kd[k].id : kd[k].kind == KD_MACRO ? (uint8_t)(P_MAC0 + k) : 0xFFu;
+    }
+#endif
     return &stage_pg;
 }
 /* HOME: what KNOB k edits (0: nothing there) */

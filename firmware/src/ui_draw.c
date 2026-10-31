@@ -72,10 +72,20 @@ static void sound_name(const track_t *t, char *b);
 static int ptc_on(void);                                /* ui_patterns.c */
 static uint32_t ocl_pat_len(uint32_t id);               /* (Orange Cat 0.3) oc_lists.c */
 static uint32_t ocl_staged_ent(uint32_t k);
+#if OC_SHIFT_MAP
+static int shift_map_on(void);                          /* ui_shift.c (included by ui_input.c) */
+static void shift_draw(void);
+#endif
 static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
     uint32_t e = TSEL->eng_req % NENGINES;
+#if OC_SHIFT_MAP
+    if (shift_map_on()) {                               /* (the new interface 0.3) the SHIFT map */
+        str_cpy(b, "SHIFT", 16);
+        return;
+    }
+#endif
     if (designer_on() && !name_on() && designer_head_chip(b)) {   /* the designer's START, FEATURES, original */
     } else if (new_on()) {                                     /* NEW SONG */
         str_cpy(b, "NEW SONG", 16);
@@ -101,6 +111,12 @@ static void head_chip_text(char *b)
         str_cpy(b, t, 16);
     }
 }
+#if OC_EDIT_SHEETS
+static int sh_dots(uint32_t *n, uint32_t *k);           /* ui_sheets.c (included below): a sheet's rows, the page's place */
+static int sh_row(uint32_t i);
+static int sh_tabs(void);
+static int sh_lower(void);
+#endif
 /* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
 static void head_pages(int32_t x, int32_t x1)          /* (x: after the transport's marks; x1: where the chip, or the
                                                          * battery, starts) */
@@ -109,6 +125,10 @@ static void head_pages(int32_t x, int32_t x1)          /* (x: after the transpor
     uint32_t i, n = 0, k = 0, sc = sec_on() ? sec_of(ui.page) + 1u : 0u;
     if (designer_on() && !name_on())                    /* the designer: its stage's pages */
         designer_pages(&n, &k);
+#if OC_EDIT_SHEETS
+    else if (!name_on() && sh_dots(&n, &k))             /* (the new interface 0.2) a sheet: its rows */
+        ;
+#endif
     else for (i = 0; i < page_n(); i++)                 /* (an engine in sections: the section's pages) */
         if (page_at(i)->fam == pg->fam && page_visible(i) &&
             (!sc || ((MELODEE_FM6 && page_at(i)->scope == SC_FMOP) ? (MELODEE_FM6 && page_at(ui.page)->scope == SC_FMOP) : sec_of(i) + 1u == sc))) {
@@ -214,6 +234,16 @@ static void draw_head(void)
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
             head_pages(x + 6, 236 - cw - (low ? 22 : 0));
+#if OC_HOME_PIC
+        } else if (home_pic_on()) {                     /* (the new interface, UI_BUILD.md 1c) HOME's three pages, PICTURE TRACKS
+                                                         * CHORD (home_pg 2, 0, 1), where there is room (none: no dots) */
+            uint32_t i, at = ui.home_pg == 2u ? 0u : ui.home_pg + 1u;
+            for (i = x + 6 + 40 <= 236 - cw - (low ? 22 : 0) - 6 ? 0u : 3u, x += 6; i < 3u; i++) {
+                int32_t w = i == at ? 16 : 6;
+                cv_rrect(x, H_HEAD / 2 - 3, w, 6, 3, i == at ? T_THEME : T_LINE, T_BG);
+                x += w + 6;
+            }
+#endif
         } else if (x + 6 + 28 <= 236 - cw - (low ? 22 : 0) - 6) {   /* HOME: its two pages (Stage, the chord view),
                                                                    * where there is room */
             uint32_t i;
@@ -518,6 +548,10 @@ static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OF
 #include "ui_sections.c"                                /* the EDIT pages in sections, the map */
 #include "ui_stage.c"                                   /* Stage (HOME) */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
+#if OC_HOME_PIC
+#include "oc_scene.c"                                   /* (the new interface, UI_BUILD.md 1b) the pictures' interpreter */
+#include "ui_home_pic.c"                                /* (UI_BUILD.md 1c) HOME's picture page */
+#endif
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
 #include "ui_tracker.c"                                 /* (Orange Cat 0.4.2) SEQ > TRACKER */
@@ -602,11 +636,49 @@ static void draw_columns(void)
         draw_column(3, "", val, unit[0] ? " %" : "", a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
         return;
     }
+#if OC_STEP_PAGES
+    if (cur_page()->graph == GR_FEEL) {                 /* (the new interface 0.4, ui_feel.c) the cursor step's four values */
+        const step_t *st = &TSEL->step[ui.cursor % NSTEP];
+        uint32_t k;
+        for (k = 0; k < 4u; k++) {
+            char v[8];
+            feel_text(st, k, v, 1);
+            draw_column(k, FEEL_NAME[k], v, k == 0u && !(st->cond && st->cond < TC_COUNT) ? "%" : "", step_on(st) ? T_COZY(k) : T_DIM, -1, ICON_AUTO);
+        }
+        return;
+    }
+#endif
     if (cur_page()->graph == GR_ROLL && !grid_on()) {
         uint32_t chosen = notes_selected(TSEL), start = notes_manual_start(TSEL);
         const step_t *st = start < NSTEP ? &TSEL->step[start] : 0;
         int selected = chosen < RECORD_MAX || (st && st->n);
         char sn[12], u[12];
+#if OC_STEP_PAGES
+        if (!drum_track(TSEL) && !bulk.on && !ui.note_move && !ui.note_copy) {   /* (the new interface 0.4) PITCH START LEN VEL */
+            uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;
+            note_name(sn, pitch);
+            draw_column(0, "PITCH", sn, "", selected ? T_COZY(0u) : T_DIM, -1, ICON_PITCH);
+            if (chosen < RECORD_MAX)
+                feel_hund(sn, ((recording[chosen].step & 63u) * 100u) + 100u + (uint32_t)recording[chosen].on * 100u / RECORD_UNIT, 1);
+            else
+                str_cpy(sn, "--", sizeof sn);
+            draw_column(1, "START", sn, "", chosen < RECORD_MAX ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
+            if (chosen < RECORD_MAX) {
+                uint32_t h = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
+                if (!h) str_cpy(sn, "<.01", sizeof sn); else feel_hund(sn, h, 0);
+            } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
+            else str_cpy(sn, "--", sizeof sn);
+            draw_column(2, "LEN", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(2u) : T_DIM, -1, ICON_GATE);
+            if (chosen >= RECORD_MAX && st && (ui.step_mods & (1u << panel.btn[B_ENV]))) {
+                draw_column(3, "SLIDE", st->flags & SF_SLIDE ? "ON" : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
+                return;
+            }
+            if (selected) fmt_int(sn, chosen < RECORD_MAX ? recording[chosen].vel : st->flags & SF_ACCENT ? 127 : st->vel ? st->vel : 96);
+            else str_cpy(sn, "--", sizeof sn);
+            draw_column(3, "VEL", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(3u) : T_DIM, -1, ICON_ACCENT);
+            return;
+        }
+#endif
         fmt_int(sn, (int32_t)ui.cursor + 1); u[0] = '/'; fmt_int(u + 1, TSEL->p[P_SLEN]);
         draw_column(0, ui.note_copy?"COPY":bulk.on||ui.note_move?"MOVE":"STEP", sn, bulk.on||ui.note_move?"":u, VAL(0u), -1, ICON_AUTO);
         uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;
@@ -967,6 +1039,9 @@ static void draw_confirm(void)
 #include "ui_motion.c"                                  /* MOTION: its lanes */
 #include "ui_scales.c"                                  /* SCALES: a screen of its own */
 #include "ui_designer.c"                                /* guided native sound creation */
+#if OC_EDIT_SHEETS
+#include "ui_sheets.c"                                  /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets */
+#endif
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1018,6 +1093,17 @@ static void draw_page(void)
         melodee_dbg.stage = 4;
         draw_columns();
         melodee_dbg.stage = 5;
+#if OC_HOME_PIC
+        if (ui.home && !hp.landed) {                    /* (the first HOME frame after power-on: its landing page) */
+            hp.landed = 1;
+            home_pic_land();
+        }
+        if (ui.home && ui.home_pg == 2u && !home_pic_on())   /* (never the picture with TRACKS chosen) */
+            ui.home_pg = 0;
+        if (ui.home && ui.home_pg == 2u)                /* (the new interface, UI_BUILD.md 1c) HOME's picture page */
+            home_pic_draw();
+        else
+#endif
         if (ui.home && ui.home_pg)                      /* HOME's second page (ui_view.c) */
             view_draw();
         else if (ui.home)                               /* Stage: its panel and the lanes (ui_stage.c), no footer */
@@ -1054,7 +1140,17 @@ static void ui_draw_frame(void);
 static void ui_draw(void)                               /* (gfx.c: the fills wait for the frame's canvases) */
 {
     gfx_frame(1);
+#if OC_EDIT_SHEETS
+    {   /* (the new interface 0.2) the sheets made once this frame, when first asked for (ui_sheets.c sh_get) */
+        sh_ctx_t c;
+        c.made = 0;
+        sh_now = &c;
+        ui_draw_frame();
+        sh_now = 0;
+    }
+#else
     ui_draw_frame();
+#endif
     gfx_frame(0);
 }
 static void ui_draw_frame(void)
@@ -1108,6 +1204,13 @@ static void ui_draw_frame(void)
         draw_head();                                    /* recording remains visible over confirmations */
         return;
     }
+#if OC_SHIFT_MAP
+    if (shift_map_on()) {                               /* (the new interface 0.3) HOME held alone: the SHIFT map */
+        shift_draw();
+        ui.force = 0;
+        return;
+    }
+#endif
     if (smap.on && (ui.home || cur_page()->fam != FAM_EDIT || ui.layer))
         smap.on = 0;
     if (smap.on) {                                      /* an engine's map (ui_sections.c) */

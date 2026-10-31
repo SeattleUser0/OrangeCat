@@ -18,7 +18,8 @@
  *          ui.c's PREF_BITS (bit 1 KNOB ACCEL OFF, bit 5 PICKER OFF, bit 6 FONT PIXEL): a save to project slot 3 or 4 turned acceleration off and
  *          PICKER OFF hid the last project from power-on. settings_import moves the bits to row 4 byte 2 once (settings_persist.c pref_migrate),
  *          31 the quick layers seen (ui_layer.c), 25 HOME SELECT (ui.c HOME_SELECT), 24 bits 1..4 GLO SELECT (ui.c
- *          GLO_SELECT), 24 bit 5 UNUSED TRACKS HIDE (ui.c TRACKS_HIDE); free: 24 bits 6..7
+ *          GLO_SELECT), 24 bit 5 UNUSED TRACKS HIDE (ui.c TRACKS_HIDE), 24 bit 6 HOME PAGE PICTURE (ui.c HOME_PIC_BIT, the new interface
+ *          on branch ui-build, OC_HOME_PIC only); free: 24 bit 7
  *   row 0 bytes 2..27 hold all 201 Prophet factory stars, tagged in bytes 28..31;
  *         bytes 0..1 held retired ANALOG's stars.
  *   row 1 bytes 28..31 mark validated Melodee settings (MDS + version 1).

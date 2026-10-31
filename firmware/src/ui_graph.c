@@ -462,6 +462,12 @@ static void graph_chord(const track_t *t, uint16_t c)
 }
 
 
+#if OC_LANES
+#include "ui_lanes.c"                                   /* (the new interface 0.5, UI_BUILD.md step 5) DRUM-X's LANES table */
+#endif
+#if OC_STEP_PAGES
+#include "ui_feel.c"                                    /* (the new interface 0.4, UI_BUILD.md step 4) SEQ > FEEL's tiles and reading */
+#endif
 static uint32_t steps_hash(const track_t *t)
 {
     uint32_t h = 2166136261u, i;
@@ -772,6 +778,10 @@ static uint32_t graph_sig(int play)
         h ^= (uint32_t)song.g[G_SWING] * 65537u + pr_held() * 15331u;
         if (play) h ^= (uint32_t)(notes_play_x(t) + 1) * 31u;
     }
+#if OC_STEP_PAGES
+    if (pg->graph == GR_FEEL)                        /* (the new interface 0.4) FEEL: the tiles' values, the cursor, the range */
+        h = (h ^ feel_sig(t)) * 16777619u;
+#endif
     if (pg->graph == GR_CHORD) {                     /* the last chord played */
         h = (h ^ (chord_last[song.sel].root + 131u * chord_last[song.sel].mask)) * 16777619u;
         for (i = 0; i < CHORD_MAX; i++)
@@ -1020,6 +1030,12 @@ static void draw_graph(void)
                 if (grid_on()) graph_grid(t, c);
                 else { proll.play = notes_play_x(t); graph_recorded_notes(t, c); }
                 break;
+#if OC_STEP_PAGES
+            case GR_FEEL:                                /* (the new interface 0.4, ui_feel.c) */
+                cv_oy = 0;
+                graph_feel(t, c);
+                break;
+#endif
             case GR_SCALE:
                 if (scale_settings_page(pg)) {
                     cv_oy = 0;

@@ -104,7 +104,8 @@ static uint32_t sec_of(uint32_t i)                      /* page i's section (an 
 /* sections to show: an EDIT page of an engine with more than one */
 static int sec_on(void)
 {
-    if (ui.home || cur_page()->fam != FAM_EDIT)
+    if (OC_EDIT_SHEETS || ui.home || cur_page()->fam != FAM_EDIT)   /* (the new interface 0.2: the sheets take over the
+                                                         * sections' jobs, ui_sheets.c; the map is no longer opened) */
         return 0;
     sec_build();
     return sec.n > 1u;

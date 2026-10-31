@@ -222,7 +222,11 @@ static uint32_t stage_picture(int32_t *v)
     {   /* an engine's filter: its F_CUTOFF knob and the RES beside it */
         int32_t cut = -1, res = 0;
         for (k = 0; k < 4u; k++) {
-            const param_desc_t *d = track_desc(TSEL, sp->id[k]);
+            const param_desc_t *d;
+#if OC_HOME_PIC
+            if (sp->id[k] >= P_COUNT) continue;         /* (the new interface: a knob table's empty place, 0xFF; UI_BUILD.md 1c) */
+#endif
+            d = track_desc(TSEL, sp->id[k]);
             if (d->fmt == F_CUTOFF) cut = (int32_t)k;
             else if (str_eq(d->label, "RES")) res = TSEL->p[sp->id[k]];
         }

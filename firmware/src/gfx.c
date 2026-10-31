@@ -103,6 +103,9 @@ static int16_t cv_cy0, cv_cy1;   /* text clip: canvas rows cv_cy0 .. cv_cy1 - 1 
 
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 
+#ifndef OC_HOME_PIC
+#define OC_HOME_PIC 0            /* (the new interface: gfx.c comes before core.h in melodee.c; core.h's default, the same) */
+#endif
 /* ------------------------------------------------------------- theme --- */
 /* Five stored colours per palette, the rest derived with fixed blends (tools/gen_ui_palettes.py) */
 static struct {
@@ -112,6 +115,9 @@ static struct {
     uint8_t light, mono;
     uint8_t pal, trk;            /* the palette, the track whose colour is THEME (palette_track) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
+#if OC_HOME_PIC
+    uint16_t cozy[4];            /* (the new interface, UI_BUILD.md 1c) the four knobs' fixed colors: palette_set */
+#endif
 } ux;
 #define T_BG ux.bg               /* background */
 #define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
@@ -143,6 +149,12 @@ static struct {
 /* knob k's colour on the selected track's pages (its label, its curve segment, a row, a lane, a slot): a shade of the
  * track's colour (tools/gen_ui_palettes.py SHADES; knob 1 the track's own), so a page keeps its track's family */
 #define T_KNOB(k) UI_PALETTES[ux.pal].knob[ux.trk & 3u][(k) & 3u]
+#if OC_HOME_PIC
+/* (the new interface, docs/orangecat/UI_BUILD.md 1c) knob k's FIXED color on HOME's picture page and in its scene: the colors of the
+ * plastic on the knobs (the cozies), the same on every track: KNOB 1 blue, 2 green, 3 white, 4 orange. On a light ground the same hues
+ * deeper and the white knob in the palette's text color (white cannot be read on paper); GRAY (the host test palette) in grays */
+#define T_COZY(k) ux.cozy[(k) & 3u]
+#endif
 
 static inline uint16_t ux_gray(uint32_t x5) { return (uint16_t)((x5 << 11) | (x5 << 6) | x5); }
 /* a + (b - a) * pct / 100 per channel, rounded; MONO on the red channel, so it stays gray */
@@ -196,6 +208,14 @@ static void palette_set(uint32_t i)
     ux.sec = ux_mix(p->bg, p->text, 80);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
+#if OC_HOME_PIC
+    {
+        static const uint16_t DARK[4] = {RGB(77, 158, 255), RGB(0, 226, 140), RGB(236, 236, 236), RGB(255, 128, 32)};
+        static const uint16_t LIGHT[4] = {RGB(16, 84, 196), RGB(0, 112, 64), 0, RGB(176, 72, 0)};
+        for (uint32_t k = 0; k < 4u; k++)
+            ux.cozy[k] = ux.mono ? ux_mix(p->bg, p->text, 100 - 12 * (int32_t)k) : ux.light ? (k == 2u ? p->text : LIGHT[k]) : DARK[k];
+    }
+#endif
     palette_theme();
 }
 /* the selected track (ui_draw, every frame): THEME takes its colour; 1 = it changed (redraw everything) */

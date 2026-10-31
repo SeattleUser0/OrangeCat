@@ -108,6 +108,71 @@
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".
                                    * tools/orangecat_engines.sh sets 1 for the proof of concept (docs/orangecat/ENGINE_LOADING_PLAN.md, step 4) */
 #endif
+#ifndef OC_HOME_PIC
+#define OC_HOME_PIC 0             /* (Orange Cat, the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) 1: step 1 as it lands: the four
+                                   * knobs' macros (1a: oc_knobs.c, oc_macro.c), the scene interpreter and the pack's scene trailer (1b: oc_scene.c),
+                                   * HOME's picture page (1c); 0: none of it is compiled and the firmware is release-2's. Off until the whole HOME
+                                   * path works (UI_BUILD.md, step 1) */
+#endif
+#ifndef OC_EDIT_SHEETS
+#define OC_EDIT_SHEETS 0          /* (the new interface 0.2, branch ui-build: docs/orangecat/UI_BUILD.md step 2) 1: EDIT's sheets (ui_sheets.c):
+                                   * EDIT turns the sheets (SOUND, ENV, MOD, FX, VOICE; a native engine's sections), SELECT walks their
+                                   * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
+#endif
+#ifndef OC_SHIFT_MAP
+#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3) 1: HOME is SHIFT (ui_shift.c):
+                                   * held alone its map, let go the MENU; SHIFT + a knob fine, + PRESETS the engine, + EDIT init;
+                                   * 0: HOME held opens the MENU at 0.7 s as release-2's */
+#endif
+#ifndef OC_STEP_PAGES
+#define OC_STEP_PAGES 0           /* (the new interface 0.4, branch ui-build: docs/orangecat/UI_BUILD.md step 4) 1: the step pages: NOTES' knobs PITCH START
+                                   * LEN VEL with PRESETS the cursor, FEEL (ui_feel.c), the tracker's note length on a manual chord, the combos on NOTES and
+                                   * FEEL; 0: NOTES, TRACKER and the SEQ pages as release-2's */
+#endif
+#define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (no page has it
+                                   * with OC_STEP_PAGES 0) */
+#ifndef OC_LANES
+#define OC_LANES 0                /* (the new interface 0.5, branch ui-build: docs/orangecat/UI_BUILD.md step 5) 1: DRUM-X's EDIT > LANES as the eight-lane table
+                                   * (ui_lanes.c), PRESETS picks the lane; 0: the page as release-2's */
+#endif
+#if OC_LANES && !OC_STEP_PAGES
+#error "OC_LANES needs OC_STEP_PAGES (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#ifndef OC_MIXER
+#define OC_MIXER 0                /* (the new interface 0.6, branch ui-build: docs/orangecat/UI_BUILD.md step 6) 1: the mixer's bars and values in the knobs' colors
+                                   * (ui_pages.c pv_strip); 0: as release-2's */
+#endif
+#if OC_MIXER && !OC_LANES
+#error "OC_MIXER needs OC_LANES (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#ifndef OC_CLIP
+#define OC_CLIP 0                 /* (the new interface 0.10, branch ui-build: docs/orangecat/UI_BUILD.md step 10) 1: SHIFT + OCT- / OCT+ copy and paste the selected
+                                   * track's sound (ui_clip.c); 0: the map says LATER, as release-2's */
+#endif
+#if OC_CLIP && !OC_MIXER
+#error "OC_CLIP needs OC_MIXER (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#ifndef OC_CLIP_SEL
+#define OC_CLIP_SEL 0             /* (the new interface 0.11, branch ui-build: docs/orangecat/UI_BUILD.md step 11) 1: SHIFT + OCT- / OCT+ copy and paste the selected
+                                   * notes (NOTES) and a step's feel (FEEL), ui_clip.c; 0: those pages say LATER */
+#endif
+#if OC_CLIP_SEL && !OC_CLIP
+#error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#if OC_LANES
+#define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
+#else
+#define GR_LANES GR_NONE
+#endif
+#if OC_STEP_PAGES && !OC_SHIFT_MAP
+#error "OC_STEP_PAGES needs OC_SHIFT_MAP (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#if OC_SHIFT_MAP && !OC_EDIT_SHEETS
+#error "OC_SHIFT_MAP needs OC_EDIT_SHEETS (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#if OC_EDIT_SHEETS && !OC_HOME_PIC
+#error "OC_EDIT_SHEETS needs OC_HOME_PIC (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
 #ifndef MELODEE_DRUMX
 #define MELODEE_DRUMX 1           /* (Orange Cat 0.9.0) DRUM-X (engine 9, the slot of the retired PHYS): Jiant FM's drum engine, a kit of
                                    * eight synthesized sounds with a MORPH between two patches (eng_drumx.c, drumx_voice.c, GPL-3.0-only).
@@ -238,6 +303,13 @@ static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3)
 #define P_DUBLEN P_RESERVED45                   /* the line's length: OFF 32K 8K 16K 24K 48K 64K (2 .. 16 blocks of 4 KB; a turn up from OFF lands on 32K) */
 #define P_DUBPTRN P_RESERVED46                  /* the heads: SLAP SINGLE SKANK TRIPLE GALLOP SPREAD */
 #define P_DUBSPRP P_RESERVED47                  /* the spring: OFF LOOP WET */
+/* (the new interface, OC_HOME_PIC: UI_BUILD.md 1a) the four knob macros of HOME, one a knob: a stored offset -64 .. 63 over the
+ * knob's targets, 0 the sound as stored (oc_knobs.c, oc_macro.c). The owner's decision 6 (October 29, 2026): P_RESERVED33 .. 36,
+ * never DUB TAPE's ids. Still reserved for the stores (param_reserved: zeroed on every load) until the Release 3 format revision */
+#define P_MAC0 P_RESERVED33
+#define P_MAC1 P_RESERVED34
+#define P_MAC2 P_RESERVED35
+#define P_MAC3 P_RESERVED36
 static int param_dub_lane(uint32_t id) { return param_jfx_free(id); }
 static int param_dub_setup(uint32_t id) { return id >= P_RESERVED45 && id <= P_RESERVED47; }
 
