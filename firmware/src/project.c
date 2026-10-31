@@ -788,14 +788,68 @@ static void project_quick_save(void)
     ui_message("NEW PROJECT: PICK SLOT");
 }
 /* autosave (ui_input.c autosave_poll: stopped, untouched a while): the music back to the slot it was loaded from or last
- * saved to when it differs from what that slot holds ("SAVED B"); a new project (no slot yet) waits for a save */
+ * saved to when it differs from what that slot holds ("SAVED B"). (Round 9, after the owner lost the music he made on a fresh
+ * unit) Music with no slot yet (a new project that holds notes: the template, the power-on sounds alone are not music) goes to the
+ * first free slot under the same rules (stopped, untouched 5 s), named AUTOSAVE, and the screen says which: AUTOSAVED B. With no
+ * slot free the screen says NOT SAVED: HOLD SAVE when the music has changed since it last said so and when the transport stops
+ * (autosave_poll calls project_nosave_stop); a project with a slot is as it was. */
+static int project_used(uint32_t slot);
+static int project_old(uint32_t slot);
+static uint32_t proj_nosave_hash;                       /* the music the screen last said NOT SAVED about (0: none yet) */
+static int project_new_has_notes(void)
+{
+    for (uint32_t k = 0; k < NTRK; k++)
+        if (!seq_is_empty(&trk[k]) || notes_have_recording(&trk[k]))
+            return 1;
+    return 0;
+}
+static int project_free_slot_or_none(void)
+{
+    for (uint32_t i = 0; i < 4u; i++)
+        if (!project_used(i) && !project_old(i))
+            return (int)i;
+    return -1;
+}
+static void project_nosave_note(uint32_t always)         /* no slot and none free: say so when the music differs from what was said, or always */
+{
+    project_t *p = &proj_scratch;
+    if (!project_new_has_notes())
+        return;
+    project_capture(p);
+    proj_wire_gen++;
+    if (!bank_pack(proj_wire_u.raw, p, 1))
+        return;
+    uint32_t h = bank_hash(proj_wire_u.raw);
+    if (always || h != proj_nosave_hash) {
+        proj_nosave_hash = h;
+        ui_message("NOT SAVED: HOLD SAVE");
+    }
+}
+static void project_nosave_stop(void)                    /* the transport has just stopped (ui_input.c autosave_poll) */
+{
+    if (proj_cur >= 4u && !AUDIO_LAB_GUARDED() && !proj_candidate_tracks() && project_free_slot_or_none() < 0)
+        project_nosave_note(1);
+}
 static void project_autosave(void)
 {
     if(AUDIO_LAB_GUARDED())return;
     project_t *p = &proj_scratch;
     uint32_t slot = proj_cur;
-    if (slot >= 4u || transport_busy() || proj_candidate_tracks())
+    if (transport_busy() || proj_candidate_tracks())
         return;
+    if (slot >= 4u) {
+        int f = project_free_slot_or_none();
+        if (!project_new_has_notes())
+            return;
+        if (f < 0)
+            project_nosave_note(0);
+        else if (!project_save_as((uint32_t)f, "AUTOSAVE")) {
+            char b[16] = "AUTOSAVED A";
+            b[10] = (char)('A' + f);
+            ui_message(b);
+        }
+        return;
+    }
     if (ocl_keep_all())                                 /* (Orange Cat 0.3, 4c) kept to the pool first */
         return;
     project_capture(p);

@@ -819,15 +819,20 @@ static void jam_take(void)
  * differs from what is there (project.c project_autosave); once per rest */
 #define AUTOSAVE_MS 5000u
 static void project_autosave(void);
+static void project_nosave_stop(void);
 static void autosave_poll(uint32_t active)
 {
     static uint32_t t0, rx;
-    static uint8_t done;
+    static uint8_t done, was_busy;
 #if MELODEE_UART
     uint32_t r = usb.rx_pkts + um.bytes;
 #else
     uint32_t r = usb.rx_pkts;
 #endif
+    uint32_t busy = transport_busy() != 0;
+    if (was_busy && !busy && settings_autosave)
+        project_nosave_stop();                          /* (round 9) music with no slot and none free: say so as the transport stops */
+    was_busy = (uint8_t)busy;
     if (!settings_autosave || active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || new_on() || ui.layer || momentary.active ||
         browse_pending() || qsave_req || designer_on()) {
         t0 = fm1_ms;
