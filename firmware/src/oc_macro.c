@@ -55,7 +55,16 @@ static int32_t mac_value(const knob_def_t *kd, uint32_t i, int32_t from, int32_t
     return clamp(from + mac_delta(g->shape, g->depth, m), d->min, d->max);
 }
 /* knob k's offset on track t, -64 .. 63 (anything else stored there counts as its nearest end) */
+#ifndef OC_MAC_FORCE
+#define OC_MAC_FORCE 0
+#endif
+#if OC_MAC_FORCE
+/* (round 9, a measurement build only: OC_MAC_FORCE=1 is never set by tools/orangecat_engines.sh) every macro of every track off center, so the interrupt's
+ * mac_on / mac_off run on the whole table without the knobs (the editor refuses the reserved ids): the timing of step 9 */
+static int32_t mac_offset(const track_t *t, uint32_t k) { static const int8_t F[4] = {40, -40, 63, -64}; (void)t; return F[k & 3u]; }
+#else
 static int32_t mac_offset(const track_t *t, uint32_t k) { return clamp(t->p[P_MAC0 + k], -64, 63); }
+#endif
 
 /* (the interrupt, end of throw_on) every track's turned macros on; 1 when anything was put on */
 static __attribute__((noinline)) uint32_t mac_on(void)
