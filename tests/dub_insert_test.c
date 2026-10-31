@@ -291,21 +291,34 @@ int main(void)
         CHECK(sounding36, "the note that waited for the state was lost");
         CHECK(sounding, "track 2's first note after the switch (two blocks later) was lost");
         trk_note_off(&trk[1], 36); trk_note_off(&trk[1], 38);
-        {   /* UNISON: every voice of the note comes to voice_start; the note waits once, and a second note in the same wait block waits too (the review's finding 1) */
-            eng_state_clear(1); memset(eng_take_gen, 0, sizeof eng_take_gen); trk[1].engine = 0;
-            trk[1].p[P_VOICE] = V_UNISON;
-            mix_block(rec[306 % NBLK], CTL);
+        {   /* UNISON: every voice of the note comes to voice_start; the note waits once, and a second note in the same wait block waits too (the review's finding 1).
+             * The voices gone first (no fade: the switch is at once), the arena filled again so the state does not fit, then the pair in the wait block */
+            uint32_t sz, fails1;
+            for (b = 306; b < 330; b++) mix_block(rec[b % NBLK], CTL);
+            eng_state_clear(1); memset(eng_take_gen, 0, sizeof eng_take_gen);
+            for (sz = 60000u; sz >= 400u; sz -= 400u) if (resource_allocate(RES_NOTE_HISTORY, sz)) break;   /* (the effects' yielded room, filled) */
+            for (sz = 60000u; sz >= 400u; sz -= 400u) if (resource_allocate(RES_HOT0 + 2, sz)) break;
+            int full2 = resource_allocate(RES_ENGINE0 + 1, want) == 0;
+            if (!full2) resource_release(RES_ENGINE0 + 1);
+            fails1 = resource_failures;
+            trk[1].p[P_VOICE] = V_UNISON; trk[1].engine = 0;
+            mix_block(rec[330 % NBLK], CTL);                             /* the switch, its take refused */
+            int no_fade = !trk[1].xf_on && trk[1].engine == eng_idx(trk[1].eng_req), inactive = 1;
             trk_note_on(&trk[1], 40, 100); trk_note_on(&trk[1], 43, 100);
+            for (uint32_t i = 0; i < NVOICE; i++) inactive &= !trk[1].v[i].active;
             int two = trk[1].xp_n == 2 && trk[1].xp_note[0] == 40 && trk[1].xp_note[1] == 43;
-            for (b = 307; b < 312; b++) mix_block(rec[b % NBLK], CTL);
-            int s43 = 0;
-            for (uint32_t i = 0; i < NVOICE; i++) s43 |= trk[1].v[i].active && trk[1].v[i].note == 43;
-            printf("dub insert: STATE: UNISON: two notes in the wait block: xp_n %u (%u %u), the last one sounding after the yield %d\n", trk[1].xp_n, trk[1].xp_note[0], trk[1].xp_note[1], s43);
-            CHECK(two, "UNISON pushed a note once a voice: xp_n %u", trk[1].xp_n);
-            CHECK(s43, "UNISON: the second note of the wait block was lost");
+            resource_release(RES_NOTE_HISTORY); resource_release(RES_HOT0 + 2);
+            for (b = 331; b < 340; b++) mix_block(rec[b % NBLK], CTL);
+            int s40 = 0, s43 = 0;
+            for (uint32_t i = 0; i < NVOICE; i++) { s40 |= trk[1].v[i].active && trk[1].v[i].note == 40; s43 |= trk[1].v[i].active && trk[1].v[i].note == 43; }
+            printf("dub insert: STATE: UNISON: arena full %d, the switch at once %d, two notes in the wait block: xp_n %u (%u %u) with every voice inactive %d, take failures %u; after the room came back 40 sounding %d, 43 sounding %d (UNISON: one note, the last)\n",
+                   full2, no_fade, trk[1].xp_n, trk[1].xp_note[0], trk[1].xp_note[1], inactive, resource_failures - fails1, s40, s43);
+            CHECK(full2 && no_fade, "the UNISON cell did not reach voice_start's wait (arena full %d, switch at once %d)", full2, no_fade);
+            CHECK(two && inactive, "UNISON pushed a note once a voice, or started one: xp_n %u", trk[1].xp_n);
+            CHECK(s43 && !s40, "UNISON (one note at a time, LAST priority): the last note of the wait block should sound, the first stay held (40 %d, 43 %d)", s40, s43);
             trk_note_off(&trk[1], 40); trk_note_off(&trk[1], 43); trk[1].p[P_VOICE] = V_POLY;
         }
-        for (b = 312; b < 1400; b++) mix_block(rec[b % NBLK], CTL);
+        for (b = 340; b < 1400; b++) mix_block(rec[b % NBLK], CTL);
         printf("dub insert: STATE: 0.8 s later: DUB state %d ready %d have %u, FX FULL / DUB FULL bits %x, arena %u used\n", dub_i[0].state, dub_ready[0], dub_have[0], jfx_full, resource_used());
         CHECK(dub_ready[0] || (jfx_full & JFX_FULL_DUB0), "after the yield DUB neither came back nor says DUB FULL");
         resource_release(RES_ENGINE0 + 2); resource_release(RES_ENGINE0 + 3);
