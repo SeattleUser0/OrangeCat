@@ -84,6 +84,7 @@ class OcReader {
 // the replies, as the editor reads them (web/editor.html parse[])
 export function parsePackInfo(a) {
   const r = new OcReader(a), o = { state: r.b(), banks: r.b() };
+  o.trailer = (o.banks & 1) === 1;                       // (round 9) a scene trailer is in the pack area (a firmware with the new interface says so; older ones send 0)
   o.len = r.n3(); o.hash = r.n5(); o.buildLen = r.n3(); o.buildHash = r.n5(); o.area = r.n3();
   return o;
 }
@@ -383,7 +384,7 @@ export async function runSet(ctx) {
     }
     if (stages.pack) {
       if (!files.pack) sum.pack = "nofile";
-      else if (probe.pack.state === 1 && probe.pack.hash === probe.pack.buildHash) { sum.pack = "current"; part(weight.pack)(1); }
+      else if (probe.pack.state === 1 && probe.pack.hash === probe.pack.buildHash && (files.pack.length <= probe.pack.buildLen || probe.pack.trailer)) { sum.pack = "current"; part(weight.pack)(1); }   // (round 9: a pack with a scene trailer is written again when the unit has the tables but not the trailer)
       else {
         const p = part(weight.pack);
         try { say("packWorking"); await installPack(link, files.pack, probe.pack, p, { sleep }); sum.pack = "installed"; }

@@ -37,7 +37,11 @@ static void sound_copy(void)
     snd_clip.preset = t->preset;
     snd_clip.user = t->user;
     snd_clip.user_native = t->user_native;
+#if OC_HOME_PIC
+    for (uint32_t j = 0; j < P_COUNT; j++) snd_clip.p[j] = mac_saved_value(t, j);   /* (round 9, the review of the interface branch: the sound as it sounds, the knob macros committed into their targets as a save does; a plain copy lost an off-centre macro on the paste) */
+#else
     memcpy(snd_clip.p, t->p, sizeof snd_clip.p);
+#endif
     memset(snd_clip.fm6, 0, sizeof snd_clip.fm6);
     memcpy(snd_clip.fm6, fm6_patch[i], FP_SIZE);
     snd_clip.cz = cz_patch[i];

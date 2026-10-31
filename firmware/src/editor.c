@@ -1194,7 +1194,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                                                             * library banks held presets until 0.9.0; the pack takes none now), the stored length (3 x 7 bits), the stored
                                                             * hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) */
         uint32_t len, hash, st = oc_pack_info(&len, &hash);
+#if OC_HOME_PIC
+        ed_b(st); ed_b(st == 1u && pk_trailer_ok() ? 1u : 0u);       /* (round 9) the second byte: bit 0 a whole scene trailer is in the area (the installer page writes the pack again when its file has one and this is 0) */
+#else
         ed_b(st); ed_b(0);
+#endif
         ed_b(len); ed_b(len >> 7); ed_b(len >> 14);
         for (i = 0; i < 5u; i++) ed_b(hash >> (7u * i));
         ed_b(OC_PACK_LEN); ed_b(OC_PACK_LEN >> 7); ed_b(OC_PACK_LEN >> 14);
