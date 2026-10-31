@@ -371,7 +371,7 @@ function buildLabels() {
 /* what the Install button will write: the ticked boxes, for the chosen build */
 function installWhat() {
   const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"]]
-    .filter(([id]) => $(id).checked && !$(id).disabled).map(([, k]) => t(k));
+    .filter(([id]) => $(id).checked && (writing || !$(id).disabled)).map(([, k]) => t(k));
   const ch = selection().channel || {};
   $("install-what").textContent = t("installWhat") + (parts.length ? parts.join(", ") + (ch.version ? " (" + ch.version + ")" : "") : t("installNone"));
 }

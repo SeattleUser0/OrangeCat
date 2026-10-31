@@ -546,6 +546,8 @@ static char proj_name[PROJ_NAME_LEN + 1u]    /* the name of the music as it is n
 #define PROJ_NO_SLOT 0xFFu
 static uint8_t proj_cur = PROJ_NO_SLOT;      /* the slot the music was loaded from or last saved to (a rename of it
                                               * renames the music too); PROJ_NO_SLOT none (the editor's restore) */
+static uint8_t proj_skip_armed;                /* (round 9) set when a slot is erased or a restore takes the loaded music's slot: the music in RAM is not new, the next autosave rest takes its hash as the one to leave alone */
+static uint32_t proj_skip_hash;
 static union {                               /* serialized main-loop work, also used for archive transfers */
     project_store_t p;                       /* standalone legacy record view */
     uint8_t raw[PROJ_BANK_BYTES];              /* complete FBKG, including legacy imports */
@@ -810,6 +812,10 @@ static int project_free_slot_or_none(void)
             return (int)i;
     return -1;
 }
+static int project_on_slot_page(void)                    /* the PROJECT page is up (SAVE with no slot opens it to pick one) */
+{
+    return ui.page < NPAGES && PAGES[ui.page].graph == GR_SLOTS;
+}
 static void project_nosave_note(uint32_t always)         /* no slot and none free: say so when the music differs from what was said, or always */
 {
     project_t *p = &proj_scratch;
@@ -827,7 +833,7 @@ static void project_nosave_note(uint32_t always)         /* no slot and none fre
 }
 static void project_nosave_stop(void)                    /* the transport has just stopped (ui_input.c autosave_poll) */
 {
-    if (proj_cur >= 4u && !AUDIO_LAB_GUARDED() && !proj_candidate_tracks() && project_free_slot_or_none() < 0)
+    if (proj_cur >= 4u && !AUDIO_LAB_GUARDED() && !proj_candidate_tracks() && project_free_slot_or_none() < 0 && !project_on_slot_page())
         project_nosave_note(1);
 }
 static void project_autosave(void)
@@ -839,11 +845,27 @@ static void project_autosave(void)
         return;
     if (slot >= 4u) {
         int f = project_free_slot_or_none();
-        if (!project_new_has_notes())
+        if (!project_new_has_notes() || project_on_slot_page())
+            return;                                     /* (and not while the PROJECT page waits for a slot to be picked) */
+        if (proj_skip_armed) {                          /* an erase or a restore left this music in RAM: it is not new; only a change of it is */
+            project_t *q = &proj_scratch;
+            proj_skip_armed = 0;
+            project_capture(q);
+            proj_wire_gen++;
+            proj_skip_hash = bank_pack(proj_wire_u.raw, q, 1) ? bank_hash(proj_wire_u.raw) : 0u;
             return;
+        }
+        if (proj_skip_hash) {
+            project_t *q = &proj_scratch;
+            project_capture(q);
+            proj_wire_gen++;
+            if (bank_pack(proj_wire_u.raw, q, 1) && bank_hash(proj_wire_u.raw) == proj_skip_hash)
+                return;
+            proj_skip_hash = 0;
+        }
         if (f < 0)
             project_nosave_note(0);
-        else if (!project_save_as((uint32_t)f, "AUTOSAVE")) {
+        else if (!project_save_as((uint32_t)f, proj_name[0] ? 0 : "AUTOSAVE")) {
             char b[16] = "AUTOSAVED A";
             b[10] = (char)('A' + f);
             ui_message(b);
@@ -923,8 +945,10 @@ static int project_erase(uint32_t slot)
     }
     slot &= 3u;
     if (proj_write_slot(slot, proj_wire_u.raw, 0)) { ui_message("SAVE ERROR"); return 2; }
-    if (proj_cur == slot)
+    if (proj_cur == slot) {
         proj_cur = PROJ_NO_SLOT;
+        proj_skip_armed = 1;                            /* (round 9) erased: the music left in RAM is not to be autosaved back */
+    }
 #if MELODEE_FLASH
     if (flash_ok) { ui_message("ERASED"); return 0; }
 #endif

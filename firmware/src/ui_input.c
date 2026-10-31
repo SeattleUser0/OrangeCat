@@ -823,22 +823,26 @@ static void project_nosave_stop(void);
 static void autosave_poll(uint32_t active)
 {
     static uint32_t t0, rx;
-    static uint8_t done, was_busy;
+    static uint8_t done, was_playing, stop_edge;
 #if MELODEE_UART
     uint32_t r = usb.rx_pkts + um.bytes;
 #else
     uint32_t r = usb.rx_pkts;
 #endif
-    uint32_t busy = transport_busy() != 0;
-    if (was_busy && !busy && settings_autosave)
-        project_nosave_stop();                          /* (round 9) music with no slot and none free: say so as the transport stops */
-    was_busy = (uint8_t)busy;
+    uint32_t busy = transport_busy() != 0, playing = song.playing != 0;
+    if (was_playing && !playing && !busy && settings_autosave)
+        stop_edge = 1;                                  /* (round 9) the transport has stopped: say it from the guarded part below, not here */
+    was_playing = (uint8_t)playing;
     if (!settings_autosave || active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || new_on() || ui.layer || momentary.active ||
         browse_pending() || qsave_req || designer_on()) {
         t0 = fm1_ms;
         rx = r;
         done = 0;
         return;
+    }
+    if (stop_edge) {
+        stop_edge = 0;
+        project_nosave_stop();                          /* (music with no slot and none free: say so as the transport stops; no guard of the above was up) */
     }
     if (!done && fm1_ms - t0 >= AUTOSAVE_MS) {
         done = 1;

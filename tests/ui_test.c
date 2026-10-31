@@ -5811,6 +5811,32 @@ static int test_capture(void)
         song.playing = 0;
         frame(); frame();
         bad += check("  .. and when the transport stops", msg_is("NOT SAVED: HOLD SAVE"));
+        /* an erased slot's music stays erased: the music left in RAM is not new, only a change of it is */
+        memset(proj_slot, 0, sizeof proj_slot);
+        memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+        for (k = 0; k < 4u; k++) proj_fetch(k);
+        proj_cur = PROJ_NO_SLOT; proj_skip_hash = 0; proj_skip_armed = 0;
+        project_save(1);
+        bad += check("erase: the music is on slot B", project_used(1) && proj_cur == 1u);
+        ui.msg_t = 0;
+        project_erase(1);
+        turn(EN_K1, 1);
+        for (i = 0; i < 400u; i++) frame();
+        bad += check("erase: the loaded slot's music is not autosaved back 5 s later", !project_used(1) && proj_cur == PROJ_NO_SLOT);
+        TSEL->step[4].n = 1; TSEL->step[4].note[0] = 67; turn(EN_K1, 1);
+        for (i = 0; i < 400u && !project_used(0); i++) frame();
+        bad += check("  .. but a change of it is (first free slot)", project_used(0) && proj_cur == 0u);
+        /* while the PROJECT page waits for a slot to be picked nothing is saved behind it */
+        memset(proj_slot, 0, sizeof proj_slot);
+        memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+        for (k = 0; k < 4u; k++) proj_fetch(k);
+        proj_cur = PROJ_NO_SLOT; proj_skip_hash = 0; proj_skip_armed = 0;
+        TSEL->step[5].n = 1; TSEL->step[5].note[0] = 69;
+        { uint32_t pg; for (pg = 0; pg < NPAGES && PAGES[pg].graph != GR_SLOTS; pg++) ; ui.page = (uint8_t)pg; ui.home = 0; }
+        turn(EN_K1, 1);
+        for (i = 0; i < 500u; i++) frame();
+        bad += check("PROJECT page up (picking a slot): the music is not saved behind it", !project_used(0));
+        ui.page = 0; ui.home = 1;
         memset(proj_slot, 0, sizeof proj_slot);
         memset(proj_bank_slot, 0, sizeof proj_bank_slot);
         for (k = 0; k < 4u; k++) proj_fetch(k);
