@@ -302,7 +302,7 @@ static uint32_t ed_bk_commit_inner(void)
             ed_bk_len = BANK_STORE_SIZE;
         }
         if (proj_write_slot(ed_bk_id - 2u, raw, ed_bk_len)) return 4;
-        if (proj_cur == ed_bk_id - 2u) proj_cur = PROJ_NO_SLOT;
+        if (proj_cur == ed_bk_id - 2u) { proj_cur = PROJ_NO_SLOT; proj_skip_armed = 1; }   /* (round 9: the music in RAM is not new music to autosave) */
         sync_reload = 1; ui.force = 1;
         return 0;
     } else if (ed_bk_id == 1u) {

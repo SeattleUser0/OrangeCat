@@ -64,7 +64,7 @@ function makeUnit(opts = {}) {
   const input = {state: "connected", onmidimessage: null};
   const output = {state: "connected", send(m) {
     const cmd = m[4], args = m.slice(5, -1); u.sent.push(cmd);
-    if (cmd === 115 && !opts.noPack) reply(115, [u.packState, 1, ...n3(u.packLen), ...n5(u.packHash), ...n3(PLEN), ...n5(PHASH), ...n3(4096)]);
+    if (cmd === 115 && !opts.noPack) reply(115, [u.packState, opts.trailer === false ? 0 : 1, ...n3(u.packLen), ...n5(u.packHash), ...n3(PLEN), ...n5(PHASH), ...n3(opts.area || 4096)]);
     else if (cmd === 120 && !opts.noMod) reply(120, [2, 12, opts.flags || 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(u.packState ? PHASH : 0), u.plan,
         ...[0, 1].flatMap((i) => [u.module && i === 0 ? 7 : 0, 0, u.module && i === 0 ? ENGINE : 127, ...n3(u.module && i === 0 ? 0x400 : 0)])]);
     else if (cmd === 125 && !opts.noEngines) {
@@ -139,6 +139,21 @@ const mono = (m) => m.every((v, i) => i === 0 || v >= m[i - 1]) && m.at(-1) === 
   const {sum} = await run(u, ALL, files());
   assert.deepEqual(sum, {firmware: "installed", pack: "current", module: ["current"]});
   for (const c of [116, 117, 118, 121, 122, 123]) assert.ok(!u.sent.includes(c), "no write: " + c);
+}
+// 2b. (round 9) a pack with a scene trailer (a file longer than this build's tables): a unit that has the tables but not the trailer gets the pack again;
+// a unit that says it has the trailer, and a file without one, are left as they are
+const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 100).fill(0x5a); t.set(f); return t; };
+{
+  let u = makeUnit({pack: "current", module: true, trailer: false, area: PLEN + 200});
+  let r = await run(u, ALL, {pack: withTrailer(), modules: [makeOcm()]});
+  assert.equal(r.sum.pack, "installed", "tables without the trailer: the pack with its trailer is written");
+  assert.ok(u.sent.includes(116) && u.sent.includes(117), "BEGIN and WRITE went out");
+  u = makeUnit({pack: "current", module: true, trailer: true, area: PLEN + 200});
+  r = await run(u, ALL, {pack: withTrailer(), modules: [makeOcm()]});
+  assert.equal(r.sum.pack, "current", "the unit has the trailer: nothing written");
+  u = makeUnit({pack: "current", module: true, trailer: false, area: PLEN + 200});
+  r = await run(u, ALL, {pack: makePack(), modules: [makeOcm()]});
+  assert.equal(r.sum.pack, "current", "a file without a trailer, a unit without one: as it was");
 }
 // 3. pack current, module missing
 {

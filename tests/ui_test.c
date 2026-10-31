@@ -5771,6 +5771,76 @@ static int test_capture(void)
         memset(proj_slot, 0, sizeof proj_slot);
         memset(proj_bank_slot, 0, sizeof proj_bank_slot);
     }
+    {   /* (round 9) music made on a fresh unit has no slot: it autosaves into the first free one (AUTOSAVED B), or says NOT SAVED: HOLD SAVE */
+        uint32_t k;
+        memset(proj_slot, 0, sizeof proj_slot);
+        memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+        ui_power_on();
+        stop_transport();
+        for (k = 0; k < 4u; k++) proj_fetch(k);
+        bad += check("new music: a fresh unit has no slot and four free", proj_cur == PROJ_NO_SLOT && !project_used(0) && !project_used(3));
+        for (i = 0; i < 400u; i++) frame();
+        bad += check("new music: nothing played in, nothing saved (the power-on sounds are not music)", !project_used(0) && proj_cur == PROJ_NO_SLOT);
+        TSEL->step[0].n = 1; TSEL->step[0].note[0] = 60; turn(EN_K1, 1);                 /* (a touch: the rest starts again) */
+        for (i = 0; i < 100u; i++) frame();
+        bad += check("new music: not before AUTOSAVE_MS of rest", !project_used(0));
+        for (i = 0; i < 300u && !project_used(0); i++) frame();      /* (a message is shown for a short while: read it as it appears) */
+        bad += check("new music: notes, stopped, untouched 5 s: into the first free slot, the screen says which (AUTOSAVED A)",
+                     project_used(0) && proj_cur == 0u && msg_is("AUTOSAVED A") && stored_param(0, 0, P_LEVEL) == TSEL->p[P_LEVEL]);
+        TSEL->step[1].n = 1; TSEL->step[1].note[0] = 62; turn(EN_K1, 1);                 /* (a touch: the rest starts again) */
+        ui.msg_t = 0;
+        for (i = 0; i < 400u && !msg_is("SAVED A"); i++) frame();
+        bad += check("new music, now with a slot: the next change goes back to A (as any project)", project_used(0) && !project_used(1) && msg_is("SAVED A"));
+        /* every slot taken: NOT SAVED: HOLD SAVE when the music changes (once per change) and when the transport stops */
+        for (k = 0; k < 4u; k++) project_save(k);
+        proj_cur = PROJ_NO_SLOT;
+        proj_nosave_hash = 0;
+        ui.msg_t = 0;
+        TSEL->step[2].n = 1; TSEL->step[2].note[0] = 64; turn(EN_K1, 1);                 /* (a touch: the rest starts again) */
+        for (i = 0; i < 400u && !ui.msg_t; i++) frame();
+        bad += check("new music, no slot free: NOT SAVED: HOLD SAVE once the music has rested", msg_is("NOT SAVED: HOLD SAVE") && proj_cur == PROJ_NO_SLOT);
+        ui.msg_t = 0;
+        for (i = 0; i < 400u; i++) frame();
+        bad += check("  .. and not again while the music is the same", !ui.msg_t);
+        TSEL->step[3].n = 1; TSEL->step[3].note[0] = 65; turn(EN_K1, 1);                 /* (a touch: the rest starts again) */
+        for (i = 0; i < 400u && !ui.msg_t; i++) frame();
+        bad += check("  .. but again when the music changes", msg_is("NOT SAVED: HOLD SAVE"));
+        ui.msg_t = 0;
+        song.playing = 1;
+        for (i = 0; i < 10u; i++) frame();
+        song.playing = 0;
+        frame(); frame();
+        bad += check("  .. and when the transport stops", msg_is("NOT SAVED: HOLD SAVE"));
+        /* an erased slot's music stays erased: the music left in RAM is not new, only a change of it is */
+        memset(proj_slot, 0, sizeof proj_slot);
+        memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+        for (k = 0; k < 4u; k++) proj_fetch(k);
+        proj_cur = PROJ_NO_SLOT; proj_skip_hash = 0; proj_skip_armed = 0;
+        project_save(1);
+        bad += check("erase: the music is on slot B", project_used(1) && proj_cur == 1u);
+        ui.msg_t = 0;
+        project_erase(1);
+        turn(EN_K1, 1);
+        for (i = 0; i < 400u; i++) frame();
+        bad += check("erase: the loaded slot's music is not autosaved back 5 s later", !project_used(1) && proj_cur == PROJ_NO_SLOT);
+        TSEL->step[4].n = 1; TSEL->step[4].note[0] = 67; turn(EN_K1, 1);
+        for (i = 0; i < 400u && !project_used(0); i++) frame();
+        bad += check("  .. but a change of it is (first free slot)", project_used(0) && proj_cur == 0u);
+        /* while the PROJECT page waits for a slot to be picked nothing is saved behind it */
+        memset(proj_slot, 0, sizeof proj_slot);
+        memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+        for (k = 0; k < 4u; k++) proj_fetch(k);
+        proj_cur = PROJ_NO_SLOT; proj_skip_hash = 0; proj_skip_armed = 0;
+        TSEL->step[5].n = 1; TSEL->step[5].note[0] = 69;
+        { uint32_t pg; for (pg = 0; pg < NPAGES && PAGES[pg].graph != GR_SLOTS; pg++) ; ui.page = (uint8_t)pg; ui.home = 0; }
+        turn(EN_K1, 1);
+        for (i = 0; i < 500u; i++) frame();
+        bad += check("PROJECT page up (picking a slot): the music is not saved behind it", !project_used(0));
+        ui.page = 0; ui.home = 1;
+        memset(proj_slot, 0, sizeof proj_slot);
+        memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+        for (k = 0; k < 4u; k++) proj_fetch(k);
+    }
     ui_power_on();
     return bad;
 }

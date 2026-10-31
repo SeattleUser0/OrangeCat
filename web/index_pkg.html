@@ -56,19 +56,20 @@
   <p class="small"><span data-t="brick"></span>
     <a href="https://github.com/keremimo/melodee/blob/next/docs/RECOVERY.md" target="_blank" rel="noopener" style="color:inherit" data-t="recoveryLink"></a></p>
   <p><label><span data-t="releaseTitle"></span><br><select id="release"></select></label></p>
-  <p><label><input type="radio" name="build" id="build-dual" checked> <span data-t="dual"></span></label></p>
+  <fieldset id="builds">
+    <legend data-t="buildsTitle"></legend>
+    <p><label><input type="radio" name="build" id="build-dual" checked> <strong data-t="dual"></strong> <span id="dual-version"></span></label><br><span class="small" data-t="dualWhy"></span></p>
+    <section id="nightly-options" hidden>
+      <p><label><input type="radio" name="build" id="build-nightly-dual"> <strong data-t="nightly-dual"></strong> <span id="nightly-version"></span></label><br><span class="small" data-t="nightlyWhy"></span></p>
+      <p class="small" id="nightly-info"></p>
+    </section>
+  </fieldset>
   <details id="advanced-installs" hidden>
     <summary data-t="advancedTitle"></summary>
     <section id="rc-options" hidden>
       <p><strong data-t="rcTitle"></strong> · <span id="rc-version"></span></p>
       <p><label><input type="radio" name="build" id="build-rc-dual"> <span data-t="rc-dual"></span></label></p>
       <p class="small" data-t="rcWhy"></p>
-    </section>
-    <section id="nightly-options" hidden>
-      <p><strong data-t="nightlyTitle"></strong></p>
-      <p><label><input type="radio" name="build" id="build-nightly-dual"> <span data-t="nightly-dual"></span></label></p>
-      <p class="small" data-t="nightlyWhy"></p>
-      <p class="small" id="nightly-info"></p>
     </section>
   </details>
   <fieldset id="stages">
@@ -79,6 +80,7 @@
     <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
     <p class="small" id="set-note"></p>
   </fieldset>
+  <p class="small" id="install-what"></p>
   <p><button id="go" disabled data-t="install"></button></p>
   <section style="margin-top:24px" aria-labelledby="transit-title">
     <h2 id="transit-title" data-t="transitTitle"></h2>
@@ -123,15 +125,20 @@ const TEXT = {
   ja: {
     intro: "FM-1 を USB で接続してください。（Chrome か Edge で使えます）",
     warn: "書き込み中は USB を抜かないでください。",
-    install: "Orange Catをインストール", other: "English",
+    install: "チェックした内容をインストール", other: "English",
     releaseTitle: "安定版のバージョン", latest: "最新版",
-    advancedTitle: "詳細なインストール（RC・Nightly）",
+    advancedTitle: "詳細なインストール（リリース候補）",
+    buildsTitle: "ビルドを選ぶ",
+    dualWhy: "テスト済みのリリースです。確実に動かしたいときはこちら。",
+    installWhat: "インストールボタンは、選んだビルドについて上でチェックした内容を書き込みます：",
+    installNone: "何もチェックされていません：何も書き込みません",
+    installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESモジュール", installProphet: "Prophetモジュール",
     rcTitle: "リリース候補", "rc-dual": "RC",
     "rc-dualTag": "リリース候補",
     rcWhy: "次のリリースのテスト版です。標準を選んでインストールすると安定版へ戻せます。",
     nightlyTitle: "Nightly（開発ビルド）", "nightly-dual": "Nightly",
     "nightly-dualTag": "nightly",
-    nightlyWhy: "ブランチの開発版です（ブランチ名は下に表示）。インストール前にエディタで全体バックアップを保存してください。標準版を選ぶとリリース版へ戻せます。",
+    nightlyWhy: "新しいインターフェースと最新の修正を含む最新ビルドです。標準版よりテストが少ないため、先にエディタで全体バックアップを保存してください。標準版を選ぶと戻せます。",
     dual: "標準", dualTag: "標準",
     editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
@@ -179,7 +186,7 @@ const TEXT = {
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
-    stagesTitle: "インストールする内容", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール", stageProphet: "Prophetモジュール",
+    stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール", stageProphet: "Prophetモジュール",
     packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "モジュールが無くても今は変わりません（SHAPESはファームウェアに内蔵されています）。",
     prophetWhy: "Prophetモジュール(32 KB)はSHAPESモジュールと一緒には入りません。どちらか一方を選んでください。もう一方が入っているときは、先に消してください。",
     noPackFile: "このリリースにはパックのファイルがありません。", noModFile: "このリリースにはモジュールのファイルがありません。",
@@ -201,15 +208,20 @@ const TEXT = {
   en: {
     intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
     warn: "Do not unplug the USB cable while writing.",
-    install: "Install Orange Cat", other: "日本語",
+    install: "Install what is ticked", other: "日本語",
     releaseTitle: "Stable release", latest: "Latest",
-    advancedTitle: "Advanced installs",
+    advancedTitle: "Advanced installs (release candidates)",
+    buildsTitle: "Choose a build",
+    dualWhy: "The tested release. Choose this for a unit that is known to work.",
+    installWhat: "The Install button writes what is ticked above, for the build you chose: ",
+    installNone: "nothing is ticked: nothing will be written",
+    installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES module", installProphet: "the Prophet module",
     rcTitle: "Release candidate", "rc-dual": "Release candidate",
     "rc-dualTag": "release candidate",
     rcWhy: "Preview of the next release, available for testing. Choose Standard to return to stable.",
     nightlyTitle: "Nightly (development build)", "nightly-dual": "Nightly",
     "nightly-dualTag": "nightly",
-    nightlyWhy: "Development build from a branch (named below). Save a complete backup in the editor before installing. Choose Standard to return to the release.",
+    nightlyWhy: "The newest build, with the new interface and the latest fixes. Less tested than Standard: save a complete backup in the editor first. Choose Standard to go back.",
     dual: "Standard", dualTag: "standard",
     editor: "Editor (after installing: edit sounds and sequences from the computer)",
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
@@ -257,7 +269,7 @@ const TEXT = {
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
-    stagesTitle: "What to install", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module", stageProphet: "Prophet module",
+    stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module", stageProphet: "Prophet module",
     packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "Without the module nothing changes today: SHAPES is still built into the firmware.",
     prophetWhy: "The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
     noPackFile: "This release has no pack file.", noModFile: "This release has no module file.",
@@ -287,7 +299,7 @@ function applyLang() {
   $("stock-go").textContent = t($("stock-skip-backup").checked ? "stockGoNoBackup" : "stockGo");
   $("transit-go").textContent = t($("transit-skip-backup").checked ? "transitGoNoBackup" : "transitGo");
   if ($("release").options.length) releaseOptions();
-  if (pageReady) stageNote();
+  if (pageReady) { stageNote(); buildLabels(); installWhat(); }
   if (lastKey === "ready") ready();
   else if (lastKey) $("status").textContent = t(lastKey) + lastArg;
 }
@@ -344,12 +356,30 @@ function releaseOptions() {
   }));
 }
 releaseOptions();
-$("advanced-installs").hidden = !meta.rc && !meta.nightly;
+$("advanced-installs").hidden = !meta.rc;
 $("rc-options").hidden = !meta.rc;
 if (meta.rc) $("rc-version").textContent = meta.rc.version;
 $("nightly-options").hidden = !meta.nightly;
 /* (0.13.6) the branch, the commit, the firmware's own version string and the build date: "sonnet-work · a6c6d6b · v0.6.2-a6c6d6 · 2026-10-24T12:00:00Z" (an older nightly has no branch name: next) */
 if (meta.nightly) $("nightly-info").textContent = `${meta.nightly.branchName || "next"} · ${meta.nightly.commit.slice(0, 7)} · ${meta.nightly.version} · ${meta.nightly.builtAt}`;
+/* (round 9) the builds side by side: Standard (the release chosen below) and the Nightly, each with its version string; the last choice is kept in this browser */
+function buildLabels() {
+  const r = (meta.releases || [meta]).find((x) => x.version === $("release").value) || meta;
+  $("dual-version").textContent = "v" + r.version;
+  $("nightly-version").textContent = meta.nightly ? meta.nightly.version : "";
+}
+/* what the Install button will write: the ticked boxes, for the chosen build */
+function installWhat() {
+  const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"]]
+    .filter(([id]) => $(id).checked && (writing || !$(id).disabled)).map(([, k]) => t(k));
+  const ch = selection().channel || {};
+  $("install-what").textContent = t("installWhat") + (parts.length ? parts.join(", ") + (ch.version ? " (" + ch.version + ")" : "") : t("installNone"));
+}
+["stage-fw", "stage-pack", "stage-mod", "stage-prophet"].forEach((id) => $(id).addEventListener("change", () => installWhat()));
+const remembered = () => { try { return localStorage.getItem("oc-build"); } catch (_) { return null; } };
+const remember = (k) => { try { localStorage.setItem("oc-build", k); } catch (_) { /* no storage: the choice is not kept */ } };
+if (remembered() === "nightly-dual" && meta.nightly) { $("build-dual").checked = false; $("build-nightly-dual").checked = true; }
+buildLabels();
 const images = {};                // a build ("dual", "nightly-dual" ..) -> its package's image, each fetched once
 
 let writing = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;
@@ -367,7 +397,7 @@ async function choose() {
   if (writing) return;
   if (!navigator.requestMIDIAccess) { sayK("nomidi"); return; }
   const {kind, channel, key} = selection(), epoch = ++buildEpoch;
-  stageNote();
+  stageNote(); installWhat();
   const cacheKey = kind + ":" + (channel?.version || "") + ":" + (channel?.commit || "");
   image = null; $("go").disabled = true;
   try {
@@ -383,10 +413,11 @@ async function choose() {
     image = images[cacheKey]; if (!writing) ready(); lockInstaller(writing);
   } catch (e) { if (epoch === buildEpoch) sayK("loadfail", e.message); }
 }
-buildIds.forEach(k => $("build-" + k).addEventListener("change", choose));
+buildIds.forEach(k => $("build-" + k).addEventListener("change", () => { if (build() === "dual" || build() === "nightly-dual") remember(build()); return choose(); }));
 $("release").addEventListener("change", () => {
   if (writing) return;
   if (build().includes("-")) $("build-dual").checked = true;
+  buildLabels(); remember("dual");
   choose();
 });
 pageReady = true;

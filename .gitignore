@@ -10,3 +10,7 @@ fm1-recovery-backups/
 # Manual figures are rendered from the host UI (tools/manual_shots.py).
 web/manual/*.png
 !/AGENTS.md
+
+# a unit's backups and store dumps (the owner's own data; the repo is public): keep them on the PC, never commit them
+Orange Cat-backup-*.json
+Orange Cat-store-dump-*
