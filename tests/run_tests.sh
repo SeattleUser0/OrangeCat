@@ -109,7 +109,8 @@ case "${CC:-}" in
 esac
 CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 # (Orange Cat 0.12.2, Part 2a) SAN=1: every test of the suite built and run under AddressSanitizer and UndefinedBehaviorSanitizer (the first finding stops the test).
-#   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
+#   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t) and 8-byte members (p5_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
+#   (Round 10) The same exemption on every test that names the sanitizers itself: a block's address moves with the arena's order (the engines' states are taken at the switch now), and the Prophet's state landed on a 4-byte address in clip_test.
 #   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
 case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
 FW="-w -Ibuild/gen -Ifirmware/src"
@@ -201,10 +202,10 @@ oc_scene_job() {                                  # (the new interface, branch u
     cmp -s "$_pk" build/melodee.pak || fail "gen_pack.py: the pack is not the build's (OC_HOME_PIC=${OC_HOME_PIC:-0})"
     cmp -s "$OUT/oc_scene_without.h" "$OUT/oc_scene_with.h" || fail "gen_pack.py --scenes changed the tables' header"
     _t "new interface 1b: scene_ok on every scene and made faults, a fuzz drawn under the sanitizers, the pack's scene trailer" \
-        oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $FW -Itests -- \
+        oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all $FW -Itests -- \
         "$OUT/oc_scene_test" "$OUT/oc_scene_with.pak" "$OUT/oc_scene_without.pak"
     _t "new interface 1b: the same with the asset pack's gate on (no picture without the pack)" \
-        oc_scene_gate:oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_PACK_GATE=1 $FW -Itests -- \
+        oc_scene_gate:oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_PACK_GATE=1 $FW -Itests -- \
         "$OUT/oc_scene_gate" "$OUT/oc_scene_with.pak" "$OUT/oc_scene_without.pak"
 }
 home_pic_job() {                                  # (the new interface, UI_BUILD.md 1c) HOME's picture page
@@ -219,7 +220,7 @@ home_pic_job() {                                  # (the new interface, UI_BUILD
 }
 sheet_job() {                                     # (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets
     _t "new interface 2: EDIT's sheets: every row reached, EDIT, SELECT, PRESETS, ENV, LFO, fam_last, EDIT's other jobs" \
-        sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # both switches built in, HOME at TRACKS: HOME's screens are still release-2's, pixel for pixel
     build home_pic_sheets home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
     build home_pic_off2 home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
@@ -229,7 +230,7 @@ sheet_job() {                                     # (the new interface 0.2, UI_B
 }
 shift_job() {                                     # (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT
     _t "new interface 3: HOME as SHIFT: a tap, the map, the MENU on the release, the combos, nothing modal raced" \
-        shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 3: the layers, SCREEN OFF and LFO 2 with every step's switch built in" \
         layer_screen_s3:layer_screen_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 3: EDIT's sheets with SHIFT built in" \
@@ -239,15 +240,15 @@ shift_job() {                                     # (the new interface 0.3, UI_B
 }
 step_pages_job() {                                # (the new interface 0.4, UI_BUILD.md step 4) the step pages
     _t "new interface 4: NOTES' knobs, FEEL, the tracker's chord length, the combos on NOTES and FEEL" \
-        step_pages_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        step_pages_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 5: DRUM-X's LANES table: the page, PRESETS picks the lane, the knobs edit it alone, a key still picks it" \
-        lanes_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        lanes_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 6: the mixer's bars and values in the knobs' colors, the knobs' jobs unchanged" \
-        mixer_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        mixer_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 10: copy and paste of a sound: the clipboard, the paste, one undo, the refusals" \
-        clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 11: copy and paste of notes and of a step's feel: the clipboards, the paste, one undo, the refusals" \
-        clip_sel_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        clip_sel_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: EDIT's sheets with the step pages built in" \
         sheet_s4:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: HOME as SHIFT with the step pages built in" \
@@ -387,8 +388,8 @@ module_host_prophet() {                           # (Orange Cat 0.12.1, Part 1b)
         "$OUT/module_host_prophet_test" tests/golden.txt
 }
 mod_pages_prophet() {                             # (Orange Cat 0.12.1, Part 1b) the Prophet module's own descriptor in the UI (the Orange Cat engine set, sanitizers)
-    $CC -c -O1 -fsanitize=address,undefined -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/mod_pages_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (pages)"; return 1; }
-    $CC -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 \
+    $CC -c -O1 -fsanitize=address,undefined -fno-sanitize=alignment -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/mod_pages_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (pages)"; return 1; }
+    $CC -O1 -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 \
         -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW -o "$OUT/mod_pages_prophet_test" tests/mod_pages_prophet_test.c "$OUT/mod_pages_prophet_tu.o" -lm ||
         { fail "compile tests/mod_pages_prophet_test.c"; return 1; }
     step "the Prophet module's real pages (0.12.1, Part 1b): 15 pages, hooks, HOME, ENV, LFO, motion recorded and played back, the module out and in; Orange Cat set, sanitizers" \
@@ -626,12 +627,12 @@ if core && [ $TABLES = 1 ]; then
     # (Orange Cat 0.5.3) the pages Orange Cat's own build reaches, built with its engine switches (tools/orangecat_engines.sh:
     # the other tests build every engine in), under ASan and UBSan
     t "Orange Cat pages: every family and SELECT both ways on MACRO and SHAPES, its engine set, sanitizers" \
-        oc_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
+        oc_pages_test -O1 -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
         -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW
     # (Orange Cat 0.12.0, Part 2b) a module's pages as data: a fake module for the Prophet's number brings a page descriptor (fw_pages.h): the loader's check of
     # its bytes, the pages shown and edited, ENV / LFO / HOME, motion recorded and played back, the module out again; the same engine set, sanitizers
     t "module pages (0.12.0, Part 2b): the descriptor check, the pages from a module's data, edit, motion, removal; the Orange Cat set, sanitizers" \
-        mod_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
+        mod_pages_test -O1 -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
         -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 -DOC_MODULE_WINS=1 $FW
     # (Orange Cat 0.8.1, Fix 3) the two preset-library tests that also pass with the engines the firmware ships without
     # (the others fill Prophet, CZ-1, FM6 and DRUM banks as fixtures and need those engines: tests/need_all_engines.h)
