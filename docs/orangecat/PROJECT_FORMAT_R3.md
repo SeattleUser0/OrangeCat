@@ -1,6 +1,6 @@
 # Orange Cat: the Release 3 project format revision (design, no code)
 
-**Version:** 0.5 (October 30, 2026; written in Session C on branch ui-build; design only, nothing is built; 0.2 after the first independent review (section 14), 0.3 folded in the owner's twelve answers and the second review (section 15), 0.4 folds in the owner's answers to 0.3 (section 12): scene sounds fade instead of ringing out on a ghost, the card library is deferred, a new order of work and budget (section 11), and the third review (section 16); **0.5 folds in the owner's answers to 0.4 (section 12): SHAPES is built out of the firmware and ships as its module only, which closes the budget with the whole revision in (nothing split off), a track whose engine is not installed is silent and flagged and keeps its notes and sound, and the fourth review (section 17)**; for the owner and Session A to read)
+**Version:** 0.6 (October 31, 2026, on branch ui-fix: section 8.2a added, parameter ids beyond 7 bits and LFO 2 as part of the revision; the rest is 0.5) 0.5 (October 30, 2026; written in Session C on branch ui-build; design only, nothing is built; 0.2 after the first independent review (section 14), 0.3 folded in the owner's twelve answers and the second review (section 15), 0.4 folds in the owner's answers to 0.3 (section 12): scene sounds fade instead of ringing out on a ghost, the card library is deferred, a new order of work and budget (section 11), and the third review (section 16); **0.5 folds in the owner's answers to 0.4 (section 12): SHAPES is built out of the firmware and ships as its module only, which closes the budget with the whole revision in (nothing split off), a track whose engine is not installed is silent and flagged and keeps its notes and sound, and the fourth review (section 17)**; for the owner and Session A to read)
 **Replaces:** nothing. It is the one revision the Release Plan asks for, so that an old project converts once.
 **Read first (the code each part touches):** `firmware/src/oc_pool.c` (the phrase pool), `oc_project.c` (the project record, OCJ3), `oc_store.c` (the record store), `oc_lists.c` and `pattern.c` (chains, the song, the 8 scenes), `ui_layer.c` (PERFORM and the other layers), `recording.c` (the timed-note store), `project.c` (the wire format and the macros' bake), `card_browse.c`, `card_install.c`, `card_freeze.c` (what the card does today), `docs/orangecat/MODULE_FORMAT_R3.md` (stable parameter ids), `docs/orangecat/SET_FORMAT.md`, `docs/orangecat/CHANGES.md` (the 0.9.1 library door).
 **Not read, and why:** the Release Plan's section 5 ("Project-owned phrases and Performance Mode") and the project document "Future Audio Workflows" (Gate 1) live in the claude.ai project, not in this repository or on this machine. 0.1 and 0.2 followed the task's own list. For 0.3 the owner, who has read both, gave what they add beyond that list (Gate 1's four separate things, the track states, freeze against bounce, profiles, stable ids, dependency hashes); section 8.4 checks the format against it point by point. Anything else in those documents that is not in the owner's list is still unseen here.
@@ -198,6 +198,50 @@ The `FXRC` section and every module engine's native block are keyed by the stabl
 **How an engine reference resolves (0.5).** MODULE_FORMAT_R3.md keeps engines identified by their slot number and gives engine modules no module id (its section 3, final for the release). So the instrument reference of a track is **the engine slot number (the key) plus the module version it was saved with**; the module id field in `TRKS` is 0 for an engine and is kept if a later release fills it. A track resolves when the slot's engine is present: built in, or a module registered for that slot. **SHAPES is slot 14 and, built out of the firmware (section 11.2b), is a module like the Prophet (slot 19) and WHEEL (slot 7)**; the module area holds WHEEL and one of SHAPES or the Prophet, so a unit has at most one of the two installed, and a project that uses both has one silent track until the other is installed. Installing the module in the slot resolves every track that names it; removing it unresolves them; neither changes a saved byte. A module of another version in the slot plays (the engine is there) and says `MODULE VERSION`; a stored version of 0 means any and never raises it. (Neither message exists in the firmware today; both are new.) **The old projects' engine 14 converts to the reference "slot 14, version 0"**, which resolves to whatever module supplies slot 14 (version 0 means any, so it never raises `MODULE VERSION`) and takes the installed module's version at the next save, so a converted project with SHAPES tracks keeps them on a unit whose SHAPES module is installed and waits, silent and flagged, on one where it is not. This is the same rule for every module engine; SHAPES is the first built-in engine to follow it. **What the code does today (the review's reading):** the audio path has no fallback: `voice.c` sets `t->engine` from `eng_idx(t->eng_req)`, and a slot with no module holds `ENG_RETIRED`, whose render is a no-op, so a missing-engine track is **already silent and `eng_req` is kept** (project save and load write and read `eng_req` and nothing resets it). `ENGI_FALLBACK` is used only for display and naming (`eng_rank` in the picker and browser, `eng_sound_idx` in preset naming, `ui_designer.c`). So "silent" costs nothing; the new work is: **a name** (`N_ENGNAME` and `ENGINES[14]->name` are "-" when SHAPES is built out, so `MODULE MISSING` and `T2 NEEDS SHAPES` need a build-independent name table keyed by slot), **the display** (the picker and header must show the stored engine and its missing state, not FM6's place), **the gate** that blocks sound editing on such a track (`ED_PRESET` in `editor.c` accepts any engine below `NENGINES` and rewrites `eng_req`; the front panel's preset, INIT, paste and designer paths do too) with the REPLACE flow, and the two messages. Costed again in 11.2 at 600 B, not 300.
 
 **A missing module is never silently remapped.** A track's instrument reference (`TRKS`: module id and version) and every `FXRC` record, macro target and send are stored as they were and **written back unchanged on every save**, whatever the track plays meanwhile. If the module is not installed, or is installed in another version, **the track is silent (0.5, the owner's rule; it no longer plays the fallback engine, which would sound like the project's sound but is not)**, its notes, phrases, recording and mixer strip all work as before, **its page and the header say `MODULE MISSING` (or `MODULE VERSION`)**, the links stay visible in the editor as unresolved entries, and a save keeps them. Editing that track's sound is blocked until the module returns or the player chooses REPLACE, which is an explicit, confirmed action. **The only things that rewrite the reference are REPLACE and a scene recall whose sound part names an installed engine for that track (section 6); a save after either writes the new reference.** Switching profiles (8.4) changes which modules are available and so which references resolve; it never rewrites a reference.
+
+### 8.2a Parameter ids beyond 7 bits, and LFO 2 (0.6, October 31, 2026)
+
+**Why.** 8.2's rule, "new built-in parameters are appended, never reused", runs into a ceiling the code has today: a
+parameter id travels as one 7-bit byte wherever it leaves `p[]`. The editor protocol sends an id as one SysEx byte
+(editor.c: GET, SET, the dumps of P_COUNT values); motion stores an id in one byte and keeps the native engine ids above
+the track's (motion.c: `_Static_assert(P_COUNT < 128u && MO_NATIVE + MO_NATIVE_N <= 256u)`, `motion_event_t.param`);
+the user preset record counts its values in one byte and asserts `P_COUNT < 128` (upreset.c); project.c asserts
+`P_COUNT == 124u` ("a change: a new magic and a conversion") and proj_pack refuses to write at all when `P_COUNT > 127u`;
+the pool record's np is one byte (oc_pool.c). P_E0 .. P_E7 are ids 116 .. 123, so **three ids can ever be appended under
+the ceiling,** and the reserved ids are spoken for (33 .. 36 the knob macros, 45 .. 47 DUB TAPE's setup; 48 alone is free).
+That is why a second LFO per track (SPEC.md 9.1; the owner's finding 4 of October 31, UI_BUILD.md "ui-fix 4") could not be
+built on the Nightly: it needs seven parameters.
+
+**The revision widens the ids where they travel, and the per-track `p[]` may then pass 127:**
+- **The project record** (`TRKS`, section 4) stores each track's values as (count u16, then count values) and its motion
+  events with a u16 parameter id; the native engine ids keep their own range above the track's (today MO_NATIVE and its
+  256 offset) in the same u16. The by-count rule stays: a record's count names its layout, the first count minus 8 are
+  the common ids in order and the last 8 are P_E0 .. P_E7, so a later firmware loads an older record with its new
+  parameters at their defaults, as today (params_by_count, proj_motion_ids).
+- **The phrase record** (`OCP`, section 3): np and the motion ids as u16.
+- **The user preset record** (upreset.c `up_rec_t`): np as u16 and the packed values past 127 kept in the record's spare
+  room (UP_PMAX 72 pairs, 144 values); the CZ native record's fixed list of counts gains the new one.
+- **The editor protocol** (editor.c; Session D's web app): an id as two 7-bit bytes where today it is one, under the
+  extension command (0.14.2's "command 0 is the extension") so that an old page talking to a new unit, or the reverse,
+  is refused by the version and not misread; ED_INFO reports the count and P_E0 as today; the dumps carry count values.
+  web/app/lib/layout.js is generated from tests/app_layout.c; web/editor.html and test_web.mjs hard-code 124 and 116 and
+  are regenerated or rewritten with it.
+- **The interface identifier** (tools/gen_fw_api_id.py) hashes the parameter enum's text as well as the structures, so
+  a module built before the ids moved is refused and rebuilt with the set (the modules read P_E0 .. P_E7 at compile time).
+- **In the firmware:** the asserts above go, `motion_event_t.param` and `motion_token` widen, `param_desc_of`,
+  `track_desc`, TP[] and `P_COUNT` follow the enum, the knob macros' and the scenes' tables are unaffected (they name
+  ids below 33 and above P_E0 by symbol).
+- **Cost:** about 400 B of flash (the wider motion events and the editor's two-byte ids), 64 B of RAM per track for
+  each 32 parameters added (p[] is int16), the project record's track section grows by 2 B a value a track; measured
+  in 11.2 when the revision is costed again.
+
+**LFO 2 is part of this revision**, as the design note UI_BUILD.md "ui-fix 4" has it with its review's corrections: seven
+parameters appended before P_E0 (RATE, WAVE, SYNC, TRIG, POL, DEST, AMT), the "LFO 2" page of today renamed "LFO SYNC"
+(done on ui-fix), the pages "LFO 2" and "LFO 2 SYNC" after LFO DEST, the state outside track_t in mod.c, ticked once a
+block before the matrix's early return and only while used, a fifth implicit matrix slot for its own destination and the
+source LFO2 for the other four, TRIG NOTE through mod_note, the synced increment with its own cache, mod_begin's size
+budget re-baselined, and the by-count loads of every older record (projects, phrases, presets and templates) with LFO 2
+off. It ships with the one-way door of section 10 like everything else here, so nothing of it goes on the Nightly before.
 
 ### 8.3 Samples: the unit's, referenced by the project
 
