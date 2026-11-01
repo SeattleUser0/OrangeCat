@@ -1876,8 +1876,8 @@ pitch_cur), and the `legato` hook exists for an engine that caches its pitch.
    (recording_shape: the gate reaches that onset when the event's own gate would end before it), and the next cell's
    first hit takes over the sounding voice of the slid note (seq_slide_voice again; the old event's hold ends without a
    note-off: its reference count is given up and recording_end's note-off skipped), and the new event owns the voice
-   from then on (its own gate, queue and reference count as any hit). A ratchet or a flam never slides (as a manual
-   step's).
+   from then on (its own gate, queue and reference count as any hit). A ratchet's or a flam's later hits never slide; the
+   grace and the first part slide in, as a manual step's do.
 3. **Setting it, obvious on every page:** NOTES (melodic): ENV held + KNOB 4 sets or clears SLIDE on the cursor's step,
    manual or recorded (today a manual step's only), the roll draws the slide line from a bar to the next step's bar for
    recorded notes as it does for manual ones, and the strip marks VEL's column "SL" while the step slides; FEEL's TYPE
@@ -1948,6 +1948,28 @@ recorded step sliding into the next, ENV held (notes_slide), linted.
 
 **Mockups:** docs/orangecat/ui/new/fix8_notes_slide.png (the roll's slide line from a recorded bar, the strip's SLIDE).
 
+**The diff review of ui-fix 8** (an independent agent, October 31, 2026; it ran the test plain, under ASan and under UBSan).
+Found correct: the takeover in POLY, MONO and LEGATO on MACRO, SHAPES and the modules; the rate (CTL is 32 samples, gstep 3
+is an octave in 64 blocks, 46.4 ms at 44.1 kHz; ENV_LIN[40] >> 14 is 40: "nearly a jump" confirmed); GLMODE TIME never
+0 or overshooting; mod_note's order; the ratchet, flam, chance and TIE paths; the recorded hold's end under the queue; the
+UI routing and the undo level (the SET check does prove one); the switch-off build; the arena (below). Found and fixed:
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | UNISON's voices start at a scaled level; "louder raises" compared the step's velocity with it and raised every voice two to three times | bug | mono_play's rule in full: raised only with one voice; the UNISON check asserts it |
+| 2 | The legato hook ran before mono_key, the reverse of voice.c's order: FM6's legato would take nothing | should fix | the stack and mono_key first, then the re-pitch, then the mono note |
+| 3 | SID's C64 chord in POLY: the slid voice was released at once by the chord stack | should fix | no takeover with trk_chord, as with an engine's own allocator |
+| 4 | The suite's sanitized job aborts on a pre-existing host arena alignment report (mc_part_t) before its first check; the one_auth job renders voices too | should fix | both jobs built with -fno-sanitize=alignment, as the suite's own SAN=1 rule; run here under the exact flags: both pass |
+| 6 | The arena fell 1,024 B: not a static; seq_step, seq_slide_voice, recording_fire and recording_hit are audio-resident code (.audio_text), placed before the arena, so resident sequencer code grows out of it | OK | said in the budget note |
+| 7 | recording_slide_in runs at each hit of a cell, not "the first": a recorded chord slides voice by voice | minor | the comment and the note say so; a chord into a chord tested |
+| 8 | The old pitch under the queue is the message's (the pitch the hit was played with), as recording_end reads it | minor | so read |
+| 9 | A manual step's note of the same pitch shares the voice: not ours to take | minor | seq_notes checked, as recording_off does |
+| 10 | The pairing could reach a lane hit's voice on a step that carries hits | minor | bounded by the step before's note count, none when it has hits; tested |
+| 12 | The slid POLY voice kept its old age (the first to be stolen) | minor | its age is the newest |
+| 14 | The design note said a ratchet or a flam never slides; the grace and the first part do slide in (manual and recorded alike) | minor | the wording here |
+| 17 | The strip's SLIDE showed on an empty step | minor | with a note selected only |
+| 18, 19 | A comment; test gaps (PRIO, the Prophet and FM6 through their hooks, the countdown variant, the repeat path, the wrap from the last step) | minor | the comment; the gaps are listed |
+
 ### Budget revision 0.9 (ui-fix; CI's build options, one niced build each)
 
 | Build | Image (B) | Free of 577,248 | Above the 8,192 B reserve | .data+.bss | Data SRAM tail | Arena (min 49,152) | Pack |
@@ -1956,21 +1978,28 @@ recorded step sliding into the next, ENV held (notes_slide), linted.
 | + ui-fix 1, 2, 3, 5 | 558,980 (+384) | 18,268 | 10,076 | 94,536 | 3,768 | 84,032 | 40,853 (+8: the scene's bindings; 107 B of the area left) |
 | + ui-fix 6 (the map gone) | 558,100 (-880) | 19,148 | 10,956 | 94,536 | 3,768 | 84,032 | 40,853 |
 | + ui-fix 7 (one authority), at its commit 5a26150 | 560,020 (+1,920) | 17,228 | 9,036 | 94,536 | 3,768 | 84,032 | 40,853 |
-| + ui-fix 8 (slide and legato) | 561,472 (+1,452) | 15,776 | 7,584 | 94,536 | 3,768 | 83,008 | 40,853 |
+| + ui-fix 8 (slide and legato), after its diff review | 561,608 (+1,588) | 15,640 | 7,448 | 94,536 | 3,768 | 82,848 | 40,853 |
 
 Ui-fix 7 cost 1,920 B against the review's 500 to 700 (2,144 before its diff review's fixes): the reconcile is 472 B (its two
 bank paths), and START's conversion and the tracker's move, inlined into edit_param and step_move_edit, about 1,000 B between
 them (each carries a transaction, a rollback and a rebuild; a shared "the cell's events, shifted" helper could save about 300 B,
-left for later); the pads are dead code in the shipping image. Ui-fix 8 cost 1,452 B against 700 to 1,000 (seq_slide_voice
-and the seq_step block, the recorded overlap rule, the strip and the roll). **The audio working arena fell by 1,024 B with
-ui-fix 8** (84,032 to 83,008; .data+.bss unchanged: the linker's resource bank moved by one block; 33.9 KB above the minimum
-and 17.5 KB above the rule's 65,536). **The reserve holds: 15,776 B free, 7,584 B above 8,192.** Nothing further is built on
+left for later); the pads are dead code in the shipping image. Ui-fix 8 cost 1,588 B against 700 to 1,000 (seq_slide_voice
+and the seq_step block, the recorded overlap rule, the strip and the roll; 1,452 before its diff review's fixes). **The audio working arena fell by 1,184 B with
+ui-fix 8** (84,032 to 82,848; .data+.bss unchanged): seq_step, seq_slide_voice, recording_fire and recording_hit are
+audio-resident code (.audio_text, placed in the pool before the arena), so about 1 KB of the item is SRAM as well as flash;
+33.7 KB above the minimum and 17.3 KB above the rule's 65,536. **The reserve holds: 15,640 B free, 7,448 B above 8,192.** Nothing further is built on
 this branch without the owner's say: the next item of any size eats into what is left above the reserve.
 
 ### For Session A (ui-fix)
 
-The sequencer items (7 and 8) go to Session A's on-unit sequencer test before they merge: this section names the
-commits when they are pushed. Also: docs/orangecat/PLAY_LIST.md (BUILD 7.20) still tells the owner to hold HOME for the
+**Run the on-unit sequencer test on ui-fix before merge.** The sequencer items are ui-fix 7 (commit 5a26150, one
+authority: OC_ONE_AUTH) and ui-fix 8 (commit 9d45d84, slide and legato: OC_SLIDE), both on in
+tools/orangecat_engines.sh, so a CI build of ui-fix carries them. What the unit test should cover beyond the host
+(hardware checks 26 and 27 below): a live take over a manual step and over a recorded MONO step, then every edit of it;
+a 303 line on MACRO and SHAPES with SLIDE on every other step in POLY, MONO and LEGATO; a recorded legato take with SLIDE
+set on its steps; the audio interrupt's time with four tracks sliding (seq_slide_voice runs inside seq_step; the
+reconcile runs only at a load). Also for Session A: voice.c's comment "slide: ~45 ms" (track_render_audio's glide) is
+the table's 40 sixteenths a tick, nearly a jump: the slide now uses its own rate in seq.c; the comment is Session A's. Also: docs/orangecat/PLAY_LIST.md (BUILD 7.20) still tells the owner to hold HOME for the
 map of shortcuts; with ui-fix 6 it is "hold HOME 0.7 s for the MENU; HOME plus a knob or button within 0.7 s is its
 combo" (Session A's file).
 
@@ -1985,6 +2014,14 @@ combo" (Session A's file).
 25. **HOME held (ui-fix 6):** held alone 0.7 s opens the MENU with HOME still down, nothing on the release; a knob, PRESETS,
     EDIT or OCT within 0.7 s of the press is its combo and no MENU follows; a knob turned after the MENU opened moves the
     MENU when HOME is let go (the combo window is 0.7 s from the press: the owner to say whether that is right).
+26. **One authority (ui-fix 7):** on NOTES, START on a typed note (the step converts, the note moves, EDIT held brings
+    the manual step back); a key on a recorded step (replaced; EDIT held brings the events back one by one); the tracker's
+    SCL + SELECT on a recorded step (the notes move a step, their timing kept); an old project with recordings loads as it
+    did (nothing mended on a project saved by 0.16.0 unless it carried an orphan: the message log says nothing either way).
+27. **Slide (ui-fix 8):** a bass line with SLIDE on every other step on MACRO, SHAPES, a module (SEM, HADES) in POLY, MONO
+    and LEGATO: the pitch glides (about 46 ms an octave), the envelope does not retrigger, no stuck note at a stop; a
+    recorded legato take with SLIDE set on its steps (FEEL's TYPE) slides where the notes overlap; the roll's line and the
+    strip's SL on a recorded step; no late audio halves with four tracks sliding.
 
 ### Decisions (ui-fix, the safer reading)
 
@@ -1995,4 +2032,14 @@ combo" (Session A's file).
 - ui-fix 3: the tail's flick is a sawtooth at COLR's rate (the scene's phases are sawtooths; a sine would need a new
   source), read as a cat's flick; the paw drops below the body's line at PLUCK's left end (a resting paw).
 - ui-fix 4: the format consequence is the owner's call; until then design only and the page renamed.
-- Items 1 to 3 share one full host suite run (they are three small fixes); 4 to 8 each their own.
+- Items 1 to 3 and 5 shared one full host suite run (three small fixes and a table order); the diff review's fixes of
+  1 to 3 and item 6 share one (the fixes are a message, a scene depth and test bars); 7 and 8 each their own. From item 6
+  on the suite runs in a worktree of the item's commit (~/oc-ui-suite), so the next item's code goes on meanwhile.
+- ui-fix 7: the depth bound of a key on a recorded cell (more events than the history's seven free levels) is stated, not
+  routed through a transaction (an entry runs over frames); the pads' natural length is the pads' page's only; a move into
+  a recorded cell joins it (as note_transform); recording_prune stays as a function for the host check and the non-FAST
+  path.
+- ui-fix 8: the slide's own rate is three sixteenths of a semitone a control tick (an octave in about 46 ms), not a
+  parameter; GLIDE set takes GLIDE's rate or time; a recorded slide needs the notes to overlap (no gate extension); no
+  slide across a manual and a recorded step; FM6 keeps today's path in POLY (its own allocator); the velocity follows
+  mono_play's rule.

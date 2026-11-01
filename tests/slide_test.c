@@ -86,6 +86,9 @@ static int slide_mode(uint32_t mode, const char *name)
     for (k = 1; k <= 200u && t->v[v1].pitch_cur != t->v[v1].pitch16; k++) blocks(1);
     glided = k;
     ok &= glided >= 56u && glided <= 72u;               /* an octave at three sixteenths a block: 64 */
+    if (mode == V_UNISON) {                             /* (the review's 1) the voices keep their scaled level: no jump to the step's 96 */
+        for (k = 0; k < trk_nvoice(t); k++) if (t->v[k].active && t->v[k].gate) ok &= t->v[k].vel < 96u;
+    }
     ok &= until_step(t, 2, 400) > 0;                    /* the rest after: released */
     blocks(2);
     ok &= voice_of(t, 60) < 0;
@@ -229,6 +232,30 @@ int main(void)
         start();
         ok = until_note(t, 48, 400) > 0 && until_note(t, 60, 400) > 0 && t->v[voice_of(t, 60)].stage == 1u;
         chk("RECORDED two that do not overlap: no slide, the second starts its own voice", ok);
+        t = prep(ENGI_MACRO, V_POLY);                   /* a recorded chord into a chord: voice by voice (the review's 7) */
+        {
+            recorded_note_t c1 = a, c2 = a, d1 = b, d2 = b;
+            int va, vb;
+            c1.duration = 49152; c1.owner = (uint8_t)(recording_owner(t) | (1u << 5)); c2 = c1; c2.note = 52; d2.note = 64;
+            recording_restore_note(t, 0, c1); recording_restore_note(t, 1, c2); recording_restore_note(t, 2, d1); recording_restore_note(t, 3, d2);
+            note_rebuild_all(); t->step[0].flags |= SF_SLIDE;
+            start();
+            ok = until_note(t, 52, 400) > 0;
+            va = voice_of(t, 48); vb = voice_of(t, 52);
+            ok &= until_note(t, 64, 400) > 0 && voices_on(t) == 2u && va >= 0 && vb >= 0;
+            ok &= (voice_of(t, 60) == va || voice_of(t, 60) == vb) && (voice_of(t, 64) == va || voice_of(t, 64) == vb);
+            chk("RECORDED a recorded chord sliding into a chord: both voices taken over, none added", ok);
+        }
+    }
+    {   /* HITS: a melodic step that also carries a lane hit: no takeover (the pairing would reach the hit's voice: the review's 10) */
+        track_t *t = prep(ENGI_MACRO, V_POLY);
+        int ok, v0;
+        manual(t, 0, 48, SF_SLIDE); t->step[0].hit = 1u; manual(t, 1, 60, 0);
+        start();
+        ok = until_note(t, 48, 400) > 0;
+        v0 = voice_of(t, 48);
+        ok &= until_note(t, 60, 400) > 0 && voice_of(t, 60) != v0;
+        chk("HITS    the step before carries a lane hit: the notes start afresh (no pairing with a hit's voice)", ok);
     }
     {   /* SET: NOTES, ENV held + KNOB 4 sets and clears SLIDE on a recorded step (today a manual step's only); EDIT held undoes it; the
          * strip's VEL column says SL */

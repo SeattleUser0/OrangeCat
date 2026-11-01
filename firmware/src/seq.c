@@ -434,29 +434,30 @@ static int seq_slide_voice(track_t *t, uint32_t old, uint32_t new, uint32_t vel)
 {
     const engine_t *e = ENGINES[t->engine];
     uint32_t mode = trk_vmode(t), nv = mode == V_UNISON ? trk_nvoice(t) : mode == V_POLY ? NVOICE : 1u, i, found = 0;
-    if (e->oneshot || (mode == V_POLY && e->alloc)) return 0;
+    if (e->oneshot || (mode == V_POLY && (e->alloc || trk_chord(t)))) return 0;   /* (FM6's own allocator; SID's C64 chord stack) */
     if (mode != V_POLY && (t->mono_note != old || (t->p[P_PRIO] && t->nmono > 1u))) return 0;
     for (i = 0; i < nv; i++) found |= t->v[i].active && t->v[i].gate && t->v[i].note == old;
     if (!found) return 0;
     mod_note(t, new, vel);
+    if (mode != V_POLY) {                               /* the stack and the engine's key first, as voice.c's note-on does */
+        mono_remove(t, old);
+        mono_push(t, new);
+        if (e->mono_key) e->mono_key(t, new);
+    }
     for (i = 0; i < nv; i++) {
         voice_t *v = &t->v[i];
         if (!v->active || !v->gate || v->note != old) continue;
         v->note = (uint8_t)new;
         voice_scale_pitch(t, v, new);
         slide_glide_set(t, v);
-        if (vel > v->vel) v->vel = (uint8_t)vel;
+        if (vel > v->vel && nv == 1u) v->vel = (uint8_t)vel;   /* (mono_play's rule; UNISON's voices keep their scaled level) */
         v->mvel = t->m_vel;
         v->mrnd = t->m_rnd;
+        if (mode == V_POLY) v->age = ++vage;            /* (the slid note is the newest: not the first to be stolen) */
         if (e->legato) e->legato(t, v);
         if (mode == V_POLY) break;
     }
-    if (mode != V_POLY) {
-        mono_remove(t, old);
-        mono_push(t, new);
-        t->mono_note = (uint8_t)new;
-        if (e->mono_key) e->mono_key(t, new);
-    }
+    if (mode != V_POLY) t->mono_note = (uint8_t)new;
     return 1;
 }
 #endif
@@ -1234,9 +1235,13 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     {                                               /* (ui-fix 8) a slide: the j-th new note takes over the j-th old note's voice,
                                                      * legato; an old note that is a live key's, the arp's or a recorded note's is not
                                                      * the sequencer's to take (seq_release's test); the notes only, never the hits */
-        uint32_t slid = 0, old;
+        uint32_t slid = 0, old, pn = 0;
+        if (slide_in) {                                 /* the old notes: the step before's (its hits follow them in seq_notes) */
+            const step_t *ps = &seq_steps(t)[(t->fire_idx + len - 1u) % len];
+            pn = ps->hit ? 0u : ps->n;
+        }
         if (slide_in)
-            for (i = 0; i < s->n && i < 4u && i < t->seq_n; i++) {
+            for (i = 0; i < s->n && i < 4u && i < t->seq_n && i < pn; i++) {
                 old = t->seq_notes[i];
                 if ((sk >> i) & 1u) continue;
                 if ((live_held[trk_index(t)][old >> 5] & (1u << (old & 31u))) || t->arp_note == old || recording_owns(t, old)) continue;

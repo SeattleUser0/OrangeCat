@@ -334,7 +334,7 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, bulk.on&&bulk_note_has(i)?T_ACCENT:c, bulk.on&&bulk_note_has(i));
     if (chosen < RECORD_MAX) notes_bar(t, chosen, period, a, b, T_ACCENT, 1);
 #if OC_SLIDE
-    for (uint32_t si = base; si < end; si++) {         /* (ui-fix 8) a recorded step's slide: the line from its first note's row at the
+    for (uint32_t si = base; si < end; si++) {         /* (ui-fix 8) a recorded step's slide: the line from its lowest note's row at the
                                                          * step's end to the next step's first note, as a manual step's */
         const step_t *st = &seq_steps(t)[si], *ns = &seq_steps(t)[(si + 1u) % step_pattern_len(t)];
         uint32_t lo = 128;

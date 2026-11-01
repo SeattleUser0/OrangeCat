@@ -974,21 +974,27 @@ static int recording_roll_ok(track_t *t, uint32_t view)
 }
 #if OC_SLIDE
 static uint8_t recording_slid;                      /* (ui-fix 8) the hit about to play took over a voice: no note-on for it */
-/* (ui-fix 8) a recorded slide, the overlap rule: at a cell's first hit, when the cell before has SLIDE and one of its recorded notes
- * is still sounding (its own voice: one reference), that voice is re-pitched to this note (seq.c seq_slide_voice) and the
- * reference moves: the old event's hold ends without a note-off, this hit's begins as any hit's. No gate is extended, so the two
- * notes must overlap (a played legato take does); a ratchet's or a flam's later hits never take over (recording_fire only).
- * 1: taken */
+/* (ui-fix 8) a recorded slide, the overlap rule: at each hit of a cell (a chord voice by voice, in the list's order), when the
+ * cell before has SLIDE and one of its recorded notes is still sounding on its own voice (one reference, not a manual step's
+ * note, a live key's or the arp's), that voice is re-pitched to this note (seq.c seq_slide_voice) and the reference moves: the
+ * old event's hold ends without a note-off, this hit's begins as any hit's. No gate is extended, so the two notes must overlap
+ * (a played legato take does); a ratchet's or a flam's later hits never take over (recording_fire only). 1: taken */
 static int recording_slide_in(track_t *t, uint32_t i, uint32_t vel)
 {
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), view = recording_view(t, &recording[i]) % NSTEP;
     uint32_t prev = (view + len - 1u) % len, tr = trk_index(t), j;
     if (view >= len || (t->step[prev].flags & (SF_SLIDE | SF_RECORDED)) != (SF_SLIDE | SF_RECORDED)) return 0;
     for (j = recording_head[recording_owner(t)]; j < RECORD_MAX; j = recording_next[j]) {
+#if MELODEE_RECORD_QUEUE
+        uint32_t old = recording_message[j] & 127u;     /* (the pitch the hit was played with, as recording_end reads it) */
+#else
         uint32_t old = recording[j].note;
+#endif
+        uint32_t k, shared = 0;
         if (j == i || !recording_sounding(j) || recording_view(t, &recording[j]) != prev || recording_refs[tr][old] != 1u) continue;
         if ((live_held[tr][old >> 5] & (1u << (old & 31u))) || t->arp_note == old) continue;
-        if (!seq_slide_voice(t, old, recording[i].note, vel)) continue;
+        for (k = 0; k < t->seq_n; k++) shared |= t->seq_notes[k] == old;   /* (a manual step's note shares the voice: not ours) */
+        if (shared || !seq_slide_voice(t, old, recording[i].note, vel)) continue;
 #if MELODEE_RECORD_QUEUE
         recording_queue_remove(j);
 #endif

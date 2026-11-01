@@ -664,7 +664,7 @@ static void draw_columns(void)
             else str_cpy(sn, "--", sizeof sn);
             draw_column(2, "LEN", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(2u) : T_DIM, -1, ICON_GATE);
 #if OC_SLIDE
-            if (ui.step_mods & (1u << panel.btn[B_ENV])) {   /* (ui-fix 8) ENV held: the cursor step's slide, recorded or manual */
+            if (selected && (ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (ui-fix 8) ENV held: the cursor step's slide, recorded or manual */
                 draw_column(3, "SLIDE", TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE ? "ON" : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
                 return;
             }
