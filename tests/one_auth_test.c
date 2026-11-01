@@ -226,6 +226,7 @@ int main(void)
         uint32_t i, found;
         fresh("NOTES"); t = TSEL;
         manual(3, 60); cursor_set(3); frame();
+#if !OC_START_NUDGE                                       /* (ui-fix2 5: K2 on a typed note is NUDGE then: tests/start_nudge_test.c) */
         turn(EN_K2, 2);                                 /* START: two sixteenths */
         for (found = RECORD_MAX, i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) if (recording[i].note == 60u) found = i;
         ok = found < RECORD_MAX && (t->step[3].flags & SF_RECORDED) && recording[found].on == RECORD_UNIT / 8u && (recording[found].step & 63u) == 3u &&
@@ -265,6 +266,7 @@ int main(void)
         turn(EN_K2, 1);
         ok = str_eq(ui.msg, "RECORDING FULL") && !(t->step[3].flags & SF_RECORDED) && t->step[3].n == 1u;
         chk("START   the pool full: RECORDING FULL, the step manual", ok);
+#endif
         for (i = 0; i < RECORD_MAX; i++) if (recording[i].vel == 1u && recording[i].owner == 31u) recording[i].vel = 0;
     }
     {   /* the tracker's gestures on a recorded step (point 3): SCL + SELECT moves its events; ENV + SELECT says K4 */

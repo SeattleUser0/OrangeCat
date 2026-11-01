@@ -91,13 +91,6 @@ static void tk_fx_text(const step_t *st, uint32_t fx, char *b, uint32_t full)
         b[0] = st->nudge > 0 ? '+' : '-';
         fmt_int(b + 1, st->nudge > 0 ? st->nudge : -st->nudge); return;
     case TFX_SLIDE:
-#if OC_SLIDE_TIME
-        if (full) {                                     /* (ui-fix2 4) the foot says how long this track's slides take: "ON NORM", "ON SLOW" */
-            str_cpy(b, "ON ", 4);
-            str_cpy(b + 3, slide_time_word(TSEL->p[P_SLIDET]), 8);
-            return;
-        }
-#endif
         str_cpy(b, full ? "ON" : "SL", 3); return;
     default: str_cpy(b, full ? "ON" : "AC", 3); return;
     }
@@ -348,6 +341,13 @@ static void tk_hint(char *b, uint32_t n)
         str_cpy(b + str_len(b), " \xb7 K4 ", n - str_len(b));
         if (st) tk_fx_text(st, ui.tk_fx % TFX_N, v, 1);
         else str_cpy(v, "OFF", 4);
+#if OC_SLIDE_TIME
+        if (st && ui.tk_fx % TFX_N == TFX_SLIDE && tk_fx_on(st, TFX_SLIDE)) {   /* (ui-fix2 4) the foot says how long this track's slides take: "ON SLOW"
+                                                         * (the editor's hardware-test string, tk_fx_text, stays "ON") */
+            str_cpy(v + str_len(v), " ", 2);
+            str_cpy(v + str_len(v), slide_time_word(TSEL->p[P_SLIDET]), (uint32_t)sizeof v - str_len(v));
+        }
+#endif
         str_cpy(b + str_len(b), v, n - str_len(b));
         return;
     }

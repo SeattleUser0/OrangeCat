@@ -315,12 +315,12 @@ int main(int argc, char **argv)
                 play_frames(100);
                 last = hp.ph[w];
                 for (i = 0; i < 125u; i++) { play_frames(16); sum += (uint16_t)(hp.ph[w] - last); last = hp.ph[w]; }   /* 2 s */
-                turns[e] = (sum + 32768u) / 65536u * 10u + (sum % 65536u) * 10u / 65536u;   /* tenths of a turn */
+                turns[e] = (uint32_t)((uint64_t)sum * 10u / 65536u);   /* tenths of a turn */
                 *vp = d->def;
             }
             printf("home_pic: MOVES   %s in 2 s: %u.%u turns at its knob's left end, %u.%u at its right\n", w == 1u ? "the tail's wag (COLR)" : "the paw's bat (PLUCK)",
                    (unsigned)turns[0] / 10u, (unsigned)turns[0] % 10u, (unsigned)turns[1] / 10u, (unsigned)turns[1] % 10u);
-            ok &= turns[0] >= 8u && turns[0] <= 12u && turns[1] >= 55u && turns[1] <= 70u;   /* 1 turn and 6 .. 7: 0.5 Hz and 3 Hz (and a little over: the knob's top reads past 256) */
+            ok &= turns[0] >= 9u && turns[0] <= 11u && turns[1] >= 55u && turns[1] <= 62u;   /* 1 turn and 6: 0.5 Hz and 3 Hz */
         }
         chk("MOVES   COLR sets the tail's wag rate and PLUCK the paw's bat rate: 0.5 Hz at the left end, 3 Hz at the right", ok);
         {   /* the pictures at exact phases (the clock still: nothing advances between the sets and the draw): the paw strikes the yarn at the

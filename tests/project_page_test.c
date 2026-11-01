@@ -23,7 +23,7 @@ static void chk(const char *what, int ok)
     printf("project_page: %-104s %s\n", what, ok ? "ok" : "FAIL");
     nbad += !ok;
 }
-static void settle(void) { uint32_t i; for (i = 0; i < 80u; i++) frame(); }   /* 1.3 s: the unsaved flag is worked out again */
+static void settle(void) { uint32_t i; for (i = 0; i < 80u; i++) { if (i == 40u) panel_moved |= 1u; frame(); } }   /* 1.3 s with a touch of the panel in it: the unsaved flag is worked out again (only a touch brings it) */
 
 int main(void)
 {
@@ -78,6 +78,17 @@ int main(void)
     chk("LOAD     a saved project over saved music: no question, loads B", ui.confirm == CF_NONE && project_current() == 1u && trk[0].step[5].n == 1);
     song.g[G_SLOT] = 4; settle();
     chk("UNSAVED  browsing the slots (KNOB 1) is no edit: still saved", pj.d == 0u);
+    trk[0].p[P_LEVEL] = trk[0].p[P_LEVEL];               /* (nothing) */
+    song.sel = 2; settle();
+    chk("UNSAVED  selecting another track is no edit: still saved", pj.d == 0u);
+    song.sel = 0;
+    settle();
+    {   uint32_t t0 = fm1_ms; (void)t0;
+        trk[0].step[13].n = 1; trk[0].step[13].note[0] = 66; trk[0].step[13].time = ST_NOTE; trk[0].step[13].vel = 96;
+        { uint32_t i; for (i = 0; i < 80u; i++) frame(); }     /* no touch at all: a transfer of the web editor leaves proj_wire_u alone */
+        chk("UNSAVED  with no touch of the panel the flag is not worked out again (the staging RAM stays the editor's)", pj.d == 0u);
+        trk[0].step[13].n = 0;
+    }
     /* SAVE HERE over a used slot */
     song.g[G_SLOT] = 1;
     sheet_do("Save here");

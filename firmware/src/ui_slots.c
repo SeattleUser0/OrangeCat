@@ -29,9 +29,10 @@ static uint32_t slot_kind(void)
 static int project_unsaved(void);                       /* project.c */
 static struct { uint32_t t; uint8_t d, page; } pj = {0, 2, 0};
 static void pj_note(void) { pj.d = 2; pj.t = 0; }       /* (a load, a save, the page entered: work it out again) */
-static void pj_poll(void)
+static void pj_poll(uint32_t activity)                  /* activity: a button, a key or a knob moved this pass (a web editor transfer is none: its
+                                                         * staging RAM, proj_wire_u, is not packed over meanwhile, and music it changes shows at the next touch) */
 {
-    if (slot_kind() == SK_PROJECT && !transport_busy() && (pj.d == 2u || pj.page != ui.page || fm1_ms - pj.t >= 1000u)) {
+    if (slot_kind() == SK_PROJECT && !transport_busy() && (pj.d == 2u || pj.page != ui.page || (activity && fm1_ms - pj.t >= 1000u))) {
         pj.d = (uint8_t)(project_unsaved() != 0);
         pj.t = fm1_ms;
         pj.page = ui.page;

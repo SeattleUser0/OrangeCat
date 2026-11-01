@@ -1309,7 +1309,7 @@ static void setup(int s)
         break;
     /* (Orange Cat 0.6.0) the effects' pages (Jiant FM's), the FX layer's map */
     case S_FX_SENDS:
-        TSEL->p[P_DIST]=40;TSEL->p[P_CHOR]=30;TSEL->p[P_DLY]=81;TSEL->p[P_REV]=64;go_title("FX");break;
+        TSEL->p[P_DIST]=40;TSEL->p[P_CHOR]=30;TSEL->p[P_DLY]=81;TSEL->p[P_REV]=64;go_title("SENDS");break;
     case S_FX_DIST:
         TSEL->p[P_DIST]=90;TSEL->p[P_DTYPE]=5;TSEL->p[P_DTONE]=-12;TSEL->p[P_SLROUTE]=1;go_title("DIST");ui.hot_col=1;ui.hot_t=30;break;
     case S_FX_AUTOPAN:

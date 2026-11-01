@@ -40,6 +40,9 @@ static void note_onset(recorded_note_t *r,int32_t shift,uint32_t len,uint32_t qu
 static int note_transaction_begin_track(track_t *t)
 {
     if (frz_locked_k(trk_index(t))) return 0;           /* (Orange Cat 0.5.6) a frozen phrase's notes stay as frozen */
+#if OC_REC_CLEAR
+    if(note_transaction_ptr&&note_transaction.valid&&note_transaction.group)clr_group_drop();   /* (ui-fix2 2) GLO's clear can no longer be undone as one */
+#endif
     note_transaction_ptr=resource_get(RES_NOTE_HISTORY,sizeof(note_transaction_t));
     if(!note_transaction_ptr){ui_message("NO EDIT MEMORY");return 0;}
 

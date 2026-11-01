@@ -443,7 +443,7 @@ typedef struct {
     uint8_t side; /* stereo spread side, retained while sounding */
     uint8_t note, vel, gate, active;
     uint8_t stage;               /* env: 0 off, 1 attack, 2 decay/sustain, 3 release */
-    uint8_t gtick;               /* (ui-fix2 4) a slow slide's tick count (gstep < 0: a step every -gstep ticks); a byte of the padding */
+    uint8_t gtick;               /* (ui-fix2 4) the fraction of a slide's accumulated step, 0 .. 255 (gstep < 0: voice.c); a byte of the padding */
     int32_t env;                 /* Q24 */
     int32_t env_out;             /* last control-rate amplitude, Q15 */
     int32_t pitch16, pitch_cur;  /* 1/16 semitone, with glide */

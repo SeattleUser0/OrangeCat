@@ -91,13 +91,18 @@ static const uint8_t SCENE_SHAPES[] = {
     /* the tail (K2 COLR): standing up and curled over, wagging side to side about its root at COLR's RATE (PH2, centered: a sweep 42 degrees
      * each side and a flick back, 0.5 Hz at COLR's left end to 3 Hz at its right: ui-fix2 6, the owner's "COLR sets how fast the tail wags") */
     S_STYLE(2),
-    S_BIND(SS_PH2 | SS_CENTERED, SF_ANG, 30), S_PUSH(107, 121),
+    /* a triangle wave from the sawtooth: two copies of the tail, the first shown while PH2 is in its first half (swinging out 21 degrees), the
+     * second in its second half (swinging back): no snap, a wag */
+    S_BIND(SS_PH2, SF_HIDE, -64), S_BIND(SS_PH2 | SS_CENTERED, SF_ANG, -15), S_PUSH(107, 121),
+    S_PLINE(SCC_K2, 6), 107, 121, 118, 121, 128, 116, 134, 106, 135, 96, 131, 88,
+    S_POP,
+    S_BIND(SS_PH2, SF_HIDE, 64), S_BIND(SS_PH2 | SS_CENTERED, SF_ANG, 15), S_PUSH(107, 121),
     S_PLINE(SCC_K2, 6), 107, 121, 118, 121, 128, 116, 134, 106, 135, 96, 131, 88,
     S_POP,
     /* the paw (K4 PLUCK): bats the yarn at PLUCK's RATE (PH4: rises slowly away from the yarn through 67 degrees, then comes down on it, once a
      * turn: 0.5 Hz to 3 Hz), the swing's end resting ON the yarn's edge; a note swats it too (HIT). The yarn recoils at each strike (below).
      * ui-fix2 6, the owner's "PLUCK sets how fast the paw bats the ball of yarn" */
-    S_BIND(SS_PH4, SF_ANG, 24), S_BIND(SS_HIT, SF_ANG, 20), S_PUSH(66, 98),
+    S_BIND(SS_PH4, SF_ANG, 24), S_BIND(SS_HIT, SF_ANG, 6), S_PUSH(66, 98),
     S_PLINE(SCC_K4, 3), 66, 98, 52, 100, 42, 106,
     S_STYLE(1),
     S_CIRC(SCC_K4, 38, 108, 6),
@@ -107,7 +112,7 @@ static const uint8_t SCENE_SHAPES[] = {
     S_STYLE(2),
     S_BIND(SS_K1 | SS_CENTERED, SF_R, 28), S_CIRC(SCC_K1, 30, 112, 24),
     S_STYLE(1),
-    S_BIND(SS_PH4, SF_ANG, -64), S_PUSH(30, 112),
+    S_BIND(SS_PH4, SF_ANG, -32), S_PUSH(30, 112),
     S_BIND(SS_K1, SF_CNT, 4), S_REP(1, 3, 2), S_ARC(SCC_K1, 26, 108, 7, 180, 60),
     S_POP,
     S_LINE(SCC_K1, 40, 106, 49, 97),

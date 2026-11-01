@@ -276,8 +276,8 @@ static void scene_inputs(const sound_t *s, const frame_t *f, scene_in_t *in)
     memset(in, 0, sizeof *in);
     for (uint32_t k = 0; k < 4u; k++) {
         in->s[SS_K1 + k] = (int16_t)knob_q8(&s->k[k]);
-        /* the knob-rate phases: 0.1 Hz at 0 to 3 Hz at full (the UI keeps these four phases a track) */
-        double hz = 0.1 + 2.9 * knob_q8(&s->k[k]) / 256.0;
+        /* the knob-rate phases: 0.5 Hz at 0 to 3 Hz at full (the UI keeps these four phases a track; ui-fix2 6: was 0.1 Hz at 0) */
+        double hz = 0.5 + 2.5 * knob_q8(&s->k[k]) / 256.0;
         if (s->dub && k == 0u) {                         /* DUB TAPE: the loop's turn, slow to 1.0, fast past it (HOLD: 1.0) */
             double fb = (f->keys >> 9) & 1 ? 1.0 : s->k[0].v / 100.0;
             hz = 0.3 + 0.5 * (fb < 1.0 ? fb : 1.0) + 8.0 * (fb > 1.0 ? fb - 1.0 : 0.0);

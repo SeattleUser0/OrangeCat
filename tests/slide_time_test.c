@@ -121,10 +121,24 @@ int main(void)
         t->p[P_SLIDET] = 0;
         project_load(2);
         chk("KEPT     a project saved and loaded keeps it", TSEL->p[P_SLIDET] == 20);
-        for (k = 0; k < NTRK; k++) chk("KEPT     the default of every track is 0", param_desc_of(0, P_SLIDET)->def == 0);
+        project_save(1); { uint32_t j; int ok = 1; for (j = 0; j < NTRK; j++) ok &= stored_param(1, j, P_SLIDET) == (j == song.sel ? 20 : 0); chk("KEPT     every track's own value is saved (the others stay 0)", ok); }
+        { track_t u; memset(&u, 0, sizeof u); chk("KEPT     the descriptor's default is 0 (a new track, an old project)", param_desc_of(ENGI_MACRO, P_SLIDET)->def == 0 && param_desc_of(ENGI_SHAPES, P_SLIDET)->def == 0); }
         t->p[P_SLIDET] = 77;                            /* (outside the range) */
         project_save(3); project_load(3);
         chk("KEPT     a value out of range is clamped on a load", TSEL->p[P_SLIDET] <= 63);
+    }
+    {   /* OLD: id 48 was the slicer's DEPTH (default 127) in projects before commit 1e47387: no SLIDE TIME */
+        track_t *t = prep(V_POLY, 0, 0);
+        t->p[P_SLIDET] = 127;                           /* what such a project holds */
+        project_save(2); t->p[P_SLIDET] = 5; project_load(2);
+        chk("OLD      a project holding 127 there (the old slicer depth) loads with SLIDE TIME 0, not 63", TSEL->p[P_SLIDET] == 0);
+        t->p[P_SLIDET] = 30;
+        chk("OLD      a value in range survives (a project saved with this build)", (project_save(3), t->p[P_SLIDET] = 0, project_load(3), TSEL->p[P_SLIDET] == 30));
+        /* a new slide starts its accumulator at 0: a leftover fraction does not shorten the first step */
+        manual(t, 0, 48, SF_SLIDE); manual(t, 1, 60, 0);
+        {   uint32_t a = octave(V_POLY, 16, 0), b = octave(V_POLY, 16, 0);
+            chk("OLD      the same slide twice takes the same time (the accumulator restarts)", a == b && a > 0u);
+        }
     }
     {   /* WORDS */
         track_t *t = prep(V_POLY, 0, 0);
@@ -135,7 +149,12 @@ int main(void)
         manual(t, 2, 60, SF_SLIDE);
         t->p[P_SLIDET] = 30;
         tk_fx_text(&t->step[2], TFX_SLIDE, b, 1);
-        chk("WORDS    the tracker's foot says ON SLOW", !strcmp(b, "ON SLOW"));
+        chk("WORDS    the editor's hardware-test string stays ON", !strcmp(b, "ON"));
+        {   char h[48];
+            ui.tk_col = TKC_FX; ui.tk_fx = TFX_SLIDE; ui.cursor = 2;
+            tk_hint(h, sizeof h);
+            chk("WORDS    the tracker's foot says ON SLOW", strstr(h, "ON SLOW") != 0);
+        }
         tk_fx_text(&t->step[2], TFX_SLIDE, b, 0);
         chk("WORDS    the tracker's cell stays SL", !strcmp(b, "SL"));
     }

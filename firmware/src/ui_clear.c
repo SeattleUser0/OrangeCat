@@ -25,11 +25,11 @@
  *   (ui-fix2 2) first version.
  */
 #if OC_REC_CLEAR
-enum { CLR_NONE, CLR_TRACK, CLR_PAGE, CLR_FX, CLR_PROJECT, CLR_AUTO, CLR_SHARED };
+enum { CLR_NONE, CLR_TRACK, CLR_PAGE, CLR_FX, CLR_PROJECT, CLR_AUTO, CLR_SHARED, CLR_NOPE };   /* SHARED and NOPE clear nothing: REC's hold says why */
 #define CLR_SHOW_MS 350u                                /* held this long the count starts (a slower tap than this is swallowed) */
 #define CLR_STEP_MS 300u                                /* one count */
 #define CLR_COUNTS 3u                                   /* 3, 2, 1: the clear at CLR_SHOW_MS + 3 * CLR_STEP_MS */
-static struct { uint32_t t0; uint8_t arm, shown, ctx, last; } clr;
+static struct { uint32_t t0; uint8_t arm, shown, ctx, last, sel, pg; } clr;   /* sel, pg: the track and the 16-step page the count began on */
 
 /* what a REC held would clear here (CLR_NONE: nothing modal may be up, and the page must be one of the owner's) */
 static uint32_t clr_ctx(void)
@@ -42,12 +42,12 @@ static uint32_t clr_ctx(void)
     pg = cur_page();
     if (pg->graph == GR_MOTION)
         return CLR_AUTO;
-    if (pg->fam == FAM_GLO)
+    if (pg->fam == FAM_GLO || pg->fam == FAM_TRK)       /* (the GLO button's first page is the MIXER, FAM_TRK: the owner's GLO) */
         return CLR_PROJECT;
     if (pg->fam == FAM_FX)
         return pg->scope == SC_GLOBAL ? CLR_SHARED : CLR_FX;
-    if (pg->fam == FAM_SEQ)
-        return CLR_PAGE;
+    if (pg->fam == FAM_SEQ)                             /* the track's own pages; the project's (TEMPO, CHAIN, SONG, PHRASES, GROOVE) say so at once */
+        return (pg->scope == SC_STEP || pg->scope == SC_DRUMHIT || (pg->scope == SC_TRACK && pg->graph == GR_STEPS)) ? CLR_PAGE : CLR_NOPE;
     return CLR_NONE;                                    /* (EDIT, ENV, LFO, SCL, ARP ..: REC held is what it was) */
 }
 
@@ -65,10 +65,12 @@ static void clr_fx(void)
     char b[12] = "1 FX RESET";
     undo_seal();
     load_begin(t, UNDO_FX);
+    motion_replace_track(t, &undo_last()->motion_backup);   /* (load_begin clears the track's motion: only a clear of the music does that) */
     fm1_irq_off();
     clr_fx_values(t);
     fm1_irq_on();
     load_end(t);
+    undo_seal();
     b[0] = (char)('1' + song.sel % NTRK);
     ui_say("TRACK ", b);
     ui.force = 1;
@@ -84,21 +86,24 @@ static void clr_page(void)
     if (pg->scope == SC_TRACK && pg->graph == GR_STEPS) {   /* PHRASE: LEN DIV SWING GATE */
         undo_seal();
         load_begin(t, UNDO_PAT);
+        motion_replace_track(t, &undo_last()->motion_backup);
         fm1_irq_off();
         for (i = 0; i < 4u; i++)
             t->p[pg->id[i]] = param_desc_of(eng_idx(t->eng_req), pg->id[i])->def;
         fm1_irq_on();
         load_end(t);
+        undo_seal();
         ui_message("PHRASE RESET");
         ui.force = 1;
         return;
     }
-    if (pg->scope != SC_STEP && pg->scope != SC_DRUMHIT) { ui_message("NOT A TRACK'S VALUES"); return; }
+    if (pg->scope != SC_STEP && pg->scope != SC_DRUMHIT) return;
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
     base = ui.cursor / 16u * 16u;
     len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
     undo_seal();
     load_begin(t, UNDO_PAT);
+    motion_replace_track(t, &undo_last()->motion_backup);
     fm1_irq_off();
     for (i = base; i < base + 16u && i < len; i++) {
         step_t *st = &t->step[i];
@@ -111,6 +116,7 @@ static void clr_page(void)
     }
     fm1_irq_on();
     load_end(t);
+    undo_seal();
     recording_resched(t);                               /* (a recorded step's notes play its nudge) */
     ui_message("PAGE RESET");
     ui.force = 1;
@@ -124,6 +130,11 @@ static void clr_project(void)
     for (k = 0; k < NTRK; k++)
         if (tt == NTRK && !frz_locked_k(k) && recording_head[recording_owner(&trk[k])] < RECORD_MAX)
             tt = k;                                     /* the first track with recorded notes: the note history's track */
+    undo_levels();                                      /* (the cache RAM's levels, if it is there) */
+    {   uint32_t need = 0;
+        for (k = 0; k < NTRK; k++) need += !frz_locked_k(k);
+        if (need > undo_nlv) { ui_message("UNDO MEMORY FULL"); return; }   /* (one undo takes all or none: a stack too small for the group clears nothing) */
+    }
     undo_seal();
     if (tt < NTRK) {                                    /* one snapshot of the whole recording pool for every track */
         fm1_irq_off();
@@ -139,8 +150,8 @@ static void clr_project(void)
         if (frz_locked_k(k)) continue;                  /* (a frozen phrase: as it was frozen) */
         load_begin(t, UNDO_FX | (k == tt ? 0u : UNDO_PAT));   /* (the note history holds the first one's steps and motion) */
         if (undo_top)
-            undo_lv[undo_top - 1u].link = (uint8_t)((first ? 0u : 1u) | (tt < NTRK ? 2u : 0u));   /* bit 0: the level below is of this
-                                                         * gesture; bit 1: its note history is GLO's too (clr_follow) */
+            undo_lv[undo_top - 1u].link = (uint8_t)((first ? 0u : 1u) | (tt < NTRK ? 2u : 0u) | (k == tt ? 4u : 0u));   /* bit 0: the level below is of
+                                                         * this gesture; bit 1: its note history is GLO's too; bit 2: that history owns this motion */
         first = 0;
         fm1_irq_off();
         track_defaults_steps(t);
@@ -156,8 +167,51 @@ static void clr_project(void)
     ui_message("PROJECT CLEARED");
     ui.force = 1;
 }
-/* after a note history undo or redo that was GLO's (note_transaction.group): the linked levels (every track's steps and effects) go
- * with it, as one undo: ui.c undo_step calls this after note_clear_history succeeded; undo_level then follows the links */
+/* GLO's group (levels with link bit 1 and the one note history, note_transaction.group). The history may go first only when the level it belongs
+ * to is the one the undo (or redo) is on: otherwise another edit came after it and goes first (the stack's order). A history that is no longer
+ * GLO's (overwritten by another note edit, or invalid) takes its levels out (clr_group_drop): the pool could not come back with them. */
+static int clr_group_levels(void)
+{
+    uint32_t i;
+    for (i = 0; i < undo_cnt; i++) if (undo_lv[i].link & 2u) return 1;
+    return 0;
+}
+static void clr_group_drop(void)
+{
+    uint32_t i, j = 0, top = 0;
+    for (i = 0; i < undo_cnt; i++) {
+        if (undo_lv[i].link & 2u) continue;
+        if (j != i) undo_lv[j] = undo_lv[i];
+        if (i < undo_top) top++;
+        j++;
+    }
+    undo_cnt = (uint8_t)j;
+    undo_top = (uint8_t)top;
+    if (undo_top) undo_lv[undo_top - 1u].keep = 0;
+}
+static int clr_history_ok(int redo)
+{
+    int live = note_transaction_ptr && note_transaction.valid && note_transaction.group;
+    if (!live) {
+        if (clr_group_levels()) clr_group_drop();       /* (its history is gone) */
+        return 1;                                       /* an ordinary history: as ever */
+    }
+    return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
+}
+/* every level of the linked group the undo (redo) is about to take has its track's phrase still: else none goes */
+static int undo_group_ok(int redo)
+{
+    int s = redo ? (int)undo_top : (int)undo_top - 1;
+    if (s < 0 || s >= (int)undo_cnt || !(undo_lv[s].link & 3u) ) return 1;
+    for (;;) {
+        const undo_t *u = &undo_lv[s];
+        if (u->pattern_gen != trk[(u->trk - 1u) % NTRK].pattern_gen) return 0;
+        if (!redo && (u->link & 1u) && s > 0) s--;
+        else if (redo && s + 1 < (int)undo_cnt && (undo_lv[s + 1].link & 1u)) s++;
+        else return 1;
+    }
+}
+/* after a note history undo or redo that was GLO's: the linked levels (every track's steps and effects) go with it, as one undo */
 static void clr_follow(int redo)
 {
     if (!note_transaction.group) return;
@@ -180,6 +234,7 @@ static void clr_fire(uint32_t ctx)
         break;
     default: break;
     }
+    undo_seal();                                        /* (a sound browsed next is a level of its own, not part of the clear) */
 }
 static const char *clr_word(uint32_t ctx)
 {
@@ -195,7 +250,10 @@ static void clr_edge(uint32_t pressed)
     clr.arm = clr.shown = 0;
     if (!transport_busy() && !(fm1_in.buttons & ~rb) && !fm1_in.notes) {
         clr.ctx = (uint8_t)clr_ctx();
-        clr.arm = clr.ctx != CLR_NONE && clr.ctx != CLR_SHARED;
+        if ((clr.ctx == CLR_TRACK || clr.ctx == CLR_PAGE) && frz_locked()) clr.ctx = CLR_NOPE;   /* (a frozen phrase: says so, no count) */
+        clr.arm = clr.ctx != CLR_NONE && clr.ctx != CLR_SHARED && clr.ctx != CLR_NOPE;
+        clr.sel = song.sel;
+        clr.pg = (uint8_t)(ui.cursor / 16u);
         clr.t0 = fm1_ms;
         clr.last = 0;
     }
@@ -205,7 +263,12 @@ static int clr_hold_ok(void) { return !clr.arm; }
  * Capture's "NOTHING TO CAPTURE". 1: said */
 static int clr_shared_say(void)
 {
-    if (transport_busy() || clr_ctx() != CLR_SHARED) return 0;
+    uint32_t c;
+    if (transport_busy()) return 0;
+    c = clr_ctx();
+    if ((c == CLR_TRACK || c == CLR_PAGE) && frz_locked()) { ui_message("UNFREEZE TO EDIT"); return 1; }
+    if (c == CLR_NOPE) { ui_message("NOT A TRACK'S VALUES"); return 1; }
+    if (c != CLR_SHARED) return 0;
     ui_message("SHARED: OCT+ HELD, RESET EFFECTS");
     return 1;
 }
@@ -214,7 +277,8 @@ static void clr_poll(uint32_t pressed, uint32_t notes)
 {
     uint32_t rb = 1u << panel.btn[B_REC], el, n;
     if (!clr.arm) return;
-    if (!(fm1_in.buttons & rb) || (pressed & ~rb) || notes || transport_busy() || clr_ctx() != clr.ctx) {
+    if (!(fm1_in.buttons & rb) || (pressed & ~rb) || notes || transport_busy() || clr_ctx() != clr.ctx || song.sel != clr.sel ||
+        (clr.ctx == CLR_PAGE && ui.cursor / 16u != clr.pg)) {   /* (a knob moved the track or the page: not what was held for) */
         if (clr.shown && (fm1_in.buttons & rb) == 0u) ui_message("KEPT");
         clr.arm = clr.shown = 0;
         return;

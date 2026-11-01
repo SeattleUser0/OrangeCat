@@ -2523,7 +2523,7 @@ static void ui_input(void)
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     dq_poll();                                          /* (destructive edits waiting for their loop end) */
 #if OC_PROJECT_PAGE
-    pj_poll();                                          /* (ui-fix2 3) the PROJECT page's unsaved flag, once a second at most */
+    pj_poll(pressed | notes | (uint32_t)panel_moved);                                          /* (ui-fix2 3) the PROJECT page's unsaved flag, once a second at most */
 #endif
     if (boot_work.state) {
         for (k = 0; k < NE; k++) (void)panel_enc(k);

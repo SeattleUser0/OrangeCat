@@ -172,10 +172,7 @@ static void pv_sound(void)
     else sound_name(TSEL, nm);
     if (fx) {                                           /* the heading names whose effects these are: THIS TRACK and its number
                                                          * (the numeral sits in the pill), then the sound's name */
-        char t[20];
-        str_cpy(t, "THIS TRACK  ", sizeof t);
-        str_cpy(t + 12, nm[0] ? nm : en, (uint32_t)sizeof t - 12u);
-        str_cpy(nm, t, sizeof nm);
+        str_cpy(nm, "THIS TRACK", sizeof nm);           /* (the sound's name no longer: the badge has the number, the page the sound's own) */
     }
     sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u + all * 4099u + fx * 8209u, en), nm);
     if (!ui.force && sig == pv.sound)

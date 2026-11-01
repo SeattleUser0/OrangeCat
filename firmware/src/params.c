@@ -225,7 +225,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_RESERVED46] = PE("PTRN", N_DUBPTRN, 0),
     [P_RESERVED47] = PE("SPRP", N_DUBSPRP, 0),
 #if OC_SLIDE_TIME
-    [P_RESERVED48] = PD("SLIDE", F_BIPCT, -64, 63, 0),            /* (ui-fix2 4) SLIDE TIME: the percent is how far from the rate slides had, quicker (-) or slower (+) */
+    [P_RESERVED48] = PD("SLIDE", F_BIPCT, -64, 63, 0),            /* (ui-fix2 4) SLIDE TIME: a scale, not a time or a share: 0 is the rate slides had, each 16 down twice as quick, each 16 up half as quick (shown as a percent of 64; NOTES says it in words) */
 #else
     [P_RESERVED48] = PD("", F_INT, 0, 127, 0),
 #endif

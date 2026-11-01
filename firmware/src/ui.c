@@ -728,8 +728,9 @@ typedef struct {
     uint8_t keep;                /* the track is as the last load left it (after): a next load keeps the copy */
     uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_step) */
     uint8_t eng, preset, user_native, patn;
-    uint8_t link;                /* (ui-fix2 2) 1: the level pushed just before this one belongs to the same gesture (GLO's clear of
-                                  * four tracks): one undo, one redo takes the whole group (a byte of the padding before `user`) */
+    uint8_t link;                /* (ui-fix2 2) bit 0: the level pushed just before this one belongs to the same gesture (GLO's clear of four tracks): one
+                                  * undo, one redo takes the whole group; bit 1: the group's note history is the one GLO took (note_transaction.group); bit 2:
+                                  * that history owns this track's motion (a byte of the padding before `user`) */
     uint16_t user;
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
@@ -918,15 +919,21 @@ static int recording_history(int redo)
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_level(int redo);
+#if OC_REC_CLEAR
 static void clr_follow(int redo);                       /* (ui-fix2 2, ui_clear.c) after a note history that was GLO's clear */
+static void clr_group_drop(void);
+static int clr_history_ok(int redo);
+static int undo_group_ok(int redo);
+#endif
 static void undo_step(int redo)
 {
     if(recording_history(redo))return;
-    if(note_clear_history(redo)){
 #if OC_REC_CLEAR
-        clr_follow(redo);
+    if(!undo_group_ok(redo)){undo_clear();ui_message(redo?"NOTHING TO REDO":"NOTHING TO UNDO");return;}   /* a group goes whole or not at all */
+    if(clr_history_ok(redo)&&note_clear_history(redo)){clr_follow(redo);return;}
+#else
+    if(note_clear_history(redo))return;
 #endif
-        return;}
     undo_level(redo);
 }
 static void undo_level(int redo)
@@ -942,14 +949,16 @@ static void undo_level(int redo)
     u = &undo_lv[redo ? undo_top : undo_top - 1u];
     t = &trk[(u->trk - 1u) % NTRK];
     if (u->pattern_gen != t->pattern_gen) { undo_clear(); ui_message(redo ? "NOTHING TO REDO" : "NOTHING TO UNDO"); return; }
-    motion_restore(t);
-    motion_store_t current_motion;
-    motion_snapshot_track(t, &current_motion);
-    if (motion_replace_track(t, &u->motion_backup) != 0) {
-        ui_message("MOTION FULL");
-        return;
+    if (!(u->link & 4u)) {                        /* (ui-fix2 2: bit 2: GLO's note history owns this track's motion) */
+        motion_restore(t);
+        motion_store_t current_motion;
+        motion_snapshot_track(t, &current_motion);
+        if (motion_replace_track(t, &u->motion_backup) != 0) {
+            ui_message("MOTION FULL");
+            return;
+        }
+        u->motion_backup = current_motion;
     }
-    u->motion_backup = current_motion;
     fm1_irq_off();                                /* the audio ISR must not see half a sound */
     if (u->what & UNDO_SOUND) {
         uint8_t e = t->eng_req, pr = t->preset, un=t->user_native;

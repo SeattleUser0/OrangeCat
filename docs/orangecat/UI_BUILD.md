@@ -2217,3 +2217,30 @@ EDIT, OCT-/OCT+ and what each does on HOME's pages, a sheet, NOTES and FEEL; cop
   5: K2 on a typed note is NUDGE (not the conversion). 6: the phases' floor 0.5 Hz for every scene.
 - Not merged: Session A's "No edit memory" fix (not on any branch when this was written); GLO's clear with recorded notes needs the edit memory and says so when it is not there.
 - The items shared one full suite run (below), not one a part: the switches are independent, the parts small, and the review of the diff came first.
+
+### The independent reviews of ui-fix2 (two agents on the diff, November 1, 2026) and what was done
+
+**Items 1 to 3 (18 findings; 3 blockers, all GLO's one undo):** (1, 2, 3) the single note history could be undone or redone out of the stack's order, left stale after
+another note edit, or overwritten by a later clear, leaving recorded steps with no note (ghosts) or notes with no step: the history now goes first only when the level
+it belongs to is the one the undo (redo) is on (clr_history_ok); a history that was overwritten or invalidated takes its levels out of the stack (clr_group_drop: GLO's undo is
+then gone, as any single-slot note history is gone after the next note edit); tests for the sound-load-after-GLO order, the stale redo and the overwritten history, mutation-checked.
+(4) the history's track no longer swaps its motion twice (link bit 2). (5) a group is refused whole when any member's phrase changed (undo_group_ok). (6) one undo level only
+(no cache RAM): GLO says UNDO MEMORY FULL and clears nothing. (7) an FX or page reset no longer clears the track's automation (HOME and GLO still do: the existing Clear track
+does; said here). (8) the PROJECT page's pack ran once a second and bumped proj_wire_gen, which a web editor transfer's staging RAM is checked against: it is worked out only
+when the panel is touched (and on entry, after a load or a save). (9) the selected track and BOOT no longer count as an edit. (10) the MIXER, the GLO button's first page, is GLO's.
+(11) the renderer's SENDS scene. (14) a knob that changes the track or FEEL's page cancels the count. (15) pages that cannot clear and a frozen track say so at once, no count.
+(16) a clear is sealed so a sound browsed next is its own level. (13) the foot says THIS TRACK alone (the name was cut); item 1 has no switch: said above. **Not done:**
+(12) ui_test and sheet_test under OC_PROJECT_PAGE assert the old SAVE > USER flows and fail 12 and 1 checks: they are not run with the switch (project_page_test is its suite),
+**open**; (17) NOTES, TRACKER and DRUM HIT reset FEEL's values (chance, condition, ratchet, nudge, accent, slide), not their own (velocity, length): the owner's call; (18) LOAD of the template row
+does not ask, and while playing the flag is not worked out.
+
+**Items 4 to 6 (12 findings; 1 blocker):** (1) id 48 was the slicer's DEPTH (default 127) in projects before commit 1e47387: such a project would have loaded as SLIDE TIME 63 (slow
+slides): a project value outside -64 .. 63 loads as 0 (a value 0 .. 63 of an old customised slicer depth cannot be told apart: **residual**, only slide steps are affected).
+(2) the web editor wrote the id as a sound parameter: ED_SET and its sibling refuse the id (the unit's own panel is where it is set until Session D's table has it). (3) tools/hw/rectest.py
+expects "ON": the word is added in the tracker's foot only (tk_hint), the hardware-test string stays "ON". (4) one_auth_test's START checks assert the conversion: under OC_START_NUDGE
+they are out and a job runs it with both switches (the shipping pair). (5) the tail was a sawtooth with a snap: now two copies by phase, a triangle, 21 degrees out and back.
+(6) the paw: HIT's swat smaller, the yarn's knock a quarter turn (its comment); the strike's ball overlaps the yarn's edge near TIMB's middle and minimum and its middle at the top
+(**open**, minor). 3 Hz at 9 frames a second is about three poses a cycle: it reads as a bat. (7) the F_BIPCT percent is a scale, not a time (the comment says so; NOTES says it in words).
+(8) the test's turns formula fixed (the printed COLR 5.7, PLUCK 6.0 in 2 s; the window tightened). (9) tests added: OLD (a 127 loads as 0), the accumulator restarting, every track's own value
+saved; **still not covered**: user sounds not storing the value, motion on the id, the word thresholds. (10) K2's nudge is shown in the START number, **not drawn in the roll** (open).
+(11) ui_mockup's phase rate. (12) the gtick comment.

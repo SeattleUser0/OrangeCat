@@ -199,6 +199,107 @@ int main(void)
         edit_redo();
         chk("GLO     one redo clears them again", pool_n() == 0u && steps_on(&trk[2]) == 0u);
     }
+    {   /* REVIEW: group undo out of order, stale histories, overwritten history, cancels, pages */
+        uint32_t k, ghosts;
+        fresh();
+        go_title("GLOBAL");
+        put_event(&trk[1], 0, 2, 60); put_event(&trk[2], 1, 5, 64); put_event(&trk[2], 2, 6, 66);
+        song.sel = 1; note_rebuild_all(); song.sel = 2; note_rebuild_all(); song.sel = 0;
+        trk[3].p[P_REV] = 44;
+        hold_ms(B_REC, 1500);
+        song.sel = 3; trk[3].p[P_DIST] = 77; set_engine_of(&trk[3], ENGI_SHAPES); song.sel = 0;   /* a sound load on T4 after the clear: its own level */
+        hold(B_EDIT);
+        chk("REVIEW  GLO, then a sound load: one EDIT undoes the load first (the stack's order), the pool still empty", pool_n() == 0u);
+        hold(B_EDIT);
+        chk("REVIEW  the next EDIT brings GLO back whole: pool, steps, effects", pool_n() == 3u && trk[3].p[P_REV] == 44);
+        for (ghosts = 0, k = 0; k < NTRK; k++) { uint32_t i, rs = 0; for (i = 0; i < NSTEP; i++) rs += (trk[k].step[i].flags & SF_RECORDED) != 0; ghosts += rs && recording_head[recording_owner(&trk[k])] >= RECORD_MAX; }
+        chk("REVIEW  no recorded step without a recorded note", ghosts == 0u);
+        /* a stale GLO history is not redone over a later undo */
+        fresh();
+        go_title("GLOBAL");
+        put_event(&trk[1], 0, 2, 60); song.sel = 1; note_rebuild_all(); song.sel = 0;
+        hold_ms(B_REC, 1500);
+        hold(B_EDIT);                                   /* GLO undone */
+        go_title("DIST"); trk[0].p[P_DIST] = 70;
+        hold_ms(B_REC, 1500);                           /* an FX clear */
+        hold(B_EDIT);                                   /* and undone */
+        edit_redo();
+        chk("REVIEW  after GLO's undo and an FX clear and its undo, the redo is the FX clear's (DIST reset), the pool untouched", trk[0].p[P_DIST] == param_desc_of(eng_idx(trk[0].eng_req), P_DIST)->def && pool_n() == 1u);
+        /* GLO then another note edit overwriting the history: no ghost steps whatever the undos */
+        fresh();
+        go_title("GLOBAL");
+        put_event(&trk[1], 0, 2, 60); put_event(&trk[2], 1, 5, 64);
+        song.sel = 1; note_rebuild_all(); song.sel = 2; note_rebuild_all(); song.sel = 0;
+        hold_ms(B_REC, 1500);
+        put_event(&trk[0], 5, 3, 72); note_rebuild_all(); go_home();
+        hold_ms(B_REC, 1500);                           /* HOME clear of T1's note: a new note history */
+        hold(B_EDIT); hold(B_EDIT); hold(B_EDIT);
+        for (ghosts = 0, k = 0; k < NTRK; k++) { uint32_t i, rs = 0; for (i = 0; i < NSTEP; i++) rs += (trk[k].step[i].flags & SF_RECORDED) != 0; ghosts += rs && recording_head[recording_owner(&trk[k])] >= RECORD_MAX; }
+        chk("REVIEW  GLO's history overwritten by a later clear: undoing on never leaves a recorded step without its note", ghosts == 0u);
+        /* a phrase changed under the group: the whole undo is refused, nothing half done */
+        fresh();
+        go_title("GLOBAL");
+        for (k = 0; k < NTRK; k++) { pstep(&trk[k], 1 + k, 60); trk[k].p[P_DIST] = 30 + (int16_t)k; }
+        hold_ms(B_REC, 1500);
+        trk[2].pattern_gen++;
+        hold(B_EDIT);
+        chk("REVIEW  a track's phrase changed under the group: the undo is refused whole (no track half back)", steps_on(&trk[0]) == 0u && steps_on(&trk[1]) == 0u && trk[3].p[P_DIST] != 33);
+        /* the MIXER (the GLO button's first page) is GLO's */
+        fresh();
+        go_title("MIXER");
+        pstep(&trk[1], 4, 62);
+        hold_ms(B_REC, 1500);
+        chk("REVIEW  the MIXER page (GLO's first) clears the project too", steps_on(&trk[1]) == 0u);
+        /* a knob that moves the track during the count cancels it */
+        fresh();
+        go_home();
+        pstep(&trk[0], 2, 60); pstep(&trk[1], 2, 62);
+        fm1_ms += 320u; btn_down(B_REC);
+        for (k = 0; k < 30u; k++) frame();
+        song.sel = 1;
+        for (k = 0; k < 120u; k++) frame();
+        btn_up(B_REC); frame();
+        chk("REVIEW  the track changed during the count: nothing cleared", steps_on(&trk[0]) == 1u && steps_on(&trk[1]) == 1u);
+        /* a key during the count cancels it; the transport starting cancels it */
+        fresh();
+        go_home();
+        pstep(&trk[0], 2, 60);
+        fm1_ms += 320u; btn_down(B_REC);
+        for (k = 0; k < 30u; k++) frame();
+        key_down(3); frame(); key_up(3);
+        for (k = 0; k < 120u; k++) frame();
+        btn_up(B_REC); frame();
+        chk("REVIEW  a key played during the count cancels it", steps_on(&trk[0]) == 1u);
+        fresh();
+        go_home();
+        pstep(&trk[0], 2, 60);
+        fm1_ms += 320u; btn_down(B_REC);
+        for (k = 0; k < 30u; k++) frame();
+        song.playing = 1;
+        for (k = 0; k < 120u; k++) frame();
+        song.playing = 0; btn_up(B_REC); frame();
+        chk("REVIEW  the transport starting during the count cancels it", steps_on(&trk[0]) == 1u);
+        /* FEEL's second page; a project page says so at once; a frozen track */
+        fresh();
+        go_title("FEEL");
+        { uint32_t i; for (i = 0; i < 40u; i++) { pstep(&trk[0], i, 60); step_set_chance(&trk[0].step[i], 50u); } }
+        trk[0].p[P_SLEN] = 48;
+        ui.cursor = 20;
+        hold_ms(B_REC, 1500);
+        chk("REVIEW  FEEL on its second page resets steps 16 .. 31 and no others", step_chance(&trk[0].step[20]) == 100u && step_chance(&trk[0].step[3]) == 50u && step_chance(&trk[0].step[35]) == 50u);
+        fresh();
+        go_title("CHAIN");
+        hold_ms(B_REC, 900);
+        chk("REVIEW  CHAIN: no count, the message says at once it is no track's", msg_has("NOT A TRACK"));
+        fresh();
+        go_title("DIST");
+        motion_set_event(&trk[0], 4, P_PAN, 10);
+        trk[0].p[P_DIST] = 70;
+        hold_ms(B_REC, 1500);
+        chk("REVIEW  an FX reset leaves the track's automation alone", motion_count(&trk[0]) == 1u && trk[0].p[P_DIST] != 70);
+        hold(B_EDIT);
+        chk("REVIEW  EDIT held brings the effect back and the automation is there", trk[0].p[P_DIST] == 70 && motion_count(&trk[0]) == 1u);
+    }
     {   /* AUTOMATION */
         fresh();
         go_title("MOTION");

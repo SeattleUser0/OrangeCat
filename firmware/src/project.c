@@ -1005,7 +1005,8 @@ static int project_restore_runtime(const project_t *input)
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = param_desc_of(e, i);
-            t->p[i] = param_reserved(i) ? 0 : eng_extra_retired(e) && i >= P_E0 ? s->p[i] : (int16_t)clamp(s->p[i], d->min, d->max);
+            t->p[i] = param_reserved(i) ? 0 : param_slide_time(i) && (s->p[i] < d->min || s->p[i] > d->max) ? d->def :   /* (ui-fix2 4: id 48 held the slicer's DEPTH, default 127, before 1e47387: out of range is no SLIDE TIME) */
+                       eng_extra_retired(e) && i >= P_E0 ? s->p[i] : (int16_t)clamp(s->p[i], d->min, d->max);
         }
         t->preset = eng_extra_retired(e) ? s->preset : (uint8_t)(ENGINES[e]->npresets ? (s->preset >= PROJ_DEF_KEEP ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         t->pattern = p->pattern[k];
@@ -1446,14 +1447,19 @@ static void project_new_blank(void)
  * record holds zeros: seen on the host), which would warn of changes that are not there. So the slot in use also keeps the hash of what the
  * music packs to right after it was loaded or saved (pj_base, for slot pj_base_slot), and "unsaved" compares with that; with no such hash
  * (a boot, a restore: the safer reading) it is project_dirty's, a warning that may come without a change, never a missing one. */
-/* the music packed as the compare wants it: the slot picked on the PROJECT page and the LOAD, SAVE actions (G_SLOT, G_LOAD, G_SAVE) are
+/* the music packed as the compare wants it: the slot picked on the PROJECT page, the LOAD, SAVE actions, BOOT (G_SLOT, G_LOAD, G_SAVE, G_BOOT) and the selected track are
  * globals of the pack but no change of the music (project_restore_runtime skips them as well): browsing the slots is not an edit. 1: packed */
 static int pj_pack(uint32_t *hash)
 {
+    uint8_t keep = song.sel;
+    int ok;
+    song.sel = 0;                                       /* (the selected track is no edit of the music: the pack holds it in more than one place) */
     project_capture(&proj_scratch);
-    proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = 0;
+    proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = proj_scratch.g[G_BOOT] = 0;   /* (BOOT is a setting of the unit's) */
     proj_wire_gen++;
-    if (!bank_pack(proj_wire_u.raw, &proj_scratch, 1)) return 0;
+    ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1);
+    song.sel = keep;
+    if (!ok) return 0;
     *hash = bank_hash(proj_wire_u.raw);
     return 1;
 }
