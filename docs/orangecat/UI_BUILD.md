@@ -1817,12 +1817,14 @@ recording_prune's removal last; (6) the pads in a step of their own.
    step history (drum_editor_test drives it so). drum_editor_test keeps today's behavior for the switch-off build.
    Live recording still leaves a manual cell's notes beside the events it adds (rec_note), as the review found: said.
 
-**Tests:** tests/one_auth_test.c (36 checks, ASan and UBSan in the suite's job): RECONCILE (an orphan event, a flagged empty
+**Tests:** tests/one_auth_test.c (43 checks, ASan and UBSan in the suite's job, the alignment check off as the suite's rule): RECONCILE (an orphan event, a flagged empty
 cell, a flagged manual cell, another bank, a project saved with an orphan and loaded), PATHS (fourteen edit paths with the
 invariant and prune's no-op after each), START (the conversion and its undo, the next detent, a chord entered 67 60 64,
 STEP OCCUPIED, STOP TO EDIT, the pool full), TRACKER (the move, its undo, the resize refused), KEY (NOTES and the TRACKER,
 the undo, the pick), EDITOR, PADS (the conversion, the length and the natural length, the delete and its undo, a pad and
-the accent pad). step_pages_test's "START: RECORDED ONLY" check is kept for the switch-off build (#if !OC_ONE_AUTH);
+the accent pad), REVIEW (the diff review's cases: the ordered list's move, the TIE cell's two gestures, a load with a flagged
+empty cell in another bank, LEN below a recorded cell, a key beside a rounded-forward event, DRUM-X's LEN). step_pages_test's
+"START: RECORDED ONLY" check is the switch-off build's (#if !OC_ONE_AUTH; with the switch it checks the conversion);
 sheet_test, shift_test, step_pages_test, lanes_test, clip_test and clip_sel_test pass with the switch on; ui_test and
 drum_editor_test are the switch-off build's. ui_render.c (ui_renders_steps, now with OC_ONE_AUTH=1): NOTES' strip with
 a manual note's START lit, linted.
@@ -1939,10 +1941,11 @@ the one translation unit's, so the takeover from seq.c is sound. Found, and take
    to the next step's first note as it does for a manual step; FEEL's TYPE, the tracker's FX column and the note sheet's
    Slide as built.
 
-**Tests:** tests/slide_test.c (13 checks, ASan and UBSan in the suite's job; the sequencer and the voices driven by mix_block,
+**Tests:** tests/slide_test.c (16 checks, ASan and UBSan in the suite's job, the alignment check off; the sequencer and the voices driven by mix_block,
 the interrupt's own path): MODES (POLY, MONO, LEGATO, UNISON: the same voice, the stage and level kept, the octave in 64
 blocks, the release at the rest after), CHORD, REST, SAME, GLIDE (GLMODE TIME with GLIDE set), HELD (a live key's old note
-not taken), RATCHET, DRUMX, RECORDED (the overlap and the no-overlap cases), SET (ENV + KNOB 4 on a recorded step, its undo).
+not taken), RATCHET, DRUMX, RECORDED (the overlap, the no-overlap and a chord into a chord), HITS (a step with a lane hit:
+no pairing), SET (ENV + KNOB 4 on a recorded step, its undo).
 step_pages_test and one_auth_test pass with the switch on. ui_render.c (ui_renders_steps, now with OC_SLIDE=1): NOTES with a
 recorded step sliding into the next, ENV held (notes_slide), linted.
 
