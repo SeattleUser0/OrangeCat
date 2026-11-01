@@ -309,22 +309,45 @@ static int steps(void)
     reset();
     TSEL->step[0].hit = TSEL->step[0].acc = 0x80;
     bad += check("legacy 8-byte step writes preserve lane data",
-                 request(ED_STEP_SET, a, 9) == 19u && TSEL->step[0].note[0] == 60 &&
+                 request(ED_STEP_SET, a, 9) == 22u && TSEL->step[0].note[0] == 60 &&
                  TSEL->step[0].hit == 0x80 && TSEL->step[0].acc == 0x80);
     bad += check("full grid step writes preserve high lane bits and constrain accents",
-                 request(ED_STEP_SET, a, 12) == 19u && TSEL->step[0].hit == 0x92 && TSEL->step[0].acc == 2);
+                 request(ED_STEP_SET, a, 12) == 22u && TSEL->step[0].hit == 0x92 && TSEL->step[0].acc == 2);
     before = TSEL->step[0]; a[2] = 71;
     for (n = 2; n <= sizeof a; n++) {
-        if (n == 9u || n == 12u || n == 13u) continue;
+        if (n == 9u || n == 12u || n == 13u || n == 16u) continue;
         ok &= !request(ED_STEP_SET, a, n) && !memcmp(&before, &TSEL->step[0], sizeof before);
     }
     bad += check("partial or oversized step payloads never mutate a valid step", ok);
     a[0] = 1; a[1] = 0; memcpy(a + 2, (const uint8_t[]){1,64,0,0,0,ST_NOTE,0,99}, 8);
     bad += check("TRACK_STEP accepts its legacy payload on an unselected track",
-                 request(ED_TRACK_STEP, a, 10) == 20u && trk[1].step[0].note[0] == 64 && song.sel == 0);
+                 request(ED_TRACK_STEP, a, 10) == 23u && trk[1].step[0].note[0] == 64 && song.sel == 0);
     before = trk[1].step[0]; a[3] = 65;
     bad += check("TRACK_STEP rejects an incomplete grid extension",
                  !request(ED_TRACK_STEP, a, 11) && !memcmp(&before, &trk[1].step[0], sizeof before));
+    /* (Orange Cat 0.16.0, v8) the feel after the chance: condition, NUDGE + 32, RATCH (1..4) or FLAM (5) */
+    {
+        uint8_t f[17] = {1, 2, 1, 67, 0, 0, 0, ST_NOTE, SF_SLIDE, 90, 0, 0, 0, 100, TC_2_4, 32 + 9, 3};
+        uint32_t len = request(ED_TRACK_STEP, f, 17);
+        const uint8_t *r = host_wire + 7;                /* F0, the header, the command, track, index, then the step's bytes */
+        step_t *st = &trk[1].step[2];
+        bad += check("TRACK_STEP v8 writes the condition, the nudge and the ratchet and replies with them",
+                     len == 23u && st->cond == TC_2_4 && st->nudge == 9 && step_ratchet(st) == 3u && !(st->flags & SF_FLAM) &&
+                     (st->flags & SF_SLIDE) && r[12] == TC_2_4 && r[13] == 32 + 9 && r[14] == 3);
+        f[16] = 5; f[15] = 32 - 20;
+        bad += check("TRACK_STEP v8: 5 is FLAM, a nudge early", request(ED_TRACK_STEP, f, 17) == 23u && (st->flags & SF_FLAM) &&
+                     step_ratchet(st) == 1u && st->nudge == -20 && host_wire[7 + 14] == 5);
+        before = *st;
+        f[14] = TC_COUNT; ok = !request(ED_TRACK_STEP, f, 17); f[14] = TC_NONE;
+        f[15] = 64; ok &= !request(ED_TRACK_STEP, f, 17); f[15] = 32;
+        f[16] = 0; ok &= !request(ED_TRACK_STEP, f, 17); f[16] = 6; ok &= !request(ED_TRACK_STEP, f, 17); f[16] = 1;
+        ok &= !request(ED_TRACK_STEP, f, 15) && !request(ED_TRACK_STEP, f, 16);
+        bad += check("TRACK_STEP v8 refuses a condition, nudge or ratchet out of range and a partial feel", ok && !memcmp(&before, st, sizeof before));
+        bad += check("TRACK_STEP without the feel keeps the step's own", request(ED_TRACK_STEP, f, 14) == 23u && (st->flags & SF_FLAM) && st->nudge == -20);
+        memcpy(f + 1, (const uint8_t[]){3, 1, 60, 0, 0, 0, ST_NOTE, 0, 100, 0, 0, 0, 100, TC_FILL, 32 + 31, 4}, 16);
+        bad += check("STEP_SET v8 writes the feel of the selected track's step", request(ED_STEP_SET, f + 1, 16) == 22u &&
+                     TSEL->step[3].cond == TC_FILL && TSEL->step[3].nudge == 31 && step_ratchet(&TSEL->step[3]) == 4u && host_wire[6 + 14] == 4);
+    }
     return bad;
 }
 

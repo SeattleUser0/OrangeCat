@@ -22,6 +22,13 @@ selected. The v1-v3 commands are byte for byte as before; v4 is asked for with b
 optionally, and `UP_GET` / `UP_PUT` carry a user preset's 16-step grid after its pattern. Every
 earlier byte is where it was; an editor that reads the first bytes of a reply keeps working.
 
+**v8 (the feel; Orange Cat 0.16.0):** a step's trig condition, nudge and ratchet, which the device edits on the tracker's FX column and
+on FEEL, come after the chance in every step reply (`STEP_GET` / `STEP_SET` / `TRACK_STEP`, 3 bytes: condition 0..11 as core.h TC_* (0 always,
+1 FILL, 2 !FILL, 3 1:2, 4 2:2, 5 1:3, 6 2:3, 7 3:3, 8 1:4, 9 2:4, 10 3:4, 11 4:4), nudge + 32 (0..63, 64ths of the step, 32 = on the grid),
+ratchet 1..4 the hits of the step, 5 FLAM), and `STEP_SET` / `TRACK_STEP` take them after the chance, optionally; a request with them out of
+range, or with one or two of the three, writes nothing and gets no reply. Before v8 only the device could set them: a backup carried them
+(`pattern_store.c`), a step write never touched them. Every earlier byte is where it was.
+
 **v7 (motion, chance, backup, 89 parameters):** a step gets a chance byte after its hits. `MOTION` (64) reads
 and edits a track's recorded knob moves. `BACKUP_LIST` / `BACKUP_GET` / `BACKUP_PUT` (65-67) read and
 restore the whole device. P_COUNT is 89 and P_E0 is 81: twenty FM operator parameters (ids 61..80) went in
@@ -138,8 +145,8 @@ global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an e
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
 | 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals), then the preset's high bits (preset >> 7; see "Presets past 127") |
 | 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 24; firmware before the matrix: at most 16) |
-| 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100 |
-| 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7)]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance it keeps its own. The chance can only follow the hits |
+| 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100, then (v8) the feel: condition, nudge + 32, ratchet |
+| 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7) [, condition, nudge + 32, ratchet (v8)]]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance it keeps its own; without the feel it keeps its own. The chance can only follow the hits, the feel only the chance |
 | 8 PRESET | engine, preset [, preset >> 7] | engine, preset, preset >> 7 (applies the preset's sound; the steps and the track's own parameters stay, see "Sound loads and undo"); (0.11.0) a fourth byte only when a module's engine was refused: 1 ENGINE TOO HEAVY, 2 NO ROOM, the track keeps its engine and its sound, the first three bytes are what it holds) |
 | 9 PROJECT | op (0 load, 1 save, 2 query), slot 0..3 | op, slot, used (1/0). Save writes flash: allow ~2 s; it stops the transport first (see "Saves while playing") |
 | 10 NAMES | engine [, first preset, 2 × 7 bit] | engine, count (≤ 127), count preset-name strings (≤ 20 characters) from the first, then the two edit-page titles, then all presets and the first (2 × 7 bit each). Ask again from first + count until all are read |
@@ -171,7 +178,7 @@ an older editor sees the first page (the names that fit 1024 bytes).
 | 27 TRACK | — (query), or track (select it) | selected track, NTRK, then per track: engine byte, preset, level v14, mute (0/1), armed (0/1, live recording), then per track preset >> 7 |
 | 28 TRACK_MIX | track (get), or track, level v14 (0..127), mute (set) | track, level v14, mute: the track's `P_LEVEL` and `P_MUTE` |
 | 29 TRACK_DUMP | track | track, engine byte, preset, P_COUNT × v14 (that track's parameters; no globals), then preset >> 7 |
-| 30 TRACK_STEP | track, index (get), or track, index, n, note0..3, time, flags, vel [, hits (v5) [, chance (v7)]] (set) | track, index, n, note0..3, time, flags, vel, then (v5) hits, then (v7) chance |
+| 30 TRACK_STEP | track, index (get), or track, index, n, note0..3, time, flags, vel [, hits (v5) [, chance (v7) [, the feel (v8)]]] (set) | track, index, n, note0..3, time, flags, vel, then (v5) hits, then (v7) chance, then (v8) the feel |
 
 | cmd (v4) | Request args | Reply args |
 | --- | --- | --- |

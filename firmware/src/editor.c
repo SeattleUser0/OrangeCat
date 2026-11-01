@@ -265,15 +265,19 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
 
 /* a step as STEP_SET / TRACK_STEP send it (na bytes): n, 4 notes, time, flags, vel, then (v5) the lane hits
  * and their accents: hit & 127, acc & 127, bit 7 of each (bit 0 hit, bit 1 acc); each value made valid. 8
- * bytes (an editor of before the grid): the hits stay */
-static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
+ * bytes (an editor of before the grid): the hits stay. (v7) the chance. (Orange Cat 0.16.0, v8) three more bytes:
+ * the trig condition (TC_*), NUDGE + 32 (0..63) and RATCH (1..4 the hits, 5 FLAM); without them the step keeps
+ * its own (every older editor), as with the hits and the chance. The nudge of a recorded step moves its notes as a
+ * group (recording.c): the schedule is rebuilt as the tracker's edit does */
+static int ed_feel_ok(const uint8_t *f) { return f[0] < TC_COUNT && f[1] <= 63u && f[2] >= 1u && f[2] <= 5u; }
+static void ed_step_put(track_t *t, step_t *st, const uint8_t *a, uint32_t na)
 {
     uint32_t i, gate = step_gate(st);
     st->n = (uint8_t)(a[0] > 4u ? 4u : a[0]);
     for (i = 0; i < 4u; i++)
         st->note[i] = a[1 + i] & 0x7Fu;
     st->time = (uint8_t)(a[5] > ST_REST ? ST_REST : a[5]);
-    /* (Orange Cat 0.2) RATCH and FLAM, which this message does not carry yet, stay as they were (phase 4g) */
+    /* (Orange Cat 0.2) RATCH and FLAM, which the message before v8 does not carry, stay as they were (phase 4g) */
     st->flags = (uint8_t)((st->flags & (SF_RATCH | SF_FLAM)) | (a[6] & (SF_ACCENT | SF_SLIDE)));
     st->vel = a[7] & 0x7Fu;
     if (na >= 11u) {
@@ -282,9 +286,16 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
     }
     if (!st->hit && st->time == ST_REST) st->acc = 0;
     if (na >= 12u) step_set_chance(st, a[11] <= 100u ? a[11] : 100u);
+    if (na >= 15u) {                                   /* (v8) the feel: validated by ed_valid before this */
+        int8_t nudge = st->nudge;
+        step_set_cond(st, a[12]);
+        step_set_nudge(st, (int32_t)a[13] + NUDGE_MIN);
+        step_set_rflam(st, a[14]);
+        if (st->nudge != nudge) recording_resched(t);
+    }
     ui.force = 1;
 }
-static void ed_step_reply(const step_t *st)              /* the same 11 bytes */
+static void ed_step_reply(const step_t *st)              /* the same bytes: 12, then (v8) the feel's 3 */
 {
     uint32_t i;
     ed_b(st->n);
@@ -297,6 +308,9 @@ static void ed_step_reply(const step_t *st)              /* the same 11 bytes */
     ed_b(st->hit ? st->acc & 0x7Fu : 0u);
     ed_b((uint32_t)(st->hit >> 7) | (st->hit ? (uint32_t)(st->acc >> 7) << 1 : 0u));
     ed_b(step_chance(st));
+    ed_b(st->cond);                                      /* (v8) */
+    ed_b((uint32_t)(st->nudge - NUDGE_MIN));
+    ed_b(step_rflam(st));
 }
 
 /* a flash write from the editor while the transport runs: stop it first (the erase silences the audio and
@@ -358,13 +372,13 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
     case ED_UP_GET: case ED_UP_LOAD: case ED_UP_ERASE: case ED_WATCH: case ED_TRACK_DUMP:
         return n == 1u || (cmd == ED_NAMES && n == 3u);
     case ED_STEP_SET:
-        return n == 9u || n == 12u || (n == 13u && a[12] <= 100u);                 /* notes only, or the complete grid extension */
+        return n == 9u || n == 12u || (n == 13u && a[12] <= 100u) || (n == 16u && a[12] <= 100u && ed_feel_ok(a + 13));   /* notes only, the grid, the chance, (v8) the feel */
     case ED_TRACK:
         return n <= 1u;
     case ED_TRACK_MIX:
         return n == 1u || n == 4u;
     case ED_TRACK_STEP:
-        return n == 2u || n == 10u || n == 13u || (n == 14u && a[13] <= 100u);
+        return n == 2u || n == 10u || n == 13u || (n == 14u && a[13] <= 100u) || (n == 17u && a[13] <= 100u && ed_feel_ok(a + 14));
     case ED_MOTION:
         return (n == 1u || (n == 2u && a[1] == 2u) || (n == 3u && a[1] == 1u && a[2] <= 1u) ||
                 (n == 6u && a[1] == 3u) || ((n == 4u || n == 6u) && a[1] == 4u)) && a[0] < NTRK;
@@ -1076,7 +1090,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #if OC_ONE_AUTH
             if (st->flags & SF_RECORDED) events_drop_view(TSEL, a[0]);   /* (ui-fix 7) the cell's events go before the cell is written */
 #endif
-            ed_step_put(st, a + 1, na - 1u);
+            ed_step_put(TSEL, st, a + 1, na - 1u);
         }
         ed_w.st[a[0]] = ed_step_sig(&seq_steps(TSEL)[a[0]]);
         ed_b(a[0]);
@@ -1534,7 +1548,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         st = &trk[a[0]].step[a[1]];
         if (na >= 10u && !chain_busy())
-            ed_step_put(st, a + 2, na - 2u);
+            ed_step_put(&trk[a[0]], st, a + 2, na - 2u);
         if (a[0] == song.sel)
             ed_w.st[a[1]] = ed_step_sig(&seq_steps(&trk[a[0]])[a[1]]);
         ed_b(a[0]);
