@@ -50,7 +50,7 @@ static void start_convert_edit(int32_t steps)
     note_onset(&r, steps * (int32_t)(RECORD_UNIT / 16u), len, 0);
     view1 = recording_view(t, &r);
     if (i >= RECORD_MAX || (view1 != view0 && notes_manual_occupied(t, view1))) {   /* back to the manual step, nothing converted */
-        memcpy(recording, note_transaction.notes, sizeof recording);
+        nt_rollback();
         memcpy(t->step, note_transaction.steps, sizeof note_transaction.steps);
         recording_reindex();
         cursor_set(note_transaction.cursor);

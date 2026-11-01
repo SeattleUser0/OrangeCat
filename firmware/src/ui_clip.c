@@ -186,7 +186,7 @@ static void notes_paste(void)
         if (notes_manual_occupied(t, recording_view(t, &r[k]))) { ui_message("STEP OCCUPIED"); return; }
     }
     fm1_irq_off();
-    if (!note_transaction_begin()) { fm1_irq_on(); return; }
+    if (!note_transaction_begin_x(t, notes_clip.n)) { fm1_irq_on(); return; }
     uint16_t meta[NSTEP];                                /* (only chance and slide survive an overview rebuild; as note_transform keeps them) */
     uint8_t was[NSTEP];
     memset(dest, 0, sizeof dest);

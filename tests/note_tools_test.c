@@ -95,6 +95,35 @@ int main(void)
     for(uint32_t k=0;k<RECORD_MAX;k++)recording[k]=(recorded_note_t){.step=0,.note=64,.vel=90,.owner=1,.duration=1000};recording_reindex();
     note_move_snapped(1,RECORD_UNIT/4,1);
     bad+=check("a full recording pool rejects conversion/copy before changing any source",TSEL->step[1].note[0]==60&&!(TSEL->step[1].flags&SF_RECORDED)&&recording[0].owner==1&&recording[RECORD_MAX-1].vel==90);
+    {   /* (round 12) the undo list is the notes in use: an edit that adds more than the usual headroom (192 notes from 64 chords) asks for room for them, with the arena
+         * short; its undo restores every step, and a refused move rolls the conversion back whole */
+        uint32_t k,j,n,sz;
+        setup();TSEL->p[P_SLEN]=64;
+        for(k=0;k<64u;k++){manual(k,60,1);TSEL->step[k].note[1]=64;TSEL->step[k].note[2]=67;TSEL->step[k].n=3;}
+        for(k=0;k<RES_JFX_N;k++)for(sz=100000u;sz>=512u;sz=sz*3u/4u)if(resource_allocate(RES_JFX0+k,sz))break;
+        for(;;){uint32_t small=RES_JFX_N;if(resource_allocate(RES_NOTE_HISTORY,5000u))break;
+            for(k=0;k<RES_JFX_N;k++)if(resource[RES_JFX0+k].size&&(small==RES_JFX_N||resource[RES_JFX0+k].size<resource[RES_JFX0+small].size))small=k;
+            if(small==RES_JFX_N)break;resource_release(RES_JFX0+small);}
+        resource_release(RES_NOTE_HISTORY);
+        bulk.on=1;bulk.anchor=0;bulk.end=63;
+        note_move_snapped(1,RECORD_UNIT/4,0);
+        for(n=0,k=0;k<RECORD_MAX;k++)n+=recording[k].vel!=0;
+        bad+=check("64 chords moved with the arena short: all 192 notes converted and moved, no NO EDIT MEMORY",n==192u&&strcmp(ui.msg,"NO EDIT MEMORY")&&recording[0].on==RECORD_UNIT/4u);
+        hold(B_EDIT);
+        for(n=0,k=0;k<RECORD_MAX;k++)n+=recording[k].vel!=0;
+        for(j=0,k=0;k<64u;k++)j+=TSEL->step[k].n==3u&&TSEL->step[k].note[2]==67&&!(TSEL->step[k].flags&SF_RECORDED);
+        bad+=check("one undo gives back the 64 typed chords and no event",n==0&&j==64u);
+        setup();TSEL->p[P_SLEN]=64;
+        for(k=0;k<8u;k++){manual(k,60,1);TSEL->step[k].note[1]=64;TSEL->step[k].note[2]=67;TSEL->step[k].n=3;}
+        manual(8,72,1);
+        bulk.on=1;bulk.anchor=0;bulk.end=7;
+        note_move_snapped(1,RECORD_UNIT,0);
+        for(n=0,k=0;k<RECORD_MAX;k++)n+=recording[k].vel!=0;
+        for(j=0,k=0;k<8u;k++)j+=TSEL->step[k].n==3u&&TSEL->step[k].note[1]==64&&!(TSEL->step[k].flags&SF_RECORDED);
+        bad+=check("eight chords moved a step into a separate typed note, the arena short: STEP OCCUPIED, the 24 notes put back whole",!strcmp(ui.msg,"STEP OCCUPIED")&&n==0&&j==8u&&TSEL->step[8].note[0]==72);
+        for(k=0;k<RES_JFX_N;k++)resource_release(RES_JFX0+k);
+        bulk.on=0;
+    }
     setup();set_engine_of(TSEL,ENGI_FM6);go_page(GR_USER);frame();
     native_put(ENGI_FM6,1,FM6_INIT);native_put(ENGI_FM6,2,FM6_INIT);native_put(ENGI_FM6,3,FM6_INIT);ui.uslot=1;
     btn_down(B_OCTUP);frame();turn(EN_K1,1);btn_up(B_OCTUP);frame();
