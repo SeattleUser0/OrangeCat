@@ -669,6 +669,8 @@ if core && [ $TABLES = 1 ]; then
     t "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" backup_test $FW
     t "CPU laboratory: persistence guard and RAM-only preference restoration" backup_lab:backup_test -DMELODEE_AUDIO_PROFILE=1 $FW
     t "editor: real C protocol, malformed transfers and queue recovery" editor_test $FW
+    t "editor: the protocol with one authority built in (ui-fix 7): a step write on a recorded cell drops its events, TRACK_STEP as STEP_SET" \
+        editor_oa:editor_test -DOC_ONE_AUTH=1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 $FW
     t "CPU lab controls: native recording/transport, guarded protocol and exact restoration" audio_cpu_lab_test -O2 -DMELODEE_AUDIO_PROFILE=1 -DMELODEE_AUDIO_BENCH=1 $FW
     t "CPU lab controls absent in normal firmware" cpu_lab_off:audio_cpu_lab_test -O2 $FW
     t "CPU lab controls absent with profiling only" cpu_lab_profile:audio_cpu_lab_test -O2 -DMELODEE_AUDIO_PROFILE=1 $FW

@@ -17,7 +17,7 @@ Written October 31, 2026 for the owner. Install it from the installer page (Nigh
 1. **New HOME:** MENU > HOME PAGE > PICTURE (it is off until you choose it). HOME then draws the selected track's engine; the four knobs under it are the engine's four macros (TIMB, COLR, TONE, PLUCK on SHAPES).
 2. **Four knobs:** turn one and several parameters move together; a saved project keeps the sound as it sounds, with the dials back at the middle.
 3. **EDIT** opens sheets with tabs (second row, a box for the value) instead of the long lists; the FX link and EDIT held (undo) work as before.
-4. **SHIFT map:** hold HOME about 0.7 s for the map of shortcuts (SHIFT with each knob, PRESETS, EDIT, OCT); hold and let go quickly to open the MENU.
+4. **HOME held:** hold HOME about 0.7 s to open the MENU; HOME with a knob, PRESETS, EDIT or OCT within that time is the shortcut (the map of shortcuts of cb5048 is gone with ui-fix 6).
 5. **NOTES** has its own knobs (pitch, start, length, velocity); **FEEL** shows 16 tiles of chance, condition, ratchet and nudge per step.
 6. **DRUM-X lanes:** a LANES table (PRESETS or a struck key picks the lane, four knobs edit it); the mixer bars use the knobs' colors.
 7. **DUB TAPE:** FX > DUB SETUP, LEN from OFF to 32K turns it on (OFF is the default), then the DUB pages (FDBK SEND TONE SPACE, THRW CUT KICK). On a busy mix, and more so on an external clock, it backs off and says DUB FULL.

@@ -1043,7 +1043,9 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         }
         if (v->pitch_cur != v->pitch16) {               /* glide */
             int32_t d = v->pitch16 - v->pitch_cur;
-            int32_t st = v->gstep ? v->gstep : (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* slide: ~45 ms */
+            int32_t st = v->gstep ? v->gstep : (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* GLIDE 0 with no gstep: ENV_LIN[40] >> 14 is 40
+                                                                                                   * sixteenths of a semitone a tick, an octave in about 3.5 ms (nearly a jump); a
+                                                                                                   * slide sets gstep 3 itself (seq.c slide_glide_set: an octave in 46 ms) */
             if (st < 1)
                 st = 1;
             v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
