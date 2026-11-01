@@ -2267,3 +2267,114 @@ interface part; (g) phrases above 64 cannot be frozen until the freeze code is k
 macros (the dials are written 0) until Part 2 lifts the FBKK's zeroing; (i) the freeze table is per project, so a
 save-as copy no longer moves takes and `frzd_used` reads every slot's record; (j) the chunk's head table, the sparse PHRD,
 no RLE, NATV's dormant-block rule, FXRC deferred, the scratch slot, as the note said before the review.
+
+### Part 2: parameter ids past 7 bits, and LFO 2 (design note, before its review)
+
+**Where the ceiling binds, read from the code (October 31, 2026).** A parameter id leaves `p[]` in six places. (1) The
+editor protocol: GET, SET, DESC and TRACK_PARAM carry the id as one SysEx byte, and `ed_b` masks every byte to 7 bits,
+so INFO's `P_COUNT` byte cannot say 131 (editor.c 71, 994 to 1068, 1545). (2) `motion_event_t.param` is a byte; the
+native engine ids (`MO_NATIVE` 112 and up) share that byte with the track's ids 112 to 123 already and are told apart by
+the value (`motion_native_event`: value >= 256), so the byte's own ceiling is 255, not 127; the assert `P_COUNT < 128`
+(motion.c 34) is the protocol's. (3) upreset.c: `np` a byte, `packed[144]` (room for 144 values), the assert `P_COUNT <
+128` (73); `up_valid` names the legacy counts a CZ-1 native record may carry (199). (4) project.c: the FUN23 part stores
+`np` as byte 66 (131 fits), asserts `P_COUNT == 124` ("a change: a new magic and a conversion", 158) and `proj_pack`
+refuses `P_COUNT > 127` (323); seven more values a track move the chain and motion blocks by 28 B inside a part that has
+the room (the FM6 patches start at `PROJ_FM6_OFF`, checked by `proj_pack`); `tmpl_t` holds `p[P_COUNT]`, so its size and
+magic move too (1107, 1117). (5) The phrase record and the project record: Part 1 made `np` and the motion ids 16 bits
+on the flash already. (6) The web: `web/editor.html` hard-codes `P_COUNT = 124, P_E0 = 116` (2422) and accepts only the
+`(pcount, pe0)` pairs it knows (`knownLayout`, 3779); `web/app` reads both from INFO's bytes (lib/editor_proto.js 287)
+and from `lib/layout.js`, generated from tests/app_layout.c by web/app/tools/gen_layout.mjs; the DUMP, TRACK_DUMP and
+UP_GET replies carry `P_COUNT` values, counted by what INFO said.
+
+**1. The runtime keeps a byte; the protocol and the records go wide.** `motion_event_t.param` stays `uint8_t` (ids 0
+to 255; the native ids keep their value rule), so `motion_store_t`'s 260 B disk layout, the FBKK's bytes and `proj_pack`'s
+`memcpy(&q->motion)` do not move; `motion_token` is already 16 bits. The asserts become `P_COUNT < 256u`. The document's
+8.2a says "`motion_event_t.param` widens"; the ceiling that stopped LFO 2 is the protocol's 7 bits, and this reading lifts
+it without touching the wire record the editor and the backup carry. The next ceiling (255 ids, 124 spare) is written
+down here as the one after. On the flash the ids are 16 bits (Part 1), so no record changes shape again.
+
+**2. The editor protocol (web/EDITOR_PROTOCOL.md is updated with it).** INFO's legacy `pcount` byte carries
+`min(P_COUNT, 127)` and its `pe0` byte `P_E0` (123 fits); an old page reads `(127, 123)`, a pair `knownLayout` does not
+have, and refuses the layout, which is what 8.2a asks for ("refused by the version and not misread"). A new tagged block
+in INFO, `0x57 'W', version 1, pcount lo, pcount hi, pe0 lo, pe0 hi, project format` (the last byte: 2 before the
+revision, 3 for a Release 3 unit) gives the true counts and **the project format version section 10 asks the installer
+page to read** (Part 6 uses it). Ids past 127 travel on three new commands under the extension (command 0, 0.14.2's
+rule: the reply is `0, n, ...`): **130 PARAM_W** `scope, id lo, id hi [, v14]` -> `scope, id lo, id hi, v14` (GET and SET
+as commands 2 and 3 do); **131 DESC_W** `scope, id lo, id hi` -> as DESC's reply; **132 TRACK_PARAM_W** `track, id lo, id
+hi [, v14]` -> `track, id lo, id hi, v14`. The 7-bit commands keep serving ids below 128 unchanged (an id of 127 on them
+is an id, never a count). A TRACK_CHANGED push of an id past 127 goes as **133 PARAM_CHANGED_W** `track, id lo, id hi,
+v14`; a page that did not ask for WATCH bit 1 gets no pushes, as today. DUMP, TRACK_DUMP and UP_GET carry `P_COUNT`
+values as they do; a new page counts them by the tagged block. The commands exist in every OC_R3_FORMAT build (so the
+pages can be written against them) and carry nothing new while `P_COUNT` is 124.
+
+**3. The records, by count.** The FBKK's project part gets the magic **FUN24** (`PROJ_MAGIC`) with `np = P_COUNT`; a
+FUN23 part (`np` 124) loads by count as FUN22's 122 does today (`params_by_count` puts the seven at their defaults: LFO 2
+off), and `proj_motion_ids` moves the ids from the old P_E0 up as it does. `proj_pack` writes `np` as the byte it is and
+drops the `> 127` refusal; the assert reads `P_COUNT == 131` under OC_LFO2 and `124` without. The template: **TPLN**
+(`TMPL_MAGIC` under OC_LFO2) and `tmpl_param_count` maps a TPLM's length to 124 (one more case in its chain). User
+presets: `np = P_COUNT`, the asserts `P_COUNT <= 144` (the record's room; 131 fits with the DRUM patch's eight bytes
+after it: the `DXK_ROOM` assert holds) and `< 256`; `up_valid`'s CZ-1 count list gains 124. Motion: `motion_param`
+accepts `P_L2RATE` and `P_L2AMT` (the continuous two, as LFO 1's RATE is accepted; WAVE SYNC TRIG POL DEST are not
+lanes). The phrase record already carries wide ids; Part 1's `ocp_parse` drops its `param > 255` guard's comment and keeps
+the check (a byte in RAM).
+
+**4. The interface identifier.** tools/gen_fw_api_id.py hashes the text of named structures; it gains the parameter
+enum (`enum { P_LEVEL .. P_COUNT }` in core.h, extracted between its first and last member) in `SOURCES` and a selftest
+case. The identifier therefore moves at this part's commit, once, for every build of this branch: the modules read `P_E0
+.. P_E7` at compile time and CI builds every `.ocm` with the firmware, so nothing is left behind; the `#if OC_LFO2` lines
+inside the enum are part of the hashed text, so the identifier is one value for the branch, not one per switch setting.
+
+**5. LFO 2 (OC_LFO2, default 0; it requires OC_R3_FORMAT=1: a `#error` otherwise), as the ui-fix 4 note has it with its
+review's corrections.** Seven parameters appended before P_E0: `P_L2RATE` (RATE, F_LFOHZ, 0..127, default 60), `P_L2WAVE`
+(SIN TRI SAW SQR S&H), `P_L2SYNC` (OFF 4BAR .. 1/32), `P_L2TRIG` (NOTE FREE), `P_L2POL` (BI UNI), `P_L2DST` (OFF PITCH CUT
+SHP AMP PAN RATE VIB E1 .. E8: a table of its own, `N_L2DST`, mapped to the matrix's `MD_*` at the one accessor below),
+`P_L2AMT` (-64..63, default 0). `P_COUNT` 124 to 131, `P_E0` 116 to 123. **The state** lives in mod.c, outside `track_t`
+(the module interface identifier hashes `track_t`; the enum's text moves it anyway in this part, but the state is kept
+out so that a later LFO change does not): `lfo2[NTRK]` (phase u32, value i32, S&H value u32, the cycle before's i16, a
+flag "ticked this block") and its own synced-increment cache (`{cycle, inc}[NTRK]`: voice.c's `lfo_sync_cache` is
+voice.c's; `div_samples` is forward-declared, as voice.c does). **The tick** runs once a block at the top of `mod_begin`
+(both the reference and the cached path), **before** the early return and only while LFO 2 is used (DEST with AMT, or a
+matrix slot whose source is LFO2); unused, its phase holds and no work is done. The track index is `t - trk` only when
+`t` lies inside `trk[]` (the cached path's own address check); a foreign `track_t` (host tests build those) gets no LFO 2.
+The waves are LFO 1's shapes (an own copy of `lfo_wave`'s cases on LFO 2's phase: `osc_sine`, `osc_tri`, the saw, the
+square, S&H), the S&H value drawn at each cycle's end from LFO 2's own xorshift (never the shared `rng`: the golden
+renders depend on it), UNI applied at the tick (`(v + 32768) >> 1`), the synced increment as `lfo_sync_inc` computes it
+with `P_L2SYNC`. LFO 2 reads its value one block after LFO 1 reads its own (LFO 1 ticks in `track_render`, after
+`mod_begin`): a one-block skew between the two, accepted and written down. **TRIG NOTE** in `mod_note` (voice.c calls it
+on every note-on): the phase restarts when the track has no other voice holding its gate at that moment (the new voice may
+already be gated when `mod_note` runs: "no other" is "at most one", the review's point); FREE never restarts.
+**The matrix:** `MS_LFO2` appended to the sources (`N_MSRC` "LFO2", bipolar; with POL UNI it takes the unipolar path at
+the four sites that give LFO 1 ENV's treatment: `mod_depth`, the per-voice add, the cached depth and voice loops).
+**Its own destination is a fifth, implicit slot:** every loop of `mod_begin`, `mod_begin_reference`, `mod_route_prepare`
+and `mod_route_key` reads slot k through one accessor (`k < 4`: `P_M1SRC + 3k` and its two; `k == 4`: SRC LFO2, the
+`N_L2DST` map of `P_L2DST`, `P_L2AMT`); `NMSLOT` stays the four stored slots and `NMSLOT_ALL` is 5 for the arrays of
+`mod` and `mod_route_t` (the review counted eight sites). DEPTH is not offered on the fifth slot (a matrix slot can route
+LFO2 into DEPTH). The early-return scan counts the fifth slot active when `P_L2DST` and `P_L2AMT` are both nonzero.
+**mix.c is Session A's:** its copy of `mod` for the batch is taken by `sizeof` (checked at the build; if it names
+NMSLOT, this part stops at that line and reports). **Pages:** "LFO 2" (RATE WAVE DEST AMT) and "LFO 2 SYNC" (SYNC TRIG
+POL) after LFO DEST in `PAGES` (params.c), `FAM_LFO`; the Mod sheet lists them (it reads `PAGES`), ui_designer.c's skip
+list keeps its titles. **Cost:** off, one compare more a block; on, the tick and one slot's terms; tests/target_budget.txt
+re-baselines `mod_begin` (158 B today) to the measured size; mod_test's cost check bounds the tick; **Session A times it
+on the unit before any merge, as the knob macros.** Flash about 1,400 to 1,600 B (the review's figure), RAM about 140 B
+of .bss; the wide-id plumbing about 500 B; the records' magics and counts about 200 B: **about 2,300 B with both switches
+on, 0 B with them off**, measured below.
+
+**6. The web.** `web/app`: lib/editor_proto.js reads the tagged block (`pcount`, `pe0`, `format`) and keeps the legacy
+bytes as the fallback; lib/model.js already takes `info.pcount` / `info.pe0`; the wide commands in editor_proto.js
+(`paramW`, `descW`, `trackParamW`); lib/layout.js regenerated from tests/app_layout.c (unchanged while OC_LFO2 is off in
+the build set; a fixture built with `-DOC_LFO2=1`, `app_layout_lfo2`, checks the codec with `np` 131 and FUN24).
+`web/editor.html`: the `(131, 123)` pair in `knownLayout`, the tagged block, the wide commands for ids past 127 (its
+parameter table is built from DESC per id); `web/test_web.mjs` with it. The firmware's Nightly stays on `np` 124 until
+Session A turns OC_LFO2 on, so the pages must work with both; the tests run both.
+
+**7. Tests (host).** tests/lfo2_test.c on mod_test's harness: off is bit-identical (DEST OFF: `mod_begin` returns what it
+did, the render equal); each wave's value at known phases; SYNC at 1/4 against `div_samples`; TRIG NOTE restarts, FREE
+does not, a second note while one holds does not; UNI's range; the fifth slot alone on PITCH, CUT, PAN and E1; with a
+matrix slot on LFO2 -> DEPTH; the cost check (cycles of `mod_begin` with and without); the one-block skew stated. A
+store test (tests/oc_r3_test.c gains a part under OC_LFO2): a FUN23 record loads with LFO 2 off; a FUN24 round trip
+keeps the seven; a user preset of `np` 124 loads and one of 131 keeps the seven; a TPLM template converts; a phrase with a
+motion lane on `P_L2RATE` round-trips (id 124: a track id, told from a native byte by its value); the knob macros' ids
+are untouched. The editor (tests/editor_test.c): INFO's legacy bytes `(127, 123)` and the tagged block; PARAM_W, DESC_W
+and TRACK_PARAM_W on ids 124 to 130; a 7-bit SET of id 127 on a 131-count build is an id, not a count; a push of id 128
+as PARAM_CHANGED_W. The web tests (web/app/test, web/test_web.mjs) as in 6. ui_render: the two pages rendered and linted
+in the sheets build with OC_LFO2=1 (the Mod sheet's rows with them).
