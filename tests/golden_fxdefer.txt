@@ -3,9 +3,9 @@
 fx/delay 471e364aa0388720
 fx/delay_ping_wide f1a27b21a1ba7cec
 fx/delay_quarter_rate 3c8231932fdf6208
-fx/reverb_room 387c8d4d09036530
-fx/reverb_spring e636aeb33fc638d0
-fx/reverb_shimmer aeb2f37e2ae00c6c
+fx/reverb_room 16aa2027d115d7b0
+fx/reverb_spring a1a125eed0fae558
+fx/reverb_shimmer 0633637df7e154c4
 fx/reverb_reso a2545013fc866f80
-fx/reverb_cloud 8dcb149034ff13cc
-fx/all_three 56b64e3a5feddbda
+fx/reverb_cloud 93fe532e87e9a108
+fx/all_three 3b4a51f7b29bdbe6

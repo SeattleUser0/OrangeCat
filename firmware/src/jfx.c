@@ -672,6 +672,22 @@ static inline int32_t rv_knee(int32_t x)
     a = 24576 + (softclip(clamp(a - 24576, 0, 16384) * 4) >> 2);
     return x < 0 ? -a : a;
 }
+/* (round 11) the reverbs' 16-bit lines held JFX_ROOM_HEAD / JFX_SPRING_HEAD bits higher than the input scale of before (ROOM and SPRING: their input 1/8 at -4 dB,
+ * mulq15 2580, and the lines' quantization under it was the hiss the owner heard under a quiet note: a floor 6 dB (ROOM) and 10 dB (SPRING) over
+ * the dry one). The lines are written through rv_knee (linear to -2.5 dBFS of the line, then soft) instead of a hard clamp, and the outputs are
+ * scaled back, so the sound is the one of before wherever the line stays under the knee; a line that reaches it saturates softly where it
+ * clamped hard (RESO, SHIMMER, CLOUD: their own code, unchanged). 0: the lines as before */
+#ifndef JFX_ROOM_HEAD
+#define JFX_ROOM_HEAD 1                                  /* ROOM's combs (and SHIMMER's, which runs ROOM) */
+#endif
+#ifndef JFX_ROOM_APSH
+#define JFX_ROOM_APSH 0                                  /* ROOM's allpass lines held this many bits under the combs (they carry the four combs' sum) */
+#endif
+#ifndef JFX_SPRING_HEAD
+#define JFX_SPRING_HEAD 2                                /* SPRING's loop */
+#endif
+#define RV_IN (2580 << JFX_ROOM_HEAD)
+#define SP_IN (2580 << JFX_SPRING_HEAD)
 /* (JIANT 0.5) the combs' feedback from SIZE: 0.76 .. 0.99 */
 static int32_t rev_size(void)
 {
@@ -691,28 +707,28 @@ static JFX_XIP void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
     {                                                                                                              \
         int32_t o = C[I];                                                                                          \
         L = o + mulq15(L - o, dk);                                                                                 \
-        C[I] = (int16_t)clamp(in + mulq15(L, size), -32768, 32767);                                                \
+        C[I] = (int16_t)rv_knee(clamp(in + mulq15(L, size), -32768, 32767));                                       \
         if (++I >= REV_COMB[K])                                                                                    \
             I = 0;                                                                                                 \
         a += o;                                                                                                    \
     }
 #define RV_AP(P, I, K)                                                                                             \
     {                                                                                                              \
-        int32_t o = P[I], v = a + (o >> 1);                                                                        \
-        P[I] = (int16_t)clamp(v, -32768, 32767);                                                                   \
+        int32_t o = P[I] << JFX_ROOM_APSH, v = a + (o >> 1);                                                       \
+        P[I] = (int16_t)rv_knee(clamp(v >> JFX_ROOM_APSH, -32768, 32767));                                         \
         a = o - a;                                      /* Freeverb: out = buf - in (o - v is a notch comb) */     \
         if (++I >= REV_AP[K])                                                                                      \
             I = 0;                                                                                                 \
     }
     for (i = 0; i < n; i++) {
-        int32_t a = 0, in = mulq15(rev_in[i], 2580);    /* 1/8 at -4 dB: level as before the allpass fix */
+        int32_t a = 0, in = mulq15(rev_in[i], RV_IN);   /* 1/8 at -4 dB (the lines JFX_REV_HEAD bits above it): level as before the allpass fix */
         RV_COMB(c0, i0, l0, 0)
         RV_COMB(c1, i1, l1, 1)
         RV_COMB(c2, i2, l2, 2)
         RV_COMB(c3, i3, l3, 3)
         RV_AP(p0, a0, 0)
         RV_AP(p1, a1, 1)
-        out[i] += a;
+        out[i] += a >> JFX_ROOM_HEAD;
     }
 #undef RV_COMB
 #undef RV_AP
@@ -739,7 +755,7 @@ static JFX_XIP void rev_room_mod(const int32_t *rev_in, int32_t *out, uint32_t n
     for (i = 0; i < n; i++) {
         int32_t a = 0, sd = 0;
         int16_t *c = rev_comb;
-        int32_t in = mulq15(rev_in[i], 2580);
+        int32_t in = mulq15(rev_in[i], RV_IN);
         for (k = 0; k < 4u; k++) {
             int32_t m = fx.rm_m[k] += dm[k];
             uint32_t L = REV_COMB[k], j0 = fx.comb_i[k] + ((uint32_t)m >> 8), j1;
@@ -751,7 +767,7 @@ static JFX_XIP void rev_room_mod(const int32_t *rev_in, int32_t *out, uint32_t n
             o1 = c[j1];
             o = o0 + (((o1 - o0) * (m & 255)) >> 8);    /* (a shorter delay: nearer the write) */
             fx.comb_lp[k] = o + mulq15(fx.comb_lp[k] - o, 32767 - damp);
-            c[fx.comb_i[k]] = (int16_t)clamp(in + mulq15(fx.comb_lp[k], size), -32768, 32767);
+            c[fx.comb_i[k]] = (int16_t)rv_knee(clamp(in + mulq15(fx.comb_lp[k], size), -32768, 32767));
             if (++fx.comb_i[k] >= L)
                 fx.comb_i[k] = 0;
             a += o;
@@ -759,21 +775,21 @@ static JFX_XIP void rev_room_mod(const int32_t *rev_in, int32_t *out, uint32_t n
             c += L;
         }
         if (wd) {
-            sd = (sd * wd) >> 7;
+            sd = (sd * wd) >> (7 + JFX_ROOM_HEAD);
             fx_sl[i] += sd;
             fx_sr[i] -= sd;
         }
         c = rev_ap;
         for (k = 0; k < 2u; k++) {
-            int32_t o = c[fx.ap_i[k]];
+            int32_t o = c[fx.ap_i[k]] << JFX_ROOM_APSH;
             int32_t v = a + (o >> 1);
-            c[fx.ap_i[k]] = (int16_t)clamp(v, -32768, 32767);
+            c[fx.ap_i[k]] = (int16_t)rv_knee(clamp(v >> JFX_ROOM_APSH, -32768, 32767));
             a = o - a;
             if (++fx.ap_i[k] >= REV_AP[k])
                 fx.ap_i[k] = 0;
             c += REV_AP[k];
         }
-        out[i] += a;
+        out[i] += a >> JFX_ROOM_HEAD;
     }
     for (k = 0; k < 4u; k++)
         fx.rm_m[k] = m1[k];                             /* (exact at the block's end) */
@@ -812,7 +828,7 @@ static JFX_XIP void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n)
         sp_chain(ap, ns);
     for (i = 0; i < n; i++) {
         uint32_t wp = fx.sp_w, j = (wp & 3u) * (SP_N + 1u);
-        int32_t x = mulq15(rev_in[i], 2580), r = ln[(wp - (uint32_t)L) & SP_MASK], p, o;
+        int32_t x = mulq15(rev_in[i], SP_IN), r = ln[(wp - (uint32_t)L) & SP_MASK], p, o;
         int32_t t0 = ln[(wp - (uint32_t)L2) & SP_MASK], t1 = ln[(wp - (uint32_t)L2 - 1u) & SP_MASK];
         fx.sp_lp += mulq15(r - fx.sp_lp, kl);
         o = fx.sp_lp * g;
@@ -830,9 +846,9 @@ static JFX_XIP void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n)
             p = o;
             ap[j + k] = x;
         }
-        ln[wp & SP_MASK] = (int16_t)clamp(x, -32768, 32767);
+        ln[wp & SP_MASK] = (int16_t)rv_knee(clamp(x, -32768, 32767));
         fx.sp_w = (uint16_t)(wp + 1u);
-        out[i] += (t0 + (((t1 - t0) * f) >> 8)) * 4 + ln[(wp - (uint32_t)L3) & SP_MASK] * 2;
+        out[i] += ((t0 + (((t1 - t0) * f) >> 8)) * 4 + ln[(wp - (uint32_t)L3) & SP_MASK] * 2) >> JFX_SPRING_HEAD;
     }
 }
 /* (JIANT 0.3) SPRING's WIDE, after its block: a tap a quarter along the loop against 3/4 as the side */
@@ -841,7 +857,7 @@ static JFX_XIP void rev_spring_side(uint32_t n, int32_t wd)
     const int16_t *ln = rev_comb;
     uint32_t i, L = (uint32_t)fx.sp_size >> 8, L3 = (L * 3u) >> 2, wp = (uint32_t)fx.sp_w - n;
     for (i = 0; i < n; i++, wp++) {
-        int32_t sd = ((ln[(wp - L3) & SP_MASK] - ln[(wp - (L >> 2)) & SP_MASK]) * 3 * wd) >> 7;
+        int32_t sd = ((ln[(wp - L3) & SP_MASK] - ln[(wp - (L >> 2)) & SP_MASK]) * 3 * wd) >> (7 + JFX_SPRING_HEAD);
         fx_sl[i] += sd;
         fx_sr[i] -= sd;
     }
