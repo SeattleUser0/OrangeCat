@@ -136,7 +136,7 @@ int main(int argc, char **argv)
     {   /* the freeze table: phrase 1 and 61 were frozen; each project that uses them has the entry, hash recomputed */
         ocs_rec_t r;
         uint8_t tab[4096];
-        uint32_t found0 = 0, found3 = 0, n;
+        uint32_t found0 = 0, found1 = 0, found3 = 0, n;
         frzp_t f;
         (void)tab;
         memcpy(nor, old_nor, sizeof nor);
@@ -152,10 +152,17 @@ int main(int argc, char **argv)
               for (uint32_t pos = OCJ4_HLEN; pos + 8u <= n; pos += 8u + rd32(rec + pos + 4)) if (rd32(rec + pos) == T_FRZR) { off = pos + 8u; sn = rd32(rec + pos + 4); }
               if (sn >= 3u) { uint32_t nf = rec[off], ne = rd16(rec + off + 1u + nf * 32u), at = off + 1u + nf * 32u + 2u;
                 for (uint32_t e = 0; e < ne; e++) { uint32_t elen = rd16(rec + at); memcpy(&f, rec + at + 3u, 32); { ocp_dir_t dd; uint8_t nm2[OCP_NCHUNK / 8u]; static uint8_t ln[OCP_N]; static uint32_t hs[OCP_N]; uint32_t id2 = rec[at + 2], h2; ocj4_phrd_read(s, &dd, nm2, ln, hs); memcpy(&h2, rec + at + 3u + 12u, 4);
-                    if (id2 == 1u && h2 == hs[0]) found0 += s == 0u; if (id2 == 61u && h2 == hs[60]) found3 += s == 3u; } at += 2u + elen; } } }
+                    if (id2 == 1u && h2 == hs[0]) { found0 += s == 0u; found1 += 1u; } if (id2 == 61u && h2 == hs[60]) found3 += s == 3u; } at += 2u + elen; } } }
         }
         (void)r;
         CHK("the freeze table is split: phrase 1's entry is in project A, phrase 61's in project C (not in the others), each with the hash of the version 2 bytes", found0 == 1u && found3 == 1u);
+        {   /* every project whose chunks hold phrase 1 has the entry (a shared phrase is frozen in each of its projects) */
+            uint32_t users = 0;
+            for (s = 0; s < 4u; s++) { ocp_dir_t dd; uint8_t nm2[OCP_NCHUNK / 8u]; static uint8_t ln[OCP_N]; static uint32_t hs[OCP_N];
+                if (!ocs_exists(OCS_PROJECT, OCJ4_RID(s))) continue;
+                memset(ln, 0, sizeof ln); ocj4_phrd_read(s, &dd, nm2, ln, hs); users += ln[0] != 0u; }
+            CHK("... every project that holds phrase 1 has its entry (a shared phrase is frozen in each; the review's finding 18)", users >= 1u && found1 == users);
+        }
     }
     /* a second start writes nothing */
     {

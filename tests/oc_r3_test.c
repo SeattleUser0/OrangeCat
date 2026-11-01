@@ -258,6 +258,30 @@ static int test_255(void)
     return bad;
 }
 
+/* a bank on a phrase above 64 reads back (the review of Part 3, finding 1: ocj_read_banks is shared with the conversion's old read, which is limited to 64) */
+static int test_high_pid(void)
+{
+    int bad = 0;
+    uint32_t hi = 70;
+    reset();
+    fill_all(2, 2);
+    R3CHK("a project saves", project_save_as(1, "HIGH") == 0);
+    for (uint32_t id = 0; id < hi; id++) {      /* phrases 1..70 exist, the 70th with the bank's music */
+        poke(0, 3, id * 5u + 1u);
+        if (ocp_save(id, 0, 3)) break;
+    }
+    R3CHK("70 phrases keep", ocp.hash[hi - 1u] != 0u);
+    proj_pid[0][3] = (uint8_t)hi;
+    R3CHK("... the project saves with a bank on a high phrase", project_save(1) == 0);
+    hi = proj_pid[0][3];                        /* (the save names the bank's own phrase: the next free number, above 64 here) */
+    R3CHK("... the bank is on a phrase above 64", hi > 64u);
+    reboot(); wipe_runtime();
+    memset(proj_pid, 0, sizeof proj_pid);        /* (nothing of the music is left for the load to be mistaken with) */
+    project_load(1);
+    R3CHK("... it loads again with that bank on the same phrase", proj_pid[0][3] == hi);
+    return bad;
+}
+
 /* ------------------------------------------------------------ 4, 5 --- */
 static int test_copy_and_scratch(void)
 {
@@ -1198,6 +1222,7 @@ int main(void)
 #endif
     bad |= test_round_trip_r3();
     bad |= test_255();
+    bad |= test_high_pid();
     bad |= test_copy_and_scratch();
     bad |= test_foreign();
     bad |= test_phrase_bytes();

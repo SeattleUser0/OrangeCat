@@ -178,10 +178,14 @@ static int cv_frz_get_entry(uint32_t i, frzp_t *f)
 
 /* ------------------------------------------------------------ the old pool, after the conversion --- */
 /* some slot still has a record of the format before */
+/* (cached in ocj4_old_c, oc_ocj4.c: the card code asks on every pass of the main loop while a freeze change waits) */
 static int ocj4_old_exists(void)
 {
-    for (uint32_t s = 0; s < 4u; s++) if (ocs_exists(OCS_PROJECT, s)) return 1;
-    return 0;
+    if (!ocj4_old_c) {
+        ocj4_old_c = 2;
+        for (uint32_t s = 0; s < 4u; s++) if (ocs_exists(OCS_PROJECT, s)) ocj4_old_c = 1;
+    }
+    return ocj4_old_c == 1;
 }
 /* every old pool chunk (ids 0..15) that no remaining old project record names erased; an old record that does not read keeps them all */
 static void ocj4_old_chunks_cleanup(void)
@@ -293,7 +297,7 @@ static int ocj4_convert_slot_body(uint32_t s, uint32_t *kb_short)
     rc = ocs_write(OCS_PROJECT, OCJ4_RID(s), raw, rlen);   /* the commit */
     if (rc) { ocp_r3_sweep(s); return rc == -1 ? 1 : 2; }
     /* 6. the new record reads back end to end: only then the old one goes, and the old chunks nothing names */
-    if (ocj_read(s, raw) != (int)BANK_STORE_SIZE) return 2;
+    if (ocj_read(s, raw) != (int)BANK_STORE_SIZE) return 2;   /* (both records stay: the next start finishes or reports it) */
     (void)ocs_delete(OCS_PROJECT, s);
     OC_FEED();
     ocj4_old_chunks_cleanup();
@@ -302,6 +306,7 @@ static int ocj4_convert_slot_body(uint32_t s, uint32_t *kb_short)
 
 static int ocj4_convert_slot(uint32_t s, uint32_t *kb_short)
 {
+    ocj4_old_c = 0;
     int rc = ocj4_convert_slot_body(s, kb_short);
     ocp_rd_dir = &ocp.dir;
     return rc;
@@ -313,6 +318,7 @@ static int ocj4_convert_slot(uint32_t s, uint32_t *kb_short)
  * is then erased. The summary is kept for ocj4_conv_notice */
 static void ocj4_convert_boot(void)
 {
+    ocj4_old_c = 0;
     uint32_t s, old = 0, kb = 0, left_kb = 0, left_slot = 0, cannot = 0;
     uint8_t *raw;
     ocj4_conv_msg[0] = 0; ocj4_conv_done = ocj4_conv_left = 0;
@@ -326,7 +332,7 @@ static void ocj4_convert_boot(void)
         if (!ocs_exists(OCS_PROJECT, s)) continue;
         if (ocs_exists(OCS_PROJECT, OCJ4_RID(s))) {         /* both: finish what a cut left */
             if (ocj_read(s, raw) == (int)BANK_STORE_SIZE) { (void)ocs_delete(OCS_PROJECT, s); ocj4_conv_done++; }
-            else ocj4_conv_left++;
+            else { ocj4_conv_left++; cannot = s + 1u; }   /* (the new record does not read: the summary says so, not "NEEDS 00K") */
         } else if ((rc = ocj4_convert_slot(s, &kb)) == 0) {
             ocj4_conv_done++;
         } else {
@@ -378,12 +384,15 @@ static int ocj4_convert_now(uint32_t s)
 }
 
 /* a restore of a project record of the format before into slot s (editor_backup.c): the slot's Release 3 records go first, the old one is
- * committed by the caller, and the slot is converted straight after (so it is converted once, never mistaken for a half-finished
- * conversion) */
+ * committed by the caller, and the slot is converted at the next start or by CONVERT (so it is converted once, never mistaken for a
+ * half-finished conversion) */
 static void ocj4_slot_erase_new(uint32_t s)
 {
     s &= 3u;
+    ocj4_old_c = 0;                                /* (the caller commits an old record next) */
     (void)ocs_delete(OCS_PROJECT, OCJ4_RID(s));
-    ocp_r3_sweep(s);                               /* (no record now: every chunk of the slot goes) */
+    /* (no record now.) The live slot's chunks hold the music's own uncommitted phrases (ocp.dir still names them): they stay, and only
+     * the claim a record made is let go, as ocj_write's empty-slot path does; any other slot's chunks all go */
     if (s == ocp.dir.slot) memset(ocp.cnamed, 0, sizeof ocp.cnamed);
+    else ocp_r3_sweep(s);
 }

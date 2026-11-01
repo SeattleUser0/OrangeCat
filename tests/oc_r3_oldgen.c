@@ -11,6 +11,7 @@
  *   Part 3 (November 1, 2026): first version. */
 #define OC_PROJECT_NO_MAIN
 #include "oc_project_test.c"
+#include <stdlib.h>
 
 static int write_file(const char *path, const void *p, size_t n)
 {
@@ -41,11 +42,73 @@ static uint32_t v1_phrase(uint8_t *b)
     return n;
 }
 
+static uint8_t expd[4][1 + BANK_STORE_SIZE];
+static uint8_t *slurp(const char *path, size_t *n)
+{
+    FILE *f = fopen(path, "rb");
+    uint8_t *b;
+    long len;
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END); len = ftell(f); fseek(f, 0, SEEK_SET);
+    b = malloc((size_t)len + 1u);
+    if (b && fread(b, 1, (size_t)len, f) != (size_t)len) { free(b); b = 0; }
+    fclose(f);
+    *n = (size_t)len;
+    return b;
+}
+/* what the format before's own reader gives for each slot, and the store, to their files */
+static int finish(const char *nor_path, const char *exp_path)
+{
+    uint32_t s;
+    memset(expd, 0, sizeof expd);
+    reboot();
+    for (s = 0; s < 4u; s++) {
+        int n = ocj_read(s, expd[s] + 1);
+        expd[s][0] = n == (int)BANK_STORE_SIZE;
+        printf("oldgen: slot %u: %s\n", s, expd[s][0] ? "loads" : "empty or does not read");
+    }
+    if (write_file(nor_path, nor, sizeof nor) || write_file(exp_path, expd, sizeof expd)) { fprintf(stderr, "write failed\n"); return 1; }
+    printf("oldgen: the store and the expected FBKKs written\n");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
-    static uint8_t exp[4][1 + BANK_STORE_SIZE];
     uint32_t s;
-    if (argc != 3) { fprintf(stderr, "usage: oc_r3_oldgen OUT_NOR OUT_EXPECT\n"); return 2; }
+    size_t n;
+    if (argc >= 5 && !strcmp(argv[1], "--image")) {     /* a dump of the unit's 56 sectors (the store dump .bin): oc_r3_oldgen --image DUMP OUT_NOR OUT_EXPECT */
+        uint8_t *img = slurp(argv[2], &n);
+        if (!img || n != OCS_NSECT * OCS_SECTOR) { fprintf(stderr, "not a 56 sector dump\n"); return 2; }
+        reset();
+        for (s = 0; s < OCS_NSECT; s++) memcpy(nor + ocs_addr(s), img + s * OCS_SECTOR, OCS_SECTOR);
+        smp_slot_boot(); ocp_scan(); ocj_scan();
+        return finish(argv[3], argv[4]);
+    }
+    if (argc >= 5 && !strcmp(argv[1], "--records")) {   /* records (type u8, id u16, length u32, bytes), from a backup's arrangement objects: oc_r3_oldgen --records FILE OUT_NOR OUT_EXPECT */
+        uint8_t *r = slurp(argv[2], &n);
+        size_t at = 0;
+        if (!r) return 2;
+        reset();
+        while (at + 7u <= n) {
+            uint32_t len = (uint32_t)r[at + 3] | (uint32_t)r[at + 4] << 8 | (uint32_t)r[at + 5] << 16 | (uint32_t)r[at + 6] << 24;
+            if (at + 7u + len > n || ocs_write(r[at], (uint32_t)r[at + 1] | (uint32_t)r[at + 2] << 8, r + at + 7u, len)) { fprintf(stderr, "record write failed\n"); return 1; }
+            at += 7u + len;
+        }
+        smp_slot_boot(); ocp_scan(); ocj_scan();
+        return finish(argv[3], argv[4]);
+    }
+    if (argc >= 5 && !strcmp(argv[1], "--fbkk")) {      /* FBKK files restored into slots as the old firmware's restore does (proj_write_slot): oc_r3_oldgen --fbkk OUT_NOR OUT_EXPECT SLOT FILE [SLOT FILE ..] */
+        reset();
+        for (int a = 4; a + 1 < argc; a += 2) {
+            uint8_t *f = slurp(argv[a + 1], &n);
+            if (!f || n != BANK_STORE_SIZE) { fprintf(stderr, "%s: not an FBKK of %u bytes\n", argv[a + 1], (unsigned)BANK_STORE_SIZE); return 2; }
+            proj_x_tag = 0;
+            memcpy(proj_wire_u.raw, f, n);
+            if (proj_write_slot((uint32_t)atoi(argv[a]), proj_wire_u.raw, BANK_STORE_SIZE)) { fprintf(stderr, "%s: the old firmware's restore refused it\n", argv[a + 1]); return 1; }
+        }
+        return finish(argv[2], argv[3]);
+    }
+    if (argc != 3) { fprintf(stderr, "usage: oc_r3_oldgen OUT_NOR OUT_EXPECT | --image DUMP OUT_NOR OUT_EXPECT | --records FILE OUT_NOR OUT_EXPECT | --fbkk OUT_NOR OUT_EXPECT SLOT FILE ..\n"); return 2; }
     reset();
     /* project A (slot 0): 4 tracks, banks 0..2, motion and timed notes, scenes and grooves in the lists */
     fill_all(1, 3);
@@ -89,15 +152,5 @@ int main(int argc, char **argv)
         memcpy(fz + 64 * 32 + 32, "ORANGECAT/GATE ONE", 19);
         if (ocs_write(OCS_FREEZE, 0, fz, sizeof fz)) { fprintf(stderr, "freeze failed\n"); return 1; }
     }
-    /* what the format before's own reader gives for each slot */
-    memset(exp, 0, sizeof exp);
-    reboot();
-    for (s = 0; s < 4u; s++) {
-        int n = ocj_read(s, exp[s] + 1);
-        exp[s][0] = n == (int)BANK_STORE_SIZE;
-        printf("oldgen: slot %u: %s\n", s, exp[s][0] ? "loads" : "empty");
-    }
-    if (write_file(argv[1], nor, sizeof nor) || write_file(argv[2], exp, sizeof exp)) { fprintf(stderr, "write failed\n"); return 1; }
-    printf("oldgen: the store and the expected FBKKs written\n");
-    return 0;
+    return finish(argv[1], argv[2]);
 }

@@ -457,7 +457,11 @@ static int ocj_read_banks(uint8_t *raw)
         for (b = 0; b < NPAT; b++) {
             uint32_t id = ocj_h.pid[k][b];
             const step_t *st;
+#if OC_R3_FORMAT
+            if (id > (ocp_rd_dir ? OCP_N : OCJ3_N)) return -1;   /* (a Release 3 record's banks name up to OCP_N phrases; the format before's, read through the old directory, 64) */
+#else
             if (id > OCJ3_N) return -1;
+#endif
             if (id) {
                 if (ocp_check(id - 1u, k, &pr, &ocj_rd, &p, &notes_at)) return -1;
                 if (nmot + p.mot.count > MOTION_MAX || nnote + p.nnotes > RECORD_MAX) return -1;

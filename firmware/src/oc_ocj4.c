@@ -853,8 +853,10 @@ static int ocj4_foreign_chunks(uint32_t slot, const project_t *q, const uint8_t 
  *   become the slot's phrases 1..; when the slot is the live pool's, the live phrases move to the scratch first, so the
  *   music in RAM keeps them. The record, written last, is the commit; then the live tables are read again from the
  *   flash and the slot swept */
+static uint8_t ocj4_old_c;                     /* 0: not known, 1: some slot has a record of the format before, 2: none (ocj4_old_exists, oc_convert.c) */
 static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
 {
+    ocj4_old_c = 0;                            /* (a write may delete the slot's old record)*/
     project_t *q = &proj_scratch;
     ocp_dir_t *d = &ocp.dir;
     ocj4_meta_t *m = &ocj4_meta;
