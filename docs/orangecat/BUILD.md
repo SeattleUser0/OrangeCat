@@ -961,6 +961,8 @@ The one miss (heavy, DUB on, pass 9, step 10, the SHAPES chord) is not resolved:
 
 *Item 2 on the fixed image* (`~/fm1-hw/r10/seq3/`, rows-F.json; the same four cells, two replicates, 16 passes): **1,792 of 1,792 expected onsets matched, no level outlier, the arena's failure count 0 in every run** (it rose by 4 at the first notes of the heavy cell on cb5048). Light DUB off 0 late, worst 1,698 and 1,708 us; light DUB on 0 late, 1,878 and 1,952, DUB running throughout; heavy DUB off 0 late, 2,402 and 2,408; heavy DUB on 0 and 2 late, worst 2,896 and 3,041 us, DUB evicted by the governor at 2 s and re-admitted and evicted again through the run, as on cb5048: that cell is over the deadline on this unit (four tracks, two four-note chords, the three sends and DUB), and the limit statement covers it. The one unresolved onset of cb5048's heavy DUB cell did not repeat. The sequencer test stands as the check for every release (`seqtest.py OUT LABEL`, about six minutes with its four cells; the rule: every expected onset matched, every cell).
 
+*Merge and publish.* r10 fast-forwarded into linux-hw (478addc: the fix 4638dbf, the test flag 510bdfe, the documents; the firmware of 478addc is the flashed and suite-passed one) and pushed; `publish_nightly` dispatched on linux-hw (run 41257659881): build, tests-gate and pages green. **The Nightly is `v0.16.0-478add`** (installer page entry `linux-hw · 478addc · v0.16.0-478add · 2026-11-01T01:02:09Z`; files in `~/fm1-hw/nightly-478addc/`).
+
 
 
 

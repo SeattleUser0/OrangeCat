@@ -1,4 +1,4 @@
-# Orange Cat Nightly v0.16.0-NEWVERSION: what changed for you since cb5048
+# Orange Cat Nightly v0.16.0-478add: what changed for you since cb5048
 
 Written October 31, 2026 for the owner, after your notes on cb5048. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
 
