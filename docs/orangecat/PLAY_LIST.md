@@ -1,4 +1,4 @@
-# Orange Cat Nightly v0.16.0-VERSION: what changed for you since 478add
+# Orange Cat Nightly v0.16.0-910aac: what changed for you since 478add
 
 Written November 1, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
 
