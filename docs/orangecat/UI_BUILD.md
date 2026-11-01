@@ -2415,3 +2415,44 @@ and what the build does:
 P_COUNT, so modules built before the switch is flipped are refused by a firmware built after it (finding 23); (c) the
 7-bit editor commands report 127 values: a page that is not updated reads the first 127 parameters, correctly, and cannot
 see LFO 2's last four.
+
+### Part 2: results (measured, October 31 to November 1, 2026)
+
+CI's build options (tools/hw/ci_step.py build), niced, one at a time; the baseline is ui-fix 7e7bf40.
+
+| Build | Image (B) | Free of 577,248 | Above the 8,192 B reserve | .data+.bss | Pool (SRAM) | Arena (min 49,152) |
+|---|---|---|---|---|---|---|
+| ui-fix 7e7bf40 (baseline) | 561,608 | 15,640 | 7,448 | 94,536 | 180,656 | 82,848 |
+| r3-format, both switches off | 561,600 (-8) | 15,648 | 7,456 | 94,536 | 180,656 | 82,848 |
+| + OC_R3_FORMAT (Parts 1 and 2's plumbing, wide commands, FUN24/TPLN readers) | 574,628 (+13,020) | 2,620 | **-5,572** | 94,536 | 182,248 (+1,592) | 81,312 (-1,536) |
+| + OC_R3_FORMAT + OC_LFO2 | 574,412 (+12,804) | 2,836 | **-5,356** | 94,920 (+384) | 182,332 (+1,676) | 80,320 (-2,528) |
+
+**Switches off: 8 bytes smaller than ui-fix**, not byte for byte: the matrix's slot accessor (`mod_slot`) compiled to slightly
+smaller code in mod_begin (-2), mod_begin_reference (-4) and mod_route_prepare (-2). The arena, the pool and .data+.bss are
+equal. The cost check of the render loops (tests/target_budget.py) is in the suite. **With the switch on the image does not
+fit the 8,192 B reserve (5,572 B short) in today's build set; with SHAPES out (the document's 23,236 B, UNMEASURED: Session A
+measures it) it is 17,664 B above the reserve** (577,248 - (574,628 - 23,236) = 25,856 free). So the switch stays off in the build
+set until SHAPES is out, as the task says; no part has crossed the reserve even with SHAPES out, so none is stopped. LFO 2's
+own flash is not separable from this table: its code (the tick, the waves, the fifth slot, the cached route) is audio-resident
+(mod.c is in .audio_text, SRAM), so it shows as 992 B less arena and 384 B more .data+.bss, not as image bytes; the image with
+LFO 2 is 216 B smaller than without it (the compiler's choices around the wider constants).
+**The arena with LFO 2 is 80,320 B, 31,168 B above the minimum and 14,784 B above the 65,536 B working rule.**
+
+Part 2 flash by piece (estimates before, to the table's total): wide commands and the tagged block, the wide-aware readers,
+FUN23/TPLM by count, the identifier, the page entries and descriptors: inside the R3 line above (the part's own share is not
+separable from Part 1's 11,444 B, the switch being one).
+
+**Found by building and testing, not by reading:** (a) the firmware build caught what the host tests could not: a macro that
+selected the freeze-table code (`defined(FRZ_AUDIO)` replaced by a name defined from it) compiled in the tests, which define the
+stand-in, and not in the image; (b) a 17 KB `static project_t` for the commit's read-back check (the pool grew 17 KB until the
+check used the project scratch); (c) mod.c's route cache compared only the four stored slots' keys, so a changed LFO 2 DEST was
+not seen until a stored slot changed (lfo2_test found it); (d) the sanitizer found `values[PROJ_CUT_NP]` (125 values) under
+`np` 131 in project.c and the template reader; (e) `TMPL_LL_SIZE` is a `size_t`, so the 32-bit wrap `tmpl_param_count` relied on
+for np 125 failed once P_COUNT passed 125 (the editor test's template layouts found it).
+
+**Decisions made in Part 2 (the safer reading):** projects saved with OC_LFO2 are always FUN24 (the owner's call, finding 11);
+the 7-bit editor commands carry 127 values and nothing misreads; `DXK_ROOM` 59 and the assert use P_COUNT; the LFO 2 pages
+are "LFO 2" and "LFO 2 SYNC", LFO 1's sync page is "LFO SYNC" (the rename ui-fix 4 said was done was not in the code; it is
+done with OC_LFO2, so the build without it is release-2's); the designer's guided set skips the three; the two continuous
+LFO 2 parameters (RATE, AMT) are motion lanes; the web app's codec reads FUN24's magic (knownMagics) but does not write it
+(Session D's, listed under "Waiting on Session A"); LFO 2 has no FADE or PHS (the ui-fix 4 design had none).

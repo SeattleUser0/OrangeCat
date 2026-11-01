@@ -694,6 +694,10 @@ if core && [ $TABLES = 1 ]; then
         editor_r3:editor_test -O1 -DOC_R3_FORMAT=1 $FW
     t "Release 3 format, Part 2: the same with LFO 2 (ids 128 to 130, the push as PARAM_CHANGED_W)" \
         editor_lfo2:editor_test -O1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW
+    t "EDIT's sheets and HOME with LFO 2 built in (the two new pages, P_COUNT 131) under the sanitizers" sheet_lfo2:sheet_test \
+        -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW -Itests
+    t "HOME as SHIFT with LFO 2 built in" shift_lfo2:shift_test \
+        -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW -Itests
     t "modulation matrix with LFO 2 built in: off = bit-identical, the math (the fifth slot is not in the way)" mod_lfo2:mod_test \
         -DMELODEE_LEGACY_EXTRAS=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -O2 $FW -- "$OUT/mod_lfo2"
     t "Release 3 format, Part 1 under the sanitizers" oc_r3_san:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_R3_FORMAT=1 $FW -Itests
