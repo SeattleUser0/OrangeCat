@@ -18,25 +18,42 @@
 #if OC_R3_SCENES
 static int scn2_used(uint32_t s) { return (scn2.used >> (s % SCN2_N)) & 1u; }
 static uint8_t scn2_val8(int32_t v) { return (uint8_t)clamp(v + 64, 0, 255); }
+/* a stored value back inside its parameter's range before it reaches the live state (a record may be hostile or from a build with other ranges) */
+static int16_t scn2_pval(uint32_t k, uint32_t id, int32_t v) { const param_desc_t *d = param_desc_of(trk[k].eng_req % NENGINES, id); return (int16_t)clamp(v, d->min, d->max); }
+static int16_t scn2_gval(uint32_t id, int32_t v) { return (int16_t)clamp(v, GP[id].min, GP[id].max); }
+static int scn2_strip_id(uint32_t i) { return i == P_LEVEL || i == P_PAN || i == P_MUTE || i == P_REV || i == P_DLY || i == P_CHOR; }
 /* the part values of the live state into scene s, for the parts the mask names; the sound table gets a new entry (or reuses an equal one) */
 static uint32_t scn2_sound_index(uint32_t k)
 {
     scn2_snd_t cand;
     memset(&cand, 0, sizeof cand);
     cand.engine = trk[k].eng_req; cand.preset = trk[k].preset; cand.np = P_COUNT; cand.used = 1;
-    for (uint32_t i = 0; i < P_COUNT; i++) cand.p[i] = trk[k].p[i];
+    for (uint32_t i = 0; i < P_COUNT; i++) cand.p[i] = scn2_strip_id(i) ? 0 : trk[k].p[i];   /* (the strip is the mixer part's: the same sound at another level is the same entry) */
     for (uint32_t i = 0; i < scn2.nsnd; i++)
         if (!memcmp(&scn2.snd[i], &cand, sizeof cand)) return i + 1u;
     if (scn2.nsnd >= SCN2_MAXSND) return 0;                    /* (full: the track keeps no sound in this scene) */
     scn2.snd[scn2.nsnd] = cand;
     return ++scn2.nsnd;
 }
+/* sound table entries no scene names are dropped and the indexes closed up (the table never grows past what the scenes use) */
+static void scn2_gc(void)
+{
+    uint8_t map[SCN2_MAXSND + 1u], n = 0;
+    memset(map, 0, sizeof map);
+    for (uint32_t i = 0; i < SCN2_N; i++)
+        if ((scn2.used >> i) & 1u && (scn2.s[i].mask & SCM_SOUND))
+            for (uint32_t k = 0; k < NTRK; k++) if (scn2.s[i].snd[k] && scn2.s[i].snd[k] <= scn2.nsnd) map[scn2.s[i].snd[k]] = 1;
+    for (uint32_t i = 1; i <= scn2.nsnd; i++) if (map[i]) { map[i] = ++n; if (map[i] != i) scn2.snd[map[i] - 1u] = scn2.snd[i - 1u]; }
+    for (uint32_t i = n; i < scn2.nsnd; i++) memset(&scn2.snd[i], 0, sizeof scn2.snd[i]);
+    scn2.nsnd = n;
+    for (uint32_t i = 0; i < SCN2_N; i++) for (uint32_t k = 0; k < NTRK; k++) if (scn2.s[i].snd[k] && scn2.s[i].snd[k] <= 16u) scn2.s[i].snd[k] = map[scn2.s[i].snd[k]];
+}
 static void scn2_store(uint32_t s, uint32_t mask)
 {
     scn2_t *e;
     s %= SCN2_N;
     e = &scn2.s[s];
-    memset(e, 0, sizeof *e);
+    { uint8_t nm = e->name, bd = e->boundary; memset(e, 0, sizeof *e); e->name = nm; e->boundary = bd; }   /* (a scene stored again keeps its name and boundary) */
     e->mask = (uint8_t)(mask & SCM_ALL);
     if (e->mask & SCM_TEMPO) { e->bpm = song.g[G_BPM]; e->swing = song.g[G_SWING]; }
     for (uint32_t k = 0; k < NTRK; k++) {
@@ -61,8 +78,9 @@ static int scn2_apply_sound(uint32_t k, const scn2_snd_t *d)
     if (!eng_ok(d->engine)) return 1;                           /* (the engine is not installed: the track keeps its sound) */
     trk[k].eng_req = d->engine; trk[k].preset = d->preset;
     for (uint32_t i = 0; i < d->np && i < P_COUNT; i++) {
-        if (i == P_LEVEL || i == P_PAN || i == P_MUTE || i == P_REV || i == P_DLY || i == P_CHOR) continue;   /* (the strip is the mixer part's) */
-        trk[k].p[i] = d->p[i];
+        if (scn2_strip_id(i)) continue;                         /* (the strip is the mixer part's) */
+        if (d->np != P_COUNT && i >= P_E0) break;               /* (another layout: the common ids only; the engine's own ids are not mapped here) */
+        trk[k].p[i] = scn2_pval(k, i, d->p[i]);
     }
     return 0;
 }
@@ -77,16 +95,16 @@ static int scn2_recall(uint32_t s, uint32_t *missing, uint32_t *skipped)
     if (skipped) *skipped = 0;
     if (!scn2_used(s)) return 1;
     e = &scn2.s[s];
-    if (e->mask & SCM_TEMPO && song.g[G_CLOCK] == 0) { song.g[G_BPM] = e->bpm; song.g[G_SWING] = e->swing; }
+    if (e->mask & SCM_TEMPO && song.g[G_CLOCK] == 0) { song.g[G_BPM] = scn2_gval(G_BPM, e->bpm); song.g[G_SWING] = scn2_gval(G_SWING, e->swing); }
     if (lists.mode == OCL_SONG && (e->mask & (SCM_CHAIN | SCM_MUTE))) lists.mode = OCL_CHAIN;
     for (uint32_t k = 0; k < trk_n(); k++) {
         if (e->mask & SCM_MIXER) {
-            trk[k].p[P_LEVEL] = (int16_t)((int32_t)e->lvl[k] - 64); trk[k].p[P_PAN] = (int16_t)((int32_t)e->pan[k] - 64);
+            trk[k].p[P_LEVEL] = scn2_pval(k, P_LEVEL, (int32_t)e->lvl[k] - 64); trk[k].p[P_PAN] = scn2_pval(k, P_PAN, (int32_t)e->pan[k] - 64);
             if ((uint32_t)(trk[k].p[P_MUTE] != 0) != e->mute[k] || trk[k].mute_arm) {
                 if (!song.playing) { trk[k].p[P_MUTE] = e->mute[k]; trk[k].mute_arm = 0; } else trk[k].mute_arm = (uint8_t)(e->mute[k] + 1u);
             }
         }
-        if (e->mask & SCM_FX) { trk[k].p[P_REV] = (int16_t)((int32_t)e->send[k][0] - 64); trk[k].p[P_DLY] = (int16_t)((int32_t)e->send[k][1] - 64); trk[k].p[P_CHOR] = (int16_t)((int32_t)e->send[k][2] - 64); }
+        if (e->mask & SCM_FX) { trk[k].p[P_REV] = scn2_pval(k, P_REV, (int32_t)e->send[k][0] - 64); trk[k].p[P_DLY] = scn2_pval(k, P_DLY, (int32_t)e->send[k][1] - 64); trk[k].p[P_CHOR] = scn2_pval(k, P_CHOR, (int32_t)e->send[k][2] - 64); }
         if ((e->mask & SCM_SOUND) && e->snd[k] && e->snd[k] <= scn2.nsnd && song.playing) { if (skipped) *skipped |= 1u << k; }   /* (interim: a sound is loaded stopped only) */
         else if ((e->mask & SCM_SOUND) && e->snd[k] && e->snd[k] <= scn2.nsnd) {
             if (scn2_apply_sound(k, &scn2.snd[e->snd[k] - 1u]) && missing && !*missing) *missing = k + 1u;
@@ -110,7 +128,7 @@ static int scn2_recall(uint32_t s, uint32_t *missing, uint32_t *skipped)
             }
         }
     }
-    if (e->mask & SCM_FX) for (uint32_t i = 0; i < PROJ_JFX_N; i++) song.g[G_DTIME + i] = (int16_t)((int32_t)e->fx[i] - 64);
+    if (e->mask & SCM_FX) for (uint32_t i = 0; i < PROJ_JFX_N; i++) if (G_DTIME + i != G_BUDGET) song.g[G_DTIME + i] = scn2_gval(G_DTIME + i, (int32_t)e->fx[i] - 64);
     return rc;
 }
 #endif

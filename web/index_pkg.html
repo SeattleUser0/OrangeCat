@@ -508,7 +508,7 @@ async function r3Preflight(midi, pkgFormat) {
   if (g.kind === "warn") return confirm(t("r3NoBackup"));
   try {
     link = new BackupConnection(io[0], io[1]);
-    const archive = await captureBackup((r, o) => link.request(r, o), unit.version || "", (done, total) => sayK("r3Backup", `${Math.round(done / Math.max(1, total) * 100)}%`));
+    const archive = await captureBackup((r, o) => link.request(r, o), unit.version || "", (done, total) => sayK("r3Backup", `${Math.round(done / Math.max(1, total) * 100)}%`), {requireRecords: unit.format >= 3});
     saveArchive(archive);
   } catch (e) { sayK("error", e.message); return false; } finally { if (link) link.close(); }
   return confirm(t("r3Saved"));

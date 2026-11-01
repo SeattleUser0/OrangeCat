@@ -1232,14 +1232,14 @@ static int test_scenes2(void)
           perf_tab[0].kind == PK_SCENE && perf_tab[0].target == 0 && perf_tab[12].kind == PK_SCENE && perf_tab[12].target == 7 && perf_tab[1].kind == PK_NONE && perf_tab[26].kind == PK_NONE);
     /* a scene of every part, stored and recalled */
     song.g[G_BPM] = 133; song.g[G_SWING] = 7; song.g[G_CLOCK] = 0;
-    trk[0].p[P_LEVEL] = -10; trk[0].p[P_PAN] = 20; trk[1].p[P_REV] = 15; trk[0].p[P_ATK] = 33; song.g[G_DTIME] = 11;
+    trk[0].p[P_LEVEL] = 90; trk[0].p[P_PAN] = 20; trk[1].p[P_REV] = 15; trk[0].p[P_ATK] = 33; song.g[G_DTIME] = 11;
     scn2_store(11, SCM_ALL);
     R3CHK("... scene 12 is used, with all six parts", scn2_used(11) && scn2.s[11].mask == SCM_ALL && scn2.nsnd >= 1u);
     song.g[G_BPM] = 90; song.g[G_SWING] = 0; trk[0].p[P_LEVEL] = 5; trk[0].p[P_PAN] = -3; trk[1].p[P_REV] = 0; trk[0].p[P_ATK] = 1; song.g[G_DTIME] = 0;
     song.playing = 0;
     rc = scn2_recall(11, &miss, &skip);
     R3CHK("... recalled (stopped): tempo, swing, mixer, the sends and the effects are back; the sound too when its engine is installed, else it stays and the track is named",
-          !rc && song.g[G_BPM] == 133 && song.g[G_SWING] == 7 && trk[0].p[P_LEVEL] == -10 && trk[0].p[P_PAN] == 20 && trk[1].p[P_REV] == 15 && song.g[G_DTIME] == 11 &&
+          !rc && song.g[G_BPM] == 133 && song.g[G_SWING] == 7 && trk[0].p[P_LEVEL] == 90 && trk[0].p[P_PAN] == 20 && trk[1].p[P_REV] == 15 && song.g[G_DTIME] == 11 &&
           (eng_ok(scn2.snd[0].engine) ? trk[0].p[P_ATK] == 33 && !miss : trk[0].p[P_ATK] == 1 && miss == 1) && !skip);
     song.g[G_CLOCK] = 1; song.g[G_BPM] = 90;
     scn2_recall(11, &miss, &skip);
@@ -1247,8 +1247,12 @@ static int test_scenes2(void)
     song.g[G_CLOCK] = 0;
     song.playing = 1; trk[0].p[P_ATK] = 2;
     scn2_recall(11, &miss, &skip);
-    R3CHK("... playing, the sound part is skipped (STOP FIRST), the other parts land", (skip & 1u) && trk[0].p[P_ATK] == 2 && trk[0].p[P_LEVEL] == -10);
+    R3CHK("... playing, the sound part is skipped (STOP FIRST), the other parts land", (skip & 1u) && trk[0].p[P_ATK] == 2 && trk[0].p[P_LEVEL] == 90);
     song.playing = 0;
+    scn2.s[11].bpm = 5; scn2.s[11].lvl[0] = 255; scn2.s[11].send[1][0] = 0;
+    scn2_recall(11, &miss, &skip);
+    R3CHK("... a stored value outside its range (bpm 5, level 191) lands clamped: 40, 127", song.g[G_BPM] == 40 && trk[0].p[P_LEVEL] == 127);
+    scn2.s[11].bpm = 133; scn2.s[11].lvl[0] = (uint8_t)(90 + 64); scn2.s[11].send[1][0] = (uint8_t)(15 + 64);
     R3CHK("... an empty scene says so (rc 1)", scn2_recall(3, &miss, &skip) == 1);
     /* save and reload */
     scn2_store(2, SCM_CHAIN | SCM_MUTE); perf_tab[1].kind = PK_CHAIN; perf_tab[1].target = 3; perf_tab[1].flags = 2u << 1; perf_tab[1].boundary = 2;

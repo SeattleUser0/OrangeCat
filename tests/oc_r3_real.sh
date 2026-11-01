@@ -58,6 +58,8 @@ if [ -d "$BK" ]; then
         [ -f "$d/fbkk-0.bin" ] && run "bk_music_$b" "$OUT/oldgen_c" "$OUT/conv_c" --fbkk -- 0 "$d/fbkk-0.bin"
         [ -f "$d/records.bin" ] && run "bk_records_$b" "$OUT/oldgen_c" "$OUT/conv_c" --records "$d/records.bin" --
     done
+elif [ -n "${OC_UNIT_BACKUPS:-}" ]; then
+    echo "FAIL OC_UNIT_BACKUPS=$OC_UNIT_BACKUPS is not a directory"; fail=$((fail+1))
 else
     echo "(no $BK: the unit's own files are skipped)"
 fi

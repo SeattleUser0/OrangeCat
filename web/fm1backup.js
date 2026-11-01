@@ -76,7 +76,7 @@ export function bkCrc(bytes) {
   return (~c) >>> 0;
 }
 function bkCheck(rc) {
-  if (rc) throw new Error(({ 1: "Invalid archive object", 2: "Archive data failed validation", 3: "Stop playback first", 4: "Flash write failed", 5: "Start a fresh backup" })[rc] || `Archive error ${rc}`);
+  if (rc) throw new Error(({ 1: "Invalid archive object", 2: "Archive data failed validation", 3: "Stop playback first", 4: "Flash write failed", 5: "Start a fresh backup", 6: "A phrase chunk of a slot in use: clear the slot first" })[rc] || `Archive error ${rc}`);
 }
 export function bkManifest(a, arr = false) {
   if (a[0] !== 1) throw new Error("Unsupported archive protocol");
@@ -166,12 +166,12 @@ function readRecords(list) {
   });
 }
 // (Release 3) the unit's record inventory in pages of 16, [] when it does not answer (a firmware before Release 3 never replies: a short timeout)
-async function recManifest(request) {
+async function recManifest(request, require = false) {
   const out = [];
   for (let start = 0; ; ) {
     let a;
     try { a = await request([0, [REC.LIST, start & 127, start >> 7]], { timeout: out.length ? 3000 : 1200, retries: 0 }); }
-    catch (e) { if (out.length) throw e; return []; }
+    catch (e) { if (out.length || require) throw e; return []; }
     if (a[0] !== REC.LIST) throw new Error("Unexpected record reply");
     bkCheck(a[1]);
     const n = a[4], more = a[5];
@@ -179,7 +179,7 @@ async function recManifest(request) {
     for (let i = 0; i < n; i++) {
       const p = 6 + i * 14, id = a[p + 1] | a[p + 2] << 7 | a[p + 3] << 14, size = bkR32(a, p + 4), crc = bkR32(a, p + 9);
       if (![REC.PROJECT, REC.POOL].includes(a[p]) || size > REC_MAX || (!size && crc)) throw new Error("Invalid record inventory");
-      out.push({ type: a[p], id, size, crc });
+      if (size) out.push({ type: a[p], id, size, crc });   // (a record whose body does not read lists as size 0: left out, the rest of the backup goes on)
     }
     if (!more || !n) return out;
     start += n; if (out.length > 64) throw new Error("Record inventory too long");
@@ -190,8 +190,8 @@ async function arrManifest(request) {
   const a = await request([BACKUP_CMD.LIST, [1]], { timeout: 6000, retries: 0 });
   return a[0] === 1 && a[1] === 1 ? [] : bkManifest(a, true);
 }
-async function captureRecords(request, onProgress) {
-  const list = await recManifest(request), records = [];
+async function captureRecords(request, onProgress, require = false) {
+  const list = await recManifest(request, require), records = [];
   for (const o of list) {
     const bytes = new Uint8Array(o.size);
     for (let off = 0; off < o.size; off += BACKUP_CHUNK) {
@@ -206,12 +206,12 @@ async function captureRecords(request, onProgress) {
     records.push({ ...o, data: bkBase64(bytes) }); onProgress(0, 0);
   }
   // the inventory again: a save between the pages, or after the last record, renames chunk generations and would leave a record naming a chunk this archive does not hold
-  const again = await recManifest(request);
+  const again = await recManifest(request, require);
   if (again.length !== list.length || again.some((o, i) => o.type !== list[i].type || o.id !== list[i].id || o.size !== list[i].size || o.crc !== list[i].crc))
     throw new Error("The device changed during backup. Try again while stopped.");
   return records;
 }
-export async function captureBackup(request, firmware, onProgress = () => {}) {
+export async function captureBackup(request, firmware, onProgress = () => {}, opts = {}) {   // opts.requireRecords: the unit is Release 3 (INFO says so): a timeout on the records is an error, not "none"
   const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
   if (manifest.length === BACKUP_IDS_SHARED.length) manifest.push(...await arrManifest(request));
   const objects = [], total = manifest.reduce((n, o) => n + o.size, 0); let done = 0;
@@ -229,7 +229,7 @@ export async function captureBackup(request, firmware, onProgress = () => {}) {
     objects.push({ ...o, data: bkBase64(bytes) });
   }
   const file = { format: "felucca-backup", version: 1, firmware, created: new Date().toISOString(), objects };
-  const records = await captureRecords(request, onProgress);
+  const records = await captureRecords(request, onProgress, !!opts.requireRecords);
   if (records.length) { file.records = records; file.version = 2; }
   readBackup(file); return file;
 }
@@ -245,16 +245,17 @@ async function restoreRecords(ask, records, progress) {
     return a[2];
   };
   const order = [...records.filter((r) => r.type === REC.POOL), ...records.filter((r) => r.type === REC.PROJECT)];
-  const cleared = new Set();
+  // which slots would be changed under their own record (rc 6 at a begin): found first, with a begin and an abort each, and cleared before anything is written, so
+  // a clear never erases a chunk this restore has already put
+  const clash = new Set();
   for (const o of order) {
-    let rc = await put(0, o.type, o.id, [...bkU32(o.size), ...bkU32(o.crc)]);
-    const slot = recSlotOf(o.type, o.id);
-    if (rc === 6 && slot >= 0 && !cleared.has(slot)) {
-      bkCheck(await put(5, REC.PROJECT, 0x8000 | slot));
-      cleared.add(slot);
-      rc = await put(0, o.type, o.id, [...bkU32(o.size), ...bkU32(o.crc)]);
-    }
-    bkCheck(rc);
+    if (o.type !== REC.POOL) continue;
+    const rc = await put(0, o.type, o.id, [...bkU32(o.size), ...bkU32(o.crc)]);
+    if (rc === 6) clash.add(recSlotOf(o.type, o.id)); else { bkCheck(rc); await put(3, o.type, o.id); }
+  }
+  for (const slot of clash) bkCheck(await put(5, REC.PROJECT, 0x8000 | slot));
+  for (const o of order) {
+    bkCheck(await put(0, o.type, o.id, [...bkU32(o.size), ...bkU32(o.crc)]));
     try {
       for (let off = 0; off < o.size; off += BACKUP_CHUNK) {
         const chunk = o.bytes.subarray(off, off + BACKUP_CHUNK);

@@ -7,14 +7,14 @@
  *   version u8 (2), count u8 (16), used u16 (a bit a scene), nsnd u8 (the sound table's entries, at most 16), jfxn u8 (PROJ_JFX_N: a later firmware's
  *   effect block is another size, which this one reads as foreign),
  *   nsnd x sound entry: len u16 (of what follows), engine u8, preset u8, np u16, np x value s16 (little endian), native length u8, the native bytes
- *   count x scene entry: name u8, mask u8, boundary u8, 3 reserved (zero; read and carried as zero), then the parts the mask names, in this order:
+ *   count x scene entry: name u8, mask u8, boundary u8, 3 reserved (written zero, read and ignored), then the parts the mask names, in this order:
  *     tempo (mask 1)           bpm u16, swing u16
  *     sounds (mask 2)          NTRK x (index into the sound table + 1; 0 none)
  *     mixer (mask 4)           NTRK x (level, pan, mute): level and pan are the value + 64 clamped to a byte, mute 0 or 1
  *     effects (mask 8)         PROJ_JFX_N global effect values (+ 64), then NTRK x 3 sends (the reverb, delay, chorus send, + 64)
  *     chains and mutes (16, 32) NTRK x (the chain + 1, the step | the mute << 7): as today's scene; both bits name this one part, and which of the
  *                              two a recall obeys is the bit
- *   An entry for a scene whose used bit is clear is the 6 byte header with mask 0. Anything after the last entry is carried (a later version's).
+ *   An entry for a scene whose used bit is clear is the 6 byte header with mask 0. A layout a later firmware extends is another version, which this one reads as foreign and keeps whole: bytes after the last entry, in an entry or in a sound's native part are not carried inside version 2.
  * Hostile bytes: every length is checked against the section before it is used; a count other than 16, a sound table past 16 or an index past the table,
  * a mask with bit 6 or 7, an entry that runs past the end: the section is "foreign" (kept byte for byte, plays no scenes), as Part 1's rule says.
  * Version 1 (today's: count 8, the scenes as the lists hold them, used u16) converts on load: mask 48 (chains and mutes), boundary 0 (the project's launch),

@@ -299,7 +299,7 @@ static void layer_key(uint32_t l, uint32_t k)
                 if (trk[p].mute_arm) str_cpy(m + str_len(m), LAUNCH_NAME[lists.launch % OCL_NLAUNCH], 6);
                 ui_message(m);
             }
-        } else if (scene_key && !(OC_R3_SCENES && kb_perf && key_black(k))) {   /* scenes 1..8 (OCT+: 9..16): SAVE held stores, else recalls */
+        } else if (scene_key) {   /* scenes 1..8 (OCT+: 9..16): SAVE held stores, else recalls */
             str_cpy(m, "SCENE 1", sizeof m);
             if (sc >= 9u) { m[6] = '1'; m[7] = (char)('0' + (sc - 9u)); nd = 8u; }   /* (scene 10..16) */
             else m[6] = (char)('1' + sc);

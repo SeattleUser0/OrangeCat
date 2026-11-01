@@ -42,6 +42,7 @@ _Static_assert(ED_BK_LIVE_LEN <= sizeof proj_wire_u, "the music's arrangement is
 static ocs_stream_t ed_bk_stream __attribute__((section(".pool")));
 #if OC_R3_FORMAT
 static uint8_t ebr_on;                         /* (Release 3) a record by type and id is being put (the end of this file) */
+static uint8_t ebr_sess;                       /* (Release 3) a plain LIST began the session; a plain PUT begin does not end it (ed_bk_valid does), so a restore can put records after objects */
 #endif
 static uint32_t ed_bk_scrc;                    /* the stream's bytes' CRC so far */
 static int ed_bk_arr(uint32_t id) { return id >= ED_BK_ARR0 && id <= ED_BK_ARR_LIVE; }
@@ -240,6 +241,9 @@ static uint32_t ed_bk_capture(void)
     settings_export(&ed_bk_set.p);                  /* the record as it is stored: the template (tmpl) after the settings */
     ed_bk_set_len = sizeof ed_bk_set.p + (template_used() ? sizeof ed_bk_set.t : 0u);
     ed_bk_put = 0; ed_bk_valid = 1; ed_bk_usb = usb.resets;
+#if OC_R3_FORMAT
+    ebr_sess = 1;
+#endif
     return 0;
 }
 static int ed_bk_panel_valid(const panel_t *p)
@@ -606,7 +610,7 @@ static int ebr_chunk_in_use(uint32_t id)
     if (ocj4_phrd_read(slot, &ocp_sdir, ocp_snamed, 0, 0)) return 0;
     return ocp_bit(ocp_snamed, c) && ocp_bit(ocp_sdir.gen, c) == ((id >> 8) & 1u) && ocs_exists(OCS_POOL, id);
 }
-static int ebr_session(void) { return ed_bk_valid && ed_bk_usb == usb.resets; }
+static int ebr_session(void) { return ebr_sess && ed_bk_usb == usb.resets; }
 static int ed_bkr_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     if (cmd == ED_BKR_LIST) {
@@ -686,6 +690,7 @@ static int ed_bkr_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
                     if (r < -1) { uint8_t cursor = ocs_cursor; ocs_boot(); ocs_cursor = cursor; }
                     ebr_on = 0;
                     ocj4_old_c = 0;
+                    if (!r && ebr_type == OCS_PROJECT && (ebr_id & 0x8000u)) (void)ocs_delete(OCS_PROJECT, ebr_id & 3u);   /* (a Release 3 record restored is the slot's wish: an old record there goes, settle must not undo it) */
                     ocj4_restore_settle();
                     ed_bk_arr_rescan();
                     rc = r ? 4u : 0u;

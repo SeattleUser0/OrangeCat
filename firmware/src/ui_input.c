@@ -2129,7 +2129,11 @@ static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok
 {
     uint32_t tap;
 #if OC_R3_SCENES
-    if (perf_inert(label)) { *t0 = 0; return BT_NONE; }   /* (Part 7) Performance Mode: the page buttons, SAVE, EDIT, the menus and REC do nothing */
+    if (perf_inert(label)) {                             /* (Part 7) Performance Mode: the page buttons, SAVE, EDIT, the menus and REC do nothing. A button held while the
+                                                         * mode ends is swallowed (bit 1 set: its release is no tap, its hold has fired) */
+        *t0 = ((fm1_in.buttons >> panel.btn[label]) & 1u) ? ((now | 1u) | 2u) : 0u;
+        return BT_NONE;
+    }
 #endif
     if ((fm1_in.buttons >> panel.btn[label]) & 1u) {
         if (!*t0)

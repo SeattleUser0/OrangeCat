@@ -83,7 +83,8 @@ static const perf_ent_t *perf_key(uint32_t key, uint32_t oct_held)
 #define PRE_PER_TRACK 6u                       /* (not 8: eviction skips pinned banks, a track's current and next bank are never victims, so 8 pinned leave an on-demand launch no bank) */
 typedef struct {
     uint64_t done;                              /* a bit a key already pre-loaded */
-    uint64_t dim;                               /* a bit a key left on demand (the floor, or the track's 8) */
+    uint64_t dim;                               /* a bit a key left on demand (the floor, or the track's limit) */
+    uint8_t stopped;                            /* the floor was reached: nothing more is pre-loaded until the mode is entered again */
     uint8_t per_track[NTRK];
     uint8_t pinned[NTRK];                       /* a bit a bank (8): pre-loaded, clean and idle: eviction skips it */
 } perf_pre_t;
@@ -97,13 +98,14 @@ static int perf_pre_target(const perf_ent_t *e, uint32_t *track, uint32_t *phras
 }
 static int perf_pre_next(perf_pre_t *p, uint32_t notes_free, uint32_t (*phrase_notes)(uint32_t phrase), uint32_t *track, uint32_t *phrase)
 {
+    if (p->stopped) return -1;
     for (uint32_t key = 0; key < PERF_N; key++) {
         uint32_t k, ph, add;
         if (((p->done | p->dim) >> key) & 1u) continue;
         if (!perf_pre_target(&perf_tab[key], &k, &ph)) { p->done |= 1ull << key; continue; }
         if (p->per_track[k] >= PRE_PER_TRACK) { p->dim |= 1ull << key; continue; }
         add = phrase_notes ? phrase_notes(ph) : 0u;
-        if (notes_free < add || notes_free - add < PRE_FLOOR) { p->dim |= 1ull << key; return -1; }   /* (stops: the floor) */
+        if (notes_free < add || notes_free - add < PRE_FLOOR) { p->dim |= 1ull << key; p->stopped = 1; return -1; }   /* (stops: the floor) */
         p->done |= 1ull << key; p->per_track[k]++; p->pinned[k] |= (uint8_t)(1u << (p->per_track[k] - 1u));
         *track = k; *phrase = ph;
         return (int)key;
@@ -111,7 +113,7 @@ static int perf_pre_next(perf_pre_t *p, uint32_t notes_free, uint32_t (*phrase_n
     return -1;
 }
 /* the mode left: nothing stays pinned */
-static void perf_pre_end(perf_pre_t *p) { memset(p->pinned, 0, sizeof p->pinned); p->done = 0; }
+static void perf_pre_end(perf_pre_t *p) { memset(p->pinned, 0, sizeof p->pinned); p->done = 0; p->dim = 0; p->stopped = 0; memset(p->per_track, 0, sizeof p->per_track); }
 
 
 /* a key whose entry is not a scene: a chain launches its first step on its track (ocl_go_at, as a scene's chain does: stopped at once, playing staged for the

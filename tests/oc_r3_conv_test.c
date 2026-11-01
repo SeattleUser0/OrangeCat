@@ -96,6 +96,7 @@ static int generic_main(const int *loads)
     reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot();
     nold0 = old_records();
     start();
+    CHK("the store holds at least one project the old reader loads (the checks below are not vacuous)", nl > 0u);
     snprintf(what, sizeof what, "%u of %u old records read and are converted (the others stay as they were)", nl, nold0);
     CHK(what, new_records() == nl && old_records() == nold0 - nl);
     {   uint32_t ok = 1;

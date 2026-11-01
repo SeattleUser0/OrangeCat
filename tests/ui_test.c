@@ -6524,8 +6524,14 @@ int main(void)
         fm1_in.buttons = 1u << panel.btn[B_REC];
         r1 = btn_hold(&t0, B_REC, 1000u, 1);
         r2 = btn_hold(&t0, B_REC, 1000u + 900u * 1000u * FM1_TICKS_PER_US, 1);
-        bad += check("Part 7: REC held 900 ms in Performance Mode does nothing (no MIXER, no take)", r1 == BT_NONE && r2 == BT_NONE && t0 == 0u);
-        kb_perf = 0; t0 = 0;
+        bad += check("Part 7: REC held 900 ms in Performance Mode does nothing (no MIXER, no take)", r1 == BT_NONE && r2 == BT_NONE);
+        kb_perf = 0; fm1_in.buttons = 1u << panel.btn[B_REC];
+        r1 = btn_hold(&t0, B_REC, 2000u + 900u * 1000u * FM1_TICKS_PER_US, 1);
+        fm1_in.buttons = 0;
+        r2 = btn_hold(&t0, B_REC, 3000u + 900u * 1000u * FM1_TICKS_PER_US, 1);
+        bad += check("... a REC held through the end of the mode is swallowed: its release is no tap, no hold", r1 == BT_NONE && r2 == BT_NONE);
+        kb_perf = 1;
+        kb_perf = 0; t0 = 0; fm1_in.buttons = 1u << panel.btn[B_REC];
         r1 = btn_hold(&t0, B_REC, 1000u, 1);
         r2 = btn_hold(&t0, B_REC, 1000u + 900u * 1000u * FM1_TICKS_PER_US, 1);
         bad += check("... outside the mode the same hold is a hold", r2 == BT_HOLD);
