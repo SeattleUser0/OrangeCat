@@ -307,7 +307,7 @@ int main(int argc, char **argv)
         static uint8_t *orec, *ochunk[16];
         static uint32_t orec_len, ochunk_len[16];
         static uint8_t x_fbkk[BANK_STORE_SIZE], conv_fbkk[3][BANK_STORE_SIZE];
-        int progs, ers, ok = 1, n_p = 0, n_e = 0, saw_old = 0, saw_new = 0;
+        int progs, ers, ok = 1, n_p = 0, n_e = 0, saw_old = 0, saw_new = 0, k_settle = 0;
         uint32_t e0;
         char what[240];
         reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot();
@@ -322,10 +322,19 @@ int main(int argc, char **argv)
         for (s = 2; s < 4u; s++) { read_slot(s); memcpy(conv_fbkk[s - 2u], got, BANK_STORE_SIZE); }
         memcpy(nor_after, nor, sizeof nor);
         {   /* the restore, counted */
+            /* the shipped page's order: the project record (64..67) first, then the pool chunks (68..83); editor_backup.c settles after each object */
             #define RESTORE_OLD() do { \
-                for (uint32_t c = 0; c < 16u; c++) if (ochunk[c]) (void)ocs_write(OCS_POOL, c, ochunk[c], ochunk_len[c]); \
-                if (!ocs_write(OCS_PROJECT, 0, orec, orec_len)) ocj4_slot_erase_new(0); } while (0)
+                if (!ocs_write(OCS_PROJECT, 0, orec, orec_len)) ocj4_restore_settle(); \
+                for (uint32_t c = 0; c < 16u; c++) if (ochunk[c] && !ocs_write(OCS_POOL, c, ochunk[c], ochunk_len[c])) ocj4_restore_settle(); } while (0)
             e0 = erases; fail_after = 1 << 24; RESTORE_OLD(); progs = (1 << 24) - fail_after; fail_after = -1; ers = (int)(erases - e0);
+        }
+        {   /* where the restore replaces the slot: the program calls used when slot 0's Release 3 record is gone */
+            reset(); memcpy(nor, nor_after, sizeof nor); ocs_boot(); ocp_scan(); ocj_scan();
+            fail_after = 1 << 24;
+            if (!ocs_write(OCS_PROJECT, 0, orec, orec_len)) ocj4_restore_settle();
+            for (uint32_t c = 0; c < 16u && ocs_exists(OCS_PROJECT, OCJ4_RID(0)); c++) if (ochunk[c] && !ocs_write(OCS_POOL, c, ochunk[c], ochunk_len[c])) ocj4_restore_settle();
+            k_settle = (1 << 24) - fail_after; fail_after = -1;
+            CHK("(the Release 3 record goes only when the old project reads: after the last pool object, not after the record)", !ocs_exists(OCS_PROJECT, OCJ4_RID(0)) && k_settle > 20);
         }
         for (int phase = 0; phase < 2 && ok; phase++)
             for (int k = 0; k < (phase ? ers : progs + 1) && ok; k++) {
@@ -339,6 +348,7 @@ int main(int argc, char **argv)
                 is_new = read_slot(0) && !memcmp(got, x_fbkk, BANK_STORE_SIZE);
                 saw_old += is_old; saw_new += is_new;
                 ok &= is_old || is_new;
+                if (!phase && k < k_settle - 2) ok &= is_new;        // a program cut before the restore replaced the slot: the project it had
                 for (s = 2; s < 4u; s++) ok &= read_slot(s) && !memcmp(got, conv_fbkk[s - 2u], BANK_STORE_SIZE);
                 ok &= !old_records() && !orphans_all() && new_records() == 3u && !old_chunks();
                 if (!ok) fprintf(stderr, "  restore cut %s %d: old %d new %d, old records %u, new records %u, old chunks %u, orphans %u\n", phase ? "erase" : "program", k, is_old, is_new, old_records(), new_records(), old_chunks(), orphans_all());

@@ -334,6 +334,7 @@ static int ocj4_convert_slot(uint32_t s, uint32_t *kb_short)
  * format before. A slot with both: the new record wins when it reads end to end (a cut between the commit and the old record's erase); the old one
  * is then erased. The summary is kept for ocj4_conv_notice */
 static void ocj4_slot_erase_new(uint32_t s);
+static int ocj4_old_complete(void);
 static void ocj4_convert_boot(void)
 {
     ocj4_old_c = 0;
@@ -354,7 +355,7 @@ static void ocj4_convert_boot(void)
              * (editor_backup.c commits the old one first, then erases the new: a cut between leaves both, and the old one is the newer wish).
              * It is converted over the new one when it reads; one that does not (the pool objects of its restore never came) is dropped and the
              * slot keeps the project it had. */
-            if (ocj4_old_read(s, raw) == (int)BANK_STORE_SIZE) { ocj4_slot_erase_new(s); both = 0; }
+            if (ocj4_old_read(s, raw) == (int)BANK_STORE_SIZE && ocj4_old_complete()) { ocj4_slot_erase_new(s); both = 0; }
             else { (void)ocs_delete(OCS_PROJECT, s); ocj4_old_c = 0; continue; }
         }
         if (both) {                                         /* a conversion a cut stopped at its last step (the new record carries the old one's mark) */
@@ -398,6 +399,7 @@ static int ocj4_convert_now(uint32_t s)
 {
     uint32_t kb = 0;
     int rc;
+    if (s == ocp.dir.slot) { ui_message("RESTART TO CONVERT"); return 1; }   /* (the live pool is this slot's: a failed conversion would sweep the music's own chunks; the start converts it) */
     ui_message("CONVERTING");
     rc = ocj4_convert_slot(s, &kb);
     if (rc == 1) {
@@ -422,4 +424,43 @@ static void ocj4_slot_erase_new(uint32_t s)
      * the claim a record made is let go, as ocj_write's empty-slot path does; any other slot's chunks all go */
     if (s == ocp.dir.slot) memset(ocp.cnamed, 0, sizeof ocp.cnamed);
     else ocp_r3_sweep(s);
+}
+
+/* phrase id (1..64) has bytes in the old pool: chunk (id - 1) / 4 exists and its table gives that phrase a length */
+static int ocj4_old_phrase_there(uint32_t id)
+{
+    ocs_rec_t r;
+    uint8_t t[8];
+    if (id < 1u || id > 64u || ocs_open(OCS_POOL, (id - 1u) >> 2, &r) || r.total < 8u || ocs_at(&r, 0, t, 8)) return 0;
+    return (t[2u * ((id - 1u) & 3u)] | t[2u * ((id - 1u) & 3u) + 1u]) != 0;
+}
+/* after ocj4_old_read: every phrase the old record names (a bank's, a chain's) has its bytes in the old pool. The old reader takes a phrase with no chunk
+ * for an empty one, so a restore of an old record whose pool objects have not all come reads "fine" and would replace the slot's project with an
+ * empty one; a phrase a bank or a chain names is never empty (an emptied bank names none) */
+static int ocj4_old_complete(void)
+{
+    for (uint32_t k = 0; k < NTRK; k++)
+        for (uint32_t b = 0; b < NPAT; b++) {
+            uint32_t id = ocj_h.pid[k][b];
+            if (id && !ocj4_old_phrase_there(id)) return 0;
+        }
+    for (uint32_t c = 0; c < OCL_NCHAIN; c++)
+        for (uint32_t e = 0; e < OCL_NENT; e++) {
+            uint32_t id = ocj_l.chain[c][e][0];
+            if (id && id <= 64u && !ocj4_old_phrase_there(id)) return 0;
+        }
+    return 1;
+}
+/* after a record or a chunk of the format before has been restored (editor_backup.c): every slot that has an old record, a Release 3 record that is
+ * not that record's conversion, and an old record that now reads end to end (its pool objects are all there) loses its Release 3 records. Called after
+ * each restored object, so the page's order does not matter: while the pool is incomplete the slot keeps the project it had (the old record is
+ * dropped at the next start if the restore never finishes), and the moment the old project reads it replaces it. Part 4's review, finding 1 */
+static void ocj4_restore_settle(void)
+{
+    uint8_t *raw = (uint8_t *)&proj_wire_u;
+    for (uint32_t s = 0; s < 4u; s++) {
+        if (!ocs_exists(OCS_PROJECT, s) || !ocs_exists(OCS_PROJECT, OCJ4_RID(s))) continue;
+        if (ocj4_cvrt_read(s) == ocj4_old_mark(s)) continue;
+        if (ocj4_old_read(s, raw) == (int)BANK_STORE_SIZE && ocj4_old_complete()) ocj4_slot_erase_new(s);
+    }
 }

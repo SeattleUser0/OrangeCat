@@ -871,6 +871,7 @@ static int ocj4_foreign_chunks(uint32_t slot, const project_t *q, const uint8_t 
  *   become the slot's phrases 1..; when the slot is the live pool's, the live phrases move to the scratch first, so the
  *   music in RAM keeps them. The record, written last, is the commit; then the live tables are read again from the
  *   flash and the slot swept */
+static uint32_t ocj4_old_mark(uint32_t s);
 static uint8_t ocj4_old_c;                     /* 0: not known, 1: some slot has a record of the format before, 2: none (ocj4_old_exists, oc_convert.c) */
 static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
 {
@@ -934,7 +935,9 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
         d = &ocj_dir;
     }
     /* the record, built in the staging's project part (its bytes are q's now), the commit */
+    ocj4_cvrt_out = ocs_exists(OCS_PROJECT, slot) ? ocj4_old_mark(slot) : 0u;   /* (a slot that still has an old record: this save is newer than it; a cut before the old record is deleted must not revert it, Part 4 review 4) */
     rlen = ocj4_build(raw, OCJ4_MAX, q, raw, d, ocj_h.pid, &ocj_l, m, xs ? ocp.len : 0, xs ? ocp.hash : 0);
+    ocj4_cvrt_out = 0;
     if (!rlen || ocs_free_count() < ocp_parts_of(rlen)) { rc = 4; goto failed; }
     /* a record this firmware cannot read back is never committed (the slot would be held as OLD FORMAT, unusable). Parsed into the project
      * scratch (q): the record is built, and the staging is re-read from the slot after the commit anyway; a project_t of its own would be 17 KB */

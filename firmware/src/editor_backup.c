@@ -275,6 +275,9 @@ static uint32_t ed_bk_commit_inner(void)
         int rc;
         if (!ed_bk_len) {
             if (ocs_delete(ed_bk_rec_type(ed_bk_id), ed_bk_rec_id(ed_bk_id))) { ed_bk_arr_rescan(); return 4; }
+#if OC_R3_FORMAT
+            if (ed_bk_rec_type(ed_bk_id) == OCS_PROJECT) ocj4_slot_erase_new(ed_bk_rec_id(ed_bk_id));   /* (an empty slot in the backup: empty here too) */
+#endif
             ed_bk_arr_rescan();
             return 0;
         }
@@ -282,11 +285,12 @@ static uint32_t ed_bk_commit_inner(void)
         rc = ocs_stream_commit(&ed_bk_stream);
         if (rc < -1) { uint8_t cursor = ocs_cursor; ocs_boot(); ocs_cursor = cursor; }   /* (as ocs_write_src: what is on the flash, read again) */
 #if OC_R3_FORMAT
-        /* (Release 3) a record of the format before replaces its slot whole. It is committed first and the slot's Release 3 records go after it, so a
-         * power cut never leaves the slot empty: before the commit the slot has the project it had, after it both records (the next start sees the new
-         * one is not the old one's conversion, ocj4_convert_boot, and converts the old one over it), then only the old one, converted at the next start
-         * or by CONVERT (the pool objects of the same restore follow). */
-        if (!rc && ed_bk_rec_type(ed_bk_id) == OCS_PROJECT) ocj4_slot_erase_new(ed_bk_rec_id(ed_bk_id));
+        /* (Release 3) a record of the format before replaces its slot whole, but only once it reads end to end (its pool objects are there too,
+         * in whatever order the page sends them): the slot's Release 3 records go then (ocj4_restore_settle). A power cut never leaves the slot
+         * empty: until then the slot has the project it had; with both records the next start (ocj4_convert_boot) sees the new one is not the old
+         * one's conversion and converts the old one over it when it reads, or drops the old one when it does not. The slot then converts at the
+         * next start or by CONVERT. */
+        if (!rc) ocj4_restore_settle();            /* (any object of the format before: the page's order does not matter) */
 #endif
         ed_bk_arr_rescan();
         return rc ? 4u : 0u;
