@@ -111,6 +111,11 @@ static int fl_write(uint32_t off, const void *p, uint32_t n)
 #include "../firmware/src/editor.c"
 #include "../firmware/src/cz_store.c"
 
+#if OC_R3_FORMAT
+#define R3_INFO_TAIL 7u                           /* (Release 3) the tagged block 0x57 closes INFO: tag, version, P_COUNT (2), P_E0 (2), the project format */
+#else
+#define R3_INFO_TAIL 0u
+#endif
 static int check(const char *what, int ok)
 {
     printf("editor: %-70s %s\n", what, ok ? "ok" : "FAIL");
@@ -163,7 +168,7 @@ static int preferences(void)
     reset();
     uint32_t n = request(ED_INFO, a, 0);
     const uint8_t caps[]={0,0x55,1,57,0x4d,2,MOTION_MAX,1,0x42,1,3,0x50,1,NPAT,CHAIN_ROWS,0x46,1,FM6_NFAC,0,0x43,1,16,1,0,0,0x35,1,19,16,17,18,20,0,1,0x4e,1,64,0,0,1,0x55,1,0,3};
-    bad+=check("INFO preserves existing IDs and advertises the shared 384-slot library",ED_SONG==33&&ED_FAV_SET==38&&n>sizeof caps&&!memcmp(host_wire+n-sizeof caps-1,caps,sizeof caps));
+    bad+=check("INFO preserves existing IDs and advertises the shared 384-slot library",ED_SONG==33&&ED_FAV_SET==38&&n>sizeof caps&&!memcmp(host_wire+n-sizeof caps-1-R3_INFO_TAIL,caps,sizeof caps));
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 2 && T_BG == UI_PALETTES[2].bg);
@@ -449,7 +454,7 @@ static int user_preset_roundtrip(void)
     a[0] = 3;
     request(ED_UP_GET, a, 1);
     ok = host_wire[5] == 3 && host_wire[6] == 1 && host_wire[7] == 3 && !memcmp(host_wire + 8, "ROUND", 6);   /* (slot, used, SID) */
-    for (i = 0, p = 14; i < P_COUNT; i++, p += 2u)
+    for (i = 0, p = 14; i < ED_P7; i++, p += 2u)
         ok &= (int32_t)(host_wire[p] | host_wire[p + 1] << 7) - 8192 == want[i];
     for (i = 0; i < 16u; i++, p += 2u)
         ok &= host_wire[p] == (i & 1u ? 0u : 48u + i);
@@ -627,7 +632,7 @@ static int concert_pitch(void)
     request(ED_GET, a, 2);
     bad += check("A4 GET returns the device reference", ed_rv(host_wire + 7) == 432);
     request(ED_DUMP, a, 0);
-    bad += check("DUMP reports device A4 instead of the unused project field", ed_rv(host_wire + 7 + 2 * (P_COUNT + G_A4)) == 432);
+    bad += check("DUMP reports device A4 instead of the unused project field", ed_rv(host_wire + 7 + 2 * (ED_P7 + G_A4)) == 432);
     a[2] = 0; a[3] = 0; request(ED_SET, a, sizeof a);
     bad += check("A4 SET clamps to its supported range", tuning_a4 == A4_MIN);
     tuning_a4 = 440;
@@ -704,12 +709,14 @@ static int native_motion_protocol(void)
     bad += check("legacy motion wire writes retain the original format", !host_wire[6] && motion.event[0].param == P_LEVEL && motion.event[0].value == 64);
     motion_clear(&trk[0]);a[2]=0;a[3]=P_E1;a[4]=7;a[5]=64;request(ED_MOTION,a,6);
     a[3]=P_E1;a[4]=80;a[5]=70;request(ED_MOTION,a,6); /* FM6 tag 3, byte 80 */
+#if !OC_LFO2                                      /* (the overlap is at ids 112..123; with LFO 2 P_E1 is 124, where FM6's native byte has another range) */
     bad+=check("overlapping native/common IDs coexist through the protocol",!host_wire[6] && motion.count==2);
     a[1]=4;request(ED_MOTION,a,6);
     bad+=check("typed native delete retains the common engine event",!host_wire[6] && motion.count==1 && motion.event[0].param==P_E1 && motion.event[0].value==7);
     a[1]=3;request(ED_MOTION,a,6);a[1]=4;a[4]=7;a[5]=64;request(ED_MOTION,a,6);
     bad+=check("typed common delete retains the native event",!host_wire[6] && motion.count==1 && motion.event[0].value==(MO_TAG_FM6<<8|80));
     request(ED_MOTION,a,4);bad+=check("legacy delete clears the remaining raw ID",!host_wire[6] && !motion.count);
+#endif
     return bad;
 }
 #ifndef EDITOR_TEST_NO_MAIN
@@ -1352,7 +1359,7 @@ static int arrange_protocol(void)
     a[0] = 0; n = request(ED_ARRANGE, a, 1);
     bad += check("arrange: INFO answers version 1, the lists' size, the counts, the CRC and the pool's flags",
                  n == 23u + 64u * 7u + 1u && host_wire[5] == 0 && host_wire[6] == 0 && host_wire[7] == 1 && (host_wire[8] | host_wire[9] << 7) == size &&
-                 host_wire[10] == OCL_NPOOL && host_wire[11] == OCL_NCHAIN && host_wire[12] == OCL_NENT && host_wire[13] == OCL_NROW && host_wire[14] == OCL_NSCENE &&
+                 host_wire[10] == ED_AR_NPOOL && host_wire[11] == OCL_NCHAIN && host_wire[12] == OCL_NENT && host_wire[13] == OCL_NROW && host_wire[14] == OCL_NSCENE &&
                  host_wire[15] == NTRK && host_wire[17] == 0 && ed_bk_r32(host_wire + 18) == st_crc32(&lists, size) &&
                  host_wire[23] == (1 | 2 | 8) && host_wire[24] == ocp.len[0] && ed_bk_r32(host_wire + 25) == ocp.hash[0] && ocp.hash[0] &&
                  host_wire[30] == (1 | 2 | 8) && ed_bk_r32(host_wire + 32) == ocp.hash[1] && host_wire[37] == 0 && host_wire[38] == 0 && ed_bk_r32(host_wire + 39) == 0);
@@ -1381,8 +1388,10 @@ static int arrange_protocol(void)
         bad += check("arrange: BEGIN refused while playing (rc 3)", ar_write(l, 0, 0) == 103u && !memcmp(before, &lists, size));
         song.playing = 0;
         bad += check("arrange: a bad CRC changes nothing (rc 2)", ar_write(l, 1, &track) == 2u && track == 127u && !memcmp(before, &lists, size));
+#if !OC_R3_FORMAT                                  /* (Release 3: a phrase is a byte, 1..255, and every byte is a phrase) */
         w->chain[3][4][0] = OCL_NPOOL + 1u;
         bad += check("arrange: a phrase past the pool changes nothing (rc 2)", ar_write(l, 0, 0) == 2u && !memcmp(before, &lists, size));
+#endif
         w->chain[3][4][0] = 0; w->scene[2][1][1] = OCL_NENT;
         bad += check("arrange: a scene step past P changes nothing (rc 2)", ar_write(l, 0, 0) == 2u && !memcmp(before, &lists, size));
         w->scene[2][1][1] = 0x80u | 3u; w->scene_used = 1u << 2;
@@ -1439,9 +1448,81 @@ static int arrange_protocol(void)
     return bad;
 }
 
+
+#if OC_R3_FORMAT
+/* (Release 3, UI_BUILD.md "Part 2") the wide parameter commands and INFO's tagged block */
+static int wide_protocol(void)
+{
+    int bad = 0;
+    uint8_t a[8];
+    uint32_t n, id = P_COUNT - 3u, i;
+    reset();
+    n = request(ED_INFO, a, 0);
+    bad += check("wide: INFO's legacy pcount byte is at most 127 and the tagged block 0x57 closes the reply with the true counts and the format",
+                 host_wire[5 + strlen("ORANGE CAT " MELODEE_VERSION) + 2u] == ED_P7 && host_wire[n - 8] == 0x57 && host_wire[n - 7] == 1 && (host_wire[n - 6] | host_wire[n - 5] << 7) == P_COUNT &&
+                 (host_wire[n - 4] | host_wire[n - 3] << 7) == P_E0 && host_wire[n - 2] == 3 && host_wire[n - 1] == 0xF7);
+    /* PARAM_W: GET agrees with the 7-bit GET for an id both reach */
+    a[0] = 0; a[1] = P_PAN; request(ED_GET, a, 2);
+    { int16_t v7 = (int16_t)(ed_rv(host_wire + 7));
+      a[0] = 2; a[1] = 0; a[2] = P_PAN; a[3] = 0; n = request(ED_EXT, a, 4);
+      bad += check("wide: PARAM_W GET of an id below 128 answers what GET does", n >= 11 && host_wire[5] == 2 && host_wire[6] == 0 && host_wire[7] == P_PAN && host_wire[8] == 0 && ed_rv(host_wire + 9) == v7); }
+    /* an id past 127 (when there is one) set, read back, described */
+    a[0] = 2; a[1] = 0; a[2] = (uint8_t)(id & 127u); a[3] = (uint8_t)(id >> 7); a[4] = (8192 + 5) & 127; a[5] = (8192 + 5) >> 7;
+    song.sel = 0;
+    n = request(ED_EXT, a, 6);
+    bad += check("wide: PARAM_W SET of the last engine ids: set, clamped to its range, echoed in two 7-bit id bytes",
+                 n >= 11 && host_wire[7] == (id & 127u) && host_wire[8] == (id >> 7) && TSEL->p[id] == ed_rv(host_wire + 9) && TSEL->p[id] == (int16_t)clamp(5, param_desc_of(TSEL->eng_req, id)->min, param_desc_of(TSEL->eng_req, id)->max));
+    a[0] = 3; a[1] = 0; a[2] = (uint8_t)(id & 127u); a[3] = (uint8_t)(id >> 7);
+    n = request(ED_EXT, a, 4);
+    bad += check("wide: DESC_W answers the id's descriptor (format, range, label)", n > 20 && host_wire[7] == (id & 127u) && host_wire[8] == (id >> 7) &&
+                 (host_wire[9] == param_desc_of(TSEL->eng_req, id)->fmt));
+    a[0] = 4; a[1] = 1; a[2] = (uint8_t)(id & 127u); a[3] = (uint8_t)(id >> 7); a[4] = (8192 + 3) & 127; a[5] = (8192 + 3) >> 7;
+    n = request(ED_EXT, a, 6);
+    bad += check("wide: TRACK_PARAM_W writes another track's value and echoes it", n >= 11 && trk[1].p[id] == ed_rv(host_wire + 9) && host_wire[5] == 4 && host_wire[6] == 1);
+    a[0] = 4; a[1] = 9; a[2] = 0; a[3] = 0; n = request(ED_EXT, a, 4);
+    bad += check("wide: a bad track, a bad id and a bad length answer nothing", n == 0);
+    a[0] = 2; a[1] = 0; a[2] = 127; a[3] = 127; n = request(ED_EXT, a, 4);
+    bad += check("wide: an id past P_COUNT answers nothing", n == 0);
+    a[0] = 6; n = request(ED_EXT, a, 1);
+    bad += check("wide: DUMP_W carries P_COUNT then G_COUNT values (the 7-bit DUMP carries at most 127 of the first)", n == 10u + 2u * (P_COUNT + G_COUNT));
+    n = request(ED_DUMP, a, 0);
+    bad += check("wide: the 7-bit DUMP carries ED_P7 then G_COUNT values", n == 9u + 2u * (ED_P7 + G_COUNT));
+    /* a 7-bit SET of id 127 is an id (never a count) */
+#if OC_LFO2
+    a[0] = 0; a[1] = 127; a[2] = (8192 + 2) & 127; a[3] = (8192 + 2) >> 7; request(ED_SET, a, 4);
+    bad += check("wide: a 7-bit SET of id 127 sets id 127", TSEL->p[127] == (int16_t)clamp(2, param_desc_of(TSEL->eng_req, 127)->min, param_desc_of(TSEL->eng_req, 127)->max));
+#endif
+    /* the push: an id past 127 goes out as the extension's PARAM_CHANGED_W, never as a wrong 7-bit id */
+#if OC_LFO2
+    a[0] = 1; request(ED_WATCH, a, 1);
+    id = P_COUNT - 2u;
+    TSEL->p[id] = (int16_t)(TSEL->p[id] ^ 1);
+    for (i = 0; i < 8u; i++) { fm1_ms += 100u; host_wire_n = 0; ed_sync(); host_drain(); }
+    {
+        uint32_t found = 0, wrong = 0;
+        host_wire_n = 0;
+        TSEL->p[id] = (int16_t)(TSEL->p[id] ^ 1);
+        fm1_ms += 100u; ed_sync(); host_drain();
+        for (i = 0; i + 8 < host_wire_n; i++) {
+            if (host_wire[i] == 0xF0 && host_wire[i + 4] == ED_EXT && host_wire[i + 5] == 5 && host_wire[i + 6] == 0 && host_wire[i + 7] == (id & 127u) && host_wire[i + 8] == (id >> 7)) found = 1;
+            if (host_wire[i] == 0xF0 && host_wire[i + 4] == ED_CHANGED && host_wire[i + 5] == 0 && host_wire[i + 6] == (id & 127u)) wrong = 1;
+        }
+        bad += check("wide: a change of an id past 127 is pushed as PARAM_CHANGED_W, and not as a 7-bit CHANGED of another parameter", found && !wrong);
+    }
+    a[0] = 0; request(ED_WATCH, a, 1);
+#endif
+    return bad;
+}
+#endif
+
 int main(void)
 {
-    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+#if OC_R3_FORMAT
+    int wide = wide_protocol();
+#else
+    int wide = 0;
+#endif
+    int bad = wide + kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

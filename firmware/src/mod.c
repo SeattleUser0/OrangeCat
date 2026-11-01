@@ -42,12 +42,49 @@
  * presets read and write t->p from the main loop, which the ISR preempts; TIMER5 only fills the MIDI rings),
  * and the engines read t->p as before. An engine reads its parameters in note_on (events_block) unmodulated.
  * Nothing active (every slot with SRC, DST or AMT at 0): no work, and the sound is bit-identical. */
-enum { MS_OFF, MS_LFO, MS_ENV, MS_VEL, MS_KEY, MS_RAND, MS_MODW, MS_AT, MS_EXPR, MS_SH, MS_SLEW, MS_N };
+enum { MS_OFF, MS_LFO, MS_ENV, MS_VEL, MS_KEY, MS_RAND, MS_MODW, MS_AT, MS_EXPR, MS_SH, MS_SLEW,
+#if OC_LFO2
+       MS_LFO2,                                   /* (Release 3) the second LFO, bipolar (POL UNI: unipolar, as LFO 1 with POL UNI) */
+#endif
+       MS_N };
 enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_RESERVED6, MD_RESERVED7, MD_RESERVED8, MD_RESERVED9, MD_RATE, MD_VIB, MD_E1,
        MD_DEPTH = MD_E1 + 8, MD_N };              /* (append-only: the stored values keep their meaning) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
+#if OC_LFO2
+/* LFO 2 (Release 3, docs/orangecat/UI_BUILD.md "Part 2"): a second LFO a track, state outside track_t (the module interface identifier
+ * hashes track_t), ticked once a block at the top of mod_begin, only while used. Its own destination is a fifth, implicit matrix slot
+ * (SRC LFO2, P_L2DST, P_L2AMT): every loop below reads slot k through mod_slot, so a stored slot is k < NMSLOT and the fifth is k == NMSLOT */
+#define NMSLOT_ALL (NMSLOT + 1u)
+static struct { uint32_t ph, rnd; int32_t val; } lfo2[NTRK];
+static struct { uint32_t cycle, inc; } lfo2_sync_cache[NTRK];
+static int32_t mod_l2v;                           /* this call's LFO 2 value (0 when unused or for a foreign track_t) */
+static uint32_t div_samples(uint32_t div);        /* (mix.c; as voice.c declares it) */
+/* LFO 2's DEST value -> the matrix's destinations (params.c N_L2DST) */
+static const uint8_t L2DST_MAP[16] = {0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19};   /* MD_OFF PITCH CUT SHP AMP PAN RATE VIB E1..E8 */
+#else
+#define NMSLOT_ALL NMSLOT
+#endif
+/* slot k of track t: its source, destination and amount */
+static inline void mod_slot(const track_t *t, uint32_t k, uint32_t *s, uint32_t *d, int32_t *a)
+{
+#if OC_LFO2
+    if (k == NMSLOT) {
+        *s = MS_LFO2; *d = L2DST_MAP[(uint32_t)t->p[P_L2DST] & 15u]; *a = t->p[P_L2AMT];
+        return;
+    }
+#endif
+    *s = (uint32_t)t->p[P_M1SRC + 3u * k]; *d = (uint32_t)t->p[P_M1DST + 3u * k]; *a = t->p[P_M1AMT + 3u * k];
+}
+/* a unipolar LFO reaches the gain paths as ENV does (LFO 1 with POL UNI, LFO 2 with its own) */
+static inline uint32_t mod_src_eff(const track_t *t, uint32_t s)
+{
+#if OC_LFO2
+    if (s == MS_LFO2) return t->p[P_L2POL] ? MS_ENV : s;
+#endif
+    return s == MS_LFO && t->p[P_LPOL] ? MS_ENV : s;
+}
 #ifndef MELODEE_MOD_CACHE
 #define MELODEE_MOD_CACHE 1
 #endif
@@ -73,10 +110,10 @@ static struct {                  /* the part in mix_part (one at a time) */
     uint8_t nv, nk;              /* voice terms, per-block parameters held */
     int32_t pit, cut, shp, gain; /* per voice, from the per-track sources (gain Q15) */
     int32_t ldep;                /* DEPTH: the track LFO's gain (Q15; 32767 = none, track_render leaves it alone) */
-    uint8_t vsrc[NMSLOT], vdst[NMSLOT];
-    int8_t vamt[NMSLOT];
-    uint8_t kid[NMSLOT];         /* per-block: the parameter, its stored value */
-    int16_t keep[NMSLOT];
+    uint8_t vsrc[NMSLOT_ALL], vdst[NMSLOT_ALL];
+    int8_t vamt[NMSLOT_ALL];
+    uint8_t kid[NMSLOT_ALL];     /* per-block: the parameter, its stored value */
+    int16_t keep[NMSLOT_ALL];
 } mod;
 
 static uint32_t mod_seed = 0x2545F491u;
@@ -103,6 +140,10 @@ static int32_t mod_tsrc(const track_t *t, uint32_t s, int32_t lfo)
         return t->lfo_prev + (((mod_sh(t) - t->lfo_prev) * (int32_t)(t->lfo_ph >> 17)) >> 15);
     case MS_LFO:
         return lfo;
+#if OC_LFO2
+    case MS_LFO2:
+        return mod_l2v;
+#endif
     case MS_ENV:
         return t->m_env;
     case MS_VEL:
@@ -152,23 +193,93 @@ static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo
     for (k = 0; k < NMSLOT; k++) {
         uint32_t s = (uint32_t)p[P_M1SRC + 3u * k];
         if (p[P_M1DST + 3u * k] == MD_DEPTH && p[P_M1AMT + 3u * k] && s && s < MS_N)
-            g = mulq15(g, mod_gain(s == MS_LFO && p[P_LPOL] ? MS_ENV : s, mod_tsrc(t, s, lfo), p[P_M1AMT + 3u * k]));
+            g = mulq15(g, mod_gain(mod_src_eff(t, s), mod_tsrc(t, s, lfo), p[P_M1AMT + 3u * k]));
     }
     return g;
 }
+
+#if OC_LFO2
+/* the track's index in trk[], NTRK for a track_t that is not one of them (host tests build their own) */
+static uint32_t lfo2_index(const track_t *t)
+{
+    uintptr_t a = (uintptr_t)t, b = (uintptr_t)trk;
+    if (a < b || a >= b + sizeof trk || (a - b) % sizeof(track_t)) return NTRK;
+    return (uint32_t)((a - b) / sizeof(track_t));
+}
+/* LFO 2 is used: its own slot has a destination and an amount, or a stored slot takes it as a source (a pass over the
+ * five slots; the tick is skipped when none) */
+static int lfo2_used(const track_t *t)
+{
+    for (uint32_t k = 0; k < NMSLOT_ALL; k++) {
+        uint32_t s, d;
+        int32_t a;
+        mod_slot(t, k, &s, &d, &a);
+        if (s == MS_LFO2 && d && a) return 1;
+    }
+    return 0;
+}
+/* the S&H value of LFO 2's new cycle: its own xorshift (the shared rng seeds the engines' noise and the golden renders depend on it) */
+static uint32_t lfo2_rand(uint32_t i)
+{
+    uint32_t x = lfo2[i].rnd ? lfo2[i].rnd : 0x9E3779B9u ^ (i * 0x01000193u);
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return x;
+}
+/* LFO 2's synced increment: lfo_sync_inc's arithmetic with P_L2SYNC and its own cache */
+static __attribute__((noinline)) uint32_t lfo2_sync_inc(const track_t *t, uint32_t i)
+{
+    uint32_t cyc = div_samples(LSYNC_DIV[(uint32_t)t->p[P_L2SYNC] % NELEM(LSYNC_DIV)]), q, r;
+    cyc = cyc ? cyc : 1u;
+    if (lfo2_sync_cache[i].cycle == cyc) return lfo2_sync_cache[i].inc;
+    q = 0xFFFFFFFFu / cyc;
+    r = 0xFFFFFFFFu % cyc;
+    lfo2_sync_cache[i].cycle = cyc;
+    return lfo2_sync_cache[i].inc = q * CTL + (r * CTL + CTL) / cyc;
+}
+static int32_t lfo2_wave(uint32_t wave, uint32_t ph, uint32_t rnd)
+{
+    switch (wave) {
+    case 1: return osc_tri(ph);
+    case 2: return (int32_t)(ph >> 16) - 32768;
+    case 3: return ph < 0x80000000u ? 32767 : -32767;
+    case 4: return (int32_t)(rnd >> 16) - 32768;
+    default: return osc_sine(ph);
+    }
+}
+/* once a block, before the matrix's early return: LFO 2's phase and value (the phase holds while it is unused), mod_l2v for this call */
+static void mod_lfo2_tick(const track_t *t)
+{
+    uint32_t i = lfo2_index(t), old;
+    mod_l2v = 0;
+    if (i >= NTRK || !lfo2_used(t)) return;
+    old = lfo2[i].ph;
+    lfo2[i].ph += t->p[P_L2SYNC] ? lfo2_sync_inc(t, i) : LFO_INC[t->p[P_L2RATE] & 127];
+    if (lfo2[i].ph < old) lfo2[i].rnd = lfo2_rand(i);
+    lfo2[i].val = lfo2_wave((uint32_t)t->p[P_L2WAVE], lfo2[i].ph, lfo2[i].rnd);
+    if (t->p[P_L2POL]) lfo2[i].val = (lfo2[i].val + 32768) >> 1;   /* UNI: 0..+1 */
+    mod_l2v = lfo2[i].val;
+}
+#endif
 
 /* before a part's block (mix.c mix_part): the per-track offsets, the per-block destinations into t->p.
  * 0 = no slot active (then nothing changed) */
 static __attribute__((noinline)) int MOD_BEGIN_REFERENCE(track_t *t)
 {
     const int16_t *p = t->p;
-    int32_t lfo, off[NMSLOT];
+    int32_t lfo, off[NMSLOT_ALL];
     uint32_t k, j;
+#if OC_LFO2
+    mod_lfo2_tick(t);
+#endif
     mod.on = 0;
-    for (k = 0; k < NMSLOT; k++)
-        if (p[P_M1SRC + 3u * k] && (((0x1FFFFFu & ~0x3C1u) >> ((uint32_t)p[P_M1DST + 3u * k] & 31u)) & 1u) && p[P_M1AMT + 3u * k])
+    for (k = 0; k < NMSLOT_ALL; k++) {
+        uint32_t s, d;
+        int32_t a;
+        mod_slot(t, k, &s, &d, &a);
+        if (s && (((0x1FFFFFu & ~0x3C1u) >> (d & 31u)) & 1u) && a)
             break;
-    if (k == NMSLOT)
+    }
+    if (k == NMSLOT_ALL)
         return 0;
     lfo = mulq15(t->lfo_val, t->lfo_fade);              /* (the LFO of the block before: track_render ticks it) */
     mod.on = 1;
@@ -178,9 +289,10 @@ static __attribute__((noinline)) int MOD_BEGIN_REFERENCE(track_t *t)
     mod.gain = 32767;
     mod.ldep = mod_depth(t, lfo);
     if (mod.ldep < 32767) lfo = mulq15(lfo, mod.ldep);
-    for (; k < NMSLOT; k++) {
-        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
-        int32_t a = p[P_M1AMT + 3u * k], x;
+    for (; k < NMSLOT_ALL; k++) {
+        uint32_t s, d;
+        int32_t a, x;
+        mod_slot(t, k, &s, &d, &a);
         if (!s || !d || d == MD_DEPTH || (d >= MD_RESERVED6 && d <= MD_RESERVED9) || !a || s >= MS_N || d >= MD_N)
             continue;
         if (d <= MD_AMP) {                              /* per voice */
@@ -190,7 +302,7 @@ static __attribute__((noinline)) int MOD_BEGIN_REFERENCE(track_t *t)
                 mod.vdst[mod.nv] = (uint8_t)d;
                 mod.vamt[mod.nv++] = (int8_t)a;
             } else {                                    /* (a UNI LFO, 0..1, takes AMP as ENV does) */
-                mod_voice_add(s == MS_LFO && p[P_LPOL] ? MS_ENV : s, d, mod_tsrc(t, s, lfo), a, &mod.pit, &mod.cut,
+                mod_voice_add(mod_src_eff(t, s), d, mod_tsrc(t, s, lfo), a, &mod.pit, &mod.cut,
                               &mod.shp, &mod.gain);
             }
             continue;
@@ -224,12 +336,12 @@ static __attribute__((noinline)) int MOD_BEGIN_REFERENCE(track_t *t)
  * rate, including main-loop edits, MIDI, motion and undo/load. */
 #if MELODEE_MOD_CACHE
 typedef struct {
-    uint32_t key[NMSLOT];
+    uint32_t key[NMSLOT_ALL];
     uint8_t valid,engine,amp,nv,nk,nt,nd;
-    uint8_t kid[NMSLOT];
-    int16_t lo[NMSLOT],hi[NMSLOT];
-    struct {uint8_t index,slot;} term[NMSLOT];
-    struct {uint8_t dst,slot;} voice[NMSLOT];
+    uint8_t kid[NMSLOT_ALL];
+    int16_t lo[NMSLOT_ALL],hi[NMSLOT_ALL];
+    struct {uint8_t index,slot;} term[NMSLOT_ALL];
+    struct {uint8_t dst,slot;} voice[NMSLOT_ALL];
     uint8_t depth[NMSLOT];
 } mod_route_t;
 static mod_route_t mod_routes[NPART];
@@ -240,21 +352,23 @@ static mod_route_t mod_routes[NPART];
  * nonzero values still retain the reference's active-flag behavior. */
 static uint32_t mod_route_key(const track_t *t, uint32_t slot)
 {
-    const int16_t *p = t->p + 3u*slot;
-    uint32_t source = (uint32_t)p[P_M1SRC];
-    return (uint16_t)p[P_M1DST] | ((source && source < MS_N && p[P_M1AMT] != 0) ? MOD_ROUTE_ACTIVE : 0);
+    uint32_t source, dst;
+    int32_t amt;
+    mod_slot(t, slot, &source, &dst, &amt);
+    return (uint16_t)dst | ((source && source < MS_N && amt != 0) ? MOD_ROUTE_ACTIVE : 0);
 }
 
 static __attribute__((noinline)) void mod_route_prepare(mod_route_t *r,const track_t *t)
 {
-    const int16_t *p=t->p;
     memset(r,0,sizeof *r);
     r->engine=t->engine;r->valid=1;
-    for(uint32_t k=0;k<NMSLOT;k++){
-        uint32_t key=mod_route_key(t,k),d=(uint32_t)p[P_M1DST+3u*k];
+    for(uint32_t k=0;k<NMSLOT_ALL;k++){
+        uint32_t key=mod_route_key(t,k),d,s_;
+        int32_t a_;
+        mod_slot(t,k,&s_,&d,&a_);
         r->key[k]=key;
         if(!(key&MOD_ROUTE_ACTIVE))continue;
-        if(d==MD_DEPTH){
+        if(d==MD_DEPTH && k<NMSLOT){
             r->depth[r->nd++]=(uint8_t)k;
         }
         if(!d || d==MD_DEPTH || (d>=MD_RESERVED6 && d<=MD_RESERVED9) || d>=MD_N)continue;
@@ -276,9 +390,16 @@ static __attribute__((noinline)) void mod_route_prepare(mod_route_t *r,const tra
 static __attribute__((noinline)) int mod_begin(track_t *t)
 {
     uint32_t first;
-    for(first=0;first<NMSLOT;first++)
-        if(t->p[P_M1SRC+3u*first] && (((0x1FFFFFu & ~0x3C1u)>>((uint32_t)t->p[P_M1DST+3u*first]&31u))&1u) && t->p[P_M1AMT+3u*first])break;
-    if(first==NMSLOT){mod.on=0;return 0;}
+#if OC_LFO2
+    mod_lfo2_tick(t);
+#endif
+    for(first=0;first<NMSLOT_ALL;first++){
+        uint32_t s_,d_;
+        int32_t a_;
+        mod_slot(t,first,&s_,&d_,&a_);
+        if(s_ && (((0x1FFFFFu & ~0x3C1u)>>(d_&31u))&1u) && a_)break;
+    }
+    if(first==NMSLOT_ALL){mod.on=0;return 0;}
     uintptr_t address=(uintptr_t)t,base=(uintptr_t)trk;
     if(address<base || address>=base+sizeof trk || (address-base)%sizeof(track_t))return mod_begin_reference(t);
     mod_route_t *r=&mod_routes[(address-base)/sizeof(track_t)];
@@ -287,25 +408,28 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         changed=r->key[k]!=mod_route_key(t,k);
     if(changed)mod_route_prepare(r,t);
     mod.on=1;
-    int32_t lfo=mulq15(t->lfo_val,t->lfo_fade),off[NMSLOT]={0};
+    int32_t lfo=mulq15(t->lfo_val,t->lfo_fade),off[NMSLOT_ALL]={0};
     mod.amp=r->amp;mod.nv=0;mod.nk=r->nk;
     mod.pit=mod.cut=mod.shp=0;mod.gain=mod.ldep=32767;
     for(uint32_t k=0;k<r->nd;k++){
         uint32_t slot=r->depth[k],s=(uint32_t)t->p[P_M1SRC+3u*slot];
-        mod.ldep=mulq15(mod.ldep,mod_gain(s==MS_LFO && t->p[P_LPOL]?MS_ENV:s,mod_tsrc(t,s,lfo),t->p[P_M1AMT+3u*slot]));
+        mod.ldep=mulq15(mod.ldep,mod_gain(mod_src_eff(t,s),mod_tsrc(t,s,lfo),t->p[P_M1AMT+3u*slot]));
     }
     if(mod.ldep<32767)lfo=mulq15(lfo,mod.ldep);
     for(uint32_t k=0;k<r->nv;k++){
-        uint32_t slot=r->voice[k].slot,s=(uint32_t)t->p[P_M1SRC+3u*slot],d=r->voice[k].dst;
-        int32_t a=t->p[P_M1AMT+3u*slot];
+        uint32_t slot=r->voice[k].slot,s,d_;
+        uint32_t d=r->voice[k].dst;
+        int32_t a;
+        mod_slot(t,slot,&s,&d_,&a);
         if(MS_VOICE(s)){
             mod.vsrc[mod.nv]=(uint8_t)s;mod.vdst[mod.nv]=(uint8_t)d;mod.vamt[mod.nv++]=(int8_t)a;
-        }else mod_voice_add(s==MS_LFO && t->p[P_LPOL]?MS_ENV:s,d,mod_tsrc(t,s,lfo),a,&mod.pit,&mod.cut,&mod.shp,&mod.gain);
+        }else mod_voice_add(mod_src_eff(t,s),d,mod_tsrc(t,s,lfo),a,&mod.pit,&mod.cut,&mod.shp,&mod.gain);
     }
     for(uint32_t j=0;j<mod.nk;j++){mod.kid[j]=r->kid[j];mod.keep[j]=t->p[r->kid[j]];}
     for(uint32_t k=0;k<r->nt;k++){
-        uint32_t slot=r->term[k].slot,s=(uint32_t)t->p[P_M1SRC+3u*slot],j=r->term[k].index;
-        int32_t a=t->p[P_M1AMT+3u*slot];
+        uint32_t slot=r->term[k].slot,s,d_,j=r->term[k].index;
+        int32_t a;
+        mod_slot(t,slot,&s,&d_,&a);
         off[j]+=(((mod_tsrc(t,s,lfo)*a)>>6)*(r->hi[j]-r->lo[j]))>>15;
     }
     for(uint32_t j=0;j<mod.nk;j++)t->p[r->kid[j]]=(int16_t)clamp(mod.keep[j]+off[j],r->lo[j],r->hi[j]);
@@ -354,6 +478,13 @@ static __attribute__((noinline)) void mod_voice(track_t *t, voice_t *v, vmod_t *
 /* a note-on of track t (voice.c trk_note_on): the per-voice sources of the latest note */
 static void mod_note(track_t *t, uint32_t note, uint32_t vel)
 {
+#if OC_LFO2
+    if (!t->p[P_L2TRIG]) {                              /* TRIG NOTE: a fresh phrase (no voice held) restarts LFO 2, as LFO 1's rule (voice.c) */
+        uint32_t i = lfo2_index(t), any = 0;
+        for (uint32_t v = 0; v < NVOICE; v++) any |= t->v[v].gate;
+        if (i < NTRK && !any) lfo2[i].ph = 0;
+    }
+#endif
     t->m_vel = (uint8_t)vel;
     t->m_key = (uint8_t)note;
     t->m_rnd = mod_rand();

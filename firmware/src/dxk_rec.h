@@ -43,7 +43,11 @@ typedef struct {
 #define DXK_HEAD 4u
 #define DXK_BODY 52u
 #define DXK_BYTES (DXK_HEAD + DXK_BODY)
+#if OC_LFO2
+#define DXK_ROOM 59u    /* (Release 3) np 131 leaves 144 - 131 = 13 B beside the record's 46: the kit needs 10 */
+#else
 #define DXK_ROOM 63u
+#endif
 #define DXK_NKIT 9u                                   /* the factory kits (drumx_voice.c DX_KITS) */
 #define DXK_DUCK_MAX 100
 #define DXK_BEND_MAX 12

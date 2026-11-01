@@ -214,6 +214,14 @@
                                    * (255 a project) in packed chunks with a generation bit, the tagged project record OCJ4
                                    * committed last, the sweep. Host only until Session A's Release 3; off, the format before. */
 #endif
+#ifndef OC_LFO2
+#define OC_LFO2 0                 /* (Release 3, branch r3-format: docs/orangecat/UI_BUILD.md "Part 2") 1: a second, fully independent LFO a track
+                                   * (seven parameters before P_E0: P_COUNT 124 to 131, P_E0 116 to 123). Needs OC_R3_FORMAT=1: a project that holds
+                                   * it is FUN24 and a firmware without it cannot read that. Off, the parameter table is Release 2's */
+#endif
+#if OC_LFO2 && !OC_R3_FORMAT
+#error "OC_LFO2 needs OC_R3_FORMAT=1: the wide parameter ids and the records that carry them are the format revision's"
+#endif
 #ifndef OC_CANDIDATES
 #define OC_CANDIDATES 0           /* (Orange Cat 0.14.0) 1: a measurement build for the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md):
                                    * the engine table grows to 23 and the candidates' proposed numbers below take modules (SEM 21, HADES 22), so the unit
@@ -307,6 +315,9 @@ enum {                          /* per-track parameters */
     P_REV, P_DLY, P_CHOR,                      /* the sends: reverb, delay, chorus (were SEND, SEND 2, SEND 3) */
     P_JRES4, P_JRES5, P_JRES6,                 /* (free: Melodee's TONEs) */
     P_STRUM, P_STROKE, /* chord sweep duration and direction; appended for stored-layout compatibility */
+#if OC_LFO2
+    P_L2RATE, P_L2WAVE, P_L2SYNC, P_L2TRIG, P_L2POL, P_L2DST, P_L2AMT,   /* (Release 3) LFO 2, a second LFO a track (mod.c) */
+#endif
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };

@@ -385,7 +385,11 @@ static int designer_page_ok(uint32_t i)
 static int designer_guided(uint32_t i)
 {
     static const char *const skip[]={"P5 BEND","FM BEND","FM PORTA","FM WH/FT","FM BR/AT","SCALE","CURVE","VOICE 3","CZ WINDOW",
-                                     "PITCH EG","PITCH LV","LFO 2","MOD"};
+                                     "PITCH EG","PITCH LV","LFO 2","MOD"
+#if OC_LFO2
+                                     ,"LFO SYNC","LFO 2 SYNC"      /* (Release 3) the second LFO's pages and LFO 1's sync page: not in the guided set */
+#endif
+    };
     const page_t *p=page_at(i);const char *s=p->title;uint32_t e=TSEL->eng_req;
     for(uint32_t j=0;j<NELEM(skip);j++)if(str_eq(s,skip[j]))return 0;
     if(p->scope==SC_TRACK && p->fam==FAM_LFO && ((MELODEE_P5 && e == ENGI_PROPHET) || (MELODEE_FM6 && e == ENGI_FM6) || e==ENGI_CZ || drum_track(TSEL)))return 0;

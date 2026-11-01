@@ -276,7 +276,9 @@ static int native_motion_test(void)
 }
 static int overlapping_motion_ids(void)
 {
-    int bad=0;ui_power_on();track_t *t=TSEL;set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
+    int bad=0;
+    if(OC_LFO2)return 0;                              /* (the overlap is at ids 112..123; with LFO 2 P_E1 is 124, where FM6's native byte has another range) */
+    ui_power_on();track_t *t=TSEL;set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
     const param_desc_t *d=param_desc_of(ENGI_FM6,P_E1);
     int16_t common=(int16_t)(d->def==d->max?d->min:d->max),native=(int16_t)(MO_TAG_FM6<<8|80u);
     bad+=check("common engine and native motion sharing wire ID P_E1 coexist", P_E1>=MO_NATIVE &&

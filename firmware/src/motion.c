@@ -31,7 +31,7 @@ enum { MO_TAG_NONE, MO_TAG_P5, MO_TAG_CZ, MO_TAG_FM6 };
 static int motion_native_event(uint32_t id,int32_t value){return id>=MO_NATIVE && value>=256;}
 static uint32_t motion_token(const motion_event_t *e){return e->param|(motion_native_event(e->param,e->value)?256u:0u);}
 
-_Static_assert(P_COUNT < 128u && MO_NATIVE + MO_NATIVE_N <= 256u, "motion: the native ids after the track's");
+_Static_assert(P_COUNT < 256u && MO_NATIVE + MO_NATIVE_N <= 256u, "motion: the native ids after the track's (the id is a byte; the editor protocol widens it past 7 bits)");
 static uint8_t motion_nbase[NTRK][MO_NATIVE_N] __attribute__((section(".pool")));   /* (read only under its bit) */
 static uint32_t motion_nactive[NTRK][(MO_NATIVE_N + 31u) / 32u];
 static uint32_t motion_guard(void)
@@ -166,7 +166,11 @@ static int motion_param(uint32_t id)
     return id != P_RECQ && id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         id == P_GLIDE || id == P_PAN ||
         id == P_DETUNE || id == P_SPRD || (id >= P_LN0 && id <= P_LN7) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || id >= P_E0 ||
-        id == P_DIST || id == P_DTONE || id == P_APDEP || param_jfx_send(id) || param_dub_lane(id));   /* (not the chord keys; 0.6.0: the effects'
+        id == P_DIST || id == P_DTONE || id == P_APDEP || param_jfx_send(id) || param_dub_lane(id)
+#if OC_LFO2
+        || id == P_L2RATE || id == P_L2AMT            /* (Release 3) LFO 2's continuous two, as LFO 1's RATE and AMT are lanes */
+#endif
+        );   /* (not the chord keys; 0.6.0: the effects'
                                                 * amounts, as Jiant's locks: DIST, TONE, AUTO PAN DEPTH, the sends) */
 }
 static int motion_valid(const motion_store_t *m)

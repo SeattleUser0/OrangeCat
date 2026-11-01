@@ -14,6 +14,10 @@ static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "
 static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
+#if OC_LFO2
+/* LFO 2's DEST: the matrix's destinations but DEPTH (mod.c maps these to MD_*, mod_l2dst) */
+static const char *const N_L2DST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "RATE", "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
+#endif
 /* (Orange Cat 0.6.0) the effects' names (jfx.c: Jiant FM's) */
 static const char *const N_DUBLEN[] = {"OFF", "32K", "8K", "16K", "24K", "48K", "64K"};   /* (round 5) a turn up from OFF lands on 32K */   /* DUB TAPE: the line in 4 KB blocks, jfx_dub.c dub_len_blocks */
 static const char *const N_DUBPTRN[] = {"SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"};
@@ -72,7 +76,11 @@ static int16_t settings_safety;
 #include "recording_preferences.h"
 static int16_t boot_cell;
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels) */
-static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
+static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"
+#if OC_LFO2
+    , "LFO2"                                               /* (Release 3) the second LFO, bipolar */
+#endif
+};
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "", "", "", "", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH"};
 static const char *const N_ENGNAME[] = {"-", "-", MELODEE_LEGACY_EXTRAS ? "PHASE" : "-", MELODEE_SID ? "SID" : "-", "-", MELODEE_LEGACY_EXTRAS ? "VOICE" : "-", MELODEE_LEGACY_EXTRAS ? "TRIO" : "-", MELODEE_LEGACY_EXTRAS ? "WHEEL" : "-", MELODEE_MACRO ? "MACRO" : "-", MELODEE_DRUMX ? "DRUM-X" : MELODEE_LEGACY_EXTRAS ? "PHYS" : "-",
@@ -184,6 +192,15 @@ static const param_desc_t TP[P_COUNT] = {
     [P_LSYNC] = PE("SYNC", N_LSYNC, 0),
     [P_LTRIG] = PE("TRIG", N_LTRIG, 0),
     [P_LPOL] = PE("POL", N_LPOL, 0),
+#if OC_LFO2
+    [P_L2RATE] = PD("RATE", F_LFOHZ, 0, 127, 60),          /* (Release 3) LFO 2, as LFO 1's */
+    [P_L2WAVE] = PE("WAVE", N_LWAVE, 0),
+    [P_L2SYNC] = PE("SYNC", N_LSYNC, 0),
+    [P_L2TRIG] = PE("TRIG", N_LTRIG, 0),
+    [P_L2POL] = PE("POL", N_LPOL, 0),
+    [P_L2DST] = PE("DEST", N_L2DST, 0),
+    [P_L2AMT] = PD("AMT", F_BIPCT, -64, 63, 0),
+#endif
     [P_SPRD] = PD("SPRD", F_PCT, 0, 127, 0),
     [P_LRATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
     [P_LWAVE] = PE("WAVE", N_LWAVE, 0),
@@ -611,8 +628,16 @@ static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot: SEQ > TEMPO's QNT */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
+#if OC_LFO2
+    {"LFO SYNC", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},      /* (Release 3) "LFO 2" is the second LFO's page now */
+#else
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
+#endif
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
+#if OC_LFO2
+    {"LFO 2", FAM_LFO, SC_TRACK, GR_NONE, {P_L2RATE, P_L2WAVE, P_L2DST, P_L2AMT}},        /* (Release 3) */
+    {"LFO 2 SYNC", FAM_LFO, SC_TRACK, GR_NONE, {P_L2SYNC, P_L2TRIG, P_L2POL, 0xFF}},
+#endif
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {P_M1SRC, 0xFF, P_M1DST, P_M1AMT}},   /* KNOB 2: the route (mod_ui_slot) */
     {"SCALES", FAM_SCL, SC_TRACK, GR_SCALE_PICKER, {0xFF, P_SCALE, P_ROOT, P_QUANT}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, 0xFF, P_QUANT, P_TRANS}}, /* K2: scale favorite */

@@ -44,7 +44,12 @@ enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE,
        ED_PAGES, ED_PANEL };      /* (0.12.0) 126 ED_PAGES, 127 ED_PANEL: a module engine's pages and native parameters (fw_pages.h) */
 /* (Orange Cat 0.14.2) commands past 127: command 0 is the extension, its first byte n names command 128 + n (every byte stays 7 bit); the reply
  * has the same 0 and n. 128 KIT_GET, 129 KIT_PUT: a DRUM-X track's kit (web/EDITOR_PROTOCOL.md "DRUM-X kits") */
-enum { ED_EXT = 0, ED_KIT_GET = 128, ED_KIT_PUT = 129 };
+enum { ED_EXT = 0, ED_KIT_GET = 128, ED_KIT_PUT = 129,
+       ED_PARAM_W = 130, ED_DESC_W = 131, ED_TRACK_PARAM_W = 132, ED_PARAM_CHANGED_W = 133, ED_DUMP_W = 134 };   /* (Release 3) wide parameter ids */
+/* (Release 3, UI_BUILD.md "Part 2") the 7-bit commands carry at most 127 parameters: INFO says so, and DUMP, TRACK_DUMP and UP_GET send that many; ids past
+ * them travel on the extension commands 130 to 134 (two 7-bit bytes an id), so a page that does not know them is consistent, never misled */
+#define ED_P7 (P_COUNT > 127u ? 127u : P_COUNT)
+#define ED_PROJECT_FORMAT 3u
 #define ED_KIT_LANE 9u                                  /* a lane's values on the wire: LEVEL TUNE DECAY PAN LAYER FDBK PUNCH ATK+ BEND */
 #define ED_KIT_BODY (5u + 8u * ED_KIT_LANE)             /* base, TONE, FDBK, HANDS, DUCK, then the lanes */
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
@@ -219,6 +224,15 @@ static void ed_sync(void)                                /* main loop */
             return;
         ed_w.v[k] = v;
         ed_w.t[k] = (uint16_t)now;
+        if (k >= 128u && k < P_COUNT) {                 /* (Release 3) the id does not fit a 7-bit byte: the extension's push (never a wrong parameter) */
+            ed_begin(ED_EXT);
+            ed_b(ED_PARAM_CHANGED_W - 128u); ed_b(0); ed_b(k & 127u); ed_b(k >> 7);
+            ed_v(v);
+            ed_send();
+            n++;
+            ed_w.pos = k + 1u;
+            continue;
+        }
         ed_begin(ED_CHANGED);
         ed_b(k < P_COUNT ? 0u : 1u);
         ed_b(k < P_COUNT ? k : k - P_COUNT);
@@ -422,6 +436,78 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
     return 0;
 }
 
+#if OC_R3_FORMAT
+/* (Release 3) the extension's wide parameter commands, after the kit's: PARAM_W (130) scope [0 the selected track, 1 global], id lo, id hi [, v14] ->
+ * scope, id lo, id hi, v14 (GET, and SET with the value; as commands 2 and 3); DESC_W (131) scope, id lo, id hi -> as DESC; TRACK_PARAM_W (132) track, id
+ * lo, id hi [, v14] -> track, id lo, id hi, v14 (as 31); DUMP_W (134) -> as DUMP with all P_COUNT values. Each does its own length check (the extension
+ * returns before ed_args_ok), restores a momentary change before a set, and tells the shadow so the unit does not push the page's own change back.
+ * 1 when a reply was written */
+static int ed_wide_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
+{
+    uint32_t id, i;
+    int16_t *vp;
+    const param_desc_t *d;
+    if (cmd == ED_PARAM_W) {
+        if ((na != 3u && na != 5u) || a[0] > 1u) return 0;
+        id = a[1] | (uint32_t)a[2] << 7;
+        if (!(d = ed_desc(a[0], id, &vp))) return 0;
+        if (na == 5u && !(a[0] ? global_reserved(id) : param_reserved(id)) && !(chain_busy() && !a[0] && id >= P_SLEN && id <= P_SGATE) &&
+            d->max > d->min && !(a[0] == 1u && id == G_ENGSEL)) {
+            momentary_restore();
+            *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 3), d->min, d->max));
+            if (a[0] == 0u) {
+                (void)motion_capture(TSEL, id, *vp);
+                load_extend(TSEL);
+                if (scale_shared(id)) scale_share(TSEL);
+            }
+            ui.force = 1;
+            ed_w.v[a[0] ? P_COUNT + id : id] = *vp;       /* the page's own change: no push */
+        }
+        ed_b(a[0]); ed_b(id & 127u); ed_b(id >> 7); ed_v(*vp);
+        return 1;
+    }
+    if (cmd == ED_DESC_W) {
+        if (na != 3u || a[0] > 1u) return 0;
+        id = a[1] | (uint32_t)a[2] << 7;
+        if (!(d = ed_desc(a[0], id, &vp))) return 0;
+        ed_b(a[0]); ed_b(id & 127u); ed_b(id >> 7);
+        ed_b(d->fmt); ed_v(d->min); ed_v(d->max); ed_v(d->def);
+        ed_str(d->label, 8); ed_str(d->unit, 8);
+        if (d->fmt == F_ENUM && d->names)
+            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 96u; i++) ed_str(d->names[i + d->min], 8);
+        return 1;
+    }
+    if (cmd == ED_TRACK_PARAM_W) {
+        track_t *t;
+        if ((na != 3u && na != 5u) || a[0] >= NTRK) return 0;
+        id = a[1] | (uint32_t)a[2] << 7;
+        if (id >= P_COUNT) return 0;
+        t = &trk[a[0]];
+        d = ed_tdesc(t, id);
+        if (na == 5u && !param_reserved(id) && !(chain_busy() && id >= P_SLEN && id <= P_SGATE)) {
+            momentary_restore();
+            if (d->max > d->min) t->p[id] = (int16_t)enum_orig(d, clamp(ed_rv(a + 3), d->min, d->max));
+            (void)motion_capture(t, id, t->p[id]);
+            if (scale_shared(id)) scale_share(t);
+            ed_known(a[0], id);
+            ui.force = 1;
+        }
+        ed_b(a[0]); ed_b(id & 127u); ed_b(id >> 7); ed_v(t->p[id]);
+        return 1;
+    }
+    if (cmd == ED_DUMP_W) {
+        if (na) return 0;
+        for (i = 0; i < ED_NV; i++) ed_w.v[i] = *ed_val(i);
+        ed_b(ed_eng(TSEL)); ed_b(TSEL->preset);
+        for (i = 0; i < P_COUNT; i++) ed_v(motion_base_value(TSEL, i));
+        for (i = 0; i < G_COUNT; i++) ed_v(*ed_val(P_COUNT + i));
+        ed_b(TSEL->preset >> 7);
+        return 1;
+    }
+    return 0;
+}
+#endif
+
 static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0 and F7 */
 {
     if (n < 4u)
@@ -438,6 +524,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_begin(ED_EXT);
         ed_b(a[0]);
         if (ed_kit_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+#if OC_R3_FORMAT
+        else if (ed_wide_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+#endif
         return;
     }
     if (!ed_args_ok(cmd, a, na))
@@ -994,7 +1083,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_INFO:
         ed_str("ORANGE CAT " MELODEE_VERSION, 24);   /* (Orange Cat 0.1.0) was "MELODEE "; the installer accepts both */
         ed_b(NENGINES);
-        ed_b(P_COUNT);
+        ed_b(ED_P7);
         ed_b(G_COUNT);
         ed_b(NSTEP);
         ed_b(P_E0);
@@ -1011,6 +1100,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x35);ed_b(1);ed_b(ENGI_PROPHET);ed_b(USER_GENERAL);ed_b(USER_NATIVE_FM);ed_b(USER_NATIVE_CZ);ed_b(USER_NATIVE_P5);ed_b(0);ed_b(1); /* legacy native clients see their addressable prefix */
         ed_b(0x4e); ed_b(1); ed_b(64); ed_b(0); ed_b(0); ed_b(1); /* legacy command 78 addressable prefixes */
         ed_b(0x55);ed_b(1);ed_b(UP_SLOTS&127u);ed_b(UP_SLOTS>>7); /* shared library, command 80 */
+#if OC_R3_FORMAT
+        /* (Release 3) the true counts and the project format version (the installer page reads it, PROJECT_FORMAT_R3.md section 10): tag 0x57, version 1,
+         * P_COUNT and P_E0 as two 7-bit bytes each, the format (2: before Release 3, 3: this one). Last, so a reader anchors on the trailer's end */
+        ed_b(0x57); ed_b(1); ed_b(P_COUNT & 127u); ed_b(P_COUNT >> 7); ed_b(P_E0 & 127u); ed_b(P_E0 >> 7); ed_b(ED_PROJECT_FORMAT);
+#endif
         break;
     case ED_GET:
     case ED_SET:
@@ -1045,7 +1139,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_w.v[i] = *ed_val(i);
         ed_b(ed_eng(TSEL));
         ed_b(TSEL->preset);
-        for (i = 0; i < P_COUNT; i++)
+        for (i = 0; i < ED_P7; i++)
             ed_v(motion_base_value(TSEL, i));
         for (i = 0; i < G_COUNT; i++)
             ed_v(*ed_val(P_COUNT + i));
@@ -1407,7 +1501,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(u);
         ed_b(u ? up_engine(a[0]) : 0u);
         ed_str(nm, 12);
-        for (i = 0; i < P_COUNT; i++)
+        for (i = 0; i < ED_P7; i++)
             ed_v(u ? v[i] : 0);
         for (i = 0; i < 16u; i++) {
             ed_b(u ? r->note[i] & 0x7Fu : 0u);
@@ -1524,7 +1618,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(a[0]);
         ed_b(ed_eng(&trk[a[0]]));
         ed_b(trk[a[0]].preset);
-        for (i = 0; i < P_COUNT; i++)
+        for (i = 0; i < ED_P7; i++)
             ed_v(motion_base_value(&trk[a[0]], i));
         ed_b(trk[a[0]].preset >> 7);
         break;

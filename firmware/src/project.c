@@ -21,12 +21,20 @@
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x46554E4Au                 /* FUN23 (Orange Cat 0.6.0): the Jiant FM effects (jfx.c): track ids
+#define PROJ_FUN23_MAGIC 0x46554E4Au           /* FUN23 (Orange Cat 0.6.0), np 124; still read when this build writes FUN24 */
+#if OC_LFO2
+#define PROJ_MAGIC 0x46554E4Bu                 /* FUN24 (Release 3, OC_LFO2): FUN23's layout with np 131 (LFO 2's seven before P_E0); FUN23 loads by count */
+#else
+#define PROJ_MAGIC PROJ_FUN23_MAGIC            /* FUN23 (Orange Cat 0.6.0): the Jiant FM effects (jfx.c): track ids
                                                 * 96..113 hold the new track settings, the global ones are at
                                                 * PROJ_JFX_WIRE; FUN22 and earlier convert (proj_jfx_track) */
+#endif
+/* FUN23's layout: FUN23 itself, and FUN24 that keeps it (every site below that said "is FUN23" asks this) */
+static inline int proj_fun23(uint32_t m) { return m == PROJ_FUN23_MAGIC || m == PROJ_MAGIC; }
 #define PROJ_FUN22_MAGIC 0x46554E49u           /* FUN22: one TONE per old FX slot */
 #define PROJ_CUT_MAGIC 0x46554E48u             /* FUN21: a low and a high cut per FX slot */
 #define PROJ_PRE_HP_MAGIC 0x46554E47u
+#define PROJ_NP_MAX (P_COUNT > 125u ? P_COUNT : 125u)   /* the most values a record's track may hold: FUN21's 125, or this build's P_COUNT */
 #define PROJ_CUT_NP 125u                       /* FUN21 / TPLK's P_COUNT: three low cuts at the old tone ids, three
                                                 * high cuts */
 /* (0.6.0) The old effects (fx.c, until 0.5.6), as the records before FUN23 hold them: three slots of four values
@@ -155,7 +163,7 @@ static int mpc_octaves_unpack(int8_t oct[NTRK], uint32_t word)
 }
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_DTIME == PROJ_GLOBALS && G_BUDGET==41u && G_COUNT==76u && PROJ_JFX_N <= 56u &&
-               P_DIST == PROJ_OLD_P_FX && P_REV == PROJ_OLD_P_SEND && P_JRES6 == 113u && P_COUNT == 124u,
+               P_DIST == PROJ_OLD_P_FX && P_REV == PROJ_OLD_P_SEND && P_JRES6 == 113u && P_COUNT == (OC_LFO2 ? 131u : 124u),
                "global ids, the effect ids and the wire header stay fixed (a change: a new magic and a conversion)");
 /* (0.6.0) the global effect settings of a record from before FUN23: the new defaults; the leveler off, so a converted
  * project keeps the loudness it had (new projects have it on) */
@@ -187,7 +195,7 @@ static void proj_jfx_track(int16_t *p, const uint8_t type[PROJ_OLD_FX_SLOTS], ui
 }
 static int proj_magic_known(uint32_t m)
 {
-    return m == PROJ_MAGIC || m == PROJ_FUN22_MAGIC || m == PROJ_CUT_MAGIC || m == PROJ_PRE_HP_MAGIC ||
+    return proj_fun23(m) || m == PROJ_FUN22_MAGIC || m == PROJ_CUT_MAGIC || m == PROJ_PRE_HP_MAGIC ||
            m == 0x46554E46u || m == 0x46554E45u || m == 0x46554E44u || m == 0x46554E43u;
 }
 _Static_assert(sizeof(project_store_t) == 13212u, "FUN17 keeps the FUN16 extent");
@@ -320,7 +328,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
     for (t = 0; t < NTRK; t++)
         for (i = 0; i < FM6_PACKED; i++)
             if (q->fm6[t][i] > 127u) return 0;
-    if (!chain_valid(&q->chain) || !motion_valid(&q->motion) || P_COUNT > 127u) return 0;
+    if (!chain_valid(&q->chain) || !motion_valid(&q->motion) || P_COUNT > 255u) return 0;
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
     memcpy(b + 8, q->g, 2u*PROJ_GLOBALS);
     for (i = G_RESERVED4; i <= G_RESERVED11; i++) b[8u + 2u*i] = b[9u + 2u*i] = 0;   /* (the old FX wire: none) */
@@ -403,19 +411,19 @@ static int proj_unpack(project_t *q, const uint8_t *b)
     const uint32_t end = PROJ_NAME_OFF - PROJ_DRUM_BYTES - PROJ_REC_DIR_BYTES - PROJ_P5_BYTES - RECORD_MAX * 8u -
                          NTRK * FM6_PACKED - PROJ_CZ_BYTES;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + PROJ_STORE_SIZE - 4u, 4);
-    const uint32_t fun22 = magic == PROJ_MAGIC || magic == PROJ_FUN22_MAGIC;   /* (0.6.0) FUN23 keeps FUN22's layout */
+    const uint32_t fun22 = proj_fun23(magic) || magic == PROJ_FUN22_MAGIC;   /* (0.6.0) FUN23 keeps FUN22's layout */
     uint8_t old_type[PROJ_OLD_FX_SLOTS] = {0, 0, 0};    /* (0.6.0) a record before FUN23: its shared slots' kinds */
     uint32_t old_mode = 0;                              /* .. and MODE (0 serial, 1 separate sends) */
     if (!proj_magic_known(magic) || size != PROJ_STORE_SIZE || sum != proj_hash(b, PROJ_STORE_SIZE - 4u) ||
-        np < 8u || np > (magic==PROJ_CUT_MAGIC?PROJ_CUT_NP:P_COUNT) || (fun22 && np!=122u && np!=P_COUNT) ||
-        (magic==PROJ_MAGIC && np!=P_COUNT) || (magic==PROJ_CUT_MAGIC && np!=PROJ_CUT_NP) || (magic==PROJ_PRE_HP_MAGIC && np!=119u) || (magic==0x46554E46u && np!=117u) || (magic==0x46554E45u && np!=116u) || (magic==0x46554E44u && np!=108u) || (magic==0x46554E43u && np!=104u) ||
+        np < 8u || np > (magic==PROJ_CUT_MAGIC?PROJ_CUT_NP:P_COUNT) || (fun22 && np!=122u && np!=P_COUNT && !(magic==PROJ_FUN23_MAGIC && np==124u)) ||
+        (magic==PROJ_MAGIC && np!=P_COUNT) || (magic==PROJ_FUN23_MAGIC && np!=124u) || (magic==PROJ_CUT_MAGIC && np!=PROJ_CUT_NP) || (magic==PROJ_PRE_HP_MAGIC && np!=119u) || (magic==0x46554E46u && np!=117u) || (magic==0x46554E45u && np!=116u) || (magic==0x46554E44u && np!=108u) || (magic==0x46554E43u && np!=104u) ||
         b[62] >= NTRK || b[63] > NPART || b[64] > PROJ_PHYS ||
         68u + NTRK * (np - (magic==0x46554E44u?PROJ_FX_FIELDS:0u) + 2u + NSTEP * ((fun22 || magic==PROJ_CUT_MAGIC || magic==PROJ_PRE_HP_MAGIC || magic==0x46554E46u || magic==0x46554E45u)?8u:9u)) + sizeof q->chain + sizeof q->motion > end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
     memcpy(q->g,b+8,2u*PROJ_GLOBALS);
-    proj_jfx_defaults(q->g, magic != PROJ_MAGIC);
-    if (magic == PROJ_MAGIC) {                          /* (0.6.0) FUN23: the effects' globals (out of range: the
+    proj_jfx_defaults(q->g, !proj_fun23(magic));
+    if (proj_fun23(magic)) {                            /* (0.6.0) FUN23: the effects' globals (out of range: the
                                                          * nearest end; a later version's ids after these: not read) */
         if (b[PROJ_JFX_WIRE] != 'J' || b[PROJ_JFX_WIRE + 1u] != 'F' || b[PROJ_JFX_WIRE + 2u] != 'X' || !b[PROJ_JFX_WIRE + 3u])
             return 0;
@@ -444,7 +452,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         for (t = 0; t < NTRK; t++) q->pattern[t] = (uint8_t)((banks >> (3u * t)) & 7u);
     }
     for (t = 0; t < NTRK; t++) {
-        int16_t values[PROJ_CUT_NP], def[P_COUNT];
+        int16_t values[PROJ_NP_MAX], def[P_COUNT];
         for (i = 0; i < np; i++) {
             if(magic==0x46554E44u && i>=PROJ_OLD_P_FX && i<PROJ_OLD_P_FX+PROJ_FX_FIELDS){
                 uint32_t value=b[PROJ_FX_WIRE_OFF+t*PROJ_FX_FIELDS+i-PROJ_OLD_P_FX];
@@ -458,7 +466,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         if (magic == PROJ_CUT_MAGIC) {
             q->t[t].p[P_STRUM] = q->t[t].p[P_STROKE] = 0; /* old high cuts occupied these new IDs */
         }
-        if (magic != PROJ_MAGIC)                       /* (0.6.0) the old effects -> the new (FUN21's cuts with them) */
+        if (!proj_fun23(magic))                        /* (0.6.0) the old effects -> the new (FUN21's cuts with them) */
             proj_jfx_track(q->t[t].p, old_type, old_mode, q->t[t].engine);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i]; uint32_t meta;
@@ -482,7 +490,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         for(t=0;t<NTRK;t++){uint32_t origin=b[pos+2u+t];if(origin && origin<=128u){uint32_t slot=origin-1u,bank=slot/26u,k=slot%26u,spill=bank*8u+k-18u;q->user[t]=(uint16_t)(1u+(k<18u?(16u+bank)*18u+k:spill<32u?spill/2u*18u+16u+spill%2u:378u+spill-32u));}}
     }
     proj_motion_ids(&q->motion, np);
-    if (magic != PROJ_MAGIC) proj_motion_drop_dub(&q->motion);   /* (Release 2) FUN22 and earlier: no DUB TAPE lanes */
+    if (!proj_fun23(magic)) proj_motion_drop_dub(&q->motion);   /* (Release 2) FUN22 and earlier: no DUB TAPE lanes */
     if (fun22 && np == P_COUNT) {
         int8_t oct[NTRK];
         if (!mpc_octaves_unpack(oct, b[PROJ_MPC_OCT_WIRE] | (uint32_t)b[PROJ_MPC_OCT_WIRE+1u] << 8)) return 0;
@@ -1124,7 +1132,13 @@ static void project_load(uint32_t slot)
  * from it (every pattern empty, LEN / DIV / SWG / GATE their defaults, no name, SLOT on a free slot), and power-on
  * loads it when BOOT is OFF or its slot empty. No flash sector is free: it follows the settings in their record
  * (set_rec, its size and magic last). P_COUNT, G_COUNT or FM6_PACKED changing changes it (the assert): convert. */
-#define TMPL_MAGIC 0x4D4C5054u                    /* "TPLM" (0.6.0): the Jiant effects (jfx[]); TPLL (the old FX's
+#define TMPL_MAGIC_M 0x4D4C5054u                  /* "TPLM" */
+#if OC_LFO2
+#define TMPL_MAGIC 0x4E4C5054u                    /* "TPLN" (Release 3, OC_LFO2): TPLM's layout with np 131; a TPLM (np 124) loads by count */
+#else
+#define TMPL_MAGIC TMPL_MAGIC_M
+#endif
+/* "TPLM" (0.6.0): the Jiant effects (jfx[]); TPLL (the old FX's
                                                    * master[20]) and earlier convert as a FUN22 project does */
 #define TMPL_LL_MAGIC 0x4C4C5054u                 /* "TPLL": one TONE per old FX slot */
 #define TMPL_JFX_BYTES 52u                        /* PROJ_JFX_N (49) rounded to a word */
@@ -1192,13 +1206,19 @@ static void tmpl_jfx_unpack(int16_t *g, const uint8_t *d)
         g[id] = id == G_BUDGET ? GP[id].def : (int16_t)clamp((int32_t)d[i] - 64, GP[id].min, GP[id].max);
     }
 }
+/* a TPLM-shaped template: this build's TMPL_MAGIC layout, or (OC_LFO2) a TPLM that holds np 124 */
+static inline uint32_t tmpl_is_m(uint32_t len) { return len == sizeof(tmpl_t) || len == sizeof(tmpl_t) - NTRK * 2u * (P_COUNT - 124u); }
+/* the parameter counts whose templates hold the MPC octave word and the FUN22-style tone bytes */
+#define TMPL_FULL_NP(np) ((np) == P_COUNT || (np) == 122u || (np) == 124u)
 static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size == sizeof tmpl; }
 
 /* a stored template (len bytes, as tmpl_t is laid out) is today's: its size and magic, valid tones */
 #define TMPL_LL_SIZE (__builtin_offsetof(tmpl_t, jfx) + 20u + 8u)   /* (0.6.0) a TPLL template's length */
 static uint32_t tmpl_param_count(uint32_t len)   /* (TPLJ, TPLI: a 16-byte master; TPLH none) */
 {
-    return len==sizeof(tmpl_t) || len==TMPL_LL_SIZE?P_COUNT:len==TMPL_LL_SIZE-NTRK*2u*(P_COUNT-122u)?122u:len==TMPL_LL_SIZE+NTRK*2u*(PROJ_CUT_NP-P_COUNT)?PROJ_CUT_NP:
+    return len==sizeof(tmpl_t) || len==TMPL_LL_SIZE?P_COUNT:len==sizeof(tmpl_t)-NTRK*2u*(P_COUNT-124u) || len==TMPL_LL_SIZE-NTRK*2u*(P_COUNT-124u)?124u:
+           len==TMPL_LL_SIZE-NTRK*2u*(P_COUNT-122u)?122u:len==(uint32_t)(TMPL_LL_SIZE+NTRK*2u*(PROJ_CUT_NP-P_COUNT))?PROJ_CUT_NP:   /* (the cast: size_t arithmetic does not wrap at 32 bits, and P_COUNT passes 125 with LFO 2) */
+           
            len==TMPL_LL_SIZE-NTRK*2u*(P_COUNT-119u)-4u?119u:len==TMPL_LL_SIZE-NTRK*2u*(P_COUNT-117u)-4u?117u:
            len==TMPL_LL_SIZE-NTRK*2u*(P_COUNT-116u)-20u?116u:len==sizeof(tmpl_fx_single_t)?108u:len==sizeof(tmpl_fx_legacy_t)?104u:0u;
 }
@@ -1206,13 +1226,13 @@ static uint32_t tmpl_blob_schema(const uint8_t *b,uint32_t len)
 {
     uint32_t np=tmpl_param_count(len),size,magic;if(!np)return 0;
     memcpy(&size,b+len-8u,4);memcpy(&magic,b+len-4u,4);
-    return size==len && magic==(len==sizeof(tmpl_t)?TMPL_MAGIC:(np==P_COUNT || np==122u)?TMPL_LL_MAGIC:np==PROJ_CUT_NP?0x4B4C5054u:np==119u?0x4A4C5054u:np==117u?0x494C5054u:np==116u?0x484C5054u:np==108u?0x474C5054u:0x464C5054u) ? np : 0u;
+    return size==len && magic==(len==sizeof(tmpl_t)?TMPL_MAGIC:tmpl_is_m(len)?TMPL_MAGIC_M:TMPL_FULL_NP(np)?TMPL_LL_MAGIC:np==PROJ_CUT_NP?0x4B4C5054u:np==119u?0x4A4C5054u:np==117u?0x494C5054u:np==116u?0x484C5054u:np==108u?0x474C5054u:0x464C5054u) ? np : 0u;
 }
 static int tmpl_blob_valid(const uint8_t *b,uint32_t len)
 {
     uint32_t np=tmpl_blob_schema(b,len);
     if(!np || b[2u*PROJ_GLOBALS]>=NTRK)return 0;
-    if(np==P_COUNT || np==122u){
+    if(TMPL_FULL_NP(np)){
         int8_t oct[NTRK];uint32_t off=2u*TMPL_MPC_OCT_G;
         if(!mpc_octaves_unpack(oct,b[off]|(uint32_t)b[off+1u]<<8))return 0;
     }
@@ -1223,13 +1243,13 @@ static int tmpl_blob_valid(const uint8_t *b,uint32_t len)
         if(!cz_patch_valid(b+((int32_t)__builtin_offsetof(tmpl_t,cz)-delta)+k*sizeof(cz_patch_t)) || !p5_patch_valid(&p) ||
             !drum_patch_valid((const drum_patch_t *)(b+((int32_t)__builtin_offsetof(tmpl_t,drum)-delta)+k*sizeof(drum_patch_t))))return 0;
     }
-    if(len==sizeof(tmpl_t)){                          /* (0.6.0) TPLM: the effects' values (out of range: clamped) */
+    if(tmpl_is_m(len)){                               /* (0.6.0) TPLM: the effects' values (out of range: clamped) */
         return 1;
     }
     if(np>=117u){uint32_t off=(uint32_t)((int32_t)__builtin_offsetof(tmpl_t,jfx)-delta);
         for(uint32_t i=0;i<13u;i++)if(b[off+i]>127u)return 0;
         if(b[off+13u]>(np>=119u?1u:0u))return 0;
-        if(np==P_COUNT || np==122u){
+        if(TMPL_FULL_NP(np)){
             for(uint32_t i=0;i<PROJ_OLD_FX_SLOTS;i++)if(b[off+14u+i]<64u-PROJ_OLD_TONE_MAX || b[off+14u+i]>64u+PROJ_OLD_TONE_MAX || b[off+17u+i])return 0;
         }else if(np==PROJ_CUT_NP){
             for(uint32_t i=14u;i<20u;i++)if(b[off+i]>127u)return 0;
@@ -1242,9 +1262,9 @@ static int tmpl_take(const uint8_t *b,uint32_t len)
     memset(&tmpl,0,sizeof tmpl);if(!tmpl_blob_valid(b,len))return 0;
     uint32_t np=tmpl_param_count(len),off=2u*PROJ_GLOBALS+2u;
     memcpy(tmpl.g,b,sizeof tmpl.g);tmpl.sel=b[2u*PROJ_GLOBALS];tmpl.ntrk=b[2u*PROJ_GLOBALS+1u]<=NTRK?b[2u*PROJ_GLOBALS+1u]:0u;
-    if(np!=P_COUNT && np!=122u)tmpl.g[TMPL_MPC_OCT_G]=0;
+    if(!TMPL_FULL_NP(np))tmpl.g[TMPL_MPC_OCT_G]=0;
     for(uint32_t k=0;k<NTRK;k++){
-        int16_t def[P_COUNT],values[PROJ_CUT_NP];tmpl.t[k].engine=b[off++];tmpl.t[k].preset=b[off++];
+        int16_t def[P_COUNT],values[PROJ_NP_MAX];tmpl.t[k].engine=b[off++];tmpl.t[k].preset=b[off++];
         for(uint32_t i=0;i<P_COUNT;i++)def[i]=param_desc_of(tmpl.t[k].engine%NENGINES,i)->def;
         memcpy(values,b+off,np*2u);off+=np*2u;params_by_count(tmpl.t[k].p,values,np,def);
         if(np==PROJ_CUT_NP)tmpl.t[k].p[P_STRUM]=tmpl.t[k].p[P_STROKE]=0;
@@ -1253,8 +1273,8 @@ static int tmpl_take(const uint8_t *b,uint32_t len)
     {   /* (0.6.0) the effects: TPLM's as stored; an older template's as a FUN22 project converts (proj_jfx_track) */
         int16_t g[G_COUNT];
         memset(g, 0, sizeof g);
-        proj_jfx_defaults(g, len != sizeof(tmpl_t));
-        if (len == sizeof(tmpl_t)) {
+        proj_jfx_defaults(g, !tmpl_is_m(len));
+        if (tmpl_is_m(len)) {
             for (uint32_t i = 0; i < PROJ_JFX_N; i++) {
                 uint32_t id = G_DTIME + i;
                 if (id != G_BUDGET) g[id] = (int16_t)clamp((int32_t)b[off+native+i] - 64, GP[id].min, GP[id].max);

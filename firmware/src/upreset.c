@@ -70,7 +70,7 @@ typedef struct {
     up_rec_t r[UP_PER_BANK];
 } up_bank_t;
 _Static_assert(sizeof(up_rec_t) == 238, "user preset record layout");
-_Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 128, "user preset record: P_COUNT");
+_Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 256, "user preset record: P_COUNT (np is a byte)");
 #if MELODEE_FLASH && !defined(UP_HOST)
 /* One main-loop bank cache holds whichever bank was asked for last: a user preset bank, a native FM6 or CZ-1 bank
  * (or the CZ-1 bank's older view, cz_bank_load) or a Prophet user bank (bank_buf, after native_presets.c). Each owner
@@ -181,7 +181,7 @@ static uint32_t up_kit_get(const up_rec_t *r, uint8_t *b)
     memcpy(b + a, r->packed + r->np, rest);
     return a + rest;
 }
-_Static_assert(DXK_ROOM - 46u <= UP_PMAX * 2u - 127u && DXK_BYTES <= DXK_ROOM && sizeof ((up_rec_t *)0)->cz_extra == 46u, "a kit fits a record of any np");
+_Static_assert(DXK_ROOM - 46u <= UP_PMAX * 2u - (P_COUNT > 127u ? P_COUNT : 127u) && DXK_BYTES <= DXK_ROOM && sizeof ((up_rec_t *)0)->cz_extra == 46u, "a kit fits a record of any np");
 
 static int up_valid(const up_rec_t *r)
 {
@@ -196,7 +196,7 @@ static int up_valid(const up_rec_t *r)
         return r->packed[133]==128u || r->packed[133]==133u;
 #endif
     }
-    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==122u || r->np==125u /* (the FX cuts) */ || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
+    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==122u || r->np==124u || r->np==125u /* (the FX cuts) */ || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
     if (!((r->used & ~UP_STAR) == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || ((MELODEE_DRUM && r->engine == ENGI_DRUM) && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= UP_PMAX * 2u && r->name[0])) return 0;
     for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
