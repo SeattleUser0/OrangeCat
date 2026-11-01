@@ -709,6 +709,13 @@ if core && [ $TABLES = 1 ]; then
         editor_r3:editor_test -O1 -DOC_R3_FORMAT=1 $FW
     t "Release 3 format, Part 2: the same with LFO 2 (ids 128 to 130, the push as PARAM_CHANGED_W)" \
         editor_lfo2:editor_test -O1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW
+    t "Release 3 format, Part 7 (OC_R3_SCENES): scenes version 2, the PERF table, Performance Mode's logic, the planner, hostile bytes; the whole of Part 1 beside them" \
+        oc_r3_scenes:oc_r3_test -O1 -DOC_R3_FORMAT=1 -DOC_R3_SCENES=1 $FW -Itests
+    t "Release 3 format, Part 7 under the sanitizers" oc_r3_scenes_san:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all \
+        -DOC_R3_FORMAT=1 -DOC_R3_SCENES=1 $FW -Itests
+    t "Release 3 format, Part 7: the editor with the scenes built in" editor_scenes:editor_test -O1 -DOC_R3_FORMAT=1 -DOC_R3_SCENES=1 $FW
+    t "Release 3 format, Part 7: the UI with Performance Mode built in (the inert buttons through the input code)" ui_scenes:ui_test -DMELODEE_USB_AUDIO=1 \
+        -DOC_R3_FORMAT=1 -DOC_R3_SCENES=1 $FW
     t "EDIT's sheets and HOME with LFO 2 built in (the two new pages, P_COUNT 131) under the sanitizers" sheet_lfo2:sheet_test \
         -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW -Itests
     t "HOME as SHIFT with LFO 2 built in" shift_lfo2:shift_test \

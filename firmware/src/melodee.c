@@ -107,6 +107,9 @@ static volatile uint32_t oc_hwt_forced[2];
 #include "ui_graph.c"
 #include "ui_draw.c"
 #include "ui_menu.c"
+#if OC_R3_SCENES
+#include "oc_perf.c"             /* (Release 3, Part 7) Performance Mode: the PERF table, the inert buttons, the pre-load planner */
+#endif
 #include "ui_input.c"
 #include "ui_layer.c"              /* the quick layers (GLO SCL held) */
 

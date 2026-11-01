@@ -214,6 +214,13 @@
                                    * (255 a project) in packed chunks with a generation bit, the tagged project record OCJ4
                                    * committed last, the sweep. Host only until Session A's Release 3; off, the format before. */
 #endif
+#ifndef OC_R3_SCENES
+#define OC_R3_SCENES 0            /* (Release 3, branch r3-format: docs/orangecat/UI_BUILD.md "Part 7") 1: scenes version 2 (16 scenes, parts, a sound table) and Performance Mode
+                                   * (the PERF table, the inert buttons, the pre-load planner). Needs OC_R3_FORMAT=1. Off in the build set. */
+#endif
+#if OC_R3_SCENES && !OC_R3_FORMAT
+#error "OC_R3_SCENES needs OC_R3_FORMAT=1: the scenes and the PERF table are sections of the format revision's record"
+#endif
 #ifndef OC_LFO2
 #define OC_LFO2 0                 /* (Release 3, branch r3-format: docs/orangecat/UI_BUILD.md "Part 2") 1: a second, fully independent LFO a track
                                    * (seven parameters before P_E0: P_COUNT 124 to 131, P_E0 116 to 123). Needs OC_R3_FORMAT=1: a project that holds

@@ -113,6 +113,9 @@ static void layer_masks(void)
     kb_mask = m | (layer_allowed() && !ui.ly ? 1u << panel.btn[B_SEQ] : 0u);
 
     kb_lock = m && ui.lock ? 1u : 0u;
+#if OC_R3_SCENES
+    kb_perf = (uint8_t)(kb_lock && ui.lock == LAYER_PERF);   /* (Part 7) derived each pass: a menu or a dialog that closes the lock leaves the mode */
+#endif
     kb_fx = (uint8_t)(ui.ly == LAYER_FX && layer_allowed() && !(ui.ly_t0 & LY_DEAD));   /* (0.6.0) */
     perf_kill = (uint8_t)(ui.menu || ui.confirm || name_on());   /* (a menu, a dialog: every effect suspended) */
 
@@ -171,7 +174,7 @@ static void layer_lock_input(uint32_t pressed)
         return;
     if (pressed & ly_bit(ui.lock))
         ui.lock = 0;
-    else if (pressed & ~keep)
+    else if ((pressed & ~keep) && !(OC_R3_SCENES && kb_perf))   /* (Part 7: in Performance Mode the other buttons are inert, they do not close it) */
         layer_let_go(1);
 }
 
@@ -272,10 +275,21 @@ static void layer_key(uint32_t l, uint32_t k)
         scale_share(TSEL);
     } else if (l == LAYER_PERF) {
         char m[24];
+        uint32_t sc = p, scene_key = p < OCL_NSCENE, nd = 7u;      /* sc: the scene a key means (Part 7: 0..15) */
         perf_sync();
-        if (key_black(k) && p == NTRK) {                /* D#4: FILL while held (layer_keys) */
+#if OC_R3_SCENES
+        if (kb_perf) {                                   /* Performance Mode: the PERF table decides; an unassigned key is silent */
+            const perf_ent_t *pe = perf_key(k, (fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u);
+            if (!pe) return;
+            if (pe->kind == PK_SCENE) { sc = pe->target; scene_key = 1; }
+            else { perf_launch_other(pe); return; }
+        } else if (p < OCL_NSCENE && !key_black(k) && ((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u)) {
+            sc = p + 8u;                                 /* OCT+ held: scenes 9..16 */
+        }
+#endif
+        if (!(OC_R3_SCENES && kb_perf) && key_black(k) && p == NTRK) {   /* D#4: FILL while held (layer_keys) */
             lys.fill |= 1u << k;
-        } else if (key_black(k)) {                      /* T1..T4 MUTE, staged */
+        } else if (!(OC_R3_SCENES && kb_perf) && key_black(k)) {          /* T1..T4 MUTE, staged */
             if (p < trk_n() && p < NTRK) {
                 ocl_mute(p);
                 str_cpy(m, "T1 MUTE", sizeof m);
@@ -285,24 +299,30 @@ static void layer_key(uint32_t l, uint32_t k)
                 if (trk[p].mute_arm) str_cpy(m + str_len(m), LAUNCH_NAME[lists.launch % OCL_NLAUNCH], 6);
                 ui_message(m);
             }
-        } else if (p < OCL_NSCENE) {                    /* scenes 1..8: SAVE held stores, else recalls */
+        } else if (scene_key && !(OC_R3_SCENES && kb_perf && key_black(k))) {   /* scenes 1..8 (OCT+: 9..16): SAVE held stores, else recalls */
             str_cpy(m, "SCENE 1", sizeof m);
-            m[6] = (char)('1' + p);
-            if ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u) {
-                ocl_scene_store(p);
-                perf_scene = (uint8_t)p;
-                str_cpy(m + 7, " STORED", 8);
+            if (sc >= 9u) { m[6] = '1'; m[7] = (char)('0' + (sc - 9u)); nd = 8u; }   /* (scene 10..16) */
+            else m[6] = (char)('1' + sc);
+            m[nd] = 0;
+            if (!(OC_R3_SCENES && kb_perf) && ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u)) {
+                ocl_scene_store(sc);
+                perf_scene = (uint8_t)(sc % OCL_NSCENE);
+                str_cpy(m + nd, " STORED", 8);
             } else {
-                int rc = ocl_scene_recall(p);
-                if (rc == 1) str_cpy(m + 7, " EMPTY", 7);
+                int rc = ocl_scene_recall(sc);
+                if (rc == 1) str_cpy(m + nd, " EMPTY", 7);
                 else if (rc) str_cpy(m, rc == 4 ? OCL_FULL_MSG : rc == 5 ? "PATTERN DATA FULL" : "SCENE: STOP FIRST",
                                      sizeof m);
                 else {
-                    perf_scene = (uint8_t)p;
+                    perf_scene = (uint8_t)(sc % OCL_NSCENE);
                     if (song.playing) {
-                        str_cpy(m + 7, " AT ", 5);
-                        str_cpy(m + 11, LAUNCH_NAME[lists.launch % OCL_NLAUNCH], 6);
+                        str_cpy(m + nd, " AT ", 5);
+                        str_cpy(m + nd + 4u, LAUNCH_NAME[lists.launch % OCL_NLAUNCH], 6);
                     }
+#if OC_R3_SCENES
+                    if (scn2_missing_track) { str_cpy(m, "T1 NEEDS MODULE", sizeof m); m[1] = (char)('0' + scn2_missing_track); }   /* the engine is not installed: its sound stays */
+                    else if (scn2_skipped_sounds) str_cpy(m, "SCENE SOUND: STOP FIRST", sizeof m);
+#endif
                 }
             }
             ui_message(m);

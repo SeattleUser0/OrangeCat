@@ -64,6 +64,9 @@ static void fl_plain_window_init(void) {}
 #define FL_FAR(fn) (fn)
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
+#if OC_R3_SCENES
+#include "../firmware/src/oc_perf.c"                 /* (Release 3, Part 7: melodee.c includes it before ui_input.c) */
+#endif
 #include "../firmware/src/project.c"            /* (with MELODEE_FLASH: oc_store.c, oc_pool.c, oc_project.c) */
 
 static int check(const char *what, int ok)

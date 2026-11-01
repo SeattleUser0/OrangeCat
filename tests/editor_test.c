@@ -93,6 +93,9 @@ struct fw_mod_hdr;
 static const struct fw_mod_hdr *oc_mod_hdr_ptr(uint32_t i);
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
+#if OC_R3_SCENES
+#include "../firmware/src/oc_perf.c"
+#endif
 #include "../firmware/src/project.c"
 static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr_t *)(host_mod + oc_mod_flash(i) - 0xC8000u); }
 

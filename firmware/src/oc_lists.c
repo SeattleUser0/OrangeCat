@@ -605,8 +605,25 @@ static void ocl_mute(uint32_t k)
     if (!song.playing) { t->p[P_MUTE] = (int16_t)!t->p[P_MUTE]; t->mute_arm = 0; return; }
     t->mute_arm = t->mute_arm ? 0u : (uint8_t)(t->p[P_MUTE] ? 1u : 2u);
 }
+#if OC_R3_SCENES
+static int ocl_scene_used(uint32_t s) { return (scn2.used >> (s % 16u)) & 1u; }   /* (Part 7: sixteen scenes; oc_scenes2_run.c) */
+#else
 static int ocl_scene_used(uint32_t s) { return (lists.scene_used >> (s % OCL_NSCENE)) & 1u; }
+#endif
 /* scene s: each track in use where it is (its chain and step) and its MUTE (a staged one: as it will be) */
+#if OC_R3_SCENES
+static void ocl_scene_store(uint32_t s)
+{
+    scn2_store(s, ocl_scene_used(s) && scn2.s[s % 16u].mask ? scn2.s[s % 16u].mask : SCM_CHAIN | SCM_MUTE);   /* (the mask a scene has; a new one's is today's: chains and mutes) */
+}
+static int ocl_scene_recall(uint32_t s)
+{
+    uint32_t miss = 0, skip = 0;
+    int rc = scn2_recall(s, &miss, &skip);
+    scn2_missing_track = (uint8_t)miss; scn2_skipped_sounds = (uint8_t)skip;
+    return rc;
+}
+#else
 static void ocl_scene_store(uint32_t s)
 {
     s %= OCL_NSCENE;
@@ -649,6 +666,7 @@ static int ocl_scene_recall(uint32_t s)
     }
     return rc;
 }
+#endif
 
 /* ------------------------------------------- PHRASES: the pool (0.4.4) --- */
 /* pool phrase id named by this project: a chain's slot, or a bank of a track (it is in one) */

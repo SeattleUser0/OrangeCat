@@ -1214,6 +1214,129 @@ static int test_lfo2_records(void)
 }
 #endif
 
+#if OC_R3_SCENES
+/* ------------------------------------------------------------ 16 (Part 7) --- */
+static uint32_t pf_lcg = 12345u;
+static uint32_t pf_rand(void) { pf_lcg = pf_lcg * 1664525u + 1013904223u; return pf_lcg >> 8; }
+static uint32_t pf_notes(uint32_t phrase) { (void)phrase; return 50u; }
+static int test_scenes2(void)
+{
+    int bad = 0, rc;
+    uint32_t off, n, len, miss = 0, skip = 0;
+    static uint8_t snap1[SCN2_MAX_BYTES], snap2[SCN2_MAX_BYTES];
+    uint32_t l1, l2;
+    reset();
+    ocj4_new();                                  /* (a new music: no scenes, the default keys) */
+    fill_all(1, 2);
+    R3CHK("Part 7: the default PERF keys: the 8 white keys F3 to F4 launch scenes 1 to 8, the rest are none",
+          perf_tab[0].kind == PK_SCENE && perf_tab[0].target == 0 && perf_tab[12].kind == PK_SCENE && perf_tab[12].target == 7 && perf_tab[1].kind == PK_NONE && perf_tab[26].kind == PK_NONE);
+    /* a scene of every part, stored and recalled */
+    song.g[G_BPM] = 133; song.g[G_SWING] = 7; song.g[G_CLOCK] = 0;
+    trk[0].p[P_LEVEL] = -10; trk[0].p[P_PAN] = 20; trk[1].p[P_REV] = 15; trk[0].p[P_ATK] = 33; song.g[G_DTIME] = 11;
+    scn2_store(11, SCM_ALL);
+    R3CHK("... scene 12 is used, with all six parts", scn2_used(11) && scn2.s[11].mask == SCM_ALL && scn2.nsnd >= 1u);
+    song.g[G_BPM] = 90; song.g[G_SWING] = 0; trk[0].p[P_LEVEL] = 5; trk[0].p[P_PAN] = -3; trk[1].p[P_REV] = 0; trk[0].p[P_ATK] = 1; song.g[G_DTIME] = 0;
+    song.playing = 0;
+    rc = scn2_recall(11, &miss, &skip);
+    R3CHK("... recalled (stopped): tempo, swing, mixer, the sends and the effects are back; the sound too when its engine is installed, else it stays and the track is named",
+          !rc && song.g[G_BPM] == 133 && song.g[G_SWING] == 7 && trk[0].p[P_LEVEL] == -10 && trk[0].p[P_PAN] == 20 && trk[1].p[P_REV] == 15 && song.g[G_DTIME] == 11 &&
+          (eng_ok(scn2.snd[0].engine) ? trk[0].p[P_ATK] == 33 && !miss : trk[0].p[P_ATK] == 1 && miss == 1) && !skip);
+    song.g[G_CLOCK] = 1; song.g[G_BPM] = 90;
+    scn2_recall(11, &miss, &skip);
+    R3CHK("... under an external clock the tempo is left alone", song.g[G_BPM] == 90);
+    song.g[G_CLOCK] = 0;
+    song.playing = 1; trk[0].p[P_ATK] = 2;
+    scn2_recall(11, &miss, &skip);
+    R3CHK("... playing, the sound part is skipped (STOP FIRST), the other parts land", (skip & 1u) && trk[0].p[P_ATK] == 2 && trk[0].p[P_LEVEL] == -10);
+    song.playing = 0;
+    R3CHK("... an empty scene says so (rc 1)", scn2_recall(3, &miss, &skip) == 1);
+    /* save and reload */
+    scn2_store(2, SCM_CHAIN | SCM_MUTE); perf_tab[1].kind = PK_CHAIN; perf_tab[1].target = 3; perf_tab[1].flags = 2u << 1; perf_tab[1].boundary = 2;
+    scn2_encode(&scn2); l1 = scn2_buf_len; memcpy(snap1, scn2_buf, l1);
+    R3CHK("Part 7: a project with sixteen scenes saves", project_save_as(0, "SC2") == 0);
+    rec_get(0);
+    R3CHK("... its SCNS is version 2 with count 16 and a used mask above 8 bits", !rec_find(rec, (uint32_t)rec_get(0), T_SCNS, &off, &n) && rec[off] == 2 && rec[off + 1] == 16 && (rec[off + 2] | rec[off + 3] << 8) == ((1u << 11) | (1u << 2)));
+    R3CHK("... and its PERF is the 257 byte table", !rec_find(rec, (uint32_t)rec_get(0), T_PERF, &off, &n) && n == PERF_BYTES);
+    reboot(); wipe_runtime(); scn2_clear(&scn2); memset(perf_tab, 0, sizeof perf_tab);
+    project_load(0);
+    scn2_encode(&scn2); l2 = scn2_buf_len; memcpy(snap2, scn2_buf, l2);
+    R3CHK("... it loads again, the scenes byte for byte, the PERF table as it was", l1 == l2 && !memcmp(snap1, snap2, l1) && perf_tab[1].kind == PK_CHAIN && perf_tab[1].target == 3 && perf_tab[1].boundary == 2 && perf_tab[0].kind == PK_SCENE);
+    R3CHK("... scenes 1..8's chain and mute cells are mirrored into the lists the old paths read", (lists.scene_used & 4u) && lists.scene_used == (uint8_t)(scn2.used & 0xFFu));
+    /* version 1 converts */
+    len = (uint32_t)rec_get(0);
+    {   uint8_t v1[2 + OCL_NSCENE * NTRK * 2 + 2];
+        memset(v1, 0, sizeof v1); v1[0] = 1; v1[1] = OCL_NSCENE;
+        v1[2 + (5 * NTRK + 0) * 2] = 2; v1[2 + (5 * NTRK + 0) * 2 + 1] = 0x83;
+        v1[2 + OCL_NSCENE * NTRK * 2] = 0x20;        /* scene 6 used */
+        len = r3rec_set(rec, len, T_SCNS, v1, sizeof v1);
+        R3CHK("Part 7: a record with SCNS version 1 is put in the slot", rec_put(0, len) == 0);
+    }
+    reboot(); wipe_runtime(); project_load(0);
+    R3CHK("... it loads: scene 6 is scene 6 with the mask chains and mutes, the boundary the project's, the rest empty",
+          scn2.used == 0x20u && scn2.s[5].mask == (SCM_CHAIN | SCM_MUTE) && scn2.s[5].chain[0] == 2 && scn2.s[5].stepmute[0] == 0x83 && scn2.s[5].boundary == 0);
+    R3CHK("... and the next save writes version 2", project_save(0) == 0 && rec_get(0) > 0 && !rec_find(rec, (uint32_t)rec_get(0), T_SCNS, &off, &n) && rec[off] == 2);
+    /* a version this firmware does not know: kept byte for byte, plays nothing; the same for PERF */
+    len = (uint32_t)rec_get(0);
+    {   uint8_t fut[40], fp[PERF_BYTES + 8];
+        memset(fut, 0xA5, sizeof fut); fut[0] = 3; fut[1] = 16;
+        memset(fp, 0x5A, sizeof fp); fp[0] = 9;
+        len = r3rec_set(rec, len, T_SCNS, fut, sizeof fut);
+        len = r3rec_set(rec, len, T_PERF, fp, sizeof fp);
+        rec_put(0, len);
+        reboot(); wipe_runtime(); project_load(0);
+        R3CHK("... SCNS version 3 and PERF version 9: no scene plays, the mode is empty", scn2_recall(0, &miss, &skip) == 1 && perf_foreign && perf_tab[0].kind == PK_NONE);
+        R3CHK("... a save keeps both byte for byte", project_save(0) == 0 && rec_get(0) > 0 && !rec_find(rec, (uint32_t)rec_get(0), T_SCNS, &off, &n) && n == sizeof fut && !memcmp(rec + off, fut, n) &&
+              !rec_find(rec, (uint32_t)rec_get(0), T_PERF, &off, &n) && n == sizeof fp && !memcmp(rec + off, fp, n));
+    }
+    /* hostile bytes */
+    {   uint32_t ok = 1, accepted = 0;
+        scn2_set_t *tmp = &scn2_in;
+        for (uint32_t r = 0; r < 20000u && ok; r++) {
+            uint32_t m = l1 ? l1 : 1u, nn = l1;
+            memcpy(snap2, snap1, l1);
+            for (uint32_t j = 0; j < 1u + pf_rand() % 4u; j++) snap2[pf_rand() % m] = (uint8_t)pf_rand();
+            if (pf_rand() % 5u == 0u) nn = pf_rand() % (l1 + 1u);
+            if (!scn2_decode(snap2, nn, tmp, 0)) {
+                accepted++;
+                for (uint32_t s2 = 0; s2 < SCN2_N; s2++) if (tmp->s[s2].mask > SCM_ALL || tmp->s[s2].boundary > 4u) ok = 0;
+                for (uint32_t s2 = 0; s2 < SCN2_N; s2++) for (uint32_t k = 0; k < NTRK; k++) if (tmp->s[s2].snd[k] > tmp->nsnd && (tmp->s[s2].mask & SCM_SOUND)) ok = 0;
+            }
+        }
+        { uint8_t pb[PERF_BYTES]; perf_encode(pb); pb[1] = 7; ok &= perf_decode(pb, PERF_BYTES) == -1 && perf_foreign; pb[1] = 0; perf_foreign = 0; }
+        char what[120]; snprintf(what, sizeof what, "Part 7: 20000 mutated or cut SCNS sections: none breaks a bound (%u still read), a bad PERF entry makes the table foreign", accepted);
+        R3CHK(what, ok);
+    }
+    /* Performance Mode */
+    kb_perf = 0;
+    R3CHK("Part 7: outside the mode no button is inert", !perf_inert(B_SAVE) && !perf_inert(B_REC));
+    kb_perf = 1;
+    R3CHK("... inside it the page buttons, SAVE, EDIT, the menus, SEQ and REC are inert; PLAY, OCT-, OCT+ and the layer's own ARP are not",
+          perf_inert(B_FX) && perf_inert(B_SCL) && perf_inert(B_ENV) && perf_inert(B_LFO) && perf_inert(B_EDIT) && perf_inert(B_GLO) && perf_inert(B_HOME) && perf_inert(B_SAVE) &&
+          perf_inert(B_SEQ) && perf_inert(B_REC) && !perf_inert(B_PLAY) && !perf_inert(B_OCTDN) && !perf_inert(B_OCTUP) && !perf_inert(B_ARP));
+    kb_perf = 0;
+    perf_defaults();
+    R3CHK("... an assigned key launches its target (OCT+ held: scenes 9..16), an unassigned key is silent (no entry)",
+          perf_key(2, 0) && perf_key(2, 0)->target == 1 && perf_key(2, 1)->target == 9 && !perf_key(1, 0) && !perf_key(99, 0));
+    /* the pre-load planner */
+    {   perf_pre_t pre;
+        uint32_t trkn, ph, got = 0, dimmed;
+        int key;
+        memset(perf_tab, 0, sizeof perf_tab);
+        for (uint32_t i = 0; i < 10u; i++) { perf_tab[i].kind = PK_PHRASE; perf_tab[i].target = (uint8_t)(i + 1u); perf_tab[i].flags = 0; }
+        perf_pre_begin(&pre);
+        while ((key = perf_pre_next(&pre, 900u, pf_notes, &trkn, &ph)) >= 0) got++;
+        dimmed = (uint32_t)__builtin_popcountll(pre.dim);
+        R3CHK("Part 7: the planner pre-loads at most 6 phrases a track (the rest are on demand, dim)", got == PRE_PER_TRACK && dimmed == 10u - PRE_PER_TRACK && pre.pinned[0] == 0x3Fu);
+        perf_pre_begin(&pre); got = 0;
+        { uint32_t nf = 330u; while ((key = perf_pre_next(&pre, nf, pf_notes, &trkn, &ph)) >= 0) { got++; nf -= 50u; } }   /* (the caller's free count falls as phrases are read) */
+        R3CHK("... it stops when fewer than 256 timed notes would remain free (330 free, 50 a phrase: one fits, the next key is dim)", got == 1u && (pre.dim & 2u));
+        perf_pre_end(&pre);
+        R3CHK("... leaving the mode unpins every bank", !pre.pinned[0] && !pre.done);
+    }
+    return bad;
+}
+#endif
+
 int main(void)
 {
     int bad = 0;
@@ -1223,6 +1346,9 @@ int main(void)
     bad |= test_round_trip_r3();
     bad |= test_255();
     bad |= test_high_pid();
+#if OC_R3_SCENES
+    bad |= test_scenes2();
+#endif
     bad |= test_copy_and_scratch();
     bad |= test_foreign();
     bad |= test_phrase_bytes();

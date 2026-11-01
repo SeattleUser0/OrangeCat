@@ -2128,6 +2128,9 @@ enum { BT_NONE, BT_TAP, BT_HOLD };
 static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok)
 {
     uint32_t tap;
+#if OC_R3_SCENES
+    if (perf_inert(label)) { *t0 = 0; return BT_NONE; }   /* (Part 7) Performance Mode: the page buttons, SAVE, EDIT, the menus and REC do nothing */
+#endif
     if ((fm1_in.buttons >> panel.btn[label]) & 1u) {
         if (!*t0)
             *t0 = (now | 1u) & ~2u;
@@ -2518,6 +2521,9 @@ static void ui_input(void)
         browse_commit();                              /* a key played while browsing: hear the sound shown */
     browse_poll();
     layer_lock_input(pressed);
+#if OC_R3_SCENES
+    if (kb_perf) pressed &= ~perf_inert_bits();      /* (Part 7) inert in Performance Mode */
+#endif
     if(momentary.active && (pressed&(1u<<panel.btn[B_OCTUP]))){
         momentary.active=momentary.count=momentary.native=0;pressed&=~(1u<<panel.btn[B_OCTUP]);ui_message("KEPT");
     }
@@ -2537,7 +2543,7 @@ static void ui_input(void)
     home = shift_input(home, &pressed, notes);          /* (the new interface 0.3; ui-fix 6) HOME as SHIFT: its combos; held
                                                          * alone 700 ms, BT_HOLD and the MENU as release-2 (ui_shift.c) */
 #endif
-    uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
+    uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u && !(OC_R3_SCENES && kb_perf));   /* held: the page's sheet */
     uint32_t oct;
     if (octup == BT_HOLD) {
         oct_eat |= 2u;                                  /* (its release is no OCT+) */
@@ -2805,7 +2811,7 @@ static void ui_input(void)
         b = panel_btn_of(id);
         switch (b) {
         case B_PLAY:
-            if ((fm1_in.buttons >> panel.btn[B_REC]) & 1u) {   /* REC + PLAY: record now */
+            if (!(OC_R3_SCENES && kb_perf) && ((fm1_in.buttons >> panel.btn[B_REC]) & 1u)) {   /* REC + PLAY: record now (not in Performance Mode) */
                 rec_play();
                 break;
             }

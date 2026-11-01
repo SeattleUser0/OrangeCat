@@ -615,8 +615,14 @@ static void proj_bound(project_t *q)
 #endif
 #endif
 #include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
+#if OC_R3_SCENES
+#include "oc_scenes2.c"           /* (Release 3, Part 7) scenes version 2, the PERF table, the pre-load planner */
+#endif
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
 #include "oc_lists.c"            /* (Orange Cat 0.3, 4c) each track's list of pool patterns; the banks its cache */
+#if OC_R3_SCENES
+#include "oc_scenes2_run.c"       /* (Release 3, Part 7) the store and recall of scenes version 2 */
+#endif
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
 static uint32_t proj_saved_hash[4];

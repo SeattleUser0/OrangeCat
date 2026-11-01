@@ -62,6 +62,7 @@
 #define T_TSTA OCJ4_TAG('T', 'S', 'T', 'A')
 #define T_ROUT OCJ4_TAG('R', 'O', 'U', 'T')
 #define T_CVRT OCJ4_TAG('C', 'V', 'R', 'T')   /* a record made by the conversion: the mark of the old record it came from (u32); not carried by a later save */
+static uint8_t ocj4_scn_live;                  /* (Part 7) the record being built is the music's own: its scenes and PERF table are scn2 and perf_tab */
 static uint32_t ocj4_cvrt_out;                 /* nonzero: ocj4_build writes the CVRT section with it (the conversion sets it for its one build) */
 #define OCJ4_HEAD_KNOWN 52u
 #define OCJ4_TRK_KNOWN (31u + 2u * P_COUNT)
@@ -463,11 +464,29 @@ static uint32_t ocj4_build(uint8_t *buf, uint32_t max, const project_t *q, const
     if (m->scns_foreign) {
         w_sec_carry(&w, T_SCNS);
     } else {
+#if OC_R3_SCENES
+        if (ocj4_scn_live) scn2_encode(&scn2);                         /* (Part 7: version 2, the music's sixteen scenes) */
+        else { scn2_from_v1(&scn2_in, l->scene, l->scene_used); scn2_encode(&scn2_in); }   /* (another slot's lists: today's eight, as version 2) */
+        w_sec(&w, T_SCNS);
+        w_mem(&w, scn2_buf, scn2_buf_len);
+        w_sec_end(&w);
+#else
         w_sec(&w, T_SCNS);
         w8(&w, 1); w8(&w, OCL_NSCENE); w_mem(&w, l->scene, sizeof l->scene); w16(&w, l->scene_used);
         w_sec_end_tail(&w, T_SCNS, OCJ4_SCNS_KNOWN);
+#endif
     }
+#if OC_R3_SCENES
+    if (ocj4_scn_live && !perf_foreign) {                              /* (Part 7: the music's table; a table of a version not read is carried) */
+        uint8_t pb[PERF_BYTES];
+        perf_encode(pb);
+        w_sec(&w, T_PERF); w_mem(&w, pb, PERF_BYTES); w_sec_end(&w);
+    } else {
+        w_sec_carry(&w, T_PERF);
+    }
+#else
     w_sec_carry(&w, T_PERF);
+#endif
     /* PHRD: sparse; the reserved field of a phrase carried from the old directory by id */
     w_sec(&w, T_PHRD);
     {
@@ -587,6 +606,9 @@ static int ocj4_parse(const uint8_t *buf, uint32_t len, project_t *q, ocj4_meta_
     memset(&ocj_h, 0, sizeof ocj_h);
     ocj_h.magic = OCJ4_MAGIC;
     ocl_lists_init(&ocj_l);
+#if OC_R3_SCENES
+    if (m) { scn2_clear(&scn2); perf_defaults(); }   /* (a record with no SCNS or PERF: no scenes, the default keys) */
+#endif
     chain_defaults(&q->chain);
     for (k = 0; k < NTRK; k++) {               /* every block its kind's init until NATV says otherwise */
         uint8_t ini[OCJ4_NATV_MAX];
@@ -655,12 +677,29 @@ static int ocj4_parse(const uint8_t *buf, uint32_t len, project_t *q, ocj4_meta_
             ocj_l.mode = p[0]; ocj_l.launch = p[1]; p += 2;
             memcpy(ocj_l.groove, p, NTRK); p += NTRK; memcpy(ocj_l.gamt, p, NTRK);
         } else if (tag == T_SCNS && n >= 2u) {
+#if OC_R3_SCENES
+            if (b[0] == 2u && !scn2_decode(b, n, &scn2_in, 0)) {          /* (version 2: the sixteen scenes; the first eight's cells mirror into the lists) */
+                scn2_sync_to_lists(&scn2_in, &ocj_l);
+                if (m) memcpy(&scn2, &scn2_in, sizeof scn2);
+            } else if (b[0] == 1u && b[1] == OCL_NSCENE && n >= OCJ4_SCNS_KNOWN) {   /* (version 1 converts) */
+                memcpy(ocj_l.scene, b + 2, sizeof ocj_l.scene);
+                ocj_l.scene_used = (uint8_t)rd16(b + 2u + sizeof ocj_l.scene);
+                if (m) scn2_from_v1(&scn2, ocj_l.scene, ocj_l.scene_used);
+            } else if (m) {
+                m->scns_foreign = 1; scn2_clear(&scn2);
+            }
+#else
             if (b[0] == 1u && b[1] == OCL_NSCENE && n >= OCJ4_SCNS_KNOWN) {
                 memcpy(ocj_l.scene, b + 2, sizeof ocj_l.scene);
                 ocj_l.scene_used = (uint8_t)rd16(b + 2u + sizeof ocj_l.scene);
             } else if (m) {
                 m->scns_foreign = 1;           /* (a version this firmware does not read: kept, plays no scenes) */
             }
+#endif
+#if OC_R3_SCENES
+        } else if (tag == T_PERF && m) {
+            if (n >= 1u) (void)perf_decode(b, n);       /* (a table of a version not read: kept, the mode is empty) */
+#endif
         } else if (tag == T_SMPR && n >= 2u) {
             uint32_t c = rd16(b), at = 2;
             for (i = 0; i < c; i++) {          /* (walked whole, whether the metadata is wanted or not: the count must be true) */
@@ -936,7 +975,9 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     }
     /* the record, built in the staging's project part (its bytes are q's now), the commit */
     ocj4_cvrt_out = ocs_exists(OCS_PROJECT, slot) ? ocj4_old_mark(slot) : 0u;   /* (a slot that still has an old record: this save is newer than it; a cut before the old record is deleted must not revert it, Part 4 review 4) */
+    ocj4_scn_live = (uint8_t)xs;
     rlen = ocj4_build(raw, OCJ4_MAX, q, raw, d, ocj_h.pid, &ocj_l, m, xs ? ocp.len : 0, xs ? ocp.hash : 0);
+    ocj4_scn_live = 0;
     ocj4_cvrt_out = 0;
     if (!rlen || ocs_free_count() < ocp_parts_of(rlen)) { rc = 4; goto failed; }
     /* a record this firmware cannot read back is never committed (the slot would be held as OLD FORMAT, unusable). Parsed into the project
@@ -1033,6 +1074,9 @@ static void ocj4_activate(uint32_t slot)
  * frozen phrases */
 static void ocj4_new(void)
 {
+#if OC_R3_SCENES
+    scn2_clear(&scn2); perf_defaults();
+#endif
     ocp_r3_sweep(OCP_SCRATCH);
     ocp_r3_switch(OCP_SCRATCH);
     memset(&ocj4_meta, 0, sizeof ocj4_meta);

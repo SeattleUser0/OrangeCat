@@ -111,6 +111,9 @@ static uint32_t host_usb_lines;                   /* (usb_host.c: the D+ / D- le
 #include "../firmware/src/usb_host.c"            /* (Orange Cat 0.4.20: before ui_draw.c, as in melodee.c: its frz[]) */
 #include "../firmware/src/ui_draw.c"
 #include "../firmware/src/ui_menu.c"
+#if OC_R3_SCENES
+#include "../firmware/src/oc_perf.c"
+#endif
 #include "../firmware/src/ui_input.c"
 #include "../firmware/src/ui_layer.c"
 #include "../firmware/src/upreset.c"
@@ -6514,6 +6517,30 @@ int main(void)
     bad += test_stage_knobs_after_drum();
     bad += test_admission();
 
+#if OC_R3_SCENES
+    {   /* (Release 3, Part 7) Performance Mode: the inert buttons, through the input code itself */
+        uint32_t t0 = 0, r1, r2;
+        kb_perf = 1;
+        fm1_in.buttons = 1u << panel.btn[B_REC];
+        r1 = btn_hold(&t0, B_REC, 1000u, 1);
+        r2 = btn_hold(&t0, B_REC, 1000u + 900u * 1000u * FM1_TICKS_PER_US, 1);
+        bad += check("Part 7: REC held 900 ms in Performance Mode does nothing (no MIXER, no take)", r1 == BT_NONE && r2 == BT_NONE && t0 == 0u);
+        kb_perf = 0; t0 = 0;
+        r1 = btn_hold(&t0, B_REC, 1000u, 1);
+        r2 = btn_hold(&t0, B_REC, 1000u + 900u * 1000u * FM1_TICKS_PER_US, 1);
+        bad += check("... outside the mode the same hold is a hold", r2 == BT_HOLD);
+        fm1_in.buttons = 0;
+        ui.lock = LAYER_PERF; kb_perf = 1;
+        layer_lock_input(1u << panel.btn[B_SAVE]);
+        bad += check("... SAVE pressed in the mode does not close the lock", ui.lock == LAYER_PERF);
+        layer_lock_input(1u << panel.btn[B_PLAY]);
+        bad += check("... PLAY does not either", ui.lock == LAYER_PERF);
+        kb_perf = 0;
+        layer_lock_input(1u << panel.btn[B_SAVE]);
+        bad += check("... outside the mode (the lock only) SAVE closes it, as it always did", ui.lock == 0);
+        ui.lock = 0; kb_perf = 0;
+    }
+#endif
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));
     printf(bad ? "ui: %d FAILED\n" : "ui: all passed\n", bad);
     return bad ? 1 : 0;
