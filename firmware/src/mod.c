@@ -404,7 +404,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     if(address<base || address>=base+sizeof trk || (address-base)%sizeof(track_t))return mod_begin_reference(t);
     mod_route_t *r=&mod_routes[(address-base)/sizeof(track_t)];
     uint32_t changed=!r->valid || r->engine!=t->engine;
-    for(uint32_t k=0;!changed && k<NMSLOT;k++)
+    for(uint32_t k=0;!changed && k<NMSLOT_ALL;k++)
         changed=r->key[k]!=mod_route_key(t,k);
     if(changed)mod_route_prepare(r,t);
     mod.on=1;

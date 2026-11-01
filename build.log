@@ -1,0 +1,30 @@
+gen_909_tables: EXP pot ranges -> /home/userzero/oc-r3/build/gen/x0x_drum_tables.h
+In file included from firmware/src/melodee.c:110:
+In file included from firmware/src/ui_input.c:2495:
+firmware/src/ui_shift.c:98:18: warning: unused variable 'oct_now' [-Wunused-variable]
+        uint32_t oct_now = *pressed & (dn | up);
+                 ^
+In file included from firmware/src/melodee.c:132:
+firmware/src/usb_files.c:785:14: error: unknown type name 'ocj4_frzd_t'
+static const ocj4_frzd_t frzd_hooks = {frzd_get, frzd_name_of};   /* (Release 3) the record's FRZR folders by name (oc_ocj4.c) */
+             ^
+firmware/src/usb_files.c:791:5: error: use of undeclared identifier 'ocj4_frzd'
+    ocj4_frzd = &frzd_hooks;
+    ^
+1 warning and 2 errors generated.
+face PIX: melodee_pixel.txt 105 glyphs, 1 bit, roles [('LB', 2), ('TX', 2), ('VL', 3), ('HR', 5)] = 1447 B
+fonts total 1447 B  -> /home/userzero/oc-r3/build/gen/ui_fonts.h
+icons 12px: 2 cells, 167 B
+icons 16px: 14 cells, 579 B
+icons total 746 B -> /home/userzero/oc-r3/build/gen/ui_icons.h   (61 drawings)
+keycaps: 25 labels -> /home/userzero/oc-r3/build/gen/ui_keycaps.h
+loader: image 8716 B at 0x1c0a800, bss end 0x1c0f5f0
+loader: ota.bin 7461 B
+tables: /home/userzero/oc-r3/build/gen/melodee_tables.h
+fm6 patches: 8 -> /home/userzero/oc-r3/build/gen/melodee_fm6.h
+cz1 factory: 64 tones, 5389 B packed -> /home/userzero/oc-r3/build/gen/melodee_cz1.h
+Prophet factory: 200 exact native programs -> /home/userzero/oc-r3/build/gen/melodee_prophet_factory.h
+pack: 57 tables, 40232 of 40960 bytes, hash 657ED950, 728 bytes spare
+pack: + scene trailer 621 bytes (3 scenes, 587 bytes of them), 107 bytes spare
+stub: 2268 B of 3808 (59.6%), version 3, sha256 baee55ed142fe1cc
+build: pi32v2/bin/clang failed

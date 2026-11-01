@@ -27,6 +27,8 @@ Revisions:
   0.9.0: first version.
   0.10.0: FW_API_ADDR in the header.
   0.13.3: OC_FW_VERSION in the header (the VERSION file), for the card browser's "Install set".
+  Release 3 (Part 2): the parameter enum's text and its evaluated P_COUNT and P_E0 are hashed too (OC_LFO2 in the environment), so a module built with LFO 2's
+  seven parameters before P_E0 is refused by a firmware without them and the reverse.
   0.12.2: the self-test also moves page_t, fw_pages_t, the first and the last member the Prophet module added to fw_api_t, and a preprocessor line in a structure.
 """
 import re
@@ -94,12 +96,53 @@ def struct_text(text, name):
     return name + "{" + fold(text[i + 1:end]) + "}"
 
 
+def param_enum(text):
+    """(Release 3, Part 2) the body of the enum that ends in P_COUNT (core.h: the track parameters), comments stripped"""
+    for m in re.finditer(r"enum\s*\{([^{}]*)\}", text):
+        if re.search(r"\bP_COUNT\b", m.group(1)):
+            return m.group(1)
+    raise SystemExit("gen_fw_api_id: no enum with P_COUNT found in core.h")
+
+
+def param_counts(body, switches):
+    """(P_COUNT, P_E0) as the compiler evaluates the enum, with the '#if OC_x' blocks it holds read from switches (name -> 0/1):
+    the identifier must differ between a firmware whose P_E0 is 116 and one whose P_E0 is 123, which the enum's text alone does not
+    show (it is one text with the switch on or off)"""
+    on, stack, names = True, [], []
+    for ln in body.split("\n"):
+        t = ln.strip()
+        if t.startswith("#if"):
+            m = re.match(r"#if\s+(\w+)\s*$", t)
+            if not m:
+                raise SystemExit(f"gen_fw_api_id: a preprocessor line in the parameter enum that is not '#if NAME': {t}")
+            stack.append(on)
+            on = on and bool(switches.get(m.group(1), 0))
+        elif t.startswith("#endif"):
+            on = stack.pop()
+        elif t.startswith("#"):
+            raise SystemExit(f"gen_fw_api_id: unexpected preprocessor line in the parameter enum: {t}")
+        elif on:
+            names += [n.strip() for n in t.split(",") if n.strip()]
+    return len(names) - 1, names.index("P_E0")        # P_COUNT is the last name and has the value of the count before it
+
+
+def switches_now():
+    """the switches the enum depends on, from the environment build.py and ci_step.py set (OC_LFO2=1)"""
+    import os
+    return {"OC_LFO2": 1 if os.environ.get("OC_LFO2") == "1" else 0}
+
+
 def collect(read):
     out = []
     for fname, names in SOURCES:
         text = strip(read(fname))
         for n in names:
             out.append(struct_text(text, n))
+    core = strip(read("core.h"))                      # (Release 3, Part 2) the parameter enum's text, and its evaluated counts
+    body = param_enum(core)
+    out.append("enum{" + fold(body) + "}")
+    pc, pe0 = param_counts(fold(body), switches_now())
+    out.append(f"P_COUNT={pc};P_E0={pe0}")
     return out
 
 
@@ -160,6 +203,7 @@ def selftest():
         ("fw_api_t's last 0.12.1 member renamed (voice_was)", "fw_api.h", "    const uint8_t *voice_was;", "    const uint8_t *voice_wasnt;"),
         ("fw_api_t's first 0.12.1 member retyped (p5_patch)", "fw_api.h", "    void *p5_patch;", "    const void *p5_patch;"),
         ("a preprocessor line inside engine_t", "core.h", "    uint8_t oneshot;", "#if 1\n    uint8_t oneshot;\n#endif"),
+        ("a parameter appended before P_E0 (Release 3)", "core.h", "    P_STRUM, P_STROKE,", "    P_STRUM, P_STROKE, P_NEWONE,"),
     ]:
         if old not in base[f]:
             print(f"gen_fw_api_id: {what}: text to change not found")
@@ -168,6 +212,18 @@ def selftest():
         t = dict(base)
         t[f] = base[f].replace(old, new, 1)
         expect(what + " moves the id", fnv32(collect(lambda g: t[g])), False)
+    # (Release 3) the evaluated counts: the same text with OC_LFO2 on and off gives two identifiers, and P_E0 is 116 or 123
+    import os
+    keep = os.environ.get("OC_LFO2")
+    try:
+        os.environ["OC_LFO2"] = "0"; off = fnv32(collect(lambda f: base[f])); c0 = param_counts(fold(param_enum(strip(base["core.h"]))), switches_now())
+        os.environ["OC_LFO2"] = "1"; on = fnv32(collect(lambda f: base[f])); c1 = param_counts(fold(param_enum(strip(base["core.h"]))), switches_now())
+    finally:
+        if keep is None: os.environ.pop("OC_LFO2", None)
+        else: os.environ["OC_LFO2"] = keep
+    good = off != on and c0 == (124, 116) and c1 == (131, 123)
+    print(f"gen_fw_api_id: {'OC_LFO2 on and off give two identifiers; P_COUNT, P_E0 124, 116 and 131, 123':<62} {'ok' if good else 'FAIL'}")
+    ok &= good
     print("gen_fw_api_id: selftest " + ("passed" if ok else "FAILED"))
     return 0 if ok else 1
 

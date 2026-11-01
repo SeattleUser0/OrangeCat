@@ -278,7 +278,8 @@ def app_flags():
                  "OC_CLIP_SEL",     # (the new interface 0.11: UI_BUILD.md step 11) copy and paste of notes and of a step's feel; needs OC_CLIP=1; off by default
                  "OC_ONE_AUTH",     # (ui-fix 7: UI_BUILD.md "ui-fix 7") one authority for every note; needs OC_STEP_PAGES=1; off by default
                  "OC_SLIDE",        # (ui-fix 8: UI_BUILD.md "ui-fix 8") slide as a legato glide in every voice mode; needs OC_STEP_PAGES=1; off by default
-                 "OC_R3_FORMAT"):   # (Release 3, branch r3-format: UI_BUILD.md "Release 3 format revision") the project format revision; off by default
+                 "OC_R3_FORMAT",    # (Release 3, branch r3-format: UI_BUILD.md "Release 3 format revision") the project format revision; off by default
+                 "OC_LFO2"):        # (Release 3, Part 2) a second LFO a track (P_COUNT 131); needs OC_R3_FORMAT=1; off by default
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

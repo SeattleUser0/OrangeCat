@@ -1071,9 +1071,128 @@ static int test_rooms(void)
     return bad;
 }
 
+
+
+#if OC_LFO2
+/* ------------------------------------------------------------ LFO 2: records by count --- */
+/* a FUN23 image (np 124) of a FUN24 one (np 131): the same project as the firmware before LFO 2 wrote it. The tracks' values lose LFO 2's seven;
+ * the sequential run after them (chain, motion, the user ids) moves up by 28 bytes; the motion events on the engine ids move down by 7 */
+static void fun23_of(const project_store_t *n24, project_store_t *o23)
+{
+    const uint8_t *n = n24->raw;
+    uint8_t *o = o23->raw;
+    uint32_t pn = 68u, po = 68u, k, i, mot_at_n, seq_end_n;
+    memcpy(o, n, 68);
+    for (k = 0; k < NTRK; k++) {
+        for (i = 0; i < P_E0 - 7u; i++) o[po++] = n[pn + i];            /* the common ids below LFO 2 */
+        for (i = 0; i < 8u; i++) o[po++] = n[pn + P_E0 + i];             /* P_E0..P_E7 */
+        po += 0; pn += P_COUNT;
+        memcpy(o + po, n + pn, 2u + NSTEP * 8u); po += 2u + NSTEP * 8u; pn += 2u + NSTEP * 8u;
+    }
+    mot_at_n = pn + (uint32_t)sizeof(chain_config_t);
+    seq_end_n = mot_at_n + (uint32_t)sizeof(motion_store_t) + 2u + 2u * NTRK;
+    memcpy(o + po, n + pn, seq_end_n - pn);
+    for (i = 0; i < n[mot_at_n]; i++) {                                  /* events: place, param, value (4 bytes) after count, on, rsv[2] */
+        uint8_t *ev = o + po + (mot_at_n - pn) + 4u + 4u * i;
+        if (ev[1] >= P_E0 && ev[1] < P_COUNT && !(ev[2] | ev[3] << 8 >= 256)) ev[1] = (uint8_t)(ev[1] - 7u);
+    }
+    po += seq_end_n - pn;
+    memset(o + po, 0, PROJ_STORE_SIZE - po);                              /* the fixed-offset parts after: copied from the new record */
+    for (i = 0; i < PROJ_STORE_SIZE; i++) if (i >= PROJ_JFX_WIRE - 0u) o[i] = n[i];
+    { uint32_t m = PROJ_FUN23_MAGIC, sum; memcpy(o, &m, 4); o[66] = 124; sum = proj_hash(o, PROJ_STORE_SIZE - 4u); memcpy(o + PROJ_STORE_SIZE - 4u, &sum, 4); }
+}
+static int test_lfo2_records(void)
+{
+    int bad = 0;
+    static project_store_t n24, o23;
+    static project_t q, r;
+    uint32_t k;
+    reset();
+    fill_all(90, 2);
+    for (k = 0; k < NTRK; k++) {
+        trk[k].p[P_L2RATE] = (int16_t)(30 + k); trk[k].p[P_L2WAVE] = 2; trk[k].p[P_L2SYNC] = 3; trk[k].p[P_L2TRIG] = 1; trk[k].p[P_L2POL] = 1; trk[k].p[P_L2DST] = (int16_t)(6 + k); trk[k].p[P_L2AMT] = -17;
+    }
+    motion.count = 0;
+    motion.event[motion.count].place = 3; motion.event[motion.count].param = P_E1; motion.event[motion.count].value = 9; motion_pattern[motion.count++] = 0;
+    motion.event[motion.count].place = 4; motion.event[motion.count].param = P_DUB_FDBK; motion.event[motion.count].value = 70; motion_pattern[motion.count++] = 0;
+    motion.event[motion.count].place = 5; motion.event[motion.count].param = P_L2RATE; motion.event[motion.count].value = 44; motion_pattern[motion.count++] = 0;
+    motion.rsv[0] = 1;
+    project_capture(&q);
+    R3CHK("a FUN24 record (np 131) packs and unpacks with LFO 2's seven kept", proj_pack(&n24, &q) && n24.raw[66] == P_COUNT && proj_unpack(&r, n24.raw) &&
+          r.t[2].p[P_L2RATE] == 32 && r.t[2].p[P_L2DST] == 8 && r.t[2].p[P_L2AMT] == -17 && r.t[0].p[P_L2POL] == 1 && r.t[1].p[P_L2SYNC] == 3 && r.t[3].p[P_L2WAVE] == 2);
+    fun23_of(&n24, &o23);
+    R3CHK("a FUN23 record (np 124) loads by count: LFO 2 off at its defaults, every id below it and P_E0..P_E7 as they were",
+          proj_unpack(&r, o23.raw) && ({ uint32_t ok = 1; for (k = 0; k < NTRK; k++) {
+              for (uint32_t i = 0; i < P_L2RATE; i++) ok &= r.t[k].p[i] == q.t[k].p[i];
+              for (uint32_t i = 0; i < 8u; i++) ok &= r.t[k].p[P_E0 + i] == q.t[k].p[P_E0 + i];
+              ok &= r.t[k].p[P_L2RATE] == TP[P_L2RATE].def && r.t[k].p[P_L2DST] == 0 && r.t[k].p[P_L2AMT] == 0; } ok; }));
+    R3CHK("... its motion on the old P_E1 lands on the new P_E1, and its DUB TAPE lane is not dropped (FUN23 keeps FUN23's behaviour)",
+          r.motion.count >= 2u && ({ uint32_t e1 = 0, dub = 0; for (uint32_t i = 0; i < r.motion.count; i++) { e1 |= r.motion.event[i].param == P_E1; dub |= r.motion.event[i].param == P_DUB_FDBK; } e1 && dub; }));
+    R3CHK("... a FUN23 record is still known, FUN22's np 122 too, and a FUN23 with np 131 is refused", proj_magic_known(PROJ_FUN23_MAGIC) && ({ project_store_t bad131 = o23; bad131.raw[66] = 131; uint32_t sum = proj_hash(bad131.raw, PROJ_STORE_SIZE - 4u); memcpy(bad131.raw + PROJ_STORE_SIZE - 4u, &sum, 4); !proj_unpack(&r, bad131.raw); }));
+    /* a phrase with a lane on LFO 2's RATE through the project and the pool */
+    reset();
+    fill_all(91, 2);
+    motion.count = 0;
+    motion.event[0].place = 2; motion.event[0].param = P_L2RATE; motion.event[0].value = 51; motion_pattern[0] = 0; motion.count = 1; motion.rsv[0] = 1;
+    R3CHK("a project with a motion lane on P_L2RATE saves", project_save_as(0, "L2LANE") == 0);
+    reboot(); wipe_runtime(); project_load(0);
+    R3CHK("... and loads it back (a phrase with np 131 and a 5-byte event)", ({ uint32_t f = 0; for (uint32_t i = 0; i < motion.count; i++) f |= motion.event[i].param == P_L2RATE && motion.event[i].value == 51; f; }));
+    /* user presets */
+    {
+        up_rec_t u;
+        int16_t v[P_COUNT];
+        memset(&u, 0, sizeof u);
+        u.used = UP_USED; u.ver = UP_VER; u.engine = HOST_SYNTH; u.np = 124;
+        memcpy(u.name, "OLD124", 6);
+        for (uint32_t i = 0; i < 124u; i++) u.packed[i] = (uint8_t)(64 + (int)(i % 20) - 5);
+        R3CHK("a user preset of np 124 is valid and loads by count (LFO 2 at its defaults, P_E0..P_E7 from its last eight)", up_valid(&u) && (up_values(&u, v), 1) &&
+              v[P_L2RATE] == TP[P_L2RATE].def && v[P_L2AMT] == 0 &&
+              v[P_E0] == (int16_t)clamp((int)u.packed[116] - 64, param_desc_of(HOST_SYNTH, P_E0)->min, param_desc_of(HOST_SYNTH, P_E0)->max));
+        u.np = P_COUNT;
+        for (uint32_t i = 0; i < P_COUNT; i++) u.packed[i] = (uint8_t)(64 + (int)(i % 7));
+        up_values(&u, v);
+        R3CHK("a user preset of np 131 is valid and keeps LFO 2's seven", up_valid(&u) && v[P_L2RATE] == (int16_t)clamp((int)u.packed[P_L2RATE] - 64, TP[P_L2RATE].min, TP[P_L2RATE].max));
+    }
+    /* a template of np 124 (TPLM) and one of np 131 (TPLN) */
+    {
+        static tmpl_t t24;
+        static uint8_t old[sizeof(tmpl_t)];
+        uint8_t *nb;
+        uint32_t po, pn, tail;
+        uint32_t oldlen = (uint32_t)sizeof(tmpl_t) - NTRK * 2u * (P_COUNT - 124u), m = TMPL_MAGIC_M;
+        reset();
+        template_save();                                     /* (a real template: valid native patches) */
+        for (k = 0; k < NTRK; k++) for (uint32_t i = 0; i < P_COUNT; i++) tmpl.t[k].p[i] = (int16_t)clamp((int)((i * 3 + k) % 40), param_desc_of(tmpl.t[k].engine % NENGINES, i)->min, param_desc_of(tmpl.t[k].engine % NENGINES, i)->max);
+        t24 = tmpl;
+        R3CHK("a TPLN template (np 131) is the current layout", tmpl_param_count(sizeof(tmpl_t)) == P_COUNT && tmpl_blob_valid((const uint8_t *)&t24, sizeof t24) == 1);
+        nb = (uint8_t *)&t24;
+        memcpy(old, nb, 2u * PROJ_GLOBALS + 2u);
+        po = pn = 2u * PROJ_GLOBALS + 2u;
+        for (k = 0; k < NTRK; k++) {
+            old[po++] = nb[pn++]; old[po++] = nb[pn++];
+            for (uint32_t i = 0; i < P_E0 - 7u; i++) { memcpy(old + po, nb + pn + 2u * i, 2); po += 2; }
+            for (uint32_t i = 0; i < 8u; i++) { memcpy(old + po, nb + pn + 2u * (P_E0 + i), 2); po += 2; }
+            pn += 2u * P_COUNT;
+        }
+        tail = (uint32_t)sizeof(tmpl_t) - 8u - pn;
+        memcpy(old + po, nb + pn, tail); po += tail;
+        memcpy(old + po, &oldlen, 4); memcpy(old + po + 4, &m, 4);
+        R3CHK("a TPLM template (np 124) is recognised, valid, and loads by count", tmpl_param_count(oldlen) == 124u && tmpl_blob_valid(old, oldlen) == 1 && tmpl_take(old, oldlen) &&
+              ({ uint32_t ok = 1; for (k = 0; k < NTRK; k++) {
+                     for (uint32_t i = 0; i < P_L2RATE; i++) ok &= tmpl.t[k].p[i] == t24.t[k].p[i];
+                     for (uint32_t i = 0; i < 8u; i++) ok &= tmpl.t[k].p[P_E0 + i] == t24.t[k].p[P_E0 + i];
+                     ok &= tmpl.t[k].p[P_L2RATE] == TP[P_L2RATE].def && tmpl.t[k].p[P_L2AMT] == 0; } ok; }));
+    }
+    return bad;
+}
+#endif
+
 int main(void)
 {
     int bad = 0;
+#if OC_LFO2
+    bad |= test_lfo2_records();
+#endif
     bad |= test_round_trip_r3();
     bad |= test_255();
     bad |= test_copy_and_scratch();

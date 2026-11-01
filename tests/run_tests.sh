@@ -686,6 +686,16 @@ if core && [ $TABLES = 1 ]; then
     # (Release 3, branch r3-format: docs/orangecat/UI_BUILD.md "Release 3 format revision") the project format revision, OC_R3_FORMAT=1
     t "Release 3 format, Part 1: project-owned phrases in chunks, the generation bit, OCJ4's sections and carried bytes, 255 phrases, the scratch, power cuts, a full store" \
         oc_r3_test -O1 -DOC_R3_FORMAT=1 $FW -Itests
+    t "Release 3 format, Part 2 (OC_LFO2): FUN24 and FUN23 by count, TPLN and TPLM, presets, a motion lane on LFO 2, the whole of Part 1 with np 131" \
+        oc_r3_lfo2:oc_r3_test -O1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW -Itests
+    t "Release 3 format, Part 2 (OC_LFO2): LFO 2 (waves, UNI, SYNC, TRIG, the fifth slot, unused, the cached path)" \
+        lfo2_test -O2 -DMELODEE_LEGACY_EXTRAS=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW
+    t "Release 3 format, Part 2: the wide editor commands, INFO's tagged block, the 7-bit commands cut to 127 values (OC_R3_FORMAT)" \
+        editor_r3:editor_test -O1 -DOC_R3_FORMAT=1 $FW
+    t "Release 3 format, Part 2: the same with LFO 2 (ids 128 to 130, the push as PARAM_CHANGED_W)" \
+        editor_lfo2:editor_test -O1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW
+    t "modulation matrix with LFO 2 built in: off = bit-identical, the math (the fifth slot is not in the way)" mod_lfo2:mod_test \
+        -DMELODEE_LEGACY_EXTRAS=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -O2 $FW -- "$OUT/mod_lfo2"
     t "Release 3 format, Part 1 under the sanitizers" oc_r3_san:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_R3_FORMAT=1 $FW -Itests
     t "double-tap layers, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
