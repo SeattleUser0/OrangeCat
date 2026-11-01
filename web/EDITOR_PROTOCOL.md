@@ -1630,7 +1630,7 @@ and evenly spaced remaining tones. Input release and STOP cancel pending tones;
 MIDI sustain follows existing ownership. ARP bypasses strumming. Live recording
 captures the staggered onsets; STEP entry continues to write a complete chord.
 
-## Orange Cat: parameter ids past 7 bits (Release 3, builds with OC_R3_FORMAT; commands 130 to 134)
+## Orange Cat: parameter ids past 7 bits (Release 3, builds with OC_R3_FORMAT; commands 130, 131, 132, 133 and 134)
 
 With LFO 2 (OC_LFO2) a track has 131 parameters, so an id no longer fits one 7-bit byte. The 7-bit commands keep their meaning for ids
 0 to 126 and carry **at most 127 values**; ids past that travel on the extension (command 0, n = command - 128, so the frame is
@@ -1649,3 +1649,24 @@ With LFO 2 (OC_LFO2) a track has 131 parameters, so an id no longer fits one 7-b
   with all P_COUNT values.
 - Each answers nothing for a bad length, scope, track or id; a SET restores a momentary change first and does not push back the page's
   own change.
+
+## Orange Cat: records by type and id (Release 3, builds with OC_R3_FORMAT; commands 135, 136 and 137)
+
+A Release 3 unit keeps each project as a record of the store with an id that has bit 15 set (type 1, id `0x8000 | slot`) and its phrases as chunk records (type 2,
+id `0x8000 | slot << 9 | generation << 8 | chunk`); the fixed arrangement objects 64..83 hold only what a unit of the format before still has. These extension
+commands (command 0 and a first byte 7, 8 or 9; every byte stays 7 bit) read and write the store's own records by type and id. Announced by INFO's format byte
+(the tagged block 0x57: format 3 or more). Same session as the other backup commands (a plain LIST began it: rc 5 otherwise), refused while the transport runs (rc 3).
+A key is four bytes: type (1 project, 2 pool), id lo, id mid (7 bits each), id hi (2 bits). Listed are the project and pool records of the store except the music's
+scratch slot's chunks; the format before's records (ids below 4 and below 16) are among them.
+
+- **135 LISTR** (extension byte 7) `start lo, start hi` -> `7, rc, start lo, start hi, n (0..16), more` then n x `key (4), size (5 x 7), CRC-32 (5 x 7)`.
+- **136 GETR** (8) `key (4), offset (5 x 7), count (2 x 7, 1..256)` -> `8, key (4), rc, offset (5), count (2), pack7 data`.
+- **137 PUTR** (9) `op, key (4)` then: op 0 begin `size (5), CRC (5)`; 1 data `offset (5), pack7`; 2 commit; 3 abort; 4 finish; 5 clear (a project key: that slot's
+  Release 3 record and chunks go) -> `9, op, rc`. rc: 0 done; 1 refused (arguments, a type or id the format does not have); 2 the CRC or the shape of the record (nothing
+  is changed); 3 the transport runs; 4 no room or a flash error; 5 stale (no begin, a USB reset, 15 s); 6 a chunk of a slot whose record names that very chunk under
+  the same generation (clear the slot first, op 5). A record put is the store's record as it is, checked by type (a project record's OCJ4 header and sections, a chunk's
+  table) before its commit. Restore the chunks first, then the project records, then **finish**: it sweeps the chunks no record names and reads the live pool again
+  from its slot's record. An old-format record put (ids below 4, 16) is converted at the next start, or by CONVERT, once it and its pool chunks are all there.
+
+ARRANGE (command 102) gains **op 5 INFO_PAGE** `page (0..3)` -> `5, rc, page, count, then count x (flags, LEN, CRC-32 (5 x 7))`: phrases 64 page + 1 up to 64 each
+(the last page 63), in INFO's form; INFO keeps its first 64.

@@ -20,6 +20,26 @@ const isSample = (id) => id >= 32 && id <= 34;
 const maxSize = id => id >= 64 ? (id === ARR_LIVE ? 16384 : ARR_REC_MAX) : id >= 32 ? 81920 : (id === 0 || (id >= 2 && id <= 5)) ? 27904 : 3840;
 const idsOf = (n) => (n === BACKUP_IDS.length ? BACKUP_IDS : n === BACKUP_IDS_V1.length ? BACKUP_IDS_V1 : n === 9 ? BACKUP_IDS_BANKS : n === 17 ? BACKUP_IDS_CZ : n === 21 ? BACKUP_IDS_OWN : n === 23 ? BACKUP_IDS_NATIVE : n === 28 ? BACKUP_IDS_P5 : n===29?BACKUP_IDS_SHARED : n === BACKUP_IDS_ARR.length ? BACKUP_IDS_ARR : null);
 export const BACKUP_CMD = { LIST: 65, GET: 66, PUT: 67 };
+// (Release 3, Part 6) the unit's project format from an INFO reply's payload: the tagged block 0x57 that closes it (version 1: pcount, e0, format), else 2 (a firmware
+// before Release 3 sends no block)
+export const infoFormat = (a) => (a.length >= 7 && a.at(-7) === 0x57 && a.at(-6) === 1 ? a.at(-1) : 2);
+// (Release 3, Part 6, PROJECT_FORMAT_R3.md section 10) what the installer owes before it sends a firmware of project format pkgFormat to a unit that answered INFO with
+// `unit` ({answered, format, supported}): kind "none" (the unit is on that format already, or the package is not a conversion), "warn" (the one-way warning, no backup
+// possible: the unit did not answer or cannot export one), "gate" (the warning, then a complete backup saved from the unit before Install goes on). downgrade: the
+// package is older than the unit's projects. No downgrade is refused.
+export function r3Gate(pkgFormat, unit) {
+  const fmt = pkgFormat || 2;
+  if (unit.answered && unit.format >= 3) return fmt >= 3 ? { kind: "none", downgrade: false } : { kind: unit.supported ? "gate" : "warn", downgrade: true };
+  if (fmt < 3) return { kind: "none", downgrade: false };
+  return { kind: unit.answered && unit.supported ? "gate" : "warn", downgrade: false };
+}
+// (Release 3, Part 6) the records by type and id: extension bytes 7 LISTR, 8 GETR, 9 PUTR (firmware: editor_backup.c, web/EDITOR_PROTOCOL.md "Records by type
+// and id"). A Release 3 unit's projects are records with ids that have bit 15 set, not the fixed ids 64..83; the archive keeps them in `records`
+// (type, id, size, crc, data) beside `objects`, as version 2 (a page that does not know them refuses the file rather than restoring a lossy copy)
+export const REC = { LIST: 7, GET: 8, PUT: 9, PROJECT: 1, POOL: 2 };
+export const recKey = (type, id) => [type, id & 127, (id >> 7) & 127, id >>> 14];
+const recSlotOf = (type, id) => (type === REC.POOL ? (id & 0x8000 ? (id >> 9) & 7 : -1) : (id & 0x8000 ? id & 3 : -1));
+const REC_MAX = 12 * 3808;
 const BACKUP_CHUNK = 256;
 export const bkU32 = (n) => Array.from({ length: 5 }, (_, i) => (n >>> (i * 7)) & (i === 4 ? 15 : 127));
 export const bkR32 = (a, off = 0) => {
@@ -75,7 +95,7 @@ const bkBase64 = (bytes) => { let s = ""; for (const b of bytes) s += String.fro
 export function readBackup(file) {
   if (typeof file === "string") file = JSON.parse(file);
   const ids = file && Array.isArray(file.objects) ? idsOf(file.objects.length) : null;
-  if (!file || file.format !== "felucca-backup" || file.version !== 1 || !ids)
+  if (!file || file.format !== "felucca-backup" || (file.version !== 1 && file.version !== 2) || !ids || (file.version === 1 && file.records?.length))
     throw new Error("Not a complete Orange Cat backup");
   const objects = file.objects.map((o, i) => {
     if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > maxSize(o.id) ||
@@ -123,12 +143,73 @@ export function readBackup(file) {
     return { ...o, bytes };
   });
   if (!objects[0].size || !objects[1].size) throw new Error("Backup is missing the current music or settings");
-  return { ...file, objects };
+  const records = readRecords(file.records);
+  return { ...file, objects, records };
+}
+// (Release 3) the archive's records, validated byte for byte before the first write; [] when there are none
+function readRecords(list) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || list.length > 64) throw new Error("Invalid backup records");
+  const seen = new Set();
+  return list.map((o) => {
+    if (!o || ![REC.PROJECT, REC.POOL].includes(o.type) || !Number.isInteger(o.id) || o.id < 0 || o.id > 0xffff || seen.has(o.type * 65536 + o.id) ||
+        !Number.isInteger(o.size) || o.size < 1 || o.size > REC_MAX || !Number.isInteger(o.crc) || o.crc < 0 || o.crc > 0xffffffff ||
+        typeof o.data !== "string" || o.data.length !== 4 * Math.ceil(o.size / 3) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(o.data))
+      throw new Error("Invalid backup record");
+    seen.add(o.type * 65536 + o.id);
+    const bytes = Uint8Array.from(atob(o.data), (c) => c.charCodeAt(0));
+    if (bytes.length !== o.size || bkCrc(bytes) !== o.crc) throw new Error("Backup record checksum mismatch");
+    if (o.type === REC.PROJECT && o.id & 0x8000 && (o.id & 0x7fff) > 3) throw new Error("Invalid project record");
+    if (o.type === REC.POOL && o.id & 0x8000 && (((o.id >> 9) & 7) > 3 || !(o.id & 255))) throw new Error("Invalid phrase chunk record");
+    if (o.type === REC.PROJECT && o.id & 0x8000 && new DataView(bytes.buffer).getUint32(0, true) !== 0x344a434f) throw new Error("Invalid project record");
+    return { ...o, bytes };
+  });
+}
+// (Release 3) the unit's record inventory in pages of 16, [] when it does not answer (a firmware before Release 3 never replies: a short timeout)
+async function recManifest(request) {
+  const out = [];
+  for (let start = 0; ; ) {
+    let a;
+    try { a = await request([0, [REC.LIST, start & 127, start >> 7]], { timeout: out.length ? 3000 : 1200, retries: 0 }); }
+    catch (e) { if (out.length) throw e; return []; }
+    if (a[0] !== REC.LIST) throw new Error("Unexpected record reply");
+    bkCheck(a[1]);
+    const n = a[4], more = a[5];
+    if (a.length !== 6 + n * 14 || n > 16) throw new Error("Incomplete record inventory");
+    for (let i = 0; i < n; i++) {
+      const p = 6 + i * 14, id = a[p + 1] | a[p + 2] << 7 | a[p + 3] << 14, size = bkR32(a, p + 4), crc = bkR32(a, p + 9);
+      if (![REC.PROJECT, REC.POOL].includes(a[p]) || size > REC_MAX || (!size && crc)) throw new Error("Invalid record inventory");
+      out.push({ type: a[p], id, size, crc });
+    }
+    if (!more || !n) return out;
+    start += n; if (out.length > 64) throw new Error("Record inventory too long");
+  }
 }
 // (0.14.2) the arrangement objects' inventory, in the session a plain LIST began; [] when the firmware has none (it answers LIST 1 with rc 1)
 async function arrManifest(request) {
   const a = await request([BACKUP_CMD.LIST, [1]], { timeout: 6000, retries: 0 });
   return a[0] === 1 && a[1] === 1 ? [] : bkManifest(a, true);
+}
+async function captureRecords(request, onProgress) {
+  const list = await recManifest(request), records = [];
+  for (const o of list) {
+    const bytes = new Uint8Array(o.size);
+    for (let off = 0; off < o.size; off += BACKUP_CHUNK) {
+      const size = Math.min(BACKUP_CHUNK, o.size - off);
+      const a = await request([0, [REC.GET, ...recKey(o.type, o.id), ...bkU32(off), size & 127, size >>> 7]], { timeout: 1000, retries: 1 });
+      if (a[0] !== REC.GET) throw new Error("Unexpected record reply");
+      bkCheck(a[5]);
+      if (a[1] !== o.type || (a[2] | a[3] << 7 | a[4] << 14) !== o.id || bkR32(a, 6) !== off || (a[11] | a[12] << 7) !== size) throw new Error("Unexpected record reply");
+      bytes.set(bkUnpack(a.slice(13), size), off);
+    }
+    if (bkCrc(bytes) !== o.crc) throw new Error("The device changed during backup. Try again while stopped.");
+    records.push({ ...o, data: bkBase64(bytes) }); onProgress(0, 0);
+  }
+  // the inventory again: a save between the pages, or after the last record, renames chunk generations and would leave a record naming a chunk this archive does not hold
+  const again = await recManifest(request);
+  if (again.length !== list.length || again.some((o, i) => o.type !== list[i].type || o.id !== list[i].id || o.size !== list[i].size || o.crc !== list[i].crc))
+    throw new Error("The device changed during backup. Try again while stopped.");
+  return records;
 }
 export async function captureBackup(request, firmware, onProgress = () => {}) {
   const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
@@ -148,14 +229,53 @@ export async function captureBackup(request, firmware, onProgress = () => {}) {
     objects.push({ ...o, data: bkBase64(bytes) });
   }
   const file = { format: "felucca-backup", version: 1, firmware, created: new Date().toISOString(), objects };
+  const records = await captureRecords(request, onProgress);
+  if (records.length) { file.records = records; file.version = 2; }
   readBackup(file); return file;
+}
+// (Release 3) does the unit answer the records commands: a LISTR with no reply is a firmware without them
+async function recSupported(ask) { try { return (await ask([0, [REC.LIST, 0, 0]], { timeout: 1200 }))[0] === REC.LIST; } catch { return false; } }
+// (Release 3) the records written: the pool chunks first, then the project records, then finish. A chunk of a slot whose record names that very chunk under
+// the same generation (rc 6) cannot be written beside it: that slot's Release 3 record and chunks are cleared first (op 5) and its chunks and record written
+// whole. That is the one window in which a power cut leaves the slot empty; the page says so before it starts (restoreBackup is only called after the user's confirm)
+async function restoreRecords(ask, records, progress) {
+  const put = async (op, type, id, extra = []) => {
+    const a = await ask([0, [REC.PUT, op, ...recKey(type, id), ...extra]], { timeout: op === 4 ? 15000 : 4000 });
+    if (a[0] !== REC.PUT || a[1] !== op) throw new Error("Unexpected record reply");
+    return a[2];
+  };
+  const order = [...records.filter((r) => r.type === REC.POOL), ...records.filter((r) => r.type === REC.PROJECT)];
+  const cleared = new Set();
+  for (const o of order) {
+    let rc = await put(0, o.type, o.id, [...bkU32(o.size), ...bkU32(o.crc)]);
+    const slot = recSlotOf(o.type, o.id);
+    if (rc === 6 && slot >= 0 && !cleared.has(slot)) {
+      bkCheck(await put(5, REC.PROJECT, 0x8000 | slot));
+      cleared.add(slot);
+      rc = await put(0, o.type, o.id, [...bkU32(o.size), ...bkU32(o.crc)]);
+    }
+    bkCheck(rc);
+    try {
+      for (let off = 0; off < o.size; off += BACKUP_CHUNK) {
+        const chunk = o.bytes.subarray(off, off + BACKUP_CHUNK);
+        bkCheck(await put(1, o.type, o.id, [...bkU32(off), ...bkPack(chunk)]));
+        progress(chunk.length);
+      }
+      bkCheck(await put(2, o.type, o.id));
+    } catch (e) { await put(3, o.type, o.id).catch(() => {}); throw e; }
+  }
+  bkCheck(await put(4, REC.PROJECT, 0));
 }
 export async function restoreBackup(request, file, onProgress = () => {}) {
   const archive = readBackup(file); // Validate every byte before the first destructive request.
-  const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0;
+  const total = archive.objects.reduce((n, o) => n + o.size, 0) + (archive.records || []).reduce((n, o) => n + o.size, 0); let done = 0;
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const supported = bkManifest(await ask([BACKUP_CMD.LIST, []]));
   if (archive.objects.some((o) => o.id >= 64) && supported.length === BACKUP_IDS_SHARED.length) supported.push(...await arrManifest(ask));
+  const records = archive.records || [];
+  const keyed = records.length ? await recSupported(ask) : false;
+  if (records.length && !keyed) throw new Error("This firmware cannot restore the project records of this backup");
+  const recSlots = new Set(records.filter((r) => r.type === REC.PROJECT && r.id & 0x8000).map((r) => r.id & 3));
   const liveSize = supported.find(o => o.id === 0)?.size || 0;
   for (const o of archive.objects) if ((o.id === 0 || o.id >= 2 && o.id <= 5) && o.size > liveSize && !(liveSize >= 19008 && [19084,19092,20224].includes(o.size)))
     throw new Error("This backup needs firmware with larger recording storage");
@@ -176,7 +296,13 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   // and the pool (64..83) come after the slots (2..5), which write the pool too. Other objects commit individually; a disconnect can
   // leave a partial restore.
   const live = archive.objects.filter((o) => o.id === ARR_LIVE);
-  for (const o of [...archive.objects.slice(2).filter((o) => o.id !== ARR_LIVE), archive.objects[1], archive.objects[0], ...live]) {
+  // (Release 3) with the records, the slots' own FBKKs (2..5) and the format before's arrangement objects (64..83) are not written for a slot the records
+  // hold: the records are the slot whole, and the FBKK would only write a lossy copy first
+  const skip = (o) => records.length && ((o.id >= 2 && o.id <= 5 && recSlots.has(o.id - 2)) || (o.id >= 64 && o.id < ARR_LIVE));
+  const first = archive.objects.slice(2).filter((o) => o.id !== ARR_LIVE && !skip(o));
+  const rest = [archive.objects[1], archive.objects[0], ...live];
+  for (const o of [...first, { records: true }, ...rest]) {
+    if (o.records) { if (records.length) await restoreRecords(ask, records, (n) => { done += n; onProgress(done, total); }); continue; }
     if (!supported.some(x => x.id === o.id)) continue;
     if (isSample(o.id)) {
       const slot = o.id - 32;
@@ -215,14 +341,14 @@ export class BackupConnection {
     input.onmidimessage = (e) => {
       const d = e.data;
       if (d.length < 6 || d[0] !== 240 || d[1] !== 125 || d[2] !== 70 || d[3] !== 76 || d.at(-1) !== 247) return;
-      if (this.pending?.cmd === d[4]) { const p = this.pending; this.pending = null; clearTimeout(p.timer); p.resolve(Array.from(d.slice(5, -1))); }
+      if (this.pending?.cmd === d[4] && (d[4] !== 0 || this.pending.sub === d[5])) { const p = this.pending; this.pending = null; clearTimeout(p.timer); p.resolve(Array.from(d.slice(5, -1))); }
     };
   }
   async request([cmd, args], opt = {}) {
     if (this.pending || this.closed || this.input.state === "disconnected" || this.output.state === "disconnected") throw new Error("Backup connection closed or busy");
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending = null; reject(new Error("Backup timed out. Keep the FM-1 connected and stopped.")); }, opt.timeout || 1200);
-      this.pending = { cmd, timer, resolve, reject };
+      this.pending = { cmd, sub: cmd === 0 ? args[0] : undefined, timer, resolve, reject };
       try { this.output.send([240, 125, 70, 76, cmd, ...args, 247]); }
       catch (e) { clearTimeout(timer); this.pending = null; reject(e); }
     });

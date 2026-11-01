@@ -1442,7 +1442,7 @@ static int arrange_protocol(void)
         bad += check("arrange: COMMIT with nothing begun: stale (rc 5, no track)", host_wire[6] == 5 && host_wire[7] == 127);
         a[0] = 2; a[1] = (size + 1u) & 127u; a[2] = (size + 1u) >> 7; request(ED_ARRANGE, a, n);
         bad += check("arrange: BEGIN of another size is refused (rc 1)", host_wire[6] == 1);
-        a[0] = 5; bad += check("arrange: an op past 4 gets no reply", request(ED_ARRANGE, a, 1) == 0);
+        a[0] = OC_R3_FORMAT ? 6 : 5; bad += check("arrange: an op past the last gets no reply", request(ED_ARRANGE, a, 1) == 0);
         bad += check("arrange: no arguments get no reply", request(ED_ARRANGE, a, 0) == 0);
     }
     return bad;
@@ -1515,10 +1515,79 @@ static int wide_protocol(void)
 }
 #endif
 
+/* (Release 3, Part 6) the records by type and id: LISTR, GETR, PUTR (extension bytes 7, 8, 9) on the RAM store */
+static void kr_pack(uint8_t *out, uint32_t *n, const uint8_t *p, uint32_t len)
+{
+    while (len) { uint32_t k = len > 7u ? 7u : len, mask = 0; for (uint32_t i = 0; i < k; i++) mask |= (uint32_t)(p[i] >> 7) << i; out[(*n)++] = (uint8_t)mask; for (uint32_t i = 0; i < k; i++) out[(*n)++] = p[i] & 127u; p += k; len -= k; }
+}
+static void kr_u32(uint8_t *a, uint32_t *n, uint32_t v) { for (uint32_t i = 0; i < 5u; i++) a[(*n)++] = (v >> (7u * i)) & 127u; }
+static uint32_t kr_hdr(uint8_t *a, uint32_t op, uint32_t type, uint32_t id) { a[0] = 9; a[1] = (uint8_t)op; a[2] = (uint8_t)type; a[3] = id & 127u; a[4] = (id >> 7) & 127u; a[5] = (uint8_t)(id >> 14); return 6; }
+static uint32_t kr_crc(const uint8_t *p, uint32_t len) { return ~ocs_crc_add(0xFFFFFFFFu, p, len); }
+static int keyed_records(void)
+{
+    int bad = 0;
+    uint8_t a[300], rec[7] = {1, 1, 3, 0, 0xAA, 0x80 | 0x15, 0xCC}, back[16];
+    uint32_t n, na;
+    reset();
+    n = request(ED_BACKUP_LIST, a, 0);
+    bad += check("records: a plain LIST begins the session", n > 6 && host_wire[6] == 0);
+    ocs_boot();
+    bad += check("records: a chunk record in the store", ocs_write(OCS_POOL, 0x8001u, rec, sizeof rec) == 0);
+    a[0] = 7; a[1] = 0; a[2] = 0; n = request(ED_EXT, a, 3);
+    bad += check("records: LISTR names it, with its type, id, size and CRC", n > 20 && host_wire[5] == 7 && host_wire[6] == 0 && host_wire[9] >= 1 &&
+                 host_wire[11] == 2 && host_wire[12] == 1 && host_wire[13] == 0 && host_wire[14] == 2 && host_wire[15] == 7);
+    a[0] = 8; a[1] = 2; a[2] = 1; a[3] = 0; a[4] = 2; na = 5; kr_u32(a, &na, 0); a[na++] = 7; a[na++] = 0;
+    n = request(ED_EXT, a, na);
+    memset(back, 0, sizeof back);
+    { uint32_t i = 0, j = 0; const uint8_t *d = host_wire + 18; while (j < 7u && i + 8u <= n - 18u) { uint32_t m = d[i++]; for (uint32_t k = 0; k < 7u && j < 7u; k++) back[j++] = (uint8_t)(d[i++] | ((m >> k) & 1u) << 7); } }
+    bad += check("records: GETR reads it back byte for byte", host_wire[5] == 8 && host_wire[10] == 0 && !memcmp(back, rec, 7));
+    {   /* PUTR: a second chunk, in three steps */
+        uint8_t put[7] = {1, 1, 3, 0, 0x81, 0x02, 0x7F};
+        uint32_t crc = kr_crc(put, 7);
+        na = kr_hdr(a, 0, 2, 0x8002u); kr_u32(a, &na, 7); kr_u32(a, &na, crc);
+        n = request(ED_EXT, a, na);
+        bad += check("records: PUTR begin", host_wire[5] == 9 && host_wire[7] == 0);
+        na = kr_hdr(a, 1, 2, 0x8002u); kr_u32(a, &na, 0); kr_pack(a, &na, put, 7);
+        n = request(ED_EXT, a, na);
+        bad += check("records: PUTR data", host_wire[7] == 0);
+        na = kr_hdr(a, 2, 2, 0x8002u); n = request(ED_EXT, a, na);
+        bad += check("records: PUTR commit: the record is in the store, byte for byte", host_wire[7] == 0 && ocs_exists(OCS_POOL, 0x8002u));
+        { ocs_rec_t r; uint8_t g[7]; bad += check("... and reads as it was sent", !ocs_open(OCS_POOL, 0x8002u, &r) && r.total == 7 && !ocs_at(&r, 0, g, 7) && !memcmp(g, put, 7)); }
+        /* a CRC that is wrong, a table that does not add up, an id the format has not, a record never begun */
+        na = kr_hdr(a, 0, 2, 0x8003u); kr_u32(a, &na, 7); kr_u32(a, &na, crc ^ 1u); request(ED_EXT, a, na);
+        na = kr_hdr(a, 1, 2, 0x8003u); kr_u32(a, &na, 0); kr_pack(a, &na, put, 7); request(ED_EXT, a, na);
+        na = kr_hdr(a, 2, 2, 0x8003u); n = request(ED_EXT, a, na);
+        bad += check("records: a wrong CRC is refused (rc 2) and nothing is written", host_wire[7] == 2 && !ocs_exists(OCS_POOL, 0x8003u));
+        put[2] = 9;
+        crc = kr_crc(put, 7);
+        na = kr_hdr(a, 0, 2, 0x8004u); kr_u32(a, &na, 7); kr_u32(a, &na, crc); request(ED_EXT, a, na);
+        na = kr_hdr(a, 1, 2, 0x8004u); kr_u32(a, &na, 0); kr_pack(a, &na, put, 7); request(ED_EXT, a, na);
+        na = kr_hdr(a, 2, 2, 0x8004u); n = request(ED_EXT, a, na);
+        bad += check("records: a chunk table that does not add up is refused (rc 2)", host_wire[7] == 2 && !ocs_exists(OCS_POOL, 0x8004u));
+        na = kr_hdr(a, 0, 1, 5u); kr_u32(a, &na, 7); kr_u32(a, &na, crc); n = request(ED_EXT, a, na);
+        bad += check("records: a project record id the format has not (5) is refused (rc 1)", host_wire[7] == 1);
+        na = kr_hdr(a, 1, 2, 0x8005u); kr_u32(a, &na, 0); kr_pack(a, &na, put, 7); n = request(ED_EXT, a, na);
+        bad += check("records: data with no record begun is stale (rc 5)", host_wire[7] == 5);
+        a[0] = 7; a[1] = 0; a[2] = 0; n = request(ED_EXT, a, 3);
+        bad += check("records: LISTR lists both chunks (and not the scratch slot's)", host_wire[9] == 2);
+        na = kr_hdr(a, 4, 1, 0u); n = request(ED_EXT, a, na);
+        bad += check("records: finish answers rc 0", host_wire[7] == 0);
+    }
+    a[0] = 5; a[1] = 0; n = request(ED_ARRANGE, a, 2);
+    bad += check("arrange: INFO_PAGE 0 answers 64 phrases (op, rc, page, count, then 7 bytes each)", n == 5u + 1u + 3u + 64u * 7u + 1u && host_wire[5] == 5 && host_wire[6] == 0 && host_wire[7] == 0 && host_wire[8] == 64);
+    a[0] = 5; a[1] = 3; n = request(ED_ARRANGE, a, 2);
+    bad += check("arrange: INFO_PAGE 3 answers the last 63 (the pool has 255)", host_wire[6] == 0 && host_wire[8] == 63);
+    a[0] = 5; a[1] = 4; n = request(ED_ARRANGE, a, 2);
+    bad += check("arrange: INFO_PAGE 4 is refused (rc 1)", host_wire[6] == 1);
+    a[0] = 7; a[1] = 0; a[2] = 0; n = request(ED_EXT, a, 3);
+    bad += check("records: finish swept the chunks no project record names (the slot has none here)", host_wire[6] == 0 && host_wire[9] == 0);
+    return bad;
+}
+
 int main(void)
 {
 #if OC_R3_FORMAT
-    int wide = wide_protocol();
+    int wide = wide_protocol() + keyed_records();
 #else
     int wide = 0;
 #endif

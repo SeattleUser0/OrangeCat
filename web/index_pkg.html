@@ -123,6 +123,11 @@
 const $ = (id) => document.getElementById(id);
 const TEXT = {
   ja: {
+    r3Warn: "このファームウェアはプロジェクトの保存形式を変更します。初回起動時に本体内のすべてのプロジェクトが変換され、各プロジェクトが使用するフレーズの複製を持ちます。これより前のファームウェアでは変換後のプロジェクトを開けません。その後は古いファームウェアでプロジェクトを保存しないでください。元に戻すにはこのファームウェアをもう一度インストールします。続けますか？",
+    r3Down: "本体のプロジェクトはRelease 3の形式です。選んだファームウェアでは開けません。先に全体バックアップを保存します。プロジェクトを取り戻すにはRelease 3のファームウェアをもう一度インストールしてください。この古いファームウェアでプロジェクトを保存しないでください。続けますか？",
+    r3Backup: "インストール前に全体バックアップを保存します（このファームウェアに復元すると変換されます）。",
+    r3Saved: "全体バックアップファイルをこのコンピュータに保存しましたか？ インストールを続けます。",
+    r3NoBackup: "この本体はバックアップを書き出せない、または応答しませんでした。バックアップなしで続けると、変換後のプロジェクトは古いファームウェアでは開けません。続けますか？",
     intro: "FM-1 を USB で接続してください。（Chrome か Edge で使えます）",
     warn: "書き込み中は USB を抜かないでください。",
     install: "チェックした内容をインストール", other: "English",
@@ -138,7 +143,7 @@ const TEXT = {
     rcWhy: "次のリリースのテスト版です。標準を選んでインストールすると安定版へ戻せます。",
     nightlyTitle: "Nightly（開発ビルド）", "nightly-dual": "Nightly",
     "nightly-dualTag": "nightly",
-    nightlyWhy: "新しいインターフェースと最新の修正を含む最新ビルドです。標準版よりテストが少ないため、先にエディタで全体バックアップを保存してください。標準版を選ぶと戻せます。",
+    nightlyWhy: "新しいインターフェースと最新の修正を含む最新ビルドです。標準版よりテストが少ないため、先にエディタで全体バックアップを保存してください。標準版を選ぶとファームウェアは戻せますが、プロジェクトの形式を変更するビルドの場合、変換後のプロジェクトは標準版では開けません（その際はインストール前に警告が出ます）。",
     dual: "標準", dualTag: "標準",
     editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
@@ -206,6 +211,11 @@ const TEXT = {
     license: "GPL-3.0、無保証。ソース:",
   },
   en: {
+    r3Warn: "This firmware changes how projects are kept. The first start converts every project on the unit, and each project gets its own copy of the phrases it uses. Firmware before this one cannot open converted projects. Do not save projects with an older firmware afterward; install this firmware again to get them back. Continue?",
+    r3Down: "The unit holds projects in the Release 3 format. The firmware you chose cannot open them. A complete backup is saved first; install a Release 3 firmware again to get the projects back. Do not save projects with this older firmware. Continue?",
+    r3Backup: "Saving a complete backup before installing (it restores onto this firmware and converts) ",
+    r3Saved: "Has the complete backup file been saved to this computer? Continue to install.",
+    r3NoBackup: "This unit cannot export a backup, or did not answer. If it holds projects, they are converted at the first start and older firmware cannot open them afterward. Continue without a backup?",
     intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
     warn: "Do not unplug the USB cable while writing.",
     install: "Install what is ticked", other: "日本語",
@@ -221,7 +231,7 @@ const TEXT = {
     rcWhy: "Preview of the next release, available for testing. Choose Standard to return to stable.",
     nightlyTitle: "Nightly (development build)", "nightly-dual": "Nightly",
     "nightly-dualTag": "nightly",
-    nightlyWhy: "The newest build, with the new interface and the latest fixes. Less tested than Standard: save a complete backup in the editor first. Choose Standard to go back.",
+    nightlyWhy: "The newest build, with the new interface and the latest fixes. Less tested than Standard: save a complete backup in the editor first. Choose Standard to go back to its firmware; when a build changes how projects are kept, converted projects cannot be opened by Standard (the installer warns before that build).",
     dual: "Standard", dualTag: "standard",
     editor: "Editor (after installing: edit sounds and sequences from the computer)",
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
@@ -477,6 +487,33 @@ function summaryText(sum) {
   return lines;
 }
 
+/* (Release 3, PROJECT_FORMAT_R3.md section 10) before a firmware that changes the project format is sent: the one-way warning and, when the unit can export one, a
+ * complete backup saved from it. A unit already on that format shows nothing; one that does not answer (stock, a loader) gets the warning and a confirm without a
+ * backup. Returns false to stop (nothing has been written). */
+async function r3Preflight(midi, pkgFormat) {
+  let unit = {answered: false, format: 2, supported: false}, io = null, link = null;
+  try {
+    const up = new Updater(midi, log);
+    const device = await up.find(id => id.model === "FM-1");
+    if (device) {
+      io = [device.link.input, device.link.output]; device.link.close();
+      link = new BackupConnection(io[0], io[1]);
+      const a = await link.request([1, []], {timeout: 1500});
+      unit = {answered: true, format: infoFormat(a), supported: archiveInfo(a).supported, version: archiveInfo(a).version};
+    }
+  } catch (_) { /* a unit that does not answer is taken as one that cannot export a backup */ } finally { if (link) { link.close(); link = null; } }
+  const g = r3Gate(pkgFormat, unit);
+  if (g.kind === "none") return true;
+  if (!confirm(t(g.downgrade ? "r3Down" : "r3Warn"))) return false;
+  if (g.kind === "warn") return confirm(t("r3NoBackup"));
+  try {
+    link = new BackupConnection(io[0], io[1]);
+    const archive = await captureBackup((r, o) => link.request(r, o), unit.version || "", (done, total) => sayK("r3Backup", `${Math.round(done / Math.max(1, total) * 100)}%`));
+    saveArchive(archive);
+  } catch (e) { sayK("error", e.message); return false; } finally { if (link) link.close(); }
+  return confirm(t("r3Saved"));
+}
+
 $("go").addEventListener("click", async () => {
   if (writing || !image) return;
   const ch = selection().channel, product = ch.product, o = offered();
@@ -487,6 +524,7 @@ $("go").addEventListener("click", async () => {
   let midi;
   try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
   catch (e) { sayK("denied"); lockInstaller(false); return; }
+  if (stages.firmware && !(await r3Preflight(midi, ch.projectFormat || 2))) { lockInstaller(false); return; }
   const files = {pack: null, modules: []};
   try {                                   // everything is fetched before the first byte is written
     if (stages.pack) files.pack = await getFile(o.pak);

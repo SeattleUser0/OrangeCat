@@ -15,7 +15,7 @@ from make_site import main, release_packages, require_manual, publish_manual
 HERE = Path(__file__).resolve().parent
 
 
-def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=(), manifest=None, branch=None):
+def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=(), manifest=None, branch=None, project_format=None):
     if manual is not None:
         manual = Path(manual)
         require_manual(manual)
@@ -23,6 +23,8 @@ def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=()
     spec = {"pkg": {"dual": dual}, "version": version, "commit": commit, "builtAt": built_at}
     if branch:
         spec["branchName"] = branch
+    if project_format:       # (Release 3, Part 6) the project format of this build (3: OC_R3_FORMAT); the installer page warns and asks for a backup before a one-way firmware
+        spec["projectFormat"] = int(project_format)
     if pak:
         spec.update(pak=pak, ocm=list(ocms), manifest=manifest)
     main(packages["dual"], release, out, nightly=spec, installer_only=True, keep_release=True)
@@ -60,6 +62,7 @@ if __name__ == "__main__":
     parser.add_argument("--ocm", action="append", default=[], help="a module package of the build (repeat)")
     parser.add_argument("--manifest", help="the build's manifest (tools/oc_manifest.py)")
     parser.add_argument("--branch", help="the branch the build was made from (shown in the installer's Nightly entry)")
+    parser.add_argument("--project-format", type=int, help="the build's project format when it is not the one before (3: Release 3); the installer warns before it")
     args = parser.parse_args()
     publish(args.out, args.dual, args.version, args.commit, args.built_at, args.manual,
-            args.pak, args.ocm, args.manifest, args.branch)
+            args.pak, args.ocm, args.manifest, args.branch, args.project_format)

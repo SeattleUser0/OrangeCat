@@ -45,7 +45,8 @@ enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE,
 /* (Orange Cat 0.14.2) commands past 127: command 0 is the extension, its first byte n names command 128 + n (every byte stays 7 bit); the reply
  * has the same 0 and n. 128 KIT_GET, 129 KIT_PUT: a DRUM-X track's kit (web/EDITOR_PROTOCOL.md "DRUM-X kits") */
 enum { ED_EXT = 0, ED_KIT_GET = 128, ED_KIT_PUT = 129,
-       ED_PARAM_W = 130, ED_DESC_W = 131, ED_TRACK_PARAM_W = 132, ED_PARAM_CHANGED_W = 133, ED_DUMP_W = 134 };   /* (Release 3) wide parameter ids */
+       ED_PARAM_W = 130, ED_DESC_W = 131, ED_TRACK_PARAM_W = 132, ED_PARAM_CHANGED_W = 133, ED_DUMP_W = 134,
+       ED_BKR_LIST = 135, ED_BKR_GET = 136, ED_BKR_PUT = 137 };   /* (Release 3) wide parameter ids */
 /* (Release 3, UI_BUILD.md "Part 2") the 7-bit commands carry at most 127 parameters: INFO says so, and DUMP, TRACK_DUMP and UP_GET send that many; ids past
  * them travel on the extension commands 130 to 134 (two 7-bit bytes an id), so a page that does not know them is consistent, never misled */
 #define ED_P7 (P_COUNT > 127u ? 127u : P_COUNT)
@@ -526,6 +527,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (ed_kit_handle(128u + a[0], a + 1, na - 1u)) ed_send();
 #if OC_R3_FORMAT
         else if (ed_wide_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+        else if (ed_bkr_handle(128u + a[0], a + 1, na - 1u)) ed_send();   /* (Part 6) the records by type and id */
 #endif
         return;
     }

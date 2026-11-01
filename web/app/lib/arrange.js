@@ -21,6 +21,24 @@ export const arrReq = {
   data: (off, bytes) => [ARRANGE, [3, ...n2(off), ...bkPack(bytes)]],
   commit: () => [ARRANGE, [4]],
 };
+/* (Release 3, Part 6) INFO reports the first 64 phrases; the wide pool (255) is read in pages of 64 with op 5. A firmware before Release 3 never answers it, so ask only
+ * when the unit's INFO says it speaks the wide format */
+arrReq.page = (p) => [ARRANGE, [5, p]];
+export function parsePage(a) {
+  if (a[0] !== 5 || a[1] !== 0) throw new Error("ARRANGE INFO_PAGE: rc " + a[1]);
+  const first = a[2] * 64, n = a[3], out = [];
+  if (a.length !== 4 + 7 * n) throw new Error("ARRANGE INFO_PAGE: short reply");
+  for (let i = 0; i < n; i++) {
+    const p = 4 + 7 * i, f = a[p];
+    out.push({ id: first + i + 1, flags: f, hasSteps: !!(f & 1), inBank: !!(f & 2), inSaved: !!(f & 4), inChain: !!(f & 8), len: a[p + 1], crc: bkR32(a, p + 2) });
+  }
+  return out;
+}
+export async function readPoolPages(rq, info) {
+  for (let page = 1; page <= 3; page++) info.pool.push(...parsePage(await rq(arrReq.page(page), { timeout: 800, retries: 1 })));
+  info.npool = info.pool.length;
+  return info;
+}
 export function parseInfo(a) {
   if (a[0] !== 0 || a[1] !== 0) throw new Error("ARRANGE INFO: rc " + a[1]);
   const o = { version: a[2], size: r2(a, 3), npool: a[5], nchain: a[6], nent: a[7], nrow: a[8], nscene: a[9], ntrk: a[10], tracksInUse: a[11], busy: !!a[12], crc: bkR32(a, 13), pool: [] };
@@ -34,11 +52,12 @@ export function parseInfo(a) {
 
 /* the arrangement of the music loaded: {info, bytes}. rq(request, opt) -> the reply's data bytes (a session's request). Throws "noArrange"
  * when the unit does not answer (a firmware before 0.14.2) */
-export async function readArrangement(rq) {
+export async function readArrangement(rq, opt = {}) {
   let a;
   try { a = await rq(arrReq.info(), { timeout: 600, retries: 1, quiet: true }); }
   catch (e) { if (e.message === "closed") throw e; const x = new Error("noArrange"); x.code = "noArrange"; throw x; }
   const info = parseInfo(a);
+  if (opt.widePool) await readPoolPages(rq, info);
   const bytes = new Uint8Array(info.size);
   for (let off = 0; off < info.size; off += 256) {
     const count = Math.min(256, info.size - off);

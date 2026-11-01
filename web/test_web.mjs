@@ -15,6 +15,7 @@
 // (Orange Cat 0.13.5 the editor's BEGIN wait)
 // (Orange Cat 0.12.2 the Prophet package, modBlocked and the swap planner; 0.12.0 the Engines table (swap plan))
 
+import {r3Gate, infoFormat} from "./fm1backup.js";
 import * as OC from "./fm1oc.js";   // (0.11.2) the installer page calls runSet and OcLink, which make_site.py inlines
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -1921,6 +1922,7 @@ async function stockRestore() {
         async request() { calls.push("info"); return info; }
         close() { calls.push("backup-close"); }
       },
+      r3Gate, infoFormat,
       captureBackup:async () => { calls.push("backup"); if (backupError) throw new Error("Backup failed"); return {}; },
     });
     vm.runInContext(script, context);
@@ -2016,7 +2018,7 @@ async function installerBuilds() {
       addEventListener(k, fn) { this.listeners[k] = fn; }});
     return elements.get(id);
   };
-  const context = vm.createContext({
+  const context = vm.createContext({r3Gate, infoFormat,
     navigator:{language:"en", requestMIDIAccess:async () => ({})},
     document:{documentElement:{}, querySelectorAll:() => [], getElementById:element, createElement:() => ({})},
     window:{addEventListener() {}}, runSet:OC.runSet, OcLink:OC.OcLink,
@@ -2068,7 +2070,7 @@ async function installerBuildRaces() {
       addEventListener(k,fn) { this.listeners[k] = fn; }});
     return elements.get(id);
   };
-  const context = vm.createContext({navigator:{language:"en",requestMIDIAccess:async()=>({})},
+  const context = vm.createContext({r3Gate, infoFormat, navigator:{language:"en",requestMIDIAccess:async()=>({})},
     document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}}, runSet:OC.runSet, OcLink:OC.OcLink,
     fetch:url=>new Promise(resolve=>pending.set(url,resolve)),
     productOf:pkg=>String.fromCharCode(...pkg)==="older"?"FM-1_91001":"FM-1_91002",

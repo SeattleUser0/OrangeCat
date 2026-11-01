@@ -3,6 +3,7 @@
 //   a. the Nightly sits beside Standard at the top (not inside Advanced installs), each with its version string and one line; the last choice is remembered
 //   b. one Install button installs everything ticked for the chosen build; the boxes are ticked by default; the page says what it will write
 //   c. a unit on stock M-VAVE firmware (FM-1_710010300) takes the Nightly in one run, as it takes Standard
+import {r3Gate, infoFormat} from "./fm1backup.js";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
@@ -62,6 +63,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}) {
       return {firmware: ctx.stages.firmware ? "installed" : "off", pack: ctx.stages.pack ? "installed" : "off", module: ctx.files.modules.map(() => "installed")};
     },
     OcLink: class {},
+    r3Gate, infoFormat,
   });
   const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(META));
   vm.runInContext(script, context);

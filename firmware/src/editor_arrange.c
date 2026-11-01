@@ -114,7 +114,7 @@ static void ed_ar_flags(uint8_t f[ED_AR_NPOOL])
 static int ed_arrange_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     uint32_t op, rc = 0;
-    if (cmd != ED_ARRANGE || !n || a[0] > 4u) return 0;   /* (another command, or a request that is not one: no reply) */
+    if (cmd != ED_ARRANGE || !n || a[0] > (OC_R3_FORMAT ? 5u : 4u)) return 0;   /* (another command, or a request that is not one: no reply) */
     op = a[0];
     ed_b(op);
     if (op == 0u) {                            /* INFO */
@@ -130,6 +130,25 @@ static int ed_arrange_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         }
         return 1;
     }
+#if OC_R3_FORMAT
+    if (op == 5u) {                            /* INFO_PAGE (Release 3): phrases 64 page + 1 .. +64 (the last page 63), in INFO's flag, LEN, CRC form: page, count, entries */
+        uint32_t page = n == 2u ? a[1] : 255u, first = page * 64u, cnt = first < OCL_NPOOL ? OCL_NPOOL - first : 0u;
+        uint8_t fl[64];
+        if (n != 2u || !cnt) { ed_b(1); return 1; }
+        if (cnt > 64u) cnt = 64u;
+        for (uint32_t i = 0; i < cnt; i++) {   /* (the same flags as INFO's, for these phrases) */
+            uint32_t v = first + i;
+            fl[i] = (uint8_t)(((ocp.len[v] || ocp.hash[v]) ? 1u : 0u) | (ocj_refs(v, 4u) ? 4u : 0u));
+        }
+        for (uint32_t k = 0; k < NTRK; k++)
+            for (uint32_t b = 0; b < NPAT; b++) { uint32_t v = bank_pid[k][b]; if (v > first && v <= first + cnt) fl[v - first - 1u] |= 2u; }
+        for (uint32_t c = 0; c < OCL_NCHAIN; c++)
+            for (uint32_t e = 0; e < OCL_NENT; e++) { uint32_t v = lists.chain[c][e][0]; if (v > first && v <= first + cnt) fl[v - first - 1u] |= 8u; }
+        ed_b(0); ed_b(page); ed_b(cnt);
+        for (uint32_t i = 0; i < cnt; i++) { ed_b(fl[i]); ed_b(ocp.len[first + i] > 127u ? 127u : ocp.len[first + i]); ed_bk_u32(ocp.hash[first + i]); }
+        return 1;
+    }
+#endif
     if (op == 1u) {                            /* GET */
         uint32_t off = n == 5u ? ed_ar_n2(a + 1) : 0u, count = n == 5u ? ed_ar_n2(a + 3) : 0u;
         rc = n != 5u || !count || count > 256u || off > ED_AR_SIZE || count > ED_AR_SIZE - off ? 1u : 0u;

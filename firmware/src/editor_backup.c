@@ -40,6 +40,9 @@ static const uint8_t ED_BK_IDS[29] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,1
 #define ED_BK_REC_MAX (OCS_PARTS_MAX * OCS_PAYLOAD_MAX)
 _Static_assert(ED_BK_LIVE_LEN <= sizeof proj_wire_u, "the music's arrangement is staged as the other objects are");
 static ocs_stream_t ed_bk_stream __attribute__((section(".pool")));
+#if OC_R3_FORMAT
+static uint8_t ebr_on;                         /* (Release 3) a record by type and id is being put (the end of this file) */
+#endif
 static uint32_t ed_bk_scrc;                    /* the stream's bytes' CRC so far */
 static int ed_bk_arr(uint32_t id) { return id >= ED_BK_ARR0 && id <= ED_BK_ARR_LIVE; }
 static uint32_t ed_bk_rec_type(uint32_t id) { return id < ED_BK_ARR_POOL ? OCS_PROJECT : OCS_POOL; }
@@ -108,6 +111,11 @@ static uint32_t ed_bk_live_apply(const uint8_t *raw)
     ocl_lists_fix(&l);
     lists = l;
     memcpy(bank_pid, pid, sizeof bank_pid);
+#if OC_R3_FORMAT
+    /* (Release 3) the phrases are the loaded slot's own: a bank that names one this pool does not hold names none (the unit's live pool may not be the
+     * one the backup was taken from; the project records restored just before carry their own) */
+    for (uint32_t i = 0; i < NTRK * NPAT; i++) if ((&bank_pid[0][0])[i] && !(ocp.len[(&bank_pid[0][0])[i] - 1u] || ocp.hash[(&bank_pid[0][0])[i] - 1u])) (&bank_pid[0][0])[i] = 0;
+#endif
     memset(bank_sig, 0, sizeof bank_sig);
     sync_reload = 1; ui.force = 1;
     return 0;
@@ -396,6 +404,9 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
             (a[1]==8u && len) ||
             (a[1] == ED_BK_ARR_LIVE && len != ED_BK_LIVE_LEN) || (ed_bk_arr(a[1]) && len > ED_BK_REC_MAX)) return 1;
         ocs_stream_drop(&ed_bk_stream);           /* (0.14.2) a record begun before and never committed */
+#if OC_R3_FORMAT
+        ebr_on = 0;                                /* (a keyed record begun is dropped with it) */
+#endif
         if (ed_bk_arr(a[1]) && a[1] != ED_BK_ARR_LIVE && len &&
             ocs_stream_begin(&ed_bk_stream, ed_bk_rec_type(a[1]), ed_bk_rec_id(a[1]), len)) return 4;   /* (no room in the store) */
         ed_bk_scrc = 0xFFFFFFFFu;
@@ -499,3 +510,191 @@ static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
     }
     return 0;
 }
+
+#if OC_R3_FORMAT
+/* ------------------------------------------------------------------ the records by type and id (Release 3, UI_BUILD.md "Part 6") --- */
+/* The extension commands 135 LISTR, 136 GETR, 137 PUTR (extension bytes 7, 8, 9; web/EDITOR_PROTOCOL.md "Records by type and id"). A record is the store's
+ * own (OCS_PROJECT or OCS_POOL, any id), read and written as it is: the arrangement objects 64..83 name the format before's records by fixed ids and a
+ * Release 3 unit has none (its records have ids with bit 15). Same session rule as the other backup commands (a plain LIST began it: rc 5 otherwise),
+ * refused while the transport runs (rc 3).
+ *   7 LISTR  start lo, start hi        -> rc, start lo, start hi, n (0..16), more (1 when there are more), then n x [type, id (3 x 7 bits), size (5 x 7), CRC (5 x 7)]
+ *   8 GETR   key (4), offset (5), count (2, 1..256) -> key (4), rc, offset (5), count (2), pack7 data
+ *   9 PUTR   op, key (4), then: 0 begin: size (5), CRC (5) | 1 data: offset (5), pack7 | 2 commit | 3 abort | 4 finish | 5 clear -> op, rc
+ * key = type (1 project, 2 pool), id lo, id mid, id hi (2 bits). Listed: every project and pool record but the scratch slot's chunks. rc of PUTR: 0 done;
+ * 1 refused (arguments, a type or id the format does not have, a size past a record); 2 the CRC or the shape of the record (nothing is changed);
+ * 3 the transport runs; 4 no room or a flash error; 5 stale (no begin, a USB reset, 15 s, the staging reused); 6 a chunk of a slot whose record names that
+ * very chunk under the same generation (writing it would change that project under its own record: clear the slot first, op 5, and the page says so).
+ * 4 finish (once, after the last record): the chunks no record names are swept and the live pool is read again from its slot's record. 5 clear: the slot's
+ * Release 3 record and chunks go (the key names the slot's record). The chunks of a restore come first, then the record. */
+enum { EBR_LIST = 7, EBR_GET = 8, EBR_PUT = 9 };
+static uint8_t ebr_type;
+static uint32_t ebr_id, ebr_len, ebr_crc, ebr_pos, ebr_scrc, ebr_ms, ebr_usb;
+static uint32_t ebr_key_id(const uint8_t *k) { return (uint32_t)k[1] | (uint32_t)k[2] << 7 | (uint32_t)(k[3] & 3u) << 14; }
+/* a (type, id) this format has */
+static int ebr_key_ok(const uint8_t *k)
+{
+    uint32_t id = ebr_key_id(k);
+    if (k[3] > 3u) return 0;
+    if (k[0] == OCS_PROJECT) return id < 4u || (id >= OCJ4_RID(0) && id <= OCJ4_RID(3));
+    if (k[0] != OCS_POOL) return 0;
+    if (!(id & 0x8000u)) return id < 16u;
+    return ((id >> 9) & 7u) < 4u && (id & 255u) >= 1u;
+}
+/* the n-th (from 0) distinct, complete project or pool record in the store's header order. 1 when there is one */
+static int ebr_nth(uint32_t n, uint32_t *type, uint32_t *id)
+{
+    uint32_t seen = 0;
+    for (uint32_t s = 0; s < OCS_NSECT; s++) {
+        const ocs_hdr_t *h = &ocs_hdr[s];
+        int dup = 0;
+        if (h->magic != OCS_MAGIC || h->part != 0 || (h->type != OCS_PROJECT && h->type != OCS_POOL)) continue;
+        if (h->type == OCS_POOL && (h->id & 0x8000u) && ((h->id >> 9) & 7u) == OCP_SCRATCH) continue;
+        for (uint32_t t = 0; t < s && !dup; t++)
+            dup = ocs_hdr[t].magic == OCS_MAGIC && ocs_hdr[t].part == 0 && ocs_hdr[t].type == h->type && ocs_hdr[t].id == h->id;
+        if (dup || !ocs_exists(h->type, h->id)) continue;
+        if (seen++ == n) { *type = h->type; *id = h->id; return 1; }
+    }
+    return 0;
+}
+static void ebr_key_out(uint32_t type, uint32_t id) { ed_b(type); ed_b(id & 127u); ed_b((id >> 7) & 127u); ed_b(id >> 14); }
+static void ebr_info(uint32_t type, uint32_t id, uint32_t *len, uint32_t *crc)
+{
+    ocs_rec_t r;
+    uint32_t c = 0xFFFFFFFFu;
+    *len = ocs_open(type, id, &r) ? 0u : r.total;
+    for (uint32_t off = 0; off < *len; off += 256u) {
+        uint32_t k = *len - off > 256u ? 256u : *len - off;
+        if (ocs_at(&r, off, ed_smp_buf, k)) { *len = 0; break; }
+        c = ocs_crc_add(c, ed_smp_buf, k);
+    }
+    *crc = *len ? ~c : 0u;
+}
+/* the record the stream wrote reads as its kind must (before its commit) */
+static int ebr_valid(const ocs_stream_t *w, uint32_t type, uint32_t id)
+{
+    ocs_rec_t r;
+    uint8_t h[OCJ4_HLEN], t[3];
+    r.parts = (uint8_t)w->parts; r.total = w->len;
+    memcpy(r.sect, w->use, sizeof r.sect);
+    if (type == OCS_PROJECT && (id & 0x8000u)) {          /* OCJ4: its magic, header, length field, and sections that end where the record does */
+        uint32_t pos;
+        uint8_t s[8];
+        if (r.total < OCJ4_HLEN || ocs_at(&r, 0, h, OCJ4_HLEN) || rd32(h) != OCJ4_MAGIC || h[5] != OCJ4_HLEN || rd32(h + 8) != r.total - OCJ4_HLEN) return 0;
+        for (pos = OCJ4_HLEN; pos + 8u <= r.total; pos += 8u + rd32(s + 4)) {
+            if (ocs_at(&r, pos, s, 8) || rd32(s + 4) > r.total - pos - 8u) return 0;
+        }
+        return pos == r.total;
+    }
+    if (type == OCS_PROJECT) { uint32_t hsz; return ocj_head_load(&r, &hsz) == 0; }
+    if (!(id & 0x8000u)) return ed_bk_arr_valid(w);          /* the format before's chunk: its fixed table */
+    {   /* a chunk: n, then n x (phrase + 1, length lo, length hi), then the phrases: the sizes add up */
+        uint32_t n, sum = 1u;
+        if (r.total < 1u || ocs_at(&r, 0, t, 1)) return 0;
+        n = t[0];
+        for (uint32_t e = 0; e < n; e++) {
+            if (ocs_at(&r, 1u + 3u * e, t, 3) || !t[0]) return 0;
+            sum += 3u + (uint32_t)t[1] + ((uint32_t)t[2] << 8);
+        }
+        return sum == r.total && n > 0u;
+    }
+}
+/* 1 when writing chunk (slot, gen, c) would change a chunk its slot's record names under that very generation */
+static int ebr_chunk_in_use(uint32_t id)
+{
+    uint32_t slot = (id >> 9) & 7u, c = id & 255u;
+    if (!(id & 0x8000u) || slot >= 4u) return 0;
+    if (ocj4_phrd_read(slot, &ocp_sdir, ocp_snamed, 0, 0)) return 0;
+    return ocp_bit(ocp_snamed, c) && ocp_bit(ocp_sdir.gen, c) == ((id >> 8) & 1u) && ocs_exists(OCS_POOL, id);
+}
+static int ebr_session(void) { return ed_bk_valid && ed_bk_usb == usb.resets; }
+static int ed_bkr_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
+{
+    if (cmd == ED_BKR_LIST) {
+        uint32_t start, type, id, k = 0, rc;
+        if (n != 2u || a[0] > 127u || a[1] > 127u) return 0;
+        start = (uint32_t)a[0] | (uint32_t)a[1] << 7;
+        rc = !ebr_session() ? 5u : transport_busy() ? 3u : 0u;
+        ed_b(rc); ed_b(a[0]); ed_b(a[1]);
+        if (rc) { ed_b(0); ed_b(0); return 1; }
+        { uint32_t cnt = 0;
+          while (cnt < 16u && ebr_nth(start + cnt, &type, &id)) cnt++;
+          ed_b(cnt); ed_b(ebr_nth(start + cnt, &type, &id) ? 1u : 0u);
+          for (k = 0; k < cnt; k++) {
+              uint32_t len, crc;
+              (void)ebr_nth(start + k, &type, &id);
+              ebr_info(type, id, &len, &crc);
+              ebr_key_out(type, id); ed_bk_u32(len); ed_bk_u32(crc);
+              fm1_wdt_feed();
+          } }
+        return 1;
+    }
+    if (cmd == ED_BKR_GET) {
+        uint32_t off, count, rc, len = 0;
+        ocs_rec_t r;
+        if (n != 11u || a[0] > 3u || a[1] > 127u || a[2] > 127u || a[3] > 3u) return 0;
+        off = ed_bk_r32(a + 4); count = (uint32_t)a[9] | (uint32_t)a[10] << 7;
+        rc = !ebr_session() ? 5u : transport_busy() ? 3u : !ebr_key_ok(a) || a[8] > 15u || !count || count > 256u ? 1u : 0u;
+        if (!rc) {
+            if (!ocs_open(a[0], ebr_key_id(a), &r)) len = r.total;
+            if (off > len || count > len - off) rc = 1;
+            else if (ocs_at(&r, off, ed_smp_buf, count)) rc = 4;
+        }
+        ed_b(a[0]); ed_b(a[1]); ed_b(a[2]); ed_b(a[3]); ed_b(rc); ed_bk_u32(off); ed_b(rc ? 0u : count & 127u); ed_b(rc ? 0u : count >> 7);
+        if (!rc) ed_bk_pack(ed_smp_buf, count);
+        return 1;
+    }
+    if (cmd == ED_BKR_PUT) {
+        uint32_t op, rc = 0;
+        if (n < 5u || a[0] > 5u || a[1] > 127u || a[2] > 127u || a[3] > 127u || a[4] > 127u) return 0;
+        op = a[0];
+        if (op == 0u || op == 1u || op == 2u || op == 3u || op == 5u) { if (!ebr_key_ok(a + 1) && op != 3u) rc = 1u; }
+        if (!rc && ((op == 0u && n != 15u) || (op == 1u && n < 11u) || ((op == 2u || op == 3u || op == 4u || op == 5u) && n != 5u))) rc = 1u;
+        if (!rc && !ebr_session()) rc = 5u;
+        if (!rc && transport_busy()) rc = 3u;
+        if (!rc && op == 5u) {                                  /* clear: the slot's Release 3 record and chunks */
+            uint32_t id = ebr_key_id(a + 1);
+            if (a[1] != OCS_PROJECT || id < OCJ4_RID(0) || id > OCJ4_RID(3)) rc = 1u;
+            else { ocj4_slot_erase_new(id - OCJ4_RID(0)); ed_bk_arr_rescan(); }
+        } else if (!rc && op == 4u) {                           /* finish */
+            for (uint32_t s = 0; s < 4u; s++) ocp_r3_sweep(s);
+            if (ocp.dir.slot < 4u) ocp_r3_switch(ocp.dir.slot);
+            ocj4_old_c = 0;
+            ed_bk_arr_rescan();
+        } else if (!rc && op == 0u) {
+            uint32_t len = ed_bk_r32(a + 5), id = ebr_key_id(a + 1);
+            if (len < 1u || len > ED_BK_REC_MAX || a[9] > 15u || a[14] > 15u) rc = 1u;
+            else if (a[1] == OCS_POOL && ebr_chunk_in_use(id)) rc = 6u;
+            else {
+                ocs_stream_drop(&ed_bk_stream); ed_bk_put = 0;
+                if (ocs_stream_begin(&ed_bk_stream, a[1], id, len)) rc = 4u;
+                else { ebr_on = 1; ebr_type = a[1]; ebr_id = id; ebr_len = len; ebr_crc = ed_bk_r32(a + 10); ebr_pos = 0; ebr_scrc = 0xFFFFFFFFu; ebr_ms = fm1_ms; ebr_usb = usb.resets; }
+            }
+        } else if (!rc) {                                       /* 1 data, 2 commit, 3 abort: a record begun, the same key, fresh */
+            if (!ebr_on || ebr_usb != usb.resets || fm1_ms - ebr_ms > 15000u || a[1] != ebr_type || ebr_key_id(a + 1) != ebr_id) {
+                ebr_on = 0; ocs_stream_drop(&ed_bk_stream); rc = op == 3u ? 0u : 5u;
+            } else if (op == 3u) { ebr_on = 0; ocs_stream_drop(&ed_bk_stream); }
+            else if (op == 1u) {
+                uint32_t off = ed_bk_r32(a + 5), count;
+                if (a[9] > 15u || off != ebr_pos) rc = 1u;
+                else if (!(count = ed_unpack7(a + 10, n - 10u, ed_smp_buf, 256u)) || count > ebr_len - ebr_pos) rc = 1u;
+                else { ebr_ms = fm1_ms; ebr_scrc = ocs_crc_add(ebr_scrc, ed_smp_buf, count);
+                       if (ocs_stream_put(&ed_bk_stream, ed_smp_buf, count)) { ebr_on = 0; ocs_stream_drop(&ed_bk_stream); rc = 4u; } else ebr_pos += count; }
+            } else {                                            /* commit */
+                if (ebr_pos != ebr_len || ~ebr_scrc != ebr_crc || !ebr_valid(&ed_bk_stream, ebr_type, ebr_id)) { ebr_on = 0; ocs_stream_drop(&ed_bk_stream); rc = 2u; }
+                else {
+                    int r = ocs_stream_commit(&ed_bk_stream);
+                    if (r < -1) { uint8_t cursor = ocs_cursor; ocs_boot(); ocs_cursor = cursor; }
+                    ebr_on = 0;
+                    ocj4_old_c = 0;
+                    ocj4_restore_settle();
+                    ed_bk_arr_rescan();
+                    rc = r ? 4u : 0u;
+                }
+            }
+        }
+        ed_b(op); ed_b(rc);
+        return 1;
+    }
+    return 0;
+}
+#endif

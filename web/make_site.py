@@ -133,6 +133,8 @@ def channel(spec, label, stem, branch):
             "builtAt": spec["builtAt"], "pkg": {"dual": "../../firmware/" + f"{stem}.fwsc"}}
     if spec.get("branchName"):
         meta["branchName"] = spec["branchName"]
+    if spec.get("projectFormat"):                   # (Release 3, Part 6) read by the installer page (absent: the format before)
+        meta["projectFormat"] = int(spec["projectFormat"])
     if spec.get("pak"):
         if spec.get("kept"):
             meta["pak"], meta["ocm"] = spec["pak"], list(spec.get("ocm", []))

@@ -187,5 +187,92 @@ ok(sharedTarget.objs.get(28).every((v,i)=>v===sharedData[i]),"backup: final comp
   const old = device([], { ids: sharedIds });
   ok(await athrows(() => restoreBackup(old.request, arrFile)) && !old.log.length, "backup: a firmware without them refuses the archive before any write");
 }
+{   /* (Release 3, Part 6) the records by type and id */
+  const { REC, recKey } = await import("./fm1backup.js");
+  const mkChunk = (slot, gen, c, seed) => ({ type: REC.POOL, id: 0x8000 | slot << 9 | gen << 8 | c, bytes: (() => { const v = rnd(7, seed); v[0] = 1; v[1] = 1; v[2] = 3; v[3] = 0; return v; })() });
+  const mkProj = (slot, seed) => ({ type: REC.PROJECT, id: 0x8000 | slot, bytes: (() => { const v = rnd(300, seed); v.set([0x4f, 0x43, 0x4a, 0x34]); return v; })() });
+  /* a device with the records commands: a store of records by key, the order of writes, a conflict rule (rc 6) for chunks its project names */
+  function keyedDevice(recs, opt = {}) {
+    const base = device([[0, rnd(3388, 2)], [1, rnd(1200, 3)]], { ids: BACKUP_IDS });
+    const st = { recs: new Map(recs.map((r) => [r.type * 65536 + r.id, r.bytes])), log: [], staged: null, base };
+    const key = (a, p) => [a[p], a[p + 1] | a[p + 2] << 7 | a[p + 3] << 14];
+    st.request = async ([cmd, a]) => {
+      if (cmd !== 0) return base.request([cmd, a]);
+      if (opt.noRecords) throw new Error("timeout");
+      const sub = a[0];
+      if (sub === REC.LIST) {
+        const start = a[1] | a[2] << 7, all = [...st.recs.entries()], page = all.slice(start, start + 16);
+        const out = [REC.LIST, 0, a[1], a[2], page.length, start + page.length < all.length ? 1 : 0];
+        for (const [k, v] of page) out.push(...recKey(k >>> 16, k & 0xffff), ...bkU32(v.length), ...bkU32(bkCrc(v)));
+        return out;
+      }
+      if (sub === REC.GET) {
+        const [t, id] = key(a, 1), off = bkR32(a, 5), n = a[10] | a[11] << 7, v = st.recs.get(t * 65536 + id);
+        if (opt.changeOnList && off === 0 && t === REC.PROJECT && id === 0x8001) st.recs.set(REC.POOL * 65536 + 0x8003, Uint8Array.from([1, 1, 1, 0, 9]));
+        return [REC.GET, ...recKey(t, id), 0, ...bkU32(off), n & 127, n >> 7, ...bkPack(v.subarray(off, off + n))];
+      }
+      if (sub === REC.PUT) {
+        const op = a[1], [t, id] = key(a, 2);
+        if (op === 0) {
+          st.log.push(`begin ${t}:${id.toString(16)}`);
+          if (t === REC.POOL && opt.conflict?.(id) && !st.cleared) return [REC.PUT, 0, 6];
+          st.staged = { t, id, size: bkR32(a, 6), crc: bkR32(a, 11), bytes: [] }; return [REC.PUT, 0, 0];
+        }
+        if (op === 1) { const off = bkR32(a, 6), n = Math.min(256, st.staged.size - off); st.staged.bytes.push(...bkUnpack(a.slice(11), n)); return [REC.PUT, 1, 0]; }
+        if (op === 2) { const s = Uint8Array.from(st.staged.bytes), rc = bkCrc(s) === st.staged.crc ? 0 : 2; if (!rc) { st.recs.set(st.staged.t * 65536 + st.staged.id, s); st.log.push(`commit ${st.staged.t}:${st.staged.id.toString(16)}`); } return [REC.PUT, 2, rc]; }
+        if (op === 3) { st.log.push("abort"); return [REC.PUT, 3, 0]; }
+        if (op === 4) { st.log.push("finish"); return [REC.PUT, 4, 0]; }
+        if (op === 5) { st.log.push(`clear ${id.toString(16)}`); st.cleared = true; st.recs.delete(REC.PROJECT * 65536 + id); return [REC.PUT, 5, 0]; }
+      }
+      throw new Error("unexpected ext");
+    };
+    return st;
+  }
+  const recs = [mkChunk(0, 0, 1, 31), mkChunk(0, 0, 2, 32), mkChunk(1, 1, 1, 33), mkProj(0, 34), mkProj(1, 35)];
+  const src = keyedDevice(recs);
+  const f2 = await captureBackup(src.request, "R3");
+  ok(f2.version === 2 && f2.records.length === 5 && f2.records[3].type === REC.PROJECT && f2.records[3].id === 0x8000, "records: a capture keeps every record by type and id, as version 2");
+  const back = readBackup(JSON.stringify(f2));
+  ok(back.records.every((r, i) => r.bytes.every((v, j) => v === recs[i].bytes[j])) && back.version === 2, "records: the archive reads back byte for byte");
+  ok(readBackup(JSON.stringify(await captureBackup(device(objs.map(([i, v]) => [i, v.slice()])).request, "OLDFW"))).records.length === 0, "records: a firmware without them (no reply to LISTR): no records, version 1");
+  ok(throws(() => readBackup({ ...JSON.parse(JSON.stringify(f2)), version: 1 })), "records: a version 1 archive that carries records is refused");
+  { const bad = JSON.parse(JSON.stringify(f2)); bad.records[0].crc ^= 1; ok(throws(() => readBackup(bad)), "records: a damaged record is refused"); }
+  { const bad = JSON.parse(JSON.stringify(f2)); bad.records[3].id = 0x8009; ok(throws(() => readBackup(bad)), "records: a project record id the format has not is refused"); }
+  { const bad = JSON.parse(JSON.stringify(f2)); bad.records.push({ ...bad.records[0] }); ok(throws(() => readBackup(bad)), "records: a record twice is refused"); }
+  { const d4 = keyedDevice(recs, { changeOnList: true }); ok(await athrows(() => captureBackup(d4.request, "X")), "records: a save between the records and the second inventory fails the capture"); }
+  const dstK = keyedDevice([]);
+  await restoreBackup(dstK.request, f2);
+  const lg = dstK.log;
+  ok(lg.at(-1) === "finish" && lg.indexOf("commit 2:8002") < lg.indexOf("commit 1:8000") && lg.filter((x) => x.startsWith("commit 2:")).length === 3 && lg.indexOf("finish") === lg.length - 1,
+     "records: restore writes the pool chunks, then the project records, then finishes");
+  ok(recs.every((r) => dstK.recs.get(r.type * 65536 + r.id)?.every((v, j) => v === r.bytes[j])), "records: every record restored byte for byte");
+  { const base = device(objs.map(([i, v]) => [i, v.slice()])); ok(await athrows(() => restoreBackup(base.request, f2)) && !base.log.length, "records: a firmware without the commands refuses an archive with records before any write"); }
+  { const d3 = keyedDevice([mkProj(0, 77)], { conflict: (id) => id === (0x8000 | 1) });
+    await restoreBackup(d3.request, f2);
+    ok(d3.log.includes("clear 8000") && d3.log.indexOf("clear 8000") < d3.log.indexOf("commit 2:8001"), "records: a chunk the slot's record names is written after the slot is cleared (rc 6 -> clear)"); }
+}
+{   /* (Release 3, Part 6) the installer's gate: the unit's format from INFO, and what is owed before a firmware of format 3 */
+  const { infoFormat, r3Gate } = await import("./fm1backup.js");
+  const tail = (format) => [0x55, 1, 7, 0x57, 1, 3, 1, 123, 0, format];
+  ok(infoFormat([65, 0, 1, 2, ...tail(3)]) === 3 && infoFormat([65, 0, 1, 2, ...tail(2)]) === 2 && infoFormat([65, 0, 1, 2, 3, 4, 5, 6, 7, 8]) === 2 && infoFormat([]) === 2,
+     "gate: the unit's format is INFO's tagged block, 2 when there is none");
+  const can = { answered: true, format: 2, supported: true };
+  ok(r3Gate(3, can).kind === "gate" && !r3Gate(3, can).downgrade, "gate: a unit on the format before takes the warning and the backup before a Release 3 firmware");
+  ok(r3Gate(3, { answered: true, format: 3, supported: true }).kind === "none", "gate: a unit already on Release 3 sees nothing");
+  ok(r3Gate(3, { answered: false, format: 2, supported: false }).kind === "warn", "gate: a unit that does not answer gets the warning and a confirm, no backup");
+  ok(r3Gate(3, { answered: true, format: 2, supported: false }).kind === "warn", "gate: a unit that cannot export a backup gets the warning and a confirm, no backup");
+  ok(r3Gate(2, can).kind === "none" && r3Gate(undefined, can).kind === "none", "gate: a firmware of the format before shows nothing on a unit of the format before");
+  ok(r3Gate(2, { answered: true, format: 3, supported: true }).kind === "gate" && r3Gate(2, { answered: true, format: 3, supported: true }).downgrade,
+     "gate: an older firmware on a unit of converted projects: the downgrade warning and a backup (nothing is refused)");
+  const page = (await import("node:fs")).readFileSync(new URL("index_pkg.html", import.meta.url), "utf8");
+  for (const lang of ["ja", "en"]) {
+    const block = page.match(new RegExp(`\\n  ${lang}: \\{([\\s\\S]*?)\\n  \\},?\\n`))?.[1] || "";
+    ok(["r3Warn", "r3Down", "r3Backup", "r3Saved", "r3NoBackup"].every((k) => new RegExp(`\\b${k}:`).test(block)), `gate: the page has the warning, the backup and the confirm texts in ${lang}`);
+  }
+  ok(page.indexOf("await r3Preflight(midi") > 0 && page.indexOf("await r3Preflight(midi") < page.indexOf("files.pack = await getFile") && page.indexOf("await r3Preflight(midi") < page.indexOf("runFirmware:"),
+     "gate: the preflight runs before anything is fetched or written, for the firmware stage only");
+  ok(/Do not save projects with an older firmware afterward; install this firmware again to get them back/.test(page) && /Firmware before this one cannot open converted projects/.test(page),
+     "gate: the warning is section 10's words");
+}
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

@@ -3,6 +3,7 @@
 // Run the actual installer UI script with a minimal DOM and controlled fetches.
 // Revisions:
 // (Orange Cat 0.11.2 the installer page installs firmware, pack and module in one go)
+import {r3Gate, infoFormat} from "./fm1backup.js";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
@@ -29,7 +30,7 @@ const context = vm.createContext({
   fetch: url => new Promise(resolve => pending.push({url, resolve})),
   logicalImage: bytes => bytes,
   productOf: bytes => ["new", "old", "rc"][bytes[0]],
-  Uint8Array,
+  Uint8Array, r3Gate, infoFormat,
 });
 const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
   .replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(meta));
