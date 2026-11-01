@@ -1993,6 +1993,10 @@ audio-resident code (.audio_text, placed in the pool before the arena), so about
 33.7 KB above the minimum and 17.3 KB above the rule's 65,536. **The reserve holds: 15,640 B free, 7,448 B above 8,192.** Nothing further is built on
 this branch without the owner's say: the next item of any size eats into what is left above the reserve.
 
+**The full host suite** (tools/hw/ci_step.py test, CI's settings, PARALLEL=1, niced): at 3f28cb7 (ui-fix 1, 2, 3, 5)
+PASSED 214 jobs in 83 min; at c246106 (ui-fix 6) one job failed (shift_test under the sanitizers: the sound line's
+buffer, the decisions); at 3cb55f1 (the head: ui-fix 6, 7, 8 and the fix) PASSED 214 jobs in 67 min, ALL HOST TESTS.
+
 ### For Session A (ui-fix)
 
 **Run the on-unit sequencer test on ui-fix before merge.** The sequencer items are ui-fix 7 (commit 5a26150, one
