@@ -86,6 +86,9 @@ static uint32_t ed_ar_apply(const ocl_lists_t *in)
     memcpy(lists.song, in->song, sizeof lists.song);
     memcpy(lists.scene, in->scene, sizeof lists.scene);
     lists.scene_used = in->scene_used;
+#if OC_R3_SCENES
+    scn2_sync_from_lists(&scn2, &lists);        /* (Part 7) the first eight scenes' chain and mute cells are the page's now; scenes 9 to 16 and the other parts stay */
+#endif
     memcpy(lists.groove, in->groove, sizeof lists.groove);
     memcpy(lists.gamt, in->gamt, sizeof lists.gamt);
     lists.launch = in->launch;
