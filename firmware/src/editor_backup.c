@@ -279,13 +279,15 @@ static uint32_t ed_bk_commit_inner(void)
             return 0;
         }
         if (ed_bk_pos != ed_bk_len || ~ed_bk_scrc != ed_bk_crc || !ed_bk_arr_valid(&ed_bk_stream)) { ocs_stream_drop(&ed_bk_stream); return 2; }
-#if OC_R3_FORMAT
-        if (ed_bk_rec_type(ed_bk_id) == OCS_PROJECT) ocj4_slot_erase_new(ed_bk_rec_id(ed_bk_id));   /* (Release 3) a record of the format before replaces its slot
-                                                         * whole: the slot's Release 3 records go first, so the next start converts it once and never mistakes
-                                                         * it for a half-finished conversion (the pool objects follow in the same restore) */
-#endif
         rc = ocs_stream_commit(&ed_bk_stream);
         if (rc < -1) { uint8_t cursor = ocs_cursor; ocs_boot(); ocs_cursor = cursor; }   /* (as ocs_write_src: what is on the flash, read again) */
+#if OC_R3_FORMAT
+        /* (Release 3) a record of the format before replaces its slot whole. It is committed first and the slot's Release 3 records go after it, so a
+         * power cut never leaves the slot empty: before the commit the slot has the project it had, after it both records (the next start sees the new
+         * one is not the old one's conversion, ocj4_convert_boot, and converts the old one over it), then only the old one, converted at the next start
+         * or by CONVERT (the pool objects of the same restore follow). */
+        if (!rc && ed_bk_rec_type(ed_bk_id) == OCS_PROJECT) ocj4_slot_erase_new(ed_bk_rec_id(ed_bk_id));
+#endif
         ed_bk_arr_rescan();
         return rc ? 4u : 0u;
     }

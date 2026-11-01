@@ -108,6 +108,26 @@ int main(int argc, char **argv)
         }
         return finish(argv[2], argv[3]);
     }
+    if (argc == 4 && !strcmp(argv[1], "--oldrun")) {    /* the format before's code on a store of Release 3 records (a converted store): oc_r3_oldgen --oldrun IN_NOR OUT_NOR.
+         * Prints "oldrun: ..." lines: no erase and no program in its start and reads, which slots it reads (none of the converted ones), and a save
+         * into the free slot 1 (it must work: the free sectors are all it touches). OUT_NOR is the store after. */
+        uint8_t *in = slurp(argv[2], &n);
+        static uint8_t buf[BANK_STORE_SIZE];
+        uint32_t e0;
+        int rc;
+        if (!in || n != sizeof nor) { fprintf(stderr, "not a store image\n"); return 2; }
+        reset(); memcpy(nor, in, n);
+        e0 = erases; fail_after = 1 << 24;
+        ocs_boot(); smp_slot_boot(); ocp_scan(); ocj_scan();
+        for (s = 0; s < 4u; s++) printf("oldrun: slot %u: %s\n", s, ocj_read(s, buf) == (int)BANK_STORE_SIZE ? "reads" : "does not read");
+        printf("oldrun: the start and the reads: %u erases, %d programs\n", erases - e0, (1 << 24) - fail_after);
+        fail_after = -1;
+        fill_all(1, 2);
+        rc = project_save_as(1, "OLDFW");
+        printf("oldrun: a save into the free slot 1: %s\n", rc ? "REFUSED" : "saved");
+        if (write_file(argv[3], nor, n)) return 1;
+        return 0;
+    }
     if (argc != 3) { fprintf(stderr, "usage: oc_r3_oldgen OUT_NOR OUT_EXPECT | --image DUMP OUT_NOR OUT_EXPECT | --records FILE OUT_NOR OUT_EXPECT | --fbkk OUT_NOR OUT_EXPECT SLOT FILE ..\n"); return 2; }
     reset();
     /* project A (slot 0): 4 tracks, banks 0..2, motion and timed notes, scenes and grooves in the lists */

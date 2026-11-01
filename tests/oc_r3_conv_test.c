@@ -173,8 +173,20 @@ int main(int argc, char **argv)
     int bad = 0, loads[4];
     uint32_t s, free_before;
     static uint8_t nor_after[sizeof nor];
-    if ((argc != 3 && !(argc == 4 && !strcmp(argv[3], "--generic"))) || load_file(argv[1], old_nor, sizeof old_nor) || load_file(argv[2], exp_fbkk, sizeof exp_fbkk)) { fprintf(stderr, "usage: oc_r3_conv_test OLD_NOR OLD_EXPECT\n"); return 2; }
+    if ((argc != 3 && !(argc == 4 && (!strcmp(argv[3], "--generic") || !strcmp(argv[3], "--afterold")))) || load_file(argv[1], old_nor, sizeof old_nor) || load_file(argv[2], exp_fbkk, sizeof exp_fbkk)) { fprintf(stderr, "usage: oc_r3_conv_test OLD_NOR OLD_EXPECT\n"); return 2; }
     for (s = 0; s < 4u; s++) loads[s] = exp_fbkk[s][0];
+    if (argc == 4 && !strcmp(argv[3], "--afterold")) {   // OLD_NOR is the store the old firmware ran on after the conversion (oc_r3_oldgen --oldrun); EXPECT as before
+        static uint8_t after_old[sizeof nor];
+        int b2 = 0, ok = 1;
+        if (load_file(getenv("OC_R3_OLDRUN") ? getenv("OC_R3_OLDRUN") : "", after_old, sizeof after_old)) { fprintf(stderr, "OC_R3_OLDRUN: the store after the old firmware's run\n"); return 2; }
+        reset(); memcpy(nor, after_old, sizeof nor);
+        start();
+        for (s = 0; s < 4u; s++) if (loads[s]) ok &= read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE);
+        b2 |= check("after the old firmware ran on the converted store (and saved a project of its own into the free slot), a start of this firmware reads every converted project as it was", ok);
+        b2 |= check("... and converts the old firmware's project of slot 1 as well", read_slot(1) && !old_records() && new_records() == 4u);
+        printf("oc r3 conversion (after the old firmware): %s\n", b2 ? "FAILED" : "all passed");
+        return b2;
+    }
     if (argc == 4) { int b2 = generic_main(loads); printf("oc r3 conversion (generic): %s\n", b2 ? "FAILED" : "all passed"); return b2; }
     /* the unit as the old firmware left it, a start of this firmware */
     reset();
@@ -183,6 +195,7 @@ int main(int argc, char **argv)
     CHK("the store is the old firmware's: three old records and its pool chunks, no Release 3 record", old_records() == 3u && old_chunks() > 0u && !new_records());
     start();
     CHK("the start converts the three: three Release 3 records, no old record, no old chunk", new_records() == 3u && !old_records() && !old_chunks());
+    if (getenv("OC_R3_DUMP_CONVERTED")) { FILE *f = fopen(getenv("OC_R3_DUMP_CONVERTED"), "wb"); if (f) { fwrite(nor, 1, sizeof nor, f); fclose(f); } }   // (for oc_r3_oldgen --oldrun)
     {
         uint32_t ok = 1;
         for (s = 0; s < 4u; s++) {
@@ -287,6 +300,52 @@ int main(int argc, char **argv)
             }
         snprintf(what, sizeof what, "power cut at each of %d program calls and each of %d erases of the boot conversion: after the cut every slot reads as the old project or the new one, the next start finishes it, no orphan", n_p, n_e);
         CHK(what, ok);
+    }
+    {   /* 8. an old record restored over a slot that has a Release 3 project of its own (Part 4): the pool objects, the record, then the slot's
+         * Release 3 records go (editor_backup.c's order, with the pool first). A power cut at every program call and erase of it: after the next
+         * start slot 0 reads as the project it had or as the restored one (never empty, never a mix), the other slots are untouched, nothing is left over */
+        static uint8_t *orec, *ochunk[16];
+        static uint32_t orec_len, ochunk_len[16];
+        static uint8_t x_fbkk[BANK_STORE_SIZE], conv_fbkk[3][BANK_STORE_SIZE];
+        int progs, ers, ok = 1, n_p = 0, n_e = 0, saw_old = 0, saw_new = 0;
+        uint32_t e0;
+        char what[240];
+        reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot();
+        { ocs_rec_t r;                                  /* the old store's record of slot 0 and its pool chunks, as a backup holds them */
+          if (!ocs_open(OCS_PROJECT, 0, &r)) { orec_len = r.total; orec = malloc(r.total); ocs_at(&r, 0, orec, r.total); }
+          for (uint32_t c = 0; c < 16u; c++) if (!ocs_open(OCS_POOL, c, &r)) { ochunk_len[c] = r.total; ochunk[c] = malloc(r.total); ocs_at(&r, 0, ochunk[c], r.total); } }
+        reset(); memcpy(nor, old_nor, sizeof nor);
+        start();                                        /* converted: slots 0, 2, 3 (slot 1 is empty) */
+        project_load(3); CHK("(a different project goes into slot 0: its own save, no marker)", project_save_as(0, "OWN") == 0);
+        ocs_boot(); ocp_scan(); ocj_scan(); memset(proj_meta, 0, sizeof proj_meta);
+        read_slot(0); memcpy(x_fbkk, got, sizeof x_fbkk);
+        for (s = 2; s < 4u; s++) { read_slot(s); memcpy(conv_fbkk[s - 2u], got, BANK_STORE_SIZE); }
+        memcpy(nor_after, nor, sizeof nor);
+        {   /* the restore, counted */
+            #define RESTORE_OLD() do { \
+                for (uint32_t c = 0; c < 16u; c++) if (ochunk[c]) (void)ocs_write(OCS_POOL, c, ochunk[c], ochunk_len[c]); \
+                if (!ocs_write(OCS_PROJECT, 0, orec, orec_len)) ocj4_slot_erase_new(0); } while (0)
+            e0 = erases; fail_after = 1 << 24; RESTORE_OLD(); progs = (1 << 24) - fail_after; fail_after = -1; ers = (int)(erases - e0);
+        }
+        for (int phase = 0; phase < 2 && ok; phase++)
+            for (int k = 0; k < (phase ? ers : progs + 1) && ok; k++) {
+                int is_old, is_new;
+                reset(); memcpy(nor, nor_after, sizeof nor); ocs_boot(); ocp_scan(); ocj_scan();
+                fail_after = phase ? -1 : k; erase_cut = phase ? k : -1;
+                RESTORE_OLD();
+                fail_after = -1; erase_cut = -1;
+                start();                                // power back on: the scan, the conversion (or its finishing), the sweep
+                is_old = read_slot(0) && !memcmp(got, exp_fbkk[0] + 1, BANK_STORE_SIZE);
+                is_new = read_slot(0) && !memcmp(got, x_fbkk, BANK_STORE_SIZE);
+                saw_old += is_old; saw_new += is_new;
+                ok &= is_old || is_new;
+                for (s = 2; s < 4u; s++) ok &= read_slot(s) && !memcmp(got, conv_fbkk[s - 2u], BANK_STORE_SIZE);
+                ok &= !old_records() && !orphans_all() && new_records() == 3u && !old_chunks();
+                if (!ok) fprintf(stderr, "  restore cut %s %d: old %d new %d, old records %u, new records %u, old chunks %u, orphans %u\n", phase ? "erase" : "program", k, is_old, is_new, old_records(), new_records(), old_chunks(), orphans_all());
+                if (phase) n_e++; else n_p++;
+            }
+        snprintf(what, sizeof what, "an old record restored over a slot with a project of its own, cut at each of %d program calls and %d erases: after the next start slot 0 is the project it had (%d cuts) or the restored one (%d), the others untouched, no old record or chunk left, no orphan", n_p, n_e, saw_new, saw_old);
+        CHK(what, ok && saw_old > 0 && saw_new > 0);
     }
     {   /* a store too full for the last slots: they stay as the old records, with the KB they need; room freed, CONVERT converts them */
         uint32_t room = 0, left = 0, lvl;

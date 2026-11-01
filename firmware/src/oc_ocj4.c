@@ -61,6 +61,8 @@
 #define T_REND OCJ4_TAG('R', 'E', 'N', 'D')
 #define T_TSTA OCJ4_TAG('T', 'S', 'T', 'A')
 #define T_ROUT OCJ4_TAG('R', 'O', 'U', 'T')
+#define T_CVRT OCJ4_TAG('C', 'V', 'R', 'T')   /* a record made by the conversion: the mark of the old record it came from (u32); not carried by a later save */
+static uint32_t ocj4_cvrt_out;                 /* nonzero: ocj4_build writes the CVRT section with it (the conversion sets it for its one build) */
 #define OCJ4_HEAD_KNOWN 52u
 #define OCJ4_TRK_KNOWN (31u + 2u * P_COUNT)
 #define OCJ4_LIST_KNOWN (OCL_NCHAIN * OCL_NENT * 2u + OCL_NROW * NTRK + 3u * NTRK + 2u + 2u * NTRK)
@@ -256,7 +258,7 @@ static void w_sec_carry(ocj4_w_t *w, uint32_t tag)
 static int ocj4_known_tag(uint32_t tag)
 {
     static const uint32_t K[] = {T_HEAD, T_GLOB, T_TRKS, T_NATV, T_MCHN, T_LIST, T_SCNS, T_PERF, T_PHRD, T_FRZR, T_SMPR,
-                                 T_FXRC, T_REND, T_TSTA, T_ROUT};
+                                 T_FXRC, T_REND, T_TSTA, T_ROUT, T_CVRT};
     for (uint32_t i = 0; i < sizeof K / sizeof K[0]; i++) if (K[i] == tag) return 1;
     return 0;
 }
@@ -512,6 +514,7 @@ static uint32_t ocj4_build(uint8_t *buf, uint32_t max, const project_t *q, const
     }
     w_sec_end(&w);
     w_sec_carry(&w, T_FXRC); w_sec_carry(&w, T_REND); w_sec_carry(&w, T_TSTA); w_sec_carry(&w, T_ROUT);
+    if (ocj4_cvrt_out) { w_sec(&w, T_CVRT); w32(&w, ocj4_cvrt_out); w_sec_end(&w); }   /* (the conversion's only; a save writes none) */
     for (i = 0; i < ocj4_nidx; i++)            /* every section this firmware does not know, as it was */
         if (!ocj4_known_tag(ocj4_idx[i].tag)) { w_sec(&w, ocj4_idx[i].tag); w_old(&w, ocj4_idx[i].off, ocj4_idx[i].len); w_sec_end(&w); }
     if (w.over) return 0;
@@ -553,6 +556,21 @@ static int ocj4_phrd_read(uint32_t slot, ocp_dir_t *d, uint8_t named[OCP_NCHUNK 
         return ocs_at(&r, pos + 9u + n * OCJ4_PHRD_ENT, d->gen, OCP_NCHUNK / 8u) ? -1 : 0;
     }
     return 0;                                  /* (a record with no PHRD: an empty directory) */
+}
+
+/* the slot's Release 3 record's CVRT mark (the old record it was converted from), 0 when it has none or does not read */
+static uint32_t ocj4_cvrt_read(uint32_t slot)
+{
+    ocs_rec_t r;
+    uint8_t h[OCJ4_HLEN], s[8];
+    uint32_t pos, v;
+    if (slot >= OCP_SCRATCH || ocs_open(OCS_PROJECT, OCJ4_RID(slot), &r)) return 0;
+    if (r.total < OCJ4_HLEN || ocs_at(&r, 0, h, OCJ4_HLEN) || rd32(h) != OCJ4_MAGIC || h[5] != OCJ4_HLEN) return 0;
+    for (pos = OCJ4_HLEN; pos + 8u <= r.total; pos += 8u + rd32(s + 4)) {
+        if (ocs_at(&r, pos, s, 8) || rd32(s + 4) > r.total - pos - 8u) return 0;
+        if (rd32(s) == T_CVRT) return rd32(s + 4) == 4u && !ocs_at(&r, pos + 8u, &v, 4) ? v : 0u;
+    }
+    return 0;
 }
 
 /* the record in buf (len bytes) parsed: q as its project part (its steps, notes and motion events are the phrases',

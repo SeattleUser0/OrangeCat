@@ -598,9 +598,9 @@ static int test_cuts_r3(void)
     snap(&B);
     { uint32_t e0 = erases; fail_after = 100000; project_save_as(1, "CUT"); progs = (uint32_t)(100000 - fail_after); fail_after = -1; ers = erases - e0; }
     ok = 1; n = m = 0;
-    for (int k = 0; k <= (int)progs && ok; k += 3) { ok &= cut_round(0, 1, k, -1, &A, &B, &rc); n++; }
+    for (int k = 0; k <= (int)progs && ok; k++) { ok &= cut_round(0, 1, k, -1, &A, &B, &rc); n++; }
     for (int k = 0; k < (int)ers && ok; k++) { ok &= cut_round(0, 1, -1, k, &A, &B, &rc); m++; }
-    snprintf(what, sizeof what, "power cut at %d program points (every third of %u) and %d erase points of a save into another slot: B whole or absent, A untouched, no orphan", n, progs, m);
+    snprintf(what, sizeof what, "power cut at each of %d program points (of %u) and %d erase points of a save into another slot: B whole or absent, A untouched, no orphan", n, progs, m);
     R3CHK(what, ok);
     return bad;
 }

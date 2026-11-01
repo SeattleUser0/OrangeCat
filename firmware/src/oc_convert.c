@@ -25,6 +25,11 @@
 #define CV_N 64u                               /* the format before's phrases */
 
 /* ------------------------------------------------------------ the old reader, wrapped --- */
+#if MELODEE_FLASH
+#define OCJ4_FLASH_OK flash_ok                  /* (the unit's store is on the flash: storage_hw.c) */
+#else
+#define OCJ4_FLASH_OK 0                         /* (a RAM-only build, the editor's host test: nothing to convert) */
+#endif
 /* slot's old record as an FBKK into raw: ocj3_read with the pool read through the old chunk table (ocp_rd_dir 0), restored on every return.
  * BANK_STORE_SIZE, or -1 (no record, or one that does not read: exactly what the old firmware could not load either) */
 static int ocj4_old_read(uint32_t slot, uint8_t *raw)
@@ -211,6 +216,16 @@ static void ocj4_old_chunks_cleanup(void)
 static char ocj4_conv_msg[24];                     /* the boot's summary, shown after the project loads (ocj4_conv_notice) */
 static uint32_t ocj4_conv_done, ocj4_conv_left;
 
+/* the old record's mark (never 0): its first part's payload CRC and its length. A conversion writes it into the record it makes (CVRT), so a
+ * start that finds both records can tell a conversion a cut stopped at the last step (the mark is the old record's) from a restore of an old
+ * record over a slot that has a record of its own (the restore wrote the old one last: it is the newer wish) */
+static uint32_t ocj4_old_mark(uint32_t s)
+{
+    ocs_rec_t r;
+    if (ocs_open(OCS_PROJECT, s, &r)) return 0u;
+    return (ocs_hdr[r.sect[0]].crc ^ r.total * 0x9E3779B1u) | 1u;
+}
+
 /* slot s (a record of the format before at id s) -> a Release 3 project. 0 converted; 1 no room (*kb_short: the KB it needs more); 2 it does not
  * convert (the old record does not read, or a flash error): the old record is left as it was */
 static int ocj4_convert_slot_body(uint32_t s, uint32_t *kb_short)
@@ -223,7 +238,7 @@ static int ocj4_convert_slot_body(uint32_t s, uint32_t *kb_short)
     int n, rc;
     s &= 3u;
     if (kb_short) *kb_short = 0;
-    if (!flash_ok || (n = ocj4_old_read(s, raw)) != (int)BANK_STORE_SIZE) return 2;
+    if (!OCJ4_FLASH_OK || (n = ocj4_old_read(s, raw)) != (int)BANK_STORE_SIZE) return 2;
     /* the old lists as the old firmware would have kept them: a chain cell past its 64 phrases is none */
     ocp_rd_dir = 0;                                /* (from here the pool read is the old one's; the wrapper restores it) */
     for (c = 0; c < OCL_NCHAIN; c++) for (e = 0; e < OCL_NENT; e++) if (ocj_l.chain[c][e][0] > CV_N) ocj_l.chain[c][e][0] = 0;
@@ -289,7 +304,9 @@ static int ocj4_convert_slot_body(uint32_t s, uint32_t *kb_short)
     cv_frz_ok = !ocs_open(OCS_FREEZE, 0, &cv_frz) && cv_frz.total == CV_FRZ_REC;
     ocj4_frz_get = cv_frz_get_entry; ocj4_frz_name = cv_frz_name_of;
 #endif
+    ocj4_cvrt_out = ocj4_old_mark(s);
     rlen = ocj4_build(raw, OCJ4_MAX, q, raw, &ocj_dir, ocj_h.pid, &ocj_l, &meta, 0, 0);
+    ocj4_cvrt_out = 0;
 #if OCJ4_FRZ
     ocj4_frz_get = ocj4_frz_live_get; ocj4_frz_name = ocj4_frz_live_name;
 #endif
@@ -316,13 +333,14 @@ static int ocj4_convert_slot(uint32_t s, uint32_t *kb_short)
 /* at the first start of this firmware (project.c persist_boot, after the sample slot's claim and Part 1's sweep): every slot with a record of the
  * format before. A slot with both: the new record wins when it reads end to end (a cut between the commit and the old record's erase); the old one
  * is then erased. The summary is kept for ocj4_conv_notice */
+static void ocj4_slot_erase_new(uint32_t s);
 static void ocj4_convert_boot(void)
 {
     ocj4_old_c = 0;
     uint32_t s, old = 0, kb = 0, left_kb = 0, left_slot = 0, cannot = 0;
     uint8_t *raw;
     ocj4_conv_msg[0] = 0; ocj4_conv_done = ocj4_conv_left = 0;
-    if (!flash_ok) return;
+    if (!OCJ4_FLASH_OK) return;
     for (s = 0; s < 4u; s++) old += ocs_exists(OCS_PROJECT, s);
     if (!old) { ocj4_old_chunks_cleanup(); return; }     /* (a cut left old chunks behind: nobody names them) */
     BOOT_WORK_BEGIN("CONVERTING PROJECTS", old);
@@ -330,9 +348,18 @@ static void ocj4_convert_boot(void)
     for (s = 0; s < 4u; s++) {
         int rc = 0;
         if (!ocs_exists(OCS_PROJECT, s)) continue;
-        if (ocs_exists(OCS_PROJECT, OCJ4_RID(s))) {         /* both: finish what a cut left */
+        int both = ocs_exists(OCS_PROJECT, OCJ4_RID(s));
+        if (both && ocj4_cvrt_read(s) != ocj4_old_mark(s)) {
+            /* Both records, and the new one is not the old one's conversion: an old record restored over a slot that has a record of its own
+             * (editor_backup.c commits the old one first, then erases the new: a cut between leaves both, and the old one is the newer wish).
+             * It is converted over the new one when it reads; one that does not (the pool objects of its restore never came) is dropped and the
+             * slot keeps the project it had. */
+            if (ocj4_old_read(s, raw) == (int)BANK_STORE_SIZE) { ocj4_slot_erase_new(s); both = 0; }
+            else { (void)ocs_delete(OCS_PROJECT, s); ocj4_old_c = 0; continue; }
+        }
+        if (both) {                                         /* a conversion a cut stopped at its last step (the new record carries the old one's mark) */
             if (ocj_read(s, raw) == (int)BANK_STORE_SIZE) { (void)ocs_delete(OCS_PROJECT, s); ocj4_conv_done++; }
-            else { ocj4_conv_left++; cannot = s + 1u; }   /* (the new record does not read: the summary says so, not "NEEDS 00K") */
+            else { ocj4_conv_left++; cannot = s + 1u; }     /* (the new record does not read: the summary says so, not "NEEDS 00K") */
         } else if ((rc = ocj4_convert_slot(s, &kb)) == 0) {
             ocj4_conv_done++;
         } else {

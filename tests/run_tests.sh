@@ -195,7 +195,10 @@ oc_r3_conv_job() {                                # (Release 3, branch r3-format
     echo "== Release 3 format, Part 3: a store written by the format before's own code converts (byte for byte, the freeze table split, too full and CONVERT), under the sanitizers"
     build oc_r3_oldgen oc_r3_oldgen -O1 $FW -Itests || return
     build oc_r3_conv oc_r3_conv_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_R3_FORMAT=1 $FW -Itests || return
-    "$OUT/oc_r3_oldgen" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" && "$OUT/oc_r3_conv" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" || fail "Release 3 conversion"
+    "$OUT/oc_r3_oldgen" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" && OC_R3_DUMP_CONVERTED="$OUT/oc_r3_old.conv" "$OUT/oc_r3_conv" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" || fail "Release 3 conversion"
+    # (Part 4, document section 13 item 4) the format before's own code started on the converted store: it reads none of the Release 3 records, leaves them, saves
+    # into the free slot; this firmware then reads every converted project as it was
+    "$OUT/oc_r3_oldgen" --oldrun "$OUT/oc_r3_old.conv" "$OUT/oc_r3_old.after" && OC_R3_OLDRUN="$OUT/oc_r3_old.after" "$OUT/oc_r3_conv" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" --afterold || fail "the format before's code on a converted store"
 }
 oc_r3_real_job() {                                # (Release 3, branch r3-format, Part 5) the conversion on real data: the repository's projects, and the unit's own files when present
     echo "== Release 3 format, Part 5: every project of the repository's fixtures and of the unit's backups converts (byte for byte, save and reload, a power cut at every erase and every 4th program call)"
