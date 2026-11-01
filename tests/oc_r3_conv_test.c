@@ -84,13 +84,98 @@ static int phrases_are_keeps(uint32_t s)
     return ok;
 }
 
+/* --generic: any old store (the unit's own dump, the backups' projects, the repo's fixtures; Part 5): the checks that hold for every project. The
+ * expectation file is the one tests/oc_r3_oldgen.c wrote for the same store (the FBKK the old reader gives each slot). */
+static int generic_main(const int *loads)
+{
+    int bad = 0;
+    uint32_t s, nl = 0, nold0, e0;
+    static uint8_t after[sizeof nor];
+    char what[200];
+    for (s = 0; s < 4u; s++) nl += loads[s] != 0;
+    reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot();
+    nold0 = old_records();
+    start();
+    snprintf(what, sizeof what, "%u of %u old records read and are converted (the others stay as they were)", nl, nold0);
+    CHK(what, new_records() == nl && old_records() == nold0 - nl);
+    {   uint32_t ok = 1;
+        for (s = 0; s < 4u; s++) {
+            int r = read_slot(s);
+            ok &= r == loads[s];
+            if (r && loads[s]) ok &= !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE);
+        }
+        CHK("every converted slot reads as the FBKK the old reader gave (notes, motion, chains, song, scenes, lists), byte for byte", ok);
+    }
+    {   uint32_t ok = !orphans_all();
+        for (s = 0; s < 4u; s++) if (loads[s]) ok &= phrases_are_keeps(s);
+        CHK("no orphan chunk; every phrase is what a load then a keep writes", ok);
+    }
+    {   /* save and reload, each project, through the music. A load normalises a few settings of the project part (the old firmware's too: G_SLOT of a
+         * project in slot 3 reads 4 and is kept as 1), so the bytes of the project part may differ from the first save on; what must hold: every phrase,
+         * chain, motion, note and list as the old reader gave them (the FBKK from the banks on), and a second load and save changes nothing */
+        uint32_t ok = 1;
+        static uint8_t a1[BANK_STORE_SIZE];
+        for (s = 0; s < 4u; s++) {
+            int sv, rd, same, idem = 1;
+            if (!loads[s]) continue;
+            project_load(s);
+            sv = project_save(s);
+            if (sv == 1) { printf("  slot %u: not saved (a track plays an engine past the shipped table: a build with OC_CANDIDATES refuses, as the firmware does)\n", s); continue; }
+            ocs_boot(); ocp_scan(); ocj_scan(); memset(proj_meta, 0, sizeof proj_meta);
+            rd = read_slot(s);
+            same = rd && !memcmp(got + BANK_ACTIVE_OFF, exp_fbkk[s] + 1 + BANK_ACTIVE_OFF, BANK_STORE_SIZE - 4u - BANK_ACTIVE_OFF);
+            memcpy(a1, got, sizeof a1);
+            project_load(s);
+            sv |= project_save(s);
+            ocs_boot(); ocp_scan(); ocj_scan(); memset(proj_meta, 0, sizeof proj_meta);
+            idem = read_slot(s) && !memcmp(got, a1, sizeof a1);
+            if (sv || !rd || !same || !idem) fprintf(stderr, "  slot %u: save %d, reads %d, banks-on same %d, second save same %d\n", s, sv, rd, same, idem);
+            ok &= !sv && rd && same && idem;
+        }
+        CHK("each converted project loads, saves and reads again (phrases, chains, motion, notes, lists as the old reader gave them; a second save changes nothing)", ok && !orphans_all());
+    }
+    e0 = erases; memcpy(after, nor, sizeof nor); start();
+    CHK("a second start converts nothing and writes nothing", erases == e0 && !memcmp(nor, after, sizeof nor));
+    {   /* power cut at program calls (every CONV_CUT_STRIDE-th, default 1) and every erase of the boot conversion */
+        int progs, ers, ok = 1, n_p = 0, n_e = 0, stride = getenv("CONV_CUT_STRIDE") ? atoi(getenv("CONV_CUT_STRIDE")) : 1;
+        if (stride < 1) stride = 1;
+        reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot(); ocp_scan(); ocj_scan();
+        e0 = erases; fail_after = 1 << 24; ocj4_convert_boot(); progs = (1 << 24) - fail_after; fail_after = -1; ers = (int)(erases - e0);
+        for (int phase = 0; phase < 2 && ok; phase++)
+            for (int k = 0; k < (phase ? ers : progs + 1) && ok; k += (phase ? 1 : stride)) {
+                reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot(); ocp_scan(); ocj_scan();
+                fail_after = phase ? -1 : k; erase_cut = phase ? k : -1;
+                ocj4_convert_boot();
+                fail_after = -1; erase_cut = -1;
+                ocs_boot(); ocp_scan(); ocj_scan();
+                for (s = 0; s < 4u && ok; s++) {
+                    uint8_t *raw = proj_wire_borrow();
+                    int old_ok = ocs_exists(OCS_PROJECT, s) && ocj4_old_read(s, raw) == (int)BANK_STORE_SIZE && !memcmp(raw, exp_fbkk[s] + 1, BANK_STORE_SIZE);
+                    int new_ok = ocs_exists(OCS_PROJECT, OCJ4_RID(s)) && read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE);
+                    if (loads[s]) ok &= old_ok || new_ok;
+                }
+                ocj4_convert_boot();
+                memset(proj_meta, 0, sizeof proj_meta);
+                for (s = 0; s < 4u && ok; s++) ok &= !loads[s] || (read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE));
+                ok &= old_records() == nold0 - nl && !orphans_all() && new_records() == nl;
+                if (!ok) fprintf(stderr, "  cut %s %d failed\n", phase ? "erase" : "program", k);
+                if (phase) n_e++; else n_p++;
+            }
+        snprintf(what, sizeof what, "power cut at %d of %d program calls (every %d-th) and each of %d erases of the boot conversion: old or new, never neither; the next start finishes it", n_p, progs + 1, stride, n_e);
+        CHK(what, ok);
+    }
+    printf("generic: %u projects converted\n", nl);
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0, loads[4];
     uint32_t s, free_before;
     static uint8_t nor_after[sizeof nor];
-    if (argc != 3 || load_file(argv[1], old_nor, sizeof old_nor) || load_file(argv[2], exp_fbkk, sizeof exp_fbkk)) { fprintf(stderr, "usage: oc_r3_conv_test OLD_NOR OLD_EXPECT\n"); return 2; }
+    if ((argc != 3 && !(argc == 4 && !strcmp(argv[3], "--generic"))) || load_file(argv[1], old_nor, sizeof old_nor) || load_file(argv[2], exp_fbkk, sizeof exp_fbkk)) { fprintf(stderr, "usage: oc_r3_conv_test OLD_NOR OLD_EXPECT\n"); return 2; }
     for (s = 0; s < 4u; s++) loads[s] = exp_fbkk[s][0];
+    if (argc == 4) { int b2 = generic_main(loads); printf("oc r3 conversion (generic): %s\n", b2 ? "FAILED" : "all passed"); return b2; }
     /* the unit as the old firmware left it, a start of this firmware */
     reset();
     memcpy(nor, old_nor, sizeof nor);

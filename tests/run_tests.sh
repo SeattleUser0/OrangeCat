@@ -197,6 +197,10 @@ oc_r3_conv_job() {                                # (Release 3, branch r3-format
     build oc_r3_conv oc_r3_conv_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_R3_FORMAT=1 $FW -Itests || return
     "$OUT/oc_r3_oldgen" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" && "$OUT/oc_r3_conv" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" || fail "Release 3 conversion"
 }
+oc_r3_real_job() {                                # (Release 3, branch r3-format, Part 5) the conversion on real data: the repository's projects, and the unit's own files when present
+    echo "== Release 3 format, Part 5: every project of the repository's fixtures and of the unit's backups converts (byte for byte, save and reload, a power cut at every erase and every 4th program call)"
+    mkdir -p "$OUT/oc_r3_real" && bash tests/oc_r3_real.sh "$OUT/oc_r3_real" 4 || fail "Release 3 conversion on real data"
+}
 oc_scene_job() {                                  # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) HOME's scenes
     echo "== new interface 1b: the pack with and without its scene trailer (tools/gen_pack.py --scenes)"
     python3 tools/gen_pack.py --pak "$OUT/oc_scene_without.pak" --header "$OUT/oc_scene_without.h" &&
@@ -626,6 +630,7 @@ if core && [ $TABLES = 1 ]; then
         ui_test -DMELODEE_USB_AUDIO=1 $FW
     job oc_scene_job
     job oc_r3_conv_job
+    job oc_r3_real_job
     job home_pic_job
     job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
     job shift_job                                 # (the new interface 0.3, UI_BUILD.md step 3)
