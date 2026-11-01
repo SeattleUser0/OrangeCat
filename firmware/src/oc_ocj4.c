@@ -72,7 +72,7 @@
 #define OCJ4_FRZ_FOLD 32u
 #define OCJ4_FRZ_ENT 33u
 #define OCJ4_IDX_MAX 32u
-#if OCJ4_FRZ || defined(OCJ4_FRZ_TEST)   /* the card code's freeze table (card_freeze.c), or the host test's stand-in */
+#if defined(FRZ_AUDIO) || defined(OCJ4_FRZ_TEST)   /* the card code's freeze table (card_freeze.c), or the host test's stand-in */
 #define OCJ4_FRZ 1
 #else
 #define OCJ4_FRZ 0
@@ -906,10 +906,9 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     /* the record, built in the staging's project part (its bytes are q's now), the commit */
     rlen = ocj4_build(raw, OCJ4_MAX, q, raw, d, ocj_h.pid, &ocj_l, m, xs ? ocp.len : 0, xs ? ocp.hash : 0);
     if (!rlen || ocs_free_count() < ocp_parts_of(rlen)) { rc = 4; goto failed; }
-    {   /* a record this firmware cannot read back is never committed (the slot would be held as OLD FORMAT, unusable) */
-        static project_t chk __attribute__((section(".pool")));
-        if (ocj4_parse(raw, rlen, &chk, 0)) { rc = 2; goto failed; }
-    }
+    /* a record this firmware cannot read back is never committed (the slot would be held as OLD FORMAT, unusable). Parsed into the project
+     * scratch (q): the record is built, and the staging is re-read from the slot after the commit anyway; a project_t of its own would be 17 KB */
+    if (ocj4_parse(raw, rlen, q, 0)) { rc = 2; goto failed; }
     rc = ocs_write(OCS_PROJECT, OCJ4_RID(slot), raw, rlen);
     if (rc) { rc = rc == -1 ? 4 : 2; goto failed; }
     (void)ocs_delete(OCS_PROJECT, slot);       /* (an OLD FORMAT record there, if any, is replaced) */

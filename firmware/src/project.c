@@ -30,7 +30,11 @@
                                                 * PROJ_JFX_WIRE; FUN22 and earlier convert (proj_jfx_track) */
 #endif
 /* FUN23's layout: FUN23 itself, and FUN24 that keeps it (every site below that said "is FUN23" asks this) */
+#if OC_LFO2
 static inline int proj_fun23(uint32_t m) { return m == PROJ_FUN23_MAGIC || m == PROJ_MAGIC; }
+#else
+#define proj_fun23(m) ((m) == PROJ_MAGIC)         /* (without LFO 2 FUN23 is the current magic: the code is what it was) */
+#endif
 #define PROJ_FUN22_MAGIC 0x46554E49u           /* FUN22: one TONE per old FX slot */
 #define PROJ_CUT_MAGIC 0x46554E48u             /* FUN21: a low and a high cut per FX slot */
 #define PROJ_PRE_HP_MAGIC 0x46554E47u
