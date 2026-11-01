@@ -1,4 +1,4 @@
-# Orange Cat Nightly v0.16.0-910aac: what changed for you since 478add
+# Orange Cat Nightly v0.16.0-f5057c: what changed for you since 478add
 
 Written November 1, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
 
@@ -9,7 +9,7 @@ Written November 1, 2026 for the owner. Install it from the installer page (Nigh
 5. **HOME held** about 0.7 s opens the MENU; HOME with a knob, PRESETS, EDIT or OCT within that time is the shortcut. The map of shortcuts is gone.
 6. **The SHAPES picture** moves with its knobs (the yarn with TIMB, the tail with COLR, the moon and the paw).
 7. **Checked on the unit before this build shipped:** every ratchet, flam, trig condition, chance, nudge and slide the pattern asks for sounds at its time on every engine; a recorded take keeps its timing; the external clock keeps the grid (BUILD.md 7.22). Found in the review and fixed: a project load deleted recorded notes in the pattern banks you were not on; an accent on a slid-into step was lost in POLY.
-8. **The reverb hiss** is the next build's; the renders for you to hear are in ~/fm1-hw/r11/reverb-renders/ (README.txt there).
+8. **The hiss under the reverb:** found (the reverbs' 16-bit lines held the quiet notes too coarsely) and lowered. Measured on the unit under a quiet note: SPRING's floor over the dry one went from +10 dB to +4, ROOM's from +6 to +4. The CHORUS send's 22 dB is its own smear of the harmonics, not noise, and is unchanged. Tails, decay and tone are the same to 0.1 dB. Listen to ~/fm1-hw/r11/reverb-renders/ (README.txt there); tell me if ROOM still bothers you: a further 2 dB costs headroom (loud sends would saturate).
 
 The earlier note for 478add follows.
 
