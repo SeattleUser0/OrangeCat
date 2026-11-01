@@ -47,8 +47,11 @@ static void nt_exchange(void)                            /* the sealed list: the
 /* the notes as the edit found them, back (a refused move): the sealed list swapped in once, the transaction spent. 0: no list to restore from */
 static int nt_rollback(void)
 {
-    if(!nt_seal())return 0;
-    nt_exchange();note_transaction.valid=0;return 1;
+    uint8_t in[RECORD_MAX/8u];memset(in,0,sizeof in);
+    for(uint32_t k=0;k<note_transaction.count;k++)in[note_transaction.ev[k].idx/8u]|=(uint8_t)(1u<<(note_transaction.ev[k].idx%8u));
+    nt_exchange();
+    for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel&&!(in[i/8u]&(1u<<(i%8u))))memset(&recording[i],0,sizeof recording[i]);   /* (empty when the edit began: the list needs no room for them) */
+    note_transaction.valid=0;return 1;
 }
 
 static int32_t note_snap(int32_t value,int32_t delta,uint32_t quantum)
@@ -77,14 +80,17 @@ static void note_onset(recorded_note_t *r,int32_t shift,uint32_t len,uint32_t qu
 static int note_transaction_begin_x(track_t *t,uint32_t extra)    /* extra: the notes the edit can add (room in the list for them) */
 {
     if (frz_locked_k(trk_index(t))) return 0;           /* (Orange Cat 0.5.6) a frozen phrase's notes stay as frozen */
-    uint32_t used=nt_used(),cap=(used+(extra>NT_HEADROOM?extra:NT_HEADROOM)+NT_ROUND-1u)/NT_ROUND*NT_ROUND;
-    if(cap>RECORD_MAX)cap=RECORD_MAX;
-    note_transaction_ptr=resource_get(RES_NOTE_HISTORY,nt_bytes(cap));
-    if(!note_transaction_ptr&&resource[RES_NOTE_HISTORY].ptr&&resource[RES_NOTE_HISTORY].size>=nt_bytes(used)){   /* (the block of the last edit is big enough: use it as it is) */
+    uint32_t used=nt_used(),want=used+(extra>NT_HEADROOM?extra:NT_HEADROOM),cap;
+    if(want>RECORD_MAX)want=RECORD_MAX;
+    if(resource[RES_NOTE_HISTORY].ptr&&resource[RES_NOTE_HISTORY].size>=nt_bytes(want)){   /* the block of the last edit holds it: no allocation, no search */
         note_transaction_ptr=resource[RES_NOTE_HISTORY].ptr;
         cap=(resource[RES_NOTE_HISTORY].size-(uint32_t)sizeof(note_transaction_t))/(uint32_t)sizeof(nt_ev_t);
+    }else{
+        cap=(want+NT_ROUND-1u)/NT_ROUND*NT_ROUND;
         if(cap>RECORD_MAX)cap=RECORD_MAX;
+        note_transaction_ptr=resource_get(RES_NOTE_HISTORY,nt_bytes(cap));
     }
+    if(cap>RECORD_MAX)cap=RECORD_MAX;
     if(!note_transaction_ptr){ui_message("NO EDIT MEMORY");return 0;}
 
 #if !OC_ONE_AUTH

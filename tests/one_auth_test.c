@@ -463,14 +463,14 @@ int main(void)
         ok = pool_count() == 3u && !str_eq(ui.msg, "NO EDIT MEMORY") && auth_ok("chord 8");
         chk("EDITMEM START on one note of a chord, 8 detents with the arena short: all three events, none lost", ok);
         hold(B_EDIT); frame();
-        ok = pool_count() >= 0u && auth_ok("chord undo");
+        ok = (pool_count() == 3u || pool_count() == 0u) && auth_ok("chord undo");
         chk("EDITMEM the undo after it leaves a consistent pattern", ok);
         fresh("NOTES"); t = TSEL;
         for (i = 0; i < 16u; i++) put_note(i, i, 0, 40u + i, 100, RECORD_UNIT / 2u);   /* a full loop: a recorded note on every step */
         note_rebuild_all(); cursor_set(4); frame();
         notes_selected(t);
         for (k = 0; k < 20u; k++) turn(EN_K2, 1);
-        ok = pool_count() == 16u && !str_eq(ui.msg, "NO EDIT MEMORY") && auth_ok("recorded 20") && found == found;
+        ok = pool_count() == 16u && !str_eq(ui.msg, "NO EDIT MEMORY") && auth_ok("recorded 20");
         chk("EDITMEM START on a recorded note of a full loop (16 notes), 20 detents: the sixteen stay", ok);
         hold(B_EDIT); frame();
         ok = pool_count() == 16u && auth_ok("recorded undo");

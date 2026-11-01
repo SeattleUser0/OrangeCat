@@ -399,7 +399,7 @@ static void pattern_key_len(uint32_t k, uint32_t b, int up)
         if (up) pattern_double(t, b, 1); else pattern_half(t, b, 1);
     } else if (up && recording_head[recording_owner(t)] < RECORD_MAX) {
         fm1_irq_off();
-        if (!note_transaction_begin_track(t)) { fm1_irq_on(); return; }
+        if (!note_transaction_begin_x(t, nt_used())) { fm1_irq_on(); return; }   /* (a doubled bank adds as many events as it holds) */
         motion_snapshot_track(t, &note_transaction.motion);
         note_transaction.clear = 1;
         pattern_double(t, b, 1);
