@@ -2456,3 +2456,95 @@ are "LFO 2" and "LFO 2 SYNC", LFO 1's sync page is "LFO SYNC" (the rename ui-fix
 done with OC_LFO2, so the build without it is release-2's); the designer's guided set skips the three; the two continuous
 LFO 2 parameters (RATE, AMT) are motion lanes; the web app's codec reads FUN24's magic (knownMagics) but does not write it
 (Session D's, listed under "Waiting on Session A"); LFO 2 has no FADE or PHS (the ui-fix 4 design had none).
+
+### Part 3: the conversion (design note, before its review)
+
+**What it is.** The first start of an OC_R3_FORMAT firmware finds the projects of the format before (OCS_PROJECT records with
+ids 0 to 3, OCJ3 or OCJ2, and the shared pool: OCS_POOL records with ids 0 to 15, four phrases a chunk, phrase version 1) and
+turns each into a Release 3 project: a record `0x8000 | slot` and chunks `0x8000 | slot << 9 | gen << 8 | n`. One slot at a
+time, in slot order; each project gets **its own copy of every phrase it uses**; the old record is erased only after the new
+one commits; the old pool chunks are erased only when no old project record remains. Phrases keep their numbers 1 to 64, so no
+chain, song row or scene is renumbered. The reader of the format before stays in the image for this (`ocj3_read`, oc_project.c;
+its cost is counted below and goes with the next release's removal).
+
+**1. When.** In `project_boot`'s caller (project.c, after `ocp_scan` and `ocj_scan`, before the slot list is read): after the
+sample slot's claim has succeeded (the store has its 34 sectors from then on) and after Part 1's boot sweep. A new function
+`ocj4_convert_boot()`; the progress is `BOOT_WORK_BEGIN("CONVERTING PROJECTS", n)` / `BOOT_WORK_PROGRESS(i)` / `BOOT_WORK_END`, `OC_FEED()`
+at every erase and every chunk. It runs only when an old record exists, so a unit already converted pays one `ocs_exists` per slot.
+
+**2. The phrases a project uses, and the copy.** The old record's lists and bank map are read by `ocj3_read` (the FBKK staging,
+`proj_pid`, `proj_lists`); the phrases are the union of the banks' (`pid` + 1) and the chains' (`lists.chain[c][e][0]`) ids. Each
+phrase's old bytes are read from the shared pool through the old chunk table (`ocp_chunk_open`) and checked with the old parser
+(`ocp_check`, which also drops version 1's macro events in the R3 build): a phrase that does not parse is **not copied**, is
+named in the report (`PHRASE n LOST` on the conversion's summary) and the bank or chain step that named it plays empty (the old
+firmware refused such a phrase at load as well). The copy is a **streaming repack, version 1 to version 2**, no unpack: the head
+becomes `[2, flags, np u16]` (the old byte 3, always 0, goes; np is widened), the used steps are copied, the motion events lose the
+four knob-macro ids (33 to 36; 8.1) and grow from 4 to 5 bytes (step, param u16, value), the notes are copied. The new length is
+known before the write (one pass over the old motion section counts the kept events). The directory's CRC-32 and the phrase's
+LEN are computed from the new bytes (`ocp_hash_of`, the same `~crc | 1` rule the live pool uses).
+
+**3. The chunks of the new project.** Phrases in id order are packed into chunks of one part (3,808 B) by the same first-fit the
+live writer uses on an empty pool (a phrase larger than a part gets a chunk of its own), generation 0, chunk numbers from 1. The
+plan (which phrase in which chunk, each chunk's bytes) is made first, with the sizes, and the **room is checked before a byte is
+written**: `free >= parts(all chunks) + 4` (the record's reserve). If it does not fit, the slot is **left as the old record** (it
+reads OLD FORMAT: Part 1's `ocj4_old_slot`), the summary says `SLOT B NEEDS 14 KB` (the KB short), and the conversion goes on
+with the next slot (a smaller one may fit). Peak need is the old data plus the new; the worst case of the design (four projects
+that each use every phrase) does not fit, and stops at the slot that does not.
+
+**4. The record.** Built by `ocj4_build` (Part 1) from: the project part (`q`, from the old FBKK read), the old lists (scenes as
+`SCNS` version 1 with the old `scene_used` mask: **the document says version 2 with the mask "chains and mutes"; scenes v2 is
+Part 7, so until it lands the conversion writes version 1, which has the same meaning, and Part 7 converts on its first save**),
+the bank map `pid` (unchanged: the numbers are the old ones), a fresh `ocj4_meta` (uid, seed, track ids `hash(seed, "trk", k)`,
+revision 1, `next_id` 1, the modules' versions: the instrument reference of a module engine is its slot and version 0, meaning
+any, as 8.2 says for the converted SHAPES tracks; no profile), `SMPR` from the sample slot's header and the tracks on the sample
+engine (`ocj4_smpr_refresh`), `PERF` length 0 (**until Part 7 writes the default table; today's PERFORM keys are what length 0
+means**), `FXRC` empty (**DUB TAPE's legacy slots stay in `p[]`, which TRKS carries; FXRC by stable id waits for the module format**,
+Part 1's decision), `REND`, `TSTA`, `ROUT` empty. The macros' dials were zero in every old record (baked), so `p[33..36]` is 0 as
+the document requires. The freeze table is split (5).
+
+**5. The freeze table.** The old table is one record for the unit (`OCS_FREEZE`, 64 entries of `frzp_t` indexed by phrase id, then
+the folder table `frzd`): read from the flash directly (the live arrays are loaded after the conversion at boot). For each project,
+each entry whose phrase the project uses (and whose old hash equalled the phrase's old CRC) is written to the project's `FRZR`
+with its **hash recomputed from the phrase's new version 2 bytes** (the hash includes the version byte, so an unchanged entry
+would otherwise ask "Save?" at once), its `dir` and `want` mapped to the project's folder table (names). An entry whose hash
+did not match is dropped (it was inert: the phrase had changed since). A phrase two projects both used and froze gets the entry
+in both: both name the same take file in the same folder (the card's files are the unit's, not the project's); re-freezing in one
+makes its own file. The old `OCS_FREEZE` record is left as it is (it still holds `frzd`, the folders and their pending renames).
+
+**6. Order and power cuts.** For slot s: (a) the room check; (b) the chunks written, generation 0, **unnamed** (no record yet);
+(c) the record `0x8000 | s` written: this is the commit; (d) the old record `s` erased; the next slot. A cut before (c) leaves
+orphan chunks of a slot with no new record: the **boot sweep** (Part 1) erases them, and the next start converts the slot again.
+A cut between (c) and (d) leaves both records: **at the next boot the new record wins** and `ocj4_convert_boot` finishes (d) (a
+slot with both an old and a new record, found by the boot's own conversion, is finished, not converted again). After the last
+slot, if **no old project record remains** (all converted, none left OLD FORMAT), the old pool chunks (OCS_POOL ids 0 to 15) are
+erased, one at a time, a cut there leaving chunks nobody names: the next boot finds no old record and erases the rest (the rule
+is "no old project record: erase old chunks", checked at every boot, so it is idempotent). A slot left OLD FORMAT keeps **all** old
+chunks (the old record may name any). Conversion is idempotent: converted slots have no old record and are skipped.
+
+**7. OLD FORMAT and CONVERT.** `project_load` of an old-format slot (the load key on the PROJECT page) is the CONVERT action: it
+runs the same conversion for that slot alone and then loads it; if it still does not fit it says `OLD FORMAT: NEEDS 14 KB` (the KB
+over) and loads nothing. The player frees room (clearing a project, deleting phrases in a converted one) and presses it again; the
+next start retries every old slot as well. SAVE onto an OLD FORMAT slot asks first, as today (`CF_OVR_PROJ`); a save there replaces
+the old record (`ocj_write` deletes it) and the old chunks are erased when no old record remains. **A backup restore at run time**
+(Part 6) replaces its slot whole: it first erases that slot's new records, writes the old ones and converts straight after; Part 3
+provides `ocj4_convert_slot(slot)` for it.
+
+**8. What is not converted, on purpose.** The stored `OCS_SAMPLE` and the settings are not project data and are untouched. The
+freeze table's folder records stay. A pool chunk of the old format that no project names is erased with the rest (it was unnamed
+in the old firmware as well, "free to the next save").
+
+**Cost (estimate):** the plan, the streaming repack, the freeze split, the boot pass and CONVERT: about 3,200 B of flash (the
+document's line), RAM about 600 B (the plan: 64 phrase entries of chunk, length and CRC, 400 B; a chunk's head table is
+`ocp_ntab`'s; the freeze entries are read one at a time). The old reader that stays: `ocj3_read` and the old chunk table readers
+are already in the image under the R3 switch (counted in Part 1).
+
+**Tests (host):** tests/oc_r3_conv_test.c on a store written by the **format before's own code** (the switch-off build of the same
+sources writes a store image and the FBKK each slot reads back as, `oc_r3_oldgen`; the R3 build boots that image): each slot
+converts and reads back as the same FBKK byte for byte (banks, steps, Skiff's fields, timed notes, motion with the macro ids
+removed, lists, globals), the phrases the chains name but no bank does are there; two slots sharing phrases get a copy each and an
+edit in one leaves the other; the old record and old chunks are gone; version 2 phrases; the freeze table split with new hashes
+(a frozen phrase stays frozen: `frz_phrase_frozen` is true after the conversion); a store too full for the last slot leaves it OLD
+FORMAT with the old record intact, `NEEDS n KB` is right, freeing room and CONVERT converts it; a power cut at every program and
+erase point of the whole boot conversion of two projects and the reboot after it: each slot reads old or new, never neither, never
+a mix, no orphan (Part 4 runs this over every point and a restore); idempotence (the second boot writes nothing); the real dumps
+(Part 5).
