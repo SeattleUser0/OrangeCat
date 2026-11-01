@@ -2038,6 +2038,12 @@ combo" (Session A's file).
 - Items 1 to 3 and 5 shared one full host suite run (three small fixes and a table order); the diff review's fixes of
   1 to 3 and item 6 share one (the fixes are a message, a scene depth and test bars); 7 and 8 each their own. From item 6
   on the suite runs in a worktree of the item's commit (~/oc-ui-suite), so the next item's code goes on meanwhile.
+- The full suite at ui-fix 6's commit failed one job: shift_test under the address sanitizer, a stack read past the HOME
+  picture page's value buffer in hp_sound_line (ui_home_pic.c, step 1c: `val` was hashed uninitialized when no knob was
+  turning; the new LATE check's frames made the sanitizer see it). The bug is in 0.16.0's image (a wrong signature at
+  worst, no write); fixed in commit 2d38f7b. The suites queued for ui-fix 7 and 8 at their own commits would have
+  failed the same job, so they were stopped and one suite runs at the head with the fix: it covers 6, 7 and 8 (the
+  first suite covered 1, 2, 3 and 5). Written here so the per-item rule is seen to be bent, once, for this reason.
 - ui-fix 7: the depth bound of a key on a recorded cell (more events than the history's seven free levels) is stated, not
   routed through a transaction (an entry runs over frames); the pads' natural length is the pads' page's only; a move into
   a recorded cell joins it (as note_transform); recording_prune stays as a function for the host check and the non-FAST

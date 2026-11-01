@@ -106,7 +106,10 @@ static void hp_sound_line(int pack_missing)
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     int hot = stage_knobs_out() ? (int)ui.hot_col : -1;
     char name[24], val[12], pos[12];
-    const char *label = hot >= 0 ? hp_knob_text((uint32_t)hot & 3u, val) : 0;
+    const char *label;
+    val[0] = 0;                                         /* (ui-fix: with no knob turning the value is empty, not whatever the
+                                                         * stack held: the signature hashed it, and ASan caught str_len reading on) */
+    label = hot >= 0 ? hp_knob_text((uint32_t)hot & 3u, val) : 0;
     uint32_t sig;
     sound_name(t, name);
     pos[0] = 0;
