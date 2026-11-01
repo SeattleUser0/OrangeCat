@@ -1026,7 +1026,7 @@ static int project_restore_runtime(const project_t *input)
     song.sel = (uint8_t)(p->sel < song.ntrk ? p->sel : 0u);
     /* (ui-fix 7; round 11) no reconcile here: pattern_init has just emptied every bank but the current one, so a reconcile now would
      * read every other bank's cell as a rest and delete its recorded notes (the round 11 review). The callers reconcile once the
-     * banks are back (project_load, tracks.c's boot, editor_backup.c's restore, ocp_load) */
+     * banks are back (project_load, tracks.c's track removal, editor_backup.c's restore; the pool's load mends its own bank) */
     fm1_irq_on();
     for (k = 0; k < NTRK; k++)                          /* (0.14.2) a DRUM-X track on a user preset: that preset's kit (its record's; one of
                                                           * before 0.14.2: factory kit 0, as up_load_to). The project keeps no kit of its own:

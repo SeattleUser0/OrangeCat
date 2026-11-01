@@ -871,18 +871,14 @@ static int pack_protocol(void)
     request(ED_PACK_ERASE, 0, 0);
     bad += check("... and so is PACK_ERASE (4)", host_wire[5] == 4 && host_pack_erases == 0);
     lg_incomplete = 0;
-    a[0] = 1;
+    a[0] = a[1] = a[2] = 0;                              /* (round 11) length 0: another length in every build (with the picture page's pack a length
+                                                          * one over this build's is a trailer's and is taken) */
     request(ED_PACK_BEGIN, a, 4);
-#if !OC_HOME_PIC
     bad += check("PACK_BEGIN with another length is refused (1), nothing erased", host_wire[5] == 1 && host_pack_erases == 0);
-#endif
-    a[0] = (uint8_t)(len & 127u);
+    a[0] = (uint8_t)(len & 127u); a[1] = (uint8_t)(len >> 7 & 127u); a[2] = (uint8_t)(len >> 14);
     song.playing = 1; host_progress = 0;
     request(ED_PACK_BEGIN, a, 4);
-#if !OC_HOME_PIC                                          /* (round 11) with the picture page on, the pack carries its scene trailer and this fixture's pack has none:
-                                                          * the two checks on it run in the plain job only */
     bad += check("PACK_BEGIN while the transport runs is refused (2), nothing erased", host_wire[5] == 2 && host_pack_erases == 0);
-#endif
     song.playing = 0; host_progress = 1;
     request(ED_PACK_BEGIN, a, 4);
     ok = host_wire[5] == 0 && host_pack_erases == 10u && pk.writing;
@@ -898,9 +894,7 @@ static int pack_protocol(void)
             ok &= host_wire[5] == 1;
         }
     }
-#if !OC_HOME_PIC
     bad += check("PACK_BEGIN / WRITE: erased once, the payload taken in order, an out-of-order write refused (1)", ok);
-#endif
     request(ED_PACK_INFO, 0, 0);
     bad += check("before END the pack is not there: INFO says none", host_wire[5] == 0 && !oc_pack_good);
     n = pack7(pak, OC_PACK_HDR, a);

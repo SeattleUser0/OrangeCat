@@ -272,6 +272,17 @@ int main(void)
             ok &= v1 >= 0 && t->v[v1].vel == 127u;
         }
         chk("ACCENT  a slide into an accented step raises the voice's velocity to 127 in POLY, MONO and LEGATO", ok);
+        {   /* UNISON: its voices start at a scaled level and keep it (mono_play's rule in full; the first diff review's finding 1) */
+            track_t *t = prep(ENGI_MACRO, V_UNISON);
+            uint8_t vel0[NVOICE]; uint32_t i, same = 1, nv = 0;
+            manual(t, 0, 48, SF_SLIDE); manual(t, 1, 60, SF_ACCENT);
+            start();
+            ok = until_note(t, 48, 400) > 0;
+            for (i = 0; i < NVOICE; i++) vel0[i] = t->v[i].vel;
+            ok &= until_note(t, 60, 400) > 0;
+            for (i = 0; i < NVOICE; i++) if (t->v[i].active && t->v[i].gate) { nv++; same &= t->v[i].vel == vel0[i]; }
+            chk("ACCENT  UNISON: the slid voices keep their scaled level (no raise)", ok && nv >= 2u && same);
+        }
     }
     {   /* HITS: a melodic step that also carries a lane hit: no takeover (the pairing would reach the hit's voice: the review's 10) */
         track_t *t = prep(ENGI_MACRO, V_POLY);
