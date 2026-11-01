@@ -157,6 +157,7 @@ static uint32_t ocp_r3_len_in_chunk(uint32_t id)
 /* ------------------------------------------------------------ writing a chunk --- */
 /* a chunk streamed: its head table (ocp_ntab), then each entry's bytes from the copy before (base, found by its own
  * table ocp_otab), from the generator, or from another record (cp) */
+static uint32_t ocp_r3_parts_live(void);
 typedef struct ocp_cw {
     ocs_src_t src;
     ocs_rec_t base;
@@ -293,7 +294,10 @@ static int ocp_r3_write_chunk(uint32_t c, uint32_t gid, ocp_gen_t *g, const ocs_
     parts = ocp_parts_of(total);
     if (ocp_cw.have_base && next == live) keep = ocp_cw.base.parts;   /* (the same id again: its copy before is freed) */
     free = ocs_free_count();
-    if (free + keep < parts + OCJ4_RESERVE) return 2;
+    /* The scratch's chunks are copied into a slot at the first save, which needs room for them as well as the record: a
+     * keep into the scratch leaves that room (music above about half the store is saved before it grows further; PROJECT
+     * FULL says so). A project in a slot keeps with the plain reserve */
+    if (free + keep < parts + OCJ4_RESERVE + (ocp.dir.slot == OCP_SCRATCH ? ocp_r3_parts_live() : 0u)) return 2;
     rc = ocs_write_src(OCS_POOL, ocp_rid(ocp.dir.slot, next, c), &ocp_cw.src, total);
     if (rc) return rc == -1 ? 2 : rc;
     ocp_bit_set(ocp.dir.gen, c, next);
@@ -437,6 +441,7 @@ static void ocp_r3_boot(void)
 }
 
 /* the parts (sectors) the live pool's chunks take */
+static uint32_t ocp_r3_parts_live(void);
 static uint32_t ocp_r3_parts_live(void)
 {
     uint32_t n = 0;

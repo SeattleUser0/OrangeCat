@@ -31,6 +31,13 @@
  * Revisions:
  *   Part 1 (October 31, 2026): first version.
  */
+#include <stdint.h>
+/* a stand-in for the card code's freeze table (card_freeze.c), so that FRZR's live branches run on the host */
+#define OCJ4_FRZ_TEST 1
+#define FZP_N 64u
+typedef struct { uint16_t take; uint8_t trk, ver; int16_t lvl, bpm; uint32_t frames, hash; uint8_t dir, want; char name[14]; } frzp_t;
+static frzp_t frzp[FZP_N];
+static volatile uint8_t frzp_dirty;
 #define OC_PROJECT_NO_MAIN
 #include "oc_project_test.c"
 
@@ -540,9 +547,25 @@ static int test_cuts_r3(void)
     for (int k = 0; k < (int)ers && ok; k++) { ok &= cut_round(0, 0, -1, k, &A, &B, &rc); m++; }
     snprintf(what, sizeof what, "power cut at each of %d program points and %d erase points of the save: the slot reads old or new, no orphan after the boot", n, m);
     R3CHK(what, ok);
-    /* the case the review found: a cut before the record, after the first changed chunk: the old record reads old data */
-    R3CHK("... a cut after the first chunk's commit and before the record: the old record reads the old phrases",
-          cut_round(0, 0, 20, -1, &A, &B, &rc) && rc != 0 && (memcpy(nor, nor_saved, sizeof nor), reboot(), wipe_runtime(), project_load(0), snap(&C), same(&C, &A)));
+    /* the case the review found: the largest cut that still reads the old project is just before the record's commit, and by then
+     * the changed chunks of the other generation are on the flash (the old record reads old data while they sit there) */
+    {
+        int kc = -1, ok2 = 1;
+        uint32_t pre = 0;
+        for (int k = 0; k <= (int)progs; k++) {
+            memcpy(nor, nor_saved, sizeof nor);
+            reboot(); wipe_runtime(); project_load(0);
+            poke(0, 0, 11); poke(1, 1, 22); poke(2, 2, 33);
+            fail_after = k; rc = project_save(0); fail_after = -1;
+            if (kc < 0 && rc == 0) { kc = k; break; }
+            { uint32_t o = 0; (void)pool_headers(0, &o); pre = o; }
+            memcpy(nor + 0, nor + 0, 1);
+            reboot(); wipe_runtime(); project_load(0); snap(&C);
+            ok2 &= same(&C, &A);
+        }
+        snprintf(what, sizeof what, "... the record commits at program call %d of %u: every cut before it reads the old project, and just before it %u chunk records of the other generation sit unnamed", kc, progs, pre);
+        R3CHK(what, kc > 0 && ok2 && pre >= 3u);
+    }
     /* a save-as */
     memcpy(nor, nor_saved, sizeof nor);
     reboot(); wipe_runtime(); project_load(0);
@@ -651,6 +674,403 @@ static int test_scns_foreign(void)
     return bad;
 }
 
+
+/* ------------------------------------------------------------ helpers for the review's cases --- */
+/* every chunk's used[] equals what its table says on the flash, and every directory entry points at a chunk that holds it */
+static int used_consistent(void)
+{
+    for (uint32_t c = 1; c < OCP_NCHUNK; c++) {
+        ocs_rec_t r;
+        uint32_t u = 1, any = 0;
+        if (!ocp.used[c]) continue;
+        if (ocs_open(OCS_POOL, ocp_rid(ocp.dir.slot, ocp_bit(ocp.dir.gen, c), c), &r) || ocp_tab_read(&r, &ocp_otab)) return 0;
+        for (uint32_t e = 0; e < ocp_otab.n; e++) if (ocp.dir.chunk[ocp_otab.id[e] - 1u] == c) { u += 3u + ocp_otab.len[e]; any = 1; }
+        if (!any || u != ocp.used[c]) return 0;
+    }
+    for (uint32_t id = 0; id < OCP_N; id++) {
+        ocs_rec_t r;
+        uint32_t c = ocp.dir.chunk[id];
+        if (!c) continue;
+        if (!ocp.used[c] || ocs_open(OCS_POOL, ocp_rid(ocp.dir.slot, ocp_bit(ocp.dir.gen, c), c), &r) || ocp_tab_read(&r, &ocp_otab) ||
+            ocp_tab_find(&ocp_otab, id) == ocp_otab.n) return 0;
+    }
+    return 1;
+}
+static uint8_t fbkk_img[BANK_STORE_SIZE];
+/* the music in RAM captured as a foreign FBKK (a backup's, Melodee's: without Skiff's fields) */
+static void fbkk_make(void)
+{
+    project_capture(&proj_scratch);
+    bank_pack(fbkk_img, &proj_scratch, 1);
+}
+static int fbkk_write(uint32_t slot)
+{
+    proj_x_tag = 0;
+    memcpy(proj_wire_u.raw, fbkk_img, sizeof fbkk_img);
+    return proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE);
+}
+
+/* ------------------------------------------------------------ a record that does not load is OLD FORMAT --- */
+static int test_old_format_new(void)
+{
+    int bad = 0, n;
+    uint32_t off, sn, len, victim = 0;
+    reset();
+    fill_all(30, 3);
+    R3CHK("a project saved into slot 1", project_save_as(1, "HOLD") == 0 && (n = rec_get(1)) > 0);
+    {   /* a chunk of its record erased */
+        for (uint32_t s = 0; s < OCS_NSECT; s++)
+            if (ocs_hdr[s].magic == OCS_MAGIC && ocs_hdr[s].type == OCS_POOL && ((ocs_hdr[s].id >> 9) & 7u) == 1u) { victim = ocs_hdr[s].id; break; }
+        R3CHK("... one of its chunks erased", victim && ocs_delete(OCS_POOL, victim) == 0);
+        reboot();
+        R3CHK("... the slot does not read, and is held as OLD FORMAT, not free", !project_used(1) && project_old(1) && project_free_slot_or_none() != 1);
+    }
+    reset();
+    fill_all(31, 2);
+    R3CHK("a project saved", project_save_as(2, "MUT") == 0 && (n = rec_get(2)) > 0);
+    {   /* its TRKS section made unreadable (np 0 in its first entry) */
+        R3CHK("... its TRKS mutated", !rec_find(rec, (uint32_t)n, T_TRKS, &off, &sn));
+        wr16(rec + off + 4u + 29u, 0);
+        R3CHK("... and written back", rec_put(2, (uint32_t)n) == 0);
+        reboot();
+        R3CHK("... the slot is held as OLD FORMAT, not free", !project_used(2) && project_old(2) && project_free_slot_or_none() != 2);
+    }
+    /* a save that would write a record it cannot read is refused whole: counts follow the entries written */
+    reset();
+    fill_all(32, 2);
+    R3CHK("a project saved", project_save_as(0, "COUNTS") == 0 && (n = rec_get(0)) > 0);
+    {
+        static uint8_t sec[256];
+        /* an SMPR claiming 9 entries and holding 1; a TRKS claiming 9 and holding 4 */
+        memcpy(sec, SMPR_X, sizeof SMPR_X); wr16(sec, 9);
+        len = r3rec_set(rec, (uint32_t)n, T_SMPR, sec, sizeof SMPR_X);
+        if (!rec_find(rec, len, T_TRKS, &off, &sn)) wr16(rec + off, 9);
+        R3CHK("... its record given counts larger than the entries it holds", rec_put(0, len) == 0);
+        reboot(); wipe_runtime();
+        R3CHK("... which does not load (held as OLD FORMAT)", !project_used(0) && project_old(0));
+    }
+    reset();
+    fill_all(33, 2);
+    R3CHK("a project saved", project_save_as(0, "COUNTS") == 0 && (n = rec_get(0)) > 0);
+    {
+        static uint8_t sec[256];
+        memcpy(sec, SMPR_X, sizeof SMPR_X); wr16(sec, 1);    /* an honest one, then a save: counts written are what is written */
+        len = r3rec_set(rec, (uint32_t)n, T_SMPR, sec, sizeof SMPR_X);
+        R3CHK("... an honest SMPR written", rec_put(0, len) == 0);
+        reboot(); wipe_runtime(); project_load(0);
+        R3CHK("... a save writes SMPR with its count equal to its entries", project_save(0) == 0 && (n = rec_get(0)) > 0 &&
+              !rec_find(rec, (uint32_t)n, T_SMPR, &off, &sn) && rd16(rec + off) == 1u && sn == 2u + 2u + 24u);
+    }
+    return bad;
+}
+
+/* ------------------------------------------------------------ rename --- */
+static int test_rename(void)
+{
+    int bad = 0, n;
+    uint32_t len, uid, off, sn, off2, sn2, ok;
+    static uint8_t before[OCJ4_MAX];
+    recset_t a0, a1;
+    reset();
+    fill_all(40, 3);
+    R3CHK("a project saved", project_save_as(0, "BEFORE") == 0 && (n = rec_get(0)) > 0);
+    len = rec_make_foreign((uint32_t)n);
+    R3CHK("... given foreign pieces", rec_put(0, len) == 0);
+    reboot(); wipe_runtime(); project_load(0);
+    snap(&A);
+    uid = ocj4_meta.uid;
+    memcpy(before, rec, len);
+    recset(&a0);
+    R3CHK("renamed (the live slot)", project_rename(0, "AFTER") == 0 && (n = rec_get(0)) > 0);
+    {
+        char nm[16];
+        R3CHK("... the slot list has the new name", project_name(0, nm) && !strcmp(nm, "AFTER"));
+        ok = 1;
+        for (uint32_t pos = OCJ4_HLEN; pos + 8u <= len; pos += 8u + rd32(before + pos + 4)) {
+            uint32_t tag = rd32(before + pos);
+            if (tag == T_HEAD) continue;
+            ok &= !rec_find(rec, (uint32_t)n, tag, &off, &sn) && !rec_find(before, len, tag, &off2, &sn2) && sn == sn2 && !memcmp(rec + off, before + off2, sn);
+        }
+        R3CHK("... every section but HEAD is byte for byte as before (the foreign pieces, the directory, the uid)", ok);
+        R3CHK("... and HEAD differs in the name only", !rec_find(rec, (uint32_t)n, T_HEAD, &off, &sn) && !rec_find(before, len, T_HEAD, &off2, &sn2) && sn == sn2 &&
+              !memcmp(rec + off + PROJ_NAME_LEN, before + off2 + PROJ_NAME_LEN, sn - PROJ_NAME_LEN) && !memcmp(rec + off, "AFTER\0", 6));
+    }
+    recset(&a1);
+    {
+        uint32_t same_chunks = 1;
+        for (uint32_t i = 0; i < a0.n; i++) if ((a0.key[i] >> 24) == OCS_POOL) { uint32_t f = 0; for (uint32_t j = 0; j < a1.n; j++) f |= a1.key[j] == a0.key[i]; same_chunks &= f; }
+        R3CHK("... the chunks were not touched", same_chunks);
+    }
+    reboot(); wipe_runtime(); project_load(0); snap(&B);
+    R3CHK("... it loads the same, the uid is the same", same(&A, &B) && ocj4_meta.uid == uid);
+    /* a slot that is not the live one */
+    reset();
+    fill_all(41, 2);
+    R3CHK("slot 1 saved", project_save_as(1, "ONE") == 0);
+    snap(&A);
+    project_new_blank(); fill_all(42, 2);
+    R3CHK("... other music saved into slot 2 (live)", project_save_as(2, "TWO") == 0);
+    R3CHK("... slot 1 renamed while slot 2 is live", project_rename(1, "UNO") == 0);
+    wipe_runtime(); project_load(1); snap(&B);
+    R3CHK("... it loads as it was, with the new name", same(&A, &B) && !strcmp(proj_name, "UNO"));
+    return bad;
+}
+
+/* ------------------------------------------------------------ the foreign FBKK (a backup restore) --- */
+static uint8_t nor_f[sizeof nor];
+static int orphans_now(uint32_t s0, uint32_t s1, uint32_t s2)
+{
+    uint32_t o = 0, t;
+    pool_headers(s0, &t); o += t;
+    pool_headers(s1, &t); o += t;
+    pool_headers(s2, &t); o += t;
+    return (int)o;
+}
+static int test_foreign_fbkk(void)
+{
+    int bad = 0, rc, ok;
+    snap_t M, F;
+    uint32_t progs, ers, n_p, n_e;
+    char what[220];
+    /* the foreign project */
+    reset();
+    fill_all(50, 2);
+    fbkk_make();
+    /* the music: slot 0 saved, live */
+    reset();
+    fill_all(51, 3);
+    R3CHK("music saved into slot 0", project_save_as(0, "MUSIC") == 0);
+    snap(&M);
+    R3CHK("a foreign FBKK written into slot 3 (reference)", fbkk_write(3) == 0);
+    wipe_runtime(); project_load(3); snap(&F);
+    wipe_runtime(); project_load(0);
+    R3CHK("... slot 3 loads as a project of its own banks, the music's slot untouched", !same(&F, &M) && ocp.dir.slot == 0u);
+    memcpy(nor_f, nor, sizeof nor);
+    /* 1. into a slot that is not the live one */
+    R3CHK("restore into slot 1 (not live)", fbkk_write(1) == 0);
+    reboot(); wipe_runtime(); project_load(1); snap(&C);
+    R3CHK("... slot 1 is the foreign project", same(&C, &F));
+    wipe_runtime(); project_load(0); snap(&C);
+    R3CHK("... slot 0 is the music, no slot has an orphan", same(&C, &M) && !orphans_now(0, 1, 3) );
+    /* 2. into the live slot: the music's phrases go to the scratch, the music in RAM keeps them */
+    memcpy(nor, nor_f, sizeof nor);
+    reboot(); wipe_runtime(); project_load(0);
+    poke(0, 0, 77);                            /* (a bank edited, kept: its chunk is the live generation, uncommitted) */
+    R3CHK("restore into the live slot 0", ocl_keep_all() == 0 && fbkk_write(0) == 0);
+    R3CHK("... the live pool is now the scratch, holding the music's phrases", ocp.dir.slot == OCP_SCRATCH && used_patterns() >= 12u && used_consistent());
+    R3CHK("... the music in RAM still keeps (its banks read their phrases)", ocl_keep_all() == 0);
+    reboot(); wipe_runtime(); project_load(0); snap(&C);
+    R3CHK("... after a reboot slot 0 is the foreign project", same(&C, &F) && !orphans_now(0, 1, 2));
+    /* 3. into a slot holding orphans of both generations */
+    memcpy(nor, nor_f, sizeof nor);
+    reboot(); wipe_runtime(); project_load(0);
+    fail_after = 1 << 20; (void)fbkk_write(2); progs = (uint32_t)((1 << 20) - fail_after); fail_after = -1;
+    memcpy(nor, nor_f, sizeof nor); reboot(); wipe_runtime(); project_load(0);
+    fail_after = (int)progs / 2; rc = fbkk_write(2); fail_after = -1;       /* a cut half way: chunks under gen 0, no record */
+    R3CHK("a restore into slot 2 cut half way fails and leaves slot 2 empty", rc != 0 && !project_used(2));
+    reboot(); wipe_runtime(); project_load(0);
+    R3CHK("... a restore again over what the cut left: the chunks of both generations", fbkk_write(2) == 0 && !orphans_now(0, 2, 3));
+    wipe_runtime(); project_load(2); snap(&C);
+    R3CHK("... slot 2 is the foreign project", same(&C, &F));
+    /* a restore over a slot that has a record, twice (the generation flips each time) */
+    R3CHK("and over slot 2 again (its record is there: the other generation)", fbkk_write(2) == 0 && !orphans_now(0, 2, 3));
+    wipe_runtime(); project_load(2); snap(&C);
+    R3CHK("... still the foreign project", same(&C, &F));
+    /* cuts: every program call and every erase of a restore into a non-live slot, and into the live slot */
+    for (int live = 0; live < 2; live++) {
+        uint32_t dst = live ? 0u : 1u, pe[2];
+        memcpy(nor, nor_f, sizeof nor);
+        reboot(); wipe_runtime(); project_load(0);
+        { uint32_t e0 = erases; fail_after = 1 << 20; (void)fbkk_write(dst); progs = (uint32_t)((1 << 20) - fail_after); fail_after = -1; ers = erases - e0; }
+        ok = 1; n_p = n_e = 0;
+        for (int phase = 0; phase < 2; phase++)
+            for (int k = 0; k < (phase ? (int)ers : (int)progs + 1) && ok; k++) {
+                int cut_orph;
+                memcpy(nor, nor_f, sizeof nor);
+                reboot(); wipe_runtime(); project_load(0);
+                fail_after = phase ? -1 : k; erase_cut = phase ? k : -1;
+                rc = fbkk_write(dst);
+                fail_after = -1; erase_cut = -1;
+                (void)rc; (void)pe;
+                reboot(); wipe_runtime();
+                project_load(dst); snap(&C);
+                ok &= same(&C, &F) || (live ? same(&C, &M) : !project_used(dst));
+                wipe_runtime(); project_load(live ? 3 : 0); snap(&C);
+                ok &= live ? same(&C, &F) : same(&C, &M);
+                cut_orph = orphans_now(0, 1, 3) + (int)pool_headers(OCP_SCRATCH, 0);
+                ok &= cut_orph == 0;
+                if (phase) n_e++; else n_p++;
+            }
+        snprintf(what, sizeof what, "power cut at each of %u program points and %u erase points of a restore into %s: the slot reads old or new (the foreign project), the others untouched, no orphan after the boot",
+                 n_p, n_e, live ? "the live slot 0" : "slot 1");
+        R3CHK(what, ok);
+    }
+    return bad;
+}
+
+/* ------------------------------------------------------------ FRZR (a stand-in freeze table) --- */
+static char fnames[16][32];
+static uint32_t fh_get(const char *nm)
+{
+    uint32_t i;
+    for (i = 0; i < 16u; i++) if (fnames[i][0] && !strcmp(fnames[i], nm)) return i;
+    for (i = 0; i < 16u; i++) if (!fnames[i][0]) { strcpy(fnames[i], nm); return i; }
+    return 16u;
+}
+static const char *fh_name(uint32_t idx) { return idx < 16u ? fnames[idx] : ""; }
+static const ocj4_frzd_t fhooks = {fh_get, fh_name};
+/* a FRZR section image: n folders, then entries (id, dir, want, tail bytes) */
+static uint32_t frzr_build(uint8_t *b, uint32_t nf, const char *const *fn, uint32_t ne, const uint8_t (*e)[3], uint32_t tail)
+{
+    uint32_t at = 0;
+    b[at++] = (uint8_t)nf;
+    for (uint32_t i = 0; i < nf; i++) { memset(b + at, 0, 32); strcpy((char *)b + at, fn[i]); at += 32; }
+    wr16(b + at, ne); at += 2;
+    for (uint32_t i = 0; i < ne; i++) {
+        wr16(b + at, 33u + tail); at += 2;
+        memset(b + at, 0, 33u + tail);
+        b[at] = e[i][0]; b[at + 1] = 1; b[at + 3] = 2;   /* take 1, version 2 */
+        b[at + 17] = e[i][1]; b[at + 18] = e[i][2];
+        at += 33u + tail;
+    }
+    return at;
+}
+static int test_frzr(void)
+{
+    int bad = 0, n;
+    uint32_t off, sn, len, nf, ne;
+    static uint8_t sec[2048];
+    ocj4_frzd = &fhooks;
+    memset(fnames, 0, sizeof fnames);
+    strcpy(fnames[0], "ORANGECAT"); strcpy(fnames[1], "ORANGECAT/A"); strcpy(fnames[2], "ORANGECAT/B");
+    reset();
+    memset(frzp, 0, sizeof frzp);
+    fill_all(60, 2);
+    frzp[2].take = 1; frzp[2].ver = 2; frzp[2].dir = 1; frzp[2].want = 2; frzp[2].frames = 1000;
+    frzp[9].take = 3; frzp[9].ver = 2; frzp[9].dir = 2; frzp[9].want = 2; frzp[9].frames = 2000;
+    R3CHK("a project with two frozen phrases saved", project_save_as(0, "FROZEN") == 0 && (n = rec_get(0)) > 0);
+    R3CHK("... its FRZR names two folders and two entries",
+          !rec_find(rec, (uint32_t)n, T_FRZR, &off, &sn) && rec[off] == 2u && rd16(rec + off + 1u + 64u) == 2u);
+    /* a unit whose folder table is in another order */
+    memset(fnames, 0, sizeof fnames);
+    strcpy(fnames[0], "ORANGECAT"); strcpy(fnames[1], "ORANGECAT/B"); strcpy(fnames[3], "ORANGECAT/A");
+    memset(frzp, 0, sizeof frzp);
+    reboot(); wipe_runtime(); project_load(0);
+    R3CHK("... loaded on a unit with another folder order: the entries name the same folders by name",
+          frzp[2].take == 1u && !strcmp(fnames[frzp[2].dir], "ORANGECAT/A") && !strcmp(fnames[frzp[2].want], "ORANGECAT/B") &&
+          frzp[9].take == 3u && !strcmp(fnames[frzp[9].dir], "ORANGECAT/B") && frzp[9].frames == 2000u);
+    R3CHK("... a new project has no frozen phrases", (project_new_blank(), frzp[2].take == 0u && frzp[9].take == 0u));
+    /* a carried entry above 64, dead folder names dropped, indices remapped */
+    {
+        const char *fn[3] = {"ORANGECAT/DEAD", "ORANGECAT/LIVE", "ORANGECAT/DEAD2"};
+        const uint8_t ent[1][3] = {{70, 1, 1}};
+        reset();
+        memset(frzp, 0, sizeof frzp);
+        fill_all(61, 2);
+        R3CHK("a project saved", project_save_as(0, "CARRY") == 0 && (n = rec_get(0)) > 0);
+        len = frzr_build(sec, 3, fn, 1, ent, 5);
+        len = r3rec_set(rec, (uint32_t)n, T_FRZR, sec, len);
+        R3CHK("... its FRZR holding 3 folders and one entry (id 70, 5 extra bytes) naming the second", rec_put(0, len) == 0);
+        reboot(); wipe_runtime(); project_load(0);
+        R3CHK("a save", project_save(0) == 0 && (n = rec_get(0)) > 0 && !rec_find(rec, (uint32_t)n, T_FRZR, &off, &sn));
+        nf = rec[off]; ne = rd16(rec + off + 1u + nf * 32u);
+        R3CHK("... keeps only the folder the entry names (dead names dropped), the entry's folder bytes mapped, its tail kept",
+              nf == 1u && !strcmp((char *)rec + off + 1u, "ORANGECAT/LIVE") && ne == 1u && rd16(rec + off + 1u + 32u + 2u) == 38u &&
+              rec[off + 1u + 32u + 4u] == 70u && rec[off + 1u + 32u + 4u + 17u] == 0u && rec[off + 1u + 32u + 4u + 18u] == 0u);
+    }
+    {   /* a FRZR claiming 17 folders is not read (nothing carried, no over-read) */
+        const char *fn[17];
+        const uint8_t ent[1][3] = {{70, 0, 0}};
+        static char nm[17][16];
+        static uint8_t big[4096];
+        for (int i = 0; i < 17; i++) { snprintf(nm[i], sizeof nm[i], "ORANGECAT/F%d", i); fn[i] = nm[i]; }
+        reset();
+        memset(frzp, 0, sizeof frzp);
+        fill_all(62, 2);
+        R3CHK("a project saved", project_save_as(0, "BIGFRZ") == 0 && (n = rec_get(0)) > 0);
+        len = frzr_build(big, 17, fn, 1, ent, 0);
+        len = r3rec_set(rec, (uint32_t)n, T_FRZR, big, len);
+        R3CHK("... given a FRZR of 17 folders", rec_put(0, len) == 0);
+        reboot(); wipe_runtime(); project_load(0);
+        R3CHK("... a save works and writes an empty table", project_save(0) == 0 && (n = rec_get(0)) > 0 && !rec_find(rec, (uint32_t)n, T_FRZR, &off, &sn) && rec[off] == 0u);
+    }
+    {   /* the folders only a stored record names are not freed (the unit asks each record) */
+        memset(fnames, 0, sizeof fnames);
+        strcpy(fnames[0], "ORANGECAT");
+        R3CHK("a folder named by a slot's record is found", ({ const char *fn1[1] = {"ORANGECAT/KEPT"}; const uint8_t e1[1][3] = {{5, 0, 0}};
+              reset(); fill_all(63, 2); project_save_as(0, "K"); n = rec_get(0); len = frzr_build(sec, 1, fn1, 1, e1, 0);
+              len = r3rec_set(rec, (uint32_t)n, T_FRZR, sec, len); rec_put(0, len); reboot();
+              ocj4_folder_named("ORANGECAT/KEPT") && !ocj4_folder_named("ORANGECAT/OTHER"); }));
+    }
+    ocj4_frzd = 0;
+    memset(frzp, 0, sizeof frzp);
+    return bad;
+}
+
+/* ------------------------------------------------------------ rooms --- */
+/* big phrases (notes timed notes each) kept until refused: how many, the least free sectors seen, the last rc */
+static void big_keeps(uint32_t notes, uint32_t *kept, uint32_t *free_min, int *rc_last, uint32_t first)
+{
+    pattern_t p;
+    pattern_read(0, 1, &p);
+    for (uint32_t i = 0; i < NSTEP; i++) { p.step[i].n = 4; p.step[i].time = ST_NOTE; p.step[i].note[0] = (uint8_t)(30u + i); p.step[i].vel = 100; }
+    pattern_write(0, 1, &p);
+    for (uint32_t i = 0; i < notes; i++) {
+        recorded_note_t *r = &recording[i];
+        r->on = (uint16_t)(i * 50u); r->duration = 300; r->note = (uint8_t)(40u + i % 40u); r->vel = 90; r->owner = 1; r->step = (uint8_t)(i % 64u); r->pitch = 0; r->length = 0;
+    }
+    recording_reindex();
+    *kept = 0; *free_min = 999; *rc_last = 0;
+    for (uint32_t id = first; id < OCP_N; id++) {
+        poke(0, 1, id);
+        if ((*rc_last = ocp_save(id, 0, 1)) != 0) break;
+        (*kept)++;
+        if (ocs_free_count() < *free_min) *free_min = ocs_free_count();
+    }
+}
+static int test_rooms(void)
+{
+    int bad = 0, rc;
+    uint32_t kept, fmin, o;
+    char what[200];
+    /* a 3-part phrase against the reserve */
+    reset();
+    fill_all(70, 2);
+    R3CHK("a project saved", project_save_as(0, "ROOM3") == 0);
+    big_keeps(900, &kept, &fmin, &rc, 8);
+    snprintf(what, sizeof what, "%u phrases of 3 parts kept until refused (rc %d): never fewer than %u free sectors (the reserve is %u)", kept, rc, fmin, OCJ4_RESERVE);
+    R3CHK(what, rc == 2 && fmin >= OCJ4_RESERVE && kept >= 5u && used_consistent());
+    {
+        pattern_t p; pattern_read(0, 1, &p);
+        for (uint32_t i = 0; i < NSTEP; i++) { memset(&p.step[i], 0, sizeof p.step[i]); p.step[i].time = ST_REST; }
+        pattern_write(0, 1, &p); recording_reset();
+    }
+    R3CHK("... the project still saves", project_save(0) == 0 && used_consistent() && pool_headers(0, &o) && !o);
+    /* the scratch: a new project's keeps leave room for its first save */
+    reset();
+    project_new_blank();
+    fill_all(71, 1);
+    R3CHK("its banks kept first", ocl_keep_all() == 0);
+    big_keeps(300, &kept, &fmin, &rc, 8);
+    snprintf(what, sizeof what, "a new project's %u big phrases kept into the scratch until refused (rc %d); the free sectors then %u", kept, rc, ocs_free_count());
+    R3CHK(what, rc == 2 && kept >= 5u);
+    {
+        pattern_t p; pattern_read(0, 1, &p);
+        for (uint32_t i = 0; i < NSTEP; i++) { memset(&p.step[i], 0, sizeof p.step[i]); p.step[i].time = ST_REST; }
+        pattern_write(0, 1, &p); recording_reset();
+    }
+        R3CHK("... its first save still fits (the copy into a slot)", project_save_as(1, "FIRST") == 0 && ocp.dir.slot == 1u && !pool_headers(OCP_SCRATCH, 0) && used_consistent());
+    R3CHK("... and it reads back after a reboot", (reboot(), wipe_runtime(), project_load(1), ocp.dir.slot == 1u && used_consistent()));
+    /* used[] through a phrase emptied and a phrase moved */
+    reset();
+    fill_all(72, 3);
+    R3CHK("a project saved", project_save_as(0, "USED") == 0 && used_consistent());
+    R3CHK("a phrase cleared through the directory", ocp_clear(bank_pid[0][0] - 1u) == 0 && used_consistent());
+    R3CHK("a phrase copied to a new number", ocp_copy(bank_pid[1][1] - 1u, 100) == 0 && ocp.dir.chunk[100] != 0u && used_consistent());
+    R3CHK("... and the project saves and reloads with it", project_save(0) == 0 && (reboot(), wipe_runtime(), project_load(0), used_consistent() && ocp.dir.chunk[100] != 0u));
+    return bad;
+}
+
 int main(void)
 {
     int bad = 0;
@@ -662,6 +1082,11 @@ int main(void)
     bad |= test_cuts_r3();
     bad |= test_full_old_copy();
     bad |= test_scns_foreign();
+    bad |= test_old_format_new();
+    bad |= test_rename();
+    bad |= test_foreign_fbkk();
+    bad |= test_frzr();
+    bad |= test_rooms();
     printf(bad ? "oc r3: FAILED\n" : "oc r3: all passed\n");
     return bad ? 1 : 0;
 }

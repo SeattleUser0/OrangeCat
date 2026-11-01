@@ -925,6 +925,13 @@ static int project_rename(uint32_t slot, const char *name)
     memset(p->name, 0, sizeof p->name);
     memcpy(p->name, name, str_len(name) < PROJ_NAME_LEN ? str_len(name) : PROJ_NAME_LEN);
     p->sum = proj_sum(p);
+#if OC_R3_FORMAT && MELODEE_FLASH
+    if (flash_ok) {                                     /* (Release 3) only HEAD's name changes; the phrases, the uid and every other byte stay */
+        if (ocj4_rename(slot, p->name)) { ui_message("SAVE ERROR"); return 2; }
+        (void)proj_read_slot(slot);
+        goto renamed;
+    }
+#endif
     if (n == BANK_STORE_SIZE) {
         memcpy(proj_wire_u.raw + BANK_MOTION_OFF, bank_import_tags, sizeof bank_import_tags);
         if (!proj_pack((project_store_t *)(proj_wire_u.raw + 8u), p)) return 2;
@@ -934,6 +941,9 @@ static int project_rename(uint32_t slot, const char *name)
         if (!bank_pack(proj_wire_u.raw, p, 0)) return 2;
     }
     if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
+#if OC_R3_FORMAT && MELODEE_FLASH
+renamed:
+#endif
     if (proj_cur == (slot & 3u))
         proj_name_get(proj_name, (const uint8_t *)p->name);
     if (frz_named_hook) {                               /* (0.6.1) its takes' folder renamed with it */

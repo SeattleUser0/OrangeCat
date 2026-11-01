@@ -71,8 +71,14 @@
 #define OCJ4_SMP_MAX 16u
 #define OCJ4_FRZ_FOLD 32u
 #define OCJ4_FRZ_ENT 33u
-#define OCJ4_IDX_MAX 24u
+#define OCJ4_IDX_MAX 32u
+#if OCJ4_FRZ || defined(OCJ4_FRZ_TEST)   /* the card code's freeze table (card_freeze.c), or the host test's stand-in */
+#define OCJ4_FRZ 1
+#else
+#define OCJ4_FRZ 0
+#endif
 #define OCJ4_FRZ_LIVE 64u                      /* the live frozen-phrase table is still indexed by id, 1..64 (Part 1) */
+#define OCJ4_FRZ_MIN (OCJ4_FRZ ? OCJ4_FRZ_LIVE : 0u)   /* entries of ids above this are carried; below it the live table writes them */
 #define FZD_N_MAX 16u                          /* usb_files.c's FZD_N (asserted equal there): the take folders a unit keeps */
 #define OCJ4_NATV_MAX 160u                     /* the largest native block (FM6's 128 + 16, CZ-1's 144, the Prophet's 138) */
 _Static_assert(FM6_PACKED + FM6_NFN <= OCJ4_NATV_MAX && CZ_BYTES <= OCJ4_NATV_MAX && sizeof(p5_patch_t) <= OCJ4_NATV_MAX &&
@@ -95,6 +101,7 @@ static ocp_dir_t ocj_dir __attribute__((section(".pool")));       /* the directo
 static ocp_gen_t ocj4_gen __attribute__((section(".pool")));      /* a foreign project's banks, one at a time */
 static struct { uint32_t tag, off, len; } ocj4_idx[OCJ4_IDX_MAX] __attribute__((section(".pool")));
 static uint32_t ocj4_nidx;                     /* the sections of the record being carried (0: none) */
+static uint8_t ocj4_idx_full;                  /* the record being carried has more sections than the index holds: the save is refused */
 static ocs_rec_t ocj4_old;                     /* .. that record */
 static int ocj_read(uint32_t slot, uint8_t *raw);
 
@@ -173,11 +180,12 @@ static void ocj4_index_old(void)
 {
     uint8_t h[OCJ4_HLEN], s[8];
     uint32_t pos, blen;
-    ocj4_nidx = 0;
+    ocj4_nidx = 0; ocj4_idx_full = 0;
     if (ocj4_old.total < OCJ4_HLEN || ocs_at(&ocj4_old, 0, h, OCJ4_HLEN) || rd32(h) != OCJ4_MAGIC || h[5] != OCJ4_HLEN) return;
     blen = rd32(h + 8);
     if (blen != ocj4_old.total - OCJ4_HLEN) return;
-    for (pos = OCJ4_HLEN; pos + 8u <= ocj4_old.total && ocj4_nidx < OCJ4_IDX_MAX; pos += 8u + ocj4_idx[ocj4_nidx - 1u].len) {
+    for (pos = OCJ4_HLEN; pos + 8u <= ocj4_old.total; pos += 8u + ocj4_idx[ocj4_nidx - 1u].len) {
+        if (ocj4_nidx == OCJ4_IDX_MAX) { ocj4_idx_full = 1; return; }
         if (ocs_at(&ocj4_old, pos, s, 8)) { ocj4_nidx = 0; return; }
         ocj4_idx[ocj4_nidx].tag = rd32(s); ocj4_idx[ocj4_nidx].off = pos + 8u; ocj4_idx[ocj4_nidx].len = rd32(s + 4);
         if (ocj4_idx[ocj4_nidx].len > ocj4_old.total - pos - 8u) { ocj4_nidx = 0; return; }
@@ -208,6 +216,7 @@ static int ocj4_old_entry(int ix, uint32_t i, uint32_t *off, uint32_t *elen)
         pos = *off + *elen;
     }
 }
+static uint32_t ocj4_old_count(int ix) __attribute__((unused));
 static uint32_t ocj4_old_count(int ix)
 {
     uint8_t b[2];
@@ -228,11 +237,12 @@ static void w_ent_end_tail(ocj4_w_t *w, uint32_t tag, uint32_t i, uint32_t known
     w_ent_end(w);
 }
 /* the old table's entries from index `from` on, whole */
-static void w_old_entries(ocj4_w_t *w, uint32_t tag, uint32_t from)
+static uint32_t w_old_entries(ocj4_w_t *w, uint32_t tag, uint32_t from)
 {
-    uint32_t off, elen;
+    uint32_t off, elen, n = 0;
     int ix = ocj4_old_find(tag);
-    for (uint32_t i = from; !ocj4_old_entry(ix, i, &off, &elen); i++) { w_ent(w); w_old(w, off, elen); w_ent_end(w); }
+    for (uint32_t i = from; !ocj4_old_entry(ix, i, &off, &elen); i++) { w_ent(w); w_old(w, off, elen); w_ent_end(w); n++; }
+    return n;
 }
 /* a section this firmware has no content for: the old one whole, else length 0 */
 static void w_sec_carry(ocj4_w_t *w, uint32_t tag)
@@ -252,7 +262,7 @@ static int ocj4_known_tag(uint32_t tag)
 
 /* the FRZR section's folders, written: the old record's (so its carried entries' indices hold) then the live
  * table's, by name, without doubles */
-#if defined(FRZ_AUDIO)
+#if OCJ4_FRZ
 typedef struct { uint32_t (*get)(const char *name); const char *(*name)(uint32_t idx); } ocj4_frzd_t;
 static const ocj4_frzd_t *ocj4_frzd;           /* the card code's folder table (usb_files.c); 0 in a build without it */
 #endif
@@ -265,31 +275,61 @@ static uint32_t ocj4_frz_oldfolders(void)      /* the old FRZR's folder count (i
 {
     uint8_t n;
     int ix = ocj4_old_find(T_FRZR);
-    return ix >= 0 && ocj4_idx[ix].len >= 1u && !ocs_at(&ocj4_old, ocj4_idx[ix].off, &n, 1) && 1u + n * OCJ4_FRZ_FOLD <= ocj4_idx[ix].len ? n : 0u;
+    return ix >= 0 && ocj4_idx[ix].len >= 1u && !ocs_at(&ocj4_old, ocj4_idx[ix].off, &n, 1) && n <= FZD_N_MAX &&
+           1u + n * OCJ4_FRZ_FOLD <= ocj4_idx[ix].len ? n : 0u;   /* (a table claiming more than a unit keeps: not read) */
 }
-/* the FRZR section: see the top. Entries of the live table (ids 1..64) and the old record's entries of ids above 64 */
+/* the FRZR section: see the top. The live table's entries (ids 1..64) and the old record's entries above them, carried
+ * with their folder indices mapped into a table of only the folders something names (so dead names never fill it).
+ * A table that would need more than FZD_N_MAX folders fails the save (w->over) rather than name a wrong folder */
 static void w_frzr(ocj4_w_t *w)
 {
-    uint32_t nold = ocj4_frz_oldfolders(), n = nold, i;
+    uint32_t nold = ocj4_frz_oldfolders(), n = 0, i, ocount = 0, eoff = 0, send = 0, pos;
     int ix = ocj4_old_find(T_FRZR);
     char fold[FZD_N_MAX][OCJ4_FRZ_FOLD];
-    uint8_t map[FZD_N_MAX];                    /* the live table's folder idx -> this section's */
-    w_sec(w, T_FRZR);
+    uint8_t omap[FZD_N_MAX], map[FZD_N_MAX];   /* the old table's index -> this one's (0xFF: not named); the unit's -> this one's */
     memset(fold, 0, sizeof fold);
+    memset(omap, 0xFF, sizeof omap);
     memset(map, 0, sizeof map);
-    for (i = 0; i < nold && i < FZD_N_MAX; i++) (void)ocs_at(&ocj4_old, ocj4_idx[ix].off + 1u + i * OCJ4_FRZ_FOLD, fold[i], OCJ4_FRZ_FOLD);
-#if defined(FRZ_AUDIO)
+    w_sec(w, T_FRZR);
+    if (ix >= 0) {
+        uint8_t b[2];
+        send = ocj4_idx[ix].len;
+        eoff = 1u + nold * OCJ4_FRZ_FOLD;
+        if (eoff + 2u <= send && !ocs_at(&ocj4_old, ocj4_idx[ix].off + eoff, b, 2)) ocount = rd16(b);
+        eoff += 2u;
+    }
+    /* pass 1: the folders the carried entries name, first */
+    pos = eoff;
+    for (i = 0; i < ocount; i++) {
+        uint8_t hd[33], b[2];
+        uint32_t elen;
+        if (pos + 2u > send || ocs_at(&ocj4_old, ocj4_idx[ix].off + pos, b, 2)) break;
+        elen = rd16(b);
+        if (pos + 2u + elen > send) break;
+        if (elen >= 33u && !ocs_at(&ocj4_old, ocj4_idx[ix].off + pos + 2u, hd, 33) && hd[0] > OCJ4_FRZ_MIN) {
+            for (uint32_t which = 0; which < 2u; which++) {
+                uint32_t o = hd[which ? 18 : 17];
+                if (o < nold && omap[o] == 0xFFu) {
+                    (void)ocs_at(&ocj4_old, ocj4_idx[ix].off + 1u + o * OCJ4_FRZ_FOLD, fold[n], OCJ4_FRZ_FOLD);
+                    fold[n][OCJ4_FRZ_FOLD - 1u] = 0;
+                    omap[o] = (uint8_t)n++;
+                }
+            }
+        }
+        pos += 2u + elen;
+    }
+#if OCJ4_FRZ
     for (i = 0; i < FZP_N && i < OCJ4_FRZ_LIVE; i++) {   /* the folders the live entries name */
         if (!frzp[i].take) continue;
         for (uint32_t which = 0; which < 2u; which++) {
-            uint32_t idx = which ? frzp[i].want : frzp[i].dir;
+            uint32_t idx = which ? frzp[i].want : frzp[i].dir, j;
             const char *nm = ocj4_frzd ? ocj4_frzd->name(idx) : "";
-            uint32_t j;
             if (idx >= FZD_N_MAX) continue;
             for (j = 0; j < n && !ocj4_name_eq(fold[j], nm); j++)
                 ;
-            if (j == n && n < FZD_N_MAX) {
+            if (j == n) {
                 uint32_t l = str_len(nm) < OCJ4_FRZ_FOLD - 1u ? str_len(nm) : OCJ4_FRZ_FOLD - 1u;
+                if (n == FZD_N_MAX) { w->over = 1; return; }
                 memset(fold[n], 0, OCJ4_FRZ_FOLD); memcpy(fold[n], nm, l); n++;
             }
             map[idx] = (uint8_t)j;
@@ -301,7 +341,7 @@ static void w_frzr(ocj4_w_t *w)
     {
         uint32_t count = 0, at = w->pos;
         w16(w, 0);
-#if defined(FRZ_AUDIO)
+#if OCJ4_FRZ
         for (i = 0; i < FZP_N && i < OCJ4_FRZ_LIVE; i++) {
             frzp_t f = frzp[i];
             if (!f.take) continue;
@@ -311,20 +351,22 @@ static void w_frzr(ocj4_w_t *w)
             count++;
         }
 #endif
-        {   /* the old record's entries above the live table's range, as they are */
-            uint32_t off, elen, ocount = 0;
-            uint8_t b[2];
-            if (ix >= 0 && 1u + nold * OCJ4_FRZ_FOLD + 2u <= ocj4_idx[ix].len &&
-                !ocs_at(&ocj4_old, ocj4_idx[ix].off + 1u + nold * OCJ4_FRZ_FOLD, b, 2)) ocount = rd16(b);
-            off = ocj4_idx[ix >= 0 ? (uint32_t)ix : 0u].off + 1u + nold * OCJ4_FRZ_FOLD + 2u;
-            for (uint32_t e = 0; ix >= 0 && e < ocount; e++) {
-                uint8_t id;
-                if (ocs_at(&ocj4_old, off, b, 2)) break;
-                elen = rd16(b);
-                if (elen < 1u || ocs_at(&ocj4_old, off + 2u, &id, 1)) break;
-                if (id > OCJ4_FRZ_LIVE) { w_ent(w); w_old(w, off + 2u, elen); w_ent_end(w); count++; }
-                off += 2u + elen;
+        pos = eoff;                            /* pass 2: the carried entries, their folder bytes mapped */
+        for (i = 0; i < ocount; i++) {
+            uint8_t hd[33], b[2];
+            uint32_t elen;
+            if (pos + 2u > send || ocs_at(&ocj4_old, ocj4_idx[ix].off + pos, b, 2)) break;
+            elen = rd16(b);
+            if (pos + 2u + elen > send) break;
+            if (elen >= 33u && !ocs_at(&ocj4_old, ocj4_idx[ix].off + pos + 2u, hd, 33) && hd[0] > OCJ4_FRZ_MIN) {
+                hd[17] = hd[17] < nold && omap[hd[17]] != 0xFFu ? omap[hd[17]] : 0u;
+                hd[18] = hd[18] < nold && omap[hd[18]] != 0xFFu ? omap[hd[18]] : 0u;
+                w_ent(w); w_mem(w, hd, 33);
+                if (elen > 33u) w_old(w, ocj4_idx[ix].off + pos + 2u + 33u, elen - 33u);
+                w_ent_end(w);
+                count++;
             }
+            pos += 2u + elen;
         }
         if (!w->over) wr16(w->b + at, count);
     }
@@ -355,8 +397,8 @@ static uint32_t ocj4_build(uint8_t *buf, uint32_t max, const project_t *q, const
     /* TRKS */
     w_sec(&w, T_TRKS);
     {
-        uint32_t oc = ocj4_old_count(ocj4_old_find(T_TRKS));
-        w16(&w, oc > NTRK ? oc : NTRK);
+        uint32_t cat = w.pos;
+        w16(&w, 0);
         for (k = 0; k < NTRK; k++) {
             w_ent(&w);
             w32(&w, m->trk_id[k]); w8(&w, q->t[k].engine); w32(&w, m->mod_ver[k]); w32(&w, 0); w8(&w, m->vlim[k]);
@@ -367,7 +409,7 @@ static uint32_t ocj4_build(uint8_t *buf, uint32_t max, const project_t *q, const
             for (i = 0; i < P_COUNT; i++) w16(&w, (uint16_t)q->t[k].p[i]);
             w_ent_end_tail(&w, T_TRKS, k, OCJ4_TRK_KNOWN);
         }
-        w_old_entries(&w, T_TRKS, NTRK);
+        { uint32_t extra = w_old_entries(&w, T_TRKS, NTRK); if (!w.over) wr16(buf + cat, NTRK + extra); }   /* (the count of the entries written) */
     }
     w_sec_end(&w);
     /* NATV: the own engine's block always, the others when they differ from the init; unknown kinds carried */
@@ -450,15 +492,15 @@ static uint32_t ocj4_build(uint8_t *buf, uint32_t max, const project_t *q, const
     /* SMPR */
     w_sec(&w, T_SMPR);
     {
-        uint32_t oc = ocj4_old_count(ocj4_old_find(T_SMPR));
-        w16(&w, oc > m->nsmp ? oc : m->nsmp);
+        uint32_t cat = w.pos;
+        w16(&w, 0);
         for (i = 0; i < m->nsmp; i++) {
             w_ent(&w);
             w8(&w, m->smp[i].kind); w_mem(&w, m->smp[i].name, 12); w32(&w, m->smp[i].len); w32(&w, m->smp[i].crc);
             w8(&w, m->smp[i].tracks); w16(&w, m->smp[i].zones);
             w_ent_end_tail(&w, T_SMPR, i, OCJ4_SMP_ENT);
         }
-        w_old_entries(&w, T_SMPR, m->nsmp);
+        { uint32_t extra = w_old_entries(&w, T_SMPR, m->nsmp); if (!w.over) wr16(buf + cat, m->nsmp + extra); }
     }
     w_sec_end(&w);
     w_sec_carry(&w, T_FXRC); w_sec_carry(&w, T_REND); w_sec_carry(&w, T_TSTA); w_sec_carry(&w, T_ROUT);
@@ -593,14 +635,15 @@ static int ocj4_parse(const uint8_t *buf, uint32_t len, project_t *q, ocj4_meta_
             } else if (m) {
                 m->scns_foreign = 1;           /* (a version this firmware does not read: kept, plays no scenes) */
             }
-        } else if (tag == T_SMPR && n >= 2u && m) {
+        } else if (tag == T_SMPR && n >= 2u) {
             uint32_t c = rd16(b), at = 2;
-            for (i = 0; i < c && m->nsmp < OCJ4_SMP_MAX; i++) {
+            for (i = 0; i < c; i++) {          /* (walked whole, whether the metadata is wanted or not: the count must be true) */
                 uint32_t elen;
                 const uint8_t *e;
                 if (at + 2u > n) return -1;
                 elen = rd16(b + at); e = b + at + 2u; at += 2u + elen;
                 if (at > n || elen < OCJ4_SMP_ENT) return -1;
+                if (!m || m->nsmp >= OCJ4_SMP_MAX) continue;
                 m->smp[m->nsmp].kind = e[0]; memcpy(m->smp[m->nsmp].name, e + 1, 12);
                 m->smp[m->nsmp].len = rd32(e + 13); m->smp[m->nsmp].crc = rd32(e + 17);
                 m->smp[m->nsmp].tracks = e[21]; m->smp[m->nsmp].zones = (uint16_t)rd16(e + 22);
@@ -631,7 +674,7 @@ static int ocj4_read_whole(uint32_t slot, uint8_t *buf, uint32_t max)
 }
 
 /* ------------------------------------------------------------ FRZR in, SMPR resolved --- */
-#if defined(FRZ_AUDIO)
+#if OCJ4_FRZ
 /* the record in buf: its FRZR into the live table (ids 1..64; the folders by name through the card code) */
 static void ocj4_frzr_in(const uint8_t *buf, uint32_t len)
 {
@@ -826,6 +869,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
         if (proj_cur < 4u && !ocs_open(OCS_PROJECT, OCJ4_RID(proj_cur), &ocj4_old)) {   /* the record the music came from */
             uint8_t hd[OCJ4_HLEN + 8u + OCJ4_HEAD_KNOWN];
             ocj4_index_old();
+            if (ocj4_idx_full) return 2;       /* (more sections than carried safely: refused, not cut short) */
             if (ocj4_nidx && ocj4_idx[0].tag == T_HEAD && ocj4_idx[0].len >= OCJ4_HEAD_KNOWN &&
                 !ocs_at(&ocj4_old, ocj4_idx[0].off, hd, OCJ4_HEAD_KNOWN) && rd32(hd + 18) == m->uid && rd32(hd + 22) <= m->rev) {
                 /* (its uid is the music's: its foreign bytes are carried) */
@@ -839,7 +883,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
         m->rev++;
         if (slot != live) {                    /* every live chunk into the slot; the record names that directory */
             rc = ocp_r3_copy_slot(slot, &ocj_dir, ocp_parts_of(OCJ4_MAX));
-            if (rc) { m->rev--; return rc == 2 ? 4 : 2; }
+            if (rc) { m->rev--; ocp_r3_sweep(slot); return rc == 2 ? 4 : 2; }
             d = &ocj_dir;
         }
     } else {                                   /* a project from elsewhere */
@@ -856,14 +900,18 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
         m = &fm;
         ocl_lists_init(&ocj_l);
         rc = ocj4_foreign_chunks(slot, q, raw, ocp_parts_of(OCJ4_MAX));
-        if (rc) return rc == 2 ? 4 : 2;
+        if (rc) { ocp_r3_sweep(slot); return rc == 2 ? 4 : 2; }
         d = &ocj_dir;
     }
     /* the record, built in the staging's project part (its bytes are q's now), the commit */
     rlen = ocj4_build(raw, OCJ4_MAX, q, raw, d, ocj_h.pid, &ocj_l, m, xs ? ocp.len : 0, xs ? ocp.hash : 0);
-    if (!rlen || ocs_free_count() < ocp_parts_of(rlen)) { if (xs) m->rev--; return 4; }
+    if (!rlen || ocs_free_count() < ocp_parts_of(rlen)) { rc = 4; goto failed; }
+    {   /* a record this firmware cannot read back is never committed (the slot would be held as OLD FORMAT, unusable) */
+        static project_t chk __attribute__((section(".pool")));
+        if (ocj4_parse(raw, rlen, &chk, 0)) { rc = 2; goto failed; }
+    }
     rc = ocs_write(OCS_PROJECT, OCJ4_RID(slot), raw, rlen);
-    if (rc) { if (xs) m->rev--; return rc == -1 ? 4 : 2; }
+    if (rc) { rc = rc == -1 ? 4 : 2; goto failed; }
     (void)ocs_delete(OCS_PROJECT, slot);       /* (an OLD FORMAT record there, if any, is replaced) */
     if (xs) {
         ocp_r3_switch(slot);                   /* the live pool, as committed */
@@ -873,6 +921,37 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
         ocp_r3_sweep(slot);                    /* (the live pool is untouched: the scratch's, if it was this slot's) */
     }
     return ocj_read(slot, raw) == (int)BANK_STORE_SIZE ? 0 : 2;
+failed:
+    if (xs) m->rev--;
+    if (slot == ocp.dir.slot) {                /* (the record may or may not have committed: the committed bits are read again,
+                                                * so that no later keep writes under a generation the new record names) */
+        if (!ocj4_phrd_read(slot, &ocp_sdir, ocp_snamed, 0, 0)) { memcpy(ocp.cgen, ocp_sdir.gen, sizeof ocp.cgen); memcpy(ocp.cnamed, ocp_snamed, sizeof ocp.cnamed); }
+        else memset(ocp.cnamed, 0, sizeof ocp.cnamed);
+    } else {
+        ocp_r3_sweep(slot);                    /* (chunks written for it that no record names: erased now) */
+    }
+    return rc;
+}
+
+/* project slot renamed: its record written again with HEAD's name replaced and every other byte as it was (the chunks
+ * are untouched, the uid, the revision and every foreign byte stay). 0 done; 1 no record; 2 not written */
+static int ocj4_rename(uint32_t slot, const char *name)
+{
+    uint8_t *buf = proj_wire_borrow();
+    int n = ocj4_read_whole(slot & 3u, buf, OCJ4_MAX), rc;
+    uint32_t pos, l = str_len(name) < PROJ_NAME_LEN ? str_len(name) : PROJ_NAME_LEN;
+    if (n < 0) return 1;
+    for (pos = OCJ4_HLEN; pos + 8u <= (uint32_t)n; pos += 8u + rd32(buf + pos + 4)) {
+        if (rd32(buf + pos) != T_HEAD) continue;
+        if (rd32(buf + pos + 4) < OCJ4_HEAD_KNOWN) return 2;
+        memset(buf + pos + 8u, 0, PROJ_NAME_LEN);
+        memcpy(buf + pos + 8u, name, l);
+        rc = ocs_write(OCS_PROJECT, OCJ4_RID(slot & 3u), buf, (uint32_t)n);
+        if (rc) return 2;
+        if ((slot & 3u) == ocp.dir.slot) { /* (the live project: the committed bits are the record's, unchanged) */ }
+        return 0;
+    }
+    return 2;
 }
 
 /* slot as an FBKK into raw (proj_x with it). BANK_STORE_SIZE, or -1 (no record, or one that does not read). The slot's
@@ -906,7 +985,7 @@ static void ocj4_activate(uint32_t slot)
     slot &= 3u;
     ocp_r3_switch(slot);
     if ((n = ocj4_read_whole(slot, buf, OCJ4_MAX)) >= 0 && !ocj4_parse(buf, (uint32_t)n, &proj_scratch, &ocj4_meta)) {
-#if defined(FRZ_AUDIO)
+#if OCJ4_FRZ
         ocj4_frzr_in(buf, (uint32_t)n);
 #endif
         ocj4_smpr_resolve(&ocj4_meta);
@@ -922,7 +1001,7 @@ static void ocj4_new(void)
     ocp_r3_sweep(OCP_SCRATCH);
     ocp_r3_switch(OCP_SCRATCH);
     memset(&ocj4_meta, 0, sizeof ocj4_meta);
-#if defined(FRZ_AUDIO)
+#if OCJ4_FRZ
     memset(frzp, 0, sizeof frzp);
     frzp_dirty = 1;
 #endif
@@ -956,8 +1035,9 @@ static int ocj4_old_slot(uint32_t slot)
     uint8_t raw[OCJ4_HLEN];
     ocs_rec_t r;
     slot &= 3u;
+    (void)raw;
     if (ocs_exists(OCS_PROJECT, slot)) return 1;
-    if (ocs_open(OCS_PROJECT, OCJ4_RID(slot), &r)) return 0;
-    return r.total < OCJ4_HLEN || ocs_at(&r, 0, raw, OCJ4_HLEN) || rd32(raw) != OCJ4_MAGIC || raw[4] != OCJ4_VERSION;
+    return ocs_open(OCS_PROJECT, OCJ4_RID(slot), &r) == 0;   /* (called only for a slot that did not read: a record there that
+                                                            * does not load, whatever its head says, is held, never free) */
 }
 #define FRZ_SLOT_NAMES(s, i) ((s) == ocp.dir.slot && (i) < OCP_N && (ocp.len[i] || ocp.hash[i]))   /* (usb_files.c: a phrase is its project's) */
