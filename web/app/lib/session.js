@@ -51,6 +51,7 @@ export class Session {
   onPush(f) {
     /* the unit changed something (a knob, a load, a step): the page re-reads what it shows (CHANGED, RELOAD, STEP_CHANGED, TRACK_CHANGED) */
     if (f.cmd === CMD.CHANGED && this.dump) { const x = parse[CMD.CHANGED](f.a); if (x.scope === 0) this.dump.p[x.id] = x.value; else this.dump.g[x.id] = x.value; }
+    if (f.cmd === CMD.PARAM_CHANGED_W && this.dump) { const x = parse[CMD.PARAM_CHANGED_W](f.a); if (x.scope === 0) this.dump.p[x.id] = x.value; }   /* (Release 3) an id past 127 */
     if (f.cmd === CMD.RELOAD) this.stale = true;
     this.hooks.push(f);
   }
@@ -96,7 +97,12 @@ export class Session {
     this.sel = this.tracks.sel;
     return this.tracks;
   }
-  async readDump() { return parse[CMD.DUMP](await this.rq(req.dump()), this.info); }
+  async readDump() {
+    const d = parse[CMD.DUMP](await this.rq(req.dump()), this.info);
+    const n7 = this.info.pcount7 ?? this.info.pcount;
+    for (let id = n7; id < this.info.pcount; id++) d.p[id] = parse[CMD.PARAM_W](await this.rq(req.get(0, id))).value;   /* (Release 3) the ids the 7-bit DUMP cannot carry */
+    return d;
+  }
   async readPreferences() {
     try { this.prefs = await E.readDevicePreferences((r, o) => this.rq(r, { ...o, quiet: true }), this.info, this.names, null); }
     catch (e) { if (e.message === "closed") throw e; this.prefs = null; }

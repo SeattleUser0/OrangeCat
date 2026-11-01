@@ -463,7 +463,8 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,   /* (Orange Cat 0.8.0) the asset pack */
   MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124, ENGINES: 125, PAGES: 126, PANEL: 127,   /* (0.12.0) 126 and 127 a module engine's pages and native parameters; (Orange Cat 0.10.0) loadable engine modules; (0.11.0) 125 the engine list */
   FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, LIBRARY:80, PROPHET:95,
-  KIT_GET: 128, KIT_PUT: 129 };   /* (Orange Cat 0.14.2) past 127: sent as command 0 and n = cmd - 128 (frame, unframe) */
+  KIT_GET: 128, KIT_PUT: 129,
+  PARAM_W: 130, DESC_W: 131, TRACK_PARAM_W: 132, PARAM_CHANGED_W: 133, DUMP_W: 134 };   /* (Release 3) parameter ids past 127: two 7-bit bytes, under the extension */   /* (Orange Cat 0.14.2) past 127: sent as command 0 and n = cmd - 128 (frame, unframe) */
 /* frames the device sends on its own (while WATCH is on); never replies */
 
 /*P5-FACTORY-BEGIN*/
@@ -718,6 +719,8 @@ const parse = {
   [CMD.INFO](a) {
     const r = new Reader(a);
     const o = { version: r.s(), nengines: r.b(), pcount: r.b(), gcount: r.b(), nstep: r.b(), pe0: r.b(), engines: [] };
+    o.pcount7 = o.pcount;                         /* (Release 3) what the 7-bit commands (DUMP, TRACK_DUMP, UP_GET) carry: at most 127 values */
+    o.format = 2;                                 /* the project format version: 2 before Release 3 (no tagged block) */
     for (let i = 0; i < o.nengines; i++) o.engines.push(r.s());
     o.chainRows = 0;
     o.ntrk = r.i < a.length ? r.b() : 0;             /* v3: tracks (0 = older firmware, one instrument) */
@@ -743,6 +746,14 @@ const parse = {
     const pp=trailer.findIndex((x,i)=>i>=25&&x===0x35&&trailer[i+1]===1);
     o.prophet=pp>=0&&trailer[pp+2]===19;
     if(o.prophet){o.namespace={general:trailer[pp+3],12:trailer[pp+4],15:trailer[pp+5],19:trailer[pp+6]};o.native={...o.native,19:trailer[pp+7]|trailer[pp+8]<<7};}
+    {   /* (Release 3) the tagged block 0x57, last in the trailer: version 1, P_COUNT and P_E0 as two 7-bit bytes each, the project format.
+         * Anchored at the end (a data byte 87 followed by 1 earlier in the trailer is not it), and believed only when it agrees with the legacy bytes */
+      const n = trailer.length, t = n - 7;
+      if (t >= 0 && trailer[t] === 0x57 && trailer[t + 1] === 1) {
+        const pc = trailer[t + 2] | trailer[t + 3] << 7, pe = trailer[t + 4] | trailer[t + 5] << 7;
+        if (o.pcount7 === Math.min(pc, 127) && pe >= 8 && pe < pc) { o.pcount = pc; o.pe0 = pe; o.format = trailer[t + 6]; }
+      }
+    }
     const shared=trailer.findIndex((x,i)=>i>=25&&x===0x55&&trailer[i+1]===1);
     o.shared=shared>=0?{version:1,total:trailer[shared+2]|trailer[shared+3]<<7}:null;
     if(o.shared)o.native=null;
@@ -770,9 +781,26 @@ const parse = {
   [CMD.DUMP](a, info) {
     const r = new Reader(a);
     const o = { engine: r.b(), preset: r.b(), p: [], g: [] };
-    for (let i = 0; i < info.pcount; i++) o.p.push(r.v());
+    for (let i = 0; i < (info.pcount7 ?? info.pcount); i++) o.p.push(r.v());
     for (let i = 0; i < info.gcount; i++) o.g.push(r.v());
     if (r.i < a.length) o.preset |= r.b() << 7;   /* presets past 127 (PROPHET): the high bits, last */
+    return o;
+  },
+  /* (Release 3) the wide parameter commands: ids as two 7-bit bytes */
+  [CMD.PARAM_W](a) { const r = new Reader(a); return { scope: r.b(), id: r.b() | r.b() << 7, value: r.v() }; },
+  [CMD.TRACK_PARAM_W](a) { const r = new Reader(a); return { track: r.b(), id: r.b() | r.b() << 7, value: r.v() }; },
+  [CMD.PARAM_CHANGED_W](a) { return parse[CMD.PARAM_W](a); },
+  [CMD.DESC_W](a) {
+    const r = new Reader(a), scope = r.b(), id = r.b() | r.b() << 7;
+    const o = { scope, id, fmt: r.b(), min: r.v(), max: r.v(), def: r.v(), label: r.s(), unit: r.s(), names: [] };
+    if (o.fmt === F.ENUM) for (let i = 0; i <= o.max - o.min && i < 96 && r.i < a.length; i++) o.names.push(r.s());
+    return o;
+  },
+  [CMD.DUMP_W](a, info) {
+    const r = new Reader(a), o = { engine: r.b(), preset: r.b(), p: [], g: [] };
+    for (let i = 0; i < info.pcount; i++) o.p.push(r.v());
+    for (let i = 0; i < info.gcount; i++) o.g.push(r.v());
+    if (r.i < a.length) o.preset |= r.b() << 7;
     return o;
   },
   [CMD.DESC](a) {
@@ -848,7 +876,7 @@ const parse = {
   [CMD.UP_GET](a, info) {
     const r = new Reader(a);
     const o = { slot: r.b(), used: r.b(), engine: r.b(), name: r.s(), p: [], pattern: [] };
-    for (let i = 0; i < info.pcount; i++) o.p.push(r.v());
+    for (let i = 0; i < (info.pcount7 ?? info.pcount); i++) o.p.push(r.v());
     for (let i = 0; i < UP.PAT; i++) o.pattern.push([r.b(), r.b()]);
     o.grid = null;                                   /* v5: kind 1 = a drum grid (the pairs its low 7 bits), 16 x hi */
     if (r.i < a.length && r.b() === 1 && r.i + UP.PAT <= a.length) {
@@ -878,7 +906,7 @@ const parse = {
   [CMD.TRACK_DUMP](a, info) {
     const r = new Reader(a);
     const o = { track: r.b(), engine: r.b(), preset: r.b(), p: [] };
-    for (let i = 0; i < info.pcount; i++) o.p.push(r.v());
+    for (let i = 0; i < (info.pcount7 ?? info.pcount); i++) o.p.push(r.v());
     if (r.i < a.length) o.preset |= r.b() << 7;
     return o;
   },
@@ -934,10 +962,11 @@ const req = {
   favGet: (engine, start, count) => [CMD.FAV_GET, [engine, ...v14enc(start), count]],
   favSet: (engine, preset, on) => [CMD.FAV_SET, [engine, ...v14enc(preset), on ? 1 : 0]],
   info: () => [CMD.INFO, []],
-  get: (scope, id) => [CMD.GET, [scope, id]],
-  set: (scope, id, v) => [CMD.SET, [scope, id, ...v14enc(v)]],
+  get: (scope, id) => id > 127 ? [CMD.PARAM_W, [scope, id & 127, id >> 7]] : [CMD.GET, [scope, id]],
+  set: (scope, id, v) => id > 127 ? [CMD.PARAM_W, [scope, id & 127, id >> 7, ...v14enc(v)]] : [CMD.SET, [scope, id, ...v14enc(v)]],
   dump: () => [CMD.DUMP, []],
-  desc: (scope, id) => [CMD.DESC, [scope, id]],
+  dumpW: () => [CMD.DUMP_W, []],                                 /* (Release 3) every P_COUNT value */
+  desc: (scope, id) => id > 127 ? [CMD.DESC_W, [scope, id & 127, id >> 7]] : [CMD.DESC, [scope, id]],
   stepGet: (i) => [CMD.STEP_GET, [i]],
   stepSet: (i, st) => {
     const n = Math.max(0, Math.min(4, st.n | 0));
@@ -993,7 +1022,8 @@ const req = {
   trackDump: (tr) => [CMD.TRACK_DUMP, [tr & 0x7F]],
   trackStep: (tr, i, st) => [CMD.TRACK_STEP, st ? [tr & 0x7F, ...req.stepSet(i, st)[1]] : [tr & 0x7F, i & 0x7F]],
   /* v4: get (v == null) or set parameter id (P_*) of track tr, clamped as SET */
-  trackParam: (tr, id, v) => [CMD.TRACK_PARAM, v == null ? [tr & 0x7F, id & 0x7F] : [tr & 0x7F, id & 0x7F, ...v14enc(v)]],
+  trackParam: (tr, id, v) => id > 127 ? [CMD.TRACK_PARAM_W, v == null ? [tr & 0x7F, id & 0x7F, id >> 7] : [tr & 0x7F, id & 0x7F, id >> 7, ...v14enc(v)]]
+    : [CMD.TRACK_PARAM, v == null ? [tr & 0x7F, id & 0x7F] : [tr & 0x7F, id & 0x7F, ...v14enc(v)]],
   /* FM6 patches (firmware with info.fm6) */
   fm6Get: (target, i) => [CMD.FM6_GET, [target & 0x7F, i & 0x7F]],
   fm6Put: (target, i, packed) => [CMD.FM6_PUT, [target & 0x7F, i & 0x7F, ...packed.map((x) => x & 0x7F)]],
@@ -1674,7 +1704,7 @@ const sharedBank = {
   async get(rq,info,slot) {
     const a=await rq(this.request(1,slot)),r=this.reply(a,1,slot);
     const p={slot,used:r.b(),engine:r.b(),name:r.s(),p:[],pattern:[],grid:null};
-    for(let i=0;i<info.pcount;i++)p.p.push(r.v());
+    for(let i=0;i<(info.pcount7??info.pcount);i++)p.p.push(r.v());
     for(let i=0;i<16;i++)p.pattern.push([r.b(),r.b()]);
     const kind=r.b();
     if(kind){const size=r.b()|r.b()<<7,raw=czBkUnpack(r.a.slice(r.i));
@@ -3776,7 +3806,7 @@ const stepEdit = new Map(); /* index -> time of the last edit */
 const EXPECT = { pcount: 124, gcount: 76, pe0: 116 };   /* (Orange Cat 0.6.0: the effects' globals, 45 -> 76) */
 /* the same layout without the MPC degree (Felucca 1.0: P_COUNT 91, P_E0 83), the chord keys too (89, 81), the FM
    operator ENVs too (69, 61) or the matrix (firmware 1.0: 57, 49) */
-const knownLayout = (info) => (info.gcount===76 && info.pcount===124 && info.pe0===116) || (info.gcount===45 && info.pcount===124 && info.pe0===116) || (info.gcount===45 && info.pcount===122 && info.pe0===114) || ([41,42].includes(info.gcount) && info.pcount===119 && info.pe0===111) || (info.gcount===40 && info.pcount===117 && info.pe0===109) || info.gcount === 27 &&
+const knownLayout = (info) => (info.gcount===76 && info.pcount===124 && info.pe0===116) || (info.gcount===76 && info.pcount===131 && info.pe0===123) || (info.gcount===45 && info.pcount===124 && info.pe0===116) || (info.gcount===45 && info.pcount===122 && info.pe0===114) || ([41,42].includes(info.gcount) && info.pcount===119 && info.pe0===111) || (info.gcount===40 && info.pcount===117 && info.pe0===109) || info.gcount === 27 &&
   [[116,108], [108,100], [104, 96], [100, 92], [92, 84], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
 const P = { LEVEL: 0, SLEN: 29 };
 const LAYOUT = (pe0) => [

@@ -67,8 +67,8 @@ static void layout_json(void)
     KV("fm6Off", PROJ_FM6_OFF); KV("czOff", PROJ_CZ_OFF); KV("recOff", PROJ_REC_OFF); KV("p5Off", PROJ_P5_OFF);
     KV("drumOff", PROJ_DRUM_OFF); KV("recDirOff", PROJ_REC_DIR); KV("recDirBits", 11); KV("nameOff", PROJ_NAME_OFF);
     KV("sumOff", PROJ_STORE_SIZE - 4u);
-    printf(",\"knownMagics\":[%u,%u,%u,%u,%u,%u,%u,%u]", PROJ_MAGIC, PROJ_FUN22_MAGIC, PROJ_CUT_MAGIC, PROJ_PRE_HP_MAGIC,
-           0x46554E46u, 0x46554E45u, 0x46554E44u, 0x46554E43u);
+    printf(",\"knownMagics\":[%u,%u,%u,%u,%u,%u,%u,%u,%u]", PROJ_FUN23_MAGIC, PROJ_FUN22_MAGIC, PROJ_CUT_MAGIC, PROJ_PRE_HP_MAGIC,
+           0x46554E46u, 0x46554E45u, 0x46554E44u, 0x46554E43u, 0x46554E4Bu);   /* (Release 3) FUN23 and FUN24 are both known, whatever the switch */
     printf("},\n");
     /* a packed step and a recorded note, as fields in order (LSB first, wire_bits_put) */
     printf("\"stepBits\":[[\"note0\",7],[\"note1\",7],[\"note2\",7],[\"note3\",7],[\"meta\",4],[\"flags\",2],[\"vel\",7],[\"hit\",8],[\"acc\",8],[\"prob\",7]],\n");
