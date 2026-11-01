@@ -9,5 +9,5 @@ fx/reverb_shimmer 4238efe3eda6f704
 fx/reverb_reso a2545013fc866f80
 fx/reverb_cloud dc05880d403c251c
 fx/all_three b5caa4cb16a980ed
-fx/reverb_room_wide_mod d70da3c6f88c3290
-fx/reverb_spring_wide a1a125eed0fae558
+fx/reverb_room_wide_mod 2ccc995b990d574d
+fx/reverb_spring_wide 2e486b693bbb5609
