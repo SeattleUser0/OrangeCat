@@ -2056,3 +2056,176 @@ combo" (Session A's file).
   parameter; GLIDE set takes GLIDE's rate or time; a recorded slide needs the notes to overlap (no gate extension); no
   slide across a manual and a recorded step; FM6 keeps today's path in POLY (its own allocator); the velocity follows
   mono_play's rule.
+
+## Release 3 format revision (branch r3-format, from ui-fix 7e7bf40; October 31, 2026)
+
+The build of PROJECT_FORMAT_R3.md 0.6, host only, behind **OC_R3_FORMAT** (core.h, default 0; not turned on in
+tools/orangecat_engines.sh: the build set is Session A's and the switch's default is off, so a CI image of this branch is
+ui-fix's image to the byte). The order of work is the task's: (1) the format core, (2) wide parameter ids and LFO 2,
+(3) the conversion, (4) power-cut safety, (5) conversion on real data, (6) the editor, backup and installer, (7) scenes v2
+and Performance Mode. Each part: a design note here where the document leaves a choice, its independent review, the
+code, host tests, the full suite with CI's settings, the budget table, a review of the diff, a push. The flash budget
+below counts SHAPES-out as the document's 23,236 B until Session A measures it, marked unmeasured.
+
+### Part 1: the format core (design note, before its review)
+
+**What the document fixes and this note does not revisit:** 255 phrases a project (ids 1 to 255, 0 none); packed chunks of
+type OCS_POOL with ids `0x8000 | slot << 9 | gen << 8 | chunk`, the project record of type OCS_PROJECT with id `0x8000 |
+slot`, the generation bit as the save protocol (changed chunks under the other generation, the record last, the sweep
+after), the directory with a CRC-32 and a reserved u16 a phrase, OCJ4 as tagged sections with unknown ones kept, HEAD's
+uid, revision counter, profile name and id, REND, TSTA and ROUT held, SMPR by reference, OCP_VER 2 phrases, PROJECT FULL
+refusing a save whole. Everything below is a choice the document leaves, with the safer reading taken.
+
+**1. The FBKK staging stays the RAM interchange; OCJ4 is the flash form.** project.c's load and save paths, the editor's
+project commands and the backup's ids 0 and 2 to 5 all speak the 27,904 B FBKK (project.c `proj_wire_u`), and today
+oc_project.c converts it to and from the OCJ3 record and the pool. Part 1 keeps exactly that shape: `ocj_write(slot, raw)`
+turns the staging into an OCJ4 record and the slot's chunks, `ocj_read(slot, raw)` turns them back. The FBKK's project part
+keeps its FUN23 layout in Part 1 (Part 2 widens it with the parameter ids). So nothing above oc_project.c learns a new
+format in Part 1, and the parts after it change one layer at a time. The fields OCJ4 carries that no FBKK has (the uid, the
+revision, the profile, the stable track ids, the instrument references, the voice limits, SMPR) live in one small RAM
+record, `ocj4_meta`, that belongs to the music loaded (switched with it, section 3 below), made fresh for a new project at
+its first save and written back by every save.
+
+**2. The record: plain sections, no run-length coding; PHRD sparse.** OCJ3 is run-length coded because its FUN23 part
+is mostly zeros (1,024 notes' directory, every bank's steps). OCJ4 holds none of that (the phrases are in chunks), so it is
+written plain: `magic "OCJ4" u32, version u8, hdr_len u8, rsv u16, body_len u32`, then sections `tag u32, len u32,
+bytes`. Plain sections are seekable, which is what keeping foreign bytes needs (section 4). The record's size on the
+owner's store is estimated at 6 to 7 KB (2 sectors): GLOB 0.15, TRKS 1.0, NATV up to 1.9, LIST 2.3, SCNS 0.1, PHRD 0.3,
+FRZR 0.1 to 2.2, HEAD, MCHN, SMPR, PERF 0.5. **PHRD is sparse**: `u8 count` then one entry per phrase in use (`id u8,
+chunk u8, crc u32, rsv u16`: 8 B), then the 32 B of generation bits, so 40 phrases cost 353 B, not 1,785, and an empty
+project nothing. The document's 1,785 B figure was for a dense table; the sparse one holds the same fields. Within a
+section, every table (`TRKS`, `SMPR`, `FRZR`, `NATV`, and `REND`, `TSTA`, `ROUT` when a later release fills them) is `u16
+count, then count x (u16 elen, bytes)` as 8.4 asks.
+
+The sections Part 1 writes, and what each holds beyond the document's table: **HEAD** name 12, parts u8, sel u8, seed
+u32, uid u32, revision u32, profile name 16, profile id u32, next stable id u32, phys u8, fm6_fn_ok u8 (the FUN23 head's
+bytes that are not a track's). **GLOB** `g[G_COUNT]` as i16 (152 B). **TRKS** an entry a track: stable id u32, engine
+slot u8 (`eng_req`), module version u32, module id u32 (0), voice limit u8 (0), preset u8, mpc octave i8, user slot u16,
+active bank u8, Prophet origin u8, the eight banks' phrase ids (u8 each: today's `ocj_head_t.pid`), then `count u16` and
+`count` values as i16 (124 in Part 1; i16 so that nothing is clamped to the FUN23 byte's -64..127 later). **NATV** a
+native block as an entry: track u8, kind u8 (1 FM6 packed + its functions, 2 CZ-1, 3 Prophet, 4 DRUM, 5 DRUM-X kit), the
+bytes; **only blocks that differ from their kind's init patch are written**, whatever engine the track is on. The
+document says "only the patch of the track's engine"; FUN23 keeps every track's four blocks, so a track that goes DRUM-X
+to MACRO and back after a save keeps its kit today, and this reading keeps it at no cost for a default block (the
+owner's unit has FM6, CZ-1, the Prophet and DRUM built out, so most blocks are their defaults). **MCHN** Melodee's own
+chain (`chain_config_t` 36 B and `chain_patterns` 64 B), which the FBKK keeps at BANK_CHAIN_OFF and nothing in the
+document names. **LIST** `ocl_lists_t` without its scenes (chains, song, tchain, cur, row, mode, launch, groove, gamt:
+2,326 B). **SCNS** version 1: `u8 ver = 1, u8 count = 8`, 8 x 4 x 2 B as today, then `u16 used` (the `scene_used` mask;
+the document's version 1 line lists the scenes alone, and the mask is state a stored scene cannot be told from). **PERF**
+length 0 in Part 1 (today's PERFORM keys; Part 7 fills it). **PHRD** as above. **FRZR** (section 6). **SMPR** (section 7).
+**REND, TSTA, ROUT, FXRC** written with length 0 by a project that has none, and carried (section 4) when a record holds
+them. **FXRC is deferred whole**: its entries are keyed by MODULE_FORMAT_R3.md's stable ids and `fw_pid_t.legacy`
+slots, which are not built; DUB TAPE's values stay in `p[]` (ids 45 to 47 and the JRES ids) and travel in TRKS, as they
+do today. When the module format lands, FXRC is written from those slots and the ids; no record changes shape for it.
+
+**3. The live pool belongs to one slot; unsaved music has a scratch slot.** Today oc_pool.c's tables (`ocp.len[]`,
+`ocp.hash[]`) describe one shared pool. Under the switch they describe **the phrase set of one slot, `ocp.slot`**: its
+directory (each phrase's chunk, CRC and LEN) and, a chunk, its **live** and **committed** generation bits. A project load
+switches the live pool to its slot (`ocp_switch`: the record's PHRD read into the tables); a new project switches it to
+**slot 4, the scratch**, which has no record. The record ids have room for it: `slot << 9` with slot 0 to 4 uses bits 9 to
+11 (the document's layout leaves bits 11 to 14 free). Scratch chunks are what a project with no slot keeps to flash when a
+bank must be reused (`ocl_keep` on a go while stopped, as today); they are **erased at every boot and by the sweep when
+the music gets a slot**. So unsaved phrases of a new project die with the power, where today they survived in the shared
+pool unnamed; the autosave (a free slot within 5 s stopped) and NOT SAVED: HOLD SAVE are the cover, and this is the price
+of project-owned phrases, written down. Reading a slot that is not live (`proj_fetch` at boot for the slot list, the
+backup's LIST of four slots while music plays) uses a **transient directory** read from that slot's record (`ocj_dir`, 287
+B in .pool), never the live tables, so the music loaded is not disturbed. A **save to another slot copies**: every live
+phrase is written into the destination's chunks (chunk to chunk, no unpack), then the record; the source slot is left
+whole (the scratch's chunks swept). Today a save-as shares the phrases between the two slots, which is the thing the
+revision removes; the cost is one write of every phrase on a save-as, as a first save writes every bank today.
+`ocj_refs` (how many other slots name a phrase) is 0 under the switch and the sharing paths of `ocj_write` and
+`ocl_free_pat` go with it; `FRZ_SLOT_NAMES(s, i)` becomes "s is the live slot and the live project uses i".
+
+**4. Foreign bytes are streamed from the source record at save time, never held in RAM.** Unknown tags, REND, TSTA, ROUT
+and FXRC content, trailing bytes after a known section's fields, trailing bytes after a table entry's fields and entries
+past the count a writer knows all have to survive a save. The record is streamed to flash from a source (`ocs_src_t`), so
+the writer **opens the record the music was loaded from** (`proj_cur`'s slot, or none for a new project) and, for each
+section it writes, emits its own fields and then the old section's bytes past them (for a table: per entry, and whole
+entries past its own count); after its own sections it copies every section whose tag it does not know, in the old
+record's order. A save into the same slot reads the old copy while the new one is written (the store keeps the current
+copy's sectors out of a new copy's way: `ocs_stream_begin`). A save-as carries the *source* slot's foreign bytes, not the
+destination's old record: they are the project's, and a project overwritten is gone. The old record's section index
+(tag, offset, length; 24 entries) is read into 288 B of .pool at the start of a save. No RLE anywhere is what makes this
+seekable (section 2).
+
+**5. The chunks, and when a keep flips a generation.** A chunk record is `u8 n, then n x (u8 id, u16 len)`, then the
+phrases' bytes in that order: a table at the head instead of the document's inline prefixes (the same fields; a load
+seeks to a phrase without walking the bytes). A chunk holds either several phrases of at most one part (3,808 B) together
+or one phrase of any size (up to OCP_MAX, 3 parts). **Placing a kept phrase P of L bytes:** its chunk C is rewritten in
+place when C holds P alone or C's other live phrases plus L fit a part; else P goes to the lowest-numbered chunk whose live
+phrases plus L fit (first fit), else to a free chunk number (1 to 255, so a phrase can always have a chunk of its own),
+and **C is not rewritten: its old bytes for P go stale** and are dropped when C is next written (the writer emits only the
+phrases whose directory entry names that chunk). A chunk's "live phrases" are those whose directory entry names it; its
+fullness is read from its head table when needed (no byte lengths in RAM). **The generation rule for a chunk C:** when
+C's live generation equals its committed one (the slot's record names this copy), a write flips the live bit and writes
+under the other id; when they already differ (kept since the last save, not yet committed), the write goes under the live
+id again, where the store's own copy-on-write keeps the previous copy until the new one commits. So a copy the record names
+is never written to until the record moves off it, which is the invariant the document's power-cut claim rests on
+(section 3.1: "the old record still reads the old chunks, untouched"), and a second keep before a save does not undo it.
+The record write names the live bits; after its commit the committed bits take the live values and **the sweep** erases
+every OCS_POOL record of the slot (either generation, any chunk) the record does not name. The sweep also runs at boot
+for every slot, and for the scratch (everything). A keep of a phrase a bank emptied clears its directory entry; a chunk
+with no live phrase is simply not named and the sweep takes it after the next commit. **A failed save does not sweep:**
+the live-generation chunks are the music's kept state and the banks' signatures already say "kept", so erasing them would
+lose edits the player sees as saved to the pool; the next save retries the record alone. The boot sweep does erase them
+(the music in RAM is gone; the committed record is the truth), which is the document's "entirely old or entirely new".
+
+**6. Room: a keep leaves room for the record.** The document refuses a save that would leave less than a 3 sector
+reserve. Under the switch the keeps are what fill the store (a save writes only the record after `ocl_keep_all`), so
+the rule is put on the keep: **a chunk write is refused (rc 4, the message PROJECT FULL) unless, after it, at least
+OCJ4_RESERVE = 4 free sectors remain** (a record of up to 4 parts, the worst case of section 2); and a save checks that
+its record fits before it writes a byte, refusing whole with PROJECT FULL and the KB short. A keep refused leaves the bank
+as it is (unkept, its edits in RAM, the bank's signature untouched), as rc 4 does today.
+
+**7. FRZR, SMPR and the metadata, as far as Part 1 takes them.** **FRZR** is the project's frozen-phrase table: an entry
+per frozen phrase, `u16 elen, u8 id, frzp_t (32 B as it stands, dir and want included)`. The document drops `dir` as a
+cache; `dir` and `want` differ while a rename is pending, and both are indices into the unit's folder table, which is
+fine while a project cannot leave the unit (the card library is deferred); the later release that moves projects
+recomputes them, and nothing is lost meanwhile. The live table stays `frzp[64]` indexed by phrase id in Part 1: a project
+load replaces it with the record's FRZR (entries whose id is above 64 are kept in the record and not loaded), a save writes
+it back, and freezing a phrase above 64 is refused with a message until the freeze code is keyed by id (six index sites in
+card_freeze.c, usb_files.c, card_browse.c; a later part, written here when done). OCS_FREEZE keeps the folders (`frzd`)
+and a mirror of the live table, as today. **SMPR**: one entry for the internal sample slot when it is FULL and a track's
+engine is a sample engine (kind 1, the slot header's name, data_len and crc, the tracks' mask, the zones' mask), none
+otherwise; card-file references (kind 2) are read and kept, never written in Part 1 (nothing on the unit plays a card
+sample by reference today). At load each reference is resolved against the slot's header and the result (resolved,
+changed, missing) is kept a track; a changed or missing one says `SAMPLE CHANGED T3` / `SAMPLE MISSING T3` in a toast at
+the load (the header chip, RELINK and the "silent" rule are interface and audio work: Session A's rule for muting a track
+whose sample is gone is asked for in "Waiting on Session A"). **The metadata:** the uid and the seed are made at the first
+save from `fnv(fm1_ms, the staging's bytes, the store's cursor and the slot's record seq)`; the track ids are
+`hash(seed, "trk", k)`; the revision counter starts at 1 and every save adds one; a restore of a record keeps its bytes.
+
+**8. OCP_VER 2, and the phrase bytes.** A version 2 phrase is `0 ver = 2, 1 flags (bit 0 automation on), 2..3 np u16,
+4..11 LEN DIV SWING GATE, 12..19 the step mask`, the used steps at 11 B, then `u8 count` and the motion events at **5 B
+(step u8, param u16, value i16)**, then `u16 count` and the timed notes at 10 B. Version 1 is read as today. The wide ids
+are in the format from Part 1, so Part 2 widens the runtime (motion_event_t, the asserts, the editor protocol) and never
+the record. Macro events on ids 33 to 36 are dropped when a version 1 phrase is read and kept for version 2 (8.1); the
+packer writes the dials unbaked only once Part 2 lifts the FBKK's zeroing (in Part 1 the FBKK path still bakes, so a
+version 2 phrase written by Part 1 carries no macro events).
+
+**9. What Part 1 does not do, on purpose:** no interface (the PATTERNS grid shows 64; chain steps reach 255 through their
+knobs' range; the project meter waits), no conversion (Part 3; an OCJ3 slot reads as OLD FORMAT under the switch as any
+unreadable record does today), no change to the editor's arrange reply beyond keeping it building (INFO reports the
+first 64 phrases under the switch, with a comment naming Part 6), no FXRC, no scenes v2. The boot path: `ocs_boot`, the
+sample slot's claim, **the sweep**, `ocj_scan` (the slot list), then `project_boot`, which switches the live pool to the
+project it loads.
+
+**Cost (estimates, the document's lines):** chunks, directory, sweep and the pool's tables to 255: 3,200 B; the OCJ4
+writer and reader: 3,500 B; the Gate 1 and card-ready fields: 700 B; SMPR: 400 of its 700 B; OCP_VER 2: 300 B. **About
+8,100 B of flash with the switch on, 0 B with it off**; RAM about 2,400 B (`ocp`'s tables 1,600 B, the transient
+directory 287 B, the section index 288 B, the metadata 450 B), against the document's 1,660 B for these lines (it did not
+count the transient directory or the index). Both are measured below.
+
+**Tests (host, tests/oc_r3_test.c on oc_project_test's harness, built with -DOC_R3_FORMAT=1; the existing store, pool and
+project tests still run with the switch off):** a project with all 32 banks saves and loads back the same, after a reboot
+too, with its sections present; a save that changes nothing rewrites the record only, one bank changed rewrites its chunk
+under the other generation and the record, and the old generation is gone after; 255 phrases through chain steps and
+keeps, all loading back, the 256th refused; a save-as copies and the two slots are independent (an edit in one leaves the
+other's bytes equal); a new project's keeps go to the scratch, a save-as moves them, a boot sweeps a scratch; a record
+carrying REND, TSTA, ROUT and FXRC content, an unknown tag, trailing bytes in HEAD and in a TRKS entry and a fifth TRKS
+entry loads and saves byte for byte, and a save-as carries them; the uid survives saves and the revision counts them; FRZR
+and SMPR round trip and the three resolve states show; a version 1 chunk reads and the next keep writes version 2 with the
+macro events dropped; a chunk's stale bytes are dropped at its next rewrite and a phrase that outgrows its chunk moves; a
+power cut after every program call and after every erase of a save and of a save-as leaves the slot reading entirely old
+or entirely new (Part 4 extends this to the conversion and the restore and to every byte); a full store refuses a save
+whole and a keep keeps the reserve; the fuzzer (fuzz_oc_project) built with the switch on against a mutated OCJ4 store.
