@@ -1851,6 +1851,16 @@ the pads, the editor's cell, the switch-off build, the CI switches. Found and fi
 | 14 | Test gaps | should fix | added: the ordered move, the two TIE-cell gestures, a load with a flagged empty cell and its tie in another bank, LEN below a recorded cell, a key beside a rounded-forward event, DRUM-X's LEN; still open: ED_STEP_SET through the editor command (the helper is tested), live recording over a manual and a recorded MONO cell, a 9-event cell under a key (the bound is stated), frozen phrases |
 | 6 | 2,144 B against 500 to 700 | should fix | measured and carried in the budget table above, with where it went |
 
+**Session A, round 11 (October 31, 2026; BUILD.md 7.22).** The merge's independent review found the reconcile that `project_restore_runtime`
+ran right after `pattern_init()`: every other bank was empty at that moment, so a project load, a boot through the track's removal and the
+editor's restore deleted the other banks' recorded notes and flattened their cells to manual notes. Fixed on r11 (b1997d1): no reconcile inside
+`project_restore_runtime`; one after `bank_restore` on every path (project_load, tracks.c, editor_backup.c); one_auth_test's LOAD check plants a
+consistent note in another bank and sees it survive a save and a load. Also from that review, fixed: the slide's louder-note rule in POLY (nv is
+NVOICE there), a 1-step loop taking over its own recorded chord, the list walk in recording_slide_in (the queue's per-view count returns at
+once), the tracker's move of more than 64 events (refused whole). Stated, not changed: a chord whose notes swap across a slide neither swaps nor
+glides; the pairing reads the step before by index (a TIE chain or a bank boundary gives no takeover); m_vi is not moved on a POLY takeover.
+TRACK_STEP on a recorded cell now drops the cell's events as STEP_SET does (the guard was on one of the two).
+
 ### ui-fix 8: slide and legato (design note, before its review)
 
 **What SLIDE does today** (seq.c seq_step, voice.c): a step's SLIDE flag makes the next step's notes start before this

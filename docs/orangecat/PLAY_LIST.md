@@ -1,3 +1,18 @@
+# Orange Cat Nightly v0.16.0-VERSION: what changed for you since 478add
+
+Written November 1, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
+
+1. **The FX button** now steps through every effect page, DUB first: DUB, DUB 2, DUB SETUP, DIST, AUTO PAN, FX, DELAY, DELAY 2, DELAY 3, REVERB, REVERB 2, CHORUS, SLICER, SLICER 2, MASTER, then round again. EDIT > FX still lands on DUB.
+2. **CHAIN:** on the CHAIN page, PRESETS picks the chain (01 to 64) while the chains and the song are stopped; a saved project keeps it.
+3. **Slides and legato:** a step's SLIDE now glides into the next step without a new attack in every voice mode (POLY, MONO, LEGATO, UNISON), on typed steps and on recorded notes that overlap; an octave takes about 46 ms, GLIDE set uses its own time. Set it on NOTES with ENV held + KNOB 4 (on recorded steps too), on FEEL's TYPE tile, or in the tracker's FX column (SLIDE).
+4. **Every note edits the same way:** LEN and START work on every note, typed or recorded (START on a typed note converts the step; EDIT held brings it back); a key on a recorded step replaces its notes; the tracker moves a recorded step with its timing.
+5. **HOME held** about 0.7 s opens the MENU; HOME with a knob, PRESETS, EDIT or OCT within that time is the shortcut. The map of shortcuts is gone.
+6. **The SHAPES picture** moves with its knobs (the yarn with TIMB, the tail with COLR, the moon and the paw).
+7. **Checked on the unit before this build shipped:** every ratchet, flam, trig condition, chance, nudge and slide the pattern asks for sounds at its time on every engine; a recorded take keeps its timing; the external clock keeps the grid (BUILD.md 7.22). Found in the review and fixed: a project load deleted recorded notes in the pattern banks you were not on; an accent on a slid-into step was lost in POLY.
+8. **The reverb hiss** is the next build's; the renders for you to hear are in ~/fm1-hw/r11/reverb-renders/ (README.txt there).
+
+The earlier note for 478add follows.
+
 # Orange Cat Nightly v0.16.0-478add: what changed for you since cb5048
 
 Written October 31, 2026 for the owner, after your notes on cb5048. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
