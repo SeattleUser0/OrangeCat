@@ -495,7 +495,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
     }
     proj_motion_ids(&q->motion, np);
     if (!proj_fun23(magic)) proj_motion_drop_dub(&q->motion);   /* (Release 2) FUN22 and earlier: no DUB TAPE lanes */
-    if (fun22 && np == P_COUNT) {
+    if (fun22 && (np == P_COUNT || (magic == PROJ_FUN23_MAGIC && np == 124u))) {   /* (Release 3) a FUN23 record read by a FUN24 build keeps its octaves too */
         int8_t oct[NTRK];
         if (!mpc_octaves_unpack(oct, b[PROJ_MPC_OCT_WIRE] | (uint32_t)b[PROJ_MPC_OCT_WIRE+1u] << 8)) return 0;
         for (t = 0; t < NTRK; t++) q->t[t].mpc_octave = oct[t];
@@ -1189,6 +1189,9 @@ _Static_assert(sizeof(tmpl_t) == 2u * PROJ_GLOBALS + 2u + NTRK * (2u + 2u * P_CO
 static struct { persist_t p; tmpl_t t; } set_rec __attribute__((section(".pool")));   /* the settings record */
 #define tmpl set_rec.t                                /* the template lives where the settings record stages it */
 _Static_assert(sizeof set_rec == sizeof(persist_t) + sizeof(tmpl_t), "the template follows the settings");
+#ifdef ST_PAYLOAD_MAX
+_Static_assert(sizeof set_rec <= ST_PAYLOAD_MAX, "the settings record and the template fit one storage payload (P_COUNT 131 grows the template by 56 bytes)");
+#endif
 static uint8_t tmpl_dirty;                        /* saved in RAM, not yet in flash (settings_poll) */
 static uint8_t persist_old, tmpl_old;
 static int template_old(void) { return persist_old || tmpl_old; }

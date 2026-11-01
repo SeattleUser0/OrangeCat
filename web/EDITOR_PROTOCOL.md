@@ -1629,3 +1629,23 @@ The division is the complete first-to-last sweep, with an immediate first tone
 and evenly spaced remaining tones. Input release and STOP cancel pending tones;
 MIDI sustain follows existing ownership. ARP bypasses strumming. Live recording
 captures the staggered onsets; STEP entry continues to write a complete chord.
+
+## Orange Cat: parameter ids past 7 bits (Release 3, builds with OC_R3_FORMAT; commands 130 to 134)
+
+With LFO 2 (OC_LFO2) a track has 131 parameters, so an id no longer fits one 7-bit byte. The 7-bit commands keep their meaning for ids
+0 to 126 and carry **at most 127 values**; ids past that travel on the extension (command 0, n = command - 128, so the frame is
+`F0 7D 46 4C 00 n ...`).
+
+- **INFO** reports `min(P_COUNT, 127)` in its P_COUNT byte (P_E0 as it is: 123). A tagged block closes the reply: `0x57, 1, P_COUNT lo,
+  P_COUNT hi, P_E0 lo, P_E0 hi, format` (7 bytes; format 3 is Release 3, 2 or no block before). A page believes the block only when it
+  agrees with the legacy byte. A page that does not know the block reads (127, 123): a pair it does not recognise.
+- **DUMP, TRACK_DUMP, UP_GET, LIBRARY get**: carry the legacy count of values (127 with LFO 2). **UP_PUT** accepts that count or P_COUNT
+  (the values not sent take their engine's defaults). **LIBRARY put** takes the legacy count (the preset's ids 127 to 130 are not stored
+  from the page until it speaks a wide library command).
+- **130 PARAM_W** `scope, id lo, id hi [, v14]` -> `scope, id lo, id hi, v14`: GET, and SET with the value (as 2 and 3; scope 0 the selected
+  track, 1 global). **131 DESC_W** `scope, id lo, id hi` -> as DESC with the id in two bytes. **132 TRACK_PARAM_W** `track, id lo, id hi
+  [, v14]` -> `track, id lo, id hi, v14`. **133 PARAM_CHANGED_W** (a push, while WATCH is on) `scope, id lo, id hi, v14`: the selected track's
+  parameters from 128 up (the 7-bit CHANGED would send the wrong parameter: its byte masks to 7 bits). **134 DUMP_W** (no arguments) -> as DUMP
+  with all P_COUNT values.
+- Each answers nothing for a bad length, scope, track or id; a SET restores a momentary change first and does not push back the page's
+  own change.

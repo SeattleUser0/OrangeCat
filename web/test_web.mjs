@@ -1552,6 +1552,7 @@ async function editorSessions() {
     $: id => { if (!nodes.has(id)) nodes.set(id, {}); return nodes.get(id); },
     CMD: { INFO: 1, PROJECT: 2, SMP_INFO: 3, DUMP: 4 },
     parse: { 1: r => r, 2: () => ({ used: false }), 3: () => ({}), 4: r => r },
+    dumpFill: async out => out,                              /* (Release 3) the ids past the 7-bit DUMP: none in this fake unit */
     req: { info: () => "info", project: () => "project", smpInfo: () => "sample", dump: () => "dump" },
     paramKeys: noop, libAdopt: () => { adoptStarted?.(); return adopted || Promise.resolve(); },
     buildUI: () => { shown++; }, renderPanels: noop, loadSteps: noop,

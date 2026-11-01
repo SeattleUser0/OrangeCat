@@ -1094,7 +1094,7 @@ static void fun23_of(const project_store_t *n24, project_store_t *o23)
     memcpy(o + po, n + pn, seq_end_n - pn);
     for (i = 0; i < n[mot_at_n]; i++) {                                  /* events: place, param, value (4 bytes) after count, on, rsv[2] */
         uint8_t *ev = o + po + (mot_at_n - pn) + 4u + 4u * i;
-        if (ev[1] >= P_E0 && ev[1] < P_COUNT && !(ev[2] | ev[3] << 8 >= 256)) ev[1] = (uint8_t)(ev[1] - 7u);
+        if (ev[1] >= P_E0 && ev[1] < P_COUNT && !((ev[2] | ev[3] << 8) >= 256)) ev[1] = (uint8_t)(ev[1] - 7u);   /* (not a native event: its value is below 256) */
     }
     po += seq_end_n - pn;
     memset(o + po, 0, PROJ_STORE_SIZE - po);                              /* the fixed-offset parts after: copied from the new record */
@@ -1118,6 +1118,7 @@ static int test_lfo2_records(void)
     motion.event[motion.count].place = 5; motion.event[motion.count].param = P_L2RATE; motion.event[motion.count].value = 44; motion_pattern[motion.count++] = 0;
     motion.rsv[0] = 1;
     project_capture(&q);
+    for (k = 0; k < NTRK; k++) q.t[k].mpc_octave = (int8_t)((int)k - 1);   /* -1 0 1 2 */
     R3CHK("a FUN24 record (np 131) packs and unpacks with LFO 2's seven kept", proj_pack(&n24, &q) && n24.raw[66] == P_COUNT && proj_unpack(&r, n24.raw) &&
           r.t[2].p[P_L2RATE] == 32 && r.t[2].p[P_L2DST] == 8 && r.t[2].p[P_L2AMT] == -17 && r.t[0].p[P_L2POL] == 1 && r.t[1].p[P_L2SYNC] == 3 && r.t[3].p[P_L2WAVE] == 2);
     fun23_of(&n24, &o23);
@@ -1126,6 +1127,7 @@ static int test_lfo2_records(void)
               for (uint32_t i = 0; i < P_L2RATE; i++) ok &= r.t[k].p[i] == q.t[k].p[i];
               for (uint32_t i = 0; i < 8u; i++) ok &= r.t[k].p[P_E0 + i] == q.t[k].p[P_E0 + i];
               ok &= r.t[k].p[P_L2RATE] == TP[P_L2RATE].def && r.t[k].p[P_L2DST] == 0 && r.t[k].p[P_L2AMT] == 0; } ok; }));
+    R3CHK("... and its MPC octaves (-1 0 1 2) are kept (FUN23 is read with np 124, the octave word is where FUN22 and FUN23 put it)", ({ uint32_t ok = 1; for (k = 0; k < NTRK; k++) ok &= r.t[k].mpc_octave == (int)k - 1; ok; }));
     R3CHK("... its motion on the old P_E1 lands on the new P_E1, and its DUB TAPE lane is not dropped (FUN23 keeps FUN23's behaviour)",
           r.motion.count >= 2u && ({ uint32_t e1 = 0, dub = 0; for (uint32_t i = 0; i < r.motion.count; i++) { e1 |= r.motion.event[i].param == P_E1; dub |= r.motion.event[i].param == P_DUB_FDBK; } e1 && dub; }));
     R3CHK("... a FUN23 record is still known, FUN22's np 122 too, and a FUN23 with np 131 is refused", proj_magic_known(PROJ_FUN23_MAGIC) && ({ project_store_t bad131 = o23; bad131.raw[66] = 131; uint32_t sum = proj_hash(bad131.raw, PROJ_STORE_SIZE - 4u); memcpy(bad131.raw + PROJ_STORE_SIZE - 4u, &sum, 4); !proj_unpack(&r, bad131.raw); }));

@@ -111,6 +111,8 @@ static int fl_write(uint32_t off, const void *p, uint32_t n)
 #include "../firmware/src/editor.c"
 #include "../firmware/src/cz_store.c"
 
+/* (Release 3) the native byte that shares P_E1's wire id is 5 (117) and takes up to 99, or 12 (124, with LFO 2) and takes up to 3 */
+#define NATV_V (OC_LFO2 ? 2u : 80u)
 #if OC_R3_FORMAT
 #define R3_INFO_TAIL 7u                           /* (Release 3) the tagged block 0x57 closes INFO: tag, version, P_COUNT (2), P_E0 (2), the project format */
 #else
@@ -586,7 +588,7 @@ static int shared_protocol(void)
     bad+=check("incoming Prophet asks before overwriting a CZ shared slot",ui.confirm==CF_IMPORT&&native_used(ENGI_CZ,383));ui.confirm=0;sysex_cancel();
     uint8_t raw[CZ_BYTES];cz_patch_init(raw);raw[128]=0;raw[143]=255;uint32_t pos=0;
     a[pos++]=2;a[pos++]=126;a[pos++]=2;a[pos++]=ENGI_CZ;memcpy(a+pos,"OPAQUE NAME",11);pos+=11;a[pos++]=0;
-    for(uint32_t j=0;j<P_COUNT;j++){a[pos++]=0;a[pos++]=64;}memset(a+pos,0,32);pos+=32;a[pos++]=2u|32u|64u;a[pos++]=CZ_BYTES&127u;a[pos++]=CZ_BYTES>>7;pos+=pack7(raw,CZ_BYTES,a+pos);request(ED_LIBRARY,a,pos);
+    for(uint32_t j=0;j<ED_P7;j++){a[pos++]=0;a[pos++]=64;}memset(a+pos,0,32);pos+=32;a[pos++]=2u|32u|64u;a[pos++]=CZ_BYTES&127u;a[pos++]=CZ_BYTES>>7;pos+=pack7(raw,CZ_BYTES,a+pos);request(ED_LIBRARY,a,pos);
     bad+=check("shared PUT preserves every native name byte when requested",!host_wire[8]&&native_used(ENGI_CZ,382)&&!memcmp(native_raw(ENGI_CZ,382),raw,sizeof raw));
     a[0]=5;a[1]=127;a[2]=2;request(ED_LIBRARY,a,3);bad+=check("shared ERASE clears U384 and the loaded origin",!host_wire[8]&&!up_used(383)&&!trk[2].user);
     return bad;
@@ -708,15 +710,13 @@ static int native_motion_protocol(void)
     a[1] = 3; a[2] = 0; a[3] = P_LEVEL; a[4] = 64; a[5] = 64; request(ED_MOTION, a, 6);
     bad += check("legacy motion wire writes retain the original format", !host_wire[6] && motion.event[0].param == P_LEVEL && motion.event[0].value == 64);
     motion_clear(&trk[0]);a[2]=0;a[3]=P_E1;a[4]=7;a[5]=64;request(ED_MOTION,a,6);
-    a[3]=P_E1;a[4]=80;a[5]=70;request(ED_MOTION,a,6); /* FM6 tag 3, byte 80 */
-#if !OC_LFO2                                      /* (the overlap is at ids 112..123; with LFO 2 P_E1 is 124, where FM6's native byte has another range) */
+    a[3]=P_E1;a[4]=NATV_V;a[5]=70;request(ED_MOTION,a,6); /* FM6 tag 3, a value in the range of the byte at P_E1 */
     bad+=check("overlapping native/common IDs coexist through the protocol",!host_wire[6] && motion.count==2);
     a[1]=4;request(ED_MOTION,a,6);
     bad+=check("typed native delete retains the common engine event",!host_wire[6] && motion.count==1 && motion.event[0].param==P_E1 && motion.event[0].value==7);
     a[1]=3;request(ED_MOTION,a,6);a[1]=4;a[4]=7;a[5]=64;request(ED_MOTION,a,6);
-    bad+=check("typed common delete retains the native event",!host_wire[6] && motion.count==1 && motion.event[0].value==(MO_TAG_FM6<<8|80));
+    bad+=check("typed common delete retains the native event",!host_wire[6] && motion.count==1 && motion.event[0].value==(MO_TAG_FM6<<8|NATV_V));
     request(ED_MOTION,a,4);bad+=check("legacy delete clears the remaining raw ID",!host_wire[6] && !motion.count);
-#endif
     return bad;
 }
 #ifndef EDITOR_TEST_NO_MAIN
@@ -1299,7 +1299,7 @@ static int kit_protocol(void)
         m = request(ED_LIBRARY, q, 3);
         for (at = 11; at < m && host_wire[at]; at++)
             ;
-        at += 1u + 2u * P_COUNT + 32u;                  /* (the name's 0, the values, the old pattern) */
+        at += 1u + 2u * ED_P7 + 32u;                  /* (the name's 0, the values, the old pattern) */
         dxk_pack(&before, rec);
         ok &= host_wire[9] == 1u && host_wire[10] == ENGI_DRUMX && host_wire[at] == 5u && host_wire[at + 1u] == DXK_BYTES && host_wire[at + 2u] == 0u &&
               ed_unpack7(host_wire + at + 3u, m - at - 4u, got, sizeof got) == DXK_BYTES && !memcmp(got, rec, DXK_BYTES);

@@ -90,7 +90,7 @@ export class Session {
     progress(1);
     say("ready");
   }
-  async descOrNull(s, i) { try { return parse[CMD.DESC](await this.rq(req.desc(s, i))); } catch (e) { if (e.message === "closed") throw e; return null; } }
+  async descOrNull(s, i) { try { const q = req.desc(s, i); return parse[q[0]](await this.rq(q)); } catch (e) { if (e.message === "closed") throw e; return null; } }
   async readTracks() {
     if (!this.info.ntrk) { this.tracks = null; this.sel = 0; return null; }
     this.tracks = parse[CMD.TRACK](await this.rq(req.track()));
@@ -194,11 +194,12 @@ export class Session {
   /* a track parameter: TRACK_PARAM for any track (v4), SET for the selected one. The value after clamping */
   async setParam(k, id, v) {
     if (k === this.sel || !this.v4) {
-      const r = parse[CMD.SET](await this.rq(req.set(0, id, v), { key: "set:" + id }));
+      const q = req.set(0, id, v), r = parse[q[0]](await this.rq(q, { key: "set:" + id }));
       if (this.dump && k === this.sel) this.dump.p[id] = r.value;
       return r.value;
     }
-    return parse[CMD.TRACK_PARAM](await this.rq(req.trackParam(k, id, v), { key: `tp:${k}:${id}` })).value;
+    const q = req.trackParam(k, id, v);
+    return parse[q[0]](await this.rq(q, { key: `tp:${k}:${id}` })).value;
   }
   async setGlobal(id, v) { const r = parse[CMD.SET](await this.rq(req.set(1, id, v), { key: "g:" + id })); if (this.dump) this.dump.g[id] = r.value; return r.value; }
   /* the preset browser's rows (factory presets in the unit's engine order, then the library's used slots; starred) */

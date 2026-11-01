@@ -350,14 +350,17 @@ static void up_pat_from(up_rec_t *r, const step_t *st)   /* the first 16 steps -
  * a drum grid, the pairs the low 7 bits of each step's hits and accents, hi bit 0 / 1 their bit 7 (lane 8) */
 static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
 {
-    uint32_t i, n, k, end;
+    uint32_t i, n, k, end, nv;
     if (na < 3u)
         return 1;
     *slot = a[0];
     for (n = 0; 2u + n < na && a[2 + n]; n++)
         ;
     k = 3u + n;                                  /* after the name's 0 */
-    end = k + 2u * P_COUNT + 32u;
+    nv = P_COUNT;
+    if (P_COUNT > 127u && na != k + 2u * P_COUNT + 32u && na != k + 2u * P_COUNT + 32u + 17u)
+        nv = 127u;                               /* (Release 3) a page that reads 127 values (INFO's legacy count) sends 127: the rest take their defaults */
+    end = k + 2u * nv + 32u;
     if (a[0] >= 128u || a[1] >= NENGINES || 2u + n >= na || !up_name_ok(a + 2, n) ||
         (na != end && (na != end + 17u || a[end] > 1u)))
         return 1;
@@ -371,9 +374,12 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     r->np = P_COUNT;
     for (i = 0; i < n; i++)
         r->name[i] = (char)a[2 + i];
-    for (i = 0; i < P_COUNT; i++, k += 2u)
+    for (i = 0; i < P_COUNT; i++)
         {
-            int32_t value = (int32_t)((a[k] & 127u) | (a[k + 1] & 127u) << 7) - 8192;
+            int32_t value;
+            if (i >= nv) { up_set_value(r, i, param_desc_of(r->engine % NENGINES, i)->def); continue; }   /* (Release 3) not sent: the default */
+            value = (int32_t)((a[k] & 127u) | (a[k + 1] & 127u) << 7) - 8192;
+            k += 2u;
             if (value < -64 || value > 127) return 1;
             up_set_value(r, i, (int16_t)value);
         }

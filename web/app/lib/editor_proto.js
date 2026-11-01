@@ -69,7 +69,7 @@ const P5 = {
 };
 P5.FIELDS=[{"id":0,"label":"Frequency A","min":0,"max":127},{"id":1,"label":"Frequency B","min":0,"max":127},{"id":2,"label":"Fine B","min":0,"max":127},{"id":3,"label":"Saw A","min":0,"max":1,"names":["Off","On"]},{"id":4,"label":"Pulse A","min":0,"max":1,"names":["Off","On"]},{"id":5,"label":"Saw B","min":0,"max":1,"names":["Off","On"]},{"id":6,"label":"Triangle B","min":0,"max":1,"names":["Off","On"]},{"id":7,"label":"Pulse B","min":0,"max":1,"names":["Off","On"]},{"id":8,"label":"Pulse width A","min":0,"max":127},{"id":9,"label":"Pulse width B","min":0,"max":127},{"id":10,"label":"Hard sync","min":0,"max":1,"names":["Off","On"]},{"id":11,"label":"Low frequency B","min":0,"max":1,"names":["Off","On"]},{"id":12,"label":"Keyboard B","min":0,"max":1,"names":["Off","On"]},{"id":13,"label":"Glide","min":0,"max":127},{"id":14,"label":"Level A","min":0,"max":127},{"id":15,"label":"Level B","min":0,"max":127},{"id":16,"label":"Noise","min":0,"max":127},{"id":17,"label":"Cutoff","min":0,"max":127},{"id":18,"label":"Resonance","min":0,"max":127},{"id":19,"label":"Filter keyboard tracking","min":0,"max":2,"names":["Off","Half","Full"]},{"id":20,"label":"Filter model","min":0,"max":1,"names":["SSI (Rev 1/2)","Curtis (Rev 3)"]},{"id":21,"label":"LFO rate","min":0,"max":127},{"id":22,"label":"Initial modulation","min":0,"max":127},{"id":23,"label":"LFO saw","min":0,"max":1,"names":["Off","On"]},{"id":24,"label":"LFO triangle","min":0,"max":1,"names":["Off","On"]},{"id":25,"label":"LFO square","min":0,"max":1,"names":["Off","On"]},{"id":26,"label":"LFO / noise mix","min":0,"max":127},{"id":27,"label":"Wheel frequency A","min":0,"max":1,"names":["Off","On"]},{"id":28,"label":"Wheel frequency B","min":0,"max":1,"names":["Off","On"]},{"id":29,"label":"Wheel width A","min":0,"max":1,"names":["Off","On"]},{"id":30,"label":"Wheel width B","min":0,"max":1,"names":["Off","On"]},{"id":31,"label":"Wheel filter","min":0,"max":1,"names":["Off","On"]},{"id":32,"label":"Poly-Mod envelope","min":0,"max":127},{"id":33,"label":"Poly-Mod oscillator B","min":0,"max":127},{"id":34,"label":"Poly-Mod frequency A","min":0,"max":1,"names":["Off","On"]},{"id":35,"label":"Poly-Mod width A","min":0,"max":1,"names":["Off","On"]},{"id":36,"label":"Poly-Mod filter","min":0,"max":1,"names":["Off","On"]},{"id":37,"label":"Vintage","min":0,"max":127},{"id":38,"label":"Aftertouch filter","min":0,"max":1,"names":["Off","On"]},{"id":39,"label":"Aftertouch LFO","min":0,"max":1,"names":["Off","On"]},{"id":40,"label":"Filter envelope amount","min":0,"max":127},{"id":41,"label":"Filter velocity","min":0,"max":1,"names":["Off","On"]},{"id":42,"label":"Amplifier velocity","min":0,"max":1,"names":["Off","On"]},{"id":43,"label":"Filter attack","min":0,"max":127},{"id":44,"label":"Amplifier attack","min":0,"max":127},{"id":45,"label":"Filter decay","min":0,"max":127},{"id":46,"label":"Amplifier decay","min":0,"max":127},{"id":47,"label":"Filter sustain","min":0,"max":127},{"id":48,"label":"Amplifier sustain","min":0,"max":127},{"id":49,"label":"Filter release","min":0,"max":127},{"id":50,"label":"Amplifier release","min":0,"max":127},{"id":51,"label":"Release enabled","min":0,"max":1,"names":["Off","On"]},{"id":52,"label":"Unison","min":0,"max":1,"names":["Off","On"]},{"id":53,"label":"Unison voices","min":1,"max":5},{"id":54,"label":"Unison detune","min":0,"max":7},{"id":86,"label":"Pitch bend (semitones)","min":0,"max":11},{"id":87,"label":"Note priority / retrigger","min":0,"max":3,"names":["Low","Low retrigger","Last","Last retrigger"]}];
 
-const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
+const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED, CMD.PARAM_CHANGED_W]);
 /* Native CZ-1 tones: the original 144 bytes, not the common parameter array. */
 const CZ = {
   BYTES: 144, ENV: [[55,38,21],[112,95,78]], END: [[54,37,20],[111,94,77]],
@@ -142,6 +142,11 @@ const v14dec = (lo, hi) => (lo | (hi << 7)) - 8192;
 function strEnc(s) { const a = []; for (const c of String(s)) a.push(c.charCodeAt(0) & 0x7F); a.push(0); return a; }
 
 /* only ever builds F0 7D 46 4C ... F7 */
+/* (Release 3) the ids the 7-bit DUMP cannot carry (127 and up, when INFO says there are more), read one by one with the wide GET into dump.p */
+async function dumpFill(out, info, ask) {
+  for (let id = info.pcount7 ?? info.pcount; id < info.pcount; id++) { const q = req.dumpExtra(id); out.p[id] = parse[q[0]](await ask(q)).value; }
+  return out;
+}
 function frame(cmd, args = []) {
   for (const b of args) if (!(Number.isInteger(b) && b >= 0 && b <= 0x7F)) throw new Error("bad data byte " + b);
   if (cmd > 0x7F) return [0xF0, ...HDR, 0, (cmd - 128) & 0x7F, ...args, 0xF7];   /* (0.14.2) the extension: command 0, n */
@@ -532,6 +537,7 @@ const req = {
   get: (scope, id) => id > 127 ? [CMD.PARAM_W, [scope, id & 127, id >> 7]] : [CMD.GET, [scope, id]],
   set: (scope, id, v) => id > 127 ? [CMD.PARAM_W, [scope, id & 127, id >> 7, ...v14enc(v)]] : [CMD.SET, [scope, id, ...v14enc(v)]],
   dump: () => [CMD.DUMP, []],
+  dumpExtra: (id) => req.get(0, id),                          /* (Release 3) one id past the 127 the 7-bit DUMP carries */
   dumpW: () => [CMD.DUMP_W, []],                                 /* (Release 3) every P_COUNT value */
   desc: (scope, id) => id > 127 ? [CMD.DESC_W, [scope, id & 127, id >> 7]] : [CMD.DESC, [scope, id]],
   stepGet: (i) => [CMD.STEP_GET, [i]],
@@ -608,6 +614,7 @@ function replyMatches(cmd, args, a) {
     case CMD.FAV_GET: case CMD.FAV_SET:
       return ![0, 3, 4].includes(a[0]) || (a[1] === args[0] && a[2] === args[1] && a[3] === args[2] && a[4] === args[3]);
     case CMD.GET: case CMD.SET: case CMD.DESC: return a[0] === args[0] && a[1] === args[1];
+    case CMD.PARAM_W: case CMD.DESC_W: case CMD.TRACK_PARAM_W: return a[0] === args[0] && a[1] === args[1] && a[2] === args[2];   /* (Release 3) wide: the id's two bytes too */
     case CMD.STEP_GET: case CMD.STEP_SET: case CMD.NAMES:
     case CMD.SMP_BEGIN: case CMD.SMP_END: case CMD.SMP_ERASE: return a[0] === args[0];
     case CMD.SMP_WRITE: return a[0] === args[0] && a[1] === args[1] && a[2] === args[2] && a[3] === args[3];
@@ -1331,7 +1338,7 @@ const bank = {
 
 /* the current sound: DUMP + the first 16 steps */
 async function capturePatch(rq, info, name) {
-  const dump = parse[CMD.DUMP](await rq(req.dump()), info);
+  const dump = await dumpFill(parse[CMD.DUMP](await rq(req.dump()), info), info, (q) => rq(q));
   const steps = [];
   for (let i = 0; i < UP.PAT && i < info.nstep; i++) steps.push(parse[CMD.STEP_GET](await rq(req.stepGet(i))));
   const drum = info.engines[dump.engine] === "DRUM" || info.engines[dump.engine] === "DRUM-X";   /* (a DRUM track that strikes a lane: its grid) */
@@ -1392,7 +1399,7 @@ async function auditionPatch(rq, info, pt, opt = {}) {
   if(pt.p5){const r=parse[CMD.PROPHET](await rq(req.prophetPut(opt.track??(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0),pt.p5)));if(r.rc)throw Error("Prophet patch rejected");}
   else if(pt.cz) { const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,opt.track??(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0),pt.cz)));if(r.rc)throw new Error("CZ patch rejected"); }
   else await rq(req.set(1, opt.gEng ?? 20, pt.engine));
-  const dump = parse[CMD.DUMP](await rq(req.dump()), info);
+  const dump = await dumpFill(parse[CMD.DUMP](await rq(req.dump()), info), info, (q) => rq(q));
   const n = Math.min(info.pcount, pt.p.length);
   for (let i = 0; i < n; i++) {
     const v = pt.p[i];
@@ -3007,4 +3014,4 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
 }
 /*PROTO-END*/
 
-export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmImage, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };
+export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dumpFill, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmImage, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };

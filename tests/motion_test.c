@@ -274,17 +274,18 @@ static int native_motion_test(void)
     seq_stop();
     return bad;
 }
+/* the native byte that shares P_E1's wire id: 5 (up to 99), or with LFO 2 byte 12 (up to 3) */
+#define NATV_V (OC_LFO2 ? 2u : 80u)
 static int overlapping_motion_ids(void)
 {
     int bad=0;
-    if(OC_LFO2)return 0;                              /* (the overlap is at ids 112..123; with LFO 2 P_E1 is 124, where FM6's native byte has another range) */
     ui_power_on();track_t *t=TSEL;set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
     const param_desc_t *d=param_desc_of(ENGI_FM6,P_E1);
-    int16_t common=(int16_t)(d->def==d->max?d->min:d->max),native=(int16_t)(MO_TAG_FM6<<8|80u);
+    int16_t common=(int16_t)(d->def==d->max?d->min:d->max),native=(int16_t)(MO_TAG_FM6<<8|NATV_V);
     bad+=check("common engine and native motion sharing wire ID P_E1 coexist", P_E1>=MO_NATIVE &&
         !motion_set_event(t,0,P_E1,common) && !motion_set_event(t,0,P_E1,native) && motion.count==2 && motion_valid(&motion));
     uint16_t ids[MO_MAX];bad+=check("colliding wire IDs produce separate UI lanes",mo_lanes(ids)==2 && ids[0]==P_E1 && ids[1]==(P_E1|256u));
-    motion_step(t,0,&motion);bad+=check("both colliding motion destinations play independently",t->p[P_E1]==common && fm6_patch[0][P_E1-MO_NATIVE]==80);
+    motion_step(t,0,&motion);bad+=check("both colliding motion destinations play independently",t->p[P_E1]==common && fm6_patch[0][P_E1-MO_NATIVE]==NATV_V);
     motion_delete_event(t,0,P_E1);bad+=check("typed common deletion keeps native motion",motion.count==1 && motion.event[0].value==native);
     motion_set_event(t,0,P_E1,common);motion_delete_event(t,0,P_E1|256u);
     bad+=check("typed native deletion keeps common motion",motion.count==1 && motion.event[0].value==common);

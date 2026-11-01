@@ -13,12 +13,13 @@ static int ed_library_handle(uint32_t cmd,const uint8_t *a,uint32_t n)
     else if(!rc && op==1u){if(n!=3u)rc=1;}
     else if(!rc && op==2u){
         uint32_t len=0;while(4u+len<n && a[4u+len])len++;
-        uint32_t pos=5u+len,end=pos+2u*P_COUNT+32u;
+        uint32_t pos=5u+len,end=pos+2u*ED_P7+32u;   /* (Release 3) 127 values on the 7-bit command; E5..E8 of a LFO 2 build take their defaults */
         up_rec_t r;memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER;r.engine=n>3u?a[3]:255u;r.np=P_COUNT;
         if(n<end+1u || len<1u || len>20u || r.engine>=NENGINES || !eng_ok(r.engine))rc=1;
         for(uint32_t j=0;!rc && j<len;j++)if(a[4u+j]<32u || a[4u+j]>126u)rc=1;
         int16_t values[P_COUNT];
-        for(uint32_t j=0;!rc && j<P_COUNT;j++){values[j]=(int16_t)ed_rv(a+pos+2u*j);if(values[j]<-64 || values[j]>127)rc=1;}
+        for(uint32_t j=0;j<P_COUNT;j++)values[j]=(int16_t)param_desc_of(r.engine%NENGINES,j)->def;
+        for(uint32_t j=0;!rc && j<ED_P7;j++){values[j]=(int16_t)ed_rv(a+pos+2u*j);if(values[j]<-64 || values[j]>127)rc=1;}
         if(!rc){
             uint32_t defaults=a[end]&64u,preserve_name=a[end]&32u,kind=a[end]&31u;
             if(kind){
@@ -60,7 +61,7 @@ static int ed_library_handle(uint32_t cmd,const uint8_t *a,uint32_t n)
         int used=up_used(k);up_rec_t r;memset(&r,0,sizeof r);if(used)r=*up_rec(k);
         int16_t values[P_COUNT];if(used)up_values(&r,values);
         ed_b(used);ed_b(used?up_engine(k):0u);ed_str(r.name,12u);
-        for(uint32_t j=0;j<P_COUNT;j++)ed_v(used?values[j]:0);
+        for(uint32_t j=0;j<ED_P7;j++)ed_v(used?values[j]:0);   /* (Release 3) the 7-bit commands carry at most 127 values */
         /* Phrases no longer load; expose an empty legacy pattern. */
         for(uint32_t j=0;j<32u;j++)ed_b(0);
         uint32_t kind=used && (up_native(&r)||up_native_cz(&r))?((MELODEE_FM6 && r.engine == ENGI_FM6)?1u:r.engine==ENGI_CZ?2u:3u):0u;

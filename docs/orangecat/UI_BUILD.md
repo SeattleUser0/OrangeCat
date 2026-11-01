@@ -2577,3 +2577,19 @@ scratch slot (19). The rest, and what the build does:
 name (the document's rule) rather than at the end; a slot left OLD FORMAT at boot keeps its freezes only while no project
 that was converted has been saved (the unit's freeze mirror is held until the last old slot converts); the module version in
 a converted instrument reference is 0; SCNS is version 1 until scenes v2 (Part 7) and PERF is empty until Performance Mode.
+
+**The diff review of Part 2** (an independent agent, November 1, 2026). Twenty-two findings; confirmed OK: the switch-off mod.c is
+the old file semantically (6), every fifth-slot loop, array and the cache test (7), the tick and TRIG NOTE (8), core.h, params.c,
+the designer, motion (11), the FUN23-keyed sites of proj_unpack (12), the template traces (13), upreset (14), the wide commands'
+length checks (15), INFO and its block (16). Found and fixed in the build:
+
+| # | Finding | Severity | Done |
+|---|---|---|---|
+| 1 | A FUN23 project loaded by a FUN24 build lost its MPC octaves (the octave word was read only for np == P_COUNT) | blocker (data loss) | read for `np == P_COUNT` or a FUN23 magic with np 124; the test sets octaves -1 0 1 2 and checks them |
+| 2 | LIBRARY get and put and UP_PUT still carried P_COUNT values while the page read 127 | blocker | LIBRARY get and put carry the legacy 127; UP_PUT accepts 127 or P_COUNT (the rest take their defaults); the editor tests run at 131 |
+| 3, 4, 5 | The page: the push 133 not in the PUSH set; wide replies parsed with the 7-bit parsers; editor.html's dump reads 127 values | should fix | 133 in PUSH; the reply is parsed by the command the request chose (`parse[q[0]]`); `dumpFill` reads the ids past 127 with the wide GET at the three dump sites; replyMatches knows 130 to 132 |
+| 18 | fun23_of's precedence made its motion-id shift a no-op for small values | minor | parenthesised |
+| 19 | The `#if !OC_LFO2` skips hid the native/common collision at the new ids | should fix | retargeted: with LFO 2 the shared wire id is 124 (native byte 12, up to 3), value 2; both tests run in both builds |
+| 13 | No assert that the settings record and the template fit one storage payload | minor | `_Static_assert(sizeof set_rec <= ST_PAYLOAD_MAX)` (headroom measured 100 to 150 B with LFO 2) |
+| 10 | LFO 2 DEST "RATE" and "VIB" move LFO 1's rate and vibrato, not LFO 2's own | minor | stated (they are the matrix's destinations, the same as LFO 1's DEST) |
+| 20, 21 | Missing from the note: the cost variant of mod_test, the target_budget re-baseline, the app_lfo2 fixtures with a layout parameter in the codec, a 131 variant of editor.html's mock and of test_web.mjs, a FUN24 codec test, ui_render of the pages; EDITOR_PROTOCOL.md | should fix | **EDITOR_PROTOCOL.md written. The rest struck from this part and listed under "Waiting on Session A" (the unit's timing and Session D's pages and codec): mod_begin's budget line needs no change (CI builds with LFO 2 off and its cost is 2 to 4 bytes smaller); the sheets and HOME run with LFO 2 under the sanitizers in the suite** |
