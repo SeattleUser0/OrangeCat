@@ -14,3 +14,6 @@ web/manual/*.png
 # a unit's backups and store dumps (the owner's own data; the repo is public): keep them on the PC, never commit them
 Orange Cat-backup-*.json
 Orange Cat-store-dump-*
+build.log
+test.log
+build-rel.log
