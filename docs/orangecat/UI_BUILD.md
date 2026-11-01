@@ -2244,3 +2244,20 @@ they are out and a job runs it with both switches (the shipping pair). (5) the t
 (8) the test's turns formula fixed (the printed COLR 5.7, PLUCK 6.0 in 2 s; the window tightened). (9) tests added: OLD (a 127 loads as 0), the accumulator restarting, every track's own value
 saved; **still not covered**: user sounds not storing the value, motion on the id, the word thresholds. (10) K2's nudge is shown in the START number, **not drawn in the roll** (open).
 (11) ui_mockup's phase rate. (12) the gtick comment.
+
+### ui-fix2: suite and budget (November 1, 2026)
+
+The full host suite with CI's settings (ci_step.py test --parallel 1, on afab159, the commit the reviews' fixes were made in) **passed in 4,766 s**, with the new jobs: ui-fix2 2, 3, 4, 5 (and one_auth with both
+switches), the renders with every switch (0 lint findings) and home_pic_test. Budget (capacity 577,248 B, reserve 8,192 B; measured with ci_step build, CI's options):
+
+| Build | Image B | .data+.bss B | pool B |
+|---|---|---|---|
+| linux-hw (09e233a) | 562,288 | 94,552 | 180,656 |
+| every ui-fix2 switch off (items 1 and 6 only) | 562,656 (+368) | 94,552 | 180,656 |
+| + OC_REC_CLEAR (2) | 563,084 (+428) | 94,584 (+32) | 180,656 |
+| + OC_PROJECT_PAGE (3) | 564,364 (+1,280) | 94,600 (+16) | 180,656 |
+| + OC_SLIDE_TIME (4) | 564,708 (+344) | 94,600 | 180,656 |
+| + OC_START_NUDGE (5), all on, before the reviews' fixes | 564,180 (-528: layout) | 94,600 | 180,656 |
+| all on, after the fixes (the pushed head) | 565,044 | 94,600 (+48) | 180,656 |
+
+565,044 B leaves 12,204 B free: 4,012 B above the 8 KB reserve. The steps are not isolated costs (code layout moves between builds: item 5 measured smaller than item 4 before it). Item 6 (the scene) is in the pack, not the image; its image cost is a constant.
