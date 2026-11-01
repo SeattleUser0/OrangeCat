@@ -983,7 +983,11 @@ static int recording_slide_in(track_t *t, uint32_t i, uint32_t vel)
 {
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), view = recording_view(t, &recording[i]) % NSTEP;
     uint32_t prev = (view + len - 1u) % len, tr = trk_index(t), j;
-    if (view >= len || (t->step[prev].flags & (SF_SLIDE | SF_RECORDED)) != (SF_SLIDE | SF_RECORDED)) return 0;
+    if (len < 2u || view >= len || (t->step[prev].flags & (SF_SLIDE | SF_RECORDED)) != (SF_SLIDE | SF_RECORDED)) return 0;   /* (a 1-step loop: the
+                                                         * cell before is the cell itself, and a chord's second note would take the first's voice) */
+#if MELODEE_RECORD_QUEUE
+    if (!recording_watch[tr][prev]) return 0;           /* (round 11) nothing of the cell before sounds: no walk of the list in the interrupt */
+#endif
     for (j = recording_head[recording_owner(t)]; j < RECORD_MAX; j = recording_next[j]) {
 #if MELODEE_RECORD_QUEUE
         uint32_t old = recording_message[j] & 127u;     /* (the pitch the hit was played with, as recording_end reads it) */

@@ -137,6 +137,33 @@ int main(void)
         ok &= auth_ok("loaded") && (t->step[2].flags & SF_RECORDED) && pool_count() == 1u;
         chk("RECONCILE a project saved with an orphan loads mended: the recorded step kept, the orphan gone", ok);
     }
+    {   /* LOAD (round 11 review, 1): a consistent recorded note in another bank survives a save and a load (the reconcile runs once the
+         * banks are back, never against the banks pattern_init emptied) */
+        track_t *t;
+        int ok;
+        pattern_t p;
+        uint32_t k, i, found;
+        fresh("NOTES"); t = TSEL; k = trk_index(t);
+        recorded(2, 60);
+        pattern_read(k, 1, &p);
+        p.step[4].time = ST_NOTE; p.step[4].flags |= SF_RECORDED; p.step[4].note[0] = 65; p.step[4].n = 1; p.step[4].vel = 100;
+        fm1_irq_off(); pattern_write(k, 1, &p); fm1_irq_on();
+        {
+            recorded_note_t r = {.step = 4, .on = 0, .note = 65, .vel = 100, .duration = RECORD_UNIT / 2u, .owner = (uint8_t)(k * NPAT + 1u), .length = 1};
+            fm1_irq_off(); recording[9] = r; recording_reindex(); fm1_irq_on();
+        }
+        ok = recording_present(&recording[9]) && pool_count() == 2u && auth_ok("two banks");
+        fm1_irq_off(); recording_reconcile(); fm1_irq_on();
+        ok &= pool_count() == 2u && recording[9].vel == 100u;
+        ok &= project_save(0) == 0;
+        track_defaults_steps(t); fm1_irq_off(); recording_clear(t); fm1_irq_on();
+        project_load(0); frames(100);
+        t = TSEL; k = trk_index(t);
+        for (found = RECORD_MAX, i = 0; i < RECORD_MAX; i++) if (recording[i].vel && recording[i].note == 65u && (recording[i].owner & 31u) == k * NPAT + 1u) found = i;
+        ok &= auth_ok("loaded") && found < RECORD_MAX && (pattern_step(k, 1, 4).flags & SF_RECORDED) && pattern_step(k, 1, 4).n == 1u &&
+              (t->step[2].flags & SF_RECORDED) && pool_count() == 2u;
+        chk("LOAD a consistent recorded note in another bank survives a project save and load (event kept, cell flagged)", ok);
+    }
     {   /* PATHS */
         track_t *t;
         uint32_t key = 62;

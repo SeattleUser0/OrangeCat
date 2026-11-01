@@ -246,6 +246,32 @@ int main(void)
             ok &= (voice_of(t, 60) == va || voice_of(t, 60) == vb) && (voice_of(t, 64) == va || voice_of(t, 64) == vb);
             chk("RECORDED a recorded chord sliding into a chord: both voices taken over, none added", ok);
         }
+        t = prep(ENGI_MACRO, V_POLY);                   /* (round 11 review, 3) a 1-step loop with SLIDE on its recorded cell: the cell before is the cell
+                                                         * itself, so a chord's second note must not take the first's voice */
+        {
+            recorded_note_t c1 = a, c2 = a;
+            c1.duration = 49152; c1.owner = (uint8_t)(recording_owner(t) | (1u << 5)); c2 = c1; c2.note = 52;
+            t->p[P_SLEN] = 1;
+            recording_restore_note(t, 0, c1); recording_restore_note(t, 1, c2); note_rebuild_all(); t->step[0].flags |= SF_SLIDE;
+            start();
+            ok = until_note(t, 48, 400) > 0 && until_note(t, 52, 400) > 0 && voices_on(t) == 2u &&
+                 recording_refs[trk_index(t)][48] == 1u && recording_refs[trk_index(t)][52] == 1u;
+            chk("RECORDED a 1-step loop with SLIDE: a recorded chord keeps both voices (no takeover of its own notes)", ok);
+        }
+    }
+    {   /* ACCENT (round 11 review, 2): a louder slid-into note raises the velocity in POLY as in the mono modes */
+        uint32_t mode[3] = {V_POLY, V_MONO, V_LEGATO};
+        int ok = 1;
+        for (uint32_t m = 0; m < 3; m++) {
+            track_t *t = prep(ENGI_MACRO, mode[m]);
+            int v1;
+            manual(t, 0, 48, SF_SLIDE); manual(t, 1, 60, SF_ACCENT);
+            start();
+            ok &= until_note(t, 48, 400) > 0 && until_note(t, 60, 400) > 0;
+            v1 = voice_of(t, 60);
+            ok &= v1 >= 0 && t->v[v1].vel == 127u;
+        }
+        chk("ACCENT  a slide into an accented step raises the voice's velocity to 127 in POLY, MONO and LEGATO", ok);
     }
     {   /* HITS: a melodic step that also carries a lane hit: no takeover (the pairing would reach the hit's voice: the review's 10) */
         track_t *t = prep(ENGI_MACRO, V_POLY);

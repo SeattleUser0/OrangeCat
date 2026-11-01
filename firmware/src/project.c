@@ -1024,10 +1024,9 @@ static int project_restore_runtime(const project_t *input)
     }
     song.ntrk = (uint8_t)(p->parts - 1u < NTRK ? p->parts : NTRK);
     song.sel = (uint8_t)(p->sel < song.ntrk ? p->sel : 0u);
-#if OC_ONE_AUTH
-    recording_reconcile();                              /* (ui-fix 7) a record from before may carry an orphan: mended here, with the
-                                                         * tracks' steps in place */
-#endif
+    /* (ui-fix 7; round 11) no reconcile here: pattern_init has just emptied every bank but the current one, so a reconcile now would
+     * read every other bank's cell as a rest and delete its recorded notes (the round 11 review). The callers reconcile once the
+     * banks are back (project_load, tracks.c's boot, editor_backup.c's restore, ocp_load) */
     fm1_irq_on();
     for (k = 0; k < NTRK; k++)                          /* (0.14.2) a DRUM-X track on a user preset: that preset's kit (its record's; one of
                                                           * before 0.14.2: factory kit 0, as up_load_to). The project keeps no kit of its own:
@@ -1080,7 +1079,8 @@ static void project_load(uint32_t slot)
     if (!project_restore_runtime(&proj_scratch)) {
         if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);
 #if OC_ONE_AUTH
-        fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (ui-fix 7) the other banks are in now: every bank mended */
+        fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (ui-fix 7) the other banks are in now (or a record of before the bank store
+                                                               * left them empty): every bank mended, once */
 #endif
         proj_cur = (uint8_t)(slot & 3u);
         proj_last_set(slot & 3u);

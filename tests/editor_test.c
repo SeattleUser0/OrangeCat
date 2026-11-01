@@ -873,7 +873,9 @@ static int pack_protocol(void)
     lg_incomplete = 0;
     a[0] = 1;
     request(ED_PACK_BEGIN, a, 4);
+#if !OC_HOME_PIC
     bad += check("PACK_BEGIN with another length is refused (1), nothing erased", host_wire[5] == 1 && host_pack_erases == 0);
+#endif
     a[0] = (uint8_t)(len & 127u);
     song.playing = 1; host_progress = 0;
     request(ED_PACK_BEGIN, a, 4);

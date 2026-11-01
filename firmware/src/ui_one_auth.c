@@ -85,8 +85,11 @@ static void tracker_recorded_move(uint32_t cur, int32_t delta)
     uint64_t touched = (uint64_t)1 << (cur % NSTEP);
     if (frz_locked()) return;
     if (song.playing || chain_busy() || live_rec_sel()) { ui_message("STOP TO EDIT"); return; }
-    for (i = recording_head[recording_owner(t)]; i < RECORD_MAX && n < 64u; i = recording_next[i])
-        if (recording_active(t, i) && recording_view(t, &recording[i]) == cur) ev[n++] = (uint16_t)i;
+    for (i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (recording_active(t, i) && recording_view(t, &recording[i]) == cur) {
+            if (n == 64u) { ui_message("TOO MANY NOTES"); return; }   /* (round 11) more than the list holds: refused whole, not moved in part */
+            ev[n++] = (uint16_t)i;
+        }
     if (!n) { ui_message("SELECT A NOTE"); return; }
     fm1_irq_off();
     if (!note_transaction_begin()) { fm1_irq_on(); return; }

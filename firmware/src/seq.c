@@ -450,7 +450,8 @@ static int seq_slide_voice(track_t *t, uint32_t old, uint32_t new, uint32_t vel)
         v->note = (uint8_t)new;
         voice_scale_pitch(t, v, new);
         slide_glide_set(t, v);
-        if (vel > v->vel && nv == 1u) v->vel = (uint8_t)vel;   /* (mono_play's rule; UNISON's voices keep their scaled level) */
+        if (vel > v->vel && (mode == V_POLY || nv == 1u)) v->vel = (uint8_t)vel;   /* (mono_play's rule, in POLY too; UNISON's voices keep their scaled
+                                                                                       * level; the round 11 review: nv is NVOICE in POLY) */
         v->mvel = t->m_vel;
         v->mrnd = t->m_rnd;
         if (mode == V_POLY) v->age = ++vage;            /* (the slid note is the newest: not the first to be stolen) */
