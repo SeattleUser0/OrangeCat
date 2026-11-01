@@ -418,6 +418,25 @@ static int ocs_write(uint32_t type, uint32_t id, const void *src, uint32_t len)
 }
 
 /* forget record (type, id): every copy's sectors erased (an older copy left would come back). 0 done */
+#if OC_R3_FORMAT
+/* (Release 3, Part 5/6) every copy of the record erased, OLDEST FIRST. A record keeps its superseded copies until their sectors are reused; erasing in sector order
+ * lets a power cut leave an older copy as the record's current one (found by the real-data cut test: the old project record of a converted slot came back as a
+ * stale version and was converted over the new one). Oldest first, a cut leaves the newest copy: the record is as it was, never an older one. */
+static int ocs_delete(uint32_t type, uint32_t id)
+{
+    int rc = 0;
+    for (;;) {
+        int pick = -1;
+        for (uint32_t s = 0; s < OCS_NSECT; s++) {
+            if (ocs_hdr[s].magic != OCS_MAGIC || ocs_hdr[s].type != type || ocs_hdr[s].id != id || ((ocs_resv >> s) & 1u)) continue;
+            if (pick < 0 || ocs_newer(ocs_hdr[pick].seq, ocs_hdr[s].seq)) pick = (int)s;
+        }
+        if (pick < 0) return rc;
+        memset(&ocs_hdr[pick], 0, OCS_HDR);
+        if (OCS_ER(ocs_addr((uint32_t)pick))) { rc = -8; }
+    }
+}
+#else
 static int ocs_delete(uint32_t type, uint32_t id)
 {
     int rc = 0;
@@ -430,6 +449,7 @@ static int ocs_delete(uint32_t type, uint32_t id)
     return rc;
 }
 
+#endif
 /* a record's current copy, opened to read pieces of it (ocs_at) */
 typedef struct { uint8_t sect[OCS_PARTS_MAX], parts; uint32_t total; } ocs_rec_t;
 static int ocs_open(uint32_t type, uint32_t id, ocs_rec_t *r)

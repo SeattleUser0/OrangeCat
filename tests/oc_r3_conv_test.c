@@ -152,13 +152,13 @@ static int generic_main(const int *loads)
                     uint8_t *raw = proj_wire_borrow();
                     int old_ok = ocs_exists(OCS_PROJECT, s) && ocj4_old_read(s, raw) == (int)BANK_STORE_SIZE && !memcmp(raw, exp_fbkk[s] + 1, BANK_STORE_SIZE);
                     int new_ok = ocs_exists(OCS_PROJECT, OCJ4_RID(s)) && read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE);
-                    if (loads[s]) ok &= old_ok || new_ok;
+                    if (loads[s]) { ok &= old_ok || new_ok; if (!(old_ok || new_ok)) fprintf(stderr, "  slot %u after the cut: old exists %d new exists %d\n", s, ocs_exists(OCS_PROJECT, s), ocs_exists(OCS_PROJECT, OCJ4_RID(s))); }
                 }
                 ocj4_convert_boot();
                 memset(proj_meta, 0, sizeof proj_meta);
-                for (s = 0; s < 4u && ok; s++) ok &= !loads[s] || (read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE));
+                for (s = 0; s < 4u && ok; s++) { ok &= !loads[s] || (read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE)); if (!ok) fprintf(stderr, "  slot %u after the next start does not read as expected\n", s); }
                 ok &= old_records() == nold0 - nl && !orphans_all() && new_records() == nl;
-                if (!ok) fprintf(stderr, "  cut %s %d failed\n", phase ? "erase" : "program", k);
+                if (!ok) fprintf(stderr, "  cut %s %d failed: old records %u (want %u), orphans %u, new records %u (want %u), old chunks %u\n", phase ? "erase" : "program", k, old_records(), nold0 - nl, orphans_all(), new_records(), nl, old_chunks());
                 if (phase) n_e++; else n_p++;
             }
         snprintf(what, sizeof what, "power cut at %d of %d program calls (every %d-th) and each of %d erases of the boot conversion: old or new, never neither; the next start finishes it", n_p, progs + 1, stride, n_e);
