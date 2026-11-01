@@ -24,6 +24,8 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
     return 0;
 }
 #include "../firmware/src/storage.c"
+/* (Release 3, Part 2) upreset.c asks the descriptor table for the default of a value a frame did not send; this test sends every value, so a zero stands in */
+static const param_desc_t *param_desc_of(uint32_t e, uint32_t id) { static param_desc_t d; (void)e; (void)id; return &d; }
 #include "../firmware/src/upreset.c"
 
 static int up_pat_empty(const up_rec_t *r)          /* (the record's 16 steps: no note) */
