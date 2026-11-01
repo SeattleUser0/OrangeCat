@@ -164,6 +164,11 @@ static int ed_hwt_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
             uint32_t f = fm1_in.frames, n = fm1_in_stat.press_n;
             ed_b(f & 127u); ed_b((f >> 7) & 127u); ed_b((f >> 14) & 127u); ed_b(n & 127u); ed_b((n >> 7) & 127u);
         }
+        {   /* the gaps between scan ticks (a tick is 100 us): the 8 bins of fm1_in_stat.gap_hist (< 0.15, .3, .6, 1.2, 2.4, 4.8, 9.6 ms, longer), each 3 x 7 bits,
+             * then the longest gap in us (3 x 7 bits); read-and-clear when the request is op 7 with a second byte 1 (na == 2) is not offered: the counts run on */
+            for (uint32_t k = 0; k < FM1_GAP_BINS; k++) { uint32_t g = fm1_in_stat.gap_hist[k]; ed_b(g & 127u); ed_b((g >> 7) & 127u); ed_b((g >> 14) & 127u); }
+            uint32_t m = fm1_in_stat.gap_max / FM1_TICKS_PER_US; ed_b(m & 127u); ed_b((m >> 7) & 127u); ed_b((m >> 14) & 127u);
+        }
         return 1;
     } else if (op != 0u || na != 1u) {
         rc = 1;

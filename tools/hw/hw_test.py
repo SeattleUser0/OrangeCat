@@ -109,7 +109,9 @@ class Surface:
         i = r.index(0, i) + 2
         v = r[i:]
         enc = [(v[4 * k] | v[4 * k + 1] << 7, v[4 * k + 2] | v[4 * k + 3] << 7) for k in range(7)]
-        return {"enc": enc, "frames": v[28] | v[29] << 7 | v[30] << 14, "presses": v[31] | v[32] << 7}
+        g = [v[33 + 3 * k] | v[34 + 3 * k] << 7 | v[35 + 3 * k] << 14 for k in range(8)]
+        return {"enc": enc, "frames": v[28] | v[29] << 7 | v[30] << 14, "presses": v[31] | v[32] << 7, "gaps": g,
+                "gap_max_us": v[57] | v[58] << 7 | v[59] << 14}
     def state(self): return self.req(0)
 
     def close(self): self.u.close()
