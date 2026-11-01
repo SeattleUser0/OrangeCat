@@ -2066,3 +2066,154 @@ combo" (Session A's file).
   parameter; GLIDE set takes GLIDE's rate or time; a recorded slide needs the notes to overlap (no gate extension); no
   slide across a manual and a recorded step; FM6 keeps today's path in POLY (its own allocator); the velocity follows
   mono_play's rule.
+
+## ui-fix2 (branch ui-fix2, from linux-hw; the owner's note on v0.16.0-f5057c, November 1, 2026)
+
+Session B's items 1 to 7 of the owner's note; Session A does the PRESETS skipping, the NOTES "No edit memory" error and the DUB pages' controls
+and none of those is touched here. Every item is behind a switch of its own (core.h, tools/build.py's list, tools/orangecat_engines.sh): OC_REC_CLEAR
+(2), OC_PROJECT_PAGE (3), OC_SLIDE_TIME (4), OC_START_NUDGE (5); items 1 (the FX menu) and 6 (the SHAPES cat, a pack scene) have none, as ui-fix 3 and 5
+had none. With every switch off the screens and the hash of ui_test are linux-hw's (item 1 and the scene excepted, which are what they change).
+
+**For Session A: run the on-unit sequencer test on ui-fix2 before merge.** It touches the audio path in two places: voice.c's glide loop (a slide's
+rate, an accumulator in a new byte of `voice_t`, taken from padding: the struct does not grow) and seq.c's slide_glide_set; and the sequencer's undo
+(ui.c: a level may be linked to the one below it; UNDO_FX swaps a track's effects). What the unit test should add to the earlier checks (hardware
+checks 28 to 34 below): a slide at SLIDE TIME -64, 0 and +63 on a MACRO and a SHAPES line in POLY, MONO and LEGATO with four tracks sliding (the audio
+interrupt's time: the accumulator is a few instructions per gliding voice per block); REC held to clear on every page of item 2 while a project plays
+on the other tracks (it only clears when stopped: check that a PLAY pressed during the count cancels it and nothing is cleared).
+
+### ui-fix2 1: the FX menu, order and headings (no switch)
+
+**Order** (params.c, with OC_EDIT_SHEETS; without it release-2's order stays): SENDS (the track's page that was called FX: how much of this track goes
+into the shared effects; the new name says so), then the shared effects DELAY, DELAY 2, DELAY 3, REVERB, REVERB 2, CHORUS, SLICER, SLICER 2, (SL PITCH 1 to
+4 where SLICER's length reaches them: the owner's list left them out; they stay where they were, between SLICER 2 and MASTER, **a call of mine**), MASTER,
+then the track's own: DIST, AUTO PAN, DUB SETUP, DUB, DUB 2. Session A reworks the DUB pages' knobs: their names and order are as given. The FX button from
+HOME lands on SENDS now (it landed on DUB; hardware check 22 below is replaced by 28).
+
+**Headings.** The line at the foot of every FX page (the sound bar, ui_pages.c pv_sound): a shared page says **SHARED  all tracks** beside the four tracks'
+colours (it said "All tracks"); a track's page says **THIS TRACK** and the sound's name beside the track's number badge. The header chip is the page's
+name as before, the dots its place ("2/15"). Mockups: build/ui_steps/NIGHT/fxorder_01_sends .. fxorder_15_dub_2 (every FX page, in the FX button's
+order, in every palette, linted: 0 findings).
+
+### ui-fix2 2: clearing with REC held (OC_REC_CLEAR)
+
+**Design.** ui_clear.c (included by ui_input.c). A REC press with the sequencer stopped and nothing else down is armed with the page's context
+(clr_ctx: HOME, a SEQ page, a track's FX page, a GLO page, MOTION; a SHARED FX page is its own context that clears nothing; every other page
+is none: REC held is what it was there). While armed, btn_hold's own 700 ms hold (Capture) is not asked for. Held 350 ms the count starts: the header's
+message says "CLEARING TRACK 1 3", then 2, then 1 (300 ms each), a toast when long: no new drawing; at 350 + 3 x 300 ms the clear is done if REC is still
+down, the page is the same and nothing else was pressed, no key played, the transport not started. Let go during the count: "KEPT", nothing cleared, the
+release no tap (REC does not arm). A press shorter than 350 ms is the tap it always was. While the sequencer plays or counts in, REC held is Capture.
+**What each clears**: HOME the selected track's steps and notes of the pattern it is on (seq_clear_now: the existing "Clear track", recorded notes through
+the note history, manual steps through an undo level); a SEQ page the values on that page: FEEL, NOTES, TRACKER and DRUM HIT the chance, condition,
+ratchet, nudge and accent/slide of the **16 steps of the cursor's page** (the page's tiles; **a call of mine**: the whole pattern would be a bigger
+surprise), PHRASE its LEN DIV SWING GATE; TEMPO, CHAIN, SONG, PHRASES and GROOVE are the project's own values: nothing is reset there and the screen says
+"NOT A TRACK'S VALUES" (**a call of mine**, the safer reading of "any SEQ page"); a track's FX page the selected track's effects (every param_jfx id and DUB's
+setup) to the engine's defaults; **a SHARED FX page clears nothing** and says where its reset is (the heading says SHARED; the OCT+ held sheet's Reset
+effects is its own, **a call of mine**); GLO (any page of its family; not the GLO layer) every track's steps, notes and own effects, **not** the
+shared effects, the mix, the tempo or the sounds (**a call of mine**: "the whole project's music"); MOTION the selected track's lanes of the pattern it is on.
+**One undo.** Every clear is a level of its own (undo_seal before load_begin) and EDIT held brings it back, EDIT + OCT+ redoes. A new level kind, UNDO_FX,
+swaps the effects' ids (param_kept kept them out of every other level on purpose). GLO's four tracks are four levels linked by a byte of the level
+(`link`: bit 0 "the level below is of this gesture", bit 1 "its note history is GLO's too"): one undo, one redo take all four. Recorded notes live in one
+pool for all tracks and the existing note history snapshots the whole pool once; GLO takes that one snapshot (note_transaction.group = 1, a byte of
+the struct's padding) and ui.c's undo calls clr_follow() after a note-history undo or redo so the linked levels (the tracks' manual steps, motion and
+effects) go with it; the first track's level then carries only its effects (the history holds its steps and motion). If the edit memory is not there
+GLO says so (NO EDIT MEMORY, note_tools.c's own) and clears nothing: Session A's fix of that error is on another branch and not merged here.
+**Not done / limits**: the count is the header's message, not a drawn bar (a mockup of the messages is below); a frozen track is skipped by GLO as it is by every clear.
+**Tests**: tests/rec_clear_test.c (31 checks: TIMING a tap, KEPT, the count 3 2 1 and the clear, playing = Capture, another button cancels; HOME manual and
+recorded; FEEL / PHRASE / TEMPO; FX track and shared, undo and redo; GLO with four tracks and with recorded notes of two, one undo, one redo; MOTION), mutation-checked
+(the follow call and the link bit each removed: the GLO checks fail). **Mockups** (docs/orangecat/ui/fix2/night_clear_<home|feel|fx|glo|auto>_<3|2|1>.png, a selection of them, every
+palette linted, 0 findings): the count on five pages.
+
+### ui-fix2 3: saving and loading projects, made obvious (OC_PROJECT_PAGE)
+
+**Audit of today's flow** (what the owner met): SAVE tapped opens the sound's **USER** slots (SAVE > USER), not the project: the PROJECT page is the third
+page of the family, reached by SAVE again or SELECT; on it OCT+ opens a sheet (Load, Save here, Rename, Boot, Erase) and nothing on the screen says it;
+the slot in use was shown nowhere (the cursor row is the slot picked, which KNOB 1 changes, not the slot the music came from); Load loaded over unsaved
+changes without a word (New song asked, Load did not); the autosave writes the slot in use after 5 s stopped and untouched without saying which (MENU >
+AUTOSAVE, off the page); the quick save is SAVE held (0.7 s) with the transport stopped, nowhere said. Naming: Save here opens NAME (prefilled with the
+project's name) and OCT+ writes it.
+**Design.** SAVE opens the PROJECT page (SAVE again: the USER slots, and back; PRESETS has its own button). On it: the slot in use has its letter on a
+coloured badge (in the list, and on its card); the picked card's second line says what OCT+ does ("OCT+ LOAD OR SAVE"; "Empty - OCT+ SAVE"; the slot in
+use: "NOW - saved" / "NOW - unsaved changes"); the foot, in place of the sound bar, always says the slot in use, its name and **saved** / **unsaved** (**not
+saved** on a new song with no slot yet). Load over unsaved changes asks "LOAD PROJECT B? Unsaved changes are lost" (OCT+ yes, OCT- no); New song already asked.
+**"Unsaved"** is worked out in the input pass (project_unsaved packs the project into proj_scratch, which the drawing borrows between frames) at most once
+a second while the page is up and the sequencer stopped, at once on entering the page and after a load or save. It compares the music's pack with the pack
+taken right after the last load or save of that slot (pj_base), **not** with the hash the slot stores: a re-pack after a load differs from the stored record
+in name fields (spaces against zeros, seen on the host), which would warn of changes that are not there; and G_SLOT, G_LOAD, G_SAVE (the slot picked,
+the actions) are zeroed before packing, since picking a slot is no edit (the existing project_dirty counts it as one: seen). With no base (a boot, a
+restore) it is project_dirty's: a warning without a change is possible, a missing one is not (**the safer reading**).
+**Not done**: a renamed slot's NAME flow is the existing one; the page has four slots + template + New song as before (no "slot" picker by letter keys).
+**Tests**: tests/project_page_test.c (21 checks). **Mockups** (project_new / saved / unsaved / sheet, every palette, 0 lint findings).
+
+### ui-fix2 4: SLIDE TIME (OC_SLIDE_TIME, needs OC_SLIDE)
+
+**Design.** One value per track, **P_SLIDET on the retired id P_RESERVED48** (the last free common id; the macros took 33 to 36; no P_COUNT change, no project
+format change). Range -64 .. 63, default 0, shown as a percent (F_BIPCT) "how far from the old speed": 0 is the rate slides had (3/16 semitone a control tick,
+an octave in about 46 ms: every project and sound saved before has 0 there, zeroed as a reserved id, and slides as it did), each 16 down doubles the speed (-64:
+an octave in about 3 ms), each 16 up halves it (+63: about 0.7 s). It is the track's own setting like the effects: param_kept (a sound load leaves it),
+user sounds store the default (upreset.c), motion events on the id stay inert (motion.c). GLIDE set still wins (its own time). The page is "SLIDE" in EDIT after
+VOICE 2 (an ordinary one-knob page). The voice's glide step is now an accumulator (voice.c): a negative `gstep` is the rate in 1/256 of 1/16 semitone a
+tick, its fraction kept in `gtick` (a byte of voice_t's padding); seq.c's slide_gstep computes 768 x 2^(-s/16) with a 16-entry table and shifts.
+**Shown**: NOTES with ENV held: the SLIDE column says the word instead of ON: SNAP FAST QUICK NORM EASY SLOW LONG (thresholds -40, -20, -6, 5, 20, 40);
+the tracker's foot on the FX column SLIDE says "ON SLOW". The editor protocol: the editor accepts the id now (it was reserved); the web editor's tables
+and its `trackOwn` list do not know it yet (**Session D**: web/app/lib/editor_proto.js and web/editor.html TP[48]; the host test compares tables built
+with the switch off, so it passes). **A per-step longer or shorter slide is not done** (the owner: "if it fits simply"): a step has no spare bits (step_t is
+full: note[4], n, time, flags, vel, hit, acc, probability, cond, nudge; the project's step layout, the step snapshot, the clipboards and the editor's step
+commands would all change: the format revision's, not this).
+**Tests**: tests/slide_time_test.c (POLY, MONO, LEGATO, UNISON x seven values: the octave takes 4, 16, 32, 64, 128, 365, 984 blocks for -64 .. 63, within 10% and
+2 blocks of 192 / (3 x 2^(-s/16)), never shorter as s rises, the same voice goes on; GLIDE set ignores it; kept across a sound load and a save; the words). Mockups
+(slide_notes / slide_tracker / slide_page x snap, norm, long: 0 lint findings).
+
+### ui-fix2 5: NOTES, KNOB 2 moves the note in time as NUDGE does (OC_START_NUDGE, needs OC_ONE_AUTH)
+
+The owner's f5057c finding: START on a typed note converted the step through the note transaction and met the edit memory error (Session A's fix, not on any
+branch yet: **not merged here, so nothing of this note depends on it**). K2 on a typed note now sets the step's **nudge** (ui_one_auth.c start_nudge_edit): a 64th
+of a step a click (acceleration makes it more), -32 .. +31, the note stays a typed step, nothing is converted and the edit memory is never asked for; the START
+card shows the step and the nudge in hundredths ("4.04"); the manual step history undoes it (EDIT held); it moves while the song plays (a recorded step's nudge,
+like the tracker's, is plays-live); a chord moves together (the nudge is the step's); refused only while a chain runs or the phrase is frozen. A recorded note's K2
+is its onset as before. **A call of mine**: ui-fix 7 made START on a typed note convert it (one authority for every note); the owner's words now ("as NUDGE does
+in the tracker") read as the step's own NUDGE; the conversion is still reachable through LEN. **Tests**: tests/start_nudge_test.c (13 checks, the edit memory shown
+never asked for).
+
+### ui-fix2 6: the SHAPES cat (a pack scene, no switch)
+
+COLR sets how fast the tail wags: the tail, curled over, pivots about its root and sweeps 42 degrees each side with SS_PH2 (a sawtooth at COLR's rate: the sweep
+and a flick back). PLUCK sets how fast the paw bats the yarn: the paw pivots at the shoulder with SS_PH4: it rises slowly through 67 degrees and comes down on the yarn
+at the wrap (a note's SS_HIT swats it too), the yarn's loops are knocked round at each strike (SS_PH4 on the loops), the paw's ball overlapping the yarn's edge at
+the strike (the strike pose is the table's rest pose). TIMB is the yarn's size and its loops only (it no longer rolls at TIMB's rate; the eyes no longer follow it
+rolling: still, looking at the yarn). **The phases run 0.5 Hz at a knob's left end to 3 Hz at its right** (ui_home_pic.c; it was 0.1 Hz at 0: a turn in ten seconds,
+which at the left end nobody sees move; it is the same rule for every scene: only SHAPES' uses the phases in the shipping pack). The scene is data in the pack's
+scene trailer (outside the pack's hash); the interpreter is one constant in the image. **Tests** (tests/home_pic_test.c, MOVES): the turns a phase makes in 2 s
+(1.0 at the left end, 6.0 to 6.7 at the right, for COLR and PLUCK), the paw's pixels on the yarn's edge at the strike (5) and none when risen, TIMB's phase draws 0 pixels,
+the tail's two phases 257 pixels apart, TIMB's and TONE's ends differ by 930 and 1,040 pixels. **Frame strips**: docs/orangecat/ui/fix2/night_shapes_cycle_paw_strip.png and
+night_shapes_cycle_tail_strip.png (one cycle each, an eighth of a turn apart, NIGHT; the rate is the knob's).
+
+### ui-fix2 7: the HOME shortcuts (docs only)
+
+Listed in plain words in PLAY_LIST.md (the new section on top) and GUIDE.md ("HOME held: the shortcuts"): the hold 0.7 s = the MENU; HOME + a knob, PRESETS,
+EDIT, OCT-/OCT+ and what each does on HOME's pages, a sheet, NOTES and FEEL; copy and paste are "LATER" in this build (OC_CLIP is not in the shipping set). No screen.
+
+### Hardware checks (ui-fix2; the unit is Session A's, none run)
+
+28. **FX by hand:** from HOME, FX lands on SENDS; FX again walks DELAY .. MASTER (SL PITCH where the slicer reaches them), DIST, AUTO PAN, DUB SETUP, DUB, DUB 2 and
+    comes round; the line at the bottom says SHARED all tracks on the shared pages and THIS TRACK, the track's number and its sound on the others.
+29. **Clear by REC held (stopped):** on HOME with a few notes: hold REC: the top says CLEARING TRACK n 3, 2, 1 and clears; let go at "2": KEPT and the notes stay; a tap arms
+    REC as ever; PLAY pressed during the count cancels it; EDIT held brings the notes back. The same on FEEL (the page's 16 steps), PHRASE, a track's DUB page, MOTION, GLO
+    (all four tracks; one EDIT held brings all back); a shared FX page says where its reset is; while playing REC held is Capture.
+30. **Project page:** SAVE opens PROJECT; the slot in use has its badge and the foot says saved/unsaved (change a note: "unsaved" within two seconds; save: "saved"); Load over an
+    unsaved change asks; Load over a saved one does not; New song; Rename; hold SAVE saves at once; the 5 s autosave writes the slot in use.
+31. **SLIDE TIME on the panel:** a bass line with SLIDE on every other step at -64, 0, +63 on MACRO, SHAPES and a module in POLY, MONO and LEGATO: the glide is audibly very quick,
+    as before, slow; the envelope does not retrigger; NOTES (ENV held) and the tracker's foot say the word.
+32. **K2 on NOTES:** a typed note: K2 nudges it later and earlier a little a click (the START card moves in hundredths), the sound follows while playing, EDIT held undoes; no error.
+33. **The cat:** PLUCK from its left end to its right: the paw comes down on the yarn once every two seconds to three times a second and the yarn is knocked round; COLR the same for the
+    tail; TIMB only the yarn's size; no late audio halves while it moves (as check 4).
+34. **HOME held:** the list in the play list is true on the panel (each combo of item 7 once).
+
+### Decisions (ui-fix2, the safer reading)
+
+- Items 2 to 5 each have a switch and are on in tools/orangecat_engines.sh (as ui-fix 7 and 8): a CI build of ui-fix2 carries them; they wait for the on-unit sequencer test.
+- 1: SL PITCH pages stay between SLICER 2 and MASTER. 2: the page's 16 steps, not the pattern; the project's SEQ pages are not reset; a shared FX page does not clear; GLO leaves the
+  shared effects, the mix, the tempo and the sounds; the count is the header's message. 3: SAVE tapped lands on PROJECT (the owner's "obvious"); "unsaved" is a count against what the music
+  packed to at the last load or save, not the slot's stored hash, with G_SLOT and the actions left out. 4: the id P_RESERVED48 (no format change), percent shown, no per-step slide time.
+  5: K2 on a typed note is NUDGE (not the conversion). 6: the phases' floor 0.5 Hz for every scene.
+- Not merged: Session A's "No edit memory" fix (not on any branch when this was written); GLO's clear with recorded notes needs the edit memory and says so when it is not there.
+- The items shared one full suite run (below), not one a part: the switches are independent, the parts small, and the review of the diff came first.
