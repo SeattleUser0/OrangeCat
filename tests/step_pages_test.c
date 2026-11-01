@@ -130,7 +130,11 @@ int main(void)
         manual(4, 64);
         cursor_set(4); frame();
         turn(EN_K2, 1);
+#if !OC_ONE_AUTH                                        /* (ui-fix 7: START on a manual note converts; one_auth_test has it) */
         chk("NOTES   a manual note's START is refused with its reason", msg_is("START: RECORDED ONLY") && TSEL->step[4].nudge == 0);
+#else
+        chk("NOTES   a manual note's START converts the step (ui-fix 7)", (TSEL->step[4].flags & SF_RECORDED) != 0u);
+#endif
         turn(EN_K1, 2);
         chk("NOTES   a manual note's PITCH (KNOB 1) as KNOB 2's was", TSEL->step[4].note[0] == 66u);
         c0 = ui.cursor;

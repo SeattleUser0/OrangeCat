@@ -42,7 +42,9 @@ static int note_transaction_begin_track(track_t *t)
     note_transaction_ptr=resource_get(RES_NOTE_HISTORY,sizeof(note_transaction_t));
     if(!note_transaction_ptr){ui_message("NO EDIT MEMORY");return 0;}
 
-    recording_prune(t);
+#if !OC_ONE_AUTH
+    recording_prune(t);                                 /* (ui-fix 7: no orphan can exist; the load boundaries reconcile) */
+#endif
     memcpy(note_transaction.notes,recording,sizeof recording);
     memcpy(note_transaction.steps,t->step,sizeof note_transaction.steps);
     note_transaction.track=(uint8_t)trk_index(t);note_transaction.pattern_gen=t->pattern_gen;

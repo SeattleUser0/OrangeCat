@@ -755,7 +755,9 @@ static void capture_take(void)
         r.step = (uint8_t)(actual | (view != actual ? 64u : 0u) | (!view && actual ? 128u : 0u));
         r.length = drum_track(t) ? 1u : 0u;
         fm1_irq_off();
-        recording_prune(t);
+#if !OC_ONE_AUTH
+        recording_prune(t);                             /* (ui-fix 7: no orphan can exist) */
+#endif
         /* Capturing an overlapping window again must not stack another voice
          * at an onset already kept in this bank. Distinct pitches and times
          * remain independent events; keep existing edits to the first take. */
@@ -930,6 +932,12 @@ static void grid_keys(uint32_t pressed)
 
 static int live_rec_sel(void);
 static void notes_event_edit(uint32_t slot, int32_t delta);
+#if OC_ONE_AUTH
+static void start_convert_edit(int32_t steps);          /* ui_one_auth.c (included below) */
+static void pick_event(const track_t *t, uint32_t i);
+static void tracker_recorded_move(uint32_t cur, int32_t delta);
+static void events_drop_view(track_t *t, uint32_t view);
+#endif
 #if OC_STEP_PAGES
 static int tracker_chord_length(uint32_t at, uint32_t col, int32_t steps);   /* ui_feel_edit.c */
 static void feel_reset(int range);
@@ -959,7 +967,91 @@ static void drum_sound_edit(uint32_t slot,int32_t delta)
     else {int8_t *p=&drum_patch[song.sel].c[ui.drum_sound][field-1];*p=(int8_t)clamp(*p+delta,field==1?-24:-64,field==1?24:63);}
     fm1_irq_on();ui.force=1;
 }
-static void drum_hit_jog(int32_t delta);
+static void drum_hit_jog(int32_t delta)
+{
+    notes_step_jog(delta);uint32_t i=notes_selected(TSEL);
+    if(i<RECORD_MAX){ui.drum_sound=(uint8_t)drum_sound_of(TSEL,recording[i].note);ui.lane=(uint8_t)drum_lane(recording[i].note);}
+    notes_preview();ui.force=1;
+}
+#if OC_ONE_AUTH
+/* (ui-fix 7) the pads under the shared editor: a hit's pitch and length are notes_event_edit's slots 1 and 4 on the hit's event. A hit
+ * with no event (a manual or grid hit) converts its whole cell first (note_convert: every hit becomes an event, so no cell is half
+ * manual and half recorded; one transaction, refused while the song plays); a sound the cell does not have gets a new event (the
+ * cell converted first if it holds manual hits). The hit's event is picked, so the pads' KNOB 1 and the delete work on it */
+static int drum_hit_event(void)                         /* the picked sound's event at the cursor, made if need be; RECORD_MAX: refused, said */
+{
+    uint32_t i=drum_hit_selected(),sound=ui.drum_sound%drum_sound_count(TSEL);
+    step_t *st=&TSEL->step[ui.cursor];
+    if(i<RECORD_MAX)return i;
+    if(step_on(st) && !(st->flags&SF_RECORDED)){        /* a manual cell: whole into events, one transaction */
+        if(song.playing){ui_message("STOP TO EDIT");return RECORD_MAX;}
+        fm1_irq_off();
+        if(!note_transaction_begin()){fm1_irq_on();return RECORD_MAX;}
+        if(!note_convert(ui.cursor)){note_transaction.valid=0;fm1_irq_on();return RECORD_MAX;}
+        note_transaction_end();fm1_irq_on();
+        i=drum_hit_selected();
+        if(i<RECORD_MAX)return i;
+    }
+    {                                                   /* no hit of this sound here: a new event */
+        recorded_note_t after={0};
+        uint32_t had;
+        for(i=0;i<RECORD_MAX && recording[i].vel;i++);
+        if(i==RECORD_MAX){ui_message("RECORDING FULL");return RECORD_MAX;}
+        event_open();
+        after.note=(uint8_t)drum_sound_note(TSEL,sound);after.vel=96;after.owner=(uint8_t)(recording_owner(TSEL)|(1u<<5));after.duration=32768;after.step=(uint8_t)ui.cursor;
+        had=(uint32_t)step_sound_note(TSEL,st,sound);
+        if((int32_t)had>=0)after.note=(uint8_t)had;
+        event_replace(TSEL,i,&after,EV_MARK|EV_REBUILD);
+        event_close();
+        return i;
+    }
+}
+static void drum_hit_edit(uint32_t slot,int32_t delta)
+{
+    uint32_t i;
+    ui.drum_sound%=drum_sound_count(TSEL);
+    if(!slot){drum_hit_jog(delta);return;}         /* KNOB 1: the hits one by one, the steps */
+    if(slot==1){drum_pick(drum_sound_step(TSEL,ui.drum_sound,delta));ui.note_pick=0;notes_preview();return;}
+    if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
+    if (frz_locked()) return;
+    if((i=drum_hit_event())>=RECORD_MAX)return;
+    pick_event(TSEL,i);
+    if(delta)notes_event_edit(slot==2u?1u:4u,delta);     /* the shared editor: the pitch, the length a sixteenth (below one: natural) */
+    notes_preview();
+}
+static void drum_hit_delete(void)
+{
+    if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
+    uint32_t i=drum_hit_selected(),sound=ui.drum_sound%drum_sound_count(TSEL);
+    if(i<RECORD_MAX){                                   /* the hit's event: the shared delete (the cell rebuilt from what is left) */
+        pick_event(TSEL,i);
+        notes_delete_edit();
+        ui_message("HIT CLEARED");
+        return;
+    }
+    {                                                   /* a manual hit: off its cell (as the grid) */
+        step_t *st=&TSEL->step[ui.cursor];int32_t had=step_sound_note(TSEL,st,sound);
+        uint32_t note=had>=0?(uint32_t)had:drum_sound_note(TSEL,sound),lane=drum_lane(note);
+        step_history_end();step_history_finish();
+        fm1_irq_off();
+        if(note==DRUM_LANE_NOTE[lane]){st->hit&=(uint8_t)~(1u<<lane);st->acc&=(uint8_t)~(1u<<lane);}
+        for(uint32_t j=0;j<st->n;j++)if(st->note[j]==note){for(uint32_t k=j;k+1<st->n;k++)st->note[k]=st->note[k+1];st->n--;break;}
+        if(!st->n && !st->hit)step_clear(st);
+        fm1_irq_on();ui.note_pick=0;ui.force=1;ui_message("HIT CLEARED");
+    }
+}
+static void drum_hit_key(uint32_t accent)
+{
+    if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
+    if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
+    uint32_t sound=ui.drum_sound%drum_sound_count(TSEL);
+    if((drum_hit_selected()<RECORD_MAX || step_sound_note(TSEL,&TSEL->step[ui.cursor],sound)>=0) && !accent){drum_hit_delete();return;}
+    drum_hit_edit(2,0);
+    if(accent && drum_hit_selected()<RECORD_MAX)notes_event_edit(3,127);   /* (the velocity to 127, one history entry) */
+    notes_preview();
+}
+#else
 static void drum_hit_edit(uint32_t slot,int32_t delta)
 {
     ui.drum_sound%=drum_sound_count(TSEL);
@@ -996,12 +1088,6 @@ static void drum_hit_edit(uint32_t slot,int32_t delta)
     event_close();notes_preview();
 }
 
-static void drum_hit_jog(int32_t delta)
-{
-    notes_step_jog(delta);uint32_t i=notes_selected(TSEL);
-    if(i<RECORD_MAX){ui.drum_sound=(uint8_t)drum_sound_of(TSEL,recording[i].note);ui.lane=(uint8_t)drum_lane(recording[i].note);}
-    notes_preview();ui.force=1;
-}
 static void drum_hit_delete(void)
 {
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
@@ -1029,6 +1115,7 @@ static void drum_hit_key(uint32_t accent)
     if(accent){uint32_t i=drum_hit_selected();if(i<RECORD_MAX){fm1_irq_off();recording[i].vel=127;note_assign(&step_history.replacement,&recording[i]);TSEL->step[ui.cursor].acc|=(uint8_t)(1u<<lane);fm1_irq_on();}}
     notes_preview();
 }
+#endif
 
 /* (Orange Cat 0.5.2) a track that plays one note at a time (VOICE MONO, LEG, UNI; not a kit) and a step given a
  * second note: said once per entry, so the chord's other notes are no surprise */
@@ -1226,7 +1313,12 @@ static void step_edit(uint32_t slot, int32_t steps)
         return;
     }
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
-#if OC_STEP_PAGES
+#if OC_ONE_AUTH
+    if (slot == 6u && notes_selected(TSEL) >= RECORD_MAX) {   /* (ui-fix 7) START on a manual note: the step converts, the note moves */
+        start_convert_edit(steps);
+        return;
+    }
+#elif OC_STEP_PAGES
     if (slot == 6u && notes_selected(TSEL) >= RECORD_MAX) {   /* (the new interface 0.4) START moves a recorded note's onset */
         ui_message("START: RECORDED ONLY");
         return;
@@ -1709,6 +1801,12 @@ static void step_length_edit(int32_t delta)
 {
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_event_edit(2, delta); return; }
+#if OC_ONE_AUTH
+    if (cur_page()->graph == GR_TRACKER) {              /* (ui-fix 7) never a flattened recording (a TIE cell of a recorded note too) */
+        uint32_t rs = step_note_start(TSEL, ui.cursor);
+        if (TSEL->step[rs < NSTEP ? rs : ui.cursor].flags & SF_RECORDED) { ui_message("K4 SETS A NOTE'S LENGTH"); return; }
+    }
+#endif
     uint32_t at, n = 0;
     fm1_irq_off();
     at = cur_page()->graph == GR_ROLL ? notes_manual_start(TSEL) : step_note_start(TSEL, ui.cursor);
@@ -1732,6 +1830,13 @@ static void step_move_edit(int32_t delta)
         note_move_snapped(delta,RECORD_UNIT/4u,ui.note_copy);ui.note_copy=0;return;
     }
     if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_event_edit(0, delta); return; }
+#if OC_ONE_AUTH
+    if (cur_page()->graph == GR_TRACKER) {              /* (ui-fix 7) a recorded step's events move, never a flattened copy */
+        uint32_t rs = step_note_start(TSEL, ui.cursor);
+        if (rs >= NSTEP) rs = ui.cursor;
+        if (TSEL->step[rs].flags & SF_RECORDED) { tracker_recorded_move(rs, delta); return; }
+    }
+#endif
     uint32_t at,to;fm1_irq_off();at=cur_page()->graph==GR_ROLL?notes_manual_start(TSEL):step_note_start(TSEL,ui.cursor);
     to=step_note_move(TSEL,at,delta);fm1_irq_on();
     if(to<NSTEP){uint8_t entry=ui.entry_open;cursor_set((int32_t)to);ui.entry_open=entry;ui_message(to==at?"NEXT NOTE":"NOTE MOVED");}
@@ -1765,10 +1870,19 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
     else if (slot == 2u || slot == 4u || slot == 5u) {   /* (0.7.1: 5, the tracker's KNOB 4, a whole step) */
         int32_t duration = (int32_t)before.duration * (1u << (before.owner >> 5));
         uint32_t quantum=slot==4u?RECORD_UNIT/16u:slot==5u?RECORD_UNIT:RECORD_UNIT/4u;
+#if OC_ONE_AUTH
+        if(MELODEE_DRUM && cur_page()->scope==SC_DRUMHIT){   /* (ui-fix 7) the pads: a hit turned below one sixteenth plays its natural
+                                                         * length (length 0); NOTES' and the tracker's LEN on a drum hit are as before */
+            int32_t raw=note_snap(before.length?duration:0,delta,quantum);
+            after.length=raw>=(int32_t)quantum;
+            duration=after.length?clamp(raw,(int32_t)quantum,128*RECORD_UNIT):(int32_t)quantum;
+            if(!before.length && !after.length){fm1_irq_on();return;}   /* (natural to natural: nothing) */
+        } else
+#endif
         duration=clamp(note_snap(duration,delta,quantum),(int32_t)quantum,128*RECORD_UNIT);
         uint32_t exp=0;while(duration>65535&&exp<7u){duration>>=1;exp++;}
         after.duration=(uint16_t)duration;after.owner=(uint8_t)((after.owner&31u)|(exp<<5));
-        if(drum_track(TSEL))after.length=1;
+        if(drum_track(TSEL) && !(OC_ONE_AUTH && MELODEE_DRUM && cur_page()->scope==SC_DRUMHIT))after.length=1;
 #if OC_STEP_PAGES
     } else if (slot == 6u) {                            /* (the new interface 0.4) START: the onset a sixteenth of a step a
                                                          * detent, wrapping at the phrase's end; into another cell only
@@ -1850,6 +1964,9 @@ static void tracker_entry_notes(track_t *t, step_t *st, const uint8_t *n, uint32
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     if (!ui.entry_open) {
         if (st->flags & SF_RECORDED) events_delete_view(t, ui.cursor);   /* (0.7.2) the step's events go through the history */
+#if OC_ONE_AUTH
+        ui.note_pick = 0;                               /* (ui-fix 7) a neighbor's event rounded into this step is not the entry's */
+#endif
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;
         if (!step_on(st) || (st->flags & SF_RECORDED)) st->n = 0;
@@ -1891,6 +2008,9 @@ static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
     }
     if (!ui.entry_open) {
         if (st->flags & SF_RECORDED) events_delete_view(t, ui.cursor);   /* (0.7.2) the step's events go through the history */
+#if OC_ONE_AUTH
+        ui.note_pick = 0;                               /* (ui-fix 7) as the tracker's entry */
+#endif
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;
         if (!settings_chord_add) st->n = 0;
@@ -2055,6 +2175,9 @@ static void page_tap(uint32_t b)
                                                          * the step (synth STEP: a step modifier, ui_input) */
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         if (live_rec_sel() && notes_have_recording(TSEL)) { ui_message("STOP RECORDING"); return; }
+#if OC_ONE_AUTH
+        if (TSEL->step[ui.cursor].flags & SF_RECORDED) events_delete_view(TSEL, ui.cursor);   /* (ui-fix 7) through the history */
+#endif
         fm1_irq_off();
         if (drum_track(TSEL))
             step_clear(&TSEL->step[ui.cursor]);
@@ -2351,6 +2474,9 @@ static void ui_confirm_accept(void)
 #include "ui_designer_input.c"
 #if OC_STEP_PAGES
 #include "ui_feel_edit.c"                               /* (the new interface 0.4, UI_BUILD.md step 4) FEEL's edit, NOTES' knob map */
+#endif
+#if OC_ONE_AUTH
+#include "ui_one_auth.c"                                /* (ui-fix 7) one authority: START converts, the tracker's move of a recorded step */
 #endif
 #if OC_CLIP
 #include "ui_clip.c"                                    /* (the new interface 0.10, UI_BUILD.md step 10) copy and paste of a sound */
@@ -2818,8 +2944,14 @@ static void ui_input(void)
         if (live_rec_sel()) {                           /* armed and playing: the keys and MIDI record live, */
             ui.entry_open = 0;                          /* not into the cursor step too */
             seq_midi_events(0);
+#if OC_ONE_AUTH
+        } else if (!chain_busy()) {                     /* (ui-fix 7) a key on a recorded step replaces it as on a manual one: the
+                                                         * entry paths delete its events through the history (EDIT held: back) */
+            seq_entry(notes);
+#else
         } else if (!chain_busy() && notes_selected(TSEL) >= RECORD_MAX && !(TSEL->step[ui.cursor].flags & SF_RECORDED)) {
             seq_entry(notes);
+#endif
         } else {
             seq_midi_events(0);
             if (notes)

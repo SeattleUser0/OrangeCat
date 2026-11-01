@@ -1073,6 +1073,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         st = &TSEL->step[a[0]];
         if (cmd == ED_STEP_SET && na >= 9u && !chain_busy()) {
+#if OC_ONE_AUTH
+            if (st->flags & SF_RECORDED) events_drop_view(TSEL, a[0]);   /* (ui-fix 7) the cell's events go before the cell is written */
+#endif
             ed_step_put(st, a + 1, na - 1u);
         }
         ed_w.st[a[0]] = ed_step_sig(&seq_steps(TSEL)[a[0]]);

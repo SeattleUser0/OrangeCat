@@ -1671,9 +1671,9 @@ race cannot recur (the MENU opens only from a press btn_hold saw held). Found, a
 | 1 | BT_HOLD must pass through after the pass's combos are handled, else an EDIT or OCT edge on the hold's own pass would both open the MENU and reach its own path (hardware check 12's case) | should fix | the pass-through is the last thing shift_input does: BT_HOLD only with SHF_COMBO clear |
 | 5 | tests/clip_test.c's MAP check reads SHF_MAP: the clip job would not compile | blocker | the check becomes "HOME held alone opens the MENU" |
 | 6 | ui_render.c draws five map screens (the step-4 block's shift_map_feel and _notes too), not three | should fix | all five removed, the report lines and run_tests.sh's texts with them |
-| 7 | SHF_FINE's value 8 is read as a literal in accel_by: renumbering the enum would break the fine turn; more removals: shift_map_on, shift_menu_open, head_chip_text's SHIFT, draw_page's branch, the comments in core.h, build.py, ui_input.c | should fix | SHF_FINE keeps 8 (accel_by now reads the enum); every site listed removed or reworded |
+| 7 | SHF_FINE's value 8 is read as a literal in accel_by: renumbering the enum would break the fine turn; more removals: shift_map_on, shift_menu_open, head_chip_text's SHIFT, draw_page's branch, the comments in core.h, build.py, ui_input.c | should fix | SHF_FINE keeps 8 with a static assert (sh_st is declared before ui_shift.c is included, so accel_by keeps its literal); every site listed removed or reworded |
 | 8 | shift_test's TAP and CLOSE read shift_map_on; HOLD's expectation changes | should fix | rewritten: the MENU set at 700 ms with HOME still down, nothing on the release |
-| 9 | 11 map mockups, not 7 (shift_sheet.png, day_shift_map_home.png, day_step10_shift_map_home.png too); the earlier mockup lines of this file then point at removed files | should fix | all 11 removed; the lines of steps 3, 4, 10 and 11 marked "removed by ui-fix 6" |
+| 9 | 11 map mockups, not 7 (shift_sheet.png, day_shift_map_home.png, day_step10_shift_map_home.png too); the earlier mockup lines of this file then point at removed files | should fix | twelve removed (the review's eleven and step4_shift_map_notes.png); the lines of steps 3, 4, 10 and 11 marked "removed by ui-fix 6" |
 | 10 | PLAY_LIST.md and UI_DESIGN.md (decision 4, the controls table, section 1, the page table, the plan) describe the map; hardware checks 11, 12, 16 say "the map"; tests/ui_mockup.c draws the design's map | should fix | UI_DESIGN.md 0.5: decision 4 reversed by the owner on October 31 (the map withdrawn, HOME as SHIFT kept); PLAY_LIST.md is Session A's (noted "For Session A"); checks 11 and 16 reworded, check 25 added; ui_mockup.c's map is the design history, left |
 | 11 | A combo begun after 700 ms is gone: today the map waited for it, now the MENU is open and a late knob's detents move the MENU on the release | should fix (wording; the owner's call) | said plainly in the note and in the decisions: the combo window is 700 ms from HOME's press |
 | 2, 3, 4 | The MENU's knobs; the race; 700 ms | OK | the note's text corrected ("as release-2", not "as now") |
@@ -1695,6 +1695,15 @@ opened moves nothing on the page; clip_test's MAP check became MENU; ui_render's
 block and the two of step 4); run_tests.sh's texts; the twelve map mockups removed from docs/orangecat/ui/new (the
 earlier mockup lines of this file say so); UI_DESIGN.md 0.5 records decision 4 reversed; hardware checks 11 and 16
 reworded, 25 added. PLAY_LIST.md (Session A's, BUILD 7.20) still describes the map: listed under "For Session A".
+
+**The diff review of ui-fix 6** (an independent agent, October 31, 2026): every case traced holds (a tap, a hold, each combo
+inside and on the 700 ms pass, the confirm, a second hold with the MENU open, a press over a held control, the edge-only
+tap); the removed symbols are gone from the code and the ELF; the docs no longer describe the map as live; the image matches
+the budget line. Found: no test pinned the pass-through's order (a mutant with it placed first passed every check): the EDGE
+check added to shift_test.c passes on the tree and fails on the mutant; two `frames()` calls that were no-ops (the
+millisecond helper) made `wait_frames`; a dead `w == 11u` in ui_render.c; OC_CLIP's comment in core.h still said "the map";
+two cells of the table above corrected (SHF_FINE's literal, twelve mockups). Noted, not changed: a knob detent on the very
+pass of 700 ms is the MENU's (a 16 ms race inside the stated window).
 
 ### ui-fix 7: one authority for every note (design note, before its review)
 
@@ -1771,6 +1780,75 @@ tracker's two gestures on a recorded step routed to the events; (3) point 4 with
 and the depth bound; (4) point 1 (START converts, with the pitch kept, the rollback and the guards); (5)
 recording_prune's removal last; (6) the pads in a step of their own.
 
+**The design as built (ui-fix 7, in the review's order; behind OC_ONE_AUTH, on in tools/orangecat_engines.sh).**
+1. **The invariant and the reconcile** (recording.c `recording_reconcile_owner`, `recording_reconcile`): every event with a
+   velocity has a NOTE cell flagged SF_RECORDED at its view (recording_present), and every flagged NOTE cell has an event
+   viewing it, per owner bank. At the load boundaries (the pool's load of a phrase, a project load and so boot) an orphan
+   event is dropped and a flagged cell with no event becomes the manual cell its notes make, or an empty one; the current
+   bank through the track's steps, another bank read into a pattern_t, mended and written back only when it needs it;
+   under the caller's guard (the guards save and restore the interrupt state, so they nest). tests/one_auth_test.c asserts
+   the invariant after every edit path and that recording_prune then finds nothing: every path of today kept it already.
+2. **The sites.** The tracker's SCL + SELECT on a recorded step moves every event of the cell exactly a step (its onset
+   inside the step kept; note_transform would snap the first onset to the grid), in one transaction, "STEP OCCUPIED" when a
+   destination holds a separate manual note, the cursor following (ui_one_auth.c `tracker_recorded_move`); ENV + SELECT
+   there says "K4 SETS A NOTE'S LENGTH". step_note_move and step_note_resize never see a flagged cell now. The drum grid's
+   EDIT (page_tap) and the web editor's ED_STEP_SET (editor.c, `events_drop_view`: no history, as the editor has none)
+   delete the cell's events first.
+3. **A key on a recorded step** replaces it (the dispatcher's two conditions gone; the entry paths delete the events
+   through the history and clear the pick, so a neighbor's event rounded into the step is not the entry's). The bound
+   stays as the review found it: the history holds eight levels, one event a level, so a cell with more than seven events
+   is not brought back whole by EDIT held (written here, not routed through a transaction: an entry runs over frames and
+   its own step writes would invalidate the transaction's undo).
+4. **START on a manual note** (`start_convert_edit`): the step converts whole (note_convert: the ties become the note's
+   duration and their cells go, as LEN; the step's feel stays on the cell), the pitch read before and the note found by it
+   after, moved and picked, so the next detent goes on with it; "STOP TO EDIT" while the song plays, a chain runs or a
+   recording is armed; "STEP OCCUPIED" rolls the conversion back; a full pool leaves the step manual ("RECORDING FULL");
+   one undo returns the manual step (a later event edit takes the conversion's undo with it, as LEN's: step 4's B1). The
+   strip shows a manual note's START as its step, lit; "START: RECORDED ONLY" is gone.
+5. **recording_prune** has no caller left under the switch (note_transaction_begin_track's and the capture's go; the
+   FAST capture path keeps its inline retire, the live recording's own safety net); the function stays for the host
+   check and the non-FAST path.
+6. **The pads** (DRUM HIT, host only: MELODEE_DRUM is 0 in the shipping image): a hit's pitch and length are
+   notes_event_edit's slots 1 and 4 on the hit's event; a hit with no event converts its whole cell first (one
+   transaction, refused while the song plays), so no cell is half manual and half recorded by an edit; a sound the cell
+   lacks gets a new event; a hit's natural length (length 0) is reached by turning its length below one sixteenth and
+   left by turning up; the delete is the shared one (the cell rebuilt from what is left); a pad makes a hit, the accent
+   pad sets 127 through the velocity slot. EDIT held on DRUM HIT is the sound's undo, as it was; the pads' undo is the
+   step history (drum_editor_test drives it so). drum_editor_test keeps today's behavior for the switch-off build.
+   Live recording still leaves a manual cell's notes beside the events it adds (rec_note), as the review found: said.
+
+**Tests:** tests/one_auth_test.c (36 checks, ASan and UBSan in the suite's job): RECONCILE (an orphan event, a flagged empty
+cell, a flagged manual cell, another bank, a project saved with an orphan and loaded), PATHS (fourteen edit paths with the
+invariant and prune's no-op after each), START (the conversion and its undo, the next detent, a chord entered 67 60 64,
+STEP OCCUPIED, STOP TO EDIT, the pool full), TRACKER (the move, its undo, the resize refused), KEY (NOTES and the TRACKER,
+the undo, the pick), EDITOR, PADS (the conversion, the length and the natural length, the delete and its undo, a pad and
+the accent pad). step_pages_test's "START: RECORDED ONLY" check is kept for the switch-off build (#if !OC_ONE_AUTH);
+sheet_test, shift_test, step_pages_test, lanes_test, clip_test and clip_sel_test pass with the switch on; ui_test and
+drum_editor_test are the switch-off build's. ui_render.c (ui_renders_steps, now with OC_ONE_AUTH=1): NOTES' strip with
+a manual note's START lit, linted.
+
+**The diff review of ui-fix 7** (an independent agent, October 31, 2026; it built the test with the sanitizers and wrote probes
+for its findings). Found correct: the reconcile (the walk, the guards' nesting, the load sites, the dormant events kept),
+START's conversion (every path compared with tracker_chord_length and note_transform), the key dispatcher, the grid's EDIT,
+the pads, the editor's cell, the switch-off build, the CI switches. Found and fixed:
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | The tracker's move walked the owner's list while it moved the event it stood on: once the scheduler had ordered the list (after any play) the moved event was re-linked past the cell's others and the cell split in two | bug | the cell's events are collected first, then moved; tested with the list ordered (recording_sync) |
+| 2 | ENV + SELECT's refusal read the cursor cell's flag: on a recorded note's TIE cell (a live take leaves them) it fell through to step_note_resize and flattened the recording | bug | the flag is tested at step_note_start, as the move does; tested |
+| 3 | SCL + SELECT on such a TIE cell began a transaction on the cursor cell, rebuilt it (step_delete of the recorded start), cleared the step history and said SELECT A NOTE | bug | the start cell is passed in; with nothing viewing it the gesture is refused before any transaction; tested |
+| 4 | The review's depth bound (a key on a cell with more events than the free history levels through a transaction) is not built | should fix | deferred, said in point 3 above: an entry runs over frames, so a transaction around it would be invalidated by its own step writes; the bound (seven events) stands |
+| 5 | The pads' natural-length rule was keyed on drum_track, so NOTES' and the tracker's LEN on a recorded DRUM-X hit changed in the shipping image; natural to natural recorded a no-op entry | should fix | the rule is the pads' page's only (MELODEE_DRUM and SC_DRUMHIT); natural to natural is nothing; DRUM-X's LEN tested unchanged |
+| 7 | drum_hit_edit set the pick without the track and bank notes_selected keeps it by: after a track change the edit could land on another event | should fix | pick_event sets all of it (the pads and START) |
+| 8 | events_drop_view used recording_active, which is LEN-bounded; the editor addresses any cell | minor | matched on the owner and the view, no LEN bound |
+| 9 | The reconcile cleared a flagged empty cell but not its TIE tail; the track pointer was formed before the range check | minor | recording_reconcile_cell clears the tail in both bank paths; the check first; tested with a tie in another bank |
+| 10 | The cursor followed the last event walked | minor | the earliest moved note's cell |
+| 11 | A move into a recorded cell merges the events into it (as note_transform); unsaid; a redundant term | minor | said; the term dropped |
+| 12 | recording_prune's non-FAST caller unguarded; the comment | minor | guarded; the comment |
+| 13 | step_pages_test's guard wrapped more than START's check | minor | the one check, with its OC_ONE_AUTH counterpart |
+| 14 | Test gaps | should fix | added: the ordered move, the two TIE-cell gestures, a load with a flagged empty cell and its tie in another bank, LEN below a recorded cell, a key beside a rounded-forward event, DRUM-X's LEN; still open: ED_STEP_SET through the editor command (the helper is tested), live recording over a manual and a recorded MONO cell, a 9-event cell under a key (the bound is stated), frozen phrases |
+| 6 | 2,144 B against 500 to 700 | should fix | measured and carried in the budget table above, with where it went |
+
 ### ui-fix 8: slide and legato (design note, before its review)
 
 **What SLIDE does today** (seq.c seq_step, voice.c): a step's SLIDE flag makes the next step's notes start before this
@@ -1844,6 +1922,13 @@ the one translation unit's, so the takeover from seq.c is sound. Found, and take
 | linux-hw c27dc5c (the baseline) | 558,596 | 18,652 | 10,460 | 94,536 | 3,768 | 84,032 | 40,845 |
 | + ui-fix 1, 2, 3, 5 | 558,980 (+384) | 18,268 | 10,076 | 94,536 | 3,768 | 84,032 | 40,853 (+8: the scene's bindings; 107 B of the area left) |
 | + ui-fix 6 (the map gone) | 558,100 (-880) | 19,148 | 10,956 | 94,536 | 3,768 | 84,032 | 40,853 |
+| + ui-fix 7 (one authority) | 560,244 (+2,144) | 17,004 | 8,812 | 94,536 | 3,768 | 84,032 | 40,853 |
+
+Ui-fix 7 cost 2,144 B against the review's 500 to 700: the reconcile is 472 B (its two bank paths), and START's conversion and
+the tracker's move, inlined into edit_param and step_move_edit, about 1,200 B between them (each carries a transaction, a
+rollback and a rebuild; a shared "the cell's events, shifted" helper could save about 300 B, left for later); the pads are
+dead code in the shipping image. 8,812 B remain above the reserve: ui-fix 8 (the review's 700 to 1,000 B) fits; nothing
+larger does.
 
 ### For Session A (ui-fix)
 

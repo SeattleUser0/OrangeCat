@@ -538,6 +538,9 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
     f = motion_guard();
     recording_reindex();
     if (bank == t->pattern) pattern_apply(t, bank);
+#if OC_ONE_AUTH
+    recording_reconcile_owner(owner);                   /* (ui-fix 7) a phrase from before may carry an orphan: mended here */
+#endif
     motion_unguard(f);
     return 0;
 }

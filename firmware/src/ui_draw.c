@@ -650,9 +650,13 @@ static void draw_columns(void)
             draw_column(0, "PITCH", sn, "", selected ? T_COZY(0u) : T_DIM, -1, ICON_PITCH);
             if (chosen < RECORD_MAX)
                 feel_hund(sn, ((recording[chosen].step & 63u) * 100u) + 100u + (uint32_t)recording[chosen].on * 100u / RECORD_UNIT, 1);
+#if OC_ONE_AUTH
+            else if (selected)                          /* (ui-fix 7) a manual note starts on its step; START moves it (the step converts) */
+                feel_hund(sn, start * 100u + 100u, 1);
+#endif
             else
                 str_cpy(sn, "--", sizeof sn);
-            draw_column(1, "START", sn, "", chosen < RECORD_MAX ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
+            draw_column(1, "START", sn, "", chosen < RECORD_MAX || (OC_ONE_AUTH && selected) ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
             if (chosen < RECORD_MAX) {
                 uint32_t h = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
                 if (!h) str_cpy(sn, "<.01", sizeof sn); else feel_hund(sn, h, 0);

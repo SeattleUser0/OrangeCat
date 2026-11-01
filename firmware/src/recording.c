@@ -761,7 +761,9 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     }
 #else
     /* Retire overwritten overview cells before a new take can own them again. */
+#if !OC_ONE_AUTH
     recording_prune(t);
+#endif
     uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t actual = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_idx;
     uint32_t span = step_samples(t, period, actual), pos = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_pos;
@@ -817,7 +819,7 @@ static void recording_clear(track_t *t)
     t->rh_n = t->rh_ties = t->rskip_n = 0;
     t->rh_elapsed = 0;
 }
-static void recording_prune(track_t *t)
+static __attribute__((unused)) void recording_prune(track_t *t)   /* (ui-fix 7: with OC_ONE_AUTH no firmware path calls it; the host check does) */
 {
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX;) {
         uint32_t next = recording_next[i];
@@ -825,6 +827,57 @@ static void recording_prune(track_t *t)
         i = next;
     }
 }
+#if OC_ONE_AUTH
+/* (ui-fix 7, docs/orangecat/UI_BUILD.md "ui-fix 7") One authority: the invariant, per owner bank, is
+ *   every event with a velocity has a NOTE cell flagged SF_RECORDED at its view (recording_present), and
+ *   every NOTE cell flagged SF_RECORDED has at least one event viewing it.
+ * Every edit path keeps it (a manual gesture on a recorded cell deletes the cell's events through the history first,
+ * seq_undo.c events_delete_view; live recording flags the cell it writes). Stored data may not: a phrase or project saved by a
+ * build before 0.7.2, or between an overwrite and the lazy prune of that time, can carry an event whose cell is no longer
+ * flagged (recording_prune retired those on the next recording stop or transform) or a flagged cell with no event. So the
+ * one place the old lazy prune survives is here, at the load boundaries (the pool's load of a phrase, a project load, boot):
+ * an orphan event is dropped, a flagged cell with no event becomes the manual cell its notes make (or an empty one). The
+ * current bank is the track's steps; another bank is read, mended and written back only when it needs mending. Under the
+ * caller's guard (the audio does not see half of it); the host check (tests/one_auth_test.c) asserts the invariant after every
+ * edit path and that this finds nothing to do there */
+static void step_clear(step_t *st);                     /* ui.c */
+static void recording_reconcile_cell(step_t *step, uint32_t n)   /* cell n unflagged: a manual cell, or cleared with its TIE tail */
+{
+    step[n].flags &= (uint8_t)~SF_RECORDED;
+    if (step[n].n || step[n].hit) return;
+    step_clear(&step[n]);
+    for (n++; n < NSTEP && step[n].time == ST_TIE; n++) step_clear(&step[n]);
+}
+static void recording_reconcile_owner(uint32_t owner)
+{
+    uint32_t k = owner / NPAT, bank = owner % NPAT, i, n;
+    track_t *t;
+    uint64_t seen = 0;
+    if (k >= NTRK) return;
+    t = &trk[k];
+    for (i = recording_head[owner]; i < RECORD_MAX;) {   /* the events: present, or gone */
+        uint32_t next = recording_next[i];
+        if (!recording_present(&recording[i])) recording_remove(t, i);
+        else seen |= (uint64_t)1 << (recording_view(t, &recording[i]) % NSTEP);
+        i = next;
+    }
+    if (bank == t->pattern) {                           /* the cells: flagged with no event, a manual cell or nothing */
+        for (n = 0; n < NSTEP; n++)
+            if ((t->step[n].flags & SF_RECORDED) && t->step[n].time == ST_NOTE && !((seen >> n) & 1u)) recording_reconcile_cell(t->step, n);
+    } else {
+        pattern_t p;
+        uint32_t mend = 0;
+        pattern_read(k, bank, &p);
+        for (n = 0; n < NSTEP; n++)
+            if ((p.step[n].flags & SF_RECORDED) && p.step[n].time == ST_NOTE && !((seen >> n) & 1u)) { recording_reconcile_cell(p.step, n); mend = 1; }
+        if (mend) pattern_write(k, bank, &p);
+    }
+}
+static void recording_reconcile(void)
+{
+    for (uint32_t owner = 0; owner < NTRK * NPAT; owner++) recording_reconcile_owner(owner);
+}
+#endif
 static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
 {
     recording_pitch_remove(i);

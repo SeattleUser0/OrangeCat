@@ -2405,7 +2405,7 @@ int main(int argc, char **argv)
                     step_set_nudge(&TSEL->step[8], 6);
                     TSEL->step[10].flags |= SF_ACCENT | SF_SLIDE;
                 }
-                if (w < 8u || w == 11u) go_title("FEEL"); else go_title("NOTES");
+                if (w < 8u) go_title("FEEL"); else go_title("NOTES");
                 feel_k = (uint8_t)(w >= 1u && w <= 4u ? w - 1u : 0u);
                 if (w == 5u) { bulk.on = 1; bulk.anchor = 4; bulk.end = 8; bulk.track = song.sel; bulk.pattern = TSEL->pattern; bulk.generation = TSEL->pattern_gen; bulk.engine = (uint8_t)library_engine(); }
                 if (w == 6u) { song.playing = 1; TSEL->seq_idx = 6; }

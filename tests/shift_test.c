@@ -15,6 +15,7 @@
  *           change
  *   OCT     SHIFT + OCT+ / OCT-: no octave change, no OCT+ sheet at 700 ms, no MENU
  *   OTHERS  HOME then a layer button: the layer's, no MENU after; ALGO turned under SHIFT: the track, no MENU
+ *   EDGE    EDIT's edge on the hold's own pass is the combo and no MENU opens (the ordering the design review of ui-fix 6 asked for)
  *   LATE    a knob turned after the MENU opened is the MENU's, not the page's (ui-fix 6)
  * Revisions:
  *   (the new interface 0.3, branch ui-build) first version; after the diff review: the edge-only tap, a button held
@@ -106,7 +107,7 @@ int main(void)
         ok &= ui.menu;
         frame();
         up(B_HOME);
-        frames(5);
+        wait_frames(5);
         chk("HOLD    held alone: no MENU at 480 ms, the MENU at 700 ms with HOME still down; the release leaves it open", ok && ui.menu && !shift_on());
         down(B_HOME);
         wait_frames(52);
@@ -260,6 +261,25 @@ int main(void)
         frames(20);
         chk("OTHERS  ALGO under SHIFT: its own job, no MENU", !ui.menu && (song.sel != sel || trk_n() < 2u));
     }
+    {   /* EDGE (ui-fix 6, the design review's 1): EDIT's edge on the hold's own pass (704 ms) is the combo, and no MENU opens */
+        int ok;
+        ui_power_on();
+        frames(100);
+        down(B_HOME);
+        wait_frames(43);                                /* 688 ms */
+        fm1_in.buttons |= 1u << panel.btn[B_EDIT];
+        host_pressed |= 1u << panel.btn[B_EDIT];
+        frame();                                        /* 704 ms: BT_HOLD and EDIT's edge on one pass */
+        ok = ui.confirm == CF_INIT_SOUND && !ui.menu;
+        wait_frames(5);
+        ok &= !ui.menu;
+        up(B_EDIT);
+        up(B_HOME);
+        wait_frames(3);
+        ok &= !ui.menu && ui.confirm == CF_INIT_SOUND;
+        press(B_OCTDN);
+        chk("EDGE    EDIT's edge on the hold's own pass: the init confirm, no MENU (the design review's 1)", ok && !ui.confirm && !ui.menu);
+    }
     {   /* LATE (ui-fix 6): a knob turned after the MENU opened goes to the MENU on HOME's release, not to the page (the map of
          * step 3 waited for a combo at any time; now the window is 700 ms from HOME's press) */
         int16_t m0;
@@ -276,7 +296,7 @@ int main(void)
         wait_frames(52);
         turn(EN_K2, 1);
         up(B_HOME);
-        frames(10);
+        wait_frames(10);
         chk("LATE    a knob after 700 ms: the MENU is open, the page's knob did not move", ui.menu && TSEL->p[id] == m0);
         hold(B_HOME);
         frames(20);
