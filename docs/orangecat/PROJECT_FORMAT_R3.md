@@ -1,0 +1,580 @@
+# Orange Cat: the Release 3 project format revision (design, no code)
+
+**Version:** 0.6 (October 31, 2026, on branch ui-fix: section 8.2a added, parameter ids beyond 7 bits and LFO 2 as part of the revision; the rest is 0.5) 0.5 (October 30, 2026; written in Session C on branch ui-build; design only, nothing is built; 0.2 after the first independent review (section 14), 0.3 folded in the owner's twelve answers and the second review (section 15), 0.4 folds in the owner's answers to 0.3 (section 12): scene sounds fade instead of ringing out on a ghost, the card library is deferred, a new order of work and budget (section 11), and the third review (section 16); **0.5 folds in the owner's answers to 0.4 (section 12): SHAPES is built out of the firmware and ships as its module only, which closes the budget with the whole revision in (nothing split off), a track whose engine is not installed is silent and flagged and keeps its notes and sound, and the fourth review (section 17)**; for the owner and Session A to read)
+**Replaces:** nothing. It is the one revision the Release Plan asks for, so that an old project converts once.
+**Read first (the code each part touches):** `firmware/src/oc_pool.c` (the phrase pool), `oc_project.c` (the project record, OCJ3), `oc_store.c` (the record store), `oc_lists.c` and `pattern.c` (chains, the song, the 8 scenes), `ui_layer.c` (PERFORM and the other layers), `recording.c` (the timed-note store), `project.c` (the wire format and the macros' bake), `card_browse.c`, `card_install.c`, `card_freeze.c` (what the card does today), `docs/orangecat/MODULE_FORMAT_R3.md` (stable parameter ids), `docs/orangecat/SET_FORMAT.md`, `docs/orangecat/CHANGES.md` (the 0.9.1 library door).
+**Not read, and why:** the Release Plan's section 5 ("Project-owned phrases and Performance Mode") and the project document "Future Audio Workflows" (Gate 1) live in the claude.ai project, not in this repository or on this machine. 0.1 and 0.2 followed the task's own list. For 0.3 the owner, who has read both, gave what they add beyond that list (Gate 1's four separate things, the track states, freeze against bounce, profiles, stable ids, dependency hashes); section 8.4 checks the format against it point by point. Anything else in those documents that is not in the owner's list is still unseen here.
+
+## 1. The shape of the change, in plain words
+
+Today every project shares one pool of 64 phrases. Four project slots each name phrases of that pool; a phrase edited in one project changes in all of them. A project's own record is about 3 KB. The scenes hold two things per track (a chain position and a mute). Nothing but the unit's flash holds a project; the card holds takes (WAV files), sample files, installers and sets.
+
+Release 3 changes five things at once, in one format:
+1. **A project owns its phrases**: up to 255 per project, kept in packed chunks, counted in bytes (section 3).
+2. **Four projects stay resident on the unit** sharing one byte budget, and everything works with no card and no hub. **The card library (a project as a file, a setlist) is deferred to a later release**; the web backup (which restores the whole store) covers keeping projects until then. This revision keeps only what the format needs so that the library can be added without another format change (section 5).
+3. **A scene is a snapshot of the performance state**: tempo, sounds, mixer, effects, chain positions, mutes; each scene says which of these it recalls. A scene's old notes fade out by the boundary and its new sound plays from the boundary, on the one engine a track has (section 6).
+4. **Performance Mode**: a table that assigns each key (later each pad) to a phrase, a chain or a scene, launched on a musical boundary. Launch only: no recording and no page moves inside it (section 7).
+5. **Room to grow**: the record is a list of tagged sections; unknown sections survive a save; the stable ids, sample references and the layouts of Release 4's renditions and track states are fixed now, so that Release 4 adds no format change (section 8).
+
+An old project converts once, on the first start of the new firmware, and gets its own copy of every shared phrase it uses (section 9). Older firmware cannot open what the new firmware writes (it leaves the converted records alone, and sees empty projects); the conversion erases the old records, so it is a one-way door like 0.9.1's, with a backup as the safety net (section 10).
+
+## 2. What exists today (numbers from the code and from a real store dump)
+
+| Thing | Today | Source |
+|---|---|---|
+| Record store | 56 sectors of 4 KB; **34** once the sample slot claims sectors 18 to 39; a record is 1 to 12 parts of 3,808 B; a save needs **all of a record's parts free at once** | oc_store.c (`ocs_stream_begin`) |
+| Phrase pool | 64 phrases, 16 chunks of 4, **one record (one sector) per chunk**; shared by the 4 project slots | oc_pool.c |
+| A phrase | 20 B head + 11 B for each used step + 1 + 4 B per motion event + 2 + 10 B per timed note; empty = 0 B; the largest possible is 11,223 B (3 parts) | oc_pool.c (`OCP_MAX`) |
+| Project slots | 4; each a record of **3.0 to 3.8 KB** (OCJ3: ids, lists, run-length coded project part) | the store dump |
+| The wire record the editor and a backup carry | `project_t` serialized: **13,212 B** (it holds 1,024 notes' directory, 8 KB, and one active bank per track); the 27,904 B FBKK is Melodee's bank container | project.c (`PROJ_STORE_SIZE`, `PROJ_BANK_BYTES`) |
+| Lists | `ocl_lists_t` 2,396 B: 64 chains of 16 steps (phrase id + 1, reps), a 64 row song, 8 scenes of (chain, step and mute) per track | pattern.c |
+| Timed notes | **1,024 for the whole unit** (`RECORD_MAX`, fixed by a packed 10 bit queue index in recording.c), 10 B each and **30 B of RAM each** with the runtime arrays; shared by the 4 tracks and their 8 resident banks each | recording.c |
+| Motion | **64 events for the whole unit** (`MOTION_MAX`), 4 B each | core.h |
+| Frozen phrases | one table for the unit, `FZP_N` 64 entries, 2 KB of RAM, one record | card_freeze.c, usb_files.c |
+
+**What the owner's own store looks like** (the dump committed at the repository root, read for sizes and layout only; nothing of the music is quoted): the 16 pool chunks, 10 of them in use, hold **38 non-empty phrases of the 40 slots in those chunks, 10.4 KB, so about 272 B a phrase** (the 10 chunks are 331 to 2,247 B). They sit in 10 sectors, each 8 to 59 percent full: **27 percent of the sector space is used**; the rest is the one-sector-a-chunk rule. **Two** project records are current (3,774 and 3,583 B; the other 2.8 to 3.8 KB records in the dump are stale copies), plus the freeze table (2.6 KB). Thirteen sectors hold a current record; **21 of 34 are free or stale copies**. The owner's worst case for conversion is two projects.
+
+## 3. Phrases owned by the project
+
+### 3.1 How many, and how they are stored
+
+**255 phrases a project** (ids 1 to 255; 0 means none). Not 256: chains, the song and the scenes store a phrase as a byte holding id + 1 (0 means none), and `bank_pid` the same, so 255 keeps those tables at their present width. Phrases 1 to 64 keep their old numbers on conversion, so no chain, song row or scene is renumbered.
+
+**Packed chunks.** A phrase is packed exactly as `oc_pool.c` does today (head, used steps, motion, timed notes) except for the head's version byte (section 8.1: version 2). What changes is the container: a chunk is **as many phrases as fill one sector part (3,808 B)**, in phrase order, each prefixed by its id (1 B) and length (2 B). A phrase larger than a part gets a chunk of its own with as many parts as it needs. The project record carries a **directory**: for each phrase its chunk number (1 B), a **CRC-32** of its bytes (4 B: the pool's `ocp.hash` and the banks' `bank_sig` are CRC-32s, so a shorter sum would weaken the skip-unchanged check) and a reserved 16 bit field (2 B, section 8.4: the active rendition's id): 7 B each, **1,785 B** for 255 phrases, and a table of one **generation bit** per chunk (32 B).
+
+**Records in the store, and their ids.** The chunks are records of the store's **existing type `OCS_POOL`**, and the project is a record of the existing type `OCS_PROJECT`, with ids that old firmware never uses: a record id is 16 bits, and these have **bit 15 set**. A chunk's id is `0x8000 | slot << 9 | generation << 8 | chunk number`; a project's is `0x8000 | slot`. (Why known types and a high bit: section 10.) The four projects' chunks are told apart by the slot in the id, so they share the store without a table of their own.
+
+**The generation bit is the save protocol.** The store resolves a record by (type, id) and the newest `seq` wins, so rewriting a chunk under the same id would make the **old** project record read the **new** chunk at once, which breaks "chunks first, record last". So a save writes every changed chunk under **the other generation** of the chunk's current id; the project record, written last, names the new generation bits. Until that record commits, the old record still reads the old chunks, untouched. After it commits, the old generation's chunks are erased. A backup restore or a conversion over a slot follows the same rule: each new chunk number n is written under the generation opposite to the old chunk n's. A cut before the record leaves orphan chunks (the generation the record does not name); the **sweep** (at the next start, and straight after any failed save, restore or conversion) erases every chunk whose (slot, number, generation) the slot's current record does not name, and every chunk of a slot with no record. The directory's CRCs only decide what needs writing; they never choose which copy is read.
+
+**Why this is the size it is.** The store holds 34 sectors, 129 KB of payload. The budget, for the cases the owner cares about:
+
+| Budget line (34-sector store) | One resident project | Four resident projects |
+|---|---|---|
+| Copy-on-write headroom: a save needs a whole record's parts free; a phrase can be 3 parts, a project record 3 | 3 sectors | 3 sectors |
+| Project records (worst case: scenes, assignments, directory, a full freeze table: 5 to 14 KB, up to 4 sectors; the owner's records are 3.6 to 3.8 KB today) | 4 | 16 |
+| Frozen-phrase tables (64 entries, 2.7 KB each, now inside each project's record: section 4) | 0 | 0 |
+| **Left for phrases** | **27 sectors, 103 KB** (a record of 4 sectors) | **15 sectors, 57 KB** (a worst-case record of 4 sectors each; 27 sectors if records stay near today's 1 sector each) |
+
+At the owner's density (272 B a phrase) one project's **255 phrases are 69 KB: they fit with 34 KB to spare**; four projects sharing the store hold about **210 phrases between them in the worst case** (57 KB at 272 B; 52 each) and about 380 if their records stay small, so the owner's "about 250" sits between the two; the owner's present use is 40. At a heavier density (400 B) one project holds about 255 phrases and four projects 140 between them in the worst case. So 255 is reachable for one project and is the ceiling, not a promise, for four. **The limit is bytes, not phrases:** the project page shows a meter (used and free KB of the store), and a save that would leave less than the 3 sector reserve is refused.
+
+**Decided by the owner (section 12):** four projects stay resident and share this one budget (about 250 phrases between them); 255 is the per-project limit; **there is no new packer**, the 11 B a used step stays and the byte ceiling is accepted; the card is optional and the card library is deferred, so a full store is answered by deleting a phrase, clearing a project or restoring a smaller one from a backup. The sample slot's 22 sectors stay as they are (Session A's flash map).
+
+### 3.2 When the store is full
+
+- **A save** that would not fit (the changed phrases' chunks plus the reserve) is **refused whole** with `PROJECT FULL`, naming the KB over. Nothing is half written (3.1). The edits stay in the banks; the autosave retries and shows a header chip, not a toast (AGENTS.md: ongoing state belongs in the shared header).
+- **Making room:** delete a phrase (its chunk shrinks), clear a project, or restore a smaller project from a backup. (Moving a project to the card is deferred, section 5.)
+- **Recording** is not affected: the timed notes live in RAM until a save (section 11.1); only the save is refused.
+
+## 4. The project record: tagged sections
+
+A record of the existing type `OCS_PROJECT` with id `0x8000 | slot` (section 3.1). One to three sectors (a record may take up to 3 parts). The first bytes are `magic "OCJ4"`, `version`, `len`, then the **sections**, each `tag u32, length u32 (the section's bytes), bytes`, the whole run-length coded as today for the zero-heavy parts. **Unknown tags are kept byte for byte on load and written back on save** (the effects plan's rule for dormant records, applied to the whole format).
+
+| Tag | What | Notes |
+|---|---|---|
+| `HEAD` | name (12 B), parts in use, selected track, the project seed (u32), **the project uid** (u32) **and a revision counter** (u32, bumped by every save; section 5), **the preferred profile** (name 16 B and its id u32, 0 = none), the project's **next stable id** (u32) | the seed is the effects plan's `hash(seed, track, slot, module id)` input; one random value chosen when a project is made. The profile is only a name and an id: profiles live on the unit, like modules (the owner), never in the project (8.4) |
+| `GLOB` | the globals (`g[]`, 76 values) and the master effects | as `project_t` today |
+| `TRKS` | each track, as a length-prefixed entry (8.4): its **stable track id** (u32), the **instrument reference** (the engine slot number as today, the key; for a module engine also the module version u32 it was saved with, 0 meaning any; the module id u32 is 0 for an engine, 8.2), the **voice limit** (u8, 0 = the engine's own), preset, `p[]` (124 values, with the macros' dials stored, section 8.1), mpc octave, user slot | an entry's own length lets a later release append fields; a reader skips what it does not know and a writer keeps it |
+| `NATV` | each track's native patches: FM6 (128 B packed) and its functions, CZ-1 (144), Prophet (138), DRUM (54) or DRUM-X kit (61) | only the patch of the track's engine, as the record store does |
+| `SMPR` | the **samples the project uses**, by reference (8.3): per entry the kind (internal slot or card file), name, length, CRC-32, the tracks and zones using it | at most 16 entries, 24 B each: 0.4 KB; the samples themselves are the unit's, never in the project |
+| `FXRC` | each track's module-effect records: per record the module id (u32), its version, the slot, and (parameter id u16, value i16) pairs | the stable ids of MODULE_FORMAT_R3.md; a record whose module is not installed is kept dormant and written back unchanged; DUB TAPE's values are written here by id (its legacy slots `P_RESERVED45..47`, `P_JRES0..6` are read from an old project at conversion) |
+| `LIST` | chains (64 x 16), the song (64 rows), each track's chain, step and row, the launch default, the grooves | `ocl_lists_t` less the scenes; 2,048 + 256 + about 40 B |
+| `SCNS` | the scenes (section 6): **a version byte (u8), the scene count (u8), then the scenes.** Version 1 is today's layout: 8 scenes of 4 tracks x 2 B (chain + 1 and step, mute in bit 7), no mask, no sounds. Version 2 is section 6's | an unknown version is kept byte for byte, plays no scenes, and says so; a save keeps it |
+| `PERF` | the Performance Mode table (section 7) | length 0 means today's PERFORM keys (a legal record; a reader treats it so); a conversion writes the default table (the 8 scene keys), since Performance Mode ships with this revision |
+| `PHRD` | the phrase directory and the chunks' generation bits (section 3.1) | |
+| `FRZR` | the frozen phrases' table, the project's own (today one record for the whole unit, `OCS_FREEZE`), at most 64 entries, **each carrying its phrase id (1 B, new)**: today's table is indexed by id (`card_freeze.c`) and so could freeze only phrases 1 to 64; with the id any 64 of the 255 can. The entry is `frzp_t` as it stands today (`card_freeze.c`: take, track, version, level, tempo, frames, hash, 14 character name) plus the id, **less `dir`**: the unit-local folder index is a recomputed cache, derived from the project's folder name, so an entry is the same on any unit | about 2.7 KB full |
+| `REND` | the renditions, audio files named with their provenance and dependencies (layout fixed in 8.4) | length 0 in Release 3; if a later firmware wrote it, Release 3 keeps it byte for byte |
+| `TSTA` | each track's state: live, frozen, audio clip or unavailable (layout fixed in 8.4) | length 0 in Release 3, the same rule |
+| `ROUT` | **reserved**: routing other than the fixed one (track to master and the shared sends), by the stable bus ids of 8.4 | length 0 in Release 3 |
+
+A project in this format is about **3 KB of fixed parts, the scenes (0.5 KB without sounds, up to 7 KB with 16 sounds), the 1,785 B directory and the freeze table (2.6 KB)**: 5 to 14 KB, which is why the budget above gives a record up to 3 sectors and the freeze table its own record. The 13 KB wire record the editor carries is a different thing (section 11.3).
+
+## 5. The card library: deferred, and what the format keeps for it
+
+**The owner's decision (0.4): the card library is deferred to a later release.** Four projects on the unit and the web backup (the editor's full backup and restore of the record store, which carries every project) cover moving and keeping projects until then. Nothing in this revision writes or reads a project file, a setlist or an `.OCP`; there is no export, import, MOVE TO CARD, library browser or folder-recovery code, and no flash for them. (The card still holds takes, sample files, installers and sets, as it does today.)
+
+**Limits until then, stated plainly:** a single project cannot move between units except inside a full backup; there is no setlist; a full store is answered by deleting or clearing, not by moving to a shelf.
+
+**What the format keeps so that the library adds no format change.** Each is cheap and is written in this revision:
+1. **A project identity.** `HEAD` carries a project uid (u32, random when a project is made **or converted**, kept by every later save) and a revision counter (u32, bumped by every save). A later import can tell a project it already has from a new one, and which of two copies with the same uid is newer; a copy gets a new uid.
+2. **Nothing in a project names its slot or a record id.** The directory names chunks by number and generation bit, never by a record id; the slot lives only in the store's record id (3.1). A file can therefore hold the records in a slot-free form and the importer assigns the slot and re-ids them. This is already how 3.1 is written; the rule is kept.
+3. **Samples by reference** (8.3), so a file carries no sample and an import reports what is missing.
+4. **The record is whole and self-checking:** the store's per-part CRC and the project record written last make a project a set of records that can be copied as they are.
+5. **Tagged sections with entry lengths** (4, 8.4): a file written by a later firmware keeps what an earlier one does not know.
+6. **The set manifest** (`SET_FORMAT.md`) gets a `projects` list in the later release. SET_FORMAT.md does not say whether an older installer ignores an unknown key; the later release checks that before it ships the key.
+
+The design of the file and of the export and import rules, written in 0.2 and 0.3, is kept below as a **sketch for that release, not built here and not part of the tests**; it is the shape the six items above leave room for.
+
+### 5.2 The file (sketch, deferred)
+
+`.OCP` is the record store's own pieces in a container, so a move is nearly a copy of records (a free slot keeps the file's generation bits; an occupied slot re-encodes the `PHRD` section, which is not a format change): the `OCJ4` record, the phrase chunks (`OCS_POOL`) in directory order, the project's freeze table, each preceded by its store header (type, id, part, length, CRC). The file starts with a 64 byte header: magic `"OCPF"`, format version, the firmware's project format version, name, counts (phrases, chunks, scenes), total bytes, and **a CRC-32 of everything after the header**; a second CRC of the header itself. The card browser lists the header fields (name, phrase count, KB, the version) without reading the body.
+
+### 5.3 Moving a project, power-cut safe (sketch, deferred)
+
+**Unit to card (export).** Streamed from the store, never staged in RAM (the store already streams: `ocs_src_t`). It writes `<NAME>.OCP.TMP`, flushes, reads the whole file back against its CRC, then renames. FatFs is not journaled, so each state has a rule: at every start and every time the browser opens the folder, **`X.OCP.TMP` is ignored and offered for deletion; `X.OCP.BAK` with no `X.OCP` is renamed back to `X.OCP`; `X.OCP.BAK` beside an `X.OCP` is deleted**. Replacing an existing file is: rename it to `.BAK`, rename the `.TMP` to `.OCP`, delete the `.BAK`. A cut anywhere leaves a file that one of those rules resolves. The unit's project is untouched. **MOVE TO CARD** is export, the read-back check, then the delete from the store, last.
+
+**Card to unit (import).** Three passes, as the installers do (`card_install.c`: a dry pass runs every check, nothing erased until all pass): (1) the header and the CRC over the whole file; the project format version is not newer than the firmware's; (2) the space: the phrases' bytes plus the record plus the reserve against the store's free sectors, and the sample references checked against the unit (a warning, never a refusal); (3) the write, to a **free slot** (or the slot the user picks and confirms), in the order of 3.1: all the new chunks under the other generation, the project record **last** (a project exists when its record exists), the old chunks erased after. **A failed import, not only a cut one, runs the sweep at once** so the store is never left holding an orphan. The takes' folder follows the project's name (`card_freeze.c`): an import under a name already on the card asks, and under a new name the takes folder is created for it (the existing rename rule, `card_browse.c`).
+
+**What does not move:** the audio of frozen phrases stays where it is (a takes folder on the card); the file carries the table that names them. **Samples belong to the unit** (the sample slot, `OCS_SAMPLE`): the file carries the `SMPR` references (8.3) and never a sample. An import reports each reference that does not resolve on this unit (`SAMPLE MISSING`, `SAMPLE CHANGED`) and still imports; the tracks concerned say so (8.3).
+## 6. Scenes
+
+Today a scene is, for each track, "the chain + 1 and the step | mute << 7" (2 bytes), 8 scenes, 64 B in all. They are recalled by the 8 white keys F3 to F4 on the ARP layer and stored with SAVE held.
+
+**A Release 3 scene** is a header and the parts it chooses to recall, so a scene that only changes the mutes costs nothing for sounds:
+
+| Part | Bytes | What a recall does |
+|---|---|---|
+| header | 6 | name index, the **recall mask** (tempo, sounds, mixer, effects, chains, mutes: 6 bits), the launch boundary |
+| tempo | 2 | BPM (and swing, 2 B more) at the boundary |
+| chains and mutes | 2 per track | as today |
+| mixer | 3 per track | LEVEL, PAN, MUTE state |
+| effects | the project's global effect values (`PROJ_JFX_N` = G_COUNT - G_DTIME values, about 50 B) and each track's sends | |
+| sounds | 1 per track: an index into the project's **sound table** | the track's engine, preset, `p[]` and native patch, checked ahead, the old sound faded to silence by the boundary and the new one started on it (below) |
+
+**Sounds are shared, not copied:** the sound table holds each distinct sound once (about 250 to 400 B packed: `p[]` 248 B plus a native patch up to 156 B, FM6's), at most **16** entries in a project (**up to about 6.4 KB**, typically 2 KB; two scenes that use the same sound for a track name the same entry). The scene count rises from **8 to 16** (a scene is about 30 B without sounds). A project that recalls only chains and mutes costs about 0.5 KB; one with 16 scenes that change every sound about 7 KB. The `SCNS` section is the table and the scenes. **Scenes 9 to 16 on the keys:** the 8 white keys F3 to F4 recall scenes 1 to 8, and with OCT+ held the same keys recall 9 to 16 (the existing `scene_used` byte becomes a 16 bit mask).
+
+**What a recall does, and what it costs: it is not flash-free.** Tempo, mixer levels and pans, mutes and the effect values change in RAM. Chains and phrases go through the existing path (`ocl_scene_recall` to `ocl_go_at` to `ocp_load`): while **playing** that is **flash reads only** (the phrase is read ahead into a clean bank and swapped in at the track's loop end, the beat, the bar or the next step by the staging that exists); while **stopped** the same path first keeps the track's changed banks (`ocl_keep`), which **writes flash**, exactly as a chain step does today. If a track's phrase cannot be loaded (rc 4, no bank; rc 5, no room for its notes or motion) the recall **goes on with the other tracks and parts** and says `SCENE PARTIAL`, naming the track; it never half-applies a track.
+
+**A scene's sound: the old notes fade out, the new sound plays from the boundary (the owner's rule, 0.4).** There are **no ghost parts**: each track keeps one engine and one engine state, as today. 0.3's ring-out on a second engine, its static RAM, its admission and its fallback are gone. (0.3's design is in the git history of this file if a ring-out is ever wanted again; the format does not depend on either.)
+
+**One honest reading, written down.** "Old notes fade out over a short fade while the new sound plays from the boundary" cannot be done literally with one engine state: while the fade runs, the old engine must still render, so the new sound could not play beside it. The way that keeps the rule exact is to **end the fade at the boundary**: the fade starts a fade-length before it, the part is silent when the boundary arrives, and the new sound starts on the boundary block. The cost is that the old phrase's last fade-length is faded (see the size below). The shared effects (delay, reverb, chorus) are not touched, so their tails still ring out past the boundary.
+
+**What exists, and what changes.** Today a sound change is `engine_block` (`voice.c`): `xf` counts blocks down from `XF_BLOCKS` = 4 (32 samples a block, 128 samples, 2.9 ms at 44.1 kHz), each sounding voice's amplitude is scaled linearly by `(xf - 1) / XF_BLOCKS` and interpolated across the block from the last block's value (`m.amp0` to `m.amp1`), the old engine renders with its own values (`pe_old`), and when `xf` reaches 0 with nothing sounding the engine and its state are switched; note-ons that arrive meanwhile wait in `xp_note[4]` and start on the new engine. The scene fade reuses this with four changes, all in the audio core (Session A's to review and time, like the knob macros' interrupt code):
+1. **The fade length is a field, not a constant:** `xf_len` (u8) replaces `XF_BLOCKS` in the ramp. A preset change keeps 4.
+2. **The arm, per track.** The boundary is not one instant: `launch_here` (`seq.c`) accepts the step that begins within half a step of the line and is evaluated when a track enters a step, and tracks with a different DIV or swing enter their launch step at different times. So the arm is **a predicate equal to `launch_here` evaluated for the track's next step entry**, run every 32-sample block from `seq_grid_tick` (which has `seq_pos` and `step_samples`, swing and groove included), and each track fades to **its own** launch step; the staged MUTE (`mute_arm`) is the model, and a track whose sound changes but whose phrase does not needs a `sound_arm` handled the same way. The fade starts `min(F, time to that step)` before it. Under an external MIDI clock `seq_pos` counts clock units and the time to the step is an estimate from the last measured tick interval.
+3. **Hold until the swap, then commit.** The fade ends with the track held at `xf` = 0 and the flag `xf_scene` set; **the commit happens when the sequencer swaps the phrase** (the same interrupt context, before `pattern_switch`/`pattern_apply`), not when `xf` reaches 0, because `engine_block` would otherwise switch an early fade before the boundary and the old phrase's notes in between would play on the new sound. While `xf_scene` is set, **note-ons are dropped from every source** (the sequencer, live keys, MIDI in), not queued; from the swap on they go to the new engine. A step with more than four notes after a late arm or a manual NOW launch would lose notes in `xp_note[4]` (the fifth replaces the last), so a late arm drops the commit to the next boundary instead of queueing. **Cancel:** a stop, a lost clock or a newer scene clears `xf_scene` and the track's pending commit (the fade returns to today's 4 blocks or restores the level, as a stop does today). The old phrase's note-offs go out at the swap (`pattern_apply` calls `seq_release`), and a dropped note-on's later note-off is a harmless no-op.
+4. **What the commit does** is what a preset load does, not only a copy of `p[]`. In the interrupt, at the same block start and before `mix_prepare_batch` snapshots the values for CPU1: the sound parameters of `p[]` (not the strip's level, pan, sends and mute, which belong to the mixer part and land on the boundary as before) **including the macro dials** (`p[33..36]` are in the sound table entry, section 8.1) and the native patch (at most 156 B, FM6's), plus the side effects `apply_preset_to` and `engine_load_of` have today: the track's preset and user fields, the DRUM and DRUM-X kit state, FM6's function bytes and its generation counters (`fm6_put_patch` with load), the Prophet's and the CZ-1's accept hooks, the module `loaded` hook, and the UI refresh. The undo level a preset load takes is skipped (the track-signature check drops stale levels). The sound table must therefore store, for DRUM and DRUM-X, the kit, and for FM6 the function bytes. The new engine's state is allocated by the render path on its first use, as for a preset change today. **Macros keep running during a scene fade** (`mac_on` skips a track with `xf_on` today, which would snap a turned dial's targets back for 23 ms under a sounding voice; the scene fade bypasses that skip).
+
+**Size of the fade: F = 32 blocks, 1,024 samples, 23.2 ms** (the owner asked for a few tens of milliseconds, my choice). Reasons: it is 8 times the 4 block fade that ships today without clicks, so the slope is 8 times gentler; the ramp is continuous at every sample because each block interpolates from the last block's amplitude, and it reaches exactly 0 at the last block; and 23 ms is short enough that a 16th note at 120 BPM (125 ms) loses about 19 percent of its length to the fade and at 240 BPM (62.5 ms) about 37 percent, over a third. The range worth trying on the unit is 24 to 48 blocks (17 to 35 ms); it is one constant, to be set by ear. A step shorter than F gets a fade of the step's length. **Evidence for "no click", stated honestly:** the 4 block fade runs today only on released voices after an engine change (`xf_on` is set only when the engine changes; a same-engine preset change has no fade, `panic_req` releases its voices), and the repository has no test or measurement of its click behavior. The scene fade is a new case: held notes at full level, ramped. The ramp is continuous at every sample and 8 times gentler than the 4 block one, which is an argument and not a measurement; the test is a host test bounding the largest per-sample amplitude step over the ramp, and a listen on the unit. A same-engine scene change needs `xf_on` set from the sequencer, which the test at the top of `engine_block` already allows. **The costs of this reading:** the last 23 ms of the old phrase sound quieter, a note released inside the window is cut early, and a held pad's own release tail is shortened to the fade.
+
+**The admission, and what `eng_admit` does and does not do.** The track has one engine state at any time, so the arena need at the boundary is the larger of the old and the new state. But `eng_admit` returns 0 at once for any built-in engine and for any engine without a module, so it judges **module engines only** (for a built-in whose state does not fit, today's `eng_state_prepare` fails and the track renders silent with no message), and its `sum` counts each other track's *current* engine, so a scene that changes two tracks' engines can pass each check alone and fail together. So the scene's request does one check on the **post-state**: the sum of all four tracks' new engines' states against the arena, once, and the module engines' voice units. A refusal keeps the tracks' sounds and the toast says `SCENE KEPT T2 T3`; a sound whose engine is not installed (`eng_ok` false: the module is absent) is handled by the rule below. Checking built-ins is new behavior and is in the cost. With SHAPES a module, `eng_admit` judges it as it judges the Prophet and WHEEL (voice units and arena), so the post-state check covers it with no further code. The residual risk is as an engine change today: the old state is cleared before the new one is allocated first-fit, so a fragmented arena could refuse a state the sum accepted.
+
+**When the scene names an engine that is not installed (0.5; SHAPES built out makes this ordinary).** The check at the request asks `eng_ok` for each track's new engine. A track whose scene sound names an engine that is not installed **keeps the sound it has, fully, with no fade**: the scene's other parts for that track (its phrase, mute, mixer strip and sends) and every other track proceed, and the scene says so on a toast, `T2 NEEDS SHAPES` (the engine's name, or `NEEDS MODULE` for a name it does not know), once at the request and on the scene's sheet. It is not `SCENE KEPT`, which stays the post-state refusal for arena and voice units (it keeps *all* the tracks' sounds, since the check is joint). If the module disappears between the request and the boundary (removed, or banned by the boot guard's crash mark), the boundary rechecks `eng_ok` and drops that track's sound part the same way; it never moves the scene to the next boundary for this, because the module would not come back by itself. **If that track has already been faded and is held at `xf` 0, the drop cancels the hold and restores the track's level (a track whose engine vanished is in the missing-engine state, silent anyway).** The post-state arena sum counts, for a track that keeps its sound, its *current* engine state, and nothing for an engine that is not installed. A track that is silent because its engine is missing and whose scene names an installed engine **gets the new sound**: the scene is how such a project is brought back to a playable state; the stored reference of the track's *old* engine is replaced only by this explicit recall, and the fade is skipped (nothing sounds to fade) so the new sound starts on the boundary. A scene sound table entry stores the engine slot number like a track does (8.2), so an entry that names SHAPES survives on a unit without it, unchanged.
+
+**The whole scene waits (the owner's answer).** The scene's request starts every phrase read ahead through the existing path and does the one check above; it **arms its boundary only when the check passed and every phrase it launches is resident** (a bank holds it). If that is not so when the boundary comes, **nothing of the scene lands, and the whole scene (tempo, mixer, mutes, phrases and sounds) goes to the next boundary**, with its key LED blinking. (0.3 let a late phrase land on its own; that split is gone, and so is the `SCENE LATE` message.) `SCENE PARTIAL` stays for a phrase that cannot be loaded at all (no bank, no room for its notes): the scene then lands without that track and names it. **A scene's boundary** is the project's launch boundary, except that LOOP (each track has its own loop end) means BAR for a scene. **Exceptions, stated:** a track that is recording follows its own loop end (`seq_launch_mode` returns LOOP for it), and a track playing a chain or the song swaps at the loop end under the chain's control (`launch_mid` is false while the chain runs), so for those tracks the scene's phrase and sound land at their loop end and the scene sheet says so. A manual NOW launch has no lead: the fade runs from the press and the new sound starts when it ends, 23 ms later.
+
+**Cost (estimates):** flash about 1,500 B (the arm and `sound_arm` in `seq.c`, the length field, the flag and the cancel, the commit with its preset side effects, the post-state check, the messages); RAM about 8 B (`xf_len` and the flag for four tracks); CPU nothing new (the fade is the existing per-voice scaling). **The sound table** is read from the store into the project staging RAM (borrowed as `proj_wire` already is) when the project is loaded or a scene is stored, never at the boundary: up to 2 KB of RAM while a scene with sounds exists. Effect values that change the arena (DUB TAPE's LEN and its memory) are not part of a scene's sound; they stay the project's.
+
+**With the transport stopped** there is no boundary and nothing of a sequencer sounds: the scene's sound loads at once, as a preset load does (keys held at that moment fade over today's 4 blocks).
+
+**Tempo under an external clock or tap tempo** is ignored by a scene (the scene says so on its sheet), as `glo_tap` ignores it.
+
+**Storing** a scene (SAVE held + key) captures the parts its mask names from the live state; the mask is set on the scene's sheet in EDIT. A scene stored today converts as `SCNS` version 1 (or, with scenes v2 built, as version 2 with the mask "chains and mutes").
+
+## 7. Performance Mode
+
+**A table:** `PERF`, up to 64 control ids. A control id is a key (0 to 26 for the 27 keys F3 to G5) or, later, a pad (32 to 47 for the SMK-37's 16 pads; 48 to 63 reserved). Each entry is 4 bytes: **kind** (none, **phrase, chain, scene**: launch only, the owner's answer), **target** (a phrase id, chain or scene), **flags** (latch or one-shot, the track for a phrase), **boundary** (0 the project default, else LOOP, BAR, BEAT, NOW). **256 B for 64 entries.** Because pads share the id space, the SMK-37 later adds no format. The earlier kinds "mute track" and FILL are gone from the table: a mute belongs to a scene (its mutes part), and the ARP layer keeps its mute keys outside the mode, where it works as it does today.
+
+**The mode.** It is entered by the existing gesture, **a double tap on ARP** (`ui.lock`, `kb_lock`, "[ARP] LOCK"), and left by the same gesture. A new flag, `kb_perf`, separate from `kb_lock`, makes it a mode and not only a latch: **inside it the page buttons, SAVE, EDIT, the menu buttons and REC do nothing** (no page moves, no recording: the owner's rule; the header shows `PERF` so it is never a mystery), while PLAY (which stops as it does today), OCT- and OCT+ (scenes 9 to 16) and the tempo keep working. An assigned key launches its target; **an unassigned key is silent** (the owner confirmed; the layers' rule: "keys pressed with the layer's button are the layer's: silent, no MIDI, never recorded"). The default assignment of a new or converted project is the 8 scene keys (F3 to F4, scenes 1 to 8; with OCT+ held scenes 9 to 16), so today's PERFORM keys keep their meaning. No new button hold is used (a new 0.7 s hold would collide with the held-peek map's 0.3 to 0.6 s HOLD_MS). Outside the mode the ARP layer, held for a moment, is unchanged. The code change, as `ui_layer.c` and `ui_input.c` stand: `layer_lock_input` already keeps PLAY, REC, OCT- and OCT+ and lets any other button close the lock (`layer_let_go`), so with `kb_perf` set the other buttons are made inert instead of closing it; **REC is kept by the lock today and still acts** (REC held opens the mixer, REC with PLAY records: `ui_input.c` 2381 and 2663 to 2675), so those paths are inhibited while `kb_perf` is set, which is separate work and is in the cost. `layer_allowed()` false (a menu, a dialog) clears `ui.lock` today; it clears `kb_perf` too, and a dialog raised by the system leaves the mode with a message.
+
+**Quantization, recorded timing untouched.** A key press is a request. The launch happens on the boundary the entry names (the existing four: the track's loop end, the next bar, the next beat, the next step; `seq.c`'s `lists.launch`). Nothing is requantized: a phrase's notes keep their onset inside their step (`recorded_note_t.on`, 1/65536 of a step); the launch changes only **which phrase starts at the boundary**. A launch is never recorded as a note and never moves a recorded note. A second press before the boundary replaces the first (as a staged mute is unstaged).
+
+**What the staging has to learn.** Today a launch is staged per (chain, entry): `ocl_staged_chain`, `lists.cur`, and the boundary is one global (`seq_launch_mode` reads `lists.launch` in the interrupt). A "phrase" launch has no chain entry (the existing `ocl_pool_put` edits the chain). So the revision adds a **slotless staged phrase** (a staged phrase id and a boundary for each track, read by the interrupt in place of the global) and a per-track boundary. This touches `seq.c` and the interrupt's launch path, which is the code that has to be reviewed and timed the way the knob macros' interrupt code is (the same block, plan section 9 item 7); it is in the cost table.
+
+**A phrase launch needs the phrase in a bank.** Each track has 8 banks as a cache; a launch of a phrase that is not resident reads it from the store (a flash read, no write) into the least recently used clean bank, ahead of the boundary (`ocl_go_at`'s existing path). If the read finishes after the boundary, **the launch lands on the next boundary** and the key's LED blinks until then (never a late start in the middle of a bar).
+
+**Pre-loading (the owner: yes, where it makes a launch land on time, within the RAM budget).** On entering the mode, and again when a scene or chain launch changes what is assigned, the phrases of the assigned keys are read into banks ahead of any press, one phrase per UI frame on the main loop (reads only; never in the interrupt), in key order. What it costs, exactly:
+- **Bank RAM: nothing new.** The 8 banks of each of the 4 tracks already exist (32 banks, resident). Pre-loading fills them; it allocates nothing.
+- **Timed notes and motion: this is the real cost.** A pre-loaded phrase holds its timed notes in the shared store of **1,024 notes at 30 B of RAM each** and its motion in the 64 events for the unit. A phrase with no timed notes costs neither. At the owner's average phrase (272 B) how many timed notes a phrase holds is not in the store dump (it counts sizes only), so this is an illustration: **27 keys assigned to phrases of 24 notes each would hold 648 notes, 63 percent of the store (19 KB of the pool)**. So pre-loading **stops when fewer than 256 notes (a quarter of the store) would remain free**, a floor of my choosing so that live capture and the playing phrases keep room; a key whose phrase did not fit shows a dim LED and launches by the on-demand read above (next boundary), and the mode says `PRELOAD n OF m` on its header chip.
+- **At most 8 phrases a track stay pre-loaded** (the banks); the 9th assigned to the same track is on demand. A chain key pre-loads the chain's first phrase, a scene key the phrases its chains name for each track.
+- **Pinned banks.** A pre-loaded bank is clean and idle, which is exactly what section 11.1's clean-bank eviction releases. In the mode, pre-loaded banks are **pinned**: eviction skips them (one flag bit a bank, no RAM worth counting), and they unpin when the mode is left.
+- **Time:** a flash read of a phrase, 272 B on average, up to 3 parts; not measured on the unit. A scene's **sounds are not pre-loaded** (that would hold arena for each assigned scene): they are checked when the key is pressed (section 6), so a scene key lands on its boundary only if its check and its phrase reads are done in time (a bar, normally gives it) and otherwise on the next boundary.
+
+**Engines that are not installed (0.5).** Performance Mode launches phrases, chains and scenes and changes no sound by itself, so the only place an engine matters is a **scene key**, and it follows section 6: a scene whose sound part names an engine that is not installed keeps the track's sound and says so (`T2 NEEDS SHAPES`), the rest of the scene lands. A **phrase or chain launch on a track whose own engine is missing** works as everywhere: the notes play into a silent track, the header chip keeps saying `MODULE MISSING`, nothing is refused (a performer who loaded a project on a unit without the module hears silence and sees why, not a dead key). The pre-load (above) reads phrases and never sounds, so it is not affected. No Performance Mode table entry names an engine, so the table needs no field for this.
+
+## 8. Everything else the revision carries
+
+### 8.1 The knob macros, and the phrase version
+
+Today the macros (`P_MAC0..3` = `P_RESERVED33..36`) are **baked** on save (`mac_saved_value`: the dials' effect is written into the targets and the dials saved as 0), so a reload gives the same sound with the dials at the center, and **every loader zeroes those four ids** (`param_reserved`: the project load, the template, a user preset). Release 3 stores **the unbaked sound and the dial values** in the new record (`TRKS` carries `p[33..36]` as the dials), so a reload gives back both. Two things make that a format change and not a flag:
+- **Version gate.** The old loaders keep zeroing ids 33 to 36 (they read old records and old JSON backups, which may hold nonzero values there); only the new record's loader reads the dials.
+- **Motion events on 33 to 36 live in the phrase bytes**, not the project record (the pool's motion section, `OCP_VER` 1), and `motion_param` excludes those ids. Dropping the old inert events therefore means **repacking every converted phrase** (parse its motion events, drop those, write it back): a cost in the conversion (section 9) and in its flash line. Phrases written by the new format carry **`OCP_VER` 2**, whose motion may name the macro ids (`motion_param` accepts 33 to 36 for it); the loader reads both versions and drops macro events from version 1.
+
+So an old project sounds exactly as it did; from then on motion on a macro is meaningful. A project saved by the new format and loaded on old firmware is the one-way door (section 10).
+
+### 8.2 Stable parameter ids
+
+The `FXRC` section and every module engine's native block are keyed by the stable ids of MODULE_FORMAT_R3.md (`fw_pid_t.id`, with `legacy` slots for DUB TAPE). An engine's native block (the Prophet's bytes, a module's panel) is stored with its module's `engine_t` identity and version; a track whose module is absent keeps its block dormant, and the track is silent and flagged (below). The parameter table `p[]` (124 values) keeps its present ids: new built-in parameters are appended, never reused.
+
+**How an engine reference resolves (0.5).** MODULE_FORMAT_R3.md keeps engines identified by their slot number and gives engine modules no module id (its section 3, final for the release). So the instrument reference of a track is **the engine slot number (the key) plus the module version it was saved with**; the module id field in `TRKS` is 0 for an engine and is kept if a later release fills it. A track resolves when the slot's engine is present: built in, or a module registered for that slot. **SHAPES is slot 14 and, built out of the firmware (section 11.2b), is a module like the Prophet (slot 19) and WHEEL (slot 7)**; the module area holds WHEEL and one of SHAPES or the Prophet, so a unit has at most one of the two installed, and a project that uses both has one silent track until the other is installed. Installing the module in the slot resolves every track that names it; removing it unresolves them; neither changes a saved byte. A module of another version in the slot plays (the engine is there) and says `MODULE VERSION`; a stored version of 0 means any and never raises it. (Neither message exists in the firmware today; both are new.) **The old projects' engine 14 converts to the reference "slot 14, version 0"**, which resolves to whatever module supplies slot 14 (version 0 means any, so it never raises `MODULE VERSION`) and takes the installed module's version at the next save, so a converted project with SHAPES tracks keeps them on a unit whose SHAPES module is installed and waits, silent and flagged, on one where it is not. This is the same rule for every module engine; SHAPES is the first built-in engine to follow it. **What the code does today (the review's reading):** the audio path has no fallback: `voice.c` sets `t->engine` from `eng_idx(t->eng_req)`, and a slot with no module holds `ENG_RETIRED`, whose render is a no-op, so a missing-engine track is **already silent and `eng_req` is kept** (project save and load write and read `eng_req` and nothing resets it). `ENGI_FALLBACK` is used only for display and naming (`eng_rank` in the picker and browser, `eng_sound_idx` in preset naming, `ui_designer.c`). So "silent" costs nothing; the new work is: **a name** (`N_ENGNAME` and `ENGINES[14]->name` are "-" when SHAPES is built out, so `MODULE MISSING` and `T2 NEEDS SHAPES` need a build-independent name table keyed by slot), **the display** (the picker and header must show the stored engine and its missing state, not FM6's place), **the gate** that blocks sound editing on such a track (`ED_PRESET` in `editor.c` accepts any engine below `NENGINES` and rewrites `eng_req`; the front panel's preset, INIT, paste and designer paths do too) with the REPLACE flow, and the two messages. Costed again in 11.2 at 600 B, not 300.
+
+**A missing module is never silently remapped.** A track's instrument reference (`TRKS`: module id and version) and every `FXRC` record, macro target and send are stored as they were and **written back unchanged on every save**, whatever the track plays meanwhile. If the module is not installed, or is installed in another version, **the track is silent (0.5, the owner's rule; it no longer plays the fallback engine, which would sound like the project's sound but is not)**, its notes, phrases, recording and mixer strip all work as before, **its page and the header say `MODULE MISSING` (or `MODULE VERSION`)**, the links stay visible in the editor as unresolved entries, and a save keeps them. Editing that track's sound is blocked until the module returns or the player chooses REPLACE, which is an explicit, confirmed action. **The only things that rewrite the reference are REPLACE and a scene recall whose sound part names an installed engine for that track (section 6); a save after either writes the new reference.** Switching profiles (8.4) changes which modules are available and so which references resolve; it never rewrites a reference.
+
+### 8.2a Parameter ids beyond 7 bits, and LFO 2 (0.6, October 31, 2026)
+
+**Why.** 8.2's rule, "new built-in parameters are appended, never reused", runs into a ceiling the code has today: a
+parameter id travels as one 7-bit byte wherever it leaves `p[]`. The editor protocol sends an id as one SysEx byte
+(editor.c: GET, SET, the dumps of P_COUNT values); motion stores an id in one byte and keeps the native engine ids above
+the track's (motion.c: `_Static_assert(P_COUNT < 128u && MO_NATIVE + MO_NATIVE_N <= 256u)`, `motion_event_t.param`);
+the user preset record counts its values in one byte and asserts `P_COUNT < 128` (upreset.c); project.c asserts
+`P_COUNT == 124u` ("a change: a new magic and a conversion") and proj_pack refuses to write at all when `P_COUNT > 127u`;
+the pool record's np is one byte (oc_pool.c). P_E0 .. P_E7 are ids 116 .. 123, so **three ids can ever be appended under
+the ceiling,** and the reserved ids are spoken for (33 .. 36 the knob macros, 45 .. 47 DUB TAPE's setup; 48 alone is free).
+That is why a second LFO per track (SPEC.md 9.1; the owner's finding 4 of October 31, UI_BUILD.md "ui-fix 4") could not be
+built on the Nightly: it needs seven parameters.
+
+**The revision widens the ids where they travel, and the per-track `p[]` may then pass 127:**
+- **The project record** (`TRKS`, section 4) stores each track's values as (count u16, then count values) and its motion
+  events with a u16 parameter id; the native engine ids keep their own range above the track's (today MO_NATIVE and its
+  256 offset) in the same u16. The by-count rule stays: a record's count names its layout, the first count minus 8 are
+  the common ids in order and the last 8 are P_E0 .. P_E7, so a later firmware loads an older record with its new
+  parameters at their defaults, as today (params_by_count, proj_motion_ids).
+- **The phrase record** (`OCP`, section 3): np and the motion ids as u16.
+- **The user preset record** (upreset.c `up_rec_t`): np as u16 and the packed values past 127 kept in the record's spare
+  room (UP_PMAX 72 pairs, 144 values); the CZ native record's fixed list of counts gains the new one.
+- **The editor protocol** (editor.c; Session D's web app): an id as two 7-bit bytes where today it is one, under the
+  extension command (0.14.2's "command 0 is the extension") so that an old page talking to a new unit, or the reverse,
+  is refused by the version and not misread; ED_INFO reports the count and P_E0 as today; the dumps carry count values.
+  web/app/lib/layout.js is generated from tests/app_layout.c; web/editor.html and test_web.mjs hard-code 124 and 116 and
+  are regenerated or rewritten with it.
+- **The interface identifier** (tools/gen_fw_api_id.py) hashes the parameter enum's text as well as the structures, so
+  a module built before the ids moved is refused and rebuilt with the set (the modules read P_E0 .. P_E7 at compile time).
+- **In the firmware:** the asserts above go, `motion_event_t.param` and `motion_token` widen, `param_desc_of`,
+  `track_desc`, TP[] and `P_COUNT` follow the enum, the knob macros' and the scenes' tables are unaffected (they name
+  ids below 33 and above P_E0 by symbol).
+- **Cost:** about 400 B of flash (the wider motion events and the editor's two-byte ids), 64 B of RAM per track for
+  each 32 parameters added (p[] is int16), the project record's track section grows by 2 B a value a track; measured
+  in 11.2 when the revision is costed again.
+
+**LFO 2 is part of this revision**, as the design note UI_BUILD.md "ui-fix 4" has it with its review's corrections: seven
+parameters appended before P_E0 (RATE, WAVE, SYNC, TRIG, POL, DEST, AMT), the "LFO 2" page of today renamed "LFO SYNC"
+(done on ui-fix), the pages "LFO 2" and "LFO 2 SYNC" after LFO DEST, the state outside track_t in mod.c, ticked once a
+block before the matrix's early return and only while used, a fifth implicit matrix slot for its own destination and the
+source LFO2 for the other four, TRIG NOTE through mod_note, the synced increment with its own cache, mod_begin's size
+budget re-baselined, and the by-count loads of every older record (projects, phrases, presets and templates) with LFO 2
+off. It ships with the one-way door of section 10 like everything else here, so nothing of it goes on the Nightly before.
+
+### 8.3 Samples: the unit's, referenced by the project
+
+Samples are shared by the unit (the owner's answer): the internal sample slot (22 sectors, one set of up to 16 zones, `smp_slot.c`) and sample files on the card. A project **points at the samples it uses** and never holds one, so a project is small and moves freely. The `SMPR` section lists up to 16 references of **24 B**: kind (1 the internal slot, 2 a card file), name (12 B: the slot header's 8 character name, or a card file's 8.3 name), data length (u32), CRC-32 (u32; for the slot, the value its header already holds, `smp_hdr_t.crc`, so nothing is computed for it), the tracks that use it (u8 mask) and the zones (u16 mask). The zone numbers in a track's `p[]` are unchanged.
+
+At load each reference is **resolved** (name, length and CRC match what the unit holds), **changed** (the name matches, the content does not) or **missing**. The rules, written down because Gate 1 forbids a silent remap: a resolved reference is invisible. A **changed** one plays what is there (a re-edited set under the same name is the usual cause) and shows `SAMPLE CHANGED T3` on the header. A **missing** one leaves the track silent and shows `SAMPLE MISSING T3`; the rest of the project plays. **In both cases the stored reference is written back unchanged on a save**; only an explicit RELINK on the sample sheet rewrites it. A project with no card and a reference to a card file is the missing case, named so. Conversion builds `SMPR` from the engines that use samples (SLICE and the sample engines) and the slot's present header. The cost is in section 11.2.
+
+### 8.4 Room for Release 4: what Gate 1 needs, and the layouts fixed now
+
+The owner's summary of "Future Audio Workflows" (Gate 1) was checked point by point. The finding: **the sections and the per-phrase field reserved in 0.2 are enough to hold all of it without a later format change, once the additions marked ADD are made in Release 3's writer.** Release 3 writes the ADD fields and writes `REND` and `TSTA` with length 0; it keeps any content it finds in them byte for byte. Release 4 writes them.
+
+**Every section keeps unknown trailing bytes** within a known tag on a save, so a later release can append fields to `HEAD`, `GLOB`, `LIST` and the rest. **And one rule for every table in the record:** each entry in `TRKS`, `FXRC`, `SMPR`, `REND`, `TSTA` carries its own length (u16) and a section carries its entry count, so a later release appends fields to an entry or entries to a section and an older reader skips what it does not know. Unknown bytes are kept on a save. This is what stops a field added later being a format change.
+
+| Gate 1 says | Held by | Verdict |
+|---|---|---|
+| The **logical track** is notes, clips, automation, routing | notes and motion: the phrases; the song and chains: `LIST`; clips: renditions of kind `take` (below); automation: the motion events in phrases; routing: fixed in Release 3, `ROUT` reserved | ADD: the stable track id (below) and the `ROUT` tag |
+| The **instrument instance** is engine module, version, patch, voice limits | `TRKS` (engine slot, module version), `NATV` (the patch), `p[]` | ADD: the module version for a module engine (the slot number is the key, 8.2); a **voice limit** (u8) in the entry |
+| The **audio rendition** is a versioned WAV (freeze, bounce, resample, stem) with timeline alignment and provenance | `REND` | ADD: the entry layout (below); 0.2 reserved only the tag |
+| The **playback resource** is separate | **not stored.** It is what the unit resolves at run time (a file opened, a cache, a stream). A missing or damaged file is a state in `TSTA`, not a record | nothing to add |
+| A track's state is **live, frozen, audio-clip or unavailable**, and never deletes its source | `TSTA`; the source (`TRKS`, phrases, `NATV`) is untouched by any state change, which is a rule of the writer | ADD: the entry layout (below) |
+| **Freeze** keeps the source and its rendition side by side and can be undone | one `REND` entry of kind `freeze` with one source; `TSTA` holds the state and the previous one; undo sets the state back and marks the rendition `detached`, deleting nothing | holds |
+| **Bounce** makes a new file from several sources and never touches them | one `REND` entry of kind `bounce` listing every source; no `TSTA` change unless the player makes a track of it | holds |
+| A **profile** is a named list of modules; the project names its preferred one; switching never changes the structure | `HEAD` (name and id). **Profiles live on the unit, like modules** (the owner); the project holds only the name and id of the one it wants. The structure is stored by module id and so does not depend on the profile (8.2) | ADD: the two `HEAD` fields |
+| **Stable ids** for tracks, modules (with version), buses, parameters, never pointers | parameters: 8.2; modules: `FXRC` has id and version | ADD: track ids, the engine slot and module version in `TRKS`, bus ids |
+| A **missing module** keeps its links visible and unresolved | 8.2: the stored reference is written back unchanged | rule added to 8.2 |
+| **Dependency hashes or generation ids** mark a rendition out of date when a source note, tempo, parameter or route changes | the `REND` dependency list; the phrase directory's CRC-32 already is the notes' hash | holds, with the `hashver` rule below |
+| The **reserved 16 bit per-phrase field** | the id of the phrase's **active rendition** (0 none): a phrase freeze. Other renditions (a track's, a bounce, older versions) are found through `REND` and `TSTA`, so one field per phrase is enough | holds |
+
+**Stable ids.** A **track id** is a u32 that never changes and is never reused in a project; a new project's four tracks get `hash(seed, "trk", index)`, and any id made later takes the next value of `HEAD`'s counter. A **bus id** is a u16 from a fixed table: 0 the master, 1 to 4 the tracks' outputs, 8 + k the k-th shared send or effect bus in the order of the global effects (MODULE_FORMAT_R3.md has no bus section, so **this table is the definition** until it does). Release 3 stores no bus id; `ROUT` is empty. **`ROUT` entry shape, fixed now:** track id (u32), bus id (u16), send level (i16), flags (u16, bit 0 pre-fader): 10 B. Today's sends live in `p[]` and stay there. A **module id** is the module's own (MODULE_FORMAT_R3.md) with its version u32. In Release 3 the lists (`LIST`, `SCNS`, `PERF`, `SMPR`'s track mask, `FXRC`) still name a track by its position 1 to 4, and `TRKS` maps each position to its track id; only `REND`, `TSTA` and the sources inside them use ids, and a later release that adds or reorders tracks moves the lists to ids then. A module *engine* is referred to by its slot number (8.2: engines have no module id), which the firmware assigns and MODULE_FORMAT_R3.md keeps fixed for the release; effect records (`FXRC`) are referred to by module id and version.
+
+**`REND` entry** (after the entry's u16 length, the head is 46 B, then the lists; an entry is about 115 B for a freeze of one track and about 225 B for a bounce of four):
+
+| Field | Bytes | Meaning |
+|---|---|---|
+| id | 2 | unique in the project, never reused |
+| version | 1 | the rendition's version; a new WAV of it is version + 1, the old files are kept until the player deletes them |
+| kind | 1 | 1 freeze, 2 bounce, 3 resample, 4 stem, 5 take (audio recorded or imported, no source); an unknown kind is kept |
+| flags | 1 | bit 0 detached (source kept, rendition not active: after an undo); bits 1 and 2 are a cache of the last check (stale, file missing) and are **recomputed at load, never trusted** |
+| hashver | 1 | the version of the dependency hash rule that produced the CRCs below; a newer rule marks the rendition unchecked, not stale |
+| parent | 2 | the rendition this was made from (a resample or stem of a rendition), 0 none |
+| made_by, build | 2, 4 | the project format version that wrote it, and the firmware build id (a built-in engine has no version of its own, so the build id is its provenance) |
+| frames, rate, channels, bits | 4, 4, 1, 1 | the WAV's shape |
+| origin | 6 | the start on the project's timeline: step (u32) and sub-step (u16, 1/65536 step, the unit of `recorded_note_t.on`); for a phrase-scope rendition, relative to the phrase's own first step |
+| span | 6 | the timeline it covers, in the same unit |
+| preroll | 4 | frames of audio before the origin (a module's latency or an effect tail), so it lines up |
+| file CRC | 4 | CRC-32 of the WAV; the file is named `<PROJECT>_R<id>_V<version>.WAV` in the project's takes folder on the card |
+| nsrc, ndep | 1, 1 | the two counts |
+| **sources** (each 20 B) | | the track id (4), scope (1: track, phrase, bus, song range, rendition), ref (2: phrase, bus or rendition id), 1 spare, and the **provenance** of the sound that was rendered: its module id (4), module version (4), patch CRC-32 (4) |
+| **dependencies** (each 8 B) | | kind (1: notes, tempo, sound parameters, route, module version, sample, effect chain, arrangement, timing), ref (2: a phrase, track, bus or sample), 1 spare, CRC-32 (4) of that thing as it was rendered |
+| name | 1 + n | the file's stem |
+
+**What each dependency hashes** (canonical bytes, never the run-length coded record; written as the `hashver` 1 rule): *notes*, the phrase directory's CRC-32 of the packed phrase; *tempo*, BPM and swing as stored; *sound parameters*, the track's `p[]` with the macro dials baked, then its native patch; *route*, the track's level, pan, mute and sends, in bus-id order; *module version*, module id and version; *sample*, the `SMPR` entry's length and CRC-32; *effect chain*, the `FXRC` records of the track in slot order; *arrangement*, the chain, song rows and scene entries the source range uses; *timing*, the groove, the launch boundary and the tuning. A rendition lists the kinds its sources depend on and no more.
+
+A rendition is **out of date** when any dependency's CRC, recomputed from the project now, differs from the stored one. The directory's per-phrase CRC-32 is the notes' hash, so a changed note marks it with no new work. Because a CRC of packed bytes would change if the packer changed, `hashver` names the rule and a rule change never makes everything stale at once.
+
+**`TSTA` entry** (16 B, per track): the track id (4), state (1: 0 live, 1 frozen, 2 audio clip, 3 unavailable), previous state (1), active rendition id (2), **previous active rendition id (2)**, reason when unavailable (1: file missing, CRC mismatch, module missing, sample missing, out of date), flags (1: bit 0 play the live source while unavailable), and a change counter (u32). Undo of a freeze restores the previous state and the previous active id, so a re-freeze R5 to R6 undone brings R5 back. **Precedence:** the track's state governs; the per-phrase field (a phrase freeze) only applies while the track is live, and a phrase whose rendition is missing is shown `unavailable` and plays its source.
+
+**`FRZR` and `REND`.** `FRZR` stays the table of today's frozen phrases (the take file for a phrase id, 64 entries) in Release 3 and the per-phrase field stays 0. Release 4 converts a `FRZR` entry into a `REND` entry of kind `freeze` with the same file, on the project's first save under it; that conversion is Release 4's, and the format has room for it.
+
+**Sizes.** `REND` is the one section with no bound in Release 3. At 64 renditions it is about 7 to 14 KB and takes the project record from 1 to 2 or 3 sectors: **the record then reaches 5 or 6 sectors, 4 to 8 more than the 3.1 budget allows for a record, from the phrases' room**. That is Release 4's cost and its decision; the format does not change for it, the store's record limit (12 parts) is far above it.
+
+## 9. The conversion
+
+**When:** the first start of the new firmware, after the boot scan **and after the sample slot's claim has succeeded** (the store has 34 sectors from then on; a conversion that ran before could grow into sectors 18 to 39), before the UI; with a progress bar (the boot already draws visible progress, `ui_boot.c`, and already writes flash at boot for the sample slot: `smp_slot_boot`, the watchdog fed by `OC_FEED`). **What:** each old project slot, one at a time:
+
+1. Read the slot's old record (`ocj_read`, the existing reader kept for this; it stages through the 27,904 B buffer the boot already owns).
+2. Find the phrases it uses: its banks' phrases and its chains' phrases (the old `ocj.names` bitset computes exactly this).
+3. **Copy those phrases into the new project's own chunks**, keeping their numbers (1 to 64), **repacking each as `OCP_VER` 2 with the macro motion events dropped** (8.1). A phrase two projects both used is now two phrases; edits no longer cross.
+4. Write the chunks (generation 0), then the new project record (the commit point): scenes converted as `SCNS` version 2 with the mask "chains and mutes" (scenes v2 ships with this revision; a reader still reads version 1), the project uid and `next stable id` made, the revision counter 1, `p[33..36]` 0, DUB TAPE's legacy slots written as `FXRC` by id, the seed made, the `PERF` table set to the default (the 8 scene keys), the freeze table split by the project's phrases **with every entry's hash recomputed from the repacked phrase** (the hash includes the version byte, so a repack to `OCP_VER` 2 would otherwise invalidate every frozen phrase and ask "Save?" on each).
+   The same step writes the Release 3 fields an old project lacks: each track's stable id (`hash(seed, "trk", index)`), its instrument reference (the engine number as the old record has it, and for a module engine the module's version read from its header if the module is installed, else 0, meaning any; section 8.2 says how a reference resolves), the voice limit 0, `HEAD`'s empty profile, `SMPR` built from the sample engines' use of the slot's header (8.3), and empty `REND`, `TSTA`, `ROUT`.
+5. Erase the old slot's record. **The old pool chunks are erased only when no old slot record remains that names them.**
+
+**Space.** The peak is the old data plus all the new (a phrase two projects share is copied once per project). For the owner's store (2 projects, 38 phrases, 10.4 KB, 13 sectors in use) the new data is two projects of about 3 chunk sectors and a 2 to 3 sector record: about 12 sectors on top of 13: **25 of 34, it fits**. The **worst case does not**: four projects each using every phrase need 4 x (3 chunks + 2 to 3 record) = 20 to 24 sectors on top of the 13 in use: 33 to 37 of 34. So the rule is in the code, not assumed: conversion stops at the slot that would not fit, leaves it as an **OLD FORMAT** record (the 1.2 precedent: unreadable committed records stay on flash, the unit says so and asks before replacing them) and says so on the project page. The page names the KB needed. The player frees room (clears a project or deletes phrases in a converted one; a CLEAR on an OLD FORMAT slot is offered with a "backed up?" confirmation) and presses CONVERT, or the next start retries; a restore of the old backup can meet the same wall; the full backup that the installer required before the firmware stage (section 10) holds the old project meanwhile, and the web editor's restore puts it back. (0.3 offered an export to the card here; the card library is deferred.) The old-format reader stays in the image until a later release (its cost is in section 11).
+
+**Power cuts:** every step is copy-on-write. A cut before step 4's record leaves the old slot as it was; between 4 and 5 leaves both, and **at the next boot** the new record wins and step 5 is finished; after, a converted slot. Conversion resumes at each start, one slot at a time, and is idempotent. A cut in step 5's pool erase leaves chunks no old record names: the sweep removes them.
+
+**A backup restore at run time** (the editor's restore writes old records through `editor_backup.c` while the unit runs, not at boot) **replaces its slot whole**: it first erases that slot's new-format records (project and chunks), then writes the old ones, and conversion runs again straight after, so a restored old backup converts exactly as an old unit does and cannot be mistaken for a half-finished conversion. The boot rule "both present: the new one wins" applies only to a slot the boot's own conversion started.
+
+**Other converted things:** the editor's project commands and the backup's object ids (68 to 83, the 16 chunks) change for 255 phrases; the owner assigned that work to this revision (section 11.3).
+
+## 10. The one-way door, what the installer page must do
+
+**What old firmware does with the new records.** The new records use the store's **known types** (`OCS_PROJECT`, `OCS_POOL`) with ids that have bit 15 set. The old store scan accepts a record only when its type is below `OCS_TYPES`; a type it did not know would be treated as **free sectors that its next save writes over**. A known type with an id it never asks for is a record it keeps and never reads, so **old firmware leaves the converted projects intact** and a later Release 3 install finds them again. (To be shown by a host test that boots the old store code on a converted store: section 13.)
+
+**What is still one way: the conversion erases the old records.** The old firmware then sees **empty project slots and an empty pool**. A save with it writes new old-format data beside the converted records; it does not erase them, but the unit is now in two formats and the next Release 3 start would find an old-format slot again and convert it over the player's old-firmware work. So the honest statement is: **after the conversion, the projects exist only in the new format; the old firmware cannot open them; do not save with it; a Release 3 install brings them back**. A backup taken before the conversion restores onto either firmware.
+
+**What the installer page must show and require, in this order, before it sends the firmware:**
+1. A plain warning, in both languages the page has: "This firmware changes how projects are kept. The first start converts every project on the unit, and each project gets its own copy of the phrases it uses. Firmware before this one cannot open converted projects. Do not save projects with an older firmware afterward; install this firmware again to get them back."
+2. A **backup gate**: the page does not enable Install until the complete backup has been saved from the unit (the editor's full backup; the same confirm the page already uses before Return to official V15: "Has the complete backup file been saved to this computer?"), and says that the backup restores onto the new firmware and converts.
+3. For a unit already on Release 3 none of this shows; the page reads the unit's project format version through the editor info reply (a new field, Session A's protocol).
+4. **The one-way conversion goes out on the Nightly first** (the owner's answer) and the Standard channel does not carry the revision until the owner moves it there. The Nightly shows the same gate.
+5. **The softened door is enough:** old firmware shows empty projects and erases nothing, and installing Release 3 again brings them back. **No downgrade is refused** by the firmware or the page; the warning and the backup gate are the whole protection.
+
+## 11. RAM and flash, against today's budget
+
+### 11.1 The timed-note store (item 7)
+
+**1,024 notes for the whole unit**, 10 B each and about 30 B of RAM each (the note, its run state, flags, links, due time, heap position, message: 1,024 x 30 B is about 30 KB of the pool). They are shared by the 4 tracks and their 32 resident banks.
+
+**Does a dense live phrase fit?** A phrase of four-note chords on every sixteenth for 4 bars (64 steps) is 256 notes: a quarter of the store; **four such phrases fill it**. A live take of 8 notes a step across 64 steps is 512. A project with one such dense phrase on each of two tracks plays; a project with a dense phrase on every track and bank does not.
+
+**What happens when it does not fit (today's behavior, kept):** a live capture drops the new note and shows `RECORDING FULL` (`recording.c`, `recording_full`); a phrase whose notes would exceed the free entries is **refused at load** (`ocl_go_at` rc 5, "no room for its motion or timed notes": the track plays what it had, or is silent if nothing was staged); a paste or a move that needs more refuses whole. Motion is the same story at **64 events for the whole unit**, which will bind first for a motion-heavy project and is not changed here.
+
+**A cheap change that makes the number mean more, proposed:** release the timed notes of **clean idle banks**. A bank whose phrase equals the stored one (`bank_sig` unchanged since its load) and that is neither playing nor staged can give its notes back and read them again when it is needed (a flash read, no write, as a launch already loads). The eviction **must also clear that bank's `bank_pid` and `bank_sig`**: `ocl_bank_hash` includes the notes, so an evicted bank would otherwise look changed and `ocl_keep` would write the stripped phrase over the good one, and a `bank_pid` hit would skip the reload. Done so, "1,024 notes across 32 banks" becomes "1,024 notes across the banks in use", about **four times the usable room** for dense phrases, at no RAM; in Performance Mode the pre-loaded banks are pinned (section 7), so that mode keeps its floor of 256 free notes instead. **Raising the store itself is not proposed:** `RECORD_MAX` is fixed at 1,024 by a packed 10 bit queue index in `recording.c` (a `_Static_assert`), and 30 B a note means +15 KB for 1,536; the eviction is the answer, and any larger store would first need that index redesigned (Session A's recording path).
+
+### 11.2 Flash and RAM of the whole revision (0.5)
+
+Estimates, in the way UI_BUILD.md's were and raised the way they had to be (its steps ran 1.2 to 2.2 times their first estimates; these are the figures after that correction, and are still estimates). 0.4 removes the ghost parts (6,500 B and 7.2 KB of RAM) and the card library (4,800 B) and adds the fade (1,000 B).
+
+| Part | Flash (B) | RAM (B) |
+|---|---|---|
+| Packed chunks, the directory with generation bits, the sweep; the pool's tables from 64 to 255 phrases (`ocp.len[]`, `ocp.hash[]` CRC-32: 1,020 B) and the `OCL_NPOOL` and `ocj.names` widening | 3,200 | 1,300 |
+| `OCJ4` writer and reader (tagged sections, unknown ones kept) | 3,500 | 300 |
+| Scenes v2 (mask, sound table, recall, scenes 9 to 16 on the keys) and the lists' growth to 16 scenes | 3,200 | 900 |
+| **Scene sound fade** (section 6): the field, the per-track arm and `sound_arm` in `seq.c`, the flag and cancel, the commit with its preset side effects, the post-state check, the messages | 1,500 | 8 |
+| `PERF`: the table, the mode (`kb_perf`; REC, its hold and the other buttons inhibited), the slotless staged phrase and per-track boundary in `seq.c` and the interrupt, the pre-load with its floor and pinned banks | 4,400 | 450 |
+| Conversion (glue over the existing reader, the phrase repack, the sweep, the progress screen, CONVERT) | 3,200 | 100 |
+| Macros unbaked, `FXRC` by stable id, `OCP_VER` 2 | 1,000 | 100 |
+| UI: the project meter, PROJECT FULL, the scene sheet, the assignment page, the pool page's grid for 255 phrases (the 8 x 8 grid pages), the sheets' rows | 4,000 | 200 |
+| Editor protocol and backup (firmware side): INFO paging (`editor_arrange.c`'s reply is statically bound under 1,024 B and 255 phrases give about 1,800), the backup listing records by (type, id) in place of fixed ids, the project format version in the info reply (11.3) | 2,000 | 0 |
+| Clean-bank eviction | 600 | 0 |
+| Sample references (`SMPR`, resolve at load, the messages, RELINK) | 700 | 40 |
+| The Gate 1 fields and the card-ready fields written now (track ids, instrument reference, voice limit, profile name and id, project uid, entry lengths, `REND`, `TSTA` and `ROUT` carried) | 700 | 20 |
+| A track whose engine is not installed is silent and flagged; the instrument reference resolves by slot number; the "needs" toast of scenes and Performance Mode (8.2, 6, 7) | 600 | 4 |
+| Card library | 0 (deferred) | 0 |
+| **Total** | **about 28,600** (a range of 22,100 to 36,100) | **about 3,400** (a range of 2,700 to 4,600) |
+
+**RAM.** (Unchanged by 0.5 to within 4 B.) The data tail is 1,992 B, so +3,400 B takes one 4 KB arena block (or, if the arrays go in `.pool` at exact size, 3,400 B): the arena becomes 80,000 B or 80,696 B against the working rule's 65,536 B (minimum 49,152 plus 16,384), **14.4 to 15.1 KB over the rule**. RAM is no longer the question. (Session A states which block model holds.)
+
+**Not in the table, on purpose:** the frozen-phrase table stays at **64 entries** (`FZP_N`); the owner accepted 64 for now (section 12); a project may freeze any 64 of its 255, because each `FRZR` entry carries its phrase id.
+
+### 11.2a What step 9 frees (an estimate, not a measurement)
+
+Step 9 retires the old screens' code that the switches kept and flips the switch defaults. **Nothing has been removed yet, so there is no measurement. The review corrected my first estimate:** I had summed the section-map functions (`smap_*`, `sec_*`, about 1,500 B) from an image built with every switch off. In today's image (six switches, steps 1 to 6) they are **already compiled out**: with `OC_EDIT_SHEETS` on, `sec_on()` is constant 0 (`ui_sections.c` 107), so the compiler drops its callers. The section map therefore frees about 0 B of flash (and about 116 B of RAM). Two of those names are also used by the new path (`SEC_RULE`, `sec_rule` in `ui_sheets.c`; `sec_chip` in `ui_designer.c`) and would stay.
+
+What step 9 can still free is code emitted behind **run-time** flags: the old HOME TRACKS default (the page itself stays, the HOME PAGE menu still offers it), the three old LANES pages (`ui_pages.c` about 754 to 890), the old knob shades, and the HOME PAGE menu's branches. The explicit old-path `#else` blocks under the six switches total only about 39 source lines; `draw_page` (about 33.5 KB) already shrank 1,752 B with the switches on; and UI_BUILD.md's own line for step 9 reads "0 (a credit of about 2,000 only once measured)".
+
+**Estimate: about 1,000 B, a range of 0 to 2,000.** It is measured in step 9 itself, which comes before this revision, so the number will be known before anything here is built.
+
+### 11.2b The budget, with SHAPES built out
+
+**The owner's decision (0.5): SHAPES leaves the firmware and ships only as its module, and the whole revision ships together.** Nothing is split off: Performance Mode, scenes v2 with the fade, the clean-bank eviction and the unbaked macros all stay in. The build-set change (`MELODEE_SHAPES=0` in `tools/orangecat_engines.sh`) and the installer's wording are **Session A's, as part of Release 3**; this document does not touch them. The module area (12 sectors) holds WHEEL (4 sectors) and one of SHAPES (6) or the Prophet (8), so **the installer offers SHAPES or the Prophet**, and a project whose engine is not installed keeps its notes and sound, silent and flagged, until it is (8.2).
+
+**The order of work** is the owner's: the play test, then step 9, then Release 3's effect modules (with SHAPES built out), then this revision. `ui-build` today has steps 10 and 11 in. 7a (about 1,500 B, Session A's) is counted separately from the effect modules' 11 to 14 KB until Session A says whether that figure already includes it; if it does, every figure below improves by 1,500 B.
+
+**The 23,236 B.** BUILD.md and `ENGINE_LOADING_PLAN.md` measured the image built with `MELODEE_SHAPES=0` as 466,680 B against 489,916 B with it, **23,236 B smaller**. That measurement is on an older base, not on `ui-build`'s image, so it is an input to be re-measured on the real build set when Session A makes the change (`oc_knobs.c` also has `MELODEE_SHAPES` blocks that go with it, but they also compile out `KD_SHAPES_ENG`, so `kdef_of(14)` returns 0 and the SHAPES module loses its TIMB, COLR, TONE and PLUCK HOME knobs and macros until the module carries its own knob definition (MODULE_FORMAT_R3.md section 5, version 3, not built) or the firmware keeps a definition for slot 14 (a few hundred bytes, taken from the 23,236 B). The figure also predates the hot-set and pack work, so whether SHAPES' tables sit in the image or the pack is not shown. `editor.c` reports SHAPES built in as capability bit 1; with it 0 the web page's wording must change, which is not counted). I use 23,236 as the central figure and show below how much of it the revision needs.
+
+| After | Free of 577,248 B | Above the 8,192 B reserve |
+|---|---|---|
+| `ui-build` today (UI_BUILD.md "Budget revision 0.8") | 14,940 | 6,748 |
+| + step 9, about 1,000 (0 to 2,000) | 15,940 | 7,748 |
+| - 7a, about 1,500 | 14,440 | 6,248 |
+| **+ SHAPES built out, 23,236** | 37,676 | 29,484 |
+| + Release 3's effects as modules, 11,000 to 14,000 | 48,676 to 51,676 | 40,484 to 43,484 |
+| **- this revision, whole, about 28,600** | **20,076 to 23,076** | **11,884 to 14,884** |
+
+**It fits, with 11,884 to 14,884 B above the reserve at the central ends.** Stacking every range the same way (step 9 at 0 and the modules at 11,000 with the revision at 36,100; or step 9 at 2,000 and the modules at 14,000 with the revision at 22,100) the margin runs from **3,384 B (worst) to 22,384 B (best)**: it is positive in every combination. If 7a is inside the modules' figure, add 1,500.
+
+**What the margin depends on.** Almost all of it is SHAPES. Without the SHAPES figure the low end of the module range (11,000 B) is 11,352 B short (8,352 at 14,000). The central case still fits if built-out SHAPES frees **at least 11,400 B** (49 percent of the measured 23,236); the worst-case stack needs 19,852 B (85 percent). So the re-measure on the real build set is the number to watch, and it is Session A's step. The 0.4 list of pieces that could wait (Performance Mode, scenes v2 with the fade, the eviction, the unbaked macros: 12,200 B) is not needed at these figures and is dropped; it is in the git history of this file if the re-measure comes in low.
+
+**The module area is a second budget, and it is the open condition under this one.** The bytes above assume the effects live as modules. The module area is 12 sectors: WHEEL 4 plus SHAPES 6 is 10, WHEEL plus the Prophet is 12, and `FX_MODULES_PLAN.md` says that today **no effect module fits beside the existing pairs** (DUB TAPE 3 sectors, a reverb bank 1, the FX layer 2); it relies on its step 0 (a finer start grid) to hold SHAPES (6) with DUB (3) and the reverb bank (1) and leave 2. So the stack of 11.2b is a stack of image bytes and **cannot be installed together as drawn unless Session A's step 0 or a larger module area is decided**; which modules the 11,000 to 14,000 B credit assumes installed at once is Session A's to state. This revision does not depend on the effect modules fitting the area (the image bytes are freed when the code leaves the image), but a unit that has SHAPES installed may not also hold every effect module, and the installer page must say so. Open item (g) in section 12.
+
+**What the margin does not include:** the SHAPES module itself sits in the module area (about 24 KB, not firmware flash); the Prophet or SHAPES choice is the installer's; the revision's own RAM (3,400 B, section 11.2) is a separate question and stays over the working rule (14.4 to 15.1 KB over 65,536 B). **SHAPES-out frees no RAM** (the two CI runs behind the 23,236 B show identical .data plus .bss and arena), so that overage does not improve; and after the revision ships, removing the old-format reader frees a further 3,000 to 4,000 B (the 1.2 removal took 8,556 B).
+
+### 11.3 Order of work, and the editor, backup and installer in the same release
+
+The owner's order (0.4): **(0)** the owner's play test of the new interface on the unit (UI_BUILD.md's hardware checks 1 to 21); **(1)** step 9, which frees flash, measured, and its own hardware check; **(2)** Release 3's effects as modules and SHAPES built out of the firmware (not this document's work; 7a with the effects; the build-set change and the installer's wording are Session A's), after which the budget of 11.2b is re-measured on the real image (the figure to check is what SHAPES-out frees against the 11,400 B the revision needs); **(3)** this revision, whole. Within it, each step its own branch, independent review before every merge, the suite on the CI settings after the firmware ones:
+1. **The format core:** chunks, the directory, the generation protocol, `OCJ4`, the sweep, the conversion, with the host NOR simulator's power-cut tests (section 13). No interface yet.
+2. **The editor, backup and installer** (firmware side and web, together, so the page and the unit never disagree about the format), by this session on `ui-build`: the editor's project commands (the 13,212 B wire record carries the new record; the pool commands count to 255, not 64); **the backup lists records by (type, id) and carries each as it is, instead of the fixed ids 64 to 84** (the unit has up to 4 x about 18 chunks of 3.8 KB, which fixed ids cannot name); the INFO reply paged; the project format version in the INFO reply; the installer's warning and backup gate (section 10); `web/fm1backup.js`, `web/app/lib/editor_proto.js`, `codec.js`, `arrange.js`, `session.js`, `mock.js`, `web/editor.html`, `web/make_site.py` and their tests (`web/test_web.mjs`, `tests/check_set_test.py`). The backup of the new format restores onto the new firmware only; a backup of the old format still restores and converts (section 9).
+3. **Scenes v2 with the fade, and Performance Mode** (both in, 0.5). Both touch the audio interrupt (the fade's lead and commit, the slotless staged phrase), so like the knob macros they **wait on Session A's review and timing** before they merge into any release branch.
+4. The Nightly first; hardware checks added to UI_BUILD.md's list.
+The card library is a later release (section 5). The missing-engine rule (8.2) belongs to step 1, since the conversion writes the references; the scene and Performance Mode toasts come with step 3.
+
+## 12. The owner's answers, and what is still open
+
+**Answers to 0.2 (October 30, 2026), as they stand.**
+
+| # | Question | Answer | In this document |
+|---|---|---|---|
+| 1 | Budget | Room first from Release 3's effect modules; copy and paste stays; the revision lands after them | 11 |
+| 2 | Projects on the unit | Four resident, one shared budget (about 250 phrases between them); the card is optional, everything works with no card or hub | 1, 3.1 |
+| 3 | 255 phrases, lighter step coding | 255 per project; no new packer | 3.1 |
+| 4 | Samples | Shared by the unit; projects point at the samples they use | 8.3 |
+| 5 | Performance Mode | Launch only; no recording or page moves inside it; silent when unassigned; pre-load where it helps, within RAM, cost stated | 7 |
+| 6 and 12 | Scene sounds | (0.3) ring-out on a second engine; **(0.4) replaced by a fade: old notes fade out over a short fade while the new sound plays from the boundary, no ghost parts, no new admission; the fade is sized** | 6 |
+| 7 | Sets | An ordered list of projects, nothing more (**now deferred with the card library**) | 5 |
+| 8 | The door | Nightly first; a saved full backup required before the firmware stage; the softened door is enough, no refused downgrade | 10 |
+| 9 | The two documents | Gate 1 checked in full | 8.4 |
+| 10 | Session D's editor and backup | Change in the same release as the format, by this session, on `ui-build` | 11.3 |
+| 11 | Frozen phrases | 64 per project is fine for now | 11.2 |
+
+**Answers to 0.3 (October 30, 2026).**
+
+| 0.3 question | Answer | In this document |
+|---|---|---|
+| Ghost parts: how many | moot: no ghosts | 6 |
+| The budget does not close | recomputed in the owner's order: play test, step 9, effect modules, then this revision; step 9's gain estimated (about 1,000 B, range 0 to 2,000); what could wait listed with bytes | 11.2 to 11.2b |
+| The card library and the scene overlap | the library is deferred, keeping only what the format needs; the overlap is replaced by the fade | 5, 6 |
+| Performance Mode's inert buttons | the list is right | 7 |
+| A late scene prepare | the whole scene waits for the next boundary | 6 |
+| A missing sample | silent, with `SAMPLE MISSING` | 8.3 |
+| Profiles | live on the unit, like modules; a project holds only the name and id | 4, 8.4 |
+| A rendition with no card | the track is unavailable and plays its source; right for Release 4 | 8.4 |
+
+**Answers to 0.4 (October 30, 2026).**
+
+| 0.4 question | Answer | In this document |
+|---|---|---|
+| The split (the budget does not close) | decided: SHAPES is built out of the firmware and ships as its module; **the whole revision ships together**, nothing split off | 11.2b |
+| The fade | yes: the old phrase's last 23 ms is faded; the length is set by ear on the unit within 17 to 35 ms | 6 |
+| Manual NOW scene launch | its new sound starting 23 ms late is acceptable | 6 |
+| No single-project move | acceptable for the Nightly period; full backups move projects | 5 |
+| 7a against the modules' 11 to 14 KB | Session A says whether the figure includes it; kept separate until then | 11.2b |
+| SHAPES not installed | a scene or launch that names an engine that is not installed keeps the track's sound and says so; a track whose engine is not installed is silent and flagged and keeps its notes and sound | 6, 7, 8.2 |
+
+**Still open (0.5).** Nothing blocks the design. For the owner: (a) does any set or project the installer page ships use SHAPES? If so, its page must say the SHAPES module is needed, since the module area holds SHAPES or the Prophet, not both (I have not looked; the set files are Session A's and the installer's). For Session A: (b) the re-measure of what SHAPES-out frees on the real build set (11.2b); (c) whether the effect modules' 11 to 14 KB includes 7a; (d) confirm that an engine module is keyed by its slot number in a project's instrument reference, since MODULE_FORMAT_R3.md gives engines no module id (8.2); (e) the review and timing of the fade's arm and commit and the slotless staged phrase, which are interrupt code like the knob macros; (f) the arena's block model (11.2); (g) **the module area's sector budget**: which modules the effects' 11 to 14 KB assumes installed at once, and whether step 0's start grid (or a larger area) lets SHAPES or the Prophet, WHEEL and the effect modules coexist (11.2b); (h) the SHAPES module's HOME knobs and macros need a knob definition in the module (MODULE_FORMAT_R3.md section 5) or one kept in the firmware, and the installer page's SHAPES-built-in capability wording changes (11.2b); (i) a unit upgraded from a SHAPES-in build has silent SHAPES tracks until the module is installed, which the installer page's warning (section 10) should say. Still owed by Session A from before: the knob macros' interrupt review, the MODULE_FORMAT_R3 review, the ED_PACK_INFO trailer capability. `release-2`'s e5978a7 is not merged.
+
+**Closed in 0.5 (all four answered in the table above; the old text is kept for the record):**
+1. **The budget does not close with the whole revision** (11.2b): 7,800 to 10,800 B short after step 9, 7a and the effect modules, and even the best case of every range is 250 B short. The revision fits only if Performance Mode (5,200 B with its page), scenes v2 with the fade (5,400 B) and the eviction (600 B) wait, plus, to be safe, the unbaked macros (1,000 B). Does the owner accept that split now, or decide after step 9 and the modules have been measured? (Default: decide after those two are measured; build the one-way door part first.)
+2. **The fade's length.** 23 ms (32 blocks) is my choice; the range worth trying on the unit is 17 to 35 ms. Is it acceptable that the old phrase's last 23 ms is faded rather than rung out, with the effects' tails still ringing? (Default: yes; the constant is set by ear on the unit.)
+3. **A manual NOW launch of a scene** starts its new sound 23 ms late (it has no lead). Acceptable? (Default: yes.)
+4. **A project cannot be moved alone between units** until the card library exists; only a full backup moves projects. Acceptable for the Nightly period? (Default: yes.)
+
+## 13. Tests this needs before any of it is built
+
+Written first, to STORAGE_PLAN.md's rule that every flash layout change is tested by a power cut injected after every erase and every program on the host NOR simulator (the store's tests have it):
+1. Save, restore and conversion each, with a cut after **every** erase and program: the slot reads either entirely old or entirely new, and the sweep leaves no orphan.
+2. The chunk generation protocol: a cut after the first of three changed chunks and before the record: the old record reads old data (the case the review found).
+3. A backup restore over a converted slot, then conversion: the slot ends converted once, not erased.
+4. The old store code on a converted store (a host build of release-2's `oc_store.c`/`oc_pool.c`/`oc_project.c`): it neither erases nor mis-reads the records (section 10's claim).
+5. The conversion's worst case (four projects, every phrase in all): stops at the slot that does not fit, leaves it OLD FORMAT and the old record intact; after room is freed CONVERT (and the next start) converts it.
+6. The phrase repack: macro motion events dropped from version 1, kept in version 2; every other byte equal; **every frozen phrase's hash recomputed, none invalidated by the conversion**.
+7. Scenes: a recall with a failing phrase load (`SCENE PARTIAL`), a scene whose phrase reads are not all done at the boundary (the whole scene moves to the next boundary), a refused post-state (`SCENE KEPT`), tracks that record or play a chain (their own loop end).
+8. The fuzzers extended to the new record and its sections (unknown ones kept).
+9. **The Gate 1 round trip:** a record carrying `REND`, `TSTA` and `ROUT` content (synthetic, with extra trailing bytes in each entry and an unknown tag) loads and saves byte for byte; a record with a missing module keeps its instrument reference, `FXRC` records and links after a save; a profile change leaves the record's bytes equal.
+10. **The sample references:** resolved, changed and missing each shown (missing is silent); a save keeps the stored reference; RELINK rewrites it; a restore with a reference to a card file and no card says so.
+11. **The scene fade:** on the host the fade ends exactly on the boundary block and the new engine's first note is on that block, sample for sample; the old phrase's note-ons inside the window are dropped, not queued; the commit waits for the sequencer's swap, an early arm leaves the track silent and held, and a stop, a lost clock or a newer scene cancels it; note-ons from every source are dropped, not queued, while held; macros keep running through the fade; the commit reproduces a preset load's side effects for DRUM, DRUM-X, FM6, Prophet and CZ-1 tracks; under an external clock the lead follows the measured tick; a step shorter than the fade gets a shorter fade; the ramp has no discontinuity larger than the 4 block fade's per-sample step; a refused engine keeps the sound; a stopped transport loads at once; a manual NOW launch starts 23 ms later.
+12. **Performance Mode:** REC and the page buttons inert inside it, the transport working; the pre-load stops at the floor, pinned banks survive eviction, and leaving the mode unpins them.
+13. **The card-ready fields:** the project uid survives save, conversion and restore; no field of the record holds a slot or a record id (a record copied to another slot reads the same); an unknown `SCNS` version is kept byte for byte, plays no scenes and says so; version 1 (today's layout) converts and plays; the revision counter rises with each save.
+14. **A missing engine (0.5):** a project with a SHAPES track loaded on a build with no module in slot 14: the track is silent, its phrases play, record and edit, its mixer strip works, the header says `MODULE MISSING`, a save writes the reference bytes unchanged; installing the module resolves the track with no byte of the project changed; a converted old project's engine 14 reads as "slot 14, version 0" and takes the version at the next save; a scene whose sound names the missing engine keeps the track's sound with no fade, lands everything else and shows `T2 NEEDS SHAPES`; the module removed between request and boundary drops only that sound part; a silent track whose scene names an installed engine gets the new sound on the boundary, and a save after that recall writes the new reference; a module that vanishes after the fade has armed cancels the hold and restores the level.
+
+## 14. The independent review of 0.1 (October 30, 2026) and what 0.2 did
+
+An agent read 0.1 against the store, pool, project, lists, recording and card code and the real store dump. It confirmed the store geometry, `OCP_MAX`, `ocl_lists_t` (2,396 B), `PROJ_STORE_SIZE` (13,212), 30 B of RAM a timed note, and the budget figures; it found two blockers and eighteen other findings. All are folded in.
+
+| # | Finding | Severity | Fix in 0.2 |
+|---|---|---|---|
+| 1 | A rewritten chunk under the same id supersedes the live one at once: the old record would read new chunks | **blocker** | the generation bit, written to the other generation, the record last, a sweep (3.1) |
+| 2 | A backup restore at run time writes an old-format record that the boot rule "new wins" would erase | **blocker** | the restore replaces its slot whole and conversion runs after it (9) |
+| 3 | Density: 38 non-empty phrases at 272 B, not 400 B | should-fix | recomputed (2, 3.1) |
+| 4 | 13 current records, 2 projects, not 15 and 4 | should-fix | table fixed (2); the worst case is 2 projects |
+| 5 | The copy-on-write reserve is 3 sectors, a record up to 3 | should-fix | budget table redone: 27 sectors for one project, 18 for four (3.1) |
+| 6 | The conversion's worst-case arithmetic was wrong (33 to 37 of 34) | should-fix | corrected, with the stop-at-the-slot rule (9) |
+| 7 | A CRC-16 per phrase weakens three CRC-32 checks | should-fix | CRC-32, 7 B an entry (3.1) |
+| 8 | Hard-coded 64s missed: `OCL_NPOOL`, `ocj.names`, the arrange INFO reply, backup ids, the pool grid, `FZP_N` | should-fix | cost lines added; the freeze table kept at 64 (11.2) |
+| 9 | "Flash-free" recall was wrong: reads while playing, writes (`ocl_keep`) while stopped | should-fix | rewritten, with `SCENE PARTIAL` (6) |
+| 10 | A sound load cannot run in the interrupt; undo level, arena values, jitter | should-fix | the foreground handoff, no undo level, arena values excluded, sizing fixed (6) |
+| 11 | No key mapping for scenes 9 to 16; tempo under external clock | should-fix | OCT+ held; the clock rule (6) |
+| 12 | A latch already exists (the ARP lock); a 0.7 s hold collides; 27 keys | should-fix | reuse the lock; `kb_perf` is a decision; 27 keys (7) |
+| 13 | Staging is keyed by (chain, entry); the boundary is one global in the interrupt | should-fix | the slotless staged phrase and the per-track boundary, costed (7, 11.2) |
+| 14 | The old loaders zero ids 33 to 36; the motion events live in the phrase bytes | should-fix | a version gate, `OCP_VER` 2 and the repack in the conversion (8.1, 9) |
+| 15 | Eviction would make a bank look changed; `RECORD_MAX` is fixed by a queue index | should-fix | clear `bank_pid` and `bank_sig`; no larger store proposed (11.1) |
+| 16 | The RAM margin is 18.5 KB under the working rule, not 35; 7a not subtracted | should-fix | restated (11.2) |
+| 17 | FatFs is not journaled; failed imports; the takes folder | should-fix | recovery rules, immediate sweep, the folder rule (5.3) |
+| 18 | The conversion needs the sample slot claimed first | note | stated (9) |
+| 19 | Known types with high ids soften the door | note | **adopted** (3.1, 10) |
+| 20 | No test plan; backup ids; the two unread documents | note | section 13; section 12 questions 9 and 10 |
+
+## 15. The independent review of 0.3 (October 30, 2026) and what was done
+
+An agent read the changed text against the audio, mix, resource, engine, sample, backup and UI code, checked the arithmetic and went through the owner's Gate 1 list sentence by sentence. It confirmed the code facts (`engine_block`, one state per part by `t - trk`, `track_t` 2,724 B, the pointer-difference lines, `eng_admit`'s comment, the `smp_hdr_t` fields, backup ids 64 to 84), every figure of the flash and entry-size arithmetic, and zero em or en dashes. It found three blockers in the overlap design and fourteen other findings. All are folded in.
+
+| # | Finding | Severity | Fix in 0.3 |
+|---|---|---|---|
+| A1 | "Engines run unchanged on a ghost" is false: `RES_NOTE_HISTORY` sits at `RES_ENGINE0 + NPART`; the accessors use `% NPART`; drum and phys refuse tracks outside `trk[0..NPART)`; the module API; many per-part statics | **blocker** | the work is listed in 6, part 1; the flash line 3,800 becomes 6,500, RAM per ghost 3.6 KB |
+| A2 | How `trk[i]` stays the track after the swap was not said | **blocker** | the ghost is a sound-side copy exchanged at commit, the state by swapping resource ids (6, part 1) |
+| A3 | Free bytes is not a contiguous block; a failed engine allocation makes the effects yield, which shortens DUB TAPE; only the audio owner mutates the arena | **blocker** | a side-effect-free would-fit probe; ghost ids outside the yield path; allocation by request or with the interrupt off; 3 hot sets at most (6, 3) |
+| A4 | Voice loops are `p < NPART`; victim order is by category and age, not ghost-first | should-fix | loops extended; a category 0 for ghost voices; the shed takes them first (6) |
+| A5 | The mix indexes by `% NTRK`; DIST state would advance twice; batch arrays; the ghost's own level and pan are not the strip's | should-fix | the ghost renders into the owning track's pre-DIST buffer and takes the track's strip values (6) |
+| A6 | "The existing 4 block fade" mixes two fades | note | named: `engine_block`'s crossfade for the cut, `voice_kill`'s one-block fade for a ghost (6) |
+| A7 | Static growth cannot fit the 1,992 B tail; the 4 KB block model is uncertain | should-fix | the arrays go in `.pool` at exact size; margins 8.0 KB (G = 2) and 0.8 KB (G = 4); G = 4 not recommended (11.2) |
+| C1 | Only the notes hash was defined | should-fix | a table of what each dependency hashes, two kinds added (arrangement, timing) (8.4) |
+| C2 | Freeze undo lacked the previous active rendition; phrase and track precedence unstated | should-fix | `prev_active` in `TSTA` (16 B), the precedence rule (8.4) |
+| C3 | No bus table anywhere; `ROUT` had no shape | should-fix | the bus table defined here; `ROUT` entry 10 B (8.4) |
+| C4 | "Nothing refers to a track by index" was false | should-fix | lists keep positions in Release 3; `TRKS` maps them to ids; the module engine number is ignored on load (8.4) |
+| C5, C6 | Built-in engines have no version; entry length missing from the head; origin unit for a phrase | note | the firmware build id added (head 46 B); stated (8.4) |
+| D1 | `OCS_PHR` does not exist | should-fix | `OCS_POOL` (5.2) |
+| D2 | `FRZR` is indexed by id, so 64 entries freeze only phrases 1 to 64 | should-fix | each entry carries its phrase id (4) |
+| D3 | Record size and the budget table disagreed; the freeze table is now inside each record | should-fix | the table redone: 27 sectors for one project, 15 for four in the worst case; "about 210 phrases" in the worst case, "about 380" with small records (3.1) |
+| D4 | A missing section 15; stale cross-references; the answers table rows | should-fix | this section; references fixed; rows corrected |
+| D5 | The scene boundary under LOOP; late phrase reads | should-fix | LOOP means BAR for a scene; `SCENE LATE` against `SCENE PARTIAL` (6) |
+| D6 | REC is kept by the lock today and still acts; other buttons close the lock; `layer_allowed` clears it; no STOP button | should-fix | the buttons listed, REC paths inhibited and costed, `kb_perf` cleared with the lock (7, 11.2) |
+| D7, D8 | Eviction and pinning; hot sets of 17.9 KB with 3 slots | note | stated (11.1, 6) |
+
+## 16. The independent review of 0.4 (October 30, 2026) and what was done
+
+An agent read the changes against `voice.c`, `seq.c`, `mix.c`, `ui.c`, `oc_macro.c`, `card_freeze.c`, the built images and UI_BUILD.md, recomputed every figure, and checked the owner's decisions. It confirmed the flash and RAM sums, the budget ladder and the deferral arithmetic, the fade arithmetic (32 x 32 = 1,024 samples = 23.2 ms at 44.1 kHz; the 4 block fade 2.9 ms; ratio 8), `xf` being a u8 with a ramp denominator that can be a field, the block order (the engine switch before the sequencer, the CPU1 snapshot after), the old phrase's note-offs going out at the swap, and zero em or en dashes. It found two blockers and eighteen other findings. All are folded in.
+
+| # | Finding | Severity | Fix in 0.4 |
+|---|---|---|---|
+| B1 | The step 9 "floor" was measured on a switches-off image; the section map is already compiled out of today's image | **blocker** | the floor is dropped (11.2a) |
+| B2 | With B1 the 3,000 B estimate had no evidence; the honest range is 0 to 2,000 | **blocker** | 1,000 B (0 to 2,000); the ladder redone: 7,800 to 10,800 B short, not 5,300 to 8,300; it fits only if three pieces (and, to be safe, the macros) wait (11.2b) |
+| A1 | The boundary is per track and not one instant (`launch_here` is evaluated at step entry); the arm must run mid-step | should-fix | the arm is a per-track predicate run every block from `seq_grid_tick`; `sound_arm` (6) |
+| A2 | Recording tracks and chain or song play follow their own loop end | should-fix | stated as exceptions (6) |
+| A3 | An early fade would commit before the swap; old notes between would play on the new sound; the 4 note queue; no cancel | should-fix | hold at `xf` 0 with `xf_scene`, commit at the swap, drop from every source, cancel on stop, clock loss or a newer scene (6) |
+| A4 | The commit must reproduce a preset load's side effects (kits, FM6 counters, accept hooks); 144 B against 156 B | should-fix | listed; 156 B (6) |
+| A5 | `mac_on` skips a track with `xf_on`: a dial's targets would snap back during the fade | should-fix | macros keep running; dials in the sound table (6) |
+| A6 | `eng_admit` judges module engines only; a joint scene change can fail where each check passes | should-fix | one post-state check over all four tracks, built-ins included, costed (6) |
+| A7 | No evidence the 4 block fade is click free; it runs only on released voices after an engine change | note | stated; a host test and a listen are required (6, 13) |
+| A9 | "Under a third" at 240 BPM is 37 percent | should-fix | corrected (6) |
+| C2 | 7a may be counted twice | note | assumption written (11.2b) |
+| D1 | Conversion's repack changes every frozen phrase's hash, invalidating all freezes | should-fix | hashes recomputed at conversion (9, 13) |
+| D2 | `FRZR` entries carry a unit-local folder index | should-fix | the entry specified, `dir` a recomputed cache (4) |
+| D3 | Conversion never made the uid; no way to tell which copy is newer | should-fix | uid at conversion; a revision counter in `HEAD` (4, 5, 9) |
+| D4 | Only some sections kept unknown trailing bytes | should-fix | every section does (8.4) |
+| D5 | A move is not quite a copy: the generation bits sit inside the record | note | reworded (5.2) |
+| D6 | Without export, OLD FORMAT is thin | note | KB needed named, CLEAR with a confirmation, the restore can meet the same wall (9) |
+| E1 | `SCNS` had no version byte | should-fix | defined in section 4; unknown versions kept and silent (4, 13) |
+| E2 | A late phrase landing alone contradicts "the whole scene waits" | should-fix | the whole scene waits, phrases included; `SCENE LATE` removed (6) |
+| E3 | Empty `PERF` against a default table | should-fix | length 0 means today's PERFORM keys (4, 9) |
+| E4, E5 | Stale lines; the v1 scene layout | note | fixed; v1 defined (3.1, 5, 9, 4) |
+
+## 17. The independent review of 0.5 (October 30, 2026) and what was done
+
+An agent read the diff against `engines.c`, `oc_module.c`, `oc_knobs.c`, `params.c`, `editor.c`, `voice.c`, `project.c`, BUILD.md, ENGINE_LOADING_PLAN.md, FX_MODULES_PLAN.md and MODULE_FORMAT_R3.md. It confirmed every sum of the ladder and of both tables, the 23,236 B figure and its older base (466,680 against 489,916 B), the module geometry (WHEEL 4, SHAPES 6, the Prophet 8 of 12 sectors; SHAPES and the Prophet cannot both fit), that `eng_req` is kept through save and load, that SHAPES-out frees no RAM, and the absence of em and en dashes.
+
+| # | Finding | Severity | Fix in 0.5 |
+|---|---|---|---|
+| 1 | The stack assumes SHAPES and the effect modules are installed together; the module area (12 sectors) cannot hold them without step 0's start grid | **blocker** | a second, sector budget stated as the open condition; the claim is that the image bytes are freed either way; open item (g) (11.2b, 12) |
+| 2 | Four places still said the instrument reference is keyed by module id, one saying the engine number is ignored on load | should-fix | all rewritten to the slot-number rule (4, 8.4, 8.2) |
+| 3 | "Silent" is not a behavior change (the audio path has no fallback); the real new work is the name table, the display, the edit gate, the messages | should-fix | 8.2 states what the code does; row raised from 300 to 600 B; total 28,600 B |
+| 4 | SHAPES-out also compiles out `KD_SHAPES_ENG`: the module loses its HOME knobs and macros; the capability bit changes | should-fix | stated, open item (h) (11.2b, 12) |
+| 5 | Conversion rule for engine 14 inconsistent (header version or 0) | should-fix | one rule: version 0 means any, never raises `MODULE VERSION`; the SHAPES-in upgrade noted (9, 8.2, 12) |
+| 6 | Scene recall rewrites the reference, but 8.2 said only REPLACE does | should-fix | both named; test 14 extended (8.2, 13) |
+| 7 | A module vanishing after the fade armed would leave the track held silent; the arena sum for a kept sound | should-fix | the drop cancels the hold; the sum counts the current state (6) |
+| 8 to 11 | Section 17 missing; the closed list unmarked; "central case" mislabeled (low end of the module range); RAM not improved | note | fixed (this section, 12, 11.2b) |

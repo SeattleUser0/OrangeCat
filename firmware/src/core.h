@@ -120,9 +120,9 @@
                                    * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
 #endif
 #ifndef OC_SHIFT_MAP
-#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3) 1: HOME is SHIFT (ui_shift.c):
-                                   * held alone its map, let go the MENU; SHIFT + a knob fine, + PRESETS the engine, + EDIT init;
-                                   * 0: HOME held opens the MENU at 0.7 s as release-2's */
+#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3; ui-fix 6) 1: HOME is SHIFT
+                                   * (ui_shift.c): SHIFT + a knob fine, + PRESETS the engine, + EDIT init, + OCT copy and paste; held alone
+                                   * 0.7 s the MENU (the map of step 3 withdrawn by the owner, October 31, 2026); 0: HOME as release-2's */
 #endif
 #ifndef OC_STEP_PAGES
 #define OC_STEP_PAGES 0           /* (the new interface 0.4, branch ui-build: docs/orangecat/UI_BUILD.md step 4) 1: the step pages: NOTES' knobs PITCH START
@@ -147,7 +147,7 @@
 #endif
 #ifndef OC_CLIP
 #define OC_CLIP 0                 /* (the new interface 0.10, branch ui-build: docs/orangecat/UI_BUILD.md step 10) 1: SHIFT + OCT- / OCT+ copy and paste the selected
-                                   * track's sound (ui_clip.c); 0: the map says LATER, as release-2's */
+                                   * track's sound (ui_clip.c); 0: SHIFT + OCT says LATER (a message), as release-2's */
 #endif
 #if OC_CLIP && !OC_MIXER
 #error "OC_CLIP needs OC_MIXER (each step of the new interface ships behind the one before: UI_BUILD.md)"
@@ -158,6 +158,23 @@
 #endif
 #if OC_CLIP_SEL && !OC_CLIP
 #error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
+#endif
+#ifndef OC_ONE_AUTH
+#define OC_ONE_AUTH 0             /* (ui-fix 7, branch ui-fix: docs/orangecat/UI_BUILD.md "ui-fix 7") 1: one authority for every note: a
+                                   * recorded step's events are the notes and the overview a cache (recording.c recording_reconcile at the
+                                   * load boundaries; every manual gesture on a recorded cell deletes its events through the history; START
+                                   * converts a manual note; a key on a recorded step replaces it); 0: as 0.16.0 */
+#endif
+#if OC_ONE_AUTH && !OC_STEP_PAGES
+#error "OC_ONE_AUTH needs OC_STEP_PAGES (UI_BUILD.md ui-fix 7)"
+#endif
+#ifndef OC_SLIDE
+#define OC_SLIDE 0                /* (ui-fix 8, branch ui-fix: docs/orangecat/UI_BUILD.md "ui-fix 8") 1: a step's SLIDE is a legato glide in every
+                                   * voice mode, for manual steps (seq.c seq_slide_voice) and recorded notes that overlap (recording.c); ENV +
+                                   * KNOB 4 sets it on a recorded step too, the roll draws it; 0: as 0.16.0 (a true slide on a LEGATO track only) */
+#endif
+#if OC_SLIDE && !OC_STEP_PAGES
+#error "OC_SLIDE needs OC_STEP_PAGES (UI_BUILD.md ui-fix 8)"
 #endif
 #if OC_LANES
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */

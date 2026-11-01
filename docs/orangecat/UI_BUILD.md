@@ -1,9 +1,10 @@
 # Orange Cat: the new interface (build log)
 
-**Version:** 0.8
-**Date:** October 29, 2026
-**Branch:** ui-build (Session C), cut from release-2 e1c8ac3 with ui-design 8dc42a4 merged in. Not on release-2, not on
-main, not on the unit.
+**Version:** 0.9
+**Date:** October 31, 2026
+**Branch:** ui-fix (Session C), from linux-hw c27dc5c, after ui-build (cut from release-2 e1c8ac3 with ui-design 8dc42a4
+merged in) was merged into linux-hw and published as Nightly v0.16.0-cb5048. The ui-fix work is the section "ui-fix
+(October 31, 2026)" at the end.
 **Tracks:** docs/orangecat/UI_DESIGN.md 0.4 (the owner's decisions of October 29, 2026).
 
 This file is the build log of the new interface: what is done, what is left to build, what is left to test. It merges
@@ -11,6 +12,10 @@ into BUILD.md when the interface merges (Session A owns BUILD.md; this branch do
 BUILD.md: **Done**, **In progress**, **Not started**, **Blocked**.
 
 Revisions:
+- 0.9 (October 31, 2026, branch ui-fix): the owner's findings after Nightly v0.16.0: the FX button round every effect page
+  (1), PRESETS on CHAIN for every chain (2), SHAPES' picture moving with its knobs (3), the effect pages in the owner's
+  order (5), built; LFO 2 (4), the SHIFT map's removal (6), one authority for every note (7) and slide and legato (8)
+  designed for review; the baseline and the budget measured on linux-hw with CI's build step (budget revision 0.9).
 - 0.8: steps 4 (the step pages, OC_STEP_PAGES), 5 (DRUM-X's LANES table, OC_LANES) and 6 (the mixer's colors, OC_MIXER) built, reviewed
   and merged: the designs as built, the reviews' findings, flash and RAM, the budget table with the measured costs; step 7a, 8 and 9
   not built (see "Where the plan stops"); the hardware checks 13 to 18; the decisions.
@@ -759,7 +764,7 @@ after the DRUM map block passes from a clean start); step 3 adds none. `ui_rende
 ui_renders_shift pass; the one failure is release-2's own "target cost of the render loops" (`dxe_post_sides`,
 `pl_osc_render` over their budgets on this toolchain, failing identically on release-2 e1c8ac3: Session A's item).
 
-**Mockups:** `shift_sheet.png` (the map on HOME, a sheet, SEQ's page, and HOME on DAY), `shift_map_home.png`,
+**Mockups (removed by ui-fix 6 with the map):** `shift_sheet.png` (the map on HOME, a sheet, SEQ's page, and HOME on DAY), `shift_map_home.png`,
 `shift_map_sheet.png`, `shift_map_seq.png`, `day_shift_map_home.png`.
 
 ### Left for later from step 3
@@ -949,7 +954,7 @@ empty), NOTES' strip and both maps in 8 palettes: 0 lint findings, 0 MONO pixels
 
 **The mockups (docs/orangecat/ui/new/, NIGHT unless named):** `step4_sheet.png` (the contact sheet), `step4_feel_set.png`,
 `step4_feel_k1.png` .. `step4_feel_k4.png`, `step4_feel_range.png`, `step4_feel_play.png`, `step4_feel_empty.png`,
-`step4_notes_rec.png`, `step4_notes_manual.png`, `step4_notes_none.png`, `step4_shift_map_feel.png`, `step4_shift_map_notes.png`,
+`step4_notes_rec.png`, `step4_notes_manual.png`, `step4_notes_none.png`, `step4_shift_map_feel.png` and `step4_shift_map_notes.png` (the two map screens removed by ui-fix 6),
 `day_step4_feel_set.png`, `day_step4_notes_rec.png`.
 
 ## Step 5: EDIT > LANES
@@ -1082,7 +1087,7 @@ Run by `run_tests.sh` (job in step_pages_job); the renders gained `-DOC_CLIP=1`.
 | 9 | Copy on a retired engine says copied | note | refused at copy |
 | 12 | Test gaps (native patches, undo contents, merge case, guards) | should-fix | 5 checks added; not covered: the `eng_admit` refusal (needs a module in the test) and a clip of a removed module |
 
-**Mockups:** `step10_shift_map_home.png`, `step10_shift_map_sheet.png`, `day_step10_shift_map_home.png` (0 lint findings, 0 off-gray MONO).
+**Mockups (removed by ui-fix 6 with the map):** `step10_shift_map_home.png`, `step10_shift_map_sheet.png`, `day_step10_shift_map_home.png` (0 lint findings, 0 off-gray MONO).
 
 **Flash and RAM (CI build options).** Image 558,784 B (+912 B over steps 1 to 6, estimate 1,000); .data+.bss 95,256 B (+752); data SRAM tail
 3,048 B; the arena line reads 84,064 B. Free of 577,248 B: **18,464 B, 10,272 B above the 8,192 B reserve.**
@@ -1128,7 +1133,7 @@ and nothing-copied cases. Run by `run_tests.sh`; the renders gained `-DOC_CLIP_S
 
 What the rebuild still clears (nudge, ratchet, condition of a rebuilt recorded step) is release-2's behavior for a move as well.
 
-**Mockups:** `step11_shift_map_notes.png`, `step11_shift_map_feel.png` (0 lint findings, 0 off-gray MONO).
+**Mockups (removed by ui-fix 6 with the map):** `step11_shift_map_notes.png`, `step11_shift_map_feel.png` (0 lint findings, 0 off-gray MONO).
 
 ## Flash budget (October 29, 2026, after the merge of release-2 876955a)
 
@@ -1320,8 +1325,9 @@ On a build with both switches (`OC_HOME_PIC=1 OC_EDIT_SHEETS=1`), step 2:
 10. **EDIT held (undo) and EDIT with OCT** on a sheet, and the layers (GLO, SCL held) over a sheet: as release-2.
 
 On a build with every switch (`OC_SHIFT_MAP=1` too), step 3:
-11. **HOME by hand**: taps step HOME's pages; held alone the map at 0.7 s and the MENU on the release; a hold closes the
-    MENU and the release leaves it closed; SHIFT + each knob, PRESETS, EDIT, OCT on HOME, a sheet and SEQ.
+11. **HOME by hand** (as ui-fix 6 has it: the map withdrawn): taps step HOME's pages; held alone the MENU at 0.7 s with HOME still down;
+    a hold closes the MENU and the release leaves it closed; SHIFT + each knob, PRESETS, EDIT, OCT on HOME, a sheet and SEQ, each begun
+    within 0.7 s of HOME's press.
 12. **The panel's own scan** under SHIFT: HOME and EDIT (or OCT) pressed in the same scan, released in the same scan; a
     knob nudged while HOME is held (the MENU is cancelled and the value shows).
 
@@ -1334,7 +1340,7 @@ On a build with every switch through step 4 (`OC_STEP_PAGES=1`), step 4:
     with 16 tiles, no late audio halves).
 15. **The tracker's chord length**: KNOB 4 in a note column of a manual chord stopped (one undo), and while playing (the whole chord, with
     its message).
-16. **SHIFT on NOTES and FEEL**: + PRESETS stretches, + EDIT deletes or resets (and refuses while a chain runs), + a knob; the map's tiles.
+16. **SHIFT on NOTES and FEEL**: + PRESETS stretches, + EDIT deletes or resets (and refuses while a chain runs), + a knob.
 On `OC_LANES=1`, step 5:
 17. **DRUM-X's LANES table**: PRESETS and a struck key pick a lane; the four knobs edit it; the sheets' tabs; the screen on the panel in
     every palette (the bars' contrast); the frame time while a pattern plays.
@@ -1459,3 +1465,594 @@ this, each behind its own switch with `tests/recording_props_test.c` as its gate
 - Budget: estimates raised after each measured miss; the arena rule restated with CI's options (UI_BUILD "Budget revision 0.7").
 - Step 7a, 8 and 9 not built (see "Where the plan stops"); no default of any switch changed.
 - `git push` of a03cea8 (the release-2 merge, after its suite passed) to origin/ui-build before steps 4 to 6 were suite-tested.
+
+## ui-fix (October 31, 2026): the owner's findings after Nightly v0.16.0
+
+**Branch:** ui-fix (Session C), from linux-hw c27dc5c, the line of Nightly v0.16.0-cb5048 (ui-build merged at b401b03).
+The ground rules above hold: everything new behind a switch (the switch of the step it belongs to, or its own), none of
+Session A's files touched, builds niced and one at a time, host tests, the full suite with CI's settings, linted mockups,
+flash and RAM against the baseline, an independent review of every design note and of every diff. The owner's list, in
+his order: bugs 1 to 4, the design calls 5 and 6, the sequencer 7 and 8. Each item: what was found, what was done or
+designed, its review, its tests, its cost; the budget table (revision 0.9) after item 8; what waits on Session A's unit
+test; the decisions.
+
+**The baseline, measured** (tools/hw/ci_step.py build: CI's own build step with the six switches of
+tools/orangecat_engines.sh on, OC_CLIP and OC_CLIP_SEL off; 1 min 29 s niced):
+
+| Measure | linux-hw c27dc5c |
+|---|---|
+| Image | 558,596 B of 577,248: **18,652 B free, 10,460 B above the 8,192 B reserve** |
+| RAM .data+.bss | 94,536 B of 98,304 |
+| Data SRAM tail | 3,768 B |
+| Audio working arena | 84,032 B (minimum 49,152; the rule: stop below 65,536) |
+| Asset pack | 40,845 B (115 B of the 40,960 B area left) |
+
+### ui-fix 1: the FX button reaches every effect page (done)
+
+**Found.** ui.c open_family: FX from any page but the family's first jumped to the first page ("the track's rack",
+Felucca 0.8's rack navigation, 4182267); only from the first page did it step on. So FX showed the sends, then DIST, then
+the sends again: two pages of fifteen. Release-2 had the same code; the sheets did not change it.
+
+**Done** (OC_EDIT_SHEETS): FX from outside the family lands on its first page; on an effect page it goes to the next,
+round every visible page and back to the first. EDIT's link into the effect pages, SELECT down them and EDIT on to Voice
+are as step 2 built them.
+
+**Test:** tests/sheet_test.c FXWALK: from HOME, FX lands on the first page; fifteen taps visit the fifteen effect pages
+in the family's order and come round; from a sheet, FX lands on the first page.
+
+### ui-fix 2: every chain reachable from CHAIN (done)
+
+**Found.** On CHAIN nothing picks which chain the selected track plays: KNOB 1 is the step, KNOB 2 the track, KNOB 3 the
+step's phrase, KNOB 4 its REPS, and each reaches 0 (checked on the host). Only SONG's OCT+ moved a track onto another
+chain. On a new project the four tracks sit on chains 01 to 04, so a knob turned to find a chain walks the chips 01, 02,
+03, 04 and stops: "will not go below chain 4". That is the reading taken (the decisions).
+
+**Done** (OC_STEP_PAGES): PRESETS on CHAIN takes the selected track to the next or previous chain, 01 to 64, held at the
+ends, through ocl_go_chain as SONG's OCT+ does (stopped: at once; an empty chain gets a new empty phrase, ready to
+record); with the chains or the song playing: "STOP TO EDIT CHAIN". The message "T1 CHAIN 05" says where it went and the
+chain's steps show at once. PRESETS was free on CHAIN, and it is the step pages' pattern (PRESETS picks the page's own
+thing: the step on NOTES and FEEL, the lane on LANES).
+
+**Test:** tests/step_pages_test.c CHAIN: up to 64 and down to 01, held at the ends; refused while playing; per track;
+SONG's cells untouched.
+
+### ui-fix 3: SHAPES' picture moves with the knobs (done)
+
+**Found.** The cat's tail (K2 COLR, green: "the green hand") moved 13 px between COLR's ends and swayed 4 px; the paw
+(K4 PLUCK) turned 14 degrees over PLUCK's travel; the yarn's size never changed. The scene's bindings were timid.
+
+**Done** (the scene bytes in oc_scenes.h: the pack's trailer, not the image): every part moves with its knob's position,
+in size and in speed. The yarn (K1 TIMB) grows from 10 to 38 px across TIMB and rolls at TIMB's rate (PH1); the tail (K2
+COLR) lies along the floor at COLR's left end and stands up, curled over, at its right (the tip rises 24 rows), and the
+tip flicks at COLR's rate (PH2: slowly over, then back); the moon (K3 TONE) fills to 24 px; the paw (K4 PLUCK) rises
+through 70 degrees each side of its middle (140 end to end) over PLUCK's travel and swats through 80 on a note; the eyes follow the yarn twice as far.
+
+**Tests:** tests/home_pic_test.c MOVES: on SHAPES each knob's two ends differ by 347 to 715 picture pixels, each above a
+bar set over the old scene's readings (400, 330, 600, 400); with the knobs at rest the picture differs by 239 px 300 ms apart (the flick, the roll). HIT (379 px on a
+note-on) and BUDGET pass as before. ui_render.c: the SHAPES screens in every palette, 0 lint findings.
+
+**Mockups:** docs/orangecat/ui/new/fix3_shapes_sheet.png (as loaded; each knob at its left and right end; a note; every
+knob turned; DAY) and the home_pic_shapes_* screens made again.
+
+### The diff review of ui-fix 1, 2, 3 and 5 (an independent agent, October 31, 2026)
+
+Found correct: open_family's switch-off body byte for byte release-2's, the generic branch's wrap and skipping of
+hidden pages, every caller of open_family(FAM_FX), the PRESETS dispatch order with every switch on or off, the forward
+declaration and the include order, pt_chain_turn's clamp, guard and message buffer, the untouched song row, the PG_FX
+macros (the same entries, release-2's order with the switch off), nothing keyed to an effect page's index, the scene's
+bindings against scene_ok (four BINDs at most, the point indexes, PH2 filled per knob, nothing leaving the box, +8 B in
+the trailer), the fxorder render block, and that FXWALK and CHAIN fail with the fix reverted (FXWALK would read "2 taps
+round"). Found and fixed:
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 4 | pt_chain_turn said "STOP TO EDIT CHAIN" for ocl_go_chain's 2, which after the busy guard is a flash error (song_go says "SAVE ERROR") | should fix | the 2 falls to "SAVE ERROR" |
+| 16 | MOVES' 200 px bar is cleared by the old scene on knobs 2, 3 and 4 (307, 475, 333 px) and at rest (261): it guarded the tail only through knob 1 (190) | should fix | a bar per knob above the old readings (knob 1 400, 2 330, 3 600, 4 400), the old readings in the test's comment |
+| 14 | The yarn spans 17 to 31 px, not 10 to 38: SF_R is a diameter and a centered source gives half the depth | should fix | depth 28: 10 to 38 px, as the note says |
+| 13 | The paw's 70 degrees is each side of its middle: 140 end to end | minor | the comment and the note say so |
+| 20 | "greys" | minor | "grays" |
+
+### ui-fix 4: LFO 2 (design note, before its review)
+
+**Found: it is how the code was inherited, not the sheets.** Melodee (Felucca 1.4) has one LFO a track: RATE, WAVE, PHS
+and FADE on the LFO page, and that LFO's SYNC, TRIG and POL on a page named "LFO 2" (params.c; voice.c track_lfo_tick;
+the state lfo_ph, lfo_val, lfo_fade, lfo_rnd, lfo_prev in track_t). The Mod sheet lists the pages as they are (LFO, LFO
+2, LFO DEST, MOD). No second LFO exists anywhere in the firmware; SPEC.md 9.1's "two LFOs per synth track" was a
+proposed target that was never built. "LFO 2" was Felucca 1.2's name for LFO 1's second page.
+
+**Design: a second LFO a track, behind OC_LFO2.**
+1. **Seven parameters,** appended just before P_E0 as core.h says new common parameters go ("user presets and projects
+   map by count"); P_COUNT 124 to 131: `P_L2RATE` (RATE, F_LFOHZ 0 .. 127, default 60, as LFO 1's), `P_L2WAVE` (WAVE: SIN
+   TRI SAW SQR S&H), `P_L2SYNC` (SYNC: OFF, 4BAR .. 1/32), `P_L2TRIG` (TRIG: NOTE, FREE), `P_L2POL` (POL: BI, UNI),
+   `P_L2DST` (DEST: OFF, PITCH, CUT, SHP, AMP, PAN, RATE, VIB, E1 .. E8: the matrix's destinations but DEPTH), `P_L2AMT`
+   (AMT -64 .. 63). Defaults DEST OFF, AMT 0: a loaded sound sounds as it did.
+2. **Pages:** today's "LFO 2" renamed "LFO SYNC" (it is LFO 1's); after LFO DEST, "LFO 2" (RATE WAVE DEST AMT) and "LFO 2
+   SYNC" (SYNC TRIG POL); then MOD. The Mod sheet gains two rows; the LFO button visits them.
+3. **The audio side, in mod.c** (the matrix's file; nothing in voice.c, mix.c or an engine): per-track state outside
+   track_t (`lfo2[NTRK]`: phase, value, the S&H value and the cycle before's: 14 B each, 56 B of .bss), so the module
+   interface identifier (gen_fw_api_id.py hashes track_t's text) does not move for the state. Ticked once a block at the
+   top of mod_begin (both the reference and the cached path), only while used (DEST with AMT, or a matrix slot with SRC
+   LFO2); unused, no work, the phase holds. The waves as LFO 1's (its own copy of lfo_wave's shapes: that one reads LFO 1's
+   state), the synced increment as lfo_sync_inc's with P_L2SYNC. TRIG NOTE: in mod_note (voice.c calls it on every
+   note-on) when no voice of the track holds its gate, the phase restarts (LFO 1's "fresh phrase" rule). POL UNI as LFO 1's.
+4. **The matrix:** MS_LFO2 appended to the sources (N_MSRC "LFO2"), bipolar; mod_tsrc returns its value. **Its own
+   destination** is a fifth, implicit slot: the loops of mod_begin and mod_route_prepare read slot k through one accessor
+   (k < 4: P_M1SRC + 3k; k = 4: SRC LFO2, P_L2DST, P_L2AMT); the arrays of `mod` and `mod_route_t` get one entry more
+   (about 20 B of .bss, and the batch copy mix.c makes of `mod` grows with it). DEPTH is refused on the fifth slot (a
+   matrix slot can still route LFO 2 into LFO 1's depth).
+5. **Cost:** off, one compare more a block (the active-slot scan sees AMT 0). On: a tick (a table read, an add, a
+   compare) and one slot's terms. tests/mod_test.c's cost check bounds it; the macros' rule applies: Session A times it
+   on the unit before a merge into release-2. Flash about 1,200 B (the tick 200, the fifth slot and the source 350, two
+   pages and seven descriptors 250, the names 60, the by-count and np rules 100, the rest inlined); RAM about 80 B of
+   .bss; 14 B a track in the stores.
+6. **Motion** records the seven as it records LFO 1's (motion_param). **The editor:** ED_INFO reports P_COUNT 131 and
+   P_E0 123; dumps carry 131 values; the web app (Session D) reads both from INFO (model.js), and web/app/lib/layout.js
+   is generated from tests/app_layout.c (gen_layout.mjs): generated again, seven values more in its tables. **Modules**
+   read their eight parameters at P_E0 as compiled (tools/module/*.c), so P_E0 moving means every module is rebuilt
+   with the firmware: the Nightly's set carries them; the interface identifier is made to move with it (the enum's text
+   added to gen_fw_api_id's hash), so an old module is refused instead of reading the wrong parameters.
+
+**The format consequence, which decides when.** User presets and projects map parameters by count: a record written
+before carries np 124 and loads with LFO 2 at its defaults, off: **old projects and sounds keep their music exactly.** A
+record written by this firmware carries np 131, and **a firmware without LFO 2 refuses it:** project.c proj_unpack
+refuses a PROJ_MAGIC record whose np is not its own P_COUNT ("PROJECT DOES NOT READ"), and oc_pool.c ocp_parse refuses a
+phrase record whose np is above its P_COUNT (the phrase and its notes gone from the list). So a project saved on a
+Nightly with LFO 2 is unreadable on Standard 0.16.0: the one-way door PROJECT_FORMAT_R3.md section 10 is written for
+(with the installer page's part in it), and its section 8.2 is where new built-in parameters are appended. The proposal:
+**write np 124 while LFO 2 is unused** (the phrase's np names its motion ids: 124 unless a lane is on a new id; the
+project's np names its values: 124 unless a track's seven differ from the defaults, else 131). A project that never
+touched LFO 2 goes back to Standard as before; one that uses it cannot, and the installer page should say so when it is
+built (Session D). **The one question for the review and the owner: ship LFO 2 on the Nightly behind OC_LFO2 with that
+rule, or hold it for the Release 3 format revision.** The safer reading until the owner answers: design only, and the
+misnamed page renamed now ("LFO SYNC", under OC_EDIT_SHEETS: no bytes, no format).
+
+**Tests when built:** tests/mod_test.c (off is bit-identical to no LFO 2; each wave; SYNC at a division; TRIG; UNI; the
+fifth slot alone and with a matrix slot on LFO2; the cost), a store test (an old record loads with LFO 2 off; a new one
+keeps the seven; np 124 while unused and 131 once used; an old firmware's parser refusing 131 is documented, not
+tested), sheet_test (the rows), ui_render (the three pages), the web tests (layout.js generated again).
+
+**The design review of ui-fix 4** (an independent agent, October 31, 2026). The finding confirmed (one LFO a track;
+"LFO 2" was Felucca 1.2's name for the second page, so "named to mislead" is softened). The design as written **cannot
+be built:**
+
+| # | Finding | Severity | What is done |
+|---|---|---|---|
+| 2 | Parameter ids travel as one 7-bit byte: the editor protocol, motion's native-id scheme, the user preset record; four static asserts (motion.c, upreset.c, project.c's P_COUNT == 124 "a new magic and a conversion") and proj_pack's refusal above 127. Only three ids can ever be appended; seven cannot | blocker | LFO 2 waits for the Release 3 format revision, which must widen the ids (an R3 item added to the note for PROJECT_FORMAT_R3.md 8.2) |
+| 4 | An alternative with no door: five parameters on the reserved ids 33 .. 36 and 48, zeroed on load by every firmware | should fix | **not open:** 33 .. 36 are the knob macros' P_MAC0..3 (the owner's decision 6; zeroed on load only until the format revision, the bake); P_RESERVED48 alone is free, and one id carries no LFO |
+| 3, 6, 7, 8 | The new firmware's own gate would refuse np 124 projects unless relaxed; templates derive their count from a fixed list and would be lost at the upgrade; user presets accept a wider record (UP_PMAX 72) and drop the extras, so the blanket "refused" was wrong for presets; the real messages are "OLD FORMAT" and "PHRASE DOES NOT READ" | should fix | the format paragraph corrected; all part of the R3 design when it is taken up |
+| 10, 11, 12, 13, 14, 15, 16, 18 | The audio side: the tick before the early return and folded into the slot scan; a foreign track_t indexed by `t - trk` out of range; a one-block skew against LFO 1; the fifth slot touches eight sites and needs a DEST to MD_* map; the UNI treatment at four sites; mod_note runs before the gate scan; the synced increment's cache is voice.c's; tests/target_budget.txt bounds mod_begin's size at 158 B | should fix | kept with the design for R3 (its audio side holds with these changes; "nothing in voice.c" does not: the sync cache) |
+| 19, 20, 21, 22, 23 | RAM about 142 B not 80, flash 1,400 to 1,600 B; motion's whitelist is explicit (RATE and AMT would be named); the web editor mock hard-codes P_COUNT and P_E0 (editor.html, test_web.mjs) beyond layout.js; the interface identifier must hash the enum text (track_t's layout moves anyway); ui_designer.c skips the page by its title and dims a FAM_LFO knob by LFO 1's state | minor | the numbers corrected; the rename updates ui_designer.c's skip list |
+
+**Decision (ui-fix 4):** design only; LFO 2 rides the Release 3 format revision. Done now (OC_EDIT_SHEETS): the page
+"LFO 2" is renamed "LFO SYNC" (and ui_designer.c's skip list with it), so the Mod sheet reads LFO, LFO SYNC, LFO DEST,
+MOD and no one looks for a second LFO that is not there.
+
+### ui-fix 5: the effect pages' order (done)
+
+**The owner's order** for the FX button and the sheets' FX link: the track's own effects first, DUB TAPE at the top (the
+one that is played), then DIST, AUTO PAN, then the track's sends, then the shared DELAY, REVERB, CHORUS, then SLICER,
+then MASTER last. **Done** (OC_EDIT_SHEETS; params.c's PAGES table, the same entries in the new order): DUB, DUB 2, DUB
+SETUP, DIST, AUTO PAN, FX (the sends), DELAY, DELAY 2, DELAY 3, REVERB, REVERB 2, CHORUS, SLICER, SLICER 2, SL PITCH 1 to
+4, MASTER. Without the sheets the table is release-2's. Nothing in the firmware, the tests or tools/hw is keyed to an
+effect page's index (checked); page_first(FAM_FX), the sheets' link and the FX button's landing page are DUB now.
+
+**Mockups:** docs/orangecat/ui/new/fix5_fx_order_sheet.png (the fifteen visible pages as fifteen FX taps reach them)
+and fxorder_NN_<title>.png; ui_render.c draws them in every palette (0 lint findings) and fails if a tap lands out of
+order.
+
+### ui-fix 6: the SHIFT map goes (design note, before its review)
+
+**What goes.** The map over the page (ui_shift.c shift_draw and SHIFT_TILE, the header's SHIFT chip, ui_draw.c's
+branch) and the map state (SHF_MAP). **What stays:** HOME as SHIFT from its press and every combo exactly as built: a
+knob a fine turn; PRESETS the engine on HOME's pages, STRETCH on NOTES and FEEL; EDIT the init confirm on HOME's pages
+and the sheets, DELETE on NOTES and FEEL; OCT- and OCT+ copy and paste where steps 10 and 11 are built in, "LATER"
+otherwise; any other control its own job (and no MENU for that press).
+
+**HOME held opens the MENU at 700 ms, held** (release-2's own path through btn_hold's BT_HOLD and page_tap's menu
+toggle), not on the release: step 3 opened it on the release only so that the map could show first; with no map there
+is nothing to wait for, and "HOME held opens the MENU" is the owner's words. A combo made before 700 ms cancels the
+MENU for that press (as now); once the MENU is open the knobs are the MENU's (as now); let go before 700 ms with nothing
+touched: a tap, HOME's pages (as now). SHIFT + EDIT's confirm coming up while HOME is held: no more combos, no MENU, no
+tap (as now).
+
+**Saved:** the tile table (144 B) and the drawing: **880 B measured** (the review's 0.7 to 1 KB). **RAM:** 0. **Tests:**
+shift_test.c HOLD becomes "the MENU at 700 ms held, nothing on its release" and DRAW goes; the rest as they are
+(sheet_test, step_pages_test, clip tests unchanged). ui_render's three map screens go, and the map mockups (shift_map_*,
+step4_shift_map_*, step10_*, step11_*) are removed from docs/orangecat/ui/new. The switch keeps its name (OC_SHIFT_MAP:
+HOME as SHIFT and its combos).
+
+**The design review of ui-fix 6** (an independent agent, October 31, 2026): the state machine holds (a tap, a hold alone,
+a combo before 700 ms, a confirm under SHIFT, a second hold with the MENU open: each traced through shift_input and
+btn_hold), the MENU's knobs are untouched (ui_input returns at the MENU gate before any SHIFT knob code), the step-3 tap
+race cannot recur (the MENU opens only from a press btn_hold saw held). Found, and taken into the build:
+
+| # | Finding | Severity | What is done |
+|---|---|---|---|
+| 1 | BT_HOLD must pass through after the pass's combos are handled, else an EDIT or OCT edge on the hold's own pass would both open the MENU and reach its own path (hardware check 12's case) | should fix | the pass-through is the last thing shift_input does: BT_HOLD only with SHF_COMBO clear |
+| 5 | tests/clip_test.c's MAP check reads SHF_MAP: the clip job would not compile | blocker | the check becomes "HOME held alone opens the MENU" |
+| 6 | ui_render.c draws five map screens (the step-4 block's shift_map_feel and _notes too), not three | should fix | all five removed, the report lines and run_tests.sh's texts with them |
+| 7 | SHF_FINE's value 8 is read as a literal in accel_by: renumbering the enum would break the fine turn; more removals: shift_map_on, shift_menu_open, head_chip_text's SHIFT, draw_page's branch, the comments in core.h, build.py, ui_input.c | should fix | SHF_FINE keeps 8 with a static assert (sh_st is declared before ui_shift.c is included, so accel_by keeps its literal); every site listed removed or reworded |
+| 8 | shift_test's TAP and CLOSE read shift_map_on; HOLD's expectation changes | should fix | rewritten: the MENU set at 700 ms with HOME still down, nothing on the release |
+| 9 | 11 map mockups, not 7 (shift_sheet.png, day_shift_map_home.png, day_step10_shift_map_home.png too); the earlier mockup lines of this file then point at removed files | should fix | twelve removed (the review's eleven and step4_shift_map_notes.png); the lines of steps 3, 4, 10 and 11 marked "removed by ui-fix 6" |
+| 10 | PLAY_LIST.md and UI_DESIGN.md (decision 4, the controls table, section 1, the page table, the plan) describe the map; hardware checks 11, 12, 16 say "the map"; tests/ui_mockup.c draws the design's map | should fix | UI_DESIGN.md 0.5: decision 4 reversed by the owner on October 31 (the map withdrawn, HOME as SHIFT kept); PLAY_LIST.md is Session A's (noted "For Session A"); checks 11 and 16 reworded, check 25 added; ui_mockup.c's map is the design history, left |
+| 11 | A combo begun after 700 ms is gone: today the map waited for it, now the MENU is open and a late knob's detents move the MENU on the release | should fix (wording; the owner's call) | said plainly in the note and in the decisions: the combo window is 700 ms from HOME's press |
+| 2, 3, 4 | The MENU's knobs; the race; 700 ms | OK | the note's text corrected ("as release-2", not "as now") |
+| 12, 13 | 0.7 to 1 KB, not "about 1 KB"; the switch's comments say "its map" | minor | measured when built; the comments reworded |
+
+**The plain change for the owner (review 11):** with the map, a combo could begin at any time while HOME was held;
+now a combo must begin within 700 ms of HOME's press (the MENU is open after that, and a knob turned then moves the
+MENU when HOME is let go). "HOME plus a knob or button" read as pressed together or within 0.7 s. For the owner to
+feel (check 25).
+
+**The design as built (ui-fix 6).** ui_shift.c: the map, its state (SHF_MAP), shift_map_on, shift_menu_open, SHIFT_TILE
+and shift_draw are gone; shift_input handles the pass's combos first and returns btn_hold's BT_HOLD only when no combo
+was made, so page_tap opens the MENU at 700 ms with HOME still down (release-2's path); the next pass sees the MENU
+(shift_clean false), marks the press as used, and the release does nothing. SHF_FINE keeps the value 8 (a static assert:
+accel_by reads it as a literal). ui_draw.c's two hooks and the SHIFT chip are gone; the comments in core.h, build.py and
+ui_input.c say "HOME as SHIFT and its combos". Tests: shift_test's TAP and CLOSE no longer read the map, HOLD checks no
+MENU at 480 ms and the MENU at 700 ms held, the release leaving it open, and LATE (new) that a knob turned after the MENU
+opened moves nothing on the page; clip_test's MAP check became MENU; ui_render's five map screens are gone (the step-3
+block and the two of step 4); run_tests.sh's texts; the twelve map mockups removed from docs/orangecat/ui/new (the
+earlier mockup lines of this file say so); UI_DESIGN.md 0.5 records decision 4 reversed; hardware checks 11 and 16
+reworded, 25 added. PLAY_LIST.md (Session A's, BUILD 7.20) still describes the map: listed under "For Session A".
+
+**The diff review of ui-fix 6** (an independent agent, October 31, 2026): every case traced holds (a tap, a hold, each combo
+inside and on the 700 ms pass, the confirm, a second hold with the MENU open, a press over a held control, the edge-only
+tap); the removed symbols are gone from the code and the ELF; the docs no longer describe the map as live; the image matches
+the budget line. Found: no test pinned the pass-through's order (a mutant with it placed first passed every check): the EDGE
+check added to shift_test.c passes on the tree and fails on the mutant; two `frames()` calls that were no-ops (the
+millisecond helper) made `wait_frames`; a dead `w == 11u` in ui_render.c; OC_CLIP's comment in core.h still said "the map";
+two cells of the table above corrected (SHF_FINE's literal, twelve mockups). Noted, not changed: a knob detent on the very
+pass of 700 ms is the MENU's (a 16 ms race inside the stated window).
+
+### ui-fix 7: one authority for every note (design note, before its review)
+
+**The owner's requirement** (SPEC.md 5 and 5.2, his first): tracker, step view, piano roll, pads and live recording
+edit the same notes, and every note has its own pitch, velocity, start and length however it got in. **Today:** a
+manual step's notes share one length and have no start of their own; NOTES' START says "RECORDED ONLY" and the strip
+grays it (LEN says "ALL" on a manual chord); the pads' editor (DRUM HIT: drum_hit_edit, drum_hit_delete) is a third
+copy of the event editor and patches a mixed cell (manual hits beside one recorded hit); `recording_prune` still exists
+for events a manual gesture might leave orphaned (TRACKER_REVIEW.md "Left to do"); a key on a recorded step is refused
+by the dispatcher. This is step 12, deferred on October 30.
+
+**Design: the recorded note is the one form of a note that has its own start or length, and a step converts whole.** A
+manual step stays the compact form of "notes that share their length and start on the grid": the sequencer, the
+phrase record and the tracker read it as before; nothing migrates; old projects keep their music exactly.
+1. **START on a manual note converts the step and moves the note,** in one note transaction (note_convert: every note
+   of the step becomes an event at the step's length and velocity, as LEN's note_manual_length already does; then
+   note_onset): one undo. From then on every note of every step has the four knobs; the strip never grays START or LEN;
+   "START: RECORDED ONLY" goes. PITCH and VEL keep editing a manual note in place (nothing needs an event). The tracker's
+   KNOB 4 (4c) already converts a chord.
+2. **The pads' editor comes under the shared one.** drum_hit_edit's pitch and length become notes_event_edit's slots on
+   the hit's event (1: a drum track's pitch offset; 4: a sixteenth of a step); a hit with no event (a manual or grid hit)
+   converts its cell first (note_convert: every hit of the cell becomes an event, so no cell is ever half manual and
+   half recorded, and the patching of a mixed cell goes); drum_hit_delete becomes notes_delete_edit on the hit's event
+   (notes_rebuild already rebuilds a drum cell's lanes); a pad struck (drum_hit_key) adds or clears a hit as the grid does
+   on a manual cell and as an event on a recorded one. DRUM is unhooked in the shipping build (MELODEE_DRUM=0), so this is
+   measured on the host and costs the image nothing; it is the shape every pad page must have.
+3. **Every manual gesture on a recorded cell deletes its events through the history first** (events_delete_view,
+   0.7.2). The sites that still clear SF_RECORDED by hand: seq_edit.c step_note_move (a copy of the cells moved: the
+   source cells are cleared, so the flag on the copy is the bug the 0.7.2 sites fixed elsewhere: it goes through
+   events_delete_view of the source cell first), seq_edit.c step_note_resize (a recorded step resized by hand: the same),
+   ui.c grid_hit (done in 0.7.2), ui_input.c drum_hit_delete (goes with 2). Then **`recording_prune` goes** (its callers:
+   note_transaction_begin_track, the capture in ui_input.c, recording_note's non-FAST path, all no-ops once no orphan
+   can exist) and a host check asserts the invariant after every edit path: every event of the phrase's owner has a
+   NOTE cell flagged recorded at its view, and every cell flagged recorded has at least one event.
+4. **A key on a recorded step** replaces the step as it does a manual one (the entry paths tracker_entry_notes and
+   seq_entry_notes already delete the events through the history, 0.7.2): the dispatcher's refusal goes; EDIT held brings
+   the recording back, an event at a time.
+
+**Cost:** about 400 B (START's conversion 150, the key dispatcher 50, the resize and move sites 100, prune's removal
+-100; the pads 0 in the image). RAM 0. **Tests:** step_pages_test (START on a manual note and on a chord: converts, moves,
+one undo; the strip), recording_props_test and the scheduler tests unchanged, a new tests/one_auth_test.c (the invariant
+after every path: keys on manual and recorded steps, tracker entry, grid hits, a step delete, START, LEN, the tracker's
+KNOB 4, a move, a resize, a capture, copy and paste, undo and redo; the pads' editor on DRUM in the host build), ui_test
+unchanged (its tracker and NOTES checks), ui_render (NOTES' strip on a manual note).
+
+**The design review of ui-fix 7** (an independent agent, October 31, 2026): the direction is right and the code
+supports it (note_convert does the conversion, events_delete_view is the one delete path, the flag is consistently on
+the view cell, the sites named are real, the drum round trip through note_convert and notes_rebuild loses only a hit's
+natural length, nothing in a format changes). Not ready as written; found, and taken into the design:
+
+| # | Finding | Severity | What is done |
+|---|---|---|---|
+| 16 | Two orphan makers missed: EDIT tapped on the drum grid (page_tap's step_clear, no events_delete_view) and the web editor's ED_STEP_SET (ed_step_put rewrites a cell's flags without deleting its events) | should fix | both go through events_delete_view (the editor has no step history: its deletes are plain recording_remove per event, said) |
+| 18 | The remedy for the tracker's SCL + SELECT move and ENV + SELECT resize of a recorded step (events_delete_view first) would flatten a recording silently: SPEC.md 6 forbids it and the note's own principle contradicts it | should fix | on a recorded step those gestures go to the events: a one-step range and note_move_snapped (one transaction, one undo, "STEP OCCUPIED"); the resize sets every event's length (slot 5); step_note_move and step_note_resize then never see a flagged cell (their two clearing lines become asserts) |
+| 19 | Stored phrases and projects from older builds can carry orphans (every event with vel is saved, present or not); without recording_prune they would live forever and the invariant fails right after a load | should fix | one reconcile at the load boundaries (pool load, project load, boot): an event whose view cell is not a flagged NOTE is dropped, a flagged cell with no event unflagged; the one place the lazy prune survives, tested with a fixture that has an orphan |
+| 3 | recording_prune's callers listed incompletely: the FAST capture path retires inline, and tests/capture_alloc_test.c keeps a verbatim copy of the non-FAST allocator calling it by name | should fix | the FAST path's inline retire stays (the live recording's safety net, said); capture_alloc_test gets a local copy of the reference prune |
+| 5 | START on a manual note while the song plays, a chain runs or a recording is armed has no stated behavior (LEN refuses then: the transaction's undo would not survive) | should fix | "STOP TO EDIT" then, as LEN; on a recorded note today's behavior |
+| 6 | After note_convert the pick is the chord's first event, not the manual note the user had | should fix | the pitch is read before the conversion, the event found by step and pitch after it, moved and picked, as tracker_chord_length does; tested with a chord entered out of order |
+| 7 | Several detents in one call can move the note into a cell that holds a separate manual note: the conversion must roll back | should fix | notes_manual_occupied on the new cell inside the transaction; on a hit the snapshot is restored, nothing converted, "STEP OCCUPIED" |
+| 8, 9 | The ties become the event's duration and the TIE cells go (a visible change on the tracker's rows); the first START detent clears the step page's earlier undo levels (as LEN) and a note moved out of its cell loses the step's feel (S4) | OK, minor | said in point 1 |
+| 12, 13 | The pads: the first edit on a manual cell becomes a transaction that refuses while playing and clears the step history; drum_editor_test pins today's mixed cell; a hit's natural length (length 0) is not reachable through notes_event_edit | should fix, minor | point 2 built in its own later step with its own note (the natural length kept reachable: a duration of 0 on slot 4); drum_editor_test changes with it; host only, nobody waits on it |
+| 15 | Live recording leaves a manual cell's notes beside the events (rec_note; the manual notes keep playing where no event has their pitch): no cell is "never half manual and half recorded" | should fix | the exception written into points 2 and 3; the invariant is stated on the flags, never as "overview equals rebuild" |
+| 20 | The invariant must be stated with recording_view and recording_present, per owner bank, dormant events beyond LEN included | OK | written so |
+| 4, 22 | The key refusal has two conditions (the cell flagged; an event picked by its actual step, which a neighbor's rounded event can be); after the refusal goes the entry must clear the pick | OK, minor | both conditions named; ui.note_pick cleared in the two entry paths' first-entry block; the rounded case tested |
+| 23 | Undo of a key on a recorded cell is bounded by the eight history levels: a cell can hold more events than four | should fix | a key on a cell with more events than the free levels goes through a note transaction (one undo of the whole overwrite); a 9-event cell tested |
+| 24 | ui_test's test_overwrite_recorded and step_pages_test's "START: RECORDED ONLY" pin today's | should fix | both listed as tests that change (the overwrite test becomes the key path's positive test) |
+| 26 | 400 B is low: expect 500 to 700 B net | minor | the table carries the measured number |
+| 27 | Tests to add: ED_STEP_SET on a recorded cell, the grid's EDIT, a load with an orphan and with a flagged empty cell, live recording over a manual and over a recorded MONO cell, LEN below a recorded cell, START while playing, pool full on START, a 9-event cell under a key, the rounded-forward pick, capture_alloc_test building, frozen phrases | should fix | in the plan |
+| 2, 10, 11, 14, 17, 21, 25 | The pads are a user of the shared primitive that patches by hand, not a third copy; pool full and frozen handled; notes_rebuild rebuilds a drum cell; drum_editor_test exercises the pads on the host; the move and resize reach a recorded step from the TRACKER only; the other sites are orphan free; no format change | OK | the note's wording corrected |
+
+**Build order (the review's), taken:** (1) the host invariant check with the load reconcile first, on the full suite,
+which finds any site still missed and says whether recording_prune is a no-op today; (2) the sites of point 3, with the
+tracker's two gestures on a recorded step routed to the events; (3) point 4 with its two conditions, the pick cleared
+and the depth bound; (4) point 1 (START converts, with the pitch kept, the rollback and the guards); (5)
+recording_prune's removal last; (6) the pads in a step of their own.
+
+**The design as built (ui-fix 7, in the review's order; behind OC_ONE_AUTH, on in tools/orangecat_engines.sh).**
+1. **The invariant and the reconcile** (recording.c `recording_reconcile_owner`, `recording_reconcile`): every event with a
+   velocity has a NOTE cell flagged SF_RECORDED at its view (recording_present), and every flagged NOTE cell has an event
+   viewing it, per owner bank. At the load boundaries (the pool's load of a phrase, a project load and so boot) an orphan
+   event is dropped and a flagged cell with no event becomes the manual cell its notes make, or an empty one; the current
+   bank through the track's steps, another bank read into a pattern_t, mended and written back only when it needs it;
+   under the caller's guard (the guards save and restore the interrupt state, so they nest). tests/one_auth_test.c asserts
+   the invariant after every edit path and that recording_prune then finds nothing: every path of today kept it already.
+2. **The sites.** The tracker's SCL + SELECT on a recorded step moves every event of the cell exactly a step (its onset
+   inside the step kept; note_transform would snap the first onset to the grid), in one transaction, "STEP OCCUPIED" when a
+   destination holds a separate manual note, the cursor following (ui_one_auth.c `tracker_recorded_move`); ENV + SELECT
+   there says "K4 SETS A NOTE'S LENGTH". step_note_move and step_note_resize never see a flagged cell now. The drum grid's
+   EDIT (page_tap) and the web editor's ED_STEP_SET (editor.c, `events_drop_view`: no history, as the editor has none)
+   delete the cell's events first.
+3. **A key on a recorded step** replaces it (the dispatcher's two conditions gone; the entry paths delete the events
+   through the history and clear the pick, so a neighbor's event rounded into the step is not the entry's). The bound
+   stays as the review found it: the history holds eight levels, one event a level, so a cell with more than seven events
+   is not brought back whole by EDIT held (written here, not routed through a transaction: an entry runs over frames and
+   its own step writes would invalidate the transaction's undo).
+4. **START on a manual note** (`start_convert_edit`): the step converts whole (note_convert: the ties become the note's
+   duration and their cells go, as LEN; the step's feel stays on the cell), the pitch read before and the note found by it
+   after, moved and picked, so the next detent goes on with it; "STOP TO EDIT" while the song plays, a chain runs or a
+   recording is armed; "STEP OCCUPIED" rolls the conversion back; a full pool leaves the step manual ("RECORDING FULL");
+   one undo returns the manual step (a later event edit takes the conversion's undo with it, as LEN's: step 4's B1). The
+   strip shows a manual note's START as its step, lit; "START: RECORDED ONLY" is gone.
+5. **recording_prune** has no caller left under the switch (note_transaction_begin_track's and the capture's go; the
+   FAST capture path keeps its inline retire, the live recording's own safety net); the function stays for the host
+   check and the non-FAST path.
+6. **The pads** (DRUM HIT, host only: MELODEE_DRUM is 0 in the shipping image): a hit's pitch and length are
+   notes_event_edit's slots 1 and 4 on the hit's event; a hit with no event converts its whole cell first (one
+   transaction, refused while the song plays), so no cell is half manual and half recorded by an edit; a sound the cell
+   lacks gets a new event; a hit's natural length (length 0) is reached by turning its length below one sixteenth and
+   left by turning up; the delete is the shared one (the cell rebuilt from what is left); a pad makes a hit, the accent
+   pad sets 127 through the velocity slot. EDIT held on DRUM HIT is the sound's undo, as it was; the pads' undo is the
+   step history (drum_editor_test drives it so). drum_editor_test keeps today's behavior for the switch-off build.
+   Live recording still leaves a manual cell's notes beside the events it adds (rec_note), as the review found: said.
+
+**Tests:** tests/one_auth_test.c (43 checks, ASan and UBSan in the suite's job, the alignment check off as the suite's rule): RECONCILE (an orphan event, a flagged empty
+cell, a flagged manual cell, another bank, a project saved with an orphan and loaded), PATHS (fourteen edit paths with the
+invariant and prune's no-op after each), START (the conversion and its undo, the next detent, a chord entered 67 60 64,
+STEP OCCUPIED, STOP TO EDIT, the pool full), TRACKER (the move, its undo, the resize refused), KEY (NOTES and the TRACKER,
+the undo, the pick), EDITOR, PADS (the conversion, the length and the natural length, the delete and its undo, a pad and
+the accent pad), REVIEW (the diff review's cases: the ordered list's move, the TIE cell's two gestures, a load with a flagged
+empty cell in another bank, LEN below a recorded cell, a key beside a rounded-forward event, DRUM-X's LEN). step_pages_test's
+"START: RECORDED ONLY" check is the switch-off build's (#if !OC_ONE_AUTH; with the switch it checks the conversion);
+sheet_test, shift_test, step_pages_test, lanes_test, clip_test and clip_sel_test pass with the switch on; ui_test and
+drum_editor_test are the switch-off build's. ui_render.c (ui_renders_steps, now with OC_ONE_AUTH=1): NOTES' strip with
+a manual note's START lit, linted.
+
+**The diff review of ui-fix 7** (an independent agent, October 31, 2026; it built the test with the sanitizers and wrote probes
+for its findings). Found correct: the reconcile (the walk, the guards' nesting, the load sites, the dormant events kept),
+START's conversion (every path compared with tracker_chord_length and note_transform), the key dispatcher, the grid's EDIT,
+the pads, the editor's cell, the switch-off build, the CI switches. Found and fixed:
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | The tracker's move walked the owner's list while it moved the event it stood on: once the scheduler had ordered the list (after any play) the moved event was re-linked past the cell's others and the cell split in two | bug | the cell's events are collected first, then moved; tested with the list ordered (recording_sync) |
+| 2 | ENV + SELECT's refusal read the cursor cell's flag: on a recorded note's TIE cell (a live take leaves them) it fell through to step_note_resize and flattened the recording | bug | the flag is tested at step_note_start, as the move does; tested |
+| 3 | SCL + SELECT on such a TIE cell began a transaction on the cursor cell, rebuilt it (step_delete of the recorded start), cleared the step history and said SELECT A NOTE | bug | the start cell is passed in; with nothing viewing it the gesture is refused before any transaction; tested |
+| 4 | The review's depth bound (a key on a cell with more events than the free history levels through a transaction) is not built | should fix | deferred, said in point 3 above: an entry runs over frames, so a transaction around it would be invalidated by its own step writes; the bound (seven events) stands |
+| 5 | The pads' natural-length rule was keyed on drum_track, so NOTES' and the tracker's LEN on a recorded DRUM-X hit changed in the shipping image; natural to natural recorded a no-op entry | should fix | the rule is the pads' page's only (MELODEE_DRUM and SC_DRUMHIT); natural to natural is nothing; DRUM-X's LEN tested unchanged |
+| 7 | drum_hit_edit set the pick without the track and bank notes_selected keeps it by: after a track change the edit could land on another event | should fix | pick_event sets all of it (the pads and START) |
+| 8 | events_drop_view used recording_active, which is LEN-bounded; the editor addresses any cell | minor | matched on the owner and the view, no LEN bound |
+| 9 | The reconcile cleared a flagged empty cell but not its TIE tail; the track pointer was formed before the range check | minor | recording_reconcile_cell clears the tail in both bank paths; the check first; tested with a tie in another bank |
+| 10 | The cursor followed the last event walked | minor | the earliest moved note's cell |
+| 11 | A move into a recorded cell merges the events into it (as note_transform); unsaid; a redundant term | minor | said; the term dropped |
+| 12 | recording_prune's non-FAST caller unguarded; the comment | minor | guarded; the comment |
+| 13 | step_pages_test's guard wrapped more than START's check | minor | the one check, with its OC_ONE_AUTH counterpart |
+| 14 | Test gaps | should fix | added: the ordered move, the two TIE-cell gestures, a load with a flagged empty cell and its tie in another bank, LEN below a recorded cell, a key beside a rounded-forward event, DRUM-X's LEN; still open: ED_STEP_SET through the editor command (the helper is tested), live recording over a manual and a recorded MONO cell, a 9-event cell under a key (the bound is stated), frozen phrases |
+| 6 | 2,144 B against 500 to 700 | should fix | measured and carried in the budget table above, with where it went |
+
+### ui-fix 8: slide and legato (design note, before its review)
+
+**What SLIDE does today** (seq.c seq_step, voice.c): a step's SLIDE flag makes the next step's notes start before this
+step's are released (`slide_in`) and sets `slide_glide` for the voice code. What follows depends on the track's VOICE
+mode, not on the engine. POLY (every preset's default): a new voice with a new envelope starts and the old note is
+released after it; no glide unless GLIDE is set, and then a fresh voice glides from a released voice's last pitch. MONO:
+the voice glides to the new pitch but its envelope retriggers (mono_play always retriggers in MONO). LEGATO and UNISON:
+the voice glides and the envelope goes on: the 303. Recorded notes (recording.c) never read SLIDE. So SLIDE is a true
+slide only on a LEGATO track, only for manual steps, on MACRO, SHAPES and every module alike (DRUM-X: oneshot, no glide,
+by design). The engines need nothing: MACRO and SHAPES read the voice's pitch every block (pitch16, glided in
+pitch_cur), and the `legato` hook exists for an engine that caches its pitch.
+
+**Design: a slide is a legato glide in every voice mode, for manual and recorded notes, behind OC_SLIDE.**
+1. **Manual steps** (seq.c): when step s+1 fires with slide_in, each of its notes takes over a sounding voice of step s
+   instead of starting one: the j-th new note takes the j-th old note's voice (a 303 line is one note; a chord slides
+   voice by voice; new notes beyond the old ones start, old notes beyond the new ones release). `seq_slide_voice(t, old,
+   new)`: the voice's note becomes the new one, its pitch target the new pitch (voice_scale_pitch), gliding from where
+   it is (pitch_cur) at GLIDE's time, or the render's 45 ms default when GLIDE is 0 (GLMODE TIME with GLIDE 0 would jump,
+   so a slide uses the RATE path then); the envelope is untouched; the engine's legato hook runs if it has one. In MONO,
+   LEGATO and UNISON the same takes over v[0] (UNISON: its voices) and the mono note and stack follow, so a later
+   note-off of the new note ends it and one of the old note finds nothing. The velocity stays the sounding note's (the
+   303: the accent is the first note's). seq.c only: voice.c is not touched (voice_scale_pitch and the hook are the one
+   translation unit's).
+2. **Recorded notes** (recording.c): a recorded step with SLIDE holds its notes to the next step's first onset
+   (recording_shape: the gate reaches that onset when the event's own gate would end before it), and the next cell's
+   first hit takes over the sounding voice of the slid note (seq_slide_voice again; the old event's hold ends without a
+   note-off: its reference count is given up and recording_end's note-off skipped), and the new event owns the voice
+   from then on (its own gate, queue and reference count as any hit). A ratchet's or a flam's later hits never slide; the
+   grace and the first part slide in, as a manual step's do.
+3. **Setting it, obvious on every page:** NOTES (melodic): ENV held + KNOB 4 sets or clears SLIDE on the cursor's step,
+   manual or recorded (today a manual step's only), the roll draws the slide line from a bar to the next step's bar for
+   recorded notes as it does for manual ones, and the strip marks VEL's column "SL" while the step slides; FEEL's TYPE
+   (SLD, A+S) as built; the tracker's FX column SLIDE as built, on recorded steps too; the note sheet's Slide row (OCT+)
+   for both. Undo through the step history (the steps' flags are in every snapshot).
+4. **Cost:** about 500 B (seq.c 200, recording.c 200, the pages 100). RAM 0. Old projects keep their notes; a project
+   with SLIDE on a POLY track now glides where it overlapped before: the owner's intent.
+
+**Tests:** a new tests/slide_test.c over the sequencer (as recording_props_test plays steps a sample at a time): POLY,
+MONO, LEGATO and UNISON: a slide step glides the voice (pitch_cur moves over the glide time, the envelope's stage and
+level go on, no new voice starts), a chord slides voice by voice, a slide into a rest releases, GLIDE 0 uses the 45 ms
+default, GLMODE TIME uses GLIDE's time, a ratchet or a flam does not slide; the recorded case: the hold to the next
+onset and the takeover, the reference counts after it (no stuck note, no early release); step_pages_test: ENV + KNOB 4
+on a recorded step; ui_render: the roll with a recorded slide and the strip's SL.
+
+**The design review of ui-fix 8** (an independent agent, October 31, 2026): the account of today's behavior confirmed in
+every voice mode (POLY a fresh voice and attack, a same-pitch slide restarting the attack; MONO retriggering; LEGATO and
+UNISON legato; recorded notes blind to SLIDE); seq_step runs inside the audio render already, and voice.c's helpers are
+the one translation unit's, so the takeover from seq.c is sound. Found, and taken into the design:
+
+| # | Finding | Severity | What is done |
+|---|---|---|---|
+| 2 | The "45 ms" default glide is a comment the table contradicts: ENV_LIN[40] >> 14 is 40 sixteenths of a semitone a control tick, an octave in about 3.5 ms. Today's LEGATO slide with GLIDE 0 is nearly a jump | should fix | a slide gets its own rate: 3 sixteenths a tick (an octave in about 46 ms at 44.1 kHz; gstep set by seq_slide_voice from the interval), GLIDE's own rate or time when GLIDE is set; the test counts ticks, not milliseconds; voice.c's comment is Session A's (noted "For Session A") |
+| 6 | The state a takeover must keep: v->note for the later note-off; in the mono modes mono_remove(old), mono_push(new), mono_note = new, PRIO honored (mono_pick may say the old note wins: then no takeover); UNISON re-pitches each gated voice of v[0..nv) and keeps its detune; the matrix's note values (mvel, mrnd, mod_note for KEY) as mono_play's legato branch does | should fix | written into point 1; mod_note(t, new, vel) is called so KEY follows |
+| 7 | An old note that is a live key's, the arp's or a recorded note's is not the sequencer's to take (seq_release's test) | should fix | only an old note that passes seq_release's test is taken over; otherwise today's path |
+| 8 | The pairing must run over the step's notes only (nn[] carries the lane hits after them); oneshot engines never glide | should fix | pairs over min(s->n, the old notes); the takeover is skipped on an oneshot engine |
+| 9 | MACRO, SHAPES and the Prophet need no engine code; FM6's legato expects its mono bookkeeping (mono_key first) and in POLY it allocates voices itself | should fix | the mono modes call mono_key then legato as voice.c does; an engine with its own alloc (FM6) keeps today's path in POLY; eng_sid and eng_noise's v->note uses checked when built |
+| 11 | "The velocity stays": LEGATO raises v->vel when the new note is louder, and an accent on the slid-into step would be lost | minor | mono_play's rule kept: raised if louder, else the sounding note's |
+| 12, 13, 14 | Point 2 as written is a blocker: the next onset is not known in recording_shape (the queue's deadlines, the scanner's unsorted list), the takeover cannot identify the event and voice at the next hit, and it touches the queue, the countdown, the repeats, the roll and the wrap. A simpler rule serves a played take: slide only when the next cell's first onset falls within the sliding note's own gate (the notes already overlap: no extension, no new deadline) | blocker, resolved | point 2 is the overlap rule: at a cell's first hit, if the cell before has SLIDE and a recorded note of it is still sounding (recording_refs), that voice is re-pitched and the reference moved (a recording_end variant without the note-off); no gate extension; the repeat path never takes over |
+| 15 | Manual to recorded and recorded to manual steps | minor | no slide across the boundary, said |
+| 16 | The UI routing holds; the recorded path of step_edit needs the ENV + KNOB 4 branch; the roll never draws the line from a recorded bar | OK | the branch and the line added as the note says |
+| 10, 17, 18, 19 | Microtonal (a sub-sixteenth step at the slide's start, as today's legato), the flag's survival, the undo, the formats and factory content | OK | microtonal accepted and noted |
+| 20 | 500 B is optimistic: 300 to 450 for point 1, 700 to 1,000 for both | minor | the table carries the measured number |
+| 21 | Tests to add: the same-pitch slide, a live-held or arp old note, FM6 and the Prophet, a step with notes and hits, PRIO LOW and HIGH, the queue and countdown variants, the repeat path | should fix | in the test plan |
+
+**Build order (the review's):** the manual-step slide alone first, then the UI, then the recorded overlap rule.
+
+**The design as built (ui-fix 8, in the review's order; behind OC_SLIDE, on in tools/orangecat_engines.sh).**
+1. **Manual steps** (seq.c `seq_slide_voice`, called from seq_step): when a step with SLIDE goes into the next, the j-th new note
+   takes over the j-th old note's sounding voice (the step's notes only, never its hits): the voice's note and pitch target
+   become the new note's, its pitch glides from where it is, its envelope goes on; the matrix's note values follow (mod_note);
+   in MONO, LEGATO and UNISON the stack and the mono note follow too (mono_key then legato, as voice.c does), so the new
+   note's later note-off ends the voice and the old note's finds nothing; a louder new note raises the velocity (mono_play's
+   rule), a softer one leaves it. Not taken: an old note that is a live key's, the arp's or a recorded note's (seq_release's
+   test), an oneshot engine (DRUM-X), an engine with its own allocator in POLY (FM6), a mono voice that is not the old
+   note's, PRIO LOW or HIGH with more than one note held. **The slide's rate**: three sixteenths of a semitone a control
+   tick, an octave in about 64 ticks (46 ms at 44.1 kHz); with GLIDE set, GLIDE's own rate or time. (The "45 ms" default of
+   voice.c's comment is ENV_LIN[40] >> 14 = 40 sixteenths a tick, nearly a jump: Session A's comment to correct.) A slide into
+   the same pitch goes on without a retrigger (today a restart); a slide into a rest releases; a slide into a ratcheted
+   step glides into its first part and the repeats retrigger (as before).
+2. **Recorded notes** (recording.c `recording_slide_in`, the overlap rule): at a cell's first hit, when the cell before has
+   SLIDE and one of its recorded notes is still sounding on its own voice, that voice is re-pitched (seq_slide_voice) and the
+   reference moves: the old event's hold ends without a note-off, this hit's begins as any hit's. No gate is extended: the
+   notes must overlap (a played legato take does); a ratchet's or a flam's later hits never take over. No slide across a
+   manual and a recorded step (either way).
+3. **Setting it**: NOTES: ENV held + KNOB 4 sets or clears SLIDE on the cursor's step, a recorded step's too (step_edit's
+   recorded path), undone by EDIT held through the step history; the strip shows SLIDE with ENV held on either kind of
+   step and marks VEL's column "SL" while the step slides; the roll draws the slide line from a recorded step's lowest note
+   to the next step's first note as it does for a manual step; FEEL's TYPE, the tracker's FX column and the note sheet's
+   Slide as built.
+
+**Tests:** tests/slide_test.c (16 checks, ASan and UBSan in the suite's job, the alignment check off; the sequencer and the voices driven by mix_block,
+the interrupt's own path): MODES (POLY, MONO, LEGATO, UNISON: the same voice, the stage and level kept, the octave in 64
+blocks, the release at the rest after), CHORD, REST, SAME, GLIDE (GLMODE TIME with GLIDE set), HELD (a live key's old note
+not taken), RATCHET, DRUMX, RECORDED (the overlap, the no-overlap and a chord into a chord), HITS (a step with a lane hit:
+no pairing), SET (ENV + KNOB 4 on a recorded step, its undo).
+step_pages_test and one_auth_test pass with the switch on. ui_render.c (ui_renders_steps, now with OC_SLIDE=1): NOTES with a
+recorded step sliding into the next, ENV held (notes_slide), linted.
+
+**Mockups:** docs/orangecat/ui/new/fix8_notes_slide.png (the roll's slide line from a recorded bar, the strip's SLIDE).
+
+**The diff review of ui-fix 8** (an independent agent, October 31, 2026; it ran the test plain, under ASan and under UBSan).
+Found correct: the takeover in POLY, MONO and LEGATO on MACRO, SHAPES and the modules; the rate (CTL is 32 samples, gstep 3
+is an octave in 64 blocks, 46.4 ms at 44.1 kHz; ENV_LIN[40] >> 14 is 40: "nearly a jump" confirmed); GLMODE TIME never
+0 or overshooting; mod_note's order; the ratchet, flam, chance and TIE paths; the recorded hold's end under the queue; the
+UI routing and the undo level (the SET check does prove one); the switch-off build; the arena (below). Found and fixed:
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | UNISON's voices start at a scaled level; "louder raises" compared the step's velocity with it and raised every voice two to three times | bug | mono_play's rule in full: raised only with one voice; the UNISON check asserts it |
+| 2 | The legato hook ran before mono_key, the reverse of voice.c's order: FM6's legato would take nothing | should fix | the stack and mono_key first, then the re-pitch, then the mono note |
+| 3 | SID's C64 chord in POLY: the slid voice was released at once by the chord stack | should fix | no takeover with trk_chord, as with an engine's own allocator |
+| 4 | The suite's sanitized job aborts on a pre-existing host arena alignment report (mc_part_t) before its first check; the one_auth job renders voices too | should fix | both jobs built with -fno-sanitize=alignment, as the suite's own SAN=1 rule; run here under the exact flags: both pass |
+| 6 | The arena fell 1,024 B: not a static; seq_step, seq_slide_voice, recording_fire and recording_hit are audio-resident code (.audio_text), placed before the arena, so resident sequencer code grows out of it | OK | said in the budget note |
+| 7 | recording_slide_in runs at each hit of a cell, not "the first": a recorded chord slides voice by voice | minor | the comment and the note say so; a chord into a chord tested |
+| 8 | The old pitch under the queue is the message's (the pitch the hit was played with), as recording_end reads it | minor | so read |
+| 9 | A manual step's note of the same pitch shares the voice: not ours to take | minor | seq_notes checked, as recording_off does |
+| 10 | The pairing could reach a lane hit's voice on a step that carries hits | minor | bounded by the step before's note count, none when it has hits; tested |
+| 12 | The slid POLY voice kept its old age (the first to be stolen) | minor | its age is the newest |
+| 14 | The design note said a ratchet or a flam never slides; the grace and the first part do slide in (manual and recorded alike) | minor | the wording here |
+| 17 | The strip's SLIDE showed on an empty step | minor | with a note selected only |
+| 18, 19 | A comment; test gaps (PRIO, the Prophet and FM6 through their hooks, the countdown variant, the repeat path, the wrap from the last step) | minor | the comment; the gaps are listed |
+
+### Budget revision 0.9 (ui-fix; CI's build options, one niced build each)
+
+| Build | Image (B) | Free of 577,248 | Above the 8,192 B reserve | .data+.bss | Data SRAM tail | Arena (min 49,152) | Pack |
+|---|---|---|---|---|---|---|---|
+| linux-hw c27dc5c (the baseline) | 558,596 | 18,652 | 10,460 | 94,536 | 3,768 | 84,032 | 40,845 |
+| + ui-fix 1, 2, 3, 5 | 558,980 (+384) | 18,268 | 10,076 | 94,536 | 3,768 | 84,032 | 40,853 (+8: the scene's bindings; 107 B of the area left) |
+| + ui-fix 6 (the map gone) | 558,100 (-880) | 19,148 | 10,956 | 94,536 | 3,768 | 84,032 | 40,853 |
+| + ui-fix 7 (one authority), at its commit 5a26150 | 560,020 (+1,920) | 17,228 | 9,036 | 94,536 | 3,768 | 84,032 | 40,853 |
+| + ui-fix 8 (slide and legato), after its diff review | 561,608 (+1,588) | 15,640 | 7,448 | 94,536 | 3,768 | 82,848 | 40,853 |
+
+Ui-fix 7 cost 1,920 B against the review's 500 to 700 (2,144 before its diff review's fixes): the reconcile is 472 B (its two
+bank paths), and START's conversion and the tracker's move, inlined into edit_param and step_move_edit, about 1,000 B between
+them (each carries a transaction, a rollback and a rebuild; a shared "the cell's events, shifted" helper could save about 300 B,
+left for later); the pads are dead code in the shipping image. Ui-fix 8 cost 1,588 B against 700 to 1,000 (seq_slide_voice
+and the seq_step block, the recorded overlap rule, the strip and the roll; 1,452 before its diff review's fixes). **The audio working arena fell by 1,184 B with
+ui-fix 8** (84,032 to 82,848; .data+.bss unchanged): seq_step, seq_slide_voice, recording_fire and recording_hit are
+audio-resident code (.audio_text, placed in the pool before the arena), so about 1 KB of the item is SRAM as well as flash;
+33.7 KB above the minimum and 17.3 KB above the rule's 65,536. **The reserve holds: 15,640 B free, 7,448 B above 8,192.** Nothing further is built on
+this branch without the owner's say: the next item of any size eats into what is left above the reserve.
+
+**The full host suite** (tools/hw/ci_step.py test, CI's settings, PARALLEL=1, niced): at 3f28cb7 (ui-fix 1, 2, 3, 5)
+PASSED 214 jobs in 83 min; at c246106 (ui-fix 6) one job failed (shift_test under the sanitizers: the sound line's
+buffer, the decisions); at 3cb55f1 (the head: ui-fix 6, 7, 8 and the fix) PASSED 214 jobs in 67 min, ALL HOST TESTS.
+
+### For Session A (ui-fix)
+
+**Run the on-unit sequencer test on ui-fix before merge.** The sequencer items are ui-fix 7 (commit 5a26150, one
+authority: OC_ONE_AUTH) and ui-fix 8 (commit 9d45d84, slide and legato: OC_SLIDE), both on in
+tools/orangecat_engines.sh, so a CI build of ui-fix carries them. What the unit test should cover beyond the host
+(hardware checks 26 and 27 below): a live take over a manual step and over a recorded MONO step, then every edit of it;
+a 303 line on MACRO and SHAPES with SLIDE on every other step in POLY, MONO and LEGATO; a recorded legato take with SLIDE
+set on its steps; the audio interrupt's time with four tracks sliding (seq_slide_voice runs inside seq_step; the
+reconcile runs only at a load). Also for Session A: voice.c's comment "slide: ~45 ms" (track_render_audio's glide) is
+the table's 40 sixteenths a tick, nearly a jump: the slide now uses its own rate in seq.c; the comment is Session A's. Also: docs/orangecat/PLAY_LIST.md (BUILD 7.20) still tells the owner to hold HOME for the
+map of shortcuts; with ui-fix 6 it is "hold HOME 0.7 s for the MENU; HOME plus a knob or button within 0.7 s is its
+combo" (Session A's file).
+
+### Hardware checks (ui-fix; the unit is Session A's, none run)
+
+22. **FX by hand:** from HOME, FX lands on DUB; FX again walks DUB 2, DUB SETUP, DIST, AUTO PAN, FX, DELAY .. MASTER and
+    comes round; EDIT > FX still lands on DUB and EDIT goes on to Voice.
+23. **CHAIN by hand:** PRESETS walks the selected track's chain 01 .. 64 stopped (the chip, the message, the steps shown);
+    refused while the chains or the song play; the project saved and loaded keeps the chain.
+24. **SHAPES on the panel:** the yarn, tail, moon and paw at each knob's ends; the tail's flick speeds up with COLR, the
+    yarn's roll with TIMB; no late audio halves while it moves (as check 4).
+25. **HOME held (ui-fix 6):** held alone 0.7 s opens the MENU with HOME still down, nothing on the release; a knob, PRESETS,
+    EDIT or OCT within 0.7 s of the press is its combo and no MENU follows; a knob turned after the MENU opened moves the
+    MENU when HOME is let go (the combo window is 0.7 s from the press: the owner to say whether that is right).
+26. **One authority (ui-fix 7):** on NOTES, START on a typed note (the step converts, the note moves, EDIT held brings
+    the manual step back); a key on a recorded step (replaced; EDIT held brings the events back one by one); the tracker's
+    SCL + SELECT on a recorded step (the notes move a step, their timing kept); an old project with recordings loads as it
+    did (nothing mended on a project saved by 0.16.0 unless it carried an orphan: the message log says nothing either way).
+27. **Slide (ui-fix 8):** a bass line with SLIDE on every other step on MACRO, SHAPES, a module (SEM, HADES) in POLY, MONO
+    and LEGATO: the pitch glides (about 46 ms an octave), the envelope does not retrigger, no stuck note at a stop; a
+    recorded legato take with SLIDE set on its steps (FEEL's TYPE) slides where the notes overlap; the roll's line and the
+    strip's SL on a recorded step; no late audio halves with four tracks sliding.
+
+### Decisions (ui-fix, the safer reading)
+
+- ui-fix 1 behind OC_EDIT_SHEETS, 2 behind OC_STEP_PAGES, 5 behind OC_EDIT_SHEETS: the switches of the steps they
+  belong to, so a build with a switch off is release-2's there; the scene change (3) is the pack's, not the image's.
+- ui-fix 2 read as "no control on CHAIN reaches another chain" (every knob reaches 0 on the host); PRESETS picks the
+  chain (the step pages' pattern). For the owner to confirm on the unit (check 23).
+- ui-fix 3: the tail's flick is a sawtooth at COLR's rate (the scene's phases are sawtooths; a sine would need a new
+  source), read as a cat's flick; the paw drops below the body's line at PLUCK's left end (a resting paw).
+- ui-fix 4: the format consequence is the owner's call; until then design only and the page renamed.
+- Items 1 to 3 and 5 shared one full host suite run (three small fixes and a table order); the diff review's fixes of
+  1 to 3 and item 6 share one (the fixes are a message, a scene depth and test bars); 7 and 8 each their own. From item 6
+  on the suite runs in a worktree of the item's commit (~/oc-ui-suite), so the next item's code goes on meanwhile.
+- The full suite at ui-fix 6's commit failed one job: shift_test under the address sanitizer, a stack read past the HOME
+  picture page's value buffer in hp_sound_line (ui_home_pic.c, step 1c: `val` was hashed uninitialized when no knob was
+  turning; the new LATE check's frames made the sanitizer see it). The bug is in 0.16.0's image (a wrong signature at
+  worst, no write); fixed in commit 2d38f7b. The suites queued for ui-fix 7 and 8 at their own commits would have
+  failed the same job, so they were stopped and one suite runs at the head with the fix: it covers 6, 7 and 8 (the
+  first suite covered 1, 2, 3 and 5). Written here so the per-item rule is seen to be bent, once, for this reason.
+- ui-fix 7: the depth bound of a key on a recorded cell (more events than the history's seven free levels) is stated, not
+  routed through a transaction (an entry runs over frames); the pads' natural length is the pads' page's only; a move into
+  a recorded cell joins it (as note_transform); recording_prune stays as a function for the host check and the non-FAST
+  path.
+- ui-fix 8: the slide's own rate is three sixteenths of a semitone a control tick (an octave in about 46 ms), not a
+  parameter; GLIDE set takes GLIDE's rate or time; a recorded slide needs the notes to overlap (no gate extension); no
+  slide across a manual and a recorded step; FM6 keeps today's path in POLY (its own allocator); the velocity follows
+  mono_play's rule.

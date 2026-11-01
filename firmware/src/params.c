@@ -576,12 +576,25 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 static const page_t PAGES[] = {
     /* (Orange Cat 0.6.0) FX: the effects (jfx.c, Jiant FM's pages). The track's: its DIST and sends, DIST, AUTO PAN;
      * the project's: the buses, the SLICER, the MASTER */
-    {"FX", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_CHOR, P_DLY, P_REV}},
-    {"DIST", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_DTYPE, P_DTONE, P_SLROUTE}},
-    {"AUTO PAN", FAM_FX, SC_TRACK, GR_NONE, {P_APDEP, P_APRATE, P_APSYNC, P_APWAVE}},
-    {"DUB", FAM_FX, SC_TRACK, GR_NONE, {P_JRES0, P_JRES1, P_JRES2, P_JRES3}},                  /* (Release 2) FDBK SEND TONE SPACE */
-    {"DUB 2", FAM_FX, SC_TRACK, GR_NONE, {P_JRES4, P_JRES5, P_JRES6, 0xFF}},                   /* THRW CUT KICK */
+    /* (ui-fix 5, the owner's order of October 31, 2026, with the sheets: OC_EDIT_SHEETS) the track's own effects first, DUB TAPE
+     * at the top (the one that is played), then DIST and AUTO PAN, then the track's sends; the shared DELAY, REVERB, CHORUS,
+     * SLICER, MASTER last. Without the sheets release-2's order: the sends, DIST, AUTO PAN, DUB */
+#define PG_FX_SENDS {"FX", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_CHOR, P_DLY, P_REV}},
+#define PG_FX_DIST {"DIST", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_DTYPE, P_DTONE, P_SLROUTE}},
+#define PG_FX_APAN {"AUTO PAN", FAM_FX, SC_TRACK, GR_NONE, {P_APDEP, P_APRATE, P_APSYNC, P_APWAVE}},
+#define PG_FX_DUB \
+    {"DUB", FAM_FX, SC_TRACK, GR_NONE, {P_JRES0, P_JRES1, P_JRES2, P_JRES3}},                  /* (Release 2) FDBK SEND TONE SPACE */ \
+    {"DUB 2", FAM_FX, SC_TRACK, GR_NONE, {P_JRES4, P_JRES5, P_JRES6, 0xFF}},                   /* THRW CUT KICK */ \
     {"DUB SETUP", FAM_FX, SC_TRACK, GR_NONE, {P_RESERVED45, P_RESERVED46, P_RESERVED47, 0xFF}}, /* LEN PTRN SPRP */
+#if OC_EDIT_SHEETS
+    PG_FX_DUB PG_FX_DIST PG_FX_APAN PG_FX_SENDS
+#else
+    PG_FX_SENDS PG_FX_DIST PG_FX_APAN PG_FX_DUB
+#endif
+#undef PG_FX_SENDS
+#undef PG_FX_DIST
+#undef PG_FX_APAN
+#undef PG_FX_DUB
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
     {"DELAY 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_WIDTH, G_DPIT, G_DSPRY, G_DMOD}},
     {"DELAY 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTYPE, G_DPING, 0xFF, 0xFF}},

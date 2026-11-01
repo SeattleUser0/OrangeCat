@@ -270,12 +270,14 @@ def app_flags():
                  "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV",    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
                  "OC_HOME_PIC",     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) HOME's picture page, its knobs and macros; off by default
                  "OC_EDIT_SHEETS",  # (the new interface 0.2: UI_BUILD.md step 2) EDIT's sheets; needs OC_HOME_PIC=1; off by default
-                 "OC_SHIFT_MAP",    # (the new interface 0.3: UI_BUILD.md step 3) HOME as SHIFT, its map; needs OC_EDIT_SHEETS=1; off by default
+                 "OC_SHIFT_MAP",    # (the new interface 0.3: UI_BUILD.md step 3; ui-fix 6) HOME as SHIFT and its combos; needs OC_EDIT_SHEETS=1; off by default
                  "OC_STEP_PAGES",   # (the new interface 0.4: UI_BUILD.md step 4) the step pages; needs OC_SHIFT_MAP=1; off by default
                  "OC_LANES",       # (the new interface 0.5: UI_BUILD.md step 5) DRUM-X's LANES table; needs OC_STEP_PAGES=1; off by default
                  "OC_MIXER",        # (the new interface 0.6: UI_BUILD.md step 6) the mixer in the knobs' colors; needs OC_LANES=1; off by default
                  "OC_CLIP",         # (the new interface 0.10: UI_BUILD.md step 10) copy and paste of a sound; needs OC_MIXER=1; off by default
-                 "OC_CLIP_SEL"):    # (the new interface 0.11: UI_BUILD.md step 11) copy and paste of notes and of a step's feel; needs OC_CLIP=1; off by default
+                 "OC_CLIP_SEL",     # (the new interface 0.11: UI_BUILD.md step 11) copy and paste of notes and of a step's feel; needs OC_CLIP=1; off by default
+                 "OC_ONE_AUTH",     # (ui-fix 7: UI_BUILD.md "ui-fix 7") one authority for every note; needs OC_STEP_PAGES=1; off by default
+                 "OC_SLIDE"):       # (ui-fix 8: UI_BUILD.md "ui-fix 8") slide as a legato glide in every voice mode; needs OC_STEP_PAGES=1; off by default
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

@@ -11,6 +11,7 @@
  *           comes back to SOUND; EDIT from HOME and from FX opened by its own button: SOUND
  *   FAMLAST fam_last never holds another family's page (the review's b2)
  *   PRESETS PRESETS turns the sheets (the link skipped), back, and stops at the ends; on FM6's operators it keeps the row
+ *   FXWALK  (ui-fix 1) FX from HOME: the first effect page; FX again: every effect page in turn, round to the first
  *   FXLINK  EDIT from the track's FX pages reached through the link: the sheet after it; from a shared effect, or after
  *           another button: the first sheet
  *   SHORT   ENV and LFO land on rows of sheets
@@ -322,6 +323,38 @@ int main(void)
             frames(50);
             chk("ENGINE  (no Prophet, FM6 or CZ-1 here) DRUM-X under an Env row: drawn, SELECT still moves (not to HOME)", ui.page != pg && !ui.home);
         }
+    }
+    {   /* FXWALK (ui-fix 1, the owner's finding): FX from HOME lands on the first effect page; FX again walks every visible
+         * effect page in the family's order and comes round to the first; from a sheet FX lands on the first page */
+        uint8_t pg[NPAGES_ALL], seen[NPAGES_ALL];
+        uint32_t n, k, first, steps = 0;
+        int ok = 1;
+        ui_power_on();
+        set_engine_of(TSEL, ENGI_MACRO);
+        frames(100);
+        go_home();
+        n = fam_pages(FAM_FX, pg);
+        memset(seen, 0, sizeof seen);
+        press(B_FX);
+        first = ui.page;
+        ok &= !ui.home && n > 2u && first == page_first(FAM_FX);
+        for (k = 0; k < 64u; k++) {
+            seen[ui.page] = 1;
+            press(B_FX);
+            steps++;
+            ok &= !ui.home && cur_page()->fam == FAM_FX;
+            if (ui.page == first) break;
+        }
+        ok &= steps == n;                               /* (round every page once) */
+        for (k = 0; k < n; k++) ok &= seen[pg[k]] != 0u;
+        press(B_FX);
+        press(B_FX);
+        press(B_EDIT);                                  /* a sheet, then FX: the first page again */
+        ok &= cur_page()->fam != FAM_FX;
+        press(B_FX);
+        ok &= ui.page == first;
+        printf("sheets: FXWALK  %u effect pages, %u taps round\n", (unsigned)n, (unsigned)steps);
+        chk("FXWALK  FX from HOME: the first effect page; FX again: every effect page in turn, round to the first; from a sheet: the first", ok);
     }
     printf("sheets: %d failed\n", nbad);
     return nbad != 0;

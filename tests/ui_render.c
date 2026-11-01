@@ -2284,6 +2284,43 @@ int main(int argc, char **argv)
     }
 #endif
 #if OC_EDIT_SHEETS
+    {   /* (ui-fix 5, October 31, 2026) the effect pages in the FX button's order (the owner's: DUB TAPE, DIST, AUTO PAN, the sends, then
+         * the shared DELAY, REVERB, CHORUS, SLICER, MASTER), each reached as the FX button reaches it (open_family), in every palette,
+         * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (fxorder_<nn>_<title>) */
+        uint32_t nf = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++) {
+            uint8_t pg[NPAGES_ALL];
+            uint32_t n, k;
+            state();
+            song.playing = 0;
+            eng(ENGI_MACRO);
+            TSEL->engine = TSEL->eng_req;
+            TSEL->p[P_DUBLEN] = 2; TSEL->p[P_DUBPTRN] = 2; TSEL->p[P_DUB_FDBK] = 70; TSEL->p[P_DUB_SEND] = 40; TSEL->p[P_DUB_SPACE] = 30;
+            TSEL->p[P_DIST] = 40; TSEL->p[P_APDEP] = 50; TSEL->p[P_REV] = 30; TSEL->p[P_DLY] = 45;
+            n = fam_pages(FAM_FX, pg);
+            go_home();
+            for (k = 0; k < n; k++) {
+                char name[64], image[48];
+                uint32_t j, m;
+                open_family(FAM_FX);                    /* (the FX button: from HOME the first page, then the next each time) */
+                if (ui.page != pg[k]) { fprintf(stderr, "ui_render: FX order: tap %u lands on %s, not %s\n", (unsigned)k, cur_page()->title, page_at(pg[k])->title); return 1; }
+                m = (uint32_t)snprintf(image, sizeof image, "fxorder_%02u_", (unsigned)k + 1u);
+                for (j = 0; cur_page()->title[j] && m + 1u < sizeof image; j++, m++)
+                    image[m] = cur_page()->title[j] == ' ' ? '_' : (char)(cur_page()->title[j] | 0x20);
+                image[m] = 0;
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) mono_check();
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                nf++;
+            }
+        }
+        fprintf(rep, "(ui-fix 5) the effect pages in the FX button's order: %u screens in every palette\n", (unsigned)nf);
+    }
     {   /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets: every row of every sheet of each engine below, in every palette,
          * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (sheet_<engine>_<sheet>_<row>) */
         static const uint32_t SE[] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX, ENGI_CZ, ENGI_FM6, ENGI_PROPHET};
@@ -2340,49 +2377,13 @@ int main(int argc, char **argv)
         fprintf(rep, "(the new interface 0.2) EDIT's sheets: %u screens over every palette\n", (unsigned)ns);
     }
 #endif
-#if OC_SHIFT_MAP
-    {   /* (the new interface 0.3, UI_BUILD.md step 3) the SHIFT map over HOME, a sheet's row and SEQ's first page (where the combos
-         * are dim), in every palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (shift_map_<where>) */
-        static const char *const WN[3] = {"home", "sheet", "seq"};
-        uint32_t w, nm = 0;
-        for (p = 0; p < UI_PAL_ENTRIES; p++)
-            for (w = 0; w < 3u; w++) {
-                char name[64], image[48];
-                uint32_t j;
-                state();
-                song.playing = 0;
-                eng(ENGI_MACRO);
-                TSEL->engine = TSEL->eng_req;
-                if (w == 0u) {
-                    ui.home = 1;
-                } else {
-                    ui.home = 0;
-                    ui.page = (uint8_t)(w == 1u ? page_titled("EDIT 1") : page_first(FAM_SEQ));
-                    page_entered();
-                }
-                sh_st = SHF_ON | SHF_MAP;
-                snprintf(image, sizeof image, "shift_map_%s", WN[w]);
-                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
-                cur_name = name;
-                pal(p);
-                if (p == UI_GRAY_INDEX) aud = audf;
-                draw(-1);
-                lint();
-                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
-                for (j = 0; j < UI_RENDER_SHOW; j++)
-                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
-                sh_st = 0;
-                nm++;
-            }
-        fprintf(rep, "(the new interface 0.3) the SHIFT map: %u screens over every palette\n", (unsigned)nm);
-    }
-#endif
 #if OC_STEP_PAGES
     {   /* (the new interface 0.4, UI_BUILD.md step 4) FEEL (as set, each knob last turned, a range, the step playing, an empty page),
          * NOTES with its new strip (a recorded note, a manual note, nothing) and the SHIFT map on both, in every palette, linted and
-         * MONO gray; NIGHT, DAY and CONTRAST written as PPMs (feel_<scene>, notes_<scene>, shift_map_feel, shift_map_notes) */
+         * MONO gray; NIGHT, DAY and CONTRAST written as PPMs (feel_<scene>, notes_<scene>) (the two map screens of step 4 went with the
+         * map: ui-fix 6) */
         static const char *const SN[] = {"feel_set", "feel_k1", "feel_k2", "feel_k3", "feel_k4", "feel_range", "feel_play", "feel_empty",
-                                         "notes_rec", "notes_manual", "notes_none", "shift_map_feel", "shift_map_notes"};
+                                         "notes_rec", "notes_manual", "notes_none", "notes_slide"};
         uint32_t w, nm = 0;
         for (p = 0; p < UI_PAL_ENTRIES; p++)
             for (w = 0; w < sizeof SN / sizeof SN[0]; w++) {
@@ -2404,7 +2405,7 @@ int main(int argc, char **argv)
                     step_set_nudge(&TSEL->step[8], 6);
                     TSEL->step[10].flags |= SF_ACCENT | SF_SLIDE;
                 }
-                if (w < 8u || w == 11u) go_title("FEEL"); else go_title("NOTES");
+                if (w < 8u) go_title("FEEL"); else go_title("NOTES");
                 feel_k = (uint8_t)(w >= 1u && w <= 4u ? w - 1u : 0u);
                 if (w == 5u) { bulk.on = 1; bulk.anchor = 4; bulk.end = 8; bulk.track = song.sel; bulk.pattern = TSEL->pattern; bulk.generation = TSEL->pattern_gen; bulk.engine = (uint8_t)library_engine(); }
                 if (w == 6u) { song.playing = 1; TSEL->seq_idx = 6; }
@@ -2418,7 +2419,15 @@ int main(int argc, char **argv)
                     notes_selected(TSEL);
                 }
                 if (w == 10u) track_defaults_steps(TSEL);
-                if (w >= 11u) sh_st = SHF_ON | SHF_MAP;
+                if (w == 11u) {                         /* (ui-fix 8) a recorded step that slides into the next, ENV held: the strip's SLIDE */
+                    recorded_note_t r = {.step = 6, .on = 0, .note = 55, .vel = 100, .duration = 49152, .owner = (uint8_t)recording_owner(TSEL), .length = 1};
+                    recorded_note_t q = {.step = 7, .on = 0, .note = 60, .vel = 100, .duration = 32768, .owner = (uint8_t)recording_owner(TSEL), .length = 1};
+                    track_defaults_steps(TSEL);
+                    recording_restore_note(TSEL, 0, r); recording_restore_note(TSEL, 1, q); note_rebuild_all();
+                    TSEL->step[6].flags |= SF_SLIDE;
+                    cursor_set(6); notes_selected(TSEL);
+                    ui.step_mods |= (uint16_t)(1u << panel.btn[B_ENV]);
+                }
                 snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, SN[w]);
                 cur_name = name;
                 pal(p);
@@ -2429,7 +2438,6 @@ int main(int argc, char **argv)
                 if (p == UI_GRAY_INDEX) { audit_scene(SN[w]); aud = 0; mono_check(); }
                 for (j = 0; j < UI_RENDER_SHOW; j++)
                     if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], SN[w]);
-                sh_st = 0;
                 bulk.on = 0;
                 song.playing = 0;
                 nm++;

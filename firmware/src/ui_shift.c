@@ -6,26 +6,30 @@
  *
  * HOME is SHIFT from its press, when the press begins with nothing modal up (no MENU, confirm, NAME, NEW SONG, popup,
  * layer or the designer: the design review's 6 and 11). Let go before 700 ms with nothing else touched: a tap, as
- * today. Held to 700 ms alone: the map over the page; let go: the MENU opens (on the release, never racing a combo).
- * Anything pressed or turned while HOME is down is a combo, and the release then does nothing:
+ * today. Held to 700 ms alone: the MENU opens, HOME still down (release-2's own path: btn_hold's BT_HOLD and page_tap's
+ * toggle), and the release does nothing more. Anything pressed or turned while HOME is down before that is a combo, and
+ * then no MENU opens for that press:
  *   - KNOB 1..4 on HOME's pages or a sheet: a fine turn (that detent with no acceleration);
- *   - PRESETS on HOME's pages: the engine, one step a detent;
- *   - EDIT on HOME's pages or a sheet: the init confirm (as the OCT+ sheet's Init sound);
- *   - OCT- / OCT+: copy and paste a sound, not built yet (UI_BUILD.md "Left for later from step 3"): eaten, a message;
+ *   - PRESETS on HOME's pages: the engine, one step a detent; on NOTES and FEEL the selection stretched;
+ *   - EDIT on HOME's pages or a sheet: the init confirm (as the OCT+ sheet's Init sound); on NOTES and FEEL a delete;
+ *   - OCT- / OCT+: copy and paste (a sound with OC_CLIP, a selection with OC_CLIP_SEL), else eaten with a message;
  *   - anything else does its own job as today (only the MENU is cancelled).
- * Elsewhere SHIFT's knobs, PRESETS and EDIT are eaten (NOTES and FEEL's combos are step 4's: the design review's 7).
+ * Elsewhere SHIFT's knobs, PRESETS and EDIT are eaten. A combo begun after the MENU opened is the MENU's: its knobs are
+ * read when HOME is let go (ui-fix 6, October 31, 2026: the owner withdrew the map of step 3, which had waited for a
+ * combo at any time while HOME was held; now the combo window is 700 ms from HOME's press).
  * State: sh_st, 1 B (not in ui.home_t0, whose bits are its press time; not in ui.pg_down, which dialogs clear).
- * Included by ui_input.c before ui_input() (it needs page_knob and the OCT statics); ui_draw.c draws the map.
+ * Included by ui_input.c before ui_input() (it needs page_knob and the OCT statics).
  * Revisions:
- *   (the new interface 0.3, branch ui-build) first version.
+ *   (the new interface 0.3, branch ui-build) first version, with the map.
+ *   (ui-fix 6, branch ui-fix) the map and its state gone; the MENU at 700 ms held.
  */
-enum { SHF_ON = 1u, SHF_COMBO = 2u, SHF_MAP = 4u, SHF_FINE = 8u };
-static uint8_t sh_st;                                   /* SHF_*: HOME is SHIFT; a combo was made; the map is shown; a
-                                                         * fine turn in progress (accel_by reads it; ui_input.c declares
-                                                         * it first, this is the same object) */
+enum { SHF_ON = 1u, SHF_COMBO = 2u, SHF_FINE = 8u };
+_Static_assert(SHF_FINE == 8u, "accel_by (ui_input.c) reads sh_st & 8u for the fine turn");
+static uint8_t sh_st;                                   /* SHF_*: HOME is SHIFT; a combo was made; a fine turn in
+                                                         * progress (accel_by reads it; ui_input.c declares it first,
+                                                         * this is the same object) */
 
 static int shift_on(void) { return (sh_st & SHF_ON) != 0u; }
-static int shift_map_on(void) { return (sh_st & (SHF_ON | SHF_MAP)) == (SHF_ON | SHF_MAP); }
 /* where the combos act: HOME's pages and a sheet's row (elsewhere they are eaten) */
 #if OC_STEP_PAGES
 /* (the new interface 0.4, UI_BUILD.md step 4) NOTES (melodic) and FEEL: the combos act here too: + a knob a fine turn, + PRESETS
@@ -40,30 +44,17 @@ static int shift_here(void)
 #endif
     return ui.home || (!page_over && sh_row(ui.page));
 }
-static void shift_combo(void)
-{
-    if (sh_st & SHF_MAP)
-        ui.force = 1;                                   /* (the map goes: the page under it drawn whole) */
-    sh_st = (uint8_t)((sh_st | SHF_COMBO) & ~SHF_MAP);
-}
+static void shift_combo(void) { sh_st |= SHF_COMBO; }
 static int shift_clean(void)                            /* nothing modal up: a HOME press may be SHIFT */
 {
     return !ui.menu && !ui.confirm && !name_on() && !new_on() && !pop.on && !ui.ly && !ui.layer && !designer_on() &&
            !smap.on;
 }
-static void shift_menu_open(void)                       /* (as release-2's HOME held, ui_input.c) */
-{
-    ui.menu = 1;
-    ui.menu_sel = 0;
-    ui.confirm = 0;
-    name_close();
-    new_close();
-    ui.force = 1;
-    song.seq_mode = 0;
-}
 /* HOME's gesture, after btn_hold (home: its result) and before anything reads it. *pressed: this frame's button edges;
  * EDIT, OCT- and OCT+ taken as combos are removed from it (their own paths never see them). The result is what the
- * caller does with HOME: BT_TAP, BT_HOLD (release-2's MENU toggle: only for a press that is not SHIFT), BT_NONE */
+ * caller does with HOME: BT_TAP (let go alone before 700 ms), BT_HOLD (700 ms held with no combo made: release-2's
+ * MENU toggle), BT_NONE. The pass's combos are handled first, so an edge arriving on the hold's own pass makes a combo
+ * and no MENU (the design review's 1) */
 static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
 {
     uint32_t hb = 1u << panel.btn[B_HOME], eb = 1u << panel.btn[B_EDIT], dn = 1u << panel.btn[B_OCTDN],
@@ -77,27 +68,15 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
     if (!down) {                                        /* HOME let go */
         uint32_t st = sh_st;
         sh_st = 0;
-        if (st & SHF_MAP)
-            ui.force = 1;
         if ((st & SHF_COMBO) || (*pressed & ~hb) || notes)
             return BT_NONE;                             /* (a control pressed on the release's own pass: a combo too) */
-        if ((st & SHF_MAP) && shift_clean())            /* held alone to the map: the MENU, on the release. Never for a
-                                                         * press btn_hold did not see held (a tap between two passes: lost,
-                                                         * as on release-2; the diff review's 1) */
-            shift_menu_open();
-        return (st & SHF_MAP) ? BT_NONE : home;
+        return home;                                    /* a tap (BT_TAP; after the MENU opened btn_hold says BT_NONE) */
     }
-    if (!shift_clean()) {                               /* something modal came up under it (SHIFT+EDIT's confirm): no
-                                                         * more combos, no MENU, no tap */
-        if (sh_st & SHF_MAP)
-            ui.force = 1;
+    if (!shift_clean()) {                               /* something modal came up under it (the MENU at 700 ms,
+                                                         * SHIFT+EDIT's confirm): no more combos, no tap */
         sh_st = SHF_ON | SHF_COMBO;
         ui.home_t0 |= 2u;
         return BT_NONE;
-    }
-    if (home == BT_HOLD && !(sh_st & SHF_COMBO)) {     /* 700 ms alone: the map (the MENU waits for the release) */
-        sh_st |= SHF_MAP;
-        ui.force = 1;
     }
     if ((*pressed & ~hb) || notes)
         shift_combo();
@@ -135,7 +114,7 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
 #endif
         ui_message("COPY, PASTE: LATER");
     }
-    return BT_NONE;
+    return home == BT_HOLD && !(sh_st & SHF_COMBO) ? BT_HOLD : BT_NONE;   /* 700 ms held with no combo: the MENU (page_tap) */
 }
 /* SHIFT + KNOB k: on HOME's pages or a sheet a fine turn (no acceleration for this detent); elsewhere eaten. 1: taken */
 static int shift_knob(uint32_t k, int32_t s)
@@ -177,53 +156,3 @@ static void shift_turned(int32_t s)
         shift_combo();
 }
 
-/* ------------------------------------------------------------------------------------------- the map --- */
-static const struct { const char *ctl, *job; uint8_t combo; } SHIFT_TILE[12] = {
-    {"PRESETS", "SOUND", 0}, {"ALGO", "TRACK", 0}, {"SELECT", "PAGES", 0},
-    {"K1-4", "KNOBS", 0},    {"EDIT", "SHEETS", 0}, {"SEQ", "STEPS", 0},
-    {"K1-4", "FINE", 1},     {"PRESETS", "ENGINE", 2}, {"EDIT", "INIT", 1},
-    {"OCT-", "COPY", 3},     {"OCT+", "PASTE", 3},  {"LET GO", "MENU", 0}};
-/* the map over the page (the header as the page's, its chip "SHIFT"): twelve tiles, 76 x 46, from row 34 (the
- * mockup's); a combo's tinted with a plus, dim where it does nothing (off HOME's pages and the sheets; copy and paste
- * not built yet). SELECT says ROWS on a sheet, PAGES elsewhere */
-static void shift_draw(void)
-{
-    uint32_t i, r;
-    int here = shift_here(), row = !ui.home && here;
-#if OC_STEP_PAGES
-    if (shift_steppg())
-        row = 0;                                        /* (SELECT turns the pages there, not a sheet's rows) */
-#endif
-    if (ui.force)
-        lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
-    draw_head();
-    if (!ui.force)
-        return;                                         /* (nothing on it moves: drawn once, on its force) */
-    for (r = 0; r < 4u; r++) {
-        cv_begin(240, 50, T_BG);
-        for (i = 0; i < 3u; i++) {
-            uint32_t t = r * 3u + i;
-            int32_t x = 4 + 78 * (int32_t)i;
-            uint32_t c = SHIFT_TILE[t].combo;
-#if OC_STEP_PAGES
-            int sp = shift_steppg();
-#else
-            int sp = 0;
-#endif
-            int live = OC_CLIP && c == 3u && (!sp || OC_CLIP_SEL);       /* (the new interface 0.10) a sound's copy and paste, live on a page or sheet */
-            int dim = (c == 1u && !here) || (c == 2u && !ui.home && !sp) || (c == 3u && !(live && here));
-            uint16_t bg = c ? ux_mix(T_BG, T_THEME, dim ? 8 : 20) : T_QUIET;
-            const char *job = t == 2u && row ? "ROWS" : SHIFT_TILE[t].job;
-            if (sp && t == 7u) job = "STRETCH";         /* (NOTES and FEEL: PRESETS stretches the range, EDIT deletes it) */
-            if (sp && t == 8u) job = "DELETE";
-            cv_rrect(x, 2, 76, 46, 6, bg, T_BG);
-            if (c) {                                    /* the plus, in the tile's corner above the words */
-                cv_rect(x + 5, 6, 5, 1, dim ? T_DIM : T_THEME);
-                cv_rect(x + 7, 4, 1, 5, dim ? T_DIM : T_THEME);
-            }
-            cv_text_c(x + 38, ty_y(18, TY_LB), TY_LB, SHIFT_TILE[t].ctl, dim ? T_DIM : c ? T_THEME : T_SEC, bg);
-            cv_text_c(x + 38, ty_y(37, TY_LB), TY_LB, c == 3u && !live ? "LATER" : job, dim && (c != 3u || live) ? T_DIM : T_TEXT, bg);
-        }
-        cv_blit(0, (uint32_t)(32 + 50 * (int32_t)r));
-    }
-}

@@ -109,8 +109,7 @@ case "${CC:-}" in
 esac
 CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 # (Orange Cat 0.12.2, Part 2a) SAN=1: every test of the suite built and run under AddressSanitizer and UndefinedBehaviorSanitizer (the first finding stops the test).
-#   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t) and 8-byte members (p5_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
-#   (Round 10) The same exemption on every test that names the sanitizers itself: a block's address moves with the arena's order (the engines' states are taken at the switch now), and the Prophet's state landed on a 4-byte address in clip_test.
+#   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
 #   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
 case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
 FW="-w -Ibuild/gen -Ifirmware/src"
@@ -229,7 +228,7 @@ sheet_job() {                                     # (the new interface 0.2, UI_B
     [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
 }
 shift_job() {                                     # (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT
-    _t "new interface 3: HOME as SHIFT: a tap, the map, the MENU on the release, the combos, nothing modal raced" \
+    _t "new interface 3: HOME as SHIFT: a tap, the MENU at 700 ms held (ui-fix 6), the combos, nothing modal raced" \
         shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 3: the layers, SCREEN OFF and LFO 2 with every step's switch built in" \
         layer_screen_s3:layer_screen_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
@@ -249,6 +248,10 @@ step_pages_job() {                                # (the new interface 0.4, UI_B
         clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 11: copy and paste of notes and of a step's feel: the clipboards, the paste, one undo, the refusals" \
         clip_sel_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "ui-fix 7: one authority for every note: the invariant after every edit path, the reconcile at a load, START converts, the tracker's move of a recorded step, a key on a recorded step" \
+        one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "ui-fix 8: slide and legato: a slide step glides the voice legato in every voice mode, a chord voice by voice, into a rest, a recorded overlap, never a ratchet" \
+        slide_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: EDIT's sheets with the step pages built in" \
         sheet_s4:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: HOME as SHIFT with the step pages built in" \
@@ -314,20 +317,20 @@ ui_renders_sheets() {                             # (the new interface 0.2, UI_B
     fi
 }
 ui_renders_shift() {                              # (the new interface 0.3, UI_BUILD.md step 3) every screen again with every step's switch,
-                                                  # the sheets and the SHIFT map in every palette: the lint, MONO gray; PNGs in build/ui_shift
+                                                  # the sheets with SHIFT built in, in every palette: the lint, MONO gray; PNGs in build/ui_shift
     build ui_render_shift ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_shift/ppm build/ui_shift_slot
-    step "UI renders with the SHIFT map built in (OC_SHIFT_MAP=1): every screen, every sheet, the map, lint, MONO gray" \
+    step "UI renders with SHIFT built in (OC_SHIFT_MAP=1): every screen, every sheet, lint, MONO gray" \
         "$OUT/ui_render_shift" build/ui_shift build/ui_shift_slot
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_shift build/ui_shift_slot || fail "tests/ui_render.py (build/ui_shift)"
     fi
 }
 ui_renders_steps() {                              # (the new interface 0.4, UI_BUILD.md step 4) every screen again with every step's switch and
-                                                  # the step pages: FEEL, NOTES' strip and the map on both in every palette: the lint, MONO gray; PNGs in build/ui_steps
-    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+                                                  # the step pages: FEEL and NOTES' strip in every palette: the lint, MONO gray; PNGs in build/ui_steps
+    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_steps/ppm build/ui_steps_slot
-    step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, the maps, lint, MONO gray" \
+    step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, lint, MONO gray" \
         "$OUT/ui_render_steps" build/ui_steps build/ui_steps_slot
     if [ $PIL = 1 ]; then
         python3 tests/ui_render.py build/ui_steps build/ui_steps_slot || fail "tests/ui_render.py (build/ui_steps)"
@@ -388,7 +391,7 @@ module_host_prophet() {                           # (Orange Cat 0.12.1, Part 1b)
         "$OUT/module_host_prophet_test" tests/golden.txt
 }
 mod_pages_prophet() {                             # (Orange Cat 0.12.1, Part 1b) the Prophet module's own descriptor in the UI (the Orange Cat engine set, sanitizers)
-    $CC -c -O1 -fsanitize=address,undefined -fno-sanitize=alignment -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/mod_pages_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (pages)"; return 1; }
+    $CC -c -O1 -fsanitize=address,undefined -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/mod_pages_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (pages)"; return 1; }
     $CC -O1 -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 \
         -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW -o "$OUT/mod_pages_prophet_test" tests/mod_pages_prophet_test.c "$OUT/mod_pages_prophet_tu.o" -lm ||
         { fail "compile tests/mod_pages_prophet_test.c"; return 1; }

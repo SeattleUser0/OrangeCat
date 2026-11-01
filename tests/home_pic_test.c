@@ -264,6 +264,47 @@ int main(int argc, char **argv)
         printf("home_pic: HIT     %u picture pixels moved by a note-on\n", (unsigned)d);
         chk("HIT     a note-on moves the picture; the newer of two notes freed first is not a note-on", ok);
     }
+    {   /* MOVES (ui-fix 3, the owner's finding "the cat's green hand barely moves"): on SHAPES each knob's two ends draw clearly
+         * different pictures, and with every knob at rest the picture still moves between frames (the tail flicks at
+         * COLR's rate, the yarn rolls at TIMB's) */
+        static uint16_t a[240 * 240];
+        static const uint32_t BAR[4] = {400u, 330u, 600u, 400u};   /* each above what the timid scene drew */
+        int ok = 1;
+        uint32_t k, moved;
+        ui_power_on();
+        set_engine_of(TSEL, ENGI_SHAPES);
+        settle();
+        pic_on();
+        play_frames(300);
+        for (k = 0; k < 4u; k++) {
+            int16_t *vp;
+            const param_desc_t *d = page_desc(stage_page(), k, &vp);
+            uint32_t i;
+            if (!d || !vp) { ok = 0; continue; }
+            *vp = d->min;
+            play_frames(240);
+            memcpy(a, host_screen, sizeof a);
+            *vp = d->max;
+            play_frames(240);
+            for (moved = 0, i = HP_PIC_Y * 240u; i < 240u * 240u; i++) moved += host_screen[i] != a[i];
+            printf("home_pic: MOVES   SHAPES knob %u: %u picture pixels differ between its ends\n", (unsigned)k + 1u, (unsigned)moved);
+            ok &= moved >= BAR[k];                      /* (the timid scene of 0.16.0 read 190, 307, 475, 333: the diff review's 16) */
+            *vp = d->def;
+        }
+        {
+            int16_t *vp;
+            const param_desc_t *d = page_desc(stage_page(), 1u, &vp);   /* COLR up: the tail flicks faster */
+            uint32_t i;
+            if (d && vp) *vp = d->max;
+            play_frames(240);
+            memcpy(a, host_screen, sizeof a);
+            play_frames(300);
+            for (moved = 0, i = HP_PIC_Y * 240u; i < 240u * 240u; i++) moved += host_screen[i] != a[i];
+            printf("home_pic: MOVES   SHAPES at rest: %u picture pixels differ 300 ms apart\n", (unsigned)moved);
+            ok &= moved >= 50u;
+        }
+        chk("MOVES   SHAPES: each knob's ends draw clearly different pictures (above the old scene's); at rest the picture moves at the knobs' rates", ok);
+    }
     {   /* COZY */
         int ok = 1;
         for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++) {

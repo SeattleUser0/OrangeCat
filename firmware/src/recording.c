@@ -761,7 +761,9 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     }
 #else
     /* Retire overwritten overview cells before a new take can own them again. */
+#if !OC_ONE_AUTH
     recording_prune(t);
+#endif
     uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t actual = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_idx;
     uint32_t span = step_samples(t, period, actual), pos = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_pos;
@@ -817,7 +819,7 @@ static void recording_clear(track_t *t)
     t->rh_n = t->rh_ties = t->rskip_n = 0;
     t->rh_elapsed = 0;
 }
-static void recording_prune(track_t *t)
+static __attribute__((unused)) void recording_prune(track_t *t)   /* (ui-fix 7: with OC_ONE_AUTH no firmware path calls it; the host check does) */
 {
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX;) {
         uint32_t next = recording_next[i];
@@ -825,6 +827,57 @@ static void recording_prune(track_t *t)
         i = next;
     }
 }
+#if OC_ONE_AUTH
+/* (ui-fix 7, docs/orangecat/UI_BUILD.md "ui-fix 7") One authority: the invariant, per owner bank, is
+ *   every event with a velocity has a NOTE cell flagged SF_RECORDED at its view (recording_present), and
+ *   every NOTE cell flagged SF_RECORDED has at least one event viewing it.
+ * Every edit path keeps it (a manual gesture on a recorded cell deletes the cell's events through the history first,
+ * seq_undo.c events_delete_view; live recording flags the cell it writes). Stored data may not: a phrase or project saved by a
+ * build before 0.7.2, or between an overwrite and the lazy prune of that time, can carry an event whose cell is no longer
+ * flagged (recording_prune retired those on the next recording stop or transform) or a flagged cell with no event. So the
+ * one place the old lazy prune survives is here, at the load boundaries (the pool's load of a phrase, a project load, boot):
+ * an orphan event is dropped, a flagged cell with no event becomes the manual cell its notes make (or an empty one). The
+ * current bank is the track's steps; another bank is read, mended and written back only when it needs mending. Under the
+ * caller's guard (the audio does not see half of it); the host check (tests/one_auth_test.c) asserts the invariant after every
+ * edit path and that this finds nothing to do there */
+static void step_clear(step_t *st);                     /* ui.c */
+static void recording_reconcile_cell(step_t *step, uint32_t n)   /* cell n unflagged: a manual cell, or cleared with its TIE tail */
+{
+    step[n].flags &= (uint8_t)~SF_RECORDED;
+    if (step[n].n || step[n].hit) return;
+    step_clear(&step[n]);
+    for (n++; n < NSTEP && step[n].time == ST_TIE; n++) step_clear(&step[n]);
+}
+static void recording_reconcile_owner(uint32_t owner)
+{
+    uint32_t k = owner / NPAT, bank = owner % NPAT, i, n;
+    track_t *t;
+    uint64_t seen = 0;
+    if (k >= NTRK) return;
+    t = &trk[k];
+    for (i = recording_head[owner]; i < RECORD_MAX;) {   /* the events: present, or gone */
+        uint32_t next = recording_next[i];
+        if (!recording_present(&recording[i])) recording_remove(t, i);
+        else seen |= (uint64_t)1 << (recording_view(t, &recording[i]) % NSTEP);
+        i = next;
+    }
+    if (bank == t->pattern) {                           /* the cells: flagged with no event, a manual cell or nothing */
+        for (n = 0; n < NSTEP; n++)
+            if ((t->step[n].flags & SF_RECORDED) && t->step[n].time == ST_NOTE && !((seen >> n) & 1u)) recording_reconcile_cell(t->step, n);
+    } else {
+        pattern_t p;
+        uint32_t mend = 0;
+        pattern_read(k, bank, &p);
+        for (n = 0; n < NSTEP; n++)
+            if ((p.step[n].flags & SF_RECORDED) && p.step[n].time == ST_NOTE && !((seen >> n) & 1u)) { recording_reconcile_cell(p.step, n); mend = 1; }
+        if (mend) pattern_write(k, bank, &p);
+    }
+}
+static void recording_reconcile(void)
+{
+    for (uint32_t owner = 0; owner < NTRK * NPAT; owner++) recording_reconcile_owner(owner);
+}
+#endif
 static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
 {
     recording_pitch_remove(i);
@@ -919,6 +972,39 @@ static int recording_roll_ok(track_t *t, uint32_t view)
     }
     return !(recording_roll[tr].skip & bit);
 }
+#if OC_SLIDE
+static uint8_t recording_slid;                      /* (ui-fix 8) the hit about to play took over a voice: no note-on for it */
+/* (ui-fix 8) a recorded slide, the overlap rule: at each hit of a cell (a chord voice by voice, in the list's order), when the
+ * cell before has SLIDE and one of its recorded notes is still sounding on its own voice (one reference, not a manual step's
+ * note, a live key's or the arp's), that voice is re-pitched to this note (seq.c seq_slide_voice) and the reference moves: the
+ * old event's hold ends without a note-off, this hit's begins as any hit's. No gate is extended, so the two notes must overlap
+ * (a played legato take does); a ratchet's or a flam's later hits never take over (recording_fire only). 1: taken */
+static int recording_slide_in(track_t *t, uint32_t i, uint32_t vel)
+{
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), view = recording_view(t, &recording[i]) % NSTEP;
+    uint32_t prev = (view + len - 1u) % len, tr = trk_index(t), j;
+    if (view >= len || (t->step[prev].flags & (SF_SLIDE | SF_RECORDED)) != (SF_SLIDE | SF_RECORDED)) return 0;
+    for (j = recording_head[recording_owner(t)]; j < RECORD_MAX; j = recording_next[j]) {
+#if MELODEE_RECORD_QUEUE
+        uint32_t old = recording_message[j] & 127u;     /* (the pitch the hit was played with, as recording_end reads it) */
+#else
+        uint32_t old = recording[j].note;
+#endif
+        uint32_t k, shared = 0;
+        if (j == i || !recording_sounding(j) || recording_view(t, &recording[j]) != prev || recording_refs[tr][old] != 1u) continue;
+        if ((live_held[tr][old >> 5] & (1u << (old & 31u))) || t->arp_note == old) continue;
+        for (k = 0; k < t->seq_n; k++) shared |= t->seq_notes[k] == old;   /* (a manual step's note shares the voice: not ours) */
+        if (shared || !seq_slide_voice(t, old, recording[i].note, vel)) continue;
+#if MELODEE_RECORD_QUEUE
+        recording_queue_remove(j);
+#endif
+        recording_run[j].left = 0;
+        recording_refs[tr][old]--;
+        return 1;
+    }
+    return 0;
+}
+#endif
 /* one hit of an event: the note on at velocity vel, held for gate samples (late: how far past its time it is) */
 static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, uint32_t late)
 {
@@ -927,6 +1013,9 @@ static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, u
     RECORDING_HIT_HOOK(t, i, vel, gate, late);
 #endif
     drum_event_pitch=r->pitch; drum_event_length=r->length?gate:0;
+#if OC_SLIDE
+    if (!recording_slid)
+#endif
     trk_note_on(t, r->note, vel);
     drum_event_pitch=0; drum_event_length=0;
     uint32_t was = recording_sounding(i), remaining = gate > late ? gate - late : 0u;
@@ -1011,7 +1100,13 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
         first = flam_at(t, period);
         vel = vel * 9u / 16u + 1u;
     }
+#if OC_SLIDE
+    recording_slid = (uint8_t)recording_slide_in(t, i, vel);
+#endif
     recording_hit(t, i, vel, first, late);
+#if OC_SLIDE
+    recording_slid = 0;
+#endif
     if (hits > 1u || grace) {                         /* the rest waits: its time is counted on the track's repeat clock, from the start of the next block */
         uint32_t k = recording_rep_slot(tr, i);
         recording_rep_ev[tr][k] = (uint16_t)(i + 1u);

@@ -130,7 +130,11 @@ int main(void)
         manual(4, 64);
         cursor_set(4); frame();
         turn(EN_K2, 1);
+#if !OC_ONE_AUTH                                        /* (ui-fix 7: START on a manual note converts; one_auth_test has it) */
         chk("NOTES   a manual note's START is refused with its reason", msg_is("START: RECORDED ONLY") && TSEL->step[4].nudge == 0);
+#else
+        chk("NOTES   a manual note's START converts the step (ui-fix 7)", (TSEL->step[4].flags & SF_RECORDED) != 0u);
+#endif
         turn(EN_K1, 2);
         chk("NOTES   a manual note's PITCH (KNOB 1) as KNOB 2's was", TSEL->step[4].note[0] == 66u);
         c0 = ui.cursor;
@@ -326,6 +330,32 @@ int main(void)
         shift_up();
         chk("SHIFT   + EDIT on NOTES deletes the selected notes, no init confirm", !recording[0].vel && !recording[1].vel && !ui.confirm);
         bulk.on = 0;
+    }
+    {   /* CHAIN (ui-fix 2, the owner's finding): PRESETS on CHAIN takes the selected track to the next or previous chain, 01 .. 64,
+         * ends held; the chip and the message say which; playing, refused and unchanged; SONG's cells untouched */
+        uint32_t k, c0, cell;
+        int ok = 1;
+        fresh("CHAIN");
+        c0 = lists.tchain[song.sel];
+        cell = lists.song[0][song.sel];
+        turn(EN_PRESET, 1);
+        ok &= lists.tchain[song.sel] == (c0 + 1u) % OCL_NCHAIN && !ui.home && cur_page()->graph == GR_PATGRID;
+        ok &= str_eq(ui.msg, "T1 CHAIN 02");
+        for (k = 0; k < 80u; k++) turn(EN_PRESET, 1);
+        ok &= lists.tchain[song.sel] == OCL_NCHAIN - 1u;
+        for (k = 0; k < 80u; k++) turn(EN_PRESET, -1);
+        ok &= lists.tchain[song.sel] == 0u;
+        ok &= lists.song[0][song.sel] == cell;
+        for (k = 0; k < 4u; k++) turn(EN_PRESET, 1);
+        ok &= lists.tchain[song.sel] == 4u;
+        song.playing = 1; chain.running = 1;
+        turn(EN_PRESET, 1);
+        ok &= lists.tchain[song.sel] == 4u && str_eq(ui.msg, "STOP TO EDIT CHAIN");
+        song.playing = 0; chain.running = 0;
+        turn(EN_ALGO, 1);                               /* another track: its own chain turns */
+        turn(EN_PRESET, 1);
+        ok &= song.sel == 1u && lists.tchain[1] == 2u && lists.tchain[0] == 4u && str_eq(ui.msg, "T2 CHAIN 03");
+        chk("CHAIN   PRESETS on CHAIN: the selected track's chain, 01 .. 64 held at the ends; refused while playing; per track", ok);
     }
     {   /* DRAW */
         uint32_t k;

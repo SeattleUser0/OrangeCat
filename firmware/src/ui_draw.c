@@ -72,20 +72,10 @@ static void sound_name(const track_t *t, char *b);
 static int ptc_on(void);                                /* ui_patterns.c */
 static uint32_t ocl_pat_len(uint32_t id);               /* (Orange Cat 0.3) oc_lists.c */
 static uint32_t ocl_staged_ent(uint32_t k);
-#if OC_SHIFT_MAP
-static int shift_map_on(void);                          /* ui_shift.c (included by ui_input.c) */
-static void shift_draw(void);
-#endif
 static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
     uint32_t e = TSEL->eng_req % NENGINES;
-#if OC_SHIFT_MAP
-    if (shift_map_on()) {                               /* (the new interface 0.3) the SHIFT map */
-        str_cpy(b, "SHIFT", 16);
-        return;
-    }
-#endif
     if (designer_on() && !name_on() && designer_head_chip(b)) {   /* the designer's START, FEATURES, original */
     } else if (new_on()) {                                     /* NEW SONG */
         str_cpy(b, "NEW SONG", 16);
@@ -660,22 +650,34 @@ static void draw_columns(void)
             draw_column(0, "PITCH", sn, "", selected ? T_COZY(0u) : T_DIM, -1, ICON_PITCH);
             if (chosen < RECORD_MAX)
                 feel_hund(sn, ((recording[chosen].step & 63u) * 100u) + 100u + (uint32_t)recording[chosen].on * 100u / RECORD_UNIT, 1);
+#if OC_ONE_AUTH
+            else if (selected)                          /* (ui-fix 7) a manual note starts on its step; START moves it (the step converts) */
+                feel_hund(sn, start * 100u + 100u, 1);
+#endif
             else
                 str_cpy(sn, "--", sizeof sn);
-            draw_column(1, "START", sn, "", chosen < RECORD_MAX ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
+            draw_column(1, "START", sn, "", chosen < RECORD_MAX || (OC_ONE_AUTH && selected) ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
             if (chosen < RECORD_MAX) {
                 uint32_t h = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
                 if (!h) str_cpy(sn, "<.01", sizeof sn); else feel_hund(sn, h, 0);
             } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
             else str_cpy(sn, "--", sizeof sn);
             draw_column(2, "LEN", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(2u) : T_DIM, -1, ICON_GATE);
+#if OC_SLIDE
+            if (selected && (ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (ui-fix 8) ENV held: the cursor step's slide, recorded or manual */
+                draw_column(3, "SLIDE", TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE ? "ON" : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
+                return;
+            }
+#else
             if (chosen >= RECORD_MAX && st && (ui.step_mods & (1u << panel.btn[B_ENV]))) {
                 draw_column(3, "SLIDE", st->flags & SF_SLIDE ? "ON" : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
                 return;
             }
+#endif
             if (selected) fmt_int(sn, chosen < RECORD_MAX ? recording[chosen].vel : st->flags & SF_ACCENT ? 127 : st->vel ? st->vel : 96);
             else str_cpy(sn, "--", sizeof sn);
-            draw_column(3, "VEL", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(3u) : T_DIM, -1, ICON_ACCENT);
+            draw_column(3, "VEL", sn, OC_SLIDE && (TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE) ? "SL" : chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "",
+                        selected ? T_COZY(3u) : T_DIM, -1, ICON_ACCENT);
             return;
         }
 #endif
@@ -1204,13 +1206,6 @@ static void ui_draw_frame(void)
         draw_head();                                    /* recording remains visible over confirmations */
         return;
     }
-#if OC_SHIFT_MAP
-    if (shift_map_on()) {                               /* (the new interface 0.3) HOME held alone: the SHIFT map */
-        shift_draw();
-        ui.force = 0;
-        return;
-    }
-#endif
     if (smap.on && (ui.home || cur_page()->fam != FAM_EDIT || ui.layer))
         smap.on = 0;
     if (smap.on) {                                      /* an engine's map (ui_sections.c) */
