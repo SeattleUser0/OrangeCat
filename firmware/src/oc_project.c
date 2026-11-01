@@ -83,6 +83,7 @@ static ocp_gen_t ocj_gen[OCP_PER] __attribute__((section(".pool")));
 #endif
 static int ocj_read(uint32_t slot, uint8_t *raw);
 static int ocj_read_banks(uint8_t *raw);
+static ocp_rd_t ocj_rd __attribute__((section(".pool")));   /* ocj_read's and ocj_read_banks's one reader (as the one function had) */
 
 /* how many saved slots (but slot `but`, 4: none) name pool pattern id: a bank of theirs, or (0.4.4) a slot of one of
  * their chains */
@@ -403,7 +404,6 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
 /* slot as an FBKK into raw (proj_x with it). BANK_STORE_SIZE, or -1 (no record, or one that does not read) */
 static int ocj_read(uint32_t slot, uint8_t *raw)
 {
-    static ocp_rd_t rd __attribute__((section(".pool")));
     project_t *q = &proj_scratch;
     ocs_rec_t r;
     uint32_t at, out = 0, hsz;
@@ -411,11 +411,11 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     if (ocs_open(OCS_PROJECT, slot, &r) || ocj_head_load(&r, &hsz))
         return -1;
     /* the project part, decoded into raw + 8 */
-    memset(&rd, 0, sizeof rd);
-    rd.r = &r; rd.off = hsz; rd.end = r.total;
+    memset(&ocj_rd, 0, sizeof ocj_rd);
+    ocj_rd.r = &r; ocj_rd.off = hsz; ocj_rd.end = r.total;
     for (at = 0; at < ocj_h.zlen;) {
         uint8_t v, n;
-        if (ocp_rd(&rd, &v, 1)) return -1;
+        if (ocp_rd(&ocj_rd, &v, 1)) return -1;
         at++;
         if (v) {
             if (out >= ocj_lead + PROJ_STORE_SIZE) return -1;
@@ -424,7 +424,7 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
             else { raw[8u + out - ocj_lead] = v; out++; }
             continue;
         }
-        if (ocp_rd(&rd, &n, 1) || !n || out + n > ocj_lead + PROJ_STORE_SIZE) return -1;
+        if (ocp_rd(&ocj_rd, &n, 1) || !n || out + n > ocj_lead + PROJ_STORE_SIZE) return -1;
         at++;
         for (; n; n--, out++) {
             if (out < ocj_lead) { if (out < sizeof ocj_l) ((uint8_t *)&ocj_l)[out] = 0; }
@@ -443,7 +443,6 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
 static int ocj_read_banks(uint8_t *raw)
 {
     static ocp_parsed_t p __attribute__((section(".pool")));
-    static ocp_rd_t rd __attribute__((section(".pool")));
     project_t *q = &proj_scratch;
     ocs_rec_t pr;
     uint32_t k, b, i, nmot = 0, nnote = 0, notes_at = 0;
@@ -459,17 +458,17 @@ static int ocj_read_banks(uint8_t *raw)
             const step_t *st;
             if (id > OCP_N) return -1;
             if (id) {
-                if (ocp_check(id - 1u, k, &pr, &rd, &p, &notes_at)) return -1;
+                if (ocp_check(id - 1u, k, &pr, &ocj_rd, &p, &notes_at)) return -1;
                 if (nmot + p.mot.count > MOTION_MAX || nnote + p.nnotes > RECORD_MAX) return -1;
                 for (i = 0; i < p.mot.count; i++) {
                     q->motion.event[nmot] = p.mot.event[i];
                     raw[BANK_MOTION_OFF + nmot++] = (uint8_t)b;
                 }
                 if (p.nnotes) {
-                    ocp_notes_rewind(&rd, notes_at);
+                    ocp_notes_rewind(&ocj_rd, notes_at);
                     for (i = 0; i < p.nnotes; i++) {
                         recorded_note_t v;
-                        if (ocp_rd(&rd, &v, OCP_NOTE)) return -1;
+                        if (ocp_rd(&ocj_rd, &v, OCP_NOTE)) return -1;
                         v.owner = (uint8_t)((v.owner & 224u) | (k * NPAT + b));
                         q->recording[nnote++] = v;
                     }
