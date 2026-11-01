@@ -1,3 +1,13 @@
+# Orange Cat Nightly v0.16.0-7b29d7: what changed for you since f5057c
+
+Written November 1, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
+
+1. **NOTES, K2 (START) works freely now.** The "NO EDIT MEMORY" you saw came from every edit asking the audio memory for a copy of all 1,024 note slots (11 KB), which a mix of four MACRO tracks leaves no room for. An edit now keeps only the notes in use (a few hundred bytes). Checked on the unit in your four-MACRO mix: each detent moves the note a sixteenth of a step, with no message. It moves a typed note, a chord's note or a recorded one anywhere in the loop (wrapping at its end). The same fix covers LEN, range moves and copies, paste, pattern doubling and quantize.
+2. **PRESETS skipping: not found, so nothing was changed for it.** On the unit, one PRESETS detent loads exactly one sound; the key scan is clean (no phantom turns in a minute, 907 scans a second, no long gaps while the screen redraws); the knob decoder gives one step a click under any contact bounce I could model; a key tap makes one press. The jumps of 5 and 3 you saw are what the knob's speed-up does when a turn is quick (the third and later detents of a spin go 3 or 4 at a time on a list of 27). To tell which it is: MENU > KNOB ACCEL OFF, then turn PRESETS one click at a time. If it still jumps, it is the knob or its wiring and I need to see it turn (the test build can log it); if it does not, it is the speed-up and I will make lists of this length slower.
+3. **DUB redesign: not in this build.** The review of the design found that a project saves each track parameter as one byte, so the new pages' twelve values (two times, modes, spring, drive, wow, speed) cannot be stored without either coarse knobs or the Release 3 format. The kernel (two taps, ping-pong, speed bend, wow, spring on the return) is built and rendered; listen to `~/fm1-hw/r12/dub-renders/` (`before-*` is the DUB as it is, `after-*` the new kernel). Tell me: coarse knobs now, or the pages with Release 3.
+
+The earlier note for f5057c follows.
+
 # Orange Cat Nightly v0.16.0-f5057c: what changed for you since 478add
 
 Written November 1, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
