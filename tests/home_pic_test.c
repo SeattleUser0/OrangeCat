@@ -39,6 +39,13 @@ static uint32_t screen_hash(void)
     return h;
 }
 /* frames with the audio running (the voices' envelopes for the picture) */
+#define SW(c) ((((uint32_t)(c) >> 8) | ((uint32_t)(c) << 8)) & 0xFFFFu)   /* (the stub display keeps the panel's byte order) */
+/* a pixel (RGB565) within a few levels of colour ref in every channel: the lines are drawn anti-aliased */
+static int like(uint32_t c, uint32_t ref)
+{
+    int dr = (int)(c >> 11) - (int)(ref >> 11), dg = (int)((c >> 5) & 63u) - (int)((ref >> 5) & 63u), db = (int)(c & 31u) - (int)(ref & 31u);
+    return dr >= -4 && dr <= 4 && dg >= -8 && dg <= 8 && db >= -4 && db <= 4;
+}
 static void play_frames(uint32_t ms)
 {
     int32_t out[2 * CTL];
@@ -264,11 +271,11 @@ int main(int argc, char **argv)
         printf("home_pic: HIT     %u picture pixels moved by a note-on\n", (unsigned)d);
         chk("HIT     a note-on moves the picture; the newer of two notes freed first is not a note-on", ok);
     }
-    {   /* MOVES (ui-fix 3, the owner's finding "the cat's green hand barely moves"): on SHAPES each knob's two ends draw clearly
-         * different pictures, and with every knob at rest the picture still moves between frames (the tail flicks at
-         * COLR's rate, the yarn rolls at TIMB's) */
-        static uint16_t a[240 * 240];
-        static const uint32_t BAR[4] = {400u, 330u, 600u, 400u};   /* each above what the timid scene drew */
+    {   /* MOVES (ui-fix 3, the owner's finding "the cat's green hand barely moves"; ui-fix2 6, the owner's finding on f5057c): on SHAPES each knob's two
+         * ends draw clearly different pictures, and the motions are the knobs' RATES: COLR the tail's wag, PLUCK the paw's bat at the yarn (the
+         * paw striking it, visibly), TIMB the yarn's size alone */
+        static uint16_t a[240 * 240], b[240 * 240];
+        static const uint32_t BAR[4] = {300u, 0u, 600u, 0u};   /* the yarn's size (K1) and the moon (K3): by position; K2 and K4 are rates */
         int ok = 1;
         uint32_t k, moved;
         ui_power_on();
@@ -276,7 +283,7 @@ int main(int argc, char **argv)
         settle();
         pic_on();
         play_frames(300);
-        for (k = 0; k < 4u; k++) {
+        for (k = 0; k < 4u; k++) {                      /* the positions: K1's size, K3's moon differ between ends */
             int16_t *vp;
             const param_desc_t *d = page_desc(stage_page(), k, &vp);
             uint32_t i;
@@ -288,22 +295,79 @@ int main(int argc, char **argv)
             play_frames(240);
             for (moved = 0, i = HP_PIC_Y * 240u; i < 240u * 240u; i++) moved += host_screen[i] != a[i];
             printf("home_pic: MOVES   SHAPES knob %u: %u picture pixels differ between its ends\n", (unsigned)k + 1u, (unsigned)moved);
-            ok &= moved >= BAR[k];                      /* (the timid scene of 0.16.0 read 190, 307, 475, 333: the diff review's 16) */
+            ok &= moved >= BAR[k];
             *vp = d->def;
         }
-        {
-            int16_t *vp;
-            const param_desc_t *d = page_desc(stage_page(), 1u, &vp);   /* COLR up: the tail flicks faster */
-            uint32_t i;
-            if (d && vp) *vp = d->max;
-            play_frames(240);
-            memcpy(a, host_screen, sizeof a);
-            play_frames(300);
-            for (moved = 0, i = HP_PIC_Y * 240u; i < 240u * 240u; i++) moved += host_screen[i] != a[i];
-            printf("home_pic: MOVES   SHAPES at rest: %u picture pixels differ 300 ms apart\n", (unsigned)moved);
-            ok &= moved >= 50u;
+        chk("MOVES   SHAPES: TIMB's ends draw clearly different yarn (size), TONE's the moon", ok);
+        ok = 1;
+        for (k = 0; k < 4u; k += 1u) {                  /* RATES: the turns a phase makes in 2 s at each end of its knob (0.5 Hz, 3 Hz) */
+            static const uint32_t WHO[2] = {1u, 3u};    /* COLR (the tail), PLUCK (the paw) */
+            uint32_t w, e, turns[2];
+            if (k > 1u) break;
+            w = WHO[k];
+            for (e = 0; e < 2u; e++) {
+                int16_t *vp;
+                const param_desc_t *d = page_desc(stage_page(), w, &vp);
+                uint32_t i, sum = 0;
+                uint16_t last;
+                if (!d || !vp) { ok = 0; turns[e] = 0; continue; }
+                *vp = e ? d->max : d->min;
+                play_frames(100);
+                last = hp.ph[w];
+                for (i = 0; i < 125u; i++) { play_frames(16); sum += (uint16_t)(hp.ph[w] - last); last = hp.ph[w]; }   /* 2 s */
+                turns[e] = (sum + 32768u) / 65536u * 10u + (sum % 65536u) * 10u / 65536u;   /* tenths of a turn */
+                *vp = d->def;
+            }
+            printf("home_pic: MOVES   %s in 2 s: %u.%u turns at its knob's left end, %u.%u at its right\n", w == 1u ? "the tail's wag (COLR)" : "the paw's bat (PLUCK)",
+                   (unsigned)turns[0] / 10u, (unsigned)turns[0] % 10u, (unsigned)turns[1] / 10u, (unsigned)turns[1] % 10u);
+            ok &= turns[0] >= 8u && turns[0] <= 12u && turns[1] >= 55u && turns[1] <= 70u;   /* 1 turn and 6 .. 7: 0.5 Hz and 3 Hz (and a little over: the knob's top reads past 256) */
         }
-        chk("MOVES   SHAPES: each knob's ends draw clearly different pictures (above the old scene's); at rest the picture moves at the knobs' rates", ok);
+        chk("MOVES   COLR sets the tail's wag rate and PLUCK the paw's bat rate: 0.5 Hz at the left end, 3 Hz at the right", ok);
+        {   /* the pictures at exact phases (the clock still: nothing advances between the sets and the draw): the paw strikes the yarn at the
+             * wrap (its ball on the yarn) and rises away from it; TIMB's phase draws nothing (the yarn no longer rolls at its rate); COLR's phase
+             * sweeps the tail */
+            int ok2 = 1;
+            uint32_t pose, touch[2] = {0, 0}, i;
+            palette_set(0);                             /* (a palette with hues: the paw's and the yarn's colours apart) */
+            go_home(); frames(100);
+            ui.force = 1; ui_draw();
+            for (pose = 0; pose < 2u; pose++) {
+                uint32_t n = 0;
+                hp.ph[0] = 0; hp.ph[1] = 0; hp.ph[2] = 0; hp.ph[3] = pose ? 0x8000u : 0x0100u;
+                hp.ph_ms = fm1_ms; ui.force = 1; ui_draw();
+                for (i = HP_PIC_Y * 240u; i < 240u * 240u; i++) {
+                    uint32_t x = i % 240u, y = i / 240u, c = SW(host_screen[i]), dx, dy;
+                    int near = 0;
+                    if (!like(c, T_COZY(3u))) continue;                             /* the paw's colour */
+                    for (dy = 0; dy < 5u && !near; dy++)
+                        for (dx = 0; dx < 5u && !near; dx++) {
+                            uint32_t xx = x + dx - 2u, yy = y + dy - 2u, o;
+                            if (xx >= 240u || yy >= 240u) continue;
+                            o = SW(host_screen[yy * 240u + xx]);
+                            near = like(o, T_COZY(0u));                                     /* the yarn's */
+                        }
+                    n += (uint32_t)near;
+                }
+                touch[pose] = n;
+            }
+            printf("home_pic: MOVES   paw pixels on the yarn's edge: %u at the strike, %u risen\n", (unsigned)touch[0], (unsigned)touch[1]);
+            chk("MOVES   the paw strikes the yarn (its ball on the yarn at the strike) and rises away from it", touch[0] >= 3u && touch[1] == 0u);
+            hp.ph[0] = 0x1000u; hp.ph[1] = 0; hp.ph[2] = 0; hp.ph[3] = 0x4000u;
+            hp.ph_ms = fm1_ms; ui.force = 1; ui_draw(); memcpy(a, host_screen, sizeof a);
+            hp.ph[0] = 0xB000u; hp.ph[1] = 0; hp.ph[2] = 0; hp.ph[3] = 0x4000u;
+            hp.ph_ms = fm1_ms; ui.force = 1; ui_draw();
+            for (moved = 0, i = HP_PIC_Y * 240u; i < 240u * 240u; i++) moved += host_screen[i] != a[i];
+            printf("home_pic: MOVES   TIMB's phase moves %u pixels (the yarn no longer rolls at its rate)\n", (unsigned)moved);
+            ok2 &= moved == 0u;
+            hp.ph[0] = 0; hp.ph[1] = 0x2000u; hp.ph[2] = 0; hp.ph[3] = 0x4000u;
+            hp.ph_ms = fm1_ms; ui.force = 1; ui_draw(); memcpy(a, host_screen, sizeof a);
+            hp.ph[0] = 0; hp.ph[1] = 0xA000u; hp.ph[2] = 0; hp.ph[3] = 0x4000u;
+            hp.ph_ms = fm1_ms; ui.force = 1; ui_draw(); memcpy(b, host_screen, sizeof b);
+            for (moved = 0, i = HP_PIC_Y * 240u; i < 240u * 240u; i++) moved += a[i] != b[i];
+            printf("home_pic: MOVES   the tail between two phases of COLR's wag: %u pixels\n", (unsigned)moved);
+            ok2 &= moved >= 60u;
+            chk("MOVES   TIMB's phase draws nothing (no yarn roll at its rate); the tail sweeps with COLR's phase", ok2);
+        }
     }
     {   /* COZY */
         int ok = 1;

@@ -22,6 +22,23 @@ static uint32_t slot_kind(void)
     return pg->graph == GR_SLOTS ? SK_PROJECT : pg->graph == GR_USER ? SK_USER : pg->graph == GR_FMSTORE ? SK_FM6 :
            (MELODEE_P5 && pg->scope == SC_P5STORE) ? SK_P5 : SK_NONE;
 }
+#if OC_PROJECT_PAGE
+/* (ui-fix2 3) whether the music has changes its slot does not hold: worked out in the input pass (project_dirty packs the project into
+ * proj_scratch, which the drawing borrows between frames), at most once a second while the PROJECT page is up and the sequencer stopped,
+ * at once on entering the page and after a load or a save (pj_note). pj.d: 0 saved, 1 unsaved changes, 2 not worked out yet */
+static int project_unsaved(void);                       /* project.c */
+static struct { uint32_t t; uint8_t d, page; } pj = {0, 2, 0};
+static void pj_note(void) { pj.d = 2; pj.t = 0; }       /* (a load, a save, the page entered: work it out again) */
+static void pj_poll(void)
+{
+    if (slot_kind() == SK_PROJECT && !transport_busy() && (pj.d == 2u || pj.page != ui.page || fm1_ms - pj.t >= 1000u)) {
+        pj.d = (uint8_t)(project_unsaved() != 0);
+        pj.t = fm1_ms;
+        pj.page = ui.page;
+        ui.force = 1;                                   /* (the foot says so) */
+    }
+}
+#endif
 static uint32_t slot_count(uint32_t k) { return k == SK_PROJECT ? (uint32_t)PROJ_TMPL + 1u : UP_SLOTS; }
 static uint32_t slot_cur(uint32_t k)                    /* the row picked */
 {
@@ -64,6 +81,13 @@ static int slot_row(uint32_t k, uint32_t r, char *tag, char *nm)
 }
 static void slot_detail(uint32_t k, uint32_t r, int used, char *b)   /* the card's second line */
 {
+#if OC_PROJECT_PAGE
+    if (k == SK_PROJECT && r < 4u && r == project_current())   /* (ui-fix2 3) the slot in use: said, with whether it holds the music */
+        str_cpy(b, pj.d == 1u ? "NOW \xB7 unsaved changes" : "NOW \xB7 saved", 24);
+    else if (k == SK_PROJECT && r < 4u)                        /* (the others: what OCT+ does here) */
+        str_cpy(b, used ? "OCT+ LOAD OR SAVE" : "Empty \xB7 OCT+ SAVE", 24);
+    else
+#endif
     if (k == SK_PROJECT)
         str_cpy(b, used == 2 ? "Starts empty" : r + 1u == (uint32_t)PROJ_TMPL ? (used ? "Saved" : "Empty")
                    : used ? "Saved" : "Empty", 24);
@@ -157,6 +181,39 @@ static void slot_save_sheet(void)
     slv.save_page = (uint8_t)(ui.page + 1u);
 }
 
+#if OC_PROJECT_PAGE
+/* (ui-fix2 3) the PROJECT page's foot, in place of the sound bar: which slot is in use and its name, on the left, as the sound bar shows the track;
+ * at the right whether the music has changes the slot does not hold ("unsaved", in the accent colour) or is as saved ("saved"); no slot yet
+ * (a new song): "NEW SONG, NOT SAVED". The one place that always says where the music is */
+static void pj_foot(void)
+{
+    char nm[16], d[2] = {0, 0};
+    const char *right;
+    uint32_t cur = project_current(), sig;
+    const aafont_t *lf = TY_LB, *tf = TY_TX;
+    int32_t cy = H_FOOT / 2, rw;
+    nm[0] = 0;
+    if (cur < 4u) {
+        project_cur_name(nm);
+        if (!nm[0]) str_cpy(nm, "Saved", 16);
+        d[0] = (char)('A' + cur);
+    } else {
+        str_cpy(nm, "New", 16);
+    }
+    right = cur >= 4u ? "not saved" : pj.d == 1u ? "unsaved" : "saved";
+    sig = str_hash(str_hash(cur * 7u + pj.d * 131u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u, nm), right);
+    if (!ui.force && sig == pv.sound)
+        return;
+    pv.sound = sig;
+    cv_begin(240, 240 - PV_SOUND_Y, T_BG);
+    cv_rrect(4, cy - 11, 22, 22, 6, cur < 4u ? T_THEME : T_LINE, T_BG);
+    cv_text_c(15, ty_y(cy, lf), lf, cur < 4u ? d : "-", cur < 4u ? T_INK : T_MID, cur < 4u ? T_THEME : T_LINE);
+    rw = text_w(tf, right) + 4;
+    cv_free_text(34, ty_y(cy, tf), tf, nm, T_SEC, T_BG, 236 - 34 - rw - 6);
+    cv_text_r(236, ty_y(cy, tf), tf, right, pj.d == 1u || cur >= 4u ? T_ACCENT : T_MID, T_BG);
+    cv_blit(0, PV_SOUND_Y);
+}
+#endif
 /* ----------------------------------------------------------- drawing --- */
 static void slot_draw(void)
 {
@@ -170,12 +227,18 @@ static void slot_draw(void)
         ui.graph_sig = 0;
     }
     draw_head();
+#if OC_PROJECT_PAGE
+    if (k == SK_PROJECT) pj_foot(); else
+#endif
     pv_sound();
     if (vis > n)
         vis = n;
     slv.first = (uint16_t)clamp((int32_t)cur - (int32_t)vis / 2, 0, (int32_t)(n - vis));
     sig = cur * 7u + slv.first * 131u + boot * 1031u + k * 40503u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u +
           up_gen * 7919u + library_engine() * 104729u + bulk.on * 19u + bulk.anchor * 23u + bulk.end * 29u + sx_import.count * 37u;
+#if OC_PROJECT_PAGE
+    sig += (uint32_t)pj.d * 1009u + project_current() * 2003u;   /* (ui-fix2 3) the slot in use and whether it holds the music */
+#endif
     for (r = slv.first; r < slv.first + vis; r++)
         sig = str_hash(sig + (uint32_t)slot_row(k, r, tag, nm), nm);
     if (!ui.force && sig == slv.sig)
@@ -190,6 +253,12 @@ static void slot_draw(void)
             uint16_t bg = ux_mix(T_BG, T_THEME, 18);
             int32_t nw = 236 - nx - 8 - (boot == r + 1u ? text_w(lf, "Boot") + 10 : 0);
             cv_rrect(BOX_X, 0, BOX_W, h - 2, 8, bg, T_BG);
+#if OC_PROJECT_PAGE
+            if (k == SK_PROJECT && r < 4u && r == project_current()) {   /* (ui-fix2 3) the slot in use: a pill */
+                cv_rrect(5, 6, 22, 22, 6, T_THEME, bg);
+                cv_text_c(16, ty_y(17, tf), tf, tag, T_INK, T_THEME);
+            } else
+#endif
             cv_text_on(12, ty_y(17, tf), tf, tag, T_THEME, bg);
             cv_free_text(nx, ty_y(17, ty_fit(tf, nm, nw)), ty_fit(tf, nm, nw), used ? nm : "Empty", used ? T_TEXT : T_MID, bg, nw);
             slot_detail(k, r, used, d);
@@ -200,6 +269,12 @@ static void slot_draw(void)
                 cv_text_r(228, ty_y(17, lf), lf, "Boot", T_THEME, bg);
         } else {
             if(k!=SK_PROJECT && bulk_has(r))cv_rect(BOX_X,6,3,SL_ROW-14,T_THEME);
+#if OC_PROJECT_PAGE
+            if (k == SK_PROJECT && r < 4u && r == project_current()) {   /* (ui-fix2 3) the slot in use: its letter on a pill in the track's colour */
+                cv_rrect(5, SL_ROW / 2 - 12, 22, 22, 6, T_THEME, T_BG);
+                cv_text_c(16, ty_y(SL_ROW / 2 - 1, tf), tf, tag, T_INK, T_THEME);
+            } else
+#endif
             cv_text_on(12, ty_y(SL_ROW / 2 - 1, tf), tf, tag, used ? T_MID : T_DIM, T_BG);
             {
                 int32_t nw = boot == r + 1u ? 228 - text_w(lf, "Boot") - 8 - nx : 228 - nx;

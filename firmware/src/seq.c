@@ -424,11 +424,30 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
  * oneshot engine (DRUM-X); an engine that allocates its own voices in POLY (FM6); in a mono mode a voice that is not the old
  * note's, or PRIO LOW or HIGH with more than one note held (mono_pick's call, not this one). The engine's legato hook runs as
  * mono_play's branch runs it; MACRO and SHAPES read the voice's pitch every block and need none */
+#if OC_SLIDE_TIME
+/* (ui-fix2 4) SLIDE TIME s, -64 .. 63, as the voice's glide step: voice.c reads a negative gstep as the rate, 1/256ths of a sixteenth of a
+ * semitone a control tick, accumulated (its fraction in gtick). s = 0 is the step slides had (768/256 = 3: an octave in about 46 ms); each 16
+ * of s halves (negative s) or doubles (positive) the speed: -64 an octave in about 3 ms, +63 about 0.7 s. The rate is 768 * 2^(-s/16): the whole
+ * powers by a shift, the sixteenths of a power from a table (256 * 2^(-k/16)). */
+static int32_t slide_gstep(int32_t s)
+{
+    static const uint16_t P2[16] = {256, 245, 235, 225, 215, 206, 197, 189, 181, 173, 166, 159, 152, 146, 140, 134};
+    int32_t q = s >= 0 ? s / 16 : -((15 - s) / 16), k = s - q * 16;   /* s = 16 q + k, k 0..15 (q floors) */
+    int32_t r = 768 * (int32_t)P2[k] >> 8;
+    r = q >= 0 ? r >> q : r << -q;                      /* the rate, 1/256 sixteenths a tick */
+    return r < 1 ? -1 : -r;                             /* (negative: the rate, not a step) */
+}
+#endif
 static void slide_glide_set(track_t *t, voice_t *v)
 {
     if (!v->pitch_cur) { v->pitch_cur = v->pitch16; v->gstep = 0; return; }   /* (never played: no glide) */
     if (t->p[P_GLIDE]) { glide_set(t, v, 1); return; }
+#if OC_SLIDE_TIME
+    v->gstep = slide_gstep(t->p[P_SLIDET]);
+    v->gtick = 0;
+#else
     v->gstep = 3;                                       /* (track_render's RATE step: ENV_LIN[40] >> 14 is 40, nearly a jump) */
+#endif
 }
 static int seq_slide_voice(track_t *t, uint32_t old, uint32_t new, uint32_t vel)
 {

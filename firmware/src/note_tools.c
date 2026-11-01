@@ -9,6 +9,7 @@ typedef struct {
     motion_store_t motion;
     uint8_t valid, redo, track, cursor, len, clear;
     uint8_t slen;                /* LEN to swap in too (a doubled pattern), 0 = LEN stays */
+    uint8_t group;               /* (ui-fix2 2) 1: this history is GLO's clear of every track (ui_clear.c clr_follow); a byte of the padding */
 } note_transaction_t;
 static note_transaction_t *note_transaction_ptr;
 #define note_transaction (*note_transaction_ptr)
@@ -49,7 +50,7 @@ static int note_transaction_begin_track(track_t *t)
     memcpy(note_transaction.steps,t->step,sizeof note_transaction.steps);
     note_transaction.track=(uint8_t)trk_index(t);note_transaction.pattern_gen=t->pattern_gen;
     note_transaction.cursor=ui.cursor;note_transaction.len=(uint8_t)step_pattern_len(t);
-    note_transaction.valid=1;note_transaction.redo=note_transaction.clear=note_transaction.slen=0;return 1;
+    note_transaction.valid=1;note_transaction.redo=note_transaction.clear=note_transaction.slen=note_transaction.group=0;return 1;
 }
 static int note_transaction_begin(void){return note_transaction_begin_track(TSEL);}
 static void note_transaction_end(void)

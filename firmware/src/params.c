@@ -224,7 +224,11 @@ static const param_desc_t TP[P_COUNT] = {
     [P_RESERVED45] = PE("LEN", N_DUBLEN, 0),                      /* (Release 2) DUB TAPE's per-track setup */
     [P_RESERVED46] = PE("PTRN", N_DUBPTRN, 0),
     [P_RESERVED47] = PE("SPRP", N_DUBSPRP, 0),
+#if OC_SLIDE_TIME
+    [P_RESERVED48] = PD("SLIDE", F_BIPCT, -64, 63, 0),            /* (ui-fix2 4) SLIDE TIME: the percent is how far from the rate slides had, quicker (-) or slower (+) */
+#else
     [P_RESERVED48] = PD("", F_INT, 0, 127, 0),
+#endif
 #define MSLOT(k) [P_M##k##SRC] = PE("SRC" #k, N_MSRC, 0), [P_M##k##DST] = PE("DST" #k, N_MDST, 0), \
                  [P_M##k##AMT] = PD("AMT" #k, F_BIPCT, -64, 63, 0)
     MSLOT(1), MSLOT(2), MSLOT(3), MSLOT(4),
@@ -576,38 +580,42 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 static const page_t PAGES[] = {
     /* (Orange Cat 0.6.0) FX: the effects (jfx.c, Jiant FM's pages). The track's: its DIST and sends, DIST, AUTO PAN;
      * the project's: the buses, the SLICER, the MASTER */
-    /* (ui-fix 5, the owner's order of October 31, 2026, with the sheets: OC_EDIT_SHEETS) the track's own effects first, DUB TAPE
-     * at the top (the one that is played), then DIST and AUTO PAN, then the track's sends; the shared DELAY, REVERB, CHORUS,
-     * SLICER, MASTER last. Without the sheets release-2's order: the sends, DIST, AUTO PAN, DUB */
-#define PG_FX_SENDS {"FX", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_CHOR, P_DLY, P_REV}},
+    /* (ui-fix2 1, the owner's order of November 1, 2026, with the sheets: OC_EDIT_SHEETS) first the track's sends, named SENDS
+     * (the page feeds the shared effects; it was "FX", which said nothing of that); then the shared effects (DELAY .. MASTER,
+     * every track's); last the track's own: DIST, AUTO PAN, DUB SETUP, DUB, DUB 2. Without the sheets release-2's order: the
+     * sends, DIST, AUTO PAN, DUB, then the shared ones. (Session A reworks the DUB pages' knobs; their names and order stay.) */
+#define PG_FX_SENDS {"SENDS", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_CHOR, P_DLY, P_REV}},
 #define PG_FX_DIST {"DIST", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_DTYPE, P_DTONE, P_SLROUTE}},
 #define PG_FX_APAN {"AUTO PAN", FAM_FX, SC_TRACK, GR_NONE, {P_APDEP, P_APRATE, P_APSYNC, P_APWAVE}},
 #define PG_FX_DUB \
     {"DUB", FAM_FX, SC_TRACK, GR_NONE, {P_JRES0, P_JRES1, P_JRES2, P_JRES3}},                  /* (Release 2) FDBK SEND TONE SPACE */ \
-    {"DUB 2", FAM_FX, SC_TRACK, GR_NONE, {P_JRES4, P_JRES5, P_JRES6, 0xFF}},                   /* THRW CUT KICK */ \
-    {"DUB SETUP", FAM_FX, SC_TRACK, GR_NONE, {P_RESERVED45, P_RESERVED46, P_RESERVED47, 0xFF}}, /* LEN PTRN SPRP */
+    {"DUB 2", FAM_FX, SC_TRACK, GR_NONE, {P_JRES4, P_JRES5, P_JRES6, 0xFF}},                   /* THRW CUT KICK */
+#define PG_FX_SETUP {"DUB SETUP", FAM_FX, SC_TRACK, GR_NONE, {P_RESERVED45, P_RESERVED46, P_RESERVED47, 0xFF}}, /* LEN PTRN SPRP */
+#define PG_FX_SHARED \
+    {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}}, \
+    {"DELAY 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_WIDTH, G_DPIT, G_DSPRY, G_DMOD}}, \
+    {"DELAY 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTYPE, G_DPING, 0xFF, 0xFF}}, \
+    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, G_RPRE}}, \
+    {"REVERB 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_RMOD, G_RRATE, G_RFILT, G_RWIDE}}, \
+    {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, G_CSTER, 0xFF}}, \
+    {"SLICER", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLMODE, G_SLPAT, G_SLRATE, G_SLDEP}}, \
+    {"SLICER 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLFX, G_SLPLEN, G_SLPQ, 0xFF}}, \
+    {"SL PITCH 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0, G_SLP0 + 1, G_SLP0 + 2, G_SLP0 + 3}}, \
+    {"SL PITCH 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 4, G_SLP0 + 5, G_SLP0 + 6, G_SLP0 + 7}}, \
+    {"SL PITCH 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 8, G_SLP0 + 9, G_SLP0 + 10, G_SLP0 + 11}}, \
+    {"SL PITCH 4", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 12, G_SLP0 + 13, G_SLP0 + 14, G_SLP15}}, \
+    {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, {G_DJF, G_CLIP, G_LEVEL, G_SPKEQ}},
 #if OC_EDIT_SHEETS
-    PG_FX_DUB PG_FX_DIST PG_FX_APAN PG_FX_SENDS
+    PG_FX_SENDS PG_FX_SHARED PG_FX_DIST PG_FX_APAN PG_FX_SETUP PG_FX_DUB
 #else
-    PG_FX_SENDS PG_FX_DIST PG_FX_APAN PG_FX_DUB
+    PG_FX_SENDS PG_FX_DIST PG_FX_APAN PG_FX_DUB PG_FX_SETUP PG_FX_SHARED
 #endif
 #undef PG_FX_SENDS
 #undef PG_FX_DIST
 #undef PG_FX_APAN
 #undef PG_FX_DUB
-    {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
-    {"DELAY 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_WIDTH, G_DPIT, G_DSPRY, G_DMOD}},
-    {"DELAY 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTYPE, G_DPING, 0xFF, 0xFF}},
-    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, G_RPRE}},
-    {"REVERB 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_RMOD, G_RRATE, G_RFILT, G_RWIDE}},
-    {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, G_CSTER, 0xFF}},
-    {"SLICER", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLMODE, G_SLPAT, G_SLRATE, G_SLDEP}},
-    {"SLICER 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLFX, G_SLPLEN, G_SLPQ, 0xFF}},
-    {"SL PITCH 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0, G_SLP0 + 1, G_SLP0 + 2, G_SLP0 + 3}},
-    {"SL PITCH 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 4, G_SLP0 + 5, G_SLP0 + 6, G_SLP0 + 7}},
-    {"SL PITCH 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 8, G_SLP0 + 9, G_SLP0 + 10, G_SLP0 + 11}},
-    {"SL PITCH 4", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 12, G_SLP0 + 13, G_SLP0 + 14, G_SLP15}},
-    {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, {G_DJF, G_CLIP, G_LEVEL, G_SPKEQ}},
+#undef PG_FX_SETUP
+#undef PG_FX_SHARED
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot: SEQ > TEMPO's QNT */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
@@ -699,6 +707,9 @@ static const page_t PAGES[] = {
     {"LANES 3", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_TONE, DXL_FDBK, DXL_HANDS, DXL_DUCK}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
+#if OC_SLIDE_TIME
+    {"SLIDE", FAM_EDIT, SC_TRACK, GR_NONE, {P_SLIDET, 0xFF, 0xFF, 0xFF}},   /* (ui-fix2 4) how long a step's SLIDE takes, this track's */
+#endif
     {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, {P_SPRD, 0xFF, 0xFF, 0xFF}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_A4, G_BUDGET, G_CLOCK, G_TUNE}}, /* device reference/budget; CLK/TUNE kept */
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_DRUMCH, G_ROUTE, G_INFO}},

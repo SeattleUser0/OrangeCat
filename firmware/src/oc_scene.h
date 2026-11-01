@@ -52,7 +52,7 @@
  *   SS_NOTE        the last note's pitch class, 0 .. 256 (C .. B)
  *   SS_TIME        a 1 s sawtooth, 0 .. 256, the same for every scene (the UI's clock)
  *   SS_WOB         a 0.5 Hz sine of the clock, -256 .. 256 (bobbing)
- *   SS_PH1..SS_PH4 a sawtooth whose RATE is knob 1..4 (0.1 Hz at 0 to 3 Hz at full): a spinning rotor, a rolling ball
+ *   SS_PH1..SS_PH4 a sawtooth whose RATE is knob 1..4 (0.5 Hz at 0 to 3 Hz at full; ui-fix2 6: it was 0.1 Hz at 0): a spinning rotor, a rolling ball
  *                  (the only state: four 16-bit phases a track, kept by the UI)
  *   | SS_CENTERED   the source minus 128 (a knob as -128 .. 128 about its middle: a macro's two halves)
  * Fields: SF_X SF_Y (position; a polyline or group: all of it), SF_X2 SF_Y2 (the second point, or w h), SF_R (diameter,

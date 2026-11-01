@@ -67,6 +67,7 @@ static int project_name(uint32_t slot, char *b);
 static int project_rename(uint32_t slot, const char *name);
 static int project_erase(uint32_t slot);
 static void project_cur_name(char *b);
+static uint32_t project_current(void);                  /* (ui-fix2 3) the slot the music came from or was saved to (0..3), 4: none */
 static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, USER_NONE = none */
 {
     return t->user && !t->user_native && up_used(t->user-1u) && up_engine(t->user-1u)==t->eng_req ? t->user-1u : USER_NONE;
@@ -235,7 +236,7 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
        CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE,
-       CF_DEL_TRACK, CF_PAT_KEY, CF_CLEAR_SHARED, CF_CLEAR_CHAIN };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
+       CF_DEL_TRACK, CF_PAT_KEY, CF_CLEAR_SHARED, CF_CLEAR_CHAIN, CF_LOAD_PROJ };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
                                       * pattern over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to
                                       * over a pattern in use; SEQ + a white key held: its pattern (ui_input.c) */
 
@@ -637,6 +638,14 @@ static void open_family(uint32_t fam)
     } else if (fam == FAM_FX && (ui.home || ui.page != page_first(FAM_FX))) {
         ui.page = (uint8_t)page_first(FAM_FX);        /* FX: the track's rack (from its slots and SHARED too); */
 #endif
+#if OC_PROJECT_PAGE
+    } else if (fam == FAM_SAVE && !ui.home && cur_page()->graph == GR_SLOTS) {   /* (ui-fix2 3) SAVE again on the PROJECT page: the sound's USER slots
+                                                         * (PRESETS has its own button), and back */
+        uint32_t i;
+        for (i = 0; i < NPAGES; i++)
+            if (page_at(i)->graph == GR_USER) break;
+        ui.page = (uint8_t)i;
+#endif
     } else if (!ui.home && cur_page()->fam == fam) {   /* same button again: next page (FX: on from its rack) */
         uint32_t n, i = ui.page;
         for (n = 0; n < page_n(); n++) {
@@ -647,8 +656,9 @@ static void open_family(uint32_t fam)
     } else if (fam == FAM_SAVE) {
         uint32_t i;
         for (i = 0; i < NPAGES; i++)
-            if (page_at(i)->graph == GR_USER) break;
-        ui.page = (uint8_t)i;                         /* SAVE enters the sound save screen directly */
+            if (page_at(i)->graph == (OC_PROJECT_PAGE ? GR_SLOTS : GR_USER)) break;
+        ui.page = (uint8_t)i;                         /* SAVE enters the sound save screen directly (ui-fix2 3: the PROJECT page: the project is what
+                                                         * SAVE means; the sound's USER slots are the next page, SAVE again) */
     } else {
         ui.page = ui.fam_last[fam] && page_at(ui.fam_last[fam])->fam == fam && page_visible(ui.fam_last[fam]) ? ui.fam_last[fam]
                                                                           : (uint8_t)page_first(fam);
@@ -711,13 +721,15 @@ static int seq_is_empty(const track_t *t)
  * so the undo goes back past the whole browse. Eight levels use ordinary SRAM or validated cache RAM.
  * The resident/cache profile keeps one SRAM fallback level if cache startup fails.
  * Not snapshotted: power-on, projects (a project load drops them all) */
-enum { UNDO_SOUND = 1, UNDO_PAT = 2 };
+enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_FX = 4 };   /* (ui-fix2 2) UNDO_FX: the track's own effects' settings (param_jfx, DUB's setup) */
 #include "step_snapshot.h"
 typedef struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (after): a next load keeps the copy */
     uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_step) */
     uint8_t eng, preset, user_native, patn;
+    uint8_t link;                /* (ui-fix2 2) 1: the level pushed just before this one belongs to the same gesture (GLO's clear of
+                                  * four tracks): one undo, one redo takes the whole group (a byte of the padding before `user`) */
     uint16_t user;
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
@@ -846,6 +858,7 @@ static void load_begin(track_t *t, uint32_t what)
     undo_cnt = undo_top;
     u->trk = (uint8_t)(i + 1u);
     u->keep = 0;
+    u->link = 0;
     u->pattern_gen = t->pattern_gen;
     u->what = (uint8_t)what;
     u->eng = t->eng_req;
@@ -904,10 +917,20 @@ static int recording_history(int redo)
 /* EDIT held (redo 0) / EDIT + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
+static void undo_level(int redo);
+static void clr_follow(int redo);                       /* (ui-fix2 2, ui_clear.c) after a note history that was GLO's clear */
 static void undo_step(int redo)
 {
     if(recording_history(redo))return;
-    if(note_clear_history(redo))return;
+    if(note_clear_history(redo)){
+#if OC_REC_CLEAR
+        clr_follow(redo);
+#endif
+        return;}
+    undo_level(redo);
+}
+static void undo_level(int redo)
+{
     track_t *t;
     undo_t *u;
     uint32_t i;
@@ -965,6 +988,14 @@ static void undo_step(int redo)
             step_snapshot_put(&u->step[i], &s);
         }
     }
+    if (u->what & UNDO_FX) {                    /* (ui-fix2 2) the track's own effects: the swap param_kept keeps out of UNDO_SOUND's */
+        for (i = 0; i < P_COUNT; i++)
+            if (param_jfx(i) || param_dub_setup(i)) {
+                int16_t v = t->p[i];
+                t->p[i] = u->p[i];
+                u->p[i] = v;
+            }
+    }
     fm1_irq_on();
     if (u->what & UNDO_SOUND) {                 /* FM6: the track's patch as it was (edited, a project's, a
                                                    * converted DIGITAL sound), preserved with the sound */
@@ -992,6 +1023,12 @@ static void undo_step(int redo)
     b[1] = (char)('1' + trk_index(t));
     ui_say(redo ? "REDO " : "UNDO ", b);
     ui.force = 1;
+    /* (ui-fix2 2) a group is one undo: the level below it (pushed just before, same gesture) goes with it; a redo takes the
+     * level above it that says it belongs to this one. The groups are at most NTRK levels, the recursion that deep at most. */
+    if (!redo && (u->link & 1u) && undo_top)
+        undo_level(0);
+    else if (redo && undo_top < undo_cnt && (undo_lv[undo_top].link & 1u))
+        undo_level(1);
 }
 static void undo_swap(void) { undo_step(0); }
 static void undo_seal(void) { if (undo_top) undo_lv[undo_top - 1u].keep = 0; }   /* the next load: a level of its own */
@@ -1013,7 +1050,7 @@ static void track_defaults_steps(track_t *t)
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           i == P_CHRD || i == P_VOIC || i == P_STRUM || i == P_STROKE || i == P_MPCDEG || i == P_RECQ || param_jfx(i) || param_dub_setup(i);   /* (0.6.0: the effects; Release 2: DUB TAPE's LEN, PTRN, SPRP) */
+           i == P_CHRD || i == P_VOIC || i == P_STRUM || i == P_STROKE || i == P_MPCDEG || i == P_RECQ || param_jfx(i) || param_dub_setup(i) || param_slide_time(i);   /* (0.6.0: the effects; Release 2: DUB TAPE's LEN, PTRN, SPRP) */
 }
 
 /* ROOT, SCL, QNT and the MPC degree are the project's: kept the same in each track's own slots

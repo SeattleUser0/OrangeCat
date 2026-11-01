@@ -176,6 +176,32 @@
 #if OC_SLIDE && !OC_STEP_PAGES
 #error "OC_SLIDE needs OC_STEP_PAGES (UI_BUILD.md ui-fix 8)"
 #endif
+#ifndef OC_START_NUDGE
+#define OC_START_NUDGE 0          /* (ui-fix2 5, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 5") 1: NOTES' KNOB 2 (START) on a typed note moves it in time by the step's
+                                   * NUDGE, as the tracker's NUDGE does (no conversion, no edit memory); a recorded note's START stays its onset */
+#endif
+#if OC_START_NUDGE && !OC_ONE_AUTH
+#error "OC_START_NUDGE needs OC_ONE_AUTH (UI_BUILD.md ui-fix2 5)"
+#endif
+#ifndef OC_SLIDE_TIME
+#define OC_SLIDE_TIME 0           /* (ui-fix2 4, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 4") 1: SLIDE TIME, a per-track value (on the retired id P_RESERVED48):
+                                   * how long a slide takes, from very quick to slow; 0 is the rate slides had before it (an octave in about 46 ms) */
+#endif
+#if OC_SLIDE_TIME && !OC_SLIDE
+#error "OC_SLIDE_TIME needs OC_SLIDE (UI_BUILD.md ui-fix2 4)"
+#endif
+#ifndef OC_REC_CLEAR
+#define OC_REC_CLEAR 0            /* (ui-fix2 2, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 2") 1: REC held with the sequencer stopped counts down
+                                   * (about a second) and clears what the page is about: HOME the track, a SEQ page its values, the FX pages the track's
+                                   * effects, GLO every track's music, MOTION the track's automation; one undo level brings it back (ui_clear.c) */
+#endif
+#if OC_REC_CLEAR && !OC_STEP_PAGES
+#error "OC_REC_CLEAR needs OC_STEP_PAGES (UI_BUILD.md ui-fix2 2)"
+#endif
+#ifndef OC_PROJECT_PAGE
+#define OC_PROJECT_PAGE 0         /* (ui-fix2 3, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 3") 1: one plain project page: SAVE opens it, the slot now in
+                                   * use is marked and named on screen with whether it has unsaved changes, a LOAD over unsaved changes asks first (ui_slots.c) */
+#endif
 #if OC_LANES
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
 #else
@@ -320,6 +346,7 @@ static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3)
 #define P_DUBLEN P_RESERVED45                   /* the line's length: OFF 32K 8K 16K 24K 48K 64K (2 .. 16 blocks of 4 KB; a turn up from OFF lands on 32K) */
 #define P_DUBPTRN P_RESERVED46                  /* the heads: SLAP SINGLE SKANK TRIPLE GALLOP SPREAD */
 #define P_DUBSPRP P_RESERVED47                  /* the spring: OFF LOOP WET */
+#define P_SLIDET P_RESERVED48                   /* (ui-fix2 4, OC_SLIDE_TIME) SLIDE TIME: -64 quicker .. 0 as slides were .. +63 slower (seq.c slide_gstep) */
 /* (the new interface, OC_HOME_PIC: UI_BUILD.md 1a) the four knob macros of HOME, one a knob: a stored offset -64 .. 63 over the
  * knob's targets, 0 the sound as stored (oc_knobs.c, oc_macro.c). The owner's decision 6 (October 29, 2026): P_RESERVED33 .. 36,
  * never DUB TAPE's ids. Still reserved for the stores (param_reserved: zeroed on every load) until the Release 3 format revision */
@@ -368,8 +395,15 @@ static int param_master_jfx(uint32_t id) { return id >= G_DTIME && id < G_COUNT 
 #define G_SAFETY G_RESERVED9
 #define G_DRREV G_RESERVED26
 
+static int param_slide_time(uint32_t id) { return OC_SLIDE_TIME && id == P_RESERVED48; }   /* (ui-fix2 4) a track's own setting, as the effects are: kept
+                                                         * across a sound load, not stored in a sound, no motion lane */
+/* (ui-fix2 4) the words NOTES and the tracker say a track's SLIDE TIME in (five characters at most) */
+static const char *slide_time_word(int32_t s)
+{
+    return s <= -40 ? "SNAP" : s <= -20 ? "FAST" : s <= -6 ? "QUICK" : s <= 5 ? "NORM" : s <= 20 ? "EASY" : s <= 40 ? "SLOW" : "LONG";
+}
 static int param_reserved(uint32_t id)
-{ return (id>=P_RESERVED33 && id<=P_RESERVED36) || id==P_RESERVED48; }   /* (Release 2: the effects' free ids are DUB TAPE's seven, and 45 .. 47 its setup) */
+{ return (id>=P_RESERVED33 && id<=P_RESERVED36) || (id==P_RESERVED48 && !OC_SLIDE_TIME); }   /* (Release 2: the effects' free ids are DUB TAPE's seven, and 45 .. 47 its setup) */
 static int global_reserved(uint32_t id)
 { return (id>=G_RESERVED4 && id<=G_RESERVED11) || (id>=G_RESERVED24 && id<=G_RESERVED26); }
 
@@ -409,6 +443,7 @@ typedef struct {
     uint8_t side; /* stereo spread side, retained while sounding */
     uint8_t note, vel, gate, active;
     uint8_t stage;               /* env: 0 off, 1 attack, 2 decay/sustain, 3 release */
+    uint8_t gtick;               /* (ui-fix2 4) a slow slide's tick count (gstep < 0: a step every -gstep ticks); a byte of the padding */
     int32_t env;                 /* Q24 */
     int32_t env_out;             /* last control-rate amplitude, Q15 */
     int32_t pitch16, pitch_cur;  /* 1/16 semitone, with glide */

@@ -2283,6 +2283,41 @@ int main(int argc, char **argv)
         GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
 #endif
+#if OC_HOME_PIC
+    {   /* (ui-fix2 6) the SHAPES cat's cycles: the paw's bat and the tail's wag, 8 frames of the phase turning once (the phase set a eighth of a turn
+         * apart, the clock standing still), PLUCK / COLR at their middle; NIGHT only, written as PPMs (shapes_cycle_<paw|tail>_<n>). How fast a cycle
+         * runs is the knob's (home_pic_test.c: 0.5 Hz at its left end, 3 Hz at its right) */
+        static const char *const WN[2] = {"tail", "paw"};
+        uint32_t w, f, j, pn;
+        for (pn = 0; pn < UI_PAL_ENTRIES && strcmp(UI_PALETTES[pn].name, "NIGHT"); pn++) ;
+        for (w = 0; w < 2u; w++)
+            for (f = 0; f < 8u; f++) {
+                char image[48], name[64];
+                if (f == 0u) {
+                    state();
+                    song.playing = 0;
+                    GLO_SELECT |= HOME_PIC_BIT;
+                    stage.knob_ms = 0; ui.hot_col = 0;
+                    memset(&hp, 0, sizeof hp);
+                    hp.trk = (uint8_t)song.sel;
+                    hp.ph_ms = fm1_ms;
+                    hp.hit_ms = fm1_ms - HP_HIT_MS;
+                    hp.ready = 1;
+                    eng(ENGI_SHAPES);
+                    { int32_t o[2 * CTL]; for (j = 0; j < 400u && TSEL->engine != TSEL->eng_req; j++) mix_block(o, CTL); }
+                    ui.home = 1; ui.home_pg = 2; hp.landed = 1;
+                }
+                hp.ph[w ? 3 : 1] = (uint16_t)(f * 8192u);   /* (the clock stands still: the draw adds nothing) */
+                snprintf(image, sizeof image, "shapes_cycle_%s_%u", WN[w], (unsigned)f);
+                snprintf(name, sizeof name, "NIGHT/%s", image);
+                cur_name = name;
+                pal(pn);
+                draw(-1);
+                write_ppm(out, "NIGHT", image);
+            }
+        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
+    }
+#endif
 #if OC_EDIT_SHEETS
     {   /* (ui-fix 5, October 31, 2026) the effect pages in the FX button's order (the owner's: DUB TAPE, DIST, AUTO PAN, the sends, then
          * the shared DELAY, REVERB, CHORUS, SLICER, MASTER), each reached as the FX button reaches it (open_family), in every palette,
@@ -2321,6 +2356,117 @@ int main(int argc, char **argv)
         }
         fprintf(rep, "(ui-fix 5) the effect pages in the FX button's order: %u screens in every palette\n", (unsigned)nf);
     }
+#if OC_SLIDE_TIME
+    {   /* (ui-fix2 4) SLIDE TIME on NOTES (ENV held: the cursor step's SLIDE and the track's time in words), on the tracker's foot (the FX column
+         * on SLIDE) and its own page (VOICE, SLIDE), at -40 (SNAP), 0 (NORM) and 63 (LONG), in every palette, linted and MONO gray; NIGHT, DAY and
+         * CONTRAST as PPMs (slide_<where>_<word>) */
+        static const int V[3] = {-40, 0, 63};
+        static const char *const W[3] = {"snap", "norm", "long"};
+        static const char *const WH[3] = {"notes", "tracker", "page"};
+        uint32_t nsl = 0, wi, vi;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (wi = 0; wi < 3u; wi++)
+                for (vi = 0; vi < 3u; vi++) {
+                    char name[64], image[48];
+                    uint32_t j;
+                    state();
+                    song.playing = 0;
+                    eng(ENGI_MACRO);
+                    TSEL->engine = TSEL->eng_req;
+                    TSEL->step[2].n = 1; TSEL->step[2].note[0] = 57; TSEL->step[2].time = ST_NOTE; TSEL->step[2].vel = 96; TSEL->step[2].flags = SF_SLIDE;
+                    TSEL->step[3].n = 1; TSEL->step[3].note[0] = 64; TSEL->step[3].time = ST_NOTE; TSEL->step[3].vel = 96;
+                    TSEL->p[P_SLIDET] = (int16_t)V[vi];
+                    ui.cursor = 2;
+                    if (wi == 0u) { go_title("NOTES"); ui.step_mods = (uint16_t)(1u << panel.btn[B_ENV]); }
+                    else if (wi == 1u) { go_title("TRACKER"); ui.tk_col = TKC_FX; ui.tk_fx = TFX_SLIDE; }
+                    else go_title("SLIDE");
+                    snprintf(image, sizeof image, "slide_%s_%s", WH[wi], W[vi]);
+                    snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                    cur_name = name;
+                    pal(p);
+                    draw(-1);
+                    lint();
+                    if (p == UI_GRAY_INDEX) mono_check();
+                    for (j = 0; j < UI_RENDER_SHOW; j++)
+                        if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                    nsl++;
+                }
+        fprintf(rep, "(ui-fix2 4) SLIDE TIME on NOTES, the tracker and its page: %u screens in every palette\n", (unsigned)nsl);
+    }
+#endif
+#if OC_PROJECT_PAGE
+    {   /* (ui-fix2 3) the plain project page: a new song (no slot in use), a slot in use and saved, one with unsaved changes, and the
+         * picked slot's sheet (Load, Save here, Rename), in every palette, linted and MONO gray; NIGHT, DAY and CONTRAST as PPMs
+         * (project_<state>) */
+        static const char *const N[] = {"new", "saved", "unsaved", "sheet"};
+        uint32_t np = 0, ni;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (ni = 0; ni < NELEM(N); ni++) {
+                char name[64], image[48];
+                uint32_t j;
+                state();
+                song.playing = 0;
+                eng(ENGI_MACRO);
+                TSEL->engine = TSEL->eng_req;
+                TSEL->step[2].n = 1; TSEL->step[2].note[0] = 60; TSEL->step[2].time = ST_NOTE;
+                project_save(0);
+                TSEL->step[6].n = 1; TSEL->step[6].note[0] = 64; TSEL->step[6].time = ST_NOTE;
+                project_save(1);
+                if (ni == 0u) proj_cur = PROJ_NO_SLOT;
+                go_title("PROJECT");
+                song.g[G_SLOT] = ni == 1u ? 2 : 1;
+                pj.d = ni == 2u ? 1u : 0u;
+                if (ni == 3u) slot_enter();
+                snprintf(image, sizeof image, "project_%s", N[ni]);
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) mono_check();
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                np++;
+            }
+        fprintf(rep, "(ui-fix2 3) the project page: %u screens in every palette\n", (unsigned)np);
+    }
+#endif
+#if OC_REC_CLEAR
+    {   /* (ui-fix2 2) REC held with the sequencer stopped: the count on each page the owner's clears belong to (the header's message, a toast
+         * when long), in every palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (clear_<where>_<count>) */
+        static const struct { const char *where, *page; const char *msg[3]; } C[] = {
+            {"home", 0, {"CLEARING TRACK 1 3", "CLEARING TRACK 1 2", "CLEARING TRACK 1 1"}},
+            {"feel", "FEEL", {"RESETTING PAGE 3", "RESETTING PAGE 2", "RESETTING PAGE 1"}},
+            {"fx", "DIST", {"RESETTING FX 1 3", "RESETTING FX 1 2", "RESETTING FX 1 1"}},
+            {"glo", "GLOBAL", {"CLEARING PROJECT 3", "CLEARING PROJECT 2", "CLEARING PROJECT 1"}},
+            {"auto", "MOTION", {"CLEARING AUTOMATION 3", "CLEARING AUTOMATION 2", "CLEARING AUTOMATION 1"}}};
+        uint32_t nc = 0, ci, n;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (ci = 0; ci < NELEM(C); ci++)
+                for (n = 0; n < 3u; n++) {
+                    char name[64], image[48];
+                    uint32_t j;
+                    state();
+                    song.playing = 0;
+                    eng(ENGI_MACRO);
+                    TSEL->engine = TSEL->eng_req;
+                    TSEL->step[2].n = 1; TSEL->step[2].note[0] = 60; TSEL->step[2].time = ST_NOTE;
+                    if (C[ci].page) go_title(C[ci].page); else go_home();
+                    ui_message(C[ci].msg[n]);
+                    snprintf(image, sizeof image, "clear_%s_%u", C[ci].where, (unsigned)(3u - n));
+                    snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                    cur_name = name;
+                    pal(p);
+                    draw(-1);
+                    lint();
+                    if (p == UI_GRAY_INDEX) mono_check();
+                    for (j = 0; j < UI_RENDER_SHOW; j++)
+                        if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], image);
+                    nc++;
+                }
+        fprintf(rep, "(ui-fix2 2) the clear's count on five pages: %u screens in every palette\n", (unsigned)nc);
+    }
+#endif
     {   /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets: every row of every sheet of each engine below, in every palette,
          * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (sheet_<engine>_<sheet>_<row>) */
         static const uint32_t SE[] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX, ENGI_CZ, ENGI_FM6, ENGI_PROPHET};

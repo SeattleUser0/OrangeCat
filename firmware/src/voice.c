@@ -1042,13 +1042,23 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
             AP_END(AP_ENVELOPE,env_start);
         }
         if (v->pitch_cur != v->pitch16) {               /* glide */
-            int32_t d = v->pitch16 - v->pitch_cur;
-            int32_t st = v->gstep ? v->gstep : (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* GLIDE 0 with no gstep: ENV_LIN[40] >> 14 is 40
+            int32_t d = v->pitch16 - v->pitch_cur, st, skip = 0;
+#if OC_SLIDE_TIME
+            if (v->gstep < 0) {                         /* (ui-fix2 4) SLIDE TIME: the rate -gstep in 1/256 sixteenths of a semitone a tick, accumulated
+                                                         * in gtick (its fraction): a whole step when the sum passes 256, none in between */
+                uint32_t acc = v->gtick + (uint32_t)-v->gstep;
+                st = (int32_t)(acc >> 8);
+                v->gtick = (uint8_t)(acc & 255u);
+                skip = st < 1;
+            } else
+#endif
+            st = v->gstep ? v->gstep : (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* GLIDE 0 with no gstep: ENV_LIN[40] >> 14 is 40
                                                                                                    * sixteenths of a semitone a tick, an octave in about 3.5 ms (nearly a jump); a
                                                                                                    * slide sets gstep 3 itself (seq.c slide_glide_set: an octave in 46 ms) */
             if (st < 1)
                 st = 1;
-            v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
+            if (!skip)
+                v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
         }
         if (!env && !m.amp0 && v->stage == 2 && !e->sampled)
             continue;                                   /* held at a silent sustain (SUS 0): nothing to render */

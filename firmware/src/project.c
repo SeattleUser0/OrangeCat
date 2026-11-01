@@ -608,6 +608,11 @@ static void proj_bound(project_t *q)
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
 static uint32_t proj_saved_hash[4];
+#if OC_PROJECT_PAGE
+static uint32_t pj_base;                                /* (ui-fix2 3) see project_unsaved */
+static uint8_t pj_base_slot = 0xFFu;
+static void pj_base_now(uint32_t slot);
+#endif
 static int proj_read_slot(uint32_t slot)
 {
     int n = -1;
@@ -758,6 +763,10 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
     proj_last_set(slot & 3u);
+#if OC_PROJECT_PAGE
+    pj_base_now(slot);                                  /* (ui-fix2 3) the music as saved, for "unsaved" */
+    pj_note();                                          /* the PROJECT page's unsaved flag: worked out again */
+#endif
     if (frz_named_hook) frz_named_hook(was, proj_name, slot & 3u, was_slot == (slot & 3u));   /* (0.6.1) */
     ui_message(MELODEE_FLASH ? "SAVED" : "SAVED (RAM)");
     return 0;
@@ -883,6 +892,7 @@ static void project_autosave(void)
     project_quick_save();
 }
 static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u); }   /* b: 13 bytes */
+static uint32_t project_current(void) { return proj_cur < 4u ? proj_cur : 4u; }   /* (ui-fix2 3) the slot in use, 4: none yet */
 
 /* slot's name -> b (PROJ_NAME_LEN + 1 bytes); 0 = an empty slot (b ""). Uses proj_scratch */
 static int project_old(uint32_t slot) { return !project_used(slot) && proj_meta[slot & 3u].old; }
@@ -1084,6 +1094,10 @@ static void project_load(uint32_t slot)
 #endif
         proj_cur = (uint8_t)(slot & 3u);
         proj_last_set(slot & 3u);
+#if OC_PROJECT_PAGE
+        pj_base_now(slot);                              /* (ui-fix2 3) the music as loaded, for "unsaved" */
+        pj_note();
+#endif
     }
 }
 
@@ -1426,6 +1440,37 @@ static void project_new_blank(void)
     song.ntrk = NTRK;                                   /* (all four to start with: Stage's sheet removes them) */
     song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
 }
+#if OC_PROJECT_PAGE
+/* (ui-fix2 3) "unsaved" for the PROJECT page and a LOAD's question. project_dirty compares the music's pack with the hash of what the slot
+ * stores; right after a LOAD the two can differ in bytes that are no change of the music's (a name field padded with spaces where the
+ * record holds zeros: seen on the host), which would warn of changes that are not there. So the slot in use also keeps the hash of what the
+ * music packs to right after it was loaded or saved (pj_base, for slot pj_base_slot), and "unsaved" compares with that; with no such hash
+ * (a boot, a restore: the safer reading) it is project_dirty's, a warning that may come without a change, never a missing one. */
+/* the music packed as the compare wants it: the slot picked on the PROJECT page and the LOAD, SAVE actions (G_SLOT, G_LOAD, G_SAVE) are
+ * globals of the pack but no change of the music (project_restore_runtime skips them as well): browsing the slots is not an edit. 1: packed */
+static int pj_pack(uint32_t *hash)
+{
+    project_capture(&proj_scratch);
+    proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = 0;
+    proj_wire_gen++;
+    if (!bank_pack(proj_wire_u.raw, &proj_scratch, 1)) return 0;
+    *hash = bank_hash(proj_wire_u.raw);
+    return 1;
+}
+static void pj_base_now(uint32_t slot)                  /* after a load or a save: what the music packs to now */
+{
+    uint32_t h;
+    if (pj_pack(&h)) { pj_base = h; pj_base_slot = (uint8_t)(slot & 3u); }
+    else pj_base_slot = 0xFFu;
+}
+static int project_unsaved(void)
+{
+    uint32_t h;
+    if (proj_cur >= 4u || pj_base_slot != proj_cur)
+        return project_dirty();
+    return !pj_pack(&h) || h != pj_base;
+}
+#endif
 /* the music differs from its slot (none: it holds notes): a new song asks first. Packs the project (proj_wire_u) */
 static int project_dirty(void)
 {
