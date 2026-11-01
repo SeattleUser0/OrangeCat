@@ -153,6 +153,18 @@ static int ed_hwt_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
             }
         }
         return 1;
+    } else if (op == 7u && na == 1u) {   /* (round 12) the input scan's counters: per encoder its accepted transitions and its two-state jumps, then the frames
+                                         * and the debounced presses of the note keys; each a 14-bit value (the low 14 bits of the count) */
+        hwt_state(op, 0);
+        for (uint32_t k = 0; k < FM1_NENC; k++) {
+            uint32_t mv = fm1_in_stat.enc_moves[k], lo = fm1_in_stat.enc_lost[k];
+            ed_b(mv & 127u); ed_b((mv >> 7) & 127u); ed_b(lo & 127u); ed_b((lo >> 7) & 127u);
+        }
+        {
+            uint32_t f = fm1_in.frames, n = fm1_in_stat.press_n;
+            ed_b(f & 127u); ed_b((f >> 7) & 127u); ed_b((f >> 14) & 127u); ed_b(n & 127u); ed_b((n >> 7) & 127u);
+        }
+        return 1;
     } else if (op != 0u || na != 1u) {
         rc = 1;
     }

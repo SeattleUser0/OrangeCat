@@ -101,6 +101,15 @@ class Surface:
             on, dur, ex = b[2] | b[3] << 7 | b[4] << 14, b[5] | b[6] << 7 | b[7] << 14, b[8]
             out.append({"note": b[0], "vel": b[1], "onset_steps": round(on / 65536, 3), "length_steps": round((dur << ex) / 65536, 3)})
         return out
+    def scan_stats(self):
+        """(round 12) the input scan's counters since power-on (OC_HW_TEST op 7): per encoder (moves, two-state jumps) mod 16384, the frames, the note-key presses"""
+        r = self.u.req(CMD, [7])
+        e = r.index(0, 13)
+        i = r.index(0, e + 29) + 4
+        i = r.index(0, i) + 2
+        v = r[i:]
+        enc = [(v[4 * k] | v[4 * k + 1] << 7, v[4 * k + 2] | v[4 * k + 3] << 7) for k in range(7)]
+        return {"enc": enc, "frames": v[28] | v[29] << 7 | v[30] << 14, "presses": v[31] | v[32] << 7}
     def state(self): return self.req(0)
 
     def close(self): self.u.close()
