@@ -503,6 +503,7 @@ FUZZ_SECONDS=${FUZZ_SECONDS:-3}
 core && t "fuzz: the library group's scan, migration and leftovers against mutated sectors ($FUZZ_SECONDS s)" fuzz_lib_group -O1 $FW -- "$OUT/fuzz_lib_group" "$FUZZ_SECONDS"
 core && t "fuzz: the asset pack's boot check and install against a mutated pack area ($FUZZ_SECONDS s)" fuzz_oc_pack -O1 $FW -- "$OUT/fuzz_oc_pack" "$FUZZ_SECONDS"
 core && t "fuzz: the project record loader (record store and pool chunks) against a mutated store, then a save and a power-on ($FUZZ_SECONDS s)" fuzz_oc_project -O1 $FW -- "$OUT/fuzz_oc_project" "$FUZZ_SECONDS"
+core && t "fuzz: the Release 3 record loader (OCJ4 and the project's chunks, OC_R3_FORMAT=1) against a mutated store, then a save and a power-on ($FUZZ_SECONDS s)" fuzz_oc_r3:fuzz_oc_project -O1 -DOC_R3_FORMAT=1 $FW -- "$OUT/fuzz_oc_r3" "$FUZZ_SECONDS"
 core && t "fuzz: the module loader at every start, the planner and an install against a mutated module area ($FUZZ_SECONDS s)" fuzz_oc_module -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fuzz_oc_module" "$FUZZ_SECONDS"
 fuzz_fw_pages() {
     $CC -c -O1 -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/fuzz_fw_pages_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (fuzz)"; return 1; }
@@ -682,6 +683,10 @@ if core && [ $TABLES = 1 ]; then
     t "Orange Cat pattern pool: banks round trip through flash, chunks, the fullest pattern, no room, power cuts" oc_pool_test -O1 $FW
     t "Orange Cat project store: SAVE and load through the pool, two slots, PATTERNS FULL, FBKK, power cuts" oc_project_test -O1 $FW
     t "Orange Cat lists: new patterns kept, any track any pattern, the bank cache, projects share patterns" oc_lists_test -O1 $FW
+    # (Release 3, branch r3-format: docs/orangecat/UI_BUILD.md "Release 3 format revision") the project format revision, OC_R3_FORMAT=1
+    t "Release 3 format, Part 1: project-owned phrases in chunks, the generation bit, OCJ4's sections and carried bytes, 255 phrases, the scratch, power cuts, a full store" \
+        oc_r3_test -O1 -DOC_R3_FORMAT=1 $FW -Itests
+    t "Release 3 format, Part 1 under the sanitizers" oc_r3_san:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_R3_FORMAT=1 $FW -Itests
     t "double-tap layers, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "TRACKER: an EDIT tap whose release lands mid-frame turns the effect off and opens no page" tracker_edit_race_test \

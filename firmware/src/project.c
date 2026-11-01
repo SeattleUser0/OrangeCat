@@ -631,8 +631,13 @@ static int proj_read_slot(uint32_t slot)
 #endif
     proj_meta[slot].used = (uint8_t)valid;
 #if MELODEE_FLASH
+#if OC_R3_FORMAT
+    proj_meta[slot].old = (uint8_t)(!valid && flash_ok && ocj4_old_slot(slot));   /* (Release 3) the format before's record at id
+                                                    * slot, or a new one that does not read: OLD FORMAT, never a free slot */
+#else
     proj_meta[slot].old = (uint8_t)(!valid && flash_ok && ocs_exists(OCS_PROJECT, slot));   /* (Orange Cat 0.3: a
                                                     * record, or a pattern it names, this firmware cannot read) */
+#endif
 #endif
     if (valid) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
@@ -647,7 +652,11 @@ static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
 #if MELODEE_FLASH
     /* (Orange Cat 0.3) the project store: its patterns into the pool, the rest a small record (oc_project.c). The
      * staging (raw) is used up: its project part is left the record's, not the music's */
-    if (!flash_ok || ocj_write(slot, (uint8_t *)raw, len)) return 2;
+    if (!flash_ok) return 2;
+    {
+        int rc = ocj_write(slot, (uint8_t *)raw, len);
+        if (rc) return rc;                             /* (Release 3: 4 is PROJECT FULL, nothing written) */
+    }
 #endif
 #if !defined(FM1_IRQ_TARGET)
     memset(proj_bank_slot[slot], 0, sizeof proj_bank_slot[slot]);
@@ -744,7 +753,7 @@ static int project_save_as(uint32_t slot, const char *name)
     momentary_restore();
     {   /* (Orange Cat 0.3, 4c) what the tracks have kept to the pool first: their banks then name their patterns */
         int rc = ocl_keep_all();
-        if (rc) { ui_message(rc == 4 ? "PHRASES FULL" : "SAVE ERROR"); return 2; }
+        if (rc) { ui_message(rc == 4 ? OCL_FULL_MSG : "SAVE ERROR"); return 2; }
     }
     project_capture(p);
     if (name) {
@@ -754,7 +763,10 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_wire_gen++;
     if (!bank_pack(proj_wire_u.raw, p, 1)) { ui_message("SAVE FORMAT ERROR"); return 2; }
 
-    if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
+    {
+        int rc = proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE);
+        if (rc) { ui_message(OC_R3_FORMAT && rc == 4 ? OCL_FULL_MSG : "SAVE ERROR"); return 2; }
+    }
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
     proj_last_set(slot & 3u);
@@ -1038,6 +1050,9 @@ static int project_restore_runtime(const project_t *input)
         }
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = PROJ_NO_SLOT;                            /* (project_load: its slot) */
+#if OC_R3_FORMAT && MELODEE_FLASH
+    if (flash_ok) ocj4_new();                           /* (Release 3) new music: the scratch is its pool (a load switches to its slot after) */
+#endif
     undo_clear();                                       /* (ui.c) the undo levels belong to the old project */
     list_forget();                                      /* (browse.c) the tracks' LISTs too */
     undo_depth++;                                       /* and these loads take none */
@@ -1079,6 +1094,9 @@ static void project_load(uint32_t slot)
     dxe_mute_clear();                                   /* (0.13.1) lane mutes are performance state: a loaded project starts with every lane on */
     if (!project_restore_runtime(&proj_scratch)) {
         if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);
+#if OC_R3_FORMAT && MELODEE_FLASH
+        if (flash_ok) ocj4_activate(slot);              /* (Release 3) the live pool is the slot's; its metadata, its frozen phrases */
+#endif
 #if OC_ONE_AUTH
         fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (ui-fix 7) the other banks are in now: every bank mended */
 #endif
@@ -1421,6 +1439,9 @@ static void project_new_blank(void)
     undo_clear();
     list_forget();
     proj_cur = PROJ_NO_SLOT;
+#if OC_R3_FORMAT && MELODEE_FLASH
+    if (flash_ok) ocj4_new();                           /* (Release 3) the scratch is the new project's pool */
+#endif
     proj_name[0] = 0;
     song.sel = 0;
     song.ntrk = NTRK;                                   /* (all four to start with: Stage's sheet removes them) */

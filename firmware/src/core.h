@@ -208,6 +208,12 @@
 #define ENGI_FALLBACK (MELODEE_FM6 ? ENGI_FM6 : MELODEE_P5 ? ENGI_PROPHET : MELODEE_MACRO ? ENGI_MACRO : 6u)
 #define USER_GENERAL 16u
 #define USER_NATIVE_P5 20u
+#ifndef OC_R3_FORMAT
+#define OC_R3_FORMAT 0            /* (Release 3, branch r3-format: docs/orangecat/PROJECT_FORMAT_R3.md, UI_BUILD.md "Release 3 format
+                                   * revision") 1: the project format revision as it is built, part by part: project-owned phrases
+                                   * (255 a project) in packed chunks with a generation bit, the tagged project record OCJ4
+                                   * committed last, the sweep. Host only until Session A's Release 3; off, the format before. */
+#endif
 #ifndef OC_CANDIDATES
 #define OC_CANDIDATES 0           /* (Orange Cat 0.14.0) 1: a measurement build for the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md):
                                    * the engine table grows to 23 and the candidates' proposed numbers below take modules (SEM 21, HADES 22), so the unit

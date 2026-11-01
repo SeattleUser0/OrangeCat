@@ -295,7 +295,7 @@ static void layer_key(uint32_t l, uint32_t k)
             } else {
                 int rc = ocl_scene_recall(p);
                 if (rc == 1) str_cpy(m + 7, " EMPTY", 7);
-                else if (rc) str_cpy(m, rc == 4 ? "PHRASES FULL" : rc == 5 ? "PATTERN DATA FULL" : "SCENE: STOP FIRST",
+                else if (rc) str_cpy(m, rc == 4 ? OCL_FULL_MSG : rc == 5 ? "PATTERN DATA FULL" : "SCENE: STOP FIRST",
                                      sizeof m);
                 else {
                     perf_scene = (uint8_t)p;

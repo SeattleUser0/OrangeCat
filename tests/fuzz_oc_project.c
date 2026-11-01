@@ -168,7 +168,7 @@ int main(int argc, char **argv)
             take(&SNAP[2]);
             int rc = project_save_as(2, "THREE");
             if (rc != 0) {
-                if (strcmp(ui.msg, "PHRASES FULL")) { errs |= 8; printf("  save refused with '%s'\n", ui.msg); goto fail; }
+                if (strcmp(ui.msg, OCL_FULL_MSG)) { errs |= 8; printf("  save refused with '%s'\n", ui.msg); goto fail; }   /* (Release 3: PROJECT FULL) */
                 full++;
             } else {
                 saved++;

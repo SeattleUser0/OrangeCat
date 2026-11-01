@@ -48,7 +48,12 @@ enum { ED_ARRANGE = 102 };
 #define ED_AR_VERSION 1u
 #define ED_AR_SIZE ((uint32_t)sizeof(ocl_lists_t))
 _Static_assert(sizeof(ocl_lists_t) < 16384u, "the lists' size travels in 2 x 7 bits");
-_Static_assert(23u + OCL_NPOOL * 7u + 1u < sizeof ed_out, "INFO fits one reply");
+#if OC_R3_FORMAT
+#define ED_AR_NPOOL 64u                        /* (Release 3, Part 1) INFO reports the first 64 phrases until Part 6 pages the reply (255 do not fit one) */
+#else
+#define ED_AR_NPOOL OCL_NPOOL
+#endif
+_Static_assert(23u + ED_AR_NPOOL * 7u + 1u < sizeof ed_out, "INFO fits one reply");
 static uint8_t ed_ar_put;                      /* a write begun */
 static uint32_t ed_ar_len, ed_ar_crc, ed_ar_pos, ed_ar_gen, ed_ar_usb, ed_ar_ms;
 
@@ -94,16 +99,16 @@ static uint32_t ed_ar_apply(const ocl_lists_t *in)
 }
 
 /* each pool phrase's INFO flags, in one pass over the banks and the chains (review: not 64 passes) */
-static void ed_ar_flags(uint8_t f[OCL_NPOOL])
+static void ed_ar_flags(uint8_t f[ED_AR_NPOOL])
 {
     uint32_t k, b, c, e, v;
-    for (v = 0; v < OCL_NPOOL; v++) f[v] = (uint8_t)(((ocp.len[v] || ocp.hash[v]) ? 1u : 0u) | (ocj_refs(v, 4u) ? 4u : 0u));
+    for (v = 0; v < ED_AR_NPOOL; v++) f[v] = (uint8_t)(((ocp.len[v] || ocp.hash[v]) ? 1u : 0u) | (ocj_refs(v, 4u) ? 4u : 0u));
     for (k = 0; k < NTRK; k++)
         for (b = 0; b < NPAT; b++)
-            if ((v = bank_pid[k][b]) != 0u && v <= OCL_NPOOL) f[v - 1u] |= 2u;
+            if ((v = bank_pid[k][b]) != 0u && v <= ED_AR_NPOOL) f[v - 1u] |= 2u;
     for (c = 0; c < OCL_NCHAIN; c++)
         for (e = 0; e < OCL_NENT; e++)
-            if ((v = lists.chain[c][e][0]) != 0u && v <= OCL_NPOOL) f[v - 1u] |= 8u;
+            if ((v = lists.chain[c][e][0]) != 0u && v <= ED_AR_NPOOL) f[v - 1u] |= 8u;
 }
 
 static int ed_arrange_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
@@ -115,12 +120,12 @@ static int ed_arrange_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
     if (op == 0u) {                            /* INFO */
         if (n != 1u) { ed_b(1); return 1; }
         ed_b(0); ed_b(ED_AR_VERSION); ed_ar_b2(ED_AR_SIZE);
-        ed_b(OCL_NPOOL); ed_b(OCL_NCHAIN); ed_b(OCL_NENT); ed_b(OCL_NROW); ed_b(OCL_NSCENE); ed_b(NTRK); ed_b(trk_n());
+        ed_b(ED_AR_NPOOL); ed_b(OCL_NCHAIN); ed_b(OCL_NENT); ed_b(OCL_NROW); ed_b(OCL_NSCENE); ed_b(NTRK); ed_b(trk_n());
         ed_b(transport_busy() ? 1u : 0u);
         ed_bk_u32(st_crc32(&lists, ED_AR_SIZE));
-        uint8_t fl[OCL_NPOOL];
+        uint8_t fl[ED_AR_NPOOL];
         ed_ar_flags(fl);
-        for (uint32_t id = 0; id < OCL_NPOOL; id++) {
+        for (uint32_t id = 0; id < ED_AR_NPOOL; id++) {
             ed_b(fl[id]); ed_b(ocp.len[id] > 127u ? 127u : ocp.len[id]); ed_bk_u32(ocp.hash[id]);
         }
         return 1;

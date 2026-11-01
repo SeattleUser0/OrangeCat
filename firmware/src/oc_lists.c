@@ -584,10 +584,16 @@ static int ocl_clear_unused(void)
     int n = 0;
     if (transport_busy()) return -2;
     if (ocl_keep_all() == 2) return -1;        /* (what the tracks have kept first: it names its patterns) */
+#if OC_R3_FORMAT
+    for (uint32_t id = 0; id < OCP_N; id++)    /* (Release 3) each unnamed phrase forgotten by the directory */
+        if ((ocp.len[id] || ocp.hash[id]) && !ocj_named_now(id, 0)) { if (ocp_clear(id)) return -1; n++; }
+    (void)want;
+#else
     memset(want, 0, sizeof want);
     for (uint32_t id = 0; id < OCP_N; id++)
         if ((ocp.len[id] || ocp.hash[id]) && !ocj_named_now(id, 0) && !ocj_refs(id, 4u)) { want[id] = 255u; n++; }
     if (n && ocj_put_chunks(want, &proj_scratch, proj_wire_u.raw, 0)) return -1;
+#endif
     return n;
 }
 
@@ -685,9 +691,14 @@ static int ocl_pool_clear(uint32_t id)
     if (!ocl_pat_used(id)) return 1;
     if (transport_busy()) return 3;
     if (ocl_pat_named(id) || ocj_refs(id, 4u)) return 2;
+#if OC_R3_FORMAT
+    (void)want;
+    return ocp_clear(id) ? 3 : 0;              /* (Release 3) the directory forgets it */
+#else
     memset(want, 0, sizeof want);
     want[id] = 255u;
     return ocj_put_chunks(want, &proj_scratch, proj_wire_u.raw, 0) ? 3 : 0;
+#endif
 }
 /* the selected track's chain slot e names phrase id and the track goes there (stopped: at once; playing: at the
  * launch point). As ocl_launch */

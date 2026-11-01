@@ -53,7 +53,13 @@ static uint16_t pattern_epoch; /* invalidates destructive edits waiting for a lo
  * next bar, OCL_BEAT the next beat, OCL_NOW the next step; seq.c); scene: 8 scenes, each track's chain + 1 (0: the
  * track left as it is) and its step | its MUTE << 7; scene_used a bit a scene (PERFORM, ui_layer.c) */
 #define OCL_NENT 16u
+#if OC_R3_FORMAT
+#define OCL_FULL_MSG "PROJECT FULL"                      /* (Release 3) the store has no room for the phrase (section 3.2) */
+#define OCL_NPOOL 255u                                  /* (Release 3) the project's phrases (oc_pool.c OCP_N): a byte holds id + 1 */
+#else
+#define OCL_FULL_MSG "PHRASES FULL"
 #define OCL_NPOOL 64u                                   /* the pool's patterns (oc_pool.c OCP_N) */
+#endif
 #define OCL_NCHAIN 64u
 #define OCL_NROW 64u
 #define OCL_NOROW 0xFFu

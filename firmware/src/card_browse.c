@@ -56,6 +56,10 @@ static void frz_named(const char *old, const char *nw, uint32_t slot, int rename
     frz_dir_for(o, old);
     frz_dir_for(n, nw);
     if (frz_same_dir(o, n)) return;
+#if OC_R3_FORMAT
+    if (!rename) return;                                /* (Release 3) a copy moves no takes: the table is the project's now, and the
+                                                         * source project's entries would name files that are gone (UI_BUILD.md, review 17) */
+#endif
     in = frzd_get(n);
     if (in >= FZD_N) return;                            /* (the table full: the takes stay where they are) */
     if (rename && !frz_same_dir(o, "ORANGECAT/UNTITLED")) {   /* the project's folder renamed whole */

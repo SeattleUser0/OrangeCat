@@ -169,7 +169,7 @@ static void pp_copy(void)
     uint32_t n = ocl_pool_copy(ui.pool_sel % 64u);
     char m[24];
     if (n == OCL_NPOOL + 1u) { ui_message("EMPTY PHRASE"); return; }
-    if (n == OCL_NPOOL + 2u) { ui_message("PHRASES FULL"); return; }
+    if (n == OCL_NPOOL + 2u) { ui_message(OCL_FULL_MSG); return; }
     if (n >= OCL_NPOOL) { ui_message(song.playing ? "STOP FIRST" : "SAVE ERROR"); return; }
     str_cpy(m, "COPIED TO 01", sizeof m);
     m[10] = (char)('0' + (n + 1u) / 10u); m[11] = (char)('0' + (n + 1u) % 10u);
@@ -227,7 +227,7 @@ static void ps_dup(void)
 static void ps_own(void)                               /* the step's phrase: a copy of its own, a new number */
 {
     int rc = ocl_copy(song.sel, ui.chain_step);
-    ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY SLOT" : rc == 4 ? "PHRASES FULL" : song.playing ? "STOP FIRST" :
+    ui_message(!rc ? "OWN COPY MADE" : rc == 1 ? "EMPTY SLOT" : rc == 4 ? OCL_FULL_MSG : song.playing ? "STOP FIRST" :
                "SAVE ERROR");
 }
 static const sheet_row_t SHEET_PATTERNS[] = {{"Insert slot", 0, 0, ps_insert, 0}, {"Duplicate slot", 0, 0, ps_dup, 0},

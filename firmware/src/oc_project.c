@@ -38,6 +38,14 @@
  *   0.4.4: (a review) a phrase only a saved project's chains name is that project's: never emptied, never taken
  *          (ocj.names); a save's last resort takes only its own let go, or an empty phrase.
  */
+#if OC_R3_FORMAT                               /* (Release 3) this file's record is the format before: its reader stays for
+                                                * the conversion (Part 3) under these names; oc_ocj4.c (included at the
+                                                * end) is the slot's store now */
+#define ocj_write ocj3_write
+#define ocj_read ocj3_read
+#define ocj_scan ocj3_scan
+#define ocj_refs ocj3_refs
+#endif
 #define OCJ_MAGIC 0x334A434Fu                  /* "OCJ3" */
 #define OCJ_MAGIC2 0x324A434Fu                 /* "OCJ2" (0.3: the lists, one a track; OCJ1, before them: never released) */
 #define OCJ_FN (4u + NTRK * FM6_NFN)           /* FBKK's FM6 function settings (BANK_FN_OFF: their magic, then them) */
@@ -70,8 +78,11 @@ static struct {
                                                 * slots' (a phrase only a saved project's chain names is its too) */
 } ocj __attribute__((section(".pool")));
 static ocj_head_t ocj_h __attribute__((section(".pool")));
+#if !OC_R3_FORMAT
 static ocp_gen_t ocj_gen[OCP_PER] __attribute__((section(".pool")));
+#endif
 static int ocj_read(uint32_t slot, uint8_t *raw);
+static int ocj_read_banks(uint8_t *raw);
 
 /* how many saved slots (but slot `but`, 4: none) name pool pattern id: a bank of theirs, or (0.4.4) a slot of one of
  * their chains */
@@ -250,6 +261,7 @@ static uint32_t ocj_rle_len(const uint8_t *in)
     return n;
 }
 
+#if !OC_R3_FORMAT
 /* chunks with any of `want` (pool id + 1 per id, 0 none: for each id what to write: 1..32 the bank (k * NPAT + b) + 1,
  * 255 emptied) written, a chunk at a time. 0 done, else ocp_chunk_write's */
 static int ocj_put_chunks(const uint8_t *want, const project_t *q, const uint8_t *raw, int xs)
@@ -385,16 +397,16 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     /* 5. the staging as the slot reads back */
     return ocj_read(slot, raw) == (int)BANK_STORE_SIZE ? 0 : 2;
 }
+#endif                                         /* !OC_R3_FORMAT */
 
 /* ------------------------------------------------------------- reading --- */
 /* slot as an FBKK into raw (proj_x with it). BANK_STORE_SIZE, or -1 (no record, or one that does not read) */
 static int ocj_read(uint32_t slot, uint8_t *raw)
 {
-    static ocp_parsed_t p __attribute__((section(".pool")));
     static ocp_rd_t rd __attribute__((section(".pool")));
     project_t *q = &proj_scratch;
-    ocs_rec_t r, pr;
-    uint32_t k, b, i, at, out = 0, nmot = 0, nnote = 0, notes_at = 0, hsz;
+    ocs_rec_t r;
+    uint32_t at, out = 0, hsz;
     slot &= 3u;
     if (ocs_open(OCS_PROJECT, slot, &r) || ocj_head_load(&r, &hsz))
         return -1;
@@ -421,10 +433,22 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     }
     if (out != ocj_lead + PROJ_STORE_SIZE || !proj_import(q, raw + 8u, PROJ_STORE_SIZE)) return -1;
     ocl_lists_fix(&ocj_l);
-    memset(q->recording, 0, sizeof q->recording);
-    q->motion.count = 0;
     memset(raw + BANK_ACTIVE_OFF, 0, BANK_STORE_SIZE - BANK_ACTIVE_OFF);
     memset(proj_x, 0, sizeof proj_x);
+    return ocj_read_banks(raw);
+}
+/* the banks of the slot whose head is ocj_h (pid, active, chain, fn) and lists ocj_l, read from the pool into the FBKK raw
+ * around the project part q (proj_scratch: its tracks' sounds set; its steps, notes and motion come from the phrases).
+ * BANK_STORE_SIZE, or -1 */
+static int ocj_read_banks(uint8_t *raw)
+{
+    static ocp_parsed_t p __attribute__((section(".pool")));
+    static ocp_rd_t rd __attribute__((section(".pool")));
+    project_t *q = &proj_scratch;
+    ocs_rec_t pr;
+    uint32_t k, b, i, nmot = 0, nnote = 0, notes_at = 0;
+    memset(q->recording, 0, sizeof q->recording);
+    q->motion.count = 0;
     /* the banks, from the pool */
     for (k = 0; k < NTRK; k++) {
         uint32_t act = ocj_h.active[k];
@@ -484,3 +508,11 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
     return (int)BANK_STORE_SIZE;
 }
+
+#if OC_R3_FORMAT
+#undef ocj_write
+#undef ocj_read
+#undef ocj_scan
+#undef ocj_refs
+#include "oc_ocj4.c"                           /* (Release 3) the slot's store: OCJ4 and the project's chunks */
+#endif

@@ -89,7 +89,10 @@ static int ed_bk_arr_valid(const ocs_stream_t *w)
 /* after a record restored or deleted: the pool and the slots read again */
 static void ed_bk_arr_rescan(void)
 {
-    ocp_scan();
+#if !OC_R3_FORMAT
+    ocp_scan();                                /* (Release 3: the pool is the music's; a restore of the format before's records changes
+                                                * no slot this firmware reads, and the sweep is the boot's. Part 6 lists the new records) */
+#endif
     ocj_scan();
     for (uint32_t i = 0; i < 4u; i++) proj_fetch(i);
     sync_reload = 1; ui.force = 1;

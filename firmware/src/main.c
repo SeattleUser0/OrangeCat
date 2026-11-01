@@ -246,12 +246,17 @@ static void fm1_main(void)
         settings_save();
     }
     glo_restore();                            /* CLK TUNE MIDI ROUT as last used, */
+#if OC_R3_FORMAT
+    frz_table_load();                         /* (Release 3) the folders first: a project's load installs its own frozen phrases */
+#endif
     project_boot();                           /* then the BOOT project or the template (theirs win) */
     pack_boot_notice(bootguard.failed);       /* (Orange Cat 0.8.1) PACK MISSING once, if a track needs the asset pack */
 #if OC_MODULES && MELODEE_FLASH
     oc_mod_ban_notice();                      /* (Orange Cat 0.10.1) MODULE BANNED <engine> once, for a module the crash count banned at this boot */
 #endif
+#if !OC_R3_FORMAT
     frz_table_load();                         /* (Orange Cat 0.5.6) the frozen phrases (after persist_boot's pool) */
+#endif
     fm1_delay_ms(400);
     if (boot_work.state != 2u)
         lcd_fill(0, 0, 240, 240, T_BG);

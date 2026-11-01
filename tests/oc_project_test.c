@@ -36,10 +36,18 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 static void panel_setup(void) {}
 
 static uint8_t nor[0x100000], flash_ok = 1;
-static int fail_after = -1;
+static int fail_after = -1;            /* power cut: stop before the Nth program call from now (and every call after) */
+static int erase_cut = -1;             /* (Release 3) power cut right after the Nth erase from now: the sector is erased, nothing follows */
 static uint32_t erases;
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
-static int st_erase(uint32_t off) { erases++; memset(nor + off, 0xFF, 4096); return 0; }
+static int st_erase(uint32_t off)
+{
+    if (fail_after == 0) return -9;    /* (the power is off) */
+    erases++;
+    memset(nor + off, 0xFF, 4096);
+    if (erase_cut >= 0 && erase_cut-- == 0) fail_after = 0;
+    return 0;
+}
 static int st_prog(uint32_t off, const void *src, uint32_t n)
 {
     const uint8_t *s = src;

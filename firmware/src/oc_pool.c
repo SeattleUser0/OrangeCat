@@ -31,26 +31,40 @@
  *   0.3.2: a pattern packs from any source (the sequencer's banks, or a project record's: oc_project.c); a chunk's
  *          patterns are replaced together (ocp_chunk_write); each pattern's CRC kept (ocp.hash).
  *   0.13.5: a slot loaded into the event store ends any repeat pending in it (recording_rep_drop).
+ *   (Release 3, branch r3-format, OC_R3_FORMAT: docs/orangecat/PROJECT_FORMAT_R3.md section 3, UI_BUILD.md "Part 1")
+ *          the pool is one project's: 255 phrases, kept in packed chunks of the project's slot (oc_pool_r3.c holds that
+ *          layer; the sixteen-chunk layer below stays compiled for the conversion's reader). A phrase is written as
+ *          version 2 (a u16 parameter count and 5-byte motion events with a u16 id); version 1 is still read.
  */
+#if OC_R3_FORMAT
+#define OCP_N 255u                             /* (Release 3) phrases 1..255 of one project; 0 is "none" in every table */
+#define OCP_VER 2u                             /* what is written: version 2 */
+#define OCP_MOT 5u                             /* a motion event as kept: step u8, param u16, value i16 */
+#else
 #define OCP_N 64u
-#define OCP_PER 4u
-#define OCP_CHUNKS (OCP_N / OCP_PER)
 #define OCP_VER 1u
+#define OCP_MOT 4u                             /* a motion event as kept: step, param, value low, value high */
+#endif
+#define OCP_PER 4u                             /* the shared pool's chunk: four patterns (read by the conversion) */
+#define OCP_CHUNKS (64u / OCP_PER)
+#define OCP_VER1 1u
 #define OCP_HEAD 20u
 #define OCP_TABLE (2u * OCP_PER)
 #define OCP_STEP ((uint32_t)sizeof(step_snapshot_t))
 #define OCP_NOTE ((uint32_t)sizeof(recorded_note_t))
-#define OCP_MAX (OCP_HEAD + NSTEP * OCP_STEP + 1u + MOTION_MAX * 4u + 2u + RECORD_MAX * OCP_NOTE)
+#define OCP_MAX (OCP_HEAD + NSTEP * OCP_STEP + 1u + MOTION_MAX * OCP_MOT + 2u + RECORD_MAX * OCP_NOTE)
 _Static_assert(OCP_N == OCL_NPOOL, "the lists name the pool's patterns");
 _Static_assert(NSTEP == 64u && OCP_TABLE + OCP_PER * OCP_MAX <= OCS_PARTS_MAX * OCS_PAYLOAD_MAX,
                "a chunk of four fullest patterns fits one record");
 
+#if !OC_R3_FORMAT
 static struct {
     uint8_t len[OCP_N];                        /* each pattern's LEN, 0: empty */
     uint32_t hash[OCP_N];                      /* each pattern's bytes' CRC-32 (0: empty): a save writes only what
                                                 * differs */
     uint32_t gen;                              /* any change (the page redraws) */
 } ocp __attribute__((section(".pool")));
+#endif
 
 static uint32_t ocp_get16(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8; }
 static void ocp_put16(uint8_t *b, uint32_t v) { b[0] = (uint8_t)v; b[1] = (uint8_t)(v >> 8); }
@@ -102,7 +116,7 @@ static uint32_t ocp_gen_count(ocp_gen_t *g)
         g->nmot += (g->mev[i].place >> 6) == g->k && g->mtag[i] == g->bank;
     for (i = 0; g->notes && i < RECORD_MAX; i++)
         g->nnotes += g->notes[i].vel && (g->notes[i].owner & 31u) == g->owner;
-    g->len = g->nsteps || g->nmot || g->nnotes ? OCP_HEAD + g->nsteps * OCP_STEP + 1u + g->nmot * 4u + 2u +
+    g->len = g->nsteps || g->nmot || g->nnotes ? OCP_HEAD + g->nsteps * OCP_STEP + 1u + g->nmot * OCP_MOT + 2u +
                                                      g->nnotes * OCP_NOTE : 0u;
     ocp_gen_rewind(g);
     return g->len;
@@ -128,7 +142,13 @@ static void ocp_gen_item(ocp_gen_t *g)
     while (!g->ilen && g->phase < 6u) {
         switch (g->phase) {
         case 0:
+#if OC_R3_FORMAT
+            /* (Release 3) version 2: the flags at 1, the parameter count as a u16 at 2..3 (section 8.2a: ids past
+             * 7 bits travel wide); a version 1 reader's "byte 3 is 0" check tells the two heads apart */
+            b[0] = OCP_VER; b[1] = (uint8_t)g->mon; ocp_put16(b + 2, (uint16_t)P_COUNT);
+#else
             b[0] = OCP_VER; b[1] = (uint8_t)P_COUNT; b[2] = (uint8_t)g->mon; b[3] = 0;
+#endif
             for (uint32_t j = 0; j < 4u; j++) ocp_put16(b + 4 + 2u * j, (uint16_t)g->pat.timing[j]);
             for (uint32_t j = 0; j < 8u; j++) b[12 + j] = (uint8_t)(g->mask >> (8u * j));
             g->ilen = OCP_HEAD; g->phase = 1; g->i = 0;
@@ -147,9 +167,15 @@ static void ocp_gen_item(ocp_gen_t *g)
             for (; g->i < g->mcount; g->i++)
                 if ((g->mev[g->i].place >> 6) == g->k && g->mtag[g->i] == g->bank) break;
             if (g->i == g->mcount) { g->phase = 4; break; }
-            b[0] = g->mev[g->i].place & 63u; b[1] = g->mev[g->i].param;
+            b[0] = g->mev[g->i].place & 63u;
+#if OC_R3_FORMAT
+            ocp_put16(b + 1, (uint16_t)g->mev[g->i].param);   /* (Release 3) the id as a u16 */
+            ocp_put16(b + 3, (uint16_t)g->mev[g->i].value);
+#else
+            b[1] = g->mev[g->i].param;
             ocp_put16(b + 2, (uint16_t)g->mev[g->i].value);
-            g->ilen = 4; g->i++;
+#endif
+            g->ilen = (uint8_t)OCP_MOT; g->i++;
             break;
         case 4:
             ocp_put16(b, g->nnotes); g->ilen = 2; g->phase = 5; g->i = 0;
@@ -259,11 +285,11 @@ static int ocp_chunk_open(uint32_t chunk, ocs_rec_t *r, uint32_t *len, uint32_t 
     return at == r->total ? 1 : -1;
 }
 
-/* the LEN a pattern's bytes give (0: empty or unreadable) */
+/* the LEN a pattern's bytes give (0: empty or unreadable); versions 1 and 2 */
 static uint32_t ocp_len_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
 {
     uint8_t h[6];
-    if (len < OCP_HEAD || ocs_at(r, off, h, sizeof h) || h[0] != OCP_VER) return 0;
+    if (len < OCP_HEAD || ocs_at(r, off, h, sizeof h) || (h[0] != OCP_VER1 && !(OC_R3_FORMAT && h[0] == 2u))) return 0;
     return (uint32_t)clamp((int16_t)ocp_get16(h + 4), 1, NSTEP);
 }
 
@@ -282,6 +308,7 @@ static uint32_t ocp_hash_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
     return ~crc | 1u;
 }
 
+#if !OC_R3_FORMAT                              /* (Release 3: the shared pool is read, never written; oc_pool_r3.c writes) */
 /* chunk's patterns j with gen[j] set replaced by what gen[j] gives (length 0: emptied), the others as they were: one
  * record write (one erase per sector). 0 done; 2 no room in flash; another: a flash error (the chunk as it was is
  * kept). Stopped only: the erase mutes the audio */
@@ -362,6 +389,7 @@ static int ocp_save(uint32_t id, uint32_t k, uint32_t bank)
     gen[id % OCP_PER] = &g;
     return ocp_chunk_write(id / OCP_PER, gen);
 }
+#endif                                         /* !OC_R3_FORMAT */
 
 /* ------------------------------------------------------------- loading --- */
 /* a pattern's bytes read in order, 256 at a time */
@@ -409,13 +437,26 @@ typedef struct {
 
 static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
 {
-    uint8_t h[OCP_HEAD], b[4];
+    uint8_t h[OCP_HEAD], b[OCP_MOT];
     uint64_t mask = 0;
-    uint32_t i, np;
-    if (ocp_rd(rd, h, OCP_HEAD) || h[0] != OCP_VER || h[3]) return 1;
-    np = h[1];
-    if (np < 8u || np > P_COUNT || (h[2] & ~1u)) return 1;
-    p->flags = h[2];
+    uint32_t i, np, ver, mot;
+    if (ocp_rd(rd, h, OCP_HEAD)) return 1;
+    ver = h[0];
+#if OC_R3_FORMAT
+    if (ver == 2u) {                           /* (Release 3) flags at 1, np u16 at 2..3, 5-byte motion events */
+        np = ocp_get16(h + 2);
+        if (np < 8u || np > P_COUNT || (h[1] & ~1u)) return 1;
+        p->flags = h[1];
+        mot = 5u;
+    } else
+#endif
+    {
+        if (ver != OCP_VER1 || h[3]) return 1;
+        np = h[1];
+        if (np < 8u || np > P_COUNT || (h[2] & ~1u)) return 1;
+        p->flags = h[2];
+        mot = 4u;
+    }
     for (i = 0; i < 4u; i++) {
         int32_t v = (int16_t)ocp_get16(h + 4 + 2u * i);
         if (v < TP[P_SLEN + i].min || v > TP[P_SLEN + i].max) return 1;
@@ -437,23 +478,44 @@ static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
     p->mot.count = b[0];
     p->mot.rsv[0] = 1;                         /* (events of several banks: no duplicate check across them) */
     for (i = 0; i < p->mot.count; i++) {
-        if (ocp_rd(rd, b, 4) || b[0] >= NSTEP) return 1;
+        uint32_t param;
+        if (ocp_rd(rd, b, mot) || b[0] >= NSTEP) return 1;
         p->mot.event[i].place = (uint8_t)(k << 6 | b[0]);
-        p->mot.event[i].param = b[1];
-        p->mot.event[i].value = (int16_t)ocp_get16(b + 2);
+        param = mot == 5u ? ocp_get16(b + 1) : b[1];
+        if (param > 255u) return 1;            /* (Part 2 widens motion_event_t.param; until then an id past a byte does not read) */
+        p->mot.event[i].param = (uint8_t)param;
+        p->mot.event[i].value = (int16_t)ocp_get16(b + (mot == 5u ? 3u : 2u));
     }
     proj_motion_ids(&p->mot, np);
+#if OC_R3_FORMAT
+    if (ver == OCP_VER1) {                     /* (Release 3, 8.1) a version 1 phrase's events on the knob macros' ids
+                                                * were inert (every loader zeroed those ids): dropped here; version 2
+                                                * keeps them, with meaning, once Part 2 stores the dials */
+        uint32_t n = 0;
+        for (i = 0; i < p->mot.count; i++)
+            if (!(p->mot.event[i].param >= P_MAC0 && p->mot.event[i].param <= P_MAC0 + 3u)) p->mot.event[n++] = p->mot.event[i];
+        p->mot.count = (uint8_t)n;
+    }
+#endif
     if (!motion_valid(&p->mot)) return 1;
     if (ocp_rd(rd, b, 2)) return 1;
     p->nnotes = ocp_get16(b);
     return p->nnotes > RECORD_MAX;
 }
 
+#if OC_R3_FORMAT
+#include "oc_pool_r3.c"                        /* (Release 3) the project's chunks, its directory, the sweep */
+#endif
 /* pool pattern id opened for reading at its start (rd). 1 there, 0 empty, -1 unreadable */
 static int ocp_open_pattern(uint32_t id, ocs_rec_t *r, ocp_rd_t *rd)
 {
     uint32_t len[OCP_PER], off[OCP_PER];
-    int rc = ocp_chunk_open(id / OCP_PER, r, len, off);
+    int rc;
+#if OC_R3_FORMAT
+    if (ocp_rd_dir) return ocp_r3_open(ocp_rd_dir, id, r, rd);   /* (the directory a read goes through; 0: the shared
+                                                                  * pool of the record format before, for the conversion) */
+#endif
+    rc = ocp_chunk_open(id / OCP_PER, r, len, off);
     memset(rd, 0, sizeof *rd);
     if (rc != 1) return rc;
     if (!len[id % OCP_PER]) return 0;
@@ -548,6 +610,10 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
 /* boot: every pattern's LEN for the PATTERNS page, and its bytes' CRC (after ocs_boot) */
 static void ocp_scan(void)
 {
+#if OC_R3_FORMAT
+    ocp_r3_boot();                             /* (Release 3) the sweep of every slot's orphan chunks; the tables empty until a project loads */
+    return;
+#endif
     memset(&ocp, 0, sizeof ocp);
     for (uint32_t c = 0; c < OCP_CHUNKS; c++) {
         ocs_rec_t r;

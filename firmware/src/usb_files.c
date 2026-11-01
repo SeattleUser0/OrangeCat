@@ -419,12 +419,20 @@ static int frzd_used(uint32_t i)                        /* a phrase, a freeze be
     for (k = 0; k < FZD_MV; k++) if (frzd.mv_from[k] == i || frzd.mv_to[k] == i) return 1;
     return 0;
 }
+#if OC_R3_FORMAT
+_Static_assert(FZD_N == FZD_N_MAX, "the project record's FRZR folder table (oc_ocj4.c) is the unit's");
+static int frzd_used_by_records(uint32_t i) { return frzd.d[i][0] && ocj4_folder_named(frzd.d[i]); }   /* (Release 3) a slot's record names it */
+#endif
 static uint32_t frzd_get(const char *d)                 /* its index, made when new (unused ones freed first); FZD_N full */
 {
     uint32_t i = frzd_find(d);
     if (i < FZD_N) return i;
     for (i = 1; i < FZD_N; i++)
+#if OC_R3_FORMAT
+        if (frzd.d[i][0] && !frzd_used(i) && !frzd_used_by_records(i)) frzd.d[i][0] = 0;   /* (Release 3: the other projects' tables too) */
+#else
         if (frzd.d[i][0] && !frzd_used(i)) frzd.d[i][0] = 0;
+#endif
     for (i = 1; i < FZD_N; i++)
         if (!frzd.d[i][0]) {
             str_cpy(frzd.d[i], d, FZD_LEN);
@@ -772,9 +780,16 @@ static int frz_name_ok(const char *n)                   /* a file's name as kept
 }
 static void frz_named(const char *old, const char *nw, uint32_t slot, int rename);   /* (0.6.1) card_browse.c */
 static void (*frz_named_hook)(const char *old, const char *nw, uint32_t slot, int rename);   /* (project.c's) */
+#if OC_R3_FORMAT
+static const char *frzd_name_of(uint32_t idx) { return idx < FZD_N ? frzd.d[idx] : ""; }
+static const ocj4_frzd_t frzd_hooks = {frzd_get, frzd_name_of};   /* (Release 3) the record's FRZR folders by name (oc_ocj4.c) */
+#endif
 static void frz_table_load(void)
 {
     frz_named_hook = frz_named;                         /* (0.6.1) project.c tells it a project's new name */
+#if OC_R3_FORMAT
+    ocj4_frzd = &frzd_hooks;
+#endif
     memset(frzp, 0, sizeof frzp);
     frzd_init();
 #if FRZ_STORE
@@ -867,6 +882,9 @@ static int frz_ask(uint32_t k)
         if (rc) { frz_say(k, rc == 4 ? "Full" : "Error"); return 0; }
     }
     id = frz_phrase_of(k);
+#if OC_R3_FORMAT
+    if (!id && bank_pid[k][b] > FZP_N) { frz_say(k, ">64"); return 0; }   /* (Release 3, Part 1: the table is keyed 1..64 still) */
+#endif
     if (!id) { frz_say(k, "Save?"); return 0; }         /* (playing: no number yet; stop and ask again) */
     if (frz_phrase_frozen(id)) { frz_say(k, ""); return 0; }   /* (frozen already) */
     frz[k].hash = ocl_bank_hash(k, b);

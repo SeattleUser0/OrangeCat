@@ -299,7 +299,7 @@ static void pt_chain_turn(int32_t s)
         return;
     if (transport_busy()) { ui_message("STOP TO EDIT CHAIN"); return; }
     if ((rc = ocl_go_chain(k, c)) != 0) {
-        ui_message(rc == 4 ? "PHRASES FULL" : rc == 5 ? "PATTERN DATA FULL" : rc == 1 ? "A PHRASE DOES NOT READ" :
+        ui_message(rc == 4 ? OCL_FULL_MSG : rc == 5 ? "PATTERN DATA FULL" : rc == 1 ? "A PHRASE DOES NOT READ" :
                    "SAVE ERROR");                       /* (2 after the busy guard: a flash error, as song_go says) */
         return;
     }
@@ -326,7 +326,7 @@ static void pt_set_poll(void)
         return;
     rc = ocl_launch(k, e);
     if (rc)
-        ui_message(rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") : rc == 5 ? "PATTERN DATA FULL" :
+        ui_message(rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : OCL_FULL_MSG) : rc == 5 ? "PATTERN DATA FULL" :
                    rc == 1 ? "PHRASE DOES NOT READ" : "STOP FIRST");
     ui.force = 1;
 }
@@ -347,7 +347,7 @@ static void pt_step_go(uint32_t k, int32_t steps)
     if (e == from) return;
     rc = OCL_ENT(k, e)[0] ? ocl_launch(k, e) : ocl_go_empty(k, e);
     if (rc) {
-        ui_message(rc == 1 ? "EMPTY SLOT" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : "PHRASES FULL") :
+        ui_message(rc == 1 ? "EMPTY SLOT" : rc == 4 ? (song.playing ? "STOP TO KEEP EDITS" : OCL_FULL_MSG) :
                    rc == 5 ? "PATTERN DATA FULL" : "STOP FIRST");
     } else {
         str_cpy(m, "T1 SLOT A", sizeof m);
