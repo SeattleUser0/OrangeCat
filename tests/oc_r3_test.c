@@ -35,6 +35,7 @@
 /* a stand-in for the card code's freeze table (card_freeze.c), so that FRZR's live branches run on the host */
 #define OCJ4_FRZ_TEST 1
 #define FZP_N 64u
+#define FZP_VER 2u
 typedef struct { uint16_t take; uint8_t trk, ver; int16_t lvl, bpm; uint32_t frames, hash; uint8_t dir, want; char name[14]; } frzp_t;
 static frzp_t frzp[FZP_N];
 static volatile uint8_t frzp_dirty;

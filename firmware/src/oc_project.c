@@ -46,6 +46,7 @@
 #define ocj_scan ocj3_scan
 #define ocj_refs ocj3_refs
 #endif
+#define OCJ3_N 64u                             /* the format before's phrases (the shared pool's 64; OCP_N is 255 in a Release 3 build) */
 #define OCJ_MAGIC 0x334A434Fu                  /* "OCJ3" */
 #define OCJ_MAGIC2 0x324A434Fu                 /* "OCJ2" (0.3: the lists, one a track; OCJ1, before them: never released) */
 #define OCJ_FN (4u + NTRK * FM6_NFN)           /* FBKK's FM6 function settings (BANK_FN_OFF: their magic, then them) */
@@ -90,7 +91,7 @@ static ocp_rd_t ocj_rd __attribute__((section(".pool")));   /* ocj_read's and oc
 static uint32_t ocj_refs(uint32_t id, uint32_t but)
 {
     uint32_t n = 0;
-    if (id >= OCP_N) return 0;
+    if (id >= OCJ3_N) return 0;
     for (uint32_t s = 0; s < 4u; s++)
         if (s != but) n += (ocj.names[s][id >> 5] >> (id & 31u)) & 1u;
     return n;
@@ -102,11 +103,11 @@ static void ocj_names_set(uint32_t s, const uint8_t (*pid)[NPAT], const ocl_list
     ocj.names[s][0] = ocj.names[s][1] = 0;
     for (uint32_t k = 0; k < NTRK; k++)
         for (uint32_t b = 0; b < NPAT; b++)
-            if (pid[k][b] && pid[k][b] <= OCP_N) ocj.names[s][(pid[k][b] - 1u) >> 5] |= 1u << ((pid[k][b] - 1u) & 31u);
+            if (pid[k][b] && pid[k][b] <= OCJ3_N) ocj.names[s][(pid[k][b] - 1u) >> 5] |= 1u << ((pid[k][b] - 1u) & 31u);
     for (uint32_t c = 0; l && c < OCL_NCHAIN; c++)
         for (uint32_t e = 0; e < OCL_NENT; e++) {
             uint32_t v = l->chain[c][e][0];
-            if (v && v <= OCP_N) ocj.names[s][(v - 1u) >> 5] |= 1u << ((v - 1u) & 31u);
+            if (v && v <= OCJ3_N) ocj.names[s][(v - 1u) >> 5] |= 1u << ((v - 1u) & 31u);
         }
 }
 
@@ -195,7 +196,7 @@ static void ocj_scan(void)
         memcpy(ocj.pid[s], ocj_h.pid, sizeof ocj.pid[s]);
         for (uint32_t k = 0; k < NTRK; k++)
             for (uint32_t b = 0; b < NPAT; b++)
-                if (ocj.pid[s][k][b] > OCP_N) ocj.pid[s][k][b] = 0;
+                if (ocj.pid[s][k][b] > OCJ3_N) ocj.pid[s][k][b] = 0;
         ocj_names_set(s, ocj.pid[s], ocj_lists_decode(&r, hsz) ? 0 : &ocj_l);   /* (0.4.4) its chains' too */
     }
 }
@@ -288,7 +289,7 @@ static int ocj_put_chunks(const uint8_t *want, const project_t *q, const uint8_t
  * error: the slot's record as it was). raw is used, and left as the slot reads back (ocj_read) when it is done */
 static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
 {
-    static uint8_t want[OCP_N];
+    static uint8_t want[OCJ3_N];
     uint8_t npid[NTRK][NPAT];
     uint32_t k, b, id, hash[NTRK][NPAT];
     project_t *q = &proj_scratch;
@@ -317,7 +318,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     for (k = 0; k < NTRK; k++)
         for (b = 0; b < NPAT; b++) {
             if (!hash[k][b]) continue;
-            if (xs && proj_pid[k][b] && proj_pid[k][b] <= OCP_N) {   /* (4c) the pattern the bank is: shared as named */
+            if (xs && proj_pid[k][b] && proj_pid[k][b] <= OCJ3_N) {   /* (4c) the pattern the bank is: shared as named */
                 npid[k][b] = proj_pid[k][b];
                 continue;
             }
@@ -328,14 +329,14 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
                     for (uint32_t b2 = 0; b2 < NPAT; b2++) dup |= npid[k2][b2] == id;
                 if (!dup) { npid[k][b] = (uint8_t)id; continue; }
             }
-            for (id = 1; id <= OCP_N; id++) {       /* a free one: no slot names it, no bank here has it */
+            for (id = 1; id <= OCJ3_N; id++) {       /* a free one: no slot names it, no bank here has it */
                 uint32_t taken = ocj_refs(id - 1u, slot) || ocj_named_now(id - 1u, xs) || ocp.len[id - 1u];
                 for (uint32_t k2 = 0; k2 < NTRK && !taken; k2++)
                     for (uint32_t b2 = 0; b2 < NPAT; b2++) taken |= npid[k2][b2] == id || ocj.pid[slot][k2][b2] == id;
                 if (!taken) break;
             }
-            if (id > OCP_N) {                       /* (none: try this slot's own let go, before giving up) */
-                for (id = 1; id <= OCP_N; id++) {
+            if (id > OCJ3_N) {                       /* (none: try this slot's own let go, before giving up) */
+                for (id = 1; id <= OCJ3_N; id++) {
                     uint32_t taken = ocj_refs(id - 1u, slot) || ocj_named_now(id - 1u, xs), own = 0;
                     for (uint32_t k2 = 0; k2 < NTRK; k2++)   /* (0.4.4: its own, or empty: never a phrase with notes
                                                               * nothing names, a phrase kept in the pool) */
@@ -345,7 +346,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
                         for (uint32_t b2 = 0; b2 < NPAT; b2++) taken |= npid[k2][b2] == id;
                     if (!taken) break;
                 }
-                if (id > OCP_N) { ui_message("PHRASES FULL"); return 2; }
+                if (id > OCJ3_N) { ui_message("PHRASES FULL"); return 2; }
             }
             npid[k][b] = (uint8_t)id;
         }
@@ -456,7 +457,7 @@ static int ocj_read_banks(uint8_t *raw)
         for (b = 0; b < NPAT; b++) {
             uint32_t id = ocj_h.pid[k][b];
             const step_t *st;
-            if (id > OCP_N) return -1;
+            if (id > OCJ3_N) return -1;
             if (id) {
                 if (ocp_check(id - 1u, k, &pr, &ocj_rd, &p, &notes_at)) return -1;
                 if (nmot + p.mot.count > MOTION_MAX || nnote + p.nnotes > RECORD_MAX) return -1;

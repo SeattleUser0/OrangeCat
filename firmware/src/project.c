@@ -1112,6 +1112,13 @@ static void proj_last_set(uint32_t slot)
 static void project_load(uint32_t slot)
 {
     int n = proj_read_slot(slot);
+#if OC_R3_FORMAT && MELODEE_FLASH
+    if (!n && flash_ok && ocs_exists(OCS_PROJECT, slot & 3u)) {   /* (Release 3) CONVERT: a record of the format before, converted now and loaded */
+        if (transport_busy()) { ui_message("STOP FIRST"); return; }
+        if (ocj4_convert_now(slot & 3u)) return;
+        n = proj_read_slot(slot);
+    }
+#endif
     if (!n) { ui_message(project_old(slot) ? "OLD FORMAT" : "EMPTY SLOT"); return; }
     dxe_mute_clear();                                   /* (0.13.1) lane mutes are performance state: a loaded project starts with every lane on */
     if (!project_restore_runtime(&proj_scratch)) {
@@ -1623,6 +1630,9 @@ static void persist_boot(void)                    /* before settings_init / pane
                                                     * (0.6.0) the sample slot's sectors first (smp_slot.c) */
     ocp_scan();
     ocj_scan();
+#if OC_R3_FORMAT
+    ocj4_convert_boot();                           /* (Release 3) the projects of the format before, one slot at a time (UI_BUILD.md "Part 3") */
+#endif
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
         uint32_t i;
         for (i = 0; i < 4u; i++)

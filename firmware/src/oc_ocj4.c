@@ -104,6 +104,7 @@ static uint32_t ocj4_nidx;                     /* the sections of the record bei
 static uint8_t ocj4_idx_full;                  /* the record being carried has more sections than the index holds: the save is refused */
 static ocs_rec_t ocj4_old;                     /* .. that record */
 static int ocj_read(uint32_t slot, uint8_t *raw);
+static void ocj4_old_chunks_cleanup(void);        /* (oc_convert.c) */
 
 /* ------------------------------------------------------------ little-endian --- */
 static uint32_t rd16(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8; }
@@ -265,6 +266,12 @@ static int ocj4_known_tag(uint32_t tag)
 #if OCJ4_FRZ
 typedef struct { uint32_t (*get)(const char *name); const char *(*name)(uint32_t idx); } ocj4_frzd_t;
 static const ocj4_frzd_t *ocj4_frzd;           /* the card code's folder table (usb_files.c); 0 in a build without it */
+/* where FRZR's entries and folder names come from: the live table (a save), or the unit's old OCS_FREEZE record split by a project (the
+ * conversion, oc_convert.c). get(i, f): entry i (phrase i + 1) into *f, 1 when there is one */
+static int ocj4_frz_live_get(uint32_t i, frzp_t *f) { if (i >= FZP_N || !frzp[i].take) return 0; *f = frzp[i]; return 1; }
+static const char *ocj4_frz_live_name(uint32_t idx) { return ocj4_frzd ? ocj4_frzd->name(idx) : ""; }
+static int (*ocj4_frz_get)(uint32_t, frzp_t *) = ocj4_frz_live_get;
+static const char *(*ocj4_frz_name)(uint32_t) = ocj4_frz_live_name;
 #endif
 static int ocj4_name_eq(const char *a, const char *b)   /* two folder names, at most OCJ4_FRZ_FOLD - 1 characters */
 {
@@ -320,10 +327,11 @@ static void w_frzr(ocj4_w_t *w)
     }
 #if OCJ4_FRZ
     for (i = 0; i < FZP_N && i < OCJ4_FRZ_LIVE; i++) {   /* the folders the live entries name */
-        if (!frzp[i].take) continue;
+        frzp_t fe;
+        if (!ocj4_frz_get(i, &fe)) continue;
         for (uint32_t which = 0; which < 2u; which++) {
-            uint32_t idx = which ? frzp[i].want : frzp[i].dir, j;
-            const char *nm = ocj4_frzd ? ocj4_frzd->name(idx) : "";
+            uint32_t idx = which ? fe.want : fe.dir, j;
+            const char *nm = ocj4_frz_name(idx);
             if (idx >= FZD_N_MAX) continue;
             for (j = 0; j < n && !ocj4_name_eq(fold[j], nm); j++)
                 ;
@@ -343,8 +351,8 @@ static void w_frzr(ocj4_w_t *w)
         w16(w, 0);
 #if OCJ4_FRZ
         for (i = 0; i < FZP_N && i < OCJ4_FRZ_LIVE; i++) {
-            frzp_t f = frzp[i];
-            if (!f.take) continue;
+            frzp_t f;
+            if (!ocj4_frz_get(i, &f)) continue;
             f.dir = f.dir < FZD_N_MAX ? map[f.dir] : 0u;
             f.want = f.want < FZD_N_MAX ? map[f.want] : 0u;
             w_ent(w); w8(w, i + 1u); w_mem(w, &f, sizeof f); w_ent_end(w);
@@ -851,10 +859,12 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     ocp_dir_t *d = &ocp.dir;
     ocj4_meta_t *m = &ocj4_meta;
     uint32_t rlen, live = ocp.dir.slot;
-    int xs, rc;
+    int xs, rc, had_old = 0;
     slot &= 3u;
     if (!len) {                                /* emptied: the record (and the format before's, an OLD FORMAT slot) */
+        int had_old = ocs_exists(OCS_PROJECT, slot);
         if (ocs_delete(OCS_PROJECT, OCJ4_RID(slot)) || ocs_delete(OCS_PROJECT, slot)) return 2;
+        if (had_old) ocj4_old_chunks_cleanup();            /* (a CLEAR of an OLD FORMAT slot: its phrases may be nobody's now) */
         if (slot == live) memset(ocp.cnamed, 0, sizeof ocp.cnamed);   /* (the music keeps its phrases, uncommitted) */
         else ocp_r3_sweep(slot);
         return 0;
@@ -911,6 +921,7 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     if (ocj4_parse(raw, rlen, q, 0)) { rc = 2; goto failed; }
     rc = ocs_write(OCS_PROJECT, OCJ4_RID(slot), raw, rlen);
     if (rc) { rc = rc == -1 ? 4 : 2; goto failed; }
+    had_old = ocs_exists(OCS_PROJECT, slot);
     (void)ocs_delete(OCS_PROJECT, slot);       /* (an OLD FORMAT record there, if any, is replaced) */
     if (xs) {
         ocp_r3_switch(slot);                   /* the live pool, as committed */
@@ -919,7 +930,9 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
     } else {
         ocp_r3_sweep(slot);                    /* (the live pool is untouched: the scratch's, if it was this slot's) */
     }
-    return ocj_read(slot, raw) == (int)BANK_STORE_SIZE ? 0 : 2;
+    rc = ocj_read(slot, raw) == (int)BANK_STORE_SIZE ? 0 : 2;
+    if (had_old) ocj4_old_chunks_cleanup();    /* (the record of the format before is replaced: the old chunks nobody names go) */
+    return rc;
 failed:
     if (xs) m->rev--;
     if (slot == ocp.dir.slot) {                /* (the record may or may not have committed: the committed bits are read again,
@@ -1040,3 +1053,4 @@ static int ocj4_old_slot(uint32_t slot)
                                                             * does not load, whatever its head says, is held, never free) */
 }
 #define FRZ_SLOT_NAMES(s, i) ((s) == ocp.dir.slot && (i) < OCP_N && (ocp.len[i] || ocp.hash[i]))   /* (usb_files.c: a phrase is its project's) */
+#include "oc_convert.c"                        /* (Release 3, Part 3) the conversion of the projects of the format before */

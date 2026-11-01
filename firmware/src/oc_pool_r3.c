@@ -69,7 +69,9 @@ typedef struct {
     uint16_t len[OCP_TAB_MAX];
     uint8_t src[OCP_TAB_MAX];
 } ocp_tab_t;
-enum { OCP_SRC_BASE, OCP_SRC_GEN, OCP_SRC_COPY };
+enum { OCP_SRC_BASE, OCP_SRC_GEN, OCP_SRC_COPY, OCP_SRC_REPACK };   /* REPACK: a phrase of the format before, version 1 to 2 as it streams (oc_convert.c) */
+static int ocj4_up_begin(uint32_t id, uint32_t len);          /* (oc_convert.c) phrase id (0-based) parsed, its new length must be len */
+static int ocj4_up_get(uint8_t *dst, uint32_t n);             /* .. its next n bytes */
 
 static struct {
     ocp_dir_t dir;                             /* the live project's phrases: where each is, the live generation bits */
@@ -197,6 +199,8 @@ static int ocp_cw_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
                     if (w->regen && w->regen(w, id)) return -1;
                     if (!w->g || w->g->len != t->len[w->e]) return -1;
                     ocp_gen_rewind(w->g);
+                } else if (t->src[w->e] == OCP_SRC_REPACK) {
+                    if (ocj4_up_begin(id, t->len[w->e])) return -1;
                 } else {
                     w->cur_off = w->cp_off;
                 }
@@ -206,6 +210,8 @@ static int ocp_cw_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
                 if (ocs_at(&w->base, w->cur_off + w->epos, dst, k)) return -11;
             } else if (t->src[w->e] == OCP_SRC_GEN) {
                 if (ocp_gen_get(&w->g->src, dst, k)) return -1;
+            } else if (t->src[w->e] == OCP_SRC_REPACK) {
+                if (ocj4_up_get(dst, k)) return -1;
             } else if (ocs_at(w->cp, w->cur_off + w->epos, dst, k)) {
                 return -11;
             }

@@ -251,6 +251,9 @@ static void fm1_main(void)
 #endif
     project_boot();                           /* then the BOOT project or the template (theirs win) */
     pack_boot_notice(bootguard.failed);       /* (Orange Cat 0.8.1) PACK MISSING once, if a track needs the asset pack */
+#if OC_R3_FORMAT
+    ocj4_conv_notice();                       /* (Release 3) what the conversion of the old projects did, once the project has loaded */
+#endif
 #if OC_MODULES && MELODEE_FLASH
     oc_mod_ban_notice();                      /* (Orange Cat 0.10.1) MODULE BANNED <engine> once, for a module the crash count banned at this boot */
 #endif

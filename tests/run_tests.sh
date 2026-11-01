@@ -191,6 +191,12 @@ core() { [ "$SOUND" != only ]; }
 sound() { [ "$SOUND" != 0 ]; }
 
 # ----------------------------------------------------------- multi-step jobs ---
+oc_r3_conv_job() {                                # (Release 3, branch r3-format, Part 3) the conversion of the projects of the format before
+    echo "== Release 3 format, Part 3: a store written by the format before's own code converts (byte for byte, the freeze table split, too full and CONVERT), under the sanitizers"
+    build oc_r3_oldgen oc_r3_oldgen -O1 $FW -Itests || return
+    build oc_r3_conv oc_r3_conv_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_R3_FORMAT=1 $FW -Itests || return
+    "$OUT/oc_r3_oldgen" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" && "$OUT/oc_r3_conv" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" || fail "Release 3 conversion"
+}
 oc_scene_job() {                                  # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) HOME's scenes
     echo "== new interface 1b: the pack with and without its scene trailer (tools/gen_pack.py --scenes)"
     python3 tools/gen_pack.py --pak "$OUT/oc_scene_without.pak" --header "$OUT/oc_scene_without.h" &&
@@ -619,6 +625,7 @@ if core && [ $TABLES = 1 ]; then
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
     job oc_scene_job
+    job oc_r3_conv_job
     job home_pic_job
     job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
     job shift_job                                 # (the new interface 0.3, UI_BUILD.md step 3)

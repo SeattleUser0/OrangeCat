@@ -761,6 +761,9 @@ static void frz_table_save(void)
 #if FRZ_STORE
     uint32_t i, any = 0;
     if (!frzp_dirty || song.playing || transport_busy()) return;
+#if OC_R3_FORMAT
+    if (ocj4_old_exists()) return;                      /* (Release 3) the unit's old table is the conversion's source until the last old project converts */
+#endif
     frzp_dirty = 0;                                     /* (a failed write is not tried again at once: the next change) */
     for (i = 0; i < FZP_N; i++) any |= frzp[i].take;
     for (i = 0; i < FZD_MV; i++) any |= frzd.mv_from[i] < FZD_N;   /* (0.6.1: a rename still to do) */
