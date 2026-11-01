@@ -164,6 +164,38 @@ int main(int argc, char **argv)
         start();
         CHK("a second start converts nothing and writes nothing", erases == e0 && !memcmp(nor, nor_after, sizeof nor));
     }
+    {   /* 7. a power cut at every program call and every erase of the boot conversion (three projects) */
+        int progs, ers, ok = 1, n_p = 0, n_e = 0;
+        uint32_t e0;
+        char what[220];
+        reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot(); ocp_scan(); ocj_scan();
+        e0 = erases; fail_after = 1 << 24; ocj4_convert_boot(); progs = (1 << 24) - fail_after; fail_after = -1; ers = (int)(erases - e0);
+        for (int phase = 0; phase < 2 && ok; phase++)
+            for (int k = 0; k < (phase ? ers : progs + 1) && ok; k++) {
+                uint32_t np_old = 0, np_new = 0;
+                reset(); memcpy(nor, old_nor, sizeof nor); ocs_boot(); ocp_scan(); ocj_scan();
+                fail_after = phase ? -1 : k; erase_cut = phase ? k : -1;
+                ocj4_convert_boot();
+                fail_after = -1; erase_cut = -1;
+                ocs_boot(); ocp_scan(); ocj_scan();                    /* power back on: the scan and the sweep, nothing converted yet */
+                for (s = 0; s < 4u && ok; s++) {                       /* each slot reads as the old project or the new, never neither */
+                    uint8_t *raw = proj_wire_borrow();
+                    int old_ok = ocs_exists(OCS_PROJECT, s) && ocj4_old_read(s, raw) == (int)BANK_STORE_SIZE && !memcmp(raw, exp_fbkk[s] + 1, BANK_STORE_SIZE);
+                    int new_ok = ocs_exists(OCS_PROJECT, OCJ4_RID(s)) && read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE);
+                    if (!loads[s]) ok &= !ocs_exists(OCS_PROJECT, s) && !ocs_exists(OCS_PROJECT, OCJ4_RID(s));
+                    else ok &= old_ok || new_ok;
+                    np_old += old_ok; np_new += new_ok;
+                }
+                ocj4_convert_boot();                                   /* the next start resumes */
+                memset(proj_meta, 0, sizeof proj_meta);
+                for (s = 0; s < 4u && ok; s++) ok &= !loads[s] || (read_slot(s) && !memcmp(got, exp_fbkk[s] + 1, BANK_STORE_SIZE));
+                ok &= !old_records() && !old_chunks() && !orphans_all() && new_records() == 3u;
+                if (!ok) fprintf(stderr, "  cut %s %d: old readable %u, new readable %u\n", phase ? "erase" : "program", k, np_old, np_new);
+                if (phase) n_e++; else n_p++;
+            }
+        snprintf(what, sizeof what, "power cut at each of %d program calls and each of %d erases of the boot conversion: after the cut every slot reads as the old project or the new one, the next start finishes it, no orphan", n_p, n_e);
+        CHK(what, ok);
+    }
     {   /* a store too full for the last slots: they stay as the old records, with the KB they need; room freed, CONVERT converts them */
         uint32_t room = 0, left = 0, lvl;
         for (lvl = 14; lvl >= 3u; lvl--) {             /* the fullest store that still lets some slot convert and not all */
