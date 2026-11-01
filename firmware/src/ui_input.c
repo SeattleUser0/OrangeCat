@@ -1326,6 +1326,16 @@ static void step_edit(uint32_t slot, int32_t steps)
 #endif
     if (cur_page()->graph != GR_TRACKER && notes_selected(TSEL) < RECORD_MAX) {   /* (0.7.1: the tracker's columns map
                                                                                   * the knobs themselves, tracker_edit) */
+#if OC_SLIDE
+        if (slot == 3u && (ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (ui-fix 8) ENV + VEL: the step's slide, a recorded step's too */
+            ui.step_used |= (uint16_t)(1u << panel.btn[B_ENV]);
+            fm1_irq_off();
+            if (steps > 0) TSEL->step[ui.cursor].flags |= SF_SLIDE; else TSEL->step[ui.cursor].flags &= (uint8_t)~SF_SLIDE;
+            fm1_irq_on();
+            ui.force = 1;
+            return;
+        }
+#endif
         uint32_t fine = slot == 2u ? ui.step_mods & (1u << panel.btn[B_ENV]) : 0u;
         ui.step_used |= (uint16_t)fine;
         notes_event_edit(fine ? 4u : slot, steps);

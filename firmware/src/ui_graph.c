@@ -333,6 +333,21 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
         if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, bulk.on&&bulk_note_has(i)?T_ACCENT:c, bulk.on&&bulk_note_has(i));
     if (chosen < RECORD_MAX) notes_bar(t, chosen, period, a, b, T_ACCENT, 1);
+#if OC_SLIDE
+    for (uint32_t si = base; si < end; si++) {         /* (ui-fix 8) a recorded step's slide: the line from its first note's row at the
+                                                         * step's end to the next step's first note, as a manual step's */
+        const step_t *st = &seq_steps(t)[si], *ns = &seq_steps(t)[(si + 1u) % step_pattern_len(t)];
+        uint32_t lo = 128;
+        if ((st->flags & (SF_RECORDED | SF_SLIDE)) != (SF_RECORDED | SF_SLIDE) || si + 1u >= end || ns->time != ST_NOTE || !ns->n) continue;
+        for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+            if (recording_active(t, i) && recording_view(t, &recording[i]) == si && recording[i].note < lo) lo = recording[i].note;
+        if (lo < 128u) {
+            int32_t xe = notes_x(recording_prefix(t, period, si + 1u), a, b);
+            int32_t y = clamp(pr_row_y((int32_t)lo), PR_Y0, bottom - PR_RH), ny = clamp(pr_row_y(ns->note[0]), PR_Y0, bottom - PR_RH);
+            cv_line(xe - 2, y + 2, xe + 2, ny + 2, T_TEXT);
+        }
+    }
+#endif
     if (ui.cursor >= base && ui.cursor < end) {         /* the cursor's column, last: its right side is the next step's
                                                          * line, its left a tied note's bar (both drawn over it before) */
         int32_t x = notes_x(recording_prefix(t, period, ui.cursor), a, b), xe = notes_x(recording_prefix(t, period, ui.cursor + 1u), a, b);

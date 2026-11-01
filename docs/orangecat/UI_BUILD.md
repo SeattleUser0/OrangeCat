@@ -1915,6 +1915,39 @@ the one translation unit's, so the takeover from seq.c is sound. Found, and take
 
 **Build order (the review's):** the manual-step slide alone first, then the UI, then the recorded overlap rule.
 
+**The design as built (ui-fix 8, in the review's order; behind OC_SLIDE, on in tools/orangecat_engines.sh).**
+1. **Manual steps** (seq.c `seq_slide_voice`, called from seq_step): when a step with SLIDE goes into the next, the j-th new note
+   takes over the j-th old note's sounding voice (the step's notes only, never its hits): the voice's note and pitch target
+   become the new note's, its pitch glides from where it is, its envelope goes on; the matrix's note values follow (mod_note);
+   in MONO, LEGATO and UNISON the stack and the mono note follow too (mono_key then legato, as voice.c does), so the new
+   note's later note-off ends the voice and the old note's finds nothing; a louder new note raises the velocity (mono_play's
+   rule), a softer one leaves it. Not taken: an old note that is a live key's, the arp's or a recorded note's (seq_release's
+   test), an oneshot engine (DRUM-X), an engine with its own allocator in POLY (FM6), a mono voice that is not the old
+   note's, PRIO LOW or HIGH with more than one note held. **The slide's rate**: three sixteenths of a semitone a control
+   tick, an octave in about 64 ticks (46 ms at 44.1 kHz); with GLIDE set, GLIDE's own rate or time. (The "45 ms" default of
+   voice.c's comment is ENV_LIN[40] >> 14 = 40 sixteenths a tick, nearly a jump: Session A's comment to correct.) A slide into
+   the same pitch goes on without a retrigger (today a restart); a slide into a rest releases; a slide into a ratcheted
+   step glides into its first part and the repeats retrigger (as before).
+2. **Recorded notes** (recording.c `recording_slide_in`, the overlap rule): at a cell's first hit, when the cell before has
+   SLIDE and one of its recorded notes is still sounding on its own voice, that voice is re-pitched (seq_slide_voice) and the
+   reference moves: the old event's hold ends without a note-off, this hit's begins as any hit's. No gate is extended: the
+   notes must overlap (a played legato take does); a ratchet's or a flam's later hits never take over. No slide across a
+   manual and a recorded step (either way).
+3. **Setting it**: NOTES: ENV held + KNOB 4 sets or clears SLIDE on the cursor's step, a recorded step's too (step_edit's
+   recorded path), undone by EDIT held through the step history; the strip shows SLIDE with ENV held on either kind of
+   step and marks VEL's column "SL" while the step slides; the roll draws the slide line from a recorded step's lowest note
+   to the next step's first note as it does for a manual step; FEEL's TYPE, the tracker's FX column and the note sheet's
+   Slide as built.
+
+**Tests:** tests/slide_test.c (13 checks, ASan and UBSan in the suite's job; the sequencer and the voices driven by mix_block,
+the interrupt's own path): MODES (POLY, MONO, LEGATO, UNISON: the same voice, the stage and level kept, the octave in 64
+blocks, the release at the rest after), CHORD, REST, SAME, GLIDE (GLMODE TIME with GLIDE set), HELD (a live key's old note
+not taken), RATCHET, DRUMX, RECORDED (the overlap and the no-overlap cases), SET (ENV + KNOB 4 on a recorded step, its undo).
+step_pages_test and one_auth_test pass with the switch on. ui_render.c (ui_renders_steps, now with OC_SLIDE=1): NOTES with a
+recorded step sliding into the next, ENV held (notes_slide), linted.
+
+**Mockups:** docs/orangecat/ui/new/fix8_notes_slide.png (the roll's slide line from a recorded bar, the strip's SLIDE).
+
 ### Budget revision 0.9 (ui-fix; CI's build options, one niced build each)
 
 | Build | Image (B) | Free of 577,248 | Above the 8,192 B reserve | .data+.bss | Data SRAM tail | Arena (min 49,152) | Pack |
@@ -1922,13 +1955,17 @@ the one translation unit's, so the takeover from seq.c is sound. Found, and take
 | linux-hw c27dc5c (the baseline) | 558,596 | 18,652 | 10,460 | 94,536 | 3,768 | 84,032 | 40,845 |
 | + ui-fix 1, 2, 3, 5 | 558,980 (+384) | 18,268 | 10,076 | 94,536 | 3,768 | 84,032 | 40,853 (+8: the scene's bindings; 107 B of the area left) |
 | + ui-fix 6 (the map gone) | 558,100 (-880) | 19,148 | 10,956 | 94,536 | 3,768 | 84,032 | 40,853 |
-| + ui-fix 7 (one authority) | 560,244 (+2,144) | 17,004 | 8,812 | 94,536 | 3,768 | 84,032 | 40,853 |
+| + ui-fix 7 (one authority), at its commit 5a26150 | 560,020 (+1,920) | 17,228 | 9,036 | 94,536 | 3,768 | 84,032 | 40,853 |
+| + ui-fix 8 (slide and legato) | 561,472 (+1,452) | 15,776 | 7,584 | 94,536 | 3,768 | 83,008 | 40,853 |
 
-Ui-fix 7 cost 2,144 B against the review's 500 to 700: the reconcile is 472 B (its two bank paths), and START's conversion and
-the tracker's move, inlined into edit_param and step_move_edit, about 1,200 B between them (each carries a transaction, a
-rollback and a rebuild; a shared "the cell's events, shifted" helper could save about 300 B, left for later); the pads are
-dead code in the shipping image. 8,812 B remain above the reserve: ui-fix 8 (the review's 700 to 1,000 B) fits; nothing
-larger does.
+Ui-fix 7 cost 1,920 B against the review's 500 to 700 (2,144 before its diff review's fixes): the reconcile is 472 B (its two
+bank paths), and START's conversion and the tracker's move, inlined into edit_param and step_move_edit, about 1,000 B between
+them (each carries a transaction, a rollback and a rebuild; a shared "the cell's events, shifted" helper could save about 300 B,
+left for later); the pads are dead code in the shipping image. Ui-fix 8 cost 1,452 B against 700 to 1,000 (seq_slide_voice
+and the seq_step block, the recorded overlap rule, the strip and the roll). **The audio working arena fell by 1,024 B with
+ui-fix 8** (84,032 to 83,008; .data+.bss unchanged: the linker's resource bank moved by one block; 33.9 KB above the minimum
+and 17.5 KB above the rule's 65,536). **The reserve holds: 15,776 B free, 7,584 B above 8,192.** Nothing further is built on
+this branch without the owner's say: the next item of any size eats into what is left above the reserve.
 
 ### For Session A (ui-fix)
 

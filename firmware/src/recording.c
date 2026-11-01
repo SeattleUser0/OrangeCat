@@ -972,6 +972,33 @@ static int recording_roll_ok(track_t *t, uint32_t view)
     }
     return !(recording_roll[tr].skip & bit);
 }
+#if OC_SLIDE
+static uint8_t recording_slid;                      /* (ui-fix 8) the hit about to play took over a voice: no note-on for it */
+/* (ui-fix 8) a recorded slide, the overlap rule: at a cell's first hit, when the cell before has SLIDE and one of its recorded notes
+ * is still sounding (its own voice: one reference), that voice is re-pitched to this note (seq.c seq_slide_voice) and the
+ * reference moves: the old event's hold ends without a note-off, this hit's begins as any hit's. No gate is extended, so the two
+ * notes must overlap (a played legato take does); a ratchet's or a flam's later hits never take over (recording_fire only).
+ * 1: taken */
+static int recording_slide_in(track_t *t, uint32_t i, uint32_t vel)
+{
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), view = recording_view(t, &recording[i]) % NSTEP;
+    uint32_t prev = (view + len - 1u) % len, tr = trk_index(t), j;
+    if (view >= len || (t->step[prev].flags & (SF_SLIDE | SF_RECORDED)) != (SF_SLIDE | SF_RECORDED)) return 0;
+    for (j = recording_head[recording_owner(t)]; j < RECORD_MAX; j = recording_next[j]) {
+        uint32_t old = recording[j].note;
+        if (j == i || !recording_sounding(j) || recording_view(t, &recording[j]) != prev || recording_refs[tr][old] != 1u) continue;
+        if ((live_held[tr][old >> 5] & (1u << (old & 31u))) || t->arp_note == old) continue;
+        if (!seq_slide_voice(t, old, recording[i].note, vel)) continue;
+#if MELODEE_RECORD_QUEUE
+        recording_queue_remove(j);
+#endif
+        recording_run[j].left = 0;
+        recording_refs[tr][old]--;
+        return 1;
+    }
+    return 0;
+}
+#endif
 /* one hit of an event: the note on at velocity vel, held for gate samples (late: how far past its time it is) */
 static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, uint32_t late)
 {
@@ -980,6 +1007,9 @@ static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, u
     RECORDING_HIT_HOOK(t, i, vel, gate, late);
 #endif
     drum_event_pitch=r->pitch; drum_event_length=r->length?gate:0;
+#if OC_SLIDE
+    if (!recording_slid)
+#endif
     trk_note_on(t, r->note, vel);
     drum_event_pitch=0; drum_event_length=0;
     uint32_t was = recording_sounding(i), remaining = gate > late ? gate - late : 0u;
@@ -1064,7 +1094,13 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
         first = flam_at(t, period);
         vel = vel * 9u / 16u + 1u;
     }
+#if OC_SLIDE
+    recording_slid = (uint8_t)recording_slide_in(t, i, vel);
+#endif
     recording_hit(t, i, vel, first, late);
+#if OC_SLIDE
+    recording_slid = 0;
+#endif
     if (hits > 1u || grace) {                         /* the rest waits: its time is counted on the track's repeat clock, from the start of the next block */
         uint32_t k = recording_rep_slot(tr, i);
         recording_rep_ev[tr][k] = (uint16_t)(i + 1u);

@@ -2383,7 +2383,7 @@ int main(int argc, char **argv)
          * MONO gray; NIGHT, DAY and CONTRAST written as PPMs (feel_<scene>, notes_<scene>) (the two map screens of step 4 went with the
          * map: ui-fix 6) */
         static const char *const SN[] = {"feel_set", "feel_k1", "feel_k2", "feel_k3", "feel_k4", "feel_range", "feel_play", "feel_empty",
-                                         "notes_rec", "notes_manual", "notes_none"};
+                                         "notes_rec", "notes_manual", "notes_none", "notes_slide"};
         uint32_t w, nm = 0;
         for (p = 0; p < UI_PAL_ENTRIES; p++)
             for (w = 0; w < sizeof SN / sizeof SN[0]; w++) {
@@ -2419,6 +2419,15 @@ int main(int argc, char **argv)
                     notes_selected(TSEL);
                 }
                 if (w == 10u) track_defaults_steps(TSEL);
+                if (w == 11u) {                         /* (ui-fix 8) a recorded step that slides into the next, ENV held: the strip's SLIDE */
+                    recorded_note_t r = {.step = 6, .on = 0, .note = 55, .vel = 100, .duration = 49152, .owner = (uint8_t)recording_owner(TSEL), .length = 1};
+                    recorded_note_t q = {.step = 7, .on = 0, .note = 60, .vel = 100, .duration = 32768, .owner = (uint8_t)recording_owner(TSEL), .length = 1};
+                    track_defaults_steps(TSEL);
+                    recording_restore_note(TSEL, 0, r); recording_restore_note(TSEL, 1, q); note_rebuild_all();
+                    TSEL->step[6].flags |= SF_SLIDE;
+                    cursor_set(6); notes_selected(TSEL);
+                    ui.step_mods |= (uint16_t)(1u << panel.btn[B_ENV]);
+                }
                 snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, SN[w]);
                 cur_name = name;
                 pal(p);

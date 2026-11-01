@@ -663,13 +663,21 @@ static void draw_columns(void)
             } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
             else str_cpy(sn, "--", sizeof sn);
             draw_column(2, "LEN", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(2u) : T_DIM, -1, ICON_GATE);
+#if OC_SLIDE
+            if (ui.step_mods & (1u << panel.btn[B_ENV])) {   /* (ui-fix 8) ENV held: the cursor step's slide, recorded or manual */
+                draw_column(3, "SLIDE", TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE ? "ON" : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
+                return;
+            }
+#else
             if (chosen >= RECORD_MAX && st && (ui.step_mods & (1u << panel.btn[B_ENV]))) {
                 draw_column(3, "SLIDE", st->flags & SF_SLIDE ? "ON" : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
                 return;
             }
+#endif
             if (selected) fmt_int(sn, chosen < RECORD_MAX ? recording[chosen].vel : st->flags & SF_ACCENT ? 127 : st->vel ? st->vel : 96);
             else str_cpy(sn, "--", sizeof sn);
-            draw_column(3, "VEL", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(3u) : T_DIM, -1, ICON_ACCENT);
+            draw_column(3, "VEL", sn, OC_SLIDE && (TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE) ? "SL" : chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "",
+                        selected ? T_COZY(3u) : T_DIM, -1, ICON_ACCENT);
             return;
         }
 #endif

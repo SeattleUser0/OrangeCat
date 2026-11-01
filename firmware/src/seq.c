@@ -414,6 +414,52 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
     return swing_step_len(t, period, idx);   /* core.h: own + global, at most 100 */
 }
 
+#if OC_SLIDE
+/* (ui-fix 8, docs/orangecat/UI_BUILD.md "ui-fix 8") A slide is a legato glide in every voice mode: the new note takes over the old
+ * note's sounding voice (its envelope goes on), the pitch gliding from where it is at the slide's own rate (three sixteenths of a
+ * semitone a control tick: an octave in about 46 ms at 44.1 kHz; with GLIDE set, GLIDE's own rate or time), the matrix's note
+ * values following (mod_note; KEY tracks the new pitch); in the mono modes the stack and the mono note follow too, so the new
+ * note's later note-off ends the voice and the old note's finds nothing; a louder new note raises the velocity (mono_play's
+ * rule), a softer one leaves it (the 303's accent is the first note's). 0: nothing taken: no sounding voice of the old note; an
+ * oneshot engine (DRUM-X); an engine that allocates its own voices in POLY (FM6); in a mono mode a voice that is not the old
+ * note's, or PRIO LOW or HIGH with more than one note held (mono_pick's call, not this one). The engine's legato hook runs as
+ * mono_play's branch runs it; MACRO and SHAPES read the voice's pitch every block and need none */
+static void slide_glide_set(track_t *t, voice_t *v)
+{
+    if (!v->pitch_cur) { v->pitch_cur = v->pitch16; v->gstep = 0; return; }   /* (never played: no glide) */
+    if (t->p[P_GLIDE]) { glide_set(t, v, 1); return; }
+    v->gstep = 3;                                       /* (track_render's RATE step: ENV_LIN[40] >> 14 is 40, nearly a jump) */
+}
+static int seq_slide_voice(track_t *t, uint32_t old, uint32_t new, uint32_t vel)
+{
+    const engine_t *e = ENGINES[t->engine];
+    uint32_t mode = trk_vmode(t), nv = mode == V_UNISON ? trk_nvoice(t) : mode == V_POLY ? NVOICE : 1u, i, found = 0;
+    if (e->oneshot || (mode == V_POLY && e->alloc)) return 0;
+    if (mode != V_POLY && (t->mono_note != old || (t->p[P_PRIO] && t->nmono > 1u))) return 0;
+    for (i = 0; i < nv; i++) found |= t->v[i].active && t->v[i].gate && t->v[i].note == old;
+    if (!found) return 0;
+    mod_note(t, new, vel);
+    for (i = 0; i < nv; i++) {
+        voice_t *v = &t->v[i];
+        if (!v->active || !v->gate || v->note != old) continue;
+        v->note = (uint8_t)new;
+        voice_scale_pitch(t, v, new);
+        slide_glide_set(t, v);
+        if (vel > v->vel) v->vel = (uint8_t)vel;
+        v->mvel = t->m_vel;
+        v->mrnd = t->m_rnd;
+        if (e->legato) e->legato(t, v);
+        if (mode == V_POLY) break;
+    }
+    if (mode != V_POLY) {
+        mono_remove(t, old);
+        mono_push(t, new);
+        t->mono_note = (uint8_t)new;
+        if (e->mono_key) e->mono_key(t, new);
+    }
+    return 1;
+}
+#endif
 #include "recording.c"
 #include "recording_undo.c"
 
@@ -1184,9 +1230,27 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
 #ifdef SEQ_TEST_HOOK                                /* (Orange Cat 0.2) host tests only: the notes a step plays */
     SEQ_TEST_HOOK(t, nn, vv, m, sk);
 #endif
+#if OC_SLIDE
+    {                                               /* (ui-fix 8) a slide: the j-th new note takes over the j-th old note's voice,
+                                                     * legato; an old note that is a live key's, the arp's or a recorded note's is not
+                                                     * the sequencer's to take (seq_release's test); the notes only, never the hits */
+        uint32_t slid = 0, old;
+        if (slide_in)
+            for (i = 0; i < s->n && i < 4u && i < t->seq_n; i++) {
+                old = t->seq_notes[i];
+                if ((sk >> i) & 1u) continue;
+                if ((live_held[trk_index(t)][old >> 5] & (1u << (old & 31u))) || t->arp_note == old || recording_owns(t, old)) continue;
+                if (seq_slide_voice(t, old, nn[i], vv[i])) slid |= 1u << i;
+            }
+        for (i = 0; i < m; i++)
+            if (!((sk >> i) & 1u) && !((slid >> i) & 1u))
+                trk_note_on(t, nn[i], vv[i]);
+    }
+#else
     for (i = 0; i < m; i++)
         if (!((sk >> i) & 1u))
             trk_note_on(t, nn[i], vv[i]);
+#endif
     if (slide_in)                                   /* release what is not held over */
         for (i = 0; i < t->seq_n; i++) {
             for (j = 0; j < m && nn[j] != t->seq_notes[i]; j++)

@@ -168,6 +168,14 @@
 #if OC_ONE_AUTH && !OC_STEP_PAGES
 #error "OC_ONE_AUTH needs OC_STEP_PAGES (UI_BUILD.md ui-fix 7)"
 #endif
+#ifndef OC_SLIDE
+#define OC_SLIDE 0                /* (ui-fix 8, branch ui-fix: docs/orangecat/UI_BUILD.md "ui-fix 8") 1: a step's SLIDE is a legato glide in every
+                                   * voice mode, for manual steps (seq.c seq_slide_voice) and recorded notes that overlap (recording.c); ENV +
+                                   * KNOB 4 sets it on a recorded step too, the roll draws it; 0: as 0.16.0 (a true slide on a LEGATO track only) */
+#endif
+#if OC_SLIDE && !OC_STEP_PAGES
+#error "OC_SLIDE needs OC_STEP_PAGES (UI_BUILD.md ui-fix 8)"
+#endif
 #if OC_LANES
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
 #else
