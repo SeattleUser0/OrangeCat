@@ -500,11 +500,17 @@ static int test_phrase_bytes(void)
         R3CHK("two small phrases share a chunk", ca && ca == cb);
         before = ocp.used[ca];
         pattern_read(0, 0, &p);
-        for (uint32_t i = 0; i < NSTEP; i++) { p.step[i].n = 4; p.step[i].time = ST_NOTE; p.step[i].note[0] = (uint8_t)(30u + i); p.step[i].note[1] = 50; p.step[i].note[2] = 60; p.step[i].note[3] = 70; p.step[i].vel = 100; }
+        for (uint32_t i = 0; i < NSTEP; i++) { p.step[i].flags |= SF_RECORDED; /* (ONE_AUTH is in the build set: an event has its flagged cell) */ p.step[i].n = 4; p.step[i].time = ST_NOTE; p.step[i].note[0] = (uint8_t)(30u + i); p.step[i].note[1] = 50; p.step[i].note[2] = 60; p.step[i].note[3] = 70; p.step[i].vel = 100; }
         pattern_write(0, 0, &p);
         for (uint32_t i = 0; i < 300u; i++) {  /* 300 timed notes: about 3,700 B of phrase */
             recorded_note_t *r = &recording[i];
             r->on = (uint16_t)(i * 100u); r->duration = 300; r->note = (uint8_t)(40u + i % 40u); r->vel = 90; r->owner = 0; r->step = (uint8_t)(i % 64u); r->pitch = 0; r->length = 0;
+        }
+        for (uint32_t k = 0; k < NTRK; k++) {            /* (the events fill_all made for bank 1 are overwritten above: their flagged cells go with them, or a load mends them) */
+            pattern_t q;
+            pattern_read(k, 1u, &q);
+            for (uint32_t i = 0; i < NSTEP; i++) q.step[i].flags &= (uint8_t)~SF_RECORDED;
+            pattern_write(k, 1u, &q);
         }
         recording_reindex();
         R3CHK("the first grows past what the chunk can hold with the other: it is kept", ocp_save(a, 0, 0) == 0);
@@ -1109,7 +1115,7 @@ static void fun23_of(const project_store_t *n24, project_store_t *o23)
     uint32_t pn = 68u, po = 68u, k, i, mot_at_n, seq_end_n;
     memcpy(o, n, 68);
     for (k = 0; k < NTRK; k++) {
-        for (i = 0; i < P_E0 - 7u; i++) o[po++] = n[pn + i];            /* the common ids below LFO 2 */
+        for (i = 0; i < (uint32_t)P_L2RATE; i++) o[po++] = n[pn + i];   /* the common ids below LFO 2 (Part 8: P_E0 - 7 is no longer that) */
         for (i = 0; i < 8u; i++) o[po++] = n[pn + P_E0 + i];             /* P_E0..P_E7 */
         po += 0; pn += P_COUNT;
         memcpy(o + po, n + pn, 2u + NSTEP * 8u); po += 2u + NSTEP * 8u; pn += 2u + NSTEP * 8u;
@@ -1119,7 +1125,7 @@ static void fun23_of(const project_store_t *n24, project_store_t *o23)
     memcpy(o + po, n + pn, seq_end_n - pn);
     for (i = 0; i < n[mot_at_n]; i++) {                                  /* events: place, param, value (4 bytes) after count, on, rsv[2] */
         uint8_t *ev = o + po + (mot_at_n - pn) + 4u + 4u * i;
-        if (ev[1] >= P_E0 && ev[1] < P_COUNT && !((ev[2] | ev[3] << 8) >= 256)) ev[1] = (uint8_t)(ev[1] - 7u);   /* (not a native event: its value is below 256) */
+        if (ev[1] >= P_E0 && ev[1] < P_COUNT && !((ev[2] | ev[3] << 8) >= 256)) ev[1] = (uint8_t)(ev[1] - (P_E0 - 116u));   /* (not a native event: its value is below 256) */
     }
     po += seq_end_n - pn;
     memset(o + po, 0, PROJ_STORE_SIZE - po);                              /* the fixed-offset parts after: copied from the new record */
@@ -1197,7 +1203,7 @@ static int test_lfo2_records(void)
         po = pn = 2u * PROJ_GLOBALS + 2u;
         for (k = 0; k < NTRK; k++) {
             old[po++] = nb[pn++]; old[po++] = nb[pn++];
-            for (uint32_t i = 0; i < P_E0 - 7u; i++) { memcpy(old + po, nb + pn + 2u * i, 2); po += 2; }
+            for (uint32_t i = 0; i < (uint32_t)P_L2RATE; i++) { memcpy(old + po, nb + pn + 2u * i, 2); po += 2; }
             for (uint32_t i = 0; i < 8u; i++) { memcpy(old + po, nb + pn + 2u * (P_E0 + i), 2); po += 2; }
             pn += 2u * P_COUNT;
         }
