@@ -3088,3 +3088,8 @@ Verified by the reviewer: `recording_unlink` in place of the two calls is equiva
 **Open, for the owner (a design question, not a test bug):** the first pad edit of a drum cell converts the whole cell to events with `length` 1 (gated at one step), so an untouched snare beside an edited kick is now cut at one step instead of decaying naturally;
 UI_BUILD.md ui-fix 7 point 6 says a hit's natural length is `length` 0. Host only today (MELODEE_DRUM=0 in the image). The converted test enshrines the built behaviour; if the pads' conversion should keep `length` 0, that test's ONE_AUTH branch goes with it.
 Left: python, node and cc steps of the multi-step jobs have no limit of their own.
+
+### r3-format: stopped (November 2, 2026)
+Parts 1 to 9 are built, all behind their switches and off by default; no further r3-format work until Session A's RELEASE3_PLAN.md and the measured effect-module savings say which parts go into the first
+Release 3 image (the budget table above: Parts 1 to 7 are 2,100 B over the 8 KB reserve line with SHAPES out on this base, Parts 8 and 9 add 1,068 B). Part 9's packing is decided: the spare bits stay. This branch has ui-fix2
+at b813082 merged (close-out 2); the merge was clean (recording.c, run_tests.sh) and the suite was run on ui-fix2 itself, not again here.
