@@ -1158,6 +1158,12 @@ static int test_lfo2_records(void)
               for (uint32_t i = 0; i < P_L2RATE; i++) ok &= r.t[k].p[i] == q.t[k].p[i];
               for (uint32_t i = 0; i < 8u; i++) ok &= r.t[k].p[P_E0 + i] == q.t[k].p[P_E0 + i];
               ok &= r.t[k].p[P_L2RATE] == TP[P_L2RATE].def && r.t[k].p[P_L2DST] == 0 && r.t[k].p[P_L2AMT] == 0; } ok; }));
+#if OC_DUB_IDS
+    R3CHK("... Part 8: its DUB TAPE setup (np 124 has none) is the Release 2 derivation of its LEN, PTRN, SPRP and SPACE, on every track", proj_unpack(&r, o23.raw) && ({ uint32_t ok = 1; for (k = 0; k < NTRK; k++) {
+              int16_t want[P_COUNT]; memcpy(want, r.t[k].p, sizeof want); dub_from_r2(want);
+              for (uint32_t i = P_DUBSYNC; i <= P_DUBSPD; i++) ok &= want[i] == r.t[k].p[i];
+              ok &= r.t[k].p[P_DUBSYNC] == 1 && r.t[k].p[P_DUBDRV] == 25 && r.t[k].p[P_DUBSPD] == 32; } ok; }));
+#endif
     R3CHK("... and its MPC octaves (-1 0 1 2) are kept (FUN23 is read with np 124, the octave word is where FUN22 and FUN23 put it)", ({ uint32_t ok = 1; for (k = 0; k < NTRK; k++) ok &= r.t[k].mpc_octave == (int)k - 1; ok; }));
     R3CHK("... its motion on the old P_E1 lands on the new P_E1, and its DUB TAPE lane is not dropped (FUN23 keeps FUN23's behaviour)",
           r.motion.count >= 2u && ({ uint32_t e1 = 0, dub = 0; for (uint32_t i = 0; i < r.motion.count; i++) { e1 |= r.motion.event[i].param == P_E1; dub |= r.motion.event[i].param == P_DUB_FDBK; } e1 && dub; }));
@@ -1215,6 +1221,11 @@ static int test_lfo2_records(void)
                      for (uint32_t i = 0; i < P_L2RATE; i++) ok &= tmpl.t[k].p[i] == t24.t[k].p[i];
                      for (uint32_t i = 0; i < 8u; i++) ok &= tmpl.t[k].p[P_E0 + i] == t24.t[k].p[P_E0 + i];
                      ok &= tmpl.t[k].p[P_L2RATE] == TP[P_L2RATE].def && tmpl.t[k].p[P_L2AMT] == 0; } ok; }));
+#if OC_DUB_IDS
+        R3CHK("... Part 8: and gets DUB TAPE's setup derived the same way", ({ uint32_t ok = 1; for (k = 0; k < NTRK; k++) {
+              int16_t want[P_COUNT]; memcpy(want, tmpl.t[k].p, sizeof want); dub_from_r2(want);
+              for (uint32_t i = P_DUBSYNC; i <= P_DUBSPD; i++) ok &= want[i] == tmpl.t[k].p[i]; } ok; }));
+#endif
     }
     return bad;
 }

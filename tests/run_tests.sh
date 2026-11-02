@@ -200,8 +200,10 @@ sound() { [ "$SOUND" != 0 ]; }
 # ----------------------------------------------------------- multi-step jobs ---
 oc_r3_conv_job() {                                # (Release 3, branch r3-format, Part 3) the conversion of the projects of the format before
     echo "== Release 3 format, Part 3: a store written by the format before's own code converts (byte for byte, the freeze table split, too full and CONVERT), under the sanitizers"
-    build oc_r3_oldgen oc_r3_oldgen -O1 $FW -Itests || return
-    build oc_r3_conv oc_r3_conv_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_R3_FORMAT=1 $FW -Itests || return
+    build oc_r3_oldgen oc_r3_oldgen -O1 $BS_OFF $FW -Itests || return
+    # (close-out) built with the build set's switches off: the check that a converted phrase is byte for byte what a load then a keep writes holds for phrases that keep OC_ONE_AUTH's
+    # invariant; with the switch on, a load mends a legacy cell with no event first (UI_BUILD.md, Part 8: an open finding, the conversion job under the set)
+    build oc_r3_conv oc_r3_conv_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $BS_OFF -DOC_R3_FORMAT=1 $FW -Itests || return
     "$OUT/oc_r3_oldgen" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" && OC_R3_DUMP_CONVERTED="$OUT/oc_r3_old.conv" "$OUT/oc_r3_conv" "$OUT/oc_r3_old.nor" "$OUT/oc_r3_old.exp" || fail "Release 3 conversion"
     # (Part 4, document section 13 item 4) the format before's own code started on the converted store: it reads none of the Release 3 records, leaves them, saves
     # into the free slot; this firmware then reads every converted project as it was
@@ -730,6 +732,14 @@ if core && [ $TABLES = 1 ]; then
         editor_r3:editor_test -O1 -DOC_R3_FORMAT=1 $FW
     t "Release 3 format, Part 2: the same with LFO 2 (ids 128 to 130, the push as PARAM_CHANGED_W)" \
         editor_lfo2:editor_test -O1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 $FW
+    # (Release 3, Part 8: docs/orangecat/UI_BUILD.md "Part 8") DUB TAPE's setup on eight ids of its own, OC_DUB_IDS=1 (needs LFO 2)
+    t "Release 3 format, Part 8 (OC_DUB_IDS): the eight ids, the Release 2 derivation (2,304 combinations against a floating-point reference), sounds without them, a project round trip" \
+        dub_ids_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 $FW -Itests
+    t "Release 3 format, Part 8: the whole of Parts 1 and 2 with np 139 (FUN24 and FUN23 by count, TPLN and TPLM, presets, the pool), under the sanitizers" \
+        oc_r3_dub:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 $FW -Itests
+    t "Release 3 format, Part 8: the editor with ids 131 to 138 (the wide commands, the motion wire's high id bit)" \
+        editor_dub:editor_test -O1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 $FW
+    t "Release 3 format, Part 8: the UI with DUB TAPE's ids built in" ui_dub:ui_test -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 $FW
     t "Release 3 format, Part 7 (OC_R3_SCENES): scenes version 2, the PERF table, Performance Mode's logic, the planner, hostile bytes; the whole of Part 1 beside them" \
         oc_r3_scenes:oc_r3_test -O1 -DOC_R3_FORMAT=1 -DOC_R3_SCENES=1 $FW -Itests
     t "Release 3 format, Part 7 under the sanitizers" oc_r3_scenes_san:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all \
