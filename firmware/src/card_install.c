@@ -197,7 +197,7 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
     n = pk_rd16(buf + 6);
     if (ver == 2u && got >= tab + 32u) m = pk_rd32(buf + tab + 28u);  /* (0.14.1) format 2: one image, then the list's place and each start's CRC-32 */
     hc = ver == 2u ? tab + 32u + 8u * m : tab + 16u * n;
-    if (n < 1u || n > 8u || (ver == 2u && (n != 1u || m < 1u || m > 8u || pk_rd32(buf + tab) != FB_RELOCATABLE)) || hc + 4u > got ||
+    if (n < 1u || n > 18u || (ver == 2u && (n != 1u || m < 1u || m > 18u || pk_rd32(buf + tab) != FB_RELOCATABLE)) || hc + 4u > got ||
         ocs_crc32(buf, hc) != pk_rd32(buf + hc)) { f_close(f); str_cpy(fb.msg, "Not a module", sizeof fb.msg); return 1; }
     engine = pk_rd32(buf + 16);
     if (engine_out) *engine_out = engine;
@@ -216,7 +216,8 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
             uint32_t at = 0;
             at = fb_put(fb.msg, at, nm, 9u);
             at = fb_put(fb.msg, at, " at ", 4u);
-            fb.msg[at++] = (char)('0' + b);
+            if (b >= 10) fb.msg[at++] = (char)('0' + b / 10);
+            fb.msg[at++] = (char)('0' + b % 10);
             at = fb_put(fb.msg, at, ": remove it", 11u);
             fb.msg[at] = 0;
         } else str_cpy(fb.msg, "No place free", sizeof fb.msg);

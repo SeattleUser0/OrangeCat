@@ -169,7 +169,7 @@ int main(int argc, char **argv)
             uint32_t e = (fr() & 1u) ? ENGI_PROPHET : ENGI_SHAPES, sect = eng_geo_sectors(e);
             int plan = oc_mod_plan(e), rc;
             uint8_t other[OC_MOD_AREA][4096]; uint32_t ownsec = 0;     /* the sectors of the usable modules of this engine, before the install: it may erase them */
-            for (uint32_t j = 0; j < 3u; j++) if ((oc_mod.state[j] == MD_OK || oc_mod.state[j] == MD_CRASHED || oc_mod.state[j] == MD_NOSLOT) && oc_mod.engine[j] == e)
+            for (uint32_t j = 0; j < OC_MOD_STARTS; j++) if ((oc_mod.state[j] == MD_OK || oc_mod.state[j] == MD_CRASHED || oc_mod.state[j] == MD_NOSLOT) && oc_mod.engine[j] == e)
                 for (uint32_t q = 0; q < sect; q++) ownsec |= 1u << (OC_MOD_START_SECTOR(j) + q);
             for (uint32_t k = 0; k < OC_MOD_AREA; k++) memcpy(other[k], nor + ST_MODULE_LO + k * 4096u, 4096);
             if (plan < 0) {

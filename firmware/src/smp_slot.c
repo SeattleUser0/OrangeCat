@@ -289,6 +289,12 @@ static void smp_slot_boot(void)
         uint8_t cursor = ocs_cursor;
         ocs_resv = 0;
         ocs_boot();
+        {   /* (Release 3 step 1) the six that were migrated and now hold no record header stay the module area's even when this boot's claim fails (an erase error on a
+             * leftover copy in the slot's sectors): the store never hands out a sector a module may stand in */
+            uint32_t s, any = 0;
+            for (s = OCS_LEGACY_S0; s < OCS_NSECT; s++) any |= ocs_hdr[s].magic == OCS_MAGIC;
+            if (!any) { ocs_resv = SMP_LEGACY_MASK; ocs_boot(); }
+        }
         ocs_cursor = cursor;
         smp.state = SMP_UNCLAIMED;
     }

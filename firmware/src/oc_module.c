@@ -177,6 +177,9 @@ static struct {
 /* the crash mark (core.h declares oc_modguard so that reset_intended can clear its count): survives a reset, not a power loss */
 #define OC_MOD_UNCLEAN_MAX 3u                                  /* (0.10.1) sessions in a row that died with the module's engine in use: banned */
 
+/* (Release 3 step 1) the boot scan above ran before smp_slot_boot decided whether the six low sectors are the module area's: when they are, look at them now and rebuild the
+ * registry if one holds anything that looks like a module (a header magic); a unit with nothing there does no work */
+static void oc_mod_low_rescan(void);
 /* the XIP address a start runs at; the header there (device) or in the test's copy of the flash */
 static uint32_t oc_mod_flash(uint32_t i) { return ST_MODULE_LO + OC_MOD_START_SECTOR(i) * 0x1000u; }
 static uint32_t oc_mod_link(uint32_t i) { return FL_XIP(oc_mod_flash(i)); }
@@ -431,6 +434,13 @@ static void oc_mod_boot(uint32_t crashed)
                 (void)oc_mod_erase_loser(i);
     }
 }
+static void oc_mod_low_rescan(void)
+{
+    uint32_t i, magic;
+    if (!OC_MOD_LOW_OK()) return;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (OC_MOD_START_SECTOR(i) < OC_MOD_BASE_SECTOR && !st_read(oc_mod_flash(i), &magic, sizeof magic) && magic == FW_MOD_MAGIC) { oc_mod_boot(0); return; }
+}
 /* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
  * `run` says whether the last session ended in an orderly reset (reset_intended clears it). If it did not, the session died (the watchdog, a CPU
  * exception, a hang: nothing else writes through this path), and every start whose module's engine was in use in it (the `inuse` bits, kept
@@ -660,7 +670,7 @@ static int oc_mod_erase_span(uint32_t first, uint32_t n)
     uint32_t s;
     for (s = 0; s < n && first + s < OC_MOD_AREA; s++) {
         int rc;
-        if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) continue;   /* (Release 3) never a sector that may hold a live record part */
+        if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) return -1;   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */
         SMP_FEED();
         if ((rc = st_erase(ST_MODULE_LO + (first + s) * 0x1000u)) != 0) return rc;
     }
@@ -849,7 +859,7 @@ static int oc_mod_remove(uint32_t engine)
     if (engine == 127u) { for (i = 0; i < NENGINES; i++) if (eng_mod[i]) oc_mod_park(i); }
     else oc_mod_park(engine);
     if (engine == 127u) {                                /* (0.12.1) the whole area, sector by sector: whatever the starts hold or do not */
-        rc = oc_mod_erase_span(0u, OC_MOD_AREA);
+        rc = oc_mod_erase_span(OC_MOD_LOW_OK() ? 0u : OC_MOD_BASE_SECTOR, OC_MOD_AREA);
         for (i = 0; i < OC_MOD_STARTS; i++) { oc_mod_unban(i); oc_mod.state[i] = MD_EMPTY; }
     } else {
         for (i = 0; i < OC_MOD_STARTS && !rc; i++)

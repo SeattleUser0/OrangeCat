@@ -1026,10 +1026,10 @@ int main(void)
         chk("the six low sectors not yet the module area's: no start there is allowed, planned, read as a module or erased",
             !oc_mod_allowed(ENGI_WHEEL, 17) && !oc_mod_allowed(ENGI_WHEEL, 12) && oc_mod_allowed(ENGI_WHEEL, 11) && oc_mod.state[17] == MD_EMPTY && !eng_mod[ENGI_WHEEL] &&
             oc_mod_plan(ENGI_WHEEL) == 0);
-        ok = oc_mod_erase_span(0, OC_MOD_AREA) == 0;
+        ok = oc_mod_erase_span(0, OC_MOD_AREA) == -1 && oc_mod_erase_span(3, 1) == -1 && oc_mod_erase_span(OC_MOD_BASE_SECTOR, OC_MOD_AREA) == 0;   /* refused, not skipped */
         for (i = 0; i < 6u; i++) ok &= nor[0xC2000u + i * 0x1000u + 7u] != 0xFFu;       /* the six: not erased (0x55 and the image) */
         for (i = 6; i < 18u; i++) ok &= nor[0xC2000u + i * 0x1000u + 7u] == 0xFFu;
-        chk("... an erase of the whole area (remove, engine 127) leaves the six alone", ok);
+        chk("... an erase reaching into the six is refused and leaves them alone; from sector 6 up it erases", ok);
         ok = oc_mod_remove(127) == 0;
         chk("... remove(127) the same", ok && nor[0xC2000u + 7u] != 0xFFu);
         /* migrated: the six are the module area's */
@@ -1041,6 +1041,15 @@ int main(void)
         good(11, LEN); oc_mod_boot(0);
         chk("a module at the HIGHEST start (11, sector 0xD3000): found, checked, registered, links to the XIP address of 0xD3000",
             oc_mod.state[11] == MD_OK && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(11) && oc_mod_link(11) == FL_XIP(0xD3000u));
+        /* the real boot order: oc_mod_power_on ran while the six were still the store's (nothing found there); smp_slot_boot then reserved them and oc_mod_low_rescan finds the module */
+        clean(); ocs_resv = 0; modeng = ENGI_WHEEL;
+        good(17, LEN); oc_mod_boot(0);
+        ok = oc_mod.state[17] == MD_EMPTY && !eng_mod[ENGI_WHEEL];
+        ocs_resv = SMP_LEGACY_MASK; oc_mod_low_rescan();
+        chk("boot order: a module in the six is not seen by the first scan (the store may still hold it) and is registered by the rescan once they are the module area's",
+            ok && oc_mod.state[17] == MD_OK && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(17));
+        clean(); ocs_resv = SMP_LEGACY_MASK; oc_mod_low_rescan();
+        chk("... and the rescan with nothing there does nothing", !eng_mod[ENGI_WHEEL] && oc_mod.state[17] == MD_EMPTY);
         /* a module image linked for another start is refused there (the link address is where THIS start runs) */
         clean(); ocs_resv = SMP_LEGACY_MASK; modeng = ENGI_WHEEL;
         { fw_mod_hdr_t h = mk(11, LEN); code(3); seal(&h); put(17, &h, 1); }
