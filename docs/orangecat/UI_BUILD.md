@@ -2261,3 +2261,58 @@ switches), the renders with every switch (0 lint findings) and home_pic_test. Bu
 | all on, after the fixes (the pushed head) | 565,044 | 94,600 (+48) | 180,656 |
 
 565,044 B leaves 12,204 B free: 4,012 B above the 8 KB reserve. The steps are not isolated costs (code layout moves between builds: item 5 measured smaller than item 4 before it). Item 6 (the scene) is in the pack, not the image; its image cost is a constant.
+
+## ui-fix2 close-out (November 1 to 2, 2026): the open items closed, and the suite built with the build set
+
+The owner's note after ui-fix2 asked for five open items closed and for the suite to build every test with the build set's switches on, as CI ships them, so that a switch that is on is
+always tested. Each fix was pushed to origin/ui-fix2 as it was made.
+
+**a. ui_test and sheet_test on the new flows.** With OC_PROJECT_PAGE, SAVE tapped lands on PROJECT and SAVE again on USER: the checks take the extra tap (and say PROJECT first); Load over
+unsaved changes asks first (the test answers YES). With the whole set on, `ui_test` failed 42 checks, not 13: 22 of them assert the category map, the engine EDIT cycles and the SONG sheet
+that OC_EDIT_SHEETS replaced (sheet_test has them: every engine, every row), four are NOTES' knob jobs of OC_STEP_PAGES (step_pages_test), three a key on a recorded step that OC_ONE_AUTH
+overwrites (one_auth_test), one REC held (OC_REC_CLEAR: rec_clear_test), one the mixer's bar drawing (mixer_test). Those checks are guarded `#if !OC_x` with the name of the test that has the new
+flow; the SAVE / Load / FRAME-flow ones are updated, not guarded. `sheet_test`'s DRUM-X PRESETS walk stops at the LANES table (PRESETS picks the lane there: lanes_test) and its SAVE > USER
+check takes the extra tap. **Found by this work and fixed:** `pj_pack` (the unsaved flag's pack) left bank_pack's step fields (RATCH, FLAM, COND, NUDGE: `proj_x`) tagged with the last
+pack, so the next LOAD of the slot applied the live music's fields instead of the record's (host only: a flash build refills them in ocj_read); and, found by the review, the first fix
+(restoring the tag) still let a FEEL-only edit come back through a Load that discarded it. The unsaved flag now packs for a hash alone (`bank_live_hash`, `bank_pack_keep`): the stored
+record's fields, lists and pids are not touched at all. Tests: REPACK (a second load keeps the fields), DISCARD (a FEEL-only edit is unsaved, and a Load that discards it gives the saved
+fields back). Mutation-checked.
+
+**The suite builds every test with the build set (tests/run_tests.sh).** `BS` is every `OC_x=1` of tools/orangecat_engines.sh, put in the compiler command (a job's own flags come later and
+win); `BS_OFF` is the same list at 0. Baselines that mean "release 2" are built with BS_OFF (home_pic_off, home_pic_off2, the release-2 render, the format before's generator and the
+conversion job), and `ui_legacy` runs ui_test with every switch off, so the old paths stay tested. The first full run with the set found what no run had shown, because no test had ever
+been built with ONE_AUTH, STEP_PAGES, HOME_PIC or PROJECT_PAGE together. What was wrong, and what was done (all in the commits of this section):
+- project.c called `pj_note()` of the UI: ten tests that build project.c without ui_slots.c did not compile. A generation counter (`proj_ui_gen`) the page reads instead.
+- GLO's undo helpers (`clr_follow`, `clr_group_drop`, `clr_history_ok`, `undo_group_ok`) sat in ui_clear.c, which only ui_input.c includes: prophet_integration_test did not link. They are in ui.c now.
+- Tests whose fixtures fill the event store by hand (oc_project_test, oc_r3_test, oc_pool_test, backup_test) made events with no flagged cell, or flagged cells with no event; OC_ONE_AUTH mends
+  both at a load, so "saved = loaded" failed. Fixtures keep the invariant (`tests/one_auth_fixture.h`, `fixture_cells_for_events`); the web app's fixture records were regenerated (the
+  fixture's cells are flagged now: web/app/tools/gen_layout.mjs; identical with and without the set).
+- oc_pack_test and usb_host_test did not know OC_PACK_MAXLEN (HOME_PIC's pack with a scene trailer is longer than the tables); the breathing key check of ui_test depended on the frame count
+  before it (now it looks at all eight phases).
+- **Pinned, open:** `seq_notes_test`, `seq_edit_test` and `note_tools_test` assert the interface before the step pages (NOTES' KNOB 1 browses, KNOB 2 is START, ...). They are built with
+  BS_NOSTEP (OC_STEP_PAGES and what needs it off) and say so in run_tests.sh. The new interface's side of the same code is step_pages_test, one_auth_test, rec_clear_test, start_nudge_test
+  and ui_test on the full set. Converting the three is open (about 46 checks).
+- `step_pages_test`: a manual note's START is its NUDGE under OC_START_NUDGE (the check says so).
+- tests/golden.txt: TBD_GOLDEN
+
+**b. K2's nudge is drawn in the roll.** A typed step's onset bar starts `nudge / 64` of the column later or earlier (`ui_graph.c`: the column is 12 px, so one detent is 0.19 px and eight
+are one pixel and a half; never left of the roll's first column; the end stays the step's). `steps_hash` includes the nudge, so the roll redraws by itself. start_nudge_test ROLL: +16
+changes only the first three pixels of the bar, -16 reaches into the column before, 0 draws what it drew.
+
+**c. NOTES, TRACKER and the drum grid reset their own values.** A page reset (REC held on the page) now also puts a typed step's **velocity** back to the default (0: 96) on NOTES and
+TRACKER, and a typed drum step's lane accents and velocity on the drum grid and DRUM HIT; FEEL resets FEEL's values only. **Decision (the safer reading):** never the notes themselves
+(pitch, a typed note's length in ties, the lanes' hits: HOME's clear takes those) and never a recorded step's velocity, start or length: those are events of the pool, edited only through
+the edit memory (Session A's), and a played velocity is the performance, not a setting. One EDIT held undoes the whole page reset, velocity included (rec_clear_test OWN, 7 checks).
+
+**d. Loading the template row asks.** Load of the template over unsaved changes opens "LOAD THE TEMPLATE?" (CF_LOAD_PROJ with the template's slot); YES loads it, OCT- keeps the music.
+With no template saved it asks nothing (the review: NO TEMPLATE says so at once). Saved music: no question (project_page_test TEMPLATE, 4 checks).
+
+**e. Slot 48 in the web editor.** `web/editor.html` and `web/app/lib/editor_proto.js` (the same protocol text; the web app's test checks that) describe TP[48] as SLIDE (F_BIPCT, -64 .. 63,
+default 0) and `trackOwn` is true for 48, so a sound load or a factory preset in the editor leaves it, as the unit does. The editor's SET of 48 stays refused (editor.c, unchanged) and the
+mock's `paramReserved(48)` stays true: the id is set on the unit's panel. web/test_web.mjs: the mock's tables equal the firmware's (built with the set: SLIDE at 48); "removed effect
+parameter is inert" now says 48 has a description and no write; DESC count 120. web/app/test: slot 48 is the track's own, described as SLIDE.
+
+**The review (one independent agent on the close-out diff):** 8 points. Should-fix, done: (1) the tag restore was incomplete (above); (2) the baselines built with the set hid a regression
+of the release-2 screens: BS_OFF for them. Nits done: the stale comment in ui_feel.c, the template question only with a template, build.log out of the repository. Left, written down: the SONG
+sheet's "first row" check is under the sections guard though it is not about sections (the Insert row is covered by sheet_do); an overlapping negative nudge covers the previous column's bar
+at the same pitch.
