@@ -29,9 +29,11 @@ static void step_snapshot_put(step_snapshot_t *out, const step_t *in)
     out->x = (uint8_t)(((in->flags >> 3) & 7u) | (in->cond << 3));
     out->nudge = in->nudge;
 #if OC_STEP_SLIDE
-    for (uint32_t i = 0; i < 4u; i++) out->note[i] = (uint8_t)((in->note[i] & 127u) | ((in->slidet >> i) & 1u) << 7);
-    out->vel = (uint8_t)((in->vel & 127u) | ((in->slidet >> 4) & 1u) << 7);
-    out->probability = (uint8_t)((in->probability & 127u) | ((in->slidet >> 5) & 1u) << 7);
+    {   uint32_t sl = (in->flags & SF_SLIDE) ? in->slidet : 0u;   /* (a time with no slide is stale: not stored) */
+        for (uint32_t i = 0; i < 4u; i++) out->note[i] = (uint8_t)((in->note[i] & 127u) | ((sl >> i) & 1u) << 7);
+        out->vel = (uint8_t)((in->vel & 127u) | ((sl >> 4) & 1u) << 7);
+        out->probability = (uint8_t)((in->probability & 127u) | ((sl >> 5) & 1u) << 7);
+    }
 #endif
 }
 static step_t step_snapshot_get(const step_snapshot_t *in)

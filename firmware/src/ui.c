@@ -455,6 +455,9 @@ static void step_clear(step_t *st)
     st->n = 0;
     st->time = ST_REST;
     st->flags = 0;
+#if OC_STEP_SLIDE
+    st->slidet = 0;                                     /* (Part 9) a cleared step has no time of its own */
+#endif
     st->vel = 0;
     st->hit = st->acc = 0;
     st->probability = 0;

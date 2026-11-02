@@ -281,7 +281,7 @@ def app_flags():
                  "OC_R3_FORMAT",    # (Release 3, branch r3-format: UI_BUILD.md "Release 3 format revision") the project format revision; off by default
                  "OC_LFO2",         # (Release 3, Part 2) a second LFO a track (P_COUNT 131); needs OC_R3_FORMAT=1; off by default
                  "OC_DUB_IDS",      # (Release 3, Part 8) DUB TAPE's setup on eight ids of its own; needs OC_LFO2=1; off by default
-                 "OC_STEP_SLIDE",   # (Release 3, Part 9) a step's own SLIDE TIME (phrase version 3); needs OC_R3_FORMAT=1 and OC_SLIDE_TIME=1; off by default
+                 "OC_STEP_SLIDE",   # (Release 3, Part 9) a step's own SLIDE TIME (six spare bits of the step record); needs OC_R3_FORMAT=1 and OC_SLIDE_TIME=1; off by default
                  "OC_R3_SCENES",    # (Release 3, Part 7) scenes version 2 and Performance Mode; needs OC_R3_FORMAT=1; off by default
                  "OC_REC_CLEAR",    # (ui-fix2 2: UI_BUILD.md "ui-fix2 2") REC held, stopped: the clears with a countdown; needs OC_STEP_PAGES=1; off by default
                  "OC_PROJECT_PAGE",    # (ui-fix2 3: UI_BUILD.md "ui-fix2 3") the plain project page; off by default

@@ -62,7 +62,7 @@ static void proj_x_put(uint32_t k, uint32_t b, const step_t *st)
         proj_x[k][b][i][0] = (uint8_t)(((st[i].flags >> 3) & 7u) | (st[i].cond << 3));
         proj_x[k][b][i][1] = (uint8_t)st[i].nudge;
 #if OC_STEP_SLIDE
-        proj_x[k][b][i][2] = st[i].slidet;
+        proj_x[k][b][i][2] = (st[i].flags & SF_SLIDE) ? st[i].slidet : 0u;
 #endif
     }
 }
@@ -99,7 +99,7 @@ static uint32_t bank_live_hash(uint8_t *raw, const project_t *q, int *ok)
                 x[i][0] = (uint8_t)(((p.step[i].flags >> 3) & 7u) | (p.step[i].cond << 3));
                 x[i][1] = (uint8_t)p.step[i].nudge;
 #if OC_STEP_SLIDE
-                x[i][2] = p.step[i].slidet;
+                x[i][2] = (p.step[i].flags & SF_SLIDE) ? p.step[i].slidet : 0u;
 #endif
             }
             h = fnv(h, x, sizeof x);

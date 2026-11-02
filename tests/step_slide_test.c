@@ -137,11 +137,21 @@ int main(void)
                      sn.note[0] == a.note[0] && sn.vel == a.vel && sn.probability == a.probability;
         }
         chk("CODEC    a step with no time of its own is the bytes it always was (no high bit set: an older firmware reads it)", plain);
-        memset(&a, 0, sizeof a); a.note[0] = 60; a.n = 1; a.vel = 100; a.slidet = 9;
+        memset(&a, 0, sizeof a); a.note[0] = 60; a.n = 1; a.vel = 100; a.flags = SF_SLIDE; a.slidet = 9;
         step_snapshot_put(&sn, &a);
         sn.vel |= 128u; sn.probability |= 128u;
         b = step_snapshot_get(&sn);
         chk("CODEC    decoded, a step's velocity and probability are 7 bits again (the high bits are the time's)", b.vel == 100 && b.probability == 0 && b.slidet == (uint8_t)(9 | 16 | 32));
+    }
+    {   /* STALE: a time with no slide is not kept */
+        step_snapshot_t sn; step_t a, b;
+        memset(&a, 0, sizeof a); a.note[0] = 60; a.n = 1; a.time = ST_NOTE; a.vel = 100; a.slidet = 20;   /* no SF_SLIDE */
+        step_snapshot_put(&sn, &a); b = step_snapshot_get(&sn);
+        chk("STALE    a time on a step with no slide is not stored (the record has no high bits)", b.slidet == 0 && !(sn.note[0] & 128u));
+        a.slidet = 20; step_clear(&a);
+        chk("STALE    step_clear takes the time with it", a.slidet == 0);
+        a.slidet = 20; a.flags = 0;
+        chk("STALE    step_slide_time ignores a time on a step with no slide", step_slide_time(&a, 7) == 7);
     }
     {   /* PROJECT: the side bytes beside the FBKK, and undo */
         track_t *t = prep(V_POLY, 0, 0);

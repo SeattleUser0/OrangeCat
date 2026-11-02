@@ -79,7 +79,7 @@ static int scn2_apply_sound(uint32_t k, const scn2_snd_t *d)
     trk[k].eng_req = d->engine; trk[k].preset = d->preset;
     for (uint32_t i = 0; i < d->np && i < P_COUNT; i++) {
         if (scn2_strip_id(i)) continue;                         /* (the strip is the mixer part's) */
-        if (d->np != P_COUNT && i >= P_E0) break;               /* (another layout: the common ids only; the engine's own ids are not mapped here) */
+        if (d->np != P_COUNT && i >= d->np - 8u) break;         /* (another layout: the common ids below its own engine block; the engine's ids are not mapped here) */
         trk[k].p[i] = scn2_pval(k, i, d->p[i]);
     }
     return 0;

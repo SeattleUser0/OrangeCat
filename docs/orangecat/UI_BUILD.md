@@ -2955,3 +2955,18 @@ record round trip of all 64 values beside notes 127, velocity 127, probability 1
 phrase still version 2). Mutation-checked: the sequencer ignoring the step's time fails five checks.
 
 **Not done.** FEEL does not show it; the web editor's step commands do not carry it (a step written from the editor has none); the clip copy (OC_CLIP, off) copies steps as structs and keeps it.
+
+### The review of Parts 8 and 9 (an independent agent, November 2, 2026) and what was done
+
+12 points. **Done:** (2) the derivation ran for every older count: only np 124 and 131 derive now, older stores take the defaults (the effects were other things on those ids); (3) a round 13
+TAPE layout (id 46 >= 64, DUB_R12.md 7's mark) is not converted by this rule; (4) INFO's legacy P_E0 byte is clamped to 127 (131 masked to 3), the true value stays in the 0x57 block; (6)
+a scene sound of another layout stops at its own engine block (`np - 8`), not at this build's P_E0 (it filled the DUB ids with the record's E0..E7: a Part 7 pattern made wider by this part);
+(9) a stale own time: step_clear clears it, the record and the FBKK's side byte store a time only on a step with SF_SLIDE, and `step_slide_time` ignores one without (tests STALE); (11) the
+comments (-62 .. 62; the phrase stays version 2). **Left, written down:** (5) a preset written over the 7-bit commands has ids 127 and up at their defaults, which is now the whole engine block
+(it was E4..E7 with LFO 2): a page that does this is a legacy page, and legacy pages refuse the layout (INFO's pair); a wide page sends P_COUNT values (UP_PUT); (7) a FUN24 of np 131
+is refused by a 139 build (a development state); (9, rest) ed_step_put, FEEL's and the clip's paste copy the flag and not the time: the time is dropped (a paste of a slide gets the
+track's time); the editor's step commands carry no time. **(12) The design choice, the reviewer's view and mine:** the reviewer would pack into the spare bits for the RAM undo record only
+and give the pool phrase its own place (a twelfth byte, version 3, or a sparse trailer of (step, time) pairs): the packed bits tie the persistent format to invariants of six unrelated fields,
+the new firmware masks instead of refusing a corrupt one, and an older firmware calls a phrase with a time corrupt (no version says it is newer: a downgrade loses the phrase, not the
+times). I kept the bits (the record, the version and the cache RAM stay as they are, and a phrase with no time is byte-identical) and say it plainly as the open choice; the trailer is the
+answer if the owner prefers a clean downgrade: it needs a flag in the head's spare byte 3 and about 150 B.

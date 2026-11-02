@@ -504,7 +504,8 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
     for (i = 0; i < 8u; i++)
         out[P_E0 + i] = in[nc + i];
 #if OC_DUB_IDS
-    if (nc <= (uint32_t)P_DUBSYNC)                       /* (Part 8) a store that has no DUB ids: Release 2's (or LFO 2's alone) */
+    if (nc <= (uint32_t)P_DUBSYNC && (np == 124u || np == 131u) && out[P_RESERVED46] < 64)   /* (Part 8) a store that has no DUB ids and is Release 2's (np 124) or LFO 2's alone (131): the review: older
+                                                         * stores (the effects were other things there) take the defaults, and a round 13 TAPE layout (id 46 >= 64, DUB_R12.md 7's mark) is not converted here */
         dub_from_r2(out);
 #endif
 }
@@ -715,7 +716,7 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
 #endif
 } step_t;
 #if OC_STEP_SLIDE
-static int32_t step_slide_time(const step_t *s, int32_t track_time) { return s->slidet ? ((int32_t)s->slidet - 32) * 2 : track_time; }
+static int32_t step_slide_time(const step_t *s, int32_t track_time) { return s->slidet && (s->flags & SF_SLIDE) ? ((int32_t)s->slidet - 32) * 2 : track_time; }
 static void step_set_slide_time(step_t *s, int32_t v) { int32_t b = (v + 65) >> 1; s->slidet = (uint8_t)(b < 1 ? 1 : b > 63 ? 63 : b); }   /* a time of its own, to the nearest even (never 0: that is "the track's") */
 static int step_slide_valid(const step_t *s) { return s->slidet <= 63u; }
 #endif

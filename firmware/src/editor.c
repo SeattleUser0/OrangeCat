@@ -1106,7 +1106,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(ED_P7);
         ed_b(G_COUNT);
         ed_b(NSTEP);
-        ed_b(P_E0);
+        ed_b(P_E0 > 127u ? 127u : P_E0);                /* (Part 8: a legacy client's byte is 7 bits; the true value is in the 0x57 block) */
         for (i = 0; i < NENGINES; i++)
             ed_str(ENGINES[i]->name, 8);
         ed_b(NTRK);                                       /* v3 */
