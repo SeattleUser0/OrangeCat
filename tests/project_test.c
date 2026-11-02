@@ -196,6 +196,10 @@ int main(void)
                 ok2 &= proj_pack(&st, &a) && proj_import(&c, &st, sizeof st) && dub_t_idx(c.t[0].p[P_DUB_TIML]) == first[ptrn] && dub_t_idx(c.t[0].p[P_DUB_TIMR]) == second[ptrn];
             }
             bad += check("DUB: the old heads' first two times map to the nearest divisions (SLAP 1/8 + 1/4D, SKANK 1/8 + 1/8D, GALLOP 1/16D + 1/8 ...)", ok2); }
+        blank(&a);                                       /* a project that never had DUB set (FEEDBACK, SEND, TONE, SPACE all 0, LEN 0): today's defaults for them, not silence */
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+        bad += check("DUB: an old track with FEEDBACK, SEND, TONE and SPACE all 0 takes the defaults (55, 127, 60, 1/8D and 1/4), ECHO 0", ok && c.t[0].p[P_DUB_FDBK] == 55 && c.t[0].p[P_DUB_SEND] == 127 && c.t[0].p[P_DUB_FILT] == 60 && c.t[0].p[P_DUB_TIML] == 53 && c.t[0].p[P_DUB_TIMR] == 67 && c.t[0].p[P_DUB_ECHO] == 0);
         blank(&a);                                       /* the spring: SPRP LOOP with SPACE 100 (the second half: the mix 36) keeps its mix, doubled onto 0 .. 127; SPRP OFF has none; the time stays at the last division */
         a.t[0].p[P_DUBO_LEN] = 3; a.t[0].p[P_DUBO_SPRP] = 1; a.t[0].p[P_DUBO_SPACE] = 100;
         a.t[1].p[P_DUBO_LEN] = 3; a.t[1].p[P_DUBO_SPRP] = 0; a.t[1].p[P_DUBO_SPACE] = 100;

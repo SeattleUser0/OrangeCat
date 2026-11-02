@@ -106,6 +106,9 @@ static void dub_convert_old(int16_t *p)
         if (xa < da) { da = xa; ia = i; }
         if (xb < db) { db = xb; ib = i; }
     }
+    if (!p[P_JRES0] && !p[P_JRES1] && !tone && !space) {   /* FEEDBACK, SEND, TONE and SPACE all 0 (a project that never had DUB set): today's defaults, as the old code wrote them when a length was first set */
+        p[P_JRES0] = 55; p[P_JRES1] = 127; tone = 60; ia = 7; ib = 9;
+    }
     p[P_DUB_ECHO] = (int16_t)(len ? 100 : 0);
     p[P_DUB_FILT] = (int16_t)tone;
     p[P_DUB_TIML] = (int16_t)dub_t_val(ia);

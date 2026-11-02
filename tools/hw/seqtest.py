@@ -205,7 +205,7 @@ def tracks_setup(u, tracks, sends):
     for t in range(4):
         u.select(t); u.mix(t, 0)
         for p in (REV, DLY, CHO): u.req(3, [0, p, *v14(sends)])
-        u.req(3, [0, P_LEN, *v14(0)])
+        u.req(3, [0, P_ECHO, *v14(0)])
         u.req(3, [0, PID["VCE"], *v14(0)]); u.req(3, [0, PID["GLD"], *v14(0)])
     u.set_global(G_RTYPE, 0); u.set_global(G_BPM, BPM)
     u.select(0)
