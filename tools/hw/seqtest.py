@@ -19,7 +19,7 @@ import fm1hw, capture
 from fm1hw import v14
 
 OUT, LABEL = sys.argv[1], sys.argv[2]
-CELLS = (sys.argv[3] if len(sys.argv) > 3 else "light:0,light:1,heavy:0,heavy:1,feel,feel-ext,chance,slide:MACRO:POLY,slide:MACRO:MONO,slide:MACRO:LEGATO,slide:MACRO:UNISON,"
+CELLS = (sys.argv[3] if len(sys.argv) > 3 else "light:0,light:1,light:2,heavy:0,heavy:1,heavy:2,feel,feel-ext,chance,slide:MACRO:POLY,slide:MACRO:MONO,slide:MACRO:LEGATO,slide:MACRO:UNISON,"
          "slide:SHAPES:POLY,slide:SHAPES:MONO,slide:SHAPES:LEGATO,slide:SHAPES:UNISON").split(",")
 REPS = int(sys.argv[4]) if len(sys.argv) > 4 else 2
 SEED = int(sys.argv[5]) if len(sys.argv) > 5 else 1
@@ -233,8 +233,9 @@ def program_load(u, load, dub):
     for k, (eng, name, sets) in enumerate(tracks):
         for j, i in enumerate(range(k, NSTEP, 4)): put_step(u, k, i, sets[j % 2], feel=V8)
     if dub:
-        # the worst case of the new DUB: both taps (1/8 dotted and 1/4 dotted), PING, WOW 3, DRIVE 8, SPRING on, the repeats open (ECHO 100), SPEED normal; the selected track's
-        for p, v in ((P_TIML, 53), (P_TIMR, 74), (P_MODE, 64 | 2 | 1), (P_TAPE, 8 * 12 + 3 - 64), (P_SPRG, 28), (P_SPD, 64), (P_FDBK, 60), (P_SEND, 100), (P_FILT, 64), (P_ECHO, 100)): u.req(3, [0, p, *v14(v)])
+        # DUB on (1): both taps (1/8 dotted and 1/4 dotted), FEEDBACK 60, SEND 100, SPRING 0, WOW 0, DRIVE 6, no PING, ECHO 100: what the old DUB cell asked for; (2): the worst case of the new DUB: PING, WOW 3, DRIVE 8, SPRING 28
+        mode, drive, wow, spring = (3, 8, 3, 28) if dub == 2 else (1, 6, 0, 0)
+        for p, v in ((P_TIML, 53), (P_TIMR, 74), (P_MODE, 64 | 2 * (dub == 2) | 1), (P_TAPE, drive * 12 + wow - 64), (P_SPRG, spring), (P_SPD, 64), (P_FDBK, 60), (P_SEND, 100), (P_FILT, 64), (P_ECHO, 100)): u.req(3, [0, p, *v14(v)])
     exp = []
     for ps in range(PASSES):
         for st in range(NSTEP):

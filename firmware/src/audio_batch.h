@@ -47,7 +47,7 @@ static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_ta
      * (0.15.0) The Prophet measured 81.5 us, 1,956 (measure/batch-s1 ec1c460, Flash 45, its module at start 0), set from it; the other
      * native engines' entries are as they were */
     [AP_MACRO]=520,[AP_DRUMX]=590,[AP_SHAPES]=1500,[AP_WHEEL]=730,
-    [AP_DUB]=1980   /* (Release 2) DUB TAPE LITE, an instance's 32-sample block on CPU1: 82.6 us (Flash 43/44, measure/batch-s1); +450 with a spring (the job adds it) */
+    [AP_DUB]=2500   /* (Release 2) DUB TAPE LITE, an instance's 32-sample block on CPU1: 82.6 us (Flash 43/44, measure/batch-s1) with the four-head kernel; round 13: two taps, both channels always, 2,500 (host ratio 1.3 of the one-head case at the same settings); +800 with a spring, +400 with WOW (the job adds them) */
 };
 #if defined(FM1_IRQ_TARGET) && MELODEE_DUAL_CORE
 #define AB_LOAD(p) fm1_aw_load(p)

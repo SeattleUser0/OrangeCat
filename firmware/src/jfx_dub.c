@@ -342,7 +342,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                 }
                 d->run = 1;
                 dub_mask |= (uint8_t)(1u << k);
-                cost += audio_batch_cost[AP_DUB] + (dub_spbuf[k] && t->p[P_DUB_SPRG] > 0 ? 450u : 0u);
+                cost += audio_batch_cost[AP_DUB] + (dub_spbuf[k] && t->p[P_DUB_SPRG] > 0 ? 800u : 0u) + (dub_get_wow(t->p) ? 400u : 0u);
             }
         }
     }
