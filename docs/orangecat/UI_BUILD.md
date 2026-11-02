@@ -2997,7 +2997,7 @@ been built with ONE_AUTH, STEP_PAGES, HOME_PIC or PROJECT_PAGE together. What wa
   fixture's cells are flagged now: web/app/tools/gen_layout.mjs; identical with and without the set).
 - oc_pack_test and usb_host_test did not know OC_PACK_MAXLEN (HOME_PIC's pack with a scene trailer is longer than the tables); the breathing key check of ui_test depended on the frame count
   before it (now it looks at all eight phases).
-- **Pinned, open:** `seq_notes_test`, `seq_edit_test` and `note_tools_test` assert the interface before the step pages (NOTES' KNOB 1 browses, KNOB 2 is START, ...). They are built with
+- **Pinned (closed in "ui-fix2 close-out 2" below: converted, BS_NOSTEP gone):** `seq_notes_test`, `seq_edit_test` and `note_tools_test` assert the interface before the step pages (NOTES' KNOB 1 browses, KNOB 2 is START, ...). They are built with
   BS_NOSTEP (OC_STEP_PAGES and what needs it off) and say so in run_tests.sh. The new interface's side of the same code is step_pages_test, one_auth_test, rec_clear_test, start_nudge_test
   and ui_test on the full set. Converting the three is open (about 46 checks). `drum_editor_test` is pinned the same way: the DRUM engine is not in the build set (MELODEE_DRUM=0), and under OC_ONE_AUTH it **hung** (a restore of a timed note into slot 1, which the converted cell already holds, closed the event list into a cycle: the test's misuse, found by the first full run, killed after 98 minutes), then failed two checks of the old model.
 - `step_pages_test`: a manual note's START is its NUDGE under OC_START_NUDGE (the check says so).
@@ -3051,3 +3051,40 @@ the step commands carrying an own time. *The owner:* which parts of the revision
 which hung under OC_ONE_AUTH (above; killed after 98 minutes, the run reported 8,077 s); the test is pinned and passes alone. The closing run is the r3-format suite (branch r3-format, bc8d4ad, which
 holds ui-fix2 at 8b37931 merged): **240 jobs passed in 3,096 s** (the ui-fix2 jobs among them). Image with every switch on: **565,556 B** (+512 B on the 565,044 B before the close-out: the roll's nudge,
 the page resets, the template question, the hash-only pack, GLO's helpers moved), 94,600 B .data+.bss, 180,656 B pool: 11,692 B free, 3,500 B above the 8 KB reserve.
+
+## ui-fix2 close-out 2 (November 2, 2026): the hang, the time limit, the four pinned tests converted
+
+**The hang (drum_editor_test, 98 minutes under OC_ONE_AUTH): the test did it, and the firmware let it.** The test restored a timed note into slot 1 with `recording_restore_note`;
+under ONE_AUTH slot 1 already holds the hit's converted event. The primitive took the old event out of the pitch index and the live list but **not out of the track's event chain**
+(`recording_head` / `recording_next`), then linked the slot in again: the chain became a cycle, and every walk of it (here NOTES' jog in `notes_selected`, the same loop is in the roll, erase and the
+tracker) never ended. Found with a stack of the stuck process (gdb, SIGINT): `recording_active <- notes_in_step <- notes_selected <- notes_step_jog <- drum_hit_jog`.
+- **Firmware (recording.c, `recording_restore_note`): the old event leaves its chain first** (`recording_unlink`, which also drops the pitch index entry, the live link, the repeats, the schedule).
+  Equivalent to the old calls for an empty slot (unlink returns at once there, the repeats are dropped as before); for a slot in use it is the fix.
+- **Is it in the shipped Nightly?** The primitive is, so the fix belongs in the next one. **A path from the panel to it is not shown:** the callers (undo of an edit, the clip paste, ONE_AUTH's
+  conversions, the MIDI paste at ui_input.c) take a free slot or one they have just freed, and the history is invalidated when a take reuses a slot (seq_notes_test "slot reuse by recording undoes the
+  take"). So this is a hardening of an invariant, not a field bug I can reproduce. **For Session A: take recording.c's three-line change into the next Nightly** (tests/restore_chain_test.c).
+- **tests/restore_chain_test.c** (job "Restoring an event over a slot in use ..."): restores over a live slot, over the chain's head, and into another track's owner; walks the chain bounded and by
+  visited slots; `alarm(30)`. It **fails on the old code** (three checks: a slot twice in the chain, the head, an event moved to another track) and passes on the new; no hang either way.
+- The drum_editor_test no longer restores into a used slot (it takes a free one, as the firmware's callers do).
+
+**A time limit on every host test.** `run_tests.sh`: `limited` (timeout -k 10, `TEST_TIMEOUT` seconds, default 900, times 4 under `SAN=1`) wraps the run of every test of the `t` jobs and of the `step`
+runs of binaries in $OUT; an expired limit prints "TIMED OUT after N s: <command>" and fails that job (exit 124) and the suite goes on. The slowest jobs of the closing runs are minutes, not a quarter of an hour.
+The multi-step jobs that run python or cc are not limited (their pieces are).
+
+**The four pinned tests converted (about 46 checks).** `BS_NOSTEP` is gone. seq_notes_test (29 checks failed under the set), seq_edit_test (13), note_tools_test (1) and drum_editor_test (2) run on the interface as
+it ships. `tests/notes_knobs.h` names NOTES' knobs once: with OC_STEP_PAGES, PRESETS browses the notes and steps, KNOB 1 is PITCH, 3 LEN, 4 VEL and ENV + PRESETS the zoom (`nk_zoom`); with it off, release-2's
+(KNOB 1 browses, 2 PITCH, PRESETS the zoom). So **each test also runs with every switch off** (BS_OFF: jobs `seq_notes_legacy`, `seq_edit_legacy`, `note_tools_legacy`, `drum_editor_legacy`), the legacy job kept for
+builds with the switches off. Almost all of it was the knob map. Three checks are different, **decisions made here, the shipped design stands**:
+- seq_notes_test, "MIDI audition on NOTES ... without entering": with ONE_AUTH a MIDI note on a recorded step is that step's entry (as a key: one_auth_test KEY), so it enters and replaces the events. The check says
+  so (sounds, enters, releases) and that **EDIT held twice** (the entry, then the events' deletion: one level each, as one_auth_test KEY) brings the take back byte for byte. The old check stays for the switch-off build.
+- drum_editor_test, "hit undo restores pitch and natural length": the first edit converts the hit's cell to events, and a converted hit carries its step's whole length (flagged), so "natural" is one step; the check
+  says that. The old assertion stays for the switch-off build.
+- drum_editor_test, "SELECT can edit a repeated hit": the cell's snare is an event now, ahead of the repeated kick in the jog's order (onset, then pitch): two detents, not one.
+- seq_edit_test, "PRESETS has no STEP editing role": PRESETS now browses; the check says it edits no step and moves the cursor.
+
+**The review of close-out 2 (one independent agent):** 6 points. Must-fix, done: `limited` could not run a shell function (`powercut_tests`, `old_to_new`: timeout exits 127), so two jobs would have failed on every run; functions run unlimited now, and a kill (137) is reported as a timeout too.
+Should-fix, done: the redo check of drum_editor_test now checks the duration (the converted hit already had `length` 1, so it could not fail). Nits done: check names that said KNOB 1 for the browse knob, restore_chain_test's per-walk flags.
+Verified by the reviewer: `recording_unlink` in place of the two calls is equivalent for empty slots and fixes used ones (no double decrement of the pitch count; it was inflated before); every firmware caller restores into a free or just-unlinked slot.
+**Open, for the owner (a design question, not a test bug):** the first pad edit of a drum cell converts the whole cell to events with `length` 1 (gated at one step), so an untouched snare beside an edited kick is now cut at one step instead of decaying naturally;
+UI_BUILD.md ui-fix 7 point 6 says a hit's natural length is `length` 0. Host only today (MELODEE_DRUM=0 in the image). The converted test enshrines the built behaviour; if the pads' conversion should keep `length` 0, that test's ONE_AUTH branch goes with it.
+Left: python, node and cc steps of the multi-step jobs have no limit of their own.

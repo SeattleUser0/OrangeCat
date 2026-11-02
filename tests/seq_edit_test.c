@@ -3,6 +3,7 @@
 /* Real panel/MIDI paths against the UI harness: tied edits, gesture history and live-record timing. */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
+#include "notes_knobs.h"
 
 static track_t *edit_setup(void)
 {
@@ -106,23 +107,23 @@ static int test_entry_history(void)
     bad += check("EDIT+OCT+ restores the whole held entry", step_note_length(t, 0) == 4 && ui.cursor == 4 && cur_page()->graph == GR_ROLL);
     history_key(B_OCTDN);
     bad += check("EDIT+OCT- undoes without changing octave", !step_on(&t->step[0]) && !song.octave);
-    turn(EN_K2, 1);
+    turn(NK_PITCH, 1);
     history_key(B_OCTUP);
     bad += check("a new edit drops redo", msg_is("NOTHING TO REDO") && step_on(&t->step[0]));
 
     t = edit_setup(); put_note(t, 0, 60, 1); frame();
-    for (uint32_t i = 0; i < 10; i++) turn(EN_K2, 1);
+    for (uint32_t i = 0; i < 10; i++) turn(NK_PITCH, 1);
     for (uint32_t i = 0; i < 8; i++) history_key(B_OCTDN);
     bad += check("history keeps the most recent eight edits", t->step[0].note[0] == 62);
     history_key(B_OCTDN);
     bad += check("history never undoes past its retained limit", t->step[0].note[0] == 62 && msg_is("NOTHING TO UNDO"));
     for (uint32_t i = 0; i < 8; i++) history_key(B_OCTUP);
     bad += check("all eight retained edits redo", t->step[0].note[0] == 70);
-    history_key(B_OCTDN); turn(EN_K1, 1); history_key(B_OCTUP);
+    history_key(B_OCTDN); turn(NK_BROWSE, 1); history_key(B_OCTUP);
     bad += check("moving the cursor keeps redo", t->step[0].note[0] == 70);
     t->step[0].note[0] = 99; frame(); history_key(B_OCTDN);
     bad += check("editor changes invalidate history", t->step[0].note[0] == 99 && msg_is("NOTHING TO UNDO"));
-    turn(EN_K2, 1); t->p[P_SLEN] = 8; frame(); history_key(B_OCTDN);
+    turn(NK_PITCH, 1); t->p[P_SLEN] = 8; frame(); history_key(B_OCTDN);
     bad += check("pattern-length changes invalidate history", msg_is("NOTHING TO UNDO"));
     cursor_set(0); frame(); press(B_OCTUP); turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K1, -30); press(B_OCTDN); hold(B_EDIT);
     bad += check("CHANCE edits (the note's sheet) share manual step undo", step_chance(&t->step[0]) == 100);
@@ -225,13 +226,18 @@ static int test_step_modifiers(void)
     turn(EN_SELECT, 1);
     {
         int paged = cur_page()->graph != GR_ROLL && ui.cursor == 7;
-        turn(EN_SELECT, -1); turn(EN_K1, 1);
-        bad += check("SELECT turns the page, not the notes; KNOB 1 reaches empty steps (BPM untouched)",
+        turn(EN_SELECT, -1); turn(NK_BROWSE, 1);
+        bad += check("SELECT turns the page, not the notes; the browse knob reaches empty steps (BPM untouched)",
                      paged && cur_page()->graph == GR_ROLL && ui.cursor == 8 && song.g[G_BPM] == bpm);
     }
     cursor_set(4); frame(); step_t before[NSTEP]; memcpy(before, t->step, sizeof before);
     turn(EN_PRESET, 10);
+#if OC_STEP_PAGES
+    bad += check("PRESETS has no STEP editing role (it browses the notes and steps)", !memcmp(before, t->step, sizeof before) && ui.cursor != 4);
+    cursor_set(4); frame();
+#else
     bad += check("PRESETS has no STEP editing role", !memcmp(before, t->step, sizeof before) && ui.cursor == 4);
+#endif
 
     fm1_in.buttons |= 1u << panel.btn[B_ENV]; host_pressed |= 1u << panel.btn[B_ENV]; frame();
     host_enc[panel.enc[EN_SELECT]] += panel.dir[EN_SELECT]; fm1_in.buttons &= ~(1u << panel.btn[B_ENV]); frame();

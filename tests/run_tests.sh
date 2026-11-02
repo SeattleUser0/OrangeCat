@@ -117,10 +117,8 @@ case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=al
 #   (-DOC_X=0 / 1). BS_OFF is the same list switched off: the "legacy" jobs keep the old paths in the image tested (UI_BUILD.md: step 9 is the owner's).
 BS=$(grep '^export OC_' tools/orangecat_engines.sh | grep -o 'OC_[A-Z0-9_]*=1' | sed 's/^/-D/' | tr '\n' ' ')
 BS_OFF=$(echo "$BS" | sed 's/=1/=0/g')
-# (close-out) BS_NOSTEP: the build set with the step-page family off (OC_STEP_PAGES and what needs it: LANES, MIXER, ONE_AUTH, SLIDE, SLIDE_TIME, REC_CLEAR, START_NUDGE). Three tests
-# written for the interface before the step pages (NOTES' KNOB 1 browses the notes, KNOB 2 is START ..) are pinned to it: seq_notes_test, seq_edit_test, note_tools_test. The new
-# interface's side of the same code is step_pages_test, one_auth_test, rec_clear_test, start_nudge_test and ui_test on the full set; converting these three is open (UI_BUILD.md)
-BS_NOSTEP="-DOC_STEP_PAGES=0 -DOC_LANES=0 -DOC_MIXER=0 -DOC_ONE_AUTH=0 -DOC_SLIDE=0 -DOC_SLIDE_TIME=0 -DOC_REC_CLEAR=0 -DOC_START_NUDGE=0"
+# (close-out 2) BS_NOSTEP is gone: seq_notes_test, seq_edit_test, note_tools_test and drum_editor_test run on the interface as it ships (tests/notes_knobs.h names the knobs once);
+#   each of the three first also runs with every switch off (BS_OFF: the legacy jobs below), the old knobs through the same header
 [ -n "$BS" ] || { echo "run_tests.sh: no OC_ switches found in tools/orangecat_engines.sh" >&2; exit 2; }
 CC="$CC $BS"
 FW="-w -Ibuild/gen -Ifirmware/src"
@@ -167,10 +165,19 @@ trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 
 fail() { echo "$1" >> "$LOG/$n.fail"; }
-step() { echo "== $1"; _step=$1; shift; "$@" || fail "$_step"; }
+step() { echo "== $1"; _step=$1; shift; case $1 in "$OUT"/*) limited "$@" || fail "$_step" ;; *) "$@" || fail "$_step" ;; esac; }
 build() {
     _out=$1 _src=$2; shift 2
     $CC "$@" -o "$OUT/$_out" "tests/$_src.c" -lm || { fail "compile tests/$_src.c ($_out)"; return 1; }
+}
+# (ui-fix2, close-out 2) a time limit on every test run: a hang FAILS (and says so) after TEST_TIMEOUT seconds (default 900; x4 under SAN=1) instead of
+#   stalling the suite (drum_editor_test hung for 98 minutes). The limit kills the test and what it started. An exit of 124 is the limit.
+TEST_TIMEOUT=${TEST_TIMEOUT:-900}; [ "${SAN:-0}" = 1 ] && TEST_TIMEOUT=$((TEST_TIMEOUT * 4))
+limited() {                                       # (a shell function, powercut_tests and old_to_new, cannot be run by timeout: it runs unlimited)
+    case $1 in */*) ;; *) "$@"; return ;; esac   # (no slash: a function or a builtin; sh has no type -t)
+    timeout -k 10 "$TEST_TIMEOUT" "$@"; _rc=$?
+    case $_rc in 124 | 137) echo "TIMED OUT after ${TEST_TIMEOUT} s (exit $_rc): $*" >&2 ;; esac
+    return $_rc
 }
 _t() {
     _title=$1 _out=${2%%:*} _src=${2#*:} _flags=; shift 2
@@ -179,7 +186,7 @@ _t() {
     [ $# -gt 0 ] || set -- "$OUT/$_out"
     echo "== $_title"
     build "$_out" "$_src" $_flags || return
-    "$@" || fail "$_title"
+    limited "$@" || fail "$_title"
 }
 flush() {                                         # the logs of the jobs ended, in order
     while [ $shown -lt $n ] && [ -f "$LOG/$((shown + 1)).done" ]; do
@@ -633,6 +640,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
+    t "Restoring an event over a slot in use keeps the track's chain a chain (a hang failed the suite for 98 min), with its own alarm" restore_chain_test -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
     run "CI gate (tools/ci_gate.sh): no marker is red, the pass marker with a test count is green, the failed marker wins" sh tests/ci_gate_test.sh
     t "Recorded step properties: a chord's accent, nudge (no wrap), ratchet, flam, chance and condition as a group" recording_props_test -O1 $FW
@@ -643,7 +651,8 @@ if core && [ $TABLES = 1 ]; then
     t "Recording scheduler oracle against the original scanner" recording_scheduler_reference:recording_scheduler_test -O1 $FW -DMELODEE_RECORD_CURSOR=0
     t "Recording undo: whole takes, motion, early stops, redo, isolation and memory" recording_undo_test -O1 $FW
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
-        -O1 $BS_NOSTEP $FW
+        -O1 $FW
+    t "Recorded notes, every switch off (release-2's knobs, the legacy job)" seq_notes_legacy:seq_notes_test -O1 $BS_OFF $FW
     t "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" midi_scale_test -O1 $FW
     t "MPC bank octaves: controls, held notes, persistence and compatibility" mpc_octave_test -O1 $FW
     t "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" tuning_test \
@@ -689,9 +698,11 @@ if core && [ $TABLES = 1 ]; then
     t "Prophet: all native tone knobs through the panel and sound engine" prophet_knob_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sound designer: native recipes, dependencies, compare, discard and save" designer_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sequencer: tied length/move/delete, eight-level undo/redo, MIDI step entry and playing-step recording" seq_edit_test \
-        -DMELODEE_USB_AUDIO=1 $BS_NOSTEP $FW
+        -DMELODEE_USB_AUDIO=1 $FW
+    t "Sequencer editing, every switch off (the legacy job)" seq_edit_legacy:seq_edit_test -DMELODEE_USB_AUDIO=1 $BS_OFF $FW
     t "Note/library gestures: quarter snapping, range moves/copies, undo and bulk preset erase" note_tools_test \
-        -O1 -DMELODEE_USB_AUDIO=1 $BS_NOSTEP $FW
+        -O1 -DMELODEE_USB_AUDIO=1 $FW
+    t "Note/library gestures, every switch off (the legacy job)" note_tools_legacy:note_tools_test -O1 -DMELODEE_USB_AUDIO=1 $BS_OFF $FW
     job ui_renders
     job ui_renders_pic                            # (the new interface, UI_BUILD.md 1c)
     job ui_renders_sheets                         # (the new interface 0.2, UI_BUILD.md step 2)
@@ -768,7 +779,8 @@ if core && [ $TABLES = 1 ]; then
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "TRACKER: an EDIT tap whose release lands mid-frame turns the effect off and opens no page" tracker_edit_race_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW                  # (Orange Cat 0.14.1)
-    t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $BS_NOSTEP $FW   # (the DRUM engine is not in the build set: MELODEE_DRUM=0; under OC_ONE_AUTH a hit's cell converts to events and the test's slot-1 and undo expectations are the old model's: hung until the slot was freed, then 2 checks; pinned like the three above)
+    t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW
+    t "DRUM EDITOR, every switch off (the legacy job)" drum_editor_legacy:drum_editor_test -O2 $BS_OFF $FW   # (the DRUM engine is not in the build set: MELODEE_DRUM=0; converted close-out 2: a hit's cell converts to events under ONE_AUTH)
     job cand_slot                                  # (Orange Cat 0.14.2)
 fi
 

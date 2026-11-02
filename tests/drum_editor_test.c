@@ -67,8 +67,13 @@ static int edits_and_store(void)
     bad+=check("grid pitch edit retains the kick, snare and their velocities",i<RECORD_MAX && hit.note==36 && hit.pitch==7 && !drum_patch[0].c[D9_BD][0] && TSEL->step[3].hit==3);
     step_history_end();step_history_finish();drum_hit_edit(3,-8);step_history_end();step_history_finish();
     bad+=check("hit length is an independent half step",recording[i].length && recording[i].duration*(1u<<(recording[i].owner>>5))==RECORD_UNIT/2);
+#if OC_ONE_AUTH
+    /* (ui-fix 7) the cell converted to events on the first edit: a converted hit carries its step's whole length (flagged), so "natural" is one step again */
+    bad+=check("hit undo restores pitch and the converted hit's step-long natural length",step_history_apply(0) && recording[i].pitch==7 && recording[i].duration*(1u<<(recording[i].owner>>5))==RECORD_UNIT);
+#else
     bad+=check("hit undo restores pitch and natural length",step_history_apply(0) && recording[i].pitch==7 && !recording[i].length);
-    bad+=check("hit redo restores the length override",step_history_apply(1) && recording[i].length);
+#endif
+    bad+=check("hit redo restores the length override",step_history_apply(1) && recording[i].length && recording[i].duration*(1u<<(recording[i].owner>>5))==RECORD_UNIT/2);
     settings_preview=1;notes_preview();audition_tick(1);
     bad+=check("hit preview retains edited pitch and duration",TSEL->v[0].note==36 && TSEL->v[0].s[4]==7 && TSEL->v[0].s[5]);audition_stop();settings_preview=0;
     drum_hit_delete();step_history_end();step_history_finish();
@@ -76,7 +81,13 @@ static int edits_and_store(void)
     bad+=check("hit deletion undo restores the original event and neighbors",step_history_apply(0) && recording[i].pitch==7 && recording[i].length && TSEL->step[3].hit==3);
     uint32_t fj=0;while(fj<RECORD_MAX&&recording[fj].vel)fj++;   /* (OC_ONE_AUTH converts the whole cell into events: slot 1 is taken there; restore into a free one) */
     recording_restore_note(TSEL,fj,(recorded_note_t){32000,32768,36,80,(uint8_t)recording_owner(TSEL),3,-4,1});
-    drum_hit_jog(1);uint32_t second=drum_hit_selected();drum_hit_edit(2,1);
+    /* (ui-fix 7) the cell's snare is an event now, ahead of the repeated kick in the jog's order (onset, then pitch): one detent more to reach the repeat */
+#if OC_ONE_AUTH
+    drum_hit_jog(2);
+#else
+    drum_hit_jog(1);
+#endif
+    uint32_t second=drum_hit_selected();drum_hit_edit(2,1);
     bad+=check("SELECT can edit a repeated hit without changing the first hit",second==fj && recording[fj].pitch==-3 && recording[i].pitch==7);
     step_history_end();step_history_finish();recording_remove(TSEL,fj);ui.note_pick=(uint16_t)(i+1);ui.note_identity=recording[i];ui.note_generation=recording_generation;
     drum_patch[0].c[D9_BD][0]=5;drum_patch[0].c[D9_LT][3]=19;
