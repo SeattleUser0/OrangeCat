@@ -138,8 +138,8 @@ int main(void)
         chk("SOUNDS  a record stores np 131: the layout an LFO 2 build writes", r.np == 131u && UP_NP == 131u);
         up_params(&r, back, def);
         chk("SOUNDS  it reads back by count: the engine values and LFO 2 as written", back[P_E1] == 21 && back[P_E7] == 5 && back[P_L2AMT] == 17 && up_value(&r, P_E1) == 21);
-        chk("SOUNDS  the eight are not in the record: they read as the Release 2 derivation of its old ids (a sound never carries them), never the track's 99 and 3",
-            back[P_DUBTL] != 99 && back[P_DUBSPD] == 32);
+        chk("SOUNDS  the eight are not in the record: they read as the defaults (a sound never carries them), never the track's 99 and 3",
+            back[P_DUBTL] == def[P_DUBTL] && back[P_DUBSPD] == def[P_DUBSPD]);
         chk("SOUNDS  a DRUM-X kit still fits the record beside np 131", DXK_ROOM - 46u <= UP_PMAX * 2u - 131u);
     }
     {   /* TRACK, PROJECT */

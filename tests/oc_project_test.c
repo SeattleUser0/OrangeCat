@@ -161,6 +161,18 @@ static void fill_all(uint32_t seed, uint32_t banks)
             r->note = (uint8_t)(50u + i); r->vel = (uint8_t)(70u + i);
             r->owner = (uint8_t)(k * NPAT + 1u); r->step = (uint8_t)(i * 3u); r->pitch = 0; r->length = 0;
         }
+    /* (ui-fix 7, OC_ONE_AUTH in the build set: a recorded note is an event AND a flagged cell, and a load mends a cell without its event and an event without its cell;
+     * the fixture keeps the invariant, so what is saved is what a load gives back) */
+    for (uint32_t k = 0; k < NTRK && banks > 1u; k++) {
+        pattern_t p;
+        pattern_read(k, 1u, &p);
+        for (uint32_t i = 0; i < 10u; i++) {
+            step_t *st = &p.step[i * 3u];
+            memset(st, 0, sizeof *st);
+            st->time = ST_NOTE; st->n = 1; st->note[0] = (uint8_t)(50u + i); st->vel = (uint8_t)(70u + i); st->flags = SF_RECORDED;
+        }
+        pattern_write(k, 1u, &p);
+    }
     recording_reindex();
 }
 

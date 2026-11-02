@@ -311,6 +311,9 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
     int16_t values[UP_PMAX * 2u];
     for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_val_at(r, i);
     params_by_count(out, values, r->np, def);
+#if OC_DUB_IDS
+    for (uint32_t i = P_DUBSYNC; i <= P_DUBSPD; i++) out[i] = def[i];   /* (Part 8) a sound has none of DUB's setup: the defaults, not params_by_count's derivation from a project's old ids */
+#endif
     if (r->np == 125u) { /* retired two-cut layout: high cuts occupied these IDs */
         out[P_STRUM] = def[P_STRUM]; out[P_STROKE] = def[P_STROKE];
     }

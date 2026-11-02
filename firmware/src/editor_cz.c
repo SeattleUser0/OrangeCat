@@ -31,7 +31,7 @@ static int ed_cz_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         if (!rc && !cz_patch_valid(raw)) rc = 1;
         if (!rc && target) {
             up_rec_t r; memset(&r,0,sizeof r);
-            r.used=UP_USED; r.ver=UP_VER_CZ; r.engine=ENGI_CZ; r.np=P_COUNT;
+            r.used=UP_USED; r.ver=UP_VER_CZ; r.engine=ENGI_CZ; r.np=UP_NP;
             memcpy(r.packed,raw,CZ_BYTES);
             char name[13];
             for (uint32_t i=0;i<12u;i++) name[i]=raw[128u+i]>=32u && raw[128u+i]<=126u ? (char)raw[128u+i] : ' ';

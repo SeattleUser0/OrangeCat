@@ -761,8 +761,8 @@ static int native_motion_protocol(void)
     bad += check("native motion delete removes the same high parameter id", !host_wire[6] && !motion.count);
     a[1] = 3; a[2] = 0; a[3] = P_LEVEL; a[4] = 64; a[5] = 64; request(ED_MOTION, a, 6);
     bad += check("legacy motion wire writes retain the original format", !host_wire[6] && motion.event[0].param == P_LEVEL && motion.event[0].value == 64);
-    motion_clear(&trk[0]);a[2]=0;a[3]=P_E1;a[4]=7;a[5]=64;request(ED_MOTION,a,6);
-    a[3]=P_E1;a[4]=NATV_V;a[5]=70;request(ED_MOTION,a,6); /* FM6 tag 3, a value in the range of the byte at P_E1 */
+    motion_clear(&trk[0]);a[2]=P_E1>127u?64u:0u;a[3]=(uint8_t)(P_E1&127u);a[4]=7;a[5]=64;request(ED_MOTION,a,6);   /* (Part 8: P_E1 is 132: the id's high bit travels in the place byte's spare bit, as a native id's does) */
+    a[3]=(uint8_t)(P_E1&127u);a[4]=NATV_V;a[5]=70;request(ED_MOTION,a,6); /* FM6 tag 3, a value in the range of the byte at P_E1 */
     bad+=check("overlapping native/common IDs coexist through the protocol",!host_wire[6] && motion.count==2);
     a[1]=4;request(ED_MOTION,a,6);
     bad+=check("typed native delete retains the common engine event",!host_wire[6] && motion.count==1 && motion.event[0].param==P_E1 && motion.event[0].value==7);
