@@ -537,7 +537,7 @@ static uint32_t pv_fx_bus(const page_t *pg)              /* the jfx_full bit of 
 {
     uint32_t id = pg->id[0];
     if (pg->scope != SC_GLOBAL) {
-        if (id == P_JRES0 || id == P_JRES4 || id == P_RESERVED45) return (uint32_t)JFX_FULL_DUB0 << trk_index(TSEL);   /* (Release 2: DUB, DUB 2, DUB SETUP: this track's instance) */
+        if (id == P_DUB_FDBK || id == P_DUB_SPRG || id == DUBF_SYNC) return (uint32_t)JFX_FULL_DUB0 << trk_index(TSEL);   /* (Release 2: DUB, DUB 2, DUB SETUP: this track's instance) */
         return pg->id[1] == P_CHOR ? 7u : 0u;   /* (FX: the sends, any of the three) */
     }
     if (id >= G_DTIME && id <= G_DPING) return 2u;
@@ -555,7 +555,7 @@ static const char *pv_fx_hint(const page_t *pg)
     uint32_t id = pg->id[0];
     if (pg->scope != SC_GLOBAL)
         return id == P_DIST ? dist[clamp(TSEL->p[P_DTYPE], 0, 5)] : id == P_APDEP ? "Pans the track" :
-               id == P_JRES0 || id == P_JRES4 || id == P_RESERVED45 ? "Dub tape: echoes in a loop" :
+               id == P_DUB_FDBK || id == P_DUB_SPRG || id == DUBF_SYNC ? "Dub tape: echoes in a loop" :
                "Sends to CHORUS, DELAY, REVERB";
     if (id >= G_DTIME && id <= G_DPING) return song.g[G_DTYPE] ? "Digital delay" : "Analog delay";
     if ((id >= G_RTYPE && id <= G_RPRE) || (id >= G_RMOD && id <= G_RWIDE)) return rev[clamp(song.g[G_RTYPE], 0, 4)];
@@ -570,10 +570,10 @@ static void pv_fx(int32_t h)
     const aafont_t *lf = TY_LB;
     const page_t *pg = cur_page();
     uint32_t bus = pv_fx_bus(pg), full = (jfx_full & bus) != 0, id = pg->id[0], g = pg->scope == SC_GLOBAL;
-    int32_t amt = (g ? song.g : TSEL->p)[id], kind;
+    int32_t amt = id < (g ? G_COUNT : P_COUNT) ? (g ? song.g : TSEL->p)[id] : 0, kind;   /* (a DUB field's id is past both) */
     int32_t low = (h - lf->h - 10) * 16, top = (lf->h + 10) * 16, cy = (top + low) / 32, py = cy * 16;
     kind = !g ? (id == P_DIST ? 1 : id == P_APDEP ? 2 : 3) : bus == 2u || bus == 4u ? 3 : bus == 1u || bus == 8u ? 2 : 1;
-    if (!g && (id == P_JRES0 || id == P_JRES4 || id == P_RESERVED45)) amt = TSEL->p[P_JRES0];   /* (DUB: the loop's feedback) */
+    if (!g && (id == P_DUB_FDBK || id == P_DUB_SPRG || id == DUBF_SYNC)) amt = TSEL->p[P_DUB_FDBK];   /* (DUB: the loop's feedback) */
     else if (!g && id != P_DIST && id != P_APDEP)       /* (the sends: the loudest) */
         amt = TSEL->p[P_REV] > TSEL->p[P_DLY] ? TSEL->p[P_REV] : TSEL->p[P_DLY];
     else if (bus == 2u) amt = song.g[G_DFDBK];          /* (the bus's own amount, whatever the page's first knob) */
@@ -603,7 +603,7 @@ static void pv_picture(void)
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
     if (pic == 9u) {                                    /* FX: the page's first value, its model, FX FULL */
         uint32_t m = cur_page()->scope == SC_GLOBAL, id = cur_page()->id[0];
-        sig ^= (uint32_t)(uint16_t)(m ? song.g : TSEL->p)[id] * 7919u + (uint32_t)jfx_full * 347u +
+        sig ^= (id < (m ? G_COUNT : P_COUNT) ? (uint32_t)(uint16_t)(m ? song.g : TSEL->p)[id] : 0u) * 7919u + (uint32_t)jfx_full * 347u +
                (uint32_t)(song.g[G_DFDBK] + song.g[G_RSIZE] * 5 + song.g[G_CDEPTH] * 11 + song.g[G_SLDEP] * 13 +
                           song.g[G_DJF] * 19 + song.g[G_CLIP] * 23 + TSEL->p[P_REV] * 29 + TSEL->p[P_DLY] * 31) * 7u +
                (uint32_t)(song.g[G_DTYPE] + song.g[G_RTYPE] * 3 + song.g[G_SLMODE] * 17 + TSEL->p[P_DTYPE] * 53) * 104729u;

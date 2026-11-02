@@ -25,7 +25,7 @@
 export MELODEE_SID=0
 export MELODEE_CZ=0
 export MELODEE_MACRO=1
-export MELODEE_SHAPES=1
+export MELODEE_SHAPES=0   # (round 14, the owner approved it) SHAPES ships only as its module (engine 14); a unit coming from a build with SHAPES inside gets it back by installing the module
 export MELODEE_DRUMX=1
 export MELODEE_FM6=0
 export MELODEE_P5=0
@@ -37,4 +37,4 @@ export OC_SLIDE=1      # (ui-fix 8, branch ui-fix) slide and legato; the same
 export OC_REC_CLEAR=1  # (ui-fix2 2, branch ui-fix2) REC held, stopped: the clears with a countdown; waits for Session A's on-unit sequencer test before a merge
 export OC_PROJECT_PAGE=1  # (ui-fix2 3, branch ui-fix2) the plain project page: SAVE opens it, the slot in use marked, LOAD warns of unsaved changes
 export OC_SLIDE_TIME=1  # (ui-fix2 4, branch ui-fix2) SLIDE TIME per track; waits for Session A's on-unit sequencer test before a merge
-export OC_START_NUDGE=1  # (ui-fix2 5, branch ui-fix2) NOTES' K2 on a typed note moves it by NUDGE; waits for Session A's fix and the on-unit sequencer test
+export OC_START_NUDGE=0  # (ui-fix2 5, branch ui-fix2) OFF in round 13: it was Session C's way round the 'NO EDIT MEMORY' of START on a typed note; round 12 fixed the cause (BUILD 7.23) and the owner asked that START move a note freely within the loop (nudge stops at half a step). Code and tests stay (the switch builds).

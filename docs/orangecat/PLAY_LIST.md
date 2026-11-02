@@ -1,3 +1,43 @@
+# Orange Cat Nightly v0.16.0-a5e868: what changed for you since 449c6b
+
+Written November 2, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged.
+
+1. **DUB steps aside before the music stumbles.** The first half of a block that passes 85 % of its time makes the DUB echo ramp out (a few milliseconds, DUB FULL shown). It comes back after 8 s, 2 s of quiet and a mix that leaves room for it (the heaviest stretch of the last 32 s plus one echo under the line). Four busy tracks with DUB: all 512 of 512 onsets played. The first pass after you switch DUB on into a heavy mix can still drop 2 or 3 halves once, before the governor has seen how heavy the mix is.
+2. **SHAPES is its module only.** It is no longer inside the firmware (24,024 B smaller image: 569,796 B with it, 545,772 B without). The installer page ticks the SHAPES module by default and says so; a unit coming from a build with SHAPES inside gets SHAPES back by installing it. A track whose engine is not installed keeps its music and settings, plays nothing, and the screen says MODULE MISSING.
+3. **The Prophet** is still the alternative module (one of the two on a unit); the page now says in one line what each is.
+4. **Installs from the live page, both done on the test unit:** from a build with SHAPES inside (firmware replaced, pack and both modules already current) and from stock V15 (firmware, pack and both modules written; WHEEL at the first start, SHAPES the next).
+5. **From the other session (ui-fix2 close-out):** its hang in drum_editor_test was the test's own misuse (the DRUM engine is not in this build), not a firmware loop, so nothing of it was merged.
+
+The earlier note for 449c6b follows.
+
+---
+
+# Orange Cat Nightly v0.16.0-449c6b: what changed for you since 7b29d7
+
+Written November 2, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged. The first two lines of each item are what you will notice.
+
+1. **PRESETS moves exactly one sound a click, however fast you turn it** (HOME, the PRESETS page, the browser), and so do the scale list and the user-slot list; KNOB ACCEL no longer touches them. Value knobs keep their speed-up.
+2. **DUB TAPE is a dub echo now.** FX button, three pages in this order. **DUB SETUP:** SYNC (SYNC or FREE), TIM L and TIM R (on the beat: 1/32 to 1/1, with D dotted and T triplet, a click moves one division; FREE: 20 ms to 1.4 s), PING (OFF or ON: the repeats cross between left and right). **DUB:** FDBK (past 100 it builds), SEND, FILTER (below the middle it closes, above it opens), ECHO (0 = this track's DUB is off; the echo stays in memory 8 s so ECHO back up brings the repeats back). **DUB 2:** SPRNG (the spring on the echo's return), DRIVE (16 steps), WOW (12 steps), SPEED (the tape speed: turn it up and the repeats swoop up, back to the middle and they glide down; shown in semitones). The old LEN, PTRN and the spring placement are gone; THRW, CUT and KICK left the pages and MIDI CC 16, 17 and 18 still work (they are not saved).
+3. **Your old projects:** a track saved with the old DUB loads as the nearest new settings (the four heads become two taps, the spring moves to the return); the sound is close, not the same. Renders: ~/fm1-hw/r13/dub-renders/.
+4. **Saving and automation:** FDBK, SEND, FILTER, ECHO, TIM L, TIM R, SPRNG and SPEED can be locked and recorded as automation. SYNC and PING share one stored value and DRIVE and WOW another, so they cannot be (Release 3's wider ids will).
+5. **From the other session (ui-fix2):** REC held while stopped clears (HOME: the track; a SEQ page: its values; an FX page: the track's effects; GLO: every track), a count of 3, 2, 1 first, EDIT held undoes it whole; SAVE opens a plain project page (LOAD asks first if the music has unsaved changes, also while playing); SLIDE TIME per track (EDIT, the SLIDE page); SHAPES' cat (tail, paw, yarn) moves with COLR, PLUCK and TIMB; the FX button's order is SENDS, then the shared effects, then DIST, AUTO PAN, DUB SETUP, DUB, DUB 2. NOTES' K2 stays START (it moves a typed note freely; the session's NUDGE variant is off).
+
+The earlier note for 7b29d7 follows.
+
+---
+
+# Orange Cat Nightly v0.16.0-7b29d7: what changed for you since f5057c
+
+Written November 1, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.
+
+1. **NOTES, K2 (START) works freely now.** The "NO EDIT MEMORY" you saw came from every edit asking the audio memory for a copy of all 1,024 note slots (11 KB), which a mix of four MACRO tracks leaves no room for. An edit now keeps only the notes in use (a few hundred bytes). Checked on the unit in your four-MACRO mix: each detent moves the note a sixteenth of a step, with no message. It moves a typed note, a chord's note or a recorded one anywhere in the loop (wrapping at its end). The same fix covers LEN, range moves and copies, paste, pattern doubling and quantize.
+2. **PRESETS skipping: not found, so nothing was changed for it.** On the unit, one PRESETS detent loads exactly one sound; the key scan is clean (no phantom turns in a minute, 907 scans a second, no long gaps while the screen redraws); the knob decoder gives one step a click under any contact bounce I could model; a key tap makes one press. The jumps of 5 and 3 you saw are what the knob's speed-up does when a turn is quick (the third and later detents of a spin go 3 or 4 at a time on a list of 27). To tell which it is: MENU > KNOB ACCEL OFF, then turn PRESETS one click at a time. If it still jumps, it is the knob or its wiring and I need to see it turn (the test build can log it); if it does not, it is the speed-up and I will make lists of this length slower.
+3. **DUB redesign: not in this build.** The review of the design found that a project saves each track parameter as one byte, so the new pages' twelve values (two times, modes, spring, drive, wow, speed) cannot be stored without either coarse knobs or the Release 3 format. The kernel (two taps, ping-pong, speed bend, wow, spring on the return) is built and rendered; listen to `~/fm1-hw/r12/dub-renders/` (`before-*` is the DUB as it is, `after-*` the new kernel). Tell me: coarse knobs now, or the pages with Release 3.
+
+The earlier note for f5057c follows. Below it is the note of ui-fix2 (Session C's items), which this round merges.
+
+---
+
 # Orange Cat Nightly (branch ui-fix2): what changes for you
 
 Written November 1, 2026 for the owner. These are the items of your note on v0.16.0-f5057c that Session B did; Session A's (PRESETS skipping, the NOTES "No edit memory" error, the DUB pages' knobs) come separately. Nothing here is on the unit yet: it waits for the sequencer test on the unit (UI_BUILD.md, "For Session A").
@@ -27,6 +67,8 @@ Written November 1, 2026 for the owner. These are the items of your note on v0.1
    - **HOME + EDIT:** on HOME's pages and sheets, initialize the sound (it asks first); on NOTES delete the selected notes or the step; on FEEL put the feel back to its defaults.
    - **HOME + OCT- / OCT+:** copy and paste are not in this build yet: the screen says "COPY, PASTE: LATER".
    - Anywhere else these combos do nothing but cancel the MENU. After the MENU has opened, a knob turned moves the MENU when HOME is let go.
+
+---
 
 # Orange Cat Nightly v0.16.0-f5057c: what changed for you since 478add
 

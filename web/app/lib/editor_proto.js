@@ -134,7 +134,7 @@ const CZ = {
 };
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
 const UP = { NAME_MAX: 12, PAT: 16, LIST_MAX: 16 };
-const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI: 7, ENUM: 8, BPM: 9, NOTE: 10, ONOFF: 11, OCT: 12, STEPS: 13, TONE: 17 };
+const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI: 7, ENUM: 8, BPM: 9, NOTE: 10, ONOFF: 11, OCT: 12, STEPS: 13, TONE: 17, DUBTS: 20, DUBTF: 21, DUBSPD: 22 };
 
 const v14enc = (v) => { const u = Math.max(-8192, Math.min(8191, Math.round(v))) + 8192; return [u & 0x7F, (u >> 7) & 0x7F]; };
 const v14dec = (lo, hi) => (lo | (hi << 7)) - 8192;
@@ -1313,8 +1313,8 @@ async function capturePatch(rq, info, name) {
   if(dump.engine===15 && dump.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(0,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read CZ patch");cz=r.raw; }
   let fm6=null;
   if(info.engines[dump.engine]==="FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read FM6 voice");fm6=Array.from(r.packed); }
-  const JFX_DEF=[0,0,0,0,2,1,1,1,55,127,60,24,0,0,0,0,0,0];   /* (Orange Cat 0.6.0) the effects' defaults, ids 96..113: the track's; (Release 2) 104..107 and 111..113 are DUB TAPE's FDBK SEND TONE SPACE and THRW CUT KICK */
-  const p=dump.p.map((v,i)=>info.pe0>=116&&i>=45&&i<=47?0:info.gcount>=76&&i>=96&&i<=113?JFX_DEF[i-96]:info.pe0>=100&&i>=96&&i<Math.min(info.pe0,108)?[0,0,60,64][(i-96)%4]:info.pe0>=114&&i>=111&&i<=113?0:v);
+  const JFX_DEF=[0,0,0,0,2,1,1,1,55,127,60,0,0,0,0,53,67,0];   /* (Orange Cat 0.6.0) the effects' defaults, ids 96..113: the track's; (Release 2) 104..107 and 111..113 are DUB TAPE's FDBK SEND TONE SPACE and THRW CUT KICK */
+  const p=dump.p.map((v,i)=>info.pe0>=116&&i>=45&&i<=47?[64,65,8][i-45]:info.gcount>=76&&i>=96&&i<=113?JFX_DEF[i-96]:info.pe0>=100&&i>=96&&i<Math.min(info.pe0,108)?[0,0,60,64][(i-96)%4]:info.pe0>=114&&i>=111&&i<=113?0:v);
   return { patch: cleanPatch({ p5, cz, fm6, name, engine: dump.engine, engineName: info.engines[dump.engine], p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
@@ -1763,7 +1763,7 @@ function makeMockDevice(opt = {}) {
     ...Array.from({length:4},()=>D("",F.INT,0,127,0)),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
-    E("LEN", ["OFF", "32K", "8K", "16K", "24K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("SLIDE",F.BIPCT,-64,63,0),   /* (Release 2) DUB TAPE's setup; 48: (ui-fix2 4) SLIDE TIME, the track's own (once the retired id 48; the unit refuses its SET) */
+    D("SPEED", F.DUBSPD, 0, 127, 64), D("MODE", F.INT, 64, 127, 65), D("TAPE", F.INT, -64, 127, 8), D("SLIDE",F.BIPCT,-64,63,0),   /* 48: (ui-fix2 4) SLIDE TIME, the track's own; (round 13) DUB TAPE's SPEED, then the packed MODE (PING, SYNC, mark 64) and TAPE (DRIVE x 12 + WOW - 64) */
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];
   const GP = [
@@ -1929,14 +1929,14 @@ function makeMockDevice(opt = {}) {
     E("SLC",["OFF", "ON"],1),
     D("FDBK",F.INT,0,127,55),
     D("SEND",F.INT,0,127,127),
-    D("TONE",F.INT,0,127,60),
-    D("SPACE",F.INT,0,127,24),
+    D("FILTER",F.INT,0,127,60),
+    D("ECHO",F.INT,0,127,0),
     D("REV",F.PCT,0,127,0),
     D("DLY",F.PCT,0,127,0),
     D("CHO",F.PCT,0,127,0),
-    D("THRW",F.INT,0,127,0),
-    D("CUT",F.INT,0,127,0),
-    D("KICK",F.INT,0,127,0));
+    D("TIM L",F.DUBTF,0,127,53),
+    D("TIM R",F.DUBTF,0,127,67),
+    D("SPRNG",F.PCT,0,127,0));
   TP.push(E("STRUM",["OFF","1/8","1/16","1/32","1/64","1/128","16T","32T"],0),E("STROKE",["DOWN","UP","ALT"],0));
   /* (Orange Cat 0.6.0) the shared effects' globals 27..75 (41: BUDGET, as before): DELAY, REVERB, CHORUS, SLICER, MASTER */
   GP.push(E("TIME",["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR", "5ms", "6ms", "7ms", "8ms", "9ms", "10ms", "11ms", "12ms", "13ms", "15ms", "17ms", "19ms", "21ms", "24ms", "27ms", "31ms", "35ms", "39ms", "44ms", "50ms", "56ms", "64ms", "72ms", "81ms", "91ms", "103ms", "116ms", "131ms", "148ms", "167ms", "189ms", "213ms", "241ms", "272ms", "307ms", "346ms", "391ms", "441ms", "498ms", "562ms", "634ms", "716ms", "808ms", "912ms", "1.03s", "1.16s", "1.31s", "1.48s", "1.67s", "1.89s", "2.13s", "2.40s", "2.71s", "2.95s"],1),

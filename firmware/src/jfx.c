@@ -111,6 +111,7 @@ static __attribute__((section(".pool"))) uint8_t dub_have[DUB_N], dub_held[DUB_N
                                                          * a line to set up; the memory complete */
 static __attribute__((section(".pool"))) uint8_t dub_nomem, dub_full_now;                 /* the arena was short for an instance this block; the DUB FULL bits this block */
 static __attribute__((section(".pool"))) int16_t *dub_spbuf[DUB_N];
+static __attribute__((section(".pool"))) uint32_t dub_spgen[DUB_N];                      /* (round 13) the generation a spring tank was refused at: asked again only after something is released */
 static void *dub_state[DUB_N] __attribute__((section(".pool")));
 #define jrev_x rx_seg[0]                                /* the model line's first block (the pre-delay, SHIMMER) */
 static uint32_t jfx_grow, jfx_wait;                     /* (0.6.0 rev 2) new blocks taken this block; blocks to wait
@@ -2041,6 +2042,13 @@ JFX_XIP static int dub_slot_used(uint32_t g)
             if (dub_pool[i][j] == g) return 1;
     return 0;
 }
+/* (round 13) the pool segments instance k could hold: the ones it has and the free ones (jfx_dub.c asks before it grows a running line) */
+JFX_XIP static uint32_t dub_pool_room(uint32_t k)
+{
+    uint32_t g, n = dub_have[k];
+    for (g = 0; g < DUB_NSEG; g++) if (!dub_slot_used(g)) n++;
+    return n;
+}
 /* (Release 2) one DUB instance's memory back: its state, its spring and every block of its line (the pool slots free again) */
 JFX_XIP static void jfx_free_dub(uint32_t i)
 {
@@ -2153,8 +2161,7 @@ JFX_XIP static uint8_t jfx_dub_mem(uint32_t bus_fail, uint32_t bus_short)
         gen0 = resource_gen;                            /* (after this block's own releases: they are real ones) */
         if (!dub_state[i]) dub_state[i] = jfx_take(JB_DUBS0 + i, DUB_STATE_BYTES, &nm);
         if (dub_state[i]) { dub_held[i] = (uint8_t)w; dub_held_sp[i] = (uint8_t)(dub_spring[i] != 0); }
-        if (dub_state[i] && dub_spring[i] && !dub_spbuf[i]) dub_spbuf[i] = jfx_take(JB_DUBP0 + i, DUB_SPRING_BYTES, &nm);
-        while (dub_state[i] && !nm && dub_have[i] < w && (!dub_spring[i] || dub_spbuf[i])) {
+        while (dub_state[i] && !nm && dub_have[i] < w) {
             for (g = 0; g < DUB_NSEG && dub_slot_used(g); g++)
                 ;
             if (g == DUB_NSEG) {                        /* (the pool's 32 blocks are all in use by the others) */
@@ -2166,13 +2173,19 @@ JFX_XIP static uint8_t jfx_dub_mem(uint32_t bus_fail, uint32_t bus_short)
             dub_pool[i][dub_have[i]] = (uint8_t)g;
             dub_line[i][dub_have[i]++] = p;
         }
+        if (!nm && dub_state[i] && dub_have[i] == w && dub_spring[i] && !dub_spbuf[i] && dub_spgen[i] != resource_gen + 1u) {   /* (round 13) the spring's tank is optional: SPRING plays without it when the arena has no 6 KB left, and asks again only when something is released */
+            uint8_t nm2 = 0;
+            uint32_t gen2 = resource_gen;
+            dub_spbuf[i] = jfx_take(JB_DUBP0 + i, DUB_SPRING_BYTES, &nm2);
+            if (!dub_spbuf[i]) { resource_gen = gen2; dub_spgen[i] = gen2 + 1u; }
+        }
         if (nm) {
             jfx_free_dub(i);                            /* (all or none: a part given back) */
             resource_gen = gen0;                        /* (the attempt left the arena as it was: it is no release to the others) */
             dub_gen[i] = gen0 + 1u;
             dub_sig[i] = sig;
             dub_nomem = 1;
-        } else if (dub_state[i] && dub_have[i] == w && (!dub_spring[i] || dub_spbuf[i])) {
+        } else if (dub_state[i] && dub_have[i] == w) {
             if (!dub_ready[i]) dub_fresh[i] = 1;        /* complete now: set up as new */
             dub_ready[i] = 1;
             continue;

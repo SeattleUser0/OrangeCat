@@ -187,7 +187,7 @@ const TEXT = {
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
     stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール", stageProphet: "Prophetモジュール",
-    packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "モジュールが無くても今は変わりません（SHAPESはファームウェアに内蔵されています）。",
+    packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "SHAPES（マクロ・オシレーター）: 新しいビルドではファームウェアに内蔵されず、このモジュールとして入ります（チェック済み）。入れないとSHAPESを使うトラックは無音になり MODULE MISSING と表示されますが、曲と設定は残ります。以前のSHAPES内蔵ビルドのユニットも、このモジュールを入れればSHAPESが戻ります。",
     prophetWhy: "Prophetモジュール(32 KB)はSHAPESモジュールと一緒には入りません。どちらか一方を選んでください。もう一方が入っているときは、先に消してください。",
     noPackFile: "このリリースにはパックのファイルがありません。", noModFile: "このリリースにはモジュールのファイルがありません。",
     nothingChosen: "インストールする内容を選んでください。",
@@ -270,8 +270,8 @@ const TEXT = {
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
     stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module", stageProphet: "Prophet module",
-    packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "Without the module nothing changes today: SHAPES is still built into the firmware.",
-    prophetWhy: "The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
+    packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "SHAPES: the macro oscillator engine. New builds have no SHAPES inside the firmware; it comes as this module (ticked). Without it, tracks that use SHAPES are silent and flagged MODULE MISSING; their music and settings are kept. A unit that had SHAPES built in gets it back by installing this module.",
+    prophetWhy: "Prophet: a polysynth engine in the same place as SHAPES. The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
     noPackFile: "This release has no pack file.", noModFile: "This release has no module file.",
     nothingChosen: "Choose something to install.",
     unitWait: "Waiting for the FM-1 to come back", unitProbe: "Checking what the FM-1 has", packWorking: "Writing the pack", modWorking: "Writing the module",
@@ -320,7 +320,7 @@ const offered = () => { const c = selection().channel || {}; return {pak: c.pak 
 /* (0.12.1) the module packages by engine (the file name: orangecat-shapes-VER.ocm, orangecat-prophet-VER.ocm). The two do not fit in the unit together: one stage is on at a time,
  * and the choice lives in this variable for the session only (nothing is stored) */
 const ocmKind = (u) => /orangecat-prophet-/.test(u) ? "prophet" : "shapes";
-const ocmOf = (kind) => offered().ocm.filter(u => ocmKind(u) === kind);
+const ocmOf = (kind) => offered().ocm.filter(u => ocmKind(u) === kind).sort((a, b) => /orangecat-wheel-/.test(b) - /orangecat-wheel-/.test(a));   /* (round 14) WHEEL first: it takes the unit's first start, SHAPES the next */
 let modChoice = "shapes";
 function modStages() {
   const sh = ocmOf("shapes").length > 0, pr = ocmOf("prophet").length > 0;

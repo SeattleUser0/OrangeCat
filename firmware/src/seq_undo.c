@@ -136,7 +136,7 @@ static void step_history_end(void)
 static int step_history_apply(int redo)
 {
     uint32_t at;
-    if(note_tools_history(redo))return 1;
+    if(!note_history_group()&&note_tools_history(redo))return 1;   /* (round 13: GLO's clear goes whole, through undo_step) */
     fm1_irq_off();
     step_history_finish();                       /* a gesture still held is an edit too */
     if (!step_history_context() || (redo ? step_history.pos + 1u >= step_history.count : !step_history.pos)) {

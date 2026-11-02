@@ -254,7 +254,9 @@ static __attribute__((noinline)) void midi_parameter(track_t *t,uint32_t cc,uint
     uint32_t id=P_COUNT;
     switch(cc){case 5:id=P_GLIDE;break;case 7:id=P_LEVEL;break;case 10:id=P_PAN;break;
     case 72:id=P_REL;break;case 73:id=P_ATK;break;case 75:id=P_DEC;break;
-    case 12:id=P_DUB_FDBK;break;case 13:id=P_DUB_SEND;break;case 14:id=P_DUB_TONE;break;case 15:id=P_DUB_SPACE;break;case 16:id=P_DUB_THRW;break;case 17:id=P_DUB_CUT;break;case 18:id=P_DUB_KICK;break;   /* (Release 2: DUB TAPE's seven) */
+    case 12:id=P_DUB_FDBK;break;case 13:id=P_DUB_SEND;break;case 14:id=P_DUB_FILT;break;case 15:id=P_DUB_ECHO;break;
+    case 16:case 17:case 18:dub_trig[trk_index(t)%4u][cc-16u]=(uint8_t)(value>127u?127u:value);return;   /* (round 13) THRW, CUT, KICK: performance triggers, RAM only, off the pages */
+   /* (Release 2: DUB TAPE's seven) */
     case 91:id=P_REV;break;case 93:id=P_CHOR;break;case 94:id=P_DLY;break;case 104:id=P_DIST;break;   /* (0.6.0: the
                                                 * effects, Jiant's map: REVERB, CHORUS, DELAY sends, DIST) */
     case 74:case 71:{
@@ -320,6 +322,7 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
     case 121:                                      /* Reset All Controllers, keep bend sensitivity */
         c->bend = 0;
         c->wheel = 0;
+        memset(dub_trig, 0, sizeof dub_trig);          /* (round 13) DUB's THRW, CUT, KICK are RAM triggers: a controller that went away with CUT held must not leave the echo muted */
         c->rpn_msb = c->rpn_lsb = 127;
         midi_expression_channel(ch);
         midi_pedal_up(ch);

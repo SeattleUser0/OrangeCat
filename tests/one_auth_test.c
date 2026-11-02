@@ -416,6 +416,69 @@ int main(void)
         ok &= !step_on(&t->step[6]) && auth_ok("pad cleared");
         chk("PADS    a pad on an empty step makes a hit (an event); the accent pad sets 127; the pad again clears it", ok);
     }
+    {   /* (round 12) NOTES' START with the audio arena taken by the engines and the effects: the edit's undo snapshot was one 11 KB block from the arena for
+         * any edit (the whole 1,024-slot array), and "NO EDIT MEMORY" came with a mix whose states had filled it. It is the notes in use now (a few hundred bytes
+         * with the steps and the motion): every START below runs with less arena than the old snapshot, on typed notes, a chord, a recorded note and a full loop */
+        track_t *t;
+        int ok;
+        uint32_t i, k, found, pos0;
+        fresh("NOTES"); t = TSEL;
+        {
+            uint32_t sz;
+            for (k = 0; k < RES_JFX_N; k++) for (sz = 100000u; sz >= 512u; sz = sz * 3u / 4u) if (resource_allocate(RES_JFX0 + k, sz)) break;   /* (each id the biggest block that fits, then smaller) */
+            for (;;) {                                                               /* give back the smallest block, until 4 KB fits */
+                uint32_t small = RES_JFX_N;
+                if (resource_allocate(RES_NOTE_HISTORY, 4096u)) break;
+                for (k = 0; k < RES_JFX_N; k++) if (resource[RES_JFX0 + k].size && (small == RES_JFX_N || resource[RES_JFX0 + k].size < resource[RES_JFX0 + small].size)) small = k;
+                if (small == RES_JFX_N) break;
+                resource_release(RES_JFX0 + small);
+            }
+            resource_release(RES_NOTE_HISTORY);
+            ok = !resource_allocate(RES_NOTE_HISTORY, 11776u);                       /* the old snapshot (10,240 B of notes and the steps) does not fit */
+            resource_release(RES_NOTE_HISTORY);
+            chk("EDITMEM the arena holds less than the old snapshot's 11.7 KB and room for a small one (the setting of the cells below)", ok);
+        }
+        manual(3, 60); cursor_set(3); frame();
+        ok = 1;
+        for (k = 0; k < 40u; k++) { turn(EN_K2, 1); ok &= !str_eq(ui.msg, "NO EDIT MEMORY"); }
+        for (found = RECORD_MAX, i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) if (recording[i].note == 60u) found = i;
+        pos0 = found < RECORD_MAX ? (recording[found].step & 63u) * RECORD_UNIT + recording[found].on : 0u;
+        ok &= found < RECORD_MAX && pos0 == 3u * RECORD_UNIT + 40u * (RECORD_UNIT / 16u) && auth_ok("40 detents");
+        if (!OC_START_NUDGE) chk("EDITMEM START on a typed note, 40 detents with the arena short: no NO EDIT MEMORY, the note 2.5 steps on", ok);
+        for (k = 0; k < 40u; k++) turn(EN_K2, -1);
+        for (found = RECORD_MAX, i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) if (recording[i].note == 60u) found = i;
+        ok = found < RECORD_MAX && (recording[found].step & 63u) * RECORD_UNIT + recording[found].on == 3u * RECORD_UNIT && auth_ok("back");
+        if (!OC_START_NUDGE) chk("EDITMEM START the other way: back on the note's own place", ok);
+        for (k = 0; k < 16u * 16u; k++) turn(EN_K2, 1);                          /* the whole loop: 16 steps of 16 detents */
+        for (found = RECORD_MAX, i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) if (recording[i].note == 60u) found = i;
+        ok = found < RECORD_MAX && (recording[found].step & 63u) * RECORD_UNIT + recording[found].on == 3u * RECORD_UNIT && auth_ok("loop") && !str_eq(ui.msg, "NO EDIT MEMORY");
+        if (!OC_START_NUDGE) chk("EDITMEM START a whole loop of detents: the note is where it began (it wraps at the phrase's end)", ok);
+        fresh("NOTES"); t = TSEL;
+        {   /* a chord of three, the conversion takes the three events: the undo list holds them */
+            uint8_t ch[3] = {67, 60, 64};
+            song.seq_mode = 1; cursor_set(5); frame();
+            seq_entry_notes(ch, 3); seq_entry_finish(); frame();
+            cursor_set(5); frame();
+        }
+        ui.note_slot = 1;
+        for (k = 0; k < 8u; k++) turn(EN_K2, 1);
+        ok = pool_count() == 3u && !str_eq(ui.msg, "NO EDIT MEMORY") && auth_ok("chord 8");
+        if (!OC_START_NUDGE) chk("EDITMEM START on one note of a chord, 8 detents with the arena short: all three events, none lost", ok);
+        hold(B_EDIT); frame();
+        ok = (pool_count() == 3u || pool_count() == 0u) && auth_ok("chord undo");
+        chk("EDITMEM the undo after it leaves a consistent pattern", ok);
+        fresh("NOTES"); t = TSEL;
+        for (i = 0; i < 16u; i++) put_note(i, i, 0, 40u + i, 100, RECORD_UNIT / 2u);   /* a full loop: a recorded note on every step */
+        note_rebuild_all(); cursor_set(4); frame();
+        notes_selected(t);
+        for (k = 0; k < 20u; k++) turn(EN_K2, 1);
+        ok = pool_count() == 16u && !str_eq(ui.msg, "NO EDIT MEMORY") && auth_ok("recorded 20");
+        chk("EDITMEM START on a recorded note of a full loop (16 notes), 20 detents: the sixteen stay", ok);
+        hold(B_EDIT); frame();
+        ok = pool_count() == 16u && auth_ok("recorded undo");
+        chk("EDITMEM the undo after it keeps the sixteen", ok);
+        for (k = 0; k < RES_JFX_N; k++) resource_release(RES_JFX0 + k);
+    }
 #endif
     printf("one_auth: %d failed\n", nbad);
     return nbad != 0;

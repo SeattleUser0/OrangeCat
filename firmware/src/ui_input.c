@@ -399,7 +399,7 @@ static void pattern_key_len(uint32_t k, uint32_t b, int up)
         if (up) pattern_double(t, b, 1); else pattern_half(t, b, 1);
     } else if (up && recording_head[recording_owner(t)] < RECORD_MAX) {
         fm1_irq_off();
-        if (!note_transaction_begin_track(t)) { fm1_irq_on(); return; }
+        if (!note_transaction_begin_x(t, nt_used())) { fm1_irq_on(); return; }   /* (a doubled bank adds as many events as it holds) */
         motion_snapshot_track(t, &note_transaction.motion);
         note_transaction.clear = 1;
         pattern_double(t, b, 1);
@@ -581,14 +581,24 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
     return range <= 24 ? s : accel_by(role, s, range < 100 ? 3u : range > 150 ? 16u : 8u, 0);
 }
-static int32_t desc_range(const param_desc_t *d)     /* (a list of names: no acceleration) */
+static int32_t desc_range(const param_desc_t *d)     /* (a list of names, and a SLOT, which picks: no acceleration) */
 {
-    return d->fmt == F_ENUM ? 0 : d->max - d->min;
+    const char *l = d->label;
+    if (d->fmt == F_ENUM || d->fmt == F_DUBTS || (l && l[0] == 'S' && l[1] == 'L' && l[2] == 'O' && l[3] == 'T' && !l[4]))
+        return 0;
+    return d->max - d->min;
 }
 /* a list of total entries (the sounds, the scales, the user slots): up to x16 over 256 entries */
 static int32_t list_accel(uint32_t role, int32_t s, uint32_t total, uint32_t *fast)
 {
     return accel_by(role, s, total > 256u ? 16u : total > 64u ? 8u : total > 16u ? 4u : 1u, fast);
+}
+/* a list the knob PICKS from (the sounds, the scales, the user slots): exactly one entry a detent at any speed, whatever
+ * KNOB ACCEL says (round 13: a spin through 27 sounds jumped 1 to 6). Values keep accel/list_accel. *fast (if asked)
+ * as accel_by's, so the browser still waits for a fast turn to rest before it loads */
+static int32_t pick_by(uint32_t role, int32_t s, uint32_t *fast)
+{
+    return accel_by(role, s, 1u, fast);
 }
 
 /* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 FREEZE (Orange Cat 0.4.20; was unused), 4 MUTE of the selected track (right = ON, left = OFF: the
@@ -1438,7 +1448,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     if (pg->graph == GR_SCALE_PICKER) {
-        scale_picker_edit(slot, slot == 1u ? list_accel(EN_K1 + slot, steps, scale_picker_count(), 0) : steps);
+        scale_picker_edit(slot, slot == 1u ? pick_by(EN_K1 + slot, steps, 0) : steps);
         return;
     }
     if (scale_settings_page(pg) && slot == 1u) {
@@ -1479,7 +1489,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
-            ui.uslot = (uint16_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, UP_SLOTS, 0), 0, UP_SLOTS - 1);
+            ui.uslot = (uint16_t)clamp((int32_t)ui.uslot + pick_by(EN_K1, steps, 0), 0, UP_SLOTS - 1);
         return;
     }
     if (pg->graph == GR_MOD && slot == 1u) {             /* MOD: KNOB 2 the route; 1 its SRC, 3 DST, 4 AMT */
@@ -1489,7 +1499,15 @@ static void edit_param(uint32_t slot, int32_t steps)
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
-    v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
+    v = d->fmt == F_DUBTS ? dub_t_step(*vp, steps)                   /* (round 13) TIME on the beat: a division a detent */
+                          : enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
+    if (pg->scope == SC_TRACK && pg->id[slot] >= DUBF_SYNC && pg->id[slot] <= DUBF_WOW) {   /* (round 13) one field of a packed id: written back whole, the other half kept */
+        fm1_irq_off();
+        dub_put_field(TSEL->p, pg->id[slot], v);
+        fm1_irq_on();
+        ui.force = 1;
+        return;
+    }
     *vp = (int16_t)v;
     if (pg->scope == SC_MOD) {                            /* (0.12.0) a module's value: its hook (or the clamped byte), recorded as motion */
         const fw_pages_t *mp = track_pages(TSEL);
@@ -1731,7 +1749,7 @@ static void act_do(void)
     if (song.g[G_SLOT] == PROJ_TMPL && (id == G_LOAD || id == G_SAVE)) {   /* the template: no name, no dialog */
         if (id == G_LOAD) {
 #if OC_PROJECT_PAGE
-            if (template_used() && !transport_busy() && project_unsaved())   /* (ui-fix2, close-out 1d; no template saved: nothing to lose, NO TEMPLATE says so) the template replaces the music as a project does: ask the same */
+            if (template_used() && project_unsaved())   /* (ui-fix2, close-out 1d; round 13: asks while playing too, as the project rows; no template saved: nothing to lose, NO TEMPLATE says so) the template replaces the music as a project does: ask the same */
                 confirm_open(CF_LOAD_PROJ, PROJ_TMPL);
             else
 #endif
@@ -1743,7 +1761,7 @@ static void act_do(void)
     switch (id) {
     case G_LOAD:
 #if OC_PROJECT_PAGE
-        if (project_used(k) && !transport_busy() && project_unsaved())   /* (ui-fix2 3) the music has changes its slot does not hold: ask */
+        if (project_used(k) && project_unsaved())   /* (ui-fix2 3) the music has changes its slot does not hold: ask */
             confirm_open(CF_LOAD_PROJ, k);
         else
 #endif
@@ -3014,7 +3032,7 @@ static void ui_input(void)
         s = 0;
 #endif
     if (s && !ui.home && cur_page()->graph == GR_SCALE_PICKER) {
-        scale_picker_step(list_accel(EN_PRESET, s, scale_picker_count(), 0));
+        scale_picker_step(pick_by(EN_PRESET, s, 0));
     } else if (s && (ui.home || cur_page()->graph == GR_BROWSE)) {
         /* PRESETS browses the selected part's sounds (all engines, then user presets) on HOME and the
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn

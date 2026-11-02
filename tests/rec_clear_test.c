@@ -153,15 +153,15 @@ int main(void)
         fresh();
         go_title("DIST");
         pstep(&trk[0], 1, 60);
-        trk[0].p[P_DIST] = 70; trk[0].p[P_REV] = 55; trk[0].p[P_JRES0] = 33; trk[0].p[P_DUBLEN] = 2; trk[0].p[P_APDEP] = 40;
+        trk[0].p[P_DIST] = 70; trk[0].p[P_REV] = 55; trk[0].p[P_JRES0] = 33; trk[0].p[P_DUB_SPD] = 2; trk[0].p[P_APDEP] = 40;
         trk[1].p[P_DIST] = 66; trk[0].p[P_LEVEL] = 80;
         hold_ms(B_REC, 1500);
         chk("FX      the track's effects to their defaults", trk[0].p[P_DIST] == param_desc_of(eng_idx(trk[0].eng_req), P_DIST)->def &&
-            trk[0].p[P_REV] == param_desc_of(eng_idx(trk[0].eng_req), P_REV)->def && trk[0].p[P_DUBLEN] == param_desc_of(eng_idx(trk[0].eng_req), P_DUBLEN)->def &&
+            trk[0].p[P_REV] == param_desc_of(eng_idx(trk[0].eng_req), P_REV)->def && trk[0].p[P_DUB_SPD] == param_desc_of(eng_idx(trk[0].eng_req), P_DUB_SPD)->def &&
             trk[0].p[P_APDEP] == param_desc_of(eng_idx(trk[0].eng_req), P_APDEP)->def);
         chk("FX      the steps, the mix and another track's effects stay", steps_on(&trk[0]) == 1u && trk[0].p[P_LEVEL] == 80 && trk[1].p[P_DIST] == 66);
         hold(B_EDIT);
-        chk("FX      EDIT held brings them back", trk[0].p[P_DIST] == 70 && trk[0].p[P_REV] == 55 && trk[0].p[P_JRES0] == 33 && trk[0].p[P_DUBLEN] == 2 && trk[0].p[P_APDEP] == 40);
+        chk("FX      EDIT held brings them back", trk[0].p[P_DIST] == 70 && trk[0].p[P_REV] == 55 && trk[0].p[P_JRES0] == 33 && trk[0].p[P_DUB_SPD] == 2 && trk[0].p[P_APDEP] == 40);
         edit_redo();
         chk("FX      EDIT + OCT+ redoes the reset", trk[0].p[P_DIST] == param_desc_of(eng_idx(trk[0].eng_req), P_DIST)->def);
         fresh();
@@ -198,6 +198,16 @@ int main(void)
             steps_on(&trk[2]) == 2u);
         edit_redo();
         chk("GLO     one redo clears them again", pool_n() == 0u && steps_on(&trk[2]) == 0u);
+        /* (round 13) the arena took the note history back (PLAY releases it): the group is not undone in part, and says so */
+        fresh();
+        go_title("GLOBAL");
+        put_event(&trk[1], 0, 2, 60); put_event(&trk[2], 1, 5, 64);
+        song.sel = 1; note_rebuild_all(); song.sel = 2; note_rebuild_all(); song.sel = 0;
+        pstep(&trk[3], 4, 70);
+        hold_ms(B_REC, 1500);
+        resource_release(RES_NOTE_HISTORY);
+        hold(B_EDIT);
+        chk("GLO     history gone: EDIT undoes nothing of the group (no track comes back without its notes)", pool_n() == 0u && steps_on(&trk[3]) == 0u && steps_on(&trk[2]) == 0u && steps_on(&trk[1]) == 0u);
     }
     {   /* REVIEW: group undo out of order, stale histories, overwritten history, cancels, pages */
         uint32_t k, ghosts;

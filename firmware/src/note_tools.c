@@ -2,17 +2,58 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Fractional manual edits and range transforms use the existing precise event
  * format. One bounded snapshot makes conversion, move and copy atomic/undoable. */
+/* (Round 12) The edit's undo snapshot holds the notes IN USE, not the whole 1,024-slot array: before this it was one 11 KB block from the audio arena
+ * for every edit, whatever the edit touched, and a mix whose engine states had taken the arena (four MACRO tracks and their effects) left no room:
+ * "NO EDIT MEMORY" on a single START turn. A transaction is now its header (the steps, the motion, 1.1 KB) and a list of (slot, note) pairs, one
+ * for each slot used when the edit began, room for NT_HEADROOM more. At the end of the edit (note_transaction_end) the list is sealed: every slot
+ * used now is in it too (an entry whose note was empty when the edit began holds an empty note), so the list names every slot that differs
+ * between the two states and undo and redo are the same exchange of each entry with the slot (nt_exchange). An edit that adds more notes than the
+ * headroom (a paste of a hundred) has no undo (valid 0) and is done. */
+typedef struct { uint16_t idx; recorded_note_t n; } nt_ev_t;
 typedef struct {
-    recorded_note_t notes[RECORD_MAX];
     step_t steps[NSTEP];
     uint32_t generation, pattern_gen, signature;
     motion_store_t motion;
+    uint16_t cap, count;
     uint8_t valid, redo, track, cursor, len, clear;
     uint8_t slen;                /* LEN to swap in too (a doubled pattern), 0 = LEN stays */
     uint8_t group;               /* (ui-fix2 2) 1: this history is GLO's clear of every track (ui_clear.c clr_follow); a byte of the padding */
+    nt_ev_t ev[];
 } note_transaction_t;
+#define NT_HEADROOM 96u
+#define NT_ROUND 64u
 static note_transaction_t *note_transaction_ptr;
 #define note_transaction (*note_transaction_ptr)
+static uint32_t nt_bytes(uint32_t cap){return (uint32_t)sizeof(note_transaction_t)+cap*(uint32_t)sizeof(nt_ev_t);}
+static uint32_t nt_used(void){uint32_t c=0;for(uint32_t i=0;i<RECORD_MAX;i++)c+=recording[i].vel!=0;return c;}
+/* every slot used now but not in the list joins it holding an empty note; 0: the list is full (the edit has no undo) */
+static int nt_seal(void)
+{
+    uint8_t in[RECORD_MAX/8u];memset(in,0,sizeof in);
+    for(uint32_t k=0;k<note_transaction.count;k++)in[note_transaction.ev[k].idx/8u]|=(uint8_t)(1u<<(note_transaction.ev[k].idx%8u));
+    for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel&&!(in[i/8u]&(1u<<(i%8u)))){
+        if(note_transaction.count>=note_transaction.cap)return 0;
+        nt_ev_t *e=&note_transaction.ev[note_transaction.count++];
+        e->idx=(uint16_t)i;memset(&e->n,0,sizeof e->n);
+    }
+    return 1;
+}
+static void nt_exchange(void)                            /* the sealed list: the slots and the saved notes trade places */
+{
+    for(uint32_t k=0;k<note_transaction.count;k++){
+        nt_ev_t *e=&note_transaction.ev[k];recorded_note_t v=recording[e->idx];
+        recording[e->idx]=e->n;e->n=v;
+    }
+}
+/* the notes as the edit found them, back (a refused move): the sealed list swapped in once, the transaction spent. 0: no list to restore from */
+static int nt_rollback(void)
+{
+    uint8_t in[RECORD_MAX/8u];memset(in,0,sizeof in);
+    for(uint32_t k=0;k<note_transaction.count;k++)in[note_transaction.ev[k].idx/8u]|=(uint8_t)(1u<<(note_transaction.ev[k].idx%8u));
+    nt_exchange();
+    for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel&&!(in[i/8u]&(1u<<(i%8u))))memset(&recording[i],0,sizeof recording[i]);   /* (empty when the edit began: the list needs no room for them) */
+    note_transaction.valid=0;return 1;
+}
 
 static int32_t note_snap(int32_t value,int32_t delta,uint32_t quantum)
 {
@@ -37,27 +78,40 @@ static void note_onset(recorded_note_t *r,int32_t shift,uint32_t len,uint32_t qu
     uint32_t rounded=r->on>=RECORD_UNIT/2u;
     r->step=(uint8_t)(actual|(rounded?64u:0u)|(rounded&&actual+1u==len&&actual?128u:0u));
 }
-static int note_transaction_begin_track(track_t *t)
+static int note_transaction_begin_x(track_t *t,uint32_t extra)    /* extra: the notes the edit can add (room in the list for them) */
 {
     if (frz_locked_k(trk_index(t))) return 0;           /* (Orange Cat 0.5.6) a frozen phrase's notes stay as frozen */
 #if OC_REC_CLEAR
     if(note_transaction_ptr&&note_transaction.valid&&note_transaction.group)clr_group_drop();   /* (ui-fix2 2) GLO's clear can no longer be undone as one */
 #endif
-    note_transaction_ptr=resource_get(RES_NOTE_HISTORY,sizeof(note_transaction_t));
+    uint32_t used=nt_used(),want=used+(extra>NT_HEADROOM?extra:NT_HEADROOM),cap;
+    if(want>RECORD_MAX)want=RECORD_MAX;
+    if(resource[RES_NOTE_HISTORY].ptr&&resource[RES_NOTE_HISTORY].size>=nt_bytes(want)){   /* the block of the last edit holds it: no allocation, no search */
+        note_transaction_ptr=resource[RES_NOTE_HISTORY].ptr;
+        cap=(resource[RES_NOTE_HISTORY].size-(uint32_t)sizeof(note_transaction_t))/(uint32_t)sizeof(nt_ev_t);
+    }else{
+        cap=(want+NT_ROUND-1u)/NT_ROUND*NT_ROUND;
+        if(cap>RECORD_MAX)cap=RECORD_MAX;
+        note_transaction_ptr=resource_get(RES_NOTE_HISTORY,nt_bytes(cap));
+    }
+    if(cap>RECORD_MAX)cap=RECORD_MAX;
     if(!note_transaction_ptr){ui_message("NO EDIT MEMORY");return 0;}
 
 #if !OC_ONE_AUTH
     recording_prune(t);                                 /* (ui-fix 7: no orphan can exist; the load boundaries reconcile) */
 #endif
-    memcpy(note_transaction.notes,recording,sizeof recording);
+    note_transaction.cap=(uint16_t)cap;note_transaction.count=0;
+    for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel){nt_ev_t *e=&note_transaction.ev[note_transaction.count++];e->idx=(uint16_t)i;e->n=recording[i];}
     memcpy(note_transaction.steps,t->step,sizeof note_transaction.steps);
     note_transaction.track=(uint8_t)trk_index(t);note_transaction.pattern_gen=t->pattern_gen;
     note_transaction.cursor=ui.cursor;note_transaction.len=(uint8_t)step_pattern_len(t);
     note_transaction.valid=1;note_transaction.redo=note_transaction.clear=note_transaction.slen=note_transaction.group=0;return 1;
 }
-static int note_transaction_begin(void){return note_transaction_begin_track(TSEL);}
+static int note_transaction_begin_track(track_t *t){return note_transaction_begin_x(t,NT_HEADROOM);}
+static int note_transaction_begin(void){return note_transaction_begin_x(TSEL,NT_HEADROOM);}
 static void note_transaction_end(void)
 {
+    if(note_transaction.valid&&!nt_seal())note_transaction.valid=0;
     note_transaction.generation=recording_generation;note_transaction.signature=steps_sig(&trk[note_transaction.track]);
     step_history_clear();ui.force=1;
 }
@@ -80,12 +134,13 @@ static int note_tools_history(int redo)
         note_transaction.motion=current;
     }
     fm1_irq_off();recording_stop(t);
-    note_swap(recording,note_transaction.notes,sizeof recording);
+    nt_exchange();
     note_swap(t->step,note_transaction.steps,sizeof note_transaction.steps);
     if(note_transaction.slen){uint8_t len=(uint8_t)t->p[P_SLEN];t->p[P_SLEN]=note_transaction.slen;note_transaction.slen=len;note_transaction.len=(uint8_t)step_pattern_len(t);}
     recording_reindex();uint8_t cursor=ui.cursor;if(t==TSEL)cursor_set(note_transaction.cursor);note_transaction.cursor=cursor;
     ui.note_pick=0;note_transaction.redo^=1u;note_transaction_end();fm1_irq_on();ui_message(redo?"REDO":"UNDO");return 1;
 }
+static int note_history_group(void){return resource[RES_NOTE_HISTORY].size&&note_transaction_ptr&&note_transaction.group;}
 static int note_clear_history(int redo)
 {
     return resource[RES_NOTE_HISTORY].size&&note_transaction_ptr&&note_transaction.clear&&note_tools_history(redo);
@@ -179,7 +234,7 @@ static void note_transform(int32_t delta,uint32_t quantum,int mode)
     if(!bulk.on&&chosen<RECORD_MAX)at=NSTEP;
     for(uint32_t i=0;i<len;i++)if((!(TSEL->step[i].flags&SF_RECORDED)&&step_on(&TSEL->step[i])&&(bulk.on?bulk.on==1u&&bulk_has(i):i==at))){uint32_t count=TSEL->step[i].n+(drum_track(TSEL)?__builtin_popcount(step_lanes(&TSEL->step[i])):0u);needed+=count*(copy?2u:1u);}
     if(needed>free){fm1_irq_on();ui_message("RECORDING FULL");return;}
-    if(!note_transaction_begin()){fm1_irq_on();return;}
+    if(!note_transaction_begin_x(TSEL,needed)){fm1_irq_on();return;}
     for(uint32_t i=0;i<len;i++)if((!(TSEL->step[i].flags&SF_RECORDED)&&step_on(&TSEL->step[i])&&(bulk.on?bulk.on==1u&&bulk_has(i):i==at)))note_convert(i);
     if(!bulk.on&&chosen>=RECORD_MAX)chosen=notes_selected(TSEL);
     uint8_t selected[RECORD_MAX/8u];memset(selected,0,sizeof selected);
@@ -198,7 +253,7 @@ static void note_transform(int32_t delta,uint32_t quantum,int mode)
     for(uint32_t i=0;i<RECORD_MAX;i++)if(selected[i/8u]&(1u<<(i%8u))){recorded_note_t r;note_assign(&r,&recording[i]);note_onset(&r,shift,len,quantize?quantum:0);uint32_t view=recording_view(TSEL,&r);
         if(!(TSEL->step[view].flags&SF_RECORDED)){uint32_t source=recording_view(TSEL,&recording[i]);metadata[view]=TSEL->step[source].probability|((uint16_t)TSEL->step[source].flags<<8);}
         if(notes_manual_occupied(TSEL,view)){
-        memcpy(recording,note_transaction.notes,sizeof recording);memcpy(TSEL->step,note_transaction.steps,sizeof note_transaction.steps);recording_reindex();cursor_set(note_transaction.cursor);ui.note_pick=0;note_transaction.valid=0;fm1_irq_on();ui_message("STEP OCCUPIED");return;}}
+        nt_rollback();memcpy(TSEL->step,note_transaction.steps,sizeof note_transaction.steps);recording_reindex();cursor_set(note_transaction.cursor);ui.note_pick=0;note_transaction.valid=0;fm1_irq_on();ui_message("STEP OCCUPIED");return;}}
     uint32_t focus=RECORD_MAX;
     uint8_t moved[RECORD_MAX/8u];memset(moved,0,sizeof moved);
     for(uint32_t i=0;i<RECORD_MAX;i++)if(selected[i/8u]&(1u<<(i%8u))){recorded_note_t r=recording_snapshot(i);note_onset(&r,shift,len,quantize?quantum:0);uint32_t dest=i;

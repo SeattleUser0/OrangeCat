@@ -19,7 +19,7 @@ import fm1hw, capture
 from fm1hw import v14
 
 OUT, LABEL = sys.argv[1], sys.argv[2]
-CELLS = (sys.argv[3] if len(sys.argv) > 3 else "light:0,light:1,heavy:0,heavy:1,feel,feel-ext,chance,slide:MACRO:POLY,slide:MACRO:MONO,slide:MACRO:LEGATO,slide:MACRO:UNISON,"
+CELLS = (sys.argv[3] if len(sys.argv) > 3 else "light:0,light:1,light:2,heavy:0,heavy:1,heavy:2,feel,feel-ext,chance,slide:MACRO:POLY,slide:MACRO:MONO,slide:MACRO:LEGATO,slide:MACRO:UNISON,"
          "slide:SHAPES:POLY,slide:SHAPES:MONO,slide:SHAPES:LEGATO,slide:SHAPES:UNISON").split(",")
 REPS = int(sys.argv[4]) if len(sys.argv) > 4 else 2
 SEED = int(sys.argv[5]) if len(sys.argv) > 5 else 1
@@ -27,7 +27,9 @@ PASSES = int(sys.argv[6]) if len(sys.argv) > 6 else 16
 BPM, NSTEP = 120, 16
 STEP_S = 60.0 / BPM / 4
 REV, DLY, CHO, G_RTYPE, G_BPM, G_CLK = 108, 109, 110, 37, 0, 2
-P_LEN, P_PTRN, P_SPRP, P_SPACE, P_FDBK, P_SEND, P_TONE = 45, 46, 47, 107, 104, 105, 106
+# DUB TAPE's ten ids (round 13, dub_fields.h): SPEED 45, MODE 46 (64 | PING << 1 | SYNC), TAPE 47 (DRIVE x 12 + WOW - 64), FEEDBACK 104, SEND 105, FILTER 106, ECHO 107, TIME L 111, TIME R 112, SPRING 113
+P_SPD, P_MODE, P_TAPE, P_ECHO, P_FDBK, P_SEND, P_FILT, P_TIML, P_TIMR, P_SPRG = 45, 46, 47, 107, 104, 105, 106, 111, 112, 113
+DUB_IDS = (P_SPD, P_MODE, P_TAPE, P_ECHO, P_FDBK, P_SEND, P_FILT, P_TIML, P_TIMR, P_SPRG)
 TC = dict(NONE=0, FILL=1, NFILL=2, C1_2=3, C2_2=4, C1_3=5, C2_3=6, C3_3=7, C1_4=8, C2_4=9, C3_4=10, C4_4=11)
 VMODE = dict(POLY=0, MONO=1, LEGATO=2, UNISON=3)
 FLAM_S = 661 / 44100.0
@@ -203,7 +205,7 @@ def tracks_setup(u, tracks, sends):
     for t in range(4):
         u.select(t); u.mix(t, 0)
         for p in (REV, DLY, CHO): u.req(3, [0, p, *v14(sends)])
-        u.req(3, [0, P_LEN, *v14(0)])
+        u.req(3, [0, P_ECHO, *v14(0)])
         u.req(3, [0, PID["VCE"], *v14(0)]); u.req(3, [0, PID["GLD"], *v14(0)])
     u.set_global(G_RTYPE, 0); u.set_global(G_BPM, BPM)
     u.select(0)
@@ -231,7 +233,9 @@ def program_load(u, load, dub):
     for k, (eng, name, sets) in enumerate(tracks):
         for j, i in enumerate(range(k, NSTEP, 4)): put_step(u, k, i, sets[j % 2], feel=V8)
     if dub:
-        for p, v in ((P_PTRN, 1), (P_FDBK, 60), (P_SEND, 100), (P_TONE, 64), (P_SPACE, 7), (P_SPRP, 0), (P_LEN, 1)): u.req(3, [0, p, *v14(v)])
+        # DUB on (1): both taps (1/8 dotted and 1/4 dotted), FEEDBACK 60, SEND 100, SPRING 0, WOW 0, DRIVE 6, no PING, ECHO 100: what the old DUB cell asked for; (2): the worst case of the new DUB: PING, WOW 3, DRIVE 8, SPRING 28
+        mode, drive, wow, spring = (3, 8, 3, 28) if dub == 2 else (1, 6, 0, 0)
+        for p, v in ((P_TIML, int(os.environ.get('DUB_TIML', 53))), (P_TIMR, int(os.environ.get('DUB_TIMR', 74))), (P_MODE, 64 | 2 * (dub == 2) | 1), (P_TAPE, drive * 12 + wow - 64), (P_SPRG, spring), (P_SPD, 64), (P_FDBK, 60), (P_SEND, 100), (P_FILT, 64), (P_ECHO, 100)): u.req(3, [0, p, *v14(v)])
     exp = []
     for ps in range(PASSES):
         for st in range(NSTEP):
@@ -505,7 +509,7 @@ def main():
     snap = u.snapshot(); sel0, trk0 = u.tracks()
     saved = {}
     for t in range(4):
-        u.select(t); saved[t] = {p: (lambda r: (r[2] | r[3] << 7) - 8192)(u.req(2, [0, p])) for p in (REV, DLY, CHO, P_LEN, P_PTRN, P_SPRP, P_SPACE, P_FDBK, P_SEND, P_TONE, PID["VCE"], PID["GLD"], PID["ATK"], PID["DEC"], PID["SUS"], PID["REL"])}
+        u.select(t); saved[t] = {p: (lambda r: (r[2] | r[3] << 7) - 8192)(u.req(2, [0, p])) for p in (REV, DLY, CHO) + DUB_IDS + (PID["VCE"], PID["GLD"], PID["ATK"], PID["DEC"], PID["SUS"], PID["REL"])}
     saved_g = {g: u.get_global(g) for g in (G_RTYPE, G_BPM, G_CLK)}
     banks0 = banks_select(u, BANK)
     runs = [c for c in cells for _ in range(REPS)]
@@ -524,7 +528,7 @@ def main():
         try: u.req(74, [3])
         except Exception: pass
         time.sleep(0.5)
-        u.select(0); u.req(3, [0, P_LEN, *v14(0)]); time.sleep(0.5)
+        u.select(0); u.req(3, [0, P_ECHO, *v14(0)]); time.sleep(0.5)
         for k in range(4): u.req(73, [k, 1, banks0[k]])
         u.putback(snap)
         for t in range(4):

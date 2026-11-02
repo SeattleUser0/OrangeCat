@@ -1,11 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Orange Cat Release 2: DUB TAPE as the per-track insert (firmware/src/jfx_dub.c, mix.c, jfx.c jfx_dub_mem), through the whole mix as the firmware runs it.
- *   OFF      LEN OFF takes no DUB memory and the output is the same as with no DUB (bit for bit, the dry path untouched)
- *   ECHO     LEN 16K, SINGLE, 1/8 at 120 BPM: the output equals the OFF render until the first echo (one block of input delay, the converters), then differs
+ * Orange Cat Release 2, redone in round 13: DUB TAPE as the per-track insert (firmware/src/jfx_dub.c, mix.c, jfx.c jfx_dub_mem), through the whole mix as the firmware runs it.
+ *   OFF      ECHO 0 (never run) takes no DUB memory and the output is the same as with no DUB (bit for bit, the dry path untouched)
+ *   ECHO     ECHO 100, both taps at 1/8 at 120 BPM: the output equals the OFF render until the first echo (one block of input delay, the converters), then differs
  *   FULL     the memory not there: the track plays dry and says so (DUB FULL), then the memory comes and the echo with it
- *   CHANGE   LEN to OFF, to another length, the spring toggled, in the middle of a tail: no click (the ramp), the memory given back or taken again
- *   STAGE    a pattern whose longest head does not fit LEN at the half rate runs at the quarter rate (SLAP 1/8 at 120 BPM, 24K), and clamps TIME when it does
- *            not fit there either; the rate back at the half rate when the TIME comes down
+ *   CHANGE   ECHO to 0 (muted, the memory kept, given back after an idle time), the spring turned up in a tail (no memory change), TIME up (the line grows) and down (it stays)
+ *   STAGE    the line is sized from the times: 1/2 at 120 BPM at the half rate, 1/1 at the quarter rate, 1/1 dotted clamped; the rate and the size are sticky
  *   RESET    a project load (jfx_clear_all) silences the tails at once; a yield to an engine gives the memory back and it comes again
  *   FOUR     four tracks with DUB at 16K hold their memory beside four MACRO tracks
  *   STALE    a project of an older magic loses its motion events on the DUB TAPE lanes
@@ -16,24 +15,27 @@
 #define RES_HOST_DATA_WORDS (4216u / 4u)
 #define RES_HOST_RETAINED_WORDS (816u / 4u)
 #define UI_TEST_NO_MAIN 1
+#define DUB_IDLE 700u                                  /* (blocks an ECHO 0 instance stays: 8 s on the unit, 0.5 s here) */
 #include "ui_test.c"
 #include <assert.h>
 #include <math.h>
 
 static int bad;
+#define GMIX(blk) do { static uint32_t gq; if (!(gq++ & 3u)) dub_late_half(0, 1200u); mix_block((blk), CTL); } while (0)
 #define CHECK(c, ...) do { if (!(c)) { bad++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 #define NBLK 2600u                                     /* 1.9 s */
 static int32_t rec[NBLK][CTL * 2];
 
-static void dt_fresh(uint32_t len, uint32_t ptrn, uint32_t space, uint32_t bpm, uint32_t spring)
+/* on: ECHO 100 (else 0); idl, idr: the synced divisions of TIME L and TIME R (dub_sync_beats: 6 = 1/8, 9 = 1/4, 12 = 1/2, 15 = 1/1, 16 = 1/1 dotted) */
+static void dt_fresh(uint32_t on, int idl, int idr, uint32_t bpm)
 {
     ui_power_on();
     song.master_q12 = 4096; song.g[G_LEVEL] = 0; song.g[G_BPM] = (int16_t)bpm; song.playing = 0;
     set_engine_of(&trk[0], ENGI_MACRO);
     apply_preset_to(&trk[0], 8);
-    for (uint32_t k = 0; k < NPART; k++) trk[k].p[P_DUBLEN] = 0;
-    trk[0].p[P_DUBLEN] = (int16_t)len; trk[0].p[P_DUBPTRN] = (int16_t)ptrn; trk[0].p[P_DUB_SPACE] = (int16_t)space; trk[0].p[P_DUBSPRP] = (int16_t)spring;
-    trk[0].p[P_DUB_FDBK] = 60; trk[0].p[P_DUB_SEND] = 127; trk[0].p[P_DUB_TONE] = 60;
+    for (uint32_t k = 0; k < NPART; k++) trk[k].p[P_DUB_ECHO] = 0;
+    trk[0].p[P_DUB_ECHO] = on ? 100 : 0; trk[0].p[P_DUB_TIML] = (int16_t)dub_t_val(idl); trk[0].p[P_DUB_TIMR] = (int16_t)dub_t_val(idr);
+    trk[0].p[P_DUB_MODE] = DUB_MODE_MARK | 1; trk[0].p[P_DUB_FDBK] = 60; trk[0].p[P_DUB_SEND] = 127; trk[0].p[P_DUB_FILT] = 60;
 }
 static void dt_render(uint32_t from, uint32_t to)
 {
@@ -53,30 +55,21 @@ static int32_t (*base)[CTL * 2];
 
 int main(void)
 {
-    {   /* (round 5) LEN: OFF, then 32K, then the other sizes; every name maps to the blocks it says (4 KB each), and a turn up from OFF lands on 32K */
-        const param_desc_t *d = param_desc_of(eng_idx(0), P_DUBLEN);
-        static const char *const want[7] = {"OFF", "32K", "8K", "16K", "24K", "48K", "64K"};
-        static const uint8_t kb[7] = {0, 32, 8, 16, 24, 48, 64};
-        uint32_t q, ok = 1;
-        for (q = 0; q < 7; q++) ok &= strcmp(d->names[q], want[q]) == 0 && dub_len_blocks[q] == kb[q] / 4u;
-        CHECK(ok && d->def == 0 && d->max == 6, "LEN's names or blocks are out of order");
-        printf("dub insert: LEN OFF, 32K, 8K, 16K, 24K, 48K, 64K: the first step up from OFF is %s (%u blocks)\n", d->names[1], dub_len_blocks[1]);
-    }
     uint32_t b, first = 0;
     int32_t maxstep, dry_step = 0;
     base = malloc(sizeof rec);
 
     /* OFF: no DUB memory; the reference render */
-    dt_fresh(0, 1, 24, 120, 0);
+    dt_fresh(0, 6, 6, 120);
     dt_render(0, NBLK);
     memcpy(base, rec, sizeof rec);
     {   int32_t pk = 0; for (b = 0; b < NBLK; b++) for (uint32_t i = 0; i < CTL * 2; i++) { int32_t a = rec[b][i] < 0 ? -rec[b][i] : rec[b][i]; if (a > pk) pk = a; }
         printf("dub insert: the dry render's peak %d\n", pk); CHECK(pk > 5000, "the dry render is silent"); }
-    CHECK(!dub_state[0] && !dub_have[0] && !dub_want[0], "LEN OFF holds DUB memory");
-    CHECK(!(jfx_full & 0xF0u), "LEN OFF says DUB FULL");
+    CHECK(!dub_state[0] && !dub_have[0] && !dub_want[0], "ECHO 0 holds DUB memory");
+    CHECK(!(jfx_full & 0xF0u), "ECHO 0 says DUB FULL");
 
-    /* ECHO: SPACE 24 = 1/8, at 120 BPM 0.25 s = 11025 samples = 345 blocks */
-    dt_fresh(3, 1, 24, 120, 0);
+    /* ECHO: both taps at 1/8, at 120 BPM 0.25 s = 11025 samples = 345 blocks */
+    dt_fresh(1, 6, 6, 120);
     dt_render(0, NBLK);
     CHECK(dub_ready[0] && dub_have[0] == 4, "16K should hold 4 blocks: ready %u have %u", dub_ready[0], dub_have[0]);
     for (b = 0; b < NBLK && !memcmp(rec[b], base[b], sizeof rec[b]); b++) ;
@@ -87,14 +80,14 @@ int main(void)
     printf("dub insert: the echo's energy %lld\n", (long long)diff_energy(rec, (const int32_t (*)[CTL * 2])base, 4 + 345, NBLK));
 
     /* FULL: the arena held by something else: the track plays dry and says DUB FULL, then the memory comes when it is released */
-    dt_fresh(0, 1, 24, 120, 0);
+    dt_fresh(0, 6, 6, 120);
     {   static const uint32_t hog[] = { RES_JFX0 + JB_DLY0, RES_JFX0 + JB_DLY0 + 1, RES_JFX0 + JB_DLY0 + 2, RES_JFX0 + JB_DLY0 + 3, RES_JFX0 + JB_DLY0 + 4, RES_JFX0 + JB_DLY0 + 5, RES_JFX0 + JB_DLY0 + 6, RES_JFX0 + JB_DLY0 + 7 };   /* (the DELAY's line blocks: no delay send, so nothing else wants them) */
         uint32_t k;
         for (k = 0; k < sizeof hog / sizeof hog[0]; k++) {
             uint32_t size = 80000u;
             while (size >= 700u && !resource_allocate(hog[k], size)) size -= 700u;      /* (each takes the largest piece left in some bank) */
         }
-        trk[0].p[P_DUBLEN] = 3;
+        trk[0].p[P_DUB_ECHO] = 100;
         for (b = 0; b < 40; b++) mix_block(rec[b], CTL);
         CHECK(!dub_ready[0], "DUB took memory the arena did not have");
         CHECK(jfx_full & 0x10u, "DUB FULL should show on track 1: jfx_full %x", jfx_full);
@@ -108,7 +101,7 @@ int main(void)
     }
 
     /* a short instance asks again when its own want comes down, with nothing released since (the review's second fault) */
-    dt_fresh(0, 1, 24, 120, 0);
+    dt_fresh(0, 6, 6, 120);
     song.ntrk = 1;                                       /* (round 10: a track in use holds its engine's state from the switch; the probe below counts the blocks beside one state) */
     for (uint32_t k = 1; k < NPART; k++) eng_state_clear(k);
     {   static const uint32_t hog[] = { RES_JFX0 + JB_DLY0, RES_JFX0 + JB_DLY0 + 1, RES_JFX0 + JB_DLY0 + 2, RES_JFX0 + JB_DLY0 + 3, RES_JFX0 + JB_DLY0 + 4, RES_JFX0 + JB_DLY0 + 5, RES_JFX0 + JB_DLY0 + 6, RES_JFX0 + JB_DLY0 + 7 };
@@ -117,44 +110,51 @@ int main(void)
             uint32_t size = 80000u;
             while (size >= 700u && !resource_allocate(hog[k], size)) size -= 700u;
         }
-        resource_release(hog[1]);                        /* a bank's piece comes back: room for a short line, not for 64K */
-        {   uint32_t n = 0, q, ok = 0;                   /* how many 4 KB blocks fit beside the common block and one state, probed on spare handles */
-            static const uint8_t table[7] = {0, 8, 2, 4, 6, 12, 16};
+        resource_release(hog[1]); resource_release(hog[2]); resource_release(hog[3]);     /* a bank's pieces come back: room for a short line (4 blocks at least: the floor), not for 16 */
+        {   uint32_t n = 0, q; int32_t ok = 0;                 /* how many 4 KB blocks fit beside the common block and one state, probed on spare handles */
+            int32_t v;
             resource_allocate(RES_JFX0 + JB_DUBC, sizeof(dub_common_t));
             resource_allocate(RES_JFX0 + JB_DUBS0 + 3, DUB_STATE_BYTES);
             while (n < 16 && resource_allocate(RES_JFX0 + JB_DUBG0 + 16 + n, JFX_SEG * sizeof(int16_t))) n++;
             for (q = 0; q < n; q++) resource_release(RES_JFX0 + JB_DUBG0 + 16 + q);
             resource_release(RES_JFX0 + JB_DUBS0 + 3);
             resource_release(RES_JFX0 + JB_DUBC);
-            for (q = 1; q <= 6; q++) if (table[q] + 0u <= n && table[q] >= 2 && (!ok || table[q] > table[ok])) ok = q;      /* (the largest line that fits: the index order is no longer the size order) */
-            printf("dub insert: %u blocks fit beside the common block and a state; the lowered LEN index %u\n", n, ok);
-            trk[0].p[P_DUBLEN] = 6;                          /* 64K: 16 blocks, more than fit */
+            for (v = 127; v >= 0 && !ok; v--) {            /* the longest free time whose line fits the blocks that do: the line is sized from the times now */
+                float need = (float)dub_free_ms10(v) * 1e-4f * 22050.0f + 64.0f;
+                if (dub_blocks_at(need, 2u) <= n) ok = v;
+            }
+            printf("dub insert: %u blocks fit beside the common block and a state; the lowered free TIME %d\n", n, ok);
+            trk[0].p[P_DUB_MODE] = DUB_MODE_MARK;            /* free times */
+            trk[0].p[P_DUB_TIML] = trk[0].p[P_DUB_TIMR] = 127;     /* 1.4 s: 16 blocks, more than fit */
+            trk[0].p[P_DUB_ECHO] = 100;
             for (b = 0; b < 60; b++) mix_block(rec[b], CTL);
-            CHECK(!dub_ready[0] && (jfx_full & 0x10u), "64K should not fit: ready %u full %x", dub_ready[0], jfx_full);
-            trk[0].p[P_DUBLEN] = (int16_t)ok;
+            CHECK(!dub_ready[0] && (jfx_full & 0x10u), "16 blocks should not fit: ready %u full %x", dub_ready[0], jfx_full);
+            trk[0].p[P_DUB_TIML] = trk[0].p[P_DUB_TIMR] = (int16_t)ok;
             for (b = 60; b < 200; b++) mix_block(rec[b], CTL);
             CHECK(ok && dub_ready[0], "the lowered want should be taken with nothing released: state %u have %u full %x", dub_i[0].state, dub_have[0], jfx_full);
         }
     }
     song.ntrk = NTRK;
     /* the setting back to what it was during the ramp (the review's first fault): the instance runs again */
-    dt_fresh(3, 1, 24, 120, 0);
+    dt_fresh(1, 6, 6, 120);
     for (b = 0; b < 40; b++) mix_block(rec[b], CTL);
-    trk[0].p[P_DUBLEN] = 4;
-    for (b = 40; b < 43; b++) mix_block(rec[b], CTL);
-    trk[0].p[P_DUBLEN] = 3;
-    for (b = 43; b < 700; b++) mix_block(rec[b], CTL);
-    CHECK(dub_i[0].state == 2 && dub_ready[0], "LEN back during the ramp: state %u ready %u", dub_i[0].state, dub_ready[0]);
+    CHECK(dub_i[0].state == 2 && dub_have[0] == 4, "1/8 at 120 BPM: a 16K line: state %u have %u", dub_i[0].state, dub_have[0]);
+    trk[0].p[P_DUB_TIML] = (int16_t)dub_t_val(12);       /* TIME L up to 1/2 (1 s): the line grows (a ramp, the memory changes, a restart) */
+    for (b = 40; b < 400; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].state == 2 && dub_ready[0] && dub_have[0] == 12, "TIME up: the line grows to 12 blocks: state %u ready %u have %u", dub_i[0].state, dub_ready[0], dub_have[0]);
+    trk[0].p[P_DUB_TIML] = (int16_t)dub_t_val(6);        /* and TIME down again: the line stays (sticky), nothing is cut */
+    for (b = 400; b < 700; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].state == 2 && dub_ready[0] && dub_have[0] == 12, "TIME down: the line stays: state %u ready %u have %u", dub_i[0].state, dub_ready[0], dub_have[0]);
 
-    /* CHANGE: LEN to OFF in the middle of the tail: no step bigger than the signal's own */
-    dt_fresh(0, 1, 24, 120, 0);                          /* the OFF render's own largest step over the same blocks, both channels */
+    /* CHANGE: ECHO to 0 in the middle of the tail: no step bigger than the signal's own (the kernel's cut); the instance and its memory stay for the idle time, then go back */
+    dt_fresh(0, 6, 6, 120);                          /* the OFF render's own largest step over the same blocks, both channels */
     dt_render(0, 900);
     {   int32_t d1 = 0; for (b = 800; b < 900; b++) for (uint32_t i = 1; i < CTL * 2; i++) { int32_t d = rec[b][i] - rec[b][i - 1]; if (i == CTL) continue; if (d < 0) d = -d; if (d > d1) d1 = d; } dry_step = d1; }
-    dt_fresh(3, 1, 24, 120, 0);
+    dt_fresh(1, 6, 6, 120);
     dt_render(0, 800);
     maxstep = 0;
     {   int32_t last = rec[799][CTL * 2 - 1];
-        trk[0].p[P_DUBLEN] = 0;
+        trk[0].p[P_DUB_ECHO] = 0;
         for (b = 800; b < 900; b++) {
             if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100);
             if (b % 120u == 64u) trk_note_off(&trk[0], 60);
@@ -162,42 +162,48 @@ int main(void)
             for (uint32_t i = 0; i < CTL * 2; i++) { int32_t d = rec[b][i] - last; if (i == CTL) { last = rec[b][i]; continue; } if (d < 0) d = -d; if (d > maxstep) maxstep = d; last = rec[b][i]; }
         }
     }
-    printf("dub insert: LEN to OFF in a tail, the largest step %d (full scale 524288)\n", maxstep);
-    CHECK(maxstep < 40000 && maxstep < 3 * dry_step + 3000, "a click at LEN OFF: %d (the dry render's own step %d)", maxstep, dry_step);
-    for (b = 900; b < 910; b++) mix_block(rec[b], CTL);
-    CHECK(!dub_state[0] && !dub_have[0], "the memory was not given back after LEN OFF");
-    trk[0].p[P_DUBLEN] = 4;                              /* and on again at another length */
-    for (b = 910; b < 1000; b++) mix_block(rec[b], CTL);
-    CHECK(dub_ready[0] && dub_have[0] == 6, "LEN 24K not taken: ready %u have %u", dub_ready[0], dub_have[0]);
-    trk[0].p[P_DUBSPRP] = 1;                             /* the spring on: the memory taken again with the spring's */
-    for (b = 1000; b < 1100; b++) mix_block(rec[b % NBLK], CTL);
-    CHECK(dub_ready[0] && dub_spbuf[0], "the spring's memory not taken");
+    printf("dub insert: ECHO to 0 in a tail, the largest step %d (full scale 524288)\n", maxstep);
+    CHECK(maxstep < 40000 && maxstep < 3 * dry_step + 3000, "a click at ECHO 0: %d (the dry render's own step %d)", maxstep, dry_step);
+    CHECK(dub_ready[0] && dub_have[0] == 4, "ECHO 0 keeps the instance for the idle time: ready %u have %u", dub_ready[0], dub_have[0]);
+    trk[0].p[P_DUB_ECHO] = 100;                          /* back up inside the idle time: the same instance, no restart */
+    for (b = 900; b < 1000; b++) mix_block(rec[b], CTL);
+    CHECK(dub_i[0].state == 2 && dub_ready[0] && dub_have[0] == 4 && dub_i[0].idle == 0, "ECHO back up: the same instance runs: state %u idle %u", dub_i[0].state, dub_i[0].idle);
+    trk[0].p[P_DUB_ECHO] = 0;
+    for (b = 1000; b < 1000 + DUB_IDLE + 40; b++) mix_block(rec[b % NBLK], CTL);
+    CHECK(!dub_state[0] && !dub_have[0], "the memory was not given back after the idle time at ECHO 0");
+    trk[0].p[P_DUB_ECHO] = 100;                          /* and on again */
+    for (b = 910; b < 1010; b++) mix_block(rec[b], CTL);
+    CHECK(dub_ready[0] && dub_have[0] == 4, "ECHO up again not taken: ready %u have %u", dub_ready[0], dub_have[0]);
+    trk[0].p[P_DUB_SPRG] = 80;                           /* the spring turned up: nothing about the memory changes (the spring's was taken with the instance), no restart */
+    {   uint32_t st0 = dub_i[0].state; int16_t *sp0 = dub_spbuf[0];
+        for (b = 1000; b < 1100; b++) mix_block(rec[b % NBLK], CTL);
+        CHECK(dub_ready[0] && dub_spbuf[0] && dub_spbuf[0] == sp0 && dub_i[0].state == st0 && st0 == 2, "SPRING restarted or lost the instance: state %u -> %u", st0, dub_i[0].state);
+    }
 
-    /* STAGE: SLAP 1/8 at 120 BPM: farthest head 0.75 s */
-    dt_fresh(4, 0, 24, 120, 0);                          /* 24K: 12,288 samples; the half rate needs 16,597: the quarter rate */
+    /* STAGE: the line is sized from the times. 1/2 at 120 BPM (1 s): 12 blocks at the half rate; 1/1 (2 s): the half rate would need 22, so the quarter rate and 12 blocks;
+     * 1/1 dotted (3 s): more than 16 blocks even at the quarter rate: the tap clamps, no crash */
+    dt_fresh(1, 12, 12, 120);
     dt_render(0, 300);
-    CHECK(dub_i[0].R == 4, "SLAP 1/8 at 24K should run at the quarter rate, R %u", dub_i[0].R);
-    dt_fresh(5, 0, 24, 120, 0);                          /* 48K: 24,576: the half rate */
+    CHECK(dub_i[0].R == 2 && dub_have[0] == 12, "1/2 at 120 BPM should be 12 blocks at the half rate: R %u have %u", dub_i[0].R, dub_have[0]);
+    dt_fresh(1, 15, 15, 120);
     dt_render(0, 300);
-    CHECK(dub_i[0].R == 2, "SLAP 1/8 at 48K should run at the half rate, R %u", dub_i[0].R);
-    dt_fresh(2, 0, 24, 120, 0);                          /* 8K: 4,096 samples: not even the quarter rate (8,300): TIME clamps, no crash */
+    CHECK(dub_i[0].R == 4 && dub_have[0] == 12, "1/1 at 120 BPM should be 12 blocks at the quarter rate: R %u have %u", dub_i[0].R, dub_have[0]);
+    dt_fresh(1, 16, 16, 120);
     dt_render(0, 400);
-    CHECK(dub_i[0].R == 4, "SLAP 1/8 at 8K: R %u", dub_i[0].R);
+    CHECK(dub_i[0].R == 4 && dub_have[0] == 16, "1/1 dotted: 16 blocks at the quarter rate, the tap clamped: R %u have %u", dub_i[0].R, dub_have[0]);
     {   int32_t pk = 0;
         for (b = 0; b < 400; b++) for (uint32_t i = 0; i < CTL * 2; i++) { int32_t a = rec[b][i] < 0 ? -rec[b][i] : rec[b][i]; if (a > pk) pk = a; }
         CHECK(pk < 1500000, "the clamped TIME misbehaves: peak %d", pk);
     }
-    /* the TIME comes down: back to the half rate (1/32 SLAP: 0.1875 s) */
-    trk[0].p[P_DUBLEN] = 4;
-    for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
-    trk[0].p[P_DUB_SPACE] = 0;   /* 1/32 */
+    /* sticky: the TIME comes down and the line and the rate stay (no cut for passing through a range) */
+    trk[0].p[P_DUB_TIML] = trk[0].p[P_DUB_TIMR] = (int16_t)dub_t_val(0);
     for (b = 0; b < 600; b++) mix_block(rec[b], CTL);
-    CHECK(dub_i[0].R == 2, "back at the half rate when the TIME comes down: R %u", dub_i[0].R);
+    CHECK(dub_i[0].R == 4 && dub_have[0] == 16 && dub_i[0].state == 2, "the line should stay when TIME comes down: R %u have %u state %u", dub_i[0].R, dub_have[0], dub_i[0].state);
 
-    /* a tempo still settling must not switch the rate stage (and clear the line): BPM 50 for 100 blocks and back; 1/8 SINGLE at 16K needs 7,398 of 8,192 samples at 90 BPM */
-    dt_fresh(3, 1, 24, 90, 0);
+    /* a tempo still settling must not switch the rate stage (and clear the line): BPM 50 for 100 blocks and back; 1/2 at 90 BPM (1.33 s) needs 14.4 blocks at the half rate, at 50 BPM (2.4 s) 26 */
+    dt_fresh(1, 12, 12, 90);
     for (b = 0; b < 400; b++) mix_block(rec[b], CTL);
-    CHECK(dub_i[0].R == 2, "1/8 at 90 BPM on 16K should run at the half rate: R %u", dub_i[0].R);
+    CHECK(dub_i[0].R == 2, "1/2 at 90 BPM should run at the half rate: R %u", dub_i[0].R);
     song.g[G_BPM] = 50;
     for (b = 0; b < 100; b++) mix_block(rec[b], CTL);
     song.g[G_BPM] = 90;
@@ -208,9 +214,9 @@ int main(void)
     CHECK(dub_i[0].R == 4, "a lasting slow tempo should move the line to the quarter rate: R %u", dub_i[0].R);
     song.g[G_BPM] = 90;
     for (b = 0; b < 1200; b++) mix_block(rec[b], CTL);
-    CHECK(dub_i[0].R == 2, "and back when the tempo returns (the band 0.95 .. 1.0 of the line): R %u", dub_i[0].R);
+    CHECK(dub_i[0].R == 4, "and the rate stays at the quarter rate when the tempo returns (sticky until the instance goes): R %u", dub_i[0].R);
     /* RESET and YIELD: the output after a project load equals the OFF render (no old echo plays; the instance restarts, its first new echo a TIME away) */
-    dt_fresh(0, 1, 24, 120, 0);
+    dt_fresh(0, 6, 6, 120);
     dt_render(0, 400);
     jfx_clear_all();
     for (b = 400; b < 800; b++) {
@@ -219,7 +225,7 @@ int main(void)
         mix_block(rec[b], CTL);
     }
     memcpy(base, rec, sizeof rec);
-    dt_fresh(3, 1, 24, 120, 0);
+    dt_fresh(1, 6, 6, 120);
     dt_render(0, 400);
     jfx_clear_all();
     for (b = 400; b < 800; b++) {
@@ -245,7 +251,7 @@ int main(void)
     resource_host_cache_enabled = 0;
     res_lend_ok = 0;
     song.master_q12 = 4096; song.g[G_LEVEL] = 0; song.g[G_BPM] = 120; song.playing = 0; song.g[G_DTIME] = 1;
-    for (uint32_t k = 0; k < NPART; k++) { set_engine_of(&trk[k], ENGI_MACRO); apply_preset_to(&trk[k], 8); trk[k].p[P_DUBLEN] = 0; }
+    for (uint32_t k = 0; k < NPART; k++) { set_engine_of(&trk[k], ENGI_MACRO); apply_preset_to(&trk[k], 8); trk[k].p[P_DUB_ECHO] = 0; }
     for (b = 0; b < 4; b++) mix_block(rec[b % NBLK], CTL);
     for (uint32_t k = 0; k < NPART; k++) { eng_state_clear(k); trk[k].engine = 0; }   /* as a project load or power-on leaves the tracks: the engines named (eng_req), nothing held, no preset hook run */
     for (b = 4; b < 8; b++) mix_block(rec[b % NBLK], CTL);
@@ -254,7 +260,7 @@ int main(void)
         printf("dub insert: STATE: four MACRO tracks from a project load, %u of %u states held before any note\n", held, trk_n());
         CHECK(held == trk_n(), "a track in use should hold its engine's state from the switch, not from its first note: %u of %u", held, trk_n());
     }
-    trk[0].p[P_DUBLEN] = 1; trk[0].p[P_DUBPTRN] = 0; trk[0].p[P_DUB_SPACE] = 24; trk[0].p[P_DUB_FDBK] = 60; trk[0].p[P_DUB_SEND] = 127;
+    trk[0].p[P_DUB_ECHO] = 100; trk[0].p[P_DUB_TIML] = (int16_t)dub_t_val(6); trk[0].p[P_DUB_TIMR] = (int16_t)dub_t_val(9); trk[0].p[P_DUB_FDBK] = 60; trk[0].p[P_DUB_SEND] = 127;
     trk[0].p[P_REV] = trk[0].p[P_DLY] = trk[0].p[P_CHOR] = 64;
     for (uint32_t k = 2; k < NPART; k++) { trk[k].engine = trk[k].eng_req = 0; eng_state_clear(k); }   /* tracks 3 and 4: no engine, their handles the fillers' */
     for (b = 8; b < 300; b++) { if (b == 12) trk_note_on(&trk[0], 60, 100); mix_block(rec[b % NBLK], CTL); }
@@ -323,7 +329,7 @@ int main(void)
         CHECK(dub_ready[0] || (jfx_full & JFX_FULL_DUB0), "after the yield DUB neither came back nor says DUB FULL");
         resource_release(RES_ENGINE0 + 2); resource_release(RES_ENGINE0 + 3);
     }
-    trk[0].p[P_REV] = trk[0].p[P_DLY] = trk[0].p[P_CHOR] = 0; trk[0].p[P_DUBLEN] = 0;
+    trk[0].p[P_REV] = trk[0].p[P_DLY] = trk[0].p[P_CHOR] = 0; trk[0].p[P_DUB_ECHO] = 0;
 
     /* FOUR: four tracks, 16K each, beside four MACRO tracks (the cache RAM ready and the card's slots lent, as the unit has them idle) */
     ui_power_on();
@@ -333,7 +339,7 @@ int main(void)
     for (uint32_t k = 0; k < NPART; k++) {
         set_engine_of(&trk[k], ENGI_MACRO);
         apply_preset_to(&trk[k], 8);
-        trk[k].p[P_DUBLEN] = 3; trk[k].p[P_DUBPTRN] = 1; trk[k].p[P_DUB_SPACE] = 24;
+        trk[k].p[P_DUB_ECHO] = 100;
     }
     for (b = 0; b < 200; b++) {
         if (b == 4) for (uint32_t k = 0; k < NPART; k++) trk_note_on(&trk[k], 60 + (int)k, 100);
@@ -350,7 +356,7 @@ int main(void)
     for (uint32_t k = 0; k < NPART; k++) {
         set_engine_of(&trk[k], ENGI_MACRO);
         apply_preset_to(&trk[k], 8);
-        trk[k].p[P_DUBLEN] = 5; trk[k].p[P_DUBPTRN] = 1; trk[k].p[P_DUB_SPACE] = 24;       /* 48K x 4 */
+        trk[k].p[P_DUB_ECHO] = 100; trk[k].p[P_DUB_TIML] = trk[k].p[P_DUB_TIMR] = (int16_t)dub_t_val(9);       /* 1/4 at 120 BPM (0.5 s): 6 blocks x 4 */
     }
     for (b = 0; b < 400; b++) mix_block(rec[b], CTL);
     {   uint32_t before = dub_ready[0] + dub_ready[1] + dub_ready[2] + dub_ready[3], after, h;
@@ -365,7 +371,7 @@ int main(void)
         for (h = 0; h < 8; h++) resource_release(RES_JFX0 + JB_DLY0 + h);
     }
     /* CPU PROTECTION: CPU1 retired: the instances are released, DUB FULL shows; back after 2 s */
-    dt_fresh(3, 1, 24, 120, 0);
+    dt_fresh(1, 6, 6, 120);
     for (b = 0; b < 200; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
     CHECK(dub_ready[0], "the instance should be running before the degrade");
     dub_force_degrade = 1;
@@ -376,80 +382,110 @@ int main(void)
     for (b = 0; b < 2900; b++) mix_block(rec[b % NBLK], CTL);
     CHECK(dub_ready[0] && !(jfx_full & 0xF0u), "back after CPU1 returned for 2 s: ready %u jfx_full %x", dub_ready[0], jfx_full);
     /* the governor: late halves while an instance runs: it gives way, stays out until its setting changes */
-    for (b = 0; b < 6; b++) { dub_late_half(1); dub_late_half(1); mix_block(rec[b], CTL); }
-    for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
+    for (b = 0; b < 6; b++) { dub_late_half(1, 3000u); dub_late_half(1, 3000u); GMIX(rec[b]); }
+    for (b = 0; b < 200; b++) GMIX(rec[b]);
     CHECK(!dub_state[0] && (jfx_full & 0x10u), "the governor should have released the instance with DUB FULL: jfx_full %x", jfx_full);
-    for (b = 0; b < 3000; b++) mix_block(rec[b % NBLK], CTL);
+    for (b = 0; b < 3000; b++) GMIX(rec[b % NBLK]);
     CHECK(!dub_state[0], "a governed instance must stay out for 8 s");
-    for (b = 0; b < 4000; b++) { if (b % 400u == 0) dub_late_half(1); mix_block(rec[b % NBLK], CTL); }                 /* late halves go on: it stays out, past the 8 s */
+    for (b = 0; b < 4000; b++) { if (b % 400u == 0) dub_late_half(1, 3000u); GMIX(rec[b % NBLK]); }                 /* late halves go on: it stays out, past the 8 s */
     CHECK(!dub_state[0], "a governed instance must stay out while late halves go on");
-    for (b = 0; b < 3500; b++) mix_block(rec[b % NBLK], CTL);                                                            /* (block ~10,700 after the release: just before the 8 s are out) */
-    dub_late_half(1);                                                                                                    /* a late half now: the 2 s of quiet start over */
-    for (b = 0; b < 2000; b++) mix_block(rec[b % NBLK], CTL);
+    for (b = 0; b < 3500; b++) GMIX(rec[b % NBLK]);                                                            /* (block ~10,700 after the release: just before the 8 s are out) */
+    dub_late_half(1, 3000u);                                                                                                    /* a late half now: the 2 s of quiet start over */
+    for (b = 0; b < 2000; b++) GMIX(rec[b % NBLK]);
     CHECK(!dub_state[0], "the 2 s of quiet must wait for a late half that came at the end of the 8 s");
-    for (b = 0; b < 1500; b++) mix_block(rec[b % NBLK], CTL);                                                            /* quiet: after 8 s and 2 s of quiet it asks again */
+    for (b = 0; b < 1500; b++) GMIX(rec[b % NBLK]);
+    CHECK(!dub_state[0], "the window still holds the heavy half: no room yet");
+    for (b = 0; b < 44000; b++) GMIX(rec[b % NBLK]);                                                           /* quiet: after the wait, 2 s of quiet and 32 s without a heavy half it asks again */
     CHECK(dub_ready[0], "a governed instance must come back after 8 s and 2 s without a late half: state %u", dub_i[0].state);
-    for (b = 0; b < 6; b++) { dub_late_half(1); dub_late_half(1); mix_block(rec[b], CTL); }                              /* and again, to test the setting-change release */
-    for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
+    for (b = 0; b < 6; b++) { dub_late_half(1, 3000u); dub_late_half(1, 3000u); GMIX(rec[b]); }                              /* and again, to test the setting-change release */
+    for (b = 0; b < 200; b++) GMIX(rec[b]);
     CHECK(!dub_state[0], "the governor should have released it again");
     CHECK(dub_i[0].gov_wait > 21000u && dub_i[0].gov_wait <= 22000u, "the second governor release in a row should wait twice as long: %u", dub_i[0].gov_wait);
-    trk[0].p[P_DUBLEN] = 4;
-    for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
+    trk[0].p[P_DUB_ECHO] = 100; trk[0].p[P_DUB_TIML] = trk[0].p[P_DUB_TIMR] = (int16_t)dub_t_val(9);
+    for (b = 0; b < 300; b++) GMIX(rec[b]);
     CHECK(dub_ready[0], "a new setting asks again: ready %u", dub_ready[0]);
-    /* the governor counts late halves only while an instance runs (the review): a configuration change's 150 late halves with LEN OFF do not evict the instance that comes next */
-    dt_fresh(0, 1, 24, 120, 0);
-    for (b = 0; b < 100; b++) { dub_late_half(1); mix_block(rec[b], CTL); }
-    for (b = 0; b < 4000; b++) mix_block(rec[b % NBLK], CTL);
-    trk[0].p[P_DUBLEN] = 3;
-    for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
-    CHECK(dub_ready[0] && dub_i[0].state == 2, "late halves before the instance existed must not evict it: state %u", dub_i[0].state);
-    /* a lone late half does not stay for good: one now, then 3 s clean, then one more: no eviction */
-    dub_late_half(1);
-    for (b = 0; b < 4000; b++) { dub_late_half(0); mix_block(rec[b % NBLK], CTL); }
-    dub_late_half(1);
-    for (b = 0; b < 50; b++) mix_block(rec[b], CTL);
-    CHECK(dub_i[0].state == 2, "two late halves seconds apart must not evict: state %u", dub_i[0].state);
+    /* round 14: late halves before the instance existed are the mix's heaviest, and the window keeps them: no room for the instance that comes next, DUB FULL; 32 s lighter and it starts */
+    dt_fresh(0, 6, 6, 120);
+    for (b = 0; b < 100; b++) { dub_late_half(1, 3000u); mix_block(rec[b], CTL); }
+    for (b = 0; b < 4000; b++) GMIX(rec[b % NBLK]);
+    trk[0].p[P_DUB_ECHO] = 100;
+    for (b = 0; b < 300; b++) GMIX(rec[b]);
+    CHECK(!dub_ready[0] && (jfx_full & 0x10u), "no room after heavy halves: it must wait with DUB FULL (state %u full %x)", dub_i[0].state, jfx_full);
+    for (b = 0; b < 44000; b++) GMIX(rec[b % NBLK]);
+    CHECK(dub_ready[0] && dub_i[0].state == 2, "32 s of lighter halves: it should start: state %u", dub_i[0].state);
+    /* the window itself, counted in halves with no instance: one heavy half is remembered for 8 buckets of 1376 halves, then forgotten */
+    dub_reset(); dub_late_half(0, 2640u);
+    for (b = 0; b < 8u * 1376u - 1u - 1u; b++) dub_late_half(0, 1000u);
+    CHECK(!dub_headroom(), "a heavy half is still in the window after 7 buckets and a bit");
+    for (b = 0; b < 1376u + 2u; b++) dub_late_half(0, 1000u);
+    CHECK(dub_headroom(), "a heavy half is forgotten after 8 buckets");
+    /* round 14: a lone half over 85 % gives way at once (no score), with a quiet half in between nothing does */
+    for (b = 0; b < 4000; b++) { dub_late_half(0, 2000u); GMIX(rec[b % NBLK]); }
+    CHECK(dub_i[0].state == 2, "halves at 2000 us (69 %%) must not evict: state %u", dub_i[0].state);
+    dub_late_half(0, 2400u);
+    CHECK(dub_i[0].state == 2 && !dub_gov_req, "a half at 83 %% must not evict");
+    dub_late_half(0, 2500u); GMIX(rec[0]);
+    for (b = 0; b < 40; b++) GMIX(rec[b]);
+    CHECK(dub_i[0].state != 2 && (jfx_full & 0x10u) , "a lone half at 86 %% should give way at once, DUB FULL: state %u full %x", dub_i[0].state, jfx_full);
+    /* the headroom: a mix whose heaviest half (91 %) leaves no room for an instance keeps it out, however long the wait */
+    for (b = 0; b < 16000; b++) { dub_late_half(0, (b % 700u) == 0 ? 2640u : 1500u); GMIX(rec[b % NBLK]); }
+    CHECK(!dub_state[0] && dub_gov_fires > 0, "no headroom: the instance must stay out");
+    for (b = 0; b < 40000; b++) { dub_late_half(0, 1500u); GMIX(rec[b % NBLK]); }
+    CHECK(dub_ready[0], "headroom again after 32 s of lighter halves: it should be back (state %u)", dub_i[0].state);
     /* the parameter copy follows the track's values although it is made again only when they change (the cache): SPACE, TONE, FDBK, CUT, the tempo */
-    dt_fresh(3, 1, 24, 120, 0);
+    dt_fresh(1, 6, 6, 120);
     for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
-    {   float t0 = dub_cm->p[0].time, lp0 = dub_cm->p[0].lp, fb0 = dub_cm->p[0].feedback;
-        trk[0].p[P_DUB_SPACE] = 12; trk[0].p[P_DUB_TONE] = 20; trk[0].p[P_DUB_FDBK] = 90;
+    {   float t0 = dub_cm->p[0].time_l, lp0 = dub_cm->p[0].lp, fb0 = dub_cm->p[0].feedback;
+        trk[0].p[P_DUB_TIML] = (int16_t)dub_t_val(3); trk[0].p[P_DUB_FILT] = 20; trk[0].p[P_DUB_FDBK] = 90;     /* 1/32 .. 1/16 */
         for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
-        CHECK(dub_cm->p[0].time < 0.6f * t0 && dub_cm->p[0].lp != lp0 && dub_cm->p[0].feedback > fb0, "the parameter copy did not follow: time %f -> %f, lp %f -> %f, fb %f -> %f", t0, dub_cm->p[0].time, lp0, dub_cm->p[0].lp, fb0, dub_cm->p[0].feedback);
-        {   float t1 = dub_cm->p[0].time;
+        CHECK(dub_cm->p[0].time_l < 0.6f * t0 && dub_cm->p[0].lp != lp0 && dub_cm->p[0].feedback > fb0, "the parameter copy did not follow: time %f -> %f, lp %f -> %f, fb %f -> %f", t0, dub_cm->p[0].time_l, lp0, dub_cm->p[0].lp, fb0, dub_cm->p[0].feedback);
+        {   float t1 = dub_cm->p[0].time_l;
             song.g[G_BPM] = 60;
             for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
-            CHECK(dub_cm->p[0].time > 1.8f * t1 && dub_cm->p[0].time < 2.2f * t1, "the tempo change did not reach TIME: %f -> %f", t1, dub_cm->p[0].time); }
-        trk[0].p[P_DUB_CUT] = 127;
+            CHECK(dub_cm->p[0].time_l > 1.8f * t1 && dub_cm->p[0].time_l < 2.2f * t1, "the tempo change did not reach TIME: %f -> %f", t1, dub_cm->p[0].time_l); }
+        {   float s0 = dub_cm->p[0].speed, w0 = dub_cm->p[0].wow, d0 = dub_cm->p[0].drive, sp0 = dub_cm->p[0].sp_mix;     /* (the new ones: SPEED, WOW, DRIVE and SPRING follow, and PING) */
+            dub_put_field(trk[0].p, DUBF_WOW, 11); dub_put_field(trk[0].p, DUBF_DRIVE, 15); dub_put_field(trk[0].p, DUBF_PING, 1);
+            trk[0].p[P_DUB_SPD] = 96; trk[0].p[P_DUB_SPRG] = 100;
+            for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+            CHECK(dub_cm->p[0].wow > w0 + 0.9f && dub_cm->p[0].drive > d0 + 0.5f && dub_cm->p[0].ping == 1 && dub_cm->p[0].speed > 1.3f * s0 && dub_cm->p[0].sp_mix > sp0 + 0.5f,
+                  "the parameter copy did not follow SPEED, WOW, DRIVE, SPRING, PING: wow %f, drive %f, ping %d, speed %f, spring %f", dub_cm->p[0].wow, dub_cm->p[0].drive, dub_cm->p[0].ping, dub_cm->p[0].speed, dub_cm->p[0].sp_mix);
+        }
+        dub_trig[0][1] = 127;                           /* CC 17: CUT */
         for (b = 0; b < 150; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
-        CHECK(dub_cm->p[0].cut == 1, "CUT did not reach the parameter copy");
-        trk[0].p[P_DUB_CUT] = 0;
+        CHECK(dub_cm->p[0].cut == 1, "CUT (the trigger) did not reach the parameter copy");
+        dub_trig[0][1] = 0;
+        trk[0].p[P_DUB_ECHO] = 0;                       /* ECHO 0 mutes: the kernel's cut */
+        for (b = 0; b < 150; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }
+        CHECK(dub_cm->p[0].cut == 1, "ECHO 0 should cut the instance");
+        trk[0].p[P_DUB_ECHO] = 100;
     }
-    /* UNUSED: the lanes are inert and the memory is back with LEN OFF */
+    /* UNUSED: the lanes are inert and the memory is back with ECHO 0 */
     {   uint32_t used0, used1;
-        dt_fresh(0, 1, 24, 120, 0);
+        dt_fresh(0, 6, 6, 120);
         dt_render(0, 400);
         used0 = resource_used();
-        CHECK(!dub_cm && !dub_state[0], "LEN OFF: no DUB memory at all");
+        CHECK(!dub_cm && !dub_state[0], "ECHO 0: no DUB memory at all");
         memcpy(base, rec, sizeof rec);
-        dt_fresh(0, 1, 24, 120, 0);
-        for (b = 0; b < 400; b++) {                      /* the seven driven to extremes as a motion lane would (FDBK 127, SEND 0, CUT and KICK at 127, THRW 127, SPACE 127) */
-            trk[0].p[P_DUB_FDBK] = (int16_t)(b & 1 ? 127 : 0); trk[0].p[P_DUB_SEND] = (int16_t)(b & 2 ? 127 : 0); trk[0].p[P_DUB_TONE] = (int16_t)(b & 4 ? 127 : 0);
-            trk[0].p[P_DUB_SPACE] = (int16_t)(b & 8 ? 127 : 0); trk[0].p[P_DUB_THRW] = (int16_t)(b & 16 ? 127 : 0); trk[0].p[P_DUB_CUT] = (int16_t)(b & 32 ? 127 : 0); trk[0].p[P_DUB_KICK] = (int16_t)(b & 64 ? 127 : 0);
+        dt_fresh(0, 6, 6, 120);
+        for (b = 0; b < 400; b++) {                      /* the other values driven to extremes as a motion lane would (ECHO stays 0), and the triggers */
+            trk[0].p[P_DUB_FDBK] = (int16_t)(b & 1 ? 127 : 0); trk[0].p[P_DUB_SEND] = (int16_t)(b & 2 ? 127 : 0); trk[0].p[P_DUB_FILT] = (int16_t)(b & 4 ? 127 : 0);
+            trk[0].p[P_DUB_SPD] = (int16_t)(b & 8 ? 127 : 0); trk[0].p[P_DUB_TIML] = (int16_t)(b & 16 ? 127 : 0); trk[0].p[P_DUB_SPRG] = (int16_t)(b & 32 ? 127 : 0); trk[0].p[P_DUB_TIMR] = (int16_t)(b & 64 ? 127 : 0);
+            dub_trig[0][0] = (uint8_t)(b & 1 ? 127 : 0); dub_trig[0][1] = (uint8_t)(b & 2 ? 127 : 0); dub_trig[0][2] = (uint8_t)(b & 4 ? 127 : 0);
             if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100);
             if (b % 120u == 64u) trk_note_off(&trk[0], 60);
             mix_block(rec[b], CTL);
         }
         used1 = resource_used();
-        CHECK(!diff_energy(rec, (const int32_t (*)[CTL * 2])base, 0, 400), "motion on the seven changed the output with LEN OFF");
-        CHECK(used0 == used1 && !dub_cm, "LEN OFF with the lanes moving took memory: %u vs %u", used0, used1);
-        printf("dub insert: with LEN OFF the seven lanes at extremes change nothing (bit for bit) and take no memory\n");
+        CHECK(!diff_energy(rec, (const int32_t (*)[CTL * 2])base, 0, 400), "motion on the lanes changed the output with ECHO 0");
+        CHECK(used0 == used1 && !dub_cm, "ECHO 0 with the lanes moving took memory: %u vs %u", used0, used1);
+        printf("dub insert: with ECHO 0 the lanes and triggers at extremes change nothing (bit for bit) and take no memory\n");
+        memset(dub_trig, 0, sizeof dub_trig);
     }
     /* STALE: an older magic drops the lanes */
     {   motion_store_t m;
         memset(&m, 0, sizeof m);
         m.count = 3;
-        m.event[0].param = P_DUB_TONE; m.event[1].param = P_LEVEL; m.event[2].param = P_DUB_KICK;
+        m.event[0].param = P_DUB_FILT; m.event[1].param = P_LEVEL; m.event[2].param = P_DUB_SPRG;
         proj_motion_drop_dub(&m);
         CHECK(m.count == 1 && m.event[0].param == P_LEVEL, "the old FX 3 and TONE lanes should go: count %u", m.count);
     }

@@ -36,18 +36,11 @@ _Static_assert(DD_BLOCK == CTL, "a job a block");
 #define DUB_HOLD 24u                                    /* blocks past the farthest head that an instance keeps running after the last audible input or wet */
 #define DUB_THR 132                                     /* -72 dB of the mix domain */
 #define DUB_RAMP 6u                                     /* blocks of cut before a change (the kernel's ramp is 3 ms = 4.1 blocks) */
-static const uint8_t dub_len_blocks[7] = {0, 8, 2, 4, 6, 12, 16};   /* P_DUBLEN: OFF 32K 8K 16K 24K 48K 64K, in blocks of 4 KB (round 5: a turn up from OFF lands on 32K) */
-/* the 14 synced divisions of SPACE's first half, in beats (1/32 .. 1/1) */
-static const float dub_div_beats[14] = {0.125f, 1.0f / 6.0f, 0.25f, 1.0f / 3.0f, 0.375f, 0.5f, 2.0f / 3.0f, 0.75f, 1.0f, 4.0f / 3.0f, 1.5f, 2.0f, 3.0f, 4.0f};
-typedef struct { uint8_t n; float h[DD_TAPS], lv[DD_TAPS], pan[DD_TAPS], fb[DD_TAPS], m; } dub_ptrn_t;
-static const dub_ptrn_t dub_ptrn[6] = {                 /* heads in steps of TIME; m: the farthest */
-    {2, {1, 3, 0, 0}, {.75f, .5f, 0, 0}, {.3f, -.4f, 0, 0}, {.2f, .8f, 0, 0}, 3.0f},              /* SLAP */
-    {1, {1, 0, 0, 0}, {.9f, 0, 0, 0}, {0, 0, 0, 0}, {1, 0, 0, 0}, 1.0f},                          /* SINGLE */
-    {2, {1, 1.5f, 0, 0}, {.8f, .5f, 0, 0}, {-.3f, .3f, 0, 0}, {.6f, .4f, 0, 0}, 1.5f},            /* SKANK */
-    {3, {1, 2, 3, 0}, {.7f, .55f, .4f, 0}, {.3f, -.3f, 0, 0}, {.3f, .3f, .4f, 0}, 3.0f},          /* TRIPLE */
-    {2, {.75f, 1, 0, 0}, {.6f, .8f, 0, 0}, {-.4f, .4f, 0, 0}, {.3f, .7f, 0, 0}, 1.0f},            /* GALLOP */
-    {4, {1, 2, 4, 6}, {.6f, .5f, .4f, .3f}, {-.6f, .6f, -.3f, .3f}, {.25f, .25f, .25f, .25f}, 6.0f}   /* SPREAD */
-};
+#define DUB_FLOOR 4u                                    /* blocks: the smallest line (round 13: the line is sized from the times, a floor of 16 KB) */
+#define DUB_MAXB 16u                                    /* DD_MAXBLK */
+#ifndef DUB_IDLE
+#define DUB_IDLE 11000u                                 /* blocks (8 s) an instance stays after its ECHO went to 0: muted, memory kept, so ECHO back up has the repeats still there */
+#endif
 enum { DUBS_OFF, DUBS_WAIT, DUBS_RUN, DUBS_RAMP, DUBS_CLEAR };
 typedef struct {
     uint8_t state, R, ramp, clr, run, kick_prev, was_on, pend_R, evict, held_off, gov;   /* evict: ramp out and let go (a bus needs the memory, the CPU is short); held_off: not asking again (see dub_held_off) */
@@ -59,6 +52,8 @@ typedef struct {
     uint32_t psig, rsig;                                /* a hash of what the parameter copy / the rate stage were made from: unchanged, not made again */
     float rneed;                                        /* the farthest head's samples at the half rate, from rsig */
     uint8_t gov_sig;                                    /* the (blocks, spring) a governor eviction was made for: a different setting asks again */
+    uint16_t idle;                                      /* blocks ECHO has been 0 while the instance stayed */
+    uint8_t st_R, st_blk;                               /* the sticky size: the lowest rate and the most blocks this instance has needed (turning TIME down never shrinks the line) */
     uint16_t hold, hold_len;                            /* blocks the instance runs and its track stays mixed past the last audible input or wet; the refresh (the farthest head and 24) */
     uint32_t crash;
 } dub_i_t;
@@ -81,6 +76,8 @@ static inline int32_t *dub_capture(uint32_t k)
 }
 static inline int dub_alive(uint32_t k) { return k < DUB_N && dub_i[k].hold && (dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP); }
 
+/* what a governor eviction was made for: the user's settings (the times, the mode, the speed, the tempo), not the sizes, which fall back when the instance ends */
+static inline uint8_t dub_gov_key(const dub_i_t *d) { return (uint8_t)(d->rsig ^ d->rsig >> 8 ^ d->rsig >> 16 ^ d->rsig >> 24); }
 /* the job: every instance flagged in dub_mask, on the previous block's capture */
 DUB_HOT static void dub_run(void)
 {
@@ -95,32 +92,52 @@ DUB_HOT static void dub_run(void)
 static void dub_kernel(const void *data, int32_t *pcm) { (void)data; (void)pcm; dub_run(); }
 static void dub_merge(const void *data, const int32_t *pcm, uint32_t n) { (void)data; (void)pcm; (void)n; dub_done = 1; }
 
-/* track t's parameters for its instance: FDBK SEND TONE SPACE THRW CUT KICK, and the setup */
-JFX_XIP static void dub_map(uint32_t k, const track_t *t, dd_params_t *p, uint32_t R, uint32_t nblk, float *need)
+/* the two taps' delays in seconds at normal speed (round 13: TIME L and TIME R, on the beat from the tempo in use, or free in milliseconds) */
+JFX_XIP static void dub_times(const track_t *t, float *tl, float *tr)
 {
-    const dub_ptrn_t *pt = &dub_ptrn[clamp(t->p[P_DUBPTRN], 0, 5)];
-    int32_t space = clamp(t->p[P_DUB_SPACE], 0, 127), tone = clamp(t->p[P_DUB_TONE], 0, 127), thr = clamp(t->p[P_DUB_THRW], 0, 127);
-    int32_t sp = clamp(t->p[P_DUBSPRP], 0, 2), idx = (space < 64 ? space : 63) * 14 / 64, sm = space >= 64 ? space - 64 : 0;   /* SPACE (SPEC 9.3.2): delay time on the first half of the travel (the 14 synced divisions), the spring's mix on the second (the time stays at the last division) */
-    float time = dub_div_beats[idx] * (float)beat_samples() * (1.0f / (float)FS), fsl = (float)DD_FS / (float)R, lines = (float)(nblk << DD_BLK_SH), maxt;
-    uint32_t j;
+    float beat = (float)beat_samples() * (1.0f / (float)FS);
+    if (dub_get_sync(t->p)) { *tl = dub_sync_beats[dub_t_idx(t->p[P_DUB_TIML])] * beat; *tr = dub_sync_beats[dub_t_idx(t->p[P_DUB_TIMR])] * beat; }
+    else { *tl = (float)dub_free_ms10(t->p[P_DUB_TIML]) * 1e-4f; *tr = (float)dub_free_ms10(t->p[P_DUB_TIMR]) * 1e-4f; }
+}
+/* track t's parameters for its instance: the ten ids (dub_fields.h) and the triggers */
+JFX_XIP static void dub_map(uint32_t k, const track_t *t, dd_params_t *p)
+{
+    int32_t filt = clamp(t->p[P_DUB_FILT], 0, 127), thr = dub_trig[k & 3u][0], echo = clamp(t->p[P_DUB_ECHO], 0, 127);
     dub_i_t *d = &dub_i[k];
-    maxt = (lines - 48.0f) / (pt->m * fsl);              /* the farthest head must fit the line: TIME clamps at the quarter rate */
-    if (need) *need = pt->m * time * fsl + 48.0f;
-    if (time > maxt) time = maxt;
     memset(p, 0, sizeof *p);
-    p->time = time;
-    for (j = 0; j < DD_TAPS; j++) { p->head[j] = pt->h[j]; p->level[j] = pt->lv[j]; p->pan[j] = pt->pan[j]; p->fbw[j] = pt->fb[j]; }
+    dub_times(t, &p->time_l, &p->time_r);
+    p->ping = dub_get_ping(t->p);
+    p->speed = ddm_exp((float)(clamp(t->p[P_DUB_SPD], 0, 127) - DUB_SPD_MID) * (0.69314718f / (float)DUB_SPD_MID));   /* 2^((v - 64) / 64) */
+    p->wow = (float)dub_get_wow(t->p) * (1.0f / (float)(DUB_WOW_N - 1));
     p->feedback = (float)clamp(t->p[P_DUB_FDBK], 0, 127) * 0.01f;
     p->send = (float)(thr ? thr : clamp(t->p[P_DUB_SEND], 0, 127)) * (1.0f / 127.0f);   /* a throw replaces SEND */
-    if (tone < 64) { p->lp = 30.0f + 1.4f * (float)tone; p->hp = 15.0f; }                  /* one sweep: low-pass down .. */
-    else { p->lp = 119.0f; p->hp = 15.0f + 1.6f * (float)(tone - 64); }                    /* .. high-pass up */
-    p->res = 0.3f; p->drive = 0.4f; p->wet = 1.0f; p->dry = 0.0f; p->glide = 0.12f; p->route = 1;
-    p->spring = (int)sp; p->sp_mix = (float)sm * (1.0f / 63.0f); p->sp_decay = 2.0f; p->sp_drive = 0.4f; p->sp_tone = 0.3f; p->sp_in = sp == 2 ? 0.3f : 0.0f;
+    if (filt < 64) { p->lp = 30.0f + 1.4f * (float)filt; p->hp = 15.0f; }                  /* one sweep: low-pass down .. */
+    else { p->lp = 119.0f; p->hp = 15.0f + 1.6f * (float)(filt - 64); }                    /* .. high-pass up */
+    p->res = 0.3f; p->drive = (float)dub_get_drive(t->p) * (1.0f / (float)(DUB_DRIVE_N - 1)); p->wet = (float)echo * 0.01f; p->dry = 0.0f; p->glide = 0.12f; p->route = 1;
+    p->spring = 2; p->sp_mix = (float)clamp(t->p[P_DUB_SPRG], 0, 127) * (1.0f / 127.0f); p->sp_decay = 2.0f; p->sp_drive = 0.4f; p->sp_tone = 0.3f; p->sp_in = 0.3f;   /* the spring on the return, always there */
     p->tap_cut = 0.0f;
     p->crash = d->crash;
-    p->cut = clamp(t->p[P_DUB_CUT], 0, 127) >= 64;
+    p->cut = dub_trig[k & 3u][1] >= 64 || !echo;                                        /* CUT, and ECHO 0: muted, the line kept */
     p->cut_wet = 1;
     p->lim_ceil = 0.891f;                                  /* -1 dBFS */
+}
+/* the farthest tap in half-rate loop samples (the line wants this and 64 more), at the slow side of SPEED up to the line's own limit */
+JFX_XIP static float dub_far(const track_t *t)
+{
+    float tl, tr, f;
+    dub_times(t, &tl, &tr);
+    f = tl > tr ? tl : tr;
+    {   int32_t sv = clamp(t->p[P_DUB_SPD], 0, 127);
+        if (sv < DUB_SPD_MID) f *= ddm_exp((float)(DUB_SPD_MID - sv) * (0.69314718f / (float)DUB_SPD_MID)); }     /* a slower tape: the delay is longer */
+    return f * ((float)DD_FS / 2.0f) + 64.0f;
+}
+/* the blocks the line wants at the rate R (2: 22,050 Hz, 4: 11,025 Hz) for a half-rate need */
+static uint32_t dub_blocks_at(float need2, uint32_t R)
+{
+    float x = (R == 2u ? need2 : (need2 - 64.0f) * 0.5f + 64.0f);
+    uint32_t n = (uint32_t)((x + (float)(DD_BLK_N - 1u)) * (1.0f / (float)DD_BLK_N));
+    n = (n + 1u) & ~1u;                                 /* even: a line grows in steps of 8 KB */
+    return n < DUB_FLOOR ? DUB_FLOOR : n;
 }
 
 /* before the tracks, every block (mix.c): the pair swapped, each instance's state advanced, the job pushed first */
@@ -133,37 +150,58 @@ JFX_XIP static void dub_map(uint32_t k, const track_t *t, dd_params_t *p, uint32
 #else
 #define DUB_CPU1_OK() 1                                  /* (a host build: no second core to lose; tests use dub_force_degrade) */
 #endif
-/* audio.c, the end of every half: a late half while an instance ran. Two late halves within about a second (the score falls by 1/344 a half) and the highest running instance
- * gives way: ramped out, DUB FULL, and it stays out until its track's setting changes (or a new project): the safety net under the voice caps' third column */
-static __attribute__((section(".pool"))) uint16_t dub_gov_score, dub_gov_cool, dub_late_recent;      /* dub_late_recent: blocks left of the quiet a governor release waits for, set by every late half */
+/* audio.c, the end of every half (round 14): the governor acts on the time the DMA sees, with headroom, and before a half is late. A running instance whose half passes 85 % of the deadline
+ * (DUB_BACK_US, the overload shed's line) is the one to give way, at the first such half: ramped out over DUB_RAMP blocks, DUB FULL, and it comes back only after the wait (8, 16, 32 s), 2 s
+ * without a half over the line, and headroom: the heaviest half of the last 32 s, seen while no instance ran, plus what an instance costs (DUB_COST_US) must still be under the line
+ * (a mix whose note-on halves are at 91 % alone never admits one: DUB stays out and says DUB FULL). The same headroom is asked of a new instance. */
+#define DUB_BACK_US ((HALF_FRAMES * 1000000u / FS) * 85u / 100u)
+#define DUB_COST_US 450u                                /* what an instance adds to the heaviest half (measured: the load meter 16 -> 30 % with DUB on, round 13) */
+#define DUB_ADMIT_US (DUB_BACK_US - DUB_COST_US)
+#define DUB_PK_HALVES 1376u                             /* a bucket of the peak window: 4 s of halves; 8 of them, 32 s */
+static __attribute__((section(".pool"))) uint16_t dub_gov_cool, dub_late_recent, dub_pk[8], dub_pk_n;     /* dub_late_recent: blocks left of the quiet a governor release waits for, set by every half over the line */
+static __attribute__((section(".pool"))) uint8_t dub_pk_i;
 #define DUB_GOV_WAIT 11000u                             /* 8 s */
 #define DUB_QUIET 2750u                                 /* 2 s */
 static __attribute__((section(".pool"))) uint32_t dub_gov_fires;                          /* governor evictions since power-on (the readout) */
 #ifndef OC_DUB_NOGOV
 #define OC_DUB_NOGOV 0
 #endif
-JFX_XIP static void dub_late_half(int late)
+static void dub_pk_note(uint32_t us)
+{
+    if (us > 65535u) us = 65535u;
+    if (us > dub_pk[dub_pk_i]) dub_pk[dub_pk_i] = (uint16_t)us;
+}
+/* room for an instance: the heaviest half of the window with the instance's cost on it stays under the line */
+static int dub_headroom(void)
+{
+    uint32_t i, m = 0;
+    uint32_t n = 0;
+    for (i = 0; i < 8; i++) if (dub_pk[i] > m) m = dub_pk[i];
+    for (i = 0; i < DUB_N; i++) n += dub_i[i].state == DUBS_RUN || dub_i[i].state == DUBS_RAMP;
+    return m + DUB_COST_US * n < DUB_ADMIT_US;           /* (each instance already running costs as much again) */
+}
+JFX_XIP static void dub_late_half(int late, uint32_t us)
 {
     uint32_t k, running = 0;
 #if OC_DUB_NOGOV                                        /* (round 5, a measurement build only: the governor never releases an instance, so a load over the budget can be timed with DUB running) */
-    (void)late; (void)k; (void)running;
+    (void)late; (void)us; (void)k; (void)running;
     return;
 #endif
-    if (late) dub_late_recent = DUB_QUIET;
     for (k = 0; k < DUB_N; k++) running |= dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP;
-    if (!running) {                                     /* a late half with no instance running is no business of DUB's: the score and the cool-down start over */
-        dub_gov_score = dub_gov_cool = 0;
-        return;
+    if (!running) {                                     /* no instance: this half is the mix alone, and the window remembers its heaviest */
+        dub_pk_note(us);
+        dub_gov_cool = 0;
+    } else if (late || us > DUB_BACK_US) {
+        dub_late_recent = DUB_QUIET;
+        if (!dub_gov_cool) {
+            dub_gov_req = 1;
+            dub_gov_cool = 12u;                         /* the ramp (6 blocks) is under way: the next judges after about 35 ms */
+            dub_gov_fires++;
+        }
     }
-    dub_gov_score = (uint16_t)(dub_gov_score - (dub_gov_score + 343u) / 344u);        /* (rounded up: a lone late half does not stay for good) */
-    if (late && dub_gov_score < 60000u) dub_gov_score = (uint16_t)(dub_gov_score + 256u);
-    if (dub_gov_cool) dub_gov_cool--;
-    else if (dub_gov_score >= 480u) {
-        dub_gov_req = 1;
-        dub_gov_score = 0;
-        dub_gov_cool = 172u;                            /* half a second before it judges again */
-        dub_gov_fires++;
-    }
+    if (dub_gov_cool && running) dub_gov_cool--;
+    if (running) return;                                /* the window is the mix alone: it stands still while an instance runs (it must not empty under a long run) */
+    if (++dub_pk_n >= DUB_PK_HALVES) { dub_pk_n = 0; dub_pk_i = (uint8_t)((dub_pk_i + 1u) & 7u); dub_pk[dub_pk_i] = 0; }
 }
 /* an instance running: the voice caps' third column (voice.c vc_limit) */
 static int dub_running(void) { return dub_mask != 0; }
@@ -186,7 +224,7 @@ JFX_XIP static void dub_start(uint32_t nt)
     if (dub_gov_req) {                                  /* the governor: the highest running instance gives way */
         dub_gov_req = 0;
         for (k = DUB_N; k-- > 0;)
-            if (dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP) {
+            if ((dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP) && !dub_i[k].evict) {
                 dub_i[k].evict = 1;
                 dub_i[k].gov = 1;
                 break;
@@ -195,16 +233,33 @@ JFX_XIP static void dub_start(uint32_t nt)
     for (k = 0; k < DUB_N; k++) {
         dub_i_t *d = &dub_i[k];
         const track_t *t = &trk[k];
-        uint32_t blocks = k < nt ? dub_len_blocks[clamp(t->p[P_DUBLEN], 0, 6)] : 0u, sp = k < nt ? (uint32_t)(clamp(t->p[P_DUBSPRP], 0, 2) != 0) : 0u, R = 2u;
+        uint32_t blocks = 0u, sp, R = 2u;
         float need = 0.0f;
+        int on = k < nt && t->p[P_DUB_ECHO] != 0, deb = 0, live = d->state == DUBS_RUN || d->state == DUBS_RAMP;
         d->run = 0;
-        if (blocks && !d->was_on && !t->p[P_DUB_FDBK] && !t->p[P_DUB_SEND] && !t->p[P_DUB_TONE] && !t->p[P_DUB_SPACE]) {
-            trk[k].p[P_DUB_FDBK] = param_desc_of(eng_idx(t->eng_req), P_DUB_FDBK)->def;      /* OFF to a length with all four at zero (an old project's): the defaults */
-            trk[k].p[P_DUB_SEND] = param_desc_of(eng_idx(t->eng_req), P_DUB_SEND)->def;
-            trk[k].p[P_DUB_TONE] = param_desc_of(eng_idx(t->eng_req), P_DUB_TONE)->def;
-            trk[k].p[P_DUB_SPACE] = param_desc_of(eng_idx(t->eng_req), P_DUB_SPACE)->def;
+        if (on) d->idle = 0;
+        else if (k < nt && (d->state == DUBS_RUN || d->state == DUBS_RAMP) && d->idle < DUB_IDLE) { on = 1; d->idle++; }   /* ECHO 0: muted, the instance and its memory stay a while */
+        if (!live) { d->st_R = 0; d->st_blk = 0; d->idle = 0; }           /* (the size is sticky only while the line runs: one that is waiting for memory asks for what the times need now) */
+        if (on) {                                           /* the size from the times: the rate stage (half rate while the farthest tap fits 16 blocks, quarter rate when it does not) and the blocks, sticky */
+            uint32_t rs = (uint32_t)(t->p[P_DUB_TIML] & 127) * 0x9E3779B1u ^ (uint32_t)(t->p[P_DUB_TIMR] & 127) * 0x85EBCA6Bu ^ (uint32_t)(t->p[P_DUB_MODE] & 1) * 0xC2B2AE35u ^ (uint32_t)(t->p[P_DUB_SPD] & 127) * 0x165667B1u ^ beat_samples() * 0x27D4EB2Fu ^ 1u;
+            if (rs != d->rsig) { d->rneed = dub_far(t); d->rsig = rs; }       /* (made again only when a time, the mode, the speed or the tempo changed) */
+            need = d->rneed;
+            if (!d->st_R) d->st_R = 2u;
+            if (dub_blocks_at(need, 2u) > DUB_MAXB) R = 4u;
+            if (d->st_R == 4u) R = 4u;
+            if (d->state == DUBS_RUN && R != d->R) { if (d->rdeb < 344u) { d->rdeb++; R = d->R; deb = 1; } } else d->rdeb = 0;
+            if (R > d->st_R) { d->st_R = (uint8_t)R; d->st_blk = 0; }
+            blocks = dub_blocks_at(need, d->st_R);
+            if (blocks > DUB_MAXB) blocks = DUB_MAXB;
+            if (deb || blocks < d->st_blk) blocks = d->st_blk;    /* (a rate change still being waited for: the line as it is; the sticky size) */
+            if ((d->state == DUBS_RUN || d->state == DUBS_RAMP) && blocks > dub_have[k] && dub_pool_room(k) < blocks) blocks = dub_have[k] ? dub_have[k] : blocks;   /* the pool cannot grow it: the echo that is running stays as it is (its taps clamp to the line) */
+            d->st_blk = (uint8_t)blocks;
+            R = d->st_R;
+            {   float farsec = (need - 64.0f) / ((float)DD_FS / 2.0f), lim = ((float)(blocks << DD_BLK_SH) - 48.0f) / ((float)DD_FS / (float)R);   /* seconds to the farthest tap and the line's limit */
+                if (farsec > lim) farsec = lim;
+                d->hold_len = (uint16_t)(farsec * ((float)DD_FS / (float)CTL) + (float)DUB_HOLD); }
         }
-        d->was_on = blocks != 0;
+        sp = blocks ? 1u : 0u;                              /* the spring's memory is on every running instance (SPRING never cuts the echo to attach it) */
         if (dub_evict & (1u << k)) {                    /* a bus needs the memory (jfx.c jfx_dub_mem): ramp out and let go */
             dub_evict &= (uint8_t)~(1u << k);
             if (d->state == DUBS_RUN || d->state == DUBS_RAMP) d->evict = 1;
@@ -212,34 +267,20 @@ JFX_XIP static void dub_start(uint32_t nt)
         }
         if (degrade && (d->state == DUBS_RUN || d->state == DUBS_RAMP)) { d->evict = 1; d->gov = 0; }
         else if (degrade && (d->state == DUBS_WAIT || d->state == DUBS_CLEAR)) { dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF; d->held_off = 1; d->gov = 0; }
-        if (blocks && d->state != DUBS_OFF) {               /* the rate stage: the half rate while the farthest head fits, the quarter rate when it does not (an instance held off does not need it) */
-            float lines = (float)(blocks << DD_BLK_SH);
-            uint32_t rs = (uint32_t)(t->p[P_DUBPTRN] & 7) * 0x9E3779B1u ^ (uint32_t)t->p[P_DUB_SPACE] * 0x85EBCA6Bu ^ blocks * 0xC2B2AE35u ^ beat_samples() * 0x27D4EB2Fu ^ 1u;
-            if (rs != d->rsig) {                            /* (made again only when the pattern, the time, the length or the tempo changed) */
-                dd_params_t tmp;
-                dub_map(k, t, &tmp, 2u, blocks, &d->rneed);
-                d->rsig = rs;
-            }
-            need = d->rneed;
-            R = (d->R == 4u ? need <= 0.95f * lines : need <= lines) ? 2u : 4u;
-            if (d->state == DUBS_RUN && R != d->R) { if (d->rdeb < 344u) { d->rdeb++; R = d->R; } } else d->rdeb = 0;
-            {   float farsec = (need - 48.0f) / ((float)DD_FS / 2.0f), lim = (lines - 48.0f) / ((float)DD_FS / (float)R);   /* seconds to the farthest head (need is at the half rate), and the line's limit */
-                if (farsec > lim) farsec = lim;
-                d->hold_len = (uint16_t)(farsec * ((float)DD_FS / (float)CTL) + (float)DUB_HOLD); }
-        }
-        {   int rise = clamp(t->p[P_DUB_KICK], 0, 127) >= 64;
+        {   int rise = dub_trig[k & 3u][2] >= 64;
             if (rise && !d->kick_prev) d->crash++;
             d->kick_prev = (uint8_t)rise; }
         switch (d->state) {
         case DUBS_OFF:
             if (blocks) {
-                if (d->held_off && d->gov && (uint8_t)(blocks | sp << 5) != d->gov_sig) { d->gov = 0; d->gov_n = 0; }      /* the setting changed: it asks again, from the first wait */
+                if (d->held_off && d->gov && dub_gov_key(d) != d->gov_sig) { d->gov = 0; d->gov_n = 0; }      /* the setting changed: it asks again, from the first wait */
                 if (d->held_off && d->gov) {                                                              /* a governor release is not for good: after 8 s, and 2 s without a late half, it asks again (a transient is forgiven, a lasting overload is not) */
                     if (d->gov_wait) d->gov_wait--;
-                    if (!d->gov_wait && !dub_late_recent) d->gov = 0;
+                    if (!d->gov_wait && !dub_late_recent && dub_headroom()) d->gov = 0;
                 }
                 if (d->held_off && !d->gov && !degrade) d->held_off = 0;
                 else if (!d->held_off && degrade) d->held_off = 1;
+                if (!d->held_off && !dub_headroom()) { dub_ev_full |= (uint8_t)(JFX_FULL_DUB0 << k); break; }      /* the mix leaves no room for it (round 14): dry, DUB FULL, asked again every block */
                 if (d->held_off) { dub_ev_full |= (uint8_t)(JFX_FULL_DUB0 << k); break; }               /* CPU short: dry, DUB FULL */
                 dub_want[k] = (uint8_t)blocks; dub_spring[k] = (uint8_t)sp; d->R = (uint8_t)R; d->state = DUBS_WAIT;
             } else d->held_off = d->gov = d->gov_n = 0;
@@ -251,7 +292,7 @@ JFX_XIP static void dub_start(uint32_t nt)
             if (dub_ready[k] && dub_fresh[k]) {
                 dd_t *dd = dub_dd(k);
                 dk_init(dd, (int)d->R, dub_line[k], dub_have[k]);
-                if (dub_spring[k]) dk_spring_attach(dd, dub_spbuf[k]);
+                if (dub_spbuf[k]) dk_spring_attach(dd, dub_spbuf[k]);
                 dd->cut_g = dd->cutw_g = 0.0f;              /* the input ramped in */
                 memset(dub_wet[k], 0, sizeof dub_wet[k]);
                 memset(dub_x[0][k], 0, sizeof dub_x[0][k]); memset(dub_x[1][k], 0, sizeof dub_x[1][k]);
@@ -275,7 +316,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                     d->evict = 0;
                     dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF;
                     d->held_off = (uint8_t)(degrade || d->gov);
-                    d->gov_sig = (uint8_t)(blocks | sp << 5);
+                    d->gov_sig = dub_gov_key(d);
                     if (d->gov) {
                         d->gov_wait = (uint16_t)(DUB_GOV_WAIT << (d->gov_n > 2 ? 2 : d->gov_n));
                         if (d->gov_n < 3) d->gov_n++;
@@ -295,7 +336,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                 dd_t *dd = dub_dd(k);
                 d->R = d->pend_R;
                 dk_init(dd, (int)d->R, dub_line[k], dub_have[k]);
-                if (dub_spring[k]) dk_spring_attach(dd, dub_spbuf[k]);
+                if (dub_spbuf[k]) dk_spring_attach(dd, dub_spbuf[k]);
                 dd->cut_g = dd->cutw_g = 0.0f;
                 memset(dub_wet[k], 0, sizeof dub_wet[k]);
                 d->pvalid = 0;
@@ -311,18 +352,19 @@ JFX_XIP static void dub_start(uint32_t nt)
             if (pk > DUB_THR) d->hold = d->hold_len;
             if (d->hold) {
                 dd_params_t *p = &dub_p[k];
-                uint32_t ps = ((uint32_t)(t->p[P_DUBPTRN] & 7) | (uint32_t)(t->p[P_DUBSPRP] & 3) << 3 | (uint32_t)d->R << 5 | (uint32_t)dub_have[k] << 8 | (uint32_t)(d->state == DUBS_RAMP) << 13 | (uint32_t)(t->p[P_DUB_CUT] >= 64) << 14) * 0x9E3779B1u
-                              ^ ((uint32_t)t->p[P_DUB_SPACE] | (uint32_t)t->p[P_DUB_TONE] << 8 | (uint32_t)t->p[P_DUB_FDBK] << 16 | (uint32_t)t->p[P_DUB_SEND] << 24) * 0x85EBCA6Bu
-                              ^ ((uint32_t)t->p[P_DUB_THRW] | d->crash << 8) * 0xC2B2AE35u ^ beat_samples() * 0x27D4EB2Fu;
+                uint32_t ps = ((uint32_t)(t->p[P_DUB_MODE] & 3) | (uint32_t)d->R << 2 | (uint32_t)dub_have[k] << 5 | (uint32_t)(d->state == DUBS_RAMP) << 10 | (uint32_t)(dub_trig[k][1] >= 64) << 11 | (uint32_t)(t->p[P_DUB_ECHO] == 0) << 12 | (uint32_t)(t->p[P_DUB_TAPE] + 64) << 13) * 0x9E3779B1u
+                              ^ ((uint32_t)t->p[P_DUB_FILT] | (uint32_t)t->p[P_DUB_ECHO] << 8 | (uint32_t)t->p[P_DUB_FDBK] << 16 | (uint32_t)t->p[P_DUB_SEND] << 24) * 0x85EBCA6Bu
+                              ^ ((uint32_t)t->p[P_DUB_TIML] | (uint32_t)t->p[P_DUB_TIMR] << 8 | (uint32_t)t->p[P_DUB_SPRG] << 16 | (uint32_t)(t->p[P_DUB_SPD] & 127) << 24) * 0x27D4EB2Fu
+                              ^ ((uint32_t)dub_trig[k][0] | d->crash << 8) * 0xC2B2AE35u ^ beat_samples() * 0x165667B1u;
                 if (!d->pvalid || ps != d->psig) {          /* (the parameter copy is made again only when something it is made from changed) */
-                    dub_map(k, t, p, d->R, dub_have[k], 0);
+                    dub_map(k, t, p);
                     p->crash = d->crash;
                     if (d->state == DUBS_RAMP) p->cut = 1;
                     d->psig = ps; d->pvalid = 1;
                 }
                 d->run = 1;
                 dub_mask |= (uint8_t)(1u << k);
-                cost += audio_batch_cost[AP_DUB] + (dub_spring[k] ? 450u : 0u);
+                cost += audio_batch_cost[AP_DUB] + (dub_spbuf[k] && t->p[P_DUB_SPRG] > 0 ? 800u : 0u) + (dub_get_wow(t->p) ? 400u : 0u);
             }
         }
     }
@@ -345,8 +387,9 @@ JFX_XIP static void dub_reset(void)
     memset(dub_want, 0, sizeof dub_want);
     memset(dub_spring, 0, sizeof dub_spring);
     dub_evict = dub_ev_full = dub_gov_req = 0;
-    dub_gov_score = dub_gov_cool = 0;
-    for (uint32_t k = 0; k < DUB_N; k++) dub_i[k].was_on = trk[k].p[P_DUBLEN] != 0;   /* (a load is no OFF-to-length edge: the defaults are not written over a saved set) */
+    dub_gov_cool = 0;
+    memset(dub_pk, 0, sizeof dub_pk); dub_pk_n = 0; dub_pk_i = 0;
+    memset(dub_trig, 0, sizeof dub_trig);                 /* (the performance triggers, RAM only, start released) */
 }
 static void dub_tables(void) {}
 #if OC_DUB_SRAM
@@ -354,7 +397,7 @@ static void dub_tables(void) {}
 #endif
 #else
 static void dub_tables(void) {}
-static inline void dub_late_half(int late) { (void)late; }
+static inline void dub_late_half(int late, uint32_t us) { (void)late; (void)us; }
 static inline int dub_running(void) { return 0; }
 static inline int32_t *dub_capture(uint32_t k) { (void)k; return 0; }
 static inline int dub_alive(uint32_t k) { (void)k; return 0; }

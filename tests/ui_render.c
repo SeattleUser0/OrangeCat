@@ -2330,7 +2330,7 @@ int main(int argc, char **argv)
             song.playing = 0;
             eng(ENGI_MACRO);
             TSEL->engine = TSEL->eng_req;
-            TSEL->p[P_DUBLEN] = 2; TSEL->p[P_DUBPTRN] = 2; TSEL->p[P_DUB_FDBK] = 70; TSEL->p[P_DUB_SEND] = 40; TSEL->p[P_DUB_SPACE] = 30;
+            TSEL->p[P_DUB_ECHO] = 100; TSEL->p[P_DUB_SPD] = 70; TSEL->p[P_DUB_FDBK] = 70; TSEL->p[P_DUB_SEND] = 40; TSEL->p[P_DUB_SPRG] = 30;
             TSEL->p[P_DIST] = 40; TSEL->p[P_APDEP] = 50; TSEL->p[P_REV] = 30; TSEL->p[P_DLY] = 45;
             n = fam_pages(FAM_FX, pg);
             go_home();

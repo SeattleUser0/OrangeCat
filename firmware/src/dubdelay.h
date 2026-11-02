@@ -15,18 +15,17 @@
 #define DD_FS 44100
 #define DD_BLOCK 32
 #define DD_CTL 32                       /* control interval (host samples): the block */
-#define DD_TAPS 4
+#define DD_TAPS 2                       /* (round 12) the left tap and the right */
 #define DD_KNOB 128                     /* table size for 0..127 cutoff knobs */
 #define DD_BLK_SH 11u                   /* a line block: 2,048 int16 samples (4 KB) */
 #define DD_BLK_N (1u << DD_BLK_SH)
 #define DD_MAXBLK 16u                   /* up to 64 KB a line */
 
 typedef struct {
-    float time;                         /* base step, in seconds (heads sit at multiples of it) */
-    float head[DD_TAPS];                /* head position in steps (0 = head off) */
-    float level[DD_TAPS];               /* head output level 0..1 */
-    float pan[DD_TAPS];                 /* -1 (L) .. +1 (R) */
-    float fbw[DD_TAPS];                 /* head's share of the feedback (sum <= 1 recommended) */
+    float time_l, time_r;               /* (round 12) the two taps' delays in seconds at normal speed: the left output's and the right's */
+    int ping;                           /* 1: the feedback is the right tap alone (the repeats cross between the channels); 0: both taps, half each */
+    float speed;                        /* tape speed, 1 = normal: the taps' target delays are time / speed (the glide moves them: a pitch swoop) */
+    float wow;                          /* 0..1: the taps' delay wobble (a slow sinusoid and a faster flutter) */
     float feedback;                     /* loop gain at the filters' pass band: 0 .. 1.27 (above 1: runaway into the clip) */
     float hp, lp;                       /* cutoff knobs 0..127 (20 Hz .. 20 kHz, log) */
     float res;                          /* LP resonance 0..1 */
@@ -75,6 +74,7 @@ typedef struct {
     float gl[DD_TAPS], gr[DD_TAPS], fw[DD_TAPS];
     float hp_s, lp1, lp2;
     float fb_cur, send_cur, wet_cur, dry_cur;
+    float wow_ph, wow_ph2, wow_cur;     /* (round 12) the wobble's two phases (turns) and its depth as it glides (loop samples) */
     uint32_t ctl_left;
     dd_hb_t dec[2], intl[2], intr[2];   /* rate converters: [0] 44.1<->22.05, [1] 22.05<->11.025 */
     uint32_t denorm;

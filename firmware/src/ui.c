@@ -350,9 +350,13 @@ static void ui_say(const char *a, const char *b)
 static void ui_message(const char *s) { ui_say(s, ""); }
 /* (Orange Cat 0.8.0) the selected track's engine is SHAPES or MACRO and the asset pack is not there (oc_pack.h): it plays nothing, and
  * the screen says so: when the engine is chosen (force), and when a key is played on it (not over another word) */
+/* (round 14) an engine that ships as a module and is not installed (SHAPES since MELODEE_SHAPES=0): the track keeps its music and settings, plays nothing (the slot is
+ * retired until the module registers) and the screen says MODULE MISSING, as it says PACK MISSING */
+static int mod_gone(uint32_t e) { return (e == ENGI_SHAPES || e == ENGI_WHEEL || e == ENGI_PROPHET) && !eng_ok(e); }
 static void pack_notice(uint32_t force)
 {
     uint32_t e = TSEL->eng_req % NENGINES;
+    if (mod_gone(e)) { if (force || !ui.msg_t) ui_message("MODULE MISSING"); return; }
     if (OC_PACK_READY() || (e != ENGI_MACRO && e != ENGI_SHAPES)) return;
     if (force || !ui.msg_t) ui_message("PACK MISSING");
 }
@@ -362,7 +366,10 @@ static void pack_notice(uint32_t force)
 static void pack_boot_notice(uint32_t skipped)
 {
     uint32_t k;
-    if (OC_PACK_READY() || skipped) return;
+    if (skipped) return;
+    for (k = 0; k < NTRK && k < song.ntrk; k++)
+        if (mod_gone(trk[k].eng_req % NENGINES)) { ui_message("MODULE MISSING"); return; }
+    if (OC_PACK_READY()) return;
     for (k = 0; k < NTRK && k < song.ntrk; k++) {
         uint32_t e = trk[k].eng_req % NENGINES;
         if (e == ENGI_MACRO || e == ENGI_SHAPES) { ui_message("PACK MISSING"); return; }
@@ -816,6 +823,7 @@ static void momentary_take(uint32_t slot)
     if(!(fm1_in.buttons&(1u<<panel.btn[B_LFO])) || pg->graph==GR_FMSTORE || pg->graph==GR_CZTOOLS)return;
     d=page_desc(pg,slot,&vp);
     if(!d || !vp || d->max==d->min)return;
+    if(pg->scope==SC_TRACK && pg->id[slot]>=DUBF_SYNC && pg->id[slot]<=DUBF_WOW)return;   /* (round 13) a half of a packed id: a cell, nothing to put back */
     if(pg->scope==SC_MOD)return;   /* (0.12.0) a module's native values: no momentary take (the module keeps no copy to put back) */
     uint32_t native=(MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)?1:pg->scope==SC_CZ1?2:(MELODEE_P5 && pg->scope == SC_P5)?3:0;
     if(!native && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
@@ -901,6 +909,7 @@ static void load_extend(track_t *t)
 
 static int param_kept(uint32_t i);
 static int note_clear_history(int redo);
+static int note_history_group(void);                     /* (round 13, note_tools.c) the note history is GLO's clear of every track */
 static int recording_history(int redo)
 {
     uint32_t f=motion_guard();
@@ -924,6 +933,7 @@ static void undo_level(int redo);
 static void clr_follow(int redo);
 static void clr_group_drop(void);
 static int clr_history_ok(int redo);
+static int clr_next_is_group(int redo);
 static int undo_group_ok(int redo);
 #endif
 static void undo_step(int redo)
@@ -932,6 +942,7 @@ static void undo_step(int redo)
 #if OC_REC_CLEAR
     if(!undo_group_ok(redo)){undo_clear();ui_message(redo?"NOTHING TO REDO":"NOTHING TO UNDO");return;}   /* a group goes whole or not at all */
     if(clr_history_ok(redo)&&note_clear_history(redo)){clr_follow(redo);return;}
+    if(clr_next_is_group(redo)){clr_group_drop();ui_message(redo?"NOTHING TO REDO":"NOTHING TO UNDO");return;}   /* (round 13) the group's notes cannot come back (the history is gone or stale): its levels are not undone in part */
 #else
     if(note_clear_history(redo))return;
 #endif
@@ -1417,11 +1428,16 @@ static void clr_group_drop(void)
 }
 static int clr_history_ok(int redo)
 {
-    int live = note_transaction_ptr && note_transaction.valid && note_transaction.group;
+    int live = resource[RES_NOTE_HISTORY].size && note_transaction_ptr && note_transaction.valid && note_transaction.group;   /* (round 13: not after the arena took the block back) */
     if (!live) {
         if (clr_group_levels()) clr_group_drop();       /* (its history is gone) */
         return 1;                                       /* an ordinary history: as ever */
     }
+    return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
+}
+/* the level the undo (redo) is about to take belongs to GLO's group (link bit 1) */
+static int clr_next_is_group(int redo)
+{
     return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
 }
 /* every level of the linked group the undo (redo) is about to take has its track's phrase still: else none goes */

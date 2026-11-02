@@ -38,14 +38,14 @@ static void scene_params(int sc, float t, dd_params_t *p)
 {
     int i;
     memset(p, 0, sizeof *p);
+    p->speed = 1.0f;
     p->dry = 1.0f; p->wet = 0.8f; p->send = 1.0f; p->glide = 0.12f; p->drive = 0.35f; p->res = 0.2f; p->route = 1; p->cut_wet = 1; p->lim_ceil = 0.891f;
     if (sc == 0) {          /* skank: the SKANK heads (1 and 1.5 steps, panned) at a 1/8 step, the feedback ridden up in bar 2, the tone closing over the tail */
-        p->time = BEAT / 2.0f; p->head[0] = 1.0f; p->head[1] = 1.5f; p->level[0] = 0.8f; p->level[1] = 0.5f; p->pan[0] = -0.3f; p->pan[1] = 0.3f; p->fbw[0] = 0.6f; p->fbw[1] = 0.4f;
+        p->time_l = BEAT / 2.0f; p->time_r = BEAT * 0.75f;   /* (round 13: the two taps, 1/8 and 1/8 dotted) */
         p->feedback = t < BEAT * 4.0f ? 0.5f : 0.78f;
         p->hp = 42.0f; p->lp = t < 6.4f ? 92.0f : 92.0f - 22.0f * fminf(1.0f, (t - 6.4f) / 4.0f); p->res = 0.3f;
     } else {                /* throw: the send open 0.25 .. 0.6 s only, the loop then on its own, its filter swept; the TRIPLE heads at 0.2 s */
-        p->time = 0.2f; p->head[0] = 1.0f; p->head[1] = 2.0f; p->head[2] = 3.0f; p->level[0] = 0.7f; p->level[1] = 0.55f; p->level[2] = 0.4f; p->pan[0] = 0.3f; p->pan[1] = -0.3f;
-        p->fbw[0] = 0.3f; p->fbw[1] = 0.3f; p->fbw[2] = 0.4f; p->feedback = 0.88f;
+        p->time_l = 0.2f; p->time_r = 0.4f; p->feedback = 0.88f;
         p->send = (t > 0.25f && t < 0.6f) ? 1.0f : 0.0f; p->hp = 38.0f; p->res = 0.65f; p->drive = 0.5f;
         {   float u = t < 1.0f ? 0.0f : (t - 1.0f) / 10.0f;
             p->lp = u < 0.33f ? 95.0f - 37.0f * u / 0.33f : u < 0.66f ? 58.0f + 50.0f * (u - 0.33f) / 0.33f : 108.0f - 28.0f * fminf(1.0f, (u - 0.66f) / 0.34f); }
