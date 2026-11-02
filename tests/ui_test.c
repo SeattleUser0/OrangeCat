@@ -3206,9 +3206,9 @@ static int test_dub_pages(void)
     ui_power_on();
     a = dub_page("DUB SETUP"); b = dub_page("DUB"); c = dub_page("DUB 2");
     bad += check("DUB pages: DUB SETUP, DUB, DUB 2 in this order, one after the other", a < NPAGES && b == a + 1u && c == b + 1u);
-    ok = !strcmp(dub_label("DUB SETUP", 0), "SYNC") && !strcmp(dub_label("DUB SETUP", 1), "TIME L") && !strcmp(dub_label("DUB SETUP", 2), "TIME R") && !strcmp(dub_label("DUB SETUP", 3), "PING") &&
-         !strcmp(dub_label("DUB", 0), "FEEDBACK") && !strcmp(dub_label("DUB", 1), "SEND") && !strcmp(dub_label("DUB", 2), "FILTER") && !strcmp(dub_label("DUB", 3), "ECHO") &&
-         !strcmp(dub_label("DUB 2", 0), "SPRING") && !strcmp(dub_label("DUB 2", 1), "DRIVE") && !strcmp(dub_label("DUB 2", 2), "WOW") && !strcmp(dub_label("DUB 2", 3), "SPEED");
+    ok = !strcmp(dub_label("DUB SETUP", 0), "SYNC") && !strcmp(dub_label("DUB SETUP", 1), "TIM L") && !strcmp(dub_label("DUB SETUP", 2), "TIM R") && !strcmp(dub_label("DUB SETUP", 3), "PING") &&
+         !strcmp(dub_label("DUB", 0), "FDBK") && !strcmp(dub_label("DUB", 1), "SEND") && !strcmp(dub_label("DUB", 2), "FILTER") && !strcmp(dub_label("DUB", 3), "ECHO") &&
+         !strcmp(dub_label("DUB 2", 0), "SPRNG") && !strcmp(dub_label("DUB 2", 1), "DRIVE") && !strcmp(dub_label("DUB 2", 2), "WOW") && !strcmp(dub_label("DUB 2", 3), "SPEED");
     bad += check("DUB pages: the knobs by name: SYNC TIME L TIME R PING / FEEDBACK SEND FILTER ECHO / SPRING DRIVE WOW SPEED", ok);
     dub_text("DUB SETUP", 1, v, &u); ok = !strcmp(v, "1/8D");
     dub_text("DUB SETUP", 2, v, &u); ok &= !strcmp(v, "1/4");

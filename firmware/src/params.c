@@ -160,7 +160,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_APWAVE] = PE("WAVE", N_LWAVE, 1),
     [P_APSYNC] = PE("SYNC", N_APSYNC, 1),
     [P_SLROUTE] = PE("SLC", N_ONOFF, 1),
-    [P_JRES0] = PD("FEEDBACK", F_INT, 0, 127, 55), [P_JRES1] = PD("SEND", F_INT, 0, 127, 127),   /* (round 13) DUB TAPE's ten ids (dub_fields.h) */
+    [P_JRES0] = PD("FDBK", F_INT, 0, 127, 55), [P_JRES1] = PD("SEND", F_INT, 0, 127, 127),   /* (round 13) DUB TAPE's ten ids (dub_fields.h) */
     [P_JRES2] = PD("FILTER", F_INT, 0, 127, 60), [P_JRES3] = PD("ECHO", F_INT, 0, 127, 0),
     [P_LN0] = PD("KICK", F_PCT, 0, 127, 127),
     [P_LN1] = PD("SNARE", F_PCT, 0, 127, 127),
@@ -243,8 +243,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),          /* (0.6.0) the sends (were SEND, SEND 2, SEND 3) */
     [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
     [P_CHOR] = PD("CHO", F_PCT, 0, 127, 0),
-    [P_JRES4] = {"TIME L", F_DUBTF, 0, 127, 53, 0, 0}, [P_JRES5] = {"TIME R", F_DUBTF, 0, 127, 67, 0, 0},   /* (round 13) 1/8D and 1/4 synced */
-    [P_JRES6] = PD("SPRING", F_PCT, 0, 127, 0),
+    [P_JRES4] = {"TIM L", F_DUBTF, 0, 127, 53, 0, 0}, [P_JRES5] = {"TIM R", F_DUBTF, 0, 127, 67, 0, 0},   /* (round 13) 1/8D and 1/4 synced */
+    [P_JRES6] = PD("SPRNG", F_PCT, 0, 127, 0),
     [P_CHRD] = PE("CHRD", N_CHRD, 0),
     [P_VOIC] = PE("VOIC", N_VOIC, 0),
     [P_STRUM] = PE("STRUM", N_STRUM, 0),
@@ -1078,7 +1078,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         return &dubf[id - DUBF_SYNC];
     }
     if (pg->scope == SC_TRACK && (id == P_DUB_TIML || id == P_DUB_TIMR) && dub_get_sync(TSEL->p)) {   /* the times read on the beat: 1/8D */
-        static const param_desc_t dubt[2] = {{"TIME L", F_DUBTS, 0, 127, 53, 0, 0}, {"TIME R", F_DUBTS, 0, 127, 67, 0, 0}};
+        static const param_desc_t dubt[2] = {{"TIM L", F_DUBTS, 0, 127, 53, 0, 0}, {"TIM R", F_DUBTS, 0, 127, 67, 0, 0}};
         *valp = &TSEL->p[id];
         return &dubt[id == P_DUB_TIMR];
     }

@@ -1927,16 +1927,16 @@ function makeMockDevice(opt = {}) {
     E("WAVE",["SIN", "TRI", "SAW", "SQR", "S&H"],1),
     E("SYNC",["FREE", "BEAT"],1),
     E("SLC",["OFF", "ON"],1),
-    D("FEEDBACK",F.INT,0,127,55),
+    D("FDBK",F.INT,0,127,55),
     D("SEND",F.INT,0,127,127),
     D("FILTER",F.INT,0,127,60),
     D("ECHO",F.INT,0,127,0),
     D("REV",F.PCT,0,127,0),
     D("DLY",F.PCT,0,127,0),
     D("CHO",F.PCT,0,127,0),
-    D("TIME L",F.DUBTF,0,127,53),
-    D("TIME R",F.DUBTF,0,127,67),
-    D("SPRING",F.PCT,0,127,0));
+    D("TIM L",F.DUBTF,0,127,53),
+    D("TIM R",F.DUBTF,0,127,67),
+    D("SPRNG",F.PCT,0,127,0));
   TP.push(E("STRUM",["OFF","1/8","1/16","1/32","1/64","1/128","16T","32T"],0),E("STROKE",["DOWN","UP","ALT"],0));
   /* (Orange Cat 0.6.0) the shared effects' globals 27..75 (41: BUDGET, as before): DELAY, REVERB, CHORUS, SLICER, MASTER */
   GP.push(E("TIME",["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR", "5ms", "6ms", "7ms", "8ms", "9ms", "10ms", "11ms", "12ms", "13ms", "15ms", "17ms", "19ms", "21ms", "24ms", "27ms", "31ms", "35ms", "39ms", "44ms", "50ms", "56ms", "64ms", "72ms", "81ms", "91ms", "103ms", "116ms", "131ms", "148ms", "167ms", "189ms", "213ms", "241ms", "272ms", "307ms", "346ms", "391ms", "441ms", "498ms", "562ms", "634ms", "716ms", "808ms", "912ms", "1.03s", "1.16s", "1.31s", "1.48s", "1.67s", "1.89s", "2.13s", "2.40s", "2.71s", "2.95s"],1),
