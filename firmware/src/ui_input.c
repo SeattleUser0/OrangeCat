@@ -581,14 +581,24 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
     return range <= 24 ? s : accel_by(role, s, range < 100 ? 3u : range > 150 ? 16u : 8u, 0);
 }
-static int32_t desc_range(const param_desc_t *d)     /* (a list of names: no acceleration) */
+static int32_t desc_range(const param_desc_t *d)     /* (a list of names, and a SLOT, which picks: no acceleration) */
 {
-    return d->fmt == F_ENUM ? 0 : d->max - d->min;
+    const char *l = d->label;
+    if (d->fmt == F_ENUM || (l && l[0] == 'S' && l[1] == 'L' && l[2] == 'O' && l[3] == 'T' && !l[4]))
+        return 0;
+    return d->max - d->min;
 }
 /* a list of total entries (the sounds, the scales, the user slots): up to x16 over 256 entries */
 static int32_t list_accel(uint32_t role, int32_t s, uint32_t total, uint32_t *fast)
 {
     return accel_by(role, s, total > 256u ? 16u : total > 64u ? 8u : total > 16u ? 4u : 1u, fast);
+}
+/* a list the knob PICKS from (the sounds, the scales, the user slots): exactly one entry a detent at any speed, whatever
+ * KNOB ACCEL says (round 13: a spin through 27 sounds jumped 1 to 6). Values keep accel/list_accel. *fast (if asked)
+ * as accel_by's, so the browser still waits for a fast turn to rest before it loads */
+static int32_t pick_by(uint32_t role, int32_t s, uint32_t *fast)
+{
+    return accel_by(role, s, 1u, fast);
 }
 
 /* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 FREEZE (Orange Cat 0.4.20; was unused), 4 MUTE of the selected track (right = ON, left = OFF: the
@@ -1431,7 +1441,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     if (pg->graph == GR_SCALE_PICKER) {
-        scale_picker_edit(slot, slot == 1u ? list_accel(EN_K1 + slot, steps, scale_picker_count(), 0) : steps);
+        scale_picker_edit(slot, slot == 1u ? pick_by(EN_K1 + slot, steps, 0) : steps);
         return;
     }
     if (scale_settings_page(pg) && slot == 1u) {
@@ -1472,7 +1482,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
-            ui.uslot = (uint16_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, UP_SLOTS, 0), 0, UP_SLOTS - 1);
+            ui.uslot = (uint16_t)clamp((int32_t)ui.uslot + pick_by(EN_K1, steps, 0), 0, UP_SLOTS - 1);
         return;
     }
     if (pg->graph == GR_MOD && slot == 1u) {             /* MOD: KNOB 2 the route; 1 its SRC, 3 DST, 4 AMT */
@@ -2978,7 +2988,7 @@ static void ui_input(void)
         s = 0;
 #endif
     if (s && !ui.home && cur_page()->graph == GR_SCALE_PICKER) {
-        scale_picker_step(list_accel(EN_PRESET, s, scale_picker_count(), 0));
+        scale_picker_step(pick_by(EN_PRESET, s, 0));
     } else if (s && (ui.home || cur_page()->graph == GR_BROWSE)) {
         /* PRESETS browses the selected part's sounds (all engines, then user presets) on HOME and the
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn

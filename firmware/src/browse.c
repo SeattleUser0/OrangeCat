@@ -390,9 +390,9 @@ static void browse_poll(void)
         browse_commit();
 }
 
-/* a turn of the knob role by s detents: the list moves by its acceleration (list_accel), wrapping at its ends on a
+/* a turn of the knob role by s detents: the list moves one entry a detent (pick_by), wrapping at its ends on a
  * slow single detent as before; a slow detent loads at once, a fast turn waits for the knob to rest */
-static int32_t list_accel(uint32_t role, int32_t s, uint32_t total, uint32_t *fast);
+static int32_t pick_by(uint32_t role, int32_t s, uint32_t *fast);                  /* ui_input.c: one entry a detent */
 static void browse_turn(uint32_t role, int32_t s)
 {
     uint32_t total, loaded, cur, n, fast, m = list_mode();
@@ -404,7 +404,7 @@ static void browse_turn(uint32_t role, int32_t s)
         ui_message(m == LM_FAV ? "NO FAVORITES" : m == LM_RECENT ? "NO RECENT SOUNDS" : "NO SOUNDS IN LIST");
         return;
     }
-    d = list_accel(role, s, total, &fast);
+    d = pick_by(role, s, &fast);
     brw.x = (uint8_t)clamp((d < 0 ? -d : d) / (s < 0 ? -s : s), 1, 99);
     cur = brw.on && brw.n < total ? brw.n : loaded;
     if (cur >= total)                                       /* the sound is not in the list: its first or last */

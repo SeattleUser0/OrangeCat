@@ -1854,6 +1854,65 @@ static int test_browser(void)
     PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
     bad += check("ACCEL: narrow values and lists of names keep a step a detent; MENU KNOB ACCEL OFF: always", ok);
 
+    /* round 13: PRESETS and every list the knob picks from moves exactly one entry a detent, at any speed, KNOB ACCEL on or off
+     * (a fast turn through 27 sounds jumped 1 to 6); a value knob keeps its speed-up */
+    ok = 1;
+    memset(ui.enc_t, 0, sizeof ui.enc_t);
+    fm1_ms = 200000u;
+    for (i = 0; i < 40u; i++) {                         /* pick_by at 3, 8 and 20 ms a detent, 27-item list or not */
+        fm1_ms += i < 14u ? 3u : i < 28u ? 8u : 20u;
+        ok &= pick_by(EN_PRESET, 1, &f1) == 1;
+    }
+    for (i = 0; i < 20u; i++) {
+        fm1_ms += 5u;
+        ok &= pick_by(EN_PRESET, -2, 0) == -2;          /* (two detents read at once: two steps) */
+    }
+    bad += check("PICK: pick_by is one entry a detent however quick (3, 8, 20 ms; two at once)", ok);
+    ok = 1;
+    for (e = 0; e < 2u; e++) {                          /* KNOB ACCEL on, then off: PRESETS through the sounds from HOME */
+        ui_power_on();
+        if (e) PREF_BITS |= PREF_ACCEL_OFF; else PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
+        list_set(LM_ALL);
+        set_engine_of(TSEL, ENGI_PROPHET);
+        apply_preset_to(TSEL, 3);
+        fm1_ms += 1000u;
+        first = list_cur(&total);
+        ok &= total > 40u && ui.home;
+        spin(EN_PRESET, 1, 27u);                         /* 27 detents a frame apart (16 ms), then the knob rests */
+        rest();
+        ok &= list_cur(&total) == first + 27u;
+        spin(EN_PRESET, -1, 27u);
+        rest();
+        ok &= list_cur(&total) == first;
+        for (k = 0; k < 12u; k++) {                      /* two detents a frame (8 ms each) */
+            host_enc[panel.enc[EN_PRESET]] += 2 * panel.dir[EN_PRESET];
+            frame();
+        }
+        rest();
+        ok &= list_cur(&total) == first + 24u;
+    }
+    PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
+    bad += check("PICK: PRESETS on HOME moves one sound a detent in fast turns, KNOB ACCEL on or off", ok);
+    ui_power_on();
+    go_page(GR_BROWSE);
+    list_set(LM_ALL);
+    set_engine_of(TSEL, ENGI_PROPHET);
+    apply_preset_to(TSEL, 3);
+    fm1_ms += 1000u;
+    first = list_cur(&total);
+    spin(EN_PRESET, 1, 27u);
+    rest();
+    ok = list_cur(&total) == first + 27u;
+    bad += check("PICK: the PRESETS page, a fast turn of 27 detents: 27 sounds", ok);
+    ok = 1;
+    memset(ui.enc_t, 0, sizeof ui.enc_t);
+    for (i = 0; i < 12u; i++) {                         /* a value knob keeps its speed-up */
+        fm1_ms += 10u;
+        c = (uint32_t)accel_by(EN_K2, 1, 8u, 0);
+        if (i >= 5u) ok &= c > 1u;
+    }
+    bad += check("PICK: a value knob still accelerates", ok);
+
     ui_power_on();                                       /* the browser's keys: OCT- back, OCT+ keep, both to Stage */
     PREF_BITS |= PREF_ACCEL_OFF;
     list_set(LM_ALL);
@@ -1889,8 +1948,8 @@ static int test_browser(void)
     before = *TSEL;
     first = list_cur(&total);
     spin(EN_PRESET, 1, 12);
-    want = first + 3u + 9u * 10u;                          /* three single steps, then 16 ms a detent: x5, doubled */
-    bad += check("BROWSE: a fast turn loads its first detent only, the list moves on (x10 at 16 ms a detent)",
+    want = first + 12u;                                    /* one a detent at 16 ms a detent (round 13: no speed-up when picking) */
+    bad += check("BROWSE: a fast turn loads its first detent only, the list moves on (one a detent)",
                  browse_pending() && preset_pos(&total) == want && list_cur(&total) == first + 1u &&
                  !memcmp(TSEL->step, before.step, sizeof before.step));
     e = browse_shown(&k);
