@@ -25,7 +25,7 @@
 export MELODEE_SID=0
 export MELODEE_CZ=0
 export MELODEE_MACRO=1
-export MELODEE_SHAPES=1
+export MELODEE_SHAPES=0   # (round 14, the owner approved it) SHAPES ships only as its module (engine 14); a unit coming from a build with SHAPES inside gets it back by installing the module
 export MELODEE_DRUMX=1
 export MELODEE_FM6=0
 export MELODEE_P5=0

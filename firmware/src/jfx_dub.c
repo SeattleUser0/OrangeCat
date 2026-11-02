@@ -175,8 +175,10 @@ static void dub_pk_note(uint32_t us)
 static int dub_headroom(void)
 {
     uint32_t i, m = 0;
+    uint32_t n = 0;
     for (i = 0; i < 8; i++) if (dub_pk[i] > m) m = dub_pk[i];
-    return m < DUB_ADMIT_US;
+    for (i = 0; i < DUB_N; i++) n += dub_i[i].state == DUBS_RUN || dub_i[i].state == DUBS_RAMP;
+    return m + DUB_COST_US * n < DUB_ADMIT_US;           /* (each instance already running costs as much again) */
 }
 JFX_XIP static void dub_late_half(int late, uint32_t us)
 {
@@ -198,6 +200,7 @@ JFX_XIP static void dub_late_half(int late, uint32_t us)
         }
     }
     if (dub_gov_cool && running) dub_gov_cool--;
+    if (running) return;                                /* the window is the mix alone: it stands still while an instance runs (it must not empty under a long run) */
     if (++dub_pk_n >= DUB_PK_HALVES) { dub_pk_n = 0; dub_pk_i = (uint8_t)((dub_pk_i + 1u) & 7u); dub_pk[dub_pk_i] = 0; }
 }
 /* an instance running: the voice caps' third column (voice.c vc_limit) */
@@ -221,7 +224,7 @@ JFX_XIP static void dub_start(uint32_t nt)
     if (dub_gov_req) {                                  /* the governor: the highest running instance gives way */
         dub_gov_req = 0;
         for (k = DUB_N; k-- > 0;)
-            if (dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP) {
+            if ((dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP) && !dub_i[k].evict) {
                 dub_i[k].evict = 1;
                 dub_i[k].gov = 1;
                 break;
@@ -385,6 +388,7 @@ JFX_XIP static void dub_reset(void)
     memset(dub_spring, 0, sizeof dub_spring);
     dub_evict = dub_ev_full = dub_gov_req = 0;
     dub_gov_cool = 0;
+    memset(dub_pk, 0, sizeof dub_pk); dub_pk_n = 0; dub_pk_i = 0;
     memset(dub_trig, 0, sizeof dub_trig);                 /* (the performance triggers, RAM only, start released) */
 }
 static void dub_tables(void) {}

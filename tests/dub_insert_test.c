@@ -413,6 +413,12 @@ int main(void)
     CHECK(!dub_ready[0] && (jfx_full & 0x10u), "no room after heavy halves: it must wait with DUB FULL (state %u full %x)", dub_i[0].state, jfx_full);
     for (b = 0; b < 44000; b++) GMIX(rec[b % NBLK]);
     CHECK(dub_ready[0] && dub_i[0].state == 2, "32 s of lighter halves: it should start: state %u", dub_i[0].state);
+    /* the window itself, counted in halves with no instance: one heavy half is remembered for 8 buckets of 1376 halves, then forgotten */
+    dub_reset(); dub_late_half(0, 2640u);
+    for (b = 0; b < 8u * 1376u - 1u - 1u; b++) dub_late_half(0, 1000u);
+    CHECK(!dub_headroom(), "a heavy half is still in the window after 7 buckets and a bit");
+    for (b = 0; b < 1376u + 2u; b++) dub_late_half(0, 1000u);
+    CHECK(dub_headroom(), "a heavy half is forgotten after 8 buckets");
     /* round 14: a lone half over 85 % gives way at once (no score), with a quiet half in between nothing does */
     for (b = 0; b < 4000; b++) { dub_late_half(0, 2000u); GMIX(rec[b % NBLK]); }
     CHECK(dub_i[0].state == 2, "halves at 2000 us (69 %%) must not evict: state %u", dub_i[0].state);
