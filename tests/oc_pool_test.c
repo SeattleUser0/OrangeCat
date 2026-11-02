@@ -55,6 +55,7 @@ static void fl_plain_window_init(void) {}
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"            /* (with MELODEE_FLASH: oc_store.c, oc_pool.c, oc_project.c) */
+#include "one_auth_fixture.h"
 
 static int check(const char *what, int ok)
 {
@@ -88,7 +89,7 @@ static void fill(uint32_t k, uint32_t bank, uint32_t len, uint32_t nsteps, uint3
             s->n = (uint8_t)(1 + rand() % 4);
             for (uint32_t j = 0; j < 4u; j++) s->note[j] = (uint8_t)(rand() & 127);
             s->time = (uint8_t)(rand() % 2 ? ST_NOTE : ST_TIE);
-            s->flags = (uint8_t)(rand() & (SF_ACCENT | SF_SLIDE | SF_RECORDED));
+            s->flags = (uint8_t)(rand() & (SF_ACCENT | SF_SLIDE));   /* (ONE_AUTH: SF_RECORDED belongs to a cell with an event; fixture_cells_for_events adds it) */
             s->vel = (uint8_t)(rand() & 127);
             s->probability = (uint8_t)(rand() % 102);
             step_set_rflam(s, 1u + (uint32_t)rand() % 5u);
@@ -127,6 +128,7 @@ static void fill(uint32_t k, uint32_t bank, uint32_t len, uint32_t nsteps, uint3
         r->step = (uint8_t)(rand() % NSTEP); r->pitch = (int8_t)(rand() % 49 - 24); r->length = (uint8_t)(rand() % 2);
     }
     recording_reindex();
+    fixture_cells_for_events();
 }
 
 /* a bank's motion and timed notes, put in order to compare (track and bank bits dropped) */

@@ -132,6 +132,8 @@ int main(void)
         turn(EN_K2, 1);
 #if !OC_ONE_AUTH                                        /* (ui-fix 7: START on a manual note converts; one_auth_test has it) */
         chk("NOTES   a manual note's START is refused with its reason", msg_is("START: RECORDED ONLY") && TSEL->step[4].nudge == 0);
+#elif OC_START_NUDGE
+        chk("NOTES   a manual note's START is its NUDGE (ui-fix2 5): the step stays typed, one 64th later; start_nudge_test has the rest", !(TSEL->step[4].flags & SF_RECORDED) && TSEL->step[4].nudge == 1);
 #else
         chk("NOTES   a manual note's START converts the step (ui-fix 7)", (TSEL->step[4].flags & SF_RECORDED) != 0u);
 #endif
