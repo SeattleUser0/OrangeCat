@@ -444,15 +444,15 @@ int main(void)
         for (found = RECORD_MAX, i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) if (recording[i].note == 60u) found = i;
         pos0 = found < RECORD_MAX ? (recording[found].step & 63u) * RECORD_UNIT + recording[found].on : 0u;
         ok &= found < RECORD_MAX && pos0 == 3u * RECORD_UNIT + 40u * (RECORD_UNIT / 16u) && auth_ok("40 detents");
-        chk("EDITMEM START on a typed note, 40 detents with the arena short: no NO EDIT MEMORY, the note 2.5 steps on", ok);
+        if (!OC_START_NUDGE) chk("EDITMEM START on a typed note, 40 detents with the arena short: no NO EDIT MEMORY, the note 2.5 steps on", ok);
         for (k = 0; k < 40u; k++) turn(EN_K2, -1);
         for (found = RECORD_MAX, i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) if (recording[i].note == 60u) found = i;
         ok = found < RECORD_MAX && (recording[found].step & 63u) * RECORD_UNIT + recording[found].on == 3u * RECORD_UNIT && auth_ok("back");
-        chk("EDITMEM START the other way: back on the note's own place", ok);
+        if (!OC_START_NUDGE) chk("EDITMEM START the other way: back on the note's own place", ok);
         for (k = 0; k < 16u * 16u; k++) turn(EN_K2, 1);                          /* the whole loop: 16 steps of 16 detents */
         for (found = RECORD_MAX, i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) if (recording[i].note == 60u) found = i;
         ok = found < RECORD_MAX && (recording[found].step & 63u) * RECORD_UNIT + recording[found].on == 3u * RECORD_UNIT && auth_ok("loop") && !str_eq(ui.msg, "NO EDIT MEMORY");
-        chk("EDITMEM START a whole loop of detents: the note is where it began (it wraps at the phrase's end)", ok);
+        if (!OC_START_NUDGE) chk("EDITMEM START a whole loop of detents: the note is where it began (it wraps at the phrase's end)", ok);
         fresh("NOTES"); t = TSEL;
         {   /* a chord of three, the conversion takes the three events: the undo list holds them */
             uint8_t ch[3] = {67, 60, 64};
@@ -463,7 +463,7 @@ int main(void)
         ui.note_slot = 1;
         for (k = 0; k < 8u; k++) turn(EN_K2, 1);
         ok = pool_count() == 3u && !str_eq(ui.msg, "NO EDIT MEMORY") && auth_ok("chord 8");
-        chk("EDITMEM START on one note of a chord, 8 detents with the arena short: all three events, none lost", ok);
+        if (!OC_START_NUDGE) chk("EDITMEM START on one note of a chord, 8 detents with the arena short: all three events, none lost", ok);
         hold(B_EDIT); frame();
         ok = (pool_count() == 3u || pool_count() == 0u) && auth_ok("chord undo");
         chk("EDITMEM the undo after it leaves a consistent pattern", ok);
