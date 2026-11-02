@@ -49,6 +49,16 @@ _Static_assert(sizeof UP_NATIVE_PARAMS <= 46u,"native preset parameter storage")
 #include "dxk_rec.h"                            /* (0.14.2) DRUM-X's kit and its record */
 #define UP_VER_CZ 8u                            /* native CZ-1 bytes in the 144-byte payload */
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
+#if OC_DUB_IDS
+/* (Release 3, Part 8) DUB TAPE's setup ids are not a sound's (param_dub_setup): a record does not store them, np counts the values it does (P_COUNT less the eight), and the
+ * eight that follow P_E0 move down in the record. That is exactly the layout an LFO 2 build writes (np 131 = ids 0 .. 122 and the engine block), so params_by_count reads it
+ * unchanged, the kit's room (dxk_rec.h, np 131) is what it was, and a record never needed a second version */
+#define UP_NP (P_COUNT - 8u)
+static int up_pos(uint32_t id) { return id < (uint32_t)P_DUBSYNC ? (int)id : id <= (uint32_t)P_DUBSPD ? -1 : (int)id - 8; }
+#else
+#define UP_NP P_COUNT
+static int up_pos(uint32_t id) { return (int)id; }
+#endif
 #define UP_USED 0xA5u
 #define UP_STAR 2u
 #define UP_VER 4u                                /* the values as biased bytes */
@@ -70,7 +80,7 @@ typedef struct {
     up_rec_t r[UP_PER_BANK];
 } up_bank_t;
 _Static_assert(sizeof(up_rec_t) == 238, "user preset record layout");
-_Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 256, "user preset record: P_COUNT (np is a byte)");
+_Static_assert(UP_NP <= UP_PMAX * 2u && UP_NP < 256, "user preset record: P_COUNT (np is a byte)");
 #if MELODEE_FLASH && !defined(UP_HOST)
 /* One main-loop bank cache holds whichever bank was asked for last: a user preset bank, a native FM6 or CZ-1 bank
  * (or the CZ-1 bank's older view, cz_bank_load) or a Prophet user bank (bank_buf, after native_presets.c). Each owner
@@ -181,7 +191,7 @@ static uint32_t up_kit_get(const up_rec_t *r, uint8_t *b)
     memcpy(b + a, r->packed + r->np, rest);
     return a + rest;
 }
-_Static_assert(DXK_ROOM - 46u <= UP_PMAX * 2u - (P_COUNT > 127u ? P_COUNT : 127u) && DXK_BYTES <= DXK_ROOM && sizeof ((up_rec_t *)0)->cz_extra == 46u, "a kit fits a record of any np");
+_Static_assert(DXK_ROOM - 46u <= UP_PMAX * 2u - (UP_NP > 127u ? UP_NP : 127u) && DXK_BYTES <= DXK_ROOM && sizeof ((up_rec_t *)0)->cz_extra == 46u, "a kit fits a record of any np");
 
 static int up_valid(const up_rec_t *r)
 {
@@ -196,7 +206,7 @@ static int up_valid(const up_rec_t *r)
         return r->packed[133]==128u || r->packed[133]==133u;
 #endif
     }
-    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==122u || r->np==124u || r->np==125u /* (the FX cuts) */ || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
+    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==122u || r->np==124u || r->np==125u /* (the FX cuts) */ || r->np==UP_NP) && r->name[0] && up_cz_raw(r,raw); }
     if (!((r->used & ~UP_STAR) == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || ((MELODEE_DRUM && r->engine == ENGI_DRUM) && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= UP_PMAX * 2u && r->name[0])) return 0;
     for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
@@ -236,10 +246,16 @@ static int up_old_bank(uint32_t k)
 }
 
 static int up_grid(const up_rec_t *r) { return r->ver == UP_VER_GRID || r->ver==UP_VER_DRUM_GRID; }
-static int16_t up_value(const up_rec_t *r, uint32_t k) { return (int16_t)r->packed[k] - 64; }
-static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
+static int16_t up_val_at(const up_rec_t *r, uint32_t pos) { return (int16_t)r->packed[pos] - 64; }   /* the record's pos-th value */
+static int16_t up_value(const up_rec_t *r, uint32_t id)   /* the value of parameter id (an id the record does not store: 0) */
 {
-    r->packed[k] = (uint8_t)(v + 64);
+    int pos = up_pos(id);
+    return pos < 0 ? 0 : up_val_at(r, (uint32_t)pos);
+}
+static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)   /* k: a parameter id */
+{
+    int pos = up_pos(k);
+    if (pos >= 0) r->packed[pos] = (uint8_t)(v + 64);
 }
 static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len bytes, -1 = none): wrong shape -> empty */
 {
@@ -293,7 +309,7 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
     }
     if (up_native_cz(r)) { memcpy(out, def, P_COUNT * sizeof *out); out[P_E7] = CZ_NATIVE; return; }
     int16_t values[UP_PMAX * 2u];
-    for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_value(r, i);
+    for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_val_at(r, i);
     params_by_count(out, values, r->np, def);
     if (r->np == 125u) { /* retired two-cut layout: high cuts occupied these IDs */
         out[P_STRUM] = def[P_STRUM]; out[P_STROKE] = def[P_STROKE];
@@ -371,7 +387,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     r->ver = UP_VER;
     r->engine = a[1];
     if((MELODEE_P5 && r->engine == ENGI_PROPHET))return 1;
-    r->np = P_COUNT;
+    r->np = UP_NP;
     for (i = 0; i < n; i++)
         r->name[i] = (char)a[2 + i];
     for (i = 0; i < P_COUNT; i++)
@@ -589,7 +605,7 @@ static int up_store_to(uint32_t k,uint32_t tr,const char *name)
     momentary_restore();
     if(k>=UP_SLOTS || tr>=NTRK)return 1;
     track_t *t=&trk[tr];up_rec_t r;
-    memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER;r.engine=t->eng_req;r.np=P_COUNT;
+    memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER;r.engine=t->eng_req;r.np=UP_NP;
     up_set_name(&r,k,name);
     if((MELODEE_FM6 && r.engine == ENGI_FM6) || (MELODEE_P5 && r.engine == ENGI_PROPHET) || (r.engine==ENGI_CZ && t->p[P_E7]==CZ_NATIVE)){
         r.ver=(MELODEE_FM6 && r.engine == ENGI_FM6)?UP_VER_FM:(MELODEE_P5 && r.engine == ENGI_PROPHET)?UP_VER_P5:UP_VER_NATIVE_CZ;

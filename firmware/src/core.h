@@ -258,6 +258,16 @@
 #if OC_LFO2 && !OC_R3_FORMAT
 #error "OC_LFO2 needs OC_R3_FORMAT=1: the wide parameter ids and the records that carry them are the format revision's"
 #endif
+#ifndef OC_DUB_IDS
+#define OC_DUB_IDS 0              /* (Release 3, branch r3-format: docs/orangecat/UI_BUILD.md "Part 8") 1: DUB TAPE's setup values, each on an id of its own (eight before P_E0, after LFO 2's:
+                                   * SYNC TIME L TIME R PING SPRING DRIVE WOW SPEED; P_COUNT 131 to 139, P_E0 123 to 131). They are what DUB_R12.md section 2 packed into ids 45 .. 47
+                                   * and that packing could not be saved (its 11.1): unpacked, every value is a plain byte. Needs OC_LFO2=1 (one layout past Release 2: 124 or 139).
+                                   * A project of Release 2 (np 124) loads with them derived from LEN, PTRN, SPRP and SPACE (DUB_R12.md 7; core.h dub_from_r2); the pages and the kernel
+                                   * that read them are Session A's (jfx_dub.c): until they do, nothing sounds different. Off, the parameter table is LFO 2's or Release 2's */
+#endif
+#if OC_DUB_IDS && !OC_LFO2
+#error "OC_DUB_IDS needs OC_LFO2=1: the Release 3 layouts are 124 (Release 2), 131 (LFO 2 alone, a development state) and 139"
+#endif
 #ifndef OC_CANDIDATES
 #define OC_CANDIDATES 0           /* (Orange Cat 0.14.0) 1: a measurement build for the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md):
                                    * the engine table grows to 23 and the candidates' proposed numbers below take modules (SEM 21, HADES 22), so the unit
@@ -354,6 +364,10 @@ enum {                          /* per-track parameters */
 #if OC_LFO2
     P_L2RATE, P_L2WAVE, P_L2SYNC, P_L2TRIG, P_L2POL, P_L2DST, P_L2AMT,   /* (Release 3) LFO 2, a second LFO a track (mod.c) */
 #endif
+#if OC_DUB_IDS
+    P_DUBSYNC, P_DUBTL, P_DUBTR, P_DUBPING, P_DUBSPR, P_DUBDRV, P_DUBWOW, P_DUBSPD,   /* (Release 3, Part 8) DUB TAPE's setup, unpacked: SYNC (0 FREE, 1 SYNC), the two taps' times (SYNC: 0 .. 17, FREE: 0 .. 127), PING,
+                                                         * SPRING 0 .. 63, DRIVE 0 .. 63, WOW 0 .. 63, SPEED 0 .. 63 (32 = normal): DUB_R12.md 4 .. 6 */
+#endif
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -382,7 +396,11 @@ static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3)
 #define P_MAC2 P_RESERVED35
 #define P_MAC3 P_RESERVED36
 static int param_dub_lane(uint32_t id) { return param_jfx_free(id); }
+#if OC_DUB_IDS
+static int param_dub_setup(uint32_t id) { return (id >= P_RESERVED45 && id <= P_RESERVED47) || (id >= P_DUBSYNC && id <= P_DUBSPD); }
+#else
 static int param_dub_setup(uint32_t id) { return id >= P_RESERVED45 && id <= P_RESERVED47; }
+#endif
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
@@ -438,6 +456,38 @@ static int global_reserved(uint32_t id)
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are
  * P_LEVEL.. in order and the last 8 are P_E0..P_E7; the parameters a store does not have take def[]
  * (user presets, projects of formats 1 and 2) */
+#if OC_DUB_IDS
+/* (Release 3, Part 8) DUB TAPE of Release 2 -> the unpacked setup (DUB_R12.md 7). Release 2 keeps LEN (45), PTRN (46), SPRP (47) and SPACE (JRES3: the delay time on the first
+ * half of its travel, the spring's mix on the second); the kernel of DUB_R12 reads two taps: TIME L = the nearest of the 18 synced times to the first head of PTRN, TIME R to
+ * the second (a single head: both), SYNC on, SPRING = the old mix (SPRP not OFF), PING off, DRIVE 25 (the old fixed 0.4), WOW 0, SPEED 32. Times in 1/48 beats, heads in
+ * quarters of the base time, so every figure is an integer. The old ids stay where they are (Session A's kernel retires them; ECHO, which DUB_R12 writes over SPACE, is theirs
+ * to set: LEN not OFF -> 100). Ties go to the shorter time. out[] holds the track's values in today's order */
+static void dub_from_r2(int16_t *out)
+{
+    static const uint16_t base48[14] = {6, 8, 12, 16, 18, 24, 32, 36, 48, 64, 72, 96, 144, 192};   /* SPACE's 14 divisions (jfx_dub.c dub_div_beats) x 48 */
+    static const uint16_t sync48[18] = {6, 9, 4, 12, 18, 8, 24, 36, 16, 48, 72, 32, 96, 144, 64, 192, 288, 128};   /* 1/32 .. 1/1 x straight, dotted, triplet */
+    static const uint8_t head4[6][2] = {{4, 12}, {4, 4}, {4, 6}, {4, 8}, {3, 4}, {4, 8}};   /* SLAP SINGLE SKANK TRIPLE GALLOP SPREAD: the first two heads, quarters */
+    int32_t space = out[P_JRES3] < 0 ? 0 : out[P_JRES3] > 127 ? 127 : out[P_JRES3];
+    int32_t ptrn = out[P_RESERVED46] < 0 ? 0 : out[P_RESERVED46] > 5 ? 5 : out[P_RESERVED46];
+    int32_t sprp = out[P_RESERVED47] < 0 ? 0 : out[P_RESERVED47] > 2 ? 2 : out[P_RESERVED47];
+    uint32_t b = base48[(space < 64 ? space : 63) * 14 / 64], h, k, best[2] = {0, 0};
+    for (h = 0; h < 2u; h++) {
+        uint32_t want = b * head4[ptrn][h], bd = 0xFFFFFFFFu;     /* in 1/192 beats */
+        for (k = 0; k < 18u; k++) {
+            uint32_t v = sync48[k] * 4u, d = v > want ? v - want : want - v;
+            if (d < bd || (d == bd && v < sync48[best[h]] * 4u)) { bd = d; best[h] = k; }
+        }
+    }
+    out[P_DUBSYNC] = 1;
+    out[P_DUBTL] = (int16_t)best[0];
+    out[P_DUBTR] = (int16_t)best[1];
+    out[P_DUBPING] = 0;
+    out[P_DUBSPR] = (int16_t)(sprp && space >= 64 ? space - 64 : 0);
+    out[P_DUBDRV] = 25;
+    out[P_DUBWOW] = 0;
+    out[P_DUBSPD] = 32;
+}
+#endif
 static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const int16_t *def)
 {
     uint32_t i, nc = np - 8u;
@@ -445,6 +495,10 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
         out[i] = i < nc ? in[i] : def[i];
     for (i = 0; i < 8u; i++)
         out[P_E0 + i] = in[nc + i];
+#if OC_DUB_IDS
+    if (nc <= (uint32_t)P_DUBSYNC)                       /* (Part 8) a store that has no DUB ids: Release 2's (or LFO 2's alone) */
+        dub_from_r2(out);
+#endif
 }
 
 /* engine indices the stores name (engines.c ENGINES[]: append-only) */

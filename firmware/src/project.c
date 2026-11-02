@@ -167,7 +167,7 @@ static int mpc_octaves_unpack(int8_t oct[NTRK], uint32_t word)
 }
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_DTIME == PROJ_GLOBALS && G_BUDGET==41u && G_COUNT==76u && PROJ_JFX_N <= 56u &&
-               P_DIST == PROJ_OLD_P_FX && P_REV == PROJ_OLD_P_SEND && P_JRES6 == 113u && P_COUNT == (OC_LFO2 ? 131u : 124u),
+               P_DIST == PROJ_OLD_P_FX && P_REV == PROJ_OLD_P_SEND && P_JRES6 == 113u && P_COUNT == (OC_DUB_IDS ? 139u : OC_LFO2 ? 131u : 124u),
                "global ids, the effect ids and the wire header stay fixed (a change: a new magic and a conversion)");
 /* (0.6.0) the global effect settings of a record from before FUN23: the new defaults; the leveler off, so a converted
  * project keeps the loudness it had (new projects have it on) */

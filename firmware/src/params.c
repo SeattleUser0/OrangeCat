@@ -14,6 +14,9 @@ static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "
 static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
+#if OC_DUB_IDS
+static const char *const N_DUBSYNC[] = {"FREE", "SYNC"};
+#endif
 #if OC_LFO2
 /* LFO 2's DEST: the matrix's destinations but DEPTH (mod.c maps these to MD_*, mod_l2dst) */
 static const char *const N_L2DST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "RATE", "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
@@ -200,6 +203,16 @@ static const param_desc_t TP[P_COUNT] = {
     [P_L2POL] = PE("POL", N_LPOL, 0),
     [P_L2DST] = PE("DEST", N_L2DST, 0),
     [P_L2AMT] = PD("AMT", F_BIPCT, -64, 63, 0),
+#endif
+#if OC_DUB_IDS
+    [P_DUBSYNC] = PE("SYNC", N_DUBSYNC, 1),                /* (Release 3, Part 8) DUB TAPE's setup, DUB_R12.md 1 .. 6: the times' unit */
+    [P_DUBTL] = PD("TIME L", F_INT, 0, 127, 7),            /* SYNC: 0 .. 17 (6 divisions x straight, dotted, triplet; 7 = 1/8 dotted), FREE: 20 ms .. 1.4 s on 0 .. 127 */
+    [P_DUBTR] = PD("TIME R", F_INT, 0, 127, 9),            /* (9 = 1/4) */
+    [P_DUBPING] = PE("PING", N_ONOFF, 0),
+    [P_DUBSPR] = PD("SPRING", F_INT, 0, 63, 0),
+    [P_DUBDRV] = PD("DRIVE", F_INT, 0, 63, 25),            /* (25: the old fixed 0.4) */
+    [P_DUBWOW] = PD("WOW", F_INT, 0, 63, 0),
+    [P_DUBSPD] = PD("SPEED", F_INT, 0, 63, 32),            /* (32 = normal) */
 #endif
     [P_SPRD] = PD("SPRD", F_PCT, 0, 127, 0),
     [P_LRATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
