@@ -149,6 +149,74 @@ int main(void)
                      c.t[0].step[3].hit == 0x05u && c.t[0].step[3].acc == 0x05u);
     }
 
+
+    {   /* (round 13) DUB TAPE's ten ids: the layout of today round trips; the layout of before (LEN 45, PTRN 46, SPRP 47, SPACE 107, THRW CUT KICK 108 .. 110) loads as the nearest new values (DUB_R12.md section 7) */
+        project_t a, c;
+        static project_store_t st;
+        uint32_t i, ok2 = 1, len, ptrn, sprp;
+        blank(&a);
+        for (i = 0; i < NTRK; i++) { a.t[i].p[P_DUB_MODE] = DUB_MODE_MARK | 1; a.t[i].p[P_DUB_TAPE] = 6 * DUB_WOW_N - 64; a.t[i].p[P_DUB_SPD] = 64; }
+        a.t[1].p[P_DUB_FDBK] = 99; a.t[1].p[P_DUB_SEND] = 12; a.t[1].p[P_DUB_FILT] = 77; a.t[1].p[P_DUB_ECHO] = 100; a.t[1].p[P_DUB_TIML] = 120; a.t[1].p[P_DUB_TIMR] = 3;
+        a.t[1].p[P_DUB_SPRG] = 127; a.t[1].p[P_DUB_SPD] = 0;
+        dub_put_field(a.t[1].p, DUBF_PING, 1); dub_put_field(a.t[1].p, DUBF_SYNC, 0); dub_put_field(a.t[1].p, DUBF_DRIVE, 15); dub_put_field(a.t[1].p, DUBF_WOW, 11);
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+        for (i = 0; i < 10u; i++) {
+            static const uint8_t ids[10] = {P_JRES0, P_JRES1, P_JRES2, P_JRES3, P_JRES4, P_JRES5, P_JRES6, P_RESERVED45, P_RESERVED46, P_RESERVED47};
+            ok2 &= c.t[1].p[ids[i]] == a.t[1].p[ids[i]];
+        }
+        bad += check("DUB: the ten ids of today (a packed MODE and TAPE at their extremes, SPEED 0, TIME 120) save and load unchanged (no conversion)",
+                     ok && ok2 && c.t[1].p[P_DUB_MODE] == (DUB_MODE_MARK | 2) && dub_get_drive(c.t[1].p) == 15 && dub_get_wow(c.t[1].p) == 11 && !dub_get_sync(c.t[1].p) && dub_get_ping(c.t[1].p));
+        ok2 = 1;
+        for (i = 0; i < 192u; i++) { int16_t t[P_COUNT] = {0}; t[P_DUB_TAPE] = (int16_t)(i - 64u); ok2 &= (uint32_t)(dub_get_drive(t) * DUB_WOW_N + dub_get_wow(t)) == i && dub_get_drive(t) < 16 && dub_get_wow(t) < 12; }
+        bad += check("DUB: TAPE holds DRIVE (16) and WOW (12) in the byte's 192 states, each half read back whole", ok2);
+        ok2 = 1;
+        for (i = 0; i < 128u; i++) ok2 &= dub_t_val(dub_t_idx((int32_t)i)) >= 0 && dub_t_idx(dub_t_val((int32_t)dub_t_idx((int32_t)i))) == dub_t_idx((int32_t)i);
+        for (i = 0; i < 18u; i++) ok2 &= dub_t_idx(dub_t_val((int32_t)i)) == (int)i && dub_t_step(dub_t_val((int32_t)i), 1) == dub_t_val((int32_t)(i < 17u ? i + 1u : 17u));
+        bad += check("DUB: the 18 synced divisions map to the 7 bits and back; a detent is one division, held at the ends", ok2 && dub_t_val(7) == 53 && dub_t_val(9) == 67);
+        /* the layout of before: every LEN x PTRN x SPRP loads converted */
+        ok2 = 1;
+        for (len = 0; len < 7u; len++) for (ptrn = 0; ptrn < 6u; ptrn++) for (sprp = 0; sprp < 3u; sprp++) {
+            blank(&a);
+            a.t[0].p[P_DUBO_LEN] = (int16_t)len; a.t[0].p[P_DUBO_PTRN] = (int16_t)ptrn; a.t[0].p[P_DUBO_SPRP] = (int16_t)sprp;
+            a.t[0].p[P_JRES0] = 61; a.t[0].p[P_JRES1] = 62; a.t[0].p[P_DUBO_TONE] = 63; a.t[0].p[P_DUBO_SPACE] = 24;
+            a.t[0].p[P_JRES4] = 9; a.t[0].p[P_JRES5] = 100; a.t[0].p[P_JRES6] = 127;
+            a.sum = proj_sum(&a);
+            ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+            ok2 &= ok && dub_new_layout(c.t[0].p) && c.t[0].p[P_DUB_ECHO] == (len ? 100 : 0) && c.t[0].p[P_DUB_FDBK] == 61 && c.t[0].p[P_DUB_SEND] == 62 && c.t[0].p[P_DUB_FILT] == 63 &&
+                   dub_get_sync(c.t[0].p) == 1 && dub_get_ping(c.t[0].p) == 0 && c.t[0].p[P_DUB_SPD] == 64 && dub_get_drive(c.t[0].p) == 6 && dub_get_wow(c.t[0].p) == 0 && c.t[0].p[P_DUB_SPRG] == 0;
+        }
+        bad += check("DUB: 126 old combinations (LEN x PTRN x SPRP): ECHO from LEN, FEEDBACK SEND FILTER kept, SYNC on, no PING, SPEED normal, DRIVE 6, WOW 0, the old THRW CUT KICK gone", ok2);
+        {   static const uint8_t first[6] = {6, 6, 6, 6, 4, 6}, second[6] = {10, 6, 7, 9, 6, 9};   /* SPACE 24 (1/8): SLAP (1, 3), SINGLE, SKANK (1, 1.5), TRIPLE (1, 2), GALLOP (.75, 1), SPREAD (1, 2): the nearest divisions */
+            ok2 = 1;
+            for (ptrn = 0; ptrn < 6u; ptrn++) {
+                blank(&a);
+                a.t[0].p[P_DUBO_LEN] = 3; a.t[0].p[P_DUBO_PTRN] = (int16_t)ptrn; a.t[0].p[P_DUBO_SPACE] = 24;
+                a.sum = proj_sum(&a);
+                ok2 &= proj_pack(&st, &a) && proj_import(&c, &st, sizeof st) && dub_t_idx(c.t[0].p[P_DUB_TIML]) == first[ptrn] && dub_t_idx(c.t[0].p[P_DUB_TIMR]) == second[ptrn];
+            }
+            bad += check("DUB: the old heads' first two times map to the nearest divisions (SLAP 1/8 + 1/4D, SKANK 1/8 + 1/8D, GALLOP 1/16D + 1/8 ...)", ok2); }
+        blank(&a);                                       /* the spring: SPRP LOOP with SPACE 100 (the second half: the mix 36) keeps its mix, doubled onto 0 .. 127; SPRP OFF has none; the time stays at the last division */
+        a.t[0].p[P_DUBO_LEN] = 3; a.t[0].p[P_DUBO_SPRP] = 1; a.t[0].p[P_DUBO_SPACE] = 100;
+        a.t[1].p[P_DUBO_LEN] = 3; a.t[1].p[P_DUBO_SPRP] = 0; a.t[1].p[P_DUBO_SPACE] = 100;
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+        bad += check("DUB: SPRP LOOP, SPACE 100: SPRING 72; SPRP OFF: SPRING 0; the time at the 4-beat division", ok && c.t[0].p[P_DUB_SPRG] == 72 && c.t[1].p[P_DUB_SPRG] == 0 && dub_t_idx(c.t[0].p[P_DUB_TIML]) == 15);
+        /* the old lanes: track 1 (of before) loses SPACE, THRW, CUT, KICK lanes, keeps FDBK; track 2 (of today) keeps a lane on the same ids (TIME L, TIME R, SPRING) */
+        blank(&a);
+        a.t[2].p[P_DUB_MODE] = DUB_MODE_MARK | 1; a.t[2].p[P_DUB_TAPE] = 6 * DUB_WOW_N - 64; a.t[2].p[P_DUB_SPD] = 64;
+        a.motion.count = 8;
+        for (i = 0; i < 8u; i++) {
+            static const uint8_t prm[8] = {P_JRES0, P_JRES3, P_JRES4, P_JRES5, P_JRES6, P_JRES4, P_REV, P_DLY};   /* (the sends between 107 and 111 are not DUB's) */
+            a.motion.event[i].param = prm[i]; a.motion.event[i].value = (int8_t)(40 + (int)i); a.motion.event[i].place = (uint8_t)((i == 5u ? 2u : 1u) << 6 | (i % 7u));
+        }
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+        bad += check("DUB: a track of before loses its SPACE, THRW, CUT and KICK lanes (they would drive ECHO, TIME L, TIME R, SPRING), keeps FEEDBACK and its send lanes; a track of today keeps its TIME L lane",
+                     ok && c.motion.count == 4 && c.motion.event[0].param == P_JRES0 && c.motion.event[1].param == P_JRES4 && (c.motion.event[1].place >> 6) == 2 &&
+                     c.motion.event[2].param == P_REV && c.motion.event[3].param == P_DLY);
+    }
+
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }

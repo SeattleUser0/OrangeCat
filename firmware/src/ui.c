@@ -816,6 +816,7 @@ static void momentary_take(uint32_t slot)
     if(!(fm1_in.buttons&(1u<<panel.btn[B_LFO])) || pg->graph==GR_FMSTORE || pg->graph==GR_CZTOOLS)return;
     d=page_desc(pg,slot,&vp);
     if(!d || !vp || d->max==d->min)return;
+    if(pg->scope==SC_TRACK && pg->id[slot]>=DUBF_SYNC && pg->id[slot]<=DUBF_WOW)return;   /* (round 13) a half of a packed id: a cell, nothing to put back */
     if(pg->scope==SC_MOD)return;   /* (0.12.0) a module's native values: no momentary take (the module keeps no copy to put back) */
     uint32_t native=(MELODEE_FM6 && pg->scope == SC_FM6) || (MELODEE_FM6 && pg->scope == SC_FMOP)?1:pg->scope==SC_CZ1?2:(MELODEE_P5 && pg->scope == SC_P5)?3:0;
     if(!native && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&

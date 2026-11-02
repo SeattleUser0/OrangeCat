@@ -371,8 +371,8 @@ static int test_sound_loads(void)
     t->p[P_AOCT] = 3;
     t->p[P_SCALE] = 2;
     t->p[P_TRANS] = 5;
-    t->p[P_RESERVED45] = 1;
-    t->p[P_RESERVED46] = 4;
+    t->p[P_RESERVED45] = 90;
+    t->p[P_RESERVED46] = 66;
     t->p[P_SDIV] = 1;
     t->p[P_LEVEL] = 90;
     before = *t;
@@ -380,7 +380,7 @@ static int test_sound_loads(void)
     bad += check("PRESETS on HOME loads the sound: steps, LEN, DIV untouched", t->preset == (uint8_t)((before.preset + 1u) % ENGINES[3]->npresets) &&
                  !memcmp(t->step, before.step, sizeof t->step) && t->p[P_SLEN] == 32 && t->p[P_SDIV] == 1);
     bad += check("..ARP, SCL, the SLICER and the mix stay the track's", t->p[P_AMODE] == 2 && t->p[P_AOCT] == 3 && t->p[P_SCALE] == 2 &&
-                 t->p[P_TRANS] == 5 && t->p[P_DUBLEN] == 1 && t->p[P_DUBPTRN] == 4 && t->p[P_LEVEL] == 90);   /* (Release 2: DUB TAPE's LEN and PTRN are the track's own too) */
+                 t->p[P_TRANS] == 5 && t->p[P_DUB_SPD] == 90 && t->p[P_DUB_MODE] == 66 && t->p[P_LEVEL] == 90);   /* (Release 2: DUB TAPE's SPEED and MODE are the track's own too) */
     bad += check("..and no warning about the sequence", !msg_is("T1 SEQ REPLACED"));
     for (i = 0; i < ENGINES[3]->npresets; i++)
         if (str_eq(eng_preset(ENGINES[3], i)->name, "ARP BASS"))
@@ -420,7 +420,7 @@ static int test_sound_loads(void)
     track_select(1);
     set_engine(trk[1].eng_req);                   /* Init sound */
     bad += check("Init sound: the sound only (steps and SLICER kept), a copy of T2", undo.trk == 2u &&
-                 !memcmp(trk[1].step, before.step, sizeof before.step) && trk[1].p[P_DUBLEN] == 2);   /* (Release 2: DUB TAPE's setup stays with the track) */
+                 !memcmp(trk[1].step, before.step, sizeof before.step) && trk[1].p[P_DUB_SPD] == 2);   /* (Release 2: DUB TAPE's setup stays with the track) */
     track_select(0);
     set_engine_of(&trk[0], 3);                    /* (a general sound: the Prophet keeps its own slots) */
     my_steps(&trk[0]);
@@ -3173,6 +3173,102 @@ static uint32_t gates(void)                        /* voices of every track with
     return n;
 }
 static uint32_t white(uint32_t w) { return key_at(0, w); }
+
+
+/* (round 13) DUB TAPE's pages: DUB SETUP, DUB, DUB 2 in this order, their knobs by name, the packed halves edited one at a time, TIME on the beat a division a detent,
+ * SPEED a lane and the packed ids not, the performance triggers off the pages */
+static uint32_t dub_page(const char *title)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].scope == SC_TRACK && PAGES[i].fam == FAM_FX && str_eq(PAGES[i].title, title)) break;
+    return i;
+}
+static void go_dub(const char *title) { ui.home = 0; ui.page = (uint8_t)dub_page(title); page_entered(); }
+static const char *dub_label(const char *title, uint32_t k)
+{
+    int16_t *vp;
+    const param_desc_t *d = page_desc(&PAGES[dub_page(title)], k, &vp);
+    return d ? d->label : "?";
+}
+static void dub_text(const char *title, uint32_t k, char *val, const char **unit)
+{
+    int16_t *vp;
+    const param_desc_t *d = page_desc(&PAGES[dub_page(title)], k, &vp);
+    param_format(d, *vp, val, unit);
+}
+static int test_dub_pages(void)
+{
+    int bad = 0, ok;
+    char v[12];
+    const char *u;
+    uint32_t a, b, c;
+    ui_power_on();
+    a = dub_page("DUB SETUP"); b = dub_page("DUB"); c = dub_page("DUB 2");
+    bad += check("DUB pages: DUB SETUP, DUB, DUB 2 in this order, one after the other", a < NPAGES && b == a + 1u && c == b + 1u);
+    ok = !strcmp(dub_label("DUB SETUP", 0), "SYNC") && !strcmp(dub_label("DUB SETUP", 1), "TIME L") && !strcmp(dub_label("DUB SETUP", 2), "TIME R") && !strcmp(dub_label("DUB SETUP", 3), "PING") &&
+         !strcmp(dub_label("DUB", 0), "FEEDBACK") && !strcmp(dub_label("DUB", 1), "SEND") && !strcmp(dub_label("DUB", 2), "FILTER") && !strcmp(dub_label("DUB", 3), "ECHO") &&
+         !strcmp(dub_label("DUB 2", 0), "SPRING") && !strcmp(dub_label("DUB 2", 1), "DRIVE") && !strcmp(dub_label("DUB 2", 2), "WOW") && !strcmp(dub_label("DUB 2", 3), "SPEED");
+    bad += check("DUB pages: the knobs by name: SYNC TIME L TIME R PING / FEEDBACK SEND FILTER ECHO / SPRING DRIVE WOW SPEED", ok);
+    dub_text("DUB SETUP", 1, v, &u); ok = !strcmp(v, "1/8D");
+    dub_text("DUB SETUP", 2, v, &u); ok &= !strcmp(v, "1/4");
+    dub_text("DUB SETUP", 0, v, &u); ok &= !strcmp(v, "SYNC");
+    dub_text("DUB SETUP", 3, v, &u); ok &= !strcmp(v, "OFF");
+    bad += check("DUB pages: the defaults: SYNC, TIME L 1/8D, TIME R 1/4, PING OFF", ok);
+    go_dub("DUB SETUP");
+    turn(EN_K2, 1); dub_text("DUB SETUP", 1, v, &u); ok = !strcmp(v, "1/8T");
+    turn(EN_K2, -2); dub_text("DUB SETUP", 1, v, &u); ok &= !strcmp(v, "1/8");
+    turn(EN_K3, 1); dub_text("DUB SETUP", 2, v, &u); ok &= !strcmp(v, "1/4D");
+    bad += check("DUB pages: TIME on the beat moves a division a detent (1/8D, 1/8T, 1/8; 1/4, 1/4D)", ok);
+    turn(EN_K4, 1);
+    bad += check("DUB pages: PING ON sets its bit and keeps SYNC", dub_get_ping(TSEL->p) == 1 && dub_get_sync(TSEL->p) == 1 && dub_new_layout(TSEL->p));
+    turn(EN_K1, -1);
+    dub_text("DUB SETUP", 0, v, &u); ok = !strcmp(v, "FREE") && dub_get_ping(TSEL->p) == 1 && !dub_get_sync(TSEL->p);
+    dub_text("DUB SETUP", 1, v, &u); ok &= !strcmp(u, "ms");
+    bad += check("DUB pages: SYNC FREE re-reads the times in milliseconds (the values are not converted), PING kept", ok && TSEL->p[P_DUB_TIML] == dub_t_val(6));
+    {   int16_t t0 = TSEL->p[P_DUB_TIML];
+        turn(EN_K2, 1);
+        bad += check("DUB pages: free TIME moves a step a detent (7 bits)", TSEL->p[P_DUB_TIML] == t0 + 1); }
+    turn(EN_K1, 1);
+    go_dub("DUB 2");
+    {   int16_t tape0 = TSEL->p[P_DUB_TAPE];
+        turn(EN_K2, 1); turn(EN_K3, 3);
+        ok = dub_get_drive(TSEL->p) == 7 && dub_get_wow(TSEL->p) == 3;
+        turn(EN_K2, -7);
+        ok &= dub_get_drive(TSEL->p) == 0 && dub_get_wow(TSEL->p) == 3;
+        turn(EN_K3, 20);
+        ok &= dub_get_drive(TSEL->p) == 0 && dub_get_wow(TSEL->p) == 11;
+        dub_text("DUB 2", 2, v, &u);
+        bad += check("DUB pages: DRIVE and WOW are two knobs on one id: each moves alone, WOW stops at 11, the other half kept", ok && tape0 == 6 * DUB_WOW_N - 64 && !strcmp(v, "11"));
+        turn(EN_K2, 40);
+        bad += check("DUB pages: DRIVE stops at 15 and the stored byte stays inside -64 .. 127", dub_get_drive(TSEL->p) == 15 && TSEL->p[P_DUB_TAPE] >= -64 && TSEL->p[P_DUB_TAPE] <= 127); }
+    turn(EN_K4, 1); turn(EN_K1, 5);
+    bad += check("DUB pages: SPEED and SPRING are whole ids", TSEL->p[P_DUB_SPD] == 65 && TSEL->p[P_DUB_SPRG] == 5);
+    dub_text("DUB 2", 3, v, &u); ok = !strcmp(v, "0") && !strcmp(u, "st");
+    TSEL->p[P_DUB_SPD] = 64 + 16; dub_text("DUB 2", 3, v, &u); ok &= !strcmp(v, "+3");
+    TSEL->p[P_DUB_SPD] = 0; dub_text("DUB 2", 3, v, &u); ok &= !strcmp(v, "-12");
+    bad += check("DUB pages: SPEED reads in semitones, 0 at the middle (+3 at 80, -12 at 0)", ok);
+    ok = motion_param(P_DUB_SPD) && motion_param(P_DUB_FDBK) && motion_param(P_DUB_SEND) && motion_param(P_DUB_FILT) && motion_param(P_DUB_ECHO) &&
+         motion_param(P_DUB_TIML) && motion_param(P_DUB_TIMR) && motion_param(P_DUB_SPRG) && !motion_param(P_DUB_MODE) && !motion_param(P_DUB_TAPE);
+    {   motion_store_t m;
+        memset(&m, 0, sizeof m); m.count = 1; m.event[0].param = P_DUB_SPD; m.event[0].value = 100;
+        ok &= motion_valid(&m);
+        m.event[0].param = P_DUB_MODE; m.event[0].value = 65; ok &= motion_valid(&m); }                /* (an old file's lane on a packed id: valid, inert: motion.c) */
+    bad += check("DUB pages: the eight whole ids are motion lanes (lockable, recordable); MODE and TAPE hold two knobs each and are not", ok);
+    {   uint32_t t0 = trk_index(TSEL);
+        midi_parameter(TSEL, 16, 127); midi_parameter(TSEL, 17, 90); midi_parameter(TSEL, 18, 5);
+        ok = dub_trig[t0][0] == 127 && dub_trig[t0][1] == 90 && dub_trig[t0][2] == 5;
+        TSEL->p[P_DUB_ECHO] = 0; midi_parameter(TSEL, 15, 77);
+        ok &= TSEL->p[P_DUB_ECHO] == 77;
+        memset(dub_trig, 0, sizeof dub_trig);
+        bad += check("DUB pages: CC 16 .. 18 (THRW, CUT, KICK) set the triggers in RAM and write no parameter; CC 15 is ECHO", ok && TSEL->p[P_JRES4] != 127); }
+    {   uint32_t e = eng_idx(TSEL->eng_req);                 /* the defaults a track's FX reset (ui_clear.c) and a new track take */
+        ok = param_desc_of(e, P_DUB_MODE)->def == (DUB_MODE_MARK | 1) && param_desc_of(e, P_DUB_ECHO)->def == 0 && param_desc_of(e, P_DUB_SPD)->def == 64 &&
+             param_desc_of(e, P_DUB_TAPE)->def == 6 * DUB_WOW_N - 64 && param_desc_of(e, P_DUB_TIML)->def == 53 && param_desc_of(e, P_DUB_TIMR)->def == 67 &&
+             param_desc_of(e, P_DUB_FDBK)->def == 55 && param_desc_of(e, P_DUB_SEND)->def == 127 && param_desc_of(e, P_DUB_FILT)->def == 60 && param_desc_of(e, P_DUB_SPRG)->def == 0;
+        bad += check("DUB pages: the defaults of the ten ids (SYNC on, 1/8D and 1/4, ECHO 0, SPEED normal, DRIVE 6, WOW 0, FEEDBACK 55, SEND 127, FILTER 60, SPRING 0)", ok); }
+    return bad;
+}
 
 static int test_layer(void)
 {
@@ -6521,6 +6617,7 @@ int main(void)
     bad += test_screen();
     bad += test_favorites();
     bad += test_browser();
+    bad += test_dub_pages();
     bad += test_display_preferences();
     bad += test_information();
     bad += test_chain();

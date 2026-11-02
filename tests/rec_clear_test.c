@@ -153,15 +153,15 @@ int main(void)
         fresh();
         go_title("DIST");
         pstep(&trk[0], 1, 60);
-        trk[0].p[P_DIST] = 70; trk[0].p[P_REV] = 55; trk[0].p[P_JRES0] = 33; trk[0].p[P_DUBLEN] = 2; trk[0].p[P_APDEP] = 40;
+        trk[0].p[P_DIST] = 70; trk[0].p[P_REV] = 55; trk[0].p[P_JRES0] = 33; trk[0].p[P_DUB_SPD] = 2; trk[0].p[P_APDEP] = 40;
         trk[1].p[P_DIST] = 66; trk[0].p[P_LEVEL] = 80;
         hold_ms(B_REC, 1500);
         chk("FX      the track's effects to their defaults", trk[0].p[P_DIST] == param_desc_of(eng_idx(trk[0].eng_req), P_DIST)->def &&
-            trk[0].p[P_REV] == param_desc_of(eng_idx(trk[0].eng_req), P_REV)->def && trk[0].p[P_DUBLEN] == param_desc_of(eng_idx(trk[0].eng_req), P_DUBLEN)->def &&
+            trk[0].p[P_REV] == param_desc_of(eng_idx(trk[0].eng_req), P_REV)->def && trk[0].p[P_DUB_SPD] == param_desc_of(eng_idx(trk[0].eng_req), P_DUB_SPD)->def &&
             trk[0].p[P_APDEP] == param_desc_of(eng_idx(trk[0].eng_req), P_APDEP)->def);
         chk("FX      the steps, the mix and another track's effects stay", steps_on(&trk[0]) == 1u && trk[0].p[P_LEVEL] == 80 && trk[1].p[P_DIST] == 66);
         hold(B_EDIT);
-        chk("FX      EDIT held brings them back", trk[0].p[P_DIST] == 70 && trk[0].p[P_REV] == 55 && trk[0].p[P_JRES0] == 33 && trk[0].p[P_DUBLEN] == 2 && trk[0].p[P_APDEP] == 40);
+        chk("FX      EDIT held brings them back", trk[0].p[P_DIST] == 70 && trk[0].p[P_REV] == 55 && trk[0].p[P_JRES0] == 33 && trk[0].p[P_DUB_SPD] == 2 && trk[0].p[P_APDEP] == 40);
         edit_redo();
         chk("FX      EDIT + OCT+ redoes the reset", trk[0].p[P_DIST] == param_desc_of(eng_idx(trk[0].eng_req), P_DIST)->def);
         fresh();

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Orange Cat Release 2: DUB TAPE's kernel (firmware/src/dubdelay.c), the host tests of its behaviour: the repeats at TIME, 2 TIME and 3 TIME, each darker; FEEDBACK
+ * Orange Cat Release 2: DUB TAPE's kernel (firmware/src/dubdelay.c), the host tests of its behaviour: the repeats at TIME, 2 TIME and 3 TIME, each darker; (round 13) two taps at their own times, PING crossing the channels, SPEED bending the repeats' pitch, WOW, the wet spring gated at a mix of 0; FEEDBACK
  * above 1 bounded; the line through its block table the same as one buffer; TIME changes and the filter sweep continuous; the cut's ramps; the spring in both
  * placements stable; the quarter rate. Run by tests/run_tests.sh. */
 #include <assert.h>
@@ -27,7 +27,7 @@ static void setup(int R, uint32_t nblk, int contiguous)
 static void params(dd_params_t *p, float time, float fb)
 {
     memset(p, 0, sizeof *p);
-    p->time = time; p->head[0] = 1.0f; p->level[0] = 0.9f; p->fbw[0] = 1.0f;
+    p->time_l = p->time_r = time; p->speed = 1.0f;       /* (round 13: two taps, both at TIME: the same echo in both channels, the feedback the sum of the two at half each) */
     p->feedback = fb; p->hp = 15.0f; p->lp = 119.0f; p->res = 0.3f; p->drive = 0.4f; p->send = 1.0f; p->wet = 1.0f; p->glide = 0.12f; p->route = 1;
     p->lim_ceil = 0.891f;
 }
@@ -73,7 +73,7 @@ int main(void)
 
     /* 2. the line through its block table equals one buffer */
     for (i = 0; i < N; i++) in[i] = 0.3f * sinf(0.05f * (float)i) * ((i / 3000) & 1u ? 1.0f : 0.0f);
-    setup(2, 6, 1); params(&p, 0.1f, 0.8f); p.head[1] = 2.0f; p.level[1] = 0.5f; p.fbw[0] = 0.5f; p.fbw[1] = 0.5f; run(&p, in, out, NB);
+    setup(2, 6, 1); params(&p, 0.1f, 0.8f); p.time_r = 0.2f; run(&p, in, out, NB);
     setup(2, 6, 0); run(&p, in, out2, NB);
     CHECK(!memcmp(out, out2, N * sizeof(float)), "blocks apart in memory are not the same as one buffer");
     printf("dub: the same output on 6 blocks side by side and apart: %s\n", !memcmp(out, out2, N * sizeof(float)) ? "yes" : "NO");
@@ -101,8 +101,8 @@ int main(void)
     for (i = 0; i < N; i++) in[i] = 0.4f * sinf(0.03f * (float)i);
     {   float x[DD_BLOCK], l[DD_BLOCK], r[DD_BLOCK], last = 0.0f, maxd = 0.0f;
         for (uint32_t b = 0; b < 1000; b++) {
-            if (b == 300) p.time = 0.2f;
-            if (b == 600) p.time = 0.05f;
+            if (b == 300) p.time_l = p.time_r = 0.2f;
+            if (b == 600) p.time_l = p.time_r = 0.05f;
             for (i = 0; i < DD_BLOCK; i++) x[i] = in[b * DD_BLOCK + i];
             dk_process(&dd, &p, x, l, r);
             for (i = 0; i < DD_BLOCK; i++) { float d = fabsf(l[i] - last); if (b > 100 && d > maxd) maxd = d; last = l[i]; }
@@ -202,9 +202,105 @@ int main(void)
         free(sb);
     }
 
-    /* 9. (round 6) converter B: the skank and throw scenes of the research prototype at the quarter rate through this dubdelay.c hash to the same 64-bit value as the renders the owner listened to
+    /* 7d. (round 13) two taps at their own times: an impulse, no feedback: the left tap's echo in the left channel at TIME L only, the right tap's in the right at TIME R only */
+    {   float *l2 = calloc(N, sizeof(float)), *r2 = calloc(N, sizeof(float)), xb[DD_BLOCK], lb[DD_BLOCK], rb[DD_BLOCK];
+        uint32_t al = 0, ar = 0;
+        float pl1, pl2, pr1, pr2;
+        setup(2, 8, 1); params(&p, 0.1f, 0.0f); p.time_r = 0.25f;
+        for (uint32_t b = 0; b < 600; b++) {
+            for (i = 0; i < DD_BLOCK; i++) xb[i] = b == 0 && i == 0 ? 0.5f : 0.0f;
+            dk_process(&dd, &p, xb, lb, rb);
+            for (i = 0; i < DD_BLOCK; i++) { l2[b * DD_BLOCK + i] = lb[i]; r2[b * DD_BLOCK + i] = rb[i]; }
+        }
+        pl1 = peak_in(l2, 3500, 5500, &al); pl2 = peak_in(l2, 10000, 12500, 0);
+        pr1 = peak_in(r2, 10000, 12500, &ar); pr2 = peak_in(r2, 3500, 5500, 0);
+        printf("dub: two taps: left echo at %u (TIME L 4410) %.4f, right echo at %u (TIME R 11025) %.4f; cross: %.5f %.5f\n", al, pl1, ar, pr1, pl2, pr2);
+        CHECK(al > 4410 - 100 && al < 4410 + 200 && pl1 > 0.02f, "the left tap's echo at %u", al);
+        CHECK(ar > 11025 - 100 && ar < 11025 + 300 && pr1 > 0.02f, "the right tap's echo at %u", ar);
+        CHECK(pl2 < 0.002f && pr2 < 0.002f, "the taps leak into the other channel: %f %f", pl2, pr2);
+        free(l2); free(r2);
+    }
+
+    /* 7e. PING: the feedback is the right tap alone, so the left channel's second echo comes at TIME R + TIME L, not at 2 TIME L */
+    {   float *l2 = calloc(N, sizeof(float)), *r2 = calloc(N, sizeof(float)), xb[DD_BLOCK], lb[DD_BLOCK], rb[DD_BLOCK], dbl[2], sum[2];
+        for (int ping = 0; ping < 2; ping++) {
+            setup(2, 8, 1); params(&p, 0.05f, 0.9f); p.time_r = 0.1f; p.ping = ping; p.wet = 1.0f;
+            for (uint32_t b = 0; b < 300; b++) {
+                for (i = 0; i < DD_BLOCK; i++) xb[i] = b == 0 && i == 0 ? 0.5f : 0.0f;
+                dk_process(&dd, &p, xb, lb, rb);
+                for (i = 0; i < DD_BLOCK; i++) { l2[b * DD_BLOCK + i] = lb[i]; r2[b * DD_BLOCK + i] = rb[i]; }
+            }
+            dbl[ping] = peak_in(l2, 4300, 4900, 0);                    /* 2 TIME L = 0.1 s = 4410 samples */
+            sum[ping] = peak_in(l2, 6500, 7200, 0);                    /* TIME R + TIME L = 0.15 s = 6615 */
+        }
+        printf("dub: PING off: the left channel at 2 TIME L %.4f, at TIME R + TIME L %.4f; PING on: %.4f, %.4f\n", dbl[0], sum[0], dbl[1], sum[1]);
+        CHECK(dbl[0] > 0.02f && dbl[1] < 0.25f * dbl[0], "PING should take the left channel's 2 TIME L echo away: %f then %f", dbl[0], dbl[1]);
+        CHECK(sum[1] > 0.02f && sum[1] > 1.5f * sum[0], "PING should bring the TIME R + TIME L echo to the left: %f then %f", sum[0], sum[1]);
+        free(l2); free(r2);
+    }
+
+    /* 7f. SPEED: at twice the speed the echo arrives in half the time (once the head glide has settled); at half the speed, in twice */
+    {   static const float spd[3] = {1.0f, 2.0f, 0.5f};
+        float xb[DD_BLOCK], lb[DD_BLOCK], rb[DD_BLOCK];
+        uint32_t at[3] = {0, 0, 0};
+        for (int k = 0; k < 3; k++) {
+            float *l2 = calloc(N, sizeof(float));
+            setup(2, 8, 1); params(&p, 0.2f, 0.0f); p.speed = spd[k];
+            for (uint32_t b = 0; b < 300; b++) { for (i = 0; i < DD_BLOCK; i++) xb[i] = 0.0f; dk_process(&dd, &p, xb, lb, rb); }     /* the heads settle */
+            for (uint32_t b = 0; b < 700; b++) {
+                for (i = 0; i < DD_BLOCK; i++) xb[i] = b == 0 && i == 0 ? 0.5f : 0.0f;
+                dk_process(&dd, &p, xb, lb, rb);
+                for (i = 0; i < DD_BLOCK; i++) l2[b * DD_BLOCK + i] = lb[i];
+            }
+            peak_in(l2, 200, 700 * DD_BLOCK, &at[k]);
+            free(l2);
+        }
+        printf("dub: SPEED 1, 2 and 0.5 on TIME 0.2 s: the echo at %u, %u and %u samples (8820, 4410, 17640)\n", at[0], at[1], at[2]);
+        CHECK(at[0] > 8820 - 100 && at[0] < 8820 + 300, "speed 1: %u", at[0]);
+        CHECK(at[1] > 4410 - 100 && at[1] < 4410 + 300, "speed 2: %u", at[1]);
+        CHECK(at[2] > 17640 - 150 && at[2] < 17640 + 400, "speed 0.5: %u", at[2]);
+    }
+
+    /* 7g. WOW: a steady tone through the echo: with WOW the period of the echo wobbles (a pitch wobble of a few tenths of a percent), without it the period is constant */
+    {   float sd[2];
+        for (int w = 0; w < 2; w++) {
+            float *l2 = calloc(N, sizeof(float)), xb[DD_BLOCK], lb[DD_BLOCK], rb[DD_BLOCK], last = 0.0f, per[200], mean = 0.0f, var = 0.0f, lz = -1.0f;
+            uint32_t np = 0;
+            setup(2, 8, 1); params(&p, 0.05f, 0.0f); p.wow = w ? 1.0f : 0.0f;
+            for (uint32_t b = 0; b < 1400; b++) {
+                for (i = 0; i < DD_BLOCK; i++) xb[i] = 0.4f * sinf(2.0f * 3.14159265f * 1000.0f / 44100.0f * (float)(b * DD_BLOCK + i));
+                dk_process(&dd, &p, xb, lb, rb);
+                for (i = 0; i < DD_BLOCK; i++) {
+                    uint32_t n = b * DD_BLOCK + i;
+                    if (n > 8000 && last < 0.0f && lb[i] >= 0.0f) { float z = (float)n - lb[i] / (lb[i] - last); if (lz > 0.0f && np < 200) per[np++] = z - lz; lz = z; }   /* (the crossing to a fraction of a sample) */
+                    last = lb[i];
+                }
+            }
+            for (uint32_t j = 0; j < np; j++) mean += per[j];
+            mean /= (float)np;
+            for (uint32_t j = 0; j < np; j++) var += (per[j] - mean) * (per[j] - mean);
+            sd[w] = sqrtf(var / (float)np) / mean;
+            free(l2);
+        }
+        printf("dub: WOW 0 and 1: the echo's period varies by %.5f and %.5f of the period\n", sd[0], sd[1]);
+        CHECK(sd[0] < 0.003f && sd[1] > 2.0f * sd[0] + 0.001f, "WOW does not bend the echo's pitch: %f then %f", sd[0], sd[1]);
+    }
+
+    /* 7h. the wet spring at a mix of 0 is the spring-off output bit for bit (the tank does not run) */
+    {   int16_t *sb = calloc(DD_SP_BUF, sizeof(int16_t));
+        float *o1 = calloc(N, sizeof(float));
+        for (i = 0; i < N; i++) in[i] = 0.4f * sinf(0.03f * (float)i) * ((i / 4000) & 1u ? 1.0f : 0.5f);
+        setup(2, 4, 1); params(&p, 0.05f, 0.7f); run(&p, in, out, 600);
+        setup(2, 4, 1); dk_spring_attach(&dd, sb); params(&p, 0.05f, 0.7f); p.spring = 2; p.sp_mix = 0.0f; p.sp_decay = 2.0f; p.sp_drive = 0.4f; p.sp_tone = 0.3f; p.sp_in = 0.3f;
+        run(&p, in, o1, 600);
+        printf("dub: the wet spring at a mix of 0 equals no spring: %s\n", !memcmp(out, o1, 600u * DD_BLOCK * sizeof(float)) ? "yes" : "NO");
+        CHECK(!memcmp(out, o1, 600u * DD_BLOCK * sizeof(float)), "the wet spring at a mix of 0 is not the spring-off output");
+        free(o1); free(sb);
+    }
+
+    /* 9. (round 6) converter B (round 13: the hashes regenerated for the two-tap kernel, the scenes' heads now the two taps of dub_scenes.h; the converters themselves are unchanged): the skank and throw scenes of the research prototype at the quarter rate through this dubdelay.c hash to the same 64-bit value as the renders the owner listened to
      * (~/dubtape-research/conv/conv_render.c with DD_CONV=1, the same tests/dub_scenes.h): the first converter stage at 11 taps (beta 6), the second as before. A change of either converter changes the hash on purpose. */
-    {   static const uint64_t want[2] = {0xc84c9679e9269898ull, 0x3e7b807035f73c50ull};
+    {   static const uint64_t want[2] = {0x09ce1bf1a8301046ull, 0x53333ab9b80ad8e8ull};
         static const float dur[2] = {11.0f, 12.0f};
         for (int sc = 0; sc < 2; sc++) {
             int n = (int)(dur[sc] * 44100.0f);
@@ -212,19 +308,19 @@ int main(void)
             uint64_t h;
             sc_render(sc, ol, orr, n);
             h = sc_fnv(sc_fnv(1469598103934665603ull, ol, n), orr, n);
-            printf("dub: converter B, scene %s through dubdelay.c: hash %016llx (the renders: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want[sc]);
+            printf("dub: converter B, scene %s through dubdelay.c: hash %016llx (round 13's: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want[sc]);
             CHECK(h == want[sc], "converter B's %s render differs from conv_render's", sc ? "throw" : "skank");
             free(ol); free(orr);
         }
         /* and the half rate (R = 2, one stage) is not touched: the same scenes hash to what release-2's dubdelay.c (the 31-tap stage) gave */
-        {   static const uint64_t want2[2] = {0x0eb7fa8d6891d8d6ull, 0x033bca32d0f4a498ull};
+        {   static const uint64_t want2[2] = {0x31de0926e0affe34ull, 0x14ec6a457534bf1dull};
             for (int sc = 0; sc < 2; sc++) {
                 int n = (int)(dur[sc] * 44100.0f);
                 float *ol = (float *)calloc((size_t)n, sizeof(float)), *orr = (float *)calloc((size_t)n, sizeof(float));
                 uint64_t h;
                 sc_render_r(sc, ol, orr, n, 2);
                 h = sc_fnv(sc_fnv(1469598103934665603ull, ol, n), orr, n);
-                printf("dub: half rate, scene %s: hash %016llx (release-2's: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want2[sc]);
+                printf("dub: half rate, scene %s: hash %016llx (round 13's: %016llx)\n", sc ? "throw" : "skank", (unsigned long long)h, (unsigned long long)want2[sc]);
                 CHECK(h == want2[sc], "the half rate's %s render changed", sc ? "throw" : "skank");
                 free(ol); free(orr);
             }

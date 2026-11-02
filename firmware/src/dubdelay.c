@@ -58,6 +58,7 @@ void dk_reset(dd_t *s)
     s->ctl_left = 0;
     memset(s->dec, 0, sizeof s->dec); memset(s->intl, 0, sizeof s->intl); memset(s->intr, 0, sizeof s->intr);
     s->denorm = 0;
+    s->wow_ph = s->wow_ph2 = s->wow_cur = 0.0f;
     s->primed = 0;
     s->cut_g = s->cutw_g = 1.0f; s->lim_env = 0.0f; s->lim_g = 1.0f;
 }
@@ -173,7 +174,7 @@ static void dd_sp_tick(dd_t *s, const dd_params_t *p)
         q->place = pl;
     }
     q->m = leaving ? 0.0f : p->sp_mix < 0.0f ? 0.0f : p->sp_mix > 1.0f ? 1.0f : p->sp_mix;
-    if (q->place == 1 && q->m < 0.0005f && q->wm < 0.001f) {                    /* (Release 2) the loop spring bypassed: after about 0.5 s the tank is cleared (once), so it comes back from silence */
+    if (q->place && q->m < 0.0005f && q->wm < 0.001f) {                    /* (Release 2; round 12: the wet spring too) the spring bypassed: after about 0.5 s the tank is cleared (once), so it comes back from silence */
         if (q->idle < 0xFFFFu && ++q->idle == 700u && q->buf) {
             memset(q->buf, 0, DD_SP_BUF * sizeof(int16_t));
             memset(q->ap, 0, sizeof q->ap); q->w = q->w1 = q->w2 = 0; q->lp = q->olp = q->dc = 0.0f;
@@ -269,25 +270,33 @@ typedef struct {
     float fb_end, send_end;
     int route;
     float ct, wt, cstep, lceil, lrel;
+    float wd0, wd1, winc1, winc2;  /* (round 12) the wobble: depth at the block's start and end (loop samples), the two phase steps (turns a loop sample) */
 } dd_tick_t;
 
 DD_NOINL static void dd_control_tick(dd_t *s, const dd_params_t *p, dd_tick_t *t, int nloop)
 {
     int i;
-    float step = p->time * s->fsl, g;
+    float g, spd = p->speed > 0.25f ? (p->speed < 4.0f ? p->speed : 4.0f) : 0.25f, wd = p->wow < 0.0f ? 0.0f : p->wow > 1.0f ? 1.0f : p->wow;
+    const float tm[DD_TAPS] = {p->time_l, p->time_r};
+    wd *= 6.0f * (s->fsl / 22050.0f);                                   /* the wobble's depth: 6 samples of the half rate (0.27 ms), the same time at the quarter rate */
+    t->wd0 = s->wow_cur;
+    s->wow_cur += 0.3f * (wd - s->wow_cur);
+    if (s->wow_cur - wd < 1e-3f && wd - s->wow_cur < 1e-3f) s->wow_cur = wd;
+    t->wd1 = s->wow_cur;
+    t->winc1 = 0.8f / s->fsl; t->winc2 = 5.7f / s->fsl;
     t->a = p->glide > 0.0f ? 1.0f / (p->glide * s->fsl + 1.0f) : 1.0f;
     for (i = 0; i < DD_TAPS; i++) {
-        float lv = p->head[i] > 0.0f ? p->level[i] : 0.0f, pn = p->pan[i], c, tl, tr, tf;
-        float d = p->head[i] * step;
-        t->on[i] = p->head[i] > 0.0f;
-        if (d < 2.0f) d = 2.0f;
-        if (d > (float)s->len - 8.0f) d = (float)s->len - 8.0f;
+        float lv = tm[i] > 0.0f ? 0.9f : 0.0f, pn = i ? 1.0f : -1.0f, c, tl, tr, tf;
+        float d = tm[i] / spd * s->fsl;
+        t->on[i] = tm[i] > 0.0f;
+        if (d < 2.0f + 8.0f) d = 2.0f + 8.0f;                            /* (the wobble's reach on each side) */
+        if (d > (float)s->len - 16.0f) d = (float)s->len - 16.0f;
         d = (float)(int)(d + 0.5f);                                    /* a whole sample */
         t->dt[i] = d;
         if (s->d[i] == 0.0f || t->a >= 1.0f) s->d[i] = d;           /* a head switched on (or a jump): no glide */
         c = 1.414f - 0.414f * (pn < 0.0f ? -pn : pn);
         tl = lv * 0.5f * (1.0f - pn) * c; tr = lv * 0.5f * (1.0f + pn) * c;
-        tf = t->on[i] ? p->fbw[i] : 0.0f;
+        tf = t->on[i] ? (p->ping ? (i ? 1.0f : 0.0f) : 0.5f) : 0.0f;
         s->gl[i] += 0.5f * (tl - s->gl[i]); s->gr[i] += 0.5f * (tr - s->gr[i]); s->fw[i] += 0.5f * (tf - s->fw[i]);
     }
     t->route = p->route;
@@ -330,24 +339,33 @@ DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, floa
     const float sc = DD_IQ16 * t->igd;
     const int rec = t->route;
     dd_spring_t *q = &s->sp;
-    const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2;   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
+    const int spl = q->place == 1 && (q->m > 0.0f || q->wm > 0.001f), spo = q->place == 2 && (q->m > 0.0f || q->wm > 0.001f);   /* the spring in the loop (crossfaded: the tank is an allpass even at a mix near 0, so it fades in and out), or on the wet */
     const float wk = 1.0f / (0.005f * s->fsl);
     float wm = q->wm, tgs = q->tgs;
     float dn = (s->denorm & 1u) ? 1e-20f : -1e-20f, cg = s->cut_g, wg = s->cutw_g;
+    float wph = s->wow_ph, wph2 = s->wow_ph2;
+    const int wob = t->wd0 > 0.0f || t->wd1 > 0.0f;
     int i, j;
     for (i = 0; i < n; i++) {
-        float af = 0.0f, l = 0.0f, r = 0.0f, u, v, y, xi;
+        float af = 0.0f, l = 0.0f, r = 0.0f, u, v, y, xi, wo = 0.0f;
         fb += t->dfb; sd += t->dsend;
         if (cg != t->ct) { cg += cg < t->ct ? t->cstep : -t->cstep; if (cg < 0.0f) cg = 0.0f; if (cg > 1.0f) cg = 1.0f; }
         if (wg != t->wt) { wg += wg < t->wt ? t->cstep : -t->cstep; if (wg < 0.0f) wg = 0.0f; if (wg > 1.0f) wg = 1.0f; }
         xi = cg * x[i];
+        if (wob) {                                                      /* (round 12) the wobble: a slow sinusoid and a flutter a third as deep, parabolic sines */
+            float dep = t->wd0 + (t->wd1 - t->wd0) * ((float)(i + 1) / (float)n), q1, q2;
+            wph += t->winc1; if (wph >= 1.0f) wph -= 1.0f;
+            wph2 += t->winc2; if (wph2 >= 1.0f) wph2 -= 1.0f;
+            q1 = wph >= 0.5f ? wph - 1.0f : wph; q2 = wph2 >= 0.5f ? wph2 - 1.0f : wph2;
+            wo = dep * (16.0f * q1 * (0.5f - (q1 < 0.0f ? -q1 : q1)) + 0.33f * 16.0f * q2 * (0.5f - (q2 < 0.0f ? -q2 : q2)));
+        }
         for (j = 0; j < DD_TAPS; j++) {
             if (!t->on[j]) continue;
             if (s->d[j] != t->dt[j]) {
                 s->d[j] += t->a * (t->dt[j] - s->d[j]);
                 if (s->d[j] - t->dt[j] < 1e-3f && t->dt[j] - s->d[j] < 1e-3f) s->d[j] = t->dt[j];
             }
-            y = dd_rd_lin(s, w, s->d[j]) * sc;
+            y = dd_rd_lin(s, w, s->d[j] + wo) * sc;
             af += s->fw[j] * y; l += s->gl[j] * y; r += s->gr[j] * y;
         }
         if (rec) af = sd * xi + fb * af;
@@ -375,6 +393,7 @@ DD_HOT static void dd_run_lite(dd_t *s, const dd_tick_t *t, const float *x, floa
     }
     s->w = w; s->hp_s = hp_s; s->lp1 = ic1; s->lp2 = ic2; s->fb_cur = fb; s->send_cur = sd;
     s->cut_g = cg; s->cutw_g = wg;
+    s->wow_ph = wph; s->wow_ph2 = wph2;
     q->wm = wm; q->tgs = tgs;
     s->denorm++;
 }

@@ -280,8 +280,10 @@ enum {
     F_ONOFF, F_OCT, F_STEPS,
     F_OFS, F_FMNOTE, F_FMFRQ,   /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
     F_TONE,                     /* an FX slot's TONE: DARK (a high cut) .. FULL .. THIN (a low cut), fx_tone_hz */
-    F_PANLR, F_ST16             /* (Orange Cat 0.14.2) a DRUM-X lane's PAN (C, L50, R100) and TUNE (3/16 semitone a step, +7.5 st);
+    F_PANLR, F_ST16,            /* (Orange Cat 0.14.2) a DRUM-X lane's PAN (C, L50, R100) and TUNE (3/16 semitone a step, +7.5 st);
                                  * not a module panel's (fw_pages.h checks up to F_TONE) */
+    F_DUBTS, F_DUBTF,           /* (round 13) DUB's TIME L / TIME R: synced (1/8D), free (ms) */
+    F_DUBSPD                    /* DUB's SPEED: the repeats' semitones, 0 at the middle */
 };
 
 typedef struct {
@@ -336,16 +338,7 @@ static int param_jfx_send(uint32_t id) { return id >= P_REV && id <= P_CHOR; }
 static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3) || (id >= P_JRES4 && id <= P_JRES6); }
 /* (Release 2) DUB TAPE (docs/orangecat/BUILD.md, "DUB TAPE as the per-track insert"): the recorded seven on the effects' free ids (the performance view's lanes,
  * lockable, motion), and the three per-track setup values on the retired padding ids 45 .. 47 */
-#define P_DUB_FDBK P_JRES0                      /* the loop's gain, 0 .. 1.27 (100 = 1) */
-#define P_DUB_SEND P_JRES1                      /* the resting send into the loop */
-#define P_DUB_TONE P_JRES2                      /* one sweep of the loop filter: low-pass down to high-pass */
-#define P_DUB_SPACE P_JRES3                     /* the first half: the delay time (14 synced divisions); the second: the spring's mix */
-#define P_DUB_THRW P_JRES4                      /* the throw level a held throw key sets (0: none) */
-#define P_DUB_CUT P_JRES5                       /* a gate on the loop's input and the wet (64 or more: closed) */
-#define P_DUB_KICK P_JRES6                      /* each rise through 64 strikes the spring once */
-#define P_DUBLEN P_RESERVED45                   /* the line's length: OFF 32K 8K 16K 24K 48K 64K (2 .. 16 blocks of 4 KB; a turn up from OFF lands on 32K) */
-#define P_DUBPTRN P_RESERVED46                  /* the heads: SLAP SINGLE SKANK TRIPLE GALLOP SPREAD */
-#define P_DUBSPRP P_RESERVED47                  /* the spring: OFF LOOP WET */
+/* (round 13) DUB TAPE's fields: dub_fields.h (P_DUB_FDBK .. P_DUB_TAPE, the packed MODE and TAPE, the performance triggers) */
 #define P_SLIDET P_RESERVED48                   /* (ui-fix2 4, OC_SLIDE_TIME) SLIDE TIME: -64 quicker .. 0 as slides were .. +63 slower (seq.c slide_gstep) */
 /* (the new interface, OC_HOME_PIC: UI_BUILD.md 1a) the four knob macros of HOME, one a knob: a stored offset -64 .. 63 over the
  * knob's targets, 0 the sound as stored (oc_knobs.c, oc_macro.c). The owner's decision 6 (October 29, 2026): P_RESERVED33 .. 36,
@@ -354,8 +347,11 @@ static int param_jfx_free(uint32_t id) { return (id >= P_JRES0 && id <= P_JRES3)
 #define P_MAC1 P_RESERVED34
 #define P_MAC2 P_RESERVED35
 #define P_MAC3 P_RESERVED36
-static int param_dub_lane(uint32_t id) { return param_jfx_free(id); }
-static int param_dub_setup(uint32_t id) { return id >= P_RESERVED45 && id <= P_RESERVED47; }
+static int param_dub_setup(uint32_t id) { return id >= P_RESERVED45 && id <= P_RESERVED47; }   /* DUB's ids outside the effects' run: SPEED, MODE, TAPE */
+#include "dub_fields.h"
+/* (round 13) the motion lanes of DUB: the seven whole ids (FEEDBACK .. SPRING) and SPEED. MODE (SYNC, PING) and TAPE (DRIVE, WOW) hold two fields in one id and a lane
+ * moves a whole id: they are not lanes (the owner's Release 3 ids unpack them) */
+static int param_dub_lane(uint32_t id) { return param_jfx_free(id) || id == P_DUB_SPD; }
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,

@@ -15,11 +15,9 @@ static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", 
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
 /* (Orange Cat 0.6.0) the effects' names (jfx.c: Jiant FM's) */
-static const char *const N_DUBLEN[] = {"OFF", "32K", "8K", "16K", "24K", "48K", "64K"};   /* (round 5) a turn up from OFF lands on 32K */   /* DUB TAPE: the line in 4 KB blocks, jfx_dub.c dub_len_blocks */
-static const char *const N_DUBPTRN[] = {"SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"};
-static const char *const N_DUBSPRP[] = {"OFF", "LOOP", "WET"};
 static const char *const N_DTYPE[] = {"SOFT", "HARD", "FOLD", "CRUSH", "RECT", "AMP"};   /* DIST TYPE: jfx.c DT_* */
 static const char *const N_APSYNC[] = {"FREE", "BEAT"};
+static const char *const N_DUBSYNC[] = {"FREE", "SYNC"};   /* (round 13) DUB SETUP's SYNC: the times in milliseconds, or on the beat */
 static const char *const N_APDIV[] = {"4BAR", "2BAR", "1BAR", "1/2", "1/4", "1/8", "1/16", "1/32"};   /* AUTO PAN on the tempo */
 /* the delay's TIME: the ten divisions, then free times (5 ms .. 2.95 s; jfx.c DTIME_MS) */
 static const char *const N_DTIME[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR", "5ms", "6ms", "7ms", "8ms", "9ms", "10ms", "11ms", "12ms", "13ms", "15ms", "17ms", "19ms", "21ms", "24ms", "27ms", "31ms", "35ms", "39ms", "44ms", "50ms", "56ms", "64ms", "72ms", "81ms", "91ms", "103ms", "116ms", "131ms", "148ms", "167ms", "189ms", "213ms", "241ms", "272ms", "307ms", "346ms", "391ms", "441ms", "498ms", "562ms", "634ms", "716ms", "808ms", "912ms", "1.03s", "1.16s", "1.31s", "1.48s", "1.67s", "1.89s", "2.13s", "2.40s", "2.71s", "2.95s"};
@@ -162,8 +160,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_APWAVE] = PE("WAVE", N_LWAVE, 1),
     [P_APSYNC] = PE("SYNC", N_APSYNC, 1),
     [P_SLROUTE] = PE("SLC", N_ONOFF, 1),
-    [P_JRES0] = PD("FDBK", F_INT, 0, 127, 55), [P_JRES1] = PD("SEND", F_INT, 0, 127, 127),      /* (Release 2) DUB TAPE's seven (core.h P_DUB_*) */
-    [P_JRES2] = PD("TONE", F_INT, 0, 127, 60), [P_JRES3] = PD("SPACE", F_INT, 0, 127, 24),
+    [P_JRES0] = PD("FEEDBACK", F_INT, 0, 127, 55), [P_JRES1] = PD("SEND", F_INT, 0, 127, 127),   /* (round 13) DUB TAPE's ten ids (dub_fields.h) */
+    [P_JRES2] = PD("FILTER", F_INT, 0, 127, 60), [P_JRES3] = PD("ECHO", F_INT, 0, 127, 0),
     [P_LN0] = PD("KICK", F_PCT, 0, 127, 127),
     [P_LN1] = PD("SNARE", F_PCT, 0, 127, 127),
     [P_LN2] = PD("CLAP", F_PCT, 0, 127, 127),
@@ -221,9 +219,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_DETUNE] = PD("DTUNE", F_INT, 0, 127, 40),
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
     [P_MUTE] = PE("MUTE", N_ONOFF, 0),
-    [P_RESERVED45] = PE("LEN", N_DUBLEN, 0),                      /* (Release 2) DUB TAPE's per-track setup */
-    [P_RESERVED46] = PE("PTRN", N_DUBPTRN, 0),
-    [P_RESERVED47] = PE("SPRP", N_DUBSPRP, 0),
+    [P_RESERVED45] = {"SPEED", F_DUBSPD, 0, 127, DUB_SPD_MID, 0, 0},     /* (round 13) DUB TAPE: SPEED, then the packed MODE and TAPE (dub_fields.h; the pages show their halves) */
+    [P_RESERVED46] = PD("MODE", F_INT, -64, 127, DUB_MODE_MARK | 1),   /* PING << 1 | SYNC, with the layout mark (64) */
+    [P_RESERVED47] = PD("TAPE", F_INT, -64, 127, 6 * DUB_WOW_N - 64),  /* DRIVE * 12 + WOW - 64 */
 #if OC_SLIDE_TIME
     [P_RESERVED48] = PD("SLIDE", F_BIPCT, -64, 63, 0),            /* (ui-fix2 4) SLIDE TIME: a scale, not a time or a share: 0 is the rate slides had, each 16 down twice as quick, each 16 up half as quick (shown as a percent of 64; NOTES says it in words) */
 #else
@@ -245,7 +243,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),          /* (0.6.0) the sends (were SEND, SEND 2, SEND 3) */
     [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
     [P_CHOR] = PD("CHO", F_PCT, 0, 127, 0),
-    [P_JRES4] = PD("THRW", F_INT, 0, 127, 0), [P_JRES5] = PD("CUT", F_INT, 0, 127, 0), [P_JRES6] = PD("KICK", F_INT, 0, 127, 0),
+    [P_JRES4] = {"TIME L", F_DUBTF, 0, 127, 53, 0, 0}, [P_JRES5] = {"TIME R", F_DUBTF, 0, 127, 67, 0, 0},   /* (round 13) 1/8D and 1/4 synced */
+    [P_JRES6] = PD("SPRING", F_PCT, 0, 127, 0),
     [P_CHRD] = PE("CHRD", N_CHRD, 0),
     [P_VOIC] = PE("VOIC", N_VOIC, 0),
     [P_STRUM] = PE("STRUM", N_STRUM, 0),
@@ -523,6 +522,22 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
     case F_NOTE:
         str_cpy(val, N_NOTE[v % 12], 6);
         break;
+    case F_DUBTS:                                     /* (round 13) DUB's TIME on the beat: 1/32 .. 1/1, D dotted, T triplet */
+        dub_sync_name(val, dub_t_idx(v));
+        fmt_named = 1;
+        break;
+    case F_DUBTF: {                                   /* free: 20 ms .. 1.4 s */
+        uint32_t m = dub_free_ms10(v);
+        if (m < 10000u) { fmt_int(val, (int32_t)((m + 5u) / 10u)); *unit = "ms"; }
+        else { fmt_fix(val, (int32_t)((m + 500u) / 1000u), 1); *unit = "s"; }
+        break;
+    }
+    case F_DUBSPD: {                                  /* SPEED: the repeats' pitch in semitones, 0 at the middle (64) */
+        int32_t st = dub_spd_st(v);
+        if (st > 0) { val[0] = '+'; fmt_int(val + 1, st); } else fmt_int(val, st);
+        *unit = "st";
+        break;
+    }
     case F_ONOFF:
         str_cpy(val, N_ONOFF[v ? 1 : 0], 6);
         break;
@@ -588,9 +603,9 @@ static const page_t PAGES[] = {
 #define PG_FX_DIST {"DIST", FAM_FX, SC_TRACK, GR_NONE, {P_DIST, P_DTYPE, P_DTONE, P_SLROUTE}},
 #define PG_FX_APAN {"AUTO PAN", FAM_FX, SC_TRACK, GR_NONE, {P_APDEP, P_APRATE, P_APSYNC, P_APWAVE}},
 #define PG_FX_DUB \
-    {"DUB", FAM_FX, SC_TRACK, GR_NONE, {P_JRES0, P_JRES1, P_JRES2, P_JRES3}},                  /* (Release 2) FDBK SEND TONE SPACE */ \
-    {"DUB 2", FAM_FX, SC_TRACK, GR_NONE, {P_JRES4, P_JRES5, P_JRES6, 0xFF}},                   /* THRW CUT KICK */
-#define PG_FX_SETUP {"DUB SETUP", FAM_FX, SC_TRACK, GR_NONE, {P_RESERVED45, P_RESERVED46, P_RESERVED47, 0xFF}}, /* LEN PTRN SPRP */
+    {"DUB", FAM_FX, SC_TRACK, GR_NONE, {P_DUB_FDBK, P_DUB_SEND, P_DUB_FILT, P_DUB_ECHO}},                  /* (round 13) FEEDBACK SEND FILTER ECHO */ \
+    {"DUB 2", FAM_FX, SC_TRACK, GR_NONE, {P_DUB_SPRG, DUBF_DRIVE, DUBF_WOW, P_DUB_SPD}},                   /* SPRING DRIVE WOW SPEED */
+#define PG_FX_SETUP {"DUB SETUP", FAM_FX, SC_TRACK, GR_NONE, {DUBF_SYNC, P_DUB_TIML, P_DUB_TIMR, DUBF_PING}}, /* SYNC TIME L TIME R PING */
 #define PG_FX_SHARED \
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}}, \
     {"DELAY 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_WIDTH, G_DPIT, G_DSPRY, G_DMOD}}, \
@@ -608,7 +623,7 @@ static const page_t PAGES[] = {
 #if OC_EDIT_SHEETS
     PG_FX_SENDS PG_FX_SHARED PG_FX_DIST PG_FX_APAN PG_FX_SETUP PG_FX_DUB
 #else
-    PG_FX_SENDS PG_FX_DIST PG_FX_APAN PG_FX_DUB PG_FX_SETUP PG_FX_SHARED
+    PG_FX_SENDS PG_FX_DIST PG_FX_APAN PG_FX_SETUP PG_FX_DUB PG_FX_SHARED      /* (round 13: DUB SETUP, DUB, DUB 2 in this order without the sheets too) */
 #endif
 #undef PG_FX_SENDS
 #undef PG_FX_DIST
@@ -966,6 +981,7 @@ static void dxl_put(uint32_t tr, uint32_t l, uint32_t id, int32_t v)
     }
 }
 
+static int16_t dub_cell[4];                              /* (round 13) the value of a DUB field the page shows (page_desc) */
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
@@ -1052,6 +1068,19 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (pg->scope == SC_GLOBAL) {
         *valp = &song.g[id];
         return global_desc(id);
+    }
+    if (pg->scope == SC_TRACK && id >= DUBF_SYNC && id <= DUBF_WOW) {   /* (round 13) DUB's two switches and two halves: a cell (ui_input.c edit_param writes it back) */
+        static const param_desc_t dubf[4] = {
+            {"SYNC", F_ENUM, 0, 1, 1, N_DUBSYNC, 0}, {"PING", F_ENUM, 0, 1, 0, N_ONOFF, 0},
+            {"DRIVE", F_INT, 0, DUB_DRIVE_N - 1, 6, 0, 0}, {"WOW", F_INT, 0, DUB_WOW_N - 1, 0, 0, 0}};
+        dub_cell[slot & 3u] = (int16_t)dub_get_field(TSEL->p, id);
+        *valp = &dub_cell[slot & 3u];
+        return &dubf[id - DUBF_SYNC];
+    }
+    if (pg->scope == SC_TRACK && (id == P_DUB_TIML || id == P_DUB_TIMR) && dub_get_sync(TSEL->p)) {   /* the times read on the beat: 1/8D */
+        static const param_desc_t dubt[2] = {{"TIME L", F_DUBTS, 0, 127, 53, 0, 0}, {"TIME R", F_DUBTS, 0, 127, 67, 0, 0}};
+        *valp = &TSEL->p[id];
+        return &dubt[id == P_DUB_TIMR];
     }
     if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
         id += 3u * mod_ui_slot;

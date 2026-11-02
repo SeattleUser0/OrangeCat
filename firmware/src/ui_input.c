@@ -584,7 +584,7 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
 static int32_t desc_range(const param_desc_t *d)     /* (a list of names, and a SLOT, which picks: no acceleration) */
 {
     const char *l = d->label;
-    if (d->fmt == F_ENUM || (l && l[0] == 'S' && l[1] == 'L' && l[2] == 'O' && l[3] == 'T' && !l[4]))
+    if (d->fmt == F_ENUM || d->fmt == F_DUBTS || (l && l[0] == 'S' && l[1] == 'L' && l[2] == 'O' && l[3] == 'T' && !l[4]))
         return 0;
     return d->max - d->min;
 }
@@ -1499,7 +1499,15 @@ static void edit_param(uint32_t slot, int32_t steps)
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
-    v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
+    v = d->fmt == F_DUBTS ? dub_t_step(*vp, steps)                   /* (round 13) TIME on the beat: a division a detent */
+                          : enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
+    if (pg->scope == SC_TRACK && pg->id[slot] >= DUBF_SYNC && pg->id[slot] <= DUBF_WOW) {   /* (round 13) one field of a packed id: written back whole, the other half kept */
+        fm1_irq_off();
+        dub_put_field(TSEL->p, pg->id[slot], v);
+        fm1_irq_on();
+        ui.force = 1;
+        return;
+    }
     *vp = (int16_t)v;
     if (pg->scope == SC_MOD) {                            /* (0.12.0) a module's value: its hook (or the clamped byte), recorded as motion */
         const fw_pages_t *mp = track_pages(TSEL);

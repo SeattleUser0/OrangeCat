@@ -393,6 +393,34 @@ static void proj_motion_drop_dub(motion_store_t *m)
     for (i = k; i < m->count && i < MOTION_MAX; i++) memset(&m->event[i], 0, sizeof m->event[i]);
     m->count = (uint8_t)k;
 }
+/* (round 13) DUB TAPE's ids changed meaning (dub_fields.h, DUB_R12.md section 7). A track of a record before Release 2 never had DUB: its ten ids are today's defaults. A track of the
+ * current magic is of the layout of before when its id 46 (once PTRN, 0 .. 5) is under the mark (64): converted to the nearest new values, once, here. Returns 1 when it converted:
+ * the caller drops that track's old lanes on ids 107 and 111 .. 113 (SPACE, THRW, CUT, KICK: they would drive ECHO, TIME L, TIME R, SPRING) */
+static uint32_t proj_dub_fix(int16_t *p, uint32_t engine, int current)
+{
+    static const uint8_t ids[10] = {P_JRES0, P_JRES1, P_JRES2, P_JRES3, P_JRES4, P_JRES5, P_JRES6, P_RESERVED45, P_RESERVED46, P_RESERVED47};
+    uint32_t i;
+    if (!current) {
+        for (i = 0; i < 10u; i++) p[ids[i]] = param_desc_of(engine % NENGINES, ids[i])->def;
+        return 0;
+    }
+    if (dub_new_layout(p)) return 0;
+    dub_convert_old(p);
+    return 1;
+}
+static void proj_motion_drop_old_dub(motion_store_t *m, uint32_t tracks)
+{
+    uint32_t i, k = 0;
+    if (!tracks) return;
+    for (i = 0; i < m->count && i < MOTION_MAX; i++) {
+        const motion_event_t *e = &m->event[i];
+        if (!motion_native_event(e->param, e->value) && (e->param == P_JRES3 || (e->param >= P_JRES4 && e->param <= P_JRES6)) &&   /* (107, 111 .. 113; the sends between them are not DUB's) */
+             ((tracks >> ((e->place >> 6) & 3u)) & 1u)) continue;
+        m->event[k++] = *e;
+    }
+    for (i = k; i < m->count && i < MOTION_MAX; i++) memset(&m->event[i], 0, sizeof m->event[i]);
+    m->count = (uint8_t)k;
+}
 /* FUN18 / FUN17 / FUN16 share fixed patches/timing offsets. FUN18 packs eight-byte steps.
  * FUN17 stores its original FX in
  * global wire padding and omits them from the sequential parameter bytes;
@@ -443,6 +471,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         if (banks & 0xF000u) return 0;
         for (t = 0; t < NTRK; t++) q->pattern[t] = (uint8_t)((banks >> (3u * t)) & 7u);
     }
+    uint32_t old_dub = 0;
     for (t = 0; t < NTRK; t++) {
         int16_t values[PROJ_CUT_NP], def[P_COUNT];
         for (i = 0; i < np; i++) {
@@ -460,6 +489,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         }
         if (magic != PROJ_MAGIC)                       /* (0.6.0) the old effects -> the new (FUN21's cuts with them) */
             proj_jfx_track(q->t[t].p, old_type, old_mode, q->t[t].engine);
+        old_dub |= proj_dub_fix(q->t[t].p, q->t[t].engine, magic == PROJ_MAGIC) << t;   /* (round 13) DUB's ids: today's defaults, or the layout of before converted */
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i]; uint32_t meta;
             if(fun22 || magic==PROJ_CUT_MAGIC || magic==PROJ_PRE_HP_MAGIC || magic==0x46554E46u || magic==0x46554E45u){if(!step_wire_unpack(s,b+pos))return 0;pos+=8u;continue;}
@@ -483,6 +513,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
     }
     proj_motion_ids(&q->motion, np);
     if (magic != PROJ_MAGIC) proj_motion_drop_dub(&q->motion);   /* (Release 2) FUN22 and earlier: no DUB TAPE lanes */
+    proj_motion_drop_old_dub(&q->motion, old_dub);     /* (round 13) a track of the layout of before: its SPACE, THRW, CUT and KICK lanes mean other things now */
     if (fun22 && np == P_COUNT) {
         int8_t oct[NTRK];
         if (!mpc_octaves_unpack(oct, b[PROJ_MPC_OCT_WIRE] | (uint32_t)b[PROJ_MPC_OCT_WIRE+1u] << 8)) return 0;
@@ -1253,6 +1284,7 @@ static int tmpl_take(const uint8_t *b,uint32_t len)
             for (uint32_t k = 0; k < NTRK; k++) proj_jfx_track(tmpl.t[k].p, type, mode, tmpl.t[k].engine);
         }
         tmpl_jfx_pack(tmpl.jfx, g);
+        for (uint32_t k = 0; k < NTRK; k++) proj_dub_fix(tmpl.t[k].p, tmpl.t[k].engine, len == sizeof(tmpl_t));   /* (round 13) as a project's tracks */
     }
     tmpl.magic=TMPL_MAGIC;tmpl.size=sizeof tmpl;
     for(uint32_t k=0;k<NTRK;k++)if(!fm6_fn_ok(tmpl.fm6_fn[k]))memcpy(tmpl.fm6_fn[k],FM6_FNDEF,FM6_NFN);
