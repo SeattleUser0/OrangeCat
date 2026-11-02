@@ -1729,9 +1729,14 @@ static void act_do(void)
         return;
     }
     if (song.g[G_SLOT] == PROJ_TMPL && (id == G_LOAD || id == G_SAVE)) {   /* the template: no name, no dialog */
-        if (id == G_LOAD)
+        if (id == G_LOAD) {
+#if OC_PROJECT_PAGE
+            if (!transport_busy() && project_unsaved())   /* (ui-fix2, close-out 1d) the template replaces the music as a project does: ask the same */
+                confirm_open(CF_LOAD_PROJ, PROJ_TMPL);
+            else
+#endif
             template_load();
-        else
+        } else
             if (template_old()) confirm_open(CF_OLD_TEMPLATE, 0); else template_save();
         return;
     }
@@ -2474,7 +2479,8 @@ static void ui_confirm_accept(void)
     } else if (kind == CF_TAKE_JAM) {
         jam_take();
     } else if (kind == CF_LOAD_PROJ) {                   /* (ui-fix2 3) LOAD asked first: unsaved changes */
-        project_load(ui.confirm_trk & 3u);
+        if (ui.confirm_trk == (uint32_t)PROJ_TMPL) template_load();   /* (the template row's Load asked as well) */
+        else project_load(ui.confirm_trk & 3u);
     } else if (kind == CF_NEW_SONG) {
         new_open();
     } else if (kind == CF_CLEAR_SONG) {                  /* (Orange Cat 0.4) SONG: its rows (the chains stay) */

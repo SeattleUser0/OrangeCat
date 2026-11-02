@@ -4,7 +4,8 @@
  * sequencer stopped is the owner's CLEAR. What it clears is what the page is about:
  *     HOME (any of its pages)   the selected track's steps and notes (the pattern it is on, as "Clear track" did)
  *     a SEQ page                the values on that page back to their defaults (FEEL, NOTES, TRACKER, DRUM HIT: the chance,
- *                               condition, ratchet, nudge, accent and slide of the 16 steps of the cursor's page; PHRASE: LEN,
+ *                               condition, ratchet, nudge, accent and slide of the 16 steps of the cursor's page, and on NOTES, TRACKER
+ *                               and DRUM HIT (the drum grid) a typed step's own velocity (the lanes' accents on a drum step); PHRASE: LEN,
  *                               DIV, SWING, GATE). The project's own SEQ pages (TEMPO, CHAIN, SONG, PHRASES, GROOVE) are not reset:
  *                               they hold the project's, not a track's, and the message says so
  *     a track's FX page         the selected track's effects (SENDS, DIST, AUTO PAN, DUB, DUB 2, DUB SETUP) back to their defaults.
@@ -76,12 +77,13 @@ static void clr_fx(void)
     ui.force = 1;
 }
 
-/* a SEQ page's values: FEEL, NOTES, TRACKER, DRUM HIT: the 16 steps of the cursor's page; PHRASE: its four parameters */
+/* a SEQ page's values: FEEL, NOTES, TRACKER, DRUM HIT: the 16 steps of the cursor's page (FEEL's values on all four, and each page's own velocity or accents:
+ * see own_notes below); PHRASE: its four parameters */
 static void clr_page(void)
 {
     track_t *t = TSEL;
     const page_t *pg = cur_page();
-    uint32_t i, base, len;
+    uint32_t i, base, len, own_notes;
     if (frz_locked()) return;
     if (pg->scope == SC_TRACK && pg->graph == GR_STEPS) {   /* PHRASE: LEN DIV SWING GATE */
         undo_seal();
@@ -101,6 +103,7 @@ static void clr_page(void)
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
     base = ui.cursor / 16u * 16u;
     len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+    own_notes = pg->graph != GR_FEEL;                   /* NOTES (the roll or the drum grid), TRACKER, DRUM HIT: their own values too; FEEL's page is FEEL's alone */
     undo_seal();
     load_begin(t, UNDO_PAT);
     motion_replace_track(t, &undo_last()->motion_backup);
@@ -113,6 +116,15 @@ static void clr_page(void)
         step_set_rflam(st, 1u);
         step_set_nudge(st, 0);
         st->flags &= (uint8_t)~(SF_ACCENT | SF_SLIDE);
+        /* (close-out 1c) the page's own values besides FEEL's. NOTES and TRACKER: a typed step's VELOCITY back to the default (0: 96, the
+         * way a new step is made). The DRUM grid and DRUM HIT: a typed step's lane accents and velocity. FEEL: only FEEL's (above).
+         * Never the notes themselves (pitch, a typed note's length in ties, the lanes' hits: HOME's clear takes those) and never a RECORDED
+         * note's velocity, start or length: those are events of the pool, edited only through the edit memory (a played velocity is the
+         * performance, not a setting), so a recorded step keeps them and only its FEEL values go */
+        if (own_notes && !(st->flags & SF_RECORDED)) {
+            if (st->hit) { st->acc = 0; st->vel = 0; }   /* (a drum step: the lanes' accents) */
+            else st->vel = 0;
+        }
     }
     fm1_irq_on();
     load_end(t);

@@ -313,6 +313,11 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         const step_t *st = &seq_steps(t)[source];
         int32_t x = notes_x(recording_prefix(t, period, si), a, b);
         int32_t xe = notes_x(recording_prefix(t, period, si + 1u), a, b);
+        /* (ui-fix2, close-out 1b) a step's NUDGE (the tracker's, NOTES' K2 on a typed note): its onset bar starts that many 64ths of the step
+         * later or earlier (seq.c nudge_samples; the end stays the step's). Only the step's own column (a tie's later columns stay where they are),
+         * and never left of the roll's first column */
+        int32_t nx = source == si && st->time == ST_NOTE ? ((int32_t)st->nudge * (xe - x)) / 64 : 0;
+        if (x + nx < PR_X0) nx = PR_X0 - x;
         for (uint32_t j = 0; j < st->n; j++) {
             int32_t y = pr_row_y(st->note[j]);
             int selected = (bulk.on&&bulk_has(source)) || (chosen >= RECORD_MAX && source == selected_start && (j == notes_manual_slot(st) || (st->n > 1u && ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u))));
@@ -320,8 +325,8 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
             int32_t lead = source == si ? 2 : 0, cont = si + 1u < end && pr_src(t, si + 1u, step_pattern_len(t)) == source;
             uint16_t nc = c == T_THEME ? PR_OCT_C(st->note[j]) : c;
             if (y < PR_Y0 || y >= bottom) { cv_rect(x + 1, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x - 1, 1, nc); continue; }
-            cv_rect(x + lead, y + 1, xe - x - lead - (cont ? 0 : 1), PR_RH - 2, selected ? T_ACCENT : nc);
-            if (selected) cv_frame(x + (source == si ? 1 : 0), y, xe - x - (source == si ? 2 : 0), PR_RH, T_TEXT);
+            cv_rect(x + lead + nx, y + 1, xe - x - lead - nx - (cont ? 0 : 1), PR_RH - 2, selected ? T_ACCENT : nc);
+            if (selected) cv_frame(x + (source == si ? 1 : 0) + nx, y, xe - x - (source == si ? 2 : 0) - nx, PR_RH, T_TEXT);
             uint32_t next = (si + 1u) % step_pattern_len(t);
             const step_t *ns = &seq_steps(t)[next];
             if (!j && (st->flags & SF_SLIDE) && si + 1u < end && ns->time == ST_NOTE && ns->n) {
@@ -491,6 +496,7 @@ static uint32_t steps_hash(const track_t *t)
         h = (h ^ (st->note[0] + st->n * 128u + st->time * 1024u + st->flags * 4096u + st->note[1] * 65536u)) *
             16777619u;
         h = (h ^ (st->hit | (uint32_t)st->acc << 8 | (uint32_t)st->note[2] << 16 | (uint32_t)st->note[3] << 24)) * 16777619u;
+        h = (h ^ (uint32_t)(uint8_t)st->nudge) * 16777619u;   /* (ui-fix2, close-out 1b: the roll draws it) */
     }
     return h;
 }

@@ -287,6 +287,52 @@ int main(void)
         ui.cursor = 20;
         hold_ms(B_REC, 1500);
         chk("REVIEW  FEEL on its second page resets steps 16 .. 31 and no others", step_chance(&trk[0].step[20]) == 100u && step_chance(&trk[0].step[3]) == 50u && step_chance(&trk[0].step[35]) == 50u);
+        /* close-out 1c: NOTES, TRACKER and the drum grid reset their own values, FEEL only FEEL's */
+        {
+            const char *pages[2] = {"NOTES", "TRACKER"};
+            uint32_t pi;
+            for (pi = 0; pi < 2u; pi++) {
+                char w[120];
+                fresh();
+                go_title(pages[pi]);
+                pstep(&trk[0], 2, 60); trk[0].step[2].vel = 110; step_set_chance(&trk[0].step[2], 50u);
+                pstep(&trk[0], 20, 62); trk[0].step[20].vel = 110;      /* (another page of 16: stays) */
+                trk[0].p[P_SLEN] = 32;
+                ui.cursor = 2;
+                hold_ms(B_REC, 1500);
+                snprintf(w, sizeof w, "OWN     %s resets a typed step's VELOCITY (110 -> the default) and its FEEL values, the note stays", pages[pi]);
+                chk(w, trk[0].step[2].vel == 0 && step_chance(&trk[0].step[2]) == 100u && trk[0].step[2].n == 1 && trk[0].step[2].note[0] == 60);
+                snprintf(w, sizeof w, "OWN     %s: a step on the other page of 16 keeps its velocity", pages[pi]);
+                chk(w, trk[0].step[20].vel == 110);
+            }
+            fresh();
+            go_title("FEEL");
+            pstep(&trk[0], 2, 60); trk[0].step[2].vel = 110; step_set_chance(&trk[0].step[2], 50u);
+            ui.cursor = 2;
+            hold_ms(B_REC, 1500);
+            chk("OWN     FEEL resets FEEL's values only: the velocity stays", trk[0].step[2].vel == 110 && step_chance(&trk[0].step[2]) == 100u);
+            fresh();
+            set_engine_of(&trk[0], ENGI_DRUM);
+            go_title("NOTES"); frame();
+            memset(&trk[0].step[2], 0, sizeof trk[0].step[2]);
+            trk[0].step[2].hit = 0x05; trk[0].step[2].acc = 0x01; trk[0].step[2].vel = 110; trk[0].step[2].time = ST_NOTE;
+            ui.cursor = 2;
+            hold_ms(B_REC, 1500);
+            chk("OWN     the drum grid: a typed step's lane accents and velocity reset, the hits stay", trk[0].step[2].hit == 0x05 && trk[0].step[2].acc == 0 && trk[0].step[2].vel == 0);
+            fresh();
+            go_title("NOTES");
+            pstep(&trk[0], 2, 60); trk[0].step[2].vel = 110; trk[0].step[2].flags |= SF_RECORDED;
+            ui.cursor = 2;
+            hold_ms(B_REC, 1500);
+            chk("OWN     a RECORDED step keeps its velocity (the event's, the edit memory's)", trk[0].step[2].vel == 110);
+            fresh();
+            go_title("NOTES");
+            pstep(&trk[0], 2, 60); trk[0].step[2].vel = 110;
+            ui.cursor = 2;
+            hold_ms(B_REC, 1500);
+            hold(B_EDIT);
+            chk("OWN     one EDIT held undoes the whole page reset, velocity included", trk[0].step[2].vel == 110);
+        }
         fresh();
         go_title("CHAIN");
         hold_ms(B_REC, 900);
