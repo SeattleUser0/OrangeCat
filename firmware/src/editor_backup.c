@@ -320,6 +320,9 @@ static uint32_t ed_bk_commit_inner(void)
 #endif
             if (project_restore_runtime(&proj_scratch)) return 2;
             if (full) bank_restore(raw);
+#if OC_ONE_AUTH
+            fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (round 11) the banks are back: the one reconcile of the restore */
+#endif
             return 0;
         }
         if (ed_bk_len && !full) {

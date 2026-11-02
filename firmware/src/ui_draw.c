@@ -652,7 +652,11 @@ static void draw_columns(void)
                 feel_hund(sn, ((recording[chosen].step & 63u) * 100u) + 100u + (uint32_t)recording[chosen].on * 100u / RECORD_UNIT, 1);
 #if OC_ONE_AUTH
             else if (selected)                          /* (ui-fix 7) a manual note starts on its step; START moves it (the step converts) */
+#if OC_START_NUDGE
+                feel_hund(sn, (uint32_t)((int32_t)(start * 100u + 100u) + (int32_t)st->nudge * 100 / 64), 1);   /* (ui-fix2 5) .. or nudges it: the step's, in hundredths */
+#else
                 feel_hund(sn, start * 100u + 100u, 1);
+#endif
 #endif
             else
                 str_cpy(sn, "--", sizeof sn);
@@ -665,7 +669,13 @@ static void draw_columns(void)
             draw_column(2, "LEN", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(2u) : T_DIM, -1, ICON_GATE);
 #if OC_SLIDE
             if (selected && (ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (ui-fix 8) ENV held: the cursor step's slide, recorded or manual */
-                draw_column(3, "SLIDE", TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE ? "ON" : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
+                draw_column(3, "SLIDE", TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE ?
+#if OC_SLIDE_TIME
+                            slide_time_word(TSEL->p[P_SLIDET])   /* (ui-fix2 4) ON says how long this track's slides take, in a word: NORM, SLOW .. */
+#else
+                            "ON"
+#endif
+                            : "OFF", "", T_COZY(3u), -1, ICON_SLIDE);
                 return;
             }
 #else
@@ -873,6 +883,14 @@ static void confirm_text(char *a, char *b)
     case CF_CLEAR_SONG:                                 /* (Orange Cat 0.4) SONG's sheet */
         str_cpy(a, "CLEAR THE SONG?", 24);
         str_cpy(b, "The chains stay", 32);
+        break;
+    case CF_LOAD_PROJ:                                  /* (ui-fix2 3) a project loaded over unsaved changes */
+        if (k == (uint32_t)PROJ_TMPL) str_cpy(a, "LOAD THE TEMPLATE?", 24);   /* (close-out 1d) */
+        else {
+            str_cpy(a, "LOAD PROJECT A?", 24);
+            a[13] = (char)('A' + (k & 3u));
+        }
+        str_cpy(b, "Unsaved changes are lost", 32);
         break;
     case CF_NEW_SONG:                                   /* what is lost */
         str_cpy(a, "START A NEW SONG?", 24);

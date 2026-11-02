@@ -167,9 +167,14 @@ static void pv_sound(void)
     if (designer_on() && designer_foot())                /* the sound designer: its keys (ui_designer.c) */
         return;
     uint32_t all = cur_page()->fam == FAM_FX && cur_page()->scope == SC_GLOBAL;   /* a shared effect: every track's */
+    uint32_t fx = cur_page()->fam == FAM_FX && !all;    /* (ui-fix2 1) a track's own FX page (SENDS, DIST, AUTO PAN, DUB ..) */
     if (all) nm[0] = 0;
     else sound_name(TSEL, nm);
-    sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u + all * 4099u, en), nm);
+    if (fx) {                                           /* the heading names whose effects these are: THIS TRACK and its number
+                                                         * (the numeral sits in the pill), then the sound's name */
+        str_cpy(nm, "THIS TRACK", sizeof nm);           /* (the sound's name no longer: the badge has the number, the page the sound's own) */
+    }
+    sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u + all * 4099u + fx * 8209u, en), nm);
     if (!ui.force && sig == pv.sound)
         return;
     pv.sound = sig;
@@ -179,7 +184,7 @@ static void pv_sound(void)
         uint32_t k;
         for (k = 0; k < 4u; k++)
             cv_rrect(4 + (int32_t)(k & 1u) * 12, cy - 11 + (int32_t)(k >> 1) * 12, 10, 10, 3, T_TRK(k), T_BG);
-        cv_free_text(34, ty_y(cy, TY_TX), TY_TX, "All tracks", T_SEC, T_BG, 236 - 34);
+        cv_free_text(34, ty_y(cy, TY_TX), TY_TX, "SHARED  all tracks", T_SEC, T_BG, 236 - 34);   /* (ui-fix2 1) says it sets the shared effects */
     } else {
         pv_sound_bar(0, song.sel, en, nm, T_THEME, T_BG);
     }

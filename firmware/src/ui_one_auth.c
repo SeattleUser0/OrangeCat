@@ -71,6 +71,34 @@ static void start_convert_edit(int32_t steps)
     note_transaction_end();
     fm1_irq_on();
 }
+#if OC_START_NUDGE
+/* (ui-fix2 5) START (NOTES' KNOB 2) on a typed note moves it in time as the tracker's NUDGE does: the step's own nudge, a detent a 64th of a step
+ * (the turn's acceleration makes it more), half a step earlier to half a step later (NUDGE_MIN .. NUDGE_MAX), the note staying on its step. The
+ * step stays a typed step: nothing converted, no note transaction (so no "NO EDIT MEMORY": the owner's finding on f5057c, where START converted
+ * the step first), the manual step history undoes it (EDIT held), and it plays while the song plays (seq_enter reads the nudge). A chord moves
+ * together (the nudge is the step's). A recorded note's START is untouched (its onset, notes_event_edit slot 6). */
+static void start_nudge_edit(int32_t steps)
+{
+    track_t *t = TSEL;
+    uint32_t at;
+    int32_t before, after;
+    char b[8];
+    if (frz_locked()) return;                           /* (a frozen phrase: silent, as LEN) */
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    at = notes_manual_start(t);
+    if (at >= NSTEP || !t->step[at].n) { ui_message("SELECT A NOTE"); return; }
+    fm1_irq_off();
+    before = t->step[at].nudge;
+    step_set_nudge(&t->step[at], before + steps);
+    after = t->step[at].nudge;
+    fm1_irq_on();
+    ui.force = 1;
+    if (after == before) { ui_message(steps > 0 ? "LATEST: HALF A STEP" : "EARLIEST: HALF A STEP"); return; }
+    b[0] = after > 0 ? '+' : after < 0 ? '-' : 0;
+    fmt_int(b + (b[0] ? 1 : 0), after < 0 ? -after : after);
+    ui_say("START ", b);
+}
+#endif
 /* the tracker's SCL + SELECT on a recorded step: every event of cell cur (the recorded note's start cell: the caller resolves a TIE
  * cell to it) exactly delta steps over, its onset inside the step kept (note_transform would snap the first onset to the grid), in
  * one transaction; the cell's events are collected first (a move re-links an event by its time, so a walk that moved as it went
@@ -85,8 +113,11 @@ static void tracker_recorded_move(uint32_t cur, int32_t delta)
     uint64_t touched = (uint64_t)1 << (cur % NSTEP);
     if (frz_locked()) return;
     if (song.playing || chain_busy() || live_rec_sel()) { ui_message("STOP TO EDIT"); return; }
-    for (i = recording_head[recording_owner(t)]; i < RECORD_MAX && n < 64u; i = recording_next[i])
-        if (recording_active(t, i) && recording_view(t, &recording[i]) == cur) ev[n++] = (uint16_t)i;
+    for (i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (recording_active(t, i) && recording_view(t, &recording[i]) == cur) {
+            if (n == 64u) { ui_message("TOO MANY NOTES"); return; }   /* (round 11) more than the list holds: refused whole, not moved in part */
+            ev[n++] = (uint16_t)i;
+        }
     if (!n) { ui_message("SELECT A NOTE"); return; }
     fm1_irq_off();
     if (!note_transaction_begin()) { fm1_irq_on(); return; }

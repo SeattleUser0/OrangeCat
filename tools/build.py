@@ -280,7 +280,11 @@ def app_flags():
                  "OC_SLIDE",        # (ui-fix 8: UI_BUILD.md "ui-fix 8") slide as a legato glide in every voice mode; needs OC_STEP_PAGES=1; off by default
                  "OC_R3_FORMAT",    # (Release 3, branch r3-format: UI_BUILD.md "Release 3 format revision") the project format revision; off by default
                  "OC_LFO2",         # (Release 3, Part 2) a second LFO a track (P_COUNT 131); needs OC_R3_FORMAT=1; off by default
-                 "OC_R3_SCENES"):   # (Release 3, Part 7) scenes version 2 and Performance Mode; needs OC_R3_FORMAT=1; off by default
+                 "OC_R3_SCENES",    # (Release 3, Part 7) scenes version 2 and Performance Mode; needs OC_R3_FORMAT=1; off by default
+                 "OC_REC_CLEAR",    # (ui-fix2 2: UI_BUILD.md "ui-fix2 2") REC held, stopped: the clears with a countdown; needs OC_STEP_PAGES=1; off by default
+                 "OC_PROJECT_PAGE",    # (ui-fix2 3: UI_BUILD.md "ui-fix2 3") the plain project page; off by default
+                 "OC_SLIDE_TIME",      # (ui-fix2 4: UI_BUILD.md "ui-fix2 4") SLIDE TIME, a per-track value on P_RESERVED48; needs OC_SLIDE=1; off by default
+                 "OC_START_NUDGE"):    # (ui-fix2 5: UI_BUILD.md "ui-fix2 5") NOTES' KNOB 2 on a typed note is NUDGE; needs OC_ONE_AUTH=1; off by default
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

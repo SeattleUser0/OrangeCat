@@ -532,6 +532,20 @@ static void voice_scale_pitch(const track_t *t, voice_t *v, uint32_t note)
     }
 }
 
+/* a note that cannot start yet (an engine switch under way, or its state's memory not there: round 10) waits in xp_note for engine_block:
+ * the same note once (replaced), a full list replaces its last */
+static void xp_push(track_t *t, uint32_t note, uint32_t vel)
+{
+    uint32_t i;
+    for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
+        ;
+    if (i == t->xp_n && t->xp_n < 4u)
+        t->xp_n++;
+    i = i < t->xp_n ? i : t->xp_n - 1u;
+    t->xp_note[i] = (uint8_t)note;
+    t->xp_vel[i] = (uint8_t)vel;
+}
+static int eng_state_take(track_t *t);                   /* (round 10, below: the state's memory, one scan a failure) */
 static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int glide)
 {
     AP_START(attack_start);
@@ -561,7 +575,12 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
         v->env_out = 0;
         v->side = t->sp_alt; t->sp_alt ^= 1u;
     }                                                   /* sounding: the attack starts from the current level */
-    if (!eng_state_prepare(t)) { v->active = v->gate = 0; return; }
+    if (!eng_state_take(t)) {                           /* (round 10) the state's memory not there (the arena full of effects: they give it back at the
+                                                         * next block, jfx_lend_check): the note waits in xp_note and plays then (engine_block), not dropped */
+        v->active = v->gate = 0;
+        xp_push(t, note, vel);                          /* (once a note: UNISON's voices each come here) */
+        return;
+    }
     e->note_on(t, v);
     AP_END(AP_ATTACK,attack_start);
     if (sounding && !e->sampled) {                     /* retrigger / steal: keep phases and filter */
@@ -667,13 +686,7 @@ static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
                                                          * sound ramped to silence, its voices ended: perf_mute) */
         return;
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
-        for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
-            ;
-        if (i == t->xp_n && t->xp_n < 4u)
-            t->xp_n++;
-        i = i < t->xp_n ? i : t->xp_n - 1u;             /* (full: the last one is replaced) */
-        t->xp_note[i] = (uint8_t)note;
-        t->xp_vel[i] = (uint8_t)vel;
+        xp_push(t, note, vel);
         return;
     }
     mod_note(t, note, vel);                             /* the matrix's VEL / KEY / RAND */
@@ -778,6 +791,22 @@ static void trk_all_off(track_t *t)
  * then the engine switches and the notes that came during the fade start on it. A part with nothing
  * sounding switches at once. */
 #define XF_BLOCKS 4u                                    /* 4 x 32 samples: 2.9 ms */
+/* (round 10) a track in use holds its engine's state from the block its engine is switched (power-on, a project load, an engine change), not from
+ * its first note. Before, the state was taken at the first note: on a unit whose arena the effects had filled (DUB TAPE at 32K beside the three
+ * buses) that take failed, the note was dropped, and the next block made every effect give back all its memory for 0.5 s (BUILD.md 7.21, item 3:
+ * DUB and the buses cut out as VA BASS joined on track 2). Now the take happens at the switch, where no note is lost, and the effects yield
+ * there, before they have anything of the new track's to play. A take that fails is asked again only after a release (resource_gen: one scan
+ * a failure, not one a block; voice_start asks through here too). Returns whether the state is held (an engine without a state: yes). */
+static uint32_t eng_take_gen[NPART];
+static int eng_state_take(track_t *t)
+{
+    uint32_t k = (uint32_t)(t - trk);
+    if (k >= trk_n()) { eng_state_clear(k); return 0; } /* (a track taken out of use gives its state back; it is not rendered, and takes it again when it is added) */
+    if (eng_take_gen[k] == resource_gen + 1u) return 0; /* (short, and nothing released since) */
+    if (eng_state_prepare(t)) return 1;
+    eng_take_gen[k] = resource_gen + 1u;
+    return 0;
+}
 static void engine_block(track_t *t)
 {
     uint32_t i, any = 0;
@@ -811,6 +840,12 @@ static void engine_block(track_t *t)
             for (i = 0; i < n; i++)
                 trk_note_on(t, t->xp_note[i], t->xp_vel[i]);
         }
+    }
+    if (!t->xf_on && eng_state_take(t) && t->xp_n) {    /* (round 10) the state's memory is there: the notes that waited for it play now */
+        uint32_t n = t->xp_n;
+        t->xp_n = 0;
+        for (i = 0; i < n; i++)
+            trk_note_on(t, t->xp_note[i], t->xp_vel[i]);
     }
     for (i = 0; i < 8u; i++)                            /* the engine's own values, for a later fade */
         t->pe_old[i] = t->p[P_E0 + i];
@@ -1007,11 +1042,23 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
             AP_END(AP_ENVELOPE,env_start);
         }
         if (v->pitch_cur != v->pitch16) {               /* glide */
-            int32_t d = v->pitch16 - v->pitch_cur;
-            int32_t st = v->gstep ? v->gstep : (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* slide: ~45 ms */
+            int32_t d = v->pitch16 - v->pitch_cur, st, skip = 0;
+#if OC_SLIDE_TIME
+            if (v->gstep < 0) {                         /* (ui-fix2 4) SLIDE TIME: the rate -gstep in 1/256 sixteenths of a semitone a tick, accumulated
+                                                         * in gtick (its fraction): a whole step when the sum passes 256, none in between */
+                uint32_t acc = v->gtick + (uint32_t)-v->gstep;
+                st = (int32_t)(acc >> 8);
+                v->gtick = (uint8_t)(acc & 255u);
+                skip = st < 1;
+            } else
+#endif
+            st = v->gstep ? v->gstep : (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* GLIDE 0 with no gstep: ENV_LIN[40] >> 14 is 40
+                                                                                                   * sixteenths of a semitone a tick, an octave in about 3.5 ms (nearly a jump); a
+                                                                                                   * slide sets gstep 3 itself (seq.c slide_glide_set: an octave in 46 ms) */
             if (st < 1)
                 st = 1;
-            v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
+            if (!skip)
+                v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
         }
         if (!env && !m.amp0 && v->stage == 2 && !e->sampled)
             continue;                                   /* held at a silent sustain (SUS 0): nothing to render */

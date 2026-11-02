@@ -402,9 +402,11 @@ fx/delay 82553fe77cf21400
 fx/delay_ping_wide 6791d1da0850722a
 fx/delay_wide_digital 6d88bf830b75b6f2
 fx/delay_quarter_rate cb359bff8096a088
-fx/reverb_room ff063323cc7f4ad0
-fx/reverb_spring 9f5d1e843dc5dd20
-fx/reverb_shimmer 42c4297b812b06fc
+fx/reverb_room 07dc315b95e26164
+fx/reverb_spring c796c61c0bc741b0
+fx/reverb_shimmer 00a48b1528f0dc58
 fx/reverb_reso fe4ce17e7d5dbd04
-fx/reverb_cloud 2408eb131481703c
-fx/all_three 20671a181b0da4b3
+fx/reverb_cloud dd293f6c3cf07e8c
+fx/all_three 109316d2b0c53574
+fx/reverb_room_wide_mod 498500749353ff51
+fx/reverb_spring_wide 1190cac268a6c08a

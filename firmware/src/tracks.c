@@ -146,6 +146,9 @@ static int track_remove(uint32_t k)
     if (!bank_valid(raw, BANK_STORE_SIZE) || project_restore_runtime(&proj_scratch))
         goto fail;
     bank_restore(raw);
+#if OC_ONE_AUTH
+    fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (round 11) the banks are back: the one reconcile of the track's removal */
+#endif
     proj_cur = (uint8_t)cur;                            /* (still the project of its slot) */
     for (r = 0; r < CHAIN_ROWS; r++)                    /* the jam so far, the armed and solo tracks too */
         for (j = k; j < last; j++)

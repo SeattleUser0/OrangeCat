@@ -626,6 +626,11 @@ static void proj_bound(project_t *q)
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
 static uint32_t proj_saved_hash[4];
+#if OC_PROJECT_PAGE
+static uint32_t pj_base;                                /* (ui-fix2 3) see project_unsaved */
+static uint8_t pj_base_slot = 0xFFu;
+static void pj_base_now(uint32_t slot);
+#endif
 static int proj_read_slot(uint32_t slot)
 {
     int n = -1;
@@ -788,6 +793,10 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
     proj_last_set(slot & 3u);
+#if OC_PROJECT_PAGE
+    pj_base_now(slot);                                  /* (ui-fix2 3) the music as saved, for "unsaved" */
+    pj_note();                                          /* the PROJECT page's unsaved flag: worked out again */
+#endif
     if (frz_named_hook) frz_named_hook(was, proj_name, slot & 3u, was_slot == (slot & 3u));   /* (0.6.1) */
     ui_message(MELODEE_FLASH ? "SAVED" : "SAVED (RAM)");
     return 0;
@@ -913,6 +922,7 @@ static void project_autosave(void)
     project_quick_save();
 }
 static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u); }   /* b: 13 bytes */
+static uint32_t project_current(void) { return proj_cur < 4u ? proj_cur : 4u; }   /* (ui-fix2 3) the slot in use, 4: none yet */
 
 /* slot's name -> b (PROJ_NAME_LEN + 1 bytes); 0 = an empty slot (b ""). Uses proj_scratch */
 static int project_old(uint32_t slot) { return !project_used(slot) && proj_meta[slot & 3u].old; }
@@ -1035,7 +1045,8 @@ static int project_restore_runtime(const project_t *input)
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = param_desc_of(e, i);
-            t->p[i] = param_reserved(i) ? 0 : eng_extra_retired(e) && i >= P_E0 ? s->p[i] : (int16_t)clamp(s->p[i], d->min, d->max);
+            t->p[i] = param_reserved(i) ? 0 : param_slide_time(i) && (s->p[i] < d->min || s->p[i] > d->max) ? d->def :   /* (ui-fix2 4: id 48 held the slicer's DEPTH, default 127, before 1e47387: out of range is no SLIDE TIME) */
+                       eng_extra_retired(e) && i >= P_E0 ? s->p[i] : (int16_t)clamp(s->p[i], d->min, d->max);
         }
         t->preset = eng_extra_retired(e) ? s->preset : (uint8_t)(ENGINES[e]->npresets ? (s->preset >= PROJ_DEF_KEEP ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         t->pattern = p->pattern[k];
@@ -1064,10 +1075,9 @@ static int project_restore_runtime(const project_t *input)
     }
     song.ntrk = (uint8_t)(p->parts - 1u < NTRK ? p->parts : NTRK);
     song.sel = (uint8_t)(p->sel < song.ntrk ? p->sel : 0u);
-#if OC_ONE_AUTH
-    recording_reconcile();                              /* (ui-fix 7) a record from before may carry an orphan: mended here, with the
-                                                         * tracks' steps in place */
-#endif
+    /* (ui-fix 7; round 11) no reconcile here: pattern_init has just emptied every bank but the current one, so a reconcile now would
+     * read every other bank's cell as a rest and delete its recorded notes (the round 11 review). The callers reconcile once the
+     * banks are back (project_load, tracks.c's track removal, editor_backup.c's restore; the pool's load mends its own bank) */
     fm1_irq_on();
     for (k = 0; k < NTRK; k++)                          /* (0.14.2) a DRUM-X track on a user preset: that preset's kit (its record's; one of
                                                           * before 0.14.2: factory kit 0, as up_load_to). The project keeps no kit of its own:
@@ -1133,10 +1143,15 @@ static void project_load(uint32_t slot)
         if (flash_ok) ocj4_activate(slot);              /* (Release 3) the live pool is the slot's; its metadata, its frozen phrases */
 #endif
 #if OC_ONE_AUTH
-        fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (ui-fix 7) the other banks are in now: every bank mended */
+        fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (ui-fix 7) the other banks are in now (or a record of before the bank store
+                                                               * left them empty): every bank mended, once */
 #endif
         proj_cur = (uint8_t)(slot & 3u);
         proj_last_set(slot & 3u);
+#if OC_PROJECT_PAGE
+        pj_base_now(slot);                              /* (ui-fix2 3) the music as loaded, for "unsaved" */
+        pj_note();
+#endif
     }
 }
 
@@ -1497,6 +1512,40 @@ static void project_new_blank(void)
     song.ntrk = NTRK;                                   /* (all four to start with: Stage's sheet removes them) */
     song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
 }
+#if OC_PROJECT_PAGE
+/* (ui-fix2 3) "unsaved" for the PROJECT page and a LOAD's question. project_dirty compares the music's pack with the hash of what the slot
+ * stores; right after a LOAD the two can differ in bytes that are no change of the music's (a name field padded with spaces where the
+ * record holds zeros: seen on the host), which would warn of changes that are not there. So the slot in use also keeps the hash of what the
+ * music packs to right after it was loaded or saved (pj_base, for slot pj_base_slot), and "unsaved" compares with that; with no such hash
+ * (a boot, a restore: the safer reading) it is project_dirty's, a warning that may come without a change, never a missing one. */
+/* the music packed as the compare wants it: the slot picked on the PROJECT page, the LOAD, SAVE actions, BOOT (G_SLOT, G_LOAD, G_SAVE, G_BOOT) and the selected track are
+ * globals of the pack but no change of the music (project_restore_runtime skips them as well): browsing the slots is not an edit. 1: packed */
+static int pj_pack(uint32_t *hash)
+{
+    uint8_t keep = song.sel;
+    int ok;
+    song.sel = 0;                                       /* (the selected track is no edit of the music: the pack holds it in more than one place) */
+    project_capture(&proj_scratch);
+    proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = proj_scratch.g[G_BOOT] = 0;   /* (BOOT is a setting of the unit's) */
+    proj_wire_gen++;
+    *hash = bank_live_hash(proj_wire_u.raw, &proj_scratch, &ok);   /* (leaves the step fields beside the stored record, proj_x and its tag, alone: bank_pack_keep) */
+    song.sel = keep;
+    return ok;
+}
+static void pj_base_now(uint32_t slot)                  /* after a load or a save: what the music packs to now */
+{
+    uint32_t h;
+    if (pj_pack(&h)) { pj_base = h; pj_base_slot = (uint8_t)(slot & 3u); }
+    else pj_base_slot = 0xFFu;
+}
+static int project_unsaved(void)
+{
+    uint32_t h;
+    if (proj_cur >= 4u || pj_base_slot != proj_cur)
+        return project_dirty();
+    return !pj_pack(&h) || h != pj_base;
+}
+#endif
 /* the music differs from its slot (none: it holds notes): a new song asks first. Packs the project (proj_wire_u) */
 static int project_dirty(void)
 {

@@ -223,7 +223,7 @@ static void job_mode(const job_t *j)            /* arg: the voice mode, ARP off,
 
 /* (Release 2) the shared effects: the power-on bass phrase through one send at a time, the settings named. Their hashes are new lines: with the buses
  * deferred (MELODEE_FX_DEFER=1) the returns come a block later (tests/golden_fxdefer.txt has those lines) */
-static const struct { const char *name; uint8_t sends; int16_t rtype, dtime, dfdbk, dping, wide, dtype; } FXJ[] = {
+static const struct { const char *name; uint8_t sends; int16_t rtype, dtime, dfdbk, dping, wide, dtype, rmod, rwide; } FXJ[] = {   /* (round 11) rmod: REVERB MOD */
     {"chorus", 1, 0, 1, 0, 0, 0, 0},
     {"delay", 2, 0, 1, 55, 0, 0, 0},
     {"delay_ping_wide", 2, 0, 1, 55, 1, 0, 0},
@@ -235,6 +235,8 @@ static const struct { const char *name; uint8_t sends; int16_t rtype, dtime, dfd
     {"reverb_reso", 4, 3, 1, 0, 0, 0, 0},
     {"reverb_cloud", 4, 4, 1, 0, 0, 0, 0},
     {"all_three", 7, 0, 1, 40, 0, 0, 0},
+    {"reverb_room_wide_mod", 4, 0, 1, 0, 0, 0, 0, 60, 100},   /* (round 11) rev_room_mod: the modulated combs and the WIDE side */
+    {"reverb_spring_wide", 4, 1, 1, 0, 0, 0, 0, 0, 100},      /* (round 11) rev_spring_side */
 };
 #define N_FXJ ((uint32_t)(sizeof FXJ / sizeof FXJ[0]))
 static void job_fx(const job_t *j)
@@ -249,6 +251,8 @@ static void job_fx(const job_t *j)
     song.g[G_DPING] = f->dping;
     song.g[G_WIDTH] = f->wide;
     song.g[G_DTYPE] = f->dtype;
+    song.g[G_RMOD] = f->rmod;
+    song.g[G_RWIDE] = f->rwide;
     song.g[G_DMIX] = 100;
     t->p[P_CHOR] = f->sends & 1u ? 90 : 0;
     t->p[P_DLY] = f->sends & 2u ? 90 : 0;

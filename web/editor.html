@@ -623,6 +623,7 @@ function readHits(r, o) {
   if (r.i + 3 <= r.a.length) { const h = r.b(), c = r.b(), x = r.b(); o.hit = h | (x & 1) << 7; o.acc = (c | (x & 2) << 6) & o.hit; }
   o.chance = r.i < r.a.length ? r.b() : 100;
   if (o.chance > 100) throw new Error("Invalid step chance");
+  if (r.i + 3 <= r.a.length) { o.cond = r.b(); o.nudge = r.b() - 32; o.rflam = r.b(); }   /* (v8) the feel: condition, nudge, ratchet (5 FLAM) */
   return o;
 }
 
@@ -979,7 +980,8 @@ const req = {
     const notes = [0, 1, 2, 3].map((k) => (st.notes[k] | 0) & 0x7F);
     return [CMD.STEP_SET, [i, n, ...notes, Math.max(0, Math.min(2, st.time | 0)), st.flags & 3, (st.vel | 0) & 0x7F,
       ...(st.hit == null && st.chance == null ? [] : hitsEnc(st.hit | 0, st.acc | 0)),
-      ...(st.chance == null ? [] : [Math.max(0, Math.min(100, st.chance | 0))])]];
+      ...(st.chance == null ? [] : [Math.max(0, Math.min(100, st.chance | 0))]),
+      ...(st.chance == null || st.rflam == null ? [] : [Math.max(0, Math.min(11, st.cond | 0)), Math.max(0, Math.min(63, (st.nudge | 0) + 32)), Math.max(1, Math.min(5, st.rflam | 0))])]];   /* (v8) */
   },
   preset: (e, p) => [CMD.PRESET, p > 127 ? [e & 0x7F, p & 0x7F, (p >> 7) & 0x7F] : [e & 0x7F, p & 0x7F]],
   project: (op, slot) => { if (![0, 1, 2].includes(op)) throw new Error("bad PROJECT op"); return [CMD.PROJECT, [op, slot & 3]]; },   /* 0 load, 1 save, 2 query */
@@ -1820,7 +1822,7 @@ async function czBankRead(rq,index){const r=parse[CMD.CZ_BANK](await rq(req.czBa
 const TRACK_OWN = new Set([0, 8, 39, 40, ...Array.from({ length: 16 }, (_, i) => 17 + i)]);
 const P_CHORD = [81, 82];                          /* core.h P_CHRD, P_VOIC (since P_COUNT 91, P_E0 83) */
 const P_MPCDEG = 83;                               /* core.h P_MPCDEG (since P_COUNT 92, P_E0 84) */
-const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 84 && i === P_MPCDEG) || (pe0 >= 100 && i >= 96 && i < Math.min(pe0,114)) || (pe0 >= 116 && (i === 114 || i === 115 || (i >= 45 && i <= 47)));
+const trackOwn = (i, pe0) => TRACK_OWN.has(i) || i === 48 || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 84 && i === P_MPCDEG) || (pe0 >= 100 && i >= 96 && i < Math.min(pe0,114)) || (pe0 >= 116 && (i === 114 || i === 115 || (i >= 45 && i <= 47)));
 /* play a patch without writing flash, as UP_LOAD would load it: the sound only. SET the engine (G_ENGSEL:
    engine defaults and its first preset), then every instrument parameter that differs, except the track's
    own (TRACK_OWN). The steps are never touched. The device keeps a copy of the sound from before (EDIT held
@@ -2231,7 +2233,7 @@ function makeMockDevice(opt = {}) {
     ...Array.from({length:4},()=>D("",F.INT,0,127,0)),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
-    E("LEN", ["OFF", "32K", "8K", "16K", "24K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("",F.INT,0,127,0),   /* (Release 2) DUB TAPE's setup */
+    E("LEN", ["OFF", "32K", "8K", "16K", "24K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("SLIDE",F.BIPCT,-64,63,0),   /* (Release 2) DUB TAPE's setup; 48: (ui-fix2 4) SLIDE TIME, the track's own (once the retired id 48; the unit refuses its SET) */
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];
   const GP = [
@@ -2544,11 +2546,12 @@ function makeMockDevice(opt = {}) {
     return patternUsed(grid) ? { cz, fm6, dxkit, engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
       : { cz, fm6, dxkit, engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
   };
-  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); };
-  function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3)] */
+  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) { b(x.chance ?? 100); b(x.cond ?? 0); b((x.nudge ?? 0) + 32); b(x.rflam ?? 1); } };
+  function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3) [, chance [, the feel (3, v8)]]] */
     x.n = Math.min(4, a[0]); x.notes = a.slice(1, 5); x.time = Math.min(2, a[5]); x.flags = a[6] & 3; x.vel = a[7];
     if (a.length >= 11) { x.hit = a[8] | (a[10] & 1) << 7; x.acc = (a[9] | (a[10] & 2) << 6) & x.hit; }
     if (a.length >= 12) x.chance = Math.min(100, a[11]);
+    if (a.length >= 15) { x.cond = a[12]; x.nudge = a[13] - 32; x.rflam = a[14]; }
   }
   /* a few user presets to start with; BREADBOX stored with the ACID steps (as UP_STORE would) */
   [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 3, 1, "BREADBOX"], [5, 3, 2, "RUBBER BASS"]].forEach(([slot, e, p, name]) => {

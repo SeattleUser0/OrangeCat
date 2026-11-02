@@ -112,6 +112,13 @@ CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 #   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
 #   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
 case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
+# (ui-fix2, close-out) the build set: every OC_ switch tools/orangecat_engines.sh turns on, as CI ships them, is on for EVERY test below (a switch that is on
+#   is always tested). A job's own flags come after and win, so a test of a step on its own, or of the old paths, names the switch it wants
+#   (-DOC_X=0 / 1). BS_OFF is the same list switched off: the "legacy" jobs keep the old paths in the image tested (UI_BUILD.md: step 9 is the owner's).
+BS=$(grep '^export OC_' tools/orangecat_engines.sh | grep -o 'OC_[A-Z0-9_]*=1' | sed 's/^/-D/' | tr '\n' ' ')
+BS_OFF=$(echo "$BS" | sed 's/=1/=0/g')
+[ -n "$BS" ] || { echo "run_tests.sh: no OC_ switches found in tools/orangecat_engines.sh" >&2; exit 2; }
+CC="$CC $BS"
 FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
@@ -214,17 +221,17 @@ oc_scene_job() {                                  # (the new interface, branch u
     cmp -s "$_pk" build/melodee.pak || fail "gen_pack.py: the pack is not the build's (OC_HOME_PIC=${OC_HOME_PIC:-0})"
     cmp -s "$OUT/oc_scene_without.h" "$OUT/oc_scene_with.h" || fail "gen_pack.py --scenes changed the tables' header"
     _t "new interface 1b: scene_ok on every scene and made faults, a fuzz drawn under the sanitizers, the pack's scene trailer" \
-        oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $FW -Itests -- \
+        oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all $FW -Itests -- \
         "$OUT/oc_scene_test" "$OUT/oc_scene_with.pak" "$OUT/oc_scene_without.pak"
     _t "new interface 1b: the same with the asset pack's gate on (no picture without the pack)" \
-        oc_scene_gate:oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_PACK_GATE=1 $FW -Itests -- \
+        oc_scene_gate:oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_PACK_GATE=1 $FW -Itests -- \
         "$OUT/oc_scene_gate" "$OUT/oc_scene_with.pak" "$OUT/oc_scene_without.pak"
 }
 home_pic_job() {                                  # (the new interface, UI_BUILD.md 1c) HOME's picture page
     _t "new interface 1c: HOME PAGE, the three pages, the knobs' ids, commits, the scenes drawn, cozy colors, the pixel budget" \
         home_pic_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # the switch built in and HOME PAGE at TRACKS: HOME's screens are release-2's, pixel for pixel
-    build home_pic_off home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    build home_pic_off home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
     echo "== new interface 1c: HOME at TRACKS with the switch built in draws release-2's screens"
     _h1=$("$OUT/home_pic_test" hash) && _h0=$("$OUT/home_pic_off" hash) || { fail "new interface 1c: the TRACKS hash did not run"; return; }
     case "$_h1" in [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;; *) fail "new interface 1c: no TRACKS hash ($_h1)"; return ;; esac
@@ -232,17 +239,17 @@ home_pic_job() {                                  # (the new interface, UI_BUILD
 }
 sheet_job() {                                     # (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets
     _t "new interface 2: EDIT's sheets: every row reached, EDIT, SELECT, PRESETS, ENV, LFO, fam_last, EDIT's other jobs" \
-        sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # both switches built in, HOME at TRACKS: HOME's screens are still release-2's, pixel for pixel
     build home_pic_sheets home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
-    build home_pic_off2 home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    build home_pic_off2 home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
     echo "== new interface 2: HOME at TRACKS with the sheets built in draws release-2's screens"
     _h2=$("$OUT/home_pic_sheets" hash) && _h0=$("$OUT/home_pic_off2" hash) || { fail "new interface 2: the TRACKS hash did not run"; return; }
     [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
 }
 shift_job() {                                     # (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT
     _t "new interface 3: HOME as SHIFT: a tap, the MENU at 700 ms held (ui-fix 6), the combos, nothing modal raced" \
-        shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 3: the layers, SCREEN OFF and LFO 2 with every step's switch built in" \
         layer_screen_s3:layer_screen_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 3: EDIT's sheets with SHIFT built in" \
@@ -252,19 +259,29 @@ shift_job() {                                     # (the new interface 0.3, UI_B
 }
 step_pages_job() {                                # (the new interface 0.4, UI_BUILD.md step 4) the step pages
     _t "new interface 4: NOTES' knobs, FEEL, the tracker's chord length, the combos on NOTES and FEEL" \
-        step_pages_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        step_pages_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 5: DRUM-X's LANES table: the page, PRESETS picks the lane, the knobs edit it alone, a key still picks it" \
-        lanes_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        lanes_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 6: the mixer's bars and values in the knobs' colors, the knobs' jobs unchanged" \
-        mixer_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        mixer_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 10: copy and paste of a sound: the clipboard, the paste, one undo, the refusals" \
-        clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 11: copy and paste of notes and of a step's feel: the clipboards, the paste, one undo, the refusals" \
-        clip_sel_test -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        clip_sel_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "ui-fix 7: one authority for every note: the invariant after every edit path, the reconcile at a load, START converts, the tracker's move of a recorded step, a key on a recorded step" \
         one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "ui-fix2 5: one authority with NOTES' K2 as NUDGE (the shipping pair of switches): every edit path keeps the invariant" \
+        one_auth_nudge:one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "ui-fix 8: slide and legato: a slide step glides the voice legato in every voice mode, a chord voice by voice, into a rest, a recorded overlap, never a ratchet" \
         slide_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "ui-fix2 2: REC held, stopped: the count, the clears (HOME, a SEQ page, a track's FX, GLO, automation), one undo each; GLO's one undo over four tracks and recorded notes" \
+        rec_clear_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "ui-fix2 3: the plain project page: SAVE opens it, the slot in use, the unsaved flag, a LOAD over unsaved changes asks" \
+        project_page_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_PROJECT_PAGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "ui-fix2 4: SLIDE TIME in POLY, MONO, LEGATO and UNISON: the octave's time by the value, GLIDE wins, kept across a sound load and a save" \
+        slide_time_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    _t "ui-fix2 5: NOTES' KNOB 2 on a typed note moves it by NUDGE: no conversion, no edit memory, the limits, undo, playing" \
+        start_nudge_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: EDIT's sheets with the step pages built in" \
         sheet_s4:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     _t "new interface 4: HOME as SHIFT with the step pages built in" \
@@ -310,7 +327,7 @@ powercut_tests() {
         build/host/boot-fixtures/old-stub.fwsc
 }
 ui_renders() {
-    build ui_render ui_render -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render ui_render -O1 -w $BS_OFF -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_new/ppm build/ui_slot
     step "UI renders: layout lint (every screen and palette, every page, engine and column value), MONO gray, draw cost" \
         "$OUT/ui_render" build/ui_new build/ui_slot
@@ -341,7 +358,7 @@ ui_renders_shift() {                              # (the new interface 0.3, UI_B
 }
 ui_renders_steps() {                              # (the new interface 0.4, UI_BUILD.md step 4) every screen again with every step's switch and
                                                   # the step pages: FEEL and NOTES' strip in every palette: the lint, MONO gray; PNGs in build/ui_steps
-    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_steps/ppm build/ui_steps_slot
     step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, lint, MONO gray" \
         "$OUT/ui_render_steps" build/ui_steps build/ui_steps_slot
@@ -405,7 +422,7 @@ module_host_prophet() {                           # (Orange Cat 0.12.1, Part 1b)
 }
 mod_pages_prophet() {                             # (Orange Cat 0.12.1, Part 1b) the Prophet module's own descriptor in the UI (the Orange Cat engine set, sanitizers)
     $CC -c -O1 -fsanitize=address,undefined -DMELODEE_DUAL_CORE=0 $FW -o "$OUT/mod_pages_prophet_tu.o" tests/module_host_prophet_tu.c || { fail "compile tests/module_host_prophet_tu.c (pages)"; return 1; }
-    $CC -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 \
+    $CC -O1 -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 \
         -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW -o "$OUT/mod_pages_prophet_test" tests/mod_pages_prophet_test.c "$OUT/mod_pages_prophet_tu.o" -lm ||
         { fail "compile tests/mod_pages_prophet_test.c"; return 1; }
     step "the Prophet module's real pages (0.12.1, Part 1b): 15 pages, hooks, HOME, ENV, LFO, motion recorded and played back, the module out and in; Orange Cat set, sanitizers" \
@@ -631,6 +648,8 @@ if core && [ $TABLES = 1 ]; then
     t "settings: PER5 records, palette ids and preference preservation" settings_test -O1 -w -Ibuild/gen
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
+    # (ui-fix2, close-out) the same test with every switch of the build set off: the old paths stay in the image and stay tested
+    t "UI with the build set's switches all off (the old flows)" ui_legacy:ui_test $BS_OFF -DMELODEE_USB_AUDIO=1 $FW
     job oc_scene_job
     job oc_r3_conv_job
     job oc_r3_real_job
@@ -646,12 +665,12 @@ if core && [ $TABLES = 1 ]; then
     # (Orange Cat 0.5.3) the pages Orange Cat's own build reaches, built with its engine switches (tools/orangecat_engines.sh:
     # the other tests build every engine in), under ASan and UBSan
     t "Orange Cat pages: every family and SELECT both ways on MACRO and SHAPES, its engine set, sanitizers" \
-        oc_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
+        oc_pages_test -O1 -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
         -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 $FW
     # (Orange Cat 0.12.0, Part 2b) a module's pages as data: a fake module for the Prophet's number brings a page descriptor (fw_pages.h): the loader's check of
     # its bytes, the pages shown and edited, ENV / LFO / HOME, motion recorded and played back, the module out again; the same engine set, sanitizers
     t "module pages (0.12.0, Part 2b): the descriptor check, the pages from a module's data, edit, motion, removal; the Orange Cat set, sanitizers" \
-        mod_pages_test -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
+        mod_pages_test -O1 -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_SID=0 -DMELODEE_CZ=0 \
         -DMELODEE_FM6=0 -DMELODEE_P5=0 -DMELODEE_DRUM=0 -DMELODEE_MACRO=1 -DMELODEE_SHAPES=1 -DMELODEE_USB_AUDIO=1 -DOC_MODULE_WINS=1 $FW
     # (Orange Cat 0.8.1, Fix 3) the two preset-library tests that also pass with the engines the firmware ships without
     # (the others fill Prophet, CZ-1, FM6 and DRUM banks as fixtures and need those engines: tests/need_all_engines.h)
@@ -685,6 +704,8 @@ if core && [ $TABLES = 1 ]; then
     t "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" backup_test $FW
     t "CPU laboratory: persistence guard and RAM-only preference restoration" backup_lab:backup_test -DMELODEE_AUDIO_PROFILE=1 $FW
     t "editor: real C protocol, malformed transfers and queue recovery" editor_test $FW
+    t "editor: the protocol with one authority built in (ui-fix 7): a step write on a recorded cell drops its events, TRACK_STEP as STEP_SET" \
+        editor_oa:editor_test -DOC_ONE_AUTH=1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 $FW
     t "CPU lab controls: native recording/transport, guarded protocol and exact restoration" audio_cpu_lab_test -O2 -DMELODEE_AUDIO_PROFILE=1 -DMELODEE_AUDIO_BENCH=1 $FW
     t "CPU lab controls absent in normal firmware" cpu_lab_off:audio_cpu_lab_test -O2 $FW
     t "CPU lab controls absent with profiling only" cpu_lab_profile:audio_cpu_lab_test -O2 -DMELODEE_AUDIO_PROFILE=1 $FW

@@ -152,7 +152,8 @@ static uint32_t ed_step_sig(const step_t *s)
 {
     return ((uint32_t)s->note[0] | (uint32_t)s->note[1] << 7 | (uint32_t)s->note[2] << 14 | (uint32_t)s->note[3] << 21) ^
            ((uint32_t)s->n << 28) ^ ((uint32_t)s->time * 0x9E3779B1u) ^ ((uint32_t)s->flags * 0x85EBCA6Bu) ^
-           ((uint32_t)s->vel * 0xC2B2AE35u) ^ ((uint32_t)(s->hit | s->acc << 8) * 0x27D4EB2Fu) ^ ((uint32_t)s->probability * 0x165667B1u);
+           ((uint32_t)s->vel * 0xC2B2AE35u) ^ ((uint32_t)(s->hit | s->acc << 8) * 0x27D4EB2Fu) ^ ((uint32_t)s->probability * 0x165667B1u) ^
+           ((uint32_t)(s->cond | (uint32_t)(uint8_t)s->nudge << 8) * 0xD3A2646Cu);   /* (v8) the condition and the nudge: a watching editor reads them now */
 }
 static void ed_shadow(void)                              /* the editor is in sync */
 {
@@ -280,15 +281,21 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
 
 /* a step as STEP_SET / TRACK_STEP send it (na bytes): n, 4 notes, time, flags, vel, then (v5) the lane hits
  * and their accents: hit & 127, acc & 127, bit 7 of each (bit 0 hit, bit 1 acc); each value made valid. 8
- * bytes (an editor of before the grid): the hits stay */
-static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
+ * bytes (an editor of before the grid): the hits stay. (v7) the chance. (Orange Cat 0.16.0, v8) three more bytes:
+ * the trig condition (TC_*), NUDGE + 32 (0..63) and RATCH (1..4 the hits, 5 FLAM); without them the step keeps
+ * its own (every older editor), as with the hits and the chance. A step write makes the step a manual one (SF_RECORDED is not kept, as since v1), so the nudge is a manual step's;
+ * recording_resched only matters while the view's bits are refreshed, and is harmless. The sequencer's interrupt reads the step meanwhile:
+ * the write runs with interrupts off, as the device's own step edits do (ui_input.c) */
+static int ed_feel_ok(const uint8_t *f) { return f[0] < TC_COUNT && f[1] <= 63u && f[2] >= 1u && f[2] <= 5u; }
+static void ed_step_put(track_t *t, step_t *st, const uint8_t *a, uint32_t na)
 {
     uint32_t i, gate = step_gate(st);
+    fm1_irq_off();
     st->n = (uint8_t)(a[0] > 4u ? 4u : a[0]);
     for (i = 0; i < 4u; i++)
         st->note[i] = a[1 + i] & 0x7Fu;
     st->time = (uint8_t)(a[5] > ST_REST ? ST_REST : a[5]);
-    /* (Orange Cat 0.2) RATCH and FLAM, which this message does not carry yet, stay as they were (phase 4g) */
+    /* (Orange Cat 0.2) RATCH and FLAM, which the message before v8 does not carry, stay as they were (phase 4g) */
     st->flags = (uint8_t)((st->flags & (SF_RATCH | SF_FLAM)) | (a[6] & (SF_ACCENT | SF_SLIDE)));
     st->vel = a[7] & 0x7Fu;
     if (na >= 11u) {
@@ -297,9 +304,17 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
     }
     if (!st->hit && st->time == ST_REST) st->acc = 0;
     if (na >= 12u) step_set_chance(st, a[11] <= 100u ? a[11] : 100u);
+    if (na >= 15u) {                                   /* (v8) the feel: validated by ed_valid before this */
+        int8_t nudge = st->nudge;
+        step_set_cond(st, a[12]);
+        step_set_nudge(st, (int32_t)a[13] + NUDGE_MIN);
+        step_set_rflam(st, a[14]);
+        if (st->nudge != nudge) recording_resched(t);
+    }
+    fm1_irq_on();
     ui.force = 1;
 }
-static void ed_step_reply(const step_t *st)              /* the same 11 bytes */
+static void ed_step_reply(const step_t *st)              /* the same bytes: 12, then (v8) the feel's 3 */
 {
     uint32_t i;
     ed_b(st->n);
@@ -312,6 +327,9 @@ static void ed_step_reply(const step_t *st)              /* the same 11 bytes */
     ed_b(st->hit ? st->acc & 0x7Fu : 0u);
     ed_b((uint32_t)(st->hit >> 7) | (st->hit ? (uint32_t)(st->acc >> 7) << 1 : 0u));
     ed_b(step_chance(st));
+    ed_b(st->cond);                                      /* (v8) */
+    ed_b((uint32_t)(st->nudge - NUDGE_MIN));
+    ed_b(step_rflam(st));
 }
 
 /* a flash write from the editor while the transport runs: stop it first (the erase silences the audio and
@@ -373,13 +391,13 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
     case ED_UP_GET: case ED_UP_LOAD: case ED_UP_ERASE: case ED_WATCH: case ED_TRACK_DUMP:
         return n == 1u || (cmd == ED_NAMES && n == 3u);
     case ED_STEP_SET:
-        return n == 9u || n == 12u || (n == 13u && a[12] <= 100u);                 /* notes only, or the complete grid extension */
+        return n == 9u || n == 12u || (n == 13u && a[12] <= 100u) || (n == 16u && a[12] <= 100u && ed_feel_ok(a + 13));   /* notes only, the grid, the chance, (v8) the feel */
     case ED_TRACK:
         return n <= 1u;
     case ED_TRACK_MIX:
         return n == 1u || n == 4u;
     case ED_TRACK_STEP:
-        return n == 2u || n == 10u || n == 13u || (n == 14u && a[13] <= 100u);
+        return n == 2u || n == 10u || n == 13u || (n == 14u && a[13] <= 100u) || (n == 17u && a[13] <= 100u && ed_feel_ok(a + 14));
     case ED_MOTION:
         return (n == 1u || (n == 2u && a[1] == 2u) || (n == 3u && a[1] == 1u && a[2] <= 1u) ||
                 (n == 6u && a[1] == 3u) || ((n == 4u || n == 6u) && a[1] == 4u)) && a[0] < NTRK;
@@ -1112,7 +1130,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_SET:
         if (na < 2u || !(d = ed_desc(a[0], a[1], &vp)))
             return;
-        if (cmd == ED_SET && na >= 4u && !(a[0] ? global_reserved(a[1]) : param_reserved(a[1])) && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
+        if (cmd == ED_SET && na >= 4u && !(a[0] ? global_reserved(a[1]) : param_reserved(a[1]) || param_slide_time(a[1])) && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
             if (a[0] == 1 && a[1] == G_ENGSEL) {          /* engine change: the safe path */
                 {   uint32_t ne = (uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1);
                     int adm = eng_admit(TSEL, ne);                       /* (0.11.0) a module's engine only when the unit can carry it */
@@ -1172,7 +1190,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #if OC_ONE_AUTH
             if (st->flags & SF_RECORDED) events_drop_view(TSEL, a[0]);   /* (ui-fix 7) the cell's events go before the cell is written */
 #endif
-            ed_step_put(st, a + 1, na - 1u);
+            ed_step_put(TSEL, st, a + 1, na - 1u);
         }
         ed_w.st[a[0]] = ed_step_sig(&seq_steps(TSEL)[a[0]]);
         ed_b(a[0]);
@@ -1629,8 +1647,12 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na < 2u || a[0] >= NTRK || a[1] >= NSTEP)
             return;
         st = &trk[a[0]].step[a[1]];
-        if (na >= 10u && !chain_busy())
-            ed_step_put(st, a + 2, na - 2u);
+        if (na >= 10u && !chain_busy()) {
+#if OC_ONE_AUTH
+            if (st->flags & SF_RECORDED) events_drop_view(&trk[a[0]], a[1]);   /* (round 11) as STEP_SET: the cell's events go before the cell is written */
+#endif
+            ed_step_put(&trk[a[0]], st, a + 2, na - 2u);
+        }
         if (a[0] == song.sel)
             ed_w.st[a[1]] = ed_step_sig(&seq_steps(&trk[a[0]])[a[1]]);
         ed_b(a[0]);
@@ -1644,7 +1666,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         t = &trk[a[0]];
         d = ed_tdesc(t, a[1]);
-        if (na >= 4u && !param_reserved(a[1]) && !(chain_busy() && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
+        if (na >= 4u && !param_reserved(a[1]) && !param_slide_time(a[1]) && !(chain_busy() && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
             if (d->max > d->min)                           /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
             (void)motion_capture(t, a[1], t->p[a[1]]);

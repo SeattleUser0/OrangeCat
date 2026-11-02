@@ -66,6 +66,33 @@ static void proj_x_get(uint32_t k, uint32_t b, step_t *st)
         step_set_nudge(&st[i], (int8_t)proj_x[k][b][i][1]);
     }
 }
+static uint8_t bank_pack_keep;                   /* 1: bank_pack leaves proj_x, proj_lists, proj_pid and their tag as they are (bank_live_hash) */
+static int bank_pack(uint8_t *raw, const project_t *q, int runtime);
+/* (ui-fix2 close-out) the hash of the LIVE music's pack, step fields included, for "unsaved": packs raw (the staging) but touches nothing beside the
+ * stored record (proj_x and the rest keep the record the last read or write left there: a repack would make the next LOAD apply the live music's) */
+static uint32_t bank_live_hash(uint8_t *raw, const project_t *q, int *ok)
+{
+    uint32_t h, k, b;
+    bank_pack_keep = 1;
+    *ok = bank_pack(raw, q, 1);
+    bank_pack_keep = 0;
+    if (!*ok) return 0;
+    h = proj_hash(raw, BANK_STORE_SIZE);
+    for (k = 0; k < NTRK; k++)
+        for (b = 0; b < NPAT; b++) {
+            uint8_t x[NSTEP][2];
+            pattern_t p;
+            uint32_t i;
+            pattern_read(k, b, &p);
+            for (i = 0; i < NSTEP; i++) {
+                x[i][0] = (uint8_t)(((p.step[i].flags >> 3) & 7u) | (p.step[i].cond << 3));
+                x[i][1] = (uint8_t)p.step[i].nudge;
+            }
+            h = fnv(h, x, sizeof x);
+        }
+    h = fnv(h, &lists, sizeof lists);
+    return fnv(h, bank_pid, sizeof bank_pid);
+}
 static uint32_t bank_hash(const uint8_t *raw)
 {
     uint32_t h = proj_hash(raw, BANK_STORE_SIZE);
@@ -107,20 +134,22 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
         memcpy(raw + BANK_FN_OFF, &m, 4);
         memcpy(raw + BANK_FN_OFF + 4u, q->fm6_fn, sizeof q->fm6_fn);
     }
-    memset(proj_x, 0, sizeof proj_x);
-    ocl_lists_init(&proj_lists); memset(proj_pid, 0, sizeof proj_pid);
-    if (runtime) { proj_lists = lists; memcpy(proj_pid, bank_pid, sizeof proj_pid); }   /* (Orange Cat 0.3, 4c) */
-    for (uint32_t k = 0; k < NTRK; k++) {          /* (Orange Cat 0.3) Skiff's fields beside it */
-        if (!runtime) { proj_x_put(k, q->pattern[k] % NPAT, q->t[k].step); continue; }
-        for (uint32_t b = 0; b < NPAT; b++) {
-            pattern_t p;
-            pattern_read(k, b, &p);
-            proj_x_put(k, b, p.step);
+    if (!bank_pack_keep) {                       /* (ui-fix2 close-out: the unsaved check packs for a hash only and leaves what sits beside the stored record alone) */
+        memset(proj_x, 0, sizeof proj_x);
+        ocl_lists_init(&proj_lists); memset(proj_pid, 0, sizeof proj_pid);
+        if (runtime) { proj_lists = lists; memcpy(proj_pid, bank_pid, sizeof proj_pid); }   /* (Orange Cat 0.3, 4c) */
+        for (uint32_t k = 0; k < NTRK; k++) {          /* (Orange Cat 0.3) Skiff's fields beside it */
+            if (!runtime) { proj_x_put(k, q->pattern[k] % NPAT, q->t[k].step); continue; }
+            for (uint32_t b = 0; b < NPAT; b++) {
+                pattern_t p;
+                pattern_read(k, b, &p);
+                proj_x_put(k, b, p.step);
+            }
         }
     }
     motion_unguard(f);
     bank_checksum(raw);
-    proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
+    if (!bank_pack_keep) proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
     return 1;
 }
 static uint8_t bank_import_tags[MOTION_MAX];

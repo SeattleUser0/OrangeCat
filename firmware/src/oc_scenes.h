@@ -19,6 +19,8 @@
  * Revisions:
  *   (Orange Cat 0.15 design, branch ui-design) first version, in tests/ui_scenes.h.
  *   (the new interface 0.1, branch ui-build, UI_BUILD.md 1b) the three built-in engines' scenes moved here, unchanged.
+ *   (ui-fix2 6, November 1, 2026, the owner's finding) SHAPES: COLR sets the tail's wag RATE, PLUCK the paw's bat RATE (the paw striking the
+ *   yarn, which is knocked round each time), TIMB the yarn's size alone; the phases run 0.5 Hz to 3 Hz (ui_home_pic.c).
  *   (ui-fix 3, October 31, 2026, the owner's finding "the cat's green hand barely moves") SHAPES: every part moves with its
  *   knob's position, in size and in speed: the yarn grows with TIMB, the tail stands up with COLR and flicks at COLR's rate
  *   (PH2), the moon fills more, the paw rises through 70 degrees each side of its middle with PLUCK and swats through 80 on a note.
@@ -82,31 +84,38 @@ static const uint8_t SCENE_SHAPES[] = {
     S_PLINE(SCC_INK, 3), 74, 53, 75, 40, 84, 48,
     S_PLINE(SCC_INK, 3), 89, 48, 98, 40, 99, 54,
     S_STYLE(1),
-    /* its eyes follow the yarn */
-    S_BIND(SS_PH1 | SS_CENTERED, SF_X, -4), S_DISC(SCC_INK, 81, 61, 3),
-    S_BIND(SS_PH1 | SS_CENTERED, SF_X, -4), S_DISC(SCC_INK, 92, 61, 3),
+    /* its eyes look at the yarn (still: TIMB's phase draws nothing now; they followed it rolling) */
+    S_DISC(SCC_INK, 79, 62, 3),
+    S_DISC(SCC_INK, 90, 62, 3),
     S_LINE(SCC_INK, 84, 70, 88, 70),
-    /* the tail (K2 COLR): lying along the floor at COLR's left end, standing up and curled over at its right (the tip rises
-     * 24 rows, the bend 18); its tip flicks at COLR's rate (PH2: slowly over, then back) */
+    /* the tail (K2 COLR): standing up and curled over, wagging side to side about its root at COLR's RATE (PH2, centered: a sweep 42 degrees
+     * each side and a flick back, 0.5 Hz at COLR's left end to 3 Hz at its right: ui-fix2 6, the owner's "COLR sets how fast the tail wags") */
     S_STYLE(2),
-    S_BIND(SS_K2, SF_P0Y + 5, -24), S_BIND(SS_K2, SF_P0X + 5, -12), S_BIND(SS_K2, SF_P0Y + 4, -18),
-    S_BIND(SS_PH2 | SS_CENTERED, SF_P0X + 5, 20),
+    /* a triangle wave from the sawtooth: two copies of the tail, the first shown while PH2 is in its first half (swinging out 21 degrees), the
+     * second in its second half (swinging back): no snap, a wag */
+    S_BIND(SS_PH2, SF_HIDE, -64), S_BIND(SS_PH2 | SS_CENTERED, SF_ANG, -15), S_PUSH(107, 121),
     S_PLINE(SCC_K2, 6), 107, 121, 118, 121, 128, 116, 134, 106, 135, 96, 131, 88,
-    /* the paw (K4 PLUCK): raised through 70 degrees each side of its middle over PLUCK's travel (dropped at its left end,
-     * 140 end to end), a swat of 80 degrees on each note */
-    S_BIND(SS_K4 | SS_CENTERED, SF_ANG, 50), S_BIND(SS_HIT, SF_ANG, -28), S_PUSH(66, 98),
-    S_PLINE(SCC_K4, 3), 66, 98, 52, 92, 46, 94,
-    S_STYLE(1),
-    S_CIRC(SCC_K4, 44, 95, 6),
     S_POP,
-    /* the yarn (K1 TIMB): bigger and with more loops with TIMB, rolling at its rate */
+    S_BIND(SS_PH2, SF_HIDE, 64), S_BIND(SS_PH2 | SS_CENTERED, SF_ANG, 15), S_PUSH(107, 121),
+    S_PLINE(SCC_K2, 6), 107, 121, 118, 121, 128, 116, 134, 106, 135, 96, 131, 88,
+    S_POP,
+    /* the paw (K4 PLUCK): bats the yarn at PLUCK's RATE (PH4: rises slowly away from the yarn through 67 degrees, then comes down on it, once a
+     * turn: 0.5 Hz to 3 Hz), the swing's end resting ON the yarn's edge; a note swats it too (HIT). The yarn recoils at each strike (below).
+     * ui-fix2 6, the owner's "PLUCK sets how fast the paw bats the ball of yarn" */
+    S_BIND(SS_PH4, SF_ANG, 24), S_BIND(SS_HIT, SF_ANG, 6), S_PUSH(66, 98),
+    S_PLINE(SCC_K4, 3), 66, 98, 52, 100, 42, 106,
+    S_STYLE(1),
+    S_CIRC(SCC_K4, 38, 108, 6),
+    S_POP,
+    /* the yarn (K1 TIMB): its size, and its loops, with TIMB alone (it no longer rolls at TIMB's rate); it is knocked round a quarter turn
+     * by each strike of the paw and rolls slowly back (PH4: the same sawtooth, so it moves with the paw, not on its own) */
     S_STYLE(2),
-    S_BIND(SS_K1 | SS_CENTERED, SF_R, 28), S_CIRC(SCC_K1, 28, 112, 24),
+    S_BIND(SS_K1 | SS_CENTERED, SF_R, 28), S_CIRC(SCC_K1, 30, 112, 24),
     S_STYLE(1),
-    S_BIND(SS_PH1, SF_ANG, 127), S_PUSH(28, 112),
-    S_BIND(SS_K1, SF_CNT, 4), S_REP(1, 3, 2), S_ARC(SCC_K1, 24, 108, 7, 180, 60),
+    S_BIND(SS_PH4, SF_ANG, -32), S_PUSH(30, 112),
+    S_BIND(SS_K1, SF_CNT, 4), S_REP(1, 3, 2), S_ARC(SCC_K1, 26, 108, 7, 180, 60),
     S_POP,
-    S_LINE(SCC_K1, 38, 106, 47, 97),
+    S_LINE(SCC_K1, 40, 106, 49, 97),
     S_END,
 };
 

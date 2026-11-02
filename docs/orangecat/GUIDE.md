@@ -468,9 +468,18 @@ The engine number 19 is ready for a module, so a Prophet in an old project stays
 
 ## Saving and loading
 
+- **The project page (ui-fix2):** SAVE opens the PROJECT page: the slots A to D with their names, the one you are working in marked by its letter on a coloured badge, and a bottom line that says which slot, its name, and whether the music is saved or has unsaved changes. KNOB 1 picks a slot, OCT+ opens its menu: Load, Save here, Rename, Boot, Erase. Load over unsaved changes asks first. The last row, New song, starts an empty song. SAVE again goes on to the sound's USER slots. Holding SAVE saves at once to the slot you are in.
 - Projects save as before (SAVE, the autosave). Phrases keep themselves in the pool.
 - At power-on, the project you last loaded or saved comes back.
 - Projects saved with 0.3.x load as chains 01 to 04 in row 01. Saving again writes the new format.
+
+## Clearing with REC held (ui-fix2)
+
+With the sequencer stopped, hold REC: the screen counts 3, 2, 1 and then clears, if REC is still held. On HOME it clears the selected track's steps and notes; on a SEQ page (NOTES, FEEL, TRACKER, PHRASE) the values on that page back to their defaults; on a track's FX page that track's effects; on a GLO page every track's steps, notes and own effects; on MOTION the track's automation. EDIT held brings it back (one undo; after GLO's clear, one undo for all four tracks). While the music plays, REC held is Capture as ever.
+
+## HOME held: the shortcuts
+
+Hold HOME alone for 0.7 s and the MENU opens. Press or turn something with HOME held, within 0.7 s of pressing it, and that is a shortcut: a knob is a fine turn (on HOME's pages, a sheet's rows, NOTES and FEEL); PRESETS changes the engine on HOME's pages and stretches the selected range on NOTES and FEEL; EDIT initializes the sound (it asks first) on HOME's pages and sheets, deletes the selected notes on NOTES, and puts a step's feel back to its defaults on FEEL; OCT- and OCT+ are copy and paste, which this build does not have yet. Anywhere else the combos do nothing.
 
 ## Known gaps
 
