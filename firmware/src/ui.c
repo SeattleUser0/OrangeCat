@@ -350,9 +350,13 @@ static void ui_say(const char *a, const char *b)
 static void ui_message(const char *s) { ui_say(s, ""); }
 /* (Orange Cat 0.8.0) the selected track's engine is SHAPES or MACRO and the asset pack is not there (oc_pack.h): it plays nothing, and
  * the screen says so: when the engine is chosen (force), and when a key is played on it (not over another word) */
+/* (round 14) an engine that ships as a module and is not installed (SHAPES since MELODEE_SHAPES=0): the track keeps its music and settings, plays nothing (the slot is
+ * retired until the module registers) and the screen says MODULE MISSING, as it says PACK MISSING */
+static int mod_gone(uint32_t e) { return (e == ENGI_SHAPES || e == ENGI_WHEEL || e == ENGI_PROPHET) && !eng_ok(e); }
 static void pack_notice(uint32_t force)
 {
     uint32_t e = TSEL->eng_req % NENGINES;
+    if (mod_gone(e)) { if (force || !ui.msg_t) ui_message("MODULE MISSING"); return; }
     if (OC_PACK_READY() || (e != ENGI_MACRO && e != ENGI_SHAPES)) return;
     if (force || !ui.msg_t) ui_message("PACK MISSING");
 }
@@ -362,7 +366,10 @@ static void pack_notice(uint32_t force)
 static void pack_boot_notice(uint32_t skipped)
 {
     uint32_t k;
-    if (OC_PACK_READY() || skipped) return;
+    if (skipped) return;
+    for (k = 0; k < NTRK && k < song.ntrk; k++)
+        if (mod_gone(trk[k].eng_req % NENGINES)) { ui_message("MODULE MISSING"); return; }
+    if (OC_PACK_READY()) return;
     for (k = 0; k < NTRK && k < song.ntrk; k++) {
         uint32_t e = trk[k].eng_req % NENGINES;
         if (e == ENGI_MACRO || e == ENGI_SHAPES) { ui_message("PACK MISSING"); return; }
