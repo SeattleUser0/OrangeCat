@@ -2897,3 +2897,61 @@ switches), the renders with every switch (0 lint findings) and home_pic_test. Bu
 | all on, after the fixes (the pushed head) | 565,044 | 94,600 (+48) | 180,656 |
 
 565,044 B leaves 12,204 B free: 4,012 B above the 8 KB reserve. The steps are not isolated costs (code layout moves between builds: item 5 measured smaller than item 4 before it). Item 6 (the scene) is in the pack, not the image; its image cost is a constant.
+
+### r3-format resumed (November 2, 2026): Parts 8 and 9, on ui-fix2's close-out
+
+Resumed where "r3-format PAUSED" says, after merging ui-fix2 (origin/ui-fix2 at the close-out) into the branch: the REC clears, the project page, SLIDE TIME and START nudge are in, and the suite
+builds every test with the build set (tests/run_tests.sh BS, as ui-fix2's close-out describes). Two parts are added to the revision, each behind its own switch, host only.
+
+### Part 8: DUB TAPE's setup on ids of its own (OC_DUB_IDS, design note, before its review)
+
+**Why.** docs/orangecat/DUB_R12.md section 2 packed the new DUB TAPE's twelve values into ids 45 .. 47 (up to 16,383 an id); its own review (11.1) found that `proj_pack` refuses a track
+parameter outside -64 .. 127 and writes one byte an id, so the packing could not be saved: section 2 is withdrawn there, and the note recommends the Release 3 revision, "where all twelve
+values get ids of their own". This part is that. (The brief said Session A was packing them; the note on origin/linux-hw says the packing was withdrawn, so this does what the withdrawn note's
+recommendation says and DUB_R12.md section 7's conversion is its Release 2 rule.)
+
+**What.** Eight ids appended after LFO 2's seven, before P_E0 (the convention: new common ids go there; params_by_count maps older counts): `P_DUBSYNC` (FREE / SYNC, default SYNC),
+`P_DUBTL`, `P_DUBTR` (the two taps' times, 0 .. 127, defaults 7 and 9: with SYNC they are 0 .. 17, the 6 divisions x straight / dotted / triplet; free, 20 ms .. 1.4 s on 0 .. 127),
+`P_DUBPING` (OFF / ON), `P_DUBSPR` (SPRING 0 .. 63), `P_DUBDRV` (DRIVE 0 .. 63, default 25), `P_DUBWOW` (WOW 0 .. 63), `P_DUBSPD` (SPEED 0 .. 63, 32 = normal). The ranges and defaults
+are DUB_R12.md section 6's, so Session A's kernel reads what it was designed against; the descriptors are the data, the kernel and the pages are Session A's. P_COUNT 131 -> 139, P_E0
+123 -> 131 (needs OC_LFO2: the layouts past Release 2 are 124 and 139, 131 being LFO 2 alone, a development state a project of which loads by count). `param_dub_setup()` covers them: not a
+sound's, never a motion lane, kept across a sound load, reset by "reset effects".
+
+**The conversion** (`dub_from_r2`, called by `params_by_count` for any store with no DUB ids: Release 2's np 124 and a development np 131): DUB_R12.md 7, in integers (times in 1/48 beat,
+heads in quarters): TIME L is the nearest of the 18 synced times to the first head of PTRN's time (SPACE's division x the head), TIME R to the second (SINGLE: both); SYNC on; SPRING the old
+mix (SPACE - 64 when the spring is on); PING off, DRIVE 25, WOW 0, SPEED 32. Ties go to the shorter time. **The old ids stay where they are** (LEN, PTRN, SPRP and SPACE are not rewritten):
+ECHO, which DUB_R12.md writes over SPACE (100 when LEN is not OFF), is Session A's to set when the kernel switches, with LEN still there to read. A user preset has none of them (they are the
+track's): `up_params` gives the defaults, not the derivation.
+
+**Presets keep their layout.** A user preset stores np = P_COUNT - 8 (the eight not stored; `UP_NP`, `up_pos`): exactly the record an LFO-2-only build writes, so `params_by_count` reads it
+unchanged, no record has a second version, and the DRUM-X kit still fits beside it (np 139 would leave 5 B of the 144 where the kit needs 56 - the static assert caught it).
+
+**Tests.** tests/dub_ids_test.c (ids, ranges, defaults, not a sound's / not a lane; the derivation for all 2,304 PTRN x SPACE x SPRP against an independent floating-point reference; np
+124 / 131 / 139 stores; presets; a sound load; a project round trip); oc_r3_test's FUN23 and TPLM cases assert the derivation on every track; oc_r3_test (the whole of Parts 1 and 2 with np
+139), editor_test (ids 131 .. 138 over the wide commands; the motion wire's high id bit), ui_test, all with the switch. Found while writing them: P_E1 is 132 now and the editor's motion
+command carries ids past 127 in the place byte's spare bit (the test sent the byte raw: fixed in the test, editor.c was right).
+
+**Not done, said plainly.** No page shows the new ids (Session A's pages, DUB_R12.md section 1, bind to them with the kernel); the web editor's tables and the web app's layout know np 124 and
+the generated 131 only (Session D); the interface identifier moves once more (P_E0), as it did for LFO 2.
+
+### Part 9: SLIDE TIME per step (OC_STEP_SLIDE, design note, before its review)
+
+**Why.** ui-fix2 4 left it out: "a step has no spare bits without a format change". The brief says steps can grow in this revision. They can in RAM (one byte a step: step_t 13 -> 14), but the
+undo levels are the cache RAM's UI part (`8 x sizeof(undo_t) <= UI_CACHE_BYTES`, 13,920 of 14,336 B): one more byte in the eleven-byte step record makes them 14,432 and fails the static
+assert. So the record is not grown. **Decision (the safer reading):** the time rides in six bits that are free in the eleven-byte record, the high bits of note[0] .. note[3], vel and
+probability (each field is at most 127, 101 for the probability, and every reader validates that): `step_snapshot.h` packs and unpacks them, the phrase stays version 2 and every record keeps
+its size; a step with no time of its own is the bytes it always was, so an older firmware reads those phrases unchanged and **refuses** one with a time (a note past 127) instead of misreading
+it. Six bits give 63 values: 0 = the track's SLIDE TIME, 1 .. 63 = -62 .. 62 in steps of two (a SLIDE TIME step of 2 is a ninth of an octave of speed: not audible). In RAM it is `step_t.slidet`
+(the byte); beside the FBKK it is `proj_x`'s third byte (the FBKK's 8-byte steps have no room, the same way RATCH, COND and NUDGE travel).
+
+**What uses it.** The slide a step STARTS (the step with SF_SLIDE) takes that step's time: `seq.c` passes the time of the step the slide leaves to `slide_glide_set`, `recording.c` the cell
+before's for a recorded slide; GLIDE (the track's portamento) still wins. **The edit:** the tracker's SLIDE cell. KNOB 4 right from OFF: on, with the track's time; right again: a time of its
+own (the track's plus 4); then 4 a detent either way; left with none of its own: off. EDIT takes the own time away first (back to the track's), a second EDIT turns the slide off; a slide
+turned off by any other path (NOTES' ENV + KNOB, the sheet's toggle) takes its own time with it. The foot says "ON EASY*" (a star: a time of its own); NOTES' SLIDE column (ENV held) shows
+the step's word. The editor's hardware-test string stays "ON".
+
+**Tests.** tests/step_slide_test.c (the octave measurement of slide_time_test, per voice mode: a step at -32 on a track at +40 takes the time of -32; none follows the track; GLIDE; the
+record round trip of all 64 values beside notes 127, velocity 127, probability 101; a project round trip; the cell; undo) and oc_r3_test's test_step_slide (the phrase through the pool, the
+phrase still version 2). Mutation-checked: the sequencer ignoring the step's time fails five checks.
+
+**Not done.** FEEL does not show it; the web editor's step commands do not carry it (a step written from the editor has none); the clip copy (OC_CLIP, off) copies steps as structs and keeps it.
