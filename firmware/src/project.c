@@ -611,6 +611,8 @@ static uint32_t proj_saved_hash[4];
 #if OC_PROJECT_PAGE
 static uint32_t pj_base;                                /* (ui-fix2 3) see project_unsaved */
 static uint8_t pj_base_slot = 0xFFu;
+static uint8_t proj_ui_gen;                              /* +1 at every load and save: the PROJECT page (ui_slots.c) works its flag out again; no call into the UI from here, so a test that builds project.c alone compiles */
+static int project_dirty(void);
 static void pj_base_now(uint32_t slot);
 #endif
 static int proj_read_slot(uint32_t slot)
@@ -765,7 +767,7 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_last_set(slot & 3u);
 #if OC_PROJECT_PAGE
     pj_base_now(slot);                                  /* (ui-fix2 3) the music as saved, for "unsaved" */
-    pj_note();                                          /* the PROJECT page's unsaved flag: worked out again */
+    proj_ui_gen++;                                      /* the PROJECT page's unsaved flag: worked out again (ui_slots.c pj_poll) */
 #endif
     if (frz_named_hook) frz_named_hook(was, proj_name, slot & 3u, was_slot == (slot & 3u));   /* (0.6.1) */
     ui_message(MELODEE_FLASH ? "SAVED" : "SAVED (RAM)");
@@ -1097,7 +1099,7 @@ static void project_load(uint32_t slot)
         proj_last_set(slot & 3u);
 #if OC_PROJECT_PAGE
         pj_base_now(slot);                              /* (ui-fix2 3) the music as loaded, for "unsaved" */
-        pj_note();
+        proj_ui_gen++;
 #endif
     }
 }
