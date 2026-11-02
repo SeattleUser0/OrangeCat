@@ -2317,3 +2317,8 @@ parameter is inert" now says 48 has a description and no write; DESC count 120. 
 of the release-2 screens: BS_OFF for them. Nits done: the stale comment in ui_feel.c, the template question only with a template, build.log out of the repository. Left, written down: the SONG
 sheet's "first row" check is under the sections guard though it is not about sections (the Insert row is covered by sheet_do); an overlapping negative nudge covers the previous column's bar
 at the same pitch.
+
+**Close-out: suite and budget.** The full suite with CI's settings (`ci_step.py test --parallel 2`) on 04958c9 (the close-out, the golden, the legacy runs): every job passed but one, `drum_editor_test`,
+which hung under OC_ONE_AUTH (above; killed after 98 minutes, the run reported 8,077 s); the test is pinned and passes alone. The closing run is the r3-format suite (branch r3-format, bc8d4ad, which
+holds ui-fix2 at 8b37931 merged): **240 jobs passed in 3,096 s** (the ui-fix2 jobs among them). Image with every switch on: **565,556 B** (+512 B on the 565,044 B before the close-out: the roll's nudge,
+the page resets, the template question, the hash-only pack, GLO's helpers moved), 94,600 B .data+.bss, 180,656 B pool: 11,692 B free, 3,500 B above the 8 KB reserve.
