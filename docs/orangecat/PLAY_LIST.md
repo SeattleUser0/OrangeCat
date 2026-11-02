@@ -1,3 +1,17 @@
+# Orange Cat Nightly v0.16.0-449c6b: what changed for you since 7b29d7
+
+Written November 2, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged. The first two lines of each item are what you will notice.
+
+1. **PRESETS moves exactly one sound a click, however fast you turn it** (HOME, the PRESETS page, the browser), and so do the scale list and the user-slot list; KNOB ACCEL no longer touches them. Value knobs keep their speed-up.
+2. **DUB TAPE is a dub echo now.** FX button, three pages in this order. **DUB SETUP:** SYNC (SYNC or FREE), TIM L and TIM R (on the beat: 1/32 to 1/1, with D dotted and T triplet, a click moves one division; FREE: 20 ms to 1.4 s), PING (OFF or ON: the repeats cross between left and right). **DUB:** FDBK (past 100 it builds), SEND, FILTER (below the middle it closes, above it opens), ECHO (0 = this track's DUB is off; the echo stays in memory 8 s so ECHO back up brings the repeats back). **DUB 2:** SPRNG (the spring on the echo's return), DRIVE (16 steps), WOW (12 steps), SPEED (the tape speed: turn it up and the repeats swoop up, back to the middle and they glide down; shown in semitones). The old LEN, PTRN and the spring placement are gone; THRW, CUT and KICK left the pages and MIDI CC 16, 17 and 18 still work (they are not saved).
+3. **Your old projects:** a track saved with the old DUB loads as the nearest new settings (the four heads become two taps, the spring moves to the return); the sound is close, not the same. Renders: ~/fm1-hw/r13/dub-renders/.
+4. **Saving and automation:** FDBK, SEND, FILTER, ECHO, TIM L, TIM R, SPRNG and SPEED can be locked and recorded as automation. SYNC and PING share one stored value and DRIVE and WOW another, so they cannot be (Release 3's wider ids will).
+5. **From the other session (ui-fix2):** REC held while stopped clears (HOME: the track; a SEQ page: its values; an FX page: the track's effects; GLO: every track), a count of 3, 2, 1 first, EDIT held undoes it whole; SAVE opens a plain project page (LOAD asks first if the music has unsaved changes, also while playing); SLIDE TIME per track (EDIT, the SLIDE page); SHAPES' cat (tail, paw, yarn) moves with COLR, PLUCK and TIMB; the FX button's order is SENDS, then the shared effects, then DIST, AUTO PAN, DUB SETUP, DUB, DUB 2. NOTES' K2 stays START (it moves a typed note freely; the session's NUDGE variant is off).
+
+The earlier note for 7b29d7 follows.
+
+---
+
 # Orange Cat Nightly v0.16.0-7b29d7: what changed for you since f5057c
 
 Written November 1, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged.

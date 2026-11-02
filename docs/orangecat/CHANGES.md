@@ -1,6 +1,6 @@
 # Orange Cat: what changed for the user, 0.7.1 to Release 1 (0.15.0) and Release 2 (0.16.0, the Nightly)
 
-**Version:** 8  
+**Version:** 9  
 **Date:** October 31, 2026
 
 This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to Release 1, 0.15.0 (branch `linux-hw`, published as the Nightly; main and the release tag follow when it is approved). The build and test details are in BUILD.md; its "Release 1" section has the measurements behind the last two entries.
@@ -151,6 +151,9 @@ the unit shows `v0.15.0-` and the build's commit. Nothing is stored in a new for
 - **The editor protocol's step command carries the feel (v8).** STEP_SET and TRACK_STEP take and report a step's trig condition, nudge and ratchet (three optional bytes after the chance); the web editor reads them. Before this only the device's own pages could set them. A write of a recorded cell from the editor drops the cell's recorded notes first (both commands; one did).
 - **The sequencer test, extended (round 11).** The on-unit check now covers ratchets, flams, trig conditions, chance, nudge, slides in every voice mode, chords where one note changes while two hold, recorded notes played in over MIDI, and the external clock; the results are in BUILD.md 7.22.
 - **NOTES' START and the edit memory (the Nightly after f5057c).** Editing a note with a mix of four MACRO tracks no longer says NO EDIT MEMORY: an edit keeps a list of the notes in use, not a copy of all 1,024 slots. START moves any note (typed, a chord's, recorded) a sixteenth of a step a detent anywhere in the loop; LEN, range moves, copies, paste, pattern doubling and quantize use the same smaller undo.
+- **PRESETS moves one sound a click (the Nightly after 7b29d7).** Turning PRESETS through the sounds (HOME, the PRESETS page, the browser), the scale list and the user slots moves exactly one entry a detent at any speed; MENU > KNOB ACCEL no longer applies to them. Value knobs keep their speed-up.
+- **DUB TAPE is a dub echo (the Nightly after 7b29d7).** Pages DUB SETUP (SYNC, TIM L, TIM R, PING), DUB (FDBK, SEND, FILTER, ECHO), DUB 2 (SPRNG, DRIVE, WOW, SPEED); two taps with their own times (on the beat or in milliseconds), a ping-pong, a spring on the return, tape drive, wow and a speed bend. LEN, PTRN and the spring placement are gone; THRW, CUT and KICK are MIDI-only triggers (CC 16 to 18, not saved). A project saved before loads as the nearest new settings (the sound is close, not the same). SYNC and PING, DRIVE and WOW share a stored value each and cannot be automation lanes (Release 3's wider ids unpack them); DRIVE has 16 steps and WOW 12.
+- **Known limit, DUB in the heaviest mix:** four busy tracks with chords and the three sends plus DUB run past the deadline on the unit; the governor takes the echo out within a second and some onsets of that mix are lost (about 4 to 8 in 100 in the sequencer test). Two tracks with DUB are clean.
 - **Smaller things.** The installer page sends a pack write again when a reply is lost, as it already did for modules. The version is 0.16.0: the unit shows `v0.16.0-` and the build's commit. Your projects, sounds and backups from 0.15.0 load as they were; a project saved with DUB on and opened on 0.15.0 plays without it. Old projects converted from before 0.6 keep inert automation on the DUB lanes (delete it if it plays). About 0.7 KB of main memory and 0.3 KB of the data bank are taken on every unit for the effects and engines, DUB used or not.
 
 ## Known limits of Release 1

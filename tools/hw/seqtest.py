@@ -235,7 +235,7 @@ def program_load(u, load, dub):
     if dub:
         # DUB on (1): both taps (1/8 dotted and 1/4 dotted), FEEDBACK 60, SEND 100, SPRING 0, WOW 0, DRIVE 6, no PING, ECHO 100: what the old DUB cell asked for; (2): the worst case of the new DUB: PING, WOW 3, DRIVE 8, SPRING 28
         mode, drive, wow, spring = (3, 8, 3, 28) if dub == 2 else (1, 6, 0, 0)
-        for p, v in ((P_TIML, 53), (P_TIMR, 74), (P_MODE, 64 | 2 * (dub == 2) | 1), (P_TAPE, drive * 12 + wow - 64), (P_SPRG, spring), (P_SPD, 64), (P_FDBK, 60), (P_SEND, 100), (P_FILT, 64), (P_ECHO, 100)): u.req(3, [0, p, *v14(v)])
+        for p, v in ((P_TIML, int(os.environ.get('DUB_TIML', 53))), (P_TIMR, int(os.environ.get('DUB_TIMR', 74))), (P_MODE, 64 | 2 * (dub == 2) | 1), (P_TAPE, drive * 12 + wow - 64), (P_SPRG, spring), (P_SPD, 64), (P_FDBK, 60), (P_SEND, 100), (P_FILT, 64), (P_ECHO, 100)): u.req(3, [0, p, *v14(v)])
     exp = []
     for ps in range(PASSES):
         for st in range(NSTEP):
