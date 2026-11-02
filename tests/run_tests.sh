@@ -711,7 +711,7 @@ if core && [ $TABLES = 1 ]; then
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "TRACKER: an EDIT tap whose release lands mid-frame turns the effect off and opens no page" tracker_edit_race_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW                  # (Orange Cat 0.14.1)
-    t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW
+    t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $BS_NOSTEP $FW   # (the DRUM engine is not in the build set: MELODEE_DRUM=0; under OC_ONE_AUTH a hit's cell converts to events and the test's slot-1 and undo expectations are the old model's: hung until the slot was freed, then 2 checks; pinned like the three above)
     job cand_slot                                  # (Orange Cat 0.14.2)
 fi
 

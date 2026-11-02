@@ -2291,7 +2291,7 @@ been built with ONE_AUTH, STEP_PAGES, HOME_PIC or PROJECT_PAGE together. What wa
   before it (now it looks at all eight phases).
 - **Pinned, open:** `seq_notes_test`, `seq_edit_test` and `note_tools_test` assert the interface before the step pages (NOTES' KNOB 1 browses, KNOB 2 is START, ...). They are built with
   BS_NOSTEP (OC_STEP_PAGES and what needs it off) and say so in run_tests.sh. The new interface's side of the same code is step_pages_test, one_auth_test, rec_clear_test, start_nudge_test
-  and ui_test on the full set. Converting the three is open (about 46 checks).
+  and ui_test on the full set. Converting the three is open (about 46 checks). `drum_editor_test` is pinned the same way: the DRUM engine is not in the build set (MELODEE_DRUM=0), and under OC_ONE_AUTH it **hung** (a restore of a timed note into slot 1, which the converted cell already holds, closed the event list into a cycle: the test's misuse, found by the first full run, killed after 98 minutes), then failed two checks of the old model.
 - `step_pages_test`: a manual note's START is its NUDGE under OC_START_NUDGE (the check says so).
 - tests/golden.txt: with the set on, `song/4track_mix` (a mix with slide steps) plays them as ui-fix 8's legato glides: 7b5647232840caa8 -> 9e96d61252be67d8, the only golden of 410 that moves (bisected: OC_SLIDE).
   golden.txt is the shipping build's now; the old paths keep a run of their own (`regress_legacy`: the set off, that one line as it was; 0 changed).

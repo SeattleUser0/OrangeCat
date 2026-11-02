@@ -74,10 +74,11 @@ static int edits_and_store(void)
     drum_hit_delete();step_history_end();step_history_finish();
     bad+=check("deleting one edited hit retains its neighboring manual snare",!recording[i].vel && TSEL->step[3].hit==2);
     bad+=check("hit deletion undo restores the original event and neighbors",step_history_apply(0) && recording[i].pitch==7 && recording[i].length && TSEL->step[3].hit==3);
-    recording_restore_note(TSEL,1,(recorded_note_t){32000,32768,36,80,(uint8_t)recording_owner(TSEL),3,-4,1});
+    uint32_t fj=0;while(fj<RECORD_MAX&&recording[fj].vel)fj++;   /* (OC_ONE_AUTH converts the whole cell into events: slot 1 is taken there; restore into a free one) */
+    recording_restore_note(TSEL,fj,(recorded_note_t){32000,32768,36,80,(uint8_t)recording_owner(TSEL),3,-4,1});
     drum_hit_jog(1);uint32_t second=drum_hit_selected();drum_hit_edit(2,1);
-    bad+=check("SELECT can edit a repeated hit without changing the first hit",second==1 && recording[1].pitch==-3 && recording[i].pitch==7);
-    step_history_end();step_history_finish();recording_remove(TSEL,1);ui.note_pick=(uint16_t)(i+1);ui.note_identity=recording[i];ui.note_generation=recording_generation;
+    bad+=check("SELECT can edit a repeated hit without changing the first hit",second==fj && recording[fj].pitch==-3 && recording[i].pitch==7);
+    step_history_end();step_history_finish();recording_remove(TSEL,fj);ui.note_pick=(uint16_t)(i+1);ui.note_identity=recording[i];ui.note_generation=recording_generation;
     drum_patch[0].c[D9_BD][0]=5;drum_patch[0].c[D9_LT][3]=19;
     project_capture(&proj_scratch);project_store_t wire;project_t decoded;
     int ok=proj_pack(&wire,&proj_scratch) && proj_import(&decoded,&wire,sizeof wire);
