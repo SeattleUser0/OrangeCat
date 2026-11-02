@@ -36,10 +36,18 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 static void panel_setup(void) {}
 
 static uint8_t nor[0x100000], flash_ok = 1;
-static int fail_after = -1;
+static int fail_after = -1;            /* power cut: stop before the Nth program call from now (and every call after) */
+static int erase_cut = -1;             /* (Release 3) power cut right after the Nth erase from now: the sector is erased, nothing follows */
 static uint32_t erases;
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
-static int st_erase(uint32_t off) { erases++; memset(nor + off, 0xFF, 4096); return 0; }
+static int st_erase(uint32_t off)
+{
+    if (fail_after == 0) return -9;    /* (the power is off) */
+    erases++;
+    memset(nor + off, 0xFF, 4096);
+    if (erase_cut >= 0 && erase_cut-- == 0) fail_after = 0;
+    return 0;
+}
 static int st_prog(uint32_t off, const void *src, uint32_t n)
 {
     const uint8_t *s = src;
@@ -56,6 +64,9 @@ static void fl_plain_window_init(void) {}
 #define FL_FAR(fn) (fn)
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
+#if OC_R3_SCENES
+#include "../firmware/src/oc_perf.c"                 /* (Release 3, Part 7: melodee.c includes it before ui_input.c) */
+#endif
 #include "../firmware/src/project.c"            /* (with MELODEE_FLASH: oc_store.c, oc_pool.c, oc_project.c) */
 
 static int check(const char *what, int ok)
@@ -150,6 +161,18 @@ static void fill_all(uint32_t seed, uint32_t banks)
             r->note = (uint8_t)(50u + i); r->vel = (uint8_t)(70u + i);
             r->owner = (uint8_t)(k * NPAT + 1u); r->step = (uint8_t)(i * 3u); r->pitch = 0; r->length = 0;
         }
+    /* (ui-fix 7, OC_ONE_AUTH in the build set: a recorded note is an event AND a flagged cell, and a load mends a cell without its event and an event without its cell;
+     * the fixture keeps the invariant, so what is saved is what a load gives back) */
+    for (uint32_t k = 0; k < NTRK && banks > 1u; k++) {
+        pattern_t p;
+        pattern_read(k, 1u, &p);
+        for (uint32_t i = 0; i < 10u; i++) {
+            step_t *st = &p.step[i * 3u];
+            memset(st, 0, sizeof *st);
+            st->time = ST_NOTE; st->n = 1; st->note[0] = (uint8_t)(50u + i); st->vel = (uint8_t)(70u + i); st->flags = SF_RECORDED;
+        }
+        pattern_write(k, 1u, &p);
+    }
     recording_reindex();
 }
 

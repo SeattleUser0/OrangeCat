@@ -27,6 +27,7 @@ static uint32_t slot_kind(void)
  * proj_scratch, which the drawing borrows between frames), at most once a second while the PROJECT page is up and the sequencer stopped,
  * at once on entering the page and after a load or a save (pj_note). pj.d: 0 saved, 1 unsaved changes, 2 not worked out yet */
 static int project_unsaved(void);                       /* project.c */
+static uint8_t proj_ui_gen;                             /* project.c (a tentative definition twice is one object; a build without project.c has it 0) */
 static struct { uint32_t t; uint8_t d, page; } pj = {0, 2, 0};
 static void pj_note(void) { pj.d = 2; pj.t = 0; }       /* (a load, a save, the page entered: work it out again) */
 static uint8_t pj_seen_gen;                             /* project.c proj_ui_gen as last seen */
