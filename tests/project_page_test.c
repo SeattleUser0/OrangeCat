@@ -132,6 +132,21 @@ int main(void)
         z = &trk[0].step[7];
         chk("REPACK   a step's RATCH, COND, NUDGE survive the flag's pack after the save and a second load", step_rflam(z) == 3u && z->cond == 4u && z->nudge == -7);
     }
+    /* close-out review: unsaved FEEL edits must not come back through a Load that discards them (the flag's pack leaves the stored record's step fields alone) */
+    {
+        step_t *z = &trk[0].step[7];
+        z->n = 1; z->note[0] = 64; z->time = ST_NOTE; z->vel = 96;
+        step_set_rflam(z, 3); step_set_nudge(z, -7);
+        project_save(3);
+        step_set_nudge(z, 20); step_set_rflam(z, 1);    /* an edit that is only a step field */
+        settle();
+        chk("DISCARD  a FEEL-only edit makes the project unsaved", pj.d == 1u);
+        song.g[G_SLOT] = 4;
+        sheet_do("Load");
+        press(B_OCTUP);                                 /* YES: the unsaved changes are lost */
+        z = &trk[0].step[7];
+        chk("DISCARD  the load gives the saved RATCH and NUDGE back, not the discarded edit", step_rflam(z) == 3u && z->nudge == -7);
+    }
     /* RENAME */
     song.g[G_SLOT] = 1;
     sheet_do("Rename");

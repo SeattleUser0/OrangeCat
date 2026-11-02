@@ -1731,7 +1731,7 @@ static void act_do(void)
     if (song.g[G_SLOT] == PROJ_TMPL && (id == G_LOAD || id == G_SAVE)) {   /* the template: no name, no dialog */
         if (id == G_LOAD) {
 #if OC_PROJECT_PAGE
-            if (!transport_busy() && project_unsaved())   /* (ui-fix2, close-out 1d) the template replaces the music as a project does: ask the same */
+            if (template_used() && !transport_busy() && project_unsaved())   /* (ui-fix2, close-out 1d; no template saved: nothing to lose, NO TEMPLATE says so) the template replaces the music as a project does: ask the same */
                 confirm_open(CF_LOAD_PROJ, PROJ_TMPL);
             else
 #endif

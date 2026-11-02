@@ -218,7 +218,7 @@ home_pic_job() {                                  # (the new interface, UI_BUILD
     _t "new interface 1c: HOME PAGE, the three pages, the knobs' ids, commits, the scenes drawn, cozy colors, the pixel budget" \
         home_pic_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # the switch built in and HOME PAGE at TRACKS: HOME's screens are release-2's, pixel for pixel
-    build home_pic_off home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    build home_pic_off home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
     echo "== new interface 1c: HOME at TRACKS with the switch built in draws release-2's screens"
     _h1=$("$OUT/home_pic_test" hash) && _h0=$("$OUT/home_pic_off" hash) || { fail "new interface 1c: the TRACKS hash did not run"; return; }
     case "$_h1" in [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;; *) fail "new interface 1c: no TRACKS hash ($_h1)"; return ;; esac
@@ -229,7 +229,7 @@ sheet_job() {                                     # (the new interface 0.2, UI_B
         sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # both switches built in, HOME at TRACKS: HOME's screens are still release-2's, pixel for pixel
     build home_pic_sheets home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
-    build home_pic_off2 home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    build home_pic_off2 home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
     echo "== new interface 2: HOME at TRACKS with the sheets built in draws release-2's screens"
     _h2=$("$OUT/home_pic_sheets" hash) && _h0=$("$OUT/home_pic_off2" hash) || { fail "new interface 2: the TRACKS hash did not run"; return; }
     [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
@@ -314,7 +314,7 @@ powercut_tests() {
         build/host/boot-fixtures/old-stub.fwsc
 }
 ui_renders() {
-    build ui_render ui_render -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render ui_render -O1 -w $BS_OFF -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_new/ppm build/ui_slot
     step "UI renders: layout lint (every screen and palette, every page, engine and column value), MONO gray, draw cost" \
         "$OUT/ui_render" build/ui_new build/ui_slot

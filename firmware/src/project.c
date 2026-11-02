@@ -1452,21 +1452,14 @@ static void project_new_blank(void)
 static int pj_pack(uint32_t *hash)
 {
     uint8_t keep = song.sel;
-    uint32_t tag = proj_x_tag;                          /* (bank_pack leaves the step fields it holds beside the record, proj_x, with the tag of the record it packed:
-                                                         * bank_restore applies them only to bytes hashing to that tag. This pack is the live music, whose fields equal
-                                                         * the loaded or saved record's, so the tag goes back: else the next LOAD of that slot would lose RATCH, FLAM, the
-                                                         * trig condition and NUDGE. Found by ui_test's "effects survive a project save and load") */
     int ok;
     song.sel = 0;                                       /* (the selected track is no edit of the music: the pack holds it in more than one place) */
     project_capture(&proj_scratch);
     proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = proj_scratch.g[G_BOOT] = 0;   /* (BOOT is a setting of the unit's) */
     proj_wire_gen++;
-    ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1);
+    *hash = bank_live_hash(proj_wire_u.raw, &proj_scratch, &ok);   /* (leaves the step fields beside the stored record, proj_x and its tag, alone: bank_pack_keep) */
     song.sel = keep;
-    if (!ok) { proj_x_tag = tag; return 0; }
-    *hash = bank_hash(proj_wire_u.raw);                 /* (with the pack's own tag: the fields go into this hash as they are now) */
-    proj_x_tag = tag;
-    return 1;
+    return ok;
 }
 static void pj_base_now(uint32_t slot)                  /* after a load or a save: what the music packs to now */
 {
