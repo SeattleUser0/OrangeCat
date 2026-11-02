@@ -105,4 +105,72 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
   assert.ok(q.ok && q.format === 1 && q.variants.every((v, k) => Buffer.from(v.image).equals(Buffer.from(p.variants[k].image))), "format 1");
   console.log("ocm: refused: a flipped list byte, a site past the end, out of order, too long, a wrong start CRC, another kind; format 1 reads the same images");
 }
+
+// 4. (Release 3 step 1) the 18 starts: the signed start field, the cap of 18, the lowest (-6) and the highest (11) start, a package of the old starts unchanged,
+//    and MOD_INFO with and without the appended table of sectors
+{
+  const LINK0 = 0x020C4000, len = 0x800, IFACE = 0x1234ABCD, APIA = 0x02000F00, PH = 0xCAFE0001, base0 = new Uint8Array(len).map((_, i) => (i * 7 + 3) & 0xFF);
+  const dv0 = new DataView(base0.buffer);
+  base0.fill(0, 0, 0x100);
+  [[0, 0x444F4D4F], [4, IFACE], [8, 60], [12, 3], [16, APIA], [20, 14], [24, 2000], [28, 0x180], [32, 0], [36, PH], [48, len]].forEach(([o, v]) => dv0.setUint32(o, v, true));
+  const words = [(1 << 24 | 28) >>> 0, (1 << 24 | 32) >>> 0];
+  const build = (starts) => {   // the image sits after the longer header
+    const hc = 88 + 8 * starts.length, at = Math.max(128, (hc + 4 + 15) & ~15), b = new Uint8Array(at + len + 4 * words.length), dv = new DataView(b.buffer);
+    dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 2, true); dv.setUint16(6, 1, true); dv.setUint32(8, IFACE, true); dv.setUint32(12, APIA, true); dv.setUint32(16, 14, true);
+    dv.setUint32(20, 2000, true); dv.setUint32(24, PH, true); dv.setUint32(44, 3, true); dv.setUint32(48, 60, true); dv.setUint32(52, 6, true);
+    b.set(base0, at);
+    words.forEach((w, i) => dv.setUint32(at + len + 4 * i, w, true));
+    dv.setUint32(56, 0xFFFFFFFF, true); dv.setUint32(60, len, true); dv.setUint32(64, crc32(base0), true); dv.setUint32(68, at, true);
+    dv.setUint32(72, words.length, true); dv.setUint32(76, at + len, true); dv.setUint32(80, crc32(b.subarray(at + len)), true); dv.setUint32(84, starts.length, true);
+    starts.forEach((s, k) => {
+      const r = OCM.relocate(base0, words, (LINK0 + s * 4096) >>> 0);
+      dv.setInt32(88 + 8 * k, s, true); dv.setUint32(92 + 8 * k, crc32(r), true);
+    });
+    dv.setUint32(hc, crc32(b.subarray(0, hc)), true);
+    return b;
+  };
+  const SECT = [0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6];
+  const info = (plan, sectorOf) => ({ iface: IFACE, apiAddr: APIA, apiVersion: 3, apiSize: 60, packHash: PH, plan, blocker: null, starts: [], sectorOf, lowOk: true });
+  // the lowest and the highest start: signed field read, relocated for the right link address, checked
+  const p = OCM.parse(build([-6, 11]));
+  assert.ok(p.ok && p.variants.map((v) => v.start).join() === "-6,11", JSON.stringify(p));
+  const link = (v) => new DataView(v.image.buffer, v.image.byteOffset).getUint32(32, true);
+  assert.equal(link(p.variants[0]), 0x020BE000, "start -6 links at flash 0xC2000");
+  assert.equal(link(p.variants[1]), 0x020CF000, "start 11 links at flash 0xD3000");
+  const c17 = OCM.check(p, info(17)), c11 = OCM.check(p, info(11));
+  assert.ok(c17.ok && c17.variant.start === -6, "plan 17 (sector -6): " + JSON.stringify(c17));
+  assert.ok(c11.ok && c11.variant.start === 11, "plan 11 (sector 11): " + JSON.stringify(c11));
+  assert.equal(OCM.check(p, info(0)).key, "modNoVariant", "a start the package does not carry");
+  assert.equal(OCM.check(p, info(18)).key, "modNoFree", "a plan past the table");
+  assert.equal(OCM.check(p, { ...info(17), lowOk: false }).key, "modNoFree", "starts 12..17 are not offered while the low sectors are not usable");
+  assert.ok(OCM.check(p, info(0, [11, ...SECT.slice(1)])).ok, "the unit's own table (start 0 at sector 11) decides which variant");
+  // the cap: 18 starts read, 19 refused
+  const all = SECT.slice().sort((a, b) => a - b);
+  const q18 = OCM.parse(build(all)); assert.ok(q18.ok && q18.variants.length === 18, "18 starts: " + JSON.stringify(q18.key));
+  assert.equal(OCM.parse(build([...all, 12])).key, "modWrongFile", "19 starts refused");
+  // a published-style package (starts 0 and 6, 0 and 4) reads and checks as before
+  const o = OCM.parse(build([0, 6]));
+  assert.ok(o.ok && o.variants.map((v) => v.start).join() === "0,6" && link(o.variants[1]) === LINK0 + 6 * 4096);
+  assert.ok(OCM.check(o, info(1)).ok && OCM.check(o, info(1)).variant.start === 6, "start 1 is sector 6");
+  const o4 = OCM.parse(build([0, 4])); assert.ok(OCM.check(o4, info(2)).ok && OCM.check(o4, info(2)).variant.start === 4, "start 2 is sector 4");
+  console.log("ocm: 18 starts: -6 and 11 relocated and checked, the cap of 18, the old starts 0/6/4 unchanged");
+}
+// MOD_INFO with and without the appended table (parseModInfo)
+{
+  const { parseModInfo } = await import("./fm1oc.js");
+  const b7 = (v, n) => Array.from({ length: n }, (_, i) => Math.floor(v / 2 ** (7 * i)) & 127);
+  const head = (ns) => [ns, ns, 0, 3, 60, ...b7(0x1234ABCD, 5), ...b7(0x02000F00, 5), ...b7(0xCAFE0001, 5), 17];
+  const per = (ns) => Array.from({ length: ns }, () => [7, 0, 14, 0, 16, 0]).flat();
+  const SECT = [0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6];
+  const old = parseModInfo(Uint8Array.from([...head(3), ...per(3), 127]));
+  assert.equal(old.nstarts, 3); assert.equal(old.plan, 17); assert.equal(old.sectorOf, undefined, "an older unit: no table");
+  const mid = parseModInfo(Uint8Array.from([...head(18), ...per(18), 127]));
+  assert.equal(mid.starts.length, 18); assert.equal(mid.blocker, null); assert.equal(mid.sectorOf, undefined, "no table appended");
+  const nw = parseModInfo(Uint8Array.from([...head(18), ...per(18), 127, 18, ...SECT.map((s) => s + 64), 1]));
+  assert.deepEqual(nw.sectorOf, SECT, "the appended table: sector + 64 per start"); assert.equal(nw.lowOk, true);
+  const nz = parseModInfo(Uint8Array.from([...head(18), ...per(18), 127, 18, ...SECT.map((s) => s + 64), 0])); assert.equal(nz.lowOk, false);
+  assert.equal(old.lowOk, false); assert.equal(mid.lowOk, false);
+  assert.equal(nw.sectors, 18);
+  console.log("ocm: parseModInfo reads 3 or 18 starts, with and without the appended sector table");
+}
 console.log("ocm: relocatable packages passed");

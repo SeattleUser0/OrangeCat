@@ -112,14 +112,14 @@ def module_fill(img):
     return img
 
 
-def ocm_images(raw, area_lo=0xC8000):
+def ocm_images(raw, area_lo=0xC8000):   # area_lo is the numbering base (FL_MODULE_BASE); a start is a signed sector from it (Release 3 step 1: -6 .. 11)
     """a module package (format 1: an image a start; format 2: one relocatable image, its list and each start's CRC-32) read into
     {start sector: the image that start is given}, every CRC checked. ValueError for a package the page or the card would refuse."""
     b = bytes(raw)
     if len(b) < 60:
         raise ValueError("too short")
     magic, ver, n = struct.unpack_from("<IHH", b, 0)
-    if magic != OCM_MAGIC or ver not in (1, 2) or not 1 <= n <= 8:
+    if magic != OCM_MAGIC or ver not in (1, 2) or not 1 <= n <= 18:
         raise ValueError("not a module package")
     tab = 56
     if ver == 1:
@@ -128,7 +128,7 @@ def ocm_images(raw, area_lo=0xC8000):
             raise ValueError("header CRC")
         out = {}
         for k in range(n):
-            start, length, crc, off = struct.unpack_from("<IIII", b, tab + 16 * k)
+            start, length, crc, off = struct.unpack_from("<iIII", b, tab + 16 * k)
             img = b[off:off + length]
             if len(img) != length or zlib.crc32(img) != crc:
                 raise ValueError(f"image {k}: CRC")
@@ -139,7 +139,7 @@ def ocm_images(raw, area_lo=0xC8000):
     start, length, crc, off = struct.unpack_from("<IIII", b, tab)
     nrel, roff, rcrc, m = struct.unpack_from("<IIII", b, tab + 16)
     at = tab + 32 + 8 * m
-    if start != OCM_RELOCATABLE or not 1 <= m <= 8 or nrel > RELOC_MAX or len(b) < at + 4 or zlib.crc32(b[:at]) != struct.unpack_from("<I", b, at)[0]:
+    if start != OCM_RELOCATABLE or not 1 <= m <= 18 or nrel > RELOC_MAX or len(b) < at + 4 or zlib.crc32(b[:at]) != struct.unpack_from("<I", b, at)[0]:
         raise ValueError("header")
     img, lst = b[off:off + length], b[roff:roff + 4 * nrel]
     if len(img) != length or zlib.crc32(img) != crc or len(lst) != 4 * nrel or zlib.crc32(lst) != rcrc:
@@ -147,7 +147,7 @@ def ocm_images(raw, area_lo=0xC8000):
     words = struct.unpack(f"<{nrel}I", lst)
     out = {}
     for k in range(m):
-        sec, want = struct.unpack_from("<II", b, tab + 32 + 8 * k)
+        sec, want = struct.unpack_from("<iI", b, tab + 32 + 8 * k)
         got = module_fill(apply_relocs(img, words, xip(area_lo + sec * SECTOR)))
         if zlib.crc32(bytes(got)) != want:
             raise ValueError(f"start {sec}: the relocated image is not the one the build proved")

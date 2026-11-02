@@ -3,6 +3,8 @@
  * MODULE area of the flash map at boot, checked, and registered in the engine table (engines.c eng_register).
  *
  * Where a module is
+ *   (Release 3 step 1: the area is 18 sectors, 0xC2000..0xD3FFF, with a start at every sector; the numbering keeps its origin at 0xC8000; the six sectors below it are the
+ *   module area's only after the first boot has moved the record store out of them: smp_modules_low. The text below is the 12 sector area of 0.12.1.)
  *   The module area is 12 sectors, 0xC8000..0xD3FFF. SHAPES' module is 6 sectors, so it has two places it can be linked for, "starts" 0 and 6
  *   (sector index in the area; tools/build.py --module makes one image for each and the .ocm carries both). The installer writes a
  *   replacement BESIDE the old module when another start is free (0.10.1; before that the code said in place while this comment said beside):
@@ -106,15 +108,26 @@ static uint32_t host_pc_hi, host_pc_sets;                       /* what the devi
 static void fm1_guard_pc_window(void) { host_pc_hi = fm1_guard_pc_hi(fm1_guard_code_end, OC_HOST_ETEXT); host_pc_sets++; }
 #endif
 /* FL_XIP(off): the XIP address of flash offset off (hal/fm1_flash.h on the device; tests/hostsim.c for a host build) */
-#define OC_MOD_STARTS 3u                                       /* (0.12.1) the places a module can start: sector index 0, 6 and 4 of the area (start numbers 0, 1, 2) */
-#define OC_MOD_AREA 12u                                        /* sectors in the area */
-static const uint8_t oc_mod_sect[OC_MOD_STARTS] = { 0u, 6u, 4u };
-#define OC_MOD_START_SECTOR(i) ((uint32_t)oc_mod_sect[i])
+#define OC_MOD_STARTS 18u                                      /* (Release 3 step 1) the places a module can start: every sector of the 18 (0.12.1: three, sector 0, 6 and 4 of 0xC8000) */
+#define OC_MOD_AREA 18u                                        /* sectors in the area, 0xC2000..0xD3FFF (ST_MODULE_LO); 0.12.1: 12 from 0xC8000 */
+#define OC_MOD_BASE_SECTOR 6u                                  /* the area sector of 0xC8000, where the published packages' start numbering begins */
+/* start number -> sector from 0xC8000, signed: the numbering a package carries (its start field) and the page shows. The published packages' starts 0, 1, 2 are the sectors 0, 6 and 4
+ * from there; 3.. the other sectors of 0xC8000..0xD3FFF (1, 2, 3, 5, 7 .. 11); 12..17 the six below it, numbered downward (-1 .. -6). The area itself starts at 0xC2000, six
+ * sectors lower: OC_MOD_START_SECTOR is the sector in the area (0 = 0xC2000), OC_MOD_START_REL the signed one. */
+static const int8_t oc_mod_sect[OC_MOD_STARTS] = { 0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6 };
+#define OC_MOD_START_REL(i) ((int32_t)oc_mod_sect[i])
+#define OC_MOD_START_SECTOR(i) ((uint32_t)(OC_MOD_START_REL(i) + (int32_t)OC_MOD_BASE_SECTOR))
+/* the six sectors below 0xC8000 are the module area's only once the first boot has moved the record store out of them (smp_slot.c smp_claim; FLASH_MAP_R3.md 4B):
+ * until then they may hold a live record part, so no start there is allowed, read, planned or erased */
+#ifndef OC_MOD_LOW_OK
+#define OC_MOD_LOW_OK() smp_modules_low()
+#endif
+static int oc_mod_start_ok(uint32_t i) { return OC_MOD_START_SECTOR(i) >= OC_MOD_BASE_SECTOR || OC_MOD_LOW_OK(); }
 #define OC_MOD_MAXLEN (8u * 0x1000u)                           /* the most any module may be (the Prophet's 8 sectors); oc_mod_geo has each engine's own */
 /* (0.12.1) What a module of each engine looks like: how many sectors its image may take and which starts it may be linked for (a bit a start number).
  * SHAPES: 6 sectors, starts 0 and 1 (sectors 0 and 6). The Prophet: 8 sectors, starts 0 and 2 (sectors 0 and 4). Spans of different engines overlap, so
  * no SHAPES module can stand beside a Prophet module in a 12 sector area (the planner refuses; see oc_mod_plan). */
-typedef struct { uint8_t engine, sectors, starts; } oc_mod_geo_t;
+typedef struct { uint8_t engine, sectors; uint32_t starts; } oc_mod_geo_t;
 #ifndef OC_MOD_GEO_QUAL
 #define OC_MOD_GEO_QUAL const                           /* (0.13.5) a host test defines it empty to change the geometries for one case (tests/card_install_test.c) */
 #endif
@@ -136,7 +149,7 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
 static int oc_mod_allowed(uint32_t engine, uint32_t i)      /* may a module of this engine start at start i */
 {
     const oc_mod_geo_t *g = oc_mod_geo_of(engine);
-    return g && i < OC_MOD_STARTS && ((g->starts >> i) & 1u) && OC_MOD_START_SECTOR(i) + g->sectors <= OC_MOD_AREA;
+    return g && i < OC_MOD_STARTS && ((g->starts >> i) & 1u) && OC_MOD_START_SECTOR(i) + g->sectors <= OC_MOD_AREA && oc_mod_start_ok(i);
 }
 static int oc_mod_fits(uint32_t engine, uint32_t i, uint32_t len)
 {
@@ -173,12 +186,13 @@ static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr
 
 static void oc_mod_guard_init(void)
 {
+    uint32_t i;
     if (oc_modguard.magic != OC_MODGUARD_MAGIC) {
         oc_modguard.magic = OC_MODGUARD_MAGIC;
         oc_modguard.inuse = 0;
         oc_modguard.banned = 0;
         oc_modguard.run = 0;
-        oc_modguard.unclean[0] = oc_modguard.unclean[1] = oc_modguard.unclean[2] = 0;
+        for (i = 0; i < sizeof oc_modguard.unclean; i++) oc_modguard.unclean[i] = 0;
         oc_modguard.notice = 0;
     }
 }
@@ -189,7 +203,7 @@ static void oc_mod_unban(uint32_t i)
     oc_modguard.banned &= ~(1u << i);
     oc_modguard.inuse &= ~(1u << i);
     oc_modguard.unclean[i] = 0;
-    oc_modguard.notice &= (uint8_t)~(1u << i);
+    oc_modguard.notice &= ~(1u << i);
 }
 /* (0.10.1) the update loader's rule on the sectors a module of `len` bytes at start i covers: 0 ok; else the sector, counted from 1, whose last
  * 256 bytes would be taken for an update record; -1 when the flash would not read */
@@ -275,6 +289,8 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     uint32_t crc = 0xFFFFFFFFu, off, len, link = oc_mod_link(i);
     int rc;
     memset(h, 0, sizeof *h);
+    if (!oc_mod_start_ok(i))
+        return MD_EMPTY;                                        /* (Release 3) a sector the record store may still hold a part in: not looked at as a module */
     if (st_read(oc_mod_flash(i), h, sizeof *h))
         return MD_EMPTY;                                        /* a flash that will not read: nothing there for this boot */
     if (h->magic != FW_MOD_MAGIC)
@@ -364,7 +380,7 @@ static void oc_mod_boot(uint32_t crashed)
             oc_mod_unreg(e);
     memset(&oc_mod, 0, sizeof oc_mod);
     if (crashed) {
-        oc_modguard.notice |= (uint8_t)(oc_modguard.inuse & ~oc_modguard.banned);
+        oc_modguard.notice |= oc_modguard.inuse & ~oc_modguard.banned;
         oc_modguard.banned |= oc_modguard.inuse;                /* the module(s) in use when it died */
     }
     oc_modguard.inuse = 0;
@@ -436,7 +452,7 @@ static void oc_mod_power_on(uint32_t crashed)
         }
         if (oc_modguard.unclean[i] >= OC_MOD_UNCLEAN_MAX) {
             if (!(oc_modguard.banned & (1u << i)))
-                oc_modguard.notice |= (uint8_t)(1u << i);
+                oc_modguard.notice |= (1u << i);
             oc_modguard.banned |= 1u << i;
             oc_modguard.unclean[i] = 0;
         }
@@ -450,7 +466,7 @@ static void oc_mod_ban_notice(void)
     for (i = 0; i < OC_MOD_STARTS; i++) {
         if (!(oc_modguard.notice & (1u << i)))
             continue;
-        oc_modguard.notice &= (uint8_t)~(1u << i);
+        oc_modguard.notice &= ~(1u << i);
         ui_say("MODULE BANNED ", oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : oc_mod.engine[i] == ENGI_PROPHET ? "PROPHET" : "ENGINE");
         return;
     }
@@ -644,6 +660,7 @@ static int oc_mod_erase_span(uint32_t first, uint32_t n)
     uint32_t s;
     for (s = 0; s < n && first + s < OC_MOD_AREA; s++) {
         int rc;
+        if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) continue;   /* (Release 3) never a sector that may hold a live record part */
         SMP_FEED();
         if ((rc = st_erase(ST_MODULE_LO + (first + s) * 0x1000u)) != 0) return rc;
     }

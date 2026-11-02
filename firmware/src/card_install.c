@@ -225,7 +225,7 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
     start = (uint32_t)plan;
     rel.f.f = f; rel.w = FB_RELOCS();
     for (o = 0; o < (ver == 2u ? m : n); o++)          /* po: the planned start's row (a variant, or a start's CRC-32 in format 2) */
-        if (pk_rd32(buf + tab + (ver == 2u ? 32u + 8u * o : 16u * o)) == OC_MOD_START_SECTOR(start)) { po = o; len = 1u; }
+        if (pk_rd32(buf + tab + (ver == 2u ? 32u + 8u * o : 16u * o)) == (uint32_t)OC_MOD_START_REL(start)) { po = o; len = 1u; }
     /* (0.14.1, review) an offset and a length from the file are compared as off > size || len > size - off: off + len wraps in 32 bits for a
      * hostile header (off 0xFFFFFF00, len 0x200 passed as 0x100) */
     if (ver == 2u) {                                   /* (0.14.1) the one image and the list (checked into FB_RELOCS) */
@@ -243,10 +243,11 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
      * anything is erased. A dry pass (the set's preflight) checks the file's image for every start its engine may be put at, since an earlier module of the set
      * can change which start the real install uses. (0.14.1) Every image is read through fb_rel_rd: a format 1 variant is an image with no sites. */
     for (o = 0; o < (ver == 2u ? m : n); o++) {
+        /* (Release 3 step 1) a start is a signed sector from 0xC8000 (-6 .. 11): compared as 32-bit words, as the package stores it */
         uint32_t sec = pk_rd32(buf + tab + (ver == 2u ? 32u + 8u * o : 16u * o)), vs, vlen = ver == 2u ? len : pk_rd32(buf + tab + 16u * o + 4u),
                  voff = ver == 2u ? off : pk_rd32(buf + tab + 16u * o + 12u);
         int ck;
-        for (vs = 0; vs < OC_MOD_STARTS && OC_MOD_START_SECTOR(vs) != sec; vs++) ;
+        for (vs = 0; vs < OC_MOD_STARTS && (uint32_t)OC_MOD_START_REL(vs) != sec; vs++) ;
         if (vs >= OC_MOD_STARTS || (vs != start && (!dry || !oc_mod_allowed(engine, vs)))) continue;
         if (!vlen || voff > size || vlen > size - voff) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
         ck = fb_mod_src(&rel, buf, ver, o, vs, voff, vlen, sc);

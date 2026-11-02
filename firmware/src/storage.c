@@ -32,8 +32,9 @@
  *                       (Orange Cat 0.8.0, tools/gen_pack.py) when one is installed, tables read in place through XIP
  *   0x09D000..0x09EFFF  shared preset extension pair (OBJ_SHARED_EXT)
  *   0x09F000, 0x0FE000  FM6 patch bank, copy A and copy B (OBJ_FM6BANK)
- *   0x0A0000..0x0C7FFF  bank projects: two five-sector copies per slot (OBJ_BANK0..+3)
- *   0x0C8000..0x0D3FFF  MODULE area, 12 sectors (0.9.1; was 20): the engine modules (oc_module.c), two starts of six sectors; the retired CZ-1 and
+ *   0x0A0000..0x0C7FFF  bank projects: two five-sector copies per slot (OBJ_BANK0..+3); Release 3 step 1: RETIRED (OBJ_BANK0..+3 refuse writes, read "no record");
+ *                       0x0A0000..0x0C1FFF is the record store's area 1 (34 sectors) and 0x0C2000..0x0C7FFF went to the module area
+ *   0x0C2000..0x0D3FFF  MODULE area, 18 sectors (Release 3 step 1; start 0 stays at 0xC8000: ST_MODULE_BASE; 0.9.1: 12 sectors from 0xC8000, was 20): the engine modules (oc_module.c), two starts of six sectors; the retired CZ-1 and
  *                       native FM6 bank objects (OBJ_CZBANK0..+7, OBJ_NATIVEFM0..+1) read as empty. 0x0D4000..0x0DBFFF is free ground the
  *                       library group (lib_group.c) uses. The legacy placement below is the pre-0.9.1 map.
  *   0x0DC000..0x0DFFFF  user preset banks 0 and 1 (OBJ_UPRESET0..+1, upreset.c)
@@ -67,8 +68,9 @@
 /* (Orange Cat 0.7.2) the two areas the engines can leave to the asset pack and the module (flash map above) */
 #define ST_PACK_LO 0x93000u                    /* 10 sectors: 0x93000..0x9CFFF */
 #define ST_PACK_SECTORS 10u
-#define ST_MODULE_LO 0xC8000u                  /* 12 sectors: 0xC8000..0xD3FFF */
-#define ST_MODULE_SECTORS 12u                  /* (0.9.1: was 20; 0xD4000..0xDBFFF went to the library group, lib_group.c) */
+#define ST_MODULE_LO 0xC2000u                  /* 18 sectors: 0xC2000..0xD3FFF (Release 3 step 1; 0.9.1 had 12 from 0xC8000, 0.9.1: was 20; 0xD4000..0xDBFFF went to the library group, lib_group.c) */
+#define ST_MODULE_SECTORS 18u
+#define ST_MODULE_BASE 0xC8000u                /* the numbering origin of a module's start (oc_module.c): the retired CZ-1 / native FM6 objects below are placed from here as before */
 /* (Orange Cat 0.12.2, Part 2d) the watchdog feed of the long flash operations: the migration of the old pairs, a pack or module install, a library wipe, a backup
  * restore. On the device it is fm1_wdt_feed(); the host builds count it (OC_FEED_COUNT: tests/persistence_test.c, tests/lib_group_test.c, the feed-count tests) or
  * ignore it. Every erase (the longest single operation, up to ~0.4 s) is preceded by one, so no gap between two feeds is longer than an erase and the pages programmed after it. */
@@ -83,7 +85,7 @@
 #endif
 #ifdef FL_PACK_LO                              /* the firmware build includes hal/fm1_flash.h first: the two must agree */
 _Static_assert(ST_PACK_LO == FL_PACK_LO && ST_PACK_LO + ST_PACK_SECTORS * 0x1000u == FL_PACK_HI &&
-               ST_MODULE_LO == FL_MODULE_LO && ST_MODULE_LO + ST_MODULE_SECTORS * 0x1000u == FL_MODULE_HI, "flash map");
+               ST_MODULE_LO == FL_MODULE_LO && ST_MODULE_LO + ST_MODULE_SECTORS * 0x1000u == FL_MODULE_HI && ST_MODULE_BASE == FL_MODULE_BASE, "flash map");
 #endif
 
 /* The Prophet user banks: 0x93000..0x9CFFF. The old banks at 0x89000 are retired and never migrated.
@@ -140,11 +142,11 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
     if (obj >= OBJ_LIB0) return lg_sector(obj - OBJ_LIB0);
     if (obj == OBJ_SHARED_EXT) return 0x9D000u+copy*ST_SECTOR;
     if (obj >= OBJ_P5BANK0) return ST_PACK_LO+(obj-OBJ_P5BANK0)*2u*ST_SECTOR+copy*ST_SECTOR;
-    if (obj >= OBJ_NATIVEFM0) return ST_MODULE_LO + 16u * ST_SECTOR + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;   /* 0xD8000 */
+    if (obj >= OBJ_NATIVEFM0) return ST_MODULE_BASE + 16u * ST_SECTOR + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;   /* 0xD8000 */
     if (obj == OBJ_UPFM6_EXT) return copy ? 0xFA000u : 0xE9000u;
     if (obj >= OBJ_UPRESET_EXT0) return 0xE5000u + (obj - OBJ_UPRESET_EXT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_CZBANK0)
-        return ST_MODULE_LO + (obj - OBJ_CZBANK0) * 2u * ST_SECTOR + copy * ST_SECTOR;
+        return ST_MODULE_BASE + (obj - OBJ_CZBANK0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_BANK0)
         return 0xA0000u + (obj - OBJ_BANK0) * 10u * ST_SECTOR + copy * 5u * ST_SECTOR;
     if (obj == OBJ_SETTINGS)
@@ -156,6 +158,9 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
 }
 
+#ifndef ST_BANKS_RETIRED
+#define ST_BANKS_RETIRED 1                     /* (Release 3 step 1) 0 only in tests/storage_test.c's second build, which still exercises the extension-pair mechanics of the old bank objects */
+#endif
 static int st_banked(uint32_t obj) { return obj >= OBJ_BANK0 && obj < OBJ_CZBANK0; }
 /* New preset objects start directly after the commit header, leaving the last
  * 256 bytes erased so the SPL/update loader cannot interpret musical data as OTA. */
@@ -234,7 +239,7 @@ static uint32_t st_engine_of(uint32_t obj)
 }
 static int st_retired(uint32_t obj)
 {
-    return (obj >= OBJ_PROJECT0 && obj < OBJ_PROJECT0 + 4u) || (st_engine_of(obj) & st_engines_off);
+    return (obj >= OBJ_PROJECT0 && obj < OBJ_PROJECT0 + 4u) || (ST_BANKS_RETIRED && st_banked(obj)) || (st_engine_of(obj) & st_engines_off);   /* (Release 3 step 1) OBJ_BANK0..+3 retired: their sectors 0xA0000..0xC7FFF are the record store's (area 1, 34 sectors), the sample slot's and the module area's */
 }
 
 static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record valid: 0 */

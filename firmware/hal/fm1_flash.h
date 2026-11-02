@@ -58,8 +58,9 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
  * only part that needed its own clause */
 #define FL_PACK_LO      0x00093000u                /* 10 sectors */
 #define FL_PACK_HI      0x0009D000u
-#define FL_MODULE_LO    0x000C8000u                /* 12 sectors (0.9.1: was 20, the library group took the top 8) */
+#define FL_MODULE_LO    0x000C2000u                /* 18 sectors (Release 3 step 1: 0xC2000..0xD3FFF; 0.9.1 had 12 from 0xC8000, the six below were the sample slot's) */
 #define FL_MODULE_HI    0x000D4000u
+#define FL_MODULE_BASE  0x000C8000u                /* where a module package's start 0 is: the numbering origin, kept so no published package changes meaning (a start is a signed sector from here) */
 #define FL_STORE_OK(off, n) (FL_IN(off, n, FL_PACK_LO, FL_PACK_HI) || FL_IN(off, n, FL_MODULE_LO, FL_MODULE_HI) || FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_GLOB_LO, FL_GLOB_HI) || FL_IN(off, n, FL_BANK_EXT_LO, FL_BANK_EXT_HI))
 /* Where the RAM driver may erase / program. The app build allows only its own
  * data regions; the update loader (firmware/loader) defines its own window. */

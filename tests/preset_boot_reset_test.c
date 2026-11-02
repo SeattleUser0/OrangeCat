@@ -5,6 +5,7 @@
  */
 /* Unsupported preset banks reset only at boot, through real NOR A/B saves. */
 #define PERSISTENCE_TEST_NO_MAIN
+#define ST_BANKS_RETIRED 0                    /* (Release 3 step 1) this test uses a legacy bank object (OBJ_BANK0..) as a stand-in project object; storage_test checks they are retired */
 #include "persistence_test.c"
 
 static void fixture(void)

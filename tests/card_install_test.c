@@ -269,7 +269,7 @@ static void package1(uint8_t *out, uint32_t *size, uint32_t engine, uint32_t s, 
     wr32(out, 0x464D434Fu); out[4] = 1; out[6] = 1;
     wr32(out + 8, FW_API_IFACE); wr32(out + 12, FW_API_ADDR); wr32(out + 16, engine);
     wr32(out + 20, 11136u); wr32(out + 24, OC_PACK_HASH); wr32(out + 44, FW_API_VERSION); wr32(out + 48, sizeof(fw_api_t)); wr32(out + 52, 2u);
-    wr32(out + 56, OC_MOD_START_SECTOR(s)); wr32(out + 60, LEN); wr32(out + 68, 512u);
+    wr32(out + 56, (uint32_t)OC_MOD_START_REL(s)); wr32(out + 60, LEN); wr32(out + 68, 512u);
     variant(out + 512, s, seed, 0, 0, 0);
     wr32(out + 72, ocs_crc32(out, 72));
     *size = 512u + LEN;

@@ -25,6 +25,7 @@
  */
 #include <stdint.h>
 #define OC_MOD_HOST_XIP 1
+#define OC_MOD_GEO_QUAL                               /* (Release 3 step 1) writable: the 18 sector cells give WHEEL every start */
 struct fw_mod_hdr;
 static const struct fw_mod_hdr *oc_mod_hdr_ptr(uint32_t i);
 #define PERSISTENCE_TEST_NO_MAIN
@@ -1001,6 +1002,80 @@ int main(void)
         #undef INSTALL
     }
 
+
+    /* ---- Release 3 step 1: the module area is 18 sectors (0xC2000..0xD3FFF); 18 starts, the numbering kept at 0xC8000 --- */
+    {
+        static const int8_t want[18] = { 0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6 };
+        oc_mod_geo_t *gw = oc_mod_geo_of(ENGI_WHEEL);
+        uint32_t keep = gw->starts, seen = 0, ok = 1, i;
+        for (i = 0; i < 18u; i++) { ok &= OC_MOD_START_REL(i) == want[i]; seen |= 1u << OC_MOD_START_SECTOR(i); }
+        chk("the start table: 18 starts, 0 / 6 / 4 as published, then 1 2 3 5 7 .. 11, then -1 .. -6; every sector of the area exactly once",
+            ok && OC_MOD_STARTS == 18u && OC_MOD_AREA == 18u && seen == 0x3FFFFu && oc_mod_flash(0) == 0xC8000u && oc_mod_flash(1) == 0xCE000u && oc_mod_flash(2) == 0xCC000u &&
+            oc_mod_flash(17) == 0xC2000u && oc_mod_flash(11) == 0xD3000u && oc_mod_flash(12) == 0xC7000u);
+        chk("... the published starts keep their XIP addresses: start 0 at 0x020C4000, start 1 at 0x020CA000, start 2 at 0x020C8000; the lowest (-6) at 0x020BE000, the highest (11) at 0x020CF000",
+            oc_mod_link(0) == 0x020C4000u && oc_mod_link(1) == 0x020CA000u && oc_mod_link(2) == 0x020C8000u && oc_mod_link(17) == 0x020BE000u && oc_mod_link(11) == 0x020CF000u);
+        chk("... the published geometries are unchanged: SHAPES {0,1}, the Prophet {0,2}, WHEEL {0,1} (their packages carry no other variant)",
+            oc_mod_geo_of(ENGI_SHAPES)->starts == 0x3u && oc_mod_geo_of(ENGI_PROPHET)->starts == 0x5u && keep == 0x3u);
+        uint32_t keeps = gw->sectors;
+        gw->starts = 0x3FFFFu; gw->sectors = 1u;                         /* (WHEEL as an effect module would be: any start, one sector) */
+        /* the six below 0xC8000 until the record store has been moved out of them */
+        clean(); ocs_resv = 0; modeng = ENGI_WHEEL;
+        memset(nor + 0xC2000u, 0x55, 6u * 0x1000u);                      /* record parts (or anything) in the six */
+        good(17, LEN);                                                   /* a module image written there anyway */
+        oc_mod_boot(0);
+        chk("the six low sectors not yet the module area's: no start there is allowed, planned, read as a module or erased",
+            !oc_mod_allowed(ENGI_WHEEL, 17) && !oc_mod_allowed(ENGI_WHEEL, 12) && oc_mod_allowed(ENGI_WHEEL, 11) && oc_mod.state[17] == MD_EMPTY && !eng_mod[ENGI_WHEEL] &&
+            oc_mod_plan(ENGI_WHEEL) == 0);
+        ok = oc_mod_erase_span(0, OC_MOD_AREA) == 0;
+        for (i = 0; i < 6u; i++) ok &= nor[0xC2000u + i * 0x1000u + 7u] != 0xFFu;       /* the six: not erased (0x55 and the image) */
+        for (i = 6; i < 18u; i++) ok &= nor[0xC2000u + i * 0x1000u + 7u] == 0xFFu;
+        chk("... an erase of the whole area (remove, engine 127) leaves the six alone", ok);
+        ok = oc_mod_remove(127) == 0;
+        chk("... remove(127) the same", ok && nor[0xC2000u + 7u] != 0xFFu);
+        /* migrated: the six are the module area's */
+        clean(); ocs_resv = SMP_LEGACY_MASK; modeng = ENGI_WHEEL;
+        good(17, LEN); oc_mod_boot(0);
+        chk("a module at the LOWEST start (-6, sector 0xC2000): found, checked, registered under its engine, runs at the XIP address of 0xC2000",
+            oc_mod.state[17] == MD_OK && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(17) && oc_mod.length[17] == LEN && oc_mod_link(17) == FL_XIP(0xC2000u));
+        clean(); ocs_resv = SMP_LEGACY_MASK; modeng = ENGI_WHEEL;
+        good(11, LEN); oc_mod_boot(0);
+        chk("a module at the HIGHEST start (11, sector 0xD3000): found, checked, registered, links to the XIP address of 0xD3000",
+            oc_mod.state[11] == MD_OK && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(11) && oc_mod_link(11) == FL_XIP(0xD3000u));
+        /* a module image linked for another start is refused there (the link address is where THIS start runs) */
+        clean(); ocs_resv = SMP_LEGACY_MASK; modeng = ENGI_WHEEL;
+        { fw_mod_hdr_t h = mk(11, LEN); code(3); seal(&h); put(17, &h, 1); }
+        oc_mod_boot(0);
+        chk("... an image linked for start 11 sitting at start 17 is MD_BAD_HDR (link address), not registered", oc_mod.state[17] == MD_BAD_HDR && !eng_mod[ENGI_WHEEL]);
+        gw->sectors = keeps;                                            /* WHEEL's four sectors again */
+        /* the planner on 18 sectors: SHAPES at 0 (sectors 0xC8000..0xCDFFF), WHEEL (4 sectors) at start 1 (0xCE000..0xD1FFF); a WHEEL replacement goes beside, below the base */
+        clean(); ocs_resv = SMP_LEGACY_MASK;
+        modeng = ENGI_SHAPES; good(0, LEN); modeng = ENGI_WHEEL; good(1, LEN); oc_mod_boot(0);
+        i = (uint32_t)oc_mod_plan(ENGI_WHEEL);
+        chk("planner, 18 sectors: SHAPES at 0 and WHEEL at 1: a WHEEL replacement goes BESIDE, to start 15 (sectors 0xC4000..0xC7FFF), not in place",
+            i == 15u && !oc_mod_inplace(ENGI_WHEEL, 15u) && oc_mod_inplace(ENGI_WHEEL, 1u) && oc_mod_blocker(ENGI_WHEEL, 0) == 0);
+        {   /* the install itself, through begin / write / end, below the base */
+            uint32_t before = erases, r;
+            modeng = ENGI_WHEEL; { fw_mod_hdr_t h = mk(15, LEN); code(9); seal(&h); memcpy(IMG, &h, sizeof h); }
+            memset(nor + 0xC2000u, 0x66, 0x2000u);                       /* the two sectors under the new module's span: not its to erase */
+            r = (uint32_t)oc_mod_begin(ENGI_WHEEL, 15, LEN);
+            for (uint32_t o = FW_MOD_CODE_OFF; !r && o < LEN; o += 256u) r = (uint32_t)oc_mod_write(o, IMG + o, LEN - o > 256u ? 256u : LEN - o);
+            r = r ? r : (uint32_t)oc_mod_end(IMG);
+            ok = r == 0 && oc_mod.state[15] == MD_OK && erases - before >= 4u && nor[0xC2000u + 5u] == 0x66u && nor[0xC3000u + 5u] == 0x66u &&
+                 memcmp(nor + oc_mod_flash(15), IMG, LEN) == 0;
+            chk("... and installs there: the span's 4 sectors erased and written, the two sectors under it untouched, the module registered from 0xC4000",
+                ok && eng_mod[ENGI_WHEEL] != 0);
+        }
+        /* not migrated: the same planner has only the sectors from 0xC8000 and falls back to in place */
+        clean(); ocs_resv = 0;
+        modeng = ENGI_SHAPES; good(0, LEN); modeng = ENGI_WHEEL; good(1, LEN); oc_mod_boot(0);
+        chk("planner with the six not yet the module area's: the WHEEL replacement can only go in place (start 1), as on 12 sectors",
+            oc_mod_plan(ENGI_WHEEL) == 1 && oc_mod_inplace(ENGI_WHEEL, 1u));
+        /* every published layout still registers: SHAPES at 0 and 1, the Prophet at 0 and 2, WHEEL at 0 and 1 (the old tests above run these; here the start-1 and start-2 XIP stay put) */
+        clean(); ocs_resv = 0; modeng = ENGI_SHAPES; good(1, LEN); oc_mod_boot(0);
+        chk("a published-layout SHAPES at start 1 (sector 6 from 0xC8000) registers on 18 sectors with the six not yet migrated", oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+        gw->starts = keep; modeng = ENGI_SHAPES;
+        clean(); ocs_resv = 0;
+    }
     /* a flash that will not read */
     clean(); good(0, LEN);
     flash_ok = 0;

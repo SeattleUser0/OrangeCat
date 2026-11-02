@@ -113,12 +113,16 @@ module_relocs.relocs = lambda p: STAND_IN
 
 
 # the starts
-check("a 6 sector module has starts 0 and 6 in the 12 sector area (12 is outside)", build.module_starts(6) == [0, 6])
-check("a 10 sector module has start 0 only, a 12 sector module start 0, a 13 sector one none",
-      build.module_starts(10) == [0] and build.module_starts(12) == [0] and build.module_starts(13) == [])
-check("a 4 sector module has starts 0, 4 and 8", build.module_starts(4) == [0, 4, 8])
+check("(Release 3 step 1) a module without its own list: the multiples of its size from the area's lowest sector (signed sectors from 0xC8000): 6 sectors -6, 0, 6",
+      build.module_starts(6) == [-6, 0, 6])
+check("a 10 sector module has start -6 only (4 would end at 14), a 12 sector one -6, an 18 sector one -6, a 19 sector one none",
+      build.module_starts(10) == [-6] and build.module_starts(12) == [-6] and build.module_starts(18) == [-6] and build.module_starts(19) == [])
+check("a 4 sector module has starts -6, -2, 2 and 6", build.module_starts(4) == [-6, -2, 2, 6])
+check("a module's own list is kept (SHAPES 0 and 6) and a start outside the area is dropped", build.module_starts(6, {"starts": [0, 6, 7, -7, -6]}) == [0, 6, -6])
 lo, hi = build.module_area()
-check("the area is the one fm1_flash.h names: 12 sectors from 0xC8000", (lo, hi) == (0xC8000, 0xD4000))
+check("the area is the one fm1_flash.h names: 18 sectors from 0xC2000, the numbering base 0xC8000", (lo, hi) == (0xC2000, 0xD4000) and build.module_base() == 0xC8000)
+check("the lowest start (-6) links at XIP 0x02000000-0x4000+0xC2000 and the highest (11) at 0xD3000",
+      ocflash.xip(build.module_base() - 6 * 0x1000) == 0x020BE000 and ocflash.xip(build.module_base() + 11 * 0x1000) == 0x020CF000)
 
 # a good build
 fk = Fake()

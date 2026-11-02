@@ -556,6 +556,14 @@ def module_area():
     return lo, hi
 
 
+def module_base():
+    """(Release 3 step 1) the origin a module package's start numbers count sectors from (FL_MODULE_BASE, 0xC8000): the area itself starts 6 sectors lower
+    (0xC2000), so a start is a SIGNED sector index, -6 .. 11. The XIP link address of a start is xip(base + start * 0x1000)."""
+    t = (FW / "hal" / "fm1_flash.h").read_text()
+    m = re.search(r"#define FL_MODULE_BASE\s+(0x[0-9A-Fa-f]+)u", t)
+    return int(m.group(1), 16) if m else 0xC8000
+
+
 def module_cost(name):
     """(0.11.0) the engine's measured render cost for the header: the sum of the lines of tests/target_budget.txt for the functions named in
     tools/module/<name>.cost (one name per line, # comments). No file or no names: 0, 'not measured'. A name the budget does not have is an error."""
@@ -583,13 +591,15 @@ def module_cost(name):
 
 
 def module_starts(sectors, spec=None):
-    """the sector indices a module may be linked for: the module's own list (MODULES "starts"; 0.12.1: SHAPES 0 and 6, the Prophet 0 and 4), else the
-    multiples of its size that fit the area. The firmware's table of starts (oc_module.c oc_mod_sect, oc_mod_geo) must agree: tests/module_build_test.py."""
+    """the (signed) sector indices from module_base() a module may be linked for: the module's own list (MODULES "starts"; 0.12.1: SHAPES 0 and 6, the Prophet 0
+    and 4), else the multiples of its size from the area's lowest sector that fit it (Release 3 step 1: an 18 sector area, so -6, -6 + size, ...; deterministic).
+    A start fits when its whole span lies inside the area. The firmware's table of starts (oc_module.c oc_mod_sect, oc_mod_geo) must agree: tests/module_build_test.py."""
     lo, hi = module_area()
-    n = (hi - lo) // 0x1000
+    base = module_base()
+    first, last = (lo - base) // 0x1000, (hi - base) // 0x1000       # the area in sectors from the base: [first, last)
     if spec and "starts" in spec:
-        return [i for i in spec["starts"] if i + sectors <= n]
-    return [i for i in range(0, n - sectors + 1, sectors)]
+        return [i for i in spec["starts"] if first <= i and i + sectors <= last]
+    return [i for i in range(first, last - sectors + 1, sectors)]
 
 
 def gen_define(name, file="fw_api_id.h"):
@@ -643,7 +653,7 @@ def build_module(name):
         errors.append(f"{name}: undefined symbols {undef}: the firmware's table is a module's only import")
     api_addr = gen_define("FW_API_ADDR")
     pack_hash = gen_define("OC_PACK_HASH", "oc_pack_tables.h")
-    lo, hi = module_area()
+    lo = module_base()                                    # (Release 3 step 1) the numbering origin, not the area's low end
     sectors = spec["sectors"]
     cost, missing = module_cost(name)
     if missing:
@@ -776,7 +786,7 @@ SECTIONS {{
     head += struct.pack("<IIII", ocflash.OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
     head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
     for start, img in variants:
-        head += struct.pack("<II", start, zlib.crc32(img) & 0xFFFFFFFF)
+        head += struct.pack("<iI", start, zlib.crc32(img) & 0xFFFFFFFF)
     head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
     head += b"\0" * (off - len(head))
     ocm = bytes(head) + img0 + lst
