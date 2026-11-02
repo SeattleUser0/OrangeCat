@@ -880,9 +880,10 @@ static void recording_reconcile(void)
 #endif
 static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
 {
-    recording_pitch_remove(i);
+    /* a slot still in use leaves its chain first: restoring over it without that linked it a second time, the chain became a cycle and every walk of
+       the track's events (NOTES' jog, the roll, the erase) looped for ever (found by drum_editor_test, which restored into a live slot) */
     recording_end(&trk[(recording[i].owner & 31u) / NPAT], i);
-    recording_live_detach(i);
+    recording_unlink(i);
     recording[i] = r;
     memset(&recording_run[i], 0, sizeof recording_run[i]);
     recording_rep_drop(i); recording_flags[i] = 0;

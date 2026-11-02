@@ -2,6 +2,7 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
+#include "notes_knobs.h"
 
 static void setup(void)
 {
@@ -65,8 +66,8 @@ int main(void)
     bad+=check("bulk movement into an unselected manual tie still rolls back",!strcmp(ui.msg,"STEP OCCUPIED")&&TSEL->step[1].note[0]==60&&TSEL->step[5].note[0]==72&&TSEL->step[6].time==ST_TIE&&!recording[0].vel);
     setup();manual(2,60,1);cursor_set(2);frame();sheet_do("Move note");turn(EN_K1,1);
     bad+=check("Move note uses KNOB 1 directly with no held modifier",ui.note_move&&recording[0].on==RECORD_UNIT/4u&&!fm1_in.buttons);
-    press(B_OCTDN);turn(EN_K1,1);
-    bad+=check("OCT- ends move mode and KNOB 1 resumes note browsing",!ui.note_move&&!bulk.on&&ui.cursor==3&&recording[0].on==RECORD_UNIT/4u);
+    press(B_OCTDN);turn(NK_BROWSE,1);   /* (the shipped map: PRESETS browses; KNOB 1 is PITCH) */
+    bad+=check("OCT- ends move mode and the browse knob resumes note browsing",!ui.note_move&&!bulk.on&&ui.cursor==3&&recording[0].on==RECORD_UNIT/4u);
     cursor_set(2);frame();sheet_do("Copy note");turn(EN_K1,1);turn(EN_K1,1);
     bad+=check("Copy note duplicates once then KNOB 1 moves that duplicate",!ui.note_copy&&ui.note_move&&recording[0].on==RECORD_UNIT/4u&&recording[1].on==3u*RECORD_UNIT/4u);
     track_select(1);frame();bad+=check("switching tracks cancels a single-note move",!ui.note_move&&!ui.note_copy);
