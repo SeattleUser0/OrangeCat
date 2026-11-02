@@ -3042,3 +3042,8 @@ switches add 2,756 B to the image) Parts 1 to 7 come to about 568,400 B, 650 B u
 both parts (each is small, off by default, and not in tools/orangecat_engines.sh) and **did not enable anything**: no shipping image carries them. Which of the two parts, or which of
 Part 7's Performance Mode (R3_SCENES), goes out of the first Release 3 image is the owner's call, with step 9 of RELEASE3_PLAN.md (PROJECT_FORMAT_R3.md 11.2a: what it frees, an estimate) and the
 resident DUB TAPE copy (8,500 B) still to come off. Part 9's RAM is the proj_x third byte (2 KB of the pool) and 64 B a track; the two parts together leave 1,912 B of .data+.bss free (of 98,304).
+
+**What waits on others (Parts 8 and 9).** *Session A:* bind DUB_R12's pages and kernel to the eight ids (P_DUBSYNC .. P_DUBSPD, core.h; descriptors in params.c as DUB_R12.md 6 gives them), set ECHO from LEN when the kernel
+switches (the old ids are still stored), run the on-unit sequencer test of an own SLIDE TIME (seq.c's slide and recording.c's recorded slide pass the leaving step's time; voice.c unchanged), and
+decide the open choice in Part 9 (the six spare bits against a trailer in the phrase). *Session D:* np 139 (INFO's tagged block says it), the eight ids' tables and wide ids in the editor, and
+the step commands carrying an own time. *The owner:* which parts of the revision go into the first Release 3 image, given the budget above.
