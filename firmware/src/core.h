@@ -268,6 +268,14 @@
 #if OC_DUB_IDS && !OC_LFO2
 #error "OC_DUB_IDS needs OC_LFO2=1: the Release 3 layouts are 124 (Release 2), 131 (LFO 2 alone, a development state) and 139"
 #endif
+#ifndef OC_STEP_SLIDE
+#define OC_STEP_SLIDE 0           /* (Release 3, branch r3-format: docs/orangecat/UI_BUILD.md "Part 9") 1: a step may have a SLIDE TIME of its own (step_t.slidet, one byte more a step in RAM; 0 follows the
+                                   * track's SLIDE TIME, 1 .. 63 is -62 .. 62 in twos). It travels in six spare high bits of the eleven-byte step record (step_snapshot.h), so no record changes
+                                   * size or version. Needs OC_R3_FORMAT=1 and OC_SLIDE_TIME=1 (the value it overrides) */
+#endif
+#if OC_STEP_SLIDE && !(OC_R3_FORMAT && OC_SLIDE_TIME)
+#error "OC_STEP_SLIDE needs OC_R3_FORMAT=1 and OC_SLIDE_TIME=1: the phrase record that carries the byte, and the track's value it overrides"
+#endif
 #ifndef OC_CANDIDATES
 #define OC_CANDIDATES 0           /* (Orange Cat 0.14.0) 1: a measurement build for the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md):
                                    * the engine table grows to 23 and the candidates' proposed numbers below take modules (SEM 21, HADES 22), so the unit
@@ -702,7 +710,15 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t cond;                /* (Orange Cat 0.2, from Skiff) the trig condition, TC_*; 0 = always */
     int8_t nudge;                /* (Orange Cat 0.2, from Skiff) NUDGE_MIN..NUDGE_MAX 64ths of the step later; 0 = on
                                   * the grid. Both appended: a step written {{..}, n, time} stays as it was */
+#if OC_STEP_SLIDE
+    uint8_t slidet;              /* (Release 3, Part 9) the SLIDE TIME of the slide this step starts: 0 = the track's, 1 .. 63 = (b - 32) * 2, -62 .. 62 (six bits: step_snapshot.h) */
+#endif
 } step_t;
+#if OC_STEP_SLIDE
+static int32_t step_slide_time(const step_t *s, int32_t track_time) { return s->slidet ? ((int32_t)s->slidet - 32) * 2 : track_time; }
+static void step_set_slide_time(step_t *s, int32_t v) { int32_t b = (v + 65) >> 1; s->slidet = (uint8_t)(b < 1 ? 1 : b > 63 ? 63 : b); }   /* a time of its own, to the nearest even (never 0: that is "the track's") */
+static int step_slide_valid(const step_t *s) { return s->slidet <= 63u; }
+#endif
 typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
     uint8_t note[4];
     uint8_t n, time, flags, vel;

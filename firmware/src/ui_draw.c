@@ -671,7 +671,11 @@ static void draw_columns(void)
             if (selected && (ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (ui-fix 8) ENV held: the cursor step's slide, recorded or manual */
                 draw_column(3, "SLIDE", TSEL->step[ui.cursor % NSTEP].flags & SF_SLIDE ?
 #if OC_SLIDE_TIME
+#if OC_STEP_SLIDE
+                            slide_time_word(step_slide_time(&TSEL->step[ui.cursor % NSTEP], TSEL->p[P_SLIDET]))   /* (Part 9) the step's own time when it has one */
+#else
                             slide_time_word(TSEL->p[P_SLIDET])   /* (ui-fix2 4) ON says how long this track's slides take, in a word: NORM, SLOW .. */
+#endif
 #else
                             "ON"
 #endif

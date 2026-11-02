@@ -1358,11 +1358,41 @@ static int test_scenes2(void)
 }
 #endif
 
+#if OC_STEP_SLIDE
+/* ------------------------------------------------------------ Part 9: a step's own SLIDE TIME through the project store --- */
+static int test_step_slide(void)
+{
+    int bad = 0;
+    pattern_t p;
+    reset();
+    fill_all(95, 2);
+    trk[0].step[4].n = 1; trk[0].step[4].note[0] = 60; trk[0].step[4].time = ST_NOTE; trk[0].step[4].flags = SF_SLIDE; step_set_slide_time(&trk[0].step[4], -20);
+    trk[1].step[6].n = 1; trk[1].step[6].note[0] = 62; trk[1].step[6].time = ST_NOTE; trk[1].step[6].flags = SF_SLIDE; step_set_slide_time(&trk[1].step[6], 62);
+    pattern_read(0, 1, &p);                                   /* an inactive bank (the compact record in the bank cache) */
+    p.step[9].n = 1; p.step[9].note[0] = 64; p.step[9].time = ST_NOTE; p.step[9].flags = SF_SLIDE; step_set_slide_time(&p.step[9], 8);
+    pattern_write(0, 1, &p);
+    R3CHK("a project with own SLIDE TIMEs saves", project_save_as(0, "STEPSL") == 0);
+    reboot(); wipe_runtime(); project_load(0);
+    R3CHK("... and loads them back: the active bank's steps", step_slide_time(&trk[0].step[4], 99) == -20 && step_slide_time(&trk[1].step[6], 99) == 62 &&
+          step_slide_time(&trk[0].step[5], 99) == 99);
+    pattern_read(0, 1, &p);
+    R3CHK("... and an inactive bank's (the phrase record, through the pool)", step_slide_time(&p.step[9], 99) == 8 && (p.step[9].flags & SF_SLIDE));
+    {   uint32_t id = bank_pid[0][1] - 1u;
+        static uint8_t raw[OCP_MAX];
+        ocs_rec_t r; ocp_rd_t rd;
+        R3CHK("... the phrase is version 2 still, eleven-byte steps (no size or version change)", id < OCP_N && ocp_r3_open(&ocp.dir, id, &r, &rd) == 1 && ocp_rd(&rd, raw, OCP_HEAD) == 0 && raw[0] == 2u);
+    }
+    return bad;
+}
+#endif
 int main(void)
 {
     int bad = 0;
 #if OC_LFO2
     bad |= test_lfo2_records();
+#if OC_STEP_SLIDE
+    bad |= test_step_slide();
+#endif
 #endif
     bad |= test_round_trip_r3();
     bad |= test_255();

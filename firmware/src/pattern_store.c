@@ -46,7 +46,12 @@ static int bank_step_pack(uint8_t *b, const step_t *s)
  * project's active steps), bank_restore applies them when the bytes it restores are those (a project from anywhere
  * else: none); the project store (oc_project.c) keeps them with the patterns. bank_hash takes them in, so a SAVE or
  * autosave sees a change of them alone */
-static uint8_t proj_x[NTRK][NPAT][NSTEP][2] __attribute__((section(".pool")));
+#if OC_STEP_SLIDE
+#define PROJ_XB 3u                                      /* (Release 3, Part 9) a third byte: the step's own SLIDE TIME (step_t.slidet) */
+#else
+#define PROJ_XB 2u
+#endif
+static uint8_t proj_x[NTRK][NPAT][NSTEP][PROJ_XB] __attribute__((section(".pool")));
 static uint32_t proj_x_tag;
 /* (Orange Cat 0.3, 4c) the lists and the pool pattern each bank holds go beside it the same way */
 static ocl_lists_t proj_lists __attribute__((section(".pool")));
@@ -56,6 +61,9 @@ static void proj_x_put(uint32_t k, uint32_t b, const step_t *st)
     for (uint32_t i = 0; i < NSTEP; i++) {
         proj_x[k][b][i][0] = (uint8_t)(((st[i].flags >> 3) & 7u) | (st[i].cond << 3));
         proj_x[k][b][i][1] = (uint8_t)st[i].nudge;
+#if OC_STEP_SLIDE
+        proj_x[k][b][i][2] = st[i].slidet;
+#endif
     }
 }
 static void proj_x_get(uint32_t k, uint32_t b, step_t *st)
@@ -64,6 +72,9 @@ static void proj_x_get(uint32_t k, uint32_t b, step_t *st)
         st[i].flags = (uint8_t)((st[i].flags & 7u) | ((proj_x[k][b][i][0] & 7u) << 3));
         step_set_cond(&st[i], proj_x[k][b][i][0] >> 3);
         step_set_nudge(&st[i], (int8_t)proj_x[k][b][i][1]);
+#if OC_STEP_SLIDE
+        st[i].slidet = proj_x[k][b][i][2];
+#endif
     }
 }
 static uint8_t bank_pack_keep;                   /* 1: bank_pack leaves proj_x, proj_lists, proj_pid and their tag as they are (bank_live_hash) */
@@ -80,13 +91,16 @@ static uint32_t bank_live_hash(uint8_t *raw, const project_t *q, int *ok)
     h = proj_hash(raw, BANK_STORE_SIZE);
     for (k = 0; k < NTRK; k++)
         for (b = 0; b < NPAT; b++) {
-            uint8_t x[NSTEP][2];
+            uint8_t x[NSTEP][PROJ_XB];
             pattern_t p;
             uint32_t i;
             pattern_read(k, b, &p);
             for (i = 0; i < NSTEP; i++) {
                 x[i][0] = (uint8_t)(((p.step[i].flags >> 3) & 7u) | (p.step[i].cond << 3));
                 x[i][1] = (uint8_t)p.step[i].nudge;
+#if OC_STEP_SLIDE
+                x[i][2] = p.step[i].slidet;
+#endif
             }
             h = fnv(h, x, sizeof x);
         }

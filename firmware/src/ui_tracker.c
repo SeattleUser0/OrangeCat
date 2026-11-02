@@ -345,7 +345,12 @@ static void tk_hint(char *b, uint32_t n)
         if (st && ui.tk_fx % TFX_N == TFX_SLIDE && tk_fx_on(st, TFX_SLIDE)) {   /* (ui-fix2 4) the foot says how long this track's slides take: "ON SLOW"
                                                          * (the editor's hardware-test string, tk_fx_text, stays "ON") */
             str_cpy(v + str_len(v), " ", 2);
+#if OC_STEP_SLIDE
+            str_cpy(v + str_len(v), slide_time_word(step_slide_time(st, TSEL->p[P_SLIDET])), (uint32_t)sizeof v - str_len(v));
+            if (st->slidet) str_cpy(v + str_len(v), "*", (uint32_t)sizeof v - str_len(v));   /* (Part 9: a time of this step's own: "ON EASY*"; the foot is 26 characters) */
+#else
             str_cpy(v + str_len(v), slide_time_word(TSEL->p[P_SLIDET]), (uint32_t)sizeof v - str_len(v));
+#endif
         }
 #endif
         str_cpy(b + str_len(b), v, n - str_len(b));

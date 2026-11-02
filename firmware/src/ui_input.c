@@ -1139,6 +1139,38 @@ static void tracker_mono_note(const track_t *t, const step_t *st)
  * are the same operation with the same undo. KNOB 3 in a note column the pitch, in VEL the velocity (of the note last
  * picked in a note column, else the first); KNOB 4 the length, a step a detent (NOTES' KNOB 3 and ENV for finer);
  * the FX column: all of the step's effects (0.13.0: they apply to its recorded notes as a group, recording.c). 1: handled here */
+/* (Release 3, Part 9) the tracker's SLIDE cell. Off; on with the track's SLIDE TIME (slidet 0); on with a time of its own. KNOB 4 right from "off" turns
+ * the slide on (the track's time), right again gives it a time of its own (the track's, then a step of 4 each detent, -64 .. 63), left lowers it; left
+ * with no time of its own turns the slide off. EDIT takes the own time away first (back to the track's), a second EDIT turns the slide off.
+ * Under the caller's fm1_irq_off */
+static void tk_slide_clear(step_t *st);
+#if OC_STEP_SLIDE
+static void tk_slide_turn(const track_t *t, step_t *st, int32_t steps)
+{
+    int32_t d = steps > 0 ? 1 : -1;
+    if (!(st->flags & SF_SLIDE)) { if (d > 0) st->flags |= SF_SLIDE; return; }
+    if (!st->slidet) {
+        if (d < 0) { tk_slide_clear(st); return; }
+        step_set_slide_time(st, clamp(t->p[P_SLIDET] + 4, -64, 63));
+        return;
+    }
+    step_set_slide_time(st, clamp(step_slide_time(st, 0) + 4 * steps, -64, 63));
+}
+#endif
+static void tk_slide_clear(step_t *st)                   /* the slide off, and any time of its own with it (a later ON is the track's) */
+{
+    st->flags &= (uint8_t)~SF_SLIDE;
+#if OC_STEP_SLIDE
+    st->slidet = 0;
+#endif
+}
+static void tk_slide_off(step_t *st)
+{
+#if OC_STEP_SLIDE
+    if (st->slidet) { st->slidet = 0; return; }
+#endif
+    st->flags &= (uint8_t)~SF_SLIDE;
+}
 static int tracker_event_edit(track_t *t, uint32_t col, uint32_t slot, int32_t steps)
 {
     uint32_t cursor = ui.cursor % NSTEP, e;
@@ -1155,7 +1187,12 @@ static int tracker_event_edit(track_t *t, uint32_t col, uint32_t slot, int32_t s
             break;
         case TFX_COND: step_set_cond(st, (uint32_t)clamp((int32_t)st->cond + steps, 0, TC_COUNT - 1)); break;
         case TFX_NUDGE: step_set_nudge(st, st->nudge + steps); recording_resched(t); break;
-        case TFX_SLIDE: if (steps > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE; break;
+        case TFX_SLIDE:
+#if OC_STEP_SLIDE
+            tk_slide_turn(t, st, steps); break;
+#else
+            if (steps > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE; break;
+#endif
         default: if (steps > 0) st->flags |= SF_ACCENT; else st->flags &= (uint8_t)~SF_ACCENT; break;
         }
         fm1_irq_on();
@@ -1229,7 +1266,12 @@ static void tracker_edit(uint32_t slot, int32_t steps)
             break;
         case TFX_COND: step_set_cond(st, (uint32_t)clamp((int32_t)st->cond + steps, 0, TC_COUNT - 1)); break;
         case TFX_NUDGE: step_set_nudge(st, st->nudge + steps); break;
-        case TFX_SLIDE: if (d > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE; break;
+        case TFX_SLIDE:
+#if OC_STEP_SLIDE
+            tk_slide_turn(t, st, steps); break;
+#else
+            if (d > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE; break;
+#endif
         default: if (d > 0) st->flags |= SF_ACCENT; else st->flags &= (uint8_t)~SF_ACCENT; break;
         }
     }
@@ -1264,7 +1306,7 @@ static int tracker_delete(void)
         case TFX_CHANCE: step_set_chance(st, 100); break;
         case TFX_COND: step_set_cond(st, TC_NONE); break;
         case TFX_NUDGE: step_set_nudge(st, 0); recording_resched(t); break;
-        case TFX_SLIDE: st->flags &= (uint8_t)~SF_SLIDE; break;
+        case TFX_SLIDE: tk_slide_off(st); break;
         default: st->flags &= (uint8_t)~SF_ACCENT; break;
         }
         fm1_irq_on();
@@ -1296,7 +1338,7 @@ static int tracker_delete(void)
     case TFX_CHANCE: step_set_chance(st, 100); break;
     case TFX_COND: step_set_cond(st, TC_NONE); break;
     case TFX_NUDGE: step_set_nudge(st, 0); break;
-    case TFX_SLIDE: st->flags &= (uint8_t)~SF_SLIDE; break;
+    case TFX_SLIDE: tk_slide_off(st); break;
     default: st->flags &= (uint8_t)~SF_ACCENT; break;
     }
     fm1_irq_on();
@@ -1337,7 +1379,7 @@ static void step_edit(uint32_t slot, int32_t steps)
         if (slot == 3u && (ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (ui-fix 8) ENV + VEL: the step's slide, a recorded step's too */
             ui.step_used |= (uint16_t)(1u << panel.btn[B_ENV]);
             fm1_irq_off();
-            if (steps > 0) TSEL->step[ui.cursor].flags |= SF_SLIDE; else TSEL->step[ui.cursor].flags &= (uint8_t)~SF_SLIDE;
+            if (steps > 0) TSEL->step[ui.cursor].flags |= SF_SLIDE; else tk_slide_clear(&TSEL->step[ui.cursor]);
             fm1_irq_on();
             ui.force = 1;
             return;
@@ -1369,7 +1411,7 @@ static void step_edit(uint32_t slot, int32_t steps)
         step_note_resize(TSEL, at, (int32_t)step_note_length(TSEL, at) + steps);
     } else if (ui.step_mods & (1u << panel.btn[B_ENV])) {
         ui.step_used |= (uint16_t)(1u << panel.btn[B_ENV]);
-        if (steps > 0) st->flags |= SF_SLIDE; else st->flags &= (uint8_t)~SF_SLIDE;
+        if (steps > 0) st->flags |= SF_SLIDE; else tk_slide_clear(st);
     } else {
         st->vel = (uint8_t)clamp((int32_t)(st->flags & SF_ACCENT ? 127 : st->vel ? st->vel : 96) + steps, 1, 127);
         st->flags &= (uint8_t)~SF_ACCENT;

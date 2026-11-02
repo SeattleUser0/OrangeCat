@@ -740,6 +740,12 @@ if core && [ $TABLES = 1 ]; then
     t "Release 3 format, Part 8: the editor with ids 131 to 138 (the wide commands, the motion wire's high id bit)" \
         editor_dub:editor_test -O1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 $FW
     t "Release 3 format, Part 8: the UI with DUB TAPE's ids built in" ui_dub:ui_test -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 $FW
+    # (Release 3, Part 9: docs/orangecat/UI_BUILD.md "Part 9") a step's own SLIDE TIME, OC_STEP_SLIDE=1 (needs OC_R3_FORMAT and OC_SLIDE_TIME)
+    t "Release 3 format, Part 9 (OC_STEP_SLIDE): a step's own SLIDE TIME: the sequencer, the eleven-byte record, the project, the tracker's cell, undo" \
+        step_slide_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_STEP_SLIDE=1 $FW -Itests
+    t "Release 3 format, Part 9: the project store with own SLIDE TIMEs (the active bank, an inactive bank's phrase), with DUB TAPE's ids and LFO 2 as well" \
+        oc_r3_step:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 -DOC_STEP_SLIDE=1 $FW -Itests
+    t "Release 3 format, Part 9: the UI with the step slide built in" ui_step_slide:ui_test -DMELODEE_USB_AUDIO=1 -DOC_R3_FORMAT=1 -DOC_LFO2=1 -DOC_DUB_IDS=1 -DOC_STEP_SLIDE=1 $FW
     t "Release 3 format, Part 7 (OC_R3_SCENES): scenes version 2, the PERF table, Performance Mode's logic, the planner, hostile bytes; the whole of Part 1 beside them" \
         oc_r3_scenes:oc_r3_test -O1 -DOC_R3_FORMAT=1 -DOC_R3_SCENES=1 $FW -Itests
     t "Release 3 format, Part 7 under the sanitizers" oc_r3_scenes_san:oc_r3_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all \

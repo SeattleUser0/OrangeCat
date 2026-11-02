@@ -423,6 +423,9 @@ static int ocp_step_ok(const step_t *s)
     if (s->n > 4u || s->time > ST_REST || (s->flags & ~SF_ALL) || s->vel > 127u || s->probability > 101u ||
         !step_acc_valid(s) || s->cond >= TC_COUNT || s->nudge < NUDGE_MIN || s->nudge > NUDGE_MAX)
         return 0;
+#if OC_STEP_SLIDE
+    if (!step_slide_valid(s)) return 0;
+#endif
     for (uint32_t j = 0; j < 4u; j++)
         if (s->note[j] > 127u) return 0;
     return 1;

@@ -283,6 +283,9 @@ static void nt_slide(void)
         return;
     fm1_irq_off();
     st_at()->flags ^= SF_SLIDE;
+#if OC_STEP_SLIDE
+    if (!(st_at()->flags & SF_SLIDE)) st_at()->slidet = 0;   /* (Part 9: a slide turned off takes its own time with it) */
+#endif
     fm1_irq_on();
 }
 /* (Orange Cat 0.2, build doc phase 4a) Skiff's step fields on the note's and the hit's sheet: Ratchet x1..x4 or Flam,

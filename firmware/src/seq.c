@@ -438,18 +438,18 @@ static int32_t slide_gstep(int32_t s)
     return r < 1 ? -1 : -r;                             /* (negative: the rate, not a step) */
 }
 #endif
-static void slide_glide_set(track_t *t, voice_t *v)
+static void slide_glide_set(track_t *t, voice_t *v, int32_t time)   /* time: SLIDE TIME of the slide (the track's, or the step's own: Part 9) */
 {
     if (!v->pitch_cur) { v->pitch_cur = v->pitch16; v->gstep = 0; return; }   /* (never played: no glide) */
     if (t->p[P_GLIDE]) { glide_set(t, v, 1); return; }
 #if OC_SLIDE_TIME
-    v->gstep = slide_gstep(t->p[P_SLIDET]);
+    v->gstep = slide_gstep(time);
     v->gtick = 0;
 #else
     v->gstep = 3;                                       /* (track_render's RATE step: ENV_LIN[40] >> 14 is 40, nearly a jump) */
 #endif
 }
-static int seq_slide_voice(track_t *t, uint32_t old, uint32_t new, uint32_t vel)
+static int seq_slide_voice(track_t *t, uint32_t old, uint32_t new, uint32_t vel, int32_t time)
 {
     const engine_t *e = ENGINES[t->engine];
     uint32_t mode = trk_vmode(t), nv = mode == V_UNISON ? trk_nvoice(t) : mode == V_POLY ? NVOICE : 1u, i, found = 0;
@@ -468,7 +468,7 @@ static int seq_slide_voice(track_t *t, uint32_t old, uint32_t new, uint32_t vel)
         if (!v->active || !v->gate || v->note != old) continue;
         v->note = (uint8_t)new;
         voice_scale_pitch(t, v, new);
-        slide_glide_set(t, v);
+        slide_glide_set(t, v, time);
         if (vel > v->vel && (mode == V_POLY || nv == 1u)) v->vel = (uint8_t)vel;   /* (mono_play's rule, in POLY too; UNISON's voices keep their scaled
                                                                                        * level; the round 11 review: nv is NVOICE in POLY) */
         v->mvel = t->m_vel;
@@ -1256,16 +1256,20 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
                                                      * legato; an old note that is a live key's, the arp's or a recorded note's is not
                                                      * the sequencer's to take (seq_release's test); the notes only, never the hits */
         uint32_t slid = 0, old, pn = 0;
+        int32_t stime = t->p[P_SLIDET];                 /* (Part 9: the time of the step the slide leaves, when it has its own) */
         if (slide_in) {                                 /* the old notes: the step before's (its hits follow them in seq_notes) */
             const step_t *ps = &seq_steps(t)[(t->fire_idx + len - 1u) % len];
             pn = ps->hit ? 0u : ps->n;
+#if OC_STEP_SLIDE
+            stime = step_slide_time(ps, stime);
+#endif
         }
         if (slide_in)
             for (i = 0; i < s->n && i < 4u && i < t->seq_n && i < pn; i++) {
                 old = t->seq_notes[i];
                 if ((sk >> i) & 1u) continue;
                 if ((live_held[trk_index(t)][old >> 5] & (1u << (old & 31u))) || t->arp_note == old || recording_owns(t, old)) continue;
-                if (seq_slide_voice(t, old, nn[i], vv[i])) slid |= 1u << i;
+                if (seq_slide_voice(t, old, nn[i], vv[i], stime)) slid |= 1u << i;
             }
         for (i = 0; i < m; i++)
             if (!((sk >> i) & 1u) && !((slid >> i) & 1u))

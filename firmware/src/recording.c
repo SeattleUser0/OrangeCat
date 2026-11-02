@@ -998,7 +998,13 @@ static int recording_slide_in(track_t *t, uint32_t i, uint32_t vel)
         if (j == i || !recording_sounding(j) || recording_view(t, &recording[j]) != prev || recording_refs[tr][old] != 1u) continue;
         if ((live_held[tr][old >> 5] & (1u << (old & 31u))) || t->arp_note == old) continue;
         for (k = 0; k < t->seq_n; k++) shared |= t->seq_notes[k] == old;   /* (a manual step's note shares the voice: not ours) */
-        if (shared || !seq_slide_voice(t, old, recording[i].note, vel)) continue;
+        if (shared || !seq_slide_voice(t, old, recording[i].note, vel,
+#if OC_STEP_SLIDE
+                                       step_slide_time(&t->step[prev], t->p[P_SLIDET])   /* (Part 9) the cell before's own time, if it has one */
+#else
+                                       t->p[P_SLIDET]
+#endif
+                                       )) continue;
 #if MELODEE_RECORD_QUEUE
         recording_queue_remove(j);
 #endif

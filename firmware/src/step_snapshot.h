@@ -8,7 +8,11 @@
  * (Orange Cat 0.2, build doc phase 4a) Skiff's step fields in two bytes more, Melodee's nine left exactly as they
  * were: x = the flags above SF_RECORDED (RATCH, FLAM: bits 3..5 down to 0..2) | the trig condition << 3 (0..31);
  * nudge as it is. Eleven bytes; exact for every flag a step may hold (SF_ALL), every condition below 32 and every
- * nudge byte */
+ * nudge byte
+ * (Release 3, Part 9, OC_STEP_SLIDE) a step's own SLIDE TIME (step_t.slidet, 0 .. 63) rides in the high bits of six fields that never use them: bit 7 of note[0] .. note[3]
+ * (bits 0 .. 3 of the time), of vel (bit 4) and of probability (bit 5); every one of those fields is at most 127 (101 for the probability), and every reader validates that. So
+ * the record stays eleven bytes (the undo levels fill the cache RAM's UI part, ui.c), a step with no time of its own is the bytes it always was, and a firmware without the
+ * switch refuses such a step (a note past 127) instead of misreading it */
 typedef struct {
     uint8_t note[4], meta, vel, hit, acc, probability, x;
     int8_t nudge;
@@ -24,6 +28,11 @@ static void step_snapshot_put(step_snapshot_t *out, const step_t *in)
     out->vel = in->vel; out->hit = in->hit; out->acc = in->acc; out->probability = in->probability;
     out->x = (uint8_t)(((in->flags >> 3) & 7u) | (in->cond << 3));
     out->nudge = in->nudge;
+#if OC_STEP_SLIDE
+    for (uint32_t i = 0; i < 4u; i++) out->note[i] = (uint8_t)((in->note[i] & 127u) | ((in->slidet >> i) & 1u) << 7);
+    out->vel = (uint8_t)((in->vel & 127u) | ((in->slidet >> 4) & 1u) << 7);
+    out->probability = (uint8_t)((in->probability & 127u) | ((in->slidet >> 5) & 1u) << 7);
+#endif
 }
 static step_t step_snapshot_get(const step_snapshot_t *in)
 {
@@ -33,6 +42,11 @@ static step_t step_snapshot_get(const step_snapshot_t *in)
     out.flags = (uint8_t)((in->meta >> 5) | (in->x & 7u) << 3);
     out.vel = in->vel; out.hit = in->hit; out.acc = in->acc; out.probability = in->probability;
     out.cond = in->x >> 3; out.nudge = in->nudge;
+#if OC_STEP_SLIDE
+    out.slidet = (uint8_t)((in->note[0] >> 7) | (in->note[1] >> 7) << 1 | (in->note[2] >> 7) << 2 | (in->note[3] >> 7) << 3 | (in->vel >> 7) << 4 | (in->probability >> 7) << 5);
+    for (uint32_t i = 0; i < 4u; i++) out.note[i] &= 127u;
+    out.vel &= 127u; out.probability &= 127u;
+#endif
     return out;
 }
 static void step_snapshot_save(step_snapshot_t *out, const step_t *in)
