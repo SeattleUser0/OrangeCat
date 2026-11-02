@@ -2293,7 +2293,8 @@ been built with ONE_AUTH, STEP_PAGES, HOME_PIC or PROJECT_PAGE together. What wa
   BS_NOSTEP (OC_STEP_PAGES and what needs it off) and say so in run_tests.sh. The new interface's side of the same code is step_pages_test, one_auth_test, rec_clear_test, start_nudge_test
   and ui_test on the full set. Converting the three is open (about 46 checks).
 - `step_pages_test`: a manual note's START is its NUDGE under OC_START_NUDGE (the check says so).
-- tests/golden.txt: TBD_GOLDEN
+- tests/golden.txt: with the set on, `song/4track_mix` (a mix with slide steps) plays them as ui-fix 8's legato glides: 7b5647232840caa8 -> 9e96d61252be67d8, the only golden of 410 that moves (bisected: OC_SLIDE).
+  golden.txt is the shipping build's now; the old paths keep a run of their own (`regress_legacy`: the set off, that one line as it was; 0 changed).
 
 **b. K2's nudge is drawn in the roll.** A typed step's onset bar starts `nudge / 64` of the column later or earlier (`ui_graph.c`: the column is 12 px, so one detent is 0.19 px and eight
 are one pixel and a half; never left of the roll's first column; the end stays the step's). `steps_hash` includes the nudge, so the roll redraws by itself. start_nudge_test ROLL: +16

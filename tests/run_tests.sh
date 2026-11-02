@@ -720,6 +720,10 @@ if sound && [ $TABLES = 1 ]; then
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    # (ui-fix2 close-out) golden.txt is the shipping build's (the build set on): song/4track_mix plays its slides as ui-fix 8's legato glides now (OC_SLIDE), 7b5647232840caa8 -> 9e96d61252be67d8.
+    # The old paths keep their own run: the build set off, golden.txt with that one line as it was
+    t "regression with every switch of the build set off: the goldens of the old paths (song/4track_mix as it was)" regress_legacy:regress -O2 $BS_OFF $FW -- \
+        sh -c "sed 's/^song\/4track_mix .*/song\/4track_mix 7b5647232840caa8/' tests/golden.txt > $OUT/golden_legacy.txt && $OUT/regress_legacy $OUT/golden_legacy.txt tests/cpu_baseline.txt"
     t "regression with the buses deferred (Release 2): the same renders, the effects' returns one block late; tests/golden_fxdefer.txt holds the lines that differ" regress_defer:regress -O2 $FW -DMELODEE_FX_DEFER=1 -- \
         "$OUT/regress_defer" tests/golden.txt tests/cpu_baseline.txt
     job module_host
