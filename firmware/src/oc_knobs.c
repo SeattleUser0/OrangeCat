@@ -89,7 +89,7 @@ typedef struct {
     int16_t rng[4 * KD_TGT][2];                         /* each macro target's range, copied at registration */
 } modui_t;
 static modui_t modui[OC_MODUI_N];
-static uint8_t modui_gen;
+static uint32_t modui_gen;
 static const modui_t *modui_of(uint32_t e)
 {
     for (uint32_t i = 0; i < OC_MODUI_N; i++)

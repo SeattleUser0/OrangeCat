@@ -207,17 +207,20 @@ static void t_registry(void)
     mchk("REGISTRY  a macro: pid 11 -> P_E2 (UP 90), pid 13 -> P_E3 (DOWN -50), pid 99 (not in the table) and pid 12 (no slot) dropped",
           kd[1].kind == KD_MACRO && kd[1].t[0].id == P_E2 && kd[1].t[0].shape == KS_UP && kd[1].t[0].depth == 90 && kd[1].t[1].id == P_E3 &&
           kd[1].t[1].shape == KS_DOWN && kd[1].t[1].depth == -50 && kd[1].t[2].id == KD_NOT && kd[1].t[3].id == KD_NOT);
-    mchk("REGISTRY  the range of a target is copied from its panel entry (RES 0..100, DRY -20..20)",
-          modui_rng(kd, 4)[0] == 0 && modui_rng(kd, 4)[1] == 100 && modui_rng(kd, 5)[0] == -20 && modui_rng(kd, 5)[1] == 20);
+    {   const param_desc_t *d2 = param_desc_of(E, P_E2), *d3 = param_desc_of(E, P_E3);
+        int32_t lo3 = -20 > d3->min ? -20 : d3->min, hi3 = 20 < d3->max ? 20 : d3->max, hi2 = 100 < d2->max ? 100 : d2->max;
+        mchk("REGISTRY  the range of a target is the panel entry's cut to the slot's own descriptor (RES 0..100 on E2, DRY -20..20 on E3)",
+             modui_rng(kd, 4)[0] == (d2->min > 0 ? d2->min : 0) && modui_rng(kd, 4)[1] == hi2 && modui_rng(kd, 5)[0] == lo3 && modui_rng(kd, 5)[1] == hi3);
+    }
     mchk("REGISTRY  a knob of kind none stays none", kd[3].kind == KD_NONE);
     mchk("REGISTRY  the scene is the module's, found by scene_of before the pack's",
           ({ uint32_t l; const uint8_t *sc = scene_of(E, &l); sc && l == sizeof SCENE && !memcmp(sc, SCENE, l); }));
     /* the interrupt */
     for (i = 0; i < 4u; i++) trk[0].p[P_MAC0 + i] = 0;
-    mchk("MACRO  a macro at +40 on RES (stored 50) puts 50 + 90 x 40 / 64 = 106 clamped to the copied range 100, and takes it off exactly",
-          mac_run(E, 40, P_E2, 50, &during) == 50 && during == 100);
-    mchk("MACRO  at -64 on DRY (DOWN -50, stored 0): 0 + (-50 x -64 / 64) = 50 clamped to +20", mac_run(E, -64, P_E3, 0, &during) == 0 && during == 20);
-    mchk("MACRO  the UP target does not move at -64", mac_run(E, -64, P_E2, 50, &during) == 50 && during == 50);
+    mchk("MACRO  a macro at +40 on E2 (stored 10) puts 10 + 90 x 40 / 64 = 66 clamped to the copied range (the panel's 0..100 cut to the slot's -24..24) = 24, and takes it off exactly",
+          mac_run(E, 40, P_E2, 10, &during) == 10 && during == modui_rng(kd, 4)[1]);
+    mchk("MACRO  at -64 on E3 (DOWN -50, stored 0): 0 + (-50 x -64 / 64) = 50 clamped to the copied top (the panel's +20)", mac_run(E, -64, P_E3, 0, &during) == 0 && during == modui_rng(kd, 5)[1] && during == 20);
+    mchk("MACRO  the UP target does not move at -64", mac_run(E, -64, P_E2, 10, &during) == 10 && during == 10);
     /* retire */
     g0 = modui_gen;
     modui_retire(E);
@@ -237,12 +240,35 @@ static void t_registry(void)
     /* room */
     make(ROWS, PID, &UI);
     {   uint32_t n = 0;
-        for (i = 0; i < OC_MODUI_N; i++) n += modui_publish(30u + i, img_rd, 0, desc, LO, HI, img, BASE) == 0;
+        for (i = 0; i < OC_MODUI_N; i++) n += modui_publish(2u + i, img_rd, 0, desc, LO, HI, img, BASE) == 0;
         mchk("REGISTRY  OC_MODUI_N modules fit", n == OC_MODUI_N);
-        mchk("REGISTRY  one more loads without picture or knobs (FWU_FULL), the others stay", modui_publish(40u, img_rd, 0, desc, LO, HI, img, BASE) == FWU_FULL && !kdef_of(40u) && kdef_of(30u));
-        for (i = 0; i < OC_MODUI_N; i++) modui_retire(30u + i);
-        mchk("REGISTRY  all retired: room again", modui_publish(41u, img_rd, 0, desc, LO, HI, img, BASE) == 0);
-        modui_retire(41u);
+        mchk("REGISTRY  one more loads without picture or knobs (FWU_FULL), the others stay", modui_publish(7u, img_rd, 0, desc, LO, HI, img, BASE) == FWU_FULL && !kdef_of(7u) && kdef_of(2u));
+        for (i = 0; i < OC_MODUI_N; i++) modui_retire(2u + i);
+        mchk("REGISTRY  all retired: room again", modui_publish(8u, img_rd, 0, desc, LO, HI, img, BASE) == 0);
+        modui_retire(8u);
+    }
+    /* (review) a legacy slot outside E0..E7 is no knob target, and a module cannot widen a slot's range */
+    {   static const fw_pid_t PID2[4] = {{10, P_VOICE}, {11, P_E1}, {12, P_MUTE}, {13, P_E4}};
+        static param_desc_t wide[4];
+        static const fw_kdef_t K2[4] = {
+            {"VOICE", 1, 0, 10, {{FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}}, 0},
+            {"WIDE", 2, 0, 0, {{11, KS_LIN, 127}, {12, KS_LIN, 127}, {FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}}, 0},
+            {"E4", 2, 0, 0, {{13, KS_LIN, 100}, {FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}}, 0},
+            {"X", 0, 0, 0, {{FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}, {FW_PID_NONE, 0, 0}}, 0},
+        };
+        static fw_ui_t U2; fw_pages_t d3;
+        memcpy(wide, PANEL, sizeof wide);
+        for (i = 0; i < 4u; i++) if (wide[i].fmt == F_INT) { wide[i].min = -32768; wide[i].max = 32767; }
+        U2 = UI; U2.kdef = K2;
+        make(ROWS, PID2, &U2); d3 = D; d3.panel = wide;
+        if (!fwp_wire(&d3, img, sizeof img, BASE, &desc)) exit(2);
+        mchk("REGISTRY  (review) the wide panel, with legacy slots P_VOICE, P_E1, P_MUTE, P_E4, publishes", modui_publish(E, img_rd, 0, desc, LO, HI, img, BASE) == 0);
+        kd = kdef_of(E);
+        mchk("REGISTRY  a plain knob on P_VOICE is dropped (a knob never switches what the sound is)", kd && kd[0].kind == KD_NONE);
+        mchk("REGISTRY  a macro keeps its P_E1 target and drops the P_MUTE one", kd[1].kind == KD_MACRO && kd[1].t[0].id == P_E1 && kd[1].t[1].id == KD_NOT);
+        mchk("REGISTRY  a module cannot widen a slot's range: P_E1's copied range is its own descriptor's",
+             modui_rng(kd, 4)[0] == param_desc_of(E, P_E1)->min && modui_rng(kd, 4)[1] == param_desc_of(E, P_E1)->max);
+        modui_retire(E);
     }
     /* a descriptor with no picture publishes nothing */
     make(ROWS, PID, 0);
@@ -286,8 +312,8 @@ static void t_fuzz(void)
         if (fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_MOD, P_COUNT, &ui) != FWP_OK) continue;
         accepted++;
         code = (uint32_t)fw_ui_check(img_rd, 0, ui, LO, HI, scene_ok, &o);
-        if (modui_publish(61u, img_rd, 0, desc, LO, HI, img, BASE) != code && code != FWU_OK) bad_inv++;
-        {   const modui_t *m = modui_of(61u);
+        if (modui_publish(6u, img_rd, 0, desc, LO, HI, img, BASE) != code && code != FWU_OK) bad_inv++;
+        {   const modui_t *m = modui_of(6u);
             if (m && m->nk) {
                 uint32_t i, j;
                 published++;
@@ -304,7 +330,7 @@ static void t_fuzz(void)
                 if (m->scene_len && (m->scene < img || m->scene + m->scene_len > img + sizeof img)) bad_inv++;
             }
         }
-        modui_retire(61u);
+        modui_retire(6u);
     }
     mchk("FUZZ    60000 mutated images: whatever is accepted and published holds the registry's invariants", bad_inv == 0 && accepted > 1000u && published > 100u);
     printf("mod_ui: fuzz: %u accepted, %u published, %u invariant breaks\n", accepted, published, bad_inv);

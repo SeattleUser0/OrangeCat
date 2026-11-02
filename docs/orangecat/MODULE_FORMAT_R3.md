@@ -203,5 +203,8 @@ identifier moved (fd159be 0xCC9AED54 on the unit, `FW_API_ID` 0x126F12CC; now 0x
    trailer for the same engine (`scene_of`).
 8. **Not built (they belong to plan step 4):** `fx_desc_t`, `fx_entry_t` (and their place in the identifier's hash), the module-id install path, the Effects table, "PICTURE REFUSED" in the Engines table (the record holds
    the code: `modui_of(e)->why`), the install-time advisory result on the card and the page.
+9. **(review) A knob's target may only be P_E0 .. P_E7, and the copied range is the panel entry's cut to that slot's own descriptor** (`param_desc_of(e, slot)`): a `legacy` slot is any track slot, and a module could
+   otherwise have pointed a macro at P_VOICE with a range of -32768 .. 32767. The checker still allows any `legacy` (the project format reads them); the knob path is the narrow one. The effect modules' slots (P_RESERVED45..47,
+   P_JRES0..6) join the allowed set when plan step 4 resolves their targets. `modui_gen` is 32 bits.
 9. **The real modules ship with `ui` 0 and no pid table:** WHEEL and SHAPES have no `fw_pages_t` at all (they are rebuilt for the new identifier only); the Prophet's descriptor is version 3 with `ui`, `pid`, `ext` 0. A picture can be
    added to any of them later without another identifier move.

@@ -61,13 +61,17 @@ static uint32_t modui_publish(uint32_t e, fw_pages_rd rd, void *ctx, uint32_t de
                     }
                     if (at >= np) continue;             /* (a pid the table lacks: dropped here, never at draw or interrupt time) */
                     leg = q[2] | q[3] << 8;
-                    if (leg == FW_PID_NONE || leg >= P_COUNT || (leg >= P_MAC0 && leg <= P_MAC3) ||
+                    if (leg == FW_PID_NONE || leg < P_E0 || leg > P_E7 ||   /* (review: only the engine's own E0 .. E7 may be a knob's target; a legacy slot is any track slot, and a knob never switches what the sound is) */
                         rd(ctx, panel + at * FW_PAGES_DESC_WIRE, p, FW_PAGES_DESC_WIRE)) continue;
                     if (k[6] == 1u) {
                         m.kd[i].kind = KD_PLAIN;
                         m.kd[i].id = (uint8_t)leg;
                     } else {
+                        const param_desc_t *pd = param_desc_of(e, leg);   /* (review) the range is the panel entry's cut to the slot's own, so a module cannot widen it */
                         int32_t mn = (int16_t)(p[6] | p[7] << 8), mx = (int16_t)(p[8] | p[9] << 8);
+                        if (mn < pd->min) mn = pd->min;
+                        if (mx > pd->max) mx = pd->max;
+                        if (mn > mx) continue;
                         m.kd[i].kind = KD_MACRO;
                         m.kd[i].t[t].id = (uint8_t)leg;
                         m.kd[i].t[t].shape = k[12 + 4 * t];

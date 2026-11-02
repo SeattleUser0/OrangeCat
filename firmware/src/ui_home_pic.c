@@ -45,8 +45,8 @@ static struct {
     uint32_t pic_ms, ph_ms;                              /* when the picture last drew; when the phases last moved */
     uint32_t age, hit_ms;                               /* the newest voice's age seen; the last note-on's time */
     const uint8_t *scene;                               /* the scene found (scene_of), its length; for the engine and the pack's check: */
-    uint32_t scene_len;
-    uint8_t scene_eng, scene_gen, scene_ok, scene_mgen;   /* (Release 3) .. scene_mgen: modui_gen when it was looked up (a module came or went) */             /* .. scene_ok 1: looked up for scene_eng at scene_gen */
+    uint32_t scene_len, scene_mgen;
+    uint8_t scene_eng, scene_gen, scene_ok;   /* (Release 3) .. scene_mgen: modui_gen when it was looked up (a module came or went) */             /* .. scene_ok 1: looked up for scene_eng at scene_gen */
     uint16_t ph[4];                                     /* the knob-rate phases (SS_PH1 .. SS_PH4), the selected track's */
     uint8_t note, trk, landed, ready;                   /* the last note; the track the state is of; HOME landed on the picture; the
                                                          * state is of trk (0: the first frame) */
