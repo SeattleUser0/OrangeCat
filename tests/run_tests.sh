@@ -174,7 +174,7 @@ build() {
 #   stalling the suite (drum_editor_test hung for 98 minutes). The limit kills the test and what it started. An exit of 124 is the limit.
 TEST_TIMEOUT=${TEST_TIMEOUT:-900}; [ "${SAN:-0}" = 1 ] && TEST_TIMEOUT=$((TEST_TIMEOUT * 4))
 limited() {                                       # (a shell function, powercut_tests and old_to_new, cannot be run by timeout: it runs unlimited)
-    case $(type -t "$1") in function) "$@"; return ;; esac
+    case $1 in */*) ;; *) "$@"; return ;; esac   # (no slash: a function or a builtin; sh has no type -t)
     timeout -k 10 "$TEST_TIMEOUT" "$@"; _rc=$?
     case $_rc in 124 | 137) echo "TIMED OUT after ${TEST_TIMEOUT} s (exit $_rc): $*" >&2 ;; esac
     return $_rc
