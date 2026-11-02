@@ -1,3 +1,17 @@
+# Orange Cat Nightly v0.16.0-a5e868: what changed for you since 449c6b
+
+Written November 2, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged.
+
+1. **DUB steps aside before the music stumbles.** The first half of a block that passes 85 % of its time makes the DUB echo ramp out (a few milliseconds, DUB FULL shown). It comes back after 8 s, 2 s of quiet and a mix that leaves room for it (the heaviest stretch of the last 32 s plus one echo under the line). Four busy tracks with DUB: all 512 of 512 onsets played. The first pass after you switch DUB on into a heavy mix can still drop 2 or 3 halves once, before the governor has seen how heavy the mix is.
+2. **SHAPES is its module only.** It is no longer inside the firmware (24,024 B smaller image: 569,796 B with it, 545,772 B without). The installer page ticks the SHAPES module by default and says so; a unit coming from a build with SHAPES inside gets SHAPES back by installing it. A track whose engine is not installed keeps its music and settings, plays nothing, and the screen says MODULE MISSING.
+3. **The Prophet** is still the alternative module (one of the two on a unit); the page now says in one line what each is.
+4. **Installs from the live page, both done on the test unit:** from a build with SHAPES inside (firmware replaced, pack and both modules already current) and from stock V15 (firmware, pack and both modules written; WHEEL at the first start, SHAPES the next).
+5. **From the other session (ui-fix2 close-out):** its hang in drum_editor_test was the test's own misuse (the DRUM engine is not in this build), not a firmware loop, so nothing of it was merged.
+
+The earlier note for 449c6b follows.
+
+---
+
 # Orange Cat Nightly v0.16.0-449c6b: what changed for you since 7b29d7
 
 Written November 2, 2026 for the owner. Install it from the installer page (Nightly, top of the page); Standard 0.15.0 is unchanged. The first two lines of each item are what you will notice.

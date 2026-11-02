@@ -140,3 +140,5 @@ The review (a fresh agent, read-only, against the code) found two blockers and t
 - A time past the line (more than about 2.97 s at the quarter rate) shortens silently.
 - The all-zero rescue of the old code (a length set with the four values at 0) is gone; no such file is known.
 - The kernel scene hashes in `jfx_dub_test.c` were regenerated from the new kernel: they pin it against change; "the converters are unchanged" rests on the converter code not being in the diff.
+
+**Round 14 (governor).** The governor of section 12 is replaced: a running instance gives way at the first half over 85 % of the deadline (DMA-seen time), and comes back only after the wait, 2 s of quiet and headroom (the heaviest half of 32 s without an instance, plus 450 us an instance). Heavy cells on the unit: 512 of 512 with the old settings and with PING, WOW, SPRING; the first note-on spike after a mix changes can still be late once (2 or 3 halves). BUILD.md 7.25.
