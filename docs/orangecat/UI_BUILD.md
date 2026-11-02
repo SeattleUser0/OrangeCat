@@ -3047,3 +3047,7 @@ resident DUB TAPE copy (8,500 B) still to come off. Part 9's RAM is the proj_x t
 switches (the old ids are still stored), run the on-unit sequencer test of an own SLIDE TIME (seq.c's slide and recording.c's recorded slide pass the leaving step's time; voice.c unchanged), and
 decide the open choice in Part 9 (the six spare bits against a trailer in the phrase). *Session D:* np 139 (INFO's tagged block says it), the eight ids' tables and wide ids in the editor, and
 the step commands carrying an own time. *The owner:* which parts of the revision go into the first Release 3 image, given the budget above.
+**Close-out: suite and budget.** The full suite with CI's settings (`ci_step.py test --parallel 2`) on 04958c9 (the close-out, the golden, the legacy runs): every job passed but one, `drum_editor_test`,
+which hung under OC_ONE_AUTH (above; killed after 98 minutes, the run reported 8,077 s); the test is pinned and passes alone. The closing run is the r3-format suite (branch r3-format, bc8d4ad, which
+holds ui-fix2 at 8b37931 merged): **240 jobs passed in 3,096 s** (the ui-fix2 jobs among them). Image with every switch on: **565,556 B** (+512 B on the 565,044 B before the close-out: the roll's nudge,
+the page resets, the template question, the hash-only pack, GLO's helpers moved), 94,600 B .data+.bss, 180,656 B pool: 11,692 B free, 3,500 B above the 8 KB reserve.
