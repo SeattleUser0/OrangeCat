@@ -21,6 +21,7 @@
 #include <math.h>
 
 static int bad;
+#define GMIX(blk) do { static uint32_t gq; if (!(gq++ & 3u)) dub_late_half(0, 1200u); mix_block((blk), CTL); } while (0)
 #define CHECK(c, ...) do { if (!(c)) { bad++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 #define NBLK 2600u                                     /* 1.9 s */
 static int32_t rec[NBLK][CTL * 2];
@@ -381,39 +382,50 @@ int main(void)
     for (b = 0; b < 2900; b++) mix_block(rec[b % NBLK], CTL);
     CHECK(dub_ready[0] && !(jfx_full & 0xF0u), "back after CPU1 returned for 2 s: ready %u jfx_full %x", dub_ready[0], jfx_full);
     /* the governor: late halves while an instance runs: it gives way, stays out until its setting changes */
-    for (b = 0; b < 6; b++) { dub_late_half(1); dub_late_half(1); mix_block(rec[b], CTL); }
-    for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
+    for (b = 0; b < 6; b++) { dub_late_half(1, 3000u); dub_late_half(1, 3000u); GMIX(rec[b]); }
+    for (b = 0; b < 200; b++) GMIX(rec[b]);
     CHECK(!dub_state[0] && (jfx_full & 0x10u), "the governor should have released the instance with DUB FULL: jfx_full %x", jfx_full);
-    for (b = 0; b < 3000; b++) mix_block(rec[b % NBLK], CTL);
+    for (b = 0; b < 3000; b++) GMIX(rec[b % NBLK]);
     CHECK(!dub_state[0], "a governed instance must stay out for 8 s");
-    for (b = 0; b < 4000; b++) { if (b % 400u == 0) dub_late_half(1); mix_block(rec[b % NBLK], CTL); }                 /* late halves go on: it stays out, past the 8 s */
+    for (b = 0; b < 4000; b++) { if (b % 400u == 0) dub_late_half(1, 3000u); GMIX(rec[b % NBLK]); }                 /* late halves go on: it stays out, past the 8 s */
     CHECK(!dub_state[0], "a governed instance must stay out while late halves go on");
-    for (b = 0; b < 3500; b++) mix_block(rec[b % NBLK], CTL);                                                            /* (block ~10,700 after the release: just before the 8 s are out) */
-    dub_late_half(1);                                                                                                    /* a late half now: the 2 s of quiet start over */
-    for (b = 0; b < 2000; b++) mix_block(rec[b % NBLK], CTL);
+    for (b = 0; b < 3500; b++) GMIX(rec[b % NBLK]);                                                            /* (block ~10,700 after the release: just before the 8 s are out) */
+    dub_late_half(1, 3000u);                                                                                                    /* a late half now: the 2 s of quiet start over */
+    for (b = 0; b < 2000; b++) GMIX(rec[b % NBLK]);
     CHECK(!dub_state[0], "the 2 s of quiet must wait for a late half that came at the end of the 8 s");
-    for (b = 0; b < 1500; b++) mix_block(rec[b % NBLK], CTL);                                                            /* quiet: after 8 s and 2 s of quiet it asks again */
+    for (b = 0; b < 1500; b++) GMIX(rec[b % NBLK]);
+    CHECK(!dub_state[0], "the window still holds the heavy half: no room yet");
+    for (b = 0; b < 44000; b++) GMIX(rec[b % NBLK]);                                                           /* quiet: after the wait, 2 s of quiet and 32 s without a heavy half it asks again */
     CHECK(dub_ready[0], "a governed instance must come back after 8 s and 2 s without a late half: state %u", dub_i[0].state);
-    for (b = 0; b < 6; b++) { dub_late_half(1); dub_late_half(1); mix_block(rec[b], CTL); }                              /* and again, to test the setting-change release */
-    for (b = 0; b < 200; b++) mix_block(rec[b], CTL);
+    for (b = 0; b < 6; b++) { dub_late_half(1, 3000u); dub_late_half(1, 3000u); GMIX(rec[b]); }                              /* and again, to test the setting-change release */
+    for (b = 0; b < 200; b++) GMIX(rec[b]);
     CHECK(!dub_state[0], "the governor should have released it again");
     CHECK(dub_i[0].gov_wait > 21000u && dub_i[0].gov_wait <= 22000u, "the second governor release in a row should wait twice as long: %u", dub_i[0].gov_wait);
     trk[0].p[P_DUB_ECHO] = 100; trk[0].p[P_DUB_TIML] = trk[0].p[P_DUB_TIMR] = (int16_t)dub_t_val(9);
-    for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
+    for (b = 0; b < 300; b++) GMIX(rec[b]);
     CHECK(dub_ready[0], "a new setting asks again: ready %u", dub_ready[0]);
-    /* the governor counts late halves only while an instance runs (the review): a configuration change's 150 late halves with LEN OFF do not evict the instance that comes next */
+    /* round 14: late halves before the instance existed are the mix's heaviest, and the window keeps them: no room for the instance that comes next, DUB FULL; 32 s lighter and it starts */
     dt_fresh(0, 6, 6, 120);
-    for (b = 0; b < 100; b++) { dub_late_half(1); mix_block(rec[b], CTL); }
-    for (b = 0; b < 4000; b++) mix_block(rec[b % NBLK], CTL);
+    for (b = 0; b < 100; b++) { dub_late_half(1, 3000u); mix_block(rec[b], CTL); }
+    for (b = 0; b < 4000; b++) GMIX(rec[b % NBLK]);
     trk[0].p[P_DUB_ECHO] = 100;
-    for (b = 0; b < 300; b++) mix_block(rec[b], CTL);
-    CHECK(dub_ready[0] && dub_i[0].state == 2, "late halves before the instance existed must not evict it: state %u", dub_i[0].state);
-    /* a lone late half does not stay for good: one now, then 3 s clean, then one more: no eviction */
-    dub_late_half(1);
-    for (b = 0; b < 4000; b++) { dub_late_half(0); mix_block(rec[b % NBLK], CTL); }
-    dub_late_half(1);
-    for (b = 0; b < 50; b++) mix_block(rec[b], CTL);
-    CHECK(dub_i[0].state == 2, "two late halves seconds apart must not evict: state %u", dub_i[0].state);
+    for (b = 0; b < 300; b++) GMIX(rec[b]);
+    CHECK(!dub_ready[0] && (jfx_full & 0x10u), "no room after heavy halves: it must wait with DUB FULL (state %u full %x)", dub_i[0].state, jfx_full);
+    for (b = 0; b < 44000; b++) GMIX(rec[b % NBLK]);
+    CHECK(dub_ready[0] && dub_i[0].state == 2, "32 s of lighter halves: it should start: state %u", dub_i[0].state);
+    /* round 14: a lone half over 85 % gives way at once (no score), with a quiet half in between nothing does */
+    for (b = 0; b < 4000; b++) { dub_late_half(0, 2000u); GMIX(rec[b % NBLK]); }
+    CHECK(dub_i[0].state == 2, "halves at 2000 us (69 %%) must not evict: state %u", dub_i[0].state);
+    dub_late_half(0, 2400u);
+    CHECK(dub_i[0].state == 2 && !dub_gov_req, "a half at 83 %% must not evict");
+    dub_late_half(0, 2500u); GMIX(rec[0]);
+    for (b = 0; b < 40; b++) GMIX(rec[b]);
+    CHECK(dub_i[0].state != 2 && (jfx_full & 0x10u) , "a lone half at 86 %% should give way at once, DUB FULL: state %u full %x", dub_i[0].state, jfx_full);
+    /* the headroom: a mix whose heaviest half (91 %) leaves no room for an instance keeps it out, however long the wait */
+    for (b = 0; b < 16000; b++) { dub_late_half(0, (b % 700u) == 0 ? 2640u : 1500u); GMIX(rec[b % NBLK]); }
+    CHECK(!dub_state[0] && dub_gov_fires > 0, "no headroom: the instance must stay out");
+    for (b = 0; b < 40000; b++) { dub_late_half(0, 1500u); GMIX(rec[b % NBLK]); }
+    CHECK(dub_ready[0], "headroom again after 32 s of lighter halves: it should be back (state %u)", dub_i[0].state);
     /* the parameter copy follows the track's values although it is made again only when they change (the cache): SPACE, TONE, FDBK, CUT, the tempo */
     dt_fresh(1, 6, 6, 120);
     for (b = 0; b < 300; b++) { if (b % 120u == 4u) trk_note_on(&trk[0], 60, 100); mix_block(rec[b], CTL); }

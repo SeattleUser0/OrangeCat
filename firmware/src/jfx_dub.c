@@ -150,37 +150,55 @@ static uint32_t dub_blocks_at(float need2, uint32_t R)
 #else
 #define DUB_CPU1_OK() 1                                  /* (a host build: no second core to lose; tests use dub_force_degrade) */
 #endif
-/* audio.c, the end of every half: a late half while an instance ran. Two late halves within about a second (the score falls by 1/344 a half) and the highest running instance
- * gives way: ramped out, DUB FULL, and it stays out until its track's setting changes (or a new project): the safety net under the voice caps' third column */
-static __attribute__((section(".pool"))) uint16_t dub_gov_score, dub_gov_cool, dub_late_recent;      /* dub_late_recent: blocks left of the quiet a governor release waits for, set by every late half */
+/* audio.c, the end of every half (round 14): the governor acts on the time the DMA sees, with headroom, and before a half is late. A running instance whose half passes 85 % of the deadline
+ * (DUB_BACK_US, the overload shed's line) is the one to give way, at the first such half: ramped out over DUB_RAMP blocks, DUB FULL, and it comes back only after the wait (8, 16, 32 s), 2 s
+ * without a half over the line, and headroom: the heaviest half of the last 32 s, seen while no instance ran, plus what an instance costs (DUB_COST_US) must still be under the line
+ * (a mix whose note-on halves are at 91 % alone never admits one: DUB stays out and says DUB FULL). The same headroom is asked of a new instance. */
+#define DUB_BACK_US ((HALF_FRAMES * 1000000u / FS) * 85u / 100u)
+#define DUB_COST_US 450u                                /* what an instance adds to the heaviest half (measured: the load meter 16 -> 30 % with DUB on, round 13) */
+#define DUB_ADMIT_US (DUB_BACK_US - DUB_COST_US)
+#define DUB_PK_HALVES 1376u                             /* a bucket of the peak window: 4 s of halves; 8 of them, 32 s */
+static __attribute__((section(".pool"))) uint16_t dub_gov_cool, dub_late_recent, dub_pk[8], dub_pk_n;     /* dub_late_recent: blocks left of the quiet a governor release waits for, set by every half over the line */
+static __attribute__((section(".pool"))) uint8_t dub_pk_i;
 #define DUB_GOV_WAIT 11000u                             /* 8 s */
 #define DUB_QUIET 2750u                                 /* 2 s */
 static __attribute__((section(".pool"))) uint32_t dub_gov_fires;                          /* governor evictions since power-on (the readout) */
 #ifndef OC_DUB_NOGOV
 #define OC_DUB_NOGOV 0
 #endif
-JFX_XIP static void dub_late_half(int late)
+static void dub_pk_note(uint32_t us)
+{
+    if (us > 65535u) us = 65535u;
+    if (us > dub_pk[dub_pk_i]) dub_pk[dub_pk_i] = (uint16_t)us;
+}
+/* room for an instance: the heaviest half of the window with the instance's cost on it stays under the line */
+static int dub_headroom(void)
+{
+    uint32_t i, m = 0;
+    for (i = 0; i < 8; i++) if (dub_pk[i] > m) m = dub_pk[i];
+    return m < DUB_ADMIT_US;
+}
+JFX_XIP static void dub_late_half(int late, uint32_t us)
 {
     uint32_t k, running = 0;
 #if OC_DUB_NOGOV                                        /* (round 5, a measurement build only: the governor never releases an instance, so a load over the budget can be timed with DUB running) */
-    (void)late; (void)k; (void)running;
+    (void)late; (void)us; (void)k; (void)running;
     return;
 #endif
-    if (late) dub_late_recent = DUB_QUIET;
     for (k = 0; k < DUB_N; k++) running |= dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP;
-    if (!running) {                                     /* a late half with no instance running is no business of DUB's: the score and the cool-down start over */
-        dub_gov_score = dub_gov_cool = 0;
-        return;
+    if (!running) {                                     /* no instance: this half is the mix alone, and the window remembers its heaviest */
+        dub_pk_note(us);
+        dub_gov_cool = 0;
+    } else if (late || us > DUB_BACK_US) {
+        dub_late_recent = DUB_QUIET;
+        if (!dub_gov_cool) {
+            dub_gov_req = 1;
+            dub_gov_cool = 12u;                         /* the ramp (6 blocks) is under way: the next judges after about 35 ms */
+            dub_gov_fires++;
+        }
     }
-    dub_gov_score = (uint16_t)(dub_gov_score - (dub_gov_score + 343u) / 344u);        /* (rounded up: a lone late half does not stay for good) */
-    if (late && dub_gov_score < 60000u) dub_gov_score = (uint16_t)(dub_gov_score + 256u);
-    if (dub_gov_cool) dub_gov_cool--;
-    else if (dub_gov_score >= 480u) {
-        dub_gov_req = 1;
-        dub_gov_score = 0;
-        dub_gov_cool = 172u;                            /* half a second before it judges again */
-        dub_gov_fires++;
-    }
+    if (dub_gov_cool && running) dub_gov_cool--;
+    if (++dub_pk_n >= DUB_PK_HALVES) { dub_pk_n = 0; dub_pk_i = (uint8_t)((dub_pk_i + 1u) & 7u); dub_pk[dub_pk_i] = 0; }
 }
 /* an instance running: the voice caps' third column (voice.c vc_limit) */
 static int dub_running(void) { return dub_mask != 0; }
@@ -255,10 +273,11 @@ JFX_XIP static void dub_start(uint32_t nt)
                 if (d->held_off && d->gov && dub_gov_key(d) != d->gov_sig) { d->gov = 0; d->gov_n = 0; }      /* the setting changed: it asks again, from the first wait */
                 if (d->held_off && d->gov) {                                                              /* a governor release is not for good: after 8 s, and 2 s without a late half, it asks again (a transient is forgiven, a lasting overload is not) */
                     if (d->gov_wait) d->gov_wait--;
-                    if (!d->gov_wait && !dub_late_recent) d->gov = 0;
+                    if (!d->gov_wait && !dub_late_recent && dub_headroom()) d->gov = 0;
                 }
                 if (d->held_off && !d->gov && !degrade) d->held_off = 0;
                 else if (!d->held_off && degrade) d->held_off = 1;
+                if (!d->held_off && !dub_headroom()) { dub_ev_full |= (uint8_t)(JFX_FULL_DUB0 << k); break; }      /* the mix leaves no room for it (round 14): dry, DUB FULL, asked again every block */
                 if (d->held_off) { dub_ev_full |= (uint8_t)(JFX_FULL_DUB0 << k); break; }               /* CPU short: dry, DUB FULL */
                 dub_want[k] = (uint8_t)blocks; dub_spring[k] = (uint8_t)sp; d->R = (uint8_t)R; d->state = DUBS_WAIT;
             } else d->held_off = d->gov = d->gov_n = 0;
@@ -365,7 +384,7 @@ JFX_XIP static void dub_reset(void)
     memset(dub_want, 0, sizeof dub_want);
     memset(dub_spring, 0, sizeof dub_spring);
     dub_evict = dub_ev_full = dub_gov_req = 0;
-    dub_gov_score = dub_gov_cool = 0;
+    dub_gov_cool = 0;
     memset(dub_trig, 0, sizeof dub_trig);                 /* (the performance triggers, RAM only, start released) */
 }
 static void dub_tables(void) {}
@@ -374,7 +393,7 @@ static void dub_tables(void) {}
 #endif
 #else
 static void dub_tables(void) {}
-static inline void dub_late_half(int late) { (void)late; }
+static inline void dub_late_half(int late, uint32_t us) { (void)late; (void)us; }
 static inline int dub_running(void) { return 0; }
 static inline int32_t *dub_capture(uint32_t k) { (void)k; return 0; }
 static inline int dub_alive(uint32_t k) { (void)k; return 0; }
