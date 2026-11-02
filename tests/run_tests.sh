@@ -173,7 +173,12 @@ build() {
 # (ui-fix2, close-out 2) a time limit on every test run: a hang FAILS (and says so) after TEST_TIMEOUT seconds (default 900; x4 under SAN=1) instead of
 #   stalling the suite (drum_editor_test hung for 98 minutes). The limit kills the test and what it started. An exit of 124 is the limit.
 TEST_TIMEOUT=${TEST_TIMEOUT:-900}; [ "${SAN:-0}" = 1 ] && TEST_TIMEOUT=$((TEST_TIMEOUT * 4))
-limited() { timeout -k 10 "$TEST_TIMEOUT" "$@"; _rc=$?; [ "$_rc" = 124 ] && echo "TIMED OUT after ${TEST_TIMEOUT} s: $*" >&2; return $_rc; }
+limited() {                                       # (a shell function, powercut_tests and old_to_new, cannot be run by timeout: it runs unlimited)
+    case $(type -t "$1") in function) "$@"; return ;; esac
+    timeout -k 10 "$TEST_TIMEOUT" "$@"; _rc=$?
+    case $_rc in 124 | 137) echo "TIMED OUT after ${TEST_TIMEOUT} s (exit $_rc): $*" >&2 ;; esac
+    return $_rc
+}
 _t() {
     _title=$1 _out=${2%%:*} _src=${2#*:} _flags=; shift 2
     while [ $# -gt 0 ] && [ "$1" != -- ]; do _flags="$_flags $1"; shift; done

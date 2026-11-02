@@ -241,12 +241,12 @@ static int property_edits_and_mixed_patterns(void)
     fm1_in.buttons|=1u<<panel.btn[B_SCL];host_pressed|=1u<<panel.btn[B_SCL];frame();turn(EN_K1,2);fm1_in.buttons&=~(1u<<panel.btn[B_SCL]);frame();
     bad+=check("MOVE preserves a captured note's fractional onset, duration and neighbours",ui.cursor==2&&notes_selected(t)==1&&(recording[1].step&63u)==2&&recording[1].on==original[1].on&&recording[1].duration==original[1].duration&&recording[0].vel==100&&recording[2].vel==95);
     hold(B_EDIT);bad+=check("move undo restores position and focus without dropping prior edits",ui.cursor==0&&notes_selected(t)==1&&!memcmp(&recording[1].on,&original[1].on,sizeof original[1].on)&&recording[1].vel==70);
-    cursor_set(0);turn(NK_BROWSE,-1);bad+=check("KNOB 1 back from a step's first note: the step before, an empty one too",ui.cursor==step_pattern_len(t)-1u&&notes_selected(t)>=RECORD_MAX);
+    cursor_set(0);turn(NK_BROWSE,-1);bad+=check("the browse knob back from a step's first note: the step before, an empty one too",ui.cursor==step_pattern_len(t)-1u&&notes_selected(t)>=RECORD_MAX);
     cursor_set(2);turn(NK_BROWSE,-1);bad+=check("..the step before on its last recorded note",ui.cursor==1&&notes_selected(t)==2);
     cursor_set(4);frame();queued(0x90,72,100,1);frame();queued(0x80,72,0,1);frame();
     bad+=check("MIDI can add a manual note in free space beside a recorded take",t->step[4].n==1&&t->step[4].note[0]==72&&!(t->step[4].flags&SF_RECORDED)&&recording[0].vel==100&&recording[1].vel==70);
     cursor_set(5);turn(NK_BROWSE,-1);int manual=ui.cursor==4&&notes_manual_start(t)==4;turn(NK_BROWSE,-3);
-    bad+=check("the same KNOB 1 jog reaches manual and recorded notes",manual&&ui.cursor==1&&notes_selected(t)==2);
+    bad+=check("the same browse jog reaches manual and recorded notes",manual&&ui.cursor==1&&notes_selected(t)==2);
     project_capture(&proj_scratch);int packed=bank_pack(proj_wire_u.raw,&proj_scratch,1);project_restore_runtime(&proj_scratch);if(packed)bank_restore(proj_wire_u.raw);
     bad+=check("property edits and mixed note types survive save/load",packed&&recording[1].vel==70&&t->step[4].note[0]==72&&recording_active(t,0)&&recording_active(t,1));
     raw_replay();seq_advance(600);bad+=check("neighbouring recorded pitch still plays after editing and reload",gate_note(t,60));seq_advance(1200);bad+=check("edited recorded note still plays on its original timeline",gate_note(t,64));seq_stop();

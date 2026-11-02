@@ -73,7 +73,7 @@ static int edits_and_store(void)
 #else
     bad+=check("hit undo restores pitch and natural length",step_history_apply(0) && recording[i].pitch==7 && !recording[i].length);
 #endif
-    bad+=check("hit redo restores the length override",step_history_apply(1) && recording[i].length);
+    bad+=check("hit redo restores the length override",step_history_apply(1) && recording[i].length && recording[i].duration*(1u<<(recording[i].owner>>5))==RECORD_UNIT/2);
     settings_preview=1;notes_preview();audition_tick(1);
     bad+=check("hit preview retains edited pitch and duration",TSEL->v[0].note==36 && TSEL->v[0].s[4]==7 && TSEL->v[0].s[5]);audition_stop();settings_preview=0;
     drum_hit_delete();step_history_end();step_history_finish();

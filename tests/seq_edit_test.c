@@ -227,7 +227,7 @@ static int test_step_modifiers(void)
     {
         int paged = cur_page()->graph != GR_ROLL && ui.cursor == 7;
         turn(EN_SELECT, -1); turn(NK_BROWSE, 1);
-        bad += check("SELECT turns the page, not the notes; KNOB 1 reaches empty steps (BPM untouched)",
+        bad += check("SELECT turns the page, not the notes; the browse knob reaches empty steps (BPM untouched)",
                      paged && cur_page()->graph == GR_ROLL && ui.cursor == 8 && song.g[G_BPM] == bpm);
     }
     cursor_set(4); frame(); step_t before[NSTEP]; memcpy(before, t->step, sizeof before);

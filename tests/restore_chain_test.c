@@ -34,7 +34,7 @@ int main(void)
     /* a slot restored into another track's owner leaves its old track's chain */
     uint32_t other = (owner + NPAT) & 31u;
     recording_restore_note(&trk[other / NPAT], 1, (recorded_note_t){3000, 2000, 40, 80, (uint8_t)other, 3, 0, 0});
-    uint32_t a = walk_chain(owner, &twice), b = walk_chain(other, &twice);
-    bad += check("an event moved to another track leaves the old chain", a == 1 && b == 1 && !twice);
+    uint32_t t1, t2, a = walk_chain(owner, &t1), b = walk_chain(other, &t2);
+    bad += check("an event moved to another track leaves the old chain", a == 1 && b == 1 && !t1 && !t2);
     printf("RESTORE CHAIN: %s\n", bad ? "FAILED" : "all passed"); return bad != 0;
 }
