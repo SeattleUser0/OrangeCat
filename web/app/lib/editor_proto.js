@@ -1352,7 +1352,7 @@ async function czBankRead(rq,index){const r=parse[CMD.CZ_BANK](await rq(req.czBa
 const TRACK_OWN = new Set([0, 8, 39, 40, ...Array.from({ length: 16 }, (_, i) => 17 + i)]);
 const P_CHORD = [81, 82];                          /* core.h P_CHRD, P_VOIC (since P_COUNT 91, P_E0 83) */
 const P_MPCDEG = 83;                               /* core.h P_MPCDEG (since P_COUNT 92, P_E0 84) */
-const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 84 && i === P_MPCDEG) || (pe0 >= 100 && i >= 96 && i < Math.min(pe0,114)) || (pe0 >= 116 && (i === 114 || i === 115 || (i >= 45 && i <= 47)));
+const trackOwn = (i, pe0) => TRACK_OWN.has(i) || i === 48 || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 84 && i === P_MPCDEG) || (pe0 >= 100 && i >= 96 && i < Math.min(pe0,114)) || (pe0 >= 116 && (i === 114 || i === 115 || (i >= 45 && i <= 47)));
 /* play a patch without writing flash, as UP_LOAD would load it: the sound only. SET the engine (G_ENGSEL:
    engine defaults and its first preset), then every instrument parameter that differs, except the track's
    own (TRACK_OWN). The steps are never touched. The device keeps a copy of the sound from before (EDIT held
@@ -1763,7 +1763,7 @@ function makeMockDevice(opt = {}) {
     ...Array.from({length:4},()=>D("",F.INT,0,127,0)),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
-    E("LEN", ["OFF", "32K", "8K", "16K", "24K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("",F.INT,0,127,0),   /* (Release 2) DUB TAPE's setup */
+    E("LEN", ["OFF", "32K", "8K", "16K", "24K", "48K", "64K"], 0), E("PTRN", ["SLAP", "SINGLE", "SKANK", "TRIPLE", "GALLOP", "SPREAD"], 0), E("SPRP", ["OFF", "LOOP", "WET"], 0), D("SLIDE",F.BIPCT,-64,63,0),   /* (Release 2) DUB TAPE's setup; 48: (ui-fix2 4) SLIDE TIME, the track's own (once the retired id 48; the unit refuses its SET) */
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];
   const GP = [
