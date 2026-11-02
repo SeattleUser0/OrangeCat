@@ -117,6 +117,10 @@ case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=al
 #   (-DOC_X=0 / 1). BS_OFF is the same list switched off: the "legacy" jobs keep the old paths in the image tested (UI_BUILD.md: step 9 is the owner's).
 BS=$(grep '^export OC_' tools/orangecat_engines.sh | grep -o 'OC_[A-Z0-9_]*=1' | sed 's/^/-D/' | tr '\n' ' ')
 BS_OFF=$(echo "$BS" | sed 's/=1/=0/g')
+# (close-out) BS_NOSTEP: the build set with the step-page family off (OC_STEP_PAGES and what needs it: LANES, MIXER, ONE_AUTH, SLIDE, SLIDE_TIME, REC_CLEAR, START_NUDGE). Three tests
+# written for the interface before the step pages (NOTES' KNOB 1 browses the notes, KNOB 2 is START ..) are pinned to it: seq_notes_test, seq_edit_test, note_tools_test. The new
+# interface's side of the same code is step_pages_test, one_auth_test, rec_clear_test, start_nudge_test and ui_test on the full set; converting these three is open (UI_BUILD.md)
+BS_NOSTEP="-DOC_STEP_PAGES=0 -DOC_LANES=0 -DOC_MIXER=0 -DOC_ONE_AUTH=0 -DOC_SLIDE=0 -DOC_SLIDE_TIME=0 -DOC_REC_CLEAR=0 -DOC_START_NUDGE=0"
 [ -n "$BS" ] || { echo "run_tests.sh: no OC_ switches found in tools/orangecat_engines.sh" >&2; exit 2; }
 CC="$CC $BS"
 FW="-w -Ibuild/gen -Ifirmware/src"
@@ -623,7 +627,7 @@ if core && [ $TABLES = 1 ]; then
     t "Recording scheduler oracle against the original scanner" recording_scheduler_reference:recording_scheduler_test -O1 $FW -DMELODEE_RECORD_CURSOR=0
     t "Recording undo: whole takes, motion, early stops, redo, isolation and memory" recording_undo_test -O1 $FW
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
-        -O1 $FW
+        -O1 $BS_NOSTEP $FW
     t "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" midi_scale_test -O1 $FW
     t "MPC bank octaves: controls, held notes, persistence and compatibility" mpc_octave_test -O1 $FW
     t "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" tuning_test \
@@ -667,9 +671,9 @@ if core && [ $TABLES = 1 ]; then
     t "Prophet: all native tone knobs through the panel and sound engine" prophet_knob_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sound designer: native recipes, dependencies, compare, discard and save" designer_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sequencer: tied length/move/delete, eight-level undo/redo, MIDI step entry and playing-step recording" seq_edit_test \
-        -DMELODEE_USB_AUDIO=1 $FW
+        -DMELODEE_USB_AUDIO=1 $BS_NOSTEP $FW
     t "Note/library gestures: quarter snapping, range moves/copies, undo and bulk preset erase" note_tools_test \
-        -O1 -DMELODEE_USB_AUDIO=1 $FW
+        -O1 -DMELODEE_USB_AUDIO=1 $BS_NOSTEP $FW
     job ui_renders
     job ui_renders_pic                            # (the new interface, UI_BUILD.md 1c)
     job ui_renders_sheets                         # (the new interface 0.2, UI_BUILD.md step 2)
