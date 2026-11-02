@@ -1756,7 +1756,7 @@ static void act_do(void)
     switch (id) {
     case G_LOAD:
 #if OC_PROJECT_PAGE
-        if (project_used(k) && !transport_busy() && project_unsaved())   /* (ui-fix2 3) the music has changes its slot does not hold: ask */
+        if (project_used(k) && project_unsaved())   /* (ui-fix2 3) the music has changes its slot does not hold: ask */
             confirm_open(CF_LOAD_PROJ, k);
         else
 #endif

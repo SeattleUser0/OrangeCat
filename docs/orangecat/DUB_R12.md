@@ -1,6 +1,6 @@
 # DUB TAPE, redone as a dub echo (round 12, item 3)
 
-**Version:** 0.2 (November 1, 2026; the independent review's findings folded in at section 11; the packing of section 2 is withdrawn, see 11.1; no firmware code is changed by this note)
+**Version:** 0.3 (November 1, 2026, round 13: the pages shipped within the 7-bit format; sections 2, 5 to 9 are rewritten to what was built, section 12 is the round 13 record; sections 3, 4 and 11 stand as written, the packing of 0.1 withdrawn at 11.1 stays withdrawn)
 **Joins:** BUILD.md 7.23 (the round), the DUB TAPE design 3 (BUILD.md, "DUB TAPE as the per-track insert"), dubdelay.c / jfx_dub.c (the kernel and its glue), params.c (the pages), midi_control.c (CC 12 .. 18).
 
 ## 1. What the owner asked for
@@ -15,26 +15,32 @@ Pages in the owner's order: **DUB SETUP, DUB, DUB 2.**
 | DUB | FEEDBACK | SEND | FILTER | ECHO |
 | DUB 2 | SPRING | DRIVE | WOW | SPEED |
 
-## 2. The constraint that shapes it: no new stored ids
+## 2. The ten ids (round 13: shipped within the 7-bit format)
 
-A track stores 124 parameters (P_COUNT 124, ids 0 .. 123); a project, the editor's tables, the motion lanes and the MIDI map name them by number, the Release 3 format revision (PROJECT_FORMAT_R3.md 8.2a) moves ids beyond 7 bits, and ids 124 .. 127 are all that is left of 7 bits. Twelve values do not fit the ten free ids (JRES0 .. 6 and 45 .. 47) once THRW, CUT and KICK keep theirs. **Decision (the safer reading): no id is added; the setup values are packed into ids 45 .. 47, which are already outside the sounds, the motion and the user presets** (`param_dub_setup`: not a sound's, never motion, defaults on a sound load).
-
-Stored layout (new layout, marked by bit 12 of id 47):
+A track stores one signed byte per parameter id (-64 .. 127, `proj_pack`), and ids 124 .. 127 are all that is left of 7 bits. The effects left ten ids free: P_JRES0 .. 6 (104 .. 107 and 111 .. 113; 108 .. 110 are the sends REV DLY CHO) and P_RESERVED45 .. 47. The owner's decision for round 13: the values played live get a whole id each; the two switches share one id; DRIVE and WOW share one.
 
 | Id | Name | Content |
 |---|---|---|
-| 104 JRES0 | FEEDBACK | 0 .. 127, as before (100 = unity; above builds) |
-| 105 JRES1 | SEND | 0 .. 127, as before |
-| 106 JRES2 | FILTER | 0 .. 127, as TONE before: below 64 a low-pass closes (down to 30 Hz at 0), 64 open, above 64 a high-pass opens (1.6 Hz a step on the knob's log scale) |
-| 107 JRES3 | ECHO | 0 .. 127: the repeats' level, 100 = unity; **0 = DUB off for the track** (no instance, no memory); was SPACE |
-| 45 | TIMES | bits 0 .. 6 TIME L, 7 .. 13 TIME R |
-| 46 | MODES | bits 0 .. 5 SPRING, 6 .. 11 DRIVE, 12 PING, 13 SYNC |
-| 47 | TAPE | bits 0 .. 5 WOW, 6 .. 11 SPEED (32 = normal), bit 12 the layout mark (new layout) |
-| 111 .. 113 | THRW CUT KICK | unchanged; MIDI CC 16 .. 18; off the pages |
+| 104 JRES0 | FEEDBACK | 0 .. 127 (100 = unity; above builds into the bounded runaway) |
+| 105 JRES1 | SEND | 0 .. 127 |
+| 106 JRES2 | FILTER | 0 .. 127 (below 64 a low-pass closes, 64 open, above a high-pass opens); was TONE |
+| 107 JRES3 | ECHO | 0 .. 127 (100 = unity; **0 = the track's DUB off**); was SPACE |
+| 111 JRES4 | TIME L | 0 .. 127; synced: 18 divisions, free: 20 ms .. 1.4 s; was THRW |
+| 112 JRES5 | TIME R | the same; was CUT |
+| 113 JRES6 | SPRING | 0 .. 127 (the mix of the spring on the return); was KICK |
+| 45 | SPEED | 0 .. 127, 64 normal; a semitone every 5.33 steps either way (2^((v - 64) / 64)) |
+| 46 | MODE | 64 \| PING << 1 \| SYNC. **Bit 6 is the layout mark**: a track of before has 0 .. 5 here (PTRN) |
+| 47 | TAPE | DRIVE x 12 + WOW - 64 |
 
-Every value is under 16,384 (the editor's 14-bit value); the descriptors of 45 .. 47 read 0 .. 16,383.
+**DRIVE and WOW: 16 and 12 steps, not 16 and 16.** The owner asked for 4 bits each. 4 + 4 bits are 256 states and the byte holds 192 (-64 .. 127). DRIVE keeps 16 steps and WOW has 12 (16 x 12 = 192, the byte's whole range, negative values included). The knobs are two on one page; each moves alone and keeps the other half.
 
-**The pages edit unpacked values.** A page slot's id may be a *DUB field* (id 0xE0 + field, a virtual id): `page_desc` gives the field's descriptor and a pointer into a per-track shadow (`dub_ui[track]`, 8 values of 16 bits, in .pool), and a knob edit packs the shadow into ids 45 .. 47 at once. The other direction: `dub_sync(track)` at the top of every block's control pass (jfx_dub.c dub_start) compares ids 45 .. 47 with what was last packed (`dub_mirror`); a difference (a project load, the editor, a backup, a track's defaults) unpacks them into the shadow, an old layout converts first (section 7). So no other path (project, editor, backup, user presets) changes.
+**THRW, CUT and KICK** left the pages and the ids. Their code and MIDI triggers stay: CC 16, 17 and 18 write `dub_trig[track][0..2]` (RAM; not stored, not in a project, not a motion lane, not reachable from the editor). They work as before (a throw replaces SEND while held; CUT at 64 or more closes the loop's input and the wet; each rise of KICK through 64 strikes the spring). *Said plainly:* a project no longer carries them, and a motion lane on them (a rarity) is dropped at load.
+
+**Pages** (the owner's order, without or with the EDIT sheets): DUB SETUP: SYNC, TIME L, TIME R, PING. DUB: FEEDBACK, SEND, FILTER, ECHO. DUB 2: SPRING, DRIVE, WOW, SPEED. A page column may be a *DUB field* (page ids 0xE0 .. 0xE3: SYNC, PING, DRIVE, WOW): `page_desc` gives it a cell with the field's value and `edit_param` writes the field back into its id (a single 16-bit store), the other half kept. No page code indexes `p[]` by these ids (the picture's first-value reads are guarded).
+
+**Motion and locks.** A lane moves a whole id. FEEDBACK, SEND, FILTER, ECHO, TIME L, TIME R, SPRING and SPEED are lanes (lockable, recordable). SYNC, PING, DRIVE and WOW share two ids and are **not** lanes: a lane on MODE or TAPE would move both halves, and motion cannot move one half (it stores the id and the value). The owner allowed this; Release 3's wider ids unpack MODE and TAPE into four ids of their own and make the four lanes then.
+
+**Release 3.** Its wider parameter ids (PROJECT_FORMAT_R3.md 8.2a) unpack these two ids: SYNC, PING, DRIVE (16 steps) and WOW (16 steps) each get an id and a 7- or 8-bit value, the mark goes, and the conversion of this section (the byte layouts here) is the one step from the layout of today. MODE and TAPE then stop existing.
 
 ## 3. The kernel (dubdelay.c)
 
@@ -48,13 +54,13 @@ Every value is under 16,384 (the editor's 14-bit value); the descriptors of 45 .
 
 **ECHO** is the wet gain `v / 100`.
 
-**DRIVE** is the loop's saturation (`drive` 0 .. 1 from the knob 0 .. 63), tape saturation as it was at 0.4 before (the old fixed value is knob 25).
+**DRIVE** is the loop's saturation (`drive` 0 .. 1 from the knob 0 .. 15), tape saturation as it was at 0.4 before (the old fixed value is step 6).
 
-**WOW** modulates every tap's delay with a slow sinusoid (about 0.8 Hz) plus a faster flutter (about 5.7 Hz at a third of the depth): `depth = WOW / 63 * 6 samples` of the loop rate (0.27 ms at the half rate, the pitch wobble about +-0.45 %). Off at 0 (no cost).
+**WOW** modulates every tap's delay with a slow sinusoid (about 0.8 Hz) plus a faster flutter (about 5.7 Hz at a third of the depth): `depth = WOW / 11 * 6 samples` of the loop rate (0.27 ms at the half rate, the pitch wobble about +-0.45 %). Off at 0 (no cost).
 
-**SPEED** bends the tape speed: the taps' target delay is `time / 2^((SPEED - 32) / 32)` (one octave of speed up and down at the ends of the knob; 32 is normal). The existing head glide (`glide` 0.12 s) moves the real delay to its target, and a delay that moves is a pitch change: a turn up shortens the delays and the repeats swoop up while the delay moves, a turn back to the centre glides back down. The slow side is limited by the line (a delay never longer than the line: the instance is sized for the nominal time, not twice it).
+**SPEED** bends the tape speed: the taps' target delay is `time / 2^((SPEED - 64) / 64)` (one octave of speed up and down at the ends of the knob; 64 is normal). The existing head glide (`glide` 0.12 s) moves the real delay to its target, and a delay that moves is a pitch change: a turn up shortens the delays and the repeats swoop up while the delay moves, a turn back to the centre glides back down. The line is sized for the slow side of SPEED (section 5), up to its own limit.
 
-**SPRING** is the spring on the echo return (the RE-201's reverb) at all times: placement 2 (the wet after the taps), the mix from the knob (0 .. 63 over 0 .. 1), the spring memory attached to every running instance (6 KB, the instance's own) so SPRING never cuts the echo to attach it. The wet spring runs only while its mix is above 0 (or still fading) and is cleared after about 0.5 s idle (as the loop spring's was).
+**SPRING** is the spring on the echo return (the RE-201's reverb) at all times: placement 2 (the wet after the taps), the mix from the knob (0 .. 127 over 0 .. 1), the spring memory attached to every running instance (6 KB, the instance's own) so SPRING never cuts the echo to attach it. The wet spring runs only while its mix is above 0 (or still fading) and is cleared after about 0.5 s idle (as the loop spring's was).
 
 **Unchanged:** the 3 ms cut, the throw (SEND replaced), the kick (the spring's burst), the wet limiter, the cost accounting, the governor.
 
@@ -64,43 +70,44 @@ Every value is under 16,384 (the editor's 14-bit value); the descriptors of 45 .
 
 `SYNC` off: 0 .. 127 over 20 ms .. 1,400 ms on an exponential scale (`20 * 70 ^ (v / 127)` ms), shown in milliseconds.
 
-The two fields hold one value each whichever mode is on; the mode changes how they read (the value 5 is "1/16T" synced and 22 ms free). *Said plainly:* turning SYNC does not convert the times; the knob values are re-read (the page shows the new meaning at once).
+The two fields hold one value each whichever mode is on; the mode changes how they read (the value 53 is "1/8D" synced and 119 ms free). *Said plainly:* turning SYNC does not convert the times; the knob values are re-read (the page shows the new meaning at once).
 
 ## 5. The line is sized from the times (LEN is gone)
 
-`need = max(TL, TR)` seconds (the nominal times, speed 32). At the half rate (R 2, loop 22,050 Hz): blocks = ceil((need x 22,050 + 48) / 2,048), at least 8 (32 KB: the old default floor), rounded up to even; when that is above 16 the quarter rate (R 4, 11,025 Hz): the same sum at 11,025 Hz; when that is above 16 blocks too (a time over 2.9 s at the quarter rate), **DUB FULL** and the track plays dry. *Memory never changes the timing:* an instance whose blocks the arena cannot give shows DUB FULL (as before) and plays dry; the times are not shortened.
+`need` = the farthest tap at the slow side of SPEED (a slower tape: the delay is longer), in half-rate loop samples, plus 64. Blocks (4 KB, 2,048 samples) = need / 2,048 rounded up, **even, at least 4**. At the half rate (R 2, 22,050 Hz) up to 16 blocks; when that is not enough the quarter rate (R 4, 11,025 Hz); when 16 blocks at R 4 do not hold the time (about 2.97 s) the taps clamp to the line (the kernel limits the delay to the line). *Said plainly:* a time past the line shortens instead of "DUB FULL"; the page does not say so.
 
-**Sticky growth.** A running instance keeps the largest size and the lowest rate it has needed: turning TIME down never shrinks the line, turning it up past the line grows it (or drops the rate) by the existing path, a ramp out of 3 ms, the memory change, a restart from silence. So moving the knob through a range cuts the echo only when it first passes the size it has held, not at every step. A track's turn to ECHO 0 and back (DUB off, on) starts from the times again.
+**Sticky.** A running line keeps the largest size and the lowest rate it has needed: turning TIME down never shrinks it, turning it up past it grows it by the existing path (a ramp of 3 ms, the memory change, a restart from silence). A rate change waits 344 blocks (a tempo still settling) and the line is held as it is meanwhile. The sticky size ends with the instance (ECHO at 0 for the idle time, a project load, a governor eviction). A line that is waiting for memory asks for what the times need now. Growing a running line first asks the pool whether it can give the blocks (`dub_pool_room`): if it cannot, the echo that runs stays as it is.
 
-**ECHO 0 = off** replaces LEN OFF: no instance and no memory at ECHO 0. The turn from 0 up with FEEDBACK, SEND, FILTER and ECHO's old equivalent all zero writes the defaults (the old rule, in the new names).
+**ECHO 0** mutes (the kernel's cut over 3 ms: the input and the wet) and keeps the instance and its memory for 8 s (`DUB_IDLE`), so ECHO up again within that has the repeats still in the line; then the memory goes back. An instance that was never running takes no memory at ECHO 0.
+
+**The spring** is on the return at all times. Its 6 KB tank is taken with the instance and is optional: if the arena has no 6 KB left the echo runs without the spring (SPRING then does nothing until the instance restarts) and asks again only when something is released. The spring's batch cost (450) counts only while SPRING is above 0 and the tank is there.
 
 ## 6. Defaults
 
-SYNC on, TIME L 1/8 dotted (value 7: 1/8 is 6..8: straight 6, dotted 7, triplet 8 within the 1/8 row), TIME R 1/4 (value 9), PING off, FEEDBACK 55, SEND 127, FILTER 60 (as TONE), ECHO 0 (off), SPRING 0, DRIVE 25, WOW 0, SPEED 32. The values are stored values of the new layout (ids 45 .. 47 = 7 | 9 << 7 ; 25 << 6 | 1 << 13 ; 32 << 6 | 1 << 12).
+SYNC on, TIME L 1/8 dotted (value 53), TIME R 1/4 (value 67), PING off, FEEDBACK 55, SEND 127, FILTER 60, ECHO 0 (off), SPRING 0, DRIVE 6 (of 15: the old fixed 0.4), WOW 0, SPEED 64. Stored: MODE 65, TAPE 8 (6 x 12 - 64).
 
-*Table of the 18 sync values:* index = row x 3 + kind, row 0 .. 5 = 1/32 .. 1/1, kind 0 straight, 1 dotted, 2 triplet.
+*Table of the 18 sync values:* index = row x 3 + kind, row 0 .. 5 = 1/32 .. 1/1, kind 0 straight, 1 dotted, 2 triplet; the 7-bit value is read in 18 equal parts (`value x 18 >> 7`) and a detent moves one division (the value lands in the middle of its part: (index x 128 + 64) / 18).
 
 ## 7. Old projects
 
-A track whose id 47 has bit 12 clear is in the old layout (old ids 45 .. 47 are LEN 0 .. 6, PTRN 0 .. 5, SPRP 0 .. 2). `dub_sync` converts it once, on the first block that sees it, and writes the new layout back:
+A track of the current project magic whose id 46 is under 64 is in the layout of before (id 46 was PTRN, 0 .. 5). `proj_dub_fix` (project.c) converts it once, in `proj_unpack` and in the template loader, so every load path sees the new layout; an older magic (before Release 2, no DUB) takes today's defaults on the ten ids.
 
-- ECHO = 100 when LEN is not OFF, else 0 (DUB was on or off). All other old values below are read whether or not it was on.
-- Old time = `dub_div_beats[SPACE x 14 / 64 (SPACE below 64, else 63 x 14 / 64)]` x the old head pattern's first and second head: SLAP (1, 3), SINGLE (1), SKANK (1, 1.5), TRIPLE (1, 2, 3), GALLOP (0.75, 1), SPREAD (1, 2, 4, 6). TIME L = the nearest of the 18 sync values to the **first** head's time (in beats), TIME R = the nearest to the **second** head's; a single head (SINGLE) gives TIME R = TIME L. SYNC on.
-- SPRING: SPRP OFF -> 0; LOOP or WET -> the old spring mix (SPACE - 64 when SPACE >= 64, else 0) rescaled 0 .. 63 to 0 .. 63 (the same), and a mix of 0 with the spring on -> 0.
-- PING off, DRIVE 25 (the old fixed 0.4), WOW 0, SPEED 32.
-- FEEDBACK, SEND, FILTER keep their values (the old TONE).
+- ECHO = 100 when LEN was not OFF, else 0. All the other values below are converted whether or not DUB was on.
+- Time: the old division `SPACE x 14 / 64` (SPACE below 64; from 64 the last division) times the old pattern's first and second head (SLAP 1, 3; SINGLE 1; SKANK 1, 1.5; TRIPLE 1, 2, 3; GALLOP 0.75, 1; SPREAD 1, 2, 4, 6): TIME L = the nearest of the 18 divisions to the first head, TIME R to the second (SINGLE: the first again). The nearest is taken in beats.
+- SPRING: SPRP OFF -> 0; LOOP or WET -> the old mix (SPACE - 64 when SPACE >= 64, else 0) doubled onto 0 .. 127.
+- SYNC on, PING off, DRIVE 6, WOW 0, SPEED 64. FEEDBACK, SEND and FILTER (the old TONE) keep their values.
+- THRW, CUT and KICK (once on the ids that are now TIME L, TIME R and SPRING) are dropped.
+- Motion lanes of the old meaning (SPACE on 107, THRW, CUT, KICK on 111 .. 113) of a converted track are dropped (they would drive ECHO, TIME L, TIME R, SPRING); the lanes on FEEDBACK, SEND, TONE and the sends stay.
 
-The old sound is **not** reproduced exactly (four heads become two taps, the spring in the loop becomes the spring on the return): "the nearest". The two renders (before and after) are in `~/fm1-hw/r12/dub-renders/`.
+The old sound is **not** reproduced exactly (four heads become two taps, the spring in the loop becomes the spring on the return): "the nearest". Renders: `~/fm1-hw/r13/dub-renders/` (section 12).
 
-Motion recorded on the old SPACE lane (id 107) plays into ECHO now (the lane keeps its id). *Said plainly:* there is no way to tell it apart from a new ECHO lane; none of the owner's saved projects is known to hold one (to check on the unit).
+## 8. MIDI
 
-## 8. MIDI, motion, the performance view
-
-CC 12 .. 14 (FEEDBACK, SEND, FILTER) are as before; CC 15 writes ECHO (it wrote SPACE). CC 16 .. 18 (THRW, CUT, KICK) are as before. The performance view's lanes (`param_dub_lane` = the JRES ids) are the same seven ids: FEEDBACK SEND FILTER ECHO THRW CUT KICK. SPEED, WOW, DRIVE, SPRING, TIME and the modes are not lanes (packed; the owner's Release 3 performance view will address them).
+CC 12 .. 14 are FEEDBACK, SEND, FILTER as before; CC 15 writes ECHO (it wrote SPACE); CC 16 .. 18 set the RAM triggers (THRW, CUT, KICK). The editor reads the new ids as numbers (its descriptor table has the three new display formats F_DUBTS, F_DUBTF, F_DUBSPD as plain numbers until the web editor learns them).
 
 ## 9. What is tested
 
-Kernel (tests/jfx_dub_test.c): two taps at independent times (the impulse's first echoes), PING crossing (an impulse: the sequence of channels), FILTER (the loop closed and opened), SPEED (the delay moving: the echo's pitch), WOW depth, SPRING mix 0 equal to no spring (bit for bit against the kernel before: a golden), the throw, the cut. Glue (tests/dub_insert_test.c): the sizing (blocks and rate from the times), sticky growth, DUB FULL when the time does not fit at 11 kHz, ECHO 0 releasing the memory, the old-layout conversion of the combinations (LEN x PTRN x SPRP x SPACE), the pack and the shadow through a project load. UI (tests/ui_test.c): the three pages in order, the fields' names and values, a knob edit reaching the stored ids, SYNC re-reading the times.
+Kernel (tests/jfx_dub_test.c): the repeats at TIME, two taps at their own times and nothing leaking between the channels, PING moving the second echo of the left channel from 2 TIME L to TIME R + TIME L, SPEED 2 and 0.5 (the echo at half and double the time), WOW (the echo's period varies by 0.2 % with WOW, 0.001 % without), the wet spring at a mix of 0 equal to no spring bit for bit, the cut, the quarter rate, the scene hashes regenerated for the two-tap kernel. Glue (tests/dub_insert_test.c): OFF takes no memory, the echo where TIME says, DUB FULL, a lowered want taken with nothing released, the line growing and staying, ECHO 0 muting and keeping the instance and then giving the memory back, the spring turned up without a restart, the rate stages and the 12-block sizes, the tempo debounce, a project load, a yield, four tracks, the parameter copy following every new id, the triggers. Project (tests/project_test.c): the ten ids round trip, the 192 TAPE states, the 18 divisions, the 126 old combinations, the old heads' nearest divisions, the spring, the old lanes dropped and the sends kept. UI (tests/ui_test.c): the three pages in order, the knobs by name, the defaults, a division a detent, SYNC re-reading the times, PING and SYNC and DRIVE and WOW each alone, SPEED in semitones, the lanes, the CC triggers.
 
 ## 10. Size and cost
 

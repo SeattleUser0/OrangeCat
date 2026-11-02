@@ -27,7 +27,9 @@ PASSES = int(sys.argv[6]) if len(sys.argv) > 6 else 16
 BPM, NSTEP = 120, 16
 STEP_S = 60.0 / BPM / 4
 REV, DLY, CHO, G_RTYPE, G_BPM, G_CLK = 108, 109, 110, 37, 0, 2
-P_LEN, P_PTRN, P_SPRP, P_SPACE, P_FDBK, P_SEND, P_TONE = 45, 46, 47, 107, 104, 105, 106
+# DUB TAPE's ten ids (round 13, dub_fields.h): SPEED 45, MODE 46 (64 | PING << 1 | SYNC), TAPE 47 (DRIVE x 12 + WOW - 64), FEEDBACK 104, SEND 105, FILTER 106, ECHO 107, TIME L 111, TIME R 112, SPRING 113
+P_SPD, P_MODE, P_TAPE, P_ECHO, P_FDBK, P_SEND, P_FILT, P_TIML, P_TIMR, P_SPRG = 45, 46, 47, 107, 104, 105, 106, 111, 112, 113
+DUB_IDS = (P_SPD, P_MODE, P_TAPE, P_ECHO, P_FDBK, P_SEND, P_FILT, P_TIML, P_TIMR, P_SPRG)
 TC = dict(NONE=0, FILL=1, NFILL=2, C1_2=3, C2_2=4, C1_3=5, C2_3=6, C3_3=7, C1_4=8, C2_4=9, C3_4=10, C4_4=11)
 VMODE = dict(POLY=0, MONO=1, LEGATO=2, UNISON=3)
 FLAM_S = 661 / 44100.0
@@ -231,7 +233,8 @@ def program_load(u, load, dub):
     for k, (eng, name, sets) in enumerate(tracks):
         for j, i in enumerate(range(k, NSTEP, 4)): put_step(u, k, i, sets[j % 2], feel=V8)
     if dub:
-        for p, v in ((P_PTRN, 1), (P_FDBK, 60), (P_SEND, 100), (P_TONE, 64), (P_SPACE, 7), (P_SPRP, 0), (P_LEN, 1)): u.req(3, [0, p, *v14(v)])
+        # the worst case of the new DUB: both taps (1/8 dotted and 1/4 dotted), PING, WOW 3, DRIVE 8, SPRING on, the repeats open (ECHO 100), SPEED normal; the selected track's
+        for p, v in ((P_TIML, 53), (P_TIMR, 74), (P_MODE, 64 | 2 | 1), (P_TAPE, 8 * 12 + 3 - 64), (P_SPRG, 28), (P_SPD, 64), (P_FDBK, 60), (P_SEND, 100), (P_FILT, 64), (P_ECHO, 100)): u.req(3, [0, p, *v14(v)])
     exp = []
     for ps in range(PASSES):
         for st in range(NSTEP):
@@ -505,7 +508,7 @@ def main():
     snap = u.snapshot(); sel0, trk0 = u.tracks()
     saved = {}
     for t in range(4):
-        u.select(t); saved[t] = {p: (lambda r: (r[2] | r[3] << 7) - 8192)(u.req(2, [0, p])) for p in (REV, DLY, CHO, P_LEN, P_PTRN, P_SPRP, P_SPACE, P_FDBK, P_SEND, P_TONE, PID["VCE"], PID["GLD"], PID["ATK"], PID["DEC"], PID["SUS"], PID["REL"])}
+        u.select(t); saved[t] = {p: (lambda r: (r[2] | r[3] << 7) - 8192)(u.req(2, [0, p])) for p in (REV, DLY, CHO) + DUB_IDS + (PID["VCE"], PID["GLD"], PID["ATK"], PID["DEC"], PID["SUS"], PID["REL"])}
     saved_g = {g: u.get_global(g) for g in (G_RTYPE, G_BPM, G_CLK)}
     banks0 = banks_select(u, BANK)
     runs = [c for c in cells for _ in range(REPS)]
@@ -524,7 +527,7 @@ def main():
         try: u.req(74, [3])
         except Exception: pass
         time.sleep(0.5)
-        u.select(0); u.req(3, [0, P_LEN, *v14(0)]); time.sleep(0.5)
+        u.select(0); u.req(3, [0, P_ECHO, *v14(0)]); time.sleep(0.5)
         for k in range(4): u.req(73, [k, 1, banks0[k]])
         u.putback(snap)
         for t in range(4):

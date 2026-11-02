@@ -414,7 +414,7 @@ static void proj_motion_drop_old_dub(motion_store_t *m, uint32_t tracks)
     if (!tracks) return;
     for (i = 0; i < m->count && i < MOTION_MAX; i++) {
         const motion_event_t *e = &m->event[i];
-        if (!motion_native_event(e->param, e->value) && (e->param == P_JRES3 || (e->param >= P_JRES4 && e->param <= P_JRES6)) &&   /* (107, 111 .. 113; the sends between them are not DUB's) */
+        if (!motion_native_event(e->param, e->value) && (e->param == P_JRES3 || e->param == P_RESERVED45 || (e->param >= P_JRES4 && e->param <= P_JRES6)) &&   /* (107, 111 .. 113; the sends between them are not DUB's) */
              ((tracks >> ((e->place >> 6) & 3u)) & 1u)) continue;
         m->event[k++] = *e;
     }

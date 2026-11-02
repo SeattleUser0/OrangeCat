@@ -35,7 +35,7 @@
 #define OCP_N 64u
 #define OCP_PER 4u
 #define OCP_CHUNKS (OCP_N / OCP_PER)
-#define OCP_VER 1u
+#define OCP_VER 2u                             /* (round 13: 2; version 1 patterns still read, their lanes on DUB's ids dropped: the ids changed meaning) */
 #define OCP_HEAD 20u
 #define OCP_TABLE (2u * OCP_PER)
 #define OCP_STEP ((uint32_t)sizeof(step_snapshot_t))
@@ -263,7 +263,7 @@ static int ocp_chunk_open(uint32_t chunk, ocs_rec_t *r, uint32_t *len, uint32_t 
 static uint32_t ocp_len_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
 {
     uint8_t h[6];
-    if (len < OCP_HEAD || ocs_at(r, off, h, sizeof h) || h[0] != OCP_VER) return 0;
+    if (len < OCP_HEAD || ocs_at(r, off, h, sizeof h) || (h[0] != OCP_VER && h[0] != 1u)) return 0;
     return (uint32_t)clamp((int16_t)ocp_get16(h + 4), 1, NSTEP);
 }
 
@@ -412,7 +412,7 @@ static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
     uint8_t h[OCP_HEAD], b[4];
     uint64_t mask = 0;
     uint32_t i, np;
-    if (ocp_rd(rd, h, OCP_HEAD) || h[0] != OCP_VER || h[3]) return 1;
+    if (ocp_rd(rd, h, OCP_HEAD) || (h[0] != OCP_VER && h[0] != 1u) || h[3]) return 1;
     np = h[1];
     if (np < 8u || np > P_COUNT || (h[2] & ~1u)) return 1;
     p->flags = h[2];
@@ -443,6 +443,7 @@ static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
         p->mot.event[i].value = (int16_t)ocp_get16(b + 2);
     }
     proj_motion_ids(&p->mot, np);
+    if (h[0] == 1u) proj_motion_drop_old_dub(&p->mot, 15u);   /* (round 13) a version 1 pattern: DUB's lanes are of the layout of before */
     if (!motion_valid(&p->mot)) return 1;
     if (ocp_rd(rd, b, 2)) return 1;
     p->nnotes = ocp_get16(b);

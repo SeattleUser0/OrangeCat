@@ -191,11 +191,16 @@ static void clr_group_drop(void)
 }
 static int clr_history_ok(int redo)
 {
-    int live = note_transaction_ptr && note_transaction.valid && note_transaction.group;
+    int live = resource[RES_NOTE_HISTORY].size && note_transaction_ptr && note_transaction.valid && note_transaction.group;   /* (round 13: not after the arena took the block back) */
     if (!live) {
         if (clr_group_levels()) clr_group_drop();       /* (its history is gone) */
         return 1;                                       /* an ordinary history: as ever */
     }
+    return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
+}
+/* the level the undo (redo) is about to take belongs to GLO's group (link bit 1) */
+static int clr_next_is_group(int redo)
+{
     return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
 }
 /* every level of the linked group the undo (redo) is about to take has its track's phrase still: else none goes */

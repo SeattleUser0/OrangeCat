@@ -150,7 +150,7 @@ int main(void)
     }
 
 
-    {   /* (round 13) DUB TAPE's ten ids: the layout of today round trips; the layout of before (LEN 45, PTRN 46, SPRP 47, SPACE 107, THRW CUT KICK 108 .. 110) loads as the nearest new values (DUB_R12.md section 7) */
+    {   /* (round 13) DUB TAPE's ten ids: the layout of today round trips; the layout of before (LEN 45, PTRN 46, SPRP 47, SPACE 107, THRW CUT KICK 111 .. 113) loads as the nearest new values (DUB_R12.md section 7) */
         project_t a, c;
         static project_store_t st;
         uint32_t i, ok2 = 1, len, ptrn, sprp;

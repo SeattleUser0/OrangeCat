@@ -220,7 +220,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
     [P_MUTE] = PE("MUTE", N_ONOFF, 0),
     [P_RESERVED45] = {"SPEED", F_DUBSPD, 0, 127, DUB_SPD_MID, 0, 0},     /* (round 13) DUB TAPE: SPEED, then the packed MODE and TAPE (dub_fields.h; the pages show their halves) */
-    [P_RESERVED46] = PD("MODE", F_INT, -64, 127, DUB_MODE_MARK | 1),   /* PING << 1 | SYNC, with the layout mark (64) */
+    [P_RESERVED46] = PD("MODE", F_INT, DUB_MODE_MARK, 127, DUB_MODE_MARK | 1),   /* PING << 1 | SYNC, with the layout mark (64) */
     [P_RESERVED47] = PD("TAPE", F_INT, -64, 127, 6 * DUB_WOW_N - 64),  /* DRIVE * 12 + WOW - 64 */
 #if OC_SLIDE_TIME
     [P_RESERVED48] = PD("SLIDE", F_BIPCT, -64, 63, 0),            /* (ui-fix2 4) SLIDE TIME: a scale, not a time or a share: 0 is the rate slides had, each 16 down twice as quick, each 16 up half as quick (shown as a percent of 64; NOTES says it in words) */

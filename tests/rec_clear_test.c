@@ -198,6 +198,16 @@ int main(void)
             steps_on(&trk[2]) == 2u);
         edit_redo();
         chk("GLO     one redo clears them again", pool_n() == 0u && steps_on(&trk[2]) == 0u);
+        /* (round 13) the arena took the note history back (PLAY releases it): the group is not undone in part, and says so */
+        fresh();
+        go_title("GLOBAL");
+        put_event(&trk[1], 0, 2, 60); put_event(&trk[2], 1, 5, 64);
+        song.sel = 1; note_rebuild_all(); song.sel = 2; note_rebuild_all(); song.sel = 0;
+        pstep(&trk[3], 4, 70);
+        hold_ms(B_REC, 1500);
+        resource_release(RES_NOTE_HISTORY);
+        hold(B_EDIT);
+        chk("GLO     history gone: EDIT undoes nothing of the group (no track comes back without its notes)", pool_n() == 0u && steps_on(&trk[3]) == 0u && steps_on(&trk[2]) == 0u && steps_on(&trk[1]) == 0u);
     }
     {   /* REVIEW: group undo out of order, stale histories, overwritten history, cancels, pages */
         uint32_t k, ghosts;

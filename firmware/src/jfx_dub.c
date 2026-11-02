@@ -76,6 +76,8 @@ static inline int32_t *dub_capture(uint32_t k)
 }
 static inline int dub_alive(uint32_t k) { return k < DUB_N && dub_i[k].hold && (dub_i[k].state == DUBS_RUN || dub_i[k].state == DUBS_RAMP); }
 
+/* what a governor eviction was made for: the user's settings (the times, the mode, the speed, the tempo), not the sizes, which fall back when the instance ends */
+static inline uint8_t dub_gov_key(const dub_i_t *d) { return (uint8_t)(d->rsig ^ d->rsig >> 8 ^ d->rsig >> 16 ^ d->rsig >> 24); }
 /* the job: every instance flagged in dub_mask, on the previous block's capture */
 DUB_HOT static void dub_run(void)
 {
@@ -250,7 +252,7 @@ JFX_XIP static void dub_start(uint32_t nt)
         switch (d->state) {
         case DUBS_OFF:
             if (blocks) {
-                if (d->held_off && d->gov && (uint8_t)(blocks | sp << 5) != d->gov_sig) { d->gov = 0; d->gov_n = 0; }      /* the setting changed: it asks again, from the first wait */
+                if (d->held_off && d->gov && dub_gov_key(d) != d->gov_sig) { d->gov = 0; d->gov_n = 0; }      /* the setting changed: it asks again, from the first wait */
                 if (d->held_off && d->gov) {                                                              /* a governor release is not for good: after 8 s, and 2 s without a late half, it asks again (a transient is forgiven, a lasting overload is not) */
                     if (d->gov_wait) d->gov_wait--;
                     if (!d->gov_wait && !dub_late_recent) d->gov = 0;
@@ -292,7 +294,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                     d->evict = 0;
                     dub_want[k] = 0; dub_spring[k] = 0; d->state = DUBS_OFF;
                     d->held_off = (uint8_t)(degrade || d->gov);
-                    d->gov_sig = (uint8_t)(blocks | sp << 5);
+                    d->gov_sig = dub_gov_key(d);
                     if (d->gov) {
                         d->gov_wait = (uint16_t)(DUB_GOV_WAIT << (d->gov_n > 2 ? 2 : d->gov_n));
                         if (d->gov_n < 3) d->gov_n++;

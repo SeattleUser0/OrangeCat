@@ -140,6 +140,7 @@ static int note_tools_history(int redo)
     recording_reindex();uint8_t cursor=ui.cursor;if(t==TSEL)cursor_set(note_transaction.cursor);note_transaction.cursor=cursor;
     ui.note_pick=0;note_transaction.redo^=1u;note_transaction_end();fm1_irq_on();ui_message(redo?"REDO":"UNDO");return 1;
 }
+static int note_history_group(void){return resource[RES_NOTE_HISTORY].size&&note_transaction_ptr&&note_transaction.group;}
 static int note_clear_history(int redo)
 {
     return resource[RES_NOTE_HISTORY].size&&note_transaction_ptr&&note_transaction.clear&&note_tools_history(redo);

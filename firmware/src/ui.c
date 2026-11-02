@@ -902,6 +902,7 @@ static void load_extend(track_t *t)
 
 static int param_kept(uint32_t i);
 static int note_clear_history(int redo);
+static int note_history_group(void);                     /* (round 13, note_tools.c) the note history is GLO's clear of every track */
 static int recording_history(int redo)
 {
     uint32_t f=motion_guard();
@@ -924,6 +925,7 @@ static void undo_level(int redo);
 static void clr_follow(int redo);                       /* (ui-fix2 2, ui_clear.c) after a note history that was GLO's clear */
 static void clr_group_drop(void);
 static int clr_history_ok(int redo);
+static int clr_next_is_group(int redo);
 static int undo_group_ok(int redo);
 #endif
 static void undo_step(int redo)
@@ -932,6 +934,7 @@ static void undo_step(int redo)
 #if OC_REC_CLEAR
     if(!undo_group_ok(redo)){undo_clear();ui_message(redo?"NOTHING TO REDO":"NOTHING TO UNDO");return;}   /* a group goes whole or not at all */
     if(clr_history_ok(redo)&&note_clear_history(redo)){clr_follow(redo);return;}
+    if(clr_next_is_group(redo)){clr_group_drop();ui_message(redo?"NOTHING TO REDO":"NOTHING TO UNDO");return;}   /* (round 13) the group's notes cannot come back (the history is gone or stale): its levels are not undone in part */
 #else
     if(note_clear_history(redo))return;
 #endif
