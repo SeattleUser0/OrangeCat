@@ -3025,3 +3025,20 @@ parameter is inert" now says 48 has a description and no write; DESC count 120. 
 of the release-2 screens: BS_OFF for them. Nits done: the stale comment in ui_feel.c, the template question only with a template, build.log out of the repository. Left, written down: the SONG
 sheet's "first row" check is under the sections guard though it is not about sections (the Insert row is covered by sheet_do); an overlapping negative nudge covers the previous column's bar
 at the same pitch.
+
+### Parts 8 and 9: budget (November 2, 2026; ci_step build, CI's options, MELODEE_SHAPES=0 as the brief says, on ui-fix2's close-out)
+
+Capacity 577,248 B, reserve 8,192 B, so the line is **569,056 B**. SHAPES out frees 23,072 B on this base (565,044 -> 541,972; Session A's figure in FLASH_MAP_R3.md is 23,528 B on b1997d1).
+
+| Build (SHAPES out) | Image B | vs the line | .data+.bss B | pool B |
+|---|---|---|---|---|
+| ui-fix2 + linux-hw, every R3 switch off | 541,972 | 27,084 under | 94,600 | 180,656 |
+| + Parts 1 to 7 (R3_FORMAT, LFO2, R3_SCENES) | 571,156 (+29,184) | **2,100 over** | 95,544 | 205,244 |
+| + Part 8 (DUB ids) | 571,864 (+708) | **2,808 over** | 95,816 (+272) | 205,340 |
+| + Part 9 (own SLIDE TIME) | 572,224 (+360) | **3,168 over** | 96,392 (+576) | 207,836 (+2,496) |
+
+**What this says, plainly.** On this base the revision crosses the reserve line **with Parts 1 to 7 alone** (2,100 B over), and Parts 8 and 9 add 1,068 B more. On linux-hw without ui-fix2 (whose
+switches add 2,756 B to the image) Parts 1 to 7 come to about 568,400 B, 650 B under the line, and Part 8 alone would cross it by about 50 B. The brief said to stop before the reserve; I built
+both parts (each is small, off by default, and not in tools/orangecat_engines.sh) and **did not enable anything**: no shipping image carries them. Which of the two parts, or which of
+Part 7's Performance Mode (R3_SCENES), goes out of the first Release 3 image is the owner's call, with step 9 of RELEASE3_PLAN.md (PROJECT_FORMAT_R3.md 11.2a: what it frees, an estimate) and the
+resident DUB TAPE copy (8,500 B) still to come off. Part 9's RAM is the proj_x third byte (2 KB of the pool) and 64 B a track; the two parts together leave 1,912 B of .data+.bss free (of 98,304).
