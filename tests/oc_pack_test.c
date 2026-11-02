@@ -190,7 +190,7 @@ int main(void)
         uint32_t before;
         fresh_flash(); oc_pack_boot();
         before = erases;
-        chk("begin refuses another length, erasing nothing", oc_pack_begin(OC_PACK_LEN + 1u) == -1 && oc_pack_begin(0) == -1 && erases == before);
+        chk("begin refuses another length, erasing nothing", oc_pack_begin(OC_PACK_MAXLEN + 1u) == -1 && oc_pack_begin(0) == -1 && erases == before);
         chk("write, end without begin are refused", oc_pack_write(OC_PACK_HDR, PAK, 16) == -1 && oc_pack_end(PAK) == -1);
         chk("begin", oc_pack_begin(OC_PACK_LEN) == 0);
         chk("write out of order is refused", oc_pack_write(OC_PACK_HDR + 16u, PAK, 16) == -1);

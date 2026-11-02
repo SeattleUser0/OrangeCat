@@ -6169,9 +6169,18 @@ static int test_seq_keys(void)
         led_pos[i] = (uint8_t)((i % FM1_NCOL) << 3 | (1u + i / FM1_NCOL));
     song.rec = 4u;
     ui_leds();
-    bad += check("  the track keys lit: track 1 bright, 2 dim, 3 (armed) breathing, 4 dark",
-                 key_light(14u + key_at(1, 0)) == 2u && plane_led(1, 14u + key_at(1, 1)) &&
-                 plane_led(2, 14u + key_at(1, 2)) && !plane_led(1, 14u + key_at(1, 3)) && !key_light(14u + key_at(1, 3)));
+    {   /* (ui-fix2 close-out) a breathing key is lit in some phases of BREATH[(fm1_ms / 125) & 7] and not in others: look at all eight, so the check does not depend on
+         * how many frames the build's other pages spent before it */
+        uint32_t ph, base = (fm1_ms / 1000u + 1u) * 1000u, lit = 0, always = 1;
+        for (ph = 0; ph < 8u; ph++) {
+            fm1_ms = base + ph * 125u; ui_leds();
+            lit |= (uint32_t)plane_led(2, 14u + key_at(1, 2));
+            always &= (uint32_t)plane_led(2, 14u + key_at(1, 2));
+        }
+        bad += check("  the track keys lit: track 1 bright, 2 dim, 3 (armed) breathing, 4 dark",
+                     key_light(14u + key_at(1, 0)) == 2u && plane_led(1, 14u + key_at(1, 1)) &&
+                     lit && !always && !plane_led(1, 14u + key_at(1, 3)) && !key_light(14u + key_at(1, 3)));
+    }
     led_pos_init();
     /* (Orange Cat 0.3, 4c) the white keys are entries A..H: A and C name patterns (kept from steps), the track on A */
     pool_empty(); pattern_init();

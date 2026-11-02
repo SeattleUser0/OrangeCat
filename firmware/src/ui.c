@@ -920,7 +920,8 @@ static int recording_history(int redo)
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_level(int redo);
 #if OC_REC_CLEAR
-static void clr_follow(int redo);                       /* (ui-fix2 2, ui_clear.c) after a note history that was GLO's clear */
+/* (ui-fix2 2, ui.c below the note_tools.c include) the undo side of GLO's clear: after a note history that was GLO's, its group */
+static void clr_follow(int redo);
 static void clr_group_drop(void);
 static int clr_history_ok(int redo);
 static int undo_group_ok(int redo);
@@ -1390,6 +1391,61 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 #include "sysex_library.c"                       /* staged imports and USB library exports */
 
 #include "note_tools.c"
+#if OC_REC_CLEAR
+/* (ui-fix2 2) GLO's clear and its undo: the helpers the undo side asks, here beside the levels (tests that build ui.c without ui_clear.c link) */
+/* GLO's group (levels with link bit 1 and the one note history, note_transaction.group). The history may go first only when the level it belongs
+ * to is the one the undo (or redo) is on: otherwise another edit came after it and goes first (the stack's order). A history that is no longer
+ * GLO's (overwritten by another note edit, or invalid) takes its levels out (clr_group_drop): the pool could not come back with them. */
+static int clr_group_levels(void)
+{
+    uint32_t i;
+    for (i = 0; i < undo_cnt; i++) if (undo_lv[i].link & 2u) return 1;
+    return 0;
+}
+static void clr_group_drop(void)
+{
+    uint32_t i, j = 0, top = 0;
+    for (i = 0; i < undo_cnt; i++) {
+        if (undo_lv[i].link & 2u) continue;
+        if (j != i) undo_lv[j] = undo_lv[i];
+        if (i < undo_top) top++;
+        j++;
+    }
+    undo_cnt = (uint8_t)j;
+    undo_top = (uint8_t)top;
+    if (undo_top) undo_lv[undo_top - 1u].keep = 0;
+}
+static int clr_history_ok(int redo)
+{
+    int live = note_transaction_ptr && note_transaction.valid && note_transaction.group;
+    if (!live) {
+        if (clr_group_levels()) clr_group_drop();       /* (its history is gone) */
+        return 1;                                       /* an ordinary history: as ever */
+    }
+    return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
+}
+/* every level of the linked group the undo (redo) is about to take has its track's phrase still: else none goes */
+static int undo_group_ok(int redo)
+{
+    int s = redo ? (int)undo_top : (int)undo_top - 1;
+    if (s < 0 || s >= (int)undo_cnt || !(undo_lv[s].link & 3u) ) return 1;
+    for (;;) {
+        const undo_t *u = &undo_lv[s];
+        if (u->pattern_gen != trk[(u->trk - 1u) % NTRK].pattern_gen) return 0;
+        if (!redo && (u->link & 1u) && s > 0) s--;
+        else if (redo && s + 1 < (int)undo_cnt && (undo_lv[s + 1].link & 1u)) s++;
+        else return 1;
+    }
+}
+/* after a note history undo or redo that was GLO's: the linked levels (every track's steps and effects) go with it, as one undo */
+static void clr_follow(int redo)
+{
+    if (!note_transaction.group) return;
+    if (redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u))
+        undo_level(redo);
+}
+
+#endif
 #include "seq_tools.c"                            /* (Orange Cat 0.4.6) shift, reverse */
 
 #define TL_MAX 4u

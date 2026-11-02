@@ -215,6 +215,8 @@ static int ocl_keep_any(uint32_t k, uint32_t b) { return ocl_keep(k, b); }   /* 
 enum { PK_MISSING, PK_OK };
 #define OC_PACK_LEN 2048u
 #define OC_PACK_HDR 512u
+#define OC_PACK_MAXLEN OC_PACK_LEN                    /* (ui-fix2 close-out: with OC_HOME_PIC in the build set the card code asks for the longest pack, a scene trailer after the tables) */
+static int pk_trailer_ok(void) { return 1; }
 static uint32_t t_pk_begun, t_pk_at, t_pk_ended, t_pk_sum;
 static uint8_t t_pk_hdr[512];
 static uint32_t pk_rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
