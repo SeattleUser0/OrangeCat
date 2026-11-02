@@ -51,6 +51,8 @@ static int32_t mac_delta(uint32_t shape, int32_t depth, int32_t m)
 static int32_t mac_value(const knob_def_t *kd, uint32_t i, int32_t from, int32_t m, uint32_t e)
 {
     const kd_tgt_t *g = &kd[i / KD_TGT].t[i % KD_TGT];
+    const int16_t *r = modui_rng(kd, i);                /* (Release 3) a module's table: the range copied at registration, no descriptor lookup in the interrupt */
+    if (r) return clamp(from + mac_delta(g->shape, g->depth, m), r[0], r[1]);
     const param_desc_t *d = param_desc_of(e, g->id);
     return clamp(from + mac_delta(g->shape, g->depth, m), d->min, d->max);
 }

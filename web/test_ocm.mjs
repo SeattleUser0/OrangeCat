@@ -105,4 +105,28 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
   assert.ok(q.ok && q.format === 1 && q.variants.every((v, k) => Buffer.from(v.image).equals(Buffer.from(p.variants[k].image))), "format 1");
   console.log("ocm: refused: a flipped list byte, a site past the end, out of order, too long, a wrong start CRC, another kind; format 1 reads the same images");
 }
+// 4. (Release 3, r3-pages) the interface identifier moved: the page refuses what the last Release 2 build made and takes what this build made
+{
+  const ver = readFileSync(new URL("VERSION", ROOT), "utf8").trim();
+  let n = 0;
+  for (const name of ["shapes", "wheel", "prophet"]) {
+    const f = new URL(`build/${name}-${ver}.ocm`, ROOT), h = new URL(`tests/fixtures/r2_modules/${name}.hdr`, ROOT);
+    if (!existsSync(f) || !existsSync(h)) continue;
+    const raw = new Uint8Array(readFileSync(f)), o = OCM.parse(raw), old = new DataView(new Uint8Array(readFileSync(h)).buffer).getUint32(4, true);
+    if (!o.ok) continue;                                                      // (SHAPES is the made one of tests/module_build_test.py when its package is not format 2)
+    assert.notEqual(o.iface, old, `${name}: the identifier did not move`);
+    const unit = { iface: o.iface, apiAddr: o.apiAddr, apiVersion: o.apiVersion, apiSize: o.apiSize, packHash: o.packHash, plan: 0, starts: [] };
+    assert.ok(OCM.check(o, unit).ok, `${name}: the page does not take the module built for this firmware`);
+    // the same package with the identifier of the Release 2 build, its header CRC made again: only the identifier differs
+    const b = raw.slice(), dv = new DataView(b.buffer), m = dv.getUint32(56 + 28, true), hcrcAt = 56 + 32 + 8 * m;
+    dv.setUint32(8, old, true);
+    dv.setUint32(hcrcAt, crc32(b.subarray(0, hcrcAt)), true);
+    const oo = OCM.parse(b);
+    assert.ok(oo.ok && oo.iface === old, `${name}: the old package does not parse`);
+    const r = OCM.check(oo, unit);
+    assert.ok(!r.ok && r.key === "modWrongFw", `${name}: the page took a module of the old identifier (${JSON.stringify(r)})`);
+    n++;
+  }
+  console.log(n ? `ocm: Release 3: ${n} modules (SHAPES, WHEEL, the Prophet) built for this firmware are taken, the same with the Release 2 identifier is refused (modWrongFw)` : "ocm: (no package in build/: section 4 skipped)");
+}
 console.log("ocm: relocatable packages passed");

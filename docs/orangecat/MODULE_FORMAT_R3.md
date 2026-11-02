@@ -1,6 +1,6 @@
 # Orange Cat: the Release 3 module format (one proposal)
 
-**Version:** 0.2 (October 30, 2026; written in Session C on branch ui-build; a proposal, nothing is built; after the independent review, whose findings are in section 13; for Session A to review next)
+**Version:** 0.2 (October 30, 2026; section 14, November 2: as built for step 3; written in Session C on branch ui-build; a proposal, nothing is built; after the independent review, whose findings are in section 13; for Session A to review next)
 **Replaces:** UI_BUILD.md step 7a as a stand-alone change, and settles FX_MODULES_PLAN.md 0.2 section 9 item 3.
 **Reads:** FX_MODULES_PLAN.md 0.2 (release-2, eb55c1d) sections 2 to 4 and 9, `firmware/src/fw_pages.h` (descriptor version 2, 68 bytes), `fw_api.h` (`fw_mod_hdr_t`, 60 bytes), `oc_module.c`, `oc_knobs.c` (`knob_def_t`), `oc_scene.c` (`scene_ok`).
 
@@ -179,3 +179,29 @@ An agent read 0.1 against fw_pages.h, fw_api.h, oc_module.c, oc_knobs.c, oc_macr
 | 13 | `engine_t` decided three ways | should-fix | no change, final (section 7) |
 | 14 | Kind, shape, label and depth value checks | note | the checker rejects `kind` above 2, `shape` above 2, labels that are not upper-case ASCII, `depth` outside -127..127 |
 | 15 | The `cc` and `knob` offsets in the v3 loop | note | confirmed unchanged: appended fields only |
+
+## 14. As built: step 3 of RELEASE3_PLAN.md (branch r3-pages, November 2, 2026; host tests only, nothing flashed)
+
+Built: sections 4, 5 and 7 for engines (kind 0). `FW_PAGES_VERSION` 3, `FW_PAGES_WIRE` 80, `fw_pid_t`, `fw_ui_t`, `fw_kdef_t`, `SC_FX` (after `SC_DXLANE`), the checker, the registry, the macros' RAM records. The interface
+identifier moved (fd159be 0xCC9AED54 on the unit, `FW_API_ID` 0x126F12CC; now 0x588CCCF2 and 0x8679336A); SHAPES, WHEEL and the Prophet are rebuilt, and the build's other modules with them.
+
+**Corrections to the text above, decided while building (the safer reading):**
+1. **`fw_ui_t` is 20 bytes, the `reserved` u16 is gone.** Section 5's field list added to 22 and put `scene` at offset 14, unaligned (the review's finding 1 again). `flags` (0, nonzero refused) is the reserve; the order is
+   magic 0, size 4, version 6, scene_len 8, nk 10, flags 11, scene 12, kdef 16. `_Static_assert`ed on the device with the others; `fw_kdef_t` is 28 as written.
+2. **`fw_pages_check_ex(rd, ctx, desc, lo, hi, scope, pcount, &ui)`** is the checker; `fw_pages_check` stays as the engine's call (SC_MOD, this build's P_COUNT), so `oc_mod_pages_check_rd` is not touched. `pcount` above 256 and a scope
+   other than SC_MOD or SC_FX are refused (FWP_SCOPE). New codes: FWP_EXT (ext nonzero), FWP_PID, FWP_SCOPE.
+3. **The pid table's rules, as built:** ids unique among all entries (a removed entry keeps its row, so its id stays taken); id 0xFFFF refused (it is the unused-target mark); `legacy` unique, below `pcount`, outside
+   P_RESERVED33..36; a removed entry (panel label 0) has `legacy` 0xFFFF; the table inside the image and word aligned. The pid table is optional for kind 0 (0: the id is the panel index, no legacy slot) and required for SC_FX.
+4. **The effect scope's rules in the checker (kinds 1 to 3, not used until plan step 4):** rows of SC_FX; no native, shown, put, active, loaded, env_source or bend hook; no motion_skip, no title lists; `knob[]` and `cc[]` 0xFF; a pid table.
+5. **`fw_ui_check(rd, ctx, ui, lo, hi, scene_ok, &info)` is separate from the pages check:** a bad picture or knob table is not a refusal (section 8). It copies at most 1,024 bytes of scene to the stack and calls the interpreter's own
+   `scene_ok`; the knob labels are upper case ASCII or digits, at most five; kinds, shapes (KS_LIN..KS_DOWN) and depths (-127..127) are checked; a knob that turns has a name. Codes FWU_*.
+6. **The registry (`oc_knobs.c`, `OC_MODUI_N` 3, 180 B each: 540 B of RAM, not the document's 330 B):** `modui_publish` (oc_modui.c, at registration, main loop) resolves each knob's pid to the track slot (`legacy`) and copies the range
+   of its panel entry; the interrupt's `mac_value` reads that range from the record (`modui_rng`) and calls no descriptor lookup. **Plain knobs resolve to track slots too** (HOME edits P_ ids): a plain knob on a native-panel
+   byte (no legacy slot) is dropped whole, as is a macro target that cannot be resolved; native and effect-store targets wait, as section 5 said. A module with no room in the registry loads without picture or knobs
+   (FWU_FULL, 15). `modui_retire` runs first in `oc_mod_unreg` under `motion_guard`; `modui_gen` moves with every change and HOME's picture looks at it.
+7. **The picture is shown only with a knob table** (as before: an engine with no table keeps its four EDIT knobs and the plain picture): a module scene with `nk` 0 is validated and ignored. A module's scene wins over the pack's
+   trailer for the same engine (`scene_of`).
+8. **Not built (they belong to plan step 4):** `fx_desc_t`, `fx_entry_t` (and their place in the identifier's hash), the module-id install path, the Effects table, "PICTURE REFUSED" in the Engines table (the record holds
+   the code: `modui_of(e)->why`), the install-time advisory result on the card and the page.
+9. **The real modules ship with `ui` 0 and no pid table:** WHEEL and SHAPES have no `fw_pages_t` at all (they are rebuilt for the new identifier only); the Prophet's descriptor is version 3 with `ui`, `pid`, `ext` 0. A picture can be
+   added to any of them later without another identifier move.

@@ -39,7 +39,7 @@ SRC = ROOT / "firmware/src"
 # (file, structure names) in the order they are hashed
 SOURCES = [("core.h", ["param_desc_t", "voice_t", "vmod_t", "preset_t", "engine_t", "track_t"]),
            ("fw_api.h", ["fw_api_t"]),
-           ("fw_pages.h", ["page_t", "fw_pages_t"])]       # (0.12.0) the page descriptor a module's engine_t points at
+           ("fw_pages.h", ["page_t", "fw_pid_t", "fw_kdef_t", "fw_ui_t", "fw_pages_t"])]   # (0.12.0) the page descriptor a module's engine_t points at; (Release 3, MODULE_FORMAT_R3.md 7) and what it reaches: the ids, the knobs, the picture. fx_desc_t and fx_entry_t join with the effect host (plan step 4)
 
 
 def strip(text):
@@ -156,6 +156,10 @@ def selftest():
         ("a field added to fw_api_t", "fw_api.h", "    const uint8_t *pack_ready;", "    const uint8_t *pack_ready; void *more;"),
         # (0.12.2) the page descriptor and the members the Prophet module added: each is in the hash
         ("a field added to page_t", "fw_pages.h", "    uint8_t id[4];", "    uint8_t id[4]; uint8_t extra;"),
+        ("a field retyped in fw_ui_t (the scene's length)", "fw_pages.h", "    uint16_t scene_len;", "    uint32_t scene_len;"),
+        ("a field added to fw_kdef_t (a fifth target)", "fw_pages.h", "    struct { uint16_t pid; uint8_t shape; int8_t depth; } t[4];", "    struct { uint16_t pid; uint8_t shape; int8_t depth; } t[5];"),
+        ("a field retyped in fw_pid_t (the legacy slot)", "fw_pages.h", "typedef struct { uint16_t id, legacy; } fw_pid_t;", "typedef struct { uint16_t id; uint32_t legacy; } fw_pid_t;"),
+        ("a field renamed in fw_pages_t (the Release 3 ext word)", "fw_pages.h", "    uint32_t ext; ", "    uint32_t ext2; "),
         ("a field retyped in fw_pages_t (the 0.12.1 cc table)", "fw_pages.h", "    uint8_t cc[4];", "    uint16_t cc[4];"),
         ("fw_api_t's last 0.12.1 member renamed (voice_was)", "fw_api.h", "    const uint8_t *voice_was;", "    const uint8_t *voice_wasnt;"),
         ("fw_api_t's first 0.12.1 member retyped (p5_patch)", "fw_api.h", "    void *p5_patch;", "    const void *p5_patch;"),

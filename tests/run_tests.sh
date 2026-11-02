@@ -498,6 +498,8 @@ core && run "web/EDITOR_PROTOCOL.md against editor.c's switch, both directions (
 core && run "the set checker (web/make_site.py check_set): sector bounds of the module area (Orange Cat 0.12.1)" python3 tests/check_set_test.py
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
 core && run "the interface identifier (Orange Cat 0.9.0): the generated header is what the sources give; a comment leaves it, a changed field moves it" sh -c "python3 tools/gen_fw_api_id.py --check build/gen/fw_api_id.h && python3 tools/gen_fw_api_id.py --selftest"
+# (Release 3, step 3, r3-pages) the interface identifier moved: the headers of the last Release 2 build's modules (tests/fixtures/r2_modules) are refused, this build's accepted
+core && t "interface identifier (Release 3): the Release 2 modules' headers are refused, this build's SHAPES, WHEEL and Prophet are accepted, both ways" mod_iface_r3_test -O1 $FW -- "$OUT/mod_iface_r3_test" tests/fixtures/r2_modules build/module
 core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable engine would be given, against the real services" fw_api_test -O1 $FW
 core && t "engine table in RAM (Orange Cat 0.10.0, step 4): register / unregister a module's engine, the refusals, SHAPES built in" engine_table_test:engine_table_test -O1 $FW
 core && t "engine table in RAM (0.10.0, step 4): the module wins the slot (OC_MODULE_WINS 1), unregistering gives the built-in engine back" engine_table_wins:engine_table_test -O1 $FW -DOC_MODULE_WINS=1
@@ -722,6 +724,9 @@ if sound && [ $TABLES = 1 ]; then
     # golden renders with the switch on: every macro at 0 leaves every render as it is
     t "new interface 1a: macros at 0 bit-exact, stored values exact, a macro = its targets by hand, throws, fades, the table = the audit's" \
         oc_macro_test -O2 -DOC_HOME_PIC=1 $FW -- "$OUT/oc_macro_test" tests/knob_audit.py
+    # (Release 3, step 3, r3-pages) fw_pages version 3 on wire bytes: pid, fw_ui_t, fw_kdef_t, the scene, the checker, the registry and the interrupt-side records; fuzzed
+    t "fw_pages version 3 (Release 3, step 3): the pid table, the effect scope, the picture and the knobs, the registry, the macros' RAM records, retire; fuzzed, sanitizers" \
+        mod_ui_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
         "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt
     mkdir -p build/shapes_demo

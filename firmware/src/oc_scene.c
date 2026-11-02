@@ -375,7 +375,9 @@ static const uint8_t *scene_in_trailer(const uint8_t *t, uint32_t room, uint32_t
 /* engine e's scene, drawable (scene_ok), its length in *len; 0: the plain picture (no pack, no trailer, no scene, a bad one) */
 static const uint8_t *scene_of(uint32_t e, uint32_t *len)
 {
-    const uint8_t *s = 0;
+    const uint8_t *s = modui_scene(e, len);             /* (Release 3) a module's own picture, validated at registration (oc_modui.c), wins over the pack's trailer */
+    if (s)
+        return s;
     *len = 0;
     if (!OC_PACK_READY())
         return 0;

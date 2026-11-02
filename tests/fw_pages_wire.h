@@ -89,6 +89,24 @@ static uint32_t fwp_wire(const fw_pages_t *d, uint8_t *img, uint32_t cap, uint32
         a = fwpw_list(&w, l, n, 1);
         if (h) lfo = a; else env = a;
     }
+    {   /* (Release 3, version 3) the pid table, the picture with its scene and knobs, ext */
+        uint32_t pid = 0, ui = 0, scene = 0, kdef = 0;
+        if (d->pid) { pid = fwpw_alloc(&w, FW_PID_WIRE * d->npanel); if (!pid) return 0; memcpy(img + (pid - base), d->pid, FW_PID_WIRE * d->npanel); }
+        if (d->ui) {
+            const fw_ui_t *u = d->ui;
+            uint8_t *r;
+            if (u->scene_len) { scene = fwpw_alloc(&w, u->scene_len); if (!scene) return 0; memcpy(img + (scene - base), u->scene, u->scene_len); }
+            if (u->kdef) { kdef = fwpw_alloc(&w, FW_KDEF_N * FW_KDEF_WIRE); if (!kdef) return 0; memcpy(img + (kdef - base), u->kdef, FW_KDEF_N * FW_KDEF_WIRE); }
+            ui = fwpw_alloc(&w, FW_UI_WIRE);
+            if (!ui) return 0;
+            r = img + (ui - base);
+            fwpw_w32(&w, ui, u->magic);
+            r[4] = (uint8_t)u->size; r[5] = (uint8_t)(u->size >> 8); r[6] = (uint8_t)u->version; r[7] = (uint8_t)(u->version >> 8);
+            r[8] = (uint8_t)u->scene_len; r[9] = (uint8_t)(u->scene_len >> 8); r[10] = u->nk; r[11] = u->flags;
+            fwpw_w32(&w, ui + 12, scene); fwpw_w32(&w, ui + 16, kdef);
+        }
+        fwpw_w32(&w, da + 68, ui); fwpw_w32(&w, da + 72, pid); fwpw_w32(&w, da + 76, d->ext);
+    }
     fwpw_w32(&w, da, FW_PAGES_MAGIC);
     img[da - base + 4] = (uint8_t)FW_PAGES_WIRE; img[da - base + 5] = (uint8_t)(FW_PAGES_WIRE >> 8);
     img[da - base + 6] = (uint8_t)d->version; img[da - base + 7] = (uint8_t)(d->version >> 8);
