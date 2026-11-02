@@ -1747,7 +1747,7 @@ async function capturePatch(rq, info, name) {
   let fm6=null;
   if(info.engines[dump.engine]==="FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read FM6 voice");fm6=Array.from(r.packed); }
   const JFX_DEF=[0,0,0,0,2,1,1,1,55,127,60,0,0,0,0,53,67,0];   /* (Orange Cat 0.6.0) the effects' defaults, ids 96..113: the track's; (Release 2) 104..107 and 111..113 are DUB TAPE's FDBK SEND TONE SPACE and THRW CUT KICK */
-  const p=dump.p.map((v,i)=>info.pe0>=116&&i>=45&&i<=47?0:info.gcount>=76&&i>=96&&i<=113?JFX_DEF[i-96]:info.pe0>=100&&i>=96&&i<Math.min(info.pe0,108)?[0,0,60,64][(i-96)%4]:info.pe0>=114&&i>=111&&i<=113?0:v);
+  const p=dump.p.map((v,i)=>info.pe0>=116&&i>=45&&i<=47?[64,65,8][i-45]:info.gcount>=76&&i>=96&&i<=113?JFX_DEF[i-96]:info.pe0>=100&&i>=96&&i<Math.min(info.pe0,108)?[0,0,60,64][(i-96)%4]:info.pe0>=114&&i>=111&&i<=113?0:v);
   return { patch: cleanPatch({ p5, cz, fm6, name, engine: dump.engine, engineName: info.engines[dump.engine], p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
@@ -2196,7 +2196,7 @@ function makeMockDevice(opt = {}) {
     ...Array.from({length:4},()=>D("",F.INT,0,127,0)),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
-    D("SPEED", F.DUBSPD, 0, 127, 64), D("MODE", F.INT, -64, 127, 65), D("TAPE", F.INT, -64, 127, 8), D("",F.INT,0,127,0),   /* (round 13) DUB TAPE's SPEED, then the packed MODE (PING, SYNC, mark 64) and TAPE (DRIVE x 12 + WOW - 64) */
+    D("SPEED", F.DUBSPD, 0, 127, 64), D("MODE", F.INT, 64, 127, 65), D("TAPE", F.INT, -64, 127, 8), D("",F.INT,0,127,0),   /* (round 13) DUB TAPE's SPEED, then the packed MODE (PING, SYNC, mark 64) and TAPE (DRIVE x 12 + WOW - 64) */
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];
   const GP = [
