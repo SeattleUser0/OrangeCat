@@ -248,8 +248,9 @@ static void hp_inputs(scene_in_t *in)
         int mac;
         int32_t q = hp_knob_q8(k, &mac);
         in->s[SS_K1 + k] = (int16_t)(q < 0 ? 128 : q);
-        /* the knob-rate phase: 0.1 Hz at 0 to 3 Hz at full, in 1/65,536 of a turn */
-        hp.ph[k] = (uint16_t)(hp.ph[k] + (uint64_t)dt * (uint32_t)(100 + 2900 * (q < 0 ? 0 : q) / 256) * 65536u / 1000000u);   /* (64
+        /* the knob-rate phase: 0.5 Hz at 0 to 3 Hz at full, in 1/65,536 of a turn (ui-fix2 6: it was 0.1 Hz at 0, a turn in ten seconds, which
+         * at a knob's left end no one could see move; at 10 frames a second 3 Hz is still three turns of three frames) */
+        hp.ph[k] = (uint16_t)(hp.ph[k] + (uint64_t)dt * (uint32_t)(500 + 2500 * (q < 0 ? 0 : q) / 256) * 65536u / 1000000u);   /* (64
                                                          * bits: dt x milli-hertz x 65,536 passes 32: the review) */
         in->s[SS_PH1 + k] = (int16_t)(hp.ph[k] >> 8);
     }

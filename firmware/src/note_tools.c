@@ -17,6 +17,7 @@ typedef struct {
     uint16_t cap, count;
     uint8_t valid, redo, track, cursor, len, clear;
     uint8_t slen;                /* LEN to swap in too (a doubled pattern), 0 = LEN stays */
+    uint8_t group;               /* (ui-fix2 2) 1: this history is GLO's clear of every track (ui_clear.c clr_follow); a byte of the padding */
     nt_ev_t ev[];
 } note_transaction_t;
 #define NT_HEADROOM 96u
@@ -80,6 +81,9 @@ static void note_onset(recorded_note_t *r,int32_t shift,uint32_t len,uint32_t qu
 static int note_transaction_begin_x(track_t *t,uint32_t extra)    /* extra: the notes the edit can add (room in the list for them) */
 {
     if (frz_locked_k(trk_index(t))) return 0;           /* (Orange Cat 0.5.6) a frozen phrase's notes stay as frozen */
+#if OC_REC_CLEAR
+    if(note_transaction_ptr&&note_transaction.valid&&note_transaction.group)clr_group_drop();   /* (ui-fix2 2) GLO's clear can no longer be undone as one */
+#endif
     uint32_t used=nt_used(),want=used+(extra>NT_HEADROOM?extra:NT_HEADROOM),cap;
     if(want>RECORD_MAX)want=RECORD_MAX;
     if(resource[RES_NOTE_HISTORY].ptr&&resource[RES_NOTE_HISTORY].size>=nt_bytes(want)){   /* the block of the last edit holds it: no allocation, no search */
@@ -101,7 +105,7 @@ static int note_transaction_begin_x(track_t *t,uint32_t extra)    /* extra: the 
     memcpy(note_transaction.steps,t->step,sizeof note_transaction.steps);
     note_transaction.track=(uint8_t)trk_index(t);note_transaction.pattern_gen=t->pattern_gen;
     note_transaction.cursor=ui.cursor;note_transaction.len=(uint8_t)step_pattern_len(t);
-    note_transaction.valid=1;note_transaction.redo=note_transaction.clear=note_transaction.slen=0;return 1;
+    note_transaction.valid=1;note_transaction.redo=note_transaction.clear=note_transaction.slen=note_transaction.group=0;return 1;
 }
 static int note_transaction_begin_track(track_t *t){return note_transaction_begin_x(t,NT_HEADROOM);}
 static int note_transaction_begin(void){return note_transaction_begin_x(TSEL,NT_HEADROOM);}

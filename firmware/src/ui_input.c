@@ -944,6 +944,9 @@ static int live_rec_sel(void);
 static void notes_event_edit(uint32_t slot, int32_t delta);
 #if OC_ONE_AUTH
 static void start_convert_edit(int32_t steps);          /* ui_one_auth.c (included below) */
+#if OC_START_NUDGE
+static void start_nudge_edit(int32_t steps);            /* ui_one_auth.c */
+#endif
 static void pick_event(const track_t *t, uint32_t i);
 static void tracker_recorded_move(uint32_t cur, int32_t delta);
 static void events_drop_view(track_t *t, uint32_t view);
@@ -1325,7 +1328,11 @@ static void step_edit(uint32_t slot, int32_t steps)
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
 #if OC_ONE_AUTH
     if (slot == 6u && notes_selected(TSEL) >= RECORD_MAX) {   /* (ui-fix 7) START on a manual note: the step converts, the note moves */
+#if OC_START_NUDGE
+        start_nudge_edit(steps);                        /* (ui-fix2 5) ... or moves by the step's NUDGE: no conversion, no edit memory */
+#else
         start_convert_edit(steps);
+#endif
         return;
     }
 #elif OC_STEP_PAGES
@@ -1740,6 +1747,11 @@ static void act_do(void)
     }
     switch (id) {
     case G_LOAD:
+#if OC_PROJECT_PAGE
+        if (project_used(k) && !transport_busy() && project_unsaved())   /* (ui-fix2 3) the music has changes its slot does not hold: ask */
+            confirm_open(CF_LOAD_PROJ, k);
+        else
+#endif
         project_load(k);
         break;
     case G_SAVE:                                          /* the NAME screen writes it */
@@ -2471,6 +2483,8 @@ static void ui_confirm_accept(void)
         track_remove(ui.confirm_trk % NTRK);
     } else if (kind == CF_TAKE_JAM) {
         jam_take();
+    } else if (kind == CF_LOAD_PROJ) {                   /* (ui-fix2 3) LOAD asked first: unsaved changes */
+        project_load(ui.confirm_trk & 3u);
     } else if (kind == CF_NEW_SONG) {
         new_open();
     } else if (kind == CF_CLEAR_SONG) {                  /* (Orange Cat 0.4) SONG: its rows (the chains stay) */
@@ -2504,6 +2518,9 @@ static void ui_confirm_accept(void)
 #if OC_SHIFT_MAP
 #include "ui_shift.c"                                   /* (the new interface 0.3, UI_BUILD.md step 3) HOME as SHIFT and its combos */
 #endif
+#if OC_REC_CLEAR
+#include "ui_clear.c"                                   /* (ui-fix2 2) REC held, stopped: the clears with a countdown */
+#endif
 static void ui_input(void)
 {
     pattern_poll();
@@ -2515,6 +2532,9 @@ static void ui_input(void)
 #endif
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     dq_poll();                                          /* (destructive edits waiting for their loop end) */
+#if OC_PROJECT_PAGE
+    pj_poll(pressed | notes | (uint32_t)panel_moved);                                          /* (ui-fix2 3) the PROJECT page's unsaved flag, once a second at most */
+#endif
     if (boot_work.state) {
         for (k = 0; k < NE; k++) (void)panel_enc(k);
         panel_moved = 0;
@@ -2533,7 +2553,13 @@ static void ui_input(void)
     }
     uint32_t bank_notes = notes;
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
+#if OC_REC_CLEAR
+    clr_edge(pressed);                                  /* (ui-fix2 2) a REC press with the sequencer stopped may be a clear: no Capture then */
+    uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on() && clr_hold_ok());
+    clr_poll(pressed, notes);
+#else
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
+#endif
     /* On MOTION, wait for release before navigating on a SEQ hold, so the
      * button can be held as long as needed for lane/point clear gestures. */
     uint32_t seq_long = motion_page() && ui.seq_t0 && !(ui.seq_t0 & 2u) &&
@@ -2674,6 +2700,10 @@ static void ui_input(void)
     } else if (rec == BT_HOLD) {
         if (!ui.home && cur_page()->graph == GR_SONG)    /* (Orange Cat 0.3: Melodee's TAKE JAM is not on the lists) */
             ui_message("[SEQ] TO RECORD");
+#if OC_REC_CLEAR
+        else if (clr_shared_say())                      /* (ui-fix2 2) a shared effects page, stopped: where its reset is */
+            ;
+#endif
         else
             capture_take();
     }

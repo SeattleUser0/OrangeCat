@@ -6,7 +6,41 @@ Written November 1, 2026 for the owner. Install it from the installer page (Nigh
 2. **PRESETS skipping: not found, so nothing was changed for it.** On the unit, one PRESETS detent loads exactly one sound; the key scan is clean (no phantom turns in a minute, 907 scans a second, no long gaps while the screen redraws); the knob decoder gives one step a click under any contact bounce I could model; a key tap makes one press. The jumps of 5 and 3 you saw are what the knob's speed-up does when a turn is quick (the third and later detents of a spin go 3 or 4 at a time on a list of 27). To tell which it is: MENU > KNOB ACCEL OFF, then turn PRESETS one click at a time. If it still jumps, it is the knob or its wiring and I need to see it turn (the test build can log it); if it does not, it is the speed-up and I will make lists of this length slower.
 3. **DUB redesign: not in this build.** The review of the design found that a project saves each track parameter as one byte, so the new pages' twelve values (two times, modes, spring, drive, wow, speed) cannot be stored without either coarse knobs or the Release 3 format. The kernel (two taps, ping-pong, speed bend, wow, spring on the return) is built and rendered; listen to `~/fm1-hw/r12/dub-renders/` (`before-*` is the DUB as it is, `after-*` the new kernel). Tell me: coarse knobs now, or the pages with Release 3.
 
-The earlier note for f5057c follows.
+The earlier note for f5057c follows. Below it is the note of ui-fix2 (Session C's items), which this round merges.
+
+---
+
+# Orange Cat Nightly (branch ui-fix2): what changes for you
+
+Written November 1, 2026 for the owner. These are the items of your note on v0.16.0-f5057c that Session B did; Session A's (PRESETS skipping, the NOTES "No edit memory" error, the DUB pages' knobs) come separately. Nothing here is on the unit yet: it waits for the sequencer test on the unit (UI_BUILD.md, "For Session A").
+
+1. **The FX button's order:** SENDS first (it was called FX; it sets how much of this track goes into the shared effects), then the shared ones: DELAY, DELAY 2, DELAY 3, REVERB, REVERB 2, CHORUS, SLICER, SLICER 2, MASTER; then this track's own: DIST, AUTO PAN, DUB SETUP, DUB, DUB 2. The line at the bottom of every effect page now says which it is: **SHARED all tracks**, or **THIS TRACK** with the track's number and its sound.
+2. **Clearing, with REC held while the sequencer is stopped.** Hold REC; after a moment the top of the screen counts 3, 2, 1; if you are still holding when it ends, it clears. Let go early and nothing is cleared ("KEPT"). While the music plays, REC held is Capture, as before. What it clears depends on the page you are on:
+   - **HOME:** the selected track's steps and notes.
+   - **a SEQ page** (NOTES, FEEL, TRACKER, PHRASE): the values on that page back to their defaults: on FEEL, NOTES and TRACKER the chance, condition, ratchet, nudge, accent and slide of the 16 steps shown; on PHRASE its LEN, DIV, SWING and GATE. TEMPO, CHAIN, SONG and PHRASES are the project's, not a track's: nothing is reset there and the screen says so.
+   - **an FX page of this track** (SENDS, DIST, AUTO PAN, DUB ..): this track's effects back to their defaults. On a SHARED page nothing is cleared (it says where: the OCT+ held sheet's Reset effects).
+   - **GLO:** every track's steps, notes and own effects: the whole project's music. The shared effects, the mix, the tempo and the sounds stay.
+   - **MOTION** (the automation page): the selected track's automation lanes.
+   **One undo brings it back:** EDIT held (EDIT + OCT+ redoes). After GLO's clear one EDIT held brings back all four tracks.
+3. **Saving and loading a project, in steps:**
+   1. Press **SAVE**. The PROJECT page opens: the slots A to D with their names. The slot you are working in has its letter in a coloured badge, and the bottom line always says which slot, its name, and whether the music is **saved** or has **unsaved** changes (a new song says "not saved": it has no slot yet).
+   2. Turn **KNOB 1** to pick a slot. (SAVE again goes on to the sound's USER slots.)
+   3. Press **OCT+**: the slot's menu: **Load**, **Save here**, **Rename**, Boot, Erase. KNOB 2 picks, OCT+ does it.
+   4. **Save here** over a used slot asks OVERWRITE first (OCT+ yes, OCT- no), then the name screen; OCT+ saves.
+   5. **Load** when the music has unsaved changes asks "LOAD PROJECT B? Unsaved changes are lost" (OCT+ yes, OCT- no); with nothing unsaved it just loads.
+   6. **New song** is the last row of the list: OCT+ starts an empty one (it asks first if there are unsaved changes).
+   7. **Quickest save:** hold SAVE (0.7 s): the music goes to the slot you are in at once. The unit also saves to that slot by itself when it has been stopped and untouched for 5 seconds (MENU > AUTOSAVE).
+4. **Slide time:** each track has a SLIDE TIME (EDIT > the SLIDE page after VOICE 2; the percent is how far from the old speed: below 0 quicker, above 0 slower; 0 is as before, an octave in about 46 ms; at the far ends about 3 ms and 0.7 s). GLIDE set still wins. NOTES (ENV held) shows the word for a sliding step (SNAP FAST QUICK NORM EASY SLOW LONG); the tracker's foot says it ("ON SLOW"). A longer or shorter slide on one step is **not** done: a step has no room for it without changing the project format.
+5. **NOTES, KNOB 2** on a typed note moves it in time the way NUDGE does in the tracker: a 64th of a step a click, half a step earlier to half a step later, the note stays a typed step (no conversion, no "edit memory"). A recorded note's KNOB 2 still moves its start. EDIT held undoes it.
+6. **The SHAPES cat:** COLR sets how fast the tail wags (about 0.5 to 3 times a second); PLUCK sets how fast the paw bats the ball of yarn (the paw comes down on it, the yarn is knocked round); TIMB is only the yarn's size.
+7. **HOME held and its shortcuts** (all within 0.7 s of pressing HOME; held alone for 0.7 s HOME opens the MENU instead):
+   - **HOME + a knob** (on HOME's pages, a sheet's rows, NOTES and FEEL): a fine turn, one small step a click, no speeding up.
+   - **HOME + PRESETS:** on HOME's pages the engine, one step a click; on NOTES and FEEL it stretches the selected range.
+   - **HOME + EDIT:** on HOME's pages and sheets, initialize the sound (it asks first); on NOTES delete the selected notes or the step; on FEEL put the feel back to its defaults.
+   - **HOME + OCT- / OCT+:** copy and paste are not in this build yet: the screen says "COPY, PASTE: LATER".
+   - Anywhere else these combos do nothing but cancel the MENU. After the MENU has opened, a knob turned moves the MENU when HOME is let go.
+
+---
 
 # Orange Cat Nightly v0.16.0-f5057c: what changed for you since 478add
 
