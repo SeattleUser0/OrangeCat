@@ -2359,3 +2359,31 @@ Verified by the reviewer: `recording_unlink` in place of the two calls is equiva
 **Open, for the owner (a design question, not a test bug):** the first pad edit of a drum cell converts the whole cell to events with `length` 1 (gated at one step), so an untouched snare beside an edited kick is now cut at one step instead of decaying naturally;
 UI_BUILD.md ui-fix 7 point 6 says a hit's natural length is `length` 0. Host only today (MELODEE_DRUM=0 in the image). The converted test enshrines the built behaviour; if the pads' conversion should keep `length` 0, that test's ONE_AUTH branch goes with it.
 Left: python, node and cc steps of the multi-step jobs have no limit of their own.
+
+## ui-fix2 merged with linux-hw round 14 (November 2, 2026): ready to merge, for Session A
+
+**For Session A: ui-fix2 (1109c2b plus this note) is ready to merge into linux-hw (fd159be).** The host suite (`ci_step.py test --parallel 2`, the build set on in every test, a time limit on every test) passed on 1109c2b: 4,612 s with a second suite running beside it.
+The on-unit sequencer test for ui-fix2 is still yours (checks 28 to 34, and an own SLIDE TIME).
+
+**The conflicts, and who won (Session A's behaviour kept wherever the two disagree):**
+1. `ui_clear.c`: round 13 rewrote GLO's undo helpers where they stood; ui-fix2 had moved them into `ui.c` (a test that builds ui.c without ui_clear.c did not link). **They stay in `ui.c`, with round 13's bodies:**
+   `clr_history_ok` asks `resource[RES_NOTE_HISTORY].size` as well, and `clr_next_is_group` is added (round 13's "a group clear whole or not at all"). ui_clear.c keeps only the pointer comment.
+2. The web editor's descriptor table (`web/editor.html`, `web/app/lib/editor_proto.js`): round 13 made ids 45 to 47 DUB TAPE's SPEED, MODE and TAPE (id 48 empty); ui-fix2 had put SLIDE at 48. **Round 13's three stay; 48 is SLIDE.**
+3. `tests/fixtures/app/fbkk-full.bin`, `web/app/lib/mock_data.js` (generated): taken from linux-hw, then regenerated from the merged firmware (`web/app/tools/gen_layout.mjs`); `--check` passes.
+4. Not a text conflict but a disagreement: round 13 removed `!transport_busy()` from the project rows' Load question ("LOAD asks while playing too"). **The template row's Load question had the same condition (ui-fix2 close-out 1d): it is gone there too**, so both ask while playing.
+
+**Files touched (against fd159be), the firmware's ten:** `pattern_store.c` (the hash-only pack), `project.c`, `recording.c` (`recording_restore_note` leaves its old chain first), `ui.c`, `ui_clear.c`, `ui_draw.c`, `ui_feel.c`, `ui_graph.c`, `ui_input.c`, `ui_slots.c`; the web: `web/editor.html`, `web/app/lib/editor_proto.js`, `web/app/lib/mock_data.js`, `web/app/lib/layout.js`
+(regenerated), `web/test_web.mjs`, `web/app/test/test_sounds.mjs`; the rest are tests (`run_tests.sh` with the limit and the legacy jobs, `notes_knobs.h`, `restore_chain_test.c`, the four converted tests, fixtures) and this file. `build.log`, committed by accident in an earlier close-out, is removed.
+
+**What changes for the player (on top of what fd159be already has of ui-fix2):**
+- K2 (START) on a typed note moves it by its NUDGE, and the roll draws the nudge (the onset bar shifts in its column).
+- A page reset (REC held on NOTES, TRACKER or the drum grid) also puts a typed step's own velocity back (the drum grid: its lane accents); never notes, never a recorded step's velocity, start or length.
+- Loading the template row over unsaved changes asks first ("LOAD THE TEMPLATE?"), also while playing; with no template saved it says NO TEMPLATE.
+- SAVE opens the project page (SAVE > PROJECT > SAVE > USER, the unsaved flag a hash-only pack: a discarded FEEL-only edit no longer comes back, and RATCH, FLAM, COND and NUDGE are no longer lost at the next Load).
+- Slot 48 (SLIDE TIME) is described in the web editor (the unit still refuses its SET from there).
+- A MIDI note or a key on a recorded step replaces the step's events as the other keys do (ONE_AUTH); two EDIT holds bring the take back (one level each: the entry, the events' deletion). Not new here; a test now says it.
+
+**For the next Nightly (firmware, not ui-fix2's alone):** `recording_restore_note` took an event out of the pitch index and the live list but not out of the track's event chain; restoring over a slot in use linked it twice, a cycle, and every walk of the chain looped for ever
+(the 98-minute drum_editor_test hang). No path from the panel to it is shown (the callers restore into a free or freshly unlinked slot), so it is a hardening: `recording.c`, three lines, `tests/restore_chain_test.c`.
+
+**Open for the owner:** the first pad edit of a drum cell converts the whole cell to events with `length` 1 (gated at one step); an untouched snare beside the edited kick is cut at one step instead of decaying. The ui-fix 7 text says a hit's natural length is `length` 0 (host only today: MELODEE_DRUM=0).
