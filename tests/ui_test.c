@@ -575,8 +575,13 @@ static int test_frozen_lock(void)
     turn(EN_K3, 2);
     bad += check("frozen phrase: the step knobs change nothing", !memcmp(before, trk[0].step, sizeof before));
     ui.cursor = 0;
+#if OC_STEP_PAGES
+    turn(EN_PRESET, 2);                           /* (ui-build 4: NOTES' KNOB 1 is PITCH, refused here; PRESETS moves the cursor) */
+    bad += check("frozen phrase: PRESETS still moves about", ui.cursor == 2u);
+#else
     turn(EN_K1, 2);
     bad += check("frozen phrase: KNOB 1 still moves about", ui.cursor == 2u);
+#endif
     ui.msg_t = 0;
     press(B_REC);
     bad += check("frozen phrase: REC refused", song.rec == 0u && msg_is("UNFREEZE TO EDIT"));
@@ -747,6 +752,12 @@ static int test_save(void)
     set_engine_of(&trk[0], 3);                    /* (a general sound: the Prophet keeps its own slots) */
     trk[0].p[P_E1] = 5;
     press(B_SAVE);
+#if OC_PROJECT_PAGE
+    /* (ui-fix2 3) the tap lands on the plain PROJECT page; SAVE again goes on to USER (its slot), the same flow after that */
+    bad += check("SAVE opens PROJECT, nothing popped up, no slot written",
+                 !ui.home && cur_page()->graph == GR_SLOTS && !pop.on && !project_used(0) && !up_used(0));
+    press(B_SAVE);
+#endif
     bad += check("SAVE opens USER on its slot, no sheet popped up, without writing a slot",
                  !ui.home && cur_page()->graph == GR_USER && !pop.on && !up_used(0));
     press(B_OCTUP);
@@ -763,9 +774,16 @@ static int test_save(void)
                      !name_on() && up_used(0) && up_value(up_rec(0), P_E1) == 5 && ui.act == 0u && str_eq(nmb, au));
     }
     press(B_SAVE);
+#if OC_PROJECT_PAGE
+    bad += check("SAVE again goes back to PROJECT", cur_page()->graph == GR_SLOTS);
+#else
     bad += check("SAVE again still cycles to PROJECT", cur_page()->graph == GR_SLOTS);
+#endif
     go_home();
     press(B_SAVE);
+#if OC_PROJECT_PAGE
+    press(B_SAVE);                                /* HOME > PROJECT > USER */
+#endif
     ok = cur_page()->graph == GR_USER && !pop.on;
     press(B_OCTUP);
     bad += check("SAVE from HOME returns directly to USER (OCT+: its sheet, on Save here), even after visiting PROJECT",
@@ -821,6 +839,11 @@ static int test_save(void)
     bad += check("OCT+ overwrites it", ui.confirm == CF_NONE && !name_on() && stored_param(0, 0, P_E1) == 5);
     trk[0].p[P_LEVEL] = 11;
     sheet_do("Load");
+#if OC_PROJECT_PAGE
+    /* (ui-fix2 3) the change since the save is unsaved: Load asks first; YES loads */
+    bad += check("Load over unsaved changes asks first, loads nothing yet", ui.confirm == CF_LOAD_PROJ && trk[0].p[P_LEVEL] == 11);
+    press(B_OCTUP);
+#endif
     bad += check("Load: the project back", trk[0].p[P_LEVEL] != 11 && trk[0].p[P_LEVEL] == stored_param(0, 0, P_LEVEL) &&
                  msg_is("LOADED") && ui.act == 0u);
     /* user presets */
@@ -2605,6 +2628,7 @@ static int test_popups(void)
         press(B_OCTDN);
         bad += check("LISTS: OCT- on a list: Stage", ui.home);
     }
+#if !OC_EDIT_SHEETS   /* (ui-build 2: the category map is gone, EDIT opens the sheets; tests/sheet_test.c covers the sheets in every engine, on the build set's switches) */
     {   /* sections (ui_sections.c): PRESETS the next section and back to the page last used; EDIT: the map */
         uint32_t f;
         ui_power_on(); set_engine_of(TSEL, ENGI_PROPHET); go_title("P5 FLT ENV"); frame();
@@ -2735,6 +2759,9 @@ static int test_popups(void)
     bad += check("POPUPS: SONG, OCT+ held: the song's sheet (no play)", pop.on == POP_SHEET && !song.playing);
     press(B_OCTUP);
     bad += check("POPUPS: Insert row (the sheet's first row)", !pop.on && msg_is("ROW INSERTED"));
+#else
+    /* (the sections and the SONG sheet's first row are the old flow: sheet_test's, and step_pages_test's NOTES) */
+#endif
     return bad;
 }
 static int test_song_view(void)
@@ -3075,7 +3102,9 @@ static int test_product_ux(void)
         }
         ok &= changed;
     }
+#if !OC_EDIT_SHEETS                               /* (the ENV family opens as a sheet: the lift is drawn on its page, sheet_test) */
     bad += check("all palettes: the knob turning is lifted in place, the others and the page stay", ok);
+#endif
     bad += check("SAMPLE and SLICE retired from selectors with reserved stored IDs",!eng_ok(4) && !eng_ok(13) && !ENGINES[4]->npresets && !ENGINES[13]->npresets);
     ui_power_on(); return bad;
 }
@@ -3442,7 +3471,9 @@ static int test_cz1_pages(void)
     tr = song.sel % NTRK;
     set_engine_of(TSEL, ENGI_CZ);
     frame();
+#if !OC_EDIT_SHEETS                               /* (EDIT's sheets are sheet_test's: SELECT walks them in every engine) */
     bad += check("CZ-1 EDIT cycle: tone pages and VOICE, without bank/patch pages", engine_cycle(CYC, NELEM(CYC)));
+#endif
     /* every value, every setting: what is put reads back; the others stay (END's level, a SUS past END aside) */
     for (id = 0; id < LCZ_NP; id++) {
         if (!CZ_PD[id].label)
@@ -3595,7 +3626,9 @@ static int test_edit_cycle(void)
         ok &= !str_eq(PAGES[i].title, "ENGINE");
     bad += check("no ENGINE page (engines are the EDIT layer's)", ok);
     set_engine_of(TSEL, 3);
+#if !OC_EDIT_SHEETS                               /* (sheet_test: EDIT's sheets in every engine) */
     bad += check("EDIT cycle (SID): EDIT 1 EDIT 2 VOICE VOICE 2 EDIT 1", engine_cycle(CYC_A, NELEM(CYC_A)));
+#endif
 #if MELODEE_LEGACY_EXTRAS                           /* (PHASE: retired) */
     set_engine_of(TSEL, 2);
     TSEL->p[P_E7] = 0;
@@ -3608,15 +3641,19 @@ static int test_edit_cycle(void)
     bad += check("PHASE DCW1 knob edits its saved parameter", TSEL->p[P_FM1_ATK] > 0);
 #endif
     set_engine_of(TSEL, ENGI_FM6);
+#if !OC_EDIT_SHEETS
     bad += check("EDIT cycle (FM6): EDIT 1 EDIT 2, FM6's 16 pages, VOICE VOICE 2",
                  TSEL->eng_req == ENGI_FM6 && engine_cycle(CYC_F, NELEM(CYC_F)));
+#endif
     (void)CYC_D;
     go_title("OP2 ENV"); ui.fam_last[FAM_EDIT] = ui.page;
     set_engine_of(TSEL, 3); frame();
     bad += check("an OP page of a track no longer DIGITAL falls back to EDIT 1", str_eq(cur_page()->title, "EDIT 1"));
     go_title("EDIT 2"); ui.fam_last[FAM_EDIT] = ui.page;
     go_home(); press(B_EDIT);
+#if !OC_EDIT_SHEETS                               /* (a sheet opens on its first page; sheet_test: EDIT comes back to where it started) */
     bad += check("EDIT remembers its last page (as every family)", str_eq(cur_page()->title, "EDIT 2"));
+#endif
     return bad;
 }
 
@@ -3750,8 +3787,10 @@ static int test_tempo_select(void)
     ok = !str_eq(cur_page()->title, "NOTES") && ui.cursor == 4u;
     turn(EN_SELECT, -1);
     turn(EN_K1, 3);
+#if !OC_STEP_PAGES                                /* (ui-build 4: NOTES' KNOB 1 is PITCH, SELECT the page: step_pages_test) */
     bad += check("SELECT on NOTES turns the page (and back); KNOB 1 moves through the steps",
                  ok && ui.cursor == 7u && str_eq(cur_page()->title, "NOTES"));
+#endif
     go_title("TEMPO");
     turn(EN_K1, 4);
     turn(EN_K2, 10);
@@ -3899,7 +3938,11 @@ static int test_rec_gestures(void)
     transport_req = 0;
     song.rec = 0;
     hold(B_REC);
+#if OC_REC_CLEAR                                  /* (ui-fix2 2: held, stopped, it counts down to a clear; Capture stays for a playing unit; rec_clear_test) */
+    bad += check("REC held, stopped: nothing armed, no transport", !song.rec && !transport_req);
+#else
     bad += check("REC held: Capture, nothing armed", !song.rec && !transport_req && msg_is("NOTHING TO CAPTURE"));
+#endif
     go_home();
     press(B_REC);
     bad += check("REC tapped: latched, transport remains stopped", (song.rec & 1u) && (song.rec_latch & 1u) && transport_req == 0u && ui.home);
@@ -4633,9 +4676,11 @@ static int test_overwrite_recorded(void)
     bad += check("OVERWRITE: a recorded chord of three on step 3, one on step 6", ok);
     /* (the dispatcher refuses a key on a recorded step, as it always did: ui_input.c, "STOP TO EDIT"; the entry code
      * below it is called directly, for the day that gate goes) */
+#if !OC_ONE_AUTH                                  /* (ui-fix 7: that gate has gone, a key on a recorded step overwrites it: one_auth_test) */
     tap_key(white(4)); frame();
     ok = events_of(t, 2, 0) == 3u && (t->step[2].flags & SF_RECORDED) && ui.cursor == 2u && msg_is("STOP TO EDIT");
     bad += check("OVERWRITE: a key on a recorded step is refused (STOP TO EDIT); the recording is untouched", ok);
+#endif
     seq_entry_notes(&key, 1);                           /* (TRACKER: tracker_entry_notes) */
     seq_entry_finish(); frame();
     ok = events_of(t, 2, 1) == 0u && events_of(t, 5, 0) == 1u && !memcmp(&recording[3], &d, sizeof d) && !(t->step[2].flags & SF_RECORDED) &&
@@ -5307,7 +5352,9 @@ static int test_bughunt_ui2(void)
             a[k][1] = text_in(BOX_X + 180, Y + ly - 8, BOX_X + 230, Y + ly + 16);   /* the pan, or Mute */
         }
         ok = a[0][0] && !a[0][1] && !a[1][0] && a[1][1] && !a[2][0] && !a[2][1] && !a[3][0] && a[3][1];
+#if !OC_MIXER                                     /* (ui-build 6: the bars are in the knobs' colors and drawn elsewhere: mixer_test) */
         bad += check("MIXER: K1 lights the level's bar, K2 the pan, K4 Mute, K3 nothing", ok);
+#endif
     }
     {   /* 4. renaming the slot the music came from renames the music: the next SAVE prefills the new name */
         char pn[16];

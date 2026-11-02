@@ -112,6 +112,13 @@ CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 #   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
 #   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
 case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
+# (ui-fix2, close-out) the build set: every OC_ switch tools/orangecat_engines.sh turns on, as CI ships them, is on for EVERY test below (a switch that is on
+#   is always tested). A job's own flags come after and win, so a test of a step on its own, or of the old paths, names the switch it wants
+#   (-DOC_X=0 / 1). BS_OFF is the same list switched off: the "legacy" jobs keep the old paths in the image tested (UI_BUILD.md: step 9 is the owner's).
+BS=$(grep '^export OC_' tools/orangecat_engines.sh | grep -o 'OC_[A-Z0-9_]*=1' | sed 's/^/-D/' | tr '\n' ' ')
+BS_OFF=$(echo "$BS" | sed 's/=1/=0/g')
+[ -n "$BS" ] || { echo "run_tests.sh: no OC_ switches found in tools/orangecat_engines.sh" >&2; exit 2; }
+CC="$CC $BS"
 FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
@@ -627,6 +634,8 @@ if core && [ $TABLES = 1 ]; then
     t "settings: PER5 records, palette ids and preference preservation" settings_test -O1 -w -Ibuild/gen
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
+    # (ui-fix2, close-out) the same test with every switch of the build set off: the old paths stay in the image and stay tested
+    t "UI with the build set's switches all off (the old flows)" ui_legacy:ui_test $BS_OFF -DMELODEE_USB_AUDIO=1 $FW
     job oc_scene_job
     job home_pic_job
     job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
