@@ -73,6 +73,10 @@ typedef struct {
 #define FW_UI_MAGIC 0x31495547u                          /* "GUI1" little endian */
 #define FW_UI_SCENE_MAX 1024u                            /* bytes of scene a module may carry (the interpreter's own SC_MAX is the other bound) */
 #define FW_KDEF_N 4u                                     /* HOME's knobs */
+#define FW_PID_VOLATILE 0x4000u                          /* (L3) a pid with this bit is NOT STORED: a RAM-only value (the FX layer's knobs, "never saved"): the host keeps the byte in the instance, the project writer and reader skip it, no hook is needed; no legacy slot */
+#define FW_PID_RELATIVE 0x2000u                          /* (L4) a RELATIVE knob (TAPE STOP's SCRATCH moves the tape by hand): it has no value; `put` receives the detents turned (signed) instead of a value; never stored; needs the put hook; no legacy slot */
+#define FW_PID_FLAGS 0xE000u                             /* the three bits above and the view's: at most one of them on a pid; a stable id proper is below 0x2000 */
+#define FW_LEG_GLOBAL 0x8000u                            /* (L1) bit 15 of fw_pid_t.legacy: the slot is song.g[legacy & 0x7FFF] (the effects' globals), not a track parameter */
 #define FW_PID_VIEW 0x8000u                              /* a pid with this bit is a VIEW (a cell computed from stored ids by shown/put: DUB's SYNC, PING, DRIVE, WOW): never stored, never a motion or macro target; it has no legacy slot and needs both hooks */
 #define FW_PID_NONE 0xFFFFu                              /* fw_pid_t.legacy: no track slot; fw_kdef_t target pid: unused */
 /* The stable parameter id of a panel entry (MODULE_FORMAT_R3.md 4): id never reused, never changes meaning; legacy the track parameter slot an older project stored the value in, FW_PID_NONE for none */
@@ -150,24 +154,26 @@ static inline int fwp_str(fw_pages_rd rd, void *ctx, uint32_t a, uint32_t lo, ui
     }
     return 0;
 }
-/* scope: SC_MOD for an engine's descriptor (kind 0), SC_FX for an effect's (kinds 1 to 3: the rules of MODULE_FORMAT_R3.md 4); pcount: the build's P_COUNT (the legacy slots
- * must lie below it); *ui: the picture's address (0 none) for fw_ui_check, which is separate because a bad picture does not refuse the module */
-static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, uint32_t lo, uint32_t hi, uint32_t scope, uint32_t pcount, uint32_t *ui)
+/* scope: SC_MOD for an engine's descriptor (kind 0), SC_FX for an effect's (kinds 1 to 3: the rules of MODULE_FORMAT_R3.md 4); pcount, gcount: the build's P_COUNT and G_COUNT (the legacy
+ * slots must lie below them: a track slot, or with FW_LEG_GLOBAL a song.g id of the effects' globals, G_DTIME up, not G_BUDGET); *ui: the picture's address (0 none) for fw_ui_check, which is separate because a bad picture does not refuse the module */
+static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, uint32_t lo, uint32_t hi, uint32_t scope, uint32_t pcount, uint32_t gcount, uint32_t *ui)
 {
     uint8_t d[FW_PAGES_WIRE], r[FW_PAGES_ROW_WIRE], p[FW_PAGES_DESC_WIRE], w[4];
     uint32_t i, n, np, rows, panel, skip, env, lfo, h, pidp;
     uint32_t views = 0;                                  /* (Release 3) entries whose id has FW_PID_VIEW set */
     uint16_t ids[FW_PANEL_MAX];                          /* (Release 3) the pid table, for the unique-id check */
-    uint8_t legseen[32];                                 /* .. and the legacy slots seen (below 256) */
+    uint8_t legseen[32], gseen[32];                      /* .. and the legacy slots seen, track and song.g (each below 256) */
+    uint32_t rels = 0, ext;
     if (ui) *ui = 0;
-    if (pcount > 256u || (scope != SC_MOD && scope != SC_FX)) return FWP_SCOPE;
+    if (pcount > 256u || gcount > 256u || (scope != SC_MOD && scope != SC_FX)) return FWP_SCOPE;
     if (!fwp_in(desc, FW_PAGES_WIRE, lo, hi) || (desc & 3u)) return FWP_ADDR;
     if (rd(ctx, desc, d, FW_PAGES_WIRE)) return FWP_READ;
     if (fwp_u32(d) != FW_PAGES_MAGIC) return FWP_MAGIC;
     if ((d[4] | d[5] << 8) != FW_PAGES_WIRE || (d[6] | d[7] << 8) != FW_PAGES_VERSION) return FWP_SIZE;
     n = d[8] | d[9] << 8; np = d[10] | d[11] << 8;
     if (!n || n > FW_PAGES_MAX || !np || np > FW_PANEL_MAX) return FWP_COUNT;
-    if (fwp_u32(d + 76)) return FWP_EXT;                 /* ext: 0 in version 3 */
+    ext = fwp_u32(d + 76);                               /* ext: 0, or (L1) an effect's legacy condition: bits 0..15 song.g index + 1, bits 16..31 the value it must hold for the legacy slots to be imported (the reverb: TYPE == this mode) */
+    if (ext && (scope != SC_FX || (ext & 0xFFFFu) == 0u || (ext & 0xFFFFu) - 1u < G_DTIME || (ext & 0xFFFFu) - 1u >= gcount || (ext & 0xFFFFu) - 1u == G_BUDGET)) return FWP_EXT;
     rows = fwp_u32(d + 12); panel = fwp_u32(d + 16); pidp = fwp_u32(d + 72);
     if (ui) *ui = fwp_u32(d + 68);
     if (!fwp_in(rows, n * FW_PAGES_ROW_WIRE, lo, hi) || (rows & 3u)) return FWP_ROW;
@@ -203,8 +209,10 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
         if (r[4] >= FAM_COUNT || r[5] != scope || r[6] != GR_NONE) return FWP_ROW;
         for (k = 0; k < 4u; k++)
             if (r[7 + k] != 0xFFu && r[7 + k] >= np) return FWP_ROW;
+        /* (L2) 0xFF in a row is "not the module's": for an engine an empty place; for an effect also the HOST's knob (the reverb's type chooser), which the host draws there. Either way an effect's page has at least one knob of its own */
+        if (scope == SC_FX && r[7] == 0xFFu && r[8] == 0xFFu && r[9] == 0xFFu && r[10] == 0xFFu) return FWP_ROW;
     }
-    for (i = 0; i < sizeof legseen; i++) legseen[i] = 0;
+    for (i = 0; i < sizeof legseen; i++) legseen[i] = gseen[i] = 0;
     if (pidp && (!fwp_in(pidp, np * FW_PID_WIRE, lo, hi) || (pidp & 3u))) return FWP_PID;
     for (i = 0; i < np; i++) {
         uint32_t label, names, unit;
@@ -218,12 +226,20 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
             if (rd(ctx, pidp + i * FW_PID_WIRE, q, FW_PID_WIRE)) return FWP_READ;
             id = q[0] | q[1] << 8; leg = q[2] | q[3] << 8;
             if (id == FW_PID_NONE) return FWP_PID;
-            if (id >= FW_PID_VIEW && leg != FW_PID_NONE) return FWP_PID;   /* a view has no slot of its own (it is computed from stored ids by the hooks) */
-            if (id >= FW_PID_VIEW) views++;
+            if (id & FW_PID_FLAGS) {                                     /* a view, a volatile or a relative pid: at most one of the bits, and no slot of its own */
+                uint32_t f = id & FW_PID_FLAGS;
+                if ((f & (f - 1u)) || leg != FW_PID_NONE) return FWP_PID;
+                if (f == FW_PID_VIEW) views++;
+                if (f == FW_PID_RELATIVE) rels++;
+            }
             for (j = 0; j < i; j++) if (ids[j] == id) return FWP_PID;   /* never two entries of one id (a removed entry keeps its row) */
             ids[i] = (uint16_t)id;
             if (!label && leg != FW_PID_NONE) return FWP_PID;           /* a removed parameter has no slot */
-            if (leg != FW_PID_NONE) {
+            if (leg != FW_PID_NONE && (leg & FW_LEG_GLOBAL)) {           /* (L1) a song.g id of the effects' globals, each once */
+                uint32_t g = leg & 0x7FFFu;
+                if (scope != SC_FX || g < G_DTIME || g >= gcount || g == G_BUDGET || (gseen[g >> 3] >> (g & 7u) & 1u)) return FWP_PID;
+                gseen[g >> 3] |= (uint8_t)(1u << (g & 7u));
+            } else if (leg != FW_PID_NONE) {
                 if (leg >= pcount || (leg >= P_RESERVED33 && leg <= P_RESERVED36) || (legseen[leg >> 3] >> (leg & 7u) & 1u)) return FWP_PID;
                 legseen[leg >> 3] |= (uint8_t)(1u << (leg & 7u));
             }
@@ -247,12 +263,13 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
             }
         }
     }
+    if (rels && !fwp_u32(d + 28)) return FWP_PID;       /* a relative knob is delivered by put: no hook, no knob */
     if (views && !(fwp_u32(d + 24) && fwp_u32(d + 28))) return FWP_PID;   /* a view is produced and written back by hooks: no hooks, no views */
     return FWP_OK;
 }
 static inline int fw_pages_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint32_t lo, uint32_t hi)   /* an engine's descriptor (kind 0) in this build */
 {
-    return fw_pages_check_ex(rd, ctx, desc, lo, hi, SC_MOD, P_COUNT, 0);
+    return fw_pages_check_ex(rd, ctx, desc, lo, hi, SC_MOD, P_COUNT, G_COUNT, 0);
 }
 
 /* ---- the picture and the knobs (MODULE_FORMAT_R3.md 5): NOT a refusal --------------------------------------------------------------------------------------

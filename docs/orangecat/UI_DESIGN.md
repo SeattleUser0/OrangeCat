@@ -499,6 +499,9 @@ lands for that track. Leaving DUB (SELECT, HOME) gives the octave back to the ke
 - **Cost**: section 3's table (229 bytes; 16.4 ms of SPI a frame on average while played hard, at 10 frames a second).
 - **Where the picture lives**: section 3; until effects can be modules, in the asset pack.
 
+**The FX layer's cards (Release 3: the buffer effects as modules).** The player's surface for GLITCH, TAPE STOP, SHUFFLE and FREEZE stays the **quick layer's cards**: the FX layer open, the effect's key held, its four knobs on the four cards (DENS PITCH SIZE VARI and so on), as today. When the effects are modules, their descriptors (MODULE_FORMAT_R3.md 16) only **supply the cards' knobs**
+(labels, ranges, defaults, formats); they are not pages of EDIT's FX family, and the values stay RAM only (never saved). TAPE STOP's first card, SCRATCH, is a relative knob: the player turns it to move the tape by hand; it shows "TURN", not a value.
+
 ### 8. The effects' pictures
 
 Every effect gets a picture page instead of a table of values (the owner's ask, 0.3): the FX button steps through them as it

@@ -20,6 +20,7 @@
 #include "ui_test.c"
 #include "oc_modui.c"                              /* (oc_module.c includes it on the unit; this host build has no module loader) */
 #include "fw_pages_wire.h"
+#include "fw_fxstore.h"
 
 static int nbad, nchk;
 static void mchk(const char *what, int ok)
@@ -66,7 +67,7 @@ static void make(const page_t *rows, const fw_pid_t *pid, const fw_ui_t *ui)
     memset(D.knob, 0xFF, 4); memset(D.cc, 0xFF, 4);
     if (!fwp_wire(&D, img, sizeof img, BASE, &desc)) { printf("mod_ui: wire image full\n"); exit(2); }
 }
-static int pages(uint32_t scope) { return fw_pages_check_ex(img_rd, 0, desc, LO, HI, scope, P_COUNT, 0); }
+static int pages(uint32_t scope) { return fw_pages_check_ex(img_rd, 0, desc, LO, HI, scope, P_COUNT, G_COUNT, 0); }
 static void put32(uint32_t at, uint32_t v) { img[at] = (uint8_t)v; img[at + 1] = (uint8_t)(v >> 8); img[at + 2] = (uint8_t)(v >> 16); img[at + 3] = (uint8_t)(v >> 24); }
 static uint32_t d_off(void) { return desc - BASE; }
 static uint32_t pid_off(void) { return (img[d_off() + 72] | img[d_off() + 73] << 8 | img[d_off() + 74] << 16 | (uint32_t)img[d_off() + 75] << 24) - BASE; }
@@ -128,11 +129,11 @@ static void t_pages(void)
     mchk("PAGES  an effect with a knob map: FWP_SCOPE", pages(SC_FX) == FWP_SCOPE);
     make(ROWS_FX, PID, 0); img[d_off() + 64] = 1;
     mchk("PAGES  an effect with a CC map: FWP_SCOPE", pages(SC_FX) == FWP_SCOPE);
-    mchk("PAGES  a scope that is neither: FWP_SCOPE", fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_TRACK, P_COUNT, 0) == FWP_SCOPE);
-    mchk("PAGES  a P_COUNT above 256: FWP_SCOPE", fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_FX, 300, 0) == FWP_SCOPE);
+    mchk("PAGES  a scope that is neither: FWP_SCOPE", fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_TRACK, P_COUNT, G_COUNT, 0) == FWP_SCOPE);
+    mchk("PAGES  a P_COUNT above 256: FWP_SCOPE", fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_FX, 300, G_COUNT, 0) == FWP_SCOPE);
     {   uint32_t ui = 7;
         make(ROWS, PID, &UI);
-        mchk("PAGES  the picture's address is handed back and a bad picture is not this check's", fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_MOD, P_COUNT, &ui) == FWP_OK && ui == ui_off() + BASE);
+        mchk("PAGES  the picture's address is handed back and a bad picture is not this check's", fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_MOD, P_COUNT, G_COUNT, &ui) == FWP_OK && ui == ui_off() + BASE);
     }
 }
 
@@ -237,91 +238,86 @@ static void t_fx(void)
     mchk("HOOK    a stored id has no view: the hook answers 0 (the panel's own descriptor)", dub_shown(0, 0, 1, &v) == 0);
 }
 
-/* ---- Release 3 step 8: the reverb modes (SPRING, SHIMMER, RESO, CLOUD) and the FX layer's buffer effects (GLITCH, TAPE STOP, SHUFFLE, FREEZE) as MODULE_FORMAT_R3.md section 16 writes them.
- * Every example is data here, built into the device's wire bytes and checked by fw_pages_check_ex as SC_FX; each panel entry is compared with what the firmware shows today (params.c
- * global_desc for the reverb, ui_layer.c FXK_* and jfx_perform.c perf_gp for the layer); the size of each descriptor's data is what fwp_wire wrote. Written within the frozen interface:
- * what it cannot say is listed in section 16 (legacy slots in song.g, TYPE on the page, RAM-only values, a turn that is an action). */
-typedef struct { const char *label; uint8_t fmt; int16_t mn, mx, def; const char *unit; const char *const *names; } exp_t;
-static const char *const X_FOLW[] = {"OFF", "T1", "T2", "T3", "T4"};
-static const char *const X_GSIZE[] = {"LONG", "MID", "SHORT", "TINY"}, *const X_TTIME[] = {"1/64", "1/32", "1/16", "1/8", "1/4"};
-static const char *const X_SSIZE[] = {"1/4", "1/8", "1/16"}, *const X_FSIZE[] = {"1/128", "1/64", "1/32", "1/16", "1/8"};
-static param_desc_t xpanel[8];
-static fw_pid_t xpid[8];
-static page_t xrows[2];
-static uint32_t xbytes;
-static int x_fill(fw_pages_t *d, const exp_t *e, uint32_t n, uint32_t first_pid, const page_t *rows, uint32_t nrows, int view)
-{
-    memset(d, 0, sizeof *d);
-    for (uint32_t i = 0; i < n; i++) {
-        xpanel[i] = (param_desc_t){e[i].label, e[i].fmt, e[i].mn, e[i].mx, e[i].def, e[i].names, e[i].unit};
-        xpid[i].id = (uint16_t)(first_pid + i); xpid[i].legacy = FW_PID_NONE;
-    }
-    for (uint32_t i = 0; i < nrows; i++) xrows[i] = rows[i];
-    d->magic = FW_PAGES_MAGIC; d->size = FW_PAGES_WIRE; d->version = FW_PAGES_VERSION; d->npages = (uint16_t)nrows; d->npanel = (uint16_t)n;
-    d->rows = xrows; d->panel = xpanel; d->pid = xpid;
-    memset(d->knob, 0xFF, 4); memset(d->cc, 0xFF, 4);
-    (void)view;
-    return 1;
-}
+/* ---- Release 3 step 8: the reverb modes (SPRING, SHIMMER, RESO, CLOUD) and the FX layer's buffer effects (GLITCH, TAPE STOP, SHUFFLE, FREEZE) as MODULE_FORMAT_R3.md section 16 writes them,
+ * with the four decisions on L1 to L4: a song.g legacy slot (bit 15) and the import condition in `ext`; 0xFF in a row is the host's knob; a volatile pid (bit 14) and a relative pid (bit 13).
+ * Every example is data here, built into the device's wire bytes and checked by fw_pages_check_ex as SC_FX; each panel entry is compared with what the firmware shows today (params.c global_desc
+ * for the reverb with song.g[G_RTYPE] set to the mode; ui_layer.c FXK_* and jfx_perform.c perf_gp for the layer); the size of each descriptor's data is what fwp_wire wrote. */
+#include "fx_reverb_data.h"
 static uint32_t x_wire(const fw_pages_t *d)
 {
     uint32_t len = fwp_wire(d, img, sizeof img, BASE, &desc);
     xbytes = len ? len - 0x100u : 0;
     return len;
 }
-static int desc_same(const param_desc_t *a, const param_desc_t *b)
-{
-    if (strcmp(a->label, b->label) || a->fmt != b->fmt || a->min != b->min || a->max != b->max || a->def != b->def) return 0;
-    if ((a->unit == 0) != (b->unit == 0) || (a->unit && strcmp(a->unit, b->unit))) return 0;
-    if (a->fmt == F_ENUM) for (int v = a->min; v <= a->max; v++) if (strcmp(a->names[v], b->names[v])) return 0;
-    return 1;
-}
 static void t_step8_reverb(void)
 {
-    /* the modes' own knobs: TYPE is the host's (the mode chooser, resident), so K1 of the module's REVERB page is empty (0xFF); K2 K3 K4 are SIZE, DAMP|FOLW, PRE|AIR|PITCH as today's page shows them */
-    static const page_t ROWS[2] = {{"REVERB", FAM_FX, SC_FX, GR_NONE, {0xFF, 0, 1, 2}}, {"REVERB 2", FAM_FX, SC_FX, GR_NONE, {3, 4, 5, 6}}};
-    static const char *const NM[4] = {"SPRING", "SHIMMER", "RESO", "CLOUD"};
-    static const uint32_t TYPE_OF[4] = {1, 2, 3, 4};                  /* G_RTYPE: ROOM 0, SPRING 1, SHIMR 2, RESO 3, CLOUD 4 */
-    static const exp_t SPRING[7] = {{"SIZE", F_PCT, 0, 127, 90, 0, 0}, {"DAMP", F_PCT, 0, 127, 60, 0, 0}, {"PRE", F_INT, 0, 100, 0, "ms", 0},
-                                    {"MOD", F_PCT, 0, 127, 0, 0, 0}, {"RATE", F_LFOHZ, 0, 127, 30, 0, 0}, {"FILT", F_BIPCT, -64, 63, 0, 0, 0}, {"WIDE", F_PCT, 0, 127, 0, 0, 0}};
-    exp_t m[4][7];
     uint32_t sizes[4] = {0};
     for (uint32_t k = 0; k < 4; k++) {
         fw_pages_t d;
-        char buf[160];
-        memcpy(m[k], SPRING, sizeof SPRING);
-        if (k == 1 || k == 3) { m[k][2] = (exp_t){"AIR", F_SEMI, -24, 24, 0, 0, 0}; }
-        if (k == 2) { m[k][1] = (exp_t){"FOLW", F_ENUM, 0, 4, 0, 0, X_FOLW}; m[k][2] = (exp_t){"PITCH", F_INT, 0, 14, 0, 0, 0}; }
-        x_fill(&d, m[k], 7, 1, ROWS, 2, 0);
+        char buf[200];
+        make_reverb(&d, k);
         x_wire(&d);
-        snprintf(buf, sizeof buf, "STEP8   %s (%u bytes of descriptor data) passes the checker as SC_FX, written within the frozen interface", NM[k], xbytes);
+        snprintf(buf, sizeof buf, "STEP8   %s (%u bytes of descriptor data) passes the checker as SC_FX: song.g legacy slots, the TYPE condition, the host's K1", REV_NM[k], xbytes);
         mchk(buf, xbytes && pages(SC_FX) == FWP_OK);
         sizes[k] = xbytes;
         {   int same = 1;                                      /* each knob is what the firmware shows today with TYPE = this mode */
             memset(&song, 0, sizeof song);
-            song.g[G_RTYPE] = (int16_t)TYPE_OF[k];
-            const uint32_t gid[7] = {G_RSIZE, G_RDAMP, G_RPRE, G_RMOD, G_RRATE, G_RFILT, G_RWIDE};
-            for (uint32_t i = 0; i < 7; i++) same &= desc_same(&xpanel[i], global_desc(gid[i]));
-            snprintf(buf, sizeof buf, "STEP8   %s: its seven knobs are what the REVERB and REVERB 2 pages show for TYPE %s today (label, format, range, default, unit, names)", NM[k], NM[k]);
+            song.g[G_RTYPE] = (int16_t)REV_TYPE[k];
+            for (uint32_t i = 0; i < 7; i++) same &= desc_same(&xpanel[i], global_desc(REV_G[i]));
+            snprintf(buf, sizeof buf, "STEP8   %s: its seven knobs are what the REVERB and REVERB 2 pages show for TYPE %s today (label, format, range, default, unit, names)", REV_NM[k], REV_NM[k]);
             mchk(buf, same);
         }
     }
-    mchk("STEP8   the four reverb descriptors are the same size within 16 bytes (the names differ): SPRING, SHIMMER, RESO (a name list), CLOUD", sizes[0] > 0 && sizes[1] <= sizes[0] + 16 && sizes[3] == sizes[1] && sizes[2] > sizes[0]);
     printf("mod_ui: step 8 reverb descriptor data: SPRING %u B, SHIMMER %u B, RESO %u B, CLOUD %u B\n", sizes[0], sizes[1], sizes[2], sizes[3]);
-    /* what the frozen interface cannot do for them: a legacy slot of song.g would pass the checker as a track slot (silently the wrong place) */
-    {   fw_pages_t d;
-        x_fill(&d, SPRING, 7, 1, ROWS, 2, 0);
-        xpid[0].legacy = G_RSIZE;                              /* G_RSIZE is a song.g id: below P_COUNT, so the checker takes it for a track slot */
+    {   fw_pages_t d;                                           /* L1: the checker's rules for a song.g slot and the condition */
+        make_reverb(&d, 0);
+        xpid[0].legacy = (uint16_t)(FW_LEG_GLOBAL | G_RSIZE);  x_wire(&d);
+        mchk("L1      a song.g legacy slot (bit 15) passes in an effect", pages(SC_FX) == FWP_OK);
+        xpid[1].legacy = (uint16_t)(FW_LEG_GLOBAL | G_RSIZE);  x_wire(&d);
+        mchk("L1      .. two entries on one song.g slot: FWP_PID", pages(SC_FX) == FWP_PID);
+        xpid[1].legacy = (uint16_t)(FW_LEG_GLOBAL | G_RDAMP);
+        xpid[1].legacy = (uint16_t)(FW_LEG_GLOBAL | G_BPM);  x_wire(&d);
+        mchk("L1      .. a song.g slot that is not an effect's global (G_BPM): FWP_PID", pages(SC_FX) == FWP_PID);
+        xpid[1].legacy = (uint16_t)(FW_LEG_GLOBAL | G_BUDGET);  x_wire(&d);
+        mchk("L1      .. G_BUDGET (a device setting, not song.g's): FWP_PID", pages(SC_FX) == FWP_PID);
+        xpid[1].legacy = (uint16_t)(FW_LEG_GLOBAL | G_COUNT);  x_wire(&d);
+        mchk("L1      .. a slot at G_COUNT: FWP_PID", pages(SC_FX) == FWP_PID);
+        xpid[1].legacy = (uint16_t)(FW_LEG_GLOBAL | G_RDAMP);
+        xpid[3].legacy = P_E1;  x_wire(&d);
+        mchk("L1      .. a track slot and song.g slots in one table pass (two spaces)", pages(SC_FX) == FWP_OK);
+        make_reverb(&d, 0);  x_wire(&d);
+        mchk("L1      the track slot G_RSIZE would have been (a bare number) is still a track slot, and a descriptor of an engine may not use bit 15", pages(SC_FX) == FWP_OK);
+        d.ext = 0;  x_wire(&d);
+        mchk("L1      no condition (ext 0) passes", pages(SC_FX) == FWP_OK);
+        d.ext = (G_RTYPE + 1u) | (1u << 16);  x_wire(&d);
+        mchk("L1      ext: TYPE == 1 passes in an effect", pages(SC_FX) == FWP_OK && pages(SC_MOD) != FWP_OK);
+        mchk("L1      .. and an engine's descriptor may not carry a condition (FWP_EXT)", ({ make_dub(&d); d.ext = 1; x_wire(&d); pages(SC_FX) == FWP_EXT; }));
+        make_reverb(&d, 0);  d.ext = 0x00010000u;  x_wire(&d);
+        mchk("L1      ext with no index (value only): FWP_EXT", pages(SC_FX) == FWP_EXT);
+        make_reverb(&d, 0);  d.ext = (G_BPM + 1u) | (1u << 16);  x_wire(&d);
+        mchk("L1      ext naming a global that is not an effect's (G_BPM): FWP_EXT", pages(SC_FX) == FWP_EXT);
+        make_reverb(&d, 0);  d.ext = (G_COUNT + 1u) | (1u << 16);  x_wire(&d);
+        mchk("L1      ext naming a global past G_COUNT: FWP_EXT", pages(SC_FX) == FWP_EXT);
+    }
+    {   fw_pages_t d;                                           /* L2: 0xFF in a row is the host's knob */
+        page_t only_host[1] = {{"REVERB", FAM_FX, SC_FX, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}}};
+        make_reverb(&d, 0);  x_wire(&d);
+        mchk("L2      a page whose K1 is the host's (0xFF) and K2 .. K4 the module's passes: the reverb examples above", pages(SC_FX) == FWP_OK && xrows[0].id[0] == 0xFF);
+        x_fill(&d, rev_m[0], 7, only_host, 1);
+        for (uint32_t i = 0; i < 7; i++) { xpid[i].id = (uint16_t)(1 + i); xpid[i].legacy = FW_PID_NONE; }
         x_wire(&d);
-        mchk("STEP8   LACKS: a pid's legacy slot cannot name song.g: G_RSIZE written there PASSES the checker as the track parameter of that number (it would be read from the wrong place)", pages(SC_FX) == FWP_OK && G_RSIZE < P_COUNT);
+        mchk("L2      a page of an effect with nothing of its own (all four 0xFF): FWP_ROW", pages(SC_FX) == FWP_ROW);
+        x_fill(&d, rev_m[0], 7, REV_ROWS, 2);
+        for (uint32_t i = 0; i < 7; i++) { xpid[i].id = (uint16_t)(1 + i); xpid[i].legacy = FW_PID_NONE; }
+        xrows[0].id[1] = 0xFF; xrows[0].id[2] = 0xFF; xrows[0].id[3] = 0xFF; xrows[0].id[0] = 0;   /* one knob of its own, three of the host's */
+        x_wire(&d);
+        mchk("L2      .. with one of its own it passes (the host may own the rest)", pages(SC_FX) == FWP_OK);
+        make_reverb(&d, 0);  x_wire(&d);
     }
 }
-/* the layer's four knobs are RAM only ("never saved"), so the examples use views: no storage, and the hooks read and write perf_gp */
-static int16_t lay_x;
-#define LAY_HOOKS(X) \
-    static const param_desc_t *lay_shown_##X(uint32_t slot, uint32_t instance, uint32_t id, int16_t *v) { (void)slot; (void)instance; *v = (int16_t)perf_gp[X][id - 0x8001u]; return 0; } \
-    static void lay_put_##X(uint32_t slot, uint32_t instance, uint32_t id, int32_t v) { (void)slot; (void)instance; perf_gp[X][id - 0x8001u] = (int8_t)v; }
-LAY_HOOKS(0) LAY_HOOKS(1) LAY_HOOKS(2) LAY_HOOKS(3)
+/* the layer's knobs: RAM only (L3: a volatile pid, 0x4001 up, no hooks); TAPE STOP's SCRATCH a relative knob (L4: 0x2001, put receives the detents) */
+static int32_t scratch_turns;
+static void lay_put(uint32_t slot, uint32_t instance, uint32_t id, int32_t v) { (void)slot; (void)instance; if (id == 0x2001u) scratch_turns += v; }
 static void t_step8_layer(void)
 {
     static const char *const NM[4] = {"GLITCH", "TAPE STOP", "SHUFFLE", "FREEZE"};
@@ -331,10 +327,6 @@ static void t_step8_layer(void)
         {{"AMOUNT", F_INT, 0, 100, 60, "%", 0}, {"SIZE", F_ENUM, 0, 2, 2, 0, X_SSIZE}, {"SPEED", F_INT, 0, 100, 20, "%", 0}, {"VARI", F_INT, 1, 16, 1, 0, 0}},
         {{"DENS", F_INT, 0, 100, 50, "%", 0}, {"PITCH", F_INT, -12, 12, 0, "st", 0}, {"SPRAY", F_INT, 0, 100, 30, "%", 0}, {"SIZE", F_ENUM, 0, 4, 2, 0, X_FSIZE}}};
     static const uint8_t NK[4] = {4, 3, 4, 4};
-    typedef const param_desc_t *(*shown_t)(uint32_t, uint32_t, uint32_t, int16_t *);
-    typedef void (*put_t)(uint32_t, uint32_t, uint32_t, int32_t);
-    static const shown_t SH[4] = {lay_shown_0, lay_shown_1, lay_shown_2, lay_shown_3};
-    static const put_t PU[4] = {lay_put_0, lay_put_1, lay_put_2, lay_put_3};
     uint32_t sizes[4];
     for (uint32_t x = 0; x < 4; x++) {
         fw_pages_t d;
@@ -342,12 +334,13 @@ static void t_step8_layer(void)
         char buf[200];
         int same = 1;
         row.title = NM[x];
-        for (uint32_t k = NK[x]; k < 4; k++) row.id[k] = 0xFF;
-        x_fill(&d, E[x], NK[x], 0x8001u, &row, 1, 1);
-        d.fx_shown = SH[x]; d.fx_put = PU[x];
+        for (uint32_t k = NK[x]; k < 4; k++) row.id[k] = 0xFF;      /* (L2) the host's place: the layer draws nothing there */
+        x_fill(&d, E[x], NK[x], &row, 1);
+        for (uint32_t k = 0; k < NK[x]; k++) { xpid[k].id = (uint16_t)(FW_PID_VOLATILE + 1u + k); xpid[k].legacy = FW_PID_NONE; }
+        if (x == 1) { xpid[0].id = (uint16_t)(FW_PID_RELATIVE + 1u); d.fx_put = lay_put; }   /* (L4) SCRATCH: the detents; the only hook */
         x_wire(&d);
         sizes[x] = xbytes;
-        snprintf(buf, sizeof buf, "STEP8   FX layer %s (%u bytes of descriptor data, views over RAM) passes the checker as SC_FX", NM[x], xbytes);
+        snprintf(buf, sizeof buf, "STEP8   FX layer %s (%u bytes of descriptor data, %s) passes the checker as SC_FX", NM[x], xbytes, x == 1 ? "volatile pids, SCRATCH relative, one put hook" : "volatile pids, no hooks");
         mchk(buf, xbytes && pages(SC_FX) == FWP_OK);
         for (uint32_t k = 0; k < NK[x]; k++)
             same &= !strcmp(xpanel[k].label, FXK_LABEL[x][k]) && xpanel[k].min == FXK_MIN[x][k] && xpanel[k].max == FXK_MAX[x][k];
@@ -357,27 +350,52 @@ static void t_step8_layer(void)
         {   static const int8_t DEF[4][4] = {{50, 0, 0, 1}, {0, 4, 0, 0}, {60, 2, 20, 1}, {50, 0, 30, 2}};   /* jfx_perform.c perf_gp's initial values */
             int dd = 1;
             for (uint32_t k = 0; k < NK[x]; k++) dd &= xpanel[k].def == DEF[x][k];
-            snprintf(buf, sizeof buf, "STEP8   FX layer %s: defaults are perf_gp's initial values", NM[x]);
+            snprintf(buf, sizeof buf, "STEP8   FX layer %s: defaults are perf_gp's initial values (the host keeps the bytes)", NM[x]);
             mchk(buf, dd);
         }
-        {   int16_t v = 0;
-            perf_gp[x][1] = 3;
-            SH[x](0, 0, 0x8002u, &v);
-            PU[x](0, 0, 0x8002u, -5);
-            snprintf(buf, sizeof buf, "STEP8   FX layer %s: the hooks read and write the effect's RAM knob (perf_gp), nothing is stored", NM[x]);
-            mchk(buf, v == 3 && perf_gp[x][1] == -5);
+        {   int16_t vals[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+            uint8_t out[64];
+            snprintf(buf, sizeof buf, "L3      FX layer %s: the project stores none of its values (a volatile or relative pid is skipped by the writer)", NM[x]);
+            mchk(buf, fx_store_pack(img_rd, 0, desc, vals, out, sizeof out) == 0 && ({ static int16_t back[8]; memset(back, 0, sizeof back); fx_store_unpack(img_rd, 0, desc, out, 0, back) == 0; }));
         }
     }
     printf("mod_ui: step 8 FX layer descriptor data: GLITCH %u B, TAPE STOP %u B, SHUFFLE %u B, FREEZE %u B\n", sizes[0], sizes[1], sizes[2], sizes[3]);
-    (void)lay_x;
-    {   fw_pages_t d;                                       /* the same without the hooks: the checker refuses views with none, so RAM-only knobs cannot be plain entries either (they would be stored) */
+    {   fw_pages_t d;                                           /* L3 and L4: the checker's rules */
         page_t row = {"GLITCH", FAM_FX, SC_FX, GR_NONE, {0, 1, 2, 3}};
-        x_fill(&d, E[0], 4, 0x8001u, &row, 1, 1);
+        x_fill(&d, E[0], 4, &row, 1);
+        for (uint32_t k = 0; k < 4; k++) { xpid[k].id = (uint16_t)(FW_PID_VOLATILE + 1u + k); xpid[k].legacy = FW_PID_NONE; }
         x_wire(&d);
-        mchk("STEP8   LACKS: a RAM-only knob has no 'volatile' mark: as views they need hooks (above); as plain entries they would be stored by the project (the checker passes both)", pages(SC_FX) == FWP_PID);
-        x_fill(&d, E[0], 4, 1, &row, 1, 0);
-        x_wire(&d);
-        mchk("STEP8   .. and the plain ones pass the checker: nothing in the data says they must not be saved", pages(SC_FX) == FWP_OK);
+        mchk("L3      volatile pids need no hooks: the layer's four knobs pass with none", pages(SC_FX) == FWP_OK && !fwp_u32(img + d_off() + 24) && !fwp_u32(img + d_off() + 28));
+        xpid[0].legacy = P_E1;  x_wire(&d);
+        mchk("L3      a volatile pid with a legacy slot: FWP_PID (it is not stored, so it has no slot)", pages(SC_FX) == FWP_PID);
+        xpid[0].legacy = FW_PID_NONE;  xpid[0].id = (uint16_t)(FW_PID_VOLATILE | FW_PID_VIEW | 1u);  x_wire(&d);
+        mchk("L3      a pid with two of the flag bits (volatile and view): FWP_PID", pages(SC_FX) == FWP_PID);
+        xpid[0].id = (uint16_t)(FW_PID_VOLATILE | FW_PID_RELATIVE | 1u);  x_wire(&d);
+        mchk("L3      .. volatile and relative: FWP_PID", pages(SC_FX) == FWP_PID);
+        xpid[0].id = (uint16_t)(FW_PID_RELATIVE + 1u);  x_wire(&d);
+        mchk("L4      a relative pid with no put hook: FWP_PID (no hook, no knob)", pages(SC_FX) == FWP_PID);
+        d.fx_put = lay_put;  x_wire(&d);
+        mchk("L4      .. with the put hook it passes", pages(SC_FX) == FWP_OK);
+        for (uint32_t k = 0; k < 4; k++) xpid[k].id = (uint16_t)(1 + k);
+        d.fx_put = 0;  x_wire(&d);
+        mchk("L3      the same four entries as plain pids (1 .. 4) pass too: they are stored, which is why the layer's are volatile", pages(SC_FX) == FWP_OK);
+        scratch_turns = 0;
+        lay_put(0, 0, 0x2001u, 3); lay_put(0, 0, 0x2001u, -1);
+        mchk("L4      the relative knob's put receives detents: +3 then -1 sums to 2", scratch_turns == 2);
+    }
+    {   fw_pages_t d;                                           /* L3: the writer and reader of the stored values skip view, volatile, relative and removed entries; the others round-trip */
+        int16_t vals[7] = {10, 20, 30, 40, 50, 60, 70}, back[7];
+        uint8_t out[64];
+        uint32_t n;
+        make_reverb(&d, 0);  x_wire(&d);
+        n = fx_store_pack(img_rd, 0, desc, vals, out, sizeof out);
+        for (uint32_t i = 0; i < 7; i++) back[i] = (int16_t)(rev_m[0][i].def);
+        mchk("L3      a plain descriptor stores all seven values (28 bytes) and the reader returns them", n == 28 && fx_store_unpack(img_rd, 0, desc, out, n, back) == 7 && back[0] == 10 && back[6] == 70);
+        xpid[2].id = (uint16_t)(FW_PID_VOLATILE + 3u);  xpid[5].id = (uint16_t)(FW_PID_VOLATILE + 6u);  x_wire(&d);
+        n = fx_store_pack(img_rd, 0, desc, vals, out, sizeof out);
+        for (uint32_t i = 0; i < 7; i++) back[i] = (int16_t)(rev_m[0][i].def);
+        mchk("L3      with two entries volatile, 20 bytes are stored and the reader leaves those two at their defaults", n == 20 && fx_store_unpack(img_rd, 0, desc, out, n, back) == 5 && back[2] == rev_m[0][2].def && back[5] == rev_m[0][5].def && back[1] == 20);
+        xpid[2].legacy = FW_PID_NONE;
     }
 }
 static void t_ui(void)
@@ -553,7 +571,7 @@ static void t_fuzz(void)
             uint32_t at = (d_off() + fz_rand() % 0x280u) % sizeof img;   /* around the descriptor, the pid table, the picture, the scene and the knobs */
             if (fz_rand() & 1u) img[at] ^= (uint8_t)(1u << (fz_rand() % 8u)); else img[at] = (uint8_t)fz_rand();
         }
-        if (fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_MOD, P_COUNT, &ui) != FWP_OK) continue;
+        if (fw_pages_check_ex(img_rd, 0, desc, LO, HI, SC_MOD, P_COUNT, G_COUNT, &ui) != FWP_OK) continue;
         accepted++;
         code = (uint32_t)fw_ui_check(img_rd, 0, ui, LO, HI, scene_ok, &o);
         if (modui_publish(6u, img_rd, 0, desc, LO, HI, img, BASE) != code && code != FWU_OK) bad_inv++;
