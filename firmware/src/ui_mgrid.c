@@ -62,10 +62,10 @@ static void graph_mgrid(const track_t *t, uint16_t c)
         if ((int32_t)i == playing)
             cv_rect(x + 8, y, MG_TW - 16, 3, T_TEXT);
         fmt_int(n, (int32_t)(base + i) + 1);
-        cv_text_on(x + 4, ty_y(y + MG_TH / 2, TY_LB), TY_LB, n, cur ? T_TEXT : on ? T_MID : T_DIM, fill);
+        cv_text_on(x + 3, ty_y(y + MG_TH / 2, TY_LB), TY_LB, n, cur ? T_TEXT : on ? T_MID : T_DIM, fill);
         mgrid_tile_text(st, v);
         if (v[0])
-            cv_text_r(x + MG_TW - 3, ty_y(y + MG_TH / 2, TY_LB), TY_LB, v, T_THEME, fill);
+            cv_text_r(x + MG_TW - 2, ty_y(y + MG_TH / 2, TY_LB), TY_LB, v, T_THEME, fill);
         if (step_on(st) && st->n > 1u) {                /* a chord: one pip a note after the first */
             uint32_t q;
             for (q = 1; q < st->n && q < 4u; q++) cv_rect(x + MG_TW - 6 - (int32_t)q * 6, y + MG_TH - 4, 4, 2, T_THEME);
