@@ -59,7 +59,6 @@ static struct {
                                                          * state is of trk (0: the first frame) */
 } hp;
 static struct {                                         /* (dub-perf) the DUB page's: its scene, the KICK strike, what the keys last drew */
-    const uint8_t *scene;
     uint32_t hit_ms, sig_keys;
     uint8_t kick;
 } dv;
@@ -150,10 +149,7 @@ static void hp_sound_line(int pack_missing)
     } else if (pack_missing) {
         cv_text(32, ty_y(12, TY_TX), TY_TX, "PACK MISSING", T_REC);
     } else if (hp_dub()) {                              /* (dub-perf) the page's name, and what the keys do not do */
-        static const char *const HELP[4] = {"BLACK KEYS: LIVE, NOT RECORDED", "BLACK KEYS NOT RECORDED", "BLACK: NOT RECORDED", "NOT RECORDED"};
-        uint32_t h = 0;
-        while (h < 3u && text_w(TY_LB, HELP[h]) > 200) h++;
-        cv_text(32, ty_y(12, TY_LB), TY_LB, HELP[h], T_MID);     /* (the view's help line: the four keys with no lane sound and are not recorded) */
+        cv_text(32, ty_y(12, TY_LB), TY_LB, "BLACK: NOT RECORDED", T_MID);     /* (the view's help line: the four keys with no lane sound and are not recorded) */
     } else {
         int32_t room = 236 - (pos[0] ? text_w(TY_LB, pos) + 8 : 0) - 32;
         cv_free_text(32, ty_y(12, TY_TX), TY_TX, name, T_TEXT, T_BG, room);
@@ -362,16 +358,14 @@ static void dv_picture(void)
     uint32_t sig;
     if (!ui.force && fm1_ms - hp.pic_ms < HP_FRAME_MS)
         return;
-    dv.scene = SCENE_DUBTAPE;
     hp_inputs(&in);
-    sig = dv.scene ? hp_hash(2166136261u, &in, sizeof in) + (uint32_t)(uintptr_t)dv.scene : 0x51A2u + ux.gen * 977u;
+    sig = hp_hash(2166136261u, &in, sizeof in) + (uint32_t)(uintptr_t)SCENE_DUBTAPE;
     if (!ui.force && sig == hp.sig_pic)
         return;
     hp.sig_pic = sig;
     hp.pic_ms = fm1_ms;
     CV_BANDS(0, DP_PIC_Y, 240, DP_PIC_H, T_BG) {
-        if (dv.scene) scene_draw(dv.scene, 0, DP_PIC_H - dv.scene[2], &in);
-        else cv_text_c(120, ty_y(DP_PIC_H / 2, TY_TX), TY_TX, "DUB TAPE", T_MID, T_BG);
+        scene_draw(SCENE_DUBTAPE, 0, DP_PIC_H - SCENE_DUBTAPE[2], &in);
     }
 }
 /* the keys: the octave C4 .. B4 as the view's (dub_keys.h), a key lit while its trigger is held, by what dub_trig says (so a controller's CC lights them too) */

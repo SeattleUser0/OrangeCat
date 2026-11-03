@@ -632,6 +632,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
+    t "Control notes 124 to 127 (KICK, HOLD, DIVE, RISE) through every note-range path: recorder, replay, save and load, MIDI in, octave, transpose, scale layouts" control_notes_test -O1 $FW
     t "Restoring an event over a slot in use keeps the track's chain a chain (a hang failed the suite for 98 min), with its own alarm" restore_chain_test -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
     run "CI gate (tools/ci_gate.sh): no marker is red, the pass marker with a test count is green, the failed marker wins" sh tests/ci_gate_test.sh
