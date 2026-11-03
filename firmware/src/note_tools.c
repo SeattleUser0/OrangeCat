@@ -243,7 +243,7 @@ static void note_transform(int32_t delta,uint32_t quantum,int mode)
         selected[i/8u]|=(uint8_t)(1u<<(i%8u));if(reference==RECORD_MAX || (recording[i].step&63u)*RECORD_UNIT+recording[i].on<(recording[reference].step&63u)*RECORD_UNIT+recording[reference].on)reference=i;
     }
     if(reference==RECORD_MAX){note_transaction.valid=0;fm1_irq_on();return;}
-    /* Only probability and slide survive overview rebuilding. */
+    /* Only probability, slide and the deliberate step accent survive overview rebuilding (a rebuild no longer derives the accent from the velocities). */
     uint16_t metadata[NSTEP];
     for(uint32_t k=0;k<len;k++)metadata[k]=TSEL->step[k].probability|((uint16_t)TSEL->step[k].flags<<8);
     int32_t position=(recording[reference].step&63u)*RECORD_UNIT+recording[reference].on;
@@ -262,7 +262,7 @@ static void note_transform(int32_t delta,uint32_t quantum,int mode)
         recording_restore_note(TSEL,dest,r);moved[dest/8u]|=(uint8_t)(1u<<(dest%8u));if(i==reference)focus=dest;
     }
     note_rebuild_all();
-    for(uint32_t k=0;k<len;k++)if(TSEL->step[k].flags&SF_RECORDED){TSEL->step[k].probability=(uint8_t)metadata[k];TSEL->step[k].flags|=(metadata[k]>>8)&SF_SLIDE;}
+    for(uint32_t k=0;k<len;k++)if(TSEL->step[k].flags&SF_RECORDED){TSEL->step[k].probability=(uint8_t)metadata[k];TSEL->step[k].flags|=(metadata[k]>>8)&(SF_SLIDE|SF_ACCENT);}
     if(focus<RECORD_MAX){cursor_set(recording[focus].step&63u);ui.note_pick=(uint16_t)(focus+1u);note_assign(&ui.note_identity,&recording[focus]);ui.note_generation=recording_generation;}
     if(bulk.on){bulk.on=2;memcpy(bulk.notes,moved,sizeof moved);bulk.generation=recording_generation;}note_transaction_end();fm1_irq_on();ui_message(quantize?"NOTES QUANTIZED":copy?"Copying..":"Moving..");
 }

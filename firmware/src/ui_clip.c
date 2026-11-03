@@ -199,7 +199,7 @@ static void notes_paste(void)
     }
     note_rebuild_all();
     for (k = 0; k < NSTEP; k++)
-        if (t->step[k].flags & SF_RECORDED) { t->step[k].probability = (uint8_t)meta[k]; t->step[k].flags = (uint8_t)((t->step[k].flags & ~SF_SLIDE) | ((meta[k] >> 8) & SF_SLIDE)); }
+        if (t->step[k].flags & SF_RECORDED) { t->step[k].probability = (uint8_t)meta[k]; t->step[k].flags = (uint8_t)((t->step[k].flags & ~(SF_SLIDE | SF_ACCENT)) | ((meta[k] >> 8) & (SF_SLIDE | SF_ACCENT))); }
     for (k = 0; k < notes_clip.n; k++) {                 /* a step that was not recorded takes the copied notes' chance and slide */
         uint32_t vi = recording_view(t, &r[k]);
         step_t *v = &t->step[vi];

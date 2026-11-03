@@ -11,6 +11,12 @@
  *   (the owner's rule, ui-fix2) first version.
  */
 #include <stdint.h>
+/* (the clip paste is only built with OC_CLIP and OC_CLIP_SEL, which the build switches leave off; the BULK checks need it, so this test turns the two on where the interface steps they
+ * rest on are on: the same combination tests/clip_sel_test.c runs. The legacy job, everything off, leaves them off and skips the paste pass) */
+#if defined(OC_MIXER) && OC_MIXER && !defined(OC_CLIP)
+#define OC_CLIP 1
+#define OC_CLIP_SEL 1
+#endif
 static uint32_t played[128];                            /* the velocity each note's last hit was played at */
 #define RECORDING_HIT_HOOK(t, i, vel, gate, late) (played[recording[i].note & 127u] = (vel))
 #define RECORDING_NO_MAIN 1
@@ -157,6 +163,47 @@ int main(void)
         make_cell(N3, V5, 3, 0); render(R1);
         make_cell(N3, V6, 3, 0); render(R2);
         chk("OWN     a note at velocity 115 plays as one at 127 (its own accent), the others at their own velocities", !memcmp(R1, R2, sizeof R1));
+    }
+    /* BULK    the real callers that rebuild the whole overview (a bulk quantize / move through note_transform, a clip paste through notes_paste) keep the deliberate step accent of a step
+     * they did not touch, and its chord byte for byte (a rebuild no longer derives the accent from the velocities, so the flag must ride through in the metadata) */
+#if OC_CLIP_SEL
+#define NPASS 3
+#else
+#define NPASS 2
+#endif
+    {   static const uint8_t VB[3] = {100, 90, 100};
+        recorded_note_t e0[3], e1[3];
+        step_t s0;
+        uint32_t k, a, i;
+        for (int pass = 0; pass < NPASS; pass++) {
+            const char *nm = pass == 0 ? "bulk quantize (note_quantize)" : pass == 1 ? "move (note_move_snapped)" : "clip paste (notes_copy + notes_paste)";
+            char buf[200];
+            make_cell(N3, VB, 3, 1);
+            recorded_note_t o = {.step = 5, .on = RECORD_UNIT / 8u, .note = 72, .vel = 100, .duration = 32768, .owner = (uint8_t)recording_owner(&trk[0]), .length = 0};
+            for (i = 0; i < RECORD_MAX && recording[i].vel; i++);
+            recording_restore_note(&trk[0], i, o);
+            note_rebuild_all();
+            TSEL->step[0].flags |= SF_ACCENT;
+            s0 = TSEL->step[0];
+            for (k = 0; k < 3; k++) e0[k] = recording[event_of(N3[k])];
+            chk("BULK    setup: step 0 flagged and recorded, step 5 recorded", (TSEL->step[0].flags & SF_ACCENT) && (TSEL->step[0].flags & SF_RECORDED) && (TSEL->step[5].flags & SF_RECORDED));
+            a = event_of(72); ui.note_pick = (uint16_t)(a + 1u); note_assign(&ui.note_identity, &recording[a]); ui.note_generation = recording_generation;
+            cursor_set(5);
+            if (pass == 0) { bulk.on = 1; bulk.anchor = 5; bulk.end = 5; note_quantize(RECORD_UNIT); bulk.on = 0; }   /* (a range of step 5 alone: the whole pattern would quantize the chord too) */
+            else if (pass == 1) note_move_snapped(1, RECORD_UNIT / 4u, 0);
+            else {
+#if OC_CLIP_SEL
+                notes_copy(); cursor_set(9); notes_paste();
+#endif
+            }
+            snprintf(buf, sizeof buf, "BULK    %s: the other step was edited (the test reached the real caller)", nm);
+            chk(buf, pass == 2 ? (TSEL->step[9].flags & SF_RECORDED) != 0 : recording[event_of(72)].on != o.on || (recording[event_of(72)].step & 63u) != 5u);
+            snprintf(buf, sizeof buf, "BULK    %s: step 0 keeps its deliberate SF_ACCENT", nm);
+            chk(buf, (TSEL->step[0].flags & SF_ACCENT) != 0);
+            for (k = 0; k < 3; k++) e1[k] = recording[event_of(N3[k])];
+            snprintf(buf, sizeof buf, "BULK    %s: the chord's notes and velocities (100 90 100) are byte for byte, step 0 as before", nm);
+            chk(buf, !memcmp(e0, e1, sizeof e0) && e1[0].vel == 100 && e1[1].vel == 90 && e1[2].vel == 100 && !memcmp(&s0, &TSEL->step[0], sizeof s0));
+        }
     }
     printf("accent_own: %s\n", bad ? "FAILED" : "all passed");
     return bad != 0;
