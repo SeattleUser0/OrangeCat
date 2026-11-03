@@ -78,7 +78,7 @@
     <p><label><input type="checkbox" id="stage-pack" checked> <span data-t="stagePack"></span></label><br><span class="small" data-t="packWhy"></span></p>
     <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
     <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
-    <p><label><input type="checkbox" id="stage-fx" checked> <span data-t="stageFx"></span></label><br><span class="small" data-t="fxWhy"></span></p>
+    <p><label><input type="checkbox" id="stage-fx" checked> <span data-t="stageFx"></span> <span id="fx-names"></span></label><br><span class="small" data-t="fxWhy"></span></p>
     <p class="small" data-t="downgradeWhy"></p>
     <p class="small" id="set-note"></p>
   </fieldset>
@@ -365,6 +365,7 @@ function stageNote() {
   $("stage-mod").disabled = writing || !ocmOf("shapes").length;
   $("stage-prophet").disabled = writing || !ocmOf("prophet").length;
   $("stage-fx").disabled = writing || !fxOf().length;
+  $("fx-names").textContent = fxOf().length ? "(" + fxOf().map(x => x.name || "0x" + x.module_id.toString(16)).join(", ") + ")" : "";   /* (Release 3 step 6) the effects of the list by name: the release list's {url, kind, module_id, name}, e.g. (DUB TAPE) */
   modStages();
 }
 const ready = () => { lastKey = "ready"; $("status").textContent = `Orange Cat ${selection().channel.version} (${t(build() + "Tag")})`; };

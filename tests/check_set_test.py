@@ -70,7 +70,7 @@ def ocm2(name, engine, sectors, starts, length=3000, bad_crc=False):
     struct.pack_into("<III", b, 44, 3, 60, sectors)
     struct.pack_into("<IIIIIIII", b, tab, 0xFFFFFFFF, length, 0, off, 0, off + length, 0, m)
     for k, s in enumerate(starts):
-        struct.pack_into("<II", b, tab + 32 + 8 * k, s, 0)
+        struct.pack_into("<iI", b, tab + 32 + 8 * k, s, 0)
     struct.pack_into("<I", b, head, zlib.crc32(bytes(b[:head])) ^ (1 if bad_crc else 0))
     return bytes(b)
 
@@ -104,6 +104,8 @@ check("a SHAPES image at sector 7 is refused", "does not fit" in run(P, [ocm("SH
 check("a pack of another hash than the firmware's is refused", "is not the firmware's" in run(P, [shapes], {"pack_hash": PHASH ^ 1, "pack_len": len(P), "iface": IFACE, "api_addr": ADDR}))
 check("(0.14.1) a relocatable package (format 2) of the Prophet, proved for sectors 0 and 4, is accepted", run(P, [ocm2("PROPHET", 19, 8, [0, 4], length=31872)]) == "")
 check("(0.14.1) a relocatable package proved for a start that leaves the area is refused", "does not fit" in run(P, [ocm2("SHAPES", 14, 6, [0, 7])]))
+check("(Release 3 step 6) DUB TAPE's package: 3 sectors, the six starts of the 18 sector grid (-6 .. 9, signed), is accepted", run(P, [ocm2("DUB", 0x100, 3, [-6, -3, 0, 3, 6, 9], length=11612)]) == "")
+check("(Release 3 step 6) ... a start below -6 or one that leaves the area at 12 is refused", "does not fit" in run(P, [ocm2("DUB", 0x100, 3, [-9, 0], length=11612)]) and "does not fit" in run(P, [ocm2("DUB", 0x100, 3, [10], length=11612)]))
 check("(0.14.1) a damaged relocatable package header is refused", "damaged" in run(P, [ocm2("SHAPES", 14, 6, [0, 6], bad_crc=True)]))
 T = P + bytes(range(200))      # (the new interface 0.7) a scene trailer after the tables: outside the header's length, hash and CRC
 check("(0.7) a pack with a scene trailer after its tables is accepted (the manifest's length is the tables')", run(T, [shapes], {"pack_hash": PHASH, "pack_len": len(P), "iface": IFACE, "api_addr": ADDR}) == "")

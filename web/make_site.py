@@ -112,6 +112,57 @@ def published(out, name):
     return spec
 
 
+from struct import error as struct_error
+FX_NAMES = {1: "DUB TAPE"}      # (Release 3 step 6) the effect modules Orange Cat ships, by module id (docs/orangecat/MODULE_IDS.md): the installer page names them
+
+
+def fx_info(path):
+    """(Release 3 step 6) an effect module's package (the header's engine word is kind << 8, kind 1..3): (kind, module_id), the module id read from the image's descriptor as the
+    unit reads it (header engine_ptr -> fx_desc_t, word 1). None for an engine module. Only format 2 (one relocatable image, linked at 0) is read; any other shape is refused"""
+    import struct
+    b = Path(path).read_bytes()
+    magic, ver, n, iface, api_addr, engine = struct.unpack_from("<IHHIII", b, 0)
+    if magic != 0x464D434F:
+        raise SystemExit(f"{path}: not a module package")
+    kind = engine >> 8
+    if not kind:
+        return None
+    if not 1 <= kind <= 3 or engine & 0xFF or ver != 2:
+        raise SystemExit(f"{path}: an effect module package is format 2 with the engine word kind << 8 (got format {ver}, engine word {engine:#x})")
+    length, _, off = struct.unpack_from("<III", b, 60)
+    img = b[off:off + length]
+    desc = struct.unpack_from("<I", img, 28)[0]                 # engine_ptr, an offset in the image linked at 0
+    if desc + 20 > len(img) or desc & 3:
+        raise SystemExit(f"{path}: the effect descriptor is outside the image")
+    module_id = struct.unpack_from("<I", img, desc + 4)[0]
+    if not module_id:
+        raise SystemExit(f"{path}: module id 0")
+    return kind, module_id
+
+
+def ocm_entry(path, url, strict=True):
+    """what the release list says about a module package: its URL for an engine module; for an effect module {url, kind, module_id, name} (the installer page's fxOf reads that and
+    checks the file against it after it is read: fm1oc.js runSet)"""
+    try:
+        info = fx_info(path)
+    except (SystemExit, OSError, struct_error):
+        if strict:
+            raise
+        return url                                              # (an older release's file the site already carries: listed as a name, as before)
+    if info is None:
+        return url
+    kind, mid = info
+    e = {"url": url, "kind": kind, "module_id": mid}
+    if mid in FX_NAMES:
+        e["name"] = FX_NAMES[mid]
+    return e
+
+
+def ocm_url(x):
+    """a release list's module entry (a URL, or an effect module's {url, ...}) as the URL"""
+    return x["url"] if isinstance(x, dict) else x
+
+
 def channel(spec, label, stem, branch):
     """Validate a dual-core development package and prepare installer metadata.
 
@@ -135,7 +186,7 @@ def channel(spec, label, stem, branch):
         meta["branchName"] = spec["branchName"]
     if spec.get("pak"):
         if spec.get("kept"):
-            meta["pak"], meta["ocm"] = spec["pak"], list(spec.get("ocm", []))
+            meta["pak"], meta["ocm"] = spec["pak"], list(spec.get("ocm", []))          # (entries as they were published: URLs, and effect modules' objects)
             meta["sets"] = list(spec.get("sets", []))
             return files, meta
         if not spec.get("manifest"):
@@ -150,7 +201,7 @@ def channel(spec, label, stem, branch):
                 raise SystemExit(f"{o}: a module package is named orangecat-NAME-VERSION[-COMMIT].ocm")
             fname = f"orangecat-{m[1]}-{stem.split('-', 1)[1]}.ocm"
             files["ocm:" + m[1]] = (o, o.read_bytes(), None, fname)
-            meta["ocm"].append("../../firmware/" + fname)
+            meta["ocm"].append(ocm_entry(o, "../../firmware/" + fname))
         info = json.loads(Path(spec["manifest"]).read_text())      # the set manifests for the card, one per module choice (docs/orangecat/SET_FORMAT.md)
         base = stem.replace("melodee-", "orangecat-")
         meta["sets"] = []
@@ -196,10 +247,10 @@ def check_set(pak, ocms, manifest):
             raise SystemExit(f"{ocm}: reads pack {mhash:08x}, the pack file is {phash:08x}")
         sectors = struct.unpack_from("<I", b, 52)[0]            # (0.12.2) the module's size in sectors of the 12 sector area (SHAPES 6, the Prophet 8): every image fits it,
         rows = [struct.unpack_from("<IIII", b, 56 + 16 * k) for k in range(n)] if ver == 1 else \
-            [(struct.unpack_from("<I", b, 88 + 8 * k)[0],) + struct.unpack_from("<III", b, 60) for k in range(m)]
+            [(struct.unpack_from("<i", b, 88 + 8 * k)[0],) + struct.unpack_from("<III", b, 60) for k in range(m)]    # (Release 3: a start is signed, -6 .. 11 on the 18 sector grid)
         for k, (start, length, _, off) in enumerate(rows):      # and starts, in sectors from the area's first, leave room for it
-            if not 1 <= sectors <= 12 or length > sectors * 4096 or start + sectors > 12 or off + length > len(b):
-                raise SystemExit(f"{ocm}: image {k + 1} (start {start}, {length} B) does not fit the module's {sectors} sectors of the 12 sector area")
+            if not 1 <= sectors <= 12 or length > sectors * 4096 or start < -6 or start + sectors > 12 or off + length > len(b):
+                raise SystemExit(f"{ocm}: image {k + 1} (start {start}, {length} B) does not fit the module's {sectors} sectors of the area (starts -6 .. 11, ending at 12)")
     return info
 
 
@@ -218,7 +269,7 @@ def release_history(out, current):
         pak = fw / f"orangecat-{version}.pak"                     # (0.11.2) an older release the site still carries with its pack and modules
         if pak.exists():
             releases[version]["pak"] = "../../firmware/" + pak.name
-            releases[version]["ocm"] = ["../../firmware/" + o.name for o in sorted(fw.glob(f"orangecat-*-{version}.ocm"))]
+            releases[version]["ocm"] = [ocm_entry(o, "../../firmware/" + o.name, False) for o in sorted(fw.glob(f"orangecat-*-{version}.ocm"))]
     return [current] + [releases[v] for v in sorted(releases, key=lambda v: tuple(map(int, v.split("."))), reverse=True)
                         if v != current["version"]]
 
@@ -318,7 +369,7 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
                 raise SystemExit(f"{o}: a module package is named orangecat-NAME-VERSION[-COMMIT].ocm")
             fname = f"orangecat-{m[1]}-{v}.ocm"
             set_files[fname] = o
-            release_meta["ocm"].append("../../firmware/" + fname)
+            release_meta["ocm"].append(ocm_entry(o, "../../firmware/" + fname))
     releases = release_history(out, release_meta)
     meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta, "releases": releases})
     for mark in ("/*LIB*/", "/*META*/{}"):
@@ -336,9 +387,9 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
         if key == "pak" or key.startswith("ocm:"):
             set_keep.add(entry[3])
     if nightly_meta:
-        set_keep.update(Path(x).name for x in ([nightly_meta["pak"]] if nightly_meta.get("pak") else []) + list(nightly_meta.get("ocm", [])))
+        set_keep.update(Path(x).name for x in ([nightly_meta["pak"]] if nightly_meta.get("pak") else []) + [ocm_url(o) for o in nightly_meta.get("ocm", [])])
     for r in releases:
-        set_keep.update(Path(x).name for x in ([r["pak"]] if r.get("pak") else []) + list(r.get("ocm", [])))
+        set_keep.update(Path(x).name for x in ([r["pak"]] if r.get("pak") else []) + [ocm_url(o) for o in r.get("ocm", [])])
     for old in list(fw.glob("orangecat-*.pak")) + list(fw.glob("orangecat-*.ocm")):
         if old.name not in set_keep:
             old.unlink()

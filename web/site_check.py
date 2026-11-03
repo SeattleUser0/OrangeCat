@@ -37,7 +37,7 @@ def json_of(site, name):
 
 
 def release_names(entry):
-    return list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + list(entry.get("ocm", []))
+    return list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])]
 
 
 def stable_files(site):

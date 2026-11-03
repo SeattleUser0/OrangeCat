@@ -174,6 +174,26 @@ class BranchNightly(unittest.TestCase):
             self.publish(commit="short")
         self.assertEqual(before, {p.relative_to(self.site): p.read_bytes() for p in self.site.rglob("*") if p.is_file()})
 
+    def test_dub_tapes_effect_module_is_in_the_nightly_set(self):
+        """(Release 3 step 6) the build's DUB TAPE package (kind 1) is the Nightly's effect module: an entry {url, kind, module_id, name} the page's effects box offers (ticked by default),
+        its file and its set manifest are in the site, the engine modules stay names, Standard is unchanged, and the Nightly carried forward by a main build (mirror --only-nightly) keeps it"""
+        dub = fake.fx_ocm(self.art / "orangecat-dub-0.6.2-a6c6d6b.ocm")
+        self.publish(ocms=[self.bsh, self.bpr, dub])
+        fw = self.site / "firmware"
+        n = self.meta()["nightly"]
+        self.assertEqual(n["ocm"], [{"url": "../../firmware/orangecat-dub-nightly.ocm", "kind": 1, "module_id": 1, "name": "DUB TAPE"},
+                                    "../../firmware/orangecat-prophet-nightly.ocm", "../../firmware/orangecat-shapes-nightly.ocm"])
+        self.assertEqual((fw / "orangecat-dub-nightly.ocm").read_bytes(), dub.read_bytes())
+        sj = json.loads((fw / "orangecat-nightly.dub.set.json").read_text())
+        self.assertEqual(sj["files"], {"pak": "orangecat-nightly.pak", "fwsc": "melodee-nightly.fwsc", "ocm": ["orangecat-dub-nightly.ocm"]})
+        self.assertIn("orangecat-nightly.dub.set.json", n["sets"])
+        self.assertEqual(site_check.compare(self.site, json.loads((self.r / "base.json").read_text())), [])
+        out = self.r / "carried"
+        shutil.rmtree(out, ignore_errors=True)
+        mirror_site.mirror(self.serve(self.site), out, nightly=True)
+        for name in ("orangecat-dub-nightly.ocm", "orangecat-nightly.dub.set.json", "orangecat-shapes-nightly.ocm"):
+            self.assertTrue((out / "firmware" / name).is_file(), name)
+
     def test_a_second_nightly_replaces_the_first(self):
         self.publish()
         sha2 = "b" * 40

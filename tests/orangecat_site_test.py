@@ -53,6 +53,27 @@ def ocm(path, iface=IFACE, api=API, phash=PHASH, engine=14):
     return path
 
 
+def fx_ocm(path, module_id=1, kind=1, iface=IFACE, api=API, phash=PHASH, name=b"DUB"):
+    """(Release 3 step 6) an effect module's package as tools/build.py --module writes it: format 2 (one image linked at 0, a relocation list, the starts), the engine word kind << 8,
+    the image's header engine_ptr (offset 28) at a descriptor {n, module_id, version, entries, scene} (fw_fx.h)"""
+    img = bytearray(0x200)
+    struct.pack_into("<I", img, 28, 0x100)
+    struct.pack_into("<IIIII", img, 0x100, 1, module_id, 0x00010000, 0x120, 0)
+    img = bytes(img)
+    lst = b""
+    starts = [0, 3]
+    head = bytearray(struct.pack("<IHHIIIII16sIII", 0x464D434F, 2, 1, iface, api, kind << 8, 0, phash, name, 1, 100, 3))
+    off = (len(head) + 32 + 8 * len(starts) + 4 + 3) & ~3
+    head += struct.pack("<IIII", 1, len(img), zlib.crc32(img) & 0xFFFFFFFF, off)
+    head += struct.pack("<IIII", 0, off + len(img), zlib.crc32(lst) & 0xFFFFFFFF, len(starts))
+    for st in starts:
+        head += struct.pack("<iI", st, 0)
+    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
+    head += b"\0" * (off - len(head))
+    path.write_bytes(bytes(head) + img + lst)
+    return path
+
+
 def manifest(path, **kw):
     info = {"version": "0.6.2", "pack_hash": PHASH, "pack_len": PLEN, "iface": IFACE, "api_addr": API}
     info.update(kw)
@@ -200,6 +221,33 @@ class SetSite(unittest.TestCase):
         for f in s["files"].values():
             for n in ([f] if isinstance(f, str) else f):
                 self.assertTrue((fw / n).exists(), n)
+
+
+    def test_an_effect_module_is_listed_as_one(self):
+        """(Release 3 step 6) DUB TAPE's package (kind 1) is an entry {url, kind, module_id, name} in the release list, which the installer page's effects box offers; an engine module
+        stays a name; the site carries a set manifest for it; a second build removes its file when the list drops it"""
+        dub = fx_ocm(self.r / "orangecat-dub-0.6.2-abc1234.ocm")
+        self.build(pak=self.pak, ocms=[self.ocm, dub], manifest=self.man)
+        fw = self.site / "firmware"
+        rel = json.loads((fw / "release.json").read_text())
+        self.assertEqual(rel["ocm"], [{"url": "../../firmware/orangecat-dub-0.6.2.ocm", "kind": 1, "module_id": 1, "name": "DUB TAPE"},
+                                      "../../firmware/orangecat-shapes-0.6.2.ocm"])
+        self.assertEqual(self.meta()["ocm"], rel["ocm"])
+        self.assertTrue((fw / "orangecat-dub-0.6.2.ocm").is_file())
+        sets = sorted(p.name for p in fw.glob("*.set.json"))
+        self.assertEqual(sets, ["orangecat-0.6.2.dub.set.json", "orangecat-0.6.2.pack.set.json", "orangecat-0.6.2.shapes.set.json"])
+        self.assertEqual(json.loads((fw / "orangecat-0.6.2.dub.set.json").read_text())["files"]["ocm"], ["orangecat-dub-0.6.2.ocm"])
+        self.build(version="0.6.3", pak=pak(self.r / "orangecat-0.6.3.pak"), ocms=[self.ocm], manifest=self.man)   # a newer build without it: its file leaves with the release that listed it only when no release lists it
+        self.assertEqual(json.loads((fw / "release.json").read_text())["ocm"], ["../../firmware/orangecat-shapes-0.6.3.ocm"])
+
+    def test_an_effect_module_that_is_not_format_2_or_has_no_id_is_refused(self):
+        dub = fx_ocm(self.r / "orangecat-dub-0.6.2-abc1234.ocm", module_id=0)
+        with self.assertRaises(SystemExit):
+            self.build(pak=self.pak, ocms=[dub], manifest=self.man)
+        bad = fx_ocm(self.r / "orangecat-dub-0.6.2-abc1234.ocm", kind=4)
+        with self.assertRaises(SystemExit):
+            self.build(pak=self.pak, ocms=[bad], manifest=self.man)
+        self.assertFalse((self.site / "firmware/release.json").exists() and "dub" in (self.site / "firmware/release.json").read_text())
 
 
 class Manifest(unittest.TestCase):

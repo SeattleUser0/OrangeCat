@@ -144,14 +144,15 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
 // d. (Release 3 step 4) an effect module in the release list ({url, kind, module_id}): its own box, sent after the engine module with what the list says it is;
 //    a list of names only (every release so far) has the box off and sends no want; the template's box and texts
 {
-  assert.match(template, /<input type="checkbox" id="stage-fx" checked>/);
+  assert.match(template, /<input type="checkbox" id="stage-fx" checked>/, "the effects box is ticked by default: a build that offers DUB TAPE installs it unless the player unticks it");
   for (const k of ["stageFx", "fxWhy", "installFx", "unitModsTitle", "unitRead", "unitEngines", "unitFx", "fxNoTable", "fxRemove", "fxRemoveConfirm", "modManifest", "fxOldFw"])
     assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
-  const FX = {...STANDARD, ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1}, {url: "bad.ocm", kind: 4, module_id: 2}]};
+  const FX = {...STANDARD, ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1, name: "DUB TAPE"}, {url: "bad.ocm", kind: 4, module_id: 2}]};
   const page = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FX, releases: [FX]});
   await answer(page, "standard.fwsc");
   page.element("stage-fx").checked = true; page.element("stage-fx").listeners.change();
   assert.equal(page.element("stage-fx").disabled, false, "the box is on when the release offers an effect module");
+  assert.equal(page.element("fx-names").textContent, "(DUB TAPE)", "(Release 3 step 6) the effects box names what the release list offers: DUB TAPE");
   assert.match(page.element("install-what").textContent, /the SHAPES module, the effect modules \(0\.15\.0\)$/);
   const click = page.element("go").listeners.click();
   await page.tick();
@@ -162,6 +163,7 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   const plain = boot(store());
   await answer(plain, "standard.fwsc");
   assert.equal(plain.element("stage-fx").disabled, true, "names only: no effect module offered");
+  assert.equal(plain.element("fx-names").textContent, "", "... and no names");
   const c2 = plain.element("go").listeners.click(); await plain.tick();
   await answer(plain, STANDARD.pak); await answer(plain, STANDARD.ocm[0]); await c2;
   assert.equal(plain.runs[0].want, undefined, "an engine-only run is what it was: no want");

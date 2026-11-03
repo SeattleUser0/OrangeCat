@@ -35,6 +35,8 @@
 #     web/site_check.py proves them unchanged before and after the deploy). A push to main builds Standard and carries the live Nightly forward (rev 24).
 #
 # Revisions:
+#   Rev 26 (Orange Cat, Release 3 step 6, branch r18-step6): DUB TAPE's effect module (tools/build.py --module dub, kind 1) is built beside the engine modules, its .ocm joins the packages, the set manifest
+#     (orangecat-<base>.dub.set.json) and the Nightly (web/make_site.py lists it as an effect module for the installer page's effects box). The Standard site (push to main) leaves it out for now.
 #   Rev 25: the checksum files of rev 24 are written beside the site (the redirect of a subshell is the outer shell's), run 40776093236 stopped on it.
 #   Rev 24 (Orange Cat 0.15.0, branch linux-hw): a Standard deploy (push to main) carries the live Nightly forward: web/mirror_site.py --only-nightly copies its files into the site
 #     before the Standard build, which keeps a channel it finds there. The 0.15.0 push had deployed Standard alone and the Nightly (nightly.json, its firmware, pack, modules, app, editor) was gone.
@@ -131,10 +133,11 @@ jobs:
         # (rev 11, Orange Cat 0.10.0) SHAPES as a loadable module (tools/build.py --module shapes): one image for each start of the
         # module area, no .data / .bss, no undefined symbol; build/shapes-<version>.ocm. The report as a notice.
         # (rev 13, Orange Cat 0.12.1) and the Prophet (--module prophet): 8 sectors, starts 0 and 4; build/prophet-<version>.ocm
-        # (rev 18, Orange Cat 0.14.0) and WHEEL (--module wheel): 4 sectors, starts 0 and 6; build/wheel-<version>.ocm. The engine candidates SEM and HADES
+        # (rev 18, Orange Cat 0.14.0) and WHEEL (--module wheel): 4 sectors, starts 0 and 6; build/wheel-<version>.ocm. (rev 26) and DUB TAPE (--module dub, kind 1, an effect module): 3 sectors,
+        # six starts; build/dub-<version>.ocm. The engine candidates SEM and HADES
         # (Caravel's; registrable only by an OC_CANDIDATES firmware) are built the same way, so the unit can measure them from this run's packages
         modfail=0
-        for m in shapes prophet wheel sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub sem hades fmbell supersaw dddd; do
           modok=0; python3 tools/build.py --module $m > build/module-report-$m.txt 2>&1 || modok=1
           echo "::notice title=module $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report-$m.txt)"
           if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module $m notice"; modfail=1; fi
@@ -170,7 +173,7 @@ jobs:
           else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
         # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm; (rev 13) and the Prophet's
-        for m in shapes prophet wheel sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub sem hades fmbell supersaw dddd; do
           if [ -f build/$m-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
             cp build/$m-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-$m-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
           fi
@@ -182,7 +185,7 @@ jobs:
         # the packages artifact beside the files, and the unit's file browser lists them as "Set" (Install set: the pack, then the module)
         pk=$(ls build/orangecat-*.pak | head -1); base=$(basename "$pk" .pak); fw=$(ls build/orangecat-*.fwsc | head -1)
         python3 tools/oc_manifest.py --set "build/$base.pack.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")"
-        for m in shapes prophet wheel sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub sem hades fmbell supersaw dddd; do
           ocm=$(ls build/orangecat-$m-*.ocm 2>/dev/null | head -1)
           if [ -n "$ocm" ]; then python3 tools/oc_manifest.py --set "build/$base.$m.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")" --ocm "$(basename "$ocm")"; fi
         done
@@ -267,7 +270,7 @@ jobs:
         run: |
           python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
-            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
+            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-* | *orangecat-dub-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 26: DUB TAPE's module is in the Nightly only) (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
       - name: The Nightly came through the Standard build unchanged (main)
         if: github.ref == 'refs/heads/main'
         run: |
