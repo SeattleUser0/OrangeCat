@@ -4,8 +4,17 @@
  * Plain arrays (not the asset pack): in the module they are the module image's own data. */
 #pragma once
 #include <stdint.h>
+/* The split mode (tools/gen_plaits_tables2.py): PL_TABLES2_SPLIT, and PL_T2_DEF_<table> for the tables this unit defines */
+#ifdef PL_TABLES2_SPLIT
+#define PL_T2_STORAGE const
+#else
+#define PL_T2_STORAGE static const
+#endif
 
-static const int16_t pl_wav_integrated_waves[25344] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_wav_bank_0)
+extern const int16_t pl_wav_bank_0[8448] __attribute__((weak));
+#else
+PL_T2_STORAGE int16_t pl_wav_bank_0[8448] = {
     -20556, -20706, -20806, -20857, -20857, -20806, -20706, -20556, -20356, -20107, -19810, -19465, -19073, -18635, -18152, -17626,
     -17057, -16447, -15798, -15110, -14386, -13627, -12835, -12013, -11162, -10283, -9380, -8454, -7508, -6544, -5564, -4571,
     -3567, -2554, -1535, -512, 512, 1535, 2554, 3567, 4571, 5564, 6544, 7508, 8454, 9380, 10283, 11162,
@@ -534,6 +543,14 @@ static const int16_t pl_wav_integrated_waves[25344] = {
     212, 156, 16, -209, -475, -692, -747, -545, -56, 672, 1520, 2345, 3029, 3512, 3797, 3923,
     3923, 3797, 3512, 3029, 2345, 1520, 672, -56, -545, -747, -692, -475, -209, 16, 156, 212,
     212, 186, 154, 124, 104, 99, 106, 98, 14, -233, -723, -1484, -2455, -3479, -4342, -4836,
+};
+#endif
+#define PL_WAV_BANK_0_SIZE 8448u
+
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_wav_bank_1)
+extern const int16_t pl_wav_bank_1[8448] __attribute__((weak));
+#else
+PL_T2_STORAGE int16_t pl_wav_bank_1[8448] = {
     -24465, -24934, -25303, -25650, -25650, -25303, -24934, -24465, -23963, -23391, -22788, -22130, -21445, -20715, -19962, -19170,
     -18359, -17515, -16655, -15767, -14865, -13941, -13004, -12049, -11085, -10106, -9119, -8121, -7118, -6106, -5092, -4071,
     -3051, -2027, -1006, 17, 1035, 2051, 3060, 4066, 5062, 6051, 7028, 7997, 8951, 9893, 10819, 11729,
@@ -1062,6 +1079,14 @@ static const int16_t pl_wav_integrated_waves[25344] = {
     744, 744, 744, 744, 744, 744, 744, 744, 744, 744, 744, 744, 744, 744, 744, 744,
     744, 744, 744, 743, 732, 672, 638, 634, 633, 633, 629, 541, -446, -1470, -1535, -1536,
     -1536, -1536, -1536, -1545, -1634, -1649, -1649, -1649, -1649, -1649, -1649, -1650, -1892, -1892, -1892, -1892,
+};
+#endif
+#define PL_WAV_BANK_1_SIZE 8448u
+
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_wav_bank_2)
+extern const int16_t pl_wav_bank_2[8448] __attribute__((weak));
+#else
+PL_T2_STORAGE int16_t pl_wav_bank_2[8448] = {
     -11705, -12211, -12571, -12800, -12800, -12571, -12211, -11705, -11057, -10270, -9392, -8442, -7445, -6425, -5401, -4380,
     -3391, -2459, -1602, -806, -89, 544, 1088, 1548, 1915, 2207, 2433, 2592, 2676, 2714, 2726, 2710,
     2656, 2581, 2500, 2412, 2308, 2200, 2096, 1996, 1902, 1823, 1750, 1694, 1664, 1665, 1686, 1729,
@@ -1591,9 +1616,13 @@ static const int16_t pl_wav_integrated_waves[25344] = {
     763, 1723, 2618, 3449, 4216, 4919, 5550, 6116, 6618, 7056, 7429, 7738, 7983, 8164, 8280, 8333,
     8312, 8228, 8080, 7867, 7590, 7248, 6843, 6373, 5839, 5240, 4578, 3843, 3044, 2181, 1253, 261,
 };
-#define PL_WAV_INTEGRATED_WAVES_SIZE 25344u
+#endif
+#define PL_WAV_BANK_2_SIZE 8448u
 
-static const int8_t pl_lut_lpc_excitation_pulse[640] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lut_lpc_excitation_pulse)
+extern const int8_t pl_lut_lpc_excitation_pulse[640] __attribute__((weak));
+#else
+PL_T2_STORAGE int8_t pl_lut_lpc_excitation_pulse[640] = {
     0, 0, 0, 0, 1, 1, 1, 2, 3, 3, 4, 5, 6, 7, 8, 9,
     10, 12, 13, 15, 17, 19, 21, 23, 25, 28, 30, 33, 36, 38, 41, 44,
     48, 51, 54, 57, 61, 64, 68, 71, 75, 78, 82, 85, 89, 92, 95, 99,
@@ -1635,9 +1664,13 @@ static const int8_t pl_lut_lpc_excitation_pulse[640] = {
     -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
     -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0,
 };
+#endif
 #define PL_LUT_LPC_EXCITATION_PULSE_SIZE 640u
 
-static const uint8_t pl_syx_bank_0[4096] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_syx_bank_0)
+extern const uint8_t pl_syx_bank_0[4096] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_syx_bank_0[4096] = {
     99, 58, 99, 60, 99, 0, 0, 0, 0, 0, 0, 0, 56, 0, 79, 2,
     0, 99, 99, 99, 60, 99, 99, 99, 0, 0, 0, 0, 0, 56, 0, 50,
     2, 0, 99, 99, 99, 66, 99, 99, 99, 0, 0, 0, 0, 0, 56, 0,
@@ -1895,9 +1928,13 @@ static const uint8_t pl_syx_bank_0[4096] = {
     0, 56, 0, 99, 1, 0, 99, 99, 94, 62, 48, 50, 50, 50, 7, 14,
     35, 65, 1, 0, 48, 36, 66, 111, 117, 110, 99, 101, 32, 52, 32, 32,
 };
+#endif
 #define PL_SYX_BANK_0_SIZE 4096u
 
-static const uint8_t pl_syx_bank_1[4096] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_syx_bank_1)
+extern const uint8_t pl_syx_bank_1[4096] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_syx_bank_1[4096] = {
     95, 29, 20, 50, 99, 95, 0, 0, 41, 0, 19, 0, 115, 24, 79, 2,
     0, 95, 20, 20, 50, 99, 95, 0, 0, 0, 0, 0, 0, 3, 0, 99,
     2, 0, 95, 29, 20, 50, 99, 95, 0, 0, 0, 0, 0, 0, 59, 24,
@@ -2155,9 +2192,13 @@ static const uint8_t pl_syx_bank_1[4096] = {
     3, 59, 0, 99, 27, 91, 99, 99, 75, 60, 50, 50, 50, 50, 2, 15,
     55, 0, 0, 0, 6, 24, 66, 46, 68, 82, 77, 45, 83, 78, 65, 82,
 };
+#endif
 #define PL_SYX_BANK_1_SIZE 4096u
 
-static const uint8_t pl_syx_bank_2[4096] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_syx_bank_2)
+extern const uint8_t pl_syx_bank_2[4096] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_syx_bank_2[4096] = {
     97, 99, 85, 68, 99, 99, 0, 0, 56, 20, 0, 2, 56, 1, 66, 14,
     7, 97, 99, 99, 68, 99, 99, 99, 0, 51, 0, 10, 0, 80, 0, 95,
     2, 50, 96, 99, 99, 60, 99, 99, 99, 0, 63, 42, 0, 0, 56, 1,
@@ -2415,9 +2456,13 @@ static const uint8_t pl_syx_bank_2[4096] = {
     0, 58, 16, 99, 2, 0, 86, 67, 95, 60, 52, 50, 50, 50, 17, 15,
     34, 45, 5, 0, 32, 24, 66, 82, 32, 84, 82, 85, 77, 80, 69, 84,
 };
+#endif
 #define PL_SYX_BANK_2_SIZE 4096u
 
-static const float pl_lut_coarse[32] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lut_coarse)
+extern const float pl_lut_coarse[32] __attribute__((weak));
+#else
+PL_T2_STORAGE float pl_lut_coarse[32] = {
     -12.000000f, 0.000000f, 12.000000f, 19.019550f, 24.000000f, 27.863137f,
     31.019550f, 33.688259f, 36.000000f, 38.039100f, 39.863137f, 41.513180f,
     43.019550f, 44.405276f, 45.688259f, 46.882687f, 48.000000f, 49.049554f,
@@ -2425,27 +2470,43 @@ static const float pl_lut_coarse[32] = {
     55.019550f, 55.726274f, 56.405276f, 57.058650f, 57.688259f, 58.295772f,
     58.882687f, 59.450356f,
 };
+#endif
 #define PL_LUT_COARSE_SIZE 32u
 
-static const float pl_lut_amp_mod_sensitivity[4] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lut_amp_mod_sensitivity)
+extern const float pl_lut_amp_mod_sensitivity[4] __attribute__((weak));
+#else
+PL_T2_STORAGE float pl_lut_amp_mod_sensitivity[4] = {
     0.0f, 0.2588f, 0.4274f, 1.0f,
 };
+#endif
 #define PL_LUT_AMP_MOD_SENSITIVITY_SIZE 4u
 
-static const float pl_lut_pitch_mod_sensitivity[8] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lut_pitch_mod_sensitivity)
+extern const float pl_lut_pitch_mod_sensitivity[8] __attribute__((weak));
+#else
+PL_T2_STORAGE float pl_lut_pitch_mod_sensitivity[8] = {
     0.0f, 0.0781250f, 0.1562500f, 0.2578125f, 0.4296875f, 0.7187500f,
     1.1953125f, 2.0f,
 };
+#endif
 #define PL_LUT_PITCH_MOD_SENSITIVITY_SIZE 8u
 
-static const float pl_lut_cube_root[17] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lut_cube_root)
+extern const float pl_lut_cube_root[17] __attribute__((weak));
+#else
+PL_T2_STORAGE float pl_lut_cube_root[17] = {
     0.0f, 0.39685062976f, 0.50000000000f, 0.57235744065f, 0.62996081605f, 0.67860466725f,
     0.72112502092f, 0.75914745216f, 0.79370070937f, 0.82548197054f, 0.85498810729f, 0.88258719406f,
     0.90856038354f, 0.93312785379f, 0.95646563396f, 0.97871693135f, 1.0f,
 };
+#endif
 #define PL_LUT_CUBE_ROOT_SIZE 17u
 
-static const uint8_t pl_lpc_bank_0[1233] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lpc_bank_0)
+extern const uint8_t pl_lpc_bank_0[1233] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_lpc_bank_0[1233] = {
     0x30, 0x4a, 0x57, 0xd8, 0x23, 0x2c, 0xc9, 0xa9, 0x62, 0xa1, 0x88, 0xb2, 0x36, 0xa7, 0xca, 0x95,
     0xc3, 0xc3, 0x66, 0x9f, 0xb2, 0x64, 0x09, 0x4f, 0x9b, 0x7d, 0x8a, 0x52, 0x24, 0x35, 0xb3, 0xec,
     0xc9, 0x6b, 0x92, 0xb2, 0xe8, 0xb0, 0x27, 0xcf, 0x41, 0x2a, 0x63, 0xcc, 0x9e, 0x22, 0x3b, 0x8d,
@@ -2525,9 +2586,13 @@ static const uint8_t pl_lpc_bank_0[1233] = {
     0x20, 0x11, 0x4d, 0x06, 0x34, 0x2e, 0xc6, 0x80, 0x2c, 0xdc, 0x08, 0x90, 0x94, 0x39, 0x00, 0xc0,
     0xff,
 };
+#endif
 #define PL_LPC_BANK_0_SIZE 1233u
 
-static const uint8_t pl_lpc_bank_1[900] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lpc_bank_1)
+extern const uint8_t pl_lpc_bank_1[900] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_lpc_bank_1[900] = {
     0x69, 0xfc, 0x59, 0xdd, 0x51, 0xd5, 0xd7, 0xa1, 0x8f, 0x0a, 0x78, 0xc0, 0x52, 0x01, 0x0f, 0x50,
     0xac, 0xfc, 0xa8, 0x16, 0x15, 0xf2, 0x7b, 0xb2, 0x19, 0x47, 0xd0, 0x64, 0xeb, 0x4d, 0x77, 0xba,
     0xb3, 0x91, 0x97, 0x24, 0x6e, 0x62, 0x6d, 0x5b, 0x15, 0x0a, 0xa7, 0xb9, 0xc5, 0xab, 0xd5, 0xaa,
@@ -2586,9 +2651,13 @@ static const uint8_t pl_lpc_bank_1[900] = {
     0x18, 0xe1, 0x56, 0xb7, 0x9a, 0x96, 0xa6, 0x44, 0x47, 0xdc, 0x6e, 0x5e, 0xc2, 0xda, 0xa5, 0xf0,
     0xb8, 0xd9, 0x85, 0xff,
 };
+#endif
 #define PL_LPC_BANK_1_SIZE 900u
 
-static const uint8_t pl_lpc_bank_2[1552] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lpc_bank_2)
+extern const uint8_t pl_lpc_bank_2[1552] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_lpc_bank_2[1552] = {
     0xa5, 0x2f, 0x96, 0xad, 0x7b, 0x6a, 0x9f, 0x6a, 0xe4, 0x20, 0x8d, 0x9c, 0x73, 0xf3, 0x9b, 0xdd,
     0xec, 0xe6, 0x37, 0xbf, 0xe5, 0xaa, 0x66, 0x28, 0xa0, 0xce, 0xd5, 0xbb, 0xd9, 0xed, 0xee, 0x66,
     0x3f, 0x87, 0x36, 0xce, 0x9c, 0x80, 0x51, 0x8b, 0xeb, 0x54, 0xe7, 0xbc, 0xc2, 0xff, 0xa6, 0x2a,
@@ -2687,9 +2756,13 @@ static const uint8_t pl_lpc_bank_2[1552] = {
     0x27, 0x60, 0xd4, 0xe2, 0x99, 0xce, 0x74, 0xd6, 0xb3, 0x9b, 0x43, 0x9f, 0xfa, 0x54, 0xe6, 0x55,
     0x0a, 0xc1, 0x73, 0x4d, 0x9d, 0xeb, 0x92, 0xd6, 0x15, 0x12, 0xa0, 0x6b, 0x75, 0x5e, 0xe1, 0xff,
 };
+#endif
 #define PL_LPC_BANK_2_SIZE 1552u
 
-static const uint8_t pl_lpc_bank_3[2524] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lpc_bank_3)
+extern const uint8_t pl_lpc_bank_3[2524] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_lpc_bank_3[2524] = {
     0x63, 0xac, 0x21, 0xb4, 0x3c, 0x16, 0xaf, 0xb2, 0x84, 0xd2, 0x0a, 0x5f, 0xb3, 0xf2, 0xe2, 0xda,
     0x32, 0xf4, 0xcd, 0xca, 0x92, 0xdf, 0x28, 0xd7, 0x27, 0x2b, 0xcd, 0xe2, 0x5b, 0x93, 0x57, 0xaf,
     0xac, 0xd0, 0x1b, 0x0b, 0xee, 0xb2, 0xb2, 0x24, 0xae, 0xc3, 0x28, 0x4b, 0x29, 0x0a, 0xaf, 0x0e,
@@ -2849,9 +2922,13 @@ static const uint8_t pl_lpc_bank_3[2524] = {
     0xa9, 0xf2, 0x65, 0xf4, 0xc9, 0x98, 0x97, 0x69, 0x9f, 0x3a, 0xe7, 0x2d, 0x6c, 0xc1, 0x9a, 0x8f,
     0xca, 0xde, 0x70, 0x04, 0x9d, 0xee, 0xc9, 0x79, 0xe2, 0xe1, 0x1f, 0xf8,
 };
+#endif
 #define PL_LPC_BANK_3_SIZE 2524u
 
-static const uint8_t pl_lpc_bank_4[4802] = {
+#if defined(PL_TABLES2_SPLIT) && !defined(PL_T2_DEF_pl_lpc_bank_4)
+extern const uint8_t pl_lpc_bank_4[4802] __attribute__((weak));
+#else
+PL_T2_STORAGE uint8_t pl_lpc_bank_4[4802] = {
     0xa7, 0xa8, 0x51, 0xc3, 0x3b, 0xa4, 0x9c, 0xbc, 0x66, 0x73, 0x8f, 0xb2, 0x73, 0xf2, 0x1a, 0x35,
     0xbc, 0x52, 0xf6, 0x49, 0x6b, 0x32, 0xf3, 0x48, 0xc9, 0x27, 0xa9, 0x5e, 0xd3, 0x3a, 0x64, 0x9f,
     0xa4, 0x78, 0x75, 0x8f, 0xb2, 0x72, 0xd2, 0x6c, 0xa4, 0x35, 0x43, 0xce, 0xc8, 0x82, 0xd6, 0xd6,
@@ -3154,8 +3231,11 @@ static const uint8_t pl_lpc_bank_4[4802] = {
     0xa5, 0x0d, 0xcc, 0x62, 0xb4, 0x65, 0x8c, 0x1e, 0x54, 0x4b, 0x94, 0xe2, 0x3e, 0x3a, 0x1a, 0x00,
     0xe0, 0xff,
 };
+#endif
 #define PL_LPC_BANK_4_SIZE 4802u
 
+#define PL_WAV_NUM_BANKS 3
+static const int16_t *const pl_wav_banks[PL_WAV_NUM_BANKS] = { pl_wav_bank_0, pl_wav_bank_1, pl_wav_bank_2 };   /* a bank left out of a pick: 0 */
 static const uint8_t *const pl_syx_banks[3] = { pl_syx_bank_0, pl_syx_bank_1, pl_syx_bank_2 };
 #define PL_LPC_NUM_WORD_BANKS 5u
 typedef struct { const uint8_t *data; uint32_t size; } pl_lpc_word_bank_t;

@@ -4,7 +4,7 @@
  *
  * Orange Cat MACRO2: Plaits 1.2's WAVE TERRAIN (plaits/dsp/engine2/wave_terrain_engine.cc and .h), in C. The path
  * oscillator (oscillator/sine_oscillator.h FastSineOscillator) is pl_fast_sine_osc_t in pl_osc.h; the Sine is
- * pl_sine; terrains 5..7 read the wavetable data (pl_wav_integrated_waves, pl_tables2.h) as a terrain.
+ * pl_sine; terrains 5..7 read the wavetable data (pl_wav_bank_2..0, pl_tables2.h) as a terrain.
  *   A 2-D function evaluated along an ellipse, 2x oversampled.
  *   HARMONICS: the terrain (five formulas, then the three wavetable banks). TIMBRE: the radius of the path.
  *   MORPH: its X offset (the path flattens as it moves off centre).
@@ -39,6 +39,19 @@ static inline float pl_terrain_interpolate_integrated_wave(const int16_t *table,
     float t = index_fractional;
     return (b - a) + (c - b - b + a) * t;
 }
+/* (model picker) the wave banks present (pl_tables2.h pl_wav_banks: a bank the pick left out is 0) and the j-th terrain's bank: the module's
+ * terrain 5 reads bank 2, 6 bank 1, 7 bank 0; with banks missing the present ones keep that order (all three present: exactly the module's) */
+static inline int pl_terrain_wt_count(void)
+{
+    return (pl_wav_banks[0] != 0) + (pl_wav_banks[1] != 0) + (pl_wav_banks[2] != 0);
+}
+static inline int pl_terrain_wt_bank(int j)
+{
+    int b;
+    for (b = 2; b >= 0; --b)
+        if (pl_wav_banks[b] && j-- == 0) return b;
+    return 0;
+}
 /* TerrainLookupWT (DIFFERENTIATE_WAVE_DATA): a wavetable bank re-read as a terrain */
 static inline float pl_terrain_lookup_wt(float x, float y, int bank)
 {
@@ -48,7 +61,8 @@ static inline float pl_terrain_lookup_wt(float x, float y, int bank)
     const float sample = (y + 1.0f) * 0.5f * (float)table_size;
     const float wt = (x + 1.0f) * 0.5f * (float)(num_waves - 1);
 
-    const int16_t *waves = pl_wav_integrated_waves + bank * num_waves * table_size_full;
+    const int16_t *waves = pl_wav_banks[bank];
+    if (!waves) return 0.0f;                    /* (model picker: a bank the pick left out; pl_terrain_wt_bank never names one) */
 
     PL_MAKE_INTEGRAL_FRACTIONAL(sample)
     PL_MAKE_INTEGRAL_FRACTIONAL(wt)
@@ -94,7 +108,7 @@ static inline float pl_terrain_eval(float x, float y, int terrain_index)
 #ifdef PL_TERRAIN_NO_WT
         return 0.0f;                            /* (unreachable: num_terrains is 5) */
 #else
-        return pl_terrain_lookup_wt(x, y, 2 - (terrain_index - 5));
+        return pl_terrain_lookup_wt(x, y, pl_terrain_wt_bank(terrain_index - 5));
 #endif
     default:                                    /* (8 would be the user terrain: none here) */
         return 0.0f;
@@ -124,7 +138,7 @@ static void pl_terrain_render(pl_terrain_t *e, const pl_params_t *p, float *out,
 #ifdef PL_TERRAIN_NO_WT
     const int num_terrains = 5;                 /* (eng_macro2.c MACRO2_SET 1: the three wavetable terrains are out with the waves; the knob spans terrains 0..4) */
 #else
-    const int num_terrains = 8;                 /* (no user terrain) */
+    const int num_terrains = 5 + pl_terrain_wt_count();   /* (no user terrain; 8 with the three wave banks: a bank the pick left out takes its terrain with it) */
 #endif
     pl_interp_init(&terrain, &e->terrain, pl_minf(p->harmonics * 1.05f, 1.0f) * ((float)num_terrains - 1.0001f), size);
 

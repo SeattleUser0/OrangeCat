@@ -112,6 +112,23 @@ def module_fill(img):
     return img
 
 
+def ocm_write(name, iface, api_addr, engine, state_size, pack_hash, api_version, api_size, sectors, img0, words, variants):
+    """a module package of format 2 (tools/build.py's layout: the header, one relocatable image linked at 0, its list, and per start the CRC-32
+    of the relocated image), variants [(start sector, crc)]; shared by build.py and the model picker's packer (tools/pick_module.py)"""
+    n = len(variants)
+    lst = struct.pack(f"<{len(words)}I", *words)
+    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 2, 1, iface, api_addr, engine, state_size, pack_hash,
+                                 name.encode(), api_version, api_size, sectors))
+    off = (len(head) + 32 + 8 * n + 4 + 3) & ~3
+    head += struct.pack("<IIII", OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
+    head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
+    for start, crc in variants:
+        head += struct.pack("<II", start, crc)
+    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
+    head += b"\0" * (off - len(head))
+    return bytes(head) + bytes(img0) + lst
+
+
 def ocm_images(raw, area_lo=0xC8000):
     """a module package (format 1: an image a start; format 2: one relocatable image, its list and each start's CRC-32) read into
     {start sector: the image that start is given}, every CRC checked. ValueError for a package the page or the card would refuse."""

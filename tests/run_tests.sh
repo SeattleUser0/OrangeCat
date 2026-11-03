@@ -203,6 +203,7 @@ web_tests() {                                     # the editor mock's tables mus
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
         step "stock restore: the unmodified official V15 file is the image, CHECK HEAD range" node web/test_stock_restore.mjs
         step "relocatable modules (Orange Cat 0.14.1): the page's relocation = ocflash.py's, the build's packages = their variants, damaged lists refused" node web/test_ocm.mjs
+        step "the model picker's packer (web/fm1pick.js): the linker's picks and tools/pick_module.py's reproduced byte for byte, refusals, the pick block, the room meter" node web/test_pick.mjs
         # (Orange Cat 0.14.2, Session D) the web app (web/app): its project codec's layout and fixtures from the firmware's C (tests/app_layout.c), then its tests
         # against the mocked unit (web/app/test/run.mjs: the protocol code is the editor's, unchanged; the layout and the fixtures are the firmware's now)
         if build app_layout app_layout $FW; then
@@ -341,6 +342,20 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
         "$OUT/module_host_macro2_test" tests/golden_modules.txt
     $CC -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/macro2_test" tests/macro2_test.c "$OUT/module_host_macro2_tu.o" -lm || { fail "compile tests/macro2_test.c"; return 1; }
     step "MACRO2 through the voices and mixer: every model and preset sounds and frees its voice, a chord, four tracks; the host cost table" "$OUT/macro2_test"
+    # (model picker) PLAITS, every Plaits model as the module the page assembles from a pick (docs/candidates/model_picker.md): the golden lines, the
+    # voices and mixer with every unit in, then the unit built without WAVTBL, SPEECH, 6OP B and wave bank C (what a packed module looks like to the glue)
+    PL="-Itools/module/plaits"
+    $CC -c -O2 $FW $PL -DOC_CANDIDATES=1 -o "$OUT/module_host_plaits_tu.o" tests/module_host_plaits_tu.c || { fail "compile tests/module_host_plaits_tu.c"; return 1; }
+    $CC -O2 $FW $PL -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_MACRO2 -o "$OUT/module_host_plaits_test" tests/module_host_cand_test.c "$OUT/module_host_plaits_tu.o" -lm ||
+        { fail "compile tests/module_host_cand_test.c (plaits)"; return 1; }
+    step "PLAITS (the model picker's module, every model) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
+        "$OUT/module_host_plaits_test" tests/golden_modules.txt
+    $CC -O2 $FW $PL -DOC_CANDIDATES=1 -o "$OUT/plaits_test" tests/plaits_test.c "$OUT/module_host_plaits_tu.o" -lm || { fail "compile tests/plaits_test.c"; return 1; }
+    step "PLAITS through the voices and mixer: the 25 models and 47 presets sound and free their voices, the knob, a chord, four tracks" "$OUT/plaits_test"
+    $CC -c -O2 $FW $PL -DOC_CANDIDATES=1 -DPL_HOST_NO_wavtbl -DPL_HOST_NO_speech -DPL_HOST_NO_syx1 -DPL_HOST_NO_wav2 -o "$OUT/module_host_plaits_pick_tu.o" tests/module_host_plaits_tu.c ||
+        { fail "compile tests/module_host_plaits_tu.c (a pick)"; return 1; }
+    $CC -O2 $FW $PL -DOC_CANDIDATES=1 -o "$OUT/plaits_pick_test" tests/plaits_test.c "$OUT/module_host_plaits_pick_tu.o" -lm || { fail "compile tests/plaits_test.c (a pick)"; return 1; }
+    step "PLAITS as a pick (WAVTBL, SPEECH, 6OP B and wave bank C left out): those models not offered, MISSG, silent with the settings kept; the rest play" "$OUT/plaits_pick_test"
 }
 cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
     build cand_slot_norm cand_slot_test -O1 $FW || return
@@ -420,6 +435,7 @@ if core; then
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     run "engine candidates gate (Orange Cat 0.14.0): placement against the firmware's geometry; the rows of SHAPES and the Prophet against the plan, the candidates' rows the verdicts rest on" python3 tests/engine_gate_test.py
     run "module build (Orange Cat 0.10.0, PoC step 2; 0.10.1: the update loader's record rule, the code moved on until no sector tail matches): the starts, the link scripts, the header checks, the .ocm package, against a stand-in toolchain" python3 tests/module_build_test.py
+    run "the model picker against the linker (tests/module_pick_test.py: eight picks linked by ld and packed by tools/pick_module.py, byte for byte; skipped without the toolchain)" python3 tests/module_pick_test.py
     run "flash facts shared by the pack generator and the module build (Orange Cat 0.10.1): XIP address = fm1_xip.h, the update loader's record rule = ldr_core.c, oc_pack.c and ota.c" python3 tests/ocflash_test.py
     t "audio profiling: histogram bounds and timer wrap" audio_profile_test
     t "batch profiling: per-core accounting and failed-worker drops" audio_batch_profile_test
