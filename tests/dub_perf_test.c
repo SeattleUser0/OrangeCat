@@ -255,6 +255,20 @@ int main(void)
         chk("PAGES   HOME leaves it, the keys are notes again", ui.home_pg == 0u && dub_view_on == 0);
         home_pic_set(0); frames(100);
         chk("PAGES   TRACKS chosen: never the DUB page", ui.home_pg != DUB_PG);
+        {   /* (round 18 review) leaving HOME for any other screen clears the view: no page leaves the keys C4 .. B4 as DUB's */
+            uint32_t i, stuck = 0, seen = 0;
+            for (i = 0; i < NPAGES; i++) {
+                ui_power_on(); pic_on();
+                TSEL->p[P_DUB_ECHO] = 100;
+                press(B_HOME); frames(200);
+                if (ui.home_pg != DUB_PG || !dub_view_on) { stuck = 1000; break; }
+                ui.home = 0; ui.page = (uint8_t)i; page_entered();
+                if (!page_visible(i)) continue;
+                seen++; frames(200);
+                stuck += dub_view_on;
+            }
+            printf("dub_perf: %u visible pages tried, %u leave the DUB keys on\n", seen, stuck);
+            chk("PAGES   no visible page, after the DUB page, leaves the DUB keys on", stuck == 0 && seen > 20u); }
     }
     {   /* DRAW and BUDGET */
         int ok;
