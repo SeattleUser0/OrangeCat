@@ -1,3 +1,17 @@
+# Orange Cat Nightly v0.16.0-f27773 (Round 16): what changed for you since 7c5760
+
+Written November 3, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged. **Every module is installed again once** (the module format moved to version 3): the page does it in the same install.
+
+1. **An update no longer rewrites your project.** The slot-1 difference from last time is explained: a project saved while its SLOT field said "template" was written back once after its first load (same music, one byte and the checksum). The autosave now writes only when the music changed. Checked on the unit with the flash-read probe.
+2. **Session C's ui-fix2 is in:** a drum cell you edit keeps every sound you did not touch; K2 moves a typed note by its nudge; the template asks before it loads; RATCH, FLAM, COND and NUDGE survive Save and Load; a three-line guard in recording.c.
+3. **Module format version 3 (step 3)** and the **effect-module groundwork (step 4)**: the page and the card can list and install effect modules by id; none ship yet, so you will not see a change. The main stack's high mark on the unit was 13.3 KB of 24.3 KB.
+4. **Installed from the live page over the previous Nightly:** firmware installed, SHAPES and WHEEL (built for the old format) replaced.
+5. **Not measured:** an install from the card (no card on the bench); the Prophet module on the unit.
+
+The earlier note for 7c5760 follows.
+
+---
+
 # Orange Cat Nightly v0.16.0-7c5760 (Release 3, step 1): what changed for you since a5e868
 
 Written November 3, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged.
