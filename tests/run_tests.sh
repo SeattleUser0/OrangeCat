@@ -764,6 +764,8 @@ if sound && [ $TABLES = 1 ]; then
     # (Release 3, step 3, r3-pages) fw_pages version 3 on wire bytes: pid, fw_ui_t, fw_kdef_t, the scene, the checker, the registry and the interrupt-side records; fuzzed
     t "fw_pages version 3 (Release 3, step 3): the pid table, the effect scope, the picture and the knobs, the registry, the macros' RAM records, retire; fuzzed, sanitizers" \
         mod_ui_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # (Release 3, step 8 decisions L1 to L4) a Release 2 project's reverb values load into the reverb module as they play today: the values, and a render against the resident reverb
+    t "reverb modules (Release 3, L1): a Release 2 project of each mode imports into its module with the resident reverb's values and render; the other modes keep defaults" fx_legacy_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
         "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt
     mkdir -p build/shapes_demo

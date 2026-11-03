@@ -297,3 +297,68 @@ context, the kernel's cut (step 5), the project format's place for the effect's 
 3. **Views:** a pid with the bit `FW_PID_VIEW` (0x8000) is a view: it has no legacy slot, and a descriptor with any view must have both hooks (`FWP_PID` otherwise). A view is never stored and never a macro or motion target (`modui_publish` drops it: no slot). Option A of 15.1 is what the test builds; B needs no checker change.
 4. **The example is the test's data** (`make_dub` in tests/mod_ui_test.c: the table of 15.2, hooks over `dub_get_field`/`dub_put_field`): it passes `fw_pages_check_ex` as SC_FX; the legacy slots are today's; the hooks read SYNC, PING, DRIVE, WOW from MODE 65 and TAPE 8 as the page does, switch TIME's format with SYNC, and write back one 16-bit store each.
 5. **The identifier moved again** (it was never shipped at the step-3 value): `FW_API_ID` 0xCAF53177; the unit's `iface` 0x1400CEEF.
+
+## 16. Worked examples for step 8: the reverb modes and the FX layer's buffer effects (design, November 3, 2026; no code)
+
+Written like section 15, as data in `tests/mod_ui_test.c` (`t_step8_reverb`, `t_step8_layer`): each descriptor is built into the device's wire bytes, **passes `fw_pages_check_ex` as SC_FX as written, within the frozen step 3 interface**, and each panel entry is compared with what the firmware shows
+today (`params.c global_desc` for the reverb with `song.g[G_RTYPE]` set to the mode; `ui_layer.c` FXK_LABEL, FXK_MIN, FXK_MAX and `jfx_perform.c` `perf_gp` for the layer). Reading the code for them found **five things the frozen interface cannot say (16.4)**: they are listed for Session A before step 3 ships; the checker is not touched.
+
+### 16.1 What is stored today (it decides everything below)
+- **The reverb's values are project globals, not a track's.** TYPE, SIZE, DAMP, PRE, MOD, RATE, FILT, WIDE are `song.g[G_RTYPE .. G_RWIDE]` (core.h), one set shared by every mode and stored in the project's global block. Four modes use them with other meanings: DAMP is **FOLW** (OFF T1 .. T4) on RESO, PRE is
+  **AIR** (-24 .. 24 st) on SHIMMER and CLOUD, **PITCH** (0 .. 14) on RESO, PRE (0 .. 100 ms) on ROOM and SPRING. TYPE (ROOM, SPRING, SHIMR, RESO, CLOUD) is the chooser: it stays resident, ROOM stays resident (plan section 1).
+- **The FX layer's knobs are RAM only.** `perf_gp[4][4]`, "never saved": the four glitchers' settings while their key is down, shown as four cards by the quick layer (`ui_layer.c`), not as EDIT pages. A Release 2 project holds nothing of them. REPEAT 1/8, 1/16, 1/32 have no knobs; the keys' hooks stay resident (plan section 7).
+- **No packed fields in either**, so no views are needed for packing (section 15's DUB had them). The layer's RAM-only knobs are views for another reason (16.3).
+
+### 16.2 The reverb modes (kind 2: SPRING, SHIMMER, RESO in one bank; CLOUD its own module, last)
+Two pages in every mode, titles as today (`REVERB`, `REVERB 2`, family FX, scope SC_FX). **K1 of `REVERB` is TYPE, which the host owns**: the module's row leaves it empty (0xFF) and the host draws the chooser there (lack L2).
+
+| page | K1 | K2 | K3 | K4 |
+|---|---|---|---|---|
+| `REVERB` | (host: TYPE) | SIZE F_PCT 0 .. 127, 90 | DAMP F_PCT 0 .. 127, 60 (RESO: FOLW F_ENUM 0 .. 4, 0: OFF T1 T2 T3 T4) | PRE F_INT 0 .. 100 ms, 0 (SHIMMER, CLOUD: AIR F_SEMI -24 .. 24, 0; RESO: PITCH F_INT 0 .. 14, 0) |
+| `REVERB 2` | MOD F_PCT 0 .. 127, 0 | RATE F_LFOHZ 0 .. 127, 30 | FILT F_BIPCT -64 .. 63, 0 | WIDE F_PCT 0 .. 127, 0 |
+
+Panel entries 0 .. 6 = SIZE, DAMP|FOLW, PRE|AIR|PITCH, MOD, RATE, FILT, WIDE; pids 1 .. 7 (module-private, stable); no hooks, no views. Every format is below `F_DUBSPD`. **Written with legacy `FW_PID_NONE`** (lack L1).
+**Byte cost of each descriptor (what `fwp_wire` writes, data only):** SPRING **344 B**, SHIMMER **340 B**, RESO **388 B** (the FOLW name list), CLOUD **340 B**. The bank of three: **1,072 B** of descriptors; CLOUD alone 340 B. No hook code.
+
+### 16.3 The FX layer's buffer effects (kind 3: GLITCH, TAPE STOP, SHUFFLE, FREEZE)
+Each is one entry with one page of its card's knobs; the values are the RAM `perf_gp` row, so every entry is a **view** (pid 0x8001 and up, no legacy slot, never stored) with both hooks, which read and write the effect's own byte:
+
+| effect | K1 | K2 | K3 | K4 |
+|---|---|---|---|---|
+| GLITCH | DENS 0 .. 100 %, 50 | PITCH -12 .. 12 st, 0 | SIZE enum LONG MID SHORT TINY, 0 | VARI 1 .. 16, 1 |
+| TAPE STOP | SCRATCH (the hand on the record: a turn, no value; 0 .. 0) | TIME enum 1/64 1/32 1/16 1/8 1/4, 4 | CURVE -100 .. 100, 0 | (none) |
+| SHUFFLE | AMOUNT 0 .. 100 %, 60 | SIZE enum 1/4 1/8 1/16, 2 | SPEED 0 .. 100 %, 20 | VARI 1 .. 16, 1 |
+| FREEZE | DENS 0 .. 100 %, 50 | PITCH -12 .. 12 st, 0 | SPRAY 0 .. 100 %, 30 | SIZE enum 1/128 1/64 1/32 1/16 1/8, 2 |
+
+**Byte cost:** GLITCH **284 B**, TAPE STOP **256 B**, SHUFFLE **264 B**, FREEZE **296 B** of descriptor data (1,100 B for the four); the hooks (one read and one write of a byte each, a pair an effect) about 40 B of code a pair on the device, 160 B for four (an estimate: they were compiled for the host only).
+The key hooks, the buffer and the sweeps are the effect's kernel, not these pages.
+
+### 16.4 What the frozen step 3 interface lacks (for Session A, before step 3 ships)
+- **L1. A legacy slot can only name a track parameter.** `fw_pid_t.legacy` is a `t->p` slot, and the checker takes any value below `P_COUNT` (outside P_RESERVED33..36). The reverb's values are `song.g` ids (G_RSIZE and the rest), whose numbers are also below `P_COUNT`: **`tests/mod_ui_test.c` shows G_RSIZE written
+  as a legacy slot passes the checker**, and a loader would read it from the track, the wrong place, silently. So the reverb descriptors above carry `FW_PID_NONE`, which means a Release 2 project's reverb values do **not** load into a module through the pid table: the "ids kept so Release 2 projects load unchanged" of the brief cannot be met by data alone.
+  Two ways: (a) a space bit in `legacy` (bit 15 = `song.g`; the checker takes `gcount` beside `pcount`, outside G_RESERVED*; no layout change, no identifier move, a code change in the checker and the loader), or (b) legacy import by a host rule per module (and no `legacy` for globals). (a) is the smaller. **Also needed with either: the import is conditional on TYPE**: the one stored `G_RPRE` is PRE, AIR or PITCH
+  by the mode in `G_RTYPE`; the module of a mode takes it only when its TYPE is the one selected, the others start at their defaults (the Release 2 byte had no value for them).
+- **L2. A page row cannot hold a host-owned knob.** TYPE is the chooser of which module runs; it cannot be a module's own parameter (a module cannot select itself away). A row's `id[k]` is a panel index of the module's panel. Convention to fix: 0xFF there means "the host's, drawn in this place", or a reserved pid. Without it each module's `REVERB` page has an empty K1 until the host overdraws it.
+- **L3. There is no mark for a RAM-only parameter.** Every pid with no view bit is stored by the project; the layer's knobs must not be. As views they work (hooks required), at the cost of two hooks that do nothing but read and write a byte; a bit in the pid (convention: 0x4000, "volatile": not stored, no hooks needed, the host keeps the byte) would make them plain entries. The test shows the plain ones pass the checker too: **nothing stops a loader from storing them.**
+- **L4. A knob that is an action, not a value.** TAPE STOP's SCRATCH is a turn that moves the tape by hand (`perf_scr += s`, a relative detent). `put` receives a value; there is no delta and no "action" entry (min = max = 0 here, a no-op). Needs a kind of entry whose `put` receives the detents, or the layer UI keeps that one knob (the host's, as TYPE).
+- **L5 (host, not format; listed so it is not missed).** Kind 3's pages are cards of the quick layer driven by the focused key (`perf_gfocus`), not rows of EDIT's FX family; step 8 must say which UI shows an SC_FX page of kind 3. Nothing in the descriptor changes for it.
+
+L1 to L3 are conventions inside the existing fields (`legacy` bit 15, pid bits 0x4000 and a reserved pid for the host), so none moves the identifier; L4 may need a hook meaning. **All four are checker and loader code, which this branch froze: I did not change them.** What the data above cannot express until they are decided is the one thing the brief asked for that
+this interface cannot give: a Release 2 project's reverb values loading unchanged into a module.
+
+### 16.5 The decisions on L1 to L4, as built (November 3, 2026, branch r3-pages, before step 3 ships)
+
+All four fit **inside fields that already exist**: no structure's text changed, so **the interface identifier did not move** (`FW_API_ID` 0xCAF53177, the unit's `iface` 0x1400CEEF, as before; `gen_fw_api_id.py --print` and `--selftest` unchanged). SHAPES, WHEEL and the Prophet did not need rebuilding for this round.
+- **L1, built.** Bit 15 of `fw_pid_t.legacy` (`FW_LEG_GLOBAL`) selects `song.g`. The checker (`fw_pages_check_ex`, now with `gcount` beside `pcount`) takes such a slot only in an effect, only for an effects' global (`G_DTIME` and up, not `G_BUDGET`, below `G_COUNT`), each once (a separate record from the track slots').
+  **The import rule is declared in the descriptor, in the word `ext`** (0 in version 3 until now: giving a present word its meaning moves nothing, section 4): bits 0 .. 15 = a `song.g` index + 1, bits 16 .. 31 = the value it must hold. The legacy slots of the descriptor are imported **only while `song.g[index]` equals the value** (the reverb: `G_RTYPE` == this mode);
+  otherwise every entry takes its default (the Release 2 byte had no value for a mode that was not selected). `ext` is for effects only (an engine's descriptor with `ext` != 0: FWP_EXT); the index must be an effects' global. The loader side is `fw_fxstore.h` (`fx_legacy_import`, `fx_legacy_export`), one place for every module: nothing per module.
+  **Proof (`tests/fx_legacy_test.c`, 38 checks):** a Release 2 project of each mode (SPRING, SHIMMER, RESO, CLOUD, every knob away from its default) is packed by the firmware's own writer and loaded by its reader; the module of the mode imports from it: its seven values are the resident reverb's values of the knobs; the other three modes' modules hold their defaults; and a track played through the reverb renders **sample for sample the same**
+  with the resident project loaded as with the module's values written back into the legacy slots on a default project (the module kernel does not exist yet, so the resident reverb is the stand-in it would drive; what is proved is that nothing is lost, clamped or moved on the way in), while the same TYPE at default knobs renders differently (the render can tell). A stored value outside a mode's range (G_RPRE 30 under RESO, PITCH 0 .. 14) is clamped by the module and plays as the resident reverb plays it.
+  The test's "Release 2 project" is made by this branch's writer, which is Release 2's format (the Release 3 format is behind OC_R3_FORMAT on r3-format, off here); no binary fixture is committed.
+- **L2, built.** A 0xFF in a page row is not the module's: for an engine an empty place, for an effect also **the host's knob** (the reverb's TYPE chooser, drawn in K1 of `REVERB`). The checker's rule: an effect's page has at least one knob of its own (four 0xFF: FWP_ROW). The byte was already allowed; the meaning and the one rule are new.
+- **L3, built.** `FW_PID_VOLATILE` (0x4000): a pid not stored: the host keeps the byte in the instance, no hook, no legacy slot (FWP_PID if it has one). `fw_pid_stored()` and `fx_store_pack` / `fx_store_unpack` (fw_fxstore.h) are the project writer's and reader's skip: a view, a volatile pid, a relative pid and an entry with no label are not written, and a pair the reader finds for one of them is ignored.
+  At most one of the three flag bits (view 0x8000, volatile 0x4000, relative 0x2000) per pid; a stable id proper is below 0x2000. **The layer's examples have no hooks now** (volatile pids 0x4001 .. 0x4004).
+- **L4, built, in the pid's id bits, not the kdef flags.** The card's knobs are panel entries of the module's page, not HOME's `fw_kdef_t` knobs (those are macros and plain parameters of an engine), so the kdef flags are not where it belongs. `FW_PID_RELATIVE` (0x2000): a relative knob: no value, never stored, no legacy slot; **`put` receives the signed detents** instead of a value; the checker requires the `put` hook
+  (no hook, no knob). TAPE STOP's SCRATCH is such a pid (0x2001) with the one `put` hook (`perf_scr += s`); its other entries are volatile. No layout change.
+- **The FX layer's surface stays the quick layer's cards.** The module descriptors of kind 3 only **supply the cards' knobs** (labels, ranges, defaults, which are the card's four knobs while the effect's key is held); the player does not reach them through EDIT's FX family, and the host (step 8) draws the cards as ui_layer.c does today (`perf_gfocus` picks the effect). UI_DESIGN.md says the same.
+- **Not changed:** the engine side, the picture and knobs of 5, the views of 15.
