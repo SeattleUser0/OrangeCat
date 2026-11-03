@@ -28,8 +28,9 @@ PC_RELATIVE = ("LONG_JUMP_17M2", "LONG_JUMP_23M2", "EXTEND_JUMP_17M2", "EXTEND_C
 SHN_ABS = 0xFFF1
 
 
-def relocs(path):
-    """[(offset, type, symbol section index)] of every SHT_RELA section that applies to .text (offsets from .text's start: the image's byte 0)"""
+def relocs(path, full=False):
+    """[(offset, type, symbol section index)] of every SHT_RELA section that applies to .text (offsets from .text's start: the image's byte 0);
+    full: [(offset, type, symbol section index, symbol value, addend, symbol name)] and the ELF's symbols {name: value}"""
     b = Path(path).read_bytes()
     if b[:4] != b"\x7fELF" or b[4] != 1 or b[5] != 1:
         raise SystemExit(f"{path}: not an ELF32 little-endian file")
@@ -42,16 +43,50 @@ def relocs(path):
         return s[:s.index(0)].decode()
     text = [name(s[0]) for s in sh].index(".text")
     symtab = next(s for s in sh if s[1] == 2)
+    strtab = sh[symtab[6]]
     syms = [struct.unpack_from("<IIIBBH", b, symtab[4] + i * 16) for i in range(symtab[5] // 16)]
+
+    def sname(i):
+        t = b[strtab[4] + syms[i][0]:]
+        return t[:t.index(0)].decode()
     out = []
     for s in sh:
         if s[1] == 9 and s[7] == text:
             raise SystemExit(f"{path}: SHT_REL (relocations without addends) is not expected")
         if s[1] == 4 and s[7] == text:                     # SHT_RELA whose sh_info is .text
             for k in range(s[5] // 12):
-                off, info, _ = struct.unpack_from("<IIi", b, s[4] + k * 12)
-                out.append((off, info & 0xFF, syms[info >> 8][5]))
+                off, info, add = struct.unpack_from("<IIi", b, s[4] + k * 12)
+                si = info >> 8
+                out.append((off, info & 0xFF, syms[si][5], syms[si][1], add, sname(si)) if full else (off, info & 0xFF, syms[si][5]))
+    if full:
+        return out, {sname(i): syms[i][1] for i in range(len(syms)) if syms[i][5] != 0}
     return out
+
+
+def region_check(path, regions, code_off=0x100):
+    """(model picker) the region rule of a multi-unit module (tools/pick_module.py): regions [(name, start, end)] in order, each unit's run of the
+    image. Every PC-relative relocation stays inside its region, and every absolute site that names a symbol of another region names it with
+    addend 0 (so a reference to a region the pick drops reads 0 in the linker's output, as the packer writes it). -> the faults, [] when none"""
+    rel, _ = relocs(path, full=True)
+
+    def where(a):
+        if a < code_off:
+            return "header"
+        for k, (n, s, e) in enumerate(regions):
+            if s <= a < (regions[k + 1][1] if k + 1 < len(regions) else 1 << 32):
+                return n
+        return "?"
+    bad = []
+    for off, t, shndx, val, add, nm in rel:
+        kind = RTYPES[t] if t < len(RTYPES) else f"type {t}"
+        if shndx in (0, SHN_ABS):
+            continue
+        src, dst = where(off), where(val + add)
+        if kind in PC_RELATIVE and src != dst:
+            bad.append(f"{kind} at {off:#x} ({src}) reaches {nm or '?'}+{add} in {dst}: a call across regions")
+        elif kind in ("ABS32", "MOV_ABS32") and src != dst and add and dst != "header":   # (the header page never moves: the glue reads its state_size)
+            bad.append(f"{kind} at {off:#x} ({src}) names {nm or '?'}+{add} in {dst}: a reference into another region's interior")
+    return bad
 
 
 def make_list(rel):
@@ -62,6 +97,8 @@ def make_list(rel):
         count[nm] = count.get(nm, 0) + 1
         if shndx == SHN_ABS:
             why = nm + " (absolute symbol)"
+        elif shndx == 0:                                   # (model picker) a weak reference the link did not satisfy: the site holds 0 and stays 0 at every base
+            why = nm + " (undefined weak)"
         elif nm == "ABS32":
             words.append(ocflash.reloc_word(off, ocflash.RELOC_ABS32))
             continue

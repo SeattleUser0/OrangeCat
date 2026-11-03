@@ -1,0 +1,243 @@
+# The model picker: Plaits (and Braids) models chosen on the installer page
+
+**Branch:** macro2-candidate (the study of docs/candidates/macro2.md continued). **Written:** November 3, 2026. **Host work only:** nothing was flashed; the unit's numbers (render time of a packed module, the hot set, the wave reads) are still the unit session's (section 6).
+
+**Replaces** "MACRO2 as one module": the owner's decision is that the user picks which of the 24 Plaits models (and HARP, Orange Cat's own) to install, on the installer page, the same later for Braids (SHAPES). This document designs it and proves the hard part: the page assembles **one module per engine from the picked models without a linker**, and the module it makes is **byte for byte the one the real linker makes for the same pick** (section 2: eight picks, every model and the smallest among them, plus forty random ones; tests/module_pick_test.py and web/test_pick.mjs).
+
+## 0. The answer in short
+
+- **How picking works.** The build links the whole engine once, every model's unit a *region* of the image with a 16-byte gap after it, and publishes that as a master package (orangecat-plaits-VERSION.ocp: the image linked at 0, its relocation list, a manifest of regions and items). The page keeps the glue and the picked regions, closes the gaps, moves the pointers that crossed them, zeroes the pointers into dropped regions, fills the header (state size, a *pick block* naming the installed items, CRCs) and writes a normal format 2 .ocm. Two rules make that the linker's output: a unit calls another unit only through absolute pointers in the relocation list (never a PC-relative call), and a pointer into another region names a symbol with addend 0. The build checks both on every master link (tools/module_relocs.py region_check) and keeps each unit's exports alive so the linker's garbage collection keeps the same functions in every pick. The proof: for 8 chosen picks the Python packer's module equals ld's, and the page's JavaScript packer equals both for those 8 and for 40 random picks.
+- **What stays built in.** Today MACRO is 39,269 B of the image (section 3) and is also **ENGI_FALLBACK** in CI's build set (FM6 and the Prophet are off): a track whose engine is missing sounds through MACRO. Three options: (A) keep all 15 as today (39.3 KB; the picker then offers the ten MACRO lacks, which is the MACRO2 study's module split into picks); (B) keep the glue and VA only (about 6.3 KB; VA is the fallback's preset 0, the sound any track has when its module is gone), everything else picked, 33 KB freed in the image; (C) nothing built in (39.3 KB freed; the fallback engine must become something else, or silence). Freed image bytes do not become module room: FLASH_MAP_R3.md option A bridges at most 4 sectors and should not be done for this (section 3).
+- **How many models fit beside the rest.** The glue is 2 sectors on its own (4,656 B with the header page). On Release 3's 18 sectors beside SHAPES 6, WHEEL 1, DUB TAPE 3, the reverb modes 1 and the FX layer 2 (13 taken, 5 left): a Plaits pick of **5 sectors** = the glue plus any 3 to 5 small models (VA-VCF, PD, CHIP, TERRAN, FM, WAVSHP, ADDTV ... each 1.2 to 3.7 KB), or one 6OP bank with two small models. With the Prophet instead of the effects (15 taken, 3 left): the glue plus one or two small models. WAVTBL with one bank is 6 sectors on its own (the glue included), SPEECH alone 7, the three 6OP banks 6: none of these fits beside the full set; each fits beside SHAPES and WHEEL alone (11 left). A Braids pick frees little: SHAPES' 44 shapes are 100 to 700 B each over a shared core of about 9 KB, so SHAPES at 6 sectors becomes 3 to 4 for a pick of ten shapes (section 1.2). Today's 12 sectors: a Plaits pick fits only at start 0 beside nothing else once it is past 4 sectors; the second bank (the ten MACRO lacks without waves and words) is 10 sectors.
+- **Still unknown.** The unit's render times of the packed module and of the glue's descriptor dispatch (one indirect call a block more than MACRO's switch); whether the wave reads from a bank region cost what they cost from the whole table; the installer page's own picker UI (not built: the packer, the room meter and its words are a library with tests); the extension registration that lets the module add models to the built-in MACRO rather than replace it (designed in section 4, not built: the candidate registers as its own engine 32 to use the loader as it is); the editor's MOD_INFO growing the pick block for the page to read back (section 2.5); and the Braids module split into units (the inventory is done, the units are not).
+
+## 1. The inventory
+
+### 1.1 The 25 Plaits models (24 of the module's and HARP) and the three wave banks
+
+Measured by tools/model_inventory.py on the units of the module (tools/module/plaits/mdl_*.c and tbl_*.c), compiled with the asset pack's tables as named sections (OC_PACK=0) and no hot-set redirection, so that what a model reaches from its exports is exactly what the linker keeps for it. "Own" is what only this model reaches; "shared" what two or more reach (stored once in a module that has any of them); the pack tables are in the asset pack on the unit (0x93000, 40,232 of 40,960 B used), not in the module. The glue row is the engine's own: its pages, presets, voice code and the hot set's source list.
+
+| PLAITS model | regions | own code (B) | own tables (B) | shared code (B) | shared tables (B) | shared with | pack tables it reads (B) |
+|---|---|---|---|---|---|---|---|
+| 6OP A | mdl_sixop+tbl_syx0 | 0 | 4,120 | 6,704 | 219 | 6OP B, 6OP C | pl_lut_amp_mod_sensitivity 16, pl_lut_coarse 128, pl_lut_cube_root 68, pl_lut_pitch_mod_sensitivity 32, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| 6OP B | mdl_sixop+tbl_syx1 | 0 | 4,120 | 6,704 | 219 | 6OP A, 6OP C | pl_lut_amp_mod_sensitivity 16, pl_lut_coarse 128, pl_lut_cube_root 68, pl_lut_pitch_mod_sensitivity 32, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| 6OP C | mdl_sixop+tbl_syx2 | 0 | 4,120 | 6,704 | 219 | 6OP A, 6OP B | pl_lut_amp_mod_sensitivity 16, pl_lut_coarse 128, pl_lut_cube_root 68, pl_lut_pitch_mod_sensitivity 32, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| ADDTV | mdl_addtv | 1,612 | 152 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| CHIP | mdl_chip | 3,138 | 200 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| CHORD | mdl_chord | 2,620 | 412 | 0 | 0 |  | pl_chord_waves 3960, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| FM | mdl_fm | 1,200 | 40 | 0 | 0 |  | pl_lut_fm_frequency_quantizer 520, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| GRAIN | mdl_grain | 3,984 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| HARP | mdl_harp | 2,852 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_svf_shift 1028 |
+| HI-HAT | mdl_hihat | 3,354 | 48 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| KICK | mdl_kick | 3,394 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| MODAL | mdl_modal | 1,768 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_stiffness 260 |
+| NOISE | mdl_noise | 1,798 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| PARTCL | mdl_partcl | 2,352 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| PD | mdl_pd | 1,870 | 24 | 0 | 0 |  | pl_lut_fm_frequency_quantizer 520, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| SNARE | mdl_snare | 3,352 | 44 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| SPEECH | mdl_speech | 7,424 | 12,019 | 0 | 0 |  | pl_lut_lpc_excitation_pulse 640, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| STRING | mdl_string | 3,170 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_svf_shift 1028 |
+| STRMCH | mdl_strmch | 2,806 | 464 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| SWARM | mdl_swarm | 1,524 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| TERRAN | mdl_terran | 1,842 | 36 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564 |
+| VA | mdl_va | 2,900 | 44 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| VA-VCF | mdl_vavcf | 2,150 | 24 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| WAVE BANK A | tbl_wav0 | 0 | 16,896 | 0 | 0 |  |  |
+| WAVE BANK B | tbl_wav1 | 0 | 16,896 | 0 | 0 |  |  |
+| WAVE BANK C | tbl_wav2 | 0 | 16,896 | 0 | 0 |  |  |
+| WAVSHP | mdl_wavshp | 1,546 | 48 | 0 | 0 |  | pl_lut_fold 2064, pl_lut_fold_2 2064, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564, pl_lut_ws_bump 514, pl_lut_ws_double_bump 514, pl_lut_ws_inverse_sin 514, pl_lut_ws_inverse_tan 514, pl_lut_ws_linear 514 |
+| WAVTBL | mdl_wavtbl | 2,792 | 36 | 0 | 0 |  | pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+| (glue) |  | 2,216 | 2,202 | 0 | 0 |  | pl_chord_waves 3960, pl_lut_4x_downsampler_fir 16, pl_lut_fold 2064, pl_lut_fold_2 2064, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024, pl_lut_sine 2564, pl_lut_ws_bump 514, pl_lut_ws_double_bump 514, pl_lut_ws_inverse_sin 514, pl_lut_ws_inverse_tan 514, pl_lut_ws_linear 514 |
+
+What is shared inside the module: the six-op code (6,704 B and its unit tables 219 B) by 6OP A, B and C, each of which brings its own 4,120 B DX7 bank; the three wave banks (16,896 B each) by WAVTBL (needs at least one) and TERRAN (its wave terrains use whichever are present: three terrains with three banks, none with none). Nothing else is shared: each model unit has its own copies of the small helpers it inlines, and the inventory shows that the duplication is small (STRING and HARP both carry the string voice, about 2.9 KB each; one unit for both would save about 2.5 KB when both are picked). The pack tables every model reads are the two pitch-ratio tables (2,048 B) and, for most, the sine (2,564 B): MACRO's hot set covers them (the module reads the arena copies through the services table, section 2.4).
+
+Per item in the master image (the region with its 16-byte gap; tools/pick_module.py --list): VA 2,992, WAVSHP 1,680, FM 1,200, GRAIN 3,696, ADDTV 1,856, CHORD 3,040, SWARM 1,552, NOISE 1,808, PARTCL 2,400, STRING 3,232, MODAL 1,808, KICK 3,488, SNARE 3,488, HI-HAT 3,440, HARP 2,928, VA-VCF 2,208, PD 1,936, 6OP A/B/C 11,392 each (7,248 of code shared by the three and a 4,144 bank each), TERRAN 1,952, STRMCH 3,328, CHIP 3,376, WAVTBL 2,864, SPEECH 20,128 (its five word banks and pulse 12,019), each wave bank 16,928; the glue 4,400. The whole master: 149,520 B.
+
+State a voice (the pick's largest sets the module header's state_size: a pick of small models takes a small arena block, 344 B for FM alone, 1,976 for CHIP, 4,728 for the second bank, 11,160 with 6OP, PARTCL or STRING): VA 252, WAVSHP 68, FM 40, GRAIN 112, ADDTV 312, CHORD 564, SWARM 512, NOISE 204, PARTCL 8,380 (one voice), STRING 8,124 (one), MODAL 424, KICK 168, SNARE 276, HI-HAT 640, HARP 2,744, VA-VCF 140, PD 80, 6OP 2,656 (one), TERRAN 24, STRMCH 4,540 (one), CHIP 448, WAVTBL 52, SPEECH 520 (one); four voices a track for the rest, plus the glue's heads (184 B).
+
+### 1.2 SHAPES (Braids), from linux-hw's source
+
+The same tool on tools/module/shapes_mod.c of origin/linux-hw 8f86058, compiled the same way and with -fno-inline-functions (at -Os the compiler inlines every shape's render into the two dispatch functions, one call site each, and no shape has a section of its own; with the helpers as calls too, a shape's own code here is a little more than in the real module and the shared code a little less). The object with the four wavetable shapes (PB_WAVETABLES=1) is shown; the module as shipped has 44 shapes without them. "(engine)" is what the module reaches without any shape's render: the glue, the pitch and parameter code.
+
+| Shape | own code (B) | own tables (B) | shared code it reaches (B) | shares with (count) | pack tables it reads (B) |
+|---|---|---|---|---|---|
+| BELL | 344 | 88 | 102 | 31 | pb_lut_oscillator_increments 388 |
+| BLOWN | 368 | 0 | 70 | 27 | pb_lut_flute_body_filter 256 |
+| BOWED | 622 | 0 | 30 | 15 | pb_lut_bowing_envelope 1504, pb_lut_bowing_friction 514 |
+| BUZZ | 138 | 0 | 2,858 | 32 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| CLKN | 250 | 0 | 104 | 25 | pb_lut_oscillator_increments 388 |
+| CLOUD | 440 | 0 | 68 | 38 | pb_lut_granular_envelope 1026, pb_lut_granular_envelope_rate 514 |
+| COMB | 208 | 0 | 110 | 19 | pb_lut_oscillator_delays 388 |
+| CSAW | 100 | 0 | 2,858 | 32 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| CYMBAL | 414 | 0 | 320 | 23 | pb_lut_oscillator_increments 388, pb_lut_svf_cutoff 514, pb_lut_svf_damp 514 |
+| DRUM | 580 | 48 | 168 | 41 | pb_lut_oscillator_increments 388, pb_lut_svf_cutoff 514 |
+| FBFM | 204 | 0 | 102 | 31 | pb_lut_oscillator_increments 388 |
+| FLUTE | 580 | 0 | 70 | 27 | pb_lut_blowing_envelope 784, pb_lut_blowing_jet 514, pb_lut_flute_body_filter 256 |
+| FM | 162 | 0 | 102 | 31 | pb_lut_oscillator_increments 388 |
+| FOLD | 230 | 0 | 2,876 | 37 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| HARM | 392 | 0 | 28 | 27 |  |
+| KICK | 402 | 0 | 338 | 11 | pb_lut_svf_cutoff 514, pb_lut_svf_damp 514 |
+| MORPH | 396 | 0 | 2,902 | 42 | pb_lut_oscillator_increments 388, pb_lut_svf_cutoff 514, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| NOISE | 238 | 0 | 96 | 32 | pb_lut_svf_cutoff 514, pb_lut_svf_damp 514, pb_lut_svf_scale 514 |
+| PLUCK | 578 | 0 | 40 | 13 |  |
+| PRTCL | 704 | 0 | 56 | 18 | pb_lut_resonator_coefficient 258, pb_lut_resonator_scale 258 |
+| QPSK | 290 | 0 | 102 | 32 | pb_lut_oscillator_increments 388 |
+| RING | 176 | 0 | 132 | 35 | pb_lut_oscillator_increments 388 |
+| SAWSQR | 186 | 0 | 2,876 | 37 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SAWSUB | 0 | 0 | 3,096 | 37 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SAWSYN | 0 | 0 | 3,072 | 37 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SAWx3 | 0 | 0 | 3,102 | 32 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SINx3 | 0 | 0 | 3,102 | 32 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SNARE | 570 | 0 | 378 | 18 | pb_lut_svf_cutoff 514, pb_lut_svf_damp 514 |
+| SQRSUB | 0 | 0 | 3,096 | 37 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SQRSYN | 0 | 0 | 3,072 | 37 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SQRx3 | 0 | 0 | 3,102 | 32 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| SWARM | 462 | 0 | 160 | 41 | pb_lut_oscillator_increments 388, pb_lut_svf_cutoff 514 |
+| TOY | 178 | 0 | 0 | 5 |  |
+| TRIx3 | 0 | 0 | 3,102 | 32 | pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514 |
+| TWINQ | 386 | 0 | 96 | 32 | pb_lut_resonator_coefficient 258, pb_lut_resonator_scale 258 |
+| VFOF | 526 | 500 | 26 | 10 | pb_lut_svf_cutoff 514 |
+| VOSIM | 194 | 0 | 128 | 37 | pb_lut_bell 514, pb_lut_oscillator_increments 388 |
+| VOWEL | 446 | 102 | 70 | 28 | pb_wav_formant_sine 512, pb_wav_formant_square 512 |
+| WLIN | 718 | 65 | 82 | 17 | pb_wt_waves 33024 |
+| WMAP | 302 | 0 | 82 | 17 | pb_wt_map 256, pb_wt_waves 33024 |
+| WTBL | 190 | 360 | 64 | 3 | pb_wt_waves 33024 |
+| WTFM | 180 | 0 | 102 | 31 | pb_lut_oscillator_increments 388 |
+| WTx4 | 420 | 135 | 168 | 28 | pb_lut_oscillator_increments 388, pb_wt_waves 33024 |
+| ZBPF | 0 | 0 | 574 | 37 | pb_lut_oscillator_increments 388 |
+| ZHPF | 0 | 0 | 574 | 37 | pb_lut_oscillator_increments 388 |
+| ZLPF | 0 | 0 | 574 | 37 | pb_lut_oscillator_increments 388 |
+| ZPKF | 0 | 0 | 574 | 37 | pb_lut_oscillator_increments 388 |
+| (engine) | 3,414 | 1,605 | 3,098 | 41 | pb_lut_fm_frequency_quantizer 258, pb_lut_oscillator_delays 388, pb_lut_oscillator_increments 388, pb_wav_bandlimited_comb 60, pb_wav_bandlimited_comb_0 514, pb_wav_bandlimited_comb_1 514, pb_wav_bandlimited_comb_10 514, pb_wav_bandlimited_comb_11 514, pb_wav_bandlimited_comb_12 514, pb_wav_bandlimited_comb_13 514, pb_wav_bandlimited_comb_14 514, pb_wav_bandlimited_comb_2 514, pb_wav_bandlimited_comb_3 514, pb_wav_bandlimited_comb_4 514, pb_wav_bandlimited_comb_5 514, pb_wav_bandlimited_comb_6 514, pb_wav_bandlimited_comb_7 514, pb_wav_bandlimited_comb_8 514, pb_wav_bandlimited_comb_9 514, pb_wav_sine 514, pb_ws_moderate_overdrive 514, pb_ws_sine_fold 514, pb_ws_tri_fold 514, pb_ws_violent_overdrive 514, pb_wt_code 1064, pl_lut_pitch_ratio_high 1024, pl_lut_pitch_ratio_low 1024 |
+
+The shape of it: the 13 analog shapes share a 2.9 KB oscillator core (pb_analog_render) and are 100 to 400 B each on top of it; the four Z filters share a 574 B core and nothing of their own; the physical models (BOWED 622, PLUCK 578, FLUTE 580, DRUM 580, PRTCL 704) are the largest own bodies; the engine is 3.4 KB of code, 1.6 KB of tables and 3.1 KB it shares with the shapes. The pack tables Braids reads are small (oscillator increments 388, SVF cutoff/damp 514 each, bowing envelope 1,504) and already in the pack. The four wavetable shapes need pb_wt_waves, 33,024 B, which is not in the pack (728 B spare) and would be a region of the module as the Plaits wave banks are (8 sectors for the four shapes with their waves; a bank split as the Plaits one is possible: Braids' map is 8 x 8 x 3 of 129 samples). So a Braids pick: the engine and its shared core are about 9 KB (3 sectors with the header page), ten typical shapes add 2 to 5 KB (one sector), the whole 44 are 6 sectors as today, and the wavetable shapes are a separate 8-sector question. The Braids units are not written (the inventory sized them; the split is the same recipe as section 2, with the dispatch switches of pb_macro.h and pb_digital.h replaced by a descriptor table and the shared analog core as a region every analog shape requires).
+
+## 2. Packing: where linking and relocation happen, and the proof
+
+### 2.1 The decision
+
+**Prebuilt per-model regions of one master link, compacted by the page.** Not prebuilt objects relocated by the page (that is a linker in JavaScript: symbol resolution, the pi32v2 relocation types, section placement; a second implementation of ld to keep equal to ld), and not one module per model (a header page and a sector tail each, and the loader's start table has three starts today, eighteen in Release 3). The build does the one link that needs a linker, with every model in, in a layout that makes the pick a byte-range operation:
+
+- Each unit (the glue tools/module/plaits_mod.c; a model mdl_*.c; a bank tbl_*.c) is compiled apart and placed by its own statement of the link script, in a fixed order (tools/build.py PLAITS_REGIONS), followed by `. += 16; ALIGN(16)`: a region. Its code, its constant pools (.rodata.cst*: the linker keeps them inside the unit's run, checked on the map) and its tables are inside it.
+- **Rule 1: no PC-relative relocation leaves its region.** A unit reaches another only through absolute pointers: the glue's table of 25 weak descriptor pointers (PL_MODELS), the descriptors' function pointers, the bank pointer tables (pl_syx_banks, pl_wav_banks). The compiler's own calls (a struct copy becoming memcpy) are caught: a model unit may import nothing at all, and the glue's memcpy/memset are its own (the firmware's, through the table). Checked on the master link by tools/module_relocs.py region_check: 72 PC-relative relocations, all inside their regions.
+- **Rule 2: an absolute reference into another region names a symbol with addend 0.** So a reference into a region the pick drops reads 0, which is exactly what ld leaves for the weak reference when the unit is not linked (and the linker's relocation entry for an undefined weak symbol is left out of the list: module_relocs.py). Checked on the master link.
+- **Rule 3: a unit's exports are kept.** Each unit names what other regions may reference (its descriptor, its bank, the six-op's start and render functions) in a pointer array in section .plaits_keep, which the link script KEEPs; so ld's garbage collection keeps the same functions in a unit whether or not the regions that name them are linked. Without it the two links differ (found by the proof: with 6OP B alone, the bank-0 and bank-2 start functions were gone from the six-op region in ld's output and present in the packer's).
+- The header page is never moved (the glue reads its own header's state_size from it; rule 2 exempts it).
+
+**The pack (tools/pick_module.py compact; web/fm1pick.js pickCompact, the same 60 lines):** keep the header page, then the kept regions in order (each region's span runs to the next region's start, gap included); for each relocation site in the list: dropped region, drop it; kept site whose word points into a dropped region, write 0 and drop the entry; else subtract from the word the bytes dropped before its target and from the site offset the bytes dropped before it. Then fill the header as the build does: state_size = the glue's part head plus the largest `(big ? 1 : 4) x stride` of the picked models (the descriptor's state and big fields, read from the master image at the descriptors' addresses into the manifest), the cost word, the pick block (2.5), length, the code CRC, the header CRC; the sectors from the length; the starts from the firmware's grid that fit (today [0, 6, 4] in the 12-sector area; the manifest carries the grid and the area, so Release 3's 18 and its 18 starts are a manifest change); a per-start CRC of the relocated image, as format 2 wants (tools/ocflash.py ocm_write, now shared by the build and the packer).
+
+### 2.2 The proof
+
+tools/build.py --module plaits --pick ITEMS links the picked units with ld (the oracle: the same units, the same link script with the unpicked regions left out, the same header fill, the variants a start, the relocation list proven against each variant as every module's is). tests/module_pick_test.py builds eight picks that way and packs each from the master with tools/pick_module.py: byte for byte the same .ocm, the pick block of every start's image reading back as the pick:
+
+| Pick | items | B | sectors | starts |
+|---|---|---|---|---|
+| every model and bank | 0..27 | 150,796 | 37 | [0] (a pretend area of 40 sectors: it fits no real one) |
+| the smallest: FM alone | 2 | 6,372 | 2 | [0, 6, 4] |
+| CHIP alone | 22 | 8,552 | 2 | [0, 6, 4] |
+| the second bank (the ten MACRO lacks, no waves, no words; the default pick) | 15..22 | 37,836 | 10 | [0] |
+| MACRO's own fifteen | 0..14 | 44,020 | 11 | [0] |
+| WAVTBL with bank B only, TERRAN | 20, 23, 26 | 27,024 | 7 | [0, 4] |
+| SPEECH, 6OP B alone, HARP (the six-op code with banks 0 and 2 dropped) | 14, 18, 24 | 39,788 | 10 | [0] |
+| WAVTBL with three banks, TERRAN | 20, 23, 25, 26, 27 | 60,964 | 15 | [0, 6, 4] (pretend area 40) |
+
+web/test_pick.mjs then shows the page's packer (web/fm1pick.js) makes the same bytes as those eight files, and the same bytes as the Python packer for 40 random picks (at a pretend area of 64 sectors so every pick packages), and refuses what both refuse (nothing picked; WAVTBL without a bank; a bank without WAVTBL or TERRAN; every model for the real area: "37 sectors fit no start of the area's 12"), reads the pick block back and sees a damaged one, and words the room meter (section 5). Both tests are in tests/run_tests.sh (module_pick_test.py says "skipped" where there is no toolchain; the page's test needs only the master package and the oracle files the Python test leaves in build/module/plaits/picks/).
+
+The module itself on the host (tests/plaits_test.c, every unit in, and a second build with WAVTBL, SPEECH, 6OP B and wave bank C left out, which is what a packed module looks like to the glue): 25 models and 47 presets sound and free their voices; the header's state_size is what the glue computes; the MODL knob steps over the models not installed and their value reads MISSG; a track that names one keeps its settings and renders silence; TERRAN plays with two banks; 6OP A and C play beside the missing B. The golden renders (tests/golden_modules.txt, module/PLAITS/): MACRO's 27 presets render through the module **bit for bit as through the built-in MACRO** (tests/golden.txt preset/MACRO/), and 18 of MACRO2's 20 as through the MACRO2 candidate; the two VA-VCF presets differ because MACRO2's glue never initialised its model 0 on a fresh part (the part's model byte starts at 0, so "the model changed" never fired for VA-VCF; MACRO has the same quirk for its VA, which the picker's glue keeps so MACRO's renders stay identical; the picker initialises VA-VCF, as model 15, and zeroes a model's state at every model change).
+
+### 2.3 The master package and the manifest
+
+orangecat-plaits-VERSION.ocp (tools/pick_module.py docstring: the one description): a 24-byte header (magic "OCPM", version 1, the manifest's, the image's and the list's lengths, a CRC-32 of the rest), the manifest (JSON), the image linked at 0 (header page as linked: state_size, cost, length and CRCs 0), the relocation words. The manifest: name, engine, version word, area_lo, area_sectors, starts (the firmware's grid), code_off, part_head and poly (the glue's part layout, from a kept word pair in the glue), regions [{name, start, end}] in link order, items [{id, key, name, regions, state, big}] (the models by stable id, then the wave banks 25, 26, 27), rules (WAVTBL needs a bank; a bank is of use to WAVTBL or TERRAN), hdr (iface, api_addr, api_version, api_size, pack_hash, so the page can check the master against the firmware as it checks a module). 154,440 B for this build. The page downloads it once per firmware version; a pick is made in milliseconds (13 ms for three picks in node).
+
+### 2.4 The module's engine (what changed from MACRO2)
+
+tools/module/plaits/eng_plaits.c is eng_macro.c's glue (the same pages, knobs, voices, LPG, DECAY envelope, batch kernel; the renders prove it) with the model switch replaced by a table of 25 weak descriptor pointers (pl_mdl.h: state bytes, big, draws, enveloped, units, out, aux, start, render; 24 bytes, no strings, so the linker merges nothing across regions). A model is installed when its pointer is not null (WAVTBL: and a bank is). The part is the voice heads and then the model states laid out by the installed model's descriptor (stride rounded to 8; one state for a big model, four otherwise), in a block of the header's state_size. The hot set is MACRO's (the same twelve tables in the same order, tools/module/plaits/pl_mod_common.h PL_HOT_LIST), so that the same module registered as MACRO's extension reads MACRO's arena copies (section 4) and registered as its own engine (the candidate, number 32) gets its own; the LPC pulse (640 B) is read from SPEECH's region instead of being hot (the hot list cannot depend on the pick without the packer rewriting it: a later refinement, as is dropping from the hot set the tables no picked model reads, 17 KB of arena when nothing of MACRO's is picked). The six-op's three models are descriptors in the bank units (a model is installed when its bank is) pointing at the six-op code region, which any bank's pick brings. pl_tables2.h is generated in a split mode (PL_TABLES2_SPLIT: a weak extern each, defined by the unit that names it) and the 192 waves are three arrays, pl_wav_bank_0..2, reached through pl_wav_banks[] (a missing bank is a null pointer: pl_wavetable.h reads the first bank present for its waves, pl_terrain.h has 5 + present banks terrains); tests/plaits_parity still gives 24 of 24 models at difference 0.
+
+### 2.5 The pick in the header
+
+The pick block sits in the module's header page at offset 64 (the 60-byte header, then zero; the loader reads nothing past the header): magic "OPIK", version 1, n, the engine's item count, the n item ids ascending, padded, a CRC-32 of the block. The format 2 package's per-start CRC covers the whole image, so the page and the card verify it at install; the unit's loader ignores it today. For the unit and the page to read back what is installed: the editor's MOD_INFO (editor.c, 120) should append, per start, the pick block's items (n, then n bytes; 0 for a module without one), and the engine list (ED_ENGINES) can say "PLAITS 8 models" from it; the glue's own view is PL_MODELS (what it can play), which the two agree on by construction. Neither is built here (editor.c is Session A's); the page's reader is PICK.blockRead.
+
+### 2.6 What the page needs to add (not built)
+
+A picker on the installer page: the master package in the release's file list (make_site.py's listing, the set manifest's "files"), a list of the 28 items with the built-in ones ticked and locked, the three bank boxes under WAVTBL, the room meter line (section 5) refreshed on every tick, and "Install" calling PICK.pack and then the existing installModule with the .ocm it returns (the page's module checks apply unchanged: ocmParse accepts it as any format 2 package). A re-install replaces the module at its start as today. The page should remember the last pick (localStorage) and read the installed one back when MOD_INFO carries it.
+
+## 3. The built-in fallback
+
+MACRO in the image today: 39,269 B (the 14 models 36,080 plus HARP, and the glue 3,189; docs/candidates/macro2.md section 9, linux-hw 8f86058), its tables in the pack. The first-boot sounds are the Prophet's and FM6's (the host harness mirrors melodee_init); with CI's switches (FM6 and the Prophet off) those tracks sound through **ENGI_FALLBACK, which is MACRO** (core.h: FM6, else the Prophet, else MACRO), at its preset 0, VA BASS. So "a unit with nothing picked still plays the default tracks" means: the fallback engine plays. The options, with the inventory's numbers (a model's own code, plus 24 to 464 B of its own tables):
+
+| Option | built in | image cost | what a fresh unit plays | what the picker offers |
+|---|---|---|---|---|
+| A (today) | the 15 of MACRO | 39,269 B | everything MACRO plays today | the ten MACRO lacks and the wave banks (13 items); the picker is the MACRO2 study split into picks |
+| B | the glue and VA | about 6,300 B (glue 3,189, VA 2,944, the model table) | VA BASS and the VA presets; the fallback stays MACRO | all 25 models but VA (the MACRO 14 as picks of 1.2 to 3.7 KB each: section 5's table) |
+| C | nothing | 0 (39,269 B freed) | nothing of Plaits; ENGI_FALLBACK must move (CZ-1 is off in CI's set; FM6 and the Prophet are off: the fallback would be a retired slot, i.e. silence, unless MACRO's VA stays as B) | all 25 |
+
+The recommendation is **B**: it keeps the fallback and the sound every project can count on, frees 33 KB of the image, and gives the picker the whole engine. A and B are the same code (eng_macro.c with a MELODEE_MACRO_BUILTIN mask, as MACRO2_SET was), so the choice can wait for the Release 3 build.
+
+**Freed image bytes and the module area.** They are different regions (the app area under the update loader's rules, the module area in the plaintext window; macro2.md section 9 and FLASH_MAP_R3.md section 4). Option A of FLASH_MAP_R3.md (cap the body at 0x8D000, give its tail 4 sectors to modules) is the only bridge and it yields 4 sectors at most, for a change to the one program whose fault bricks a unit's update. The 33 KB option B frees would fill the body's own reserve and the project format revision's growth; it should **not** be bridged for the picker. The picker's room is Release 3's 18 sectors (option B of the flash map, built on r3-a), and a built-in model costs the picker nothing.
+
+## 4. Projects, presets and the knob
+
+- **Stable ids.** A model's id is its place in the glue's table, never reused: MACRO's 0..14 are MACRO's own numbers (a stored MACRO sound keeps its model), then 15 VA-VCF, 16 PD, 17 6OP A, 18 6OP B, 19 6OP C, 20 TERRAN, 21 STRMCH, 22 CHIP, 23 WAVTBL, 24 SPEECH; the wave banks are items 25, 26, 27 of the pick, not models. A project stores the id in P_E0 as today; a preset's e[0] is the id. The same for Braids: its ids are PB_SHAPE_* order as SH_SHAPES lists them today.
+- **A model that is not installed.** engine_t gains one optional hook, `offered(t, k, v)` (core.h; a cold callback for tools/audio_ram.py: the knob's and the value string's question, never the interrupt's): the glue says no for a model whose descriptor is null (WAVTBL: or no bank). params.c: enum_step (the knob) steps over a value not offered, as it steps over a retired alias; param_format shows **MISSG** for it (five characters are the value field; the HOME line "MODULE MISSING" is the same message as a missing engine's and is the UI's to add, under the engine name). The render returns at once for such a model: the track keeps every setting, plays nothing. A preset or a project load never changes the value. Tested on the host in the pick build. The identifier moves with engine_t (FW_API_IFACE: every module rebuilt), which Release 3 does once anyway (MODULE_FORMAT_R3.md section 7); the hook belongs in that one move.
+- **The knob: skip, not show.** The knob steps over uninstalled models (you cannot pick what is not there; the list popup should hide them the same way it hides aliases, ui_popup.c count/rank/nth: one line each, not done here). A value that is already set shows MISSG and stays until the user turns the knob or installs the model.
+- **Which engine the module is.** The candidate registers as engine 32 (OC_CANDIDATES builds) with all 25 models, which proves the packing and the glue with the loader as it is. The production design is the **extension**: the module's header engine word carries kind 4 "models for engine N" (the kind bits of MODULE_FORMAT_R3.md section 3: 0 engine, 1..3 effects), the loader keeps one extension pointer per engine (the module's PL_MODELS table and its state rule), and eng_macro.c's dispatch asks it for a model id past its built-in set: one engine, 25 models, the built-in ones always there, the module adding the picked ones, the module's state inside MACRO's existing part block (11,320 B a track holds every model's), and MACRO's hot set shared. The glue here is written so that it is the same code either way (PL_HOT_ENGINE). What it costs: the loader's kind and table (about 300 B), eng_macro.c's hook (about 150 B), the hot-set sharing rule (a module in MACRO's slot takes no hot slot of its own), and the engine list showing "MACRO +8 models".
+
+## 5. The room budget on the page
+
+Release 3's module area: 18 sectors (FLASH_MAP_R3.md option B, a start at every sector). What the other modules take (the plan's numbers): SHAPES 6, WHEEL 4 today or 1 re-cut, the Prophet 8, the effect modules 6 (DUB TAPE 3, the reverb modes 1, the FX layer 2). A pick's sectors (the glue 4,400 B and the header page are always in; a sector is 4,096 B):
+
+| Pick | B | sectors | 12 today (start 0; other starts: 6 needs <= 6 sectors, 4 needs <= 8) | 18 beside SHAPES 6 + WHEEL 1 + effects 6 (5 left) | 18 beside SHAPES 6 + WHEEL 1 + the Prophet 8 (3 left) | 18 beside SHAPES 6 + WHEEL 1 (11 left) |
+|---|---|---|---|---|---|---|
+| the glue alone (nothing picked) | 4,656 | 2 | yes | yes | yes | yes |
+| FM alone; PD alone; a small model | 5,856 to 8,000 | 2 | yes | yes | yes | yes |
+| VA-VCF, PD, CHIP | 12,176 | 3 | yes | yes | yes | yes |
+| VA-VCF, PD, TERRAN, STRMCH, CHIP | 17,456 | 5 | yes | yes, nothing to spare | no | yes |
+| 6OP A alone | 16,048 | 4 | yes | yes | no | yes |
+| 6OP A, B, C | 24,336 | 6 | yes | no | no | yes |
+| WAVTBL with one bank | 24,448 | 6 | yes | no | no | yes |
+| SPEECH alone | 24,784 | 7 | yes | no | no | yes |
+| VA-VCF, PD, CHIP, TERRAN, 6OP A | 25,520 | 7 | yes | no | no | yes |
+| the second bank (vavcf pd 6opa 6opb 6opc terran strmch chip) | 37,136 | 10 | yes | no | no | yes |
+| MACRO's 15 | 43,264 | 11 | yes | no | no | yes |
+| the second bank + SPEECH | 57,264 | 14 | no | no | no | no |
+| the second bank + WAVTBL with one bank | 56,928 | 14 | no | no | no | no |
+| WAVTBL with three banks | 58,304 | 15 | no | no | no | no |
+| the ten MACRO lacks, three banks, SPEECH | 110,912 | 28 | no | no | no | no |
+| all 25 and three banks | 149,520 | 37 | no | no | no | no |
+
+So beside the full Release 3 set, a Plaits pick is 3 to 5 sectors: the glue and three to five small models, or the glue, one 6OP bank and a small model (6OP A alone is 4). A Braids pick (section 1.2) can give SHAPES' 6 back as 3 or 4, which is where a second 6OP bank or WAVTBL with one bank would come from. The wave banks and SPEECH are only for a unit that gives up the effects or the Prophet.
+
+**The room meter** (web/fm1pick.js pickRoom; its words are tested): "Room: 18 sectors; SHAPES 6, WHEEL 1, DUB TAPE 3, REVERB 1, FX 2 take 13; 5 left. This pick (VA-VCF, PD, CHIP) needs 3: it fits, 2 to spare." and, past the room: "... This pick (WAVTBL, WAVE BANK A, WAVE BANK B, WAVE BANK C) needs 15: 10 too many. Leave a model or a wave bank out." The page refuses the install while the line says "too many"; the sectors are the packer's own count of the pick (the glue, the header page, the picked regions), the same count the module's header will carry. The other modules' sectors come from MOD_INFO's starts (what is installed) and from the release's list (what the user has ticked to install in the same go); the area's sectors from MOD_INFO (12 today, 18 after Release 3: the reply gains the starts' sectors in the plan).
+
+## 6. Unit timing commands (for Session A, later)
+
+The method of hw/LOG.md "MACRO by model" (one preset a model, the four-note chord on every step, N tracks, 20 s at 120 BPM; worst us, late, voices), on the candidates' measurement build with a packed module installed, and the hot-set A/B. Per model, the pick that isolates it: the glue plus that model (2 to 7 sectors, start 0), so the module area holds nothing else.
+
+```
+python3 tools/hw/ci_step.py build --switch OC_CANDIDATES=1               # NENGINES 33, engine 32 (PLAITS, the picker's candidate) registrable
+python3 tools/build.py --module plaits                                    # the master package and the default pick (the second bank, 10 sectors)
+python3 tools/hw/fm1hw.py flash build/orangecat-<version>-<commit>.fwsc --expect <version string>
+node tools/hw/oc_install.mjs pack build/orangecat-<version>-<commit>.pak
+node tools/hw/oc_install.mjs remove 127                                   # the area empty
+# one model at a time: the pick with the glue and the model, packed by the page's packer (or tools/pick_module.py, the same bytes)
+for m in va wavshp fm grain addtv chord swarm noise partcl string modal kick snare hihat harp vavcf pd 6opa terran strmch chip speech; do
+  python3 tools/pick_module.py build/plaits-<version>.ocp build/pick-$m.ocm $m
+  node tools/hw/oc_install.mjs module build/pick-$m.ocm
+  python3 tools/hw/fm1hw.py measure --tracks 1 --engine PLAITS --presets <the model's preset number: eng_plaits.c PL_PRESETS>
+  python3 tools/hw/fm1hw.py table --set candidates ...                   # N = 1..4 tracks, worst us / late / voices, as hw/LOG.md's tables
+done
+python3 tools/pick_module.py build/plaits-<version>.ocp build/pick-wt.ocm wavtbl wav0          # WAVTBL with one bank (6 sectors): the wave reads from a bank region
+python3 tools/pick_module.py build/plaits-<version>.ocp build/pick-wt3.ocm wavtbl wav0 wav1 wav2 terran   # 15 sectors: a measurement area only (tools/build.py --area)
+python3 tools/build.py --module plaits --pick <items> ; cmp build/plaits-pick.ocm build/pick-<x>.ocm        # the oracle, on the unit's own build
+```
+
+What to compare: a model through the packed module against the same model through MACRO (the built-in; the renders are identical, so any difference is the module's placement and the descriptor dispatch), the 6OP/STRMCH/SPEECH costs against macro2.md's proposals (6, 5, 5 units), WAVTBL from a bank region against the MACRO2 study's whole-table build. The glue has MACRO's `.units` through the descriptors: the per-model units are MACRO's measured ones for 0..14 and macro2.md section 7's proposals for 15..24 (VA-VCF 5, PD 5, 6OP 6, TERRAN 7, STRMCH 5, CHIP 2, WAVTBL 8, SPEECH 5), to be replaced by the unit's.
+
+## 7. Files on the branch, how to run, what is open
+
+- tools/module/plaits/: pl_mod_common.h (the prelude every unit shares), pl_mdl.h (the descriptor, PL_KEEP), eng_plaits.c (the glue), mdl_*.c (23 code units), tbl_syx0..2.c and tbl_wav0..2.c (the bank units), pl_mod_host_units.h and pl_mod_host_state.h (the host's one unit); tools/module/plaits_mod.c (the module unit).
+- tools/build.py: MODULES "plaits" (units, regions, items), build_regions_module (the master, the region checks, the manifest, --pick, --area), regions_ld; tools/module_relocs.py (undefined weak references skipped; region_check); tools/ocflash.py ocm_write; tools/pick_module.py (the formats and the Python packer); web/fm1pick.js (the page's packer and room meter); tools/model_inventory.py; tools/gen_plaits_tables2.py and pl_tables2.h (split mode, the wave banks); pl_wavetable.h and pl_terrain.h (bank pointers); tools/audio_ram.py (offered is cold).
+- firmware/src/core.h (engine_t.offered), params.c (the knob steps over what is not offered; MISSG).
+- tests/module_pick_test.py, web/test_pick.mjs, tests/module_host_plaits_tu.c, tests/plaits_test.c (both builds), tests/golden_modules.txt (47 PLAITS lines), tests/run_tests.sh (the steps).
+- Run: `python3 tools/build.py --module plaits [--pick va,6opb,wavtbl,wav0 [--area 40]]`; `python3 tools/pick_module.py build/plaits-0.15.0.ocp out.ocm va 6opb wavtbl wav0`; `python3 tests/module_pick_test.py`; `node web/test_pick.mjs`; `python3 tools/model_inventory.py plaits --md`; the host suite through tests/run_tests.sh (module_host_candidates, web_tests) or tools/hw/ci_step.py test.
+- Open: everything in section 0's last point; the editor's MOD_INFO for the pick block; the extension registration; the picker UI; the Braids units; the loader's cap of 8 starts per package (a pick small enough for many Release 3 starts names them all: the manifest's grid is the place to cap it); a per-pick hot set.

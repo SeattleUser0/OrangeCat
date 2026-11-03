@@ -5,7 +5,7 @@
  * Orange Cat MACRO2: Plaits' model 5, WAVETABLE (plaits/dsp/engine/wavetable_engine.cc and .h), in C. Its
  * Differentiator and InterpolateWaveHermite (oscillator/wavetable_oscillator.h) are pl_diff_t and
  * pl_interpolate_wave_hermite in pl_dsp2.h; the 192 waves (wav_integrated_waves, 128 samples + 4 wrapped each,
- * stored integrated) are pl_wav_integrated_waves in pl_tables2.h.
+ * stored integrated) are pl_wav_bank_0..2 in pl_tables2.h (pl_wav_banks[]: a bank the pick left out is 0).
  *   An 8 x 8 x 4 terrain of waves, read with Hermite interpolation and mixed trilinearly, then differentiated.
  *   TIMBRE: X (the column), MORPH: Y (the row), HARMONICS: Z (the bank; past bank 3 the Z axis folds back and
  *   the three coordinates snap to whole waves).
@@ -63,7 +63,10 @@ static inline const int16_t *pl_wt_wave(int x, int y, int z)
 {
     int i = x + y * 8 + z * PL_WT_NUM_WAVES_PER_BANK;
     int w = z == PL_WT_NUM_BANKS - 1 ? i * 101 % PL_WT_NUM_WAVES : i;
-    return pl_wav_integrated_waves + (size_t)w * (PL_WT_TABLE_SIZE + 4);
+    const int16_t *b = pl_wav_banks[w / PL_WT_NUM_WAVES_PER_BANK];
+    /* (model picker) a wave bank the pick left out reads as a null pointer: its waves are the first bank present (the pick keeps at least one) */
+    if (!b) b = pl_wav_banks[0] ? pl_wav_banks[0] : pl_wav_banks[1] ? pl_wav_banks[1] : pl_wav_banks[2];
+    return b + (size_t)(w % PL_WT_NUM_WAVES_PER_BANK) * (PL_WT_TABLE_SIZE + 4);
 }
 /* ReadWave */
 static inline float pl_wt_read_wave(int x, int y, int z, int phase_integral, float phase_fractional)

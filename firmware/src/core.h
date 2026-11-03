@@ -549,6 +549,9 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     const eng_hot_t *hot;
     uint8_t nhot;
     const void **hot_at;
+    /* (model picker, macro2-candidate) optional: whether value v of EDIT k is offered now; 0 for a model the engine's module does not carry
+     * (its unit was not picked): the knob steps over it (params.c enum_step) and a stored value shows as MISSG (param_format). 0 = every value is. */
+    int (*offered)(const struct track *t, uint32_t k, int32_t v);
 } engine_t;
 /* (Orange Cat 0.13.7) table i of engine e's hot set: in a built-in engine, its own pointer array (hot_at); in a module (OC_MODULE), the firmware's,
  * through the services table. The pointer is RAM, so the compiler keeps it in a register across a loop */
