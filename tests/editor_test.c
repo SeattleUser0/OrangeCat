@@ -1220,6 +1220,93 @@ static void place_image(uint32_t engine, uint32_t start, uint32_t len)
     memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
     oc_mod_boot(0);
 }
+/* (Release 3 step 4) the effect modules by module id: 130 FX_INFO, 131 FX_BEGIN, 132 FX_REMOVE, 133 FX_TABLE through the extension (command 0, n = 2 .. 5), and the engine
+ * commands' WRITE and END (122, 123) finishing an install by id. The reply of an extension command is 0, n, then the command's own bytes (host_wire[6..]). */
+static void fx_id(uint8_t *a, uint32_t id) { for (int i = 0; i < 5; i++) a[i] = (uint8_t)(id >> (7 * i) & 127u); }
+static int fx_protocol(void)
+{
+    static uint8_t img[3u * 4096u], a[600];
+    uint32_t n, off, len = 3u * 4096u - 0x100u, link, i;
+    uint32_t id = 0x00ABCDEFu;
+    fw_mod_hdr_t h;
+    int bad = 0, ok;
+    reset();
+    memset(host_mod, 0xFF, sizeof host_mod); host_mod_erases = 0;
+    memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+    ocs_resv = SMP_LEGACY_MASK;
+    oc_mod_boot(0);
+    song.playing = 0; host_progress = 1;
+    /* a one effect insert module for the start the planner names (start 0) */
+    a[0] = 2; fx_id(a + 1, id); a[6] = 3;
+    request(ED_EXT, a, 7);
+    bad += check("FX_INFO (130): empty area, 3 sectors: plan start 0, not in place, no blocker (127), the six low sectors usable",
+                 host_wire[4] == 0 && host_wire[5] == 2 && host_wire[6] == 0 && host_wire[7] == 0 && host_wire[8] == 127 && host_wire[9] == 1);
+    a[6] = 9; request(ED_EXT, a, 7);
+    bad += check("FX_INFO with 9 sectors, and with a short payload: no reply", host_wire_n == 0 && (request(ED_EXT, a, 4), host_wire_n == 0));
+    link = oc_mod_link(0);
+    memset(img, 0, sizeof img);
+    for (i = FW_MOD_CODE_OFF; i < len; i++) img[i] = (uint8_t)(i * 5u + 1u);
+    memset(img + 0x200, 0, 0x300);
+    {   uint32_t d = 0x200, e = 0x214, pp = 0x300, v;
+        #define W32(o, x) do { v = (x); img[o] = (uint8_t)v; img[(o) + 1] = (uint8_t)(v >> 8); img[(o) + 2] = (uint8_t)(v >> 16); img[(o) + 3] = (uint8_t)(v >> 24); } while (0)
+        W32(d, 1); W32(d + 4, id); W32(d + 8, 0x00020001u); W32(d + 12, link + e); W32(d + 16, 0);
+        img[e] = 7; img[e + 1] = 1; img[e + 4] = 1; W32(e + 8, link + pp);
+        img[pp] = 10; img[pp + 1] = 0; img[pp + 2] = 0xFF; img[pp + 3] = 0xFF; img[pp + 6] = 127; img[pp + 8] = 64;
+        #undef W32
+    }
+    memset(&h, 0, sizeof h);
+    h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
+    h.engine = 1u << 8; h.state_size = 0; h.engine_ptr = link + 0x200u; h.link_addr = link; h.pack_hash = OC_PACK_HASH; h.length = len; h.version = 0x00020001u;
+    h.crc = ocs_crc32(img + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
+    h.hcrc = ocs_crc32((const uint8_t *)&h, FW_MOD_HDR_BYTES - 4u);
+    memcpy(img, &h, sizeof h);
+    a[0] = 3; fx_id(a + 1, id); a[6] = 0; a[7] = (uint8_t)(len & 127u); a[8] = (uint8_t)(len >> 7 & 127u); a[9] = (uint8_t)(len >> 14);
+    song.playing = 1; host_progress = 0;
+    request(ED_EXT, a, 10);
+    bad += check("FX_BEGIN (131) while the transport runs is refused (2), nothing erased", host_wire[5] == 3 && host_wire[6] == 2 && host_mod_erases == 0);
+    song.playing = 0; host_progress = 1;
+    a[6] = 5; request(ED_EXT, a, 10);
+    bad += check("FX_BEGIN for a start that is not the plan's is refused (1), nothing erased", host_wire[6] == 1 && host_mod_erases == 0);
+    a[6] = 0; request(ED_EXT, a, 9);
+    bad += check("FX_BEGIN with a short payload: no reply", host_wire_n == 0);
+    request(ED_EXT, a, 10);
+    ok = host_wire[6] == 0 && host_mod_erases == 3u && mw.writing && mw.fx;
+    for (off = FW_MOD_CODE_OFF; off < len; off += 256u) {
+        uint32_t k = len - off < 256u ? len - off : 256u;
+        a[0] = (uint8_t)(off & 127u); a[1] = (uint8_t)(off >> 7 & 127u); a[2] = (uint8_t)(off >> 14);
+        n = pack7(img + off, k, a + 3);
+        request(ED_MOD_WRITE, a, 3u + n);
+        ok &= host_wire[5] == 0;
+    }
+    bad += check("FX_BEGIN: 3 sectors erased, then the engine commands' WRITE carries the code (the loader holds the install state)", ok);
+    n = pack7(img, 256u, a);
+    request(ED_MOD_END, a, n);
+    bad += check("END (123) finishes the install by id: rc 0, the module registered in the Effects table and not in the engine table",
+                 host_wire[5] == 0 && oc_mod.nfxmod == 1 && oc_mod.fx[0].module_id == id && ({ uint32_t e, z = 1; for (e = 0; e < NENGINES; e++) z &= !eng_mod[e]; z; }));
+    a[0] = 5; request(ED_EXT, a, 1);
+    bad += check("FX_TABLE (133): one module: its id (5 x 7), version 2.0.1, kind 1, 1 effect, state 7 (OK), why 0, start 0, 3 sectors, resident 0, uses 0",
+                 host_wire[5] == 5 && host_wire[6] == 1 && host_wire[7] == (id & 127u) && host_wire[8] == (id >> 7 & 127u) && host_wire[9] == (id >> 14 & 127u) &&
+                 host_wire[12] == 2 && host_wire[13] == 0 && host_wire[14] == 1 && host_wire[15] == 1 && host_wire[16] == 1 && host_wire[17] == MD_OK && host_wire[18] == 0 &&
+                 host_wire[19] == 0 && host_wire[20] == 3 && host_wire[21] == 0 && host_wire[22] == 0);
+    a[0] = 5; a[1] = 1; request(ED_EXT, a, 2);
+    bad += check("FX_TABLE with an argument: no reply", host_wire_n == 0);
+    a[0] = 2; fx_id(a + 1, id); a[6] = 3; request(ED_EXT, a, 7);
+    bad += check("FX_INFO for the same id now: the plan is another start (beside the old module), flag in place 0", host_wire[6] != 127 && host_wire[6] != 0 && host_wire[7] == 0);
+    a[0] = 2; fx_id(a + 1, id + 1); a[6] = 3; request(ED_EXT, a, 7);
+    bad += check("FX_INFO for another id: it must not overlap the first module (plan is not 0, 3, 4 .. its sectors)", host_wire[6] != 0 && host_wire[6] != 127);
+    a[0] = 4; fx_id(a + 1, id + 7); request(ED_EXT, a, 6);
+    bad += check("FX_REMOVE (132) of an id nobody has: rc 0, the first module still there", host_wire[6] == 0 && oc_mod.nfxmod == 1);
+    a[0] = 4; fx_id(a + 1, id); request(ED_EXT, a, 6);
+    bad += check("FX_REMOVE of the module's id: rc 0, the Effects table empty, its sectors erased", host_wire[6] == 0 && oc_mod.nfxmod == 0 && host_mod[oc_mod_flash(0) - ST_MODULE_LO] == 0xFF);
+    a[0] = 5; request(ED_EXT, a, 1);
+    bad += check("FX_TABLE after: count 0", host_wire[5] == 5 && host_wire[6] == 0);
+    ok = 1;
+    for (i = 0; i < 3; i++) { a[0] = (uint8_t)(6 + i); request(ED_EXT, a, 1); ok &= host_wire_n == 0 || host_wire[5] != (uint8_t)(6 + i) || host_wire_n <= 6u; }
+    bad += check("an extension number past FX_TABLE (6, 7, 8): no reply", ok);
+    reset();
+    return bad;
+}
+
 static int module_overlaps(void)
 {
     static const struct { uint8_t first, start, second; } cases[] = {
@@ -1498,7 +1585,7 @@ static int arrange_protocol(void)
 
 int main(void)
 {
-    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

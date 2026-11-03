@@ -8,6 +8,7 @@
 //    sends are the old variant's); skipped, and said, when no module was built;
 // 3. a damaged list (a flipped byte), a site past the image's end, a list out of order, one longer than the limit, a start's CRC-32 not its relocated
 //    image's: refused; a format 1 package still reads as before.
+// 4. (Release 3 step 1) the 18 starts; 5. (Release 3 step 4) effect modules (kind 1..3): the module id from the image's descriptor, fxCheck, every refusal.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -197,5 +198,106 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
     n++;
   }
   console.log(n ? `ocm: Release 3: ${n} modules (SHAPES, WHEEL, the Prophet) built for this firmware are taken, the same with the Release 2 identifier is refused (modWrongFw)` : "ocm: (no package in build/: section 4 skipped)");
+}
+// 5. (Release 3 step 4) effect modules: a header engine word of kind 1..3 (bits 8..15; the engine byte 0), the module id in the image's fx_desc_t (firmware/src/fw_fx.h),
+//    relocated with the image for every start, checked against MOD_INFO + FX_INFO by fxCheck; the descriptor's every rule refused; the engine path unchanged
+{
+  const LINK0 = 0x020C4000, IFACE = 0x1234ABCD, APIA = 0x02000F00, PH = 0xCAFE0001, MID = 0x80001234, FXVER = 0x00010203;
+  const SECT = [0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6];
+  // an effect image linked at 0: the header page, then fx_desc at 0x180, two entries at 0x200, two parameter rows at 0x240, a label at 0x300; mut(dv) changes it
+  const fxImage = ({ kind = 1, len = 0x800, mut = () => {} } = {}) => {
+    const a = new Uint8Array(len), dv = new DataView(a.buffer);
+    for (let k = 0x400; k < len; k++) a[k] = (k * 5 + 1) & 0xFF;
+    [[0, 0x444F4D4F], [4, IFACE], [8, 60], [12, 3], [16, APIA], [20, kind << 8], [24, 0], [28, 0x180], [32, 0], [36, PH], [44, FXVER], [48, len]].forEach(([o, v]) => dv.setUint32(o, v, true));
+    [[0x180, 2], [0x184, MID], [0x188, FXVER], [0x18C, 0x200], [0x190, 0]].forEach(([o, v]) => dv.setUint32(o, v >>> 0, true));
+    a[0x200] = 1; a[0x201] = kind; dv.setUint16(0x204, 2, true); dv.setUint32(0x208, 0x240, true);     // effect 1: two parameters
+    a[0x210] = 2; a[0x211] = kind;                                                                      // effect 2: none
+    dv.setUint16(0x240, 1, true); dv.setUint16(0x242, 0xFFFF, true); dv.setInt16(0x244, 0, true); dv.setInt16(0x246, 100, true); dv.setInt16(0x248, 50, true); dv.setUint32(0x24C, 0x300, true);
+    dv.setUint16(0x250, 3, true); dv.setUint16(0x252, 0xFFFF, true); dv.setInt16(0x254, -10, true); dv.setInt16(0x256, 10, true); dv.setInt16(0x258, 0, true);
+    a.set([77, 73, 88, 0], 0x300);                                                                      // "MIX"
+    mut(dv, a);
+    return a;
+  };
+  const SITES = [(1 << 24 | 28) >>> 0, (1 << 24 | 32) >>> 0, (1 << 24 | 0x18C) >>> 0, (1 << 24 | 0x208) >>> 0, (1 << 24 | 0x24C) >>> 0];
+  const pkg = (img, starts, { word, extra = [] } = {}) => {     // format 2, as tools/build.py writes it
+    const sites = [...SITES, ...extra].sort((x, y) => (x & 0xFFFFFF) - (y & 0xFFFFFF)), len = img.length, kind = new DataView(img.buffer).getUint32(20, true), hc = 88 + 8 * starts.length, at = (hc + 4 + 15) & ~15;
+    const b = new Uint8Array(at + len + 4 * sites.length), dv = new DataView(b.buffer);
+    dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 2, true); dv.setUint16(6, 1, true); dv.setUint32(8, IFACE, true); dv.setUint32(12, APIA, true); dv.setUint32(16, word ?? kind, true);
+    dv.setUint32(20, 0, true); dv.setUint32(24, PH, true); dv.setUint32(44, 3, true); dv.setUint32(48, 60, true); dv.setUint32(52, Math.ceil(len / 4096), true);
+    b.set(img, at);
+    sites.forEach((w, i) => dv.setUint32(at + len + 4 * i, w, true));
+    dv.setUint32(56, 0xFFFFFFFF, true); dv.setUint32(60, len, true); dv.setUint32(64, crc32(img), true); dv.setUint32(68, at, true);
+    dv.setUint32(72, sites.length, true); dv.setUint32(76, at + len, true); dv.setUint32(80, crc32(b.subarray(at + len)), true); dv.setUint32(84, starts.length, true);
+    starts.forEach((s, k) => { dv.setInt32(88 + 8 * k, s, true); dv.setUint32(92 + 8 * k, crc32(OCM.relocate(img, sites, (LINK0 + s * 4096) >>> 0)), true); });
+    dv.setUint32(hc, crc32(b.subarray(0, hc)), true);
+    return b;
+  };
+  const info = { iface: IFACE, apiAddr: APIA, apiVersion: 3, apiSize: 60, packHash: PH, sectorOf: SECT, starts: SECT.map(() => ({ state: 0, why: 0, engine: 127 })), lowOk: true };
+  const fx = (plan, extra = {}) => ({ plan, inPlace: false, blocker: null, lowOk: true, ...extra });
+  for (const kind of [1, 2, 3]) {
+    const o = OCM.parse(pkg(fxImage({ kind }), [0, 3, 11, -6]));
+    assert.ok(o.ok, `kind ${kind}: ${o.key}`);
+    assert.equal(o.kind, kind); assert.equal(o.moduleId, MID); assert.equal(o.fxVersion, FXVER); assert.equal(o.fxCount, 2); assert.equal(o.fxSectors, 1);
+    for (const [plan, sec] of [[0, 0], [3, 1], [11, 11], [17, -6]]) {
+      if (![0, 3, 11, -6].includes(sec)) { assert.equal(OCM.fxCheck(o, info, fx(plan)).key, "modNoVariant", `plan ${plan}`); continue; }
+      const c = OCM.fxCheck(o, info, fx(plan));
+      assert.ok(c.ok && c.fx && c.variant.start === sec, `kind ${kind} plan ${plan}: ${JSON.stringify(c.key)}`);
+      const d = OCM.fxDesc(c.variant.image, (LINK0 + sec * 4096) >>> 0, kind);
+      assert.deepEqual(d, { id: MID, version: FXVER, n: 2 }, "the relocated descriptor reads at its start's address");
+    }
+  }
+  const o = OCM.parse(pkg(fxImage(), [0, 6]));
+  // fxCheck: the firmware's numbers, no start, a blocker, the low sectors
+  assert.equal(OCM.fxCheck(o, { ...info, iface: IFACE ^ 1 }, fx(0)).key, "modWrongFw");
+  assert.equal(OCM.fxCheck(o, { ...info, packHash: PH ^ 1 }, fx(0)).key, "modWrongFw");
+  assert.equal(OCM.fxCheck(o, { ...info, apiVersion: 2 }, fx(0)).key, "modWrongFw", "a table older than the module needs");
+  assert.equal(OCM.fxCheck(o, info, fx(null)).key, "modNoFree", "FX_INFO plan 127: no start");
+  assert.deepEqual(OCM.fxCheck(o, { ...info, starts: info.starts.map((s, i) => (i === 4 ? { state: 7, why: 0, engine: 14 } : s)) }, fx(null, { blocker: 4 })),
+    { ok: false, key: "modBlocked", engine: 14, start: 4 }, "the module in the way is named");
+  assert.equal(OCM.fxCheck(o, info, fx(12, { lowOk: false })).key, "modNoFree", "a low start while the low sectors are not the area's");
+  assert.equal(OCM.fxCheck(o, info, fx(1)).variant.start, 6, "start 1 is sector 6");
+  // the header word: kind > 3, high bits, an engine byte with a kind: refused as not a module file
+  const word = (w) => OCM.parse(pkg(fxImage(), [0], { word: w })).key;
+  assert.equal(word(4 << 8), "modWrongFile", "kind 4");
+  assert.equal(word(1 << 16 | 1 << 8), "modWrongFile", "bits 16..31");
+  assert.equal(word(1 << 8 | 14), "modWrongFile", "an effect with an engine number");
+  // the package says kind 1, the image's header kind 2: the inner header does not match the package
+  assert.equal(OCM.fxCheck(OCM.parse(pkg(fxImage({ kind: 2 }), [0], { word: 1 << 8 })), info, fx(0)).key, "modHdrBad", "the image's kind is not the package's");
+  // the descriptor's rules (fw_fx.h fx_desc_check), each refused
+  const bad = [
+    ["no effects", (dv) => dv.setUint32(0x180, 0, true)], ["nine effects", (dv) => dv.setUint32(0x180, 9, true)], ["module id 0", (dv) => dv.setUint32(0x184, 0, true)],
+    ["descriptor in the header page", (dv) => dv.setUint32(28, 0x80, true)], ["descriptor unaligned", (dv) => dv.setUint32(28, 0x182, true)],
+    ["entries past the image", (dv) => dv.setUint32(0x18C, 0x7F8, true)], ["entries unaligned", (dv) => dv.setUint32(0x18C, 0x202, true)],
+    ["scene outside", (dv) => dv.setUint32(0x190, 0x9000, true)], ["an entry of another kind", (dv, a) => { a[0x211] = 3; }],
+    ["flags set", (dv) => dv.setUint16(0x202, 1, true)], ["pages set", (dv) => dv.setUint32(0x20C, 0x300, true)], ["effect ids twice", (dv, a) => { a[0x210] = 1; }],
+    ["65 parameters", (dv) => dv.setUint16(0x204, 65, true)], ["parameters without a table", (dv) => dv.setUint32(0x208, 0, true)],
+    ["parameter ids not increasing", (dv) => dv.setUint16(0x250, 1, true)], ["default above max", (dv) => dv.setInt16(0x248, 101, true)], ["min above max", (dv) => dv.setInt16(0x244, 101, true)],
+    ["a label without its NUL", (dv, a) => a.fill(65, 0x300, 0x320)], ["a label outside", (dv) => dv.setUint32(0x24C, 0x900, true)],
+  ];
+  for (const [what, mut] of bad) assert.equal(OCM.parse(pkg(fxImage({ mut }), [0, 6])).key, "modHdrBad", what);
+  assert.ok(OCM.parse(pkg(fxImage({ mut: (dv) => dv.setUint32(0x190, 0x400, true) }), [0], { extra: [(1 << 24 | 0x190) >>> 0] })).ok, "a scene pointer inside the image is accepted (reserved)");
+  // more than 8 sectors: refused before any start is asked
+  assert.equal(OCM.parse(pkg(fxImage({ len: 9 * 4096 }), [0])).key, "modWrongFile", "an effect module of 9 sectors");
+  const big = OCM.parse(pkg(fxImage({ len: 8 * 4096 }), [0]));
+  assert.ok(big.ok && big.fxSectors === 8 && OCM.fxCheck(big, info, fx(0)).ok, "8 sectors: the most");
+  // a format 1 package whose two images name two module ids: refused
+  {
+    const i0 = OCM.relocate(fxImage(), SITES, LINK0), i6 = OCM.relocate(fxImage({ mut: (dv) => dv.setUint32(0x184, MID + 1, true) }), SITES, (LINK0 + 6 * 4096) >>> 0);
+    const len = i0.length, v1 = new Uint8Array(512 + 2 * len), d1 = new DataView(v1.buffer);
+    d1.setUint32(0, 0x464D434F, true); d1.setUint16(4, 1, true); d1.setUint16(6, 2, true); d1.setUint32(8, IFACE, true); d1.setUint32(12, APIA, true); d1.setUint32(16, 1 << 8, true);
+    d1.setUint32(24, PH, true); d1.setUint32(44, 3, true); d1.setUint32(48, 60, true); d1.setUint32(52, 1, true);
+    [i0, i6].forEach((im, k) => { d1.setUint32(56 + 16 * k, 6 * k, true); d1.setUint32(60 + 16 * k, len, true); d1.setUint32(64 + 16 * k, crc32(im), true); d1.setUint32(68 + 16 * k, 512 + len * k, true); v1.set(im, 512 + len * k); });
+    d1.setUint32(88, crc32(v1.subarray(0, 88)), true);
+    assert.equal(OCM.parse(v1).key, "modHdrBad", "two module ids in one file");
+    const same = OCM.relocate(fxImage(), SITES, (LINK0 + 6 * 4096) >>> 0);
+    v1.set(same, 512 + len); d1.setUint32(80, crc32(same), true); d1.setUint32(88, crc32(v1.subarray(0, 88)), true);
+    const f1 = OCM.parse(v1);
+    assert.ok(f1.ok && f1.format === 1 && f1.moduleId === MID && OCM.fxCheck(f1, info, fx(1)).ok, "format 1: one id, both starts");
+  }
+  // an engine package parses as before: kind 0, no module id, ocmCheck unchanged; fxCheck refuses it
+  const eng = OCM.parse(pkg(fxImage({ mut: (dv) => { dv.setUint32(20, 14, true); dv.setUint32(24, 2000, true); } }), [0, 6], { word: 14 }));
+  assert.ok(eng.ok && eng.kind === 0 && eng.moduleId === undefined && eng.engine === 14);
+  assert.equal(OCM.fxCheck(eng, info, fx(0)).key, "modWrongFile", "an engine module is not installed by module id");
+  console.log("ocm: effect modules: kinds 1..3 parsed with their module id at every start, fxCheck against MOD_INFO + FX_INFO, every descriptor rule and header word refused, engines unchanged");
 }
 console.log("ocm: relocatable packages passed");

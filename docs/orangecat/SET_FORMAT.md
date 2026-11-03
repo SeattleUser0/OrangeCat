@@ -35,6 +35,8 @@ The text is what `tools/oc_manifest.py --set` writes (json.dumps, indent 2).
 - `files.pak`: required. `files.fwsc`: optional, informational. `files.ocm`: optional, at most 2 names. (0.14.1) A module file may be of either format
   (web/EDITOR_PROTOCOL.md: format 1, an image for each start; format 2, one relocatable image and its list): the card relocates a format 2 image for
   the start it checks (the dry pass: every start the engine may take) and for the start it writes.
+- (Release 3 step 4b) A module file may be an effect module (its package's engine word of kind 1..3; the module id is read from the image's descriptor, no manifest field).
+  With one in the set, Install set plans every module in the manifest's order with the loader's planners before anything is written ("Modules don't fit", "No image for it").
 - A file name is 1 to 47 plain characters. No `/ \ : * ? < > | "`, no control characters, not starting with a dot. The files are read from the manifest's own folder.
 - The reader (`firmware/src/oc_set.h`) is not a general JSON parser. It finds each key and reads the value after it. Every read stays inside the file. The file must be 16 bytes or more and under the text buffer (2,048 bytes).
 

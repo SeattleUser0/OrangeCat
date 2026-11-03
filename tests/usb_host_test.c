@@ -203,6 +203,8 @@ static char t_fb_text[2048 + 512];                       /* (0.13.3) a set's man
 #define FB_TEXT() t_fb_text
 #define FB_SETS() ((oc_set_t *)(t_fb_text + 2048))
 static uint32_t t_fb_rel[2048];                         /* (0.14.1) a relocatable package's list (card_install.c FB_RELOCS) */
+#define FB_FX 0                                         /* (Release 3 step 4) this test's loader is a stand-in with no effect modules: card_install.c's effect path
+                                                         * (oc_fxmod_*) is tested against the real loader by card_install_test.c; here an effect package is "Not a module" */
 #define FB_RELOCS() t_fb_rel
 #define FB_BORROW() ((void)0)
 #define FB_GEN() t_fb_gen

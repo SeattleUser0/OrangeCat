@@ -45,6 +45,9 @@ enum { ED_MOD_INFO = 120, ED_MOD_BEGIN, ED_MOD_WRITE, ED_MOD_END, ED_MOD_REMOVE,
 /* (Orange Cat 0.14.2) commands past 127: command 0 is the extension, its first byte n names command 128 + n (every byte stays 7 bit); the reply
  * has the same 0 and n. 128 KIT_GET, 129 KIT_PUT: a DRUM-X track's kit (web/EDITOR_PROTOCOL.md "DRUM-X kits") */
 enum { ED_EXT = 0, ED_KIT_GET = 128, ED_KIT_PUT = 129 };
+/* (Release 3 step 4) 130..133, through the extension: the effect modules, by module id (FX_MODULES_PLAN.md 2, 8). WRITE and END of an install are the engine modules' 122 and 123
+ * (the loader holds the install state, oc_module.c mw.fx); REMOVE of the whole area stays 124 with engine 127. */
+enum { ED_FX_INFO = 130, ED_FX_BEGIN = 131, ED_FX_REMOVE = 132, ED_FX_TABLE = 133 };
 #define ED_KIT_LANE 9u                                  /* a lane's values on the wire: LEVEL TUNE DECAY PAN LAYER FDBK PUNCH ATK+ BEND */
 #define ED_KIT_BODY (5u + 8u * ED_KIT_LANE)             /* base, TONE, FDBK, HANDS, DUCK, then the lanes */
 #if MELODEE_CORE1_TEST && MELODEE_DUAL_CORE
@@ -440,6 +443,63 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
     return 0;
 }
 
+#if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
+/* (Release 3 step 4) the effect modules, by module id. Arguments: module id (5 x 7 bits).
+ *   FX_INFO   id, sectors (1 .. 8) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
+ *             first), blocker (the start whose usable module stands in the way when no start can take it, else 127), low (1 the six sectors below 0xC8000 are the module area's)
+ *   FX_BEGIN  id, start, length (3 x 7 bits) -> rc, then the bytes written so far (3 x 7 bits): rc as MOD_BEGIN (0 done, 1 refused, 2 flash or the transport is running,
+ *             4 the old preset pairs have not moved, 5 no start free); then 122 WRITE and 123 END as for an engine (END: 7 written but not readable as a module, 8 a sector tail)
+ *   FX_REMOVE id -> rc, then the bytes written so far
+ *   FX_TABLE  -> count (at most 8), then per registered effect module: id (5 x 7), version (3 x 7: major, minor, patch), kind, effects in the bank, state (MD_*), why, start (a start
+ *             number), sectors, resident (0 a module; 1 resident: none yet), uses (instances running: 0 until the host exists) */
+static void ed_fx_id(uint32_t v) { for (uint32_t i = 0; i < 5u; i++) ed_b(v >> (7u * i)); }
+static uint32_t ed_fx_id_get(const uint8_t *a) { uint32_t v = 0; for (uint32_t i = 0; i < 5u; i++) v |= (uint32_t)a[i] << (7u * i); return v; }
+static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
+{
+    uint32_t k;
+    if (cmd == ED_FX_INFO) {
+        uint32_t id, ns;
+        int plan, blk;
+        if (na != 6u || a[5] < 1u || a[5] > 8u) return 0;
+        id = ed_fx_id_get(a); ns = a[5];
+        plan = oc_fxmod_plan(id, ns);
+        blk = plan < 0 ? oc_fxmod_blocked_by(id, ns) : -1;
+        ed_b(plan < 0 ? 127u : (uint32_t)plan);
+        ed_b(plan >= 0 && oc_fxmod_inplace(id, ns, (uint32_t)plan) ? 1u : 0u);
+        ed_b(blk < 0 ? 127u : (uint32_t)blk);
+        ed_b(OC_MOD_LOW_OK() ? 1u : 0u);
+        return 1;
+    }
+    if (cmd == ED_FX_BEGIN || cmd == ED_FX_REMOVE) {
+        uint32_t rc = 1;
+        int r;
+        if (cmd == ED_FX_BEGIN ? na != 9u : na != 5u) return 0;
+        if (transport_busy()) rc = 2;
+        else {
+            r = cmd == ED_FX_BEGIN ? oc_fxmod_begin(ed_fx_id_get(a), a[5], a[6] | (uint32_t)a[7] << 7 | (uint32_t)a[8] << 14) : oc_fxmod_remove(ed_fx_id_get(a));
+            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : 2u;
+        }
+        ed_b(rc); ed_b(mw.done); ed_b(mw.done >> 7); ed_b(mw.done >> 14);
+        return 1;
+    }
+    if (cmd == ED_FX_TABLE) {
+        if (na) return 0;
+        ed_b(oc_mod.nfxmod);
+        for (k = 0; k < oc_mod.nfxmod; k++) {
+            const oc_fx_t *x = &oc_mod.fx[k];
+            ed_fx_id(x->module_id);
+            ed_b(x->version >> 16); ed_b(x->version >> 8); ed_b(x->version);
+            ed_b(x->kind); ed_b(x->nfx); ed_b(oc_mod.state[x->start]); ed_b(oc_mod.why[x->start]); ed_b(x->start);
+            ed_b(oc_mod_nsec(oc_mod.length[x->start])); ed_b(0); ed_b(0);
+        }
+        return 1;
+    }
+    return 0;
+}
+#else
+static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na) { (void)cmd; (void)a; (void)na; return 0; }
+#endif
+
 static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0 and F7 */
 {
     if (n < 4u)
@@ -455,7 +515,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (!na) return;
         ed_begin(ED_EXT);
         ed_b(a[0]);
-        if (ed_kit_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+        if (ed_kit_handle(128u + a[0], a + 1, na - 1u) || ed_fx_handle(128u + a[0], a + 1, na - 1u)) ed_send();
         return;
     }
     if (!ed_args_ok(cmd, a, na))
