@@ -989,10 +989,18 @@ static int oc_fx_own_overlap(uint32_t mid, uint32_t sectors, uint32_t c)
             return 1;
     return 0;
 }
+/* the Effects table has OC_FX_TABLE entries: a module of a new id needs one free (found by the review: a ninth id was committed to flash and then registered over, or beside, a working one) */
+static int oc_fx_room(uint32_t mid)
+{
+    uint32_t i;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod_usable(i) && oc_mod.kind[i] && oc_mod.mid[i] == mid) return 1;     /* a replacement of an id the table holds (or will hold) */
+    return oc_mod.nfxmod < OC_FX_TABLE;                                            /* a new id needs a free entry */
+}
 static int oc_fxmod_plan(uint32_t mid, uint32_t sectors)
 {
     uint32_t c;
-    if (!mid) return -1;
+    if (!mid || !oc_fx_room(mid)) return -1;
     for (c = 0; c < OC_MOD_STARTS; c++)
         if (oc_fx_allowed(sectors, c) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
     for (c = 0; c < OC_MOD_STARTS; c++)

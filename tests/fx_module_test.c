@@ -206,6 +206,7 @@ int main(void)
             for (i = 0; i < OC_MOD_STARTS; i++)
                 if (i != free_start) { len = make(i, 0x6000u + i, 1, 1, 1, 0x1000u, 0); put(i, len); }
             oc_mod_boot(0);
+            oc_mod.nfxmod = 7u;                         /* (round 16: 17 ids do not fit the 8 entry table; this cell asks the planner's span rules only) */
             ok = oc_fxmod_plan(0x7000u, 1) == (int)free_start && !oc_fxmod_inplace(0x7000u, 1, free_start);
             ok &= oc_fxmod_blocked_by(0x7000u, 2) >= 0 || oc_fxmod_plan(0x7000u, 2) < 0;
             chk(low ? "planner, 17 modules in the other starts: the LOWEST start (-6, 0xC2000) is the one left, planned beside" : "planner, 17 modules in the other starts: the HIGHEST start (11, 0xD3000) is the one left, planned beside", ok);
@@ -344,6 +345,16 @@ int main(void)
             } else { ok &= oc_mod.nfxmod == 0 && engine_table_empty(); n_bad++; }
         }
         chk("fuzz: 20000 images with 1 to 4 bit flips in the descriptor, resealed: no crash; OK only when the descriptor checks; refused ones register nothing", ok && n_ok > 100u && n_bad > 100u);
+    }
+    {   /* (round 16, found by the review) the Effects table holds 8 modules: a ninth id is not planned (it would be committed and then pushed out of, or over, a working one) */
+        uint32_t k, ok = 1;
+        clean();
+        for (k = 0; k < 8u; k++) good(1u + k, 0x100u + k, 0x010000u, 1);
+        oc_mod_boot(0);
+        ok &= oc_mod.nfxmod == 8u && oc_fxmod_plan(0x900u, 1) < 0;              /* a new id: no room */
+        ok &= oc_fxmod_plan(0x103u, 1) >= 0;                                    /* a replacement of an id the table has: allowed */
+        chk("a ninth module id is not planned while the Effects table is full; a replacement of one it holds is", ok);
+        clean();
     }
     printf(bad ? "fx modules: FAILED\n" : "fx modules: all passed\n");
     return bad != 0;
