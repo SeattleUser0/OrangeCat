@@ -6,7 +6,7 @@
 # Prints, per mutant, the failing lines; exit 1 if any mutant passes (the test cannot tell the rule is broken).
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-SW="-DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 -w"
+SW="-DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 -w"
 # number|file|old|new|the check that must fail (a word of its line)
 MUTANTS=(
 "1^firmware/src/ui_input.c^settings_chord_add || mgrid_page()^settings_chord_add^DW1"
@@ -21,6 +21,7 @@ MUTANTS=(
 "10^firmware/src/ui_mgrid_edit.c^if (step_history.pending || step_history.has_removed) step_history_apply(0);^step_history_apply(0);^DW5"
 "11^firmware/src/ui_input.c^if (cur_page()->graph == GR_MGRID) return 1u << panel.btn[B_EDIT];^if (cur_page()->graph == GR_MGRID) return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_EDIT]);^ENV held"
 "12^firmware/src/ui_mgrid_edit.c^if (live_rec_sel()) {^if (0) {^DW10"
+"13^firmware/src/ui_clear.c^if (pg->graph == GR_MGRID) { ui_message(\"NOTHING TO RESET\"); return; }^;^REC held"
 )
 fail=0
 for m in "${MUTANTS[@]}"; do

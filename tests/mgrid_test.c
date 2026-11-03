@@ -497,6 +497,18 @@ int main(void)
                       "DW10    .. and what GRID records is what NOTES records (the same events; onsets not compared: the harness does not repeat a run to the byte)", same && n_a >= 2);
         }
     }
+    {   /* REC held, stopped: the page-reset of the other SEQ pages has nothing to reset on GRID */
+        uint32_t k;
+        fresh(16);
+        manual(2, 60); manual(5, 64);
+        TSEL->step[2].flags |= SF_ACCENT; TSEL->step[2].probability = 50; TSEL->step[5].vel = 40;
+        memcpy(snap, TSEL->step, sizeof snap);
+        fm1_ms += 320u;
+        btn_down(B_REC);
+        for (k = 0; k < 90u; k++) frame();
+        btn_up(B_REC); frs(2);
+        chk("DW6     REC held (stopped) on GRID resets nothing: chance, accent and velocity stay (they are other pages')", same_steps(snap));
+    }
     {   /* LIGHTS */
         uint32_t k;
         ui_power_on();
