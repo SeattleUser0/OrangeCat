@@ -13,12 +13,15 @@
  * restore, rebuild, generation" that NOTES' editors and the pads' used to carry each (docs/orangecat/TRACKER_REVIEW.md);
  * events_delete_view: a manual overwrite of a recorded step deletes its events through the history. */
 #define STEP_HISTORY 8u
+#define STEP_BAKE_MAX 8u                          /* the notes a velocity edit may bake a step accent into (a chord is 4; more: the edit is refused, said) */
 static struct {
     struct {
         step_snapshot_t step[NSTEP];
         recorded_note_t removed, replacement;
         uint16_t removed_index, selection;
         uint8_t cursor, note_slot, has_removed;
+        uint8_t bake_n, bake_old[STEP_BAKE_MAX];             /* (the owner's rule) the other notes of a flagged step this edit baked 127 into: their slots and what they were */
+        uint16_t bake_idx[STEP_BAKE_MAX];
     } state[STEP_HISTORY + 1u];
     step_t live[NSTEP];                          /* the steps as the last frame left them */
     uint32_t pattern_gen;
@@ -26,6 +29,8 @@ static struct {
     recorded_note_t removed, replacement;
     uint16_t removed_index;
     uint8_t has_removed;
+    uint8_t bake_n, bake_old[STEP_BAKE_MAX];             /* .. the edit under way's (copied into the state at step_history_finish) */
+    uint16_t bake_idx[STEP_BAKE_MAX];
     uint8_t valid, track, len;
     uint8_t head, count, pos, pending, cursor_before, slot_before;
 } step_history __attribute__((section(".pool")));
@@ -55,6 +60,7 @@ static void step_history_sync_locked(void)
         step_history.pattern_gen = TSEL->pattern_gen;
         step_history.recording_gen = recording_generation;
         step_history.has_removed = step_history.state[0].has_removed = 0;
+        step_history.bake_n = step_history.state[0].bake_n = 0;
         step_history.len = (uint8_t)step_pattern_len(TSEL);
         step_snapshot_save(step_history.state[0].step, TSEL->step);
         memcpy(step_history.live, TSEL->step, sizeof step_history.live);
@@ -99,8 +105,12 @@ static void step_history_finish(void)
         note_assign(&step_history.state[at].removed,&step_history.removed);
         note_assign(&step_history.state[at].replacement,&step_history.replacement);
         step_history.state[at].removed_index = step_history.removed_index;
+        step_history.state[at].bake_n = step_history.bake_n;
+        memcpy(step_history.state[at].bake_old, step_history.bake_old, sizeof step_history.bake_old);
+        memcpy(step_history.state[at].bake_idx, step_history.bake_idx, sizeof step_history.bake_idx);
     }
     step_history.has_removed = 0;
+    step_history.bake_n = 0;
     step_history.pending = 0;
 }
 
@@ -149,6 +159,10 @@ static int step_history_apply(int redo)
         recording_remove(TSEL, i);
         recorded_note_t r = redo ? step_history.state[change].replacement : step_history.state[change].removed;
         if (r.vel) recording_restore_note(TSEL, i, r);
+        for (uint32_t k = 0; k < step_history.state[change].bake_n; k++) {      /* the other notes a step accent was baked into: back as they were (undo), or 127 again (redo) */
+            uint32_t j = step_history.state[change].bake_idx[k];
+            if (j < RECORD_MAX && recording[j].vel) recording[j].vel = redo ? 127u : step_history.state[change].bake_old[k];
+        }
     }
     step_history.pos = (uint8_t)(step_history.pos + (redo ? 1 : -1));
     at = step_history_index();

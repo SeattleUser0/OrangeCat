@@ -444,6 +444,13 @@ a detent), KNOB 3 LEN (the note's own length, a sixteenth a detent), KNOB 4 VEL.
 KNOB 2 RATCH (x1 .. x4, FLAM), KNOB 3 NUDGE, KNOB 4 TYPE (-, ACC, SLD, A+S), each set on every selected step. A tile shows
 its step's value of the knob turned last; the selection is framed. SHIFT + PRESETS stretches it.
 
+**Accent: a note's and a step's (the owner's rule, November 3, 2026: an edit never changes a note or a sound you did not touch).**
+- **A note's accent is its own velocity.** A recorded note whose velocity is above 110 plays at 127; a drum lane's accent (`acc`) is the same thing for a lane. Nothing else about the step changes that: a chord with one hard note plays the others at their own velocities.
+- **The step accent (the flag `SF_ACCENT`) is the deliberate accent, and only that.** It is set by what the player does to the step: FEEL's TYPE (ACC, A+S), the tracker's FX column, a manual step's accent, or it is a project's from before. While it is on, every note of the step plays at 127. It is **never derived** from the notes' velocities (it was; one hard note then accented the whole chord).
+- **What an edit does to it.** A velocity edit of one note of a flagged step first bakes the accent into the other notes (their velocity becomes 127, which is how they were sounding) and clears the flag, so that the edit changes the touched note only; one undo brings back the flag and every note's bytes, one redo bakes again.
+  A deletion leaves the flag and the other notes as they are. A step with more than eight other notes refuses the velocity edit ("TOO MANY NOTES") rather than change them unrecorded.
+- **A drum cell** follows the same rule: the first pad edit converts the cell to events and every untouched hit keeps the length (natural) and the velocity (its lane's accent) it had.
+
 Had per-note ties been adopted, the pages would look the same: the bars would end on whole steps only.
 
 ### 5. Drums

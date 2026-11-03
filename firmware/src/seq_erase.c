@@ -24,8 +24,7 @@ static void seq_erase_rebuild(track_t *t, uint64_t touched)
     uint64_t found = 0;
     for (uint32_t s = 0; s < NSTEP; s++) if ((touched >> s) & 1u) {
         step_t *st = &t->step[s];
-        st->n = st->hit = st->acc = st->vel = 0;
-        st->flags &= (uint8_t)~SF_ACCENT;
+        st->n = st->hit = st->acc = st->vel = 0;   /* (SF_ACCENT stays: it is not derived from the velocities, seq_notes.c notes_rebuild) */
     }
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         if (!recording_active(t, i)) continue;
@@ -44,7 +43,6 @@ static void seq_erase_rebuild(track_t *t, uint64_t touched)
             for (j = 0; j < st->n && st->note[j] != r->note; j++);
             if (j == st->n && st->n < 4u) st->note[st->n++] = r->note;
         }
-        if (st->vel > 110u) st->flags |= SF_ACCENT;
     }
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
     for (uint32_t s = 0; s < NSTEP; s++) if (((touched & ~found) >> s) & 1u) {

@@ -122,9 +122,9 @@ static void notes_rebuild(track_t *t, uint32_t view)
         }
     }
     if (!count) step_delete(t, view);
-    else if (st->vel > 110u && !drum_track(t)) st->flags |= SF_ACCENT;   /* (the owner's rule, an edit never changes a sound you did not touch: a drum cell's accent is its lanes' (acc, above); as a
-                                                         * step flag it accented every hit of the cell, so one accented snare made the kick of the same cell play at 127) */
-    else st->flags &= (uint8_t)~SF_ACCENT;
+    /* (the owner's rule, an edit never changes a note you did not touch) SF_ACCENT is not derived from the velocities: it was, and one accented note made the whole step play at 127, so editing or
+     * deleting one note changed the others. A note's accent is its own velocity above 110 (recording_shape, st->acc for a drum lane); the flag stays what it was (a deliberate step accent,
+     * or a project's from before), and a velocity edit of a note in a flagged step bakes it first (notes_event_edit) */
 }
 
 /* One editor handles both ordinary step notes and precise performance events. */
