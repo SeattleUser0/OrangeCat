@@ -11,10 +11,11 @@
  *   (108 .. 110 are the sends REV DLY CHOR, not DUB's.)
  *   46  MODE   64 | PING << 1 | SYNC       (bit 6 is the layout mark: a track from before has 0 .. 5 here, PTRN)
  *   47  TAPE   DRIVE * 12 + WOW - 64       (DRIVE 0 .. 15, WOW 0 .. 11: 192 states, the byte's whole range; 4 + 4 bits would need 256)
- * THRW, CUT and KICK (once JRES4 .. 6) are performance triggers now: dub_trig, in RAM, written by MIDI CC 16 .. 18, never stored.
+ * THRW, CUT and KICK (once JRES4 .. 6) are performance triggers now: dub_trig, in RAM, written by MIDI CC 16 .. 18, never stored. (dub-perf) CC 19 HOLD (FEEDBACK 1.00 while held), CC 20 DIVE (SPEED an octave down), CC 21 RISE (an octave up): the same.
  * Release 3's wider ids unpack the two packed ids into their four fields (DUB_R12.md section 2). */
 #ifndef DUB_FIELDS_H
 #define DUB_FIELDS_H
+#define DUB_PG 3u                                      /* (dub-perf) HOME's DUB page: ui.home_pg 3 (ui_home_pic.c) */
 #define P_DUB_FDBK P_JRES0
 #define P_DUB_SEND P_JRES1
 #define P_DUB_FILT P_JRES2
@@ -84,8 +85,8 @@ static inline uint32_t dub_free_ms10(int32_t v)
 }
 /* SPEED in semitones (the repeats' pitch while the tape runs at that speed): 64 is 0 */
 static inline int dub_spd_st(int32_t v) { return (dub_f_clamp(v, 0, 127) - DUB_SPD_MID) * 12 / DUB_SPD_MID; }
-/* the performance triggers CC 16 .. 18 write (THRW, CUT, KICK), per track, RAM only */
-static uint8_t dub_trig[4][3];
+/* the performance triggers CC 16 .. 21 write (THRW, CUT, KICK; dub-perf: HOLD, DIVE, RISE), per track, RAM only */
+static uint8_t dub_trig[4][6];                         /* [track][THRW CUT KICK HOLD DIVE RISE]: CC 16 .. 21 (dub-perf: the last three are the performance view's) */
 /* a track of the layout from before -> today's, in place (the ids 45 .. 47, 104 .. 107 and 111 .. 113; everything else is the caller's). DUB_R12.md section 7.
  * `old` names: LEN OFF 32K 8K 16K 24K 48K 64K; PTRN SLAP SINGLE SKANK TRIPLE GALLOP SPREAD; SPRP OFF LOOP WET; SPACE: below 64 the delay time
  * (14 synced divisions), from 64 the spring's mix. The old heads' times in beats are those of jfx_dub.c's old dub_ptrn (first head, second head). */

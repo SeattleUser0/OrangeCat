@@ -1301,6 +1301,10 @@ static const page_t *stage_page(void)
         for (k = 0; k < 4u; k++)
             stage_pg.id[k] = kd[k].kind == KD_PLAIN ? kd[k].id : kd[k].kind == KD_MACRO ? (uint8_t)(P_MAC0 + k) : 0xFFu;
     }
+    if (home_pic_on() && ui.home && ui.home_pg == 3u) {   /* (dub-perf) HOME's DUB page: FDBK SEND FILTER ECHO, the track's own DUB ids (ui_home_pic.c) */
+        stage_pg.scope = SC_TRACK;
+        stage_pg.id[0] = P_DUB_FDBK; stage_pg.id[1] = P_DUB_SEND; stage_pg.id[2] = P_DUB_FILT; stage_pg.id[3] = P_DUB_ECHO;
+    }
 #endif
     return &stage_pg;
 }

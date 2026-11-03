@@ -56,6 +56,7 @@ typedef struct {
     uint8_t st_R, st_blk;                               /* the sticky size: the lowest rate and the most blocks this instance has needed (turning TIME down never shrinks the line) */
     uint16_t hold, hold_len;                            /* blocks the instance runs and its track stays mixed past the last audible input or wet; the refresh (the farthest head and 24) */
     uint32_t crash;
+    float wet_keep;                                     /* (dub-perf) the wet of the last ECHO above 0: ECHO 0 closes the loop's output as CUT does, the wet staying (a CUT recorded as ECHO 0 plays as CUT) */
 } dub_i_t;
 static __attribute__((section(".pool"))) dub_i_t dub_i[DUB_N];
 #define dub_p (dub_cm->p)                              /* the job's parameter copies, the capture pair, the wet and the batch's sink: the instances' common arena block (jfx.c dub_common_t) */
@@ -107,13 +108,16 @@ JFX_XIP static void dub_map(uint32_t k, const track_t *t, dd_params_t *p)
     memset(p, 0, sizeof *p);
     dub_times(t, &p->time_l, &p->time_r);
     p->ping = dub_get_ping(t->p);
-    p->speed = ddm_exp((float)(clamp(t->p[P_DUB_SPD], 0, 127) - DUB_SPD_MID) * (0.69314718f / (float)DUB_SPD_MID));   /* 2^((v - 64) / 64) */
+    {   int32_t sv = clamp(t->p[P_DUB_SPD], 0, 127);
+        if (dub_trig[k & 3u][4] >= 64) sv = dub_trig[k & 3u][5] >= 64 ? DUB_SPD_MID : 0;      /* DIVE (dub-perf): an octave down while held; with RISE both: normal */
+        else if (dub_trig[k & 3u][5] >= 64) sv = 127;                                         /* RISE: an octave up (127 is a semitone short of it) */
+        p->speed = ddm_exp((float)(sv - DUB_SPD_MID) * (0.69314718f / (float)DUB_SPD_MID)); }   /* 2^((v - 64) / 64) */
     p->wow = (float)dub_get_wow(t->p) * (1.0f / (float)(DUB_WOW_N - 1));
-    p->feedback = (float)clamp(t->p[P_DUB_FDBK], 0, 127) * 0.01f;
+    p->feedback = (dub_trig[k & 3u][3] >= 64 ? 100.0f : (float)clamp(t->p[P_DUB_FDBK], 0, 127)) * 0.01f;   /* HOLD (dub-perf): the loop neither builds nor decays */
     p->send = (float)(thr ? thr : clamp(t->p[P_DUB_SEND], 0, 127)) * (1.0f / 127.0f);   /* a throw replaces SEND */
     if (filt < 64) { p->lp = 30.0f + 1.4f * (float)filt; p->hp = 15.0f; }                  /* one sweep: low-pass down .. */
     else { p->lp = 119.0f; p->hp = 15.0f + 1.6f * (float)(filt - 64); }                    /* .. high-pass up */
-    p->res = 0.3f; p->drive = (float)dub_get_drive(t->p) * (1.0f / (float)(DUB_DRIVE_N - 1)); p->wet = (float)echo * 0.01f; p->dry = 0.0f; p->glide = 0.12f; p->route = 1;
+    p->res = 0.3f; p->drive = (float)dub_get_drive(t->p) * (1.0f / (float)(DUB_DRIVE_N - 1)); p->wet = d->wet_keep = echo ? (float)echo * 0.01f : d->wet_keep; p->dry = 0.0f; p->glide = 0.12f; p->route = 1;
     p->spring = 2; p->sp_mix = (float)clamp(t->p[P_DUB_SPRG], 0, 127) * (1.0f / 127.0f); p->sp_decay = 2.0f; p->sp_drive = 0.4f; p->sp_tone = 0.3f; p->sp_in = 0.3f;   /* the spring on the return, always there */
     p->tap_cut = 0.0f;
     p->crash = d->crash;
@@ -355,7 +359,7 @@ JFX_XIP static void dub_start(uint32_t nt)
                 uint32_t ps = ((uint32_t)(t->p[P_DUB_MODE] & 3) | (uint32_t)d->R << 2 | (uint32_t)dub_have[k] << 5 | (uint32_t)(d->state == DUBS_RAMP) << 10 | (uint32_t)(dub_trig[k][1] >= 64) << 11 | (uint32_t)(t->p[P_DUB_ECHO] == 0) << 12 | (uint32_t)(t->p[P_DUB_TAPE] + 64) << 13) * 0x9E3779B1u
                               ^ ((uint32_t)t->p[P_DUB_FILT] | (uint32_t)t->p[P_DUB_ECHO] << 8 | (uint32_t)t->p[P_DUB_FDBK] << 16 | (uint32_t)t->p[P_DUB_SEND] << 24) * 0x85EBCA6Bu
                               ^ ((uint32_t)t->p[P_DUB_TIML] | (uint32_t)t->p[P_DUB_TIMR] << 8 | (uint32_t)t->p[P_DUB_SPRG] << 16 | (uint32_t)(t->p[P_DUB_SPD] & 127) << 24) * 0x27D4EB2Fu
-                              ^ ((uint32_t)dub_trig[k][0] | d->crash << 8) * 0xC2B2AE35u ^ beat_samples() * 0x165667B1u;
+                              ^ ((uint32_t)dub_trig[k][0] | d->crash << 8 | (uint32_t)(dub_trig[k][3] >= 64) << 16 | (uint32_t)(dub_trig[k][4] >= 64) << 17 | (uint32_t)(dub_trig[k][5] >= 64) << 18) * 0xC2B2AE35u ^ beat_samples() * 0x165667B1u;
                 if (!d->pvalid || ps != d->psig) {          /* (the parameter copy is made again only when something it is made from changed) */
                     dub_map(k, t, p);
                     p->crash = d->crash;
