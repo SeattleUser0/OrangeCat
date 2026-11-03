@@ -4,15 +4,15 @@
  * resident copy. THE GATE: the module's render is the resident's, sample for sample and behaviour for behaviour.
  *
  * It is built with the module's translation unit (tests/module_host_dub_tu.c, the module source with OC_MODULE_HOST: its own object, its own statics, the firmware only through FW_API) and runs the
- * scenarios of tests/fx_insert_test.c (the probe: LONG, MEM, R2, HEAVY1, HEAVY2) four times through the real mixer:
+ * scenarios of tests/fx_insert_test.c (the probe: LONG, MEM, R2, HEAVY1, HEAVY2) and two of its own (TRIG: THRW, CUT, KICK around their thresholds; PERF: HOLD, DIVE, RISE, DIVE+RISE and
+ * ECHO 0 and back, the performance view's behaviours of dub-perf, d620160d) through the real mixer:
  *   A  the resident kernel, no module registered (a build with no module): every output block is written to a file, the printout is kept;
- *   B  the module registered and chosen for all four tracks (fx_ins_use_module(15)): every output block is compared with A's, the hashes, the governor and the behaviour hash too, and the
- *      blocks in which an instance of the module's kernel ran are counted (the module really ran);
- *   C  the module registered and chosen for tracks 0 and 2 only: the instances are independent, so the render is still A's;
- *   D  the module registered and nothing chosen (the default): A's again (installing a module changes nothing until a track is set to it).
- * Then A is compared with the pinned printout of the tree before step 5's cut (tests/fx_insert_golden.txt), line for line. The descriptor: the module's capability words, call table, legacy-slot
- * rows and pages against the resident kernel's and the firmware's own parameter table and PAGES; the pages pass the loader's checker as SC_FX; a kernel the host cannot give is refused; a kernel
- * switch under way and the module going away under a running instance end on the resident kernel with the instance restarted from silence.
+ *   B  the module registered: with a module installed EVERY track's instance runs the module's kernel (round 18: no per-track choice exists). Every output block is compared with A's, the
+ *      hashes, the governor and the behaviour hash too, and the blocks in which an instance of the module's kernel ran are counted (the module really ran);
+ *   D  the module removed again (fx_modk_clear): every track is the resident kernel's again, A's render again; and registered a second time, B's again.
+ * Then A is compared with the pinned printout of the last tree with one resident kernel file, d620160d (tests/fx_insert_golden.txt), line for line. The descriptor: the module's capability words, call table, legacy-slot
+ * rows and pages against the resident kernel's and the firmware's own parameter table and PAGES; the pages pass the loader's checker as SC_FX; a kernel the host cannot give is refused; a module
+ * that appears under running instances, and one that goes away under them, end with the instances restarted from silence on the other kernel and no call into the module afterwards.
  * Arguments: none. Built and run by tests/fx_dub_module.sh (tests/run_tests.sh); the mutation check is the same script with --mutate. */
 #define FXI_NO_MAIN 1
 #include "fx_insert_test.c"
@@ -185,6 +185,33 @@ static void descriptor(void)
         ck("put: a view written back into MODE or TAPE is dub_put_field's (one 16 bit store); a stored id is the host's", ok && trk[0].p[P_DUB_TIML] == 53);
     }
 }
+/* the module's call table behind counters: after the module is removed not one call may go to it (a stale pointer into the flash that is gone would show here) */
+static fx_kcalls_t cnt_tab;
+static uint32_t cnt_n[12];
+static const fx_kcalls_t *cnt_real;
+static uint32_t cw_on(const track_t *t) { cnt_n[0]++; return cnt_real->on(t); }
+static uint32_t cw_size_sig(const track_t *t, const fx_ictx_t *c) { cnt_n[1]++; return cnt_real->size_sig(t, c); }
+static float cw_size_need(const track_t *t, const fx_ictx_t *c) { cnt_n[2]++; return cnt_real->size_need(t, c); }
+static uint32_t cw_blocks_at(float need, uint32_t R) { cnt_n[3]++; return cnt_real->blocks_at(need, R); }
+static uint32_t cw_hold_len(float need, uint32_t blocks, uint32_t R) { cnt_n[4]++; return cnt_real->hold_len(need, blocks, R); }
+static void cw_tick(uint32_t *kw, const fx_ictx_t *c) { cnt_n[5]++; cnt_real->tick(kw, c); }
+static uint32_t cw_param_sig(const track_t *t, const fx_ictx_t *c) { cnt_n[6]++; return cnt_real->param_sig(t, c); }
+static void cw_snap(void *p, const track_t *t, fx_ictx_t *c) { cnt_n[7]++; cnt_real->snap(p, t, c); }
+static uint32_t cw_cost_extra(const track_t *t, uint32_t e) { cnt_n[8]++; return cnt_real->cost_extra(t, e); }
+static void cw_start(void *st, uint32_t R, int16_t *const *blk, uint32_t nblk, int16_t *extra) { cnt_n[9]++; cnt_real->start(st, R, blk, nblk, extra); }
+static void cw_process(void *st, const void *p, const float *in, float *l, float *r) { cnt_n[10]++; cnt_real->process(st, p, in, l, r); }
+static void cw_reset(void) { cnt_n[11]++; cnt_real->reset(); }
+static void counted_reset(void) { memset(cnt_n, 0, sizeof cnt_n); }
+static const fx_kcalls_t *counted_calls(void)
+{
+    cnt_real = oc_host_fx_calls();
+    cnt_tab.on = cw_on; cnt_tab.size_sig = cw_size_sig; cnt_tab.size_need = cw_size_need; cnt_tab.blocks_at = cw_blocks_at; cnt_tab.hold_len = cw_hold_len; cnt_tab.tick = cw_tick;
+    cnt_tab.param_sig = cw_param_sig; cnt_tab.snap = cw_snap; cnt_tab.cost_extra = cw_cost_extra; cnt_tab.start = cw_start; cnt_tab.process = cw_process; cnt_tab.reset = cw_reset;
+    return &cnt_tab;
+}
+static uint32_t cnt_total(void) { uint32_t i, n = 0; for (i = 0; i < 12u; i++) n += cnt_n[i]; return n; }
+static uint32_t cnt_snap(void) { return cnt_n[7]; }
+static uint32_t cnt_process(void) { return cnt_n[10]; }
 int main(void)
 {
     const fx_caps_t *c = oc_host_fx_caps();
@@ -196,59 +223,86 @@ int main(void)
     tapef = tmpfile();
     if (!tapef) { printf("fx dub module: no temporary file\n"); return 2; }
     /* A: the resident kernel, no module */
-    ck("no module registered: every track is bound to the resident kernel", !fx_modk_ok && fx_mod_want == 0 && fx_mod_bound == 0 && fx_kernel_of(0) == &dub_kernel);
+    ck("no module registered: every track is bound to the resident kernel", !fx_modk_ok && fx_mod_effective() == 0 && fx_mod_bound == 0 && fx_kernel_of(0) == &dub_kernel);
     tap_mode = 1; fxi_tap = tap;
     run_all(); keepA();
     ck("A  the resident kernel: seven scenarios ran (the probe's five, TRIG and PERF), no instance of a module kernel", nA == 7u && mod_run_blocks == 0 && res_run_blocks > 100000u);
-    ck("A  .. and match the pinned printout of the tree before the cut (tests/fx_insert_golden.txt), line for line", golden_ok());
+    ck("A  .. and match the pinned printout of the resident kernel as of dub-perf d620160d (tests/fx_insert_golden.txt), line for line", golden_ok());
     printf("fx dub module: A wrote %llu blocks (%llu bytes)\n", (unsigned long long)tap_blocks, (unsigned long long)tap_blocks * sizeof rec);
-    /* the module registers */
+    /* the module registers: every track's instance runs it (there is no per-track choice) */
     rc = fx_modk_set(oc_host_fx_desc()->module_id, oc_host_fx_desc()->version, oc_host_fx_entry()->effect_id, c, oc_host_fx_calls(), oc_host_fx_rows());
-    ck("the host takes the module's kernel (fx_modk_set)", rc == FXM_OK && fx_modk_ok && fx_modk.module_id == 1u && fx_modk.process == oc_host_fx_calls()->process && fx_kernel_of(0) == &dub_kernel);
-    /* B: the module for all four tracks */
-    fx_ins_use_module(15u);
+    ck("the host takes the module's kernel (fx_modk_set): it is for every track, with nothing to choose", rc == FXM_OK && fx_modk_ok && fx_modk.module_id == 1u && fx_modk.process == oc_host_fx_calls()->process &&
+       fx_mod_effective() == 15u && fx_kernel_of(0) == &dub_kernel);
+    /* B: the module, all four tracks */
     rewind(tapef); tap_mode = 2;
     run_all();
-    ck("B  the module for all four tracks: instances of the module's kernel ran (blocks counted)", mod_run_blocks > 100000u && res_run_blocks == 0);
+    ck("B  the module installed: instances of the module's kernel ran on every track (blocks counted), none of the resident's", mod_run_blocks > 100000u && res_run_blocks == 0);
     ck("B  every output sample of all seven scenarios (the mixer's blocks) equals the resident run's", tap_diff == 0 && tap_blocks == (uint64_t)ftell(tapef) / sizeof rec);
     if (tap_diff) printf("  B: %llu blocks differ, the first is block %llu\n", (unsigned long long)tap_diff, (unsigned long long)tap_first);
     ck("B  .. and every scenario's hash of the samples, of the behaviour (states, rates, holds, memory, DUB FULL bits, the parameter snapshots), the governor's firings and the state counts", same_as_A("B"));
     if (getenv("FXDM_FAST")) { printf(bad ? "fx dub module: FAILED\n" : "fx dub module: A and B passed (fast)\n"); return bad != 0; }
-    /* C: the module for tracks 0 and 2 */
-    fx_ins_use_module(5u);
+    /* D: the module removed: the resident kernel plays, A's render again */
+    fx_modk_clear();
+    ck("D  the module removed: nothing of it stays registered (the host's copy of its calls is zero) and every track is the resident kernel's", !fx_modk_ok && fx_mod_effective() == 0 && fx_mod_bound == 0 &&
+       fx_modk.process == 0 && fx_modk.snap == 0 && fx_modk.on == 0 && fx_kernel_of(2) == &dub_kernel);
     rewind(tapef);
     run_all();
-    ck("C  the module for tracks 0 and 2, the resident for 1 and 3: both kernels ran", mod_run_blocks > 20000u && res_run_blocks > 20000u);
-    ck("C  .. every output sample equals the resident run's, every hash too", tap_diff == 0 && same_as_A("C"));
-    /* D: registered, nothing chosen */
-    fx_ins_use_module(0);
+    ck("D  .. and the render is A's, sample for sample", mod_run_blocks == 0 && res_run_blocks > 100000u && tap_diff == 0 && same_as_A("D"));
+    /* E: the module installed again */
+    rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, oc_host_fx_calls(), oc_host_fx_rows());
     rewind(tapef);
     run_all();
-    ck("D  the module registered and no track set to it (the default): the resident kernel plays, every sample as A", mod_run_blocks == 0 && tap_diff == 0 && same_as_A("D"));
+    ck("E  the module installed a second time: B's render again, every track on it", rc == FXM_OK && mod_run_blocks > 100000u && res_run_blocks == 0 && tap_diff == 0 && same_as_A("E"));
     fxi_tap = 0; fclose(tapef);
-    /* a kernel switch under way, and the module going away under a running instance */
-    {   uint32_t k, n = 0, ran = 0;
-        fx_ins_use_module(0);
+    /* a module that appears under running instances, and one that goes away under them: the instances switch only from silence; once the module is gone nothing calls it */
+    {   uint32_t k, n = 0;
+        fx_modk_clear();
+        counted_reset();
         fresh();
         for (k = 0; k < NPART; k++) dub_defaults(k);
         run(1500);
-        for (k = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN;
-        ck("switch: four resident instances running", n == 4u && fx_mod_bound == 0);
-        fx_ins_use_module(15u);
+        for (k = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN && !FX_MODK_BOUND(k);
+        ck("appear: four resident instances running, no module registered", n == 4u && fx_mod_bound == 0 && cnt_total() == 0);
+        rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+        ck("appear: the module registers under them; nothing changes under a running instance (still the resident's, still running)", rc == FXM_OK && fx_mod_effective() == 15u && fx_mod_bound == 0 &&
+           fx_ins[0].state == FXS_RUN && fx_kernel_of(0) == &dub_kernel);
         run(3);
         for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RAMP || fx_ins[k].evict;
-        ck("switch: choosing the module ramps the running instances out (they do not change kernels under way)", n == 4u && fx_mod_bound == 0);
+        ck("appear: the running instances ramp out (they do not change kernels under way) and are not yet the module's", n == 4u && fx_mod_bound == 0 && cnt_snap() == 0);
         run(1500);
-        for (k = 0, n = 0; k < FX_INS_N; k++) { n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN; ran += fx_kernel_of(k) == &fx_modk; }
-        ck("switch: after the ramp the instances start again from silence on the module's kernel (bound, running)", n == 4u && ran == 4u && fx_modk_uses() == 4u);
-        {   fx_ictx_t cx; (void)cx; }
+        for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && fx_kernel_of(k) == &fx_modk;
+        ck("appear: after the ramp the instances start again from silence on the module's kernel, all four, and the module's snapshot and process run", n == 4u && fx_modk_uses() == 4u && cnt_snap() > 0 && cnt_process() > 0);
+        {   uint32_t before = cnt_total();
+            fx_modk_clear();
+            ck("remove: the module goes away: the bound instances let go at once (state OFF, no memory wanted), every track is the resident kernel's, the host's copy is zero",
+               !fx_modk_ok && fx_mod_bound == 0 && fx_mod_effective() == 0 && fx_kernel_of(2) == &dub_kernel && fx_modk_uses() == 0 && fx_modk.process == 0 && fx_modk.snap == 0 && fx_modk.start == 0 &&
+               fx_ins[0].state == FXS_OFF && fx_ins[3].state == FXS_OFF && fx_ins_want[0] == 0 && fx_ins_want[3] == 0);
+            run(1500);
+            for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN && !FX_MODK_BOUND(k);
+            ck("remove: the instances run again on the resident kernel, from silence, and not one call went into the removed module (no stale pointer: 1,500 blocks)", n == 4u && cnt_total() == before);
+        }
+        /* removed while an instance is ramping or waiting: the same */
+        rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+        run(40);                                                    /* the ramp has begun */
+        {   uint32_t before = cnt_total();
+            fx_modk_clear();
+            run(1500);
+            for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN && !FX_MODK_BOUND(k);
+            ck("remove during the ramp-out toward the module: the instances stay on the resident kernel and run; the module is never called", rc == FXM_OK && n == 4u && cnt_total() == before);
+        }
+        /* reinstall: remove and register in a row (an in-place reinstall) */
+        rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+        run(1500);
         fx_modk_clear();
-        ck("the module goes away: the bound instances let go at once, every track is the resident kernel's again", !fx_modk_ok && fx_mod_bound == 0 && fx_kernel_of(2) == &dub_kernel && fx_modk_uses() == 0);
+        rc |= fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
         run(1500);
-        for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN && !FX_MODK_BOUND(k);
-        ck("... and the instances run again on the resident kernel (the track's setting still says module, with none registered)", n == 4u && fx_mod_want == 15u);
-        rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, oc_host_fx_calls(), oc_host_fx_rows());
-        ck("the module registers again: the tracks set to it move to it", rc == FXM_OK && (run(1500), 1) && fx_modk_uses() == 4u);
+        for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN;
+        ck("reinstall (a clear and a registration in a row): every instance ends running on the module's kernel", rc == FXM_OK && n == 4u && fx_modk_uses() == 4u);
+        {   uint32_t before = cnt_total();
+            fx_modk_clear();
+            run(300);
+            ck("... and a last removal leaves the resident kernel running with no further call", cnt_total() == before && fx_modk_uses() == 0);
+        }
     }
     /* what the host refuses */
     {   fx_caps_t bad_c;

@@ -750,10 +750,34 @@ static void oc_mod_reload(void)
     oc_mod_boot(0);
     oc_mod_live = 0;
 }
+/* (Release 3 step 6, round 18) the insert host holds pointers into the registered DUB module's flash (fx_modk): before ANY erase of that module's sectors (a removal, an in-place reinstall,
+ * a loser's erase, a clear of the area) the host lets go of it, so nothing calls into the flash that is about to change; its instances restart on the resident kernel from silence
+ * and take the new module's kernel at the registration that ends the install (oc_mod_boot -> oc_fxmod_kernel_reg) */
+static void oc_fxmod_kernel_guard(uint32_t first, uint32_t n)
+{
+#if MELODEE_DUB && OC_FX_MODK
+    uint32_t i;
+    int hit = 1;
+    if (!fx_modk_ok) return;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod.state[i] == MD_OK && oc_mod.kind[i] && oc_mod.mid[i] == FX_MODK_ID) {
+            uint32_t s0 = OC_MOD_START_SECTOR(i), n0 = oc_mod_nsec(oc_mod.length[i]);
+            hit = first < s0 + n0 && s0 < first + n;
+            break;
+        }
+    if (!hit) return;
+    if (oc_mod_live) fm1_irq_off();
+    fx_modk_clear();
+    if (oc_mod_live) fm1_irq_on();
+#else
+    (void)first; (void)n;
+#endif
+}
 /* sectors of the area erased in order from `first` (the header sector first), the watchdog fed between. 0 or the flash's error */
 static int oc_mod_erase_span(uint32_t first, uint32_t n)
 {
     uint32_t s;
+    oc_fxmod_kernel_guard(first, n);
     for (s = 0; s < n && first + s < OC_MOD_AREA; s++) {
         int rc;
         if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) return -1;   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */

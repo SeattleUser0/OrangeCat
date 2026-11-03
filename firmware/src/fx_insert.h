@@ -37,7 +37,7 @@ typedef struct {
 #define FX_MODK_ID 1u                                   /* the module id the host runs a module kernel for: DUB TAPE's */
 enum { FXM_OK = 0, FXM_VER, FXM_RANGE };                /* fx_modk_set's answer */
 #define fx_trig dub_trig                                /* the performance triggers (dub_fields.h): MIDI CC 16 to 21, per track, RAM only; the host hands them to the kernel in fx_ictx_t */
-static const fx_kernel_t *fx_kernel_of(uint32_t k);     /* the kernel bound to instance k (jfx_dub.c: DUB's, resident; step 6: by the track's slot) */
+static const fx_kernel_t *fx_kernel_of(uint32_t k);     /* the kernel bound to instance k (jfx_dub.c): the registered module's for every track, or DUB's resident one when none is registered; never a per-track choice */
 
 /* the names the tests and older readers use for the host's state (the code itself uses fx_ins_*) */
 #define DUB_N FX_INS_N

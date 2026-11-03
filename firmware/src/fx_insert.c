@@ -49,18 +49,21 @@ static __attribute__((section(".pool"))) uint16_t fx_cpu_wait;                  
 
 /* ---- (Release 3 step 6) a module's kernel beside the resident one (FX_MODULES_PLAN.md 15) ----
  * The Effects table (oc_module.c) registers an effect module of id FX_MODK_ID (DUB TAPE's) and hands its checked caps block, call table and rows to fx_modk_set, which makes a fx_kernel_t in RAM
- * (fx_modk) from them; fx_modk_clear drops it when the module goes (a removal, a reinstall, a ban). WHICH kernel a track's instance runs is the track's own setting:
- * fx_mod_want, a bit a track, 0 for all (the default: the resident kernel, so a build with no module, or with the module and no choice made, plays what it always played).
- * fx_mod_bound is the kernel the instance was made with: it changes only while the instance is OFF (a track whose setting changed ramps out and lets go first, as a governor release
- * does, then starts again on the other kernel from silence). fx_kernel_of(k) (jfx_dub.c) answers from fx_mod_bound. */
+ * (fx_modk) from them; fx_modk_clear drops it when the module goes (a removal, a reinstall, a ban). WHICH kernel an instance runs is not a choice (Release 3 step 6, round 18): with the module registered EVERY track's instance
+ * runs the module's kernel, with none registered every track runs the resident one (jfx_dub.c dub_kernel, in the image until one Nightly after the module ships). No project field, no page
+ * and no command stores or selects a kernel per track.
+ * fx_mod_bound is the kernel the instance was made with, a bit a track: it changes only while the instance is OFF, that is, from silence. A module that appears while instances run on
+ * the resident kernel: each running instance ramps out and lets go (as a governor release does, without the wait) and starts again on the module's kernel from silence. A module that goes
+ * (fx_modk_clear: the installer rebuilds the registry on every install and removal, and oc_module.c calls it before ANY erase of the module's sectors) lets its instances go at once, so
+ * nothing calls into the flash that is about to change, and they start again on the resident kernel from silence. fx_kernel_of(k) (jfx_dub.c) answers from fx_mod_bound. */
 #if OC_FX_MODK
 static __attribute__((section(".pool"))) fx_kernel_t fx_modk;
-static __attribute__((section(".pool"))) uint8_t fx_modk_ok, fx_mod_want, fx_mod_bound;
+static __attribute__((section(".pool"))) uint8_t fx_modk_ok, fx_mod_bound;
 static __attribute__((section(".pool"))) void (*fx_modk_note)(uint32_t);               /* oc_module.c: the crash mark of the module in use (oc_fxmod_note_use) */
 #define FX_MODK_BOUND(k) ((fx_mod_bound >> (k)) & 1u)
 static void fx_modk_clear(void);
-/* the tracks that run the module's kernel (a bit each), or the ones that may: 0 with no module */
-static inline uint32_t fx_mod_effective(void) { return fx_modk_ok ? fx_mod_want : 0u; }
+/* the tracks that run the module's kernel (a bit each): all of them with a module registered, none without */
+static inline uint32_t fx_mod_effective(void) { return fx_modk_ok ? (1u << FX_INS_N) - 1u : 0u; }
 /* the kernel of the module, from its checked descriptor: 0 ok, FXM_VER (a caps version this host does not know), FXM_RANGE (a capability outside what the host can give: instances, blocks, a seed, a class,
  * the snapshot's room). On a refusal nothing is registered: the resident kernel plays and the Effects row says so (oc_mod.fx .why) */
 static int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
@@ -81,7 +84,7 @@ static int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id,
     fx_modk_ok = 1;
     return FXM_OK;
 }
-/* the module's kernel gone: the instances that were made with it let go at once (their memory is asked back by jfx_ins_mem as `want` falls to 0) and the tracks start again on the resident kernel */
+/* the module's kernel gone: the instances that were made with it let go at once (their memory is asked back by jfx_ins_mem as `want` falls to 0) and start again on the resident kernel, from silence */
 static void fx_modk_clear(void)
 {
     uint32_t k;
@@ -94,8 +97,6 @@ static void fx_modk_clear(void)
     fx_modk_ok = 0;
     memset(&fx_modk, 0, sizeof fx_modk);
 }
-/* the tracks choose the module's kernel (a bit each) when one is registered; the change takes effect at the instance's next start */
-static void fx_ins_use_module(uint32_t mask) { fx_mod_want = (uint8_t)(mask & ((1u << FX_INS_N) - 1u)); }
 static uint32_t fx_modk_uses(void)         /* instances of the module's kernel running now (the Effects table's `uses`) */
 {
     uint32_t k, n = 0;
@@ -108,7 +109,6 @@ static inline uint32_t fx_mod_effective(void) { return 0u; }
 static inline int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
 { (void)module_id; (void)version; (void)effect_id; (void)c; (void)k; (void)rows; return FXM_RANGE; }
 static inline void fx_modk_clear(void) {}
-static inline void fx_ins_use_module(uint32_t mask) { (void)mask; }
 static inline uint32_t fx_modk_uses(void) { return 0u; }
 #endif
 
@@ -231,7 +231,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         const track_t *t = &trk[k];
         const fx_kernel_t *kn;
 #if OC_FX_MODK
-        if (((fx_mod_effective() ^ fx_mod_bound) >> k) & 1u) {        /* the track's kernel changed: only an OFF instance changes kernels; a running one ramps out and lets go first */
+        if (((fx_mod_effective() ^ fx_mod_bound) >> k) & 1u) {        /* a module appeared (the module goes through fx_modk_clear, which unbinds at once): only an OFF instance changes kernels; a running one ramps out and lets go first */
             if (d->state == FXS_OFF) { fx_mod_bound ^= (uint8_t)(1u << k); d->kw[0] = d->kw[1] = d->kw[2] = 0; if (FX_MODK_BOUND(k) && fx_modk_note) fx_modk_note(FX_MODK_ID); }
             else if (d->state == FXS_RUN || d->state == FXS_RAMP) { d->evict = 1; d->gov = 0; }
             else { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; }
@@ -382,7 +382,7 @@ JFX_XIP static void fx_ins_reset(void)
     memset(fx_ins_spring, 0, sizeof fx_ins_spring);
     fx_ins_evict = fx_ins_ev_full = fx_ins_gov_req = 0;
 #if OC_FX_MODK
-    fx_mod_bound = 0;                                   /* the instances are gone; each track binds again to the kernel it is set to (fx_mod_want stays) */
+    fx_mod_bound = 0;                                   /* the instances are gone; each track binds again at its next start, to the module's kernel if one is registered */
 #endif
     fx_gov_cool = 0;
     memset(fx_pk, 0, sizeof fx_pk); fx_pk_n = 0; fx_pk_i = 0;

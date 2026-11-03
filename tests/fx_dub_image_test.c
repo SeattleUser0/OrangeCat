@@ -214,6 +214,50 @@ int main(int argc, char **argv)
         clean();
         chk("oc_fxmod_image_check accepts the real image (as the card and the page ask before the first erase) and names its module id 1", oc_fxmod_image_check(rd_whole, 0, s, ILEN, &mid) == 0 && mid == 1u);
     }
+    /* ---- 6. (round 18) the host lets go of the module's kernel before ANY erase of the module's sectors (a removal, an in-place reinstall, a sector under it); an erase elsewhere leaves it ---- */
+    {
+        fx_caps_t kc;
+        fx_kcalls_t kt;
+        void (*w[FX_KCALLS_N])(void);
+        uint32_t st, k, n0, other;
+        int r;
+        for (k = 0; k < FX_KCALLS_N; k++) w[k] = (void (*)(void))main;          /* twelve nonzero host addresses: this test never calls them */
+        memcpy(&kt, w, sizeof kt);
+        memset(&kc, 0, sizeof kc);
+        kc.magic = FX_CAPS_MAGIC; kc.size = FX_CAPS_WIRE; kc.version = FX_CAPS_VERSION; kc.abi = FX_ABI_ID; kc.max_inst = 4; kc.prof = AP_DUB; kc.ram_work_min = 4; kc.ram_work_max = 16;
+        kc.ram_extra = 2; kc.ram_extra_bytes = 5632; kc.param_bytes = 88; kc.gov_us = 450; kc.ram_state = 1176;
+        clean(); load(SECT[0]);
+        st = (uint32_t)oc_fxmod_plan(1u, 3u);                                      /* the planner's start, and the image linked for it */
+        for (k = 0; k < 6u; k++) if (start_of(SECT[k]) == st) load(SECT[k]);
+        r = install(1u, st);
+        chk("guard: the module is installed and its kernel registered with the host (fx_modk_set), as oc_fxmod_kernel_reg does on the device", r == 0 && fx_modk_set(1u, 0x00010000u, 1u, &kc, &kt, 0) == FXM_OK && fx_modk_ok == 1);
+        n0 = OC_MOD_START_SECTOR(st) + oc_mod_nsec(ILEN);                           /* the first sector after the module */
+        other = n0 < OC_MOD_AREA ? n0 : OC_MOD_START_SECTOR(st) - 1u;
+        (void)oc_mod_erase_span(other, 1u);
+        chk("guard: an erase of a sector outside the module's span leaves its kernel registered", fx_modk_ok == 1);
+        (void)oc_mod_erase_span(OC_MOD_START_SECTOR(st) + 1u, 1u);
+        chk("guard: an erase of a sector inside the module's span lets the kernel go first (fx_modk_clear: the instances let go, the resident kernel plays)", fx_modk_ok == 0 && fx_mod_bound == 0);
+        clean(); load(SECT[0]); st = (uint32_t)oc_fxmod_plan(1u, 3u); for (k = 0; k < 6u; k++) if (start_of(SECT[k]) == st) load(SECT[k]);
+        r = install(1u, st);
+        r |= fx_modk_set(1u, 0x00010000u, 1u, &kc, &kt, 0);
+        r |= oc_fxmod_remove(1u);
+        chk("guard: the removal (the editor's command 132, the page's) lets go of the kernel before the first erase", r == 0 && fx_modk_ok == 0 && oc_mod.nfxmod == 0);
+        /* a newer version beside: the old copy is erased at the end of the install (oc_mod_end), under the registered kernel; the host must have let go of it before that erase */
+        clean(); load(SECT[0]); st = (uint32_t)oc_fxmod_plan(1u, 3u); for (k = 0; k < 6u; k++) if (start_of(SECT[k]) == st) load(SECT[k]);
+        r = install(1u, st);
+        r |= fx_modk_set(1u, 0x00010000u, 1u, &kc, &kt, 0);
+        {   uint32_t st2 = (uint32_t)oc_fxmod_plan(1u, 3u), kb = fx_modk_ok;
+            for (k = 0; k < 6u; k++) if (start_of(SECT[k]) == st2) load(SECT[k]);
+            wr32(44, 0x00010100u); reseal();
+            r |= (int)st2 < 0 || st2 == st;
+            r |= oc_fxmod_begin(1u, st2, ILEN);
+            chk("guard: a newer version installed beside leaves the kernel of the old copy registered while the new one is written (its sectors are not touched)", r == 0 && kb == 1 && fx_modk_ok == 1);
+            for (uint32_t o = FW_MOD_CODE_OFF; !r && o < ILEN; o += 256u) r = oc_mod_write(o, IMG + o, ILEN - o > 256u ? 256u : ILEN - o);
+            r |= oc_mod_end(IMG);
+            chk("guard: ... and at the end of the install, when the old copy is erased, the host lets go of its kernel first: nothing is bound, the instances are OFF, the new copy is the only module",
+                r == 0 && fx_modk_ok == 0 && fx_mod_bound == 0 && fx_modk_uses() == 0 && oc_mod.nfxmod == 1 && oc_mod.fx[0].start == st2);
+        }
+    }
     printf(bad ? "fx dub image: FAILED\n" : "fx dub image: all passed\n");
     return bad != 0;
 }
