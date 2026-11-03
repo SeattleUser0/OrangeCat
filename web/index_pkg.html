@@ -78,11 +78,21 @@
     <p><label><input type="checkbox" id="stage-pack" checked> <span data-t="stagePack"></span></label><br><span class="small" data-t="packWhy"></span></p>
     <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
     <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
+    <p><label><input type="checkbox" id="stage-fx" checked> <span data-t="stageFx"></span></label><br><span class="small" data-t="fxWhy"></span></p>
     <p class="small" data-t="downgradeWhy"></p>
     <p class="small" id="set-note"></p>
   </fieldset>
   <p class="small" id="install-what"></p>
   <p><button id="go" disabled data-t="install"></button></p>
+  <details id="unit-mods" style="margin-top:16px">
+    <summary data-t="unitModsTitle"></summary>
+    <p><button id="unit-read" data-t="unitRead"></button></p>
+    <p class="small"><strong data-t="unitEngines"></strong></p>
+    <pre id="unit-engines"></pre>
+    <p class="small"><strong data-t="unitFx"></strong></p>
+    <pre id="unit-fx"></pre>
+    <p><label><span data-t="fxRemoveTitle"></span><br><select id="fx-remove-id"></select></label> <button id="fx-remove" disabled data-t="fxRemove"></button></p>
+  </details>
   <section style="margin-top:24px" aria-labelledby="transit-title">
     <h2 id="transit-title" data-t="transitTitle"></h2>
     <p data-t="transitWhy"></p>
@@ -133,7 +143,12 @@ const TEXT = {
     dualWhy: "テスト済みのリリースです。確実に動かしたいときはこちら。",
     installWhat: "インストールボタンは、選んだビルドについて上でチェックした内容を書き込みます：",
     installNone: "何もチェックされていません：何も書き込みません",
-    installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESモジュール", installProphet: "Prophetモジュール",
+    installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESモジュール", installProphet: "Prophetモジュール", installFx: "エフェクトモジュール",
+    stageFx: "エフェクトモジュール", fxWhy: "このビルドのエフェクトモジュール（インサート、センド、マスター）。モジュールIDで入ります。エンジンのモジュールとは別に、空いている場所に入ります。",
+    unitModsTitle: "ユニットに入っているモジュール", unitRead: "ユニットから読む", unitEngines: "エンジン", unitFx: "エフェクト",
+    unitNone: "なし", fxNoTable: "このファームウェアにはエフェクトモジュールがありません", fxRemoveTitle: "エフェクトモジュールを消す", fxRemove: "消す",
+    fxRemoveConfirm: "このエフェクトモジュールをユニットから消します。続けますか？", fxRemoved: "エフェクトモジュールを消しました",
+    fxOldFw: "このファームウェアにはエフェクトモジュールのコマンドがありません。", modManifest: "このモジュールのファイルは、リリースの一覧が言う種類・IDと違います。",
     rcTitle: "リリース候補", "rc-dual": "RC",
     "rc-dualTag": "リリース候補",
     rcWhy: "次のリリースのテスト版です。標準を選んでインストールすると安定版へ戻せます。",
@@ -217,7 +232,12 @@ const TEXT = {
     dualWhy: "The tested release. Choose this for a unit that is known to work.",
     installWhat: "The Install button writes what is ticked above, for the build you chose: ",
     installNone: "nothing is ticked: nothing will be written",
-    installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES module", installProphet: "the Prophet module",
+    installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES module", installProphet: "the Prophet module", installFx: "the effect modules",
+    stageFx: "Effect modules", fxWhy: "The build's effect modules (insert, send, master). They go in by their module id, into a free place beside the engine modules.",
+    unitModsTitle: "Modules in the unit", unitRead: "Read from the unit", unitEngines: "Engines", unitFx: "Effects",
+    unitNone: "none", fxNoTable: "this firmware has no effect modules", fxRemoveTitle: "Remove an effect module", fxRemove: "Remove",
+    fxRemoveConfirm: "This effect module is erased from the unit. Continue?", fxRemoved: "The effect module was removed",
+    fxOldFw: "This firmware has no effect module commands.", modManifest: "This module file is not the kind or the module id the release list names.",
     rcTitle: "Release candidate", "rc-dual": "Release candidate",
     "rc-dualTag": "release candidate",
     rcWhy: "Preview of the next release, available for testing. Choose Standard to return to stable.",
@@ -323,7 +343,9 @@ const offered = () => { const c = selection().channel || {}; return {pak: c.pak 
 /* (0.12.1) the module packages by engine (the file name: orangecat-shapes-VER.ocm, orangecat-prophet-VER.ocm). The two do not fit in the unit together: one stage is on at a time,
  * and the choice lives in this variable for the session only (nothing is stored) */
 const ocmKind = (u) => /orangecat-prophet-/.test(u) ? "prophet" : "shapes";
-const ocmOf = (kind) => offered().ocm.filter(u => ocmKind(u) === kind).sort((a, b) => /orangecat-wheel-/.test(b) - /orangecat-wheel-/.test(a));   /* (round 14) WHEEL first: it takes the unit's first start, SHAPES the next */
+/* (Release 3 step 4) an effect module of the release list is an entry {url, kind (1..3), module_id}: the manifest's kind and id, checked against the file after it is read (fm1oc.js runSet) */
+const fxOf = () => offered().ocm.filter(u => u && typeof u === "object" && typeof u.url === "string" && u.kind >= 1 && u.kind <= 3 && u.module_id > 0);
+const ocmOf = (kind) => offered().ocm.filter(u => typeof u === "string" && ocmKind(u) === kind).sort((a, b) => /orangecat-wheel-/.test(b) - /orangecat-wheel-/.test(a));   /* (round 14) WHEEL first: it takes the unit's first start, SHAPES the next */
 let modChoice = "shapes";
 function modStages() {
   const sh = ocmOf("shapes").length > 0, pr = ocmOf("prophet").length > 0;
@@ -342,6 +364,7 @@ function stageNote() {
   $("stage-pack").disabled = writing || !o.pak;
   $("stage-mod").disabled = writing || !ocmOf("shapes").length;
   $("stage-prophet").disabled = writing || !ocmOf("prophet").length;
+  $("stage-fx").disabled = writing || !fxOf().length;
   modStages();
 }
 const ready = () => { lastKey = "ready"; $("status").textContent = `Orange Cat ${selection().channel.version} (${t(build() + "Tag")})`; };
@@ -373,12 +396,12 @@ function buildLabels() {
 }
 /* what the Install button will write: the ticked boxes, for the chosen build */
 function installWhat() {
-  const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"]]
+  const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"], ["stage-fx", "installFx"]]
     .filter(([id]) => $(id).checked && (writing || !$(id).disabled)).map(([, k]) => t(k));
   const ch = selection().channel || {};
   $("install-what").textContent = t("installWhat") + (parts.length ? parts.join(", ") + (ch.version ? " (" + ch.version + ")" : "") : t("installNone"));
 }
-["stage-fw", "stage-pack", "stage-mod", "stage-prophet"].forEach((id) => $(id).addEventListener("change", () => installWhat()));
+["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx"].forEach((id) => $(id).addEventListener("change", () => installWhat()));
 const remembered = () => { try { return localStorage.getItem("oc-build"); } catch (_) { return null; } };
 const remember = (k) => { try { localStorage.setItem("oc-build", k); } catch (_) { /* no storage: the choice is not kept */ } };
 if (remembered() === "nightly-dual" && meta.nightly) { $("build-dual").checked = false; $("build-nightly-dual").checked = true; }
@@ -390,7 +413,8 @@ const lockInstaller = (on) => {
   writing = on; $("release").disabled = on; $("go").disabled = on || !image;
   buildIds.forEach(k => { $("build-" + k).disabled = on; });
   $("stock-go").disabled = on || !stock;
-  ["stage-fw", "stage-pack", "stage-mod", "stage-prophet"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length); });
+  ["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length) || (id === "stage-fx" && !fxOf().length); });
+  $("unit-read").disabled = on; $("fx-remove").disabled = on || !$("fx-remove-id").value;
   ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
 };
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
@@ -472,7 +496,7 @@ const getFile = async (url) => {
 };
 // the summary: one line a stage
 /* (0.12.1) "ENGINE X INSTALLED AT START N: REMOVE IT FIRST": detail is "engine:start" (fm1oc.js installModule); only a module engine can be in the way */
-const blockedText = (detail) => { const [e, s] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", {14: "SHAPES", 19: "PROPHET"}[+e] || "#" + e).replace("{n}", s); };
+const blockedText = (detail) => { const [e, s] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", {14: "SHAPES", 19: "PROPHET", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };   /* (Release 3 step 4) 127: a start of no engine, an effect module */
 const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : v.error === "modBlocked" ? blockedText(v.detail) : (TEXT[lang][v.error] || v.error);
 function summaryText(sum) {
   const lines = [t("sumFw") + ": " + sumWord(sum.firmware), t("sumPack") + ": " + sumWord(sum.pack)];
@@ -480,17 +504,55 @@ function summaryText(sum) {
   return lines;
 }
 
+/* (Release 3 step 4) the unit's modules: the Engines table's module rows (ENGINES) and, beside it, the Effects table (FX_TABLE): module id, version, kind, effects in the bank,
+ * state, start, sectors, resident or module. A firmware that does not answer FX_TABLE has no effect modules. */
+const OC_STATES = ["empty", "torn", "refused", "bad header", "bad CRC", "crashed", "no slot", "ok", "bad tail"];
+const hex8 = (v) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(8, "0");
+function showUnit(u) {
+  if (u.engines !== undefined) {
+    const rows = (u.engines ? u.engines.engines : []).filter((x) => x.src === 2 || x.start != null)
+      .map((x) => `#${x.num}  v${x.version.join(".")}  ${OC_STATES[x.state] || x.state}  ${x.src === 2 ? "module" : "built in"}  start ${x.start ?? "-"}  ${x.size} B`);
+    $("unit-engines").textContent = rows.length ? rows.join("\n") : t("unitNone");
+  }
+  if (u.fx !== undefined) {
+    const fx = u.fx ? u.fx.effects : [];
+    $("unit-fx").textContent = !u.fx ? t("fxNoTable") : fx.length ? fx.map((x) => `${hex8(x.id)}  v${x.version.join(".")}  ${OC_FX_KIND[x.kind] || x.kind}  ${x.count} fx  ${OC_STATES[x.state] || x.state}` +
+      `  start ${x.start}  ${x.sectors} sectors  ${x.resident ? "resident" : "module"}`).join("\n") : t("unitNone");
+    $("fx-remove-id").replaceChildren(...fx.filter((x) => !x.resident).map((x) => { const o = document.createElement("option"); o.value = String(x.id); o.textContent = hex8(x.id); return o; }));
+    $("fx-remove").disabled = writing || !fx.some((x) => !x.resident);
+  }
+}
+async function withUnit(job) {
+  let midi, link;
+  try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (e) { sayK("denied"); return; }
+  lockInstaller(true);
+  try {
+    link = await openUnit(midi, 5000);
+    if (!link) { sayK("sNounit"); return; }
+    await job(link);
+  } catch (e) { if (e && e.code && TEXT[lang][e.code]) sayK(e.code, e.detail ? " " + e.detail : ""); else sayK("error", e && e.message); log(String(e && e.stack || e)); }
+  finally { if (link) link.close(); lockInstaller(false); }
+}
+$("unit-read").addEventListener("click", () => { if (!writing) withUnit(async (link) => { sayK("unitProbe"); showUnit(await listUnit(link)); ready(); }); });
+$("fx-remove").addEventListener("click", () => {
+  const id = Number($("fx-remove-id").value);
+  if (writing || !(id > 0) || !confirm(t("fxRemoveConfirm"))) return;
+  withUnit(async (link) => { await removeFx(link, id); showUnit(await listUnit(link)); sayK("fxRemoved"); });
+});
+
 $("go").addEventListener("click", async () => {
   if (writing || !image) return;
   const ch = selection().channel, product = ch.product, o = offered();
-  const modules = $("stage-prophet").checked ? ocmOf("prophet") : $("stage-mod").checked ? ocmOf("shapes") : [];   /* (0.12.1) one module stage at a time */
+  const engMods = $("stage-prophet").checked ? ocmOf("prophet") : $("stage-mod").checked ? ocmOf("shapes") : [];   /* (0.12.1) one module stage at a time */
+  const fxMods = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf() : [];   /* (Release 3 step 4) the effect modules after it */
+  const modules = [...engMods, ...fxMods.map((x) => x.url)], want = [...engMods.map(() => null), ...fxMods.map((x) => ({kind: x.kind, module_id: x.module_id}))];
   const stages = {firmware: $("stage-fw").checked, pack: $("stage-pack").checked && !!o.pak, module: modules.length > 0};
   if (!stages.firmware && !stages.pack && !stages.module) { sayK("nothingChosen"); return; }
   lockInstaller(true);
   let midi;
   try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
   catch (e) { sayK("denied"); lockInstaller(false); return; }
-  const files = {pack: null, modules: []};
+  const files = {pack: null, modules: [], ...(fxMods.length ? {want} : {})};
   try {                                   // everything is fetched before the first byte is written
     if (stages.pack) files.pack = await getFile(o.pak);
     if (stages.module) files.modules = await Promise.all(modules.map(getFile));
@@ -505,6 +567,7 @@ $("go").addEventListener("click", async () => {
       confirmInPlace: () => confirm(t("modInPlaceConfirm")),
     });
     const lines = summaryText(sum);
+    if (sum.fx) showUnit({fx: sum.fx});
     lines.forEach((l) => log(l));
     if (stages.pack || stages.module) say(t("sumTitle") + lines.join(" | "));
     else sayK("done");

@@ -480,6 +480,11 @@ either. Commands past 127 are allocated from 128 up in this file: the next free 
 | 132 FX_REMOVE | module id (5 x 7) | rc, then the bytes written (3 x 7): the module's sectors erased |
 | 133 FX_TABLE | none | count (<= 8), then per effect module: id (5 x 7), version (3 x 7), kind (1 insert, 2 send, 3 master), effects in the bank, state (MD_*), why, start, sectors, resident (0), uses (0) |
 
+(Release 3 step 4b) The installer page (web/fm1oc.js `installFx`) and the card's installer (card_install.c `fb_mod_file`) install an effect module's package (engine word of
+kind 1..3, the module id in the image's `fx_desc_t`): MOD_INFO without an engine for the firmware's numbers and the starts, 130 FX_INFO for the id and the image's sector count,
+the page's own check of the image (`fxCheck`: the inner header, the code CRC, the descriptor, the tails), 131 FX_BEGIN at the start the unit names, then 122 and 123 as for an
+engine. 133 FX_TABLE is asked only when a set holds an effect module, so an engine set's requests are unchanged. 132 FX_REMOVE is the page's Remove.
+
 **A kit's body** (eng_drumx.c `dxk_t`, firmware/src/dxk_rec.h), each value one byte, the signed ones + 64:
 
 | Bytes | Values |

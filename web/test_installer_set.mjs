@@ -7,6 +7,7 @@
 //   0.11.2: first version.
 //   0.13.5: BEGIN waits for the unit's erase (OC_BEGIN_MS; case 12b); every error code the page can show has a text in both languages (12c).
 //   0.13.4: the module images carry a sealed inner header (the page checks it); cases for a damaged pack or module refused before BEGIN (13b).
+//   Release 3 step 4: effect modules (15): FX_INFO / FX_BEGIN / FX_TABLE / FX_REMOVE through the extension against a mocked unit; an engine set sends no extension command.
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {bkCrc, bkPack} from "./fm1backup.js";
@@ -347,4 +348,122 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   const here = cut(readFileSync(new URL("fm1oc.js", import.meta.url), "utf8")), theirs = cut(readFileSync(new URL("editor.html", import.meta.url), "utf8"));
   assert.equal(here, theirs, "web/fm1oc.js and web/editor.html must carry the same .ocm reader");
 }
-console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader passed");
+// 15. (Release 3 step 4) effect modules in the set: MOD_INFO without an engine, FX_INFO (130) for the file's module id and sectors, FX_BEGIN (131) at the start the unit
+//     names, the engine's WRITE (122) and END (123); the Effects table (133) says what is current; a firmware without the extension: "oldfw"; the manifest's kind and id
+//     checked against the file; a blocker named; in place asked; FX_REMOVE (132); and an engine-only set sends no extension command at all
+{
+  const MID = 0x80001234, FXVER = 0x00010203, KIND = 1;
+  const fxOcm = ({ mid = MID, version = FXVER, kind = KIND, flipCode = false } = {}) => {
+    const imgLen = 0x800;
+    const imgs = [0, 6].map((s) => {
+      const a = new Uint8Array(imgLen), h = new DataView(a.buffer), link = (0x020C4000 + s * 4096) >>> 0;
+      for (let k = 0x400; k < imgLen; k++) a[k] = (k * 3 + s) & 255;
+      [[0x180, 1], [0x184, mid], [0x188, version], [0x18C, link + 0x200], [0x190, 0]].forEach(([o, v]) => h.setUint32(o, v >>> 0, true));
+      a[0x200] = 7; a[0x201] = kind;                                                          // one effect, no parameters
+      h.setUint32(0, 0x444F4D4F, true); h.setUint32(4, IFACE, true); h.setUint32(8, 100, true); h.setUint32(12, 1, true); h.setUint32(16, API, true); h.setUint32(20, kind << 8, true);
+      h.setUint32(24, 0, true); h.setUint32(28, link + 0x180, true); h.setUint32(32, link, true); h.setUint32(36, PHASH, true); h.setUint32(44, version, true);
+      h.setUint32(48, imgLen, true); h.setUint32(52, bkCrc(a.subarray(0x100)), true); h.setUint32(56, bkCrc(a.subarray(0, 56)), true);
+      if (flipCode) a[0x500] ^= 1;
+      return a;
+    });
+    const n = 2, tab = 56, hc = tab + 16 * n, off0 = hc + 4, out = new Uint8Array(off0 + imgLen * 2), dv = new DataView(out.buffer);
+    dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, n, true); dv.setUint32(8, IFACE, true); dv.setUint32(12, API, true);
+    dv.setUint32(16, kind << 8, true); dv.setUint32(20, 0, true); dv.setUint32(24, PHASH, true); dv.setUint32(44, 1, true); dv.setUint32(48, 100, true); dv.setUint32(52, 1, true);
+    imgs.forEach((img, i) => {
+      dv.setUint32(tab + 16 * i, i * 6, true); dv.setUint32(tab + 16 * i + 4, imgLen, true); dv.setUint32(tab + 16 * i + 8, bkCrc(img), true); dv.setUint32(tab + 16 * i + 12, off0 + imgLen * i, true);
+      out.set(img, off0 + imgLen * i);
+    });
+    dv.setUint32(hc, bkCrc(out.subarray(0, hc)), true);
+    return out;
+  };
+  // the mocked unit with the extension: opts {noExt, have: [{id, version, start}], plan, inPlace, blocker, blockEngine, endRc}
+  const fxUnit = (opts = {}) => {
+    const u = { sent: [], ext: [], writes: 0, have: [...(opts.have || [])], removed: [], begin: null };
+    const input = { state: "connected", onmidimessage: null };
+    const reply = (cmd, data) => setImmediate(() => input.onmidimessage({ data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247]) }));
+    const id5 = (a) => a.slice(0, 5).reduce((v, b, i) => v + b * 2 ** (7 * i), 0);
+    const output = { state: "connected", send(m) {
+      const cmd = m[4], args = Array.from(m.slice(5, -1)); u.sent.push(cmd);
+      if (cmd === 115) reply(115, [1, 1, ...n3(PLEN), ...n5(PHASH), ...n3(PLEN), ...n5(PHASH), ...n3(4096)]);
+      else if (cmd === 120) reply(120, [2, 12, 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(PHASH), args.length ? 0 : 127,
+        ...[0, 1].flatMap((i) => [opts.blockEngine !== undefined && i === 1 ? 7 : 0, 0, opts.blockEngine !== undefined && i === 1 ? opts.blockEngine : 127, ...n3(0)])]);
+      else if (cmd === 125) { const eng = []; for (let e = 0; e < 20; e++) eng.push(1, 7, 0, 127, 0, 0, 0, ...n3(0), 0); reply(125, [20, ...eng, 2, 7, 0, 127, 0, 0, 0]); }
+      else if (cmd === 0) {
+        u.ext.push(args);
+        if (opts.noExt) return;                                   // a firmware without 130..133: no reply to command 0
+        const n = args[0], a = args.slice(1);
+        if (n === 2) {                                            // FX_INFO
+          assert.equal(a.length, 6, "FX_INFO: id (5) and sectors");
+          reply(0, [2, opts.plan ?? 1, opts.inPlace ? 1 : 0, opts.blocker ?? 127, 1]);
+        } else if (n === 3) {                                     // FX_BEGIN
+          assert.equal(a.length, 9, "FX_BEGIN: id (5), start, length (3)");
+          u.begin = { id: id5(a), start: a[5], len: a[6] | a[7] << 7 | a[8] << 14 };
+          reply(0, [3, 0, ...n3(256)]);
+        } else if (n === 4) { u.removed.push(id5(a)); u.have = u.have.filter((x) => x.id !== id5(a)); reply(0, [4, 0, ...n3(0)]); }
+        else if (n === 5) {
+          assert.equal(a.length, 0, "FX_TABLE: no arguments");
+          reply(0, [5, u.have.length, ...u.have.flatMap((x) => [...n5(x.id), (x.version >> 16) & 127, (x.version >> 8) & 127, x.version & 127, KIND, 1, 7, 0, x.start, 1, 0, 0])]);
+        }
+      }
+      else if (cmd === 121) reply(121, [0, ...n3(0)]);
+      else if (cmd === 122) { u.writes++; reply(122, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]); }
+      else if (cmd === 123) { if (u.begin) u.have = [...u.have.filter((x) => x.id !== u.begin.id), { id: u.begin.id, version: FXVER, start: u.begin.start }]; reply(123, [opts.endRc || 0, ...n3(0x800)]); }
+    } };
+    u.link = () => new OcLink(input, output);
+    return u;
+  };
+  const MOD = { module: true };
+  // installed: MOD_INFO without an engine, FX_INFO, FX_BEGIN at start 1 (sector 6), 7 WRITEs, END; the Effects table returned
+  let u = fxUnit(), r = await run(u, MOD, { modules: [fxOcm()] });
+  assert.deepEqual(r.sum.module, ["installed"]);
+  assert.deepEqual(u.ext.map((a) => a[0]), [5, 2, 3, 5], "FX_TABLE, FX_INFO, FX_BEGIN, FX_TABLE again after the install");
+  assert.deepEqual(u.ext[1], [2, ...n5(MID), 1], "FX_INFO: the file's module id and one sector");
+  assert.deepEqual(u.begin, { id: MID, start: 1, len: 0x800 }, "FX_BEGIN at the start the unit named, the image's length");
+  assert.equal(u.writes, (0x800 - 256) / 256); assert.ok(!u.sent.includes(121), "no engine BEGIN"); assert.ok(u.sent.includes(123));
+  assert.ok(r.sum.fx && r.sum.fx.effects.length === 1 && r.sum.fx.effects[0].id === MID && r.sum.fx.effects[0].version.join() === "1,2,3", "the Effects table after the run");
+  // current: the Effects table has this id, version and sector count: nothing written
+  u = fxUnit({ have: [{ id: MID, version: FXVER, start: 1 }] }); r = await run(u, MOD, { modules: [fxOcm()] });
+  assert.deepEqual(r.sum.module, ["current"]); assert.ok(!u.ext.some((a) => a[0] === 3) && !u.sent.includes(122));
+  // a newer version of the id: installed (beside: the unit's planner chooses; the page sends what FX_INFO names)
+  u = fxUnit({ have: [{ id: MID, version: FXVER - 1, start: 0 }] }); r = await run(u, MOD, { modules: [fxOcm()] });
+  assert.deepEqual(r.sum.module, ["installed"]);
+  // a firmware without the extension: oldfw, nothing written
+  u = fxUnit({ noExt: true }); r = await run(u, MOD, { modules: [fxOcm()] });
+  assert.deepEqual(r.sum.module, ["oldfw"]); assert.ok(!u.sent.includes(122) && !u.sent.includes(123));
+  // the manifest's kind and module id against the file
+  for (const w of [{ kind: 2, module_id: MID }, { kind: 1, module_id: MID + 1 }, { kind: 0 }]) {
+    u = fxUnit(); r = await run(u, MOD, { modules: [fxOcm()], want: [w] });
+    assert.deepEqual(r.sum.module, [{ error: "modManifest" }], JSON.stringify(w)); assert.ok(!u.ext.some((a) => a[0] === 3));
+  }
+  u = fxUnit(); r = await run(u, MOD, { modules: [fxOcm()], want: [{ kind: 1, module_id: MID }] }); assert.deepEqual(r.sum.module, ["installed"], "the manifest agrees");
+  u = fxUnit(); r = await run(u, MOD, { modules: [makeOcm()], want: [{ kind: 1, module_id: MID }] }); assert.deepEqual(r.sum.module, [{ error: "modManifest" }], "an engine file where the manifest names an effect");
+  // no start: the module in the way is named; damaged; declined in place
+  u = fxUnit({ plan: 127, blocker: 1, blockEngine: 14 }); r = await run(u, MOD, { modules: [fxOcm()] });
+  assert.deepEqual(r.sum.module, [{ error: "modBlocked", detail: "14:1" }]); assert.ok(!u.ext.some((a) => a[0] === 3));
+  u = fxUnit({ plan: 127 }); r = await run(u, MOD, { modules: [fxOcm()] }); assert.deepEqual(r.sum.module, [{ error: "modNoFree" }]);
+  u = fxUnit(); r = await run(u, MOD, { modules: [fxOcm({ flipCode: true })] }); assert.deepEqual(r.sum.module, [{ error: "modDamaged" }]); assert.ok(!u.ext.some((a) => a[0] === 3));
+  u = fxUnit({ inPlace: true }); r = await run(u, MOD, { modules: [fxOcm()] }, { confirmInPlace: () => false });
+  assert.deepEqual(r.sum.module, [{ error: "modDeclined" }]); assert.ok(!u.ext.some((a) => a[0] === 3), "declined: no FX_BEGIN");
+  u = fxUnit({ endRc: 7 }); r = await run(u, MOD, { modules: [fxOcm()] }); assert.deepEqual(r.sum.module, [{ error: "modUnreadable" }]);
+  // an engine and an effect module in one set: the engine by its number (121), the effect by its id (131)
+  u = fxUnit(); r = await run(u, MOD, { modules: [makeOcm(), fxOcm()] });
+  assert.deepEqual(r.sum.module, ["installed", "installed"]); assert.ok(u.sent.includes(121) && u.ext.some((a) => a[0] === 3));
+  // FX_REMOVE and the listing
+  const { removeFx, listUnit, parseFxTable, parseFxInfo, ocReq } = await import("./fm1oc.js");
+  u = fxUnit({ have: [{ id: MID, version: FXVER, start: 3 }] });
+  const link = u.link();
+  const l0 = await listUnit(link);
+  assert.deepEqual(l0.fx.effects, [{ id: MID, version: [1, 2, 3], kind: 1, count: 1, state: 7, why: 0, start: 3, sectors: 1, resident: false, uses: 0 }]);
+  await removeFx(link, MID);
+  assert.deepEqual(u.removed, [MID]); assert.deepEqual(u.ext.at(-1), [4, ...n5(MID)]);
+  assert.equal((await listUnit(link)).fx.effects.length, 0);
+  link.close();
+  assert.equal((await listUnit(fxUnit({ noExt: true }).link())).fx, null, "no reply to FX_TABLE: no Effects table");
+  assert.throws(() => parseFxTable([2, 0]), /not the reply/, "another extension command's reply is not read as the table");
+  assert.deepEqual(parseFxInfo([2, 127, 0, 127, 0]), { plan: null, inPlace: false, blocker: null, lowOk: false });
+  assert.deepEqual(ocReq.fxBegin(0xFFFFFFFF, 17, 0x8000), [0, [3, 127, 127, 127, 127, 15, 17, 0, 0, 2]], "the id in 5 x 7 bits, the length in 3 x 7");
+  // an engine-only set sends no extension command: its requests are what they always were
+  const ue = makeUnit({ pack: "current" }); r = await run(ue, ALL, files());
+  assert.deepEqual(r.sum, { firmware: "installed", pack: "current", module: ["installed"] }); assert.ok(!ue.sent.includes(0), "no command 0 in an engine set");
+}
+console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id passed");

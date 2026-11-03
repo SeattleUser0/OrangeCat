@@ -2768,6 +2768,8 @@ function ocmParse(bytes) {
   let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
   const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
               name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [], format: ver };
+  o.kind = (o.engine >>> 8) & 0xFF;      /* (Release 3 step 4) the engine word: engine (bits 0..7), kind (8..15: 1 insert, 2 send, 3 master effect), bits 16..31 zero (fw_api.h fw_mod_word_ok) */
+  if (o.engine >>> 8 && (o.engine >>> 16 || o.kind > 3 || (o.engine & 0xFF))) return fail("modWrongFile");
   if (ver === 2) {
     const length = dv.getUint32(tab + 4, true), off = dv.getUint32(tab + 12, true), nrel = dv.getUint32(tab + 16, true), roff = dv.getUint32(tab + 20, true);
     if (dv.getUint32(tab, true) !== OCM_RELOCATABLE || nrel > OCM_RELOC_MAX || off + length > bytes.length || roff + 4 * nrel > bytes.length || length < 0x200 || (length & 3))
@@ -2781,7 +2783,7 @@ function ocmParse(bytes) {
       if (crc32(img) !== dv.getUint32(tab + 36 + 8 * k, true)) return fail("modDamaged");
       o.variants.push({ start, length, image: img });
     }
-    return o;
+    return ocmFxRead(o);
   }
   for (let i = 0; i < n; i++) {
     const start = dv.getInt32(tab + 16 * i, true), length = dv.getUint32(tab + 16 * i + 4, true), crc = dv.getUint32(tab + 16 * i + 8, true), off = dv.getUint32(tab + 16 * i + 12, true);
@@ -2790,22 +2792,74 @@ function ocmParse(bytes) {
     if (crc32(img) !== crc || new DataView(img.buffer, img.byteOffset, 4).getUint32(0, true) !== 0x444F4D4F) return fail("modWrongFile");
     o.variants.push({ start, length, image: img });
   }
-  return o;
+  return ocmFxRead(o);
 }
 /* (0.13.4) The inner header and the code of one variant, checked the way the unit checks them at the end (oc_module.c oc_mod_image_check), so the unit is never asked to erase
  * for an image it would refuse: the magic, hcrc (CRC-32 of the first 56 bytes), the header against the package's own header and the start (interface, table address,
  * engine, state size, pack hash, API numbers, the length, the link address of the start, an aligned engine_t inside the code), then the CRC-32 of the code. The page
  * descriptor check is the unit's (device builds only) and stays there. Returns "" or the key. */
 const OCM_LINK0 = 0x020C4000, OCM_STATE_MAX = 16384;       /* the XIP address of the module area (oc_module.c oc_mod_link: sector s is at +s*4096); the state size limit (OC_MOD_STATE_MAX) */
+/* (Release 3 step 4) An effect module (kind 1..3): the header's engine_ptr is the address of its fx_desc_t inside the code, checked as the unit checks it (firmware/src/fw_fx.h
+ * fx_desc_check, the same rules): 1..8 effects, a module id not 0, the entries and each parameter table inside the code and 4 aligned, an entry's kind the header's, the reserved
+ * words 0, effect ids unique in the bank, parameter ids strictly increasing, min <= default <= max, a label NUL ended within 24 bytes inside the code. img: the image for the link
+ * address `link`. {id, version, n} or null. ocmFxRead: the module id, version and sector count of every image of the file, which must agree (an effect has no geometry row: its
+ * span is ceil(length / 4096), at most 8 sectors); the file is refused when they do not. */
+const OCM_FX_SECTORS = 8;
+function ocmFxDesc(img, link, kind) {
+  if (img.length < 0x200 || (img.length & 3)) return null;
+  const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), lo = (link + 0x100) >>> 0, hi = (link + img.length) >>> 0;
+  const inside = (a, n) => a >= lo && a <= hi && n <= hi - a, at = (a) => a - link;
+  const u32 = (a) => dv.getUint32(at(a), true), u16 = (a) => dv.getUint16(at(a), true), s16 = (a) => dv.getInt16(at(a), true);
+  const desc = dv.getUint32(28, true);
+  if (!inside(desc, 20) || (desc & 3)) return null;
+  const n = u32(desc), id = u32(desc + 4), version = u32(desc + 8), entries = u32(desc + 12), scene = u32(desc + 16);
+  if (!n || n > 8 || !id) return null;
+  if (!inside(entries, n * 16) || (entries & 3) || (scene && (!inside(scene, 1) || (scene & 3)))) return null;
+  const seen = [];
+  for (let i = 0; i < n; i++) {
+    const e = entries + 16 * i, eid = img[at(e)], np = u16(e + 4), params = u32(e + 8);
+    if (img[at(e) + 1] !== kind || kind < 1 || kind > 3 || u16(e + 2) || u16(e + 6) || u32(e + 12) || seen.includes(eid)) return null;
+    seen.push(eid);
+    if (np > 64 || !np !== !params) return null;
+    if (!np) continue;
+    if (!inside(params, np * 16) || (params & 3)) return null;
+    let prev = -1;
+    for (let k = 0; k < np; k++) {
+      const r = params + 16 * k, pid = u16(r), mn = s16(r + 4), mx = s16(r + 6), df = s16(r + 8), label = u32(r + 12);
+      if (pid <= prev || mn > mx || df < mn || df > mx) return null;
+      prev = pid;
+      if (label) {
+        let ok = false;
+        for (let c = 0; c < 24 && inside((label + c) >>> 0, 1); c++) if (!img[at(label + c)]) { ok = true; break; }
+        if (!ok) return null;
+      }
+    }
+  }
+  return { id, version, n };
+}
+function ocmFxRead(o) {
+  if (!o.kind) return o;
+  for (const v of o.variants) {
+    const d = ocmFxDesc(v.image, (OCM_LINK0 + v.start * 4096) >>> 0, o.kind), ns = Math.ceil(v.length / 4096);
+    if (ns > OCM_FX_SECTORS) return { ok: false, key: "modWrongFile" };
+    if (!d || (o.moduleId !== undefined && (d.id !== o.moduleId || d.version !== o.fxVersion || ns !== o.fxSectors))) return { ok: false, key: "modHdrBad" };
+    o.moduleId = d.id; o.fxVersion = d.version; o.fxCount = d.n; o.fxSectors = ns;
+  }
+  return o;
+}
 function ocmImage(ocm, v) {
   const img = v.image;
   if (img.length < 0x200 || img.length & 3 || v.length !== img.length) return "modHdrBad";
   const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), w = (o) => dv.getUint32(o, true), link = (OCM_LINK0 + v.start * 4096) >>> 0;
   if (w(0) !== 0x444F4D4F || crc32(img.subarray(0, 56)) !== w(56)) return "modHdrBad";
   if (w(4) !== ocm.iface || w(8) !== ocm.apiSize || w(12) !== ocm.apiVersion || w(16) !== ocm.apiAddr || w(20) !== ocm.engine || w(24) !== ocm.stateSize ||
-      w(24) === 0 || w(24) > OCM_STATE_MAX || w(36) !== ocm.packHash || w(48) !== img.length || w(32) !== link ||
+      (w(24) === 0 && !ocm.kind) || w(24) > OCM_STATE_MAX || w(36) !== ocm.packHash || w(48) !== img.length || w(32) !== link ||
       w(28) < link + 0x100 || w(28) >= link + img.length || (w(28) & 3)) return "modHdrBad";
   if (crc32(img.subarray(0x100)) !== w(52)) return "modDamaged";
+  if (ocm.kind) {                                                       /* (Release 3 step 4) an effect module: at most 8 sectors, its descriptor, the id the file was read with */
+    const d = img.length > OCM_FX_SECTORS * 4096 ? null : ocmFxDesc(img, link, ocm.kind);
+    if (!d || d.id !== ocm.moduleId) return "modHdrBad";
+  }
   return "";
 }
 /* (0.13.4) The pack file against what the unit reports (info.buildLen, info.buildHash), checked the way the unit checks it at the end (oc_pack.c pk_image_check): this build's header
@@ -2820,6 +2874,26 @@ function packProblem(bytes, info) {
       dv.getUint32(8, true) !== info.buildHash || crc32(bytes.subarray(0, 508)) !== dv.getUint32(508, true)) return "packWrongBuild";
   if (crc32(bytes.subarray(512, info.buildLen)) !== dv.getUint32(16, true)) return "packDamaged";
   return ocmTails(bytes) ? "packTail" : "";
+}
+/* (Release 3 step 4) an effect module's file against the unit: info is MOD_INFO asked without an engine (the interface, the table, the pack hash, the start table, the starts'
+ * engines), fx is FX_INFO for the file's module id and sector count (the start the unit's planner names, the blocker, the low sectors): the checks ocmCheck makes for an engine.
+ * {ok, variant, fx: true} or {ok: false, key} */
+function fxCheck(ocm, info, fx) {
+  if (!ocm.ok) return ocm;
+  if (!ocm.kind || !ocm.moduleId) return { ok: false, key: "modWrongFile" };
+  if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
+    return { ok: false, key: "modWrongFw" };
+  const tbl = info.sectorOf || OCM_SECTOR;
+  if (fx.plan == null || !(fx.plan < tbl.length) || (fx.plan >= 12 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
+    const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;
+    return s ? { ok: false, key: "modBlocked", engine: s.engine, start: b } : { ok: false, key: "modNoFree" };
+  }
+  const v = ocm.variants.find((x) => x.start === tbl[fx.plan]);
+  if (!v) return { ok: false, key: "modNoVariant" };
+  const bad = ocmImage(ocm, v);
+  if (bad) return { ok: false, key: bad };
+  if (ocmTails(v.image)) return { ok: false, key: "modTail" };
+  return { ok: true, variant: v, fx: true };
 }
 /* the file against the unit's ED_MOD_INFO answer for the file's engine: {ok, variant} or {ok: false, key} */
 function ocmCheck(ocm, info) {
@@ -2960,6 +3034,7 @@ function ocmSwapPlan(info, engine, removed) {
 const chkError = (chk) => new Error(chk.key === "modBlocked" ? `modBlocked:${chk.engine}:${chk.start}` : chk.key);   /* (0.12.1) the refusal that names the module in the way carries its engine and start */
 async function replaceOcm(send, probe, row, ocm, ask, progress) {
   if (!ocm.ok) throw new Error(ocm.key);
+  if (ocm.kind) throw new Error("modWrongEngine");   /* (Release 3 step 4) an effect module (kind 1..3) is not an engine's: the installer page installs it by its module id (FX_BEGIN) */
   const swap = row && row.num !== ocm.engine;
   if (swap && (!row.replace || !MODULE_SLOTS.includes(ocm.engine))) throw new Error("modWrongEngine");   /* Install takes its own engine's file; a swap only where a module may go */
   let info = await probe(ocm.engine);                    /* the place the unit names for this engine, now */
@@ -2983,4 +3058,4 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
 }
 /*PROTO-END*/
 
-export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmImage, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };
+export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxDesc, ocmFxRead, ocmImage, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };

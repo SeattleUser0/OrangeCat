@@ -33,7 +33,7 @@ const NIGHTLY = {version: "v0.16.0-abcdef", product: "FM-1_900", branchName: "li
 const STANDARD = {version: "0.15.0", product: "FM-1_900", pkg: {dual: "standard.fwsc"}, pak: "orangecat-0.15.0.pak", ocm: ["orangecat-shapes-0.15.0.ocm", "orangecat-prophet-0.15.0.ocm"]};
 const META = {...STANDARD, releases: [STANDARD], nightly: NIGHTLY};
 
-function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}) {
+function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = META) {
   const elements = new Map(), pending = [], installs = [], runs = [];
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked: id === "build-dual" || id === "stage-fw" || id === "stage-pack" || id === "stage-mod", disabled: false, hidden: false,
@@ -57,13 +57,13 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}) {
       async resume() { return true; }
     },
     runSet: async (ctx) => {                              // the page's one run: the firmware first, then the pack and the module (the set logic is fm1oc.js runSet, tested in test_installer_set.mjs)
-      runs.push({stages: ctx.stages, pack: ctx.files.pack && String.fromCharCode(...ctx.files.pack), modules: ctx.files.modules.map((m) => String.fromCharCode(...m))});
+      runs.push({stages: ctx.stages, pack: ctx.files.pack && String.fromCharCode(...ctx.files.pack), modules: ctx.files.modules.map((m) => String.fromCharCode(...m)), want: ctx.files.want});
       if (ctx.stages.firmware) await ctx.runFirmware(() => {});
       return {firmware: ctx.stages.firmware ? "installed" : "off", pack: ctx.stages.pack ? "installed" : "off", module: ctx.files.modules.map(() => "installed")};
     },
     OcLink: class {},
   });
-  const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(META));
+  const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(meta));
   vm.runInContext(script, context);
   const tick = () => new Promise((r) => setImmediate(r));
   return {element, pending, installs, runs, tick, context};
@@ -140,5 +140,30 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   assert.equal(page.installs[0].loader, MELODEE_LOADER);
   assert.ok(page.installs[0].image.startsWith(pkg), kind + ": the chosen build's package");
   assert.match(page.element("status").textContent, /Pack|pack|installed/i);
+}
+// d. (Release 3 step 4) an effect module in the release list ({url, kind, module_id}): its own box, sent after the engine module with what the list says it is;
+//    a list of names only (every release so far) has the box off and sends no want; the template's box and texts
+{
+  assert.match(template, /<input type="checkbox" id="stage-fx" checked>/);
+  for (const k of ["stageFx", "fxWhy", "installFx", "unitModsTitle", "unitRead", "unitEngines", "unitFx", "fxNoTable", "fxRemove", "fxRemoveConfirm", "modManifest", "fxOldFw"])
+    assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
+  const FX = {...STANDARD, ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1}, {url: "bad.ocm", kind: 4, module_id: 2}]};
+  const page = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FX, releases: [FX]});
+  await answer(page, "standard.fwsc");
+  page.element("stage-fx").checked = true; page.element("stage-fx").listeners.change();
+  assert.equal(page.element("stage-fx").disabled, false, "the box is on when the release offers an effect module");
+  assert.match(page.element("install-what").textContent, /the SHAPES module, the effect modules \(0\.15\.0\)$/);
+  const click = page.element("go").listeners.click();
+  await page.tick();
+  await answer(page, FX.pak); await answer(page, FX.ocm[0]); await answer(page, "orangecat-dub-0.15.0.ocm");
+  await click;
+  assert.equal(JSON.stringify(page.runs[0].modules), JSON.stringify([FX.ocm[0], "orangecat-dub-0.15.0.ocm"]), "the engine module, then the effect module (a kind 4 entry is not offered)");
+  assert.equal(JSON.stringify(page.runs[0].want), JSON.stringify([null, {kind: 1, module_id: 1}]), "what the list says each module is");
+  const plain = boot(store());
+  await answer(plain, "standard.fwsc");
+  assert.equal(plain.element("stage-fx").disabled, true, "names only: no effect module offered");
+  const c2 = plain.element("go").listeners.click(); await plain.tick();
+  await answer(plain, STANDARD.pak); await answer(plain, STANDARD.ocm[0]); await c2;
+  assert.equal(plain.runs[0].want, undefined, "an engine-only run is what it was: no want");
 }
 console.log("installer page: Standard and the Nightly side by side, the choice kept, the boxes are what Install writes, a stock unit takes either in one run: passed");
