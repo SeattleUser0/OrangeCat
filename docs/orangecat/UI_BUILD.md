@@ -2287,7 +2287,7 @@ Against the body's room (`BODY_MAX` 573,440 B) the free flash is 25,176 B, and 1
 `kdef_of`, `modui_of`, `oc_mod_unreg` +300 B together); the RAM is the registry, 3 records of 180 B (the document said 330 B: it counted 112 B a record and no labels or ranges). The plan's central estimate for 7a stays counted in its column; the owner decides if the +1,000 B matters.
 The same figure for the plan's own image (562,144 B at b1997d1) is not this build's: fd159be is already 545,772 B without SHAPES.
 
-**Every place oc_module.c is touched (for the merge with your module area, flash map step 1): four, all marked "r3-pages" and none inside a function that step 1 is likely to change:**
+**Every place oc_module.c is touched (for the merge with your module area, flash map step 1): four touches in three places, all marked "r3-pages" and none inside a function that step 1 is likely to change:**
 1. after `oc_mod_pages_check` (about line 271): `#include "oc_modui.c"` (the new file) and a new function `oc_mod_ui_publish(i, h)`;
 2. `oc_mod_unreg` (about line 349): one line first, `modui_retire(e);`;
 3. `oc_mod_boot` (about line 427): one line after the registration block, `oc_mod_ui_publish(i, oc_mod_hdr_ptr(i));`.
