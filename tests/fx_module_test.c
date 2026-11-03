@@ -321,6 +321,30 @@ int main(void)
     chk("an effect module in the six low sectors is not looked at while they may hold a record part", oc_mod.state[17] == MD_EMPTY && oc_mod.nfxmod == 0);
     ocs_resv = SMP_LEGACY_MASK; oc_mod_low_rescan();
     chk("... and is registered by the rescan once they are the module area's", oc_mod.state[17] == MD_OK && oc_fx_find(0x1001u) >= 0);
+    /* ------------------------------------------------ 11. a fuzz of the descriptor: 20000 mutated, resealed images */
+    {
+        uint32_t seed = 20261102u, n_ok = 0, n_bad = 0, r;
+        int ok = 1;
+        for (r = 0; r < 20000u; r++) {
+            uint32_t k, flips = 1u + (seed = seed * 1664525u + 1013904223u) % 4u, link;
+            clean(); len = make(0, 0x1234u, 1, 1u + r % 8u, 1, 0x1000u, 0); link = oc_mod_link(0);
+            for (k = 0; k < flips; k++) {
+                seed = seed * 1664525u + 1013904223u;
+                IMG[D_DESC + (seed >> 8) % 0x340u] ^= (uint8_t)(1u << (seed % 8u));
+            }
+            fxhdr.crc = ocs_crc32(IMG + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
+            fxhdr.hcrc = ocs_crc32((const uint8_t *)&fxhdr, FW_MOD_HDR_BYTES - 4u);
+            memcpy(IMG, &fxhdr, sizeof fxhdr);
+            put(0, len); oc_mod_boot(0);
+            if (oc_mod.state[0] == MD_OK) {
+                uint32_t id = 0, ver = 0, nn = 0, base = oc_mod_flash(0);
+                oc_mod_rdctx_t c = { oc_rd_flash, &base, link };
+                ok &= fx_desc_check(oc_mod_rd, &c, fxhdr.engine_ptr, link + FW_MOD_CODE_OFF, link + len, 1, &id, &ver, &nn) == FXD_OK && oc_mod.nfxmod == 1 && engine_table_empty() && nn >= 1 && nn <= 8;
+                n_ok++;
+            } else { ok &= oc_mod.nfxmod == 0 && engine_table_empty(); n_bad++; }
+        }
+        chk("fuzz: 20000 images with 1 to 4 bit flips in the descriptor, resealed: no crash; OK only when the descriptor checks; refused ones register nothing", ok && n_ok > 100u && n_bad > 100u);
+    }
     printf(bad ? "fx modules: FAILED\n" : "fx modules: all passed\n");
     return bad != 0;
 }
