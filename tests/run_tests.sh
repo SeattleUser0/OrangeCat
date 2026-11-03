@@ -511,6 +511,14 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
         step "$E (op1r's, through the glue) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
             "$OUT/module_host_${e}_test" tests/golden_modules.txt
     done
+    # (macro2-candidate) MACRO2, the ten Plaits models MACRO lacks, as a module (docs/candidates/macro2.md): the golden lines, then the host cost table
+    $CC -c -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/module_host_macro2_tu.o" tests/module_host_macro2_tu.c || { fail "compile tests/module_host_macro2_tu.c"; return 1; }
+    $CC -O2 $FW -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_MACRO2 -o "$OUT/module_host_macro2_test" tests/module_host_cand_test.c "$OUT/module_host_macro2_tu.o" -lm ||
+        { fail "compile tests/module_host_cand_test.c (macro2)"; return 1; }
+    step "MACRO2 (the rest of Plaits) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
+        "$OUT/module_host_macro2_test" tests/golden_modules.txt
+    $CC -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/macro2_test" tests/macro2_test.c "$OUT/module_host_macro2_tu.o" -lm || { fail "compile tests/macro2_test.c"; return 1; }
+    step "MACRO2 through the voices and mixer: every model and preset sounds and frees its voice, a chord, four tracks; the host cost table" "$OUT/macro2_test"
 }
 cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
     build cand_slot_norm cand_slot_test -O1 $FW || return

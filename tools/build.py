@@ -289,6 +289,10 @@ def app_flags():
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
+    for flag in ("MACRO2_SET", "MACRO2_HOT"):          # (macro2-candidate) the MACRO2 module's size variants and its hot-set A/B (eng_macro2.c)
+        v = os.environ.get(flag)
+        if v in ("0", "1", "2"):
+            flags.append(f"-D{flag}={v}")
     if os.environ.get("P5_OVERSAMPLE") in ("1", "2"):
         flags.append("-DP5_OVERSAMPLE=" + os.environ["P5_OVERSAMPLE"])
     builtin = os.environ.get("OC_PACK_BUILTIN", "0") == "1"      # (Orange Cat 0.13.6) the A/B build: the tables in the image, no pack (oc_pack.h)
@@ -545,7 +549,10 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"]},
            "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]},
            # (Release 3 step 6) DUB TAPE as an effect module (kind 1, FX_MODULES_PLAN.md 15): no geometry row; its span is ceil(length / 4096) sectors from any start of the area's grid
-           "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1}}
+           "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1},
+           # (macro2-candidate) MACRO2, the ten Plaits models MACRO lacks (docs/candidates/macro2.md): linked for the whole 12-sector area at start 0, to
+           # measure it (the full module does not fit it: the gate's row says by how much; a cut-down variant may)
+           "macro2": {"src": "tools/module/macro2_mod.c", "sectors": 12, "starts": [0], "name": "MACRO2"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
