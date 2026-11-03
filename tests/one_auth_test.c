@@ -394,7 +394,7 @@ int main(void)
         ok = kick < RECORD_MAX && snare < RECORD_MAX && pool_count() == 2u && recording[kick].pitch == 7 && recording[snare].pitch == 0 &&
              recording[snare].vel == 127u && (t->step[3].flags & SF_RECORDED) && t->step[3].hit == 3u && auth_ok("pad pitch") && prune_noop(t);
         chk("PADS    a manual kick and snare: the kick's pitch edit converts the cell whole; both hits events, the snare's accent kept", ok);
-        drum_hit_edit(3, -8);                           /* the kick's length: a half step */
+        drum_hit_edit(3, 8);                            /* the kick's length: from natural, eight sixteenths up: a half step */
         ok = recording[kick].length && recording[kick].duration * (1u << (recording[kick].owner >> 5)) == RECORD_UNIT / 2u;
         drum_hit_edit(3, -9);                           /* below a sixteenth: the natural length */
         ok &= !recording[kick].length && recording[kick].pitch == 7;

@@ -122,7 +122,8 @@ static void notes_rebuild(track_t *t, uint32_t view)
         }
     }
     if (!count) step_delete(t, view);
-    else if (st->vel > 110u) st->flags |= SF_ACCENT;
+    else if (st->vel > 110u && !drum_track(t)) st->flags |= SF_ACCENT;   /* (the owner's rule, an edit never changes a sound you did not touch: a drum cell's accent is its lanes' (acc, above); as a
+                                                         * step flag it accented every hit of the cell, so one accented snare made the kick of the same cell play at 127) */
     else st->flags &= (uint8_t)~SF_ACCENT;
 }
 

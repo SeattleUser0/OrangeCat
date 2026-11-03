@@ -3,6 +3,7 @@
 /* Both kit controls and event edits through actual DSP/UI/project paths. */
 #define RECORDING_NO_MAIN 1
 #include "recording_test.c"
+#define HALF_STEP (OC_ONE_AUTH?8:-8)   /* the pads' length: with one authority a hit starts at its natural length and a half step is eight sixteenths up; the old model started at the cell's step */
 static void kit(uint32_t model)
 {
     midi_test_reset();set_engine_of(TSEL,ENGI_DRUM);apply_preset_to(TSEL,model==DK_909);TSEL->engine=TSEL->eng_req;panic_req=0;song.master_q12=4096;
@@ -65,14 +66,9 @@ static int edits_and_store(void)
     TSEL->step[3]=(step_t){{0},0,ST_NOTE,0,100,3,2,0};
     drum_hit_edit(2,7);uint32_t i=drum_hit_selected();recorded_note_t hit=recording[i];
     bad+=check("grid pitch edit retains the kick, snare and their velocities",i<RECORD_MAX && hit.note==36 && hit.pitch==7 && !drum_patch[0].c[D9_BD][0] && TSEL->step[3].hit==3);
-    step_history_end();step_history_finish();drum_hit_edit(3,-8);step_history_end();step_history_finish();
+    step_history_end();step_history_finish();drum_hit_edit(3,HALF_STEP);step_history_end();step_history_finish();
     bad+=check("hit length is an independent half step",recording[i].length && recording[i].duration*(1u<<(recording[i].owner>>5))==RECORD_UNIT/2);
-#if OC_ONE_AUTH
-    /* (ui-fix 7) the cell converted to events on the first edit: a converted hit carries its step's whole length (flagged), so "natural" is one step again */
-    bad+=check("hit undo restores pitch and the converted hit's step-long natural length",step_history_apply(0) && recording[i].pitch==7 && recording[i].duration*(1u<<(recording[i].owner>>5))==RECORD_UNIT);
-#else
-    bad+=check("hit undo restores pitch and natural length",step_history_apply(0) && recording[i].pitch==7 && !recording[i].length);
-#endif
+    bad+=check("hit undo restores pitch and natural length",step_history_apply(0) && recording[i].pitch==7 && !recording[i].length);   /* (the owner's rule: a converted hit keeps the natural length it had) */
     bad+=check("hit redo restores the length override",step_history_apply(1) && recording[i].length && recording[i].duration*(1u<<(recording[i].owner>>5))==RECORD_UNIT/2);
     settings_preview=1;notes_preview();audition_tick(1);
     bad+=check("hit preview retains edited pitch and duration",TSEL->v[0].note==36 && TSEL->v[0].s[4]==7 && TSEL->v[0].s[5]);audition_stop();settings_preview=0;
@@ -167,8 +163,46 @@ static int capacity_and_controls(void)
     }
     return bad;
 }
+/* The owner's rule: an edit never changes a sound you did not touch. A cell of two hits (kick and snare) is played by the sequencer and rendered; then the same cell after a
+ * one-pad edit (pitch, then length) of one lane is rendered with THAT lane's level at 0: what is left is the untouched lane, and it must be sample for sample what it was.
+ * (Before this, the cell's first pad edit converted every hit with a one-step length: the untouched snare was cut where it used to ring.) */
+#define RN 1400u                                  /* 1400 blocks of CTL: about a second, several steps, past where a one-step gate would cut a hit */
+static int16_t rnd_a[RN * CTL], rnd_b[RN * CTL];
+static void render_cell(uint32_t silent, int edit_sound, int16_t *out)
+{
+    int32_t blk[2*CTL];
+    raw_begin();song.rec=0;seq_stop();kit(DK_909);scope(SC_DRUMHIT);recording_clear(TSEL);   /* (raw_begin resets the tracks: the kit after it) */
+    TSEL->p[P_SLEN]=16;TSEL->step[0]=(step_t){{0},0,ST_NOTE,0,100,3,2,0};   /* kick + snare, the snare accented */
+    if(edit_sound>=0){
+        ui.drum_sound=(uint8_t)edit_sound;cursor_set(0);
+        drum_hit_edit(2,7);step_history_end();step_history_finish();       /* the pitch of the lane's hit: the cell converts to events */
+        drum_hit_edit(3,HALF_STEP);step_history_end();step_history_finish();       /* .. and its length, a half step */
+    }
+    drum_patch[0].c[silent][3]=127;                     /* the lane that was touched (or would be) is silent (the level field is an attenuation: 127 off): what plays is the other */
+    seq_start();seq_advance(0);
+    for(uint32_t b=0;b<RN;b++){
+        seq_advance(CTL);mix_block(blk,CTL);
+        for(uint32_t i=0;i<CTL;i++)out[b*CTL+i]=(int16_t)blk[2*i];
+    }
+    seq_stop();
+}
+static int untouched_lanes(void)
+{
+    int bad=0;
+    static const uint32_t lane[2]={D9_BD,D9_SD};
+    for(uint32_t k=0;k<2;k++){
+        int16_t peak=0;
+        render_cell(lane[k],-1,rnd_a);                  /* before: the cell as it is, the touched lane silent */
+        render_cell(lane[k],(int)lane[k],rnd_b);        /* after: a one-pad edit of that lane, the same lane silent */
+        for(uint32_t i=0;i<RN*CTL;i++)if(rnd_a[i]>peak)peak=rnd_a[i];
+        bad+=check(k?"the untouched kick sounds, and rings exactly as it did after the snare's pad edit":"the untouched snare sounds, and rings exactly as it did after the kick's pad edit",peak>200);
+        bad+=check(k?"RULE: a one-pad edit of the snare leaves the kick sample for sample (rendered before and after)":"RULE: a one-pad edit of the kick leaves the snare sample for sample (rendered before and after)",
+                   !memcmp(rnd_a,rnd_b,sizeof rnd_a));
+    }
+    return bad;
+}
 int main(void)
 {
-    int bad=voices909()+controls()+edits_and_store()+capacity_and_controls()+order_and_lanes()+corners909();
+    int bad=voices909()+controls()+edits_and_store()+capacity_and_controls()+order_and_lanes()+corners909()+untouched_lanes();
     printf("DRUM EDITOR: %s\n",bad?"FAILED":"all passed");return bad!=0;
 }
