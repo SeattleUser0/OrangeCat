@@ -329,10 +329,10 @@ static uint32_t voice_fade_eighths(uint32_t c)
 {
     return (c == VC_MODAL ? VC_FADE_N : CTL) * VC_ONE / 128u;
 }
-static int dub_running(void);                            /* (Release 2) jfx_dub.c: an instance runs */
+static int fx_ins_running(void);                         /* (Release 2) fx_insert.c: an insert instance runs */
 static uint32_t vc_limit(uint32_t c)
 {
-    uint32_t k = dub_running() ? 2u : voice_fx_on ? 1u : 0u;   /* (Release 2) the third column: a DUB TAPE instance runs (its cost is in the halves' time that engages the caps; the cap leaves its share) */
+    uint32_t k = fx_ins_running() ? 2u : voice_fx_on ? 1u : 0u;   /* (Release 2) the third column: a DUB TAPE instance runs (its cost is in the halves' time that engages the caps; the cap leaves its share) */
     return vc_cap[c][k] ? vc_cap[c][k] : VC_CAP[c][k];
 }
 /* room under the cap for one more voice of t (an extra UNISON voice: soft, nothing taken). 1: room (*own, when own is given: one of

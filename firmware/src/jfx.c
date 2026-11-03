@@ -47,7 +47,7 @@
  * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.6.0: first version (Jiant 0.9.18's effects).
  */
-#include "dubdelay.h"                                  /* (Release 2) dd_t, for the size of an instance's state */
+#include "fx_insert.h"                                 /* (Release 3 step 5) the insert host's vocabulary (fx_kernel_t, fx_ins_t; it includes dubdelay.h: dd_params_t for the size of the snapshot) */
 #define JFX_XIP __attribute__((section(".text.xip_jfx"), noinline))
 
 /* ------------------------------------------------------------------ memory --- */
@@ -76,23 +76,19 @@ typedef struct {
 _Static_assert(RPRE_LEN == JFX_SEG && SH_LEN == JFX_SEG && (RX_NSEG & (RX_NSEG - 1u)) == 0u,
                "the model line: the pre-delay and SHIMMER in its first block");
 #define SL_FR 8192u                                     /* the SLICER's recording: stereo frames (32 KB) */
-/* (Release 2) DUB TAPE's lines, in the same 4 KB blocks (design 3, BUILD.md): a state handle and a spring handle for each of the four tracks, and a pool of
+/* (Release 2, generic since Release 3 step 5) the insert instances' lines, in the same 4 KB blocks (design 3, BUILD.md): a state handle and an option handle (the spring) for each of the four tracks, and a pool of
  * blocks the four share, an instance's line being the blocks it holds (any number from 1 to 16, in a ring of that many; nothing says they are side by side),
- * so a line can sit in the main bank, the cache bank and the card's lent slots as the delay's does. */
-#define DUB_N 4u                                        /* instances: one a track */
-#define DUB_NSEG 24u                                    /* the pool: 96 KB of blocks, shared (four lines of 24K, or one of 64K and two of 16K) */
-#define DUB_MAXSEG 16u                                  /* one line: 64 KB */
-#define DUB_STATE_BYTES ((uint32_t)((sizeof(dd_t) + 3u) & ~3u))   /* dd_t on the target (the review's 32-bit size, not the host's), rounded */
-#define DUB_SPRING_BYTES 5632u                          /* the spring's rings (DD_SP_BUF int16) */
+ * so a line can sit in the main bank, the cache bank and the card's lent slots as the delay's does. The state's and the option's sizes are the kernel's capability words
+ * (fx_kernel_t.ram_state, ram_extra_bytes: fx_insert.h); FX_INS_N, FX_INS_NSEG and FX_INS_MAXSEG are the host's. */
 /* what only a running instance needs (the job's parameter copies, the capture pair, the wet, the batch's sink) is one arena block, taken with the first instance and given back with the
- * last: DUB unused costs the build its code and a few hundred bytes, not these 3 KB */
-typedef struct { dd_params_t p[DUB_N]; int32_t x[2][DUB_N][32]; float wet[DUB_N][2][32]; int32_t sink[32];
-                 uint8_t pool[DUB_N][DUB_MAXSEG]; int16_t *line[DUB_N][DUB_MAXSEG]; } dub_common_t;   /* .. and each line block's pool slot and pointer */
-static dub_common_t *dub_cm;                            /* 0: no instance holds it */
-#define dub_pool (dub_cm->pool)
-#define dub_line (dub_cm->line)
-enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_DUBS0 = JB_RX0 + RX_NSEG, JB_DUBP0 = JB_DUBS0 + DUB_N,
-       JB_DUBG0 = JB_DUBP0 + DUB_N, JB_DUBC = JB_DUBG0 + DUB_NSEG, JB_N = JB_DUBC + 1 };
+ * last: an insert unused costs the build its code and a few hundred bytes, not these 3 KB */
+typedef struct { uint32_t p[FX_INS_N][FX_PARAM_BYTES / 4u]; int32_t x[2][FX_INS_N][32]; float wet[FX_INS_N][2][32]; int32_t sink[32];
+                 uint8_t pool[FX_INS_N][FX_INS_MAXSEG]; int16_t *line[FX_INS_N][FX_INS_MAXSEG]; } fx_common_t;   /* .. and each line block's pool slot and pointer */
+static fx_common_t *fx_cm;                            /* 0: no instance holds it */
+#define fx_pool (fx_cm->pool)
+#define fx_line (fx_cm->line)
+enum { JB_REV, JB_CHO, JB_SL, JB_DLY0, JB_RX0 = JB_DLY0 + DLY_NSEG, JB_INSS0 = JB_RX0 + RX_NSEG, JB_INSP0 = JB_INSS0 + FX_INS_N,
+       JB_INSG0 = JB_INSP0 + FX_INS_N, JB_INSC = JB_INSG0 + FX_INS_NSEG, JB_N = JB_INSC + 1 };
 _Static_assert(JB_N == RES_JFX_N, "resources.c: an arena handle a block");
 /* the arena's blocks now (0: not held); CPU0 sets them before a job, the job reads them */
 static int16_t *dly_seg[DLY_NSEG], *rx_seg[RX_NSEG], *cho_buf;
@@ -102,17 +98,17 @@ static uint16_t dly_shrink;                             /* .. the blocks the nee
 static uint32_t dly_gen;                                /* .. resource_gen + 1 when a grow was refused: asked again only after something was released */
 #define DLY_STEP 4u
 #define DLY_SHRINK 4134u                                /* 3 s of blocks (44,100 / CTL) */
-static __attribute__((section(".pool"))) uint8_t dub_want[DUB_N], dub_spring[DUB_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
+static __attribute__((section(".pool"))) uint8_t fx_ins_want[FX_INS_N], fx_ins_spring[FX_INS_N];      /* (Release 2) the blocks each instance wants (0: off) and whether it wants the spring: CPU0 sets
                                                          * them before jfx_mem, from the tracks */
-static __attribute__((section(".pool"))) uint8_t dub_held_sp[DUB_N];                      /* the spring the held memory was taken for */
-static __attribute__((section(".pool"))) uint16_t dub_sig[DUB_N];
-static __attribute__((section(".pool"))) uint32_t dub_gen[DUB_N];         /* .. and the want (blocks, spring) it was short for: a new want asks again */
-static __attribute__((section(".pool"))) uint8_t dub_have[DUB_N], dub_held[DUB_N], dub_idle[DUB_N], dub_fresh[DUB_N], dub_ready[DUB_N];   /* blocks held; the want they were taken for; blocks idle;
+static __attribute__((section(".pool"))) uint8_t fx_ins_held_sp[FX_INS_N];                      /* the spring the held memory was taken for */
+static __attribute__((section(".pool"))) uint16_t fx_ins_sig[FX_INS_N];
+static __attribute__((section(".pool"))) uint32_t fx_ins_gen[FX_INS_N];         /* .. and the want (blocks, spring) it was short for: a new want asks again */
+static __attribute__((section(".pool"))) uint8_t fx_ins_have[FX_INS_N], fx_ins_held[FX_INS_N], fx_ins_idle[FX_INS_N], fx_ins_fresh[FX_INS_N], fx_ins_ready[FX_INS_N];   /* blocks held; the want they were taken for; blocks idle;
                                                          * a line to set up; the memory complete */
-static __attribute__((section(".pool"))) uint8_t dub_nomem, dub_full_now;                 /* the arena was short for an instance this block; the DUB FULL bits this block */
-static __attribute__((section(".pool"))) int16_t *dub_spbuf[DUB_N];
-static __attribute__((section(".pool"))) uint32_t dub_spgen[DUB_N];                      /* (round 13) the generation a spring tank was refused at: asked again only after something is released */
-static void *dub_state[DUB_N] __attribute__((section(".pool")));
+static __attribute__((section(".pool"))) uint8_t fx_ins_nomem, fx_ins_full_now;                 /* the arena was short for an instance this block; the DUB FULL bits this block */
+static __attribute__((section(".pool"))) int16_t *fx_ins_spbuf[FX_INS_N];
+static __attribute__((section(".pool"))) uint32_t fx_ins_spgen[FX_INS_N];                      /* (round 13) the generation a spring tank was refused at: asked again only after something is released */
+static void *fx_ins_state[FX_INS_N] __attribute__((section(".pool")));
 #define jrev_x rx_seg[0]                                /* the model line's first block (the pre-delay, SHIMMER) */
 static uint32_t jfx_grow, jfx_wait;                     /* (0.6.0 rev 2) new blocks taken this block; blocks to wait
                                                          * before more (jfx_mem) */
@@ -125,7 +121,7 @@ static volatile uint8_t jfx_full;                       /* a bit a bus (1 chorus
 #define JFX_FULL_DLY 2u
 #define JFX_FULL_REV 4u
 #define JFX_FULL_SL 8u
-#define JFX_FULL_DUB0 0x10u                             /* (Release 2) 0x10 .. 0x80: DUB TAPE on track 1 .. 4 wanted memory and had none (DUB FULL) */
+#define JFX_FULL_INS0 0x10u                             /* (Release 2) 0x10 .. 0x80: DUB TAPE on track 1 .. 4 wanted memory and had none (DUB FULL) */
 
 /* (Melodee's fx.c, kept: mix.c and card_freeze.c scale with them) a * k / 65536 (k Q16) without 64 bits; x / 2^shift
  * as C's division rounds */
@@ -2035,40 +2031,39 @@ static void jfx_free_rx(uint32_t from)                  /* the model line's bloc
     if (rx_have > from) rx_have = (uint8_t)from;
 }
 /* a pool slot held by an instance (the common block's tables say which) */
-JFX_XIP static int dub_slot_used(uint32_t g)
+JFX_XIP static int fx_ins_slot_used(uint32_t g)
 {
-    for (uint32_t i = 0; i < DUB_N; i++)
-        for (uint32_t j = 0; j < dub_have[i]; j++)
-            if (dub_pool[i][j] == g) return 1;
+    for (uint32_t i = 0; i < FX_INS_N; i++)
+        for (uint32_t j = 0; j < fx_ins_have[i]; j++)
+            if (fx_pool[i][j] == g) return 1;
     return 0;
 }
 /* (round 13) the pool segments instance k could hold: the ones it has and the free ones (jfx_dub.c asks before it grows a running line) */
-JFX_XIP static uint32_t dub_pool_room(uint32_t k)
+JFX_XIP static uint32_t fx_ins_pool_room(uint32_t k)
 {
-    uint32_t g, n = dub_have[k];
-    for (g = 0; g < DUB_NSEG; g++) if (!dub_slot_used(g)) n++;
+    uint32_t g, n = fx_ins_have[k];
+    for (g = 0; g < FX_INS_NSEG; g++) if (!fx_ins_slot_used(g)) n++;
     return n;
 }
 /* (Release 2) one DUB instance's memory back: its state, its spring and every block of its line (the pool slots free again) */
-JFX_XIP static void jfx_free_dub(uint32_t i)
+JFX_XIP static void jfx_free_ins(uint32_t i)
 {
-    for (uint32_t j = 0; j < dub_have[i]; j++) {
-        resource_release(RES_JFX0 + JB_DUBG0 + dub_pool[i][j]);
-        dub_line[i][j] = 0;
+    for (uint32_t j = 0; j < fx_ins_have[i]; j++) {
+        resource_release(RES_JFX0 + JB_INSG0 + fx_pool[i][j]);
+        fx_line[i][j] = 0;
     }
-    resource_release(RES_JFX0 + JB_DUBS0 + i);
-    resource_release(RES_JFX0 + JB_DUBP0 + i);
-    dub_have[i] = dub_held[i] = dub_idle[i] = dub_fresh[i] = dub_ready[i] = 0;
-    dub_state[i] = 0;
-    dub_spbuf[i] = 0;
+    resource_release(RES_JFX0 + JB_INSS0 + i);
+    resource_release(RES_JFX0 + JB_INSP0 + i);
+    fx_ins_have[i] = fx_ins_held[i] = fx_ins_idle[i] = fx_ins_fresh[i] = fx_ins_ready[i] = 0;
+    fx_ins_state[i] = 0;
+    fx_ins_spbuf[i] = 0;
 }
-static void dub_reset(void);                            /* (Release 2) jfx_dub.c */
-static void dub_tables(void);
-JFX_XIP static void jfx_free_dubs(void)
+static void fx_ins_reset(void);                         /* fx_insert.c */
+JFX_XIP static void jfx_free_ins_all(void)
 {
-    for (uint32_t i = 0; i < DUB_N; i++) jfx_free_dub(i);
-    resource_release(RES_JFX0 + JB_DUBC);
-    dub_cm = 0;
+    for (uint32_t i = 0; i < FX_INS_N; i++) jfx_free_ins(i);
+    resource_release(RES_JFX0 + JB_INSC);
+    fx_cm = 0;
 }
 static void jfx_free_buses(void)
 {
@@ -2114,89 +2109,89 @@ static void jfx_sl_lost(void)
     perf_buf_lost();
     if (!jfx_wait) jfx_wait = 1;
 }
-/* (Release 2) DUB's instances, each block after the buses: an instance holds its state, its spring when it wants one, and `dub_want` blocks of its line, or nothing (all or none: one that
- * cannot finish gives back what it holds, so the others can; the same JFX_GROW, JFX_RETRY and JFX_YIELD rules as the buses'). The instances share one common block (dub_cm).
+/* (Release 2) DUB's instances, each block after the buses: an instance holds its state, its spring when it wants one, and `fx_ins_want` blocks of its line, or nothing (all or none: one that
+ * cannot finish gives back what it holds, so the others can; the same JFX_GROW, JFX_RETRY and JFX_YIELD rules as the buses'). The instances share one common block (fx_cm).
  * **The buses come first** (the owner, October 29): a bus that is on keeps its memory. When a bus wants memory and is short (bus_short) and an instance holds some, the highest
- * holder is asked to give way (dub_evict: jfx_dub.c ramps it out, then frees it) and no instance takes memory (dub_blocked) until the buses are satisfied; if the bus is short with
- * nothing of DUB's held, it would not fit anyway (CLOUD beside four MACRO tracks): dub_bus_bad lets DUB take what is left and nothing more is evicted for it. A change of an
- * instance's want (LEN, the rate stage's blocks) gives the memory back and takes it again: the line starts from silence (dub_fresh). Returns the DUB FULL bits. */
-static uint32_t dub_cm_gen;                              /* resource_gen + 1 when the common block could not be had */
-static __attribute__((section(".pool"))) uint8_t dub_blocked, dub_bus_bad, dub_evict;      /* dub_evict: bit i, jfx_dub.c ramps instance i out and frees it; dub_ev_full: the instances held off by jfx_dub.c (DUB FULL bits) */
-static __attribute__((section(".pool"))) uint8_t dub_ev_full;
-JFX_XIP static uint8_t jfx_dub_mem(uint32_t bus_fail, uint32_t bus_short)
+ * holder is asked to give way (fx_ins_evict: jfx_dub.c ramps it out, then frees it) and no instance takes memory (fx_ins_blocked) until the buses are satisfied; if the bus is short with
+ * nothing of DUB's held, it would not fit anyway (CLOUD beside four MACRO tracks): fx_ins_bus_bad lets DUB take what is left and nothing more is evicted for it. A change of an
+ * instance's want (LEN, the rate stage's blocks) gives the memory back and takes it again: the line starts from silence (fx_ins_fresh). Returns the DUB FULL bits. */
+static uint32_t fx_ins_cm_gen;                              /* resource_gen + 1 when the common block could not be had */
+static __attribute__((section(".pool"))) uint8_t fx_ins_blocked, fx_ins_bus_bad, fx_ins_evict;      /* fx_ins_evict: bit i, jfx_dub.c ramps instance i out and frees it; fx_ins_ev_full: the instances held off by jfx_dub.c (DUB FULL bits) */
+static __attribute__((section(".pool"))) uint8_t fx_ins_ev_full;
+JFX_XIP static uint8_t jfx_ins_mem(uint32_t bus_fail, uint32_t bus_short)
 {
     uint8_t full = 0;
     uint32_t any_want = 0, any_state = 0, i;
-    dub_nomem = 0;
+    fx_ins_nomem = 0;
     if (bus_fail) {                                     /* a bus asked for memory this block and the arena had none (not the retry wait after it): one holder gives way */
-        uint32_t holder = DUB_N;
-        for (i = DUB_N; i-- > 0;) if (dub_state[i] && !(dub_evict & (1u << i))) { holder = i; break; }
-        if (holder < DUB_N && !dub_bus_bad) { dub_evict |= (uint8_t)(1u << holder); dub_blocked = 1; }
-        else if (holder == DUB_N && !dub_evict) { dub_bus_bad = 1; dub_blocked = 0; }       /* nothing of DUB's held (or being let go) and the bus is still short: it would not fit anyway */
+        uint32_t holder = FX_INS_N;
+        for (i = FX_INS_N; i-- > 0;) if (fx_ins_state[i] && !(fx_ins_evict & (1u << i))) { holder = i; break; }
+        if (holder < FX_INS_N && !fx_ins_bus_bad) { fx_ins_evict |= (uint8_t)(1u << holder); fx_ins_blocked = 1; }
+        else if (holder == FX_INS_N && !fx_ins_evict) { fx_ins_bus_bad = 1; fx_ins_blocked = 0; }       /* nothing of DUB's held (or being let go) and the bus is still short: it would not fit anyway */
     }
-    if (!bus_short) dub_blocked = dub_bus_bad = 0;
-    for (i = 0; i < DUB_N; i++) any_want |= dub_want[i];
-    if (any_want && !dub_cm && !dub_blocked && dub_cm_gen != resource_gen + 1u) {
+    if (!bus_short) fx_ins_blocked = fx_ins_bus_bad = 0;
+    for (i = 0; i < FX_INS_N; i++) any_want |= fx_ins_want[i];
+    if (any_want && !fx_cm && !fx_ins_blocked && fx_ins_cm_gen != resource_gen + 1u) {
         uint8_t nm_c = 0;
         uint32_t gen0 = resource_gen;
-        dub_cm = jfx_take(JB_DUBC, sizeof *dub_cm, &nm_c);
-        if (!dub_cm && nm_c) dub_cm_gen = gen0 + 1u;     /* short: asks again only when something is released */
+        fx_cm = jfx_take(JB_INSC, sizeof *fx_cm, &nm_c);
+        if (!fx_cm && nm_c) fx_ins_cm_gen = gen0 + 1u;     /* short: asks again only when something is released */
     }
-    if (any_want && !dub_cm) { for (i = 0; i < DUB_N; i++) if (dub_want[i]) full |= (uint8_t)(JFX_FULL_DUB0 << i); }
-    for (i = 0; i < DUB_N; i++) {
-        uint32_t w = dub_want[i], g, gen0, sig = (uint32_t)dub_want[i] | (uint32_t)(dub_spring[i] != 0) << 8;
+    if (any_want && !fx_cm) { for (i = 0; i < FX_INS_N; i++) if (fx_ins_want[i]) full |= (uint8_t)(JFX_FULL_INS0 << i); }
+    for (i = 0; i < FX_INS_N; i++) {
+        uint32_t w = fx_ins_want[i], g, gen0, sig = (uint32_t)fx_ins_want[i] | (uint32_t)(fx_ins_spring[i] != 0) << 8;
         uint8_t nm = 0;
-        if (dub_state[i] && (dub_held[i] != w || dub_held_sp[i] != (dub_spring[i] != 0))) jfx_free_dub(i);   /* (jfx_dub.c changes a want only after its ramp) */
+        if (fx_ins_state[i] && (fx_ins_held[i] != w || fx_ins_held_sp[i] != (fx_ins_spring[i] != 0))) jfx_free_ins(i);   /* (jfx_dub.c changes a want only after its ramp) */
         if (!w) {
-            if (dub_state[i]) jfx_free_dub(i);          /* LEN OFF: jfx_dub.c has ramped the wet out before it set the want to 0 */
+            if (fx_ins_state[i]) jfx_free_ins(i);          /* LEN OFF: jfx_dub.c has ramped the wet out before it set the want to 0 */
             continue;
         }
-        dub_idle[i] = 0;
-        if (!dub_cm || (dub_blocked && !dub_state[i])) { full |= (uint8_t)(JFX_FULL_DUB0 << i); continue; }   /* (a bus needs the memory, or the common block is not there) */
-        if (!dub_state[i] && dub_gen[i] == resource_gen + 1u && dub_sig[i] == sig) { full |= (uint8_t)(JFX_FULL_DUB0 << i); continue; }   /* (short, and nothing released since: no retry, no spike) */
-        if (!dub_spring[i] && dub_spbuf[i]) {
-            resource_release(RES_JFX0 + JB_DUBP0 + i);
-            dub_spbuf[i] = 0;
+        fx_ins_idle[i] = 0;
+        if (!fx_cm || (fx_ins_blocked && !fx_ins_state[i])) { full |= (uint8_t)(JFX_FULL_INS0 << i); continue; }   /* (a bus needs the memory, or the common block is not there) */
+        if (!fx_ins_state[i] && fx_ins_gen[i] == resource_gen + 1u && fx_ins_sig[i] == sig) { full |= (uint8_t)(JFX_FULL_INS0 << i); continue; }   /* (short, and nothing released since: no retry, no spike) */
+        if (!fx_ins_spring[i] && fx_ins_spbuf[i]) {
+            resource_release(RES_JFX0 + JB_INSP0 + i);
+            fx_ins_spbuf[i] = 0;
         }
         gen0 = resource_gen;                            /* (after this block's own releases: they are real ones) */
-        if (!dub_state[i]) dub_state[i] = jfx_take(JB_DUBS0 + i, DUB_STATE_BYTES, &nm);
-        if (dub_state[i]) { dub_held[i] = (uint8_t)w; dub_held_sp[i] = (uint8_t)(dub_spring[i] != 0); }
-        while (dub_state[i] && !nm && dub_have[i] < w) {
-            for (g = 0; g < DUB_NSEG && dub_slot_used(g); g++)
+        if (!fx_ins_state[i]) fx_ins_state[i] = jfx_take(JB_INSS0 + i, fx_kernel_of(i)->ram_state, &nm);
+        if (fx_ins_state[i]) { fx_ins_held[i] = (uint8_t)w; fx_ins_held_sp[i] = (uint8_t)(fx_ins_spring[i] != 0); }
+        while (fx_ins_state[i] && !nm && fx_ins_have[i] < w) {
+            for (g = 0; g < FX_INS_NSEG && fx_ins_slot_used(g); g++)
                 ;
-            if (g == DUB_NSEG) {                        /* (the pool's 32 blocks are all in use by the others) */
+            if (g == FX_INS_NSEG) {                        /* (the pool's 32 blocks are all in use by the others) */
                 nm = 1;
                 break;
             }
-            int16_t *p = jfx_take(JB_DUBG0 + g, JFX_SEG * sizeof(int16_t), &nm);
+            int16_t *p = jfx_take(JB_INSG0 + g, JFX_SEG * sizeof(int16_t), &nm);
             if (!p) break;
-            dub_pool[i][dub_have[i]] = (uint8_t)g;
-            dub_line[i][dub_have[i]++] = p;
+            fx_pool[i][fx_ins_have[i]] = (uint8_t)g;
+            fx_line[i][fx_ins_have[i]++] = p;
         }
-        if (!nm && dub_state[i] && dub_have[i] == w && dub_spring[i] && !dub_spbuf[i] && dub_spgen[i] != resource_gen + 1u) {   /* (round 13) the spring's tank is optional: SPRING plays without it when the arena has no 6 KB left, and asks again only when something is released */
+        if (!nm && fx_ins_state[i] && fx_ins_have[i] == w && fx_ins_spring[i] && !fx_ins_spbuf[i] && fx_ins_spgen[i] != resource_gen + 1u) {   /* (round 13) the spring's tank is optional: SPRING plays without it when the arena has no 6 KB left, and asks again only when something is released */
             uint8_t nm2 = 0;
             uint32_t gen2 = resource_gen;
-            dub_spbuf[i] = jfx_take(JB_DUBP0 + i, DUB_SPRING_BYTES, &nm2);
-            if (!dub_spbuf[i]) { resource_gen = gen2; dub_spgen[i] = gen2 + 1u; }
+            fx_ins_spbuf[i] = jfx_take(JB_INSP0 + i, fx_kernel_of(i)->ram_extra_bytes, &nm2);
+            if (!fx_ins_spbuf[i]) { resource_gen = gen2; fx_ins_spgen[i] = gen2 + 1u; }
         }
         if (nm) {
-            jfx_free_dub(i);                            /* (all or none: a part given back) */
+            jfx_free_ins(i);                            /* (all or none: a part given back) */
             resource_gen = gen0;                        /* (the attempt left the arena as it was: it is no release to the others) */
-            dub_gen[i] = gen0 + 1u;
-            dub_sig[i] = sig;
-            dub_nomem = 1;
-        } else if (dub_state[i] && dub_have[i] == w) {
-            if (!dub_ready[i]) dub_fresh[i] = 1;        /* complete now: set up as new */
-            dub_ready[i] = 1;
+            fx_ins_gen[i] = gen0 + 1u;
+            fx_ins_sig[i] = sig;
+            fx_ins_nomem = 1;
+        } else if (fx_ins_state[i] && fx_ins_have[i] == w) {
+            if (!fx_ins_ready[i]) fx_ins_fresh[i] = 1;        /* complete now: set up as new */
+            fx_ins_ready[i] = 1;
             continue;
         }
-        dub_ready[i] = 0;
-        if (nm || jfx_wait) full |= (uint8_t)(JFX_FULL_DUB0 << i);
+        fx_ins_ready[i] = 0;
+        if (nm || jfx_wait) full |= (uint8_t)(JFX_FULL_INS0 << i);
     }
-    for (i = 0; i < DUB_N; i++) any_state |= dub_state[i] != 0;
-    if (!any_want && !any_state && dub_cm) {            /* the last instance is off: the common block goes back */
-        resource_release(RES_JFX0 + JB_DUBC);
-        dub_cm = 0;
+    for (i = 0; i < FX_INS_N; i++) any_state |= fx_ins_state[i] != 0;
+    if (!any_want && !any_state && fx_cm) {            /* the last instance is off: the common block goes back */
+        resource_release(RES_JFX0 + JB_INSC);
+        fx_cm = 0;
     }
     return full;
 }
@@ -2278,7 +2273,7 @@ static void jfx_mem(void)
             dly_have = dly_want;
         }
     }
-    dub_full_now = (uint8_t)(jfx_dub_mem((uint32_t)(nm_r || nm_c || nm_d), (uint32_t)(full & 7u)) | dub_ev_full);                       /* (the instances' own state each block: not held, not accumulated with the buses' FX FULL) */
+    fx_ins_full_now = (uint8_t)(jfx_ins_mem((uint32_t)(nm_r || nm_c || nm_d), (uint32_t)(full & 7u)) | fx_ins_ev_full);                       /* (the instances' own state each block: not held, not accumulated with the buses' FX FULL) */
     if (jfx_wait) jfx_wait--;
     if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;           /* (DUB TAPE does not: a short instance asks again only when something was released) */
     if (full) {                                         /* (0.6.0 rev 2) FX FULL held on screen a second past the
@@ -2289,19 +2284,19 @@ static void jfx_mem(void)
     } else if (jfx_full_hold && !--jfx_full_hold) {
         jfx_full_acc = 0;
     }
-    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | (jfx_full_acc & 0x0Fu) | dub_full_now);
+    jfx_full = (uint8_t)((jfx_full & JFX_FULL_SL) | (jfx_full_acc & 0x0Fu) | fx_ins_full_now);
 }
 /* (Release 2) the lend check for DUB: the common block, or any block of an instance, in a slot the card takes back: that instance, from silence later (all of them for the common block) */
-JFX_XIP static void jfx_dub_lend(uint32_t back)
+JFX_XIP static void jfx_ins_lend(uint32_t back)
 {
-    if (dub_cm && (resource_lent(RES_JFX0 + JB_DUBC) & back)) {
-        jfx_free_dubs();
+    if (fx_cm && (resource_lent(RES_JFX0 + JB_INSC) & back)) {
+        jfx_free_ins_all();
         return;
     }
-    for (uint32_t i = 0; i < DUB_N; i++) {
-        uint32_t m = resource_lent(RES_JFX0 + JB_DUBS0 + i) | resource_lent(RES_JFX0 + JB_DUBP0 + i);
-        for (uint32_t j = 0; j < dub_have[i]; j++) m |= resource_lent(RES_JFX0 + JB_DUBG0 + dub_pool[i][j]);
-        if (m & back) jfx_free_dub(i);
+    for (uint32_t i = 0; i < FX_INS_N; i++) {
+        uint32_t m = resource_lent(RES_JFX0 + JB_INSS0 + i) | resource_lent(RES_JFX0 + JB_INSP0 + i);
+        for (uint32_t j = 0; j < fx_ins_have[i]; j++) m |= resource_lent(RES_JFX0 + JB_INSG0 + fx_pool[i][j]);
+        if (m & back) jfx_free_ins(i);
     }
 }
 /* (0.6.0 rev 2) mix.c, each block first (CPU0, no bus job outstanding): an engine short of memory while the effects
@@ -2314,7 +2309,7 @@ static void jfx_lend_check(void)
         jfx_bus_drain();                                /* (the buses' memory: only with no job out) */
         res_jfx_yield = 0;
         jfx_free_buses();
-        jfx_free_dubs();                                /* (Release 2) an engine first: DUB's lines too */
+        jfx_free_ins_all();                                /* (Release 2) an engine first: DUB's lines too */
         if (sl_buf) jfx_sl_lost();
         jfx_wait = JFX_YIELD;
         jfx_full_acc |= jfx_sends & 7u;                 /* (what was playing: FX FULL a while) */
@@ -2340,7 +2335,7 @@ static void jfx_lend_check(void)
             jfx_free_rx(0);
             rev_state_clear();
         }
-        jfx_dub_lend(back);                             /* (Release 2) DUB's instances with a block in a slot taken back */
+        jfx_ins_lend(back);                             /* (Release 2) DUB's instances with a block in a slot taken back */
         if (resource_lent(RES_JFX0 + JB_CHO) & back) {
             resource_release(RES_JFX0 + JB_CHO);
             cho_buf = 0;
@@ -2496,7 +2491,7 @@ static void jfx_reset_now(void)
 {
     jfx_reset_req = 0;
     jfx_bus_drain();                                    /* (no job out) */
-    jfx_free_dubs();                                    /* (Release 2) a new project: DUB's lines from silence (the instances start again from their tracks' LEN) */
+    jfx_free_ins_all();                                    /* (Release 2) a new project: DUB's lines from silence (the instances start again from their tracks' LEN) */
     memset(fx_ret, 0, sizeof fx_ret);                   /* (both sets of returns: the next master plays none of the old) */
     fx_bus_clear();
     memset(dist_st, 0, sizeof dist_st);
@@ -2510,9 +2505,8 @@ static void jfx_power_on(void)
 {
     jfx_bus_drain();
     jfx_free_buses();
-    jfx_free_dubs();
-    dub_reset();
-    dub_tables();
+    jfx_free_ins_all();
+    fx_ins_reset();
     resource_release(RES_JFX0 + JB_SL);
     sl_buf = 0;
     jfx_full = jfx_full_acc = 0;
