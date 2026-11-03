@@ -209,6 +209,10 @@ core() { [ "$SOUND" != only ]; }
 sound() { [ "$SOUND" != 0 ]; }
 
 # ----------------------------------------------------------- multi-step jobs ---
+fx_insert_job() {                                 # (Release 3 step 5) the generic insert host: DUB's output and behaviour against the tree before the cut, sample for sample
+    echo "== the generic insert host with DUB TAPE's kernel across the cut (Release 3 step 5): the probe against the tree of 09d4d4b3 and against the pinned printout, sample for sample"
+    CC="$CC" BS="$BS" limited sh tests/fx_insert_diff.sh "$OUT/fx_insert" || fail "tests/fx_insert_diff.sh"
+}
 oc_scene_job() {                                  # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) HOME's scenes
     echo "== new interface 1b: the pack with and without its scene trailer (tools/gen_pack.py --scenes)"
     python3 tools/gen_pack.py --pak "$OUT/oc_scene_without.pak" --header "$OUT/oc_scene_without.h" &&
@@ -507,6 +511,7 @@ core && t "audio with the buses deferred (Release 2): overload protection" audio
 core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which buses hold with which engines, the cache RAM and the card's slots" jfx_arena_test -O1 $FW
 sound && t "DUB TAPE's kernel (Release 2): the repeats at TIME, each darker; FEEDBACK 1.27 bounded; the line through its block table; TIME and filter changes continuous; the cut; the spring in both placements; the quarter rate" jfx_dub_test -O1 -ffp-contract=off -Wno-unused-function
 sound && t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
+sound && job fx_insert_job
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
 # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) OC_HOME_PIC=1: the install path takes the pack with HOME's scene trailer
