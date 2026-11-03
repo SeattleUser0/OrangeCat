@@ -619,15 +619,16 @@ def gen_define(name, file="fw_api_id.h"):
     return int(m.group(1), 0) if m else None
 
 
-def module_reloc(name, obj, mdir, ldtext, variants, lo, cost):
+def module_reloc(name, obj, mdir, ldtext, variants, lo, cost, patch=None):
     """(0.14.1) the module linked at 0 with its relocations kept, the header filled as a variant's (cost, length, CRCs), its relocation list
     (tools/module_relocs.py), and the proof: the list applied for each start, the header filled, is that start's variant byte for byte.
-    ((image, list words, count by type, left out), None) or (None, why)."""
+    ((image, list words, count by type, left out), None) or (None, why). obj: one object or a list (model picker); patch(img): the header
+    page's other fields (the picker's state_size and pick block), before the CRCs."""
     import module_relocs
     text, base = ldtext
     ld0, elf0, bin0 = mdir / f"{name}.r0.ld", mdir / f"{name}.r0.elf", mdir / f"{name}.r0.bin"
     ld0.write_text(text.replace(f"ORIGIN = {base:#x}", "ORIGIN = 0x0"))
-    tc("pi32v2/bin/ld", "-q", "--gc-sections", "-e", "_modstart", "-T", ld0, obj, "-o", elf0)
+    tc("pi32v2/bin/ld", "-q", "--gc-sections", "-e", "_modstart", "-T", ld0, *(obj if isinstance(obj, list) else [obj]), "-o", elf0)
     bin0.unlink(missing_ok=True)
     tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf0, bin0)
     img0 = bytearray(bin0.read_bytes())
@@ -639,6 +640,8 @@ def module_reloc(name, obj, mdir, ldtext, variants, lo, cost):
     d = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(img0, 0)))
     d["cost"], d["length"] = cost, len(img0)
     MOD_HDR.pack_into(img0, 0, *[d[k] for k in MOD_NAMES])
+    if patch:
+        patch(img0)
     ocflash.module_fill(img0)
     for start, img in variants:
         got = ocflash.module_fill(ocflash.apply_relocs(img0, words, ocflash.xip(lo + start * 0x1000)))
@@ -794,17 +797,8 @@ SECTIONS {{
         stale.unlink(missing_ok=True)
         return errors, notes
     img0, words, count, skipped = rel
-    lst = struct.pack(f"<{len(words)}I", *words)
-    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 2, 1, iface, api_addr, engine, state_size, pack_hash,
-                                 spec["name"].encode(), api_version, api_size, sectors))
-    off = (len(head) + 32 + 8 * n + 4 + 3) & ~3
-    head += struct.pack("<IIII", ocflash.OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
-    head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
-    for start, img in variants:
-        head += struct.pack("<iI", start, zlib.crc32(img) & 0xFFFFFFFF)
-    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
-    head += b"\0" * (off - len(head))
-    ocm = bytes(head) + img0 + lst
+    ocm = ocflash.ocm_write(spec["name"], iface, api_addr, engine, state_size, pack_hash, api_version, api_size, sectors, img0, words,
+                            [(start, zlib.crc32(img) & 0xFFFFFFFF) for start, img in variants])   # (model picker: the writer is ocflash's, shared with the packer)
     if ocflash.ocm_images(ocm) != dict(variants):
         errors.append(f"{name}: the relocatable package does not read back as its variants")
         return errors, notes
@@ -816,6 +810,232 @@ SECTIONS {{
     out.write_bytes(ocm)
     notes.append(f"package {out.name}: {len(ocm)} B, {'relocatable, ' if ocm[4] == 2 else ''}{n} variants, engine {engine} {spec['name']}, state {state_size} B, "
                  f"interface {iface:08x}, table at {api_addr:#x}")
+    return errors, notes
+
+
+# ---- (model picker, docs/candidates/model_picker.md) a module of many units, one region each: PLAITS
+#
+# tools/build.py --module plaits [--pick ITEM,ITEM,...]. The engine's glue (tools/module/plaits_mod.c) and each model's unit (tools/module/plaits/
+# mdl_*.c, tbl_*.c) are compiled apart and linked in a fixed order, each unit's output one region of the image followed by a 16-byte gap (the link
+# script below). The master link has every unit: its image, relocation list and manifest are the master package (build/plaits-<version>.ocp), from
+# which the page's packer (web/fm1pick.js) and tools/pick_module.py make the module for any pick without a linker. A pick here is the oracle: the
+# same units linked by ld, the header page filled with the pick's state_size and pick block, packaged as any module (variants a start, format 2);
+# tests/module_pick_test.py shows the packers make the same bytes. Two rules make that true, both checked on the master link (tools/module_relocs.py
+# region_check): no PC-relative relocation leaves its region (a unit calls another only through pointers), and an absolute reference into another
+# region names a symbol with addend 0 (a reference into a region the pick drops reads 0, the weak extern the linker left).
+PLAITS_UNITS = "va wavshp fm grain addtv chord swarm noise partcl string modal kick snare hihat harp vavcf pd sixop terran strmch chip wavtbl speech".split()
+PLAITS_REGIONS = ["glue"] + [f"mdl_{u}" for u in PLAITS_UNITS] + ["tbl_syx0", "tbl_syx1", "tbl_syx2", "tbl_wav0", "tbl_wav1", "tbl_wav2"]
+# the pick items: id (stable: a project stores a model's), key, name, regions, the descriptor symbol (tools/module/plaits/pl_mdl.h) or None
+PLAITS_ITEMS = [(0, "va", "VA"), (1, "wavshp", "WAVSHP"), (2, "fm", "FM"), (3, "grain", "GRAIN"), (4, "addtv", "ADDTV"), (5, "chord", "CHORD"),
+                (6, "swarm", "SWARM"), (7, "noise", "NOISE"), (8, "partcl", "PARTCL"), (9, "string", "STRING"), (10, "modal", "MODAL"), (11, "kick", "KICK"),
+                (12, "snare", "SNARE"), (13, "hihat", "HI-HAT"), (14, "harp", "HARP"), (15, "vavcf", "VA-VCF"), (16, "pd", "PD"),
+                (17, "6opa", "6OP A", ["mdl_sixop", "tbl_syx0"]), (18, "6opb", "6OP B", ["mdl_sixop", "tbl_syx1"]), (19, "6opc", "6OP C", ["mdl_sixop", "tbl_syx2"]),
+                (20, "terran", "TERRAN"), (21, "strmch", "STRMCH"), (22, "chip", "CHIP"), (23, "wavtbl", "WAVTBL"), (24, "speech", "SPEECH"),
+                (25, "wav0", "WAVE BANK A", ["tbl_wav0"], None), (26, "wav1", "WAVE BANK B", ["tbl_wav1"], None), (27, "wav2", "WAVE BANK C", ["tbl_wav2"], None)]
+PLAITS_DEFAULT_PICK = ["vavcf", "pd", "6opa", "6opb", "6opc", "terran", "strmch", "chip"]   # (the second bank: 9 sectors, what today's area takes)
+MODULES["plaits"] = {"src": "tools/module/plaits_mod.c", "units": PLAITS_UNITS, "regions": PLAITS_REGIONS, "starts": [0, 6, 4], "name": "PLAITS",
+                     "inc": ["tools/module/plaits"], "sectors": 0}   # (sectors: the pick's)
+REGION_SECTIONS = ".text .text.* .dsp_text* .audio_text* .rodata .rodata.* .dsp_tables* .data.rel.ro*"
+
+
+def plaits_items():
+    out = []
+    for it in PLAITS_ITEMS:
+        id_, key, name = it[:3]
+        regions = it[3] if len(it) > 3 else [f"mdl_{key}"]
+        desc = it[4] if len(it) > 4 else f"pl_mdl_{key}"
+        out.append({"id": id_, "key": key, "name": name, "regions": regions, "desc": desc})
+    return out
+
+
+def regions_ld(base, length, pad, regions):
+    """the link script of a multi-unit module: the header page, then one statement a unit (its basename pattern), a 16-byte gap after each"""
+    body = "".join(f"        __reg_{n}_start = .; *{n}.o({REGION_SECTIONS}) KEEP(*{n}.o(.plaits_keep)) . = . + 16; . = ALIGN(16); __reg_{n}_end = .;\n"
+                   for n in regions)
+    return (f"MEMORY {{ MOD (rwx) : ORIGIN = {base:#x}, LENGTH = {length:#x} }}\nSECTIONS {{\n"
+            f"    .text : {{ _modstart = .; KEEP(*(.modhdr)) . = _modstart + {FW_MOD_CODE_OFF + pad:#x};\n{body}        . = ALIGN(4); }} > MOD\n"
+            "    .data : { *(.data*) *(.sdata*) . = ALIGN(4); } > MOD\n"
+            "    .bss (NOLOAD) : { *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); } > MOD\n"
+            "    /DISCARD/ : { *(.comment) *(.note*) }\n}\n")
+
+
+def elf_symbols(elf):
+    out = {}
+    for ln in tc("pi32v2/bin/nm", "-n", elf).splitlines():
+        q = ln.split()
+        if len(q) == 3:
+            out[q[2]] = int(q[0], 16)
+    return out
+
+
+def build_regions_module(name, pick=None, area=None):
+    """the master package, then the pick's module (the default pick without --pick): (errors, notes). area: sectors to pretend the module area has
+    (tests/module_pick_test.py: a pick larger than the real area, packaged for the byte comparison only; the manifest keeps the real area)"""
+    import module_relocs
+    import pick_module
+    spec = MODULES[name]
+    mdir = OUT / "module" / name
+    mdir.mkdir(parents=True, exist_ok=True)
+    if not (GEN / "fw_api_id.h").exists() or not (GEN / "oc_pack_tables.h").exists() or not (GEN / "melodee_tables.h").exists():
+        generate()
+    notes, errors = [], []
+    flags = [f for f in app_flags() if not f.startswith(("-DMELODEE_ID", "-DMELODEE_VERSION", "-DMELODEE_SHAPES=", "-DOC_PACK_BUILTIN"))]
+    flags += ["-DOC_PACK_XIP=1"] if "-DOC_PACK_XIP=1" not in flags else []
+    inc = [f"-I{d}" for d in spec.get("inc", [])]
+    units = {"glue": SRC / spec["src"]}
+    for r in spec["regions"][1:]:
+        units[r] = SRC / spec["inc"][0] / f"{r}.c"
+    objs = {r: mdir / f"{r}.o" for r in units}
+    cmds = [("cc", *flags, *inc, f"-DPL_UNIT={r}", "-w", "-c", units[r], "-o", objs[r]) for r in units]
+    for k in range(0, len(cmds), 4):                   # (at most four compiles at once: the other sessions' suites)
+        tc_all(*cmds[k:k + 4])
+    for r, o in objs.items():
+        undef = [ln.split()[-1] for ln in tc("pi32v2/bin/nm", "-u", o).splitlines() if ln.strip() and ln.split()[0] != "w"]
+        undef = [u for u in undef if not (r == "glue" and u == "_modstart")]
+        if undef:
+            errors.append(f"{name}/{r}: imports {undef}: a unit reaches the firmware through the table and another unit through weak pointers only")
+    if errors:
+        return errors, notes
+    api_addr = gen_define("FW_API_ADDR")
+    pack_hash = gen_define("OC_PACK_HASH", "oc_pack_tables.h")
+    lo, hi = module_area()
+    vf = SRC / "VERSION"
+    version = vf.read_text().strip() if vf.exists() else "0"
+    # 1. the master: every unit, linked at 0 with its relocations kept
+    ldm, elfm, binm = mdir / "master.ld", mdir / "master.elf", mdir / "master.bin"
+    ldm.write_text(regions_ld(0, 0x80000, 0, spec["regions"]))
+    tc("pi32v2/bin/ld", "-q", "--gc-sections", "-e", "_modstart", "-T", ldm, *[objs[r] for r in spec["regions"]], "-o", elfm)
+    binm.unlink(missing_ok=True)
+    tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elfm, binm)
+    imgm = bytearray(binm.read_bytes())
+    imgm += b"\0" * (-len(imgm) % 4)
+    syms = elf_symbols(elfm)
+    regions = [(r, syms[f"__reg_{r}_start"], syms[f"__reg_{r}_end"]) for r in spec["regions"]]
+    for fault in module_relocs.region_check(elfm, regions):
+        errors.append(f"{name}: {fault}")
+    try:
+        words, count, skipped = module_relocs.make_list(module_relocs.relocs(elfm))
+    except ValueError as e:
+        errors.append(f"{name}: {e}")
+        return errors, notes
+    items = []
+    for it in plaits_items():
+        d = dict(it)
+        if it["desc"]:
+            at = syms[it["desc"]]
+            d["state"], = struct.unpack_from("<I", imgm, at)
+            d["big"] = imgm[at + 4]
+        del d["desc"]
+        items.append(d)
+    h = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(imgm, 0)))
+    manifest = {"name": spec["name"], "engine": h["engine"], "version": h["version"], "area_lo": lo, "area_sectors": (hi - lo) // 0x1000,
+                "starts": spec["starts"], "code_off": FW_MOD_CODE_OFF,
+                "part_head": struct.unpack_from("<I", imgm, syms["pl_mod_meta"])[0], "poly": struct.unpack_from("<I", imgm, syms["pl_mod_meta"] + 4)[0],
+                "regions": [{"name": r, "start": st, "end": en} for r, st, en in regions], "items": items,
+                "rules": {"wavtbl": 23, "terrain": 20, "banks": [25, 26, 27]},
+                "hdr": {"iface": h["iface"], "api_addr": h["api_addr"], "api_version": h["api_version"], "api_size": h["api_size"], "pack_hash": h["pack_hash"]}}
+    if h["magic"] != FW_MOD_MAGIC or h["api_addr"] != api_addr or h["pack_hash"] != pack_hash or h["link_addr"] != 0 or h["state_size"] != 0:
+        errors.append(f"{name}: the master's header is not the source's (magic, api_addr, pack_hash, link_addr 0, state_size 0)")
+    for r, st, en in regions:
+        if any(imgm[en - 16:en]):
+            errors.append(f"{name}: region {r}'s gap is not zero")
+    if errors:
+        return errors, notes
+    master = pick_module.master_write(manifest, imgm, words)
+    (OUT / f"{name}-{version}.ocp").write_bytes(master)
+    sizes = {r: (regions[k + 1][1] if k + 1 < len(regions) else len(imgm)) - st for k, (r, st, en) in enumerate(regions)}
+    notes.append(f"master {name}: {len(imgm)} B linked at 0, {len(regions)} regions, {len(words)} relocations ({dict(sorted(count.items()))}; "
+                 f"left out {dict(sorted(skipped.items()))}); build/{name}-{version}.ocp {len(master)} B; "
+                 + ", ".join(f"{r} {sizes[r]}" for r in spec["regions"]))
+    # 2. the pick: the same units ld links, as the oracle for the packers
+    pick_keys = pick if pick else PLAITS_DEFAULT_PICK
+    try:
+        picked = pick_module.pick_items(manifest, pick_keys)
+    except ValueError as e:
+        return errors + [f"{name}: {e}"], notes
+    bad = pick_module.validate(manifest, picked)
+    if bad:
+        return errors + [f"{name}: pick {pick_keys}: {'; '.join(bad)}"], notes
+    kept = pick_module.regions_kept(manifest, picked)
+    pobjs = [objs[r] for r in kept]
+    ld0, elf0, bin0 = mdir / "pick.r0.ld", mdir / "pick.r0.elf", mdir / "pick.r0.bin"
+    ld0.write_text(regions_ld(0, 0x80000, 0, kept))
+    tc("pi32v2/bin/ld", "-q", "--gc-sections", "-e", "_modstart", "-T", ld0, *pobjs, "-o", elf0)
+    bin0.unlink(missing_ok=True)
+    tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf0, bin0)
+    length = (bin0.stat().st_size + 3) & ~3
+    sectors = (length + 0xFFF) // 0x1000
+    starts = pick_module.starts_for(manifest, sectors, area)
+    cost, missing = module_cost(name)
+    if missing:
+        errors.append(f"{name}: tools/module/{name}.cost names {missing}, which tests/target_budget.txt does not have")
+    patch = lambda img: pick_module.fill_header(img, manifest, picked, cost)   # noqa: E731
+    variants, ifaces, pads, ldtext = [], set(), {}, {}
+    for start in starts:
+        base = ocflash.xip(lo + start * 0x1000)
+        ld, elf, binf = mdir / f"pick.{start}.ld", mdir / f"pick.{start}.elf", mdir / f"pick.{start}.bin"
+        pad, hit = 0, 0
+        for pad in range(0, 4 * TAIL_PAD_TRIES, 4):
+            ld.write_text(regions_ld(base, sectors * 0x1000, pad, kept))
+            tc("pi32v2/bin/ld", "--gc-sections", "-e", "_modstart", "-T", ld, *pobjs, "-o", elf)
+            binf.unlink(missing_ok=True)
+            tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, binf)
+            raw = bytearray(binf.read_bytes())
+            raw += b"\0" * (-len(raw) % 4)
+            patch(raw)
+            hit = ocflash.tail_hit(raw)
+            if hit < 0:
+                break
+        if hit >= 0:
+            errors.append(f"{name}@{start}: no layout of {TAIL_PAD_TRIES} avoids the update loader's record test (sector {hit} tail); not written")
+            continue
+        pads[start], ldtext[start] = pad, (ld.read_text(), base)
+        sz = {}
+        for ln in tc("common/bin/objdump", "-h", elf).splitlines():
+            p = ln.split()
+            if len(p) > 3 and p[0].isdigit() and p[1].startswith("."):
+                sz[p[1]] = int(p[2], 16)
+        if sz.get(".data", 0) or sz.get(".bss", 0):
+            errors.append(f"{name}@{start}: a module has no RAM of its own: .data {sz.get('.data', 0)} B, .bss {sz.get('.bss', 0)} B")
+        img = bytearray(binf.read_bytes())
+        img += b"\0" * (-len(img) % 4)
+        if len(img) > sectors * 0x1000:
+            errors.append(f"{name}@{start}: {len(img)} B do not fit {sectors} sectors")
+        d = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(img, 0)))
+        if d["magic"] != FW_MOD_MAGIC or d["api_addr"] != api_addr or d["link_addr"] != base or d["pack_hash"] != pack_hash or \
+                not base + FW_MOD_CODE_OFF <= d["engine_ptr"] < base + len(img) or any(d[k] for k in ("cost", "length", "crc", "hcrc", "state_size")):
+            errors.append(f"{name}@{start}: the header is not the source's (magic, api_addr, link_addr {base:#x}, pack_hash, engine_ptr, zero fields)")
+        if any(img[MOD_HDR.size:FW_MOD_CODE_OFF]):
+            errors.append(f"{name}@{start}: the header page is not zero after the header")
+        d["cost"], d["length"] = cost, len(img)
+        MOD_HDR.pack_into(img, 0, *[d[k] for k in MOD_NAMES])
+        patch(img)
+        ocflash.module_fill(img)
+        d = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(img, 0)))
+        ifaces.add((d["iface"], d["api_size"], d["api_version"], d["engine"], d["state_size"]))
+        variants.append((start, bytes(img)))
+        (mdir / f"pick.{start}.img").write_bytes(img)
+        notes.append(f"module {name} pick {sorted(picked)} start {start} (flash {lo + start * 0x1000:#x}): {len(img)} B of {sectors * 0x1000} "
+                     f"({sectors} sectors), state {d['state_size']} B, crc {d['crc']:08x}" + (f", code moved {pad} B" if pad else ""))
+    out = OUT / (f"{name}-{version}.ocm" if not pick else f"{name}-pick.ocm")
+    if not starts:
+        errors.append(f"{name}: the pick's {sectors} sectors fit no start of the area's {manifest['area_sectors']} (grid {spec['starts']})")
+    if errors or len(ifaces) != 1 or len(set(pads.values())) != 1:
+        out.unlink(missing_ok=True)
+        return errors + ([f"{name}: the starts need different layouts {pads}"] if len(set(pads.values())) > 1 else []), notes
+    iface, api_size, api_version, engine, state_size = next(iter(ifaces))
+    (GEN / "fw_api_iface.h").write_text(f"/* written by tools/build.py --module: FW_API_IFACE as the module headers carry it */\n#define FW_API_IFACE_BUILT 0x{iface:08X}u\n")
+    rel, why = module_reloc("pick", pobjs, mdir, ldtext[variants[0][0]], variants, lo, cost, patch)
+    if not rel:
+        return errors + [f"{name}: no relocatable package: {why}"], notes
+    img0, words0, count0, skipped0 = rel
+    ocm = ocflash.ocm_write(spec["name"], iface, api_addr, engine, state_size, pack_hash, api_version, api_size, sectors, img0, words0,
+                            [(start, zlib.crc32(img) & 0xFFFFFFFF) for start, img in variants])
+    if ocflash.ocm_images(ocm) != dict(variants):
+        return errors + [f"{name}: the relocatable package does not read back as its variants"], notes
+    out.write_bytes(ocm)
+    notes.append(f"package {out.name}: {len(ocm)} B, format 2, {len(variants)} variants (starts {starts}), {len(words0)} relocations, engine {engine} "
+                 f"{spec['name']}, items {sorted(picked)}, state {state_size} B")
     return errors, notes
 
 
@@ -888,6 +1108,8 @@ def main():
     mode.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--module", metavar="NAME", choices=sorted(MODULES), help="build a loadable engine module (build/NAME-<version>.ocm) and check it")
+    ap.add_argument("--pick", metavar="ITEMS", help="(model picker) --module plaits: the items to link, by key or id, comma separated (build/plaits-pick.ocm)")
+    ap.add_argument("--area", type=int, metavar="SECTORS", help="(model picker) with --pick: pretend the module area has this many sectors (the byte proof of a pick too large for the real one)")
     ap.add_argument("--cpu-manifest", type=Path, help="Write source/package identity for CPU experiments")
     ap.add_argument("--no-core1-fallback", action="store_true",
                     help="Diagnostic: halt for watchdog reset on CPU1 failure instead of rendering on one core")
@@ -926,7 +1148,10 @@ def main():
     if os.environ.get("OC_CHECK") == "1":    # (dev-tools) the compile check: the app, the loader and the stub through the JieLi clang with the build's
         return check_only()                  # flags, -fsyntax-only; no IR pass, no link, no package, no SDK (docs/DEV_CHECKS.md)
     if a.module:                    # (Orange Cat 0.10.0) a module only needs the toolchain and build/gen
-        errors, notes = build_module(a.module)
+        if "units" in MODULES[a.module]:                 # (model picker) a module of many units: the master package and a pick
+            errors, notes = build_regions_module(a.module, a.pick.split(",") if a.pick else None, a.area)
+        else:
+            errors, notes = build_module(a.module)
         for n in notes:
             print("  ok   ", n)
         for e in errors:

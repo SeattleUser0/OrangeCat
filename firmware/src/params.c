@@ -393,11 +393,24 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
     return d->fmt==F_ENUM && d->names && !d->names[v][0] ? 0 : v;
 }
 
-/* a knob moved an F_ENUM from `from` to v: past any alias in that direction (back to `from` at the end) */
+/* (model picker, macro2-candidate) whether value v of an engine's EDIT parameter is offered now: the engine's say (engine_t.offered: a model
+ * its module does not carry says no); every value of any other parameter is. The engine is found from the descriptor: it is one of its edit[] */
+static int param_offered(const param_desc_t *d, int32_t v)
+{
+    uint32_t e;
+    for (e = 0; e < NENGINES; e++) {
+        const engine_t *g = ENGINES[e];
+        if (g && d >= &g->edit[0] && d < &g->edit[8])
+            return !g->offered || g->offered(TSEL, (uint32_t)(d - &g->edit[0]), v);
+    }
+    return 1;
+}
+
+/* a knob moved an F_ENUM from `from` to v: past any alias in that direction (back to `from` at the end), and (model picker) past any value not offered */
 static int32_t enum_step(const param_desc_t *d, int32_t from, int32_t v)
 {
     int32_t dir = v > from ? 1 : -1;
-    while (v != from && enum_orig(d, v) != v)
+    while (v != from && (enum_orig(d, v) != v || !param_offered(d, v)))
         v = v + dir > d->max || v + dir < d->min ? from : v + dir;
     return v;
 }
@@ -510,7 +523,9 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
             v = clamp(v, d->min, d->max);
             /* The panel's compact card fits "13-16"; editor/picker names retain the CH prefix. */
             str_cpy(val, d->names[v] + (v == 1 ? 0 : 2), 6);
-        } else
+        } else if (!param_offered(d, v))                /* (model picker) a model the engine's module does not carry: the setting is kept, shown so */
+            str_cpy(val, "MISSG", 6);
+        else
             str_cpy(val, d->names==N_ENGNAME && (MELODEE_P5 && v == ENGI_PROPHET) ? "P5" : d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
         if (d->unit)
             *unit = d->unit;

@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright 2026 Jeremiah Conner.
+// (model picker, docs/candidates/model_picker.md) The page's packer (web/fm1pick.js) against the linker and against the Python packer:
+//   node web/test_pick.mjs
+// 1. for every pick tests/module_pick_test.py left (build/module/plaits/picks/picks.json: the .ocm the real linker made for it), the page's
+//    packer makes the same bytes from the master package (build/plaits-<version>.ocp); skipped, and said, when the files are not there;
+// 2. for 40 random picks the page's bytes are tools/pick_module.py's (python3 runs it), at a pretend area that fits them all;
+// 3. the picks both refuse, the pick block read back from a packed module (and a damaged one), and the room meter's words.
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { PICK } from "./fm1pick.js";
+
+const ROOT = new URL("../", import.meta.url), BUILD = new URL("build/", ROOT);
+let seed = 4242;
+const rnd = (n) => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return (seed >>> 16) % n; };   // (the high bits: the low ones of an LCG cycle in 4)
+const masters = existsSync(BUILD) ? readdirSync(BUILD).filter((f) => /^plaits-.*\.ocp$/.test(f)) : [];
+if (!masters.length) { console.log("test_pick: no master package (tools/build.py --module plaits): skipped"); process.exit(0); }
+const master = PICK.parseMaster(new Uint8Array(readFileSync(new URL(masters[0], BUILD))));
+assert.ok(master, "the master parses");
+const { manifest, img0 } = master;
+assert.equal(manifest.regions.length, 30); assert.equal(manifest.items.length, 28);
+
+// 1. the linker's files
+const picksFile = new URL("build/module/plaits/picks/picks.json", ROOT);
+let n1 = 0;
+if (existsSync(picksFile)) {
+  const picks = JSON.parse(readFileSync(picksFile, "utf8"));
+  for (const p of picks.picks) {
+    const want = new Uint8Array(readFileSync(new URL("build/module/plaits/picks/" + p.file, ROOT)));
+    const got = PICK.pack(master, p.items, 0, p.area || null);
+    assert.ok(got.ocm, "pick " + p.name + ": " + got.error);
+    assert.deepEqual(got.ocm, want, "pick " + p.name + " is the linker's byte for byte");
+    n1++;
+  }
+  console.log("test_pick: " + n1 + " picks of the linker's reproduced byte for byte (" + picks.picks.map((p) => p.name).join(", ") + ")");
+} else console.log("test_pick: no linker files (tests/module_pick_test.py): the comparison with the linker skipped");
+
+// 2. random picks against the Python packer
+const cases = [];
+while (cases.length < 40) {
+  const items = manifest.items.map((it) => it.id).filter(() => rnd(4) === 0);
+  if (!items.length || PICK.validate(manifest, items).length) continue;
+  cases.push(items);
+}
+const py = spawnSync("python3", ["-c", `
+import json, sys, base64
+sys.path.insert(0, "tools")
+import pick_module
+master = open(sys.argv[1], "rb").read()
+out = [base64.b64encode(pick_module.pack(master, items, 0, 64)[0]).decode() for items in json.load(sys.stdin)]
+json.dump(out, sys.stdout)`, "build/" + masters[0]], { cwd: ROOT, input: JSON.stringify(cases), maxBuffer: 1 << 28 });
+assert.equal(py.status, 0, py.stderr.toString());
+const want = JSON.parse(py.stdout.toString());
+cases.forEach((items, k) => {
+  const got = PICK.pack(master, items, 0, 64);
+  assert.ok(got.ocm, "pick " + items + ": " + got.error);
+  assert.deepEqual(got.ocm, Uint8Array.from(Buffer.from(want[k], "base64")), "pick " + items + " is the Python packer's");
+});
+console.log("test_pick: 40 random picks are the Python packer's byte for byte");
+
+// 3. refusals, the pick block, the room meter
+assert.match(PICK.pack(master, [], 0).error, /nothing picked/);
+assert.match(PICK.pack(master, [23], 0).error, /needs a wave bank/);
+assert.match(PICK.pack(master, [25], 0).error, /of use to/);
+assert.match(PICK.pack(master, manifest.items.map((it) => it.id), 0).error, /fit no start/);
+assert.throws(() => PICK.items(manifest, ["nosuch"]));
+{
+  const items = PICK.items(manifest, ["va", "6opb", "wavtbl", "wav2"]), got = PICK.pack(master, items, 0);
+  assert.ok(got.ocm, got.error);
+  const dv = new DataView(got.ocm.buffer), off = dv.getUint32(68, true), page = got.ocm.subarray(off, off + 256);
+  assert.deepEqual(PICK.blockRead(page), { items, total: 28 });
+  assert.equal(dv.getUint32(off + 24, true), PICK.stateSize(manifest, items), "the header's state_size");
+  const bent = page.slice(); bent[PICK.PICK_AT + 9] ^= 1;
+  assert.deepEqual(PICK.blockRead(bent), { damaged: true });
+  assert.equal(PICK.blockRead(new Uint8Array(256)), null);
+}
+{
+  const others = [{ name: "SHAPES", sectors: 6 }, { name: "WHEEL", sectors: 1 }, { name: "DUB TAPE", sectors: 3 }, { name: "REVERB", sectors: 1 }, { name: "FX", sectors: 2 }];
+  const r = PICK.room(manifest, img0.length, PICK.items(manifest, ["vavcf", "pd", "chip"]), 18, others);
+  assert.equal(r.taken, 13); assert.equal(r.free, 5);
+  assert.ok(r.ok && r.need <= 5, r.text);
+  assert.match(r.text, /^Room: 18 sectors; SHAPES 6, WHEEL 1, DUB TAPE 3, REVERB 1, FX 2 take 13; 5 left\. This pick \(VA-VCF, PD, CHIP\) needs \d: it fits/);
+  const big = PICK.room(manifest, img0.length, PICK.items(manifest, ["wavtbl", "wav0", "wav1", "wav2"]), 18, others);
+  assert.ok(!big.ok && /too many\. Leave a model or a wave bank out\.$/.test(big.text), big.text);
+  console.log("test_pick: refusals, the pick block and the room meter: " + r.text);
+}
+console.log("test_pick: all passed");
