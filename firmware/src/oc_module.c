@@ -440,10 +440,16 @@ static int oc_fx_find(uint32_t module_id)
  * (bootguard.failed). Safe to call again (the installer does, after an install or a removal): the registry is rebuilt. */
 static int oc_mod_erase_start(uint32_t i);
 static int oc_mod_erase_loser(uint32_t i);
+static void oc_fxmod_kernel_reg(uint32_t i);
 static void oc_mod_boot(uint32_t crashed)
 {
     uint32_t i, e, loser = 0;
     oc_mod_guard_init();
+#if MELODEE_DUB && OC_FX_MODK
+    if (oc_mod_live) fm1_irq_off();                             /* (Release 3 step 6) the insert host forgets the module's kernel before the registry is rebuilt (its instances let go) */
+    fx_modk_clear();
+    if (oc_mod_live) fm1_irq_on();
+#endif
     for (e = 0; e < NENGINES; e++)
         if (eng_mod[e])
             oc_mod_unreg(e);
@@ -491,6 +497,7 @@ static void oc_mod_boot(uint32_t crashed)
             oc_mod.fx[oc_mod.nfxmod].start = (uint8_t)i; oc_mod.fx[oc_mod.nfxmod].kind = oc_mod.kind[i]; oc_mod.fx[oc_mod.nfxmod].nfx = oc_mod.nfx[i];
             oc_mod.fx[oc_mod.nfxmod].state = MD_OK; oc_mod.fx[oc_mod.nfxmod].why = 0;
             oc_mod.nfxmod++;
+            oc_fxmod_kernel_reg(i);
             continue;
         }
         {   int rc = eng_mod[h.engine] ? EM_SLOT : oc_mod_reg(i, oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);
@@ -1035,6 +1042,33 @@ static void oc_fxmod_note_use(uint32_t mid)
             oc_modguard.inuse |= 1u << i;
 }
 /* 0 ok; -1 refused (a bad length, id 0, not the planned start); -4 old preset pairs not moved; -5 no start free; else flash */
+/* (Release 3 step 6) the insert host runs DUB TAPE's module kernel beside the resident one: the module of id FX_MODK_ID, its entry's caps block (already checked by fx_desc_check), the call table and the
+ * rows, read from the flash in place (4 byte pointers: the device; a host build has no module code to run and the tests register the host build of the module with fx_modk_set directly). The Effects
+ * row's `why` says 0x40 + the host's answer when the host refused the kernel (FXM_VER, FXM_RANGE): the module is listed and stays, the resident kernel plays. */
+static void oc_fxmod_kernel_reg(uint32_t i)
+{
+#if MELODEE_DUB && OC_FX_MODK
+    const fx_desc_wire_t *d;
+    const fx_entry_wire_t *e;
+    const fx_caps_t *c;
+    int rc;
+    if (sizeof(void *) != 4u || oc_mod.mid[i] != FX_MODK_ID)
+        return;
+    d = (const fx_desc_wire_t *)(uintptr_t)oc_mod_hdr_ptr(i)->engine_ptr;
+    e = (const fx_entry_wire_t *)(uintptr_t)d->entries;
+    if (!e->pages)
+        return;                                                 /* a module with no kernel */
+    c = (const fx_caps_t *)(uintptr_t)e->pages;
+    if (oc_mod_live) fm1_irq_off();
+    rc = fx_modk_set(d->module_id, d->version, e->effect_id, c, (const fx_kcalls_t *)(uintptr_t)c->kernel, (const fx_prow_t *)(uintptr_t)c->rows);
+    fx_modk_note = oc_fxmod_note_use;
+    if (oc_mod_live) fm1_irq_on();
+    if (rc)
+        oc_mod.fx[oc_mod.nfxmod - 1u].why = (uint8_t)(0x40u + (uint32_t)rc);
+#else
+    (void)i;
+#endif
+}
 static int oc_fxmod_begin(uint32_t mid, uint32_t start, uint32_t len)
 {
     int plan, rc;

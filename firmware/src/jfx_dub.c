@@ -48,8 +48,12 @@ static const fx_kernel_t dub_kernel = {
     .ram_extra_bytes = DUB_SPRING_BYTES, .gov_us = DUBK_GOV_US,
     DUBK_CALLS,
 };
-/* the kernel bound to instance k: DUB's, for every track (step 6 looks the track's slot up in the Effects table) */
+/* the kernel bound to instance k: the resident DUB's, or the module's (fx_insert.c: the instance was made with it) */
+#if OC_FX_MODK
+static const fx_kernel_t *fx_kernel_of(uint32_t k) { return FX_MODK_BOUND(k) ? &fx_modk : &dub_kernel; }
+#else
 static const fx_kernel_t *fx_kernel_of(uint32_t k) { (void)k; return &dub_kernel; }
+#endif
 #if OC_DUB_SRAM
 #pragma pop_macro("JFX_XIP")
 #endif

@@ -2805,6 +2805,27 @@ const OCM_LINK0 = 0x020C4000, OCM_STATE_MAX = 16384;       /* the XIP address of
  * address `link`. {id, version, n} or null. ocmFxRead: the module id, version and sector count of every image of the file, which must agree (an effect has no geometry row: its
  * span is ceil(length / 4096), at most 8 sectors); the file is refused when they do not. */
 const OCM_FX_SECTORS = 8;
+/* (Release 3 step 6) The caps block an entry's `pages` word points at (firmware/src/fx_kernel.h fx_caps_t, fw_fx.h fx_caps_check): 52 bytes, 4 aligned, inside the code; magic "GFXK", size 52,
+ * version 1; hot and nhot 0, the padding 0, the snapshot size not 0; the call table (12 words) inside the code, every call an address inside the code; the pages pointer 0 or inside the
+ * code and 4 aligned (the unit checks the descriptor itself); the legacy-slot rows 0, or 1..16 rows of 10 bytes (2 aligned) with ids strictly increasing and min <= default <= max (the unit also
+ * checks that a legacy slot is below its P_COUNT). */
+function ocmFxCaps(caps, inside, at, u32, u16, s16, img) {
+  if (!inside(caps, 52) || (caps & 3) || u32(caps) !== 0x4B584647 || u16(caps + 4) !== 52 || u16(caps + 6) !== 1) return false;
+  const kernel = u32(caps + 8), pages = u32(caps + 12), rows = u32(caps + 24), nrows = img[at(caps + 36)];
+  if (u32(caps + 16) || img[at(caps + 35)] || img[at(caps + 37)] || !u16(caps + 38)) return false;
+  if (!inside(kernel, 48) || (kernel & 3)) return false;
+  for (let w = 0; w < 12; w++) { const a = u32(kernel + 4 * w); if (!a || !inside(a, 2)) return false; }
+  if (pages && (!inside(pages, 80) || (pages & 3))) return false;
+  if (!rows !== !nrows || nrows > 16) return false;
+  if (rows && (!inside(rows, nrows * 10) || (rows & 1))) return false;
+  let prev = -1;
+  for (let i = 0; i < nrows; i++) {
+    const r = rows + 10 * i, id = u16(r), mn = s16(r + 4), mx = s16(r + 6), df = s16(r + 8);
+    if (id <= prev || mn > mx || df < mn || df > mx) return false;
+    prev = id;
+  }
+  return true;
+}
 function ocmFxDesc(img, link, kind) {
   if (img.length < 0x200 || (img.length & 3)) return null;
   const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), lo = (link + 0x100) >>> 0, hi = (link + img.length) >>> 0;
@@ -2818,7 +2839,8 @@ function ocmFxDesc(img, link, kind) {
   const seen = [];
   for (let i = 0; i < n; i++) {
     const e = entries + 16 * i, eid = img[at(e)], np = u16(e + 4), params = u32(e + 8);
-    if (img[at(e) + 1] !== kind || kind < 1 || kind > 3 || u16(e + 2) || u16(e + 6) || u32(e + 12) || seen.includes(eid)) return null;
+    if (img[at(e) + 1] !== kind || kind < 1 || kind > 3 || u16(e + 2) || u16(e + 6) || seen.includes(eid)) return null;
+    if (u32(e + 12) && !ocmFxCaps(u32(e + 12), inside, at, u32, u16, s16, img)) return null;       // (step 6) the caps block fx_caps_check reads
     seen.push(eid);
     if (np > 64 || !np !== !params) return null;
     if (!np) continue;
@@ -3058,4 +3080,4 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
 }
 /*PROTO-END*/
 
-export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxDesc, ocmFxRead, ocmImage, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };
+export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };

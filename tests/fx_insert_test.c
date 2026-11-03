@@ -43,6 +43,10 @@ static uint32_t st_n[5], full_n, snap_n;                /* coverage: instance-bl
 static uint32_t gb;                                    /* the block count of the scenario */
 static int fxi_progress;                               /* FXI_PROGRESS in the environment: the block count on stderr every 10,000 blocks */
 static int32_t rec[CTL * 2];
+static void (*fxi_tap)(const int32_t *block, size_t bytes);   /* tests/fx_dub_module_test.c: every output block, as the mixer made it */
+typedef struct { char name[16]; uint32_t blocks, gov, states[5], full, cm; uint64_t au, st; } fxi_res_t;   /* what end() printed, for a caller that compares runs */
+static fxi_res_t fxi_res[8];
+static uint32_t fxi_nres;
 static int bad;
 #define CHECK(c, ...) do { if (!(c)) { bad++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 static void fxi_hash(uint64_t *h, const void *p, size_t n)
@@ -66,6 +70,7 @@ static void observe(void)
 static void blk(void)
 {
     mix_block(rec, CTL);
+    if (fxi_tap) fxi_tap(rec, sizeof rec);
     fxi_hash(&h_au, rec, sizeof rec);
     observe();
     gb++;
@@ -105,6 +110,11 @@ static void end(const char *name)
     printf("%s blocks %u au %016llx st %016llx gov %u states %u %u %u %u %u full %u cm %u\n", name, gb, (unsigned long long)h_au, (unsigned long long)h_st, (unsigned)dub_gov_fires,
            st_n[0], st_n[1], st_n[2], st_n[3], st_n[4], full_n, snap_n);
     fflush(stdout);
+    if (fxi_nres < 8u) {
+        fxi_res_t *r = &fxi_res[fxi_nres++];
+        snprintf(r->name, sizeof r->name, "%s", name); r->blocks = gb; r->gov = (uint32_t)dub_gov_fires; r->au = h_au; r->st = h_st; r->full = full_n; r->cm = snap_n;
+        memcpy(r->states, st_n, sizeof r->states);
+    }
 }
 static void fresh(void)
 {
@@ -339,6 +349,7 @@ static void descriptor_checks(void)
 }
 #endif
 
+#ifndef FXI_NO_MAIN                                    /* tests/fx_dub_module_test.c runs the scenarios itself */
 int main(void)
 {
     fxi_progress = getenv("FXI_PROGRESS") != 0;
@@ -354,3 +365,4 @@ int main(void)
     printf("fx_insert: done\n");
     return 0;
 }
+#endif

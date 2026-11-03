@@ -19,7 +19,10 @@
  *     4   nparams    0 .. FX_PARAMS_MAX (64)
  *     6   rsv        0
  *     8   params     0 when nparams is 0, else the address of nparams parameter rows of FX_PARAM_WIRE (16) bytes, 4 aligned, inside the image
- *     12  pages      0: RESERVED for the effect's pages (open: FX_MODULES_PLAN.md 2, decided with fw_pages version 3); a nonzero value is refused for now
+ *     12  pages      0, or (Release 3 step 6) the address of the effect's CAPS BLOCK (fx_caps_t, fx_kernel.h: 52 bytes, 4 aligned, inside the image): the capability words of
+ *                    MODULE_FORMAT_R3.md 6's fx_entry_t, the kernel's call table (FX_KCALLS_N code addresses), the effect's fw_pages_t (version 3, scope SC_FX: its pages, stable ids and
+ *                    legacy slots) and the legacy-slot rows. fx_caps_check says what is checked. 0: an effect module with no kernel (registered and listed; nothing runs). Any other
+ *                    word is refused. (The step 4 entry had no room for the words of section 6's 32 byte entry; this keeps the 16 byte entry, and every earlier image, valid.)
  *   parameter row (16 bytes)
  *     0   id         16 bits, stable for the life of the module, strictly increasing down the table (ids are never reused)
  *     2   legacy     16 bits: the Release 2 track slot (P_* id) that holds it, 0xFFFF for none
@@ -32,13 +35,52 @@
  * first effect module (R3_STEP4_NOTES.md), because then an older firmware must refuse the module on the identifier before it ever reads the kind. */
 #pragma once
 #include "fw_pages.h"
+#include "fx_kernel.h"                                  /* (step 6) the caps block and the call table */
 #define FX_BANK_MAX 8u
 #define FX_PARAMS_MAX 64u
 #define FX_DESC_WIRE 20u
 #define FX_ENTRY_WIRE 16u
 #define FX_PARAM_WIRE 16u
-enum { FXD_OK = 0, FXD_ADDR = 1, FXD_READ, FXD_COUNT, FXD_ID, FXD_ENTRY, FXD_KIND, FXD_PARAMS, FXD_ROW, FXD_STR, FXD_SCENE, FXD_RSV };
+enum { FXD_OK = 0, FXD_ADDR = 1, FXD_READ, FXD_COUNT, FXD_ID, FXD_ENTRY, FXD_KIND, FXD_PARAMS, FXD_ROW, FXD_STR, FXD_SCENE, FXD_RSV, FXD_CAPS, FXD_KERN, FXD_PAGES };   /* (step 6) FXD_CAPS: the caps block; FXD_KERN: the call table; FXD_PAGES: the effect's fw_pages_t */
 static inline uint32_t fxd_u16(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8; }
+/* the descriptor and its entry as the module's source writes them (4 byte words, the device layout; a host build of a module has no 4 byte pointers and fills these by hand) */
+typedef struct { uint32_t n, module_id, version, entries, scene; } fx_desc_wire_t;
+typedef struct { uint8_t effect_id, kind; uint16_t flags, nparams, rsv; uint32_t params, pages; } fx_entry_wire_t;
+_Static_assert(sizeof(fx_desc_wire_t) == FX_DESC_WIRE && sizeof(fx_entry_wire_t) == FX_ENTRY_WIRE, "the descriptor's layout");
+#define FX_PROW_WIRE 10u                                /* one legacy-slot row: id, legacy, min, max, def (fx_prow_t) */
+#define FX_ROWS_MAX 16u
+/* the caps block at `caps` (an entry's `pages`): magic, size 52, version FX_CAPS_VERSION; the call table inside the image, 4 aligned, each of its FX_KCALLS_N words a nonzero address inside the
+ * code; pages 0 or a version 3 effect descriptor that fw_pages_check_ex accepts as SC_FX in this build; hot and nhot 0 (a hot set is not in version 1); rows 0, or 1 .. FX_ROWS_MAX rows of
+ * FX_PROW_WIRE bytes (2 aligned) with ids strictly increasing, legacy below P_COUNT (or 0xFFFF), min <= def <= max; the padding 0. The capability numbers (RAM, cost, instances) are range-checked
+ * by the host when it builds the kernel (fx_modk_set), not here. 0 FXD_OK, else why not */
+static inline int fx_caps_check(fw_pages_rd rd, void *ctx, uint32_t caps, uint32_t lo, uint32_t hi)
+{
+    uint8_t c[FX_CAPS_WIRE], t[FX_KCALLS_WIRE], r[FX_PROW_WIRE];
+    uint32_t kernel, pages, rows, nrows, i, prev = 0xFFFFFFFFu;
+    if (!fwp_in(caps, FX_CAPS_WIRE, lo, hi) || (caps & 3u)) return FXD_CAPS;
+    if (rd(ctx, caps, c, FX_CAPS_WIRE)) return FXD_READ;
+    if (fwp_u32(c) != FX_CAPS_MAGIC || fxd_u16(c + 4) != FX_CAPS_WIRE || fxd_u16(c + 6) != FX_CAPS_VERSION) return FXD_CAPS;
+    kernel = fwp_u32(c + 8); pages = fwp_u32(c + 12); rows = fwp_u32(c + 24); nrows = c[36];
+    if (fwp_u32(c + 16) || c[35] || c[37] || !fxd_u16(c + 38)) return FXD_CAPS;   /* hot, nhot, the padding, the snapshot's size (not 0) */
+    if (!fwp_in(kernel, FX_KCALLS_WIRE, lo, hi) || (kernel & 3u)) return FXD_KERN;
+    if (rd(ctx, kernel, t, FX_KCALLS_WIRE)) return FXD_READ;
+    for (i = 0; i < FX_KCALLS_N; i++) {
+        uint32_t a = fwp_u32(t + 4u * i);
+        if (!a || !fwp_in(a, 2u, lo, hi)) return FXD_KERN;
+    }
+    if (pages && fw_pages_check_ex(rd, ctx, pages, lo, hi, SC_FX, P_COUNT, G_COUNT, 0)) return FXD_PAGES;
+    if (!rows != !nrows || nrows > FX_ROWS_MAX) return FXD_CAPS;
+    if (rows && (!fwp_in(rows, nrows * FX_PROW_WIRE, lo, hi) || (rows & 1u))) return FXD_CAPS;
+    for (i = 0; i < nrows; i++) {
+        uint32_t id, leg;
+        int mn, mx, df;
+        if (rd(ctx, rows + i * FX_PROW_WIRE, r, FX_PROW_WIRE)) return FXD_READ;
+        id = fxd_u16(r); leg = fxd_u16(r + 2); mn = (int16_t)fxd_u16(r + 4); mx = (int16_t)fxd_u16(r + 6); df = (int16_t)fxd_u16(r + 8);
+        if ((prev != 0xFFFFFFFFu && id <= prev) || (leg != 0xFFFFu && leg >= P_COUNT) || mn > mx || df < mn || df > mx) return FXD_CAPS;
+        prev = id;
+    }
+    return FXD_OK;
+}
 /* desc: the address of the fx_desc in the module's own address space; [lo, hi) the code part of the image (link + FW_MOD_CODE_OFF .. link + length);
  * kind: the header's kind (1..3). 0 FXD_OK, else why not. *id / *version / *n get the descriptor's fields when it is good (may be 0). */
 static inline int fx_desc_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint32_t lo, uint32_t hi, uint32_t kind, uint32_t *id, uint32_t *version, uint32_t *n_out)
@@ -57,7 +99,8 @@ static inline int fx_desc_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint32
         uint32_t np, params;
         if (rd(ctx, entries + i * FX_ENTRY_WIRE, e, FX_ENTRY_WIRE)) return FXD_READ;
         if (e[1] != kind || e[1] < 1u || e[1] > 3u) return FXD_KIND;
-        if (fxd_u16(e + 2) || fxd_u16(e + 6) || fwp_u32(e + 12)) return FXD_RSV;
+        if (fxd_u16(e + 2) || fxd_u16(e + 6)) return FXD_RSV;
+        if (fwp_u32(e + 12)) { int rc = fx_caps_check(rd, ctx, fwp_u32(e + 12), lo, hi); if (rc) return rc; }   /* (step 6) the caps block; step 4 refused any word */
         seen[i] = e[0];
         for (k = 0; k < i; k++) if (seen[k] == e[0]) return FXD_ENTRY;       /* effect ids are unique in the bank */
         np = fxd_u16(e + 4); params = fwp_u32(e + 8);

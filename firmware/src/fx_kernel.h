@@ -81,7 +81,8 @@ typedef struct fx_caps {
     uint32_t rows;                                      /* -> fx_prow_t[nrows]: the legacy-slot table, or 0 */
     uint8_t flags, rates, max_inst, prof;
     uint8_t ram_work_min, ram_work_max, ram_extra, nhot;
-    uint8_t nrows, pad[3];
+    uint8_t nrows, pad;
+    uint16_t param_bytes;                               /* the size of the parameter snapshot `snap` writes (the host's room is FX_PARAM_BYTES: a larger one is refused) */
     uint16_t ram_state, latency;
     uint16_t tail_base, cost;
     uint16_t ram_extra_bytes, gov_us;

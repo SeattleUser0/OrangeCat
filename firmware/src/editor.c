@@ -451,7 +451,7 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
  *             4 the old preset pairs have not moved, 5 no start free); then 122 WRITE and 123 END as for an engine (END: 7 written but not readable as a module, 8 a sector tail)
  *   FX_REMOVE id -> rc, then the bytes written so far
  *   FX_TABLE  -> count (at most 8), then per registered effect module: id (5 x 7), version (3 x 7: major, minor, patch), kind, effects in the bank, state (MD_*), why, start (a start
- *             number), sectors, resident (0 a module; 1 resident: none yet), uses (instances running: 0 until the host exists) */
+ *             number), sectors, resident (0 a module; 1 resident: none yet), uses (instances of the module's kernel running: the insert host's, 0 for any id but 1) */
 static void ed_fx_id(uint32_t v) { for (uint32_t i = 0; i < 5u; i++) ed_b(v >> (7u * i)); }
 static uint32_t ed_fx_id_get(const uint8_t *a) { uint32_t v = 0; for (uint32_t i = 0; i < 5u; i++) v |= (uint32_t)a[i] << (7u * i); return v; }
 static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
@@ -490,7 +490,7 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
             ed_fx_id(x->module_id);
             ed_b(x->version >> 16); ed_b(x->version >> 8); ed_b(x->version);
             ed_b(x->kind); ed_b(x->nfx); ed_b(oc_mod.state[x->start]); ed_b(oc_mod.why[x->start]); ed_b(x->start);
-            ed_b(oc_mod_nsec(oc_mod.length[x->start])); ed_b(0); ed_b(0);
+            ed_b(oc_mod_nsec(oc_mod.length[x->start])); ed_b(0); ed_b(x->module_id == FX_MODK_ID ? fx_modk_uses() : 0u);
         }
         return 1;
     }
