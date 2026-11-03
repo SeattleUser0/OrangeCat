@@ -17,6 +17,10 @@
 /* Revisions:
  * (Orange Cat 0.13.4) first version
  * (Orange Cat 0.13.5) a set of two modules that both ask the in-place question: the press that answers goes on from the module that asked (set_resume() below)
+ * (Release 3 step 4) fx_cases(): an effect module (kind 1, its module id in the image's fx_desc_t) on the simulated card against the real loader: planned and installed by
+ *   module id, a newer version beside, each refusal before the first erase (a flipped code byte, a bad descriptor, a tail record, a bad engine word, nine sectors, no image for
+ *   the planned start, no free span naming the module in the way), the relocatable package's flash = the variants package's, and sets: the effect module planned on the
+ *   area an engine's install leaves, its sectors counted with the planner (two modules that fit alone but not together), the same id twice
  */
 #include <stdint.h>
 #define OC_MOD_HOST_XIP 1
@@ -312,6 +316,208 @@ static int set_resume(void)
     return 0;
 }
 
+/* ---- (Release 3 step 4) effect modules on the card: a package whose engine word is kind 1 (insert) | 0, the module id in the image's fx_desc_t (firmware/src/fw_fx.h):
+ * the descriptor at 0x180 (one bank of two effects), the entries at 0x200, two parameter rows at 0x240, a label at 0x300. FXLEN 5000 B: two sectors. fx_image(): the image
+ * for `link` (0 for the relocatable one), its pointers link-based; mutation 1 a code byte flipped after the seal, 2 the module id 0, 3 an entry of another kind, 4 a sector tail
+ * that is an update record; the header sealed over the code it has (as tools/build.py seals it) */
+#define FXLEN 5000u
+#define FXID 0x80001234u
+static uint32_t FX_VER = 0x00010203u, FX_ID = FXID, FX_WORD = 1u << 8;
+static uint8_t FIMG[9u * 4096u];                          /* (its own buffer: IMG holds 8 sectors, the nine-sector case needs more) */
+static void fx_image(uint8_t *out, uint32_t link, uint32_t seed, int mutation, uint32_t len)
+{
+    fw_mod_hdr_t h;
+    uint8_t *I = FIMG;
+    for (uint32_t k = 0; k < sizeof FIMG; k++) I[k] = (uint8_t)(k * 31u + seed);
+    memset(I, 0, FW_MOD_CODE_OFF);
+    memset(I + 0x180, 0, 0x200);
+    wr32(I + 0x180, 2u); wr32(I + 0x184, mutation == 2 ? 0u : FX_ID); wr32(I + 0x188, FX_VER); wr32(I + 0x18C, link + 0x200u); wr32(I + 0x190, 0);
+    I[0x200] = 1; I[0x201] = mutation == 3 ? 2u : (uint8_t)(FX_WORD >> 8); I[0x204] = 2; wr32(I + 0x208, link + 0x240u);
+    I[0x210] = 2; I[0x211] = (uint8_t)(FX_WORD >> 8);
+    I[0x240] = 1; I[0x242] = I[0x243] = 0xFF; I[0x246] = 100; I[0x248] = 50; wr32(I + 0x24C, link + 0x300u);
+    I[0x250] = 3; I[0x252] = I[0x253] = 0xFF; I[0x256] = 10;
+    memcpy(I + 0x300, "MIX", 4);
+    if (mutation == 4) memcpy(I + 0xF00u, REC, 80);
+    memset(&h, 0, sizeof h);
+    h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
+    h.engine = FX_WORD; h.state_size = 0; h.engine_ptr = link + 0x180u; h.link_addr = link; h.pack_hash = OC_PACK_HASH; h.length = len; h.version = FX_VER;
+    h.crc = ocs_crc32(I + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
+    h.hcrc = ocs_crc32((const uint8_t *)&h, FW_MOD_HDR_BYTES - 4u);
+    memcpy(I, &h, sizeof h);
+    if (mutation == 1) I[0x700] ^= 1u;
+    memcpy(out, I, len);
+}
+/* a variants package (format 1) of the effect module for the starts st[0..ns) (start numbers), each image linked for its start */
+static uint8_t FXP[512 + 3u * 8u * 4096u];
+static uint32_t fxp_size;
+static void fx_package(const uint32_t *st, uint32_t ns, uint32_t seed, int mutation, uint32_t len)
+{
+    uint32_t base = 512u, k;
+    memset(FXP, 0, sizeof FXP);
+    wr32(FXP, 0x464D434Fu); FXP[4] = 1; FXP[6] = (uint8_t)ns;
+    wr32(FXP + 8, FW_API_IFACE); wr32(FXP + 12, FW_API_ADDR); wr32(FXP + 16, FX_WORD);
+    wr32(FXP + 20, 0u); wr32(FXP + 24, OC_PACK_HASH); wr32(FXP + 44, FW_API_VERSION); wr32(FXP + 48, sizeof(fw_api_t)); wr32(FXP + 52, oc_mod_nsec(len));
+    for (k = 0; k < ns; k++) {
+        wr32(FXP + 56 + 16 * k, (uint32_t)OC_MOD_START_REL(st[k])); wr32(FXP + 56 + 16 * k + 4, len); wr32(FXP + 56 + 16 * k + 12, base + len * k);
+        fx_image(FXP + base + len * k, oc_mod_link(st[k]), seed, mutation, len);
+        wr32(FXP + 56 + 16 * k + 8, ocs_crc32(FXP + base + len * k, len));
+    }
+    wr32(FXP + 56 + 16 * ns, ocs_crc32(FXP, 56 + 16 * ns));
+    fxp_size = base + len * ns;
+}
+/* the relocatable package (format 2) of the same image, for the starts st[]: five sites (the header's engine_ptr and link address, the entries, the parameter rows, a label) */
+static const uint32_t RW_FX[] = { (1u << 24) | 28u, (1u << 24) | 32u, (1u << 24) | 0x18Cu, (1u << 24) | 0x208u, (1u << 24) | 0x24Cu };
+static uint8_t FXP2[256 + FXLEN + 64];
+static uint32_t fxp2_size;
+static void fx_package2(const uint32_t *st, uint32_t ns, uint32_t seed)
+{
+    uint8_t one[FXLEN];
+    uint32_t at = 256u, k;
+    fx_image(one, 0u, seed, 0, FXLEN);
+    memset(FXP2, 0, sizeof FXP2);
+    wr32(FXP2, 0x464D434Fu); FXP2[4] = 2; FXP2[6] = 1;
+    wr32(FXP2 + 8, FW_API_IFACE); wr32(FXP2 + 12, FW_API_ADDR); wr32(FXP2 + 16, FX_WORD);
+    wr32(FXP2 + 20, 0u); wr32(FXP2 + 24, OC_PACK_HASH); wr32(FXP2 + 44, FW_API_VERSION); wr32(FXP2 + 48, sizeof(fw_api_t)); wr32(FXP2 + 52, 2u);
+    wr32(FXP2 + 56, 0xFFFFFFFFu); wr32(FXP2 + 60, FXLEN); wr32(FXP2 + 64, ocs_crc32(one, FXLEN)); wr32(FXP2 + 68, at);
+    memcpy(FXP2 + at, one, FXLEN);
+    for (k = 0; k < 5u; k++) wr32(FXP2 + at + FXLEN + 4u * k, RW_FX[k]);
+    wr32(FXP2 + 72, 5u); wr32(FXP2 + 76, at + FXLEN); wr32(FXP2 + 80, ocs_crc32(FXP2 + at + FXLEN, 20u)); wr32(FXP2 + 84, ns);
+    for (k = 0; k < ns; k++) {
+        uint8_t fin[FXLEN];
+        uint32_t j, base = oc_mod_link(st[k]);
+        memcpy(fin, one, FXLEN);
+        for (j = 0; j < 5u; j++) wr32(fin + (RW_FX[j] & 0xFFFFFFu), rd32(fin + (RW_FX[j] & 0xFFFFFFu)) + base);
+        wr32(fin + 52, ocs_crc32(fin + FW_MOD_CODE_OFF, FXLEN - FW_MOD_CODE_OFF)); wr32(fin + 56, ocs_crc32(fin, 56));
+        wr32(FXP2 + 88 + 8u * k, (uint32_t)OC_MOD_START_REL(st[k])); wr32(FXP2 + 92 + 8u * k, ocs_crc32(fin, FXLEN));
+    }
+    wr32(FXP2 + 88 + 8u * ns, ocs_crc32(FXP2, 88 + 8u * ns));
+    fxp2_size = at + FXLEN + 20u;
+}
+/* a unit with its pack and ONE SHAPES module, at start 0 (sectors 0..5 from 0xC8000): sectors 6..11 free (the six low ones are not the area's on this unit) */
+static void unit_n(int shapes)                          /* shapes 0: the pack and no module at all */
+{
+    uint8_t v[LEN];
+    memset(nor, 0xFF, sizeof nor);
+    make_pack(PAKF, 0);
+    memcpy(nor + OC_PACK_LO, PAKF, OC_PACK_LEN);
+    IMG_ENGINE = ENGI_SHAPES;
+    variant(v, 0, 40u, 0, 0, 0);
+    if (shapes) memcpy(nor + oc_mod_flash(0), v, LEN);
+    memset(&pk, 0, sizeof pk); oc_pack_good = 0;
+    memset(&oc_modguard, 0, sizeof oc_modguard);
+    memset(trk, 0, sizeof trk);
+    for (uint32_t e = 0; e < NENGINES; e++) eng_unregister(e);
+    memset(&oc_mod, 0, sizeof oc_mod);
+    fm1_guard_code_end = 0;
+    st_retire_engines(7);
+    oc_pack_boot();
+    oc_mod_boot(0);
+    memset(&fb, 0, sizeof fb);
+    strcpy(fb.path, "/C");
+    erases = 0;
+}
+static void unit_one(void) { unit_n(1); }
+static int do_fx(const uint8_t *d, uint32_t n) { cf_put("/C/F.OCM", d, n); fb.sel = 0; return fb_mod_file("/C/F.OCM", n, 0, 0u, 0, 0); }
+static int fx_at(uint32_t mid, uint32_t start) { int k = oc_fx_find(mid); return k >= 0 && oc_mod.fx[k].start == start && oc_mod.state[start] == MD_OK; }
+static int fx_set(const char *names)                    /* a set manifest of S.PAK and the modules `names` (a JSON list's inside), installed; its return */
+{
+    char m[512];
+    fb_ent_t e;
+    snprintf(m, sizeof m, "{\n  \"version\": \"%u.%u.%u\",\n  \"pack_hash\": %u,\n  \"pack_len\": %u,\n  \"iface\": %u,\n  \"api_addr\": %u,\n  \"files\": {\"pak\": \"S.PAK\", \"ocm\": [%s]}\n}\n",
+             (OC_FW_VERSION >> 16) & 255u, (OC_FW_VERSION >> 8) & 255u, OC_FW_VERSION & 255u, (unsigned)OC_PACK_HASH, (unsigned)OC_PACK_LEN, (unsigned)FW_API_IFACE, (unsigned)FW_API_ADDR, names);
+    memset(&e, 0, sizeof e); strcpy(e.name, "FX.SET.JSON"); e.size = (uint32_t)strlen(m);
+    cf_put("/C/FX.SET.JSON", (const uint8_t *)m, e.size);
+    fb.sel = 0;
+    return fb_install_set(&e);
+}
+static void fx_cases(void)
+{
+    static const uint32_t S68[] = { 1u, 8u }, S0168[] = { 0u, 1u, 8u }, S1[] = { 1u };
+    static uint8_t keepf[sizeof FXP], after1[0x100000];
+    uint32_t keepn;
+    uint8_t pk2[OC_PACK_LEN];
+    char t[200];
+    unit_one();
+    chk("(fx setup) one SHAPES module at start 0, the low sectors not the area's, no effect module", oc_mod.state[0] == MD_OK && oc_mod.state[1] == MD_EMPTY && !OC_MOD_LOW_OK() && !oc_mod.nfxmod);
+    /* the good one: planned at start 1 (sector 6, the first free span of two sectors), written there: two erases */
+    fx_package(S68, 2u, 80u, 0, FXLEN);
+    chk("an effect module's package (kind 1, sectors 6 and 8) installs at the start the loader plans: start 1, two sector erases",
+        do_fx(FXP, fxp_size) == 0 && erases == 2 && fx_at(FXID, 1u) && oc_mod.nfxmod == 1 && oc_mod.fx[0].version == FX_VER && oc_mod.fx[0].kind == 1 && oc_mod.fx[0].nfx == 2);
+    { uint8_t want[FXLEN]; fx_image(want, oc_mod_link(1), 80u, 0, FXLEN); chk("... the flash at start 1 holds the image for start 1, byte for byte", !memcmp(nor + oc_mod_flash(1), want, FXLEN)); }
+    chk("... after a restart the Effects table has it and SHAPES still works", working() && fx_at(FXID, 1u));
+    memcpy(after1, nor, sizeof nor);
+    /* a newer version: BESIDE at start 8 (sector 8; 6..7 hold the old one), the old one erased after the new one reads back */
+    FX_VER = 0x00010204u; fx_package(S68, 2u, 81u, 0, FXLEN); erases = 0;
+    chk("a newer version of the id goes beside, at start 8, and the old one at start 1 is erased", do_fx(FXP, fxp_size) == 0 && fx_at(FXID, 8u) && oc_mod.state[1] == MD_EMPTY &&
+        oc_mod.fx[oc_fx_find(FXID)].version == 0x00010204u && oc_mod.nfxmod == 1 && working());
+    FX_VER = 0x00010203u;
+    /* refusals, each before the first erase: the flash unchanged, the module and SHAPES working */
+    {
+        static const char *const what[] = { "", "a code byte flipped", "a descriptor with module id 0", "an entry of another kind than the header's", "a sector tail that is an update record" };
+        static const char *const msg[] = { "", "Module file damaged", "Module header bad", "Module header bad", "Update would erase it" };
+        for (int mu = 1; mu <= 4; mu++) {
+            memcpy(nor, after1, sizeof nor); for (uint32_t e = 0; e < NENGINES; e++) eng_unregister(e); memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
+            fx_package(S68, 2u, 82u, mu, FXLEN); keep(); erases = 0;
+            snprintf(t, sizeof t, "an effect package with %s: refused '%s', zero erases, the flash unchanged, the old effect module working", what[mu], msg[mu]);
+            chk(t, do_fx(FXP, fxp_size) == 1 && !strcmp(fb.msg, msg[mu]) && erases == 0 && same() && working() && fx_at(FXID, 1u) && !fb.ask);
+        }
+        memcpy(nor, after1, sizeof nor); for (uint32_t e = 0; e < NENGINES; e++) eng_unregister(e); memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
+        FX_WORD = (1u << 8) | ENGI_SHAPES; fx_package(S68, 2u, 83u, 0, FXLEN); keep(); erases = 0;
+        chk("an engine word of kind 1 with an engine number: refused 'Not a module', zero erases", do_fx(FXP, fxp_size) == 1 && !strcmp(fb.msg, "Not a module") && erases == 0 && same());
+        FX_WORD = 4u << 8; fx_package(S68, 2u, 83u, 0, FXLEN); erases = 0;
+        chk("an engine word of kind 4: refused 'Not a module', zero erases", do_fx(FXP, fxp_size) == 1 && !strcmp(fb.msg, "Not a module") && erases == 0 && same());
+        FX_WORD = 1u << 8;
+        fx_package(S1, 1u, 84u, 0, 9u * 4096u); erases = 0;
+        chk("an effect module of nine sectors: refused 'Module header bad', zero erases", do_fx(FXP, fxp_size) == 1 && !strcmp(fb.msg, "Module header bad") && erases == 0 && same());
+        { static const uint32_t S0[] = { 0u }; fx_package(S0, 1u, 85u, 0, FXLEN); }
+        erases = 0;
+        chk("a package with no image for the start the loader plans (only sector 0, where SHAPES stands): 'No image for it', zero erases",
+            do_fx(FXP, fxp_size) == 1 && !strcmp(fb.msg, "No image for it") && erases == 0 && same());
+    }
+    /* no room: no engine module, another effect module of eight sectors at start 0 (sectors 0..7): a six-sector module of this id has no free span (8..11 are four); the
+     * module in the way is named ("EFFECT at 0"), nothing erased. (An engine module as the blocker is named by its engine_t's name, which a host build cannot read:
+     * the engine blocker's text is usb_host_test's.) */
+    { static const uint32_t S0[] = { 0u };
+      unit_n(0); FX_ID = FXID + 7u; fx_package(S0, 1u, 86u, 0, 8u * 4096u); FX_ID = FXID; }
+    chk("(fx setup) no engine module; another effect module of eight sectors at start 0", do_fx(FXP, fxp_size) == 0 && fx_at(FXID + 7u, 0u));
+    fx_package(S68, 2u, 86u, 0, 6u * 4096u); keep(); erases = 0;
+    chk("no free span of six sectors (an effect module at 0..7): refused naming the module in the way ('EFFECT at 0: remove it'), zero erases",
+        do_fx(FXP, fxp_size) == 1 && !strcmp(fb.msg, "EFFECT at 0: remove it") && erases == 0 && same() && fx_at(FXID + 7u, 0u));
+    /* the relocatable package (format 2) installs the same flash as the variants package of the same image */
+    unit_one(); fx_package2(S68, 2u, 87u);
+    chk("a relocatable effect package (format 2): installs at start 1", do_fx(FXP2, fxp2_size) == 0 && fx_at(FXID, 1u) && working());
+    memcpy(after1, nor, sizeof nor);
+    unit_one(); fx_package(S68, 2u, 87u, 0, FXLEN); do_fx(FXP, fxp_size);
+    { uint8_t v[FXLEN]; fx_image(v, oc_mod_link(1), 87u, 0, FXLEN); chk("... and its flash is byte for byte the variants package's (the image linked for start 1)", !memcmp(after1, nor, sizeof nor) && !memcmp(nor + oc_mod_flash(1), v, FXLEN)); }
+    /* a set: the pack, SHAPES (beside at start 1: 6..11) and the effect module, which the planner then puts at start 0 (sectors 0..1, freed by SHAPES' move) */
+    unit_one(); make_pack(pk2, 0); cf_put("/C/S.PAK", pk2, sizeof pk2);
+    package(90, 0, 0, 0); cf_put("/C/M.OCM", OCM, ocm_size);
+    fx_package(S0168, 3u, 91u, 0, FXLEN); cf_put("/C/F.OCM", FXP, fxp_size); memcpy(keepf, FXP, fxp_size); keepn = fxp_size;
+    erases = 0;
+    chk("a set of SHAPES and an effect module: the effect module is planned on the area SHAPES' install leaves (start 0) and installed there",
+        fx_set("\"M.OCM\", \"F.OCM\"") == 0 && fb.packed == 3 && fx_at(FXID, 0u) && oc_mod.state[1] == MD_OK && oc_mod.engine[1] == ENGI_SHAPES && working());
+    unit_one(); fx_package(S68, 2u, 92u, 0, FXLEN); cf_put("/C/F.OCM", FXP, fxp_size); keep(); erases = 0;
+    chk("the same set whose effect package has no image for start 0: refused 'No image for it' before the first stage, zero erases",
+        fx_set("\"M.OCM\", \"F.OCM\"") == 1 && !strcmp(fb.msg, "No image for it") && erases == 0 && same() && working());
+    cf_put("/C/F.OCM", keepf, keepn); cf_put("/C/G.OCM", keepf, keepn); erases = 0;
+    chk("a set naming one effect module id twice: 'Modules don't fit', zero erases", fx_set("\"F.OCM\", \"G.OCM\"") == 1 && !strcmp(fb.msg, "Modules don't fit") && erases == 0 && same());
+    /* two effect modules of four sectors, each of which fits the six free sectors alone: the planner, counting both, refuses the set */
+    fx_package(S68, 2u, 93u, 0, 4u * 4096u - 512u); cf_put("/C/F.OCM", FXP, fxp_size);
+    FX_ID = FXID + 1u; fx_package(S68, 2u, 94u, 0, 4u * 4096u - 512u); cf_put("/C/G.OCM", FXP, fxp_size); FX_ID = FXID;
+    chk("(fx setup) each four-sector module alone plans a start", oc_fxmod_plan(FXID, 4u) >= 0 && oc_fxmod_plan(FXID + 1u, 4u) >= 0);
+    erases = 0;
+    chk("a set of two four-sector effect modules for six free sectors: 'Modules don't fit' (the sectors counted with the planner), zero erases",
+        fx_set("\"F.OCM\", \"G.OCM\"") == 1 && !strcmp(fb.msg, "Modules don't fit") && erases == 0 && same() && working());
+    fx_package(S68, 2u, 95u, 0, 2u * 4096u); cf_put("/C/F.OCM", FXP, fxp_size);
+    FX_ID = FXID + 1u; fx_package(S68, 2u, 96u, 0, 2u * 4096u); cf_put("/C/G.OCM", FXP, fxp_size); FX_ID = FXID;
+    erases = 0;
+    chk("a set of two two-sector effect modules (they fit: starts 1 and 8): both installed", fx_set("\"F.OCM\", \"G.OCM\"") == 0 && fx_at(FXID, 1u) && oc_fx_find(FXID + 1u) >= 0 &&
+        oc_mod.nfxmod == 2 && working());
+    /* an engine-only set is judged as before (the planner's count is not asked): SHAPES twice is refused by the pair rule */
+    unit_one(); erases = 0;
+    chk("an engine-only set is judged as before: the same engine twice, 'Modules don't fit'", fx_set("\"M.OCM\", \"M.OCM\"") == 1 && !strcmp(fb.msg, "Modules don't fit") && erases == 0);
+}
+
 int main(void)
 {
     uint8_t pk2[OC_PACK_LEN];
@@ -425,6 +631,7 @@ int main(void)
         chk("the good set installs whole (the pack, then the module): erases happen, the unit works", fb_install_set(&e) == 0 && fb.packed == 3 && erases >= PK_SECTORS && working());
     }
     set_resume();
+    fx_cases();                                          /* (Release 3 step 4) effect modules on the card */
     printf("card install: %s\n", bad ? "FAILED" : "all passed");
     return bad != 0;
 }

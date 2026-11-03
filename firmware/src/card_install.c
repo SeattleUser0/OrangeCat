@@ -8,7 +8,15 @@
  * Revisions: 0.13.4 split from card_browse.c.
  *   0.13.5 fb_install_set: the press that answers an in-place question goes on from the module that asked (a set of two modules asking by turns for ever).
  *   0.14.1 fb_mod_file: the relocatable package (format 2: one image linked at 0 and its relocation list), relocated here for the start (fb_rel_rd).
+ *   Release 3 step 4 (FB_FX): an effect module (the package's engine word of kind 1..3, FX_MODULES_PLAN.md 2) is recognised by fb_mod_file: its module id and sectors come
+ *           from its first image, read whole and checked with the loader's own oc_fxmod_image_check (the header, the code's CRC, fx_desc_check, the tails); the start is
+ *           oc_fxmod_plan's, the install oc_fxmod_begin / oc_mod_write / oc_mod_end; every image the package has for a start the span may take is checked in a dry pass.
+ *           fb_install_set plans the set's modules one after the other with the loader's planners (oc_mod_set_fits) when one of them is an effect module. Engine
+ *           packages go the way they did. A build with FB_FX 0 (tests/usb_host_test.c, whose loader is a stand-in) refuses an effect package as "Not a module".
  */
+#ifndef FB_FX
+#define FB_FX 1
+#endif
 #if FB_PAK
 /* (0.8.0) the pack file at (fb.path, e) installed: 0 done, else fb.msg says why. Reads it in 512-byte pieces: the header, the
  * tables to oc_pack_write, the header again to oc_pack_end (it is programmed last). */
@@ -179,14 +187,21 @@ static int fb_mod_src(fb_rel_t *r, const uint8_t *hdr, uint32_t ver, uint32_t o,
 /* (0.10.0) the module package at (fb.path, e) installed: 0 done, else fb.msg says why. The package: a 56 byte header, a table of 16 byte variants, a CRC-32 of
  * both, then the images (web/EDITOR_PROTOCOL.md); (0.14.1) or format 2, above. The image for the place oc_mod_plan names goes to oc_mod_begin / write in 256
  * byte pieces; its first 256 bytes (the header page) go to oc_mod_end, which programs them last. */
+static struct { uint32_t mid, starts; uint8_t ns; } fb_fx;   /* (Release 3 step 4) the effect module fb_mod_file last read (mid 0: an engine's), for the set's plan; starts: a bit a start it has an image for */
+static void fb_ck_msg(int ck)
+{
+    str_cpy(fb.msg, ck == MC_TAIL ? "Update would erase it" : ck == MC_READ ? "Unreadable" : ck == MC_PAGES ? "Module pages bad" : ck == MC_CRC ? "Module file damaged" : "Module header bad", sizeof fb.msg);
+}
 static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int dry, uint32_t *engine_out)
 {
     uint8_t buf[256], sc[256];                        /* (0.14.1) sc: fb_rel_seal's scratch (buf keeps the package's header) */
     FIL *f = &uf_pf;
     UINT got;
     uint32_t n, tab = 56u, hc, engine, start, off = 0, len = 0, o, ver, m = 0, po = 0;
+    uint32_t kind, mid = 0, fxns = 0;                 /* (Release 3 step 4) an effect module: its kind, module id and sectors */
     fb_rel_t rel;
     int plan, rc = 0;
+    fb_fx.mid = 0; fb_fx.ns = 0; fb_fx.starts = 0;
     if (song.playing || transport_busy()) { str_cpy(fb.msg, "Stop first", sizeof fb.msg); return 1; }
     if (f_open(f, p, FA_READ) != FR_OK) { str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1; }
     if (f_read(f, buf, sizeof buf, &got) != FR_OK || got < 64u || pk_rd32(buf) != 0x464D434Fu || ((ver = pk_rd16(buf + 4)) != 1u && ver != 2u)) {
@@ -207,12 +222,50 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
         str_cpy(fb.msg, "Not for this firmware", sizeof fb.msg);
         return 1;
     }
+    kind = (engine >> 8) & 0xFFu;
+#if FB_FX
+    if ((engine >> 8) && !fw_mod_word_ok(engine)) {   /* (Release 3 step 4) bits 16..31, a kind past 3, an effect with an engine number: not a module */
+#else
+    if (engine >> 8) {                                /* (a build without the effect path: any word above an engine number) */
+#endif
+        f_close(f); str_cpy(fb.msg, "Not a module", sizeof fb.msg); return 1;
+    }
+#if FB_FX
+    if (kind) {                                        /* (Release 3 step 4) an effect module: its first image, for its own start, read whole and checked by the loader's check */
+        uint32_t s0 = pk_rd32(buf + tab + (ver == 2u ? 32u : 0u)), l0 = pk_rd32(buf + tab + 4u), o0 = pk_rd32(buf + tab + 12u), vs;
+        int ck;
+        for (vs = 0; vs < OC_MOD_STARTS && (uint32_t)OC_MOD_START_REL(vs) != s0; vs++) ;
+        if (vs >= OC_MOD_STARTS || !l0 || o0 > size || l0 > size - o0) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
+        rel.f.f = f; rel.w = FB_RELOCS();
+        if (ver == 2u && fb_rel_load(f, pk_rd32(buf + tab + 16u), pk_rd32(buf + tab + 20u), pk_rd32(buf + tab + 24u), l0)) {
+            f_close(f); str_cpy(fb.msg, "Module file damaged", sizeof fb.msg); return 1;
+        }
+        ck = fb_mod_src(&rel, buf, ver, 0u, vs, o0, l0, sc);
+        if (!ck) ck = oc_fxmod_image_check(fb_rel_rd, &rel, vs, l0, &mid);
+        if (ck) { f_close(f); fb_ck_msg(ck); return 1; }
+        fxns = oc_mod_nsec(l0);
+        fb_fx.mid = mid; fb_fx.ns = (uint8_t)fxns;
+        for (o = 0; o < (ver == 2u ? m : n); o++) {
+            uint32_t so = pk_rd32(buf + tab + (ver == 2u ? 32u + 8u * o : 16u * o));
+            for (vs = 0; vs < OC_MOD_STARTS; vs++) if ((uint32_t)OC_MOD_START_REL(vs) == so) fb_fx.starts |= 1u << vs;
+        }
+        plan = oc_fxmod_plan(mid, fxns);
+    } else
+#endif
     plan = oc_mod_plan(engine);
     if (plan < 0) {
+#if FB_FX
+        int b = kind ? oc_fxmod_blocked_by(mid, fxns) : oc_mod_blocked_by(engine);   /* (Release 3 step 4) an effect module's span: the loader's own blocker */
+#else
         int b = oc_mod_blocked_by(engine);             /* (0.12.1) a usable module of another engine stands in the way: never erased by an install; the user removes it first */
+#endif
         f_close(f);
         if (b >= 0) {                                   /* "ENGINE X INSTALLED AT START N: REMOVE IT FIRST" in the 23 characters a row has: "PROPHET at 2: remove it" */
+#if FB_FX
+            const char *nm = oc_mod.kind[b] ? "EFFECT" : ENGINES[oc_mod.engine[b] < NENGINES ? oc_mod.engine[b] : 0]->name;
+#else
             const char *nm = ENGINES[oc_mod.engine[b] < NENGINES ? oc_mod.engine[b] : 0]->name;
+#endif
             uint32_t at = 0;
             at = fb_put(fb.msg, at, nm, 9u);
             at = fb_put(fb.msg, at, " at ", 4u);
@@ -249,10 +302,19 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
                  voff = ver == 2u ? off : pk_rd32(buf + tab + 16u * o + 12u);
         int ck;
         for (vs = 0; vs < OC_MOD_STARTS && (uint32_t)OC_MOD_START_REL(vs) != sec; vs++) ;
+#if FB_FX
+        if (vs >= OC_MOD_STARTS || (vs != start && (!dry || !(kind ? oc_fx_allowed(fxns, vs) : oc_mod_allowed(engine, vs))))) continue;
+        if (kind && vlen && oc_mod_nsec(vlen) != fxns) { f_close(f); str_cpy(fb.msg, "Module header bad", sizeof fb.msg); return 1; }   /* one span for every image */
+#else
         if (vs >= OC_MOD_STARTS || (vs != start && (!dry || !oc_mod_allowed(engine, vs)))) continue;
+#endif
         if (!vlen || voff > size || vlen > size - voff) { f_close(f); str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
         ck = fb_mod_src(&rel, buf, ver, o, vs, voff, vlen, sc);
+#if FB_FX
+        if (!ck) ck = kind ? oc_fxmod_image_check(fb_rel_rd, &rel, vs, vlen, &mid) : oc_mod_image_check(fb_rel_rd, &rel, engine, vs, vlen);   /* (mid set: the same id) */
+#else
         if (!ck) ck = oc_mod_image_check(fb_rel_rd, &rel, engine, vs, vlen);
+#endif
         if (ck) {
             f_close(f);
             str_cpy(fb.msg, ck == MC_TAIL ? "Update would erase it" : ck == MC_READ ? "Unreadable" : ck == MC_PAGES ? "Module pages bad" : ck == MC_CRC ? "Module file damaged" : "Module header bad", sizeof fb.msg);
@@ -263,7 +325,12 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
         f_close(f); str_cpy(fb.msg, "Unreadable", sizeof fb.msg); return 1;
     }
     if (dry) { f_close(f); return 0; }
-    if (oc_mod_inplace(engine, start) && !armed) {      /* (0.10.1) no other place is free: the old module is erased first and a power cut leaves none.
+#if FB_FX
+    if ((kind ? oc_fxmod_inplace(mid, fxns, start) : oc_mod_inplace(engine, start)) && !armed) {
+#else
+    if (oc_mod_inplace(engine, start) && !armed) {
+#endif
+                                                        /* (0.10.1) no other place is free: the old module is erased first and a power cut leaves none.
                                                                                   * Said once; OCT+ on the same row again goes on (fb.ask is the row, as for a pack's question).
                                                                                   * (0.13.4) asked only for a file that passed the check above */
         f_close(f);
@@ -272,7 +339,11 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
         str_cpy(fb.msg, "Erases old first. Again", sizeof fb.msg);
         return 1;
     }
+#if FB_FX
+    if ((kind ? oc_fxmod_begin(mid, start, len) : oc_mod_begin(engine, start, len)) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+#else
     if (oc_mod_begin(engine, start, len) != 0) { f_close(f); str_cpy(fb.msg, "Install failed", sizeof fb.msg); return 1; }
+#endif
     for (o = FW_MOD_CODE_OFF; o < len && !rc; o += sizeof buf) {
         uint32_t k = len - o > sizeof buf ? (uint32_t)sizeof buf : len - o;
         if (fb_rel_rd(&rel, o, buf, k) || oc_mod_write(o, buf, k) != 0) rc = 1;
@@ -338,6 +409,11 @@ static int fb_install_set(const fb_ent_t *e)
     UINT got;
     oc_set_t *o = FB_SETS();
     uint32_t k, j, size, plen, phash, eng[OC_SET_OCM];
+#if FB_FX
+    uint32_t mids[OC_SET_OCM], has[OC_SET_OCM];
+    uint8_t nss[OC_SET_OCM], anyfx = 0;
+    int8_t plans[OC_SET_OCM];
+#endif
     uint8_t ask0 = fb.ask, q0 = fb.setq;
     uint32_t k0 = 0;
     fb.ask = 0;
@@ -358,9 +434,28 @@ static int fb_install_set(const fb_ent_t *e)
     if (fb_set_file(p, o->pak, &size) || fb_pak_file(p, size, 1)) return 1;
     for (k = 0; k < o->nocm; k++) {
         if (fb_set_file(p, o->ocm[k], &size) || fb_mod_file(p, size, 0, 0u, 1, &eng[k])) return 1;
+#if FB_FX
+        mids[k] = fb_fx.mid; nss[k] = fb_fx.ns; has[k] = fb_fx.starts;
+        if (eng[k] >> 8) {                             /* (Release 3 step 4) an effect module: the same id twice is refused; the room is the planners' (below) */
+            anyfx = 1;
+            for (j = 0; j < k; j++)
+                if ((eng[j] >> 8) && mids[j] == mids[k]) { str_cpy(fb.msg, "Modules don't fit", sizeof fb.msg); return 1; }
+            continue;
+        }
+        for (j = 0; j < k; j++)
+            if (!(eng[j] >> 8) && (eng[j] == eng[k] || !oc_mod_pair_fits(eng[j], eng[k]))) { str_cpy(fb.msg, "Modules don't fit", sizeof fb.msg); return 1; }
+#else
         for (j = 0; j < k; j++)
             if (eng[j] == eng[k] || !oc_mod_pair_fits(eng[j], eng[k])) { str_cpy(fb.msg, "Modules don't fit", sizeof fb.msg); return 1; }
+#endif
     }
+#if FB_FX
+    if (anyfx) {                                        /* each start planned on the area the ones before leave; an effect module's package must have the image for its start */
+        if (!oc_mod_set_fits(eng, mids, nss, o->nocm, plans)) { str_cpy(fb.msg, "Modules don't fit", sizeof fb.msg); return 1; }
+        for (k = 0; k < o->nocm; k++)
+            if ((eng[k] >> 8) && !((has[k] >> plans[k]) & 1u)) { str_cpy(fb.msg, "No image for it", sizeof fb.msg); return 1; }
+    }
+#endif
 #if OC_HOME_PIC
     {   /* (the new interface, UI_BUILD.md 1b) the set's pack in again also when its file carries HOME's scene trailer and the area has
          * none (a pack installed before, of the same tables) */

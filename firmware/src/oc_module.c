@@ -1101,3 +1101,63 @@ static int oc_fxmod_remove(uint32_t mid)
     oc_mod_reload();
     return rc;
 }
+/* (Release 3 step 4) an effect module's whole image (the header page, then the code to `len`) as rd gives it, for `start`, checked as oc_fxmod_end and the boot check will:
+ * the span (ceil(len / 4096) <= OC_FX_MAX_SECTORS sectors from the start, inside the area), the header page (oc_fxmod_hdr_matches: magic, hcrc, fw_module_check with the kind,
+ * length, link address of the start, pointers, the pack hash), the code's CRC-32, the descriptor (fx_desc_check through the image's own address space) and the sector tails.
+ * *mid: 0 on entry, the descriptor's module id is put there; not 0, the descriptor's id must be that one. 0 ok, else MC_* (MC_HDR for a bad descriptor too, as the boot's
+ * MD_BAD_HDR). The card's installer runs it on the file before anything is erased. Writes nothing. */
+static int oc_fxmod_image_check(oc_rd_t rd, void *ctx, uint32_t start, uint32_t len, uint32_t *mid)
+{
+    _Alignas(4) uint8_t pg[256];
+    uint8_t buf[256];
+    uint32_t crc = 0xFFFFFFFFu, off, id = 0, ns = oc_mod_nsec(len);
+    int t;
+    if (start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > OC_FX_MAX_SECTORS || !oc_fx_allowed(ns, start))
+        return MC_HDR;
+    if (rd(ctx, 0, pg, sizeof pg))
+        return MC_READ;
+    for (off = FW_MOD_CODE_OFF; off < len; off += sizeof buf) {
+        uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
+        if (rd(ctx, off, buf, n))
+            return MC_READ;
+        crc = ocs_crc_add(crc, buf, n);
+        SMP_FEED();
+    }
+    if (!oc_fxmod_hdr_matches(pg, start, len))
+        return MC_HDR;
+    if (((const fw_mod_hdr_t *)pg)->crc != ~crc)
+        return MC_CRC;
+    if (oc_fx_desc_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg, &id, 0, 0) || !id || (*mid && id != *mid))
+        return MC_HDR;
+    *mid = id;
+    t = oc_rule_tails(rd, ctx, len, ns);
+    return t < 0 ? MC_READ : t > 0 ? MC_TAIL : 0;
+}
+/* (Release 3 step 4) can the modules of a set be installed one after the other, in this order: each one's start planned by the loader's own planner (oc_mod_plan for an
+ * engine word of kind 0, oc_fxmod_plan(id, sectors) for an effect module) on the area as the installs before it leave it (the planned start taken by the new module, the
+ * old modules of the same engine or id gone), every start's state put back afterwards. word[k]: the package's engine word; mid[k], ns[k]: an effect module's id and
+ * sectors (unused for an engine); plan[k] (may be 0): the start each one would be written to. 1 they fit, 0 not (the card says "Modules don't fit" before anything is
+ * written). */
+static int oc_mod_set_fits(const uint32_t *word, const uint32_t *mid, const uint8_t *ns, uint32_t n, int8_t *plan_out)
+{
+    uint8_t st[OC_MOD_STARTS], kd[OC_MOD_STARTS];
+    uint32_t en[OC_MOD_STARTS], ln[OC_MOD_STARTS], md[OC_MOD_STARTS], k, i;
+    int ok = 1;
+    memcpy(st, oc_mod.state, sizeof st); memcpy(kd, oc_mod.kind, sizeof kd); memcpy(en, oc_mod.engine, sizeof en);
+    memcpy(ln, oc_mod.length, sizeof ln); memcpy(md, oc_mod.mid, sizeof md);
+    for (k = 0; k < n && ok; k++) {
+        uint32_t fx = (word[k] >> 8) & 0xFFu;
+        int plan = fx ? oc_fxmod_plan(mid[k], ns[k]) : oc_mod_plan(word[k]);
+        if (plan < 0) { ok = 0; break; }
+        if (plan_out) plan_out[k] = (int8_t)plan;
+        for (i = 0; i < OC_MOD_STARTS; i++)                    /* what the install leaves: the old modules of this engine or id erased */
+            if (i != (uint32_t)plan && (fx ? oc_fx_has(i, mid[k]) : oc_mod_has(i, word[k] & 0xFFu)))
+                oc_mod.state[i] = MD_EMPTY;
+        oc_mod.state[plan] = MD_OK; oc_mod.kind[plan] = (uint8_t)fx; oc_mod.mid[plan] = fx ? mid[k] : 0u;
+        oc_mod.engine[plan] = fx ? OC_FX_ENGINE : word[k] & 0xFFu;
+        oc_mod.length[plan] = fx ? (uint32_t)ns[k] * 0x1000u : (oc_mod_geo_of(word[k]) ? (uint32_t)oc_mod_geo_of(word[k])->sectors * 0x1000u : 0x1000u);
+    }
+    memcpy(oc_mod.state, st, sizeof st); memcpy(oc_mod.kind, kd, sizeof kd); memcpy(oc_mod.engine, en, sizeof en);
+    memcpy(oc_mod.length, ln, sizeof ln); memcpy(oc_mod.mid, md, sizeof md);
+    return ok;
+}
