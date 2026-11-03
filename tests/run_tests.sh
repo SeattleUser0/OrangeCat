@@ -213,6 +213,11 @@ fx_insert_job() {                                 # (Release 3 step 5) the gener
     echo "== the generic insert host with DUB TAPE's kernel across the cut (Release 3 step 5): the probe against the tree of 09d4d4b3 and against the pinned printout, sample for sample"
     CC="$CC" BS="$BS" limited sh tests/fx_insert_diff.sh "$OUT/fx_insert" || fail "tests/fx_insert_diff.sh"
 }
+fx_dub_module_job() {                             # (Release 3 step 6) DUB TAPE as a module through the same insert host: its render against the resident kernel's, sample for sample
+    echo "== DUB TAPE as an effect module (Release 3 step 6): the module's kernel through the generic insert host against the resident kernel, every output sample, and the mutation check"
+    CC="$CC" BS="$BS" limited sh tests/fx_dub_module.sh "$OUT/fx_dub_module" || fail "tests/fx_dub_module.sh"
+    CC="$CC" BS="$BS" limited sh tests/fx_dub_module.sh --mutate "$OUT/fx_dub_module" || fail "tests/fx_dub_module.sh --mutate"
+}
 oc_scene_job() {                                  # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) HOME's scenes
     echo "== new interface 1b: the pack with and without its scene trailer (tools/gen_pack.py --scenes)"
     python3 tools/gen_pack.py --pak "$OUT/oc_scene_without.pak" --header "$OUT/oc_scene_without.h" &&
@@ -512,6 +517,7 @@ core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which
 sound && t "DUB TAPE's kernel (Release 2): the repeats at TIME, each darker; FEEDBACK 1.27 bounded; the line through its block table; TIME and filter changes continuous; the cut; the spring in both placements; the quarter rate" jfx_dub_test -O1 -ffp-contract=off -Wno-unused-function
 sound && t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
 sound && job fx_insert_job
+sound && job fx_dub_module_job
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
 # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) OC_HOME_PIC=1: the install path takes the pack with HOME's scene trailer
@@ -534,6 +540,7 @@ core && t "module loader (Orange Cat 0.10.0, step 5): every refusal, the crash m
 core && t "module loader (0.10.0, step 5): the built-in SHAPES wins the slot (OC_MODULE_WINS 0): a valid module is NOSLOT" oc_module_shadow:oc_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies the engine" oc_module_out:oc_module_test -O1 $FW -DMELODEE_SHAPES=0
 core && t "effect modules (Release 3 step 4): the kind field, fx_desc_t, the Effects table, the install by module id, a power cut at every program and erase, the crash ban, a descriptor fuzz" fx_module_test -O1 $FW -DOC_MODULE_WINS=1
+core && t "DUB TAPE module (Release 3 step 6): the real image (build/module/dub.*.img) through the loader, the install and the page/card check, the descriptor out of the flash, each mutation refused" fx_dub_image_test -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fx_dub_image_test" build/module
 core && t "effect modules (Release 3 step 4): the same with the built-in SHAPES winning no slot (OC_MODULE_WINS 0)" fx_module_shadow:fx_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "effect modules (Release 3 step 4): SHAPES built out" fx_module_out:fx_module_test -O1 $FW -DMELODEE_SHAPES=0
 core && t "the card installers against the real loaders on a simulated NOR (0.13.4): a damaged pack or module, a bad link address, a record on a sector tail, a set with one bad file: refused with zero erases, the old pack and module still working" card_install_test -O1 $FW -DOC_MODULE_WINS=1
@@ -575,6 +582,7 @@ if core; then
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     run "engine candidates gate (Orange Cat 0.14.0): placement against the firmware's geometry; the rows of SHAPES and the Prophet against the plan, the candidates' rows the verdicts rest on" python3 tests/engine_gate_test.py
     run "module build (Orange Cat 0.10.0, PoC step 2; 0.10.1: the update loader's record rule, the code moved on until no sector tail matches): the starts, the link scripts, the header checks, the .ocm package, against a stand-in toolchain" python3 tests/module_build_test.py
+    run "DUB TAPE module (Release 3 step 6): the linked ELF against its image: no undefined symbol, the call table is the kernel's twelve functions, the descriptor chain (skipped without the device toolchain and a built module)" python3 tests/dub_module_symbols_test.py
     run "flash facts shared by the pack generator and the module build (Orange Cat 0.10.1): XIP address = fm1_xip.h, the update loader's record rule = ldr_core.c, oc_pack.c and ota.c" python3 tests/ocflash_test.py
     t "audio profiling: histogram bounds and timer wrap" audio_profile_test
     t "batch profiling: per-core accounting and failed-worker drops" audio_batch_profile_test

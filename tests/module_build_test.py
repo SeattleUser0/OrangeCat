@@ -124,6 +124,11 @@ check("the area is the one fm1_flash.h names: 18 sectors from 0xC2000, the numbe
 check("the lowest start (-6) links at XIP 0x02000000-0x4000+0xC2000 and the highest (11) at 0xD3000",
       ocflash.xip(build.module_base() - 6 * 0x1000) == 0x020BE000 and ocflash.xip(build.module_base() + 11 * 0x1000) == 0x020CF000)
 
+# (Release 3 step 6) DUB TAPE's entry: an effect module (kind 1) of 3 sectors on the area's grid, no geometry row
+check("DUB is in MODULES as a kind 1 module of 3 sectors with no list of starts: the grid -6, -3, 0, 3, 6, 9 (the multiples of 3 from the area's lowest sector)",
+      build.MODULES["dub"]["kind"] == 1 and build.MODULES["dub"]["sectors"] == 3 and "starts" not in build.MODULES["dub"] and build.module_starts(3) == [-6, -3, 0, 3, 6, 9])
+check("no engine module has a kind", all("kind" not in v for k, v in build.MODULES.items() if k != "dub"))
+
 # a good build
 fk = Fake()
 errors, notes = run(fk)
@@ -207,6 +212,14 @@ refused("an undefined symbol", (lambda f: (setattr(f, "undef", "         U memcp
 refused("a .data section", (lambda f: (f.sections.update({".data": 4}), f)[1])(Fake()), "no RAM of its own")
 refused("a .bss section", (lambda f: (f.sections.update({".bss": 8}), f)[1])(Fake()), "no RAM of its own")
 refused("a wrong magic", Fake(magic=0x12345678), "header magic")
+refused("(Release 3 step 6) an engine module whose header word carries a kind", Fake(engine=0x10E), "is not kind 0")
+_dub = build.MODULES["shapes"]
+build.MODULES["shapes"] = dict(_dub, kind=1)
+refused("(Release 3 step 6) an effect module (kind 1) whose header word is an engine number", Fake(engine=14), "is not kind 1")
+refused("(Release 3 step 6) an effect module whose header word is a kind 2", Fake(engine=0x200), "is not kind 1")
+refused("(Release 3 step 6) an effect module whose header word is kind 1 with an engine number", Fake(engine=0x10E), "with no engine number")
+check("(Release 3 step 6) ..and kind 1 with no engine number is taken", run(Fake(engine=0x100))[0] == [])
+build.MODULES["shapes"] = _dub
 refused("a wrong table address (api_addr)", Fake(api_addr=API_ADDR + 4), "api_addr")
 refused("a wrong link address", Fake(link_addr=0x02000000), "link_addr")
 refused("a wrong pack hash", Fake(pack_hash=PACK_HASH ^ 1), "pack_hash")

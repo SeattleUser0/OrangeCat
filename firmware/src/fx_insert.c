@@ -47,6 +47,71 @@ static __attribute__((section(".pool"))) uint8_t fx_ins_force_degrade;          
 static __attribute__((section(".pool"))) uint16_t fx_cpu_wait;                            /* blocks still to wait before an insert is admitted (CPU1 retired or forced off sets it to FX_CPU_OK_BLOCKS; it counts down while CPU1 is online; 0 at boot: .pool is zero) */
 #define FX_CPU_OK_BLOCKS 2750u                          /* 2 s */
 
+/* ---- (Release 3 step 6) a module's kernel beside the resident one (FX_MODULES_PLAN.md 15) ----
+ * The Effects table (oc_module.c) registers an effect module of id FX_MODK_ID (DUB TAPE's) and hands its checked caps block, call table and rows to fx_modk_set, which makes a fx_kernel_t in RAM
+ * (fx_modk) from them; fx_modk_clear drops it when the module goes (a removal, a reinstall, a ban). WHICH kernel a track's instance runs is the track's own setting:
+ * fx_mod_want, a bit a track, 0 for all (the default: the resident kernel, so a build with no module, or with the module and no choice made, plays what it always played).
+ * fx_mod_bound is the kernel the instance was made with: it changes only while the instance is OFF (a track whose setting changed ramps out and lets go first, as a governor release
+ * does, then starts again on the other kernel from silence). fx_kernel_of(k) (jfx_dub.c) answers from fx_mod_bound. */
+#if OC_FX_MODK
+static __attribute__((section(".pool"))) fx_kernel_t fx_modk;
+static __attribute__((section(".pool"))) uint8_t fx_modk_ok, fx_mod_want, fx_mod_bound;
+static __attribute__((section(".pool"))) void (*fx_modk_note)(uint32_t);               /* oc_module.c: the crash mark of the module in use (oc_fxmod_note_use) */
+#define FX_MODK_BOUND(k) ((fx_mod_bound >> (k)) & 1u)
+static void fx_modk_clear(void);
+/* the tracks that run the module's kernel (a bit each), or the ones that may: 0 with no module */
+static inline uint32_t fx_mod_effective(void) { return fx_modk_ok ? fx_mod_want : 0u; }
+/* the kernel of the module, from its checked descriptor: 0 ok, FXM_VER (a caps version this host does not know), FXM_RANGE (a capability outside what the host can give: instances, blocks, a seed, a class,
+ * the snapshot's room). On a refusal nothing is registered: the resident kernel plays and the Effects row says so (oc_mod.fx .why) */
+static int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
+{
+    fx_kernel_t m;
+    if (c->magic != FX_CAPS_MAGIC || c->size != FX_CAPS_WIRE || c->version != FX_CAPS_VERSION) return FXM_VER;
+    if (!c->ram_work_min || c->ram_work_min > c->ram_work_max || c->ram_work_max > FX_INS_MAXSEG || !c->max_inst || c->max_inst > FX_INS_N || c->prof >= AP_COUNT ||
+        (c->flags & FXK_SEED) || !c->param_bytes || c->param_bytes > FX_PARAM_BYTES || (!c->ram_extra != !c->ram_extra_bytes) || !c->gov_us || !c->nrows != !rows) return FXM_RANGE;
+    memset(&m, 0, sizeof m);
+    m.module_id = module_id; m.version = version; m.legacy_module = c->legacy_module; m.effect_id = (uint8_t)effect_id; m.nrows = c->nrows; m.rows = rows;
+    m.flags = c->flags; m.rates = c->rates; m.max_inst = c->max_inst; m.prof = c->prof; m.ram_work_min = c->ram_work_min; m.ram_work_max = c->ram_work_max; m.ram_extra = c->ram_extra;
+    m.ram_state = c->ram_state; m.latency = c->latency; m.tail_base = c->tail_base; m.cost = c->cost; m.ram_extra_bytes = c->ram_extra_bytes; m.gov_us = c->gov_us;
+    m.on = k->on; m.size_sig = k->size_sig; m.size_need = k->size_need; m.blocks_at = k->blocks_at; m.hold_len = k->hold_len; m.tick = k->tick; m.param_sig = k->param_sig;
+    m.snap = k->snap; m.cost_extra = k->cost_extra; m.start = k->start; m.process = k->process; m.reset = k->reset;
+    if (!m.on || !m.size_sig || !m.size_need || !m.blocks_at || !m.hold_len || !m.tick || !m.param_sig || !m.snap || !m.cost_extra || !m.start || !m.process || !m.reset) return FXM_RANGE;
+    fx_modk_clear();
+    fx_modk = m;
+    fx_modk_ok = 1;
+    return FXM_OK;
+}
+/* the module's kernel gone: the instances that were made with it let go at once (their memory is asked back by jfx_ins_mem as `want` falls to 0) and the tracks start again on the resident kernel */
+static void fx_modk_clear(void)
+{
+    uint32_t k;
+    for (k = 0; k < FX_INS_N; k++)
+        if (FX_MODK_BOUND(k)) {
+            fx_ins[k].state = FXS_OFF; fx_ins[k].evict = 0; fx_ins[k].gov = fx_ins[k].held_off = 0; fx_ins[k].kw[0] = fx_ins[k].kw[1] = 0;
+            fx_ins_want[k] = 0; fx_ins_spring[k] = 0;
+        }
+    fx_mod_bound = 0;
+    fx_modk_ok = 0;
+    memset(&fx_modk, 0, sizeof fx_modk);
+}
+/* the tracks choose the module's kernel (a bit each) when one is registered; the change takes effect at the instance's next start */
+static void fx_ins_use_module(uint32_t mask) { fx_mod_want = (uint8_t)(mask & ((1u << FX_INS_N) - 1u)); }
+static uint32_t fx_modk_uses(void)         /* instances of the module's kernel running now (the Effects table's `uses`) */
+{
+    uint32_t k, n = 0;
+    for (k = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && (fx_ins[k].state == FXS_RUN || fx_ins[k].state == FXS_RAMP);
+    return n;
+}
+#else
+#define FX_MODK_BOUND(k) 0u
+static inline uint32_t fx_mod_effective(void) { return 0u; }
+static inline int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
+{ (void)module_id; (void)version; (void)effect_id; (void)c; (void)k; (void)rows; return FXM_RANGE; }
+static inline void fx_modk_clear(void) {}
+static inline void fx_ins_use_module(uint32_t mask) { (void)mask; }
+static inline uint32_t fx_modk_uses(void) { return 0u; }
+#endif
+
 /* the capture buffer track k writes this block, or 0 (no instance running) */
 static inline int32_t *fx_ins_capture(uint32_t k)
 {
@@ -139,7 +204,7 @@ static int fx_ins_running(void) { return fx_mask != 0; }
 /* before the tracks, every block (mix.c): the pair swapped, each instance's state advanced, the job pushed first */
 JFX_XIP static void fx_ins_start(uint32_t nt)
 {
-    uint32_t k, i, cost = 0;
+    uint32_t k, i, cost = 0, beat;
     int degrade;
     fx_job_buf = fx_cur;
     fx_cur ^= 1u;
@@ -151,6 +216,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
     if (fx_ins_force_degrade || !FX_CPU1_OK()) fx_cpu_wait = FX_CPU_OK_BLOCKS;      /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
     else if (fx_cpu_wait) fx_cpu_wait--;
     degrade = fx_cpu_wait != 0;
+    beat = beat_samples();                              /* (the kernels' tempo, once a block: fx_ictx_t) */
     if (fx_ins_gov_req) {                               /* the governor: the highest running instance gives way */
         fx_ins_gov_req = 0;
         for (k = FX_INS_N; k-- > 0;)
@@ -163,17 +229,27 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
     for (k = 0; k < FX_INS_N; k++) {
         fx_ins_t *d = &fx_ins[k];
         const track_t *t = &trk[k];
-        const fx_kernel_t *kn = fx_kernel_of(k);
+        const fx_kernel_t *kn;
+#if OC_FX_MODK
+        if (((fx_mod_effective() ^ fx_mod_bound) >> k) & 1u) {        /* the track's kernel changed: only an OFF instance changes kernels; a running one ramps out and lets go first */
+            if (d->state == FXS_OFF) { fx_mod_bound ^= (uint8_t)(1u << k); d->kw[0] = d->kw[1] = 0; if (FX_MODK_BOUND(k) && fx_modk_note) fx_modk_note(FX_MODK_ID); }
+            else if (d->state == FXS_RUN || d->state == FXS_RAMP) { d->evict = 1; d->gov = 0; }
+            else { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; }
+        }
+#endif
+        kn = fx_kernel_of(k);
         uint32_t blocks = 0u, sp, R = 2u;
         float need = 0.0f;
+        fx_ictx_t c;
         int on = k < nt && kn->on(t), deb = 0, live = d->state == FXS_RUN || d->state == FXS_RAMP;
         d->run = 0;
+        c.beat = beat; c.k = (uint8_t)k; c.trig[0] = fx_trig[k & 3u][0]; c.trig[1] = fx_trig[k & 3u][1]; c.trig[2] = fx_trig[k & 3u][2]; c.pad = 0;
         if (on) d->idle = 0;
         else if (k < nt && (d->state == FXS_RUN || d->state == FXS_RAMP) && d->idle < FX_IDLE) { on = 1; d->idle++; }   /* the effect off: muted, the instance and its memory stay a while */
         if (!live) { d->st_R = 0; d->st_blk = 0; d->idle = 0; }           /* (the size is sticky only while the line runs: one that is waiting for memory asks for what the times need now) */
         if (on) {                                           /* the size from the kernel: the rate stage (half rate while the farthest tap fits the most blocks, quarter rate when it does not) and the blocks, sticky */
-            uint32_t rs = kn->size_sig(t);
-            if (rs != d->rsig) { d->rneed = kn->size_need(t); d->rsig = rs; }       /* (made again only when what the sizing is made from changed) */
+            uint32_t rs = kn->size_sig(t, &c);
+            if (rs != d->rsig) { d->rneed = kn->size_need(t, &c); d->rsig = rs; }       /* (made again only when what the sizing is made from changed) */
             need = d->rneed;
             if (!d->st_R) d->st_R = 2u;
             if (kn->blocks_at(need, 2u) > kn->ram_work_max) R = 4u;
@@ -196,7 +272,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         }
         if (degrade && (d->state == FXS_RUN || d->state == FXS_RAMP)) { d->evict = 1; d->gov = 0; }
         else if (degrade && (d->state == FXS_WAIT || d->state == FXS_CLEAR)) { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; d->held_off = 1; d->gov = 0; }
-        kn->tick(d->kw, k);
+        kn->tick(d->kw, &c);
         switch (d->state) {
         case FXS_OFF:
             if (blocks) {
@@ -272,7 +348,6 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
             for (i = 0; i < CTL; i++) { int32_t a = x[i] < 0 ? -x[i] : x[i]; if (a > pk) pk = a; }
             if (pk > FX_THR) d->hold = d->hold_len;
             if (d->hold) {
-                fx_ictx_t c;
                 uint32_t ps;
                 c.kw0 = d->kw[0]; c.k = (uint8_t)k; c.R = d->R; c.nblk = fx_ins_have[k]; c.ramp = d->state == FXS_RAMP;
                 ps = kn->param_sig(t, &c);
@@ -305,9 +380,13 @@ JFX_XIP static void fx_ins_reset(void)
     memset(fx_ins_want, 0, sizeof fx_ins_want);
     memset(fx_ins_spring, 0, sizeof fx_ins_spring);
     fx_ins_evict = fx_ins_ev_full = fx_ins_gov_req = 0;
+#if OC_FX_MODK
+    fx_mod_bound = 0;                                   /* the instances are gone; each track binds again to the kernel it is set to (fx_mod_want stays) */
+#endif
     fx_gov_cool = 0;
     memset(fx_pk, 0, sizeof fx_pk); fx_pk_n = 0; fx_pk_i = 0;
-    fx_kernel_of(0)->reset();                           /* (the kernel's RAM triggers, start released) */
+    memset(fx_trig, 0, sizeof fx_trig);                 /* the performance triggers (the host's, MIDI CC 16 to 18) start released */
+    fx_kernel_of(0)->reset();
 }
 #if OC_DUB_SRAM
 #pragma pop_macro("JFX_XIP")
@@ -319,4 +398,6 @@ static inline int32_t *fx_ins_capture(uint32_t k) { (void)k; return 0; }
 static inline int fx_ins_alive(uint32_t k) { (void)k; return 0; }
 static inline void fx_ins_start(uint32_t nt) { (void)nt; }
 static void fx_ins_reset(void) {}
+static inline void fx_modk_clear(void) {}
+static inline uint32_t fx_modk_uses(void) { return 0u; }
 #endif

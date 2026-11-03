@@ -267,7 +267,7 @@ def app_flags():
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
-                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV",    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
+                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV", "OC_FX_MODK",    # (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
                  "OC_HOME_PIC",     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) HOME's picture page, its knobs and macros; off by default
                  "OC_EDIT_SHEETS",  # (the new interface 0.2: UI_BUILD.md step 2) EDIT's sheets; needs OC_HOME_PIC=1; off by default
                  "OC_SHIFT_MAP",    # (the new interface 0.3: UI_BUILD.md step 3; ui-fix 6) HOME as SHIFT and its combos; needs OC_EDIT_SHEETS=1; off by default
@@ -539,7 +539,9 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            # (0.14.1, op1r-candidates) op1r's synth plugins through tools/module/op1r/op1_glue.h, proposed numbers 24.. (OC_CANDIDATES): WHEEL's geometry
            "fmbell": {"src": "tools/module/fmbell_mod.c", "sectors": 4, "starts": [0, 6], "name": "FMBELL", "inc": ["tools/module/op1r"]},
            "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"]},
-           "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]}}
+           "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]},
+           # (Release 3 step 6) DUB TAPE as an effect module (kind 1, FX_MODULES_PLAN.md 15): no geometry row; its span is ceil(length / 4096) sectors from any start of the area's grid
+           "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
@@ -728,6 +730,9 @@ SECTIONS {{
         d = dict(zip(names, h))
         if d["magic"] != FW_MOD_MAGIC:
             errors.append(f"{name}@{start}: header magic {d['magic']:#x}")
+        kind = spec.get("kind", 0)                        # (Release 3 step 6) an effect module's header engine word is its kind << 8 and no engine number
+        if d["engine"] >> 8 != kind or (kind and d["engine"] & 0xFF):
+            errors.append(f"{name}@{start}: header engine word {d['engine']:#x} is not kind {kind}" + (" with no engine number" if kind else " (an engine's word is its number alone)"))
         if d["api_addr"] != api_addr:
             errors.append(f"{name}@{start}: header api_addr {d['api_addr']:#x} is not FW_API_ADDR {api_addr:#x}")
         if d["link_addr"] != base:

@@ -298,6 +298,51 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
   const eng = OCM.parse(pkg(fxImage({ mut: (dv) => { dv.setUint32(20, 14, true); dv.setUint32(24, 2000, true); } }), [0, 6], { word: 14 }));
   assert.ok(eng.ok && eng.kind === 0 && eng.moduleId === undefined && eng.engine === 14);
   assert.equal(OCM.fxCheck(eng, info, fx(0)).key, "modWrongFile", "an engine module is not installed by module id");
+  // (Release 3 step 6) the caps block an entry's `pages` word points at: caps at 0x340 (52 bytes), the call table at 0x380 (12 words), two rows at 0x3C0 (10 bytes each), the pages descriptor at 0x400 (80 bytes)
+  {
+    const CAPS = 0x340, CALLS = 0x380, ROWS = 0x3C0, PAGES = 0x400;
+    const caps = (dv, a, { pagesPtr = PAGES, kernel = CALLS, rows = ROWS, nrows = 2, call = (i) => 0x500 + 4 * i, magic = 0x4B584647, ver = 1, hot = 0, nhot = 0, pad = 0, pbytes = 88, mut = () => {} } = {}) => {
+      dv.setUint32(0x20C, CAPS, true);
+      dv.setUint32(CAPS, magic, true); dv.setUint16(CAPS + 4, 52, true); dv.setUint16(CAPS + 6, ver, true); dv.setUint32(CAPS + 8, kernel, true); dv.setUint32(CAPS + 12, pagesPtr, true);
+      dv.setUint32(CAPS + 16, hot, true); dv.setUint32(CAPS + 24, rows, true); a[CAPS + 35] = nhot; a[CAPS + 36] = nrows; a[CAPS + 37] = pad; dv.setUint16(CAPS + 38, pbytes, true);
+      for (let i = 0; i < 12; i++) dv.setUint32(CALLS + 4 * i, call(i), true);
+      dv.setUint16(ROWS, 1, true); dv.setUint16(ROWS + 2, 104, true); dv.setInt16(ROWS + 4, 0, true); dv.setInt16(ROWS + 6, 127, true); dv.setInt16(ROWS + 8, 55, true);
+      dv.setUint16(ROWS + 10, 2, true); dv.setUint16(ROWS + 12, 105, true); dv.setInt16(ROWS + 14, 0, true); dv.setInt16(ROWS + 16, 127, true); dv.setInt16(ROWS + 18, 127, true);
+      mut(dv, a);
+    };
+    // the image is linked at 0 (as fxImage is): its pointers are offsets, the sites relocate them for each start
+    const capSites = [(1 << 24 | 0x20C), (1 << 24 | CAPS + 8), (1 << 24 | CAPS + 12), (1 << 24 | CAPS + 24), ...Array.from({ length: 12 }, (_, i) => (1 << 24 | CALLS + 4 * i))].map((w) => w >>> 0);
+    const good = (o = {}) => pkg(fxImage({ mut: (dv, a) => caps(dv, a, o) }), [0, 6], { extra: capSites });
+    const g = OCM.parse(good());
+    assert.ok(g.ok && g.moduleId === MID && g.fxCount === 2, "a good caps block: " + g.key);
+    assert.ok(OCM.fxCheck(g, info, fx(0)).ok && OCM.fxCheck(g, info, fx(1)).ok, "... at both starts (the pointers relocate)");
+    const rej = (what, o) => assert.equal(OCM.parse(good(o)).key, "modHdrBad", what);
+    rej("the magic", { magic: 0 }); rej("the version", { ver: 2 }); rej("a hot set", { hot: 0x500 + LINK0 }); rej("nhot", { nhot: 1 }); rej("the padding", { pad: 1 });
+    rej("a snapshot size of 0", { pbytes: 0 }); rej("a call table past the image", { kernel: 0x7F8 }); rej("a call table unaligned", { kernel: CALLS + 2 });
+    rej("a call that is 0", { call: (i) => (i === 5 ? 0 : 0x500) }); rej("a call outside the code", { call: (i) => (i === 3 ? 0x10 : 0x500) });
+    rej("pages past the image", { pagesPtr: 0x7F0 }); rej("rows without a count", { nrows: 0 }); rej("a count without rows", { rows: 0 }); rej("17 rows", { nrows: 17 });
+    rej("rows unaligned", { rows: ROWS + 1 });
+    rej("ids not increasing", { mut: (dv) => dv.setUint16(ROWS + 10, 1, true) }); rej("default above max", { mut: (dv) => dv.setInt16(ROWS + 8, 128, true) });
+    assert.ok(OCM.parse(pkg(fxImage({ mut: (dv, a) => caps(dv, a, { pagesPtr: 0, rows: 0, nrows: 0 }) }), [0, 6], { extra: capSites.filter((w) => (w & 0xFFFFFF) !== CAPS + 12 && (w & 0xFFFFFF) !== CAPS + 24) })).ok, "no pages and no rows is a kernel too (a null pointer has no relocation)");
+    console.log("ocm: effect modules: the caps block (step 6): good at every start, every rule refused");
+  }
+  // the real DUB TAPE package the build made (tools/build.py --module dub), when it is there: kind 1, module id 1, 3 sectors, every start of the grid
+  {
+    const ver = readFileSync(new URL("VERSION", ROOT), "utf8").trim(), f = new URL(`build/dub-${ver}.ocm`, ROOT);
+    if (existsSync(f)) {
+      const o = OCM.parse(new Uint8Array(readFileSync(f)));
+      assert.ok(o.ok, "the DUB package parses: " + o.key);
+      assert.equal(o.kind, 1); assert.equal(o.moduleId, 1); assert.equal(o.fxVersion, 0x00010000); assert.equal(o.fxCount, 1); assert.equal(o.fxSectors, 3);
+      assert.deepEqual(o.variants.map((v) => v.start), [-6, -3, 0, 3, 6, 9]);
+      const unit = { iface: o.iface, apiAddr: o.apiAddr, apiVersion: o.apiVersion, apiSize: o.apiSize, packHash: o.packHash, sectorOf: SECT, starts: SECT.map(() => ({ state: 0, why: 0, engine: 127 })), lowOk: true };
+      for (const [plan, sec] of [[0, 0], [5, 3], [1, 6], [9, 9], [17, -6], [14, -3]]) {
+        const c = OCM.fxCheck(o, unit, { plan, inPlace: false, blocker: null, lowOk: true });
+        assert.ok(c.ok && c.variant.start === sec, `sector ${sec} takes DUB (plan ${plan}): ${JSON.stringify(c.key)}`);
+      }
+      assert.equal(OCM.fxCheck(o, unit, { plan: 3, inPlace: false, blocker: null, lowOk: true }).key, "modNoVariant", "sector 1 is not a start of the 3 sector grid");
+      console.log("ocm: the real DUB TAPE package (build/dub-" + ver + ".ocm): kind 1, module id 1, 3 sectors, six starts, taken by the installer page's check");
+    } else console.log("ocm: (no build/dub-" + ver + ".ocm: the real DUB package check skipped)");
+  }
   console.log("ocm: effect modules: kinds 1..3 parsed with their module id at every start, fxCheck against MOD_INFO + FX_INFO, every descriptor rule and header word refused, engines unchanged");
 }
 console.log("ocm: relocatable packages passed");

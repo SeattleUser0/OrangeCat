@@ -43,6 +43,10 @@ static uint32_t st_n[5], full_n, snap_n;                /* coverage: instance-bl
 static uint32_t gb;                                    /* the block count of the scenario */
 static int fxi_progress;                               /* FXI_PROGRESS in the environment: the block count on stderr every 10,000 blocks */
 static int32_t rec[CTL * 2];
+static void (*fxi_tap)(const int32_t *block, size_t bytes);   /* tests/fx_dub_module_test.c: every output block, as the mixer made it */
+typedef struct { char name[16]; uint32_t blocks, gov, states[5], full, cm; uint64_t au, st; } fxi_res_t;   /* what end() printed, for a caller that compares runs */
+static fxi_res_t fxi_res[8];
+static uint32_t fxi_nres;
 static int bad;
 #define CHECK(c, ...) do { if (!(c)) { bad++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 static void fxi_hash(uint64_t *h, const void *p, size_t n)
@@ -66,6 +70,7 @@ static void observe(void)
 static void blk(void)
 {
     mix_block(rec, CTL);
+    if (fxi_tap) fxi_tap(rec, sizeof rec);
     fxi_hash(&h_au, rec, sizeof rec);
     observe();
     gb++;
@@ -105,6 +110,11 @@ static void end(const char *name)
     printf("%s blocks %u au %016llx st %016llx gov %u states %u %u %u %u %u full %u cm %u\n", name, gb, (unsigned long long)h_au, (unsigned long long)h_st, (unsigned)dub_gov_fires,
            st_n[0], st_n[1], st_n[2], st_n[3], st_n[4], full_n, snap_n);
     fflush(stdout);
+    if (fxi_nres < 8u) {
+        fxi_res_t *r = &fxi_res[fxi_nres++];
+        snprintf(r->name, sizeof r->name, "%s", name); r->blocks = gb; r->gov = (uint32_t)dub_gov_fires; r->au = h_au; r->st = h_st; r->full = full_n; r->cm = snap_n;
+        memcpy(r->states, st_n, sizeof r->states);
+    }
 }
 static void fresh(void)
 {
@@ -332,12 +342,14 @@ static void descriptor_checks(void)
     CHECK(kn->max_inst == DUB_N && kn->ram_state == DUB_STATE_BYTES && kn->ram_extra_bytes == 5632u && kn->ram_work_max == 16u && kn->ram_work_min == 4u, "capacity words");
     CHECK((kn->flags & FXK_SEED) == 0 && (kn->flags & FXK_TAIL_FAR) && (kn->flags & FXK_US) && kn->tail_base == 24u && kn->prof == AP_DUB && kn->rates == 0x06u, "tail, seed 0, class, rates");
     CHECK(kn->on && kn->size_sig && kn->size_need && kn->blocks_at && kn->hold_len && kn->tick && kn->param_sig && kn->snap && kn->cost_extra && kn->start && kn->process && kn->reset, "every call is there");
-    CHECK(fx_kernel_of(0)->blocks_at(dub_far(&trk[0]), 2u) == dub_blocks_at(dub_far(&trk[0]), 2u), "sizing through the struct");
+    {   fx_ictx_t c; memset(&c, 0, sizeof c); c.beat = beat_samples();
+        CHECK(fx_kernel_of(0)->blocks_at(dub_far(&trk[0], &c), 2u) == dub_blocks_at(dub_far(&trk[0], &c), 2u), "sizing through the struct"); }
     CHECK(sizeof(dub_common_t) == sizeof(fx_common_t), "one common block");
     CHECK(FW_API_ID == 0xCAF53177u, "the interface identifier did not move (0x%08X)", (unsigned)FW_API_ID);
 }
 #endif
 
+#ifndef FXI_NO_MAIN                                    /* tests/fx_dub_module_test.c runs the scenarios itself */
 int main(void)
 {
     fxi_progress = getenv("FXI_PROGRESS") != 0;
@@ -353,3 +365,4 @@ int main(void)
     printf("fx_insert: done\n");
     return 0;
 }
+#endif
