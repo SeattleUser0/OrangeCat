@@ -1,6 +1,6 @@
 # Orange Cat: the Release 3 module format (one proposal)
 
-**Version:** 0.2 (October 30, 2026; written in Session C on branch ui-build; a proposal, nothing is built; after the independent review, whose findings are in section 13; for Session A to review next)
+**Version:** 0.2 (October 30, 2026; section 14, November 2: as built for step 3; written in Session C on branch ui-build; a proposal, nothing is built; after the independent review, whose findings are in section 13; for Session A to review next)
 **Replaces:** UI_BUILD.md step 7a as a stand-alone change, and settles FX_MODULES_PLAN.md 0.2 section 9 item 3.
 **Reads:** FX_MODULES_PLAN.md 0.2 (release-2, eb55c1d) sections 2 to 4 and 9, `firmware/src/fw_pages.h` (descriptor version 2, 68 bytes), `fw_api.h` (`fw_mod_hdr_t`, 60 bytes), `oc_module.c`, `oc_knobs.c` (`knob_def_t`), `oc_scene.c` (`scene_ok`).
 
@@ -179,3 +179,121 @@ An agent read 0.1 against fw_pages.h, fw_api.h, oc_module.c, oc_knobs.c, oc_macr
 | 13 | `engine_t` decided three ways | should-fix | no change, final (section 7) |
 | 14 | Kind, shape, label and depth value checks | note | the checker rejects `kind` above 2, `shape` above 2, labels that are not upper-case ASCII, `depth` outside -127..127 |
 | 15 | The `cc` and `knob` offsets in the v3 loop | note | confirmed unchanged: appended fields only |
+
+## 14. As built: step 3 of RELEASE3_PLAN.md (branch r3-pages, November 2, 2026; host tests only, nothing flashed)
+
+Built: sections 4, 5 and 7 for engines (kind 0). `FW_PAGES_VERSION` 3, `FW_PAGES_WIRE` 80, `fw_pid_t`, `fw_ui_t`, `fw_kdef_t`, `SC_FX` (after `SC_DXLANE`), the checker, the registry, the macros' RAM records. The interface
+identifier moved (fd159be 0xCC9AED54 on the unit, `FW_API_ID` 0x126F12CC; now 0x588CCCF2 and 0x8679336A); SHAPES, WHEEL and the Prophet are rebuilt, and the build's other modules with them.
+
+**Corrections to the text above, decided while building (the safer reading):**
+1. **`fw_ui_t` is 20 bytes, the `reserved` u16 is gone.** Section 5's field list added to 22 and put `scene` at offset 14, unaligned (the review's finding 1 again). `flags` (0, nonzero refused) is the reserve; the order is
+   magic 0, size 4, version 6, scene_len 8, nk 10, flags 11, scene 12, kdef 16. `_Static_assert`ed on the device with the others; `fw_kdef_t` is 28 as written.
+2. **`fw_pages_check_ex(rd, ctx, desc, lo, hi, scope, pcount, &ui)`** is the checker; `fw_pages_check` stays as the engine's call (SC_MOD, this build's P_COUNT), so `oc_mod_pages_check_rd` is not touched. `pcount` above 256 and a scope
+   other than SC_MOD or SC_FX are refused (FWP_SCOPE). New codes: FWP_EXT (ext nonzero), FWP_PID, FWP_SCOPE.
+3. **The pid table's rules, as built:** ids unique among all entries (a removed entry keeps its row, so its id stays taken); id 0xFFFF refused (it is the unused-target mark); `legacy` unique, below `pcount`, outside
+   P_RESERVED33..36; a removed entry (panel label 0) has `legacy` 0xFFFF; the table inside the image and word aligned. The pid table is optional for kind 0 (0: the id is the panel index, no legacy slot) and required for SC_FX.
+4. **The effect scope's rules in the checker (kinds 1 to 3, not used until plan step 4):** rows of SC_FX; no native, shown, put, active, loaded, env_source or bend hook; no motion_skip, no title lists; `knob[]` and `cc[]` 0xFF; a pid table.
+5. **`fw_ui_check(rd, ctx, ui, lo, hi, scene_ok, &info)` is separate from the pages check:** a bad picture or knob table is not a refusal (section 8). It copies at most 1,024 bytes of scene to the stack and calls the interpreter's own
+   `scene_ok`; the knob labels are upper case ASCII or digits, at most five; kinds, shapes (KS_LIN..KS_DOWN) and depths (-127..127) are checked; a knob that turns has a name. Codes FWU_*.
+6. **The registry (`oc_knobs.c`, `OC_MODUI_N` 3, 180 B each: 540 B of RAM, not the document's 330 B):** `modui_publish` (oc_modui.c, at registration, main loop) resolves each knob's pid to the track slot (`legacy`) and copies the range
+   of its panel entry; the interrupt's `mac_value` reads that range from the record (`modui_rng`) and calls no descriptor lookup. **Plain knobs resolve to track slots too** (HOME edits P_ ids): a plain knob on a native-panel
+   byte (no legacy slot) is dropped whole, as is a macro target that cannot be resolved; native and effect-store targets wait, as section 5 said. A module with no room in the registry loads without picture or knobs
+   (FWU_FULL, 15). `modui_retire` runs first in `oc_mod_unreg` under `motion_guard`; `modui_gen` moves with every change and HOME's picture looks at it.
+7. **The picture is shown only with a knob table** (as before: an engine with no table keeps its four EDIT knobs and the plain picture): a module scene with `nk` 0 is validated and ignored. A module's scene wins over the pack's
+   trailer for the same engine (`scene_of`).
+8. **Not built (they belong to plan step 4):** `fx_desc_t`, `fx_entry_t` (and their place in the identifier's hash), the module-id install path, the Effects table, "PICTURE REFUSED" in the Engines table (the record holds
+   the code: `modui_of(e)->why`), the install-time advisory result on the card and the page.
+9. **(review) A knob's target may only be P_E0 .. P_E7, and the copied range is the panel entry's cut to that slot's own descriptor** (`param_desc_of(e, slot)`): a `legacy` slot is any track slot, and a module could
+   otherwise have pointed a macro at P_VOICE with a range of -32768 .. 32767. The checker still allows any `legacy` (the project format reads them); the knob path is the narrow one. The effect modules' slots (P_RESERVED45..47,
+   P_JRES0..6) join the allowed set when plan step 4 resolves their targets. `modui_gen` is 32 bits.
+9. **The real modules ship with `ui` 0 and no pid table:** WHEEL and SHAPES have no `fw_pages_t` at all (they are rebuilt for the new identifier only); the Prophet's descriptor is version 3 with `ui`, `pid`, `ext` 0. A picture can be
+   added to any of them later without another identifier move.
+
+## 15. Worked example: DUB TAPE's pages as a module (Release 3 step 6; design November 2, 2026; its needs built into step 3 on November 3: the example below passes the checker as written, tests/mod_ui_test.c `t_fx`)
+
+DUB TAPE is the first effect to leave the image (RELEASE3_PLAN.md step 6, FX_MODULES_PLAN.md 7). This section writes its three pages in `fw_pages` version 3 terms **exactly as they show today** (dub_fields.h, params.c `PG_FX`, round 14) and keeps today's ids,
+so that a Release 2 project's DUB values load with no converter. Writing it found three things version 3 as built in section 14 does not allow; they are listed first, because Session A decides them before step 4 is cut.
+
+### 15.1 What DUB needed that the checker of section 14 refused (now folded into step 3: the identifier moves once)
+
+1. **Formats above F_TONE.** TIME L / TIME R show `1/8D` (synced) or `340 ms` (free), SPEED shows `+3 st`: those are `F_DUBTS`, `F_DUBTF`, `F_DUBSPD`, which the checker refuses (`panel format > F_TONE`; the enum puts F_PANLR, F_ST16 and the three DUB formats after it). The formats are
+   the interface a module is checked against, so the limit is a constant of the checker: **raise it to `F_DUBSPD`** (one constant; the enum's text is not hashed, so the identifier does not move for it; an older firmware refuses a module that uses a newer format, which is right). F_PANLR and F_ST16 come with it.
+2. **`shown` and `put` for SC_FX.** Today's TIME pair changes its format with SYNC (`page_desc`: `dub_get_sync` picks `F_DUBTS` or `F_DUBTF`), and today's SYNC, PING, DRIVE and WOW are not ids but halves of two packed ids (MODE = `64 | PING << 1 | SYNC`, TAPE = `DRIVE x 12 + WOW - 64`):
+   the page shows a cell computed from the byte and writes it back. Both are what the `shown` (the descriptor and value to show) and `put` (a new value) hooks of an engine's descriptor are for, and section 4 said an effect's hooks wait for a signature that takes `(slot, instance, id)`. **Proposal:** for SC_FX the two fields keep their places
+   and are called as `const param_desc_t *shown(uint32_t slot, uint32_t instance, uint32_t id, int16_t *value)` and `void put(uint32_t slot, uint32_t instance, uint32_t id, int32_t value)`; the checker allows them in SC_FX (the code inside the image, as for an engine) and keeps `native`, `loaded`, `env_source`, `bend`, `active`, `motion_skip`, the title lists, `knob[]`
+   and `cc[]` refused. The declared types of the two fields in `fw_pages_t` are hashed: they should become one generic function-pointer type with the signature by scope in a comment, **in the same identifier move as step 3**, or it is a second move.
+3. **Views over stored ids, or four more stored ids.** Two ways to give SYNC, PING, DRIVE and WOW a place:
+   - **A (the one this example uses): views.** The stored ids are today's ten; SYNC, PING, DRIVE and WOW are four *view* entries whose values the `shown`/`put` hooks compute from MODE and TAPE, exactly as the page does today. A view's pid has the high bit set (0x8000 and up, a convention of the id space, not a format change): the host never stores it, never offers it to motion or a macro,
+     and the editor reads MODE and TAPE as numbers as it does now. No converter anywhere; a Release 2 project's bytes are already the values.
+   - **B (the end state; r3-format Part 8, OC_DUB_IDS, is this): twelve stored ids** (SYNC, PING, DRIVE, WOW whole, with defaults 1, 0, 6, 0), the Release 2 slots 46 and 47 read once by a converter the module exports (`legacy_in`). Cleaner for macros and motion; costs the converter (about 200 B of module code) and a place for it in `fx_entry_t`. Choose when step 4 cuts the entry layout.
+
+### 15.2 The module's descriptor (A)
+
+`fx_desc_t` bank of one entry, module id 1, effect id 1 (MODULE_IDS.md), `legacy_module` the Release 2 key for DUB TAPE. `fx_entry_t.pages` -> the `fw_pages_t` below. Scope `SC_FX` (section 4), family `FAM_FX`, `GR_NONE`, in the order the FX family shows them today.
+
+**The three pages (`rows`, 3 x 12 bytes), titles as they show:**
+
+| page | title | K1 | K2 | K3 | K4 |
+|---|---|---|---|---|---|
+| 0 | `DUB SETUP` | SYNC (view) | TIM L | TIM R | PING (view) |
+| 1 | `DUB` | FDBK | SEND | FILTER | ECHO |
+| 2 | `DUB 2` | SPRNG | DRIVE (view) | WOW (view) | SPEED |
+
+**The panel (14 entries x 20 bytes) and the pid table (14 x 4 bytes); the panel index is what a row's `id[k]` holds:**
+
+| panel | label | pid | legacy slot (Release 2) | format, min .. max, default | note |
+|---|---|---|---|---|---|
+| 0 | `FDBK` | 1 | 104 (P_JRES0) | F_INT 0 .. 127, 55 | 100 = unity |
+| 1 | `SEND` | 2 | 105 (P_JRES1) | F_INT 0 .. 127, 127 | |
+| 2 | `FILTER` | 3 | 106 (P_JRES2) | F_INT 0 .. 127, 60 | 64 = open |
+| 3 | `ECHO` | 4 | 107 (P_JRES3) | F_INT 0 .. 127, 0 | 0 = this track's DUB off |
+| 4 | `TIM L` | 5 | 111 (P_JRES4) | F_DUBTS / F_DUBTF by SYNC, 0 .. 127, 53 | 1/8D |
+| 5 | `TIM R` | 6 | 112 (P_JRES5) | F_DUBTS / F_DUBTF by SYNC, 0 .. 127, 67 | 1/4 |
+| 6 | `SPRNG` | 7 | 113 (P_JRES6) | F_PCT 0 .. 127, 0 | |
+| 7 | `SPEED` | 8 | 45 (P_RESERVED45) | F_DUBSPD 0 .. 127, 64 | 64 = 0 st |
+| 8 | `MODE` | 9 | 46 (P_RESERVED46) | F_INT 64 .. 127, 65 | stored, packed; on no page (`label ""`) |
+| 9 | `TAPE` | 10 | 47 (P_RESERVED47) | F_INT -64 .. 127, 8 | stored, packed; on no page |
+| 10 | `SYNC` | 0x8001 | none | F_ENUM 0 .. 1, 1; names `FREE`, `SYNC` | view of MODE bit 0 |
+| 11 | `PING` | 0x8002 | none | F_ENUM 0 .. 1, 0; names `OFF`, `ON` | view of MODE bit 1 |
+| 12 | `DRIVE` | 0x8003 | none | F_INT 0 .. 15, 6 | view of TAPE / 12 |
+| 13 | `WOW` | 0x8004 | none | F_INT 0 .. 11, 0 | view of TAPE mod 12 |
+
+Rules this keeps: every id and legacy slot is today's; the legacy slots are unique, below `P_COUNT`, outside P_RESERVED33..36 (the checker's rules, section 14 item 3); panels 8 and 9 have a label (the empty string, a hidden stored parameter) so the checker's "a removed entry has no slot" rule does not
+fire. The `shown` hook returns, for panel 4 and 5, the entry's descriptor with `F_DUBTS` when the instance's SYNC is on and `F_DUBTF` when off, and for 10 to 13 the cell computed from MODE and TAPE (`dub_get_field`); `put` writes a view back into MODE or TAPE with one 16-bit store (`dub_put_field`) so
+the audio pass reads either whole. Today's detent rule for synced TIME (one division a detent, `dub_t_step`) is the format's job in the page code (`F_DUBTS` is in the firmware), not the module's. The four performance triggers (MIDI CC 16 to 18: THRW, CUT, KICK) are RAM inputs of the kernel, not stored and not on a page,
+and are the host's `hot`/instance input (FX_MODULES_PLAN.md 5); CC 12 to 15 map to FDBK, SEND, FILTER, ECHO by pid.
+
+**HOME's knobs (`fw_ui_t`):** an effect has none: HOME's four knobs belong to the track's engine. `ui` is 0. (If DUB ever shows a picture, a tape reel, it is `fw_ui_t` 20 B + four `fw_kdef_t` 112 B + a scene of 60 to 190 B = 190 to 320 B, with macro targets limited to `t->p`, which DUB's ids are not once resident copies go:
+so no macro on DUB in version 3.)
+
+### 15.3 What it costs
+
+| part | bytes |
+|---|---|
+| `fw_pages_t` (version 3) | 80 |
+| rows (3 x 12) and their titles (`DUB SETUP`, `DUB`, `DUB 2`: 20) | 56 |
+| panel (14 x 20) | 280 |
+| labels (14 strings, 76 B) and units (`ms`, `s`, `st`: 8 B) | 84 |
+| name lists (`FREE`/`SYNC`, `OFF`/`ON`: two pointer tables and their strings) | 33 |
+| pid table (14 x 4) | 56 |
+| padding to words | about 16 |
+| **descriptor data** | **about 605** |
+| `shown` and `put` hooks (the cells, the TIME format switch) | about 220 |
+| **the pages of DUB in the module** | **about 825 B** |
+| with a picture (15.2, optional) | + 190 to 320 |
+
+For scale: these bytes replace the image's `PG_FX` rows, ten `TP[]` descriptors, `dub_fields.h`'s accessors and the `page_desc` branch for DUB (about 0.8 KB of the resident 8.5 KB, plan section 2), which step 6 removes with the kernel; the module's pages are about the same size as what they replace, so the image gains the
+kernel's whole 8.5 KB less the host's share. They fit the module's first sector with the header page (256 B) and the kernel (DUB is 3 sectors in FLASH_MAP_R3.md). Option B adds two pid rows (8 B), four panel entries' storage (80 B, now stored) and the converter (about 200 B).
+
+### 15.4 What this example proves, and what it does not
+
+Proves: today's three pages, labels, ranges, defaults and order are expressible in version 3 data with today's ids; a Release 2 project loads with no converter (A); the checker of section 14 accepts the data except the three things in 15.1. Does not prove: the host's call of `shown`/`put` (step 4), the instance
+context, the kernel's cut (step 5), the project format's place for the effect's values ([format]); and it was not run: no code, no test.
+
+### 15.5 As built into step 3 (November 3, 2026)
+1. **Format limit:** `fw_pages_check_ex` accepts panel formats up to `F_DUBSPD` (was `F_TONE`); `F_PANLR` and `F_ST16` come with it. Tested at the limit and one above.
+2. **The hooks:** `fw_pages_t.shown` and `.put` are now unions at the same offsets (24, 28): the engine's (`track_t *`) and the effect's `fx_shown(slot, instance, id, &value)` / `fx_put(slot, instance, id, value)`. The declared signatures are inside the structure's text, so they are in the hash
+   (`gen_fw_api_id.py --selftest` moves the id for a change of either). `_Static_assert`ed on the device: `fx_shown` at 24, `fx_put` at 28, `ui` at 68, size 80. The checker allows `shown` and `put` for SC_FX (the code inside the image, as an engine's) and still refuses `native`, `active`, `motion_skip`, the title lists, `loaded`, `env_source`, `bend`, `knob[]` and `cc[]`.
+3. **Views:** a pid with the bit `FW_PID_VIEW` (0x8000) is a view: it has no legacy slot, and a descriptor with any view must have both hooks (`FWP_PID` otherwise). A view is never stored and never a macro or motion target (`modui_publish` drops it: no slot). Option A of 15.1 is what the test builds; B needs no checker change.
+4. **The example is the test's data** (`make_dub` in tests/mod_ui_test.c: the table of 15.2, hooks over `dub_get_field`/`dub_put_field`): it passes `fw_pages_check_ex` as SC_FX; the legacy slots are today's; the hooks read SYNC, PING, DRIVE, WOW from MODE 65 and TAPE 8 as the page does, switch TIME's format with SYNC, and write back one 16-bit store each.
+5. **The identifier moved again** (it was never shipped at the step-3 value): `FW_API_ID` 0xCAF53177; the unit's `iface` 0x1400CEEF.

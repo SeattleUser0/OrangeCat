@@ -72,7 +72,48 @@ static const knob_def_t KD_DRUMX_ENG[4] = {
 };
 #endif
 
-/* engine e's four knobs, 0 when it has none (a module, an engine without a picture yet) */
+/* ---- (Release 3, MODULE_FORMAT_R3.md 5) a module's picture and knobs: the registry ----
+ * The loader (oc_modui.c, from oc_module.c) validates a module's fw_ui_t and resolves its knob declarations at REGISTRATION, in the main loop, into these RAM records;
+ * the interrupt (oc_macro.c) and the UI read only them: never a pointer into a module's flash but the scene's, which is checked here and dropped before the module's
+ * flash is erased or replaced. A macro target is a track parameter (t->p, the pid's legacy slot) with its range copied now, so the interrupt calls no descriptor lookup
+ * for a module. A record is published and retired under motion_guard (the interrupt not in between) and only for a module that is registered (oc_mod_unreg retires it
+ * first). modui_gen moves with every change: the picture's cache looks at it. A module with no room here (OC_MODUI_N) loads without picture or knobs (why FWU_FULL). */
+#define OC_MODUI_N 3u
+#define FWU_FULL 15u                                    /* (the registry has no room; fw_pages.h's FWU_ codes are below) */
+typedef struct {
+    uint8_t used, eng, why, nk;                         /* why: fw_ui_check's code or FWU_FULL, 0 = the picture and the knobs are in use */
+    uint16_t scene_len;
+    const uint8_t *scene;                               /* validated, in the module's flash (or the host test's image) */
+    knob_def_t kd[4];                                   /* what kdef_of returns: labels point at lbl */
+    char lbl[4][6];
+    int16_t rng[4 * KD_TGT][2];                         /* each macro target's range, copied at registration */
+} modui_t;
+static modui_t modui[OC_MODUI_N];
+static uint32_t modui_gen;
+static const modui_t *modui_of(uint32_t e)
+{
+    for (uint32_t i = 0; i < OC_MODUI_N; i++)
+        if (modui[i].used && modui[i].eng == e) return &modui[i];
+    return 0;
+}
+/* the range of target i (knob i / KD_TGT, target i % KD_TGT) of table kd when kd is a module's, else 0 */
+static const int16_t *modui_rng(const knob_def_t *kd, uint32_t i)
+{
+    for (uint32_t k = 0; k < OC_MODUI_N; k++)
+        if (modui[k].used && kd == modui[k].kd) return modui[k].rng[i];
+    return 0;
+}
+/* engine e's validated scene from its module (the pack's trailer is the built-in engines'), its length in *len; 0 none */
+static const uint8_t *modui_scene(uint32_t e, uint32_t *len)
+{
+    const modui_t *m = modui_of(e);
+    *len = 0;
+    if (!m || !m->scene_len || !m->nk) return 0;
+    *len = m->scene_len;
+    return m->scene;
+}
+
+/* engine e's four knobs, 0 when it has none (an engine without a picture yet; a module whose table was refused) */
 static const knob_def_t *kdef_of(uint32_t e)
 {
 #ifdef OC_KDEF_TEST_HOOK
@@ -87,6 +128,8 @@ static const knob_def_t *kdef_of(uint32_t e)
 #if MELODEE_DRUMX
     if (e == ENGI_DRUMX) return KD_DRUMX_ENG;
 #endif
-    (void)e;
+    {   const modui_t *m = modui_of(e);                 /* (Release 3) a module's own table */
+        if (m && m->nk) return m->kd;
+    }
     return 0;
 }

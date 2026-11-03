@@ -281,7 +281,7 @@ enum {
     F_OFS, F_FMNOTE, F_FMFRQ,   /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
     F_TONE,                     /* an FX slot's TONE: DARK (a high cut) .. FULL .. THIN (a low cut), fx_tone_hz */
     F_PANLR, F_ST16,            /* (Orange Cat 0.14.2) a DRUM-X lane's PAN (C, L50, R100) and TUNE (3/16 semitone a step, +7.5 st);
-                                 * not a module panel's (fw_pages.h checks up to F_TONE) */
+                                 * a module panel may use them since Release 3 (fw_pages.h checks up to F_DUBSPD) */
     F_DUBTS, F_DUBTF,           /* (round 13) DUB's TIME L / TIME R: synced (1/8D), free (ms) */
     F_DUBSPD                    /* DUB's SPEED: the repeats' semitones, 0 at the middle */
 };

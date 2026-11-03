@@ -45,8 +45,8 @@ static struct {
     uint32_t pic_ms, ph_ms;                              /* when the picture last drew; when the phases last moved */
     uint32_t age, hit_ms;                               /* the newest voice's age seen; the last note-on's time */
     const uint8_t *scene;                               /* the scene found (scene_of), its length; for the engine and the pack's check: */
-    uint32_t scene_len;
-    uint8_t scene_eng, scene_gen, scene_ok;             /* .. scene_ok 1: looked up for scene_eng at scene_gen */
+    uint32_t scene_len, scene_mgen;
+    uint8_t scene_eng, scene_gen, scene_ok;   /* (Release 3) .. scene_mgen: modui_gen when it was looked up (a module came or went) */             /* .. scene_ok 1: looked up for scene_eng at scene_gen */
     uint16_t ph[4];                                     /* the knob-rate phases (SS_PH1 .. SS_PH4), the selected track's */
     uint8_t note, trk, landed, ready;                   /* the last note; the track the state is of; HOME landed on the picture; the
                                                          * state is of trk (0: the first frame) */
@@ -296,12 +296,13 @@ static void hp_picture(void)
     const uint8_t *s;
     if (!ui.force && fm1_ms - hp.pic_ms < HP_FRAME_MS)
         return;
-    if (!hp.scene_ok || hp.scene_eng != TSEL->eng_req || hp.scene_gen != oc_pack_gen || !OC_PACK_READY()) {   /* (found again only when
+    if (!hp.scene_ok || hp.scene_eng != TSEL->eng_req || hp.scene_gen != oc_pack_gen || hp.scene_mgen != modui_gen || !OC_PACK_READY()) {   /* (found again only when
                                                          * the engine or the pack changed: on the unit a lookup reads the trailer's CRC
                                                          * and walks the scene) */
         hp.scene = kdef_of(TSEL->eng_req) ? scene_of(TSEL->eng_req, &hp.scene_len) : 0;
         hp.scene_eng = TSEL->eng_req;
         hp.scene_gen = oc_pack_gen;
+        hp.scene_mgen = modui_gen;
         hp.scene_ok = (uint8_t)OC_PACK_READY();
     }
     s = hp.scene;
@@ -324,7 +325,7 @@ static void hp_picture(void)
 /* ---- the page ---- */
 static void home_pic_draw(void)
 {
-    int pack_missing = kdef_of(TSEL->eng_req) && !OC_PACK_READY();
+    int pack_missing = kdef_of(TSEL->eng_req) && !OC_PACK_READY() && !modui_of(TSEL->eng_req);   /* (a module with its own picture needs no pack) */
     if (ui.force)
         hp.sig_sound = hp.sig_dials = hp.sig_values = hp.sig_pic = 0;
     hp_sound_line(pack_missing);

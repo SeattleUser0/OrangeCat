@@ -2401,3 +2401,86 @@ The on-unit sequencer test for ui-fix2 is still yours (checks 28 to 34, and an o
 with **that** lane's level at its attenuation maximum, so what is left is the untouched lane; the two renders must be equal sample for sample, for the kick edited and for the snare edited. It fails on the old firmware for each of the two causes alone (mutation-checked: the old length alone fails two checks, the old accent alone one). The converted
 test asserts the natural length again (`!length`; a half step from natural is eight sixteenths up, `HALF_STEP`), and `one_auth_test` PADS drives the same gesture. Both models (the set on, every switch off) pass.
 **What changes for the player:** a cell of drum hits you edit with one pad keeps every other hit exactly as it sounded; the hit you edited changes. No other behaviour moves.
+
+## Release 3, step 3 (branch r3-pages, from linux-hw fd159be; November 2, 2026): fw_pages version 3. For Session A
+
+**Status: built and reviewed; host tests only, nothing flashed.** RELEASE3_PLAN.md section 5, step 3; MODULE_FORMAT_R3.md 4, 5, 7 and the new section 14 ("as built", with the corrections). **For Session A: r3-pages is ready to merge: the host suite (`ci_step.py test --parallel 3`, a time limit on every test) passed on 0d906fa in 3,061 s (the commits after it are this note),
+and your review is wanted on two things: the checker and the interrupt-side macro records.**
+
+**What it is.** `fw_pages_t` version 3 (80 bytes: `ui`, `pid`, `ext`), `fw_pid_t`, `fw_ui_t` (the picture and HOME's four knobs, 20 bytes), `fw_kdef_t` (28), `SC_FX` after `SC_DXLANE`; the checker `fw_pages_check_ex` (scope, P_COUNT; the pid table's rules; the effect scope's rules) and
+`fw_ui_check` (a bad picture or knob table is not a refusal); the registry of validated pictures and resolved knob records in RAM (`oc_knobs.c`), filled at registration by `oc_modui.c`; the three structures hashed into the interface identifier. The identifier moved (the unit's
+`iface` 0xCC9AED54 -> 0x588CCCF2; `FW_API_ID` 0x126F12CC -> 0x8679336A): **every module is refused until rebuilt and reinstalled.** SHAPES, WHEEL, the Prophet (and the build's other modules) are rebuilt by CI; the Prophet's descriptor is version 3 with `ui`, `pid`, `ext` 0;
+WHEEL and SHAPES have no descriptor. The installer page needed no code: it compares the package's identifier with the unit's and says "wrong firmware" (`modWrongFw`); `web/test_ocm.mjs` section 4 proves it on this build's packages (taken) and the same packages with the Release 2 identifier (refused).
+
+**Proof on the host (tests):** `tests/mod_iface_r3_test.c` (the real headers of Release 2's SHAPES, WHEEL and Prophet, `tests/fixtures/r2_modules`, are refused with FW_MOD_BAD_IFACE and the identifier alone is the reason; this build's images, every start, are accepted; the identifier moved by exactly the generator's change);
+`web/test_ocm.mjs` 4 (the page); `tests/mod_ui_test.c` (80 checks: the checker on wire bytes, every bad field of the picture and knobs, the registry, the interrupt's records through `mac_on`/`mac_off`, retire, the loader's order read in oc_module.c's text, a 60,000-image fuzz under the sanitizers: whatever is accepted and published
+holds the registry's invariants; mutation-checked); `gen_fw_api_id.py --selftest` moves the id for a field of each new structure; the existing `mod_pages_test`, `fuzz_fw_pages`, `module_host_prophet_test`, `fw_api_test`, `hot_set_test` and the module tests pass on version 3 (`mod_pages_test` expects 80).
+
+**Size against RELEASE3_PLAN.md section 2 (CI's build, `ci_step.py build`, SHAPES not in the image; the same build of fd159be beside it):**
+
+| | image B | .data+.bss B | pool B |
+|---|---|---|---|
+| linux-hw fd159be | 545,772 | 94,600 | 180,708 |
+| r3-pages | **548,264 (+2,492)** | **95,144 (+544)** | 180,708 |
+
+Against the body's room (`BODY_MAX` 573,440 B) the free flash is 25,176 B, and 16,984 B above the 8 KB reserve. **The cost is 1,000 B over the plan's 1,100 to 1,500 B estimate** (it was `oc_mod_boot` with the picture check and the publish inlined, +1,682 B; `oc_mod_pages_check_rd` +396 B; `mac_value`,
+`kdef_of`, `modui_of`, `oc_mod_unreg` +300 B together); the RAM is the registry, 3 records of 180 B (the document said 330 B: it counted 112 B a record and no labels or ranges). The plan's central estimate for 7a stays counted in its column; the owner decides if the +1,000 B matters.
+The same figure for the plan's own image (562,144 B at b1997d1) is not this build's: fd159be is already 545,772 B without SHAPES.
+
+**Every place oc_module.c is touched (for the merge with your module area, flash map step 1): four touches in three places, all marked "r3-pages" and none inside a function that step 1 is likely to change:**
+1. after `oc_mod_pages_check` (about line 271): `#include "oc_modui.c"` (the new file) and a new function `oc_mod_ui_publish(i, h)`;
+2. `oc_mod_unreg` (about line 349): one line first, `modui_retire(e);`;
+3. `oc_mod_boot` (about line 427): one line after the registration block, `oc_mod_ui_publish(i, oc_mod_hdr_ptr(i));`.
+`oc_mod_pages_check_rd` is **not** touched (it calls `fw_pages_check`, now a wrapper). Other files: `fw_pages.h` (the format and the checkers), `oc_knobs.c` (the registry, `kdef_of`), `oc_macro.c` (`mac_value` reads the record's range: 2 lines), `oc_scene.c` (`scene_of`: the module's scene first),
+`ui_home_pic.c` (the cache looks at `modui_gen`), `tools/gen_fw_api_id.py`, `tools/module/prophet_mod.c` (3 zero fields).
+
+**What Session A must review:**
+1. **The checker** (`fw_pages.h`): `fw_pages_check_ex` and `fw_ui_check` read bytes a module controls. The review (an independent agent) found the bounds sound (`fwp_in` cannot wrap; every count is bounded before it multiplies) and no way for a 68-byte version 2 descriptor through. Yours to confirm: **the stack**, which I could not measure on the unit:
+   `fw_ui_check` holds a 1,024-byte scene buffer, `fw_pages_check_ex` about 300 B more (the id list and the slot bitmap), `modui_publish` about 330 B; all run on the main loop's stack from `persist_boot -> oc_mod_boot` and from the installer's `oc_mod_reload`; `-fstack-usage` would settle it.
+2. **The interrupt-side macro records** (`oc_knobs.c` `modui_t`, `modui_rng`, `kdef_of`; `oc_macro.c`; `oc_modui.c`). The interrupt reads only the RAM record: ids already resolved to track slots, ranges copied. The review's finding, fixed: **a knob's target may only be P_E0 .. P_E7** and the copied range is the panel entry's cut to the slot's own descriptor (the `legacy` slot can be any track slot; without this a module
+   could aim a macro at P_VOICE with any range). Publish and retire run in the main loop under `motion_guard`; `mac_on` and `mac_off` are one `mix_block`, so a retire cannot fall between them; `oc_mod_unreg` retires before `eng_unregister`. Yours: whether `motion_guard` is the right guard for the registry (the throw code's tables use it), and the extra three compares
+   a target costs in `mac_value` for the built-in tables (`modui_rng` looks at three records; not measured on the unit).
+
+**Decisions I made (the safer reading):** `fw_ui_t` is 20 bytes by dropping the document's reserved u16 (it summed to 22 and unaligned); plain knobs resolve to track slots like macro targets (a plain knob on a native byte is dropped); the picture needs a knob table (as before); a registry of 3 (a fourth module loads without picture); the checker allows any
+`legacy` slot but the knob path only E0..E7; the real modules ship with `ui` 0 (no module has a picture yet: `fw_ui_t` is exercised by the tests, not by a shipped module).
+
+**Not done (plan step 4, and the others'):** `fx_desc_t`/`fx_entry_t` and their place in the identifier's hash; the module-id install path and the Effects table; "PICTURE REFUSED" in the Engines table (the record holds the code); the install-time advisory result on the card and the page (the page's `ocmCheck` is unchanged);
+the web editor and app tables for `kdef` and scene bytes (Session D, plan step 8).
+
+### r3-pages: the main stack (November 2, 2026; for Session A, answering the stack question above)
+
+**No cut needed: every path keeps well over 1 KB.** The firmware's clang is 4.0.1 and has no `-fstack-usage`, so `tools/stack_depth.py` reads the frames from the linked image's code (`build/melodee.dis`): a function's frame is its pushes (four bytes a register of
+`[--sp] = {rets, r15-r4}`) plus its `sp += -N`, and the call graph is the direct calls plus the callbacks written down in the tool (the readers, the scene check: a pointer call cannot be followed from the code, so an edge missing there would make a depth too small; the
+module path's are listed). The main loop runs on the user stack of `app.ld`: `_ustack_lo` 0x01C74100 to `_ustack_top` 0x01C7A000 = **24,320 B**; interrupts and the supervisor use `_sstack` (7,936 B). From `fm1_main`, linux-hw fd159be against r3-pages:
+
+| path | before | after | | margin after |
+|---|---|---|---|---|
+| power-on boot: `fm1_main > oc_mod_boot > oc_mod_check > oc_mod_pages_check > oc_mod_pages_check_rd` | 3,844 | 5,680 | +1,836 | 18,640 |
+| install over SysEx: `fm1_main > ed_service > ed_handle > oc_mod_end > oc_mod_reload > oc_mod_boot > ... pages_check_rd` | 10,580 | 12,416 | +1,836 | 11,904 |
+| install from the card: `fm1_main > ui_input > fb_mod_file > oc_mod_end > oc_mod_reload > oc_mod_boot > ...` | 8,472 | 10,316 | +1,844 | 14,004 |
+| the whole main loop's deepest path (`ed_service > ed_handle > up_boot > ... st_read_range`, storage, not the module path) | 18,800 | 18,800 | 0 | **5,520** |
+
+Where the +1,836 is: `oc_mod_boot`'s own frame 180 -> 1,680 B (the picture check's 1,024-byte scene buffer and the publish's record, inlined into it) and `oc_mod_pages_check_rd` 212 -> 548 B (the checker's id list and slot bitmap). The audio side: `mac_on` 92 -> 112 B, `mix_block` 1,140 B
+unchanged, on the supervisor stack. If a margin ever matters, the cheap cut is the scene buffer: a static in `.pool` (the check runs only at boot and install, one at a time) takes 1,024 B back; not done, since the least margin of any path is 5,520 B and none of the
+module paths is the deepest. `run_tests.sh` has a step (`stack_depth.py --check`) that fails when the deepest path leaves under 1 KB. Caveat: a depth read from the code is an estimate (every push counted, none popped early), not a measurement on the unit.
+
+### r3-pages, November 3, 2026: DUB's needs folded into step 3 (the identifier moves once). For Session A
+
+**r3-pages had not been merged, so this is on r3-pages itself (not a new branch), after merging linux-hw round 15 (7c57605; one conflict, `web/test_ocm.mjs`, both sections kept).** The host suite on the last commit is stated at the end of this entry.
+
+**What changed since 667ac44 (all in `fw_pages.h` unless named):**
+1. **The format limit is `F_DUBSPD`** (was `F_TONE`): the checker accepts the DUB formats and `F_PANLR`, `F_ST16`. The fuzzer's model and `mod_pages_test` follow it.
+2. **`shown` and `put` for effects, with the instance signature, in the hashed structure.** `fw_pages_t.shown` and `.put` are unions at the same offsets (24, 28): the engine's (`track_t *`) and the effect's `fx_shown(slot, instance, id, &value)` and `fx_put(slot, instance, id, value)`. Wire size 80 unchanged,
+   `_Static_assert`ed on the device. Their signatures are inside the structure's text, so they are in the hash (`gen_fw_api_id.py --selftest` moves the id for a change to either). SC_FX may carry these two; it still refuses `native`, `active`, `motion_skip`, the title lists, `loaded`, `env_source`, `bend`, `knob[]` and `cc[]`.
+3. **Views:** a pid with `FW_PID_VIEW` (0x8000) has no legacy slot and needs both hooks (`FWP_PID` otherwise); `modui_publish` never offers a view as a knob target.
+4. **MODULE_FORMAT_R3.md section 15's DUB example is data in `tests/mod_ui_test.c`** (`make_dub`: three pages, 14 panel entries, the ten kept ids with today's legacy slots, four views, hooks over `dub_get_field`/`dub_put_field`) and **passes the checker as SC_FX**; the hooks are exercised (SYNC/PING/DRIVE/WOW read from MODE 65 and TAPE 8, TIME's format by SYNC, a write back in one store). 98 checks; mutation-checked (the limit, the views rule, the hook set, the view's slot).
+5. **The identifier:** `FW_API_ID` 0xCAF53177, the unit's `iface` **0x1400CEEF** (was 0xCC9AED54 in Release 2 at fd159be). SHAPES, WHEEL, the Prophet (and the rest) are rebuilt by CI. `mod_iface_r3_test` (Release 2's real headers refused with FW_MOD_BAD_IFACE, this build's accepted, every start) and `web/test_ocm.mjs` section 5 (the page: old refused as `modWrongFw`, new taken) pass.
+
+**Size and stack** (CI's build, SHAPES not in the image; linux-hw 7c57605 beside r3-pages d255be9): image **546,224 -> 548,332 B (+2,108)**, .data+.bss 94,904 -> 95,480 (+576). Against the 667ac44 figures (+2,492 / +544 over the older base) the step's own cost fell by 384 B of flash (the compiler's choices, and round 15's tables; not a change I made), the RAM
+rose by 32. Stack, `tools/stack_depth.py` (24,320 B user stack): boot 3,852 -> 5,688 (+1,836), install over SysEx 10,588 -> 12,424, from the card 8,480 -> 10,332, the whole loop's deepest 18,800 unchanged, margin 5,520 B.
+
+**What Session A must review (additions to the earlier list):** (a) the union: the host will call `fx_shown`/`fx_put` through the effect side only for SC_FX descriptors, and the engine's through the track side; nothing in the checker can tell which a hook is, only the scope (it checks the address, not the signature); (b) the view rule is a convention of the id space
+(0x8000), checked by the loader but not by the project writer: the project format must not store a view (step 4/7); (c) `F_DUBSPD` as the limit freezes that enum order as the module interface (a format added later extends the limit, an older firmware refuses the module).
+**What the owner will notice:** nothing on the unit yet (no shipped module uses the new fields): modules must be reinstalled once because the identifier moved, which the page says as before.
+
+**Suite:** the full host suite (`ci_step.py test --parallel 3`, a time limit on every test, the stack check included) passed on 97f1e04 in 3,635 s; the commits after it are this note.

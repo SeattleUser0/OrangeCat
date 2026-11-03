@@ -144,6 +144,7 @@ static const fw_pages_t P5_PAGES = {
     {P5_CUTOFF, P5_RESONANCE, P5_ENV_FILTER, P5_RELEASE_AMP},                 /* HOME's four knobs (ui.c stage_page's P5_K) */
     p5m_loaded, p5m_env_source, p5m_bend,
     {P5_RELEASE_AMP, P5_ATTACK_AMP, P5_DECAY_AMP, 0xFF},                      /* CC 72, 73, 75 */
+    0, 0, 0,                                                                  /* (Release 3, version 3) ui, pid, ext: no picture yet, the id is the panel index */
 };
 
 #ifdef OC_MODULE_HOST

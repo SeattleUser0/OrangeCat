@@ -285,6 +285,24 @@ static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
     uint32_t base = oc_mod_flash(i);
     return oc_mod_pages_check_rd(oc_rd_flash, &base, oc_mod_link(i), h);
 }
+/* (Release 3, r3-pages; every touch of this file is marked "r3-pages") the module's picture and knobs, into the registry (oc_modui.c) once the engine is registered */
+#include "oc_modui.c"                                           /* r3-pages touch 1 of 4 */
+static void oc_mod_ui_publish(uint32_t i, const fw_mod_hdr_t *h)   /* r3-pages touch 2 of 4 */
+{
+#if OC_HOME_PIC
+    uint32_t base = oc_mod_flash(i), p, link = oc_mod_link(i);
+    oc_mod_rdctx_t c;
+    uint8_t w[4];
+    if (sizeof(void *) != 4u)
+        return;                                                 /* (a host build: tests/mod_ui_test.c calls modui_publish on wire bytes) */
+    c.rd = oc_rd_flash; c.ctx = &base; c.link = link;
+    if (oc_mod_rd(&c, h->engine_ptr + (uint32_t)offsetof(engine_t, pages), w, 4u) || !(p = fwp_u32(w)))
+        return;
+    (void)modui_publish(h->engine & 0xFFu, oc_mod_rd, &c, p, link + FW_MOD_CODE_OFF, link + h->length, (const uint8_t *)(uintptr_t)link, link);
+#else
+    (void)i; (void)h;
+#endif
+}
 /* the header at start i read from the flash (st_read), its checks, then the code's CRC and the sector tails: the state */
 static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
 {
@@ -347,6 +365,7 @@ static int oc_mod_reg(uint32_t i, const fw_mod_hdr_t *h, const engine_t *engine)
 }
 static void oc_mod_unreg(uint32_t e)
 {
+    modui_retire(e);                                            /* r3-pages touch 3 of 4: the picture and knobs first (before the flash goes), under their own guard */
     if (oc_mod_live) fm1_irq_off();
     eng_unregister(e);
     if (oc_mod_live) fm1_irq_on();
@@ -424,6 +443,7 @@ static void oc_mod_boot(uint32_t crashed)
                 continue;
             }
         }
+        oc_mod_ui_publish(i, oc_mod_hdr_ptr(i));                /* r3-pages touch 4 of 4 */
     }
     oc_mod_window();                                            /* (0.10.1) a running session too: the window follows the registered modules (0.11.1: the one helper) */
     /* (0.11.1) the loser of two valid modules is erased now, lazily: only when its rival is the registered one and no old preset pair may still lie in
