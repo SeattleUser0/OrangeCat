@@ -42,10 +42,16 @@
 #define DUB_SPD_MID 64
 static inline int dub_f_clamp(int32_t v, int32_t lo, int32_t hi) { return (int)(v < lo ? lo : v > hi ? hi : v); }
 static inline int dub_new_layout(const int16_t *p) { return p[P_DUB_MODE] >= DUB_MODE_MARK; }
-static inline int dub_get_sync(const int16_t *p) { return p[P_DUB_MODE] & 1; }
-static inline int dub_get_ping(const int16_t *p) { return (p[P_DUB_MODE] >> 1) & 1; }
-static inline int dub_get_drive(const int16_t *p) { return dub_f_clamp((int32_t)p[P_DUB_TAPE] + 64, 0, 191) / DUB_WOW_N; }
-static inline int dub_get_wow(const int16_t *p) { return dub_f_clamp((int32_t)p[P_DUB_TAPE] + 64, 0, 191) % DUB_WOW_N; }
+/* (Release 3 step 5) the fields of the two packed values, from the value itself: the insert host's kernel (jfx_dub.c) reads MODE and TAPE through the legacy-slot table and unpacks them here; the
+ * p[]-forms below are these on the fixed slots, for the pages and the editor */
+static inline int dub_mode_sync(int32_t mode) { return (int)(mode & 1); }
+static inline int dub_mode_ping(int32_t mode) { return (int)((mode >> 1) & 1); }
+static inline int dub_tape_drive(int32_t tape) { return dub_f_clamp(tape + 64, 0, 191) / DUB_WOW_N; }
+static inline int dub_tape_wow(int32_t tape) { return dub_f_clamp(tape + 64, 0, 191) % DUB_WOW_N; }
+static inline int dub_get_sync(const int16_t *p) { return dub_mode_sync(p[P_DUB_MODE]); }
+static inline int dub_get_ping(const int16_t *p) { return dub_mode_ping(p[P_DUB_MODE]); }
+static inline int dub_get_drive(const int16_t *p) { return dub_tape_drive(p[P_DUB_TAPE]); }
+static inline int dub_get_wow(const int16_t *p) { return dub_tape_wow(p[P_DUB_TAPE]); }
 static inline int dub_get_field(const int16_t *p, uint32_t f)
 {
     return f == DUBF_SYNC ? dub_get_sync(p) : f == DUBF_PING ? dub_get_ping(p) : f == DUBF_DRIVE ? dub_get_drive(p) : dub_get_wow(p);

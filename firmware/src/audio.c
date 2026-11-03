@@ -243,7 +243,7 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
                 ld_head++; ld_pend = 1; ld_late++;
             }
 #endif
-            dub_late_half(late, us);    /* (Release 2) the governor under the voice caps' third column: a half is late, or within 100 us of the deadline (the gate's margin) */
+            fx_ins_late_half(late, us);    /* (Release 2) the governor under the voice caps' third column: a half is late, or within 100 us of the deadline (the gate's margin) */
         }
         melodee_dbg.halves++;
         melodee_dbg.last_us = us;

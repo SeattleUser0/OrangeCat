@@ -825,9 +825,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(14);
             fm1_irq_off();
             ed_bk_u32((uint32_t)jfx_full);                  /* (the whole byte: the buses' FX FULL in 0x0F, DUB FULL in 0xF0) */
-            ed_bk_u32(dub_gov_fires);
-            for (k = 0; k < DUB_N; k++) {
-                ed_bk_u32(dub_i[k].state); ed_bk_u32(dub_ready[k]); ed_bk_u32(dub_have[k]); ed_bk_u32(dub_i[k].R); ed_bk_u32(dub_i[k].hold); ed_bk_u32(dub_i[k].run);
+            ed_bk_u32(fx_ins_gov_fires);
+            for (k = 0; k < FX_INS_N; k++) {
+                ed_bk_u32(fx_ins[k].state); ed_bk_u32(fx_ins_ready[k]); ed_bk_u32(fx_ins_have[k]); ed_bk_u32(fx_ins[k].R); ed_bk_u32(fx_ins[k].hold); ed_bk_u32(fx_ins[k].run);
             }
             fm1_irq_on();
             break;
