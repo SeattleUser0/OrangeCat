@@ -1,3 +1,17 @@
+# Orange Cat Nightly v0.16.0-428a44 (Round 17): what changed for you since f27773
+
+Written November 3, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged. Modules did not need reinstalling this time.
+
+1. **Why your kick and snare sounded 10 % different between takes: the chorus send.** Its wobble keeps running between notes, so each hit meets it at a different point. With the sends at 0 the same kick repeats to 0.1 %. Nothing to fix in the sound; for an exact A/B set the track's sends to 0.
+2. **ui-fix2 (undo of a velocity edit on an accented step, each chord note keeps its own accent) and the step 8 groundwork are in.** I found and fixed one thing on the way: moving, quantizing or pasting notes anywhere used to drop a chord's deliberate step accent from every step.
+3. **Under the hood, DUB's code is now a generic effect slot** (the same sound; tested sample for sample on the computer; the sequencer's heavy cells with DUB on still hit 512 of 512 on the unit). Its module form exists on a branch, not shipped.
+4. **The Prophet** installed from the live page on the test unit and played (a C major chord, presets 1 and 5); SHAPES was put back from the page afterwards. All three engine modules fit together now.
+5. **Not shown on the unit:** DUB sample for sample (the unit's own captures are not repeatable that closely), an install from the card.
+
+The earlier note for f27773 follows.
+
+---
+
 # Orange Cat Nightly v0.16.0-f27773 (Round 16): what changed for you since 7c5760
 
 Written November 3, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged. **Every module is installed again once** (the module format moved to version 3): the page does it in the same install.
