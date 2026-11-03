@@ -29,16 +29,11 @@ static uint32_t mgrid_sig(const track_t *t)
     if (song.playing) h ^= (t->seq_idx + 1u) * 104723u;
     return h;
 }
-/* a step's tile text: the first note's name, a + after it for a chord, ~ for a tie, "" for nothing */
+/* a step's tile text: the first note's name ("" for none; a chord shows pips under it, a tie a line: the tile has room for a number and one name, not more) */
 static void mgrid_tile_text(const step_t *st, char *b)
 {
     b[0] = 0;
-    if (step_on(st) && st->n) {
-        note_name(b, st->note[0]);
-        if (st->n > 1u) str_cpy(b + str_len(b), "+", 2);
-    } else if (st->time == ST_TIE) {
-        str_cpy(b, "~", 2);
-    }
+    if (step_on(st) && st->n) note_name(b, st->note[0]);
 }
 #define MG_TX 7
 #define MG_TY 24
@@ -67,10 +62,16 @@ static void graph_mgrid(const track_t *t, uint16_t c)
         if ((int32_t)i == playing)
             cv_rect(x + 8, y, MG_TW - 16, 3, T_TEXT);
         fmt_int(n, (int32_t)(base + i) + 1);
-        cv_text_on(x + 5, ty_y(y + MG_TH / 2, TY_LB), TY_LB, n, cur ? T_TEXT : on ? T_MID : T_DIM, fill);
+        cv_text_on(x + 4, ty_y(y + MG_TH / 2, TY_LB), TY_LB, n, cur ? T_TEXT : on ? T_MID : T_DIM, fill);
         mgrid_tile_text(st, v);
         if (v[0])
-            cv_text_r(x + MG_TW - 5, ty_y(y + MG_TH / 2, TY_LB), TY_LB, v, st->time == ST_TIE ? T_DIM : T_THEME, fill);
+            cv_text_r(x + MG_TW - 3, ty_y(y + MG_TH / 2, TY_LB), TY_LB, v, T_THEME, fill);
+        if (step_on(st) && st->n > 1u) {                /* a chord: one pip a note after the first */
+            uint32_t q;
+            for (q = 1; q < st->n && q < 4u; q++) cv_rect(x + MG_TW - 6 - (int32_t)q * 6, y + MG_TH - 4, 4, 2, T_THEME);
+        } else if (st->time == ST_TIE) {                /* a tie: the line of the note holding */
+            cv_rect(x + 6, y + MG_TH - 4, MG_TW - 12, 2, T_DIM);
+        }
     }
     cv_text(10, ty_y(11, TY_LB), TY_LB, "PAGE", T_MID);  /* the strip: the pages and the stage */
     for (i = 0; i < 4u; i++) {
@@ -91,7 +92,7 @@ static void graph_mgrid(const track_t *t, uint16_t c)
         cv_rect(3, 0, 2, graph_h, T_ACCENT); cv_rect(235, 0, 2, graph_h, T_ACCENT);
     } else {                                            /* STEP: an outline */
         cv_rrect(168, 3, 62, 17, 5, T_MID, T_SURF);
-        cv_rrect(170, 5, 58, 13, 4, T_SURF, T_MID);
+        cv_rrect(169, 4, 60, 15, 4, T_SURF, T_MID);
         cv_text_c(199, ty_y(11, TY_LB), TY_LB, "STEP", T_TEXT, T_SURF);
     }
 }

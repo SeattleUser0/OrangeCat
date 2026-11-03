@@ -3118,7 +3118,7 @@ static void ui_input(void)
         drum_pick_lane((uint32_t)clamp((int32_t)ui.lane + (s > 0 ? 1 : -1), 0, NLANE - 1));
 #endif
 #if OC_STEP_PAGES
-    } else if (s && feel_page()) {                      /* (the new interface 0.4) FEEL: PRESETS the step */
+    } else if (s && (feel_page() || mgrid_page())) {    /* (the new interface 0.4) FEEL: PRESETS the step; (melodic-grid) GRID too */
         cursor_set((int32_t)ui.cursor + s);
         ui.force = 1;
     } else if (s && !ui.home && cur_page()->graph == GR_PATGRID) {   /* (ui-fix 2) CHAIN: PRESETS the selected track's chain,

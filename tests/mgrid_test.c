@@ -320,6 +320,18 @@ int main(void)
         ok = TSEL->step[4].note[0] == snap[4].note[0] + 2u;
         TSEL->step[4].note[0] = snap[4].note[0];
         chk("DW6     KNOB 3 (pitch) moves the picked note and nothing else of the step or its ties", ok && same_steps(snap));
+        {   step_t a[NSTEP];                              /* ENV is not a modifier here (it stays the ENV page's button): KNOB 4 held with it is the same coarse edit */
+            fresh(16);
+            enter(3, keys, 1); pick(3); oct_minus();
+            turn(EN_K4, 1);
+            memcpy(a, TSEL->step, sizeof a); memcpy(rsnap, recording, sizeof rsnap);
+            fresh(16);
+            enter(3, keys, 1); pick(3); oct_minus();
+            btn_down(B_ENV); fr();
+            turn(EN_K4, 1);
+            btn_up(B_ENV); frs(2);
+            chk("DW6     ENV held: KNOB 4 edits the length exactly as without it (ENV is not a fine-edit modifier on GRID)", !memcmp(a, TSEL->step, sizeof a) && !memcmp(rsnap, recording, sizeof rsnap));
+        }
     }
     {   /* knobs */
         uint32_t chord[3] = {wk(1), wk(4), wk(7)};
@@ -339,6 +351,10 @@ int main(void)
         turn(EN_K3, 3);
         ok &= TSEL->step[3].note[0] == kb_map(TSEL, chord[0]) && TSEL->step[3].note[1] == kb_map(TSEL, chord[1]) + 3u && TSEL->step[3].note[2] == kb_map(TSEL, chord[2]);
         chk("KNOBS   KNOB 2 picks the second note of the chord, KNOB 3 moves only that note's pitch", ok);
+        fresh(40);
+        cursor_set(14); frs(2);
+        turn(EN_PRESET, 3);
+        chk("KNOBS   PRESETS moves the cursor as on FEEL, across the page end (steps 15 + 3 = 18), and writes nothing", ui.cursor == 17u && ui.bank == 1u && !TSEL->step[17].n);
         fresh(16);
         enter(3, chord, 1);
         pick(3); oct_minus();
