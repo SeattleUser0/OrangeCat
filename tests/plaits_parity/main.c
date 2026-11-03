@@ -4,6 +4,7 @@
  *
  *   tests/plaits_parity/run.sh <eurorack checkout with stmlib>      (prints a line per model and scenario)
  *   ./parity [model] [-v]                                          (one model; -v: the first differing samples)
+ * (MACRO2 candidate) the sixteen models and Plaits 1.2's second bank, 24 in all (models.h); the six-op FM model once a bank.
  *
  * Scenarios (each from a fresh engine and random seed): free running (trigger unpatched) at a fixed setting; a
  * sweep of HARMONICS, TIMBRE and MORPH with a note glide and triggers every 150 ms; 24 random settings, each
@@ -19,7 +20,8 @@
 
 static const char *NAMES[M_COUNT] = {
     "VA", "WAVESHAPING", "FM", "GRAIN", "ADDITIVE", "WAVETABLE", "CHORD", "SPEECH",
-    "SWARM", "NOISE", "PARTICLE", "STRING", "MODAL", "BASS DRUM", "SNARE", "HI-HAT"
+    "SWARM", "NOISE", "PARTICLE", "STRING", "MODAL", "BASS DRUM", "SNARE", "HI-HAT",
+    "VA VCF", "PHASE DIST", "SIX-OP A", "SIX-OP B", "SIX-OP C", "WAVE TERR", "STRING MCH", "CHIPTUNE"
 };
 #define BLOCK 12
 static int verbose;

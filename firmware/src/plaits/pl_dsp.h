@@ -209,7 +209,9 @@ static inline float pl_next_integrated_blep(float t)
 static inline float pl_this_integrated_blep(float t) { return pl_next_integrated_blep(1.0f - t); }
 
 /* ----------------------------------------------------------- random.h --- */
+#ifndef PL_RNG_EXTERN                          /* (macro2-candidate) a module has no RAM: its unit defines pl_rng_state as the firmware's cell (fw_api_t rng_cell) */
 static uint32_t pl_rng_state = 0x21u;
+#endif
 static inline uint32_t pl_rng_word(void) { pl_rng_state = pl_rng_state * 1664525u + 1013904223u; return pl_rng_state; }
 static inline int16_t pl_rng_sample(void) { return (int16_t)(pl_rng_word() >> 16); }
 static inline float pl_rng_float(void) { return (float)pl_rng_word() / 4294967296.0f; }

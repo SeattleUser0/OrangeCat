@@ -268,6 +268,10 @@ def app_flags():
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
+    for flag in ("MACRO2_SET", "MACRO2_HOT"):          # (macro2-candidate) the MACRO2 module's size variants and its hot-set A/B (eng_macro2.c)
+        v = os.environ.get(flag)
+        if v in ("0", "1", "2"):
+            flags.append(f"-D{flag}={v}")
     if os.environ.get("P5_OVERSAMPLE") in ("1", "2"):
         flags.append("-DP5_OVERSAMPLE=" + os.environ["P5_OVERSAMPLE"])
     builtin = os.environ.get("OC_PACK_BUILTIN", "0") == "1"      # (Orange Cat 0.13.6) the A/B build: the tables in the image, no pack (oc_pack.h)
@@ -522,7 +526,10 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            # (0.14.1, op1r-candidates) op1r's synth plugins through tools/module/op1r/op1_glue.h, proposed numbers 24.. (OC_CANDIDATES): WHEEL's geometry
            "fmbell": {"src": "tools/module/fmbell_mod.c", "sectors": 4, "starts": [0, 6], "name": "FMBELL", "inc": ["tools/module/op1r"]},
            "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"]},
-           "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]}}
+           "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]},
+           # (macro2-candidate) MACRO2, the ten Plaits models MACRO lacks (docs/candidates/macro2.md): linked for the whole 12-sector area at start 0, to
+           # measure it (the full module does not fit it: the gate's row says by how much; a cut-down variant may)
+           "macro2": {"src": "tools/module/macro2_mod.c", "sectors": 12, "starts": [0], "name": "MACRO2"}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
