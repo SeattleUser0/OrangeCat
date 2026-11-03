@@ -1076,6 +1076,7 @@ static int own_screen(void)                             /* a page drawn whole by
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
 {
+    dub_view_on = 0;                                  /* (dub-perf review) cleared on every draw; the DUB page below sets it again: no other screen leaves the DUB keys on */
     /* SCALES opens explicitly from the Scale row, outside the SCL/SELECT cycle.
      * An unavailable OP page returns to EDIT 1; an emptied FX slot to its rack. */
     if (!ui.home && !page_visible(ui.page) && cur_page()->graph != GR_SCALE_PICKER) {

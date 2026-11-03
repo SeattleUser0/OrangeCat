@@ -754,6 +754,7 @@ fi
 if sound && [ $TABLES = 1 ]; then
     mkdir -p build/mod_demo \
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
+    t "MACRO VA init (round 18): VA BASS and VA SYNC LEAD on a fresh part render as after a switch from three other models" macro_va_init_test -O2 -ffp-contract=off $FW -Itests
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     # (ui-fix2 close-out) golden.txt is the shipping build's (the build set on): song/4track_mix plays its slides as ui-fix 8's legato glides now (OC_SLIDE), 7b5647232840caa8 -> 9e96d61252be67d8.
