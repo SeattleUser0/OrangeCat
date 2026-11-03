@@ -2264,7 +2264,7 @@ switches), the renders with every switch (0 lint findings) and home_pic_test. Bu
 
 ## Release 3, step 3 (branch r3-pages, from linux-hw fd159be; November 2, 2026): fw_pages version 3. For Session A
 
-**Status: built and reviewed; host tests only, nothing flashed.** RELEASE3_PLAN.md section 5, step 3; MODULE_FORMAT_R3.md 4, 5, 7 and the new section 14 ("as built", with the corrections). **For Session A: r3-pages is ready to merge when the host suite on its last commit is green (below),
+**Status: built and reviewed; host tests only, nothing flashed.** RELEASE3_PLAN.md section 5, step 3; MODULE_FORMAT_R3.md 4, 5, 7 and the new section 14 ("as built", with the corrections). **For Session A: r3-pages is ready to merge: the host suite (`ci_step.py test --parallel 3`, a time limit on every test) passed on 0d906fa in 3,061 s (the commits after it are this note),
 and your review is wanted on two things: the checker and the interrupt-side macro records.**
 
 **What it is.** `fw_pages_t` version 3 (80 bytes: `ui`, `pid`, `ext`), `fw_pid_t`, `fw_ui_t` (the picture and HOME's four knobs, 20 bytes), `fw_kdef_t` (28), `SC_FX` after `SC_DXLANE`; the checker `fw_pages_check_ex` (scope, P_COUNT; the pid table's rules; the effect scope's rules) and
