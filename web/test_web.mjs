@@ -587,12 +587,13 @@ async function editorMock() {
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
-  ok(descs === info.pcount-5, "editor: DESC for every parameter");   /* (Release 2: 5 reserved ids; 45..47 and the effects free ids are DUB TAPE) */
+  ok(descs === info.pcount-4, "editor: DESC for every parameter");   /* (Release 2: 5 reserved ids; 45..47 and the effects free ids are DUB TAPE; ui-fix2 4: 48 is SLIDE TIME, 33..36 the four left) */
   {
     for(const id of [33,34,35,36,48]){
       const d=E.parse[E.CMD.DESC](await rq(E.req.desc(0,id)));
       const r=E.parse[E.CMD.SET](await rq(E.req.set(0,id,127)));
-      ok(!d.label && r.value===0,"editor: removed effect parameter is inert "+id);
+      /* (ui-fix2 4) 48 is SLIDE TIME: it has a description, the track's own, but the unit refuses the editor's SET (editor.c) as for a reserved id */
+      ok((id===48 ? d.label==="SLIDE" : !d.label) && r.value===0,"editor: removed effect parameter is inert "+id);
     }
   }
   {

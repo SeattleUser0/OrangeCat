@@ -885,8 +885,11 @@ static void confirm_text(char *a, char *b)
         str_cpy(b, "The chains stay", 32);
         break;
     case CF_LOAD_PROJ:                                  /* (ui-fix2 3) a project loaded over unsaved changes */
-        str_cpy(a, "LOAD PROJECT A?", 24);
-        a[13] = (char)('A' + (k & 3u));
+        if (k == (uint32_t)PROJ_TMPL) str_cpy(a, "LOAD THE TEMPLATE?", 24);   /* (close-out 1d) */
+        else {
+            str_cpy(a, "LOAD PROJECT A?", 24);
+            a[13] = (char)('A' + (k & 3u));
+        }
         str_cpy(b, "Unsaved changes are lost", 32);
         break;
     case CF_NEW_SONG:                                   /* what is lost */

@@ -4,7 +4,8 @@
  * sequencer stopped is the owner's CLEAR. What it clears is what the page is about:
  *     HOME (any of its pages)   the selected track's steps and notes (the pattern it is on, as "Clear track" did)
  *     a SEQ page                the values on that page back to their defaults (FEEL, NOTES, TRACKER, DRUM HIT: the chance,
- *                               condition, ratchet, nudge, accent and slide of the 16 steps of the cursor's page; PHRASE: LEN,
+ *                               condition, ratchet, nudge, accent and slide of the 16 steps of the cursor's page, and on NOTES, TRACKER
+ *                               and DRUM HIT (the drum grid) a typed step's own velocity (the lanes' accents on a drum step); PHRASE: LEN,
  *                               DIV, SWING, GATE). The project's own SEQ pages (TEMPO, CHAIN, SONG, PHRASES, GROOVE) are not reset:
  *                               they hold the project's, not a track's, and the message says so
  *     a track's FX page         the selected track's effects (SENDS, DIST, AUTO PAN, DUB, DUB 2, DUB SETUP) back to their defaults.
@@ -76,12 +77,13 @@ static void clr_fx(void)
     ui.force = 1;
 }
 
-/* a SEQ page's values: FEEL, NOTES, TRACKER, DRUM HIT: the 16 steps of the cursor's page; PHRASE: its four parameters */
+/* a SEQ page's values: FEEL, NOTES, TRACKER, DRUM HIT: the 16 steps of the cursor's page (FEEL's values on all four, and each page's own velocity or accents:
+ * see own_notes below); PHRASE: its four parameters */
 static void clr_page(void)
 {
     track_t *t = TSEL;
     const page_t *pg = cur_page();
-    uint32_t i, base, len;
+    uint32_t i, base, len, own_notes;
     if (frz_locked()) return;
     if (pg->scope == SC_TRACK && pg->graph == GR_STEPS) {   /* PHRASE: LEN DIV SWING GATE */
         undo_seal();
@@ -101,6 +103,7 @@ static void clr_page(void)
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
     base = ui.cursor / 16u * 16u;
     len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+    own_notes = pg->graph != GR_FEEL;                   /* NOTES (the roll or the drum grid), TRACKER, DRUM HIT: their own values too; FEEL's page is FEEL's alone */
     undo_seal();
     load_begin(t, UNDO_PAT);
     motion_replace_track(t, &undo_last()->motion_backup);
@@ -113,6 +116,15 @@ static void clr_page(void)
         step_set_rflam(st, 1u);
         step_set_nudge(st, 0);
         st->flags &= (uint8_t)~(SF_ACCENT | SF_SLIDE);
+        /* (close-out 1c) the page's own values besides FEEL's. NOTES and TRACKER: a typed step's VELOCITY back to the default (0: 96, the
+         * way a new step is made). The DRUM grid and DRUM HIT: a typed step's lane accents and velocity. FEEL: only FEEL's (above).
+         * Never the notes themselves (pitch, a typed note's length in ties, the lanes' hits: HOME's clear takes those) and never a RECORDED
+         * note's velocity, start or length: those are events of the pool, edited only through the edit memory (a played velocity is the
+         * performance, not a setting), so a recorded step keeps them and only its FEEL values go */
+        if (own_notes && !(st->flags & SF_RECORDED)) {
+            if (st->hit) { st->acc = 0; st->vel = 0; }   /* (a drum step: the lanes' accents) */
+            else st->vel = 0;
+        }
     }
     fm1_irq_on();
     load_end(t);
@@ -167,62 +179,7 @@ static void clr_project(void)
     ui_message("PROJECT CLEARED");
     ui.force = 1;
 }
-/* GLO's group (levels with link bit 1 and the one note history, note_transaction.group). The history may go first only when the level it belongs
- * to is the one the undo (or redo) is on: otherwise another edit came after it and goes first (the stack's order). A history that is no longer
- * GLO's (overwritten by another note edit, or invalid) takes its levels out (clr_group_drop): the pool could not come back with them. */
-static int clr_group_levels(void)
-{
-    uint32_t i;
-    for (i = 0; i < undo_cnt; i++) if (undo_lv[i].link & 2u) return 1;
-    return 0;
-}
-static void clr_group_drop(void)
-{
-    uint32_t i, j = 0, top = 0;
-    for (i = 0; i < undo_cnt; i++) {
-        if (undo_lv[i].link & 2u) continue;
-        if (j != i) undo_lv[j] = undo_lv[i];
-        if (i < undo_top) top++;
-        j++;
-    }
-    undo_cnt = (uint8_t)j;
-    undo_top = (uint8_t)top;
-    if (undo_top) undo_lv[undo_top - 1u].keep = 0;
-}
-static int clr_history_ok(int redo)
-{
-    int live = resource[RES_NOTE_HISTORY].size && note_transaction_ptr && note_transaction.valid && note_transaction.group;   /* (round 13: not after the arena took the block back) */
-    if (!live) {
-        if (clr_group_levels()) clr_group_drop();       /* (its history is gone) */
-        return 1;                                       /* an ordinary history: as ever */
-    }
-    return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
-}
-/* the level the undo (redo) is about to take belongs to GLO's group (link bit 1) */
-static int clr_next_is_group(int redo)
-{
-    return redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u);
-}
-/* every level of the linked group the undo (redo) is about to take has its track's phrase still: else none goes */
-static int undo_group_ok(int redo)
-{
-    int s = redo ? (int)undo_top : (int)undo_top - 1;
-    if (s < 0 || s >= (int)undo_cnt || !(undo_lv[s].link & 3u) ) return 1;
-    for (;;) {
-        const undo_t *u = &undo_lv[s];
-        if (u->pattern_gen != trk[(u->trk - 1u) % NTRK].pattern_gen) return 0;
-        if (!redo && (u->link & 1u) && s > 0) s--;
-        else if (redo && s + 1 < (int)undo_cnt && (undo_lv[s + 1].link & 1u)) s++;
-        else return 1;
-    }
-}
-/* after a note history undo or redo that was GLO's: the linked levels (every track's steps and effects) go with it, as one undo */
-static void clr_follow(int redo)
-{
-    if (!note_transaction.group) return;
-    if (redo ? undo_top < undo_cnt && (undo_lv[undo_top].link & 2u) : undo_top && (undo_lv[undo_top - 1u].link & 2u))
-        undo_level(redo);
-}
+/* (the undo side of GLO's group: clr_group_levels, clr_group_drop, clr_history_ok, undo_group_ok and clr_follow live in ui.c, beside the levels, so a build that has ui.c and not this file links) */
 
 static void clr_fire(uint32_t ctx)
 {

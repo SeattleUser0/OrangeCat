@@ -27,11 +27,14 @@ static uint32_t slot_kind(void)
  * proj_scratch, which the drawing borrows between frames), at most once a second while the PROJECT page is up and the sequencer stopped,
  * at once on entering the page and after a load or a save (pj_note). pj.d: 0 saved, 1 unsaved changes, 2 not worked out yet */
 static int project_unsaved(void);                       /* project.c */
+static uint8_t proj_ui_gen;                             /* project.c (a tentative definition twice is one object; a build without project.c has it 0) */
 static struct { uint32_t t; uint8_t d, page; } pj = {0, 2, 0};
 static void pj_note(void) { pj.d = 2; pj.t = 0; }       /* (a load, a save, the page entered: work it out again) */
+static uint8_t pj_seen_gen;                             /* project.c proj_ui_gen as last seen */
 static void pj_poll(uint32_t activity)                  /* activity: a button, a key or a knob moved this pass (a web editor transfer is none: its
                                                          * staging RAM, proj_wire_u, is not packed over meanwhile, and music it changes shows at the next touch) */
 {
+    if (pj_seen_gen != proj_ui_gen) { pj_seen_gen = proj_ui_gen; pj_note(); }   /* (a load or a save happened) */
     if (slot_kind() == SK_PROJECT && !transport_busy() && (pj.d == 2u || pj.page != ui.page || (activity && fm1_ms - pj.t >= 1000u))) {
         pj.d = (uint8_t)(project_unsaved() != 0);
         pj.t = fm1_ms;

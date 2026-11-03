@@ -168,7 +168,7 @@ static int note_convert(uint32_t start)
     step_delete(TSEL,start);memcpy(&TSEL->step[start],&source,sizeof source);TSEL->step[start].flags|=SF_RECORDED;
     for(uint32_t j=0,i=0;j<count;j++){
         while(recording[i].vel)i++;
-        recorded_note_t r={0};r.note=nn[j];r.vel=vv[j];r.owner=(uint8_t)recording_owner(TSEL);r.step=(uint8_t)start;r.length=drum_track(TSEL)?1u:0u;
+        recorded_note_t r={0};r.note=nn[j];r.vel=vv[j];r.owner=(uint8_t)recording_owner(TSEL);r.step=(uint8_t)start;r.length=0;   /* (the owner's rule: an edit never changes a sound you did not touch. A manual hit plays its sound's natural length, so a converted one does too: the pad's length edit sets the flag on the one hit it touches) */
         note_duration(&r,n*RECORD_UNIT);recording_restore_note(TSEL,i,r);i++;
     }
     cursor_set((int32_t)start);ui.note_pick=0;notes_selected(TSEL);return 1;

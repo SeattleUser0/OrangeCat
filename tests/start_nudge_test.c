@@ -118,6 +118,30 @@ int main(void)
             chk("SAME    the tracker's NUDGE cell reads what K2 wrote (+3)", !strcmp(b, "+3"));
         }
     }
+    {   /* ROLL (close-out 1b): the nudge is drawn, in the step's own column only, the bar's onset later or earlier by the 64ths */
+        static uint16_t base[240 * 240];
+        uint32_t x, y, x0 = 240, x1 = 0, n = 0;
+        fresh();
+        typed(3, 60);
+        cursor_set(3);
+        ui.force = 1; frame(); ui.force = 1; frame();
+        memcpy(base, host_screen, sizeof base);
+        TSEL->step[3].nudge = 16;                       /* a quarter step: 3 px of the 12 */
+        frame();                                        /* (the signature holds the nudge: no force) */
+        for (y = Y_GRAPH; y < Y_GRAPH + 154u; y++) for (x = 0; x < 240; x++)
+            if (base[y * 240 + x] != host_screen[y * 240 + x]) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
+        chk("ROLL    a later nudge redraws the roll by itself (the page signature holds it)", n > 0u);
+        chk("ROLL    +16 (a quarter step): only the bar's first 3 px change, inside the step's column", x1 - x0 <= 4u && x0 >= 32u + 3u * 12u && x1 < 32u + 4u * 12u);
+        TSEL->step[3].nudge = -16;
+        frame();
+        n = 0; x0 = 240; x1 = 0;
+        for (y = Y_GRAPH; y < Y_GRAPH + 154u; y++) for (x = 0; x < 240; x++)
+            if (base[y * 240 + x] != host_screen[y * 240 + x]) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
+        chk("ROLL    -16: the bar starts earlier, into the column before, and never left of the roll", n > 0u && x0 >= 32u + 2u * 12u && x1 < 32u + 4u * 12u);
+        TSEL->step[3].nudge = 0;
+        frame();
+        chk("ROLL    nudge 0 draws what it drew before", !memcmp(base, host_screen, sizeof base));
+    }
     printf("start_nudge: %s\n", nbad ? "FAILED" : "all passed");
     return nbad != 0;
 #endif

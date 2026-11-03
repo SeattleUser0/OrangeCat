@@ -6,10 +6,14 @@ import { stageKnobs, designKnobs, editIds, engineScene, enginePicture, palette, 
 import { SCENES } from "../lib/scenes.js";
 import { sceneSvg } from "../lib/scene_svg.js";
 import { LAYOUT } from "../lib/layout.js";
+import { trackOwn, paramReserved } from "../lib/editor_proto.js";
 
 export async function run() {
   const { m, s } = await connected();
   const st = m.state;
+  /* ui-fix2 close-out 1e: slot 48 is SLIDE TIME, the track\'s own: a sound or a factory preset leaves it; the unit refuses the editor\'s SET of it */
+  ok(trackOwn(48, 116) && trackOwn(48, 84) && paramReserved(48) && s.pdesc[48] && s.pdesc[48].label === "SLIDE",
+     "sounds: slot 48 (SLIDE TIME) is the track's own, described as SLIDE, and not written by the editor");
   /* the four knobs: the unit's STAGE knobs where they are parameters, else E1..E4 */
   const sid = stageKnobs(3, s.info), cz = stageKnobs(15, s.info), mod = stageKnobs(7, s.info);
   ok(sid.source === "stage" && sid.ids.join() === LAYOUT.engines[3].knob.join() && sid.ids.every((id) => s.pdesc[id] && s.pdesc[id].label),

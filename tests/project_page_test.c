@@ -103,6 +103,50 @@ int main(void)
     press(B_OCTDN);
     ui.proj_new = 0;
     chk("NEW      OCT- keeps the music", trk[0].step[11].n == 1);
+    /* close-out 1d: the template row's Load asks as a project's does */
+    template_save();
+    song.g[G_SLOT] = PROJ_TMPL;
+    sheet_do("Load template");
+    chk("TEMPLATE Load over unsaved changes: asks (LOAD THE TEMPLATE?)", ui.confirm == CF_LOAD_PROJ && ui.confirm_trk == (uint16_t)PROJ_TMPL);
+    press(B_OCTDN);
+    chk("TEMPLATE OCT- keeps the music (nothing loaded)", ui.confirm == CF_NONE && trk[0].step[11].n == 1);
+    sheet_do("Load template");
+    press(B_OCTUP);
+    chk("TEMPLATE OCT+ loads it: the music without patterns", ui.confirm == CF_NONE && trk[0].step[11].n == 0 && trk[0].step[2].n == 0);
+    project_save(2);                                    /* (saved music) */
+    settle();
+    song.g[G_SLOT] = PROJ_TMPL;
+    sheet_do("Load template");
+    chk("TEMPLATE Load over saved music: no question", ui.confirm == CF_NONE);
+    /* close-out 1a: a save's step fields (RATCH FLAM COND NUDGE) survive more than one load: the unsaved flag's pack must not move the record's tag */
+    {
+        step_t *z;
+        trk[0].step[7].n = 1; trk[0].step[7].note[0] = 64; trk[0].step[7].time = ST_NOTE; trk[0].step[7].vel = 96;
+        step_set_rflam(&trk[0].step[7], 3); step_set_cond(&trk[0].step[7], 4u); step_set_nudge(&trk[0].step[7], -7);
+        project_save(3);
+        settle();                                       /* the flag is worked out: a pack after the save */
+        memset(&trk[0].step[7], 0, sizeof trk[0].step[7]);
+        project_load(3);
+        settle();                                       /* ... and after the load */
+        project_load(3);
+        z = &trk[0].step[7];
+        chk("REPACK   a step's RATCH, COND, NUDGE survive the flag's pack after the save and a second load", step_rflam(z) == 3u && z->cond == 4u && z->nudge == -7);
+    }
+    /* close-out review: unsaved FEEL edits must not come back through a Load that discards them (the flag's pack leaves the stored record's step fields alone) */
+    {
+        step_t *z = &trk[0].step[7];
+        z->n = 1; z->note[0] = 64; z->time = ST_NOTE; z->vel = 96;
+        step_set_rflam(z, 3); step_set_nudge(z, -7);
+        project_save(3);
+        step_set_nudge(z, 20); step_set_rflam(z, 1);    /* an edit that is only a step field */
+        settle();
+        chk("DISCARD  a FEEL-only edit makes the project unsaved", pj.d == 1u);
+        song.g[G_SLOT] = 4;
+        sheet_do("Load");
+        press(B_OCTUP);                                 /* YES: the unsaved changes are lost */
+        z = &trk[0].step[7];
+        chk("DISCARD  the load gives the saved RATCH and NUDGE back, not the discarded edit", step_rflam(z) == 3u && z->nudge == -7);
+    }
     /* RENAME */
     song.g[G_SLOT] = 1;
     sheet_do("Rename");

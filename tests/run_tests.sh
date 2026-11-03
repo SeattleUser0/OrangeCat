@@ -112,6 +112,15 @@ CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 #   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
 #   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
 case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer" ;; *) echo "SAN=0 or 1"; exit 2 ;; esac
+# (ui-fix2, close-out) the build set: every OC_ switch tools/orangecat_engines.sh turns on, as CI ships them, is on for EVERY test below (a switch that is on
+#   is always tested). A job's own flags come after and win, so a test of a step on its own, or of the old paths, names the switch it wants
+#   (-DOC_X=0 / 1). BS_OFF is the same list switched off: the "legacy" jobs keep the old paths in the image tested (UI_BUILD.md: step 9 is the owner's).
+BS=$(grep '^export OC_' tools/orangecat_engines.sh | grep -o 'OC_[A-Z0-9_]*=1' | sed 's/^/-D/' | tr '\n' ' ')
+BS_OFF=$(echo "$BS" | sed 's/=1/=0/g')
+# (close-out 2) BS_NOSTEP is gone: seq_notes_test, seq_edit_test, note_tools_test and drum_editor_test run on the interface as it ships (tests/notes_knobs.h names the knobs once);
+#   each of the three first also runs with every switch off (BS_OFF: the legacy jobs below), the old knobs through the same header
+[ -n "$BS" ] || { echo "run_tests.sh: no OC_ switches found in tools/orangecat_engines.sh" >&2; exit 2; }
+CC="$CC $BS"
 FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
@@ -156,10 +165,19 @@ trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 
 fail() { echo "$1" >> "$LOG/$n.fail"; }
-step() { echo "== $1"; _step=$1; shift; "$@" || fail "$_step"; }
+step() { echo "== $1"; _step=$1; shift; case $1 in "$OUT"/*) limited "$@" || fail "$_step" ;; *) "$@" || fail "$_step" ;; esac; }
 build() {
     _out=$1 _src=$2; shift 2
     $CC "$@" -o "$OUT/$_out" "tests/$_src.c" -lm || { fail "compile tests/$_src.c ($_out)"; return 1; }
+}
+# (ui-fix2, close-out 2) a time limit on every test run: a hang FAILS (and says so) after TEST_TIMEOUT seconds (default 900; x4 under SAN=1) instead of
+#   stalling the suite (drum_editor_test hung for 98 minutes). The limit kills the test and what it started. An exit of 124 is the limit.
+TEST_TIMEOUT=${TEST_TIMEOUT:-900}; [ "${SAN:-0}" = 1 ] && TEST_TIMEOUT=$((TEST_TIMEOUT * 4))
+limited() {                                       # (a shell function, powercut_tests and old_to_new, cannot be run by timeout: it runs unlimited)
+    case $1 in */*) ;; *) "$@"; return ;; esac   # (no slash: a function or a builtin; sh has no type -t)
+    timeout -k 10 "$TEST_TIMEOUT" "$@"; _rc=$?
+    case $_rc in 124 | 137) echo "TIMED OUT after ${TEST_TIMEOUT} s (exit $_rc): $*" >&2 ;; esac
+    return $_rc
 }
 _t() {
     _title=$1 _out=${2%%:*} _src=${2#*:} _flags=; shift 2
@@ -168,7 +186,7 @@ _t() {
     [ $# -gt 0 ] || set -- "$OUT/$_out"
     echo "== $_title"
     build "$_out" "$_src" $_flags || return
-    "$@" || fail "$_title"
+    limited "$@" || fail "$_title"
 }
 flush() {                                         # the logs of the jobs ended, in order
     while [ $shown -lt $n ] && [ -f "$LOG/$((shown + 1)).done" ]; do
@@ -211,7 +229,7 @@ home_pic_job() {                                  # (the new interface, UI_BUILD
     _t "new interface 1c: HOME PAGE, the three pages, the knobs' ids, commits, the scenes drawn, cozy colors, the pixel budget" \
         home_pic_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # the switch built in and HOME PAGE at TRACKS: HOME's screens are release-2's, pixel for pixel
-    build home_pic_off home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    build home_pic_off home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
     echo "== new interface 1c: HOME at TRACKS with the switch built in draws release-2's screens"
     _h1=$("$OUT/home_pic_test" hash) && _h0=$("$OUT/home_pic_off" hash) || { fail "new interface 1c: the TRACKS hash did not run"; return; }
     case "$_h1" in [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;; *) fail "new interface 1c: no TRACKS hash ($_h1)"; return ;; esac
@@ -222,7 +240,7 @@ sheet_job() {                                     # (the new interface 0.2, UI_B
         sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # both switches built in, HOME at TRACKS: HOME's screens are still release-2's, pixel for pixel
     build home_pic_sheets home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
-    build home_pic_off2 home_pic_test -O1 -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
+    build home_pic_off2 home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
     echo "== new interface 2: HOME at TRACKS with the sheets built in draws release-2's screens"
     _h2=$("$OUT/home_pic_sheets" hash) && _h0=$("$OUT/home_pic_off2" hash) || { fail "new interface 2: the TRACKS hash did not run"; return; }
     [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
@@ -307,7 +325,7 @@ powercut_tests() {
         build/host/boot-fixtures/old-stub.fwsc
 }
 ui_renders() {
-    build ui_render ui_render -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render ui_render -O1 -w $BS_OFF -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_new/ppm build/ui_slot
     step "UI renders: layout lint (every screen and palette, every page, engine and column value), MONO gray, draw cost" \
         "$OUT/ui_render" build/ui_new build/ui_slot
@@ -607,6 +625,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
+    t "Restoring an event over a slot in use keeps the track's chain a chain (a hang failed the suite for 98 min), with its own alarm" restore_chain_test -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
     run "CI gate (tools/ci_gate.sh): no marker is red, the pass marker with a test count is green, the failed marker wins" sh tests/ci_gate_test.sh
     t "Recorded step properties: a chord's accent, nudge (no wrap), ratchet, flam, chance and condition as a group" recording_props_test -O1 $FW
@@ -618,6 +637,7 @@ if core && [ $TABLES = 1 ]; then
     t "Recording undo: whole takes, motion, early stops, redo, isolation and memory" recording_undo_test -O1 $FW
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
         -O1 $FW
+    t "Recorded notes, every switch off (release-2's knobs, the legacy job)" seq_notes_legacy:seq_notes_test -O1 $BS_OFF $FW
     t "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" midi_scale_test -O1 $FW
     t "MPC bank octaves: controls, held notes, persistence and compatibility" mpc_octave_test -O1 $FW
     t "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" tuning_test \
@@ -628,6 +648,8 @@ if core && [ $TABLES = 1 ]; then
     t "settings: PER5 records, palette ids and preference preservation" settings_test -O1 -w -Ibuild/gen
     t "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" \
         ui_test -DMELODEE_USB_AUDIO=1 $FW
+    # (ui-fix2, close-out) the same test with every switch of the build set off: the old paths stay in the image and stay tested
+    t "UI with the build set's switches all off (the old flows)" ui_legacy:ui_test $BS_OFF -DMELODEE_USB_AUDIO=1 $FW
     job oc_scene_job
     job home_pic_job
     job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
@@ -660,8 +682,10 @@ if core && [ $TABLES = 1 ]; then
     t "Sound designer: native recipes, dependencies, compare, discard and save" designer_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sequencer: tied length/move/delete, eight-level undo/redo, MIDI step entry and playing-step recording" seq_edit_test \
         -DMELODEE_USB_AUDIO=1 $FW
+    t "Sequencer editing, every switch off (the legacy job)" seq_edit_legacy:seq_edit_test -DMELODEE_USB_AUDIO=1 $BS_OFF $FW
     t "Note/library gestures: quarter snapping, range moves/copies, undo and bulk preset erase" note_tools_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
+    t "Note/library gestures, every switch off (the legacy job)" note_tools_legacy:note_tools_test -O1 -DMELODEE_USB_AUDIO=1 $BS_OFF $FW
     job ui_renders
     job ui_renders_pic                            # (the new interface, UI_BUILD.md 1c)
     job ui_renders_sheets                         # (the new interface 0.2, UI_BUILD.md step 2)
@@ -700,6 +724,7 @@ if core && [ $TABLES = 1 ]; then
     t "TRACKER: an EDIT tap whose release lands mid-frame turns the effect off and opens no page" tracker_edit_race_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW                  # (Orange Cat 0.14.1)
     t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW
+    t "DRUM EDITOR, every switch off (the legacy job)" drum_editor_legacy:drum_editor_test -O2 $BS_OFF $FW   # (the DRUM engine is not in the build set: MELODEE_DRUM=0; converted close-out 2: a hit's cell converts to events under ONE_AUTH)
     job cand_slot                                  # (Orange Cat 0.14.2)
 fi
 
@@ -708,6 +733,10 @@ if sound && [ $TABLES = 1 ]; then
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    # (ui-fix2 close-out) golden.txt is the shipping build's (the build set on): song/4track_mix plays its slides as ui-fix 8's legato glides now (OC_SLIDE), 7b5647232840caa8 -> 9e96d61252be67d8.
+    # The old paths keep their own run: the build set off, golden.txt with that one line as it was
+    t "regression with every switch of the build set off: the goldens of the old paths (song/4track_mix as it was)" regress_legacy:regress -O2 $BS_OFF $FW -- \
+        sh -c "sed 's/^song\/4track_mix .*/song\/4track_mix 7b5647232840caa8/' tests/golden.txt > $OUT/golden_legacy.txt && $OUT/regress_legacy $OUT/golden_legacy.txt tests/cpu_baseline.txt"
     t "regression with the buses deferred (Release 2): the same renders, the effects' returns one block late; tests/golden_fxdefer.txt holds the lines that differ" regress_defer:regress -O2 $FW -DMELODEE_FX_DEFER=1 -- \
         "$OUT/regress_defer" tests/golden.txt tests/cpu_baseline.txt
     job module_host

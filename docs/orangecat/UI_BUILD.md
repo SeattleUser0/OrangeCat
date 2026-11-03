@@ -2261,3 +2261,143 @@ switches), the renders with every switch (0 lint findings) and home_pic_test. Bu
 | all on, after the fixes (the pushed head) | 565,044 | 94,600 (+48) | 180,656 |
 
 565,044 B leaves 12,204 B free: 4,012 B above the 8 KB reserve. The steps are not isolated costs (code layout moves between builds: item 5 measured smaller than item 4 before it). Item 6 (the scene) is in the pack, not the image; its image cost is a constant.
+
+## ui-fix2 close-out (November 1 to 2, 2026): the open items closed, and the suite built with the build set
+
+The owner's note after ui-fix2 asked for five open items closed and for the suite to build every test with the build set's switches on, as CI ships them, so that a switch that is on is
+always tested. Each fix was pushed to origin/ui-fix2 as it was made.
+
+**a. ui_test and sheet_test on the new flows.** With OC_PROJECT_PAGE, SAVE tapped lands on PROJECT and SAVE again on USER: the checks take the extra tap (and say PROJECT first); Load over
+unsaved changes asks first (the test answers YES). With the whole set on, `ui_test` failed 42 checks, not 13: 22 of them assert the category map, the engine EDIT cycles and the SONG sheet
+that OC_EDIT_SHEETS replaced (sheet_test has them: every engine, every row), four are NOTES' knob jobs of OC_STEP_PAGES (step_pages_test), three a key on a recorded step that OC_ONE_AUTH
+overwrites (one_auth_test), one REC held (OC_REC_CLEAR: rec_clear_test), one the mixer's bar drawing (mixer_test). Those checks are guarded `#if !OC_x` with the name of the test that has the new
+flow; the SAVE / Load / FRAME-flow ones are updated, not guarded. `sheet_test`'s DRUM-X PRESETS walk stops at the LANES table (PRESETS picks the lane there: lanes_test) and its SAVE > USER
+check takes the extra tap. **Found by this work and fixed:** `pj_pack` (the unsaved flag's pack) left bank_pack's step fields (RATCH, FLAM, COND, NUDGE: `proj_x`) tagged with the last
+pack, so the next LOAD of the slot applied the live music's fields instead of the record's (host only: a flash build refills them in ocj_read); and, found by the review, the first fix
+(restoring the tag) still let a FEEL-only edit come back through a Load that discarded it. The unsaved flag now packs for a hash alone (`bank_live_hash`, `bank_pack_keep`): the stored
+record's fields, lists and pids are not touched at all. Tests: REPACK (a second load keeps the fields), DISCARD (a FEEL-only edit is unsaved, and a Load that discards it gives the saved
+fields back). Mutation-checked.
+
+**The suite builds every test with the build set (tests/run_tests.sh).** `BS` is every `OC_x=1` of tools/orangecat_engines.sh, put in the compiler command (a job's own flags come later and
+win); `BS_OFF` is the same list at 0. Baselines that mean "release 2" are built with BS_OFF (home_pic_off, home_pic_off2, the release-2 render, the format before's generator and the
+conversion job), and `ui_legacy` runs ui_test with every switch off, so the old paths stay tested. The first full run with the set found what no run had shown, because no test had ever
+been built with ONE_AUTH, STEP_PAGES, HOME_PIC or PROJECT_PAGE together. What was wrong, and what was done (all in the commits of this section):
+- project.c called `pj_note()` of the UI: ten tests that build project.c without ui_slots.c did not compile. A generation counter (`proj_ui_gen`) the page reads instead.
+- GLO's undo helpers (`clr_follow`, `clr_group_drop`, `clr_history_ok`, `undo_group_ok`) sat in ui_clear.c, which only ui_input.c includes: prophet_integration_test did not link. They are in ui.c now.
+- Tests whose fixtures fill the event store by hand (oc_project_test, oc_r3_test, oc_pool_test, backup_test) made events with no flagged cell, or flagged cells with no event; OC_ONE_AUTH mends
+  both at a load, so "saved = loaded" failed. Fixtures keep the invariant (`tests/one_auth_fixture.h`, `fixture_cells_for_events`); the web app's fixture records were regenerated (the
+  fixture's cells are flagged now: web/app/tools/gen_layout.mjs; identical with and without the set).
+- oc_pack_test and usb_host_test did not know OC_PACK_MAXLEN (HOME_PIC's pack with a scene trailer is longer than the tables); the breathing key check of ui_test depended on the frame count
+  before it (now it looks at all eight phases).
+- **Pinned (closed in "ui-fix2 close-out 2" below: converted, BS_NOSTEP gone):** `seq_notes_test`, `seq_edit_test` and `note_tools_test` assert the interface before the step pages (NOTES' KNOB 1 browses, KNOB 2 is START, ...). They are built with
+  BS_NOSTEP (OC_STEP_PAGES and what needs it off) and say so in run_tests.sh. The new interface's side of the same code is step_pages_test, one_auth_test, rec_clear_test, start_nudge_test
+  and ui_test on the full set. Converting the three is open (about 46 checks). `drum_editor_test` is pinned the same way: the DRUM engine is not in the build set (MELODEE_DRUM=0), and under OC_ONE_AUTH it **hung** (a restore of a timed note into slot 1, which the converted cell already holds, closed the event list into a cycle: the test's misuse, found by the first full run, killed after 98 minutes), then failed two checks of the old model.
+- `step_pages_test`: a manual note's START is its NUDGE under OC_START_NUDGE (the check says so).
+- tests/golden.txt: with the set on, `song/4track_mix` (a mix with slide steps) plays them as ui-fix 8's legato glides: 7b5647232840caa8 -> 9e96d61252be67d8, the only golden of 410 that moves (bisected: OC_SLIDE).
+  golden.txt is the shipping build's now; the old paths keep a run of their own (`regress_legacy`: the set off, that one line as it was; 0 changed).
+
+**b. K2's nudge is drawn in the roll.** A typed step's onset bar starts `nudge / 64` of the column later or earlier (`ui_graph.c`: the column is 12 px, so one detent is 0.19 px and eight
+are one pixel and a half; never left of the roll's first column; the end stays the step's). `steps_hash` includes the nudge, so the roll redraws by itself. start_nudge_test ROLL: +16
+changes only the first three pixels of the bar, -16 reaches into the column before, 0 draws what it drew.
+
+**c. NOTES, TRACKER and the drum grid reset their own values.** A page reset (REC held on the page) now also puts a typed step's **velocity** back to the default (0: 96) on NOTES and
+TRACKER, and a typed drum step's lane accents and velocity on the drum grid and DRUM HIT; FEEL resets FEEL's values only. **Decision (the safer reading):** never the notes themselves
+(pitch, a typed note's length in ties, the lanes' hits: HOME's clear takes those) and never a recorded step's velocity, start or length: those are events of the pool, edited only through
+the edit memory (Session A's), and a played velocity is the performance, not a setting. One EDIT held undoes the whole page reset, velocity included (rec_clear_test OWN, 7 checks).
+
+**d. Loading the template row asks.** Load of the template over unsaved changes opens "LOAD THE TEMPLATE?" (CF_LOAD_PROJ with the template's slot); YES loads it, OCT- keeps the music.
+With no template saved it asks nothing (the review: NO TEMPLATE says so at once). Saved music: no question (project_page_test TEMPLATE, 4 checks).
+
+**e. Slot 48 in the web editor.** `web/editor.html` and `web/app/lib/editor_proto.js` (the same protocol text; the web app's test checks that) describe TP[48] as SLIDE (F_BIPCT, -64 .. 63,
+default 0) and `trackOwn` is true for 48, so a sound load or a factory preset in the editor leaves it, as the unit does. The editor's SET of 48 stays refused (editor.c, unchanged) and the
+mock's `paramReserved(48)` stays true: the id is set on the unit's panel. web/test_web.mjs: the mock's tables equal the firmware's (built with the set: SLIDE at 48); "removed effect
+parameter is inert" now says 48 has a description and no write; DESC count 120. web/app/test: slot 48 is the track's own, described as SLIDE.
+
+**The review (one independent agent on the close-out diff):** 8 points. Should-fix, done: (1) the tag restore was incomplete (above); (2) the baselines built with the set hid a regression
+of the release-2 screens: BS_OFF for them. Nits done: the stale comment in ui_feel.c, the template question only with a template, build.log out of the repository. Left, written down: the SONG
+sheet's "first row" check is under the sections guard though it is not about sections (the Insert row is covered by sheet_do); an overlapping negative nudge covers the previous column's bar
+at the same pitch.
+
+**Close-out: suite and budget.** The full suite with CI's settings (`ci_step.py test --parallel 2`) on 04958c9 (the close-out, the golden, the legacy runs): every job passed but one, `drum_editor_test`,
+which hung under OC_ONE_AUTH (above; killed after 98 minutes, the run reported 8,077 s); the test is pinned and passes alone. The closing run is the r3-format suite (branch r3-format, bc8d4ad, which
+holds ui-fix2 at 8b37931 merged): **240 jobs passed in 3,096 s** (the ui-fix2 jobs among them). Image with every switch on: **565,556 B** (+512 B on the 565,044 B before the close-out: the roll's nudge,
+the page resets, the template question, the hash-only pack, GLO's helpers moved), 94,600 B .data+.bss, 180,656 B pool: 11,692 B free, 3,500 B above the 8 KB reserve.
+
+## ui-fix2 close-out 2 (November 2, 2026): the hang, the time limit, the four pinned tests converted
+
+**The hang (drum_editor_test, 98 minutes under OC_ONE_AUTH): the test did it, and the firmware let it.** The test restored a timed note into slot 1 with `recording_restore_note`;
+under ONE_AUTH slot 1 already holds the hit's converted event. The primitive took the old event out of the pitch index and the live list but **not out of the track's event chain**
+(`recording_head` / `recording_next`), then linked the slot in again: the chain became a cycle, and every walk of it (here NOTES' jog in `notes_selected`, the same loop is in the roll, erase and the
+tracker) never ended. Found with a stack of the stuck process (gdb, SIGINT): `recording_active <- notes_in_step <- notes_selected <- notes_step_jog <- drum_hit_jog`.
+- **Firmware (recording.c, `recording_restore_note`): the old event leaves its chain first** (`recording_unlink`, which also drops the pitch index entry, the live link, the repeats, the schedule).
+  Equivalent to the old calls for an empty slot (unlink returns at once there, the repeats are dropped as before); for a slot in use it is the fix.
+- **Is it in the shipped Nightly?** The primitive is, so the fix belongs in the next one. **A path from the panel to it is not shown:** the callers (undo of an edit, the clip paste, ONE_AUTH's
+  conversions, the MIDI paste at ui_input.c) take a free slot or one they have just freed, and the history is invalidated when a take reuses a slot (seq_notes_test "slot reuse by recording undoes the
+  take"). So this is a hardening of an invariant, not a field bug I can reproduce. **For Session A: take recording.c's three-line change into the next Nightly** (tests/restore_chain_test.c).
+- **tests/restore_chain_test.c** (job "Restoring an event over a slot in use ..."): restores over a live slot, over the chain's head, and into another track's owner; walks the chain bounded and by
+  visited slots; `alarm(30)`. It **fails on the old code** (three checks: a slot twice in the chain, the head, an event moved to another track) and passes on the new; no hang either way.
+- The drum_editor_test no longer restores into a used slot (it takes a free one, as the firmware's callers do).
+
+**A time limit on every host test.** `run_tests.sh`: `limited` (timeout -k 10, `TEST_TIMEOUT` seconds, default 900, times 4 under `SAN=1`) wraps the run of every test of the `t` jobs and of the `step`
+runs of binaries in $OUT; an expired limit prints "TIMED OUT after N s: <command>" and fails that job (exit 124) and the suite goes on. The slowest jobs of the closing runs are minutes, not a quarter of an hour.
+The multi-step jobs that run python or cc are not limited (their pieces are).
+
+**The four pinned tests converted (about 46 checks).** `BS_NOSTEP` is gone. seq_notes_test (29 checks failed under the set), seq_edit_test (13), note_tools_test (1) and drum_editor_test (2) run on the interface as
+it ships. `tests/notes_knobs.h` names NOTES' knobs once: with OC_STEP_PAGES, PRESETS browses the notes and steps, KNOB 1 is PITCH, 3 LEN, 4 VEL and ENV + PRESETS the zoom (`nk_zoom`); with it off, release-2's
+(KNOB 1 browses, 2 PITCH, PRESETS the zoom). So **each test also runs with every switch off** (BS_OFF: jobs `seq_notes_legacy`, `seq_edit_legacy`, `note_tools_legacy`, `drum_editor_legacy`), the legacy job kept for
+builds with the switches off. Almost all of it was the knob map. Three checks are different, **decisions made here, the shipped design stands**:
+- seq_notes_test, "MIDI audition on NOTES ... without entering": with ONE_AUTH a MIDI note on a recorded step is that step's entry (as a key: one_auth_test KEY), so it enters and replaces the events. The check says
+  so (sounds, enters, releases) and that **EDIT held twice** (the entry, then the events' deletion: one level each, as one_auth_test KEY) brings the take back byte for byte. The old check stays for the switch-off build.
+- drum_editor_test, "hit undo restores pitch and natural length": the first edit converts the hit's cell to events, and a converted hit carries its step's whole length (flagged), so "natural" is one step; the check
+  says that. The old assertion stays for the switch-off build.
+- drum_editor_test, "SELECT can edit a repeated hit": the cell's snare is an event now, ahead of the repeated kick in the jog's order (onset, then pitch): two detents, not one.
+- seq_edit_test, "PRESETS has no STEP editing role": PRESETS now browses; the check says it edits no step and moves the cursor.
+
+**The review of close-out 2 (one independent agent):** 6 points. Must-fix, done: `limited` could not run a shell function (`powercut_tests`, `old_to_new`: timeout exits 127), so two jobs would have failed on every run; functions run unlimited now, and a kill (137) is reported as a timeout too.
+Should-fix, done: the redo check of drum_editor_test now checks the duration (the converted hit already had `length` 1, so it could not fail). Nits done: check names that said KNOB 1 for the browse knob, restore_chain_test's per-walk flags.
+Verified by the reviewer: `recording_unlink` in place of the two calls is equivalent for empty slots and fixes used ones (no double decrement of the pitch count; it was inflated before); every firmware caller restores into a free or just-unlinked slot.
+**Open, for the owner (a design question, not a test bug):** the first pad edit of a drum cell converts the whole cell to events with `length` 1 (gated at one step), so an untouched snare beside an edited kick is now cut at one step instead of decaying naturally;
+UI_BUILD.md ui-fix 7 point 6 says a hit's natural length is `length` 0. Host only today (MELODEE_DRUM=0 in the image). The converted test enshrines the built behaviour; if the pads' conversion should keep `length` 0, that test's ONE_AUTH branch goes with it.
+Left: python, node and cc steps of the multi-step jobs have no limit of their own.
+
+## ui-fix2 merged with linux-hw round 14 (November 2, 2026): ready to merge, for Session A
+
+**For Session A: ui-fix2 (1109c2b plus this note) is ready to merge into linux-hw (fd159be).** The host suite (`ci_step.py test --parallel 2`, the build set on in every test, a time limit on every test) passed on 1109c2b: 4,612 s with a second suite running beside it.
+The on-unit sequencer test for ui-fix2 is still yours (checks 28 to 34, and an own SLIDE TIME).
+
+**The conflicts, and who won (Session A's behaviour kept wherever the two disagree):**
+1. `ui_clear.c`: round 13 rewrote GLO's undo helpers where they stood; ui-fix2 had moved them into `ui.c` (a test that builds ui.c without ui_clear.c did not link). **They stay in `ui.c`, with round 13's bodies:**
+   `clr_history_ok` asks `resource[RES_NOTE_HISTORY].size` as well, and `clr_next_is_group` is added (round 13's "a group clear whole or not at all"). ui_clear.c keeps only the pointer comment.
+2. The web editor's descriptor table (`web/editor.html`, `web/app/lib/editor_proto.js`): round 13 made ids 45 to 47 DUB TAPE's SPEED, MODE and TAPE (id 48 empty); ui-fix2 had put SLIDE at 48. **Round 13's three stay; 48 is SLIDE.**
+3. `tests/fixtures/app/fbkk-full.bin`, `web/app/lib/mock_data.js` (generated): taken from linux-hw, then regenerated from the merged firmware (`web/app/tools/gen_layout.mjs`); `--check` passes.
+4. Not a text conflict but a disagreement: round 13 removed `!transport_busy()` from the project rows' Load question ("LOAD asks while playing too"). **The template row's Load question had the same condition (ui-fix2 close-out 1d): it is gone there too**, so both ask while playing.
+
+**Files touched (against fd159be), the firmware's ten:** `pattern_store.c` (the hash-only pack), `project.c`, `recording.c` (`recording_restore_note` leaves its old chain first), `ui.c`, `ui_clear.c`, `ui_draw.c`, `ui_feel.c`, `ui_graph.c`, `ui_input.c`, `ui_slots.c`; the web: `web/editor.html`, `web/app/lib/editor_proto.js`, `web/app/lib/mock_data.js`, `web/app/lib/layout.js`
+(regenerated), `web/test_web.mjs`, `web/app/test/test_sounds.mjs`; the rest are tests (`run_tests.sh` with the limit and the legacy jobs, `notes_knobs.h`, `restore_chain_test.c`, the four converted tests, fixtures) and this file. `build.log`, committed by accident in an earlier close-out, is removed.
+
+**What changes for the player (on top of what fd159be already has of ui-fix2):**
+- K2 (START) on a typed note moves it by its NUDGE, and the roll draws the nudge (the onset bar shifts in its column).
+- A page reset (REC held on NOTES, TRACKER or the drum grid) also puts a typed step's own velocity back (the drum grid: its lane accents); never notes, never a recorded step's velocity, start or length.
+- Loading the template row over unsaved changes asks first ("LOAD THE TEMPLATE?"), also while playing; with no template saved it says NO TEMPLATE.
+- SAVE opens the project page (SAVE > PROJECT > SAVE > USER, the unsaved flag a hash-only pack: a discarded FEEL-only edit no longer comes back, and RATCH, FLAM, COND and NUDGE are no longer lost at the next Load).
+- Slot 48 (SLIDE TIME) is described in the web editor (the unit still refuses its SET from there).
+- A MIDI note or a key on a recorded step replaces the step's events as the other keys do (ONE_AUTH); two EDIT holds bring the take back (one level each: the entry, the events' deletion). Not new here; a test now says it.
+
+**For the next Nightly (firmware, not ui-fix2's alone):** `recording_restore_note` took an event out of the pitch index and the live list but not out of the track's event chain; restoring over a slot in use linked it twice, a cycle, and every walk of the chain looped for ever
+(the 98-minute drum_editor_test hang). No path from the panel to it is shown (the callers restore into a free or freshly unlinked slot), so it is a hardening: `recording.c`, three lines, `tests/restore_chain_test.c`.
+
+**Open for the owner:** the first pad edit of a drum cell converts the whole cell to events with `length` 1 (gated at one step); an untouched snare beside the edited kick is cut at one step instead of decaying. The ui-fix 7 text says a hit's natural length is `length` 0 (host only today: MELODEE_DRUM=0).
+
+## ui-fix2: a drum cell's edit never changes a sound you did not touch (November 2, 2026): for Session A
+
+**For Session A: ui-fix2 (the commit after 3463f98) carries this fix; the host suite (`ci_step.py test --parallel 3`, the build set on, a time limit on every test) passed on 43f8453 in 3,080 s.** The owner's rule: an edit never changes a sound you did not touch. The first pad edit of a drum cell converts the cell to events
+(ONE_AUTH, `note_convert`); the converted test had enshrined that an untouched snare was then cut at one step. **Two things changed the untouched hits, both fixed:**
+1. **Length** (`note_tools.c` `note_convert`): every converted drum hit was flagged `length` 1, gated at its step; a manual hit plays its sound's natural length. Converted hits now keep `length` 0 (natural); the pad's length edit sets the flag on the one hit it touches
+   (`notes_event_edit` slot 4 already did: from natural, up is a length; below a sixteenth is natural again).
+2. **Accent** (`seq_notes.c` `notes_rebuild`): a cell holding one accented lane (velocity above 110) got the step flag `SF_ACCENT`, and a recorded step plays **every** event of an accented step at 127 (`recording_shape`): converting a cell with an accented snare made the unedited kick play at 127 instead of its 100.
+   Found by the render check, not by looking: for a drum track the step flag is no longer set from the events' velocities (the lanes' `acc` carries the accent, per lane, as a manual cell does). Not changed, for the owner: a **melodic** recorded chord still accents as a group (one note over 110 accents the whole step, release 2's rule): an edit of one note's velocity can change the others.
+
+**The check** (`tests/drum_editor_test.c`, `untouched_lanes`): a cell of a kick and an accented snare is played by the sequencer into `mix_block` for 1,400 blocks (about a second, several steps) and rendered; then the same cell after a one-pad edit (pitch +7, then a half-step length) of one lane, rendered
+with **that** lane's level at its attenuation maximum, so what is left is the untouched lane; the two renders must be equal sample for sample, for the kick edited and for the snare edited. It fails on the old firmware for each of the two causes alone (mutation-checked: the old length alone fails two checks, the old accent alone one). The converted
+test asserts the natural length again (`!length`; a half step from natural is eight sixteenths up, `HALF_STEP`), and `one_auth_test` PADS drives the same gesture. Both models (the set on, every switch off) pass.
+**What changes for the player:** a cell of drum hits you edit with one pad keeps every other hit exactly as it sounded; the hit you edited changes. No other behaviour moves.

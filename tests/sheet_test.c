@@ -207,9 +207,14 @@ int main(void)
             ok &= on_sheet(&c, 0);
             turn(EN_PRESET, -1);
             ok &= on_sheet(&c, 0);                      /* (the first end: no wrap) */
-            for (k = 0; k < n + 2u; k++)
-                turn(EN_PRESET, 1);
-            ok &= on_sheet(&c, n - 1u - (c.s[n - 1u].op == SH_LINK));   /* (the last end) */
+#if OC_LANES
+            if (e != ENGI_DRUMX)                        /* (ui-build 5: on DRUM-X's LANES table PRESETS picks the lane, not the sheet: lanes_test) */
+#endif
+            {
+                for (k = 0; k < n + 2u; k++)
+                    turn(EN_PRESET, 1);
+                ok &= on_sheet(&c, n - 1u - (c.s[n - 1u].op == SH_LINK));   /* (the last end) */
+            }
             snprintf(what, sizeof what, "PRESETS %-10s PRESETS: the next sheet (the link skipped), back, no wrap at either end", en);
             chk(what, ok);
         }
@@ -281,6 +286,10 @@ int main(void)
         frames(100);
         press(B_SAVE);
         frames(50);
+#if OC_PROJECT_PAGE
+        press(B_SAVE);                                  /* (ui-fix2 3: the tap lands on PROJECT, SAVE again on USER) */
+        frames(50);
+#endif
         {
             int user = cur_page()->graph == GR_USER;
             press(B_EDIT);

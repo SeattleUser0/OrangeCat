@@ -643,6 +643,8 @@ static void proj_base_set(uint32_t slot);        /* (round 16) below, with the a
 #if OC_PROJECT_PAGE
 static uint32_t pj_base;                                /* (ui-fix2 3) see project_unsaved */
 static uint8_t pj_base_slot = 0xFFu;
+static uint8_t proj_ui_gen;                              /* +1 at every load and save: the PROJECT page (ui_slots.c) works its flag out again; no call into the UI from here, so a test that builds project.c alone compiles */
+static int project_dirty(void);
 static void pj_base_now(uint32_t slot);
 #endif
 static int proj_read_slot(uint32_t slot)
@@ -798,7 +800,7 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_base_set(slot);                                /* (round 16) for the autosave */
 #if OC_PROJECT_PAGE
     pj_base_now(slot);                                  /* (ui-fix2 3) the music as saved, for "unsaved" */
-    pj_note();                                          /* the PROJECT page's unsaved flag: worked out again */
+    proj_ui_gen++;                                      /* the PROJECT page's unsaved flag: worked out again (ui_slots.c pj_poll) */
 #endif
     if (frz_named_hook) frz_named_hook(was, proj_name, slot & 3u, was_slot == (slot & 3u));   /* (0.6.1) */
     ui_message(MELODEE_FLASH ? "SAVED" : "SAVED (RAM)");
@@ -1159,7 +1161,7 @@ static void project_load(uint32_t slot)
         proj_base_set(slot);                            /* (round 16) for the autosave */
 #if OC_PROJECT_PAGE
         pj_base_now(slot);                              /* (ui-fix2 3) the music as loaded, for "unsaved" */
-        pj_note();
+        proj_ui_gen++;
 #endif
     }
 }
@@ -1520,11 +1522,9 @@ static int pj_pack(uint32_t *hash)
     project_capture(&proj_scratch);
     proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = proj_scratch.g[G_BOOT] = 0;   /* (BOOT is a setting of the unit's) */
     proj_wire_gen++;
-    ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1);
+    *hash = bank_live_hash(proj_wire_u.raw, &proj_scratch, &ok);   /* (leaves the step fields beside the stored record, proj_x and its tag, alone: bank_pack_keep) */
     song.sel = keep;
-    if (!ok) return 0;
-    *hash = bank_hash(proj_wire_u.raw);
-    return 1;
+    return ok;
 }
 static void pj_base_now(uint32_t slot)                  /* after a load or a save: what the music packs to now */
 {
