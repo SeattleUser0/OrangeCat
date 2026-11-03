@@ -81,7 +81,10 @@ int main(int argc, char **argv)
     static const int32_t SECT[6] = { -6, -3, 0, 3, 6, 9 };
     uint32_t i, ok;
     dir = argc > 1 ? argv[1] : "build/module";
-    if (!load(0)) { printf("fx dub image: %s/dub.0.img is not there: build it with tools/build.py --module dub\n", dir); return 2; }
+    if (!load(0)) {                                    /* (the CI build step builds the module list of .github/workflows/build.yml; DUB joins it with the owner's decision to publish a kind 1 package) */
+        printf("fx dub image: %s/dub.0.img is not there (build it: tools/build.py --module dub): SKIPPED%s\n", dir, getenv("FXDI_REQUIRE") ? " (FXDI_REQUIRE set: FAILED)" : "");
+        return getenv("FXDI_REQUIRE") ? 2 : 0;
+    }
     /* ---- 1. every start of the grid: boot-scan, register ---- */
     for (i = 0; i < 6u; i++) {
         uint32_t s = start_of(SECT[i]);

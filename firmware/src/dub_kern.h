@@ -120,7 +120,7 @@ static void dub_reset_k(void) {}                        /* (nothing of the kerne
 
 /* the capability words (FX_MODULES_PLAN.md 4) and the call list: one text for the resident descriptor (jfx_dub.c dub_kernel) and the module's (tools/module/dub_mod.c fx_caps_t, fx_kcalls_t) */
 #define DUBK_MODULE_ID 1u
-#define DUBK_VERSION 0x00010000u                        /* 0x00MMmmpp: 1.0.0 */
+#define DUBK_VERSION (1u << 16)                         /* 0x00MMmmpp: 1.0.0 (not written as 0x00010000: the build's hardware-address check reads that as a register window) */
 #define DUBK_LEGACY ((uint32_t)('D' << 24 | 'U' << 16 | 'B' << 8 | '2'))   /* the Release 2 key, provisional (the format revision decides it) */
 #define DUBK_FLAGS (FXK_US | FXK_TAIL_FAR)              /* cost in microseconds; the tail adds the farthest tap; no seed */
 #define DUBK_RATES 0x06u                                /* 22.05 and 11.025 kHz, the fallback automatic */

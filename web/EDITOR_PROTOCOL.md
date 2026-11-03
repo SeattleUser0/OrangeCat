@@ -478,7 +478,7 @@ either. Commands past 127 are allocated from 128 up in this file: the next free 
 | 130 FX_INFO | module id (5 x 7 bits), sectors (1 .. 8) | plan (the start an install of that many sectors goes to; 127 none), flags (1 the install is in place), blocker (the start whose usable module is in the way, else 127), low (1 the six sectors below 0xC8000 are the module area's) |
 | 131 FX_BEGIN | module id (5 x 7), start, length (3 x 7) | rc (as MOD_BEGIN: 0 done, 1 refused, 2 flash or the transport runs, 4, 5 no start free), then the bytes written (3 x 7). Then 122 and 123 as for an engine |
 | 132 FX_REMOVE | module id (5 x 7) | rc, then the bytes written (3 x 7): the module's sectors erased |
-| 133 FX_TABLE | none | count (<= 8), then per effect module: id (5 x 7), version (3 x 7), kind (1 insert, 2 send, 3 master), effects in the bank, state (MD_*), why, start, sectors, resident (0), uses (0) |
+| 133 FX_TABLE | none | count (<= 8), then per effect module: id (5 x 7), version (3 x 7), kind (1 insert, 2 send, 3 master), effects in the bank, state (MD_*), why, start, sectors, resident (0), uses (instances of the module's kernel running now: the insert host's count for module id 1 (DUB TAPE), 0 for any other id and while the resident kernel plays) |
 
 (Release 3 step 4b) The installer page (web/fm1oc.js `installFx`) and the card's installer (card_install.c `fb_mod_file`) install an effect module's package (engine word of
 kind 1..3, the module id in the image's `fx_desc_t`): MOD_INFO without an engine for the firmware's numbers and the starts, 130 FX_INFO for the id and the image's sector count,

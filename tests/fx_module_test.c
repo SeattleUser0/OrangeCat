@@ -141,7 +141,7 @@ int main(void)
             {"a label past the image", m_label_out, 1, MD_BAD_HDR}, {"a label of 40 bytes with no NUL in 24", m_label_long, 1, MD_BAD_HDR},
             {"parameter ids not strictly increasing", m_ids, 1, MD_BAD_HDR}, {"min above max", m_range, 1, MD_BAD_HDR}, {"default outside the range", m_def, 1, MD_BAD_HDR},
             {"two effects with one effect id", m_dup, 1, MD_BAD_HDR}, {"an entry of another kind than the header's", m_kind, 1, MD_BAD_HDR},
-            {"an entry of kind 0", m_kind0, 1, MD_BAD_HDR}, {"flags set (reserved)", m_flags, 1, MD_BAD_HDR}, {"pages set (reserved)", m_pages, 1, MD_BAD_HDR},
+            {"an entry of kind 0", m_kind0, 1, MD_BAD_HDR}, {"flags set (reserved)", m_flags, 1, MD_BAD_HDR}, {"pages pointing at something that is not a caps block (step 6)", m_pages, 1, MD_BAD_HDR},
             {"the scene pointer past the image", m_scene_out, 1, MD_BAD_HDR},
         };
         for (i = 0; i < sizeof R / sizeof R[0]; i++) {
