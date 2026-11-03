@@ -2344,3 +2344,15 @@ rose by 32. Stack, `tools/stack_depth.py` (24,320 B user stack): boot 3,852 -> 5
 **What the owner will notice:** nothing on the unit yet (no shipped module uses the new fields): modules must be reinstalled once because the identifier moved, which the page says as before.
 
 **Suite:** the full host suite (`ci_step.py test --parallel 3`, a time limit on every test, the stack check included) passed on 97f1e04 in 3,635 s; the commits after it are this note.
+
+### r3-pages, November 3, 2026: step 8's examples found what the frozen interface lacks. For Session A, before step 3 ships
+
+**Step 8 (the reverb modes and the FX layer's buffer effects as modules) is written as worked examples in MODULE_FORMAT_R3.md section 16 and as data in `tests/mod_ui_test.c`** (126 checks, sanitizers, the fuzz): SPRING, SHIMMER, RESO and CLOUD (344, 340, 388, 340 B of descriptor data) and GLITCH, TAPE STOP, SHUFFLE and FREEZE
+(284, 256, 264, 296 B) each pass `fw_pages_check_ex` as SC_FX **as written, within the frozen interface**, and each knob equals what the firmware shows today. **They cannot say everything the brief asked, because of these (section 16.4); the checker is not changed:**
+1. **L1: a legacy slot can name only a track parameter, and the reverb's values are `song.g`.** A `song.g` id written as a legacy slot passes the checker (it is below `P_COUNT`) and would be read from the track: silently wrong (the test shows it). So **a Release 2 project's reverb values do not load into a module through the pid table**; the import must also be conditional on TYPE
+   (one stored `G_RPRE` is PRE, AIR or PITCH by the mode). Proposal: bit 15 of `legacy` selects `song.g`, the checker takes a `gcount`; no layout change, no identifier move, but checker and loader code.
+2. **L2: a module's page cannot hold TYPE** (the host's chooser). A convention for "the host's knob here" is wanted (0xFF in the row).
+3. **L3: no mark for RAM-only parameters** (the layer's knobs are "never saved"): views with two do-nothing hooks work today; a "volatile" bit in the pid would remove the hooks. As the data stands, nothing stops a loader from storing them.
+4. **L4: an action knob** (TAPE STOP's SCRATCH moves the tape by hand, by detents): `put` has a value, not a delta.
+**What I ask:** decide L1 to L3 (and L4) before step 3 ships, since each is a rule in the checker or a convention in the pid bits that a shipped module would be built to; the examples then change in one place each (`legacy` of the reverb, K1 of `REVERB`, the layer's pid bits). **Not stopped:** nothing in what is built needs them; the module path of steps 4 and 5 does not touch these effects.
+Also for Session A: the byte costs (reverb bank of three 1,072 B of descriptors, CLOUD 340 B, the layer 1,100 B plus about 160 B of hook code) are small beside the kernels' (plan section 6); no packed fields exist in either, so no views for packing.
