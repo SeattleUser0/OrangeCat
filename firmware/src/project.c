@@ -854,9 +854,8 @@ static int proj_music_hash(uint32_t *hash)
     project_capture(&proj_scratch);
     proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = proj_scratch.g[G_BOOT] = 0;
     proj_wire_gen++;
-    ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1);
+    *hash = bank_live_hash(proj_wire_u.raw, &proj_scratch, &ok);   /* (not bank_pack: that overwrites proj_x, proj_lists, proj_pid and their tag with the live music; found by the review of the merge with ui-fix2's hash-only pack) */
     song.sel = keep;
-    if (ok) *hash = bank_hash(proj_wire_u.raw);
     return ok;
 }
 static void proj_base_set(uint32_t slot)
