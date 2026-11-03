@@ -225,7 +225,7 @@ so that a Release 2 project's DUB values load with no converter. Writing it foun
 3. **Views over stored ids, or four more stored ids.** Two ways to give SYNC, PING, DRIVE and WOW a place:
    - **A (the one this example uses): views.** The stored ids are today's ten; SYNC, PING, DRIVE and WOW are four *view* entries whose values the `shown`/`put` hooks compute from MODE and TAPE, exactly as the page does today. A view's pid has the high bit set (0x8000 and up, a convention of the id space, not a format change): the host never stores it, never offers it to motion or a macro,
      and the editor reads MODE and TAPE as numbers as it does now. No converter anywhere; a Release 2 project's bytes are already the values.
-   - **B (the end state, MODULE r3-format Part 8 of the project format): twelve stored ids** (SYNC, PING, DRIVE, WOW whole, with defaults 1, 0, 6, 0), the Release 2 slots 46 and 47 read once by a converter the module exports (`legacy_in`). Cleaner for macros and motion; costs the converter (about 200 B of module code) and a place for it in `fx_entry_t`. Choose when step 4 cuts the entry layout.
+   - **B (the end state; r3-format Part 8, OC_DUB_IDS, is this): twelve stored ids** (SYNC, PING, DRIVE, WOW whole, with defaults 1, 0, 6, 0), the Release 2 slots 46 and 47 read once by a converter the module exports (`legacy_in`). Cleaner for macros and motion; costs the converter (about 200 B of module code) and a place for it in `fx_entry_t`. Choose when step 4 cuts the entry layout.
 
 ### 15.2 The module's descriptor (A)
 
