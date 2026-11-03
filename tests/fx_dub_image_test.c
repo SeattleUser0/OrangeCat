@@ -117,8 +117,8 @@ int main(int argc, char **argv)
         chk("the descriptor: n 1, module id 1, version 1.0.0, no scene; the entry: effect 1, kind 1, flags 0, no parameter table; its pages word the caps block",
             rd32(IMG, desc) == 1u && rd32(IMG, desc + 4) == 1u && rd32(IMG, desc + 8) == 0x00010000u && rd32(IMG, desc + 16) == 0 && IMG[ent] == 1u && IMG[ent + 1] == 1u &&
             IMG[ent + 2] == 0 && IMG[ent + 3] == 0 && IMG[ent + 4] == 0 && rd32(IMG, ent + 8) == 0 && caps == rd32(IMG, ent + 12) - link);
-        chk("the caps block: GFXK, 52 bytes, version 1, no hot set; flags US|TAIL_FAR; rates 0x06; 4 instances; the AP_DUB class; 4 to 16 work blocks; the spring 2 blocks / 5,632 B; the snapshot 88 B on the device",
-            c.magic == FX_CAPS_MAGIC && c.size == 52 && c.version == 1 && c.hot == 0 && c.nhot == 0 && c.flags == (FXK_US | FXK_TAIL_FAR) && c.rates == 0x06 && c.max_inst == 4 && c.prof == AP_DUB &&
+        chk("the caps block: GFXK, 56 bytes, version 1, the abi = this build's FX_ABI_ID, no hot set; flags US|TAIL_FAR; rates 0x06; 4 instances; the AP_DUB class; 4 to 16 work blocks; the spring 2 blocks / 5,632 B; the snapshot 88 B on the device",
+            c.magic == FX_CAPS_MAGIC && c.size == 56 && c.version == 1 && c.abi == FX_ABI_ID && c.hot == 0 && c.nhot == 0 && c.flags == (FXK_US | FXK_TAIL_FAR) && c.rates == 0x06 && c.max_inst == 4 && c.prof == AP_DUB &&
             c.ram_work_min == 4 && c.ram_work_max == 16 && c.ram_extra == 2 && c.ram_extra_bytes == 5632 && c.param_bytes == sizeof(dd_params_t) && c.param_bytes <= FX_PARAM_BYTES);
         if (getenv("FXDI_DEBUG")) printf("  ram_state %u\n", c.ram_state);
         chk("... the state is dd_t on the device: 1,176 B (the figure in the plan and in section 14 of the plan, 2,864 B, was the host build's sizeof; the host build of this source says its own)", c.ram_state == 1176u);
@@ -181,6 +181,7 @@ int main(int argc, char **argv)
         static const struct { const char *what; uint32_t off; uint32_t v; int bytes; } M[] = {
             { "the caps block's magic", 0, 0, 4 }, { "the caps block's version", 6, 2, 2 }, { "a hot set", 16, 0x20C4800u, 4 }, { "the call table past the image", 8, 0x20C8000u, 4 },
             { "a call that is 0", 0, 0, 4 }, { "the pages pointer past the image", 12, 0x20C8000u, 4 }, { "the rows pointer unaligned", 24, 1, 4 }, { "a snapshot size of 0", 38, 0, 2 },
+            { "the abi of another calling convention (FX_ABI_ID + 1)", 52, FX_ABI_ID + 1u, 4 }, { "the old 52 byte size", 4, 52, 2 },
         };
         uint32_t k, link0 = oc_mod_link(start_of(0)), desc, ent, caps, kern;
         for (k = 0; k < sizeof M / sizeof M[0]; k++) {

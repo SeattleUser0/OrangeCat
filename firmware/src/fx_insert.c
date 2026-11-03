@@ -69,7 +69,7 @@ static inline uint32_t fx_mod_effective(void) { return fx_modk_ok ? (1u << FX_IN
 static int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
 {
     fx_kernel_t m;
-    if (c->magic != FX_CAPS_MAGIC || c->size != FX_CAPS_WIRE || c->version != FX_CAPS_VERSION) return FXM_VER;
+    if (c->magic != FX_CAPS_MAGIC || c->size != FX_CAPS_WIRE || c->version != FX_CAPS_VERSION || c->abi != FX_ABI_ID) return FXM_VER;
     if (!c->ram_work_min || c->ram_work_min > c->ram_work_max || c->ram_work_max > FX_INS_MAXSEG || !c->max_inst || c->max_inst > FX_INS_N || c->prof >= AP_COUNT ||
         (c->flags & FXK_SEED) || !c->param_bytes || c->param_bytes > FX_PARAM_BYTES || (!c->ram_extra != !c->ram_extra_bytes) || !c->gov_us || !c->nrows != !rows) return FXM_RANGE;
     memset(&m, 0, sizeof m);

@@ -298,12 +298,12 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
   const eng = OCM.parse(pkg(fxImage({ mut: (dv) => { dv.setUint32(20, 14, true); dv.setUint32(24, 2000, true); } }), [0, 6], { word: 14 }));
   assert.ok(eng.ok && eng.kind === 0 && eng.moduleId === undefined && eng.engine === 14);
   assert.equal(OCM.fxCheck(eng, info, fx(0)).key, "modWrongFile", "an engine module is not installed by module id");
-  // (Release 3 step 6) the caps block an entry's `pages` word points at: caps at 0x340 (52 bytes), the call table at 0x380 (12 words), two rows at 0x3C0 (10 bytes each), the pages descriptor at 0x400 (80 bytes)
+  // (Release 3 step 6) the caps block an entry's `pages` word points at: caps at 0x340 (56 bytes), the call table at 0x380 (12 words), two rows at 0x3C0 (10 bytes each), the pages descriptor at 0x400 (80 bytes)
   {
     const CAPS = 0x340, CALLS = 0x380, ROWS = 0x3C0, PAGES = 0x400;
-    const caps = (dv, a, { pagesPtr = PAGES, kernel = CALLS, rows = ROWS, nrows = 2, call = (i) => 0x500 + 4 * i, magic = 0x4B584647, ver = 1, hot = 0, nhot = 0, pad = 0, pbytes = 88, mut = () => {} } = {}) => {
+    const caps = (dv, a, { pagesPtr = PAGES, kernel = CALLS, rows = ROWS, nrows = 2, call = (i) => 0x500 + 4 * i, magic = 0x4B584647, ver = 1, hot = 0, nhot = 0, pad = 0, pbytes = 88, abi = 0x1234ABCD, size = 56, mut = () => {} } = {}) => {
       dv.setUint32(0x20C, CAPS, true);
-      dv.setUint32(CAPS, magic, true); dv.setUint16(CAPS + 4, 52, true); dv.setUint16(CAPS + 6, ver, true); dv.setUint32(CAPS + 8, kernel, true); dv.setUint32(CAPS + 12, pagesPtr, true);
+      dv.setUint32(CAPS, magic, true); dv.setUint16(CAPS + 4, size, true); dv.setUint16(CAPS + 6, ver, true); dv.setUint32(CAPS + 52, abi, true); dv.setUint32(CAPS + 8, kernel, true); dv.setUint32(CAPS + 12, pagesPtr, true);
       dv.setUint32(CAPS + 16, hot, true); dv.setUint32(CAPS + 24, rows, true); a[CAPS + 35] = nhot; a[CAPS + 36] = nrows; a[CAPS + 37] = pad; dv.setUint16(CAPS + 38, pbytes, true);
       for (let i = 0; i < 12; i++) dv.setUint32(CALLS + 4 * i, call(i), true);
       dv.setUint16(ROWS, 1, true); dv.setUint16(ROWS + 2, 104, true); dv.setInt16(ROWS + 4, 0, true); dv.setInt16(ROWS + 6, 127, true); dv.setInt16(ROWS + 8, 55, true);
@@ -317,7 +317,7 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
     assert.ok(g.ok && g.moduleId === MID && g.fxCount === 2, "a good caps block: " + g.key);
     assert.ok(OCM.fxCheck(g, info, fx(0)).ok && OCM.fxCheck(g, info, fx(1)).ok, "... at both starts (the pointers relocate)");
     const rej = (what, o) => assert.equal(OCM.parse(good(o)).key, "modHdrBad", what);
-    rej("the magic", { magic: 0 }); rej("the version", { ver: 2 }); rej("a hot set", { hot: 0x500 + LINK0 }); rej("nhot", { nhot: 1 }); rej("the padding", { pad: 1 });
+    rej("the magic", { magic: 0 }); rej("the version", { ver: 2 }); rej("the old 52 byte size", { size: 52 }); rej("an abi of 0", { abi: 0 }); rej("a hot set", { hot: 0x500 + LINK0 }); rej("nhot", { nhot: 1 }); rej("the padding", { pad: 1 });
     rej("a snapshot size of 0", { pbytes: 0 }); rej("a call table past the image", { kernel: 0x7F8 }); rej("a call table unaligned", { kernel: CALLS + 2 });
     rej("a call that is 0", { call: (i) => (i === 5 ? 0 : 0x500) }); rej("a call outside the code", { call: (i) => (i === 3 ? 0x10 : 0x500) });
     rej("pages past the image", { pagesPtr: 0x7F0 }); rej("rows without a count", { nrows: 0 }); rej("a count without rows", { rows: 0 }); rej("17 rows", { nrows: 17 });

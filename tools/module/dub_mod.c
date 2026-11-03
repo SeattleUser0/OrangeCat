@@ -4,7 +4,7 @@
  * Orange Cat Release 3 step 6: DUB TAPE as an effect module (kind 1, insert; docs/orangecat/FX_MODULES_PLAN.md 15). The kernel is the one in the image: dubdelay.c and
  * dub_kern.h (the legacy-slot table, the parameter snapshot, the sizing, the signatures, the KICK edge), included as they are; what is the module's own is the descriptor around them:
  *   - fx_desc_wire_t / fx_entry_wire_t (fw_fx.h): module id 1, version 1.0.0, one effect (id 1, kind 1);
- *   - fx_caps_t (fx_kernel.h): the capability words, the call table, the legacy-slot rows and the pages, reached from the entry's `pages` word;
+ *   - fx_caps_t (fx_kernel.h, 56 bytes): the capability words, the call table, the legacy-slot rows and the pages, and the abi (FX_ABI_ID), reached from the entry's `pages` word;
  *   - fw_pages_t (version 3, scope SC_FX): DUB SETUP, DUB and DUB 2 as the firmware shows them today (MODULE_FORMAT_R3.md 15.2), the stable ids, the legacy slots, and the two
  *     hooks (shown, put) that compute SYNC, PING, DRIVE and WOW from MODE and TAPE.
  * The module has no RAM (no .data, no .bss: the build checks) and imports only fw_api_t as it is: mem_copy and mem_set for memcpy and memset, and trk for the page hooks. The tempo and the
@@ -108,7 +108,7 @@ static const fx_caps_t DUB_CAPS = {
     .magic = FX_CAPS_MAGIC, .size = FX_CAPS_WIRE, .version = FX_CAPS_VERSION, .kernel = PTR32(&DUB_CALLS), .pages = PTR32(&DUB_PAGES), .hot = 0, .legacy_module = DUBK_LEGACY,
     .rows = PTR32(dub_rows), .flags = DUBK_FLAGS, .rates = DUBK_RATES, .max_inst = FX_INS_N, .prof = AP_DUB, .ram_work_min = DUB_FLOOR, .ram_work_max = DUB_MAXB,
     .ram_extra = DUBK_RAM_EXTRA, .nhot = 0, .nrows = DUBP_N, .param_bytes = sizeof(dd_params_t), .ram_state = DUB_STATE_BYTES, .latency = DUBK_LATENCY, .tail_base = DUB_HOLD, .cost = DUBK_COST_US,
-    .ram_extra_bytes = DUB_SPRING_BYTES, .gov_us = DUBK_GOV_US,
+    .ram_extra_bytes = DUB_SPRING_BYTES, .gov_us = DUBK_GOV_US, .abi = FX_ABI_ID,
 };
 static const fx_entry_wire_t DUB_ENTRY = { .effect_id = 1, .kind = FW_MOD_KIND_INSERT, .flags = 0, .nparams = 0, .rsv = 0, .params = 0, .pages = PTR32(&DUB_CAPS) };
 static const fx_desc_wire_t DUB_DESC = { .n = 1, .module_id = DUBK_MODULE_ID, .version = DUBK_VERSION, .entries = PTR32(&DUB_ENTRY), .scene = 0 };

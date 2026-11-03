@@ -2805,12 +2805,12 @@ const OCM_LINK0 = 0x020C4000, OCM_STATE_MAX = 16384;       /* the XIP address of
  * address `link`. {id, version, n} or null. ocmFxRead: the module id, version and sector count of every image of the file, which must agree (an effect has no geometry row: its
  * span is ceil(length / 4096), at most 8 sectors); the file is refused when they do not. */
 const OCM_FX_SECTORS = 8;
-/* (Release 3 step 6) The caps block an entry's `pages` word points at (firmware/src/fx_kernel.h fx_caps_t, fw_fx.h fx_caps_check): 52 bytes, 4 aligned, inside the code; magic "GFXK", size 52,
+/* (Release 3 step 6) The caps block an entry's `pages` word points at (firmware/src/fx_kernel.h fx_caps_t, fw_fx.h fx_caps_check): 56 bytes, 4 aligned, inside the code; magic "GFXK", size 56,
  * version 1; hot and nhot 0, the padding 0, the snapshot size not 0; the call table (12 words) inside the code, every call an address inside the code; the pages pointer 0 or inside the
  * code and 4 aligned (the unit checks the descriptor itself); the legacy-slot rows 0, or 1..16 rows of 10 bytes (2 aligned) with ids strictly increasing and min <= default <= max (the unit also
- * checks that a legacy slot is below its P_COUNT). */
+ * checks that a legacy slot is below its P_COUNT); `abi` (offset 52) not 0: its value is the firmware's FX_ABI_ID, which the page does not know and the unit compares. */
 function ocmFxCaps(caps, inside, at, u32, u16, s16, img) {
-  if (!inside(caps, 52) || (caps & 3) || u32(caps) !== 0x4B584647 || u16(caps + 4) !== 52 || u16(caps + 6) !== 1) return false;
+  if (!inside(caps, 56) || (caps & 3) || u32(caps) !== 0x4B584647 || u16(caps + 4) !== 56 || u16(caps + 6) !== 1 || !u32(caps + 52)) return false;
   const kernel = u32(caps + 8), pages = u32(caps + 12), rows = u32(caps + 24), nrows = img[at(caps + 36)];
   if (u32(caps + 16) || img[at(caps + 35)] || img[at(caps + 37)] || !u16(caps + 38)) return false;
   if (!inside(kernel, 48) || (kernel & 3)) return false;

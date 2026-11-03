@@ -7,11 +7,13 @@
  * Everything a kernel needs from the host that is not in the track it reads comes in the call (fx_ictx_t: the tempo and the performance triggers), so a module imports NOTHING from the
  * firmware beyond fw_api_t as it is (memcpy / memset): fw_api_t does not grow and the interface identifier does not move.
  *
- * Not in the interface identifier's hash (tools/gen_fw_api_id.py): the identifier says what the module image may call (fw_api_t) and read (track_t); this is what the HOST calls in the module.
- * The module's fx_caps_t carries FX_CAPS_VERSION for it: a change to fx_ictx_t, fx_kcalls_t or the meaning of a capability word is a new FX_CAPS_VERSION, and the host refuses a kernel of a
- * version it does not know (the module is registered, its page and Effects row say NO KERNEL, the resident kernel plays). */
+ * Not in FW_API_ID's hash (tools/gen_fw_api_id.py SOURCES): that identifier says what ANY module image may call (fw_api_t) and read (track_t); this is what the HOST calls in an effect module.
+ * They have their own, FX_ABI_ID (gen_fw_api_id.py FX_SOURCES: fx_ictx_t, fx_kcalls_t, fx_caps_t, written to build/gen/fw_api_id.h): the module's fx_caps_t carries it in `abi` and the loader refuses a
+ * module built with another (MODULE_FORMAT_R3.md 6, Decision). FX_CAPS_VERSION is for what a hash cannot see: a changed meaning of a word in the same layout. The host refuses a caps block of a
+ * version it does not know (the module is registered, its Effects row says why, the resident kernel plays). */
 #pragma once
 #include <stdint.h>
+#include "fw_api_id.h"                               /* generated: FX_ABI_ID, the identifier of this file's host-to-module structures (tools/gen_fw_api_id.py FX_SOURCES) */
 #define FX_INS_N 4u                                     /* instances: one a track (DUB_N) */
 #define FX_INS_NSEG 24u                                 /* the pool: 96 KB of 4 KB blocks, shared (four lines of 24K, or one of 64K and two of 16K) */
 #define FX_NTRIG 6u                                     /* the performance triggers a track has (fx_ictx_t.trig): THRW CUT KICK HOLD DIVE RISE */
@@ -23,7 +25,8 @@ typedef struct { uint16_t id, legacy; int16_t min, max, def; } fx_prow_t;
  * CUT, KICK, then (dub-perf) HOLD, DIVE, RISE: MIDI CC 16 to 21, 0 .. 127, RAM only, the host's: fx_trig). kw2: the instance's kernel word 2 (kw[2]), the ONLY word a kernel changes
  * in the context: `snap` may write it and the host keeps it with the instance (DUB: the wet of the last ECHO above 0, as float bits: the module has no RAM of its own). A field a call does not
  * document is not set for it (size_sig and size_need: k and beat; tick: k, beat and trig) */
-typedef struct { uint32_t kw0; uint32_t beat; uint32_t kw2; uint8_t k, R, nblk, ramp; uint8_t trig[FX_NTRIG]; uint8_t pad[2]; } fx_ictx_t;
+typedef struct { uint32_t kw0; uint32_t beat; uint32_t kw2; uint8_t k, R, nblk, ramp; uint8_t trig[6]; uint8_t pad[2]; } fx_ictx_t;
+_Static_assert(sizeof(((fx_ictx_t *)0)->trig) == FX_NTRIG, "FX_NTRIG is fx_ictx_t's trig[6]: the literal is what FX_ABI_ID hashes");
 enum { FXK_SEED = 1, FXK_US = 2, FXK_TAIL_FAR = 4, FXK_TAIL_SILENT = 8 };   /* fx_kernel_t.flags: MODULE_FORMAT_R3.md 6's bits (uses the seed; cost in microseconds; tail adds the farthest tap; tail until silent) */
 /* the calls (CPU0 unless said): in a module, twelve words in its flash that the descriptor's caps block points at (FX_KCALLS_WIRE bytes on the device) */
 typedef struct fx_kcalls {
@@ -69,11 +72,11 @@ typedef struct fx_kernel {
 } fx_kernel_t;
 
 /* ---- the module side: the caps block an fx_entry's `pages` word points at (fw_fx.h checks it; fx_insert.c fx_modk_set makes a fx_kernel_t from it) ------------------------------------
- * 52 bytes, word aligned, inside the module's image. Pointers are 4 byte addresses of the module's own address space (0 in a host build of the module, which hands the host its call table and
+ * 56 bytes, word aligned, inside the module's image. Pointers are 4 byte addresses of the module's own address space (0 in a host build of the module, which hands the host its call table and
  * rows directly). The words are MODULE_FORMAT_R3.md 6's fx_entry_t words (names and widths) that the step 4 entry had no room for. */
 #define FX_CAPS_MAGIC 0x4B584647u                       /* "GFXK" little endian */
 #define FX_CAPS_VERSION 1u
-#define FX_CAPS_WIRE 52u
+#define FX_CAPS_WIRE 56u
 typedef struct fx_caps {
     uint32_t magic;                                     /* FX_CAPS_MAGIC */
     uint16_t size, version;                             /* FX_CAPS_WIRE, FX_CAPS_VERSION */
@@ -89,5 +92,6 @@ typedef struct fx_caps {
     uint16_t ram_state, latency;
     uint16_t tail_base, cost;
     uint16_t ram_extra_bytes, gov_us;
+    uint32_t abi;                                       /* FX_ABI_ID of the build the module was made with: the layout of fx_ictx_t, fx_kcalls_t and this block */
 } fx_caps_t;
 _Static_assert(sizeof(fx_caps_t) == FX_CAPS_WIRE, "the caps block's layout");

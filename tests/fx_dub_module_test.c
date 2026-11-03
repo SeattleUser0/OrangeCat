@@ -112,7 +112,7 @@ static void descriptor(void)
     ck("the capability words are the resident kernel's, word for word", c->flags == r->flags && c->rates == r->rates && c->max_inst == r->max_inst && c->prof == r->prof && c->ram_work_min == r->ram_work_min &&
        c->ram_work_max == r->ram_work_max && c->ram_extra == r->ram_extra && c->ram_state == r->ram_state && c->latency == r->latency && c->tail_base == r->tail_base && c->cost == r->cost &&
        c->ram_extra_bytes == r->ram_extra_bytes && c->gov_us == r->gov_us && c->legacy_module == r->legacy_module && c->nrows == r->nrows && c->param_bytes == sizeof(dd_params_t));
-    ck("the caps block: magic, size 52, version 1, no hot set, the padding 0", c->magic == FX_CAPS_MAGIC && c->size == FX_CAPS_WIRE && c->version == FX_CAPS_VERSION && c->hot == 0 && c->nhot == 0 && c->pad == 0);
+    ck("the caps block: magic, size 56, version 1, the abi of this build (FX_ABI_ID), no hot set, the padding 0", c->magic == FX_CAPS_MAGIC && c->size == FX_CAPS_WIRE && c->version == FX_CAPS_VERSION && c->abi == FX_ABI_ID && c->hot == 0 && c->nhot == 0 && c->pad == 0);
     for (i = 0; i < DUBP_N; i++) ok &= rows[i].id == r->rows[i].id && rows[i].legacy == r->rows[i].legacy && rows[i].min == r->rows[i].min && rows[i].max == r->rows[i].max && rows[i].def == r->rows[i].def;
     ck("the module's legacy-slot rows (ids 1 .. 10) are the resident table's", ok && DUBP_N == 10u && rows[0].id == 1u && rows[9].id == 10u);
     ck("all twelve calls are there", k->on && k->size_sig && k->size_need && k->blocks_at && k->hold_len && k->tick && k->param_sig && k->snap && k->cost_extra && k->start && k->process && k->reset);
@@ -309,6 +309,7 @@ int main(void)
         int ok = 1;
         fx_modk_clear();
         bad_c = *c; bad_c.version = 2;                          ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_VER;
+        bad_c = *c; bad_c.abi ^= 1u;                            ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_VER;
         bad_c = *c; bad_c.ram_work_max = FX_INS_MAXSEG + 1u;    ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
         bad_c = *c; bad_c.max_inst = FX_INS_N + 1u;             ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
         bad_c = *c; bad_c.flags |= FXK_SEED;                    ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
@@ -316,7 +317,7 @@ int main(void)
         bad_c = *c; bad_c.prof = AP_COUNT;                      ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
         bad_c = *c; bad_c.ram_work_min = 0;                     ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
         { fx_kcalls_t k0 = *oc_host_fx_calls(); k0.snap = 0;    ok &= fx_modk_set(1u, 1u, 1u, c, &k0, oc_host_fx_rows()) == FXM_RANGE; }
-        ck("a kernel the host cannot give is refused (caps version, blocks, instances, a seed, a snapshot too big, an unknown class, a missing call) and nothing is registered", ok && !fx_modk_ok);
+        ck("a kernel the host cannot give is refused (caps version, abi, blocks, instances, a seed, a snapshot too big, an unknown class, a missing call) and nothing is registered", ok && !fx_modk_ok);
     }
     if (bad) { printf("fx dub module: %d FAILED\n", bad); return 1; }
     printf("fx dub module: all passed\n");

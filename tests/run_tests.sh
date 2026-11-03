@@ -210,7 +210,7 @@ sound() { [ "$SOUND" != 0 ]; }
 
 # ----------------------------------------------------------- multi-step jobs ---
 fx_insert_job() {                                 # (Release 3 step 5) the generic insert host: DUB's output and behaviour against the tree before the cut, sample for sample
-    echo "== the generic insert host with DUB TAPE's kernel across the cut (Release 3 step 5): the probe against the tree of 09d4d4b3 and against the pinned printout, sample for sample"
+    echo "== the generic insert host with DUB TAPE's kernel across the cut (Release 3 step 5): the probe against the tree of d620160d (one resident kernel file, dub-perf included) and against the pinned printout, sample for sample"
     CC="$CC" BS="$BS" limited sh tests/fx_insert_diff.sh "$OUT/fx_insert" || fail "tests/fx_insert_diff.sh"
 }
 fx_dub_module_job() {                             # (Release 3 step 6) DUB TAPE as a module through the same insert host: its render against the resident kernel's, sample for sample

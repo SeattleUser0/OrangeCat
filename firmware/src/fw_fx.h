@@ -19,7 +19,7 @@
  *     4   nparams    0 .. FX_PARAMS_MAX (64)
  *     6   rsv        0
  *     8   params     0 when nparams is 0, else the address of nparams parameter rows of FX_PARAM_WIRE (16) bytes, 4 aligned, inside the image
- *     12  pages      0, or (Release 3 step 6) the address of the effect's CAPS BLOCK (fx_caps_t, fx_kernel.h: 52 bytes, 4 aligned, inside the image): the capability words of
+ *     12  pages      0, or (Release 3 step 6) the address of the effect's CAPS BLOCK (fx_caps_t, fx_kernel.h: 56 bytes, 4 aligned, inside the image): the capability words of
  *                    MODULE_FORMAT_R3.md 6's fx_entry_t, the kernel's call table (FX_KCALLS_N code addresses), the effect's fw_pages_t (version 3, scope SC_FX: its pages, stable ids and
  *                    legacy slots) and the legacy-slot rows. fx_caps_check says what is checked. 0: an effect module with no kernel (registered and listed; nothing runs). Any other
  *                    word is refused. (The step 4 entry had no room for the words of section 6's 32 byte entry; this keeps the 16 byte entry, and every earlier image, valid.)
@@ -49,7 +49,7 @@ typedef struct { uint8_t effect_id, kind; uint16_t flags, nparams, rsv; uint32_t
 _Static_assert(sizeof(fx_desc_wire_t) == FX_DESC_WIRE && sizeof(fx_entry_wire_t) == FX_ENTRY_WIRE, "the descriptor's layout");
 #define FX_PROW_WIRE 10u                                /* one legacy-slot row: id, legacy, min, max, def (fx_prow_t) */
 #define FX_ROWS_MAX 16u
-/* the caps block at `caps` (an entry's `pages`): magic, size 52, version FX_CAPS_VERSION; the call table inside the image, 4 aligned, each of its FX_KCALLS_N words a nonzero address inside the
+/* the caps block at `caps` (an entry's `pages`): magic, size 56, version FX_CAPS_VERSION, abi FX_ABI_ID (the host's calling convention, MODULE_FORMAT_R3.md 6); the call table inside the image, 4 aligned, each of its FX_KCALLS_N words a nonzero address inside the
  * code; pages 0 or a version 3 effect descriptor that fw_pages_check_ex accepts as SC_FX in this build; hot and nhot 0 (a hot set is not in version 1); rows 0, or 1 .. FX_ROWS_MAX rows of
  * FX_PROW_WIRE bytes (2 aligned) with ids strictly increasing, legacy below P_COUNT (or 0xFFFF), min <= def <= max; the padding 0. The capability numbers (RAM, cost, instances) are range-checked
  * by the host when it builds the kernel (fx_modk_set), not here. 0 FXD_OK, else why not */
@@ -59,7 +59,7 @@ static inline int fx_caps_check(fw_pages_rd rd, void *ctx, uint32_t caps, uint32
     uint32_t kernel, pages, rows, nrows, i, prev = 0xFFFFFFFFu;
     if (!fwp_in(caps, FX_CAPS_WIRE, lo, hi) || (caps & 3u)) return FXD_CAPS;
     if (rd(ctx, caps, c, FX_CAPS_WIRE)) return FXD_READ;
-    if (fwp_u32(c) != FX_CAPS_MAGIC || fxd_u16(c + 4) != FX_CAPS_WIRE || fxd_u16(c + 6) != FX_CAPS_VERSION) return FXD_CAPS;
+    if (fwp_u32(c) != FX_CAPS_MAGIC || fxd_u16(c + 4) != FX_CAPS_WIRE || fxd_u16(c + 6) != FX_CAPS_VERSION || fwp_u32(c + 52) != FX_ABI_ID) return FXD_CAPS;
     kernel = fwp_u32(c + 8); pages = fwp_u32(c + 12); rows = fwp_u32(c + 24); nrows = c[36];
     if (fwp_u32(c + 16) || c[35] || c[37] || !fxd_u16(c + 38)) return FXD_CAPS;   /* hot, nhot, the padding, the snapshot's size (not 0) */
     if (!fwp_in(kernel, FX_KCALLS_WIRE, lo, hi) || (kernel & 3u)) return FXD_KERN;
