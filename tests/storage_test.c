@@ -187,6 +187,7 @@ int main(void)
         bad += check("small destination rejects whole object", st_load(T_OBJ, got, sizeof got - 1u) < 0 && got[0] == 'X');
         bad += check("oversized save rejected", st_save(T_OBJ, a, ST_PAYLOAD_MAX + 1u) < 0);
     }
+#if !ST_BANKS_RETIRED
     {
         static uint8_t first[27200], second[27200], back[27200], copies[10u * ST_SECTOR];
         uint32_t base = st_sector(OBJ_BANK0,0), ok=1;
@@ -242,6 +243,17 @@ int main(void)
         ok=st_save(OBJ_BANK0,old,sizeof old)!=0;fail_erase_off=0xFFFFFFFFu;
         bad+=check("extension erase failure preserves the committed expanded copy",ok && st_load(OBJ_BANK0,got,sizeof got)==sizeof payload && !memcmp(got,payload,sizeof got));
     }
+#else
+    {   /* (Release 3 step 1) the four legacy bank objects (0xA0000..0xC7FFF) are retired: the store and the module area own those sectors */
+        uint32_t k, calls = io_calls;
+        int ok = 1;
+        for (k = 0; k < 4u; k++) {
+            ok &= st_retired(OBJ_BANK0 + k) && st_save(OBJ_BANK0 + k, a, 64) < 0 && st_load(OBJ_BANK0 + k, got, sizeof got) < 0 && !st_exists(OBJ_BANK0 + k);
+            ok &= st_sector(OBJ_BANK0 + k, 0) >= 0xA0000u && st_sector(OBJ_BANK0 + k, 1) < 0xC8000u + 0x1000u;
+        }
+        bad += check("legacy bank objects retired: no record, no write, no flash access", ok && io_calls == calls);
+    }
+#endif
     {   /* (Orange Cat 0.7.2) the flash map: the pack area and the module area, named and exact */
         uint32_t o, k;
         int ok = 1;
@@ -251,8 +263,9 @@ int main(void)
                          ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR == 0x9D000u && st_sector(OBJ_SHARED_EXT, 0) == 0x9D000u);
         /* (0.9.1) the module area is 12 sectors: the CZ-1 banks 0..5 (library banks 8..13) fill 0xC8000..0xD3FFF as old pairs;
          * the sectors from 0xD4000 are the library group's */
-        bad += check("module area: CZ-1 banks 0..5 fill 0xC8000..0xD3FFF (12 sectors)",
-                     ST_MODULE_LO == 0xC8000u && ST_MODULE_SECTORS == 12u && st_sector(OBJ_CZBANK0, 0) == ST_MODULE_LO &&
+        /* (Release 3 step 1) the area is 18 sectors, 0xC2000..0xD3FFF; the old pairs stay where they were, from 0xC8000 (ST_MODULE_BASE) */
+        bad += check("module area: 18 sectors 0xC2000..0xD3FFF; CZ-1 banks 0..5 fill 0xC8000..0xD3FFF as before",
+                     ST_MODULE_LO == 0xC2000u && ST_MODULE_SECTORS == 18u && ST_MODULE_BASE == 0xC8000u && st_sector(OBJ_CZBANK0, 0) == ST_MODULE_BASE &&
                          st_sector(OBJ_CZBANK0 + 5, 1) + ST_SECTOR == ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR &&
                          ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR == 0xD4000u && st_sector(OBJ_NATIVEFM0, 0) == 0xD8000u);
         for (o = 0; o < OBJ_LEGACY_COUNT; o++)       /* no object but the engines' own reaches into either area from outside */
@@ -260,6 +273,7 @@ int main(void)
                 uint32_t a = st_sector(o, k), in_pack = a >= ST_PACK_LO && a < ST_PACK_LO + ST_PACK_SECTORS * ST_SECTOR,
                          in_mod = a >= ST_MODULE_LO && a < ST_MODULE_LO + ST_MODULE_SECTORS * ST_SECTOR;
                 if (o >= OBJ_PROJECT0 && o < OBJ_PROJECT0 + 4u) continue;           /* retired, overlapping the pack area by design */
+                if (st_banked(o)) { if (ST_BANKS_RETIRED && !st_retired(o)) ok = 0; continue; }   /* (Release 3) retired: their sectors reach into the module area */
                 if ((in_pack && !st_engine_of(o)) || (in_mod && !st_engine_of(o))) ok = 0;
                 if (st_engine_of(o) && !in_pack && !in_mod && !(lg_index_of(st_sector(o, k)) != LG_NONE)) ok = 0;   /* (0.9.1) or a group sector */
             }
@@ -271,8 +285,8 @@ int main(void)
         uint32_t e, k, o, calls;
         int ok = 1;
         memset(nor, 0xFF, sizeof nor);
-        for (o = 0; o < OBJ_LEGACY_COUNT; o++) if (!st_retired(o)) ok &= st_save(o, a, 64) == 0;
-        bad += check("nothing is retired by default but the legacy projects", ok && st_engines_off == 0 && !st_retired(OBJ_P5BANK0) && !st_retired(OBJ_CZBANK0) && !st_retired(OBJ_NATIVEFM0));
+        for (o = 0; o < OBJ_LEGACY_COUNT; o++) if (!st_retired(o)) ok &= st_save(o, a, 64) == 0;   /* (the banks, retired since Release 3 step 1, are skipped) */
+        bad += check("nothing is retired by default but the legacy projects and (Release 3) the legacy banks", ok && st_engines_off == 0 && !st_retired(OBJ_P5BANK0) && !st_retired(OBJ_CZBANK0) && !st_retired(OBJ_NATIVEFM0));
         for (e = 0; e < 3u; e++) {
             uint8_t before[ST_SECTOR];
             memcpy(before, nor + st_sector(E[e].first, 0), ST_SECTOR);
@@ -288,7 +302,7 @@ int main(void)
             bad += check("retired engine objects: no record, no write, no flash access", ok);
             ok = 1;                                                            /* the other engines and everything else go on */
             for (o = 0; o < OBJ_LEGACY_COUNT; o++)
-                if (!(o >= OBJ_PROJECT0 && o < OBJ_PROJECT0 + 4u) && !(st_engine_of(o) & E[e].bit))
+                if (!(o >= OBJ_PROJECT0 && o < OBJ_PROJECT0 + 4u) && !(ST_BANKS_RETIRED && st_banked(o)) && !(st_engine_of(o) & E[e].bit))
                     ok &= !st_retired(o) && st_load(o, got, sizeof got) == 64 && st_save(o, b, 64) == 0 && st_save(o, a, 64) == 0;
             bad += check("... and every other object still loads and saves", ok);
             st_retire_engines(0);
@@ -302,7 +316,7 @@ int main(void)
         for (o = OBJ_CZBANK0; o < OBJ_UPRESET_EXT0; o++) ok &= st_retired(o);
         for (o = OBJ_NATIVEFM0; o < OBJ_P5BANK0; o++) ok &= st_retired(o);
         ok &= !st_retired(OBJ_SHARED_EXT) && !st_retired(OBJ_FM6BANK) && !st_retired(OBJ_UPRESET0) && !st_retired(OBJ_SETTINGS) &&
-              !st_retired(OBJ_BANK0) && !st_retired(OBJ_UPRESET_EXT0) && !st_retired(OBJ_UPFM6_EXT);
+              st_retired(OBJ_BANK0) == ST_BANKS_RETIRED && !st_retired(OBJ_UPRESET_EXT0) && !st_retired(OBJ_UPFM6_EXT);
         bad += check("all three off: exactly the 15 engine objects, none of the others", ok);
         st_retire_engines(0);
     }

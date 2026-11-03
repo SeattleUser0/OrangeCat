@@ -67,7 +67,7 @@ ptrs = {n: int(a, 16) for n, a in re.findall(r"#define (\w+) \(\(const \w+ \*\)(
 check("every table pointer gen_pack.py writes is xip(0x93000) plus its offset in the pack",
       len(ptrs) == len(tbl) and all(ptrs[n] == ocflash.xip(gen_pack.PACK_LO) + o for n, o in offs.items()))
 check("the flash offsets gen_pack.py and build.py use are the ones the firmware's flash map names",
-      gen_pack.PACK_LO == 0x93000 and build.module_area() == (0xC8000, 0xD4000))
+      gen_pack.PACK_LO == 0x93000 and build.module_area() == (0xC2000, 0xD4000) and build.module_base() == 0xC8000)
 
 # the loader's own text: if its rule changes, this fails and ocflash.py, oc_pack.c and oc_module.c must follow
 ldr = (ROOT / "firmware" / "loader" / "ldr_core.c").read_text()

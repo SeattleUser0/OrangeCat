@@ -275,8 +275,11 @@ static uint32_t t_md_begun, t_md_engine, t_md_start, t_md_len, t_md_at, t_md_sum
 static uint8_t t_md_page[256];
 static int oc_mod_plan(uint32_t engine) { (void)engine; return t_plan; }
 /* (0.12.1) three starts at sectors 0, 6 and 4 (a start with no sector here is 99: no variant matches), the blocker oc_mod_blocked_by names, the engines' names */
-static const uint8_t t_sect[8] = { 0, 6, 4, 99, 99, 99, 99, 99 };
+static const int8_t t_sect[8] = { 0, 6, 4, 99, 99, 99, 99, 99 };
 #define OC_MOD_START_SECTOR(i) ((uint32_t)t_sect[(i) & 7u])
+#define OC_MOD_START_REL(i) ((int32_t)t_sect[(i) & 7u])      /* (Release 3 step 1) the signed sector from 0xC8000 that MOD_INFO appends */
+#define OC_MOD_AREA 12u
+#define OC_MOD_LOW_OK() 0
 static int t_blocked = -1;
 static int oc_mod_blocked_by(uint32_t engine) { (void)engine; return t_blocked; }
 static struct { uint32_t engine[3]; } oc_mod = { { 14u, 14u, 19u } };

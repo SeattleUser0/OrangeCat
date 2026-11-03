@@ -1646,6 +1646,9 @@ static void persist_boot(void)                    /* before settings_init / pane
     }
     smp_slot_boot();                               /* (Orange Cat 0.3) the record store, the pool, the slots' maps;
                                                     * (0.6.0) the sample slot's sectors first (smp_slot.c) */
+#if OC_MODULES
+    oc_mod_low_rescan();                           /* (Release 3 step 1) oc_mod_power_on ran before the store was moved out of 0xC2000..0xC7FFF: a module there is found now */
+#endif
     ocp_scan();
     ocj_scan();
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */

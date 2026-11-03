@@ -136,7 +136,7 @@ int main(int argc, char **argv)
         nm = 0;
         uint32_t nmut = 1u + fr() % 6u;
         for (uint32_t i = 0; i < nmut; i++) {
-            uint32_t k = fr() % 8u, s = ST_MODULE_LO + (fr() % 12u) * 4096u, t = ST_MODULE_LO + (fr() % 12u) * 4096u;
+            uint32_t k = fr() % 8u, s = ST_MODULE_LO + (fr() % OC_MOD_AREA) * 4096u, t = ST_MODULE_LO + (fr() % OC_MOD_AREA) * 4096u;
             uint32_t off = (fr() & 1u) ? fr() % FW_MOD_HDR_BYTES : fr() % 4096u;
             uint8_t *q = nor + s + off;
             switch (k) {
@@ -168,10 +168,10 @@ int main(int argc, char **argv)
         {   /* an install of either engine */
             uint32_t e = (fr() & 1u) ? ENGI_PROPHET : ENGI_SHAPES, sect = eng_geo_sectors(e);
             int plan = oc_mod_plan(e), rc;
-            uint8_t other[12][4096]; uint32_t ownsec = 0;     /* the sectors of the usable modules of this engine, before the install: it may erase them */
-            for (uint32_t j = 0; j < 3u; j++) if ((oc_mod.state[j] == MD_OK || oc_mod.state[j] == MD_CRASHED || oc_mod.state[j] == MD_NOSLOT) && oc_mod.engine[j] == e)
+            uint8_t other[OC_MOD_AREA][4096]; uint32_t ownsec = 0;     /* the sectors of the usable modules of this engine, before the install: it may erase them */
+            for (uint32_t j = 0; j < OC_MOD_STARTS; j++) if ((oc_mod.state[j] == MD_OK || oc_mod.state[j] == MD_CRASHED || oc_mod.state[j] == MD_NOSLOT) && oc_mod.engine[j] == e)
                 for (uint32_t q = 0; q < sect; q++) ownsec |= 1u << (OC_MOD_START_SECTOR(j) + q);
-            for (uint32_t k = 0; k < 12u; k++) memcpy(other[k], nor + ST_MODULE_LO + k * 4096u, 4096);
+            for (uint32_t k = 0; k < OC_MOD_AREA; k++) memcpy(other[k], nor + ST_MODULE_LO + k * 4096u, 4096);
             if (plan < 0) {
                 nofree++;
                 int b = oc_mod_blocked_by(e);
@@ -186,7 +186,7 @@ int main(int argc, char **argv)
                 if (memcmp(nor + oc_mod_flash((uint32_t)plan), IMG, len) || oc_mod.state[plan] != MD_OK || !eng_mod[e]) { errs |= 128; goto fail; }
                 /* the sectors outside the new module's span, and outside the old module of this engine, are untouched */
                 uint32_t lo = OC_MOD_START_SECTOR((uint32_t)plan), hi = lo + sect;
-                for (uint32_t k = 0; k < 12u; k++) {
+                for (uint32_t k = 0; k < OC_MOD_AREA; k++) {
                     int own = (ownsec >> k) & 1;
                     if ((k < lo || k >= hi) && !own && memcmp(other[k], nor + ST_MODULE_LO + k * 4096u, 4096)) { errs |= 256; goto fail; }
                 }

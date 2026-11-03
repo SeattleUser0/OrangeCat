@@ -1255,10 +1255,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                                                             * api_version, api_size, iface (5 x 7 bits), api_addr (5 x 7), pack_hash (5 x 7), the start an install of `engine` goes to
                                                             * (a start number, or 127 none; 127 too without the argument), then per start: state (MD_*), why, engine, length (3 x 7), then (0.12.1)
                                                             * the blocker: when no start can take `engine`, the start whose usable module of another engine is in the way (the install is refused with
-                                                            * "ENGINE X INSTALLED AT START N: REMOVE IT FIRST"; that module is never erased by an install), else 127. nstarts is 3 (0.12.1): the starts are the
-                                                            * module area's sector 0, sector 6 and sector 4 (SHAPES: 0 and 1; the Prophet: 0 and 2). */
+                                                            * "ENGINE X INSTALLED AT START N: REMOVE IT FIRST"; that module is never erased by an install), else 127. nstarts is 18 (Release 3 step 1; 3 in 0.12.1): the starts are every sector of the 18 sector area, numbered from 0xC8000
+                                                            * (sector 0, 6, 4 are starts 0, 1, 2 as before; SHAPES: 0 and 1; the Prophet: 0 and 2; then the other sectors of 0xC8000..0xD3FFF, then the six below, downward), and after the blocker the table of the starts' sectors (count, +64 each) and one byte: 1 the six low sectors are the module area's, 0 not yet (a first boot found no room to move the store out of them). */
         int plan = na ? oc_mod_plan(a[0]) : -1;
-        ed_b(OC_MOD_STARTS); ed_b(12);
+        ed_b(OC_MOD_STARTS); ed_b(OC_MOD_AREA);
         ed_b((MELODEE_SHAPES ? 1u : 0u) | (OC_MODULE_WINS ? 2u : 0u) | (mw.writing ? 4u : 0u) | (plan >= 0 && oc_mod_inplace(a[0], (uint32_t)plan) ? 8u : 0u));
         ed_b(FW_API_VERSION); ed_b(sizeof(fw_api_t));
         for (i = 0; i < 5u; i++) ed_b(FW_API_IFACE >> (7u * i));
@@ -1270,6 +1270,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(oc_mod.length[i]); ed_b(oc_mod.length[i] >> 7); ed_b(oc_mod.length[i] >> 14);
         }
         { int blk = na && plan < 0 ? oc_mod_blocked_by(a[0]) : -1; ed_b(blk < 0 ? 127u : (uint32_t)blk); }
+        ed_b(OC_MOD_STARTS);                                /* (Release 3 step 1) appended: the sector of every start from 0xC8000, +64 (-6 .. 11 -> 58 .. 75), and the area's low sectors' state (1 usable, 0 the record store may still hold a part there) */
+        for (i = 0; i < OC_MOD_STARTS; i++) ed_b((uint32_t)(OC_MOD_START_REL(i) + 64));
+        ed_b(OC_MOD_LOW_OK() ? 1u : 0u);
         break;
     }
     case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;

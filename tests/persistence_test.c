@@ -13,6 +13,7 @@
 #ifndef OC_FEED_COUNT                       /* (0.12.2, Part 2d) the watchdog feeds of the long flash operations are counted here (storage.c OC_FEED) */
 #define OC_FEED_COUNT 1
 #endif
+#define ST_BANKS_RETIRED 0                    /* (Release 3 step 1) this test uses a legacy bank object (OBJ_BANK0..) as a stand-in project object; storage_test checks they are retired */
 #include <stdint.h>
 static uint32_t oc_feeds;
 #define main hostsim_main

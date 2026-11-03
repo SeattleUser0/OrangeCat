@@ -7,7 +7,7 @@
  *    a store with no room for the moves keeps everything and has no slot (UNCLAIMED), until it has room.
  * 2. a power cut at every program call of the claim: after the reboot every record reads back, and the claim ends.
  * 3. a sample of the largest size (81,408 bytes) and of 1 byte: written, read back at every offset, after a reboot too;
- *    sizes 0 and 81,409 refused; writes out of order, past the end, an END that does not match (length, CRC, magic)
+ *    sizes 0 and SMP_SLOT_MAX + 1 refused; writes out of order, past the end, an END that does not match (length, CRC, magic)
  *    refused and leaving the slot empty.
  * 4. a power cut at every program call of a write (and of an erase): after the reboot the slot is empty or holds the
  *    whole new sample, never a part of one; the record store reads as before.
@@ -25,9 +25,12 @@ static int fail_after = -1;
 static uint32_t prog_lo = 0xFFFFFFFFu, prog_hi;
 
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
+static int cut_erase = -1;                       /* (Release 3) the n-th erase from now is cut by the power: half of the sector erased, then everything fails */
 static int st_erase(uint32_t off)
 {
     if (fail_after == 0) return -9;
+    if (cut_erase == 0) { memset(nor + off, 0xFF, 2048); fail_after = 0; cut_erase = -1; return -9; }
+    if (cut_erase > 0) cut_erase--;
     if (off & 4095u) { printf("unaligned erase at %#x\n", off); exit(1); }
     memset(nor + off, 0xFF, 4096);
     return 0;
@@ -132,14 +135,14 @@ int main(void)
         int ok;
         uint32_t in = 0;
         wipe();
-        fill_records(24, 2000);                          /* 24 sectors from the cursor: 6 in 18..39 */
+        fill_records(24, 2000);                          /* 24 sectors from the cursor: 6 in the slot's sectors */
         for (uint32_t s = 0; s < OCS_NSECT; s++) in += in_slot(s) && ocs_hdr[s].magic == OCS_MAGIC;
         reboot();
         ok = in > 0 && smp_slot_info(0, 0, 0) == SMP_EMPTY && records_ok(24, 2000);
         reboot();
         ok &= smp_slot_info(0, 0, 0) == SMP_EMPTY && records_ok(24, 2000) && ocs_resv == smp_resv_mask();
         for (uint32_t s = 0; s < OCS_NSECT; s++) ok &= !in_slot(s) || !ocs_hdr[s].magic;
-        check("claim: the records in the slot's 22 sectors moved, all 24 read back after reboots", ok);
+        check("claim: the records in the slot's 16 sectors (and the six below the module base) moved, all 24 read back after reboots", ok);
     }
     {   /* a full store refuses and leaves the slot alone */
         int ok = 1, n = 0;
@@ -150,7 +153,7 @@ int main(void)
         }
         ok &= ocs_write(OCS_POOL, 200, rec[0], 3000) == -1;
         ok &= !memcmp(nor_before + SMP_SLOT_BASE, nor + SMP_SLOT_BASE, SMP_SLOT_NSECT * 4096u);
-        ok &= ocs_free_count() == 0 && n == (int)(OCS_NSECT - SMP_SLOT_NSECT) - 24;
+        ok &= ocs_free_count() == 0 && n == (int)(OCS_NSECT - SMP_SLOT_NSECT - (OCS_NSECT - OCS_LEGACY_S0)) - 24;
         for (uint32_t k = 100; k < 100u + (uint32_t)n; k++) ok &= !ocs_delete(OCS_POOL, k);
         ok &= !memcmp(nor_before + SMP_SLOT_BASE, nor + SMP_SLOT_BASE, SMP_SLOT_NSECT * 4096u) && records_ok(24, 2000);
         check("the store keeps to its 34 sectors: filled, refused and emptied again without touching the slot", ok);
@@ -182,7 +185,7 @@ int main(void)
     {   /* no room for the moves: nothing moved, no slot; room made: claimed */
         int ok;
         wipe();
-        fill_records(27, 5000);                          /* 54 of 56 sectors: no room for what sits in 18..39 */
+        fill_records(27, 5000);                          /* 54 of 56 sectors: no room for what sits in the slot's and the six below the module base */
         memcpy(nor_before, nor, sizeof nor);
         reboot();
         ok = smp_slot_info(0, 0, 0) == SMP_UNCLAIMED && !memcmp(nor_before, nor, sizeof nor) && records_ok(27, 5000) &&
@@ -213,6 +216,152 @@ int main(void)
         }
         check("power cut at every 3rd program call of the claim: every record reads back, the claim ends", ok && ended);
     }
+
+    /* ------------------------------ Release 3 step 1: the first boot's migration of the six sectors 0xC2000..0xC7FFF --- */
+    {   /* the six are the store's index 50..55; the map of the flash */
+        int ok = ocs_addr(0) == 0xA0000u && ocs_addr(33) == 0xC1000u && ocs_addr(34) == 0xEA000u && ocs_addr(49) == 0xF9000u &&
+                 ocs_addr(50) == 0xC2000u && ocs_addr(55) == 0xC7000u && SMP_SLOT_BASE + SMP_SLOT_NSECT * 4096u == 0xC2000u &&
+                 SMP_SLOT_MAX == 60896u && SMP_SLOT_DATA + SMP_SLOT_MAX == SMP_SLOT_ROOM;
+        check("the map: store 0..33 at 0xA0000, 34..49 at 0xEA000, the six at 0xC2000; the slot 16 sectors, maximum 60,896", ok);
+    }
+    {   /* with room: records in all six, moved at the first boot, the six erased and the module area's */
+        int ok = 1;
+        wipe();
+        fill_records(52, 2000);                          /* ids 0..51, one sector each: 50 and 51 live in the six */
+        for (uint32_t k = 0; k < 18u; k++) ocs_delete(OCS_POOL, k);   /* room outside the slot and the six: 18 sectors, 18 parts to move */
+        ok &= ocs_hdr[50].magic == OCS_MAGIC && ocs_hdr[51].magic == OCS_MAGIC;
+        reboot();
+        ok &= smp_modules_low() && smp_slot_info(0, 0, 0) == SMP_EMPTY;
+        for (uint32_t k = 18; k < 52u; k++) ok &= ocs_read(OCS_POOL, k, got, sizeof got) == 2000 && !memcmp(got, rec[k], 2000);
+        for (uint32_t s = 0; s < 6u; s++)                                         /* the six: erased (a stale copy left would come back) */
+            for (uint32_t i = 0; i < 4096u; i += 61u) ok &= nor[0xC2000u + s * 4096u + i] == 0xFFu;
+        for (uint32_t s = 0; s < OCS_NSECT; s++) ok &= ((ocs_resv >> s) & 1u) == (uint32_t)(in_slot(s) || s >= OCS_LEGACY_S0);
+        check("migration with room: the parts in 0xC2000..0xC7FFF moved, the six erased and reserved, every record reads back", ok);
+        memcpy(nor_before, nor, sizeof nor);
+        reboot();
+        check("... and the next boot writes nothing", !memcmp(nor_before, nor, sizeof nor) && smp_modules_low());
+    }
+    {   /* a power cut at every program call of that migration, then a second boot */
+        int ok = 1, ended = 0, cuts = 0;
+        for (int cut = 0; cut < 400 && !ended; cut++) {
+            wipe();
+            fill_records(52, 2000);
+            for (uint32_t k = 0; k < 18u; k++) ocs_delete(OCS_POOL, k);
+            fail_after = cut;
+            reboot();
+            ended = fail_after > 0;                      /* (the cut never landed: the whole migration ran) */
+            fail_after = -1;
+            reboot();
+            cuts++;
+            for (uint32_t k = 18; k < 52u; k++) ok &= ocs_read(OCS_POOL, k, got, sizeof got) == 2000 && !memcmp(got, rec[k], 2000);
+            ok &= smp_modules_low();
+            for (uint32_t s = 0; s < 6u; s++) ok &= ocs_hdr[OCS_LEGACY_S0 + s].magic != OCS_MAGIC;
+            if (!ok) { printf("  cut after %d program calls\n", cut); break; }
+        }
+        check("migration: a power cut at every program call (and each erase window between): every record reads back, the six end clear", ok && ended && cuts > 20);
+    }
+    {   /* a power cut in every erase of the migration (the sector left half erased), then the next boot */
+        int ok = 1, ended = 0, n = 0;
+        for (int cut = 0; cut < 100 && !ended; cut++) {
+            wipe();
+            fill_records(52, 2000);
+            for (uint32_t k = 0; k < 18u; k++) ocs_delete(OCS_POOL, k);
+            cut_erase = cut;
+            reboot();
+            ended = cut_erase >= 0;                      /* (the cut never landed) */
+            cut_erase = -1; fail_after = -1;
+            reboot();
+            n++;
+            for (uint32_t k = 18; k < 52u; k++) ok &= ocs_read(OCS_POOL, k, got, sizeof got) == 2000 && !memcmp(got, rec[k], 2000);
+            ok &= smp_modules_low();
+            for (uint32_t s = 0; s < 6u; s++) ok &= ocs_hdr[OCS_LEGACY_S0 + s].magic != OCS_MAGIC;
+            if (!ok) { printf("  erase cut %d\n", cut); break; }
+        }
+        check("migration: a power cut in every erase (the sector half erased): every record reads back after the next boot", ok && ended && n > 5);
+    }
+    {   /* an erase that fails or a cut in the erase of the old copies (every erase of the migration fails once) */
+        int ok = 1, n = 0;
+        for (int cut = 0; cut < 1; cut++) {
+            wipe();
+            fill_records(52, 2000);
+            for (uint32_t k = 0; k < 18u; k++) ocs_delete(OCS_POOL, k);
+            fail_after = 0;                              /* every program and erase fails: nothing may be lost, nothing reserved by a half claim */
+            reboot();
+            fail_after = -1;
+            for (uint32_t k = 18; k < 52u; k++) ok &= ocs_read(OCS_POOL, k, got, sizeof got) == 2000 && !memcmp(got, rec[k], 2000);
+            reboot();
+            for (uint32_t k = 18; k < 52u; k++) ok &= ocs_read(OCS_POOL, k, got, sizeof got) == 2000 && !memcmp(got, rec[k], 2000);
+            ok &= smp_modules_low();
+            n++;
+        }
+        check("migration: every flash call failing at the first boot (programs and erases) loses nothing; the next boot completes it", ok && n == 1);
+    }
+    {   /* without room: nothing moves, the six stay the store's, no modules there; room made later: migrated */
+        int ok = 1;
+        wipe();
+        fill_records(54, 2000);                          /* ids 0..53: 50..53 in the six, the other 34 sectors full */
+        memcpy(nor_before, nor, sizeof nor);
+        reboot();
+        ok &= !smp_modules_low() && smp_slot_info(0, 0, 0) == SMP_UNCLAIMED && !memcmp(nor_before, nor, sizeof nor);
+        for (uint32_t k = 0; k < 54u; k++) ok &= ocs_read(OCS_POOL, k, got, sizeof got) == 2000 && !memcmp(got, rec[k], 2000);
+        check("migration without room: nothing moved or erased, the six stay the store's, smp_modules_low() 0", ok);
+        for (uint32_t k = 0; k < 20u; k++) ocs_delete(OCS_POOL, k);
+        reboot();
+        ok = smp_modules_low() && smp_slot_info(0, 0, 0) == SMP_EMPTY;
+        for (uint32_t k = 20; k < 54u; k++) ok &= ocs_read(OCS_POOL, k, got, sizeof got) == 2000 && !memcmp(got, rec[k], 2000);
+        check("... records deleted later: the next boot migrates, the six are the module area's", ok);
+    }
+    {   /* a stale part: an older copy of a record sits in the six, its current copy elsewhere */
+        int ok = 1;
+        uint32_t seq50;
+        wipe();
+        fill_records(52, 2000);
+        for (uint32_t k = 0; k < 4u; k++) ocs_delete(OCS_POOL, k);                 /* free sectors 0..3 */
+        seq50 = ocs_hdr[50].seq;
+        for (uint32_t i = 0; i < 2000u; i++) rec[50][i] ^= 0x5Au;
+        ok &= ocs_write(OCS_POOL, 50, rec[50], 2000) == 0;                         /* the new copy goes to a free sector; sector 50 keeps the old one */
+        ok &= ocs_hdr[50].magic == OCS_MAGIC && ocs_hdr[50].seq == seq50;
+        for (uint32_t k = 0; k < 4u; k++) ocs_delete(OCS_POOL, k + 4u);            /* room */
+        for (uint32_t k = 8; k < 18u; k++) ocs_delete(OCS_POOL, k);
+        reboot();
+        ok &= smp_modules_low() && nor[0xC2000u] == 0xFFu && ocs_read(OCS_POOL, 50, got, sizeof got) == 2000 && !memcmp(got, rec[50], 2000);
+        for (uint32_t s = 0; s < 6u; s++) ok &= nor[0xC2000u + s * 4096u + 40] == 0xFFu;
+        reboot();
+        ok &= ocs_read(OCS_POOL, 50, got, sizeof got) == 2000 && !memcmp(got, rec[50], 2000);
+        check("a stale older copy in the six: erased, never read again; the current copy wins before and after", ok);
+    }
+    {   /* a migrated unit whose claim fails at a later boot (an old copy in the slot's sectors that cannot be erased): the six stay the module area's */
+        int ok = 1;
+        wipe();
+        fill_records(30, 2000);
+        reboot();
+        ok &= smp_modules_low();
+        memcpy(nor + 0xB2000u, nor + ocs_addr(ocs_hdr[0].magic == OCS_MAGIC ? 0u : 1u), 4096u);   /* a stale record header in the slot's first sector */
+        fail_after = 0;                                  /* nothing can be erased or programmed */
+        reboot();
+        fail_after = -1;
+        ok &= smp_modules_low() && ((ocs_resv >> OCS_LEGACY_S0) & 63u) == 63u;
+        for (uint32_t s = OCS_LEGACY_S0; s < OCS_NSECT; s++) ok &= !ocs_free(s);       /* the store never hands them out */
+        reboot();
+        ok &= smp_modules_low() && smp_slot_info(0, 0, 0) == SMP_EMPTY;
+        check("a migrated unit whose claim fails later: the six stay reserved (never handed to the store), the next boot ends the claim", ok);
+    }
+    {   /* the slot's room: the new maximum, and a sample an earlier firmware wrote longer than it reads EMPTY */
+        int ok;
+        smp_hdr_t h;
+        wipe();
+        reboot();
+        make_sample(SMP_SLOT_MAX, 9);
+        ok = write_sample(SMP_SLOT_MAX, 256) == 0 && sample_reads(SMP_SLOT_MAX) && smp_slot_begin(SMP_SLOT_MAX + 1u) == -1;
+        check("the slot's room: SMP_SLOT_MAX (60,896) bytes written and read back, one more refused", ok);
+        smp_slot_erase();
+        memset(&h, 0, sizeof h);
+        h.magic = SMP_FSMP_MAGIC; h.version = 1; h.nz = 1; h.data_len = 70000u; h.crc = 1u;   /* 81,408-byte slots of the old firmware: a sample of 70,000 B */
+        ok = smp_room_pg(SMP_SLOT_MARK, (const uint8_t *)&h, sizeof h) == 0;
+        reboot();
+        ok &= smp_slot_info(0, 0, 0) == SMP_EMPTY && smp_marked();
+        check("a sample longer than the new maximum, written by an earlier firmware: reads EMPTY, nothing erased", ok);
+    }
     /* ------------------------------------------------------- 3. a sample, its edges --- */
     {
         int ok;
@@ -229,7 +378,7 @@ int main(void)
             smp_slot_info(name, 0, &nz);
             ok &= !strcmp(name, "TESTSMP") && nz == 1u;
         }
-        check("a sample of 81,408 bytes (a Felucca slot's): written, read back at every place, after a reboot; tails erased", ok);
+        check("a sample of SMP_SLOT_MAX (60,896) bytes: written, read back at every place, after a reboot; tails erased", ok);
         make_sample(1, 2);
         ok = write_sample(1, 256) == 0 && sample_reads(1);
         reboot();
@@ -310,7 +459,7 @@ int main(void)
         make_sample(SMP_SLOT_MAX, 8);
         write_sample(SMP_SLOT_MAX, 256);
         smp_slot_erase();
-        check("the slot's writes and erases stay inside 0xB2000..0xC7FFF",
+        check("the slot's writes and erases stay inside 0xB2000..0xC1FFF",
               prog_lo >= SMP_SLOT_BASE && prog_hi <= SMP_SLOT_BASE + SMP_SLOT_NSECT * 4096u);
     }
     printf(bad ? "sample slot: %d FAILED\n" : "sample slot: all passed\n", bad);

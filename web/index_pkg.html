@@ -78,6 +78,7 @@
     <p><label><input type="checkbox" id="stage-pack" checked> <span data-t="stagePack"></span></label><br><span class="small" data-t="packWhy"></span></p>
     <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
     <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
+    <p class="small" data-t="downgradeWhy"></p>
     <p class="small" id="set-note"></p>
   </fieldset>
   <p class="small" id="install-what"></p>
@@ -189,6 +190,7 @@ const TEXT = {
     stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール", stageProphet: "Prophetモジュール",
     packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "SHAPES（マクロ・オシレーター）: 新しいビルドではファームウェアに内蔵されず、このモジュールとして入ります（チェック済み）。入れないとSHAPESを使うトラックは無音になり MODULE MISSING と表示されますが、曲と設定は残ります。以前のSHAPES内蔵ビルドのユニットも、このモジュールを入れればSHAPESが戻ります。",
     prophetWhy: "Prophetモジュール(32 KB)はSHAPESモジュールと一緒には入りません。どちらか一方を選んでください。もう一方が入っているときは、先に消してください。",
+    downgradeWhy: "このファームウェアより古いファームウェアは、モジュール領域の新しい部分に入れたモジュールを認識しません。古いファームウェアに戻す場合は、それらのモジュールを入れ直してください。",
     noPackFile: "このリリースにはパックのファイルがありません。", noModFile: "このリリースにはモジュールのファイルがありません。",
     nothingChosen: "インストールする内容を選んでください。",
     unitWait: "FM-1が戻るのを待っています", unitProbe: "FM-1の中身を確認しています", packWorking: "パックを書き込み中", modWorking: "モジュールを書き込み中",
@@ -272,6 +274,7 @@ const TEXT = {
     stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module", stageProphet: "Prophet module",
     packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "SHAPES: the macro oscillator engine. New builds have no SHAPES inside the firmware; it comes as this module (ticked). Without it, tracks that use SHAPES are silent and flagged MODULE MISSING; their music and settings are kept. A unit that had SHAPES built in gets it back by installing this module.",
     prophetWhy: "Prophet: a polysynth engine in the same place as SHAPES. The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
+    downgradeWhy: "A firmware older than this one does not see modules installed in the new part of the module area; going back means installing those modules again.",
     noPackFile: "This release has no pack file.", noModFile: "This release has no module file.",
     nothingChosen: "Choose something to install.",
     unitWait: "Waiting for the FM-1 to come back", unitProbe: "Checking what the FM-1 has", packWorking: "Writing the pack", modWorking: "Writing the module",

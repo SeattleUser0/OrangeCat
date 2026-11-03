@@ -50,6 +50,11 @@
  * Reading: smp_slot_read (any offset into the data); smp_slot_info. Playing it in place through the plaintext XIP
  * window (fl_plain_window_init: flash above 0x93000 reads as plaintext) maps each offset with smp_slot_addr.
  *
+ * Release 3 step 1 (FLASH_MAP_R3.md 4B): the slot is 16 sectors, 0xB2000..0xC1FFF (the store's 18..33), SMP_SLOT_MAX 60,896 B. The six above it, 0xC2000..0xC7FFF, are the module area's. The claim
+ * is the migration: the same 22 sectors are taken from the store as before, the slot's 16 and those six (the boot scan's indices 50..55); every record part found in any of them is
+ * saved again in the rest first (copy on write, headers last), the old copies erased after; with no room nothing moves, the store keeps all 22 as before and smp_modules_low() says 0
+ * (oc_module.c refuses installs into the six). A boot with nothing there writes nothing. A sample an earlier firmware wrote longer than the new maximum reads EMPTY.
+ *
  * Revisions:
  * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  *   0.6.0: first version.
@@ -58,19 +63,21 @@
  *   0.12.2: SMP_FEED is storage.c's OC_FEED (the host tests count the feeds of the long flash operations).
  */
 #define SMP_SLOT_BASE 0xB2000u
-#define SMP_SLOT_NSECT 22u
+#define SMP_SLOT_NSECT 16u                       /* (Release 3 step 1: was 22; the top six, 0xC2000..0xC7FFF, are the module area's) */
 #define SMP_SLOT_S0 18u                          /* the record store's sector the slot starts at */
 #define SMP_SLOT_SPAN 3840u                      /* each sector's bytes (its last 256 erased) */
 #define SMP_SLOT_ROOM (SMP_SLOT_NSECT * SMP_SLOT_SPAN)
 #define SMP_SLOT_MARK 32u
 #define SMP_SLOT_HDR 512u
 #define SMP_SLOT_DATA (SMP_SLOT_MARK + SMP_SLOT_HDR)
-#define SMP_SLOT_MAX 81408u                      /* a Felucca slot's data (80 KiB less its 512-byte header) */
+#define SMP_SLOT_MAX 60896u                      /* (Release 3 step 1: was 81,408, a Felucca slot's data) 16 sectors x 3,840 less the tag (32) and the header (512); a sample longer than this that an earlier firmware wrote reads EMPTY (smp_hdr_ok) */
 #define SMP_SLOT_MAGIC 0x4C53434Fu               /* "OCSL" */
 #define SMP_FSMP_MAGIC 0x504D5346u               /* "FSMP" (Felucca eng_sample.c) */
 _Static_assert(SMP_SLOT_DATA + SMP_SLOT_MAX <= SMP_SLOT_ROOM, "one Felucca slot's data fits");
 _Static_assert(SMP_SLOT_BASE == 0xA0000u + SMP_SLOT_S0 * OCS_SECTOR &&
-               SMP_SLOT_S0 + SMP_SLOT_NSECT == 40u, "the slot: the record store's sectors 18..39");
+               SMP_SLOT_S0 + SMP_SLOT_NSECT == 34u, "the slot: the record store's sectors 18..33");
+_Static_assert(SMP_SLOT_BASE + SMP_SLOT_NSECT * OCS_SECTOR == 0xC2000u, "the slot ends where the module area begins");
+_Static_assert(SMP_SLOT_DATA + SMP_SLOT_MAX == SMP_SLOT_ROOM, "the maximum is the whole room");
 enum { SMP_UNCLAIMED, SMP_EMPTY, SMP_FULL };
 
 typedef struct {                                 /* Felucca's header (eng_sample.c smp_user_hdr_t: 480 B, the data at
@@ -145,7 +152,12 @@ static int smp_mark(void)                         /* the first sector erased, th
 #define OC_FEED() ((void)0)            /* (0.12.2: a host unit that includes this file without storage.c, ui_test.c: no feed to count; clang's analyzer found the undeclared name) */
 #endif
 #define SMP_FEED() OC_FEED()                             /* (the claim at boot: up to ~56 erases, the 8 s watchdog; 0.12.2: storage.c's OC_FEED, which the host tests can count) */
-static uint64_t smp_resv_mask(void) { return ((1ull << SMP_SLOT_NSECT) - 1ull) << SMP_SLOT_S0; }
+/* the sectors that are not the store's once the claim is made: the slot's 16 (18..33) and the six at 0xC2000..0xC7FFF (the store's 50..55 in the boot scan), the module area's */
+#define SMP_LEGACY_MASK (((1ull << (OCS_NSECT - OCS_LEGACY_S0)) - 1ull) << OCS_LEGACY_S0)
+static uint64_t smp_resv_mask(void) { return (((1ull << SMP_SLOT_NSECT) - 1ull) << SMP_SLOT_S0) | SMP_LEGACY_MASK; }
+/* 1 when the six sectors below the module area's old base are the module area's: the claim was made (nothing of the store lives there) or an earlier boot made it.
+ * 0 when the first boot found no room to move a record part out of them (they stay the store's; oc_module.c refuses installs into them until a later boot finds room) */
+static int smp_modules_low(void) { return (ocs_resv & SMP_LEGACY_MASK) == SMP_LEGACY_MASK; }
 
 /* the header: Felucca's, its zones and length within the slot */
 static int smp_hdr_ok(const smp_hdr_t *h)
@@ -187,6 +199,7 @@ static int smp_mv_get(ocs_src_t *s, uint8_t *dst, uint32_t n)
     return 0;
 }
 /* sector s holds a part of its record's current copy (by headers; the reservation aside) */
+#define SMP_CLAIM_N (SMP_SLOT_NSECT + (OCS_NSECT - OCS_LEGACY_S0))   /* the sectors the claim takes: the slot's 16 and the six below the module base */
 static int smp_live(uint32_t s)
 {
     const ocs_hdr_t *h = &ocs_hdr[s];
@@ -219,10 +232,10 @@ static int smp_claim(void)
     }
     if (need + most > room) return -1;                       /* (room for every move, the one held longest too) */
     ocs_resv = mask;                                          /* (saves go elsewhere from here) */
-    for (k = 0; k <= SMP_SLOT_NSECT; k++) {                   /* each record with its current copy there, moved */
+    for (k = 0; k <= SMP_CLAIM_N; k++) {                      /* each record with its current copy there, moved */
         int rc, found = 0;
-        for (s = SMP_SLOT_S0; s < SMP_SLOT_S0 + SMP_SLOT_NSECT && !found; s++)
-            if (smp_live(s)) found = 1;
+        for (s = 0; s < OCS_NSECT && !found; s++)
+            if (((mask >> s) & 1u) && smp_live(s)) found = 1;
         if (!found) break;
         s--;
         SMP_FEED();
@@ -237,15 +250,15 @@ static int smp_claim(void)
             if (rc) { ocs_resv = 0; return rc; }
         }
     }
-    for (s = SMP_SLOT_S0; s < SMP_SLOT_S0 + SMP_SLOT_NSECT; s++)     /* (every move made, or the slot not taken) */
-        if (smp_live(s)) { ocs_resv = 0; return -1; }
-    for (s = SMP_SLOT_S0; s < SMP_SLOT_S0 + SMP_SLOT_NSECT; s++) {   /* only old copies left there: erased (a deleted
+    for (s = 0; s < OCS_NSECT; s++)                                  /* (every move made, or the slot not taken) */
+        if (((mask >> s) & 1u) && smp_live(s)) { ocs_resv = 0; return -1; }
+    for (s = 0; s < OCS_NSECT; s++) {                                /* only old copies left there: erased (a deleted
                                                                       * record's old copy would come back as its
                                                                       * current one at the next boot); a sector with
                                                                       * no record header (blank, or the sample's) is
                                                                       * left alone */
         int rc;
-        if (ocs_hdr[s].magic != OCS_MAGIC) continue;
+        if (!((mask >> s) & 1u) || ocs_hdr[s].magic != OCS_MAGIC) continue;
         SMP_FEED();
         if ((rc = OCS_ER(ocs_addr(s))) != 0) { ocs_resv = 0; return rc; }
         memset(&ocs_hdr[s], 0, OCS_HDR);
@@ -276,6 +289,12 @@ static void smp_slot_boot(void)
         uint8_t cursor = ocs_cursor;
         ocs_resv = 0;
         ocs_boot();
+        {   /* (Release 3 step 1) the six that were migrated and now hold no record header stay the module area's even when this boot's claim fails (an erase error on a
+             * leftover copy in the slot's sectors): the store never hands out a sector a module may stand in */
+            uint32_t s, any = 0;
+            for (s = OCS_LEGACY_S0; s < OCS_NSECT; s++) any |= ocs_hdr[s].magic == OCS_MAGIC;
+            if (!any) { ocs_resv = SMP_LEGACY_MASK; ocs_boot(); }
+        }
         ocs_cursor = cursor;
         smp.state = SMP_UNCLAIMED;
     }

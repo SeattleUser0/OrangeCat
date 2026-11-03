@@ -530,6 +530,7 @@ sound && [ $TABLES = 1 ] && job dsp_tracks
 
 if core; then
     t "flash storage (A/B, torn writes)" storage_test
+    t "flash storage, the four legacy bank objects live (ST_BANKS_RETIRED 0: their extension-pair mechanics; Release 3 step 1 retires them in the firmware)" storage_test_legacy:storage_test -DST_BANKS_RETIRED=0
     t "library group (Orange Cat 0.9.1): 22 banks in 23 sectors, shared spare, cuts at every flash operation, migration from the A/B pairs, wear, backups" lib_group_test -O1 $FW
     t "native FM6/CZ user presets, scrolling, migration and interrupted saves" fm6_preset_test -O1 $FW
     t "Prophet native slots, atomic saves, projects, undo and performance" prophet_integration_test -O1 $FW

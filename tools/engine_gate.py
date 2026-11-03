@@ -46,7 +46,7 @@ import build      # noqa: E402  (MODULES, the toolchain wrapper, the module buil
 import pack_hot   # noqa: E402  (the per-sample table analysis)
 
 MOD = build.OUT / "module"
-AREA = 12
+AREA = 18            # (Release 3 step 1) sectors in the module area; the starts are signed sectors from 0xC8000, -6 .. 11
 SECTOR = 0x1000
 HDR_PAGE = 0x100
 BASE_HOT = {"SINE": "the firmware's base hot set (0.14.0): its arena copy through fw_api_t base_hot",
@@ -121,7 +121,7 @@ def firmware_geometry():
 
 
 def spans(sectors, start_sectors):
-    return [(s, s + sectors) for s in start_sectors if s + sectors <= AREA]
+    return [(s, s + sectors) for s in start_sectors if s >= -(AREA - 12) and s + sectors <= 12]   # -6 .. 11 from the base 0xC8000
 
 
 def disjoint(a, b):

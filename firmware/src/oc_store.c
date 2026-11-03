@@ -39,6 +39,8 @@
  *   0.3.1: saves stream their payload from a source (ocs_src_t): no RAM image of a record. ocs_open / ocs_at read
  *          pieces of one. CRC by nibbles (ocs_crc_add).
  *   0.3.2: its own CRC for the headers too (no storage.c needed); without the flash driver the sectors are in RAM.
+ *   Release 3 step 1: the store is 50 sectors (0xA0000..0xC1FFF = 34, 0xEA000..0xF9FFF = 16); the six at 0xC2000..0xC7FFF became the module area's. They stay in the
+ *          boot scan (indices 50..55) so a part that lives there is found and moved (smp_slot.c smp_claim) before they are reserved.
  *   0.6.0: ocs_resv: sectors 18..39 (0xB2000..0xC7FFF) can be the internal sample slot's (smp_slot.c): once claimed the
  *          store has 34 sectors and never reads, hands out or erases those.
  */
@@ -48,7 +50,8 @@
 #define OCS_TAIL 256u
 #define OCS_PAYLOAD_MAX (OCS_SECTOR - OCS_HDR - OCS_TAIL)   /* 3808 */
 #define OCS_PARTS_MAX 12u                      /* (a pool chunk of four patterns full of timed notes: 45 KB) */
-#define OCS_NSECT 56u
+#define OCS_NSECT 56u                          /* the sectors the boot scan reads: the store's 50 (Release 3 step 1) and, until the first boot has moved what lives there, the six at 0xC2000..0xC7FFF (OCS_LEGACY): those are the module area's now */
+#define OCS_LEGACY_S0 50u                      /* the six: indices 50..55 */
 enum { OCS_NONE, OCS_PROJECT, OCS_POOL, OCS_SAMPLE, OCS_FREEZE, OCS_TYPES };   /* (0.5.6) OCS_FREEZE: the frozen phrases
                                                 * (usb_files.c frz_table_save), one record */
 
@@ -71,8 +74,10 @@ static uint64_t ocs_held;                      /* (0.14.2) sectors an open strea
 static uint64_t ocs_resv;                      /* (0.6.0) sectors that are not the store's: the sample slot's
                                                 * (smp_slot.c), once claimed. Never read, handed out or erased here */
 
-/* sector s's flash offset: 0..39 at 0xA0000, 40..55 at 0xEA000 */
-static uint32_t ocs_addr(uint32_t s) { return s < 40u ? 0xA0000u + s * OCS_SECTOR : 0xEA000u + (s - 40u) * OCS_SECTOR; }
+/* sector s's flash offset (Release 3 step 1): 0..33 at 0xA0000 (0..17 records, 18..33 the sample slot's room), 34..49 at 0xEA000, and the six that were 34..39 before,
+ * 50..55 at 0xC2000. Those six are the module area's: a first boot that finds room moves any record part out of them and reserves them (ocs_resv, smp_slot.c); a boot
+ * that finds none leaves them the store's, as before, and the module planner refuses to install into them (smp_modules_low) */
+static uint32_t ocs_addr(uint32_t s) { return s < 34u ? 0xA0000u + s * OCS_SECTOR : s < OCS_LEGACY_S0 ? 0xEA000u + (s - 34u) * OCS_SECTOR : 0xC2000u + (s - OCS_LEGACY_S0) * OCS_SECTOR; }
 
 #if MELODEE_FLASH
 #define OCS_RD st_read
@@ -83,7 +88,7 @@ static uint32_t ocs_addr(uint32_t s) { return s < 40u ? 0xA0000u + s * OCS_SECTO
 static uint8_t ocs_ram[OCS_NSECT][OCS_SECTOR];
 static uint8_t *ocs_ram_at(uint32_t off)
 {
-    uint32_t s = off < 0xEA000u ? (off - 0xA0000u) / OCS_SECTOR : 40u + (off - 0xEA000u) / OCS_SECTOR;
+    uint32_t s = off >= 0xEA000u ? 34u + (off - 0xEA000u) / OCS_SECTOR : off >= 0xC2000u ? OCS_LEGACY_S0 + (off - 0xC2000u) / OCS_SECTOR : (off - 0xA0000u) / OCS_SECTOR;
     return ocs_ram[s % OCS_NSECT] + off % OCS_SECTOR;
 }
 static int OCS_RD(uint32_t off, void *dst, uint32_t n) { memcpy(dst, ocs_ram_at(off), n); return 0; }

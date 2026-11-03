@@ -89,6 +89,10 @@ For Release 3: **a start at every sector** of the 18 (FX_MODULES_PLAN.md section
 - The sample slot's final size is Phase 9's; 64 KB is the figure this map leaves it.
 - The owner reads this before any code (BUILD.md 7.22, item 5).
 
+## 9. Built (November 2, 2026, branch r3-a)
+
+Option B is in code: BUILD.md 7.26. The numbering is `oc_mod_sect[]` (signed sectors from 0xC8000; 12..17 are -1 .. -6, downward); no shipping module uses a new start yet.
+
 ## 8. The independent review of 0.1 (November 1, 2026) and what 0.2 did
 
 | # | Finding | Severity | In 0.2 |
