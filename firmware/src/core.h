@@ -256,14 +256,16 @@
 #define ENGI_ARC 30u
 #define ENGI_GRANULAR 31u         /* granular: reserved; its port waits for the sample question (ENGINE_CANDIDATES.md) */
 #define OP1R_NCAND 8u             /* the op1r numbers 24..31 */
+#define ENGI_MACRO2 32u           /* (macro2-candidate) proposed: MACRO2, the ten Plaits models MACRO lacks (eng_macro2.c, tools/module/macro2_mod.c; docs/candidates/macro2.md).
+                                   * Past the 32-bit engine mask of 0.14.1: engines.c eng_hs.refused is 64 bits wide since this number */
 #define NENGINES_SHIPPED 20u        /* (0.14.2) the table every firmware without OC_CANDIDATES has: a stored engine past it is refused there */
-#define NENGINES (OC_CANDIDATES ? 32 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31 */
+#define NENGINES (OC_CANDIDATES ? 33 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31; (macro2-candidate) 32 */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + (2u + OP1R_NCAND) * OC_CANDIDATES)   /* (Orange Cat: - SID - CZ-1 - FM6 -
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + (3u + OP1R_NCAND) * OC_CANDIDATES)   /* (Orange Cat: - SID - CZ-1 - FM6 -
                                                  * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone; 0.14.0: + WHEEL, a module's) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */

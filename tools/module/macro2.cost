@@ -1,0 +1,3 @@
+# MACRO2 (candidate): the functions of tests/target_budget.txt whose lines make up this module's `cost` word (tools/build.py module_cost).
+# No line of the budget measures this module yet (its render is only linked into the module, not the image): the cost is 0, "not measured", as
+# SHAPES' (tools/module/shapes.cost). The gate (tools/engine_gate.py) measures its loops on the module's own disassembly.

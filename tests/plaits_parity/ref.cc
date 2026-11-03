@@ -16,6 +16,14 @@
 #include "plaits/dsp/engine/bass_drum_engine.h"
 #include "plaits/dsp/engine/snare_drum_engine.h"
 #include "plaits/dsp/engine/hi_hat_engine.h"
+#include "plaits/dsp/engine/speech_engine.h"
+#include "plaits/dsp/engine2/virtual_analog_vcf_engine.h"
+#include "plaits/dsp/engine2/phase_distortion_engine.h"
+#include "plaits/dsp/engine2/six_op_engine.h"
+#include "plaits/dsp/engine2/wave_terrain_engine.h"
+#include "plaits/dsp/engine2/string_machine_engine.h"
+#include "plaits/dsp/engine2/chiptune_engine.h"
+#include "plaits/resources.h"
 #include "stmlib/utils/random.h"
 #include <cstring>
 
@@ -45,10 +53,22 @@ extern "C" void *ref_new(int model) {
     case M_BASS_DRUM: b->e = new plaits::BassDrumEngine; break;
     case M_SNARE: b->e = new plaits::SnareDrumEngine; break;
     case M_HI_HAT: b->e = new plaits::HiHatEngine; break;
+    case M_SPEECH: b->e = new plaits::SpeechEngine; break;
+    case M_VA_VCF: b->e = new plaits::VirtualAnalogVCFEngine; break;
+    case M_PHASE_DISTORTION: b->e = new plaits::PhaseDistortionEngine; break;
+    case M_SIX_OP_A: case M_SIX_OP_B: case M_SIX_OP_C: b->e = new plaits::SixOpEngine; break;
+    case M_WAVE_TERRAIN: b->e = new plaits::WaveTerrainEngine; break;
+    case M_STRING_MACHINE: b->e = new plaits::StringMachineEngine; break;
+    case M_CHIPTUNE: b->e = new plaits::ChiptuneEngine; break;
     default: delete b; return 0;
   }
   b->e->Init(&b->alloc);
-  b->e->LoadUserData(NULL);
+  // (voice.cc: the six-op engine gets its bank's packed patches as user data, fm_patches_table[engine - 2];
+  // every other engine gets NULL: its built-in data, as GATOR's user_data.h stub and a module without user data)
+  if (model >= M_SIX_OP_A && model <= M_SIX_OP_C)
+    b->e->LoadUserData(plaits::fm_patches_table[model - M_SIX_OP_A]);
+  else
+    b->e->LoadUserData(NULL);
   b->e->Reset();
   return b;
 }

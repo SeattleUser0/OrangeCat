@@ -97,7 +97,7 @@ static FW_UNUSED void fw_batch_push(void (*run)(const void *, int32_t *), const 
 static struct {
     const void *set[ENG_HOT_SLOTS][ENG_HOT_MAX];           /* a module's pointers, one array a slot: the copies */
     const void **ptr[NENGINES];                            /* engine number e's (fw_api_t hot): its slot's array while a module holds one, else 0 */
-    uint32_t refused;                                      /* bit e: built-in engine e's set did not fit: its slot holds ENG_RETIRED (silent) */
+    uint64_t refused;                                      /* bit e: built-in engine e's set did not fit: its slot holds ENG_RETIRED (silent); (macro2-candidate) 64 bits: engine 32 */
     uint8_t slot[NENGINES];                                /* 1 + the slot of engine number e's set, 0 none */
     const eng_hot_t *list[ENG_HOT_SLOTS];                  /* a slot's set: its list, its length, where its pointers are (a built-in engine's own */
     uint8_t n[ENG_HOT_SLOTS];                              /* hot_at, else the slot's set: a module's). Kept here, so a copy, a refresh or */
@@ -280,6 +280,7 @@ static const engine_t *ENGINES[NENGINES] = {
     &ENG_RETIRED,                /* 23: (0.14.0) the Rhodes port's proposed number: it fits no module start, never a module */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* 24..31: (0.14.1) op1r's synths (core.h ENGI_FMBELL ..), candidates a module */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* supplies (eng_module_slot) */
+    &ENG_RETIRED,                /* 32: (macro2-candidate) MACRO2 (core.h ENGI_MACRO2), a candidate a module supplies */
 #endif
 };
 
@@ -350,6 +351,7 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if OC_CANDIDATES
     ENGI_SEM, ENGI_HADES,        /* (0.14.0) the candidates of a measurement build: offered only while registered */
     ENGI_FMBELL, ENGI_SUPERSAW, ENGI_DDDD, ENGI_AETHER, ENGI_BRASS, ENGI_MIXTUR, ENGI_ARC, ENGI_GRANULAR,   /* (0.14.1) op1r's, the same */
+    ENGI_MACRO2,                 /* (macro2-candidate) the same */
 #endif
 };
 
@@ -365,7 +367,7 @@ static int eng_extra_retired(uint32_t e)
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || (e == ENGI_WHEEL && !eng_mod[ENGI_WHEEL]) || (e == 9u && !MELODEE_DRUMX) || e == 11u))
         || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_SHAPES && e == ENGI_SHAPES && !eng_mod[ENGI_SHAPES]) /* (Release 3) SHAPES out of the build and its module not installed: the stored identity, preset and settings stay (found on the unit: a load clamped the preset to 0 and the next autosave wrote it back) */ || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM)              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
-        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e)) && !eng_mod[e])));   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
+        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_MACRO2) && !eng_mod[e])));   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -479,11 +481,11 @@ static void eng_hot_boot(void)
     for (uint32_t e = 0; e < NENGINES; e++) {
         const engine_t *g = ENGINES[e];
         if (eng_mod[e] || !g || !g->nhot) continue;
-        if (eng_hot_take_own(e, g)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
+        if (eng_hot_take_own(e, g)) { eng_hs.refused |= 1ull << e; ENGINES[e] = &ENG_RETIRED; }
     }
     oc_pack_changed = eng_hot_refresh;
 }
-static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e))); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's */
+static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_MACRO2)); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's */
 static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
 {
 #if MELODEE_SHAPES
@@ -527,11 +529,11 @@ static int eng_register_hot(const fw_mod_hdr_t *h, const engine_t *engine, const
         const void **wasat = s < ENG_HOT_SLOTS && eng_hs.at[s] != eng_hs.set[s] ? eng_hs.at[s] : 0;
         int rc = eng_hot_take(e, 0, hot, nhot);
         if (rc) {
-            if (eng_hot_take(e, wasat, was, wasn)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
+            if (eng_hot_take(e, wasat, was, wasn)) { eng_hs.refused |= 1ull << e; ENGINES[e] = &ENG_RETIRED; }
             return rc;
         }
     }
-    eng_hs.refused &= ~(1u << e);
+    eng_hs.refused &= ~(1ull << e);
     ENGINES[e] = engine;                            /* (0.11.1) the two stores are one step in a running session: oc_module.c's oc_mod_reg / oc_mod_unreg */
     eng_mod[e] = h;
     return EM_OK;
@@ -542,7 +544,7 @@ static void eng_unregister(uint32_t e)
         return;
     eng_mod[e] = 0;                                 /* (0.11.1) one step in a running session, as in eng_register */
     ENGINES[e] = eng_default(e);
-    if (eng_hot_take_own(e, ENGINES[e])) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }   /* (0.13.7) the module's set out, the built-in engine's in */
+    if (eng_hot_take_own(e, ENGINES[e])) { eng_hs.refused |= 1ull << e; ENGINES[e] = &ENG_RETIRED; }   /* (0.13.7) the module's set out, the built-in engine's in */
 }
 
 /* the parts at power-on and in a new song (engine, preset; the steps empty): poly, bass, lead, drums. IT'S A
