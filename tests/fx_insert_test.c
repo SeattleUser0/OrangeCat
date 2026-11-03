@@ -332,7 +332,8 @@ static void descriptor_checks(void)
     CHECK(kn->max_inst == DUB_N && kn->ram_state == DUB_STATE_BYTES && kn->ram_extra_bytes == 5632u && kn->ram_work_max == 16u && kn->ram_work_min == 4u, "capacity words");
     CHECK((kn->flags & FXK_SEED) == 0 && (kn->flags & FXK_TAIL_FAR) && (kn->flags & FXK_US) && kn->tail_base == 24u && kn->prof == AP_DUB && kn->rates == 0x06u, "tail, seed 0, class, rates");
     CHECK(kn->on && kn->size_sig && kn->size_need && kn->blocks_at && kn->hold_len && kn->tick && kn->param_sig && kn->snap && kn->cost_extra && kn->start && kn->process && kn->reset, "every call is there");
-    CHECK(fx_kernel_of(0)->blocks_at(dub_far(&trk[0]), 2u) == dub_blocks_at(dub_far(&trk[0]), 2u), "sizing through the struct");
+    {   fx_ictx_t c; memset(&c, 0, sizeof c); c.beat = beat_samples();
+        CHECK(fx_kernel_of(0)->blocks_at(dub_far(&trk[0], &c), 2u) == dub_blocks_at(dub_far(&trk[0], &c), 2u), "sizing through the struct"); }
     CHECK(sizeof(dub_common_t) == sizeof(fx_common_t), "one common block");
     CHECK(FW_API_ID == 0xCAF53177u, "the interface identifier did not move (0x%08X)", (unsigned)FW_API_ID);
 }

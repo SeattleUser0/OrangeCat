@@ -10,15 +10,11 @@
  * Not part of fw_api_t, fw_pages_t or any structure tools/gen_fw_api_id.py hashes: the interface identifier does not move for this file. */
 #pragma once
 #include "dubdelay.h"
-#define FX_INS_N 4u                                     /* instances: one a track (DUB_N) */
-#define FX_INS_NSEG 24u                                 /* the pool: 96 KB of 4 KB blocks, shared (four lines of 24K, or one of 64K and two of 16K) */
-#define FX_INS_MAXSEG 16u                               /* one line: 64 KB (a kernel's ram_work_max may not exceed it) */
+#include "fx_kernel.h"                              /* the kernel vocabulary (Release 3 step 6: shared with the effect module) */
 /* the parameter snapshot's room per instance in the common block: the largest snapshot of a resident kernel (dd_params_t today). Step 6 sets it from the largest module's declared
  * size; until then it is DUB's, so the common block is the size it was before the cut (sizeof asserted in jfx_dub.c) */
 #define FX_PARAM_BYTES ((uint32_t)((sizeof(dd_params_t) + 3u) & ~3u))
 enum { FXS_OFF, FXS_WAIT, FXS_RUN, FXS_RAMP, FXS_CLEAR };   /* the instance states (the editor's schema-14 reply and the tests read the numbers) */
-/* a stored parameter of a kernel: fw_fx.h's parameter row without the label. `legacy` is the Release 2 track slot (P_* id) the value is stored in (0xFFFF none) */
-typedef struct { uint16_t id, legacy; int16_t min, max, def; } fx_prow_t;
 /* one instance's record (CPU0). The host owns every field but kw */
 typedef struct {
     uint8_t state, R, ramp, clr, run, pend_R, evict, held_off, gov;     /* evict: ramp out and let go (a bus needs the memory, the CPU is short); held_off: not asking again */
@@ -35,33 +31,7 @@ typedef struct {
     uint16_t hold, hold_len;                            /* blocks the instance runs and its track stays mixed past the last audible input or wet; the refresh (the farthest head and 24) */
     uint32_t kw[2];                                     /* the kernel's own words (DUB: the KICK edge count and the last edge state), cleared with the record, passed to fx_kernel_t.tick */
 } fx_ins_t;
-/* what the host knows of an instance when it asks the kernel for a parameter signature or a snapshot */
-typedef struct { uint32_t kw0; uint8_t k, R, nblk, ramp; } fx_ictx_t;   /* kw0: kw[0]; k: the instance (= the track); R: the line's rate divisor; nblk: line blocks held; ramp: ramping out (the cut) */
-enum { FXK_SEED = 1, FXK_US = 2, FXK_TAIL_FAR = 4, FXK_TAIL_SILENT = 8 };   /* fx_kernel_t.flags: MODULE_FORMAT_R3.md 6's bits (uses the seed; cost in microseconds; tail adds the farthest tap; tail until silent) */
-typedef struct fx_kernel {
-    /* identity (the descriptor's fx_desc_t / fx_entry_t words) */
-    uint32_t module_id, version, legacy_module;         /* 1 for DUB TAPE; 0x00MMmmpp; the Release 2 key (nonzero: its values sit in the legacy slots of `rows`) */
-    uint8_t effect_id, nrows;
-    const fx_prow_t *rows;                              /* the stored parameters, in id order: the legacy-slot table */
-    /* capabilities (FX_MODULES_PLAN.md 4) */
-    uint8_t flags, rates, max_inst, prof;               /* rates: bit 0 44.1 .. 3 5.5125 kHz; prof: the audio_batch_cost class (AP_DUB) the job is pushed under */
-    uint8_t ram_work_min, ram_work_max, ram_extra;      /* 4 KB blocks: the least that lets it run, the most it uses, the option's (the spring) */
-    uint16_t ram_state, latency, tail_base, cost;       /* bytes of arena state; samples; blocks; microseconds a block (flag FXK_US) */
-    uint16_t ram_extra_bytes, gov_us;                   /* the option's bytes; what an instance adds to the heaviest half (the governor's headroom) */
-    /* the calls (CPU0 unless said) */
-    uint32_t (*on)(const track_t *t);                   /* the track wants the effect (DUB: ECHO != 0) */
-    uint32_t (*size_sig)(const track_t *t);             /* a hash of what the sizing is made from (the times, the mode, the speed, the tempo) */
-    float (*size_need)(const track_t *t);               /* the farthest tap, in half-rate loop samples */
-    uint32_t (*blocks_at)(float need, uint32_t R);      /* the line blocks the need takes at the rate divisor R (2 or 4) */
-    uint32_t (*hold_len)(float need, uint32_t blocks, uint32_t R);   /* blocks the instance runs past the last audible input or wet */
-    void (*tick)(uint32_t *kw, uint32_t k);             /* once a block for every instance, running or not (DUB: the KICK edge) */
-    uint32_t (*param_sig)(const track_t *t, const fx_ictx_t *c);   /* a hash of what the snapshot is made from, host facts included */
-    void (*snap)(void *params, const track_t *t, const fx_ictx_t *c);   /* the parameter snapshot (FX_PARAM_BYTES), from the track's stored ids through `rows` */
-    uint32_t (*cost_extra)(const track_t *t, uint32_t extra);   /* units added to the batch cost (DUB: the spring attached, WOW) */
-    void (*start)(void *state, uint32_t R, int16_t *const *blk, uint32_t nblk, int16_t *extra);   /* (re)start from silence on the blocks given; extra: the option's memory or 0 */
-    void (*process)(void *state, const void *params, const float *in, float *outL, float *outR);   /* CPU1: one block */
-    void (*reset)(void);                                /* a new project, power-on: the kernel's RAM triggers released */
-} fx_kernel_t;
+#define fx_trig dub_trig                                /* the performance triggers (dub_fields.h): MIDI CC 16 to 18, per track, RAM only; the host hands them to the kernel in fx_ictx_t */
 static const fx_kernel_t *fx_kernel_of(uint32_t k);     /* the kernel bound to instance k (jfx_dub.c: DUB's, resident; step 6: by the track's slot) */
 
 /* the names the tests and older readers use for the host's state (the code itself uses fx_ins_*) */

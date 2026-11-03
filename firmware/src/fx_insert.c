@@ -139,7 +139,7 @@ static int fx_ins_running(void) { return fx_mask != 0; }
 /* before the tracks, every block (mix.c): the pair swapped, each instance's state advanced, the job pushed first */
 JFX_XIP static void fx_ins_start(uint32_t nt)
 {
-    uint32_t k, i, cost = 0;
+    uint32_t k, i, cost = 0, beat;
     int degrade;
     fx_job_buf = fx_cur;
     fx_cur ^= 1u;
@@ -151,6 +151,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
     if (fx_ins_force_degrade || !FX_CPU1_OK()) fx_cpu_wait = FX_CPU_OK_BLOCKS;      /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
     else if (fx_cpu_wait) fx_cpu_wait--;
     degrade = fx_cpu_wait != 0;
+    beat = beat_samples();                              /* (the kernels' tempo, once a block: fx_ictx_t) */
     if (fx_ins_gov_req) {                               /* the governor: the highest running instance gives way */
         fx_ins_gov_req = 0;
         for (k = FX_INS_N; k-- > 0;)
@@ -166,14 +167,16 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         const fx_kernel_t *kn = fx_kernel_of(k);
         uint32_t blocks = 0u, sp, R = 2u;
         float need = 0.0f;
+        fx_ictx_t c;
         int on = k < nt && kn->on(t), deb = 0, live = d->state == FXS_RUN || d->state == FXS_RAMP;
         d->run = 0;
+        c.beat = beat; c.k = (uint8_t)k; c.trig[0] = fx_trig[k & 3u][0]; c.trig[1] = fx_trig[k & 3u][1]; c.trig[2] = fx_trig[k & 3u][2]; c.pad = 0;
         if (on) d->idle = 0;
         else if (k < nt && (d->state == FXS_RUN || d->state == FXS_RAMP) && d->idle < FX_IDLE) { on = 1; d->idle++; }   /* the effect off: muted, the instance and its memory stay a while */
         if (!live) { d->st_R = 0; d->st_blk = 0; d->idle = 0; }           /* (the size is sticky only while the line runs: one that is waiting for memory asks for what the times need now) */
         if (on) {                                           /* the size from the kernel: the rate stage (half rate while the farthest tap fits the most blocks, quarter rate when it does not) and the blocks, sticky */
-            uint32_t rs = kn->size_sig(t);
-            if (rs != d->rsig) { d->rneed = kn->size_need(t); d->rsig = rs; }       /* (made again only when what the sizing is made from changed) */
+            uint32_t rs = kn->size_sig(t, &c);
+            if (rs != d->rsig) { d->rneed = kn->size_need(t, &c); d->rsig = rs; }       /* (made again only when what the sizing is made from changed) */
             need = d->rneed;
             if (!d->st_R) d->st_R = 2u;
             if (kn->blocks_at(need, 2u) > kn->ram_work_max) R = 4u;
@@ -196,7 +199,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         }
         if (degrade && (d->state == FXS_RUN || d->state == FXS_RAMP)) { d->evict = 1; d->gov = 0; }
         else if (degrade && (d->state == FXS_WAIT || d->state == FXS_CLEAR)) { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; d->held_off = 1; d->gov = 0; }
-        kn->tick(d->kw, k);
+        kn->tick(d->kw, &c);
         switch (d->state) {
         case FXS_OFF:
             if (blocks) {
@@ -272,7 +275,6 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
             for (i = 0; i < CTL; i++) { int32_t a = x[i] < 0 ? -x[i] : x[i]; if (a > pk) pk = a; }
             if (pk > FX_THR) d->hold = d->hold_len;
             if (d->hold) {
-                fx_ictx_t c;
                 uint32_t ps;
                 c.kw0 = d->kw[0]; c.k = (uint8_t)k; c.R = d->R; c.nblk = fx_ins_have[k]; c.ramp = d->state == FXS_RAMP;
                 ps = kn->param_sig(t, &c);
@@ -307,7 +309,8 @@ JFX_XIP static void fx_ins_reset(void)
     fx_ins_evict = fx_ins_ev_full = fx_ins_gov_req = 0;
     fx_gov_cool = 0;
     memset(fx_pk, 0, sizeof fx_pk); fx_pk_n = 0; fx_pk_i = 0;
-    fx_kernel_of(0)->reset();                           /* (the kernel's RAM triggers, start released) */
+    memset(fx_trig, 0, sizeof fx_trig);                 /* the performance triggers (the host's, MIDI CC 16 to 18) start released */
+    fx_kernel_of(0)->reset();
 }
 #if OC_DUB_SRAM
 #pragma pop_macro("JFX_XIP")
