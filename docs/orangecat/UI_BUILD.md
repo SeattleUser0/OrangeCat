@@ -2323,3 +2323,24 @@ module path's are listed). The main loop runs on the user stack of `app.ld`: `_u
 Where the +1,836 is: `oc_mod_boot`'s own frame 180 -> 1,680 B (the picture check's 1,024-byte scene buffer and the publish's record, inlined into it) and `oc_mod_pages_check_rd` 212 -> 548 B (the checker's id list and slot bitmap). The audio side: `mac_on` 92 -> 112 B, `mix_block` 1,140 B
 unchanged, on the supervisor stack. If a margin ever matters, the cheap cut is the scene buffer: a static in `.pool` (the check runs only at boot and install, one at a time) takes 1,024 B back; not done, since the least margin of any path is 5,520 B and none of the
 module paths is the deepest. `run_tests.sh` has a step (`stack_depth.py --check`) that fails when the deepest path leaves under 1 KB. Caveat: a depth read from the code is an estimate (every push counted, none popped early), not a measurement on the unit.
+
+### r3-pages, November 3, 2026: DUB's needs folded into step 3 (the identifier moves once). For Session A
+
+**r3-pages had not been merged, so this is on r3-pages itself (not a new branch), after merging linux-hw round 15 (7c57605; one conflict, `web/test_ocm.mjs`, both sections kept).** The host suite on the last commit is stated at the end of this entry.
+
+**What changed since 667ac44 (all in `fw_pages.h` unless named):**
+1. **The format limit is `F_DUBSPD`** (was `F_TONE`): the checker accepts the DUB formats and `F_PANLR`, `F_ST16`. The fuzzer's model and `mod_pages_test` follow it.
+2. **`shown` and `put` for effects, with the instance signature, in the hashed structure.** `fw_pages_t.shown` and `.put` are unions at the same offsets (24, 28): the engine's (`track_t *`) and the effect's `fx_shown(slot, instance, id, &value)` and `fx_put(slot, instance, id, value)`. Wire size 80 unchanged,
+   `_Static_assert`ed on the device. Their signatures are inside the structure's text, so they are in the hash (`gen_fw_api_id.py --selftest` moves the id for a change to either). SC_FX may carry these two; it still refuses `native`, `active`, `motion_skip`, the title lists, `loaded`, `env_source`, `bend`, `knob[]` and `cc[]`.
+3. **Views:** a pid with `FW_PID_VIEW` (0x8000) has no legacy slot and needs both hooks (`FWP_PID` otherwise); `modui_publish` never offers a view as a knob target.
+4. **MODULE_FORMAT_R3.md section 15's DUB example is data in `tests/mod_ui_test.c`** (`make_dub`: three pages, 14 panel entries, the ten kept ids with today's legacy slots, four views, hooks over `dub_get_field`/`dub_put_field`) and **passes the checker as SC_FX**; the hooks are exercised (SYNC/PING/DRIVE/WOW read from MODE 65 and TAPE 8, TIME's format by SYNC, a write back in one store). 98 checks; mutation-checked (the limit, the views rule, the hook set, the view's slot).
+5. **The identifier:** `FW_API_ID` 0xCAF53177, the unit's `iface` **0x1400CEEF** (was 0xCC9AED54 in Release 2 at fd159be). SHAPES, WHEEL, the Prophet (and the rest) are rebuilt by CI. `mod_iface_r3_test` (Release 2's real headers refused with FW_MOD_BAD_IFACE, this build's accepted, every start) and `web/test_ocm.mjs` section 5 (the page: old refused as `modWrongFw`, new taken) pass.
+
+**Size and stack** (CI's build, SHAPES not in the image; linux-hw 7c57605 beside r3-pages d255be9): image **546,224 -> 548,332 B (+2,108)**, .data+.bss 94,904 -> 95,480 (+576). Against the 667ac44 figures (+2,492 / +544 over the older base) the step's own cost fell by 384 B of flash (the compiler's choices, and round 15's tables; not a change I made), the RAM
+rose by 32. Stack, `tools/stack_depth.py` (24,320 B user stack): boot 3,852 -> 5,688 (+1,836), install over SysEx 10,588 -> 12,424, from the card 8,480 -> 10,332, the whole loop's deepest 18,800 unchanged, margin 5,520 B.
+
+**What Session A must review (additions to the earlier list):** (a) the union: the host will call `fx_shown`/`fx_put` through the effect side only for SC_FX descriptors, and the engine's through the track side; nothing in the checker can tell which a hook is, only the scope (it checks the address, not the signature); (b) the view rule is a convention of the id space
+(0x8000), checked by the loader but not by the project writer: the project format must not store a view (step 4/7); (c) `F_DUBSPD` as the limit freezes that enum order as the module interface (a format added later extends the limit, an older firmware refuses the module).
+**What the owner will notice:** nothing on the unit yet (no shipped module uses the new fields): modules must be reinstalled once because the identifier moved, which the page says as before.
+
+### r3-pages: suite
