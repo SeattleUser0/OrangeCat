@@ -558,13 +558,12 @@ C is A plus new CCs (19 to 21, per track, RAM). B and C combine: C's keys on B's
 | Total, est. | **about 0.5 to 0.65 KB** | **about 0.5 to 0.7 KB** | **about 0.75 to 0.95 KB, 16 B of RAM** |
 | Drawing while played hard (measured: FDBK 1.15, a throw key every 300 ms, KICK every 500 ms, 10 frames a second) | 12,220 px a frame on average = 16.3 ms of SPI, worst 20,032 px = 26.8 ms | 11,837 px = 15.8 ms, worst 20,032 px | as A |
 
-The old view's figure was 16.4 ms on average (section 3), so none of the three is dearer to draw. The firmware image has 5,520 B of stack margin and the flash room of UI_BUILD.md's budget; any of
-the three is inside the part of it set aside for the performance view.
+The old view's figure was 16.4 ms on average (section 3), so none of the three is dearer to draw. I did not check the totals against UI_BUILD.md's budget table; at under 1 KB each they are small beside its 15 KB figures (r3-pages is 548,444 B of the 573,440 B body).
 
 **Recording (what exists today, and the one gap).** The lanes are whole ids: FDBK, SEND, FILTER, ECHO, TIM L, TIM R, SPRNG and SPEED, eight, lockable. SYNC, PING, DRIVE and WOW are packed two to an id
 (MODE, TAPE) and are **not lanes**; none of the three layouts puts them on a knob. Knobs, then, record. The keys have no lanes of their own, so: **a throw is recorded as the SEND lane** (the level
 while the key is down, the knob's value after: the same sound as the trigger); **CUT as the ECHO lane at 0** (ECHO 0 already mutes the loop's output and keeps its line, as CUT does; to be proved equal by a
-render when it is built, not here); **HOLD and DIVE/RISE (C) as the FDBK lane at 100 and the SPEED lane at 52 or 76**. **KICK has no lane**: it is a strike, not a level, and the ids are full until the
+render when it is built, not here); **HOLD and DIVE/RISE (C) as the FDBK lane at 100 and the SPEED lane at 0 or 127** (SPEED 64 is 0 semitones and a semitone is 5.33 steps: 0 is an octave down, 127 almost one up). **KICK has no lane**: it is a strike, not a level, and the ids are full until the
 Release 3 format's wider ids. Not decided (the owner's call, with Session A): record KICK as one new lane id taken from the wider ids, leave KICK unrecorded in the first build, or record it as a hidden
 gate lane in the step grid. Until then "everything is recorded" is true of every control but KICK.
 
