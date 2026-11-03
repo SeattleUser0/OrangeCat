@@ -508,6 +508,13 @@ lands for that track. Leaving DUB (SELECT, HOME) gives the octave back to the ke
 
 **The FX layer's cards (Release 3: the buffer effects as modules).** The player's surface for GLITCH, TAPE STOP, SHUFFLE and FREEZE stays the **quick layer's cards**: the FX layer open, the effect's key held, its four knobs on the four cards (DENS PITCH SIZE VARI and so on), as today. When the effects are modules, their descriptors (MODULE_FORMAT_R3.md 16) only **supply the cards' knobs**
 (labels, ranges, defaults, formats); they are not pages of EDIT's FX family, and the values stay RAM only (never saved). TAPE STOP's first card, SCRATCH, is a relative knob: the player turns it to move the tape by hand; it shows "TURN", not a value.
+**Built: layout C (branch dub-perf, November 3, 2026; the owner's pick from the options of round 9).** HOME's PICTURE mode gains a fourth page, **DUB**, in the turn PICTURE, DUB, TRACKS, CHORD
+while the selected track's ECHO is above 0 (it stays on the page if ECHO is turned to 0 there: the knob that turns it on is on it). Its four knobs are FDBK, SEND, FILTER and ECHO; no value row (a knob
+turned shows its value in the sound line); the tape loop (240 x 80) under the dials, and the octave C4 to B4 (keys 7 to 18) under that: the six throws on the white keys C to A at 10, 30, 50, 70, 85 and 100 percent,
+CUT on B, KICK on C#, HOLD on D#, DIVE on G#, RISE on A# (F# empty). The other keys play the track. `ui/dub_perf_screens.png` is the firmware's own screens (resting; FDBK past 1.00 with the 85 throw held; CUT, KICK
+and HOLD held; DIVE with the filter closed; FDBK turning), drawn by `tests/ui_render.c` in every palette under the layout lint. **Recording:** the knobs record on their own lanes, a throw as the SEND lane, CUT as
+the ECHO lane at 0 (ECHO 0 now closes the loop's output as CUT does, so the two play identically: tests/dub_perf_test.c); **KICK, HOLD, DIVE and RISE play live and are not recorded**, and the page's line says
+"BLACK: NOT RECORDED" (PROJECT_FORMAT_R3.md 8.2b designs their lane for the format revision). Not built: the choice of the octave that carries the keys, the throw levels' presets, the keys' LEDs.
 
 ### 8. The effects' pictures
 

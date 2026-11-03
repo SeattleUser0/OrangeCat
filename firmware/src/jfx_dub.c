@@ -60,6 +60,8 @@ JFX_XIP static void dub_times(const track_t *t, float *tl, float *tr)
     if (dub_mode_sync(DUB_V(t, DUBP_MODE))) { *tl = dub_sync_beats[dub_t_idx(DUB_V(t, DUBP_TIML))] * beat; *tr = dub_sync_beats[dub_t_idx(DUB_V(t, DUBP_TIMR))] * beat; }
     else { *tl = (float)dub_free_ms10(DUB_V(t, DUBP_TIML)) * 1e-4f; *tr = (float)dub_free_ms10(DUB_V(t, DUBP_TIMR)) * 1e-4f; }
 }
+/* (dub-perf) the wet of the last ECHO above 0 per instance: ECHO 0 closes the loop's output through the cut and leaves the wet where it was (a CUT recorded as ECHO 0 plays as CUT) */
+static __attribute__((section(".pool"))) float dub_wet_keep[FX_INS_N];
 /* fx_kernel_t.snap: track t's parameters for its instance: the ten ids through the table, and the triggers. c->ramp: the instance is ramping out (the cut) */
 JFX_XIP static void dub_snap(void *vp, const track_t *t, const fx_ictx_t *c)
 {
@@ -68,13 +70,16 @@ JFX_XIP static void dub_snap(void *vp, const track_t *t, const fx_ictx_t *c)
     memset(p, 0, sizeof *p);
     dub_times(t, &p->time_l, &p->time_r);
     p->ping = dub_mode_ping(DUB_V(t, DUBP_MODE));
-    p->speed = ddm_exp((float)(clamp(DUB_V(t, DUBP_SPD), 0, 127) - DUB_SPD_MID) * (0.69314718f / (float)DUB_SPD_MID));   /* 2^((v - 64) / 64) */
+    {   int32_t sv = clamp(DUB_V(t, DUBP_SPD), 0, 127);
+        if (dub_trig[c->k & 3u][4] >= 64) sv = dub_trig[c->k & 3u][5] >= 64 ? DUB_SPD_MID : 0;      /* DIVE (dub-perf): an octave down while held; with RISE both: normal */
+        else if (dub_trig[c->k & 3u][5] >= 64) sv = 127;                                         /* RISE: an octave up (127 is a semitone short of it) */
+        p->speed = ddm_exp((float)(sv - DUB_SPD_MID) * (0.69314718f / (float)DUB_SPD_MID)); }   /* 2^((v - 64) / 64) */
     p->wow = (float)dub_tape_wow(DUB_V(t, DUBP_TAPE)) * (1.0f / (float)(DUB_WOW_N - 1));
-    p->feedback = (float)clamp(DUB_V(t, DUBP_FDBK), 0, 127) * 0.01f;
+    p->feedback = (dub_trig[c->k & 3u][3] >= 64 ? 100.0f : (float)clamp(DUB_V(t, DUBP_FDBK), 0, 127)) * 0.01f;   /* HOLD (dub-perf): the loop neither builds nor decays */
     p->send = (float)(thr ? thr : clamp(DUB_V(t, DUBP_SEND), 0, 127)) * (1.0f / 127.0f);   /* a throw replaces SEND */
     if (filt < 64) { p->lp = 30.0f + 1.4f * (float)filt; p->hp = 15.0f; }                  /* one sweep: low-pass down .. */
     else { p->lp = 119.0f; p->hp = 15.0f + 1.6f * (float)(filt - 64); }                    /* .. high-pass up */
-    p->res = 0.3f; p->drive = (float)dub_tape_drive(DUB_V(t, DUBP_TAPE)) * (1.0f / (float)(DUB_DRIVE_N - 1)); p->wet = (float)echo * 0.01f; p->dry = 0.0f; p->glide = 0.12f; p->route = 1;
+    p->res = 0.3f; p->drive = (float)dub_tape_drive(DUB_V(t, DUBP_TAPE)) * (1.0f / (float)(DUB_DRIVE_N - 1)); p->wet = dub_wet_keep[c->k % FX_INS_N] = echo ? (float)echo * 0.01f : dub_wet_keep[c->k % FX_INS_N]; p->dry = 0.0f; p->glide = 0.12f; p->route = 1;
     p->spring = 2; p->sp_mix = (float)clamp(DUB_V(t, DUBP_SPRG), 0, 127) * (1.0f / 127.0f); p->sp_decay = 2.0f; p->sp_drive = 0.4f; p->sp_tone = 0.3f; p->sp_in = 0.3f;   /* the spring on the return, always there */
     p->tap_cut = 0.0f;
     p->crash = c->kw0;
@@ -90,7 +95,7 @@ static uint32_t dub_param_sig(const track_t *t, const fx_ictx_t *c)
     return ((uint32_t)(DUB_V(t, DUBP_MODE) & 3) | (uint32_t)c->R << 2 | (uint32_t)c->nblk << 5 | (uint32_t)c->ramp << 10 | (uint32_t)(dub_trig[k][1] >= 64) << 11 | (uint32_t)(DUB_V(t, DUBP_ECHO) == 0) << 12 | (uint32_t)(DUB_V(t, DUBP_TAPE) + 64) << 13) * 0x9E3779B1u
          ^ ((uint32_t)DUB_V(t, DUBP_FILT) | (uint32_t)DUB_V(t, DUBP_ECHO) << 8 | (uint32_t)DUB_V(t, DUBP_FDBK) << 16 | (uint32_t)DUB_V(t, DUBP_SEND) << 24) * 0x85EBCA6Bu
          ^ ((uint32_t)DUB_V(t, DUBP_TIML) | (uint32_t)DUB_V(t, DUBP_TIMR) << 8 | (uint32_t)DUB_V(t, DUBP_SPRG) << 16 | (uint32_t)(DUB_V(t, DUBP_SPD) & 127) << 24) * 0x27D4EB2Fu
-         ^ ((uint32_t)dub_trig[k][0] | c->kw0 << 8) * 0xC2B2AE35u ^ beat_samples() * 0x165667B1u;
+         ^ ((uint32_t)dub_trig[k][0] | c->kw0 << 8 | (uint32_t)(dub_trig[k][3] >= 64) << 16 | (uint32_t)(dub_trig[k][4] >= 64) << 17 | (uint32_t)(dub_trig[k][5] >= 64) << 18) * 0xC2B2AE35u ^ beat_samples() * 0x165667B1u;
 }
 static uint32_t dub_on(const track_t *t) { return DUB_V(t, DUBP_ECHO) != 0; }
 /* what the sizing is made from: the times, the mode (SYNC), the speed and the tempo */
@@ -146,7 +151,7 @@ DUB_HOT static void dub_process(void *state, const void *params, const float *in
 {
     dk_process((dd_t *)state, (const dd_params_t *)params, in, outL, outR);
 }
-static void dub_reset_k(void) { memset(dub_trig, 0, sizeof dub_trig); }   /* (the performance triggers, RAM only, start released) */
+static void dub_reset_k(void) { memset(dub_trig, 0, sizeof dub_trig); memset(dub_wet_keep, 0, sizeof dub_wet_keep); }   /* (the performance triggers, RAM only, start released) */
 
 /* DUB TAPE's descriptor: the plan's section 4 column. The capability words are what the firmware reads; the module has none of them to enforce */
 static const fx_kernel_t dub_kernel = {

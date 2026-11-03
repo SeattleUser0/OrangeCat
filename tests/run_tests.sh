@@ -637,6 +637,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
+    t "Control notes 124 to 127 (KICK, HOLD, DIVE, RISE) through every note-range path: recorder, replay, save and load, MIDI in, octave, transpose, scale layouts" control_notes_test -O1 $FW
     t "Restoring an event over a slot in use keeps the track's chain a chain (a hang failed the suite for 98 min), with its own alarm" restore_chain_test -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
     run "CI gate (tools/ci_gate.sh): no marker is red, the pass marker with a test count is green, the failed marker wins" sh tests/ci_gate_test.sh
@@ -771,6 +772,9 @@ if sound && [ $TABLES = 1 ]; then
         mod_ui_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (Release 3, step 8 decisions L1 to L4) a Release 2 project's reverb values load into the reverb module as they play today: the values, and a render against the resident reverb
     t "reverb modules (Release 3, L1): a Release 2 project of each mode imports into its module with the resident reverb's values and render; the other modes keep defaults" fx_legacy_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # (dub-perf) DUB TAPE's performance view: the keys, the triggers CC 19 .. 21, what records, CUT = ECHO 0 and the other triggers = their knobs through the resident kernel, the page, its draw budget
+    t "DUB TAPE performance view (dub-perf): the octave of keys, CC 19 .. 21, the SEND and ECHO lanes, CUT recorded as ECHO 0 plays as the trigger, the page and its budget; sanitizers" \
+        dub_perf_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
         "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt
     mkdir -p build/shapes_demo

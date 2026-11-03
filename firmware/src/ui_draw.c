@@ -158,6 +158,9 @@ static int head_toast(int32_t x)
         w += 40;                                        /* (a keycap: its pill wider than its word) */
     return m[0] && w > 236 - x;
 }
+#if OC_HOME_PIC
+static uint32_t home_pic_cycle(uint8_t *o);               /* (dub-perf) ui_home_pic.c: the pages of HOME's turn */
+#endif
 static void draw_head(void)
 {
     char b[16], chip[16];
@@ -227,8 +230,10 @@ static void draw_head(void)
 #if OC_HOME_PIC
         } else if (home_pic_on()) {                     /* (the new interface, UI_BUILD.md 1c) HOME's three pages, PICTURE TRACKS
                                                          * CHORD (home_pg 2, 0, 1), where there is room (none: no dots) */
-            uint32_t i, at = ui.home_pg == 2u ? 0u : ui.home_pg + 1u;
-            for (i = x + 6 + 40 <= 236 - cw - (low ? 22 : 0) - 6 ? 0u : 3u, x += 6; i < 3u; i++) {
+            uint8_t cyc[4];                             /* (dub-perf) PICTURE, DUB where it is in the turn, TRACKS, CHORD */
+            uint32_t i, nd = home_pic_cycle(cyc), at = 0;
+            for (i = 0; i < nd; i++) if (cyc[i] == ui.home_pg) at = i;
+            for (i = x + 6 + 40 + 12 * (nd - 3u) <= 236 - cw - (low ? 22 : 0) - 6 ? 0u : nd, x += 6; i < nd; i++) {
                 int32_t w = i == at ? 16 : 6;
                 cv_rrect(x, H_HEAD / 2 - 3, w, 6, 3, i == at ? T_THEME : T_LINE, T_BG);
                 x += w + 6;
@@ -1118,9 +1123,10 @@ static void draw_page(void)
             hp.landed = 1;
             home_pic_land();
         }
-        if (ui.home && ui.home_pg == 2u && !home_pic_on())   /* (never the picture with TRACKS chosen) */
+        if (ui.home && (ui.home_pg == 2u || ui.home_pg == DUB_PG) && !home_pic_on())   /* (never the picture with TRACKS chosen) */
             ui.home_pg = 0;
-        if (ui.home && ui.home_pg == 2u)                /* (the new interface, UI_BUILD.md 1c) HOME's picture page */
+        dub_view_on = (uint8_t)(ui.home && ui.home_pg == DUB_PG);   /* (dub-perf) the keys C4 .. B4 are the DUB page's while it shows */
+        if (ui.home && (ui.home_pg == 2u || ui.home_pg == DUB_PG))   /* (the new interface, UI_BUILD.md 1c) HOME's picture page, and DUB's */
             home_pic_draw();
         else
 #endif

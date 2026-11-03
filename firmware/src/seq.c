@@ -920,6 +920,8 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 }
 #endif
 
+#include "dub_keys.h"
+static uint32_t kb_dubk;                          /* (dub-perf) the keys the DUB page took (released as it took them) */
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
@@ -942,6 +944,12 @@ static void keyboard_block(void)
 
                 continue;
             }
+            if (dub_view_on && k >= DUBK_FIRST && k <= DUBK_LAST) {   /* (dub-perf) HOME's DUB page: the octave C4 .. B4 is its keys, not notes */
+                kb_note[k] = KB_SILENT;
+                kb_dubk |= 1u << k;
+                dub_key(k, kb_trk[k], 1);
+                continue;
+            }
             if (song.grid == 2u)                  /* NAME (ui_name.c): every key types, none sounds */
                 kb_note[k] = KB_SILENT;
             else if (song.grid)                   /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
@@ -955,6 +963,11 @@ static void keyboard_block(void)
             kb_lat(k);
 #endif
         } else {
+            if ((kb_dubk >> k) & 1u) {            /* (dub-perf) a DUB key let go, wherever the view is now */
+                kb_dubk &= ~(1u << k);
+                dub_key(k, kb_trk[k], 0);
+                continue;
+            }
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
                 if ((kb_fxk >> k) & 1u) {         /* (0.6.0) its effect let go, wherever the layer is now */

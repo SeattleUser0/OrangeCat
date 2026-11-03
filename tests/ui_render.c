@@ -2282,6 +2282,43 @@ int main(int argc, char **argv)
         fprintf(rep, "(the new interface 1c) HOME's picture page: %u screens in every palette\n", (unsigned)np);
         GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
+    {   /* (dub-perf) HOME's DUB page in every palette, linted and MONO gray: resting; FDBK past 1.00 with the 85 throw held; CUT, KICK and HOLD held; DIVE with the filter closed;
+         * FDBK turning (named in the sound line). NIGHT, DAY and CONTRAST written as PPMs (dub_perf_*) */
+        static const char *const DN[5] = {"rest", "build", "cut", "dive", "turn"};
+        uint32_t nd = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (int v = 0; v < 5; v++) {
+                char name[64], image[48];
+                state();
+                song.playing = 0;
+                GLO_SELECT |= HOME_PIC_BIT;
+                stage.knob_ms = 0; ui.hot_col = 0;
+                memset(&hp, 0, sizeof hp); memset(&dv, 0, sizeof dv);
+                hp.trk = (uint8_t)song.sel; hp.ph_ms = fm1_ms; hp.hit_ms = fm1_ms - HP_HIT_MS; hp.ready = 1; dv.hit_ms = fm1_ms - HP_HIT_MS;
+                memset(dub_trig, 0, sizeof dub_trig);
+                eng(ENGI_MACRO);
+                TSEL->p[P_DUB_ECHO] = 100; TSEL->p[P_DUB_FDBK] = 55; TSEL->p[P_DUB_SEND] = 127; TSEL->p[P_DUB_FILT] = 60;
+                if (v == 1) { TSEL->p[P_DUB_FDBK] = 115; dub_trig[song.sel % 4u][0] = 108; }
+                if (v == 2) { dub_trig[song.sel % 4u][1] = 127; dub_trig[song.sel % 4u][2] = 127; dub_trig[song.sel % 4u][3] = 127; }
+                if (v == 3) { dub_trig[song.sel % 4u][4] = 127; TSEL->p[P_DUB_FILT] = 20; }
+                if (v == 4) { TSEL->p[P_DUB_FDBK] = 112; ui.hot_col = 0; stage.knob_ms = fm1_ms | 1u; }
+                snprintf(image, sizeof image, "dub_perf_%s", DN[v]);
+                ui.home = 1; ui.home_pg = DUB_PG; hp.landed = 1;
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (uint32_t k = 0; k < UI_RENDER_SHOW; k++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], image);
+                memset(dub_trig, 0, sizeof dub_trig);
+                nd++;
+            }
+        fprintf(rep, "(dub-perf) HOME's DUB page: %u screens in every palette\n", (unsigned)nd);
+        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
+    }
 #endif
 #if OC_HOME_PIC
     {   /* (ui-fix2 6) the SHAPES cat's cycles: the paw's bat and the tail's wag, 8 frames of the phase turning once (the phase set a eighth of a turn

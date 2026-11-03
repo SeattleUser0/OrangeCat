@@ -38,6 +38,13 @@
 #define HP_PIC_H 132                                    /* (the scenes' design box: 240 x 132) */
 #define HP_FRAME_MS 100u                                /* the picture's frame: 10 frames a second at most */
 #define HP_HIT_MS 160u                                  /* SS_HIT falls from 256 to 0 over this long after a note-on */
+/* (dub-perf) HOME's fourth page, DUB (ui_home_pic.c; UI_DESIGN.md section 7, layout C): FDBK SEND FILTER ECHO on the four knobs, the tape loop (240 x 80) under the dials, the
+ * octave of keys under it. No value row: a knob turned shows its value in the sound line (the mockups' layout, ui/dub2_c_*.png) */
+#include "dub_scene.h"                                  /* its picture, in the image (the pack has no room: the file says) */
+#define DP_PIC_Y 86
+#define DP_PIC_H 80
+#define DP_KEYS_Y (DP_PIC_Y + DP_PIC_H)
+#define DP_KEYS_H (240 - DP_KEYS_Y)
 #define HP_CELL_X(k) (2 + 60 * (int32_t)(k))            /* (a knob's cell: 57 px at x 2 + 60 k, as the pages' cards: ui.c CARD_X) */
 
 static struct {
@@ -51,6 +58,11 @@ static struct {
     uint8_t note, trk, landed, ready;                   /* the last note; the track the state is of; HOME landed on the picture; the
                                                          * state is of trk (0: the first frame) */
 } hp;
+static struct {                                         /* (dub-perf) the DUB page's: its scene, the KICK strike, what the keys last drew */
+    uint32_t hit_ms, sig_keys;
+    uint8_t kick;
+} dv;
+static int hp_dub(void) { return ui.home && ui.home_pg == DUB_PG; }
 
 static uint32_t hp_hash(uint32_t h, const void *p, uint32_t n)   /* FNV-1a */
 {
@@ -121,7 +133,7 @@ static void hp_sound_line(int pack_missing)
     sig = hp_hash(2166136261u, name, str_len(name));
     sig = hp_hash(sig, pos, str_len(pos));
     sig = hp_hash(sig, val, str_len(val)) + (uint32_t)(hot + 2) * 7919u + song.sel * 131u + ux.gen * 977u +
-          (uint32_t)pack_missing * 31u + (label ? 1u : 0u);
+          (uint32_t)pack_missing * 31u + (label ? 1u : 0u) + (hp_dub() ? 0x2D0Bu : 0u);
     if (!ui.force && sig == hp.sig_sound)
         return;
     hp.sig_sound = sig;
@@ -136,6 +148,8 @@ static void hp_sound_line(int pack_missing)
         cv_text(x + 12, ty_y(12, TY_TX), TY_TX, val, T_TEXT);
     } else if (pack_missing) {
         cv_text(32, ty_y(12, TY_TX), TY_TX, "PACK MISSING", T_REC);
+    } else if (hp_dub()) {                              /* (dub-perf) the page's name, and what the keys do not do */
+        cv_text(32, ty_y(12, TY_LB), TY_LB, "BLACK: NOT RECORDED", T_MID);     /* (the view's help line: the four keys with no lane sound and are not recorded) */
     } else {
         int32_t room = 236 - (pos[0] ? text_w(TY_LB, pos) + 8 : 0) - 32;
         cv_free_text(32, ty_y(12, TY_TX), TY_TX, name, T_TEXT, T_BG, room);
@@ -250,9 +264,23 @@ static void hp_inputs(scene_in_t *in)
         in->s[SS_K1 + k] = (int16_t)(q < 0 ? 128 : q);
         /* the knob-rate phase: 0.5 Hz at 0 to 3 Hz at full, in 1/65,536 of a turn (ui-fix2 6: it was 0.1 Hz at 0, a turn in ten seconds, which
          * at a knob's left end no one could see move; at 10 frames a second 3 Hz is still three turns of three frames) */
-        hp.ph[k] = (uint16_t)(hp.ph[k] + (uint64_t)dt * (uint32_t)(500 + 2500 * (q < 0 ? 0 : q) / 256) * 65536u / 1000000u);   /* (64
+        uint32_t mhz = (uint32_t)(500 + 2500 * (q < 0 ? 0 : q) / 256);
+        if (hp_dub() && k == 0u) {                      /* (dub-perf) the loop's turn: 0.3 Hz at 0, 0.8 at FDBK 1.00, fast past it; HOLD holds it at 1.00's */
+            uint32_t fb = dub_trig[song.sel % 4u][3] >= 64 ? 100u : (uint32_t)clamp(t->p[P_DUB_FDBK], 0, 127);
+            mhz = 300u + 5u * (fb < 100u ? fb : 100u) + 80u * (fb > 100u ? fb - 100u : 0u);
+        }
+        hp.ph[k] = (uint16_t)(hp.ph[k] + (uint64_t)dt * mhz * 65536u / 1000000u);   /* (64
                                                          * bits: dt x milli-hertz x 65,536 passes 32: the review) */
         in->s[SS_PH1 + k] = (int16_t)(hp.ph[k] >> 8);
+    }
+    if (hp_dub()) {                                     /* (dub-perf) the sources of the DUB picture: the throw in force, the strike, the input open */
+        const uint8_t *tg = dub_trig[song.sel % 4u];
+        if (tg[0]) in->s[SS_K2] = (int16_t)(tg[0] * 256 / 127);
+        if ((tg[2] >= 64) && !dv.kick) dv.hit_ms = now;
+        dv.kick = (uint8_t)(tg[2] >= 64);
+        hp.hit_ms = dv.hit_ms;                          /* (a note the track plays is not a strike) */
+        gate = tg[1] < 64;
+        env = 0;
     }
     in->s[SS_ENV] = (int16_t)(env >> 7);                /* (Q15 -> 0 .. 256) */
     in->s[SS_HIT] = (int16_t)(now - hp.hit_ms < HP_HIT_MS ? (int32_t)(HP_HIT_MS - (now - hp.hit_ms)) * 256 / (int32_t)HP_HIT_MS : 0);
@@ -322,21 +350,104 @@ static void hp_picture(void)
     }
 }
 
+
+/* ---- (dub-perf) the DUB page's picture and keys (UI_DESIGN.md section 7, layout C; the mockups ui/dub2_c_*.png, tests/ui_mockup_dub2.h) ---- */
+static void dv_picture(void)
+{
+    scene_in_t in;
+    uint32_t sig;
+    if (!ui.force && fm1_ms - hp.pic_ms < HP_FRAME_MS)
+        return;
+    hp_inputs(&in);
+    sig = hp_hash(2166136261u, &in, sizeof in) + (uint32_t)(uintptr_t)SCENE_DUBTAPE;
+    if (!ui.force && sig == hp.sig_pic)
+        return;
+    hp.sig_pic = sig;
+    hp.pic_ms = fm1_ms;
+    CV_BANDS(0, DP_PIC_Y, 240, DP_PIC_H, T_BG) {
+        scene_draw(SCENE_DUBTAPE, 0, DP_PIC_H - SCENE_DUBTAPE[2], &in);
+    }
+}
+/* the keys: the octave C4 .. B4 as the view's (dub_keys.h), a key lit while its trigger is held, by what dub_trig says (so a controller's CC lights them too) */
+static void dv_keys(void)
+{
+    static const char *const WL[7] = {"10", "30", "50", "70", "85", "100", "CUT"};
+    static const uint8_t BW[5] = {0, 1, 3, 4, 5};      /* a black key after the white keys C D F G A */
+    static const char *const BL[5] = {"KICK", "HOLD", "", "DIVE", "RISE"};
+    const uint8_t *tg = dub_trig[song.sel % 4u];
+    uint32_t on = 0, i, sig;
+    uint16_t bc[5];
+    int32_t bx[5], edge = 0;
+    for (i = 0; i < 6u; i++) on |= (uint32_t)(tg[0] && tg[0] == DUBK_LEVEL[i]) << i;
+    on |= (uint32_t)(tg[1] >= 64) << 6;
+    on |= (uint32_t)(tg[2] >= 64) << 8 | (uint32_t)(tg[3] >= 64) << 9 | (uint32_t)(tg[4] >= 64) << 11 | (uint32_t)(tg[5] >= 64) << 12;
+    sig = on + ux.gen * 977u + 0x4B455953u;
+    if (!ui.force && sig == dv.sig_keys)
+        return;
+    dv.sig_keys = sig;
+    bc[0] = T_COZY(3); bc[1] = T_COZY(0); bc[2] = T_DIM; bc[3] = T_COZY(2); bc[4] = T_COZY(2);
+    CV_BANDS(0, DP_KEYS_Y, 240, DP_KEYS_H, T_BG) {
+        for (i = 0; i < 7u; i++) {                      /* the white keys: the throws in SEND's color, CUT in REC's */
+            int32_t x = 2 + (int32_t)i * 34, lit = (int32_t)((on >> i) & 1u);
+            uint16_t c = i == 6u ? T_REC : T_COZY(1), f = lit ? c : T_QUIET;
+            cv_rrect(x, 20, 32, 52, 4, lit ? c : T_LINE, T_BG);
+            cv_rrect(x + 1, 21, 30, 50, 3, f, lit ? c : T_LINE);
+            cv_text_c(x + 16, ty_y(61, TY_LB), TY_LB, WL[i], lit ? T_INK : c, f);
+        }
+        for (i = 0; i < 5u; i++) {                      /* the black keys */
+            int32_t lit = (int32_t)((on >> (8u + i)) & 1u), live = BL[i][0] != 0;
+            bx[i] = 2 + ((int32_t)BW[i] + 1) * 34 - 1;
+            cv_rrect(bx[i] - 11, 18, 22, 30, 3, T_BG, T_QUIET);
+            cv_rrect(bx[i] - 10, 18, 20, 29, 3, lit ? bc[i] : ux_mix(T_BG, bc[i], live ? 28 : 8), T_BG);
+            if (live) {                                 /* its name above, pushed right of the one before (a name is wider than a key), the tick on the key */
+                int32_t w = text_w(TY_LB, BL[i]), x0 = bx[i] - w / 2;
+                if (x0 < edge + 3) x0 = edge + 3;
+                if (x0 < 1) x0 = 1;
+                edge = x0 + w;
+                cv_text(x0, ty_y(8, TY_LB), TY_LB, BL[i], lit ? T_TEXT : bc[i]);
+                cv_rect(bx[i], 15, 1, 4, bc[i]);
+            }
+        }
+    }
+}
+
 /* ---- the page ---- */
 static void home_pic_draw(void)
 {
     int pack_missing = kdef_of(TSEL->eng_req) && !OC_PACK_READY() && !modui_of(TSEL->eng_req);   /* (a module with its own picture needs no pack) */
     if (ui.force)
         hp.sig_sound = hp.sig_dials = hp.sig_values = hp.sig_pic = 0;
+    if (hp_dub()) {                                     /* (dub-perf) DUB: no value row, the loop, the keys */
+        if (ui.force) dv.sig_keys = 0;
+        pack_missing = 0;                               /* (its picture is in the image) */
+        hp_sound_line(pack_missing);
+        hp_dials();
+        dv_picture();
+        dv_keys();
+        return;
+    }
     hp_sound_line(pack_missing);
     hp_dials();
     hp_values();
     hp_picture();
 }
 /* HOME tapped on HOME (ui_input.c): PICTURE, TRACKS, CHORD in turn */
+/* HOME's pages in turn (dub-perf): PICTURE, DUB (while the selected track's ECHO is above 0, or it is the page showing), TRACKS, CHORD; n of them in o[] */
+static uint32_t home_pic_cycle(uint8_t *o)
+{
+    uint32_t n = 0;
+    o[n++] = 2;
+    if (TSEL->p[P_DUB_ECHO] > 0 || ui.home_pg == DUB_PG) o[n++] = DUB_PG;
+    o[n++] = 0;
+    o[n++] = 1;
+    return n;
+}
 static void home_pic_next(void)
 {
-    ui.home_pg = (uint8_t)(ui.home_pg == 2u ? 0u : ui.home_pg == 0u ? 1u : 2u);
+    uint8_t o[4];
+    uint32_t n = home_pic_cycle(o), i;
+    for (i = 0; i < n && o[i] != ui.home_pg; i++) {}
+    ui.home_pg = o[(i + 1u) % n];
     ui.force = 1;
 }
 /* HOME entered (go_home, the first frame after power-on): its landing page, the picture when PICTURE is chosen */
