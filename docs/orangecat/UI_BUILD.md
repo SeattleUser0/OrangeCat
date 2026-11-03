@@ -2387,3 +2387,17 @@ The on-unit sequencer test for ui-fix2 is still yours (checks 28 to 34, and an o
 (the 98-minute drum_editor_test hang). No path from the panel to it is shown (the callers restore into a free or freshly unlinked slot), so it is a hardening: `recording.c`, three lines, `tests/restore_chain_test.c`.
 
 **Open for the owner:** the first pad edit of a drum cell converts the whole cell to events with `length` 1 (gated at one step); an untouched snare beside the edited kick is cut at one step instead of decaying. The ui-fix 7 text says a hit's natural length is `length` 0 (host only today: MELODEE_DRUM=0).
+
+## ui-fix2: a drum cell's edit never changes a sound you did not touch (November 2, 2026): for Session A
+
+**For Session A: ui-fix2 (the commit after 3463f98) carries this fix; the host suite (`ci_step.py test --parallel 3`, the build set on, a time limit on every test) passed on 43f8453 in 3,080 s.** The owner's rule: an edit never changes a sound you did not touch. The first pad edit of a drum cell converts the cell to events
+(ONE_AUTH, `note_convert`); the converted test had enshrined that an untouched snare was then cut at one step. **Two things changed the untouched hits, both fixed:**
+1. **Length** (`note_tools.c` `note_convert`): every converted drum hit was flagged `length` 1, gated at its step; a manual hit plays its sound's natural length. Converted hits now keep `length` 0 (natural); the pad's length edit sets the flag on the one hit it touches
+   (`notes_event_edit` slot 4 already did: from natural, up is a length; below a sixteenth is natural again).
+2. **Accent** (`seq_notes.c` `notes_rebuild`): a cell holding one accented lane (velocity above 110) got the step flag `SF_ACCENT`, and a recorded step plays **every** event of an accented step at 127 (`recording_shape`): converting a cell with an accented snare made the unedited kick play at 127 instead of its 100.
+   Found by the render check, not by looking: for a drum track the step flag is no longer set from the events' velocities (the lanes' `acc` carries the accent, per lane, as a manual cell does). Not changed, for the owner: a **melodic** recorded chord still accents as a group (one note over 110 accents the whole step, release 2's rule): an edit of one note's velocity can change the others.
+
+**The check** (`tests/drum_editor_test.c`, `untouched_lanes`): a cell of a kick and an accented snare is played by the sequencer into `mix_block` for 1,400 blocks (about a second, several steps) and rendered; then the same cell after a one-pad edit (pitch +7, then a half-step length) of one lane, rendered
+with **that** lane's level at its attenuation maximum, so what is left is the untouched lane; the two renders must be equal sample for sample, for the kick edited and for the snare edited. It fails on the old firmware for each of the two causes alone (mutation-checked: the old length alone fails two checks, the old accent alone one). The converted
+test asserts the natural length again (`!length`; a half step from natural is eight sixteenths up, `HALF_STEP`), and `one_auth_test` PADS drives the same gesture. Both models (the set on, every switch off) pass.
+**What changes for the player:** a cell of drum hits you edit with one pad keeps every other hit exactly as it sounded; the hit you edited changes. No other behaviour moves.
