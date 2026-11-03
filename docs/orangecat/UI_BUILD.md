@@ -2429,3 +2429,5 @@ behind them: subtraction of one note's render from the chord's is off by up to 1
   and the chord's notes start a few samples apart by pitch (events of equal time come out of the chain in the order put in, and an edit puts its note back first: which voice plays which note changed with the edit, same sound, other phases). With that the RENDER checks fail on the old accent logic as well as the VOICE ones.
 - **UI_DESIGN.md** now says what the step accent is (section 4, "Accent: a note's and a step's"): the deliberate accent (FEEL's TYPE, the tracker, a manual step's, a project's from before), never derived from the velocities; a note's own accent is its velocity above 110.
 **What the owner will notice:** nothing new on the unit except that EDIT held after a velocity edit on an accented step now restores the other notes' velocities too (the display of a note's velocity shows its stored value), and a refusal message in the rare step with more than eight notes.
+
+**Suite:** the full host suite (`ci_step.py test --parallel 3`, the build set on, a time limit on every test) passed on 6d7a15f in 3,396 s; the commits after it are this note.
