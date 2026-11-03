@@ -1,3 +1,18 @@
+# Orange Cat Nightly v0.16.0-7c5760 (Release 3, step 1): what changed for you since a5e868
+
+Written November 3, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged.
+
+1. **The module area is 18 sectors, not 12** (flash 0xC2000 to 0xD3FFF). Nothing you own changes: SHAPES and WHEEL install where they did, and the room is there for the effects that become modules later. The six new sectors came from the sample slot, which is now 64 KB (samples are still off).
+2. **The first boot migrates the store.** Any saved project part that lived in those six sectors is moved before they are used. On the test unit I planted live project records there first: after the upgrade projects 2, 3 and 4 read back byte for byte and the music is identical; project 1 was re-saved at that reboot with the same music (I did not isolate why).
+3. **What the downgrade line means for you:** a firmware older than this one does not see modules installed in the new part of the area, and its sample-slot commands could overwrite them. Today no module uses the new part, so going back to a5e868 or earlier loses nothing; once a later Nightly puts an effect there, going back means installing it again. The installer page says this in one line.
+4. **A project with a SHAPES track keeps its preset and settings when the SHAPES module is missing** (found on the unit: the preset was reset to 0 and the next autosave wrote that over your project; fixed). The screen says MODULE MISSING on load, on a key and when the engine is chosen; reinstalling the module from the page brought the track back playing, preset 5 and level unchanged.
+5. **Both installs from the live page were done on the test unit:** over the previous Nightly's SHAPES-less state (firmware installed, SHAPES module installed) and from stock V15 (firmware, pack and both modules installed).
+6. **Not merged:** Session C's ui-fix2 and its r3-pages branch (neither listed as ready for me); Release 3 step 4 (module ids and the kind field) is built and host-tested on branch r3-step4, not merged, not flashed.
+
+The earlier note for a5e868 follows.
+
+---
+
 # Orange Cat Nightly v0.16.0-a5e868: what changed for you since 449c6b
 
 Written November 2, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged.
