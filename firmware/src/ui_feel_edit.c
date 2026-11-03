@@ -16,6 +16,9 @@
  *   (the new interface 0.4, branch ui-build) first version.
  */
 #if OC_STEP_PAGES
+#if OC_MGRID
+static void mgrid_knob(uint32_t k, int32_t s);                  /* ui_mgrid_edit.c */
+#endif
 static int feel_page(void) { return !ui.home && cur_page()->graph == GR_FEEL; }
 /* a melodic NOTES page (the drum grid and a drum track's roll keep release-2's knobs) */
 static int notes_page(void) { return !ui.home && cur_page()->graph == GR_ROLL && !grid_on() && !drum_track(TSEL); }
@@ -116,6 +119,14 @@ static int steppg_knob(uint32_t k, int32_t s)
         feel_edit(k, s);
         return 1;
     }
+#if OC_MGRID
+    if (mgrid_page()) {                                 /* (melodic-grid) STEP, NOTE in the chord, PITCH, LEN */
+        ui.hot_col = (uint8_t)k;
+        ui.hot_t = 40;
+        mgrid_knob(k, s);
+        return 1;
+    }
+#endif
     if (notes_page() && !bulk.on && !ui.note_move && !ui.note_copy) {
         ui.hot_col = (uint8_t)k;
         ui.hot_t = 40;

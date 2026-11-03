@@ -279,6 +279,7 @@ def app_flags():
                  "OC_ONE_AUTH",     # (ui-fix 7: UI_BUILD.md "ui-fix 7") one authority for every note; needs OC_STEP_PAGES=1; off by default
                  "OC_SLIDE",        # (ui-fix 8: UI_BUILD.md "ui-fix 8") slide as a legato glide in every voice mode; needs OC_STEP_PAGES=1; off by default
                  "OC_REC_CLEAR",    # (ui-fix2 2: UI_BUILD.md "ui-fix2 2") REC held, stopped: the clears with a countdown; needs OC_STEP_PAGES=1; off by default
+                 "OC_MGRID",        # (melodic-grid: UI_BUILD.md "melodic-grid") SEQ > GRID, the melodic step grid; needs OC_ONE_AUTH=1; off by default
                  "OC_PROJECT_PAGE",    # (ui-fix2 3: UI_BUILD.md "ui-fix2 3") the plain project page; off by default
                  "OC_SLIDE_TIME",      # (ui-fix2 4: UI_BUILD.md "ui-fix2 4") SLIDE TIME, a per-track value on P_RESERVED48; needs OC_SLIDE=1; off by default
                  "OC_START_NUDGE"):    # (ui-fix2 5: UI_BUILD.md "ui-fix2 5") NOTES' KNOB 2 on a typed note is NUDGE; needs OC_ONE_AUTH=1; off by default

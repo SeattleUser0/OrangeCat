@@ -501,6 +501,12 @@ static uint32_t steps_hash(const track_t *t)
     return h;
 }
 
+#if OC_MGRID
+#include "ui_mgrid.c"                                   /* (melodic-grid) SEQ > GRID's tiles, strip and stage */
+#else
+#define mgrid_page() 0
+#endif
+
 static uint32_t str_hash(uint32_t h, const char *s)
 {
     while (*s)
@@ -799,6 +805,10 @@ static uint32_t graph_sig(int play)
         h ^= (uint32_t)song.g[G_SWING] * 65537u + pr_held() * 15331u;
         if (play) h ^= (uint32_t)(notes_play_x(t) + 1) * 31u;
     }
+#if OC_MGRID
+    if (pg->graph == GR_MGRID)                       /* (melodic-grid) GRID: the tiles, the cursor, the page, the stage */
+        h = (h ^ mgrid_sig(t)) * 16777619u;
+#endif
 #if OC_STEP_PAGES
     if (pg->graph == GR_FEEL)                        /* (the new interface 0.4) FEEL: the tiles' values, the cursor, the range */
         h = (h ^ feel_sig(t)) * 16777619u;
@@ -1051,6 +1061,12 @@ static void draw_graph(void)
                 if (grid_on()) graph_grid(t, c);
                 else { proll.play = notes_play_x(t); graph_recorded_notes(t, c); }
                 break;
+#if OC_MGRID
+            case GR_MGRID:                               /* (melodic-grid, ui_mgrid.c) */
+                cv_oy = 0;
+                graph_mgrid(t, c);
+                break;
+#endif
 #if OC_STEP_PAGES
             case GR_FEEL:                                /* (the new interface 0.4, ui_feel.c) */
                 cv_oy = 0;

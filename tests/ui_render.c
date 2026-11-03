@@ -2591,6 +2591,59 @@ int main(int argc, char **argv)
         fprintf(rep, "(the new interface 0.4) the step pages: %u screens over every palette\n", (unsigned)nm);
     }
 #endif
+#if OC_MGRID
+    {   /* (melodic-grid) SEQ > GRID: the STEP stage (notes, a chord, a recorded step, the step playing, an empty phrase, a phrase of 40 steps on its third page: the steps past LEN
+         * faint, the last two pages dim), the NOTE stage, in every palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (grid_<scene>) */
+        static const char *const SN[] = {"grid_step", "grid_note", "grid_chord", "grid_rec", "grid_play", "grid_empty", "grid_page3", "grid_tie"};
+        uint32_t w, nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (w = 0; w < sizeof SN / sizeof SN[0]; w++) {
+                char name[64];
+                uint32_t j, i;
+                state();
+                song.playing = 0;
+                eng(ENGI_MACRO);
+                TSEL->engine = TSEL->eng_req;
+                track_defaults_steps(TSEL);
+                TSEL->p[P_SLEN] = w == 6u ? 40 : 16;
+                bulk.on = 0;
+                mgrid_reset();
+                if (w != 5u) {
+                    for (i = 0; i < 12u; i += 2u) { TSEL->step[i].note[0] = (uint8_t)(48u + i); TSEL->step[i].n = 1; TSEL->step[i].time = ST_NOTE; TSEL->step[i].vel = 96; }
+                    if (w == 2u) { TSEL->step[4].n = 3; TSEL->step[4].note[1] = 64; TSEL->step[4].note[2] = 67; }
+                    if (w == 7u) { TSEL->step[8].time = ST_TIE; TSEL->step[9].time = ST_TIE; }
+                }
+                go_title("GRID");
+                if (w == 6u) { TSEL->step[33].note[0] = 70; TSEL->step[33].n = 1; TSEL->step[33].time = ST_NOTE; cursor_set(33); ui.bank = 2; }
+                else cursor_set(4);
+                if (w == 1u || w == 2u) mg.stage = 1;
+                if (w == 2u) ui.note_slot = 1;
+                if (w == 3u) {
+                    recorded_note_t r = {.step = 6, .on = 20000, .note = 64, .vel = 90, .duration = RECORD_UNIT * 3u / 2u, .owner = (uint8_t)recording_owner(TSEL), .length = 1};
+                    recording_restore_note(TSEL, 0, r);
+                    note_rebuild_all();
+                    cursor_set(6);
+                    ui.note_pick = 0;
+                    notes_selected(TSEL);
+                }
+                if (w == 4u) { song.playing = 1; TSEL->seq_idx = 6; }
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, SN[w]);
+                cur_name = name;
+                pal(p);
+                ui.force = 1;
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(SN[w]); aud = 0; mono_check(); }
+                for (j = 0; j < UI_RENDER_SHOW; j++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[j])) write_ppm(out, SHOW[j], SN[w]);
+                mgrid_reset();
+                song.playing = 0;
+                nm++;
+            }
+        fprintf(rep, "(melodic-grid) SEQ > GRID: %u screens over every palette\n", (unsigned)nm);
+    }
+#endif
 #if OC_LANES
     {   /* (the new interface 0.5, UI_BUILD.md step 5) DRUM-X's LANES table with lane 0, 2 and 7 picked and the kit's values moved, in every
          * palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (lanes_<n>) */

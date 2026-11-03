@@ -35,6 +35,7 @@ export OC_HOME_PIC=1 OC_EDIT_SHEETS=1 OC_SHIFT_MAP=1 OC_STEP_PAGES=1 OC_LANES=1 
 export OC_ONE_AUTH=1   # (ui-fix 7, branch ui-fix) one authority for every note; waits for Session A's on-unit sequencer test before a merge
 export OC_SLIDE=1      # (ui-fix 8, branch ui-fix) slide and legato; the same
 export OC_REC_CLEAR=1  # (ui-fix2 2, branch ui-fix2) REC held, stopped: the clears with a countdown; waits for Session A's on-unit sequencer test before a merge
+export OC_MGRID=1   # (melodic-grid) SEQ > GRID, the melodic step grid; waits for Session A's on-unit check before a Nightly
 export OC_PROJECT_PAGE=1  # (ui-fix2 3, branch ui-fix2) the plain project page: SAVE opens it, the slot in use marked, LOAD warns of unsaved changes
 export OC_SLIDE_TIME=1  # (ui-fix2 4, branch ui-fix2) SLIDE TIME per track; waits for Session A's on-unit sequencer test before a merge
 export OC_START_NUDGE=0  # (ui-fix2 5, branch ui-fix2) OFF in round 13: it was Session C's way round the 'NO EDIT MEMORY' of START on a typed note; round 12 fixed the cause (BUILD 7.23) and the owner asked that START move a note freely within the loop (nudge stops at half a step). Code and tests stay (the switch builds).
