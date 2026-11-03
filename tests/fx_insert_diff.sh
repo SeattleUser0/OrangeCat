@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Release 3 step 5 (docs/orangecat/FX_MODULES_PLAN.md 14): the differential gate of the generic insert host. Builds tests/fx_insert_test.c (the probe) against this tree (NEW)
-# and against the tree before the cut (OLD: firmware/ and tests/ of commit 09d4d4b3, extracted with git archive), runs both and compares what they print, line for line:
+# and against the last tree whose resident DUB kernel was ONE file (OLD: firmware/ and tests/ of commit d620160d, extracted with git archive: the insert host of step 5 with dub-perf's HOLD, DIVE, RISE
+# and ECHO 0 in jfx_dub.c; round 18 moved those into dub_kern.h, which the resident kernel and the module share), runs both and compares what they print, line for line:
 # the hash of every output sample and of the behaviour of every scenario. Then NEW against tests/fx_insert_golden.txt, the OLD printout pinned (for a checkout without the history).
 #   tests/fx_insert_diff.sh [OUTDIR]        run from the repo root; the compile flags are run_tests.sh's (CC, BS in the environment, or the defaults below)
 #   tests/fx_insert_diff.sh --mutate [OUTDIR]   the mutation check: the same, with one constant changed in a copy of the NEW insert host (FX_RAMP 6 -> 7); it must FAIL
 #   tests/fx_insert_diff.sh --golden [OUTDIR]   write tests/fx_insert_golden.txt from the OLD printout
-OLD_COMMIT=${OLD_COMMIT:-09d4d4b3}
+OLD_COMMIT=${OLD_COMMIT:-d620160d}   # (until round 18: 09d4d4b3, the tree before step 5's cut; its printout differs from d620160d's in LONG, MEM and R2 by one behaviour, dub-perf's ECHO 0 keeping the wet of the last nonzero ECHO: with that line of dub_kern.h set to drop it, NEW reproduces the 09d4d4b3 printout line for line)
 MODE=check
 case $1 in --mutate) MODE=mutate; shift ;; --golden) MODE=golden; shift ;; esac
 OUT=${1:-build/host}

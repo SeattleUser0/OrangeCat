@@ -14,13 +14,16 @@
 #include <stdint.h>
 #define FX_INS_N 4u                                     /* instances: one a track (DUB_N) */
 #define FX_INS_NSEG 24u                                 /* the pool: 96 KB of 4 KB blocks, shared (four lines of 24K, or one of 64K and two of 16K) */
+#define FX_NTRIG 6u                                     /* the performance triggers a track has (fx_ictx_t.trig): THRW CUT KICK HOLD DIVE RISE */
 #define FX_INS_MAXSEG 16u                               /* one line: 64 KB (a kernel's ram_work_max may not exceed it) */
 /* a stored parameter of a kernel: fw_fx.h's parameter row without the label. `legacy` is the Release 2 track slot (P_* id) the value is stored in (0xFFFF none) */
 typedef struct { uint16_t id, legacy; int16_t min, max, def; } fx_prow_t;
 /* what the host tells a kernel when it asks for a size, a tick, a parameter signature or a snapshot. kw0: the instance's kernel word 0 (kw[0]); k: the instance (= the track); R: the line's
  * rate divisor; nblk: line blocks held; ramp: ramping out (the cut); beat: samples a beat at the tempo in use (beat_samples()); trig: the track's performance triggers (MIDI CC 16 to 18: THRW,
- * CUT, KICK, 0 .. 127, RAM only, the host's: fx_trig). A field a call does not document is not set for it (size_sig and size_need: k and beat; tick: k, beat and trig) */
-typedef struct { uint32_t kw0; uint32_t beat; uint8_t k, R, nblk, ramp; uint8_t trig[3]; uint8_t pad; } fx_ictx_t;
+ * CUT, KICK, then (dub-perf) HOLD, DIVE, RISE: MIDI CC 16 to 21, 0 .. 127, RAM only, the host's: fx_trig). kw2: the instance's kernel word 2 (kw[2]), the ONLY word a kernel changes
+ * in the context: `snap` may write it and the host keeps it with the instance (DUB: the wet of the last ECHO above 0, as float bits: the module has no RAM of its own). A field a call does not
+ * document is not set for it (size_sig and size_need: k and beat; tick: k, beat and trig) */
+typedef struct { uint32_t kw0; uint32_t beat; uint32_t kw2; uint8_t k, R, nblk, ramp; uint8_t trig[FX_NTRIG]; uint8_t pad[2]; } fx_ictx_t;
 enum { FXK_SEED = 1, FXK_US = 2, FXK_TAIL_FAR = 4, FXK_TAIL_SILENT = 8 };   /* fx_kernel_t.flags: MODULE_FORMAT_R3.md 6's bits (uses the seed; cost in microseconds; tail adds the farthest tap; tail until silent) */
 /* the calls (CPU0 unless said): in a module, twelve words in its flash that the descriptor's caps block points at (FX_KCALLS_WIRE bytes on the device) */
 typedef struct fx_kcalls {
@@ -31,7 +34,7 @@ typedef struct fx_kcalls {
     uint32_t (*hold_len)(float need, uint32_t blocks, uint32_t R);   /* blocks the instance runs past the last audible input or wet */
     void (*tick)(uint32_t *kw, const fx_ictx_t *c);     /* once a block for every instance, running or not (DUB: the KICK edge) */
     uint32_t (*param_sig)(const track_t *t, const fx_ictx_t *c);   /* a hash of what the snapshot is made from, host facts included */
-    void (*snap)(void *params, const track_t *t, const fx_ictx_t *c);   /* the parameter snapshot (FX_PARAM_BYTES), from the track's stored ids through `rows` */
+    void (*snap)(void *params, const track_t *t, fx_ictx_t *c);   /* the parameter snapshot (FX_PARAM_BYTES), from the track's stored ids through `rows`; may set c->kw2 */
     uint32_t (*cost_extra)(const track_t *t, uint32_t extra);   /* units added to the batch cost (DUB: the spring attached, WOW) */
     void (*start)(void *state, uint32_t R, int16_t *const *blk, uint32_t nblk, int16_t *extra);   /* (re)start from silence on the blocks given; extra: the option's memory or 0 */
     void (*process)(void *state, const void *params, const float *in, float *outL, float *outR);   /* CPU1: one block */
@@ -58,7 +61,7 @@ typedef struct fx_kernel {
     uint32_t (*hold_len)(float need, uint32_t blocks, uint32_t R);
     void (*tick)(uint32_t *kw, const fx_ictx_t *c);
     uint32_t (*param_sig)(const track_t *t, const fx_ictx_t *c);
-    void (*snap)(void *params, const track_t *t, const fx_ictx_t *c);
+    void (*snap)(void *params, const track_t *t, fx_ictx_t *c);
     uint32_t (*cost_extra)(const track_t *t, uint32_t extra);
     void (*start)(void *state, uint32_t R, int16_t *const *blk, uint32_t nblk, int16_t *extra);
     void (*process)(void *state, const void *params, const float *in, float *outL, float *outR);

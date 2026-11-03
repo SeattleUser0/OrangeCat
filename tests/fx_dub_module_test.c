@@ -47,27 +47,10 @@ static void tap(const int32_t *b, size_t n)
         if (fx_ins[k].state == FXS_RUN) { if (FX_MODK_BOUND(k)) mod_run_blocks++; else res_run_blocks++; }
     tap_blocks++;
 }
-/* a scenario of this test alone (the probe's five are pinned to the tree before the cut, and drive the triggers at 0 and 127 only): the performance triggers THRW, CUT and KICK at the values around
- * their thresholds (CUT and KICK act at 64 and over; THRW replaces SEND with its own value), with the spring on so that a KICK is heard, track by track */
-static void scenario_trig(void)
-{
-    uint32_t k, i, j;
-    static const uint8_t thr[] = { 1, 31, 63, 64, 65, 100 }, cut[] = { 62, 63, 64, 65, 66 }, kick[] = { 63, 64, 65, 66 };
-    begin("TRIG");
-    fresh();
-    for (k = 0; k < NPART; k++) { dub_defaults(k); T(k, P_DUB_SPRG, 90); T(k, P_DUB_FDBK, 70); }
-    run(900);
-    for (k = 0; k < NPART; k++) {
-        for (i = 0; i < sizeof thr; i++) { dub_trig[k][0] = thr[i]; run(40); dub_trig[k][0] = 0; run(40); }
-        for (i = 0; i < sizeof cut; i++) { dub_trig[k][1] = cut[i]; run(60); dub_trig[k][1] = 0; run(60); }
-        for (i = 0; i < sizeof kick; i++) for (j = 0; j < 3; j++) { dub_trig[k][2] = kick[i]; run(30); dub_trig[k][2] = 0; run(30); }
-    }
-    end("TRIG");
-}
 static void run_all(void)
 {
     fxi_nres = 0; fx_ins_gov_fires = 0; tap_blocks = 0; tap_diff = 0; tap_first = ~0ull; mod_run_blocks = res_run_blocks = 0;
-    scenario_long(); scenario_mem(); scenario_r2(); scenario_heavy(1); scenario_heavy(2); scenario_trig();
+    scenario_long(); scenario_mem(); scenario_r2(); scenario_heavy(1); scenario_heavy(2); scenario_trig(); scenario_perf();
 }
 #define WBASE 0x10200000u
 static uint8_t wimg[8192];
@@ -108,7 +91,7 @@ static int golden_ok(void)
         }
     }
     fclose(f);
-    return want == 6u && ok == 6u;
+    return want == 8u && ok == 8u;               /* the five scenarios, R2's combination count, TRIG and PERF */
 }
 /* the descriptor: the module's words against the resident kernel's and the firmware's tables */
 static void descriptor(void)
@@ -216,7 +199,7 @@ int main(void)
     ck("no module registered: every track is bound to the resident kernel", !fx_modk_ok && fx_mod_want == 0 && fx_mod_bound == 0 && fx_kernel_of(0) == &dub_kernel);
     tap_mode = 1; fxi_tap = tap;
     run_all(); keepA();
-    ck("A  the resident kernel: six scenarios ran (the probe's five and TRIG), no instance of a module kernel", nA == 6u && mod_run_blocks == 0 && res_run_blocks > 100000u);
+    ck("A  the resident kernel: seven scenarios ran (the probe's five, TRIG and PERF), no instance of a module kernel", nA == 7u && mod_run_blocks == 0 && res_run_blocks > 100000u);
     ck("A  .. and match the pinned printout of the tree before the cut (tests/fx_insert_golden.txt), line for line", golden_ok());
     printf("fx dub module: A wrote %llu blocks (%llu bytes)\n", (unsigned long long)tap_blocks, (unsigned long long)tap_blocks * sizeof rec);
     /* the module registers */
@@ -227,7 +210,7 @@ int main(void)
     rewind(tapef); tap_mode = 2;
     run_all();
     ck("B  the module for all four tracks: instances of the module's kernel ran (blocks counted)", mod_run_blocks > 100000u && res_run_blocks == 0);
-    ck("B  every output sample of all six scenarios (the mixer's blocks) equals the resident run's", tap_diff == 0 && tap_blocks == (uint64_t)ftell(tapef) / sizeof rec);
+    ck("B  every output sample of all seven scenarios (the mixer's blocks) equals the resident run's", tap_diff == 0 && tap_blocks == (uint64_t)ftell(tapef) / sizeof rec);
     if (tap_diff) printf("  B: %llu blocks differ, the first is block %llu\n", (unsigned long long)tap_diff, (unsigned long long)tap_first);
     ck("B  .. and every scenario's hash of the samples, of the behaviour (states, rates, holds, memory, DUB FULL bits, the parameter snapshots), the governor's firings and the state counts", same_as_A("B"));
     if (getenv("FXDM_FAST")) { printf(bad ? "fx dub module: FAILED\n" : "fx dub module: A and B passed (fast)\n"); return bad != 0; }

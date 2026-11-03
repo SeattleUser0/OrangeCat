@@ -87,7 +87,7 @@ static void fx_modk_clear(void)
     uint32_t k;
     for (k = 0; k < FX_INS_N; k++)
         if (FX_MODK_BOUND(k)) {
-            fx_ins[k].state = FXS_OFF; fx_ins[k].evict = 0; fx_ins[k].gov = fx_ins[k].held_off = 0; fx_ins[k].kw[0] = fx_ins[k].kw[1] = 0;
+            fx_ins[k].state = FXS_OFF; fx_ins[k].evict = 0; fx_ins[k].gov = fx_ins[k].held_off = 0; fx_ins[k].kw[0] = fx_ins[k].kw[1] = fx_ins[k].kw[2] = 0;
             fx_ins_want[k] = 0; fx_ins_spring[k] = 0;
         }
     fx_mod_bound = 0;
@@ -232,7 +232,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         const fx_kernel_t *kn;
 #if OC_FX_MODK
         if (((fx_mod_effective() ^ fx_mod_bound) >> k) & 1u) {        /* the track's kernel changed: only an OFF instance changes kernels; a running one ramps out and lets go first */
-            if (d->state == FXS_OFF) { fx_mod_bound ^= (uint8_t)(1u << k); d->kw[0] = d->kw[1] = 0; if (FX_MODK_BOUND(k) && fx_modk_note) fx_modk_note(FX_MODK_ID); }
+            if (d->state == FXS_OFF) { fx_mod_bound ^= (uint8_t)(1u << k); d->kw[0] = d->kw[1] = d->kw[2] = 0; if (FX_MODK_BOUND(k) && fx_modk_note) fx_modk_note(FX_MODK_ID); }
             else if (d->state == FXS_RUN || d->state == FXS_RAMP) { d->evict = 1; d->gov = 0; }
             else { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; }
         }
@@ -243,7 +243,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         fx_ictx_t c;
         int on = k < nt && kn->on(t), deb = 0, live = d->state == FXS_RUN || d->state == FXS_RAMP;
         d->run = 0;
-        c.beat = beat; c.k = (uint8_t)k; c.trig[0] = fx_trig[k & 3u][0]; c.trig[1] = fx_trig[k & 3u][1]; c.trig[2] = fx_trig[k & 3u][2]; c.pad = 0;
+        c.beat = beat; c.k = (uint8_t)k; { uint32_t j; for (j = 0; j < FX_NTRIG; j++) c.trig[j] = fx_trig[k & 3u][j]; } c.pad[0] = c.pad[1] = 0; c.kw2 = d->kw[2];
         if (on) d->idle = 0;
         else if (k < nt && (d->state == FXS_RUN || d->state == FXS_RAMP) && d->idle < FX_IDLE) { on = 1; d->idle++; }   /* the effect off: muted, the instance and its memory stay a while */
         if (!live) { d->st_R = 0; d->st_blk = 0; d->idle = 0; }           /* (the size is sticky only while the line runs: one that is waiting for memory asks for what the times need now) */
@@ -349,10 +349,11 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
             if (pk > FX_THR) d->hold = d->hold_len;
             if (d->hold) {
                 uint32_t ps;
-                c.kw0 = d->kw[0]; c.k = (uint8_t)k; c.R = d->R; c.nblk = fx_ins_have[k]; c.ramp = d->state == FXS_RAMP;
+                c.kw0 = d->kw[0]; c.kw2 = d->kw[2]; c.k = (uint8_t)k; c.R = d->R; c.nblk = fx_ins_have[k]; c.ramp = d->state == FXS_RAMP;
                 ps = kn->param_sig(t, &c);
                 if (!d->pvalid || ps != d->psig) {          /* (the parameter copy is made again only when something it is made from changed) */
                     kn->snap(fx_p(k), t, &c);
+                    d->kw[2] = c.kw2;
                     d->psig = ps; d->pvalid = 1;
                 }
                 d->run = 1;
@@ -385,7 +386,7 @@ JFX_XIP static void fx_ins_reset(void)
 #endif
     fx_gov_cool = 0;
     memset(fx_pk, 0, sizeof fx_pk); fx_pk_n = 0; fx_pk_i = 0;
-    memset(fx_trig, 0, sizeof fx_trig);                 /* the performance triggers (the host's, MIDI CC 16 to 18) start released */
+    memset(fx_trig, 0, sizeof fx_trig);                 /* the performance triggers (the host's, MIDI CC 16 to 21) start released */
     fx_kernel_of(0)->reset();
 }
 #if OC_DUB_SRAM

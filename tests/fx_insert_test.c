@@ -349,6 +349,50 @@ static void descriptor_checks(void)
 }
 #endif
 
+/* (Release 3 step 6) a scenario beyond the first five (they drive the triggers at 0 and 127 only): the performance triggers THRW, CUT and KICK at the values around
+ * their thresholds (CUT and KICK act at 64 and over; THRW replaces SEND with its own value), with the spring on so that a KICK is heard, track by track */
+static void scenario_trig(void)
+{
+    uint32_t k, i, j;
+    static const uint8_t thr[] = { 1, 31, 63, 64, 65, 100 }, cut[] = { 62, 63, 64, 65, 66 }, kick[] = { 63, 64, 65, 66 };
+    begin("TRIG");
+    fresh();
+    for (k = 0; k < NPART; k++) { dub_defaults(k); T(k, P_DUB_SPRG, 90); T(k, P_DUB_FDBK, 70); }
+    run(900);
+    for (k = 0; k < NPART; k++) {
+        for (i = 0; i < sizeof thr; i++) { dub_trig[k][0] = thr[i]; run(40); dub_trig[k][0] = 0; run(40); }
+        for (i = 0; i < sizeof cut; i++) { dub_trig[k][1] = cut[i]; run(60); dub_trig[k][1] = 0; run(60); }
+        for (i = 0; i < sizeof kick; i++) for (j = 0; j < 3; j++) { dub_trig[k][2] = kick[i]; run(30); dub_trig[k][2] = 0; run(30); }
+    }
+    end("TRIG");
+}
+/* (round 18) the dub-perf behaviours that live in the kernel side of the snapshot, moved from the resident jfx_dub.c into dub_kern.h: HOLD (CC 19: FEEDBACK 1.00 while held), DIVE (CC 20: SPEED to
+ * 0), RISE (CC 21: SPEED to 127), both (SPEED normal), and ECHO 0 (the loop closes through the 3 ms cut with the wet kept at its last nonzero level; ECHO back up restores it), at the values
+ * around their thresholds (64), with the spring on, track by track and together. A kernel that drops any of them renders differently from the resident's */
+static void scenario_perf(void)
+{
+    uint32_t k, i;
+    static const uint8_t lv[] = { 63, 64, 65, 127 };
+    begin("PERF");
+    fresh();
+    for (k = 0; k < NPART; k++) { dub_defaults(k); T(k, P_DUB_SPRG, 60); T(k, P_DUB_FDBK, 45); T(k, P_DUB_ECHO, 40 + 20 * (int)k); }
+    run(900);
+    for (k = 0; k < NPART; k++) {
+        for (i = 0; i < sizeof lv; i++) { dub_trig[k][3] = lv[i]; run(70); dub_trig[k][3] = 0; run(50); }                                     /* HOLD */
+        for (i = 0; i < sizeof lv; i++) { dub_trig[k][4] = lv[i]; run(70); dub_trig[k][4] = 0; run(70); }                                     /* DIVE */
+        for (i = 0; i < sizeof lv; i++) { dub_trig[k][5] = lv[i]; run(70); dub_trig[k][5] = 0; run(70); }                                     /* RISE */
+        for (i = 0; i < sizeof lv; i++) { dub_trig[k][4] = lv[i]; dub_trig[k][5] = lv[(i + 1u) % sizeof lv]; run(70); dub_trig[k][4] = dub_trig[k][5] = 0; run(70); }   /* both */
+        dub_trig[k][3] = dub_trig[k][4] = 127; run(90); dub_trig[k][5] = 127; run(90); dub_trig[k][3] = dub_trig[k][4] = dub_trig[k][5] = 0; run(90);   /* together */
+        T(k, P_DUB_SPD, 100); dub_trig[k][4] = 127; run(60); dub_trig[k][4] = 0; dub_trig[k][5] = 127; run(60); dub_trig[k][5] = 0; run(60); T(k, P_DUB_SPD, 64);   /* over a SPEED that is not 64 */
+    }
+    for (k = 0; k < NPART; k++) T(k, P_DUB_ECHO, 100);
+    run(300);
+    for (k = 0; k < NPART; k++) { T(k, P_DUB_ECHO, 0); run(2); }                                  /* ECHO 0 while the line plays: through the cut, the wet kept (the wet of 100 = 1.00) */
+    run(120);
+    for (k = 0; k < NPART; k++) { T(k, P_DUB_ECHO, 55); run(3); T(k, P_DUB_ECHO, 0); run(5); T(k, P_DUB_ECHO, 20 + 5 * (int)k); run(80); }   /* up and down and up: the keep follows the last nonzero */
+    for (k = 0; k < NPART; k++) { T(k, P_DUB_ECHO, 0); dub_trig[k][3] = 127; run(40); dub_trig[k][3] = 0; run(40); T(k, P_DUB_ECHO, 90); run(100); }   /* ECHO 0 with HOLD, then up */
+    end("PERF");
+}
 #ifndef FXI_NO_MAIN                                    /* tests/fx_dub_module_test.c runs the scenarios itself */
 int main(void)
 {
@@ -358,6 +402,8 @@ int main(void)
     scenario_r2();
     scenario_heavy(1);
     scenario_heavy(2);
+    scenario_trig();
+    scenario_perf();
 #ifdef FXI_NEW
     descriptor_checks();
 #endif

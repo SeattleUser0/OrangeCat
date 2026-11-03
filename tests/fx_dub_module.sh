@@ -15,8 +15,14 @@ ROOT=$(pwd)
 case $OUT in /*) ;; *) OUT=$ROOT/$OUT ;; esac
 FLAGS="-w -I$ROOT/build/gen -Ifirmware/src -Itests"
 
-build() {   # build DIR TAG: the test in DIR (a tree with firmware/, tools/module/, tests/) to $OUT/fxdm_TAG
-    (cd "$1" && $CC $FLAGS -c -o "$OUT/fxdm_$2_tu.o" tests/module_host_dub_tu.c && $CC $FLAGS -o "$OUT/fxdm_$2" tests/fx_dub_module_test.c "$OUT/fxdm_$2_tu.o" -lm) || return 1
+# the test is compiled once (tests/fx_dub_module_test.c, the resident kernel and the host: the same text for every mutant); a mutant changes only the module's translation unit
+test_obj() {   # test_obj: the test's object, $OUT/fxdm_test.o
+    [ -f "$OUT/fxdm_test.o" ] && [ "$OUT/fxdm_test.o" -nt tests/fx_dub_module_test.c ] && [ "$OUT/fxdm_test.o" -nt tests/fx_insert_test.c ] && [ -z "$(find firmware/src -newer "$OUT/fxdm_test.o" -name '*.[ch]' -print -quit)" ] && return 0
+    $CC $FLAGS -c -o "$OUT/fxdm_test.o" tests/fx_dub_module_test.c
+}
+build() {   # build DIR TAG: the module's unit in DIR (a tree with firmware/, tools/module/, tests/) linked with the test to $OUT/fxdm_TAG
+    test_obj || return 1
+    (cd "$1" && $CC $FLAGS -c -o "$OUT/fxdm_$2_tu.o" tests/module_host_dub_tu.c) && $CC -o "$OUT/fxdm_$2" "$OUT/fxdm_test.o" "$OUT/fxdm_$2_tu.o" -lm || return 1
 }
 if [ "$MODE" = check ]; then
     build "$ROOT" ok || { echo "fx_dub_module: compile"; exit 1; }
@@ -50,4 +56,14 @@ mutant dub_kern.h 's/int rise = c->trig\[2\] >= 64;/int rise = c->trig[2] >= 65;
 mutant dub_kern.h 's/+ (float)DUB_HOLD);/+ (float)DUB_HOLD + 1.0f);/' "the hold: one block longer"
 mutant dub_kern.h 's/#define DUBK_GOV_US 450u/#define DUBK_GOV_US 451u/' "a capability word of the module's descriptor: gov_us 450 -> 451"
 mutant dubdelay.c 's/#define DD_Q16 32767.0f/#define DD_Q16 32766.0f/' "the kernel's own DSP (dubdelay.c): the Q15 scale of the line"
+# (round 18) the performance view's behaviours dub-perf put in the snapshot (HOLD, DIVE, RISE, ECHO 0 with the wet kept) and the signature bits that remake the snapshot when they change
+mutant dub_kern.h 's/(c->trig\[3\] >= 64 ? 100.0f : /(0 ? 100.0f : /' "HOLD dropped from the snapshot (FEEDBACK stays the stored value)"
+mutant dub_kern.h 's/if (c->trig\[4\] >= 64) sv = /if (0) sv = /' "DIVE dropped from the snapshot"
+mutant dub_kern.h 's/else if (c->trig\[5\] >= 64) sv = 127;/else if (0) sv = 127;/' "RISE dropped from the snapshot"
+mutant dub_kern.h 's/sv = c->trig\[5\] >= 64 ? DUB_SPD_MID : 0;/sv = c->trig[5] >= 64 ? 0 : 0;/' "DIVE with RISE is an octave down, not normal"
+mutant dub_kern.h 's/keep.f = echo ? (float)echo \* 0.01f : keep.f;/keep.f = echo ? (float)echo * 0.01f : 0.0f;/' "ECHO 0 drops the wet instead of keeping the last nonzero one"
+mutant dub_kern.h 's/c->kw2 = keep.u;/c->kw2 = 0;/' "the wet to keep is not handed back to the host (ECHO 0 finds none)"
+mutant dub_kern.h 's/ | (uint32_t)(c->trig\[3\] >= 64) << 16//' "the signature ignores HOLD (the snapshot is not remade when it is pressed)"
+mutant dub_kern.h 's/ | (uint32_t)(c->trig\[4\] >= 64) << 17//' "the signature ignores DIVE"
+mutant dub_kern.h 's/ | (uint32_t)(c->trig\[5\] >= 64) << 18//' "the signature ignores RISE"
 exit $fail
