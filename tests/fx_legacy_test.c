@@ -10,7 +10,7 @@
  *           resident reverb is the stand-in that the module's values drive; what is proved is that nothing is lost, clamped or moved on the way in.) A control: the render with the other modes' modules'
  *           (default) values differs from the resident's, so the renders can tell.
  *   CLAMP   a stored value outside a mode's range (G_RPRE = 30 under RESO, where it is PITCH 0 .. 14) is clamped by the module and reported: the resident reverb's render of it is compared too
- *   DUB     the fixture with DUB values on all three DUB pages loads into DUB's module (fx_dub_data.h) with every knob, SYNC, PING, DRIVE and WOW as written
+ *   DUB     (RENDER too) the fixture with DUB values on all three DUB pages loads into DUB's module (fx_dub_data.h) with every knob, SYNC, PING, DRIVE and WOW as written
  * Revisions:
  *   (Release 3, round 9) the projects are the committed fixtures, not made by this tree's writer; the DUB fixture.
  *   (Release 3, step 3 decisions L1 to L4) first version.
@@ -56,6 +56,31 @@ static void render(int32_t *out)
         for (uint32_t b = 0; b < RN; b++) {
             mix_block(blk, CTL);
             if (b == 40) trk_note_off(t, 60);
+            for (uint32_t i = 0; i < CTL; i++) shm->pcm[b * CTL + i] = blk[2 * i];
+        }
+        _exit(0);
+    }
+    waitpid(pid, &st, 0);
+    memcpy(out, shm->pcm, sizeof shm->pcm);
+}
+/* DUB through the resident kernel (jfx_dub.c, tests/dub_insert_test.c's way): track 1 plays a note into the insert whose ids are whatever the caller set */
+static void render_dub(int32_t *out)
+{
+    pid_t pid;
+    int st = 0;
+    if (!shm) shm = mmap(0, sizeof *shm, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    memset(shm, 0, sizeof *shm);
+    fflush(stdout);
+    pid = fork();
+    if (!pid) {
+        int32_t blk[2 * CTL];
+        track_t *t = &trk[0];
+        song.master_q12 = 4096; song.playing = 0;
+        set_engine_of(t, ENGI_MACRO); t->engine = t->eng_req; t->p[P_VOICE] = V_POLY; panic_req = 0;
+        for (uint32_t b = 0; b < RN; b++) {
+            if (b % 120u == 4u) trk_note_on(t, 60, 100);
+            if (b % 120u == 64u) trk_note_off(t, 60);
+            mix_block(blk, CTL);
             for (uint32_t i = 0; i < CTL; i++) shm->pcm[b * CTL + i] = blk[2 * i];
         }
         _exit(0);
@@ -177,6 +202,23 @@ int main(void)
         chk("DUB     the views read SYNC FREE, PING on, DRIVE 11, WOW 7 from the packed MODE and TAPE", ok);
         chk("DUB     with SYNC FREE the times are the free ones (F_DUBTF)", dub_shown(0, 0, 5, &sv) == &DUBD_TF && dub_shown(0, 0, 6, &sv) == &DUBD_RF);
         chk("DUB     every knob of the three pages is away from its default (the fixture can tell a lost value)", v[0] != 55 && v[1] != 127 && v[2] != 60 && v[3] != 0 && v[4] != 53 && v[5] != 67 && v[6] != 0 && v[7] != 64);
+        /* RENDER: the loaded project's DUB through the resident kernel against the same values set directly (the ids and the packed fields), sample for sample */
+        {   static int32_t R_dres[RN * CTL], R_ddir[RN * CTL], R_ddef[RN * CTL];
+            int16_t *p;
+            render_dub(R_dres);
+            chk("DUB     RENDER  the loaded project through the resident DUB kernel sounds (a track with an echo)", peak(R_dres) > 500);
+            fresh_song();
+            p = trk[0].p;
+            p[P_DUB_FDBK] = FXR2_DUB[0]; p[P_DUB_SEND] = FXR2_DUB[1]; p[P_DUB_FILT] = FXR2_DUB[2]; p[P_DUB_ECHO] = FXR2_DUB[3];
+            p[P_DUB_TIML] = FXR2_DUB[4]; p[P_DUB_TIMR] = FXR2_DUB[5]; p[P_DUB_SPRG] = FXR2_DUB[6]; p[P_DUB_SPD] = FXR2_DUB[7];
+            dub_put_field(p, DUBF_SYNC, FXR2_DUB_SYNC); dub_put_field(p, DUBF_PING, FXR2_DUB_PING);
+            dub_put_field(p, DUBF_DRIVE, FXR2_DUB_DRIVE); dub_put_field(p, DUBF_WOW, FXR2_DUB_WOW);
+            render_dub(R_ddir);
+            chk("DUB     RENDER  the same values set directly render to the loaded project's, sample for sample", !memcmp(R_dres, R_ddir, sizeof R_dres));
+            fresh_song();
+            render_dub(R_ddef);
+            chk("DUB     RENDER  control: DUB at its defaults (ECHO 0) renders differently (the render can tell)", memcmp(R_dres, R_ddef, sizeof R_dres) != 0);
+        }
     }
     printf("fx_legacy: %d checks, %d failed\n", nchk, bad);
     return bad != 0;
