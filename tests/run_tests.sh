@@ -500,6 +500,8 @@ core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out i
 core && run "the interface identifier (Orange Cat 0.9.0): the generated header is what the sources give; a comment leaves it, a changed field moves it" sh -c "python3 tools/gen_fw_api_id.py --check build/gen/fw_api_id.h && python3 tools/gen_fw_api_id.py --selftest"
 # (Release 3, step 3, r3-pages) the interface identifier moved: the headers of the last Release 2 build's modules (tests/fixtures/r2_modules) are refused, this build's accepted
 core && t "interface identifier (Release 3): the Release 2 modules' headers are refused, this build's SHAPES, WHEEL and Prophet are accepted, both ways" mod_iface_r3_test -O1 $FW -- "$OUT/mod_iface_r3_test" tests/fixtures/r2_modules build/module
+# (Release 3, step 3, r3-pages) the main loop's deepest path, from the linked image's code (clang 4.0.1 has no -fstack-usage): at least 1 KB of the 24,320 B user stack left
+core && [ -f build/melodee.dis ] && run "main stack (Release 3): the deepest main-loop path leaves at least 1 KB of the user stack (tools/stack_depth.py, from build/melodee.dis)" python3 tools/stack_depth.py --check build/melodee.dis
 core && t "fw_api_t (Orange Cat 0.8.0, step 6): the services table a loadable engine would be given, against the real services" fw_api_test -O1 $FW
 core && t "engine table in RAM (Orange Cat 0.10.0, step 4): register / unregister a module's engine, the refusals, SHAPES built in" engine_table_test:engine_table_test -O1 $FW
 core && t "engine table in RAM (0.10.0, step 4): the module wins the slot (OC_MODULE_WINS 1), unregistering gives the built-in engine back" engine_table_wins:engine_table_test -O1 $FW -DOC_MODULE_WINS=1

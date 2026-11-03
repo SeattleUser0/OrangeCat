@@ -2306,3 +2306,20 @@ The same figure for the plan's own image (562,144 B at b1997d1) is not this buil
 
 **Not done (plan step 4, and the others'):** `fx_desc_t`/`fx_entry_t` and their place in the identifier's hash; the module-id install path and the Effects table; "PICTURE REFUSED" in the Engines table (the record holds the code); the install-time advisory result on the card and the page (the page's `ocmCheck` is unchanged);
 the web editor and app tables for `kdef` and scene bytes (Session D, plan step 8).
+
+### r3-pages: the main stack (November 2, 2026; for Session A, answering the stack question above)
+
+**No cut needed: every path keeps well over 1 KB.** The firmware's clang is 4.0.1 and has no `-fstack-usage`, so `tools/stack_depth.py` reads the frames from the linked image's code (`build/melodee.dis`): a function's frame is its pushes (four bytes a register of
+`[--sp] = {rets, r15-r4}`) plus its `sp += -N`, and the call graph is the direct calls plus the callbacks written down in the tool (the readers, the scene check: a pointer call cannot be followed from the code, so an edge missing there would make a depth too small; the
+module path's are listed). The main loop runs on the user stack of `app.ld`: `_ustack_lo` 0x01C74100 to `_ustack_top` 0x01C7A000 = **24,320 B**; interrupts and the supervisor use `_sstack` (7,936 B). From `fm1_main`, linux-hw fd159be against r3-pages:
+
+| path | before | after | | margin after |
+|---|---|---|---|---|
+| power-on boot: `fm1_main > oc_mod_boot > oc_mod_check > oc_mod_pages_check > oc_mod_pages_check_rd` | 3,844 | 5,680 | +1,836 | 18,640 |
+| install over SysEx: `fm1_main > ed_service > ed_handle > oc_mod_end > oc_mod_reload > oc_mod_boot > ... pages_check_rd` | 10,580 | 12,416 | +1,836 | 11,904 |
+| install from the card: `fm1_main > ui_input > fb_mod_file > oc_mod_end > oc_mod_reload > oc_mod_boot > ...` | 8,472 | 10,316 | +1,844 | 14,004 |
+| the whole main loop's deepest path (`ed_service > ed_handle > up_boot > ... st_read_range`, storage, not the module path) | 18,800 | 18,800 | 0 | **5,520** |
+
+Where the +1,836 is: `oc_mod_boot`'s own frame 180 -> 1,680 B (the picture check's 1,024-byte scene buffer and the publish's record, inlined into it) and `oc_mod_pages_check_rd` 212 -> 548 B (the checker's id list and slot bitmap). The audio side: `mac_on` 92 -> 112 B, `mix_block` 1,140 B
+unchanged, on the supervisor stack. If a margin ever matters, the cheap cut is the scene buffer: a static in `.pool` (the check runs only at boot and install, one at a time) takes 1,024 B back; not done, since the least margin of any path is 5,520 B and none of the
+module paths is the deepest. `run_tests.sh` has a step (`stack_depth.py --check`) that fails when the deepest path leaves under 1 KB. Caveat: a depth read from the code is an estimate (every push counted, none popped early), not a measurement on the unit.
