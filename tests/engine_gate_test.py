@@ -35,8 +35,8 @@ def check(what, ok):
 
 # 1. placement against the firmware's geometry
 sect, geo = g.firmware_geometry()
-check("the firmware's starts are sectors 0, 6 and 4; SHAPES 6 sectors (starts 0, 1), the Prophet 8 (0, 2), WHEEL 4 (0, 1)",
-      sect == [0, 6, 4] and geo.get(14) == (6, 3) and geo.get(19) == (8, 5) and geo.get(7) == (4, 3))
+check("the firmware's 18 starts: sectors 0, 6, 4 as published, then 1 2 3 5 7 .. 11 and -1 .. -6; SHAPES 6 sectors (starts 0, 1), the Prophet 8 (0, 2), WHEEL 4 (0, 1)",
+      sect == [0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6] and geo.get(14) == (6, 3) and geo.get(19) == (8, 5) and geo.get(7) == (4, 3))
 p = g.placement("shapes", 23944)
 check("SHAPES fits its 6 sectors, not beside the Prophet", p["fits"] and p["sectors"] == 6 and p["starts"] == [0, 6] and p["beside_prophet"] is False
       and p["beside_shapes"] is None)
