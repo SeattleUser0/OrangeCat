@@ -1,6 +1,6 @@
 # Melodic step grid: reading, reuse, conflicts, plan
 
-**Version 0.1, November 3, 2026. Branch `melodic-grid` (from ui-fix2 `bdc5945`). Plan only: no code. For the owner to review before any build.**
+**Version 0.2, November 3, 2026. Branch `melodic-grid` (from ui-fix2 `bdc5945`). 0.1 was the plan (no code); 0.2 adds section 8, the owner's answers and what was built. Sections 1 to 7 are the plan as it was written, kept.**
 Source request: Orange Cat Melodic Step Grid 0.2. Host work only (host tests and the screen lint); nothing merges into linux-hw before Release 2 is published.
 
 ## 1. What I read
@@ -87,3 +87,14 @@ Also: mutation checks (the cursor advance put back, the picking erase put back, 
 2. **How NOTE stage starts:** a second tap on the picked step's key (recommended), or something else.
 3. **The black keys beyond the first four** in STEP stage (places 4..10): silent (as drawn in the request) or spare for later.
 4. **Which tracks get the page:** every track that is not DRUM or DRUM-X (kits and slices included), or only engines with a melodic keyboard.
+
+## 8. The owner's answers (November 3, 2026) and what was built
+
+| Question | Answer | Built |
+|---|---|---|
+| 1. Where GRID lives | A new SEQ page after TRACKER; PHRASE keeps its settings and is not touched | `params.c`: `GRID` after TRACKER, before PHRASE (`GR_MGRID` 0x62, outside the module interface's enum; `FW_API_ID` unchanged at 0x126F12CC) |
+| 2. How NOTE stage starts | No second tap. A white key in STEP picks the step and the keyboard goes to NOTE once that key is released; the next keys are the step's note or chord; when all notes are released the keyboard is back in STEP on the same step; OCT- in NOTE cancels, the step as it was; KNOB 1 moves the cursor in either stage (across pages); the screen and the lights make the stage plain | `ui_mgrid_edit.c`: `mgrid_frame`, `mgrid_cancel`; the pill and the frame on the screen (`ui_mgrid.c`); the lights (`mgrid_leds`: STEP shows the step map, NOTE the playing layout) |
+| 3. Black keys 5 to 11 in STEP | Silent and do nothing | `song.grid` 3 (`keys_mode`, `keyboard_block`: every key silent); `mgrid_frame` ignores them |
+| 4. Which tracks | Pitched only: no GRID on DRUM, DRUM-X, kit or slice tracks | `ui.c mgrid_track`: not `drum_track`, not a one-shot engine, not `ENG_SLICE`; `page_visible` |
+
+Differences from the plan, all small: the switch is `OC_MGRID` (needs `OC_ONE_AUTH`, whose entry paths it reuses) and is on in `tools/orangecat_engines.sh`; the stage change sets `song.grid` at once (the plan had it on the next pass, one UI frame of silent keys after the pick key goes up); PRESETS moves the cursor as on FEEL; the stage is also reset by a track change and by a pattern load (`mg.trk`, `seen_pattern_gen`); the tile shows the first note of a chord with pips under it (the tile has room for a number and one name); OCT+ does nothing on GRID (the note sheet is not opened from here) and SHIFT's copy and paste are not offered. The cancel undoes the entry only if the entry changed the step (`step_history.pending`), so a cancel never takes an earlier edit back.
