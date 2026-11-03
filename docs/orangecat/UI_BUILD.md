@@ -2343,4 +2343,4 @@ rose by 32. Stack, `tools/stack_depth.py` (24,320 B user stack): boot 3,852 -> 5
 (0x8000), checked by the loader but not by the project writer: the project format must not store a view (step 4/7); (c) `F_DUBSPD` as the limit freezes that enum order as the module interface (a format added later extends the limit, an older firmware refuses the module).
 **What the owner will notice:** nothing on the unit yet (no shipped module uses the new fields): modules must be reinstalled once because the identifier moved, which the page says as before.
 
-### r3-pages: suite
+**Suite:** the full host suite (`ci_step.py test --parallel 3`, a time limit on every test, the stack check included) passed on 97f1e04 in 3,635 s; the commits after it are this note.
