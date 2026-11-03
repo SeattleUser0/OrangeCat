@@ -261,6 +261,26 @@ static int test_round_trip(void)
         project_autosave();
         bad |= check("... and an autosave after that writes nothing", erases == before);
     }
+    {   /* (round 16) a record saved while SLOT said something else (the template, 4): the load puts SLOT on the slot, and the autosave must not write the project back for that */
+        wipe_runtime();
+        project_load(0);
+        song.g[G_SLOT] = 4;                                          /* (what a save from the editor stored when RAM was a new project) */
+        project_save(0);
+        wipe_runtime();
+        song.g[G_SLOT] = 1;                                          /* (project_boot: SLOT on the BOOT project) */
+        project_load(0);
+        before = erases;
+        project_autosave();
+        bad |= check("an unchanged project loaded from a record whose SLOT field differs: the autosave writes nothing (an upgrade alone never rewrites a project)", erases == before);
+        {
+            pattern_t p;
+            pattern_read(3, 5, &p);
+            p.step[1].vel ^= 1u;
+            pattern_write(3, 5, &p);
+        }
+        project_autosave();
+        bad |= check("... a real edit after it is still autosaved", erases > before);
+    }
     return bad;
 }
 

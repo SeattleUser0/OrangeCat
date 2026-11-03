@@ -639,6 +639,7 @@ static void proj_bound(project_t *q)
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
 static uint32_t proj_saved_hash[4];
+static void proj_base_set(uint32_t slot);        /* (round 16) below, with the autosave */
 #if OC_PROJECT_PAGE
 static uint32_t pj_base;                                /* (ui-fix2 3) see project_unsaved */
 static uint8_t pj_base_slot = 0xFFu;
@@ -794,6 +795,7 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
     proj_last_set(slot & 3u);
+    proj_base_set(slot);                                /* (round 16) for the autosave */
 #if OC_PROJECT_PAGE
     pj_base_now(slot);                                  /* (ui-fix2 3) the music as saved, for "unsaved" */
     pj_note();                                          /* the PROJECT page's unsaved flag: worked out again */
@@ -837,6 +839,30 @@ static void project_quick_save(void)
  * (autosave_poll calls project_nosave_stop); a project with a slot is as it was. */
 static int project_used(uint32_t slot);
 static int project_old(uint32_t slot);
+/* (round 16) the music as it packed right after the slot was loaded or last written, with the fields a load puts there itself (SLOT, LOAD, SAVE, BOOT, the selected track) left out: the
+ * autosave writes a loaded project back only when its music differs from this, so a record saved while SLOT said something else (the template's 4; found on the unit after an upgrade)
+ * is not rewritten by a load and an idle minute. An upgrade alone never rewrites a project. (proj_base_slot 0xFF: none known, the old rule) */
+static uint32_t proj_base_hash;
+static uint8_t proj_base_slot = 0xFFu;
+static int proj_music_hash(uint32_t *hash)
+{
+    uint8_t keep = song.sel;
+    int ok;
+    song.sel = 0;
+    project_capture(&proj_scratch);
+    proj_scratch.g[G_SLOT] = proj_scratch.g[G_LOAD] = proj_scratch.g[G_SAVE] = proj_scratch.g[G_BOOT] = 0;
+    proj_wire_gen++;
+    ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1);
+    song.sel = keep;
+    if (ok) *hash = bank_hash(proj_wire_u.raw);
+    return ok;
+}
+static void proj_base_set(uint32_t slot)
+{
+    uint32_t h;
+    if (proj_music_hash(&h)) { proj_base_hash = h; proj_base_slot = (uint8_t)(slot & 3u); }
+    else proj_base_slot = 0xFFu;
+}
 static uint32_t proj_nosave_hash;                       /* the music the screen last said NOT SAVED about (0: none yet) */
 static int project_new_has_notes(void)
 {
@@ -914,6 +940,10 @@ static void project_autosave(void)
     }
     if (ocl_keep_all())                                 /* (Orange Cat 0.3, 4c) kept to the pool first */
         return;
+    {   uint32_t mh;
+        if (proj_base_slot == slot && proj_music_hash(&mh) && mh == proj_base_hash)
+            return;                                     /* (round 16) the music is as it was loaded or saved: nothing to write */
+    }
     project_capture(p);
     proj_wire_gen++;                                    /* (the staging RAM: a backup's copy there is gone) */
     if (!bank_pack(proj_wire_u.raw, p, 1))
@@ -1126,6 +1156,7 @@ static void project_load(uint32_t slot)
 #endif
         proj_cur = (uint8_t)(slot & 3u);
         proj_last_set(slot & 3u);
+        proj_base_set(slot);                            /* (round 16) for the autosave */
 #if OC_PROJECT_PAGE
         pj_base_now(slot);                              /* (ui-fix2 3) the music as loaded, for "unsaved" */
         pj_note();
