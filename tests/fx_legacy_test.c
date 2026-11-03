@@ -220,6 +220,46 @@ int main(void)
             chk("DUB     RENDER  control: DUB at its defaults (ECHO 0) renders differently (the render can tell)", memcmp(R_dres, R_ddef, sizeof R_dres) != 0);
         }
     }
+    /* (Session A's review of fw_fxstore.h, round 12) EXPORT RANGE, EXPORT CONDITION and ENGINE IDS: each fails on the code before the review */
+    {   fw_pages_t d;
+        int16_t big[8] = {500, -9, -5, 300, 900, -200, 400, 0}, back[8];
+        uint32_t wrote;
+        make_reverb(&d, 0);                              /* SPRING: SIZE, DAMP 0..127, PRE 0..100 ms, MOD 0..127, RATE 0..127, FILT -64..63, WIDE 0..127 */
+        fwp_wire(&d, img, sizeof img, BASE, &desc);
+        fresh_song();
+        song.g[G_RTYPE] = (int16_t)REV_TYPE[0];
+        wrote = fx_legacy_export(img_rd, 0, desc, big, trk[0].p, song.g);
+        chk("EXPORT RANGE  seven values outside their ranges are written clamped (SIZE 127, DAMP 0, PRE 0, MOD 127, RATE 127, FILT -64, WIDE 127)",
+            wrote == 7 && song.g[G_RSIZE] == 127 && song.g[G_RDAMP] == 0 && song.g[G_RPRE] == 0 && song.g[G_RMOD] == 127 && song.g[G_RRATE] == 127 && song.g[G_RFILT] == -64 && song.g[G_RWIDE] == 127);
+        fx_legacy_import(img_rd, 0, desc, trk[0].p, song.g, back);
+        chk("EXPORT RANGE  .. so the import reads back values inside the module's ranges and a second export changes nothing", back[0] == 127 && back[5] == -64 && fx_legacy_export(img_rd, 0, desc, back, trk[0].p, song.g) == 7 && song.g[G_RSIZE] == 127);
+        fresh_song();
+        song.g[G_RTYPE] = (int16_t)REV_TYPE[1]; song.g[G_RSIZE] = 77; song.g[G_RDAMP] = 33; song.g[G_RPRE] = -7;      /* SHIMMER is selected, with its own SIZE, DAMP, PRE */
+        wrote = fx_legacy_export(img_rd, 0, desc, big, trk[0].p, song.g);   /* the SPRING module's export */
+        chk("EXPORT CONDITION  the module of a mode that is not selected writes nothing: SHIMMER's SIZE 77, DAMP 33, PRE -7 stand", wrote == 0 && song.g[G_RSIZE] == 77 && song.g[G_RDAMP] == 33 && song.g[G_RPRE] == -7);
+        song.g[G_RTYPE] = (int16_t)REV_TYPE[0];
+        wrote = fx_legacy_export(img_rd, 0, desc, big, trk[0].p, song.g);
+        chk("EXPORT CONDITION  .. and writes all seven once its mode is the selected one (the condition is not a blanket refusal)", wrote == 7 && song.g[G_RSIZE] == 127);
+    }
+    {   fw_pages_t d;
+        static const exp_t E[4] = {{"A", F_PCT, 0, 127, 0, 0, 0}, {"B", F_PCT, 0, 127, 0, 0, 0}, {"C", F_PCT, 0, 127, 0, 0, 0}, {"D", F_PCT, 0, 127, 0, 0, 0}};
+        static const page_t ER[1] = {{"ENGINE", FAM_EDIT, SC_MOD, GR_NONE, {0, 1, 2, 3}}};
+        uint32_t flags[4] = {FW_PID_VOLATILE, FW_PID_RELATIVE, FW_PID_VIEW, 0};
+        const char *nm[4] = {"a volatile", "a relative", "a view", "a plain"};
+        for (uint32_t k = 0; k < 4; k++) {
+            char buf[200];
+            int rc;
+            x_fill(&d, E, 4, ER, 1);
+            for (uint32_t i = 0; i < 4; i++) { xpid[i].id = (uint16_t)(1 + i); xpid[i].legacy = FW_PID_NONE; }
+            xpid[2].id = (uint16_t)(3 | flags[k]);
+            fwp_wire(&d, img, sizeof img, BASE, &desc);
+            img[desc - BASE + 24] = 0x00; img[desc - BASE + 25] = 0x02; img[desc - BASE + 26] = 0x20; img[desc - BASE + 27] = 0x10;   /* shown and put hooks inside the image: the relative and view rules for hooks are met */
+            img[desc - BASE + 28] = 0x00; img[desc - BASE + 29] = 0x02; img[desc - BASE + 30] = 0x20; img[desc - BASE + 31] = 0x10;
+            rc = fw_pages_check_ex(img_rd, 0, desc, BASE + 0x100u, BASE + sizeof img, SC_MOD, P_COUNT, G_COUNT, 0);
+            snprintf(buf, sizeof buf, "ENGINE IDS  an engine whose pid table carries %s id is %s", nm[k], k >= 2 ? "accepted (a view is an engine's to have, with both hooks)" : "refused (FWP_PID)");
+            chk(buf, k >= 2 ? rc == FWP_OK : rc == FWP_PID);
+        }
+    }
     printf("fx_legacy: %d checks, %d failed\n", nchk, bad);
     return bad != 0;
 }

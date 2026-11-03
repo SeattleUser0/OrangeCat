@@ -232,6 +232,7 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
                 if (f == FW_PID_VIEW) views++;
                 if (f == FW_PID_RELATIVE) rels++;
             }
+            if (scope == SC_MOD && (id & (FW_PID_VOLATILE | FW_PID_RELATIVE))) return FWP_PID;   /* an engine's values are all stored (its project record has no such class): volatile and relative ids are an effect's */
             for (j = 0; j < i; j++) if (ids[j] == id) return FWP_PID;   /* never two entries of one id (a removed entry keeps its row) */
             ids[i] = (uint16_t)id;
             if (!label && leg != FW_PID_NONE) return FWP_PID;           /* a removed parameter has no slot */
