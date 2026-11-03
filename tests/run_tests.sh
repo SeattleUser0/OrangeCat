@@ -723,6 +723,8 @@ if core && [ $TABLES = 1 ]; then
     t "TRACKER: an EDIT tap whose release lands mid-frame turns the effect off and opens no page" tracker_edit_race_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW                  # (Orange Cat 0.14.1)
     t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW
+    t "Melodic chord accent (the owner's rule): each note keeps its own accent from its own velocity; an edit or a delete changes that note only; rendered" accent_own_test -O2 -DMELODEE_USB_AUDIO=1 $FW
+    t "Melodic chord accent, every switch off (the legacy job)" accent_own_legacy:accent_own_test -O2 -DMELODEE_USB_AUDIO=1 $BS_OFF $FW
     t "DRUM EDITOR, every switch off (the legacy job)" drum_editor_legacy:drum_editor_test -O2 $BS_OFF $FW   # (the DRUM engine is not in the build set: MELODEE_DRUM=0; converted close-out 2: a hit's cell converts to events under ONE_AUTH)
     job cand_slot                                  # (Orange Cat 0.14.2)
 fi

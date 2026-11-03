@@ -1938,7 +1938,17 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
             fm1_irq_on(); ui_message("STEP OCCUPIED"); return;
         }
 #endif
-    } else after.vel = (uint8_t)clamp((int32_t)before.vel + delta, 1, 127);
+    } else {
+        uint32_t view = recording_view(TSEL, &before);
+        if (view < NSTEP && (TSEL->step[view].flags & SF_ACCENT)) {   /* (the owner's rule) a deliberate step accent (or a project's from before) plays every note of the step at 127: baked into
+                                                         * the OTHER notes first, so that this edit changes this note only; their sound does not change. Their bytes are not in the undo (the
+                                                         * history holds the one event) and stay at 127 after it: what they play is what they played */
+            for (uint32_t j = recording_head[recording_owner(TSEL)]; j < RECORD_MAX; j = recording_next[j])
+                if (j != i && recording_active(TSEL, j) && recording_view(TSEL, &recording[j]) == view && recording[j].vel < 127u) recording[j].vel = 127u;
+            TSEL->step[view].flags &= (uint8_t)~SF_ACCENT;
+        }
+        after.vel = (uint8_t)clamp((int32_t)before.vel + delta, 1, 127);
+    }
     if (!memcmp(&before, &after, sizeof before)) { fm1_irq_on(); return; }
     event_replace(TSEL, i, &after, EV_MARK | EV_REBUILD | (slot == 0u || (OC_STEP_PAGES && slot == 6u) ? EV_FOLLOW : 0u));
     event_close();

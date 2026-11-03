@@ -110,7 +110,7 @@ static void graph_steps(const track_t *t, uint16_t c)
         if (i >= len)
             continue;
         if (step_on(st))
-            cv_rrect(x, y, 9, 14, 2, (st->flags & SF_ACCENT) ? T_ACCENT : c, T_SURF);
+            cv_rrect(x, y, 9, 14, 2, ((st->flags & SF_ACCENT) || ((st->flags & SF_RECORDED) && st->vel > 110u)) ? T_ACCENT : c, T_SURF);   /* (a recorded step with an accented note shows it) */
         else if (st->time == ST_TIE)
             cv_rrect(x, y + 8, 9, 6, 1, T_MID, T_SURF);
         else

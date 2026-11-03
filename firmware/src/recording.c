@@ -1045,7 +1045,7 @@ static void recording_shape(const track_t *t, uint32_t i, uint32_t period, uint3
     const step_t *s = &t->step[recording_view(t, r) % NSTEP];
     uint32_t g = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
     if (!g) g = 1;
-    *vel = (s->flags & SF_ACCENT) ? 127u : r->vel;
+    *vel = (s->flags & SF_ACCENT) ? 127u : r->vel > 110u ? 127u : r->vel;   /* (the owner's rule: a note keeps its own accent from its own velocity; the step flag is a deliberate step accent, never derived from the velocities) */
     *hits = step_ratchet(s); *grace = (s->flags & SF_FLAM) != 0u; *part = 0;
     if (*hits > 1u) {                                 /* RATCH: the gate of a part, as a manual step's, at most the note's own */
         *part = step_samples(t, period, r->step & 63u) / *hits;
