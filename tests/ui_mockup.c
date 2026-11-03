@@ -673,6 +673,7 @@ static void notice_card(const char *l1, const char *l2)
 static frame_t F_REST = {0, 0, 0, 0, 0}, F_NOTE = {220, 256, 256, 4, 600};
 static void set_knobs(sound_t *s, int a, int b, int c, int d) { s->k[0].v = (int16_t)a; s->k[1].v = (int16_t)b; s->k[2].v = (int16_t)c; s->k[3].v = (int16_t)d; }
 
+#include "ui_mockup_dub2.h"
 int main(int argc, char **argv)
 {
     const char *dir = argc > 1 ? argv[1] : "build/ui_mockup";
@@ -816,6 +817,7 @@ int main(int argc, char **argv)
                 sum / 20.0 * 77.0 / 57600.0, worst * 77.0 / 57600.0);
         S_DUB.k[0].v = 55; S_DUB.k[3].v = 40;
     }
+    dub2_shots(dir);
     begin_screen(); edit_sheet(); shot(dir, "edit_sound");
     begin_screen(); notes_page(0); shot(dir, "notes");
     begin_screen(); notes_page(1); shot(dir, "feel");
