@@ -2261,3 +2261,48 @@ switches), the renders with every switch (0 lint findings) and home_pic_test. Bu
 | all on, after the fixes (the pushed head) | 565,044 | 94,600 (+48) | 180,656 |
 
 565,044 B leaves 12,204 B free: 4,012 B above the 8 KB reserve. The steps are not isolated costs (code layout moves between builds: item 5 measured smaller than item 4 before it). Item 6 (the scene) is in the pack, not the image; its image cost is a constant.
+
+## Release 3, step 3 (branch r3-pages, from linux-hw fd159be; November 2, 2026): fw_pages version 3. For Session A
+
+**Status: built and reviewed; host tests only, nothing flashed.** RELEASE3_PLAN.md section 5, step 3; MODULE_FORMAT_R3.md 4, 5, 7 and the new section 14 ("as built", with the corrections). **For Session A: r3-pages is ready to merge when the host suite on its last commit is green (below),
+and your review is wanted on two things: the checker and the interrupt-side macro records.**
+
+**What it is.** `fw_pages_t` version 3 (80 bytes: `ui`, `pid`, `ext`), `fw_pid_t`, `fw_ui_t` (the picture and HOME's four knobs, 20 bytes), `fw_kdef_t` (28), `SC_FX` after `SC_DXLANE`; the checker `fw_pages_check_ex` (scope, P_COUNT; the pid table's rules; the effect scope's rules) and
+`fw_ui_check` (a bad picture or knob table is not a refusal); the registry of validated pictures and resolved knob records in RAM (`oc_knobs.c`), filled at registration by `oc_modui.c`; the three structures hashed into the interface identifier. The identifier moved (the unit's
+`iface` 0xCC9AED54 -> 0x588CCCF2; `FW_API_ID` 0x126F12CC -> 0x8679336A): **every module is refused until rebuilt and reinstalled.** SHAPES, WHEEL, the Prophet (and the build's other modules) are rebuilt by CI; the Prophet's descriptor is version 3 with `ui`, `pid`, `ext` 0;
+WHEEL and SHAPES have no descriptor. The installer page needed no code: it compares the package's identifier with the unit's and says "wrong firmware" (`modWrongFw`); `web/test_ocm.mjs` section 4 proves it on this build's packages (taken) and the same packages with the Release 2 identifier (refused).
+
+**Proof on the host (tests):** `tests/mod_iface_r3_test.c` (the real headers of Release 2's SHAPES, WHEEL and Prophet, `tests/fixtures/r2_modules`, are refused with FW_MOD_BAD_IFACE and the identifier alone is the reason; this build's images, every start, are accepted; the identifier moved by exactly the generator's change);
+`web/test_ocm.mjs` 4 (the page); `tests/mod_ui_test.c` (80 checks: the checker on wire bytes, every bad field of the picture and knobs, the registry, the interrupt's records through `mac_on`/`mac_off`, retire, the loader's order read in oc_module.c's text, a 60,000-image fuzz under the sanitizers: whatever is accepted and published
+holds the registry's invariants; mutation-checked); `gen_fw_api_id.py --selftest` moves the id for a field of each new structure; the existing `mod_pages_test`, `fuzz_fw_pages`, `module_host_prophet_test`, `fw_api_test`, `hot_set_test` and the module tests pass on version 3 (`mod_pages_test` expects 80).
+
+**Size against RELEASE3_PLAN.md section 2 (CI's build, `ci_step.py build`, SHAPES not in the image; the same build of fd159be beside it):**
+
+| | image B | .data+.bss B | pool B |
+|---|---|---|---|
+| linux-hw fd159be | 545,772 | 94,600 | 180,708 |
+| r3-pages | **548,264 (+2,492)** | **95,144 (+544)** | 180,708 |
+
+Against the body's room (`BODY_MAX` 573,440 B) the free flash is 25,176 B, and 16,984 B above the 8 KB reserve. **The cost is 1,000 B over the plan's 1,100 to 1,500 B estimate** (it was `oc_mod_boot` with the picture check and the publish inlined, +1,682 B; `oc_mod_pages_check_rd` +396 B; `mac_value`,
+`kdef_of`, `modui_of`, `oc_mod_unreg` +300 B together); the RAM is the registry, 3 records of 180 B (the document said 330 B: it counted 112 B a record and no labels or ranges). The plan's central estimate for 7a stays counted in its column; the owner decides if the +1,000 B matters.
+The same figure for the plan's own image (562,144 B at b1997d1) is not this build's: fd159be is already 545,772 B without SHAPES.
+
+**Every place oc_module.c is touched (for the merge with your module area, flash map step 1): four, all marked "r3-pages" and none inside a function that step 1 is likely to change:**
+1. after `oc_mod_pages_check` (about line 271): `#include "oc_modui.c"` (the new file) and a new function `oc_mod_ui_publish(i, h)`;
+2. `oc_mod_unreg` (about line 349): one line first, `modui_retire(e);`;
+3. `oc_mod_boot` (about line 427): one line after the registration block, `oc_mod_ui_publish(i, oc_mod_hdr_ptr(i));`.
+`oc_mod_pages_check_rd` is **not** touched (it calls `fw_pages_check`, now a wrapper). Other files: `fw_pages.h` (the format and the checkers), `oc_knobs.c` (the registry, `kdef_of`), `oc_macro.c` (`mac_value` reads the record's range: 2 lines), `oc_scene.c` (`scene_of`: the module's scene first),
+`ui_home_pic.c` (the cache looks at `modui_gen`), `tools/gen_fw_api_id.py`, `tools/module/prophet_mod.c` (3 zero fields).
+
+**What Session A must review:**
+1. **The checker** (`fw_pages.h`): `fw_pages_check_ex` and `fw_ui_check` read bytes a module controls. The review (an independent agent) found the bounds sound (`fwp_in` cannot wrap; every count is bounded before it multiplies) and no way for a 68-byte version 2 descriptor through. Yours to confirm: **the stack**, which I could not measure on the unit:
+   `fw_ui_check` holds a 1,024-byte scene buffer, `fw_pages_check_ex` about 300 B more (the id list and the slot bitmap), `modui_publish` about 330 B; all run on the main loop's stack from `persist_boot -> oc_mod_boot` and from the installer's `oc_mod_reload`; `-fstack-usage` would settle it.
+2. **The interrupt-side macro records** (`oc_knobs.c` `modui_t`, `modui_rng`, `kdef_of`; `oc_macro.c`; `oc_modui.c`). The interrupt reads only the RAM record: ids already resolved to track slots, ranges copied. The review's finding, fixed: **a knob's target may only be P_E0 .. P_E7** and the copied range is the panel entry's cut to the slot's own descriptor (the `legacy` slot can be any track slot; without this a module
+   could aim a macro at P_VOICE with any range). Publish and retire run in the main loop under `motion_guard`; `mac_on` and `mac_off` are one `mix_block`, so a retire cannot fall between them; `oc_mod_unreg` retires before `eng_unregister`. Yours: whether `motion_guard` is the right guard for the registry (the throw code's tables use it), and the extra three compares
+   a target costs in `mac_value` for the built-in tables (`modui_rng` looks at three records; not measured on the unit).
+
+**Decisions I made (the safer reading):** `fw_ui_t` is 20 bytes by dropping the document's reserved u16 (it summed to 22 and unaligned); plain knobs resolve to track slots like macro targets (a plain knob on a native byte is dropped); the picture needs a knob table (as before); a registry of 3 (a fourth module loads without picture); the checker allows any
+`legacy` slot but the knob path only E0..E7; the real modules ship with `ui` 0 (no module has a picture yet: `fw_ui_t` is exercised by the tests, not by a shipped module).
+
+**Not done (plan step 4, and the others'):** `fx_desc_t`/`fx_entry_t` and their place in the identifier's hash; the module-id install path and the Effects table; "PICTURE REFUSED" in the Engines table (the record holds the code); the install-time advisory result on the card and the page (the page's `ocmCheck` is unchanged);
+the web editor and app tables for `kdef` and scene bytes (Session D, plan step 8).
