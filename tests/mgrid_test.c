@@ -171,6 +171,10 @@ int main(void)
         }
         chk("KEYS    STEP: black keys 5 to 11 do nothing (no pick, no page, no stage, no change)", ok);
         fresh(16);
+        manual(3, 60);
+        memcpy(snap, TSEL->step, sizeof snap);
+        press(B_OCTUP); frs(2);
+        chk("KEYS    OCT+ on GRID opens nothing (no sheet) and changes nothing: the note's sheet is NOTES' and TRACKER's", pop.on == 0 && !ui.home && cur_page()->graph == GR_MGRID && same_steps(snap));
         oct_minus();
         chk("KEYS    OCT- in STEP is Esc as everywhere (HOME)", ui.home);
     }

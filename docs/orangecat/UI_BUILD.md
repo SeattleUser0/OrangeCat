@@ -2450,7 +2450,7 @@ behind them: subtraction of one note's render from the chord's is off by up to 1
 - **RAM: +16 B** (.data+.bss 94,568 to 94,584 B of 98,304): the stage is 4 bytes of state, which the compiler keeps as four words.
 - **Room:** free against `BODY_MAX` (573,440 B) is now 22,788 B, 14,596 B above the 8 KB reserve (it was 26,880 with the switch off). Easy trims if it is wanted: share the dials' text with NOTES (about 400 B) and keep the page's helpers out of line (about 500 B); not done, no behavior would change.
 
-**Tests** (`tests/mgrid_test.c`, 67 checks, in the suite twice: with the minimum switches and with the shipping set; mutation script `tests/mgrid_mutations.sh`, 12 mutants, each caught; the new screens in `tests/ui_render.c`, 8 scenes in every palette, lint clean, MONO gray): see the status line below for the suite. The ten "Done when" items, each by name in the test's lines:
+**Tests** (`tests/mgrid_test.c`, 69 checks, in the suite twice: with the minimum switches and with the shipping set; mutation script `tests/mgrid_mutations.sh`, 12 mutants, each caught; the new screens in `tests/ui_render.c`, 8 scenes in every palette, lint clean, MONO gray): see the status line below for the suite. The ten "Done when" items, each by name in the test's lines:
 1. DW1: steps 1, 5, 9 and 13 take four notes without visiting the steps between (the cursor was only ever on those four).
 2. DW2: black keys 1 to 4 reach the four pages; all 64 steps of a 64-step phrase filled from the GRID alone; a page and a step past LEN are inert.
 3. DW3: the cursor does not move by itself: a key, a chord, a MIDI note, a MIDI chord, the cancel.
