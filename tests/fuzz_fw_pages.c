@@ -67,7 +67,7 @@ static int follow(uint32_t da)                               /* the UI's use of 
         if (panel < BASE || panel - BASE + 20u * np > n_img) return 0;
         if (!fwp_u32(p)) continue;
         if (!str_ok(fwp_u32(p)) || (fwp_u32(p + 16) && !str_ok(fwp_u32(p + 16)))) return 0;
-        if (p[4] > F_TONE || mn > mx) return 0;
+        if (p[4] > F_DUBSPD || mn > mx) return 0;   /* (Release 3: the format limit is F_DUBSPD) */
         if (p[4] == F_ENUM) {
             if (!names || mn < 0 || mx >= 128) return 0;
             for (int v = mn; v <= mx; v++) if (!str_ok(u32(names + 4u * (uint32_t)v))) return 0;
