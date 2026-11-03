@@ -73,9 +73,11 @@ int main(void)
 #else
     check("SHAPES is built out: its slot is the reserved one, unselectable, no state",
           ENGINES[ENGI_SHAPES] == &ENG_RETIRED && !eng_ok(ENGI_SHAPES) && eng_state_size(ENGI_SHAPES) == 0u);
+    check("(Release 3) SHAPES out and no module: its records are retired ones (a project load keeps their preset number and engine settings; found on the unit: it was clamped to 0 and autosaved)", eng_extra_retired(ENGI_SHAPES));
     for (seen = 0, n = eng_vis(0), k = 0; k < NENG_SHOWN + 2u; k++) { n = eng_step(n, 1); seen += n == ENGI_SHAPES; }
     check("stepping through the engines (ENG knob) never stops on it while no module supplies it", seen == 0u);
     check("a module takes the empty slot", eng_register(&h, &fake_engine) == EM_OK && ENGINES[ENGI_SHAPES] == &fake_engine && eng_mod[ENGI_SHAPES] == &h);
+    check("(Release 3) with the module registered it is no longer retired (its presets and settings are clamped to its own again)", !eng_extra_retired(ENGI_SHAPES));
     check("then it is selectable, with the module's state size", eng_ok(ENGI_SHAPES) && eng_state_size(ENGI_SHAPES) == 1234u);
     for (seen = 0, n = eng_vis(0), k = 0; k < NENG_SHOWN + 2u; k++) { n = eng_step(n, 1); seen += n == ENGI_SHAPES; }
     check("and the ENG knob reaches it, forwards and back", seen >= 1u && eng_step(eng_vis(0), -1) == ENGI_SHAPES);
