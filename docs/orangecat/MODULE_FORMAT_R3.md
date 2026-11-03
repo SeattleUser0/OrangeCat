@@ -209,12 +209,12 @@ identifier moved (fd159be 0xCC9AED54 on the unit, `FW_API_ID` 0x126F12CC; now 0x
 9. **The real modules ship with `ui` 0 and no pid table:** WHEEL and SHAPES have no `fw_pages_t` at all (they are rebuilt for the new identifier only); the Prophet's descriptor is version 3 with `ui`, `pid`, `ext` 0. A picture can be
    added to any of them later without another identifier move.
 
-## 15. Worked example: DUB TAPE's pages as a module (Release 3 step 6; design only, November 2, 2026; no code)
+## 15. Worked example: DUB TAPE's pages as a module (Release 3 step 6; design November 2, 2026; its needs built into step 3 on November 3: the example below passes the checker as written, tests/mod_ui_test.c `t_fx`)
 
 DUB TAPE is the first effect to leave the image (RELEASE3_PLAN.md step 6, FX_MODULES_PLAN.md 7). This section writes its three pages in `fw_pages` version 3 terms **exactly as they show today** (dub_fields.h, params.c `PG_FX`, round 14) and keeps today's ids,
 so that a Release 2 project's DUB values load with no converter. Writing it found three things version 3 as built in section 14 does not allow; they are listed first, because Session A decides them before step 4 is cut.
 
-### 15.1 What DUB needs that the checker of section 14 refuses (decisions for Session A, before the identifier is frozen)
+### 15.1 What DUB needed that the checker of section 14 refused (now folded into step 3: the identifier moves once)
 
 1. **Formats above F_TONE.** TIME L / TIME R show `1/8D` (synced) or `340 ms` (free), SPEED shows `+3 st`: those are `F_DUBTS`, `F_DUBTF`, `F_DUBSPD`, which the checker refuses (`panel format > F_TONE`; the enum puts F_PANLR, F_ST16 and the three DUB formats after it). The formats are
    the interface a module is checked against, so the limit is a constant of the checker: **raise it to `F_DUBSPD`** (one constant; the enum's text is not hashed, so the identifier does not move for it; an older firmware refuses a module that uses a newer format, which is right). F_PANLR and F_ST16 come with it.
@@ -289,3 +289,11 @@ kernel's whole 8.5 KB less the host's share. They fit the module's first sector 
 
 Proves: today's three pages, labels, ranges, defaults and order are expressible in version 3 data with today's ids; a Release 2 project loads with no converter (A); the checker of section 14 accepts the data except the three things in 15.1. Does not prove: the host's call of `shown`/`put` (step 4), the instance
 context, the kernel's cut (step 5), the project format's place for the effect's values ([format]); and it was not run: no code, no test.
+
+### 15.5 As built into step 3 (November 3, 2026)
+1. **Format limit:** `fw_pages_check_ex` accepts panel formats up to `F_DUBSPD` (was `F_TONE`); `F_PANLR` and `F_ST16` come with it. Tested at the limit and one above.
+2. **The hooks:** `fw_pages_t.shown` and `.put` are now unions at the same offsets (24, 28): the engine's (`track_t *`) and the effect's `fx_shown(slot, instance, id, &value)` / `fx_put(slot, instance, id, value)`. The declared signatures are inside the structure's text, so they are in the hash
+   (`gen_fw_api_id.py --selftest` moves the id for a change of either). `_Static_assert`ed on the device: `fx_shown` at 24, `fx_put` at 28, `ui` at 68, size 80. The checker allows `shown` and `put` for SC_FX (the code inside the image, as an engine's) and still refuses `native`, `active`, `motion_skip`, the title lists, `loaded`, `env_source`, `bend`, `knob[]` and `cc[]`.
+3. **Views:** a pid with the bit `FW_PID_VIEW` (0x8000) is a view: it has no legacy slot, and a descriptor with any view must have both hooks (`FWP_PID` otherwise). A view is never stored and never a macro or motion target (`modui_publish` drops it: no slot). Option A of 15.1 is what the test builds; B needs no checker change.
+4. **The example is the test's data** (`make_dub` in tests/mod_ui_test.c: the table of 15.2, hooks over `dub_get_field`/`dub_put_field`): it passes `fw_pages_check_ex` as SC_FX; the legacy slots are today's; the hooks read SYNC, PING, DRIVE, WOW from MODE 65 and TAPE 8 as the page does, switch TIME's format with SYNC, and write back one 16-bit store each.
+5. **The identifier moved again** (it was never shipped at the step-3 value): `FW_API_ID` 0xCAF53177; the unit's `iface` 0x1400CEEF.

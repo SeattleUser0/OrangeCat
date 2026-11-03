@@ -73,6 +73,7 @@ typedef struct {
 #define FW_UI_MAGIC 0x31495547u                          /* "GUI1" little endian */
 #define FW_UI_SCENE_MAX 1024u                            /* bytes of scene a module may carry (the interpreter's own SC_MAX is the other bound) */
 #define FW_KDEF_N 4u                                     /* HOME's knobs */
+#define FW_PID_VIEW 0x8000u                              /* a pid with this bit is a VIEW (a cell computed from stored ids by shown/put: DUB's SYNC, PING, DRIVE, WOW): never stored, never a motion or macro target; it has no legacy slot and needs both hooks */
 #define FW_PID_NONE 0xFFFFu                              /* fw_pid_t.legacy: no track slot; fw_kdef_t target pid: unused */
 /* The stable parameter id of a panel entry (MODULE_FORMAT_R3.md 4): id never reused, never changes meaning; legacy the track parameter slot an older project stored the value in, FW_PID_NONE for none */
 typedef struct { uint16_t id, legacy; } fw_pid_t;
@@ -101,8 +102,14 @@ typedef struct fw_pages {
     const page_t *rows;
     const param_desc_t *panel;
     uint8_t *(*native)(struct track *t);
-    const param_desc_t *(*shown)(const struct track *t, uint32_t id, int16_t *value);
-    void (*put)(struct track *t, uint32_t id, int32_t value);
+    union {                                              /* (Release 3) the hooks by kind: an engine's (kind 0, SC_MOD) take the track, an effect's (kinds 1 to 3, SC_FX) the instance. The same four bytes at the same offset */
+        const param_desc_t *(*shown)(const struct track *t, uint32_t id, int16_t *value);
+        const param_desc_t *(*fx_shown)(uint32_t slot, uint32_t instance, uint32_t id, int16_t *value);
+    };
+    union {
+        void (*put)(struct track *t, uint32_t id, int32_t value);
+        void (*fx_put)(uint32_t slot, uint32_t instance, uint32_t id, int32_t value);
+    };
     int (*active)(const struct track *t, uint32_t id);
     const uint8_t *motion_skip;                          /* (npanel + 7) / 8 bytes, or 0 */
     const char *const *env_titles;
@@ -121,6 +128,7 @@ _Static_assert(sizeof(void *) != 4 || sizeof(page_t) == FW_PAGES_ROW_WIRE, "the 
 _Static_assert(sizeof(void *) != 4 || sizeof(param_desc_t) == FW_PAGES_DESC_WIRE, "the panel entry's device layout");
 _Static_assert(sizeof(void *) != 4 || sizeof(fw_ui_t) == FW_UI_WIRE, "the picture's device layout");
 _Static_assert(sizeof(fw_kdef_t) == FW_KDEF_WIRE, "the knob's layout");
+_Static_assert(sizeof(void *) != 4 || (__builtin_offsetof(fw_pages_t, fx_shown) == 24 && __builtin_offsetof(fw_pages_t, fx_put) == 28 && __builtin_offsetof(fw_pages_t, ui) == 68), "the hooks of an effect sit where an engine's do");
 _Static_assert(sizeof(fw_pid_t) == FW_PID_WIRE, "the parameter id's layout");
 
 /* ---- the loader's check of a descriptor, on the bytes of the module's image ------------------------------------------------------------------------------
@@ -148,6 +156,7 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
 {
     uint8_t d[FW_PAGES_WIRE], r[FW_PAGES_ROW_WIRE], p[FW_PAGES_DESC_WIRE], w[4];
     uint32_t i, n, np, rows, panel, skip, env, lfo, h, pidp;
+    uint32_t views = 0;                                  /* (Release 3) entries whose id has FW_PID_VIEW set */
     uint16_t ids[FW_PANEL_MAX];                          /* (Release 3) the pid table, for the unique-id check */
     uint8_t legseen[32];                                 /* .. and the legacy slots seen (below 256) */
     if (ui) *ui = 0;
@@ -168,7 +177,7 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
         if (h && !fwp_in(h, 2u, lo, hi)) return FWP_HOOK;
     }
     if (scope == SC_FX) {                                /* an effect: what only an engine has must be absent; its parameters have stable ids */
-        static const uint8_t no_hook[] = {20, 24, 28, 32, 36, 40, 44, 52, 56, 60};   /* native shown put active motion_skip env lfo loaded env_source bend */
+        static const uint8_t no_hook[] = {20, 32, 36, 40, 44, 52, 56, 60};   /* native active motion_skip env lfo loaded env_source bend: an effect has none. `shown` (24) and `put` (28) are allowed, with the instance signature (fx_shown, fx_put) */
         for (i = 0; i < sizeof no_hook; i++) if (fwp_u32(d + no_hook[i])) return FWP_SCOPE;
         for (i = 0; i < 4u; i++) if (d[48 + i] != 0xFFu || d[64 + i] != 0xFFu) return FWP_SCOPE;
         if (!pidp) return FWP_PID;
@@ -209,6 +218,8 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
             if (rd(ctx, pidp + i * FW_PID_WIRE, q, FW_PID_WIRE)) return FWP_READ;
             id = q[0] | q[1] << 8; leg = q[2] | q[3] << 8;
             if (id == FW_PID_NONE) return FWP_PID;
+            if (id >= FW_PID_VIEW && leg != FW_PID_NONE) return FWP_PID;   /* a view has no slot of its own (it is computed from stored ids by the hooks) */
+            if (id >= FW_PID_VIEW) views++;
             for (j = 0; j < i; j++) if (ids[j] == id) return FWP_PID;   /* never two entries of one id (a removed entry keeps its row) */
             ids[i] = (uint16_t)id;
             if (!label && leg != FW_PID_NONE) return FWP_PID;           /* a removed parameter has no slot */
@@ -220,10 +231,10 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
         if (!label) continue;                            /* no parameter i */
         if (!fwp_str(rd, ctx, label, lo, hi) || (unit && !fwp_str(rd, ctx, unit, lo, hi))) return FWP_STR;
         if (mn > mx) return FWP_PANEL;
-        /* (0.12.2, found by tests/fuzz_fw_pages.c) what params.c's param_format reads, which the check above did not bound: the format is one it knows; an F_ENUM has its names
+        /* (0.12.2, found by tests/fuzz_fw_pages.c) what params.c's param_format reads, which the check above did not bound: the format is one it knows (up to F_DUBSPD: Release 3 raised the limit from F_TONE for DUB TAPE's TIME and SPEED, and F_PANLR and F_ST16 come with it); an F_ENUM has its names
          * (it indexes names[] by the value clamped to min..max, so min is not below 0); a name list on an F_INT is 0-terminated inside the image (param_format counts to the 0);
          * no other format has one */
-        if (p[4] > F_TONE || (p[4] == F_ENUM && (!names || mn < 0)) || (names && p[4] != F_ENUM && p[4] != F_INT)) return FWP_PANEL;
+        if (p[4] > F_DUBSPD || (p[4] == F_ENUM && (!names || mn < 0)) || (names && p[4] != F_ENUM && p[4] != F_INT)) return FWP_PANEL;
         if (names && p[4] == F_INT) {
             if (mx < 0 || mx >= 127 || !fwp_in(names, (uint32_t)(mx + 2) * 4u, lo, hi) || (names & 3u) || rd(ctx, names + 4u * (uint32_t)(mx + 1), w, 4u)) return FWP_PANEL;
             if (fwp_u32(w)) return FWP_PANEL;
@@ -236,6 +247,7 @@ static inline int fw_pages_check_ex(fw_pages_rd rd, void *ctx, uint32_t desc, ui
             }
         }
     }
+    if (views && !(fwp_u32(d + 24) && fwp_u32(d + 28))) return FWP_PID;   /* a view is produced and written back by hooks: no hooks, no views */
     return FWP_OK;
 }
 static inline int fw_pages_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint32_t lo, uint32_t hi)   /* an engine's descriptor (kind 0) in this build */

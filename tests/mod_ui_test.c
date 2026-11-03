@@ -136,6 +136,106 @@ static void t_pages(void)
     }
 }
 
+/* ---- the effect side's hooks, the format limit and DUB TAPE's pages as MODULE_FORMAT_R3.md section 15 writes them ---- */
+static int16_t dubp[256];                                 /* an instance's stored ids, indexed by their legacy slots (P_ ids) */
+static const param_desc_t DUBD_SYNC = {"SYNC", F_ENUM, 0, 1, 1, 0, 0}, DUBD_PING = {"PING", F_ENUM, 0, 1, 0, 0, 0}, DUBD_DRIVE = {"DRIVE", F_INT, 0, 15, 6, 0, 0},
+                         DUBD_WOW = {"WOW", F_INT, 0, 11, 0, 0, 0}, DUBD_TS = {"TIM L", F_DUBTS, 0, 127, 53, 0, 0}, DUBD_TF = {"TIM L", F_DUBTF, 0, 127, 53, 0, 0},
+                         DUBD_RS = {"TIM R", F_DUBTS, 0, 127, 67, 0, 0}, DUBD_RF = {"TIM R", F_DUBTF, 0, 127, 67, 0, 0};
+static const param_desc_t *dub_shown(uint32_t slot, uint32_t instance, uint32_t id, int16_t *value)
+{
+    (void)slot; (void)instance;
+    switch (id) {
+    case 0x8001: *value = (int16_t)dub_get_field(dubp, DUBF_SYNC); return &DUBD_SYNC;
+    case 0x8002: *value = (int16_t)dub_get_field(dubp, DUBF_PING); return &DUBD_PING;
+    case 0x8003: *value = (int16_t)dub_get_field(dubp, DUBF_DRIVE); return &DUBD_DRIVE;
+    case 0x8004: *value = (int16_t)dub_get_field(dubp, DUBF_WOW); return &DUBD_WOW;
+    case 5: *value = dubp[P_DUB_TIML]; return dub_get_sync(dubp) ? &DUBD_TS : &DUBD_TF;
+    case 6: *value = dubp[P_DUB_TIMR]; return dub_get_sync(dubp) ? &DUBD_RS : &DUBD_RF;
+    default: return 0;                                     /* the panel's own descriptor and the stored value */
+    }
+}
+static void dub_put(uint32_t slot, uint32_t instance, uint32_t id, int32_t value)
+{
+    (void)slot; (void)instance;
+    if (id >= 0x8001 && id <= 0x8004) dub_put_field(dubp, id == 0x8001 ? DUBF_SYNC : id == 0x8002 ? DUBF_PING : id == 0x8003 ? DUBF_DRIVE : DUBF_WOW, value);
+}
+static const char *const DUB_NAMES_SYNC[] = {"FREE", "SYNC"}, *const DUB_NAMES_ONOFF[] = {"OFF", "ON"};
+static const page_t DUB_ROWS[3] = {
+    {"DUB SETUP", FAM_FX, SC_FX, GR_NONE, {10, 4, 5, 11}}, {"DUB", FAM_FX, SC_FX, GR_NONE, {0, 1, 2, 3}}, {"DUB 2", FAM_FX, SC_FX, GR_NONE, {6, 12, 13, 7}}};
+static const param_desc_t DUB_PANEL[14] = {
+    {"FDBK", F_INT, 0, 127, 55, 0, 0}, {"SEND", F_INT, 0, 127, 127, 0, 0}, {"FILTER", F_INT, 0, 127, 60, 0, 0}, {"ECHO", F_INT, 0, 127, 0, 0, 0},
+    {"TIM L", F_DUBTS, 0, 127, 53, 0, 0}, {"TIM R", F_DUBTS, 0, 127, 67, 0, 0}, {"SPRNG", F_PCT, 0, 127, 0, 0, 0}, {"SPEED", F_DUBSPD, 0, 127, 64, 0, 0},
+    {"", F_INT, 64, 127, 65, 0, 0}, {"", F_INT, -64, 127, 8, 0, 0},                                  /* MODE and TAPE: stored, packed, on no page */
+    {"SYNC", F_ENUM, 0, 1, 1, DUB_NAMES_SYNC, 0}, {"PING", F_ENUM, 0, 1, 0, DUB_NAMES_ONOFF, 0}, {"DRIVE", F_INT, 0, 15, 6, 0, 0}, {"WOW", F_INT, 0, 11, 0, 0, 0}};
+static const fw_pid_t DUB_PID[14] = {{1, P_DUB_FDBK}, {2, P_DUB_SEND}, {3, P_DUB_FILT}, {4, P_DUB_ECHO}, {5, P_DUB_TIML}, {6, P_DUB_TIMR}, {7, P_DUB_SPRG}, {8, P_DUB_SPD},
+                                     {9, P_DUB_MODE}, {10, P_DUB_TAPE}, {0x8001, FW_PID_NONE}, {0x8002, FW_PID_NONE}, {0x8003, FW_PID_NONE}, {0x8004, FW_PID_NONE}};
+static void make_dub(fw_pages_t *d)
+{
+    memset(d, 0, sizeof *d);
+    d->magic = FW_PAGES_MAGIC; d->size = FW_PAGES_WIRE; d->version = FW_PAGES_VERSION; d->npages = 3; d->npanel = 14;
+    d->rows = DUB_ROWS; d->panel = DUB_PANEL; d->pid = DUB_PID; d->fx_shown = dub_shown; d->fx_put = dub_put;
+    memset(d->knob, 0xFF, 4); memset(d->cc, 0xFF, 4);
+}
+static void t_fx(void)
+{
+    fw_pages_t d;
+    int16_t v = 0;
+    const param_desc_t *pd;
+    _Static_assert(sizeof(((fw_pages_t *)0)->shown) == sizeof(((fw_pages_t *)0)->fx_shown), "the union's members are one pointer");
+    make_dub(&d);
+    if (!fwp_wire(&d, img, sizeof img, BASE, &desc)) { printf("mod_ui: wire image full\n"); exit(2); }
+    mchk("FX      DUB TAPE's pages as MODULE_FORMAT_R3.md section 15 writes them (3 pages, 14 panel entries, 4 views, shown and put, F_DUBTS / F_DUBSPD) pass the checker as SC_FX", pages(SC_FX) == FWP_OK);
+    mchk("FX      .. and are refused as an engine's (their rows are SC_FX)", pages(SC_MOD) == FWP_ROW);
+    mchk("FX      the example's legacy slots are today's DUB ids: 104 105 106 107 111 112 113 45 46 47", DUB_PID[0].legacy == 104 && DUB_PID[1].legacy == 105 && DUB_PID[2].legacy == 106 && DUB_PID[3].legacy == 107 &&
+         DUB_PID[4].legacy == 111 && DUB_PID[5].legacy == 112 && DUB_PID[6].legacy == 113 && DUB_PID[7].legacy == 45 && DUB_PID[8].legacy == 46 && DUB_PID[9].legacy == 47);
+    mchk("FX      the hooks sit at the offsets an engine's do (24, 28) in the wire bytes", fwp_u32(img + d_off() + 24) != 0 && fwp_u32(img + d_off() + 28) != 0);
+    {   uint8_t keep[4]; memcpy(keep, img + d_off() + 24, 4);
+        put32(d_off() + 24, 0);
+        mchk("FX      views without a shown hook: FWP_PID", pages(SC_FX) == FWP_PID);
+        memcpy(img + d_off() + 24, keep, 4); memcpy(&desc, &desc, 0);
+        put32(d_off() + 28, 0);
+        mchk("FX      views without a put hook: FWP_PID", pages(SC_FX) == FWP_PID);
+        put32(d_off() + 28, BASE + 0x104u);
+        mchk("FX      the hooks restored pass again", pages(SC_FX) == FWP_OK);
+        put32(d_off() + 24, BASE + 0xFFFFFFF0u);
+        mchk("FX      a shown hook outside the image: FWP_HOOK", pages(SC_FX) == FWP_HOOK);
+        put32(d_off() + 24, BASE + 0x104u);
+    }
+    {   fw_pid_t bad[14]; fw_pages_t d2;
+        memcpy(bad, DUB_PID, sizeof bad); bad[10].legacy = P_E1;
+        d2 = d; d2.pid = bad; fwp_wire(&d2, img, sizeof img, BASE, &desc);
+        mchk("FX      a view that has a legacy slot: FWP_PID", pages(SC_FX) == FWP_PID);
+        make_dub(&d2); d2.pid = DUB_PID; fwp_wire(&d2, img, sizeof img, BASE, &desc);
+    }
+    {   fw_pid_t nov[14]; fw_pages_t d2;
+        memcpy(nov, DUB_PID, sizeof nov); for (uint32_t i = 10; i < 14; i++) nov[i].id = (uint16_t)(20 + i);
+        d2 = d; d2.pid = nov; d2.fx_shown = 0; d2.fx_put = 0;
+        fwp_wire(&d2, img, sizeof img, BASE, &desc);
+        mchk("FX      the same pages with the views made stored ids (option B) and no hooks pass: hooks are for views and the TIME format only", pages(SC_FX) == FWP_OK);
+    }
+    {   fw_pages_t d2; static param_desc_t pn[14];
+        make_dub(&d2); memcpy(pn, DUB_PANEL, sizeof pn); d2.panel = pn;
+        pn[7].fmt = F_DUBSPD; fwp_wire(&d2, img, sizeof img, BASE, &desc);
+        mchk("FORMAT  F_DUBSPD, the new limit, is accepted", pages(SC_FX) == FWP_OK);
+        pn[7].fmt = F_TONE + 1; fwp_wire(&d2, img, sizeof img, BASE, &desc);
+        mchk("FORMAT  F_TONE + 1 (F_PANLR) is accepted: the limit was F_TONE", pages(SC_FX) == FWP_OK);
+        { uint8_t *e = img + (fwp_u32(img + d_off() + 16) - BASE) + 7 * FW_PAGES_DESC_WIRE; e[4] = F_DUBSPD + 1;
+          mchk("FORMAT  F_DUBSPD + 1 is refused: FWP_PANEL", pages(SC_FX) == FWP_PANEL); }
+    }
+    /* the hooks themselves: the cells over MODE and TAPE, the TIME format by SYNC, a write back */
+    memset(dubp, 0, sizeof dubp);
+    dubp[P_DUB_MODE] = 65; dubp[P_DUB_TAPE] = 8; dubp[P_DUB_TIML] = 53; dubp[P_DUB_TIMR] = 67;   /* Release 2 defaults: SYNC on, PING off, DRIVE 6, WOW 0 */
+    pd = dub_shown(0, 0, 0x8001, &v);
+    mchk("HOOK    SYNC reads 1 from MODE 65, PING 0, DRIVE 6, WOW 0", pd && v == 1 && (dub_shown(0, 0, 0x8002, &v), v == 0) && (dub_shown(0, 0, 0x8003, &v), v == 6) && (dub_shown(0, 0, 0x8004, &v), v == 0));
+    pd = dub_shown(0, 0, 5, &v);
+    mchk("HOOK    TIM L shows on the beat (F_DUBTS) with SYNC on, value 53", pd && pd->fmt == F_DUBTS && v == 53);
+    dub_put(0, 0, 0x8001, 0);
+    pd = dub_shown(0, 0, 6, &v);
+    mchk("HOOK    SYNC put to 0 writes MODE 64 and TIM R shows free (F_DUBTF), value 67", dubp[P_DUB_MODE] == 64 && pd && pd->fmt == F_DUBTF && v == 67);
+    dub_put(0, 0, 0x8003, 9); dub_put(0, 0, 0x8004, 5); dub_put(0, 0, 0x8002, 1);
+    mchk("HOOK    DRIVE 9, WOW 5 write TAPE 9 x 12 + 5 - 64 = 49 in one store each; PING 1 writes MODE bit 1 and keeps SYNC off", dubp[P_DUB_TAPE] == 49 && dubp[P_DUB_MODE] == 66);
+    mchk("HOOK    a stored id has no view: the hook answers 0 (the panel's own descriptor)", dub_shown(0, 0, 1, &v) == 0);
+}
 static void t_ui(void)
 {
     fw_ui_info_t o;
@@ -338,6 +438,7 @@ static void t_fuzz(void)
 int main(void)
 {
     t_pages();
+    t_fx();
     t_ui();
     t_registry();
     t_text();

@@ -160,6 +160,8 @@ def selftest():
         ("a field added to fw_kdef_t (a fifth target)", "fw_pages.h", "    struct { uint16_t pid; uint8_t shape; int8_t depth; } t[4];", "    struct { uint16_t pid; uint8_t shape; int8_t depth; } t[5];"),
         ("a field retyped in fw_pid_t (the legacy slot)", "fw_pages.h", "typedef struct { uint16_t id, legacy; } fw_pid_t;", "typedef struct { uint16_t id; uint32_t legacy; } fw_pid_t;"),
         ("a field renamed in fw_pages_t (the Release 3 ext word)", "fw_pages.h", "    uint32_t ext; ", "    uint32_t ext2; "),
+        ("the effect side's shown hook loses its instance (Release 3, DUB)", "fw_pages.h", "(*fx_shown)(uint32_t slot, uint32_t instance, uint32_t id, int16_t *value)", "(*fx_shown)(uint32_t slot, uint32_t id, int16_t *value)"),
+        ("the effect side's put hook retyped (Release 3, DUB)", "fw_pages.h", "(*fx_put)(uint32_t slot, uint32_t instance, uint32_t id, int32_t value)", "(*fx_put)(uint32_t slot, uint32_t instance, uint32_t id, int16_t value)"),
         ("a field retyped in fw_pages_t (the 0.12.1 cc table)", "fw_pages.h", "    uint8_t cc[4];", "    uint16_t cc[4];"),
         ("fw_api_t's last 0.12.1 member renamed (voice_was)", "fw_api.h", "    const uint8_t *voice_was;", "    const uint8_t *voice_wasnt;"),
         ("fw_api_t's first 0.12.1 member retyped (p5_patch)", "fw_api.h", "    void *p5_patch;", "    const void *p5_patch;"),
