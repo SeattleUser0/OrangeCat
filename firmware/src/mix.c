@@ -99,7 +99,7 @@ JFX_XIP static void fx_ins_add_wet(const track_t *t,uint32_t ti,uint32_t n)
     if(!fx_done){if(d->hold)d->hold--;return;}
     mix_send_gains(t);
     for(uint32_t i=0;i<n;i++){
-        int32_t l=(int32_t)(fx_wet[ti][0][i]*FX_SCALE),r=(int32_t)(fx_wet[ti][1][i]*FX_SCALE),a=l<0?-l:l;
+        int32_t l=(int32_t)(fx_iwet[ti][0][i]*FX_SCALE),r=(int32_t)(fx_iwet[ti][1][i]*FX_SCALE),a=l<0?-l:l;
         if(a>pk)pk=a;
         mix_add(l,r,i);
         mix_send((l+r)>>1,i);

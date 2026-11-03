@@ -39,7 +39,7 @@ _Static_assert(CTL == 32, "a job a block of 32 samples");
 static __attribute__((section(".pool"))) fx_ins_t fx_ins[FX_INS_N];
 #define fx_p(k) ((void *)fx_cm->p[k])                   /* the job's parameter copies, the capture pair, the wet and the batch's sink: the instances' common arena block (jfx.c fx_common_t) */
 #define fx_x (fx_cm->x)
-#define fx_wet (fx_cm->wet)
+#define fx_iwet (fx_cm->wet)
 #define fx_sink (fx_cm->sink)
 static __attribute__((section(".pool"))) uint8_t fx_cur, fx_job_buf, fx_mask, fx_done;
 static __attribute__((section(".pool"))) uint8_t fx_ins_gov_req;                          /* audio.c: late halves while an instance ran: the governor asks for one to give way */
@@ -66,7 +66,7 @@ FX_HOT static void fx_ins_run(void)
         if (!((fx_mask >> k) & 1u)) continue;
         kn = fx_kernel_of(k);
         for (i = 0; i < CTL; i++) in[i] = (float)fx_x[fx_job_buf][k][i] * (1.0f / FX_SCALE);
-        kn->process(fx_ins_state[k], fx_p(k), in, fx_wet[k][0], fx_wet[k][1]);
+        kn->process(fx_ins_state[k], fx_p(k), in, fx_iwet[k][0], fx_iwet[k][1]);
     }
 }
 static void fx_ins_job(const void *data, int32_t *pcm) { (void)data; (void)pcm; fx_ins_run(); }
@@ -218,7 +218,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
             if (fx_ins_ready[k] && !fx_ins_fresh[k]) { d->pend_R = d->R; d->clr = 0; d->state = FXS_CLEAR; break; }   /* the memory is there but was in use (it is not fresh): the line cleared, then started */
             if (fx_ins_ready[k] && fx_ins_fresh[k]) {
                 kn->start(fx_ins_state[k], d->R, fx_line[k], fx_ins_have[k], fx_ins_spbuf[k]);   /* the input ramped in */
-                memset(fx_wet[k], 0, sizeof fx_wet[k]);
+                memset(fx_iwet[k], 0, sizeof fx_iwet[k]);
                 memset(fx_x[0][k], 0, sizeof fx_x[0][k]); memset(fx_x[1][k], 0, sizeof fx_x[1][k]);
                 fx_ins_fresh[k] = 0;
                 d->hold = 0;
@@ -259,7 +259,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
             else {
                 d->R = d->pend_R;
                 kn->start(fx_ins_state[k], d->R, fx_line[k], fx_ins_have[k], fx_ins_spbuf[k]);
-                memset(fx_wet[k], 0, sizeof fx_wet[k]);
+                memset(fx_iwet[k], 0, sizeof fx_iwet[k]);
                 d->pvalid = 0;
                 d->state = FXS_RUN;
             }
@@ -300,7 +300,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
 /* the instances from silence, their memory given back (a new project, power-on); the next block asks again for each track's setting */
 JFX_XIP static void fx_ins_reset(void)
 {
-    if (fx_cm) { memset(fx_x, 0, sizeof fx_x); memset(fx_wet, 0, sizeof fx_wet); }
+    if (fx_cm) { memset(fx_x, 0, sizeof fx_x); memset(fx_iwet, 0, sizeof fx_iwet); }
     memset(fx_ins, 0, sizeof fx_ins);
     memset(fx_ins_want, 0, sizeof fx_ins_want);
     memset(fx_ins_spring, 0, sizeof fx_ins_spring);
