@@ -160,7 +160,7 @@ int main(void)
         {"an engine_t past the end of the code", m_eptr_hi, 1, MD_BAD_HDR, 0},
         {"an engine_t at an odd address", m_eptr_odd, 1, MD_BAD_HDR, 0},
         {"an engine number a module may not supply (3)", m_eng, 1, MD_BAD_HDR, 0},
-        {"an engine number past the table (0xFFFFFFFF)", m_eng_big, 1, MD_BAD_HDR, 0},
+        {"an engine word with bits above 15 set (0xFFFFFFFF; Release 3 step 4: refused as a bad kind word)", m_eng_big, 1, MD_REFUSED, FW_MOD_BAD_KIND},
         {"no state size", m_st0, 1, MD_BAD_HDR, 0},
         {"a state size past the limit", m_stbig, 1, MD_BAD_HDR, 0},
         {"another build's asset pack (pack_hash)", m_pack, 1, MD_BAD_HDR, 0},
