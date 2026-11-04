@@ -1,6 +1,6 @@
 # Orange Cat Build Document
 
-**Version:** 0.98  
+**Version:** 0.99  
 **Date:** November 1, 2026  
 **Tracks:** Orange Cat Specification v0.31
 
@@ -1135,6 +1135,39 @@ The input scan is 11.4 us a tick (idle unit: LED blank 4.2, the shift register 3
 - **No per-track kernel choice.** The module installed: every track's DUB runs it; not installed: the resident kernel; the resident copy leaves one Nightly after the module ships. Appear / remove under running instances and no call into a removed module are tested on the host; `oc_mod_erase_span` lets go of the kernel before any erase of the module's sectors (`fx_dub_image_test`, real image). Open: a CPU1 job in flight at a removal (hardware).
 - **The capability block:** MODULE_FORMAT_R3.md section 6 now describes what is built (20 / 16 / 56 byte layout); `fx_ictx_t`, `fx_kcalls_t`, `fx_caps_t` have their own identifier `FX_ABI_ID` (in the caps block, refused when different); `FW_API_ID` 0xCAF53177 and `iface` 0x1400CEEF did not move.
 - **CI and the page:** `dub` in the workflow's module loops (rev 26), the Nightly lists DUB TAPE as an effect module (`{url, kind, module_id, name}`), the dub set manifest, the effects box names it and is ticked; `check_set` read the real package's signed starts wrongly and is fixed. Standard (main) leaves it out.
+- **Round 18, the merges (Session A).** MACRO VA init fix (docs/candidates/macro_va_init.diff of macro2-candidate 3870a8a8): a `started` byte in the part, the first render starts the model the part names. Goldens that changed: **preset/MACRO/00_VA_BASS c50a70aa441dc96c -> 8015e947b694e848** and **preset/MACRO/01_VA_SYNC_LEAD c74effd89b57713c -> bf5aa81fc5669910**, the only two of 410 (tests/golden.txt); `tests/macro_va_init_test.c` (new, in the suite) renders both on a fresh part and after a switch from MACRO presets 10, 20 and 24, dry, one process a render, and finds the same hashes (the new golden). dub-perf (1f8ae59) merged, its three kernel changes re-applied by hand after step 5 moved the code (and then once more into `dub_kern.h` by step 6). The review found a real defect in dub-perf's own code, fixed: `dub_view_on` was cleared only on the last branch of `draw_page`, so any screen after the DUB page left the keys C4 .. B4 as the DUB view's (60 visible pages; test added: no visible page leaves it on). `ECHO 0` now mutes in the 3 ms cut with the wet kept (a deliberate change of dub-perf's): `tests/fx_insert_diff.sh` was re-based on d620160d for that; step 5's own bit-identity holds against 09d4d4b3 with that one line dropped.
+- **Model picker timing (not merged; macro2-candidate 3870a8a8 built with OC_CANDIDATES=1, flashed, each model alone through the packed module, one preset a model, the four-note chord on every step, 20 s at 120 BPM, no hot set, the unit's budget 2,901 us):** one track and four tracks of the same preset; the units are MC_UNITS for the 15 MACRO models and macro2.md section 7's proposals for the rest.
+
+| Model | units (MC_UNITS / proposal) | 1 track: worst us / late | 4 tracks: worst us / late | voices at 4 | per added track (us) | us per unit at 1 track |
+|---|---|---|---|---|---|---|
+| VA | 3 | 839 / 0 | 1,896 / 0 | 4 | 352 | 280 |
+| WAVSHP | 3 | 1,121 / 0 | 1,786 / 0 | 5 | 222 | 374 |
+| FM | 8 | 1,157 / 0 | 2,337 / 0 | 5 | 393 | 145 |
+| GRAIN | 4 | 768 / 0 | 1,741 / 0 | 4 | 324 | 192 |
+| ADDTV | 7 | 1,588 / 0 | 3,372 / 3,587 | 5 | 595 | 227 |
+| CHORD | 5 | 750 / 0 | 1,619 / 0 | 4 | 290 | 150 |
+| SWARM | 5 | 1,467 / 0 | 2,903 / 164 | 5 | 479 | 293 |
+| NOISE | 4 | 764 / 0 | 1,627 / 0 | 4 | 288 | 191 |
+| PARTCL | 6 | 905 / 0 | 2,142 / 0 | 4 | 412 | 151 |
+| STRING | 6 | 978 / 0 | 2,431 / 0 | 4 | 484 | 163 |
+| MODAL | 6 | 1,852 / 0 | 3,994 / 3,603 | 5 | 714 | 309 |
+| KICK | 4 | 842 / 0 | 1,863 / 0 | 4 | 340 | 210 |
+| SNARE | 4 | 920 / 0 | 2,174 / 0 | 4 | 418 | 230 |
+| HI-HAT | 5 | 854 / 0 | 1,933 / 0 | 4 | 360 | 171 |
+| HARP (own) | 3 | 1,337 / 0 | 2,398 / 0 | 5 | 354 | 446 |
+| VA-VCF | 5 | 733 / 0 | 1,584 / 0 | 4 | 284 | 147 |
+| PD | 5 | 1,759 / 0 | 2,928 / 159 | 5 | 390 | 352 |
+| 6OP A | 6 | 1,285 / 0 | 3,664 / 3,589 | 4 | 793 | 214 |
+| 6OP B | 6 | 1,290 / 0 | 3,678 / 3,589 | 4 | 796 | 215 |
+| 6OP C | 6 | 1,295 / 0 | 3,725 / 3,585 | 4 | 810 | 216 |
+| TERRAN | 7 | 774 / 0 | 1,760 / 0 | 4 | 329 | 111 |
+| STRMCH | 5 | 790 / 0 | 1,873 / 0 | 4 | 361 | 158 |
+| CHIP | 2 | 683 / 0 | 1,247 / 0 | 4 | 188 | 342 |
+| WAVTBL (bank A) | 8 | 1,281 / 0 | 2,624 / 164 | 5 | 448 | 160 |
+| SPEECH | 5 | 817 / 0 | 1,800 / 0 | 4 | 328 | 163 |
+
+Read: ten models fit four tracks with room; ADDTV, MODAL and the three 6OP banks do not fit four tracks (late halves from 3,585 to 3,603 in 20 s), SWARM, PD and WAVTBL touch the budget at four (159 to 164 late). The proposed units are about right for the MACRO models (as in hw/LOG.md) but wrong for the new ones: 6OP is rated 6 and costs 793 to 810 us a track (MODAL-class, 714), PD rated 5 costs 390 a track and 1,759 us at one track (the heaviest first track after MODAL and ADDTV: its units want 9 or 10), TERRAN rated 7 costs 329 (4 would do), FM rated 8 costs 393 (the same as VA-VCF's 284 plus a margin: 6). The per-track slope is the right comparison: units cost about 55 to 60 us each for the models that behave. Not measured: the hot set, the glue's dispatch against MACRO's switch in isolation (VA through the module 839 us at one track against MACRO's 893 with the hot set, 912 without).
+
 - **Sizes:** module 11,612 B, 3 sectors, package 12,048 B; image 559,940 B (832e5fdb: 555,168 B; c3800864: 558,692 B); `.data`+`.bss` 95,752 B (+16 over 832e5fdb, none this round). The unit's reading of the module's time: FX_MODULES_PLAN.md 15.6 item 6.
 
 **7.28 Round 17 (November 3, 2026; branch r17-var from linux-hw fad3864b; Session A).** Same rule: subagents read, write code on their own branch and run host tests; the push, the dispatch and every flash are mine.
@@ -1219,6 +1252,7 @@ Not used:
 
 ## Revision history
 
+- **0.99 (November 3, 2026, branch r18 / r18-step6 into linux-hw):** Round 18 (7.29): MACRO VA init fix (two goldens), dub-perf merged (a stuck-keys defect fixed), Release 3 step 6: DUB TAPE as a module (every track uses it when installed, the resident copy stays one more Nightly), the capability block as built (FX_ABI_ID), CI and the installer page list it; the model picker's timing on the unit.
 - **0.98 (November 3, 2026, branch r17-var into linux-hw):** Round 17 (7.28): the kick/snare level variation is the free-running chorus (no firmware change); ui-fix2 bdc59453 and r3-pages ac92d88c merged (the identifier did not move; a lost step accent fixed); Release 3 step 5, the generic insert host with DUB's kernel across the cut, resident (bit-identical on the host); step 6 on its own branch.
 - **0.97 (November 3, 2026, branch r16-step4 into linux-hw):** Round 16 (7.27): an upgrade alone never rewrites a project (the autosave compares the music with what it packed to at load); ui-fix2 and Release 3 step 3 (fw_pages version 3, the interface identifier moved) merged; step 4 (the kind field, the Effects table, install by module id, the page's and the card's listing); the main stack's high-water mark measured on the unit.
 - **0.96 (November 2, 2026, branch r3-a):** Release 3 step 1 (7.26): the module area is 18 sectors (0xC2000..0xD3FFF), numbering kept at 0xC8000; the record store 50 sectors with the first boot's migration of the six; the sample slot 16 sectors; the installer page's downgrade line.
