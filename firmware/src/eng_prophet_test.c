@@ -252,7 +252,8 @@ static void p5_update_bend(track_t *t);
 static void p5_block(track_t *t)
 {
     p5_part_t *s=p5_part((uint32_t)(t-trk));const uint8_t *p=p5_patch_of(t)->raw;
-    if(!s)return;p5_update_bend(t);
+    if(!s)return;
+    p5_update_bend(t);
     /* Raw-to-DSP clamping is part-wide; envelopes and all voices share it. */
     p5_cache_update(t,s,p);
     uint32_t inc=P5_LFO_INC[p5_value(p,P5_LFO_RATE)]/P5_OVERSAMPLE;

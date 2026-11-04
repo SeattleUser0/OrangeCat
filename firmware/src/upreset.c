@@ -698,7 +698,8 @@ static uint32_t up_engine(uint32_t k) {
 #if MELODEE_FLASH && !defined(UP_HOST)
     if(up_cached != k/UP_PER_BANK && up_meta[k].ready)return up_meta[k].engine;
 #endif
- if(up_native_cz(up_rec(k)))return ENGI_CZ; return eng_sound_idx(up_rec(k)->engine); }
+ if(up_native_cz(up_rec(k)))return ENGI_CZ;
+ return eng_sound_idx(up_rec(k)->engine); }
 
 static uint32_t up_count(void)                 /* used slots */
 {

@@ -25,7 +25,8 @@ static int p5_bank_valid(const p5_bank_t *b,uint32_t bank)
 
 static int p5_user_get(uint32_t slot,p5_patch_t *patch)
 {
-    if(!native_used(ENGI_PROPHET,slot))return 2;memcpy(patch,native_raw(ENGI_PROPHET,slot),sizeof *patch);return 0;
+    if(!native_used(ENGI_PROPHET,slot))return 2;
+    memcpy(patch,native_raw(ENGI_PROPHET,slot),sizeof *patch);return 0;
 }
 static int p5_favorite_has(uint32_t slot,int factory)
 {

@@ -22,7 +22,7 @@ typedef struct { int32_t wet[CTL], sl[CTL], sr[CTL]; } ret_t;
 static ret_t rec[NB];
 static ret_t ref[NB];
 static int32_t xo[2u * CTL], jt_rng_s = 1;
-static int32_t fd_noise(void) { jt_rng_s = jt_rng_s * 1664525 + 1013904223; return (int32_t)((uint32_t)jt_rng_s >> 16) - 32768; }
+static int32_t fd_noise(void) { jt_rng_s = (int32_t)((uint32_t)jt_rng_s * 1664525u + 1013904223u);   /* (san-fix) the LCG wraps by design */ return (int32_t)((uint32_t)jt_rng_s >> 16) - 32768; }
 static int bad;
 
 static void fd_fresh(void)

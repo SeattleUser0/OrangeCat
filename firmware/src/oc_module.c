@@ -195,7 +195,7 @@ static void oc_mod_low_rescan(void);
 static uint32_t oc_mod_flash(uint32_t i) { return ST_MODULE_LO + OC_MOD_START_SECTOR(i) * 0x1000u; }
 static uint32_t oc_mod_link(uint32_t i) { return FL_XIP(oc_mod_flash(i)); }
 #ifndef OC_MOD_HOST_XIP
-static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr_t *)oc_mod_link(i); }   /* registered by address: the header is read in place */
+static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr_t *)(uintptr_t)oc_mod_link(i); }   /* registered by address: the header is read in place */
 #endif
 
 static void oc_mod_guard_init(void)
@@ -501,7 +501,7 @@ static void oc_mod_boot(uint32_t crashed)
             oc_mod.nfxmod++;
             continue;
         }
-        {   int rc = eng_mod[h.engine] ? EM_SLOT : oc_mod_reg(i, oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);
+        {   int rc = eng_mod[h.engine] ? EM_SLOT : oc_mod_reg(i, oc_mod_hdr_ptr(i), (const engine_t *)(uintptr_t)h.engine_ptr);
             if (rc != EM_OK) {
                 oc_mod.state[i] = MD_NOSLOT;
                 oc_mod.why[i] = (uint8_t)-rc;

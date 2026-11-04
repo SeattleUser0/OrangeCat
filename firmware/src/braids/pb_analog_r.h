@@ -332,7 +332,7 @@ static void pb_analog_render_variable_saw(pb_analog_t *o, const uint8_t *sync_in
 
         next_sample += (int32_t)(o->phase >> 18);
         next_sample += (int32_t)((o->phase - pw) >> 18);
-        *buffer++ = (int16_t)((this_sample - 16384) << 1);
+        *buffer++ = (int16_t)(int32_t)((uint32_t)(this_sample - 16384) << 1);
     }
     o->next_sample = next_sample;
     PB_END_INTERPOLATE_PHASE_INCREMENT(o)

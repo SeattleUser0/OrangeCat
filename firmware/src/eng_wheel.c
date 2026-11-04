@@ -275,7 +275,7 @@ static void wheel_voice(const void *data, int32_t *out)
             acc[i] = (softclip((acc[i] * dg) >> 9) * dcomp) >> 8;
     }
     for (i = 0; i < n; i++)                             /* acc: Q15 with headroom to 4.0 */
-        out[i] += voice_amp(acc[i] >> 1, m, i) << 1;
+        out[i] += (int32_t)((uint32_t)(voice_amp(acc[i] >> 1, m, i)) << 1);
 }
 
 static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
