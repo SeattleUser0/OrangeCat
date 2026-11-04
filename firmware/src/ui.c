@@ -375,23 +375,28 @@ static void pack_notice(uint32_t force)
     if (OC_PACK_READY() || (e != ENGI_MACRO && e != ENGI_SHAPES)) return;
     if (force || !ui.msg_t) ui_message("PACK MISSING");
 }
+/* (round 20) what the boot notice says: MODULE MISSING for an engine module not installed (as before), or for a track with DUB on and no DUB module (the kernel is the module's); both
+ * together with the pack missing for a MACRO or SHAPES track: MODULE + PACK MISSING; else PACK MISSING. dub: a track has DUB on and none installed; pack: a track needs the pack and it is not there */
+static const char *boot_notice_text(uint32_t eng_gone, uint32_t dub, uint32_t pack)
+{
+    return eng_gone ? "MODULE MISSING" : dub && pack ? "MODULE + PACK MISSING" : dub ? "MODULE MISSING" : pack ? "PACK MISSING" : "";
+}
 /* (Orange Cat 0.8.1) once at power-on, after the project is loaded (main.c, after project_boot, the way "BOOT PROJECT SKIPPED" is
  * shown): the pack is not there and a track of the project uses MACRO or SHAPES. It replaces the "LOADED" the project load said.
  * skipped: the boot guard skipped the project or template (their own word stays; nothing of theirs was loaded) */
 static void pack_boot_notice(uint32_t skipped)
 {
-    uint32_t k;
+    uint32_t k, gone = 0, dub = 0, pack = 0;
+    const char *s;
     if (skipped) return;
-    for (k = 0; k < NTRK && k < song.ntrk; k++)
-        if (mod_gone(trk[k].eng_req % NENGINES)) { ui_message("MODULE MISSING"); return; }
-    if (!fx_ins_module_ok())                            /* (round 20) DUB is a module: a track with DUB on and none installed plays dry */
-        for (k = 0; k < NTRK && k < song.ntrk; k++)
-            if (trk[k].p[P_DUB_ECHO] != 0) { ui_message("MODULE MISSING"); return; }
-    if (OC_PACK_READY()) return;
     for (k = 0; k < NTRK && k < song.ntrk; k++) {
         uint32_t e = trk[k].eng_req % NENGINES;
-        if (e == ENGI_MACRO || e == ENGI_SHAPES) { ui_message("PACK MISSING"); return; }
+        gone |= mod_gone(e);
+        dub |= !fx_ins_module_ok() && trk[k].p[P_DUB_ECHO] != 0;     /* (round 20) DUB is a module: a track with DUB on and none installed plays dry */
+        pack |= !OC_PACK_READY() && (e == ENGI_MACRO || e == ENGI_SHAPES);
     }
+    s = boot_notice_text(gone, dub, pack);
+    if (s[0]) ui_message(s);
 }
 #ifndef FRZ_AUDIO
 static uint64_t frz_host_frozen;                        /* (host builds of the UI without card_freeze.c: the phrases the

@@ -565,6 +565,11 @@ static const char *pv_fx_hint(const page_t *pg)
                "SLICER is off (MODE)";
     return "DJ filter, clip, leveler";
 }
+/* (round 20) what the FX page says when its bus did not get its way: a DUB instance without the module is MODULE MISSING (the kernel is the module's), with it, no memory */
+static const char *pv_fx_full_text(uint32_t bus)
+{
+    return bus >= 16u ? (fx_ins_module_ok() ? "DUB FULL: no memory, dry" : "MODULE MISSING: dry") : "FX FULL: no memory, dry";
+}
 static void pv_fx(int32_t h)
 {
     const aafont_t *lf = TY_LB;
@@ -593,7 +598,7 @@ static void pv_fx(int32_t h)
         py = y;
     }
     if (full)
-        cv_free_text(12, h - lf->h - 6, lf, bus >= 16u ? (fx_ins_module_ok() ? "DUB FULL: no memory, dry" : "MODULE MISSING: dry") : "FX FULL: no memory, dry", T_DIM, T_PANEL, PV_PANEL_W - 24);
+        cv_free_text(12, h - lf->h - 6, lf, pv_fx_full_text(bus), T_DIM, T_PANEL, PV_PANEL_W - 24);
 }
 static void pv_picture(void)
 {
@@ -603,7 +608,7 @@ static void pv_picture(void)
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
     if (pic == 9u) {                                    /* FX: the page's first value, its model, FX FULL */
         uint32_t m = cur_page()->scope == SC_GLOBAL, id = cur_page()->id[0];
-        sig ^= (id < (m ? G_COUNT : P_COUNT) ? (uint32_t)(uint16_t)(m ? song.g : TSEL->p)[id] : 0u) * 7919u + (uint32_t)jfx_full * 347u +
+        sig ^= (id < (m ? G_COUNT : P_COUNT) ? (uint32_t)(uint16_t)(m ? song.g : TSEL->p)[id] : 0u) * 7919u + (uint32_t)jfx_full * 347u + (uint32_t)fx_ins_module_ok() * 5003u +      /* (the text of the DUB page follows the module as well as the full bit) */
                (uint32_t)(song.g[G_DFDBK] + song.g[G_RSIZE] * 5 + song.g[G_CDEPTH] * 11 + song.g[G_SLDEP] * 13 +
                           song.g[G_DJF] * 19 + song.g[G_CLIP] * 23 + TSEL->p[P_REV] * 29 + TSEL->p[P_DLY] * 31) * 7u +
                (uint32_t)(song.g[G_DTYPE] + song.g[G_RTYPE] * 3 + song.g[G_SLMODE] * 17 + TSEL->p[P_DTYPE] * 53) * 104729u;

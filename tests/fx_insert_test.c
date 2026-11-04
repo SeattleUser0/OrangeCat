@@ -346,8 +346,14 @@ static void descriptor_checks(void)
     CHECK((kn->flags & FXK_SEED) == 0 && (kn->flags & FXK_TAIL_FAR) && (kn->flags & FXK_US) && kn->tail_base == 24u && kn->prof == AP_DUB && kn->rates == 0x06u, "tail, seed 0, class, rates");
     CHECK(kn->on && kn->size_sig && kn->size_need && kn->blocks_at && kn->hold_len && kn->tick && kn->param_sig && kn->snap && kn->cost_extra && kn->start && kn->process && kn->reset, "every call is there");
     {   fx_ictx_t c; memset(&c, 0, sizeof c); c.beat = beat_samples();
-        uint32_t nb = fx_kernel_of(0)->blocks_at(fx_kernel_of(0)->size_need(&trk[0], &c), 2u);
-        CHECK(nb >= kn->ram_work_min && nb <= kn->ram_work_max, "sizing through the struct: %u blocks", nb); }
+        track_t tt = trk[0];
+        uint32_t nb90, nb127;
+        dub_put_field(tt.p, DUBF_SYNC, 0);                                        /* free times: the sizes are pinned numbers (409 ms: 9,082 loop samples at the half rate, 6 blocks; 1.45 s: the 16) */
+        tt.p[P_DUB_TIML] = tt.p[P_DUB_TIMR] = 90; tt.p[P_DUB_SPD] = 64;
+        nb90 = fx_kernel_of(0)->blocks_at(fx_kernel_of(0)->size_need(&tt, &c), 2u);
+        tt.p[P_DUB_TIML] = tt.p[P_DUB_TIMR] = 127;
+        nb127 = fx_kernel_of(0)->blocks_at(fx_kernel_of(0)->size_need(&tt, &c), 2u);
+        CHECK(nb90 == 6u && nb127 == 16u, "sizing through the struct: TIME 90 -> %u blocks (6), TIME 127 -> %u (16)", nb90, nb127); }
     CHECK(sizeof(dub_common_t) == sizeof(fx_common_t), "one common block");
     CHECK(FW_API_ID == 0xCAF53177u, "the interface identifier did not move (0x%08X)", (unsigned)FW_API_ID);
 }

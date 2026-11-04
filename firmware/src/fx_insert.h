@@ -4,14 +4,14 @@
  *
  * The insert host (fx_insert.c: the instance state machine, the governor, the capture and the wet; jfx.c: the memory layer jfx_ins_mem) knows nothing of DUB TAPE.
  * What a kernel is to it is one fx_kernel_t: capability words (the plan's section 4 table, the names and widths of MODULE_FORMAT_R3.md section 6's fx_entry_t where
- * they overlap) and the calls the host makes. DUB TAPE's kernel (jfx_dub.c, over dubdelay.c) fills it as a resident const object today; step 6 fills the same struct
+ * they overlap) and the calls the host makes. DUB TAPE's kernel (the module's: tools/module/dub_mod.c over dubdelay.c; resident until round 20) fills it; the host builds the same struct
  * from a module's fx_desc_t (fw_fx.h) with the calls pointing into the module's image. The host reaches a kernel only through fx_kernel_of(k).
  *
  * Not part of fw_api_t, fw_pages_t or any structure tools/gen_fw_api_id.py hashes: the interface identifier does not move for this file. */
 #pragma once
 #include "dubdelay.h"
 #include "fx_kernel.h"                              /* the kernel vocabulary (Release 3 step 6: shared with the effect module) */
-/* the parameter snapshot's room per instance in the common block: the largest snapshot of a resident kernel (dd_params_t today). Step 6 sets it from the largest module's declared
+/* the parameter snapshot's room per instance in the common block: the largest snapshot a kernel hands (dd_params_t: DUB's). Step 6 sets it from the largest module's declared
  * size; until then it is DUB's, so the common block is the size it was before the cut (sizeof asserted in jfx_dub.c) */
 #define FX_PARAM_BYTES ((uint32_t)((sizeof(dd_params_t) + 3u) & ~3u))
 #define FX_STATE_MAX 16384u                             /* the most bytes the host lends an instance for a module kernel's state (ram_state) or its option (ram_extra_bytes): a caps word above it is refused */
@@ -37,7 +37,7 @@ typedef struct {
 #define FX_MODK_ID 1u                                   /* the module id the host runs a module kernel for: DUB TAPE's */
 enum { FXM_OK = 0, FXM_VER, FXM_RANGE };                /* fx_modk_set's answer */
 #define fx_trig dub_trig                                /* the performance triggers (dub_fields.h): MIDI CC 16 to 21, per track, RAM only; the host hands them to the kernel in fx_ictx_t */
-static const fx_kernel_t *fx_kernel_of(uint32_t k);     /* the kernel bound to instance k (jfx_dub.c): the registered module's for every track, or DUB's resident one when none is registered; never a per-track choice */
+static const fx_kernel_t *fx_kernel_of(uint32_t k);     /* the kernel bound to instance k (jfx_dub.c): the registered module's for every track, an empty one when none is (the host never calls it: the tracks play dry); never a per-track choice */
 
 /* the names the tests and older readers use for the host's state (the code itself uses fx_ins_*) */
 #define DUB_N FX_INS_N

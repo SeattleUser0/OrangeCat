@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Orange Cat Release 3 step 6 (FX_MODULES_PLAN.md 15): what a kernel is to the insert host, in one header the host (fx_insert.h) and an effect module (tools/module/dub_mod.c) both include.
  *
- * fx_kernel_t is the host's view of a kernel: the capability words (the plan's section 4 column) and the calls. The resident kernel (jfx_dub.c) is a const object of it; a module's kernel is
+ * fx_kernel_t is the host's view of a kernel: the capability words (the plan's section 4 column) and the calls. Since round 20 the image has no resident kernel: a module's kernel is
  * built in RAM from the module's checked descriptor (fx_caps_t, below: the words) and its call table (fx_kcalls_t: the pointers into the module's own code) by fx_modk_set (fx_insert.c).
  * Everything a kernel needs from the host that is not in the track it reads comes in the call (fx_ictx_t: the tempo and the performance triggers), so a module imports NOTHING from the
  * firmware beyond fw_api_t as it is (memcpy / memset): fw_api_t does not grow and the interface identifier does not move.
@@ -10,7 +10,7 @@
  * Not in FW_API_ID's hash (tools/gen_fw_api_id.py SOURCES): that identifier says what ANY module image may call (fw_api_t) and read (track_t); this is what the HOST calls in an effect module.
  * They have their own, FX_ABI_ID (gen_fw_api_id.py FX_SOURCES: fx_ictx_t, fx_kcalls_t, fx_caps_t, written to build/gen/fw_api_id.h): the module's fx_caps_t carries it in `abi` and the loader refuses a
  * module built with another (MODULE_FORMAT_R3.md 6, Decision). FX_CAPS_VERSION is for what a hash cannot see: a changed meaning of a word in the same layout. The host refuses a caps block of a
- * version it does not know (the module is registered, its Effects row says why, the resident kernel plays). */
+ * version it does not know (the module is registered, its Effects row says why, the tracks play dry). */
 #pragma once
 #include <stdint.h>
 #include "fw_api_id.h"                               /* generated: FX_ABI_ID, the identifier of this file's host-to-module structures (tools/gen_fw_api_id.py FX_SOURCES) */
