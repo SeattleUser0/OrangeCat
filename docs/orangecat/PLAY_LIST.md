@@ -1,3 +1,14 @@
+# Orange Cat Nightly v0.16.0-db6f67 (Round 18): what changed for you since 428a44
+
+Written November 4, 2026 for the owner. Install from the installer page (Nightly); DUB TAPE is ticked under effects. Standard 0.15.0 is unchanged.
+
+1. **DUB now lives in a module** (11.6 KB, 3 sectors). With it installed every track uses it; without it the built-in copy runs. Same sound, about the same time (heavy cell 256 of 256 and 512 of 512 on the unit, 0 late).
+2. **DUB performance view:** open DUB's HOME page, then keys C4 to B4 are throws, CUT, KICK, HOLD, DIVE (octave down) and RISE (octave up). CC 16 to 21 do the same from outside. ECHO 0 now closes through a short cut and keeps its wet level.
+3. **MACRO's VA is now the same fresh as after a model switch** (two goldens changed). Spring/KICK were silent through the module until this build; fixed (the tank was refused for a per-block take budget and never asked again).
+4. **Try:** play C4 to B4 over a held chord; HOLD then DIVE; KICK on the beat. **Not shown:** the physical keys and a recorded pass (I can only send CCs from here); notes 124 to 127 clash is left for Release 3. The model picker did not fit four heavy tracks (ADDTV, MODAL, 6OP late): table in BUILD.md 7.29.
+
+---
+
 # Orange Cat Nightly v0.16.0-428a44 (Round 17): what changed for you since f27773
 
 Written November 3, 2026 for the owner. Install it from the installer page (Nightly); Standard 0.15.0 is unchanged. Modules did not need reinstalling this time.
