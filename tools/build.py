@@ -859,12 +859,20 @@ def check_only():
         OUT.mkdir(parents=True, exist_ok=True)
         generate()
     subprocess.run([sys.executable, SRC / "tools/gen_909_tables.py", GEN / "x0x_drum_tables.h"], check=True)
+    units = [(app_flags(), FW / "src" / "melodee.c"),
+             ([*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src"], FW / "loader" / "loader.c"),
+             ([*CFLAGS, "-Ifirmware/stub"], FW / "stub" / "stub.c")]
+    # build/compile_commands.json: the three units' real commands (the pi32v2 clang, its flags) for the analyzers (tools/lint.sh --cppcheck,
+    # --tidy strip the target flags for the host's tools) and for an editor's clangd
+    cc = str(toolchain() / "pi32v2/bin/clang")
+    (OUT / "compile_commands.json").write_text(json.dumps(
+        [{"directory": str(SRC), "file": str(src), "output": str(OUT / (src.stem + ".o")),
+          "arguments": [cc, "-target", "pi32v2", *flags, "-c", str(src), "-o", str(OUT / (src.stem + ".o"))]} for flags, src in units],
+        indent=1) + "\n")
     t0 = time.monotonic()
-    tc_all(("cc", *app_flags(), "-fsyntax-only", FW / "src" / "melodee.c"),
-           ("cc", *CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-fsyntax-only", FW / "loader" / "loader.c"),
-           ("cc", *CFLAGS, "-Ifirmware/stub", "-fsyntax-only", FW / "stub" / "stub.c"))
+    tc_all(*[("cc", *flags, "-fsyntax-only", src) for flags, src in units])
     print(f"  ok    OC_CHECK: the app, the loader and the stub compile (pi32v2 clang, -fsyntax-only, {time.monotonic() - t0:.1f} s); "
-          "nothing linked or packaged")
+          "nothing linked or packaged; build/compile_commands.json written")
     return 0
 
 

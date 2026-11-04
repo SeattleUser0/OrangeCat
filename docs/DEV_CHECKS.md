@@ -237,7 +237,115 @@ lines (`eng_drum.c:397`, `eng_prophet_test.c:255`, `project.c:346` and `480`, `p
 and `2095`, `ui_popup.c:573`, `upreset.c:701`) deserve a reading each: gcc says the next statement is not under the `if` or
 `for` the indentation suggests.
 
+## One compile per flag set? (the study, not built)
+
+The ask: compile the firmware's unity sources once per distinct flag set and link the tests against those objects, instead of
+the 229 compiles a run. The compiles of a SAN=0 run (`build/host/log/*.cc`) group by their exact flags and defines into **84
+distinct sets** (18 distinct flag strings without the `-D`s, the rest the defines): the two largest are the plain `-O2 -w` set
+(53 compiles) and the plain `-O1 -w` set (43), then `-O1` without the include paths (18), no `-O` (16), the sanitized UI set (11).
+If the objects could be shared, those two sets alone would turn 96 firmware compiles into 2, and the suite's compile seconds
+(80 % of it) would drop by well over half.
+
+They cannot be shared, and not for a reason a flag can fix: **the firmware is 3,337 file-static functions and 14 external
+ones** (`firmware/src/*.c`). The tests reach the code by including the sources into their own unit (`tests/hostsim.c` includes
+`libc.c`, `engines.c`, `params.c`, `mod.c`, `voice.c`, `mix.c` ...; 88 of the test files include a firmware `.c` or hostsim) and
+call the statics directly, and the HAL the firmware calls is the test's own stubs, resolved inside the same unit. A test linked
+against a prebuilt object would see none of the statics and would not be the same test. Making the statics external (or an
+export layer of 3,000 symbols) is a change to the whole code base, with the size of the image at stake (the unity build is what
+lets the compiler inline and drop across files). A precompiled header of the shared prefix would cut parsing only; the
+compile time is code generation at `-O1`/`-O2`. So: not built, no `dev-tools2`. What does pay is above: the fast tier skips
+the jobs whose inputs did not change (`--changed`), and the serial jobs are split.
+
+## The analyzers: cppcheck and clang-tidy (tools/lint.sh --cppcheck --tidy)
+
+Both run over the firmware's three real units (the app, the update loader, the boot stub) through `build/compile_commands.json`,
+which `OC_CHECK=1 ./build.sh` writes (the pi32v2 clang's own commands); `tools/lint.sh` strips the target flags (`-target
+pi32v2`, `-mcpu=r3`, `-mfprev1`, `-Werror=double-promotion`) into `build/host/compile_commands.json` for the host's tools. The
+check sets are the bug finders, not style: cppcheck `--enable=warning,portability`; clang-tidy `bugprone-*` and
+`clang-analyzer-*` minus the style and unity-build noise (assignment in a condition, macro parentheses, switch without
+default, swappable parameters, narrowing, suspicious include, a fixed address dereference: every MMIO register). Measured on
+dev-tools at 56d796d9's tree, 2026-11-04:
+
+| tool | findings | time | files |
+|---|---|---|---|
+| cppcheck 2.19 (warning, portability) | 48 | 237 s | 27, jfx.c 9, usb.c, recording.c, libc.c, dubdelay.c 3 each |
+| clang-tidy 21 (bugprone, analyzer) | 96 | 27 s (293 in 21 s before the style checks were dropped) | 43, braids/pb_dig_c.h 8, drum_sid.c 7, gfx.c 4 |
+
+cppcheck by kind: 13 uninitvar, 10 shiftNegativeLHS, 7 shiftTooManyBitsSigned, 4 arrayIndexOutOfBounds, 4
+arrayIndexOutOfBoundsCond, 3 comparePointers, 2 zerodivcond, 2 legacyUninitvar, 1 each nullPointerRedundantCheck,
+negativeIndex, identicalInnerCondition. clang-tidy by kind:
+
+```
+  29 [bugprone-signed-char-misuse]
+  20 [bugprone-suspicious-string-compare]
+  17 [bugprone-inc-dec-in-conditions]
+  14 [clang-analyzer-deadcode.DeadStores]
+  6 [bugprone-casting-through-void]
+  4 [bugprone-incorrect-roundings]
+  2 [bugprone-integer-division]
+  1 [bugprone-suspicious-semicolon]
+  1 [bugprone-suspicious-missing-comma]
+  1 [bugprone-sizeof-expression]
+  1 [bugprone-not-null-terminated-result]
+```
+
+**Read one by one, none is a bug in the code as it runs.** What each is:
+
+- *cppcheck's out-of-bounds* (`note_tools.c:262` and the three in `recording.c` it flows into): the copy of selected notes into
+  free slots, `dest` reaching RECORD_MAX when none is free. The function refuses the copy before that loop (`needed > free`:
+  RECORDING FULL, `note_tools.c:236`); the guard is far from the loop, which is all cppcheck sees. `usb.c:752` to `754`
+  (`ep1tx[n + 3]` with `n < 64`): `n` moves by 4. `params.c:475` (`LEVEL_DB_X10[v]` at 128): the one F_DB parameter's range
+  is 0 to 127. `libc.c:107`: the fixed-point formatter's index is never -1 (n is 1 or more by then).
+- *cppcheck's uninitialised*: `mix.c:221` (`g0`, `g1` filled through an alias pointer), `oc_module.c:1087` (`h` points into a
+  buffer the memcpy fills first), `ota.c:381` (`back` read only after `ota_fread` filled it, the `||` chain), `project.c:369`
+  and `537` (`proj_name_get` fills `n` before `memcpy` runs: the arguments are evaluated first), `ui_input.c:2176` (`ch`
+  filled by `chord_make` in the argument list), `jfx.c:902` (an array filled in the loop above), `usb_files.c:295` and
+  `686` (FatFs out-parameters), `libc.c:25` and `41` (memset's own return), `dubdelay.c:426` and `436` (the half-band
+  decimator fills exactly nloop samples; the memcpy of the whole interpolation buffer copies an unused tail). Worth a second
+  reading by the DUB owner: `dubdelay.c:426`, that `xl` is full for every `nloop` the kernel runs with.
+- *cppcheck's division by zero* (`browse.c:408`, `ui_input.c:563`): the encoder step `s` divides; both are reached from a
+  detent event, where `s` is never 0. A guard would cost nothing.
+- *cppcheck's shifts*: 7 `1 << 31`-style sign-bit shifts (`dsp.c:164`, `eng_sid.c:171`, `fm6_core.c:144`, `jfx.c:839` and
+  `849`, `phys_symp.c:141`, `x0x/drum909_dsp.h:183`) and 10 more left shifts of possibly negative values (`jfx.c:382`, `1804`,
+  `1805`, `1826`, `1827`, `drum_808.c:224`, `eng_trio.c:74`, `phys_dsp.c:104`, `braids/pb_dig_b.h:102`, `pb_dig_d.h:595`): the
+  same class san-fix fixed where the SAN=1 suite hit them; these the suite does not reach with a negative value. The same
+  unsigned cast would do, output unchanged; not done (report only).
+- *cppcheck's pointer comparisons* (`main.c:395`, `397`, `loader/loader.c:113`): `_bss_start` to `_bss_end`, linker symbols.
+  `fatfs/ff.c:3725`, third party. `jfx.c:641`: a style remark on `dly_hold`.
+- *clang-tidy's dead stores* (14): leftovers, none hiding a decision: `gfx.c:936`, `937`, `940` feed a test hook that is empty
+  in the image; `lib_group.c:218` keeps `old = lg_map[bank]` and never uses it; `ui_patterns.c:105` reads `div` and drops it;
+  `oc_project.c:347` returns 2 where `rc` was kept; `ui_input.c:2690` reads the encoder for the side effect; the rest are
+  initialisers overwritten.
+- *clang-tidy's signed-char-misuse* (29): `int8_t` tables promoted to `int` on purpose (the engines' signed offsets).
+  *suspicious-string-compare* (20): `if (memcmp(...))` as a boolean, the code's idiom. *inc-dec-in-conditions* (17): `while
+  (n--)` and the like. *casting-through-void* (6), *incorrect-roundings* (4: `(int)(x + 0.5)` on positive constants),
+  *integer-division* (2), *not-null-terminated-result* (1: a fixed-width name field), *sizeof-expression* (1: a byte walk over a
+  struct), *suspicious-missing-comma* (1: `browse.c:47`, a long string literal continued on the next line, intended) and
+  *suspicious-semicolon* (1: `note_tools.c:260`, an empty search loop).
+
+So nothing to fix on san-fix from the analyzers. The two lists stay as a report: `tools/lint.sh --cppcheck --tidy` prints the
+counts, the lines are in `build/host/cppcheck.txt` and `build/host/tidy.txt`, and a new finding in either is what to read.
+
 ## For Session A: what merges, and the gate
+
+**san-fix** (branch `san-fix` from linux-hw a58324e2, worktree `~/oc-san-fix`): the SAN=1 suite's findings, listed under
+"Known red" below, fixed without an output change: the plain `.fwsc`, app and loader identical by hash to a58324e2's (the
+gate below, run twice: after the sanitizer fixes and after the warning fixes). The shifts of negative values and the int32
+products that wrap go through unsigned, the same bits the target had; the tests free their images and buffers; the module
+build test builds into its own directory. The 13 misleading-indentation and 7 int-to-pointer warnings, read one by one: none a
+bug. Misleading indentation, all the dense one-line style, the statement after the `if` or `for` meant to run unconditionally and
+doing so: `eng_drum.c:397` (the drum runs after the SD tweak), `eng_prophet_test.c:255` (the bend update after the part check),
+`project.c:346` and `:480` (the step packer's advance, the FX field parse), `prophet_user.c:28` (the copy after the slot check),
+`ui.c:839` (an empty search loop), `ui_input.c:1888` (the redraw after the move's message) and `:2095` (the note removal's
+count), `ui_popup.c:573` (the fallthrough return), `upreset.c:701` (the engine lookup), `tests/oc_module_test.c:475` and `:886`
+(the install macros' write loop), `tests/usb_host_test.c:1712` (an empty search loop). Each statement is on its own line now;
+whitespace only, the hash unchanged. Int-to-pointer: `firmware/hal/fm1_usb.h` lines 26, 28, 29 (the USB endpoint registers),
+`oc_module.c:198` and `:496` (a module's header and engine by XIP address), `oc_pack.c:259` (the pack in place),
+`tests/oc_module_test.c:122`: the target's 32-bit addresses made pointers, which the 64-bit host flags; through `uintptr_t` now,
+the same code on the target. The full SAN=1 suite on san-fix: SAN_SUITE_PLACEHOLDER
+
+**dev-tools**: below.
+
 
 Files: `tests/cc_wrap.sh` (new), `tests/suite_profile.py` (new), `tools/lint.sh` (new), `tests/run_tests.sh` (the options, the
 compiler wrapping, the job key and timing, the profile at the end, the CI marker withheld from the fast tier),
