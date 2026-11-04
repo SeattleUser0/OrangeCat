@@ -593,7 +593,7 @@ static void pv_fx(int32_t h)
         py = y;
     }
     if (full)
-        cv_free_text(12, h - lf->h - 6, lf, bus >= 16u ? "DUB FULL: no memory, dry" : "FX FULL: no memory, dry", T_DIM, T_PANEL, PV_PANEL_W - 24);
+        cv_free_text(12, h - lf->h - 6, lf, bus >= 16u ? (fx_ins_module_ok() ? "DUB FULL: no memory, dry" : "MODULE MISSING: dry") : "FX FULL: no memory, dry", T_DIM, T_PANEL, PV_PANEL_W - 24);
 }
 static void pv_picture(void)
 {

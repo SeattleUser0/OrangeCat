@@ -19,6 +19,7 @@
 #include "ui_test.c"
 #include <assert.h>
 #include <math.h>
+#include "dub_module_host.h"                         /* (round 20) the echo is the module's: registered in main */
 
 static int bad;
 #define GMIX(blk) do { static uint32_t gq; if (!(gq++ & 3u)) dub_late_half(0, 1200u); mix_block((blk), CTL); } while (0)
@@ -58,6 +59,7 @@ int main(void)
     uint32_t b, first = 0;
     int32_t maxstep, dry_step = 0;
     base = malloc(sizeof rec);
+    if (dub_host_module_set() != FXM_OK) { printf("dub insert: the DUB module did not register\n"); return 2; }
 
     /* OFF: no DUB memory; the reference render */
     dt_fresh(0, 6, 6, 120);
@@ -121,7 +123,7 @@ int main(void)
             resource_release(RES_JFX0 + JB_DUBC);
             for (v = 127; v >= 0 && !ok; v--) {            /* the longest free time whose line fits the blocks that do: the line is sized from the times now */
                 float need = (float)dub_free_ms10(v) * 1e-4f * 22050.0f + 64.0f;
-                if (dub_blocks_at(need, 2u) <= n) ok = v;
+                if (fx_modk.blocks_at(need, 2u) <= n) ok = v;
             }
             printf("dub insert: %u blocks fit beside the common block and a state; the lowered free TIME %d\n", n, ok);
             trk[0].p[P_DUB_MODE] = DUB_MODE_MARK;            /* free times */

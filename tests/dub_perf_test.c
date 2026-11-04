@@ -6,7 +6,7 @@
  *            page closed still releases its trigger; CC 19 .. 21 are the same triggers
  *   RECORD   (the track recording) a throw is the SEND lane (its level, then the knob's), CUT the ECHO lane (0, then the knob's); KICK, HOLD, DIVE and RISE write no event; not recording: no event
  *            and the motion base untouched
- *   RENDER   through the resident DUB kernel, sample for sample: CUT held = ECHO 0 for the same blocks (so a CUT recorded as ECHO 0 plays as the live trigger); a throw = SEND at that level;
+ *   RENDER   through the DUB module (tests/dub_module_host.h), sample for sample: CUT held = ECHO 0 for the same blocks (so a CUT recorded as ECHO 0 plays as the live trigger); a throw = SEND at that level;
  *            HOLD = FDBK 100; DIVE = SPEED 0; RISE = SPEED 127; DIVE and RISE together = SPEED 64; a control (nothing) differs from each
  *   PAGES    the HOME turn is PICTURE, TRACKS, CHORD while the track's ECHO is 0 and PICTURE, DUB, TRACKS, CHORD above it; the four knobs on DUB are FDBK SEND FILTER ECHO; the page keeps its place
  *            when ECHO is turned to 0; DUB needs PICTURE chosen
@@ -23,6 +23,7 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "dub_module_host.h"                         /* (round 20) DUB's kernel is the module: registered in main */
 
 static int bad, nchk;
 static void chk(const char *what, int ok) { nchk++; printf("dub_perf: %-140s %s\n", what, ok ? "ok" : "FAIL"); bad += !ok; }
@@ -138,6 +139,7 @@ static uint32_t screen_hash(void)
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (dub_host_module_set() != FXM_OK) { printf("dub_perf: the DUB module did not register\n"); return 2; }
 #if !OC_HOME_PIC
     printf("dub_perf: built without OC_HOME_PIC: nothing to check\n");
     return 0;
@@ -201,7 +203,7 @@ int main(void)
         key(16, 1); key(16, 0); key(18, 1); key(18, 0);
         chk("RECORD  not recording: no event, and the knobs' values untouched (SEND 90, ECHO 100)", motion.count == 0 && TSEL->p[P_DUB_SEND] == 90 && TSEL->p[P_DUB_ECHO] == 100);
     }
-    {   /* RENDER: the resident kernel */
+    {   /* RENDER: the module's kernel */
         static const act_t CUT_ON = {1, 127, -1, 0}, CUT_OFF = {1, 0, -1, 0}, E0_ON = {-1, 0, P_DUB_ECHO, 0}, E0_OFF = {-1, 0, P_DUB_ECHO, 100};
         static const act_t TH_ON = {0, 64, -1, 0}, TH_OFF = {0, 0, -1, 0}, SD_ON = {-1, 0, P_DUB_SEND, 64}, SD_OFF = {-1, 0, P_DUB_SEND, 127};
         static const act_t HO_ON = {3, 127, -1, 0}, HO_OFF = {3, 0, -1, 0}, FB_ON = {-1, 0, P_DUB_FDBK, 100}, FB_OFF = {-1, 0, P_DUB_FDBK, 20};

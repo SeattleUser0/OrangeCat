@@ -237,6 +237,16 @@ _t() {
     _timed=$_title
     timed limited "$@" || fail "$_title"
 }
+# (round 20) DUB TAPE's kernel is the module only: a host test that needs the echo links the module's host unit (tests/module_host_dub_tu.c, tools/module/dub_mod.c with OC_MODULE_HOST)
+# and registers it (tests/dub_module_host.h). dub_t TITLE out:src flags .. -- cmd: the same as t, with that unit compiled first and linked in
+_dub_t() {
+    _dt_title=$1 _dt_spec=$2; shift 2
+    _dt_o="$OUT/dubtu_${_dt_spec%%:*}.o"
+    _dt_d=; for _a in "$@"; do case $_a in -D*) _dt_d="$_dt_d $_a" ;; esac; done      # the test's own -D flags: the unit must see the same track_t as the test
+    $CC -c -O1 -ffp-contract=off $FW $_dt_d -o "$_dt_o" tests/module_host_dub_tu.c || { fail "compile tests/module_host_dub_tu.c (${_dt_spec%%:*})"; return 1; }
+    _t "$_dt_title" "$_dt_spec" "$_dt_o" "$@"
+}
+dub_t() { job _dub_t "$@"; }
 flush() {                                         # the logs of the jobs ended, in order
     while [ $shown -lt $n ] && [ -f "$LOG/$((shown + 1)).done" ]; do
         shown=$((shown + 1))
@@ -245,7 +255,7 @@ flush() {                                         # the logs of the jobs ended, 
     done
 }
 # (dev-tools) a job's key, the name the profile and the dependency database know it by: a test's or a step's title, a job function's name
-jobkey() { case $1 in _t | step) echo "$2" ;; echo) echo "note: $2" ;; *) echo "$1" ;; esac; }
+jobkey() { case $1 in _t | _dub_t | step) echo "$2" ;; echo) echo "note: $2" ;; *) echo "$1" ;; esac; }
 affected() {                                      # --changed: the key runs when its inputs changed, when it is a golden or size check, or when the database does not know it
     [ -z "$CHANGED" ] && return 0
     case $1 in regression*|"main stack"*|note:*) return 0 ;; esac
@@ -534,7 +544,7 @@ core && t "audio matrix with the buses deferred (Release 2)" audio_matrix_defer:
 core && t "audio with the buses deferred (Release 2): overload protection" audio_defer:audio_test $FW -DMELODEE_FX_DEFER=1
 core && t "effects' memory in the device's arena (Orange Cat 0.6.0 rev 2): which buses hold with which engines, the cache RAM and the card's slots" jfx_arena_test -O1 $FW
 sound && t "DUB TAPE's kernel (Release 2): the repeats at TIME, each darker; FEEDBACK 1.27 bounded; the line through its block table; TIME and filter changes continuous; the cut; the spring in both placements; the quarter rate" jfx_dub_test -O1 -ffp-contract=off -Wno-unused-function
-sound && t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
+sound && dub_t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
 sound && job fx_insert_job
 sound && job fx_dub_module_job
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
@@ -842,9 +852,9 @@ if sound && [ $TABLES = 1 ]; then
     t "fw_pages version 3 (Release 3, step 3): the pid table, the effect scope, the picture and the knobs, the registry, the macros' RAM records, retire; fuzzed, sanitizers" \
         mod_ui_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (Release 3, step 8 decisions L1 to L4) a Release 2 project's reverb values load into the reverb module as they play today: the values, and a render against the resident reverb
-    t "reverb modules (Release 3, L1): a Release 2 project of each mode imports into its module with the resident reverb's values and render; the other modes keep defaults" fx_legacy_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
-    # (dub-perf) DUB TAPE's performance view: the keys, the triggers CC 19 .. 21, what records, CUT = ECHO 0 and the other triggers = their knobs through the resident kernel, the page, its draw budget
-    t "DUB TAPE performance view (dub-perf): the octave of keys, CC 19 .. 21, the SEND and ECHO lanes, CUT recorded as ECHO 0 plays as the trigger, the page and its budget; sanitizers" \
+    dub_t "reverb modules (Release 3, L1): a Release 2 project of each mode imports into its module with the resident reverb's values and render; the other modes keep defaults" fx_legacy_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # (dub-perf) DUB TAPE's performance view: the keys, the triggers CC 19 .. 21, what records, CUT = ECHO 0 and the other triggers = their knobs through the module's kernel, the page, its draw budget
+    dub_t "DUB TAPE performance view (dub-perf): the octave of keys, CC 19 .. 21, the SEND and ECHO lanes, CUT recorded as ECHO 0 plays as the trigger, the page and its budget; sanitizers" \
         dub_perf_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
         "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt

@@ -30,6 +30,7 @@
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 #include <assert.h>
+#define DUB_STATE_BYTES ((uint32_t)((sizeof(dd_t) + 3u) & ~3u))   /* (round 20) a DUB instance's state: the kernel is the module's, its caps word ram_state is this number */
 
 static int bad;
 static int32_t ja_out[2u * CTL];

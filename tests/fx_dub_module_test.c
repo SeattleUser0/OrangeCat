@@ -1,57 +1,41 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* Release 3 step 6 (docs/orangecat/FX_MODULES_PLAN.md 15): DUB TAPE's kernel as a MODULE (tools/module/dub_mod.c) runs through the SAME generic insert host (fx_insert.c, fx_kernel_t) beside the
- * resident copy. THE GATE: the module's render is the resident's, sample for sample and behaviour for behaviour.
+/* Release 3 step 6, round 20 (docs/orangecat/FX_MODULES_PLAN.md 15, 15.9): DUB TAPE's kernel is a MODULE (tools/module/dub_mod.c) and the image has no copy of it. This test runs the module through the
+ * generic insert host (fx_insert.c, fx_kernel_t) and checks the host around it.
  *
  * It is built with the module's translation unit (tests/module_host_dub_tu.c, the module source with OC_MODULE_HOST: its own object, its own statics, the firmware only through FW_API) and runs the
- * scenarios of tests/fx_insert_test.c (the probe: LONG, MEM, R2, HEAVY1, HEAVY2) and two of its own (TRIG: THRW, CUT, KICK around their thresholds; PERF: HOLD, DIVE, RISE, DIVE+RISE and
- * ECHO 0 and back, the performance view's behaviours of dub-perf, d620160d) through the real mixer:
- *   A  the resident kernel, no module registered (a build with no module): every output block is written to a file, the printout is kept;
- *   B  the module registered: with a module installed EVERY track's instance runs the module's kernel (round 18: no per-track choice exists). Every output block is compared with A's, the
- *      hashes, the governor and the behaviour hash too, and the blocks in which an instance of the module's kernel ran are counted (the module really ran);
- *   D  the module removed again (fx_modk_clear): every track is the resident kernel's again, A's render again; and registered a second time, B's again.
- * Then A is compared with the pinned printout of the last tree with one resident kernel file, d620160d (tests/fx_insert_golden.txt), line for line. The descriptor: the module's capability words, call table, legacy-slot
- * rows and pages against the resident kernel's and the firmware's own parameter table and PAGES; the pages pass the loader's checker as SC_FX; a kernel the host cannot give is refused; a module
- * that appears under running instances, and one that goes away under them, end with the instances restarted from silence on the other kernel and no call into the module afterwards.
+ * scenarios of tests/fx_insert_test.c (the probe: LONG, MEM, R2, HEAVY1, HEAVY2) and its TRIG and PERF through the real mixer:
+ *   ABSENT  no module registered: a track with DUB on plays DRY (its output equals the same render with ECHO 0, bit for bit), no instance, no capture, no memory taken, nothing for the governor,
+ *           the DUB FULL bit of every such track set (the DUB page says MODULE MISSING), and a project with DUB values round-trips unchanged;
+ *   MODULE  the module registered: EVERY track's instance runs it (no per-track choice), and the render of the seven scenarios equals the pinned printout tests/fx_insert_golden.txt, which is the
+ *           resident kernel's of d620160d (tests/fx_insert_diff.sh proves the same against that tree, sample for sample: the hash of every output sample and of the behaviour);
+ *   then the module appearing after boot (DRY -> sounding), going away (-> DRY, nothing called afterwards, memory given back), swapped for one with another state size under instances in WAIT and CLEAR,
+ *   the descriptor (the capability words, call table, legacy-slot rows and pages against the firmware's own parameter table and PAGES; the pages pass the loader's checker as SC_FX), and each
+ *   refusal of fx_modk_set.
  * Arguments: none. Built and run by tests/fx_dub_module.sh (tests/run_tests.sh); the mutation check is the same script with --mutate. */
 #define FXI_NO_MAIN 1
 #define OC_FX_TEST_HOOK 1                                /* fx_insert.c: fx_modk_clear_step, one block between the unbind and the rebind */
 #include "fx_insert_test.c"
 #include "fw_pages_wire.h"
 #include "fw_fx.h"
+#include "dub_module_host.h"                         /* the externs of the module's host unit, DUB_STATE_BYTES */
+#define DUBK_VERSION (1u << 16)                          /* the module's version word, 1.0.0 (tools/module/dub_mod.c) */
+#define DUBK_MODULE_ID 1u
 
-extern const fw_api_t *oc_host_fw;
 extern const fw_mod_hdr_t OC_MODULE_HDR;
-extern const fx_caps_t *oc_host_fx_caps(void);
-extern const fx_kcalls_t *oc_host_fx_calls(void);
-extern const fx_prow_t *oc_host_fx_rows(void);
 extern const fw_pages_t *oc_host_fx_pages(void);
-extern const fx_desc_wire_t *oc_host_fx_desc(void);
-extern const fx_entry_wire_t *oc_host_fx_entry(void);
 
-static FILE *tapef;
-static int tap_mode;                                    /* 0 none, 1 write, 2 compare */
-static uint64_t tap_blocks, tap_diff, tap_first = ~0ull, mod_run_blocks, res_run_blocks;
-static void tap(const int32_t *b, size_t n)
+static uint64_t mod_run_blocks;
+static void tap(const int32_t *b, size_t n)             /* (fxi_tap) every output block: the blocks in which an instance of the module's kernel ran are counted (the module really ran) */
 {
     uint32_t k;
-    if (tap_mode == 1) fwrite(b, 1, n, tapef);
-    else if (tap_mode == 2) {
-        int32_t ref[CTL * 2];
-        if (fread(ref, 1, n, tapef) != n || memcmp(ref, b, n)) {
-            if (!tap_diff) tap_first = tap_blocks;
-            tap_diff++;
-            if (getenv("FXDM_STOPFIRST")) { printf("fx dub module: the first output block that differs from the resident's is block %llu of the run: FAILED\n", (unsigned long long)tap_blocks); exit(1); }   /* (the mutation check: stop at the first sample) */
-        }
-    }
-    for (k = 0; k < FX_INS_N; k++)
-        if (fx_ins[k].state == FXS_RUN) { if (FX_MODK_BOUND(k)) mod_run_blocks++; else res_run_blocks++; }
-    tap_blocks++;
+    (void)b; (void)n;
+    for (k = 0; k < FX_INS_N; k++) if (fx_ins[k].state == FXS_RUN && FX_MODK_BOUND(k)) mod_run_blocks++;
 }
 static void clear_step_run(void) { run(1); }                    /* (fx_modk_clear_step) one audio block in the middle of a removal */
 static void run_all(void)
 {
-    fxi_nres = 0; fx_ins_gov_fires = 0; tap_blocks = 0; tap_diff = 0; tap_first = ~0ull; mod_run_blocks = res_run_blocks = 0;
+    fxi_nres = 0; fx_ins_gov_fires = 0; mod_run_blocks = 0;
     scenario_long(); scenario_mem(); scenario_r2(); scenario_heavy(1); scenario_heavy(2); scenario_trig(); scenario_perf();
 }
 #define WBASE 0x10200000u
@@ -60,17 +44,6 @@ static int wrd(void *ctx, uint32_t addr, void *buf, uint32_t n) { (void)ctx; if 
 static fxi_res_t resA[8];
 static uint32_t nA;
 static void keepA(void) { memcpy(resA, fxi_res, sizeof resA); nA = fxi_nres; }
-static int same_as_A(const char *what)
-{
-    uint32_t i;
-    int ok = fxi_nres == nA;
-    for (i = 0; ok && i < nA; i++) {
-        const fxi_res_t *a = &resA[i], *b = &fxi_res[i];
-        ok = !strcmp(a->name, b->name) && a->blocks == b->blocks && a->au == b->au && a->st == b->st && a->gov == b->gov && a->full == b->full && a->cm == b->cm && !memcmp(a->states, b->states, sizeof a->states);
-        if (!ok) printf("  %s: %s differs: au %016llx/%016llx st %016llx/%016llx gov %u/%u\n", what, a->name, (unsigned long long)a->au, (unsigned long long)b->au, (unsigned long long)a->st, (unsigned long long)b->st, a->gov, b->gov);
-    }
-    return ok;
-}
 static void ck(const char *what, int ok)
 {
     printf("fx dub module: %-150s %s\n", what, ok ? "ok" : "FAIL");
@@ -101,7 +74,6 @@ static void descriptor(void)
     const fx_caps_t *c = oc_host_fx_caps();
     const fx_kcalls_t *k = oc_host_fx_calls();
     const fx_prow_t *rows = oc_host_fx_rows();
-    const fx_kernel_t *r = &dub_kernel;
     const fx_desc_wire_t *d = oc_host_fx_desc();
     const fx_entry_wire_t *e = oc_host_fx_entry();
     const fw_pages_t *pg = oc_host_fx_pages();
@@ -111,14 +83,19 @@ static void descriptor(void)
        OC_MODULE_HDR.state_size == 0u && OC_MODULE_HDR.pack_hash == OC_PACK_HASH && OC_MODULE_HDR.version == DUBK_VERSION);
     ck("the descriptor: one effect, module id 1, version 1.0.0, effect id 1, kind 1, no parameter table, no scene", d->n == 1u && d->module_id == DUBK_MODULE_ID && d->version == DUBK_VERSION &&
        e->effect_id == 1u && e->kind == FW_MOD_KIND_INSERT && e->flags == 0 && e->nparams == 0 && e->params == 0 && d->scene == 0);
-    ck("the capability words are the resident kernel's, word for word", c->flags == r->flags && c->rates == r->rates && c->max_inst == r->max_inst && c->prof == r->prof && c->ram_work_min == r->ram_work_min &&
-       c->ram_work_max == r->ram_work_max && c->ram_extra == r->ram_extra && c->ram_state == r->ram_state && c->latency == r->latency && c->tail_base == r->tail_base && c->cost == r->cost &&
-       c->ram_extra_bytes == r->ram_extra_bytes && c->gov_us == r->gov_us && c->legacy_module == r->legacy_module && c->nrows == r->nrows && c->param_bytes == sizeof(dd_params_t));
+    ck("the capability words are the plan's column for DUB TAPE: cost 190 us, governor 450 us, 4 .. 16 work blocks, the spring 2 blocks / 5,632 B, state = dd_t, latency 61, tail 24 blocks, 4 instances",
+       c->flags == (FXK_US | FXK_TAIL_FAR) && c->rates == 0x06 && c->max_inst == FX_INS_N && c->prof == AP_DUB && c->ram_work_min == 4 && c->ram_work_max == 16 && c->ram_extra == 2 &&
+       c->ram_state == DUB_STATE_BYTES && c->latency == 61 && c->tail_base == 24 && c->cost == 190 && c->ram_extra_bytes == 5632 && c->gov_us == 450 && c->legacy_module == 0x44554232u &&
+       c->nrows == 10 && c->param_bytes == sizeof(dd_params_t));
     ck("the caps block: magic, size 56, version 1, the abi of this build (FX_ABI_ID), no hot set, the padding 0", c->magic == FX_CAPS_MAGIC && c->size == FX_CAPS_WIRE && c->version == FX_CAPS_VERSION && c->abi == FX_ABI_ID && c->hot == 0 && c->nhot == 0 && c->pad == 0);
-    for (i = 0; i < DUBP_N; i++) ok &= rows[i].id == r->rows[i].id && rows[i].legacy == r->rows[i].legacy && rows[i].min == r->rows[i].min && rows[i].max == r->rows[i].max && rows[i].def == r->rows[i].def;
-    ck("the module's legacy-slot rows (ids 1 .. 10) are the resident table's", ok && DUBP_N == 10u && rows[0].id == 1u && rows[9].id == 10u);
+    {   static const uint16_t slots[10] = { P_JRES0, P_JRES1, P_JRES2, P_JRES3, P_JRES4, P_JRES5, P_JRES6, P_RESERVED45, P_RESERVED46, P_RESERVED47 };
+        for (i = 0; i < 10u; i++) {
+            const param_desc_t *fd = param_desc_of(ENGI_MACRO, slots[i]);
+            ok &= rows[i].legacy == slots[i] && rows[i].id == i + 1u && rows[i].min == fd->min && rows[i].max == fd->max && rows[i].def == fd->def;
+        }
+    }
+    ck("the module's legacy-slot rows (ids 1 .. 10) sit on the Release 2 slots with the firmware's own ranges and defaults", ok && rows[0].id == 1u && rows[9].id == 10u);
     ck("all twelve calls are there", k->on && k->size_sig && k->size_need && k->blocks_at && k->hold_len && k->tick && k->param_sig && k->snap && k->cost_extra && k->start && k->process && k->reset);
-    ck("... and are the module's own code, not the resident's (distinct addresses)", k->snap != r->snap && k->process != r->process && k->param_sig != r->param_sig && k->on != r->on);
     /* the pages, in the device's wire layout through the loader's checker */
     {   uint32_t desc = 0;
         ok = fwp_wire(pg, wimg, sizeof wimg, WBASE, &desc) != 0;
@@ -214,84 +191,105 @@ static const fx_kcalls_t *counted_calls(void)
 static uint32_t cnt_total(void) { uint32_t i, n = 0; for (i = 0; i < 12u; i++) n += cnt_n[i]; return n; }
 static uint32_t cnt_snap(void) { return cnt_n[7]; }
 static uint32_t cnt_process(void) { return cnt_n[10]; }
+#define ST_SZ(k) (resource[RES_JFX0 + JB_INSS0 + (k)].size)
+/* (round 20) no DUB module registered: the tracks that have DUB on play dry, say so, and cost nothing; a project with DUB values keeps them */
+static void absent_checks(void)
+{
+    uint32_t k, i, dry_ok = 1, mem = 0;
+    uint64_t au_on = 0, au_off = 0;
+    uint32_t gov0, full_on = 0, full_off = 0, states = 0, cap = 0, cm_on = 0;
+    int ph;
+    fx_modk_clear();
+    ck("no module registered: nothing is bound, no kernel is called for, and the UI is told (fx_ins_module_ok)", !fx_modk_ok && fx_mod_effective() == 0 && fx_mod_bound == 0 && !fx_ins_module_ok());
+    for (ph = 0; ph < 2; ph++) {                                  /* 0: ECHO 100 on every track, 1: ECHO 0 */
+        fresh();
+        for (k = 0; k < NPART; k++) { dub_defaults(k); T(k, P_DUB_SPRG, 60); if (ph) T(k, P_DUB_ECHO, 0); }
+        gov0 = (uint32_t)fx_ins_gov_fires;
+        begin(ph ? "DRY0" : "DRY1");
+        run(900);
+        for (k = 0; k < FX_INS_N; k++) {
+            states |= fx_ins[k].state; cap |= fx_ins_capture(k) != 0; mem |= fx_ins_have[k] | (fx_ins_state[k] != 0) | (fx_ins_spbuf[k] != 0) | (uint32_t)(ST_SZ(k) != 0) | (uint32_t)(resource[RES_JFX0 + JB_INSS0 + k].size != 0);
+            dry_ok &= fx_ins[k].run == 0 && !fx_ins[k].hold;
+        }
+        cm_on |= fx_cm != 0;
+        if (ph) full_off = jfx_full & 0xF0u; else full_on = jfx_full & 0xF0u;
+        if (ph) au_off = h_au; else au_on = h_au;
+        ck(ph ? "ABSENT, ECHO 0: no governor entry, no firing" : "ABSENT, ECHO 100 on four tracks: no governor entry, no firing", (uint32_t)fx_ins_gov_fires == gov0 && !fx_ins_gov_req);
+        end(ph ? "DRY0" : "DRY1");
+    }
+    (void)i;
+    ck("ABSENT: no instance ever left OFF, no capture buffer, no state, tank or line, no common block: no memory taken at all", states == 0 && cap == 0 && mem == 0 && cm_on == 0 && dry_ok);
+    ck("ABSENT: a track with DUB on plays DRY: its output is the render with ECHO 0, bit for bit", au_on == au_off);
+    ck("ABSENT: ... and says so: the DUB FULL bit of each of the four tracks is set (the DUB page reads MODULE MISSING), none with ECHO 0", full_on == 0xF0u && full_off == 0);
+    /* a project with DUB values and the module absent: the ten stored values load back as they were saved (nothing converts them, nothing resets them) */
+    {   static project_t a, b;
+        static project_store_t st;
+        static const uint8_t ids[10] = { P_JRES0, P_JRES1, P_JRES2, P_JRES3, P_JRES4, P_JRES5, P_JRES6, P_RESERVED45, P_RESERVED46, P_RESERVED47 };
+        uint32_t ok = 1;
+        blank_project(&a);
+        for (k = 0; k < NPART; k++) {
+            a.t[k].p[P_DUB_FDBK] = (int16_t)(40 + 5 * (int)k); a.t[k].p[P_DUB_SEND] = (int16_t)(127 - 9 * (int)k); a.t[k].p[P_DUB_FILT] = (int16_t)(30 + 17 * (int)k); a.t[k].p[P_DUB_ECHO] = (int16_t)(100 - 7 * (int)k);
+            a.t[k].p[P_DUB_TIML] = (int16_t)(53 + k); a.t[k].p[P_DUB_TIMR] = (int16_t)(67 + k); a.t[k].p[P_DUB_SPRG] = (int16_t)(11 * (k + 1)); a.t[k].p[P_DUB_SPD] = (int16_t)(64 + 3 * (int)k);
+            a.t[k].p[P_DUB_MODE] = (int16_t)(DUB_MODE_MARK | (k & 3u)); a.t[k].p[P_DUB_TAPE] = (int16_t)(6 * DUB_WOW_N - 64 + (int)k);
+        }
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && proj_import(&b, &st, sizeof st);
+        for (k = 0; ok && k < NPART; k++) for (i = 0; i < 10u; i++) ok &= b.t[k].p[ids[i]] == a.t[k].p[ids[i]];
+        ck("ABSENT: a project with DUB on (ten stored values on four tracks) packs and loads back with every value unchanged; the layout is the new one", ok && dub_new_layout(b.t[0].p));
+    }
+}
 int main(void)
 {
     const fx_caps_t *c = oc_host_fx_caps();
     int rc;
-    printf("fx dub module: the tracks' stored DUB values play the same through the module's kernel (tests/fx_dub_module_test.c)\n");
+    uint32_t k, n;
+    printf("fx dub module: DUB TAPE is the module's kernel only: dry without it, the pinned render with it (tests/fx_dub_module_test.c)\n");
     fxi_progress = getenv("FXI_PROGRESS") != 0;
     oc_host_fw = &FW_API;
     descriptor();
-    tapef = tmpfile();
-    if (!tapef) { printf("fx dub module: no temporary file\n"); return 2; }
-    /* A: the resident kernel, no module */
-    ck("no module registered: every track is bound to the resident kernel", !fx_modk_ok && fx_mod_effective() == 0 && fx_mod_bound == 0 && fx_kernel_of(0) == &dub_kernel);
-    tap_mode = 1; fxi_tap = tap;
-    run_all(); keepA();
-    ck("A  the resident kernel: seven scenarios ran (the probe's five, TRIG and PERF), no instance of a module kernel", nA == 7u && mod_run_blocks == 0 && res_run_blocks > 100000u);
-    ck("A  .. and match the pinned printout of the resident kernel as of dub-perf d620160d (tests/fx_insert_golden.txt), line for line", golden_ok());
-    printf("fx dub module: A wrote %llu blocks (%llu bytes)\n", (unsigned long long)tap_blocks, (unsigned long long)tap_blocks * sizeof rec);
+    absent_checks();
     /* the module registers: every track's instance runs it (there is no per-track choice) */
+    fxi_tap = tap;
     rc = fx_modk_set(oc_host_fx_desc()->module_id, oc_host_fx_desc()->version, oc_host_fx_entry()->effect_id, c, oc_host_fx_calls(), oc_host_fx_rows());
-    ck("the host takes the module's kernel (fx_modk_set): it is for every track, with nothing to choose", rc == FXM_OK && fx_modk_ok && fx_modk.module_id == 1u && fx_modk.process == oc_host_fx_calls()->process &&
-       fx_mod_effective() == 15u && fx_kernel_of(0) == &dub_kernel);
-    /* B: the module, all four tracks */
-    rewind(tapef); tap_mode = 2;
-    run_all();
-    ck("B  the module installed: instances of the module's kernel ran on every track (blocks counted), none of the resident's", mod_run_blocks > 100000u && res_run_blocks == 0);
-    ck("B  every output sample of all seven scenarios (the mixer's blocks) equals the resident run's", tap_diff == 0 && tap_blocks == (uint64_t)ftell(tapef) / sizeof rec);
-    if (tap_diff) printf("  B: %llu blocks differ, the first is block %llu\n", (unsigned long long)tap_diff, (unsigned long long)tap_first);
-    ck("B  .. and every scenario's hash of the samples, of the behaviour (states, rates, holds, memory, DUB FULL bits, the parameter snapshots), the governor's firings and the state counts", same_as_A("B"));
-    if (getenv("FXDM_FAST")) { printf(bad ? "fx dub module: FAILED\n" : "fx dub module: A and B passed (fast)\n"); return bad != 0; }
-    /* D: the module removed: the resident kernel plays, A's render again */
-    fx_modk_clear();
-    ck("D  the module removed: nothing of it stays registered (the host's copy of its calls is zero) and every track is the resident kernel's", !fx_modk_ok && fx_mod_effective() == 0 && fx_mod_bound == 0 &&
-       fx_modk.process == 0 && fx_modk.snap == 0 && fx_modk.on == 0 && fx_kernel_of(2) == &dub_kernel);
-    rewind(tapef);
-    run_all();
-    ck("D  .. and the render is A's, sample for sample", mod_run_blocks == 0 && res_run_blocks > 100000u && tap_diff == 0 && same_as_A("D"));
-    /* E: the module installed again */
-    rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, oc_host_fx_calls(), oc_host_fx_rows());
-    rewind(tapef);
-    run_all();
-    ck("E  the module installed a second time: B's render again, every track on it", rc == FXM_OK && mod_run_blocks > 100000u && res_run_blocks == 0 && tap_diff == 0 && same_as_A("E"));
-    fxi_tap = 0; fclose(tapef);
-    /* a module that appears under running instances, and one that goes away under them: the instances switch only from silence; once the module is gone nothing calls it */
-    {   uint32_t k, n = 0;
+    ck("the host takes the module's kernel (fx_modk_set): it is for every track, with nothing to choose", rc == FXM_OK && fx_modk_ok && fx_ins_module_ok() && fx_modk.module_id == 1u &&
+       fx_modk.process == oc_host_fx_calls()->process && fx_mod_effective() == 15u);
+    run_all(); keepA();
+    ck("MODULE: seven scenarios ran (the probe's five, TRIG and PERF) on the module's kernel on every track (more than 100,000 instance-blocks in RUN, counted)", nA == 7u && mod_run_blocks > 100000u);
+    ck("MODULE: ... and match the pinned printout (tests/fx_insert_golden.txt, the resident kernel of d620160d): the hash of every output sample and of the behaviour of every scenario, line for line", golden_ok());
+    if (getenv("FXDM_FAST")) { printf(bad ? "fx dub module: FAILED\n" : "fx dub module: the module's render passed (fast)\n"); return bad != 0; }
+    fxi_tap = 0;
+    /* the module appearing after boot (dry -> sounding), and going away (-> dry): the instances switch only from silence; once the module is gone nothing calls it */
+    {   uint32_t before;
         fx_modk_clear();
         counted_reset();
         fresh();
         for (k = 0; k < NPART; k++) dub_defaults(k);
-        run(1500);
-        for (k = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN && !FX_MODK_BOUND(k);
-        ck("appear: four resident instances running, no module registered", n == 4u && fx_mod_bound == 0 && cnt_total() == 0);
+        run(600);
+        for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_OFF && fx_ins_have[k] == 0;
+        ck("appear: four tracks with DUB on and no module: dry, no instance, no memory (DUB FULL on all four)", n == 4u && cnt_total() == 0 && (jfx_full & 0xF0u) == 0xF0u && fx_cm == 0);
         rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
-        ck("appear: the module registers under them; nothing changes under a running instance (still the resident's, still running)", rc == FXM_OK && fx_mod_effective() == 15u && fx_mod_bound == 0 &&
-           fx_ins[0].state == FXS_RUN && fx_kernel_of(0) == &dub_kernel);
-        run(3);
-        for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RAMP || fx_ins[k].evict;
-        ck("appear: the running instances ramp out (they do not change kernels under way) and are not yet the module's", n == 4u && fx_mod_bound == 0 && cnt_snap() == 0);
+        ck("appear: the module registers after boot: for every track, the UI is told", rc == FXM_OK && fx_mod_effective() == 15u && fx_ins_module_ok());
         run(1500);
         for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && fx_kernel_of(k) == &fx_modk;
-        ck("appear: after the ramp the instances start again from silence on the module's kernel, all four, and the module's snapshot and process run", n == 4u && fx_modk_uses() == 4u && cnt_snap() > 0 && cnt_process() > 0);
-        {   uint32_t before = cnt_total();
-            fx_modk_clear();
-            ck("remove: the module goes away: the bound instances let go at once (state OFF, no memory wanted), every track is the resident kernel's, the host's copy is zero",
-               !fx_modk_ok && fx_mod_bound == 0 && fx_mod_effective() == 0 && fx_kernel_of(2) == &dub_kernel && fx_modk_uses() == 0 && fx_modk.process == 0 && fx_modk.snap == 0 && fx_modk.start == 0 &&
-               fx_ins[0].state == FXS_OFF && fx_ins[3].state == FXS_OFF && fx_ins_want[0] == 0 && fx_ins_want[3] == 0);
-            run(1500);
-            for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN && !FX_MODK_BOUND(k);
-            ck("remove: the instances run again on the resident kernel, from silence, and not one call went into the removed module (no stale pointer: 1,500 blocks)", n == 4u && cnt_total() == before);
-        }
+        ck("appear: the instances start from silence on the module's kernel, all four, with their memory; the module's snapshot and process run; DUB FULL clears", n == 4u && fx_modk_uses() == 4u && cnt_snap() > 0 && cnt_process() > 0 &&
+           (jfx_full & 0xF0u) == 0 && fx_cm != 0);
+        before = cnt_total();
+        fx_modk_clear();
+        ck("remove: the module goes away: the bound instances let go at once (state OFF, no memory wanted), the host's copy of its calls is zero, the UI is told",
+           !fx_modk_ok && !fx_ins_module_ok() && fx_mod_bound == 0 && fx_mod_effective() == 0 && fx_modk_uses() == 0 && fx_modk.process == 0 && fx_modk.snap == 0 && fx_modk.start == 0 &&
+           fx_ins[0].state == FXS_OFF && fx_ins[3].state == FXS_OFF && fx_ins_want[0] == 0 && fx_ins_want[3] == 0);
+        run(1500);
+        for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_OFF && fx_ins_have[k] == 0 && fx_ins_state[k] == 0 && fx_ins_spbuf[k] == 0;
+        ck("remove: back to DRY: no instance, the memory given back (state, tank, lines, common block), DUB FULL on the four tracks, and not one call went into the removed module (no stale pointer: 1,500 blocks)",
+           n == 4u && fx_cm == 0 && (jfx_full & 0xF0u) == 0xF0u && cnt_total() == before);
         /* removed while an instance is ramping or waiting: the same */
         rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
-        run(40);                                                    /* the ramp has begun */
-        {   uint32_t before = cnt_total();
-            fx_modk_clear();
-            run(1500);
-            for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_RUN && !FX_MODK_BOUND(k);
-            ck("remove during the ramp-out toward the module: the instances stay on the resident kernel and run; the module is never called", rc == FXM_OK && n == 4u && cnt_total() == before);
-        }
+        run(40);                                                    /* the memory is being taken, the ramp-in has begun */
+        before = cnt_total();
+        fx_modk_clear();
+        run(1500);
+        for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_OFF && fx_ins_have[k] == 0;
+        ck("remove during the start: back to dry and the module is never called again", rc == FXM_OK && n == 4u && cnt_total() == before && fx_cm == 0);
         /* reinstall: remove and register in a row (an in-place reinstall) */
         rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
         run(1500);
@@ -300,45 +298,40 @@ int main(void)
         run(1500);
         for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN;
         ck("reinstall (a clear and a registration in a row): every instance ends running on the module's kernel", rc == FXM_OK && n == 4u && fx_modk_uses() == 4u);
-        {   uint32_t before = cnt_total();
-            fx_modk_clear();
-            run(300);
-            ck("... and a last removal leaves the resident kernel running with no further call", cnt_total() == before && fx_modk_uses() == 0);
-        }
+        before = cnt_total();
+        fx_modk_clear();
+        run(300);
+        ck("... and a last removal leaves the tracks dry with no further call", cnt_total() == before && fx_modk_uses() == 0 && (jfx_full & 0xF0u) == 0xF0u);
     }
-    /* (round 18) a module that appears, or goes, while an instance is in WAIT or CLEAR (nothing plays yet): the switch happens in that pass (it used to fall back into case OFF with the old want and
-     * wait for ever), and an instance changing kernels gives back what it holds and takes it again sized by the NEW kernel (the module here declares a larger state than the resident's) */
+    /* a module swapped for one with another state size while the instances are in WAIT or CLEAR (nothing plays yet): the switch happens in that pass, and an instance changing modules gives back
+     * what it holds and takes it again sized by the NEW one (a module that declares a larger state than DUB's, here, both ways) */
     {   fx_caps_t big = *c;
-        uint32_t k, n, want_big, want_res;
+        uint32_t want_big, want_res, m;
         int ph;
-#define ST_SZ(k) (resource[RES_JFX0 + JB_INSS0 + (k)].size)
         big.ram_state = (uint16_t)(c->ram_state + 256u);
-        want_big = ((uint32_t)big.ram_state + 3u) & ~3u; want_res = ((uint32_t)dub_kernel.ram_state + 3u) & ~3u;
+        want_big = ((uint32_t)big.ram_state + 3u) & ~3u; want_res = ((uint32_t)c->ram_state + 3u) & ~3u;
         for (ph = 0; ph < 2; ph++) {                                  /* 0: WAIT, 1: CLEAR */
             fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
-            run(1);
-            for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_WAIT && !FX_MODK_BOUND(k);
-            if (ph) for (k = 0; k < FX_INS_N; k++) { fx_ins[k].state = FXS_CLEAR; fx_ins[k].clr = 0; fx_ins[k].pend_R = fx_ins[k].R; }
-            ck(ph ? "appear in CLEAR: four instances on the resident kernel, put in CLEAR (the memory is still being taken)" : "appear in WAIT: four instances on the resident kernel, in WAIT (the memory is still being taken)", n == 4u);
-            rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
-            run(3000);
-            for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_big;
-            ck(ph ? "... a module appearing under CLEAR: every instance ends bound to it and running, on a state taken at the module's size" : "... a module appearing under WAIT: every instance ends bound to it and running (no livelock), on a state taken at the module's size, not the resident's",
-               rc == FXM_OK && n == 4u && fx_modk_uses() == 4u && want_big != want_res);
-            fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
-            rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
+            rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
             run(1);
             for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_WAIT;
             if (ph) for (k = 0; k < FX_INS_N; k++) { fx_ins[k].state = FXS_CLEAR; fx_ins[k].clr = 0; fx_ins[k].pend_R = fx_ins[k].R; }
-            { uint32_t before = cnt_total(); (void)before; }
-            fx_modk_clear();
+            ck(ph ? "swap in CLEAR: four instances bound to the module, put in CLEAR (the memory is still being taken)" : "swap in WAIT: four instances bound to the module, in WAIT (the memory is still being taken)", rc == FXM_OK && n == 4u);
+            rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
             run(3000);
-            { uint32_t m = 0;
-              for (k = 0; k < FX_INS_N; k++) m += !FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_res;
-              ck(ph ? "remove in CLEAR: the module goes, the instances run on the resident kernel on a state taken at the resident's size" : "remove in WAIT: the module goes, the instances run on the resident kernel on a state taken at the resident's size (the module's larger one is given back)",
-                 rc == FXM_OK && n == 4u && m == 4u); }
+            for (k = 0, m = 0; k < FX_INS_N; k++) m += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_big;
+            ck(ph ? "... the module swapped under CLEAR: every instance ends bound to the new one, running, on a state taken at ITS size (no livelock)" : "... the module swapped under WAIT: every instance ends bound to the new one, running, on a state taken at ITS size (no livelock)",
+               rc == FXM_OK && m == 4u && fx_modk_uses() == 4u && want_big != want_res);
+            fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
+            rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
+            run(1);
+            if (ph) for (k = 0; k < FX_INS_N; k++) { fx_ins[k].state = FXS_CLEAR; fx_ins[k].clr = 0; fx_ins[k].pend_R = fx_ins[k].R; }
+            rc |= fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+            run(3000);
+            for (k = 0, m = 0; k < FX_INS_N; k++) m += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_res;
+            ck(ph ? "... and back, under CLEAR: the state is taken again at the smaller size" : "... and back, under WAIT: the state is taken again at the smaller size", rc == FXM_OK && m == 4u);
         }
-        /* a block (an interrupt) between the unbind and the rebind of a removal: the instance walks OFF -> WAIT while still sized by the module, and must end on the resident's size */
+        /* a block (an interrupt) between the unbind and the rebind of a removal: nothing walks (the host plays dry from the unbind), what the instances held is given back, and the gate word is forgotten */
         fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
         rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
         run(1500);
@@ -347,29 +340,24 @@ int main(void)
         fx_ins_gen[0] = resource_gen + 1u;                              /* "short, nothing released since" for instance 0: must be forgotten by the switch */
         fx_modk_clear();
         fx_modk_clear_step = 0;
-        { uint32_t g0 = fx_ins_gen[0], m = 0;
-          run(3000);
-          for (k = 0; k < FX_INS_N; k++) m += !FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_res;
-          ck("remove with a block between the unbind and the rebind: every instance ends on the resident kernel, running, on a state taken at the resident's size (rebind after the unbind)", rc == FXM_OK && n == 4u && m == 4u);
-          ck("... and the switch forgot 'short, nothing released since' (fx_ins_gen), so an instance that was short of memory asks for the new kernel's size at once", g0 == 0u); }
+        {   uint32_t g0 = fx_ins_gen[0];
+            run(600);
+            for (k = 0, m = 0; k < FX_INS_N; k++) m += fx_ins[k].state == FXS_OFF && ST_SZ(k) == 0 && fx_ins_have[k] == 0;
+            ck("remove with a block between the unbind and the rebind: all four dry, the module-sized state and everything else given back", rc == FXM_OK && n == 4u && m == 4u && fx_cm == 0);
+            ck("... and the switch forgot 'short, nothing released since' (fx_ins_gen), so an instance that was short of memory asks for the new kernel's size at once", g0 == 0u); }
     }
     /* (round 18, found on the unit) the spring's tank on a start from nothing: the common block, the state and six lines (a free TIME R of 409 ms) are the block's four takes twice over, so the
      * tank is the NINTH take of a start and jfx_take refuses it for the per-block budget, not for want of memory. That was remembered as "short, nothing released since" and the instance started
-     * without its spring for good (SPRG and KICK did nothing). With the common block still held (a restart under another instance) it was the eighth and worked, which is why a removal
-     * (resident again) looked fine. The tank is now waited for. Both kernels, one track from nothing: running, six lines, the tank held */
-    {   int ph;
-        uint32_t k;
-        for (ph = 0; ph < 2; ph++) {
-            fx_modk_clear(); fresh();
-            if (ph) rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
-            for (k = 0; k < NPART; k++) { dub_defaults(k); T(k, P_DUB_ECHO, k ? 0 : 100); }
-            dub_put_field(trk[0].p, DUBF_SYNC, 0); T(0, P_DUB_TIML, 70); T(0, P_DUB_TIMR, 90); T(0, P_DUB_SPRG, 60);
-            for (k = 0; k < 400u; k++) { if (!(gb & 3u)) dub_late_half(0, 1200u); blk(); }   /* (no notes: no engine takes the arena's memory in this run, so the tank is refused for the budget alone) */
-            ck(ph ? "the module, one track from nothing (cm, state, 6 lines, then the tank): running, 6 lines, and the spring's tank held" : "the resident kernel, one track from nothing (cm, state, 6 lines, then the tank): running, 6 lines, and the spring's tank held",
-               fx_ins[0].state == FXS_RUN && fx_ins_have[0] == 6u && fx_ins_spbuf[0] != 0 && (!ph || FX_MODK_BOUND(0)));
-        }
+     * without its spring for good (SPRG and KICK did nothing). The tank is now waited for: one track from nothing: running, six lines, the tank held */
+    {   fx_modk_clear(); fresh();
+        rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+        for (k = 0; k < NPART; k++) { dub_defaults(k); T(k, P_DUB_ECHO, k ? 0 : 100); }
+        dub_put_field(trk[0].p, DUBF_SYNC, 0); T(0, P_DUB_TIML, 70); T(0, P_DUB_TIMR, 90); T(0, P_DUB_SPRG, 60);
+        for (k = 0; k < 400u; k++) { if (!(gb & 3u)) dub_late_half(0, 1200u); blk(); }   /* (no notes: no engine takes the arena's memory in this run, so the tank is refused for the budget alone) */
+        ck("the module, one track from nothing (cm, state, 6 lines, then the tank): running, 6 lines, and the spring's tank held", rc == FXM_OK && fx_ins[0].state == FXS_RUN && fx_ins_have[0] == 6u && fx_ins_spbuf[0] != 0 && FX_MODK_BOUND(0));
         fx_modk_clear();
     }
+#undef ST_SZ
     /* what the host refuses */
     {   fx_caps_t bad_c;
         int ok = 1;

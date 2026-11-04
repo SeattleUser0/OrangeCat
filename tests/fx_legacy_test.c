@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "dub_module_host.h"                         /* (round 20) DUB's kernel is the module: registered in main */
 #define BASE 0x10200000u
 static uint8_t img[4096];
 static uint32_t desc;
@@ -63,7 +64,7 @@ static void render(int32_t *out)
     waitpid(pid, &st, 0);
     memcpy(out, shm->pcm, sizeof shm->pcm);
 }
-/* DUB through the resident kernel (jfx_dub.c, tests/dub_insert_test.c's way): track 1 plays a note into the insert whose ids are whatever the caller set */
+/* DUB through the module's kernel (tests/dub_module_host.h, tests/dub_insert_test.c's way): track 1 plays a note into the insert whose ids are whatever the caller set */
 static void render_dub(int32_t *out)
 {
     pid_t pid;
@@ -113,6 +114,7 @@ static int fixture_project(const char *name, project_t *out)
 }
 int main(void)
 {
+    if (dub_host_module_set() != FXM_OK) { printf("fx_legacy: the DUB module did not register\n"); return 2; }
     /* a value of every knob in the range of each mode: SIZE, DAMP (FOLW 3 under RESO), PRE (AIR -7, PITCH 5), MOD, RATE, FILT, WIDE */
     const int16_t (*KN)[7] = FXR2_KN;
     int16_t vals[4][8];                                  /* the modules' imported values by mode */

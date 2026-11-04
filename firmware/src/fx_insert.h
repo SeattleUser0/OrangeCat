@@ -32,9 +32,8 @@ typedef struct {
     uint16_t hold, hold_len;                            /* blocks the instance runs and its track stays mixed past the last audible input or wet; the refresh (the farthest head and 24) */
     uint32_t kw[3];                                     /* the kernel's own words (DUB: the KICK edge count, the last edge state, the wet of the last ECHO above 0), cleared with the record, passed to fx_kernel_t.tick; kw[2] only through snap's context */
 } fx_ins_t;
-#ifndef OC_FX_MODK
-#define OC_FX_MODK 1                                    /* (Release 3 step 6) the host can run a module's kernel beside the resident one; 0: the build of step 5 (fx_kernel_of is a constant) */
-#endif
+#undef OC_FX_MODK
+#define OC_FX_MODK 1                                    /* (round 20) the switch is retired: the module host is the only host (the resident kernel is gone, FX_MODULES_PLAN.md 15.9); the name stays for the #if lines that read it */
 #define FX_MODK_ID 1u                                   /* the module id the host runs a module kernel for: DUB TAPE's */
 enum { FXM_OK = 0, FXM_VER, FXM_RANGE };                /* fx_modk_set's answer */
 #define fx_trig dub_trig                                /* the performance triggers (dub_fields.h): MIDI CC 16 to 21, per track, RAM only; the host hands them to the kernel in fx_ictx_t */
