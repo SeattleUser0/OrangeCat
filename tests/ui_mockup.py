@@ -74,6 +74,10 @@ sheet([("", [("resting: FEEDBACK 0.55", "dub_1"), ("building: 1.15, the 100 thro
              ("KICK and HOLD struck, CUT held", "dub_3")]),
        ("", [(f"walk: {w}", f"film_dub_{i}") for i, w in enumerate(["100", "70", "10", "let go"])])],
       out / "dub_tape.png", "DUB TAPE's performance view: the tape loop, the spring tank, the octave of keys")
+sheet([("A THROWS", [("resting: FDBK 0.55", "dub2_a_1"), ("FDBK 1.15, the 85 throw held", "dub2_a_2"), ("filter swept, echo down; CUT and KICK held", "dub2_a_3")]),
+       ("B SWEEPS", [("resting", "dub2_b_1"), ("FDBK 1.15, the 85 throw held", "dub2_b_2"), ("filter high, SPEED dived; E-key throw 50 and KICK", "dub2_b_3")]),
+       ("C KEYS+", [("resting", "dub2_c_1"), ("FDBK 1.15, the 85 throw held", "dub2_c_2"), ("HOLD and DIVE held, filter closed", "dub2_c_3")])],
+      out / "dub_options.png", "DUB TAPE's performance view for DUB as it is today: three layouts (A THROWS, B SWEEPS, C KEYS+)")
 sheet([("", [(f"frame {i + 1} ({i * 100} ms)", f"film_wheel_{i}") for i in range(4)])],
       out / "film_wheel.png", "WHEEL's picture, four frames 100 ms apart: SPIN turns the horn and the drum; the key played lights")
 sheet([("", [("EDIT: the SOUND sheet (MACRO)", "edit_sound"), ("SEQ: NOTES", "notes"), ("SEQ: FEEL", "feel"),
@@ -81,4 +85,4 @@ sheet([("", [("EDIT: the SOUND sheet (MACRO)", "edit_sound"), ("SEQ: NOTES", "no
        ("", [("GLO: MIXER", "mixer"), ("a notice card", "notice"), ("a notice in the sound line", "notice_line"),
              ("HOME held: the SHIFT map", "shift_map")])],
       out / "pages.png", "The other pages in the new model")
-print(f"ui_mockup.py: {len(shots)} screens and 6 sheets in {out}")
+print(f"ui_mockup.py: {len(shots)} screens and 7 sheets in {out}")

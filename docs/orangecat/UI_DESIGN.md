@@ -516,6 +516,74 @@ and HOLD held; DIVE with the filter closed; FDBK turning), drawn by `tests/ui_re
 the ECHO lane at 0 (ECHO 0 now closes the loop's output as CUT does, so the two play identically: tests/dub_perf_test.c); **KICK, HOLD, DIVE and RISE play live and are not recorded**, and the page's line says
 "BLACK: NOT RECORDED" (PROJECT_FORMAT_R3.md 8.2b designs their lane for the format revision). Not built: the choice of the octave that carries the keys, the throw levels' presets, the keys' LEDs.
 
+**Options for DUB as it is today (round 9, November 3, 2026; design only, for the owner to pick).** The text above is SPEC 9.3.2's view, written for the DUB of
+October 26. The DUB of the 0.16.0 Nightlies is not that one: TONE is **FILTER**, SPACE is gone (**TIM L** and **TIM R** are the times, **SPRNG** the spring's mix), HOLD and CRASH
+were never built, and THRW, CUT and KICK are not keys or lanes but **MIDI CC 16 to 18**, RAM triggers that are never stored. Today's pages: DUB SETUP (SYNC, TIM L, TIM R, PING),
+DUB (FDBK, SEND, FILTER, ECHO), DUB 2 (SPRNG, DRIVE, WOW, SPEED); CC 12 to 15 are FDBK, SEND, FILTER, ECHO. The owner plays dub live: four knobs, one octave of keys, for throws, cuts,
+kicks, feedback swells and filter sweeps, all recorded. Three layouts follow, each a key map and a knob map (the picture is `ui/dub_options.png`; each screen alone `ui/dub2_<a|b|c>_<1|2|3>.png`,
+240 x 240, drawn through the firmware's own drawing code by `tests/ui_mockup.c` with the scenes of `tests/ui_mockup_dub2.h`; nothing is in the firmware).
+
+*What is the same in all three.* The header, the sound line and the four dials as HOME A has them; the picture (240 x 80) is the tape loop (rollers and marks turning at the loop's rate, a second
+loop lit past FDBK 1.00), the record and play heads, the input arrow (CUT takes it away) and the spring tank (KICK shakes it); the octave of keys under it, in real text. A key held fills with
+its color. The throws are the six white keys C to A at 10, 30, 50, 70, 85 and 100 percent (CC 16 = 13, 38, 64, 89, 108, 127); a throw replaces SEND while held, another throw key moves to its level,
+releasing the last returns SEND to the knob; CUT (B, white) is CC 17 held; KICK (C#, black) is CC 18 struck. The keys and CC 16 to 18 are one path, so a foot switch or an SMK-37 pad does the same.
+Other octaves play the track. The DUB SETUP and DUB 2 values (times, spring, drive, wow, sync, ping) stay on their pages (SELECT steps them); none of them is on the knobs while playing.
+
+**A. THROWS** (what the spec drew, with today's names; nothing DUB does not already have).
+
+| | |
+|---|---|
+| Knobs | K1 FDBK (blue), K2 SEND (green), K3 FILTER (white), K4 ECHO (orange): the DUB page as it is |
+| White keys | C 10, D 30, E 50, F 70, G 85, A 100 (THRW), B CUT |
+| Black keys | C# KICK; D# F# G# A# empty |
+| Picture | K2: the level bar and the arrow in; K3: the filter's tilt on the machine's face; K4: a level bar beside the tank (the return) |
+
+**B. SWEEPS** (the knobs are what is ridden; SEND is the keys' business).
+
+| | |
+|---|---|
+| Knobs | K1 FDBK, K2 FILTER, K3 SPEED, K4 ECHO: a fourth DUB page, "DUB PLAY", in the descriptor (the cards show it while the view is open) |
+| Keys | as A |
+| Picture | K2: the tilt; K3: a scale above the tank, the marker left of its middle for slower (the repeats fall in pitch), right for faster; K4: the return bar. The arrow shows CUT only |
+
+SEND's resting level is set once on the DUB page, or left at 127: the throws are how SEND is played. All four knobs are lanes today.
+
+**C. KEYS+** (A's knobs and white keys, three more triggers on the black keys; DUB does not have them).
+
+| | |
+|---|---|
+| Knobs | as A |
+| White keys | as A |
+| Black keys | C# KICK, D# HOLD (FDBK held at 1.00 while down: the loop neither builds nor decays), G# DIVE (SPEED an octave down while held), A# RISE (an octave up); F# empty |
+| Picture | as A; HOLD sets the loop's turn to 1.00's, as the spec has it |
+
+C is A plus new CCs (19 to 21, per track, RAM). B and C combine: C's keys on B's knobs.
+
+**What it costs** (flash is the firmware image or the DUB module as marked; RAM is bytes of `.data` + `.bss` unless marked; "est." is an estimate I did not compile):
+
+| | A | B | C |
+|---|---|---|---|
+| Picture (scene data, measured: `sizeof`) | 239 B (the spec's was 229 B) | 239 B | 239 B (A's) |
+| Where the picture lives | the asset pack, then the DUB module (section 3: never in the image) | same | same |
+| Key strip, key handler, CC write (firmware image) | est. 500 to 650 B: the quick layer's `layer_perf_keys` is 530 B and `layer_glo_keys` 648 B in the CI build of 415038c | A's | A's + est. 100 B (three more keys) |
+| New trigger code (DUB's kernel: image today, the module after plan step 6) | 0 | 0 | est. 100 to 150 B (`dub_map` overrides, the `midi_control.c` cases) |
+| Descriptor | 0 | one page row (12 B) and its title, about 21 B in the module | 0 |
+| RAM | the view's state, est. 4 B (held keys 2 B, the KICK age); `dub_trig` (12 B) exists | same | + 12 B (`dub_trig[4][3]` becomes `[4][6]`) |
+| Total, est. | **about 0.5 to 0.65 KB** | **about 0.5 to 0.7 KB** | **about 0.75 to 0.95 KB, 16 B of RAM** |
+| Drawing while played hard (measured: FDBK 1.15, a throw key every 300 ms, KICK every 500 ms, 10 frames a second) | 12,220 px a frame on average = 16.3 ms of SPI, worst 20,032 px = 26.8 ms | 11,837 px = 15.8 ms, worst 20,032 px | as A |
+
+The old view's figure was 16.4 ms on average (section 3), so none of the three is dearer to draw. I did not check the totals against UI_BUILD.md's budget table; at under 1 KB each they are small beside its 15 KB figures (r3-pages is 548,444 B of the 573,440 B body).
+
+**Recording (what exists today, and the one gap).** The lanes are whole ids: FDBK, SEND, FILTER, ECHO, TIM L, TIM R, SPRNG and SPEED, eight, lockable. SYNC, PING, DRIVE and WOW are packed two to an id
+(MODE, TAPE) and are **not lanes**; none of the three layouts puts them on a knob. Knobs, then, record. The keys have no lanes of their own, so: **a throw is recorded as the SEND lane** (the level
+while the key is down, the knob's value after: the same sound as the trigger); **CUT as the ECHO lane at 0** (ECHO 0 already mutes the loop's output and keeps its line, as CUT does; to be proved equal by a
+render when it is built, not here); **HOLD and DIVE/RISE (C) as the FDBK lane at 100 and the SPEED lane at 0 or 127** (SPEED 64 is 0 semitones and a semitone is 5.33 steps: 0 is an octave down, 127 almost one up). **KICK has no lane**: it is a strike, not a level, and the ids are full until the
+Release 3 format's wider ids. Not decided (the owner's call, with Session A): record KICK as one new lane id taken from the wider ids, leave KICK unrecorded in the first build, or record it as a hidden
+gate lane in the step grid. Until then "everything is recorded" is true of every control but KICK.
+
+**What I would pick, for the owner to overturn.** B's knobs (FDBK, FILTER, SPEED, ECHO are all lanes and are the moves of a dub player's hands; throws already cover SEND) with A's keys, built first;
+C's black keys added if the owner finds the four knobs and seven keys short. A alone is the spec as written and changes nothing DUB does.
+
 ### 8. The effects' pictures
 
 Every effect gets a picture page instead of a table of values (the owner's ask, 0.3): the FX button steps through them as it

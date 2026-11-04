@@ -5,7 +5,7 @@
  *                      clamped to the entry's range; the others take their defaults. The descriptor's `ext` (L1) is the condition: if it names a song.g index and a value, the legacy slots are imported
  *                      only while song.g[index] equals the value (the reverb: the module of a mode takes the one stored SIZE, DAMP, PRE ... only when TYPE is its mode; the others stay at their defaults,
  *                      the Release 2 byte had no value for them)
- *   fx_legacy_export   the module's values back into the legacy slots (the host drives the kernel, or a resident stand-in, from the slots: the first implementation of FX_MODULES_PLAN.md 3's store)
+ *   fx_legacy_export   the module's values back into the legacy slots, clamped to each entry's range and under the same condition as the import (the host drives the kernel, or a resident stand-in, from the slots: the first implementation of FX_MODULES_PLAN.md 3's store)
  *   fx_store_pack/unpack  the values a project STORES: (pid, value) pairs, for the entries that are stored. Not stored: a view (computed by the hooks from stored ids), a volatile pid (L3: RAM only) and a
  *                      relative pid (L4: a turn, no value), and an entry with no label (removed). The project writer and reader of plan step 7 use these two.
  * Host and device alike (header only, no libc); not included by the firmware until the host of plan step 4/5 uses it. */
@@ -46,15 +46,23 @@ static inline uint32_t fx_legacy_import(fw_pages_rd rd, void *ctx, uint32_t desc
     }
     return np;
 }
-/* the values back into the legacy slots (those entries that have one) */
+/* the values back into the legacy slots (those entries that have one). Like the import: each value is clamped to the entry's range first (a legacy slot is never written outside it), and when the
+ * descriptor's `ext` names a song.g index and a value the slots are written only while song.g[index] equals the value (the reverb: the module of a mode that is not the selected TYPE leaves the
+ * shared SIZE, DAMP, PRE ... alone). Returns the slots written */
 static inline uint32_t fx_legacy_export(fw_pages_rd rd, void *ctx, uint32_t desc, const int16_t *values, int16_t *p, int16_t *g)
 {
-    uint8_t pe[FW_PAGES_DESC_WIRE];
-    uint32_t i, np = 1, id, leg, n = 0;
+    uint8_t d[FW_PAGES_WIRE], pe[FW_PAGES_DESC_WIRE];
+    uint32_t i, np = 1, id, leg, n = 0, ext;
+    if (rd(ctx, desc, d, FW_PAGES_WIRE)) return 0;
+    ext = fwp_u32(d + 76);
+    if (ext && g[(ext & 0xFFFFu) - 1u] != (int16_t)(ext >> 16)) return 0;
     for (i = 0; i < np; i++) {
+        int32_t v, mn, mx;
         if (fxs_entry(rd, ctx, desc, i, pe, &id, &leg, &np)) return 0;
         if (leg == FW_PID_NONE) continue;
-        if (leg & FW_LEG_GLOBAL) g[leg & 0x7FFFu] = values[i]; else p[leg] = values[i];
+        mn = fxs_i16(pe + 6); mx = fxs_i16(pe + 8); v = values[i];
+        v = v < mn ? mn : v > mx ? mx : v;
+        if (leg & FW_LEG_GLOBAL) g[leg & 0x7FFFu] = (int16_t)v; else p[leg] = (int16_t)v;
         n++;
     }
     return n;
