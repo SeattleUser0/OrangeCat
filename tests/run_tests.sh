@@ -258,7 +258,8 @@ job() {
     flush
     n=$((n + 1))
     printf '%s\n' "$_key" > "$LOG/$n.key"
-    ( export OC_JOB_LOG="$LOG/$n"; _j0=$(date +%s%N); "$@" 3>&- > "$LOG/$n.log" 2>&1; echo "$_j0 $(date +%s%N)" > "$LOG/$n.time"; : > "$LOG/$n.done"; echo >&3 ) &
+    # OC_JOB_LOG absolute: tests/fx_insert_diff.sh compiles from other directories
+    ( export OC_JOB_LOG="$PWD/$LOG/$n"; _j0=$(date +%s%N); "$@" 3>&- > "$LOG/$n.log" 2>&1; echo "$_j0 $(date +%s%N)" > "$LOG/$n.time"; : > "$LOG/$n.done"; echo >&3 ) &
     pids="$pids $!"
 }
 t() { job _t "$@"; }
