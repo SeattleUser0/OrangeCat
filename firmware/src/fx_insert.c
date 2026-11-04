@@ -266,7 +266,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         fx_ictx_t c;
         int on = k < nt && kn->on(t), deb = 0, live = d->state == FXS_RUN || d->state == FXS_RAMP;
         d->run = 0;
-        c.beat = beat; c.k = (uint8_t)k; { uint32_t j; for (j = 0; j < FX_NTRIG; j++) c.trig[j] = fx_trig[k & 3u][j]; } c.pad[0] = c.pad[1] = 0; c.kw2 = d->kw[2];
+        c.beat = beat; c.k = (uint8_t)k; { uint32_t j; for (j = 0; j < FX_NTRIG; j++) c.trig[j] = (uint8_t)(fx_trig[k & 3u][j] | (j >= 2u && j < 6u && dub_rec[k & 3u][j - 2u] ? 127u : 0u));   /* (8.2b) live OR recorded */ } c.pad[0] = c.pad[1] = 0; c.kw2 = d->kw[2];
         if (on) d->idle = 0;
         else if (k < nt && (d->state == FXS_RUN || d->state == FXS_RAMP) && d->idle < FX_IDLE) { on = 1; d->idle++; }   /* the effect off: muted, the instance and its memory stay a while */
         if (!live) { d->st_R = 0; d->st_blk = 0; d->idle = 0; }           /* (the size is sticky only while the line runs: one that is waiting for memory asks for what the times need now) */
@@ -409,7 +409,7 @@ JFX_XIP static void fx_ins_reset(void)
 #endif
     fx_gov_cool = 0;
     memset(fx_pk, 0, sizeof fx_pk); fx_pk_n = 0; fx_pk_i = 0;
-    memset(fx_trig, 0, sizeof fx_trig);                 /* the performance triggers (the host's, MIDI CC 16 to 21) start released */
+    memset(fx_trig, 0, sizeof fx_trig); memset(dub_rec, 0, sizeof dub_rec);                 /* the performance triggers (the host's, MIDI CC 16 to 21) start released */
     fx_kernel_of(0)->reset();
 }
 #if OC_DUB_SRAM

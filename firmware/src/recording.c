@@ -49,6 +49,8 @@ static uint16_t recording_next[RECORD_MAX];
  * the pool, leaving the full audio reserve alongside CPU1's private stacks. */
 static uint32_t recording_due[RECORD_MAX];
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
+static uint16_t recording_cref[NTRK][4] __attribute__((section(".pool")));   /* (Release 3 step 7, 8.2b) the control notes sounding, by KICK HOLD DIVE RISE: their own counts, never the engine's */
+static uint16_t recording_last = RECORD_MAX;   /* the event recording_note made last (a control note flags it) */
 static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t cursor; } recording_schedule[NTRK];
 /* (Orange Cat 0.13.0) step properties on recorded steps. recording_roll: the steps of the track whose chance and condition were rolled this pass of the loop
  * (seen) and the ones that failed (skip). recording_nudge_sum: the track's nudges as the schedule was last ordered with them.
@@ -415,6 +417,15 @@ static void recording_off(track_t *t, uint32_t note)
 static void recording_end(track_t *t, uint32_t i)
 {
     if (!recording_sounding(i)) return;
+    if (recording[i].length & RN_CTL) {                /* (8.2b) a control note: the DUB side, never an engine */
+        uint32_t tr = (recording[i].owner & 31u) / NPAT, w = (recording[i].note - RN_CTL_FIRST) & 3u;
+#if MELODEE_RECORD_QUEUE
+        recording_queue_remove(i);
+#endif
+        recording_run[i].left = 0;
+        if (recording_cref[tr][w] && !--recording_cref[tr][w]) dub_rec[tr & 3u][w] = 0;
+        return;
+    }
     uint32_t note = recording[i].note;
 #if MELODEE_RECORD_QUEUE
     note = recording_message[i] & 127u;
@@ -473,7 +484,8 @@ static void recording_reindex(void)
         recording_next[i] = recording_head[owner]; recording_head[owner] = (uint16_t)i;
         recording_tracks |= (uint8_t)(1u << (owner / NPAT));
         if (recording_sounding(i) && trk[owner / NPAT].pattern == owner % NPAT) {
-            recording_refs[owner / NPAT][recording[i].note]++;
+            if (recording[i].length & RN_CTL) { recording_cref[owner / NPAT][(recording[i].note - RN_CTL_FIRST) & 3u]++; dub_rec[(owner / NPAT) & 3u][(recording[i].note - RN_CTL_FIRST) & 3u] = 1; }
+            else recording_refs[owner / NPAT][recording[i].note]++;
 #if MELODEE_RECORD_QUEUE
             uint32_t tr = owner / NPAT, view = recording_view(&trk[owner / NPAT], &recording[i]);
             recording_heap_pos[i] = (uint16_t)(view << 10);
@@ -786,6 +798,7 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     recorded_note_t *r = &recording[free];
     *r = (recorded_note_t){(uint16_t)on, 1, (uint8_t)note, (uint8_t)vel, (uint8_t)owner, (uint8_t)(actual | (step != actual ? 64u : 0u) | (step == 0u && actual ? 128u : 0u))};
     recording_insert(t, free);
+    recording_last = (uint16_t)free;
     memset(&recording_run[free], 0, sizeof recording_run[free]);
     recording_flags[free] = 13;
     recording_live_add(free);
@@ -996,7 +1009,7 @@ static int recording_slide_in(track_t *t, uint32_t i, uint32_t vel)
         uint32_t old = recording[j].note;
 #endif
         uint32_t k, shared = 0;
-        if (j == i || !recording_sounding(j) || recording_view(t, &recording[j]) != prev || recording_refs[tr][old] != 1u) continue;
+        if (j == i || !recording_sounding(j) || (recording[j].length & RN_CTL) || recording_view(t, &recording[j]) != prev || recording_refs[tr][old] != 1u) continue;
         if ((live_held[tr][old >> 5] & (1u << (old & 31u))) || t->arp_note == old) continue;
         for (k = 0; k < t->seq_n; k++) shared |= t->seq_notes[k] == old;   /* (a manual step's note shares the voice: not ours) */
         if (shared || !seq_slide_voice(t, old, recording[i].note, vel)) continue;
@@ -1017,6 +1030,20 @@ static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, u
 #ifdef RECORDING_HIT_HOOK                           /* (Orange Cat 0.13.0) host tests only: the hits a recorded step plays */
     RECORDING_HIT_HOOK(t, i, vel, gate, late);
 #endif
+    if (r->length & RN_CTL) {                           /* (8.2b) a control note: the DUB side's recorded half, for the gate (a strike's is the shortest, one block at least) */
+        uint32_t ctr = trk_index(t), w = (r->note - RN_CTL_FIRST) & 3u, cwas = recording_sounding(i), crem = gate > late ? gate - late : 0u;
+        if (!crem) crem = 1u;
+#if MELODEE_RECORD_QUEUE
+        if (!recording_queue_add(t, i, crem)) crem = 0;
+        if (!crem) { recording_queue_remove(i); recording_run[i].left = 0; return; }
+#else
+        recording_run[i].left = crem;
+#endif
+        if (!cwas) recording_cref[ctr][w]++;
+        dub_rec[ctr & 3u][w] = 1;
+        recording_live_add(i);
+        return;
+    }
     drum_event_pitch=r->pitch; drum_event_length=(r->length&1u)?gate:0;
 #if OC_SLIDE
     if (!recording_slid)
@@ -1106,7 +1133,7 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
         vel = vel * 9u / 16u + 1u;
     }
 #if OC_SLIDE
-    recording_slid = (uint8_t)recording_slide_in(t, i, vel);
+    recording_slid = (uint8_t)(!(r->length & RN_CTL) && recording_slide_in(t, i, vel));
 #endif
     recording_hit(t, i, vel, first, late);
 #if OC_SLIDE

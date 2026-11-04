@@ -275,6 +275,7 @@ static int test_cuts(void)
     return check(what, ok && done);
 }
 
+#ifndef OC_POOL_NO_MAIN
 int main(void)
 {
     int bad = 0;
@@ -284,3 +285,4 @@ int main(void)
     printf(bad ? "oc pool: FAILED\n" : "oc pool: all passed\n");
     return bad ? 1 : 0;
 }
+#endif

@@ -36,6 +36,7 @@
 #define OCP_PER 4u
 #define OCP_CHUNKS (OCP_N / OCP_PER)
 #define OCP_VER 2u                             /* (round 13: 2; version 1 patterns still read, their lanes on DUB's ids dropped: the ids changed meaning) */
+#define OCP_VER_CTL 3u                         /* (Release 3 step 7, PROJECT_FORMAT_R3.md 8.2b, 18) a pattern with a flagged control note is version 3: a Release 2 reader refuses it (its version check) */
 #define OCP_HEAD 20u
 #define OCP_TABLE (2u * OCP_PER)
 #define OCP_STEP ((uint32_t)sizeof(step_snapshot_t))
@@ -62,7 +63,7 @@ static void ocp_put16(uint8_t *b, uint32_t v) { b[0] = (uint8_t)v; b[1] = (uint8
  * project record's (oc_project.c) */
 typedef struct {
     ocs_src_t src;
-    uint32_t k, bank, owner, len, nsteps, nmot, nnotes, mon;
+    uint32_t k, bank, owner, len, nsteps, nmot, nnotes, mon, ctl;
     uint64_t mask;
     pattern_t pat;
     const motion_event_t *mev;
@@ -95,13 +96,15 @@ static uint32_t ocp_gen_count(ocp_gen_t *g)
 {
     uint32_t i;
     g->owner = g->k * NPAT + g->bank;
-    g->mask = 0; g->nsteps = g->nmot = g->nnotes = 0;
+    g->mask = 0; g->nsteps = g->nmot = g->nnotes = g->ctl = 0;
     for (i = 0; i < NSTEP; i++)
         if (ocp_step_used(&g->pat.step[i])) { g->mask |= (uint64_t)1 << i; g->nsteps++; }
     for (i = 0; i < g->mcount; i++)
         g->nmot += (g->mev[i].place >> 6) == g->k && g->mtag[i] == g->bank;
     for (i = 0; g->notes && i < RECORD_MAX; i++)
-        g->nnotes += g->notes[i].vel && (g->notes[i].owner & 31u) == g->owner;
+    {   const recorded_note_t *n = &g->notes[i];
+        uint32_t mine = n->vel && (n->owner & 31u) == g->owner;
+        g->nnotes += mine; g->ctl |= mine && (n->length & RN_CTL); }
     g->len = g->nsteps || g->nmot || g->nnotes ? OCP_HEAD + g->nsteps * OCP_STEP + 1u + g->nmot * 4u + 2u +
                                                      g->nnotes * OCP_NOTE : 0u;
     ocp_gen_rewind(g);
@@ -128,7 +131,7 @@ static void ocp_gen_item(ocp_gen_t *g)
     while (!g->ilen && g->phase < 6u) {
         switch (g->phase) {
         case 0:
-            b[0] = OCP_VER; b[1] = (uint8_t)P_COUNT; b[2] = (uint8_t)g->mon; b[3] = 0;
+            b[0] = g->ctl ? OCP_VER_CTL : OCP_VER; b[1] = (uint8_t)P_COUNT; b[2] = (uint8_t)g->mon; b[3] = 0;
             for (uint32_t j = 0; j < 4u; j++) ocp_put16(b + 4 + 2u * j, (uint16_t)g->pat.timing[j]);
             for (uint32_t j = 0; j < 8u; j++) b[12 + j] = (uint8_t)(g->mask >> (8u * j));
             g->ilen = OCP_HEAD; g->phase = 1; g->i = 0;
@@ -263,7 +266,7 @@ static int ocp_chunk_open(uint32_t chunk, ocs_rec_t *r, uint32_t *len, uint32_t 
 static uint32_t ocp_len_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
 {
     uint8_t h[6];
-    if (len < OCP_HEAD || ocs_at(r, off, h, sizeof h) || (h[0] != OCP_VER && h[0] != 1u)) return 0;
+    if (len < OCP_HEAD || ocs_at(r, off, h, sizeof h) || (h[0] != OCP_VER && h[0] != 1u && h[0] != OCP_VER_CTL)) return 0;
     return (uint32_t)clamp((int16_t)ocp_get16(h + 4), 1, NSTEP);
 }
 
@@ -404,7 +407,7 @@ static int ocp_step_ok(const step_t *s)
 typedef struct {
     pattern_t pat;
     motion_store_t mot;                        /* (its events' places carry the track's bits) */
-    uint32_t nnotes, flags;
+    uint32_t nnotes, flags, ver;
 } ocp_parsed_t;
 
 static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
@@ -412,10 +415,10 @@ static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
     uint8_t h[OCP_HEAD], b[4];
     uint64_t mask = 0;
     uint32_t i, np;
-    if (ocp_rd(rd, h, OCP_HEAD) || (h[0] != OCP_VER && h[0] != 1u) || h[3]) return 1;
+    if (ocp_rd(rd, h, OCP_HEAD) || (h[0] != OCP_VER && h[0] != 1u && h[0] != OCP_VER_CTL) || h[3]) return 1;
     np = h[1];
     if (np < 8u || np > P_COUNT || (h[2] & ~1u)) return 1;
-    p->flags = h[2];
+    p->flags = h[2]; p->ver = h[0];
     for (i = 0; i < 4u; i++) {
         int32_t v = (int16_t)ocp_get16(h + 4 + 2u * i);
         if (v < TP[P_SLEN + i].min || v > TP[P_SLEN + i].max) return 1;
@@ -478,7 +481,7 @@ static int ocp_check(uint32_t id, uint32_t k, ocs_rec_t *r, ocp_rd_t *rd, ocp_pa
     *notes_at = rd->off - (rd->n - rd->pos);  /* (where the notes start, to read them again) */
     for (uint32_t n = 0; n < p->nnotes; n++) {    /* every note checks before anything changes */
         recorded_note_t v;
-        if (ocp_rd(rd, &v, OCP_NOTE) || !v.vel || (v.owner & 31u) || !recording_valid(&v)) return 1;
+        if (ocp_rd(rd, &v, OCP_NOTE) || !v.vel || (v.owner & 31u) || !recording_valid(&v) || ((v.length & RN_CTL) && p->ver < OCP_VER_CTL)) return 1;
     }
     return rd->off != rd->end || rd->pos != rd->n;
 }

@@ -7,8 +7,8 @@
  *   white B             CUT (CC 17), black C# KICK (CC 18), D# HOLD (CC 19), G# DIVE (CC 20), A# RISE (CC 21); F# is empty
  * The keys write dub_trig (dub_fields.h), the triggers MIDI CC 16 .. 21 write too, so a controller and the keys are one path.
  * Recording (the motion lanes DUB has): a throw is the SEND lane (its level while down, the knob's value after), CUT the ECHO lane at 0 (ECHO 0 mutes as CUT does: jfx_dub.c
- * dub_map; tests/dub_perf_test.c proves the renders equal), both only while the track is recording. KICK, HOLD, DIVE and RISE have no lane: they sound and are not recorded
- * (the view's line says so; PROJECT_FORMAT_R3.md 5.4 designs their lane type). Included by seq.c after motion.c, before keyboard_block. */
+ * dub_map; tests/dub_perf_test.c proves the renders equal), both only while the track is recording. KICK, HOLD, DIVE and RISE have no lane: (Release 3 step 7) they record as flagged control notes in the
+ * timed-note store (PROJECT_FORMAT_R3.md 8.2b) and play back through dub_rec. Included by seq.c after motion.c, before keyboard_block. */
 #define DUBK_FIRST 7u
 #define DUBK_LAST 18u
 static volatile uint8_t dub_view_on;                   /* 1: HOME's DUB page is showing (ui_draw.c), the keys are the view's */
@@ -18,6 +18,16 @@ static const uint8_t DUBK_ACT[12] = {0, 7, 1, 8, 2, 3, 0xFF, 4, 9, 5, 10, 6};   
 static void dubk_rec(track_t *t, uint32_t id, int32_t v)
 {
     if (rec_on(t) && t == TSEL) (void)motion_capture(t, id, (int16_t)v);
+}
+/* (8.2b) a control key of a recording track is a timed note on its reserved number (124 + which), flagged: opened at the press, closed at the release */
+static void dubk_ctl_rec(track_t *t, uint32_t which, int down)
+{
+    if (!rec_on(t) || t != TSEL) return;
+    if (down) {
+        recording_last = RECORD_MAX;
+        rec_note(t, RN_CTL_FIRST + which, 127u);
+        if (recording_last < RECORD_MAX) recording[recording_last].length = RN_CTL;
+    } else rec_release(t, RN_CTL_FIRST + which);
 }
 static void dub_key(uint32_t k, uint32_t tr, int down)
 {
@@ -36,7 +46,8 @@ static void dub_key(uint32_t k, uint32_t tr, int down)
     } else if (a == 6u) {                               /* CUT: the loop's input and the wet shut, as ECHO 0 */
         dub_trig[j][1] = down ? 127u : 0u;
         dubk_rec(t, P_DUB_ECHO, down ? 0 : t->p[P_DUB_ECHO]);
-    } else {                                            /* KICK HOLD DIVE RISE: live, not recorded */
+    } else {                                            /* KICK HOLD DIVE RISE: live, and (8.2b) recorded as control notes while the track records */
         dub_trig[j][a - 5u] = down ? 127u : 0u;
+        dubk_ctl_rec(t, a - 7u, down);
     }
 }
