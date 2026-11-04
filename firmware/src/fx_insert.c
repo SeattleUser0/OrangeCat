@@ -47,15 +47,15 @@ static __attribute__((section(".pool"))) uint8_t fx_ins_force_degrade;          
 static __attribute__((section(".pool"))) uint16_t fx_cpu_wait;                            /* blocks still to wait before an insert is admitted (CPU1 retired or forced off sets it to FX_CPU_OK_BLOCKS; it counts down while CPU1 is online; 0 at boot: .pool is zero) */
 #define FX_CPU_OK_BLOCKS 2750u                          /* 2 s */
 
-/* ---- (Release 3 step 6) a module's kernel beside the resident one (FX_MODULES_PLAN.md 15) ----
+/* ---- (Release 3 step 6) a module's kernel (FX_MODULES_PLAN.md 15; since round 20 the only one) ----
  * The Effects table (oc_module.c) registers an effect module of id FX_MODK_ID (DUB TAPE's) and hands its checked caps block, call table and rows to fx_modk_set, which makes a fx_kernel_t in RAM
  * (fx_modk) from them; fx_modk_clear drops it when the module goes (a removal, a reinstall, a ban). WHICH kernel an instance runs is not a choice (Release 3 step 6, round 18): with the module registered EVERY track's instance
- * runs the module's kernel, with none registered every track runs the resident one (jfx_dub.c dub_kernel, in the image until one Nightly after the module ships). No project field, no page
+ * runs the module's kernel, with none registered every DUB track plays dry (round 20: the resident kernel is gone, there is no other DUB). No project field, no page
  * and no command stores or selects a kernel per track.
- * fx_mod_bound is the kernel the instance was made with, a bit a track: it changes only while the instance is OFF, that is, from silence. A module that appears while instances run on
- * the resident kernel: each running instance ramps out and lets go (as a governor release does, without the wait) and starts again on the module's kernel from silence. A module that goes
+ * fx_mod_bound is the kernel the instance was made with, a bit a track: it changes only while the instance is OFF, that is, from silence. A module that appears: the tracks that
+ * wanted DUB start on its kernel from silence (an instance still ramping from an earlier module ramps out first). A module that goes
  * (fx_modk_clear: the installer rebuilds the registry on every install and removal, and oc_module.c calls it before ANY erase of the module's sectors) lets its instances go at once, so
- * nothing calls into the flash that is about to change, and they start again on the resident kernel from silence. fx_kernel_of(k) (jfx_dub.c) answers from fx_mod_bound. */
+ * nothing calls into the flash that is about to change, and the tracks play dry until a module registers. fx_kernel_of(k) (jfx_dub.c) answers from fx_mod_bound. */
 #if OC_FX_MODK
 static __attribute__((section(".pool"))) fx_kernel_t fx_modk;
 static __attribute__((section(".pool"))) uint8_t fx_modk_ok, fx_mod_bound;
@@ -123,14 +123,10 @@ static uint32_t fx_modk_uses(void)         /* instances of the module's kernel r
     for (k = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && (fx_ins[k].state == FXS_RUN || fx_ins[k].state == FXS_RAMP);
     return n;
 }
-#else
-#define FX_MODK_BOUND(k) 0u
-static inline uint32_t fx_mod_effective(void) { return 0u; }
-static inline int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
-{ (void)module_id; (void)version; (void)effect_id; (void)c; (void)k; (void)rows; return FXM_RANGE; }
-static inline void fx_modk_clear(void) {}
-static inline uint32_t fx_modk_uses(void) { return 0u; }
 #endif
+
+/* (round 20) 1 when a DUB module is registered (the UI says MODULE MISSING when it is not and a track has DUB on) */
+static inline int fx_ins_module_ok(void) { return fx_modk_ok; }
 
 /* the capture buffer track k writes this block, or 0 (no instance running) */
 static inline int32_t *fx_ins_capture(uint32_t k)
@@ -193,7 +189,7 @@ static int fx_ins_headroom(void)
     uint32_t n = 0;
     for (i = 0; i < 8; i++) if (fx_pk[i] > m) m = fx_pk[i];
     for (i = 0; i < FX_INS_N; i++) if (fx_ins[i].state == FXS_RUN || fx_ins[i].state == FXS_RAMP) n += fx_kernel_of(i)->gov_us;
-    return m + n + fx_kernel_of(0)->gov_us < FX_BACK_US;     /* (each instance already running costs as much again: the sum with the new one's, the kernel bound to the slot, under the line) */
+    return m + n + fx_modk.gov_us < FX_BACK_US;     /* (each instance already running costs as much again: the sum with the new one's, the kernel bound to the slot, under the line) */
 }
 JFX_XIP static void fx_ins_late_half(int late, uint32_t us)
 {
@@ -236,6 +232,11 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
     if (fx_ins_force_degrade || !FX_CPU1_OK()) fx_cpu_wait = FX_CPU_OK_BLOCKS;      /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
     else if (fx_cpu_wait) fx_cpu_wait--;
     degrade = fx_cpu_wait != 0;
+    if (!fx_modk_ok) {                                  /* (round 20) no DUB module installed: the kernel IS the module, there is no other. A track with DUB on plays DRY: no instance, no capture, no wet, no memory asked, nothing for the governor; its stored values stay as they are. The DUB FULL bit of the track says so (the DUB page reads fx_modk_ok to say MODULE MISSING instead) */
+        fx_ins_evict = 0;
+        for (k = 0; k < FX_INS_N && k < nt; k++) if (trk[k].p[P_DUB_ECHO] != 0) fx_ins_ev_full |= (uint8_t)(JFX_FULL_INS0 << k);   /* (the one effect the host knows is DUB's, FX_MODK_ID: ECHO above 0 is dub_on) */
+        return;
+    }
     beat = beat_samples();                              /* (the kernels' tempo, once a block: fx_ictx_t) */
     if (fx_ins_gov_req) {                               /* the governor: the highest running instance gives way */
         fx_ins_gov_req = 0;
@@ -389,7 +390,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     if (audio_batch_active) {
         uint32_t unused = 0;
-        audio_batch_push_cost(fx_ins_job, &unused, sizeof unused, fx_sink, CTL, fx_kernel_of(0)->prof, cost, fx_ins_merge);
+        audio_batch_push_cost(fx_ins_job, &unused, sizeof unused, fx_sink, CTL, fx_modk.prof, cost, fx_ins_merge);
         return;
     }
 #endif
@@ -410,7 +411,7 @@ JFX_XIP static void fx_ins_reset(void)
     fx_gov_cool = 0;
     memset(fx_pk, 0, sizeof fx_pk); fx_pk_n = 0; fx_pk_i = 0;
     memset(fx_trig, 0, sizeof fx_trig);                 /* the performance triggers (the host's, MIDI CC 16 to 21) start released */
-    fx_kernel_of(0)->reset();
+    if (fx_modk_ok) fx_modk.reset();           /* (the module's, when there is one: the host's inputs above are the host's to clear) */
 }
 #if OC_DUB_SRAM
 #pragma pop_macro("JFX_XIP")
@@ -424,4 +425,5 @@ static inline void fx_ins_start(uint32_t nt) { (void)nt; }
 static void fx_ins_reset(void) {}
 static inline void fx_modk_clear(void) {}
 static inline uint32_t fx_modk_uses(void) { return 0u; }
+static inline int fx_ins_module_ok(void) { return 1; }
 #endif

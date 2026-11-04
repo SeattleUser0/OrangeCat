@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Release 3 step 5 (docs/orangecat/FX_MODULES_PLAN.md 14): the differential gate of the generic insert host. Builds tests/fx_insert_test.c (the probe) against this tree (NEW)
-# and against the last tree whose resident DUB kernel was ONE file (OLD: firmware/ and tests/ of commit d620160d, extracted with git archive: the insert host of step 5 with dub-perf's HOLD, DIVE, RISE
+# (round 20: NEW runs the DUB MODULE, the image has no kernel of its own any more; OLD is the resident kernel, so the gate is now "the module-hosted path == the resident kernel of d620160d, sample for sample"; this
+# is the proof that taking the resident copy out changed no sample.) and against the last tree whose resident DUB kernel was ONE file (OLD: firmware/ and tests/ of commit d620160d, extracted with git archive: the insert host of step 5 with dub-perf's HOLD, DIVE, RISE
 # and ECHO 0 in jfx_dub.c; round 18 moved those into dub_kern.h, which the resident kernel and the module share), runs both and compares what they print, line for line:
 # the hash of every output sample and of the behaviour of every scenario. Then NEW against tests/fx_insert_golden.txt, the OLD printout pinned (for a checkout without the history).
 #   tests/fx_insert_diff.sh [OUTDIR]        run from the repo root; the compile flags are run_tests.sh's (CC, BS in the environment, or the defaults below)
@@ -22,10 +23,10 @@ fail=0
 lines() { grep -E '^[A-Z0-9]+ blocks |^R2 combinations ' "$1"; }
 
 if [ "$MODE" = mutate ]; then
-    rm -rf "$OUT/fxi_mut" && mkdir -p "$OUT/fxi_mut" && cp -r firmware tests "$OUT/fxi_mut/" || exit 2
+    rm -rf "$OUT/fxi_mut" && mkdir -p "$OUT/fxi_mut" && cp -r firmware tests tools "$OUT/fxi_mut/" || exit 2
     sed -i 's/^#define FX_RAMP 6u/#define FX_RAMP 7u/' "$OUT/fxi_mut/firmware/src/fx_insert.c"
     cmp -s firmware/src/fx_insert.c "$OUT/fxi_mut/firmware/src/fx_insert.c" && { echo "fx_insert_diff: the mutation did not apply"; exit 2; }
-    (cd "$OUT/fxi_mut" && $CC -DFXI_NEW=1 $FLAGS -o "$OUT/fxi_mut_bin" tests/fx_insert_test.c -lm) || { echo "fx_insert_diff: mutant does not compile"; exit 2; }
+    (cd "$OUT/fxi_mut" && $CC -DFXI_NEW=1 $FLAGS -Itests -c -o "$OUT/fxi_mut_tu.o" tests/module_host_dub_tu.c && $CC -DFXI_NEW=1 $FLAGS -o "$OUT/fxi_mut_bin" tests/fx_insert_test.c "$OUT/fxi_mut_tu.o" -lm) || { echo "fx_insert_diff: mutant does not compile"; exit 2; }
     "$OUT/fxi_mut_bin" > "$OUT/fxi_mut.out" 2>&1
     lines "$OUT/fxi_mut.out" > "$OUT/fxi_mut.lines"
     if lines tests/fx_insert_golden.txt | cmp -s - "$OUT/fxi_mut.lines"; then echo "fx_insert_diff: MUTATION SURVIVED: the test did not notice FX_RAMP 7"; exit 1; fi
@@ -34,7 +35,8 @@ if [ "$MODE" = mutate ]; then
 fi
 
 # NEW
-$CC -DFXI_NEW=1 $FLAGS -o "$OUT/fxi_new" tests/fx_insert_test.c -lm || { echo "fx_insert_diff: compile (NEW)"; exit 1; }
+# (round 20) NEW is the MODULE-hosted path: the module's host unit is linked and registered by the probe (tests/dub_module_host.h); OLD is the resident kernel of d620160d
+$CC -DFXI_NEW=1 $FLAGS -Itests -c -o "$OUT/fxi_new_tu.o" tests/module_host_dub_tu.c && $CC -DFXI_NEW=1 $FLAGS -o "$OUT/fxi_new" tests/fx_insert_test.c "$OUT/fxi_new_tu.o" -lm || { echo "fx_insert_diff: compile (NEW)"; exit 1; }
 "$OUT/fxi_new" > "$OUT/fxi_new.out" 2>&1 || { cat "$OUT/fxi_new.out"; echo "fx_insert_diff: NEW probe failed"; exit 1; }
 tail -3 "$OUT/fxi_new.out"
 lines "$OUT/fxi_new.out" > "$OUT/fxi_new.lines"

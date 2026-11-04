@@ -369,6 +369,9 @@ static void pack_boot_notice(uint32_t skipped)
     if (skipped) return;
     for (k = 0; k < NTRK && k < song.ntrk; k++)
         if (mod_gone(trk[k].eng_req % NENGINES)) { ui_message("MODULE MISSING"); return; }
+    if (!fx_ins_module_ok())                            /* (round 20) DUB is a module: a track with DUB on and none installed plays dry */
+        for (k = 0; k < NTRK && k < song.ntrk; k++)
+            if (trk[k].p[P_DUB_ECHO] != 0) { ui_message("MODULE MISSING"); return; }
     if (OC_PACK_READY()) return;
     for (k = 0; k < NTRK && k < song.ntrk; k++) {
         uint32_t e = trk[k].eng_req % NENGINES;

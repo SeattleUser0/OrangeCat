@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* (Release 3 step 6) DUB TAPE's kernel side of the insert host's cut, as ONE text that both builds include: the resident kernel (firmware/src/jfx_dub.c, in the image) and the module
- * (tools/module/dub_mod.c, orangecat-dub.ocm). The module's render is the resident's because it is the same functions (tests/fx_dub_module_test.c compares them sample for sample).
+/* (Release 3 step 6; round 20) DUB TAPE's kernel side of the insert host's cut: the module's source (tools/module/dub_mod.c, orangecat-dub.ocm). Until round 20 it was ONE text that the image's resident kernel
+ * (jfx_dub.c) and the module both included; the image has no copy any more (FX_MODULES_PLAN.md 15.9), and the host test that proves the module's render is the resident kernel's of d620160d is tests/fx_insert_diff.sh.
  *
  * The includer defines, before this text: JFX_XIP (the placement of a control-path function: .text.xip_jfx in the image, nothing in the module), DUB_HOT (the per-block job's), the
  * types of core.h, dubdelay.h / dubdelay.c, dub_fields.h, fx_kernel.h, and AP_DUB (audio_profile.h). It imports nothing else: the tempo and the performance triggers come in fx_ictx_t, the

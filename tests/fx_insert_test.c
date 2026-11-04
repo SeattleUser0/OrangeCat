@@ -37,6 +37,9 @@
 #include "ui_test.c"
 #include <assert.h>
 #include <math.h>
+#ifdef FXI_NEW
+#include "dub_module_host.h"                         /* (round 20) NEW is the module-hosted path; OLD (d620160d) has the resident kernel and no such header */
+#endif
 
 static uint64_t h_au, h_st;
 static uint32_t st_n[5], full_n, snap_n;                /* coverage: instance-blocks in each state, blocks with a DUB FULL bit, blocks with a snapshot in the common block */
@@ -343,7 +346,8 @@ static void descriptor_checks(void)
     CHECK((kn->flags & FXK_SEED) == 0 && (kn->flags & FXK_TAIL_FAR) && (kn->flags & FXK_US) && kn->tail_base == 24u && kn->prof == AP_DUB && kn->rates == 0x06u, "tail, seed 0, class, rates");
     CHECK(kn->on && kn->size_sig && kn->size_need && kn->blocks_at && kn->hold_len && kn->tick && kn->param_sig && kn->snap && kn->cost_extra && kn->start && kn->process && kn->reset, "every call is there");
     {   fx_ictx_t c; memset(&c, 0, sizeof c); c.beat = beat_samples();
-        CHECK(fx_kernel_of(0)->blocks_at(dub_far(&trk[0], &c), 2u) == dub_blocks_at(dub_far(&trk[0], &c), 2u), "sizing through the struct"); }
+        uint32_t nb = fx_kernel_of(0)->blocks_at(fx_kernel_of(0)->size_need(&trk[0], &c), 2u);
+        CHECK(nb >= kn->ram_work_min && nb <= kn->ram_work_max, "sizing through the struct: %u blocks", nb); }
     CHECK(sizeof(dub_common_t) == sizeof(fx_common_t), "one common block");
     CHECK(FW_API_ID == 0xCAF53177u, "the interface identifier did not move (0x%08X)", (unsigned)FW_API_ID);
 }
@@ -397,6 +401,9 @@ static void scenario_perf(void)
 int main(void)
 {
     fxi_progress = getenv("FXI_PROGRESS") != 0;
+#ifdef FXI_NEW
+    if (dub_host_module_set() != FXM_OK) { printf("fx_insert: the DUB module did not register\n"); return 2; }
+#endif
     scenario_long();
     scenario_mem();
     scenario_r2();
