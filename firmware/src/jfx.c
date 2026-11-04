@@ -2121,7 +2121,7 @@ static __attribute__((section(".pool"))) uint8_t fx_ins_ev_full;
 JFX_XIP static uint8_t jfx_ins_mem(uint32_t bus_fail, uint32_t bus_short)
 {
     uint8_t full = 0;
-    uint32_t any_want = 0, any_state = 0, i;
+    uint32_t any_want = 0, any_state = 0, i, sp_later = 0;
     fx_ins_nomem = 0;
     if (bus_fail) {                                     /* a bus asked for memory this block and the arena had none (not the retry wait after it): one holder gives way */
         uint32_t holder = FX_INS_N;
@@ -2157,6 +2157,7 @@ JFX_XIP static uint8_t jfx_ins_mem(uint32_t bus_fail, uint32_t bus_short)
             resource_release(RES_JFX0 + JB_INSP0 + i);
             fx_ins_spbuf[i] = 0;
         }
+        sp_later = 0;
         gen0 = resource_gen;                            /* (after this block's own releases: they are real ones) */
         if (!fx_ins_state[i]) fx_ins_state[i] = jfx_take(JB_INSS0 + i, fx_kernel_of(i)->ram_state, &nm);
         if (fx_ins_state[i]) { fx_ins_held[i] = (uint8_t)w; fx_ins_held_sp[i] = (uint8_t)(fx_ins_spring[i] != 0); }
@@ -2176,7 +2177,10 @@ JFX_XIP static uint8_t jfx_ins_mem(uint32_t bus_fail, uint32_t bus_short)
             uint8_t nm2 = 0;
             uint32_t gen2 = resource_gen;
             fx_ins_spbuf[i] = jfx_take(JB_INSP0 + i, fx_kernel_of(i)->ram_extra_bytes, &nm2);
-            if (!fx_ins_spbuf[i]) { resource_gen = gen2; fx_ins_spgen[i] = gen2 + 1u; }
+            if (!fx_ins_spbuf[i]) {
+                if (nm2 || jfx_wait) { resource_gen = gen2; fx_ins_spgen[i] = gen2 + 1u; }   /* really short, or a bus is (jfx_wait: the retry delay of a shortage): the tank is optional, the instance plays without it, as before */
+                else sp_later = 1;                      /* (round 18) refused by jfx_take for the per-block budget (JFX_GROW) alone, not for want of memory: NOT "short" (that was remembered until something was released, and the instance started without its spring for good: the common block, the state and six lines had used the block's takes); ask again next block, and an instance that is not ready yet waits for it */
+            }
         }
         if (nm) {
             jfx_free_ins(i);                            /* (all or none: a part given back) */
@@ -2184,7 +2188,7 @@ JFX_XIP static uint8_t jfx_ins_mem(uint32_t bus_fail, uint32_t bus_short)
             fx_ins_gen[i] = gen0 + 1u;
             fx_ins_sig[i] = sig;
             fx_ins_nomem = 1;
-        } else if (fx_ins_state[i] && fx_ins_have[i] == w) {
+        } else if (fx_ins_state[i] && fx_ins_have[i] == w && !(sp_later && !fx_ins_ready[i])) {
             if (!fx_ins_ready[i]) fx_ins_fresh[i] = 1;        /* complete now: set up as new */
             fx_ins_ready[i] = 1;
             continue;

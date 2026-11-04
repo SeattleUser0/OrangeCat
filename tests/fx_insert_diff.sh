@@ -44,6 +44,10 @@ lines "$OUT/fxi_new.out" > "$OUT/fxi_new.lines"
 if git cat-file -e "$OLD_COMMIT^{commit}" 2>/dev/null; then
     rm -rf "$OUT/fxi_old" && mkdir -p "$OUT/fxi_old" && git archive "$OLD_COMMIT" firmware tests | tar -x -C "$OUT/fxi_old" || { echo "fx_insert_diff: git archive $OLD_COMMIT"; exit 1; }
     cp tests/fx_insert_test.c "$OUT/fxi_old/tests/"
+    # (round 18, found on the unit) the spring's tank was refused for jfx_take's per-block budget, remembered as "short" and the instance started without its spring for good (SPRG and KICK
+    # dead; the resident kernel too, whenever a start from nothing needed the common block, the state and 6 lines). jfx_ins_mem is fixed in NEW; the same hunks go into OLD so the gate still compares
+    # everything else sample for sample. Without them OLD and NEW differ in LONG, MEM, R2, TRIG and PERF (the tank, and a block's later start).
+    (cd "$OUT/fxi_old" && patch -p1 -s < "$ROOT/tests/fx_insert_old_spring.patch") || { echo "fx_insert_diff: the spring hunks did not apply to OLD"; exit 1; }
     (cd "$OUT/fxi_old" && $CC $FLAGS -o "$OUT/fxi_old_bin" tests/fx_insert_test.c -lm) || { echo "fx_insert_diff: compile (OLD)"; exit 1; }
     "$OUT/fxi_old_bin" > "$OUT/fxi_old.out" 2>&1 || { cat "$OUT/fxi_old.out"; echo "fx_insert_diff: OLD probe failed"; exit 1; }
     lines "$OUT/fxi_old.out" > "$OUT/fxi_old.lines"

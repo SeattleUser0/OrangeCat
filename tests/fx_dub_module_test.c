@@ -353,6 +353,23 @@ int main(void)
           ck("remove with a block between the unbind and the rebind: every instance ends on the resident kernel, running, on a state taken at the resident's size (rebind after the unbind)", rc == FXM_OK && n == 4u && m == 4u);
           ck("... and the switch forgot 'short, nothing released since' (fx_ins_gen), so an instance that was short of memory asks for the new kernel's size at once", g0 == 0u); }
     }
+    /* (round 18, found on the unit) the spring's tank on a start from nothing: the common block, the state and six lines (a free TIME R of 409 ms) are the block's four takes twice over, so the
+     * tank is the NINTH take of a start and jfx_take refuses it for the per-block budget, not for want of memory. That was remembered as "short, nothing released since" and the instance started
+     * without its spring for good (SPRG and KICK did nothing). With the common block still held (a restart under another instance) it was the eighth and worked, which is why a removal
+     * (resident again) looked fine. The tank is now waited for. Both kernels, one track from nothing: running, six lines, the tank held */
+    {   int ph;
+        uint32_t k;
+        for (ph = 0; ph < 2; ph++) {
+            fx_modk_clear(); fresh();
+            if (ph) rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+            for (k = 0; k < NPART; k++) { dub_defaults(k); T(k, P_DUB_ECHO, k ? 0 : 100); }
+            dub_put_field(trk[0].p, DUBF_SYNC, 0); T(0, P_DUB_TIML, 70); T(0, P_DUB_TIMR, 90); T(0, P_DUB_SPRG, 60);
+            for (k = 0; k < 400u; k++) { if (!(gb & 3u)) dub_late_half(0, 1200u); blk(); }   /* (no notes: no engine takes the arena's memory in this run, so the tank is refused for the budget alone) */
+            ck(ph ? "the module, one track from nothing (cm, state, 6 lines, then the tank): running, 6 lines, and the spring's tank held" : "the resident kernel, one track from nothing (cm, state, 6 lines, then the tank): running, 6 lines, and the spring's tank held",
+               fx_ins[0].state == FXS_RUN && fx_ins_have[0] == 6u && fx_ins_spbuf[0] != 0 && (!ph || FX_MODK_BOUND(0)));
+        }
+        fx_modk_clear();
+    }
     /* what the host refuses */
     {   fx_caps_t bad_c;
         int ok = 1;

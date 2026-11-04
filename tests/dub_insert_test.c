@@ -340,6 +340,7 @@ int main(void)
         set_engine_of(&trk[k], ENGI_MACRO);
         apply_preset_to(&trk[k], 8);
         trk[k].p[P_DUB_ECHO] = 100;
+        dub_put_field(trk[k].p, DUBF_SYNC, 0); trk[k].p[P_DUB_TIML] = 40; trk[k].p[P_DUB_TIMR] = 40;   /* free times of 76 ms: lines of 16K, as the test says (since round 13 the line is sized from the times, and the default pair needs 24K; four of those and the spring tanks do not fit beside four MACRO tracks, and this test passed only because tanks refused for the per-block budget were dropped, FX_MODULES_PLAN.md 15.8) */
     }
     for (b = 0; b < 200; b++) {
         if (b == 4) for (uint32_t k = 0; k < NPART; k++) trk_note_on(&trk[k], 60 + (int)k, 100);
@@ -347,6 +348,7 @@ int main(void)
     }
     CHECK(dub_ready[0] && dub_ready[1] && dub_ready[2] && dub_ready[3], "four instances at 16K: %u %u %u %u", dub_ready[0], dub_ready[1], dub_ready[2], dub_ready[3]);
     CHECK(!(jfx_full & 0xF0u), "DUB FULL with four 16K instances and no ROOM");
+    CHECK(dub_i[0].state == DUBS_RUN && dub_i[1].state == DUBS_RUN && dub_i[2].state == DUBS_RUN && dub_i[3].state == DUBS_RUN && fx_ins_spbuf[0] && fx_ins_spbuf[1] && fx_ins_spbuf[2] && fx_ins_spbuf[3], "four 16K instances running, each with its spring tank");
 
     /* BUSES FIRST (the owner, October 29): DUB holds the memory, then the REVERB is asked for: it gets its memory, the instances give way (ramped), DUB FULL shows on them */
     ui_power_on();

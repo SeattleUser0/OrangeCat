@@ -46,6 +46,12 @@ check("the entry's pages word is the caps block (DUB_CAPS), whose pages word is 
 calls = struct.unpack_from("<12I", b, caps[2] - base)
 names = ["dub_on", "dub_size_sig", "dub_far", "dub_blocks_at", "dub_hold_len", "dub_tick", "dub_param_sig", "dub_snap", "dub_cost_extra", "dub_start_k", "dub_process", "dub_reset_k"]
 check("the call table (DUB_CALLS) is, in fx_kcalls_t's order, the addresses of " + ", ".join(names), syms["DUB_CALLS"][0] == caps[2] and list(calls) == [syms[n][0] for n in names])
+# (round 18) the spring's path: its code is in the module and its memory is declared where the host reads it (a unit found SPRG and KICK dead through the module; the cause was the host's take of the tank, not
+# the image, but these are the two ways the image itself could have lost it)
+cb = entry[6] - base
+check("the spring is compiled in: dk_spring_attach is a symbol of the module and dub_start_k (the one caller) is a call table entry", "dk_spring_attach" in syms and syms["dub_start_k"][0] in calls)
+check("the caps block declares the tank where the host reads it: ram_extra 2 blocks (byte 34), ram_extra_bytes 5632 (offset 48), state 1176 (offset 40), snapshot 104 (offset 38)",
+      b[cb + 34] == 2 and struct.unpack_from("<H", b, cb + 48)[0] == 5632 and struct.unpack_from("<H", b, cb + 40)[0] == 1176 and struct.unpack_from("<H", b, cb + 38)[0] == 104)
 pages = struct.unpack_from("<20I", b, caps[3] - base)
 check("the pages descriptor's shown (24) and put (28) are dub_shown and dub_put", pages[6] == syms["dub_shown"][0] and pages[7] == syms["dub_put"][0])
 rows = syms["DUB_ROWS"][0]

@@ -1,8 +1,8 @@
-LONG blocks 85277 au bcaa937bc712da15 st 1a568de4dec35156 gov 5 states 119492 19799 201712 84 21 full 83023 cm 82134
-MEM blocks 10100 au 507b44adb5a9e25b st 4642e815bcdbb992 gov 5 states 7575 13530 19271 24 0 full 8180 cm 9306
+LONG blocks 85277 au 547a08dde695657b st da07963ab5ca7de5 gov 5 states 119492 19803 201708 84 21 full 83023 cm 82134
+MEM blocks 10100 au 98ac6dfa6fa02b1b st 9b9477fdf661a0e6 gov 5 states 7575 13534 19267 24 0 full 8180 cm 9306
 R2 combinations 128
-R2 blocks 8320 au 9551b8711e7455f6 st e35a23969f9e2440 gov 5 states 11545 5124 16561 24 26 full 8310 cm 8320
+R2 blocks 8320 au 9551b8711e7455f6 st 7f391517fa2f8afb gov 5 states 11545 5125 16560 24 26 full 8310 cm 8320
 HEAVY1 blocks 44032 au 0d5c6e2e27582789 st 47f9a800b9196a98 gov 9 states 146112 18777 11215 24 0 full 44025 cm 11252
 HEAVY2 blocks 44032 au 18bece7a03178fe8 st edf4a916f37a9eb7 gov 13 states 146112 18777 11215 24 0 full 44025 cm 11252
-TRIG blocks 8100 au a14c48ef922e6c02 st 96891fef74e35f98 gov 13 states 0 20 32380 0 0 full 0 cm 8100
-PERF blocks 12840 au 6d8ddf6e4193ee96 st 57039c10fde5d859 gov 13 states 0 20 51340 0 0 full 0 cm 12840
+TRIG blocks 8100 au 6c33ab43b3c0f279 st 4eb5733ad5387fde gov 13 states 0 24 32376 0 0 full 0 cm 8100
+PERF blocks 12840 au 1a4d42ac24adfd7b st 3762dc39521a68d9 gov 13 states 0 24 51336 0 0 full 0 cm 12840
