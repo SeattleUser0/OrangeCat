@@ -256,7 +256,7 @@ static int oc_pack_end(const void *hdr512)
 }
 #if OC_HOME_PIC
 /* (the new interface, UI_BUILD.md 1b) byte off of the pack as the firmware reads it in place (oc_scene.c: the scene trailer) */
-static __attribute__((unused)) const uint8_t *pk_xip(uint32_t off) { return (const uint8_t *)FL_XIP(OC_PACK_LO + off); }
+static __attribute__((unused)) const uint8_t *pk_xip(uint32_t off) { return (const uint8_t *)(uintptr_t)FL_XIP(OC_PACK_LO + off); }
 /* 1: the pack area holds a whole scene trailer after the tables (its magic, version and CRC), as the flash has it. A set's install
  * (card_install.c) puts the set's pack in again when its file carries a trailer and the area has none */
 static int pk_trailer_ok(void)

@@ -257,5 +257,6 @@ int main(int argc, char **argv)
         memcpy(logical,saved,sizeof saved);
     }
     printf("%s\n", bad ? "LOADER TEST FAILED" : "loader test passed");
+    free(old); free(logical);
     return bad != 0;
 }

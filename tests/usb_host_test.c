@@ -1709,7 +1709,7 @@ static int t_folders(void)
             (ver_), (unsigned)(hash_), (unsigned)(len_), (unsigned)(iface_), (unsigned)(addr_), (files_))
         #define GOODMAN(name_, files_) do { MANIFEST("0.13.3", FW_API_IFACE, FW_API_ADDR, OC_PACK_HASH, OC_PACK_LEN, (files_)); PUTFILE("/SET/" name_, man, strlen(man)); } while (0)
         #define OPENSET(name_) do { fb_open(0); for (b = 0; b < 200u && fb.st != FB_READY; b++) fz_block(); strcpy(fb.path, "/SET"); fb.st = FB_LIST; fz_block(); \
-            for (k = 0; k < fb.n && !(fb_ent(k) && !strcmp(fb_ent(k)->name, (name_))); k++) ; assert(k < fb.n); fb.sel = (uint16_t)k; } while (0)
+            for (k = 0; k < fb.n && !(fb_ent(k) && !strcmp(fb_ent(k)->name, (name_))); k++) { } assert(k < fb.n); fb.sel = (uint16_t)k; } while (0)
         #define RESET() do { t_pk_begun = t_pk_ended = t_md_begun = t_md_ended = 0; t_pk_state = PK_MISSING; t_seq = t_pk_seq = t_md_seq = 0; t_plan = 0; t_blocked = -1; \
             t_inplace = 0; t_md_fail = 0; t_busy = 0; song.playing = 0; } while (0)
         #define REFUSED(msg_) do { assert(!fb_ok() && fb.st == FB_FAIL && !strcmp(fb.msg, (msg_)) && !t_pk_begun && !t_md_begun); assert(!fb_ok()); fz_block(); } while (0)

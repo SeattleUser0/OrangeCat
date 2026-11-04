@@ -67,7 +67,7 @@ static inline int16_t pb_interpolate1022(const int16_t *table, uint32_t phase)
 {
     int32_t a = table[phase >> 22];
     int32_t b = table[(phase >> 22) + 1];
-    return (int16_t)(a + ((b - a) * (int32_t)((phase >> 6) & 0xffff) >> 16));
+    return (int16_t)(a + ((int32_t)((uint32_t)(b - a) * ((phase >> 6) & 0xffffu)) >> 16));   /* (san-fix) the product wraps int32 for a large step; the bits as the target had them */
 }
 static inline int16_t pb_interpolate115(const int16_t *table, uint16_t phase)
 {

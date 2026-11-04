@@ -343,7 +343,8 @@ static int proj_pack(project_store_t *out, const project_t *q)
         }
         b[pos++] = q->t[t].engine; b[pos++] = q->t[t].preset;
         for (i = 0; i < NSTEP; i++) {
-            if(!proj_step_pack(b+pos,&q->t[t].step[i]))return 0;pos+=8u;
+            if(!proj_step_pack(b+pos,&q->t[t].step[i]))return 0;
+            pos+=8u;
         }
     }
     if (pos + sizeof q->chain + sizeof q->motion + 2u + 2u*NTRK > PROJ_JFX_WIRE) return 0;   /* (0.6.0: the effects' bytes after) */
@@ -477,8 +478,10 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         for (i = 0; i < np; i++) {
             if(magic==0x46554E44u && i>=PROJ_OLD_P_FX && i<PROJ_OLD_P_FX+PROJ_FX_FIELDS){
                 uint32_t value=b[PROJ_FX_WIRE_OFF+t*PROJ_FX_FIELDS+i-PROJ_OLD_P_FX];
-                if(value>127u)return 0;values[i]=(int16_t)value;
-            }else {if(b[pos]>191u)return 0;values[i]=(int16_t)b[pos++]-64;}
+                if(value>127u)return 0;
+                values[i]=(int16_t)value;
+            }else {if(b[pos]>191u)return 0;
+                values[i]=(int16_t)b[pos++]-64;}
         }
         q->t[t].engine = b[pos++]; q->t[t].preset = b[pos++];
         if (q->t[t].engine >= NENGINES) return 0;  /* a fork's engine ID must not wrap into ours */

@@ -836,7 +836,8 @@ static void momentary_take(uint32_t slot)
         momentary.cz=cz_patch[tr];momentary.p5=*p5_patch_of(TSEL);
         momentary.p5_voice=TSEL->p[P_VOICE];momentary.p5_prio=TSEL->p[P_PRIO];momentary.p5_detune=TSEL->p[P_DETUNE];momentary.p5_alloc=TSEL->p[P_ALLOC];fm1_irq_on();
     }
-    if(!native){uint32_t i;for(i=0;i<momentary.count && momentary.ptr[i]!=vp;i++);
+    if(!native){uint32_t i;for(i=0;i<momentary.count && momentary.ptr[i]!=vp;i++)
+            ;
         if(i==momentary.count && i<P_COUNT+G_COUNT){momentary.ptr[i]=vp;momentary.value[i]=*vp;momentary.count++;}}
     ui.pg_down&=(uint16_t)~(1u<<panel.btn[B_LFO]);
 }

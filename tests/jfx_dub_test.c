@@ -339,5 +339,6 @@ int main(void)
     setup(2, 2, 1);
     CHECK(fabsf(dk_max_seconds(&dd) - (4096.0f - 48.0f) / 22050.0f) < 1e-4f, "max seconds %f", dk_max_seconds(&dd));
     printf(bad ? "jfx_dub: %d FAILED\n" : "jfx_dub: all passed\n", bad);
+    free(in); free(out); free(out2); free(pool);
     return bad ? 1 : 0;
 }

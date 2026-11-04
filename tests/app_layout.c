@@ -20,6 +20,7 @@
  *   0.14.2: first version (branch web-app).
  */
 #define OC_PROJECT_NO_MAIN
+#include <stddef.h>                      /* (san-fix) offsetof: the field offsets without a null pointer */
 #include "oc_project_test.c"
 
 static void js_str(const char *s)
@@ -111,15 +112,14 @@ static void layout_json(void)
     }
     /* the lists (pattern.c ocl_lists_t), field by field */
     {
-        ocl_lists_t *l = 0;
         first = 0;
         printf("\"lists\":{");
         KV("size", sizeof(ocl_lists_t)); KV("NPOOL", OCL_NPOOL); KV("NCHAIN", OCL_NCHAIN); KV("NENT", OCL_NENT); KV("NROW", OCL_NROW);
         KV("NSCENE", OCL_NSCENE); KV("NOROW", OCL_NOROW); KV("NLAUNCH", OCL_NLAUNCH); KV("GROOVE_N", GROOVE_N);
-        KV("chainOff", (uintptr_t)&l->chain); KV("songOff", (uintptr_t)&l->song); KV("tchainOff", (uintptr_t)&l->tchain);
-        KV("curOff", (uintptr_t)&l->cur); KV("rowOff", (uintptr_t)&l->row); KV("modeOff", (uintptr_t)&l->mode);
-        KV("launchOff", (uintptr_t)&l->launch); KV("sceneOff", (uintptr_t)&l->scene); KV("sceneUsedOff", (uintptr_t)&l->scene_used);
-        KV("grooveOff", (uintptr_t)&l->groove); KV("gamtOff", (uintptr_t)&l->gamt);
+        KV("chainOff", offsetof(ocl_lists_t, chain)); KV("songOff", offsetof(ocl_lists_t, song)); KV("tchainOff", offsetof(ocl_lists_t, tchain));
+        KV("curOff", offsetof(ocl_lists_t, cur)); KV("rowOff", offsetof(ocl_lists_t, row)); KV("modeOff", offsetof(ocl_lists_t, mode));
+        KV("launchOff", offsetof(ocl_lists_t, launch)); KV("sceneOff", offsetof(ocl_lists_t, scene)); KV("sceneUsedOff", offsetof(ocl_lists_t, scene_used));
+        KV("grooveOff", offsetof(ocl_lists_t, groove)); KV("gamtOff", offsetof(ocl_lists_t, gamt));
         printf(",\"grooves\":[");
         for (uint32_t g = 0; g < GROOVE_N; g++) { if (g) putchar(','); js_str(GROOVE_NAME[g]); }
         printf("],\"modes\":[\"PHRASE\",\"CHAIN\",\"SONG\"],\"launches\":[\"LOOP\",\"BAR\",\"BEAT\",\"NOW\"]},\n");

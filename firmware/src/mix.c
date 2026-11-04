@@ -160,7 +160,7 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t glm=(gla+glb)>>1,grm=(gra+grb)>>1,gld=(gla-glb)>>1,grd=(gra-grb)>>1,pk=t->peak;
     for(uint32_t i=0;i<n;i++){
         int32_t x=clamp(((clamp(b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287);
-        int32_t y=clamp(((clamp((d[i]<<1)-b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287);
+        int32_t y=clamp(((clamp((int32_t)((uint32_t)(d[i]) << 1)-b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287);
         int32_t a=x<0?-x:x;
 #if MELODEE_USB_AUDIO
         if(track_capture_on)track_capture[i*NTRK+(uint32_t)(t-trk)]=x;
