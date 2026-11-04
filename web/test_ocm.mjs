@@ -352,6 +352,71 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
       console.log("ocm: the real DUB TAPE package (build/dub-" + ver + ".ocm): kind 1, module id 1, 3 sectors, six starts, taken by the installer page's check");
     } else console.log("ocm: (no build/dub-" + ver + ".ocm: the real DUB package check skipped)");
   }
+  // 6. (Release 3, the model picker) a MODELS module (kind 4, firmware/src/fw_models.h): the engine word engine | 4 << 8, the block at engine_ptr (magic "OMDL", size 160, version 1,
+  //    the abi word, the engine, n models, each 0 or a 24 byte descriptor inside the code whose start and render are inside the code, three bank words), the module id 0x4D00 | engine,
+  //    a span of up to 18 sectors; every rule refused; fxCheck takes it with FX_INFO as an effect module
+  {
+    const ENG = 8, NM = 25, DESC = 0x180, TAB = 0x300;
+    const modelsImage = ({ len = 0x900, n = NM, mut = () => {} } = {}) => {
+      const a = new Uint8Array(len), dv = new DataView(a.buffer);
+      for (let k = 0x600; k < len; k++) a[k] = (k * 7 + 3) & 0xFF;
+      [[0, 0x444F4D4F], [4, IFACE], [8, 60], [12, 3], [16, APIA], [20, ENG | 4 << 8], [24, 600], [28, DESC], [32, 0], [36, PH], [44, FXVER], [48, len]].forEach(([o, v]) => dv.setUint32(o, v, true));
+      dv.setUint32(DESC, 0x4C444D4F, true); dv.setUint16(DESC + 4, 160, true); dv.setUint16(DESC + 6, 1, true); dv.setUint32(DESC + 8, 0x5AFADF6F, true); dv.setUint32(DESC + 12, ENG, true); dv.setUint32(DESC + 16, n, true);
+      for (let i = 0; i < n; i++) {
+        const d = TAB + 24 * i;
+        dv.setUint32(DESC + 20 + 4 * i, d, true);
+        dv.setUint32(d, 100, true); a[d + 4] = 0; a[d + 7] = 1; dv.setUint32(d + 16, 0x600, true); dv.setUint32(d + 20, 0x640, true);
+      }
+      mut(dv, a);
+      return a;
+    };
+    const msites = [(1 << 24 | 28) >>> 0, (1 << 24 | 32) >>> 0, ...Array.from({ length: NM }, (_, i) => (1 << 24 | (DESC + 20 + 4 * i)) >>> 0),
+                    ...Array.from({ length: NM }, (_, i) => (1 << 24 | (TAB + 24 * i + 16)) >>> 0), ...Array.from({ length: NM }, (_, i) => (1 << 24 | (TAB + 24 * i + 20)) >>> 0)];
+    const mpkg = (img, starts, drop = [], extra = []) => {       // format 2 with the models image's own relocation sites (drop: the sites of words a pick zeroed, as the packer leaves them out; extra: more sites)
+      const sites = [...msites.filter((w) => !drop.includes(w & 0xFFFFFF)), ...extra].sort((x, y) => (x & 0xFFFFFF) - (y & 0xFFFFFF)), len = img.length, hc = 88 + 8 * starts.length, at = (hc + 4 + 15) & ~15;
+      const b = new Uint8Array(at + len + 4 * sites.length), dv = new DataView(b.buffer);
+      dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 2, true); dv.setUint16(6, 1, true); dv.setUint32(8, IFACE, true); dv.setUint32(12, APIA, true); dv.setUint32(16, ENG | 4 << 8, true);
+      dv.setUint32(20, 600, true); dv.setUint32(24, PH, true); dv.setUint32(44, 3, true); dv.setUint32(48, 60, true); dv.setUint32(52, Math.ceil(len / 4096), true);
+      b.set(img, at);
+      sites.forEach((w, i) => dv.setUint32(at + len + 4 * i, w, true));
+      dv.setUint32(56, 0xFFFFFFFF, true); dv.setUint32(60, len, true); dv.setUint32(64, crc32(img), true); dv.setUint32(68, at, true);
+      dv.setUint32(72, sites.length, true); dv.setUint32(76, at + len, true); dv.setUint32(80, crc32(b.subarray(at + len)), true); dv.setUint32(84, starts.length, true);
+      starts.forEach((s, k) => { dv.setInt32(88 + 8 * k, s, true); dv.setUint32(92 + 8 * k, crc32(OCM.relocate(img, sites, (LINK0 + s * 4096) >>> 0)), true); });
+      dv.setUint32(hc, crc32(b.subarray(0, hc)), true);
+      return b;
+    };
+    const o = OCM.parse(mpkg(modelsImage(), [0, 3, -6]));
+    assert.ok(o.ok, "a models module parses: " + o.key);
+    assert.equal(o.kind, 4); assert.equal(o.moduleId, 0x4D08); assert.equal(OCM.modelsId(8), 0x4D08); assert.equal(o.fxVersion, FXVER); assert.equal(o.fxCount, NM); assert.equal(o.fxSectors, 1);
+    assert.equal(OCM.fxCheck(o, info, fx(5)).variant.start, 3, "fxCheck takes it with FX_INFO's plan (start 5 is sector 3), as an effect module");
+    const big = OCM.parse(mpkg(modelsImage({ len: 9 * 4096 }), [0, -6]));
+    assert.ok(big.ok && big.fxSectors === 9, "a pick of 9 sectors (an effect module may take 8)");
+    assert.equal(OCM.parse(mpkg(modelsImage({ len: 19 * 4096 }), [-6])).key, "modWrongFile", "19 sectors: more than the area");
+    assert.equal(OCM.parse(pkg(fxImage(), [0], { word: 4 << 8 })).key, "modWrongFile", "kind 4 without an engine number");
+    const badm = [
+      ["a wrong magic", (dv) => dv.setUint32(DESC, 1, true)], ["another size", (dv) => dv.setUint16(DESC + 4, 156, true)], ["another version", (dv) => dv.setUint16(DESC + 6, 2, true)],
+      ["another engine than the header's", (dv) => dv.setUint32(DESC + 12, 9, true)], ["no models", (dv) => dv.setUint32(DESC + 16, 0, true)], ["33 models", (dv) => dv.setUint32(DESC + 16, 33, true)],
+      ["a model pointer past the table", (dv) => dv.setUint32(DESC + 20 + 4 * 30, TAB, true)], ["a model pointer outside", (dv) => dv.setUint32(DESC + 24, 0x9000, true)],
+      ["a model pointer unaligned", (dv) => dv.setUint32(DESC + 24, TAB + 2, true)], ["a render outside the code", (dv) => dv.setUint32(TAB + 20, 0x9000, true)],
+      ["a start in the header page", (dv) => dv.setUint32(TAB + 16, 0x40, true)], ["a state of 0", (dv) => dv.setUint32(TAB, 0, true)], ["no units", (dv, a) => { a[TAB + 7] = 0; }],
+      ["a bank outside", (dv) => dv.setUint32(DESC + 148, 0x9000, true)], ["a bank unaligned", (dv) => dv.setUint32(DESC + 152, 0x601, true)],
+      ["the block in the header page", (dv) => dv.setUint32(28, 0x80, true)], ["the block unaligned", (dv) => dv.setUint32(28, DESC + 2, true)],
+    ];
+    for (const [what, mut] of badm) assert.equal(OCM.parse(mpkg(modelsImage({ mut }), [0])).key, "modHdrBad", "refused: " + what);
+    assert.ok(OCM.parse(mpkg(modelsImage({ mut: (dv) => dv.setUint32(DESC + 24, 0, true) }), [0], [DESC + 24])).ok, "a model the pick left out (a 0 pointer, its site gone) is fine");
+    assert.ok(OCM.parse(mpkg(modelsImage({ mut: (dv) => dv.setUint32(DESC + 148, 0x600, true) }), [0], [], [(1 << 24 | (DESC + 148)) >>> 0])).ok, "a bank inside the code (its site in the list) is fine");
+    console.log("ocm: (the model picker) a MODELS module (kind 4): parsed with the id 0x4D08 at every start, up to 18 sectors, every rule of the block refused, taken by fxCheck");
+  }
+  {   /* the real package, when the build left it (tools/build.py --module plaits: the default pick) */
+    const ver = readFileSync(new URL("VERSION", ROOT), "utf8").trim(), f = new URL(`build/plaits-${ver}.ocm`, ROOT);
+    if (existsSync(f)) {
+      const o = OCM.parse(new Uint8Array(readFileSync(f)));
+      assert.ok(o.ok, "the real models package parses: " + o.key);
+      assert.equal(o.kind, 4); assert.equal(o.moduleId, 0x4D08); assert.equal(o.fxCount, 14, "the default pick: MACRO's own fourteen"); assert.ok(o.fxSectors >= 8 && o.fxSectors <= 10);
+      assert.ok(o.variants.length >= 8, "a variant for every start the pick fits at");
+      console.log("ocm: the real MODELS package (build/plaits-" + ver + ".ocm): kind 4, module id 0x4D08, " + o.fxCount + " models, " + o.fxSectors + " sectors, " + o.variants.length + " starts");
+    } else console.log("ocm: (no build/plaits-" + ver + ".ocm: the real models package check skipped)");
+  }
   console.log("ocm: effect modules: kinds 1..3 parsed with their module id at every start, fxCheck against MOD_INFO + FX_INFO, every descriptor rule and header word refused, engines unchanged");
 }
 console.log("ocm: relocatable packages passed");

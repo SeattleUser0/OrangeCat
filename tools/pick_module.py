@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright 2026 Jeremiah Conner.
-"""(model picker, docs/candidates/model_picker.md) The packer: a module package (.ocm, format 2) for a pick of models, made from the master
-package the build writes (build/orangecat-plaits-<version>.ocp: the whole engine linked once at 0, every model a region of the image, with its
-relocation list and a manifest), without a linker. web/fm1pick.js is the same packer in JavaScript, for the installer page; web/test_pick.mjs and
-tests/module_pick_test.py prove that both make, for a pick, the bytes tools/build.py --module plaits --pick makes with the real linker.
+"""(Release 3, the model picker, docs/candidates/model_picker.md) The packer: a MODELS module package (.ocm, format 2; fw_models.h: kind 4, sound
+models for MACRO) for a pick of models, made from the master package the build writes (build/plaits-<version>.ocp: every model's unit linked once at 0,
+each a region of the image, with the relocation list and a manifest), without a linker. web/fm1pick.js is the same packer in JavaScript, for the
+installer page; web/test_pick.mjs and tests/module_pick_test.py prove that both make, for a pick, the bytes tools/build.py --module plaits --pick
+makes with the real linker. The firmware keeps VA; a pick may carry it too (the firmware prefers its own), the page does not offer it.
 
-  tools/pick_module.py MASTER.ocp OUT.ocm ITEM [ITEM ...]      ITEM: a model's key (va, 6opa, wavtbl ...), a wave bank (wav0 ..) or an item id
+  tools/pick_module.py MASTER.ocp OUT.ocm ITEM [ITEM ...]      ITEM: a model's key (wavshp, 6opa, wavtbl ...), a wave bank (wav0 ..) or an item id
   tools/pick_module.py MASTER.ocp --list                       the items, their regions and sizes
 
 The master package:
@@ -18,7 +19,8 @@ The master package:
   20  4  CRC-32 of everything after this header
   24      the manifest, the image, the list
 
-The manifest: name, engine, version word, area_lo, area_sectors, starts (the firmware's grid, the sector of each start), code_off (0x100),
+The manifest: name, engine (the header word: ENGI_MACRO | kind 4 << 8), version word, area_lo (the numbering origin of the starts, 0xC8000), area_sectors,
+area_first and area_last (the area as signed sectors from the origin: -6 .. 12), starts (every one of the grid: -6 .. 11), code_off (0x100),
 part_head and poly (the glue's part layout), regions [{name, start, end}] in link order, items [{id, key, name, regions [...], state, big}]
 (the models by their stable id, then the wave banks), rules {wavtbl: the item that needs a bank, banks: the bank items}, hdr {iface, api_addr,
 api_version, api_size, pack_hash}.
@@ -209,8 +211,11 @@ def compact(manifest, img0, words, items):
 
 
 def starts_for(manifest, sectors, area=None):
-    """the starts of the firmware's grid the pick fits at (area: sectors to pretend the area has, for the byte proof of a pick too large for it)"""
-    return [s for s in manifest["starts"] if s + sectors <= (area or manifest["area_sectors"])]
+    """the starts (signed sectors from the numbering origin, Release 3 step 1: -6 .. 11) the pick fits at: its span inside the area [area_first, area_last);
+    area: sectors to pretend the area has from its first sector, for the byte proof of a pick too large for the real one"""
+    first = manifest["area_first"]
+    last = first + area if area else manifest["area_last"]
+    return [s for s in manifest["starts"] if s >= first and s + sectors <= last]
 
 
 def pack(master, items, cost=0, area=None):

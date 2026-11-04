@@ -97,7 +97,7 @@ function pickBytes(manifest, imgLen, items) {
   return (n + 3) & ~3;
 }
 const pickSectors = (bytes) => Math.ceil(bytes / 4096);
-const pickStartsFor = (manifest, sectors, area) => manifest.starts.filter((s) => s + sectors <= (area || manifest.area_sectors));
+const pickStartsFor = (manifest, sectors, area) => { const first = manifest.area_first, last = area ? first + area : manifest.area_last; return manifest.starts.filter((s) => s >= first && s + sectors <= last); };   // the starts (signed sectors from 0xC8000, Release 3 step 1) whose span lies inside the area
 
 /* the image and list of a pick (the rule above) */
 function pickCompact(manifest, img0, words, items) {
@@ -181,6 +181,29 @@ function pickRoom(manifest, imgLen, items, areaSectors, others) {
   return { need, taken, free, ok: items.length > 0 && need <= free, text };
 }
 
-export const PICK = { parseMaster: pickParseMaster, items: pickItems, validate: pickValidate, regionsKept: pickRegionsKept, stateSize: pickStateSize,
+/* (the page) the default pick: MACRO's own fourteen beyond the built-in VA (ids 1..14), so a unit that installs it loses no sound of a Release 2 project */
+const pickDefault = (manifest) => manifest.items.filter((it) => it.id >= 1 && it.id <= 14).map((it) => it.id);
+/* (the page) what the other modules take, for the room meter: the module packages the page is about to install (stageMods: [{name, sectors}]: an engine module's
+ * geometry, an effect module's sectors) and, when the unit was read, the modules it holds (unit: {engines: ENGINES, fx: FX_TABLE}) that are not among them: an engine
+ * module by its geometry (SHAPES 6, the Prophet 8, WHEEL 4: oc_module.c oc_mod_geo), an effect module by its sectors; a models module (kind 4) is the one this pick replaces. */
+const PICK_GEO = { 14: ["SHAPES", 6], 19: ["PROPHET", 8], 7: ["WHEEL", 4] };
+const PICK_FX_NAMES = { 1: "DUB TAPE" };
+function pickOthers(stageMods, unit) {
+  const out = [], seen = new Set();
+  for (const m of stageMods || []) if (m && m.name && m.sectors > 0 && !seen.has(m.name)) { out.push({ name: m.name, sectors: m.sectors }); seen.add(m.name); }
+  if (unit && unit.engines) for (const x of unit.engines.engines || []) {
+    if (x.src !== 2 || x.state !== 7 || !PICK_GEO[x.num]) continue;
+    const [name, sectors] = PICK_GEO[x.num];
+    if (!seen.has(name)) { out.push({ name, sectors }); seen.add(name); }
+  }
+  if (unit && unit.fx) for (const x of unit.fx.effects || []) {
+    if (x.kind === 4 || x.resident || x.state !== 7) continue;
+    const name = PICK_FX_NAMES[x.id] || ("0x" + (x.id >>> 0).toString(16).toUpperCase());
+    if (!seen.has(name)) { out.push({ name, sectors: x.sectors }); seen.add(name); }
+  }
+  return out;
+}
+
+export const PICK = { parseMaster: pickParseMaster, default: pickDefault, others: pickOthers, items: pickItems, validate: pickValidate, regionsKept: pickRegionsKept, stateSize: pickStateSize,
                       block: pickBlock, blockRead: pickBlockRead, bytes: pickBytes, sectors: pickSectors, startsFor: pickStartsFor, compact: pickCompact,
                       pack: pickPack, room: pickRoom, crc32: pkCrc32, PICK_AT };

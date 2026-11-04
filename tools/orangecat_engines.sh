@@ -25,6 +25,7 @@
 export MELODEE_SID=0
 export MELODEE_CZ=0
 export MELODEE_MACRO=1
+export MELODEE_MACRO_PICK=1   # (Release 3, the model picker) MACRO carries VA alone; the other models come from the MODELS module the installer page packs (docs/candidates/model_picker.md)
 export MELODEE_SHAPES=0   # (round 14, the owner approved it) SHAPES ships only as its module (engine 14); a unit coming from a build with SHAPES inside gets it back by installing the module
 export MELODEE_DRUMX=1
 export MELODEE_FM6=0

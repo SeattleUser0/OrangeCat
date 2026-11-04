@@ -1,9 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
- * PLAITS (the model picker's module): model unit TERRAN, one region of the image (tools/module/plaits/pl_mod_common.h). Made by the model table in
- * tools/build.py (PLAITS_MODELS); the sizes and levels are eng_macro.c MC_POST / MC_UNITS and eng_macro2.c MC2_POST / MC2_UNITS. */
+ * MODELS (the model picker's module, docs/candidates/model_picker.md): model unit TERRAN, one region of the image (pl_mod_common.h; the descriptor, its
+ * levels and units: firmware/src/plaits/pl_models.h, the one list for the firmware and the module). */
+#define PL_WANT_terran 1
 #include "pl_mod_common.h"
-#include "plaits/pl_terrain.h"
-PL_MDL_FUNCS(terran, pl_terrain_t, pl_terrain)
-const pl_mdl_t pl_mdl_terran = PL_MDL_DESC(terran, pl_terrain_t, 0, 0, 0, 7, 0.7f, 0.7f);
-PL_KEEP(&pl_mdl_terran);
+#include "plaits/pl_models.h"

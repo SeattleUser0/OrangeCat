@@ -455,6 +455,20 @@ mod_pages_prophet() {                             # (Orange Cat 0.12.1, Part 1b)
     step "the Prophet module's real pages (0.12.1, Part 1b): 15 pages, hooks, HOME, ENV, LFO, motion recorded and played back, the module out and in; Orange Cat set, sanitizers" \
         "$OUT/mod_pages_prophet_test"
 }
+plaits_jobs() {                                   # (Release 3, the model picker: docs/candidates/model_picker.md) MACRO with the MODELS module, the device's way: VA alone built in
+    # (MELODEE_MACRO_PICK=1), the module's unit as its own object (every model; then a pick without WAVTBL, SPEECH, 6OP B and wave bank C); the UI's and the project's side
+    PL="-Itools/module/plaits -DMELODEE_MACRO_PICK=1"
+    $CC -c -O2 $FW $PL -o "$OUT/module_host_plaits_tu.o" tests/module_host_plaits_tu.c || { fail "compile tests/module_host_plaits_tu.c"; return 1; }
+    $CC -O2 $FW $PL -o "$OUT/plaits_test" tests/plaits_test.c "$OUT/module_host_plaits_tu.o" -lm || { fail "compile tests/plaits_test.c"; return 1; }
+    step "MACRO with the MODELS module (Release 3): VA alone without it (the rest MISSG, a track on one plays VA); with it every model offered, the 47 presets bit for bit as tests/golden.txt, the knob, the state" \
+        "$OUT/plaits_test" tests/golden.txt
+    $CC -c -O2 $FW $PL -DPL_HOST_NO_wavtbl -DPL_HOST_NO_speech -DPL_HOST_NO_syx1 -DPL_HOST_NO_wav2 -o "$OUT/module_host_plaits_pick_tu.o" tests/module_host_plaits_tu.c ||
+        { fail "compile tests/module_host_plaits_tu.c (a pick)"; return 1; }
+    $CC -O2 $FW $PL -o "$OUT/plaits_pick_test" tests/plaits_test.c "$OUT/module_host_plaits_pick_tu.o" -lm || { fail "compile tests/plaits_test.c (a pick)"; return 1; }
+    step "MACRO with a pick (WAVTBL, SPEECH, 6OP B and wave bank C left out): those models not offered, MISSG, VA with the settings kept; the rest bit for bit as the goldens" "$OUT/plaits_pick_test" tests/golden.txt
+    $CC -O1 $FW $PL -Itests -o "$OUT/plaits_ui_test" tests/plaits_ui_test.c "$OUT/module_host_plaits_tu.o" -lm || { fail "compile tests/plaits_ui_test.c"; return 1; }
+    step "MACRO with the MODELS module: the screen says MODULE MISSING for a track on a model not installed; a project's model ids load unchanged with or without the module" "$OUT/plaits_ui_test"
+}
 module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's module source as its own unit: the reference build's built-in WHEEL, the registration in slot 7, tests/golden_modules.txt
     $CC -c -O2 $FW -o "$OUT/module_host_wheel_tu.o" tests/module_host_wheel_tu.c || { fail "compile tests/module_host_wheel_tu.c"; return 1; }
     $CC -O2 $FW -DMELODEE_LEGACY_EXTRAS=1 -o "$OUT/module_host_wheel_ref" tests/module_host_wheel_test.c "$OUT/module_host_wheel_tu.o" -lm ||
@@ -502,28 +516,6 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
         step "$E (op1r's, through the glue) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
             "$OUT/module_host_${e}_test" tests/golden_modules.txt
     done
-    # (macro2-candidate) MACRO2, the ten Plaits models MACRO lacks, as a module (docs/candidates/macro2.md): the golden lines, then the host cost table
-    $CC -c -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/module_host_macro2_tu.o" tests/module_host_macro2_tu.c || { fail "compile tests/module_host_macro2_tu.c"; return 1; }
-    $CC -O2 $FW -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_MACRO2 -o "$OUT/module_host_macro2_test" tests/module_host_cand_test.c "$OUT/module_host_macro2_tu.o" -lm ||
-        { fail "compile tests/module_host_cand_test.c (macro2)"; return 1; }
-    step "MACRO2 (the rest of Plaits) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
-        "$OUT/module_host_macro2_test" tests/golden_modules.txt
-    $CC -O2 $FW -DOC_CANDIDATES=1 -o "$OUT/macro2_test" tests/macro2_test.c "$OUT/module_host_macro2_tu.o" -lm || { fail "compile tests/macro2_test.c"; return 1; }
-    step "MACRO2 through the voices and mixer: every model and preset sounds and frees its voice, a chord, four tracks; the host cost table" "$OUT/macro2_test"
-    # (model picker) PLAITS, every Plaits model as the module the page assembles from a pick (docs/candidates/model_picker.md): the golden lines, the
-    # voices and mixer with every unit in, then the unit built without WAVTBL, SPEECH, 6OP B and wave bank C (what a packed module looks like to the glue)
-    PL="-Itools/module/plaits"
-    $CC -c -O2 $FW $PL -DOC_CANDIDATES=1 -o "$OUT/module_host_plaits_tu.o" tests/module_host_plaits_tu.c || { fail "compile tests/module_host_plaits_tu.c"; return 1; }
-    $CC -O2 $FW $PL -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_MACRO2 -o "$OUT/module_host_plaits_test" tests/module_host_cand_test.c "$OUT/module_host_plaits_tu.o" -lm ||
-        { fail "compile tests/module_host_cand_test.c (plaits)"; return 1; }
-    step "PLAITS (the model picker's module, every model) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, tests/golden_modules.txt" \
-        "$OUT/module_host_plaits_test" tests/golden_modules.txt
-    $CC -O2 $FW $PL -DOC_CANDIDATES=1 -o "$OUT/plaits_test" tests/plaits_test.c "$OUT/module_host_plaits_tu.o" -lm || { fail "compile tests/plaits_test.c"; return 1; }
-    step "PLAITS through the voices and mixer: the 25 models and 47 presets sound and free their voices, the knob, a chord, four tracks" "$OUT/plaits_test"
-    $CC -c -O2 $FW $PL -DOC_CANDIDATES=1 -DPL_HOST_NO_wavtbl -DPL_HOST_NO_speech -DPL_HOST_NO_syx1 -DPL_HOST_NO_wav2 -o "$OUT/module_host_plaits_pick_tu.o" tests/module_host_plaits_tu.c ||
-        { fail "compile tests/module_host_plaits_tu.c (a pick)"; return 1; }
-    $CC -O2 $FW $PL -DOC_CANDIDATES=1 -o "$OUT/plaits_pick_test" tests/plaits_test.c "$OUT/module_host_plaits_pick_tu.o" -lm || { fail "compile tests/plaits_test.c (a pick)"; return 1; }
-    step "PLAITS as a pick (WAVTBL, SPEECH, 6OP B and wave bank C left out): those models not offered, MISSG, silent with the settings kept; the rest play" "$OUT/plaits_pick_test"
 }
 cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
     build cand_slot_norm cand_slot_test -O1 $FW || return
@@ -581,10 +573,10 @@ core && t "hot sets (0.13.7): an engine's per-sample tables copied into the aren
 core && t "module loader (Orange Cat 0.10.0, step 5): every refusal, the crash mark, a good module, two modules; the module wins the slot" oc_module_test:oc_module_test -O1 $FW -DOC_MODULE_WINS=1
 core && t "module loader (0.10.0, step 5): the built-in SHAPES wins the slot (OC_MODULE_WINS 0): a valid module is NOSLOT" oc_module_shadow:oc_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies the engine" oc_module_out:oc_module_test -O1 $FW -DMELODEE_SHAPES=0
-core && t "effect modules (Release 3 step 4): the kind field, fx_desc_t, the Effects table, the install by module id, a power cut at every program and erase, the crash ban, a descriptor fuzz" fx_module_test -O1 $FW -DOC_MODULE_WINS=1
+core && t "effect modules (Release 3 step 4): the kind field, fx_desc_t, the Effects table, the install by module id, a power cut at every program and erase, the crash ban, a descriptor fuzz; (the model picker) a MODELS module: kind 4, its block, the install by its id, out of MACRO before an erase" fx_module_test -O1 $FW -DOC_MODULE_WINS=1 -DMELODEE_MACRO_PICK=1
 core && t "DUB TAPE module (Release 3 step 6): the real image (build/module/dub.*.img) through the loader, the install and the page/card check, the descriptor out of the flash, each mutation refused" fx_dub_image_test -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fx_dub_image_test" build/module
-core && t "effect modules (Release 3 step 4): the same with the built-in SHAPES winning no slot (OC_MODULE_WINS 0)" fx_module_shadow:fx_module_test -O1 $FW -DOC_MODULE_WINS=0
-core && t "effect modules (Release 3 step 4): SHAPES built out" fx_module_out:fx_module_test -O1 $FW -DMELODEE_SHAPES=0
+core && t "effect modules (Release 3 step 4): the same with the built-in SHAPES winning no slot (OC_MODULE_WINS 0)" fx_module_shadow:fx_module_test -O1 $FW -DOC_MODULE_WINS=0 -DMELODEE_MACRO_PICK=1
+core && t "effect modules (Release 3 step 4): SHAPES built out" fx_module_out:fx_module_test -O1 $FW -DMELODEE_SHAPES=0 -DMELODEE_MACRO_PICK=1
 core && t "the card installers against the real loaders on a simulated NOR (0.13.4): a damaged pack or module, a bad link address, a record on a sector tail, a set with one bad file: refused with zero erases, the old pack and module still working" card_install_test -O1 $FW -DOC_MODULE_WINS=1
 # (Orange Cat 0.12.2, Part 2b) the fuzzers: fixed seeds, FUZZ_SECONDS each (default 3); a long run is FUZZ_SECONDS=1800 tests/run_tests.sh (30 minutes each; the
 # mutation counts are printed). Each stops at its first finding with the seed, the round and the mutations that made it.
@@ -848,6 +840,7 @@ if sound && [ $TABLES = 1 ]; then
     job module_host
     job module_host_prophet
     job module_host_wheel
+    job plaits_jobs                               # (Release 3, the model picker) MACRO with the MODELS module
     job port_batch
     job module_host_candidates
     job mod_pages_prophet

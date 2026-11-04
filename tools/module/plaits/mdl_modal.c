@@ -1,9 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
- * PLAITS (the model picker's module): model unit MODAL, one region of the image (tools/module/plaits/pl_mod_common.h). Made by the model table in
- * tools/build.py (PLAITS_MODELS); the sizes and levels are eng_macro.c MC_POST / MC_UNITS and eng_macro2.c MC2_POST / MC2_UNITS. */
+ * MODELS (the model picker's module, docs/candidates/model_picker.md): model unit MODAL, one region of the image (pl_mod_common.h; the descriptor, its
+ * levels and units: firmware/src/plaits/pl_models.h, the one list for the firmware and the module). */
+#define PL_WANT_modal 1
 #include "pl_mod_common.h"
-#include "plaits/pl_modal.h"
-PL_MDL_FUNCS(modal, pl_modal_t, pl_modal)
-const pl_mdl_t pl_mdl_modal = PL_MDL_DESC(modal, pl_modal_t, 0, 0, 1, 9, -1.0f, 0.8f);
-PL_KEEP(&pl_mdl_modal);
+#include "plaits/pl_models.h"

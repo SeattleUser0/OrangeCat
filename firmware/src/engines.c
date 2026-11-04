@@ -96,8 +96,9 @@ static FW_UNUSED void fw_batch_push(void (*run)(const void *, int32_t *), const 
  * functions about 2.5 KB of image (BUILD.md, Thirteenth run, Part 1) */
 static struct {
     const void *set[ENG_HOT_SLOTS][ENG_HOT_MAX];           /* a module's pointers, one array a slot: the copies */
-    const void **ptr[NENGINES];                            /* engine number e's (fw_api_t hot): its slot's array while a module holds one, else 0 */
-    uint64_t refused;                                      /* bit e: built-in engine e's set did not fit: its slot holds ENG_RETIRED (silent); (macro2-candidate) 64 bits: engine 32 */
+    const void **ptr[NENGINES];                            /* engine number e's (fw_api_t hot): its slot's array while a module holds one, a built-in engine's own
+                                                            * pointer array (hot_at) while its set is taken (Release 3: the MODELS module reads MACRO's copies through it), else 0 */
+    uint32_t refused;                                      /* bit e: built-in engine e's set did not fit: its slot holds ENG_RETIRED (silent) */
     uint8_t slot[NENGINES];                                /* 1 + the slot of engine number e's set, 0 none */
     const eng_hot_t *list[ENG_HOT_SLOTS];                  /* a slot's set: its list, its length, where its pointers are (a built-in engine's own */
     uint8_t n[ENG_HOT_SLOTS];                              /* hot_at, else the slot's set: a module's). Kept here, so a copy, a refresh or */
@@ -147,7 +148,7 @@ static uint32_t eng_state_size(uint32_t e)
     case ENGI_DRUMX: return sizeof(dxe_part_t);
 #endif
 #if MELODEE_MACRO
-    case ENGI_MACRO: return sizeof(mc_part_t);      /* (Orange Cat 0.5.0) */
+    case ENGI_MACRO: return MC_STATE_BYTES;         /* (Orange Cat 0.5.0; Release 3: PL_STATE_MAX, enough for the largest of the 25 models) */
 #endif
 #if MELODEE_SHAPES
     case ENGI_SHAPES: return sizeof(sh_part_t);     /* (Orange Cat 0.5.1) */
@@ -176,7 +177,7 @@ static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + 
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
 static dxe_part_t *dxe_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dxe_part_t)); }   /* (0.9.0) DRUM-X */
 #if MELODEE_MACRO
-static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(mc_part_t)); }
+static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, MC_STATE_BYTES); }   /* (Release 3) one block for any model, the picked ones too */
 #endif
 #if MELODEE_SHAPES
 static sh_part_t *sh_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(sh_part_t)); }
@@ -280,7 +281,6 @@ static const engine_t *ENGINES[NENGINES] = {
     &ENG_RETIRED,                /* 23: (0.14.0) the Rhodes port's proposed number: it fits no module start, never a module */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* 24..31: (0.14.1) op1r's synths (core.h ENGI_FMBELL ..), candidates a module */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* supplies (eng_module_slot) */
-    &ENG_RETIRED,                /* 32: (macro2-candidate) MACRO2 (core.h ENGI_MACRO2), a candidate a module supplies */
 #endif
 };
 
@@ -351,7 +351,6 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if OC_CANDIDATES
     ENGI_SEM, ENGI_HADES,        /* (0.14.0) the candidates of a measurement build: offered only while registered */
     ENGI_FMBELL, ENGI_SUPERSAW, ENGI_DDDD, ENGI_AETHER, ENGI_BRASS, ENGI_MIXTUR, ENGI_ARC, ENGI_GRANULAR,   /* (0.14.1) op1r's, the same */
-    ENGI_MACRO2,                 /* (macro2-candidate) the same */
 #endif
 };
 
@@ -367,7 +366,7 @@ static int eng_extra_retired(uint32_t e)
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || (e == ENGI_WHEEL && !eng_mod[ENGI_WHEEL]) || (e == 9u && !MELODEE_DRUMX) || e == 11u))
         || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_SHAPES && e == ENGI_SHAPES && !eng_mod[ENGI_SHAPES]) /* (Release 3) SHAPES out of the build and its module not installed: the stored identity, preset and settings stay (found on the unit: a load clamped the preset to 0 and the next autosave wrote it back) */ || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM)              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
-        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_MACRO2) && !eng_mod[e])));   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
+        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e)) && !eng_mod[e])));   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -437,7 +436,7 @@ static void eng_hot_drop(uint32_t e)
     if (e >= NENGINES || !eng_hs.slot[e]) return;
     uint32_t s = eng_hs.slot[e] - 1u;
     for (uint32_t i = 0; i < eng_hs.n[s]; i++) eng_hs.at[s][i] = eng_hs.list[s][i].src;
-    if (eng_hs.at[s] == eng_hs.set[s]) eng_hs.ptr[e] = 0;
+    eng_hs.ptr[e] = 0;
     resource_release(RES_HOT0 + s);
     eng_hs.list[s] = 0; eng_hs.n[s] = 0; eng_hs.at[s] = 0;
     eng_hs.slot[e] = 0;
@@ -454,7 +453,7 @@ static int eng_hot_take(uint32_t e, const void **at, const eng_hot_t *hot, uint3
     if (s == ENG_HOT_SLOTS || !resource_get(RES_HOT0 + s, eng_hot_bytes(hot, n))) return EM_NOROOM;
     eng_hs.list[s] = hot; eng_hs.n[s] = (uint8_t)n; eng_hs.at[s] = at ? at : eng_hs.set[s];
     eng_hs.slot[e] = (uint8_t)(s + 1u);
-    if (!at) eng_hs.ptr[e] = eng_hs.set[s];
+    eng_hs.ptr[e] = at ? at : eng_hs.set[s];
     eng_hot_copy(e);
     return EM_OK;
 }
@@ -481,11 +480,11 @@ static void eng_hot_boot(void)
     for (uint32_t e = 0; e < NENGINES; e++) {
         const engine_t *g = ENGINES[e];
         if (eng_mod[e] || !g || !g->nhot) continue;
-        if (eng_hot_take_own(e, g)) { eng_hs.refused |= 1ull << e; ENGINES[e] = &ENG_RETIRED; }
+        if (eng_hot_take_own(e, g)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
     }
     oc_pack_changed = eng_hot_refresh;
 }
-static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_MACRO2)); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's */
+static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e))); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's */
 static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
 {
 #if MELODEE_SHAPES
@@ -529,14 +528,45 @@ static int eng_register_hot(const fw_mod_hdr_t *h, const engine_t *engine, const
         const void **wasat = s < ENG_HOT_SLOTS && eng_hs.at[s] != eng_hs.set[s] ? eng_hs.at[s] : 0;
         int rc = eng_hot_take(e, 0, hot, nhot);
         if (rc) {
-            if (eng_hot_take(e, wasat, was, wasn)) { eng_hs.refused |= 1ull << e; ENGINES[e] = &ENG_RETIRED; }
+            if (eng_hot_take(e, wasat, was, wasn)) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }
             return rc;
         }
     }
-    eng_hs.refused &= ~(1ull << e);
+    eng_hs.refused &= ~(1u << e);
     ENGINES[e] = engine;                            /* (0.11.1) the two stores are one step in a running session: oc_module.c's oc_mod_reg / oc_mod_unreg */
     eng_mod[e] = h;
     return EM_OK;
+}
+/* (Release 3, the model picker) a MODELS module (fw_models.h, kind 4): no slot of the table; its descriptor table goes to the engine's glue while it is
+ * registered (eng_macro.c mc_ext_set), and comes out before any erase of its sectors (the loader: oc_models_park). The models read the engine's hot
+ * copies through the services table (eng_hs.ptr[e], a built-in engine's own pointers since this release), so the engine must hold its slot. */
+static uint32_t eng_models_max(uint32_t e)          /* the arena block a part of the engine holds: the most a module's pick may need; 0 for an engine that takes no models */
+{
+    return (MELODEE_MACRO && e == ENGI_MACRO) ? MC_STATE_BYTES : 0u;
+}
+static int eng_models_set(uint32_t e, const void *const *models, uint32_t n, const void *const *banks)   /* 0 ok, EM_SLOT (not an engine that takes models, or its slot is retired) */
+{
+    if (!eng_models_max(e) || e >= NENGINES || ENGINES[e] == &ENG_RETIRED) return EM_SLOT;
+#if MELODEE_MACRO
+    if (e == ENGI_MACRO) mc_ext_set((const pl_mdl_t *const *)models, n, banks);
+#endif
+    return EM_OK;
+}
+static void eng_models_clear(uint32_t e)
+{
+#if MELODEE_MACRO
+    if (e == ENGI_MACRO) mc_ext_set(0, 0, 0);
+#else
+    (void)e;
+#endif
+}
+static int eng_track_ext(const track_t *t)          /* the track plays a model the MODELS module supplies (the crash mark) */
+{
+#if MELODEE_MACRO
+    return t->engine == ENGI_MACRO && mc_track_ext(t);
+#else
+    (void)t; return 0;
+#endif
 }
 static void eng_unregister(uint32_t e)
 {
@@ -544,7 +574,7 @@ static void eng_unregister(uint32_t e)
         return;
     eng_mod[e] = 0;                                 /* (0.11.1) one step in a running session, as in eng_register */
     ENGINES[e] = eng_default(e);
-    if (eng_hot_take_own(e, ENGINES[e])) { eng_hs.refused |= 1ull << e; ENGINES[e] = &ENG_RETIRED; }   /* (0.13.7) the module's set out, the built-in engine's in */
+    if (eng_hot_take_own(e, ENGINES[e])) { eng_hs.refused |= 1u << e; ENGINES[e] = &ENG_RETIRED; }   /* (0.13.7) the module's set out, the built-in engine's in */
 }
 
 /* the parts at power-on and in a new song (engine, preset; the steps empty): poly, bass, lead, drums. IT'S A

@@ -74,8 +74,8 @@ int main(void)
 
     huge_engine = mod_engine; huge_engine.hot = HUGE_HOT; huge_engine.nhot = 1;
     eng_unregister(ENGI_SHAPES);
-    check("unregistered: the module's pointers are gone and the built-in engine's set is in the arena again",
-          eng_hs.ptr[ENGI_SHAPES] == 0 && ENGINES[ENGI_SHAPES] == shapes && copies_ok(shapes, sh_hot));
+    check("unregistered: the module's pointers are gone (the services table's are the built-in engine's own, Release 3: a MODELS module reads them) and the built-in engine's set is in the arena again",
+          eng_hs.ptr[ENGI_SHAPES] == sh_hot && FW_API.hot[ENGI_SHAPES] == sh_hot && ENGINES[ENGI_SHAPES] == shapes && copies_ok(shapes, sh_hot));
     check("NO ROOM: a module whose set does not fit the arena is refused, and the built-in engine keeps its slot and its set",
           eng_register(&h, &huge_engine) == EM_NOROOM && ENGINES[ENGI_SHAPES] == shapes && !eng_mod[ENGI_SHAPES] &&
           copies_ok(shapes, sh_hot) && !(eng_hs.refused >> ENGI_SHAPES & 1u));

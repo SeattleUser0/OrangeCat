@@ -1,9 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
- * PLAITS (the model picker's module): model unit VA-VCF, one region of the image (tools/module/plaits/pl_mod_common.h). Made by the model table in
- * tools/build.py (PLAITS_MODELS); the sizes and levels are eng_macro.c MC_POST / MC_UNITS and eng_macro2.c MC2_POST / MC2_UNITS. */
+ * MODELS (the model picker's module, docs/candidates/model_picker.md): model unit VAVCF, one region of the image (pl_mod_common.h; the descriptor, its
+ * levels and units: firmware/src/plaits/pl_models.h, the one list for the firmware and the module). */
+#define PL_WANT_vavcf 1
 #include "pl_mod_common.h"
-#include "plaits/pl_vavcf.h"
-PL_MDL_FUNCS(vavcf, pl_vavcf_t, pl_vavcf)
-const pl_mdl_t pl_mdl_vavcf = PL_MDL_DESC(vavcf, pl_vavcf_t, 0, 0, 0, 5, 1.0f, 1.0f);
-PL_KEEP(&pl_mdl_vavcf);
+#include "plaits/pl_models.h"

@@ -1,9 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
- * PLAITS (the model picker's module): model unit FM, one region of the image (tools/module/plaits/pl_mod_common.h). Made by the model table in
- * tools/build.py (PLAITS_MODELS); the sizes and levels are eng_macro.c MC_POST / MC_UNITS and eng_macro2.c MC2_POST / MC2_UNITS. */
+ * MODELS (the model picker's module, docs/candidates/model_picker.md): model unit FM, one region of the image (pl_mod_common.h; the descriptor, its
+ * levels and units: firmware/src/plaits/pl_models.h, the one list for the firmware and the module). */
+#define PL_WANT_fm 1
 #include "pl_mod_common.h"
-#include "plaits/pl_fm.h"
-PL_MDL_FUNCS(fm, pl_fm_t, pl_fm)
-const pl_mdl_t pl_mdl_fm = PL_MDL_DESC(fm, pl_fm_t, 0, 0, 0, 8, 0.6f, 0.6f);
-PL_KEEP(&pl_mdl_fm);
+#include "plaits/pl_models.h"

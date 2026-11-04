@@ -127,7 +127,11 @@ check("the lowest start (-6) links at XIP 0x02000000-0x4000+0xC2000 and the high
 # (Release 3 step 6) DUB TAPE's entry: an effect module (kind 1) of 3 sectors on the area's grid, no geometry row
 check("DUB is in MODULES as a kind 1 module of 3 sectors with no list of starts: the grid -6, -3, 0, 3, 6, 9 (the multiples of 3 from the area's lowest sector)",
       build.MODULES["dub"]["kind"] == 1 and build.MODULES["dub"]["sectors"] == 3 and "starts" not in build.MODULES["dub"] and build.module_starts(3) == [-6, -3, 0, 3, 6, 9])
-check("no engine module has a kind", all("kind" not in v for k, v in build.MODULES.items() if k != "dub"))
+check("no engine module has a kind", all("kind" not in v for k, v in build.MODULES.items() if k not in ("dub", "plaits")))
+# (Release 3, the model picker) the MODELS module of MACRO: kind 4, many units (one region each), a variant for every start of the grid the pick fits at, no geometry row
+check("plaits is in MODULES as a kind 4 module of many units with no list of starts and no fixed size (the pick's)",
+      build.MODULES["plaits"]["kind"] == 4 and "units" in build.MODULES["plaits"] and "starts" not in build.MODULES["plaits"] and build.MODULES["plaits"]["sectors"] == 0 and
+      build.PLAITS_DEFAULT_PICK == ["wavshp", "fm", "grain", "addtv", "chord", "swarm", "noise", "partcl", "string", "modal", "kick", "snare", "hihat", "harp"])
 
 # a good build
 fk = Fake()
