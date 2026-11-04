@@ -441,14 +441,15 @@ static int oc_fx_find(uint32_t module_id)
 static int oc_mod_erase_start(uint32_t i);
 static int oc_mod_erase_loser(uint32_t i);
 static void oc_fxmod_kernel_reg(uint32_t i);
+#if MELODEE_DUB && OC_FX_MODK
+static uint32_t oc_fxk_start;                                   /* (round 18) the start of the module whose kernel the insert host holds (valid while fx_modk_ok) */
+#endif
 static void oc_mod_boot(uint32_t crashed)
 {
     uint32_t i, e, loser = 0;
     oc_mod_guard_init();
 #if MELODEE_DUB && OC_FX_MODK
-    if (oc_mod_live) fm1_irq_off();                             /* (Release 3 step 6) the insert host forgets the module's kernel before the registry is rebuilt (its instances let go) */
-    fx_modk_clear();
-    if (oc_mod_live) fm1_irq_on();
+    uint32_t fxk_was = fx_modk_ok ? oc_fxk_start + 1u : 0u;     /* (round 18) the start the registered kernel runs from, +1: kept when the same module stands there after the rebuild (an engine module's install or removal is not DUB's business) */
 #endif
     for (e = 0; e < NENGINES; e++)
         if (eng_mod[e])
@@ -497,7 +498,6 @@ static void oc_mod_boot(uint32_t crashed)
             oc_mod.fx[oc_mod.nfxmod].start = (uint8_t)i; oc_mod.fx[oc_mod.nfxmod].kind = oc_mod.kind[i]; oc_mod.fx[oc_mod.nfxmod].nfx = oc_mod.nfx[i];
             oc_mod.fx[oc_mod.nfxmod].state = MD_OK; oc_mod.fx[oc_mod.nfxmod].why = 0;
             oc_mod.nfxmod++;
-            oc_fxmod_kernel_reg(i);
             continue;
         }
         {   int rc = eng_mod[h.engine] ? EM_SLOT : oc_mod_reg(i, oc_mod_hdr_ptr(i), (const engine_t *)h.engine_ptr);
@@ -509,7 +509,21 @@ static void oc_mod_boot(uint32_t crashed)
         }
         oc_mod_ui_publish(i, oc_mod_hdr_ptr(i));                /* r3-pages touch 4 of 4 */
     }
+#if MELODEE_DUB && OC_FX_MODK
+    {   int fi = oc_fx_find(FX_MODK_ID);                        /* (Release 3 step 6, round 18) the insert host's kernel: kept while the flash under it has not been touched (the erase guard lets go of it first) and the same module stands */
+        if (fx_modk_ok && !(fi >= 0 && (uint32_t)oc_mod.fx[fi].start + 1u == fxk_was)) {
+            if (oc_mod_live) fm1_irq_off();
+            fx_modk_clear();
+            if (oc_mod_live) fm1_irq_on();
+        }
+    }
+#endif
     oc_mod_window();                                            /* (0.10.1) a running session too: the window follows the registered modules (0.11.1: the one helper) */
+#if MELODEE_DUB && OC_FX_MODK
+    {   int fi = oc_fx_find(FX_MODK_ID);                        /* AFTER the window: the kernel's first call may come from the next audio interrupt, into code above the old window's end */
+        if (!fx_modk_ok && fi >= 0) oc_fxmod_kernel_reg(oc_mod.fx[fi].start);
+    }
+#endif
     /* (0.11.1) the loser of two valid modules is erased now, lazily: only when its rival is the registered one and no old preset pair may still lie in
      * the area (lg_incomplete); an erase that fails leaves it for the next boot (it stays NOSLOT, so the next install still finds one usable module here) */
     if (loser && !lg_incomplete) {
@@ -1069,13 +1083,34 @@ static void oc_fxmod_note_use(uint32_t mid)
 /* (Release 3 step 6) the insert host runs DUB TAPE's module kernel beside the resident one: the module of id FX_MODK_ID, its entry's caps block (already checked by fx_desc_check), the call table and the
  * rows, read from the flash in place (4 byte pointers: the device; a host build has no module code to run and the tests register the host build of the module with fx_modk_set directly). The Effects
  * row's `why` says 0x40 + the host's answer when the host refused the kernel (FXM_VER, FXM_RANGE): the module is listed and stays, the resident kernel plays. */
+/* the part of the registration that does not depend on the device's 4 byte pointers (so a host test can drive it): the PC guard's window first (the next audio interrupt may call the kernel
+ * at once, into code above the old window's end), then the insert host takes the kernel, then the answer: a refusal is the Effects row's `why` = 0x40 + the host's code, which is also
+ * what FX_TABLE sends (oc_mod.why[start]); the module stays listed and registered and the resident kernel plays */
+static int oc_fxmod_kernel_commit(uint32_t i, const fx_desc_wire_t *d, const fx_entry_wire_t *e, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
+{
+#if MELODEE_DUB && OC_FX_MODK
+    uint32_t x;
+    int rc;
+    if (fm1_guard_code_end < oc_mod_link(i) + oc_mod.length[i] - 1u) oc_mod_window();   /* (a no-op after oc_mod_boot's own call; here for any caller) */
+    if (oc_mod_live) fm1_irq_off();
+    rc = fx_modk_set(d->module_id, d->version, e->effect_id, c, k, rows);
+    if (!rc) { oc_fxk_start = i; fx_modk_note = oc_fxmod_note_use; }
+    if (oc_mod_live) fm1_irq_on();
+    for (x = 0; x < oc_mod.nfxmod; x++)
+        if (oc_mod.fx[x].start == i) oc_mod.fx[x].why = (uint8_t)(rc ? 0x40u + (uint32_t)rc : 0u);
+    oc_mod.why[i] = (uint8_t)(rc ? 0x40u + (uint32_t)rc : 0u);
+    return rc;
+#else
+    (void)i; (void)d; (void)e; (void)c; (void)k; (void)rows;
+    return 0;
+#endif
+}
 static void oc_fxmod_kernel_reg(uint32_t i)
 {
 #if MELODEE_DUB && OC_FX_MODK
     const fx_desc_wire_t *d;
     const fx_entry_wire_t *e;
     const fx_caps_t *c;
-    int rc;
     if (sizeof(void *) != 4u || oc_mod.mid[i] != FX_MODK_ID)
         return;
     d = (const fx_desc_wire_t *)(uintptr_t)oc_mod_hdr_ptr(i)->engine_ptr;
@@ -1083,12 +1118,7 @@ static void oc_fxmod_kernel_reg(uint32_t i)
     if (!e->pages)
         return;                                                 /* a module with no kernel */
     c = (const fx_caps_t *)(uintptr_t)e->pages;
-    if (oc_mod_live) fm1_irq_off();
-    rc = fx_modk_set(d->module_id, d->version, e->effect_id, c, (const fx_kcalls_t *)(uintptr_t)c->kernel, (const fx_prow_t *)(uintptr_t)c->rows);
-    fx_modk_note = oc_fxmod_note_use;
-    if (oc_mod_live) fm1_irq_on();
-    if (rc)
-        oc_mod.fx[oc_mod.nfxmod - 1u].why = (uint8_t)(0x40u + (uint32_t)rc);
+    (void)oc_fxmod_kernel_commit(i, d, e, c, (const fx_kcalls_t *)(uintptr_t)c->kernel, (const fx_prow_t *)(uintptr_t)c->rows);
 #else
     (void)i;
 #endif

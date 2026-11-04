@@ -259,6 +259,39 @@ int main(int argc, char **argv)
                 r == 0 && fx_modk_ok == 0 && fx_mod_bound == 0 && fx_modk_uses() == 0 && oc_mod.nfxmod == 1 && oc_mod.fx[0].start == st2);
         }
     }
+    /* ---- 7. (round 18) the registration of the kernel: the PC guard's window is wide enough BEFORE the host takes it; a refusal is what FX_TABLE sends; an unrelated rebuild keeps it ---- */
+    {
+        fx_caps_t kc;
+        fx_kcalls_t kt;
+        void (*w[FX_KCALLS_N])(void);
+        fx_desc_wire_t d = { 1u, 1u, 0x00010000u, 0u, 0u };
+        fx_entry_wire_t e = { 1u, 1u, 0u, 0u, 0u, 0u, 0u };
+        uint32_t st, k, link;
+        int r;
+        for (k = 0; k < FX_KCALLS_N; k++) w[k] = (void (*)(void))main;
+        memcpy(&kt, w, sizeof kt);
+        memset(&kc, 0, sizeof kc);
+        kc.magic = FX_CAPS_MAGIC; kc.size = FX_CAPS_WIRE; kc.version = FX_CAPS_VERSION; kc.abi = FX_ABI_ID; kc.max_inst = 4; kc.prof = AP_DUB; kc.ram_work_min = 4; kc.ram_work_max = 16;
+        kc.ram_extra = 2; kc.ram_extra_bytes = 5632; kc.param_bytes = 88; kc.gov_us = 450; kc.ram_state = 1176;
+        clean(); load(SECT[0]); st = (uint32_t)oc_fxmod_plan(1u, 3u); for (k = 0; k < 6u; k++) if (start_of(SECT[k]) == st) load(SECT[k]);
+        r = install(1u, st);
+        link = oc_mod_link(st);
+        fm1_guard_code_end = link;                                              /* a window that ends where the module begins: the next audio interrupt would fault at its first instruction */
+        r |= oc_fxmod_kernel_commit(st, &d, &e, &kc, &kt, 0);
+        chk("registration: the window is widened to the module's last byte before the host takes the kernel (a call from the next interrupt does not fault)", r == 0 && fm1_guard_code_end >= link + ILEN - 1u && fx_modk_ok == 1 && oc_fxk_start == st);
+        chk("... and the row says nothing is wrong: state OK, why 0 in the Effects table and in what FX_TABLE sends (oc_mod.why[start])", oc_mod.state[st] == MD_OK && oc_mod.why[st] == 0 && oc_mod.fx[0].why == 0);
+        oc_mod_boot(0);
+        chk("an unrelated rebuild of the registry (an engine module's install or removal ends in oc_mod_boot) keeps the kernel and its instances: the same module stands at the same start", fx_modk_ok == 1 && oc_mod.nfxmod == 1);
+        { fx_caps_t bad_c = kc; bad_c.abi ^= 1u; fx_modk_clear();
+          r = oc_fxmod_kernel_commit(st, &d, &e, &bad_c, &kt, 0);
+          chk("a refusal (another abi): the module stays listed, state OK, and why is 0x40 + the host's code (0x41) in the Effects row AND in what FX_TABLE sends (oc_mod.why[start]); nothing is registered",
+              r == FXM_VER && fx_modk_ok == 0 && oc_mod.state[st] == MD_OK && oc_mod.why[st] == 0x41 && oc_mod.fx[0].why == 0x41); }
+        { fx_caps_t bad_c = kc; bad_c.max_inst = 2;
+          r = oc_fxmod_kernel_commit(st, &d, &e, &bad_c, &kt, 0);
+          chk("a refusal (max_inst below the tracks): FXM_RANGE, why 0x42", r == FXM_RANGE && oc_mod.why[st] == 0x42 && fx_modk_ok == 0); }
+        r = oc_fxmod_kernel_commit(st, &d, &e, &kc, &kt, 0);
+        chk("the next good registration clears the reason", r == 0 && oc_mod.why[st] == 0 && oc_mod.fx[0].why == 0 && fx_modk_ok == 1);
+    }
     printf(bad ? "fx dub image: FAILED\n" : "fx dub image: all passed\n");
     return bad != 0;
 }
