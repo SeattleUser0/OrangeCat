@@ -182,7 +182,7 @@ static struct {
     uint8_t kind[OC_MOD_STARTS];                               /* (Release 3 step 4) the header's kind: 0 an engine, 1..3 an effect module */
     uint32_t mid[OC_MOD_STARTS];                               /* the effect module's id (0 for an engine) */
     uint8_t nfx[OC_MOD_STARTS];                                /* effects in its bank */
-    oc_fx_t fx[OC_FX_TABLE];                                   /* the Effects table: effect modules registered at boot, keyed by module id; resident effects are not in it yet */
+    oc_fx_t fx[OC_FX_TABLE];                                   /* the Effects table: effect modules registered at boot, keyed by module id; there are no resident effects */
     uint8_t nfxmod;
 } oc_mod;
 /* the crash mark (core.h declares oc_modguard so that reset_intended can clear its count): survives a reset, not a power loss */
@@ -767,7 +767,7 @@ static void oc_mod_reload(void)
     oc_mod_live = 0;
 }
 /* (Release 3 step 6, round 18) the insert host holds pointers into the registered DUB module's flash (fx_modk): before ANY erase of that module's sectors (a removal, an in-place reinstall,
- * a loser's erase, a clear of the area) the host lets go of it, so nothing calls into the flash that is about to change; its instances restart on the resident kernel from silence
+ * a loser's erase, a clear of the area) the host lets go of it, so nothing calls into the flash that is about to change; its tracks play dry until a module registers
  * and take the new module's kernel at the registration that ends the install (oc_mod_boot -> oc_fxmod_kernel_reg) */
 static void oc_fxmod_kernel_guard(uint32_t first, uint32_t n)
 {
@@ -1082,12 +1082,12 @@ static void oc_fxmod_note_use(uint32_t mid)
             oc_modguard.inuse |= 1u << i;
 }
 /* 0 ok; -1 refused (a bad length, id 0, not the planned start); -4 old preset pairs not moved; -5 no start free; else flash */
-/* (Release 3 step 6) the insert host runs DUB TAPE's module kernel beside the resident one: the module of id FX_MODK_ID, its entry's caps block (already checked by fx_desc_check), the call table and the
+/* (Release 3 step 6) the insert host runs DUB TAPE's module kernel (the only DUB kernel since round 20): the module of id FX_MODK_ID, its entry's caps block (already checked by fx_desc_check), the call table and the
  * rows, read from the flash in place (4 byte pointers: the device; a host build has no module code to run and the tests register the host build of the module with fx_modk_set directly). The Effects
- * row's `why` says 0x40 + the host's answer when the host refused the kernel (FXM_VER, FXM_RANGE): the module is listed and stays, the resident kernel plays. */
+ * row's `why` says 0x40 + the host's answer when the host refused the kernel (FXM_VER, FXM_RANGE): the module is listed and stays, the tracks play dry. */
 /* the part of the registration that does not depend on the device's 4 byte pointers (so a host test can drive it): the PC guard's window first (the next audio interrupt may call the kernel
  * at once, into code above the old window's end), then the insert host takes the kernel, then the answer: a refusal is the Effects row's `why` = 0x40 + the host's code, which is also
- * what FX_TABLE sends (oc_mod.why[start]); the module stays listed and registered and the resident kernel plays */
+ * what FX_TABLE sends (oc_mod.why[start]); the module stays listed and the tracks play dry */
 static int oc_fxmod_kernel_commit(uint32_t i, const fx_desc_wire_t *d, const fx_entry_wire_t *e, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
 {
 #if MELODEE_DUB && OC_FX_MODK

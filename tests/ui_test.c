@@ -6577,6 +6577,52 @@ static int test_pack_boot_notice(void)
     oc_pack_good = 1;
     return bad;
 }
+/* (round 20) DUB is a module: with none installed a track with DUB on plays dry, and the screen says MODULE MISSING: at power-on after the project load (alone, and together with the pack missing
+ * as MODULE + PACK MISSING: the DUB check used to return before the pack was looked at), and on the DUB page where it said DUB FULL; with the module there, neither */
+static int test_dub_module_missing(void)
+{
+    int bad = 0, was = fx_modk_ok;
+    uint32_t i;
+    ui_power_on();
+    stop_transport();
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(&tmpl, 0, sizeof tmpl);
+    bootguard.failed = 0;
+    settings_boot = 2;
+    fx_modk_ok = 0;
+    oc_pack_good = 1;
+    for (i = 0; i < NTRK; i++) { set_engine_of(&trk[i], 0); trk[i].p[P_DUB_ECHO] = 0; }
+    trk[2].p[P_DUB_ECHO] = 100;
+    project_save(1);
+    trk[2].p[P_DUB_ECHO] = 0;
+    ui.msg_t = 0;
+    project_boot();
+    pack_boot_notice(bootguard.failed);
+    bad += check("boot, a track with DUB on, no DUB module: MODULE MISSING, and the stored ECHO is as saved", trk[2].p[P_DUB_ECHO] == 100 && msg_is("MODULE MISSING"));
+    fx_modk_ok = 1;
+    ui.msg_t = 0;
+    pack_boot_notice(bootguard.failed);
+    bad += check("  the DUB module there: nothing said", !msg_is("MODULE MISSING") && !msg_is("PACK MISSING"));
+    fx_modk_ok = 0;
+    oc_pack_good = 0;
+    set_engine_of(&trk[1], ENGI_MACRO);
+    project_save(1);
+    ui.msg_t = 0;
+    project_boot();
+    pack_boot_notice(bootguard.failed);
+    bad += check("  DUB module and the pack both missing (a MACRO track): MODULE + PACK MISSING, the pack's word is not lost", msg_is("MODULE + PACK MISSING"));
+    fx_modk_ok = 1;
+    ui.msg_t = 0;
+    pack_boot_notice(bootguard.failed);
+    bad += check("  the module there, the pack missing: PACK MISSING as before", msg_is("PACK MISSING"));
+    bad += check("the DUB page: MODULE MISSING: dry without the module, DUB FULL with it, FX FULL for a bus",
+                 (fx_modk_ok = 0, !strcmp(pv_fx_full_text(16u), "MODULE MISSING: dry")) && (fx_modk_ok = 1, !strcmp(pv_fx_full_text(16u), "DUB FULL: no memory, dry")) && !strcmp(pv_fx_full_text(4u), "FX FULL: no memory, dry"));
+    fx_modk_ok = (uint8_t)was;
+    oc_pack_good = 1;
+    bootguard.failed = 0;
+    for (i = 0; i < NTRK; i++) set_engine_of(&trk[i], 0);
+    return bad;
+}
 #endif
 /* (Orange Cat 0.11.0) Admission at assignment: a fake module header and engine_t in the table, the engine given to the selected track by the
  * browser's ENGINE knob path (select_engine) and by a preset load (preset_go's path). The cost word is carried, not used: no render budget exists. */
@@ -6643,6 +6689,7 @@ int main(void)
 #if OC_PACK_GATE
     bad += test_pack_notice();
     bad += test_pack_boot_notice();
+    bad += test_dub_module_missing();
 #endif
     bad += test_prophet_pages();
     bad += test_large_face();

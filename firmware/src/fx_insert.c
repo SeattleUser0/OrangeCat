@@ -2,14 +2,15 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* (Release 2 as jfx_dub.c; Release 3 step 5: the generic insert host, FX_MODULES_PLAN.md 5 and 14) The per-track insert (docs/orangecat/BUILD.md, "DUB TAPE as the per-track insert", design 3). Included by mix.c after jfx.c.
  *
- * Each of the four tracks can hold an instance of a kernel (fx_kernel_t, fx_insert.h; today DUB TAPE's, jfx_dub.c). The track's mono x, after DIST, mute, solo and LEVEL and before PAN, is captured
+ * Each of the four tracks can hold an instance of a kernel (fx_kernel_t, fx_insert.h; DUB TAPE's, the module's: the image has none of its own since round 20). The track's mono x, after DIST, mute, solo and LEVEL and before PAN, is captured
  * where the sends are taken (mix.c mix_send, into fx_x[fx_cur][track]); the instance's job, the first descriptor of the voice batch, runs on the PREVIOUS
  * block's capture (fx_x[fx_cur ^ 1]) and its wet is added into this block's dry mix and, in mono, through the track's own sends (mix.c fx_ins_add_wet).
  * The memory (jfx.c jfx_ins_mem) is first come, first served: an instance whose memory is not all there plays dry and the page says DUB FULL.
  * A change of the line's size or the rate stage never cuts: the wet is ramped out (the kernel's cut, 3 ms), the memory changes (or the line is cleared a block a
  * block), and the instance starts again from silence with its input ramped in.
  *
- * This file knows no kernel: it asks fx_kernel_of(k) for the capability words and calls the kernel only through that struct. What is DUB's is in jfx_dub.c. */
+ * This file knows no kernel: it asks fx_kernel_of(k) for the capability words and calls the kernel only through that struct. What is DUB's is the module's (tools/module/dub_mod.c);
+ * OC_DUB_SRAM / OC_DUB_KSRAM now place only THIS host's code (the control path / the per-block job fx_ins_run): the kernel's code is the module's, in flash, wherever it is installed. */
 #if MELODEE_DUB
 #ifndef OC_DUB_SRAM
 #define OC_DUB_SRAM 0
@@ -65,7 +66,7 @@ static void fx_modk_clear(void);
 /* the tracks that run the module's kernel (a bit each): all of them with a module registered, none without */
 static inline uint32_t fx_mod_effective(void) { return fx_modk_ok ? (1u << FX_INS_N) - 1u : 0u; }
 /* the kernel of the module, from its checked descriptor: 0 ok, FXM_VER (a caps version this host does not know), FXM_RANGE (a capability outside what the host can give: instances, blocks, a seed, a class,
- * the snapshot's room). On a refusal nothing is registered: the resident kernel plays and the Effects row says so (oc_mod.fx .why) */
+ * the snapshot's room). On a refusal nothing is registered: the tracks play dry and the Effects row says so (oc_mod.fx .why) */
 static int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id, const fx_caps_t *c, const fx_kcalls_t *k, const fx_prow_t *rows)
 {
     fx_kernel_t m;
@@ -95,10 +96,10 @@ static void fx_ins_rebind(uint32_t k)
     fx_ins_refree |= (uint8_t)(1u << k);
     fx_ins_gen[k] = 0;                                  /* an instance that was short of memory before the switch asked for the OLD kernel's size: forget "short, nothing released since" (jfx.c), the new size asks at once */
 }
-/* the module's kernel gone: the instances that were made with it let go at once (state OFF, no memory wanted, memory given back and re-asked by jfx_ins_mem for the resident kernel's sizes) and
- * start again on the resident kernel, from silence. The host's copy of the calls is zeroed: nothing points into the flash after this returns */
+/* the module's kernel gone: the instances that were made with it let go at once (state OFF, no memory wanted, memory given back by jfx_ins_mem) and the tracks play dry until a module registers
+ * (a registration starts them from silence). An interrupt between the steps is tolerated (fx_ins_start's dry path clears what it walked in). The host's copy of the calls is zeroed: nothing points into the flash after this returns */
 #ifdef OC_FX_TEST_HOOK
-static void (*fx_modk_clear_step)(void);                /* a host test: one audio block between the unbind and the rebind, as an interrupt would be */
+static void (*fx_modk_clear_step)(void);                /* a host test: one audio block between the steps of a removal, as an interrupt would be: after step 1 (bound instances off, still bound) and after step 2 (unbound) */
 #endif
 static void fx_modk_clear(void)
 {
@@ -108,7 +109,10 @@ static void fx_modk_clear(void)
             fx_ins[k].state = FXS_OFF; fx_ins[k].evict = 0; fx_ins[k].gov = fx_ins[k].held_off = 0; fx_ins[k].kw[0] = fx_ins[k].kw[1] = fx_ins[k].kw[2] = 0;
             fx_ins_want[k] = 0; fx_ins_spring[k] = 0;
         }
-    fx_mod_bound = 0;                                   /* 2. unbound: from here every instance is the resident kernel's */
+#ifdef OC_FX_TEST_HOOK
+    if (fx_modk_clear_step) fx_modk_clear_step();
+#endif
+    fx_mod_bound = 0;                                   /* 2. unbound: from here the tracks play dry */
     fx_modk_ok = 0;
 #ifdef OC_FX_TEST_HOOK
     if (fx_modk_clear_step) fx_modk_clear_step();
@@ -233,6 +237,14 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
     else if (fx_cpu_wait) fx_cpu_wait--;
     degrade = fx_cpu_wait != 0;
     if (!fx_modk_ok) {                                  /* (round 20) no DUB module installed: the kernel IS the module, there is no other. A track with DUB on plays DRY: no instance, no capture, no wet, no memory asked, nothing for the governor; its stored values stay as they are. The DUB FULL bit of the track says so (the DUB page reads fx_modk_ok to say MODULE MISSING instead) */
+        for (k = 0; k < FX_INS_N; k++) {                /* an instance that walked in while a removal was half done (a block between its steps) is not kept: OFF, wanting nothing, so jfx_ins_mem gives its memory back (the bus evictions it was asked for are answered by that) */
+            fx_ins_t *d = &fx_ins[k];
+            if (d->state != FXS_OFF || fx_ins_want[k] || fx_ins_spring[k]) {
+                d->state = FXS_OFF; d->evict = 0; d->gov = d->held_off = 0; d->run = 0; d->kw[0] = d->kw[1] = d->kw[2] = 0;
+                fx_ins_want[k] = 0; fx_ins_spring[k] = 0;
+                fx_ins_rebind(k);
+            }
+        }
         fx_ins_evict = 0;
         for (k = 0; k < FX_INS_N && k < nt; k++) if (trk[k].p[P_DUB_ECHO] != 0) fx_ins_ev_full |= (uint8_t)(JFX_FULL_INS0 << k);   /* (the one effect the host knows is DUB's, FX_MODK_ID: ECHO above 0 is dub_on) */
         return;
@@ -253,9 +265,8 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         const fx_kernel_t *kn;
 #if OC_FX_MODK
         if (((fx_mod_effective() ^ fx_mod_bound) >> k) & 1u) {        /* a module appeared (the module goes through fx_modk_clear, which unbinds at once): only an OFF instance changes kernels; a running one ramps out and lets go first */
-            if (d->state == FXS_RUN || d->state == FXS_RAMP) { d->evict = 1; d->gov = 0; }
-            else {                                           /* OFF, or WAIT / CLEAR (nothing plays yet: let go of the request and the memory, and switch in this very pass; the pass must not fall into case OFF with the old kernel and the old want) */
-                if (d->state != FXS_OFF) { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; }
+            {                                                /* an instance that is not bound to the module has no kernel (since round 20 there is no other): whatever state it is in (OFF, or WAIT / CLEAR / RUN / RAMP left by a removal that was half done) it lets go of its request and its memory and switches in this very pass; the pass must not fall into case OFF with the old want, and never calls a kernel it has not got */
+                if (d->state != FXS_OFF) { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; d->evict = 0; d->gov = d->held_off = 0; }
                 fx_mod_bound ^= (uint8_t)(1u << k); d->kw[0] = d->kw[1] = d->kw[2] = 0; fx_ins_rebind(k);
                 if (FX_MODK_BOUND(k) && fx_modk_note) fx_modk_note(FX_MODK_ID);
             }

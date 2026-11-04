@@ -32,7 +32,8 @@ static void tap(const int32_t *b, size_t n)             /* (fxi_tap) every outpu
     (void)b; (void)n;
     for (k = 0; k < FX_INS_N; k++) if (fx_ins[k].state == FXS_RUN && FX_MODK_BOUND(k)) mod_run_blocks++;
 }
-static void clear_step_run(void) { run(1); }                    /* (fx_modk_clear_step) one audio block in the middle of a removal */
+static uint32_t clear_step_n = 1, clear_step_n2 = 1, clear_calls;
+static void clear_step_run(void) { run(clear_calls++ ? clear_step_n2 : clear_step_n); }          /* (fx_modk_clear_step) audio blocks in the middle of a removal: after step 1 (instances off, still bound) and after step 2 (unbound) */
 static void run_all(void)
 {
     fxi_nres = 0; fx_ins_gov_fires = 0; mod_run_blocks = 0;
@@ -331,20 +332,39 @@ int main(void)
             for (k = 0, m = 0; k < FX_INS_N; k++) m += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_res;
             ck(ph ? "... and back, under CLEAR: the state is taken again at the smaller size" : "... and back, under WAIT: the state is taken again at the smaller size", rc == FXM_OK && m == 4u);
         }
-        /* a block (an interrupt) between the unbind and the rebind of a removal: nothing walks (the host plays dry from the unbind), what the instances held is given back, and the gate word is forgotten */
+        /* a block (an interrupt) in each gap of a removal: after step 1 an instance walks OFF -> WAIT still bound and takes memory at the module's size; the dry path of the host sends it OFF with no want, and
+         * what it held is given back; the gate word is forgotten */
         fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
         rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
         run(1500);
         for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_big;
-        fx_modk_clear_step = clear_step_run;
+        clear_calls = 0; fx_modk_clear_step = clear_step_run;
         fx_ins_gen[0] = resource_gen + 1u;                              /* "short, nothing released since" for instance 0: must be forgotten by the switch */
         fx_modk_clear();
         fx_modk_clear_step = 0;
         {   uint32_t g0 = fx_ins_gen[0];
             run(600);
             for (k = 0, m = 0; k < FX_INS_N; k++) m += fx_ins[k].state == FXS_OFF && ST_SZ(k) == 0 && fx_ins_have[k] == 0;
-            ck("remove with a block between the unbind and the rebind: all four dry, the module-sized state and everything else given back", rc == FXM_OK && n == 4u && m == 4u && fx_cm == 0);
+            ck("remove with a block in each gap of the removal: all four OFF wanting nothing, the module-sized state, the lines and the common block given back (an instance that walked in is not kept)",
+               rc == FXM_OK && n == 4u && m == 4u && fx_cm == 0 && fx_ins_want[0] == 0 && fx_ins_want[3] == 0);
             ck("... and the switch forgot 'short, nothing released since' (fx_ins_gen), so an instance that was short of memory asks for the new kernel's size at once", g0 == 0u); }
+    }
+    /* the same with 30 blocks in the first gap: the instances reach RUN while still bound, the removal finishes under them (RUN, unbound), and the module is registered AGAIN before the next block: they must
+     * be sent OFF and started on the new module's kernel, never run unbound (fx_kernel_none has no calls) */
+    {   uint32_t m;
+        fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
+        rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+        run(1500);
+        clear_step_n = 30; clear_step_n2 = 0; clear_calls = 0; fx_modk_clear_step = clear_step_run;       /* (none in the second gap: the removal ends with the walkers still there) */
+        fx_modk_clear();
+        fx_modk_clear_step = 0; clear_step_n = clear_step_n2 = 1;
+        for (k = 0, m = 0; k < FX_INS_N; k++) m += fx_ins[k].state != FXS_OFF && !FX_MODK_BOUND(k);
+        ck("remove with 30 blocks in the first gap: some instance is left running (or waiting) unbound when the removal ends (the case the dry path and the flip must tolerate)", rc == FXM_OK && m > 0u && !fx_modk_ok);
+        rc = fx_modk_set(1u, DUBK_VERSION, 1u, c, counted_calls(), oc_host_fx_rows());
+        run(1500);
+        for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN;
+        ck("... and the module registered again at once: every instance ends bound and running on it (nothing ran unbound, no empty kernel was called)", rc == FXM_OK && n == 4u && fx_modk_uses() == 4u);
+        fx_modk_clear();
     }
     /* (round 18, found on the unit) the spring's tank on a start from nothing: the common block, the state and six lines (a free TIME R of 409 ms) are the block's four takes twice over, so the
      * tank is the NINTH take of a start and jfx_take refuses it for the per-block budget, not for want of memory. That was remembered as "short, nothing released since" and the instance started

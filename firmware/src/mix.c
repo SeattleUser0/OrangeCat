@@ -54,7 +54,7 @@ static uint32_t seq_div_samples(uint32_t div)
 #include "core_stats.h"                                 /* (0.14.2) the cores' counters (OC_CORE_STATS builds; stubs otherwise) */
 #include "jfx.c"                                        /* (Orange Cat 0.6.0) the effects (Jiant FM's) */
 #include "fx_insert.c"                                  /* (Release 3 step 5) the generic per-track insert host (the Release 2 DUB TAPE insert, cut) */
-#include "jfx_dub.c"                                    /* .. and DUB TAPE's kernel on the far side of the cut, resident */
+#include "jfx_dub.c"                                    /* .. and what is left of DUB TAPE's side of the cut: the common block's old name and fx_kernel_of (the kernel is the module's) */
 #include "oc_throw.c"                                   /* (Orange Cat 0.4.3) PERFORM's throws */
 /* a track's dry sample (l, r) into its destination this block; its mono x (after level, before pan) into the sends */
 static inline __attribute__((always_inline)) void mix_add(int32_t l,int32_t r,uint32_t i)
