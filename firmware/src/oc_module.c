@@ -136,7 +136,6 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
 #if OC_CANDIDATES
                                                      { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
                                                      { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_DDDD, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */
-                                                     { ENGI_MACRO2, 12u, 0x01u },   /* (macro2-candidate) MACRO2: the whole 12-sector area at start 0 (docs/candidates/macro2.md: what fits it) */
 #endif
                                                    };
 static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
@@ -167,9 +166,18 @@ enum { MD_EMPTY, MD_TORN, MD_REFUSED, MD_BAD_HDR, MD_BAD_CRC, MD_CRASHED, MD_NOS
        MD_BAD_TAIL };                                          /* oc_mod.state[i]; MD_BAD_TAIL (0.10.1) is last so the numbers the web page knows stay */
 
 #include "fw_fx.h"                                            /* (Release 3 step 4) the effect module's descriptor (kind 1..3) */
+#include "fw_models.h"                                        /* (Release 3, the model picker) the MODELS module's block (kind 4: sound models for an engine, fw_models.h) */
 #define OC_FX_ENGINE 0xFFFFu                                   /* oc_mod.engine[i] of an effect module: no engine number, never equal to a track's engine or a table index */
 #define OC_FX_TABLE 8u                                         /* the Effects table: modules (banks) registered, keyed by module id */
 #define OC_FX_MAX_SECTORS 8u                                   /* the most sectors an effect module may take */
+/* (Release 3, the model picker) a kind 4 module goes by the module id FW_MODELS_ID(engine) through the id-keyed install path (oc_fxmod_*: the Effects table, FX_INFO,
+ * FX_BEGIN, FX_REMOVE); its span may be the whole area (a pick of many models), an effect module's at most OC_FX_MAX_SECTORS */
+#ifndef OC_MOD_XIP_PTR
+#define OC_MOD_XIP_PTR(a) ((const void *)(uintptr_t)(a))      /* a module's address as a pointer: the device's XIP window; a host test maps it into its NOR */
+#endif
+static uint32_t oc_id_max_sectors(uint32_t mid) { return FW_MODELS_ID_P(mid) ? OC_MOD_AREA : OC_FX_MAX_SECTORS; }
+static uint32_t oc_kind_max_sectors(uint32_t kind) { return kind == FW_MOD_KIND_MODELS ? OC_MOD_AREA : OC_FX_MAX_SECTORS; }
+static void oc_mod_park_voices(uint32_t engine);
 typedef struct { uint32_t module_id, version; uint8_t start, kind, nfx, state, why; } oc_fx_t;   /* one registered effect module */
 static int oc_fx_find(uint32_t module_id);
 static struct {
@@ -331,6 +339,25 @@ static int oc_fx_desc_check(uint32_t i, const fw_mod_hdr_t *h, uint32_t *id, uin
     uint32_t base = oc_mod_flash(i);
     return oc_fx_desc_check_rd(oc_rd_flash, &base, oc_mod_link(i), h, id, version, n);
 }
+/* (Release 3, the model picker) the models block at engine_ptr (fw_models_check), then the header's state_size against what the models need and what the engine's
+ * block holds (eng_models_max); 0 good: *id the module id (FW_MODELS_ID of the engine), *n the models present */
+static int oc_models_check_rd(oc_rd_t rd, void *rctx, uint32_t link, const fw_mod_hdr_t *h, uint32_t *id, uint8_t *n)
+{
+    oc_mod_rdctx_t c;
+    uint32_t e = FW_MOD_ENGINE(h), cnt = 0, need = 0, have = 0;
+    c.rd = rd; c.ctx = rctx; c.link = link;
+    if (!eng_models_max(e)) return 1;
+    if (fw_models_check(oc_mod_rd, &c, h->engine_ptr, link + FW_MOD_CODE_OFF, link + h->length, e, PL_MDL_ABI_ID, &cnt, &need, &have)) return 1;
+    if (h->state_size < need || h->state_size > eng_models_max(e)) return 1;
+    if (id) *id = FW_MODELS_ID(e);
+    if (n) *n = (uint8_t)have;
+    return 0;
+}
+static int oc_models_check(uint32_t i, const fw_mod_hdr_t *h, uint32_t *id, uint8_t *n)
+{
+    uint32_t base = oc_mod_flash(i);
+    return oc_models_check_rd(oc_rd_flash, &base, oc_mod_link(i), h, id, n);
+}
 /* the header at start i read from the flash (st_read), its checks, then the code's CRC and the sector tails: the state */
 static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
 {
@@ -351,8 +378,8 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
         return MD_REFUSED;
     }
     len = h->length;
-    if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {                 /* (Release 3 step 4) an effect module: no engine slot, no geometry row; its span is its length */
-        if (h->link_addr != link || len <= FW_MOD_CODE_OFF || (len & 3u) || oc_mod_nsec(len) > OC_FX_MAX_SECTORS ||
+    if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {                 /* (Release 3 step 4) an effect module: no engine slot, no geometry row; its span is its length (a models module's up to the area) */
+        if (h->link_addr != link || len <= FW_MOD_CODE_OFF || (len & 3u) || oc_mod_nsec(len) > oc_kind_max_sectors(FW_MOD_KIND(h)) ||
             OC_MOD_START_SECTOR(i) + oc_mod_nsec(len) > OC_MOD_AREA || h->engine_ptr < link + FW_MOD_CODE_OFF || h->engine_ptr >= link + len ||
             (h->engine_ptr & 3u) || h->state_size > OC_MOD_STATE_MAX || h->pack_hash != OC_PACK_HASH)
             return MD_BAD_HDR;
@@ -371,7 +398,10 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     }
     if (~crc != h->crc)
         return MD_BAD_CRC;
-    if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {                 /* (Release 3 step 4) the descriptor, every pointer in the image */
+    if (FW_MOD_KIND(h) == FW_MOD_KIND_MODELS) {                  /* (Release 3, the model picker) the models block, every descriptor in the image; the state size */
+        if (oc_models_check(i, h, &oc_mod.mid[i], &oc_mod.nfx[i]))
+            return MD_BAD_HDR;
+    } else if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {          /* (Release 3 step 4) the descriptor, every pointer in the image */
         if (oc_fx_desc_check(i, h, &oc_mod.mid[i], 0, &oc_mod.nfx[i]))
             return MD_BAD_HDR;
     } else {
@@ -443,6 +473,36 @@ static int oc_mod_erase_start(uint32_t i);
 static int oc_mod_erase_loser(uint32_t i);
 static void oc_fxmod_kernel_reg(uint32_t i);
 static void oc_fxmod_note_use(uint32_t mid);
+static uint32_t oc_models_count(uint32_t i)             /* (the model picker) the length of the models table at start i (fw_models.h n), read from the flash */
+{
+    fw_mod_hdr_t h;
+    uint32_t n = 0;
+    if (st_read(oc_mod_flash(i), &h, sizeof h) || st_read(oc_mod_flash(i) + (h.engine_ptr - oc_mod_link(i)) + 16u, &n, sizeof n)) return 0;
+    return n;
+}
+/* (the model picker) every MODELS module out of its engine's glue and that engine's voices parked: before the area is read again (oc_mod_reload) and before
+ * any erase that touches such a module's sectors (oc_models_guard), so nothing calls into flash that is about to change. engine 0xFFFF: all of them */
+static void oc_models_park(uint32_t engine)
+{
+    uint32_t e;
+    for (e = 0; e < NENGINES; e++) {
+        if (!eng_models_max(e) || (engine != 0xFFFFu && e != engine)) continue;
+        if (oc_mod_live) fm1_irq_off();
+        eng_models_clear(e);
+        if (oc_mod_live) fm1_irq_on();
+        oc_mod_park_voices(e);
+    }
+}
+static void oc_models_guard(uint32_t first, uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < OC_MOD_STARTS; i++) {
+        if (oc_mod.state[i] != MD_OK || oc_mod.kind[i] != FW_MOD_KIND_MODELS) continue;
+        {   uint32_t s0 = OC_MOD_START_SECTOR(i), n0 = oc_mod_nsec(oc_mod.length[i]);
+            if (first < s0 + n0 && s0 < first + n) { oc_mod_live = 1; oc_models_park(oc_mod.mid[i] & 0xFFu); oc_mod_live = 0; }
+        }
+    }
+}
 #if MELODEE_DUB && OC_FX_MODK
 static uint32_t oc_fxk_start;                                   /* (round 18) the start of the module whose kernel the insert host holds (valid while fx_modk_ok) */
 #endif
@@ -499,6 +559,14 @@ static void oc_mod_boot(uint32_t crashed)
             oc_mod.fx[oc_mod.nfxmod].module_id = oc_mod.mid[i]; oc_mod.fx[oc_mod.nfxmod].version = oc_mod.version[i];
             oc_mod.fx[oc_mod.nfxmod].start = (uint8_t)i; oc_mod.fx[oc_mod.nfxmod].kind = oc_mod.kind[i]; oc_mod.fx[oc_mod.nfxmod].nfx = oc_mod.nfx[i];
             oc_mod.fx[oc_mod.nfxmod].state = MD_OK; oc_mod.fx[oc_mod.nfxmod].why = 0;
+            if (oc_mod.kind[i] == FW_MOD_KIND_MODELS) {         /* (the model picker) the engine's glue reads the module's tables from here on (eng_macro.c mc_model) */
+                int rc;
+                if (oc_mod_live) fm1_irq_off();
+                rc = eng_models_set(FW_MOD_ENGINE(&h), (const void *const *)OC_MOD_XIP_PTR(h.engine_ptr + FW_MODELS_AT), oc_models_count(i),
+                                    (const void *const *)OC_MOD_XIP_PTR(h.engine_ptr + FW_MODELS_BANKS_AT));
+                if (oc_mod_live) fm1_irq_on();
+                if (rc != EM_OK) { oc_mod.state[i] = MD_NOSLOT; oc_mod.why[i] = (uint8_t)-rc; oc_mod.fx[oc_mod.nfxmod].state = MD_NOSLOT; }
+            }
             oc_mod.nfxmod++;
             continue;
         }
@@ -578,7 +646,7 @@ static void oc_mod_ban_notice(void)
         if (!(oc_modguard.notice & (1u << i)))
             continue;
         oc_modguard.notice &= ~(1u << i);
-        ui_say("MODULE BANNED ", oc_mod.kind[i] ? "EFFECT" : oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : oc_mod.engine[i] == ENGI_PROPHET ? "PROPHET" : "ENGINE");
+        ui_say("MODULE BANNED ", oc_mod.kind[i] == FW_MOD_KIND_MODELS ? "MODELS" : oc_mod.kind[i] ? "EFFECT" : oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : oc_mod.engine[i] == ENGI_PROPHET ? "PROPHET" : "ENGINE");
         return;
     }
 }
@@ -588,7 +656,8 @@ static void oc_mod_note_engine(uint32_t engine)
 {
     uint32_t i;
     for (i = 0; i < OC_MOD_STARTS; i++)
-        if (oc_mod.state[i] == MD_OK && oc_mod.engine[i] == engine && engine < NENGINES && eng_mod[engine] == oc_mod_hdr_ptr(i))
+        if (oc_mod.state[i] == MD_OK && ((oc_mod.engine[i] == engine && engine < NENGINES && eng_mod[engine] == oc_mod_hdr_ptr(i)) ||
+                                         (oc_mod.kind[i] == FW_MOD_KIND_MODELS && oc_mod.mid[i] == FW_MODELS_ID(engine))))   /* (the model picker) a MACRO track may play the module's models */
             oc_modguard.inuse |= 1u << i;
 }
 /* main loop, all session (0.10.1; the first 30 s before): set the use bit of every registered module a track is playing */
@@ -599,7 +668,7 @@ static void oc_mod_note_use(void)
         if (oc_mod.state[i] != MD_OK)
             continue;
         for (t = 0; t < NTRK; t++)
-            if (trk[t].engine == oc_mod.engine[i])
+            if (trk[t].engine == oc_mod.engine[i] || (oc_mod.kind[i] == FW_MOD_KIND_MODELS && trk[t].engine == (oc_mod.mid[i] & 0xFFu) && eng_track_ext(&trk[t])))
                 oc_modguard.inuse |= 1u << i;
     }
 }
@@ -764,6 +833,7 @@ static void oc_mod_reload(void)
             oc_mod_unreg(e);
         oc_mod_park_voices(e);
     }
+    oc_models_park(0xFFFFu);                                     /* (the model picker) the MODELS modules out of their engines' glue, those tracks' voices parked */
     oc_mod_boot(0);
     oc_mod_live = 0;
 }
@@ -795,6 +865,7 @@ static int oc_mod_erase_span(uint32_t first, uint32_t n)
 {
     uint32_t s;
     oc_fxmod_kernel_guard(first, n);
+    oc_models_guard(first, n);                                  /* (the model picker) a MODELS module in the span: out of its engine first */
     for (s = 0; s < n && first + s < OC_MOD_AREA; s++) {
         int rc;
         if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) return -1;   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */
@@ -1017,10 +1088,11 @@ static int oc_fx_has(uint32_t i, uint32_t mid)          /* start i holds a usabl
     return oc_mod_usable(i) && oc_mod.kind[i] && oc_mod.mid[i] == mid;
 }
 static uint32_t oc_fx_reach(uint32_t j) { uint32_t n = oc_mod_reach(j); return n; }
-static int oc_fx_allowed(uint32_t sectors, uint32_t c)
+static int oc_fx_allowed_max(uint32_t sectors, uint32_t c, uint32_t max)
 {
-    return c < OC_MOD_STARTS && sectors >= 1u && sectors <= OC_FX_MAX_SECTORS && OC_MOD_START_SECTOR(c) + sectors <= OC_MOD_AREA && oc_mod_start_ok(c);
+    return c < OC_MOD_STARTS && sectors >= 1u && sectors <= max && OC_MOD_START_SECTOR(c) + sectors <= OC_MOD_AREA && oc_mod_start_ok(c);
 }
+static int oc_fx_allowed(uint32_t sectors, uint32_t c) { return oc_fx_allowed_max(sectors, c, OC_FX_MAX_SECTORS); }
 static int oc_fx_blocker(uint32_t mid, uint32_t sectors, uint32_t c)
 {
     uint32_t j;
@@ -1048,15 +1120,16 @@ static int oc_fx_room(uint32_t mid)
 static int oc_fxmod_plan(uint32_t mid, uint32_t sectors)
 {
     uint32_t c;
+    uint32_t max = oc_id_max_sectors(mid);
     if (!mid || !oc_fx_room(mid)) return -1;
     for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
     for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && !oc_mod_usable(c)) return (int)c;
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && !oc_mod_usable(c)) return (int)c;
     for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_has(c, mid)) return (int)c;              /* in place, where the old module stands */
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_has(c, mid)) return (int)c;              /* in place, where the old module stands */
     for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_blocker(mid, sectors, c) < 0) return (int)c;   /* in place, over a module of the same id that overlaps the span */
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0) return (int)c;   /* in place, over a module of the same id that overlaps the span */
     return -1;
 }
 static int oc_fxmod_inplace(uint32_t mid, uint32_t sectors, uint32_t start)
@@ -1069,7 +1142,7 @@ static int oc_fxmod_blocked_by(uint32_t mid, uint32_t sectors)
     uint32_t c;
     int b = -1;
     for (c = 0; c < OC_MOD_STARTS; c++) {
-        if (!oc_fx_allowed(sectors, c)) continue;
+        if (!oc_fx_allowed_max(sectors, c, oc_id_max_sectors(mid))) continue;
         if (oc_fx_blocker(mid, sectors, c) < 0) return -1;
         if (b < 0) b = oc_fx_blocker(mid, sectors, c);
     }
@@ -1132,7 +1205,7 @@ static int oc_fxmod_begin(uint32_t mid, uint32_t start, uint32_t len)
     uint32_t i, ns = oc_mod_nsec(len);
     mw.writing = 0;
     mw.fx = 0;
-    if (!mid || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > OC_FX_MAX_SECTORS || !oc_fx_allowed(ns, start))
+    if (!mid || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > oc_id_max_sectors(mid) || !oc_fx_allowed_max(ns, start, oc_id_max_sectors(mid)))
         return MI_REFUSED;
     if (lg_incomplete)
         return MI_PAIRS;
@@ -1181,7 +1254,10 @@ static int oc_fxmod_end(const void *page256)
         return MI_TAIL;
     {   /* the descriptor, on the code as written (the header page is not in the flash yet: the code part is, the descriptor lies in it) and its id must be the one asked for */
         uint32_t id = 0, base = oc_mod_flash(mw.start);
-        if (oc_fx_desc_check_rd(oc_rd_flash, &base, oc_mod_link(mw.start), h, &id, 0, 0) || id != mw.mid)
+        if (FW_MOD_KIND(h) == FW_MOD_KIND_MODELS ? oc_models_check_rd(oc_rd_flash, &base, oc_mod_link(mw.start), h, &id, 0)
+                                                  : oc_fx_desc_check_rd(oc_rd_flash, &base, oc_mod_link(mw.start), h, &id, 0, 0))
+            return MI_REFUSED;
+        if (id != mw.mid)
             return MI_REFUSED;
     }
     if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
@@ -1229,12 +1305,15 @@ static int oc_fxmod_image_check(oc_rd_t rd, void *ctx, uint32_t start, uint32_t 
 {
     _Alignas(4) uint8_t pg[256];
     uint8_t buf[256];
-    uint32_t crc = 0xFFFFFFFFu, off, id = 0, ns = oc_mod_nsec(len);
+    uint32_t crc = 0xFFFFFFFFu, off, id = 0, ns = oc_mod_nsec(len), kind;
     int t;
-    if (start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > OC_FX_MAX_SECTORS || !oc_fx_allowed(ns, start))
+    if (start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > OC_MOD_AREA || !oc_fx_allowed_max(ns, start, OC_MOD_AREA))
         return MC_HDR;
     if (rd(ctx, 0, pg, sizeof pg))
         return MC_READ;
+    kind = ((const fw_mod_hdr_t *)pg)->engine >> 8;
+    if (ns > oc_kind_max_sectors(kind))                         /* (the model picker) a models module may take the area, an effect module 8 sectors */
+        return MC_HDR;
     for (off = FW_MOD_CODE_OFF; off < len; off += sizeof buf) {
         uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
         if (rd(ctx, off, buf, n))
@@ -1246,7 +1325,8 @@ static int oc_fxmod_image_check(oc_rd_t rd, void *ctx, uint32_t start, uint32_t 
         return MC_HDR;
     if (((const fw_mod_hdr_t *)pg)->crc != ~crc)
         return MC_CRC;
-    if (oc_fx_desc_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg, &id, 0, 0) || !id || (*mid && id != *mid))
+    if ((kind == FW_MOD_KIND_MODELS ? oc_models_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg, &id, 0)
+                                    : oc_fx_desc_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg, &id, 0, 0)) || !id || (*mid && id != *mid))
         return MC_HDR;
     *mid = id;
     t = oc_rule_tails(rd, ctx, len, ns);

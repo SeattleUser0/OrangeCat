@@ -85,4 +85,16 @@ assert.throws(() => PICK.items(manifest, ["nosuch"]));
   assert.ok(!big.ok && /too many\. Leave a model or a wave bank out\.$/.test(big.text), big.text);
   console.log("test_pick: refusals, the pick block and the room meter: " + r.text);
 }
+// 4. (the page) the default pick is MACRO's own fourteen beyond VA; the other modules' sectors from the ticked stages and the unit's tables
+assert.deepEqual(PICK.default(manifest), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+{
+  const unit = { engines: { engines: [{ num: 14, src: 2, state: 7 }, { num: 7, src: 2, state: 7 }, { num: 8, src: 1, state: 0 }] },
+                 fx: { effects: [{ id: 1, kind: 1, state: 7, sectors: 3, resident: false }, { id: 0x4D08, kind: 4, state: 7, sectors: 9, resident: false }, { id: 0x80000001, kind: 2, state: 7, sectors: 1, resident: false }] } };
+  assert.deepEqual(PICK.others([{ name: "SHAPES", sectors: 6 }], unit), [{ name: "SHAPES", sectors: 6 }, { name: "WHEEL", sectors: 4 }, { name: "DUB TAPE", sectors: 3 }, { name: "0x80000001", sectors: 1 }],
+    "a stage's module once, the unit's others by geometry or sectors, the models module itself left out");
+  assert.deepEqual(PICK.others([], null), []);
+  const r = PICK.room(manifest, img0.length, PICK.default(manifest), 18, PICK.others([{ name: "SHAPES", sectors: 6 }, { name: "WHEEL", sectors: 4 }, { name: "DUB TAPE", sectors: 3 }], null));
+  console.log("test_pick: the default pick beside SHAPES, WHEEL and DUB TAPE: " + r.text);
+  assert.equal(r.need, 9); assert.equal(r.free, 5); assert.ok(!r.ok, "MACRO's own fourteen (9 sectors) do not fit beside the full set (5 left)");
+}
 console.log("test_pick: all passed");

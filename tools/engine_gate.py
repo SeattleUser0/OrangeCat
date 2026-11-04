@@ -80,11 +80,6 @@ GATE = {
                  "source": "op1r (pcppcp) synth_sdk/plugins/supersaw/supersaw.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
     "dddd": {"engine": 26, "funcs": ["op1g_eng_render", "dd_render_voice", "dd_render"], "voice_type": None,
              "source": "op1r (pcppcp) synth_sdk/plugins/dddd/dddd.c and synth_sdk/dddd/dd_core.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
-    # (macro2-candidate) the ten Plaits models MACRO lacks, through eng_macro.c's glue (docs/candidates/macro2.md)
-    "macro2": {"engine": 32, "funcs": ["mc2_voice", "pl_vavcf_render", "pl_pd_render", "pl_sixop_render", "pl_terrain_render", "pl_strmach_render",
-                                       "pl_chiptune_render", "pl_wt_render", "pl_speech_render", "pl_speech_lpc_ctl_render", "pl_vshape_render_t", "pl_terrain_eval", "pl_speech_word_decoder_next"], "voice_type": "mc2_small_t",
-               "extra_hot": {"pl_wav_integrated_waves": "the wavetable model's 192 waves, read per sample through the wave map (pl_wt_render): too large for a hot table"},
-               "source": "Plaits (Emilie Gillet) at f4cfa769, MIT; Orange Cat's port (firmware/src/plaits/pl_wavetable.h .. pl_speech.h, eng_macro2.c)"},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

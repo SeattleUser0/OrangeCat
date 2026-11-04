@@ -136,18 +136,21 @@ typedef struct fw_mod_hdr {
 enum { FW_MOD_OK = 0, FW_MOD_NONE, FW_MOD_BAD_MAGIC, FW_MOD_BAD_IFACE, FW_MOD_API_TOO_NEW, FW_MOD_BAD_ADDR, FW_MOD_BAD_KIND };
 /* (Release 3 step 4, FX_MODULES_PLAN.md 2) the header's `engine` word: bits 0..7 the engine number (kind 0), bits 8..15 the KIND, bits 16..31 zero.
  * Kind 0 is every module on a unit today (the word is unchanged). Kinds 1 insert effect, 2 send effect, 3 master effect: the low byte is then 0 (an effect has no
- * engine number; its identity is the module id in the fx_desc_t that engine_ptr points at, fw_fx.h). */
+ * engine number; its identity is the module id in the fx_desc_t that engine_ptr points at, fw_fx.h). Kind 4 (Release 3, the model picker): sound models for the
+ * engine in the low byte; engine_ptr points at its fw_models block (fw_models.h); it goes by the module id FW_MODELS_ID(engine) in the installer. */
 #define FW_MOD_KIND_ENGINE 0u
 #define FW_MOD_KIND_INSERT 1u
 #define FW_MOD_KIND_SEND 2u
 #define FW_MOD_KIND_MASTER 3u
+#define FW_MOD_KIND_MODELS 4u                           /* (Release 3, the model picker) sound models for the engine in the low byte (fw_models.h): no engine of its own */
 #define FW_MOD_ENGINE(h) ((h)->engine & 0xFFu)
 #define FW_MOD_KIND(h) (((h)->engine >> 8) & 0xFFu)
 static inline int fw_mod_word_ok(uint32_t w)
 {
     uint32_t kind = (w >> 8) & 0xFFu;
     if (w >> 16) return 0;                               /* bits 16..31 are 0 */
-    if (kind > FW_MOD_KIND_MASTER) return 0;             /* an unknown kind */
+    if (kind > FW_MOD_KIND_MODELS) return 0;             /* an unknown kind */
+    if (kind == FW_MOD_KIND_MODELS) return (w & 0xFFu) != 0u;   /* models for an engine: its number (never 0, ANALOG is retired) */
     return kind == FW_MOD_KIND_ENGINE || (w & 0xFFu) == 0u;   /* an effect has no engine number */
 }
 

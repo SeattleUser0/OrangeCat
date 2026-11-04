@@ -3201,8 +3201,8 @@ function ocmParse(bytes) {
   let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
   const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
               name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [], format: ver };
-  o.kind = (o.engine >>> 8) & 0xFF;      /* (Release 3 step 4) the engine word: engine (bits 0..7), kind (8..15: 1 insert, 2 send, 3 master effect), bits 16..31 zero (fw_api.h fw_mod_word_ok) */
-  if (o.engine >>> 8 && (o.engine >>> 16 || o.kind > 3 || (o.engine & 0xFF))) return fail("modWrongFile");
+  o.kind = (o.engine >>> 8) & 0xFF;      /* (Release 3 step 4) the engine word: engine (bits 0..7), kind (8..15: 1 insert, 2 send, 3 master effect; (the model picker) 4 sound models for the engine in the low byte), bits 16..31 zero (fw_api.h fw_mod_word_ok) */
+  if (o.engine >>> 8 && (o.engine >>> 16 || o.kind > 4 || (o.kind <= 3 && (o.engine & 0xFF)) || (o.kind === 4 && !(o.engine & 0xFF)))) return fail("modWrongFile");
   if (ver === 2) {
     const length = dv.getUint32(tab + 4, true), off = dv.getUint32(tab + 12, true), nrel = dv.getUint32(tab + 16, true), roff = dv.getUint32(tab + 20, true);
     if (dv.getUint32(tab, true) !== OCM_RELOCATABLE || nrel > OCM_RELOC_MAX || off + length > bytes.length || roff + 4 * nrel > bytes.length || length < 0x200 || (length & 3))
@@ -3237,7 +3237,32 @@ const OCM_LINK0 = 0x020C4000, OCM_STATE_MAX = 16384;       /* the XIP address of
  * words 0, effect ids unique in the bank, parameter ids strictly increasing, min <= default <= max, a label NUL ended within 24 bytes inside the code. img: the image for the link
  * address `link`. {id, version, n} or null. ocmFxRead: the module id, version and sector count of every image of the file, which must agree (an effect has no geometry row: its
  * span is ceil(length / 4096), at most 8 sectors); the file is refused when they do not. */
-const OCM_FX_SECTORS = 8;
+const OCM_FX_SECTORS = 8, OCM_MODELS_SECTORS = 18;      /* (the model picker) a models module may take the whole area */
+/* (Release 3, the model picker) A MODELS module (kind 4, firmware/src/fw_models.h): the header's engine_ptr is the address of its models block inside the code, checked as the
+ * unit checks it: magic "OMDL", size 160, version 1, the engine of the header's low byte, 1..32 models, each a 0 or the address of a 24 byte descriptor inside the code (4 aligned)
+ * whose start and render words are addresses inside the code, the three bank words 0 or inside the code. The module id is FW_MODELS_ID(engine): 0x4D00 | engine (MODULE_IDS.md).
+ * {id, version (the header's word), n (the models present), abi (the block's PL_MDL_ABI_ID, which the unit compares)} or null. */
+const OCM_MODELS_ID = (engine) => (0x4D00 | (engine & 0xFF)) >>> 0;
+function ocmModelsDesc(img, link) {
+  if (img.length < 0x200 || (img.length & 3)) return null;
+  const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), lo = (link + 0x100) >>> 0, hi = (link + img.length) >>> 0;
+  const inside = (a, n) => a >= lo && a <= hi && n <= hi - a, at = (a) => a - link;
+  const u32 = (a) => dv.getUint32(at(a), true), u16 = (a) => dv.getUint16(at(a), true);
+  const desc = dv.getUint32(28, true), engine = dv.getUint32(20, true) & 0xFF;
+  if (!inside(desc, 160) || (desc & 3) || u32(desc) !== 0x4C444D4F || u16(desc + 4) !== 160 || u16(desc + 6) !== 1 || u32(desc + 12) !== engine) return null;
+  const n = u32(desc + 16);
+  if (!n || n > 32) return null;
+  let present = 0;
+  for (let i = 0; i < 32; i++) {
+    const a = u32(desc + 20 + 4 * i);
+    if (i >= n) { if (a) return null; continue; }
+    if (!a) continue;
+    if (!inside(a, 24) || (a & 3) || !inside(u32(a + 16), 2) || !inside(u32(a + 20), 2) || !u32(a) || !img[at(a) + 7]) return null;
+    present++;
+  }
+  for (let i = 0; i < 3; i++) { const b = u32(desc + 148 + 4 * i); if (b && (!inside(b, 4) || (b & 1))) return null; }
+  return { id: OCM_MODELS_ID(engine), version: dv.getUint32(44, true), n: present, abi: u32(desc + 8), engine };
+}
 /* (Release 3 step 6) The caps block an entry's `pages` word points at (firmware/src/fx_kernel.h fx_caps_t, fw_fx.h fx_caps_check): 56 bytes, 4 aligned, inside the code; magic "GFXK", size 56,
  * version 1; hot and nhot 0, the padding 0, the snapshot size not 0; the call table (12 words) inside the code, every call an address inside the code; the pages pointer 0 or inside the
  * code and 4 aligned (the unit checks the descriptor itself); the legacy-slot rows 0, or 1..16 rows of 10 bytes (2 aligned) with ids strictly increasing and min <= default <= max (the unit also
@@ -3296,8 +3321,8 @@ function ocmFxDesc(img, link, kind) {
 function ocmFxRead(o) {
   if (!o.kind) return o;
   for (const v of o.variants) {
-    const d = ocmFxDesc(v.image, (OCM_LINK0 + v.start * 4096) >>> 0, o.kind), ns = Math.ceil(v.length / 4096);
-    if (ns > OCM_FX_SECTORS) return { ok: false, key: "modWrongFile" };
+    const link = (OCM_LINK0 + v.start * 4096) >>> 0, d = o.kind === 4 ? ocmModelsDesc(v.image, link) : ocmFxDesc(v.image, link, o.kind), ns = Math.ceil(v.length / 4096);
+    if (ns > (o.kind === 4 ? OCM_MODELS_SECTORS : OCM_FX_SECTORS)) return { ok: false, key: "modWrongFile" };
     if (!d || (o.moduleId !== undefined && (d.id !== o.moduleId || d.version !== o.fxVersion || ns !== o.fxSectors))) return { ok: false, key: "modHdrBad" };
     o.moduleId = d.id; o.fxVersion = d.version; o.fxCount = d.n; o.fxSectors = ns; o.fxAbi = d.abi;
   }
@@ -3312,8 +3337,8 @@ function ocmImage(ocm, v) {
       (w(24) === 0 && !ocm.kind) || w(24) > OCM_STATE_MAX || w(36) !== ocm.packHash || w(48) !== img.length || w(32) !== link ||
       w(28) < link + 0x100 || w(28) >= link + img.length || (w(28) & 3)) return "modHdrBad";
   if (crc32(img.subarray(0x100)) !== w(52)) return "modDamaged";
-  if (ocm.kind) {                                                       /* (Release 3 step 4) an effect module: at most 8 sectors, its descriptor, the id the file was read with */
-    const d = img.length > OCM_FX_SECTORS * 4096 ? null : ocmFxDesc(img, link, ocm.kind);
+  if (ocm.kind) {                                                       /* (Release 3 step 4) an effect module: at most 8 sectors, its descriptor, the id the file was read with; (the model picker) a models module: up to the area, its block */
+    const d = img.length > (ocm.kind === 4 ? OCM_MODELS_SECTORS : OCM_FX_SECTORS) * 4096 ? null : ocm.kind === 4 ? ocmModelsDesc(img, link) : ocmFxDesc(img, link, ocm.kind);
     if (!d || d.id !== ocm.moduleId) return "modHdrBad";
   }
   return "";

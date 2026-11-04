@@ -445,7 +445,7 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
 /* (Release 3 step 4) the effect modules, by module id. Arguments: module id (5 x 7 bits).
- *   FX_INFO   id, sectors (1 .. 8) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
+ *   FX_INFO   id, sectors (1 .. 8; a models module's id FW_MODELS_ID: 1 .. 18) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
  *             first), blocker (the start whose usable module stands in the way when no start can take it, else 127), low (1 the six sectors below 0xC8000 are the module area's),
  *             abi (5 x 7 bits: the firmware's FX_ABI_ID; a firmware without it sends the four bytes above only)
  *   FX_BEGIN  id, start, length (3 x 7 bits) -> rc, then the bytes written so far (3 x 7 bits): rc as MOD_BEGIN (0 done, 1 refused, 2 flash or the transport is running,
@@ -461,8 +461,9 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
     if (cmd == ED_FX_INFO) {
         uint32_t id, ns;
         int plan, blk;
-        if (na != 6u || a[5] < 1u || a[5] > 8u) return 0;
+        if (na != 6u) return 0;
         id = ed_fx_id_get(a); ns = a[5];
+        if (ns < 1u || ns > (FW_MODELS_ID_P(id) ? OC_MOD_AREA : 8u)) return 0;   /* (the model picker) a models module may take the whole area */
         plan = oc_fxmod_plan(id, ns);
         blk = plan < 0 ? oc_fxmod_blocked_by(id, ns) : -1;
         ed_b(plan < 0 ? 127u : (uint32_t)plan);
@@ -1328,7 +1329,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; i < 5u; i++) ed_b(OC_PACK_HASH >> (7u * i));
         ed_b(plan < 0 ? 127u : (uint32_t)plan);
         for (i = 0; i < OC_MOD_STARTS; i++) {
-            ed_b(oc_mod.state[i]); ed_b(oc_mod.why[i]); ed_b(oc_mod.engine[i]);
+            ed_b(oc_mod.state[i]); ed_b(oc_mod.why[i]); ed_b(oc_mod.kind[i] == FW_MOD_KIND_MODELS ? (oc_mod.mid[i] & 0xFFu) : oc_mod.engine[i]);   /* (the model picker) a models start names its engine */
             ed_b(oc_mod.length[i]); ed_b(oc_mod.length[i] >> 7); ed_b(oc_mod.length[i] >> 14);
         }
         { int blk = na && plan < 0 ? oc_mod_blocked_by(a[0]) : -1; ed_b(blk < 0 ? 127u : (uint32_t)blk); }

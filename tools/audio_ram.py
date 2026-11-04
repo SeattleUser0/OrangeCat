@@ -65,7 +65,7 @@ ROOTS = {'fm1_alnk0_irq', 'audio_block', 'mix_block', 'ua_audio', 'click_render'
          'p5_worker_kernel', 'fm6_worker_kernel', 'audio_batch_worker', 'audio_batch_parallel', 'p5_batch_kernel', 'fm6_batch_kernel', 'engine_batch_kernel', 'fm1_timer5_irq'}
 CALLBACKS = {'note_on', 'render', 'amp', 'block', 'done', 'alloc', 'legato',
              'mono_key', 'post', 'units', 'cap', 'keys', 'desc'}
-COLD_CALLBACKS = {'preset_make', 'offered'}   # (model picker) offered: the knob's and the value string's question, never the interrupt's
+COLD_CALLBACKS = {'preset_make'}
 
 
 def engine_roots(src):

@@ -270,6 +270,7 @@ def app_flags():
                  # (Orange Cat, build doc phase 3) engine switches (core.h)
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
+                 "MELODEE_MACRO_PICK",   # (Release 3, the model picker) 1: MACRO carries VA alone, the other models come from the MODELS module the installer page packs (eng_macro.c)
                  "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
                  "OC_HOME_PIC",     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) HOME's picture page, its knobs and macros; off by default
                  "OC_EDIT_SHEETS",  # (the new interface 0.2: UI_BUILD.md step 2) EDIT's sheets; needs OC_HOME_PIC=1; off by default
@@ -288,10 +289,6 @@ def app_flags():
                  "OC_START_NUDGE"):    # (ui-fix2 5: UI_BUILD.md "ui-fix2 5") NOTES' KNOB 2 on a typed note is NUDGE; needs OC_ONE_AUTH=1; off by default
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
-            flags.append(f"-D{flag}={v}")
-    for flag in ("MACRO2_SET", "MACRO2_HOT"):          # (macro2-candidate) the MACRO2 module's size variants and its hot-set A/B (eng_macro2.c)
-        v = os.environ.get(flag)
-        if v in ("0", "1", "2"):
             flags.append(f"-D{flag}={v}")
     if os.environ.get("P5_OVERSAMPLE") in ("1", "2"):
         flags.append("-DP5_OVERSAMPLE=" + os.environ["P5_OVERSAMPLE"])
@@ -549,10 +546,7 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"]},
            "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]},
            # (Release 3 step 6) DUB TAPE as an effect module (kind 1, FX_MODULES_PLAN.md 15): no geometry row; its span is ceil(length / 4096) sectors from any start of the area's grid
-           "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1},
-           # (macro2-candidate) MACRO2, the ten Plaits models MACRO lacks (docs/candidates/macro2.md): linked for the whole 12-sector area at start 0, to
-           # measure it (the full module does not fit it: the gate's row says by how much; a cut-down variant may)
-           "macro2": {"src": "tools/module/macro2_mod.c", "sectors": 12, "starts": [0], "name": "MACRO2"}}
+           "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1}}
 OCM_MAGIC = 0x464D434F
 FW_MOD_MAGIC = 0x444F4D4F
 FW_MOD_CODE_OFF = 0x100
@@ -814,16 +808,18 @@ SECTIONS {{
     return errors, notes
 
 
-# ---- (model picker, docs/candidates/model_picker.md) a module of many units, one region each: PLAITS
+# ---- (Release 3, the model picker: docs/candidates/model_picker.md) a module of many units, one region each: MODELS (plaits)
 #
-# tools/build.py --module plaits [--pick ITEM,ITEM,...]. The engine's glue (tools/module/plaits_mod.c) and each model's unit (tools/module/plaits/
-# mdl_*.c, tbl_*.c) are compiled apart and linked in a fixed order, each unit's output one region of the image followed by a 16-byte gap (the link
-# script below). The master link has every unit: its image, relocation list and manifest are the master package (build/plaits-<version>.ocp), from
-# which the page's packer (web/fm1pick.js) and tools/pick_module.py make the module for any pick without a linker. A pick here is the oracle: the
-# same units linked by ld, the header page filled with the pick's state_size and pick block, packaged as any module (variants a start, format 2);
+# tools/build.py --module plaits [--pick ITEM,ITEM,...]. The module's table (tools/module/plaits_mod.c: the header and the descriptor table the loader
+# reads, fw_models.h; the glue is the firmware's eng_macro.c) and each model's unit (tools/module/plaits/mdl_*.c, tbl_*.c) are compiled apart and linked
+# in a fixed order, each unit's output one region of the image followed by a 16-byte gap (the link script below). The master link has every unit: its
+# image, relocation list and manifest are the master package (build/plaits-<version>.ocp), from which the page's packer (web/fm1pick.js) and
+# tools/pick_module.py make the module for any pick without a linker. A pick here is the oracle: the same units linked by ld, the header page filled
+# with the pick's state_size and pick block, packaged as any module (a variant for every start of the 18 sector area the pick fits at, format 2);
 # tests/module_pick_test.py shows the packers make the same bytes. Two rules make that true, both checked on the master link (tools/module_relocs.py
 # region_check): no PC-relative relocation leaves its region (a unit calls another only through pointers), and an absolute reference into another
-# region names a symbol with addend 0 (a reference into a region the pick drops reads 0, the weak extern the linker left).
+# region names a symbol with addend 0 (a reference into a region the pick drops reads 0, the weak extern the linker left). The default pick (no --pick)
+# is MACRO's own fourteen beyond VA, which the firmware keeps: a unit that installs it loses no sound of a Release 2 project.
 PLAITS_UNITS = "va wavshp fm grain addtv chord swarm noise partcl string modal kick snare hihat harp vavcf pd sixop terran strmch chip wavtbl speech".split()
 PLAITS_REGIONS = ["glue"] + [f"mdl_{u}" for u in PLAITS_UNITS] + ["tbl_syx0", "tbl_syx1", "tbl_syx2", "tbl_wav0", "tbl_wav1", "tbl_wav2"]
 # the pick items: id (stable: a project stores a model's), key, name, regions, the descriptor symbol (tools/module/plaits/pl_mdl.h) or None
@@ -833,9 +829,9 @@ PLAITS_ITEMS = [(0, "va", "VA"), (1, "wavshp", "WAVSHP"), (2, "fm", "FM"), (3, "
                 (17, "6opa", "6OP A", ["mdl_sixop", "tbl_syx0"]), (18, "6opb", "6OP B", ["mdl_sixop", "tbl_syx1"]), (19, "6opc", "6OP C", ["mdl_sixop", "tbl_syx2"]),
                 (20, "terran", "TERRAN"), (21, "strmch", "STRMCH"), (22, "chip", "CHIP"), (23, "wavtbl", "WAVTBL"), (24, "speech", "SPEECH"),
                 (25, "wav0", "WAVE BANK A", ["tbl_wav0"], None), (26, "wav1", "WAVE BANK B", ["tbl_wav1"], None), (27, "wav2", "WAVE BANK C", ["tbl_wav2"], None)]
-PLAITS_DEFAULT_PICK = ["vavcf", "pd", "6opa", "6opb", "6opc", "terran", "strmch", "chip"]   # (the second bank: 9 sectors, what today's area takes)
-MODULES["plaits"] = {"src": "tools/module/plaits_mod.c", "units": PLAITS_UNITS, "regions": PLAITS_REGIONS, "starts": [0, 6, 4], "name": "PLAITS",
-                     "inc": ["tools/module/plaits"], "sectors": 0}   # (sectors: the pick's)
+PLAITS_DEFAULT_PICK = ["wavshp", "fm", "grain", "addtv", "chord", "swarm", "noise", "partcl", "string", "modal", "kick", "snare", "hihat", "harp"]   # MACRO's own, beyond the built-in VA
+MODULES["plaits"] = {"src": "tools/module/plaits_mod.c", "units": PLAITS_UNITS, "regions": PLAITS_REGIONS, "name": "MODELS", "kind": 4,
+                     "inc": ["tools/module/plaits"], "sectors": 0}   # (sectors: the pick's; starts: every one of the grid the pick fits at)
 REGION_SECTIONS = ".text .text.* .dsp_text* .audio_text* .rodata .rodata.* .dsp_tables* .data.rel.ro*"
 
 
@@ -899,7 +895,9 @@ def build_regions_module(name, pick=None, area=None):
         return errors, notes
     api_addr = gen_define("FW_API_ADDR")
     pack_hash = gen_define("OC_PACK_HASH", "oc_pack_tables.h")
-    lo, hi = module_area()
+    lo = module_base()                                    # (Release 3 step 1) the numbering origin of the starts (a signed sector from it), not the area's low end
+    area_lo, area_hi = module_area()
+    first, last = (area_lo - lo) // 0x1000, (area_hi - lo) // 0x1000   # the area in sectors from the origin: [first, last)
     vf = SRC / "VERSION"
     version = vf.read_text().strip() if vf.exists() else "0"
     # 1. the master: every unit, linked at 0 with its relocations kept
@@ -929,14 +927,15 @@ def build_regions_module(name, pick=None, area=None):
         del d["desc"]
         items.append(d)
     h = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(imgm, 0)))
-    manifest = {"name": spec["name"], "engine": h["engine"], "version": h["version"], "area_lo": lo, "area_sectors": (hi - lo) // 0x1000,
-                "starts": spec["starts"], "code_off": FW_MOD_CODE_OFF,
+    manifest = {"name": spec["name"], "engine": h["engine"], "version": h["version"], "area_lo": lo, "area_sectors": last - first,
+                "area_first": first, "area_last": last, "starts": list(range(first, last)), "code_off": FW_MOD_CODE_OFF,
                 "part_head": struct.unpack_from("<I", imgm, syms["pl_mod_meta"])[0], "poly": struct.unpack_from("<I", imgm, syms["pl_mod_meta"] + 4)[0],
                 "regions": [{"name": r, "start": st, "end": en} for r, st, en in regions], "items": items,
                 "rules": {"wavtbl": 23, "terrain": 20, "banks": [25, 26, 27]},
                 "hdr": {"iface": h["iface"], "api_addr": h["api_addr"], "api_version": h["api_version"], "api_size": h["api_size"], "pack_hash": h["pack_hash"]}}
-    if h["magic"] != FW_MOD_MAGIC or h["api_addr"] != api_addr or h["pack_hash"] != pack_hash or h["link_addr"] != 0 or h["state_size"] != 0:
-        errors.append(f"{name}: the master's header is not the source's (magic, api_addr, pack_hash, link_addr 0, state_size 0)")
+    if h["magic"] != FW_MOD_MAGIC or h["api_addr"] != api_addr or h["pack_hash"] != pack_hash or h["link_addr"] != 0 or h["state_size"] != 0 or \
+            h["engine"] >> 8 != spec.get("kind", 0):
+        errors.append(f"{name}: the master's header is not the source's (magic, api_addr, pack_hash, link_addr 0, state_size 0, the kind)")
     for r, st, en in regions:
         if any(imgm[en - 16:en]):
             errors.append(f"{name}: region {r}'s gap is not zero")
@@ -1020,7 +1019,7 @@ def build_regions_module(name, pick=None, area=None):
                      f"({sectors} sectors), state {d['state_size']} B, crc {d['crc']:08x}" + (f", code moved {pad} B" if pad else ""))
     out = OUT / (f"{name}-{version}.ocm" if not pick else f"{name}-pick.ocm")
     if not starts:
-        errors.append(f"{name}: the pick's {sectors} sectors fit no start of the area's {manifest['area_sectors']} (grid {spec['starts']})")
+        errors.append(f"{name}: the pick's {sectors} sectors fit no start of the area's {manifest['area_sectors']}")
     if errors or len(ifaces) != 1 or len(set(pads.values())) != 1:
         out.unlink(missing_ok=True)
         return errors + ([f"{name}: the starts need different layouts {pads}"] if len(set(pads.values())) > 1 else []), notes

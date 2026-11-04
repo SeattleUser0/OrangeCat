@@ -1,9 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
- * PLAITS (the model picker's module): model unit STRING, one region of the image (tools/module/plaits/pl_mod_common.h). Made by the model table in
- * tools/build.py (PLAITS_MODELS); the sizes and levels are eng_macro.c MC_POST / MC_UNITS and eng_macro2.c MC2_POST / MC2_UNITS. */
+ * MODELS (the model picker's module, docs/candidates/model_picker.md): model unit STRING, one region of the image (pl_mod_common.h; the descriptor, its
+ * levels and units: firmware/src/plaits/pl_models.h, the one list for the firmware and the module). */
+#define PL_WANT_string 1
 #include "pl_mod_common.h"
-#include "plaits/pl_string.h"
-PL_MDL_FUNCS(string, pl_string_t, pl_string)
-const pl_mdl_t pl_mdl_string = PL_MDL_DESC(string, pl_string_t, 1, 1, 1, 4, -1.0f, 0.8f);
-PL_KEEP(&pl_mdl_string);
+#include "plaits/pl_models.h"

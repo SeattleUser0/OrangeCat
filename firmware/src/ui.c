@@ -368,10 +368,16 @@ static void ui_message(const char *s) { ui_say(s, ""); }
 /* (round 14) an engine that ships as a module and is not installed (SHAPES since MELODEE_SHAPES=0): the track keeps its music and settings, plays nothing (the slot is
  * retired until the module registers) and the screen says MODULE MISSING, as it says PACK MISSING */
 static int mod_gone(uint32_t e) { return (e == ENGI_SHAPES || e == ENGI_WHEEL || e == ENGI_PROPHET) && !eng_ok(e); }
+/* (Release 3, the model picker) a MACRO track whose model is not installed (not built in, not in the MODELS module): it plays VA, keeps its settings, and the screen says the same */
+static int track_mod_gone(const track_t *t)
+{
+    uint32_t e = t->eng_req % NENGINES;
+    return mod_gone(e) || (MELODEE_MACRO && e == ENGI_MACRO && mc_track_missing(t));
+}
 static void pack_notice(uint32_t force)
 {
     uint32_t e = TSEL->eng_req % NENGINES;
-    if (mod_gone(e)) { if (force || !ui.msg_t) ui_message("MODULE MISSING"); return; }
+    if (track_mod_gone(TSEL)) { if (force || !ui.msg_t) ui_message("MODULE MISSING"); return; }
     if (OC_PACK_READY() || (e != ENGI_MACRO && e != ENGI_SHAPES)) return;
     if (force || !ui.msg_t) ui_message("PACK MISSING");
 }
@@ -391,7 +397,7 @@ static void pack_boot_notice(uint32_t skipped)
     if (skipped) return;
     for (k = 0; k < NTRK && k < song.ntrk; k++) {
         uint32_t e = trk[k].eng_req % NENGINES;
-        gone |= mod_gone(e);
+        gone |= mod_gone(e) | track_mod_gone(&trk[k]);   /* (picker-r3) a MACRO track on a model the MODELS module does not hold */
         dub |= !fx_ins_module_ok() && trk[k].p[P_DUB_ECHO] != 0;     /* (round 20) DUB is a module: a track with DUB on and none installed plays dry */
         pack |= !OC_PACK_READY() && (e == ENGI_MACRO || e == ENGI_SHAPES);
     }

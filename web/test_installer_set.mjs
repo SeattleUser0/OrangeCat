@@ -448,6 +448,37 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   // an engine and an effect module in one set: the engine by its number (121), the effect by its id (131)
   u = fxUnit(); r = await run(u, MOD, { modules: [makeOcm(), fxOcm()] });
   assert.deepEqual(r.sum.module, ["installed", "installed"]); assert.ok(u.sent.includes(121) && u.ext.some((a) => a[0] === 3));
+  // (Release 3, the model picker) a MODELS module (kind 4, engine 8 in the word): by its id 0x4D08 through the same path; a pick is always written (never "current")
+  const modelsOcm = () => {
+    const imgLen = 0x800, ENG = 8, DESC = 0x180, TAB = 0x300;
+    const imgs = [0, 6].map((s) => {
+      const a = new Uint8Array(imgLen), h = new DataView(a.buffer), link = (0x020C4000 + s * 4096) >>> 0;
+      for (let k = 0x400; k < imgLen; k++) a[k] = (k * 3 + s) & 255;
+      h.setUint32(DESC, 0x4C444D4F, true); h.setUint16(DESC + 4, 160, true); h.setUint16(DESC + 6, 1, true); h.setUint32(DESC + 8, 1, true); h.setUint32(DESC + 12, ENG, true); h.setUint32(DESC + 16, 2, true);
+      for (let i = 0; i < 2; i++) { const d = TAB + 24 * i; h.setUint32(DESC + 20 + 4 * i, link + d, true); h.setUint32(d, 100, true); a[d + 7] = 1; h.setUint32(d + 16, link + 0x600, true); h.setUint32(d + 20, link + 0x640, true); }
+      h.setUint32(0, 0x444F4D4F, true); h.setUint32(4, IFACE, true); h.setUint32(8, 100, true); h.setUint32(12, 1, true); h.setUint32(16, API, true); h.setUint32(20, ENG | 4 << 8, true);
+      h.setUint32(24, 600, true); h.setUint32(28, link + DESC, true); h.setUint32(32, link, true); h.setUint32(36, PHASH, true); h.setUint32(44, FXVER, true);
+      h.setUint32(48, imgLen, true); h.setUint32(52, bkCrc(a.subarray(0x100)), true); h.setUint32(56, bkCrc(a.subarray(0, 56)), true);
+      return a;
+    });
+    const n = 2, tab = 56, hc = tab + 16 * n, off0 = hc + 4, out = new Uint8Array(off0 + imgLen * 2), dv = new DataView(out.buffer);
+    dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, n, true); dv.setUint32(8, IFACE, true); dv.setUint32(12, API, true);
+    dv.setUint32(16, ENG | 4 << 8, true); dv.setUint32(20, 600, true); dv.setUint32(24, PHASH, true); dv.setUint32(44, 1, true); dv.setUint32(48, 100, true); dv.setUint32(52, 1, true);
+    imgs.forEach((img, i) => {
+      dv.setUint32(tab + 16 * i, i * 6, true); dv.setUint32(tab + 16 * i + 4, imgLen, true); dv.setUint32(tab + 16 * i + 8, bkCrc(img), true); dv.setUint32(tab + 16 * i + 12, off0 + imgLen * i, true);
+      out.set(img, off0 + imgLen * i);
+    });
+    dv.setUint32(hc, bkCrc(out.subarray(0, hc)), true);
+    return out;
+  };
+  u = fxUnit(); r = await run(u, MOD, { modules: [modelsOcm()], want: [{ kind: 4, module_id: 0x4D08 }] });
+  assert.deepEqual(r.sum.module, ["installed"], "a models module installs by its id");
+  assert.deepEqual(u.ext[1], [2, ...n5(0x4D08), 1], "FX_INFO: the models id 0x4D08 (MACRO) and its sectors");
+  assert.deepEqual(u.begin, { id: 0x4D08, start: 1, len: 0x800 }, "FX_BEGIN with the models id at the start the unit named");
+  u = fxUnit({ have: [{ id: 0x4D08, version: FXVER, start: 1 }] }); r = await run(u, MOD, { modules: [modelsOcm()] });
+  assert.deepEqual(r.sum.module, ["installed"], "a pick is written again even when the Effects table holds the id at the same version and size: the table does not say which models");
+  u = fxUnit(); r = await run(u, MOD, { modules: [modelsOcm()], want: [{ kind: 1, module_id: 0x4D08 }] });
+  assert.deepEqual(r.sum.module, [{ error: "modManifest" }], "the manifest's kind against the file's");
   // FX_REMOVE and the listing
   const { removeFx, listUnit, parseFxTable, parseFxInfo, ocReq } = await import("./fm1oc.js");
   u = fxUnit({ have: [{ id: MID, version: FXVER, start: 3 }] });
@@ -466,4 +497,4 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   const ue = makeUnit({ pack: "current" }); r = await run(ue, ALL, files());
   assert.deepEqual(r.sum, { firmware: "installed", pack: "current", module: ["installed"] }); assert.ok(!ue.sent.includes(0), "no command 0 in an engine set");
 }
-console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id passed");
+console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id, a models module by its id passed");
