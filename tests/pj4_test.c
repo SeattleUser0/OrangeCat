@@ -31,11 +31,14 @@ static uint8_t snap[0x100000];
 static long opn, cut_op = -1;              /* the erase and program calls so far; the one that finds the power gone */
 static long bytes_n, cut_byte = -1;        /* the programmed bytes so far; the one after which the power goes */
 static int dead;
+static int indet;                          /* a cut during a program leaves the byte being programmed with indeterminate bits (seeded, logged) */
+static uint32_t seed_ind, seed_base;
 static int erase_torn = 1;                   /* a cut at an erase: 1 garbage, 0 the power went before it started */
 static long eo, err_op = -1;              /* a transient flash error (the power stays) at the err_op-th erase or program call */
 static long n_erase, n_prog;
 static uint32_t junk = 0x1234567u;
 
+#define IND(pos, want) do { seed_ind = seed_ind * 1664525u + 1013904223u; nor[pos] = (uint8_t)(nor[pos] & ((want) | (uint8_t)(seed_ind >> 24))); } while (0)
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
 static int st_erase(uint32_t off)
 {
@@ -58,10 +61,10 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
     if (dead) return -9;
     if (err_op >= 0 && eo++ == err_op) return -9;
     if ((off & 0xFFu) + n > 256u) { printf("page wrap at %#x\n", off); exit(1); }
-    if (cut_op >= 0 && opn++ == cut_op) { dead = 1; return -9; }
+    if (cut_op >= 0 && opn++ == cut_op) { if (indet && n) IND(off, s[0]); dead = 1; return -9; }
     n_prog++;
     for (uint32_t i = 0; i < n; i++) {
-        if (cut_byte >= 0 && bytes_n++ == cut_byte) { dead = 1; return -9; }
+        if (cut_byte >= 0 && bytes_n++ == cut_byte) { if (indet) IND(off + i, s[i]); dead = 1; return -9; }
         nor[off + i] &= s[i];
     }
     return 0;
@@ -70,6 +73,7 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 #include "../firmware/src/oc_store.c"
 #define OCP_PJ4_TEST 1
 #include "../firmware/src/oc_pj4.c"
+static pj4_ws_t WS;                        /* the operation memory: the firmware takes it for one operation and gives it back */
 
 static int bad;
 static int check(const char *what, int ok)
@@ -123,7 +127,7 @@ static int save(uint32_t slot, const pset_t *p, pj4_head_t *h, const pj4_sec_t *
 {
     static pj4_phr_t ph[255];
     uint32_t n = phr(p, ph);
-    return pj4_save(slot, h, s, ns, ph, n, pget, (void *)p, over);
+    return pj4_save(&WS, slot, h, s, ns, ph, n, pget, (void *)p, over);
 }
 /* the slot reads as exactly the set p: head revision rev (0: any), every phrase's bytes, no other phrase */
 static int reads_set(uint32_t slot, const pset_t *p, uint32_t rev)
@@ -136,7 +140,7 @@ static int reads_set(uint32_t slot, const pset_t *p, uint32_t rev)
     for (id = 1; id <= 255; id++) cnt += pj4_d0.chunk[id] != PJ4_NONE;
     if (cnt != p->n) return 0;
     for (i = 0; i < p->n; i++) {
-        int n = pj4_phrase_read(slot, p->id[i], b, sizeof b);
+        int n = pj4_phrase_read(&WS, slot, p->id[i], b, sizeof b);
         bytes_of(p->seed[i], want, p->len[i]);
         if (n != (int)p->len[i] || memcmp(b, want, p->len[i])) return 0;
     }
@@ -156,6 +160,7 @@ static int no_orphans(void)
 }
 static void wipe(void)
 {
+    pj4_w = &WS;
     memset(nor, 0xFF, sizeof nor);
     dead = 0; cut_op = -1; cut_byte = -1; opn = 0; bytes_n = 0;
     ocs_resv = 0; ocs_held = 0;
@@ -222,13 +227,13 @@ static int test_sizes(void)
     for (i = 1; i <= 255; i++) pset_add(&a, i, 4 + (i % 7), i * 3);
     check("255 phrases (the limit) save and read back", save(2, &a, &h, 0, 0, &over) == 0 && reads_set(2, &a, 1) && no_orphans());
     pset_add(&b, 1, 100, 1);
-    check("a save that names phrase 0 or a length of 0 is refused (PJ4_BAD)", ({ pj4_phr_t q = {0, 5, 0}; pj4_save(2, &h, 0, 0, &q, 1, pget, &b, &over); }) == PJ4_BAD);
+    check("a save that names phrase 0 or a length of 0 is refused (PJ4_BAD)", ({ pj4_phr_t q = {0, 5, 0}; pj4_save(&WS, 2, &h, 0, 0, &q, 1, pget, &b, &over); }) == PJ4_BAD);
     /* a source that changes under the save */
     wipe(); claim();
     pset_add(&a, 1, 0, 0); a.n = 0; pset_add(&a, 1, 500, 1); pset_add(&a, 2, 500, 2);
     check("the first save", save(0, &a, &h, 0, 0, &over) == 0);
     ph[0].id = 1; ph[0].len = 500; ph[0].crc = 0x12345678u;
-    check("a phrase whose bytes do not match the CRC given: refused (PJ4_SRC)", pj4_save(0, &h, 0, 0, ph, 1, bad_get, 0, &over) == PJ4_SRC);
+    check("a phrase whose bytes do not match the CRC given: refused (PJ4_SRC)", pj4_save(&WS, 0, &h, 0, 0, ph, 1, bad_get, 0, &over) == PJ4_SRC);
     check(".. the old record is in charge, nothing is orphaned", reads_set(0, &a, 1) && no_orphans());
     return 0;
 }
@@ -271,15 +276,19 @@ static int cut_all(const cutter_t *c, int mode, int step, int *failed)
 {
     int k, done = 0, n = 0;
     erase_torn = mode != 2;
+    indet = mode >= 3;
     if (mode == 2) mode = 0;
+    if (mode == 3) mode = 0;
+    if (mode == 4) mode = 1;
     for (k = 0; !done; k += step, n++) {
         restore();
+        seed_ind = seed_base + (uint32_t)k * 7919u;
         if (mode == 0) { cut_op = k; opn = 0; } else { cut_byte = k; bytes_n = 0; }
         c->run(c->arg);
         done = !dead;
         cut_op = -1; cut_byte = -1; dead = 0;
-        ocs_boot(); pj4_sweep();
-        if (!c->chk(c->arg, done)) { (*failed)++; if (*failed < 4) printf("  (failed at %s %d)\n", mode ? "byte" : "call", k); }
+        ocs_boot(); pj4_sweep(&WS);
+        if (!c->chk(c->arg, done)) { (*failed)++; if (*failed < 4) printf("  (failed at %s %d, seed %u)\n", mode ? "byte" : "call", k, (unsigned)(seed_base + (uint32_t)k * 7919u)); }
         if (n > 100000) { *failed += 1000; break; }
     }
     return n;
@@ -326,6 +335,12 @@ static int test_save_cuts(void)
     n0 = cut_all(&c, 2, 1, &failed);
     snprintf(what, sizeof what, "SAVE, power gone just before each of %d erase and program calls (an erase that never started): the same", n0);
     check(what, !failed && n0 > 20);
+    failed = 0;
+    n0 = cut_all(&c, 3, 1, &failed);
+    n1 = cut_all(&c, 4, 61, &failed);
+    n1 += cut_all(&c, 4, 7, &failed);
+    snprintf(what, sizeof what, "SAVE, the byte being programmed at the cut left with indeterminate bits (%d call points, %d byte points, seed %u): the same", n0, n1, (unsigned)seed_base);
+    check(what, !failed && n0 > 20 && n1 > 20);
     {   /* a flash error that is not a power cut: the save fails, the device goes on; no reboot: the old record is in charge, nothing orphaned at once */
         int k, ok = 1, runs = 0;
         for (k = 0; k < n0 && ok; k++) {
@@ -360,7 +375,7 @@ static int test_save_cuts(void)
         h = sv_h; save(0, &sv_new, &h, 0, 0, &over2);
         cut_op = -1; dead = 0; ocs_boot();
         check("13.2: a cut after all the changed chunks and before the record commits: the old record reads the old data", reads_set(0, &sv_old, 1));
-        pj4_sweep();
+        pj4_sweep(&WS);
         check(".. and the sweep erases the chunks of the generation it does not name", reads_set(0, &sv_old, 1) && no_orphans());
     }
     return 0;
@@ -452,7 +467,7 @@ static void cv_fixture(uint32_t nslots, const uint32_t (*use)[16], uint32_t base
 static void cv_mk(uint32_t slot, pj4_head_t *h) { *h = mkhead(slot ? "TWO" : "ONE", 1000 + slot); }
 static uint8_t cv_status[4];
 static uint32_t cv_over[4];
-static int cv_run(void *a) { (void)a; pj4_boot(cv_names, cv_work, cv_mk, cv_status, cv_over); return 0; }
+static int cv_run(void *a) { (void)a; pj4_boot(&WS, cv_names, cv_work, cv_mk, cv_status, cv_over); return 0; }
 /* slot s converted: every phrase it names is its own, the repack of the old one, and the old record's bytes ride in OJ3B */
 static int cv_slot_ok(uint32_t s)
 {
@@ -465,7 +480,7 @@ static int cv_slot_ok(uint32_t s)
         int n, r;
         if (!((cv_names[s] >> k) & 1u)) continue;
         r = pj4_repack(cv_pat[k], cv_pat_len[k], rp);
-        n = pj4_phrase_read(s, k + 1u, b, sizeof b);
+        n = pj4_phrase_read(&WS, s, k + 1u, b, sizeof b);
         if (r < 0 || n != r || memcmp(b, rp, (uint32_t)r)) return 0;
     }
     { uint32_t names = 0; for (k = 0; k < 64; k++) names += (uint32_t)((cv_names[s] >> k) & 1u); if (names != cnt) return 0; }
@@ -522,7 +537,7 @@ static int test_convert(void)
         uint32_t over;
         pset_add(&e, 2, 300, 4242);
         check("the shared phrase 2 (slot 0 and 1 both used it) is two copies: a save to slot 0 leaves slot 1's alone",
-              save(0, &e, &h, 0, 0, &over) == 0 && pj4_phrase_read(1, 2, b, sizeof b) == pj4_repack(cv_pat[1], cv_pat_len[1], rp) && ({ uint32_t l = (uint32_t)pj4_repack(cv_pat[1], cv_pat_len[1], rp); !memcmp(b, rp, l); }) && cv_slot_ok(1));
+              save(0, &e, &h, 0, 0, &over) == 0 && pj4_phrase_read(&WS, 1, 2, b, sizeof b) == pj4_repack(cv_pat[1], cv_pat_len[1], rp) && ({ uint32_t l = (uint32_t)pj4_repack(cv_pat[1], cv_pat_len[1], rp); !memcmp(b, rp, l); }) && cv_slot_ok(1));
     }
     restore();
     n0 = cut_all(&c, 0, 1, &failed);
@@ -532,6 +547,11 @@ static int test_convert(void)
     n1 = cut_all(&c, 2, 1, &failed);
     snprintf(what, sizeof what, "CONVERSION, power gone just before each of %d erase and program calls (the old record erased or not): the same", n1);
     check(what, !failed && n1 > 40);
+    failed = 0;
+    n0 = cut_all(&c, 3, 1, &failed);
+    n1 = cut_all(&c, 4, 97, &failed);
+    snprintf(what, sizeof what, "CONVERSION, indeterminate bits in the byte being programmed (%d call points, %d byte points, seed %u): the same", n0, n1, (unsigned)seed_base);
+    check(what, !failed && n0 > 40 && n1 > 20);
     failed = 0;
     n1 = cut_all(&c, 1, 97, &failed);
     snprintf(what, sizeof what, "CONVERSION, power cut after each 97th programmed byte (%d points): the same", n1);
@@ -544,11 +564,11 @@ static pset_t rs_old_new;
 static int rs_run(void *a)
 {
     (void)a;
-    pj4_slot_clear(0);                         /* the restore replaces the slot whole: new records first */
+    pj4_slot_clear(&WS, 0);                         /* the restore replaces the slot whole: new records first */
     if (dead) return -1;
     cv_fixture(1, (const uint32_t (*)[16]) & (const uint32_t[16]){2, 3, 0xFFFF}, 9000);   /* the old backup's records */
     if (dead) return -1;
-    pj4_boot(cv_names, cv_work, cv_mk, cv_status, cv_over);
+    pj4_boot(&WS, cv_names, cv_work, cv_mk, cv_status, cv_over);
     return 0;
 }
 static int rs_chk(void *a, int finished)
@@ -564,7 +584,7 @@ static int test_restore(void)
 {
     static const uint32_t use0[2][16] = {{0, 1, 0xFFFF}, {0xFFFF}};
     cutter_t c = {rs_run, rs_chk, 0};
-    int failed = 0, n0;
+    int failed = 0, n0, n1;
     char what[200];
     wipe(); claim();
     cv_fixture(1, use0, 2000);
@@ -585,6 +605,11 @@ static int test_restore(void)
         n0 = cut_all(&c, 2, 1, &failed);
         snprintf(what, sizeof what, "RESTORE, power gone just before each of %d erase and program calls: the same", n0);
         check(what, !failed && n0 > 40);
+        failed = 0;
+        n0 = cut_all(&c, 3, 1, &failed);
+        n1 = cut_all(&c, 4, 97, &failed);
+        snprintf(what, sizeof what, "RESTORE, indeterminate bits in the byte being programmed (%d call points, %d byte points, seed %u): the same", n0, n1, (unsigned)seed_base);
+        check(what, !failed && n0 > 40 && n1 > 20);
     }
     return 0;
 }
@@ -609,7 +634,7 @@ static int test_worst(void)
         check("an OLD FORMAT slot keeps its old record readable and its old phrases", ocs_read(OCS_PROJECT, s, rec, sizeof rec) == (int)cv_old_len[s] && !memcmp(rec, cv_old_rec[s], cv_old_len[s]) && cv_pat_len[3] == (uint32_t)pj4_old_phrase(3, rec, 1800));
     check(".. and the converted ones are whole, no orphan", cv_slot_ok(0) && cv_slot_ok(1) && no_orphans());
     for (round = 0; round < 2; round++) {                                       /* room is made (a converted project cleared), the boot converts the next */
-        pj4_slot_clear(round);
+        pj4_slot_clear(&WS, round);
         cv_run(0);
         check("after room is made (CLEAR a converted project) the next boot converts the next slot, once; no orphan; the old pool still serves the rest",
               cv_status[round + 2] == 1 && cv_slot_ok(round + 2) && no_orphans() && (round == 1 || (cv_status[3] == 2 && ocs_read(OCS_PROJECT, 3, rec, sizeof rec) == (int)cv_old_len[3] && pj4_old_phrase(3, rec, 1800) == (int)cv_pat_len[3])));
@@ -642,8 +667,8 @@ static int test_head_sections(void)
     h = mkhead("UID", 0xBEEF);
     save(2, &a, &h, again, n, &over);
     check("and a save of the carried sections writes them again unchanged", pj4_sec_read(2, s[2].tag, buf, sizeof buf) == 31 && !memcmp(buf, sec[2], 31) && pj4_sec_read(2, s[0].tag, buf, sizeof buf) == 17);
-    check("a section with a core tag, or a tag twice, is refused", ({ pj4_sec_t d[2] = {{PJ4_T_HEAD, 0, 0}, {0, 0, 0}}; pj4_save(2, &h, d, 1, 0, 0, pget, &a, &over); }) == PJ4_BAD &&
-          ({ pj4_sec_t d[2] = {{PJ4_TAG('A', 'A', 'A', 'A'), 0, 0}, {PJ4_TAG('A', 'A', 'A', 'A'), 0, 0}}; pj4_save(2, &h, d, 2, 0, 0, pget, &a, &over); }) == PJ4_BAD);
+    check("a section with a core tag, or a tag twice, is refused", ({ pj4_sec_t d[2] = {{PJ4_T_HEAD, 0, 0}, {0, 0, 0}}; pj4_save(&WS, 2, &h, d, 1, 0, 0, pget, &a, &over); }) == PJ4_BAD &&
+          ({ pj4_sec_t d[2] = {{PJ4_TAG('A', 'A', 'A', 'A'), 0, 0}, {PJ4_TAG('A', 'A', 'A', 'A'), 0, 0}}; pj4_save(&WS, 2, &h, d, 2, 0, 0, pget, &a, &over); }) == PJ4_BAD);
     return 0;
 }
 
@@ -695,6 +720,8 @@ static int image(int dump, const char *f)
 
 int main(int argc, char **argv)
 {
+    seed_base = getenv("PJ4_SEED") ? (uint32_t)strtoul(getenv("PJ4_SEED"), 0, 10) : 20261104u;
+    if (argc != 3) printf("pj4: indeterminate-bit seed %u (PJ4_SEED=n repeats a run; a failing point prints its own seed)\n", (unsigned)seed_base);
     if (argc == 3 && !strcmp(argv[1], "--dump")) return image(1, argv[2]);
     if (argc == 3 && !strcmp(argv[1], "--verify")) { image(0, argv[2]); printf("pj4: %s\n", bad ? "FAILED" : "old store: passed"); return bad != 0; }
     test_basic();

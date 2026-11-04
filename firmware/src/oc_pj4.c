@@ -63,6 +63,39 @@ typedef struct {
 } pj4_head_t;
 typedef struct { uint8_t chunk[256]; uint32_t crc[256]; uint16_t rsv[256]; uint8_t gen[32]; } pj4_dir_t;   /* by phrase id (entry 0 unused) */
 
+typedef struct {
+    uint8_t of[PJ4_NPH + 1u];                  /* the chunk of phrase index i */
+    uint16_t first[PJ4_NPH + 1u];              /* chunk n's first phrase index */
+    uint8_t cnt[PJ4_NPH + 1u];                 /* .. and how many */
+    uint16_t bytes[PJ4_NPH + 1u];              /* .. its payload bytes */
+    uint32_t n;                                /* chunks */
+} pj4_plan_t;
+typedef struct { const uint8_t *p; uint32_t n; } pj4_seg_t;
+typedef struct { ocs_src_t src; pj4_seg_t seg[2u * PJ4_NSEC + 2u]; uint32_t nseg, i, o; } pj4_rsrc_t;
+
+/* The working memory of one operation (a save, a sweep, a conversion, a restore): about 9.6 KB, taken by the caller for that operation only (the audio arena when
+ * the transport is stopped, as every flash write already requires, or the boot's own buffer) and given back; nothing of it is resident. */
+typedef struct {
+    pj4_dir_t d0;                              /* the directory in charge */
+    pj4_dir_t d1;                              /* the one being made */
+    uint8_t scr[PJ4_HSEC_LEN + PJ4_DIR_LEN];   /* HEAD and PHRD as written */
+    pj4_plan_t pl;
+    pj4_rsrc_t rs;
+    uint8_t sh[PJ4_NSEC][8];
+    uint8_t hd[PJ4_HEAD_LEN];
+    uint8_t chg[PJ4_NPH + 1u];
+    pj4_phr_t ph[PJ4_NPH];                     /* (the conversion's phrase list) */
+} pj4_ws_t;
+#define PJ4_WS ((uint32_t)sizeof(pj4_ws_t))
+static pj4_ws_t *pj4_w;                        /* the operation's, set by each entry point (4 B resident) */
+#define pj4_d0 (pj4_w->d0)
+#define pj4_d1 (pj4_w->d1)
+#define pj4_scr (pj4_w->scr)
+#define pj4_pl (pj4_w->pl)
+#define pj4_rs (pj4_w->rs)
+#define pj4_sh (pj4_w->sh)
+#define pj4_hd (pj4_w->hd)
+
 static uint32_t pj4_g16(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8; }
 static uint32_t pj4_g32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static void pj4_p16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
@@ -71,9 +104,6 @@ static uint32_t pj4_rid(uint32_t slot) { return 0x8000u | slot; }
 static uint32_t pj4_cid(uint32_t slot, uint32_t gen, uint32_t n) { return 0x8000u | slot << 9 | gen << 8 | n; }
 static int pj4_mine(uint32_t id) { return (id & 0xF800u) == 0x8000u; }          /* bit 15 and bits 11..14 clear: ours (a later release may use the others) */
 
-static pj4_dir_t pj4_d0 __attribute__((section(".pool")));                      /* the directory in charge */
-static pj4_dir_t pj4_d1 __attribute__((section(".pool")));                      /* the one being made */
-static uint8_t pj4_scr[PJ4_HSEC_LEN + PJ4_DIR_LEN] __attribute__((section(".pool")));   /* HEAD and PHRD as written */
 
 static void pj4_dir_clear(pj4_dir_t *d) { memset(d, 0, sizeof *d); memset(d->chunk, PJ4_NONE, sizeof d->chunk); }
 static int pj4_gen(const pj4_dir_t *d, uint32_t n) { return (d->gen[n >> 3] >> (n & 7u)) & 1u; }
@@ -177,14 +207,6 @@ static int pj4_carry(uint32_t slot, const uint32_t *known, uint32_t nk, uint8_t 
 }
 
 /* ---------------------------------------------------------- the chunks --- */
-typedef struct {
-    uint8_t of[PJ4_NPH + 1u];                  /* the chunk of phrase index i */
-    uint16_t first[PJ4_NPH + 1u];              /* chunk n's first phrase index */
-    uint8_t cnt[PJ4_NPH + 1u];                 /* .. and how many */
-    uint16_t bytes[PJ4_NPH + 1u];              /* .. its payload bytes */
-    uint32_t n;                                /* chunks */
-} pj4_plan_t;
-static pj4_plan_t pj4_pl __attribute__((section(".pool")));
 
 /* phrases in ascending id order into chunks, as many as fill a part, a larger one alone */
 static void pj4_plan(const pj4_phr_t *ph, uint32_t nph)
@@ -261,8 +283,6 @@ static int pj4_cget(ocs_src_t *s, uint8_t *dst, uint32_t n)
 }
 
 /* a gathered record: header, HEAD, PHRD and the caller's sections, as segments */
-typedef struct { const uint8_t *p; uint32_t n; } pj4_seg_t;
-typedef struct { ocs_src_t src; pj4_seg_t seg[2u * PJ4_NSEC + 2u]; uint32_t nseg, i, o; } pj4_rsrc_t;
 static int pj4_rget(ocs_src_t *s, uint8_t *dst, uint32_t n)
 {
     pj4_rsrc_t *g = (pj4_rsrc_t *)s;
@@ -276,16 +296,14 @@ static int pj4_rget(ocs_src_t *s, uint8_t *dst, uint32_t n)
     }
     return 0;
 }
-static pj4_rsrc_t pj4_rs __attribute__((section(".pool")));
-static uint8_t pj4_sh[PJ4_NSEC][8] __attribute__((section(".pool")));
-static uint8_t pj4_hd[PJ4_HEAD_LEN] __attribute__((section(".pool")));
 
 /* ---------------------------------------------------------- the sweep ---- */
 /* erase every chunk record no current project record names (3.1): the generation a record does not name, a chunk number it does not use, every chunk of a slot with
  * no record. Records whose id is not ours (bit 15 set, bits 11..14 clear) are left alone. Returns the sectors erased */
-static uint32_t pj4_sweep(void)
+static uint32_t pj4_sweep(pj4_ws_t *w)
 {
     uint32_t slot, s, n = 0;
+    pj4_w = w;
     for (slot = 0; slot < PJ4_SLOTS; slot++) {
         uint8_t used[PJ4_NPH + 1u];
         uint32_t i;
@@ -308,12 +326,13 @@ static uint32_t pj4_sweep(void)
  * phrases ph[0..nph) (ascending ids 1..255, length 1..PJ4_PHMAX, CRC-32 of their bytes) read through get. 0 saved. PJ4_FULL: nothing written, *over the bytes
  * short (3.2); PJ4_BAD a request that is not valid; PJ4_SRC the phrases changed under the save; another negative a flash error. A failure leaves the record in charge
  * as it was and sweeps the chunks it wrote */
-static int pj4_save(uint32_t slot, pj4_head_t *h, const pj4_sec_t *secs, uint32_t nsec, const pj4_phr_t *ph, uint32_t nph, pj4_get_t get, void *ctx, uint32_t *over)
+static int pj4_save(pj4_ws_t *w, uint32_t slot, pj4_head_t *h, const pj4_sec_t *secs, uint32_t nsec, const pj4_phr_t *ph, uint32_t nph, pj4_get_t get, void *ctx, uint32_t *over)
 {
     pj4_head_t old;
     uint32_t i, n, need = PJ4_RESERVE, reclen, free_n;
-    uint8_t chg[PJ4_NPH + 1u];
     int rc, had;
+    uint8_t *chg;
+    pj4_w = w; chg = w->chg;
     if (slot >= PJ4_SLOTS || nph > PJ4_NPH || nsec + 2u > PJ4_NSEC) return PJ4_BAD;
     for (i = 0; i < nph; i++)
         if (!ph[i].id || (i && ph[i].id <= ph[i - 1u].id) || !ph[i].len || ph[i].len > PJ4_PHMAX) return PJ4_BAD;
@@ -345,7 +364,7 @@ static int pj4_save(uint32_t slot, pj4_head_t *h, const pj4_sec_t *secs, uint32_
         if (!chg[n]) continue;
         c.src.get = pj4_cget; c.ph = ph; c.i = pj4_pl.first[n]; c.end = c.i + pj4_pl.cnt[n]; c.pos = 0; c.crc = 0; c.get = get; c.ctx = ctx;
         k = pj4_pl.bytes[n];
-        if ((rc = ocs_write_src(OCS_POOL, pj4_cid(slot, pj4_gen(&pj4_d1, n), n), &c.src, k)) != 0) { pj4_sweep(); return rc; }
+        if ((rc = ocs_write_src(OCS_POOL, pj4_cid(slot, pj4_gen(&pj4_d1, n), n), &c.src, k)) != 0) { pj4_sweep(w); return rc; }
     }
     /* the record, last: the commit */
     pj4_head_enc(h, pj4_scr);
@@ -364,16 +383,17 @@ static int pj4_save(uint32_t slot, pj4_head_t *h, const pj4_sec_t *secs, uint32_
         pj4_rs.seg[pj4_rs.nseg++] = (pj4_seg_t){pj4_sh[2u + i], 8};
         if (secs[i].len) pj4_rs.seg[pj4_rs.nseg++] = (pj4_seg_t){secs[i].p, secs[i].len};
     }
-    if ((rc = ocs_write_src(OCS_PROJECT, pj4_rid(slot), &pj4_rs.src, reclen)) != 0) { pj4_sweep(); return rc; }
-    pj4_sweep();                               /* (the old generation of every chunk rewritten, and the chunks the record no longer uses) */
+    if ((rc = ocs_write_src(OCS_PROJECT, pj4_rid(slot), &pj4_rs.src, reclen)) != 0) { pj4_sweep(w); return rc; }
+    pj4_sweep(w);                               /* (the old generation of every chunk rewritten, and the chunks the record no longer uses) */
     return 0;
 }
 
 /* phrase id of the slot, whole into dst (max): its length; -1 none, too long, or its bytes do not match the directory's CRC */
-static int pj4_phrase_read(uint32_t slot, uint32_t id, uint8_t *dst, uint32_t max)
+static int pj4_phrase_read(pj4_ws_t *w, uint32_t slot, uint32_t id, uint8_t *dst, uint32_t max)
 {
     ocs_rec_t r;
     uint32_t n, pos = 0;
+    pj4_w = w;
     if (!id || id > PJ4_NPH || pj4_dir_load(slot, &pj4_d0)) return -1;
     n = pj4_d0.chunk[id];
     if (n == PJ4_NONE || ocs_open(OCS_POOL, pj4_cid(slot, pj4_gen(&pj4_d0, n), n), &r)) return -1;
@@ -393,10 +413,10 @@ static int pj4_phrase_read(uint32_t slot, uint32_t id, uint8_t *dst, uint32_t ma
 }
 
 /* erase the slot's project and every chunk of it (a run time restore replaces a slot whole: 9). The record goes first; a cut after leaves chunks the sweep erases */
-static int pj4_slot_clear(uint32_t slot)
+static int pj4_slot_clear(pj4_ws_t *w, uint32_t slot)
 {
     int rc = ocs_delete(OCS_PROJECT, pj4_rid(slot));
-    pj4_sweep();
+    pj4_sweep(w);
     return rc;
 }
 
@@ -469,13 +489,14 @@ static int pj4_cv_get(void *ctx, uint32_t id, uint8_t *dst, uint32_t off, uint32
  * the new record starts with (name, seed, uid ..: the caller's; the project layer makes them). crcmap, when not null, is filled with the new CRC of phrase id
  * (index id) so that the freeze table's hashes can be recomputed (9 step 4). 0 converted (the old record erased); PJ4_FULL with *over; -1 no old record; else
  * the save's. Idempotent: a slot that already has a new record only has its old one erased */
-static int pj4_convert(uint32_t slot, uint64_t names, uint8_t *work, pj4_head_t *h, uint32_t *over, uint32_t *crcmap)
+static int pj4_convert(pj4_ws_t *w, uint32_t slot, uint64_t names, uint8_t *work, pj4_head_t *h, uint32_t *over, uint32_t *crcmap)
 {
-    pj4_phr_t ph[PJ4_NPH];
+    pj4_phr_t *ph;
     pj4_cv_t cv;
     pj4_sec_t sec;
     uint32_t nph = 0, id;
     int rc, rl;
+    pj4_w = w; ph = w->ph;
     if (pj4_dir_load(slot, &pj4_d0) == 0) return ocs_delete(OCS_PROJECT, slot);   /* (a cut after the commit: finish step 5) */
     cv.names = names; cv.raw = work; cv.out = work + PJ4_PHMAX + 3u; cv.cached = 0;
     rl = ocs_read(OCS_PROJECT, slot, work + 2u * (PJ4_PHMAX + 3u), PJ4_RECMAX);
@@ -489,7 +510,7 @@ static int pj4_convert(uint32_t slot, uint64_t names, uint8_t *work, pj4_head_t 
         nph++;
     }
     sec.tag = PJ4_T_OJ3B; sec.len = (uint32_t)rl; sec.p = work + 2u * (PJ4_PHMAX + 3u);
-    if ((rc = pj4_save(slot, h, &sec, 1, ph, nph, pj4_cv_get, &cv, over)) != 0) return rc;
+    if ((rc = pj4_save(w, slot, h, &sec, 1, ph, nph, pj4_cv_get, &cv, over)) != 0) return rc;
     return ocs_delete(OCS_PROJECT, slot);                                        /* (step 5) */
 }
 
@@ -507,10 +528,11 @@ static void pj4_old_pool_trim(const uint64_t *names)
 /* the boot's step (9): the sweep, then each slot: a new record and an old one (a cut conversion) -> the old one erased; an old one only -> converted; nothing -> as is.
  * status[slot]: 0 nothing, 1 converted (or already), 2 OLD FORMAT (does not fit; *over[slot] the bytes short), 3 failed otherwise. mk(slot, head) makes the head of a
  * slot's new project (name, seed, uid ..) */
-static void pj4_boot(const uint64_t *names, uint8_t *work, void (*mk)(uint32_t slot, pj4_head_t *h), uint8_t *status, uint32_t *over)
+static void pj4_boot(pj4_ws_t *w, const uint64_t *names, uint8_t *work, void (*mk)(uint32_t slot, pj4_head_t *h), uint8_t *status, uint32_t *over)
 {
     uint32_t slot;
-    pj4_sweep();
+    pj4_w = w;
+    pj4_sweep(w);
     for (slot = 0; slot < PJ4_SLOTS; slot++) {
         pj4_head_t h;
         int rc;
@@ -518,7 +540,7 @@ static void pj4_boot(const uint64_t *names, uint8_t *work, void (*mk)(uint32_t s
         if (!ocs_exists(OCS_PROJECT, slot)) { status[slot] = pj4_dir_load(slot, &pj4_d0) == 0; continue; }
         memset(&h, 0, sizeof h);
         mk(slot, &h);
-        rc = pj4_convert(slot, names[slot], work, &h, &over[slot], 0);
+        rc = pj4_convert(w, slot, names[slot], work, &h, &over[slot], 0);
         status[slot] = rc == 0 ? 1 : rc == PJ4_FULL ? 2 : 3;
     }
     pj4_old_pool_trim(names);
