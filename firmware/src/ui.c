@@ -286,8 +286,23 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
     return 0;
 }
 
+#if OC_MGRID
+/* GRID is for the pitched tracks: not DRUM or DRUM-X (their own grid), not a kit (a one-shot engine), not a slice track */
+static int mgrid_track(const track_t *t)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    return !drum_track(t) && !e->oneshot
+#if MELODEE_SLICE
+           && e != &ENG_SLICE
+#endif
+        ;
+}
+#endif
 static int page_visible(uint32_t i)
 {
+#if OC_MGRID
+    if (page_at(i)->graph == GR_MGRID) return mgrid_track(TSEL);
+#endif
     if (page_at(i)->scope == SC_MOD)                      /* (0.12.0) a module's page: its engine is the track's */
         return modpage_engine(i, 0) == TSEL->eng_req;
     if (page_at(i)->fam == FAM_FX && page_at(i)->scope == SC_GLOBAL && page_at(i)->id[0] >= G_SLP0 && page_at(i)->id[0] <= G_SLP15)

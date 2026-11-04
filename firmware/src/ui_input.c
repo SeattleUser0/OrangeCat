@@ -10,6 +10,13 @@
 /* Melodee UI input: LEDs, knobs and buttons, SEQ step entry, panel setup. */
 #include "ui_name.c"                                    /* NAME: naming user presets and projects */
 #include "ui_new.c"                                     /* NEW SONG: key, tempo, roles */
+#if OC_MGRID
+static int mgrid_on(void);                                      /* ui_mgrid_edit.c */
+static void mgrid_frame(uint32_t pressed);
+static int mgrid_cancel(void);
+static uint32_t mgrid_leds(uint32_t *dim);
+static void mgrid_reset(void);
+#endif
 /* ----------------------------------------------------------- LEDs --- */
 /* The LED picture is built off-line and copied one byte per column: clearing
  * and relighting would let the 10 kHz scan catch the dark gap and flicker. */
@@ -502,9 +509,17 @@ static void ui_leds(void)
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
-    play = !pattern_keys_on() && ui.confirm != CF_PAT_KEY && !(name_on() && !ui.menu) && !ui.layer && !grid_on();
+    play = !pattern_keys_on() && ui.confirm != CF_PAT_KEY && !(name_on() && !ui.menu) && !ui.layer && !grid_on()
+#if OC_MGRID
+           && !mgrid_stage_step()                       /* (melodic-grid: STEP stage shows the steps, not the layout) */
+#endif
+        ;
     c = pattern_keys_on() || ui.confirm == CF_PAT_KEY ? pattern_leds(&pdim, &pbr) : name_on() && !ui.menu ? name_leds() :
-        ui.layer ? layer_leds() : grid_on() ? grid_leds() : fm1_in.notes & ~kb_layer;   /* the patterns (SEQ held, its
+        ui.layer ? layer_leds() : grid_on() ? grid_leds() :
+#if OC_MGRID
+        mgrid_stage_step() ? mgrid_leds(&pdim) :
+#endif
+        fm1_in.notes & ~kb_layer;   /* the patterns (SEQ held, its
                                                          * dialog), NAME's keys, the map, the grid, the keys held */
 #if MELODEE_SLICE
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
@@ -1829,6 +1844,9 @@ static uint32_t step_modifier_mask(void)                /* (EDIT: NOTES only) */
     if (grid_on() && live_rec_sel()) return 1u << panel.btn[B_EDIT];
 #if OC_STEP_PAGES
     if (cur_page()->graph == GR_FEEL) return 1u << panel.btn[B_EDIT];   /* (FEEL: EDIT only: tapped resets, held undoes) */
+#if OC_MGRID
+    if (cur_page()->graph == GR_MGRID) return 1u << panel.btn[B_EDIT];  /* (melodic-grid: EDIT only; ENV and SCL keep their layers) */
+#endif
 #endif
     return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
            (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_TRACKER ? 1u << panel.btn[B_EDIT] : 0u);
@@ -1996,8 +2014,8 @@ static void step_delete_edit(void)
 #endif
     if (cur_page()->graph == GR_TRACKER && tracker_delete()) return;   /* (0.5.2) a note column's note, an effect */
     if(cur_page()->graph==GR_ROLL&&bulk.on){notes_bulk_delete();return;}
-    if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_delete_edit(); return; }
-    if (cur_page()->graph == GR_ROLL) {
+    if ((cur_page()->graph == GR_ROLL || mgrid_page()) && notes_selected(TSEL) < RECORD_MAX) { notes_delete_edit(); return; }
+    if (cur_page()->graph == GR_ROLL || mgrid_page()) {
         uint32_t start = notes_manual_start(TSEL);
         if (start < NSTEP && TSEL->step[start].n > 1u) {
             fm1_irq_off();
@@ -2018,7 +2036,7 @@ static void step_delete_edit(void)
     at = step_note_start(TSEL, ui.cursor);
     step_delete(TSEL, ui.cursor);
     fm1_irq_on();
-    cursor_set((int32_t)(at < NSTEP ? at : ui.cursor) + 1);
+    cursor_set(mgrid_page() ? (int32_t)ui.cursor : (int32_t)(at < NSTEP ? at : ui.cursor) + 1);   /* (GRID: the cursor stays where it was picked) */
     ui_message(at < NSTEP ? "NOTE CLEARED" : "STEP CLEARED");
 }
 
@@ -2111,7 +2129,7 @@ static void seq_entry_finish(void)
             held &= ~(1u << k);
     if (ui.entry_open && !held && !step_midi_held) {
         uint32_t n = step_note_length(TSEL, ui.cursor);
-        if(settings_chord_add)ui.entry_open=0; else cursor_set(ui.cursor + (n ? n : 1u));
+        if(settings_chord_add || mgrid_page())ui.entry_open=0; else cursor_set(ui.cursor + (n ? n : 1u));   /* (GRID: the cursor never moves by itself) */
         step_history_end();                          /* two MIDI taps in one UI frame remain separate edits */
     }
 }
@@ -2547,6 +2565,9 @@ static void ui_confirm_accept(void)
 #if OC_STEP_PAGES
 #include "ui_feel_edit.c"                               /* (the new interface 0.4, UI_BUILD.md step 4) FEEL's edit, NOTES' knob map */
 #endif
+#if OC_MGRID
+#include "ui_mgrid_edit.c"                              /* (melodic-grid) GRID's keys, stages and knobs */
+#endif
 #if OC_ONE_AUTH
 #include "ui_one_auth.c"                                /* (ui-fix 7) one authority: START converts, the tracker's move of a recorded step */
 #endif
@@ -2708,7 +2729,11 @@ static void ui_input(void)
     if (!step_page() || drum_track(TSEL) || ui.menu || ui.confirm || name_on() || lay || live_rec_sel() || chain_busy())
         seq_midi_events(0);                         /* discard events during modal/layer input too */
     if (ui.seen_pattern_gen != TSEL->pattern_gen) {
-        if (ui.seen_pattern_gen) { seq_midi_reset(); ui.entry_open = ui.step_move = ui.note_move = ui.note_copy = 0; cursor_set(0); ui.force = 1; }
+        if (ui.seen_pattern_gen) { seq_midi_reset(); ui.entry_open = ui.step_move = ui.note_move = ui.note_copy = 0; cursor_set(0); ui.force = 1;
+#if OC_MGRID
+            mgrid_reset();                              /* (a load, a pattern change: GRID is back in STEP) */
+#endif
+        }
         ui.seen_pattern_gen = TSEL->pattern_gen;
     }
     if(bulk.on && (ui.home || slot_kind()==SK_PROJECT || bulk.track!=song.sel || bulk.pattern!=TSEL->pattern || bulk.engine!=library_engine() ||
@@ -2958,6 +2983,9 @@ static void ui_input(void)
     if(bulk.on && !slot_kind() && !ui.home && cur_page()->graph==GR_ROLL && (oct&2u)){
         notes_bulk_sheet_open();oct=0;
     } else if((bulk.on||ui.note_move||ui.note_copy)&&(oct&1u)){bulk_clear();oct=0;}
+#if OC_MGRID
+    if ((oct & 1u) && mgrid_cancel()) oct &= ~1u;       /* (GRID, NOTE stage: OCT- cancels back to STEP, the step as it was) */
+#endif
     if (list_on() && (oct & 2u)) {                      /* a list page: OCT+ the row's list, OCT- Stage */
         list_enter();
     } else if (list_on() && (oct & 1u)) {
@@ -3021,8 +3049,15 @@ static void ui_input(void)
         drum_pick_lane(dxe_lane((uint32_t)ENG_DRUMX.keys(TSEL, k)));
     }
     pattern_keys(bank_notes);
+#if OC_MGRID
+    if (!mgrid_on()) mgrid_reset();                     /* (the stage lives on the GRID page only) */
+#endif
     if (pattern_keys_on() || ui.pat_key) {
         seq_midi_events(0);
+#if OC_MGRID
+    } else if (mgrid_on()) {                            /* (melodic-grid) GRID: STEP picks, NOTE plays into the picked step */
+        mgrid_frame(notes);
+#endif
     } else if (song.grid) {
         if (!seq_erase_active(TSEL)) grid_keys(notes);
         else seq_midi_events(0);
@@ -3085,7 +3120,7 @@ static void ui_input(void)
         drum_pick_lane((uint32_t)clamp((int32_t)ui.lane + (s > 0 ? 1 : -1), 0, NLANE - 1));
 #endif
 #if OC_STEP_PAGES
-    } else if (s && feel_page()) {                      /* (the new interface 0.4) FEEL: PRESETS the step */
+    } else if (s && (feel_page() || mgrid_page())) {    /* (the new interface 0.4) FEEL: PRESETS the step; (melodic-grid) GRID too */
         cursor_set((int32_t)ui.cursor + s);
         ui.force = 1;
     } else if (s && !ui.home && cur_page()->graph == GR_PATGRID) {   /* (ui-fix 2) CHAIN: PRESETS the selected track's chain,

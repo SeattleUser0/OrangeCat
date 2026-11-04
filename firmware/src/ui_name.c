@@ -59,7 +59,17 @@ static void name_close(void)
 }
 /* the keys: 2 = NAME's and SEQ's pattern dialog's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads
  * song.grid) */
-static uint32_t keys_mode(void) { return name_on() || ui.confirm == CF_PAT_KEY ? 2u : designer_on() ? 0u : (uint32_t)grid_on(); }
+#if OC_MGRID
+static int mgrid_stage_step(void);
+#endif
+static uint32_t keys_mode(void)
+{
+    return name_on() || ui.confirm == CF_PAT_KEY ? 2u : designer_on() ? 0u :
+#if OC_MGRID
+           mgrid_stage_step() ? 3u :                                  /* (melodic-grid) GRID, STEP stage: the keys pick steps and pages, silent */
+#endif
+           (uint32_t)grid_on();
+}
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {

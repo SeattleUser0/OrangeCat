@@ -198,6 +198,16 @@
 #if OC_REC_CLEAR && !OC_STEP_PAGES
 #error "OC_REC_CLEAR needs OC_STEP_PAGES (UI_BUILD.md ui-fix2 2)"
 #endif
+#ifndef OC_MGRID
+#define OC_MGRID 0                /* (melodic-grid, docs/orangecat/MELODIC_GRID_PLAN.md) 1: SEQ > GRID, the melodic step grid: a pitched track's 16 white keys are the steps of a page, the first four black keys the pages;
+                                   * a white key picks a step and the keyboard then plays its notes (ui_mgrid.c, ui_mgrid_edit.c). Input only: no format, audio or scheduler change; needs OC_ONE_AUTH */
+#endif
+#if OC_MGRID && !OC_ONE_AUTH
+#error "OC_MGRID needs OC_ONE_AUTH (the entry paths it reuses are the one-authority ones: UI_BUILD.md melodic-grid)"
+#endif
+#if OC_MGRID
+#define GR_MGRID 0x62             /* GRID's graph kind: outside fw_pages.h's enum, as GR_FEEL and GR_LANES, so the module interface's id does not move */
+#endif
 #ifndef OC_PROJECT_PAGE
 #define OC_PROJECT_PAGE 0         /* (ui-fix2 3, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 3") 1: one plain project page: SAVE opens it, the slot now in
                                    * use is marked and named on screen with whether it has unsaved changes, a LOAD over unsaved changes asks first (ui_slots.c) */

@@ -384,7 +384,7 @@ ui_renders_shift() {                              # (the new interface 0.3, UI_B
 }
 ui_renders_steps() {                              # (the new interface 0.4, UI_BUILD.md step 4) every screen again with every step's switch and
                                                   # the step pages: FEEL and NOTES' strip in every palette: the lint, MONO gray; PNGs in build/ui_steps
-    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_steps/ppm build/ui_steps_slot
     step "UI renders with the step pages built in (OC_STEP_PAGES=1): every screen, FEEL, NOTES' strip, lint, MONO gray" \
         "$OUT/ui_render_steps" build/ui_steps build/ui_steps_slot
@@ -720,6 +720,10 @@ if core && [ $TABLES = 1 ]; then
         one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix2 5: one authority with NOTES' K2 as NUDGE (the shipping pair of switches): every edit path keeps the invariant" \
         one_auth_nudge:one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    t "melodic-grid: SEQ > GRID, the melodic step grid: its ten Done-when items (cursor, pages, picking, undo, lengths and effects, project, DRUM-X, transport, recorded timing, frozen, live REC), the keys and lights" \
+        mgrid_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    t "melodic-grid with the shipping set of switches (SLIDE, SLIDE TIME, START NUDGE, REC CLEAR, PROJECT PAGE, LANES, MIXER, CLIP): the same items" \
+        mgrid_ship:mgrid_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix 8: slide and legato: a slide step glides the voice legato in every voice mode, a chord voice by voice, into a rest, a recorded overlap, never a ratchet" \
         slide_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix2 2: REC held, stopped: the count, the clears (HOME, a SEQ page, a track's FX, GLO, automation), one undo each; GLO's one undo over four tracks and recorded notes" \

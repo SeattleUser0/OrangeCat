@@ -36,6 +36,7 @@ Tap SEQ to step through them. Hold SEQ to jump to CHAIN.
 |---|---|---|---|---|
 | NOTES | The piano roll (Melodee's) | | | |
 | TRACKER | The phrase as rows: # N1 N2 N3 N4 VEL FX | 1 row, 2 column, 3 value, 4 length (in FX: amount) | The note's sheet | |
+| GRID | The 16 steps of a page on the keys (pitched tracks only) | 1 step, 2 note of the chord, 3 pitch, 4 length | | |
 | PHRASE | LEN, DIV, SWING, GATE | | | |
 | GROOVE | The track's groove | 1 template, 2 amount | | |
 | TEMPO | BPM, swing, quantize | | | |
@@ -46,6 +47,17 @@ Tap SEQ to step through them. Hold SEQ to jump to CHAIN.
 On CHAIN, if you change the phrase in the slot a track is on, the track switches to it when the knob rests.
 
 On NOTES, TRACKER and PHRASE, OCT+ held opens the pattern's sheet: Quantize, Shift right, Shift left, Reverse, Clear pattern, Clear motion.
+
+### GRID
+
+For pitched tracks (not DRUM, DRUM-X, kit or slice tracks). The 16 white keys are the 16 steps of the page shown; the first four black keys (F# G# A# C#) show pages 1 to 4 (steps 1 to 16, 17 to 32, 33 to 48, 49 to 64). A step or a page past the phrase's LEN is dim and does nothing. The screen has two words in its corner: **STEP** (an outline) and **NOTE** (filled, with a frame round the screen).
+
+- **STEP** (the keys are silent): a white key **picks** that step. Picking changes nothing in the step. Black keys 5 to 11 do nothing. The key lights show the picked step and the page; steps that hold notes are dim.
+- **NOTE** (the keys play): when the picking key is let go the keyboard goes to NOTE. The next keys played are the picked step's notes: the first key starts the step afresh, keys held together are a chord of up to four, black keys are sharps. When every note is let go the keyboard goes back to STEP with the cursor on the same step; the cursor never moves by itself. **OCT-** in NOTE cancels: the step is as it was.
+- **External MIDI** notes go into the picked step in either stage.
+- **KNOB 1** moves the cursor in either stage (across pages). **KNOB 2** picks a note of the chord, **KNOB 3** changes its pitch, **KNOB 4** its length.
+- **EDIT** deletes the picked note (or the step, when it is the last note). **EDIT held** undoes: a replaced chord comes back in one undo.
+- Velocity, accent, slide, ratchet, chance and conditions are not here: they stay in FEEL, the note's sheet and TRACKER. Live recording (REC armed and playing) works as on NOTES; GRID is inert then. A frozen phrase refuses what NOTES refuses.
 
 ### TRACKER
 

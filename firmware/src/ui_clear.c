@@ -100,6 +100,9 @@ static void clr_page(void)
         return;
     }
     if (pg->scope != SC_STEP && pg->scope != SC_DRUMHIT) return;
+#if OC_MGRID
+    if (pg->graph == GR_MGRID) { ui_message("NOTHING TO RESET"); return; }   /* (melodic-grid: the page shows notes and lengths, no value to put back; chance, velocity and the rest are other pages') */
+#endif
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
     base = ui.cursor / 16u * 16u;
     len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);

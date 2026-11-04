@@ -740,6 +740,9 @@ static const page_t PAGES[] = {
     {"FEEL", FAM_SEQ, SC_STEP, GR_FEEL, {0, 1, 2, 3}},   /* (the new interface 0.4, UI_BUILD.md step 4) the steps' chance, ratchet, nudge, type (ui_feel.c) */
 #endif
     {"TRACKER", FAM_SEQ, SC_STEP, GR_TRACKER, {0, 1, 2, 3}},   /* (Orange Cat 0.4.2) the phrase as rows (ui_tracker.c) */
+#if OC_MGRID
+    {"GRID", FAM_SEQ, SC_STEP, GR_MGRID, {0, 1, 2, 3}},   /* (melodic-grid) a pitched track's steps on the keys (ui_mgrid.c); not on DRUM, DRUM-X, kit or slice tracks (ui.c page_visible) */
+#endif
     {"PHRASE", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},   /* (Orange Cat 0.4: was PATTERN) */
     {"GROOVE", FAM_SEQ, SC_GLOBAL, GR_GROOVE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* (Orange Cat 0.4.5) ui_groove.c */
     {"TEMPO", FAM_SEQ, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_TRK_RECQ, 0xFF}},   /* the project's: saved with it; QNT: the

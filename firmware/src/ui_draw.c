@@ -631,6 +631,29 @@ static void draw_columns(void)
         draw_column(3, "", val, unit[0] ? " %" : "", a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
         return;
     }
+#if OC_MGRID
+    if (cur_page()->graph == GR_MGRID) {                /* (melodic-grid, ui_mgrid.c) STEP, NOTE in the chord, PITCH, LEN of the picked note */
+        uint32_t chosen = notes_selected(TSEL), start = notes_manual_start(TSEL);
+        const step_t *st = start < NSTEP ? &TSEL->step[start] : 0;
+        int selected = chosen < RECORD_MAX || (st && st->n);
+        char sn[12], u[12];
+        fmt_int(sn, (int32_t)ui.cursor + 1); u[0] = '/'; fmt_int(u + 1, TSEL->p[P_SLEN]);
+        draw_column(0, "STEP", sn, u, T_COZY(0u), -1, ICON_AUTO);
+        if (chosen < RECORD_MAX) str_cpy(sn, "REC", sizeof sn);
+        else if (st && st->n) { fmt_int(sn, (int32_t)notes_manual_slot(st) + 1); u[0] = '/'; fmt_int(u + 1, st->n); }
+        else str_cpy(sn, "--", sizeof sn);
+        draw_column(1, "NOTE", sn, chosen >= RECORD_MAX && st && st->n ? u : "", selected ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
+        note_name(sn, chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note);
+        draw_column(2, "PITCH", sn, "", selected ? T_COZY(2u) : T_DIM, -1, ICON_PITCH);
+        if (chosen < RECORD_MAX) {
+            uint32_t h = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
+            if (!h) str_cpy(sn, "<.01", sizeof sn); else feel_hund(sn, h, 0);
+        } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
+        else str_cpy(sn, "--", sizeof sn);
+        draw_column(3, "LEN", sn, "", selected ? T_COZY(3u) : T_DIM, -1, ICON_GATE);
+        return;
+    }
+#endif
 #if OC_STEP_PAGES
     if (cur_page()->graph == GR_FEEL) {                 /* (the new interface 0.4, ui_feel.c) the cursor step's four values */
         const step_t *st = &TSEL->step[ui.cursor % NSTEP];
