@@ -944,7 +944,7 @@ static void keyboard_block(void)
 
                 continue;
             }
-            if (dub_view_on && k >= DUBK_FIRST && k <= DUBK_LAST) {   /* (dub-perf) HOME's DUB page: the octave C4 .. B4 is its keys, not notes */
+            if (dub_view_on && song.grid < 2u && k >= DUBK_FIRST && k <= DUBK_LAST) {   /* (dub-perf; GRID or NAME, song.grid >= 2, owns every key even before the next draw clears dub_view_on)  HOME's DUB page: the octave C4 .. B4 is its keys, not notes */
                 kb_note[k] = KB_SILENT;
                 kb_dubk |= 1u << k;
                 dub_key(k, kb_trk[k], 1);
