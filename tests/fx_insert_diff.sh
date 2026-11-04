@@ -44,10 +44,6 @@ lines "$OUT/fxi_new.out" > "$OUT/fxi_new.lines"
 if git cat-file -e "$OLD_COMMIT^{commit}" 2>/dev/null; then
     rm -rf "$OUT/fxi_old" && mkdir -p "$OUT/fxi_old" && git archive "$OLD_COMMIT" firmware tests | tar -x -C "$OUT/fxi_old" || { echo "fx_insert_diff: git archive $OLD_COMMIT"; exit 1; }
     cp tests/fx_insert_test.c "$OUT/fxi_old/tests/"
-    # (round 18) dub-perf changed ECHO 0 on purpose (the wet stays where it was and the loop closes through the 3 ms cut, as CUT does): the same two edits go into OLD, so the gate still
-    # compares the cut and nothing else. Without them OLD and NEW differ in exactly the scenarios that take ECHO to 0.
-    sed -i -e 's/^    uint32_t crash;$/    uint32_t crash;\n    float wet_keep;/' -e 's/p->wet = (float)echo \* 0.01f;/p->wet = d->wet_keep = echo ? (float)echo * 0.01f : d->wet_keep;/' "$OUT/fxi_old/firmware/src/jfx_dub.c"
-    grep -q 'd->wet_keep = echo' "$OUT/fxi_old/firmware/src/jfx_dub.c" && grep -q 'float wet_keep;' "$OUT/fxi_old/firmware/src/jfx_dub.c" || { echo "fx_insert_diff: the ECHO 0 edit did not apply to OLD"; exit 1; }
     (cd "$OUT/fxi_old" && $CC $FLAGS -o "$OUT/fxi_old_bin" tests/fx_insert_test.c -lm) || { echo "fx_insert_diff: compile (OLD)"; exit 1; }
     "$OUT/fxi_old_bin" > "$OUT/fxi_old.out" 2>&1 || { cat "$OUT/fxi_old.out"; echo "fx_insert_diff: OLD probe failed"; exit 1; }
     lines "$OUT/fxi_old.out" > "$OUT/fxi_old.lines"
