@@ -11,8 +11,21 @@
  * 15 VA-VCF 16 PD 17 6OP A 18 6OP B 19 6OP C 20 TERRAN 21 STRMCH 22 CHIP 23 WAVTBL 24 SPEECH. The pick items past the models: 25, 26, 27 the
  * wave banks A, B, C (WAVTBL needs one at least; TERRAN's wave terrains use the ones present).
  *
- * THE UNITS (engine_t.units: what a voice of the model takes of the voice budget, voice.c): eng_macro.c MC_UNITS of 0.14.1 for MACRO's fifteen (from the unit's
- * measured costs, hw/LOG.md "MACRO by model"), docs/candidates/macro2.md section 7's proposals for the ten further models, to be recalibrated from BUILD.md 7.29's table. */
+ * THE UNITS (engine_t.units: what a voice of the model takes of the voice budget, voice.c): the rule, from the unit's measured costs (BUILD.md
+ * 7.29: each model alone through the packed module, one preset a model, the four-note chord on every step, one and four tracks, 20 s at 120 BPM;
+ * hw/LOG.md "MACRO by model", Flash 12 and 14, for the fifteen of MACRO). A half is 2,901 us (128 frames at 44.1 kHz), the budget 18 units,
+ * so a unit stands for 161 us. The half also carries the idle load (460 us) and 120 us a track; with four tracks that leaves 1,961 us for
+ * voices. Per voice, a model costs p us: the first track's worst half less the 580 us of idle and the one track, over the voices that
+ * preset sounds (one for a mono preset or a large model, else the four of the chord as the measured units admit them), and the cost a fourth
+ * track adds less its 120 us; the larger of the two, and for MACRO's fifteen the larger again of hw/LOG.md's own per-voice figures (Flash 12's
+ * with Flash 14's hot-set gain). The most voices of the model a half can render beside a steal's fade (an eighth of a voice, the cost caps'
+ * eighth) is n = floor((1,961 - p / 8) / p), and the units are the smallest U with floor(18 / U) <= n: four tracks of four-note chords then
+ * never render a late half, the budget steals down to n voices instead. ADDTV, MODAL and the three 6OP banks hold four tracks that way
+ * (n = 2, 1 and 2). The per-voice costs and the units, old -> new (the olds: eng_macro.c MC_UNITS for 0..14, macro2.md's proposals for the rest):
+ *   VA 313 us 4 -> 3 | WAVSHP 352 5 -> 4 | FM 462 8 -> 4 | GRAIN 258 4 -> 3 | ADDTV 765 9 -> 7 | CHORD 250 3 -> 3 | SWARM 385 5 -> 4 | NOISE 184 2 -> 2
+ *   PARTCL 327 4 -> 4 | STRING 408 4 -> 4 | MODAL 950 9 -> 10 | KICK 262 3 -> 3 | SNARE 340 4 -> 4 | HI-HAT 320 3 -> 3 | HARP 234 4 -> 3
+ *   VA-VCF 164 5 -> 2 | PD 395 5 -> 4 | 6OP A/B/C 705 6 -> 7 | TERRAN 209 7 -> 2 | STRMCH 241 5 -> 3 | CHIP 103 2 -> 1 | WAVTBL 350 8 -> 4 | SPEECH 237 5 -> 3
+ * (docs/candidates/model_picker.md "The units" has the table with every estimate; Session A measures four tracks of each heavy model at these.) */
 #ifndef PL_MODELS_LIST_H                               /* the list, once; the unit blocks below run at every inclusion (the host's one translation unit includes
 #define PL_MODELS_LIST_H                               * this header once per model unit), each consuming the includer's PL_WANT_<key> */
 #define PL_MODEL_LIST(X) X(0, va, "VA") X(1, wavshp, "WAVSHP") X(2, fm, "FM") X(3, grain, "GRAIN") X(4, addtv, "ADDTV") X(5, chord, "CHORD") \
@@ -29,6 +42,8 @@
 #define PL_MODEL_PTR(id, key, name) pl_mdl_##key##_ptr,
 #define PL_MODEL_NAME(id, key, name) name,
 
+#if PL_UNITS_OLD                                      /* the units before this release (eng_macro.c MC_UNITS of 0.14.1 for 0..14, macro2.md's proposals for the rest): a build
+ * for the proof that the restructured glue renders bit for bit as 0.16.0's (the budget's share of a chord changes with the units) */
 #define PL_UNITS_VA 4
 #define PL_UNITS_WAVSHP 5
 #define PL_UNITS_FM 8
@@ -52,6 +67,31 @@
 #define PL_UNITS_CHIP 2
 #define PL_UNITS_WAVTBL 8
 #define PL_UNITS_SPEECH 5
+#else
+#define PL_UNITS_VA 3
+#define PL_UNITS_WAVSHP 4
+#define PL_UNITS_FM 4
+#define PL_UNITS_GRAIN 3
+#define PL_UNITS_ADDTV 7
+#define PL_UNITS_CHORD 3
+#define PL_UNITS_SWARM 4
+#define PL_UNITS_NOISE 2
+#define PL_UNITS_PARTCL 4
+#define PL_UNITS_STRING 4
+#define PL_UNITS_MODAL 10
+#define PL_UNITS_KICK 3
+#define PL_UNITS_SNARE 4
+#define PL_UNITS_HIHAT 3
+#define PL_UNITS_HARP 3
+#define PL_UNITS_VAVCF 2
+#define PL_UNITS_PD 4
+#define PL_UNITS_6OP 7
+#define PL_UNITS_TERRAN 2
+#define PL_UNITS_STRMCH 3
+#define PL_UNITS_CHIP 1
+#define PL_UNITS_WAVTBL 4
+#define PL_UNITS_SPEECH 3
+#endif
 #endif /* PL_MODELS_LIST_H */
 
 /* the units: the model's header, then PL_MDL_UNIT(key, type, prefix, big, draws, enveloped, units, out, aux) (the levels: eng_macro.c MC_POST
