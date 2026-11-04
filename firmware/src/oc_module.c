@@ -441,6 +441,7 @@ static int oc_fx_find(uint32_t module_id)
 static int oc_mod_erase_start(uint32_t i);
 static int oc_mod_erase_loser(uint32_t i);
 static void oc_fxmod_kernel_reg(uint32_t i);
+static void oc_fxmod_note_use(uint32_t mid);
 #if MELODEE_DUB && OC_FX_MODK
 static uint32_t oc_fxk_start;                                   /* (round 18) the start of the module whose kernel the insert host holds (valid while fx_modk_ok) */
 #endif
@@ -522,6 +523,7 @@ static void oc_mod_boot(uint32_t crashed)
 #if MELODEE_DUB && OC_FX_MODK
     {   int fi = oc_fx_find(FX_MODK_ID);                        /* AFTER the window: the kernel's first call may come from the next audio interrupt, into code above the old window's end */
         if (!fx_modk_ok && fi >= 0) oc_fxmod_kernel_reg(oc_mod.fx[fi].start);
+        if (fx_modk_ok && fx_mod_bound) oc_fxmod_note_use(FX_MODK_ID);   /* the crash mark was zeroed above and the bound instances note only when they bind: taken again, now that the table is rebuilt (a note from an interrupt during the rebuild found no module) */
     }
 #endif
     /* (0.11.1) the loser of two valid modules is erased now, lazily: only when its rival is the registered one and no old preset pair may still lie in
@@ -780,9 +782,9 @@ static void oc_fxmod_kernel_guard(uint32_t first, uint32_t n)
             break;
         }
     if (!hit) return;
-    if (oc_mod_live) fm1_irq_off();
+    fm1_irq_off();                                              /* always: this is reached from oc_fxmod_begin / oc_fxmod_remove / oc_mod_end with oc_mod_live 0, in a running session (a module is registered only then: at power-on the kernel is not, so no erase gets here and the interrupts are not enabled early) */
     fx_modk_clear();
-    if (oc_mod_live) fm1_irq_on();
+    fm1_irq_on();
 #else
     (void)first; (void)n;
 #endif

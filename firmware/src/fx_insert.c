@@ -93,21 +93,29 @@ static void fx_ins_rebind(uint32_t k)
 {
     fx_ins_ready[k] = 0;
     fx_ins_refree |= (uint8_t)(1u << k);
+    fx_ins_gen[k] = 0;                                  /* an instance that was short of memory before the switch asked for the OLD kernel's size: forget "short, nothing released since" (jfx.c), the new size asks at once */
 }
 /* the module's kernel gone: the instances that were made with it let go at once (state OFF, no memory wanted, memory given back and re-asked by jfx_ins_mem for the resident kernel's sizes) and
  * start again on the resident kernel, from silence. The host's copy of the calls is zeroed: nothing points into the flash after this returns */
+#ifdef OC_FX_TEST_HOOK
+static void (*fx_modk_clear_step)(void);                /* a host test: one audio block between the unbind and the rebind, as an interrupt would be */
+#endif
 static void fx_modk_clear(void)
 {
-    uint32_t k;
-    for (k = 0; k < FX_INS_N; k++)
-        if (FX_MODK_BOUND(k)) {
+    uint32_t k, was = fx_mod_bound;
+    for (k = 0; k < FX_INS_N; k++)                      /* 1. every bound instance off, wanting nothing (the module's calls are still valid: an interrupt here runs them on instances that are going) */
+        if ((was >> k) & 1u) {
             fx_ins[k].state = FXS_OFF; fx_ins[k].evict = 0; fx_ins[k].gov = fx_ins[k].held_off = 0; fx_ins[k].kw[0] = fx_ins[k].kw[1] = fx_ins[k].kw[2] = 0;
             fx_ins_want[k] = 0; fx_ins_spring[k] = 0;
-            fx_ins_rebind(k);
         }
-    fx_mod_bound = 0;
+    fx_mod_bound = 0;                                   /* 2. unbound: from here every instance is the resident kernel's */
     fx_modk_ok = 0;
-    memset(&fx_modk, 0, sizeof fx_modk);
+#ifdef OC_FX_TEST_HOOK
+    if (fx_modk_clear_step) fx_modk_clear_step();
+#endif
+    for (k = 0; k < FX_INS_N; k++)                      /* 3. AFTER the unbind: what an instance took between 1 and 2 (an interrupt walks OFF -> WAIT and jfx_ins_mem lends memory at the module's size while it is still bound) is given back and taken again by the resident's size */
+        if ((was >> k) & 1u) fx_ins_rebind(k);
+    memset(&fx_modk, 0, sizeof fx_modk);                /* 4. nothing points into the module */
 }
 static uint32_t fx_modk_uses(void)         /* instances of the module's kernel running now (the Effects table's `uses`) */
 {

@@ -15,6 +15,7 @@
  * that appears under running instances, and one that goes away under them, end with the instances restarted from silence on the other kernel and no call into the module afterwards.
  * Arguments: none. Built and run by tests/fx_dub_module.sh (tests/run_tests.sh); the mutation check is the same script with --mutate. */
 #define FXI_NO_MAIN 1
+#define OC_FX_TEST_HOOK 1                                /* fx_insert.c: fx_modk_clear_step, one block between the unbind and the rebind */
 #include "fx_insert_test.c"
 #include "fw_pages_wire.h"
 #include "fw_fx.h"
@@ -47,6 +48,7 @@ static void tap(const int32_t *b, size_t n)
         if (fx_ins[k].state == FXS_RUN) { if (FX_MODK_BOUND(k)) mod_run_blocks++; else res_run_blocks++; }
     tap_blocks++;
 }
+static void clear_step_run(void) { run(1); }                    /* (fx_modk_clear_step) one audio block in the middle of a removal */
 static void run_all(void)
 {
     fxi_nres = 0; fx_ins_gov_fires = 0; tap_blocks = 0; tap_diff = 0; tap_first = ~0ull; mod_run_blocks = res_run_blocks = 0;
@@ -336,7 +338,20 @@ int main(void)
               ck(ph ? "remove in CLEAR: the module goes, the instances run on the resident kernel on a state taken at the resident's size" : "remove in WAIT: the module goes, the instances run on the resident kernel on a state taken at the resident's size (the module's larger one is given back)",
                  rc == FXM_OK && n == 4u && m == 4u); }
         }
-#undef ST_SZ
+        /* a block (an interrupt) between the unbind and the rebind of a removal: the instance walks OFF -> WAIT while still sized by the module, and must end on the resident's size */
+        fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
+        rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
+        run(1500);
+        for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_big;
+        fx_modk_clear_step = clear_step_run;
+        fx_ins_gen[0] = resource_gen + 1u;                              /* "short, nothing released since" for instance 0: must be forgotten by the switch */
+        fx_modk_clear();
+        fx_modk_clear_step = 0;
+        { uint32_t g0 = fx_ins_gen[0], m = 0;
+          run(3000);
+          for (k = 0; k < FX_INS_N; k++) m += !FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_res;
+          ck("remove with a block between the unbind and the rebind: every instance ends on the resident kernel, running, on a state taken at the resident's size (rebind after the unbind)", rc == FXM_OK && n == 4u && m == 4u);
+          ck("... and the switch forgot 'short, nothing released since' (fx_ins_gen), so an instance that was short of memory asks for the new kernel's size at once", g0 == 0u); }
     }
     /* what the host refuses */
     {   fx_caps_t bad_c;
