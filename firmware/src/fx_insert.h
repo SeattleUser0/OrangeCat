@@ -14,6 +14,7 @@
 /* the parameter snapshot's room per instance in the common block: the largest snapshot of a resident kernel (dd_params_t today). Step 6 sets it from the largest module's declared
  * size; until then it is DUB's, so the common block is the size it was before the cut (sizeof asserted in jfx_dub.c) */
 #define FX_PARAM_BYTES ((uint32_t)((sizeof(dd_params_t) + 3u) & ~3u))
+#define FX_STATE_MAX 16384u                             /* the most bytes the host lends an instance for a module kernel's state (ram_state) or its option (ram_extra_bytes): a caps word above it is refused */
 enum { FXS_OFF, FXS_WAIT, FXS_RUN, FXS_RAMP, FXS_CLEAR };   /* the instance states (the editor's schema-14 reply and the tests read the numbers) */
 /* one instance's record (CPU0). The host owns every field but kw */
 typedef struct {

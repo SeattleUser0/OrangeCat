@@ -103,7 +103,7 @@ static __attribute__((section(".pool"))) uint8_t fx_ins_want[FX_INS_N], fx_ins_s
 static __attribute__((section(".pool"))) uint8_t fx_ins_held_sp[FX_INS_N];                      /* the spring the held memory was taken for */
 static __attribute__((section(".pool"))) uint16_t fx_ins_sig[FX_INS_N];
 static __attribute__((section(".pool"))) uint32_t fx_ins_gen[FX_INS_N];         /* .. and the want (blocks, spring) it was short for: a new want asks again */
-static __attribute__((section(".pool"))) uint8_t fx_ins_have[FX_INS_N], fx_ins_held[FX_INS_N], fx_ins_idle[FX_INS_N], fx_ins_fresh[FX_INS_N], fx_ins_ready[FX_INS_N];   /* blocks held; the want they were taken for; blocks idle;
+static __attribute__((section(".pool"))) uint8_t fx_ins_have[FX_INS_N], fx_ins_held[FX_INS_N], fx_ins_idle[FX_INS_N], fx_ins_fresh[FX_INS_N], fx_ins_ready[FX_INS_N], fx_ins_refree;   /* blocks held; the want they were taken for; blocks idle;
                                                          * a line to set up; the memory complete */
 static __attribute__((section(".pool"))) uint8_t fx_ins_nomem, fx_ins_full_now;                 /* the arena was short for an instance this block; the DUB FULL bits this block */
 static __attribute__((section(".pool"))) int16_t *fx_ins_spbuf[FX_INS_N];
@@ -2141,6 +2141,10 @@ JFX_XIP static uint8_t jfx_ins_mem(uint32_t bus_fail, uint32_t bus_short)
     for (i = 0; i < FX_INS_N; i++) {
         uint32_t w = fx_ins_want[i], g, gen0, sig = (uint32_t)fx_ins_want[i] | (uint32_t)(fx_ins_spring[i] != 0) << 8;
         uint8_t nm = 0;
+        if ((fx_ins_refree >> i) & 1u) {                    /* (round 18) the instance changed kernels (fx_insert.c): what it holds was sized by the other one's ram_state / ram_extra_bytes, so it all goes back and is taken again for the new kernel */
+            fx_ins_refree &= (uint8_t)~(1u << i);
+            jfx_free_ins(i);
+        }
         if (fx_ins_state[i] && (fx_ins_held[i] != w || fx_ins_held_sp[i] != (fx_ins_spring[i] != 0))) jfx_free_ins(i);   /* (jfx_dub.c changes a want only after its ramp) */
         if (!w) {
             if (fx_ins_state[i]) jfx_free_ins(i);          /* LEN OFF: jfx_dub.c has ramped the wet out before it set the want to 0 */

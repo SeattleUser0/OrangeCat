@@ -72,6 +72,8 @@ static int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id,
     if (c->magic != FX_CAPS_MAGIC || c->size != FX_CAPS_WIRE || c->version != FX_CAPS_VERSION || c->abi != FX_ABI_ID) return FXM_VER;
     if (!c->ram_work_min || c->ram_work_min > c->ram_work_max || c->ram_work_max > FX_INS_MAXSEG || !c->max_inst || c->max_inst > FX_INS_N || c->prof >= AP_COUNT ||
         (c->flags & FXK_SEED) || !c->param_bytes || c->param_bytes > FX_PARAM_BYTES || (!c->ram_extra != !c->ram_extra_bytes) || !c->gov_us || !c->nrows != !rows) return FXM_RANGE;
+    if (c->max_inst < FX_INS_N) return FXM_RANGE;       /* every track gets an instance of the module's kernel (the rule, round 18): a module that cannot run on all of them is not registered */
+    if (!c->ram_state || c->ram_state > FX_STATE_MAX || c->ram_extra_bytes > FX_STATE_MAX || c->ram_extra_bytes > (uint32_t)c->ram_extra * 4096u) return FXM_RANGE;   /* what the host lends is sized from these words: bounded, and the option's bytes inside its blocks */
     memset(&m, 0, sizeof m);
     m.module_id = module_id; m.version = version; m.legacy_module = c->legacy_module; m.effect_id = (uint8_t)effect_id; m.nrows = c->nrows; m.rows = rows;
     m.flags = c->flags; m.rates = c->rates; m.max_inst = c->max_inst; m.prof = c->prof; m.ram_work_min = c->ram_work_min; m.ram_work_max = c->ram_work_max; m.ram_extra = c->ram_extra;
@@ -84,7 +86,16 @@ static int fx_modk_set(uint32_t module_id, uint32_t version, uint32_t effect_id,
     fx_modk_ok = 1;
     return FXM_OK;
 }
-/* the module's kernel gone: the instances that were made with it let go at once (their memory is asked back by jfx_ins_mem as `want` falls to 0) and start again on the resident kernel, from silence */
+/* An instance changes kernels only from silence AND with its memory given back: what it holds (the state, the spring's tank) was sized by the other kernel's ram_state / ram_extra_bytes, and the
+ * new kernel's start() would write a block of ITS size into it. fx_ins_rebind drops the readiness at once (the state machine waits for memory) and marks the instance for jfx_ins_mem, which frees
+ * everything it holds and takes it again sized by fx_kernel_of(k) (jfx.c fx_ins_refree). Needed even with want 0 -> n in one pass: want does not change across a kernel switch. */
+static void fx_ins_rebind(uint32_t k)
+{
+    fx_ins_ready[k] = 0;
+    fx_ins_refree |= (uint8_t)(1u << k);
+}
+/* the module's kernel gone: the instances that were made with it let go at once (state OFF, no memory wanted, memory given back and re-asked by jfx_ins_mem for the resident kernel's sizes) and
+ * start again on the resident kernel, from silence. The host's copy of the calls is zeroed: nothing points into the flash after this returns */
 static void fx_modk_clear(void)
 {
     uint32_t k;
@@ -92,6 +103,7 @@ static void fx_modk_clear(void)
         if (FX_MODK_BOUND(k)) {
             fx_ins[k].state = FXS_OFF; fx_ins[k].evict = 0; fx_ins[k].gov = fx_ins[k].held_off = 0; fx_ins[k].kw[0] = fx_ins[k].kw[1] = fx_ins[k].kw[2] = 0;
             fx_ins_want[k] = 0; fx_ins_spring[k] = 0;
+            fx_ins_rebind(k);
         }
     fx_mod_bound = 0;
     fx_modk_ok = 0;
@@ -232,9 +244,12 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         const fx_kernel_t *kn;
 #if OC_FX_MODK
         if (((fx_mod_effective() ^ fx_mod_bound) >> k) & 1u) {        /* a module appeared (the module goes through fx_modk_clear, which unbinds at once): only an OFF instance changes kernels; a running one ramps out and lets go first */
-            if (d->state == FXS_OFF) { fx_mod_bound ^= (uint8_t)(1u << k); d->kw[0] = d->kw[1] = d->kw[2] = 0; if (FX_MODK_BOUND(k) && fx_modk_note) fx_modk_note(FX_MODK_ID); }
-            else if (d->state == FXS_RUN || d->state == FXS_RAMP) { d->evict = 1; d->gov = 0; }
-            else { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; }
+            if (d->state == FXS_RUN || d->state == FXS_RAMP) { d->evict = 1; d->gov = 0; }
+            else {                                           /* OFF, or WAIT / CLEAR (nothing plays yet: let go of the request and the memory, and switch in this very pass; the pass must not fall into case OFF with the old kernel and the old want) */
+                if (d->state != FXS_OFF) { fx_ins_want[k] = 0; fx_ins_spring[k] = 0; d->state = FXS_OFF; }
+                fx_mod_bound ^= (uint8_t)(1u << k); d->kw[0] = d->kw[1] = d->kw[2] = 0; fx_ins_rebind(k);
+                if (FX_MODK_BOUND(k) && fx_modk_note) fx_modk_note(FX_MODK_ID);
+            }
         }
 #endif
         kn = fx_kernel_of(k);

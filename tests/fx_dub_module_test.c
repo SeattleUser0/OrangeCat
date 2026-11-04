@@ -304,6 +304,40 @@ int main(void)
             ck("... and a last removal leaves the resident kernel running with no further call", cnt_total() == before && fx_modk_uses() == 0);
         }
     }
+    /* (round 18) a module that appears, or goes, while an instance is in WAIT or CLEAR (nothing plays yet): the switch happens in that pass (it used to fall back into case OFF with the old want and
+     * wait for ever), and an instance changing kernels gives back what it holds and takes it again sized by the NEW kernel (the module here declares a larger state than the resident's) */
+    {   fx_caps_t big = *c;
+        uint32_t k, n, want_big, want_res;
+        int ph;
+#define ST_SZ(k) (resource[RES_JFX0 + JB_INSS0 + (k)].size)
+        big.ram_state = (uint16_t)(c->ram_state + 256u);
+        want_big = ((uint32_t)big.ram_state + 3u) & ~3u; want_res = ((uint32_t)dub_kernel.ram_state + 3u) & ~3u;
+        for (ph = 0; ph < 2; ph++) {                                  /* 0: WAIT, 1: CLEAR */
+            fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
+            run(1);
+            for (k = 0, n = 0; k < FX_INS_N; k++) n += fx_ins[k].state == FXS_WAIT && !FX_MODK_BOUND(k);
+            if (ph) for (k = 0; k < FX_INS_N; k++) { fx_ins[k].state = FXS_CLEAR; fx_ins[k].clr = 0; fx_ins[k].pend_R = fx_ins[k].R; }
+            ck(ph ? "appear in CLEAR: four instances on the resident kernel, put in CLEAR (the memory is still being taken)" : "appear in WAIT: four instances on the resident kernel, in WAIT (the memory is still being taken)", n == 4u);
+            rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
+            run(3000);
+            for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_big;
+            ck(ph ? "... a module appearing under CLEAR: every instance ends bound to it and running, on a state taken at the module's size" : "... a module appearing under WAIT: every instance ends bound to it and running (no livelock), on a state taken at the module's size, not the resident's",
+               rc == FXM_OK && n == 4u && fx_modk_uses() == 4u && want_big != want_res);
+            fx_modk_clear(); fresh(); for (k = 0; k < NPART; k++) dub_defaults(k);
+            rc = fx_modk_set(1u, DUBK_VERSION, 1u, &big, counted_calls(), oc_host_fx_rows());
+            run(1);
+            for (k = 0, n = 0; k < FX_INS_N; k++) n += FX_MODK_BOUND(k) && fx_ins[k].state == FXS_WAIT;
+            if (ph) for (k = 0; k < FX_INS_N; k++) { fx_ins[k].state = FXS_CLEAR; fx_ins[k].clr = 0; fx_ins[k].pend_R = fx_ins[k].R; }
+            { uint32_t before = cnt_total(); (void)before; }
+            fx_modk_clear();
+            run(3000);
+            { uint32_t m = 0;
+              for (k = 0; k < FX_INS_N; k++) m += !FX_MODK_BOUND(k) && fx_ins[k].state == FXS_RUN && ST_SZ(k) == want_res;
+              ck(ph ? "remove in CLEAR: the module goes, the instances run on the resident kernel on a state taken at the resident's size" : "remove in WAIT: the module goes, the instances run on the resident kernel on a state taken at the resident's size (the module's larger one is given back)",
+                 rc == FXM_OK && n == 4u && m == 4u); }
+        }
+#undef ST_SZ
+    }
     /* what the host refuses */
     {   fx_caps_t bad_c;
         int ok = 1;
@@ -316,8 +350,12 @@ int main(void)
         bad_c = *c; bad_c.param_bytes = FX_PARAM_BYTES + 4u;    ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
         bad_c = *c; bad_c.prof = AP_COUNT;                      ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
         bad_c = *c; bad_c.ram_work_min = 0;                     ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
+        bad_c = *c; bad_c.max_inst = FX_INS_N - 1u;             ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;   /* every track gets an instance */
+        bad_c = *c; bad_c.ram_state = 0;                        ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
+        bad_c = *c; bad_c.ram_state = (uint16_t)(FX_STATE_MAX + 1u); ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
+        bad_c = *c; bad_c.ram_extra_bytes = (uint16_t)(c->ram_extra * 4096u + 4u); ok &= fx_modk_set(1u, 1u, 1u, &bad_c, oc_host_fx_calls(), oc_host_fx_rows()) == FXM_RANGE;
         { fx_kcalls_t k0 = *oc_host_fx_calls(); k0.snap = 0;    ok &= fx_modk_set(1u, 1u, 1u, c, &k0, oc_host_fx_rows()) == FXM_RANGE; }
-        ck("a kernel the host cannot give is refused (caps version, abi, blocks, instances, a seed, a snapshot too big, an unknown class, a missing call) and nothing is registered", ok && !fx_modk_ok);
+        ck("a kernel the host cannot give is refused (caps version, abi, blocks, instances (fewer than the tracks too), a state of 0 or past what the host lends, an option larger than its blocks, a seed, a snapshot too big, an unknown class, a missing call) and nothing is registered", ok && !fx_modk_ok);
     }
     if (bad) { printf("fx dub module: %d FAILED\n", bad); return 1; }
     printf("fx dub module: all passed\n");
