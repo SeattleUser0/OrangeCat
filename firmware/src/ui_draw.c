@@ -548,6 +548,20 @@ static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OF
 #include "ui_pool.c"                                    /* (Orange Cat 0.4.4) SEQ > PHRASES */
 #include "ui_groove.c"                                  /* (Orange Cat 0.4.5) SEQ > GROOVE */
 static int own_screen(void);
+/* (melodic-grid trim) the PITCH and LENGTH texts of the picked note, one copy for NOTES and GRID */
+static __attribute__((noinline)) void dial_pitch(char *sn, uint32_t chosen, const step_t *st)
+{
+    note_name(sn, chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note);
+}
+static __attribute__((noinline)) void dial_len(char *sn, uint32_t chosen, uint32_t start, int selected)
+{
+    if (chosen < RECORD_MAX) {
+        uint32_t h = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
+        if (!h) str_cpy(sn, "<.01", 12); else feel_hund(sn, h, 0);
+    } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
+    else str_cpy(sn, "--", 12);
+}
+
 static void draw_columns(void)
 {
     if (own_screen() && col_style != CS_CAPTURE)         /* own screens have no cards; lists still need their values */
@@ -638,13 +652,9 @@ static void draw_columns(void)
         else if (st && st->n) { fmt_int(sn, (int32_t)notes_manual_slot(st) + 1); u[0] = '/'; fmt_int(u + 1, st->n); }
         else str_cpy(sn, "--", sizeof sn);
         draw_column(1, "NOTE", sn, chosen >= RECORD_MAX && st && st->n ? u : "", selected ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
-        note_name(sn, chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note);
+        dial_pitch(sn, chosen, st);
         draw_column(2, "PITCH", sn, "", selected ? T_COZY(2u) : T_DIM, -1, ICON_PITCH);
-        if (chosen < RECORD_MAX) {
-            uint32_t h = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
-            if (!h) str_cpy(sn, "<.01", sizeof sn); else feel_hund(sn, h, 0);
-        } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
-        else str_cpy(sn, "--", sizeof sn);
+        dial_len(sn, chosen, start, selected);
         draw_column(3, "LEN", sn, "", selected ? T_COZY(3u) : T_DIM, -1, ICON_GATE);
         return;
     }
@@ -668,8 +678,7 @@ static void draw_columns(void)
         char sn[12], u[12];
 #if OC_STEP_PAGES
         if (!drum_track(TSEL) && !bulk.on && !ui.note_move && !ui.note_copy) {   /* (the new interface 0.4) PITCH START LEN VEL */
-            uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;
-            note_name(sn, pitch);
+            dial_pitch(sn, chosen, st);
             draw_column(0, "PITCH", sn, "", selected ? T_COZY(0u) : T_DIM, -1, ICON_PITCH);
             if (chosen < RECORD_MAX)
                 feel_hund(sn, ((recording[chosen].step & 63u) * 100u) + 100u + (uint32_t)recording[chosen].on * 100u / RECORD_UNIT, 1);
@@ -684,11 +693,7 @@ static void draw_columns(void)
             else
                 str_cpy(sn, "--", sizeof sn);
             draw_column(1, "START", sn, "", chosen < RECORD_MAX || (OC_ONE_AUTH && selected) ? T_COZY(1u) : T_DIM, -1, ICON_AUTO);
-            if (chosen < RECORD_MAX) {
-                uint32_t h = ((uint32_t)recording[chosen].duration * (1u << (recording[chosen].owner >> 5)) * 100u + RECORD_UNIT / 2u) / RECORD_UNIT;
-                if (!h) str_cpy(sn, "<.01", sizeof sn); else feel_hund(sn, h, 0);
-            } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
-            else str_cpy(sn, "--", sizeof sn);
+            dial_len(sn, chosen, start, selected);
             draw_column(2, "LEN", sn, chosen >= RECORD_MAX && st && st->n > 1u ? "ALL" : "", selected ? T_COZY(2u) : T_DIM, -1, ICON_GATE);
 #if OC_SLIDE
             if (selected && (ui.step_mods & (1u << panel.btn[B_ENV]))) {   /* (ui-fix 8) ENV held: the cursor step's slide, recorded or manual */

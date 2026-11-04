@@ -288,7 +288,7 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 #if OC_MGRID
 /* GRID is for the pitched tracks: not DRUM or DRUM-X (their own grid), not a kit (a one-shot engine), not a slice track */
-static int mgrid_track(const track_t *t)
+static __attribute__((noinline)) int mgrid_track(const track_t *t)
 {
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
     return !drum_track(t) && !e->oneshot
