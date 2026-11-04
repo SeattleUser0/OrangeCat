@@ -735,6 +735,12 @@ tools/hw/ci_step.py build --switch OC_PACK_BUILTIN=1   # a switch exported after
 
 The files land in `build/` under CI's names (`orangecat-<VERSION>-<commit>.fwsc`, `.pak`, `.ocm`, the manifests).
 
+**The checks between builds** (dev-tools): `OC_CHECK=1 ./build.sh` compiles the image's three units through the JieLi clang
+with `-fsyntax-only` (seconds, no link or package), `tools/lint.sh` counts the host compiler's warnings by file, and
+`tests/run_tests.sh --changed REF --fast` runs the host tests whose inputs changed since a git ref at the fast tier. The
+standing rule, the suite profile and the timings are in [docs/DEV_CHECKS.md](docs/DEV_CHECKS.md). `build.sh` defaults to this
+layout (`FM1_TOOLS`, `~/fm1-toolchain`), so `./build.sh` works here without the two variables.
+
 **Byte identity.** The image carries the compiler's `__DATE__` (Settings > ABOUT; `firmware/src/ui_menu.c`). That is the only
 difference between a PC build and CI's: on the same UTC date the `.fwsc` is byte-identical. To rebuild an older CI build exactly,
 give the run's build time (the "Build (the repository's own command)" step's start on its run page, UTC):
