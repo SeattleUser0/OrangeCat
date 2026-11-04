@@ -1809,7 +1809,7 @@ function makeMockDevice(opt = {}) {
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},   /* 5: retired VOICE; stored ID reserved */
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
-    { name: "MACRO", titles: ["MODEL", "SHAPE"], edit: [E("MODL", ["VA", "WAVSHP", "FM", "GRAIN", "ADDTV", "CHORD", "SWARM", "NOISE", "PARTCL", "STRING", "MODAL", "KICK", "SNARE", "HI-HAT", "HARP"], 0), D("HARM", F.PCT, 0, 127, 64), D("TIMB", F.PCT, 0, 127, 64), D("MRPH", F.PCT, 0, 127, 64), D("AUX", F.PCT, 0, 127, 0), D("LPG", F.PCT, 0, 127, 0), D("DECY", F.PCT, 0, 127, 64), D("TMOD", F.BIPCT, -64, 63, 0)],   /* 8: (Orange Cat 0.5.0) MACRO, in retired GRAIN's slot */
+    { name: "MACRO", titles: ["MODEL", "SHAPE"], edit: [E("MODL", ["VA", "WAVSHP", "FM", "GRAIN", "ADDTV", "CHORD", "SWARM", "NOISE", "PARTCL", "STRING", "MODAL", "KICK", "SNARE", "HI-HAT", "HARP", "VA-VCF", "PD", "6OP A", "6OP B", "6OP C", "TERRAN", "STRMCH", "CHIP", "WAVTBL", "SPEECH"], 0), D("HARM", F.PCT, 0, 127, 64), D("TIMB", F.PCT, 0, 127, 64), D("MRPH", F.PCT, 0, 127, 64), D("AUX", F.PCT, 0, 127, 0), D("LPG", F.PCT, 0, 127, 0), D("DECY", F.PCT, 0, 127, 64), D("TMOD", F.BIPCT, -64, 63, 0)],   /* 8: (Orange Cat 0.5.0) MACRO, in retired GRAIN's slot */
       presets: [P("VA BASS", [0, 64, 30, 70, 0, 40, 50, 20], [0, 60, 90, 20], 1),
         P("VA SYNC LEAD", [0, 76, 90, 40, 100, 0, 70, 0], [0, 70, 110, 40], 1),
         P("FOLD PLUCK", [1, 40, 40, 80, 0, 90, 40, 40], [0, 64, 0, 50], 0),
@@ -1836,7 +1836,18 @@ function makeMockDevice(opt = {}) {
         P("HI-HAT", [13, 64, 90, 30, 0, 0, 50, 0], [0, 127, 127, 80], 1),
         P("OPEN HAT", [13, 64, 90, 90, 0, 0, 50, 0], [0, 127, 127, 96], 1),
         P("HARP", [14, 32, 70, 100, 0, 0, 60, 0], [0, 127, 127, 100], 0),   /* (0.5.2) HARP, one string a voice */
-        P("STRING CHORDS", [14, 32, 50, 110, 0, 0, 80, 0], [0, 127, 127, 104], 0)] },
+        P("STRING CHORDS", [14, 32, 50, 110, 0, 0, 80, 0], [0, 127, 127, 104], 0),
+        /* (Release 3, the model picker) the ten further models' presets, 27 on (eng_macro.c MC_PRESETS) */
+        P("VCF BASS", [15, 30, 40, 50, 0, 0, 50, 20], [0, 60, 90, 20], 1), P("VCF BRASS", [15, 50, 64, 20, 0, 0, 70, 0], [10, 80, 110, 50], 0),
+        P("PD KEYS", [16, 40, 60, 30, 0, 0, 60, 30], [0, 80, 60, 50], 0), P("PD RESO LEAD", [16, 90, 80, 70, 0, 0, 70, 0], [0, 70, 110, 40], 1),
+        P("DX EPIANO", [17, 0, 64, 64, 0, 0, 64, 0], [0, 127, 127, 60], 1), P("DX BANK A 11", [17, 42, 64, 64, 0, 0, 64, 0], [0, 127, 127, 60], 1),
+        P("DX BANK B 1", [18, 0, 64, 64, 0, 0, 64, 0], [0, 127, 127, 60], 1), P("DX BANK C 1", [19, 0, 64, 64, 0, 0, 64, 0], [0, 127, 127, 60], 1),
+        P("TERRAIN DRONE", [20, 50, 60, 40, 0, 0, 90, 0], [40, 90, 110, 80], 1), P("TERRAIN PLUCK", [20, 90, 90, 70, 0, 90, 40, 40], [0, 64, 0, 50], 0),
+        P("STRING ENSEMBLE", [21, 36, 64, 90, 0, 0, 90, 0], [40, 90, 110, 90], 1), P("STRING ORGAN", [21, 70, 30, 20, 0, 0, 70, 0], [5, 80, 120, 30], 1),
+        P("CHIP ARP", [22, 36, 100, 64, 0, 0, 50, 0], [0, 100, 100, 20], 1), P("CHIP LEAD", [22, 0, 20, 90, 100, 0, 60, 0], [0, 70, 110, 30], 1),
+        P("WAVETABLE PAD", [23, 20, 50, 70, 0, 0, 100, 20], [60, 90, 110, 90], 0), P("WAVETABLE KEYS", [23, 64, 30, 40, 0, 80, 50, 40], [0, 70, 60, 50], 0),
+        P("WAVETABLE 8BIT", [23, 110, 64, 64, 127, 0, 60, 0], [0, 70, 110, 40], 1), P("VOWEL", [24, 10, 64, 64, 0, 0, 70, 0], [10, 80, 110, 60], 1),
+        P("SAM VOICE", [24, 30, 64, 40, 0, 0, 70, 0], [10, 80, 110, 60], 1), P("LPC WORDS", [24, 70, 64, 30, 0, 0, 70, 0], [0, 127, 127, 60], 1)] },
     { name: "DRUM-X", titles: ["KIT", "KIT 2"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FM", F.PCT, 0, 127, 0),
         D("FOLD", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0)],   /* 9: (Orange Cat 0.9.0) DRUM-X, in retired PHYS's slot: Jiant FM's drum engine, a kit a preset */
@@ -2768,8 +2779,8 @@ function ocmParse(bytes) {
   let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
   const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
               name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [], format: ver };
-  o.kind = (o.engine >>> 8) & 0xFF;      /* (Release 3 step 4) the engine word: engine (bits 0..7), kind (8..15: 1 insert, 2 send, 3 master effect), bits 16..31 zero (fw_api.h fw_mod_word_ok) */
-  if (o.engine >>> 8 && (o.engine >>> 16 || o.kind > 3 || (o.engine & 0xFF))) return fail("modWrongFile");
+  o.kind = (o.engine >>> 8) & 0xFF;      /* (Release 3 step 4) the engine word: engine (bits 0..7), kind (8..15: 1 insert, 2 send, 3 master effect; (the model picker) 4 sound models for the engine in the low byte), bits 16..31 zero (fw_api.h fw_mod_word_ok) */
+  if (o.engine >>> 8 && (o.engine >>> 16 || o.kind > 4 || (o.kind <= 3 && (o.engine & 0xFF)) || (o.kind === 4 && !(o.engine & 0xFF)))) return fail("modWrongFile");
   if (ver === 2) {
     const length = dv.getUint32(tab + 4, true), off = dv.getUint32(tab + 12, true), nrel = dv.getUint32(tab + 16, true), roff = dv.getUint32(tab + 20, true);
     if (dv.getUint32(tab, true) !== OCM_RELOCATABLE || nrel > OCM_RELOC_MAX || off + length > bytes.length || roff + 4 * nrel > bytes.length || length < 0x200 || (length & 3))
@@ -2804,7 +2815,32 @@ const OCM_LINK0 = 0x020C4000, OCM_STATE_MAX = 16384;       /* the XIP address of
  * words 0, effect ids unique in the bank, parameter ids strictly increasing, min <= default <= max, a label NUL ended within 24 bytes inside the code. img: the image for the link
  * address `link`. {id, version, n} or null. ocmFxRead: the module id, version and sector count of every image of the file, which must agree (an effect has no geometry row: its
  * span is ceil(length / 4096), at most 8 sectors); the file is refused when they do not. */
-const OCM_FX_SECTORS = 8;
+const OCM_FX_SECTORS = 8, OCM_MODELS_SECTORS = 18;      /* (the model picker) a models module may take the whole area */
+/* (Release 3, the model picker) A MODELS module (kind 4, firmware/src/fw_models.h): the header's engine_ptr is the address of its models block inside the code, checked as the
+ * unit checks it: magic "OMDL", size 160, version 1, the engine of the header's low byte, 1..32 models, each a 0 or the address of a 24 byte descriptor inside the code (4 aligned)
+ * whose start and render words are addresses inside the code, the three bank words 0 or inside the code. The module id is FW_MODELS_ID(engine): 0x4D00 | engine (MODULE_IDS.md).
+ * {id, version (the header's word), n (the models present), abi (the block's PL_MDL_ABI_ID, which the unit compares)} or null. */
+const OCM_MODELS_ID = (engine) => (0x4D00 | (engine & 0xFF)) >>> 0;
+function ocmModelsDesc(img, link) {
+  if (img.length < 0x200 || (img.length & 3)) return null;
+  const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), lo = (link + 0x100) >>> 0, hi = (link + img.length) >>> 0;
+  const inside = (a, n) => a >= lo && a <= hi && n <= hi - a, at = (a) => a - link;
+  const u32 = (a) => dv.getUint32(at(a), true), u16 = (a) => dv.getUint16(at(a), true);
+  const desc = dv.getUint32(28, true), engine = dv.getUint32(20, true) & 0xFF;
+  if (!inside(desc, 160) || (desc & 3) || u32(desc) !== 0x4C444D4F || u16(desc + 4) !== 160 || u16(desc + 6) !== 1 || u32(desc + 12) !== engine) return null;
+  const n = u32(desc + 16);
+  if (!n || n > 32) return null;
+  let present = 0;
+  for (let i = 0; i < 32; i++) {
+    const a = u32(desc + 20 + 4 * i);
+    if (i >= n) { if (a) return null; continue; }
+    if (!a) continue;
+    if (!inside(a, 24) || (a & 3) || !inside(u32(a + 16), 2) || !inside(u32(a + 20), 2) || !u32(a) || !img[at(a) + 7]) return null;
+    present++;
+  }
+  for (let i = 0; i < 3; i++) { const b = u32(desc + 148 + 4 * i); if (b && (!inside(b, 4) || (b & 1))) return null; }
+  return { id: OCM_MODELS_ID(engine), version: dv.getUint32(44, true), n: present, abi: u32(desc + 8), engine };
+}
 /* (Release 3 step 6) The caps block an entry's `pages` word points at (firmware/src/fx_kernel.h fx_caps_t, fw_fx.h fx_caps_check): 56 bytes, 4 aligned, inside the code; magic "GFXK", size 56,
  * version 1; hot and nhot 0, the padding 0, the snapshot size not 0; the call table (12 words) inside the code, every call an address inside the code; the pages pointer 0 or inside the
  * code and 4 aligned (the unit checks the descriptor itself); the legacy-slot rows 0, or 1..16 rows of 10 bytes (2 aligned) with ids strictly increasing and min <= default <= max (the unit also
@@ -2863,8 +2899,8 @@ function ocmFxDesc(img, link, kind) {
 function ocmFxRead(o) {
   if (!o.kind) return o;
   for (const v of o.variants) {
-    const d = ocmFxDesc(v.image, (OCM_LINK0 + v.start * 4096) >>> 0, o.kind), ns = Math.ceil(v.length / 4096);
-    if (ns > OCM_FX_SECTORS) return { ok: false, key: "modWrongFile" };
+    const link = (OCM_LINK0 + v.start * 4096) >>> 0, d = o.kind === 4 ? ocmModelsDesc(v.image, link) : ocmFxDesc(v.image, link, o.kind), ns = Math.ceil(v.length / 4096);
+    if (ns > (o.kind === 4 ? OCM_MODELS_SECTORS : OCM_FX_SECTORS)) return { ok: false, key: "modWrongFile" };
     if (!d || (o.moduleId !== undefined && (d.id !== o.moduleId || d.version !== o.fxVersion || ns !== o.fxSectors))) return { ok: false, key: "modHdrBad" };
     o.moduleId = d.id; o.fxVersion = d.version; o.fxCount = d.n; o.fxSectors = ns; o.fxAbi = d.abi;
   }
@@ -2879,8 +2915,8 @@ function ocmImage(ocm, v) {
       (w(24) === 0 && !ocm.kind) || w(24) > OCM_STATE_MAX || w(36) !== ocm.packHash || w(48) !== img.length || w(32) !== link ||
       w(28) < link + 0x100 || w(28) >= link + img.length || (w(28) & 3)) return "modHdrBad";
   if (crc32(img.subarray(0x100)) !== w(52)) return "modDamaged";
-  if (ocm.kind) {                                                       /* (Release 3 step 4) an effect module: at most 8 sectors, its descriptor, the id the file was read with */
-    const d = img.length > OCM_FX_SECTORS * 4096 ? null : ocmFxDesc(img, link, ocm.kind);
+  if (ocm.kind) {                                                       /* (Release 3 step 4) an effect module: at most 8 sectors, its descriptor, the id the file was read with; (the model picker) a models module: up to the area, its block */
+    const d = img.length > (ocm.kind === 4 ? OCM_MODELS_SECTORS : OCM_FX_SECTORS) * 4096 ? null : ocm.kind === 4 ? ocmModelsDesc(img, link) : ocmFxDesc(img, link, ocm.kind);
     if (!d || d.id !== ocm.moduleId) return "modHdrBad";
   }
   return "";
@@ -3082,4 +3118,4 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
 }
 /*PROTO-END*/
 
-export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };
+export { CMD, CRC_TABLE, CZ, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_MODELS_ID, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, makeMockDevice, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmModelsDesc, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, zoomView };
