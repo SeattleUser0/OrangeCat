@@ -26,7 +26,7 @@ static void lz_unpack(uint8_t *o, const uint8_t *b, uint32_t n)
     }
 }
 
-static inline int32_t mulq15(int32_t a, int32_t b) { return (a * b) >> 15; }
+static inline int32_t mulq15(int32_t a, int32_t b) { return ((int32_t)((uint32_t)a * (uint32_t)b)) >> 15; }   /* (san-fix) the product wraps int32 past Q15 x 2.0; the bits as the target had them */
 /* a * k / 65536 without 64-bit: a up to 2^31, k Q16 */
 static inline int32_t mulq16(int32_t a, uint32_t k)
 {
