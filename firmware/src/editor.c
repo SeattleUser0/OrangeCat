@@ -446,7 +446,8 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
 /* (Release 3 step 4) the effect modules, by module id. Arguments: module id (5 x 7 bits).
  *   FX_INFO   id, sectors (1 .. 8) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
- *             first), blocker (the start whose usable module stands in the way when no start can take it, else 127), low (1 the six sectors below 0xC8000 are the module area's)
+ *             first), blocker (the start whose usable module stands in the way when no start can take it, else 127), low (1 the six sectors below 0xC8000 are the module area's),
+ *             abi (5 x 7 bits: the firmware's FX_ABI_ID; a firmware without it sends the four bytes above only)
  *   FX_BEGIN  id, start, length (3 x 7 bits) -> rc, then the bytes written so far (3 x 7 bits): rc as MOD_BEGIN (0 done, 1 refused, 2 flash or the transport is running,
  *             4 the old preset pairs have not moved, 5 no start free); then 122 WRITE and 123 END as for an engine (END: 7 written but not readable as a module, 8 a sector tail)
  *   FX_REMOVE id -> rc, then the bytes written so far
@@ -468,6 +469,7 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
         ed_b(plan >= 0 && oc_fxmod_inplace(id, ns, (uint32_t)plan) ? 1u : 0u);
         ed_b(blk < 0 ? 127u : (uint32_t)blk);
         ed_b(OC_MOD_LOW_OK() ? 1u : 0u);
+        ed_fx_id(FX_ABI_ID);                            /* (round 18) the firmware's FX_ABI_ID, so the page refuses a module of another host calling convention before it streams a byte */
         return 1;
     }
     if (cmd == ED_FX_BEGIN || cmd == ED_FX_REMOVE) {

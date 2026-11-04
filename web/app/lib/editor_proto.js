@@ -2824,7 +2824,7 @@ function ocmFxCaps(caps, inside, at, u32, u16, s16, img) {
     if (id <= prev || mn > mx || df < mn || df > mx) return false;
     prev = id;
   }
-  return true;
+  return u32(caps + 52);                                                 /* the abi (nonzero, checked above): the caller keeps it for fxCheck */
 }
 function ocmFxDesc(img, link, kind) {
   if (img.length < 0x200 || (img.length & 3)) return null;
@@ -2837,10 +2837,11 @@ function ocmFxDesc(img, link, kind) {
   if (!n || n > 8 || !id) return null;
   if (!inside(entries, n * 16) || (entries & 3) || (scene && (!inside(scene, 1) || (scene & 3)))) return null;
   const seen = [];
+  let abi = 0;
   for (let i = 0; i < n; i++) {
     const e = entries + 16 * i, eid = img[at(e)], np = u16(e + 4), params = u32(e + 8);
     if (img[at(e) + 1] !== kind || kind < 1 || kind > 3 || u16(e + 2) || u16(e + 6) || seen.includes(eid)) return null;
-    if (u32(e + 12) && !ocmFxCaps(u32(e + 12), inside, at, u32, u16, s16, img)) return null;       // (step 6) the caps block fx_caps_check reads
+    if (u32(e + 12)) { const a = ocmFxCaps(u32(e + 12), inside, at, u32, u16, s16, img); if (!a) return null; abi = abi || a; }       // (step 6) the caps block fx_caps_check reads
     seen.push(eid);
     if (np > 64 || !np !== !params) return null;
     if (!np) continue;
@@ -2857,7 +2858,7 @@ function ocmFxDesc(img, link, kind) {
       }
     }
   }
-  return { id, version, n };
+  return { id, version, n, abi };
 }
 function ocmFxRead(o) {
   if (!o.kind) return o;
@@ -2865,7 +2866,7 @@ function ocmFxRead(o) {
     const d = ocmFxDesc(v.image, (OCM_LINK0 + v.start * 4096) >>> 0, o.kind), ns = Math.ceil(v.length / 4096);
     if (ns > OCM_FX_SECTORS) return { ok: false, key: "modWrongFile" };
     if (!d || (o.moduleId !== undefined && (d.id !== o.moduleId || d.version !== o.fxVersion || ns !== o.fxSectors))) return { ok: false, key: "modHdrBad" };
-    o.moduleId = d.id; o.fxVersion = d.version; o.fxCount = d.n; o.fxSectors = ns;
+    o.moduleId = d.id; o.fxVersion = d.version; o.fxCount = d.n; o.fxSectors = ns; o.fxAbi = d.abi;
   }
   return o;
 }
@@ -2905,6 +2906,7 @@ function fxCheck(ocm, info, fx) {
   if (!ocm.kind || !ocm.moduleId) return { ok: false, key: "modWrongFile" };
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
+  if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
   const tbl = info.sectorOf || OCM_SECTOR;
   if (fx.plan == null || !(fx.plan < tbl.length) || (fx.plan >= 12 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
     const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;

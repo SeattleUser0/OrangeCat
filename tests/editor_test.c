@@ -1240,7 +1240,8 @@ static int fx_protocol(void)
     a[0] = 2; fx_id(a + 1, id); a[6] = 3;
     request(ED_EXT, a, 7);
     bad += check("FX_INFO (130): empty area, 3 sectors: plan start 0, not in place, no blocker (127), the six low sectors usable",
-                 host_wire[4] == 0 && host_wire[5] == 2 && host_wire[6] == 0 && host_wire[7] == 0 && host_wire[8] == 127 && host_wire[9] == 1);
+                 host_wire[4] == 0 && host_wire[5] == 2 && host_wire[6] == 0 && host_wire[7] == 0 && host_wire[8] == 127 && host_wire[9] == 1 &&
+                 (host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14 | (uint32_t)host_wire[13] << 21 | (uint64_t)host_wire[14] << 28) == (uint32_t)FX_ABI_ID);   /* (round 18) the abi follows the four words */
     a[6] = 9; request(ED_EXT, a, 7);
     bad += check("FX_INFO with 9 sectors, and with a short payload: no reply", host_wire_n == 0 && (request(ED_EXT, a, 4), host_wire_n == 0));
     link = oc_mod_link(0);

@@ -243,7 +243,7 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
       const c = OCM.fxCheck(o, info, fx(plan));
       assert.ok(c.ok && c.fx && c.variant.start === sec, `kind ${kind} plan ${plan}: ${JSON.stringify(c.key)}`);
       const d = OCM.fxDesc(c.variant.image, (LINK0 + sec * 4096) >>> 0, kind);
-      assert.deepEqual(d, { id: MID, version: FXVER, n: 2 }, "the relocated descriptor reads at its start's address");
+      assert.deepEqual(d, { id: MID, version: FXVER, n: 2, abi: 0 }, "the relocated descriptor reads at its start's address");
     }
   }
   const o = OCM.parse(pkg(fxImage(), [0, 6]));
@@ -316,6 +316,15 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
     const g = OCM.parse(good());
     assert.ok(g.ok && g.moduleId === MID && g.fxCount === 2, "a good caps block: " + g.key);
     assert.ok(OCM.fxCheck(g, info, fx(0)).ok && OCM.fxCheck(g, info, fx(1)).ok, "... at both starts (the pointers relocate)");
+    // (round 18) the module's abi is read, and compared with FX_INFO's when the unit sends it (before the first byte is streamed); a unit that does not send it is not asked
+    assert.equal(g.fxAbi, 0x1234ABCD, "the abi of the caps block is parsed");
+    assert.ok(OCM.fxCheck(g, info, fx(0, { abi: 0x1234ABCD })).ok, "the same abi: taken");
+    assert.equal(OCM.fxCheck(g, info, fx(0, { abi: 0x1234ABCE })).key, "modWrongFw", "another abi: refused as not for this firmware, before anything is sent");
+    assert.ok(OCM.fxCheck(g, info, fx(0)).ok, "a unit that reports no abi (before round 18): not compared");
+    {   const { parseFxInfo } = await import(new URL("fm1oc.js", import.meta.url)), v = 0x9DCB40AD, enc = [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) % 128);
+        assert.equal(parseFxInfo([2, 1, 0, 127, 1, ...enc]).abi, v, "FX_INFO's abi (5 x 7 bits) is read");
+        assert.equal(parseFxInfo([2, 1, 0, 127, 1]).abi, undefined, "a reply of four words (before round 18) has none");
+    }
     const rej = (what, o) => assert.equal(OCM.parse(good(o)).key, "modHdrBad", what);
     rej("the magic", { magic: 0 }); rej("the version", { ver: 2 }); rej("the old 52 byte size", { size: 52 }); rej("an abi of 0", { abi: 0 }); rej("a hot set", { hot: 0x500 + LINK0 }); rej("nhot", { nhot: 1 }); rej("the padding", { pad: 1 });
     rej("a snapshot size of 0", { pbytes: 0 }); rej("a call table past the image", { kernel: 0x7F8 }); rej("a call table unaligned", { kernel: CALLS + 2 });
