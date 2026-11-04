@@ -13,6 +13,8 @@
 """Build Melodee: the app, the update loader and an installable .fwsc package.
 
   tools/build.py [--release X.Y[.Z][-suffix]]
+  OC_CHECK=1 tools/build.py          (dev-tools) the compile check alone: the app, the loader and the stub through the JieLi clang,
+                                     -fsyntax-only, with the build's flags; seconds, no link or package (docs/DEV_CHECKS.md)
 
 Outputs in build/: melodee.bin (app), loader/ota.bin (update loader),
 melodee.fwsc (package). A release build (--release X.Y) writes melodee-X.Y.fwsc and a folder
@@ -32,6 +34,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -848,6 +851,23 @@ def mmio_check():
     return errors
 
 
+def check_only():
+    """(dev-tools) OC_CHECK=1: the three C units of the image (the app, firmware/src/melodee.c with every file it includes; the update loader;
+    the boot stub) through the JieLi clang with the build's own flags and -fsyntax-only. The errors and warnings the firmware build would give,
+    in seconds; no IR pass, no link, no package, no SDK. The generated headers are made when build/gen has none (the first run), else kept."""
+    if not all((GEN / h).exists() for h in ("melodee_tables.h", "ui_fonts.h", "oc_pack_tables.h", "fw_api_id.h")):
+        OUT.mkdir(parents=True, exist_ok=True)
+        generate()
+    subprocess.run([sys.executable, SRC / "tools/gen_909_tables.py", GEN / "x0x_drum_tables.h"], check=True)
+    t0 = time.monotonic()
+    tc_all(("cc", *app_flags(), "-fsyntax-only", FW / "src" / "melodee.c"),
+           ("cc", *CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-fsyntax-only", FW / "loader" / "loader.c"),
+           ("cc", *CFLAGS, "-Ifirmware/stub", "-fsyntax-only", FW / "stub" / "stub.c"))
+    print(f"  ok    OC_CHECK: the app, the loader and the stub compile (pi32v2 clang, -fsyntax-only, {time.monotonic() - t0:.1f} s); "
+          "nothing linked or packaged")
+    return 0
+
+
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
@@ -891,6 +911,8 @@ def main():
         vf = SRC / "VERSION"
         VERSION = ("v" + vf.read_text().strip() + "-" + revision[:6]) if vf.exists() else "dev-" + revision
         name = f"melodee-nightly.fwsc"
+    if os.environ.get("OC_CHECK") == "1":    # (dev-tools) the compile check: the app, the loader and the stub through the JieLi clang with the build's
+        return check_only()                  # flags, -fsyntax-only; no IR pass, no link, no package, no SDK (docs/DEV_CHECKS.md)
     if a.module:                    # (Orange Cat 0.10.0) a module only needs the toolchain and build/gen
         errors, notes = build_module(a.module)
         for n in notes:

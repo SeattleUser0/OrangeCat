@@ -7,6 +7,16 @@
 #   SOUND=0 tests/run_tests.sh       everything but the sound tests
 #   SOUND=only tests/run_tests.sh    the sound tests alone
 #   UI=renders tests/run_tests.sh    UI screenshots only (build/ui_new), for the web manual
+#   SAN=1 tests/run_tests.sh         every test under AddressSanitizer and UndefinedBehaviorSanitizer (the suite before a flash or a Nightly)
+#   tests/run_tests.sh --fast        (dev-tools) the fast tier: SAN=0, -O2 compiles at -O1, at most 4 jobs at once; no CI marker is written
+#   tests/run_tests.sh --changed REF (dev-tools) only the jobs whose inputs (tests/suite_profile.py: the include graph of the last run's
+#                                    compiles, build/host/deps.txt) changed since the git ref REF, always plus the golden and size checks
+#                                    (the regression jobs, the main stack check) and the jobs the database does not know (python steps,
+#                                    node tests, a new test); the whole suite when the runner itself or a non-C file under tests/, tools/,
+#                                    web/, assets/ or firmware/ changed. Both options together: a change checked in minutes.
+#   The profile: every run writes build/host/profile.txt (each job's wall, compile and run seconds, the firmware sources' compiles;
+#   tests/suite_profile.py) and merges its inputs into build/host/deps.txt. OC_CCACHE=1 compiles through ccache (0: never; default: auto,
+#   on when ccache is installed); the compiler calls go through tests/cc_wrap.sh, which records them.
 # Sound tests: the regression suite, the DSP render and TRACKS, and every test of an engine's or an effect's rendered
 #   signal (native fp32, Prophet, SPEAKER, MOD, SLICER, the FX layer, REVERB, DELAY, MOD / SPREAD, CZ, SID,
 #   CZ-1 knobs, PHYS, DRUM, NOISE, FM6, the dual-core pairing). The rest (storage, UI, MIDI, USB, editor, web) always runs.
@@ -92,6 +102,18 @@
 # (Orange Cat 0.13.6) tests/branch_nightly_test.py: a branch build as the installer's Nightly channel beside an unchanged Standard
 # (Orange Cat 0.7.0) one canvas of 240 x 62 (was 240 x 124 and a second 240 x 24): taller regions drawn in bands (CV_BANDS), slices follow the canvas, partial sends a r...
 # (Orange Cat 0.13.0) a recorded step's ratchet, flam, condition, chance, nudge and accent apply to its notes as a group
+# (dev-tools) the fast tier, opt-in: --fast and --changed REF (the header); every other knob stays an environment variable
+FAST=0 CHANGED=
+while [ $# -gt 0 ]; do
+    case $1 in
+        --fast) FAST=1 ;;
+        --changed) [ $# -ge 2 ] || { echo "run_tests.sh: --changed needs a git ref" >&2; exit 2; }; CHANGED=$2; shift ;;
+        --changed=*) CHANGED=${1#--changed=} ;;
+        -h | --help) sed -n '5,20p' "$0"; exit 0 ;;
+        *) echo "run_tests.sh: unknown option $1 (see the header: --fast, --changed REF)" >&2; exit 2 ;;
+    esac
+    shift
+done
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 cd "$(dirname "$0")/.."
 # Pillow's Raqm (text spacing, renders): macOS strips DYLD_* on the way into /bin/sh (build.sh)
@@ -107,7 +129,18 @@ case "${CC:-}" in
     echo "  (tools/orangecat_engines.sh's set is only for oc_pages_test, which run_tests.sh builds itself)." >&2
     exit 2 ;;
 esac
-CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
+# (dev-tools) the compiler itself (CC, default cc; through ccache when it is there and OC_CCACHE is not 0) runs behind tests/cc_wrap.sh, which records
+#   every call for the profile and the --changed tier and, under --fast, compiles -O2 as -O1. The absolute path: tests/fx_insert_diff.sh compiles from other directories.
+OC_CC_REAL="${CC:-cc}"
+case ${OC_CCACHE:-auto} in
+    0) ;;
+    1) command -v ccache >/dev/null 2>&1 || { echo "OC_CCACHE=1: no ccache on the PATH" >&2; exit 2; }; OC_CC_REAL="ccache $OC_CC_REAL" ;;
+    auto) command -v ccache >/dev/null 2>&1 && OC_CC_REAL="ccache $OC_CC_REAL" ;;
+    *) echo "OC_CCACHE=0, 1 or auto"; exit 2 ;;
+esac
+export OC_CC_REAL
+[ $FAST = 1 ] && { SAN=0; export OC_FAST=1; }
+CC="sh $PWD/tests/cc_wrap.sh -O1 -ffp-contract=off -Wall -Wno-unused-function"
 # (Orange Cat 0.12.2, Part 2a) SAN=1: every test of the suite built and run under AddressSanitizer and UndefinedBehaviorSanitizer (the first finding stops the test).
 #   Alignment checks are off: the host arena hands out 4-byte-aligned blocks that hold pointers (drum909_part_t); the target's 32-bit core does not mind. Documented in BUILD.md.
 #   Slow (the sound tests several times over); a few tests that read their own stack or the flash image by design are not expected to differ.
@@ -125,6 +158,7 @@ FW="-w -Ibuild/gen -Ifirmware/src"
 P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
 PARALLEL=${PARALLEL:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+[ $FAST = 1 ] && [ "$PARALLEL" -gt 4 ] 2>/dev/null && PARALLEL=4   # (dev-tools) --fast: at most 4 jobs at once
 case $SOUND in 0 | 1 | only) ;; *) echo "SOUND=0, 1 or only"; exit 2 ;; esac
 UI=${UI:-}
 case $UI in "" | renders) ;; *) echo "UI=renders or empty"; exit 2 ;; esac
@@ -147,6 +181,16 @@ mkdir -p "$OUT" "$LOG"
 rm -f "$LOG"/*
 # (Orange Cat 0.13.5) the CI gate's positive marker (tools/ci_gate.sh): written below only when every job passed, so a stale one cannot be taken for this run's
 rm -f build/orangecat-tests-passed.txt build/orangecat-tests-failed.txt
+# (dev-tools) --changed REF: the jobs whose recorded inputs changed since REF (tests/suite_profile.py --affected; build/host/deps.txt from the last
+#   run), one key a line in $OUT/changed.keys. ALL (no database, the runner changed, a non-C file under tests/, tools/, web/, assets/ or
+#   firmware/ changed): the whole suite runs, with the reason printed.
+skipped=0
+if [ -n "$CHANGED" ]; then
+    python3 tests/suite_profile.py --affected "$CHANGED" --deps "$OUT/deps.txt" > "$OUT/changed.keys" || exit 1
+    if [ "$(head -1 "$OUT/changed.keys")" = ALL ]; then CHANGED=; fi
+fi
+[ $FAST = 1 ] && echo "== the fast tier (--fast): SAN=0, -O2 compiles at -O1, PARALLEL=$PARALLEL; no CI marker"
+[ -n "$CHANGED" ] && echo "== --changed $CHANGED: $(wc -l < "$OUT/changed.keys") jobs with changed inputs, the golden and size checks, the jobs the database does not know; no CI marker"
 start=$(date +%s)
 
 # ------------------------------------------------------------------- jobs ---
@@ -165,7 +209,10 @@ trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 
 fail() { echo "$1" >> "$LOG/$n.fail"; }
-step() { echo "== $1"; _step=$1; shift; case $1 in "$OUT"/*) limited "$@" || fail "$_step" ;; *) "$@" || fail "$_step" ;; esac; }
+# (dev-tools) the profile: a step's run and a test's run are timed into $OC_JOB_LOG.run (start and end in ns, the title); the job itself into
+#   $LOG/<n>.time; the compiles into <n>.cc and their depfiles into <n>.d.* (tests/cc_wrap.sh). tests/suite_profile.py reads them at the end.
+timed() { _r0=$(date +%s%N); "$@"; _rc=$?; [ -n "${OC_JOB_LOG:-}" ] && echo "$_r0 $(date +%s%N) $_timed" >> "$OC_JOB_LOG.run"; return $_rc; }
+step() { echo "== $1"; _step=$1 _timed=$1; shift; case $1 in "$OUT"/*) timed limited "$@" || fail "$_step" ;; *) timed "$@" || fail "$_step" ;; esac; }
 build() {
     _out=$1 _src=$2; shift 2
     $CC "$@" -o "$OUT/$_out" "tests/$_src.c" -lm || { fail "compile tests/$_src.c ($_out)"; return 1; }
@@ -186,7 +233,8 @@ _t() {
     [ $# -gt 0 ] || set -- "$OUT/$_out"
     echo "== $_title"
     build "$_out" "$_src" $_flags || return
-    limited "$@" || fail "$_title"
+    _timed=$_title
+    timed limited "$@" || fail "$_title"
 }
 flush() {                                         # the logs of the jobs ended, in order
     while [ $shown -lt $n ] && [ -f "$LOG/$((shown + 1)).done" ]; do
@@ -195,11 +243,22 @@ flush() {                                         # the logs of the jobs ended, 
         [ -f "$LOG/$shown.fail" ] && cat "$LOG/$shown.fail" >> "$LOG/failed"
     done
 }
+# (dev-tools) a job's key, the name the profile and the dependency database know it by: a test's or a step's title, a job function's name
+jobkey() { case $1 in _t | step) echo "$2" ;; echo) echo "note: $2" ;; *) echo "$1" ;; esac; }
+affected() {                                      # --changed: the key runs when its inputs changed, when it is a golden or size check, or when the database does not know it
+    [ -z "$CHANGED" ] && return 0
+    case $1 in regression*|"main stack"*|note:*) return 0 ;; esac
+    grep -Fq -- "$1	" "$OUT/deps.txt" || return 0
+    grep -Fxq -- "$1" "$OUT/changed.keys"
+}
 job() {
+    _key=$(jobkey "$@")
+    if ! affected "$_key"; then skipped=$((skipped + 1)); echo "$_key" >> "$LOG/skipped"; return 0; fi
     read -r slot <&3
     flush
     n=$((n + 1))
-    ( "$@" 3>&- > "$LOG/$n.log" 2>&1; : > "$LOG/$n.done"; echo >&3 ) &
+    printf '%s\n' "$_key" > "$LOG/$n.key"
+    ( export OC_JOB_LOG="$LOG/$n"; _j0=$(date +%s%N); "$@" 3>&- > "$LOG/$n.log" 2>&1; echo "$_j0 $(date +%s%N)" > "$LOG/$n.time"; : > "$LOG/$n.done"; echo >&3 ) &
     pids="$pids $!"
 }
 t() { job _t "$@"; }
@@ -841,11 +900,22 @@ case $SOUND in
     0) what="HOST TESTS (sound tests skipped: SOUND=0)" ;;
     only) what="SOUND TESTS (SOUND=only)" ;;
 esac
+# (dev-tools) the profile of this run (build/host/profile.txt: every job's wall, compile and run seconds, the firmware sources' compiles) and
+#   the dependency database (build/host/deps.txt: the inputs of every job that compiled something, merged over runs) for --changed
+python3 tests/suite_profile.py "$LOG" --deps "$OUT/deps.txt" --report "$OUT/profile.txt" --quiet || echo "tests/suite_profile.py failed (the profile only)"
+tier=
+[ $FAST = 1 ] && tier=" (--fast)"
+[ -n "$CHANGED" ] && tier="$tier (--changed $CHANGED: $skipped jobs skipped)"
 if [ -s "$LOG/failed" ]; then
-    echo "$what FAILED in $secs s:"
+    echo "$what FAILED in $secs s$tier:"
     sed 's/^/  /' "$LOG/failed"
     exit 1
 fi
-echo "$what PASSED in $secs s"
+echo "$what PASSED in $secs s$tier"
 # (Orange Cat 0.13.5) the last act of a good run: the marker the CI gate requires, with the number of jobs (tests and steps) that ran
-[ "$n" -gt 0 ] && echo "PASSED $n jobs in $secs s ($what)" > build/orangecat-tests-passed.txt
+# (dev-tools) never from the fast tier: a --fast or --changed run is not the suite the gate asks for
+if [ $FAST = 1 ] || [ -n "$CHANGED" ]; then
+    echo "(fast tier: build/orangecat-tests-passed.txt not written; the full suite is SAN=1 tests/run_tests.sh)"
+else
+    [ "$n" -gt 0 ] && echo "PASSED $n jobs in $secs s ($what)" > build/orangecat-tests-passed.txt
+fi
