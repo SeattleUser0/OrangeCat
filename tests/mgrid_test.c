@@ -392,7 +392,7 @@ int main(void)
             chk("DW7     .. and the recorded notes (the same events, field for field)", na == 1u && nb == na && found == na);
         }
         chk("DW7     the stage is not in the project: after the load the keyboard is not in NOTE", !mg.stage);
-        chk("DW7     the record is the size it was (13,212 B) and the module interface's id has not moved (0x126F12CC)", sizeof(project_store_t) == 13212u && FW_API_ID == 0x126F12CCu);
+        chk("DW7     the record is the size it was (13,212 B) and the module interface's id has not moved (0xCAF53177, the Release 3 id; the test pinned the Release 2 id 0x126F12CC)", sizeof(project_store_t) == 13212u && FW_API_ID == 0xCAF53177u);
     }
     {   /* DW8: DRUM-X's grid */
         uint32_t k;
