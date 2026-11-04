@@ -305,7 +305,7 @@ static uint32_t recording_loop(const track_t *t, uint32_t period)
 }
 static int recording_valid(const recorded_note_t *r)
 {
-    return !r->vel || (r->pitch >= -24 && r->pitch <= 24 && r->length <= 1 && r->vel <= 127u && r->duration && r->note <= 127u && ((r->step & 128u) || (r->step & 63u) + ((r->step & 64u) != 0u) < NSTEP));
+    return !r->vel || (r->pitch >= -24 && r->pitch <= 24 && (r->length <= 1 || (r->length == RN_CTL && !r->pitch && r->note >= RN_CTL_FIRST && r->note <= 127u)) && r->vel <= 127u && r->duration && r->note <= 127u && ((r->step & 128u) || (r->step & 63u) + ((r->step & 64u) != 0u) < NSTEP));
 }
 static uint32_t recording_view(const track_t *t, const recorded_note_t *r)
 {
@@ -1017,7 +1017,7 @@ static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, u
 #ifdef RECORDING_HIT_HOOK                           /* (Orange Cat 0.13.0) host tests only: the hits a recorded step plays */
     RECORDING_HIT_HOOK(t, i, vel, gate, late);
 #endif
-    drum_event_pitch=r->pitch; drum_event_length=r->length?gate:0;
+    drum_event_pitch=r->pitch; drum_event_length=(r->length&1u)?gate:0;
 #if OC_SLIDE
     if (!recording_slid)
 #endif

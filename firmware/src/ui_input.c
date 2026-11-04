@@ -1918,10 +1918,10 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
 #if OC_ONE_AUTH
         if(MELODEE_DRUM && cur_page()->scope==SC_DRUMHIT){   /* (ui-fix 7) the pads: a hit turned below one sixteenth plays its natural
                                                          * length (length 0); NOTES' and the tracker's LEN on a drum hit are as before */
-            int32_t raw=note_snap(before.length?duration:0,delta,quantum);
+            int32_t raw=note_snap((before.length&1u)?duration:0,delta,quantum);
             after.length=raw>=(int32_t)quantum;
             duration=after.length?clamp(raw,(int32_t)quantum,128*RECORD_UNIT):(int32_t)quantum;
-            if(!before.length && !after.length){fm1_irq_on();return;}   /* (natural to natural: nothing) */
+            if(!(before.length&1u) && !after.length){fm1_irq_on();return;}   /* (natural to natural: nothing) */
         } else
 #endif
         duration=clamp(note_snap(duration,delta,quantum),(int32_t)quantum,128*RECORD_UNIT);

@@ -159,6 +159,9 @@
 #if OC_CLIP_SEL && !OC_CLIP
 #error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
+#ifndef OC_PJ4
+#define OC_PJ4 0                  /* (Release 3 step 7, branch r3-format, docs/orangecat/PROJECT_FORMAT_R3.md) 1: link the project format core (oc_pj4.c); step 1 is host only, nothing calls it, so 1 only measures it */
+#endif
 #ifndef OC_ONE_AUTH
 #define OC_ONE_AUTH 0             /* (ui-fix 7, branch ui-fix: docs/orangecat/UI_BUILD.md "ui-fix 7") 1: one authority for every note: a
                                    * recorded step's events are the notes and the overview a cache (recording.c recording_reconcile at the
@@ -573,6 +576,8 @@ enum { TC_NONE, TC_FILL, TC_NFILL, TC_1_2, TC_2_2, TC_1_3, TC_2_3, TC_3_3, TC_1_
  * low 6 bits, overview rounded forward in bit 6, wrapped to zero in bit 7. */
 typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; int8_t pitch; uint8_t length; } recorded_note_t;
 _Static_assert(sizeof(recorded_note_t) == 10u, "timed note layout");
+#define RN_CTL 2u                               /* (Release 3 step 7, PROJECT_FORMAT_R3.md 8.2b) bit 1 of recorded_note_t.length: a control note (KICK, HOLD, DIVE, RISE: notes 124 to 127); bit 0 is the held length */
+#define RN_CTL_FIRST 124u
 /* Sound offsets: semitones, decay and voice character; zero preserves the factory kit. */
 typedef struct { int8_t c[16][4]; } drum_patch_t;
 static drum_patch_t drum_patch[NTRK];
