@@ -328,7 +328,7 @@ counts, the lines are in `build/host/cppcheck.txt` and `build/host/tidy.txt`, an
 
 ## For Session A: what merges, and the gate
 
-**san-fix** (branch `san-fix` from linux-hw a58324e2, worktree `~/oc-san-fix`): the SAN=1 suite's findings, listed under
+**san-fix** (branch `san-fix` from linux-hw a58324e2, worktree `~/oc-san-fix`, 542914bf): the SAN=1 suite's findings, listed under
 "Known red" below, fixed without an output change: the plain `.fwsc`, app and loader identical by hash to a58324e2's (the
 gate below, run twice: after the sanitizer fixes and after the warning fixes). The shifts of negative values and the int32
 products that wrap go through unsigned, the same bits the target had; the tests free their images and buffers; the module
@@ -342,7 +342,16 @@ count), `ui_popup.c:573` (the fallthrough return), `upreset.c:701` (the engine l
 whitespace only, the hash unchanged. Int-to-pointer: `firmware/hal/fm1_usb.h` lines 26, 28, 29 (the USB endpoint registers),
 `oc_module.c:198` and `:496` (a module's header and engine by XIP address), `oc_pack.c:259` (the pack in place),
 `tests/oc_module_test.c:122`: the target's 32-bit addresses made pointers, which the 64-bit host flags; through `uintptr_t` now,
-the same code on the target. The full SAN=1 suite on san-fix: SAN_SUITE_PLACEHOLDER
+the same code on the target. The full SAN=1 suite on san-fix 542914bf: **ALL HOST TESTS PASSED, 239 jobs in 5,433 s** (90 min 33 s, 4 jobs through the
+lock, 2026-11-04 10:52 to 12:23 UTC, load 1.0 at the start), the CI marker written. Two rounds were needed: the sanitizer
+stops a test at its first finding, so the second run of the suite showed the shifts that stood behind the first ones
+(`eng_phys.c:211`, `eng_noise.c` lines 116, 199, 205, 220, 226, `dsp.c:29` mulq15's product past Q15 x 2.0,
+`braids/pb_dig_b.h:192`); a sweep of the 35 sound tests built with `-fsanitize=undefined -fsanitize-recover=all` then
+listed every remaining site in one pass and came back empty after the fixes. The hash gate was run after each round (three
+times, identical each time). Two things the suite needs that a plain `tools/build.py` does not give: `build/module`'s images
+(the interface identifier test; `tools/hw/ci_step.py build` makes them as CI does) and `tests/fx_insert_diff.sh`'s pinned OLD
+tree built without the sanitizers (it is the reference, and keeps the old shifts; fixed on san-fix). The branch: 8a8e347d (the
+findings and the warnings), 58c628ab (the OLD tree), 542914bf (the second round).
 
 **dev-tools**: below.
 
