@@ -15,7 +15,7 @@ from make_site import main, release_packages, require_manual, publish_manual
 HERE = Path(__file__).resolve().parent
 
 
-def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=(), manifest=None, branch=None):
+def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=(), manifest=None, branch=None, ocp=None):
     if manual is not None:
         manual = Path(manual)
         require_manual(manual)
@@ -25,6 +25,8 @@ def publish(out, dual, version, commit, built_at, manual=None, pak=None, ocms=()
         spec["branchName"] = branch
     if pak:
         spec.update(pak=pak, ocm=list(ocms), manifest=manifest)
+        if ocp:
+            spec["ocp"] = ocp                                      # (the model picker) the master package of MACRO's models
     main(packages["dual"], release, out, nightly=spec, installer_only=True, keep_release=True)
     # (0.13.6) the branch's own editor, beside the stable one (webapp/nightly-editor/): a branch build's new editor commands (the Audio readout) are not in main's
     # editor. Standard's files (webapp/editor/) are not touched, and site_check does not count this folder as Standard.
@@ -58,8 +60,9 @@ if __name__ == "__main__":
     parser.add_argument("--manual", type=Path, help="publish this guide under webapp/manual/nightly/")
     parser.add_argument("--pak", help="the build's asset pack (needs --manifest)")
     parser.add_argument("--ocm", action="append", default=[], help="a module package of the build (repeat)")
+    parser.add_argument("--ocp", help="(the model picker) the master package of MACRO's models (orangecat-plaits-VERSION.ocp)")
     parser.add_argument("--manifest", help="the build's manifest (tools/oc_manifest.py)")
     parser.add_argument("--branch", help="the branch the build was made from (shown in the installer's Nightly entry)")
     args = parser.parse_args()
     publish(args.out, args.dual, args.version, args.commit, args.built_at, args.manual,
-            args.pak, args.ocm, args.manifest, args.branch)
+            args.pak, args.ocm, args.manifest, args.branch, args.ocp)

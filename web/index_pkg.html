@@ -79,6 +79,11 @@
     <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
     <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
     <p><label><input type="checkbox" id="stage-fx" checked> <span data-t="stageFx"></span> <span id="fx-names"></span></label><br><span class="small" data-t="fxWhy"></span></p>
+    <p><label><input type="checkbox" id="stage-models" checked> <span data-t="stageModels"></span> <span id="models-count"></span></label><br><span class="small" data-t="modelsWhy"></span></p>
+    <div id="models-pick" hidden>
+      <p class="small" id="models-list"></p>
+      <p class="small" id="models-room"></p>
+    </div>
     <p class="small" data-t="downgradeWhy"></p>
     <p class="small" id="set-note"></p>
   </fieldset>
@@ -145,6 +150,9 @@ const TEXT = {
     installNone: "何もチェックされていません：何も書き込みません",
     installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESモジュール", installProphet: "Prophetモジュール", installFx: "エフェクトモジュール",
     stageFx: "エフェクトモジュール", fxWhy: "このビルドのエフェクトモジュール（インサート、センド、マスター）。モジュールIDで入ります。エンジンのモジュールとは別に、空いている場所に入ります。",
+    stageModels: "MACROのモデル", installModels: "MACROのモデル",
+    modelsWhy: "VAはファームウェアに内蔵です。MACROのほかのモデルは、ここで選んで1つのモジュールにします（今日の15モデルにチェック済み）。ほかのモジュールと並べて入れる空きが必要で、リストの下の行がその空きを示します。入らないモデルを外すまでインストールは始まりません。",
+    modelsBuiltIn: "内蔵", modelsNoRoom: "モデルが入るまでインストールは待ちます。",
     unitModsTitle: "ユニットに入っているモジュール", unitRead: "ユニットから読む", unitEngines: "エンジン", unitFx: "エフェクト",
     unitNone: "なし", fxNoTable: "このファームウェアにはエフェクトモジュールがありません", fxRemoveTitle: "エフェクトモジュールを消す", fxRemove: "消す",
     fxRemoveConfirm: "このエフェクトモジュールをユニットから消します。続けますか？", fxRemoved: "エフェクトモジュールを消しました",
@@ -234,6 +242,9 @@ const TEXT = {
     installNone: "nothing is ticked: nothing will be written",
     installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES module", installProphet: "the Prophet module", installFx: "the effect modules",
     stageFx: "Effect modules", fxWhy: "The build's effect modules (insert, send, master). They go in by their module id, into a free place beside the engine modules.",
+    stageModels: "MACRO models", installModels: "the MACRO models",
+    modelsWhy: "VA is built into the firmware. The other models of MACRO come as one module you put together here: tick the models to install (today's fifteen are ticked). The module needs room beside the other modules; the line under the list says how much. Install does not start until the models fit.",
+    modelsBuiltIn: "built in", modelsNoRoom: "Install waits until the models fit.",
     unitModsTitle: "Modules in the unit", unitRead: "Read from the unit", unitEngines: "Engines", unitFx: "Effects",
     unitNone: "none", fxNoTable: "this firmware has no effect modules", fxRemoveTitle: "Remove an effect module", fxRemove: "Remove",
     fxRemoveConfirm: "This effect module is erased from the unit. Continue?", fxRemoved: "The effect module was removed",
@@ -346,6 +357,62 @@ const ocmKind = (u) => /orangecat-prophet-/.test(u) ? "prophet" : "shapes";
 /* (Release 3 step 4) an effect module of the release list is an entry {url, kind (1..3), module_id}: the manifest's kind and id, checked against the file after it is read (fm1oc.js runSet) */
 const fxOf = () => offered().ocm.filter(u => u && typeof u === "object" && typeof u.url === "string" && u.kind >= 1 && u.kind <= 3 && u.module_id > 0);
 const ocmOf = (kind) => offered().ocm.filter(u => typeof u === "string" && ocmKind(u) === kind).sort((a, b) => /orangecat-wheel-/.test(b) - /orangecat-wheel-/.test(a));   /* (round 14) WHEEL first: it takes the unit's first start, SHAPES the next */
+/* (Release 3, the model picker: docs/candidates/model_picker.md) MACRO's models: the master package of the chosen build (the release list's "ocp"), the pick (ticked
+ * models; VA is built into the firmware and shown locked; MACRO's own fifteen are the default), the room meter against the module area (18 sectors: what the ticked module
+ * stages take, and the unit's modules when it was read), the pick packed by web/fm1pick.js and installed as a module by its id (kind 4) with the others. The last pick is
+ * kept in this browser. */
+const masters = {};                                   /* a build -> its parsed master package */
+let master = null, modelsRoom = null, unitState = null;
+const modelsUrl = () => (selection().channel || {}).ocp || "";
+const PICK_KEY = "oc-models";
+const rememberedPick = () => { try { const v = JSON.parse(localStorage.getItem(PICK_KEY) || "null"); return Array.isArray(v) ? v : null; } catch (_) { return null; } };
+const rememberPick = (items) => { try { localStorage.setItem(PICK_KEY, JSON.stringify(items)); } catch (_) { /* no storage: the pick is not kept */ } };
+const pickItems = () => master ? master.manifest.items.filter((it) => it.id !== 0 && $("mdl-" + it.id).checked).map((it) => it.id) : [];
+function modelsList() {                               /* one box a model, VA locked (built in); the wave banks after the models */
+  if (!master) { $("models-list").innerHTML = ""; return; }
+  const want = new Set(rememberedPick() || PICK.default(master.manifest));
+  $("models-list").innerHTML = master.manifest.items.map((it) => `<label style="display:inline-block;min-width:11em"><input type="checkbox" id="mdl-${it.id}"> ${it.name}${it.id === 0 ? " (" + t("modelsBuiltIn") + ")" : ""}</label>`).join(" ");
+  master.manifest.items.forEach((it) => {              /* the boxes' state set on the elements (not in the markup: a plain object stands for an element in the page's test) */
+    const box = $("mdl-" + it.id);
+    box.checked = it.id === 0 || want.has(it.id); box.disabled = it.id === 0;
+    if (it.id) box.addEventListener("change", () => { rememberPick(pickItems()); installWhat(); });
+  });
+}
+function modelsOthers() {                             /* the modules beside the pick: the ticked module stages of this build (an engine module's geometry, an effect module's sectors), and the unit's when read */
+  const geo = (u) => /orangecat-wheel-/.test(u) ? {name: "WHEEL", sectors: 4} : /orangecat-prophet-/.test(u) ? {name: "PROPHET", sectors: 8} : {name: "SHAPES", sectors: 6};
+  const eng = $("stage-prophet").checked && !$("stage-prophet").disabled ? ocmOf("prophet") : $("stage-mod").checked && !$("stage-mod").disabled ? ocmOf("shapes") : [];
+  const fx = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf().filter((x) => x.kind !== 4).map((x) => ({name: x.name || "0x" + x.module_id.toString(16), sectors: x.sectors || 1})) : [];
+  return PICK.others([...eng.map(geo), ...fx], unitState);
+}
+const modelsOk = () => !$("stage-models").checked || $("stage-models").disabled || !master || (!!modelsRoom && modelsRoom.ok);
+function modelsMeter() {                              /* the line under the list: the room, what the other modules take, what this pick needs; Install waits while it does not fit */
+  if (!master) { modelsRoom = null; $("models-room").textContent = ""; $("models-count").textContent = ""; return; }
+  const items = pickItems(), area = unitState && unitState.mod ? unitState.mod.sectors : 18, bad = PICK.validate(master.manifest, items);
+  modelsRoom = PICK.room(master.manifest, master.img0.length, items, area, modelsOthers());
+  if (bad.length) modelsRoom.ok = false;
+  $("models-room").textContent = modelsRoom.text + (bad.length ? " " + bad.join("; ") + "." : "") + (modelsRoom.ok || !items.length ? "" : " " + t("modelsNoRoom"));
+  $("models-count").textContent = "(" + items.length + ")";
+  $("go").disabled = writing || !image || !modelsOk();
+}
+async function modelsLoad() {                         /* the master of the chosen build, once; without one the stage is off */
+  const url = modelsUrl(), key = selection().kind + ":" + url, epoch = buildEpoch;
+  master = null;
+  if (!url || typeof PICK === "undefined") { $("models-pick").hidden = true; $("stage-models").disabled = true; modelsMeter(); installWhat(); return; }
+  try {
+    if (!masters[key]) {
+      const r = await fetch(url + ((selection().channel || {}).commit ? "?commit=" + selection().channel.commit : ""));
+      if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+      masters[key] = PICK.parseMaster(new Uint8Array(await r.arrayBuffer()));
+    }
+    if (epoch !== buildEpoch) return;
+    master = masters[key];
+  } catch (e) { master = null; log(String(e && e.message || e)); }
+  if (!master) { $("models-pick").hidden = true; $("stage-models").disabled = true; modelsMeter(); installWhat(); return; }
+  $("stage-models").disabled = writing;
+  $("models-pick").hidden = !$("stage-models").checked;
+  modelsList(); modelsMeter(); installWhat();
+}
+$("stage-models").addEventListener("change", () => { $("models-pick").hidden = !$("stage-models").checked || !master; installWhat(); });
 let modChoice = "shapes";
 function modStages() {
   const sh = ocmOf("shapes").length > 0, pr = ocmOf("prophet").length > 0;
@@ -395,9 +462,10 @@ function buildLabels() {
   $("dual-version").textContent = "v" + r.version;
   $("nightly-version").textContent = meta.nightly ? meta.nightly.version : "";
 }
-/* what the Install button will write: the ticked boxes, for the chosen build */
+/* what the Install button will write: the ticked boxes, for the chosen build; (the model picker) the room meter first: it depends on the same boxes */
 function installWhat() {
-  const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"], ["stage-fx", "installFx"]]
+  modelsMeter();
+  const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"], ["stage-fx", "installFx"], ["stage-models", "installModels"]]
     .filter(([id]) => $(id).checked && (writing || !$(id).disabled)).map(([, k]) => t(k));
   const ch = selection().channel || {};
   $("install-what").textContent = t("installWhat") + (parts.length ? parts.join(", ") + (ch.version ? " (" + ch.version + ")" : "") : t("installNone"));
@@ -411,7 +479,8 @@ const images = {};                // a build ("dual", "nightly-dual" ..) -> its 
 
 let writing = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;
 const lockInstaller = (on) => {
-  writing = on; $("release").disabled = on; $("go").disabled = on || !image;
+  writing = on; $("release").disabled = on; $("go").disabled = on || !image || !modelsOk();
+  $("stage-models").disabled = on || !master;
   buildIds.forEach(k => { $("build-" + k).disabled = on; });
   $("stock-go").disabled = on || !stock;
   ["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length) || (id === "stage-fx" && !fxOf().length); });
@@ -428,6 +497,7 @@ async function choose() {
   stageNote(); installWhat();
   const cacheKey = kind + ":" + (channel?.version || "") + ":" + (channel?.commit || "");
   image = null; $("go").disabled = true;
+  modelsLoad();                                       /* (the model picker) the build's master package, beside the firmware's */
   try {
     if (!images[cacheKey]) {
       if (!channel) throw new Error(kind.startsWith("rc-") ? "Release candidate is not available yet" : "Nightly is not available yet");
@@ -497,7 +567,7 @@ const getFile = async (url) => {
 };
 // the summary: one line a stage
 /* (0.12.1) "ENGINE X INSTALLED AT START N: REMOVE IT FIRST": detail is "engine:start" (fm1oc.js installModule); only a module engine can be in the way */
-const blockedText = (detail) => { const [e, s] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", {14: "SHAPES", 19: "PROPHET", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };   /* (Release 3 step 4) 127: a start of no engine, an effect module */
+const blockedText = (detail) => { const [e, s] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", {14: "SHAPES", 19: "PROPHET", 8: "MACRO MODELS", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };   /* (Release 3 step 4) 127: a start of no engine, an effect module; (the model picker) 8: a start of MACRO's models */
 const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : v.error === "modBlocked" ? blockedText(v.detail) : (TEXT[lang][v.error] || v.error);
 function summaryText(sum) {
   const lines = [t("sumFw") + ": " + sumWord(sum.firmware), t("sumPack") + ": " + sumWord(sum.pack)];
@@ -510,6 +580,8 @@ function summaryText(sum) {
 const OC_STATES = ["empty", "torn", "refused", "bad header", "bad CRC", "crashed", "no slot", "ok", "bad tail"];
 const hex8 = (v) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(8, "0");
 function showUnit(u) {
+  unitState = {...(unitState || {}), ...u};           /* (the model picker) the room meter counts the unit's modules once it was read */
+  modelsMeter();
   if (u.engines !== undefined) {
     const rows = (u.engines ? u.engines.engines : []).filter((x) => x.src === 2 || x.start != null)
       .map((x) => `#${x.num}  v${x.version.join(".")}  ${OC_STATES[x.state] || x.state}  ${x.src === 2 ? "module" : "built in"}  start ${x.start ?? "-"}  ${x.size} B`);
@@ -547,16 +619,24 @@ $("go").addEventListener("click", async () => {
   const engMods = $("stage-prophet").checked ? ocmOf("prophet") : $("stage-mod").checked ? ocmOf("shapes") : [];   /* (0.12.1) one module stage at a time */
   const fxMods = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf() : [];   /* (Release 3 step 4) the effect modules after it */
   const modules = [...engMods, ...fxMods.map((x) => x.url)], want = [...engMods.map(() => null), ...fxMods.map((x) => ({kind: x.kind, module_id: x.module_id}))];
-  const stages = {firmware: $("stage-fw").checked, pack: $("stage-pack").checked && !!o.pak, module: modules.length > 0};
+  const modelsOn = $("stage-models").checked && !$("stage-models").disabled && !!master;   /* (the model picker) the pick, packed below, goes in after the others */
+  const stages = {firmware: $("stage-fw").checked, pack: $("stage-pack").checked && !!o.pak, module: modules.length > 0 || modelsOn};
   if (!stages.firmware && !stages.pack && !stages.module) { sayK("nothingChosen"); return; }
+  if (modelsOn && !modelsOk()) { say(modelsRoom ? modelsRoom.text + " " + t("modelsNoRoom") : t("modelsNoRoom")); return; }
   lockInstaller(true);
   let midi;
   try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
   catch (e) { sayK("denied"); lockInstaller(false); return; }
-  const files = {pack: null, modules: [], ...(fxMods.length ? {want} : {})};
+  const files = {pack: null, modules: [], ...(fxMods.length || modelsOn ? {want} : {})};
   try {                                   // everything is fetched before the first byte is written
     if (stages.pack) files.pack = await getFile(o.pak);
     if (stages.module) files.modules = await Promise.all(modules.map(getFile));
+    if (modelsOn) {                       /* (the model picker) the pick packed from the master: a format 2 module package, as the build's own (web/test_pick.mjs) */
+      const pk = PICK.pack(master, pickItems());
+      if (pk.error) throw new Error(pk.error);
+      files.modules.push(pk.ocm); want.push({kind: 4, module_id: 0x4D00 | (master.manifest.engine & 0xFF)});
+      log(`models: ${pickItems().length} picked, ${pk.ocm.length} B, ${pk.sectors} sectors`);
+    }
   } catch (e) { sayK("loadfail", e.message); lockInstaller(false); return; }
   try {
     const sum = await runSet({

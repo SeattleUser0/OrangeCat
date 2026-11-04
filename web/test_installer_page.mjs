@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
 import {MELODEE_LOADER, STOCK_LOADER} from "./fm1ota.js";
+import {PICK} from "./fm1pick.js";
 
 const template = readFileSync(new URL("index_pkg.html", import.meta.url), "utf8");
 
@@ -62,6 +63,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
       return {firmware: ctx.stages.firmware ? "installed" : "off", pack: ctx.stages.pack ? "installed" : "off", module: ctx.files.modules.map(() => "installed")};
     },
     OcLink: class {},
+    PICK,                                                 // (the model picker) the packer and the room meter, inlined into the page by make_site.py
   });
   const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(meta));
   vm.runInContext(script, context);
@@ -168,4 +170,70 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   await answer(plain, STANDARD.pak); await answer(plain, STANDARD.ocm[0]); await c2;
   assert.equal(plain.runs[0].want, undefined, "an engine-only run is what it was: no want");
 }
-console.log("installer page: Standard and the Nightly side by side, the choice kept, the boxes are what Install writes, a stock unit takes either in one run: passed");
+// e. (Release 3, the model picker) the MACRO models box: ticked by default, its texts; with a master package in the release list ("ocp") the page lists the models (VA locked),
+//    ticks MACRO's own fourteen by default, remembers the pick, meters the room against the ticked module stages, refuses Install while the pick does not fit, and sends the
+//    packed module after the others with {kind: 4, module_id: 0x4D08}; without a master the box is off
+{
+  assert.match(template, /<input type="checkbox" id="stage-models" checked>/, "the models box is ticked by default: today's models go in unless the player unticks them");
+  for (const k of ["stageModels", "modelsWhy", "installModels", "modelsBuiltIn", "modelsNoRoom"])
+    assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
+  // a made master: a header page, a glue region and three model regions of 4,096 B (ids 0 VA, 1 WAVSHP, 2 FM), one of 100 KB (3 GRAIN: too big beside the others) and a wave bank
+  const region = (name, size) => ({ name, size });
+  const regs = [region("glue", 256), region("mdl_va", 4096), region("mdl_wavshp", 4096), region("mdl_fm", 4096), region("mdl_grain", 100 * 1024), region("tbl_wav0", 4096)];
+  let at = 0x100; const regions = regs.map((r) => { const o = { name: r.name, start: at, end: at + r.size - 16 }; at += r.size; return o; });
+  const img0 = new Uint8Array(at), manifest = {
+    name: "MODELS", engine: 8 | 4 << 8, version: 0x10000, area_lo: 0xC8000, area_sectors: 18, area_first: -6, area_last: 12, starts: Array.from({ length: 18 }, (_, i) => i - 6), code_off: 0x100,
+    part_head: 184, poly: 4, regions, rules: { wavtbl: 23, terrain: 20, banks: [25] },
+    items: [{ id: 0, key: "va", name: "VA", regions: ["mdl_va"], state: 252, big: 0 }, { id: 1, key: "wavshp", name: "WAVSHP", regions: ["mdl_wavshp"], state: 68, big: 0 },
+            { id: 2, key: "fm", name: "FM", regions: ["mdl_fm"], state: 40, big: 0 }, { id: 3, key: "grain", name: "GRAIN", regions: ["mdl_grain"], state: 112, big: 0 },
+            { id: 25, key: "wav0", name: "WAVE BANK A", regions: ["tbl_wav0"] }],
+    hdr: { iface: 1, api_addr: 2, api_version: 3, api_size: 4, pack_hash: 5 } };
+  new DataView(img0.buffer).setUint32(0, 0x444F4D4F, true);
+  const js = new TextEncoder().encode(JSON.stringify(manifest)), jl = (js.length + 3) & ~3, body = new Uint8Array(jl + img0.length);
+  body.set(js, 0); body.set(img0, jl);
+  const masterBytes = new Uint8Array(24 + body.length), mdv = new DataView(masterBytes.buffer);
+  mdv.setUint32(0, 0x4D50434F, true); mdv.setUint32(4, 1, true); mdv.setUint32(8, jl, true); mdv.setUint32(12, img0.length, true); mdv.setUint32(16, 0, true); mdv.setUint32(20, PICK.crc32(body), true);
+  masterBytes.set(body, 24);
+  assert.ok(PICK.parseMaster(masterBytes), "the made master parses");
+  const WITH = {...STANDARD, ocp: "orangecat-plaits-0.15.0.ocp", ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1, name: "DUB TAPE", sectors: 3}]};
+  const storage = store(), page = boot(storage, {model: "FM-1", text: "FM-1_710010300"}, {...WITH, releases: [WITH]});
+  await answer(page, "standard.fwsc");
+  {   // the master's fetch answers with the made bytes
+    const i = page.pending.findIndex((p) => p.url.startsWith("orangecat-plaits-0.15.0.ocp")); assert.ok(i >= 0, "the page fetches the build's master package");
+    const [p] = page.pending.splice(i, 1); p.resolve({ok: true, arrayBuffer: async () => masterBytes.buffer}); await page.tick(); await page.tick();
+  }
+  assert.equal(page.element("stage-models").disabled, false, "the box is on with a master");
+  page.element("stage-models").checked = true; page.element("stage-models").listeners.change();   // (the mock's boxes start unticked; the template's is ticked)
+  page.element("stage-fx").checked = true; page.element("stage-fx").listeners.change();
+  assert.equal(page.element("models-pick").hidden, false, "the list shows under a ticked box");
+  assert.ok(page.element("mdl-0").checked && page.element("mdl-0").disabled, "VA: ticked and locked (built in)");
+  assert.ok(page.element("mdl-1").checked && page.element("mdl-2").checked && page.element("mdl-3").checked, "MACRO's own models are ticked by default");
+  assert.ok(!page.element("mdl-25").checked, "a wave bank is not");
+  assert.match(page.element("models-room").textContent, /^Room: 18 sectors; SHAPES 6, DUB TAPE 3 take 9; 9 left\. This pick \(WAVSHP, FM, GRAIN\) needs 28: 19 too many\. Leave a model or a wave bank out\. Install waits until the models fit\.$/,
+    "the meter: the ticked module stages (SHAPES of the shapes box, DUB TAPE of the effects box with its sectors) and this pick; it does not fit: " + page.element("models-room").textContent);
+  assert.equal(page.element("go").disabled, true, "Install waits while the pick does not fit");
+  assert.match(page.element("install-what").textContent, /the effect modules, the MACRO models \(0\.15\.0\)$/);
+  page.element("mdl-3").checked = false; page.element("mdl-3").listeners.change();
+  assert.match(page.element("models-room").textContent, /This pick \(WAVSHP, FM\) needs 3: it fits, 6 to spare\.$/, page.element("models-room").textContent);
+  assert.equal(page.element("go").disabled, false, "... and is ready once it does");
+  assert.equal(storage.m.get("oc-models"), "[1,2]", "the pick is remembered");
+  page.element("stage-fx").checked = false; page.element("stage-fx").listeners.change();
+  assert.match(page.element("models-room").textContent, /SHAPES 6 take 6; 12 left/, "an unticked stage leaves the room");
+  const click = page.element("go").listeners.click(); await page.tick();
+  await answer(page, WITH.pak); await answer(page, WITH.ocm[0]);
+  await click;
+  assert.equal(page.runs.length, 1);
+  assert.equal(page.runs[0].modules.length, 2, "the engine module, then the packed models module");
+  assert.equal(JSON.stringify(page.runs[0].want), JSON.stringify([null, {kind: 4, module_id: 0x4D08}]), "what the models module is");
+  const packed = page.runs[0].modules[1];
+  assert.equal(packed.slice(0, 4), "OCMF", "a format 2 module package");
+  const again = boot(storage, {model: "FM-1", text: "FM-1_710010300"}, {...WITH, releases: [WITH]});
+  await answer(again, "standard.fwsc");
+  { const i = again.pending.findIndex((p) => p.url.startsWith("orangecat-plaits-")); const [p] = again.pending.splice(i, 1); p.resolve({ok: true, arrayBuffer: async () => masterBytes.buffer}); await again.tick(); await again.tick(); }
+  assert.ok(again.element("mdl-1").checked && !again.element("mdl-3").checked, "the next visit opens on the remembered pick");
+  const plain = boot(store());
+  await answer(plain, "standard.fwsc");
+  assert.equal(plain.element("stage-models").disabled, true, "no master in the release list: the box is off");
+  assert.doesNotMatch(plain.element("install-what").textContent, /MACRO models/);
+}
+console.log("installer page: Standard and the Nightly side by side, the choice kept, the boxes are what Install writes, a stock unit takes either in one run, the model picker: passed");

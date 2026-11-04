@@ -37,7 +37,7 @@ def json_of(site, name):
 
 
 def release_names(entry):
-    return list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])]
+    return list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])] + ([entry["ocp"]] if entry.get("ocp") else [])   # (the model picker) the master package
 
 
 def stable_files(site):
