@@ -394,7 +394,8 @@ static __attribute__((noinline)) int drum_source(track_t *t,voice_t *v,drum_lane
         for(i=0;i<n;i++)y[i]=(int32_t)(fm_clampf(f[i],-2.0f,2.0f)*12000.0f);
     } else {int16_t local[P_COUNT];for(uint32_t k=0;k<8u;k++)local[P_E0+k]=p[P_E0+k];const int8_t *c=drum_patch[t-trk].c[L->sound];
         local[P_E3]=(int16_t)clamp(local[P_E3]+c[1],0,127);
-        if(L->sound==D9_SD)local[P_E4]=(int16_t)clamp(local[P_E4]+c[2],0,127);dr8_run_into(&L->r,local,y,n,scratch);}
+        if(L->sound==D9_SD)local[P_E4]=(int16_t)clamp(local[P_E4]+c[2],0,127);
+        dr8_run_into(&L->r,local,y,n,scratch);}
     return 1;
 }
 static __attribute__((noinline)) void drum_limit(voice_t *v,int32_t *y,uint32_t n)

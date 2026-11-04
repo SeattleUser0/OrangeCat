@@ -28,6 +28,19 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import build  # noqa: E402
 import ocflash  # noqa: E402
+import shutil  # noqa: E402
+
+# (san-fix) the test's own build directory: build.py --module writes its images, link scripts and package to build.OUT / "module" and
+# the .ocm to build.OUT, and FW_API_IFACE_BUILT to build.GEN. Run here against the stand-in toolchain, that overwrote the real
+# build/module/shapes.*.img and build/shapes-<version>.ocm, and the next suite run's interface identifier test read stand-in
+# images. So everything of this test goes under build/host/module_build_test; the generated headers it reads are copies.
+SCRATCH = ROOT / "build" / "host" / "module_build_test"
+shutil.rmtree(SCRATCH, ignore_errors=True)
+(SCRATCH / "gen").mkdir(parents=True)
+for _h in ("fw_api_id.h", "oc_pack_tables.h", "melodee_tables.h"):
+    if (build.GEN / _h).exists():
+        shutil.copy(build.GEN / _h, SCRATCH / "gen" / _h)
+build.OUT, build.GEN = SCRATCH, SCRATCH / "gen"
 
 bad = 0
 
@@ -133,7 +146,7 @@ check("no engine module has a kind", all("kind" not in v for k, v in build.MODUL
 fk = Fake()
 errors, notes = run(fk)
 check("a good module builds with no error", errors == [])
-ocm = (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").read_bytes()
+ocm = (build.OUT / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").read_bytes()
 lds = [Path(build.OUT / "module" / f"shapes.{s}.ld").read_text() for s in (0, 6)]
 check("the link scripts place the module at XIP 0x020C4000 and 0x020CA000 (flash 0xC8000 and 0xCE000, less the 0x4000 of FM1_XIP) with room for 6 sectors",
       "ORIGIN = 0x20c4000, LENGTH = 0x6000" in lds[0] and "ORIGIN = 0x20ca000, LENGTH = 0x6000" in lds[1])
@@ -176,7 +189,7 @@ check("ocflash.tail_hit finds a record on sector 0's tail, on sector 1's, and no
       ocflash.tail_hit(b"\0" * 0xF04 + record_at()) < 0)
 fk = Fake(tail="moves")
 errors, notes = run(fk)
-ocm2 = (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").read_bytes()
+ocm2 = (build.OUT / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").read_bytes()
 imgs2 = [ocflash.ocm_images(ocm2)[s] for s in (0, 6)]
 check("a record on sector 0's tail is cleared by moving the code on 4 bytes: two links a start (and the base-0 link moved too), no error",
       errors == [] and fk.pads == [0, 4, 0, 4, 4])
@@ -193,12 +206,12 @@ fk = Fake(tail="start6")
 errors, notes = run(fk)
 check("(0.14.1) starts that need different layouts: no package (one relocated image cannot make both; format 1 is no longer written)",
       any("different layouts" in e for e in errors) and fk.pads == [0, 0, 4] and
-      not (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").exists())
+      not (build.OUT / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").exists())
 fk = Fake(tail="always")
 errors, notes = run(fk)
 check("no placement clears a record that follows the code: refused after 64 links a start, naming the loader's test",
       any("update loader's record test" in e for e in errors) and fk.pads.count(0) == 2 and len(fk.pads) == 2 * build.TAIL_PAD_TRIES)
-check("... and no package is written (an old one is removed)", not (ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").exists())
+check("... and no package is written (an old one is removed)", not (build.OUT / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm").exists())
 
 # each refusal
 def refused(what, fake, text):
@@ -228,7 +241,7 @@ refused("filled length / crc / hcrc already (the link must leave them zero)", Fa
 refused("a module that does not fit its sectors", Fake(size=6 * 4096), "do not fit")
 
 # (0.14.1) the relocatable package (format 2): the base-0 link's relocations stood in for (ABS32 at the header's engine_ptr and link_addr words)
-ocm_path = ROOT / "build" / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm"
+ocm_path = build.OUT / f"shapes-{(ROOT / 'VERSION').read_text().strip()}.ocm"      # (san-fix) in the test's own build directory
 try:
     module_relocs.relocs = lambda p: [(28, 8, 1), (32, 8, 1), (0x200, 2, 1)]       # ABS32 engine_ptr, ABS32 link_addr, a PC-relative jump (left out)
     fk = Fake()

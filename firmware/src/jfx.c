@@ -718,7 +718,7 @@ static JFX_XIP void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
     }
 #define RV_AP(P, I, K)                                                                                             \
     {                                                                                                              \
-        int32_t o = P[I] << JFX_ROOM_APSH, v = a + (o >> 1);                                                       \
+        int32_t o = (int32_t)((uint32_t)(P[I]) << JFX_ROOM_APSH), v = a + (o >> 1);                                                       \
         P[I] = (int16_t)rv_put(v >> JFX_ROOM_APSH);                                                                \
         a = o - a;                                      /* Freeverb: out = buf - in (o - v is a notch comb) */     \
         if (++I >= REV_AP[K])                                                                                      \
@@ -785,7 +785,7 @@ static JFX_XIP void rev_room_mod(const int32_t *rev_in, int32_t *out, uint32_t n
         }
         c = rev_ap;
         for (k = 0; k < 2u; k++) {
-            int32_t o = c[fx.ap_i[k]] << JFX_ROOM_APSH;
+            int32_t o = (int32_t)((uint32_t)(c[fx.ap_i[k]]) << JFX_ROOM_APSH);
             int32_t v = a + (o >> 1);
             c[fx.ap_i[k]] = (int16_t)rv_put(v >> JFX_ROOM_APSH);
             a = o - a;
@@ -1013,7 +1013,7 @@ static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
         int32_t l = 0, r = 0, m;
         if (!freeze) {                                   /* the line: the input and the tail, two samples into one */
             int32_t x = (rev_in[i] >> 1) + mulq15(shim_fb[i], fb) + mulq15(fx.cl_lp, fg);
-            fx.cl_dc += ((x << 8) - fx.cl_dc) >> 9;     /* (0.9.14) a low cut (~14 Hz, Q8) in the loop */
+            fx.cl_dc += ((int32_t)((uint32_t)(x) << 8) - fx.cl_dc) >> 9;     /* (0.9.14) a low cut (~14 Hz, Q8) in the loop */
             x -= (fx.cl_dc + 128) >> 8;
             if (fx.cl_w & 1u)
                 cl_put(fx.cl_w >> 1, rv_knee((fx.cl_half + x) >> 1));
@@ -1667,9 +1667,9 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
             { int32_t ax = x < 0 ? -x : x; if (ax > fxg_dpk) fxg_dpk = ax; }   /* (the delay's own level: fx_gate) */
             if (wr == 2) {                                  /* (PING-PONG: the loop from the right tap; its level, too) */
                 int32_t ax = xr < 0 ? -xr : xr; if (ax > fxg_dpk) fxg_dpk = ax;
-                fx.dly_hp += (((xr << 8) - fx.dly_hp) * hk + 16384) >> 15;
+                fx.dly_hp += (((int32_t)((uint32_t)(xr) << 8) - fx.dly_hp) * hk + 16384) >> 15;
             } else
-                fx.dly_hp += (((x << 8) - fx.dly_hp) * hk + 16384) >> 15;
+                fx.dly_hp += (((int32_t)((uint32_t)(x) << 8) - fx.dly_hp) * hk + 16384) >> 15;
             {
                 int32_t lf = (wr == 2 ? xr : x) - ((fx.dly_hp + 128) >> 8), w;
                 if (dton) lf = tone_run(&dtn, lf, &fx.dt1, &fx.dt2);
@@ -1684,7 +1684,7 @@ static JFX_XIP void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const
             side += mulq15(ox - oxr, fx.dm_cur);
             ox = (ox + oxr) >> 1;
         }
-        y += mulq15(ox << 1, fx.dm_cur);
+        y += mulq15((int32_t)((uint32_t)(ox) << 1), fx.dm_cur);
         wet[i] = y;
         if (side) {                                     /* (the side: left +, right -) */
             if (fxg_g < 32767)                          /* (0.6.14: gated as the rest) */

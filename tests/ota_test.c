@@ -329,5 +329,6 @@ int main(int argc, char **argv)
     }
 
     printf("%s\n", bad ? "OTA TEST FAILED" : "ota test passed");
+    free(logical); free(raw);
     return bad != 0;
 }

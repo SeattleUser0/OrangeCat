@@ -146,7 +146,7 @@ static __attribute__((noinline)) void px_symp_run(px_symp_t *Y, const int32_t *i
     }
     for (i = 0; i < m; i++) {
         out[2 * i] = in[2 * i] + ((yl + acc[i]) * 128);
-        out[2 * i + 1] = in[2 * i + 1] + (acc[i] << 8);
+        out[2 * i + 1] = in[2 * i + 1] + (int32_t)((uint32_t)(acc[i]) << 8);
         yl = acc[i];
     }
     if (n & 1u)

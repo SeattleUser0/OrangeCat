@@ -189,7 +189,7 @@ static void pb_dig_render_comb(pb_dig_t *o, const uint8_t *sync, int16_t *buffer
         int32_t feedback = (delayed_sample * resonance >> 15) + (in >> 1);
         PB_CLIP(feedback);
         dl[delay_ptr] = (int16_t)feedback;
-        int32_t out = (in + (delayed_sample << 1)) >> 1;
+        int32_t out = (in + (int32_t)((uint32_t)(delayed_sample) << 1)) >> 1;
         PB_CLIP(out);
         *buffer++ = (int16_t)out;
         delay_ptr = (delay_ptr + 1) % PB_COMB_DELAY_LENGTH;

@@ -119,7 +119,7 @@ int main(void)
         oc_mod.state[0] == MD_EMPTY && oc_mod.state[1] == MD_EMPTY && !eng_mod[ENGI_SHAPES] && !fm1_guard_code_end);
 
     for (i = 0; i < NSH; i++) {
-        const engine_t *want = (const engine_t *)(oc_mod_link(i) + 0x180u);
+        const engine_t *want = (const engine_t *)(uintptr_t)(oc_mod_link(i) + 0x180u);
         clean();
         good(i, LEN);
         oc_mod_boot(0);
@@ -471,8 +471,9 @@ int main(void)
         /* a module for start i as the .ocm carries it: header page + code, header sealed; installs it with begin / write / end */
         #define BUILD(i_, len_, seed_) do { fw_mod_hdr_t hh_ = mk(i_, len_); code(seed_); seal(&hh_); memcpy(IMG, &hh_, sizeof hh_); } while (0)
         #define INSTALL(i_, len_, outrc) ({ int r_ = oc_mod_begin(ENGI_SHAPES, i_, len_); uint32_t o_; \
-            for (o_ = FW_MOD_CODE_OFF; !r_ && o_ < (len_); o_ += 256u) r_ = oc_mod_write(o_, IMG + o_, (len_) - o_ > 256u ? 256u : (len_) - o_); \
-            if (!r_) r_ = oc_mod_end(IMG); *(outrc) = r_; r_; })
+            for (o_ = FW_MOD_CODE_OFF; !r_ && o_ < (len_); o_ += 256u) { r_ = oc_mod_write(o_, IMG + o_, (len_) - o_ > 256u ? 256u : (len_) - o_); } \
+            if (!r_) r_ = oc_mod_end(IMG); \
+            *(outrc) = r_; r_; })
 
         clean(); oc_mod_boot(0);
         chk("the plan on an empty area: start 0 for SHAPES; none for an engine a module may not supply", oc_mod_plan(ENGI_SHAPES) == 0 && oc_mod_plan(3) == -1);
@@ -882,8 +883,9 @@ int main(void)
             int rcp;
             #define PBUILD(eng_, i_, len_, seed_) do { modeng = (eng_); { fw_mod_hdr_t hh_ = mk(i_, len_); code(seed_); seal(&hh_); memcpy(IMG, &hh_, sizeof hh_); } modeng = ENGI_SHAPES; } while (0)
             #define PINSTALL(eng_, i_, len_, outrc) ({ int r_ = oc_mod_begin((eng_), (i_), (len_)); uint32_t o_; \
-                for (o_ = FW_MOD_CODE_OFF; !r_ && o_ < (len_); o_ += 256u) r_ = oc_mod_write(o_, IMG + o_, (len_) - o_ > 256u ? 256u : (len_) - o_); \
-                if (!r_) r_ = oc_mod_end(IMG); *(outrc) = r_; r_; })
+                for (o_ = FW_MOD_CODE_OFF; !r_ && o_ < (len_); o_ += 256u) { r_ = oc_mod_write(o_, IMG + o_, (len_) - o_ > 256u ? 256u : (len_) - o_); } \
+                if (!r_) r_ = oc_mod_end(IMG); \
+            *(outrc) = r_; r_; })
             #define PSTAND(cfg_) do { clean(); \
                 if ((cfg_) == S_AT0 || (cfg_) == S_BOTH) { modeng = ENGI_SHAPES; good(0, LEN); } \
                 if ((cfg_) == S_AT1 || (cfg_) == S_BOTH) { modeng = ENGI_SHAPES; modver = (cfg_) == S_BOTH ? 1u : 0u; good(1, LEN); modver = 0; } \

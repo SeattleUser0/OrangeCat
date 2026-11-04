@@ -408,9 +408,12 @@ int main(int argc, char **argv)
                 bad += check(".. its directory (0x4000..0x411F) is the new package's: only the stub's bytes differ",
                              !memcmp(v1 + vfo + 0x4000, new_fl + 0x4000, 0x120));
                 bad += cut_case("an earlier stub -> this stub", v1 + vfo, 1, 0, 16);
+                free(v1);
             }
+            free(same); free(other);
         }
     }
     printf("%s\n", bad ? "LOADER TEST FAILED" : "loader test passed");
+    free(old); free(logical);
     return bad != 0;
 }

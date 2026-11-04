@@ -1885,7 +1885,8 @@ static void step_move_edit(int32_t delta)
     uint32_t at,to;fm1_irq_off();at=cur_page()->graph==GR_ROLL?notes_manual_start(TSEL):step_note_start(TSEL,ui.cursor);
     to=step_note_move(TSEL,at,delta);fm1_irq_on();
     if(to<NSTEP){uint8_t entry=ui.entry_open;cursor_set((int32_t)to);ui.entry_open=entry;ui_message(to==at?"NEXT NOTE":"NOTE MOVED");}
-    else ui_message("SELECT A NOTE");ui.force=1;
+    else ui_message("SELECT A NOTE");
+    ui.force=1;
 }
 
 /* Edit one event atomically; neighbours and original fractional timing survive. */
@@ -2092,7 +2093,8 @@ static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
             for (j = 0; j < st->n && st->note[j] != n[i]; j++)
                 ;
             if (j < st->n && settings_chord_add) {
-                for(uint32_t k=j+1;k<st->n;k++)st->note[k-1]=st->note[k]; st->n--;
+                for(uint32_t k=j+1;k<st->n;k++)st->note[k-1]=st->note[k];
+                st->n--;
             } else if (j == st->n) {
                 if(st->n<4u)st->note[st->n++]=n[i]; else ui_message("CHORD FULL");
             }

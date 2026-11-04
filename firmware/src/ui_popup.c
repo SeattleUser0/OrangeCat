@@ -570,7 +570,8 @@ static int32_t enum_rank(const param_desc_t *d,int32_t value)
 }
 static int32_t enum_value(const param_desc_t *d,int32_t rank)
 {
-    for(int32_t v=d->min;v<=d->max;v++)if(d->names[v-d->min][0] && !rank--)return v;return d->min;
+    for(int32_t v=d->min;v<=d->max;v++)if(d->names[v-d->min][0] && !rank--)return v;
+    return d->min;
 }
 static struct { uint8_t page, slot; int16_t sel; } vl;
 static const param_desc_t *vlist_desc(int16_t **vp) { return page_desc(page_at(vl.page), vl.slot, vp); }
