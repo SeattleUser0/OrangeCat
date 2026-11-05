@@ -13,9 +13,9 @@
  */
 #if OC_MGRID
 static struct { uint8_t stage, arm, played, trk; } mg;  /* stage 0 STEP, 1 NOTE; arm: a step was picked and its key is not yet let go; played: a note went down in NOTE stage; trk: the track it is for */
-static int mgrid_page(void) { return !ui.home && cur_page()->graph == GR_MGRID; }
+static __attribute__((noinline)) int mgrid_page(void) { return !ui.home && cur_page()->graph == GR_MGRID; }
 /* the page shown (ui.bank, as the DRUM grid's), kept inside LEN */
-static uint32_t mgrid_bank(const track_t *t)
+static __attribute__((noinline)) uint32_t mgrid_bank(const track_t *t)
 {
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
     return (uint32_t)ui.bank * 16u >= len ? (len - 1u) / 16u : ui.bank;
